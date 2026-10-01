@@ -24,10 +24,10 @@ Object.defineProperty(dom.window.HTMLElement.prototype, 'releasePointerCapture',
 function summary(item: NotificationItem): NotificationSummary {
   return {
     unreadCount: 1,
-    counts: { unread: 1, chat: 0, todos: 0, todoUnread: 0, todoAttention: 0, emailAttention: 0,
+    counts: { unread: 1, chat: 0, todos: 0, todoAttention: 0, emailAttention: 0,
       studio: 0, automation: 0, memoryApprovals: 0 },
     items: [item],
-    sections: { notifications: [item], todos: [], todoUnread: [], todoAttention: [], emailAttention: [] },
+    sections: { notifications: [item], todos: [], todoAttention: [], emailAttention: [] },
   };
 }
 

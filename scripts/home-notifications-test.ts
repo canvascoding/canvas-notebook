@@ -64,14 +64,19 @@ async function main() {
     '/notebook?workspaceId=workspace-b', 'mismatched or server-provided links cannot select a review');
   assert.equal(shouldMarkNotificationReadOnOpen(fileChange), false, 'generic fallback must not preemptively mark a file review read');
   assert.equal(shouldMarkNotificationReadOnOpen(chat), true);
+  assert.equal(shouldMarkNotificationReadOnOpen(todo), false, 'opening a Todo does not mark a notification read');
   const originalFetch = globalThis.fetch;
   const events: string[] = [];
   Object.defineProperty(globalThis, 'window', { value: { dispatchEvent: (event: Event) => events.push(event.type) }, configurable: true });
   let payload: unknown;
-  globalThis.fetch = async (_, options) => { payload = JSON.parse(String(options?.body)); return Response.json({ success: true }); };
+  globalThis.fetch = async (url, options) => {
+    assert.equal(url, '/api/notifications/summary?todoMode=lifecycle');
+    payload = JSON.parse(String(options?.body));
+    return Response.json({ success: true });
+  };
   try {
-    await updateNotification({ action: 'mark_item_read', itemId: 'todo', workspaceId: 'workspace-a' });
-    assert.deepEqual(payload, { action: 'mark_item_read', itemId: 'todo', workspaceId: 'workspace-a' });
+    await updateNotification({ action: 'mark_item_read', itemId: 'chat', workspaceId: 'workspace-a' });
+    assert.deepEqual(payload, { action: 'mark_item_read', itemId: 'chat', workspaceId: 'workspace-a' });
     assert.deepEqual(events, ['notification_summary_updated']);
     globalThis.fetch = async () => Response.json({ success: false }, { status: 403 });
     await assert.rejects(updateNotification({ action: 'dismiss_item', itemId: 'studio', workspaceId: 'workspace-a' }));

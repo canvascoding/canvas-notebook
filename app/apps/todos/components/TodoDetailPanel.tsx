@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useTranslations } from 'next-intl';
-import { Archive, ArrowUp, Bell, CalendarDays, Check, CheckCircle2, ChevronDown, Circle, Clock3, Edit3, ExternalLink, FolderKanban, MailCheck, MailWarning, MessageSquare, RefreshCcw, Send } from 'lucide-react';
+import { Archive, ArrowUp, Bell, CalendarDays, CheckCircle2, ChevronDown, Circle, Clock3, Edit3, ExternalLink, FolderKanban, MailCheck, MailWarning, MessageSquare, RefreshCcw, Send } from 'lucide-react';
 import { Link } from '@/i18n/navigation';
 import { getFileIconComponent } from '@/app/lib/files/file-icons';
 import { readWorkspaceFile } from '@/app/lib/files/client';
@@ -85,7 +85,6 @@ export type TodoDetailPanelProps = {
   onEdit: (todo: TodoItem) => void;
   onRestore: (todo: TodoItem) => void | Promise<void>;
   onToggleDone: (todo: TodoItem) => void | Promise<void>;
-  onMarkSeen: (todoId: string) => void | Promise<unknown>;
   onOpenSession: (todo: Pick<TodoItem, 'id' | 'sourceSessionId' | 'workspaceId'>) => void;
   onUpdateFollowUpComment: (value: string) => void;
   onSendFollowUp: (todo: TodoItem) => void | Promise<void>;
@@ -106,7 +105,6 @@ export function TodoDetailPanel({
   onEdit,
   onRestore,
   onToggleDone,
-  onMarkSeen,
   onOpenSession,
   onUpdateFollowUpComment,
   onSendFollowUp,
@@ -158,7 +156,6 @@ export function TodoDetailPanel({
             {todo.priority === 'high' && <Badge variant="outline" className="gap-1 rounded-md border-amber-500/25 bg-amber-500/10 px-2.5 py-1 font-medium text-amber-800 dark:text-amber-300">
               <ArrowUp className="size-3.5" />{t('priority.high')}
             </Badge>}
-            {todo.readState === 'unread' && <span className="flex items-center gap-1.5 text-xs text-muted-foreground"><span className="size-1.5 rounded-full bg-primary" />{t('labels.unread')}</span>}
           </div>
           {!hideTitle && <h3 className="break-words text-xl font-semibold leading-snug tracking-tight">{todo.title}</h3>}
         </div>
@@ -384,12 +381,6 @@ export function TodoDetailPanel({
               <CheckCircle2 className="h-4 w-4" />
               {todo.status === 'done' ? t('actions.reopen') : t('actions.complete')}
             </Button>}
-            {todo.readState === 'unread' && (
-              <Button size="sm" variant="outline" onClick={() => void onMarkSeen(todo.id)} disabled={isMutating}>
-                <Check className="h-4 w-4" />
-                {t('actions.markSeen')}
-              </Button>
-            )}
           </>
         )}
         {todo.canWrite && todo.status !== 'archived' && onArchive && <Button size="sm" variant="outline" onClick={() => void onArchive(todo)} disabled={isMutating}><Archive className="h-4 w-4" />{t('actions.archiveTodo')}</Button>}

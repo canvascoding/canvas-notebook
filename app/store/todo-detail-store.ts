@@ -46,17 +46,8 @@ export async function reloadTodoDetail() {
   controller = new AbortController();
   useTodoDetailStore.setState({ loading: true, error: null, errorStatus: null });
   try {
-    let todo = await loadTodoDetail(state.todoId, controller.signal);
+    const todo = await loadTodoDetail(state.todoId, controller.signal);
     if (current !== generation) return;
-    // Preserve the current read-on-open behavior without granting write access.
-    if (todo.readState === 'unread') {
-      try {
-        const readTodo = await patchTodoDetail(todo, { markSeen: true });
-        if (current !== generation) return;
-        todo = readTodo;
-        notifyTodoUpdated(todo.id);
-      } catch { /* Viewing remains available if marking read fails. */ }
-    }
     if (current === generation) useTodoDetailStore.setState((latest) => ({ todo, loading: false, revision: latest.revision + 1 }));
   } catch (error) {
     if (current !== generation) return;
@@ -100,8 +91,7 @@ export async function discardTodoDraft() {
 export async function mutateTodoDetail(payload: Record<string, unknown>) {
   const state = useTodoDetailStore.getState();
   if (!state.todo || state.busy || state.loading) return null;
-  const readOnlyMutation = Object.keys(payload).every((key) => key === 'markSeen' || key === 'read');
-  if (!state.todo.canWrite && !readOnlyMutation) return null;
+  if (!state.todo.canWrite) return null;
   const current = generation;
   useTodoDetailStore.setState({ busy: true, error: null, errorStatus: null });
   try {

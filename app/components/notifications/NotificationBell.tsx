@@ -243,7 +243,7 @@ export function NotificationBell() {
   }, [mutateInbox, refresh]);
 
   const markItemRead = useCallback(async (item: NotificationItem) => {
-    if (!item.unread) return;
+    if (!item.unread || item.target.kind === 'todo') return;
     setIsMutating(true);
     try {
       await mutateInbox({
@@ -273,21 +273,6 @@ export function NotificationBell() {
     }
   }, [mutateInbox, refresh]);
 
-  const setTodoReadState = useCallback(async (item: NotificationItem, read: boolean) => {
-    setIsMutating(true);
-    try {
-      await mutateInbox({
-        action: 'set_item_read_state',
-        itemId: item.id,
-        workspaceId: item.workspaceId,
-        read,
-      });
-    } finally {
-      setIsMutating(false);
-      await refresh();
-    }
-  }, [mutateInbox, refresh]);
-
   const notificationItems = useMemo(
     () => visibleSummary?.sections.notifications ?? visibleSummary?.items.filter((item) => item.target.kind !== 'todo') ?? [],
     [visibleSummary],
@@ -298,7 +283,6 @@ export function NotificationBell() {
   const openItem = useCallback(async (item: NotificationItem) => {
     setOpen(false);
     if (item.target.kind === 'todo') {
-      if (item.unread) void markItemRead(item).catch(() => undefined);
       openTodoDetail(item.target.todoId);
       return;
     }
@@ -368,7 +352,6 @@ export function NotificationBell() {
 
   const renderItem = (item: NotificationItem) => {
     const Icon = notificationIcon(item);
-    const isTodo = item.target.kind === 'todo';
     const title = item.target.kind === 'file_change'
       ? t(`fileChanges.${item.fileChangeReason ?? 'needs_review'}.title`)
       : item.target.kind === 'file_operation'
@@ -396,7 +379,7 @@ export function NotificationBell() {
           </span>
           <span className="min-w-0 flex-1">
             <span className="flex items-center gap-1.5">
-              {item.unread ? <Circle className="h-2 w-2 shrink-0 fill-primary text-primary" aria-label={t('unread')} /> : null}
+              {item.unread && item.target.kind !== 'todo' ? <Circle className="h-2 w-2 shrink-0 fill-primary text-primary" aria-label={t('unread')} /> : null}
               <span className="truncate text-sm font-medium">{title}</span>
               {item.priority === 'high' ? <CircleAlert className="h-3.5 w-3.5 shrink-0 text-destructive" aria-label={t('highPriority')} /> : null}
             </span>
@@ -412,18 +395,6 @@ export function NotificationBell() {
           </span>
         </button>
         {emailReviewTargetFromNotification(item) && <EmailReviewNotificationActions item={item} surface="notification" compact onOpen={() => setOpen(false)} />}
-        {isTodo && item.todoStatus === 'open' ? (
-          <Button
-            variant="ghost"
-            size="icon-xs"
-            className="shrink-0"
-            onClick={() => void setTodoReadState(item, item.unread)}
-            disabled={isMutating}
-            aria-label={item.unread ? t('markRead') : t('markUnread')}
-          >
-            {item.unread ? <Check className="h-3.5 w-3.5" /> : <Circle className="h-3.5 w-3.5" />}
-          </Button>
-        ) : null}
         {item.target.kind === 'memory' ? (
           <span className="flex shrink-0 items-center gap-0.5">
             <Button variant="ghost" size="icon-xs" onClick={(event) => { event.stopPropagation(); void decideMemoryItem(item, 'approve'); }} disabled={Boolean(memoryDecisions[`${item.workspaceId}:${item.id}`])} aria-label={t('memoryApprove')} title={t('memoryApprove')}>

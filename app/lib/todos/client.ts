@@ -18,13 +18,13 @@ async function readTodoResponse<T>(response: Response): Promise<T> {
 }
 
 export async function loadTodoDetail(id: string, signal?: AbortSignal): Promise<TodoItem> {
-  return readTodoResponse(await fetch(`/api/todos/${encodeURIComponent(id)}`, {
+  return readTodoResponse(await fetch(`/api/todos/${encodeURIComponent(id)}?todoMode=lifecycle`, {
     credentials: 'include', cache: 'no-store', signal,
   }));
 }
 
 export async function patchTodoDetail(todo: TodoItem, payload: Record<string, unknown>): Promise<TodoItem> {
-  return readTodoResponse(await fetch(`/api/todos/${encodeURIComponent(todo.id)}`, {
+  return readTodoResponse(await fetch(`/api/todos/${encodeURIComponent(todo.id)}?todoMode=lifecycle`, {
     method: 'PATCH', credentials: 'include', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ expectedUpdatedAt: todo.updatedAt, ...payload }),
   }));
@@ -47,7 +47,7 @@ export async function loadTodoEditorOptions(todo: TodoItem, signal?: AbortSignal
 }
 
 export async function sendTodoDetailFollowUp(todo: TodoItem, comment: string, locale: string): Promise<TodoItem> {
-  const data = await readTodoResponse<{ todo: TodoItem }>(await fetch(`/api/todos/${encodeURIComponent(todo.id)}/follow-up`, {
+  const data = await readTodoResponse<{ todo: TodoItem }>(await fetch(`/api/todos/${encodeURIComponent(todo.id)}/follow-up?todoMode=lifecycle`, {
     method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ comment, locale }),
   }));

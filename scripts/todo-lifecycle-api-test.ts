@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { Pool } from 'pg';
 import { NextRequest } from 'next/server';
+import { eq } from 'drizzle-orm';
 
 // Reuses the managed PostgreSQL server; fixtures live in a disposable database.
 // node --env-file=<managed notebook-host-dev.env> --import tsx --conditions react-server scripts/todo-lifecycle-api-test.ts
@@ -122,6 +123,18 @@ async function main() {
     const inboxBefore = await listMobileInbox({ userId: readerId, workspace, todoMode: 'lifecycle', filter: 'todos' });
     assert.equal(inboxBefore.items[0]?.unread, false);
     assert.equal(inboxBefore.counts.todos, 1);
+    assert.equal(inboxBefore.items[0]?.todoDueAt, null);
+    const legacyInbox = await mobileInbox.GET(request('/api/mobile/v1/inbox?filter=todos', 'GET', undefined, false));
+    assert.equal(legacyInbox.status, 200);
+    assert.equal('todoDueAt' in (await legacyInbox.json()).items[0], false, 'Legacy Inbox DTO remains unchanged');
+    const dueAt = new Date(now.getTime() - 60_000);
+    await db.update(todoItems).set({ dueAt }).where(eq(todoItems.id, teamId));
+    const lifecycleInbox = await mobileInbox.GET(request('/api/mobile/v1/inbox?filter=todos'));
+    assert.equal(lifecycleInbox.status, 200);
+    assert.equal((await lifecycleInbox.json()).items[0].todoDueAt, dueAt.toISOString());
+    const dueAggregate = await listMobileAggregateInbox({ userId: readerId, workspaces: [workspace], todoMode: 'lifecycle', filter: 'todos', groupWorkspaceTodos: true });
+    assert.equal(dueAggregate.items[0]?.todoDueAt, dueAt.toISOString());
+    await db.update(todoItems).set({ dueAt: null }).where(eq(todoItems.id, teamId));
     await markMobileAggregateInboxRead({ userId: readerId, workspaces: [workspace], todoMode: 'lifecycle' });
     assert.equal((await readRows()).length, 0, 'Generic read-all never touches lifecycle Todos');
     for (const action of ['mark_item_read', 'set_item_read_state', 'dismiss_item']) {

@@ -25,12 +25,12 @@ async function main() {
     const personal = { id: 'personal-workspace', type: 'personal', name: 'Personal', permissions: { canRead: true } } as ClientWorkspaceSummary;
     const team = { id: 'active-team', type: 'team', name: 'Team', permissions: { canRead: true } } as ClientWorkspaceSummary;
     const todo = {
-      id: 'personal-todo', canWrite: true, title: 'Personal todo', status: 'open', priority: 'normal', readState: 'read',
+      id: 'personal-todo', canWrite: true, title: 'Personal todo', status: 'open', priority: 'normal',
       scopeKind: 'user', workspaceType: 'personal', description: null, createdAt: null, updatedAt: null,
       fileLinks: [{ id: 'personal-file', workspaceId: null, workspaceType: 'personal', workspacePath: '/private.md', label: null }],
     } as unknown as TodoItem;
     const props = { todo, locale: 'en', followUpComment: '', isMutating: false, isSendingFollowUp: false,
-      formatCategoryName: () => 'None', onEdit: () => {}, onRestore: () => {}, onToggleDone: () => {}, onMarkSeen: () => {},
+      formatCategoryName: () => 'None', onEdit: () => {}, onRestore: () => {}, onToggleDone: () => {},
       onOpenSession: () => {}, onUpdateFollowUpComment: () => {}, onSendFollowUp: () => {} };
     const container = document.getElementById('root')!;
     const root = createRoot(container);

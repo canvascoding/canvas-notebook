@@ -50,9 +50,9 @@ async function main() {
   };
   const summary: NotificationSummary = {
     unreadCount: 2,
-    counts: { unread: 2, chat: 1, todos: 0, todoUnread: 0, todoAttention: 0, emailAttention: 0, studio: 0, automation: 0, memoryApprovals: 0 },
+    counts: { unread: 2, chat: 1, todos: 0, todoAttention: 0, emailAttention: 0, studio: 0, automation: 0, memoryApprovals: 0 },
     items: [fileChange, chat],
-    sections: { notifications: [fileChange, chat], todos: [], todoUnread: [], todoAttention: [], emailAttention: [] },
+    sections: { notifications: [fileChange, chat], todos: [], todoAttention: [], emailAttention: [] },
   } satisfies NotificationSummary;
   const fileOperation = {
     id: 'file-operation:review-copy', type: 'file.operation_review_required' as const,

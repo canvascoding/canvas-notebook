@@ -32,7 +32,7 @@ export function emailReviewTargetFromNotification(item: NotificationItem): Email
 }
 
 export function shouldMarkNotificationReadOnOpen(item: NotificationItem): boolean {
-  return item.target.kind !== 'file_change';
+  return item.target.kind !== 'file_change' && item.target.kind !== 'todo';
 }
 
 export function memoryReviewTargetFromNotification(item: NotificationItem): MemoryReviewTarget | null {
@@ -147,7 +147,7 @@ export async function openWorkspaceOperationNotificationTarget(
 }
 
 export async function updateNotification(payload: NotificationMutation): Promise<void> {
-  const response = await fetch('/api/notifications/summary', {
+  const response = await fetch('/api/notifications/summary?todoMode=lifecycle', {
     method: 'PATCH',
     credentials: 'include',
     headers: { 'Content-Type': 'application/json' },

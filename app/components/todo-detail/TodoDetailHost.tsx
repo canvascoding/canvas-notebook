@@ -127,9 +127,9 @@ function TodoPopupContent({ todo }: { todo: TodoItem }) {
           navigationDisabled={state.busy || state.dirty}
           followUpComment={followUp} isMutating={state.busy} isSendingFollowUp={state.busy}
           formatCategoryName={formatCategoryName} onEdit={() => setForm(todoToForm(todo))}
-          onRestore={() => { void mutateTodoDetail({ status: 'open', markSeen: true }); }}
-          onToggleDone={() => { void mutateTodoDetail({ status: todo.status === 'done' ? 'open' : 'done', markSeen: true }); }}
-          onMarkSeen={() => mutateTodoDetail({ markSeen: true })} onOpenSession={openSession}
+          onRestore={() => { void mutateTodoDetail({ status: 'open' }); }}
+          onToggleDone={() => { void mutateTodoDetail({ status: todo.status === 'done' ? 'open' : 'done' }); }}
+          onOpenSession={openSession}
           onUpdateFollowUpComment={(value) => { setFollowUp(value); useTodoDetailStore.setState({ dirty: value !== (todo.completionComment || '') }); }}
           onSendFollowUp={() => followUpTodoDetail(followUp, locale)} />
       </>}
@@ -155,12 +155,12 @@ function TodoPopupContent({ todo }: { todo: TodoItem }) {
         </Button>
         {todo.canWrite && <div className="flex w-full flex-wrap gap-2 sm:w-auto">
           {todo.status === 'archived'
-            ? <Button data-testid="todo-popup-restore" disabled={state.busy} onClick={() => void mutateTodoDetail({ status: 'open', markSeen: true })}><RefreshCw className="size-4" />{t('actions.restore')}</Button>
+            ? <Button data-testid="todo-popup-restore" disabled={state.busy} onClick={() => void mutateTodoDetail({ status: 'open' })}><RefreshCw className="size-4" />{t('actions.restore')}</Button>
             : <>
               <Button data-testid="todo-popup-edit" variant="outline" disabled={state.busy || state.dirty} onClick={() => setForm(todoToForm(todo))}><Pencil className="size-4" />{t('actions.edit')}</Button>
               <Button data-testid="todo-popup-archive" variant="ghost" disabled={state.busy || state.dirty} onClick={() => void mutateTodoDetail({ status: 'archived' })}><Archive className="size-4" />{t('actions.archiveTodo')}</Button>
               <Button data-testid={todo.status === 'done' ? 'todo-popup-reopen' : 'todo-popup-complete'} disabled={state.busy || state.dirty}
-                onClick={() => void mutateTodoDetail({ status: todo.status === 'done' ? 'open' : 'done', markSeen: true })}>
+                onClick={() => void mutateTodoDetail({ status: todo.status === 'done' ? 'open' : 'done' })}>
                 {state.busy ? <Loader2 className="size-4 animate-spin" /> : <Check className="size-4" />}{t(todo.status === 'done' ? 'actions.reopen' : 'actions.complete')}
               </Button>
             </>}

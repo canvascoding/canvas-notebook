@@ -76,7 +76,6 @@ export function HomeNotificationItem({
         if (item.target.kind === 'todo') {
           if (!isUnmodifiedPrimaryClick(event)) return;
           event.preventDefault();
-          if (item.unread) onRead();
           openTodoDetail(item.target.todoId);
           return;
         }
@@ -116,12 +115,12 @@ export function HomeNotificationItem({
         {item.priority === 'high' ? <CircleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0 text-destructive" aria-label={t('highPriority')} /> : null}
       </Link>
       {emailTarget && <div className="flex justify-end px-2 pb-3"><EmailReviewNotificationActions item={item} surface="home" /></div>}
-      {showActions && (item.unread || dismissible || isMemory) ? <div className="flex flex-wrap justify-end gap-1 px-2 pb-3">
+      {showActions && ((item.unread && item.target.kind !== 'todo') || dismissible || isMemory) ? <div className="flex flex-wrap justify-end gap-1 px-2 pb-3">
         {isMemory ? <>
           <Button variant="ghost" size="sm" className="text-xs text-muted-foreground" disabled={Boolean(memoryDecision)} onClick={() => onMemoryDecision?.('reject')} aria-label={t('memoryReject')} title={t('memoryReject')}>{memoryDecision === 'reject' ? <Loader2 className="h-3 w-3 animate-spin" /> : <X className="h-3 w-3" />}{t('memoryReject')}</Button>
           <Button variant="ghost" size="sm" className="text-xs text-muted-foreground" disabled={Boolean(memoryDecision)} onClick={() => onMemoryDecision?.('approve')} aria-label={t('memoryApprove')} title={t('memoryApprove')}>{memoryDecision === 'approve' ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}{t('memoryApprove')}</Button>
         </> : null}
-        {item.unread ? <Button variant="ghost" size="sm" className="text-xs text-muted-foreground" disabled={pending} onClick={onRead}><Check className="h-3 w-3" />{t('markRead')}</Button> : null}
+        {item.unread && item.target.kind !== 'todo' ? <Button variant="ghost" size="sm" className="text-xs text-muted-foreground" disabled={pending} onClick={onRead}><Check className="h-3 w-3" />{t('markRead')}</Button> : null}
         {dismissible ? <Button variant="ghost" size="sm" className="text-xs text-muted-foreground" disabled={pending} onClick={onDismiss}><X className="h-3 w-3" />{t('dismiss')}</Button> : null}
       </div> : null}
     </li>

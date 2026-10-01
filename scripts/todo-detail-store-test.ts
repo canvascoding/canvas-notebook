@@ -22,10 +22,10 @@ Object.assign(globalThis, {
 });
 function todo(id: string, overrides: Partial<TodoItem> = {}): TodoItem {
   return {
-    id, canWrite: true, title: id, status: 'open', readState: 'read', updatedAt: '2026-09-30T08:00:00Z',
+    id, canWrite: true, title: id, status: 'open', updatedAt: '2026-09-30T08:00:00Z',
     createdByUserId: 'owner', assigneeUserId: null, organizationId: null, workspaceId: null,
     workspaceType: 'personal', scopeKind: 'user', workspace: null, description: null, priority: 'normal', iconKey: null,
-    sourceType: 'user', sourceSessionId: null, dueAt: null, remindAt: null, seenAt: null, readAt: null,
+    sourceType: 'user', sourceSessionId: null, dueAt: null, remindAt: null,
     completedAt: null, completionComment: null, followUpSentAt: null, followUpError: null,
     emailNotificationSentAt: null, emailNotificationError: null, archivedAt: null,
     createdAt: '2026-09-30T08:00:00Z', category: null, fileLinks: [], createdBy: null, assignee: null, ...overrides,
@@ -35,7 +35,6 @@ function respond(index: number, item: TodoItem, status = 200) {
   requests[index].finish(Response.json(status === 200 ? { success: true, data: item } : { success: false, error: 'Changed remotely' }, { status }));
 }
 function reset() { closeTodoDetail(true); requests = []; browserUrl = new URL('https://canvas.invalid/de'); }
-async function flush() { await new Promise<void>((resolve) => setImmediate(resolve)); }
 
 async function main() {
 try {
@@ -84,20 +83,20 @@ try {
     assert.equal(useTodoDetailStore.getState().dirty, false);
   });
 
-  await test('read-on-open finishes before writes can start, preventing late read snapshots overwriting saves', async () => {
+  await test('opening only reads the lifecycle DTO and does not write even with legacy read metadata', async () => {
     reset();
-    const opening = openTodoDetail('unread');
-    respond(0, todo('unread', { readState: 'unread' }));
-    await flush();
-    assert.equal(requests[1].init?.method, 'PATCH');
+    const opening = openTodoDetail('open');
+    assert.equal(requests[0].url, '/api/todos/open?todoMode=lifecycle');
     assert.equal(useTodoDetailStore.getState().loading, true);
     assert.equal(await mutateTodoDetail({ title: 'New title' }), null);
-    assert.equal(requests.length, 2);
-    respond(1, todo('unread'));
+    respond(0, { ...todo('open'), readState: 'unread', seenAt: null } as TodoItem);
     await opening;
+    assert.equal(requests.length, 1);
     assert.equal(useTodoDetailStore.getState().loading, false);
     const saving = mutateTodoDetail({ title: 'New title' });
-    respond(2, todo('unread', { title: 'New title' }));
+    assert.equal(requests[1].url, '/api/todos/open?todoMode=lifecycle');
+    assert.deepEqual(JSON.parse(String(requests[1].init?.body)), { expectedUpdatedAt: '2026-09-30T08:00:00Z', title: 'New title' });
+    respond(1, todo('open', { title: 'New title' }));
     await saving;
     assert.equal(useTodoDetailStore.getState().todo?.title, 'New title');
   });
@@ -114,17 +113,15 @@ try {
     assert.equal(focusTarget.focused, before + 1);
   });
 
-  await test('read-only access blocks edits but permits marking the to-do read', async () => {
+  await test('read-only access inspects the task and blocks all mutations', async () => {
     reset();
     const opening = openTodoDetail('readonly');
     respond(0, todo('readonly', { canWrite: false }));
     await opening;
     assert.equal(await mutateTodoDetail({ status: 'done' }), null);
     assert.equal(requests.length, 1);
-    const marking = mutateTodoDetail({ markSeen: true });
-    assert.equal(requests.length, 2);
-    respond(1, todo('readonly', { canWrite: false }));
-    await marking;
+    assert.equal(await mutateTodoDetail({ markSeen: true }), null);
+    assert.equal(requests.length, 1);
   });
 
   await test('concurrent writes are blocked and a conflict preserves the dirty draft', async () => {

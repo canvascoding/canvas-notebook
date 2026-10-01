@@ -14,7 +14,7 @@ export type NotificationItem = {
   deepLink?: string;
   fileChangeReason?: FileChangeReviewNotificationReason;
   todoStatus?: 'open' | 'done' | 'archived';
-  todoAttentionReason?: 'overdue' | 'due_today' | 'high_priority' | 'unread' | 'due_soon';
+  todoAttentionReason?: 'overdue' | 'due_today' | 'high_priority' | 'due_soon' | 'open';
   workspaceId: string;
   workspaceName: string | null;
   target:
@@ -36,7 +36,6 @@ export type NotificationSummary = {
     unread: number;
     chat: number;
     todos: number;
-    todoUnread: number;
     todoAttention: number;
     emailAttention: number;
     studio: number;
@@ -48,7 +47,6 @@ export type NotificationSummary = {
   sections: {
     notifications: NotificationItem[];
     todos: NotificationItem[];
-    todoUnread: NotificationItem[];
     todoAttention: NotificationItem[];
     emailAttention: NotificationItem[];
   };
@@ -61,7 +59,7 @@ type ApiResponse<T> = {
 };
 
 export async function readNotificationSummary(options: { activeChatSessionId?: string | null } = {}): Promise<NotificationSummary> {
-  const params = new URLSearchParams();
+  const params = new URLSearchParams({ todoMode: 'lifecycle' });
   if (options.activeChatSessionId) params.set('activeChatSessionId', options.activeChatSessionId);
   const response = await fetch(`/api/notifications/summary${params.size ? `?${params}` : ''}`, {
     credentials: 'include',

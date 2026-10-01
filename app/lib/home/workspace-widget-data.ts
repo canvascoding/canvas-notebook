@@ -13,7 +13,6 @@ export type HomeWidgetTodo = {
   title: string;
   priority: 'low' | 'normal' | 'high';
   dueAt: string | null;
-  readState: 'read' | 'unread';
 };
 
 export type HomeWidgetAutomation = {
@@ -60,8 +59,8 @@ function timestamp(value: string | null | undefined): number {
 }
 
 export async function loadHomeWidgetTodos(fetcher: Fetcher, workspaceId: string, signal?: AbortSignal): Promise<HomeWidgetTodo[]> {
-  const params = new URLSearchParams({ workspaceId, scope: 'workspace', status: 'active', limit: '3' });
-  const todos = await readJson<Array<{ id: string; title: string; priority?: string; dueAt?: string | null; readState?: string }>>(
+  const params = new URLSearchParams({ workspaceId, scope: 'workspace', status: 'open', limit: '3', todoMode: 'lifecycle' });
+  const todos = await readJson<Array<{ id: string; title: string; priority?: string; dueAt?: string | null }>>(
     fetcher,
     `/api/todos?${params}`,
     { credentials: 'include', cache: 'no-store', signal },
@@ -71,7 +70,6 @@ export async function loadHomeWidgetTodos(fetcher: Fetcher, workspaceId: string,
     title: todo.title,
     priority: todo.priority === 'high' || todo.priority === 'low' ? todo.priority : 'normal',
     dueAt: todo.dueAt || null,
-    readState: todo.readState === 'unread' ? 'unread' : 'read',
   }));
 }
 

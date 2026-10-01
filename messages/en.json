@@ -3379,11 +3379,10 @@
       }
     },
     "eyebrow": "Human in the loop",
-    "summary": "{open} open · {done} done · {unread} unread",
+    "summary": "{open} open · {done} done",
     "sections": {
       "workspace": "Scope",
       "status": "Status",
-      "readState": "Read status",
       "priority": "Priority",
       "categories": "Categories",
       "files": "Files",
@@ -3408,11 +3407,6 @@
       "allCategories": "All categories",
       "allPriorities": "All priorities",
       "noCategory": "No category",
-      "readState": {
-        "all": "Read and unread",
-        "read": "Read",
-        "unread": "Unread"
-      },
       "status": {
         "active": "Active",
         "open": "Open",
@@ -3454,7 +3448,6 @@
       "automation": "Automation"
     },
     "actions": {
-      "markAllSeen": "Mark visible as read",
       "refresh": "Refresh",
       "newTodo": "Create to-do",
       "newCategory": "Create category",
@@ -3464,7 +3457,6 @@
       "todoActions": "To-do actions",
       "restore": "Restore",
       "edit": "Edit",
-      "markSeen": "Mark as read",
       "archiveTodo": "Archive",
       "reopen": "Reopen",
       "complete": "Complete",
@@ -3517,7 +3509,6 @@
     },
     "labels": {
       "categoryIcon": "Use category icon",
-      "unread": "Unread",
       "unassigned": "Unassigned",
       "followUpSentAt": "Last sent to the agent: {date}",
       "emailNotificationSentAt": "Email notification sent: {date}",
@@ -3547,7 +3538,6 @@
       "reopened": "To-do reopened.",
       "followUpSent": "Agent informed in the session.",
       "restored": "To-do restored.",
-      "markedAllSeen": "Visible to-dos marked as read.",
       "categoryCreated": "Category created.",
       "categoryUpdated": "Category saved.",
       "categoryArchived": "Category archived."
@@ -3557,7 +3547,6 @@
       "saveFailed": "Could not save to-do.",
       "archiveFailed": "Could not archive to-do.",
       "followUpFailed": "Could not inform the agent.",
-      "markSeenFailed": "Could not mark to-do as read.",
       "titleRequired": "Please enter a title.",
       "categoryNameRequired": "Please enter a category name.",
       "categorySaveFailed": "Could not save category."

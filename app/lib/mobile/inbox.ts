@@ -63,6 +63,7 @@ export type MobileInboxItem = {
   unread: boolean;
   priority: 'normal' | 'high';
   todoStatus?: 'open' | 'done' | 'archived';
+  todoDueAt?: string | null;
   attentionRequired?: true;
   target:
     | { kind: 'chat'; sessionId: string }
@@ -511,6 +512,7 @@ async function collectInboxItems(input: {
       unread,
       priority: todo.priority === 'high' ? 'high' : 'normal',
       todoStatus: todo.status as 'open' | 'done' | 'archived',
+      ...(input.todoMode === 'lifecycle' ? { todoDueAt: todo.dueAt?.toISOString() ?? null } : {}),
       target: { kind: 'todo', todoId: todo.id },
       todoPresentationCandidate: todoPresentationCandidate(todo),
       todoSortKey: todoSortKey(todo, input.sortAsOf),

@@ -6,7 +6,7 @@ sectionOrder: 9
 order: 10
 locale: en
 translationKey: collaboration.notifications
-updatedAt: 2026-07-17
+updatedAt: 2026-10-01
 ---
 
 # Notifications and Unread Activity
@@ -19,9 +19,9 @@ A session is unread when its latest assistant message is newer than the last tim
 
 ## To-do attention
 
-An open to-do is unread until it receives a `seenAt` timestamp. Open items due by the end of the current day are also included as due attention. The summary combines unread and due items, orders urgent due work first, and exposes a compact subset in the menu.
+To-dos are tracked as open, done, or archived. Your relevant open tasks remain in the attention view until their status changes, including tasks without a due date. Overdue work, tasks due today, high-priority work, and tasks due soon are ordered before ordinary open tasks. The menu shows a compact preview; counts cover the full relevant task list.
 
-Opening an item can mark it seen. You can also mark all visible personal to-do notifications as seen; this does not complete or archive the underlying work.
+Opening a to-do only displays its details. To-dos have no read or unread controls. Marking notifications read affects other notification sources and does not complete or hide your tasks. Older mobile clients retain their previous read-state API during the compatibility rollout.
 
 ## Email notifications
 
@@ -35,4 +35,3 @@ Unread state is a convenience indicator, not an audit trail. Viewing, marking se
 
 - [Sessions and history](/docs/agents/sessions-history)
 - [To-dos, approvals, and follow-ups](/docs/collaboration/todos-approvals)
-

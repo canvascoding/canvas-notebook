@@ -30,7 +30,7 @@ const chooseAction = async (action, value) => {
   if (value) await toolbar.getByRole('combobox', { name: 'Ziel wählen' }).selectOption(value);
 };
 const apply = async () => {
-  const response = page.waitForResponse((item) => item.url().endsWith('/api/todos/bulk') && item.request().method() === 'POST');
+  const response = page.waitForResponse((item) => new URL(item.url()).pathname === '/api/todos/bulk' && item.request().method() === 'POST');
   await toolbar.getByRole('button', { name: 'Anwenden' }).click();
   assert.equal((await response).status(), 200);
   await assertCount(0);
@@ -60,7 +60,7 @@ try {
   // A stale version rejects the entire operation; the selection remains available for review.
   await pool.query('UPDATE todo_items SET updated_at=updated_at + 1000 WHERE id=$1', [ids[0]]);
   await chooseAction('complete');
-  const conflict = page.waitForResponse((response) => response.url().endsWith('/api/todos/bulk'));
+  const conflict = page.waitForResponse((response) => new URL(response.url()).pathname === '/api/todos/bulk');
   await toolbar.getByRole('button', { name: 'Anwenden' }).click();
   assert.equal((await conflict).status(), 409);
   await expect(toolbar.getByRole('alert')).toContainText('Es wurde nichts übernommen');
@@ -103,7 +103,7 @@ try {
   await dialog.getByRole('button', { name: 'Abbrechen' }).click();
   await assertCount(105);
   await toolbar.getByRole('button', { name: 'Anwenden' }).click();
-  const deletion = page.waitForResponse((response) => response.url().endsWith('/api/todos/bulk'));
+  const deletion = page.waitForResponse((response) => new URL(response.url()).pathname === '/api/todos/bulk');
   await dialog.getByRole('button', { name: 'Löschen', exact: true }).click();
   assert.equal((await deletion).status(), 200);
   await expect(rows).toHaveCount(0);
@@ -115,6 +115,7 @@ try {
   await apply();
   await expect(rows).toHaveCount(0);
   assert.equal(Number((await pool.query("SELECT count(*) FROM todo_items WHERE id=ANY($1::text[]) AND status='open' AND archived_at IS NULL", [ids])).rows[0].count), 109);
+  assert.equal(Number((await pool.query('SELECT count(*) FROM todo_read_states WHERE todo_id = ANY($1::text[])', [ids])).rows[0].count), 0, 'Lifecycle bulk restore does not write read state');
 
   await page.getByRole('button', { name: 'Offen', exact: true }).click();
   await expect(rows).toHaveCount(100);

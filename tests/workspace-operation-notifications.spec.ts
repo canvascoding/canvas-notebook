@@ -46,9 +46,9 @@ test('file-action notifications retain blocked reviews and open actionable guida
       }
       const items = status === 'rejected' ? [] : [item()];
       const summary: NotificationSummary = { unreadCount: unread ? items.length : 0,
-        counts: { unread: unread ? items.length : 0, chat: 0, todos: 0, todoUnread: 0, todoAttention: 0,
+        counts: { unread: unread ? items.length : 0, chat: 0, todos: 0, todoAttention: 0,
           emailAttention: 0, studio: 0, automation: 0, memoryApprovals: 0 }, items,
-        sections: { notifications: items, todos: [], todoUnread: [], todoAttention: [], emailAttention: [] } };
+        sections: { notifications: items, todos: [], todoAttention: [], emailAttention: [] } };
       await route.fulfill({ json: { success: true, data: summary } });
     });
     await context.route(`**/api/files/operation-reviews/${reviewId}`, async (route) => {

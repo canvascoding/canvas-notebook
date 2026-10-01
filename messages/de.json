@@ -3378,11 +3378,10 @@
       }
     },
     "eyebrow": "Human-in-the-loop",
-    "summary": "{open} offen · {done} erledigt · {unread} ungelesen",
+    "summary": "{open} offen · {done} erledigt",
     "sections": {
       "workspace": "Geltungsbereich",
       "status": "Status",
-      "readState": "Lesestatus",
       "priority": "Priorität",
       "categories": "Kategorien",
       "files": "Dateien",
@@ -3407,11 +3406,6 @@
       "allCategories": "Alle Kategorien",
       "allPriorities": "Alle Prioritäten",
       "noCategory": "Ohne Kategorie",
-      "readState": {
-        "all": "Gelesen und ungelesen",
-        "read": "Gelesen",
-        "unread": "Ungelesen"
-      },
       "status": {
         "active": "Aktiv",
         "open": "Offen",
@@ -3453,7 +3447,6 @@
       "automation": "Automation"
     },
     "actions": {
-      "markAllSeen": "Alle sichtbaren als gelesen markieren",
       "refresh": "Aktualisieren",
       "newTodo": "To-do erstellen",
       "newCategory": "Kategorie erstellen",
@@ -3463,7 +3456,6 @@
       "todoActions": "To-do-Aktionen",
       "restore": "Wiederherstellen",
       "edit": "Bearbeiten",
-      "markSeen": "Als gelesen markieren",
       "archiveTodo": "Archivieren",
       "reopen": "Wieder öffnen",
       "complete": "Abhaken",
@@ -3516,7 +3508,6 @@
     },
     "labels": {
       "categoryIcon": "Kategorie-Symbol verwenden",
-      "unread": "Ungelesen",
       "unassigned": "Nicht zugewiesen",
       "followUpSentAt": "Zuletzt an den Agenten gesendet: {date}",
       "emailNotificationSentAt": "E-Mail-Benachrichtigung gesendet: {date}",
@@ -3546,7 +3537,6 @@
       "reopened": "To-do wieder geöffnet.",
       "followUpSent": "Agent wurde in der Session informiert.",
       "restored": "To-do wiederhergestellt.",
-      "markedAllSeen": "Sichtbare To-dos wurden als gelesen markiert.",
       "categoryCreated": "Kategorie erstellt.",
       "categoryUpdated": "Kategorie gespeichert.",
       "categoryArchived": "Kategorie archiviert."
@@ -3556,7 +3546,6 @@
       "saveFailed": "To-do konnte nicht gespeichert werden.",
       "archiveFailed": "To-do konnte nicht archiviert werden.",
       "followUpFailed": "Agent konnte nicht informiert werden.",
-      "markSeenFailed": "To-do konnte nicht als gelesen markiert werden.",
       "titleRequired": "Bitte gib einen Titel ein.",
       "categoryNameRequired": "Bitte gib einen Kategorienamen ein.",
       "categorySaveFailed": "Kategorie konnte nicht gespeichert werden."

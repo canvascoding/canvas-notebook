@@ -4,7 +4,6 @@ export type TodoSourceType = 'user' | 'agent';
 export type TodoScopeKind = 'user' | 'workspace';
 export type TodoListScope = 'personal' | 'workspace' | 'global';
 export type StatusFilter = TodoStatus | 'all';
-export type ReadStateFilter = 'all' | 'read' | 'unread';
 
 export type TodoCategory = {
   id: string;
@@ -55,9 +54,6 @@ export type TodoItem = {
   sourceSessionId: string | null;
   dueAt: string | null;
   remindAt: string | null;
-  seenAt: string | null;
-  readAt: string | null;
-  readState: Exclude<ReadStateFilter, 'all'>;
   completedAt: string | null;
   completionComment: string | null;
   followUpSentAt: string | null;

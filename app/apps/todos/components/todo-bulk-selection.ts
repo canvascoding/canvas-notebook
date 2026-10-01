@@ -58,7 +58,10 @@ export function useTodoBulkSelection(filterKey: string, onSuccess: (ids: string[
     setSelecting(true);
     setError('');
     try {
-      const response = await fetch(`/api/todos?${filterKey}&selection=true`, { credentials: 'include', cache: 'no-store', signal: controller.signal });
+      const params = new URLSearchParams(filterKey);
+      params.set('selection', 'true');
+      params.set('todoMode', 'lifecycle');
+      const response = await fetch(`/api/todos?${params.toString()}`, { credentials: 'include', cache: 'no-store', signal: controller.signal });
       const payload = await response.json();
       if (controller.signal.aborted || currentKey.current !== filterKey) return;
       if (!response.ok || !payload.success) throw new Error(payload.code === 'TODO_SELECTION_LIMIT' ? t('limit', { limit: TODO_BULK_LIMIT }) : t('selectionFailed'));
@@ -79,7 +82,7 @@ export function useTodoBulkSelection(filterKey: string, onSuccess: (ids: string[
     setError('');
     const snapshot = [...items.values()].map((item) => ({ id: item.id, expectedUpdatedAt: item.updatedAt }));
     try {
-      const response = await fetch('/api/todos/bulk', {
+      const response = await fetch('/api/todos/bulk?todoMode=lifecycle', {
         method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ items: snapshot, action }),
       });

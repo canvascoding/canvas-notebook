@@ -136,6 +136,8 @@ async function main() {
 
   const todos = await loadHomeWidgetTodos(fetcher, 'workspace');
   assert.equal(todos[0]?.priority, 'high');
+  assert.equal('readState' in todos[0]!, false);
+  assert.ok(calls.some((url) => url.startsWith('/api/todos?') && url.includes('todoMode=lifecycle') && url.includes('status=open')));
   assert.ok(calls.some((url) => url.includes('workspaceId=workspace') && url.includes('scope=workspace')));
 
   const automation = await loadHomeWidgetAutomation(fetcher, 'workspace');

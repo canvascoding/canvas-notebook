@@ -8,7 +8,7 @@ const todo: TodoItem = {
   organizationId: null, workspaceId: null, workspaceType: 'personal', scopeKind: 'user', workspace: null,
   title: 'Original title', description: 'Original description', status: 'open', priority: 'high', iconKey: 'eye',
   sourceType: 'user', sourceSessionId: null, dueAt: '2026-10-05T13:20:45.678Z',
-  remindAt: '2026-10-04T10:34:56.789Z', seenAt: null, readAt: null, readState: 'unread',
+  remindAt: '2026-10-04T10:34:56.789Z',
   completedAt: null, completionComment: null, followUpSentAt: null, followUpError: null,
   emailNotificationSentAt: null, emailNotificationError: null, archivedAt: null,
   createdAt: '2026-09-30T08:00:00Z', updatedAt: '2026-09-30T08:00:00Z',
