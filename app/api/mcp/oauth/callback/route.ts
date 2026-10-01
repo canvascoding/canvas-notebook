@@ -4,6 +4,8 @@ import { closeMcpServer } from '@/app/lib/mcp/manager';
 import { mcpErrorStatus } from '@/app/lib/mcp/access';
 import { completeMcpOAuthCallback, rejectMcpOAuthCallback } from '@/app/lib/mcp/oauth';
 import { requireMcpRequestActor } from '@/app/lib/mcp/request-access';
+import { isMcpDesktopOAuthState, receiveMcpDesktopOAuthCallback } from '@/app/lib/mcp/desktop-oauth';
+import { rateLimit } from '@/app/lib/utils/rate-limit';
 
 function escapeHtml(value: string): string {
   return value
@@ -32,12 +34,26 @@ function htmlResponse(title: string, message: string, status = 200) {
 }
 
 export async function GET(request: NextRequest) {
-  const actor = await requireMcpRequestActor(request);
-  if (actor instanceof NextResponse) return htmlResponse('MCP OAuth failed', 'You must remain signed in with an active membership to complete MCP authorization.', actor.status);
   const code = request.nextUrl.searchParams.get('code');
   const state = request.nextUrl.searchParams.get('state');
   const error = request.nextUrl.searchParams.get('error');
   const responseIssuer = request.nextUrl.searchParams.get('iss');
+
+  if (isMcpDesktopOAuthState(state)) {
+    const limited = rateLimit(request, { limit: 30, windowMs: 60_000, keyPrefix: 'mcp-desktop-oauth-callback' });
+    if (!limited.ok) return limited.response;
+    try {
+      const result = await receiveMcpDesktopOAuthCallback({ state, code, error, issuer: responseIssuer });
+      return result.status === 'callback_received'
+        ? htmlResponse('Return to Canvas Notebook', 'Sign-in was received. Return to the Canvas Notebook desktop app to finish connecting. You can close this window.')
+        : htmlResponse('Sign-in cancelled', 'Return to Canvas Notebook to start sign-in again.');
+    } catch (callbackError) {
+      return htmlResponse('MCP OAuth failed', 'This desktop sign-in could not be completed. Return to Canvas Notebook and start sign-in again.', mcpErrorStatus(callbackError, 400));
+    }
+  }
+
+  const actor = await requireMcpRequestActor(request);
+  if (actor instanceof NextResponse) return htmlResponse('MCP OAuth failed', 'You must remain signed in with an active membership to complete MCP authorization.', actor.status);
 
   if (error) {
     if (!state) {

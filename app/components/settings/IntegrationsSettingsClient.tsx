@@ -69,6 +69,7 @@ import type { OrganizationPermissionSnapshot } from '@/app/lib/organization/cont
 import { SETTINGS_SIDEBAR_COLLAPSED_COOKIE } from '@/app/lib/settings-navigation';
 import { cn } from '@/lib/utils';
 import type { McpConnectionHealth } from '@/app/lib/mcp/connection-health-types';
+import { startMcpAuthorization, waitForMcpAuthorization, readPendingMcpAuthorizations, cancelMcpAuthorization, McpAuthorizationError, type McpAuthorizationFlow } from '@/app/lib/desktop/mcp-oauth-client';
 
 interface EnvEntry {
   key: string;
@@ -2146,11 +2147,12 @@ export function IntegrationsSettingsClient({
   const [settingsSidebarCollapsed, setSettingsSidebarCollapsed] = useState(initialSettingsSidebarCollapsed);
   const { activeTabOverride } = useHintContext();
   const mcpInitialLoadStartedRef = useRef(false);
-  const mcpAuthorizationFlowsRef = useRef(new Map<string, string>());
+  const mcpAuthorizationFlowsRef = useRef(new Map<string, McpAuthorizationFlow>());
+  const mcpAuthorizationControllersRef = useRef(new Map<string, AbortController>());
 
   useEffect(() => {
-    const flows = mcpAuthorizationFlowsRef.current;
-    return () => flows.clear();
+    const controllers = mcpAuthorizationControllersRef.current;
+    return () => { for (const controller of controllers.values()) controller.abort(); controllers.clear(); };
   }, []);
 
   const effectiveTab = normalizeSettingsTab(activeTabOverride) ?? settingsTab;
@@ -2295,42 +2297,49 @@ export function IntegrationsSettingsClient({
     }
   }, [t]);
 
-  const pollMcpAuthorizationStatus = useCallback(async (server: string, expectedState: string) => {
-    for (let attempt = 0; attempt < 30; attempt += 1) {
-      await new Promise((resolve) => window.setTimeout(resolve, attempt === 0 ? 2000 : 3000));
-      if (mcpAuthorizationFlowsRef.current.get(server) !== expectedState) return;
-
-      try {
-        const response = await fetch('/api/integrations/mcp-status', {
-          credentials: 'include',
-          cache: 'no-store',
-        });
-        const payload = await response.json();
-        if (!response.ok || !payload.success) continue;
-        if (mcpAuthorizationFlowsRef.current.get(server) !== expectedState) return;
-
-        const nextStatus = payload.data as McpStatusState;
-        const oauth = nextStatus.oauth.find((entry) => entry.serverName === server);
-        const authorized = Boolean(oauth?.authorized && oauth.lastCompletedState === expectedState);
-        setMcpEditor((current) => ({
-          ...current,
-          status: nextStatus,
-          success: authorized ? t('mcpConfig.authorizationCompleted', { server }) : current.success,
-        }));
-
-        if (authorized) {
-          mcpAuthorizationFlowsRef.current.delete(server);
-          return;
-        }
-      } catch {
-        // Keep polling; transient errors should not interrupt the OAuth window flow.
+  const pollMcpAuthorizationStatus = useCallback(async (flow: McpAuthorizationFlow) => {
+    if (mcpAuthorizationControllersRef.current.has(flow.server)) return;
+    const controller = new AbortController();
+    mcpAuthorizationControllersRef.current.set(flow.server, controller);
+    mcpAuthorizationFlowsRef.current.set(flow.server, flow);
+    try {
+      await waitForMcpAuthorization<McpStatusState>(flow, controller.signal, (status) => {
+        if (!controller.signal.aborted) setMcpEditor(current => ({ ...current, status }));
+      });
+      if (!controller.signal.aborted) {
+        mcpAuthorizationFlowsRef.current.delete(flow.server);
+        setMcpEditor(current => ({ ...current, success: t('mcpConfig.authorizationCompleted', { server: flow.server }) }));
       }
+    } catch (error) {
+      mcpAuthorizationFlowsRef.current.delete(flow.server);
+      const code = error instanceof McpAuthorizationError ? error.code : '';
+      const message = code === 'authorization_expired' ? t('mcpConfig.errors.authorizationExpired')
+        : code === 'authorization_cancelled' ? t('mcpConfig.errors.authorizationCancelled')
+          : error instanceof Error ? error.message : t('mcpConfig.errors.action');
+      if (!controller.signal.aborted) setMcpEditor(current => ({ ...current, success: null, error: message }));
+    } finally {
+      if (mcpAuthorizationControllersRef.current.get(flow.server) === controller) mcpAuthorizationControllersRef.current.delete(flow.server);
     }
   }, [t]);
 
+  useEffect(() => {
+    if (effectiveTab !== 'mcp') return;
+    const controllers = mcpAuthorizationControllersRef.current;
+    for (const flow of readPendingMcpAuthorizations()) void pollMcpAuthorizationStatus(flow);
+    return () => {
+      for (const controller of controllers.values()) controller.abort();
+      controllers.clear();
+    };
+  }, [effectiveTab, pollMcpAuthorizationStatus]);
+
   const runMcpServerAction = useCallback(async (server: string, action: McpServerAction) => {
-    let authWindow: Window | null = null;
-    if (action === 'authorize' || action === 'clear_auth' || action === 'disable') mcpAuthorizationFlowsRef.current.delete(server);
+    if (action === 'authorize' || action === 'clear_auth' || action === 'disable') {
+      mcpAuthorizationControllersRef.current.get(server)?.abort();
+      mcpAuthorizationControllersRef.current.delete(server);
+      const previous = mcpAuthorizationFlowsRef.current.get(server) || readPendingMcpAuthorizations().find(flow => flow.server === server);
+      if (previous) void cancelMcpAuthorization(previous);
+      mcpAuthorizationFlowsRef.current.delete(server);
+    }
     setMcpEditor((current) => ({
       ...current,
       activeServerAction: `${server}:${action}`,
@@ -2340,36 +2349,14 @@ export function IntegrationsSettingsClient({
 
     try {
       if (action === 'authorize') {
-        authWindow = window.open('about:blank', '_blank');
-        if (!authWindow) {
-          throw new Error(t('mcpConfig.errors.popupBlocked'));
-        }
-        authWindow.opener = null;
-        const response = await fetch('/api/integrations/mcp-status', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          body: JSON.stringify({ server, action: 'authorize' }),
-        });
-        const payload = await response.json();
-        const authorizationUrl = payload.data?.authorizationUrl;
-        const state = payload.data?.state;
-        if (!response.ok || !payload.success || typeof authorizationUrl !== 'string' || typeof state !== 'string') {
-          throw new Error(payload.error || t('mcpConfig.errors.action'));
-        }
-        const validatedUrl = new URL(authorizationUrl);
-        if (validatedUrl.protocol !== 'http:' && validatedUrl.protocol !== 'https:') {
-          throw new Error(t('mcpConfig.errors.action'));
-        }
-        authWindow.location.href = validatedUrl.toString();
-        mcpAuthorizationFlowsRef.current.set(server, state);
-
+        const flow = await startMcpAuthorization(server);
+        mcpAuthorizationFlowsRef.current.set(server, flow);
         setMcpEditor((current) => ({
           ...current,
           activeServerAction: null,
-          success: t('mcpConfig.authorizationStarted', { server, count: 0 }),
+          success: t(flow.desktop ? 'mcpConfig.authorizationStartedDesktop' : 'mcpConfig.authorizationStarted', { server, count: 0 }),
         }));
-        void pollMcpAuthorizationStatus(server, state);
+        void pollMcpAuthorizationStatus(flow);
         return;
       }
 
@@ -2399,8 +2386,9 @@ export function IntegrationsSettingsClient({
       }));
       await Promise.all([loadMcpConfig(), loadMcpStatus()]);
     } catch (actionError) {
-      const message = actionError instanceof Error ? actionError.message : t('mcpConfig.errors.action');
-      if (action === 'authorize') authWindow?.close();
+      const message = actionError instanceof McpAuthorizationError && actionError.code === 'popup_blocked' ? t('mcpConfig.errors.popupBlocked')
+        : actionError instanceof McpAuthorizationError && actionError.code === 'desktop_update_required' ? t('mcpConfig.errors.desktopUpdateRequired')
+          : actionError instanceof Error ? actionError.message : t('mcpConfig.errors.action');
       setMcpEditor((current) => ({
         ...current,
         activeServerAction: null,

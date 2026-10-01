@@ -191,6 +191,17 @@ export default async function middleware(request: NextRequest) {
   }
 
   if (pathname.startsWith('/api/')) {
+    // Desktop OAuth uses an opaque, single-use server transaction. Its callback
+    // collects a code; only the signed-in desktop owner can finalize it.
+    if (request.method === 'GET' && pathname === '/api/mcp/oauth/callback'
+      && /^desktop_[A-Za-z0-9_-]{32}$/u.test(request.nextUrl.searchParams.get('state') || '')
+      && (!request.headers.get('sec-fetch-mode') || request.headers.get('sec-fetch-mode') === 'navigate')
+      && (!request.headers.get('sec-fetch-dest') || request.headers.get('sec-fetch-dest') === 'document')) {
+      const response = nextWithCommonHeaders();
+      response.headers.set('Cache-Control', 'no-store');
+      response.headers.set('Referrer-Policy', 'no-referrer');
+      return response;
+    }
     if (isPublicRoute(pathname)) {
       return nextWithCommonHeaders();
     }

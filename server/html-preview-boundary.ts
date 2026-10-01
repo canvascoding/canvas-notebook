@@ -42,8 +42,13 @@ export function handleHtmlPreviewBoundary(request: IncomingMessage, response: Se
     && pathname === '/api/composio/callback'
     && (!request.headers['sec-fetch-mode'] || request.headers['sec-fetch-mode'] === 'navigate')
     && (!request.headers['sec-fetch-dest'] || request.headers['sec-fetch-dest'] === 'document');
+  const mcpCallbackNavigation = request.method === 'GET'
+    && pathname === '/api/mcp/oauth/callback'
+    && /^(?:desktop_)?[A-Za-z0-9_-]{32}$/u.test(new URL(request.url || '/', 'http://localhost').searchParams.get('state') || '')
+    && (!request.headers['sec-fetch-mode'] || request.headers['sec-fetch-mode'] === 'navigate')
+    && (!request.headers['sec-fetch-dest'] || request.headers['sec-fetch-dest'] === 'document');
   const crossOriginCookie=browserCrossOrigin && Boolean(request.headers.cookie)
-    && !pathname.startsWith('/api/auth/') && !composioCallbackNavigation;
+    && !pathname.startsWith('/api/auth/') && !composioCallbackNavigation && !mcpCallbackNavigation;
   if(apiPath && ((previewOrigin !== undefined && origin === previewOrigin) || origin === 'null' || crossOriginCookie)) {
     response.writeHead(403,{'Cache-Control':'no-store','Content-Type':'application/json'});
     response.end(JSON.stringify({success:false,error:'Cross-origin app access is not allowed'}));return true;

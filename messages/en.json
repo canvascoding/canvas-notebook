@@ -1601,7 +1601,9 @@
     "enabledDescription": "The microphone appears only while the selected service is available.",
     "provider": "Transcription service",
     "providerDescription": "Only one service can be active. The selection applies to the entire instance.",
-    "providers": { "local": "Local (Faster-Whisper)" },
+    "providers": {
+      "local": "Local (Faster-Whisper)"
+    },
     "model": "Model",
     "language": "Language",
     "automatic": "Detect automatically",
@@ -5350,9 +5352,13 @@
         "tools": "Failed to load cached MCP tools.",
         "publish": "Failed to publish the shared MCP definition.",
         "connection": "Failed to update the MCP connection.",
-        "popupBlocked": "The OAuth window was blocked by the browser. Allow popups for this app and try again."
+        "popupBlocked": "The OAuth window was blocked by the browser. Allow popups for this app and try again.",
+        "authorizationExpired": "Sign-in expired. Please connect again.",
+        "authorizationCancelled": "Sign-in was cancelled.",
+        "desktopUpdateRequired": "Update the desktop app to connect this account."
       },
-      "accessDenied": "This account is unavailable under the current server approval or membership. Choose an approved server or contact your administrator."
+      "accessDenied": "This account is unavailable under the current server approval or membership. Choose an approved server or contact your administrator.",
+      "authorizationStartedDesktop": "Sign-in for {server} opened in your system browser. Return to Canvas when finished."
     },
     "connectedApps": {
       "title": "Connected Apps",

@@ -1600,7 +1600,9 @@
     "enabledDescription": "Das Mikrofon erscheint nur, wenn der ausgewählte Dienst verfügbar ist.",
     "provider": "Transkriptionsdienst",
     "providerDescription": "Es kann immer nur ein Dienst aktiv sein. Die Auswahl gilt für die ganze Instanz.",
-    "providers": { "local": "Lokal (Faster-Whisper)" },
+    "providers": {
+      "local": "Lokal (Faster-Whisper)"
+    },
     "model": "Modell",
     "language": "Sprache",
     "automatic": "Automatisch erkennen",
@@ -5349,9 +5351,13 @@
         "tools": "Gecachte MCP-Tools konnten nicht geladen werden.",
         "publish": "Die gemeinsame MCP-Definition konnte nicht veröffentlicht werden.",
         "connection": "Die MCP-Verbindung konnte nicht aktualisiert werden.",
-        "popupBlocked": "Das OAuth-Fenster wurde vom Browser blockiert. Erlaube Popups für diese App und versuche es erneut."
+        "popupBlocked": "Das OAuth-Fenster wurde vom Browser blockiert. Erlaube Popups für diese App und versuche es erneut.",
+        "authorizationExpired": "Die Anmeldung ist abgelaufen. Bitte erneut verbinden.",
+        "authorizationCancelled": "Die Anmeldung wurde abgebrochen.",
+        "desktopUpdateRequired": "Bitte aktualisiere die Desktop-App, um dieses Konto zu verbinden."
       },
-      "accessDenied": "Dieses Konto ist mit der aktuellen Serverfreigabe oder Mitgliedschaft nicht nutzbar. Wähle einen freigegebenen Server oder kontaktiere deinen Administrator."
+      "accessDenied": "Dieses Konto ist mit der aktuellen Serverfreigabe oder Mitgliedschaft nicht nutzbar. Wähle einen freigegebenen Server oder kontaktiere deinen Administrator.",
+      "authorizationStartedDesktop": "Anmeldung für {server} im Systembrowser geöffnet. Kehre danach zu Canvas zurück."
     },
     "connectedApps": {
       "title": "Verbundene Apps",

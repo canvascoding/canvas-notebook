@@ -16,6 +16,7 @@ type McpStatusAction = 'enable' | 'disable' | 'test' | 'authorize' | 'clear_auth
 type McpStatusPostPayload = {
   action?: McpStatusAction;
   server?: string;
+  desktop?: boolean;
 };
 
 function getRequestOrigin(request: NextRequest): string {
@@ -127,7 +128,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (payload.action === 'authorize') {
-      const started = await startMcpOAuth(serverName, request.headers.get('origin'), scope);
+      const started = await startMcpOAuth(serverName, request.headers.get('origin'), scope, { desktop: payload.desktop === true });
       return NextResponse.json({ success: true, data: { server: serverName, ...started } });
     }
 

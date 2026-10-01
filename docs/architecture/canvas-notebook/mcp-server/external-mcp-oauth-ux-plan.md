@@ -184,6 +184,21 @@ Secrets-Overwrite oder einem unverschlüsselten OAuth-Fallback. Ein Neustart
 
 ### TODO 3 — OAuth in Electron einschließlich Rückgabe reparieren
 
+Umgesetzt und abgenommen: Desktop-Vorgänge haben einen eigenen einmaligen State,
+einen geschützten, zeitlich begrenzten Callback und einen authentifizierten
+Abschluss durch den ursprünglichen Nutzer. Der normale Browser-Callback bleibt
+an seine Session gebunden. Electron verifiziert die exakte Ziel-URL mit seiner
+Session vor `shell.openExternal`; Mainframe, Origin und URL sind eingeschränkt.
+Der Client setzt laufende Vorgänge nach Rückkehr fort und prüft den neuen State.
+
+Prüfungen: Browser-UI mit echter Provider-Zustimmung, Token-Austausch und einem
+geschützten MCP-Tool erfolgreich. Echte Electron-App mit aktuellem Main/Preload,
+realem IPC und authentifiziertem Server-Check erfolgreich; nur die OS-Grenze
+`shell.openExternal` wurde im Test durch einen frischen Chromium-Kontext ersetzt.
+Dieser Kontext hatte keine Canvas-Cookies, und Electron finalisierte automatisch.
+Backend-, Client-, Callback-Boundary- und 19 Electron-Tests sowie TypeScript und
+Lint bestanden. Die vier wiederholbaren OAuth-E2Es werden am Ende erneut ausgeführt.
+
 - Einen gemeinsamen Client-Adapter für OAuth-Starts einführen. Im normalen Browser
   bleibt das während des Klicks vorab geöffnete Fenster möglich. In Electron wird
   nach erfolgreichem, authentifiziertem Start die validierte Authorization-URL über

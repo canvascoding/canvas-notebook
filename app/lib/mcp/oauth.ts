@@ -74,7 +74,8 @@ type OAuthScopeChallengeRecord = {
   recordedAt: string;
 };
 
-type OAuthStateRecord = {
+export type OAuthStateRecord = {
+  desktop?: boolean;
   connectionId: string;
   ownerUserId?: string;
   organizationId?: string | null;
@@ -139,6 +140,8 @@ export type McpOAuthStartResult = {
   authorizationUrl: string;
   state: string;
   redirectUri: string;
+  expiresAt: string;
+  desktop?: boolean;
 };
 
 export type McpOAuthClientMetadata = {
@@ -596,8 +599,9 @@ export async function getMcpOAuthStatus(serverName: string, requestOrigin?: stri
   }
 }
 
-export async function startMcpOAuth(serverName: string, requestOrigin?: string | null, mcpScope?: McpScope | null): Promise<McpOAuthStartResult> {
+export async function startMcpOAuth(serverName: string, requestOrigin?: string | null, mcpScope?: McpScope | null, options: { desktop?: boolean } = {}): Promise<McpOAuthStartResult> {
   const normalizedScope = requireMcpCredentialScope(mcpScope);
+  if (options.desktop && !normalizedScope.userId) throw new McpOAuthError('Desktop OAuth requires a signed-in connection owner.', 401);
   const { serverConfig, credentialScope, oauth, configHash } = await resolveServerForOAuth(serverName, normalizedScope);
   await assertMcpConnectionAccess(serverConfig.connectionId, normalizedScope);
   await assertMcpEncryptionReady(credentialScope, { provision: true });
@@ -621,7 +625,7 @@ export async function startMcpOAuth(serverName: string, requestOrigin?: string |
       credentialScope,
     );
     const pkce = createPkcePair();
-    const state = base64Url(crypto.randomBytes(24));
+    const state = `${options.desktop ? 'desktop_' : ''}${base64Url(crypto.randomBytes(24))}`;
     const requestedScopes = new Set(
       Array.isArray(oauth.scopes) ? oauth.scopes : endpoints.scopesSupported,
     );
@@ -652,7 +656,8 @@ export async function startMcpOAuth(serverName: string, requestOrigin?: string |
     }
 
     await assertCurrentOAuthState(snapshot, credentialScope);
-    await fencedMcpOAuthWrite(snapshot.connectionId, snapshot.lifecycleGeneration, credentialScope, () => writeJsonPrivate(getOAuthStateRelativePath(state), {
+    const stateRecord = {
+      ...(options.desktop ? { desktop: true } : {}),
       state,
       serverName,
       connectionId: serverConfig.connectionId,
@@ -675,12 +680,20 @@ export async function startMcpOAuth(serverName: string, requestOrigin?: string |
       configHash,
       createdAt: new Date().toISOString(),
       expiresAt: new Date(Date.now() + 10 * 60_000).toISOString(),
-    } satisfies OAuthStateRecord, credentialScope));
+    } satisfies OAuthStateRecord;
+    await fencedMcpOAuthWrite(snapshot.connectionId, snapshot.lifecycleGeneration, credentialScope, () => writeJsonPrivate(getOAuthStateRelativePath(state), stateRecord, credentialScope));
+    if (options.desktop) {
+      const { createMcpDesktopOAuthTransaction } = await import('./desktop-oauth');
+      try { await createMcpDesktopOAuthTransaction(stateRecord, authorizationUrl.toString()); }
+      catch (error) { await removeMcpStoragePath(getOAuthStateRelativePath(state), credentialScope); throw error; }
+    }
 
     return {
       authorizationUrl: authorizationUrl.toString(),
       state,
       redirectUri,
+      expiresAt: stateRecord.expiresAt,
+      ...(options.desktop ? { desktop: true } : {}),
     };
   });
 }
@@ -784,9 +797,9 @@ async function readOAuthStateForCallback(stateRelativePath: string, scope: McpSc
   }
 }
 
-async function consumeOAuthState(state: string, responseIssuer: string | null | undefined, scope?: McpScope | null): Promise<{ stored: OAuthStateRecord; credentialScope: McpScope }> {
+async function consumeOAuthState(state: string, responseIssuer: string | null | undefined, scope?: McpScope | null, desktop = false): Promise<{ stored: OAuthStateRecord; credentialScope: McpScope }> {
   const requestedScope = requireMcpCredentialScope(scope);
-  if (!/^[A-Za-z0-9_-]{32}$/u.test(state)) throw new McpOAuthError('Invalid or expired OAuth state.');
+  if (!(desktop ? /^desktop_[A-Za-z0-9_-]{32}$/u : /^[A-Za-z0-9_-]{32}$/u).test(state)) throw new McpOAuthError('Invalid or expired OAuth state.');
   const stateRelativePath = getOAuthStateRelativePath(state);
   const routedRead = await readOAuthStateForCallback(stateRelativePath, requestedScope);
   const routed = routedRead.stored;
@@ -799,7 +812,7 @@ async function consumeOAuthState(state: string, responseIssuer: string | null | 
   return withMcpStorageLock(`oauth-state-${state}`, credentialScope, async () => {
     const stored = await readJsonIfExists<OAuthStateRecord>(stateRelativePath, credentialScope);
     const expiry = stored ? Date.parse(stored.expiresAt) : Number.NaN;
-    if (!stored || stored.state !== state || !Number.isFinite(expiry) || expiry <= Date.now()) {
+    if (!stored || stored.state !== state || Boolean(stored.desktop) !== desktop || !Number.isFinite(expiry) || expiry <= Date.now()) {
       await removeMcpStoragePath(stateRelativePath, credentialScope).catch(() => undefined);
       throw new McpOAuthError('Invalid or expired OAuth state.');
     }
@@ -816,6 +829,22 @@ async function consumeOAuthState(state: string, responseIssuer: string | null | 
 
 export async function rejectMcpOAuthCallback(state: string, responseIssuer?: string | null, scope?: McpScope | null): Promise<void> {
   await consumeOAuthState(state, responseIssuer, scope);
+}
+
+/** Only a bound desktop transaction may collect this state without a browser session. */
+export async function collectMcpDesktopOAuthState(state: string, responseIssuer: string | null | undefined, scope: McpScope): Promise<OAuthStateRecord> {
+  const { stored, credentialScope } = await consumeOAuthState(state, responseIssuer, scope, true);
+  await assertCurrentOAuthState(stored, credentialScope);
+  return stored;
+}
+
+export async function discardMcpDesktopOAuthState(state: string, scope: McpScope): Promise<void> {
+  if (!/^desktop_[A-Za-z0-9_-]{32}$/u.test(state)) throw new McpOAuthError('Invalid desktop OAuth state.', 400);
+  await withMcpStorageLock(`oauth-state-${state}`, scope, () => removeMcpStoragePath(getOAuthStateRelativePath(state), scope));
+}
+
+export async function assertMcpDesktopOAuthSnapshot(snapshot: Pick<OAuthStateRecord, 'connectionId' | 'organizationId' | 'authVersion' | 'configHash' | 'lifecycleGeneration' | 'serverUrl'>, scope: McpScope): Promise<void> {
+  await assertCurrentOAuthState(snapshot, scope);
 }
 
 async function assertCurrentOAuthState(stored: OAuthConnectionSnapshot & { serverUrl?: string }, scope?: McpScope | null): Promise<void> {
@@ -881,6 +910,12 @@ export async function completeMcpOAuthCallback(
 ): Promise<OAuthTokenRecord> {
   const normalizedScope = normalizeMcpScope(scope);
   const { stored, credentialScope } = await consumeOAuthState(state, responseIssuer, normalizedScope);
+  return completeStoredMcpOAuth(code, state, stored, credentialScope);
+}
+
+export async function completeStoredMcpOAuth(code: string, state: string, stored: OAuthStateRecord, credentialScope: McpScope): Promise<OAuthTokenRecord> {
+  if (stored.state !== state || stored.ownerUserId && stored.ownerUserId !== credentialScope.userId
+    || !Number.isFinite(Date.parse(stored.expiresAt)) || Date.parse(stored.expiresAt) <= Date.now()) throw new McpOAuthError('Invalid or expired OAuth state.', 409);
   await assertCurrentOAuthState(stored, credentialScope);
 
   const params = new URLSearchParams();
@@ -980,7 +1015,7 @@ export async function clearMcpOAuth(
       throw error;
     });
     for (const file of files) {
-      if (!/^[A-Za-z0-9_-]{32}\.json$/u.test(file)) continue;
+      if (!/^(?:desktop_)?[A-Za-z0-9_-]{32}\.json$/u.test(file)) continue;
       const statePath = path.posix.join(getOAuthStateRelativeDir(), file);
       const raw = (await readMcpTextFileIfExists(statePath, credentialScope)).content;
       if (!raw) continue;
