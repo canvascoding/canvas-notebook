@@ -15,7 +15,7 @@ export const mobileEmailResponseHeaders = {
 export function mobileEmailErrorResponse(error: unknown, context: string) {
   if (error instanceof MobileEmailError) {
     return NextResponse.json(
-      { success: false, code: error.code, error: error.message },
+      { success: false, code: error.code, error: error.message, ...(error.data ? { data: error.data } : {}) },
       { status: error.status, headers: mobileEmailResponseHeaders },
     );
   }

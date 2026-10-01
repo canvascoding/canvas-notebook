@@ -391,7 +391,7 @@ export async function createPersonalOutboxDraft(input: {
 }
 
 export async function updateWorkspaceOutboxDraft(input: {
-  userId: string; workspaceId: string; draftId: string; expectedVersion: number; subject: string; body: string;
+  userId: string; workspaceId: string; draftId: string; expectedVersion: number; subject: string; body?: string;
   to: string[]; cc?: string[]; bcc?: string[]; status?: Extract<OutboxStatus, 'awaiting_review' | 'editing' | 'discarded'>;
   bodyHtml?: string;
   attachments?: EmailAttachmentInput[];
@@ -408,11 +408,12 @@ export async function updateWorkspaceOutboxDraft(input: {
   const attachments = input.attachments === undefined
     ? parseAttachments(current.attachmentsJson || '[]')
     : normalizeOutboxAttachments(input.attachments);
-  const preparedBody = prepareOutboxBody(input.body, input.bodyHtml);
+  const bodyChanged = input.body !== undefined || input.bodyHtml !== undefined;
+  const preparedBody = bodyChanged ? prepareOutboxBody(input.body || '', input.bodyHtml) : current.body;
   const nextStatus = input.status || 'editing';
   const now = new Date();
   const [updated] = await db.update(emailDrafts).set({
-    subject: input.subject.trim(), body: preparedBody, toJson: JSON.stringify(input.to), ccJson: JSON.stringify(input.cc || []), bccJson: JSON.stringify(input.bcc || []), attachmentsJson: JSON.stringify(attachments),
+    subject: input.subject.trim(), body: preparedBody, isHtml: bodyChanged ? true : current.isHtml, toJson: JSON.stringify(input.to), ccJson: JSON.stringify(input.cc || []), bccJson: JSON.stringify(input.bcc || []), attachmentsJson: JSON.stringify(attachments),
     outboxStatus: current.outboxStatus === 'send_failed' && nextStatus !== 'discarded' ? 'send_failed' : nextStatus, version: current.version + 1,
     editingByUserId: input.actor === 'agent' ? null : input.userId,
     editingStartedAt: input.actor === 'agent' ? null : now,
@@ -429,7 +430,7 @@ export async function updateWorkspaceOutboxDraft(input: {
 }
 
 export async function updatePersonalOutboxDraft(input: {
-  userId: string; draftId: string; expectedVersion: number; subject: string; body: string;
+  userId: string; draftId: string; expectedVersion: number; subject: string; body?: string;
   to: string[]; cc?: string[]; bcc?: string[]; status?: Extract<OutboxStatus, 'awaiting_review' | 'editing' | 'discarded'>;
   bodyHtml?: string;
   attachments?: EmailAttachmentInput[];
@@ -447,10 +448,11 @@ export async function updatePersonalOutboxDraft(input: {
   const attachments = input.attachments === undefined
     ? parseAttachments(current.attachmentsJson || '[]')
     : normalizeOutboxAttachments(input.attachments);
-  const preparedBody = prepareOutboxBody(input.body, input.bodyHtml);
+  const bodyChanged = input.body !== undefined || input.bodyHtml !== undefined;
+  const preparedBody = bodyChanged ? prepareOutboxBody(input.body || '', input.bodyHtml) : current.body;
   const now = new Date();
   const [updated] = await db.update(emailDrafts).set({
-    subject: input.subject.trim(), body: preparedBody, toJson: JSON.stringify(input.to), ccJson: JSON.stringify(input.cc || []), bccJson: JSON.stringify(input.bcc || []), attachmentsJson: JSON.stringify(attachments),
+    subject: input.subject.trim(), body: preparedBody, isHtml: bodyChanged ? true : current.isHtml, toJson: JSON.stringify(input.to), ccJson: JSON.stringify(input.cc || []), bccJson: JSON.stringify(input.bcc || []), attachmentsJson: JSON.stringify(attachments),
     outboxStatus: current.outboxStatus === 'send_failed' && input.status !== 'discarded' ? 'send_failed' : input.status || 'editing', version: current.version + 1,
     editingByUserId: input.actor === 'agent' ? null : input.userId,
     editingStartedAt: input.actor === 'agent' ? null : now,

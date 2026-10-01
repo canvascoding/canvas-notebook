@@ -389,6 +389,7 @@
     "test:mobile:attachments": "tsx scripts/mobile-chat-attachments-route-test.ts && npm run test:pi:attachments",
     "test:mobile:browser": "tsx --conditions react-server scripts/mobile-browser-view-test.ts",
     "test:mobile:push": "tsx --conditions react-server scripts/mobile-push-devices-test.ts",
+    "test:mobile:email": "tsx --conditions react-server scripts/mobile-email-review-test.ts",
     "test:mobile:notebook": "tsx --conditions react-server scripts/mobile-collaboration-ticket-test.ts",
     "test:marp-preview": "tsx --conditions react-server scripts/marp-preview-render-test.ts",
     "test:mobile:studio": "tsx --conditions react-server scripts/mobile-studio-test.ts",

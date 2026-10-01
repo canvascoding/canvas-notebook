@@ -1,6 +1,7 @@
 import 'server-only';
 
 import { MOBILE_INBOX_FILE_CHANGES_CAPABILITY } from './inbox-capabilities';
+import { MOBILE_EMAIL_REVIEW_CAPABILITY } from './email-capabilities';
 
 import type { MobileCompatibility } from './compatibility';
 import type { MobileUserProfile } from './user-profile';
@@ -150,6 +151,7 @@ export function createMobileBootstrap(input: {
     'inbox.sources',
     'inbox.categories',
     'inbox.email_attention',
+    MOBILE_EMAIL_REVIEW_CAPABILITY,
     'inbox.read_state',
     'inbox.dismiss',
     MOBILE_INBOX_FILE_CHANGES_CAPABILITY,

@@ -3,6 +3,7 @@ import 'server-only';
 import { createHash } from 'node:crypto';
 
 import { MOBILE_INBOX_FILE_CHANGES_CAPABILITY } from './inbox-capabilities';
+import { MOBILE_EMAIL_REVIEW_CAPABILITY } from './email-capabilities';
 
 export const MOBILE_API_VERSION = 'v1' as const;
 export const MINIMUM_MOBILE_CLIENT_VERSION = '0.1.0' as const;
@@ -69,6 +70,7 @@ export type MobileCompatibility = {
       'inbox.sources',
       'inbox.categories',
       'inbox.email_attention',
+      typeof MOBILE_EMAIL_REVIEW_CAPABILITY,
       'inbox.read_state',
       'inbox.dismiss',
       typeof MOBILE_INBOX_FILE_CHANGES_CAPABILITY,
@@ -186,6 +188,7 @@ export function createMobileCompatibility(input: {
         'inbox.sources',
         'inbox.categories',
         'inbox.email_attention',
+        MOBILE_EMAIL_REVIEW_CAPABILITY,
         'inbox.read_state',
         'inbox.dismiss',
         MOBILE_INBOX_FILE_CHANGES_CAPABILITY,

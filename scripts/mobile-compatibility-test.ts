@@ -81,6 +81,7 @@ assert.deepEqual(compatibility, {
       'inbox.sources',
       'inbox.categories',
       'inbox.email_attention',
+      'email.review.v1',
       'inbox.read_state',
       'inbox.dismiss',
       'inbox.file_changes.v1',
