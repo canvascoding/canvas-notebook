@@ -22,13 +22,16 @@ import {
   type SystemUpdateOperationSnapshot,
   type SystemUpdateOperationView,
   type SystemUpdateStatusAccess,
+  type StartSystemUpdateInput,
 } from '@/app/lib/system-updates/types';
 import { isTerminalSystemUpdateStatus, type SystemUpdateEvent } from '@/cli/src/core/systemUpdateContract';
 import { UpdateAvailabilityCard, UpdateOperationCard } from './UpdateCenterSections';
 import { SystemUpdateObservation } from '@/app/lib/system-updates/observation';
+import { restoreUpdateStartIntent } from '@/app/lib/system-updates/start-intent';
 
 const ACTIVE_OPERATION_STORAGE_KEY = 'canvas.system-update.operation-id';
 const STATUS_ACCESS_STORAGE_KEY = 'canvas.system-update.status-access';
+const START_INTENT_STORAGE_KEY = 'canvas.system-update.start-intent';
 const POLL_INTERVAL_MS = 2_000;
 
 type ApiError = { error?: { code?: string; message?: string } | string };
@@ -112,6 +115,9 @@ export function UpdateCenterPanel() {
   const [connectionInterrupted, setConnectionInterrupted] = useState(false);
   const [statusAccess, setStatusAccess] = useState<SystemUpdateStatusAccess | null>(null);
   const [activeOperationId, setActiveOperationId] = useState<string | null>(null);
+  const [pendingStart, setPendingStart] = useState<StartSystemUpdateInput | null>(null);
+  const pendingStartRef = useRef<StartSystemUpdateInput | null>(null);
+  const startInFlightRef = useRef(false);
   const observationRef = useRef<SystemUpdateObservation | null>(null);
   const reloadScheduledRef = useRef(false);
   const statusRetryNotBeforeRef = useRef(0);
@@ -134,6 +140,9 @@ export function UpdateCenterPanel() {
   const acceptOperation = useCallback((next: SystemUpdateOperationView) => {
     const observation = observationRef.current;
     if (!observation?.acceptOperation(next)) return;
+    pendingStartRef.current = null;
+    setPendingStart(null);
+    try { window.localStorage.removeItem(START_INTENT_STORAGE_KEY); } catch { /* Optional storage. */ }
     setOperation(observation.operation);
     setConnectionInterrupted(false);
     setError(null);
@@ -174,6 +183,10 @@ export function UpdateCenterPanel() {
       setConnectionInterrupted(false);
     } catch (loadError) {
       if (signal.aborted || observationRef.current?.operationId !== operationId) return;
+      if (loadError instanceof UpdateRequestError && loadError.status === 404 && pendingStartRef.current?.requestId === operationId) {
+        setConnectionInterrupted(true);
+        return;
+      }
       if (loadError instanceof UpdateRequestError && [401, 403, 404, 410].includes(loadError.status)) {
         setObservationError(loadError.message);
         setConnectionInterrupted(false);
@@ -199,11 +212,78 @@ export function UpdateCenterPanel() {
     }
   }, []);
 
+  const submitStart = useCallback(async (input: StartSystemUpdateInput) => {
+    if (startInFlightRef.current) return;
+    startInFlightRef.current = true;
+    setStarting(true);
+    setError(null);
+    setConfirmOpen(false);
+    if (input.requestId) {
+      pendingStartRef.current = input;
+      setPendingStart(input);
+      observationRef.current = new SystemUpdateObservation(input.requestId);
+      setActiveOperationId(input.requestId);
+      try {
+        window.localStorage.setItem(START_INTENT_STORAGE_KEY, JSON.stringify(input));
+        window.localStorage.setItem(ACTIVE_OPERATION_STORAGE_KEY, input.requestId);
+      } catch { /* Recovery still works while this page remains open. */ }
+    }
+    try {
+      const response = await fetch('/api/admin/system-updates', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(input), signal: AbortSignal.timeout(30_000),
+      });
+      const payload = await readApiJson<{ success: true; operation: SystemUpdateOperationView }>(response);
+      if (input.requestId && payload.operation.operationId !== input.requestId) throw new Error('Update service returned another operation.');
+      if (observationRef.current?.operationId === payload.operation.operationId && observationRef.current.operation) {
+        acceptOperation(payload.operation);
+        return;
+      }
+      if (observationRef.current?.operationId !== payload.operation.operationId) {
+        observationRef.current = new SystemUpdateObservation(payload.operation.operationId);
+      }
+      reloadScheduledRef.current = false;
+      statusRetryNotBeforeRef.current = 0;
+      setEvents([]);
+      setObservationError(null);
+      setStatusAccess(null);
+      setActiveOperationId(payload.operation.operationId);
+      try { window.localStorage.setItem(ACTIVE_OPERATION_STORAGE_KEY, payload.operation.operationId); } catch { /* Optional storage. */ }
+      acceptOperation(payload.operation);
+    } catch (startError) {
+      if (input.requestId && observationRef.current?.operationId === input.requestId && observationRef.current.operation) return;
+      if (input.requestId && startError instanceof UpdateRequestError && [401, 403].includes(startError.status)) {
+        setObservationError(startError.message);
+      }
+      if (input.requestId && startError instanceof UpdateRequestError && [400, 409, 412, 422].includes(startError.status)) {
+        pendingStartRef.current = null;
+        setPendingStart(null);
+        observationRef.current = null;
+        setActiveOperationId(null);
+        try {
+          window.localStorage.removeItem(START_INTENT_STORAGE_KEY);
+          window.localStorage.removeItem(ACTIVE_OPERATION_STORAGE_KEY);
+        } catch { /* Optional storage. */ }
+      }
+      if (pendingStartRef.current || !input.requestId) {
+        setError(startError instanceof Error ? startError.message : t('errors.start'));
+      } else if (!observationRef.current?.operation) {
+        setError(startError instanceof Error ? startError.message : t('errors.start'));
+      }
+    } finally {
+      startInFlightRef.current = false;
+      setStarting(false);
+    }
+  }, [acceptOperation, t]);
+
   useEffect(() => {
     const timer = window.setTimeout(() => {
       void loadAvailability();
       try {
-        const storedOperationId = window.localStorage.getItem(ACTIVE_OPERATION_STORAGE_KEY);
+        const intent = restoreUpdateStartIntent(window.localStorage.getItem(START_INTENT_STORAGE_KEY));
+        pendingStartRef.current = intent;
+        setPendingStart(intent);
+        const storedOperationId = intent?.requestId || window.localStorage.getItem(ACTIVE_OPERATION_STORAGE_KEY);
         if (storedOperationId) {
           observationRef.current = new SystemUpdateObservation(storedOperationId);
           setActiveOperationId(storedOperationId);
@@ -222,6 +302,12 @@ export function UpdateCenterPanel() {
       if (reloadTimerRef.current) clearTimeout(reloadTimerRef.current);
     };
   }, [loadAvailability]);
+
+  useEffect(() => {
+    if (!pendingStart || starting || observationError) return;
+    const timer = setTimeout(() => void submitStart(pendingStart), 30_000);
+    return () => clearTimeout(timer);
+  }, [pendingStart, starting, observationError, submitStart]);
 
   useEffect(() => {
     if (!activeOperationId || observationError) return;
@@ -301,40 +387,15 @@ export function UpdateCenterPanel() {
     };
   }, [statusAccess, streamOperationId, acceptOperation, acceptEvents]);
 
-  const startUpdate = async () => {
+  const startUpdate = () => {
     if (!availability?.release) return;
-    setStarting(true);
-    setError(null);
-    try {
-      const response = await fetch('/api/admin/system-updates', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ channel: 'stable', expectedReleaseId: availability.release.releaseId }),
-      });
-      const payload = await readApiJson<{ success: true; operation: SystemUpdateOperationView }>(response);
-      observationRef.current = new SystemUpdateObservation(payload.operation.operationId);
-      reloadScheduledRef.current = false;
-      statusRetryNotBeforeRef.current = 0;
-      setEvents([]);
-      setObservationError(null);
-      setStatusAccess(null);
-      setActiveOperationId(payload.operation.operationId);
-      acceptOperation(payload.operation);
-      setConfirmOpen(false);
-      try {
-        window.localStorage.setItem(ACTIVE_OPERATION_STORAGE_KEY, payload.operation.operationId);
-      } catch {
-        // Polling still works while this page remains open.
-      }
-    } catch (startError) {
-      setError(startError instanceof Error ? startError.message : t('errors.start'));
-      setConfirmOpen(false);
-    } finally {
-      setStarting(false);
-    }
+    return submitStart({ channel: 'stable', expectedReleaseId: availability.release.releaseId,
+      ...(availability.idempotentStart ? { requestId: window.crypto.randomUUID() } : {}) });
   };
 
   const returnToOverview = () => {
+    pendingStartRef.current = null;
+    setPendingStart(null);
     observationRef.current = null;
     setActiveOperationId(null);
     setOperation(null);
@@ -344,6 +405,7 @@ export function UpdateCenterPanel() {
     setStatusAccess(null);
     try {
       window.localStorage.removeItem(ACTIVE_OPERATION_STORAGE_KEY);
+      window.localStorage.removeItem(START_INTENT_STORAGE_KEY);
       window.sessionStorage.removeItem(STATUS_ACCESS_STORAGE_KEY);
     } catch {
       // The overview can still be restored without browser storage.
@@ -370,7 +432,7 @@ export function UpdateCenterPanel() {
           <AlertTitle>{t('errors.title')}</AlertTitle>
           <AlertDescription>
             <p>{observationError || error}</p>
-            <Button variant="outline" size="sm" className="mt-2" onClick={() => { setObservationError(null); void loadAvailability(); }}>
+            <Button variant="outline" size="sm" className="mt-2" disabled={starting} onClick={() => { setObservationError(null); if (pendingStartRef.current) void submitStart(pendingStartRef.current); else void loadAvailability(); }}>
               <RefreshCw aria-hidden="true" /> {t('retry')}
             </Button>
             {observationError && <Button variant="ghost" size="sm" className="mt-2" onClick={returnToOverview}>{t('operation.returnToOverview')}</Button>}

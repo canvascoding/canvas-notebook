@@ -64,7 +64,7 @@ function parseAvailability(value: unknown, channel: SystemUpdateReleaseChannel):
     candidate.contractVersion !== 1 || candidate.mode !== 'managed' || candidate.platform !== 'canvas-installer' ||
     candidate.channel !== channel || (candidate.currentVersion !== null && typeof candidate.currentVersion !== 'string') ||
     (candidate.updateAvailable !== null && typeof candidate.updateAvailable !== 'boolean') ||
-    typeof candidate.ready !== 'boolean' || !Array.isArray(candidate.reasons) ||
+    typeof candidate.ready !== 'boolean' || (candidate.idempotentStart !== undefined && typeof candidate.idempotentStart !== 'boolean') || !Array.isArray(candidate.reasons) ||
     candidate.reasons.some((reason) => typeof reason !== 'string') || !releaseValid ||
     !Array.isArray(candidate.instructions) || candidate.instructions.some((instruction) => typeof instruction !== 'string')
   ) {
@@ -164,7 +164,11 @@ export class ManagedSystemUpdateBackend implements SystemUpdateBackend {
     const operation = typeof response === 'object' && response !== null
       ? (response as { operation?: unknown }).operation
       : null;
-    return parseOperation(operation);
+    const parsed = parseOperation(operation);
+    if (input.requestId && parsed.operationId !== input.requestId) {
+      throw new SystemUpdateBackendError(502, 'control_plane_protocol_invalid', 'Control Plane returned another update operation.');
+    }
+    return parsed;
   }
 
   async getOperation(operationId: string): Promise<SystemUpdateOperationView> {

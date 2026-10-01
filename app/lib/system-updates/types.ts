@@ -25,6 +25,7 @@ export interface SystemUpdateAvailability {
   currentVersion: string | null;
   updateAvailable: boolean | null;
   ready: boolean;
+  idempotentStart?: boolean;
   reasons: string[];
   release: SystemUpdateReleaseSummary | null;
   instructions: string[];
@@ -47,6 +48,7 @@ export interface SystemUpdateStatusAccess {
 export interface StartSystemUpdateInput {
   channel: SystemUpdateReleaseChannel;
   expectedReleaseId?: string;
+  requestId?: string;
 }
 
 export interface SystemUpdateBackend {

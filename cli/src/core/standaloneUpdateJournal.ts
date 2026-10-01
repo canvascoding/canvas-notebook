@@ -23,6 +23,13 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3
 const VERSION_PATTERN = /^\d{4}\.\d{1,2}\.\d{1,2}(?:\.\d+)?$/u;
 const PINNED_IMAGE_PATTERN = /^.{1,440}@sha256:[a-f0-9]{64}$/u;
 
+export interface StandaloneUpdateStartRequest {
+  channel: 'stable' | 'beta';
+  expectedReleaseId?: string;
+}
+
+export type StandaloneJournalOperation = SystemUpdateOperation & { startRequest?: StandaloneUpdateStartRequest };
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -35,7 +42,7 @@ function isTimestamp(value: unknown): value is string {
   return typeof value === 'string' && value.length <= 64 && Number.isFinite(Date.parse(value));
 }
 
-function parseOperation(input: unknown): SystemUpdateOperation {
+function parseOperation(input: unknown): StandaloneJournalOperation {
   if (!isRecord(input) || input.contractVersion !== SYSTEM_UPDATE_CONTRACT_VERSION ||
     typeof input.operationId !== 'string' || !UUID_PATTERN.test(input.operationId) ||
     !isMember(SYSTEM_UPDATE_OPERATION_STATUSES, input.status) || !isMember(SYSTEM_UPDATE_STAGES, input.stage) ||
@@ -48,6 +55,13 @@ function parseOperation(input: unknown): SystemUpdateOperation {
     (input.error !== null && (typeof input.error !== 'string' || input.error.length > 2048)) ||
     !Number.isSafeInteger(input.lastSequence) || Number(input.lastSequence) < 0) {
     throw new Error('Stored update operation is invalid.');
+  }
+  const startRequest = input.startRequest;
+  if (startRequest !== undefined && (!isRecord(startRequest) ||
+    !['stable', 'beta'].includes(String(startRequest.channel)) ||
+    (startRequest.expectedReleaseId !== undefined && (typeof startRequest.expectedReleaseId !== 'string' ||
+      !/^[A-Za-z0-9._-]{1,128}$/u.test(startRequest.expectedReleaseId))))) {
+    throw new Error('Stored update start request is invalid.');
   }
   return {
     contractVersion: SYSTEM_UPDATE_CONTRACT_VERSION,
@@ -64,6 +78,12 @@ function parseOperation(input: unknown): SystemUpdateOperation {
     errorCode: input.errorCode as SystemUpdateErrorCode | null,
     error: input.error as string | null,
     lastSequence: Number(input.lastSequence),
+    ...(startRequest === undefined ? {} : { startRequest: {
+      channel: (startRequest as Record<string, unknown>).channel as 'stable' | 'beta',
+      ...((startRequest as Record<string, unknown>).expectedReleaseId === undefined ? {} : {
+        expectedReleaseId: (startRequest as Record<string, unknown>).expectedReleaseId as string,
+      }),
+    } }),
   };
 }
 
@@ -155,14 +175,14 @@ export class StandaloneUpdateJournal {
     }
   }
 
-  async writeOperation(operation: SystemUpdateOperation): Promise<SystemUpdateOperation> {
+  async writeOperation(operation: StandaloneJournalOperation): Promise<StandaloneJournalOperation> {
     const validated = parseOperation(operation);
-    await this.writeJsonAtomically(this.operationPath(validated.operationId), validated);
     await this.writeJsonAtomically(this.currentPath, { operationId: validated.operationId });
+    await this.writeJsonAtomically(this.operationPath(validated.operationId), validated);
     return validated;
   }
 
-  async readOperation(operationId: string): Promise<SystemUpdateOperation | null> {
+  async readOperation(operationId: string): Promise<StandaloneJournalOperation | null> {
     const filePath = this.operationPath(operationId);
     await assertRegularOrMissing(filePath);
     const content = await fs.readFile(filePath, 'utf8').catch((error: NodeJS.ErrnoException) => {

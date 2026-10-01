@@ -19,7 +19,7 @@ import {
   type SystemUpdateOperation,
   type SystemUpdateReleaseChannel,
 } from './systemUpdateContract';
-import { createStandaloneUpdateOperation, StandaloneUpdateJournal } from './standaloneUpdateJournal';
+import { createStandaloneUpdateOperation, StandaloneUpdateJournal, type StandaloneJournalOperation } from './standaloneUpdateJournal';
 import { compareCanvasVersions, StandaloneReleaseResolver, type VerifiedStandaloneRelease } from './standaloneUpdateRelease';
 import {
   createStandaloneUpdateStatusServer,
@@ -43,6 +43,7 @@ interface CurrentCanvasVersion {
 interface StartStandaloneUpdateInput {
   channel: SystemUpdateReleaseChannel;
   expectedReleaseId?: string;
+  requestId?: string;
 }
 
 interface StandaloneUpdateAvailability {
@@ -52,6 +53,7 @@ interface StandaloneUpdateAvailability {
   currentVersion: string | null;
   updateAvailable: boolean;
   ready: boolean;
+  idempotentStart: true;
   reasons: string[];
   release: {
     releaseId: string;
@@ -123,7 +125,7 @@ function parseStartInput(value: unknown): StartStandaloneUpdateInput {
     throw new StandaloneUpdaterHttpError(400, 'request_invalid', 'Update request must be a JSON object.');
   }
   const input = value as Record<string, unknown>;
-  const allowed = new Set(['channel', 'expectedReleaseId']);
+  const allowed = new Set(['channel', 'expectedReleaseId', 'requestId']);
   if (Object.keys(input).some((key) => !allowed.has(key))) {
     throw new StandaloneUpdaterHttpError(400, 'request_invalid', 'Update request contains unsupported fields.');
   }
@@ -132,7 +134,16 @@ function parseStartInput(value: unknown): StartStandaloneUpdateInput {
     (typeof input.expectedReleaseId !== 'string' || !/^[A-Za-z0-9._-]{1,128}$/u.test(input.expectedReleaseId))) {
     throw new StandaloneUpdaterHttpError(400, 'request_invalid', 'Expected release ID is invalid.');
   }
-  return { channel, ...(input.expectedReleaseId ? { expectedReleaseId: input.expectedReleaseId } : {}) };
+  if (input.requestId !== undefined && (typeof input.requestId !== 'string' || !UUID_PATTERN.test(input.requestId))) {
+    throw new StandaloneUpdaterHttpError(400, 'request_invalid', 'Update request ID is invalid.');
+  }
+  return { channel, ...(input.expectedReleaseId ? { expectedReleaseId: input.expectedReleaseId } : {}),
+    ...(typeof input.requestId === 'string' ? { requestId: input.requestId.toLowerCase() } : {}) };
+}
+
+function publicOperation(operation: StandaloneJournalOperation): SystemUpdateOperation {
+  const { startRequest: _startRequest, ...result } = operation;
+  return result;
 }
 
 function statusForEvent(operation: SystemUpdateOperation, event: SystemUpdateEvent): SystemUpdateOperation['status'] {
@@ -295,6 +306,7 @@ export class StandaloneUpdater {
   private activeAbortController: AbortController | null = null;
   private reserving = false;
   private mutationTail: Promise<void> = Promise.resolve();
+  private startTail: Promise<void> = Promise.resolve();
 
   private serializeMutation<T>(action: () => Promise<T>): Promise<T> {
     const result = this.mutationTail.then(action);
@@ -350,6 +362,7 @@ export class StandaloneUpdater {
       channel,
       currentVersion: current.appVersion,
       updateAvailable,
+      idempotentStart: true,
       ...readiness,
       release: {
         releaseId: release.signed.manifest.releaseId,
@@ -362,44 +375,64 @@ export class StandaloneUpdater {
   }
 
   async startUpdate(input: StartStandaloneUpdateInput): Promise<SystemUpdateOperation> {
-    if (this.busy) throw new StandaloneUpdaterHttpError(409, 'operation_conflict', 'Another Canvas update is already running.');
-    this.reserving = true;
-    this.onBusyChange(true);
-    try {
-      const currentJournalOperation = await this.journal.readCurrentOperation();
-      if (currentJournalOperation && !isTerminalSystemUpdateStatus(currentJournalOperation.status)) {
-        throw new StandaloneUpdaterHttpError(409, 'operation_conflict', 'Another Canvas update is already running.');
+    const result = this.startTail.then(async () => {
+      if (input.requestId) {
+        if (!UUID_PATTERN.test(input.requestId)) throw new StandaloneUpdaterHttpError(400, 'request_invalid', 'Update request ID is invalid.');
+        const requestId = input.requestId;
+        const existing = await this.serializeMutation(async () => {
+          const stored = await this.journal.readOperation(requestId);
+          if (!stored) return null;
+          if (!stored.startRequest || stored.startRequest.channel !== input.channel ||
+            stored.startRequest.expectedReleaseId !== input.expectedReleaseId) {
+            throw new StandaloneUpdaterHttpError(409, 'request_id_conflict', 'Update request ID belongs to another request.');
+          }
+          return publicOperation(await this.recoverUnownedOperation(stored));
+        });
+        if (existing) return existing;
       }
-      const [release, current] = await Promise.all([this.releaseResolver.resolve(input.channel), this.currentVersion()]);
-      if (input.expectedReleaseId && input.expectedReleaseId !== release.signed.manifest.releaseId) {
-        throw new StandaloneUpdaterHttpError(409, 'release_changed', 'The available release changed; review it before updating.');
+      if (this.busy) throw new StandaloneUpdaterHttpError(409, 'operation_conflict', 'Another Canvas update is already running.');
+      this.reserving = true;
+      this.onBusyChange(true);
+      try {
+        const currentJournalOperation = await this.journal.readCurrentOperation();
+        if (currentJournalOperation && !isTerminalSystemUpdateStatus(currentJournalOperation.status)) {
+          throw new StandaloneUpdaterHttpError(409, 'operation_conflict', 'Another Canvas update is already running.');
+        }
+        const [release, current] = await Promise.all([this.releaseResolver.resolve(input.channel), this.currentVersion()]);
+        if (input.expectedReleaseId && input.expectedReleaseId !== release.signed.manifest.releaseId) {
+          throw new StandaloneUpdaterHttpError(409, 'release_changed', 'The available release changed; review it before updating.');
+        }
+        const readiness = this.readiness(release, current);
+        if (!readiness.ready) {
+          throw new StandaloneUpdaterHttpError(412, 'release_incompatible', `Update preflight failed: ${readiness.reasons.join(', ')}`);
+        }
+        if (current.appVersion && compareCanvasVersions(current.appVersion, release.signed.manifest.version) >= 0) {
+          throw new StandaloneUpdaterHttpError(409, 'no_update_available', 'Canvas Notebook is already up to date.');
+        }
+        const operation = createStandaloneUpdateOperation({
+          operationId: input.requestId || crypto.randomUUID(),
+          targetVersion: release.signed.manifest.version,
+          targetImageRef: release.signed.manifest.imageRef,
+          currentVersion: current.appVersion,
+          now: this.now(),
+        });
+        await this.journal.writeOperation({ ...operation, ...(input.requestId ? {
+          startRequest: { channel: input.channel, ...(input.expectedReleaseId ? { expectedReleaseId: input.expectedReleaseId } : {}) },
+        } : {}) });
+        this.activeOperationId = operation.operationId;
+        const abortController = new AbortController();
+        this.activeAbortController = abortController;
+        this.reserving = false;
+        setImmediate(() => void this.runOperation(operation, release, current, abortController));
+        return operation;
+      } catch (error) {
+        this.reserving = false;
+        this.onBusyChange(false);
+        throw error;
       }
-      const readiness = this.readiness(release, current);
-      if (!readiness.ready) {
-        throw new StandaloneUpdaterHttpError(412, 'release_incompatible', `Update preflight failed: ${readiness.reasons.join(', ')}`);
-      }
-      if (current.appVersion && compareCanvasVersions(current.appVersion, release.signed.manifest.version) >= 0) {
-        throw new StandaloneUpdaterHttpError(409, 'no_update_available', 'Canvas Notebook is already up to date.');
-      }
-      const operation = createStandaloneUpdateOperation({
-        operationId: crypto.randomUUID(),
-        targetVersion: release.signed.manifest.version,
-        targetImageRef: release.signed.manifest.imageRef,
-        currentVersion: current.appVersion,
-        now: this.now(),
-      });
-      await this.journal.writeOperation(operation);
-      this.activeOperationId = operation.operationId;
-      const abortController = new AbortController();
-      this.activeAbortController = abortController;
-      this.reserving = false;
-      setImmediate(() => void this.runOperation(operation, release, current, abortController));
-      return operation;
-    } catch (error) {
-      this.reserving = false;
-      this.onBusyChange(false);
-      throw error;
-    }
+    });
+    this.startTail = result.then(() => undefined, () => undefined);
+    return result;
   }
 
   private async recordEvent(operationId: string, event: SystemUpdateEvent): Promise<void> {
@@ -460,8 +493,8 @@ export class StandaloneUpdater {
       });
     } catch (error) {
       await this.serializeMutation(async () => {
-        const operation = await this.journal.readOperation(initial.operationId).catch(() => initial) || initial;
-        if (!isTerminalSystemUpdateStatus(operation.status)) {
+        const operation = await this.journal.readOperation(initial.operationId).catch(() => null);
+        if (operation && !isTerminalSystemUpdateStatus(operation.status)) {
           const completedAt = this.now().toISOString();
           await this.journal.writeOperation({
             ...operation,
@@ -482,7 +515,17 @@ export class StandaloneUpdater {
   }
 
   async getOperation(operationId: string): Promise<SystemUpdateOperation | null> {
-    return this.journal.readOperation(operationId);
+    return this.serializeMutation(async () => {
+      const operation = await this.journal.readOperation(operationId);
+      return operation ? publicOperation(await this.recoverUnownedOperation(operation)) : null;
+    });
+  }
+
+  private async recoverUnownedOperation(operation: StandaloneJournalOperation): Promise<StandaloneJournalOperation> {
+    if (this.busy || isTerminalSystemUpdateStatus(operation.status)) return operation;
+    const completedAt = this.now().toISOString();
+    return this.journal.writeOperation({ ...operation, status: 'indeterminate', updatedAt: completedAt,
+      completedAt, errorCode: 'operation_interrupted', error: 'The updater cannot verify execution of this persisted update request.' });
   }
 
   async getEvents(operationId: string, afterSequence: number): Promise<SystemUpdateEvent[]> {
@@ -493,7 +536,7 @@ export class StandaloneUpdater {
     return this.serializeMutation(async () => {
       const operation = await this.journal.readOperation(operationId);
       if (!operation) throw new StandaloneUpdaterHttpError(404, 'operation_not_found', 'Update operation was not found.');
-      if (isTerminalSystemUpdateStatus(operation.status)) return operation;
+      if (isTerminalSystemUpdateStatus(operation.status)) return publicOperation(operation);
       if (this.activeOperationId !== operationId || !this.activeAbortController) {
         throw new StandaloneUpdaterHttpError(409, 'operation_conflict', 'Update operation cannot be canceled from this updater process.');
       }
@@ -518,7 +561,7 @@ export class StandaloneUpdater {
       };
       await this.journal.writeOperation(canceled);
       this.activeAbortController.abort();
-      return canceled;
+      return publicOperation(canceled);
     });
   }
 }
