@@ -3,6 +3,7 @@ import 'server-only';
 import crypto from 'node:crypto';
 
 import { readScopedEnvState, type EnvStorageScope } from '@/app/lib/integrations/env-config';
+import { SecretReadinessError } from '@/app/lib/secrets/readiness';
 
 const ENVELOPE_VERSION = 1;
 const KEY_ENTRY = 'MCP_CREDENTIAL_KEY';
@@ -32,8 +33,8 @@ type KeyMaterial = {
 
 const INSTANCE_SCOPE: EnvStorageScope = { secretScope: 'legacy' };
 
-function configurationError(message: string): Error {
-  return new Error(`${message} Configure MCP credentials encryption in /settings?tab=integrations.`);
+function configurationError(message: string): SecretReadinessError {
+  return new SecretReadinessError(message.includes('missing') ? 'mcp_credential_key_missing' : 'invalid_secret_format', `${message} Configure MCP credentials encryption in /settings?tab=secrets.`);
 }
 
 function requireBindingPart(value: string, label: string): string {
@@ -110,15 +111,18 @@ async function configuredKeys(): Promise<{ active: KeyMaterial; all: KeyMaterial
   return { active, all: Array.from(byId.values()) };
 }
 
+/** Validate active and retained keys without exposing key material to callers. */
+export async function assertConfiguredMcpEncryption(): Promise<void> { await configuredKeys(); }
+
 function isBase64Url(value: unknown): value is string {
   return typeof value === 'string' && /^[A-Za-z0-9_-]+$/u.test(value);
 }
 
 function decodeBase64Url(value: unknown, label: string, expectedLength?: number): Buffer {
-  if (!isBase64Url(value)) throw new Error(`Invalid MCP secret envelope ${label}.`);
+  if (!isBase64Url(value)) throw new SecretReadinessError('invalid_secret_format', `Invalid MCP secret envelope ${label}. See /settings?tab=secrets.`);
   const decoded = Buffer.from(value, 'base64url');
   if (decoded.length === 0 || (expectedLength !== undefined && decoded.length !== expectedLength)) {
-    throw new Error(`Invalid MCP secret envelope ${label}.`);
+    throw new SecretReadinessError('invalid_secret_format', `Invalid MCP secret envelope ${label}. See /settings?tab=secrets.`);
   }
   return decoded;
 }
@@ -128,21 +132,21 @@ function parseEnvelope(value: string): McpSecretEnvelope {
   try {
     parsed = JSON.parse(value);
   } catch {
-    throw new Error('Invalid MCP secret envelope.');
+    throw new SecretReadinessError('invalid_secret_format', 'Invalid MCP secret envelope. See /settings?tab=secrets.');
   }
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    throw new Error('Invalid MCP secret envelope.');
+    throw new SecretReadinessError('invalid_secret_format', 'Invalid MCP secret envelope. See /settings?tab=secrets.');
   }
   const envelope = parsed as Record<string, unknown>;
   const expectedKeys = ['ciphertext', 'iv', 'keyId', 'tag', 'version'];
   if (Object.keys(envelope).sort().join(',') !== expectedKeys.join(',')) {
-    throw new Error('Invalid MCP secret envelope schema.');
+    throw new SecretReadinessError('invalid_secret_format', 'Invalid MCP secret envelope schema. See /settings?tab=secrets.');
   }
   if (envelope.version !== ENVELOPE_VERSION) {
-    throw new Error(`Unsupported MCP secret envelope version: ${String(envelope.version)}.`);
+    throw new SecretReadinessError('invalid_secret_format', 'Unsupported MCP secret envelope version. See /settings?tab=secrets.');
   }
   if (typeof envelope.keyId !== 'string' || !/^[a-f0-9]{64}$/u.test(envelope.keyId)) {
-    throw new Error('Invalid MCP secret envelope keyId.');
+    throw new SecretReadinessError('invalid_secret_format', 'Invalid MCP secret envelope keyId. See /settings?tab=secrets.');
   }
   decodeBase64Url(envelope.iv, 'iv', 12);
   decodeBase64Url(envelope.tag, 'tag', 16);
@@ -176,7 +180,7 @@ export async function openMcpSecret<T>(value: string, binding: McpSecretBinding)
   const envelope = parseEnvelope(value);
   const { all } = await configuredKeys();
   const material = all.find((candidate) => candidate.keyId === envelope.keyId);
-  if (!material) throw new Error('MCP secret was encrypted with an unavailable key.');
+  if (!material) throw new SecretReadinessError('decryption_failed', 'MCP secret was encrypted with an unavailable key. Restore the original MCP key or its retained previous key in /settings?tab=secrets.');
   try {
     const decipher = crypto.createDecipheriv('aes-256-gcm', material.key, decodeBase64Url(envelope.iv, 'iv', 12));
     decipher.setAAD(additionalAuthenticatedData(binding));
@@ -187,6 +191,6 @@ export async function openMcpSecret<T>(value: string, binding: McpSecretBinding)
     ]);
     return JSON.parse(plaintext.toString('utf8')) as T;
   } catch {
-    throw new Error('MCP secret could not be authenticated for this binding.');
+    throw new SecretReadinessError('decryption_failed', 'MCP secret could not be authenticated for this binding. Restore the original key and intact credential data. See /settings?tab=secrets.');
   }
 }

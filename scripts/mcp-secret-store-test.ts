@@ -87,8 +87,8 @@ async function main() {
 
     await rm(integrationsDir, { recursive: true, force: true });
     await replaceScopedEnvEntries('integrations', []);
-    await expectRejects(() => sealMcpSecret(payload, binding), /settings\?tab=integrations/i);
-    await expectRejects(() => openMcpSecret(first, binding), /settings\?tab=integrations/i);
+    await expectRejects(() => sealMcpSecret(payload, binding), /settings\?tab=secrets/i);
+    await expectRejects(() => openMcpSecret(first, binding), /settings\?tab=secrets/i);
 
     console.log('mcp-secret-store-test: ok');
   } finally {

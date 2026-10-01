@@ -111,7 +111,7 @@ async function main(): Promise<void> {
     assert.equal(state.entries.find(entry => entry.key === 'AGENT_ONLY')?.value, 'fixture-agent-only');
     const canonicalDisk = await fs.readFile(canonicalPath, 'utf8');
     assert.doesNotMatch(canonicalDisk, /fixture-(?:integration|agent)-(?:shared|only)/u, 'canonical disk contents do not include the fixture plaintexts');
-    assert.match(canonicalDisk, /enc:v1:/u);
+    assert.match(canonicalDisk, /enc:env:v1:/u);
     assert.equal((await fs.stat(canonicalPath)).mode & 0o777, 0o600);
     assert.equal(await fs.readFile(oldIntegrations, 'utf8'), integrationsSource, 'legacy integrations source remains import-only');
     assert.equal(await fs.readFile(oldAgents, 'utf8'), agentsSource, 'legacy agents source remains import-only');

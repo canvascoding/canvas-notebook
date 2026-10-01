@@ -7,7 +7,9 @@ accounts to the same endpoint. Rename an entry by retaining its `connectionId`;
 omit the ID when creating an additional account. Removed IDs cannot be imported
 to revive an account.
 
-OAuth credentials live in `users/<userId>/mcp/connections/<connectionId>/`.
+Persistent OAuth credentials live as protected `CANVAS_CREDENTIAL_MCP_*` records
+in `users/<userId>/secrets/Canvas-Secrets.env`. The old
+`users/<userId>/mcp/connections/<connectionId>/` files are import sources.
 Tokens, dynamically registered client secrets and PKCE state are authenticated
 AES-256-GCM envelopes. Authentication binds the ciphertext to the owner,
 organization, connection and storage purpose. Directories use mode `0700` and
@@ -16,20 +18,31 @@ configuration hash; endpoint, issuer, client and scope changes do.
 
 ## Encryption keys
 
-Provision a cryptographically random key of at least 32 bytes before using OAuth:
+OAuth checks the owner and system secret stores before provider discovery.
+Missing master keys, authentication failures, invalid formats and a missing MCP
+credential key return separate diagnostic codes without returning key material.
+The deployment master key belongs in protected deployment configuration; it
+cannot be set through the ENV editor that it encrypts.
+
+MCP requires a cryptographically random key of at least 32 bytes:
 
 - An externally provisioned `INTEGRATIONS_ENV_MASTER_KEY` takes precedence. Keep
   it in the deployment secret manager; it also protects other integration data.
-- Otherwise configure `MCP_CREDENTIAL_KEY` in the central integrations secret
-  file, `/data/secrets/Canvas-Integrations.env`, through the integrations settings.
-  This uses the existing explicit instance secret scope, not a member's file.
+- Otherwise first-time OAuth preparation generates `MCP_CREDENTIAL_KEY` under
+  the existing cross-process lock in `/data/system/secrets/Canvas-Secrets.env`.
+  A durable initialization marker prevents replacement after deletion or an
+  interrupted initialization. This uses the explicit system scope, not a member's
+  file. Credential records, legacy keys or states, ENV overrides and retained
+  local backups block automatic generation; restore the original key instead.
 
 There is no fallback to plaintext. An unavailable or invalid key produces an
-actionable settings error. Do not place keys in MCP server JSON or commit them.
+actionable error linked to `/settings?tab=secrets`. These internal keys are hidden
+from the general Secrets editor; recovery needs the original deployment or
+system key material. Do not place keys in MCP server JSON or commit them.
 
 For rotation, retain previous key values in `MCP_CREDENTIAL_PREVIOUS_KEYS`, a JSON
 array. With an external master key, provision this array in the runtime
-environment; otherwise use the central integrations secret file. New writes use
+environment; otherwise use the central system secret file. New writes use
 the active key, while the envelope key ID selects the correct retained key on
 read. Retain old keys until every retained credential, OAuth state and backup
 that must remain usable has been replaced or re-encrypted. Changing the shared

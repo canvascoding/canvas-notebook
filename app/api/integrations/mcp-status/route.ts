@@ -7,6 +7,8 @@ import { buildDirectMcpTools } from '@/app/lib/mcp/direct-tools';
 import { readCachedMcpServerIcons } from '@/app/lib/mcp/icons';
 import { closeMcpServer, getMcpRuntimeStatus, listMcpTools } from '@/app/lib/mcp/manager';
 import { clearMcpOAuth, getMcpOAuthStatus, startMcpOAuth, McpOAuthError } from '@/app/lib/mcp/oauth';
+import { getMcpEncryptionReadiness } from '@/app/lib/mcp/encryption-readiness';
+import { isSecretReadinessError } from '@/app/lib/secrets/readiness';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 
 type McpStatusAction = 'enable' | 'disable' | 'test' | 'authorize' | 'clear_auth';
@@ -48,16 +50,18 @@ export async function GET(request: NextRequest) {
     }
 
     const availableServers = runtime.servers.filter((server) => server.accessAllowed !== false);
-    const [oauth, direct, icons] = await Promise.all([
+    const [oauth, direct, icons, encryptionReadiness] = await Promise.all([
       Promise.all(availableServers.map((server) => getMcpOAuthStatus(server.name, getRequestOrigin(request), scope))),
       buildDirectMcpTools(scope, { cacheOnly: true }),
       readCachedMcpServerIcons(scope),
+      getMcpEncryptionReadiness(scope),
     ]);
     return NextResponse.json({
       success: true,
       data: {
         ...runtime,
         canManageDefinitions: actor.canManageDefinitions,
+        encryptionReadiness: { status: encryptionReadiness.status, canInitialize: encryptionReadiness.canInitialize },
         servers: runtime.servers.map((server) => ({
           ...server,
           iconUrl: server.accessAllowed !== false && icons[server.name]?.fileName ? `/api/integrations/mcp-icon/${encodeURIComponent(server.name)}` : null,
@@ -72,6 +76,7 @@ export async function GET(request: NextRequest) {
       },
     });
   } catch (error) {
+    if (isSecretReadinessError(error)) return NextResponse.json({ success: false, error: error.message, code: error.code, settingsUrl: '/settings?tab=secrets' }, { status: error.status });
     if (error instanceof McpAccessError) return NextResponse.json({ success: false, error: error.message, code: error.code }, { status: mcpErrorStatus(error) });
     console.error('[API] integrations/mcp-status GET error:', error);
     const message = error instanceof Error ? error.message : 'Failed to read MCP status';
@@ -134,6 +139,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ success: false, error: 'Unsupported MCP status action' }, { status: 400 });
   } catch (error) {
+    if (isSecretReadinessError(error)) return NextResponse.json({ success: false, error: error.message, code: error.code, settingsUrl: '/settings?tab=secrets' }, { status: error.status });
     if (error instanceof McpAccessError) return NextResponse.json({ success: false, error: error.message, code: error.code }, { status: mcpErrorStatus(error) });
     if (error instanceof McpConfigValidationError) {
       return NextResponse.json({ success: false, error: error.message }, { status: 400 });

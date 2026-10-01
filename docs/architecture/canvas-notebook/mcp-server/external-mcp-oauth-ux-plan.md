@@ -145,6 +145,16 @@ Deployment-Zugriffe werden vor Ausführung dieses Schritts festgestellt.
 
 ### TODO 2 — Verschlüsselungsbereitschaft und konkrete Fehler im Produkt abbilden
 
+Umgesetzt: Der äußere Speicher schreibt jetzt `enc:env:v1` und liest das alte
+äußere Format weiterhin. Alte E-Mail-Adapterwerte werden nur nach erfolgreicher
+GCM-Authentifizierung und Payload-Prüfung mit ihrem ursprünglichen Schlüssel
+als innere Verschlüsselung erkannt. Diagnosen liefern typisierte Fehler ohne
+Secret-Werte. OAuth prüft die Speicherung vor der Provider-Discovery; eine
+erstmalige MCP-Schlüsseleinrichtung ist gesperrt, dauerhaft markiert und bei
+vorhandenen Credentials, Schlüsseln, States oder Backups ausgeschlossen.
+Konfigurations- und OAuth-API liefern Fehlercodes und den Secrets-Einstieg.
+Die produktive Installation wurde dabei nicht verändert.
+
 - Einen gemeinsamen, lesenden Diagnosevertrag für Secrets/MCP ergänzen:
   `ready`, `master_key_missing`, `decryption_failed`, `invalid_secret_format`
   und `mcp_credential_key_missing`. Keine falsche Unterscheidung zwischen einem

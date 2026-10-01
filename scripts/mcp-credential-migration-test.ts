@@ -143,7 +143,7 @@ async function main() {
     await writeLegacyConfig(resolveMcpConfigPath, noKeyScope, { legacy: noKeyServer });
     await writeLegacyOAuthFiles(resolveMcpStoragePath, noKeyScope, 'legacy', noKeyServer, hashMcpLegacyConfig(noKeyServer));
     delete mutableEnv.INTEGRATIONS_ENV_MASTER_KEY;
-    await assert.rejects(() => migrateMcpConnectionCredentials('legacy', noKeyScope), /settings\?tab=integrations/i);
+    await assert.rejects(() => migrateMcpConnectionCredentials('legacy', noKeyScope), /settings\?tab=secrets/i);
     assert.equal(await exists(resolveMcpStoragePath(legacyDirectory('legacy'), noKeyScope)), true, 'missing key must retain plaintext migration source');
     mutableEnv.INTEGRATIONS_ENV_MASTER_KEY = key();
     const noKeyConnection = (await readMcpConfig(noKeyScope)).mcpServers.legacy!.connectionId!;

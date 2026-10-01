@@ -152,7 +152,7 @@ async function main() {
     state = await readUnifiedEnvState(secure);
     assert.equal(state.entries.find(entry => entry.key === 'SECURE')?.value, 'media-plain');
     assert.equal((await readScopedEnvState('agents', secure)).entries.find(entry => entry.key === 'SECURE')?.value, 'agent-plain');
-    const disk = await fs.readFile(state.path, 'utf8'); assert.equal(disk.includes('media-plain'), false); assert.match(disk, /enc:v1:/);
+    const disk = await fs.readFile(state.path, 'utf8'); assert.equal(disk.includes('media-plain'), false); assert.match(disk, /enc:env:v1:/);
     await mutateUnifiedSecretValue('CANVAS_CREDENTIAL_ENCRYPTED_READ', async () => '{"fixture":true}', secure);
     const encryptedRevision = (await readUnifiedEnvState(secure)).revision;
     const encryptedBytes = await fs.readFile(state.path);

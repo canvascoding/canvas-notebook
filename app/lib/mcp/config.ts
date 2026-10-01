@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { readUnifiedEnvState, patchUnifiedEnvEntries, withUnifiedEnvLock } from '@/app/lib/secrets/unified-env-store';
+import { readUnifiedEnvState, patchUnifiedEnvEntries, withUnifiedEnvLock, assertUnifiedEnvReadable } from '@/app/lib/secrets/unified-env-store';
 import { mcpLiteralEnvKey, mcpConfigUsesChangedEnv } from '@/app/lib/mcp/env-references';
 import { hasMcpCredentialUrl, mcpCredentialArgIndices } from '@/app/lib/mcp/credential-fields';
 import { resolveScopedMcpDir, resolveMcpSecretEnvScope, normalizeMcpScope, MCP_SYSTEM_SCOPE, type McpScope } from '@/app/lib/mcp/scope';
@@ -244,7 +244,7 @@ async function centralizeMcpLiterals(config: McpConfig, scope: McpScope | null |
   const envScope = resolveMcpSecretEnvScope(normalizedScope);
   await withUnifiedEnvLock(envScope, async () => {
     const state = await readUnifiedEnvState(envScope);
-    if (!state.readable) throw new Error('MCP settings cannot migrate unreadable encrypted values. Configure the secret master key.');
+    assertUnifiedEnvReadable(state);
     const existing = new Map(state.entries.map(entry => [entry.key, entry.value]));
     const patches = pending.filter(entry => mode === 'migration' ? !existing.has(entry.key) : existing.get(entry.key) !== entry.value);
     if (patches.length) {

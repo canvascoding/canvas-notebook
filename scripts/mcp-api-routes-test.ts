@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import Module from 'node:module';
 import os from 'node:os';
@@ -51,6 +52,7 @@ async function main() {
 
   try {
     const configRoute = await import('../app/api/integrations/mcp-config/route');
+    const statusRoute = await import('../app/api/integrations/mcp-status/route');
     const definitionsRoute = await import('../app/api/integrations/mcp-definitions/route');
     const connectionsRoute = await import('../app/api/integrations/mcp-connections/route');
     const toolsRoute = await import('../app/api/integrations/mcp-tools/route');
@@ -98,6 +100,44 @@ async function main() {
     }));
     assert.ok([403, 404].includes(foreignRename.status), 'foreign connection IDs are rejected without exposing another account');
     assert.match(String((await body(foreignRename)).code), /^MCP_(ACCESS_DENIED|CONNECTION_NOT_FOUND)$/u);
+
+    const status = await statusRoute.GET(request('http://canvas.test/api/integrations/mcp-status', 'admin'));
+    assert.equal(status.status, 200);
+    const readiness = (await body(status)).data?.encryptionReadiness as Record<string, unknown>;
+    assert.equal(readiness.status, 'mcp_credential_key_missing');
+    assert.equal(readiness.canInitialize, true, 'a new installation can prepare MCP encryption on OAuth start');
+    assert.equal('masterKeySource' in readiness, false, 'normal status responses do not reveal deployment key sources');
+
+    await writeMcpConfigRaw(JSON.stringify({ mcpServers: {
+      oauthFixture: { url: 'http://127.0.0.1:65530/mcp', auth: 'oauth' },
+    } }), { userId: 'admin' });
+    const { getUnifiedEnvFilePath, patchUnifiedEnvEntries } = await import('../app/lib/secrets/unified-env-store');
+    const previousMaster = process.env.CANVAS_SECRETS_MASTER_KEY;
+    try {
+      process.env.CANVAS_SECRETS_MASTER_KEY = crypto.randomBytes(32).toString('hex');
+      await patchUnifiedEnvEntries([{ key: 'API_KEY', value: 'fixture-private-value' }], { userId: 'admin', secretScope: 'user' });
+      delete process.env.CANVAS_SECRETS_MASTER_KEY;
+      const before = await fs.readFile(getUnifiedEnvFilePath({ userId: 'admin', secretScope: 'user' }), 'utf8');
+      const failedStart = await statusRoute.POST(request('http://canvas.test/api/integrations/mcp-status', 'admin', {
+        method: 'POST', body: JSON.stringify({ action: 'authorize', server: 'oauthFixture' }),
+      }));
+      assert.equal(failedStart.status, 503, 'unreadable secrets fail before OAuth provider discovery');
+      const failedBody = await body(failedStart);
+      assert.equal(failedBody.code, 'master_key_missing');
+      assert.match(JSON.stringify(failedBody), /settings\?tab=secrets/u);
+      assert.doesNotMatch(JSON.stringify(failedBody), /fixture-private-value|enc:env:v1/u);
+      const failedSave = await configRoute.PUT(request('http://canvas.test/api/integrations/mcp-config', 'admin', {
+        method: 'PUT', body: JSON.stringify({ rawContent: JSON.stringify({ mcpServers: {
+          oauthFixture: { url: 'http://127.0.0.1:65530/mcp', auth: 'oauth', headers: { 'X-Client-Name': 'fixture-client' } },
+        } }) }),
+      }));
+      assert.equal(failedSave.status, 503, 'form and raw configuration writes retain the same structured readiness error');
+      assert.equal((await body(failedSave)).code, 'master_key_missing');
+      assert.equal(await fs.readFile(getUnifiedEnvFilePath({ userId: 'admin', secretScope: 'user' }), 'utf8'), before, 'failed preparation does not alter encrypted data');
+    } finally {
+      if (previousMaster === undefined) delete process.env.CANVAS_SECRETS_MASTER_KEY;
+      else process.env.CANVAS_SECRETS_MASTER_KEY = previousMaster;
+    }
     console.log('mcp-api-routes-test: ok');
   } finally {
     internals._load = originalLoad;

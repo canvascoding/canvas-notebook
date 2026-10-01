@@ -83,7 +83,7 @@ async function main() {
     const names = (await run('unzip', ['-Z1', exported.filePath])).stdout.split('\n').filter(Boolean);
     for (const name of names) assert.equal(/(?:\/mcp-oauth\/|\/connections\/|\/states\/|(?:settings|canvas-agent)\/auth\.json|custom-.*private)/.test(name), false, `portable archive excludes credential path ${name}`);
     let archiveText = ''; for (const name of names) archiveText += await zipText(exported.filePath, name);
-    assert.equal(archiveText.includes('DO-NOT-EXPORT'), false); assert.equal(archiveText.includes('fixture-rotated'), false); assert.equal(archiveText.includes('enc:v1:'), false);
+    assert.equal(archiveText.includes('DO-NOT-EXPORT'), false); assert.equal(archiveText.includes('fixture-rotated'), false); assert.equal(archiveText.includes('enc:v1:'), false); assert.equal(archiveText.includes('enc:env:v1:'), false);
     assert.equal(archiveText.includes('FIXTURE_VALUE_FRAGMENT_DO_NOT_EXPORT'), false, 'multiline secret values never masquerade as reconnect key names');
     assert.equal(await zipText(exported.filePath, 'data/workspace/auth.json'), '{"ordinary":"workspace user content"}');
     assert.equal(await zipText(exported.filePath, 'data/workspace/project/secrets/README.md'), 'ordinary project documentation\n');
@@ -154,7 +154,7 @@ async function main() {
     assert.equal((await mcp.readMcpCredentialJson<{ accessToken: string }>(mcpPath, alice))?.accessToken, 'fixture-rotated-mcp-alice'); assert.equal((await mcp.readMcpCredentialJson<{ accessToken: string }>(systemMcpPath, systemMcp))?.accessToken, 'fixture-rotated-mcp-system');
     assert.equal((await mail.readEmailAccountSecret(mailRef) as { accessToken: string }).accessToken, 'fixture-rotated-mail-alice'); assert.equal((await mail.readEmailAccountSecret(sharedMailRef) as { smtp: { password: string } }).smtp.password, 'fixture-rotated-smtp');
     assert.equal(pi.getProviderCredentials('openai-codex', { userId: 'missing-user' }), null);
-    process.env.CANVAS_SECRETS_MASTER_KEY = 'wrong-fixture-master'; await assert.rejects(() => env.readScopedEnvState('agents', alice), /decrypt|readable|master/i);
+    process.env.CANVAS_SECRETS_MASTER_KEY = 'wrong-fixture-master'; await assert.rejects(() => env.readScopedEnvState('agents', alice), { code: 'decryption_failed' });
     console.log('Portable archive excludes canonical/legacy/custom credentials and redacts runtime configs; full DATA recovery preserves profiles, stored keys and actual PI/MCP/Mail credentials. No database restore exercised.');
   } finally {
     for (const key of Object.keys(process.env)) if (!(key in saved)) delete process.env[key]; Object.assign(process.env, saved); globalThis.fetch = oldFetch; await fs.rm(fixtureRoot, { recursive: true, force: true });

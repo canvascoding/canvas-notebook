@@ -5,6 +5,8 @@ import { promises as fs } from 'node:fs';
 import { type McpServerConfig } from '@/app/lib/mcp/config';
 import { resolveMcpTransportValues } from '@/app/lib/mcp/env-runtime';
 import { assertMcpConnectionAccess } from '@/app/lib/mcp/access';
+import { assertMcpEncryptionReady } from '@/app/lib/mcp/encryption-readiness';
+import { isSecretReadinessError } from '@/app/lib/secrets/readiness';
 import { hashMcpAuthConfig, hashMcpLegacyConfig } from '@/app/lib/mcp/connection-identity';
 import { migrateMcpConnectionCredentials, readMcpCredentialJson, removeMcpCredentialJson, resolveMcpCredentialConnection, resolveMcpCredentialScope, writeMcpCredentialJson } from '@/app/lib/mcp/credential-storage';
 import { getUnifiedEnvFilePath } from '@/app/lib/secrets/unified-env-store';
@@ -588,7 +590,7 @@ export async function getMcpOAuthStatus(serverName: string, requestOrigin?: stri
       scope: null,
       authVersion,
       authStatus: 'not_authorized',
-      code: 'unavailable',
+      code: isSecretReadinessError(error) ? error.code : 'unavailable',
       reason: error instanceof Error ? error.message : 'OAuth status unavailable.',
     };
   }
@@ -598,6 +600,7 @@ export async function startMcpOAuth(serverName: string, requestOrigin?: string |
   const normalizedScope = requireMcpCredentialScope(mcpScope);
   const { serverConfig, credentialScope, oauth, configHash } = await resolveServerForOAuth(serverName, normalizedScope);
   await assertMcpConnectionAccess(serverConfig.connectionId, normalizedScope);
+  await assertMcpEncryptionReady(credentialScope, { provision: true });
   const lifecycle = await readMcpOAuthLifecycle(serverConfig.connectionId, credentialScope);
   const snapshot: OAuthConnectionSnapshot = {
     connectionId: serverConfig.connectionId, authVersion: serverConfig.authVersion || 1,

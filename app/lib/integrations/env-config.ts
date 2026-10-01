@@ -2,7 +2,7 @@ import crypto from 'crypto';
 import { resolveDefaultAgentsEnvPath, resolveDefaultIntegrationsEnvPath, type SecretDataStorageScope } from '../runtime-data-paths';
 import { parseEnvDocument } from '../secrets/env-document';
 import {
-  getUnifiedEnvFilePath, readUnifiedEnvState, projectEnvView, replaceEnvView, withUnifiedEnvLock,
+  getUnifiedEnvFilePath, readUnifiedEnvState, projectEnvView, replaceEnvView, withUnifiedEnvLock, assertUnifiedEnvReadable,
   type UnifiedEnvState, type SecretEnvEntry,
 } from '../secrets/unified-env-store';
 export {
@@ -27,7 +27,7 @@ export async function writeScopedEnvRaw(scope: EnvScope, rawContent: string, sto
 }
 export async function readScopedEnvState(scope: EnvScope, storageScope?: EnvStorageScope | null): Promise<IntegrationEnvState> {
   const state = await readUnifiedEnvState(storageScope);
-  if (!state.readable) throw new Error('Encrypted secrets cannot be read safely. Configure the secret master key.');
+  assertUnifiedEnvReadable(state);
   return projectEnvView(state, scope);
 }
 export async function replaceScopedEnvEntries(scope: EnvScope, entries: Array<{ key: string; value: string }>, storageScope?: EnvStorageScope | null): Promise<IntegrationEnvState> {

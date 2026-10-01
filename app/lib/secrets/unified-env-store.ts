@@ -8,10 +8,12 @@ import {
 } from '../runtime-data-paths';
 import { withFileMutationLock } from './file-mutation-lock';
 import { formatEnvValue, isEnvKey, parseEnvDocument, parseLegacyEnvDocument, updateEnvDocument } from './env-document';
+import { isAuthenticatedLegacyEmailEnvelope } from './legacy-email-envelope';
+import { configuredSecretMasterKeySource, SecretReadinessError, isSecretReadinessError, type SecretReadiness, type SecretReadinessCode } from './readiness';
 
 export type EnvView = 'integrations' | 'agents';
 export type SecretScope = SecretDataStorageScope | null | undefined;
-export type SecretEnvEntry = { key: string; value: string; encrypted: boolean; readable: boolean };
+export type SecretEnvEntry = { key: string; value: string; encrypted: boolean; readable: boolean; failure?: SecretReadinessCode };
 export type UnifiedEnvState = {
   path: string; exists: boolean; rawContent: string; entries: SecretEnvEntry[];
   encryptionEnabled: boolean; revision: string; readable: boolean;
@@ -45,16 +47,53 @@ function encrypt(value: string, secret: string): string {
   const iv = crypto.randomBytes(12);
   const cipher = crypto.createCipheriv('aes-256-gcm', crypto.createHash('sha256').update(secret).digest(), iv);
   const content = Buffer.concat([cipher.update(value, 'utf8'), cipher.final()]);
-  return `enc:v1:${iv.toString('hex')}:${cipher.getAuthTag().toString('hex')}:${content.toString('hex')}`;
+  return `enc:env:v1:${iv.toString('hex')}:${cipher.getAuthTag().toString('hex')}:${content.toString('hex')}`;
 }
 function decrypt(value: string, secret: string | null): string {
   if (!value.startsWith('enc:')) return value;
-  if (!secret) throw new Error('The secret encryption master key is unavailable.');
-  const parts = /^enc:v1:([a-f0-9]{24}):([a-f0-9]{32}):((?:[a-f0-9]{2})*)$/.exec(value);
-  if (!parts) throw new Error('Invalid encrypted secret format.');
-  const decipher = crypto.createDecipheriv('aes-256-gcm', crypto.createHash('sha256').update(secret).digest(), Buffer.from(parts[1], 'hex'));
-  decipher.setAuthTag(Buffer.from(parts[2], 'hex'));
-  return Buffer.concat([decipher.update(Buffer.from(parts[3], 'hex')), decipher.final()]).toString('utf8');
+  const parts = /^enc:(?:env:)?v1:([a-f0-9]{24}):([a-f0-9]{32}):((?:[a-f0-9]{2})*)$/u.exec(value);
+  if (!parts) throw new SecretReadinessError('invalid_secret_format');
+  if (!secret) throw new SecretReadinessError('master_key_missing');
+  try {
+    const decipher = crypto.createDecipheriv('aes-256-gcm', crypto.createHash('sha256').update(secret).digest(), Buffer.from(parts[1], 'hex'));
+    decipher.setAuthTag(Buffer.from(parts[2], 'hex'));
+    return Buffer.concat([decipher.update(Buffer.from(parts[3], 'hex')), decipher.final()]).toString('utf8');
+  } catch { throw new SecretReadinessError('decryption_failed'); }
+}
+
+function legacyEmailKeys(filePath: string, tokens: ReturnType<typeof parseEnvDocument>, secret: string | null): string[] {
+  const candidates = new Set<string>();
+  const configured = process.env.INTEGRATIONS_ENV_MASTER_KEY?.trim();
+  if (configured) candidates.add(configured);
+  const addStoredKey = (raw: string | null, originalKey: string | null, legacy = false) => {
+    if (raw === null) return;
+    const values = legacy ? parseLegacyEnvDocument(raw) : parseEnvDocument(raw);
+    const token = values.find(entry => entry.key === 'EMAIL_ACCOUNT_SECRET_ENCRYPTION_KEY');
+    if (!token?.value) return;
+    try {
+      const value = decrypt(token.value, originalKey).trim();
+      if (value && !value.startsWith('enc:')) candidates.add(value);
+    } catch { /* An unavailable fallback never makes an unauthenticated record readable. */ }
+  };
+  const local = tokens.find(entry => entry.key === 'EMAIL_ACCOUNT_SECRET_ENCRYPTION_KEY');
+  if (local?.value) {
+    try { const value = decrypt(local.value, secret).trim(); if (value && !value.startsWith('enc:')) candidates.add(value); } catch { /* Checked by the ordinary entry reader too. */ }
+  }
+  const systemPath = getUnifiedEnvFilePath({ secretScope: 'system' });
+  if (filePath !== systemPath) {
+    const canonical = readFileSync(systemPath);
+    if (canonical !== null) addStoredKey(canonical, masterKey());
+    else for (const source of legacySources({ secretScope: 'system' })) {
+      addStoredKey(readFileSync(source.path), process.env[source.view === 'agents' ? 'AGENTS_ENV_MASTER_KEY' : 'INTEGRATIONS_ENV_MASTER_KEY']?.trim() || null, true);
+    }
+  }
+  return [...candidates];
+}
+
+function decodeStoredValue(key: string, value: string, secret: string | null, emailKeys: readonly string[]): string {
+  if (/^CANVAS_CREDENTIAL_EMAIL_[A-F0-9]{64}$/u.test(key) && value.startsWith('enc:v1:')
+    && isAuthenticatedLegacyEmailEnvelope(value, emailKeys)) return value;
+  return decrypt(value, secret);
 }
 function legacySources(scope: SecretScope): Array<{ path: string; view: EnvView; label: string }> {
   const result: Array<{ path: string; view: EnvView; label: string }> = [];
@@ -77,11 +116,14 @@ function mergeLegacy(sources: Array<{ raw: string; view: EnvView; label: string 
   for (const source of sources) {
     const tokens = parseLegacyEnvDocument(source.raw);
     const secret = process.env[source.view === 'agents' ? 'AGENTS_ENV_MASTER_KEY' : 'INTEGRATIONS_ENV_MASTER_KEY']?.trim() || null;
+    const emailKeys = legacyEmailKeys('', tokens, secret);
     content += `# Imported ${source.label} settings\n`;
     for (const token of tokens) {
       if (!token.key) { content += token.raw; continue; }
       let value: string;
-      try { value = decrypt(token.value!, secret); } catch { throw new Error(`Cannot migrate encrypted ${source.view} entry ${token.key}; configure its original master key.`); }
+      try { value = decodeStoredValue(token.key, token.value!, secret, emailKeys); } catch (error) {
+        throw new SecretReadinessError(isSecretReadinessError(error) ? error.code : 'invalid_secret_format', `Cannot migrate encrypted ${source.view} entry ${token.key}; configure its original master key. See /settings?tab=secrets.`);
+      }
       let key = token.key;
       const sourceKey = `${source.view}:${token.key}`;
       if (canonical.has(sourceKey)) {
@@ -160,14 +202,19 @@ function stateFromPhysical(filePath: string, physical: string | null): UnifiedEn
   const changes = new Map<string, string | null>();
   const entries: SecretEnvEntry[] = [];
   const secret = masterKey();
+  const emailKeys = tokens.some(token => token.key?.startsWith('CANVAS_CREDENTIAL_EMAIL_') && token.value?.startsWith('enc:v1:'))
+    ? legacyEmailKeys(filePath, tokens, secret) : [];
   for (const token of tokens) {
     if (!token.key) continue;
     const encrypted = token.value!.startsWith('enc:');
     try {
-      const value = decrypt(token.value!, secret);
+      const value = decodeStoredValue(token.key, token.value!, secret, emailKeys);
       entries.push({ key: token.key, value, encrypted, readable: true });
       if (encrypted) changes.set(token.key, value);
-    } catch { entries.push({ key: token.key, value: '', encrypted, readable: false }); changes.set(token.key, ''); }
+    } catch (error) {
+      entries.push({ key: token.key, value: '', encrypted, readable: false, failure: isSecretReadinessError(error) ? error.code : 'invalid_secret_format' });
+      changes.set(token.key, '');
+    }
   }
   return { path: filePath, exists: physical !== null, rawContent: updateEnvDocument(tokens, changes), entries,
     encryptionEnabled: Boolean(secret), revision: crypto.createHash('sha256').update(physical === null ? 'missing\0' : `exists\0${physical}`).digest('hex'),
@@ -184,7 +231,21 @@ export async function readUnifiedEnvState(scope?: SecretScope): Promise<UnifiedE
   return withUnifiedEnvLock(scope, () => currentState(scope));
 }
 function requireReadable(state: UnifiedEnvState): void {
-  if (!state.readable) throw new Error('Encrypted secrets cannot be read safely. Configure the secret master key before saving.');
+  if (!state.readable) throw new SecretReadinessError(state.entries.find(entry => !entry.readable)?.failure || 'decryption_failed');
+}
+
+export function assertUnifiedEnvReadable(state: UnifiedEnvState): void { requireReadable(state); }
+
+export async function getUnifiedEnvReadiness(scope?: SecretScope): Promise<SecretReadiness> {
+  const masterKeySource = configuredSecretMasterKeySource();
+  try {
+    const state = await readUnifiedEnvState(scope);
+    return { status: state.readable ? 'ready' : state.entries.find(entry => !entry.readable)?.failure || 'decryption_failed', masterKeySource };
+  } catch (error) {
+    if (isSecretReadinessError(error)) return { status: error.code, masterKeySource };
+    if (error instanceof Error && /Invalid|Duplicate|Unterminated|Unexpected/u.test(error.message)) return { status: 'invalid_secret_format', masterKeySource };
+    throw error;
+  }
 }
 function checkRevision(state: UnifiedEnvState, revision?: string): void {
   if (revision !== undefined && revision !== state.revision) throw new SecretRevisionConflictError();
@@ -304,7 +365,7 @@ export function readUnifiedSecretValue(key: string, scope?: SecretScope): string
     return entry?.value ?? null;
   }
   const entry = state.entries.find(entry => entry.key === key);
-  if (entry && !entry.readable) throw new Error(`Secret ${key} cannot be decrypted safely.`);
+  if (entry && !entry.readable) throw new SecretReadinessError(entry.failure || 'decryption_failed', `Secret ${key} cannot be decrypted safely. See /settings?tab=secrets.`);
   return entry?.value ?? null;
 }
 /** A callback's read/refresh/write sequence remains under one cross-process lock. 'null' is a durable tombstone payload. */

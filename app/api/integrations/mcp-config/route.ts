@@ -8,6 +8,7 @@ import {
   writeMcpConfigRaw,
 } from '@/app/lib/mcp/config';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
+import { isSecretReadinessError } from '@/app/lib/secrets/readiness';
 
 interface PutPayload {
   rawContent?: string;
@@ -39,6 +40,7 @@ export async function GET(request: NextRequest) {
     const state = await readMcpConfigState({ userId: session.user.id });
     return NextResponse.json({ success: true, data: state });
   } catch (error) {
+    if (isSecretReadinessError(error)) return NextResponse.json({ success: false, error: error.message, code: error.code, settingsUrl: '/settings?tab=secrets' }, { status: error.status });
     if (error instanceof McpAccessError) {
       return NextResponse.json({ success: false, error: error.message, code: error.code }, { status: mcpErrorStatus(error) });
     }
@@ -68,6 +70,7 @@ export async function PUT(request: NextRequest) {
     const state = await writeMcpConfigRaw(payload.rawContent ?? '', { userId: session.user.id });
     return NextResponse.json({ success: true, data: state });
   } catch (error) {
+    if (isSecretReadinessError(error)) return NextResponse.json({ success: false, error: error.message, code: error.code, settingsUrl: '/settings?tab=secrets' }, { status: error.status });
     if (error instanceof McpAccessError) {
       return NextResponse.json({ success: false, error: error.message, code: error.code }, { status: mcpErrorStatus(error) });
     }
