@@ -7,6 +7,7 @@ import { useTranslations } from 'next-intl';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { proseEntities } from '@/app/lib/markdown/core/prose-entities';
 import {
   normalizeCanvasTag,
   parseCanvasMarkdownDocument,
@@ -143,6 +144,8 @@ export function MarkdownPropertiesPanel({
     );
   }
 
+  // Decode presentation text without changing the YAML or the editable title.
+  const displayTitle = frontmatter.title ? proseEntities(frontmatter.title) : null;
   const extraProperties = Object.entries(frontmatter.data).filter(([key]) => !RESERVED_PROPERTY_KEYS.has(key));
   const propertyCount = frontmatter.tags.length + frontmatter.aliases.length + extraProperties.length + (frontmatter.title ? 1 : 0);
   const knownTags = knownTagState.workspaceId === activeWorkspaceId ? knownTagState.tags : [];
@@ -171,7 +174,7 @@ export function MarkdownPropertiesPanel({
             {t('markdownEditorProperties')}
           </span>
           <span className="mt-0.5 line-clamp-2 block break-words text-sm font-semibold leading-5 text-foreground">
-            {frontmatter.title || t('markdownEditorPropertiesUntitled')}
+            {displayTitle || t('markdownEditorPropertiesUntitled')}
           </span>
         </span>
         <span className="flex shrink-0 items-center gap-1.5 pl-1 text-muted-foreground">
@@ -225,7 +228,7 @@ export function MarkdownPropertiesPanel({
               {t('markdownEditorPropertiesTitle')}
             </Label>
             {readOnly ? (
-              <p className="min-h-10 break-words rounded-lg border bg-muted/20 px-3 py-2 text-sm">{frontmatter.title || '—'}</p>
+              <p className="min-h-10 break-words rounded-lg border bg-muted/20 px-3 py-2 text-sm">{displayTitle || '—'}</p>
             ) : (
               <Input
                 key={frontmatter.title ?? ''}
