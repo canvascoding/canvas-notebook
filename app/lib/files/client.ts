@@ -348,18 +348,21 @@ export async function loadWorkspaceTree(
 
 export async function readWorkspaceFile(
   path: string,
-  options: { metaOnly?: boolean; noCache?: boolean; fallbackMessage?: string; workspaceId?: string | null; signal?: AbortSignal } = {}
+  options: { metaOnly?: boolean; noCache?: boolean; fallbackMessage?: string; workspaceId?: string | null; signal?: AbortSignal;
+    collaborationBootstrap?: boolean } = {}
 ): Promise<CurrentFile> {
   const { metaOnly = false, noCache = false, fallbackMessage = 'Failed to load file', workspaceId } = options;
   const requestWorkspaceId = workspaceId ?? getActiveWorkspaceId();
   let url = `/api/files/read?path=${encodeURIComponent(path)}${metaOnly ? '&meta=1' : ''}`;
+  if (options.collaborationBootstrap && !metaOnly) url += '&collaborationBootstrap=1';
   if (noCache) {
     url += `&t=${Date.now()}`;
   }
 
   const headers = workspaceHeaders(requestWorkspaceId);
   try {
-    return await fetchDocumentQuery({ workspaceId: requestWorkspaceId, path, metaOnly, noCache, signal: options.signal },
+    return await fetchDocumentQuery({ workspaceId: requestWorkspaceId, path, metaOnly, noCache, signal: options.signal,
+      collaborationBootstrap: options.collaborationBootstrap },
       async ({ signal }) => {
         const response = await fetchLiveDocument(url, { credentials: 'include', cache: 'no-store', headers, signal });
         if (!response.ok) throw response;

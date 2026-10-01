@@ -47,6 +47,17 @@ async function main() {
       assert.deepEqual(await result.reason.json(), { error: 'denied' }, 'each consumer owns a readable error body');
     }
   }
+  failure = false;
+  gate = new Promise<void>(resolve => { release = resolve; });
+  const beforeBootstrap = calls.length;
+  const ordinaryRead = readWorkspaceFile('quarantined.md');
+  const bootstrapRead = readWorkspaceFile('quarantined.md', { collaborationBootstrap: true });
+  const sameBootstrapRead = readWorkspaceFile('quarantined.md', { collaborationBootstrap: true });
+  assert.equal(calls.length, beforeBootstrap + 2, 'bootstrap and content reads cannot share cached responses');
+  assert.equal(calls[beforeBootstrap].url.includes('collaborationBootstrap'), false);
+  assert.equal(calls[beforeBootstrap + 1].url.includes('collaborationBootstrap=1'), true);
+  release();
+  await Promise.all([ordinaryRead, bootstrapRead, sameBootstrapRead]);
   getNotebookQueryClient().clear();
   console.log('document-query-test: ok');
 }

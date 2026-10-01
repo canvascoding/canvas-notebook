@@ -4,11 +4,12 @@ import { fetchNotebookQuery } from './client';
 type DocumentQueryScope = { workspaceId: string | null; path: string; noCache: boolean; signal?: AbortSignal };
 
 /** Share concurrent reads; the file store and collaboration layer own visible snapshots. */
-export function fetchDocumentQuery(input: DocumentQueryScope & { metaOnly: boolean },
+export function fetchDocumentQuery(input: DocumentQueryScope & { metaOnly: boolean; collaborationBootstrap?: boolean },
   queryFn: (context: { signal: AbortSignal }) => Promise<CurrentFile>) {
   return fetchNotebookQuery({
     workspaceId: input.workspaceId,
-    resource: ['document', 'read', input.path, input.metaOnly, input.noCache],
+    resource: ['document', 'read', input.path, input.metaOnly, input.noCache,
+      ...(input.collaborationBootstrap && !input.metaOnly ? ['collaboration_bootstrap'] : [])],
     staleTime: 0,
     signal: input.signal,
     queryFn,

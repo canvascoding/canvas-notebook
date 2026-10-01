@@ -13,6 +13,7 @@ import { isExcalidrawFilePath } from '@/app/lib/excalidraw-file';
 import { requireRequestWorkspace, workspaceFileOptions } from '@/app/lib/workspaces/request';
 import { loadCollaborationState } from '@/app/lib/collaboration/persistence';
 import { collaborativeReadSnapshot } from '@/app/lib/files/collaborative-read-snapshot';
+import { isCollaborationStateQuarantined } from '@/app/lib/collaboration/failure';
 
 const READ_SIZE_LIMIT = 5 * 1024 * 1024; // 5MB
 const EXCALIDRAW_READ_SIZE_LIMIT = 25 * 1024 * 1024; // embedded image data can make scenes larger
@@ -95,10 +96,19 @@ export async function GET(request: NextRequest) {
     });
     const liveDocument = collaboration.document?.provider === 'yjs' && collaboration.document.status === 'active'
       ? collaboration.document : null;
+    const liveState = liveDocument ? await loadCollaborationState(liveDocument.id) : null;
+    const allowQuarantinedMetadata = searchParams.get('collaborationBootstrap') === '1';
     const durableContent = liveDocument ? collaborativeReadSnapshot({
       workspace: workspaceResult.workspace, collaboration,
-      state: await loadCollaborationState(liveDocument.id),
+      state: liveState, allowQuarantinedMetadata,
     }) : null;
+    if (allowQuarantinedMetadata && liveState && isCollaborationStateQuarantined(liveState)) {
+      return NextResponse.json({ success: true, data: {
+        path, content: '', contentUnavailable: true,
+        stats: { size: stats.size, modified: stats.modified, permissions: stats.permissions, fileVersion: stats.fileVersion },
+        revision: null, collaboration,
+      } }, { headers: { 'Cache-Control': 'no-store' } });
+    }
     const content = durableContent ?? await readFile(path, fileOptions);
     if (content.byteLength > sizeLimit) {
       return NextResponse.json({ success: false, error: 'File is too large to read' }, { status: 413 });

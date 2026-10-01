@@ -789,7 +789,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
 
       let data: CurrentFile;
       try {
-        data = await readWorkspaceFile(path, { metaOnly: useMetaOnly, noCache, workspaceId });
+        data = await readWorkspaceFile(path, { metaOnly: useMetaOnly, noCache, workspaceId, collaborationBootstrap: isText });
       } catch (error) {
         const local = isText && workspaceId && error instanceof LiveDocumentNetworkError
           ? findOpenedLiveDocument(workspaceId, path, expectedDocumentId, authScope) : null;

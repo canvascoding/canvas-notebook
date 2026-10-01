@@ -68,7 +68,7 @@ test('collaborative reads fail closed for foreign, archived, degraded or corrupt
 });
 
 async function harness() {
-  const controls = { ...fixture(), denied: false, metadata: false,
+  const controls = { ...fixture(), denied: false, metadata: false, bootstrap: false,
     state: fixture().state as PersistedCollaborationState | null, disk: Buffer.from('Price: 100 €\n') };
   const calls = { diskReads: 0, revisionWrites: 0, stateReads: 0 };
   const filename = path.resolve('app/api/files/read/route.ts');
@@ -104,8 +104,43 @@ async function harness() {
     (name: string) => mocks[name] ?? runtimeRequire(name), { exports: route }, route,
   );
   return { controls, calls, read: () => route.GET(new NextRequest(
-    `https://canvas.test/api/files/read?path=note.txt${controls.metadata ? '&meta=1' : ''}`)) };
+    `https://canvas.test/api/files/read?path=note.txt${controls.metadata ? '&meta=1' : ''}${controls.bootstrap ? '&collaborationBootstrap=1' : ''}`)) };
 }
+
+test('quarantined opening returns scoped metadata without disk bytes, a hash, a revision or state changes', async () => {
+  const h = await harness();
+  const state = h.controls.state!;
+  h.controls.state = { ...state, degraded: true, projectionError: { code: 'COLLABORATION_SCHEMA_INVALID',
+    phase: 'snapshot_validate', sequence: 2, permanent: true } };
+  const binary = Buffer.from(state.yjsState);
+  const originalError = console.error; console.error = () => undefined;
+  try {
+    assert.equal((await h.read()).status, 409, 'ordinary content reads stay closed');
+    h.controls.bootstrap = true;
+    const response = await h.read(); assert.equal(response.status, 200);
+    const { data } = await response.json();
+    assert.equal(data.content, ''); assert.equal(data.contentUnavailable, true);
+    assert.equal(data.stats.sha256, undefined); assert.equal(data.revision, null);
+    assert.equal(data.collaboration.document.id, state.documentId);
+    assert.equal(h.calls.diskReads, 0); assert.equal(h.calls.revisionWrites, 0);
+    assert(h.controls.state);
+    assert.deepEqual(Buffer.from(h.controls.state.yjsState), binary);
+    assert.equal(h.controls.state.degraded, true);
+    h.controls.state.documentId = 'foreign';
+    assert.equal((await h.read()).status, 409, 'metadata cannot bypass the document identity check');
+    h.controls.denied = true;
+    assert.equal((await h.read()).status, 403);
+  } finally { console.error = originalError; }
+});
+
+test('a pending binary-storage retry can read its validated persisted snapshot without clearing the failure', () => {
+  const { state, collaboration } = fixture();
+  const pending: PersistedCollaborationState = { ...state, degraded: true,
+    projectionError: { code: 'COLLABORATION_YJS_PERSISTENCE_FAILED', phase: 'binary_persist',
+      sequence: 2, permanent: false } };
+  assert.equal(collaborativeReadSnapshot({ workspace, collaboration, state: pending })?.toString(), 'Price: 130 €\n');
+  assert.equal(pending.degraded, true);
+});
 
 test('opening a lagging file projection never records old -> new -> old history', async () => {
   const h = await harness();
