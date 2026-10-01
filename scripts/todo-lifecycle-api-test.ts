@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { Pool } from 'pg';
 import { NextRequest } from 'next/server';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 
 // Reuses the managed PostgreSQL server; fixtures live in a disposable database.
 // node --env-file=<managed notebook-host-dev.env> --import tsx --conditions react-server scripts/todo-lifecycle-api-test.ts
@@ -236,12 +236,17 @@ async function main() {
       await assert.rejects(() => listMobileAggregateInbox({ userId: ownerId, workspaces: [workspace], todoMode: mode === 'legacy' ? 'lifecycle' : 'legacy', filter: 'todos', cursor: aggregate.nextCursor }), { code: 'INVALID_CURSOR' });
     }
     // User-scoped personal tasks appear once, only through the included default source.
-    const personalDefaultId = 'lifecycle-personal-default';
+    const actualDefault = await db.query.canvasWorkspaces.findFirst({ where: and(
+      eq(canvasWorkspaces.ownerUserId, ownerId), eq(canvasWorkspaces.type, 'personal'), eq(canvasWorkspaces.isDefault, true),
+    ) });
+    assert.ok(actualDefault, 'Workspace resolution created the owner default personal workspace');
+    const personalDefaultId = actualDefault.id;
     const personalOtherId = 'lifecycle-personal-other';
-    await db.insert(canvasWorkspaces).values([personalDefaultId, personalOtherId].map(id => ({
-      id, organizationId, type: 'personal', ownerUserId: ownerId, rootRelativePath: `users/${ownerId}/${id}`, displayName: id, status: 'active', createdAt: now, updatedAt: now,
-    })));
-    await db.insert(todoItems).values({ id: randomUUID(), userId: ownerId, createdByUserId: ownerId, workspaceId: personalOtherId, workspaceType: 'personal', scopeKind: 'workspace', title: 'Other personal task', createdAt: now, updatedAt: now });
+    await db.insert(canvasWorkspaces).values({
+      id: personalOtherId, organizationId, type: 'personal', ownerUserId: ownerId, rootRelativePath: `users/${ownerId}/${personalOtherId}`, displayName: personalOtherId, status: 'active', createdAt: now, updatedAt: now,
+    });
+    const otherPersonalTodoId = randomUUID();
+    await db.insert(todoItems).values({ id: otherPersonalTodoId, userId: ownerId, createdByUserId: ownerId, workspaceId: personalOtherId, workspaceType: 'personal', scopeKind: 'workspace', title: 'Other personal task', createdAt: now, updatedAt: now });
     const personalDefault = { ...workspace, workspaceId: personalDefaultId, workspaceType: 'personal' as const, ownerUserId: ownerId, isDefault: true };
     const personalOther = { ...personalDefault, workspaceId: personalOtherId, isDefault: false };
     const { countMobileOpenTodos } = await import('../app/lib/mobile/todo-counts');
@@ -256,10 +261,56 @@ async function main() {
     assert.equal((await listLifecycleTodoAttention({ userId: ownerId, workspaceIds: [personalOtherId], includeUserScope: false, now })).total, 1);
     const scopedSummary = await readNotificationAttention({ userId: ownerId, workspaces: [personalOther], now, todoMode: 'lifecycle' });
     assert.equal(scopedSummary.counts.todos, 1, 'Excluded default personal source cannot leak user-scoped tasks into lifecycle summary');
+
+    // Completing a user-scoped task must move it into the default personal Done list.
+    const defaultPersonalTodoId = randomUUID();
+    const foreignPersonalTodoId = randomUUID();
+    await db.insert(todoItems).values([
+      { id: defaultPersonalTodoId, userId: ownerId, createdByUserId: ownerId, workspaceId: personalDefaultId, workspaceType: 'personal', scopeKind: 'workspace', title: 'Default personal task', createdAt: now, updatedAt: now },
+      { id: foreignPersonalTodoId, userId: outsiderId, createdByUserId: outsiderId, workspaceType: 'personal', scopeKind: 'user', title: 'Another owner task', createdAt: now, updatedAt: now },
+    ]);
+    const personalRequest = (pathname: string, selectedWorkspace = personalDefaultId, method = 'GET', payload?: unknown, lifecycle = true) => {
+      const selectedRequest = request(pathname, method, payload, lifecycle);
+      selectedRequest.headers.set('X-Canvas-Workspace-Id', selectedWorkspace);
+      return selectedRequest;
+    };
+    const personalList = async (status: string, selectedWorkspace = personalDefaultId, lifecycle = true) => {
+      const response = await mobileList.GET(personalRequest(`/api/mobile/v1/todos?status=${status}`, selectedWorkspace, 'GET', undefined, lifecycle));
+      assert.equal(response?.status, 200);
+      const todos = (await response!.json()).todos as Array<Record<string, unknown>>;
+      if (lifecycle) todos.forEach(noReadMetadata);
+      return todos.map(todo => todo.id);
+    };
+    const resolvedDefault = await requireSessionWorkspace(fixtureSession(), { workspaceId: personalDefaultId, permissions: 'canRead' });
+    assert.equal(resolvedDefault.workspace?.isDefault, true, 'The actual request workspace preserves the default flag');
+    assert.deepEqual(new Set(await personalList('all')), new Set([createdTodo.id, defaultPersonalTodoId]));
+    assert.deepEqual(await personalList('all', personalOtherId), [otherPersonalTodoId]);
+    const personalTodoContext = { params: Promise.resolve({ todoId: createdTodo.id }) };
+    for (const status of ['done', 'archived', 'open']) {
+      const response = await mobile.PATCH(personalRequest(`/api/mobile/v1/todos/${createdTodo.id}`, personalDefaultId, 'PATCH', { status }), personalTodoContext);
+      assert.equal(response?.status, 200);
+      noReadMetadata((await response!.json()).todo);
+      assert.deepEqual(new Set(await personalList(status)), new Set(status === 'open' ? [createdTodo.id, defaultPersonalTodoId] : [createdTodo.id]),
+        `Default personal ${status} includes the owner's user-scoped task`);
+      assert.deepEqual(await personalList(status, personalDefaultId, false), status === 'open' ? [defaultPersonalTodoId] : [],
+        `Legacy default personal ${status} remains workspace-scoped`);
+      assert.deepEqual(await personalList(status, personalOtherId), status === 'open' ? [otherPersonalTodoId] : [],
+        `Nondefault personal ${status} excludes user-scoped tasks`);
+      assert.deepEqual(await personalList(status, personalOtherId, false), status === 'open' ? [otherPersonalTodoId] : []);
+    }
+    const { createLegacyPersonalWorkspaceContext } = await import('../app/lib/workspaces/context');
+    for (const mode of ['legacy', 'lifecycle'] as const) {
+      const legacyPersonal = await listMobileTodos({ userId: ownerId, workspace: createLegacyPersonalWorkspaceContext(), status: 'all', todoMode: mode });
+      assert.deepEqual(legacyPersonal.todos.map(todo => todo.id), [createdTodo.id], 'Legacy personal scope remains user-only in both modes');
+    }
+    await assert.rejects(() => listMobileTodos({ userId: outsiderId, workspace: resolvedDefault.workspace!, status: 'all', todoMode: 'lifecycle' }), { code: 'INVALID_INPUT' },
+      'The widened personal list still verifies the workspace owner');
     currentUserId = outsiderId;
+    assert.equal((await mobileList.GET(personalRequest('/api/mobile/v1/todos?status=all')))?.status, 404);
     assert.equal((await web.GET(request(`/api/todos/${teamId}`), context))?.status, 404);
     assert.equal((await mobile.GET(request(`/api/mobile/v1/todos/${teamId}`), mobileContext))?.status, 404);
     currentUserId = null;
+    assert.equal((await mobileList.GET(personalRequest('/api/mobile/v1/todos?status=all')))?.status, 401);
     assert.equal((await web.GET(request(`/api/todos/${teamId}`), context))?.status, 401);
     console.log('Todo lifecycle APIs passed: independent opening/completion, reader permissions, DTOs/legacy actions, Inbox/aggregate/cursors, follow-ups, full counts and attention ranking.');
   } finally {

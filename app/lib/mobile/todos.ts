@@ -72,7 +72,7 @@ export class MobileTodoError extends Error {
   }
 }
 
-function workspaceOptions(workspace: WorkspaceContext): Pick<
+function workspaceOptions(workspace: WorkspaceContext, todoMode: TodoApiMode = 'legacy'): Pick<
   ListTodosOptions,
   'workspaceType' | 'organizationId' | 'workspaceId' | 'scopeKind'
 > {
@@ -87,7 +87,11 @@ function workspaceOptions(workspace: WorkspaceContext): Pick<
       scopeKind: 'workspace',
     };
   }
-  return { workspaceType: 'personal', workspaceId: workspace.workspaceId, scopeKind: 'workspace' };
+  return {
+    workspaceType: 'personal',
+    workspaceId: workspace.workspaceId,
+    scopeKind: todoMode === 'lifecycle' && workspace.isDefault ? 'all' : 'workspace',
+  };
 }
 
 export function mobileTodoBelongsToWorkspace(todo: TodoWithRelations, workspace: WorkspaceContext): boolean {
@@ -236,7 +240,7 @@ export async function listMobileTodos(input: {
     }
   }
   const todos = await listTodos(input.userId, {
-    ...workspaceOptions(input.workspace),
+    ...workspaceOptions(input.workspace, todoMode),
     status,
     due,
     readState,

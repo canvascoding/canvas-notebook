@@ -56,3 +56,5 @@ The initial development-server runs exceeded cold-compilation time limits. The c
 ![Compact task filters](screenshots/compact-filters.png)
 
 ![Compact task detail](screenshots/compact-popup.png)
+
+Native acceptance exposed a pre-existing personal-scope list gap: a user-scoped task was visible in Inbox/detail but absent from the completed list. Lifecycle lists now include the owner's user-scoped tasks in the default personal workspace for every status. Legacy and non-default/shared workspace lists retain their existing scope. Real-route PostgreSQL tests verify default resolution, all lifecycle statuses, owner/outsider access and unchanged legacy/non-default results; the updated production build passed.
