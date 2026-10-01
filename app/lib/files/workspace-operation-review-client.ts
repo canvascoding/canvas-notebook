@@ -1,4 +1,5 @@
 import type { WorkspaceOperationReviewPublic } from './workspace-operation-review-contract';
+import type { WorkspaceOperationBatchPublic } from './workspace-operation-batch-public';
 import { workspaceHeaders } from './client';
 
 export class WorkspaceOperationReviewClientError extends Error {
@@ -75,4 +76,63 @@ export async function decideWorkspaceOperationReview(input: {
     throw new WorkspaceOperationReviewClientError('Review-Antwort passt nicht zur Anfrage.', response.status, null);
   }
   return payload.review;
+}
+
+export async function refreshWorkspaceOperationReview(input: {
+  reviewId: string; workspaceId: string; planId: string;
+}): Promise<WorkspaceOperationReviewPublic> {
+  const response = await fetch(`/api/files/operation-reviews/${encodeURIComponent(input.reviewId)}`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', ...workspaceHeaders(input.workspaceId) },
+    credentials: 'include', body: JSON.stringify({ action: 'refresh', planId: input.planId }),
+  });
+  const payload = await readResponse<{ review: WorkspaceOperationReviewPublic }>(response);
+  if (!payload.review || (payload.review.sourceWorkspaceId !== input.workspaceId
+    && payload.review.destinationWorkspaceId !== input.workspaceId)) {
+    throw new WorkspaceOperationReviewClientError('Review-Antwort passt nicht zum Workspace.', response.status, null);
+  }
+  return payload.review;
+}
+
+async function readBatchResponse(response: Response, workspaceId: string, batchId?: string): Promise<WorkspaceOperationBatchPublic> {
+  const payload = await readResponse<{ batch: WorkspaceOperationBatchPublic }>(response);
+  if (!payload.batch || payload.batch.workspaceId !== workspaceId
+    || batchId && payload.batch.batchId !== batchId || !payload.batch.preview) {
+    throw new WorkspaceOperationReviewClientError('Batch-Antwort passt nicht zur Anfrage.', response.status, null);
+  }
+  return payload.batch;
+}
+
+export async function previewWorkspaceOperationBatch(reviewIds: string[], workspaceId: string): Promise<WorkspaceOperationBatchPublic> {
+  const response = await fetch('/api/files/operation-reviews/batches', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', ...workspaceHeaders(workspaceId) },
+    credentials: 'include', body: JSON.stringify({ action: 'preview', reviewIds }),
+  });
+  return readBatchResponse(response, workspaceId);
+}
+
+export async function acceptWorkspaceOperationBatch(input: {
+  batchId: string; workspaceId: string; planId: string;
+}): Promise<WorkspaceOperationBatchPublic> {
+  const response = await fetch('/api/files/operation-reviews/batches', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', ...workspaceHeaders(input.workspaceId) },
+    credentials: 'include', body: JSON.stringify({ action: 'accept', batchId: input.batchId, planId: input.planId }),
+  });
+  return readBatchResponse(response, input.workspaceId, input.batchId);
+}
+
+export async function readWorkspaceOperationBatch(batchId: string, workspaceId: string, signal?: AbortSignal): Promise<WorkspaceOperationBatchPublic> {
+  const response = await fetch(`/api/files/operation-reviews/batches/${encodeURIComponent(batchId)}`, {
+    headers: workspaceHeaders(workspaceId), credentials: 'include', cache: 'no-store', signal,
+  });
+  return readBatchResponse(response, workspaceId, batchId);
+}
+
+export async function updateWorkspaceOperationBatch(input: {
+  batchId: string; workspaceId: string; planId: string; action: 'resume' | 'undo';
+}): Promise<WorkspaceOperationBatchPublic> {
+  const response = await fetch(`/api/files/operation-reviews/batches/${encodeURIComponent(input.batchId)}`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', ...workspaceHeaders(input.workspaceId) },
+    credentials: 'include', body: JSON.stringify({ action: input.action, planId: input.planId }),
+  });
+  return readBatchResponse(response, input.workspaceId, input.batchId);
 }

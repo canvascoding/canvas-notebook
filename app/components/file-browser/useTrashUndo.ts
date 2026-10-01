@@ -13,6 +13,7 @@ import {
 } from '@/app/lib/files/client';
 import { useFileStore } from '@/app/store/file-store';
 import { useWorkspaceStore } from '@/app/store/workspace-store';
+import { openWorkspaceOperationReview } from '@/app/store/workspace-operation-review-store';
 
 export function useTrashUndo() {
   const t = useTranslations('notebook');
@@ -30,6 +31,14 @@ export function useTrashUndo() {
       partialError = error;
       return error.result;
     });
+    if (result.reviewRequired) {
+      if (result.reviewRequired.workspaceId === workspaceId
+        && useWorkspaceStore.getState().activeWorkspaceId === workspaceId) {
+        openWorkspaceOperationReview(result.reviewRequired.reviewId, workspaceId);
+        window.dispatchEvent(new CustomEvent('notification_summary_updated'));
+      }
+      return result;
+    }
     const trashEntries = result.trashEntries ?? [];
     if (trashEntries.length === 0) {
       if (partialError) throw partialError;

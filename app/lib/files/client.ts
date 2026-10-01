@@ -60,6 +60,12 @@ export interface DeleteWorkspacePathsResult {
   deleted?: string[];
   failed?: Array<{ path: string; error: string }>;
   trashEntries?: WorkspaceTrashEntryReference[];
+  reviewRequired?: {
+    reviewId: string;
+    planId: string;
+    workspaceId: string;
+    status: 'pending' | 'blocked';
+  };
 }
 
 export class WorkspaceDeletePartialError extends Error {
@@ -427,13 +433,30 @@ export async function createWorkspacePath(
 }
 
 export async function deleteWorkspacePaths(paths: string[], workspaceId?: string | null): Promise<DeleteWorkspacePathsResult> {
+  const requestedWorkspaceId = workspaceId ?? getActiveWorkspaceId();
   const response = await fetch('/api/files/delete', {
     method: 'DELETE',
-    headers: { 'Content-Type': 'application/json', ...workspaceHeaders(workspaceId) },
+    headers: { 'Content-Type': 'application/json', ...workspaceHeaders(requestedWorkspaceId) },
     credentials: 'include',
     body: JSON.stringify({ path: paths }),
   });
 
+  if (response.ok || response.status === 409) {
+    const result = await readApiJson<DeleteWorkspacePathsResult>(response.clone(), 'Failed to delete paths');
+    if (result.reviewRequired) {
+      const review = result.reviewRequired;
+      if (typeof review.reviewId !== 'string' || !review.reviewId
+        || typeof review.planId !== 'string' || !review.planId
+        || typeof review.workspaceId !== 'string' || !review.workspaceId
+        || !['pending', 'blocked'].includes(review.status)
+        || requestedWorkspaceId && review.workspaceId !== requestedWorkspaceId
+        || result.deleted?.length || result.trashEntries?.length) {
+        throw new Error('Invalid file action review response');
+      }
+      return result;
+    }
+    if (response.ok) return result;
+  }
   if (!response.ok) {
     throw new Error(await readApiError(response, 'Failed to delete paths'));
   }

@@ -440,7 +440,8 @@ export function FileActionsDropdown({
 
   const handleConfirmDelete = async () => {
     if (!node) return;
-    await deleteWithUndo(node.path);
+    const result = await deleteWithUndo(node.path);
+    if (result.reviewRequired) return;
     onAfterDelete?.(node);
   };
 

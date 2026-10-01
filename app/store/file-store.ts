@@ -1532,6 +1532,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     if (!isCurrent()) return {};
     const result = await deleteWorkspacePaths(pathsToDelete, workspaceId);
     if (!isCurrent()) return result;
+    if (result.reviewRequired) return result;
     const deleted = result.deleted ?? (result.failed?.length ? [] : pathsToDelete);
     get().applyPathsDeleted(deleted, workspaceId, true);
     for (const parent of new Set(deleted.map(getParentDirectory))) {
