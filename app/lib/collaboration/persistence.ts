@@ -36,6 +36,8 @@ import { claimCollaborationAdmissionMutation, requireCollaborationAdmissionMutat
 import { captureCollaborationCompactionRequest } from './compaction-contract';
 import { captureCollaborationAdmissionWriterScope, CollaborationAdmissionError, type CollaborationAdmissionRequest } from './room-admission-contract';
 import { assertCollaborationAdmissionOpen, lockCollaborationAdmissionWorkspace } from './room-admission';
+import { CollaborationCheckpointQuarantinedError } from './checkpoint-errors';
+import type { CollaborationProjectionStatus } from './types';
 
 export interface PersistedCollaborationState {
   documentId: string;
@@ -57,6 +59,8 @@ export interface PersistedCollaborationState {
   hasBom: boolean;
   degraded: boolean;
   status: 'active' | 'archived';
+  projectionError?: CollaborationProjectionStatus['projectionError'];
+  projectionFinalized?: boolean;
 }
 
 export type SafeMarkdownNormalizationCheckpoint = {
@@ -90,6 +94,11 @@ type StateRow = {
   has_bom: number | boolean;
   degraded: number | boolean;
   status: 'active' | 'archived';
+  projection_error_code?: string | null;
+  projection_error_phase?: string | null;
+  projection_error_sequence?: number | null;
+  projection_error_generation?: number | null;
+  projection_error_permanent?: number;
 };
 
 function bytes(value: Buffer | Uint8Array): Uint8Array {
@@ -117,6 +126,9 @@ function mapState(row: StateRow): PersistedCollaborationState {
     hasBom: row.has_bom === true || row.has_bom === 1,
     degraded: row.degraded === true || row.degraded === 1,
     status: row.status === 'archived' ? 'archived' : 'active',
+    ...(row.projection_error_code && Number(row.projection_error_generation) === Number(row.lifecycle_generation)
+      ? { projectionError: { code: row.projection_error_code, sequence: Number(row.projection_error_sequence),
+        permanent: row.projection_error_permanent === 1, phase: row.projection_error_phase ?? undefined } } : {}),
   };
 }
 
@@ -325,7 +337,8 @@ export async function persistCollaborationYDoc(
         `
           UPDATE collaboration_yjs_states
           SET yjs_state = $1, state_vector = $2, document_sequence = document_sequence + 1,
-              persisted_at = $3, degraded = 0
+              persisted_at = $3, degraded = CASE WHEN projection_error_permanent = 1
+                AND projection_error_generation = lifecycle_generation THEN degraded ELSE 0 END
           WHERE document_id = $4 AND status = 'active' AND lifecycle_generation = $5
             AND document_sequence = $6
           RETURNING *
@@ -600,6 +613,7 @@ export async function withCollaborationCheckpointFence<T>(input: {
       }
 
       await assertCurrentCollaborationProjectionIdentity(lockedState, database);
+      if (lockedState.degraded || lockedState.projectionError?.permanent) throw new CollaborationCheckpointQuarantinedError();
 
       const materialized = await input.materialize(lockedState);
       const expectedCanonicalHash = sha256Text(materialized.canonicalContent);
@@ -621,6 +635,8 @@ export async function withCollaborationCheckpointFence<T>(input: {
                   AND checkpoint_sequence <= $7
                   AND workspace_id = $8 AND path = $9 AND representation = $10
                   AND status = 'active' AND lifecycle_generation = $11 AND schema_version = $12
+                  AND degraded = 0
+                  AND NOT (projection_error_permanent = 1 AND projection_error_generation = lifecycle_generation)
                 RETURNING *
               `,
               [

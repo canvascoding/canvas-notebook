@@ -14,6 +14,7 @@ import { requireRuntimeCapability, requireTeamRuntimeLicense } from '@/app/lib/l
 import { getDirectMcpReadiness } from '@/app/lib/mcp/server/readiness';
 import type { DirectMcpReadiness } from '@/app/lib/mcp/server/readiness';
 import { createCachedAsyncCheck, HealthCheckTimeoutError, withHealthCheckTimeout } from '@/app/lib/health/async-check';
+import { readCollaborationProjectionHealth } from '@/app/lib/collaboration/projection-repository';
 
 const getCachedDirectMcpReadiness = createCachedAsyncCheck(getDirectMcpReadiness, 30_000);
 
@@ -34,6 +35,7 @@ async function performHealthChecks() {
   const teamFeaturesEnabled = areTeamFeaturesEnabled(deploymentMode);
   const providerGate = resolveDatabaseProviderGate({ teamFeaturesEnabled });
   const collaboration = getCollaborationRuntimeHealth();
+  let projection: Awaited<ReturnType<typeof readCollaborationProjectionHealth>> | null = null;
   try {
     await ensureAuthReady();
     checks.auth = 'ok';
@@ -70,6 +72,8 @@ async function performHealthChecks() {
     connection = await openDb();
     await connection.get('SELECT 1');
     checks.db = 'ok';
+    try { projection = await readCollaborationProjectionHealth(connection); }
+    catch { /* Report unavailable diagnostics without restarting a healthy process. */ }
     if (teamFeaturesEnabled) {
       if (collaboration.capabilityReady) {
         try {
@@ -119,6 +123,7 @@ async function performHealthChecks() {
       collaboration: {
         enabled: teamFeaturesEnabled && checks.collaboration === 'ok' && getCollaborationRuntimeHealth().capabilityReady,
         ...getCollaborationRuntimeHealth(),
+        projection,
       },
       mcp: mcpReadiness,
       timestamp: new Date().toISOString(),

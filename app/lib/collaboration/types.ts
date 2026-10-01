@@ -93,6 +93,9 @@ export interface CollaborationSessionResponse {
   checkpointSequence?: number;
   stateVector?: string;
   stateProof?: string | null;
+  degraded?: boolean;
+  projectionError?: CollaborationProjectionStatus['projectionError'];
+  projectionFinalized?: boolean;
   token: string;
   expiresAt: string;
   websocketUrl: string;
@@ -103,6 +106,12 @@ export interface CollaborationSessionResponse {
     colorLight: string;
   };
 }
+
+export type CollaborationProjectionStatus = {
+  degraded: boolean;
+  projectionFinalized: boolean;
+  projectionError?: { code: string; sequence: number; permanent: boolean; phase?: string };
+};
 
 export interface FilePresenceEntry {
   workspaceId: string;

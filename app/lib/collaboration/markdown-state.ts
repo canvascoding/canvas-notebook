@@ -116,7 +116,7 @@ export function replaceRichMarkdownInYDoc(
 
 export type RichMarkdownValidation = {
   valid: boolean;
-  code?: 'schema_invalid' | 'stable_id_missing' | 'stable_id_duplicate' | 'roundtrip_unstable';
+  code?: 'schema_invalid' | 'stable_id_missing' | 'stable_id_duplicate' | 'roundtrip_unstable' | 'serialization_failed';
   markdown?: string;
 };
 
@@ -142,10 +142,11 @@ export function validateRichMarkdownYDoc(doc: YTypes.Doc): RichMarkdownValidatio
     const schemaDocument = getSchema(richMarkdownSchemaExtensions()).nodeFromJSON(json);
     // A new Y.Doc can be completely empty before the first editor mounts.
     if (schemaDocument.content.size > 0) schemaDocument.check();
-    markdown = richMarkdownFromYDoc(doc);
   } catch {
     return { valid: false, code: 'schema_invalid' };
   }
+  try { markdown = richMarkdownFromYDoc(doc); }
+  catch { return { valid: false, code: 'serialization_failed' }; }
 
   const ids: string[] = [];
   const missing = { value: false };

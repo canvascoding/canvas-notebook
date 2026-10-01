@@ -9,6 +9,7 @@ import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 import type { CollaborationTextSnapshot } from './agent-file-edits';
 import { CollaborationCheckpointSupersededError, materializeCollaborationCheckpoint } from './checkpoint';
 import { loadCollaborationState } from './persistence';
+import { loadCollaborationProjectionStatus } from './projection-repository';
 
 export class CollaborationFileCheckpointUnavailableError extends Error {
   readonly code = 'COLLABORATION_FILE_CHECKPOINT_UNAVAILABLE';
@@ -49,7 +50,9 @@ export async function confirmCollaborativeFileCheckpoint(input: {
         || state.schemaVersion !== input.snapshot.schemaVersion
         || state.representation !== input.snapshot.representation
         || state.documentSequence < input.snapshot.documentSequence) break;
-      if (state.checkpointSequence >= input.snapshot.documentSequence) {
+      if (state.degraded || state.projectionError?.permanent) break;
+      const projectionStatus = await loadCollaborationProjectionStatus(state);
+      if (projectionStatus.projectionFinalized && state.checkpointSequence >= input.snapshot.documentSequence) {
         const projection = await readFileCollaborationState({ workspace: input.workspace, path: state.path });
         if (projection.document?.id === input.documentId
           && projection.document.stateVersion >= input.snapshot.documentSequence
@@ -69,7 +72,7 @@ export async function confirmCollaborativeFileCheckpoint(input: {
           }
         }
       }
-      if (state.checkpointSequence < state.documentSequence) {
+      if (!projectionStatus.projectionFinalized || state.checkpointSequence < state.documentSequence) {
         try {
           await input.beforeMaterialize?.();
           await materializeCollaborationCheckpoint({ state, workspace: input.workspace,

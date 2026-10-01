@@ -8,6 +8,7 @@ import { CollaborationCheckpointValidationError, COLLABORATION_CHECKPOINT_ERROR_
 import { createCollaborationProjectionScheduler, type CollaborationProjectionRequest } from '../app/lib/collaboration/projection-scheduler';
 import type { PersistedCollaborationState } from '../app/lib/collaboration/persistence';
 import type * as Runtime from '../app/lib/collaboration/projection-runtime';
+import { classifyCollaborationProjectionError } from '../app/lib/collaboration/projection-errors';
 
 type Callbacks = Parameters<typeof Runtime.createCollaborationProjectionRuntime>[0];
 type ProjectionResult = Parameters<Callbacks['onProjected']>[0];
@@ -108,12 +109,20 @@ async function setup(t: TestContext, options: {
       },
     },
     './checkpoint-errors': { CollaborationCheckpointValidationError, COLLABORATION_CHECKPOINT_ERROR_CODES },
+    './projection-errors': { classifyCollaborationProjectionError },
     './diagnostics': { logCollaborationDiagnostic: (level: string, data: Record<string, unknown>) => diagnostics.push({ level, data }) },
     './persistence': {
       loadCollaborationState: async (documentId: string) => states.get(documentId) ?? null,
       markCollaborationDegraded: async (documentId: string, generation: number) => { degraded.push([documentId, generation]); },
     },
     './projection-repository': {
+      recordCollaborationProjectionFailure: async (snapshot: PersistedCollaborationState, failure: { code: string; permanent: boolean; phase: string }) => {
+        if (failure.permanent) degraded.push([snapshot.documentId, snapshot.lifecycleGeneration]);
+        const current = states.get(snapshot.documentId);
+        if (current && current.lifecycleGeneration === snapshot.lifecycleGeneration) states.set(snapshot.documentId,
+          { ...current, degraded: failure.permanent, projectionError: { code: failure.code,
+            sequence: snapshot.documentSequence, permanent: failure.permanent, phase: failure.phase } });
+      },
       hasPendingCollaborationProjection: async (snapshot: PersistedCollaborationState) => pending(snapshot),
       loadCollaborationProjectionWorkspace: async (snapshot: PersistedCollaborationState) => {
         workspaceReads.push(snapshot.documentId);
@@ -252,7 +261,7 @@ for (const code of ['schema_invalid', 'stable_id_missing', 'stable_id_duplicate'
     const failure = new CollaborationCheckpointValidationError(code);
     const h = await setup(t, { states: [state()], project: async () => { throw failure; } });
     await h.clock.advanceTo(2_000);
-    assert.deepEqual(h.failures, [{ state: state(), code: failure.code, blocksEditing: code !== 'roundtrip_unstable' }]);
+    assert.deepEqual(h.failures, [{ state: state(), ...classifyCollaborationProjectionError(failure) }]);
     assert.deepEqual(h.degraded, code === 'roundtrip_unstable' ? [] : [['document-a', 1]]);
     assert.deepEqual(h.projected, []);
     assert.equal(h.diagnostics.at(-1)?.data.attempt, 1);
@@ -267,6 +276,31 @@ test('filesystem failure preserves editing and retries in the background', async
   assert.ok(h.failures.every((failure) => !failure.blocksEditing && failure.code === COLLABORATION_CHECKPOINT_ERROR_CODES.failed));
   assert.deepEqual(h.degraded, []);
   assert.ok(!JSON.stringify(h.diagnostics).includes('secret-path'));
+});
+
+test('permanent schema quarantine pauses retries and restart scans until a new lifecycle', async (t) => {
+  const h = await setup(t, { states: [state()], project: async (snapshot) => {
+    if (snapshot.lifecycleGeneration === 1) throw new CollaborationCheckpointValidationError('schema_invalid');
+    return { state: { ...snapshot, checkpointSequence: snapshot.documentSequence }, revisionId: 'new', content: 'valid' };
+  } });
+  await h.clock.advanceTo(600_000);
+  assert.equal(h.attempted.length, 1); assert.equal(h.failures.length, 1);
+  const recovered = state('document-a', { lifecycleGeneration: 2 });
+  h.states.set(recovered.documentId, recovered); h.runtime.enqueue(recovered);
+  await h.clock.advanceTo(602_000);
+  assert.equal(h.projected.length, 1); assert.equal(h.projected[0].state.lifecycleGeneration, 2);
+});
+
+test('legacy degraded state is never projected after restart', async (t) => {
+  const h = await setup(t, { states: [state('document-a', { degraded: true })] });
+  await h.clock.advanceTo(600_000); assert.deepEqual(h.attempted, []);
+});
+
+test('serializer failure stays transient and preserves editing', async (t) => {
+  const h = await setup(t, { states: [state()], project: async () => { throw new CollaborationCheckpointValidationError('serialization_failed'); } });
+  await h.clock.advanceTo(3_000);
+  assert.equal(h.attempted.length, 2); assert.equal(h.failures[0].permanent, false);
+  assert.equal(h.failures[0].blocksEditing, false); assert.deepEqual(h.degraded, []);
 });
 
 test('a superseded export reloads and queues the new generation without a failure notification', async (t) => {

@@ -18,6 +18,7 @@ type PendingProjection = {
 export function createCollaborationProjectionScheduler(input: {
   project: (request: CollaborationProjectionRequest) => Promise<void>;
   onError: (error: unknown, request: CollaborationProjectionRequest, attempt: number) => void;
+  shouldRetry?: (error: unknown) => boolean;
   idleMs?: number;
   maxDelayMs?: number;
   maxConcurrent?: number;
@@ -62,7 +63,7 @@ export function createCollaborationProjectionScheduler(input: {
       const attempts = job.attempts + 1;
       // Do not replace a newer pending state with the failed snapshot. After
       // five quick attempts, retry only every five minutes until state changes.
-      if (!pending.has(id)) pending.set(id, {
+      if (input.shouldRetry?.(error.value) !== false && !pending.has(id)) pending.set(id, {
         ...job,
         attempts,
         dueAt: now() + (attempts < 5 ? Math.min(30_000, 1_000 * 2 ** (attempts - 1)) : 300_000),

@@ -23,8 +23,9 @@ import {
   withCollaborationCheckpointFence,
 } from './persistence';
 import { Y } from './server-runtime';
-import { beginCollaborationProjectionAttempt, finalizeCollaborationProjectionReceipt, recordCollaborationProjectionPending } from './projection-repository';
+import { beginCollaborationProjectionAttempt, finalizeCollaborationProjectionReceipt, loadCollaborationProjectionReceipt, recordCollaborationProjectionPending } from './projection-repository';
 import { assertCurrentCollaborationProjectionIdentity, CollaborationProjectionIdentityError } from './projection-identity';
+import { inCollaborationProjectionPhase } from './projection-errors';
 
 export class CollaborationCheckpointSupersededError extends Error {
   constructor(readonly documentId: string, readonly sequence: number) {
@@ -258,7 +259,7 @@ export async function materializeCollaborationCheckpoint(input: {
     throw new CollaborationProjectionIdentityError();
   }
   return withWorkspaceMutationLock(input.workspace.workspaceId, async () => {
-    const fenced = await withCollaborationCheckpointFence<CollaborationCheckpointFileWrite>({
+    const fenced = await inCollaborationProjectionPhase('checkpoint_confirm', () => withCollaborationCheckpointFence<CollaborationCheckpointFileWrite>({
       documentId: input.state.documentId,
       workspaceId: input.state.workspaceId,
       path: input.state.path,
@@ -272,16 +273,28 @@ export async function materializeCollaborationCheckpoint(input: {
         await input.confirmProjection?.(transaction, state, result);
       },
       materialize: async (lockedState) => {
-        await beginCollaborationProjectionAttempt(lockedState);
-        const snapshot = authoritativeCollaborationSnapshot(lockedState);
-        const fileWrite = await writeCompensatableCollaborationCheckpointFile({
+        const snapshot = await inCollaborationProjectionPhase('snapshot_validate', async () => authoritativeCollaborationSnapshot(lockedState));
+        // A committed receipt and verified file may need only metadata/share
+        // finalization. Preserve its inode, revision and original attempt.
+        if (lockedState.checkpointSequence === lockedState.documentSequence) {
+          const receipt = await loadCollaborationProjectionReceipt(lockedState);
+          const serialized = serializeCanonicalText(snapshot.canonicalContent, lockedState);
+          const file = receipt ? await getWorkspaceFileRevision(lockedState.path, workspaceFileOptions(input.workspace)) : null;
+          if (receipt && file?.sha256 === lockedState.serializedHash
+            && sha256Text(serialized) === lockedState.serializedHash && sha256Text(snapshot.canonicalContent) === lockedState.canonicalHash) {
+            return { canonicalContent: snapshot.canonicalContent, serializedContent: serialized,
+              result: { content: serialized, serializedContent: serialized, revisionId: receipt.revisionId }, rollback: async () => {} };
+          }
+        }
+        await inCollaborationProjectionPhase('receipt_begin', () => beginCollaborationProjectionAttempt(lockedState));
+        const fileWrite = await inCollaborationProjectionPhase('file_write', () => writeCompensatableCollaborationCheckpointFile({
           state: lockedState,
           workspace: input.workspace,
           canonicalContent: snapshot.canonicalContent,
           actorUserId: input.actorUserId ?? null,
           actorType: input.actorType ?? 'system',
           sourceSessionId: input.sourceSessionId ?? null,
-        });
+        }));
         return {
           canonicalContent: snapshot.canonicalContent,
           serializedContent: fileWrite.serializedContent,
@@ -289,23 +302,24 @@ export async function materializeCollaborationCheckpoint(input: {
           rollback: fileWrite.rollback,
         };
       },
-    });
+    }));
     if (!fenced) {
       throw new CollaborationCheckpointSupersededError(
         input.state.documentId,
         input.state.documentSequence,
       );
     }
-    await finalizeCollaborationCheckpointProjection({
+    await inCollaborationProjectionPhase('projection_finalize', () => finalizeCollaborationCheckpointProjection({
       state: fenced.state,
       workspace: input.workspace,
       revisionId: fenced.result.revisionId,
-    });
-    await finalizeCollaborationProjectionReceipt(fenced.state, fenced.result.revisionId);
+    }));
+    await inCollaborationProjectionPhase('receipt_finalize', () => finalizeCollaborationProjectionReceipt(fenced.state, fenced.result.revisionId));
+    const { projectionError: _completedError, ...projectedState } = fenced.state;
     return {
       content: fenced.result.content,
       revisionId: fenced.result.revisionId,
-      state: fenced.state,
+      state: { ...projectedState, projectionFinalized: true },
     };
   });
 }

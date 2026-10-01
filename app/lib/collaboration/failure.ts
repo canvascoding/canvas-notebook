@@ -15,17 +15,20 @@ export type CollaborationFailure = {
 /** These failures concern the derived file, never the saved binary document. */
 export function isCollaborationProjectionErrorCode(code: unknown): code is string {
   return code === COLLABORATION_CHECKPOINT_ERROR_CODES.roundtripUnstable
+    || code === COLLABORATION_CHECKPOINT_ERROR_CODES.serializationFailed
     || code === COLLABORATION_CHECKPOINT_ERROR_CODES.failed;
 }
 
 /** Unknown/legacy messages never authorize a structure correction. */
 export function collaborationFailure(code: unknown): CollaborationFailure {
   if (typeof code !== 'string') return { kind: 'unknown', code: null };
+  if (code === COLLABORATION_CHECKPOINT_ERROR_CODES.serializationFailed) return { kind: 'storage', code };
   if (isCollaborationCheckpointValidationErrorCode(code)) return { kind: 'validation', code };
   if (code === COLLABORATION_CHECKPOINT_ERROR_CODES.failed || code === COLLABORATION_FAILURE_CODES.persistenceFailed) {
     return { kind: 'storage', code };
   }
-  if (code === COLLABORATION_FAILURE_CODES.generationChanged) return { kind: 'lifecycle', code };
+  if (code === COLLABORATION_FAILURE_CODES.generationChanged || code === COLLABORATION_CHECKPOINT_ERROR_CODES.identityMismatch
+    || code === COLLABORATION_CHECKPOINT_ERROR_CODES.quarantined) return { kind: 'lifecycle', code };
   if (code === COLLABORATION_FAILURE_CODES.authenticationFailed) return { kind: 'authentication', code };
   if (code === COLLABORATION_FAILURE_CODES.startupFailed) return { kind: 'startup', code };
   return { kind: 'unknown', code: null };

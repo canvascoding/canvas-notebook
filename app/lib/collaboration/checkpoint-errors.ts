@@ -5,6 +5,8 @@ export const COLLABORATION_CHECKPOINT_ERROR_CODES = {
   roundtripUnstable: 'COLLABORATION_ROUNDTRIP_UNSTABLE',
   superseded: 'COLLABORATION_CHECKPOINT_SUPERSEDED',
   identityMismatch: 'COLLABORATION_PROJECTION_IDENTITY_MISMATCH',
+  quarantined: 'COLLABORATION_QUARANTINED',
+  serializationFailed: 'COLLABORATION_SERIALIZATION_FAILED',
   failed: 'COLLABORATION_CHECKPOINT_FAILED',
 } as const;
 
@@ -12,7 +14,9 @@ export type RichMarkdownCheckpointValidationCode =
   | 'schema_invalid'
   | 'stable_id_missing'
   | 'stable_id_duplicate'
+  | 'serialization_failed'
   | 'roundtrip_unstable';
+// Serializer failures concern derived output, not the authoritative structure.
 
 export type CollaborationCheckpointErrorCode =
   typeof COLLABORATION_CHECKPOINT_ERROR_CODES[keyof typeof COLLABORATION_CHECKPOINT_ERROR_CODES];
@@ -25,6 +29,7 @@ const VALIDATION_ERROR_CODES: Record<
   stable_id_missing: COLLABORATION_CHECKPOINT_ERROR_CODES.stableIdMissing,
   stable_id_duplicate: COLLABORATION_CHECKPOINT_ERROR_CODES.stableIdDuplicate,
   roundtrip_unstable: COLLABORATION_CHECKPOINT_ERROR_CODES.roundtripUnstable,
+  serialization_failed: COLLABORATION_CHECKPOINT_ERROR_CODES.serializationFailed,
 };
 
 const VALIDATION_ERROR_CODE_SET = new Set<CollaborationCheckpointErrorCode>(
@@ -48,6 +53,14 @@ export class CollaborationCheckpointRequestError extends Error {
   ) {
     super(message);
     this.name = 'CollaborationCheckpointRequestError';
+  }
+}
+
+export class CollaborationCheckpointQuarantinedError extends Error {
+  readonly code = COLLABORATION_CHECKPOINT_ERROR_CODES.quarantined;
+  constructor() {
+    super('Collaboration state is quarantined; a verified lifecycle recovery is required.');
+    this.name = 'CollaborationCheckpointQuarantinedError';
   }
 }
 

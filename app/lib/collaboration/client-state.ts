@@ -1,4 +1,5 @@
 import { isCollaborationStateProof } from './state-proof';
+import { COLLABORATION_CHECKPOINT_ERROR_CODES } from './checkpoint-errors';
 import { collaborationFailure, COLLABORATION_FAILURE_CODES, isCollaborationProjectionErrorCode, type CollaborationFailure } from './failure';
 import type {
   CollaborationPermission,
@@ -22,6 +23,7 @@ export type TextCollaborationClientState = {
   projectionError: { code: string | null; sequence: number } | null;
   error: string | null;
   failure: CollaborationFailure | null;
+  quarantineSequence?: number;
 };
 
 export type TextCollaborationClientEvent =
@@ -38,13 +40,17 @@ export type TextCollaborationClientEvent =
       stateVector: string;
       stateProof: string;
       matchesCurrentDocument: boolean;
+      degraded?: boolean;
+      projectionError?: { code: string; sequence: number; permanent: boolean };
+      projectionFinalized?: boolean;
+      schemaValidated?: boolean;
     }
   | { type: 'checkpoint_requested' }
   | { type: 'checkpointed'; sequence: number; stateVector: string; stateProof: string; matchesCurrentDocument: boolean }
   | { type: 'checkpoint_superseded'; sequence: number }
   | { type: 'checkpoint_failed'; message: string; code?: string }
   | { type: 'projection_failed'; sequence: number; code?: string }
-  | { type: 'degraded'; message: string; code?: string }
+  | { type: 'degraded'; message: string; code?: string; sequence?: number }
   | { type: 'authentication_failed'; message: string };
 
 export function createInitialTextCollaborationClientState(input: {
@@ -52,6 +58,8 @@ export function createInitialTextCollaborationClientState(input: {
   documentSequence?: number;
   checkpointSequence?: number;
   stateVector?: string;
+  degraded?: boolean;
+  projectionError?: { code: string; sequence: number; permanent: boolean };
 } = {}): TextCollaborationClientState {
   const documentSequence = Number.isSafeInteger(input.documentSequence)
     ? input.documentSequence ?? null
@@ -59,10 +67,11 @@ export function createInitialTextCollaborationClientState(input: {
   const checkpointSequence = Number.isSafeInteger(input.checkpointSequence)
     ? input.checkpointSequence ?? null
     : null;
+  const quarantined = Boolean(input.degraded || input.projectionError?.permanent);
   return {
     connection: input.permission === 'read' ? 'read_only' : 'connecting',
     // The session describes the server, not the not-yet-hydrated local doc.
-    durability: 'server_received',
+    durability: quarantined ? 'degraded' : 'server_received',
     indexedDbHydrated: false,
     remoteSynced: false,
     ready: false,
@@ -72,9 +81,10 @@ export function createInitialTextCollaborationClientState(input: {
     checkpointStateVector: null,
     checkpointStateProof: null,
     persistedStateProof: null,
-    projectionError: null,
-    error: null,
-    failure: null,
+    projectionError: input.projectionError && !input.projectionError.permanent ? input.projectionError : null,
+    error: quarantined ? 'The saved document is quarantined. Recovery is required.' : null,
+    failure: quarantined ? collaborationFailure(input.projectionError?.code ?? COLLABORATION_CHECKPOINT_ERROR_CODES.quarantined) : null,
+    ...(quarantined && documentSequence !== null ? { quarantineSequence: documentSequence } : {}),
   };
 }
 
@@ -91,9 +101,8 @@ function hasPersistedCurrentDocument(state: TextCollaborationClientState): boole
 
 function recordProjectionFailure(state: TextCollaborationClientState, sequence: number, code?: string): TextCollaborationClientState {
   if (!Number.isSafeInteger(sequence) || sequence < 0
-    || sequence < (state.documentSequence ?? -1)
     || sequence < (state.projectionError?.sequence ?? -1)
-    || sequence <= (state.checkpointSequence ?? -1)) return state;
+    || sequence < (state.checkpointSequence ?? -1)) return state;
   return { ...state, projectionError: { code: typeof code === 'string' ? code : null, sequence } };
 }
 
@@ -166,14 +175,18 @@ export function reduceTextCollaborationClientState(
       const checkpointSequence = event.documentSequence === (state.documentSequence ?? -1)
         ? Math.max(state.checkpointSequence ?? 0, event.checkpointSequence)
         : event.checkpointSequence;
-      const checkpointCoversDocument = checkpointSequence >= documentSequence;
+      const checkpointCoversDocument = checkpointSequence >= documentSequence && event.projectionFinalized !== false;
       const exactPersistedDocument = state.ready && event.matchesCurrentDocument
         && isCollaborationStateProof(event.stateProof) && state.unsyncedChanges === 0;
       const binaryRecoveryAllowed = state.failure?.code === COLLABORATION_FAILURE_CODES.persistenceFailed
         || isCollaborationProjectionErrorCode(state.failure?.code);
-      const stillDegraded = state.connection === 'denied' || (state.durability === 'degraded'
+      const validatedRecovery = event.schemaValidated === true && event.projectionFinalized === true
+        && event.documentSequence > (state.quarantineSequence ?? state.documentSequence ?? Infinity);
+      const stillDegraded = event.degraded === true || state.connection === 'denied' || (state.durability === 'degraded'
         && (state.failure?.kind === 'lifecycle'
-          || !(exactPersistedDocument && (checkpointCoversDocument || binaryRecoveryAllowed))));
+          || !(exactPersistedDocument && (validatedRecovery || binaryRecoveryAllowed))));
+      const persistedProjectionError = event.projectionError && !event.projectionError.permanent
+        ? { code: event.projectionError.code, sequence: event.projectionError.sequence } : null;
       return {
         ...state,
         documentSequence,
@@ -183,15 +196,18 @@ export function reduceTextCollaborationClientState(
           : null,
         checkpointStateProof: exactPersistedDocument && checkpointCoversDocument ? event.stateProof : null,
         persistedStateProof: exactPersistedDocument ? event.stateProof : null,
-        projectionError: state.projectionError && checkpointSequence >= state.projectionError.sequence
-          ? null : state.projectionError,
+        projectionError: persistedProjectionError ?? (state.projectionError && event.projectionFinalized === true
+          && checkpointSequence >= state.projectionError.sequence ? null : state.projectionError),
         durability: stillDegraded ? 'degraded' : state.unsyncedChanges > 0
           ? 'local_pending'
           : exactPersistedDocument
             ? checkpointCoversDocument ? 'checkpointed_file' : 'persisted_yjs'
             : 'server_received',
-        error: state.connection === 'denied' || stillDegraded ? state.error : null,
-        failure: state.connection === 'denied' || stillDegraded ? state.failure : null,
+        error: event.degraded ? 'The saved document is quarantined. Recovery is required.'
+          : state.connection === 'denied' || stillDegraded ? state.error : null,
+        failure: event.degraded ? collaborationFailure(event.projectionError?.code ?? COLLABORATION_CHECKPOINT_ERROR_CODES.quarantined)
+          : state.connection === 'denied' || stillDegraded ? state.failure : null,
+        ...(event.degraded ? { quarantineSequence: event.documentSequence } : {}),
       };
     }
     case 'checkpoint_requested':
@@ -211,6 +227,8 @@ export function reduceTextCollaborationClientState(
         stateVector: event.stateVector,
         stateProof: event.stateProof,
         matchesCurrentDocument: event.matchesCurrentDocument,
+        projectionFinalized: true,
+        schemaValidated: true,
       });
     }
     case 'checkpoint_superseded':
@@ -247,6 +265,7 @@ export function reduceTextCollaborationClientState(
       return {
         ...state,
         durability: 'degraded',
+        quarantineSequence: event.sequence ?? state.documentSequence ?? undefined,
         error: event.message,
         failure: collaborationFailure(event.code),
       };

@@ -6,6 +6,7 @@ import type { WorkspaceContext, WorkspaceType } from '@/app/lib/workspaces/types
 import type { PersistedCollaborationState } from './persistence';
 import type { CollaborationProjectionRequest } from './projection-scheduler';
 import { assertCurrentCollaborationProjectionIdentity, currentProjectionIdentityJoins } from './projection-identity';
+import type { CollaborationProjectionStatus } from './types';
 
 // A binary update makes the first predicate true in the same durable write.
 // The receipt closes the later crash window between checkpoint commit and
@@ -26,7 +27,9 @@ export async function listPendingCollaborationProjections(afterDocumentId = '', 
   try {
     const rows = await database.all(`SELECT y.document_id, y.lifecycle_generation, y.document_sequence
       FROM collaboration_yjs_states y ${projectionJoins}
-      WHERE y.status = 'active' AND y.document_id > $1 AND ${pendingProjectionPredicate}
+      WHERE y.status = 'active' AND y.degraded = 0
+        AND NOT (y.projection_error_permanent = 1 AND y.projection_error_generation = y.lifecycle_generation)
+        AND y.document_id > $1 AND ${pendingProjectionPredicate}
       ORDER BY y.document_id LIMIT $2`, [afterDocumentId, Math.max(1, Math.min(500, limit))]) as Array<{
         document_id: string; lifecycle_generation: number; document_sequence: number;
       }>;
@@ -39,7 +42,8 @@ export async function hasPendingCollaborationProjection(state: PersistedCollabor
   const database = await openDb();
   try {
     const row = await database.get(`SELECT y.document_id FROM collaboration_yjs_states y ${projectionJoins}
-      WHERE y.document_id = $1 AND y.lifecycle_generation = $2 AND y.status = 'active'
+      WHERE y.document_id = $1 AND y.lifecycle_generation = $2 AND y.status = 'active' AND y.degraded = 0
+        AND NOT (y.projection_error_permanent = 1 AND y.projection_error_generation = y.lifecycle_generation)
         AND ${pendingProjectionPredicate}`, [state.documentId, state.lifecycleGeneration]);
     return Boolean(row);
   } finally { await database.close(); }
@@ -104,7 +108,68 @@ export async function finalizeCollaborationProjectionReceipt(state: PersistedCol
       RETURNING document_id`, [Date.now(), state.documentId, state.lifecycleGeneration, state.checkpointSequence,
       revisionId, state.canonicalHash, state.serializedHash, state.path, state.workspaceId]);
     if (!row) throw new Error('Collaboration projection receipt changed before finalization.');
+    await database.run(`UPDATE collaboration_yjs_states SET projection_error_code = NULL,
+      projection_error_phase = NULL, projection_error_cause = NULL, projection_error_sequence = NULL,
+      projection_error_generation = NULL, projection_error_permanent = 0
+      WHERE document_id = $1 AND lifecycle_generation = $2 AND projection_error_generation = $2
+        AND projection_error_permanent = 0 AND projection_error_sequence <= $3`,
+    [state.documentId, state.lifecycleGeneration, state.checkpointSequence]);
   } finally { await database.close(); }
+}
+
+export async function loadCollaborationProjectionReceipt(state: PersistedCollaborationState): Promise<{ revisionId: string; finalized: boolean } | null> {
+  const database = await openDb();
+  try {
+    const row = await database.get(`SELECT revision_id, finalized FROM collaboration_file_projections
+      WHERE document_id = $1 AND lifecycle_generation = $2 AND projected_sequence = $3
+        AND canonical_hash = $4 AND serialized_hash = $5 AND revision_id IS NOT NULL`,
+    [state.documentId, state.lifecycleGeneration, state.checkpointSequence, state.canonicalHash, state.serializedHash]) as
+      { revision_id: string; finalized: number } | undefined;
+    return row ? { revisionId: row.revision_id, finalized: row.finalized === 1 } : null;
+  } finally { await database.close(); }
+}
+
+export async function loadCollaborationProjectionStatus(state: PersistedCollaborationState): Promise<CollaborationProjectionStatus> {
+  const receipt = await loadCollaborationProjectionReceipt(state);
+  return { degraded: state.degraded, projectionError: state.projectionError,
+    projectionFinalized: receipt?.finalized ?? state.checkpointSequence === 0 };
+}
+
+export async function recordCollaborationProjectionFailure(state: PersistedCollaborationState, failure: {
+  code: string; phase: string; causeCode: string; permanent: boolean;
+}): Promise<void> {
+  const database = await openDb();
+  try {
+    await database.run(`UPDATE collaboration_yjs_states SET projection_error_code = $1,
+      projection_error_phase = $2, projection_error_cause = $3, projection_error_sequence = $4,
+      projection_error_generation = $5, projection_error_permanent = $6,
+      degraded = CASE WHEN $6 = 1 THEN 1 ELSE degraded END
+      WHERE document_id = $7 AND lifecycle_generation = $5 AND status = 'active'
+        AND (document_sequence = $4 OR ($6 = 0 AND document_sequence >= $4))
+        AND NOT (projection_error_permanent = 1 AND projection_error_generation = $5)`,
+    [failure.code, failure.phase, failure.causeCode, state.documentSequence, state.lifecycleGeneration,
+      failure.permanent ? 1 : 0, state.documentId]);
+  } finally { await database.close(); }
+}
+
+/** Aggregate diagnostics only; document failures do not change process liveness. */
+export async function readCollaborationProjectionHealth(database: Pick<SqlConnection, 'get'>) {
+  const row = await database.get(`SELECT count(*) AS active,
+    count(*) FILTER (WHERE c.id IS NULL OR w.id IS NULL) AS identity_conflicts,
+    count(*) FILTER (WHERE y.degraded = 1 OR (y.projection_error_permanent = 1
+      AND y.projection_error_generation = y.lifecycle_generation)) AS quarantined,
+    count(*) FILTER (WHERE y.document_sequence > y.checkpoint_sequence OR p.finalized = 0) AS pending
+    FROM collaboration_yjs_states y
+    LEFT JOIN collaboration_documents c ON c.id = y.document_id AND c.workspace_id = y.workspace_id
+      AND c.path = y.path AND c.provider = 'yjs' AND c.status = 'active'
+      AND c.organization_id IS NOT DISTINCT FROM y.organization_id
+    LEFT JOIN canvas_workspaces w ON w.id = y.workspace_id AND w.status = 'active'
+      AND w.organization_id IS NOT DISTINCT FROM y.organization_id AND w.type = c.workspace_type
+    LEFT JOIN collaboration_file_projections p ON p.document_id = y.document_id
+      AND p.lifecycle_generation = y.lifecycle_generation
+    WHERE y.status = 'active'`) as { active: number; identity_conflicts: number; quarantined: number; pending: number };
+  return { active: Number(row.active), identityConflicts: Number(row.identity_conflicts),
+    quarantined: Number(row.quarantined), pending: Number(row.pending) };
 }
 
 /** Internal storage context for projecting ALREADY authorized, persisted Yjs. */

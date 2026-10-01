@@ -17,7 +17,7 @@ import { fetchLiveDocument, findOpenedLiveDocument, invalidateOpenedLiveDocument
 import { createDocumentAwarenessLease } from './document-awareness';
 import { workspaceHeaders } from '@/app/lib/files/client';
 import { fileGuestApi } from '@/app/lib/file-guests/types';
-import { CollaborationCheckpointRequestError, isCollaborationCheckpointValidationErrorCode } from './checkpoint-errors';
+import { CollaborationCheckpointRequestError, COLLABORATION_CHECKPOINT_ERROR_CODES, isCollaborationCheckpointValidationErrorCode } from './checkpoint-errors';
 import { COLLABORATION_FAILURE_CODES, isCollaborationProjectionErrorCode } from './failure';
 import { hasExportedCollaborationRecovery, prepareRecoverableCollaborationTransition, preserveLocalCollaborationRecovery } from './local-recovery';
 import {
@@ -52,6 +52,10 @@ type CollaborationDurabilitySnapshot = {
   checkpointSequence: number;
   stateVector: string;
   stateProof: string;
+  degraded?: boolean;
+  projectionError?: { code: string; sequence: number; permanent: boolean };
+  projectionFinalized?: boolean;
+  schemaValidated?: boolean;
 };
 
 type RegistryEntry = {
@@ -289,6 +293,13 @@ function durabilitySnapshot(value: unknown): CollaborationDurabilitySnapshot | n
     || typeof candidate.stateVector !== 'string'
     || candidate.stateVector.length === 0
     || !isCollaborationStateProof(candidate.stateProof)
+    || (candidate.degraded !== undefined && typeof candidate.degraded !== 'boolean')
+    || (candidate.projectionFinalized !== undefined && typeof candidate.projectionFinalized !== 'boolean')
+    || (candidate.schemaValidated !== undefined && typeof candidate.schemaValidated !== 'boolean')
+    || (candidate.projectionError !== undefined && (!candidate.projectionError || typeof candidate.projectionError !== 'object'
+      || typeof candidate.projectionError.code !== 'string' || typeof candidate.projectionError.permanent !== 'boolean'
+      || !Number.isSafeInteger(candidate.projectionError.sequence) || candidate.projectionError.sequence < 0
+      || candidate.projectionError.sequence > (candidate.documentSequence ?? -1)))
   ) return null;
   return candidate as CollaborationDurabilitySnapshot;
 }
@@ -401,6 +412,10 @@ async function refreshEntrySession(entry: RegistryEntry, scope: AbortController)
   entry.session = refreshed;
   entry.authScope = refreshed.guestAccess ? null : openedDocumentAuthScope();
   entry.requiresFreshSession = false;
+  if (refreshed.degraded || refreshed.projectionError?.permanent) transition(entry, { type: 'degraded',
+    code: refreshed.projectionError?.code ?? COLLABORATION_CHECKPOINT_ERROR_CODES.quarantined,
+    sequence: refreshed.documentSequence, message: 'The saved document is quarantined. Recovery is required.' });
+  entry.pendingAuthoritativeSnapshot = durabilitySnapshot(refreshed) ?? entry.pendingAuthoritativeSnapshot;
   transition(entry, { type: 'provider_status', status: 'connecting', permission: refreshed.permission });
 }
 
@@ -410,6 +425,9 @@ function adoptEntryLocation(entry: RegistryEntry, path: string, session: Collabo
   requireTextSession(session, previous?.representation as TextCollaborationRepresentation | undefined);
   if (!previous || session.documentId !== previous.documentId || session.lifecycleGeneration !== previous.lifecycleGeneration
     || session.documentName !== previous.documentName) throw new Error('Collaboration document identity changed.');
+  if (session.degraded || session.projectionError?.permanent) transition(entry, { type: 'degraded',
+    code: session.projectionError?.code ?? COLLABORATION_CHECKPOINT_ERROR_CODES.quarantined,
+    sequence: session.documentSequence, message: 'The saved document is quarantined. Recovery is required.' });
   // Reusing the same open path must still observe a server permission downgrade.
   // An old view snapshot can never restore write access after a denial.
   if (entry.path === path && !(previous.permission === 'write' && session.permission === 'read')) return;
@@ -460,6 +478,8 @@ function createEntry(
       documentSequence: initialSession?.documentSequence,
       checkpointSequence: initialSession?.checkpointSequence,
       stateVector: initialSession?.stateVector,
+      degraded: initialSession?.degraded,
+      projectionError: initialSession?.projectionError,
     }),
     listeners: new Set(),
     startPromise: Promise.resolve(),
@@ -493,6 +513,8 @@ function createEntry(
         documentSequence: session.documentSequence,
         checkpointSequence: session.checkpointSequence,
         stateVector: session.stateVector,
+        degraded: session.degraded,
+        projectionError: session.projectionError,
       });
       entry.pendingAuthoritativeSnapshot = durabilitySnapshot({
         documentId: session.documentId,
@@ -501,6 +523,9 @@ function createEntry(
         checkpointSequence: session.checkpointSequence,
         stateVector: session.stateVector,
         stateProof: session.stateProof,
+        degraded: session.degraded,
+        projectionError: session.projectionError,
+        projectionFinalized: session.projectionFinalized,
       }) ?? undefined;
       const persistence = new IndexeddbPersistence(
         `canvas:${guestInvitationId ? `guest:${guestInvitationId}:` : ''}${session.documentId}:${session.lifecycleGeneration}:${representation}`,
@@ -544,6 +569,10 @@ function createEntry(
           stateVector: snapshot.stateVector,
           stateProof: snapshot.stateProof,
           matchesCurrentDocument,
+          degraded: snapshot.degraded,
+          projectionError: snapshot.projectionError,
+          projectionFinalized: snapshot.projectionFinalized,
+          schemaValidated: snapshot.schemaValidated,
         });
         const confirmed = entry.clientState;
         if (confirmed.ready && confirmed.unsyncedChanges === 0
@@ -671,6 +700,10 @@ function createEntry(
                 lifecycleGeneration?: number;
                 documentSequence?: number;
                 checkpointSequence?: number;
+                degraded?: boolean;
+                projectionError?: CollaborationDurabilitySnapshot['projectionError'];
+                projectionFinalized?: boolean;
+                schemaValidated?: boolean;
               };
               if (message.type === 'access_revoked' || message.type === 'update_rejected') {
                 denyAccess(message.message || 'File access was revoked. Local changes are preserved.');
@@ -688,7 +721,8 @@ function createEntry(
                   }
                   return;
                 }
-                transition(entry, { type: 'degraded', message: message.message || 'Checkpoint failed.', code: message.code });
+                transition(entry, { type: 'degraded', message: message.message || 'Checkpoint failed.', code: message.code,
+                  sequence: message.documentSequence });
                 return;
               }
               if (message.type === 'projection_failed') {
@@ -721,6 +755,10 @@ function createEntry(
                   checkpointSequence: message.checkpointSequence ?? message.sequence as number,
                   stateVector: message.stateVector,
                   stateProof: message.stateProof,
+                  degraded: message.degraded,
+                  projectionError: message.projectionError,
+                  projectionFinalized: message.projectionFinalized ?? true,
+                  schemaValidated: message.schemaValidated,
                 });
                 return;
               }

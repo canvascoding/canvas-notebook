@@ -8,7 +8,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import ts from 'typescript';
 import * as Y from 'yjs';
 
-import { CollaborationCheckpointValidationError, COLLABORATION_CHECKPOINT_ERROR_CODES } from '../app/lib/collaboration/checkpoint-errors';
+import { CollaborationCheckpointValidationError, CollaborationCheckpointQuarantinedError, COLLABORATION_CHECKPOINT_ERROR_CODES } from '../app/lib/collaboration/checkpoint-errors';
 import { createRichMarkdownYDoc, richMarkdownFromYDoc } from '../app/lib/collaboration/markdown-state';
 import { collaborationStateProof } from '../app/lib/collaboration/state-proof';
 import { FileGuestCheckpointRequestError } from '../app/lib/file-guests/checkpoint-error';
@@ -79,9 +79,13 @@ async function requestHarness(channel: 'account' | 'guest') {
         controls.materialized++;
         assert.equal(input.state, state, 'materialization receives the authorized persisted snapshot');
         if (controls.materializeError) throw controls.materializeError;
-        return { state: { ...state, checkpointSequence: state.documentSequence }, revisionId: 'revision', content: privateText };
+        return { state: { ...state, checkpointSequence: state.documentSequence, projectionFinalized: true }, revisionId: 'revision', content: privateText };
       } },
     '@/app/lib/collaboration/persistence': { loadCollaborationState: async () => { controls.loaded++; return state; } },
+    '@/app/lib/collaboration/projection-repository': {
+      recordCollaborationProjectionFailure: async () => {},
+      loadCollaborationProjectionStatus: async () => ({ degraded: state.degraded, projectionFinalized: false }),
+    },
     '@/app/lib/audit/audit-service': { recordAuditEvent: async () => {} },
     '@/app/lib/api/route-helpers': { applyRateLimit: () => null, readJsonBody: (request: NextRequest) => request.json() },
     '@/app/lib/workspaces/request': { requireRequestWorkspace: async () => controls.accessDenied
@@ -140,6 +144,7 @@ for (const channel of ['account', 'guest'] as const) {
         ['filesystem output', new Error(`EACCES raw OS error ${privatePath} ${privateText} ${privateToken}`), 500, COLLABORATION_CHECKPOINT_ERROR_CODES.failed],
         ['schema', new CollaborationCheckpointValidationError('schema_invalid'), 422, COLLABORATION_CHECKPOINT_ERROR_CODES.schemaInvalid],
         ['stable identity', new CollaborationCheckpointValidationError('stable_id_missing'), 422, COLLABORATION_CHECKPOINT_ERROR_CODES.stableIdMissing],
+        ['serializer', new CollaborationCheckpointValidationError('serialization_failed'), 422, COLLABORATION_CHECKPOINT_ERROR_CODES.serializationFailed],
       ] as const) {
         await t.test(name, async () => {
           controls.materializeError = error;
@@ -165,6 +170,24 @@ for (const channel of ['account', 'guest'] as const) {
         assert.equal(body.success, true);
         assertSnapshot(body, { ...state, checkpointSequence: state.documentSequence }, proof);
         assert.equal(body.revisionId, 'revision');
+        assert.equal(body.projectionFinalized, true);
+        assertSafe(body, controls.diagnostics);
+      });
+      await t.test('equal sequences still pass through guarded receipt finalization', async () => {
+        state.checkpointSequence = state.documentSequence;
+        const before = controls.materialized;
+        const body = await (await request()).json();
+        assert.equal(controls.materialized, before + 1);
+        assert.equal(body.projectionFinalized, true);
+        state.checkpointSequence--;
+      });
+      await t.test('quarantine remains a conflict', async () => {
+        controls.materializeError = new CollaborationCheckpointQuarantinedError();
+        const response = await request();
+        const body = await response.json();
+        assert.equal(response.status, 409);
+        assert.equal(body.code, COLLABORATION_CHECKPOINT_ERROR_CODES.quarantined);
+        assert.equal(body.success, false);
         assertSafe(body, controls.diagnostics);
       });
       await t.test('superseded export stays a conflict', async () => {

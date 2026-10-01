@@ -20,6 +20,8 @@ import {
 } from '@/app/lib/collaboration/persistence';
 import { verifyCollaborationTicket } from '@/app/lib/collaboration/ticket';
 import { requireRequestWorkspace } from '@/app/lib/workspaces/request';
+import { classifyCollaborationProjectionError } from '@/app/lib/collaboration/projection-errors';
+import { recordCollaborationProjectionFailure } from '@/app/lib/collaboration/projection-repository';
 
 function checkpointResponse(
   state: PersistedCollaborationState,
@@ -35,6 +37,10 @@ function checkpointResponse(
     stateProof: collaborationUpdateStateProof(state.yjsState, Y),
     sequence: state.documentSequence,
     revisionId: input.revisionId,
+    degraded: state.degraded,
+    projectionError: state.projectionError,
+    projectionFinalized: state.projectionFinalized,
+    schemaValidated: state.projectionFinalized === true && state.documentSequence === state.checkpointSequence && !state.degraded,
     ...(input.alreadyCheckpointed ? { alreadyCheckpointed: true } : {}),
   };
 }
@@ -118,12 +124,6 @@ export async function POST(request: NextRequest) {
       || collaborationUpdateStateProof(state.yjsState, Y) !== body.stateProof) {
       return NextResponse.json({ success: false, error: 'Checkpoint is not based on the latest persisted Yjs state.' }, { status: 409 });
     }
-    if (state.checkpointSequence >= state.documentSequence) {
-      return NextResponse.json(checkpointResponse(state, {
-        revisionId: null,
-        alreadyCheckpointed: true,
-      }));
-    }
     attemptedState = state;
     const result = await materializeCollaborationCheckpoint({
       state,
@@ -151,6 +151,15 @@ export async function POST(request: NextRequest) {
     });
     return NextResponse.json(checkpointResponse(result.state, { revisionId: result.revisionId }));
   } catch (error) {
+    const failure = classifyCollaborationProjectionError(error);
+    if (attemptedState && !(error instanceof CollaborationCheckpointSupersededError)) {
+      await recordCollaborationProjectionFailure(attemptedState, failure).catch(() => {});
+    }
+    if (failure.code === COLLABORATION_CHECKPOINT_ERROR_CODES.identityMismatch
+      || failure.code === COLLABORATION_CHECKPOINT_ERROR_CODES.quarantined) {
+      return NextResponse.json({ success: false, code: failure.code,
+        error: 'The shared document requires verified identity or lifecycle recovery.' }, { status: 409 });
+    }
     const validationFailure = collaborationCheckpointValidationFailure(error);
     if (validationFailure) {
       logCollaborationDiagnostic('warn', {
@@ -159,7 +168,7 @@ export async function POST(request: NextRequest) {
         checkpointSequence: attemptedState?.checkpointSequence, code: validationFailure.code,
       });
       return NextResponse.json({
-        ...(attemptedState ? checkpointResponse(attemptedState, { revisionId: null }) : {}),
+        ...(attemptedState ? checkpointResponse({ ...attemptedState, projectionFinalized: false }, { revisionId: null }) : {}),
         success: false,
         code: validationFailure.code,
         error: validationFailure.message,
@@ -175,10 +184,11 @@ export async function POST(request: NextRequest) {
     logCollaborationDiagnostic('warn', {
       event: 'projection_failed', workspaceId: checkpointContext.workspaceId, documentId: checkpointContext.documentId,
       generation: attemptedState?.lifecycleGeneration, documentSequence: attemptedState?.documentSequence,
-      checkpointSequence: attemptedState?.checkpointSequence, code: COLLABORATION_CHECKPOINT_ERROR_CODES.failed,
+      checkpointSequence: attemptedState?.checkpointSequence, code: failure.code,
+      phase: failure.phase, causeCode: failure.causeCode, permanent: failure.permanent,
     });
     return NextResponse.json({
-      ...(attemptedState ? checkpointResponse(attemptedState, { revisionId: null }) : {}),
+      ...(attemptedState ? checkpointResponse({ ...attemptedState, projectionFinalized: false }, { revisionId: null }) : {}),
       success: false,
       code: COLLABORATION_CHECKPOINT_ERROR_CODES.failed,
       error: 'The collaboration checkpoint could not be created.',

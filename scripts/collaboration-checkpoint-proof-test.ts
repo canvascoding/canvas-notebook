@@ -26,7 +26,7 @@ async function main() {
     '@/app/lib/collaboration/checkpoint': {
       CollaborationCheckpointSupersededError: class extends Error {},
       materializeCollaborationCheckpoint: async () => {
-        materialized++; state = { ...state, checkpointSequence: state.documentSequence };
+        materialized++; state = { ...state, checkpointSequence: state.documentSequence, projectionFinalized: true };
         return { state, revisionId: 'revision' };
       },
     },
@@ -66,8 +66,8 @@ async function main() {
     assert.equal(result.checkpointSequence, 2);
     const already = await request(deletedProof);
     assert.equal(already.status, 200);
-    assert.equal((await already.json()).alreadyCheckpointed, true);
-    assert.equal(materialized, 1);
+    assert.equal((await already.json()).projectionFinalized, true);
+    assert.equal(materialized, 2, 'an equal-sequence request still verifies identity and receipt through the central materializer');
     state = { ...state, lifecycleGeneration: 2 };
     assert.equal((await request(deletedProof)).status, 409, 'proof equality cannot override the generation fence');
     console.log('Checkpoint endpoint: required proof, pure-delete races, authoritative response, idempotent confirmation and generation fence passed.');

@@ -84,6 +84,27 @@ frontmatter, BOM/newlines, identity and encoding; never repair by blind Markdown
 reimport. Transfer a repaired clone only through a guarded lifecycle change with
 all current preconditions checked and no active room.
 
+## Quarantine, retries and observability
+
+Schema/stable-ID violations and identity conflicts persist a generation-scoped
+quarantine in PostgreSQL. The background scanner excludes degraded states;
+automatic binary persistence, reconnects and old checkpoint acknowledgements do
+not clear quarantine. Existing room connections and reconnects become read-only.
+Recover through a verified lifecycle replacement after preserving evidence.
+
+Serialization, roundtrip and storage failures retain binary editing and retry
+with bounded backoff. Their generation/sequence-scoped error remains visible
+until a matching receipt is finalized. A same-sequence receipt retry reuses its
+confirmed revision when the file/hash still matches, avoiding repeated file
+replacement. Session, guest, agent and WebSocket checkpoint status distinguish
+binary durability from a fully finalized file projection.
+
+Projection diagnostics expose finite error/cause codes, phase, generation,
+sequence and retry attempt. They exclude content, tokens, SQL and file paths.
+`GET /api/health` reports aggregate active, identity-conflict, quarantined and
+pending counts under `collaboration.projection`; document quarantine alone does
+not make process liveness fail. A missing aggregate is not proof of no conflicts.
+
 ## Control Plane handoff
 
 No Control Plane files are changed in this branch. Its separate change should

@@ -83,6 +83,10 @@ async function main() {
         };
       },
     };
+    if (name.endsWith('/projection-repository')) return {
+      loadCollaborationProjectionStatus: async () => ({ degraded: loadedState.degraded, projectionFinalized: false }),
+      recordCollaborationProjectionFailure: async () => {},
+    };
     if (name.endsWith('/access-monitor')) return { createCollaborationAccessMonitor: () => ({
       add: () => () => {}, check: async () => {}, dispose: () => { accessMonitorDisposed++; },
     }) };
@@ -109,8 +113,10 @@ async function main() {
   const lastContext = { claims: { ...state, sessionId: 'session' }, workspace: {}, user: { id: 'user' }, actorType: 'user',
     versionSource: 'automatic_checkpoint' as 'automatic_checkpoint' | 'restore',
     versionBaseRevisionId: null as string | null, versionSourceSessionId: null as string | null };
+  const liveConnection = { readOnly: false };
   const storeInput = { documentName: 'doc', lastContext,
-    document: { broadcastStateless: (payload: string) => emitted.push(JSON.parse(payload)) } };
+    document: { broadcastStateless: (payload: string) => emitted.push(JSON.parse(payload)),
+      getConnections: () => [liveConnection] } };
   await hooks.onLoadDocument({ documentName: 'doc', document: storeInput.document });
   documents.set('doc', storeInput.document);
   const lastFailure = () => collaborationFailure(emitted.at(-1)?.code);
@@ -136,6 +142,12 @@ async function main() {
       sendStateless: (payload: string) => emitted.push(JSON.parse(payload)), close() { closed++; },
     } });
     assert.equal(lastFailure().kind, 'lifecycle'); assert.equal(closed, 1);
+    loadedState = { ...state, degraded: true };
+    const reconnect = { document: storeInput.document, readOnly: false,
+      sendStateless: (payload: string) => emitted.push(JSON.parse(payload)), close() { closed++; } };
+    await hooks.connected({ context: { claims: state }, connection: reconnect });
+    assert.equal(reconnect.readOnly, true, 'reconnect enforces persisted quarantine before accepting further edits');
+    assert.equal((emitted.at(-1) as unknown as { degraded: boolean }).degraded, true);
     loadedState = state;
     persistenceFailure = new StaleError('Generation changed');
     await store(); assert.equal(lastFailure().kind, 'lifecycle'); assert.equal(closed, 2); assert.equal(degradedCount, 0);
@@ -165,7 +177,9 @@ async function main() {
       assert.equal(emitted[0].type, 'durability_snapshot', 'binary persistence has its own acknowledgement');
       assertSnapshot(state);
       const blocksEditing = code !== 'roundtrip_unstable';
+      liveConnection.readOnly = false;
       projectionCallbacks.onFailure({ state, code: validationError.code, blocksEditing });
+      assert.equal(liveConnection.readOnly, blocksEditing, 'only permanent structure failures revoke room write permission');
       assert.equal(emitted.at(-1)?.type, blocksEditing ? 'degraded' : 'projection_failed');
       assertSnapshot(state);
       assert.equal(lastFailure().kind, 'validation'); assert.equal(lastFailure().code, validationError.code);
@@ -201,6 +215,7 @@ async function main() {
       if (name.endsWith('/route-helpers')) return { applyRateLimit: () => null, readJsonBody: (request: Request) => request.json() };
       if (name.endsWith('/ticket')) return { verifyCollaborationTicket: () => ({ ...state, provider: 'yjs', permission: 'write', userId: 'user', sessionId: 'session' }) };
       if (name.endsWith('/persistence')) return persistence;
+      if (name.endsWith('/projection-repository')) return { recordCollaborationProjectionFailure: async () => {} };
       if (name.endsWith('/server-runtime')) return { Y };
       if (name.endsWith('/audit-service')) return { recordAuditEvent() {} };
       if (name.endsWith('/checkpoint')) return { CollaborationCheckpointSupersededError: SupersededError };

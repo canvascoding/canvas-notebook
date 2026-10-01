@@ -192,6 +192,7 @@ export interface AgentApplyConflict {
     | 'stable_id_missing'
     | 'stable_id_duplicate'
     | 'roundtrip_unstable'
+    | 'serialization_failed'
     | 'target_scope_invalid'
     | 'backpressure'
     | 'feedback_loop'

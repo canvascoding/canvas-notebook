@@ -3,16 +3,20 @@ import 'server-only';
 import { recordFileGuestVersion } from '@/app/lib/file-guests/versions';
 import { withWorkspaceMutationLock } from '@/app/lib/files/workspace-mutation-lock';
 import { CollaborationCheckpointSupersededError, materializeCollaborationCheckpoint } from './checkpoint';
-import { CollaborationCheckpointValidationError, COLLABORATION_CHECKPOINT_ERROR_CODES } from './checkpoint-errors';
+import { COLLABORATION_CHECKPOINT_ERROR_CODES } from './checkpoint-errors';
 import { logCollaborationDiagnostic } from './diagnostics';
-import { loadCollaborationState, markCollaborationDegraded, type PersistedCollaborationState } from './persistence';
-import { hasPendingCollaborationProjection, listPendingCollaborationProjections, loadCollaborationProjectionWorkspace } from './projection-repository';
+import { loadCollaborationState, type PersistedCollaborationState } from './persistence';
+import { hasPendingCollaborationProjection, listPendingCollaborationProjections, loadCollaborationProjectionWorkspace, recordCollaborationProjectionFailure } from './projection-repository';
+import { classifyCollaborationProjectionError } from './projection-errors';
 import { createCollaborationProjectionScheduler } from './projection-scheduler';
 
 type ProjectionFailure = {
   state: PersistedCollaborationState;
   code: string;
   blocksEditing: boolean;
+  permanent?: boolean;
+  phase?: string;
+  causeCode?: string;
 };
 
 class ProjectionAttemptError extends Error {
@@ -29,6 +33,7 @@ export function createCollaborationProjectionRuntime(callbacks: {
   let disposed = false;
   let recoveryTimer: ReturnType<typeof setTimeout> | undefined;
   const scheduler = createCollaborationProjectionScheduler({
+    shouldRetry: (error) => !(error instanceof ProjectionAttemptError) || !error.failure.permanent,
     async project(request) {
       const observed = await loadCollaborationState(request.documentId);
       if (!observed || observed.status !== 'active' || observed.lifecycleGeneration !== request.lifecycleGeneration || disposed) return;
@@ -37,7 +42,7 @@ export function createCollaborationProjectionRuntime(callbacks: {
         // we waited for its workspace lock. Reload before deciding to replace an inode.
         const state = await loadCollaborationState(request.documentId);
         if (!state || state.status !== 'active' || state.workspaceId !== observed.workspaceId
-          || state.lifecycleGeneration !== request.lifecycleGeneration || disposed) return;
+          || state.lifecycleGeneration !== request.lifecycleGeneration || state.degraded || state.projectionError?.permanent || disposed) return;
         if (!await hasPendingCollaborationProjection(state)) return;
         const workspace = await loadCollaborationProjectionWorkspace(state);
         if (!workspace || disposed) return;
@@ -64,14 +69,14 @@ export function createCollaborationProjectionRuntime(callbacks: {
             if (latest) scheduler.enqueue(latest);
             return;
           }
-          const code = error instanceof CollaborationCheckpointValidationError
-            ? error.code : COLLABORATION_CHECKPOINT_ERROR_CODES.failed;
-          const blocksEditing = error instanceof CollaborationCheckpointValidationError
-            && error.validationCode !== 'roundtrip_unstable';
-          // Invalid document schema/identities retain their existing protection.
-          // Conversion or filesystem failures never revoke confirmed Yjs data.
-          if (blocksEditing) await markCollaborationDegraded(state.documentId, state.lifecycleGeneration);
-          throw new ProjectionAttemptError({ state, code, blocksEditing }, Math.round(performance.now() - startedAt));
+          const failure = classifyCollaborationProjectionError(error);
+          try { await recordCollaborationProjectionFailure(state, failure); }
+          catch (statusError) {
+            const statusFailure = classifyCollaborationProjectionError(statusError);
+            logCollaborationDiagnostic('warn', { event: 'projection_failure_status_failed', documentId: state.documentId,
+              generation: state.lifecycleGeneration, code: statusFailure.code, causeCode: statusFailure.causeCode });
+          }
+          throw new ProjectionAttemptError({ state, ...failure }, Math.round(performance.now() - startedAt));
         }
       });
     },
@@ -82,7 +87,8 @@ export function createCollaborationProjectionRuntime(callbacks: {
         documentSequence: failure?.state.documentSequence ?? request.documentSequence,
         checkpointSequence: failure?.state.checkpointSequence,
         durationMs: error instanceof ProjectionAttemptError ? error.durationMs : undefined,
-        attempt, code: failure?.code ?? COLLABORATION_CHECKPOINT_ERROR_CODES.failed });
+        attempt, code: failure?.code ?? COLLABORATION_CHECKPOINT_ERROR_CODES.failed,
+        phase: failure?.phase, causeCode: failure?.causeCode, permanent: failure?.permanent });
       if (failure && !disposed) callbacks.onFailure(failure);
     },
   });

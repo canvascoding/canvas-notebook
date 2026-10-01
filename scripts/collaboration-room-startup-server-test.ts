@@ -392,9 +392,10 @@ async function main() {
         workspace,
         user: { id: 'startup-user', name: 'Startup User', email: 'startup@example.invalid', role: 'user' },
       }),
-      assertCollaborationDocumentAccess: async () => {},
+      assertCollaborationDocumentAccess: async () => ({ degraded: false }),
       revalidateCollaborationAccess: async () => ({
         workspace,
+        state: { degraded: false },
         user: { id: 'startup-user', name: 'Startup User', email: 'startup@example.invalid', role: 'user' },
       }),
     };
@@ -461,6 +462,9 @@ async function main() {
     if (name.endsWith('/update-policy')) return { assertFileGuestUpdateAllowed: async () => {} };
     if (name.endsWith('/projection-runtime')) return {
       createCollaborationProjectionRuntime: () => ({ enqueue() {}, dispose() {} }),
+    };
+    if (name.endsWith('/projection-repository')) return {
+      loadCollaborationProjectionStatus: async () => ({ degraded: false, projectionFinalized: false }),
     };
     if (name.endsWith('/direct-connection')) return {
       AgentDirectConnectionAuthorizationError,

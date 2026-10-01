@@ -28,6 +28,7 @@ test('MCP revocation immediately stops physical Markdown materialization', async
   class Superseded extends Error {}
   const confirm = compileCheckpoint({
     loadCollaborationState: async () => state,
+    loadCollaborationProjectionStatus: async () => ({ projectionFinalized: false }),
     readFileCollaborationState: async () => { throw new Error('unexpected projection'); },
     sha256Buffer: () => 'hash',
     fs: { readFile: async () => Buffer.from('notes') },

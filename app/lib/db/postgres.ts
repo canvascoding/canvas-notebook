@@ -1284,6 +1284,13 @@ export async function runPostgresMigrations(pool: PgQueryable): Promise<void> {
     )
   `);
   await pool.query("ALTER TABLE collaboration_yjs_states ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'active'");
+  await pool.query(`ALTER TABLE collaboration_yjs_states
+    ADD COLUMN IF NOT EXISTS projection_error_code text,
+    ADD COLUMN IF NOT EXISTS projection_error_phase text,
+    ADD COLUMN IF NOT EXISTS projection_error_cause text,
+    ADD COLUMN IF NOT EXISTS projection_error_sequence bigint,
+    ADD COLUMN IF NOT EXISTS projection_error_generation bigint,
+    ADD COLUMN IF NOT EXISTS projection_error_permanent bigint NOT NULL DEFAULT 0`);
   // Existing documents without a Yjs row are ambiguous: the row may never
   // have been initialized, or its authoritative state may have been lost.
   // Only documents created after this migration receive the safe fallback.

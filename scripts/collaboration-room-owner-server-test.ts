@@ -434,6 +434,12 @@ async function main(mode: 'direct-store-failure' | 'queued-peer-loss'
     if (name.endsWith('/projection-runtime')) return {
       createCollaborationProjectionRuntime: () => ({ enqueue() {}, dispose() {} }),
     };
+    if (name.endsWith('/projection-repository')) return {
+      loadCollaborationProjectionStatus: async () => ({ degraded: false, projectionFinalized: false }),
+    };
+    if (name.endsWith('/agent-turn-history')) return {
+      agentTurnHistoryService: { boundary: async () => {}, recoverExpired: async () => {} },
+    };
     if (name.endsWith('/history-service')) return {
       fileVersionHistoryService: { capturePersistedCollaboration: async () => {} },
     };

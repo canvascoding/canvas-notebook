@@ -12,6 +12,8 @@ import {
 } from '@/app/lib/excalidraw-collaboration/repository';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 import { materializeCollaborationCheckpoint } from './checkpoint';
+import { loadCollaborationProjectionStatus } from './projection-repository';
+import type { CollaborationProjectionStatus } from './types';
 import {
   CollaborationDocumentStateError,
   resolveTextCollaborationState,
@@ -73,6 +75,9 @@ export type CollaborationSessionGrant = {
   checkpointSequence?: number;
   stateVector?: string;
   stateProof?: string | null;
+  degraded?: boolean;
+  projectionError?: CollaborationProjectionStatus['projectionError'];
+  projectionFinalized?: boolean;
 };
 
 function extension(path: string): string {
@@ -302,6 +307,7 @@ export async function createCollaborationSessionGrant(input: {
       checkpointSequence: state.checkpointSequence,
       stateVector: Buffer.from(state.stateVector).toString('base64'),
       stateProof: collaborationUpdateStateProof(state.yjsState, Y),
+      ...await loadCollaborationProjectionStatus(state),
     };
   }
 

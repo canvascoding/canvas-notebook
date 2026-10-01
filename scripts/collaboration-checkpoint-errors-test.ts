@@ -17,6 +17,7 @@ const expectedCodes: Record<
   stable_id_missing: COLLABORATION_CHECKPOINT_ERROR_CODES.stableIdMissing,
   stable_id_duplicate: COLLABORATION_CHECKPOINT_ERROR_CODES.stableIdDuplicate,
   roundtrip_unstable: COLLABORATION_CHECKPOINT_ERROR_CODES.roundtripUnstable,
+  serialization_failed: COLLABORATION_CHECKPOINT_ERROR_CODES.serializationFailed,
 };
 
 for (const [validationCode, expectedCode] of Object.entries(expectedCodes)) {

@@ -199,6 +199,8 @@ async function harness() {
     'server-only': {}, './persistence': persistence, './server-runtime': { Y }, './markdown-state': {},
     './projection-identity': identity,
     './projection-repository': {
+      loadCollaborationProjectionReceipt: async () => receipt === 'confirmed' || receipt === 'finalized'
+        ? { revisionId: 'revision', finalized: receipt === 'finalized' } : null,
       beginCollaborationProjectionAttempt: async (state: Persistence.PersistedCollaborationState) => {
         assertWorkspace(); assert.equal(activeTransactions, 0, 'attempt marker must commit before file I/O');
         assert.equal(state.documentId, row!.document_id); assert.equal(state.lifecycleGeneration, row!.lifecycle_generation);
@@ -410,11 +412,13 @@ async function main() {
     assert.equal(h.receipt, 'finalized');
     h.commitFault = 'rolledback';
     h.beforeWrite = async () => assert.equal(h.receipt, 'attempt', 'a repeat of N invalidates its old receipt before replacing the file');
+    const before = h.events.filter((event) => event.startsWith('file:')).length;
     const repeat = h.checkpoint.materializeCollaborationCheckpoint({ state: await h.state(), workspace: h.workspace });
-    await assert.rejects(repeat, /receipt changed before finalization/);
+    await repeat;
     assert.equal(h.row!.checkpoint_sequence, 2);
     assert.equal(h.file, 'ABC');
-    assert.equal(h.receipt, 'attempt', 'same N/hash from an earlier commit cannot erase a rolled-back new attempt');
+    assert.equal(h.receipt, 'finalized', 'a matching committed receipt needs no new file attempt');
+    assert.equal(h.events.filter((event) => event.startsWith('file:')).length, before, 'receipt recovery preserves the inode');
     h.beforeWrite = undefined;
     await h.checkpoint.materializeCollaborationCheckpoint({ state: await h.state(), workspace: h.workspace });
     assert.equal(h.receipt, 'finalized', 'a new projection recovers the incomplete repeated attempt');
@@ -433,8 +437,11 @@ async function main() {
   {
     const h = await harness();
     h.row = { ...h.row!, degraded: true };
+    await assert.rejects(h.checkpoint.materializeCollaborationCheckpoint({ state: await h.state(), workspace: h.workspace }), /quarantined/);
+    assert.equal(h.file, 'Original file'); assert.equal(h.receipt, 'missing');
+    h.row = { ...h.row!, degraded: false };
     const written = await h.checkpoint.materializeCollaborationCheckpoint({ state: await h.state(), workspace: h.workspace });
-    assert.equal(written.state.degraded, false, 'validating and projecting the exact current snapshot heals its prior degraded status');
+    assert.equal(written.state.degraded, false);
     h.row = { ...h.row!, path: 'renamed.txt' };
     await assert.rejects(() => h.checkpoint.finalizeCollaborationCheckpointProjection({ ...written, workspace: h.workspace }),
       h.checkpoint.CollaborationCheckpointSupersededError);

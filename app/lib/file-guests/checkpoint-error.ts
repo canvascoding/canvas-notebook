@@ -3,6 +3,7 @@ export class FileGuestCheckpointRequestError extends Error {
   constructor(readonly status: number, readonly payload: {
     success: false; code: string; error: string; documentId: string; lifecycleGeneration: number;
     documentSequence: number; checkpointSequence: number; stateVector: string; stateProof: string | null;
+    projectionFinalized?: boolean;
   }) {
     super(payload.error);
   }

@@ -11,6 +11,7 @@ import type { Doc as YDoc } from 'yjs';
 import { collaborationUpdateStateProof } from '@/app/lib/collaboration/state-proof';
 import { COLLABORATION_FAILURE_CODES } from '@/app/lib/collaboration/failure';
 import { createCollaborationProjectionRuntime } from '@/app/lib/collaboration/projection-runtime';
+import { loadCollaborationProjectionStatus } from '@/app/lib/collaboration/projection-repository';
 import { logCollaborationDiagnostic } from '@/app/lib/collaboration/diagnostics';
 import { auth } from '@/app/lib/auth';
 import { fileGuestService } from '@/app/lib/file-guests/service';
@@ -96,6 +97,10 @@ function durabilitySnapshotPayload(state: PersistedCollaborationState) {
     checkpointSequence: state.checkpointSequence,
     stateVector: Buffer.from(state.stateVector).toString('base64'),
     stateProof: collaborationUpdateStateProof(state.yjsState, Y),
+    degraded: state.degraded,
+    projectionError: state.projectionError,
+    projectionFinalized: state.projectionFinalized,
+    schemaValidated: state.projectionFinalized === true && state.checkpointSequence === state.documentSequence && !state.degraded,
   };
 }
 
@@ -419,12 +424,14 @@ export function createCollaborationServer(server: http.Server, options: {
         revisionId: result.revisionId,
       }));
     },
-    onFailure({ state, code, blocksEditing }) {
+    onFailure({ state, code, blocksEditing, phase }) {
       const room = hocuspocus.documents.get(state.documentId);
       if (!room || !matchesRoomIdentity(room, state)) return;
       if (roomOwners) { try { roomOwners.fence(room); } catch { return; } }
+      if (blocksEditing) for (const connection of room.getConnections()) connection.readOnly = true;
       room.broadcastStateless(JSON.stringify({
-        ...durabilitySnapshotPayload(state),
+        ...durabilitySnapshotPayload({ ...state, degraded: state.degraded || blocksEditing, projectionFinalized: false,
+          projectionError: { code, sequence: state.documentSequence, permanent: blocksEditing, phase } }),
         type: blocksEditing ? 'degraded' : 'projection_failed', code,
         ...(blocksEditing ? { message: 'The document structure could not be validated.' } : {}),
       }));
@@ -435,6 +442,7 @@ export function createCollaborationServer(server: http.Server, options: {
     validate: async (connection) => {
       const access = await revalidateCollaborationAccess(connection.context.claims);
       if (!connection.document.hasConnection(connection)) throw new Error('Collaboration connection is closed.');
+      if (access.state.degraded || access.state.projectionError?.permanent) connection.readOnly = true;
       connection.context.workspace = access.workspace;
     },
     deny: (connection) => {
@@ -525,13 +533,14 @@ export function createCollaborationServer(server: http.Server, options: {
         releaseRoomAdmission = await withCollaborationRoomLifecycleLock(
           claims.documentId,
           async () => {
-            await assertCollaborationDocumentAccess(claims, workspace);
+            const state = await assertCollaborationDocumentAccess(claims, workspace);
+            if (state.degraded || state.projectionError?.permanent) connectionConfig.readOnly = true;
             const room = hocuspocus.documents.get(claims.documentId);
             if (room) assertRoomIdentity(room, claims);
             return reserveCollaborationRoomAdmission(claims.documentId);
           },
         );
-        connectionConfig.readOnly = claims.permission !== 'write';
+        connectionConfig.readOnly = connectionConfig.readOnly || claims.permission !== 'write';
         const presenceProfile = claims.guestInvitationId ? null : await resolveCollaborationPresenceProfile({
           workspaceId: claims.workspaceId,
           userId: authenticatedUser.id,
@@ -588,7 +597,9 @@ export function createCollaborationServer(server: http.Server, options: {
         }
         context.startupActivity?.assertOpen();
         roomOwners?.fence(connection.document);
-        connection.sendStateless(JSON.stringify(durabilitySnapshotPayload(state)));
+        const projectionStatus = await loadCollaborationProjectionStatus(state);
+        if (projectionStatus.degraded || projectionStatus.projectionError?.permanent) connection.readOnly = true;
+        connection.sendStateless(JSON.stringify(durabilitySnapshotPayload({ ...state, ...projectionStatus })));
       };
       try {
         if (context.startupActivity) await context.startupActivity.run(connect);

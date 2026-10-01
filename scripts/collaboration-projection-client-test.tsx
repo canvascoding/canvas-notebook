@@ -58,10 +58,10 @@ test('projection diagnostics survive newer binary acknowledgements until their f
   const beforeStale = state;
   state = reduce(state, { type: 'projection_failed', sequence: 3, code: CHECKPOINT.failed });
   assert.equal(state, beforeStale);
-  state = reduce(state, { ...acknowledgement, documentSequence: 5, checkpointSequence: 4 });
+  state = reduce(state, { ...acknowledgement, documentSequence: 5, checkpointSequence: 4, projectionFinalized: true });
   assert.equal(state.projectionError, null);
   state = reduce(state, { type: 'projection_failed', sequence: 4, code: CHECKPOINT.failed });
-  assert.equal(state.projectionError, null, 'a failure cannot supersede a completed projection');
+  assert.deepEqual(state.projectionError, { sequence: 4, code: CHECKPOINT.failed }, 'same sequence can have an unfinished receipt');
   state = reduce(state, { type: 'projection_failed', sequence: 5, code: CHECKPOINT.failed });
   const beforeMalformed = state;
   state = reduce(state, { ...acknowledgement, documentSequence: 5, checkpointSequence: 5, stateProof: 'invalid' });
@@ -109,6 +109,29 @@ test('binary and file acknowledgements cannot override revoked access or a stale
     state = reduce(state, { type: 'remote_synced', permission: 'write' });
     assert.equal(state.durability, 'degraded');
   }
+});
+
+test('a matching old checkpoint cannot clear schema quarantine', () => {
+  const old = { ...acknowledgement, checkpointSequence: 4 };
+  const quarantined = reduce(reduce(readyState(), old), { type: 'degraded', code: CHECKPOINT.schemaInvalid, message: 'Invalid marks', sequence: 4 });
+  for (const event of [old, { ...old, projectionFinalized: true, schemaValidated: true }]) {
+    assert.equal(reduce(quarantined, event).durability, 'degraded');
+  }
+  const persisted = reduce(readyState(), { ...old, degraded: true,
+    projectionError: { code: CHECKPOINT.schemaInvalid, sequence: 4, permanent: true }, projectionFinalized: false });
+  assert.equal(persisted.durability, 'degraded');
+  assert.equal(reduce(persisted, { ...old, degraded: false }).durability, 'degraded');
+});
+
+test('unfinished receipt at equal sequences stays visible until matching final confirmation', () => {
+  const equal = { ...acknowledgement, checkpointSequence: 4, projectionFinalized: false };
+  let state = reduce(readyState(), equal);
+  assert.equal(state.durability, 'persisted_yjs');
+  state = reduce(state, { type: 'projection_failed', sequence: 4, code: CHECKPOINT.failed });
+  assert(state.projectionError);
+  state = reduce(state, { ...equal, projectionFinalized: undefined }); assert(state.projectionError);
+  state = reduce(state, { ...equal, projectionFinalized: true });
+  assert.equal(state.projectionError, null); assert.equal(state.durability, 'checkpointed_file');
 });
 
 type ProviderOptions = {
@@ -214,7 +237,7 @@ test('real client callbacks keep projection errors separate through delete proof
     assert.equal(get().clientState.projectionError?.sequence, 2);
     await send({ type: 'durability_snapshot', ...snapshot(seed, 3, 1) });
     assert.equal(get().clientState.projectionError?.sequence, 2, 'an older projection cannot clear the failed sequence');
-    await send({ type: 'durability_snapshot', ...snapshot(seed, 3, 2) });
+    await send({ type: 'durability_snapshot', ...snapshot(seed, 3, 2), projectionFinalized: true });
     assert.equal(get().clientState.projectionError, null);
     await send({ type: 'projection_failed', ...snapshot(seed, 2), code: CHECKPOINT.failed });
     assert.equal(get().clientState.projectionError, null, 'a delayed failure cannot reintroduce an older error');
@@ -246,7 +269,7 @@ test('real client callbacks keep projection errors separate through delete proof
     await act(async () => { pending = assert.rejects(get().requestCheckpoint(), /Delayed export failure/); });
     await act(async () => get().doc.getText('content').delete(0, 1));
     Y.applyUpdate(seed, Y.encodeStateAsUpdate(get().doc));
-    await send({ type: 'durability_snapshot', ...snapshot(seed, 5, 4) });
+    await send({ type: 'durability_snapshot', ...snapshot(seed, 5, 4), projectionFinalized: true });
     assert.equal(get().clientState.projectionError, null);
     await act(async () => { release(Response.json({ ...failedRequestSnapshot, error: 'Delayed export failure', code: CHECKPOINT.failed }, { status: 503 })); await pending; });
     assert.equal(get().durability, 'persisted_yjs');
@@ -260,7 +283,7 @@ test('real client callbacks keep projection errors separate through delete proof
     assert.equal(get().durability, 'degraded', 'a mislabeled structure error is still blocking');
     await send({ type: 'durability_snapshot', ...snapshot(seed, 7, 4) });
     assert.equal(get().durability, 'degraded');
-    await send({ type: 'durability_snapshot', ...snapshot(seed, 7, 7) });
+    await send({ type: 'durability_snapshot', ...snapshot(seed, 7, 7), projectionFinalized: true, schemaValidated: true });
     assert.equal(get().durability, 'checkpointed_file');
     await act(async () => get().doc.getText('content').insert(0, 'new '));
     Y.applyUpdate(seed, Y.encodeStateAsUpdate(get().doc));
