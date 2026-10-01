@@ -30,4 +30,37 @@ export const WORKSPACE_OPERATION_REVIEW_STATEMENTS = [
   `ALTER TABLE workspace_file_operation_reviews ADD COLUMN IF NOT EXISTS reviewer_user_id text`,
   `CREATE INDEX IF NOT EXISTS idx_workspace_file_operation_reviews_pending
     ON workspace_file_operation_reviews (source_workspace_id, status, created_at DESC)`,
+  `ALTER TABLE workspace_file_operation_reviews ADD COLUMN IF NOT EXISTS batch_id text`,
+  `ALTER TABLE workspace_file_operation_reviews ADD COLUMN IF NOT EXISTS previous_review_id text`,
+  `ALTER TABLE workspace_file_operation_reviews ADD COLUMN IF NOT EXISTS successor_review_id text`,
+  `ALTER TABLE workspace_file_operation_reviews DROP CONSTRAINT IF EXISTS workspace_file_operation_reviews_status_check`,
+  `ALTER TABLE workspace_file_operation_reviews ADD CONSTRAINT workspace_file_operation_reviews_status_check
+    CHECK (status IN ('pending','queued','applying','applied','rejected','stale','failed','needs_recovery','blocked'))`,
+  `CREATE TABLE IF NOT EXISTS workspace_file_operation_batches (
+    batch_id text PRIMARY KEY,
+    plan_id text NOT NULL CHECK (plan_id ~ '^[a-f0-9]{64}$'),
+    workspace_id text NOT NULL,
+    review_ids_json text NOT NULL,
+    review_refs_json text NOT NULL,
+    plan_json text NOT NULL,
+    status text NOT NULL CHECK (status IN ('preview','blocked','queued','applying','applied','needs_review','needs_recovery','failed','undone')),
+    action_mode text NOT NULL DEFAULT 'apply' CHECK (action_mode IN ('apply','undo')),
+    reviewer_user_id text,
+    reviewer_display_name text,
+    completed_actions integer NOT NULL DEFAULT 0,
+    total_actions integer NOT NULL,
+    phase text NOT NULL DEFAULT 'preparing',
+    error_code text,
+    trash_entry_ids_json text NOT NULL DEFAULT '[]',
+    lease_owner text,
+    lease_expires_at bigint,
+    created_at bigint NOT NULL,
+    updated_at bigint NOT NULL,
+    CHECK (completed_actions >= 0 AND total_actions >= completed_actions),
+    CHECK (char_length(batch_id) BETWEEN 16 AND 128)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_workspace_file_operation_batches_work
+    ON workspace_file_operation_batches (status, lease_expires_at, created_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_workspace_file_operation_reviews_batch
+    ON workspace_file_operation_reviews (batch_id) WHERE batch_id IS NOT NULL`,
 ] as const;

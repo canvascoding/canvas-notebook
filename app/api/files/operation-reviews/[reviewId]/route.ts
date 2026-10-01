@@ -3,7 +3,7 @@ import { NextRequest } from 'next/server';
 import { auth } from '@/app/lib/auth';
 import { applyRateLimit, jsonError, jsonServerError, jsonSuccess } from '@/app/lib/api/route-helpers';
 import { acceptWorkspaceOperationReview, getWorkspaceOperationReview,
-  rejectWorkspaceOperationReview, WorkspaceOperationReviewError } from '@/app/lib/files/workspace-operation-review-service';
+  refreshWorkspaceOperationReview, rejectWorkspaceOperationReview, WorkspaceOperationReviewError } from '@/app/lib/files/workspace-operation-review-service';
 import { requireSessionWorkspace, workspaceFileOptions } from '@/app/lib/workspaces/request';
 
 type RouteContext = { params: Promise<{ reviewId: string }> };
@@ -58,9 +58,23 @@ export async function POST(request: NextRequest, context: RouteContext) {
     if ('response' in authorized) return authorized.response;
     const body = await request.json() as { action?: unknown; planId?: unknown };
     if (!body || typeof body !== 'object' || Array.isArray(body)
-      || !['accept', 'reject'].includes(String(body.action))
+      || !['accept', 'reject', 'refresh'].includes(String(body.action))
       || typeof body.planId !== 'string' || !/^[a-f0-9]{64}$/u.test(body.planId)) {
       return jsonError('A valid action and exact planId are required', 422);
+    }
+    if (body.action === 'refresh') {
+      const review = await refreshWorkspaceOperationReview({ reviewId, planId: body.planId,
+        source: { workspace: authorized.source, fileOptions: workspaceFileOptions(authorized.source) },
+        destination: { workspace: authorized.destination, fileOptions: workspaceFileOptions(authorized.destination) },
+        reviewerUserId: authorized.session.user.id, refreshAccess: async () => {
+          const fresh = await authorize(request, reviewId, true);
+          if ('response' in fresh || fresh.session.user.id !== authorized.session.user.id) {
+            throw new WorkspaceOperationReviewError('REVIEW_ACCESS_DENIED', 403, 'Workspace access changed before refreshing.');
+          }
+          return { source: { workspace: fresh.source, fileOptions: workspaceFileOptions(fresh.source) },
+            destination: { workspace: fresh.destination, fileOptions: workspaceFileOptions(fresh.destination) } };
+        } });
+      return jsonSuccess({ review, previousReviewId: reviewId }, { headers: { 'Cache-Control': 'no-store' } });
     }
     const review = body.action === 'reject'
       ? await rejectWorkspaceOperationReview(reviewId, body.planId)

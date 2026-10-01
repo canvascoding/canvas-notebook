@@ -816,6 +816,9 @@ async function startServer() {
     const roomOwner = collaborationOwnerTestModule.resolveLocalCollaborationRoomOwnerOptions();
     collaborationModule.createCollaborationServer(server, roomOwner ? { roomOwner } : {});
     flushCollaborationDocuments = collaborationModule.flushCollaborationDocuments;
+    const fileActionWorkerModule = require('./app/lib/files/workspace-operation-batch-worker.ts');
+    const fileActionWorker = fileActionWorkerModule.initializeWorkspaceOperationBatchWorkerRuntime();
+    server.once('close', fileActionWorker.stop);
     const excalidrawCollaborationModule = require('./server/excalidraw-collaboration/server.ts');
     excalidrawCollaborationModule.createExcalidrawCollaborationServer(server);
     flushExcalidrawCollaborationDocuments = excalidrawCollaborationModule.flushExcalidrawCollaborationDocuments;

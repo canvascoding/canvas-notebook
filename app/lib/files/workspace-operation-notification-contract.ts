@@ -1,7 +1,7 @@
 import type { WorkspaceOperationReviewKind } from './workspace-operation-review-contract';
 
 export const WORKSPACE_OPERATION_NOTIFICATION_PREFIX = 'file-operation:';
-export const WORKSPACE_OPERATION_ATTENTION_STATUSES = ['pending', 'blocked', 'stale', 'failed', 'needs_recovery'] as const;
+export const WORKSPACE_OPERATION_ATTENTION_STATUSES = ['pending', 'queued', 'applying', 'blocked', 'stale', 'failed', 'needs_recovery'] as const;
 export type WorkspaceOperationAttentionStatus = typeof WORKSPACE_OPERATION_ATTENTION_STATUSES[number];
 export type WorkspaceOperationNotificationTarget = {
   kind: 'file_operation';

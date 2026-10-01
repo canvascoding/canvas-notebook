@@ -5,6 +5,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { invalidateWorkspaceFileViews } from '@/app/lib/api/route-helpers';
 import { openDb } from '@/app/lib/db';
+import { executeLifecycleTransaction } from '@/app/lib/collaboration/lifecycle-transaction';
 import { archiveFileCollaborationPaths } from '@/app/lib/files/collaboration-policy';
 import { withWorkspaceMutationLock } from '@/app/lib/files/workspace-mutation-lock';
 import { withWorkspaceCopyMutationLocks, type WorkspaceFileOperationOptions } from '@/app/lib/filesystem/workspace-files';
@@ -18,6 +19,7 @@ import type { WorkspaceFileOperationPreview } from '@/app/lib/markdown/workspace
 import { syncPublicSharesAfterDelete } from '@/app/lib/public-sharing/public-file-shares';
 import { resolveWorkspacePath } from '@/app/lib/workspaces/path-guard';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
+import type { WorkspaceOperationBatchPlan, WorkspaceOperationBatchScope } from './workspace-operation-batch-contract';
 
 import { observeWorkspaceOperation } from './workspace-operation-observability';
 import { executeWorkspaceFileOperationService } from './workspace-file-operation-service';
@@ -85,19 +87,23 @@ async function ensureReviewAudit(input: {
 
 function readRow(row: ReviewRow): WorkspaceOperationReviewPublic {
   const request = JSON.parse(String(row.request_json)) as StoredRequest;
+  const reasons = JSON.parse(String(row.reason_codes_json)) as string[];
   return {
     reviewId: String(row.review_id), planId: String(row.plan_id),
     kind: request.kind, selections: request.selections,
     sourceWorkspaceId: String(row.source_workspace_id),
     destinationWorkspaceId: String(row.destination_workspace_id),
     status: row.status as WorkspaceOperationReviewStatus,
-    actor: { type: 'agent', id: String(row.actor_id) },
-    reasonCodes: JSON.parse(String(row.reason_codes_json)) as string[],
+    actor: { type: reasons.includes('USER_FILE_OPERATION') ? 'user' : 'agent', id: String(row.actor_id) },
+    reasonCodes: reasons,
     preview: JSON.parse(String(row.preview_json)) as WorkspaceOperationReviewPreview,
     createdAt: Number(row.created_at), updatedAt: Number(row.updated_at),
     operationId: row.operation_id === null ? null : String(row.operation_id),
     errorCode: row.error_code === null ? null : String(row.error_code),
     trashEntryIds: JSON.parse(String(row.trash_entry_ids_json)) as string[],
+    ...(row.batch_id === undefined ? {} : { batchId: row.batch_id == null ? null : String(row.batch_id) }),
+    ...(row.previous_review_id === undefined ? {} : { previousReviewId: row.previous_review_id == null ? null : String(row.previous_review_id) }),
+    ...(row.successor_review_id === undefined ? {} : { successorReviewId: row.successor_review_id == null ? null : String(row.successor_review_id) }),
   };
 }
 
@@ -125,9 +131,6 @@ function assertInput(input: SubmitAgentWorkspacePathOperationInput): StoredReque
   }
   if (!Array.isArray(input.selections) || input.selections.length < 1 || input.selections.length > 1000) {
     fail('REVIEW_INVALID_SELECTION', 422, 'Invalid file proposal selection count.');
-  }
-  if (input.kind !== 'copy' && input.selections.length !== 1) {
-    fail('REVIEW_UNSUPPORTED_SELECTION', 422, 'Only copy supports multiple selected paths.');
   }
   if (!input.actorUserId || !input.actorId || !input.actorDisplayName) {
     fail('REVIEW_INVALID_ACTOR', 422, 'An agent actor is required.');
@@ -298,6 +301,7 @@ export async function getWorkspaceOperationReview(reviewId: string): Promise<Wor
   const row = await rawWorkspaceOperationReview(reviewId);
   if (!row) return null;
   const review = readRow(row);
+  if (review.batchId) return review;
   const auditRetry = review.status === 'needs_recovery' && review.errorCode === 'AUDIT_WRITE_FAILED';
   if (!auditRetry && (review.status !== 'applying' || Date.now() - review.updatedAt < 120_000)) return review;
   try {
@@ -349,7 +353,8 @@ export async function getWorkspaceOperationReview(reviewId: string): Promise<Wor
 
 export async function listWorkspaceOperationReviews(workspaceId: string): Promise<WorkspaceOperationReviewPublic[]> {
   const rows = await all(`SELECT * FROM workspace_file_operation_reviews
-    WHERE source_workspace_id = $1 AND status IN ('pending','blocked','stale','needs_recovery','failed','applying','applied')
+    WHERE source_workspace_id = $1 AND successor_review_id IS NULL
+      AND status IN ('pending','queued','blocked','stale','needs_recovery','failed','applying','applied')
     ORDER BY CASE WHEN status = 'applied' THEN 1 ELSE 0 END, created_at DESC, review_id DESC LIMIT 100`, [workspaceId]);
   return rows.map(readRow);
 }
@@ -430,6 +435,10 @@ export async function acceptWorkspaceOperationReview(input: {
     const stored = await one('SELECT * FROM workspace_file_operation_reviews WHERE review_id = $1', [input.reviewId]);
     if (!stored) fail('REVIEW_NOT_FOUND', 404, 'File operation review not found.');
     const request = JSON.parse(String(stored.request_json)) as StoredRequest;
+    if (request.kind !== 'copy' && request.selections.length > 1) {
+      fail('BATCH_REVIEW_REQUIRED', 409,
+        'Multiple selected paths require a fresh combined preview before approval.');
+    }
     const actorId = String(stored.actor_id);
     const actorSessionId = stored.actor_session_id === null ? undefined : String(stored.actor_session_id);
     const buildInput: SubmitAgentWorkspacePathOperationInput = {
@@ -442,6 +451,10 @@ export async function acceptWorkspaceOperationReview(input: {
     if (currentPreview.planId !== review.planId || currentPreview.readiness !== 'ready') {
       await updateReview(input.reviewId, 'pending', 'stale', { errorCode: 'PREVIEW_STALE' });
       fail('PREVIEW_STALE', 409, 'Files changed since this review. Create a fresh proposal.');
+    }
+    if ('deletedPaths' in currentPreview && currentPreview.potentialBrokenLinks.length > 0) {
+      fail('BATCH_REVIEW_REQUIRED', 409,
+        'This deletion affects Markdown links. Open a fresh combined preview to review link cleanup before approval.');
     }
     const operationId = sha(['workspace-operation-review-apply-v1', review.reviewId]);
     const reserved = await updateReview(input.reviewId, 'pending', 'applying',
@@ -497,5 +510,119 @@ export async function acceptWorkspaceOperationReview(input: {
         { operationId, errorCode: error instanceof Error ? error.name.slice(0, 128) : 'UNKNOWN' }).catch(() => null);
       throw error;
     }
+  });
+}
+
+/** Preserve the accepted review's immutable bytes and make dependent open previews visibly stale. */
+export async function markDependentWorkspaceOperationReviews(input: {
+  scope: WorkspaceOperationBatchScope; plan: WorkspaceOperationBatchPlan;
+  excludedReviewIds: string[]; undo?: boolean;
+}): Promise<void> {
+  const touched = [
+    ...input.plan.pathSteps.flatMap((step) => [step.sourcePath, ...(step.destinationPath ? [step.destinationPath] : [])]),
+    ...input.plan.linkEdits.flatMap((edit) => [edit.sourcePathBefore, edit.sourcePathAfter]),
+  ];
+  const rows = await all(`SELECT * FROM workspace_file_operation_reviews WHERE source_workspace_id = $1
+    AND status IN ('pending','blocked','stale') AND successor_review_id IS NULL AND batch_id IS NULL`,
+  [input.scope.workspace.workspaceId]);
+  for (const row of rows) {
+    if (input.excludedReviewIds.includes(String(row.review_id))) continue;
+    const request = JSON.parse(String(row.request_json)) as StoredRequest;
+    const preview = JSON.parse(String(row.preview_json)) as WorkspaceOperationReviewPreview;
+    const paths = request.selections.flatMap((selection) => [selection.sourcePath,
+      ...(selection.destinationPath ? [selection.destinationPath] : [])]);
+    if ('expectedPathState' in preview) paths.push(...preview.expectedPathState.map((entry) => entry.path));
+    else paths.push(...preview.potentialBrokenLinks.map((link) => link.sourcePath));
+    if (!paths.some((candidate) => touched.some((changed) => isDescendant(candidate, changed) || isDescendant(changed, candidate)))) continue;
+    await updateReview(String(row.review_id), row.status as WorkspaceOperationReviewStatus, 'stale',
+      { errorCode: input.undo ? 'DEPENDENCY_UNDONE' : 'DEPENDENCY_CHANGED' });
+  }
+}
+
+async function rebaseReviewSelections(review: WorkspaceOperationReviewPublic, request: StoredRequest,
+  scope: Scope): Promise<StoredRequest> {
+  const snapshot = await buildWorkspacePlannerSnapshot(scope.workspace.workspaceId, scope.fileOptions);
+  const current = new Map(snapshot.entries.map((entry) => [entry.path, entry]));
+  const sameObject = (left: string, right: string) => left.split(':').slice(0, 2).join(':') === right.split(':').slice(0, 2).join(':');
+  const originalIdentity = (sourcePath: string) => 'deletedPaths' in review.preview
+    ? review.preview.deletedPaths.find((entry) => entry.path === sourcePath)?.identity
+    : review.preview.pathMappings.find((mapping) => mapping.sourcePath === sourcePath)?.sourceIdentity;
+  const applied = await all(`SELECT preview_json FROM workspace_file_operation_reviews
+    WHERE source_workspace_id = $1 AND status = 'applied' AND updated_at >= $2`, [review.sourceWorkspaceId, review.createdAt]);
+  const batches = await all(`SELECT plan_json FROM workspace_file_operation_batches
+    WHERE workspace_id = $1 AND status = 'applied' AND updated_at >= $2`, [review.sourceWorkspaceId, review.createdAt]);
+  const mappings: WorkspaceOperationBatchPlan['pathMappings'] = [];
+  for (const row of [...applied, ...batches]) {
+    const plan = JSON.parse(String(row.plan_json ?? row.preview_json)) as { kind?: string; pathMappings?: WorkspaceOperationBatchPlan['pathMappings'] };
+    if (plan.kind === 'copy') continue;
+    mappings.push(...(plan.pathMappings ?? []));
+  }
+  return { ...request, selections: request.selections.map((selection) => {
+    if (current.has(selection.sourcePath)) return selection;
+    const identity = originalIdentity(selection.sourcePath);
+    if (!identity) return selection;
+    const candidates = mappings.filter((mapping) => mapping.sourcePath === selection.sourcePath
+      && sameObject(identity, mapping.sourceIdentity)
+      && current.has(mapping.destinationPath)
+      && sameObject(mapping.sourceIdentity, current.get(mapping.destinationPath)!.identity));
+    const destinations = [...new Set(candidates.map((mapping) => mapping.destinationPath))];
+    return destinations.length === 1 ? { ...selection, sourcePath: destinations[0]! } : selection;
+  }) };
+}
+
+/** Refresh creates an immutable successor. The previous proposal remains addressable as history. */
+export async function refreshWorkspaceOperationReview(input: {
+  reviewId: string; planId: string; source: Scope; destination: Scope;
+  reviewerUserId: string; refreshAccess: () => Promise<{ source: Scope; destination: Scope }>;
+}): Promise<WorkspaceOperationReviewPublic> {
+  const original = await rawWorkspaceOperationReview(input.reviewId);
+  if (!original) fail('REVIEW_NOT_FOUND', 404, 'File operation review not found.');
+  const review = readRow(original);
+  if (review.planId !== input.planId) fail('PREVIEW_STALE', 409, 'The exact existing plan is required to refresh.');
+  return withWorkspaceMutationLock(review.sourceWorkspaceId, async () => {
+    const fresh = await input.refreshAccess();
+    if (fresh.source.workspace.workspaceId !== review.sourceWorkspaceId
+      || fresh.destination.workspace.workspaceId !== review.destinationWorkspaceId
+      || !fresh.source.workspace.permissions.canRead || !fresh.destination.workspace.permissions.canWrite
+      || review.kind !== 'copy' && (!fresh.source.workspace.permissions.canWrite || !fresh.source.workspace.permissions.canDelete)) {
+      fail('REVIEW_ACCESS_DENIED', 403, 'Workspace access changed before refreshing the review.');
+    }
+    const current = await rawWorkspaceOperationReview(input.reviewId);
+    if (!current) fail('REVIEW_NOT_FOUND', 404, 'File operation review not found.');
+    if (current.successor_review_id) return (await getWorkspaceOperationReview(String(current.successor_review_id)))!;
+    if (!['pending', 'blocked', 'stale'].includes(String(current.status)) || current.batch_id) {
+      fail('REVIEW_CONFLICT', 409, 'Queued or executed actions cannot be refreshed as new proposals.');
+    }
+    const request = await rebaseReviewSelections(review, JSON.parse(String(current.request_json)) as StoredRequest, fresh.source);
+    const buildInput: SubmitAgentWorkspacePathOperationInput = { kind: request.kind, selections: request.selections,
+      source: fresh.source, destination: fresh.destination, actorUserId: String(current.actor_user_id),
+      actorId: String(current.actor_id), actorDisplayName: String(current.actor_display_name),
+      actorSessionId: current.actor_session_id == null ? undefined : String(current.actor_session_id) };
+    const preview = await buildPreview(buildInput, request);
+    const reviewId = randomUUID();
+    const now = Date.now();
+    const reasons = [review.actor.type === 'user' ? 'USER_FILE_OPERATION' : 'AGENT_FILE_OPERATION',
+      'REFRESHED_PREVIEW', ...(preview.readiness === 'blocked' ? ['INCOMPLETE_PREVIEW'] : [])];
+    return executeLifecycleTransaction({ openConnection: openDb, execute: async (db) => {
+      const locked = await db.get(`SELECT * FROM workspace_file_operation_reviews WHERE review_id = $1 FOR UPDATE`, [input.reviewId]) as ReviewRow;
+      if (locked.successor_review_id) return readRow((await db.get(`SELECT * FROM workspace_file_operation_reviews WHERE review_id = $1`, [locked.successor_review_id])) as ReviewRow);
+      if (locked.plan_id !== input.planId || !['pending', 'blocked', 'stale'].includes(String(locked.status)) || locked.batch_id) {
+        fail('REVIEW_CONFLICT', 409, 'The review changed while refreshing it.');
+      }
+      const inserted = await db.get(`INSERT INTO workspace_file_operation_reviews
+        (review_id,plan_id,request_hash,request_json,preview_json,source_workspace_id,destination_workspace_id,
+         actor_user_id,actor_id,actor_session_id,actor_display_name,status,reason_codes_json,previous_review_id,created_at,updated_at)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$15) RETURNING *`,
+      [reviewId, preview.planId, sha({ request, previousReviewId: review.reviewId }), JSON.stringify(request), JSON.stringify(preview),
+        review.sourceWorkspaceId, review.destinationWorkspaceId, current.actor_user_id, current.actor_id, current.actor_session_id,
+        current.actor_display_name, preview.readiness === 'ready' ? 'pending' : 'blocked', JSON.stringify(reasons), review.reviewId, now]);
+      await db.run(`UPDATE workspace_file_operation_reviews SET status = 'stale', error_code = 'REVIEW_REFRESHED',
+        successor_review_id = $2, revision = revision + 1, updated_at = $3 WHERE review_id = $1`, [review.reviewId, reviewId, now]);
+      return readRow(inserted as ReviewRow);
+    }, recoverCommitted: async (value, commitError) => {
+      const persisted = await getWorkspaceOperationReview(value.reviewId);
+      if (persisted?.planId === value.planId && persisted.previousReviewId === review.reviewId) return persisted;
+      throw commitError;
+    } });
   });
 }

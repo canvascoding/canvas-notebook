@@ -6,6 +6,7 @@ import { syncPublicSharesAfterDelete } from '@/app/lib/public-sharing/public-fil
 import { getParentDirectory } from '@/app/lib/files/path-utils';
 import { archiveFileCollaborationPaths } from '@/app/lib/files/collaboration-policy';
 import { withWorkspaceMutationLock } from '@/app/lib/files/workspace-mutation-lock';
+import { reviewWorkspaceDeletionIfRequired } from '@/app/lib/files/workspace-operation-delete-review';
 import {
   applyRateLimit,
   invalidateWorkspaceFileViews,
@@ -45,6 +46,19 @@ export async function DELETE(request: NextRequest) {
     }
 
     const result = await withWorkspaceMutationLock(workspaceResult.workspace.workspaceId, async () => {
+      const fresh = await requireRequestWorkspace(request, { permissions: ['canRead', 'canDelete'] });
+      if (fresh.response) return { response: fresh.response };
+      if (fresh.workspace.workspaceId !== workspaceResult.workspace.workspaceId
+        || fresh.workspace.rootPath !== workspaceResult.workspace.rootPath
+        || fresh.session.user.id !== workspaceResult.session.user.id) {
+        return { response: jsonError('Workspace access changed before deletion', 403) };
+      }
+      const review = await reviewWorkspaceDeletionIfRequired({
+        scope: { workspace: fresh.workspace, fileOptions: workspaceFileOptions(fresh.workspace) }, paths: pathsToDelete,
+        userId: workspaceResult.session.user.id,
+        displayName: workspaceResult.session.user.name || 'Workspace user',
+      });
+      if (review) return review;
       const trashed = await trashWorkspacePaths({
         workspace: workspaceResult.workspace, paths: pathsToDelete, deletedByUserId: workspaceResult.session.user.id,
       });
@@ -54,6 +68,14 @@ export async function DELETE(request: NextRequest) {
       });
       return trashed;
     });
+    if ('response' in result) return result.response;
+    if ('reviewRequired' in result) {
+      const payload = { deleted: [], trashEntries: [], failed: [], reviewRequired: result.reviewRequired,
+        code: result.blocked ? 'PREVIEW_BLOCKED' : 'BATCH_REVIEW_REQUIRED' };
+      return result.blocked
+        ? jsonError('Deletion requires resolving the blocked file action preview.', 409, payload)
+        : jsonSuccess(payload);
+    }
     const deletedPaths = result.trashed.map((entry) => entry.originalPath);
     await syncPublicSharesAfterDelete(deletedPaths, workspaceResult.workspace);
 

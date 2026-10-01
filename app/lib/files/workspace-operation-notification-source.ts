@@ -25,7 +25,8 @@ type Scope = { userId: string; workspace: WorkspaceContext };
 type Row = { review_id: string; operation_kind: WorkspaceOperationReviewKind;
   status: WorkspaceOperationAttentionStatus; source_path: string; updated_at: string | number; unread: boolean };
 const ACTIONABLE = `review.source_workspace_id = $1 AND review.destination_workspace_id = $1
-  AND review.status IN ('pending', 'blocked', 'stale', 'failed', 'needs_recovery')`;
+  AND review.successor_review_id IS NULL
+  AND review.status IN ('pending', 'queued', 'applying', 'blocked', 'stale', 'failed', 'needs_recovery')`;
 
 function canRead(input: Scope): boolean {
   return Boolean(input.userId && input.workspace.workspaceId && input.workspace.permissions.canRead
@@ -61,9 +62,10 @@ export function createWorkspaceOperationNotificationSource(options: {
           workspaceId: input.workspace.workspaceId, reviewId: row.review_id,
           operationKind: row.operation_kind, status: row.status };
         return [{ id: `${WORKSPACE_OPERATION_NOTIFICATION_PREFIX}${row.review_id}`,
-          type: 'file.operation_review_required', title: 'File action needs attention', detail: row.source_path ?? '',
+          type: 'file.operation_review_required', title: row.status === 'queued' ? 'File action queued'
+            : row.status === 'applying' ? 'File action running' : 'File action needs attention', detail: row.source_path ?? '',
           previewUrl: null, deepLink: workspaceOperationReviewHref(target), occurredAt: new Date(timestamp).toISOString(),
-          unread: row.unread, priority: row.status === 'pending' ? 'normal' : 'high', target,
+          unread: row.unread, priority: ['pending', 'queued', 'applying'].includes(row.status) ? 'normal' : 'high', target,
           workspaceId: input.workspace.workspaceId, workspaceName: input.workspace.displayName ?? null }];
       });
       return { items, unreadCount: Number(counts.rows[0]?.total ?? 0) };
