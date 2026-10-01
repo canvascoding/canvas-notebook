@@ -288,6 +288,7 @@ export function useChatSessionHistory({
         }
       }
     } catch (err) {
+      if (err instanceof Error && err.name === 'AbortError') return;
       console.error('Failed to fetch history', err);
     }
   }, [
