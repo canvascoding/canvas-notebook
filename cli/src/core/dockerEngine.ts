@@ -102,7 +102,12 @@ export class DockerEngineClient {
     return { socketPath, version: `1.${requested}` };
   }
 
-  private connect() { return this.connection ??= this.resolveConnection(); }
+  private connect() {
+    return this.connection ??= this.resolveConnection().catch((error: unknown) => {
+      this.connection = undefined;
+      throw error;
+    });
+  }
   async available(): Promise<boolean> { return (await this.connect()) !== null; }
 
   private request(socketPath: string, route: string, method: string, body: unknown, timeoutMs: number, signal?: AbortSignal): Promise<{ status: number; body: string }> {

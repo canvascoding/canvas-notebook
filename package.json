@@ -23,7 +23,7 @@
   },
   "scripts": {
     "test:cli:management-api": "tsx scripts/management-api-test.ts",
-    "test:cli:docker-engine": "tsx scripts/docker-engine-api-test.ts",
+    "test:cli:docker-engine": "npm run cli:build && tsx scripts/docker-engine-api-test.ts && tsx scripts/docker-management-context-test.ts",
     "test:cli:docker-engine:local": "tsx scripts/docker-engine-local-canary.ts",
     "test:cli:process-lifecycle": "tsx scripts/cli-process-lifecycle-test.ts && tsx scripts/cli-reexec-lifecycle-test.ts",
     "test:backup:cli-result": "tsx scripts/full-backup-cli-result-test.ts",

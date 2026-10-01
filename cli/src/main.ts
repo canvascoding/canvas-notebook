@@ -1879,7 +1879,8 @@ async function main(): Promise<void> {
   const parsed = parseArgs(process.argv.slice(2));
   const context = createRuntimeContext();
   const runner = new SpawnCommandRunner();
-  const docker = new DockerManager(runner, context, new DockerEngineClient(runner, context));
+  const createDocker = () => new DockerManager(runner, context, new DockerEngineClient(runner, context));
+  const docker = createDocker();
   const services = new ServiceManager(runner, context);
 
   // Capability negotiation must work even when Docker or the application is down.
@@ -1946,7 +1947,7 @@ async function main(): Promise<void> {
       context,
       socketPath: process.env.CANVAS_NOTEBOOK_MANAGEMENT_SOCKET,
       setConfigValue,
-      resetAdmin: (config, credentials) => resetAdminCredentials(docker, config, credentials),
+      resetAdmin: (config, credentials) => resetAdminCredentials(createDocker(), config, credentials),
     });
     const shutdown = () => { server.close(() => { process.exitCode = 0; }); server.closeIdleConnections(); };
     process.once('SIGTERM', shutdown);

@@ -43,6 +43,7 @@ async function main() {
   const server = http.createServer(async (req, res) => {
     requests.push(`${req.method} ${req.url}`);
     const json = (body: unknown, status = 200) => { res.writeHead(status, { 'content-type': 'application/json' }); res.end(JSON.stringify(body)); };
+    if (req.url === '/version' && mode === 'version-error') { json({}, 500); return; }
     if (req.url === '/version') { json({ ApiVersion: '1.54', MinAPIVersion: '1.40' }); return; }
     if (req.url === '/_ping') { res.end('OK'); return; }
     if (req.url?.includes('/containers/')) {
@@ -98,6 +99,9 @@ async function main() {
   const engine = new DockerEngineClient(runner, context, { NODE_ENV: 'test', DOCKER_HOST: `unix://${socketPath}` });
   const docker = new DockerManager(runner, context, engine);
   try {
+    mode = 'version-error';
+    await assert.rejects(engine.available(), /version negotiation failed/u);
+    mode = 'normal';
     assert(await engine.available()); assert(await docker.isReachable());
     assert.equal(await docker.imageId('registry/image@sha256:abc'), 'sha256:image');
     assert.equal(await docker.containerImageId('container'), 'sha256:image');
