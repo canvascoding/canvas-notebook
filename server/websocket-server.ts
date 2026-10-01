@@ -38,6 +38,7 @@ import {
   hasPendingMobileChatTicket,
   MOBILE_CHAT_WEBSOCKET_PROTOCOL,
 } from '@/app/lib/mobile/ws-ticket';
+import { projectMobileEmailAgentEvent } from '@/app/lib/mobile/email-action';
 import {
   CHAT_WEBSOCKET_CLOSE_CODES,
   CHAT_WEBSOCKET_PATH,
@@ -1165,7 +1166,7 @@ export function broadcastAgentEvent(
   broadcastToSession(sessionId, {
     type: 'agent_event',
     sessionId,
-    event,
+    event: projectMobileEmailAgentEvent(event),
   });
 }
 

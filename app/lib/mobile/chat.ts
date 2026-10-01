@@ -29,6 +29,7 @@ import {
   stripAttachmentBlocks,
 } from '@/app/lib/chat/message-content';
 import { mobileToolCallId } from '@/app/lib/mobile/tool-call-id';
+import { projectMobileEmailAction, type MobileEmailAction } from '@/app/lib/mobile/email-action';
 import { formatMobileToolInput } from '@/app/lib/mobile/tool-input';
 import { projectMobileCompactBreakMetadata, type MobileCompactBreakMetadata } from '@/app/lib/mobile/compact-break';
 import {
@@ -37,7 +38,7 @@ import {
   invalidateRuntime,
   withRuntimeSessionOperation,
 } from '@/app/lib/pi/runtime-service';
-import { parsePersistedPiMessage } from '@/app/lib/pi/message-projection';
+import { parsePersistedPiMessage, projectAgentMessageForLoadedContext } from '@/app/lib/pi/message-projection';
 import { createPiSessionWithRuntimeSnapshot, PiSessionClientRequestConflictError } from '@/app/lib/pi/session-store';
 import { DEFAULT_SESSION_TITLE } from '@/app/lib/pi/session-titles';
 import { createPiSystemPromptSnapshot } from '@/app/lib/pi/system-prompt-snapshot';
@@ -84,6 +85,7 @@ export type MobileChatMessage = {
   kind: 'message' | 'tool' | 'error' | 'compact_break';
   text: string;
   compactMeta?: MobileCompactBreakMetadata;
+  emailAction?: MobileEmailAction;
   clientMessageId?: string;
   toolCallId: string | null;
   toolName: string | null;
@@ -232,7 +234,9 @@ export function serializeMobileChatMessage(input: {
   timestamp: number;
   content: string;
 }, toolInputsById: ReadonlyMap<string, string> = new Map()): MobileChatMessage {
-  const piMessage = parsePersistedPiMessage(input.content, 'display');
+  const original = parsePersistedPiMessage(input.content, 'raw');
+  const emailAction = projectMobileEmailAction(original);
+  const piMessage = projectAgentMessageForLoadedContext(original, 'display', input.content.length);
   const parsed = piMessage as unknown as Record<string, unknown>;
   const rawRole = typeof parsed.role === 'string' ? parsed.role : 'system';
   if (rawRole === 'compact-break') {
@@ -276,6 +280,7 @@ export function serializeMobileChatMessage(input: {
     kind: isError ? 'error' : role === 'tool' ? 'tool' : 'message',
     text: visibleText,
     ...(clientMessageId ? { clientMessageId } : {}),
+    ...(emailAction ? { emailAction } : {}),
     toolCallId,
     toolName: messageToolName(parsed),
     toolInput: toolCallId ? toolInputsById.get(toolCallId) || null : null,
