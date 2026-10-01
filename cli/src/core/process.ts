@@ -86,14 +86,16 @@ export class SpawnCommandRunner implements CommandRunner {
       }
 
       child.on('error', reject);
-      child.on('close', (code) => {
+      child.on('close', (code, signal) => {
         if (timeout) clearTimeout(timeout);
         if (forceKillTimer) clearTimeout(forceKillTimer);
         if (timedOut) {
           appendCapturedOutput(stderr, Buffer.from('\nCommand exceeded its update deadline.', 'utf8'));
+        } else if (signal) {
+          appendCapturedOutput(stderr, Buffer.from(`\nCommand terminated by ${signal}.`, 'utf8'));
         }
         resolve({
-          status: timedOut ? 124 : (code ?? 0),
+          status: timedOut ? 124 : (code ?? 1),
           stdout: capturedOutputText(stdout),
           stderr: timedOut ? capturedOutputText(stderr).trim() : capturedOutputText(stderr),
         });
