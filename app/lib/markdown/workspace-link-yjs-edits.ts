@@ -93,9 +93,13 @@ function validateEditGroup(input: ActiveWorkspaceLinkEditsInput, phase: 'preflig
     const range = edit.targetRange;
     if (!Number.isSafeInteger(range.startUtf16) || !Number.isSafeInteger(range.endUtf16)
       || !Number.isSafeInteger(range.startUtf8Byte) || !Number.isSafeInteger(range.endUtf8Byte)
-      || range.startUtf16 < 0 || range.endUtf16 <= range.startUtf16
-      || range.startUtf8Byte < 0 || range.endUtf8Byte <= range.startUtf8Byte
-      || range.startUtf16 < previousEnd || !edit.previousTargetLiteral || !edit.nextTargetLiteral) {
+      || range.startUtf16 < 0 || range.endUtf16 < range.startUtf16
+      || range.startUtf8Byte < 0 || range.endUtf8Byte < range.startUtf8Byte
+      || range.startUtf16 < previousEnd
+      || typeof edit.previousTargetLiteral !== 'string' || typeof edit.nextTargetLiteral !== 'string'
+      || (edit.previousTargetLiteral.length === 0 && edit.nextTargetLiteral.length === 0)
+      || (range.endUtf16 === range.startUtf16) !== (edit.previousTargetLiteral.length === 0)
+      || (range.endUtf8Byte === range.startUtf8Byte) !== (edit.previousTargetLiteral.length === 0)) {
       return invalid('The planned link target spans are malformed or overlap.');
     }
     previousEnd = range.endUtf16;

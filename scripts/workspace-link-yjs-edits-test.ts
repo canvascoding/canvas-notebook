@@ -30,6 +30,29 @@ const start = source.indexOf(target);
 const end = start + target.length;
 const afterContent = `${source.slice(0, start)}${replacement}${source.slice(end)}`;
 
+test('delete cleanup may empty a Yjs document and exact Undo may restore it', async () => {
+  const h = fixture();
+  try {
+    const cleanup = { ...h.input, afterContent: '', edits: [{ ...h.input.edits[0],
+      expectedContentHash: sha256(source), previousTargetLiteral: source, nextTargetLiteral: '',
+      targetRange: { startUtf16: 0, endUtf16: source.length,
+        startUtf8Byte: 0, endUtf8Byte: Buffer.byteLength(source, 'utf8') } }] };
+    await h.service.preflight(cleanup);
+    await h.service.apply(cleanup);
+    assert.equal(h.doc.getText('content').toString(), '');
+    const restore = { ...h.input, afterContent: source, edits: [{ ...h.input.edits[0],
+      expectedContentHash: sha256(''), previousTargetLiteral: '', nextTargetLiteral: source,
+      targetRange: { startUtf16: 0, endUtf16: 0, startUtf8Byte: 0, endUtf8Byte: 0 } }] };
+    await h.service.preflight(restore);
+    await h.service.apply(restore);
+    assert.equal(h.doc.getText('content').toString(), source);
+    assert.equal((await h.service.apply(restore)).status, 'already-applied');
+    h.doc.getText('content').insert(0, 'User change ');
+    await assert.rejects(h.service.apply(restore), hasCode('LINK_WRITE_STALE'));
+    assert.equal(h.doc.getText('content').toString(), `User change ${source}`);
+  } finally { h.doc.destroy(); }
+});
+
 function sha256(content: string): string {
   return createHash('sha256').update(content, 'utf8').digest('hex');
 }

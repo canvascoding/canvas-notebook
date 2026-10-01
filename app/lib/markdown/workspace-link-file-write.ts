@@ -65,9 +65,11 @@ export async function applyWorkspacePlainLinkWrite(input: {
   for (const edit of [...edits].sort((left, right) => right.targetRange.startUtf16 - left.targetRange.startUtf16)) {
     const { startUtf16, endUtf16, startUtf8Byte, endUtf8Byte } = edit.targetRange;
     if (!Number.isSafeInteger(startUtf16) || !Number.isSafeInteger(endUtf16)
-      || startUtf16 < 0 || endUtf16 > content.length || endUtf16 <= startUtf16
+      || startUtf16 < 0 || endUtf16 > content.length || endUtf16 < startUtf16
       || endUtf16 > previousStart || startUtf8Byte !== Buffer.byteLength(content.slice(0, startUtf16), 'utf8')
       || endUtf8Byte !== Buffer.byteLength(content.slice(0, endUtf16), 'utf8')
+      || typeof edit.previousTargetLiteral !== 'string' || typeof edit.nextTargetLiteral !== 'string'
+      || (edit.previousTargetLiteral.length === 0 && edit.nextTargetLiteral.length === 0)
       || content.slice(startUtf16, endUtf16) !== edit.previousTargetLiteral) {
       throw new WorkspaceLinkFileWriteError('LINK_WRITE_INVALID_PLAN', 'A planned Markdown link span no longer matches its source.');
     }

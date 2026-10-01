@@ -143,8 +143,10 @@ function validateSourceBytes(group: WorkspaceLinkWriteGroup, bytes: Buffer): voi
   for (const edit of [...group.edits].sort((a, b) => b.targetRange.startUtf16 - a.targetRange.startUtf16)) {
     const { startUtf16, endUtf16, startUtf8Byte, endUtf8Byte } = edit.targetRange;
     if (!Number.isSafeInteger(startUtf16) || !Number.isSafeInteger(endUtf16)
-      || startUtf16 < 0 || endUtf16 > content.length || endUtf16 <= startUtf16
+      || startUtf16 < 0 || endUtf16 > content.length || endUtf16 < startUtf16
       || endUtf16 > previousStart
+      || typeof edit.previousTargetLiteral !== 'string' || typeof edit.nextTargetLiteral !== 'string'
+      || (edit.previousTargetLiteral.length === 0 && edit.nextTargetLiteral.length === 0)
       || startUtf8Byte !== Buffer.byteLength(content.slice(0, startUtf16), 'utf8')
       || endUtf8Byte !== Buffer.byteLength(content.slice(0, endUtf16), 'utf8')
       || content.slice(startUtf16, endUtf16) !== edit.previousTargetLiteral) {
