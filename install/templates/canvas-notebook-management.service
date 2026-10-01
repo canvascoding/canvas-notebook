@@ -1,0 +1,29 @@
+[Unit]
+Description=Canvas Notebook Local Management API
+After=network.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+Environment="CANVAS_INSTALL_DIR=__INSTALL_DIR__"
+Environment="CANVAS_CONFIG_JSON=__CONFIG_JSON__"
+ExecStart="__CLI_PATH__" management-service --no-banner
+RuntimeDirectory=canvas-notebook-management
+RuntimeDirectoryMode=0700
+UMask=0077
+Restart=on-failure
+RestartSec=2
+TimeoutStopSec=15
+KillMode=mixed
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectKernelTunables=true
+ProtectKernelModules=true
+RestrictSUIDSGID=true
+MemoryMax=192M
+TasksMax=64
+
+[Install]
+WantedBy=multi-user.target

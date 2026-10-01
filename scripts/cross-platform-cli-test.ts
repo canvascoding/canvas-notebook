@@ -204,6 +204,11 @@ async function main() {
   }
 
   const processRunner = new SpawnCommandRunner();
+  if (process.platform !== 'win32') {
+    const terminated = await processRunner.run(process.execPath, ['-e', 'process.kill(process.pid, "SIGTERM")']);
+    assert.notEqual(terminated.status, 0);
+    assert.match(terminated.stderr, /terminated by SIGTERM/u);
+  }
   const oversizedOutput = await processRunner.run(process.execPath, [
     '-e',
     `const size = Number(process.argv[1]);

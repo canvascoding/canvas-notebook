@@ -176,6 +176,13 @@ remove_standalone_updater_units() {
   run_root systemctl reset-failed "$socket_unit" "$service_unit" >/dev/null 2>&1 || true
 }
 
+install_management_api() {
+  run_root env "CANVAS_CLI_PATH=${CANVAS_CLI_PATH:-/usr/local/bin/canvas-notebook}" \
+    "CANVAS_INSTALL_DIR=${INSTALL_DIR:-/opt/canvas-notebook}" \
+    "CANVAS_CONFIG_JSON=${CONFIG_JSON_PATH:-/opt/canvas-notebook/canvas-notebook-config.json}" \
+    bash "${SUPPORT_DIR}/management-api.sh"
+}
+
 install_standalone_updater() {
   local socket_unit="canvas-notebook-updater.socket" service_unit="canvas-notebook-updater.service"
   local socket_path="/etc/systemd/system/${socket_unit}" service_path="/etc/systemd/system/${service_unit}"

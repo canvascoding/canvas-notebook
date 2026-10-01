@@ -22,6 +22,8 @@
     "electron-winstaller@5.4.0": true
   },
   "scripts": {
+    "test:cli:management-api": "tsx scripts/management-api-test.ts",
+    "test:backup:cli-result": "tsx scripts/full-backup-cli-result-test.ts",
     "test:live-events": "tsx --conditions react-server scripts/live-events-bridge-test.ts && tsx scripts/live-events-client-test.ts",
     "postinstall": "patch-package --error-on-fail",
     "predev": "npm run build:tool-apps",
