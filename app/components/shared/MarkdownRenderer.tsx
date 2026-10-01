@@ -29,6 +29,7 @@ import { cn } from '@/lib/utils';
 import { imageDimension, portableImageStyle } from '@/app/lib/markdown/core/portable-image';
 import { isUnmodifiedPrimaryClick, todoIdFromHref } from '@/app/lib/todos/navigation';
 import { openTodoDetail } from '@/app/store/todo-detail-store';
+import { rehypeMarkdownSourcePositions } from '@/app/lib/editor/rehype-markdown-source-positions';
 
 interface MarkdownRendererProps {
   content: string;
@@ -37,6 +38,7 @@ interface MarkdownRendererProps {
   embedAncestorPaths?: string[];
   sourcePath?: string;
   frontmatter?: MarkdownFrontmatterMode;
+  sourcePositions?: { offset: number };
 }
 
 const SHARED_CLASSES =
@@ -72,6 +74,14 @@ function getReactNodeText(node: React.ReactNode): string {
   return '';
 }
 
+function markdownSourcePositionProps(props: object) {
+  const attributes = props as Record<string, unknown>;
+  return {
+    'data-markdown-source-from': attributes['data-markdown-source-from'] as number | undefined,
+    'data-markdown-source-to': attributes['data-markdown-source-to'] as number | undefined,
+  };
+}
+
 export function MarkdownRenderer({
   content,
   variant = 'default',
@@ -79,6 +89,7 @@ export function MarkdownRenderer({
   embedAncestorPaths,
   sourcePath,
   frontmatter = 'metadata',
+  sourcePositions,
 }: MarkdownRendererProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
@@ -87,18 +98,20 @@ export function MarkdownRenderer({
     [embedAncestorPaths, sourcePath],
   );
 
+  const sourcePositionsEnabled = Boolean(sourcePositions);
   const components = useMemo(() => ({
-    table: ({ children }: React.TableHTMLAttributes<HTMLTableElement>) => (
+    table: ({ children, ...props }: React.TableHTMLAttributes<HTMLTableElement>) => (
       <div role="region" aria-label="Scrollable table" tabIndex={0}
+        {...markdownSourcePositionProps(props)}
         className="max-w-full overflow-x-auto overscroll-x-contain rounded-sm focus-visible:outline-2 focus-visible:outline-ring">
         <table style={{ width: 'max-content', minWidth: '100%' }}>{children}</table>
       </div>
     ),
-    th: ({ children, align, style }: React.ThHTMLAttributes<HTMLTableCellElement>) => (
-      <th style={{ minWidth: '9rem', textAlign: style?.textAlign ?? (align === 'center' || align === 'right' ? align : 'left') }}>{children}</th>
+    th: ({ children, align, style, ...props }: React.ThHTMLAttributes<HTMLTableCellElement>) => (
+      <th {...markdownSourcePositionProps(props)} style={{ minWidth: '9rem', textAlign: style?.textAlign ?? (align === 'center' || align === 'right' ? align : 'left') }}>{children}</th>
     ),
-    td: ({ children, align, style }: React.TdHTMLAttributes<HTMLTableCellElement>) => (
-      <td style={{ minWidth: '9rem', textAlign: style?.textAlign ?? (align === 'center' || align === 'right' ? align : 'left') }}>{children}</td>
+    td: ({ children, align, style, ...props }: React.TdHTMLAttributes<HTMLTableCellElement>) => (
+      <td {...markdownSourcePositionProps(props)} style={{ minWidth: '9rem', textAlign: style?.textAlign ?? (align === 'center' || align === 'right' ? align : 'left') }}>{children}</td>
     ),
     span: ({
       className: spanClassName,
@@ -160,7 +173,7 @@ export function MarkdownRenderer({
             />
           );
         }
-        return (
+        const wikiLink = (
           <ObsidianWikiLink
             target={wikiTarget}
             sourcePath={sourcePath}
@@ -170,6 +183,7 @@ export function MarkdownRenderer({
             {children}
           </ObsidianWikiLink>
         );
+        return sourcePositionsEnabled ? <span data-markdown-atom="true">{wikiLink}</span> : wikiLink;
       }
       if (href && markdownHeadingAnchorFromHref(href)) {
         return (
@@ -216,6 +230,7 @@ export function MarkdownRenderer({
       alt,
       width,
       style,
+      ...props
     }: React.ImgHTMLAttributes<HTMLImageElement>) => {
       if (typeof src !== 'string' || !src) return null;
       const resolvedImage = resolveMarkdownImageUrl(src, sourcePath, {
@@ -236,7 +251,7 @@ export function MarkdownRenderer({
       const sizedWidth = imageDimension(width);
       const align = style?.marginLeft === 'auto' ? style?.marginRight === 'auto' ? 'center' : 'right' : 'left';
       return (
-        <span style={portableImageStyle({ width: sizedWidth, height: null, align })}>
+        <span {...markdownSourcePositionProps(props)} data-markdown-atom={sourcePositionsEnabled ? 'true' : undefined} style={portableImageStyle({ width: sizedWidth, height: null, align })}>
         <SafeMarkdownImage
           src={src}
           previewSrc={resolvedImage.src}
@@ -260,7 +275,7 @@ export function MarkdownRenderer({
     }) => {
       const calloutType = props['data-callout'];
       if (typeof calloutType === 'string') {
-        return (
+        const callout = (
           <ObsidianCallout
             type={calloutType}
             title={typeof props['data-callout-title'] === 'string' ? props['data-callout-title'] : undefined}
@@ -270,8 +285,9 @@ export function MarkdownRenderer({
             {children}
           </ObsidianCallout>
         );
+        return sourcePositionsEnabled ? <div {...markdownSourcePositionProps(props)}>{callout}</div> : callout;
       }
-      return <blockquote className={blockquoteClassName}>{children}</blockquote>;
+      return <blockquote {...markdownSourcePositionProps(props)} className={blockquoteClassName}>{children}</blockquote>;
     },
     sup: ({
       children,
@@ -285,9 +301,10 @@ export function MarkdownRenderer({
       const content = props['data-inline-footnote'];
       const index = props['data-inline-footnote-index'];
       if (typeof content === 'string') {
-        return <ObsidianInlineFootnote content={content} index={typeof index === 'string' ? index : 1} />;
+        const footnote = <ObsidianInlineFootnote content={content} index={typeof index === 'string' ? index : 1} />;
+        return sourcePositionsEnabled ? <span data-markdown-atom="true">{footnote}</span> : footnote;
       }
-      return <sup>{children}</sup>;
+      return <sup data-markdown-atom={sourcePositionsEnabled ? 'true' : undefined}>{children}</sup>;
     },
     code: ({
       className: codeClassName,
@@ -326,11 +343,12 @@ export function MarkdownRenderer({
         </div>
       );
     },
-  }), [activeWorkspaceId, ancestorPaths, sourcePath]);
+  }), [activeWorkspaceId, ancestorPaths, sourcePath, sourcePositionsEnabled]);
 
   return (
     <div
       ref={rootRef}
+      data-markdown-position-root={sourcePositions ? 'true' : undefined}
       className={cn(
         SHARED_CLASSES,
         VARIANT_CLASSES[variant],
@@ -340,7 +358,9 @@ export function MarkdownRenderer({
     >
       <ReactMarkdown
         remarkPlugins={frontmatter === 'content' ? CANVAS_MARKDOWN_CONTENT_REMARK_PLUGINS : CANVAS_MARKDOWN_REMARK_PLUGINS}
-        rehypePlugins={CANVAS_MARKDOWN_REHYPE_PLUGINS}
+        rehypePlugins={sourcePositions
+          ? [...CANVAS_MARKDOWN_REHYPE_PLUGINS, [rehypeMarkdownSourcePositions, sourcePositions]]
+          : CANVAS_MARKDOWN_REHYPE_PLUGINS}
         components={components}
       >
         {content}

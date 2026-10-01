@@ -5,6 +5,7 @@ import CodeMirror from '@uiw/react-codemirror';
 import { LocalMarkdownCodeMirror } from './LocalMarkdownCodeMirror';
 import { MarkdownSaveState } from './MarkdownDocumentModes';
 import type { LocalMarkdownDocument } from '@/app/lib/editor/local-markdown-document';
+import { createSourceViewportAdapter, markdownViewportSourceExtensions, useMarkdownViewportAdapter, type MarkdownModeViewport } from '@/app/lib/editor/markdown-mode-viewport';
 import { javascript } from '@codemirror/lang-javascript';
 import { python } from '@codemirror/lang-python';
 import { html } from '@codemirror/lang-html';
@@ -77,6 +78,7 @@ export interface CodeEditorProps {
   localMarkdownDocument?: LocalMarkdownDocument | null;
   /** Markdown's enclosing document view owns its shared recovery and diagnostics panel. */
   collaborationIssuesManagedExternally?: boolean;
+  markdownViewport?: MarkdownModeViewport;
 }
 
 class AgentTargetWidget extends WidgetType {
@@ -374,6 +376,7 @@ export function CodeEditor({
   agentTargets = [],
   localMarkdownDocument,
   collaborationIssuesManagedExternally = false,
+  markdownViewport,
 }: CodeEditorProps) {
   const t = useTranslations('notebook');
   const { currentFile } = useFileStore();
@@ -423,6 +426,7 @@ export function CodeEditor({
   const effectiveReadOnly = readOnly || collaborationReadOnly;
   const performanceProfile = useMemo(() => getTextEditorPerformanceProfile(value), [value]);
   const [editorView, setEditorView] = useState<EditorView | null>(null);
+  useMarkdownViewportAdapter(markdownViewport, editorView ? createSourceViewportAdapter(editorView) : null);
   const [documentPreview, setDocumentPreview] = useState<WorkspaceDocumentReference | null>(null);
   const onChangeRef = useRef(onChange);
 
@@ -468,6 +472,7 @@ export function CodeEditor({
 
   const extensions = useMemo(() => {
     const nextExtensions: CodeMirrorExtension[] = [codeMirrorAgentTargetDecorations];
+    if (markdownViewport) nextExtensions.push(...markdownViewportSourceExtensions);
     if (languagePath && !performanceProfile.disableLanguageExtension) {
       nextExtensions.push(getLanguageExtension(languagePath));
     }
@@ -506,6 +511,7 @@ export function CodeEditor({
     performanceProfile.disableLineWrapping,
     effectiveReadOnly,
     collaborationExtensions,
+    markdownViewport,
     t,
   ]);
 
@@ -528,12 +534,13 @@ export function CodeEditor({
     if (!editorView || !markdownNavigationTarget) return;
     const offset = findMarkdownNavigationOffset(editorView.state.doc.toString(), markdownNavigationTarget);
     if (offset === null) return;
+    if (markdownViewport && !markdownViewport.claimNavigation(markdownNavigationTarget.requestId)) return;
     editorView.dispatch({
       selection: { anchor: offset },
       effects: EditorView.scrollIntoView(offset, { y: 'center' }),
     });
     editorView.focus();
-  }, [editorView, markdownNavigationTarget]);
+  }, [editorView, markdownNavigationTarget, markdownViewport]);
 
   useEffect(() => {
     if (!editorView) return;

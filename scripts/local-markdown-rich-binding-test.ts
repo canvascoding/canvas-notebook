@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { JSDOM } from 'jsdom';
 import { Editor, Extension } from '@tiptap/core';
-import { Plugin, type Transaction } from '@tiptap/pm/state';
+import { Plugin, PluginKey, type Transaction } from '@tiptap/pm/state';
 import { CellSelection } from '@tiptap/pm/tables';
 
 import { createRichMarkdownManager, richMarkdownCodecExtensions } from '../app/lib/markdown/rich-markdown-codec';
@@ -130,6 +130,51 @@ test('old views and readonly transitions cannot edit or consume history', async 
     assert.equal(document.getSnapshot().markdown, original);
     assert.deepEqual(errors, []);
   } finally { old.destroy(); editor.destroy(); }
+});
+
+test('late obsolete rich plugin cleanup cannot reclaim the source view lease', async () => {
+  const document = new LocalMarkdownDocument(original);
+  const errors: Error[] = [];
+  const editor = mount(document, errors);
+  const menuKey = new PluginKey('mode-switch-menu');
+  let source: ReturnType<LocalMarkdownDocument['openView']> | undefined;
+  let replacement: Editor | undefined;
+  try {
+    await Promise.resolve();
+    editor.registerPlugin(new Plugin({ key: menuKey }));
+    await Promise.resolve();
+    editor.commands.setTextSelection(9);
+    editor.view.dispatch(editor.state.tr.insertText('x'));
+    assert.equal(document.getSnapshot().markdown, 'AAA\n\nBBBx\n\nCCC\n', 'current plugin reconfiguration keeps rich editing active');
+
+    source = document.openView('source', () => true);
+    assert(source.isCurrent());
+    // BubbleMenu teardown unregisters a plugin after the new Source view has
+    // mounted, rebuilding every plugin view on this obsolete rich editor.
+    editor.unregisterPlugin(menuKey);
+    await Promise.resolve();
+    assert(source.isCurrent(), 'late menu cleanup must not reacquire the rich lease');
+    editor.registerPlugin(new Plugin({ key: menuKey }));
+    editor.unregisterPlugin(menuKey);
+    await Promise.resolve();
+    assert(source.isCurrent(), 'later obsolete reconfiguration remains revoked');
+
+    const before = document.getSnapshot();
+    assert(source.changeSource({ revision: before.revision, markdown: before.markdown.replace('CCC', 'Source'),
+      beforeSelection: { anchor: 0, head: 0 }, afterSelection: { anchor: 0, head: 0 } }));
+    const changed = document.getSnapshot();
+    editor.view.dispatch(editor.state.tr.insertText('STALE', 1));
+    assert.equal(document.getSnapshot(), changed, 'obsolete rich native input cannot replace source content');
+    assert.deepEqual(texts(editor), ['AAA', 'BBBx', 'CCC']);
+
+    source.release();
+    replacement = mount(document, errors);
+    await Promise.resolve();
+    assert.deepEqual(texts(replacement), ['AAA', 'BBBx', 'Source'], 'a new rich editor can acquire its own lease');
+    assert(replacement.commands.undo());
+    assert.equal(document.getSnapshot().markdown, 'AAA\n\nBBBx\n\nCCC\n');
+    assert.deepEqual(errors, []);
+  } finally { source?.release(); editor.destroy(); replacement?.destroy(); }
 });
 
 test('focus and authoritative projections never acquire view-only appended content', async () => {
