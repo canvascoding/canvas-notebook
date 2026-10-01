@@ -14,9 +14,14 @@ const containerId = 'a'.repeat(64);
 const imageId = `sha256:${'b'.repeat(64)}`;
 const imageRef = `registry.example:5000/canvas/notebook@sha256:${'c'.repeat(64)}`;
 const created = '2026-10-02T00:00:00.123456789Z';
+
+function fixtureEnv(overrides: Record<string, string | undefined> = {}): NodeJS.ProcessEnv {
+  return { NODE_ENV: 'test', ...overrides };
+}
+
 const context: RuntimeContext = {
   platform: process.platform === 'win32' ? 'windows' : 'linux',
-  paths: resolveDefaultPaths('linux', { HOME: '/tmp', CANVAS_INSTALL_DIR: '/tmp/canvas-engine-test' }),
+  paths: resolveDefaultPaths('linux', fixtureEnv({ HOME: '/tmp', CANVAS_INSTALL_DIR: '/tmp/canvas-engine-test' })),
   serviceName: 'canvas-notebook',
   dockerBin: 'docker',
 };
@@ -88,7 +93,7 @@ async function withSocket(handler: RequestListener, test: (endpoint: string, sto
 }
 
 function client(endpoint: string, runner = new FixtureRunner(), options: { timeoutMs?: number; maxResponseBytes?: number } = {}) {
-  return new DockerEngineReadClient(runner, context, { env: { DOCKER_HOST: endpoint }, ...options });
+  return new DockerEngineReadClient(runner, context, { env: fixtureEnv({ DOCKER_HOST: endpoint }), ...options });
 }
 
 function errorCode(code: string) {
@@ -124,7 +129,7 @@ async function main(): Promise<void> {
       {},
     ]) {
       const runner = new FixtureRunner();
-      const docker = new DockerManager(runner, context, { env });
+      const docker = new DockerManager(runner, context, { env: fixtureEnv(env) });
       assert.equal(await docker.imageId(imageRef), imageId);
       assert.equal(await docker.containerImageId(containerId), imageId);
       assert.equal(await docker.isContainerRunning(containerId), true);
@@ -143,20 +148,20 @@ async function main(): Promise<void> {
     ]) {
       const runner = new FixtureRunner();
       runner.contextResult = result;
-      const engine = new DockerEngineReadClient(runner, context, { env: { DOCKER_CONTEXT: 'selected' } });
+      const engine = new DockerEngineReadClient(runner, context, { env: fixtureEnv({ DOCKER_CONTEXT: 'selected' }) });
       assert.equal(await engine.inspectImage(imageRef), undefined);
       assert.equal(await engine.inspectContainer(containerId), undefined);
       assert.equal(runner.calls.length, 1);
     }
     const runner = new FixtureRunner();
     runner.contextError = Object.assign(new Error('deadline'), { code: 'ETIMEDOUT' });
-    assert.equal(await new DockerEngineReadClient(runner, context, { env: {} }).inspectImage(imageRef), undefined);
+    assert.equal(await new DockerEngineReadClient(runner, context, { env: fixtureEnv() }).inspectImage(imageRef), undefined);
   });
 
   await test('CLI read failures cannot become false absence or erase rollback image IDs', async () => {
     for (const status of [1, 124, 130]) {
       const runner = new FixtureRunner();
-      const docker = new DockerManager(runner, context, { env: { DOCKER_HOST: 'ssh://compatibility' } });
+      const docker = new DockerManager(runner, context, { env: fixtureEnv({ DOCKER_HOST: 'ssh://compatibility' }) });
       runner.composeResult = { status, stdout: '', stderr: 'private diagnostic must not enter the error message' };
       await assert.rejects(docker.containerId(config), (error: unknown) => error instanceof Error
         && error.message.includes(`status ${status}`) && !error.message.includes('private diagnostic'));
@@ -175,7 +180,7 @@ async function main(): Promise<void> {
     }
     const runner = new FixtureRunner();
     runner.inspectResult = { status: 0, stdout: '', stderr: '' };
-    await assert.rejects(new DockerManager(runner, context, { env: {} }).containerImageId(containerId), errorCode('EPROTOCOL'));
+    await assert.rejects(new DockerManager(runner, context, { env: fixtureEnv() }).containerImageId(containerId), errorCode('EPROTOCOL'));
   });
 
   if (process.platform === 'win32') {
@@ -196,7 +201,7 @@ async function main(): Promise<void> {
       else json(response, {}, 500);
     }, async (endpoint) => {
       const runner = new FixtureRunner();
-      const docker = new DockerManager(runner, context, { env: { DOCKER_HOST: endpoint } });
+      const docker = new DockerManager(runner, context, { env: fixtureEnv({ DOCKER_HOST: endpoint }) });
       assert.equal(await docker.imageId(imageRef), imageId);
       assert.equal(await docker.containerImageId(containerId), imageId);
       assert.equal(await docker.isContainerRunning(containerId), true);
@@ -236,9 +241,9 @@ async function main(): Promise<void> {
     await withSocket((request, response) => json(response, request.url === '/version'
       ? { ApiVersion: '1.47', MinAPIVersion: '1.40' } : inspectedImage()), async (endpoint) => {
       for (const env of [
-        { DOCKER_CONTEXT: 'orbstack', DOCKER_HOST: 'unix:///must-not-be-used.sock' },
-        {},
-        { DOCKER_HOST: endpoint },
+        fixtureEnv({ DOCKER_CONTEXT: 'orbstack', DOCKER_HOST: 'unix:///must-not-be-used.sock' }),
+        fixtureEnv(),
+        fixtureEnv({ DOCKER_HOST: endpoint }),
       ]) {
         const runner = new FixtureRunner();
         runner.contextResult = { status: 0, stdout: JSON.stringify({ Host: endpoint, SkipTLSVerify: false }), stderr: '' };
@@ -253,7 +258,7 @@ async function main(): Promise<void> {
           assert.deepEqual(runner.calls[0].options.env, env);
         }
       }
-      const env = { DOCKER_HOST: endpoint };
+      const env = fixtureEnv({ DOCKER_HOST: endpoint });
       const engine = new DockerEngineReadClient(new FixtureRunner(), context, { env });
       env.DOCKER_HOST = 'unix:///changed-after-construction.sock';
       assert.equal((await engine.inspectImage(imageRef))?.id, imageId);
@@ -305,7 +310,7 @@ async function main(): Promise<void> {
         else if (mode === 'wrong-state') json(response, { ...inspectedContainer(), State: { ...inspectedContainer().State, Running: 'true' } });
         else json(response, { ...inspectedImage(), Id: 'mutable-tag-instead-of-image-id' });
       }, async (endpoint) => {
-        const docker = new DockerManager(runner, context, { env: { DOCKER_HOST: endpoint } });
+        const docker = new DockerManager(runner, context, { env: fixtureEnv({ DOCKER_HOST: endpoint }) });
         await assert.rejects(mode === 'wrong-image' ? docker.imageId(imageRef) : docker.isContainerRunning(containerId), errorCode(mode === 'http' ? 'EHTTP' : 'EPROTOCOL'));
         assert.equal(runner.calls.length, 0);
       });
