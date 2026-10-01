@@ -433,6 +433,7 @@ run_cli_update_only() {
   prepare_standalone_updater_config
   config_json_to_env
   install_management_cli
+  install_management_api
   install_standalone_updater
   install_systemd_service
   install_update_timer
@@ -474,6 +475,7 @@ run_prebuilt_install() {
   cleanup_docker_artifacts
   install_manager_config
   install_management_cli
+  install_management_api
   install_standalone_updater
   install_systemd_service
   install_update_timer

@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { resetAdminCredentials } from './core/admin';
+import { MANAGEMENT_API_SOCKET, MANAGEMENT_API_VERSION, startManagementApi } from './core/managementApi';
 
 import {
   configSecretState,
@@ -149,6 +151,7 @@ function printHelp(): void {
 Commands:
   version [--json]                 Show CLI build information and capabilities
   capabilities [--json]            Show protocol capabilities without Docker access
+  management-service --no-banner  Serve the private local configuration/account API
   install [--database postgres] [--postgres-mode managed|external] [--database-url-stdin|--database-url-file <path>] [--pgvector required|optional|disabled] [--runtime personal|team]
                                   Generate config, pull image, start container
   update [--image <name@sha256>] [--require-pinned] [--backup-required] [--event-stream] [--operation-id <uuid>]
@@ -1032,7 +1035,7 @@ function validateDataDirectory(config: CanvasCliConfig, value: string): string {
   return dataDirectory;
 }
 
-function setConfigValue(config: CanvasCliConfig, key: string, value: string): CanvasCliConfig {
+export function setConfigValue(config: CanvasCliConfig, key: string, value: string): CanvasCliConfig {
   const next = structuredClone(config);
   if (key === 'hostPort' || key === 'containerPort') {
     const port = Number(value);
@@ -1679,7 +1682,7 @@ async function reconcilePostgresAuth(
   }
 }
 
-async function admin(context: RuntimeContext, docker: DockerManager, config: CanvasCliConfig, args: string[]): Promise<void> {
+async function admin(context: RuntimeContext, docker: DockerManager, config: CanvasCliConfig, args: string[], json: boolean): Promise<void> {
   const subcommand = args.shift();
   if (subcommand !== 'reset-password' && subcommand !== 'set-password') {
     throw new Error('Usage: canvas-notebook admin reset-password --email <email> [--name <name>] --password-stdin');
@@ -1704,22 +1707,9 @@ async function admin(context: RuntimeContext, docker: DockerManager, config: Can
   const password = Buffer.concat(chunks).toString('utf8').replace(/\r?\n$/u, '');
   if (password.length < 8 || password.length > 128) throw new Error('Password must be between 8 and 128 characters.');
 
-  const containerId = await docker.containerId(config);
-  if (!containerId) throw new Error('Canvas Notebook container is not running. Start it first: canvas-notebook start');
-  await docker.dockerOrThrow([
-    'exec',
-    '-i',
-    containerId,
-    'node',
-    'scripts/bootstrap-admin.js',
-    '--email',
-    email,
-    '--name',
-    name,
-    '--password-stdin',
-  ], { stdin: `${password}\n`, stdio: 'pipe' });
+  await resetAdminCredentials(docker, config, { email, name, password });
   await appendLog(context, `admin reset-password ${email}`);
-  console.log(`Admin credentials synchronized for ${email}`);
+  console.log(json ? JSON.stringify({ success: true, email, name }) : `Admin credentials synchronized for ${email}`);
 }
 
 async function database(context: RuntimeContext, docker: DockerManager, config: CanvasCliConfig, args: string[], json: boolean): Promise<void> {
@@ -1894,6 +1884,7 @@ async function main(): Promise<void> {
       configSchemaVersion: CONFIG_SCHEMA_VERSION,
       commands: [...CLI_COMMANDS],
       updateEventStream: updateEventStreamCapability(),
+      managementApi: { protocolVersion: MANAGEMENT_API_VERSION, socketPath: process.env.CANVAS_NOTEBOOK_MANAGEMENT_SOCKET || MANAGEMENT_API_SOCKET, methods: ['config.get', 'config.environment.patch', 'admin.resetPassword'] },
     }));
     return;
   }
@@ -1939,6 +1930,20 @@ async function main(): Promise<void> {
     if (context.platform !== 'linux') throw new Error('Standalone updater service is only supported on Linux.');
     if (parsed.args.length > 0) throw new Error('Usage: canvas-notebook updater-service --no-banner');
     await runStandaloneUpdaterFromEnvironment();
+    return;
+  }
+
+  if (parsed.command === 'management-service') {
+    if (parsed.args.length) throw new Error('Usage: canvas-notebook management-service --no-banner');
+    const server = await startManagementApi({
+      context,
+      socketPath: process.env.CANVAS_NOTEBOOK_MANAGEMENT_SOCKET,
+      setConfigValue,
+      resetAdmin: (config, credentials) => resetAdminCredentials(docker, config, credentials),
+    });
+    const shutdown = () => { server.close(() => { process.exitCode = 0; }); server.closeIdleConnections(); };
+    process.once('SIGTERM', shutdown);
+    process.once('SIGINT', shutdown);
     return;
   }
 
@@ -2212,7 +2217,7 @@ async function main(): Promise<void> {
       break;
     }
     case 'admin':
-      await admin(context, docker, config, parsed.args);
+      await admin(context, docker, config, parsed.args, parsed.json);
       break;
     case 'backup':
       await backup(context, docker, config, parsed.args, parsed.json);

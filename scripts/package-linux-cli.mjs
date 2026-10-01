@@ -65,6 +65,9 @@ await cp(path.join(rootDir, 'dist-cli'), path.join(releaseDir, 'dist-cli'), { re
 await cp(runtimeBinary, path.join(packageDir, 'runtime', 'bin', 'node'));
 await cp(path.join(rootDir, 'install', 'linux-cli-launcher.sh'), path.join(packageDir, 'bin', 'canvas-notebook'));
 await cp(path.join(rootDir, 'install', 'linux-cli.sh'), path.join(packageDir, 'install', 'linux-cli.sh'));
+await cp(path.join(rootDir, 'install', 'management-api.sh'), path.join(packageDir, 'install', 'management-api.sh'));
+await mkdir(path.join(packageDir, 'install', 'templates'), { recursive: true });
+await cp(path.join(rootDir, 'install', 'templates', 'canvas-notebook-management.service'), path.join(packageDir, 'install', 'templates', 'canvas-notebook-management.service'));
 await Promise.all([
   chmod(path.join(packageDir, 'runtime', 'bin', 'node'), 0o755),
   chmod(path.join(packageDir, 'bin', 'canvas-notebook'), 0o755),

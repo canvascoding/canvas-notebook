@@ -209,6 +209,22 @@ activate_entrypoint() {
   mv -f -- "$tmp" "$BIN_PATH"
 }
 
+refresh_management_api() {
+  local config_path="${CANVAS_CONFIG_JSON:-${CANVAS_INSTALL_DIR:-/opt/canvas-notebook}/canvas-notebook-config.json}"
+  if [[ "$(id -u)" != 0 || ! -d /run/systemd/system || ! -f "$config_path" ]]; then return 0; fi
+  if "$BIN_PATH" capabilities --json 2>/dev/null | "${CLI_ROOT}/runtime/bin/node" -e '
+    let input=""; process.stdin.on("data", chunk => input += chunk).on("end", () => {
+      try { process.exit(JSON.parse(input).managementApi?.protocolVersion === 1 ? 0 : 1); } catch { process.exit(1); }
+    });
+  '; then
+    [[ -f "${CLI_ROOT}/install/management-api.sh" ]] || fail "Management API installer is missing"
+    CANVAS_CLI_PATH="$BIN_PATH" CANVAS_CONFIG_JSON="$config_path" bash "${CLI_ROOT}/install/management-api.sh"
+  elif [[ -f /etc/systemd/system/canvas-notebook-management.service ]]; then
+    systemctl stop canvas-notebook-management.service
+    systemctl disable canvas-notebook-management.service >/dev/null
+  fi
+}
+
 install_release() {
   local architecture package_name archive_name checksum_name tmp_root archive checksum expected checksum_asset actual
   local package_root version release_source release_target release_stage current
@@ -253,6 +269,10 @@ install_release() {
   if [[ -f "${package_root}/install/linux-cli.sh" ]]; then
     atomic_install_file "${package_root}/install/linux-cli.sh" "${CLI_ROOT}/install/linux-cli.sh" 755
   fi
+  if [[ -f "${package_root}/install/management-api.sh" ]]; then
+    atomic_install_file "${package_root}/install/management-api.sh" "${CLI_ROOT}/install/management-api.sh" 755
+    atomic_install_file "${package_root}/install/templates/canvas-notebook-management.service" "${CLI_ROOT}/install/templates/canvas-notebook-management.service" 644
+  fi
   atomic_install_file "${package_root}/manifest.json" "${CLI_ROOT}/manifest.json" 644
   atomic_install_file "${package_root}/VERSION" "${CLI_ROOT}/VERSION" 644
 
@@ -270,6 +290,7 @@ install_release() {
   activate_entrypoint "${CLI_ROOT}/bin/canvas-notebook"
   rm -f -- "${CLI_ROOT}/state/legacy-active"
   retire_legacy_cli "$(read_state previous)"
+  refresh_management_api
   say "Canvas Notebook Linux CLI ${version} is active at ${BIN_PATH}"
 }
 
@@ -286,12 +307,14 @@ rollback_release() {
     write_state current "$previous"
     activate_entrypoint "${CLI_ROOT}/bin/canvas-notebook"
     rm -f -- "${CLI_ROOT}/state/legacy-active"
+    refresh_management_api
     say "Rolled back Canvas Notebook Linux CLI ${current} -> ${previous}"
     return 0
   fi
   [[ -x "$legacy" && ! -L "$legacy" ]] || fail "No previous CLI release or preserved legacy CLI is available"
   activate_entrypoint "$legacy"
   write_state legacy-active "legacy"
+  refresh_management_api
   say "Rolled back to the explicitly preserved legacy CLI"
 }
 
