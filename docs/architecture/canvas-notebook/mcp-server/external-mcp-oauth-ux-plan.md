@@ -2,6 +2,22 @@
 
 Stand: 1. Oktober 2026. Status: Analyse und Umsetzungsplan; noch keine Produktänderung.
 
+## Verifizierte Ursache und Umsetzung
+
+TODO 1 ist abgeschlossen. Eine lesende Prüfung der laufenden Instanz
+`canvas.canvasnotebook.app` bestätigt, dass kein äußerer Master-Key verloren ging.
+Im System- und im betroffenen persönlichen Secrets-Bereich liegt jeweils ein
+E-Mail-Credential im Adapterformat `enc:v1`. Beide Einträge authentifizieren
+erfolgreich mit dem bereits vorhandenen E-Mail-Schlüssel und enthalten gültige
+E-Mail-Credentials. Es wurden ausschließlich Prüfstatus, keine Secrets ausgegeben.
+
+Der zentrale ENV-Leser verwechselt diese inneren E-Mail-Envelopes mit seiner
+eigenen äußeren Verschlüsselung. Das blockiert auch OAuth/MCP und weitere Leser
+desselben Bereichs. Die tatsächliche Reparatur benötigt eine eindeutige äußere
+Formatkennung und authentifiziertes, kompatibles Lesen der bestehenden Einträge;
+keinen neuen Master-Key und keinen Credential-Reset. Das ist die konkretisierte
+Umsetzung von TODO 2. Die Instanz wurde während der Diagnose nicht verändert.
+
 ## Ziel
 
 Externe MCP-Verbindungen lassen sich über ein verständliches Formular hinzufügen,
