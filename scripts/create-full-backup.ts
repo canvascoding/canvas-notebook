@@ -5,6 +5,7 @@ import {
   pruneFullBackupJobArtifacts,
 } from '../app/lib/backups/full-backup-service';
 import type { FullBackupJob } from '../app/lib/backups/types';
+import { serializeFullBackupCliJob } from '../app/lib/backups/cli-result';
 
 interface CreateFullBackupOptions {
   json: boolean;
@@ -64,10 +65,8 @@ function parseOptions(argv: string[]): CreateFullBackupOptions {
   return options;
 }
 
-function serializeJob(job: FullBackupJob): Omit<FullBackupJob, 'filePath'> {
-  const safeJob = { ...job } as FullBackupJob & { filePath?: string };
-  delete safeJob.filePath;
-  return safeJob;
+function serializeJob(job: FullBackupJob) {
+  return serializeFullBackupCliJob(job);
 }
 
 async function main() {
