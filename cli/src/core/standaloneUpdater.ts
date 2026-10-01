@@ -1,13 +1,14 @@
-import { spawn } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import http, { type IncomingMessage, type ServerResponse } from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
-import readline from 'node:readline';
 import { pathToFileURL } from 'node:url';
 
 import { resolveCliPath } from './cliPath';
+import { SpawnCommandRunner } from './process';
+import { startManagedProcess } from './processLifecycle';
+import { consumeBoundedJsonLines } from './jsonLines';
 import { systemUpdateApplyAcknowledgement } from './systemUpdateApplyGate';
 import {
   SYSTEM_UPDATE_CONTRACT_VERSION,
@@ -136,46 +137,17 @@ function statusForEvent(operation: SystemUpdateOperation, event: SystemUpdateEve
 }
 
 async function readCurrentCanvasVersion(env: NodeJS.ProcessEnv): Promise<CurrentCanvasVersion> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(resolveCliPath(env), ['version', '--json', '--no-banner'], {
-      env,
-      shell: false,
-      stdio: ['ignore', 'pipe', 'pipe'],
-      windowsHide: true,
-    });
-    const stdout: Buffer[] = [];
-    const stderr: Buffer[] = [];
-    let stdoutBytes = 0;
-    let stderrBytes = 0;
-    child.stdout.on('data', (chunk: Buffer) => {
-      if (stdoutBytes >= MAX_STDERR_BYTES) return;
-      const value = Buffer.from(chunk).subarray(0, MAX_STDERR_BYTES - stdoutBytes);
-      stdout.push(value);
-      stdoutBytes += value.length;
-    });
-    child.stderr.on('data', (chunk: Buffer) => {
-      if (stderrBytes >= MAX_STDERR_BYTES) return;
-      const value = Buffer.from(chunk).subarray(0, MAX_STDERR_BYTES - stderrBytes);
-      stderr.push(value);
-      stderrBytes += value.length;
-    });
-    child.on('error', reject);
-    child.on('close', (code) => {
-      if (code !== 0) {
-        reject(new Error(Buffer.concat(stderr).toString('utf8').trim() || 'Canvas CLI version check failed.'));
-        return;
-      }
-      try {
-        const parsed = JSON.parse(Buffer.concat(stdout).toString('utf8')) as { appVersion?: unknown; cliVersion?: unknown };
-        resolve({
-          appVersion: typeof parsed.appVersion === 'string' && parsed.appVersion ? parsed.appVersion : null,
-          cliVersion: typeof parsed.cliVersion === 'string' && parsed.cliVersion ? parsed.cliVersion : null,
-        });
-      } catch {
-        reject(new Error('Canvas CLI returned invalid version information.'));
-      }
-    });
+  const result = await new SpawnCommandRunner().run(resolveCliPath(env), ['version', '--json', '--no-banner'], {
+    env, timeoutMs: 30_000, capture: 'exact', maxOutputBytes: MAX_STDERR_BYTES,
   });
+  if (result.status !== 0) throw new Error(safeMessage(result.stderr, 'Canvas CLI version check failed.'));
+  try {
+    const parsed = JSON.parse(result.stdout) as { appVersion?: unknown; cliVersion?: unknown };
+    return {
+      appVersion: typeof parsed.appVersion === 'string' && parsed.appVersion ? parsed.appVersion : null,
+      cliVersion: typeof parsed.cliVersion === 'string' && parsed.cliVersion ? parsed.cliVersion : null,
+    };
+  } catch { throw new Error('Canvas CLI returned invalid version information.'); }
 }
 
 async function executeCliUpdate(
@@ -185,83 +157,66 @@ async function executeCliUpdate(
   release: VerifiedStandaloneRelease,
   signal: AbortSignal,
 ): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(resolveCliPath(env), [
-      'update',
-      '--image', operation.targetImageRef,
-      '--require-pinned',
-      ...(release.signed.manifest.backupRequired ? ['--backup-required'] : []),
-      '--event-stream',
-      '--operation-id', operation.operationId,
-      '--no-banner',
-    ], {
-      env: {
-        ...env,
-        // The host CLI has already been selected and verified for this release.
-        CANVAS_CLI_SELF_UPDATE: 'false',
-        CANVAS_UPDATE_APPLY_HANDSHAKE: '1',
-        CANVAS_UPDATE_DEADLINE_EPOCH_MS: String(Date.now() + UPDATE_DEADLINE_MS),
-      },
-      shell: false,
-      stdio: ['pipe', 'pipe', 'pipe'],
-      windowsHide: true,
-    });
-    const stderr: Buffer[] = [];
-    let stderrBytes = 0;
-    const abort = () => child.kill('SIGTERM');
-    child.stdin.on('error', () => child.kill('SIGTERM'));
-    if (signal.aborted) abort();
-    else signal.addEventListener('abort', abort, { once: true });
-    child.stderr.on('data', (chunk: Buffer) => {
-      if (stderrBytes >= MAX_STDERR_BYTES) return;
-      const value = Buffer.from(chunk).subarray(0, MAX_STDERR_BYTES - stderrBytes);
-      stderr.push(value);
-      stderrBytes += value.length;
-    });
-    const lines = readline.createInterface({ input: child.stdout, crlfDelay: Infinity });
-    let processing = Promise.resolve();
-    let protocolError: Error | null = null;
-    let applyAcknowledged = false;
-    lines.on('line', (line) => {
-      if (protocolError) return;
-      if (Buffer.byteLength(line, 'utf8') > 16 * 1024) {
-        protocolError = new Error('Canvas CLI update event exceeded the size limit.');
-        child.kill('SIGTERM');
-        return;
-      }
-      processing = processing.then(async () => {
-        let parsed: unknown;
-        try {
-          parsed = JSON.parse(line) as unknown;
-        } catch {
-          throw new Error('Canvas CLI returned a non-JSON update event.');
-        }
-        const event = validateSystemUpdateEvent(parsed);
-        if (!event.ok || event.value.operationId !== operation.operationId) {
-          throw new Error(event.ok ? 'Canvas CLI returned an event for another operation.' : event.error);
-        }
-        await onEvent(event.value);
-        if (!applyAcknowledged && event.value.stage === 'image_pull' && event.value.status === 'running') {
-          if (signal.aborted) throw new Error('Update was canceled before apply.');
-          applyAcknowledged = true;
-          child.stdin.end(`${systemUpdateApplyAcknowledgement(operation.operationId)}\n`);
-        }
-      }).catch((error) => {
-        protocolError = error instanceof Error ? error : new Error('Canvas CLI update event handling failed.');
-        child.kill('SIGTERM');
-      });
-    });
-    child.on('error', reject);
-    child.on('close', (code) => {
-      signal.removeEventListener('abort', abort);
-      processing.then(() => {
-        if (protocolError) reject(protocolError);
-        else if ((code ?? 1) !== 0 && stderrBytes > 0) {
-          reject(new Error(safeMessage(Buffer.concat(stderr).toString('utf8'), 'Canvas CLI update failed.')));
-        } else resolve(code ?? 1);
-      }, reject);
-    });
+  const managed = startManagedProcess(resolveCliPath(env), [
+    'update',
+    '--image', operation.targetImageRef,
+    '--require-pinned',
+    ...(release.signed.manifest.backupRequired ? ['--backup-required'] : []),
+    '--event-stream',
+    '--operation-id', operation.operationId,
+    '--no-banner',
+  ], {
+    env: {
+      ...env,
+      // The host CLI has already been selected and verified for this release.
+      CANVAS_CLI_SELF_UPDATE: 'false',
+      CANVAS_UPDATE_APPLY_HANDSHAKE: '1',
+      CANVAS_UPDATE_DEADLINE_EPOCH_MS: String(Date.now() + UPDATE_DEADLINE_MS),
+    },
+    stdio: ['pipe', 'pipe', 'pipe'],
+    timeoutMs: UPDATE_DEADLINE_MS,
+    signal,
   });
+  const { child } = managed;
+  const stderr: Buffer[] = [];
+  let stderrBytes = 0;
+  child.stderr?.on('data', (chunk: Buffer) => {
+    if (stderrBytes >= MAX_STDERR_BYTES) return;
+    const value = Buffer.from(chunk).subarray(0, MAX_STDERR_BYTES - stderrBytes);
+    stderr.push(value);
+    stderrBytes += value.length;
+  });
+  let protocolError: Error | null = null;
+  let applyAcknowledged = false;
+  const processing = consumeBoundedJsonLines(child.stdout!, async (line) => {
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(line) as unknown;
+      } catch {
+        throw new Error('Canvas CLI returned a non-JSON update event.');
+      }
+      const event = validateSystemUpdateEvent(parsed);
+      if (!event.ok || event.value.operationId !== operation.operationId) {
+        throw new Error(event.ok ? 'Canvas CLI returned an event for another operation.' : event.error);
+      }
+      await onEvent(event.value);
+      if (!applyAcknowledged && event.value.stage === 'image_pull' && event.value.status === 'running') {
+        if (signal.aborted) throw new Error('Update was canceled before apply.');
+        applyAcknowledged = true;
+        child.stdin?.end(`${systemUpdateApplyAcknowledgement(operation.operationId)}\n`);
+      }
+    }).catch((error: unknown) => {
+      protocolError = error instanceof Error ? error : new Error('Canvas CLI update event handling failed.');
+      managed.stop();
+    });
+  const terminated = await managed.completion;
+  await processing;
+  if (protocolError) throw protocolError;
+  if (terminated.timedOut) throw new Error('Canvas CLI update exceeded its deadline.');
+  if (terminated.error) throw new Error(safeMessage(terminated.error, 'Canvas CLI update stream failed.'));
+  const code = terminated.canceled ? 1 : (terminated.code ?? 1);
+  if (code !== 0 && stderrBytes > 0) throw new Error(safeMessage(Buffer.concat(stderr).toString('utf8'), 'Canvas CLI update failed.'));
+  return code;
 }
 
 async function prepareVerifiedHostCli(
@@ -275,31 +230,18 @@ async function prepareVerifiedHostCli(
   const checksumPath = path.join(directory, `canvas-notebook-linux-cli-${release.architecture}.sha256`);
   try {
     await fs.writeFile(checksumPath, `${release.cliArtifact.sha256}  ${archiveName}\n`, { mode: 0o600 });
-    const result = await new Promise<{ code: number; stderr: string }>((resolve, reject) => {
-      const child = spawn(resolveCliPath(env), ['cli-update', '--json', '--no-banner'], {
-        env: {
-          ...env,
-          CANVAS_CLI_SELF_UPDATE: 'true',
-          CANVAS_VERSION: release.signed.manifest.cliVersion,
-          CANVAS_LINUX_CLI_URL: release.cliArtifact.url,
-          CANVAS_LINUX_CLI_SHA256_URL: pathToFileURL(checksumPath).toString(),
-        },
-        shell: false,
-        stdio: ['ignore', 'ignore', 'pipe'],
-        windowsHide: true,
-      });
-      const stderr: Buffer[] = [];
-      let stderrBytes = 0;
-      child.stderr.on('data', (chunk: Buffer) => {
-        if (stderrBytes >= MAX_STDERR_BYTES) return;
-        const value = Buffer.from(chunk).subarray(0, MAX_STDERR_BYTES - stderrBytes);
-        stderr.push(value);
-        stderrBytes += value.length;
-      });
-      child.on('error', reject);
-      child.on('close', (code) => resolve({ code: code ?? 1, stderr: Buffer.concat(stderr).toString('utf8') }));
+    const result = await new SpawnCommandRunner().run(resolveCliPath(env), ['cli-update', '--json', '--no-banner'], {
+      env: {
+        ...env,
+        CANVAS_CLI_SELF_UPDATE: 'true',
+        CANVAS_VERSION: release.signed.manifest.cliVersion,
+        CANVAS_LINUX_CLI_URL: release.cliArtifact.url,
+        CANVAS_LINUX_CLI_SHA256_URL: pathToFileURL(checksumPath).toString(),
+      },
+      timeoutMs: 20 * 60 * 1000,
+      maxOutputBytes: MAX_STDERR_BYTES,
     });
-    if (result.code !== 0) throw new Error(safeMessage(result.stderr, 'Verified host CLI update failed.'));
+    if (result.status !== 0) throw new Error(safeMessage(result.stderr, 'Verified host CLI update failed.'));
     const verified = await readCurrentCanvasVersion(env);
     if (!verified.cliVersion || compareCanvasVersions(verified.cliVersion, release.signed.manifest.cliVersion) < 0) {
       throw new Error('Verified host CLI artifact was not activated.');

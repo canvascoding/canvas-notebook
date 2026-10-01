@@ -23,6 +23,7 @@
   },
   "scripts": {
     "test:cli:management-api": "tsx scripts/management-api-test.ts",
+    "test:cli:process-lifecycle": "tsx scripts/cli-process-lifecycle-test.ts && tsx scripts/cli-reexec-lifecycle-test.ts",
     "test:backup:cli-result": "tsx scripts/full-backup-cli-result-test.ts",
     "test:live-events": "tsx --conditions react-server scripts/live-events-bridge-test.ts && tsx scripts/live-events-client-test.ts",
     "postinstall": "patch-package --error-on-fail",
