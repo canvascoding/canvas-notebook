@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+import { requestedTodoApiMode } from '@/app/lib/todos/api-mode';
 import { auth } from '@/app/lib/auth';
 import { getMobileInboxCategoryCounts } from '@/app/lib/mobile/inbox-counts';
 import { mobileInboxFileChangesRequested } from '@/app/lib/mobile/inbox-capabilities';
@@ -36,6 +37,7 @@ export async function GET(request: NextRequest) {
       userId: session.user.id,
       workspaces: scope.availableWorkspaces,
       includeFileChanges,
+      todoMode: requestedTodoApiMode(request.nextUrl.searchParams),
     });
     return NextResponse.json({ success: true, count: categories.notifications.badge, categories }, { headers: responseHeaders });
   } catch (error) {

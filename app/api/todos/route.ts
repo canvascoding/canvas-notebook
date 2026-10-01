@@ -1,3 +1,4 @@
+import { requestedTodoApiMode, assertTodoReadActionSupported, todoForApi } from '@/app/lib/todos/api-mode';
 import { NextRequest, NextResponse } from 'next/server';
 
 import { applyTodoRateLimit, parseOptionalDate, requireTodoSession, todoErrorResponse } from '@/app/lib/todos/api';
@@ -91,6 +92,7 @@ async function resolveRequestedWorkspace(
 }
 
 export async function GET(request: NextRequest) {
+  const todoMode = requestedTodoApiMode(request.nextUrl.searchParams);
   const { session, response } = await requireTodoSession(request);
   if (!session || response) {
     return response;
@@ -142,6 +144,9 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ success: false, error: 'Invalid due filter.', code: 'INVALID_TODO_FILTER' }, { status: 400 });
   }
   const rawReadState = searchParams.get('readState');
+  if (todoMode === 'lifecycle' && rawReadState) {
+    return NextResponse.json({ success: false, error: 'Read state is not supported in lifecycle mode.', code: 'TODO_READ_STATE_NOT_SUPPORTED' }, { status: 400 });
+  }
   const readState = parseReadState(rawReadState);
   if (rawReadState && !readState) {
     return NextResponse.json({ success: false, error: 'Invalid to-do read state.', code: 'INVALID_TODO_FILTER' }, { status: 400 });
@@ -177,7 +182,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ success: true, data }, { headers: { 'Cache-Control': 'no-store' } });
     }
     const todos = await listTodos(session.user.id, options);
-    const data = await Promise.all(todos.map(async (todo) => ({ ...todo, canWrite: await policy.canWrite(todo) })));
+    const data = await Promise.all(todos.map(async (todo) => ({ ...todoForApi(todo, todoMode), canWrite: await policy.canWrite(todo) })));
 
     return NextResponse.json({ success: true, data, scope: { kind: scope, workspaceId: workspaceResult.workspace?.workspaceId ?? null } });
   } catch (error) {
@@ -189,6 +194,7 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  const todoMode = requestedTodoApiMode(request.nextUrl.searchParams);
   const { session, response } = await requireTodoSession(request);
   if (!session || response) {
     return response;
@@ -201,6 +207,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const payload = await request.json();
+    assertTodoReadActionSupported(todoMode, payload);
     const requestedWorkspaceId = typeof payload?.workspaceId === 'string' ? payload.workspaceId : null;
     const parsedScopeKind = parseTodoScopeKind(payload?.scopeKind);
     if (payload?.scopeKind !== undefined && !parsedScopeKind) {
@@ -230,11 +237,11 @@ export async function POST(request: NextRequest) {
       remindAt: parseOptionalDate(payload?.remindAt) ?? null,
       assigneeUserId: typeof payload?.assigneeUserId === 'string' ? payload.assigneeUserId : null,
       sourceType: 'user',
-      seenAt: new Date(),
+      ...(todoMode === 'legacy' ? { seenAt: new Date() } : {}),
       fileLinks: parseFileLinks(payload?.fileLinks),
     });
 
-    return NextResponse.json({ success: true, data: todo }, { status: 201 });
+    return NextResponse.json({ success: true, data: todoForApi(todo, todoMode) }, { status: 201 });
   } catch (error) {
     return todoErrorResponse(error, 'Failed to create todo.');
   }

@@ -1,3 +1,4 @@
+import { requestedTodoApiMode } from '@/app/lib/todos/api-mode';
 import { NextRequest, NextResponse } from 'next/server';
 
 import { jsonServerError } from '@/app/lib/api/route-helpers';
@@ -56,6 +57,7 @@ export async function GET(request: NextRequest) {
     const attention = await readNotificationAttention({
       userId: session.user.id,
       workspaces: scope.includedWorkspaces,
+      todoMode: requestedTodoApiMode(request.nextUrl.searchParams),
       excludeChatSessionId: activeChatSessionId && activeChatSessionId.length <= 256 ? activeChatSessionId : undefined,
     });
     const items = [...attention.sections.notifications, ...attention.sections.todoAttention, ...attention.sections.emailAttention];
@@ -108,6 +110,7 @@ export async function PATCH(request: NextRequest) {
           userId: session.user.id,
           workspaces: scope.includedWorkspaces,
           category: 'notifications',
+          todoMode: requestedTodoApiMode(request.nextUrl.searchParams),
           includeFileChanges: true,
         }),
         markAllMemoryApprovalAttentionRead({
@@ -168,6 +171,7 @@ export async function PATCH(request: NextRequest) {
         userId: session.user.id,
         workspace,
         action: payload.action,
+        todoMode: requestedTodoApiMode(request.nextUrl.searchParams),
         itemId: payload.itemId,
         read: payload.read,
         expectedRevision: payload.expectedRevision,

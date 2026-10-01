@@ -1,3 +1,4 @@
+import { requestedTodoApiMode, assertTodoReadActionSupported } from '@/app/lib/todos/api-mode';
 import { NextRequest, NextResponse } from 'next/server';
 
 import { listMobileTodos, MobileTodoError, serializeMobileTodo } from '@/app/lib/mobile/todos';
@@ -19,6 +20,7 @@ function dateValue(value: unknown): Date | null {
 }
 
 export async function GET(request: NextRequest) {
+  const todoMode = requestedTodoApiMode(request.nextUrl.searchParams);
   const workspaceResult = await requireRequestWorkspace(request, { permissions: 'canRead' });
   if (workspaceResult.response) return workspaceResult.response;
   const limited = rateLimit(request, { limit: 60, windowMs: 60_000, keyPrefix: 'mobile-todos-get' });
@@ -26,6 +28,7 @@ export async function GET(request: NextRequest) {
   try {
     const limitValue = request.nextUrl.searchParams.get('limit');
     const data = await listMobileTodos({
+      todoMode,
       userId: workspaceResult.session.user.id,
       workspace: workspaceResult.workspace,
       status: request.nextUrl.searchParams.get('status'),
@@ -43,12 +46,14 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  const todoMode = requestedTodoApiMode(request.nextUrl.searchParams);
   const workspaceResult = await requireRequestWorkspace(request, { permissions: 'canWrite' });
   if (workspaceResult.response) return workspaceResult.response;
   const limited = rateLimit(request, { limit: 30, windowMs: 60_000, keyPrefix: 'mobile-todos-post' });
   if (!limited.ok) return limited.response;
   try {
     const payload = await request.json() as Record<string, unknown>;
+    assertTodoReadActionSupported(todoMode, payload);
     const parsedScopeKind = parseTodoScopeKind(payload.scopeKind);
     if (payload.scopeKind !== undefined && !parsedScopeKind) {
       throw new MobileTodoError('INVALID_SCOPE', 'The To-do scope is invalid.', 400);
@@ -71,10 +76,10 @@ export async function POST(request: NextRequest) {
       remindAt: dateValue(payload.remindAt),
       assigneeUserId: typeof payload.assigneeUserId === 'string' ? payload.assigneeUserId : null,
       sourceType: 'user',
-      seenAt: new Date(),
+      ...(todoMode === 'legacy' ? { seenAt: new Date() } : {}),
       fileLinks: Array.isArray(payload.fileLinks) ? payload.fileLinks as TodoFileLinkInput[] : undefined,
     });
-    return NextResponse.json({ success: true, todo: serializeMobileTodo(todo) }, { status: 201, headers: mobileTodosResponseHeaders });
+    return NextResponse.json({ success: true, todo: serializeMobileTodo(todo, todoMode) }, { status: 201, headers: mobileTodosResponseHeaders });
   } catch (error) {
     return mobileTodosErrorResponse(error, '[API] Mobile To-dos POST failed:');
   }

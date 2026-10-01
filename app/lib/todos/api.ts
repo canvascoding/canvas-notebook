@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/app/lib/auth';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 import { TodoStoreError } from './store';
+import { TodoApiModeError } from './api-mode';
 
 export async function requireTodoSession(request: NextRequest) {
   const session = await auth.api.getSession({ headers: request.headers });
@@ -28,6 +29,9 @@ export function applyTodoRateLimit(request: NextRequest, keyPrefix: string, limi
 }
 
 export function todoErrorResponse(error: unknown, fallback: string) {
+  if (error instanceof TodoApiModeError) {
+    return NextResponse.json({ success: false, error: error.message, code: error.code }, { status: error.status });
+  }
   if (error instanceof TodoStoreError) {
     if (error.code === 'TODO_NOT_FOUND') {
       return NextResponse.json({ success: false, error: 'Todo not found.' }, { status: 404 });

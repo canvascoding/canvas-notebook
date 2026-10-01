@@ -140,6 +140,7 @@ assert.deepEqual(bootstrap.mobileApi.capabilities, [
   'inbox.dismiss',
   'inbox.file_changes.v1',
   'todos.read',
+  'todos.lifecycle',
   'todos.write',
   'todos.follow_up',
   'todos.scope',

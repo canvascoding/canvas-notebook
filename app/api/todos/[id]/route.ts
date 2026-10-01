@@ -1,3 +1,4 @@
+import { requestedTodoApiMode, assertTodoReadActionSupported, todoForApi } from '@/app/lib/todos/api-mode';
 import { NextRequest, NextResponse } from 'next/server';
 
 import { applyTodoRateLimit, parseOptionalDate, requireTodoSession, todoErrorResponse } from '@/app/lib/todos/api';
@@ -81,6 +82,7 @@ async function requireTodoWriteWorkspace(
 }
 
 export async function GET(request: NextRequest, context: RouteContext) {
+  const todoMode = requestedTodoApiMode(request.nextUrl.searchParams);
   const { session, response } = await requireTodoSession(request);
   if (!session || response) {
     return response;
@@ -98,13 +100,14 @@ export async function GET(request: NextRequest, context: RouteContext) {
       return NextResponse.json({ success: false, error: 'Todo not found.' }, { status: 404 });
     }
 
-    return NextResponse.json({ success: true, data: { ...todo, canWrite: await createTodoWritePolicy(session).canWrite(todo) } });
+    return NextResponse.json({ success: true, data: { ...todoForApi(todo, todoMode), canWrite: await createTodoWritePolicy(session).canWrite(todo) } });
   } catch (error) {
     return todoErrorResponse(error, 'Failed to load todo.');
   }
 }
 
 export async function PATCH(request: NextRequest, context: RouteContext) {
+  const todoMode = requestedTodoApiMode(request.nextUrl.searchParams);
   const { session, response } = await requireTodoSession(request);
   if (!session || response) {
     return response;
@@ -117,6 +120,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
 
   try {
     const payload = await request.json() as Record<string, unknown>;
+    assertTodoReadActionSupported(todoMode, payload);
     const { id } = await context.params;
     const existingTodo = await getTodo(session.user.id, id);
     if (!existingTodo) {
@@ -170,13 +174,14 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       })).todo;
     }
 
-    return NextResponse.json({ success: true, data: { ...todo, canWrite: await createTodoWritePolicy(session).canWrite(todo) } });
+    return NextResponse.json({ success: true, data: { ...todoForApi(todo, todoMode), canWrite: await createTodoWritePolicy(session).canWrite(todo) } });
   } catch (error) {
     return todoErrorResponse(error, 'Failed to update todo.');
   }
 }
 
 export async function DELETE(request: NextRequest, context: RouteContext) {
+  const todoMode = requestedTodoApiMode(request.nextUrl.searchParams);
   const { session, response } = await requireTodoSession(request);
   if (!session || response) {
     return response;
@@ -203,7 +208,7 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
       return NextResponse.json({ success: false, error: 'Todo not found.' }, { status: 404 });
     }
 
-    return NextResponse.json({ success: true, data: { ...todo, canWrite: await createTodoWritePolicy(session).canWrite(todo) } });
+    return NextResponse.json({ success: true, data: { ...todoForApi(todo, todoMode), canWrite: await createTodoWritePolicy(session).canWrite(todo) } });
   } catch (error) {
     return todoErrorResponse(error, 'Failed to delete todo.');
   }

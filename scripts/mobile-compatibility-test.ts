@@ -85,6 +85,7 @@ assert.deepEqual(compatibility, {
       'inbox.dismiss',
       'inbox.file_changes.v1',
       'todos.read',
+      'todos.lifecycle',
       'todos.write',
       'todos.follow_up',
       'studio.quick_create',

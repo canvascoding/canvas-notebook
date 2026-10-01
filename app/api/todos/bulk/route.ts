@@ -1,3 +1,4 @@
+import { requestedTodoApiMode } from '@/app/lib/todos/api-mode';
 import { NextRequest, NextResponse } from 'next/server';
 
 import { requireTodoSession, applyTodoRateLimit, todoErrorResponse } from '@/app/lib/todos/api';
@@ -6,6 +7,7 @@ import { mutateTodosBulk } from '@/app/lib/todos/store';
 import { createTodoWritePolicy } from '@/app/lib/todos/write-policy';
 
 export async function POST(request: NextRequest) {
+  const todoMode = requestedTodoApiMode(request.nextUrl.searchParams);
   const { session, response } = await requireTodoSession(request);
   if (!session || response) return response;
   const limited = applyTodoRateLimit(request, 'todos-bulk', 10);
@@ -15,7 +17,7 @@ export async function POST(request: NextRequest) {
     if (body.length > 200_000) return NextResponse.json({ success: false, code: 'INVALID_BULK_INPUT' }, { status: 413 });
     const input = parseTodoBulkInput(JSON.parse(body));
     const policy = createTodoWritePolicy(session);
-    const data = await mutateTodosBulk({ ...input, userId: session.user.id, authorize: policy.authorize });
+    const data = await mutateTodosBulk({ ...input, todoMode, userId: session.user.id, authorize: policy.authorize });
     return NextResponse.json({ success: true, data }, { headers: { 'Cache-Control': 'no-store' } });
   } catch (error) {
     if (error instanceof TodoBulkError) {

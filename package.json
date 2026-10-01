@@ -481,6 +481,7 @@
     "test:sessions:read-state": "tsx scripts/session-read-state-test.ts",
     "test:todos:store": "tsx --conditions react-server scripts/todo-store-test.ts",
     "test:todos:detail": "tsx scripts/todo-navigation-test.ts && tsx scripts/todo-relative-time-test.ts && tsx scripts/todo-client-presentation-test.ts && tsx scripts/todo-detail-store-test.ts && tsx scripts/todo-personal-file-links-test.tsx",
+    "test:todos:lifecycle": "tsx --conditions react-server scripts/todo-lifecycle-api-test.ts",
     "test:todos:detail:api": "tsx --conditions react-server scripts/todo-detail-api-test.ts",
     "test:todos:detail:ui": "node scripts/todo-detail-ui-test.mjs",
     "test:todos:bulk": "tsx --conditions react-server scripts/todo-bulk-test.ts",

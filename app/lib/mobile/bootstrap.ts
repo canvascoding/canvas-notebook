@@ -154,6 +154,7 @@ export function createMobileBootstrap(input: {
     'inbox.dismiss',
     MOBILE_INBOX_FILE_CHANGES_CAPABILITY,
     'todos.read',
+    'todos.lifecycle',
     'todos.write',
     'todos.follow_up',
     'todos.scope',

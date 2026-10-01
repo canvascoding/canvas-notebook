@@ -30,6 +30,7 @@ import { deriveTodoEffectiveReadState, todoLifecycleAllowsUnread } from './read-
 import type { TodoScopeKind } from './scope';
 import { isTodoIconKey, type TodoIconKey } from './icons';
 import { bulkActionAllowsStatus, TODO_BULK_LIMIT, TodoBulkError, type TodoBulkAction } from './bulk-policy';
+import type { TodoApiMode } from './api-mode';
 import { todoUserAvatarHref } from './avatar-href';
 
 export type { TodoScopeKind } from './scope';
@@ -931,6 +932,54 @@ export async function listTodos(userId: string, options: ListTodosOptions = {}):
   return hydrateTodos(await queryTodoRows(userId, options), userId);
 }
 
+/** Workspace ids are resolved and authorized by the notification scope loader. */
+export async function listLifecycleTodoAttention(input: {
+  userId: string;
+  workspaceIds: string[];
+  includeUserScope: boolean;
+  now: Date;
+  limit?: number;
+}): Promise<{ todos: TodoWithRelations[]; total: number }> {
+  const personalScope = and(
+    eq(todoItems.userId, input.userId),
+    eq(todoItems.workspaceType, 'personal'),
+    eq(todoItems.scopeKind, 'user'),
+  )!;
+  const workspaceScope = input.workspaceIds.length ? and(
+    eq(todoItems.scopeKind, 'workspace'),
+    inArray(todoItems.workspaceId, input.workspaceIds),
+    or(ne(todoItems.workspaceType, 'personal'), eq(todoItems.userId, input.userId)),
+  )! : undefined;
+  const relevant = or(
+    and(eq(todoItems.workspaceType, 'personal'), eq(todoItems.userId, input.userId)),
+    eq(todoItems.assigneeUserId, input.userId),
+    and(isNull(todoItems.assigneeUserId), eq(todoItems.createdByUserId, input.userId)),
+  )!;
+  const tomorrow = new Date(input.now);
+  tomorrow.setHours(24, 0, 0, 0);
+  const attentionWindow = new Date(tomorrow);
+  attentionWindow.setDate(attentionWindow.getDate() + 6);
+  const rank = sql<number>`CASE
+    WHEN ${todoItems.dueAt} < ${sql.param(input.now, todoItems.dueAt)} THEN 0
+    WHEN ${todoItems.dueAt} < ${sql.param(tomorrow, todoItems.dueAt)} THEN 1
+    WHEN ${todoItems.priority} = 'high' THEN 2
+    WHEN ${todoItems.dueAt} <= ${sql.param(attentionWindow, todoItems.dueAt)} THEN 3
+    ELSE 4 END`;
+  const rows = await db.select({ todo: todoItems, total: sql<number>`count(*) over()` })
+    .from(todoItems)
+    .where(and(eq(todoItems.status, 'open'), or(input.includeUserScope ? personalScope : undefined, workspaceScope) ?? sql`false`, relevant))
+    .orderBy(
+      asc(rank),
+      asc(sql`CASE WHEN ${todoItems.assigneeUserId} = ${input.userId} THEN 0 ELSE 1 END`),
+      asc(sql`CASE WHEN ${todoItems.dueAt} IS NULL THEN 1 ELSE 0 END`),
+      asc(todoItems.dueAt),
+      desc(todoItems.updatedAt),
+      desc(todoItems.id),
+    )
+    .limit(Math.min(Math.max(input.limit ?? 6, 1), 200));
+  return { todos: await hydrateTodos(rows.map((row) => row.todo), input.userId), total: Number(rows[0]?.total ?? 0) };
+}
+
 type TodoTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 async function queryTodoRows(userId: string, options: ListTodosOptions, database: typeof db | TodoTransaction = db): Promise<TodoItem[]> {
@@ -1377,6 +1426,7 @@ export async function mutateTodosBulk(input: {
   userId: string;
   items: Array<{ id: string; expectedUpdatedAt: Date }>;
   action: TodoBulkAction;
+  todoMode?: TodoApiMode;
   authorize: (todo: TodoItem) => Promise<void>;
 }): Promise<{ count: number; changed: number; ids: string[] }> {
   if (!input.items.length || input.items.length > TODO_BULK_LIMIT) {
@@ -1413,7 +1463,7 @@ export async function mutateTodosBulk(input: {
     }
     for (const { row, updates, changed } of prepared) {
       if (changed) await tx.update(todoItems).set(updates).where(eq(todoItems.id, row.id));
-      if (changed && (input.action.type === 'restore' || input.action.type === 'reopen')) {
+      if (input.todoMode !== 'lifecycle' && changed && (input.action.type === 'restore' || input.action.type === 'reopen')) {
         await tx.insert(todoReadStates).values({ userId: input.userId, todoId: row.id, readAt: now, createdAt: now, updatedAt: now })
           .onConflictDoUpdate({ target: [todoReadStates.userId, todoReadStates.todoId], set: { readAt: now, updatedAt: now } });
       }

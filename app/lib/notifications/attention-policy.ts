@@ -1,4 +1,5 @@
 import type { TodoWithRelations } from '@/app/lib/todos/store';
+import type { TodoApiMode } from '@/app/lib/todos/api-mode';
 
 export const TODO_ATTENTION_REASONS = [
   'overdue',
@@ -6,6 +7,7 @@ export const TODO_ATTENTION_REASONS = [
   'high_priority',
   'unread',
   'due_soon',
+  'open',
 ] as const;
 
 export type TodoAttentionReason = typeof TODO_ATTENTION_REASONS[number];
@@ -26,7 +28,7 @@ function endOfAttentionWindow(now: Date): Date {
   return end;
 }
 
-function attentionReason(todo: TodoWithRelations, viewerUserId: string, now: Date): TodoAttentionReason | null {
+function attentionReason(todo: TodoWithRelations, viewerUserId: string, now: Date, todoMode: TodoApiMode): TodoAttentionReason | null {
   if (todo.status !== 'open') return null;
   const isPersonal = todo.workspaceType === 'personal' && todo.userId === viewerUserId;
   const isAssigned = todo.assigneeUserId === viewerUserId;
@@ -37,9 +39,9 @@ function attentionReason(todo: TodoWithRelations, viewerUserId: string, now: Dat
   if (dueAt && dueAt < now) return 'overdue';
   if (dueAt && dueAt < startOfTomorrow(now)) return 'due_today';
   if (todo.priority === 'high') return 'high_priority';
-  if (todo.readState === 'unread') return 'unread';
+  if (todoMode === 'legacy' && todo.readState === 'unread') return 'unread';
   if (dueAt && dueAt <= endOfAttentionWindow(now)) return 'due_soon';
-  return null;
+  return todoMode === 'lifecycle' ? 'open' : null;
 }
 
 const reasonRank: Record<TodoAttentionReason, number> = {
@@ -48,6 +50,7 @@ const reasonRank: Record<TodoAttentionReason, number> = {
   high_priority: 2,
   unread: 3,
   due_soon: 4,
+  open: 5,
 };
 
 function compareCandidates(viewerUserId: string, left: TodoAttentionCandidate, right: TodoAttentionCandidate): number {
@@ -65,9 +68,10 @@ export function selectTodoAttention(input: {
   viewerUserId: string;
   now: Date;
   limit?: number;
+  todoMode?: TodoApiMode;
 }): TodoAttentionCandidate[] {
   const candidates = input.todos.flatMap((todo) => {
-    const reason = attentionReason(todo, input.viewerUserId, input.now);
+    const reason = attentionReason(todo, input.viewerUserId, input.now, input.todoMode ?? 'legacy');
     return reason ? [{ ...todo, attentionReason: reason }] : [];
   });
   return candidates

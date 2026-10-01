@@ -1,3 +1,4 @@
+import { requestedTodoApiMode } from '@/app/lib/todos/api-mode';
 import { NextRequest, NextResponse } from 'next/server';
 
 import { auth } from '@/app/lib/auth';
@@ -41,6 +42,7 @@ export async function GET(request: NextRequest) {
       listMobileAggregateInbox({
         userId: session.user.id,
         workspaces: scope.includedWorkspaces,
+        todoMode: requestedTodoApiMode(request.nextUrl.searchParams),
         filter: request.nextUrl.searchParams.get('filter'),
         groupWorkspaceTodos: request.nextUrl.searchParams.get('groupTodos') === 'workspace',
         cursor: request.nextUrl.searchParams.get('cursor'),
@@ -51,6 +53,7 @@ export async function GET(request: NextRequest) {
         userId: session.user.id,
         workspaces: scope.includedWorkspaces,
         includeFileChanges,
+        todoMode: requestedTodoApiMode(request.nextUrl.searchParams),
       }),
     ]);
     return NextResponse.json({ success: true, ...data, categories }, { headers: mobileInboxResponseHeaders });
@@ -83,6 +86,7 @@ export async function PATCH(request: NextRequest) {
       workspaces: scope.includedWorkspaces,
       ...(payload.action === 'mark_category_read' ? { category: 'notifications' as const } : {}),
       includeFileChanges,
+      todoMode: requestedTodoApiMode(request.nextUrl.searchParams),
     });
     return NextResponse.json({ success: true, data }, { headers: mobileInboxResponseHeaders });
   } catch (error) {

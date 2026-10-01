@@ -1,3 +1,4 @@
+import { requestedTodoApiMode, assertTodoReadActionSupported } from '@/app/lib/todos/api-mode';
 import { NextRequest, NextResponse } from 'next/server';
 
 import { getMobileTodo, MobileTodoError, serializeMobileTodo } from '@/app/lib/mobile/todos';
@@ -35,6 +36,7 @@ function requestedReadState(payload: Record<string, unknown>): boolean | undefin
 }
 
 export async function GET(request: NextRequest, context: RouteContext) {
+  const todoMode = requestedTodoApiMode(request.nextUrl.searchParams);
   const workspaceResult = await requireRequestWorkspace(request, { permissions: 'canRead' });
   if (workspaceResult.response) return workspaceResult.response;
   const limited = rateLimit(request, { limit: 90, windowMs: 60_000, keyPrefix: 'mobile-todo-get' });
@@ -42,13 +44,14 @@ export async function GET(request: NextRequest, context: RouteContext) {
   try {
     const { todoId } = await context.params;
     const todo = await getMobileTodo({ userId: workspaceResult.session.user.id, workspace: workspaceResult.workspace, todoId });
-    return NextResponse.json({ success: true, todo: serializeMobileTodo(todo) }, { headers: mobileTodosResponseHeaders });
+    return NextResponse.json({ success: true, todo: serializeMobileTodo(todo, todoMode) }, { headers: mobileTodosResponseHeaders });
   } catch (error) {
     return mobileTodosErrorResponse(error, '[API] Mobile To-do GET failed:');
   }
 }
 
 export async function PATCH(request: NextRequest, context: RouteContext) {
+  const todoMode = requestedTodoApiMode(request.nextUrl.searchParams);
   const workspaceResult = await requireRequestWorkspace(request, { permissions: 'canRead' });
   if (workspaceResult.response) return workspaceResult.response;
   const limited = rateLimit(request, { limit: 60, windowMs: 60_000, keyPrefix: 'mobile-todo-patch' });
@@ -57,6 +60,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     const { todoId } = await context.params;
     const existingTodo = await getMobileTodo({ userId: workspaceResult.session.user.id, workspace: workspaceResult.workspace, todoId });
     const payload = await request.json() as Record<string, unknown>;
+    assertTodoReadActionSupported(todoMode, payload);
     const shouldUpdateTodo = hasTodoUpdate(payload);
     const read = requestedReadState(payload);
     const requestedStatus = payload.status === undefined ? undefined : payload.status as TodoStatus;
@@ -98,13 +102,14 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
         read,
       })).todo;
     }
-    return NextResponse.json({ success: true, todo: serializeMobileTodo(todo) }, { headers: mobileTodosResponseHeaders });
+    return NextResponse.json({ success: true, todo: serializeMobileTodo(todo, todoMode) }, { headers: mobileTodosResponseHeaders });
   } catch (error) {
     return mobileTodosErrorResponse(error, '[API] Mobile To-do PATCH failed:');
   }
 }
 
 export async function DELETE(request: NextRequest, context: RouteContext) {
+  const todoMode = requestedTodoApiMode(request.nextUrl.searchParams);
   const workspaceResult = await requireRequestWorkspace(request, { permissions: 'canWrite' });
   if (workspaceResult.response) return workspaceResult.response;
   const limited = rateLimit(request, { limit: 30, windowMs: 60_000, keyPrefix: 'mobile-todo-delete' });
@@ -114,7 +119,7 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
     await getMobileTodo({ userId: workspaceResult.session.user.id, workspace: workspaceResult.workspace, todoId });
     const todo = await archiveTodo(workspaceResult.session.user.id, todoId);
     if (!todo) throw new Error('To-do disappeared during archive.');
-    return NextResponse.json({ success: true, todo: serializeMobileTodo(todo) }, { headers: mobileTodosResponseHeaders });
+    return NextResponse.json({ success: true, todo: serializeMobileTodo(todo, todoMode) }, { headers: mobileTodosResponseHeaders });
   } catch (error) {
     return mobileTodosErrorResponse(error, '[API] Mobile To-do DELETE failed:');
   }

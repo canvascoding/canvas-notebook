@@ -1,3 +1,4 @@
+import { requestedTodoApiMode } from '@/app/lib/todos/api-mode';
 import { NextRequest, NextResponse } from 'next/server';
 
 import { listMobileInbox, markMobileInboxRead } from '@/app/lib/mobile/inbox';
@@ -21,6 +22,7 @@ export async function GET(request: NextRequest) {
       listMobileInbox({
         userId: workspaceResult.session.user.id,
         workspace: workspaceResult.workspace,
+        todoMode: requestedTodoApiMode(request.nextUrl.searchParams),
         filter: request.nextUrl.searchParams.get('filter'),
         cursor: request.nextUrl.searchParams.get('cursor'),
         limit: limitValue === null ? undefined : Number(limitValue),
@@ -30,6 +32,7 @@ export async function GET(request: NextRequest) {
         userId: workspaceResult.session.user.id,
         workspaces: [workspaceResult.workspace],
         includeFileChanges,
+        todoMode: requestedTodoApiMode(request.nextUrl.searchParams),
       }),
     ]);
     return NextResponse.json({ success: true, ...data, categories }, { headers: mobileInboxResponseHeaders });
@@ -55,6 +58,7 @@ export async function PATCH(request: NextRequest) {
       expectedRevision: payload.expectedRevision,
       read: payload.read,
       includeFileChanges,
+      todoMode: requestedTodoApiMode(request.nextUrl.searchParams),
     });
     return NextResponse.json({ success: true, data }, { headers: mobileInboxResponseHeaders });
   } catch (error) {

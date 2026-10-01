@@ -1,3 +1,4 @@
+import { requestedTodoApiMode, assertTodoReadActionSupported, todoForApi } from '@/app/lib/todos/api-mode';
 import { NextRequest, NextResponse } from 'next/server';
 import type { AgentMessage } from '@earendil-works/pi-agent-core';
 
@@ -52,6 +53,7 @@ function buildFollowUpMessage(params: {
 }
 
 export async function POST(request: NextRequest, context: RouteContext) {
+  const todoMode = requestedTodoApiMode(request.nextUrl.searchParams);
   const { session, response } = await requireTodoSession(request);
   if (!session || response) {
     return response;
@@ -66,6 +68,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
   try {
     const payload = await request.json().catch(() => ({}));
+    assertTodoReadActionSupported(todoMode, payload);
     const comment = normalizeComment(payload?.comment);
     const requestLocale = typeof payload?.locale === 'string'
       ? payload.locale
@@ -105,7 +108,9 @@ export async function POST(request: NextRequest, context: RouteContext) {
     if (!preparedTodo) {
       return NextResponse.json({ success: false, error: 'Todo not found.' }, { status: 404 });
     }
-    await setTodoReadStateForUser({ userId: session.user.id, todoId: todo.id, read: true });
+    if (todoMode === 'legacy') {
+      await setTodoReadStateForUser({ userId: session.user.id, todoId: todo.id, read: true });
+    }
 
     const timestamp = Date.now();
     const message: Extract<AgentMessage, { role: 'user' }> = {
@@ -136,7 +141,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
       return NextResponse.json({
         success: true,
         data: {
-          todo: updated ?? preparedTodo,
+          todo: todoForApi(updated ?? preparedTodo, todoMode),
           sessionId: todo.sourceSessionId,
           chatHref: buildChatSessionHref(
             `/todos?todo=${encodeURIComponent(todo.id)}`,
@@ -156,7 +161,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
         success: false,
         error: messageText,
         data: {
-          todo: updated ?? preparedTodo,
+          todo: todoForApi(updated ?? preparedTodo, todoMode),
           sessionId: todo.sourceSessionId,
         },
       }, { status: 500 });

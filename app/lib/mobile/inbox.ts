@@ -31,6 +31,7 @@ import {
   studioGenerations,
 } from '@/app/lib/db/schema';
 import { DEFAULT_SESSION_TITLE } from '@/app/lib/pi/session-titles';
+import type { TodoApiMode } from '@/app/lib/todos/api-mode';
 import { setTodoReadStateForUser } from '@/app/lib/todos/read-state-actions';
 import { getTodo, listTodos, type TodoWithRelations } from '@/app/lib/todos/store';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
@@ -39,6 +40,8 @@ import {
 } from '@/app/lib/file-version-center/notification-source';
 import { FILE_CHANGE_REVIEW_NOTIFICATION_PREFIX, FILE_CHANGE_REVIEW_BRANCH_NOTIFICATION_PREFIX } from '@/app/lib/file-version-center/notification-contract';
 import type { FileChangeReviewNotificationReason, FileChangeReviewNotificationTarget } from '@/app/lib/file-version-center/notification-contract';
+
+import { countMobileOpenTodos } from './todo-counts';
 
 const BASELINE_KEY = '__baseline__';
 const MAX_SOURCE_ITEMS = 200;
@@ -110,6 +113,7 @@ type GroupableAggregateInboxItem = CollectedAggregateInboxItem & {
 };
 
 type InboxCursor = {
+  todoMode?: TodoApiMode;
   workspaceId: string;
   filter: MobileInboxFilter;
   sortAsOf: string;
@@ -118,6 +122,7 @@ type InboxCursor = {
 };
 
 type AggregateInboxCursor = {
+  todoMode?: TodoApiMode;
   scopeKey: string;
   filter: MobileInboxFilter;
   groupWorkspaceTodos: boolean;
@@ -286,12 +291,13 @@ function encodeCursor(value: InboxCursor): string {
   return Buffer.from(JSON.stringify(value), 'utf8').toString('base64url');
 }
 
-function decodeCursor(value: string | null | undefined, workspaceId: string, filter: MobileInboxFilter): InboxCursor | null {
+function decodeCursor(value: string | null | undefined, workspaceId: string, filter: MobileInboxFilter, todoMode: TodoApiMode): InboxCursor | null {
   if (!value) return null;
   try {
     const parsed = JSON.parse(Buffer.from(value, 'base64url').toString('utf8')) as Partial<InboxCursor>;
     if (
-      parsed.workspaceId !== workspaceId
+      (parsed.todoMode ?? 'legacy') !== todoMode
+      || parsed.workspaceId !== workspaceId
       || parsed.filter !== filter
       || typeof parsed.sortAsOf !== 'string'
       || Number.isNaN(new Date(parsed.sortAsOf).getTime())
@@ -321,12 +327,14 @@ function decodeAggregateCursor(
   scopeKey: string,
   filter: MobileInboxFilter,
   groupWorkspaceTodos: boolean,
+  todoMode: TodoApiMode,
 ): AggregateInboxCursor | null {
   if (!value) return null;
   try {
     const parsed = JSON.parse(Buffer.from(value, 'base64url').toString('utf8')) as Partial<AggregateInboxCursor>;
     if (
-      parsed.scopeKey !== scopeKey
+      (parsed.todoMode ?? 'legacy') !== todoMode
+      || parsed.scopeKey !== scopeKey
       || parsed.filter !== filter
       || parsed.groupWorkspaceTodos !== groupWorkspaceTodos
       || typeof parsed.sortAsOf !== 'string'
@@ -379,6 +387,7 @@ async function collectInboxItems(input: {
   workspace: WorkspaceContext;
   sortAsOf: Date;
   includeFileChanges?: boolean;
+  todoMode?: TodoApiMode;
   excludeChatSessionId?: string;
 }) {
   const state = await readState({ userId: input.userId, workspaceId: input.workspace.workspaceId });
@@ -491,7 +500,7 @@ async function collectInboxItems(input: {
   }
   for (const todo of todos) {
     const itemKey = `todo:${todo.id}`;
-    const unread = todo.readState === 'unread';
+    const unread = input.todoMode !== 'lifecycle' && todo.readState === 'unread';
     items.push({
       id: itemKey,
       type: 'todo.attention',
@@ -544,7 +553,9 @@ async function collectInboxItems(input: {
   items.push(...fileChangeItems);
   return items
     .filter((item) => (
-      item.target.kind === 'file_change' || !state.dismissedItemKeys.has(item.id)
+      item.target.kind === 'file_change'
+      || (input.todoMode === 'lifecycle' && item.target.kind === 'todo')
+      || !state.dismissedItemKeys.has(item.id)
     ))
     .sort(compareCollectedInboxItems);
 }
@@ -568,19 +579,22 @@ export async function listMobileInbox(input: {
   cursor?: string | null;
   limit?: number;
   includeFileChanges?: boolean;
+  todoMode?: TodoApiMode;
 }) {
   const filter = MOBILE_INBOX_FILTERS.includes(input.filter as MobileInboxFilter)
     ? input.filter as MobileInboxFilter
     : 'all';
   const limit = normalizeLimit(input.limit);
-  const cursor = decodeCursor(input.cursor, input.workspace.workspaceId, filter);
+  const cursor = decodeCursor(input.cursor, input.workspace.workspaceId, filter, input.todoMode ?? 'legacy');
   const sortAsOf = cursor ? new Date(cursor.sortAsOf) : new Date();
   const allItems = await collectInboxItems({ ...input, sortAsOf });
   const counts = {
     unread: allItems.filter((item) => item.unread).length,
     chat: allItems.filter((item) => item.target.kind === 'chat').length,
     emails: allItems.filter((item) => item.target.kind === 'email').length,
-    todos: allItems.filter((item) => item.target.kind === 'todo').length,
+    todos: input.todoMode === 'lifecycle'
+      ? await countMobileOpenTodos({ userId: input.userId, workspaces: [input.workspace], todoMode: input.todoMode })
+      : allItems.filter((item) => item.target.kind === 'todo').length,
     todoUnread: allItems.filter((item) => item.target.kind === 'todo' && item.unread).length,
     studio: allItems.filter((item) => item.target.kind === 'studio').length,
     automation: allItems.filter((item) => item.target.kind === 'automation').length,
@@ -602,7 +616,7 @@ export async function listMobileInbox(input: {
     counts,
     items: page.map(publicInboxItem),
     nextCursor: filtered.length > limit && last
-      ? encodeCursor({ workspaceId: input.workspace.workspaceId, filter, sortAsOf: sortAsOf.toISOString(), occurredAt: last.occurredAt, id: last.id })
+      ? encodeCursor({ ...(input.todoMode === 'lifecycle' ? { todoMode: input.todoMode } : {}), workspaceId: input.workspace.workspaceId, filter, sortAsOf: sortAsOf.toISOString(), occurredAt: last.occurredAt, id: last.id })
       : null,
   };
 }
@@ -612,6 +626,7 @@ async function collectAggregateInboxItems(input: {
   workspaces: WorkspaceContext[];
   sortAsOf: Date;
   includeFileChanges?: boolean;
+  todoMode?: TodoApiMode;
   excludeChatSessionId?: string;
 }): Promise<CollectedAggregateInboxItem[]> {
   const items: CollectedAggregateInboxItem[] = [];
@@ -625,6 +640,7 @@ async function collectAggregateInboxItems(input: {
         sortAsOf: input.sortAsOf,
         includeFileChanges: input.includeFileChanges,
         excludeChatSessionId: input.excludeChatSessionId,
+        todoMode: input.todoMode,
       });
       return workspaceItems.map((item) => ({ ...item, workspaceId: workspace.workspaceId }));
     }));
@@ -797,6 +813,7 @@ export async function listMobileAggregateInbox(input: {
   limit?: number;
   groupWorkspaceTodos?: boolean;
   includeFileChanges?: boolean;
+  todoMode?: TodoApiMode;
   excludeChatSessionId?: string;
 }) {
   const filter = MOBILE_INBOX_FILTERS.includes(input.filter as MobileInboxFilter)
@@ -805,14 +822,16 @@ export async function listMobileAggregateInbox(input: {
   const limit = normalizeLimit(input.limit);
   const scopeKey = aggregateScopeKey(input.workspaces);
   const groupWorkspaceTodos = input.groupWorkspaceTodos === true;
-  const cursor = decodeAggregateCursor(input.cursor, scopeKey, filter, groupWorkspaceTodos);
+  const cursor = decodeAggregateCursor(input.cursor, scopeKey, filter, groupWorkspaceTodos, input.todoMode ?? 'legacy');
   const sortAsOf = cursor ? new Date(cursor.sortAsOf) : new Date();
   const allItems = assignTodoPresentationGroups(await collectAggregateInboxItems({ ...input, sortAsOf }));
   const counts = {
     unread: allItems.filter((item) => item.unread).length,
     chat: allItems.filter((item) => item.target.kind === 'chat').length,
     emails: allItems.filter((item) => item.target.kind === 'email').length,
-    todos: allItems.filter((item) => item.target.kind === 'todo').length,
+    todos: input.todoMode === 'lifecycle'
+      ? await countMobileOpenTodos({ userId: input.userId, workspaces: input.workspaces, todoMode: input.todoMode })
+      : allItems.filter((item) => item.target.kind === 'todo').length,
     todoUnread: allItems.filter((item) => item.target.kind === 'todo' && item.unread).length,
     studio: allItems.filter((item) => item.target.kind === 'studio').length,
     automation: allItems.filter((item) => item.target.kind === 'automation').length,
@@ -845,6 +864,7 @@ export async function listMobileAggregateInbox(input: {
     nextCursor: filtered.length > limit && last
       ? encodeAggregateCursor({
           scopeKey,
+          ...(input.todoMode === 'lifecycle' ? { todoMode: input.todoMode } : {}),
           filter,
           groupWorkspaceTodos,
           sortAsOf: sortAsOf.toISOString(),
@@ -861,6 +881,7 @@ export async function markMobileAggregateInboxRead(input: {
   workspaces: WorkspaceContext[];
   category?: 'notifications';
   includeFileChanges?: boolean;
+  todoMode?: TodoApiMode;
 }) {
   let readAt = new Date().toISOString();
   for (const workspace of input.workspaces) {
@@ -870,6 +891,7 @@ export async function markMobileAggregateInboxRead(input: {
       action: input.category ? 'mark_category_read' : 'mark_all_read',
       ...(input.category ? { category: input.category } : {}),
       includeFileChanges: input.includeFileChanges,
+      todoMode: input.todoMode,
     });
     if ('readAt' in result && typeof result.readAt === 'string') readAt = result.readAt;
   }
@@ -1019,6 +1041,7 @@ export async function markMobileInboxRead(input: {
   read?: unknown;
   expectedRevision?: unknown;
   includeFileChanges?: boolean;
+  todoMode?: TodoApiMode;
 }) {
   const now = new Date();
   const markNotificationsRead = input.action === 'mark_category_read';
@@ -1026,7 +1049,7 @@ export async function markMobileInboxRead(input: {
     if (markNotificationsRead && input.category !== 'notifications') {
       throw new MobileInboxError('INVALID_CATEGORY', 'The Inbox category is invalid.', 400);
     }
-    const todos = input.action === 'mark_all_read'
+    const todos = input.action === 'mark_all_read' && input.todoMode !== 'lifecycle'
       ? await listInboxTodos({ userId: input.userId, workspace: input.workspace })
       : [];
     await Promise.all([
@@ -1118,6 +1141,9 @@ export async function markMobileInboxRead(input: {
     )).returning({ id: piSessions.id });
     if (!result.length) throw new MobileInboxError('ITEM_NOT_FOUND', 'The Inbox item was not found.', 404);
   } else if (kind === 'todo') {
+    if (input.todoMode === 'lifecycle') {
+      throw new MobileInboxError('TODO_READ_STATE_NOT_SUPPORTED', 'To-dos are tracked by completion status.', 400);
+    }
     const todo = await getTodo(input.userId, entityId);
     if (!todoBelongsToWorkspace(todo, input.workspace)) {
       throw new MobileInboxError('ITEM_NOT_FOUND', 'The Inbox item was not found.', 404);

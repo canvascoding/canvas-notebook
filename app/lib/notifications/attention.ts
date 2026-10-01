@@ -2,7 +2,8 @@ import 'server-only';
 
 import { listEmailAttention, type EmailAttentionItem } from '@/app/lib/email/inbox-attention';
 import { countMobileUnreadNotifications, listMobileAggregateInbox, type MobileAggregateInboxItem } from '@/app/lib/mobile/inbox';
-import { listTodos } from '@/app/lib/todos/store';
+import { listTodos, listLifecycleTodoAttention, type TodoWithRelations } from '@/app/lib/todos/store';
+import type { TodoApiMode } from '@/app/lib/todos/api-mode';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 import { listMemoryApprovalAttention, type MemoryApprovalAttentionItem } from '@/app/lib/memory/approval-attention';
 import { listMcpConnectionAttention, type McpConnectionAttentionItem } from '@/app/lib/mcp/connection-attention';
@@ -30,6 +31,7 @@ export async function readNotificationAttention(input: {
   workspaces: WorkspaceContext[];
   now?: Date;
   excludeChatSessionId?: string;
+  todoMode?: TodoApiMode;
 }) {
   const now = input.now ?? new Date();
   const workspaceIds = input.workspaces.map((workspace) => workspace.workspaceId);
@@ -51,13 +53,16 @@ export async function readNotificationAttention(input: {
       items: [],
       nextCursor: null,
     }),
-    settleNotificationSource(listTodos(input.userId, {
+    settleNotificationSource<{ todos: TodoWithRelations[]; total: number | null }>(input.todoMode === 'lifecycle' ? listLifecycleTodoAttention({
+      userId: input.userId, workspaceIds, now,
+      includeUserScope: input.workspaces.some((workspace) => workspace.workspaceType === 'personal' && (workspace.isDefault || workspace.legacy)),
+    }) : listTodos(input.userId, {
       workspaceType: 'all',
       workspaceIds,
       status: 'open',
       limit: 200,
       sortAsOf: now,
-    }), []),
+    }).then((todos) => ({ todos, total: null })), { todos: [], total: null }),
     settleNotificationSource(Promise.all(input.workspaces.map(async (workspace) => ({
       workspace,
       items: await listEmailAttention({ userId: input.userId, workspace }),
@@ -75,7 +80,7 @@ export async function readNotificationAttention(input: {
       workspaceOperationNotificationSource.list({ userId: input.userId, workspace }))), []),
   ]);
   const events = eventsResult.value;
-  const todos = todosResult.value;
+  const { todos, total: todoTotal } = todosResult.value;
   const emailLists = emailResult.value;
   const mobileUnreadCount = unreadResult.value;
   const memoryApprovals = memoryResult.value;
@@ -93,7 +98,7 @@ export async function readNotificationAttention(input: {
     if (!status.available) console.warn('[Notifications] Source unavailable.', { source, userId: input.userId });
   }
 
-  const todoAttention = selectTodoAttention({ todos, viewerUserId: input.userId, now }).map((todo) => {
+  const todoAttention = selectTodoAttention({ todos, viewerUserId: input.userId, now, todoMode: input.todoMode }).map((todo) => {
     const workspaceId = todo.workspaceId || defaultPersonalWorkspace?.workspaceId || '';
     return {
       id: `todo:${todo.id}`,
@@ -102,7 +107,7 @@ export async function readNotificationAttention(input: {
       detail: todo.category?.name || 'To-do',
       previewUrl: null,
       occurredAt: todo.updatedAt.toISOString(),
-      unread: todo.readState === 'unread',
+      unread: input.todoMode !== 'lifecycle' && todo.readState === 'unread',
       priority: todo.priority === 'high' ? 'high' as const : 'normal' as const,
       todoStatus: 'open' as const,
       workspaceId,
@@ -148,10 +153,10 @@ export async function readNotificationAttention(input: {
     unreadCount: unreadCount + fileOperationUnread,
     counts: {
       unread: unreadCount + fileOperationUnread,
-      todoAttention: todoAttention.length,
+      todoAttention: todoTotal ?? todoAttention.length,
       emailAttention: emailAttention.length,
       chat: events.counts.chat,
-      todos: todoAttention.length,
+      todos: todoTotal ?? todoAttention.length,
       todoUnread: todoAttention.filter((item) => item.unread).length,
       studio: events.counts.studio,
       automation: events.counts.automation,

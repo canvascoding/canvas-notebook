@@ -4,6 +4,7 @@ import { NextResponse } from 'next/server';
 
 import { jsonServerError } from '@/app/lib/api/route-helpers';
 import { TodoStoreError } from '@/app/lib/todos/store';
+import { TodoApiModeError } from '@/app/lib/todos/api-mode';
 
 import { MobileTodoError } from './todos';
 
@@ -14,7 +15,7 @@ export const mobileTodosResponseHeaders = {
 };
 
 export function mobileTodosErrorResponse(error: unknown, context: string) {
-  if (error instanceof MobileTodoError) {
+  if (error instanceof MobileTodoError || error instanceof TodoApiModeError) {
     return NextResponse.json(
       { success: false, code: error.code, error: error.message },
       { status: error.status, headers: mobileTodosResponseHeaders },

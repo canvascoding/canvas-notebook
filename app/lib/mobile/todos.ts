@@ -7,6 +7,7 @@ import {
   type TodoWorkspaceType,
   type TodoWithRelations,
 } from '@/app/lib/todos/store';
+import { assertTodoReadActionSupported, todoForApi, type TodoApiMode } from '@/app/lib/todos/api-mode';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 
 export const MOBILE_TODO_STATUSES = ['active', 'open', 'done', 'archived', 'all'] as const;
@@ -101,7 +102,11 @@ function iso(value: Date | null): string | null {
   return value?.toISOString() || null;
 }
 
-export function serializeMobileTodo(todo: TodoWithRelations): MobileTodo {
+export function serializeMobileTodo(todo: TodoWithRelations, todoMode: TodoApiMode = 'legacy') {
+  return todoForApi(serializeLegacyMobileTodo(todo), todoMode);
+}
+
+function serializeLegacyMobileTodo(todo: TodoWithRelations): MobileTodo {
   return {
     id: todo.id,
     title: todo.title,
@@ -195,7 +200,10 @@ export async function listMobileTodos(input: {
   query?: string | null;
   cursor?: string | null;
   limit?: number;
+  todoMode?: TodoApiMode;
 }) {
+  const todoMode = input.todoMode ?? 'legacy';
+  assertTodoReadActionSupported(todoMode, input.readState ? { readState: input.readState } : {});
   const status = MOBILE_TODO_STATUSES.includes(input.status as typeof MOBILE_TODO_STATUSES[number])
     ? input.status as ListTodosOptions['status']
     : 'active';
@@ -208,7 +216,8 @@ export async function listMobileTodos(input: {
   const readState = input.readState as ListTodosOptions['readState'] | undefined;
   const assigneeUserId = input.assigneeUserId?.trim().slice(0, 160) || '';
   const query = input.query?.trim().toLocaleLowerCase().slice(0, 120) || '';
-  const cursorSignature = signature({ status: status || 'active', due: due || '', readState: readState || '', assigneeUserId, query });
+  const cursorSignature = signature({ status: status || 'active', due: due || '', readState: readState || '', assigneeUserId, query })
+    + (todoMode === 'lifecycle' ? ':lifecycle' : '');
   const cursor = decodeCursor(input.cursor, input.workspace.workspaceId, cursorSignature);
   const limit = normalizeLimit(input.limit);
   const sortAsOf = cursor ? new Date(cursor.sortAsOf) : new Date();
@@ -246,7 +255,7 @@ export async function listMobileTodos(input: {
   const page = todos.slice(0, limit);
   const last = page.at(-1);
   return {
-    todos: page.map(serializeMobileTodo),
+    todos: page.map((todo) => serializeMobileTodo(todo, todoMode)),
     nextCursor: todos.length > limit && last
       ? Buffer.from(JSON.stringify({
           workspaceId: input.workspace.workspaceId,
