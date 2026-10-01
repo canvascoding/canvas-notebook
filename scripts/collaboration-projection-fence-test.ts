@@ -9,6 +9,7 @@ import type { SqlConnection } from '../app/lib/db';
 import type * as Persistence from '../app/lib/collaboration/persistence';
 import type * as Checkpoint from '../app/lib/collaboration/checkpoint';
 import type { WorkspaceContext } from '../app/lib/workspaces/types';
+import { CollaborationProjectionIdentityError } from '../app/lib/collaboration/projection-identity';
 
 async function compile<T>(file: string, mocks: Record<string, unknown>): Promise<T> {
   const filename = path.resolve(file);
@@ -49,6 +50,8 @@ async function harness() {
   let row: Row | undefined = seedRow(doc);
   let file = 'Original file';
   let receipt: Receipt = 'missing';
+  let registry = { id: 'doc', workspaceId: 'workspace', path: 'doc.txt', provider: 'yjs',
+    organizationId: null as string | null, status: 'active', workspaceStatus: 'active' };
   let commitFault: 'none' | 'committed' | 'rolledback' | 'replaced' | 'missing' | 'open' = 'none';
   let rollbackFault = false;
   let beginFault = false;
@@ -77,6 +80,20 @@ async function harness() {
           else events.push('recovery read');
         }
         const current = transaction ? transaction.row : row;
+        if (query.startsWith('SELECT y.document_id')) {
+          assertWorkspace();
+          assert(query.includes('c.id = y.document_id') && query.includes("c.provider = 'yjs'"));
+          assert(query.includes('c.organization_id IS NOT DISTINCT FROM y.organization_id'));
+          assert(query.includes("w.status = 'active'"));
+          if (!current || registry.id !== current.document_id || registry.workspaceId !== current.workspace_id
+            || registry.path !== current.path || registry.organizationId !== current.organization_id
+            || registry.provider !== 'yjs' || registry.status !== 'active' || registry.workspaceStatus !== 'active'
+            || current.document_id !== parameters[0] || current.workspace_id !== parameters[1]
+            || current.path !== parameters[2] || current.organization_id !== parameters[3]
+            || current.lifecycle_generation !== parameters[4] || current.representation !== parameters[5]
+            || current.schema_version !== parameters[6] || current.status !== 'active') return undefined;
+          return { document_id: current.document_id };
+        }
         if (query.startsWith('SELECT')) {
           if (!current || current.document_id !== parameters[0]) return undefined;
           if (query.includes("status = 'active'") && current.status !== 'active') return undefined;
@@ -155,6 +172,10 @@ async function harness() {
       },
     };
   };
+  const identity = await compile<typeof import('../app/lib/collaboration/projection-identity')>(
+    'app/lib/collaboration/projection-identity.ts', {
+      'server-only': {}, '@/app/lib/db': { openDb },
+    });
   const persistence = await compile<typeof Persistence>('app/lib/collaboration/persistence.ts', {
     'server-only': {}, '@/app/lib/db': { openDb },
     '@/app/lib/files/workspace-mutation-lock': { withWorkspaceMutationLock: lock },
@@ -169,12 +190,14 @@ async function harness() {
     },
     '@/app/lib/markdown/obsidian-metadata': {}, '@/app/lib/markdown/rich-markdown-codec': {},
     './markdown-state': {}, './runtime-state': {}, './types': {}, './server-runtime': { Y },
+    './projection-identity': identity,
   });
   const revision = async () => ({ sha256: persistence.sha256Text(file), stats: { size: Buffer.byteLength(file) } });
   let beforeWrite: (() => Promise<void>) | undefined;
   let beforeShares: (() => Promise<void>) | undefined;
   const checkpoint = await compile<typeof Checkpoint>('app/lib/collaboration/checkpoint.ts', {
     'server-only': {}, './persistence': persistence, './server-runtime': { Y }, './markdown-state': {},
+    './projection-identity': identity,
     './projection-repository': {
       beginCollaborationProjectionAttempt: async (state: Persistence.PersistedCollaborationState) => {
         assertWorkspace(); assert.equal(activeTransactions, 0, 'attempt marker must commit before file I/O');
@@ -223,6 +246,7 @@ async function harness() {
     get row() { return row; }, set row(value: Row | undefined) { row = value; },
     get file() { return file; }, set file(value: string) { file = value; },
     get receipt() { return receipt; },
+    get registry() { return registry; }, set registry(value: typeof registry) { registry = value; },
     set commitFault(value: typeof commitFault) { commitFault = value; },
     set rollbackFault(value: boolean) { rollbackFault = value; },
     set beginFault(value: boolean) { beginFault = value; },
@@ -233,6 +257,32 @@ async function harness() {
 }
 
 async function main() {
+  for (const patch of [{ id: 'successor' }, { provider: 'excalidraw' }, { status: 'archived' },
+    { path: 'renamed.txt' }, { workspaceId: 'another-workspace' }, { organizationId: 'another-organization' },
+    { workspaceStatus: 'disabled' }]) {
+    const h = await harness();
+    h.registry = { ...h.registry, ...patch };
+    const before = { ...h.row! };
+    await assert.rejects(h.checkpoint.materializeCollaborationCheckpoint({ state: await h.state(), workspace: h.workspace }),
+      (error: unknown) => error instanceof Error && 'code' in error && error.code === new CollaborationProjectionIdentityError().code);
+    assert.equal(h.file, 'Original file'); assert.equal(h.receipt, 'missing');
+    assert.deepEqual(h.row, before); assert.deepEqual(h.events, [], 'reject before receipt, revision or file mutation');
+    h.doc.destroy();
+  }
+  {
+    const h = await harness();
+    const observed = await h.state();
+    const entered = gate(); const release = gate();
+    const replacing = h.lock('workspace', async () => {
+      entered.resolve(); await release.promise; h.registry = { ...h.registry, id: 'successor' };
+    });
+    await entered.promise;
+    const projection = h.checkpoint.materializeCollaborationCheckpoint({ state: observed, workspace: h.workspace });
+    release.resolve(); await replacing;
+    await assert.rejects(projection, /current document identity/);
+    assert.equal(h.file, 'Original file'); assert.equal(h.receipt, 'missing');
+    assert.deepEqual(h.events, []); h.doc.destroy();
+  }
   {
     const releases: Array<Error | undefined> = [];
     const database = await compile<typeof import('../app/lib/db')>('app/lib/db/index.ts', {

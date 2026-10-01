@@ -24,6 +24,7 @@ import {
 } from './persistence';
 import { Y } from './server-runtime';
 import { beginCollaborationProjectionAttempt, finalizeCollaborationProjectionReceipt, recordCollaborationProjectionPending } from './projection-repository';
+import { assertCurrentCollaborationProjectionIdentity, CollaborationProjectionIdentityError } from './projection-identity';
 
 export class CollaborationCheckpointSupersededError extends Error {
   constructor(readonly documentId: string, readonly sequence: number) {
@@ -85,7 +86,7 @@ export function authoritativeCollaborationSnapshot(
   }
 }
 
-export async function writeCollaborationCheckpointFile(input: {
+async function writeCollaborationCheckpointFile(input: {
   state: PersistedCollaborationState;
   workspace: WorkspaceContext;
   canonicalContent: string;
@@ -152,6 +153,7 @@ async function writeCompensatableCollaborationCheckpointFile(input: {
       || currentState.checkpointSequence > input.state.documentSequence) {
       throw new Error('Collaboration checkpoint rollback refused to overwrite another document lifecycle.');
     }
+    await assertCurrentCollaborationProjectionIdentity(currentState);
     const currentRevision = await getWorkspaceFileRevision(input.state.path, fileOptions);
     if (currentRevision?.sha256 === previousRevision.sha256) {
       rolledBack = true;
@@ -212,6 +214,7 @@ export async function finalizeCollaborationCheckpointProjection(input: {
       || currentState.serializedHash !== input.state.serializedHash) {
       throw new CollaborationCheckpointSupersededError(input.state.documentId, input.state.checkpointSequence);
     }
+    await assertCurrentCollaborationProjectionIdentity(currentState);
     const fileOptions = workspaceFileOptions(input.workspace);
     const fileRevision = await getWorkspaceFileRevision(input.state.path, fileOptions);
     if (!fileRevision || fileRevision.sha256 !== input.state.serializedHash) {
@@ -250,8 +253,9 @@ export async function materializeCollaborationCheckpoint(input: {
   sourceSessionId?: string | null;
   confirmProjection?: (transaction: SqlConnection, state: PersistedCollaborationState, result: CollaborationCheckpointFileWrite) => Promise<void>;
 }): Promise<{ content: string; revisionId: string; state: PersistedCollaborationState }> {
-  if (input.state.workspaceId !== input.workspace.workspaceId) {
-    throw new Error('Collaboration checkpoint workspace mismatch.');
+  if (input.state.workspaceId !== input.workspace.workspaceId
+    || input.state.organizationId !== (input.workspace.organizationId ?? null)) {
+    throw new CollaborationProjectionIdentityError();
   }
   return withWorkspaceMutationLock(input.workspace.workspaceId, async () => {
     const fenced = await withCollaborationCheckpointFence<CollaborationCheckpointFileWrite>({

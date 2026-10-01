@@ -5,6 +5,7 @@ import { workspaceAbsoluteRoot } from '@/app/lib/workspaces/contracts';
 import type { WorkspaceContext, WorkspaceType } from '@/app/lib/workspaces/types';
 import type { PersistedCollaborationState } from './persistence';
 import type { CollaborationProjectionRequest } from './projection-scheduler';
+import { assertCurrentCollaborationProjectionIdentity, currentProjectionIdentityJoins } from './projection-identity';
 
 // A binary update makes the first predicate true in the same durable write.
 // The receipt closes the later crash window between checkpoint commit and
@@ -18,8 +19,7 @@ const pendingProjectionPredicate = `(
     OR p.serialized_hash IS DISTINCT FROM y.serialized_hash))
 )`;
 const projectionJoins = `LEFT JOIN collaboration_file_projections p ON p.document_id = y.document_id
-  LEFT JOIN collaboration_documents c ON c.id = y.document_id AND c.workspace_id = y.workspace_id
-    AND c.path = y.path AND c.status = 'active' AND c.provider = 'yjs'`;
+  ${currentProjectionIdentityJoins}`;
 
 export async function listPendingCollaborationProjections(afterDocumentId = '', limit = 100): Promise<CollaborationProjectionRequest[]> {
   const database = await openDb();
@@ -49,6 +49,7 @@ export async function hasPendingCollaborationProjection(state: PersistedCollabor
 export async function beginCollaborationProjectionAttempt(state: PersistedCollaborationState): Promise<void> {
   const database = await openDb();
   try {
+    await assertCurrentCollaborationProjectionIdentity(state, database);
     const row = await database.get(`INSERT INTO collaboration_file_projections (
         document_id, lifecycle_generation, projected_sequence, finalized, updated_at)
       SELECT document_id, lifecycle_generation, $3, 0, $4 FROM collaboration_yjs_states
@@ -72,6 +73,7 @@ export async function recordCollaborationProjectionPending(
   state: PersistedCollaborationState,
   result: { revisionId: string },
 ): Promise<void> {
+  await assertCurrentCollaborationProjectionIdentity(state, transaction);
   if (!state.canonicalHash || !state.serializedHash) throw new Error('Projection receipt requires checkpoint hashes.');
   const row = await transaction.get(`INSERT INTO collaboration_file_projections (
       document_id, lifecycle_generation, projected_sequence, revision_id, canonical_hash, serialized_hash, finalized, updated_at
@@ -92,6 +94,7 @@ export async function recordCollaborationProjectionPending(
 export async function finalizeCollaborationProjectionReceipt(state: PersistedCollaborationState, revisionId: string): Promise<void> {
   const database = await openDb();
   try {
+    await assertCurrentCollaborationProjectionIdentity(state, database);
     const row = await database.get(`UPDATE collaboration_file_projections p SET finalized = 1, updated_at = $1
       WHERE p.document_id = $2 AND p.lifecycle_generation = $3 AND p.projected_sequence = $4
         AND p.revision_id = $5 AND p.canonical_hash = $6 AND p.serialized_hash = $7

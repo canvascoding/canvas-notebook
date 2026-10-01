@@ -27,6 +27,7 @@ import {
   withCollaborationRoomLifecycleLock,
 } from './runtime-state';
 import { Y } from './server-runtime';
+import { assertCurrentCollaborationProjectionIdentity } from './projection-identity';
 import { mergeCollaborationPersistenceUpdates } from './persistence-merge';
 import { assertCollaborationRoomOwnerFence, type CollaborationRoomOwnerFence } from './room-owner';
 import { executeLifecycleTransaction } from './lifecycle-transaction';
@@ -598,6 +599,8 @@ export async function withCollaborationCheckpointFence<T>(input: {
         return null;
       }
 
+      await assertCurrentCollaborationProjectionIdentity(lockedState, database);
+
       const materialized = await input.materialize(lockedState);
       const expectedCanonicalHash = sha256Text(materialized.canonicalContent);
       const expectedSerializedHash = sha256Text(materialized.serializedContent);
@@ -607,6 +610,7 @@ export async function withCollaborationCheckpointFence<T>(input: {
           try {
             transactionOpen = true;
             await database.run('BEGIN');
+            await assertCurrentCollaborationProjectionIdentity(lockedState, database);
             const row = await database.get(
               `
                 UPDATE collaboration_yjs_states

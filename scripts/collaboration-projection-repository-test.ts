@@ -8,6 +8,7 @@ import { createPiTestDatabase } from './helpers/pi-test-database';
 import { resolveWorkspaceDataRoot } from '../app/lib/workspaces/context';
 import type { PersistedCollaborationState } from '../app/lib/collaboration/persistence';
 import type * as Repository from '../app/lib/collaboration/projection-repository';
+import { assertCurrentCollaborationProjectionIdentity, CollaborationProjectionIdentityError } from '../app/lib/collaboration/projection-identity';
 
 async function main() {
   const database = await createPiTestDatabase();
@@ -83,8 +84,20 @@ async function main() {
       persisted_at, checkpointed_at, canonical_hash, serialized_hash)
       VALUES ($1,$2,$3,$4,$5,1,1,$6,$7,2,1,$8,$8,$9,$10)`, [state.documentId, state.workspaceId, state.organizationId,
       state.path, state.representation, Buffer.from(state.yjsState), Buffer.from(state.stateVector), Date.now(), state.canonicalHash, state.serializedHash]);
-    await connection.run(`INSERT INTO collaboration_documents (id,workspace_id,workspace_type,path,provider,state_version,status,created_at,updated_at)
-      VALUES ('doc','workspace','personal','note.md','yjs',1,'active',1,1)`);
+    await connection.run(`INSERT INTO collaboration_documents (id,workspace_id,organization_id,workspace_type,path,provider,state_version,status,created_at,updated_at)
+      VALUES ('doc','workspace','organization','team','note.md','yjs',1,'active',1,1)`);
+    await assertCurrentCollaborationProjectionIdentity(state, connection);
+    for (const mutation of ["id='successor'", "organization_id='another'", "workspace_type='personal'",
+      "status='archived'", "provider='excalidraw'", "path='another.md'"]) {
+      await connection.run('BEGIN');
+      await connection.run(`UPDATE collaboration_documents SET ${mutation} WHERE id='doc'`);
+      assert.deepEqual(await pending(), [], 'orphan/scope mismatch must never enter the projection scanner');
+      assert.equal(await repository.hasPendingCollaborationProjection(state), false);
+      await assert.rejects(assertCurrentCollaborationProjectionIdentity(state, connection), CollaborationProjectionIdentityError);
+      await assert.rejects(repository.beginCollaborationProjectionAttempt(state), CollaborationProjectionIdentityError);
+      assert.equal(await connection.get('SELECT document_id FROM collaboration_file_projections'), undefined);
+      await connection.run('ROLLBACK');
+    }
     assert.deepEqual(await pending(), [{ documentId: 'doc', lifecycleGeneration: 1, documentSequence: 2 }],
       'the binary commit alone creates durable backlog, without an in-memory job');
     repository = reloadRepository();
@@ -134,17 +147,17 @@ async function main() {
     await repository.recordCollaborationProjectionPending(connection, state, { revisionId: 'before-delete' });
     await connection.run("UPDATE collaboration_yjs_states SET status='archived', lifecycle_generation=2 WHERE document_id=$1", ['doc']);
     assert.deepEqual(await pending(), [], 'archived documents are never replayed');
-    await assert.rejects(repository.finalizeCollaborationProjectionReceipt(state, 'before-delete'), /receipt changed/u);
+    await assert.rejects(repository.finalizeCollaborationProjectionReceipt(state, 'before-delete'), CollaborationProjectionIdentityError);
     await connection.run("UPDATE collaboration_yjs_states SET status='active', lifecycle_generation=3 WHERE document_id=$1", ['doc']);
     assert.deepEqual(await pending(), [{ documentId: 'doc', lifecycleGeneration: 3, documentSequence: 2 }],
       'legacy/migration checkpoints get their own current-generation recovery task');
     assert.equal(await repository.hasPendingCollaborationProjection(state), false);
-    await assert.rejects(repository.beginCollaborationProjectionAttempt(state), /stale document identity/u);
+    await assert.rejects(repository.beginCollaborationProjectionAttempt(state), CollaborationProjectionIdentityError);
 
     const newGeneration = { ...state, lifecycleGeneration: 3 };
     await repository.recordCollaborationProjectionPending(connection, newGeneration, { revisionId: 'new-generation' });
     assert.equal((await pending())[0].lifecycleGeneration, 3);
-    await assert.rejects(repository.recordCollaborationProjectionPending(connection, state, { revisionId: 'old-generation' }), /newer collaboration projection/u);
+    await assert.rejects(repository.recordCollaborationProjectionPending(connection, state, { revisionId: 'old-generation' }), CollaborationProjectionIdentityError);
     await repository.finalizeCollaborationProjectionReceipt(newGeneration, 'new-generation');
     assert.deepEqual(await pending(), []);
 
