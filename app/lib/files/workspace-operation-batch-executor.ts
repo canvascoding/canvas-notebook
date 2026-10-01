@@ -9,7 +9,7 @@ import { resolveWorkspaceDataRoot } from '@/app/lib/workspaces/context';
 import { resolveExistingWorkspacePath, withWorkspaceCopyMutationLocks } from '@/app/lib/filesystem/workspace-files';
 import { filesystemFileVersion } from '@/app/lib/filesystem/file-version';
 import { trashWorkspacePaths, restoreWorkspaceTrashEntry, listWorkspaceTrashEntries } from '@/app/lib/filesystem/workspace-trash';
-import { archiveFileCollaborationPaths, restoreFileCollaborationPath } from './collaboration-policy';
+import { archiveFileCollaborationPaths, restoreFileCollaborationPath, readFileCollaborationState } from './collaboration-policy';
 import { syncPublicSharesAfterDelete } from '@/app/lib/public-sharing/public-file-shares';
 import { renameWorkspacePath } from './rename-service';
 import { captureWorkspaceOperationBackup } from './workspace-operation-backup';
@@ -32,12 +32,17 @@ const idPattern = /^[A-Za-z0-9][A-Za-z0-9_-]{15,127}$/u;
 const samePath = (child: string, parent: string) => child === parent || child.startsWith(`${parent}/`);
 type TreeEntry = { path: string; kind: 'file' | 'directory'; identity: string; sha256: string | null };
 type Step = { key: string; state: 'intent' | 'applied'; receipt: Record<string, unknown> | null };
+export type WorkspaceOperationBatchTransitionProof = {
+  sourcePath: string; destinationPath: string; sourceIdentity: string; destinationIdentity: string;
+  contentHash: string | null; documentId: string | null; lifecycleGeneration: number | null;
+};
 type Manifest = {
   version: 1; batchId: string; workspaceId: string; actorUserId: string; plan: WorkspaceOperationBatchPlan;
   status: 'preparing' | 'applying' | 'applied' | 'needs_recovery' | 'failed' | 'undoing' | 'undone';
   beforeTrees: Record<string, TreeEntry[]>; backupIds: string[]; linkPreflight: WorkspaceLinkWritePreflight | null;
   steps: Step[]; undoSteps: Step[]; undoPlan: WorkspaceOperationBatchPlan['linkPlan'] | null;
   undoPreflight: WorkspaceLinkWritePreflight | null; errorCode: string | null;
+  finalTransitions?: WorkspaceOperationBatchTransitionProof[];
 };
 type ExecuteInput = { batchId: string; plan: WorkspaceOperationBatchPlan; scope: WorkspaceOperationBatchScope;
   actorUserId: string; actorDisplayName: string;
@@ -59,7 +64,17 @@ type Dependencies = {
   applyLink?: typeof applyWorkspaceLinkWriteGroup;
   probeLink?: typeof probeWorkspaceLinkWriteGroup;
   checkpointLink?: (input: WorkspaceLinkWriteExecutorInput, group: WorkspaceLinkWriteGroup, documentId: string | null) => Promise<void>;
+  documentProof?: (scope: WorkspaceOperationBatchScope, filePath: string) => Promise<{ documentId: string; lifecycleGeneration: number } | null>;
 };
+
+async function batchDocumentProof(scope: WorkspaceOperationBatchScope, filePath: string) {
+  if (!/\.(?:md|markdown)$/iu.test(filePath)) return null;
+  const metadata = await readFileCollaborationState({ workspace: scope.workspace, path: filePath });
+  if (metadata.document?.status !== 'active') return null;
+  const state = await loadCollaborationState(metadata.document.id);
+  if (!state || state.workspaceId !== scope.workspace.workspaceId || state.path !== filePath || state.degraded) return null;
+  return { documentId: state.documentId, lifecycleGeneration: state.lifecycleGeneration };
+}
 
 async function checkpointBatchLink(input: WorkspaceLinkWriteExecutorInput, group: WorkspaceLinkWriteGroup, documentId: string | null): Promise<void> {
   if (!documentId) return;
@@ -136,6 +151,7 @@ export function createWorkspaceOperationBatchExecutor(dependencies: Dependencies
   const applyLink = dependencies.applyLink ?? applyWorkspaceLinkWriteGroup;
   const probeLink = dependencies.probeLink ?? probeWorkspaceLinkWriteGroup;
   const checkpointLink = dependencies.checkpointLink ?? checkpointBatchLink;
+  const documentProof = dependencies.documentProof ?? batchDocumentProof;
   const filename = (batchId: string) => {
     if (!idPattern.test(batchId)) throw new Error('BATCH_INVALID_ID');
     return path.join(storage, `${batchId}.json`);
@@ -467,6 +483,21 @@ export function createWorkspaceOperationBatchExecutor(dependencies: Dependencies
           throw new Error('BATCH_FINAL_NEW_BACKLINK');
         }
       }
+      // Capture the inode *after* every checkpoint, together with stable collaboration
+      // lineage. Historic finalized evidence is immutable and is never refreshed on retry.
+      if (!manifest.finalTransitions) {
+        const finalized: WorkspaceOperationBatchTransitionProof[] = [];
+        for (const mapping of manifest.plan.pathMappings.filter((entry) => entry.sourcePath !== entry.destinationPath)) {
+          const absolute = await resolveExistingWorkspacePath(mapping.destinationPath, input.scope.fileOptions);
+          const stat = await fs.stat(absolute);
+          const document = stat.isFile() ? await documentProof(input.scope, mapping.destinationPath) : null;
+          finalized.push({ sourcePath: mapping.sourcePath, destinationPath: mapping.destinationPath,
+            sourceIdentity: mapping.sourceIdentity, destinationIdentity: filesystemFileVersion(stat),
+            contentHash: stat.isFile() ? (await treeAt(absolute))[0]!.sha256 : null,
+            documentId: document?.documentId ?? null, lifecycleGeneration: document?.lifecycleGeneration ?? null });
+        }
+        manifest.finalTransitions = finalized;
+      }
       manifest.status = 'applied'; manifest.errorCode = null; await save(manifest);
       await progress(input, manifest, 'complete');
       return result(manifest);
@@ -591,6 +622,12 @@ export function createWorkspaceOperationBatchExecutor(dependencies: Dependencies
   });
 
   return { execute, undo, assertUndoAvailable,
+    async transitions(input: { batchId: string; scope: WorkspaceOperationBatchScope }): Promise<WorkspaceOperationBatchTransitionProof[]> {
+      const manifest = await load(input.batchId);
+      if (!manifest || manifest.status !== 'applied' || manifest.workspaceId !== input.scope.workspace.workspaceId
+        || !input.scope.workspace.permissions.canRead) return [];
+      return manifest.finalTransitions ?? [];
+    },
     async has(batchId: string, workspaceId?: string): Promise<boolean> {
       const manifest = await load(batchId); return Boolean(manifest && (!workspaceId || manifest.workspaceId === workspaceId));
     },
@@ -608,3 +645,4 @@ export const undoWorkspaceOperationBatch = (input: UndoInput) => createWorkspace
 export const hasWorkspaceOperationBatchExecution = (batchId: string, workspaceId?: string) => createWorkspaceOperationBatchExecutor().has(batchId, workspaceId);
 export const getWorkspaceOperationBatchExecution = (input: { batchId: string; scope: WorkspaceOperationBatchScope }) => createWorkspaceOperationBatchExecutor().get(input);
 export const assertWorkspaceOperationBatchUndoAvailable = (input: { batchId: string; scope: WorkspaceOperationBatchScope }) => createWorkspaceOperationBatchExecutor().assertUndoAvailable(input);
+export const getWorkspaceOperationBatchTransitionProofs = (input: { batchId: string; scope: WorkspaceOperationBatchScope }) => createWorkspaceOperationBatchExecutor().transitions(input);

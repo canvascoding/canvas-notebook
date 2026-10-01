@@ -84,6 +84,7 @@ export function WorkspaceOperationBatchDetails({ batch }: { batch: WorkspaceOper
       </> : null}
       {batch.status === 'needs_review' ? <p>{t('batchNeedsReviewHelp')}</p> : null}
       {batch.status === 'needs_recovery' ? <p>{t('batchNeedsRecoveryHelp')}</p> : null}
+      {batch.status === 'failed' ? <p>{t('batchFailedHelp')}</p> : null}
     </section>
 
     {changedReviews.length > 0 && !running && !applied ? <section className="space-y-2 rounded-lg border border-amber-500/35 p-3 text-sm"

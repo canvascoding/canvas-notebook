@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import os from 'node:os';
 import { test, type TestContext } from 'node:test';
 import ts from 'typescript';
 import { CollaborationCheckpointValidationError, COLLABORATION_CHECKPOINT_ERROR_CODES } from '../app/lib/collaboration/checkpoint-errors';
@@ -65,6 +66,7 @@ async function setup(t: TestContext, options: {
   project?: (snapshot: PersistedCollaborationState) => Promise<ProjectionResult>;
   scan?: (cursor: string) => Promise<CollaborationProjectionRequest[]>;
   guestVersion?: (snapshot: PersistedCollaborationState) => Promise<void>;
+  lock?: <T>(workspaceId: string, operation: () => Promise<T>) => Promise<T>;
 } = {}) {
   const clock = createClock();
   const states = new Map((options.states ?? []).map((snapshot) => [snapshot.documentId, snapshot]));
@@ -87,6 +89,8 @@ async function setup(t: TestContext, options: {
   const exports = {};
   const dependencies: Record<string, unknown> = {
     'server-only': {},
+    '@/app/lib/files/workspace-mutation-lock': { withWorkspaceMutationLock: options.lock
+      ?? (async <T>(_workspaceId: string, operation: () => Promise<T>) => operation()) },
     '@/app/lib/file-guests/versions': { recordFileGuestVersion: async (snapshot: PersistedCollaborationState) => {
       guestVersions.push(snapshot);
       await options.guestVersion?.(snapshot);
@@ -155,6 +159,39 @@ test('projection reloads the newest durable state after enqueue', async (t) => {
   assert.deepEqual(h.attempted, [latest]);
   assert.equal(h.projected[0].state.checkpointSequence, 7);
   assert.deepEqual(h.guestVersions, [h.projected[0].state]);
+});
+
+test('a queued projector reloads inside the workspace lock and preserves an already finalized inode', async (t) => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-projection-fence-'));
+  t.after(() => fs.rm(directory, { recursive: true, force: true }));
+  const file = path.join(directory, 'document.md');
+  await fs.writeFile(file, 'Before');
+  let release!: () => void;
+  const heldLock = new Promise<void>((resolve) => { release = resolve; });
+  let waiting = false;
+  const h = await setup(t, { states: [state()], lock: async (_workspaceId, operation) => {
+    waiting = true;
+    await heldLock;
+    return operation();
+  }, project: async (snapshot) => {
+    await fs.writeFile(`${file}.background`, 'Reviewed');
+    await fs.rename(`${file}.background`, file);
+    return { state: { ...snapshot, checkpointSequence: snapshot.documentSequence }, content: 'Reviewed', revisionId: 'duplicate' };
+  } });
+  await h.clock.advanceTo(2_000);
+  assert.equal(waiting, true, 'independent projector is waiting behind the reviewed workspace operation');
+  assert.equal(h.attempted.length, 0);
+  // The batch uses the ordinary transactional checkpoint while owning this lock.
+  await fs.writeFile(`${file}.batch`, 'Reviewed'); await fs.rename(`${file}.batch`, file);
+  const confirmedInode = (await fs.stat(file)).ino;
+  h.states.set('document-a', state('document-a', { checkpointSequence: 2 }));
+  release();
+  await settle();
+  assert.equal(h.attempted.length, 0, 'finished pending work cannot replace the file a second time');
+  assert.equal((await fs.stat(file)).ino, confirmedInode);
+  assert.equal(await fs.readFile(file, 'utf8'), 'Reviewed');
+  assert.deepEqual(h.projected, []);
+  assert.deepEqual(h.failures, []);
 });
 
 test('stale generation, archived, missing and already finalized queued documents are skipped', async (t) => {

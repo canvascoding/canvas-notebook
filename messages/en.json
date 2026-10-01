@@ -9173,6 +9173,8 @@
     "batchNeedsReviewHelp": "The files changed before execution. Refresh the preview and check the new changes before approving again.",
     "batchNeedsRecoveryHelp": "Some steps need recovery. Completed steps are recorded; resume only after reviewing the error details.",
     "resumeBatch": "Resume recorded action",
+    "retryBatch": "Retry approved action",
+    "batchFailedHelp": "Processing failed. Review the error details, then retry the saved action with the same approved plan.",
     "batchStatus_preview": "Ready for approval",
     "batchStatus_blocked": "Action group blocked",
     "batchStatus_queued": "Queued for processing",

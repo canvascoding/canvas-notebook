@@ -70,6 +70,10 @@ export class WorkspaceOperationBatchStore {
       if (!row) throw new WorkspaceOperationBatchError('BATCH_NOT_FOUND', 404, 'File action batch not found.');
       const batch = record(row as Record<string, unknown>);
       if (batch.planId !== input.planId) throw new WorkspaceOperationBatchError('PREVIEW_STALE', 409, 'The exact batch plan is required.');
+      if (action === 'resume' && batch.reviewerUserId !== input.userId) {
+        throw new WorkspaceOperationBatchError('BATCH_RESUME_REVIEWER_REQUIRED', 403,
+          'Only the reviewer who approved this job can resume it. Their current workspace permissions are still required.');
+      }
       if (['queued', 'applying'].includes(batch.status)) {
         const expectedMode = action === 'undo' ? 'undo' : action === 'accept' ? 'apply' : batch.actionMode;
         if (batch.reviewerUserId !== input.userId || expectedMode !== batch.actionMode) {
@@ -100,7 +104,8 @@ export class WorkspaceOperationBatchStore {
         completed_actions = CASE WHEN $6 THEN 0 ELSE completed_actions END,
         phase = CASE WHEN $6 THEN 'preparing' ELSE phase END
         WHERE batch_id = $1 RETURNING *`,
-      [input.batchId, input.userId, input.displayName, action === 'undo' ? 'undo' : batch.actionMode, this.now(), action === 'undo']);
+      [input.batchId, input.userId, action === 'resume' ? batch.reviewerDisplayName ?? input.displayName : input.displayName,
+        action === 'undo' ? 'undo' : batch.actionMode, this.now(), action === 'undo']);
       return record(updated as Record<string, unknown>);
     }, recoverCommitted: async (value, commitError) => {
       const persisted = await this.get(value.batchId);

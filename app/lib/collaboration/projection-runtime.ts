@@ -1,6 +1,7 @@
 import 'server-only';
 
 import { recordFileGuestVersion } from '@/app/lib/file-guests/versions';
+import { withWorkspaceMutationLock } from '@/app/lib/files/workspace-mutation-lock';
 import { CollaborationCheckpointSupersededError, materializeCollaborationCheckpoint } from './checkpoint';
 import { CollaborationCheckpointValidationError, COLLABORATION_CHECKPOINT_ERROR_CODES } from './checkpoint-errors';
 import { logCollaborationDiagnostic } from './diagnostics';
@@ -29,43 +30,50 @@ export function createCollaborationProjectionRuntime(callbacks: {
   let recoveryTimer: ReturnType<typeof setTimeout> | undefined;
   const scheduler = createCollaborationProjectionScheduler({
     async project(request) {
-      const state = await loadCollaborationState(request.documentId);
-      if (!state || state.lifecycleGeneration !== request.lifecycleGeneration || disposed) return;
-      if (!await hasPendingCollaborationProjection(state)) return;
-      const workspace = await loadCollaborationProjectionWorkspace(state);
-      if (!workspace || disposed) return;
-      const startedAt = performance.now();
-      try {
-        const result = await materializeCollaborationCheckpoint({ state, workspace, actorType: 'system' });
-        logCollaborationDiagnostic('debug', { event: 'projection_completed', documentId: state.documentId,
-          workspaceId: state.workspaceId, generation: state.lifecycleGeneration,
-          documentSequence: result.state.documentSequence, checkpointSequence: result.state.checkpointSequence,
-          durationMs: Math.round(performance.now() - startedAt),
-          lag: Math.max(0, result.state.documentSequence - result.state.checkpointSequence) });
-        if (!disposed) callbacks.onProjected(result);
-        if (result.state.documentSequence > result.state.checkpointSequence) scheduler.enqueue(result.state);
-        try { await recordFileGuestVersion(result.state); }
-        catch {
-          logCollaborationDiagnostic('warn', { event: 'guest_version_failed', documentId: state.documentId,
-            generation: state.lifecycleGeneration, code: 'COLLABORATION_GUEST_VERSION_FAILED' });
+      const observed = await loadCollaborationState(request.documentId);
+      if (!observed || observed.status !== 'active' || observed.lifecycleGeneration !== request.lifecycleGeneration || disposed) return;
+      return withWorkspaceMutationLock(observed.workspaceId, async () => {
+        // A synchronous reviewed operation may have completed this projection while
+        // we waited for its workspace lock. Reload before deciding to replace an inode.
+        const state = await loadCollaborationState(request.documentId);
+        if (!state || state.status !== 'active' || state.workspaceId !== observed.workspaceId
+          || state.lifecycleGeneration !== request.lifecycleGeneration || disposed) return;
+        if (!await hasPendingCollaborationProjection(state)) return;
+        const workspace = await loadCollaborationProjectionWorkspace(state);
+        if (!workspace || disposed) return;
+        const startedAt = performance.now();
+        try {
+          const result = await materializeCollaborationCheckpoint({ state, workspace, actorType: 'system' });
+          logCollaborationDiagnostic('debug', { event: 'projection_completed', documentId: state.documentId,
+            workspaceId: state.workspaceId, generation: state.lifecycleGeneration,
+            documentSequence: result.state.documentSequence, checkpointSequence: result.state.checkpointSequence,
+            durationMs: Math.round(performance.now() - startedAt),
+            lag: Math.max(0, result.state.documentSequence - result.state.checkpointSequence) });
+          if (!disposed) callbacks.onProjected(result);
+          if (result.state.documentSequence > result.state.checkpointSequence) scheduler.enqueue(result.state);
+          try { await recordFileGuestVersion(result.state); }
+          catch {
+            logCollaborationDiagnostic('warn', { event: 'guest_version_failed', documentId: state.documentId,
+              generation: state.lifecycleGeneration, code: 'COLLABORATION_GUEST_VERSION_FAILED' });
+          }
+        } catch (error) {
+          if (error instanceof CollaborationCheckpointSupersededError) {
+            logCollaborationDiagnostic('debug', { event: 'projection_superseded', documentId: state.documentId,
+              generation: state.lifecycleGeneration, documentSequence: state.documentSequence });
+            const latest = await loadCollaborationState(state.documentId);
+            if (latest) scheduler.enqueue(latest);
+            return;
+          }
+          const code = error instanceof CollaborationCheckpointValidationError
+            ? error.code : COLLABORATION_CHECKPOINT_ERROR_CODES.failed;
+          const blocksEditing = error instanceof CollaborationCheckpointValidationError
+            && error.validationCode !== 'roundtrip_unstable';
+          // Invalid document schema/identities retain their existing protection.
+          // Conversion or filesystem failures never revoke confirmed Yjs data.
+          if (blocksEditing) await markCollaborationDegraded(state.documentId, state.lifecycleGeneration);
+          throw new ProjectionAttemptError({ state, code, blocksEditing }, Math.round(performance.now() - startedAt));
         }
-      } catch (error) {
-        if (error instanceof CollaborationCheckpointSupersededError) {
-          logCollaborationDiagnostic('debug', { event: 'projection_superseded', documentId: state.documentId,
-            generation: state.lifecycleGeneration, documentSequence: state.documentSequence });
-          const latest = await loadCollaborationState(state.documentId);
-          if (latest) scheduler.enqueue(latest);
-          return;
-        }
-        const code = error instanceof CollaborationCheckpointValidationError
-          ? error.code : COLLABORATION_CHECKPOINT_ERROR_CODES.failed;
-        const blocksEditing = error instanceof CollaborationCheckpointValidationError
-          && error.validationCode !== 'roundtrip_unstable';
-        // Invalid document schema/identities retain their existing protection.
-        // Conversion or filesystem failures never revoke confirmed Yjs data.
-        if (blocksEditing) await markCollaborationDegraded(state.documentId, state.lifecycleGeneration);
-        throw new ProjectionAttemptError({ state, code, blocksEditing }, Math.round(performance.now() - startedAt));
-      }
+      });
     },
     onError(error, request, attempt) {
       const failure = error instanceof ProjectionAttemptError ? error.failure : null;

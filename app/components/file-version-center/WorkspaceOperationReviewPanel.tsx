@@ -573,8 +573,8 @@ export function WorkspaceOperationReviewPanel({ request }: { request: WorkspaceO
       {batch && ['blocked', 'needs_review'].includes(batch.status) ? <Button data-testid="workspace-operation-review-refresh" variant="outline"
         onClick={() => { if (request.mode === 'detail' && data.review && ['pending', 'blocked', 'stale'].includes(data.review.status)) void refreshReview();
           else void previewBatch(batch.reviewIds); }} disabled={batchAction !== null}>{t('refreshPreview')}</Button> : null}
-      {batch?.status === 'needs_recovery' ? <Button variant="outline" onClick={() => void updateBatch('resume')}
-        disabled={batchAction !== null}>{t('resumeBatch')}</Button> : null}
+      {batch && ['needs_recovery', 'failed'].includes(batch.status) ? <Button data-testid="workspace-operation-batch-resume" variant="outline" onClick={() => void updateBatch('resume')}
+        disabled={batchAction !== null}>{t(batch.status === 'failed' ? 'retryBatch' : 'resumeBatch')}</Button> : null}
       {batch?.status === 'applied' && batch.undoAvailable ? <Button variant="outline" onClick={() => void updateBatch('undo')}
         disabled={batchAction !== null}>{t('undo')}</Button> : null}
       {canReject && (!batch || request.mode === 'detail' && batch.reviewIds.length === 1) ? <Button variant="outline" onClick={() => void decide('reject')} disabled={action !== null}>

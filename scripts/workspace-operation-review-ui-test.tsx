@@ -60,6 +60,8 @@ async function compileUi(controls: {
   batchAccepts?: Array<{ batchId: string; planId: string; workspaceId: string }>;
   previewBatch?: () => WorkspaceOperationBatchPublic;
   acceptBatch?: () => WorkspaceOperationBatchPublic;
+  batchUpdates?: Array<{ batchId: string; planId: string; workspaceId: string; action: 'resume' | 'undo' }>;
+  updateBatch?: () => WorkspaceOperationBatchPublic;
   refreshCalls?: string[];
   refreshed?: () => WorkspaceOperationReviewPublic;
   closes?: number;
@@ -109,7 +111,10 @@ async function compileUi(controls: {
         controls.batchReads?.push(id);
         return controls.currentBatch?.();
       },
-      updateWorkspaceOperationBatch: async () => controls.currentBatch?.(),
+      updateWorkspaceOperationBatch: async (input: { batchId: string; planId: string; workspaceId: string; action: 'resume' | 'undo' }) => {
+        controls.batchUpdates?.push(input);
+        return controls.updateBatch?.() ?? controls.currentBatch?.();
+      },
       refreshWorkspaceOperationReview: async (input: { reviewId: string }) => {
         controls.refreshCalls?.push(input.reviewId);
         return controls.refreshed?.();
@@ -501,5 +506,49 @@ test('back from an automatically refreshed single action opens the list without 
       if (prior[index]) Object.defineProperty(globalThis, name, prior[index]);
       else Reflect.deleteProperty(globalThis, name);
     });
+  }
+});
+
+test('failed action retries the exact approved durable job without creating or approving another plan', async () => {
+  assert.equal(messages.workspaceOperationReview.retryBatch, 'Retry approved action');
+  assert.equal(deMessages.workspaceOperationReview.retryBatch, 'Freigegebene Aktion erneut versuchen');
+  assert.match(deMessages.workspaceOperationReview.batchFailedHelp, /demselben freigegebenen Plan/u);
+  const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', { url: 'https://canvas.test' });
+  const globals = { window: dom.window, document: dom.window.document, HTMLElement: dom.window.HTMLElement,
+    CustomEvent: dom.window.CustomEvent, IS_REACT_ACT_ENVIRONMENT: true };
+  const prior = new Map(Object.keys(globals).map((name) => [name, Object.getOwnPropertyDescriptor(globalThis, name)]));
+  for (const [name, value] of Object.entries(globals)) Object.defineProperty(globalThis, name, { configurable: true, value });
+  let savedBatch = { ...batchPreview('failed'), errorCode: 'WORKER_PREPARATION_FAILED' };
+  const controls: Parameters<typeof compileUi>[0] = {
+    reads: [], decisions: [], opens: [], undoChecks: [], undoCalls: [],
+    current: () => ({ ...review('failed'), batchId: savedBatch.batchId }),
+    decide: async () => review(), currentBatch: () => savedBatch,
+    batchReads: [], batchPreviews: [], batchAccepts: [], batchUpdates: [],
+    updateBatch: () => { savedBatch = { ...savedBatch, status: 'queued' }; return savedBatch; },
+  };
+  const ui = await compileUi(controls);
+  const { createRoot } = await import('react-dom/client');
+  const root = createRoot(document.getElementById('root')!);
+  try {
+    await act(async () => root.render(<ui.WorkspaceOperationReviewPanel request={{ mode: 'detail', reviewId, workspaceId }} />));
+    assert.match(document.querySelector('[data-testid="workspace-operation-batch-status"]')?.textContent ?? '', /same approved plan/u);
+    assert.equal(document.querySelector('[data-testid="workspace-operation-batch-accept"]'), null);
+    assert.equal(document.querySelector('[data-testid="workspace-operation-review-refresh"]'), null);
+    const retry = document.querySelector<HTMLButtonElement>('[data-testid="workspace-operation-batch-resume"]')!;
+    assert.equal(retry.textContent, translate('retryBatch'));
+    await act(async () => retry.click());
+    assert.deepEqual(controls.batchUpdates, [{ batchId: 'batch-one', planId: 'combined-plan-123', workspaceId, action: 'resume' }]);
+    assert.deepEqual(controls.batchPreviews, [], 'retry must reuse the existing durable job');
+    assert.deepEqual(controls.batchAccepts, [], 'retry must not silently approve another plan');
+    assert.deepEqual(controls.decisions, []);
+    assert.match(document.querySelector('[data-testid="workspace-operation-batch-status"]')?.textContent ?? '', /Queued for processing/u);
+    assert.equal(document.querySelector('[data-testid="workspace-operation-batch-resume"]'), null);
+  } finally {
+    await act(async () => root.unmount());
+    dom.window.close();
+    for (const [name, descriptor] of prior) {
+      if (descriptor) Object.defineProperty(globalThis, name, descriptor);
+      else Reflect.deleteProperty(globalThis, name);
+    }
   }
 });

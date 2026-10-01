@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
+import { createHash, randomUUID } from 'node:crypto';
 import { PGlite } from '@electric-sql/pglite';
 import ts from 'typescript';
 
@@ -12,6 +13,8 @@ import type * as Service from '../app/lib/files/workspace-operation-review-servi
 import type * as ManualDelete from '../app/lib/files/workspace-operation-delete-review';
 import type { WorkspaceContext } from '../app/lib/workspaces/types';
 import { buildWorkspaceOperationBatchPlan } from '../app/lib/files/workspace-operation-batch-plan';
+import { createWorkspaceOperationBatchExecutor } from '../app/lib/files/workspace-operation-batch-executor';
+import { groupWorkspaceLinkWrites } from '../app/lib/markdown/workspace-link-write-groups';
 
 async function main(): Promise<void> {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-review-refresh-'));
@@ -35,6 +38,9 @@ async function main(): Promise<void> {
     await fs.writeFile(path.join(workspace.rootPath, 'Docs', 'target.md'), '# Target\n');
     await fs.writeFile(path.join(workspace.rootPath, 'index.md'), '[Target](Docs/target.md)\n');
     const scope = { workspace, fileOptions: { workspace } };
+    const documentStates = new Map<string, { documentId: string; lifecycleGeneration: number; path: string;
+      workspaceId: string; degraded: boolean; serializedHash: string }>();
+    const hash = (text: string | Buffer) => createHash('sha256').update(text).digest('hex');
     const file = path.resolve('app/lib/files/workspace-operation-review-service.ts');
     const source = ts.transpileModule(await fs.readFile(file, 'utf8'), {
       compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, esModuleInterop: true },
@@ -44,6 +50,12 @@ async function main(): Promise<void> {
     new Function('require', 'module', 'exports', source)((name: string) => {
       if (name === 'server-only') return {};
       if (name === '@/app/lib/db') return { openDb: connect };
+      if (name === '@/app/lib/files/collaboration-policy') return { ...load(name),
+        readFileCollaborationState: async ({ path: filePath }: { path: string }) => ({
+          document: documentStates.has(filePath) ? { id: documentStates.get(filePath)!.documentId, status: 'active' } : null,
+        }) };
+      if (name === '@/app/lib/collaboration/persistence') return { ...load(name),
+        loadCollaborationState: async (documentId: string) => [...documentStates.values()].find((state) => state.documentId === documentId) ?? null };
       return load(name);
     }, service, service.exports);
     const manualFile = path.resolve('app/lib/files/workspace-operation-delete-review.ts');
@@ -166,6 +178,99 @@ async function main(): Promise<void> {
     assert.equal(await fs.readFile(path.join(workspace.rootPath, 'Archive/Docs/target.md'), 'utf8'), '# Target\n');
     assert.equal(await fs.readFile(path.join(workspace.rootPath, 'index.md'), 'utf8'), '[Target](Archive/Docs/target.md)\n',
       'saving a cleanup review leaves both target and inbound link intact until explicit approval');
+    const atomicExecutor = createWorkspaceOperationBatchExecutor({
+      documentProof: async (_scope, filePath) => documentStates.get(filePath) ?? null,
+      rename: async (params) => {
+        await fs.mkdir(path.dirname(path.join(workspace.rootPath, params.newPath)), { recursive: true });
+        await fs.rename(path.join(workspace.rootPath, params.oldPath), path.join(workspace.rootPath, params.newPath));
+        for (const [filePath, state] of [...documentStates]) {
+          if (filePath === params.oldPath || filePath.startsWith(`${params.oldPath}/`)) {
+            documentStates.delete(filePath); state.path = params.newPath + filePath.slice(params.oldPath.length);
+            documentStates.set(state.path, state);
+          }
+        }
+        return { warnings: [], backup: null, mutation: { type: 'rename', operationId: randomUUID(),
+          workspaceId: workspace.workspaceId, oldPath: params.oldPath, newPath: params.newPath } };
+      },
+      preflight: async (input) => ({ planId: input.plan.planId, sources: groupWorkspaceLinkWrites(input.plan).map((group) => ({
+        sourceWorkspaceId: workspace.workspaceId, sourcePathBefore: group.sourcePathBefore, beforeSha256: group.beforeSha256,
+        documentId: documentStates.get(group.sourcePathBefore)?.documentId ?? null,
+        mode: documentStates.has(group.sourcePathBefore) ? 'active-yjs' as const : 'plain-file' as const,
+      })) }),
+      probeLink: async (_input, group) => {
+        const bytes = await fs.readFile(path.join(workspace.rootPath, group.path));
+        return hash(bytes) === group.afterSha256 ? 'after' : hash(bytes) === group.beforeSha256 ? 'before' : 'unknown';
+      },
+      applyLink: async (_input, group) => {
+        const temporary = path.join(workspace.rootPath, `${group.path}.${randomUUID()}.checkpoint`);
+        await fs.writeFile(temporary, group.afterContent);
+        await fs.rename(temporary, path.join(workspace.rootPath, group.path));
+        const state = documentStates.get(group.path); if (state) state.serializedHash = group.afterSha256;
+        return { workspaceId: workspace.workspaceId, path: group.path, beforeSha256: group.beforeSha256,
+          afterSha256: group.afterSha256, status: 'applied', mode: state ? 'active-yjs' : 'plain-file', documentId: state?.documentId ?? null };
+      },
+      checkpointLink: async () => undefined,
+    });
+    const propose = async (kind: 'move' | 'delete', sourcePath: string, destinationPath?: string) => {
+      const proposed = await submit(kind, sourcePath, destinationPath);
+      if (proposed.mode === 'direct') throw new Error('Expected persisted review');
+      return proposed;
+    };
+    const applyRecordedMove = async (sourcePath: string, destinationPath: string) => {
+      const proposed = await propose('move', sourcePath, destinationPath);
+      const batchPlan = await buildWorkspaceOperationBatchPlan({ scope, actions: [{ reviewId: proposed.reviewId,
+        kind: 'move', selections: [{ sourcePath, destinationPath }] }] });
+      assert.equal(batchPlan.readiness, 'ready');
+      const batchId = randomUUID();
+      const outcome = await atomicExecutor.execute({ batchId, plan: batchPlan, scope,
+        actorUserId: 'reviewer', actorDisplayName: 'Reviewer' });
+      assert.equal(outcome.status, 'applied', outcome.errorCode ?? '');
+      await pg.query(`INSERT INTO workspace_file_operation_batches
+        (batch_id,plan_id,workspace_id,review_ids_json,review_refs_json,plan_json,status,total_actions,created_at,updated_at)
+        VALUES ($1,$2,$3,$4,'[]',$5,'applied',$6,$7,$7)`, [batchId, batchPlan.planId, workspace.workspaceId,
+        JSON.stringify([proposed.reviewId]), JSON.stringify(batchPlan), batchPlan.pathSteps.length + batchPlan.previewContents.length, Date.now()]);
+      await pg.query(`UPDATE workspace_file_operation_reviews SET status='applied',batch_id=$2,updated_at=$3 WHERE review_id=$1`,
+        [proposed.reviewId, batchId, Date.now()]);
+      await service.exports.markDependentWorkspaceOperationReviews({ scope, plan: batchPlan, excludedReviewIds: [proposed.reviewId] });
+      return { batchId, batchPlan };
+    };
+    await fs.writeFile(path.join(workspace.rootPath, 'lineage-target.md'), '# Shared target\n');
+    await fs.writeFile(path.join(workspace.rootPath, 'lineage-source.md'), '[Shared](lineage-target.md)\n');
+    documentStates.set('lineage-source.md', { documentId: 'stable-lineage-document', lifecycleGeneration: 1,
+      path: 'lineage-source.md', workspaceId: workspace.workspaceId, degraded: false,
+      serializedHash: hash('[Shared](lineage-target.md)\n') });
+    const atomicDependent = await propose('delete', 'lineage-source.md');
+    const chainDependent = await propose('delete', 'lineage-source.md');
+    const substitutedDependent = await propose('delete', 'lineage-source.md');
+    const originalInode = (await fs.stat(path.join(workspace.rootPath, 'lineage-source.md'))).ino;
+    await applyRecordedMove('lineage-source.md', 'Lineage/lineage-source.md');
+    assert.notEqual((await fs.stat(path.join(workspace.rootPath, 'Lineage/lineage-source.md'))).ino, originalInode,
+      'real atomic checkpoint replacement changes the moved inode');
+    const atomicRefreshed = await service.exports.refreshWorkspaceOperationReview({ ...refreshInput,
+      reviewId: atomicDependent.reviewId, planId: atomicDependent.planId });
+    assert.equal(atomicRefreshed.selections[0]?.sourcePath, 'Lineage/lineage-source.md');
+    assert.equal(atomicRefreshed.status, 'pending');
+    await applyRecordedMove('Lineage/lineage-source.md', 'LineageFinal/lineage-source.md');
+    const chained = await service.exports.refreshWorkspaceOperationReview({ ...refreshInput,
+      reviewId: chainDependent.reviewId, planId: chainDependent.planId });
+    assert.equal(chained.selections[0]?.sourcePath, 'LineageFinal/lineage-source.md');
+    assert.equal(chained.status, 'pending', 'two acknowledged moves preserve exact finalized lineage');
+    const originalState = documentStates.get('LineageFinal/lineage-source.md')!;
+    documentStates.set(originalState.path, { ...originalState, documentId: 'substituted-document' });
+    const substituted = await service.exports.refreshWorkspaceOperationReview({ ...refreshInput,
+      reviewId: substitutedDependent.reviewId, planId: substitutedDependent.planId });
+    assert.equal(substituted.selections[0]?.sourcePath, 'lineage-source.md');
+    assert.equal(substituted.status, 'blocked', 'same path and bytes never replace the acknowledged collaboration document identity');
+    documentStates.set(originalState.path, originalState);
+    const unsafePathDependent = await propose('delete', 'LineageFinal/lineage-source.md');
+    await applyRecordedMove('LineageFinal/lineage-source.md', 'LineageOther/lineage-source.md');
+    const endpoint = path.join(workspace.rootPath, 'LineageOther/lineage-source.md');
+    await fs.writeFile(`${endpoint}.replacement`, await fs.readFile(endpoint)); await fs.rename(`${endpoint}.replacement`, endpoint);
+    const unsafePath = await service.exports.refreshWorkspaceOperationReview({ ...refreshInput,
+      reviewId: unsafePathDependent.reviewId, planId: unsafePathDependent.planId });
+    assert.equal(unsafePath.selections[0]?.sourcePath, 'LineageFinal/lineage-source.md');
+    assert.equal(unsafePath.status, 'blocked', 'same-byte filesystem substitution must retain the old blocked source');
+    console.log('refresh lineage: actual durable manifests, atomic checkpoints, consecutive moves, document substitution and same-byte inode substitution OK');
     for (const dir of ['First', 'Second']) {
       await fs.mkdir(path.join(workspace.rootPath, dir));
       await fs.writeFile(path.join(workspace.rootPath, dir, 'Ambiguous.md'), '# Ambiguous\n');

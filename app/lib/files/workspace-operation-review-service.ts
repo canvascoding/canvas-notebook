@@ -6,7 +6,8 @@ import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { invalidateWorkspaceFileViews } from '@/app/lib/api/route-helpers';
 import { openDb } from '@/app/lib/db';
 import { executeLifecycleTransaction } from '@/app/lib/collaboration/lifecycle-transaction';
-import { archiveFileCollaborationPaths } from '@/app/lib/files/collaboration-policy';
+import { archiveFileCollaborationPaths, readFileCollaborationState } from '@/app/lib/files/collaboration-policy';
+import { loadCollaborationState } from '@/app/lib/collaboration/persistence';
 import { withWorkspaceMutationLock } from '@/app/lib/files/workspace-mutation-lock';
 import { withWorkspaceCopyMutationLocks, type WorkspaceFileOperationOptions } from '@/app/lib/filesystem/workspace-files';
 import { isProtectedAppOutputFolder } from '@/app/lib/filesystem/app-output-folders';
@@ -24,6 +25,7 @@ import type { WorkspaceOperationBatchPlan, WorkspaceOperationBatchScope } from '
 import { observeWorkspaceOperation } from './workspace-operation-observability';
 import { executeWorkspaceFileOperationService } from './workspace-file-operation-service';
 import { WorkspaceOperationJournal } from './workspace-operation-journal';
+import { getWorkspaceOperationBatchTransitionProofs, type WorkspaceOperationBatchTransitionProof } from './workspace-operation-batch-executor';
 import type { WorkspaceOperationDeletePreview, WorkspaceOperationReviewKind,
   WorkspaceOperationReviewPreview, WorkspaceOperationReviewPublic,
   WorkspaceOperationReviewStatus, WorkspaceOperationReviewSubmission } from './workspace-operation-review-contract';
@@ -547,27 +549,56 @@ async function rebaseReviewSelections(review: WorkspaceOperationReviewPublic, re
   const originalIdentity = (sourcePath: string) => 'deletedPaths' in review.preview
     ? review.preview.deletedPaths.find((entry) => entry.path === sourcePath)?.identity
     : review.preview.pathMappings.find((mapping) => mapping.sourcePath === sourcePath)?.sourceIdentity;
-  const applied = await all(`SELECT preview_json FROM workspace_file_operation_reviews
-    WHERE source_workspace_id = $1 AND status = 'applied' AND updated_at >= $2`, [review.sourceWorkspaceId, review.createdAt]);
-  const batches = await all(`SELECT plan_json FROM workspace_file_operation_batches
+  const applied = await all(`SELECT preview_json,updated_at FROM workspace_file_operation_reviews
+    WHERE source_workspace_id = $1 AND status = 'applied' AND batch_id IS NULL AND updated_at >= $2`, [review.sourceWorkspaceId, review.createdAt]);
+  const batches = await all(`SELECT batch_id,updated_at FROM workspace_file_operation_batches
     WHERE workspace_id = $1 AND status = 'applied' AND updated_at >= $2`, [review.sourceWorkspaceId, review.createdAt]);
-  const mappings: WorkspaceOperationBatchPlan['pathMappings'] = [];
-  for (const row of [...applied, ...batches]) {
-    const plan = JSON.parse(String(row.plan_json ?? row.preview_json)) as { kind?: string; pathMappings?: WorkspaceOperationBatchPlan['pathMappings'] };
+  const transitions: WorkspaceOperationBatchTransitionProof[] = [];
+  for (const row of [...applied, ...batches].sort((left, right) => Number(left.updated_at) - Number(right.updated_at))) {
+    if (row.batch_id) {
+      transitions.push(...await getWorkspaceOperationBatchTransitionProofs({ batchId: String(row.batch_id), scope }));
+      continue;
+    }
+    const plan = JSON.parse(String(row.preview_json)) as { kind?: string; pathMappings?: WorkspaceOperationBatchPlan['pathMappings'] };
     if (plan.kind === 'copy') continue;
-    mappings.push(...(plan.pathMappings ?? []));
+    transitions.push(...(plan.pathMappings ?? []).map((mapping) => ({ ...mapping,
+      destinationIdentity: mapping.sourceIdentity, contentHash: null, documentId: null, lifecycleGeneration: null })));
   }
-  return { ...request, selections: request.selections.map((selection) => {
+  return { ...request, selections: await Promise.all(request.selections.map(async (selection) => {
     if (current.has(selection.sourcePath)) return selection;
     const identity = originalIdentity(selection.sourcePath);
     if (!identity) return selection;
-    const candidates = mappings.filter((mapping) => mapping.sourcePath === selection.sourcePath
-      && sameObject(identity, mapping.sourceIdentity)
-      && current.has(mapping.destinationPath)
-      && sameObject(mapping.sourceIdentity, current.get(mapping.destinationPath)!.identity));
-    const destinations = [...new Set(candidates.map((mapping) => mapping.destinationPath))];
-    return destinations.length === 1 ? { ...selection, sourcePath: destinations[0]! } : selection;
-  }) };
+    let candidates: WorkspaceOperationBatchTransitionProof[] = [{ sourcePath: selection.sourcePath,
+      destinationPath: selection.sourcePath, sourceIdentity: identity, destinationIdentity: identity,
+      contentHash: null, documentId: null, lifecycleGeneration: null }];
+    for (const transition of transitions) {
+      if (transition.sourcePath === transition.destinationPath) continue;
+      const origins = candidates.filter((candidate) => candidate.destinationPath === transition.sourcePath
+        && (sameObject(candidate.destinationIdentity, transition.sourceIdentity)
+          || candidate.documentId && candidate.documentId === transition.documentId
+            && candidate.lifecycleGeneration === transition.lifecycleGeneration));
+      if (origins.length) candidates = [...candidates, transition];
+    }
+    const destinations: string[] = [];
+    for (const candidate of candidates.filter((entry) => entry.destinationPath !== selection.sourcePath)) {
+      const destination = current.get(candidate.destinationPath);
+      if (!destination || !sameObject(candidate.destinationIdentity, destination.identity)
+        || candidate.contentHash && (destination.markdownContent !== undefined
+          ? candidate.contentHash !== createHash('sha256').update(destination.markdownContent).digest('hex')
+          : candidate.destinationIdentity !== destination.identity)) continue;
+      if (candidate.documentId) {
+        const metadata = await readFileCollaborationState({ workspace: scope.workspace, path: candidate.destinationPath });
+        const state = metadata.document?.id === candidate.documentId && metadata.document.status === 'active'
+          ? await loadCollaborationState(candidate.documentId) : null;
+        if (!state || state.path !== candidate.destinationPath || state.workspaceId !== scope.workspace.workspaceId
+          || state.lifecycleGeneration !== candidate.lifecycleGeneration || state.degraded
+          || state.serializedHash !== candidate.contentHash) continue;
+      }
+      destinations.push(candidate.destinationPath);
+    }
+    const unique = [...new Set(destinations)];
+    return unique.length === 1 ? { ...selection, sourcePath: unique[0]! } : selection;
+  })) };
 }
 
 /** Refresh creates an immutable successor. The previous proposal remains addressable as history. */

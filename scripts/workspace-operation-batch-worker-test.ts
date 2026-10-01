@@ -100,6 +100,13 @@ async function main(): Promise<void> {
       }, dependentReviews: async () => { dependentRefreshes += 1; } };
     await createWorkspaceOperationBatchWorker(dependencies).tick();
     assert.equal((await store.get(restart.batchId))!.status, 'needs_recovery');
+    const recoveryBefore = await store.get(restart.batchId);
+    await assert.rejects(store.enqueue({ batchId: restart.batchId, planId, action: 'resume',
+      userId: 'second-reviewer', displayName: 'Second reviewer' }),
+    (error: unknown) => error instanceof WorkspaceOperationBatchError
+      && error.status === 403 && error.code === 'BATCH_RESUME_REVIEWER_REQUIRED');
+    assert.deepEqual(await store.get(restart.batchId), recoveryBefore,
+      'another authorized reviewer cannot silently replace the manifest actor or queue a failing replay');
     await store.enqueue({ batchId: restart.batchId, planId, action: 'resume', userId: 'reviewer', displayName: 'Reviewer' });
     await createWorkspaceOperationBatchWorker(dependencies).tick();
     assert.equal((await store.get(restart.batchId))!.status, 'applied');
@@ -107,6 +114,22 @@ async function main(): Promise<void> {
     assert.equal(executes, 2);
     assert.equal(builds, 1, 'mutated state is never replanned during recovery');
     assert.equal(dependentRefreshes, 1);
+    const undoByOtherReviewer = await store.enqueue({ batchId: restart.batchId, planId, action: 'undo',
+      userId: 'second-reviewer', displayName: 'Second reviewer' });
+    assert.equal(undoByOtherReviewer.actionMode, 'undo', 'Undo can still be approved by another authorized reviewer');
+    assert.equal(undoByOtherReviewer.reviewerUserId, 'second-reviewer');
+    const undoClaim = await store.claim('undo-worker');
+    assert.equal(undoClaim?.batchId, restart.batchId);
+    await store.finish(restart.batchId, 'undo-worker', { status: 'needs_recovery', errorCode: 'INTERRUPTED_UNDO' });
+    await assert.rejects(store.enqueue({ batchId: restart.batchId, planId, action: 'resume',
+      userId: 'reviewer', displayName: 'Reviewer' }),
+    (error: unknown) => error instanceof WorkspaceOperationBatchError && error.code === 'BATCH_RESUME_REVIEWER_REQUIRED');
+    const resumedUndo = await store.enqueue({ batchId: restart.batchId, planId, action: 'resume',
+      userId: 'second-reviewer', displayName: 'Renamed reviewer' });
+    assert.equal(resumedUndo.actionMode, 'undo');
+    assert.equal(resumedUndo.reviewerDisplayName, 'Second reviewer', 'resume preserves the approved actor metadata');
+    await store.claim('undo-worker');
+    await store.finish(restart.batchId, 'undo-worker', { status: 'undone' });
 
     const revoked = await seed('revoked', 'revoked-workspace');
     await revoked.enqueue();
@@ -137,6 +160,7 @@ async function main(): Promise<void> {
     assert.deepEqual(projections[1], [{ path: 'deleted.md', type: 'add' }, { path: 'remaining.md', type: 'add' }]);
     console.log('workspace batch worker: durable approval, idempotent migrations, ordered leases, stale guards, restart receipts, revoked access OK');
     console.log('workspace batch projection: receipted partial deletion only, incomplete Undo withheld, restored paths published OK');
+    console.log('workspace batch resume: alternate reviewer denied before enqueue, original manifest actor retained, alternate authorized Undo and its reviewer resume preserved OK');
   } finally { await pg.close(); }
 }
 

@@ -9172,6 +9172,8 @@
     "batchNeedsReviewHelp": "Die Dateien haben sich vor der Ausführung geändert. Aktualisiere die Vorschau und prüfe die neuen Änderungen vor einer erneuten Freigabe.",
     "batchNeedsRecoveryHelp": "Einige Schritte benötigen Wiederherstellung. Abgeschlossene Schritte sind gespeichert; prüfe die Fehlerdetails, bevor du fortsetzt.",
     "resumeBatch": "Gespeicherte Aktion fortsetzen",
+    "retryBatch": "Freigegebene Aktion erneut versuchen",
+    "batchFailedHelp": "Die Verarbeitung ist fehlgeschlagen. Prüfe die Fehlerdetails und versuche die gespeicherte Aktion mit demselben freigegebenen Plan erneut.",
     "batchStatus_preview": "Bereit zur Freigabe",
     "batchStatus_blocked": "Aktionsgruppe blockiert",
     "batchStatus_queued": "Zur Verarbeitung vorgemerkt",

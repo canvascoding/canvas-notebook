@@ -39,6 +39,7 @@ async function main() {
       await fs.mkdir(path.dirname(absolute(relative)), { recursive: true }); await fs.writeFile(absolute(relative), content);
     };
     const makeExecutor = () => createWorkspaceOperationBatchExecutor({
+      documentProof: async () => null,
       storageRoot: path.join(dataRoot, 'manifests'),
       rename: async (params) => {
         await assert.rejects(fs.stat(absolute(params.newPath)), { code: 'ENOENT' });
