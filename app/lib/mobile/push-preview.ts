@@ -294,6 +294,25 @@ export function createAgentResponseNotificationPreview(input: {
   };
 }
 
+export function createTodoNotificationPreview(input: {
+  title: string;
+  description?: string | null;
+  locale?: UserLocale;
+}): MobilePushNotificationPreview {
+  const isGerman = input.locale === 'de';
+  const body = [
+    markdownToNotificationText(input.title),
+    markdownToNotificationText(input.description || ''),
+  ].filter(Boolean).join(' — ');
+  return {
+    title: isGerman ? 'Neues To-do' : 'New To-do',
+    body: truncatePreviewText(
+      body || (isGerman ? 'Ein Canvas-To-do benötigt deine Aufmerksamkeit.' : 'A Canvas To-do needs your attention.'),
+      MAX_NOTIFICATION_BODY_LENGTH,
+    ),
+  };
+}
+
 export function createAutomationRunNotificationPreview(input: {
   jobName: string;
   status: 'success' | 'failed';

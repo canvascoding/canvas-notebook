@@ -223,6 +223,8 @@ async function sendTodoCreatedPushNotificationIfNeeded(userId: string, todo: Tod
       userId: todo.assigneeUserId || userId,
       workspaceId: todo.workspaceId || LEGACY_PERSONAL_WORKSPACE_ID,
       todoId: todo.id,
+      title: todo.title,
+      description: todo.description,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to send todo push notification.';

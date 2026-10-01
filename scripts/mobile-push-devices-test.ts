@@ -1,17 +1,33 @@
 import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import Module from 'node:module';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import sharp from 'sharp';
 
+import { createPiTestDatabase } from './helpers/pi-test-database';
+
+type LoadFn = (request: string, parent: NodeModule | null, isMain: boolean) => unknown;
+const moduleInternals = Module as typeof Module & { _load: LoadFn };
+const originalLoad = moduleInternals._load;
+let testDatabase: Awaited<ReturnType<typeof createPiTestDatabase>> | undefined;
+moduleInternals._load = (request, parent, isMain) => {
+  if (testDatabase && (request === '@/app/lib/db' || /\/app\/lib\/db(?:\/index)?(?:\.ts)?$/u.test(request))) {
+    return testDatabase;
+  }
+  return originalLoad(request, parent, isMain);
+};
+
 const testRoot = mkdtempSync(path.join(tmpdir(), 'canvas-mobile-push-'));
 process.env.DATA = testRoot;
 process.env.BETTER_AUTH_SECRET = 'test-mobile-push-secret-that-is-long-enough';
 process.env.BASE_URL = 'https://canvas.example.test';
+process.env.CANVAS_DISABLE_TODO_EMAIL_NOTIFICATIONS = 'true';
 
 async function main() {
   try {
+  testDatabase = await createPiTestDatabase();
   const {
     agentResponsePushSuppressionReason,
     createAgentResponseReadyMessages,
@@ -27,65 +43,67 @@ async function main() {
     sendAgentResponseReadyPush,
     sendAutomationRunStatusPush,
     sendMobileAttentionPush,
+    sendTodoAttentionPush,
     unregisterMobilePushDevice,
   } = await import('../app/lib/mobile/push-devices');
   const {
     createAgentResponseNotificationPreview,
     createAutomationRunNotificationPreview,
     createStudioPushPreviewUrl,
+    createTodoNotificationPreview,
     issueStudioPushPreviewTicket,
     markdownToNotificationText,
     STUDIO_PUSH_PREVIEW_TTL_SECONDS,
     verifyStudioPushPreviewTicket,
   } = await import('../app/lib/mobile/push-preview');
-  const { closeDatabaseConnections, openDb } = await import('../app/lib/db');
+  const { openDb } = await import('../app/lib/db');
   const { setUserPreferredLocale } = await import('../app/lib/user-preferences');
   const database = await openDb();
   const now = Date.now();
-  const authNow = Math.floor(now / 1_000);
+  const authNow = now;
   await database.run(
-    `INSERT INTO user (id, name, email, email_verified, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO "user" (id, name, email, email_verified, created_at, updated_at)
+     VALUES ($1, $2, $3, $4, $5, $6)`,
     ['push-user', 'Push User', 'push@example.test', 1, now, now],
   );
   await database.run(
     `INSERT INTO canvas_organization_settings (
        organization_id, owner_user_id, deployment_mode, team_features_enabled, created_at, updated_at
-     ) VALUES (?, ?, ?, ?, ?, ?)`,
+     ) VALUES ($1, $2, $3, $4, $5, $6)`,
     ['push-organization', 'push-user', 'single_user', 0, now, now],
   );
   await database.run(
     `INSERT INTO canvas_workspaces (
        id, organization_id, type, owner_user_id, root_relative_path, display_name,
        status, is_default, created_at, updated_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
     ['workspace-1', 'push-organization', 'personal', 'push-user', 'workspaces/personal/push-user/files', 'Push Workspace', 'active', 1, now, now],
   );
   await database.run(
     `INSERT INTO session (id, expires_at, token, created_at, updated_at, user_id)
-     VALUES (?, ?, ?, ?, ?, ?)`,
-    ['auth-session', authNow + 60, 'session-token', authNow, authNow, 'push-user'],
+     VALUES ($1, $2, $3, $4, $5, $6)`,
+    ['auth-session', authNow + 60_000, 'session-token', authNow, authNow, 'push-user'],
   );
   await database.run(
     `INSERT INTO session (id, expires_at, token, created_at, updated_at, user_id)
-     VALUES (?, ?, ?, ?, ?, ?)`,
-    ['auth-session-2', authNow + 60, 'session-token-2', authNow, authNow, 'push-user'],
+     VALUES ($1, $2, $3, $4, $5, $6)`,
+    ['auth-session-2', authNow + 60_000, 'session-token-2', authNow, authNow, 'push-user'],
   );
   const responseAt = now + 1_000;
   await database.run(
     `INSERT INTO pi_sessions (
        session_id, user_id, provider, model, title, created_at, updated_at,
        last_message_at, last_viewed_at, workspace_id, workspace_type
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`,
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NULL, $9, $10)`,
     ['session-1', 'push-user', 'openai', 'test-model', '**Push** session', now, now, responseAt, 'workspace-1', 'personal'],
   );
   const insertedSession = await database.get(
-    'SELECT id FROM pi_sessions WHERE user_id = ? AND session_id = ?',
+    'SELECT id FROM pi_sessions WHERE user_id = $1 AND session_id = $2',
     ['push-user', 'session-1'],
   ) as { id: number };
   await database.run(
     `INSERT INTO pi_messages (pi_session_db_id, role, content, timestamp, sequence)
-     VALUES (?, 'assistant', ?, ?, 1)`,
+     VALUES ($1, 'assistant', $2, $3, 1)`,
     [
       insertedSession.id,
       JSON.stringify({
@@ -116,14 +134,14 @@ async function main() {
   await database.run(
     `INSERT INTO studio_generations (
        id, user_id, workspace_id, mode, aspect_ratio, provider, model, status, created_at, updated_at
-     ) VALUES (?, ?, ?, 'image', '1:1', 'test', 'test', 'completed', ?, ?)`,
+     ) VALUES ($1, $2, $3, 'image', '1:1', 'test', 'test', 'completed', $4, $5)`,
     ['studio-generation-1', 'push-user', 'workspace-1', now, now],
   );
   await database.run(
     `INSERT INTO studio_generation_outputs (
        id, generation_id, workspace_id, variation_index, type, file_path, file_name,
        file_size, mime_type, is_favorite, created_at
-     ) VALUES (?, ?, ?, 0, 'image', ?, 'push-preview.png', ?, 'image/png', 0, ?)`,
+     ) VALUES ($1, $2, $3, 0, 'image', $4, 'push-preview.png', $5, 'image/png', 0, $6)`,
     [
       'studio-output-1',
       'studio-generation-1',
@@ -188,7 +206,7 @@ async function main() {
   assert.equal(synced.enabled, true);
   const sessionSyncDatabase = await openDb();
   const syncedRow = await sessionSyncDatabase.get(
-    'SELECT auth_session_id FROM mobile_push_devices WHERE installation_id = ?',
+    'SELECT auth_session_id FROM mobile_push_devices WHERE installation_id = $1',
     ['installation-1'],
   ) as { auth_session_id?: string } | undefined;
   await sessionSyncDatabase.close();
@@ -374,6 +392,29 @@ async function main() {
   });
   assert.equal(germanTodoMessages[0].body, 'Ein Canvas-To-do benötigt deine Aufmerksamkeit.');
 
+  assert.deepEqual(createTodoNotificationPreview({
+    title: '**Angebot** prüfen',
+    description: 'Bitte bis **Freitag** [freigeben](https://private.example.test/offer).',
+    locale: 'de',
+  }), {
+    title: 'Neues To-do',
+    body: 'Angebot prüfen — Bitte bis Freitag freigeben.',
+  });
+  assert.deepEqual(createTodoNotificationPreview({ title: 'Review offer' }), {
+    title: 'New To-do',
+    body: 'Review offer',
+  });
+  assert.deepEqual(createTodoNotificationPreview({ title: ' ', description: '<div>Hidden</div>', locale: 'de' }), {
+    title: 'Neues To-do',
+    body: 'Ein Canvas-To-do benötigt deine Aufmerksamkeit.',
+  });
+  const longTodoPreview = createTodoNotificationPreview({
+    title: '😀'.repeat(230),
+    description: 'Additional details',
+  });
+  assert.equal(Array.from(longTodoPreview.body).length, 220);
+  assert.equal(longTodoPreview.body.endsWith('…'), true);
+
   const studioPreviewUrl = createStudioPushPreviewUrl({
     outputId: 'studio-output-1',
     now,
@@ -523,7 +564,7 @@ async function main() {
 
   const readDatabase = await openDb();
   await readDatabase.run(
-    'UPDATE pi_sessions SET last_viewed_at = last_message_at WHERE user_id = ? AND session_id = ?',
+    'UPDATE pi_sessions SET last_viewed_at = last_message_at WHERE user_id = $1 AND session_id = $2',
     ['push-user', 'session-1'],
   );
   await readDatabase.close();
@@ -541,7 +582,7 @@ async function main() {
 
   const raceDatabase = await openDb();
   await raceDatabase.run(
-    'UPDATE pi_sessions SET last_viewed_at = NULL WHERE user_id = ? AND session_id = ?',
+    'UPDATE pi_sessions SET last_viewed_at = NULL WHERE user_id = $1 AND session_id = $2',
     ['push-user', 'session-1'],
   );
   await raceDatabase.close();
@@ -558,7 +599,7 @@ async function main() {
   await new Promise((resolve) => setTimeout(resolve, 5));
   const readDuringDelayDatabase = await openDb();
   await readDuringDelayDatabase.run(
-    'UPDATE pi_sessions SET last_viewed_at = last_message_at WHERE user_id = ? AND session_id = ?',
+    'UPDATE pi_sessions SET last_viewed_at = last_message_at WHERE user_id = $1 AND session_id = $2',
     ['push-user', 'session-1'],
   );
   await readDuringDelayDatabase.close();
@@ -566,7 +607,7 @@ async function main() {
 
   const beforeSupersededDatabase = await openDb();
   await beforeSupersededDatabase.run(
-    'UPDATE pi_sessions SET last_viewed_at = NULL WHERE user_id = ? AND session_id = ?',
+    'UPDATE pi_sessions SET last_viewed_at = NULL WHERE user_id = $1 AND session_id = $2',
     ['push-user', 'session-1'],
   );
   await beforeSupersededDatabase.close();
@@ -584,11 +625,11 @@ async function main() {
   const supersedingDatabase = await openDb();
   await supersedingDatabase.run(
     `INSERT INTO pi_messages (pi_session_db_id, role, content, timestamp, sequence)
-     VALUES (?, 'assistant', ?, ?, 2)`,
+     VALUES ($1, 'assistant', $2, $3, 2)`,
     [insertedSession.id, JSON.stringify({ role: 'assistant', content: 'Newer', timestamp: responseAt + 1_000 }), responseAt + 1_000],
   );
   await supersedingDatabase.run(
-    'UPDATE pi_sessions SET last_message_at = ? WHERE user_id = ? AND session_id = ?',
+    'UPDATE pi_sessions SET last_message_at = $1 WHERE user_id = $2 AND session_id = $3',
     [responseAt + 1_000, 'push-user', 'session-1'],
   );
   await supersedingDatabase.close();
@@ -598,7 +639,7 @@ async function main() {
   const ticketDelivery = await afterTicketDatabase.get(
     `SELECT category, entity_id, expo_ticket_id, status
      FROM mobile_push_deliveries
-     WHERE expo_ticket_id = ?`,
+     WHERE expo_ticket_id = $1`,
     ['ticket-1'],
   ) as { category: string; entity_id: string; expo_ticket_id: string; status: string } | undefined;
   await afterTicketDatabase.close();
@@ -828,6 +869,88 @@ async function main() {
     previews: false,
   });
 
+  await registerMobilePushDevice({
+    userId: 'push-user',
+    authSessionId: 'auth-session',
+    registration: { ...registration, reactivate: true },
+  });
+  await setUserPreferredLocale('push-user', 'de');
+  const { createTodo } = await import('../app/lib/todos/store');
+  const todoPayloads: Array<Array<{ title?: string; body?: string; data: Record<string, unknown> }>> = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (_url, init) => {
+    todoPayloads.push(JSON.parse(String(init?.body)));
+    // Exercise the complete creation path without adding pending receipt fixtures.
+    return Response.json({ data: [{ status: 'error', details: { error: 'MessageTooBig' } }] });
+  };
+  try {
+    const createdTodo = await createTodo('push-user', {
+      workspaceId: 'workspace-1',
+      scopeKind: 'workspace',
+      sourceType: 'agent',
+      title: '**Angebot** prüfen',
+      description: 'Bitte bis **Freitag** [freigeben](https://private.example.test/offer).',
+    });
+    assert.equal(todoPayloads.length, 2);
+    assert.equal(todoPayloads[0][0].title, 'Neues To-do');
+    assert.equal(todoPayloads[0][0].body, 'Angebot prüfen — Bitte bis Freitag freigeben.');
+    assert.deepEqual(todoPayloads[0][0].data, {
+      instanceId: todoPayloads[0][0].data.instanceId,
+      type: 'todo.attention',
+      workspaceId: 'workspace-1',
+      todoId: createdTodo.id,
+    });
+    assert.equal(JSON.stringify(todoPayloads).includes('private.example.test'), false);
+
+    await updateMobilePushDevicePreference({
+      userId: 'push-user',
+      update: { installationId: 'installation-1', key: 'previews', enabled: false },
+    });
+    await createTodo('push-user', {
+      workspaceId: 'workspace-1',
+      scopeKind: 'workspace',
+      sourceType: 'agent',
+      title: 'Private title',
+      description: 'Private description',
+    });
+    assert.equal(todoPayloads.length, 4);
+    assert.equal(todoPayloads[2][0].title, 'Canvas Notebook');
+    assert.equal(todoPayloads[2][0].body, 'Ein Canvas-To-do benötigt deine Aufmerksamkeit.');
+    assert.equal(JSON.stringify(todoPayloads).includes('Private'), false);
+
+    await createTodo('push-user', {
+      workspaceId: 'workspace-1',
+      scopeKind: 'workspace',
+      sourceType: 'user',
+      title: 'User-created task',
+    });
+    assert.equal(todoPayloads.length, 4, 'user-created to-dos must remain silent');
+
+    await updateMobilePushDevicePreference({
+      userId: 'push-user',
+      update: { installationId: 'installation-1', key: 'previews', enabled: true },
+    });
+    await sendTodoAttentionPush({ userId: 'push-user', workspaceId: 'workspace-1', todoId: createdTodo.id });
+    assert.equal(todoPayloads.length, 6);
+    assert.equal(todoPayloads[4][0].body, 'Ein Canvas-To-do benötigt deine Aufmerksamkeit.', 'reminder copy remains valid');
+
+    await updateMobilePushDevicePreference({
+      userId: 'push-user',
+      update: { installationId: 'installation-1', key: 'todoAttention', enabled: false },
+    });
+    await createTodo('push-user', {
+      workspaceId: 'workspace-1',
+      scopeKind: 'workspace',
+      sourceType: 'agent',
+      title: 'Muted task',
+    });
+    assert.equal(todoPayloads.length, 7);
+    assert.equal(todoPayloads[6][0].data.type, 'inbox.widget_refresh');
+    assert.equal(todoPayloads[6][0].body, undefined, 'muted categories must not send a visible alert');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
   await unregisterMobilePushDevice({ userId: 'push-user', installationId: 'installation-1' });
   assert.equal((await getMobilePushDeviceStatus({
     userId: 'push-user',
@@ -863,9 +986,11 @@ async function main() {
     assert.match(studioPreviewRouteSource, /output\.type !== 'image'/u);
     assert.match(studioPreviewRouteSource, /'Cache-Control': 'private, no-store, max-age=0'/u);
 
-    await closeDatabaseConnections();
     console.log('mobile-push-devices-test: ok');
   } finally {
+    await testDatabase?.close();
+    testDatabase = undefined;
+    moduleInternals._load = originalLoad;
     rmSync(testRoot, { recursive: true, force: true });
   }
 }

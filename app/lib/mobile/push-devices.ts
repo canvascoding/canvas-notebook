@@ -13,6 +13,7 @@ import {
   createAgentResponseNotificationPreview,
   createAutomationRunNotificationPreview,
   createStudioPushPreviewUrl,
+  createTodoNotificationPreview,
   STUDIO_PUSH_PREVIEW_TTL_SECONDS,
   type MobilePushNotificationPreview,
 } from './push-preview';
@@ -1129,9 +1130,18 @@ export async function sendTodoAttentionPush(input: {
   userId: string;
   workspaceId: string;
   todoId: string;
+  title?: string;
+  description?: string | null;
 }): Promise<{ attempted: number; accepted: number }> {
+  const locale = await getUserPreferredLocale(input.userId).catch(() => 'en' as const);
   return sendMobileAttentionPush({
     userId: input.userId,
+    locale,
+    notification: input.title === undefined ? undefined : createTodoNotificationPreview({
+      title: input.title,
+      description: input.description,
+      locale,
+    }),
     target: { type: 'todo.attention', workspaceId: input.workspaceId, todoId: input.todoId },
   });
 }
