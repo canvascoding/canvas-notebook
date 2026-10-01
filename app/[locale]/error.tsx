@@ -11,6 +11,27 @@ interface ErrorProps {
   reset: () => void;
 }
 
+const invalidElementRecoveryKey = 'canvas.invalid-element-recovery';
+const invalidElementRecoveryWindowMs = 60_000;
+
+function isInvalidElementError(error: Error) {
+  return error.message.startsWith('Element type is invalid: expected a string')
+    && error.message.includes('but got: undefined');
+}
+
+function reloadForInvalidElementError(error: Error) {
+  if (!isInvalidElementError(error)) return;
+
+  try {
+    const previousAttempt = Number(window.sessionStorage.getItem(invalidElementRecoveryKey));
+    if (Number.isFinite(previousAttempt) && Date.now() - previousAttempt < invalidElementRecoveryWindowMs) return;
+    window.sessionStorage.setItem(invalidElementRecoveryKey, String(Date.now()));
+    window.location.reload();
+  } catch {
+    return;
+  }
+}
+
 export default function Error({ error, reset }: ErrorProps) {
   const t = useTranslations('common');
 
@@ -20,6 +41,7 @@ export default function Error({ error, reset }: ErrorProps) {
       boundary: 'localized-route',
       digest: error.digest,
     });
+    reloadForInvalidElementError(error);
   }, [error]);
 
   return (
