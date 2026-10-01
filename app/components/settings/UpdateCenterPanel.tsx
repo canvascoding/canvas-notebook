@@ -326,7 +326,9 @@ export function UpdateCenterPanel() {
   }, [loadOperation, activeOperationId, observationError]);
 
   useEffect(() => {
-    if (!activeOperationId) return;
+    // A preallocated UUID is not yet a persisted operation. Confirmation clears
+    // the intent and starts ticket acquisition immediately, before app downtime.
+    if (!activeOperationId || pendingStart) return;
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout>;
     const refresh = async () => {
@@ -338,7 +340,7 @@ export function UpdateCenterPanel() {
       : Math.max(0, statusRetryNotBeforeRef.current - Date.now());
     timer = setTimeout(() => void refresh(), delay);
     return () => { controller.abort(); clearTimeout(timer); };
-  }, [activeOperationId, statusAccess, requestStatusAccess]);
+  }, [activeOperationId, pendingStart, statusAccess, requestStatusAccess]);
 
   const streamOperationId = activeOperationId;
   useEffect(() => {

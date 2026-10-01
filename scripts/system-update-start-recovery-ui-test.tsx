@@ -118,6 +118,118 @@ async function main(): Promise<void> {
       } finally { await ui.close(); }
     }
 
+    for (const receiptMode of ['lost', 'late'] as const) {
+      dom.window.localStorage.clear();
+      dom.window.sessionStorage.clear();
+      const beforeReload = reloads;
+      let input: StartSystemUpdateInput | null = null;
+      let receipt: ((response: Response) => void) | null = null;
+      let accepted = false;
+      let confirmedAt = 0;
+      let ticketRequests = 0;
+      let posts = 0;
+      let absentPolls = 0;
+      let directReads = 0;
+      let appDown = false;
+      let appFailures = 0;
+      let finish = false;
+      globalThis.fetch = async (request, options) => {
+        options?.signal?.throwIfAborted();
+        const url = String(request);
+        if (url.includes('?channel=')) return json({ success: true, data: availability });
+        if (url === '/api/admin/system-updates' && options?.method === 'POST') {
+          posts++;
+          input = JSON.parse(String(options.body)) as StartSystemUpdateInput;
+          if (receiptMode === 'lost') throw new Error('Accepted update response was lost');
+          return new Promise<Response>((resolve) => { receipt = resolve; });
+        }
+        if (url.endsWith('/status-access')) {
+          ticketRequests++;
+          assert.ok(input?.requestId && url.includes(`/${input.requestId}/status-access`));
+          if (!accepted) return json({ error: { message: 'Operation has not been accepted yet' } }, 404);
+          assert.ok(confirmedAt > 0, 'ticket acquisition waits for the operation snapshot');
+          assert.ok(performance.now() - confirmedAt < 1_000, 'confirmation acquires status access without a 60s delay');
+          assert.equal(dom.window.localStorage.getItem(intentKey), null, 'confirmed start intent is already cleared');
+          return json({ success: true, access: {
+            ticket: 'fixture-status-ticket', transport: 'snapshot',
+            path: `https://control-plane.example/v1/managed/system-updates/${input.requestId}/status`,
+            expiresAt: new Date(Date.now() + 300_000).toISOString(),
+          } });
+        }
+        if (url.startsWith('https://control-plane.example/')) {
+          assert.ok(input?.requestId && url.includes(`/${input.requestId}/status?`), 'direct status belongs to the confirmed operation');
+          assert.equal(new Headers(options?.headers).get('Authorization'), 'Bearer fixture-status-ticket');
+          directReads++;
+          appDown = true;
+          return json({ operation: operation(input!.requestId!, finish ? 'succeeded' : 'verifying'), events: [] });
+        }
+        if (url.includes('/events?')) {
+          if (!accepted) {
+            absentPolls++;
+            return json({ error: { code: 'operation_not_found', message: 'Start has not been persisted yet' } }, 404);
+          }
+          if (appDown) { appFailures++; throw new Error('Application is restarting'); }
+          confirmedAt = performance.now();
+          return json({ success: true, operation: operation(input!.requestId!, 'verifying'), events: [] });
+        }
+        throw new Error(`Unexpected request: ${url}`);
+      };
+      const ui = await mount();
+      try {
+        await confirmUpdate();
+        await until(() => absentPolls > 0, 'preallocated start is observed before acceptance');
+        assert.equal(ticketRequests, 0, 'an unconfirmed operation must not consume a premature 404 ticket attempt');
+        accepted = true;
+        await until(() => directReads > 0, 'confirmed start immediately obtains the downtime-safe status ticket');
+        assert.equal(posts, 1, 'ticket recovery does not resubmit the update');
+        assert.equal(ticketRequests, 1);
+        assert.equal(dom.window.localStorage.getItem(operationKey), input!.requestId);
+        if (receiptMode === 'late') {
+          await act(async () => receipt!(json({ success: true, operation: operation(input!.requestId!, 'queued') }, 202)));
+          assert.ok(ui.container.textContent?.includes(messages.settings.updates.phases.restarting.title), 'late receipt cannot regress confirmed state');
+          assert.equal(ticketRequests, 1, 'late receipt must not request another status ticket');
+        }
+        await until(() => appFailures > 0, 'application polling fails during the simulated apply restart');
+        finish = true;
+        await until(() => dom.window.localStorage.getItem(operationKey) === null, 'direct CP status completes observation during app downtime');
+        assertStorageCleared();
+        assert.ok(directReads >= 2);
+        assert.equal(ticketRequests, 1, 'status snapshots must not cause a ticket request loop');
+        assert.equal(posts, 1);
+        await until(() => reloads === beforeReload + 1, 'direct status completion reloads once');
+      } finally { await ui.close(); }
+    }
+
+    for (const status of [401, 403]) {
+      dom.window.localStorage.clear();
+      dom.window.sessionStorage.clear();
+      const input: StartSystemUpdateInput = { channel: 'stable', expectedReleaseId: availability.release!.releaseId, requestId: fixtureId };
+      dom.window.localStorage.setItem(intentKey, JSON.stringify(input));
+      dom.window.localStorage.setItem(operationKey, fixtureId);
+      let polls = 0;
+      let ticketRequests = 0;
+      globalThis.fetch = async (request) => {
+        const url = String(request);
+        if (url.includes('?channel=')) return json({ success: true, data: availability });
+        if (url.endsWith('/status-access')) {
+          ticketRequests++;
+          return json({ error: { message: `Ticket authentication failed ${status}` } }, status);
+        }
+        if (url.includes('/events?')) {
+          polls++;
+          return json({ success: true, operation: operation(fixtureId, 'verifying'), events: [] });
+        }
+        throw new Error(`Unexpected request: ${url}`);
+      };
+      const ui = await mount();
+      try {
+        await until(() => ticketRequests === 1 && polls >= 2, 'operation confirmation attempts ticket access once despite auth rejection');
+        assert.equal(ticketRequests, 1, '401/403 ticket failures must not retry on every operation snapshot');
+        assert.equal(dom.window.localStorage.getItem(operationKey), fixtureId);
+        assert.equal(dom.window.localStorage.getItem(intentKey), null);
+      } finally { await ui.close(); }
+    }
+
     {
       dom.window.localStorage.clear();
       dom.window.sessionStorage.clear();
