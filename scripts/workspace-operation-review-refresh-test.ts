@@ -11,6 +11,8 @@ import { WORKSPACE_OPERATION_REVIEW_STATEMENTS } from '../app/lib/db/workspace-o
 import type { SqlConnection } from '../app/lib/db';
 import type * as Service from '../app/lib/files/workspace-operation-review-service';
 import type * as ManualDelete from '../app/lib/files/workspace-operation-delete-review';
+import type * as BatchService from '../app/lib/files/workspace-operation-batch-service';
+import { WorkspaceOperationBatchStore } from '../app/lib/files/workspace-operation-batch-store';
 import type { WorkspaceContext } from '../app/lib/workspaces/types';
 import { buildWorkspaceOperationBatchPlan } from '../app/lib/files/workspace-operation-batch-plan';
 import { createWorkspaceOperationBatchExecutor } from '../app/lib/files/workspace-operation-batch-executor';
@@ -58,6 +60,20 @@ async function main(): Promise<void> {
         loadCollaborationState: async (documentId: string) => [...documentStates.values()].find((state) => state.documentId === documentId) ?? null };
       return load(name);
     }, service, service.exports);
+    const batchFile = path.resolve('app/lib/files/workspace-operation-batch-service.ts');
+    const batchSource = ts.transpileModule(await fs.readFile(batchFile, 'utf8'), {
+      compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, esModuleInterop: true },
+    }).outputText;
+    const batchLoad = createRequire(batchFile);
+    const batchService = { exports: {} as typeof BatchService };
+    new Function('require', 'module', 'exports', batchSource)((name: string) => {
+      if (name === 'server-only') return {};
+      if (name === '@/app/lib/db') return { openDb: connect };
+      if (name === './workspace-operation-review-service') return service.exports;
+      if (name === './workspace-operation-batch-store') return { ...batchLoad(name),
+        WorkspaceOperationBatchStore: class extends WorkspaceOperationBatchStore { constructor() { super(connect); } } };
+      return batchLoad(name);
+    }, batchService, batchService.exports);
     const manualFile = path.resolve('app/lib/files/workspace-operation-delete-review.ts');
     const manualSource = ts.transpileModule(await fs.readFile(manualFile, 'utf8'), {
       compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, esModuleInterop: true },
@@ -242,14 +258,37 @@ async function main(): Promise<void> {
     const atomicDependent = await propose('delete', 'lineage-source.md');
     const chainDependent = await propose('delete', 'lineage-source.md');
     const substitutedDependent = await propose('delete', 'lineage-source.md');
+    const returnDependent = await propose('delete', 'lineage-source.md');
+    const identityConflictDependent = await propose('delete', 'lineage-source.md');
+    const bulkDependent = await propose('delete', 'lineage-source.md');
     const originalInode = (await fs.stat(path.join(workspace.rootPath, 'lineage-source.md'))).ino;
     await applyRecordedMove('lineage-source.md', 'Lineage/lineage-source.md');
     assert.notEqual((await fs.stat(path.join(workspace.rootPath, 'Lineage/lineage-source.md'))).ino, originalInode,
       'real atomic checkpoint replacement changes the moved inode');
+    await fs.writeFile(path.join(workspace.rootPath, 'lineage-source.md'), '# Unrelated new file\n');
+    const originalBulk = await pg.query<{ request_json: string; preview_json: string }>(
+      'SELECT request_json,preview_json FROM workspace_file_operation_reviews WHERE review_id=$1', [bulkDependent.reviewId]);
+    const bulk = await batchService.exports.createWorkspaceOperationBatchReview({ scope, reviewIds: [bulkDependent.reviewId] });
+    assert.equal(bulk.status, 'preview');
+    assert.equal(bulk.preview.actions[0]?.selections[0]?.sourcePath, 'Lineage/lineage-source.md',
+      'direct batch preview uses original identity normalization before considering a reused old path');
+    assert.ok(bulk.preview.deletedPaths.every((entry) => entry.path !== 'lineage-source.md'));
+    assert.deepEqual((await pg.query<{ request_json: string; preview_json: string }>(
+      'SELECT request_json,preview_json FROM workspace_file_operation_reviews WHERE review_id=$1', [bulkDependent.reviewId])).rows,
+    originalBulk.rows, 'normalization keeps original individual request/preview immutable');
+    const persistedBulk = (await pg.query<{ plan_json: string; review_refs_json: string }>(
+      'SELECT plan_json,review_refs_json FROM workspace_file_operation_batches WHERE batch_id=$1', [bulk.batchId])).rows[0]!;
+    assert.equal(JSON.parse(persistedBulk.plan_json).actions[0].selections[0].sourcePath, 'Lineage/lineage-source.md',
+      'worker receives normalized immutable actions');
+    assert.equal(JSON.parse(persistedBulk.review_refs_json)[0].planId, bulkDependent.planId,
+      'approval retains exact original review reservation references');
     const atomicRefreshed = await service.exports.refreshWorkspaceOperationReview({ ...refreshInput,
       reviewId: atomicDependent.reviewId, planId: atomicDependent.planId });
     assert.equal(atomicRefreshed.selections[0]?.sourcePath, 'Lineage/lineage-source.md');
     assert.equal(atomicRefreshed.status, 'pending');
+    assert.equal(await fs.readFile(path.join(workspace.rootPath, 'lineage-source.md'), 'utf8'), '# Unrelated new file\n',
+      'reused original slot is preserved while the original document is selected at its verified destination');
+    await fs.unlink(path.join(workspace.rootPath, 'lineage-source.md'));
     await applyRecordedMove('Lineage/lineage-source.md', 'LineageFinal/lineage-source.md');
     const chained = await service.exports.refreshWorkspaceOperationReview({ ...refreshInput,
       reviewId: chainDependent.reviewId, planId: chainDependent.planId });
@@ -261,15 +300,38 @@ async function main(): Promise<void> {
       reviewId: substitutedDependent.reviewId, planId: substitutedDependent.planId });
     assert.equal(substituted.selections[0]?.sourcePath, 'lineage-source.md');
     assert.equal(substituted.status, 'blocked', 'same path and bytes never replace the acknowledged collaboration document identity');
+    await fs.writeFile(path.join(workspace.rootPath, 'lineage-source.md'), '# Unrelated source slot\n');
+    await assert.rejects(service.exports.refreshWorkspaceOperationReview({ ...refreshInput,
+      reviewId: identityConflictDependent.reviewId, planId: identityConflictDependent.planId }),
+    { status: 409, code: 'REVIEW_SOURCE_IDENTITY_CONFLICT' },
+    'unproven original lineage never produces a ready deletion of a reused source slot');
+    assert.equal((await service.exports.getWorkspaceOperationReview(identityConflictDependent.reviewId))?.successorReviewId, null);
+    await assert.rejects(batchService.exports.createWorkspaceOperationBatchReview({ scope, reviewIds: [identityConflictDependent.reviewId] }),
+    { status: 409, code: 'REVIEW_SOURCE_IDENTITY_CONFLICT' }, 'combined preview cannot bypass an unproven source conflict');
+    assert.equal(await fs.readFile(path.join(workspace.rootPath, 'lineage-source.md'), 'utf8'), '# Unrelated source slot\n');
+    await fs.unlink(path.join(workspace.rootPath, 'lineage-source.md'));
     documentStates.set(originalState.path, originalState);
-    const unsafePathDependent = await propose('delete', 'LineageFinal/lineage-source.md');
-    await applyRecordedMove('LineageFinal/lineage-source.md', 'LineageOther/lineage-source.md');
+    await applyRecordedMove('LineageFinal/lineage-source.md', 'lineage-source.md');
+    const returned = await service.exports.refreshWorkspaceOperationReview({ ...refreshInput,
+      reviewId: returnDependent.reviewId, planId: returnDependent.planId });
+    assert.equal(returned.selections[0]?.sourcePath, 'lineage-source.md');
+    assert.equal(returned.status, 'pending', 'a chain returning to the original path is verified using the finalized endpoint, not the initial seed');
+    const unsafePathDependent = await propose('delete', 'lineage-source.md');
+    await applyRecordedMove('lineage-source.md', 'LineageOther/lineage-source.md');
     const endpoint = path.join(workspace.rootPath, 'LineageOther/lineage-source.md');
     await fs.writeFile(`${endpoint}.replacement`, await fs.readFile(endpoint)); await fs.rename(`${endpoint}.replacement`, endpoint);
     const unsafePath = await service.exports.refreshWorkspaceOperationReview({ ...refreshInput,
       reviewId: unsafePathDependent.reviewId, planId: unsafePathDependent.planId });
-    assert.equal(unsafePath.selections[0]?.sourcePath, 'LineageFinal/lineage-source.md');
+    assert.equal(unsafePath.selections[0]?.sourcePath, 'lineage-source.md');
     assert.equal(unsafePath.status, 'blocked', 'same-byte filesystem substitution must retain the old blocked source');
+    await fs.writeFile(path.join(workspace.rootPath, 'ordinary-edit.md'), '# Before edit\n');
+    const ordinary = await propose('delete', 'ordinary-edit.md');
+    await fs.writeFile(path.join(workspace.rootPath, 'ordinary-edit.md.checkpoint'), '# User edited\n');
+    await fs.rename(path.join(workspace.rootPath, 'ordinary-edit.md.checkpoint'), path.join(workspace.rootPath, 'ordinary-edit.md'));
+    const edited = await service.exports.refreshWorkspaceOperationReview({ ...refreshInput,
+      reviewId: ordinary.reviewId, planId: ordinary.planId });
+    assert.equal(edited.selections[0]?.sourcePath, 'ordinary-edit.md');
+    assert.equal(edited.status, 'pending', 'ordinary same-path edits remain refreshable without an acknowledged move away');
     console.log('refresh lineage: actual durable manifests, atomic checkpoints, consecutive moves, document substitution and same-byte inode substitution OK');
     for (const dir of ['First', 'Second']) {
       await fs.mkdir(path.join(workspace.rootPath, dir));

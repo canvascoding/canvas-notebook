@@ -9,6 +9,7 @@ import type { WorkspaceOperationBatchScope, WorkspaceOperationBatchAction } from
 import type { WorkspaceOperationBatchPublic } from './workspace-operation-batch-public';
 import { WorkspaceOperationBatchStore, WorkspaceOperationBatchError,
   type WorkspaceOperationBatchRecord } from './workspace-operation-batch-store';
+import { getWorkspaceOperationReview, rebaseReviewSelections, WorkspaceOperationReviewError } from './workspace-operation-review-service';
 
 const store = new WorkspaceOperationBatchStore();
 
@@ -67,10 +68,29 @@ export async function createWorkspaceOperationBatchReview(input: {
       || row.batch_id || !['pending', 'stale', 'blocked'].includes(String(row.status)))) {
       throw new WorkspaceOperationBatchError('REVIEW_CONFLICT', 409, 'Selected reviews must be open in the same workspace.');
     }
-    const actions = ordered.map((row) => ({ reviewId: String(row!.review_id),
+    const storedActions = ordered.map((row) => ({ reviewId: String(row!.review_id),
       ...JSON.parse(String(row!.request_json)) })) as WorkspaceOperationBatchAction[];
-    if (actions.some((action) => !['move', 'rename', 'delete'].includes(action.kind))) {
+    if (storedActions.some((action) => !['move', 'rename', 'delete'].includes(action.kind))) {
       throw new WorkspaceOperationBatchError('BATCH_UNSUPPORTED_KIND', 422, 'This batch supports Move, Rename, and Delete.');
+    }
+    const actions: WorkspaceOperationBatchAction[] = [];
+    const rebaseContext = { earliestCreatedAt: Math.min(...ordered.map((row) => Number(row!.created_at))) };
+    for (const action of storedActions) {
+      const original = await getWorkspaceOperationReview(action.reviewId);
+      const row = byId.get(action.reviewId)!;
+      if (!original || original.planId !== String(row.plan_id) || original.successorReviewId || original.batchId
+        || !['pending', 'stale', 'blocked'].includes(original.status)) {
+        throw new WorkspaceOperationBatchError('REVIEW_CONFLICT', 409, 'A selected review changed while creating the combined preview.');
+      }
+      try {
+        const normalized = await rebaseReviewSelections(original, action, input.scope, rebaseContext);
+        actions.push({ reviewId: action.reviewId, kind: action.kind, selections: normalized.selections });
+      } catch (error) {
+        if (error instanceof WorkspaceOperationReviewError) {
+          throw new WorkspaceOperationBatchError(error.code, error.status, error.message);
+        }
+        throw error;
+      }
     }
     const plan = await buildWorkspaceOperationBatchPlan({ scope: input.scope, actions });
     const batch = await store.create({ batchId: randomUUID(), plan, reviewRefs: ordered.map((row) => ({

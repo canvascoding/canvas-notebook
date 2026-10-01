@@ -16,7 +16,7 @@ import { fileReviewPolicyService } from '@/app/lib/file-version-center/review-po
 import { buildWorkspaceLinkIndexFromDocuments } from '@/app/lib/markdown/workspace-link-index-core';
 import { buildWorkspaceFileOperationPreview, buildWorkspacePlannerSnapshot,
   assertFreshWorkspaceFileOperationPlan } from '@/app/lib/markdown/workspace-file-operation-preview';
-import type { WorkspaceFileOperationPreview } from '@/app/lib/markdown/workspace-file-operation-planner';
+import type { WorkspaceFileOperationPreview, WorkspacePlannerSnapshot } from '@/app/lib/markdown/workspace-file-operation-planner';
 import { syncPublicSharesAfterDelete } from '@/app/lib/public-sharing/public-file-shares';
 import { resolveWorkspacePath } from '@/app/lib/workspaces/path-guard';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
@@ -541,31 +541,44 @@ export async function markDependentWorkspaceOperationReviews(input: {
   }
 }
 
-async function rebaseReviewSelections(review: WorkspaceOperationReviewPublic, request: StoredRequest,
-  scope: Scope): Promise<StoredRequest> {
-  const snapshot = await buildWorkspacePlannerSnapshot(scope.workspace.workspaceId, scope.fileOptions);
+export type WorkspaceOperationReviewRebaseContext = {
+  earliestCreatedAt: number;
+  snapshot?: WorkspacePlannerSnapshot;
+  transitions?: Array<{ appliedAt: number; proof: WorkspaceOperationBatchTransitionProof }>;
+};
+
+export async function rebaseReviewSelections(review: WorkspaceOperationReviewPublic, request: StoredRequest,
+  scope: Scope, shared?: WorkspaceOperationReviewRebaseContext): Promise<StoredRequest> {
+  const snapshot = shared?.snapshot ?? await buildWorkspacePlannerSnapshot(scope.workspace.workspaceId, scope.fileOptions);
+  if (shared) shared.snapshot = snapshot;
   const current = new Map(snapshot.entries.map((entry) => [entry.path, entry]));
   const sameObject = (left: string, right: string) => left.split(':').slice(0, 2).join(':') === right.split(':').slice(0, 2).join(':');
   const originalIdentity = (sourcePath: string) => 'deletedPaths' in review.preview
     ? review.preview.deletedPaths.find((entry) => entry.path === sourcePath)?.identity
     : review.preview.pathMappings.find((mapping) => mapping.sourcePath === sourcePath)?.sourceIdentity;
-  const applied = await all(`SELECT preview_json,updated_at FROM workspace_file_operation_reviews
-    WHERE source_workspace_id = $1 AND status = 'applied' AND batch_id IS NULL AND updated_at >= $2`, [review.sourceWorkspaceId, review.createdAt]);
-  const batches = await all(`SELECT batch_id,updated_at FROM workspace_file_operation_batches
-    WHERE workspace_id = $1 AND status = 'applied' AND updated_at >= $2`, [review.sourceWorkspaceId, review.createdAt]);
-  const transitions: WorkspaceOperationBatchTransitionProof[] = [];
-  for (const row of [...applied, ...batches].sort((left, right) => Number(left.updated_at) - Number(right.updated_at))) {
-    if (row.batch_id) {
-      transitions.push(...await getWorkspaceOperationBatchTransitionProofs({ batchId: String(row.batch_id), scope }));
-      continue;
+  let history = shared?.transitions;
+  if (!history) {
+    const since = shared?.earliestCreatedAt ?? review.createdAt;
+    const applied = await all(`SELECT preview_json,updated_at FROM workspace_file_operation_reviews
+      WHERE source_workspace_id = $1 AND status = 'applied' AND batch_id IS NULL AND updated_at >= $2`, [review.sourceWorkspaceId, since]);
+    const batches = await all(`SELECT batch_id,updated_at FROM workspace_file_operation_batches
+      WHERE workspace_id = $1 AND status = 'applied' AND updated_at >= $2`, [review.sourceWorkspaceId, since]);
+    history = [];
+    for (const row of [...applied, ...batches].sort((left, right) => Number(left.updated_at) - Number(right.updated_at))) {
+      if (row.batch_id) {
+        history.push(...(await getWorkspaceOperationBatchTransitionProofs({ batchId: String(row.batch_id), scope }))
+          .map((proof) => ({ appliedAt: Number(row.updated_at), proof })));
+        continue;
+      }
+      const plan = JSON.parse(String(row.preview_json)) as { kind?: string; pathMappings?: WorkspaceOperationBatchPlan['pathMappings'] };
+      if (plan.kind === 'copy') continue;
+      history.push(...(plan.pathMappings ?? []).map((mapping) => ({ appliedAt: Number(row.updated_at), proof: { ...mapping,
+        destinationIdentity: mapping.sourceIdentity, contentHash: null, documentId: null, lifecycleGeneration: null } })));
     }
-    const plan = JSON.parse(String(row.preview_json)) as { kind?: string; pathMappings?: WorkspaceOperationBatchPlan['pathMappings'] };
-    if (plan.kind === 'copy') continue;
-    transitions.push(...(plan.pathMappings ?? []).map((mapping) => ({ ...mapping,
-      destinationIdentity: mapping.sourceIdentity, contentHash: null, documentId: null, lifecycleGeneration: null })));
+    if (shared) shared.transitions = history;
   }
+  const transitions = history.filter((entry) => entry.appliedAt >= review.createdAt).map((entry) => entry.proof);
   return { ...request, selections: await Promise.all(request.selections.map(async (selection) => {
-    if (current.has(selection.sourcePath)) return selection;
     const identity = originalIdentity(selection.sourcePath);
     if (!identity) return selection;
     let candidates: WorkspaceOperationBatchTransitionProof[] = [{ sourcePath: selection.sourcePath,
@@ -579,8 +592,11 @@ async function rebaseReviewSelections(review: WorkspaceOperationReviewPublic, re
             && candidate.lifecycleGeneration === transition.lifecycleGeneration));
       if (origins.length) candidates = [...candidates, transition];
     }
+    // Ordinary same-path edits can be refreshed without changing the selected object
+    // path. A proven move away must be followed before considering a reused source slot.
+    if (candidates.length === 1) return selection;
     const destinations: string[] = [];
-    for (const candidate of candidates.filter((entry) => entry.destinationPath !== selection.sourcePath)) {
+    for (const candidate of candidates.slice(1)) {
       const destination = current.get(candidate.destinationPath);
       if (!destination || !sameObject(candidate.destinationIdentity, destination.identity)
         || candidate.contentHash && (destination.markdownContent !== undefined
@@ -597,6 +613,10 @@ async function rebaseReviewSelections(review: WorkspaceOperationReviewPublic, re
       destinations.push(candidate.destinationPath);
     }
     const unique = [...new Set(destinations)];
+    if (unique.length !== 1 && current.has(selection.sourcePath)) {
+      fail('REVIEW_SOURCE_IDENTITY_CONFLICT', 409,
+        `The original file at ${selection.sourcePath} was moved, and its current location cannot be safely verified. The occupied original path may contain another file. Create a new review for the intended file.`);
+    }
     return unique.length === 1 ? { ...selection, sourcePath: unique[0]! } : selection;
   })) };
 }
