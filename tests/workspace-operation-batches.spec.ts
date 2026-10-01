@@ -11,7 +11,7 @@ import type { WorkspaceOperationReviewPublic, WorkspaceOperationReviewKind } fro
 const run = promisify(execFile);
 type Action = { kind: WorkspaceOperationReviewKind; selections: Array<{ sourcePath: string; destinationPath?: string }> };
 type Batch = { batchId: string; planId: string; status: string; errorCode: string | null; completedActions: number;
-  totalActions: number; preview: { readiness: string; linkEdits: unknown[]; issues: Array<{ code: string }> } };
+  totalActions: number; preview: { readiness: string; actions: Action[]; linkEdits: unknown[]; issues: Array<{ code: string }> } };
 
 async function workspace(browser: Browser, body: (scope: Awaited<ReturnType<typeof setup>>) => Promise<void>) {
   const scope = await setup(browser);
@@ -409,6 +409,32 @@ test.describe('durable file review batches', () => {
       expect(await s.read('index.md')).toBe('A\n');
       expect(await s.read('targets/B.md')).toBe('# B\n');
       await s.absent('final/A.md');
+    });
+  });
+
+  test('refresh follows the original moved document when an unrelated file reuses its old path', async ({ browser }) => {
+    await workspace(browser, async (s) => {
+      await s.upload('old/A.md', '# Original\n[B](../B.md)\n');
+      await s.upload('B.md', '# B\n');
+      await s.upload('index.md', '[Original](old/A.md)\n');
+      const [movement, deletion, individual] = await s.submit([
+        move('old/A.md', 'new/deeper/A.md'), remove('old/A.md'), remove('old/A.md'),
+      ]);
+      const moved = await s.preview([movement]);
+      expect((await s.accept(moved)).ok()).toBeTruthy();
+      await s.done(moved);
+      await s.upload('old/A.md', '# Unrelated replacement\n');
+      const refreshed = await s.refresh(individual);
+      expect(refreshed.selections).toEqual([{ sourcePath: 'new/deeper/A.md' }]);
+      const cleanup = await s.preview([deletion]);
+      expect(cleanup.preview.actions[0].selections).toEqual([{ sourcePath: 'new/deeper/A.md' }]);
+      expect(cleanup.preview.readiness).toBe('ready');
+      expect((await s.accept(cleanup)).ok()).toBeTruthy();
+      await s.done(cleanup);
+      expect(await s.read('old/A.md')).toBe('# Unrelated replacement\n');
+      expect(await s.read('index.md')).toBe('Original\n');
+      expect(await s.read('B.md')).toBe('# B\n');
+      await s.absent('new/deeper/A.md');
     });
   });
 
