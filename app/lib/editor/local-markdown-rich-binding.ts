@@ -42,6 +42,7 @@ class LocalMarkdownRichBinding {
   }
 
   get ready(): boolean { return this.projected && !this.destroyed && this.view.isCurrent(); }
+  get current(): boolean { return !this.destroyed && this.view.isCurrent(); }
   get composing(): boolean { return this.compositionTime !== null; }
 
   report(error: unknown): void {
@@ -139,6 +140,7 @@ export function createLocalMarkdownRichExtension(options: LocalRichOptions) {
     addProseMirrorPlugins() {
       const editor = this.editor;
       const storage = this.storage;
+      let canRebind = true;
       return [new Plugin({
         key: bindingKey,
         filterTransaction(transaction) {
@@ -154,9 +156,16 @@ export function createLocalMarkdownRichExtension(options: LocalRichOptions) {
           blur: () => { const binding = storage.binding; queueMicrotask(() => binding?.endComposition()); return false; },
         } },
         view() {
+          // Menu cleanup can reconfigure a removed editor after Source mounted.
+          // Recreate a current binding, but never reclaim another view's lease.
+          if (!canRebind) return {};
           const binding = new LocalMarkdownRichBinding(editor, options);
           storage.binding = binding;
-          return { destroy() { binding.destroy(); if (storage.binding === binding) storage.binding = null; } };
+          return { destroy() {
+            canRebind = binding.current;
+            binding.destroy();
+            if (storage.binding === binding) storage.binding = null;
+          } };
         },
       })];
     },
