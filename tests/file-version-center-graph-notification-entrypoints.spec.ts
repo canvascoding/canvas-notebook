@@ -184,10 +184,24 @@ test.describe('FVRC-1007 graph notification entry points', () => {
       expect(remaining[0]?.target.branch?.revision).not.toBe(original!.target.branch!.revision);
 
       await scope.page.goto('/en');
-      const entry = scope.page.locator(`a[href*="fvrcRef=${scope.fixture.scope.lineageId}"]`)
+      const homeNotifications = scope.page.locator('aside[aria-labelledby="home-attention-heading"]');
+      await expect(homeNotifications).toBeVisible();
+      await homeNotifications.getByRole('button', { name: 'All notifications', exact: true }).click();
+      const notificationSheet = scope.page.getByRole('dialog', { name: 'Notifications', exact: true });
+      await expect(notificationSheet).toBeVisible();
+      const entry = notificationSheet.locator(`a[href*="fvrcRef=${scope.fixture.scope.lineageId}"][href*="fvrcWorkspace=${scope.workspaceId}"]`)
         .filter({ hasText: 'File change needs review' });
       await expect(entry).toHaveCount(1);
+      const entryHref = await entry.getAttribute('href');
+      expect(entryHref).toBeTruthy();
+      const entryUrl = new URL(entryHref!, scope.page.url());
+      expect(entryUrl.searchParams.get('fvrcTarget')).toBe('lineage');
+      expect(entryUrl.searchParams.get('fvrcWorkspace')).toBe(scope.workspaceId);
+      expect(entryUrl.searchParams.get('fvrcRef')).toBe(scope.fixture.scope.lineageId);
+      expect(entryUrl.searchParams.get('fvrcSelectedId')).toBe(parent.operationId);
+      expect(entryUrl.searchParams.get('fvrcBranch')).toBe('1');
       await entry.click();
+      await expect(notificationSheet).toBeHidden();
       const overview = scope.page.getByTestId('graph-review-branch-overview');
       await expect(overview).toBeVisible();
       await expect(overview.locator('[data-proposal-id]')).toHaveCount(3);
@@ -277,14 +291,24 @@ test.describe('FVRC-1007 graph notification entry points', () => {
       });
 
       await scope.page.goto('/en');
-      const homeNotifications = scope.page.getByRole('heading', { name: 'Notifications' }).locator('xpath=..');
-      const targetLink = scope.page.locator(`a[href*="fvrcRef=${scope.fixture.scope.lineageId}"]`)
-        .filter({ hasText: 'File change needs review' });
+      const homeNotifications = scope.page.locator('aside[aria-labelledby="home-attention-heading"]');
       await expect(homeNotifications).toBeVisible({ timeout: 30_000 });
+      await homeNotifications.getByRole('button', { name: 'All notifications', exact: true }).click();
+      const notificationSheet = scope.page.getByRole('dialog', { name: 'Notifications', exact: true });
+      await expect(notificationSheet).toBeVisible();
+      const targetLink = notificationSheet.locator(`a[href*="fvrcRef=${scope.fixture.scope.lineageId}"][href*="fvrcWorkspace=${scope.workspaceId}"]`)
+        .filter({ hasText: 'File change needs review' });
       await expect(targetLink).toHaveCount(1, { timeout: 30_000 });
       const groupHref = await targetLink.getAttribute('href');
       expect(groupHref).toContain('fvrcBranch=1');
+      const groupUrl = new URL(groupHref!, scope.page.url());
+      expect(groupUrl.searchParams.get('fvrcTarget')).toBe('lineage');
+      expect(groupUrl.searchParams.get('fvrcWorkspace')).toBe(scope.workspaceId);
+      expect(groupUrl.searchParams.get('fvrcRef')).toBe(scope.fixture.scope.lineageId);
+      expect(groupUrl.searchParams.get('fvrcSelectedId')).toBe(parent.operationId);
+      expect(groupUrl.searchParams.get('fvrcBranch')).toBe('1');
       await targetLink.click();
+      await expect(notificationSheet).toBeHidden();
 
       const overview = scope.page.getByTestId('graph-review-branch-overview');
       await expect(overview).toBeVisible({ timeout: 30_000 });
