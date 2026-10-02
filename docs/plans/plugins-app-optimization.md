@@ -42,8 +42,20 @@ The personal and organization management scopes already exist, including assigne
 
 Acceptance: a member can manage personal activation where permitted, sees why required/blocked packages are locked, and cannot acquire organization management rights through a URL or hidden control.
 
+### 4. Reduce the mobile introduction and scope height
+
+The browser acceptance at 390×844 shows that repeated introduction, scope and package-description text pushes the first catalog card close to the bottom of the initial viewport.
+
+- Shorten repeated explanations and offer longer scope guidance on demand.
+- Keep the selected scope, area and primary catalog controls visible.
+- Preserve readable labels and wrapped tabs at 320px, including dark mode.
+
+Acceptance: the first catalog card and its primary action are reachable with less introductory scrolling, while scope ownership stays clear.
+
 ## Validation
 
 Run `npm run test:plugins:app`, focused package/connector regression tests, lint for changed files, and `npm run build`. Browser acceptance requires the explicit authorization specified in `AGENTS.md`; use the managed local stack and rebuild it from the current worktree before testing.
 
 Browser acceptance covers launcher entry and quick actions, Home entry, old Settings links, direct plugin/skill views, Back/Forward and reload, both locales, desktop and narrow layouts, delayed/failed data sources, organization permission boundaries, and connection setup. Verify visible errors and console errors.
+
+The local acceptance completed on 2026-10-02: [results, boundaries and screenshots](plugins-app-browser-acceptance.md). Nine browser cases passed; the test found and verified a fix for native-history view updates. External OAuth completion and production acceptance remain separate.

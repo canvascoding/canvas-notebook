@@ -667,6 +667,7 @@
     "test:security:codeql": "tsx --conditions react-server scripts/agent-seed-security-test.ts && tsx --conditions react-server scripts/codeql-security-boundaries-test.ts && tsx --conditions react-server scripts/email-unified-secrets-test.ts && tsx --conditions react-server scripts/office-document-journal-test.ts && tsx scripts/studio-import-files-test.ts && tsx --conditions react-server scripts/home-workspace-widget-cache-test.ts && tsx scripts/marp-preview-render-test.ts && tsx scripts/system-update-csp-test.ts && tsx scripts/request-identity-test.ts && npm run test:cli:caddy-portable && npm run test:security:html-preview",
     "test:settings:developer-mode": "tsx --conditions react-server scripts/developer-mode-preferences-test.ts && tsx scripts/developer-mode-settings-test.tsx",
     "test:plugins:app": "tsx scripts/plugin-navigation-test.ts && tsx scripts/plugin-data-loading-test.ts && tsx scripts/plugins-app-ui-test.tsx && tsx scripts/header-navigation-test.ts",
+    "test:plugins:app:e2e": "E2E_EXTERNAL_SERVER=1 playwright test --config playwright.plugins-app-local.config.ts",
     "test:mcp:settings": "tsx scripts/mcp-server-dialog-test.tsx && tsx scripts/plugin-mcp-secret-patch-test.ts && npm run test:settings:developer-mode",
     "test:mcp:oauth:e2e": "playwright test tests/mcp-oauth-ui.spec.ts --workers=1"
   },
