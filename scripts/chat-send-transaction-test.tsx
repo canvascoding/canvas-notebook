@@ -50,12 +50,12 @@ const base = {
     return new Promise<Record<string, unknown>>((resolve, reject) => { pendingSends.push({ type, payload, resolve, reject }); });
   },
 };
-function Harness({ busy = false }: { busy?: boolean }) {
+function Harness({ busy = false, selectedAgentId = 'bradley' }: { busy?: boolean; selectedAgentId?: string }) {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const hook = useChatControlActions({ ...(base as unknown as Params), sessionId, setSessionId, messages, setMessages,
     activeWorkspaceId: 'workspace-a', currentFilePath: context.activeFilePath ?? null,
-    runtimePhase: busy ? 'streaming' : 'idle',
+    runtimePhase: busy ? 'streaming' : 'idle', selectedAgentId,
     appendOptimisticUserMessage: (content, attachments, status, queueKind, piMessage) => {
       const id = `optimistic-${++optimisticId}`;
       setMessages((current) => [...current, { id, role: 'user', content, attachments, status, queueKind, piMessage }]);
@@ -70,9 +70,9 @@ function Harness({ busy = false }: { busy?: boolean }) {
   useLayoutEffect(() => { exposed = { ...hook, sessionId, messages }; });
   return <div>{sessionId}</div>;
 }
-function creation(sessionId: string) {
+function creation(sessionId: string, agentId = 'bradley') {
   return Response.json({ success: true, created: true, session: {
-    id: 1, sessionId, title: 'Created', agentId: 'bradley', model: 'model-a', provider: 'openai', thinkingLevel: 'off',
+    id: 1, sessionId, title: 'Created', agentId, model: 'model-a', provider: 'openai', thinkingLevel: 'off',
     workspace: { workspaceId: 'workspace-a', workspaceType: 'personal', workspaceName: 'A', organizationId: 'org-a', rootRelativePath: null, legacy: false },
   } });
 }
@@ -175,6 +175,61 @@ async function main() {
   const queued = pendingSends.shift()!;
   assert.equal(queued.type, 'send_message', 'ordinary send uses receipt-protected transport even while the runtime is busy');
   await act(async () => { queued.resolve({ success: true }); await first; root.unmount(); });
+
+  sessionIdRef.current = null;
+  sessionWorkspaceIdRef.current = null;
+  sessionAgentIdRef.current = 'bradley';
+  root = createRoot(dom.window.document.getElementById('root')!);
+  await act(async () => { root.render(<Harness />); });
+  await act(async () => { exposed.startNewChat(); });
+  await act(async () => {
+    await Promise.resolve();
+    root.render(<Harness selectedAgentId="preferred-agent" />);
+  });
+  const beforePreferredCreates = createCount;
+  const beforePreferredSends = sendCount;
+  let preferredSettled!: Promise<PromiseSettledResult<void>[]>;
+  await act(async () => {
+    first = exposed.handleControlAction('send', request);
+    preferredSettled = Promise.allSettled([first]);
+  });
+  assert.equal(createCount, beforePreferredCreates + 1, 'preferred-agent hydration after New Chat permits the first session POST');
+  const preferredCreation = pendingCreates.shift()!;
+  assert.equal(preferredCreation.payload.agentId, 'preferred-agent');
+  await act(async () => { preferredCreation.resolve(creation('preferred-session', 'preferred-agent')); });
+  assert.equal(exposed.sessionId, 'preferred-session');
+  assert.equal(sendCount, beforePreferredSends + 1, 'the first hydrated-agent message reaches the transport');
+  const preferredSend = pendingSends.shift()!;
+  assert.equal(preferredSend.payload.agentId, 'preferred-agent');
+  assert.equal(preferredSend.payload.sessionId, 'preferred-session');
+  await act(async () => { preferredSend.resolve({ success: true }); await preferredSettled; });
+  assert.equal((await preferredSettled)[0].status, 'fulfilled');
+  assert.equal(exposed.messages.find((message) => message.role === 'user')?.status, 'sent');
+
+  await act(async () => { root.render(<Harness selectedAgentId="other-agent" />); });
+  assert.equal(sessionAgentIdRef.current, 'preferred-agent', 'an established session keeps its bound agent despite selection changes');
+  const beforeEstablishedCreates = createCount;
+  await act(async () => { first = exposed.handleControlAction('send', { text: 'existing session', attachments: [] }); });
+  const establishedSend = pendingSends.shift()!;
+  assert.equal(createCount, beforeEstablishedCreates, 'an established session is reused after selection changes');
+  assert.equal(establishedSend.payload.agentId, 'preferred-agent');
+  assert.equal(establishedSend.payload.sessionId, 'preferred-session');
+  await act(async () => { establishedSend.resolve({ success: true }); await first; });
+
+  await act(async () => { exposed.startNewChat(); });
+  await act(async () => { first = exposed.handleControlAction('send', request); });
+  const oldAgentSettled = Promise.allSettled([first]);
+  const oldAgentCreation = pendingCreates.shift()!;
+  assert.equal(oldAgentCreation.payload.agentId, 'other-agent');
+  const beforeAgentNavigationSends = sendCount;
+  await act(async () => { root.render(<Harness selectedAgentId="next-agent" />); });
+  await act(async () => { oldAgentCreation.resolve(creation('abandoned-agent-session', 'other-agent')); await oldAgentSettled; });
+  const oldAgentResult = (await oldAgentSettled)[0];
+  assert.ok(oldAgentResult.status === 'rejected' && oldAgentResult.reason.name === 'AbortError', 'agent navigation still invalidates pending creation');
+  assert.equal(sendCount, beforeAgentNavigationSends);
+  assert.equal(exposed.sessionId, null);
+  assert.equal(sessionAgentIdRef.current, 'next-agent', 'late creation cannot rebind the current draft');
+  await act(async () => { root.unmount(); });
   getNotebookQueryClient().clear();
   dom.window.close();
 

@@ -298,13 +298,16 @@ export function useChatControlActions({
   const [sendState, setSendState] = useState<{ contextKey: string; pending: boolean; error: string | null; transaction: SendTransaction } | null>(null);
   useLayoutEffect(() => {
     activeWorkspaceRef.current = activeWorkspaceId ?? null;
+    if (!sessionIdRef.current) {
+      sessionAgentIdRef.current = selectedAgentId;
+    }
     if (navigationContextRef.current !== contextKey) {
       navigationGenerationRef.current += 1;
       transactionsRef.current.clear();
       navigationContextRef.current = contextKey;
       draftRef.current = { id: crypto.randomUUID() };
     }
-  }, [activeWorkspaceId, contextKey]);
+  }, [activeWorkspaceId, contextKey, selectedAgentId, sessionAgentIdRef, sessionIdRef]);
   useEffect(() => () => { navigationGenerationRef.current += 1; }, []);
 
   const startNewChat = useCallback((agentIdOverride?: string, options?: StartNewChatOptions) => {

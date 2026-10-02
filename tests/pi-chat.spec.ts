@@ -2271,6 +2271,143 @@ contentKind: document
     await expect(page.getByTestId('chat-model-selector')).toHaveAttribute('title', /anthropic \/ Claude Sonnet 4\.5/i);
   });
 
+  test('should send with the preferred agent when its preference loads after New Chat', async ({ page }, testInfo) => {
+    const unique = randomUUID();
+    const agentId = `pi-e2e-preferred-${unique}`;
+    const agentName = `PI Preferred Agent ${unique}`;
+    const sessionId = `sess-preferred-agent-${unique}`;
+    const prompt = 'Antworte nur mit READY.';
+    const blockedWrites: string[] = [];
+    let releasePreferences!: () => void;
+    const preferencesGate = new Promise<void>((resolve) => { releasePreferences = resolve; });
+    let preferenceRequests = 0;
+    let newChatClicked = false;
+    let preferencesReleasedAfterNewChat = false;
+    let sessionPosts = 0;
+    let subscriptions = 0;
+    let sends = 0;
+    let currentStatus = createMockRuntimeStatus(sessionId);
+    const finalMessage = {
+      role: 'assistant', content: [{ type: 'text', text: 'READY' }],
+      api: 'mock', provider: 'mock', model: 'mock-model', usage: EMPTY_USAGE,
+      stopReason: 'stop', timestamp: Date.now(),
+    };
+
+    await page.route((url) => url.pathname === '/api/agents', async (route) => {
+      if (route.request().method() !== 'GET') {
+        blockedWrites.push('agents');
+        return route.abort('blockedbyclient');
+      }
+      await route.fulfill({ json: { success: true, data: { agents: [
+        { agentId: MAIN_AGENT_ID, name: 'Bradley', iconId: 'bot', type: 'main', removable: false },
+        { agentId, name: agentName, iconId: 'search', type: 'special', removable: true,
+          scopeType: 'user', revision: 1, access: { canUse: true, canEdit: true, canManage: true } },
+      ] } } });
+    });
+    await page.route((url) => url.pathname === '/api/user-preferences', async (route) => {
+      if (route.request().method() !== 'GET') {
+        blockedWrites.push('preferences');
+        return route.abort('blockedbyclient');
+      }
+      preferenceRequests += 1;
+      await preferencesGate;
+      expect(newChatClicked, 'Preferences must stay pending until the user has clicked New Chat.').toBe(true);
+      preferencesReleasedAfterNewChat = true;
+      await route.fulfill({ json: { success: true, data: { lastActiveAgentId: agentId } } });
+    });
+    await mockEmptyChatBootstrap(page, { sessionId, agentId });
+    page.on('request', (request) => {
+      if (request.method() === 'POST' && new URL(request.url()).pathname === '/api/sessions') sessionPosts += 1;
+    });
+    const socket = await setupMockWebSocket(page, {
+      sessionId,
+      sendEventsAfterSendMessage: false,
+      onSubscribe: () => { subscriptions += 1; },
+      onGetStatus: () => currentStatus as unknown as Record<string, unknown>,
+      onSendResultStatus: (message) => {
+        expect(JSON.stringify(message.content)).toContain(prompt);
+        sends += 1;
+        currentStatus = createMockRuntimeStatus(sessionId, { revision: 1, phase: 'streaming', canAbort: true });
+        return currentStatus as unknown as Record<string, unknown>;
+      },
+    });
+
+    try {
+      await page.goto('/notebook?chat=open', { waitUntil: 'domcontentloaded' });
+      await expect.poll(() => preferenceRequests, { timeout: 15_000 }).toBeGreaterThan(0);
+      await expect(page.getByTestId('chat-agent-id')).toHaveAttribute('aria-label', 'Select agent: Bradley');
+      expect(preferencesReleasedAfterNewChat).toBe(false);
+      await startFreshChat(page);
+      newChatClicked = true;
+      expect(sessionPosts).toBe(0);
+      expect(subscriptions).toBe(0);
+      expect(sends).toBe(0);
+
+      const effectiveResponse = page.waitForResponse((response) => {
+        const url = new URL(response.url());
+        return response.request().method() === 'GET' && url.pathname === '/api/agent-runtime/effective'
+          && url.searchParams.get('agentId') === agentId;
+      }, { timeout: 15_000 });
+      void effectiveResponse.catch(() => undefined);
+      releasePreferences();
+      await expect(page.getByTestId('chat-agent-id')).toHaveAttribute('aria-label', `Select agent: ${agentName}`);
+      const runtimeResponse = await effectiveResponse;
+      expect(runtimeResponse.ok()).toBe(true);
+      const runtime = await runtimeResponse.json() as { success?: boolean; resolution?: {
+        valid?: boolean; context?: { agentId?: string }; effectiveSelection?: { selection?: { modelId?: string } };
+      } };
+      expect(runtime.success).toBe(true);
+      expect(runtime.resolution?.valid).toBe(true);
+      expect(runtime.resolution?.context?.agentId).toBe(agentId);
+      expect(runtime.resolution?.effectiveSelection?.selection?.modelId).toBe('gpt-4o');
+      await expect(page.getByTestId('chat-provider-selector')).toBeEnabled();
+      await expect(page.getByTestId('chat-model-selector')).toHaveAttribute('title', /gpt-4o/i);
+      expect(preferencesReleasedAfterNewChat).toBe(true);
+
+      await page.getByTestId('chat-input').fill(prompt);
+      await expect(page.getByTestId('chat-send')).toBeEnabled();
+      const creationResponse = page.waitForResponse((response) => response.request().method() === 'POST'
+        && new URL(response.url()).pathname === '/api/sessions', { timeout: 15_000 });
+      void creationResponse.catch(() => undefined);
+      // The late preference must be enough: no selector click or second New Chat.
+      await page.getByTestId('chat-input').press('Enter');
+      const response = await creationResponse;
+      expect(response.request().postDataJSON()?.agentId).toBe(agentId);
+      expect(response.ok()).toBe(true);
+      const created = await response.json() as { success?: boolean; session?: AISession };
+      expect(created.success).toBe(true);
+      expect(created.session?.agentId).toBe(agentId);
+      expect(created.session?.sessionId).toBe(sessionId);
+      await expect(page.getByTestId('chat-session-id')).toHaveAttribute('title', sessionId);
+      await expect.poll(() => sends, { timeout: 15_000 }).toBe(1);
+      expect(sessionPosts).toBe(1);
+      expect(subscriptions).toBe(1);
+
+      const assistantMessages = page.getByTestId('chat-message-assistant');
+      await expect(assistantMessages).toHaveCount(1);
+      socket.emitAgentEvent({ type: 'message_start', message: { ...finalMessage, content: [], stopReason: 'streaming' } });
+      await expect(assistantMessages.first().getByTestId('chat-assistant-streaming-indicator')).toBeVisible();
+      socket.emitAgentEvent({ type: 'message_update', assistantMessageEvent: { type: 'text_delta', delta: 'READY' } });
+      await expect(assistantMessages.first()).toContainText('READY');
+      socket.emitAgentEvent({ type: 'message_end', message: finalMessage });
+      socket.emitAgentEvent({ type: 'agent_end' });
+      currentStatus = createMockRuntimeStatus(sessionId, { revision: 2 });
+      socket.emitAgentEvent({ type: 'runtime_status', status: currentStatus });
+      await expect(assistantMessages.first()).toContainText('READY');
+      await expect(assistantMessages.first().getByTestId('chat-assistant-streaming-indicator')).toHaveCount(0);
+      await expect(page.getByTestId('chat-send')).toHaveAttribute('data-action', 'send');
+      expect(sessionPosts).toBe(1);
+      expect(subscriptions).toBe(1);
+      expect(sends).toBe(1);
+      expect(blockedWrites).toEqual([]);
+      await testInfo.attach('preferred-agent-race-regression', { contentType: 'application/json', body: JSON.stringify({
+        agentId, sessionId, preferencesReleasedAfterNewChat, sessionPosts, subscriptions, sends, runtimeRevision: currentStatus.revision,
+      }) });
+    } finally {
+      releasePreferences();
+    }
+  });
+
   test('should expose a clickable active agent selector on mobile', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
 
