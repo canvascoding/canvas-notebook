@@ -1261,6 +1261,11 @@ function compareCertificateRevision(left: CertificateRevision, right: Certificat
   return 0;
 }
 
+/** Metadata ordering only: callers must first verify signatures, binding and product claims. */
+export function compareLicenseCertificatePayloads(left: LicenseCert, right: LicenseCert): number {
+  return compareCertificateRevision(certificateRevision('', left), certificateRevision('', right));
+}
+
 const LICENSE_CERT_RETENTION_COUNT = 10;
 
 async function pruneOldLicenseCerts(instanceId: string): Promise<void> {

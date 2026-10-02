@@ -51,6 +51,8 @@ async function main() {
   const dataDir = mkdtempSync(path.join(tmpdir(), 'canvas-license-security-'));
   const originalDatabaseProvider = process.env.CANVAS_DATABASE_PROVIDER;
   const originalDatabaseUrl = process.env.DATABASE_URL;
+  const originalRuntimeEnvironment = process.env.CANVAS_LICENSE_RUNTIME_ENVIRONMENT;
+  process.env.CANVAS_LICENSE_RUNTIME_ENVIRONMENT = 'production';
   process.env.DATA = dataDir;
   process.env.CANVAS_INSTANCE_ID = 'self_license_test';
 
@@ -404,11 +406,26 @@ async function main() {
   assert.equal(await loadStoredLicenseCert(rollbackInstanceId), versionSixToken);
   process.env.CANVAS_INSTANCE_ID = rollbackInstanceId;
   process.env.CANVAS_LICENSE_CERT = versionFourToken;
-  const rollbackProtectedStatus = await getLicenseStatus();
+  const originalWarn = console.warn; const repeatedWarnings: unknown[][] = [];
+  let rollbackProtectedStatus: Awaited<ReturnType<typeof getLicenseStatus>>;
+  try {
+    console.warn = (...values: unknown[]) => { repeatedWarnings.push(values); };
+    rollbackProtectedStatus = await getLicenseStatus();
+    assert.equal((await getLicenseStatus()).entitlementsVersion, 6);
+    process.env.CANVAS_LICENSE_CERT = versionSixToken;
+    assert.equal((await getLicenseStatus()).source, 'stored', 'equal ENV is bootstrap evidence, not another storage mutation');
+  } finally { console.warn = originalWarn; }
+  assert.equal(repeatedWarnings.filter(values => String(values[0]).includes('env certificate rollback rejected')).length, 0,
+    'verified stale ENV does not repeatedly attempt to replace the stored certificate');
   assert.equal(rollbackProtectedStatus.licensed, true);
   assert.equal(rollbackProtectedStatus.source, 'stored');
   assert.equal(rollbackProtectedStatus.entitlementsVersion, 6);
   assert.equal(await loadStoredLicenseCert(rollbackInstanceId), versionSixToken);
+  const versionSevenToken = signLicense(privateKey, { ...rollbackBase, entitlementsVersion: 7, iat: basePayload.iat + 30 },
+    { alg: 'RS256', typ: 'JWT', kid: trustedKid });
+  process.env.CANVAS_LICENSE_CERT = versionSevenToken;
+  assert.equal((await getLicenseStatus()).source, 'env', 'a verified newer ENV certificate can still upgrade the bootstrap');
+  assert.equal(await loadStoredLicenseCert(rollbackInstanceId), versionSevenToken);
   process.env.CANVAS_INSTANCE_ID = 'self_license_test';
   process.env.CANVAS_LICENSE_CERT = validToken;
   await assert.rejects(
@@ -467,6 +484,8 @@ async function main() {
   else process.env.CANVAS_DATABASE_PROVIDER = originalDatabaseProvider;
   if (originalDatabaseUrl === undefined) delete process.env.DATABASE_URL;
   else process.env.DATABASE_URL = originalDatabaseUrl;
+  if (originalRuntimeEnvironment === undefined) delete process.env.CANVAS_LICENSE_RUNTIME_ENVIRONMENT;
+  else process.env.CANVAS_LICENSE_RUNTIME_ENVIRONMENT = originalRuntimeEnvironment;
   rmSync(dataDir, { recursive: true, force: true });
 }
 

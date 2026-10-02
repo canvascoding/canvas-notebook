@@ -12,6 +12,7 @@ import { redactTeamControlPlaneLogText } from '@/app/lib/control-plane/team-clie
 import { resolveLicensePublicKeys } from './public-key';
 import {
   LicenseCertificateStorageError,
+  compareLicenseCertificatePayloads,
   loadCommunityLicenseRefreshState,
   loadStoredLicenseCert,
   saveLicenseCert,
@@ -344,6 +345,8 @@ async function getManagedLicenseStatus(instanceId: string): Promise<{
 
 async function resolveLicenseStatus(instanceId: string): Promise<LicenseStatus> {
   let lastFailure: LicenseResolutionFailure | undefined;
+  let stored: string | null | undefined;
+  let storedVerification: LicenseVerificationResult | undefined;
 
   const envCert = process.env.CANVAS_LICENSE_CERT?.trim();
   if (envCert) {
@@ -352,6 +355,21 @@ async function resolveLicenseStatus(instanceId: string): Promise<LicenseStatus> 
       const payload = verification.payload;
       const status = statusFromPayload(payload, instanceId, 'env');
       if (status) {
+        stored = await loadStoredLicenseCert(instanceId);
+        if (stored) {
+          storedVerification = await verifyLicenseJwtDetailed(stored, instanceId);
+          if (storedVerification.ok && compareLicenseCertificatePayloads(payload, storedVerification.payload) <= 0) {
+            const storedStatus = statusFromPayload(storedVerification.payload, instanceId, 'stored');
+            if (storedStatus) {
+              logLicenseInfoThrottled(LOG_PREFIX, 'resolved from stored certificate', {
+                instanceId, plan: storedVerification.payload.plan,
+                expiresAt: storedVerification.payload.exp ? new Date(storedVerification.payload.exp * 1000).toISOString() : null,
+                managedConfigured: isManagedLicenseConfigured(),
+              });
+              return withRefreshRuntimeState(storedStatus);
+            }
+          }
+        }
         try {
           await saveLicenseCert(envCert, payload);
           logLicenseInfoThrottled(LOG_PREFIX, 'resolved from env certificate', {
@@ -364,6 +382,9 @@ async function resolveLicenseStatus(instanceId: string): Promise<LicenseStatus> 
         } catch (error) {
           const failure = storageFailure(error, payload, 'env');
           if (!failure) throw error;
+          // A refresh can win the race after our first read. The atomic save
+          // remains authoritative, so resolve its newly committed certificate.
+          stored = undefined; storedVerification = undefined;
           lastFailure = failure;
           console.warn(`${LOG_PREFIX} env certificate rollback rejected`, {
             ...certLogContext(envCert, instanceId),
@@ -393,9 +414,9 @@ async function resolveLicenseStatus(instanceId: string): Promise<LicenseStatus> 
     }
   }
 
-  const stored = await loadStoredLicenseCert(instanceId);
+  if (stored === undefined) stored = await loadStoredLicenseCert(instanceId);
   if (stored) {
-    const verification = await verifyLicenseJwtDetailed(stored, instanceId);
+    const verification = storedVerification ?? await verifyLicenseJwtDetailed(stored, instanceId);
     if (verification.ok) {
       const payload = verification.payload;
       const status = statusFromPayload(payload, instanceId, 'stored');

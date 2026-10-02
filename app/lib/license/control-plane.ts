@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 import packageJson from '@/package.json';
 import type { SqlConnection } from '@/app/lib/db';
 import { openDb } from '@/app/lib/db';
+import { isDatabaseUnavailableError } from '@/app/lib/db/errors';
 import {
   classifyTeamControlPlaneStatus,
   redactTeamControlPlaneLogText,
@@ -14,7 +15,7 @@ import {
 import { activateLicenseCert, getLicenseControlPlaneUrl } from './index';
 import { licenseActivationFailureCode } from './error-codes';
 import { getLicenseInstanceId } from './instance';
-import { LicenseCertificateValidationError } from './jwt';
+import { LicenseCertificateValidationError, verifyLicenseJwtDetailed } from './jwt';
 import { logLicenseError } from './logging';
 import {
   loadPendingLicenseEmailActivation,
@@ -59,6 +60,7 @@ import {
   TeamSeatRolloutError,
 } from './team-seat-rollout';
 import {
+  compareLicenseCertificatePayloads,
   getCommunityInstanceTokenStatus,
   loadCommunityClaimSession,
   loadCommunityConnectionRecoveryState,
@@ -647,9 +649,29 @@ function localClaimError(
   return new LicenseControlPlaneError(message, status, code, false);
 }
 
-async function claimCertificate(instanceId: string): Promise<string> {
+export async function claimCertificate(
+  instanceId: string,
+  loadCertificate: typeof loadStoredLicenseCert = loadStoredLicenseCert,
+): Promise<string> {
   const environmentCertificate = process.env.CANVAS_LICENSE_CERT?.trim();
-  const certificate = environmentCertificate || await loadStoredLicenseCert(instanceId);
+  let storedCertificate: string | null;
+  try {
+    storedCertificate = await loadCertificate(instanceId);
+  } catch (error) {
+    if (environmentCertificate && isDatabaseUnavailableError(error)) return environmentCertificate;
+    throw error;
+  }
+  if (environmentCertificate && storedCertificate) {
+    const storedVerification = await verifyLicenseJwtDetailed(storedCertificate, instanceId);
+    if (storedVerification.ok) {
+      const environmentVerification = await verifyLicenseJwtDetailed(environmentCertificate, instanceId);
+      if (!environmentVerification.ok
+        || compareLicenseCertificatePayloads(environmentVerification.payload, storedVerification.payload) <= 0) {
+        return storedCertificate;
+      }
+    }
+  }
+  const certificate = environmentCertificate || storedCertificate;
   if (!certificate) {
     throw localClaimError(
       'A Community license must be activated before it can be connected.',
