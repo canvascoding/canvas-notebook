@@ -169,7 +169,7 @@ test.describe('FVRC-1006 dependency, choice, and recovery browser flows', () => 
   test.skip(process.env.COLLABORATION_E2E !== '1', 'Requires the authorized managed local graph-review browser stack.');
   test.setTimeout(180_000);
 
-  test('FVRC-1007 persisted chat widget preserves historical identity and offers explicit successor choices', async ({ browser }, testInfo) => {
+  test('FVRC-1007 persisted chat file references preserve historical identity and offer explicit successor choices', async ({ browser }, testInfo) => {
     await withFixture(browser, async (scope) => {
       // Bound individual UI waits so failed selectors cannot consume teardown time.
       scope.page.setDefaultTimeout(20_000);
@@ -189,7 +189,8 @@ test.describe('FVRC-1006 dependency, choice, and recovery browser flows', () => 
         lineageId: scope.fixture.scope.lineageId, operationId: parent.operationId, filePath: scope.filePath,
         sessionId: createdChatBody.session.sessionId, fixtureTitle,
       })).toString('base64url');
-      let chat: { sessionId: string; agentId: string; groupId: string };
+      let chat: { sessionId: string; agentId: string; groupId: string;
+        app: import('../app/lib/tool-apps/types').BuiltinToolAppDescriptor };
       try {
         const created = await execFileAsync(path.join(process.cwd(), 'node_modules/.bin/tsx'), [
           '--conditions', 'react-server', 'scripts/fvrc-1007-chat-fixture.ts', encoded,
@@ -206,25 +207,85 @@ test.describe('FVRC-1006 dependency, choice, and recovery browser flows', () => 
         throw new Error(`The dedicated persisted chat fixture failed (${code}); arguments and private output are redacted.`);
       }
       try {
+        expect(chat.sessionId).toBe(createdChatBody.session.sessionId);
+        expect(chat.agentId).toBe(createdChatBody.session.agentId);
+        expect(chat.app.entityId).toBe(chat.groupId);
+        const summaryResponsePromise = scope.page.waitForResponse((response) => {
+          if (response.request().method() !== 'POST'
+            || new URL(response.url()).pathname !== '/api/chat/file-changes') return false;
+          const request = response.request().postDataJSON() as {
+            sessionId: string; agentId: string; apps: Array<{ entityId: string }> };
+          return request.sessionId === chat.sessionId && request.agentId === chat.agentId
+            && request.apps.some((app) => app.entityId === chat.groupId);
+        });
         await scope.page.goto(`/en/notebook?workspaceId=${scope.workspaceId}&chat=open&session=${chat.sessionId}`);
-        const widget = scope.page.getByTestId('canvas-tool-app-widget');
-        await expect(widget.getByTestId('file-change-proposal-entry')).toBeVisible({ timeout: 60_000 });
-        await expect(widget.getByText('Choose from 2 successors', { exact: true })).toBeVisible();
-        await widget.getByRole('button', { name: 'View changes', exact: true }).click();
-        let graph = scope.page.getByTestId('graph-review-comparison');
+        const summaryResponse = await summaryResponsePromise;
+        expect(summaryResponse.status()).toBe(200);
+        expect(summaryResponse.request().postDataJSON()).toEqual({
+          sessionId: chat.sessionId, agentId: chat.agentId, apps: [chat.app],
+        });
+        const summary = await summaryResponse.json() as { success: boolean;
+          data: { groups: unknown[]; unavailable: unknown[] } };
+        expect(summary.success).toBe(true);
+        expect(summary.data.unavailable).toEqual([]);
+        expect(summary.data.groups).toHaveLength(1);
+        const { readFileChangeAppData } = await import('../app/lib/tool-apps/file-change-data');
+        const group = readFileChangeAppData(summary.data.groups[0]);
+        if (!group) throw new Error('The persisted chat needs a valid authorized file-change summary.');
+        expect(group.id).toBe(chat.groupId);
+        expect(group.workspaceId).toBe(scope.workspaceId);
+        expect(group.entries).toHaveLength(1);
+        const entry = group.entries[0];
+        expect(entry.pathHint).toBe(scope.filePath);
+        expect(entry.operationId).toBe(parent.operationId);
+        expect(entry.state).toBe('review_required');
+        expect(entry.proposal?.proposalId).toBe(parent.proposalId);
+        expect(entry.proposal?.rootProposalId).toBe(parent.proposalId);
+        expect(entry.proposal?.lineageId).toBe(scope.fixture.scope.lineageId);
+        expect(entry.proposal?.moreSuccessors).toBe(false);
+        const alternatives = [proposal(scope.fixture, 'B1'), chosen];
+        expect(entry.proposal?.successors.map((successor) => ({
+          proposalId: successor.proposalId, operationId: successor.operationId,
+        })).sort((left, right) => left.proposalId.localeCompare(right.proposalId))).toEqual(
+          alternatives.map((successor) => ({ proposalId: successor.proposalId, operationId: successor.operationId }))
+            .sort((left, right) => left.proposalId.localeCompare(right.proposalId)));
+
+        const references = scope.page.getByTestId('chat-file-references').filter({
+          has: scope.page.getByTestId('chat-file-reference-item').and(scope.page.locator(`[data-path="${scope.filePath}"]`)),
+        });
+        await expect(references).toHaveCount(1);
+        const row = references.locator('li').filter({
+          has: scope.page.getByTestId('chat-file-reference-item').and(scope.page.locator(`[data-path="${scope.filePath}"]`)),
+        });
+        await expect(row).toHaveCount(1);
+        await expect(row.getByTestId('chat-file-reference-status')).toHaveText('Review required');
+        const viewChanges = row.getByRole('button', { name: `View changes: ${scope.filePath}`, exact: true });
+        await expect(viewChanges).toHaveCount(1);
+        await viewChanges.click();
+        const graph = scope.page.getByTestId('graph-review-comparison');
         await expect(graph).toBeVisible();
         expect(new URL(scope.page.url()).searchParams.get('fvrcSelectedId')).toBe(parent.operationId);
         expect(new URL(scope.page.url()).searchParams.get('fvrcRef')).toBe(chat.groupId);
-        await scope.page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).click();
-        await widget.locator('summary').click();
-        const choices = widget.getByTestId('file-change-successor-option');
+        expect(new URL(scope.page.url()).searchParams.get('fvrcChangeEntry')).toBe(entry.id);
+        expect(new URL(scope.page.url()).searchParams.get('fvrcWorkspace')).toBe(scope.workspaceId);
+        const center = scope.page.getByTestId('file-version-center');
+        for (const alternative of alternatives) {
+          await expect(center.locator(`button[data-operation-id="${alternative.operationId}"]`)).toHaveCount(1);
+          await expect(center.locator(`button[data-operation-id="${alternative.operationId}"]`)).toBeVisible();
+        }
+        const choices = graph.getByTestId('graph-review-context').getByRole('button', {
+          name: 'Review this alternative', exact: true,
+        });
         await expect(choices).toHaveCount(2);
-        await testInfo.attach('widget-explicit-successors.png', { body: await widget.screenshot(), contentType: 'image/png' });
-        await choices.nth(1).click();
-        graph = scope.page.getByTestId('graph-review-comparison');
+        await testInfo.attach('chat-explicit-successors.png', { body: await center.screenshot(), contentType: 'image/png' });
+        const chosenCard = center.locator(`button[data-operation-id="${chosen.operationId}"]`);
+        await chosenCard.click();
+        await expect(chosenCard).toHaveAttribute('aria-pressed', 'true');
         await expect(graph).toBeVisible();
         expect(new URL(scope.page.url()).searchParams.get('fvrcSelectedId')).toBe(chosen.operationId);
-        expect(new URL(scope.page.url()).searchParams.get('fvrcTarget')).toBe('lineage');
+        expect(new URL(scope.page.url()).searchParams.get('fvrcTarget')).toBe('change_group');
+        expect(new URL(scope.page.url()).searchParams.get('fvrcRef')).toBe(chat.groupId);
+        expect(new URL(scope.page.url()).searchParams.get('fvrcChangeEntry')).toBe(entry.id);
         const receipt = await confirmAction(graph, scope.page, 'Accept change');
         expect(receipt.result?.resolutions).toEqual(expect.arrayContaining([
           { proposalId: parent.proposalId, lifecycle: 'included' },
@@ -232,19 +293,21 @@ test.describe('FVRC-1006 dependency, choice, and recovery browser flows', () => 
         ]));
         await expect.poll(() => content(scope)).toBe('# Graph flow fixture\n\nA1|B2\n');
         await scope.page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).click();
-        await widget.getByRole('button', { name: 'Reload widget', exact: true }).click();
-        await expect(widget.getByTestId('file-change-proposal-entry')).toContainText('Included', { timeout: 30_000 });
+        await references.getByRole('button', { name: 'Reload changes', exact: true }).click();
+        await expect(row.getByTestId('chat-file-reference-status')).toHaveText('Included with another proposal', { timeout: 30_000 });
         await scope.page.reload();
-        await expect(widget.getByTestId('file-change-proposal-entry')).toContainText('Included', { timeout: 30_000 });
-        await widget.getByRole('button', { name: 'View changes', exact: true }).click();
+        await expect(row.getByTestId('chat-file-reference-status')).toHaveText('Included with another proposal', { timeout: 30_000 });
+        await viewChanges.click();
         await expect(scope.page.getByTestId('graph-review-comparison')).toBeVisible();
         expect(new URL(scope.page.url()).searchParams.get('fvrcSelectedId')).toBe(parent.operationId);
+        expect(new URL(scope.page.url()).searchParams.get('fvrcRef')).toBe(chat.groupId);
+        expect(new URL(scope.page.url()).searchParams.get('fvrcChangeEntry')).toBe(entry.id);
         await expect(scope.page.getByTestId('graph-review-historical-status')).toContainText('Included');
         await expect(scope.page.locator(`button[data-operation-id="${parent.operationId}"]`))
           .toHaveAttribute('data-entry-status', 'included');
         await expect(scope.page.getByText('The relationship review is blocked', { exact: true })).toHaveCount(0);
         await expect(scope.page.getByTestId('graph-review-comparison').getByRole('button', { name: 'Accept change', exact: true })).toHaveCount(0);
-        await testInfo.attach('historical-widget-link-readonly.png', {
+        await testInfo.attach('historical-chat-link-readonly.png', {
           body: await scope.page.getByRole('dialog').screenshot(), contentType: 'image/png' });
       } finally {
         const deleted = await scope.context.request.delete('/api/sessions', {
