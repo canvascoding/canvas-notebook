@@ -4,6 +4,19 @@ const baseUrl = process.env.BASE_URL || 'http://localhost:3000';
 const loginEmail = process.env.TEST_LOGIN_EMAIL || process.env.BOOTSTRAP_ADMIN_EMAIL || 'admin@example.com';
 const loginPassword = process.env.TEST_LOGIN_PASSWORD || process.env.BOOTSTRAP_ADMIN_PASSWORD || 'change-me';
 
+function agentRunTimeoutMs() {
+  const configured = process.env.PI_AGENT_RUN_TIMEOUT_MS;
+  if (configured === undefined) return 120_000;
+  if (!/^[1-9]\d*$/u.test(configured)) {
+    throw new Error('PI_AGENT_RUN_TIMEOUT_MS must be a positive integer of at most 300000 milliseconds.');
+  }
+  const timeoutMs = Number(configured);
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs > 300_000) {
+    throw new Error('PI_AGENT_RUN_TIMEOUT_MS must be a positive integer of at most 300000 milliseconds.');
+  }
+  return timeoutMs;
+}
+
 function getWebSocketUrl() {
   const url = new URL('/ws/chat', baseUrl);
   url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -106,10 +119,12 @@ function waitForWsMessage(ws, predicate, timeoutMs = 30000) {
   });
 }
 
-async function connectRuntimeWs(cookie) {
+async function connectRuntimeWs(cookie, registerSocket) {
   const ws = new WebSocket(getWebSocketUrl(), {
     headers: { cookie, Origin: baseUrl },
+    handshakeTimeout: 15_000,
   });
+  registerSocket(ws);
 
   await new Promise((resolve, reject) => {
     ws.once('open', resolve);
@@ -138,15 +153,19 @@ async function wsRequest(ws, type, payload = {}, timeoutMs = 30000) {
   return response;
 }
 
-function collectAgentRun(ws, sessionId, timeoutMs = 30000) {
+function collectAgentRun(ws, sessionId, timeoutMs) {
   return new Promise((resolve, reject) => {
+    const startedAt = Date.now();
     const result = {
       hasText: false,
       hasPersistedCompletion: false,
+      firstAgentEventMs: null,
+      firstTextDeltaMs: null,
+      persistedCompletionMs: null,
     };
     const timer = setTimeout(() => {
       cleanup();
-      reject(new Error('Timed out waiting for persisted agent completion'));
+      reject(new Error(`Timed out waiting for persisted agent completion after ${Date.now() - startedAt}ms (limit ${timeoutMs}ms, textDelta=${result.hasText})`));
     }, timeoutMs);
 
     const onMessage = (data) => {
@@ -163,12 +182,16 @@ function collectAgentRun(ws, sessionId, timeoutMs = 30000) {
         return;
       }
 
+      result.firstAgentEventMs ??= Date.now() - startedAt;
       const event = message.event;
-      if (event?.type === 'message_update' && event.assistantMessageEvent?.type === 'text_delta') {
+      if (event?.type === 'message_update' && event.assistantMessageEvent?.type === 'text_delta'
+        && typeof event.assistantMessageEvent.delta === 'string' && event.assistantMessageEvent.delta.length > 0) {
         result.hasText = true;
+        result.firstTextDeltaMs ??= Date.now() - startedAt;
       }
       if (event?.type === 'message_saved') {
         result.hasPersistedCompletion = true;
+        result.persistedCompletionMs = Date.now() - startedAt;
         cleanup();
         resolve(result);
       }
@@ -262,7 +285,7 @@ async function testManagedFiles(cookie) {
   console.log('[PI Test] Managed files check passed.');
 }
 
-async function testSessions(cookie) {
+async function testSessions(cookie, registerSession) {
   console.log('[PI Test] Testing /api/sessions...');
   // Create
   const create = await request('/api/sessions', {
@@ -271,7 +294,11 @@ async function testSessions(cookie) {
     body: JSON.stringify({ title: 'Integration PI Session' }),
   });
   if (!create.response.ok) throw new Error('Session creation failed');
-  const sessionId = create.body.session.sessionId;
+  const { sessionId, agentId } = create.body.session;
+  if (typeof sessionId !== 'string' || !sessionId || typeof agentId !== 'string' || !agentId) {
+    throw new Error('Session creation returned invalid owned session identity');
+  }
+  registerSession({ sessionId, agentId });
   console.log('[PI Test] Created session:', sessionId);
 
   // List
@@ -291,18 +318,21 @@ async function testSessions(cookie) {
   return sessionId;
 }
 
-async function testStream(ws, sessionId) {
-  console.log('[PI Test] Testing WS send_message (with 30s timeout)...');
+async function testStream(ws, sessionId, maxTimeoutMs) {
+  console.log(`[PI Test] Testing WS send_message (completion limit ${maxTimeoutMs}ms)...`);
   await wsRequest(ws, 'subscribe_session', { sessionId });
 
-  const runResultPromise = collectAgentRun(ws, sessionId);
-  await wsRequest(ws, 'send_message', {
-    sessionId,
-    message: { role: 'user', content: 'echo hello', timestamp: Date.now() },
-  });
-  const runResult = await runResultPromise;
+  // Observe both promises immediately, including an early send_message rejection.
+  const [runResult] = await Promise.all([
+    collectAgentRun(ws, sessionId, maxTimeoutMs),
+    wsRequest(ws, 'send_message', {
+      sessionId,
+      message: { role: 'user', content: 'echo hello', timestamp: Date.now() },
+    }),
+  ]);
 
-  if (!runResult.hasText) console.warn('[PI Test] WARNING: WS stream did not return any text deltas (maybe missing API key?)');
+  console.log(`[PI Test] Agent timing: firstEvent=${runResult.firstAgentEventMs}ms, firstTextDelta=${runResult.firstTextDeltaMs}ms, persistedCompletion=${runResult.persistedCompletionMs}ms.`);
+  if (!runResult.hasText) throw new Error('WS stream did not return any nonempty text deltas');
   if (!runResult.hasPersistedCompletion) {
     throw new Error('WS stream did not confirm persisted agent completion');
   }
@@ -329,7 +359,11 @@ async function testSessionPersistence(cookie, sessionId) {
   }
 
   const hasUserMessage = messages.some((m) => m.role === 'user');
-  const hasAssistantMessage = messages.some((m) => m.role === 'assistant');
+  const hasAssistantMessage = messages.some((m) => m.role === 'assistant' && (
+    typeof m.content === 'string' ? m.content.trim().length > 0
+      : Array.isArray(m.content) && m.content.some((part) => part.type === 'text'
+        && typeof part.text === 'string' && part.text.trim().length > 0)
+  ));
   if (!hasUserMessage || !hasAssistantMessage) {
     throw new Error('Persisted session is missing user/assistant messages');
   }
@@ -389,7 +423,7 @@ async function testRuntimeStatusAndCompact(ws, sessionId) {
     throw new Error('Compaction did not reach a successful terminal runtime status');
   }
 
-  console.log('[PI Test] WS runtime status and compact check passed.');
+  console.log(`[PI Test] WS runtime status and compact check passed (${terminalCompaction.state}).`);
 }
 
 async function testUsageAnalytics(cookie, sessionId, persistedMessages) {
@@ -436,6 +470,7 @@ async function testUsageAnalytics(cookie, sessionId, persistedMessages) {
     if (!matchingEvent) {
       throw new Error('Expected usage event for persisted assistant usage');
     }
+    console.log('[PI Test] Persisted assistant usage has a matching session ledger event.');
   } else {
     console.warn('[PI Test] WARNING: Persisted assistant message had no tracked usage; skipping strict usage ledger assertion.');
   }
@@ -443,23 +478,74 @@ async function testUsageAnalytics(cookie, sessionId, persistedMessages) {
   console.log('[PI Test] Usage analytics check passed.');
 }
 
+async function closeOwnedSocket(ws) {
+  if (ws.readyState === WebSocket.CLOSED) return;
+  await new Promise((resolve) => {
+    const timer = setTimeout(() => { ws.terminate(); resolve(); }, 2_000);
+    ws.once('close', () => { clearTimeout(timer); resolve(); });
+    if (ws.readyState === WebSocket.CONNECTING) ws.terminate();
+    else ws.close();
+  });
+}
+
 async function run() {
+  let cookie;
+  let ws;
+  let failure;
+  const ownedSessions = [];
+  const cleanupErrors = [];
   try {
-    const cookie = await signIn();
+    const maxTimeoutMs = agentRunTimeoutMs();
+    cookie = await signIn();
     await testConfig(cookie);
     await testManagedFiles(cookie);
-    const sessionId = await testSessions(cookie);
-    const ws = await connectRuntimeWs(cookie);
-    await testStream(ws, sessionId);
+    const sessionId = await testSessions(cookie, (session) => ownedSessions.push(session));
+    await connectRuntimeWs(cookie, (socket) => { ws = socket; });
+    await testStream(ws, sessionId, maxTimeoutMs);
     const persistedMessages = await testSessionPersistence(cookie, sessionId);
     await testRuntimeStatusAndCompact(ws, sessionId);
-    ws.close();
     await testUsageAnalytics(cookie, sessionId, persistedMessages);
-    console.log('[PI Test] All integration tests passed! 🚀');
   } catch (error) {
+    failure = error;
     console.error('[PI Test] FAILED:', error.message);
-    process.exit(1);
+  } finally {
+    if (failure && ws?.readyState === WebSocket.OPEN) {
+      for (const { sessionId } of ownedSessions) {
+        try {
+          const beforeAbort = await wsRequest(ws, 'get_status', { sessionId }, 5_000);
+          if (beforeAbort.status?.canAbort) {
+            // Abort acknowledges the request before final persistence finishes.
+            await Promise.all([
+              waitForWsMessage(ws, (message) => message.type === 'agent_event' && message.sessionId === sessionId
+                && (message.event?.type === 'message_saved' || (message.event?.type === 'runtime_status'
+                  && message.event.status?.phase === 'idle' && message.event.status.canAbort === false
+                  && message.event.status.pendingToolCalls === 0)), 15_000),
+              wsRequest(ws, 'control', { sessionId, action: 'abort' }, 5_000),
+            ]);
+          }
+        }
+        catch (error) { cleanupErrors.push(error); }
+      }
+    }
+    if (ws) {
+      try { await closeOwnedSocket(ws); } catch (error) { cleanupErrors.push(error); }
+    }
+    for (const { sessionId, agentId } of ownedSessions) {
+      try {
+        const query = new URLSearchParams({ sessionId, agentId });
+        const deleted = await request(`/api/sessions?${query}`, {
+          method: 'DELETE', headers: { cookie }, signal: AbortSignal.timeout(15_000),
+        });
+        if (!deleted.response.ok || deleted.body?.success !== true || deleted.body.deleted !== sessionId) {
+          throw new Error(`Owned session cleanup failed (${deleted.response.status})`);
+        }
+        console.log('[PI Test] Deleted the owned synthetic session.');
+      } catch (error) { cleanupErrors.push(error); }
+    }
+    for (const error of cleanupErrors) console.error('[PI Test] CLEANUP FAILED:', error.message);
   }
+  if (failure || cleanupErrors.length) process.exitCode = 1;
+  else console.log('[PI Test] All integration tests passed! 🚀');
 }
 
 run();
