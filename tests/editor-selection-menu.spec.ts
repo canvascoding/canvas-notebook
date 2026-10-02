@@ -61,9 +61,16 @@ test('selection formatting preserves its range through pointer, keyboard and lin
     // The same commands work in a narrow touch viewport without opening a second editor.
     await page.setViewportSize({ width: 390, height: 844 });
     await editor.locator('p').first().click();
-    await page.keyboard.press('ControlOrMeta+ArrowLeft');
-    for (let i = 0; i < 5; i++) await page.keyboard.press('Shift+ArrowRight');
+    await page.keyboard.press('ControlOrMeta+A');
+    await page.keyboard.press('ArrowLeft');
+    // Build the actual text range instead of assuming one caret step per character.
+    for (let i = 0; i < 12; i++) {
+      await page.keyboard.press('Shift+ArrowRight');
+      if (await editor.evaluate(() => getSelection()?.toString()) === 'Alpha') break;
+    }
+    await expect.poll(() => editor.evaluate(() => getSelection()?.toString())).toBe('Alpha');
     await expect(menu).toBeVisible();
+    await expect(menu.getByRole('button', { name: 'Italic', exact: true })).toHaveAttribute('aria-pressed', 'true');
     const box = await menu.boundingBox();
     expect(box && box.x >= 0 && box.x + box.width <= 390).toBeTruthy();
     const touchButton = await menu.getByRole('button', { name: 'Italic', exact: true }).boundingBox();
