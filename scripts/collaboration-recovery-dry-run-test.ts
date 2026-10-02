@@ -9,6 +9,7 @@ import { createPiTestDatabase } from './helpers/pi-test-database';
 import { authoritativeCollaborationSnapshot } from '../app/lib/collaboration/checkpoint';
 import { serializeCanonicalText } from '../app/lib/collaboration/persistence';
 import { planCollaborationRecovery, recoveryHash } from '../app/lib/collaboration/recovery-plan';
+import * as recoveryEvidence from '../app/lib/collaboration/recovery-evidence';
 
 async function main() {
   const db = await createPiTestDatabase(); const connection = await db.openDb();
@@ -45,6 +46,8 @@ async function main() {
       '../app/lib/collaboration/persistence': { serializeCanonicalText },
       '../app/lib/workspaces/contracts': { workspaceAbsoluteRoot: () => root },
       '../app/lib/collaboration/recovery-plan': { planCollaborationRecovery, recoveryHash },
+      '../app/lib/collaboration/recovery-evidence': { ...recoveryEvidence,
+        observeRecoveryFile: (relativeRoot: string, filePath: string) => recoveryEvidence.observeRecoveryFile(relativeRoot, filePath, () => root) },
     };
     return name in mocks ? mocks[name] : require(name);
   }, { exports }, exports, processFixture, { log: (value: string) => logs.push(value) });

@@ -1,8 +1,9 @@
 # Collaboration recovery: operator review and guarded restoration
 
 The Notebook runtime uses PostgreSQL exclusively. Historical SQLite is evidence,
-not an active registry or request fallback. This change does not copy old IDs into
-the registry, delete snapshots, or merge historical and current Yjs documents.
+not an active registry or request fallback. The explicit offline operator can
+import an exactly verified historical identity. It never deletes snapshots or
+merges historical and current Yjs documents.
 
 ## Scope and ordering
 
@@ -38,11 +39,17 @@ node_modules/.bin/tsx --conditions react-server scripts/collaboration-recovery-d
 The CLI uses `REPEATABLE READ READ ONLY`, bypasses application bootstrap and
 migrations, and creates an exclusive directory with mode 0700 and files with
 mode 0600. It preserves all active Yjs binary states, registry/workspace rows,
-receipts, referenced revisions and the actual files for candidate paths. Hashes
+receipts, referenced revisions and the actual files for all captured paths. Hashes
 in `manifest.json` verify the artifacts. `manifest.json` is written last; a
 partial bundle must not authorize repair. This focused bundle supplements the
-full backup and does not replace it. Preserve historical SQLite metadata through
-an explicit read-only export from the backup; the CLI never opens SQLite.
+full backup and does not replace it. Historical identity evidence is optional:
+use `--legacy-sqlite /absolute/closed-evidence.sqlite --legacy-document-ids ID,ID`
+to export only explicitly selected IDs and their bound revision/lineage. The
+reader requires a closed independent snapshot without WAL/SHM/journal sidecars,
+opens it strictly read-only and rejects absent or foreign metadata. Its optional
+external `better-sqlite3` tooling is loaded only for that call. It is not a
+production runtime dependency or a read fallback. Preserve the original SQLite
+snapshot in the complete backup.
 The standalone CLI decodes raw PostgreSQL flag values explicitly and rejects
 integers outside JavaScript's exact range. Repair fingerprints include the rich
 text representation, schema version, BOM/newline profile and workspace root.
@@ -54,16 +61,52 @@ serialized hash equals its persisted checkpoint hash. The actual file must
 match the historical checkpoint. Unknown external edits, missing current
 snapshots, ambiguous identities and scope discrepancies require manual review.
 
-## Approved restoration procedure (separate implementation/approval gate)
+## Explicit offline operator
+
+Prepare a proposal from the immutable capture. Every operation starts with
+`selected: false`; review its exact identity, original file hash and formatting
+losses before selecting it. Do not edit its other fields. Missing, ambiguous or
+unverified cases remain in `manual`.
+
+```sh
+node_modules/.bin/tsx --conditions react-server scripts/collaboration-recovery-apply.ts prepare \
+  --bundle /absolute/capture --output /absolute/new-proposal.json
+node_modules/.bin/tsx --conditions react-server scripts/collaboration-recovery-apply.ts hash \
+  --reviewed /absolute/reviewed-selection.json
+node_modules/.bin/tsx --conditions react-server scripts/collaboration-recovery-apply.ts apply \
+  --bundle /absolute/capture --reviewed /absolute/reviewed-selection.json \
+  --expect-selection-sha256 REVIEWED_HASH --proof /absolute/verified-execution-proof.json \
+  --journal /absolute/private-journal
+```
+
+The proof binds this capture to a specific full backup archive, whose actual
+SHA-256 is verified before any mutation. Private hashed reports must attest to
+completed capture/backup, a restore with equal source/restored hashes for
+PostgreSQL, workspace files, Yjs bytes, registry, revisions and shares, and a
+verified writer drain with zero external PostgreSQL writers. Reports are
+operator evidence, not a substitute for performing those checks. The proof
+format is `RecoveryExecutionProof` in `recovery-operator.ts`; missing, failed,
+expired or changed evidence stops execution. Keep the backup, reports, bundle
+and journal together; never manufacture production reports from test fixtures.
+
+Dedicated PostgreSQL session locks block room acquisition. Stale owner tuples
+are never cleared: a matching release receipt, admission outcome or exact own
+durable recovery outcome must prove release. Admission reservations and pending
+agent operations block the repair. All checks and file operations run under the
+existing workspace mutation lock. There is no runtime route or startup repair.
+
+## Approved restoration procedure
 
 For each approved case, while owning the same workspace mutation lock used by
 Notebook lifecycle operations:
 
-1. Reload both Yjs states, active registry, workspace and file hash. Recompute the
-   evidence and use `verifyCollaborationRecoveryCase`. Reject `changed`; accept
-   `already_restored` without another write. Recheck generation, sequence, state
-   vector, binary hash, registry ID, provider, organization and revision ID.
-2. Preserve the just-observed original file and states in the repair journal.
+1. Reload both Yjs states, registry, workspace and file hash. Recheck generation,
+   sequence, state vector, binary hash, ID, provider, scope, root and the actual
+   revision ledger record. The proposal is recomputed from the verified bundle;
+   substituted operations and changed files are rejected.
+2. Fsync a private intent before mutations. Original files/states remain in the
+   immutable capture and full backup. SQL lifecycle mutations retain their exact
+   predecessor bytes, metadata and durable outcome in a separate recovery table.
 3. Project the **current successor** through `materializeCollaborationCheckpoint`
    with the reloaded current workspace/state. Never project the orphan or rebind
    its bytes to the successor. No ad-hoc filesystem replacement or registry SQL.
@@ -71,12 +114,16 @@ Notebook lifecycle operations:
    finalized receipt. Journal the before/after hashes and current identity. If
    finalization fails, retain the pending receipt and snapshots; retry only under
    the same identity checks. Do not roll a committed file back over newer edits.
-5. Historical orphan states remain preserved. Taking them out of active recovery
-   is a separately approved, idempotent quarantine/archive operation with their
-   exact expected generation and binary hash, not deletion or reactivation.
+5. Archive each explicitly selected orphan only after the successor's projection,
+   public shares and receipt are finalized. Match its exact original identity,
+   generation, sequence, vector and bytes. Keep its original and archived state;
+   never archive another state merely because it shares a path.
 
-The present artifact is the dry-run and precondition verifier. An operator apply
-command must be reviewed separately; this branch has not repaired production.
+An interrupted operation resumes only from its own proven outcome; a lost COMMIT
+reply never causes blind replay. A completed journal rechecks finalized receipt,
+file hash and filesystem identity, registry, revision and public-share metadata and performs no duplicate
+file replacement, revision insertion or state checkpoint. Changed outcomes stop
+the run. This implementation has not repaired production.
 
 ## Mark conflict evidence and repair
 
@@ -85,8 +132,10 @@ formatting policy. The shared `code-wins-v1` policy removes the other known
 schema marks from a Code span. Keep original Yjs bytes. A code-priority repair
 loses the conflicting Bold formatting and must say so. Verify text, stable block IDs,
 frontmatter, BOM/newlines, identity and encoding; never repair by blind Markdown
-reimport. Transfer a repaired clone only through a guarded lifecycle change with
-all current preconditions checked and no active room.
+reimport. The selected clone operation retains the original durably, increments
+generation and sequence once, clears only its quarantine and leaves projection
+pending until the normal checkpoint pipeline finishes. It requires the exact
+current identity, known original file/revision and an offline guard.
 
 `prepareCodeMarkConflictRepair` prepares private original/repaired bytes and
 hashes, the original scoped identity, an explicit formatting-loss list and
@@ -142,12 +191,28 @@ the bounded restoration. A container restart cannot resolve identity conflicts.
 The pure recovery tests cover 64 cases, stable reruns, conflicting/missing
 successors, schema/scope failures, changed preconditions and already-restored
 files. They do not attest to the current production inventory or backup. No
-production queries, deployment or restoration are part of this implementation
-run. Four focused Playwright E2E tests passed against the local production build
+production deployment or restoration has been performed by this implementation.
+Current production backup metadata was read on 2 October: the scheduled backup
+failed again; the local archive is from 1 October and the external archive from
+29 September. Neither is a verified fresh restore for this repair. Four focused
+Playwright E2E tests passed against the local production build
 and managed PostgreSQL stack: offline Code/Bold convergence and durable
 projection, quarantine across reconnect/reload with stale-token rejection,
 navigation during joining, and multi-user block editing/presence/checkpointing.
 Desktop and compact quarantine layouts were inspected. This does not attest to
 the complete E2E suite or a production restore. The standalone recovery CLI is
 also tested in a fresh process against an isolated real PostgreSQL database,
-including raw flags, encoding, quarantine and unsafe-integer rejection.
+including raw flags, encoding, quarantine and unsafe-integer rejection. Isolated
+real PostgreSQL tests also exercise room locks, pending admissions/agents, stale
+owners, exact predecessor backups, both COMMIT failure outcomes, clone lifecycle,
+checked revisions, complete file/share/receipt projection, interruption before
+orphan archive, stable replay and refusal of later external file edits. Historical
+identity and read-only native SQLite evidence tests cover scope, conflicts,
+rollback and unchanged source bytes. Synthetic prerequisite fixtures in tests do
+not attest to a production backup or restore. Additional real subprocess tests
+exit immediately after clone COMMIT and after exactly one of two orphan archives,
+then resume through a fresh normal CLI process. Second fresh replays preserve
+all relevant SQL tables, revisions, inode, mtime and file hash. A process crash
+while writing a temporary journal leaves no partial final marker; publication
+is exclusive and atomic with file/directory fsync. An external same-byte atomic
+file replacement is refused instead of silently rebinding public links.
