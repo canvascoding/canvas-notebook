@@ -75,6 +75,9 @@ jobs:
       - name: Verify application shutdown ownership
         run: npm run test:server:shutdown
 
+      - name: Verify internal scheduler authorization
+        run: npm run test:internal:scheduler
+
       - name: Verify release source and CLI safety gates
         run: npm run verify:release
 

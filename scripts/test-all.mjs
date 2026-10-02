@@ -240,6 +240,7 @@ async function run() {
   let server;
   try {
     await runCommand('npm', ['run', 'test:server:shutdown'], { env });
+    await runCommand('npm', ['run', 'test:internal:scheduler'], { env });
     await runCommand('npm', ['run', 'test:cli:portable'], { env });
     if (external) {
       console.log('[test:all] External server mode: skipping build and startup. Build this checkout before starting the supplied server.');

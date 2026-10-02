@@ -16,6 +16,7 @@ const PUBLIC_EXACT_ROUTES = [
   '/api/browser/view/fixture-download',
   '/api/browser/view/fixture-page',
   '/api/health',
+  '/api/todos/email-replies/poll',
   '/api/mobile/v1/compatibility',
   '/api/organization/invitations/accept',
   '/api/organization/invitations/activate',
