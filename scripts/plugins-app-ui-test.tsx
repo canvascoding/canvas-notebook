@@ -16,7 +16,12 @@ Object.defineProperty(globalThis, 'PointerEvent', { value: dom.window.MouseEvent
 Object.defineProperty(dom.window, 'PointerEvent', { value: dom.window.MouseEvent, configurable: true });
 dom.window.HTMLElement.prototype.scrollIntoView = () => {};
 const pushState = dom.window.history.pushState.bind(dom.window.history);
-dom.window.history.pushState = (...args) => { pushState(...args); dom.window.dispatchEvent(new dom.window.Event('navigation-test')); };
+dom.window.history.pushState = (data, unused, url) => {
+  const internalNavigation = data?.__NA || data?._N;
+  pushState(internalNavigation ? data : { ...data, __NA: true }, unused, url);
+  if (!internalNavigation) dom.window.dispatchEvent(new dom.window.Event('navigation-test'));
+};
+dom.window.history.replaceState({ __NA: true }, '', dom.window.location.href);
 const subscribe = (onChange: () => void) => {
   dom.window.addEventListener('navigation-test', onChange);
   dom.window.addEventListener('popstate', onChange);

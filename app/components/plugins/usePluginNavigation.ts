@@ -11,7 +11,7 @@ export function usePluginNavigation() {
     const href = updatePluginNavigation(searchParams.toString(), patch);
     const query = href.slice(href.indexOf('?'));
     if (query === window.location.search) return;
-    window.history.pushState(window.history.state, '', `${window.location.pathname}${query}${window.location.hash}`);
+    window.history.pushState(null, '', `${window.location.pathname}${query}${window.location.hash}`);
   }, [searchParams]);
   return { navigation, navigate };
 }
