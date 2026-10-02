@@ -1,6 +1,7 @@
 import 'server-only';
 
 import { authoritativeCollaborationSnapshot } from '../collaboration/checkpoint';
+import { CollaborationCheckpointValidationError } from '../collaboration/checkpoint-errors';
 import { serializeCanonicalText, type PersistedCollaborationState } from '../collaboration/persistence';
 import { isCollaborationStateQuarantined } from '../collaboration/failure';
 import type { WorkspaceContext } from '../workspaces/types';
@@ -12,6 +13,7 @@ export function collaborativeReadSnapshot(input: {
   collaboration: FileCollaborationState;
   state: PersistedCollaborationState | null;
   allowQuarantinedMetadata?: boolean;
+  allowUnprojectableMetadata?: boolean;
 }): Buffer | null {
   const { workspace, collaboration, state } = input;
   if (!state) return null; // The document has not joined collaboration yet.
@@ -26,6 +28,14 @@ export function collaborativeReadSnapshot(input: {
     if (input.allowQuarantinedMetadata) return null;
     throw Object.assign(new Error('The collaborative document is quarantined. Open it in the notebook for recovery.'), { status: 409 });
   }
-  const snapshot = authoritativeCollaborationSnapshot(state);
-  return Buffer.from(serializeCanonicalText(snapshot.canonicalContent, state), 'utf8');
+  try {
+    const snapshot = authoritativeCollaborationSnapshot(state);
+    return Buffer.from(serializeCanonicalText(snapshot.canonicalContent, state), 'utf8');
+  } catch (error) {
+    // This error is reached only after the persisted vector, schema and stable
+    // IDs validate. Bootstrap joins the native document without inventing text.
+    if (input.allowUnprojectableMetadata && error instanceof CollaborationCheckpointValidationError
+      && error.validationCode === 'roundtrip_unstable') return null;
+    throw error;
+  }
 }

@@ -13,7 +13,7 @@ import { isExcalidrawFilePath } from '@/app/lib/excalidraw-file';
 import { requireRequestWorkspace, workspaceFileOptions } from '@/app/lib/workspaces/request';
 import { loadCollaborationState } from '@/app/lib/collaboration/persistence';
 import { collaborativeReadSnapshot } from '@/app/lib/files/collaborative-read-snapshot';
-import { isCollaborationStateQuarantined } from '@/app/lib/collaboration/failure';
+import { collaborationCheckpointValidationFailure } from '@/app/lib/collaboration/checkpoint-errors';
 
 const READ_SIZE_LIMIT = 5 * 1024 * 1024; // 5MB
 const EXCALIDRAW_READ_SIZE_LIMIT = 25 * 1024 * 1024; // embedded image data can make scenes larger
@@ -97,12 +97,13 @@ export async function GET(request: NextRequest) {
     const liveDocument = collaboration.document?.provider === 'yjs' && collaboration.document.status === 'active'
       ? collaboration.document : null;
     const liveState = liveDocument ? await loadCollaborationState(liveDocument.id) : null;
-    const allowQuarantinedMetadata = searchParams.get('collaborationBootstrap') === '1';
+    const collaborationBootstrap = searchParams.get('collaborationBootstrap') === '1';
     const durableContent = liveDocument ? collaborativeReadSnapshot({
       workspace: workspaceResult.workspace, collaboration,
-      state: liveState, allowQuarantinedMetadata,
+      state: liveState, allowQuarantinedMetadata: collaborationBootstrap,
+      allowUnprojectableMetadata: collaborationBootstrap,
     }) : null;
-    if (allowQuarantinedMetadata && liveState && isCollaborationStateQuarantined(liveState)) {
+    if (collaborationBootstrap && liveState && durableContent === null) {
       return NextResponse.json({ success: true, data: {
         path, content: '', contentUnavailable: true,
         stats: { size: stats.size, modified: stats.modified, permissions: stats.permissions, fileVersion: stats.fileVersion },
@@ -151,6 +152,11 @@ export async function GET(request: NextRequest) {
       },
     });
   } catch (error) {
+    const validationFailure = collaborationCheckpointValidationFailure(error);
+    if (validationFailure) {
+      return NextResponse.json({ success: false, error: validationFailure.message,
+        code: validationFailure.code, validationCode: validationFailure.validationCode }, { status: validationFailure.status });
+    }
     // If the error is ENOENT (file not found), return a 404 status
     if (hasNodeErrorCode(error, 'ENOENT')) {
       return NextResponse.json(

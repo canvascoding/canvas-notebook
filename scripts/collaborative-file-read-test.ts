@@ -7,8 +7,12 @@ import { test } from 'node:test';
 import { NextRequest } from 'next/server';
 import ts from 'typescript';
 import * as Y from 'yjs';
+import { getSchema } from '@tiptap/core';
 
 import { collaborativeReadSnapshot } from '../app/lib/files/collaborative-read-snapshot';
+import { BLOCK_TREE_KEY, CollaborationBlockTree } from '../app/lib/collaboration/block-tree';
+import { COLLABORATION_CHECKPOINT_ERROR_CODES } from '../app/lib/collaboration/checkpoint-errors';
+import { createRichMarkdownYDoc, richMarkdownSchemaExtensions, validateRichMarkdownYDoc } from '../app/lib/collaboration/markdown-state';
 import type { FileCollaborationState } from '../app/lib/files/collaboration-policy';
 import type { PersistedCollaborationState } from '../app/lib/collaboration/persistence';
 import type { WorkspaceContext } from '../app/lib/workspaces/types';
@@ -44,6 +48,17 @@ function fixture() {
       contentHash: hash(Buffer.from('Price: 130 €\n')), sizeBytes: Buffer.byteLength('Price: 130 €\n'),
       createdByUserId: 'reviewer', createdByActorType: 'user', sourceSessionId: 'session-one', baseRevisionId: 'revision-old', createdAt: 200 },
   };
+  return { state, collaboration };
+}
+
+function richFixture(doc: Y.Doc) {
+  const initial = fixture();
+  const state: PersistedCollaborationState = { ...initial.state, path: 'rich.md',
+    representation: 'tiptap_blocks', schemaVersion: 3,
+    yjsState: Y.encodeStateAsUpdate(doc), stateVector: Y.encodeStateVector(doc) };
+  const collaboration: FileCollaborationState = { ...initial.collaboration, path: state.path,
+    document: { ...initial.collaboration.document!, path: state.path },
+    latestRevision: { ...initial.collaboration.latestRevision!, path: state.path } };
   return { state, collaboration };
 }
 
@@ -104,8 +119,120 @@ async function harness() {
     (name: string) => mocks[name] ?? runtimeRequire(name), { exports: route }, route,
   );
   return { controls, calls, read: () => route.GET(new NextRequest(
-    `https://canvas.test/api/files/read?path=note.txt${controls.metadata ? '&meta=1' : ''}${controls.bootstrap ? '&collaborationBootstrap=1' : ''}`)) };
+    `https://canvas.test/api/files/read?path=${encodeURIComponent(controls.collaboration.path)}${controls.metadata ? '&meta=1' : ''}${controls.bootstrap ? '&collaborationBootstrap=1' : ''}`)) };
 }
+
+test('a native-only rich document reopens through metadata and recovers without reading or versioning disk bytes', async () => {
+  const h = await harness();
+  const doc = createRichMarkdownYDoc('| First | Second |\n| --- | --- |\n| Seed | Neighbor |\n\nPeer paragraph', 'tiptap_blocks');
+  const schema = getSchema(richMarkdownSchemaExtensions());
+  const tree = new CollaborationBlockTree(doc, schema);
+  const paragraph = tree.read().firstChild!.child(1).firstChild!.firstChild!;
+  const originalError = console.error; console.error = () => undefined;
+  try {
+    tree.updateInlineContent(paragraph.attrs.id, paragraph.type.create(paragraph.attrs,
+      schema.text('odd\\|pipe', [schema.marks.code.create()])), 'human');
+    assert.equal(validateRichMarkdownYDoc(doc).code, 'roundtrip_unstable', 'the actual serializer must reject the lossy projection');
+    Object.assign(h.controls, richFixture(doc));
+    const persisted = structuredClone(h.controls.state);
+    h.controls.bootstrap = true;
+    const bootstrap = await h.read(); assert.equal(bootstrap.status, 200);
+    const { data } = await bootstrap.json();
+    assert.equal(data.path, 'rich.md'); assert.equal(data.content, ''); assert.equal(data.contentUnavailable, true);
+    assert.equal(data.stats.sha256, undefined); assert.equal(data.revision, null);
+    assert.equal(data.collaboration.document.id, h.controls.state!.documentId);
+    assert.deepEqual(h.controls.state, persisted, 'read-only bootstrap must preserve binary, vector, sequences and degradation');
+    assert.equal(h.calls.diskReads, 0); assert.equal(h.calls.revisionWrites, 0);
+    h.controls.bootstrap = false;
+    const ordinary = await h.read(); assert.equal(ordinary.status, 422);
+    assert.deepEqual(await ordinary.json(), { success: false,
+      error: 'The rich-text document could not be safely synchronized.',
+      code: COLLABORATION_CHECKPOINT_ERROR_CODES.roundtripUnstable, validationCode: 'roundtrip_unstable' });
+
+    tree.updateInlineContent(paragraph.attrs.id, paragraph.type.create(paragraph.attrs, schema.text('odd\\|pipe')), 'human');
+    assert.equal(validateRichMarkdownYDoc(doc).valid, true);
+    Object.assign(h.controls, richFixture(doc));
+    h.controls.state!.documentSequence++;
+    const recoveredState = structuredClone(h.controls.state);
+    for (const bootstrapRead of [true, false]) {
+      h.controls.bootstrap = bootstrapRead;
+      const recovered = await h.read(); assert.equal(recovered.status, 200);
+      const recoveredData = (await recovered.json()).data;
+      assert.equal(recoveredData.contentUnavailable, undefined);
+      assert.match(recoveredData.content, /Neighbor/u);
+      assert.equal(recoveredData.stats.sha256, hash(Buffer.from(recoveredData.content)));
+      assert.equal(recoveredData.revision, null, 'the old physical revision cannot certify the recovered native content');
+      assert.deepEqual(h.controls.state, recoveredState);
+    }
+    assert.equal(h.calls.diskReads, 0); assert.equal(h.calls.revisionWrites, 0);
+  } finally { console.error = originalError; doc.destroy(); }
+});
+
+test('rich bootstrap remains closed for foreign identity, denied access, corrupt state, schema, IDs and serializer failures', async () => {
+  const h = await harness();
+  const doc = createRichMarkdownYDoc('- A\n\nKeep', 'tiptap_blocks');
+  const schema = getSchema(richMarkdownSchemaExtensions());
+  const tree = new CollaborationBlockTree(doc, schema);
+  const paragraph = tree.read().firstChild!.firstChild!.firstChild!;
+  const originalError = console.error; console.error = () => undefined;
+  try {
+    tree.updateInlineContent(paragraph.attrs.id, paragraph.type.create(paragraph.attrs, schema.text('A\t\nB')), 'human');
+    assert.equal(validateRichMarkdownYDoc(doc).code, 'roundtrip_unstable');
+    const rich = richFixture(doc); Object.assign(h.controls, rich); h.controls.bootstrap = true;
+    for (const change of [{ documentId: 'foreign' }, { workspaceId: 'foreign' }, { organizationId: 'foreign' },
+      { path: 'other.md' }, { status: 'archived' as const }]) {
+      h.controls.state = { ...rich.state, ...change };
+      const before = structuredClone(h.controls.state);
+      assert.equal((await h.read()).status, 409);
+      assert.deepEqual(h.controls.state, before);
+    }
+    h.controls.state = rich.state; h.controls.denied = true;
+    assert.equal((await h.read()).status, 403); h.controls.denied = false;
+    for (const change of [{ stateVector: new Uint8Array([0]) }, { yjsState: new Uint8Array([255]) }]) {
+      h.controls.state = { ...rich.state, ...change };
+      const before = structuredClone(h.controls.state);
+      const response = await h.read(); assert.equal(response.status, 500);
+      assert.equal((await response.json()).success, false);
+      assert.deepEqual(h.controls.state, before);
+    }
+    const invalidCases = [
+      { code: 'schema_invalid', publicCode: COLLABORATION_CHECKPOINT_ERROR_CODES.schemaInvalid,
+        mutate: (invalid: Y.Doc) => invalid.getMap(BLOCK_TREE_KEY).set('version', 99), format: 'tiptap_blocks' as const },
+      { code: 'stable_id_missing', publicCode: COLLABORATION_CHECKPOINT_ERROR_CODES.stableIdMissing,
+        mutate: (invalid: Y.Doc) => (invalid.getXmlFragment('body').get(0) as Y.XmlElement).removeAttribute('id'), format: 'tiptap_xml' as const },
+      { code: 'stable_id_duplicate', publicCode: COLLABORATION_CHECKPOINT_ERROR_CODES.stableIdDuplicate,
+        mutate: (invalid: Y.Doc) => (invalid.getXmlFragment('body').get(1) as Y.XmlElement).setAttribute('id',
+          (invalid.getXmlFragment('body').get(0) as Y.XmlElement).getAttribute('id')!), format: 'tiptap_xml' as const },
+      { code: 'serialization_failed', publicCode: COLLABORATION_CHECKPOINT_ERROR_CODES.serializationFailed,
+        mutate: (invalid: Y.Doc) => {
+          const imageTree = new CollaborationBlockTree(invalid, schema);
+          const image = imageTree.read().firstChild!;
+          assert.equal(image.type.name, 'image');
+          (imageTree.records.get(image.attrs.id)!.get('attributes') as Y.Map<unknown>).set('width', '50%');
+        }, format: 'tiptap_blocks' as const, markdown: '![Sample](image.png)' },
+    ];
+    for (const invalidCase of invalidCases) {
+      const invalid = createRichMarkdownYDoc(invalidCase.markdown ?? 'First\n\nSecond', invalidCase.format);
+      try {
+        invalidCase.mutate(invalid);
+        assert.equal(validateRichMarkdownYDoc(invalid).code, invalidCase.code);
+        const reopened = new Y.Doc();
+        try {
+          Y.applyUpdate(reopened, Y.encodeStateAsUpdate(invalid));
+          assert.equal(validateRichMarkdownYDoc(reopened).code, invalidCase.code, 'the invalid native fixture must survive binary hydration');
+        } finally { reopened.destroy(); }
+        Object.assign(h.controls, richFixture(invalid)); h.controls.state!.representation = invalidCase.format;
+        const before: PersistedCollaborationState | null = structuredClone(h.controls.state);
+        const response = await h.read(); assert.equal(response.status, 422, invalidCase.code);
+        const failure = await response.json();
+        assert.equal(failure.success, false); assert.equal(failure.code, invalidCase.publicCode);
+        assert.equal(failure.validationCode, invalidCase.code); assert.equal(failure.data, undefined);
+        assert.deepEqual(h.controls.state, before);
+      } finally { invalid.destroy(); }
+    }
+    assert.equal(h.calls.diskReads, 0); assert.equal(h.calls.revisionWrites, 0);
+  } finally { console.error = originalError; doc.destroy(); }
+});
 
 test('quarantined opening returns scoped metadata without disk bytes, a hash, a revision or state changes', async () => {
   const h = await harness();
