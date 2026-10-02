@@ -19,6 +19,7 @@ async function main() {
   const context = vm.createContext({
     Promise, URLSearchParams, Error,
     pluginLoadRequestRef: { current: 0 }, PLUGIN_STORE_PAGE_SIZE: 12, storeTab: 'installed', storePage: 1, deferredSearchQuery: '', managementScope: 'user',
+    activeWorkspaceId: 'workspace-one', composioHeaders: () => ({ 'X-Canvas-Workspace-Id': 'workspace-one' }),
     capabilityScopeUrl: (url: string, scope: string) => `${url}?scope=${scope}`,
     t: (key: string) => `localized:${key}`,
     EMPTY_STORE_PAGINATION: {}, EMPTY_STORE_STATS: {},
@@ -31,6 +32,9 @@ async function main() {
       await storePending;
       return Response.json({ success: true, plugins: [{ name: 'catalog-plugin' }] });
     }
+    const params = new URL(url, 'https://canvas.test').searchParams;
+    assert.equal(params.get('workspaceId'), 'workspace-one', 'installed readiness uses the active workspace');
+    assert.equal(params.get('fresh'), '1', 'returning after setup checks fresh connection state');
     return Response.json({ success: true, plugins: [{ name: 'installed-plugin' }] });
   };
   const load = script.runInContext(context);

@@ -119,6 +119,7 @@ export interface CanvasPluginStoreIcon {
 export type CanvasPluginStoreStateFilter = 'all' | 'available' | 'installed' | 'updates';
 
 export interface CanvasPluginStoreListOptions {
+  name?: string;
   page?: number;
   pageSize?: number;
   query?: string;
@@ -661,7 +662,8 @@ export async function listCanvasPluginStore(options: CanvasPluginStoreListOption
   const page = clampPositiveInteger(options.page, 1, 100000);
   const state = options.state || 'all';
   const filtered = enriched.plugins.filter((plugin) => (
-    matchesState(plugin, state) && matchesStoreQuery(plugin, options.query || '')
+    (!options.name || plugin.name === options.name)
+    && matchesState(plugin, state) && matchesStoreQuery(plugin, options.query || '')
   ));
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const normalizedPage = Math.min(page, totalPages);

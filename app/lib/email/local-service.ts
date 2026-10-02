@@ -486,6 +486,22 @@ async function microsoftProfile(accessToken: string) {
   return { providerAccountId: body.id || emailAddress, emailAddress: emailAddress.toLowerCase(), displayName: body.displayName || null };
 }
 
+export async function readLocalEmailOAuthReturnUrl(userId: string, state: string, cancel = false): Promise<string | undefined> {
+  if (!/^[A-Za-z0-9_-]{43}$/u.test(state)) return undefined;
+  const userStatePath = statePath(userId, state);
+  const stored = await readJsonIfExists<OAuthState>(userStatePath)
+    || await readJsonIfExists<OAuthState>(legacyStatePath(state));
+  if (!stored || stored.state !== state || stored.userId !== userId
+    || !Number.isFinite(Date.parse(stored.expiresAt)) || Date.parse(stored.expiresAt) <= Date.now()) {
+    return undefined;
+  }
+  if (cancel) {
+    await fs.rm(userStatePath, { force: true }).catch(() => undefined);
+    await fs.rm(legacyStatePath(state), { force: true }).catch(() => undefined);
+  }
+  return stored.returnUrl;
+}
+
 export async function completeLocalEmailOAuth(userId: string, code: string, state: string) {
   const userStatePath = statePath(userId, state);
   const stored = await readJsonIfExists<OAuthState>(userStatePath)

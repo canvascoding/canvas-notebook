@@ -31,7 +31,7 @@ type ConnectedAccountListOptions = {
 export async function initiateConnection(
   toolkit: string,
   context: ResolvedComposioContext,
-  options: { mobileReturnUrl?: string | null } = {},
+  options: { mobileReturnUrl?: string | null; returnPath?: string | null } = {},
 ): Promise<{
   redirectUrl: string | null;
   noAuth?: boolean;
@@ -60,6 +60,7 @@ export async function initiateConnection(
     context,
     toolkitSlug: toolkit,
     mobileReturnUrl: options.mobileReturnUrl,
+    returnPath: options.returnPath,
   });
   const connectionRequest = await withSignal(30_000, (signal) => session.authorize(toolkit, { callbackUrl: flow.callbackUrl }, { signal }), true) as { redirectUrl: string };
   return {

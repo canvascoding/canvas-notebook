@@ -7184,6 +7184,9 @@
         "loadAccounts": "Failed to load email accounts",
         "loadWorkspaces": "Failed to load workspaces",
         "oauthFailed": "Email OAuth failed.",
+        "oauthCancelled": "Sign-in was cancelled. You can try again.",
+        "oauthIncomplete": "Sign-in could not be completed. Please try again.",
+        "oauthUnauthorized": "Your session has expired. Sign in and try again.",
         "oauthCredentialsRequired": "Client ID and Client Secret are required before saving or connecting OAuth.",
         "loadIntegrationKeys": "Failed to load current integration keys",
         "saveOAuthSettings": "Failed to save OAuth settings",
@@ -7226,7 +7229,8 @@
       "enabled": "Document Review Center is enabled.",
       "disabled": "Document Review Center is disabled.",
       "saveError": "Could not save this setting. Please try again."
-    }
+    },
+    "backToPlugin": "Back to plugin"
   },
   "skills": {
     "title": "Plugins & Skills",
@@ -7416,7 +7420,9 @@
         "openDetails": "Details",
         "notInstalled": "Not installed yet",
         "noSkills": "No skills listed.",
-        "noConnectors": "No connector recommendations are listed."
+        "noConnectors": "No connector recommendations are listed.",
+        "notFound": "This plugin is no longer available in this scope.",
+        "installedNeedsSetup": "Installed. Complete the required connections to use this plugin."
       },
       "sourcePathPlaceholder": "/absolute/path/to/plugin-package",
       "install": "Install plugin",
@@ -7454,7 +7460,10 @@
         "emailAccount": "Email account",
         "emailProvidersDefault": "Gmail, SMTP/IMAP",
         "emailProviders": "Providers: {providers}",
-        "openEmail": "Configure"
+        "openEmail": "Configure",
+        "connectionCancelled": "Connection cancelled. You can try again.",
+        "connectionFailed": "The connection could not be established. Please try again.",
+        "connectionPending": "The connection is not ready yet. Refresh the check or try again."
       },
       "errors": {
         "load": "Failed to load plugins.",

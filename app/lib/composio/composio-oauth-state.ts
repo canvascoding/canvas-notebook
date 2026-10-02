@@ -4,6 +4,7 @@ import { createHmac, randomBytes } from 'node:crypto';
 
 import { openDb } from '@/app/lib/db';
 import { resolveAuthSecret } from '@/app/lib/security/auth-secret';
+import { safeAppReturnTo } from '@/app/lib/auth/return-to';
 import type { ResolvedComposioContext } from './composio-context';
 import { ComposioProfileError } from './composio-profiles';
 
@@ -92,15 +93,25 @@ export async function createComposioOAuthFlowState(input: {
   context: ResolvedComposioContext;
   toolkitSlug: string;
   mobileReturnUrl?: string | null;
+  returnPath?: string | null;
 }): Promise<{ state: string; callbackUrl: string; returnPath: string; expiresAt: Date }> {
   const toolkitSlug = normalizeToolkitSlug(input.toolkitSlug);
   const state = randomBytes(32).toString('base64url');
   const stateHash = hashState(state);
   const now = Date.now();
   const expiresAt = new Date(now + OAUTH_FLOW_TTL_MS);
-  const returnPath = input.mobileReturnUrl
-    ? normalizeMobileReturnUrl(input.mobileReturnUrl)
-    : buildReturnPath(input.context, toolkitSlug);
+  let returnPath = buildReturnPath(input.context, toolkitSlug);
+  if (input.mobileReturnUrl) {
+    returnPath = normalizeMobileReturnUrl(input.mobileReturnUrl);
+  } else if (input.returnPath !== undefined && input.returnPath !== null) {
+    const safePath = safeAppReturnTo(input.returnPath);
+    if (!safePath) {
+      throw new ComposioProfileError('COMPOSIO_RETURN_URL_INVALID', 'The app return path is invalid.', 400);
+    }
+    const destination = new URL(safePath, 'https://canvas.invalid');
+    destination.searchParams.set('workspaceId', input.context.workspaceId);
+    returnPath = `${destination.pathname}${destination.search}${destination.hash}`;
+  }
   const database = await openDb();
   try {
     await database.run(`

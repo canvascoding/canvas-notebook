@@ -10,6 +10,10 @@ export type PluginNavigation = {
   area: PluginArea;
   view: PluginView | SkillView;
   scope: PluginManagementScope;
+  plugin?: string;
+  source?: 'store' | 'installed';
+  resourceId?: string;
+  workspaceId?: string;
 };
 
 export function readPluginNavigation(params: Pick<URLSearchParams, 'get'>): PluginNavigation {
@@ -19,20 +23,43 @@ export function readPluginNavigation(params: Pick<URLSearchParams, 'get'>): Plug
   const view = requestedView && allowedViews.includes(requestedView)
     ? requestedView as PluginNavigation['view']
     : area === 'skills' ? 'installed' : 'discover';
-  return { area, view, scope: params.get('scope') === 'organization' ? 'organization' : 'user' };
+  const navigation: PluginNavigation = { area, view, scope: params.get('scope') === 'organization' ? 'organization' : 'user' };
+  const plugin = params.get('plugin');
+  if (area === 'plugins' && plugin && /^(?=.{1,64}$)[a-z0-9]+(?:-[a-z0-9]+)*$/u.test(plugin)) {
+    navigation.plugin = plugin;
+    navigation.source = params.get('source') === 'installed' ? 'installed' : 'store';
+    const resourceId = params.get('resourceId');
+    if (navigation.source === 'installed' && resourceId && resourceId.length <= 512) navigation.resourceId = resourceId;
+  }
+  const workspaceId = params.get('workspaceId');
+  if (workspaceId && workspaceId.length <= 256) navigation.workspaceId = workspaceId;
+  return navigation;
 }
 
 export function updatePluginNavigation(search: string, patch: Partial<PluginNavigation>): string {
   const params = new URLSearchParams(search);
   const current = readPluginNavigation(params);
   if (patch.area && patch.area !== current.area) params.delete('view');
-  for (const [key, value] of Object.entries(patch)) params.set(key, value);
+  if ((patch.area && patch.area !== current.area) || (patch.view && patch.view !== current.view) || (patch.scope && patch.scope !== current.scope)) {
+    for (const key of ['plugin', 'source', 'resourceId']) params.delete(key);
+  }
+  for (const [key, value] of Object.entries(patch)) {
+    if (value === undefined) params.delete(key);
+    else params.set(key, value);
+  }
   const next = readPluginNavigation(params);
   if (next.area === 'plugins') params.delete('area');
   else params.set('area', next.area);
   params.set('view', next.view);
   if (next.scope === 'user') params.delete('scope');
   else params.set('scope', next.scope);
+  if (!next.plugin) {
+    for (const key of ['plugin', 'source', 'resourceId']) params.delete(key);
+  } else {
+    params.set('plugin', next.plugin);
+    params.set('source', next.source!);
+    if (next.source !== 'installed') params.delete('resourceId');
+  }
   return `/plugins?${params}`;
 }
 

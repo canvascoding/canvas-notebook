@@ -14,8 +14,11 @@ async function main() {
   const source = await fs.readFile('app/components/plugins/PluginsPanel.tsx', 'utf8');
   const parsed = ts.createSourceFile('SkillsPanel.tsx', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
   const handlers: ts.FunctionDeclaration[] = [];
+  let workspaceEffect: ts.Expression | undefined;
   const find = (node: ts.Node) => {
     if (ts.isFunctionDeclaration(node) && node.name?.text === 'savePluginMcpServer') handlers.push(node);
+    if (ts.isCallExpression(node) && node.expression.getText(parsed) === 'useEffect'
+      && node.arguments[1]?.getText(parsed) === '[activeWorkspaceId]' && node.arguments[0]?.getText(parsed).includes('mcpAuthorizationRef')) workspaceEffect = node.arguments[0];
     ts.forEachChild(node, find);
   };
   find(parsed);
@@ -30,6 +33,7 @@ async function main() {
     const requests: Request[] = [];
     const values = new Map([['UNRELATED_SECRET', 'fixture-unrelated'], ['MCP_PLUGIN_TOKEN', 'fixture-old']]);
     const events: Array<{ type: string; detail: { secretScope: string } }> = [];
+    let readinessRefreshes = 0;
     const empty = { ...state, connector: null, isSaving: false };
     const context = vm.createContext({
       mcpSetupState: state,
@@ -38,6 +42,7 @@ async function main() {
       collectMcpEnvEntries, updateMcpConfigRawServer, McpAuthorizationError, Error,
       t: () => 'Localized save error',
       storeByName: new Map(),
+      loadPluginData: async () => { readinessRefreshes += 1; },
       checkStorePluginPreflight: () => { throw new Error('Unexpected preflight in fixture'); },
       CustomEvent: class { constructor(readonly type: string, readonly options: { detail: { secretScope: string } }) {} get detail() { return this.options.detail; } },
       window: { dispatchEvent: (event: { type: string; detail: { secretScope: string } }) => { events.push(event); return true; } },
@@ -63,7 +68,7 @@ async function main() {
       },
     });
     await script.runInContext(context);
-    return { state, requests, values, events, empty };
+    return { state, requests, values, events, empty, readinessRefreshes };
   };
 
   const success = await run();
@@ -72,10 +77,12 @@ async function main() {
   assert.equal(success.values.get('MCP_PLUGIN_TOKEN'), 'fixture-plugin-new');
   assert.equal(success.events.length, 1); assert.equal(success.events[0].detail.secretScope, 'user');
   assert.equal(success.state, success.empty, 'successful save closes/reset the actual setup state');
+  assert.equal(success.readinessRefreshes, 1, 'successful MCP setup refreshes installed connection readiness');
   for (const invalid of [{ draft: { ...draft, name: '' } }, { draft: { ...draft, url: '' } }, { rawContent: '{' }]) {
     const result = await run(invalid);
     assert.equal(result.requests.length, 0, 'local validation happens before any credential write');
     assert.equal(result.events.length, 0); assert.equal(result.state.isSaving, false); assert.ok(result.state.error);
+    assert.equal(result.readinessRefreshes, 0);
     assert.equal(result.values.get('MCP_PLUGIN_TOKEN'), 'fixture-old');
   }
   const failedEnv = await run({ failEnv: true });
@@ -86,7 +93,30 @@ async function main() {
   assert.equal(invalidResponse.requests.length, 1); assert.equal(invalidResponse.state.errorCode, 'request_failed'); assert.equal(invalidResponse.state.error, 'Localized save error');
   const failedConfig = await run({ failConfig: true });
   assert.equal(failedConfig.state.errorCode, 'decryption_failed'); assert.equal(failedConfig.state.isSaving, false);
+  assert.equal(failedConfig.readinessRefreshes, 0, 'failed setup cannot report refreshed connection readiness');
   assert.equal(failedConfig.values.get('UNRELATED_SECRET'), 'fixture-unrelated');
+
+  assert.ok(workspaceEffect);
+  const effectScript = new vm.Script(ts.transpileModule(`(${workspaceEffect.getText(parsed)})();`, {
+    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None },
+  }).outputText);
+  const closedSetup = { open: false, isLoading: false };
+  let pendingSetup: object = { open: true, isLoading: true };
+  const controller = new AbortController();
+  let cancelledFlows = 0;
+  const context = vm.createContext({
+    connectorFlowRequestRef: { current: 0 },
+    mcpAuthorizationRef: { current: { controller, flow: { server: 'plugin' } } },
+    setActiveConnectorAction: () => {}, setPreflightByPlugin: () => {},
+    setMcpSetupState: (state: object) => { pendingSetup = state; },
+    EMPTY_PLUGIN_MCP_SETUP_STATE: closedSetup,
+    cancelMcpAuthorization: async () => { cancelledFlows += 1; },
+  });
+  const cleanup = effectScript.runInContext(context) as () => void;
+  assert.equal(pendingSetup, closedSetup, 'switching workspace closes a pending MCP template dialog instead of trapping it in loading state');
+  cleanup();
+  assert.equal(controller.signal.aborted, true, 'workspace cleanup stops the originating OAuth wait');
+  assert.equal(cancelledFlows, 1, 'workspace cleanup cancels its own pending OAuth flow');
   console.log('Plugin MCP save: actual callback validates before writes, patches only personal credentials, preserves unrelated secrets/config metadata, keeps token out of JSON, and retains safe failures.');
 }
 

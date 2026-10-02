@@ -378,7 +378,7 @@ export async function getGatewayToolkitTools(toolkit: string, search: string, co
 export async function connectGatewayToolkit(
   toolkit: string,
   context: ResolvedComposioContext,
-  options: { mobileReturnUrl?: string | null } = {},
+  options: { mobileReturnUrl?: string | null; returnPath?: string | null } = {},
 ) {
   const mode = await getComposioMode(context.storageScope);
   if (mode === 'disabled') throw new Error('Composio not configured');
@@ -387,6 +387,7 @@ export async function connectGatewayToolkit(
       context,
       toolkitSlug: toolkit,
       mobileReturnUrl: options.mobileReturnUrl,
+      returnPath: options.returnPath,
     });
     const result = await managedRequest<{ redirectUrl: string | null; noAuth?: boolean }>(`/connect/${encodeURIComponent(toolkit)}`, {
       method: 'POST',

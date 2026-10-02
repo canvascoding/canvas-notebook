@@ -31,7 +31,11 @@ export async function GET(request: NextRequest) {
     const redirectUrl = flowState.returnPath.startsWith('/')
       ? new URL(flowState.returnPath, getBaseUrl())
       : new URL(flowState.returnPath);
+    const providerError = url.searchParams.get('error');
     redirectUrl.searchParams.set('composio', 'returned');
+    if (providerError) {
+      redirectUrl.searchParams.set('composioError', providerError === 'access_denied' ? 'cancelled' : 'failed');
+    }
     redirectUrl.searchParams.set('toolkit', flowState.toolkitSlug);
 
     return NextResponse.redirect(redirectUrl);

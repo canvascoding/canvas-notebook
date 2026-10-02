@@ -7,6 +7,7 @@ import { Loader2, Link2, Unlink, RefreshCw, Search, ExternalLink, Plug, Eye, Eye
 
 import { selectActiveWorkspace, useWorkspaceStore } from '@/app/store/workspace-store';
 import { WORKSPACE_ID_HEADER } from '@/app/lib/workspaces/constants';
+import { safePluginReturnTo } from '@/app/lib/plugins/plugin-return';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -278,7 +279,8 @@ export function ConnectedAppsPanel({ isOpen, onOpenChange, isAdmin = false }: Co
       const response = await fetch(`/api/composio/connect/${encodeURIComponent(toolkitSlug)}`, {
         method: 'POST',
         credentials: 'include',
-        headers: composioHeaders(),
+        headers: { ...composioHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ returnPath: safePluginReturnTo(searchParams.get('returnTo')) || undefined }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || t('connectError'));

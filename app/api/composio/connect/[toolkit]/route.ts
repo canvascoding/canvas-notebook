@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { clearComposioGatewayCaches, connectGatewayToolkit, getComposioGatewayMode } from '@/app/lib/composio/composio-gateway';
 import { requireComposioRequestContext } from '@/app/lib/composio/composio-request';
 import { toPublicEffectiveComposioContext } from '@/app/lib/composio/composio-context';
+import { safeAppReturnTo } from '@/app/lib/auth/return-to';
 
 export async function POST(
   request: NextRequest,
@@ -21,7 +22,12 @@ export async function POST(
       return NextResponse.json({ error: 'Toolkit slug is required' }, { status: 400 });
     }
 
-    const { redirectUrl, noAuth } = await connectGatewayToolkit(toolkit, composioContext);
+    const body = await request.json().catch(() => ({})) as { returnPath?: unknown };
+    const returnPath = body.returnPath === undefined ? undefined : safeAppReturnTo(body.returnPath);
+    if (body.returnPath !== undefined && !returnPath) {
+      return NextResponse.json({ error: 'The app return path is invalid.' }, { status: 400 });
+    }
+    const { redirectUrl, noAuth } = await connectGatewayToolkit(toolkit, composioContext, { returnPath });
     if (noAuth) {
       clearComposioGatewayCaches(composioContext);
       return NextResponse.json({

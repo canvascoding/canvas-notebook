@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { auth } from '@/app/lib/auth';
-import { completeLocalEmailOAuth } from '@/app/lib/email/local-service';
+import { completeLocalEmailOAuth, readLocalEmailOAuthReturnUrl } from '@/app/lib/email/local-service';
 import { getPublicRequestOrigin } from '@/app/lib/utils/request-origin';
 
 function safeReturnUrl(value: string | undefined, fallback: string, allowedOrigin: string): string {
@@ -25,17 +25,23 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(redirectUrl);
   }
 
+  const state = request.nextUrl.searchParams.get('state');
+  const pendingReturnUrl = state
+    ? await readLocalEmailOAuthReturnUrl(session.user.id, state).catch(() => undefined)
+    : undefined;
+  const returnUrl = safeReturnUrl(pendingReturnUrl, fallbackUrl, requestOrigin);
   const error = request.nextUrl.searchParams.get('error');
   if (error) {
-    const redirectUrl = new URL(fallbackUrl);
-    redirectUrl.searchParams.set('emailOAuthError', error);
+    if (state) await readLocalEmailOAuthReturnUrl(session.user.id, state, true).catch(() => undefined);
+    const redirectUrl = new URL(returnUrl);
+    redirectUrl.searchParams.set('emailOAuthError', ['access_denied', 'user_cancelled', 'cancelled'].includes(error) ? 'cancelled' : 'failed');
     return NextResponse.redirect(redirectUrl);
   }
 
   const code = request.nextUrl.searchParams.get('code');
-  const state = request.nextUrl.searchParams.get('state');
   if (!code || !state) {
-    const redirectUrl = new URL(fallbackUrl);
+    if (state) await readLocalEmailOAuthReturnUrl(session.user.id, state, true).catch(() => undefined);
+    const redirectUrl = new URL(returnUrl);
     redirectUrl.searchParams.set('emailOAuthError', 'missing_code_or_state');
     return NextResponse.redirect(redirectUrl);
   }
@@ -45,9 +51,9 @@ export async function GET(request: NextRequest) {
     const redirectUrl = new URL(safeReturnUrl(result.returnUrl, fallbackUrl, requestOrigin));
     redirectUrl.searchParams.set('emailOAuth', 'connected');
     return NextResponse.redirect(redirectUrl);
-  } catch (callbackError) {
-    const redirectUrl = new URL(fallbackUrl);
-    redirectUrl.searchParams.set('emailOAuthError', callbackError instanceof Error ? callbackError.message : 'oauth_failed');
+  } catch {
+    const redirectUrl = new URL(returnUrl);
+    redirectUrl.searchParams.set('emailOAuthError', 'failed');
     return NextResponse.redirect(redirectUrl);
   }
 }

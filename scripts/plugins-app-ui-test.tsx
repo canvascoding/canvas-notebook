@@ -36,6 +36,8 @@ async function main() {
   const fetches: string[] = [];
   let Panel: React.ComponentType<{ canManageOrganizationCapabilities?: boolean }>;
   let installedPlugins: Record<string, unknown>[] = [];
+  let storeFixtures: Record<string, unknown>[] = [];
+  let storeFixtureOffPage = false;
   let storePending: Promise<void> | undefined;
   let storeUnavailable = false;
   let skillsUnavailable = false;
@@ -69,6 +71,7 @@ async function main() {
     if (name === '@/i18n/navigation') return {
       Link: React.forwardRef<HTMLAnchorElement, React.AnchorHTMLAttributes<HTMLAnchorElement>>(function MockLink(props, ref) { return <a {...props} ref={ref} href={`/${locale}${props.href}`} />; }),
       usePathname: () => '/plugins',
+      useRouter: () => ({ push: (href: string) => { dom.window.history.pushState(null, '', `/${locale}${href}`); } }),
       getPathname: ({ href }: { href: string }) => `/${locale}${href}`,
     };
     if (name === '@/app/store/workspace-store') return { useWorkspaceStore: (select: (state: unknown) => unknown) => select({ activeWorkspaceId: 'workspace-one' }) };
@@ -77,7 +80,7 @@ async function main() {
     if (name === '@/app/components/editor/MarkdownEditorClient') return { MarkdownEditor: () => null };
     return originalLoad(name, parent, isMain);
   };
-  globalThis.fetch = async (input) => {
+  globalThis.fetch = async (input, init) => {
     const url = new URL(String(input), dom.window.location.origin);
     fetches.push(url.pathname + url.search);
     if (url.pathname === '/api/skills') return skillsUnavailable
@@ -95,7 +98,16 @@ async function main() {
       await storePending;
       return storeUnavailable
         ? Response.json({ success: false, error: 'Plugin catalog unavailable' }, { status: 503 })
-        : Response.json({ success: true, plugins: [], stats: { updates: 0 } });
+        : Response.json({ success: true, plugins: storeFixtureOffPage && !url.searchParams.has('name') ? [] : storeFixtures, stats: { updates: 0 } });
+    }
+    if (url.pathname === '/api/plugins/store/preflight') return Response.json({ success: true, preflight: { ready: true, hasRequiredMissing: false, items: [], summary: { total: 0, ready: 0, requiredMissing: 0, recommendedMissing: 0 } } });
+    if (url.pathname === '/api/plugins/store/install') {
+      const body = JSON.parse(String(init?.body));
+      assert.equal(body.name, 'install-fixture');
+      const installed = { name: body.name, version: '1.0.0', description: 'Fixture package', enabled: true, scopeType: 'user', resourceId: 'user:install-fixture', skills: [] };
+      installedPlugins = [installed];
+      storeFixtures = storeFixtures.map(plugin => ({ ...plugin, installed: { installed: true, enabled: true, version: '1.0.0', updateAvailable: false, installedPlugin: installed } }));
+      return Response.json({ success: true, plugin: installed });
     }
     if (url.pathname === '/api/skills/store') return skillStoreUnavailable
       ? Response.json({ success: false, error: 'Skill catalog unavailable' }, { status: 503 })
@@ -105,7 +117,7 @@ async function main() {
     throw new Error(`Unexpected fetch: ${url.pathname}`);
   };
   try {
-    const { render, fireEvent, waitFor, cleanup } = await import('@testing-library/react');
+    const { render, fireEvent, waitFor, cleanup, within } = await import('@testing-library/react');
     const { SkillsPanel } = await import('../app/components/plugins/PluginsPanel');
     Panel = SkillsPanel;
     const { PluginsAppClient } = await import('../app/components/plugins/PluginsAppClient');
@@ -196,6 +208,25 @@ async function main() {
     cleanup();
     organizationAllowed = false;
     scopeFixtures = false;
+
+    locale = 'en';
+    for (storeFixtureOffPage of [false, true]) {
+      installedPlugins = [];
+      storeFixtures = [{ name: 'install-fixture', displayName: 'Install fixture', description: 'Fixture package', latestVersion: '1.0.0', skills: [], installed: { installed: false, enabled: false, updateAvailable: false } }];
+      dom.window.history.replaceState(null, '', '/en/plugins?plugin=install-fixture&source=store');
+      view = render(<PluginsAppClient canManageOrganizationCapabilities />);
+      const detail = within(view.getByRole('dialog'));
+      await waitFor(() => assert.equal((detail.getByRole('button', { name: en.skills.plugins.addPlugin }) as HTMLButtonElement).disabled, false));
+      const exactLoadsBefore = fetches.filter(url => url.startsWith('/api/plugins/store?name=install-fixture')).length;
+      fireEvent.click(detail.getByRole('button', { name: en.skills.plugins.addPlugin }));
+      await waitFor(() => assert.equal((detail.getByRole('button', { name: en.skills.plugins.installed }) as HTMLButtonElement).disabled, true));
+      assert.equal(detail.queryByRole('button', { name: en.skills.plugins.addPlugin }), null, 'fresh installation state replaces the older exact-detail snapshot');
+      assert.ok(fetches.filter(url => url.startsWith('/api/plugins/store?name=install-fixture')).length > exactLoadsBefore, 'installation refreshes the exact detail even beyond the current page');
+      cleanup();
+    }
+    storeFixtures = [];
+    storeFixtureOffPage = false;
+    installedPlugins = [];
 
     for (locale of ['de', 'en'] as const) {
       view = render(<PluginsSettingsLink />);

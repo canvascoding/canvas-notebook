@@ -5,6 +5,7 @@ import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { useLocale, useTranslations } from 'next-intl';
+import { safePluginReturnTo } from '@/app/lib/plugins/plugin-return';
 import { ChevronDown, ChevronLeft, Copy, ExternalLink, Eye, EyeOff, Inbox, Loader2, Mail, MoreHorizontal, Plus, RefreshCw, Save, Search, Send, Server, Settings, ShieldCheck, Star, Trash2 } from 'lucide-react';
 
 import { UnifiedSecretsEditor } from '@/app/components/settings/UnifiedSecretsEditor';
@@ -73,6 +74,7 @@ import { SETTINGS_SIDEBAR_COLLAPSED_COOKIE } from '@/app/lib/settings-navigation
 import { cn } from '@/lib/utils';
 import { mcpConnectionErrorCopy, type McpConnectionHealth } from '@/app/lib/mcp/connection-health-types';
 import { startMcpAuthorization, waitForMcpAuthorization, readPendingMcpAuthorizations, cancelMcpAuthorization, McpAuthorizationError, type McpAuthorizationFlow } from '@/app/lib/desktop/mcp-oauth-client';
+import { emailOAuthFeedbackKey } from '@/app/lib/email/oauth-feedback';
 
 interface EnvEntry {
   key: string;
@@ -1258,7 +1260,7 @@ export function EmailAccountsCard({
     if (emailOAuthStatus === 'failed' || emailOAuthError) {
       handledEmailOAuthReturn.current = true;
       const timeout = window.setTimeout(() => {
-        setError(emailOAuthError || t('errors.oauthFailed'));
+        setError(t(emailOAuthFeedbackKey(emailOAuthError)));
         setMessage(null);
         clearEmailOAuthParams();
       }, 0);
@@ -1314,7 +1316,7 @@ export function EmailAccountsCard({
       const response = await fetch('/api/email/oauth/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ provider }),
+        body: JSON.stringify({ provider, returnUrl: safePluginReturnTo(searchParams.get('returnTo')) || undefined }),
       });
       const payload = await response.json();
       if (!response.ok || !payload.success) throw new Error(payload.error || t('errors.startOAuth'));

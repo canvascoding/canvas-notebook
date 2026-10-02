@@ -4,6 +4,10 @@ import { SuitePageLayout } from '@/app/components/SuitePageLayout';
 import { getLocale, getTranslations } from 'next-intl/server';
 import { redirect } from '@/i18n/navigation';
 import { legacyPluginSettingsHref } from '@/app/lib/plugins/plugin-navigation';
+import { safePluginReturnTo } from '@/app/lib/plugins/plugin-return';
+import Link from 'next/link';
+import { Button } from '@/components/ui/button';
+import { ChevronLeft } from 'lucide-react';
 import { isOnboardingHintsEnabled } from '@/app/lib/onboarding/status';
 import { isManagedControlPlaneAvailable } from '@/app/lib/agents/storage';
 import { isAdminUser } from '@/app/lib/admin-auth';
@@ -28,6 +32,7 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
   });
   if (pluginsHref) redirect({ href: pluginsHref, locale: await getLocale() });
   const t = await getTranslations('settings');
+  const pluginReturnTo = safePluginReturnTo(params.returnTo);
   const cookieStore = await cookies();
 
   const isAdmin = isAdminUser(session?.user);
@@ -53,6 +58,13 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
 
   return (
     <SuitePageLayout title={t('title')} hintPage="settings" hintEnabled={isOnboardingHintsEnabled()}>
+        {pluginReturnTo ? (
+          <div className="mx-auto mb-3 w-full max-w-7xl px-3 sm:px-6">
+            <Button asChild variant="outline" size="sm">
+              <Link href={pluginReturnTo}><ChevronLeft className="mr-2 h-4 w-4" />{t('backToPlugin')}</Link>
+            </Button>
+          </div>
+        ) : null}
         <IntegrationsSettingsClient
           isAdmin={isAdmin}
           currentUserId={currentUserId}

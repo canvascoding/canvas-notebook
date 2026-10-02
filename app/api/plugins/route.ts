@@ -8,6 +8,9 @@ import {
   resolveCapabilityStorageScope,
 } from '@/app/lib/capabilities/request-scope';
 import { readOrganizationPermissionForUser } from '@/app/lib/organization/permissions';
+import { resolveAgentSessionWorkspaceForUser } from '@/app/lib/pi/session-workspace-context';
+import { resolvePluginConnectionReadiness } from '@/app/lib/plugins/plugin-connection-readiness';
+import { WORKSPACE_ID_HEADER } from '@/app/lib/workspaces/constants';
 import {
   deduplicateCanvasPluginInstallRecords,
   listCanvasPlugins,
@@ -26,24 +29,44 @@ export async function GET(request: NextRequest) {
       userId: session.user.id,
       organizationState,
     });
-    let plugins = await listCanvasPlugins(scope);
-    if (
+    const requestedWorkspaceId = request.nextUrl.searchParams.get('workspaceId')
+      || request.headers.get(WORKSPACE_ID_HEADER);
+    const includesOrganizationAssignments = Boolean(
       scope.scopeType === 'user'
       && organizationState.organizationId
       && organizationState.permission?.status === 'active'
-    ) {
-      const [snapshot, organizationPlugins] = await Promise.all([
-        resolveCapabilityExecutionContextForUser({
+    );
+    const [personalPlugins, organizationPlugins, executionContext] = await Promise.all([
+      listCanvasPlugins(scope),
+      includesOrganizationAssignments ? listCanvasPlugins({
+        scopeType: 'organization',
+        organizationId: organizationState.organizationId!,
+      }) : Promise.resolve([]),
+      includesOrganizationAssignments ? resolveCapabilityExecutionContextForUser({
           userId: session.user.id,
-          organizationId: organizationState.organizationId,
-          role: organizationState.permission.role,
-          requestedWorkspaceId: request.nextUrl.searchParams.get('workspaceId'),
-        }).then(resolveEffectiveCapabilitySnapshot),
-        listCanvasPlugins({
-          scopeType: 'organization',
-          organizationId: organizationState.organizationId,
-        }),
-      ]);
+          organizationId: organizationState.organizationId!,
+          role: organizationState.permission!.role,
+          requestedWorkspaceId,
+        }) : Promise.resolve(null),
+    ]);
+    const workspaceId = executionContext?.workspaceId || (await resolveAgentSessionWorkspaceForUser({
+      userId: session.user.id,
+      workspaceId: requestedWorkspaceId || undefined,
+      permissions: ['canRead', 'canRunAgent'],
+    })).workspaceId;
+    const readinessEntries = await Promise.all([
+      ...personalPlugins.map((plugin) => ({ key: `${scope.scopeType}:${plugin.name}`, plugin })),
+      ...organizationPlugins.map((plugin) => ({ key: `organization:${plugin.name}`, plugin })),
+    ].map(async ({ key, plugin }) => [key, await resolvePluginConnectionReadiness({
+      connectors: plugin.connectors,
+      userId: session.user.id,
+      workspaceId,
+      fresh: request.nextUrl.searchParams.get('fresh') === '1',
+    })] as const));
+    const connectionReadinessByScope = new Map(readinessEntries);
+    let plugins = personalPlugins;
+    if (executionContext) {
+      const snapshot = await resolveEffectiveCapabilitySnapshot(executionContext);
       const installedByScope = new Map([
         ...plugins.map((plugin) => [`user:${plugin.name}`, plugin] as const),
         ...organizationPlugins.map((plugin) => [`organization:${plugin.name}`, plugin] as const),
@@ -71,9 +94,13 @@ export async function GET(request: NextRequest) {
         });
     }
     plugins = deduplicateCanvasPluginInstallRecords(plugins, scope.scopeType);
+    const pluginsWithReadiness = plugins.map((plugin) => ({
+      ...plugin,
+      connectionReadiness: connectionReadinessByScope.get(`${plugin.scopeType === 'organization' ? 'organization' : scope.scopeType}:${plugin.name}`),
+    }));
     return NextResponse.json({
       success: true,
-      plugins,
+      plugins: pluginsWithReadiness,
       stats: {
         total: plugins.length,
         enabled: plugins.filter((plugin) => plugin.enabled).length,

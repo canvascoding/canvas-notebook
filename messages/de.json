@@ -7183,6 +7183,9 @@
         "loadAccounts": "E-Mail-Konten konnten nicht geladen werden",
         "loadWorkspaces": "Workspaces konnten nicht geladen werden",
         "oauthFailed": "E-Mail-OAuth fehlgeschlagen.",
+        "oauthCancelled": "Die Anmeldung wurde abgebrochen. Du kannst es erneut versuchen.",
+        "oauthIncomplete": "Die Anmeldung konnte nicht abgeschlossen werden. Bitte versuche es erneut.",
+        "oauthUnauthorized": "Deine Sitzung ist abgelaufen. Melde dich an und versuche es erneut.",
         "oauthCredentialsRequired": "Client-ID und Client Secret sind erforderlich, bevor OAuth gespeichert oder verbunden werden kann.",
         "loadIntegrationKeys": "Aktuelle Integrations-Keys konnten nicht geladen werden",
         "saveOAuthSettings": "OAuth-Einstellungen konnten nicht gespeichert werden",
@@ -7225,7 +7228,8 @@
       "enabled": "Dokumenten-Review-Center ist aktiviert.",
       "disabled": "Dokumenten-Review-Center ist ausgeschaltet.",
       "saveError": "Die Einstellung konnte nicht gespeichert werden. Bitte erneut versuchen."
-    }
+    },
+    "backToPlugin": "Zurück zum Plugin"
   },
   "skills": {
     "title": "Plugins & Skills",
@@ -7415,7 +7419,9 @@
         "openDetails": "Details",
         "notInstalled": "Noch nicht installiert",
         "noSkills": "Keine Skills angegeben.",
-        "noConnectors": "Keine Connector-Empfehlungen hinterlegt."
+        "noConnectors": "Keine Connector-Empfehlungen hinterlegt.",
+        "notFound": "Dieses Plugin ist in diesem Bereich nicht mehr verfügbar.",
+        "installedNeedsSetup": "Installiert. Richte die erforderlichen Verbindungen ein, um dieses Plugin zu nutzen."
       },
       "sourcePathPlaceholder": "/absoluter/pfad/zum/plugin-paket",
       "install": "Plugin installieren",
@@ -7453,7 +7459,10 @@
         "emailAccount": "E-Mail-Konto",
         "emailProvidersDefault": "Gmail, SMTP/IMAP",
         "emailProviders": "Provider: {providers}",
-        "openEmail": "Konfigurieren"
+        "openEmail": "Konfigurieren",
+        "connectionCancelled": "Verbindung abgebrochen. Du kannst es erneut versuchen.",
+        "connectionFailed": "Die Verbindung konnte nicht hergestellt werden. Bitte versuche es erneut.",
+        "connectionPending": "Die Verbindung ist noch nicht bereit. Aktualisiere die Prüfung oder versuche es erneut."
       },
       "errors": {
         "load": "Plugins konnten nicht geladen werden.",

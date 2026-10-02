@@ -35,6 +35,7 @@ export async function GET(request: NextRequest) {
       organizationState,
     });
     const store = await listCanvasPluginStore({
+      name: request.nextUrl.searchParams.get('name') || undefined,
       page: parsePositiveInteger(request.nextUrl.searchParams.get('page')),
       pageSize: parsePositiveInteger(request.nextUrl.searchParams.get('pageSize')),
       query: request.nextUrl.searchParams.get('q') || '',
