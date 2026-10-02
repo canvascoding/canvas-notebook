@@ -93,7 +93,19 @@ export async function GET(request: NextRequest) {
           }];
         });
     }
-    plugins = deduplicateCanvasPluginInstallRecords(plugins, scope.scopeType);
+    if (request.nextUrl.searchParams.get('identity') === 'resource') {
+      // The Plugins app presents every exact personal and assigned resource.
+      const pluginsByResource = new Map<string, typeof plugins[number]>();
+      for (const plugin of plugins) {
+        const key = plugin.resourceId
+          ? `resource:${plugin.resourceId}`
+          : `name:${plugin.scopeType || scope.scopeType}:${plugin.name}`;
+        pluginsByResource.set(key, plugin);
+      }
+      plugins = [...pluginsByResource.values()].sort((left, right) => left.name.localeCompare(right.name));
+    } else {
+      plugins = deduplicateCanvasPluginInstallRecords(plugins, scope.scopeType);
+    }
     const pluginsWithReadiness = plugins.map((plugin) => ({
       ...plugin,
       connectionReadiness: connectionReadinessByScope.get(`${plugin.scopeType === 'organization' ? 'organization' : scope.scopeType}:${plugin.name}`),

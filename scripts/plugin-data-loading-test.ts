@@ -38,6 +38,7 @@ async function main() {
     const params = new URL(url, 'https://canvas.test').searchParams;
     assert.equal(params.get('workspaceId'), 'workspace-one', 'installed readiness uses the active workspace');
     assert.equal(params.get('fresh'), '1', 'returning after setup checks fresh connection state');
+    assert.equal(params.get('identity'), 'resource', 'the app opts into distinct resources for same-name personal and organization packages');
     return Response.json({ success: true, plugins: [{ name: 'installed-plugin' }] });
   };
   const load = script.runInContext(context);

@@ -591,6 +591,9 @@ function CanvasPluginsSection({
   const preflightRequestRef = useRef<Record<string, number>>({});
   const activeWorkspaceRef = useRef(activeWorkspaceId);
   activeWorkspaceRef.current = activeWorkspaceId;
+  const workspaceIdentityToken = useMemo(() => Symbol(activeWorkspaceId), [activeWorkspaceId]);
+  const workspaceIdentityRef = useRef<symbol | null>(workspaceIdentityToken);
+  workspaceIdentityRef.current = workspaceIdentityToken;
   const workspaceReady = !navigation.workspaceId || navigation.workspaceId === activeWorkspaceId;
   const deferredSearchQuery = useDeferredValue(searchQuery);
   const selectedInstalledPlugin = useMemo(() => {
@@ -608,6 +611,13 @@ function CanvasPluginsSection({
       : selectedInstalledPlugin?.connectors;
     return uniqueByKey(getComposioRecommendations(connectors), (connector) => connector.toolkit);
   }, [detailStorePlugin, selectedInstalledPlugin, selectedPluginDetail, storePlugins]);
+
+  useEffect(() => {
+    workspaceIdentityRef.current = workspaceIdentityToken;
+    return () => {
+      if (workspaceIdentityRef.current === workspaceIdentityToken) workspaceIdentityRef.current = null;
+    };
+  }, [workspaceIdentityToken]);
 
   useEffect(() => {
     mcpSetupRequestRef.current += 1;
@@ -648,7 +658,7 @@ function CanvasPluginsSection({
     setPluginsLoadFailed(false);
     setError(null);
     try {
-      const installedParams = new URLSearchParams({ scope: managementScope, fresh: '1' });
+      const installedParams = new URLSearchParams({ scope: managementScope, fresh: '1', identity: 'resource' });
       if (activeWorkspaceId) installedParams.set('workspaceId', activeWorkspaceId);
       const response = await fetch(`/api/plugins?${installedParams}`, { credentials: 'include', cache: 'no-store', headers: composioHeaders() });
       if (requestId !== pluginLoadRequestRef.current) return;
@@ -724,7 +734,9 @@ function CanvasPluginsSection({
 
   const loadComposioConnectorState = useCallback(async (options: { isCancelled?: () => boolean } = {}) => {
     const workspaceId = activeWorkspaceId;
-    const isCancelled = () => activeWorkspaceRef.current !== workspaceId || Boolean(options.isCancelled?.());
+    const isCancelled = () => workspaceIdentityRef.current !== workspaceIdentityToken
+      || activeWorkspaceRef.current !== workspaceId || Boolean(options.isCancelled?.());
+    if (isCancelled()) return;
     if (requiredComposioToolkits.length === 0) {
       setComposioConnectorState(EMPTY_COMPOSIO_CONNECTOR_STATE);
       return;
@@ -737,7 +749,9 @@ function CanvasPluginsSection({
         cache: 'no-store',
         headers: composioHeaders(),
       });
+      if (isCancelled()) return;
       const status = await statusResponse.json();
+      if (isCancelled()) return;
       if (!statusResponse.ok) throw new Error(status.error || t('connectors.composioStatusError'));
       const configured = Boolean(status.configured);
       const apiKeyValid = Boolean(status.apiKeyValid);
@@ -758,7 +772,9 @@ function CanvasPluginsSection({
           cache: 'no-store',
           headers: composioHeaders(),
         });
+        if (isCancelled()) return;
         const toolkitsPayload = await toolkitsResponse.json();
+        if (isCancelled()) return;
         if (!toolkitsResponse.ok) throw new Error(toolkitsPayload.error || t('connectors.composioStatusError'));
         if (Array.isArray(toolkitsPayload.toolkits)) {
           toolkitsBySlug = Object.fromEntries(
@@ -797,7 +813,7 @@ function CanvasPluginsSection({
         });
       }
     }
-  }, [activeWorkspaceId, composioHeaders, requiredComposioToolkits, t]);
+  }, [activeWorkspaceId, composioHeaders, requiredComposioToolkits, t, workspaceIdentityToken]);
 
   useEffect(() => {
     let cancelled = false;
@@ -844,11 +860,13 @@ function CanvasPluginsSection({
   }
 
   const checkStorePluginPreflight = useCallback(async (pluginName: string, version?: string) => {
+    const isWorkspaceCurrent = () => workspaceIdentityRef.current === workspaceIdentityToken
+      && activeWorkspaceRef.current === activeWorkspaceId;
+    if (!isWorkspaceCurrent()) return;
     const preflightKey = getPreflightKey(pluginName, version);
-    const workspaceId = activeWorkspaceId;
     const requestId = (preflightRequestRef.current[preflightKey] || 0) + 1;
     preflightRequestRef.current[preflightKey] = requestId;
-    const isCurrent = () => activeWorkspaceRef.current === workspaceId && preflightRequestRef.current[preflightKey] === requestId;
+    const isCurrent = () => isWorkspaceCurrent() && preflightRequestRef.current[preflightKey] === requestId;
     setPreflightByPlugin((current) => ({
       ...current,
       [preflightKey]: { isLoading: true },
@@ -860,7 +878,9 @@ function CanvasPluginsSection({
         headers: composioHeaders(true),
         body: JSON.stringify({ name: pluginName, version, scope: managementScope }),
       });
+      if (!isCurrent()) return;
       const data = await response.json();
+      if (!isCurrent()) return;
       if (!response.ok || !data.success) {
         throw new Error(data.error || t('errors.preflight'));
       }
@@ -879,7 +899,7 @@ function CanvasPluginsSection({
         },
       }));
     }
-  }, [activeWorkspaceId, composioHeaders, managementScope, t]);
+  }, [activeWorkspaceId, composioHeaders, managementScope, t, workspaceIdentityToken]);
 
   const selectedCatalogPlugin = selectedPluginDetail
     ? storePlugins.find((plugin) => plugin.name === selectedPluginDetail.name) || detailStorePlugin
@@ -1057,7 +1077,11 @@ function CanvasPluginsSection({
   }
 
   async function refreshPluginConnections() {
+    const isCurrent = () => workspaceIdentityRef.current === workspaceIdentityToken
+      && activeWorkspaceRef.current === activeWorkspaceId;
+    if (!isCurrent()) return;
     await Promise.all([loadPluginData(), loadComposioConnectorState()]);
+    if (!isCurrent()) return;
     const storePlugin = selectedCatalogPlugin;
     if (storePlugin && !(selectedPluginDetail?.source === 'installed' && selectedInstalledPlugin?.scopeType === 'organization' && managementScope === 'user')) {
       await checkStorePluginPreflight(storePlugin.name, storePlugin.latestVersion);
@@ -1079,6 +1103,7 @@ function CanvasPluginsSection({
         continue;
       }
       const status = await statusResponse.json().catch(() => null);
+      if (requestId !== connectorFlowRequestRef.current || activeWorkspaceRef.current !== workspaceId) return 'obsolete';
       const connected = statusResponse.ok && Array.isArray(status?.connectedAccounts)
         && status.connectedAccounts.some((account: { toolkit?: { slug?: unknown }; status?: string }) => account.toolkit?.slug === toolkit && (!account.status || account.status.toUpperCase() === 'ACTIVE'));
       if (connected) {

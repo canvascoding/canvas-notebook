@@ -3,10 +3,13 @@ import Module from 'node:module';
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import vm from 'node:vm';
 import { createHash } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
+import ts from 'typescript';
 import { NextRequest } from 'next/server';
 import { emailOAuthFeedbackKey } from '../app/lib/email/oauth-feedback';
+import { readPluginNavigation } from '../app/lib/plugins/plugin-navigation';
 
 type LoadFn = (request: string, parent: NodeModule | null, isMain: boolean) => unknown;
 const internals = Module as typeof Module & { _load: LoadFn };
@@ -25,6 +28,8 @@ const database = { openDb: async () => ({
 }) };
 const personal = { name: 'same-name', scopeType: 'user', resourceId: 'personal', version: '1.0.0', enabled: true, skills: [], connectors: { email: [{ label: 'Personal', required: false }] } };
 const organization = { ...personal, scopeType: 'organization', resourceId: 'assigned', connectors: { email: [{ label: 'Assigned', required: true }] } };
+let repeatAssignedResource = false;
+let registryDeduplicator: (plugins: typeof personal[], preferredScope: string) => typeof personal[];
 
 internals._load = (request, parent, isMain) => {
   const file = parent?.filename || '';
@@ -68,7 +73,7 @@ internals._load = (request, parent, isMain) => {
       },
     };
     if (request === '@/app/lib/pi/session-workspace-context') return { resolveAgentSessionWorkspaceForUser: async () => { throw new Error('Workspace should resolve once'); } };
-    if (request === '@/app/lib/plugins/canvas-plugin-registry') return { listCanvasPlugins: async (scope: { scopeType: string }) => [scope.scopeType === 'organization' ? organization : personal], deduplicateCanvasPluginInstallRecords: (plugins: unknown) => plugins };
+    if (request === '@/app/lib/plugins/canvas-plugin-registry') return { listCanvasPlugins: async (scope: { scopeType: string }) => [scope.scopeType === 'organization' ? organization : personal], deduplicateCanvasPluginInstallRecords: (plugins: typeof personal[], preferredScope: string) => registryDeduplicator(plugins, preferredScope) };
     if (request === '@/app/lib/plugins/plugin-connection-readiness') return { resolvePluginConnectionReadiness: async (input: Record<string, unknown>) => {
       readinessCalls.push(input);
       const required = (input.connectors as typeof personal.connectors).email[0].required;
@@ -76,7 +81,7 @@ internals._load = (request, parent, isMain) => {
     } };
     if (request === '@/app/lib/capabilities/catalog') return { resolveEffectiveCapabilitySnapshot: async () => {
       assert.equal(readinessCalls.length % 2, 0, 'both exact manifests are checked before snapshot resolution');
-      return { capabilities: [personal, organization].map(plugin => ({ ref: { ...plugin, resourceType: 'plugin' }, effectiveEnabled: true, readiness: plugin.scopeType === 'organization' ? 'personal-connection-required' : 'available' })) };
+      return { capabilities: (repeatAssignedResource ? [personal, organization, organization] : [personal, organization]).map(plugin => ({ ref: { ...plugin, resourceType: 'plugin' }, effectiveEnabled: plugin.scopeType === 'user', readiness: plugin.scopeType === 'organization' ? 'personal-connection-required' : 'available' })) };
     } };
   }
   if (file.endsWith('/api/email/oauth/callback/route.ts')) {
@@ -102,6 +107,18 @@ async function main() {
   process.env.CANVAS_DATA_ROOT = dataRoot;
   process.env.BASE_URL = 'https://canvas.example.test';
   try {
+    const registrySource = await fs.readFile('app/lib/plugins/canvas-plugin-registry.ts', 'utf8');
+    const parsedRegistry = ts.createSourceFile('canvas-plugin-registry.ts', registrySource, ts.ScriptTarget.Latest, true);
+    const deduplicator = parsedRegistry.statements.find((node): node is ts.FunctionDeclaration => (
+      ts.isFunctionDeclaration(node) && node.name?.text === 'deduplicateCanvasPluginInstallRecords'
+    ));
+    assert.ok(deduplicator, 'the registry mock executes the actual runtime name-preference helper');
+    const deduplicatorCode = ts.transpileModule(`${deduplicator.getText(parsedRegistry).replace(/^export\s+/, '')}\ndeduplicateCanvasPluginInstallRecords;`, {
+      compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None },
+    }).outputText;
+    registryDeduplicator = new vm.Script(deduplicatorCode).runInNewContext();
+    assert.equal(registryDeduplicator([personal, organization], 'user').length, 1, 'runtime package preference intentionally remains name-based');
+
     const { createComposioOAuthFlowState } = await import('../app/lib/composio/composio-oauth-state');
     const returnPath = '/en/plugins?view=installed&scope=organization&plugin=drive&source=installed&resource=assigned&workspaceId=spoofed';
     const flow = await createComposioOAuthFlowState({ context: context as never, toolkitSlug: 'drive', returnPath });
@@ -146,13 +163,30 @@ async function main() {
     }
 
     const { GET: pluginsGet } = await import('../app/api/plugins/route');
-    const pluginsResponse = await pluginsGet(new NextRequest('https://canvas.example.test/api/plugins?fresh=1', { headers: { 'x-canvas-workspace-id': 'requested-workspace' } }));
+    const defaultResponse = await pluginsGet(new NextRequest('https://canvas.example.test/api/plugins?fresh=1', { headers: { 'x-canvas-workspace-id': 'requested-workspace' } }));
+    assert.equal(defaultResponse.status, 200);
+    const defaultBody = await defaultResponse.json();
+    assert.deepEqual(defaultBody.plugins.map((plugin: { resourceId: string }) => plugin.resourceId), ['personal'], 'existing Chat and mobile consumers keep the user-preferred name-based default');
+    assert.deepEqual(defaultBody.stats, { total: 1, enabled: 1, disabled: 0 });
+    const pluginsResponse = await pluginsGet(new NextRequest('https://canvas.example.test/api/plugins?identity=resource&fresh=1', { headers: { 'x-canvas-workspace-id': 'requested-workspace' } }));
     assert.equal(pluginsResponse.status, 200);
-    const installed = (await pluginsResponse.json()).plugins;
+    const installedBody = await pluginsResponse.json();
+    const installed = installedBody.plugins;
+    assert.equal(installed.length, 2, 'the presentation API preserves personal and assigned organization identities with the same name');
+    assert.deepEqual(installed.map((plugin: { resourceId: string; scopeType: string }) => [plugin.resourceId, plugin.scopeType]), [['personal', 'user'], ['assigned', 'organization']]);
+    assert.deepEqual(installedBody.stats, { total: 2, enabled: 1, disabled: 1 }, 'statistics count exact resources and their effective state');
     assert.equal(installed.find((plugin: { resourceId: string }) => plugin.resourceId === 'assigned').connectionReadiness.summary.requiredMissing, 1);
     assert.equal(installed.find((plugin: { resourceId: string }) => plugin.resourceId === 'personal').connectionReadiness.ready, true);
+    const orgDetail = readPluginNavigation(new URL('https://canvas.example.test/en/plugins?view=installed&plugin=same-name&source=installed&resourceId=assigned&workspaceId=verified-workspace').searchParams);
+    assert.equal(installed.find((plugin: { resourceId: string }) => plugin.resourceId === orgDetail.resourceId)?.scopeType, 'organization', 'an exact organization detail URL resolves the real API response instead of falling back to the same-name personal record');
     assert.ok(readinessCalls.every(call => call.fresh === true && call.workspaceId === 'verified-workspace' && call.userId === 'owner'));
-    await pluginsGet(new NextRequest('https://canvas.example.test/api/plugins?workspaceId=requested-workspace'));
+    repeatAssignedResource = true;
+    const repeated = await pluginsGet(new NextRequest('https://canvas.example.test/api/plugins?identity=resource&fresh=1', { headers: { 'x-canvas-workspace-id': 'requested-workspace' } }));
+    const repeatedBody = await repeated.json();
+    assert.equal(repeatedBody.plugins.length, 2, 'duplicate snapshot references collapse only when they carry the same resource identity');
+    assert.deepEqual(repeatedBody.stats, installedBody.stats);
+    repeatAssignedResource = false;
+    await pluginsGet(new NextRequest('https://canvas.example.test/api/plugins?identity=resource&workspaceId=requested-workspace'));
     assert.ok(readinessCalls.slice(-2).every(call => call.fresh === false));
 
     const { GET: emailGet } = await import('../app/api/email/oauth/callback/route');

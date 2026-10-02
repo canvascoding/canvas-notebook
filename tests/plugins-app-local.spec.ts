@@ -729,10 +729,39 @@ test('OAuth completion from an earlier workspace cannot make the new workspace r
     await page.getByRole('heading', { name: fixture.entry.displayName, exact: true }).click();
     const originalWorkspace = new URL(page.url()).searchParams.get('workspaceId');
     expect(originalWorkspace).toBeTruthy();
+    // Hold only the decoded status body: the HTTP response has already arrived
+    // and the poll's pre-JSON workspace guard has already been evaluated.
+    await page.evaluate(workspaceId => {
+      const originalFetch = window.fetch.bind(window);
+      let armed = true;
+      let held = false;
+      let release!: () => void;
+      const pendingBody = new Promise<void>(resolve => { release = resolve; });
+      window.addEventListener('qa-release-composio-body', () => { armed = false; release(); }, { once: true });
+      window.fetch = async (input, init) => {
+        const response = await originalFetch(input, init);
+        const url = new URL(input instanceof Request ? input.url : String(input), window.location.href);
+        const requestHeaders = new Headers(init?.headers || (input instanceof Request ? input.headers : undefined));
+        if (url.pathname === '/api/composio/status' && requestHeaders.get('X-Canvas-Workspace-Id') === workspaceId) {
+          const readBody = response.json.bind(response);
+          response.json = async () => {
+            const body = await readBody();
+            if (!armed || held) return body;
+            held = true;
+            document.documentElement.dataset.qaComposioBody = 'waiting';
+            await pendingBody;
+            document.documentElement.dataset.qaComposioBody = 'released';
+            return { ...body, connectedAccounts: [{ toolkit: { slug: 'gmail' }, status: 'ACTIVE' }] };
+          };
+        }
+        return response;
+      };
+    }, originalWorkspace!);
     const popupPromise = page.waitForEvent('popup');
     await page.getByRole('dialog').getByRole('button', { name: en.skills.plugins.connectors.connect, exact: true }).click();
     const popup = await popupPromise;
     await expect(popup).toHaveURL(/qa-plugins-oauth$/);
+    await expect(page.locator('html')).toHaveAttribute('data-qa-composio-body', 'waiting');
     await page.keyboard.press('Escape');
     await expect(page.getByRole('dialog')).toHaveCount(0);
     const { workspaces } = await (await page.request.get('/api/workspaces')).json();
@@ -748,6 +777,13 @@ test('OAuth completion from an earlier workspace cannot make the new workspace r
     await page.getByRole('heading', { name: fixture.entry.displayName, exact: true }).click();
     const dialog = page.getByRole('dialog');
     await expect(page).toHaveURL(url => url.searchParams.get('workspaceId') === alternate.id);
+    await expect(dialog.getByText(en.skills.plugins.preflight.needsSetup, { exact: true })).toBeVisible();
+    await expect(dialog.getByRole('button', { name: en.skills.plugins.addPlugin, exact: true })).toBeDisabled();
+    const originalPreflightCount = state.preflightRequests.filter(request => request.workspace === originalWorkspace).length;
+    await page.evaluate(() => window.dispatchEvent(new Event('qa-release-composio-body')));
+    await expect(page.locator('html')).toHaveAttribute('data-qa-composio-body', 'released');
+    await page.waitForLoadState('networkidle');
+    expect(state.preflightRequests.filter(request => request.workspace === originalWorkspace)).toHaveLength(originalPreflightCount);
     await expect(dialog.getByText(en.skills.plugins.preflight.needsSetup, { exact: true })).toBeVisible();
     await expect(dialog.getByRole('button', { name: en.skills.plugins.addPlugin, exact: true })).toBeDisabled();
     expect(state.preflightRequests.some(request => request.workspace === alternate.id)).toBe(true);
