@@ -6,7 +6,7 @@ import de from '../messages/de.json';
 import en from '../messages/en.json';
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'http://canvas.test/de/plugins', pretendToBeVisual: true });
-for (const key of ['self', 'window', 'document', 'navigator', 'HTMLElement', 'HTMLInputElement', 'HTMLButtonElement', 'Element', 'Node', 'NodeFilter', 'DocumentFragment', 'MutationObserver', 'CustomEvent', 'Event', 'MouseEvent', 'KeyboardEvent', 'getComputedStyle'] as const) {
+for (const key of ['self', 'window', 'document', 'navigator', 'HTMLElement', 'HTMLInputElement', 'HTMLButtonElement', 'HTMLFormElement', 'Element', 'Node', 'NodeFilter', 'DocumentFragment', 'MutationObserver', 'CustomEvent', 'Event', 'MouseEvent', 'KeyboardEvent', 'getComputedStyle'] as const) {
   Object.defineProperty(globalThis, key, { value: dom.window[key], configurable: true });
 }
 Object.defineProperty(globalThis, 'IS_REACT_ACT_ENVIRONMENT', { value: true, configurable: true, writable: true });
@@ -29,6 +29,15 @@ async function main() {
   const originalFetch = globalThis.fetch;
   let locale: 'de' | 'en' = 'de';
   const fetches: string[] = [];
+  let Panel: React.ComponentType<{ canManageOrganizationCapabilities?: boolean }>;
+  let installedPlugins: Record<string, unknown>[] = [];
+  let storePending: Promise<void> | undefined;
+  let storeUnavailable = false;
+  let skillsUnavailable = false;
+  let skillStoreUnavailable = false;
+  let organizationAllowed = false;
+  let scopeFixtures = false;
+  let studioBulkEnabled = false;
   type Translate = (key: string, values?: Record<string, string | number>) => string;
   const translations = new Map<string, Translate>();
   const translate = (namespace: string): Translate => {
@@ -46,6 +55,7 @@ async function main() {
     return fn;
   };
   internals._load = (name, parent, isMain) => {
+    if (name === 'next/dynamic') return () => function MockDynamicPanel(props: { canManageOrganizationCapabilities?: boolean }) { return <Panel {...props} />; };
     if (name === 'next/navigation') return { useSearchParams: () => {
       const query = useSyncExternalStore(subscribe, () => dom.window.location.search);
       return useMemo(() => new URLSearchParams(query), [query]);
@@ -58,30 +68,51 @@ async function main() {
     };
     if (name === '@/app/store/workspace-store') return { useWorkspaceStore: (select: (state: unknown) => unknown) => select({ activeWorkspaceId: 'workspace-one' }) };
     if (name === '@/app/components/terminal/TerminalAvailabilityProvider') return { useTerminalAvailability: () => ({ terminalEnabled: false }) };
+    if (name === '@/app/apps/studio/components/StudioBulkAvailabilityProvider') return { useStudioBulkAvailability: () => ({ studioBulkEnabled }) };
     if (name === '@/app/components/editor/MarkdownEditorClient') return { MarkdownEditor: () => null };
     return originalLoad(name, parent, isMain);
   };
   globalThis.fetch = async (input) => {
     const url = new URL(String(input), dom.window.location.origin);
     fetches.push(url.pathname + url.search);
-    if (url.pathname === '/api/skills') return Response.json({ success: true, skills: [], canManageOrganizationCapabilities: false });
+    if (url.pathname === '/api/skills') return skillsUnavailable
+      ? Response.json({ success: false, error: 'Skill service unavailable' }, { status: 503 })
+      : Response.json({ success: true, skills: [], canManageOrganizationCapabilities: organizationAllowed });
     if (url.pathname === '/api/skills/status') return Response.json({ success: true, enabledSkills: [] });
     if (url.pathname === '/api/skills/tree') return Response.json({ success: true, data: [] });
-    if (url.pathname === '/api/plugins') return Response.json({ success: true, plugins: [] });
-    if (url.pathname === '/api/plugins/store') return Response.json({ success: true, plugins: [], stats: { updates: 0 } });
-    if (url.pathname === '/api/skills/store') return Response.json({ success: true, skills: [], stats: { updates: 0 } });
+    if (url.pathname === '/api/plugins') {
+      const scope = url.searchParams.get('scope') || 'user';
+      return Response.json({ success: true, plugins: scopeFixtures
+        ? [{ name: `${scope}-plugin`, description: `${scope} package`, version: '1.0.0', enabled: true, scopeType: scope, skills: [] }]
+        : installedPlugins });
+    }
+    if (url.pathname === '/api/plugins/store') {
+      await storePending;
+      return storeUnavailable
+        ? Response.json({ success: false, error: 'Plugin catalog unavailable' }, { status: 503 })
+        : Response.json({ success: true, plugins: [], stats: { updates: 0 } });
+    }
+    if (url.pathname === '/api/skills/store') return skillStoreUnavailable
+      ? Response.json({ success: false, error: 'Skill catalog unavailable' }, { status: 503 })
+      : Response.json({ success: true, skills: [], stats: { updates: 0 } });
+    if (url.pathname === '/api/skills/effective') return Response.json({ success: true, snapshot: { organizationId: 'organization-test', capabilities: [] } });
+    if (url.pathname === '/api/skills/policies') return Response.json({ success: true, policies: [] });
     throw new Error(`Unexpected fetch: ${url.pathname}`);
   };
   try {
     const { render, fireEvent, waitFor, cleanup } = await import('@testing-library/react');
     const { SkillsPanel } = await import('../app/components/plugins/PluginsPanel');
+    Panel = SkillsPanel;
+    const { PluginsAppClient } = await import('../app/components/plugins/PluginsAppClient');
     const { AppLauncher } = await import('../app/components/AppLauncher');
     const { PluginsSettingsLink } = await import('../app/components/plugins/PluginsSettingsLink');
     dom.window.localStorage.setItem('canvas.skills.panelTab', 'skills');
     dom.window.localStorage.setItem('canvas.skills.pluginStoreTab', 'advanced');
-    let view = render(<SkillsPanel />);
+    let view = render(<PluginsAppClient canManageOrganizationCapabilities={false} />);
     await waitFor(() => assert.equal(view.getByRole('tab', { name: 'Plugins' }).getAttribute('aria-selected'), 'true'));
     assert.equal(view.getByRole('tab', { name: 'Entdecken' }).getAttribute('aria-selected'), 'true', 'the app entry opens plugins despite obsolete stored tabs');
+    await waitFor(() => assert.ok(view.getByText(de.skills.plugins.emptyStore)));
+    assert.ok(!fetches.some(url => /^\/api\/skills(?:\?|\/status|\/tree)/.test(url)), 'opening Plugins does not eagerly load skills');
     fireEvent.mouseDown(view.getByRole('tab', { name: 'Installiert' }), { button: 0 });
     await waitFor(() => assert.equal(new URLSearchParams(dom.window.location.search).get('view'), 'installed'));
     assert.equal(view.getByRole('tab', { name: 'Installiert' }).getAttribute('aria-selected'), 'true');
@@ -90,11 +121,76 @@ async function main() {
     cleanup();
 
     dom.window.history.replaceState(null, '', '/de/plugins?area=skills&view=library');
-    view = render(<SkillsPanel />);
+    view = render(<PluginsAppClient canManageOrganizationCapabilities={false} />);
     await waitFor(() => assert.equal(view.getByRole('tab', { name: 'Skills' }).getAttribute('aria-selected'), 'true'));
     assert.equal(view.getByRole('tab', { name: de.skills.skillLibrary.tabs.library }).getAttribute('aria-selected'), 'true');
     assert.ok(fetches.some(url => url.startsWith('/api/skills/store?')));
     cleanup();
+
+    installedPlugins = [{ name: 'connection-plugin', version: '1.0.0', description: 'Needs a personal account', enabled: true, readiness: 'personal-connection-required', skills: [] }];
+    let releaseStore!: () => void;
+    storePending = new Promise<void>(resolve => { releaseStore = resolve; });
+    dom.window.history.replaceState(null, '', '/de/plugins?view=installed');
+    view = render(<PluginsAppClient canManageOrganizationCapabilities={false} />);
+    await waitFor(() => assert.ok(view.getByText(de.skills.plugins.readiness['personal-connection-required'])));
+    assert.ok(view.getByText(de.skills.plugins.readinessHints['personal-connection-required']));
+    assert.ok(view.getByRole('button', { name: de.skills.plugins.preflight.setup }), 'an installed plugin can be set up while the catalog is pending');
+    storeUnavailable = true;
+    await act(async () => { releaseStore(); });
+    await waitFor(() => assert.ok(view.getByText('Plugin catalog unavailable')));
+    assert.ok(view.getByText('/connection-plugin'), 'a catalog error keeps installed plugins usable');
+    fireEvent.mouseDown(view.getByRole('tab', { name: /^Updates/ }), { button: 0 });
+    await waitFor(() => assert.ok(view.getByText('Plugin catalog unavailable')));
+    assert.equal(view.queryByText(de.skills.plugins.noUpdates), null, 'catalog errors cannot claim all packages are current');
+    cleanup();
+    storePending = undefined;
+    storeUnavailable = false;
+    installedPlugins = [];
+
+    skillsUnavailable = true;
+    dom.window.history.replaceState(null, '', '/de/plugins?area=skills');
+    view = render(<PluginsAppClient canManageOrganizationCapabilities={false} />);
+    await waitFor(() => assert.ok(view.getByText('Skill service unavailable')));
+    const beforeRetry = fetches.filter(url => /^\/api\/skills\?/.test(url)).length;
+    skillsUnavailable = false;
+    fireEvent.click(view.getByRole('button', { name: de.skills.loading.retry }));
+    await waitFor(() => assert.equal(view.queryByText('Skill service unavailable'), null));
+    assert.ok(fetches.filter(url => /^\/api\/skills\?/.test(url)).length > beforeRetry);
+    cleanup();
+
+    skillStoreUnavailable = true;
+    dom.window.history.replaceState(null, '', '/de/plugins?area=skills&view=updates');
+    view = render(<PluginsAppClient canManageOrganizationCapabilities={false} />);
+    await waitFor(() => assert.ok(view.getByText('Skill catalog unavailable')));
+    assert.equal(view.queryByText(de.skills.skillLibrary.noUpdates), null);
+    assert.equal(view.queryByText(de.skills.skillLibrary.emptyStore), null);
+    cleanup();
+    skillStoreUnavailable = false;
+
+    fetches.length = 0;
+    dom.window.history.replaceState(null, '', '/de/plugins?scope=organization');
+    view = render(<PluginsAppClient canManageOrganizationCapabilities={false} />);
+    await waitFor(() => assert.ok(view.getByText(de.skills.plugins.emptyStore)));
+    assert.ok(view.getByText(de.skills.scope.organizationDenied));
+    assert.equal(view.queryByRole('button', { name: de.skills.scope.organization }), null);
+    assert.ok(!fetches.some(url => url.includes('scope=organization')), 'a URL cannot grant organization management rights');
+    cleanup();
+
+    organizationAllowed = true;
+    scopeFixtures = true;
+    dom.window.history.replaceState(null, '', '/de/plugins?scope=organization&view=installed');
+    view = render(<PluginsAppClient canManageOrganizationCapabilities />);
+    await waitFor(() => assert.ok(view.getByText('/organization-plugin')));
+    fireEvent.click(view.getByRole('button', { name: de.skills.scope.personal }));
+    await waitFor(() => assert.ok(view.getByText('/user-plugin')));
+    assert.equal(new URLSearchParams(dom.window.location.search).get('scope'), null);
+    assert.equal(view.queryByText('/organization-plugin'), null);
+    await act(async () => { dom.window.history.back(); await new Promise(resolve => setTimeout(resolve, 30)); });
+    await waitFor(() => assert.ok(view.getByText('/organization-plugin')));
+    assert.equal(view.queryByText('/user-plugin'), null, 'history scope changes reset the prior scope data');
+    cleanup();
+    organizationAllowed = false;
+    scopeFixtures = false;
 
     for (locale of ['de', 'en'] as const) {
       view = render(<PluginsSettingsLink />);
@@ -109,8 +205,19 @@ async function main() {
       await waitFor(() => assert.equal(view.getByRole('menuitem', { name: locale === 'de' ? 'Installiert' : 'Installed' }).getAttribute('href'), `/${locale}/plugins?view=installed`));
       assert.equal(view.getByRole('menuitem', { name: 'Skills' }).getAttribute('href'), `/${locale}/plugins?area=skills`);
       cleanup();
+      for (studioBulkEnabled of [false, true]) {
+        view = render(<AppLauncher />);
+        fireEvent.pointerDown(view.getByRole('button', { name: locale === 'de' ? 'Apps öffnen' : 'Open apps' }), { button: 0, isPrimary: true });
+        await waitFor(() => assert.ok(view.getByRole('menuitem', { name: 'Studio' })));
+        fireEvent.contextMenu(view.getByRole('menuitem', { name: 'Studio' }));
+        const bulkLabel = (locale === 'de' ? de : en).studio.tabs.bulk;
+        await waitFor(() => assert.ok(view.getByRole('menuitem', { name: (locale === 'de' ? de : en).studio.tabs.models })));
+        if (studioBulkEnabled) assert.equal(view.getByRole('menuitem', { name: bulkLabel }).getAttribute('href'), `/${locale}/studio/bulk`);
+        else assert.equal(view.queryByRole('menuitem', { name: bulkLabel }), null, 'plugin quick actions preserve the Studio Bulk feature gate');
+        cleanup();
+      }
     }
-    console.log('Plugins UI: direct app entry, obsolete tab preferences, installed view, browser history, skill library, Settings link and launcher in both locales passed');
+    console.log('Plugins UI: launcher in both locales, direct views and history, lazy skill loading, delayed/failed catalog, readable connection status, skill retry and organization scope boundaries passed');
   } finally {
     internals._load = originalLoad;
     globalThis.fetch = originalFetch;

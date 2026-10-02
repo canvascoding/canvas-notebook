@@ -7232,6 +7232,11 @@
     "title": "Plugins & Skills",
     "metadataTitle": "Plugins & Skills | Canvas Notebook",
     "metadataDescription": "Browse and manage Canvas Notebook plugins and skills.",
+    "loading": {
+      "pending": "Loading skills…",
+      "error": "Failed to load skills.",
+      "retry": "Try again"
+    },
     "tabs": {
       "plugins": "Plugins",
       "skills": "Skills"
@@ -7243,6 +7248,7 @@
       "organization": "Organization",
       "personalHint": "Personal packages and activation settings are stored in your user scope.",
       "organizationHint": "Organization packages are centrally versioned and resolved for employees through policies; personal connections and secrets are never copied.",
+      "organizationDenied": "You cannot centrally manage plugins and skills for this organization. Your personal packages are shown here.",
       "centralManaged": "Centrally managed",
       "policy": {
         "title": "Distribution policies",
@@ -7348,6 +7354,19 @@
         "updates": "Updates",
         "skills": "Skills"
       },
+      "readiness": {
+        "available": "Ready",
+        "disabled": "Disabled",
+        "blocked": "Blocked by policy",
+        "conflict": "Package conflict",
+        "personal-connection-required": "Connection required"
+      },
+      "readinessHints": {
+        "blocked": "The organization policy prevents use of this package.",
+        "conflict": "Multiple packages provide the same capability. Resolve the conflict first.",
+        "personal-connection-required": "Set up your personal connection to use this plugin."
+      },
+      "requiredHint": "Your organization requires this plugin. It cannot be disabled here.",
       "pagination": {
         "status": "Page {page} of {totalPages} · {totalItems} plugins",
         "previous": "Previous",

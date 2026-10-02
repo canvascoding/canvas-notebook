@@ -540,6 +540,8 @@ function CanvasPluginsSection({
   const [storePage, setStorePage] = useState(1);
   const [searchQuery, setSearchQuery] = useState('');
   const [isLoading, setIsLoading] = useState(true);
+  const [isStoreLoading, setIsStoreLoading] = useState(true);
+  const [pluginsLoadFailed, setPluginsLoadFailed] = useState(false);
   const [sourcePath, setSourcePath] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [storeError, setStoreError] = useState<string | null>(null);
@@ -580,53 +582,50 @@ function CanvasPluginsSection({
     });
 
     setIsLoading(true);
+    setIsStoreLoading(true);
+    setPluginsLoadFailed(false);
     setError(null);
     setStoreError(null);
-    try {
-      const [pluginsResult, storeResult] = await Promise.allSettled([
-        fetch(capabilityScopeUrl('/api/plugins', managementScope), { credentials: 'include', cache: 'no-store' }).then((response) => response.json()),
-        fetch(`/api/plugins/store?${storeParams.toString()}`, { credentials: 'include', cache: 'no-store' }).then((response) => response.json()),
-      ]);
-
-      if (requestId !== pluginLoadRequestRef.current) return;
-
-      if (pluginsResult.status === 'fulfilled' && pluginsResult.value?.success) {
-        setPlugins(Array.isArray(pluginsResult.value.plugins) ? pluginsResult.value.plugins : []);
-      } else {
-        const message = pluginsResult.status === 'rejected'
-          ? pluginsResult.reason
-          : pluginsResult.value?.error;
-        throw new Error(message instanceof Error ? message.message : message || t('errors.load'));
-      }
-
-      if (storeResult.status === 'fulfilled' && storeResult.value?.success) {
-        setStorePlugins(Array.isArray(storeResult.value.plugins) ? storeResult.value.plugins : []);
-        setStoreMetadata(storeResult.value.registry || null);
-        setStorePagination(storeResult.value.pagination || EMPTY_STORE_PAGINATION);
-        setStoreStats(storeResult.value.stats || EMPTY_STORE_STATS);
-      } else {
-        const message = storeResult.status === 'rejected'
-          ? storeResult.reason
-          : storeResult.value?.error;
-        setStorePlugins([]);
-        setStoreMetadata(null);
-        setStorePagination(EMPTY_STORE_PAGINATION);
-        setStoreStats(EMPTY_STORE_STATS);
-        setStoreError(message instanceof Error ? message.message : message || t('errors.storeLoad'));
-      }
-    } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : t('errors.load'));
-    } finally {
-      if (requestId === pluginLoadRequestRef.current) {
-        setIsLoading(false);
-      }
-    }
+    await Promise.all([
+      (async () => {
+        try {
+          const response = await fetch(capabilityScopeUrl('/api/plugins', managementScope), { credentials: 'include', cache: 'no-store' });
+          const data = await response.json();
+          if (!response.ok || !data.success) throw new Error(data.error || t('errors.load'));
+          if (requestId === pluginLoadRequestRef.current) setPlugins(Array.isArray(data.plugins) ? data.plugins : []);
+        } catch (loadError) {
+          if (requestId === pluginLoadRequestRef.current) {
+            setPluginsLoadFailed(true);
+            setError(loadError instanceof Error ? loadError.message : t('errors.load'));
+          }
+        } finally {
+          if (requestId === pluginLoadRequestRef.current) setIsLoading(false);
+        }
+      })(),
+      (async () => {
+        try {
+          const response = await fetch(`/api/plugins/store?${storeParams}`, { credentials: 'include', cache: 'no-store' });
+          const data = await response.json();
+          if (!response.ok || !data.success) throw new Error(data.error || t('errors.storeLoad'));
+          if (requestId !== pluginLoadRequestRef.current) return;
+          setStorePlugins(Array.isArray(data.plugins) ? data.plugins : []);
+          setStoreMetadata(data.registry || null);
+          setStorePagination(data.pagination || EMPTY_STORE_PAGINATION);
+          setStoreStats(data.stats || EMPTY_STORE_STATS);
+        } catch (loadError) {
+          if (requestId === pluginLoadRequestRef.current) setStoreError(loadError instanceof Error ? loadError.message : t('errors.storeLoad'));
+        } finally {
+          if (requestId === pluginLoadRequestRef.current) setIsStoreLoading(false);
+        }
+      })(),
+    ]);
   }, [deferredSearchQuery, managementScope, storePage, storeTab, t]);
 
   useEffect(() => {
     startTransition(() => {
       void loadPluginData();
     });
+    return () => { pluginLoadRequestRef.current += 1; };
   }, [loadPluginData]);
 
   const loadComposioConnectorState = useCallback(async (options: { isCancelled?: () => boolean } = {}) => {
@@ -1967,7 +1966,7 @@ function CanvasPluginsSection({
                   variant={plugin.readiness === 'blocked' || plugin.readiness === 'conflict' ? 'destructive' : 'secondary'}
                   className="text-[10px]"
                 >
-                  {plugin.readiness}
+                  {t(`readiness.${plugin.readiness}`)}
                 </Badge>
               ) : null}
               {updateAvailable ? <Badge variant="destructive" className="text-[10px]">{t('updateAvailable')}</Badge> : null}
@@ -1976,6 +1975,11 @@ function CanvasPluginsSection({
             </div>
             <div className="mt-1 font-mono text-xs text-muted-foreground">/{plugin.name}</div>
             <p className="mt-2 line-clamp-3 text-sm text-muted-foreground">{description}</p>
+            {plugin.readiness && plugin.readiness !== 'available' && plugin.readiness !== 'disabled' ? (
+              <p className="mt-2 text-xs text-muted-foreground">{t(`readinessHints.${plugin.readiness}`)}</p>
+            ) : isAssignedOrganizationPlugin(plugin) && plugin.effectivePolicy === 'required' ? (
+              <p className="mt-2 text-xs text-muted-foreground">{t('requiredHint')}</p>
+            ) : null}
             {plugin.blockedReason ? (
               <p className="mt-2 line-clamp-2 text-xs text-destructive">{plugin.blockedReason}</p>
             ) : null}
@@ -2003,6 +2007,11 @@ function CanvasPluginsSection({
             {plugin.enabled ? t('enabled') : t('disabled')}
           </label>
           <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
+            {plugin.readiness === 'personal-connection-required' ? (
+              <Button variant="outline" size="sm" className="w-full gap-1.5 sm:w-auto" onClick={(event) => { event.stopPropagation(); openInstalledPluginDetail(plugin); }}>
+                <Plug className="h-3.5 w-3.5" />{t('preflight.setup')}
+              </Button>
+            ) : null}
             {updateAvailable || skillRepairAvailable ? (
               <Button
                 variant="outline"
@@ -2071,7 +2080,7 @@ function CanvasPluginsSection({
           <Button
             variant="outline"
             size="sm"
-            disabled={isLoading || !storePagination.hasPreviousPage}
+            disabled={isStoreLoading || !storePagination.hasPreviousPage}
             onClick={() => setStorePage((page) => Math.max(1, page - 1))}
             className="h-8 gap-1.5"
           >
@@ -2081,7 +2090,7 @@ function CanvasPluginsSection({
           <Button
             variant="outline"
             size="sm"
-            disabled={isLoading || !storePagination.hasNextPage}
+            disabled={isStoreLoading || !storePagination.hasNextPage}
             onClick={() => setStorePage((page) => page + 1)}
             className="h-8 gap-1.5"
           >
@@ -2170,9 +2179,9 @@ function CanvasPluginsSection({
               {t('storeSource', { name: storeMetadata.name })}
             </div>
           ) : null}
-          {isLoading ? (
+          {isStoreLoading ? (
             renderPluginCardSkeletons()
-          ) : storePlugins.length === 0 ? (
+          ) : storeError ? null : storePlugins.length === 0 ? (
             <div className="rounded-lg border border-dashed px-4 py-6 text-sm text-muted-foreground">
               {t('emptyStore')}
             </div>
@@ -2189,7 +2198,7 @@ function CanvasPluginsSection({
         <TabsContent value="installed" className="space-y-3">
           {isLoading ? (
             renderPluginCardSkeletons()
-          ) : filteredInstalledPlugins.length === 0 ? (
+          ) : pluginsLoadFailed ? null : filteredInstalledPlugins.length === 0 ? (
             <div className="rounded-lg border border-dashed px-4 py-6 text-sm text-muted-foreground">
               {t('empty')}
             </div>
@@ -2201,9 +2210,9 @@ function CanvasPluginsSection({
         </TabsContent>
 
         <TabsContent value="updates" className="space-y-3">
-          {isLoading ? (
+          {isStoreLoading ? (
             renderPluginCardSkeletons()
-          ) : updatePlugins.length === 0 ? (
+          ) : storeError ? null : updatePlugins.length === 0 ? (
             <div className="rounded-lg border border-dashed px-4 py-6 text-sm text-muted-foreground">
               {t('noUpdates')}
             </div>
@@ -2586,14 +2595,17 @@ function OrganizationCapabilityPolicyPanel() {
   );
 }
 
-export function SkillsPanel() {
+export function SkillsPanel({ canManageOrganizationCapabilities: initialCanManageOrganization = false }: { canManageOrganizationCapabilities?: boolean } = {}) {
   const t = useTranslations('skills');
   const { navigation, navigate } = usePluginNavigation();
-  const [managementScope, setManagementScope] = useState<CapabilityManagementScope>('user');
-  const [canManageOrganizationCapabilities, setCanManageOrganizationCapabilities] = useState(false);
+  const [canManageOrganizationCapabilities, setCanManageOrganizationCapabilities] = useState(initialCanManageOrganization);
+  const managementScope: CapabilityManagementScope = navigation.scope === 'organization' && canManageOrganizationCapabilities ? 'organization' : 'user';
   const [skills, setSkills] = useState<CanvasSkill[]>([]);
   const [stats, setStats] = useState({ total: 0, enabled: 0, disabled: 0 });
   const [isLoading, setIsLoading] = useState(true);
+  const [skillTreeLoading, setSkillTreeLoading] = useState(true);
+  const [skillsError, setSkillsError] = useState<string | null>(null);
+  const [pluginsRevision, setPluginsRevision] = useState(0);
   const [selectedSkill, setSelectedSkill] = useState<CanvasSkill | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [uploadOpen, setUploadOpen] = useState(false);
@@ -2621,6 +2633,7 @@ export function SkillsPanel() {
   const [pendingSkillAction, setPendingSkillAction] = useState<string | null>(null);
   const skillsRequestRef = useRef(0);
   const skillTreeRequestRef = useRef(0);
+  const skillStoreRequestRef = useRef(0);
 
   const changeManagementScope = useCallback((scope: CapabilityManagementScope) => {
     if (scope === managementScope) return;
@@ -2631,14 +2644,15 @@ export function SkillsPanel() {
     setSelectedSkill(null);
     setSelectedPath(null);
     setRightView('info');
-    setManagementScope(scope);
-  }, [managementScope]);
+    navigate({ scope });
+  }, [managementScope, navigate]);
 
   async function loadSkills() {
     const requestId = ++skillsRequestRef.current;
     const requestedScope = managementScope;
     try {
       setIsLoading(true);
+      setSkillsError(null);
       const [skillsRes, statusRes] = await Promise.all([
         fetch(capabilityScopeUrl('/api/skills', requestedScope)),
         fetch('/api/skills/status'),
@@ -2646,12 +2660,14 @@ export function SkillsPanel() {
       const skillsData = await skillsRes.json();
       const statusData = await statusRes.json();
       if (requestId !== skillsRequestRef.current) return;
+      if (!skillsRes.ok || !skillsData.success || !statusRes.ok || !statusData.success) throw new Error(skillsData.error || t('loading.error'));
 
       if (skillsData.success) {
         const canManageOrganization = skillsData.canManageOrganizationCapabilities === true;
         setCanManageOrganizationCapabilities(canManageOrganization);
         if (!canManageOrganization && requestedScope === 'organization') {
           changeManagementScope('user');
+          return;
         }
         const allSkills: CanvasSkill[] = skillsData.skills;
         const enabledNames: string[] = statusData.success ? (statusData.enabledSkills || []) : [];
@@ -2673,7 +2689,7 @@ export function SkillsPanel() {
         });
       }
     } catch (error) {
-      console.error('Failed to load skills:', error);
+      if (requestId === skillsRequestRef.current) setSkillsError(error instanceof Error ? error.message : t('loading.error'));
     } finally {
       if (requestId === skillsRequestRef.current) setIsLoading(false);
     }
@@ -2682,18 +2698,23 @@ export function SkillsPanel() {
   async function loadSkillTree() {
     const requestId = ++skillTreeRequestRef.current;
     const requestedScope = managementScope;
+    setSkillTreeLoading(true);
     try {
       const res = await fetch(capabilityScopeUrl('/api/skills/tree?depth=4', requestedScope));
       const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || t('loading.error'));
       if (requestId === skillTreeRequestRef.current && data.success) {
         setSkillTree(data.data || []);
       }
     } catch (error) {
-      console.error('Failed to load skill tree:', error);
+      if (requestId === skillTreeRequestRef.current) setSkillsError(error instanceof Error ? error.message : t('loading.error'));
+    } finally {
+      if (requestId === skillTreeRequestRef.current) setSkillTreeLoading(false);
     }
   }
 
   const loadSkillStore = useCallback(async () => {
+    const requestId = ++skillStoreRequestRef.current;
     const storeState = skillLibraryTab === 'updates' ? 'updates' : 'all';
     const params = new URLSearchParams({
       page: String(skillStorePage),
@@ -2711,7 +2732,8 @@ export function SkillsPanel() {
         cache: 'no-store',
       });
       const data = await response.json();
-      if (!data.success) {
+      if (requestId !== skillStoreRequestRef.current) return;
+      if (!response.ok || !data.success) {
         throw new Error(data.error || t('skillLibrary.errors.storeLoad'));
       }
       setSkillStoreSkills(Array.isArray(data.skills) ? data.skills : []);
@@ -2719,32 +2741,36 @@ export function SkillsPanel() {
       setSkillStorePagination(data.pagination || EMPTY_SKILL_STORE_PAGINATION);
       setSkillStoreStats(data.stats || EMPTY_SKILL_STORE_STATS);
     } catch (error) {
+      if (requestId !== skillStoreRequestRef.current) return;
       setSkillStoreSkills([]);
       setSkillStoreMetadata(null);
       setSkillStorePagination(EMPTY_SKILL_STORE_PAGINATION);
       setSkillStoreStats(EMPTY_SKILL_STORE_STATS);
       setSkillStoreError(error instanceof Error ? error.message : t('skillLibrary.errors.storeLoad'));
     } finally {
-      setSkillStoreLoading(false);
+      if (requestId === skillStoreRequestRef.current) setSkillStoreLoading(false);
     }
   }, [deferredSkillStoreQuery, managementScope, skillLibraryTab, skillStorePage, t]);
 
   useEffect(() => {
+    if (panelTab !== 'skills') return;
     startTransition(() => {
       loadSkills();
       loadSkillTree();
     });
-    // Both loaders intentionally rerun only when the selected ownership scope changes.
+    return () => { skillsRequestRef.current += 1; skillTreeRequestRef.current += 1; };
+    // Skill data is loaded only while the skill area is visible.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [managementScope]);
+  }, [managementScope, panelTab, pluginsRevision]);
 
   useEffect(() => {
-    if (skillLibraryTab === 'library' || skillLibraryTab === 'updates') {
+    if (panelTab === 'skills' && (skillLibraryTab === 'library' || skillLibraryTab === 'updates')) {
       startTransition(() => {
         void loadSkillStore();
       });
     }
-  }, [loadSkillStore, skillLibraryTab]);
+    return () => { skillStoreRequestRef.current += 1; };
+  }, [loadSkillStore, skillLibraryTab, panelTab]);
 
   const toggleDirectory = useCallback((dirPath: string) => {
     setExpandedDirs(prev => {
@@ -3206,14 +3232,6 @@ export function SkillsPanel() {
     );
   }
 
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center py-12">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-      </div>
-    );
-  }
-
   const selectedSkillData = selectedPath
     ? (selectedSkill?.resourceId
       ? skills.find((skill) => skill.resourceId === selectedSkill.resourceId)
@@ -3262,6 +3280,9 @@ export function SkillsPanel() {
           {managementScope === 'organization' ? t('scope.organizationHint') : t('scope.personalHint')}
         </p>
       </div>
+      {navigation.scope === 'organization' && !canManageOrganizationCapabilities ? (
+        <InlineNotice variant="warning" size="compact" className="mb-4">{t('scope.organizationDenied')}</InlineNotice>
+      ) : null}
       {managementScope === 'organization' ? (
         <div className="mb-4">
           <OrganizationCapabilityPolicyPanel />
@@ -3287,10 +3308,10 @@ export function SkillsPanel() {
 
         <TabsContent value="plugins" className="space-y-4">
           <CanvasPluginsSection
+            key={managementScope}
             managementScope={managementScope}
             onPluginsChanged={() => {
-              void loadSkills();
-              void loadSkillTree();
+              setPluginsRevision((revision) => revision + 1);
             }}
           />
         </TabsContent>
@@ -3325,6 +3346,16 @@ export function SkillsPanel() {
             ) : null}
 
             <TabsContent value="installed" className="space-y-4">
+              {isLoading || skillTreeLoading ? (
+                <div role="status" className="flex items-center justify-center gap-2 py-12 text-sm text-muted-foreground">
+                  <Loader2 className="h-5 w-5 animate-spin" />{t('loading.pending')}
+                </div>
+              ) : skillsError ? (
+                <InlineNotice variant="destructive">
+                  <p>{skillsError}</p>
+                  <Button variant="outline" size="sm" className="mt-3" onClick={() => { void loadSkills(); void loadSkillTree(); }}>{t('loading.retry')}</Button>
+                </InlineNotice>
+              ) : <>
               <div className="flex flex-col gap-4">
                 <div className="flex items-center gap-2 flex-wrap">
                   <div className="flex items-center gap-3 text-sm text-muted-foreground">
@@ -3463,7 +3494,7 @@ export function SkillsPanel() {
                                     variant={selectedSkillData.readiness === 'blocked' || selectedSkillData.readiness === 'conflict' ? 'destructive' : 'secondary'}
                                     className="text-xs"
                                   >
-                                    {selectedSkillData.readiness}
+                                    {t(`plugins.readiness.${selectedSkillData.readiness}`)}
                                   </Badge>
                                 ) : null}
                               </div>
@@ -3653,6 +3684,7 @@ export function SkillsPanel() {
                   </Card>
                 </div>
               </div>
+              </>}
             </TabsContent>
 
             <TabsContent value="library" className="space-y-3">
@@ -3688,7 +3720,7 @@ export function SkillsPanel() {
                 <div className="flex items-center justify-center rounded-lg border border-dashed py-8 text-muted-foreground">
                   <Loader2 className="h-5 w-5 animate-spin" />
                 </div>
-              ) : skillStoreSkills.length === 0 ? (
+              ) : skillStoreError ? null : skillStoreSkills.length === 0 ? (
                 <div className="rounded-lg border border-dashed px-4 py-6 text-sm text-muted-foreground">
                   {t('skillLibrary.emptyStore')}
                 </div>
@@ -3730,7 +3762,7 @@ export function SkillsPanel() {
                 <div className="flex items-center justify-center rounded-lg border border-dashed py-8 text-muted-foreground">
                   <Loader2 className="h-5 w-5 animate-spin" />
                 </div>
-              ) : skillStoreSkills.length === 0 ? (
+              ) : skillStoreError ? null : skillStoreSkills.length === 0 ? (
                 <div className="rounded-lg border border-dashed px-4 py-6 text-sm text-muted-foreground">
                   {t('skillLibrary.noUpdates')}
                 </div>

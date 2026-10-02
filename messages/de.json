@@ -7231,6 +7231,11 @@
     "title": "Plugins & Skills",
     "metadataTitle": "Plugins & Skills | Canvas Notebook",
     "metadataDescription": "Canvas-Notebook-Plugins und Skills durchsuchen und verwalten.",
+    "loading": {
+      "pending": "Skills werden geladen…",
+      "error": "Skills konnten nicht geladen werden.",
+      "retry": "Erneut versuchen"
+    },
     "tabs": {
       "plugins": "Plugins",
       "skills": "Skills"
@@ -7242,6 +7247,7 @@
       "organization": "Organisation",
       "personalHint": "Persoenliche Pakete und Aktivierungseinstellungen werden in deinem User-Scope gespeichert.",
       "organizationHint": "Organization-Pakete werden zentral versioniert und per Policy fuer Mitarbeiter aufgeloest; persoenliche Verbindungen und Secrets werden nie kopiert.",
+      "organizationDenied": "Du kannst Plugins und Skills dieser Organisation nicht zentral verwalten. Hier siehst du deine persönlichen Pakete.",
       "centralManaged": "Zentral verwaltet",
       "policy": {
         "title": "Verteilungs-Policies",
@@ -7347,6 +7353,19 @@
         "updates": "Updates",
         "skills": "Skills"
       },
+      "readiness": {
+        "available": "Bereit",
+        "disabled": "Deaktiviert",
+        "blocked": "Durch Richtlinie blockiert",
+        "conflict": "Paketkonflikt",
+        "personal-connection-required": "Verbindung erforderlich"
+      },
+      "readinessHints": {
+        "blocked": "Die Organisationsrichtlinie verhindert die Nutzung dieses Pakets.",
+        "conflict": "Mehrere Pakete stellen dieselbe Funktion bereit. Der Konflikt muss zuerst aufgelöst werden.",
+        "personal-connection-required": "Richte deine persönliche Verbindung ein, um dieses Plugin zu nutzen."
+      },
+      "requiredHint": "Dieses Plugin ist durch die Organisation vorgeschrieben und kann hier nicht deaktiviert werden.",
       "pagination": {
         "status": "Seite {page} von {totalPages} · {totalItems} Plugins",
         "previous": "Zurück",
