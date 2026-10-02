@@ -89,14 +89,19 @@ async function waitForAuthRetry(response: APIResponse, deadline: number, phase: 
 export async function requestManagedTestSession(request: APIRequestContext, options: {
   url?: string;
   deadline?: number;
+  requestTimeoutMs?: number;
   phase?: 'Playwright authentication' | 'Managed page authentication' | 'Managed test preflight' | 'Managed fixture identity';
 } = {}): Promise<APIResponse> {
   const deadline = options.deadline ?? Date.now() + 45_000;
+  const requestTimeoutMs = options.requestTimeoutMs ?? 15_000;
+  if (!Number.isSafeInteger(requestTimeoutMs) || requestTimeoutMs < 1 || requestTimeoutMs > 15_000) {
+    throw new Error('Managed session request timeout must be between 1 and 15000ms.');
+  }
   const phase = options.phase ?? 'Playwright authentication';
   let retries = 0;
   while (true) {
     const response = await request.get(options.url ?? '/api/auth/get-session', {
-      timeout: authRequestTimeout(deadline, phase),
+      timeout: Math.min(requestTimeoutMs, authRequestTimeout(deadline, phase)),
     }).catch(() => { throw new Error(`${phase} session check failed before receiving an HTTP response.`); });
     if (response.status() !== 429) return response;
     if (retries >= 2) throw new Error(`${phase} session check failed (429).`);

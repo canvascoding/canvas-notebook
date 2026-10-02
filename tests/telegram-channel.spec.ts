@@ -2,7 +2,7 @@ import { test, expect, request, type APIRequestContext, type Page } from '@playw
 import { randomUUID } from 'node:crypto';
 import dotenv from 'dotenv';
 import path from 'node:path';
-import { authenticateManagedTestPage } from './helpers/managed-test-context';
+import { authenticateManagedTestPage, requestManagedTestSession } from './helpers/managed-test-context';
 
 dotenv.config({ path: path.join(process.cwd(), '.env.local') });
 
@@ -46,7 +46,9 @@ async function createOwnedChannelSessions(page: Page, fixture: OwnedChannelFixtu
   fixture.cleanupApi = await request.newContext({
     baseURL: BASE_URL, storageState: await page.context().storageState(), timeout: 5_000,
   });
-  const identityResponse = await fixture.cleanupApi.get('/api/auth/get-session');
+  const identityResponse = await requestManagedTestSession(fixture.cleanupApi, {
+    phase: 'Managed fixture identity', requestTimeoutMs: 5_000,
+  });
   expect(identityResponse.status()).toBe(200);
   const identity = await identityResponse.json() as { user: { id: string; email: string } };
   expect(identity.user.email).toBe(TEST_EMAIL);
@@ -107,11 +109,17 @@ async function createOwnedChannelSessions(page: Page, fixture: OwnedChannelFixtu
 async function cleanupOwnedChannelSessions(fixture: OwnedChannelFixture): Promise<void> {
   if (!fixture.cleanupApi) return;
   const api = fixture.cleanupApi;
+  if (!fixture.sessions.length) {
+    await api.dispose();
+    return;
+  }
   const errors: unknown[] = [];
   const deadline = Date.now() + 25_000;
   const timeout = () => Math.max(1, Math.min(5_000, deadline - Date.now()));
   try {
-    const identityResponse = await api.get('/api/auth/get-session', { timeout: timeout() });
+    const identityResponse = await requestManagedTestSession(api, {
+      deadline, phase: 'Managed fixture identity', requestTimeoutMs: 5_000,
+    });
     expect(identityResponse.status()).toBe(200);
     const identity = await identityResponse.json() as { user: { id: string; email: string } };
     expect(identity.user.id).toBe(fixture.ownerUserId);

@@ -7,6 +7,7 @@ import path from 'node:path';
 import {
   authenticateManagedTestPage,
   createAuthenticatedContext,
+  requestManagedTestSession,
   runManagedTestPreflight,
 } from '../tests/helpers/managed-test-context';
 
@@ -109,6 +110,18 @@ async function preflightCases(): Promise<void> {
   await rejectsMessage(() => runManagedTestPreflight(contextFor({ '/api/auth/get-session': throttled })),
     /session check failed \(429\)/);
   assert.equal(throttledBodyReads, 0);
+
+  let boundedRequests = 0;
+  const boundedRequest = { get: async (_url: string, options: { timeout: number }) => {
+    boundedRequests += 1;
+    assert.equal(options.timeout, 5_000);
+    return response({ user: { id: 'user-1' } });
+  } } as never;
+  await requestManagedTestSession(boundedRequest, { requestTimeoutMs: 5_000 });
+  for (const requestTimeoutMs of [0, -1, 15_001, Number.NaN]) {
+    await rejectsMessage(() => requestManagedTestSession(boundedRequest, { requestTimeoutMs }), /between 1 and 15000ms/);
+  }
+  assert.equal(boundedRequests, 1, 'invalid request bounds must fail before transport');
 }
 
 async function authCacheRenewalCase(): Promise<void> {
