@@ -1,6 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import dotenv from 'dotenv';
 import path from 'node:path';
+import { createAuthenticatedContext } from '../helpers/managed-test-context';
 
 dotenv.config({ path: path.join(process.cwd(), '.env.local') });
 
@@ -9,11 +10,38 @@ const TEST_EMAIL = process.env.TEST_LOGIN_EMAIL || process.env.BOOTSTRAP_ADMIN_E
 const TEST_PASSWORD = process.env.TEST_LOGIN_PASSWORD || process.env.BOOTSTRAP_ADMIN_PASSWORD || 'change-me';
 
 async function login(page: Page) {
-  const response = await page.request.post('/api/auth/sign-in/email', {
-    headers: { Origin: BASE_URL },
-    data: { email: TEST_EMAIL, password: TEST_PASSWORD },
+  const browser = page.context().browser();
+  if (!browser) throw new Error('Studio browser tests require a browser context.');
+  const authenticated = await createAuthenticatedContext(browser, { baseURL: BASE_URL }, {
+    email: TEST_EMAIL, password: TEST_PASSWORD,
   });
-  expect(response.ok()).toBeTruthy();
+  try {
+    const state = await authenticated.storageState();
+    await page.context().addCookies(state.cookies);
+    const session = await page.request.get(`${BASE_URL}/api/auth/get-session`);
+    expect(session.ok()).toBeTruthy();
+    expect((await session.json()).user?.id).toBeTruthy();
+  } finally { await authenticated.close(); }
+}
+
+async function requireStudioGenerationProvider(page: Page) {
+  const response = await page.request.get('/api/studio/config');
+  expect(response.status()).toBe(200);
+
+  const payload = await response.json();
+  expect(payload.success).toBe(true);
+  expect(typeof payload.config).toBe('object');
+  expect(payload.config).not.toBeNull();
+
+  const gemini = payload.config?.localApiKeys?.gemini;
+  const managedEnabled = payload.config?.managedMediaAvailable;
+  expect(typeof gemini).toBe('boolean');
+  expect(typeof managedEnabled).toBe('boolean');
+
+  test.skip(
+    !gemini && !managedEnabled,
+    'Studio image generation requires a real Gemini credential for the test user or configured Managed Media; both are unavailable.',
+  );
 }
 
 async function createTestProduct(page: Page) {
@@ -49,6 +77,7 @@ test.describe('Studio Generation + Polling', () => {
 
   test('carries dashboard prompt into create generation handoff', async ({ page }) => {
     await login(page);
+    await requireStudioGenerationProvider(page);
     await page.goto('/studio', { waitUntil: 'networkidle' });
 
     const prompt = `Dashboard handoff product shot ${Date.now()}`;
@@ -78,6 +107,7 @@ test.describe('Studio Generation + Polling', () => {
 
   test('starts a text-to-image generation', async ({ page }) => {
     await login(page);
+    await requireStudioGenerationProvider(page);
     await page.goto('/studio/create', { waitUntil: 'networkidle' });
 
     const promptTextarea = page.locator('textarea').first();
@@ -99,6 +129,7 @@ test.describe('Studio Generation + Polling', () => {
 
   test('starts a generation with product reference', async ({ page }) => {
     await login(page);
+    await requireStudioGenerationProvider(page);
 
     const product = await createTestProduct(page);
     createdProductIds.push(product.id);
@@ -121,21 +152,20 @@ test.describe('Studio Generation + Polling', () => {
     createdGenerationIds.push(data.generationId);
   });
 
-  test('shows error state for failed generation', async ({ page }) => {
+  test('rejects empty and whitespace prompts without references', async ({ page }) => {
     await login(page);
 
-    const res = await page.request.post('/api/studio/generate', {
-      headers: { 'Content-Type': 'application/json', Origin: BASE_URL },
-      data: { prompt: 'short', mode: 'image' },
-    });
+    for (const prompt of ['', ' \t\n ']) {
+      const res = await page.request.post('/api/studio/generate', {
+        headers: { 'Content-Type': 'application/json', Origin: BASE_URL },
+        data: { prompt, mode: 'image' },
+      });
 
-    if (!res.ok()) {
+      expect(res.status()).toBe(400);
       const data = await res.json();
       expect(data.success).toBe(false);
-      expect(data.error).toBeTruthy();
-    } else {
-      const data = await res.json();
-      createdGenerationIds.push(data.generationId);
+      expect(data.error).toBe('Prompt or reference images required');
+      expect(data.generationId).toBeUndefined();
     }
   });
 });
