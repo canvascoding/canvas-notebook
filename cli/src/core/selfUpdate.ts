@@ -1,5 +1,4 @@
 import crypto from 'node:crypto';
-import { spawn } from 'node:child_process';
 import { constants as fsConstants } from 'node:fs';
 import fs from 'node:fs/promises';
 import os from 'node:os';
@@ -8,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 
 import type { CommandRunner, RuntimeContext } from './types';
 import { runOrThrow } from './process';
+import { startManagedProcess } from './processLifecycle';
 
 const CLI_ASSET_NAME = 'canvas-notebook-cli.tar.gz';
 const CHECKSUM_ASSET_NAME = 'canvas-notebook-cli.sha256';
@@ -334,7 +334,7 @@ export async function reexecPortableCliIfUpdated(params: {
     return;
   }
   if (result.skipped && isManagedByControlPlane(process.env)) {
-    if (!eventStream) console.log('Portable CLI self-update skipped: installation is managed by Control Plane.');
+    if (!eventStream && !params.json) console.log('Portable CLI self-update skipped: installation is managed by Control Plane.');
     return;
   }
   if (!result.changed) return;
@@ -342,11 +342,11 @@ export async function reexecPortableCliIfUpdated(params: {
   const versionText = result.beforeVersion || result.afterVersion
     ? ` ${result.beforeVersion || 'unknown'} -> ${result.afterVersion || 'unknown'}`
     : '';
-  if (!eventStream) {
+  if (!eventStream && !params.json) {
     console.log(`Portable CLI updated${versionText}`);
     console.log(`Restarting ${params.command} with updated CLI...`);
   }
-  const child = spawn(process.execPath, [result.mainPath, ...portableCliReexecArgs(params)], {
+  const managed = startManagedProcess(process.execPath, [result.mainPath, ...portableCliReexecArgs(params)], {
     env: {
       ...process.env,
       CANVAS_CLI_ROOT: result.currentRoot,
@@ -354,11 +354,8 @@ export async function reexecPortableCliIfUpdated(params: {
       CANVAS_OPERATION_LOCK_INHERIT_TOKEN: process.env.CANVAS_OPERATION_LOCK_NONCE,
     },
     stdio: 'inherit',
-    windowsHide: true,
+    timeoutMs: 3 * 60 * 60 * 1000,
   });
-  const exitCode = await new Promise<number>((resolve, reject) => {
-    child.on('error', reject);
-    child.on('close', (code) => resolve(code ?? 0));
-  });
-  process.exit(exitCode);
+  const resultExit = await managed.completion;
+  process.exit(resultExit.timedOut ? 124 : (resultExit.canceled ? 1 : (resultExit.code ?? 1)));
 }

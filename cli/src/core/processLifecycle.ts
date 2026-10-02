@@ -1,73 +1,117 @@
-import type { ChildProcess } from 'node:child_process';
+import { spawn, type ChildProcess, type StdioOptions } from 'node:child_process';
 
-export interface ProcessLifecycleOptions {
-  signal?: AbortSignal;
-  timeoutMs?: number;
-  killGraceMs?: number;
-  processGroup?: boolean;
+export interface ProcessTermination {
+  code: number | null;
+  signal: NodeJS.Signals | null;
+  timedOut: boolean;
+  canceled: boolean;
+  error?: Error;
 }
 
-export function superviseProcess(child: ChildProcess, options: ProcessLifecycleOptions = {}) {
-  let timedOut = false;
-  let aborted = false;
+const activeProcesses = new Set<{ stop(): void }>();
+
+function forwardSignal(signal: NodeJS.Signals): void {
+  process.exitCode = signal === 'SIGINT' ? 130 : 143;
+  for (const active of activeProcesses) active.stop();
+}
+
+const forwardInterrupt = () => forwardSignal('SIGINT');
+const forwardTermination = () => forwardSignal('SIGTERM');
+
+export function startManagedProcess(command: string, args: string[], options: {
+  cwd?: string;
+  env?: NodeJS.ProcessEnv;
+  stdio?: StdioOptions;
+  timeoutMs?: number;
+  signal?: AbortSignal;
+  killGraceMs?: number;
+  processGroup?: boolean;
+} = {}): { child: ChildProcess; completion: Promise<ProcessTermination>; stop(): void } {
+  const grouped = process.platform !== 'win32' && (options.processGroup ?? options.stdio !== 'inherit');
+  const child = spawn(command, args, {
+    cwd: options.cwd, env: options.env, stdio: options.stdio ?? 'pipe',
+    shell: false, windowsHide: true, detached: grouped,
+  });
+  let settled = false;
   let stopping = false;
-  let closed = false;
-  let finished = false;
-  let forceKilled = false;
-  let forceKillTimer: NodeJS.Timeout | undefined;
-  let resolveCompletion!: () => void;
-  const completion = new Promise<void>((resolve) => { resolveCompletion = resolve; });
+  let timedOut = false;
+  let canceled = false;
+  let streamError: Error | undefined;
+  let exitCode: number | null = null;
+  let exitSignal: NodeJS.Signals | null = null;
+  let timeout: NodeJS.Timeout | undefined;
+  let escalation: NodeJS.Timeout | undefined;
+  let finalization: NodeJS.Timeout | undefined;
+  let finish!: (error?: Error) => void;
+
   const kill = (signal: NodeJS.Signals) => {
     try {
-      if (options.processGroup && process.platform !== 'win32' && child.pid) process.kill(-child.pid, signal);
+      if (grouped && child.pid) process.kill(-child.pid, signal);
       else child.kill(signal);
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error;
+      if ((error as NodeJS.ErrnoException).code !== 'ESRCH') child.kill(signal);
     }
   };
   const stop = () => {
-    if (stopping || finished) return;
+    if (settled || stopping) return;
     stopping = true;
-    kill('SIGTERM');
-    forceKillTimer = setTimeout(() => {
+    canceled = !timedOut;
+    if (process.platform === 'win32' && child.pid) {
+      const taskkill = spawn('taskkill.exe', ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true });
+      taskkill.on('error', () => child.kill('SIGKILL'));
+    } else kill('SIGTERM');
+    const grace = options.killGraceMs ?? 5000;
+    escalation = setTimeout(() => kill('SIGKILL'), grace);
+    finalization = setTimeout(() => {
       kill('SIGKILL');
-      forceKilled = true;
-      if (closed) cleanup();
-    }, options.killGraceMs ?? 5_000);
-    forceKillTimer.unref();
+      child.stdin?.destroy();
+      child.stdout?.destroy();
+      child.stderr?.destroy();
+      finish();
+    }, grace + 1000);
+    escalation.unref();
+    finalization.unref();
   };
-  const abort = () => { aborted = true; stop(); };
-  const timeout = options.timeoutMs && options.timeoutMs > 0 ? setTimeout(() => {
-    timedOut = true;
-    stop();
-  }, options.timeoutMs) : undefined;
-  timeout?.unref();
-  const cleanup = () => {
-    if (finished) return;
-    finished = true;
-    if (timeout) clearTimeout(timeout);
-    if (forceKillTimer) clearTimeout(forceKillTimer);
-    options.signal?.removeEventListener('abort', abort);
-    resolveCompletion();
-  };
-  child.once('close', () => {
-    closed = true;
-    if (stopping && options.processGroup && process.platform !== 'win32' && child.pid && !forceKilled) {
-      try {
-        process.kill(-child.pid, 0);
-        forceKillTimer?.ref();
-        return;
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== 'ESRCH') {
-          forceKillTimer?.ref();
-          return;
-        }
+  const active = { stop };
+  if (activeProcesses.size === 0) {
+    process.on('SIGINT', forwardInterrupt);
+    process.on('SIGTERM', forwardTermination);
+  }
+  activeProcesses.add(active);
+  const completion = new Promise<ProcessTermination>((resolve, reject) => {
+    finish = (error) => {
+      if (settled) return;
+      settled = true;
+      if (stopping) kill('SIGKILL');
+      clearTimeout(timeout);
+      clearTimeout(escalation);
+      clearTimeout(finalization);
+      options.signal?.removeEventListener('abort', stop);
+      activeProcesses.delete(active);
+      if (activeProcesses.size === 0) {
+        process.removeListener('SIGINT', forwardInterrupt);
+        process.removeListener('SIGTERM', forwardTermination);
       }
+      if (error) reject(error);
+      else resolve({ code: streamError ? 1 : exitCode, signal: exitSignal, timedOut, canceled, ...(streamError ? { error: streamError } : {}) });
+    };
+    child.once('error', finish);
+    child.once('exit', (code, signal) => { exitCode = code; exitSignal = signal; });
+    child.once('close', (code, signal) => { exitCode = code; exitSignal = signal; finish(); });
+    for (const stream of [child.stdin, child.stdout, child.stderr]) {
+      stream?.on('error', (error) => { streamError = error; stop(); });
     }
-    cleanup();
   });
-  child.once('error', cleanup);
-  if (options.signal?.aborted) abort();
-  else options.signal?.addEventListener('abort', abort, { once: true });
-  return { stop, completion, get timedOut() { return timedOut; }, get aborted() { return aborted; } };
+  if (options.timeoutMs !== undefined) {
+    if (!Number.isFinite(options.timeoutMs) || options.timeoutMs <= 0) {
+      timedOut = true;
+      stop();
+    } else {
+      timeout = setTimeout(() => { timedOut = true; stop(); }, options.timeoutMs);
+      timeout.unref();
+    }
+  }
+  if (options.signal?.aborted) stop();
+  else options.signal?.addEventListener('abort', stop, { once: true });
+  return { child, completion, stop };
 }

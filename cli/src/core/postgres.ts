@@ -103,8 +103,7 @@ async function postgresContainerId(docker: DockerManager, config: CanvasCliConfi
   if (composeId) return composeId;
 
   const name = postgresContainerName(config);
-  const inspectResult = await docker.docker(['inspect', '--format', '{{.Id}}', name]);
-  return inspectResult.status === 0 ? inspectResult.stdout.trim() : '';
+  return docker.resolveContainerId(name);
 }
 
 export async function postgresRuntimeInitialized(docker: DockerManager, config: CanvasCliConfig): Promise<boolean> {
@@ -114,44 +113,34 @@ export async function postgresRuntimeInitialized(docker: DockerManager, config: 
   return result.status === 0;
 }
 
-async function inspectContainerStatus(docker: DockerManager, containerIdOrName: string): Promise<string> {
+async function inspectContainerStatus(docker: DockerManager, containerIdOrName: string, timeoutMs?: number): Promise<string> {
   if (!containerIdOrName) return '';
-  const result = await docker.docker(['inspect', '--format', '{{.State.Status}}', containerIdOrName]);
-  return result.status === 0 ? result.stdout.trim() : '';
+  return docker.containerState(containerIdOrName, timeoutMs);
 }
 
-async function waitForPostgresRunning(docker: DockerManager, config: CanvasCliConfig, containerId: string, maxAttempts = 60): Promise<void> {
+async function waitForPostgresRunning(docker: DockerManager, config: CanvasCliConfig, containerId: string, maxAttempts = 60, timeoutMs = maxAttempts * 1000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    if (await inspectContainerStatus(docker, containerId) === 'running') {
-      const ready = await docker.docker([
-        'exec',
-        '-u',
-        'postgres',
-        containerId,
-        'pg_isready',
-        '-U',
-        postgresUser(config),
-        '-d',
-        postgresDatabase(config),
-      ]);
+    if (Date.now() >= deadline) break;
+    if (await inspectContainerStatus(docker, containerId, Math.max(1, Math.min(10_000, deadline - Date.now()))) === 'running') {
+      if (Date.now() >= deadline) break;
+      const ready = await docker.exec(containerId, ['pg_isready', '-U', postgresUser(config), '-d', postgresDatabase(config)], {
+        user: 'postgres', timeoutMs: Math.max(1, Math.min(5000, deadline - Date.now())),
+      });
       if (ready.status === 0) return;
     }
-    await delay(1000);
+    if (Date.now() >= deadline) break;
+    await delay(Math.min(1000, deadline - Date.now()));
   }
-  throw new Error('Postgres container did not become running after prepare-postgres.');
+  throw new Error('Postgres container did not become running within its prepare-postgres deadline.');
 }
 
-async function syncPostgresRolePassword(docker: DockerManager, config: CanvasCliConfig, containerId: string): Promise<void> {
+async function syncPostgresRolePassword(docker: DockerManager, config: CanvasCliConfig, containerId: string, timeoutMs = 30_000): Promise<void> {
   const user = postgresUser(config);
   const database = postgresDatabase(config);
   const password = postgresPassword(config);
   const sql = `SELECT format('ALTER ROLE %I PASSWORD %L', ${postgresSqlLiteral(user)}, ${postgresSqlLiteral(password)}) \\gexec\n`;
-  await docker.dockerOrThrow([
-    'exec',
-    '-i',
-    '-u',
-    'postgres',
-    containerId,
+  await docker.execOrThrow(containerId, [
     'psql',
     '-v',
     'ON_ERROR_STOP=1',
@@ -159,7 +148,7 @@ async function syncPostgresRolePassword(docker: DockerManager, config: CanvasCli
     user,
     '-d',
     database,
-  ], { stdin: sql, stdio: 'pipe' });
+  ], { stdin: sql, stdio: 'pipe', user: 'postgres', timeoutMs });
 }
 
 function psqlPasswordScript(sqlCommand: string): string {
@@ -173,26 +162,23 @@ function psqlPasswordScript(sqlCommand: string): string {
   ].join('\n');
 }
 
-async function runPasswordVerifiedPsql(docker: DockerManager, config: CanvasCliConfig, containerId: string, sqlArgs: string): Promise<void> {
-  await docker.dockerOrThrow([
-    'exec',
-    '-i',
-    containerId,
+async function runPasswordVerifiedPsql(docker: DockerManager, config: CanvasCliConfig, containerId: string, sqlArgs: string, timeoutMs = 30_000): Promise<void> {
+  await docker.execOrThrow(containerId, [
     'sh',
     '-c',
     psqlPasswordScript(sqlArgs),
   ], {
     stdin: `${postgresUser(config)}\n${postgresDatabase(config)}\n${postgresPassword(config)}\n`,
-    stdio: 'pipe',
+    stdio: 'pipe', timeoutMs,
   });
 }
 
-async function verifyRuntimePassword(docker: DockerManager, config: CanvasCliConfig, containerId: string): Promise<void> {
-  await runPasswordVerifiedPsql(docker, config, containerId, '-Atc "select 1"');
+async function verifyRuntimePassword(docker: DockerManager, config: CanvasCliConfig, containerId: string, timeoutMs?: number): Promise<void> {
+  await runPasswordVerifiedPsql(docker, config, containerId, '-Atc "select 1"', timeoutMs);
 }
 
-async function ensurePgvector(docker: DockerManager, config: CanvasCliConfig, containerId: string): Promise<void> {
-  await runPasswordVerifiedPsql(docker, config, containerId, '-c "CREATE EXTENSION IF NOT EXISTS vector"');
+async function ensurePgvector(docker: DockerManager, config: CanvasCliConfig, containerId: string, timeoutMs?: number): Promise<void> {
+  await runPasswordVerifiedPsql(docker, config, containerId, '-c "CREATE EXTENSION IF NOT EXISTS vector"', timeoutMs);
 }
 
 export async function preparePostgresManagedRuntime(params: {
@@ -214,21 +200,27 @@ export async function preparePostgresManagedRuntime(params: {
     };
   }
 
+  const deadline = Date.now() + (params.timeoutSeconds ?? 180) * 1000;
+  const remaining = () => {
+    const value = deadline - Date.now();
+    if (value <= 0) throw new Error('Postgres prepare exceeded its deadline.');
+    return value;
+  };
   ensurePostgresSecrets(params.config);
   params.onPhase?.('postgres_start');
-  await params.docker.composeOrThrow(params.config, ['--profile', 'postgres', 'up', '-d', '--no-recreate', 'postgres'], params.stdio ?? 'pipe');
+  await params.docker.composeOrThrow(params.config, ['--profile', 'postgres', 'up', '-d', '--no-recreate', 'postgres'], params.stdio ?? 'pipe', remaining());
   const containerId = await postgresContainerId(params.docker, params.config);
   if (!containerId) throw new Error('Postgres container was not found after prepare-postgres.');
   params.onPhase?.('postgres_ready');
-  await waitForPostgresRunning(params.docker, params.config, containerId, params.timeoutSeconds ?? 60);
+  await waitForPostgresRunning(params.docker, params.config, containerId, params.timeoutSeconds ?? 60, remaining());
   const reconcileAuth = params.reconcileAuth ?? false;
   if (reconcileAuth) {
     params.onPhase?.('alter_role');
-    await syncPostgresRolePassword(params.docker, params.config, containerId);
+    await syncPostgresRolePassword(params.docker, params.config, containerId, Math.min(30_000, remaining()));
   }
   params.onPhase?.('verify');
   try {
-    await verifyRuntimePassword(params.docker, params.config, containerId);
+    await verifyRuntimePassword(params.docker, params.config, containerId, Math.min(30_000, remaining()));
   } catch (error) {
     if (!reconcileAuth) {
       throw new Error('Postgres credentials do not match the initialized role. Run database reconcile-postgres-auth.');
@@ -238,7 +230,7 @@ export async function preparePostgresManagedRuntime(params: {
   const shouldEnsurePgvector = params.ensurePgvector ?? truthy(params.config.env.CANVAS_POSTGRES_VECTOR_ENABLED);
   if (shouldEnsurePgvector) {
     params.onPhase?.('pgvector');
-    await ensurePgvector(params.docker, params.config, containerId);
+    await ensurePgvector(params.docker, params.config, containerId, Math.min(30_000, remaining()));
   }
 
   return {

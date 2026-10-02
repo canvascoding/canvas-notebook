@@ -1,7 +1,5 @@
-import { spawn } from 'node:child_process';
-import { superviseProcess } from './processLifecycle';
-
 import type { CommandResult, CommandRunner, RunOptions } from './types';
+import { startManagedProcess } from './processLifecycle';
 
 export const MAX_CAPTURED_PROCESS_OUTPUT_BYTES = 2 * 1024 * 1024;
 
@@ -56,47 +54,61 @@ export class SpawnCommandRunner implements CommandRunner {
     return new Promise((resolve, reject) => {
       options.signal?.throwIfAborted();
       const stdio = options.stdio === 'inherit' ? 'inherit' : 'pipe';
-      const child = spawn(command, args, {
-        cwd: options.cwd,
-        env: options.env,
-        shell: false,
-        stdio,
-        windowsHide: true,
-        detached: options.processGroup && process.platform !== 'win32',
-      });
+      const managed = startManagedProcess(command, args, { ...options, stdio });
+      const { child } = managed;
 
       const stdout: CapturedOutput = { chunks: [], byteLength: 0, truncated: false };
       const stderr: CapturedOutput = { chunks: [], byteLength: 0, truncated: false };
-      const lifecycle = superviseProcess(child, options);
+      let captureExceeded = false;
+      const outputLimit = Math.min(MAX_CAPTURED_PROCESS_OUTPUT_BYTES, options.maxOutputBytes ?? MAX_CAPTURED_PROCESS_OUTPUT_BYTES);
+      if (!Number.isInteger(outputLimit) || outputLimit <= OUTPUT_TRUNCATION_NOTICE.length) {
+        managed.stop();
+        managed.completion.catch(() => undefined);
+        reject(new Error('Invalid process output limit.'));
+        return;
+      }
+      const capture = (state: CapturedOutput, chunk: Buffer) => {
+        appendCapturedOutput(state, chunk);
+        if (state.byteLength > outputLimit || state.truncated) {
+          if (options.capture === 'exact') {
+            captureExceeded = true;
+            managed.stop();
+          }
+          state.truncated = true;
+          trimCapturedOutput(state, outputLimit - OUTPUT_TRUNCATION_NOTICE.length);
+        }
+      };
 
       if (stdio === 'pipe') {
         child.stdout?.on('data', (chunk) => {
-          appendCapturedOutput(stdout, Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk), 'utf8'));
+          capture(stdout, Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk), 'utf8'));
         });
         child.stderr?.on('data', (chunk) => {
-          appendCapturedOutput(stderr, Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk), 'utf8'));
+          capture(stderr, Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk), 'utf8'));
         });
       }
 
-      child.on('error', reject);
-      child.on('close', async (code, signal) => {
-        await lifecycle.completion;
-        if (lifecycle.timedOut) {
-          appendCapturedOutput(stderr, Buffer.from('\nCommand exceeded its update deadline.', 'utf8'));
-        } else if (lifecycle.aborted) {
-          appendCapturedOutput(stderr, Buffer.from('\nCommand was canceled.', 'utf8'));
+      managed.completion.then(({ code, signal, timedOut, canceled, error }) => {
+        if (captureExceeded) capture(stderr, Buffer.from('\nStructured process output exceeded its limit.', 'utf8'));
+        if (error) capture(stderr, Buffer.from(`\nProcess stream failed: ${(error as NodeJS.ErrnoException).code || error.name}.`, 'utf8'));
+        if (timedOut) {
+          capture(stderr, Buffer.from('\nCommand exceeded its update deadline.', 'utf8'));
+        } else if (canceled) {
+          capture(stderr, Buffer.from('\nCommand was canceled.', 'utf8'));
         } else if (signal) {
-          appendCapturedOutput(stderr, Buffer.from(`\nCommand terminated by ${signal}.`, 'utf8'));
+          capture(stderr, Buffer.from(`\nCommand terminated by ${signal}.`, 'utf8'));
         }
         resolve({
-          status: lifecycle.timedOut ? 124 : lifecycle.aborted ? 130 : (code ?? 1),
+          status: timedOut ? 124 : (canceled ? 130 : captureExceeded ? 1 : (code ?? 1)),
           stdout: capturedOutputText(stdout),
-          stderr: lifecycle.timedOut || lifecycle.aborted ? capturedOutputText(stderr).trim() : capturedOutputText(stderr),
+          stderr: timedOut ? capturedOutputText(stderr).trim() : capturedOutputText(stderr),
+          signal, timedOut, stdoutTruncated: stdout.truncated, stderrTruncated: stderr.truncated,
         });
-      });
+      }, reject);
 
       if (options.stdin !== undefined) {
-        child.stdin?.write(options.stdin);
+        child.stdin?.end(options.stdin);
+      } else if (stdio === 'pipe') {
         child.stdin?.end();
       }
     });

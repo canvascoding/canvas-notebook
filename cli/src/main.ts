@@ -32,6 +32,7 @@ import { writeComposeFile } from './core/compose';
 import { monotonicDeadlineMs, remainingMonotonicSeconds } from './core/deadline';
 import { collectHostResources } from './core/diagnostics';
 import { DockerManager } from './core/docker';
+import { DockerEngineClient } from './core/dockerEngine';
 import { migrateLegacyConfig } from './core/legacyConfig';
 import { cleanupOrphanedLogFollowers } from './core/logCleanup';
 import {
@@ -773,7 +774,7 @@ export async function update(
     if (options.backupRequired) {
       phase = 'backup';
       reporter.running('backup', 'Creating the required Canvas Notebook backup.');
-      await backup(context, docker, next, ['create'], true, true);
+      await backup(context, docker, next, ['create'], true, true, remainingUpdateTime(deadline, true));
       reporter.succeeded('backup', 'Required Canvas Notebook backup completed.');
     } else {
       reporter.skipped('backup', 'This update does not require a CLI-managed backup.');
@@ -1797,6 +1798,7 @@ async function backup(
   args: string[],
   json: boolean,
   quiet = false,
+  timeoutMs = 30 * 60_000,
 ): Promise<void> {
   const subcommand = args.shift();
   if (!subcommand || subcommand === '-h' || subcommand === '--help') {
@@ -1806,6 +1808,12 @@ async function backup(
     throw new Error(`Unknown backup subcommand: ${subcommand}`);
   }
 
+  const deadline = Date.now() + timeoutMs;
+  const remaining = () => {
+    const value = deadline - Date.now();
+    if (value < 1000) throw new Error('Backup exceeded its deadline.');
+    return value;
+  };
   const options = parseBackupCreateOptions(args);
   if (postgresRuntimeDesired(config)) {
     const existingEnvFiles = await Promise.all([
@@ -1813,23 +1821,22 @@ async function backup(
       fs.access(config.paths.composeEnvFile).then(() => true, () => false),
     ]);
     if (existingEnvFiles.every(Boolean)) {
-      await reconcilePostgresAuth(context, docker, config, [], json, true);
+      await reconcilePostgresAuth(context, docker, config, ['--timeout', String(Math.min(900, Math.floor(remaining() / 1000)))], json, true);
       config = await readConfig(context);
     }
   }
   const next = await syncFiles(context, config);
   await appendLog(context, 'backup create');
-  await preparePostgresManagedRuntime({ docker, config: next, stdio: json ? 'pipe' : 'inherit' });
+  await preparePostgresManagedRuntime({ docker, config: next, stdio: json ? 'pipe' : 'inherit', timeoutSeconds: Math.floor(remaining() / 1000) });
   const containerId = await docker.containerId(next);
   if (!containerId) throw new Error('Canvas Notebook container is not running. Start it first: canvas-notebook start');
 
   const scriptArgs = [
-    'exec',
-    containerId,
-    'npx',
-    'tsx',
+    'node',
     '--conditions',
     'react-server',
+    '--import',
+    'tsx',
     'scripts/create-full-backup.ts',
   ];
   if (!options.noWait) scriptArgs.push('--latest');
@@ -1837,7 +1844,7 @@ async function backup(
   if (options.noWait) scriptArgs.push('--no-wait');
   scriptArgs.push('--json');
 
-  const result = await docker.dockerOrThrow(scriptArgs, { stdio: 'pipe' });
+  const result = await docker.execOrThrow(containerId, scriptArgs, { stdio: 'pipe', timeoutMs: remaining(), capture: 'exact' });
   let payload: Record<string, unknown>;
   try {
     payload = JSON.parse(result.stdout.trim()) as Record<string, unknown>;
@@ -1872,7 +1879,8 @@ async function main(): Promise<void> {
   const parsed = parseArgs(process.argv.slice(2));
   const context = createRuntimeContext();
   const runner = new SpawnCommandRunner();
-  const docker = new DockerManager(runner, context);
+  const createDocker = () => new DockerManager(runner, context, new DockerEngineClient(runner, context));
+  const docker = createDocker();
   const services = new ServiceManager(runner, context);
 
   // Capability negotiation must work even when Docker or the application is down.
@@ -1939,7 +1947,7 @@ async function main(): Promise<void> {
       context,
       socketPath: process.env.CANVAS_NOTEBOOK_MANAGEMENT_SOCKET,
       setConfigValue,
-      resetAdmin: (config, credentials) => resetAdminCredentials(docker, config, credentials),
+      resetAdmin: (config, credentials) => resetAdminCredentials(createDocker(), config, credentials),
     });
     const shutdown = () => { server.close(() => { process.exitCode = 0; }); server.closeIdleConnections(); };
     process.once('SIGTERM', shutdown);

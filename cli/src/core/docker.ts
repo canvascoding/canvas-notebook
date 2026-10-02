@@ -1,10 +1,9 @@
 import { setTimeout as delay } from 'node:timers/promises';
 
-import { runOrThrow } from './process';
-import type { CanvasCliConfig, CommandResult, CommandRunner, RuntimeContext, StatusJson } from './types';
+import type { CanvasCliConfig, CommandResult, CommandRunner, RuntimeContext, StatusJson, RunOptions } from './types';
 import { resolveCliVersion } from './version';
 import type { SystemUpdateActivity } from './systemUpdateContract';
-import { DockerEngineError, DockerEngineReadClient, DOCKER_READ_TIMEOUT_MS, type DockerEngineOptions } from './dockerEngine';
+import { DockerEngineClient, DockerEngineError, DockerEngineReadClient, DOCKER_READ_TIMEOUT_MS, type DockerEngineOptions } from './dockerEngine';
 
 function assertDockerReadCompleted(result: CommandResult): void {
   if (result.status === 124 || result.status === 130) {
@@ -19,33 +18,53 @@ function assertDockerReadSucceeded(result: CommandResult): void {
 
 export class DockerManager {
   private readonly engine: DockerEngineReadClient;
+  private readonly execEngine?: DockerEngineClient;
 
   constructor(
     private readonly runner: CommandRunner,
     private readonly context: RuntimeContext,
-    engineOptions: DockerEngineOptions = {},
+    engineOptions: DockerEngineOptions | DockerEngineClient = {},
   ) {
-    this.engine = new DockerEngineReadClient(runner, context, engineOptions);
+    this.execEngine = engineOptions instanceof DockerEngineClient ? engineOptions : undefined;
+    this.engine = new DockerEngineReadClient(runner, context, this.execEngine ? {} : engineOptions as DockerEngineOptions, this.execEngine);
   }
 
-  async docker(args: string[], options: { env?: NodeJS.ProcessEnv; stdin?: string; stdio?: 'pipe' | 'inherit'; timeoutMs?: number } = {}) {
+  async docker(args: string[], options: RunOptions = {}) {
     return this.runner.run(this.context.dockerBin, args, {
-      cwd: this.context.paths.installDir,
-      env: options.env,
-      stdin: options.stdin,
-      stdio: options.stdio ?? 'pipe',
-      timeoutMs: options.timeoutMs,
+      ...options, cwd: this.context.paths.installDir, stdio: options.stdio ?? 'pipe',
+      timeoutMs: options.timeoutMs ?? (args[0] === 'compose' && args.includes('logs') && args.includes('-f') ? undefined : args[0] === 'pull' ? 15 * 60_000 : 60_000),
     });
   }
 
-  async dockerOrThrow(args: string[], options: { env?: NodeJS.ProcessEnv; stdin?: string; stdio?: 'pipe' | 'inherit'; timeoutMs?: number } = {}) {
-    return runOrThrow(this.runner, this.context.dockerBin, args, {
-      cwd: this.context.paths.installDir,
-      env: options.env,
-      stdin: options.stdin,
-      stdio: options.stdio ?? 'pipe',
-      timeoutMs: options.timeoutMs,
-    });
+  async dockerOrThrow(args: string[], options: RunOptions = {}) {
+    const result = await this.docker(args, options);
+    if (result.status !== 0) throw new Error(result.stderr.trim() || result.stdout.trim() || `Docker exited with ${result.status}`);
+    return result;
+  }
+
+  async exec(containerId: string, command: string[], options: RunOptions & { user?: string } = {}) {
+    if (await this.execEngine?.execAvailable()) return this.execEngine!.exec(containerId, command, options);
+    const result = await this.docker(['exec', ...(options.stdin !== undefined ? ['-i'] : []), ...(options.user ? ['-u', options.user] : []), containerId, ...command], options);
+    if (result.timedOut || result.signal || result.status === 124 || result.status === 130) throw new Error('Docker CLI exec was interrupted. Remote execution state is unknown; the command was not retried.');
+    return result;
+  }
+
+  async execOrThrow(containerId: string, command: string[], options: RunOptions & { user?: string } = {}) {
+    const result = await this.exec(containerId, command, options);
+    if (result.status !== 0) throw new Error(result.stderr.trim() || result.stdout.trim() || `Container command exited with ${result.status}`);
+    return result;
+  }
+
+  async resolveContainerId(name: string, timeoutMs = 10_000): Promise<string> {
+    if (await this.execEngine?.available()) return (await this.execEngine!.inspectContainer(name, timeoutMs))?.Id || '';
+    const result = await this.docker(['inspect', '--format', '{{.Id}}', name], { timeoutMs, capture: 'exact' });
+    return result.status === 0 ? result.stdout.trim() : '';
+  }
+
+  async containerState(id: string, timeoutMs = 10_000): Promise<string> {
+    if (await this.execEngine?.available()) return (await this.execEngine!.inspectContainer(id, timeoutMs))?.State.Status || '';
+    const result = await this.docker(['inspect', '--format', '{{.State.Status}}', id], { timeoutMs, capture: 'exact' });
+    return result.status === 0 ? result.stdout.trim() : '';
   }
 
   composeArgs(config: CanvasCliConfig, args: string[]): string[] {
@@ -60,20 +79,23 @@ export class DockerManager {
   }
 
   async compose(config: CanvasCliConfig, args: string[], stdio: 'pipe' | 'inherit' = 'pipe') {
-    return this.docker(this.composeArgs(config, args), { stdio });
+    return this.docker(this.composeArgs(config, args), { stdio, timeoutMs: 10_000, capture: 'exact' });
   }
 
   async composeOrThrow(config: CanvasCliConfig, args: string[], stdio: 'pipe' | 'inherit' = 'pipe', timeoutMs?: number, env?: NodeJS.ProcessEnv) {
-    return this.dockerOrThrow(this.composeArgs(config, args), { env, stdio, timeoutMs });
+    return this.dockerOrThrow(this.composeArgs(config, args), { env, stdio, timeoutMs: timeoutMs ?? (args.includes('pull') ? 15 * 60_000 : args.includes('logs') && args.includes('-f') ? undefined : 120_000) });
   }
 
   async isReachable(): Promise<boolean> {
-    const result = await this.docker(['info']);
+    if (this.execEngine) {
+      try { if (await this.execEngine?.available()) return await this.execEngine!.ping(); } catch { return false; }
+    }
+    const result = await this.docker(['info'], { timeoutMs: 10_000 });
     return result.status === 0;
   }
 
   async containerId(config: CanvasCliConfig): Promise<string> {
-    const result = await this.docker(this.composeArgs(config, ['ps', '-q', this.context.serviceName]), { timeoutMs: DOCKER_READ_TIMEOUT_MS });
+    const result = await this.docker(this.composeArgs(config, ['ps', '-q', this.context.serviceName]), { timeoutMs: DOCKER_READ_TIMEOUT_MS, capture: 'exact' });
     assertDockerReadSucceeded(result);
     return result.stdout.trim();
   }
@@ -81,7 +103,7 @@ export class DockerManager {
   async imageId(imageRef: string): Promise<string> {
     const inspected = await this.engine.inspectImage(imageRef);
     if (inspected !== undefined) return inspected?.id ?? '';
-    const result = await this.docker(['image', 'inspect', imageRef, '--format', '{{.Id}}'], { timeoutMs: DOCKER_READ_TIMEOUT_MS });
+    const result = await this.docker(['image', 'inspect', imageRef, '--format', '{{.Id}}'], { timeoutMs: DOCKER_READ_TIMEOUT_MS, capture: 'exact' });
     assertDockerReadCompleted(result);
     return result.status === 0 ? result.stdout.trim() : '';
   }
@@ -90,7 +112,7 @@ export class DockerManager {
     if (!containerId) return '';
     const inspected = await this.engine.inspectContainer(containerId);
     if (inspected !== undefined) return inspected?.imageId ?? '';
-    const result = await this.docker(['inspect', '--format', '{{.Image}}', containerId], { timeoutMs: DOCKER_READ_TIMEOUT_MS });
+    const result = await this.docker(['inspect', '--format', '{{.Image}}', containerId], { timeoutMs: DOCKER_READ_TIMEOUT_MS, capture: 'exact' });
     assertDockerReadSucceeded(result);
     const inspectedImageId = result.stdout.trim();
     if (!inspectedImageId) throw new DockerEngineError('Docker CLI returned no image ID for the existing container.', 'EPROTOCOL');
@@ -108,7 +130,7 @@ export class DockerManager {
     if (!containerId) return false;
     const inspected = await this.engine.inspectContainer(containerId);
     if (inspected !== undefined) return inspected?.running ?? false;
-    const result = await this.docker(['inspect', '--format', '{{.State.Running}}', containerId], { timeoutMs: DOCKER_READ_TIMEOUT_MS });
+    const result = await this.docker(['inspect', '--format', '{{.State.Running}}', containerId], { timeoutMs: DOCKER_READ_TIMEOUT_MS, capture: 'exact' });
     assertDockerReadCompleted(result);
     return result.status === 0 && result.stdout.trim() === 'true';
   }
@@ -184,7 +206,7 @@ export class DockerManager {
       ',"imageId":"{{.Image}}"',
       ',"startedAt":"{{.State.StartedAt}}"}',
     ].join('');
-    const result = await this.docker(['inspect', '--format', format, id], { timeoutMs: DOCKER_READ_TIMEOUT_MS });
+    const result = await this.docker(['inspect', '--format', format, id], { timeoutMs: DOCKER_READ_TIMEOUT_MS, capture: 'exact' });
     assertDockerReadCompleted(result);
     if (result.status !== 0) return null;
     try {
@@ -201,7 +223,7 @@ export class DockerManager {
     ]);
     if (image !== undefined && container !== undefined) {
       const [appVersion, cliVersion] = await Promise.all([
-        containerId ? this.docker(['exec', containerId, 'node', '-p', "require('/app/package.json').version"], { timeoutMs: DOCKER_READ_TIMEOUT_MS }) : Promise.resolve({ status: 1, stdout: '', stderr: '' }),
+        containerId ? this.exec(containerId, ['node', '-p', "require('/app/package.json').version"], { timeoutMs: DOCKER_READ_TIMEOUT_MS, capture: 'exact', maxOutputBytes: 64 * 1024 }) : Promise.resolve({ status: 1, stdout: '', stderr: '' }),
         resolveCliVersion(),
       ]);
       assertDockerReadCompleted(appVersion);
@@ -224,7 +246,7 @@ export class DockerManager {
       containerId ? this.docker(['inspect', '--format', '{{.Config.Image}}', containerId], { timeoutMs: DOCKER_READ_TIMEOUT_MS }) : Promise.resolve({ status: 1, stdout: '', stderr: '' }),
       containerId ? this.docker(['inspect', '--format', '{{.Image}}', containerId], { timeoutMs: DOCKER_READ_TIMEOUT_MS }) : Promise.resolve({ status: 1, stdout: '', stderr: '' }),
       containerId ? this.docker(['inspect', '--format', '{{.State.StartedAt}}', containerId], { timeoutMs: DOCKER_READ_TIMEOUT_MS }) : Promise.resolve({ status: 1, stdout: '', stderr: '' }),
-      containerId ? this.docker(['exec', containerId, 'node', '-p', "require('/app/package.json').version"], { timeoutMs: DOCKER_READ_TIMEOUT_MS }) : Promise.resolve({ status: 1, stdout: '', stderr: '' }),
+      containerId ? this.exec(containerId, ['node', '-p', "require('/app/package.json').version"], { timeoutMs: DOCKER_READ_TIMEOUT_MS, capture: 'exact', maxOutputBytes: 64 * 1024 }) : Promise.resolve({ status: 1, stdout: '', stderr: '' }),
       resolveCliVersion(),
     ]);
     for (const result of [localId, localDigest, localCreated, runningRef, runningId, runningStartedAt, appVersion]) {

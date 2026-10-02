@@ -53,6 +53,10 @@ export interface CommandResult {
   status: number;
   stdout: string;
   stderr: string;
+  signal?: NodeJS.Signals | null;
+  timedOut?: boolean;
+  stdoutTruncated?: boolean;
+  stderrTruncated?: boolean;
 }
 
 export interface RunOptions {
@@ -62,6 +66,8 @@ export interface RunOptions {
   stdio?: 'pipe' | 'inherit';
   timeoutMs?: number;
   signal?: AbortSignal;
+  capture?: 'tail' | 'exact';
+  maxOutputBytes?: number;
   processGroup?: boolean;
 }
 
