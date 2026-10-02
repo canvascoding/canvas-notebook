@@ -28,36 +28,40 @@ function fixture() {
 }
 const flush = async () => { for (let i = 0; i < 5; i++) await Promise.resolve(); };
 
-test('watch/presence/terminal/document review share one socket and dispatch only to their owner', async () => {
+test('watch/presence/terminal/document review/Studio Bulk share one socket and dispatch only to their owner', async () => {
   const f = fixture();
   try {
     const watch = f.source('/api/files/watch?workspaceId=a');
     const presence = f.source('/api/files/presence?workspaceId=a&stream=1');
     const terminal = f.source('/api/terminal/availability?stream=1');
     const review = f.source('/api/document-review/availability?stream=1&workspaceId=ignored');
+    const bulk = f.source('/api/studio/bulk/availability?stream=1&workspaceId=ignored');
     const received: unknown[] = [];
     watch.addEventListener('filechange', event => received.push(['watch', (event as MessageEvent).data, (event as MessageEvent).lastEventId]));
     presence.onmessage = event => received.push(['presence', event.data]);
     terminal.onmessage = event => received.push(['terminal', event.data]);
     review.onmessage = event => received.push(['review', JSON.parse(event.data).documentReviewEnabled]);
+    bulk.onmessage = event => received.push(['bulk', JSON.parse(event.data).studioBulkEnabled]);
     await flush(); assert.equal(f.sockets.length, 1);
     const socket = f.sockets[0]; socket.open();
     assert.deepEqual(socket.sent.map(frame => [frame.channel, frame.workspaceId]),
-      [['files', 'a'], ['presence', 'a'], ['terminal', undefined], ['documentReview', undefined]]);
+      [['files', 'a'], ['presence', 'a'], ['terminal', undefined], ['documentReview', undefined], ['studioBulk', undefined]]);
     socket.receive({ type: 'open', id: watch.subscription.id }); assert.equal(watch.readyState, 1);
     socket.receive({ type: 'event', id: watch.subscription.id, event: { event: 'filechange', data: 'line1\nline2', id: 'id1', retry: 2500 } });
     socket.receive({ type: 'event', id: presence.subscription.id, event: { data: 'presence' } });
     socket.receive({ type: 'event', id: terminal.subscription.id, event: { data: '' } });
     socket.receive({ type: 'event', id: review.subscription.id, event: { data: '{"documentReviewEnabled":false}' } });
     socket.receive({ type: 'event', id: review.subscription.id, event: { data: '{"documentReviewEnabled":true}' } });
+    socket.receive({ type: 'event', id: bulk.subscription.id, event: { data: '{"studioBulkEnabled":false}' } });
+    socket.receive({ type: 'event', id: bulk.subscription.id, event: { data: '{"studioBulkEnabled":true}' } });
     socket.receive({ type: 'event', id: 'foreign', event: { data: 'must-not-deliver' } });
     assert.deepEqual(received, [['watch', 'line1\nline2', 'id1'], ['presence', 'presence'], ['terminal', ''],
-      ['review', false], ['review', true]]);
+      ['review', false], ['review', true], ['bulk', false], ['bulk', true]]);
     assert.equal(watch.retryMs, 2500);
     watch.close(); socket.receive({ type: 'event', id: watch.subscription.id, event: { event: 'filechange', data: 'late' } });
-    assert.equal(received.length, 5); assert.equal(socket.closes, 0);
+    assert.equal(received.length, 7); assert.equal(socket.closes, 0);
     presence.close(); assert.equal(socket.closes, 0); terminal.close(); assert.equal(socket.closes, 0);
-    review.close(); assert.equal(socket.closes, 1);
+    review.close(); assert.equal(socket.closes, 0); bulk.close(); assert.equal(socket.closes, 1);
   } finally { f.cleanup(); }
 });
 
@@ -78,6 +82,32 @@ test('transport disconnect retries surviving subscriptions and ignores all late 
     old.receive({ type: 'event', id: source.subscription.id, event: { data: 'stale' } });
     f.sockets[1].receive({ type: 'event', id: source.subscription.id, event: { data: 'two' } });
     assert.deepEqual(events, ['one', 'two']);
+  } finally { f.cleanup(); context.mock.timers.reset(); }
+});
+
+test('Studio Bulk reconnects without workspace scope and reauthorizes before accepting new events', async context => {
+  context.mock.timers.enable({ apis: ['setTimeout'] });
+  const f = fixture();
+  try {
+    const source = f.source('/api/studio/bulk/availability?stream=1');
+    const values: boolean[] = []; const statuses: number[] = [];
+    source.onmessage = event => values.push(JSON.parse(event.data).studioBulkEnabled);
+    source.onerror = event => statuses.push(event.status!);
+    await flush(); const old = f.sockets[0]; old.open();
+    old.receive({ type: 'event', id: source.subscription.id, event: { data: '{"studioBulkEnabled":true}' } });
+    old.close(); context.mock.timers.tick(1000); await flush();
+    const next = f.sockets[1]; next.open();
+    assert.equal(next.sent[0].channel, 'studioBulk');
+    assert.equal(Object.hasOwn(next.sent[0], 'workspaceId'), false);
+    old.receive({ type: 'event', id: source.subscription.id, event: { data: '{"studioBulkEnabled":true}' } });
+    next.receive({ type: 'event', id: source.subscription.id, event: { data: '{"studioBulkEnabled":false}' } });
+    next.receive({ type: 'refresh', id: source.subscription.id });
+    context.mock.timers.tick(0); await flush();
+    assert.equal(next.sent.length, 2);
+    next.receive({ type: 'error', id: source.subscription.id, status: 401 });
+    assert.deepEqual(values, [true, false]);
+    assert.deepEqual(statuses, [0, 401]);
+    assert.equal(source.readyState, 2);
   } finally { f.cleanup(); context.mock.timers.reset(); }
 });
 

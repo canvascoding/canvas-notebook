@@ -23,7 +23,7 @@ export function mobileStudioErrorResponse(error: unknown, context: string) {
   }
   if (error instanceof StudioServiceError) {
     const status = error.code === 'NOT_FOUND' ? 404
-      : error.code === 'FORBIDDEN' ? 403
+      : error.code === 'FORBIDDEN' || error.code === 'STUDIO_BULK_DISABLED' ? 403
         : error.code === 'RATE_LIMIT' ? 429
           : 400;
     return NextResponse.json(

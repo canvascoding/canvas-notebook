@@ -16,6 +16,7 @@ import { executeStudioGeneration, type StudioGenerateRequest } from '@/app/lib/i
 import { StudioServiceError } from '@/app/lib/integrations/studio-errors';
 import type { StudioScope } from '@/app/lib/integrations/studio-scope';
 import { toMediaUrl } from '@/app/lib/utils/media-url';
+import { readStudioBulkAvailability } from '@/app/lib/studio-bulk-availability';
 
 const MAX_PRODUCTS = 20;
 const MIN_VERSIONS = 1;
@@ -121,6 +122,13 @@ async function checkConcurrency(scope: StudioScope): Promise<void> {
 }
 
 export async function createBulkJob(scope: StudioScope, data: CreateBulkJobInput): Promise<BulkJob> {
+  if (!readStudioBulkAvailability().studioBulkEnabled) {
+    throw new StudioServiceError(
+      'Studio bulk generation is disabled. An instance administrator can enable it in Settings → Experimental.',
+      'Studio Bulk ist deaktiviert. Ein Instanz-Admin kann die Funktion unter Einstellungen → Experimental aktivieren.',
+      'STUDIO_BULK_DISABLED',
+    );
+  }
   if (data.productIds.length === 0) {
     throw new StudioServiceError(
       'No products provided',

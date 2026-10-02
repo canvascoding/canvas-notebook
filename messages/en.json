@@ -7203,6 +7203,13 @@
       }
     },
     "experimental": {
+      "studioBulkTitle": "Studio Bulk Generation",
+      "enableStudioBulk": "Enable Studio bulk generation",
+      "studioBulkDescription": "Enables the experimental Bulk area in Studio to generate multiple products with shared settings. Existing Studio permissions still apply.",
+      "studioBulkDisableNote": "Disabling bulk generation hides its menu entries and blocks new bulk jobs. Running jobs can finish and can still be cancelled. Existing results are retained.",
+      "studioBulkEnabled": "Studio bulk generation is enabled.",
+      "studioBulkDisabled": "Studio bulk generation is disabled.",
+      "studioBulkLoadError": "Could not load the bulk setting. The connection will reconnect automatically.",
       "documentReviewTitle": "Document Review Center",
       "description": "Experimental features apply to everyone in this instance and are disabled by default.",
       "enableDocumentReview": "Enable Document Review Center",

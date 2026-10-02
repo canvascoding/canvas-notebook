@@ -7202,6 +7202,13 @@
       }
     },
     "experimental": {
+      "studioBulkTitle": "Studio Bulk-Generierung",
+      "enableStudioBulk": "Studio Bulk-Generierung aktivieren",
+      "studioBulkDescription": "Aktiviert den experimentellen Bulk-Bereich im Studio, um mehrere Produkte mit gemeinsamen Einstellungen zu generieren. Die bisherigen Studio-Berechtigungen gelten weiterhin.",
+      "studioBulkDisableNote": "Bei ausgeschalteter Bulk-Generierung sind die Menüeinträge verborgen und neue Bulk-Jobs gesperrt. Laufende Jobs dürfen fertig werden und können weiterhin abgebrochen werden. Vorhandene Ergebnisse bleiben erhalten.",
+      "studioBulkEnabled": "Studio Bulk-Generierung ist aktiviert.",
+      "studioBulkDisabled": "Studio Bulk-Generierung ist ausgeschaltet.",
+      "studioBulkLoadError": "Die Bulk-Einstellung konnte nicht geladen werden. Die Verbindung wird automatisch erneut hergestellt.",
       "documentReviewTitle": "Dokumenten-Review-Center",
       "description": "Experimentelle Funktionen gelten für alle Nutzer dieser Instanz und sind standardmäßig ausgeschaltet.",
       "enableDocumentReview": "Dokumenten-Review-Center aktivieren",

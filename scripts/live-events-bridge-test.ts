@@ -41,7 +41,7 @@ function handshake(cookie = 'session-good'): IncomingMessage {
 }
 function subscription(id: string, channel = 'files', workspaceId = 'workspace') {
   return { type: 'subscribe', id, channel,
-    ...(channel !== 'terminal' && channel !== 'documentReview' ? { workspaceId } : {}) };
+    ...(channel !== 'terminal' && channel !== 'documentReview' && channel !== 'studioBulk' ? { workspaceId } : {}) };
 }
 
 async function actualRoutes() {
@@ -50,7 +50,9 @@ async function actualRoutes() {
   let sendFile: ((value: unknown) => void) | null = null;
   let sendTerminal: ((value: unknown) => void) | null = null;
   let sendReview: ((value: unknown) => void) | null = null;
+  let sendBulk: ((value: unknown) => void) | null = null;
   let reviewEnabled = false;
+  let bulkEnabled = false;
   const workspace = { workspaceId: 'workspace', rootPath: '/fixture' };
   const requestWorkspace = async (request: NextRequest) => {
     controls.requests.push(request);
@@ -79,6 +81,12 @@ async function actualRoutes() {
         sendReview = listener; return () => { sendReview = null; controls.unsubscribed++; };
       },
     },
+    '@/app/lib/studio-bulk-availability': {
+      readStudioBulkAvailability: () => ({ studioBulkEnabled: bulkEnabled, updatedAt: null }),
+      subscribeStudioBulkAvailability: (listener: (value: unknown) => void) => {
+        sendBulk = listener; return () => { sendBulk = null; controls.unsubscribed++; };
+      },
+    },
   };
   const watch = await compile<{ GET: LiveEventHandlers['files']; POST: (request: NextRequest) => Promise<Response> }>('app/api/files/watch/route.ts', mocks, intervals);
   const watchOtherBundle = await compile<typeof watch>('app/api/files/watch/route.ts', mocks, intervals);
@@ -86,10 +94,13 @@ async function actualRoutes() {
   const terminal = await compile<{ GET: LiveEventHandlers['terminal'] }>('app/api/terminal/availability/route.ts', mocks, intervals);
   const documentReview = await compile<{ GET: LiveEventHandlers['documentReview'] }>(
     'app/api/document-review/availability/route.ts', mocks, intervals);
+  const studioBulk = await compile<{ GET: LiveEventHandlers['studioBulk'] }>(
+    'app/api/studio/bulk/availability/route.ts', mocks, intervals);
   return { handlers: { files: watch.GET, presence: presence.GET, terminal: terminal.GET,
-    documentReview: documentReview.GET }, controls, intervals, watchOtherBundle,
+    documentReview: documentReview.GET, studioBulk: studioBulk.GET }, controls, intervals, watchOtherBundle,
     emitFile(value: unknown) { sendFile?.(value); }, emitTerminal(value: unknown) { sendTerminal?.(value); },
-    emitReview(enabled: boolean) { reviewEnabled = enabled; sendReview?.({ documentReviewEnabled: enabled, updatedAt: null }); } };
+    emitReview(enabled: boolean) { reviewEnabled = enabled; sendReview?.({ documentReviewEnabled: enabled, updatedAt: null }); },
+    emitBulk(enabled: boolean) { bulkEnabled = enabled; sendBulk?.({ studioBulkEnabled: enabled, updatedAt: null }); } };
 }
 
 test('SSE parser preserves split UTF-8, CRLF, multiline and empty data, event/id/retry; rejects unbounded input', () => {
@@ -106,12 +117,36 @@ test('only bounded exact subscriptions are accepted; payload headers, routes and
   assert.equal(isLiveEventSubscription({ type: 'subscribe', id: 'default', channel: 'files' }), true, 'watch retains the existing authorized default workspace resolution');
   assert.equal(isLiveEventSubscription(subscription('global-review', 'documentReview')), true);
   assert.equal(isLiveEventSubscription({ ...subscription('global-review', 'documentReview'), workspaceId: 'workspace' }), false);
+  assert.equal(isLiveEventSubscription(subscription('global-bulk', 'studioBulk')), true);
+  assert.equal(isLiveEventSubscription({ ...subscription('global-bulk', 'studioBulk'), workspaceId: 'workspace' }), false);
   for (const value of [null, [], { ...subscription('a'), url: 'https://evil.invalid' }, { ...subscription('a'), headers: { cookie: 'forged' } },
     { ...subscription('a'), workspaceId: '../private' }, { ...subscription('a'), id: 'x'.repeat(65) },
     { ...subscription('a'), lastEventId: 'header\r\ninjection' }, { ...subscription('a'), channel: '__proto__' },
     { ...subscription('a'), channel: 'unknown' }]) {
     assert.equal(isLiveEventSubscription(value), false);
   }
+});
+
+test('authenticated global Studio Bulk receives off/on changes and rejects a revoked session', async context => {
+  context.mock.timers.enable({ apis: ['setTimeout'] });
+  const fixture = await actualRoutes();
+  const socket = new Socket();
+  const close = attachLiveEventConnection(socket as unknown as WebSocket, handshake(), fixture.handlers);
+  try {
+    socket.message(subscription('bulk', 'studioBulk'));
+    await flush();
+    assert.ok(socket.frames.some(frame => frame.type === 'open' && frame.id === 'bulk'));
+    const data = () => socket.frames.filter(frame => frame.type === 'event' && frame.id === 'bulk')
+      .map(frame => JSON.parse((frame.event as { data: string }).data).studioBulkEnabled);
+    assert.deepEqual(data(), [false]);
+    fixture.emitBulk(true); fixture.emitBulk(false); await flush();
+    assert.deepEqual(data(), [false, true, false]);
+    fixture.controls.allowed = false;
+    context.mock.timers.tick(60_000); await flush();
+    assert.ok(socket.frames.some(frame => frame.type === 'refresh' && frame.id === 'bulk'));
+    socket.message(subscription('bulk-again', 'studioBulk')); await flush();
+    assert.deepEqual(socket.frames.at(-1), { type: 'error', id: 'bulk-again', status: 401 });
+  } finally { close(); context.mock.timers.reset(); }
 });
 
 test('authenticated global document review receives off/on changes and revalidates a revoked session', async context => {
@@ -198,7 +233,7 @@ test('socket close aborts a pending real handler result, then cancels its late b
   const handler = (request: NextRequest) => { signal = request.signal; return new Promise<Response>(resolve => { finish = resolve; }); };
   const socket = new Socket();
   attachLiveEventConnection(socket as unknown as WebSocket, handshake(),
-    { files: handler, presence: handler, terminal: handler, documentReview: handler });
+    { files: handler, presence: handler, terminal: handler, documentReview: handler, studioBulk: handler });
   socket.message(subscription('a')); await flush(); socket.close();
   assert.equal(signal.aborted, true);
   finish(new Response(new ReadableStream({ cancel() { canceled++; } }), { headers: { 'content-type': 'text/event-stream' } }));
@@ -238,7 +273,7 @@ test('every subscription retains the authenticated proxy address with fresh isol
   };
   const socket = new Socket();
   const close = attachLiveEventConnection(socket as unknown as WebSocket, incoming,
-    { files: handler, presence: handler, terminal: handler, documentReview: handler });
+    { files: handler, presence: handler, terminal: handler, documentReview: handler, studioBulk: handler });
   try {
     socket.message(subscription('a')); socket.message(subscription('b', 'presence')); socket.message(subscription('c', 'terminal'));
     await flush();
@@ -269,6 +304,7 @@ test('upgrade accepts only the dedicated route, configured origin and versioned 
     ws: { __esModule: true, default: {}, WebSocketServer: Wss },
     '../app/api/files/watch/route': {}, '../app/api/files/presence/route': {}, '../app/api/terminal/availability/route': {},
     '../app/api/document-review/availability/route': {},
+    '../app/api/studio/bulk/availability/route': {},
     './live-events-connection': { attachLiveEventConnection() { attached++; } },
   });
   const server = createServer(); // No listening port or background application is started.

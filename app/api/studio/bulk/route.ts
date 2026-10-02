@@ -73,6 +73,9 @@ export async function POST(request: NextRequest) {
       },
     }, { status: 201 });
   } catch (error) {
+    if (error instanceof StudioServiceError && error.code === 'STUDIO_BULK_DISABLED') {
+      return NextResponse.json({ success: false, error: error.userMessage, code: error.code }, { status: 403 });
+    }
     if (error instanceof StudioServiceError && error.code === 'CONCURRENCY_LIMIT') {
       return NextResponse.json({ success: false, error: error.userMessage }, { status: 409 });
     }

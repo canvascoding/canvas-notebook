@@ -8,6 +8,7 @@ import "../globals.css";
 import { geistMono, geistSans } from '@/app/lib/fonts';
 import { TerminalAvailabilityProvider } from '@/app/components/terminal/TerminalAvailabilityProvider';
 import { DocumentReviewAvailabilityProvider } from '@/app/components/file-version-center/DocumentReviewAvailabilityProvider';
+import { StudioBulkAvailabilityProvider } from '@/app/apps/studio/components/StudioBulkAvailabilityProvider';
 import { Toaster } from "@/components/ui/sonner";
 import { InlineScript } from '@/app/components/InlineScript';
 import { AppThemeProvider } from "@/app/components/ThemeProvider";
@@ -108,18 +109,20 @@ export default async function LocaleLayout({
               </Suspense>
               <TerminalAvailabilityProvider>
                 <DocumentReviewAvailabilityProvider>
-                  <WebSocketProvider enabled>
-                    {children}
-                    <FileVersionCenterHost />
-                    <MemoryReviewHost />
-                    <Suspense fallback={null}>
-                      <TodoDetailHost />
-                    </Suspense>
-                    <Suspense fallback={null}>
-                      <EmailReviewHost />
-                    </Suspense>
-                    <Toaster richColors position="top-right" />
-                  </WebSocketProvider>
+                  <StudioBulkAvailabilityProvider>
+                    <WebSocketProvider enabled>
+                      {children}
+                      <FileVersionCenterHost />
+                      <MemoryReviewHost />
+                      <Suspense fallback={null}>
+                        <TodoDetailHost />
+                      </Suspense>
+                      <Suspense fallback={null}>
+                        <EmailReviewHost />
+                      </Suspense>
+                      <Toaster richColors position="top-right" />
+                    </WebSocketProvider>
+                  </StudioBulkAvailabilityProvider>
                 </DocumentReviewAvailabilityProvider>
               </TerminalAvailabilityProvider>
             </WorkspaceAppearanceProvider>

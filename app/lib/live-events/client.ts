@@ -105,7 +105,7 @@ export class LiveEventSource extends EventTarget {
     if (!channel || parsed.origin !== window.location.origin) throw new Error('Unsupported live event source.');
     const workspaceId = parsed.searchParams.get('workspaceId') || undefined;
     this.subscription = { id: crypto.randomUUID(), channel,
-      ...(channel !== 'terminal' && channel !== 'documentReview' ? { workspaceId } : {}) };
+      ...(channel !== 'terminal' && channel !== 'documentReview' && channel !== 'studioBulk' ? { workspaceId } : {}) };
     queueMicrotask(() => { if (!this.closed) this.owner.add(this); });
   }
   close(): void {

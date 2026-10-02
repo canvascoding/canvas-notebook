@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getCanvasSessionCookie } from '@/app/lib/auth-cookie';
 import { getManagedSystemUpdateOrigin, hasManagedSystemUpdateIntent } from '@/app/lib/managed/control-plane-url-policy';
 import { optionalHtmlPreviewOrigin, isHtmlPreviewHost } from '@/app/lib/html-preview-origin';
+import { readStudioBulkAvailability } from '@/app/lib/studio-bulk-availability';
 import createIntlMiddleware from 'next-intl/middleware';
 import { routing } from './i18n/routing';
 
@@ -266,6 +267,18 @@ export default async function middleware(request: NextRequest) {
     );
     setCommonHeaders(errorResponse);
     return errorResponse;
+  }
+
+  // Redirect before rendering StudioShell: a streamed child-page redirect
+  // would hydrate its Bulk title against the destination Studio pathname.
+  const locale = getLocaleFromPathname(pathname);
+  if (['GET', 'HEAD'].includes(request.method)
+    && [`/${locale}/studio/bulk`, `/${locale}/studio/bulk/`].includes(pathname)
+    && !readStudioBulkAvailability().studioBulkEnabled) {
+    const redirectResponse = NextResponse.redirect(new URL(`/${locale}/studio`, request.url));
+    setCommonHeaders(redirectResponse);
+    redirectResponse.headers.set('Cache-Control', 'no-store');
+    return redirectResponse;
   }
 
   return response;

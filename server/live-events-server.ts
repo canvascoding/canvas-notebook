@@ -5,6 +5,7 @@ import { GET as files } from '../app/api/files/watch/route';
 import { GET as presence } from '../app/api/files/presence/route';
 import { GET as terminal } from '../app/api/terminal/availability/route';
 import { GET as documentReview } from '../app/api/document-review/availability/route';
+import { GET as studioBulk } from '../app/api/studio/bulk/availability/route';
 import { isConfiguredTrustedOrigin } from '../app/lib/security/trusted-origins';
 import { LIVE_EVENTS_PATH, LIVE_EVENTS_PROTOCOL } from '../app/lib/live-events/protocol';
 import { attachLiveEventConnection } from './live-events-connection';
@@ -27,7 +28,7 @@ export function createLiveEventsServer(server: http.Server) {
     wss.handleUpgrade(request, socket, head, ws => {
       alive.add(ws);
       ws.on('pong', () => alive.add(ws));
-      attachLiveEventConnection(ws, request, { files, presence, terminal, documentReview });
+      attachLiveEventConnection(ws, request, { files, presence, terminal, documentReview, studioBulk });
     });
   };
   server.on('upgrade', upgrade);

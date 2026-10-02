@@ -6,7 +6,7 @@ sectionOrder: 10
 order: 8
 locale: en
 translationKey: admin.account-instance-settings
-updatedAt: 2026-09-03
+updatedAt: 2026-10-02
 ---
 
 # Account and Instance Settings
@@ -33,6 +33,12 @@ Enabling restores the app-menu entry, home-page link, notebook toolbar button an
 
 Disabling also ends running terminal sessions for all users. Re-enabling allows new sessions; terminated sessions cannot be recovered. Other open browser sessions receive the updated availability automatically. AI agents' Bash tools are managed separately and are not affected by this setting.
 
+## Studio bulk generation
+
+**Settings → Experimental Features → Studio Bulk Generation** controls the experimental Bulk area for the entire instance. Only instance administrators can change it. It is disabled by default, including after an upgrade without an explicit saved setting. Enabling makes Bulk available in Studio and the app-menu quick actions according to each user's existing Studio permissions.
+
+Disabling hides Bulk and blocks new bulk jobs from the web app, mobile API, and agent tools. Direct visits to the Bulk page return to Studio. Running jobs may finish and can still be cancelled, and existing results remain available. Other open browser sessions receive the change automatically.
+
 ## Change discipline
 
 1. Identify personal, workspace, organization, or instance scope.
@@ -47,4 +53,3 @@ Do not paste credentials into generic settings fields. Use provider, integration
 
 - [User and permission management](/docs/admin/users-permissions)
 - [Integration environment variables](/docs/integrations/environment-variables)
-

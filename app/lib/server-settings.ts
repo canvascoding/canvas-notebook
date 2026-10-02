@@ -34,6 +34,9 @@ export type ServerSettings = {
   documentReviewEnabled?: boolean;
   documentReviewUpdatedAt?: string;
   documentReviewUpdatedBy?: string;
+  studioBulkEnabled?: boolean;
+  studioBulkUpdatedAt?: string;
+  studioBulkUpdatedBy?: string;
   timeZone?: string;
   updatedAt?: string;
   updatedBy?: string;
@@ -145,6 +148,9 @@ function normalizeServerSettings(value: unknown): ServerSettings {
     documentReviewEnabled?: unknown;
     documentReviewUpdatedAt?: unknown;
     documentReviewUpdatedBy?: unknown;
+    studioBulkEnabled?: unknown;
+    studioBulkUpdatedAt?: unknown;
+    studioBulkUpdatedBy?: unknown;
     timeZone?: unknown;
     updatedAt?: unknown;
     updatedBy?: unknown;
@@ -160,6 +166,8 @@ function normalizeServerSettings(value: unknown): ServerSettings {
   const timeZone = normalizeTimeZoneValue(record.timeZone);
   const onboardingStep = normalizeInstanceOnboardingStep(record.onboardingStep);
   const directMcp = normalizeDirectMcpPreferences(record.directMcp);
+  const studioBulkUpdatedAt = typeof record.studioBulkUpdatedAt === 'string'
+    && Number.isFinite(Date.parse(record.studioBulkUpdatedAt)) ? record.studioBulkUpdatedAt : null;
   return {
     terminalEnabled: record.terminalEnabled === true,
     ...(typeof record.terminalRevocationId === 'string' ? { terminalRevocationId: record.terminalRevocationId } : {}),
@@ -168,6 +176,10 @@ function normalizeServerSettings(value: unknown): ServerSettings {
     documentReviewEnabled: record.documentReviewEnabled === true,
     ...(typeof record.documentReviewUpdatedAt === 'string' ? { documentReviewUpdatedAt: record.documentReviewUpdatedAt } : {}),
     ...(typeof record.documentReviewUpdatedBy === 'string' ? { documentReviewUpdatedBy: record.documentReviewUpdatedBy } : {}),
+    studioBulkEnabled: record.studioBulkEnabled === true
+      && (record.studioBulkUpdatedAt === undefined || studioBulkUpdatedAt !== null),
+    ...(studioBulkUpdatedAt !== null ? { studioBulkUpdatedAt } : {}),
+    ...(typeof record.studioBulkUpdatedBy === 'string' ? { studioBulkUpdatedBy: record.studioBulkUpdatedBy } : {}),
     ...(timeZone ? { timeZone } : {}),
     ...(typeof record.updatedAt === 'string' ? { updatedAt: record.updatedAt } : {}),
     ...(typeof record.updatedBy === 'string' ? { updatedBy: record.updatedBy } : {}),
@@ -251,16 +263,54 @@ export async function setTerminalEnabled(userId: string, enabled: boolean): Prom
 
 export async function setDocumentReviewEnabled(userId: string, enabled: boolean): Promise<void> {
   if (typeof enabled !== 'boolean') throw new Error('Document review enabled must be a boolean.');
-  const file = await readServerSettingsFile();
-  await writeServerSettingsFileAtomic({
-    version: 1,
-    settings: {
+  await setExperimentalFeatures(userId, { documentReviewEnabled: enabled });
+}
+
+export type ExperimentalFeaturesUpdate = {
+  documentReviewEnabled?: boolean;
+  studioBulkEnabled?: boolean;
+};
+
+function nextExperimentalUpdatedAt(previous: string | undefined, now: number): string {
+  const parsed = previous ? Date.parse(previous) : NaN;
+  return new Date(Number.isFinite(parsed) && parsed < 8640000000000000
+    ? Math.max(now, parsed + 1) : now).toISOString();
+}
+
+export async function setExperimentalFeatures(
+  userId: string,
+  input: ExperimentalFeaturesUpdate,
+): Promise<ServerSettings> {
+  const keys = Object.keys(input);
+  if (!keys.length || keys.some(key => !['documentReviewEnabled', 'studioBulkEnabled'].includes(key)
+    || typeof input[key as keyof ExperimentalFeaturesUpdate] !== 'boolean')) {
+    throw new Error('Experimental settings must contain supported boolean values.');
+  }
+  const patch = { ...input };
+  // Separate Next/server bundles must share the queue, so two partial patches
+  // cannot overwrite one another's policy or audit metadata.
+  const runtime = globalThis as typeof globalThis & { __canvasExperimentalSettingsUpdate?: Promise<unknown> };
+  const update = (runtime.__canvasExperimentalSettingsUpdate ?? Promise.resolve()).then(async () => {
+    const file = await readServerSettingsFile();
+    const now = Date.now();
+    const settings: ServerSettings = {
       ...file.settings,
-      documentReviewEnabled: enabled,
-      documentReviewUpdatedAt: new Date().toISOString(),
-      documentReviewUpdatedBy: userId,
-    },
+      ...(patch.documentReviewEnabled !== undefined ? {
+        documentReviewEnabled: patch.documentReviewEnabled,
+        documentReviewUpdatedAt: nextExperimentalUpdatedAt(file.settings.documentReviewUpdatedAt, now),
+        documentReviewUpdatedBy: userId,
+      } : {}),
+      ...(patch.studioBulkEnabled !== undefined ? {
+        studioBulkEnabled: patch.studioBulkEnabled,
+        studioBulkUpdatedAt: nextExperimentalUpdatedAt(file.settings.studioBulkUpdatedAt, now),
+        studioBulkUpdatedBy: userId,
+      } : {}),
+    };
+    await writeServerSettingsFileAtomic({ version: 1, settings });
+    return settings;
   });
+  runtime.__canvasExperimentalSettingsUpdate = update.catch(() => undefined);
+  return update;
 }
 
 export async function getServerPreferredTimeZone(): Promise<string> {

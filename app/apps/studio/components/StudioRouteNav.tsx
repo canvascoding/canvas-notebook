@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Link, usePathname } from '@/i18n/navigation';
 import { cn } from '@/lib/utils';
+import { useStudioBulkAvailability } from './StudioBulkAvailabilityProvider';
 
 const studioRouteItems = [
   { key: 'create', href: '/studio', icon: ImagePlus, labelKey: 'tabs.create' },
@@ -46,9 +47,14 @@ function isActiveStudioRoute(pathname: string | null, item: StudioRouteItem) {
 export function StudioRouteNav({ variant = 'responsive' }: { variant?: StudioRouteNavVariant }) {
   const t = useTranslations('studio');
   const pathname = usePathname();
+  const { studioBulkEnabled } = useStudioBulkAvailability();
+  const visibleItems = useMemo(
+    () => studioRouteItems.filter(item => item.key !== 'bulk' || studioBulkEnabled),
+    [studioBulkEnabled],
+  );
   const activeItem = useMemo(
-    () => studioRouteItems.find((item) => isActiveStudioRoute(pathname, item)) ?? studioRouteItems[0],
-    [pathname],
+    () => visibleItems.find((item) => isActiveStudioRoute(pathname, item)) ?? visibleItems[0],
+    [pathname, visibleItems],
   );
   const ActiveIcon = activeItem.icon;
   const showDesktopNav = variant !== 'mobile';
@@ -61,7 +67,7 @@ export function StudioRouteNav({ variant = 'responsive' }: { variant?: StudioRou
           aria-label={t('title')}
           className="hidden min-w-0 items-center rounded-full border border-border/70 bg-muted/40 p-1 shadow-sm xl:flex"
         >
-          {studioRouteItems.map((item) => {
+          {visibleItems.map((item) => {
             const Icon = item.icon;
             const active = isActiveStudioRoute(pathname, item);
 
@@ -101,7 +107,7 @@ export function StudioRouteNav({ variant = 'responsive' }: { variant?: StudioRou
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-52">
-            {studioRouteItems.map((item) => {
+            {visibleItems.map((item) => {
               const Icon = item.icon;
               const active = isActiveStudioRoute(pathname, item);
 

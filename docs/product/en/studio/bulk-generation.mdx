@@ -6,12 +6,18 @@ sectionOrder: 5
 order: 9
 locale: en
 translationKey: studio.bulk-generation
-updatedAt: 2026-07-17
+updatedAt: 2026-10-02
 ---
 
 # Bulk Generation
 
 Bulk generation creates a set of Studio line items from multiple products. It is designed for repeatable catalog or campaign production where the composition is shared but each product must remain independently reviewable.
+
+## Enable the experimental feature
+
+Bulk generation is experimental and disabled by default, including on existing installations without an explicit setting. An instance administrator can enable **Studio Bulk Generation** under **Settings → Experimental Features**. Once enabled, users with the existing Studio permissions can access Bulk through the Studio navigation or app-menu quick actions.
+
+Disabling hides these entry points, redirects direct visits to `/studio/bulk` back to Studio, and blocks new bulk jobs through the web app, mobile API, and agent tools. Running jobs can finish and can still be cancelled; existing jobs and results are retained. Other open browser sessions update automatically.
 
 ## Create a bulk job
 

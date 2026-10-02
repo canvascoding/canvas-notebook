@@ -38,6 +38,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { NOTEBOOK_CHAT_HREF } from '@/app/lib/chat/chat-navigation-intent';
 import { useTerminalAvailability } from '@/app/components/terminal/TerminalAvailabilityProvider';
+import { useStudioBulkAvailability } from '@/app/apps/studio/components/StudioBulkAvailabilityProvider';
 import { cn } from '@/lib/utils';
 
 interface AppItem {
@@ -97,7 +98,8 @@ function useIsMobileLauncher() {
 function getQuickActions(
   app: AppItem,
   tStudio: ReturnType<typeof useTranslations>,
-  tSettings: ReturnType<typeof useTranslations>
+  tSettings: ReturnType<typeof useTranslations>,
+  studioBulkEnabled: boolean,
 ): QuickAction[] {
   if (app.id === 'settings') {
     return [
@@ -115,7 +117,7 @@ function getQuickActions(
       { label: tStudio('tabs.create'), href: '/studio' },
       { label: tStudio('tabs.models'), href: '/studio/models' },
       { label: tStudio('tabs.presets'), href: '/studio/presets' },
-      { label: tStudio('tabs.bulk'), href: '/studio/bulk' },
+      ...(studioBulkEnabled ? [{ label: tStudio('tabs.bulk'), href: '/studio/bulk' }] : []),
       { label: tStudio('tabs.resize'), href: '/studio/aspect-ratio' },
     ];
   }
@@ -125,6 +127,7 @@ function getQuickActions(
 
 export function AppLauncher({ showBrowserLab = false }: { showBrowserLab?: boolean }) {
   const { terminalEnabled } = useTerminalAvailability();
+  const { studioBulkEnabled } = useStudioBulkAvailability();
   const [showMoreApps, setShowMoreApps] = useState(false);
   const moreApps: AppItem[] = showBrowserLab
     ? [...MORE_APPS, { id: 'browserLab', href: '/browser/lab', icon: MonitorUp, hasQuickActions: false }]
@@ -166,13 +169,13 @@ export function AppLauncher({ showBrowserLab = false }: { showBrowserLab?: boole
 
   const activeActions = useMemo(() => {
     if (!activeActionsApp) return [];
-    return getQuickActions(activeActionsApp, tStudio, tSettings);
-  }, [activeActionsApp, tSettings, tStudio]);
+    return getQuickActions(activeActionsApp, tStudio, tSettings, studioBulkEnabled);
+  }, [activeActionsApp, tSettings, tStudio, studioBulkEnabled]);
 
   const mobileActions = useMemo(() => {
     if (!mobileActionsApp) return [];
-    return getQuickActions(mobileActionsApp, tStudio, tSettings);
-  }, [mobileActionsApp, tSettings, tStudio]);
+    return getQuickActions(mobileActionsApp, tStudio, tSettings, studioBulkEnabled);
+  }, [mobileActionsApp, tSettings, tStudio, studioBulkEnabled]);
 
   const getLocalizedHref = useCallback((href: string) => getPathname({ href, locale }), [locale]);
 
