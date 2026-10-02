@@ -1,0 +1,71 @@
+---
+title: First-Run Setup for Administrators and Users
+description: Follow the right setup path for a new Canvas Notebook instance or for your own user account.
+section: Getting Started
+sectionOrder: 1
+order: 4
+locale: en
+translationKey: getting-started.first-run-setup
+updatedAt: 2026-10-02
+---
+
+# First-Run Setup for Administrators and Users
+
+Canvas Notebook has two setup stages. An **instance administrator** prepares the shared server and its default AI runtime. Each **user** then sets personal preferences and starts working in an accessible workspace. These stages have different permissions and affect different people.
+
+## Choose your setup path
+
+| If you are… | Start here |
+| --- | --- |
+| Installing Canvas Notebook or setting up a new instance | Follow the platform guide for [Linux](/docs/admin/install-linux), [macOS](/docs/admin/install-macos), or [Windows](/docs/admin/install-windows). Then create the first administrator account in the setup screen. |
+| The first instance owner or an instance administrator | Sign in and complete the **instance onboarding** below before asking other users to continue. |
+| A user joining an already configured instance | Sign in with the account provided by your administrator and complete the **personal onboarding** below. If Canvas says instance setup is still in progress, the instance administrator must finish first. |
+| Already signed in and past onboarding | Go to the [Quickstart](/docs/quickstart) or use the [interface guide](/docs/interface-guide) to find the apps. |
+
+The first account created on a fresh instance becomes its initial administrator. Later user accounts are managed by an administrator. An organization owner or workspace manager has scoped organization or workspace permissions; those roles do not automatically grant instance-wide administration.
+
+## Instance setup: administrator path
+
+Instance onboarding is completed once for the Notebook instance. It checks the shared defaults that users and scheduled work rely on.
+
+1. **Set the server time zone.** This is the instance default used to interpret schedules and agent time context. Users can still have personal preferences.
+2. **Review the license.** Community activation is optional for local core use. Team and other gated capabilities require the relevant license and runtime support.
+3. **Configure and verify the app-default AI provider and model.** Add provider credentials through the appropriate provider or Secrets settings, enable a model, select the default, and run the verification probe. A saved key alone does not prove that an agent can run.
+4. **Choose the Memory Reviewer model.** This is the organization-wide model used to review conversations for durable memories; it can differ from the chat default.
+5. **Check workspace readiness and review the setup summary.** The instance prepares secure personal workspaces. A shared organization workspace is optional and can be added later. Complete instance setup only after the provider and workspace checks are ready.
+
+After setup, use [User and Permission Management](/docs/admin/users-permissions) to create or manage accounts and assign only the access each person needs. Configure [system email](/docs/admin/system-email), backups, integrations, and additional workspaces when your deployment requires them. These are administrator operations; they are not required steps for every user.
+
+## Personal setup: user path
+
+Personal onboarding runs for each user after instance setup is complete.
+
+1. **Choose your interface language.** This changes your user preference, not the server language for everyone.
+2. **Check your personal workspace.** It holds your private files, preferences, and personal automations. In a Team instance, other shared workspaces appear only when you have access.
+3. **Meet Bradley, the fixed main agent.** You can answer a few questions about your work and communication preferences, or skip and set them later. Bradley's profile does not give it new permissions.
+4. **Start or skip the short tour.** You can return to the apps and settings at any time.
+
+Then try the [Quickstart](/docs/quickstart): create a Markdown note in **Notebook**, ask Bradley to work with that file, and review the result. A usable AI model and workspace access are prerequisites for agent work. If Bradley reports that no valid runtime is available, contact an instance administrator.
+
+## Where the main features fit
+
+- **Notebook and Knowledge Base:** store editable Markdown and project files in a workspace. Wiki links and backlinks help connect notes. Start with [the Knowledge Base overview](/docs/features/knowledge-base).
+- **Canvas Agent:** chat with Bradley or an authorized specialized agent about workspace files. Models, tools, skills, connections, and workspace permissions are separate controls. See [AI agents](/docs/features/ai-agent).
+- **Automations:** schedule a prompt or receive a configured webhook to do repeatable work in a selected workspace. A paused automation does not run; review its prompt and output before activation. See [Automations](/docs/features/automations).
+- **Studio:** generate and organize image, video, or sound outputs when a compatible provider is available. Save reviewed outputs into a workspace. See [Studio](/docs/features/studio).
+- **Email:** connect a personal mailbox or use a workspace mailbox that an administrator assigned. Drafts and policies are separate from the instance's system email. See [Email](/docs/features/email).
+- **Skills and plugins:** add reusable instructions or connected tools to an agent. Installation does not grant every agent access automatically. See [Skills and plugins](/docs/features/skills).
+- **Workspaces and To-dos:** work within personal or shared access boundaries and track human follow-up. See [Workspaces](/docs/collaboration/workspaces-overview) and [To-dos](/docs/collaboration/todos-approvals).
+
+Studio generation, mailbox connection, and optional integrations can be configured later. Add them only when a workflow needs them, and check the workspace and account scope before using them.
+
+## Instance administration versus user setup
+
+| Instance administrator | User |
+| --- | --- |
+| Configures server-wide settings and the app-default model | Chooses personal language and preferences |
+| Manages instance accounts and organization capabilities | Uses only the workspaces and agents granted to them |
+| Controls system email, license, backups, and other admin-only settings | Connects personal services when allowed and needed |
+| Can administer the instance; this is broader than workspace management | Cannot change server-wide settings unless also granted the instance admin role |
+
+For the full permission model, see [User and Permission Management](/docs/admin/users-permissions). For the settings layout, see [Navigating Canvas Notebook](/docs/interface-guide).
