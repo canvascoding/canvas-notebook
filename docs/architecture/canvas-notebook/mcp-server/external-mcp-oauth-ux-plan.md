@@ -350,6 +350,50 @@ Produktions-Secrets oder produktive Verbindung wurden verändert.
   `detect_changes()` ausführen. Abschließende Screenshots und Prüfschritte für
   einen späteren PR festhalten.
 
+## Ergänzung: Managed-Zugänge auf der Secrets-Seite
+
+Die Secrets-Seite zeigt bei konfigurierter Control-Plane-Verbindung zusätzlich
+eine Infokarte. Ihre Zusammenfassung nennt Dienste mit Managed-Zugang; die
+zunächst geschlossenen Details unterscheiden Control Plane, eigene Zugangsdaten,
+nicht eingerichtete und unbestätigte Quellen. Die Karte zeigt keine Schlüsselwerte.
+Die normale Bereichsauswahl und Secrets-Bearbeitung bleiben eigenständige Aktionen.
+
+Die Quellen kommen aus vorhandenen authentifizierten Status-APIs für Composio,
+Websuche, Studio und die aktuelle KI-Modellauswahl. Composio und KI berücksichtigen
+den aktiven Workspace. Eigene Studio-Zugangsdaten haben in der Anzeige Vorrang.
+Composio-Providerfehler werden zusätzlich markiert; nicht bestätigte Antworten
+werden nicht als gesunder Zugang dargestellt. Studio-Konfiguration ohne bestätigte
+Zugangsquelle bleibt unbestätigt, weil dessen API bei Lesefehlern eine leere
+Konfiguration zurückgeben kann. Die Anzeige beschreibt die Zugriffsquelle und
+bestätigt keine allgemeine Live-Verfügbarkeit sämtlicher Anbieter.
+
+Die neue Regression prüft GET-Abfragen, eigene Zugangsdaten, Teilausfälle,
+Workspace-Header, verspätete Antworten, Aktualisierung nach Secrets-Änderungen
+und DE/EN. Sie ist Teil von `test:secrets:ui`. Die bestehende Konflikt-Assertion
+wurde an die aktuelle Warnungssemantik (`status`) angepasst. Browser-QA verwendet
+die echte Komponente und aktuellen App-Styles mit kontrollierten Status-Antworten:
+DE/EN, 1440/390 Pixel, geschlossene/geöffnete Details, eigene Quellen und
+Teilausfälle; kein horizontaler Überlauf und keine Rendererfehler. Die echte
+lokale Secrets-Seite wurde per Bootstrap-Login geprüft; dort erscheint mangels
+Managed-Verbindung keine Managed-Karte. Screenshots: `test-results/managed-secrets-info/`.
+Dies ersetzt keine produktive Managed-Abnahme. Es wurden keine Container gebaut.
+
+Composio verwendet `getLocalComposioApiKey` → `readScopedEnvState` → den korrigierten
+gemeinsamen Secrets-Speicher. `test:secrets:consumers` und `test:secrets:readiness`
+bestätigen diesen Zugriff und die ursprüngliche Envelope-Kollision auch auf dem
+aktuellen main-Stand. Das behebt die gleiche Fehlerursache bei Composio; ein
+tatsächlich verlorener Schlüssel benötigt weiterhin die Wiederherstellung.
+
+GitNexus-Impact wurde ausgeführt und meldet für den Settings-Client CRITICAL mit
+einem direkten Aufrufer. Der Einbau dort umfasst nur Import und JSX. Die
+Indexaktualisierung scheiterte an ungültigem UTF-8, die FTS-Reparatur an einem
+fehlenden Funktionsindex. Der verbleibende Graph liefert nur teilweise aufgelöste
+Radien; neue Dateien werden zusätzlich manuell und mit Tests geprüft.
+Staged `detect_changes` bestätigt sechs Dateien, zwei erfasste Symbole und einen
+Settings-Ablauf (MEDIUM). `test:secrets:ui`, die Composio-Consumer-/Readiness-
+Regressionen, TypeScript, ESLint und `npm run build` bestanden. Der Build meldet
+die bereits vorhandenen 42 Warnungen zur dynamischen Dateiverfolgung.
+
 ## Änderungsrisiko und Grenzen der ursprünglichen Analyse
 
 GitNexus meldet für `readScopedEnvState()` **CRITICAL**: 28 direkte Aufrufer,

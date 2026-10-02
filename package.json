@@ -651,7 +651,7 @@
     "test:email:search": "tsx scripts/email-search-query-test.ts && tsx --conditions react-server scripts/email-search-provider-test.ts && tsx --conditions react-server scripts/email-search-imap-test.ts && tsx --conditions react-server scripts/email-search-managed-test.ts",
     "test:email:setup": "tsx --conditions react-server scripts/email-business-assignment-test.ts && tsx --conditions react-server scripts/email-smtp-normalization-test.ts",
     "test:team-seat:production-manual-activation": "tsx --conditions react-server scripts/production-manual-license-activation-test.ts",
-    "test:secrets:ui": "tsx scripts/unified-secrets-editor-test.tsx && tsx scripts/provider-connection-fields-test.tsx && tsx scripts/ollama-dialog-targeted-patch-test.tsx && tsx scripts/integrations-settings-env-patch-ui-test.tsx",
+    "test:secrets:ui": "tsx scripts/unified-secrets-editor-test.tsx && tsx scripts/provider-connection-fields-test.tsx && tsx scripts/ollama-dialog-targeted-patch-test.tsx && tsx scripts/integrations-settings-env-patch-ui-test.tsx && tsx scripts/managed-secrets-info-test.tsx",
     "test:secrets:browser": "tsx scripts/unified-secrets-browser-test.ts",
     "test:secrets:bootstrap": "tsx scripts/bootstrap-unified-secrets-test.ts",
     "test:secrets:control-plane": "tsx --conditions react-server scripts/secret-control-plane-contract-test.ts",

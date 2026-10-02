@@ -8,6 +8,7 @@ import { useLocale, useTranslations } from 'next-intl';
 import { ChevronDown, ChevronLeft, Copy, ExternalLink, Eye, EyeOff, Inbox, Loader2, Mail, MoreHorizontal, Plus, RefreshCw, Save, Search, Send, Server, Settings, ShieldCheck, Star, Trash2 } from 'lucide-react';
 
 import { UnifiedSecretsEditor } from '@/app/components/settings/UnifiedSecretsEditor';
+import { ManagedSecretsInfo } from '@/app/components/settings/ManagedSecretsInfo';
 import { ExperimentalFeaturesSettingsPanel } from '@/app/components/settings/ExperimentalFeaturesSettingsPanel';
 import { DictationSettingsPanel } from '@/app/components/settings/DictationSettingsPanel';
 import { GeneralSettingsPanel } from '@/app/components/settings/GeneralSettingsPanel';
@@ -2762,6 +2763,7 @@ export function IntegrationsSettingsClient({
                 </p>
                 <p className="mt-1 text-sm text-muted-foreground">{t('secrets.sectionDescription')}</p>
               </div>
+              {isManagedControlPlane && <ManagedSecretsInfo language={locale === 'de' ? 'de' : 'en'} />}
               <UnifiedSecretsEditor
                 language={locale === 'de' ? 'de' : 'en'}
                 isAdmin={isAdmin}

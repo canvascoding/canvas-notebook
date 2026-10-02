@@ -142,11 +142,11 @@ async function main() {
     fireEvent.change(document.querySelector<HTMLInputElement>('[data-testid="secret-entry-value"]')!, { target: { value: 'fixture-conflicting-edit' } });
     nextPatchConflict = true;
     await act(async () => { fireEvent.click(document.querySelector<HTMLButtonElement>('[data-testid="secret-save"]')!); });
-    await waitFor(() => assert.ok(document.querySelector('[role="alert"]')?.textContent?.includes('changed since you loaded')));
+    await waitFor(() => assert.ok(document.querySelector('[data-variant="warning"][role="status"]')?.textContent?.includes('changed since you loaded')));
     assert.equal(document.querySelector<HTMLInputElement>('[data-testid="secret-entry-value"]')?.value, 'fixture-conflicting-edit', 'a stale response keeps the unsaved edit visible');
     const reloadConflict = Array.from(document.querySelectorAll('button')).find(button => button.textContent?.includes('Reload latest version'))!;
     await act(async () => { fireEvent.click(reloadConflict); });
-    await waitFor(() => assert.equal(document.querySelector('[role="alert"]'), null));
+    await waitFor(() => assert.equal(document.querySelector('[data-variant="warning"]'), null));
 
     fireEvent.change(document.querySelector<HTMLSelectElement>('[data-testid="secret-scope"]')!, { target: { value: 'system' } });
     await waitFor(() => assert.ok(document.querySelector('[role="status"]')?.textContent?.includes('Loading environment')));
