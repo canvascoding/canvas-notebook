@@ -1,0 +1,106 @@
+---
+title: Roles, Scopes, and Permissions
+description: Understand how instance roles, organization capabilities, workspace membership, and agent access combine.
+section: Collaboration and Organization
+sectionOrder: 9
+order: 5
+locale: en
+translationKey: collaboration.roles-scopes-permissions
+updatedAt: 2026-10-02
+---
+
+# Roles, Scopes, and Permissions
+
+Canvas access is evaluated in layers. A role answers who may administer a boundary; a scope says where a resource belongs; a capability grants a specific action. Being able to use a feature does not automatically grant access to its files, credentials, or settings.
+
+## Instance roles
+
+| Instance role | What it controls |
+| --- | --- |
+| `admin` | Server-wide settings and user administration, plus host-level operations reserved for instance administrators. |
+| `user` | Normal Canvas use, subject to organization, workspace, agent, and feature permissions. |
+
+Instance administration is separate from organization ownership. An organization owner does not thereby become a server administrator.
+
+## Organization roles and configurable capabilities
+
+Organization roles provide defaults. Owners and admins can manage organization permission assignments; where a capability is configurable, an owner or admin can grant or remove it for an eligible member. The defaults below describe a newly provisioned membership, not an immutable role contract.
+
+| Organization role | Default organization capabilities |
+| --- | --- |
+| `owner` | All capabilities below except organization memory management, which is off by default. |
+| `admin` | Same default capabilities as owner; can manage organization permissions. |
+| `member` | Public-link creation and Studio asset deletion by default. Other listed capabilities are off by default. |
+| `external` | No organization capabilities by default; access is limited to explicitly granted project membership. |
+
+The organization permission editor exposes these controls:
+
+| Capability | What it allows |
+| --- | --- |
+| Write team workspace | Change files in organization team workspaces. |
+| Create public links | Create public links where the workspace also permits it. |
+| Create team automations | Create organization/team automation jobs. |
+| Share plugins and skills | Share eligible extensions with the organization. |
+| Export | Export organization data in supported workflows. |
+| Delete team files | Delete files from team workspaces. |
+| Delete Studio assets | Delete organization Studio assets. |
+| Manage backups | Manage organization backup operations. |
+| Manage organization memory | Change shared organization memory. |
+| Migrate database | Run supported organization database migrations. |
+| Enable knowledge | Enable organization knowledge capabilities. |
+| Recover workspaces | Use supported workspace recovery operations. |
+
+Other sensitive operations may remain restricted to instance admins even when they are not listed above.
+
+## Workspace access
+
+| Workspace access | Typical effect |
+| --- | --- |
+| Read | View workspace content. |
+| Write | Change workspace content, subject to organization policy and specific capabilities. |
+| Manage | Administer workspace membership and settings; includes the applicable lower-level access. |
+
+Personal workspaces have no member list. Organization, team, and project workspaces use organization membership and/or explicit workspace or project grants. Public-link creation and agent execution are separate checks; read or write access alone does not grant them.
+
+## Agent access
+
+| Agent access | Effect |
+| --- | --- |
+| Use | Select and run the agent where the user also has workspace and tool access. |
+| Edit | Change the agent profile and configuration; includes use. |
+| Manage | Administer agent membership and grants; includes edit and use. |
+
+Organization agents can use direct user grants and organization, role, workspace, or project grants. Agent permission does not bypass workspace membership, organization policy, provider readiness, or connection ownership.
+
+## How feature scope works
+
+| Feature | Scope and behavior |
+| --- | --- |
+| AI agent profile | A specialized agent can be user-scoped or organization-scoped. Organization agents can be shared by grants; the active workspace still limits files and tools. |
+| Models and providers | The runtime catalog and instance, workspace, user, and agent settings contribute to the effective choice. Credentials and policy determine readiness and availability. |
+| Automations | A job belongs to a personal or organization scope and executes in one selected workspace. Team automation creation requires the organization capability; every run still checks agent, workspace, executor, and connection access. |
+| Skills and plugins | Core skills ship with Canvas; optional skills and plugins can be installed at user or organization scope, with system-scoped skills also possible. Sharing an extension does not grant every user permission to manage it or make it active for every agent. |
+| Marketplace/catalog | The catalog is a discovery and installation surface. Check the displayed package source and target scope; catalog visibility does not itself grant install, share, connector, or agent-use permission. |
+| Connected apps and secrets | Connections and secrets have their own user, organization, or system ownership. An agent or plugin reference does not grant access to credentials; connection access and readiness are checked separately. |
+
+## A practical access check
+
+When someone cannot use a feature, check each boundary in this order:
+
+1. Is the account active, and does it have the required instance role?
+2. Is the user an active member of the relevant organization, with the required organization capability?
+3. Does the user have the required workspace or project access?
+4. Does the user have use, edit, or manage access to the selected agent or extension?
+5. Are the provider, integration connection, tools, and runtime ready for this user and workspace?
+
+An access grant at one level does not automatically create grants at the others. For setup steps, see [First-run setup for administrators and users](/docs/first-run-setup).
+
+## Related guides
+
+- [User and permission management](/docs/admin/users-permissions)
+- [Workspace members and roles](/docs/collaboration/workspace-members)
+- [Agent members and permissions](/docs/agents/members-permissions)
+- [Agent access across workspaces](/docs/collaboration/agent-workspace-access)
+- [Automations overview](/docs/automations/overview)
+- [Skills overview](/docs/integrations/skills-overview)
+- [Plugins overview](/docs/integrations/plugins-overview)

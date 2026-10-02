@@ -19,6 +19,8 @@ The **job** is the reusable definition. It can be active or paused and can belon
 
 Each run records its status, trigger, scheduled time, start and finish, attempt, agent session, result, error, event log, runtime metadata, workspace, and effective output path. This separates what should happen from evidence about what actually happened.
 
+The job's personal or organization scope identifies who owns and shares its definition. It does not replace the selected execution workspace: each run still needs access to that workspace, the agent, and any connected services. Team automation creation is controlled by an organization capability. See [Roles, scopes, and permissions](/docs/collaboration/roles-scopes-permissions).
+
 ## Trigger types
 
 - Run once at a date and time.

@@ -23,6 +23,8 @@ Canvas distinguishes three sources:
 
 Skills may be scoped to the system, an organization, or a user. Their effective state can be available, disabled, blocked by policy, in conflict with another package, or waiting for a personal connection.
 
+Scope controls who owns or shares an installation; agent selection controls whether an optional skill participates in that agent's sessions. Catalog visibility alone does not grant permission to install, share, or use every package. See [Roles, scopes, and permissions](/docs/collaboration/roles-scopes-permissions).
+
 ## What an agent receives
 
 An enabled skill contributes its `SKILL.md` instructions and any referenced package resources to the agent's runtime context. A skill does not automatically grant unrestricted access to the filesystem, credentials, or external services. Tool availability, workspace access, connections, and runtime policy are evaluated separately.
@@ -38,4 +40,3 @@ Use a skill when the extension is primarily instructions and reusable resources.
 - [Installing a skill](/docs/integrations/install-skill)
 - [Understanding SKILL.md](/docs/integrations/skill-md)
 - [Enabling skills for agents](/docs/integrations/enable-skills)
-
