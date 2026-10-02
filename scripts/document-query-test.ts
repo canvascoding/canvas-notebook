@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { observeOpenedDocumentAuth } from '../app/lib/collaboration/opened-document-registry';
+import { onlineManager } from '@tanstack/react-query';
+import { LiveDocumentNetworkError, observeOpenedDocumentAuth } from '../app/lib/collaboration/opened-document-registry';
 import { getNotebookQueryClient } from '../app/lib/queries/client';
 import { readWorkspaceFile, loadWorkspaceTree } from '../app/lib/files/client';
 import { useWorkspaceStore } from '../app/store/workspace-store';
@@ -58,6 +59,50 @@ async function main() {
   assert.equal(calls[beforeBootstrap + 1].url.includes('collaborationBootstrap=1'), true);
   release();
   await Promise.all([ordinaryRead, bootstrapRead, sameBootstrapRead]);
+
+  const client = getNotebookQueryClient();
+  const previousOnline = onlineManager.isOnline();
+  const previousFetch = globalThis.fetch;
+  const previousQueryDefaults = client.getQueryDefaults(['notebook']);
+  client.setQueryDefaults(['notebook'], { gcTime: 0 });
+  client.mount();
+  try {
+    onlineManager.setOnline(false);
+    let offlineCalls = 0;
+    globalThis.fetch = async () => { offlineCalls += 1; throw new TypeError('Offline transport'); };
+    const offline = readWorkspaceFile('offline-bootstrap.md', { collaborationBootstrap: true })
+      .then(() => null, (error: unknown) => error);
+    const sameOffline = readWorkspaceFile('offline-bootstrap.md', { collaborationBootstrap: true })
+      .then(() => null, (error: unknown) => error);
+    await Promise.resolve();
+    assert.equal(offlineCalls, 1, 'an offline live bootstrap must attempt the shared transport so native receipt fallback can run');
+    for (const error of await Promise.all([offline, sameOffline])) assert.ok(error instanceof LiveDocumentNetworkError);
+
+    const ordinary = readWorkspaceFile('ordinary-online-only.md').then(() => null, (error: unknown) => error);
+    const metadata = readWorkspaceFile('metadata-bootstrap-online-only.md', { metaOnly: true, collaborationBootstrap: true })
+      .then(() => null, (error: unknown) => error);
+    await Promise.resolve();
+    assert.equal(offlineCalls, 1, 'ordinary queries retain the existing online policy');
+    assert.equal(client.getQueryCache().getAll().find(query => query.queryKey.includes('ordinary-online-only.md'))
+      ?.state.fetchStatus, 'paused');
+    assert.equal(client.getQueryCache().getAll().find(query => query.queryKey.includes('metadata-bootstrap-online-only.md'))
+      ?.state.fetchStatus, 'paused', 'metadata reads cannot opt into full collaboration bootstrap transport');
+    onlineManager.setOnline(true);
+    for (const error of await Promise.all([ordinary, metadata])) assert.ok(error instanceof LiveDocumentNetworkError);
+    assert.equal(offlineCalls, 3);
+
+    client.setQueryDefaults(['notebook'], { gcTime: 0, networkMode: 'always' });
+    onlineManager.setOnline(false);
+    const configured = await readWorkspaceFile('ordinary-configured-offline.md').then(() => null, (error: unknown) => error);
+    assert.ok(configured instanceof LiveDocumentNetworkError);
+    assert.equal(offlineCalls, 4, 'an omitted override must preserve the existing query default transport policy');
+  } finally {
+    onlineManager.setOnline(previousOnline);
+    globalThis.fetch = previousFetch;
+    client.setQueryDefaults(['notebook'], previousQueryDefaults);
+    client.clear();
+    client.unmount();
+  }
   getNotebookQueryClient().clear();
   console.log('document-query-test: ok');
 }

@@ -1,4 +1,4 @@
-import { QueryClient } from '@tanstack/react-query';
+import { QueryClient, type NetworkMode } from '@tanstack/react-query';
 import {
   openedDocumentAuthScope,
   subscribeOpenedDocumentAuthInvalidation,
@@ -66,6 +66,7 @@ export function fetchNotebookQuery<T>(options: {
   queryFn: (context: { signal: AbortSignal }) => Promise<T>;
   staleTime?: number;
   signal?: AbortSignal;
+  networkMode?: NetworkMode;
 }): Promise<T> {
   if (options.signal?.aborted) return Promise.reject(new DOMException('Request cancelled', 'AbortError'));
   const client = getNotebookQueryClient();
@@ -73,6 +74,7 @@ export function fetchNotebookQuery<T>(options: {
   const request = client.fetchQuery({
     queryKey,
     queryFn: options.queryFn,
+    ...(options.networkMode !== undefined ? { networkMode: options.networkMode } : {}),
     // Before auth hydration reads can be shared in flight, but not reused later.
     staleTime: openedDocumentAuthScope() ? options.staleTime ?? 15_000 : 0,
   });

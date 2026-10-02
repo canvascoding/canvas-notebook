@@ -12,6 +12,7 @@ export function fetchDocumentQuery(input: DocumentQueryScope & { metaOnly: boole
       ...(input.collaborationBootstrap && !input.metaOnly ? ['collaboration_bootstrap'] : [])],
     staleTime: 0,
     signal: input.signal,
+    ...(input.collaborationBootstrap && !input.metaOnly ? { networkMode: 'always' as const } : {}),
     queryFn,
   });
 }
