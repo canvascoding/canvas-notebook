@@ -52,15 +52,12 @@ test.describe('Ollama provider setup', () => {
     expect(defaultBox!.y).toBeLessThan(providerBox!.y);
 
     await page.getByRole('button', { name: 'Add provider' }).click();
-    await page.getByTestId('add-provider-select').selectOption('ollama');
-    await page.locator('#add-provider-scope').selectOption('organization');
-    await page.getByRole('button', { name: 'Continue to setup' }).click();
-
     const dialog = page.getByTestId('provider-editor-dialog');
     await expect(dialog).toBeVisible();
+    await dialog.getByTestId('provider-dialog-provider-select').selectOption('ollama');
     await expect(dialog.getByText('1', { exact: true })).toBeVisible();
-    await expect(dialog.getByText('2', { exact: true })).toBeVisible();
-    await expect(dialog.getByText('3', { exact: true })).toBeVisible();
+    await expect(dialog.getByText('2', { exact: true })).toHaveCount(0);
+    await expect(dialog.getByText('3', { exact: true })).toHaveCount(0);
     await expect(page.getByTestId('ollama-server-url')).toHaveValue('http://localhost:11434');
     await expect(page.getByTestId('provider-model-list')).toHaveCount(0);
     await expect(dialog.getByText('Test the connection to load models from this Ollama server.').first()).toBeVisible();
@@ -68,16 +65,39 @@ test.describe('Ollama provider setup', () => {
     await page.getByTestId('ollama-server-url').fill('http://ollama:11434/v1');
     await page.getByTestId('ollama-discover-models').click();
     await expect(dialog.getByText(/2 models found/)).toBeVisible();
+    await expect(dialog.getByText('2', { exact: true })).toBeVisible();
+    await expect(dialog.getByText('3', { exact: true })).toHaveCount(0);
     await expect(dialog.getByText('qwen2.5:7b', { exact: true }).first()).toBeVisible();
 
     await page.getByTestId('provider-custom-model-input').fill('research/custom:latest');
     await dialog.getByRole('button', { name: 'Add', exact: true }).click();
     await dialog.getByRole('checkbox', { name: /research\/custom:latest/ }).check();
+    await expect(dialog.getByText('3', { exact: true })).toBeVisible();
+    await dialog.locator('#provider-credential-scope').selectOption('organization');
+    await expect(dialog.locator('#provider-credential-scope')).toHaveValue('organization');
+    await expect(dialog.locator('#ollama-api-key')).toBeEnabled();
     await page.getByTestId('provider-enabled-switch').click();
 
     await expect(page.getByTestId('provider-save')).toBeEnabled();
     await page.screenshot({ path: testInfo.outputPath('ollama-provider-dialog-desktop.png'), fullPage: false });
-    await page.getByTestId('provider-save').click();
+    const [savedResponse] = await Promise.all([
+      page.waitForResponse((response) => new URL(response.url()).pathname === '/api/admin/agent-runtime/catalog'
+        && response.request().method() === 'PUT'),
+      page.getByTestId('provider-save').click(),
+    ]);
+    expect(savedResponse.status()).toBe(200);
+    const savedPayload = await savedResponse.json();
+    expect(savedPayload.success).toBe(true);
+    const ownedProviders = savedPayload.data.catalog.providers.filter((provider: {
+      providerId: string; credentialScope: string; enabled: boolean; config: { ollamaHost?: string };
+      models: Array<{ id: string; enabled: boolean; isProviderDefault: boolean }>;
+    }) => provider.providerId === 'ollama' && provider.credentialScope === 'organization'
+      && provider.enabled && provider.config.ollamaHost === 'http://ollama:11434'
+      && provider.models.length === 1 && provider.models[0].id === 'research/custom:latest'
+      && provider.models[0].enabled && provider.models[0].isProviderDefault);
+    expect(ownedProviders).toHaveLength(1);
+    const ownedInstallationId = ownedProviders[0].installationId;
+    expect(ownedInstallationId).toBeTruthy();
 
     const summary = page.getByTestId('provider-summary-ollama-organization');
     await expect(summary).toBeVisible();
@@ -87,6 +107,8 @@ test.describe('Ollama provider setup', () => {
     await defaultCard.getByRole('button', { name: 'Edit' }).click();
     const defaultDialog = page.getByTestId('chat-default-dialog');
     await expect(defaultDialog).toBeVisible();
+    await defaultDialog.locator('#default-provider').selectOption(ownedInstallationId);
+    await expect(defaultDialog.locator('#default-provider')).toHaveValue(ownedInstallationId);
     await expect(defaultDialog.locator('#default-model')).toHaveValue('research/custom:latest');
     await defaultDialog.getByRole('button', { name: 'Save default' }).click();
     await expect(defaultCard).toContainText('Ollama · research/custom:latest');

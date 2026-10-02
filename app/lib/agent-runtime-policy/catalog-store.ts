@@ -286,6 +286,14 @@ export async function replaceAppRuntimeCatalogStore(input: ReplaceCatalogStoreIn
   try {
     await connection.run('BEGIN');
     transactionStarted = true;
+    // The defaults row may not exist yet; serialize first saves on the existing organization.
+    const organization = await connection.get(
+      `SELECT organization_id FROM canvas_organization_settings
+       WHERE organization_id = $1
+       LIMIT 1 FOR NO KEY UPDATE`,
+      [input.organizationId],
+    ) as { organization_id: string } | undefined;
+    if (organization?.organization_id !== input.organizationId) throw new Error('Runtime catalog organization is missing.');
     const current = await connection.get(
       `SELECT catalog_revision, legacy_source_hash
        FROM ai_runtime_defaults
@@ -300,16 +308,45 @@ export async function replaceAppRuntimeCatalogStore(input: ReplaceCatalogStoreIn
 
     const nextRevision = currentRevision + 1;
     const now = Date.now();
+    const installationIds = input.providers.map((provider) => provider.installationId);
+    const foreignInstallation = await connection.get(
+      `SELECT id FROM ai_provider_installations
+       WHERE id = ANY($1::text[]) AND organization_id <> $2
+       LIMIT 1 FOR SHARE`,
+      [installationIds, input.organizationId],
+    );
+    if (foreignInstallation) throw new Error('Provider installation belongs to another organization.');
+
     await connection.run('DELETE FROM ai_provider_models WHERE organization_id = $1', [input.organizationId]);
-    await connection.run('DELETE FROM ai_provider_installations WHERE organization_id = $1', [input.organizationId]);
+    // Retained installations must keep their workspace grants and grant history.
+    await connection.run(
+      'DELETE FROM ai_provider_installations WHERE organization_id = $1 AND NOT (id = ANY($2::text[]))',
+      [input.organizationId, installationIds],
+    );
 
     for (const provider of input.providers) {
-      await connection.run(
+      const installation = await connection.get(
         `INSERT INTO ai_provider_installations (
           id, organization_id, provider_id, display_name, source, credential_scope,
           enabled, status, config_json, source_revision, last_synced_at, revision,
           verified_at, verified_by_user_id, created_at, updated_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+        ON CONFLICT (id) DO UPDATE SET
+          provider_id = excluded.provider_id,
+          display_name = excluded.display_name,
+          source = excluded.source,
+          credential_scope = excluded.credential_scope,
+          enabled = excluded.enabled,
+          status = excluded.status,
+          config_json = excluded.config_json,
+          source_revision = excluded.source_revision,
+          last_synced_at = excluded.last_synced_at,
+          revision = excluded.revision,
+          verified_at = excluded.verified_at,
+          verified_by_user_id = excluded.verified_by_user_id,
+          updated_at = excluded.updated_at
+        WHERE ai_provider_installations.organization_id = excluded.organization_id
+        RETURNING id`,
         [
           provider.installationId,
           input.organizationId,
@@ -329,6 +366,7 @@ export async function replaceAppRuntimeCatalogStore(input: ReplaceCatalogStoreIn
           now,
         ],
       );
+      if (!installation) throw new Error('Provider installation belongs to another organization.');
       for (const model of provider.models) {
         await connection.run(
           `INSERT INTO ai_provider_models (
