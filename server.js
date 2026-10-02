@@ -644,6 +644,7 @@ let flushCollaborationDocuments = async () => {};
 let flushExcalidrawCollaborationDocuments = async () => {};
 let closeChatWebSocketServer = async () => {};
 let closeLiveEventsServer = async () => {};
+let closeMcpServers = async () => {};
 
 function exitCodeForSignal(signal) {
   if (signal === 'SIGINT') return 130;
@@ -664,15 +665,17 @@ async function shutdownServer(signal) {
   }, 10_000);
   forceExitTimer.unref?.();
 
-  try {
-    await Promise.all([
-      flushCollaborationDocuments(),
-      flushExcalidrawCollaborationDocuments(),
-      closeChatWebSocketServer(),
-      closeLiveEventsServer(),
-    ]);
-  } catch (error) {
-    console.error('[Startup] Error while flushing collaboration documents:', error);
+  const results = await Promise.allSettled([
+    flushCollaborationDocuments,
+    flushExcalidrawCollaborationDocuments,
+    closeChatWebSocketServer,
+    closeLiveEventsServer,
+    closeMcpServers,
+  ].map((cleanup) => Promise.resolve().then(cleanup)));
+  for (const result of results) {
+    if (result.status === 'rejected') {
+      console.error('[Startup] Error while closing server resources:', result.reason);
+    }
   }
   server.close((error) => {
     if (error) {
@@ -786,6 +789,10 @@ async function startServer() {
     console.error('[Startup] CRITICAL ERROR in Direct MCP readiness:', error.message);
     throw error;
   }
+
+  const mcpManager = require('./app/lib/mcp/manager.ts');
+  closeMcpServers = mcpManager.closeAllMcpServers;
+  mcpManager.registerMcpShutdownCoordinator(shutdownServer);
 
   let waitForAgentRuntimeWarmup = null;
   let waitForManagedCatalogWarmup = null;

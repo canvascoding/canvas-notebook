@@ -87,6 +87,7 @@ type McpManagerStore = {
   cleanupStarted: boolean;
   shutdownHooksStarted: boolean;
   shuttingDown: boolean;
+  shutdownCoordinator?: (signal: NodeJS.Signals) => void | Promise<void>;
 };
 
 const globalStore = globalThis as typeof globalThis & {
@@ -816,6 +817,18 @@ export async function closeAllMcpServers(): Promise<void> {
   store.entries.clear();
 }
 
+/** The app server owns its resource drain and final process exit. */
+export function registerMcpShutdownCoordinator(coordinator: (signal: NodeJS.Signals) => void | Promise<void>): void {
+  if (typeof coordinator !== 'function') {
+    throw new TypeError('MCP shutdown coordinator must be a function.');
+  }
+  const store = getStore();
+  if (store.shutdownCoordinator && store.shutdownCoordinator !== coordinator) {
+    throw new Error('MCP shutdown is already coordinated by another owner.');
+  }
+  store.shutdownCoordinator = coordinator;
+}
+
 function startMcpShutdownHooks(): void {
   if (process.env.NEXT_PHASE === 'phase-production-build') return;
 
@@ -824,6 +837,13 @@ function startMcpShutdownHooks(): void {
   store.shutdownHooksStarted = true;
 
   const shutdown = (signal: NodeJS.Signals) => {
+    const coordinator = store.shutdownCoordinator;
+    if (coordinator) {
+      void Promise.resolve().then(() => coordinator(signal)).catch((error) => {
+        logMcp('error', 'Error while delegating shutdown to the app server', { signal, error: getErrorMessage(error) });
+      });
+      return;
+    }
     if (store.shuttingDown) return;
     store.shuttingDown = true;
     logMcp('info', 'Shutdown signal received, closing MCP servers', { signal });
