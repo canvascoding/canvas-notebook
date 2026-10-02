@@ -6,9 +6,9 @@ Compose remains responsible for project-specific container selection, pulling im
 
 ## Endpoint selection
 
-`DOCKER_CONTEXT` takes precedence over `DOCKER_HOST`. Without an explicit host, a bounded `docker context inspect` discovers the selected endpoint once per CLI invocation or management request. Failed initial negotiation can be tried again without retrying a container command. Local `unix://` endpoints support Docker Engine, rootless Docker and OrbStack. The client negotiates API versions 1.40 through 1.56 and honors a compatible `DOCKER_API_VERSION`.
+`DOCKER_CONTEXT` takes precedence over `DOCKER_HOST`. Without an explicit host, a bounded `docker context inspect` discovers the selected endpoint once per CLI invocation or management request. Failed initial negotiation can be tried again without retrying a container command. Local `unix://` endpoints support Docker Engine, rootless Docker and OrbStack. The client negotiates API versions 1.40 through 1.47. An explicit `DOCKER_API_VERSION` retains Docker CLI compatibility.
 
-SSH, TCP/TLS, Windows named pipes, custom Docker executables and unsupported API versions use the existing CLI transport. The API never guesses a default socket or switches to another daemon after a connection error. Set `CANVAS_DOCKER_ENGINE_API=off` to select the CLI explicitly.
+SSH, TCP/TLS, custom Docker executables, TLS settings and unsupported API versions use the existing CLI transport. Windows local named pipes support API reads; exec retains the CLI transport. The API never guesses a default socket or switches to another daemon. An absent socket during initial negotiation retains the selected CLI context; errors after negotiation fail the operation. Set `CANVAS_DOCKER_ENGINE_API=off` to select the CLI explicitly.
 
 ## Execution contract
 

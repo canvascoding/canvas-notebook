@@ -25,8 +25,9 @@ export function startManagedProcess(command: string, args: string[], options: {
   timeoutMs?: number;
   signal?: AbortSignal;
   killGraceMs?: number;
+  processGroup?: boolean;
 } = {}): { child: ChildProcess; completion: Promise<ProcessTermination>; stop(): void } {
-  const grouped = process.platform !== 'win32' && options.stdio !== 'inherit';
+  const grouped = process.platform !== 'win32' && (options.processGroup ?? options.stdio !== 'inherit');
   const child = spawn(command, args, {
     cwd: options.cwd, env: options.env, stdio: options.stdio ?? 'pipe',
     shell: false, windowsHide: true, detached: grouped,

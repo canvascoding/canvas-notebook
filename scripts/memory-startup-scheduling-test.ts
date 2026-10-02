@@ -19,7 +19,7 @@ function fixture() {
   let failCycle = false;
   let readDue = async (): Promise<number | null> => null;
   const runtime = loadIsolatedModule<{ initializeMemoryReviewWorkerRuntime: () => Handle }>('app/lib/memory/review-worker.ts', {
-    'server-only': {}, 'node:crypto': {},
+    'server-only': {}, 'node:crypto': {}, '@earendil-works/pi-ai': {},
     '@/app/lib/agent-runtime-policy/catalog-store': {},
     '@/app/lib/agent-runtime-policy/provider-runtime': {},
     '@/app/lib/agents/registry': {}, '@/app/lib/pi/message-projection': {},

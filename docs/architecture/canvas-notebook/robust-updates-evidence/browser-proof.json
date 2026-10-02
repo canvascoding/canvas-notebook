@@ -1,0 +1,2477 @@
+{
+  "source": {
+    "notebook": "587f72905e08d3a35198457066205c0899294a52",
+    "controlPlane": "6efea0d4403135e698387c4a4e485c77178c53a9"
+  },
+  "request": {
+    "channel": "stable",
+    "expectedReleaseId": "758bc93c-42b7-4300-8473-c58262fee8c7",
+    "requestId": "dc2640bf-e750-42c3-8dcb-e55059bf78c8"
+  },
+  "acceptedStatus": 202,
+  "reloadedAt": "2026-10-02T00:30:31.697Z",
+  "confirmedAt": "2026-10-02T00:30:32.318Z",
+  "successAt": "2026-10-02T00:31:41.002Z",
+  "terminalUiRecoveredAt": "2026-10-02T00:35:14.686Z",
+  "terminalUiCaptureMethod": "Restore actual completed operation UUID after automatic reload; no new update start",
+  "startRequestCount": 1,
+  "statusTicketRequestCount": 1,
+  "pageErrorCount": 0,
+  "checks": [
+    {
+      "check": "current_host_bootstrap_manual_ui_and_health",
+      "passed": true
+    },
+    {
+      "check": "vm_bootstrap_login_managed_ready_capability_release",
+      "passed": true
+    },
+    {
+      "check": "confirmation_cancel_zero_posts_desktop_mobile_fit",
+      "passed": true
+    },
+    {
+      "check": "pre_start_health_200",
+      "passed": true
+    },
+    {
+      "check": "uuid_and_input_persisted_before_real_post",
+      "passed": true
+    },
+    {
+      "check": "actual_202_response_discarded",
+      "passed": true
+    },
+    {
+      "check": "pending_uuid_restored_by_reload",
+      "passed": true
+    },
+    {
+      "check": "same_operation_get_confirmation_clears_intent",
+      "passed": true
+    },
+    {
+      "check": "no_premature_ticket_immediate_ticket_after_confirmation",
+      "passed": true
+    },
+    {
+      "check": "direct_control_plane_status_during_real_notebook_downtime",
+      "passed": true
+    },
+    {
+      "check": "status_sequence_advances_during_real_notebook_downtime",
+      "passed": true
+    },
+    {
+      "check": "one_browser_start_and_one_ticket",
+      "passed": true
+    },
+    {
+      "check": "browser_success_after_central_postflight",
+      "passed": true
+    },
+    {
+      "check": "terminal_operation_recovery_desktop_mobile_fit",
+      "passed": true
+    },
+    {
+      "check": "zero_browser_page_errors",
+      "passed": true
+    }
+  ],
+  "viewports": {
+    "dialogDesktop": {
+      "viewport": 1440,
+      "documentWidth": 1440,
+      "bodyWidth": 1440,
+      "horizontalOverflow": false
+    },
+    "dialogMobile": {
+      "viewport": 390,
+      "documentWidth": 390,
+      "bodyWidth": 390,
+      "horizontalOverflow": false
+    },
+    "progressDesktop": {
+      "viewport": 1440,
+      "documentWidth": 1440,
+      "bodyWidth": 1440,
+      "horizontalOverflow": false
+    },
+    "progressMobile": {
+      "viewport": 390,
+      "documentWidth": 390,
+      "bodyWidth": 390,
+      "horizontalOverflow": false
+    },
+    "successDesktop": {
+      "viewport": 1440,
+      "documentWidth": 1440,
+      "bodyWidth": 1440,
+      "horizontalOverflow": false
+    },
+    "successMobile": {
+      "viewport": 390,
+      "documentWidth": 390,
+      "bodyWidth": 390,
+      "horizontalOverflow": false
+    }
+  },
+  "downtime": {
+    "firstFailure": "2026-10-02T00:30:40.149Z",
+    "lastFailure": "2026-10-02T00:31:36.191Z",
+    "failedHealthSamples": 57,
+    "directStatusReads": 28,
+    "firstSequence": 32,
+    "lastSequence": 63
+  },
+  "requests": [
+    {
+      "method": "GET",
+      "origin": "http://127.0.0.1:3100",
+      "path": "/api/admin/system-updates",
+      "status": 200,
+      "at": "2026-10-02T00:29:24.254Z"
+    },
+    {
+      "method": "GET",
+      "origin": "http://127.0.0.1:3100",
+      "path": "/api/admin/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/events",
+      "failure": "net::ERR_FAILED",
+      "at": "2026-10-02T00:30:31.443Z"
+    },
+    {
+      "method": "POST",
+      "origin": "http://127.0.0.1:3100",
+      "path": "/api/admin/system-updates",
+      "failure": "net::ERR_FAILED",
+      "at": "2026-10-02T00:30:31.599Z"
+    },
+    {
+      "method": "GET",
+      "origin": "http://127.0.0.1:3100",
+      "path": "/api/admin/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/events",
+      "status": 200,
+      "at": "2026-10-02T00:30:32.202Z"
+    },
+    {
+      "method": "GET",
+      "origin": "http://127.0.0.1:3100",
+      "path": "/api/admin/system-updates",
+      "status": 200,
+      "at": "2026-10-02T00:30:32.219Z"
+    },
+    {
+      "method": "POST",
+      "origin": "http://127.0.0.1:3100",
+      "path": "/api/admin/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/status-access",
+      "status": 201,
+      "at": "2026-10-02T00:30:32.317Z"
+    },
+    {
+      "method": "GET",
+      "origin": "http://host.orb.internal:4001",
+      "path": "/v1/managed/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/status",
+      "status": 200,
+      "at": "2026-10-02T00:30:32.332Z"
+    },
+    {
+      "method": "GET",
+      "origin": "http://127.0.0.1:3100",
+      "path": "/api/admin/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/events",
+      "status": 200,
+      "at": "2026-10-02T00:30:34.317Z"
+    },
+    {
+      "method": "GET",
+      "origin": "http://host.orb.internal:4001",
+      "path": "/v1/managed/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/status",
+      "status": 200,
+      "at": "2026-10-02T00:30:34.343Z"
+    },
+    {
+      "method": "GET",
+      "origin": "http://host.orb.internal:4001",
+      "path": "/v1/managed/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/status",
+      "status": 200,
+      "at": "2026-10-02T00:30:36.428Z"
+    },
+    {
+      "method": "GET",
+      "origin": "http://127.0.0.1:3100",
+      "path": "/api/admin/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/events",
+      "status": 200,
+      "at": "2026-10-02T00:30:36.433Z"
+    },
+    {
+      "method": "GET",
+      "origin": "http://host.orb.internal:4001",
+      "path": "/v1/managed/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/status",
+      "status": 200,
+      "at": "2026-10-02T00:30:38.437Z"
+    },
+    {
+      "method": "GET",
+      "origin": "http://127.0.0.1:3100",
+      "path": "/api/admin/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/events",
+      "status": 200,
+      "at": "2026-10-02T00:30:38.547Z"
+    },
+    {
+      "method": "GET",
+      "origin": "http://host.orb.internal:4001",
+      "path": "/v1/managed/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/status",
+      "status": 200,
+      "at": "2026-10-02T00:30:40.447Z"
+    },
+    {
+      "method": "GET",
+      "origin": "http://127.0.0.1:3100",
+      "path": "/api/admin/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/events",
+      "failure": "net::ERR_EMPTY_RESPONSE",
+      "at": "2026-10-02T00:30:40.553Z"
+    },
+    {
+      "method": "GET",
+      "origin": "http://host.orb.internal:4001",
+      "path": "/v1/managed/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/status",
+      "status": 200,
+      "at": "2026-10-02T00:30:42.455Z"
+    },
+    {
+      "method": "GET",
+      "origin": "http://127.0.0.1:3100",
+      "path": "/api/admin/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/events",
+      "failure": "net::ERR_EMPTY_RESPONSE",
+      "at": "2026-10-02T00:30:42.560Z"
+    },
+    {
+      "method": "GET",
+      "origin": "http://host.orb.internal:4001",
+      "path": "/v1/managed/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/status",
+      "status": 200,
+      "at": "2026-10-02T00:30:44.466Z"
+    },
+    {
+      "method": "GET",
+      "origin": "http://127.0.0.1:3100",
+      "path": "/api/admin/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/events",
+      "failure": "net::ERR_EMPTY_RESPONSE",
+      "at": "2026-10-02T00:30:44.564Z"
+    },
+    {
+      "method": "GET",
+      "origin": "http://host.orb.internal:4001",
+      "path": "/v1/managed/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/status",
+      "status": 200,
+      "at": "2026-10-02T00:30:46.477Z"
+    },
+    {
+      "method": "GET",
+      "origin": "http://127.0.0.1:3100",
+      "path": "/api/admin/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/events",
+      "failure": "net::ERR_EMPTY_RESPONSE",
+      "at": "2026-10-02T00:30:46.569Z"
+    },
+    {
+      "method": "GET",
+      "origin": "http://127.0.0.1:3100",
+      "path": "/api/admin/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/events",
+      "failure": "net::ERR_EMPTY_RESPONSE",
+      "at": "2026-10-02T00:30:48.573Z"
+    },
+    {
+      "method": "GET",
+      "origin": "http://host.orb.internal:4001",
+      "path": "/v1/managed/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/status",
+      "status": 200,
+      "at": "2026-10-02T00:30:48.602Z"
+    },
+    {
+      "method": "GET",
+      "origin": "http://127.0.0.1:3100",
+      "path": "/api/admin/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/events",
+      "failure": "net::ERR_EMPTY_RESPONSE",
+      "at": "2026-10-02T00:30:50.579Z"
+    },
+    {
+      "method": "GET",
+      "origin": "http://host.orb.internal:4001",
+      "path": "/v1/managed/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/status",
+      "status": 200,
+      "at": "2026-10-02T00:30:50.614Z"
+    },
+    {
+      "method": "GET",
+      "origin": "http://127.0.0.1:3100",
+      "path": "/api/admin/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/events",
+      "failure": "net::ERR_EMPTY_RESPONSE",
+      "at": "2026-10-02T00:30:52.585Z"
+    },
+    {
+      "method": "GET",
+      "origin": "http://host.orb.internal:4001",
+      "path": "/v1/managed/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/status",
+      "status": 200,
+      "at": "2026-10-02T00:30:52.632Z"
+    },
+    {
+      "method": "GET",
+      "origin": "http://127.0.0.1:3100",
+      "path": "/api/admin/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/events",
+      "failure": "net::ERR_EMPTY_RESPONSE",
+      "at": "2026-10-02T00:30:54.590Z"
+    },
+    {
+      "method": "GET",
+      "origin": "http://host.orb.internal:4001",
+      "path": "/v1/managed/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/status",
+      "status": 200,
+      "at": "2026-10-02T00:30:54.649Z"
+    },
+    {
+      "method": "GET",
+      "origin": "http://127.0.0.1:3100",
+      "path": "/api/admin/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/events",
+      "failure": "net::ERR_EMPTY_RESPONSE",
+      "at": "2026-10-02T00:30:56.597Z"
+    },
+    {
+      "method": "GET",
+      "origin": "http://host.orb.internal:4001",
+      "path": "/v1/managed/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/status",
+      "status": 200,
+      "at": "2026-10-02T00:30:56.665Z"
+    },
+    {
+      "method": "GET",
+      "origin": "http://127.0.0.1:3100",
+      "path": "/api/admin/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/events",
+      "failure": "net::ERR_EMPTY_RESPONSE",
+      "at": "2026-10-02T00:30:58.603Z"
+    },
+    {
+      "method": "GET",
+      "origin": "http://host.orb.internal:4001",
+      "path": "/v1/managed/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/status",
+      "status": 200,
+      "at": "2026-10-02T00:30:58.681Z"
+    },
+    {
+      "method": "GET",
+      "origin": "http://127.0.0.1:3100",
+      "path": "/api/admin/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/events",
+      "failure": "net::ERR_EMPTY_RESPONSE",
+      "at": "2026-10-02T00:31:00.610Z"
+    },
+    {
+      "method": "GET",
+      "origin": "http://host.orb.internal:4001",
+      "path": "/v1/managed/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/status",
+      "status": 200,
+      "at": "2026-10-02T00:31:00.703Z"
+    },
+    {
+      "method": "GET",
+      "origin": "http://127.0.0.1:3100",
+      "path": "/api/admin/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/events",
+      "failure": "net::ERR_EMPTY_RESPONSE",
+      "at": "2026-10-02T00:31:02.617Z"
+    },
+    {
+      "method": "GET",
+      "origin": "http://host.orb.internal:4001",
+      "path": "/v1/managed/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/status",
+      "status": 200,
+      "at": "2026-10-02T00:31:02.722Z"
+    },
+    {
+      "method": "GET",
+      "origin": "http://127.0.0.1:3100",
+      "path": "/api/admin/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/events",
+      "failure": "net::ERR_EMPTY_RESPONSE",
+      "at": "2026-10-02T00:31:04.622Z"
+    },
+    {
+      "method": "GET",
+      "origin": "http://host.orb.internal:4001",
+      "path": "/v1/managed/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/status",
+      "status": 200,
+      "at": "2026-10-02T00:31:04.735Z"
+    },
+    {
+      "method": "GET",
+      "origin": "http://127.0.0.1:3100",
+      "path": "/api/admin/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/events",
+      "failure": "net::ERR_EMPTY_RESPONSE",
+      "at": "2026-10-02T00:31:06.627Z"
+    },
+    {
+      "method": "GET",
+      "origin": "http://host.orb.internal:4001",
+      "path": "/v1/managed/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/status",
+      "status": 200,
+      "at": "2026-10-02T00:31:06.755Z"
+    },
+    {
+      "method": "GET",
+      "origin": "http://127.0.0.1:3100",
+      "path": "/api/admin/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/events",
+      "failure": "net::ERR_EMPTY_RESPONSE",
+      "at": "2026-10-02T00:31:08.636Z"
+    },
+    {
+      "method": "GET",
+      "origin": "http://host.orb.internal:4001",
+      "path": "/v1/managed/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/status",
+      "status": 200,
+      "at": "2026-10-02T00:31:08.774Z"
+    },
+    {
+      "method": "GET",
+      "origin": "http://127.0.0.1:3100",
+      "path": "/api/admin/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/events",
+      "failure": "net::ERR_EMPTY_RESPONSE",
+      "at": "2026-10-02T00:31:10.643Z"
+    },
+    {
+      "method": "GET",
+      "origin": "http://host.orb.internal:4001",
+      "path": "/v1/managed/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/status",
+      "status": 200,
+      "at": "2026-10-02T00:31:10.790Z"
+    },
+    {
+      "method": "GET",
+      "origin": "http://127.0.0.1:3100",
+      "path": "/api/admin/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/events",
+      "failure": "net::ERR_EMPTY_RESPONSE",
+      "at": "2026-10-02T00:31:12.647Z"
+    },
+    {
+      "method": "GET",
+      "origin": "http://host.orb.internal:4001",
+      "path": "/v1/managed/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/status",
+      "status": 200,
+      "at": "2026-10-02T00:31:12.798Z"
+    },
+    {
+      "method": "GET",
+      "origin": "http://127.0.0.1:3100",
+      "path": "/api/admin/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/events",
+      "failure": "net::ERR_EMPTY_RESPONSE",
+      "at": "2026-10-02T00:31:14.652Z"
+    },
+    {
+      "method": "GET",
+      "origin": "http://host.orb.internal:4001",
+      "path": "/v1/managed/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/status",
+      "status": 200,
+      "at": "2026-10-02T00:31:14.813Z"
+    },
+    {
+      "method": "GET",
+      "origin": "http://127.0.0.1:3100",
+      "path": "/api/admin/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/events",
+      "failure": "net::ERR_EMPTY_RESPONSE",
+      "at": "2026-10-02T00:31:16.657Z"
+    },
+    {
+      "method": "GET",
+      "origin": "http://host.orb.internal:4001",
+      "path": "/v1/managed/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/status",
+      "status": 200,
+      "at": "2026-10-02T00:31:16.846Z"
+    },
+    {
+      "method": "GET",
+      "origin": "http://127.0.0.1:3100",
+      "path": "/api/admin/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/events",
+      "failure": "net::ERR_EMPTY_RESPONSE",
+      "at": "2026-10-02T00:31:18.666Z"
+    },
+    {
+      "method": "GET",
+      "origin": "http://host.orb.internal:4001",
+      "path": "/v1/managed/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/status",
+      "status": 200,
+      "at": "2026-10-02T00:31:18.861Z"
+    },
+    {
+      "method": "GET",
+      "origin": "http://127.0.0.1:3100",
+      "path": "/api/admin/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/events",
+      "failure": "net::ERR_EMPTY_RESPONSE",
+      "at": "2026-10-02T00:31:20.671Z"
+    },
+    {
+      "method": "GET",
+      "origin": "http://host.orb.internal:4001",
+      "path": "/v1/managed/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/status",
+      "status": 200,
+      "at": "2026-10-02T00:31:20.869Z"
+    },
+    {
+      "method": "GET",
+      "origin": "http://127.0.0.1:3100",
+      "path": "/api/admin/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/events",
+      "failure": "net::ERR_EMPTY_RESPONSE",
+      "at": "2026-10-02T00:31:22.675Z"
+    },
+    {
+      "method": "GET",
+      "origin": "http://host.orb.internal:4001",
+      "path": "/v1/managed/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/status",
+      "status": 200,
+      "at": "2026-10-02T00:31:22.883Z"
+    },
+    {
+      "method": "GET",
+      "origin": "http://127.0.0.1:3100",
+      "path": "/api/admin/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/events",
+      "failure": "net::ERR_EMPTY_RESPONSE",
+      "at": "2026-10-02T00:31:24.680Z"
+    },
+    {
+      "method": "GET",
+      "origin": "http://host.orb.internal:4001",
+      "path": "/v1/managed/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/status",
+      "status": 200,
+      "at": "2026-10-02T00:31:24.893Z"
+    },
+    {
+      "method": "GET",
+      "origin": "http://127.0.0.1:3100",
+      "path": "/api/admin/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/events",
+      "failure": "net::ERR_EMPTY_RESPONSE",
+      "at": "2026-10-02T00:31:26.686Z"
+    },
+    {
+      "method": "GET",
+      "origin": "http://host.orb.internal:4001",
+      "path": "/v1/managed/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/status",
+      "status": 200,
+      "at": "2026-10-02T00:31:26.902Z"
+    },
+    {
+      "method": "GET",
+      "origin": "http://127.0.0.1:3100",
+      "path": "/api/admin/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/events",
+      "failure": "net::ERR_EMPTY_RESPONSE",
+      "at": "2026-10-02T00:31:28.693Z"
+    },
+    {
+      "method": "GET",
+      "origin": "http://host.orb.internal:4001",
+      "path": "/v1/managed/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/status",
+      "status": 200,
+      "at": "2026-10-02T00:31:28.925Z"
+    },
+    {
+      "method": "GET",
+      "origin": "http://127.0.0.1:3100",
+      "path": "/api/admin/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/events",
+      "failure": "net::ERR_EMPTY_RESPONSE",
+      "at": "2026-10-02T00:31:30.701Z"
+    },
+    {
+      "method": "GET",
+      "origin": "http://host.orb.internal:4001",
+      "path": "/v1/managed/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/status",
+      "status": 200,
+      "at": "2026-10-02T00:31:30.942Z"
+    },
+    {
+      "method": "GET",
+      "origin": "http://127.0.0.1:3100",
+      "path": "/api/admin/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/events",
+      "failure": "net::ERR_EMPTY_RESPONSE",
+      "at": "2026-10-02T00:31:32.707Z"
+    },
+    {
+      "method": "GET",
+      "origin": "http://host.orb.internal:4001",
+      "path": "/v1/managed/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/status",
+      "status": 200,
+      "at": "2026-10-02T00:31:32.954Z"
+    },
+    {
+      "method": "GET",
+      "origin": "http://127.0.0.1:3100",
+      "path": "/api/admin/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/events",
+      "failure": "net::ERR_EMPTY_RESPONSE",
+      "at": "2026-10-02T00:31:34.715Z"
+    },
+    {
+      "method": "GET",
+      "origin": "http://host.orb.internal:4001",
+      "path": "/v1/managed/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/status",
+      "status": 200,
+      "at": "2026-10-02T00:31:34.972Z"
+    },
+    {
+      "method": "GET",
+      "origin": "http://host.orb.internal:4001",
+      "path": "/v1/managed/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/status",
+      "status": 200,
+      "at": "2026-10-02T00:31:36.983Z"
+    },
+    {
+      "method": "GET",
+      "origin": "http://127.0.0.1:3100",
+      "path": "/api/admin/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/events",
+      "status": 200,
+      "at": "2026-10-02T00:31:37.940Z"
+    },
+    {
+      "method": "GET",
+      "origin": "http://host.orb.internal:4001",
+      "path": "/v1/managed/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/status",
+      "status": 200,
+      "at": "2026-10-02T00:31:38.992Z"
+    },
+    {
+      "method": "GET",
+      "origin": "http://127.0.0.1:3100",
+      "path": "/api/admin/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/events",
+      "status": 200,
+      "at": "2026-10-02T00:31:40.067Z"
+    },
+    {
+      "method": "GET",
+      "origin": "http://host.orb.internal:4001",
+      "path": "/v1/managed/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/status",
+      "status": 200,
+      "at": "2026-10-02T00:31:41.000Z"
+    },
+    {
+      "method": "GET",
+      "origin": "http://127.0.0.1:3100",
+      "path": "/api/admin/system-updates",
+      "status": 200,
+      "at": "2026-10-02T00:31:44.398Z"
+    },
+    {
+      "method": "GET",
+      "origin": "http://127.0.0.1:3100",
+      "path": "/api/admin/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/events",
+      "status": 200,
+      "at": "2026-10-02T00:35:14.384Z"
+    },
+    {
+      "method": "POST",
+      "origin": "http://127.0.0.1:3100",
+      "path": "/api/admin/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/status-access",
+      "failure": "net::ERR_ABORTED",
+      "at": "2026-10-02T00:35:14.388Z"
+    },
+    {
+      "method": "GET",
+      "origin": "http://127.0.0.1:3100",
+      "path": "/api/admin/system-updates",
+      "status": 200,
+      "at": "2026-10-02T00:35:14.397Z"
+    },
+    {
+      "method": "GET",
+      "origin": "http://127.0.0.1:3100",
+      "path": "/api/admin/system-updates",
+      "status": 200,
+      "at": "2026-10-02T00:35:16.291Z"
+    }
+  ],
+  "statuses": [
+    {
+      "operationId": "dc2640bf-e750-42c3-8dcb-e55059bf78c8",
+      "status": "running",
+      "stage": "request_validation",
+      "lastSequence": 7,
+      "origin": "http://127.0.0.1:3100",
+      "path": "/api/admin/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/events",
+      "at": "2026-10-02T00:30:32.206Z"
+    },
+    {
+      "operationId": "dc2640bf-e750-42c3-8dcb-e55059bf78c8",
+      "status": "running",
+      "stage": "request_validation",
+      "lastSequence": 7,
+      "origin": "http://host.orb.internal:4001",
+      "path": "/v1/managed/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/status",
+      "at": "2026-10-02T00:30:32.333Z"
+    },
+    {
+      "operationId": "dc2640bf-e750-42c3-8dcb-e55059bf78c8",
+      "status": "running",
+      "stage": "container_recreate",
+      "lastSequence": 13,
+      "origin": "http://127.0.0.1:3100",
+      "path": "/api/admin/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/events",
+      "at": "2026-10-02T00:30:34.318Z"
+    },
+    {
+      "operationId": "dc2640bf-e750-42c3-8dcb-e55059bf78c8",
+      "status": "running",
+      "stage": "container_recreate",
+      "lastSequence": 13,
+      "origin": "http://host.orb.internal:4001",
+      "path": "/v1/managed/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/status",
+      "at": "2026-10-02T00:30:34.344Z"
+    },
+    {
+      "operationId": "dc2640bf-e750-42c3-8dcb-e55059bf78c8",
+      "status": "running",
+      "stage": "container_recreate",
+      "lastSequence": 13,
+      "origin": "http://host.orb.internal:4001",
+      "path": "/v1/managed/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/status",
+      "at": "2026-10-02T00:30:36.429Z"
+    },
+    {
+      "operationId": "dc2640bf-e750-42c3-8dcb-e55059bf78c8",
+      "status": "running",
+      "stage": "container_recreate",
+      "lastSequence": 13,
+      "origin": "http://127.0.0.1:3100",
+      "path": "/api/admin/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/events",
+      "at": "2026-10-02T00:30:36.434Z"
+    },
+    {
+      "operationId": "dc2640bf-e750-42c3-8dcb-e55059bf78c8",
+      "status": "running",
+      "stage": "database_preflight",
+      "lastSequence": 21,
+      "origin": "http://host.orb.internal:4001",
+      "path": "/v1/managed/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/status",
+      "at": "2026-10-02T00:30:38.438Z"
+    },
+    {
+      "operationId": "dc2640bf-e750-42c3-8dcb-e55059bf78c8",
+      "status": "running",
+      "stage": "database_preflight",
+      "lastSequence": 21,
+      "origin": "http://127.0.0.1:3100",
+      "path": "/api/admin/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/events",
+      "at": "2026-10-02T00:30:38.548Z"
+    },
+    {
+      "operationId": "dc2640bf-e750-42c3-8dcb-e55059bf78c8",
+      "status": "running",
+      "stage": "health_verification",
+      "lastSequence": 32,
+      "origin": "http://host.orb.internal:4001",
+      "path": "/v1/managed/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/status",
+      "at": "2026-10-02T00:30:40.448Z"
+    },
+    {
+      "operationId": "dc2640bf-e750-42c3-8dcb-e55059bf78c8",
+      "status": "running",
+      "stage": "health_verification",
+      "lastSequence": 33,
+      "origin": "http://host.orb.internal:4001",
+      "path": "/v1/managed/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/status",
+      "at": "2026-10-02T00:30:42.456Z"
+    },
+    {
+      "operationId": "dc2640bf-e750-42c3-8dcb-e55059bf78c8",
+      "status": "running",
+      "stage": "health_verification",
+      "lastSequence": 33,
+      "origin": "http://host.orb.internal:4001",
+      "path": "/v1/managed/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/status",
+      "at": "2026-10-02T00:30:44.467Z"
+    },
+    {
+      "operationId": "dc2640bf-e750-42c3-8dcb-e55059bf78c8",
+      "status": "running",
+      "stage": "health_verification",
+      "lastSequence": 35,
+      "origin": "http://host.orb.internal:4001",
+      "path": "/v1/managed/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/status",
+      "at": "2026-10-02T00:30:46.478Z"
+    },
+    {
+      "operationId": "dc2640bf-e750-42c3-8dcb-e55059bf78c8",
+      "status": "running",
+      "stage": "health_verification",
+      "lastSequence": 36,
+      "origin": "http://host.orb.internal:4001",
+      "path": "/v1/managed/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/status",
+      "at": "2026-10-02T00:30:48.604Z"
+    },
+    {
+      "operationId": "dc2640bf-e750-42c3-8dcb-e55059bf78c8",
+      "status": "running",
+      "stage": "health_verification",
+      "lastSequence": 38,
+      "origin": "http://host.orb.internal:4001",
+      "path": "/v1/managed/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/status",
+      "at": "2026-10-02T00:30:50.615Z"
+    },
+    {
+      "operationId": "dc2640bf-e750-42c3-8dcb-e55059bf78c8",
+      "status": "running",
+      "stage": "health_verification",
+      "lastSequence": 39,
+      "origin": "http://host.orb.internal:4001",
+      "path": "/v1/managed/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/status",
+      "at": "2026-10-02T00:30:52.632Z"
+    },
+    {
+      "operationId": "dc2640bf-e750-42c3-8dcb-e55059bf78c8",
+      "status": "running",
+      "stage": "health_verification",
+      "lastSequence": 39,
+      "origin": "http://host.orb.internal:4001",
+      "path": "/v1/managed/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/status",
+      "at": "2026-10-02T00:30:54.650Z"
+    },
+    {
+      "operationId": "dc2640bf-e750-42c3-8dcb-e55059bf78c8",
+      "status": "running",
+      "stage": "health_verification",
+      "lastSequence": 41,
+      "origin": "http://host.orb.internal:4001",
+      "path": "/v1/managed/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/status",
+      "at": "2026-10-02T00:30:56.665Z"
+    },
+    {
+      "operationId": "dc2640bf-e750-42c3-8dcb-e55059bf78c8",
+      "status": "running",
+      "stage": "health_verification",
+      "lastSequence": 42,
+      "origin": "http://host.orb.internal:4001",
+      "path": "/v1/managed/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/status",
+      "at": "2026-10-02T00:30:58.682Z"
+    },
+    {
+      "operationId": "dc2640bf-e750-42c3-8dcb-e55059bf78c8",
+      "status": "running",
+      "stage": "health_verification",
+      "lastSequence": 44,
+      "origin": "http://host.orb.internal:4001",
+      "path": "/v1/managed/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/status",
+      "at": "2026-10-02T00:31:00.705Z"
+    },
+    {
+      "operationId": "dc2640bf-e750-42c3-8dcb-e55059bf78c8",
+      "status": "running",
+      "stage": "health_verification",
+      "lastSequence": 45,
+      "origin": "http://host.orb.internal:4001",
+      "path": "/v1/managed/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/status",
+      "at": "2026-10-02T00:31:02.723Z"
+    },
+    {
+      "operationId": "dc2640bf-e750-42c3-8dcb-e55059bf78c8",
+      "status": "running",
+      "stage": "health_verification",
+      "lastSequence": 45,
+      "origin": "http://host.orb.internal:4001",
+      "path": "/v1/managed/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/status",
+      "at": "2026-10-02T00:31:04.736Z"
+    },
+    {
+      "operationId": "dc2640bf-e750-42c3-8dcb-e55059bf78c8",
+      "status": "running",
+      "stage": "health_verification",
+      "lastSequence": 48,
+      "origin": "http://host.orb.internal:4001",
+      "path": "/v1/managed/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/status",
+      "at": "2026-10-02T00:31:06.756Z"
+    },
+    {
+      "operationId": "dc2640bf-e750-42c3-8dcb-e55059bf78c8",
+      "status": "running",
+      "stage": "health_verification",
+      "lastSequence": 48,
+      "origin": "http://host.orb.internal:4001",
+      "path": "/v1/managed/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/status",
+      "at": "2026-10-02T00:31:08.775Z"
+    },
+    {
+      "operationId": "dc2640bf-e750-42c3-8dcb-e55059bf78c8",
+      "status": "running",
+      "stage": "health_verification",
+      "lastSequence": 49,
+      "origin": "http://host.orb.internal:4001",
+      "path": "/v1/managed/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/status",
+      "at": "2026-10-02T00:31:10.790Z"
+    },
+    {
+      "operationId": "dc2640bf-e750-42c3-8dcb-e55059bf78c8",
+      "status": "running",
+      "stage": "health_verification",
+      "lastSequence": 51,
+      "origin": "http://host.orb.internal:4001",
+      "path": "/v1/managed/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/status",
+      "at": "2026-10-02T00:31:12.799Z"
+    },
+    {
+      "operationId": "dc2640bf-e750-42c3-8dcb-e55059bf78c8",
+      "status": "running",
+      "stage": "health_verification",
+      "lastSequence": 51,
+      "origin": "http://host.orb.internal:4001",
+      "path": "/v1/managed/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/status",
+      "at": "2026-10-02T00:31:14.814Z"
+    },
+    {
+      "operationId": "dc2640bf-e750-42c3-8dcb-e55059bf78c8",
+      "status": "running",
+      "stage": "health_verification",
+      "lastSequence": 53,
+      "origin": "http://host.orb.internal:4001",
+      "path": "/v1/managed/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/status",
+      "at": "2026-10-02T00:31:16.847Z"
+    },
+    {
+      "operationId": "dc2640bf-e750-42c3-8dcb-e55059bf78c8",
+      "status": "running",
+      "stage": "health_verification",
+      "lastSequence": 54,
+      "origin": "http://host.orb.internal:4001",
+      "path": "/v1/managed/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/status",
+      "at": "2026-10-02T00:31:18.862Z"
+    },
+    {
+      "operationId": "dc2640bf-e750-42c3-8dcb-e55059bf78c8",
+      "status": "running",
+      "stage": "health_verification",
+      "lastSequence": 56,
+      "origin": "http://host.orb.internal:4001",
+      "path": "/v1/managed/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/status",
+      "at": "2026-10-02T00:31:20.869Z"
+    },
+    {
+      "operationId": "dc2640bf-e750-42c3-8dcb-e55059bf78c8",
+      "status": "running",
+      "stage": "health_verification",
+      "lastSequence": 57,
+      "origin": "http://host.orb.internal:4001",
+      "path": "/v1/managed/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/status",
+      "at": "2026-10-02T00:31:22.887Z"
+    },
+    {
+      "operationId": "dc2640bf-e750-42c3-8dcb-e55059bf78c8",
+      "status": "running",
+      "stage": "health_verification",
+      "lastSequence": 57,
+      "origin": "http://host.orb.internal:4001",
+      "path": "/v1/managed/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/status",
+      "at": "2026-10-02T00:31:24.894Z"
+    },
+    {
+      "operationId": "dc2640bf-e750-42c3-8dcb-e55059bf78c8",
+      "status": "running",
+      "stage": "health_verification",
+      "lastSequence": 59,
+      "origin": "http://host.orb.internal:4001",
+      "path": "/v1/managed/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/status",
+      "at": "2026-10-02T00:31:26.903Z"
+    },
+    {
+      "operationId": "dc2640bf-e750-42c3-8dcb-e55059bf78c8",
+      "status": "running",
+      "stage": "health_verification",
+      "lastSequence": 60,
+      "origin": "http://host.orb.internal:4001",
+      "path": "/v1/managed/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/status",
+      "at": "2026-10-02T00:31:28.926Z"
+    },
+    {
+      "operationId": "dc2640bf-e750-42c3-8dcb-e55059bf78c8",
+      "status": "running",
+      "stage": "health_verification",
+      "lastSequence": 62,
+      "origin": "http://host.orb.internal:4001",
+      "path": "/v1/managed/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/status",
+      "at": "2026-10-02T00:31:30.944Z"
+    },
+    {
+      "operationId": "dc2640bf-e750-42c3-8dcb-e55059bf78c8",
+      "status": "running",
+      "stage": "health_verification",
+      "lastSequence": 63,
+      "origin": "http://host.orb.internal:4001",
+      "path": "/v1/managed/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/status",
+      "at": "2026-10-02T00:31:32.959Z"
+    },
+    {
+      "operationId": "dc2640bf-e750-42c3-8dcb-e55059bf78c8",
+      "status": "running",
+      "stage": "health_verification",
+      "lastSequence": 63,
+      "origin": "http://host.orb.internal:4001",
+      "path": "/v1/managed/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/status",
+      "at": "2026-10-02T00:31:34.973Z"
+    },
+    {
+      "operationId": "dc2640bf-e750-42c3-8dcb-e55059bf78c8",
+      "status": "running",
+      "stage": "health_verification",
+      "lastSequence": 66,
+      "origin": "http://host.orb.internal:4001",
+      "path": "/v1/managed/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/status",
+      "at": "2026-10-02T00:31:36.985Z"
+    },
+    {
+      "operationId": "dc2640bf-e750-42c3-8dcb-e55059bf78c8",
+      "status": "running",
+      "stage": "health_verification",
+      "lastSequence": 66,
+      "origin": "http://127.0.0.1:3100",
+      "path": "/api/admin/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/events",
+      "at": "2026-10-02T00:31:37.957Z"
+    },
+    {
+      "operationId": "dc2640bf-e750-42c3-8dcb-e55059bf78c8",
+      "status": "running",
+      "stage": "config_preflight",
+      "lastSequence": 74,
+      "origin": "http://host.orb.internal:4001",
+      "path": "/v1/managed/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/status",
+      "at": "2026-10-02T00:31:38.993Z"
+    },
+    {
+      "operationId": "dc2640bf-e750-42c3-8dcb-e55059bf78c8",
+      "status": "verifying",
+      "stage": "version_verification",
+      "lastSequence": 78,
+      "origin": "http://127.0.0.1:3100",
+      "path": "/api/admin/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/events",
+      "at": "2026-10-02T00:31:40.067Z"
+    },
+    {
+      "operationId": "dc2640bf-e750-42c3-8dcb-e55059bf78c8",
+      "status": "succeeded",
+      "stage": "completed",
+      "lastSequence": 79,
+      "origin": "http://host.orb.internal:4001",
+      "path": "/v1/managed/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/status",
+      "at": "2026-10-02T00:31:41.002Z"
+    },
+    {
+      "operationId": "dc2640bf-e750-42c3-8dcb-e55059bf78c8",
+      "status": "succeeded",
+      "stage": "completed",
+      "lastSequence": 79,
+      "origin": "http://127.0.0.1:3100",
+      "path": "/api/admin/system-updates/dc2640bf-e750-42c3-8dcb-e55059bf78c8/events",
+      "at": "2026-10-02T00:35:14.388Z"
+    }
+  ],
+  "health": [
+    {
+      "at": "2026-10-02T00:29:24.795Z",
+      "status": 200,
+      "elapsedMs": 20
+    },
+    {
+      "at": "2026-10-02T00:29:24.815Z",
+      "status": 200,
+      "elapsedMs": 9
+    },
+    {
+      "at": "2026-10-02T00:30:32.139Z",
+      "status": 200,
+      "elapsedMs": 8
+    },
+    {
+      "at": "2026-10-02T00:30:33.142Z",
+      "status": 200,
+      "elapsedMs": 5
+    },
+    {
+      "at": "2026-10-02T00:30:34.145Z",
+      "status": 200,
+      "elapsedMs": 6
+    },
+    {
+      "at": "2026-10-02T00:30:35.146Z",
+      "status": 200,
+      "elapsedMs": 11
+    },
+    {
+      "at": "2026-10-02T00:30:36.146Z",
+      "status": 200,
+      "elapsedMs": 5
+    },
+    {
+      "at": "2026-10-02T00:30:37.148Z",
+      "status": 200,
+      "elapsedMs": 6
+    },
+    {
+      "at": "2026-10-02T00:30:38.149Z",
+      "status": 200,
+      "elapsedMs": 6
+    },
+    {
+      "at": "2026-10-02T00:30:39.149Z",
+      "status": 200,
+      "elapsedMs": 7
+    },
+    {
+      "at": "2026-10-02T00:30:40.149Z",
+      "status": 0,
+      "failure": "ECONNRESET",
+      "elapsedMs": 2
+    },
+    {
+      "at": "2026-10-02T00:30:41.150Z",
+      "status": 0,
+      "failure": "UND_ERR_SOCKET",
+      "elapsedMs": 2
+    },
+    {
+      "at": "2026-10-02T00:30:42.151Z",
+      "status": 0,
+      "failure": "UND_ERR_SOCKET",
+      "elapsedMs": 2
+    },
+    {
+      "at": "2026-10-02T00:30:43.151Z",
+      "status": 0,
+      "failure": "UND_ERR_SOCKET",
+      "elapsedMs": 2
+    },
+    {
+      "at": "2026-10-02T00:30:44.152Z",
+      "status": 0,
+      "failure": "UND_ERR_SOCKET",
+      "elapsedMs": 2
+    },
+    {
+      "at": "2026-10-02T00:30:45.153Z",
+      "status": 0,
+      "failure": "UND_ERR_SOCKET",
+      "elapsedMs": 2
+    },
+    {
+      "at": "2026-10-02T00:30:46.154Z",
+      "status": 0,
+      "failure": "UND_ERR_SOCKET",
+      "elapsedMs": 2
+    },
+    {
+      "at": "2026-10-02T00:30:47.154Z",
+      "status": 0,
+      "failure": "UND_ERR_SOCKET",
+      "elapsedMs": 4
+    },
+    {
+      "at": "2026-10-02T00:30:48.155Z",
+      "status": 0,
+      "failure": "UND_ERR_SOCKET",
+      "elapsedMs": 2
+    },
+    {
+      "at": "2026-10-02T00:30:49.156Z",
+      "status": 0,
+      "failure": "UND_ERR_SOCKET",
+      "elapsedMs": 3
+    },
+    {
+      "at": "2026-10-02T00:30:50.157Z",
+      "status": 0,
+      "failure": "UND_ERR_SOCKET",
+      "elapsedMs": 19
+    },
+    {
+      "at": "2026-10-02T00:30:51.158Z",
+      "status": 0,
+      "failure": "UND_ERR_SOCKET",
+      "elapsedMs": 4
+    },
+    {
+      "at": "2026-10-02T00:30:52.159Z",
+      "status": 0,
+      "failure": "UND_ERR_SOCKET",
+      "elapsedMs": 3
+    },
+    {
+      "at": "2026-10-02T00:30:53.160Z",
+      "status": 0,
+      "failure": "UND_ERR_SOCKET",
+      "elapsedMs": 10
+    },
+    {
+      "at": "2026-10-02T00:30:54.161Z",
+      "status": 0,
+      "failure": "UND_ERR_SOCKET",
+      "elapsedMs": 3
+    },
+    {
+      "at": "2026-10-02T00:30:55.161Z",
+      "status": 0,
+      "failure": "UND_ERR_SOCKET",
+      "elapsedMs": 3
+    },
+    {
+      "at": "2026-10-02T00:30:56.163Z",
+      "status": 0,
+      "failure": "UND_ERR_SOCKET",
+      "elapsedMs": 2
+    },
+    {
+      "at": "2026-10-02T00:30:57.164Z",
+      "status": 0,
+      "failure": "UND_ERR_SOCKET",
+      "elapsedMs": 3
+    },
+    {
+      "at": "2026-10-02T00:30:58.165Z",
+      "status": 0,
+      "failure": "UND_ERR_SOCKET",
+      "elapsedMs": 2
+    },
+    {
+      "at": "2026-10-02T00:30:59.164Z",
+      "status": 0,
+      "failure": "UND_ERR_SOCKET",
+      "elapsedMs": 4
+    },
+    {
+      "at": "2026-10-02T00:31:00.166Z",
+      "status": 0,
+      "failure": "UND_ERR_SOCKET",
+      "elapsedMs": 4
+    },
+    {
+      "at": "2026-10-02T00:31:01.167Z",
+      "status": 0,
+      "failure": "UND_ERR_SOCKET",
+      "elapsedMs": 2
+    },
+    {
+      "at": "2026-10-02T00:31:02.167Z",
+      "status": 0,
+      "failure": "UND_ERR_SOCKET",
+      "elapsedMs": 2
+    },
+    {
+      "at": "2026-10-02T00:31:03.167Z",
+      "status": 0,
+      "failure": "UND_ERR_SOCKET",
+      "elapsedMs": 3
+    },
+    {
+      "at": "2026-10-02T00:31:04.168Z",
+      "status": 0,
+      "failure": "UND_ERR_SOCKET",
+      "elapsedMs": 3
+    },
+    {
+      "at": "2026-10-02T00:31:05.168Z",
+      "status": 0,
+      "failure": "UND_ERR_SOCKET",
+      "elapsedMs": 3
+    },
+    {
+      "at": "2026-10-02T00:31:06.169Z",
+      "status": 0,
+      "failure": "UND_ERR_SOCKET",
+      "elapsedMs": 3
+    },
+    {
+      "at": "2026-10-02T00:31:07.170Z",
+      "status": 0,
+      "failure": "UND_ERR_SOCKET",
+      "elapsedMs": 3
+    },
+    {
+      "at": "2026-10-02T00:31:08.171Z",
+      "status": 0,
+      "failure": "UND_ERR_SOCKET",
+      "elapsedMs": 8
+    },
+    {
+      "at": "2026-10-02T00:31:09.171Z",
+      "status": 0,
+      "failure": "UND_ERR_SOCKET",
+      "elapsedMs": 4
+    },
+    {
+      "at": "2026-10-02T00:31:10.172Z",
+      "status": 0,
+      "failure": "UND_ERR_SOCKET",
+      "elapsedMs": 3
+    },
+    {
+      "at": "2026-10-02T00:31:11.175Z",
+      "status": 0,
+      "failure": "UND_ERR_SOCKET",
+      "elapsedMs": 6
+    },
+    {
+      "at": "2026-10-02T00:31:12.176Z",
+      "status": 0,
+      "failure": "UND_ERR_SOCKET",
+      "elapsedMs": 2
+    },
+    {
+      "at": "2026-10-02T00:31:13.176Z",
+      "status": 0,
+      "failure": "UND_ERR_SOCKET",
+      "elapsedMs": 2
+    },
+    {
+      "at": "2026-10-02T00:31:14.178Z",
+      "status": 0,
+      "failure": "UND_ERR_SOCKET",
+      "elapsedMs": 7
+    },
+    {
+      "at": "2026-10-02T00:31:15.178Z",
+      "status": 0,
+      "failure": "UND_ERR_SOCKET",
+      "elapsedMs": 3
+    },
+    {
+      "at": "2026-10-02T00:31:16.178Z",
+      "status": 0,
+      "failure": "UND_ERR_SOCKET",
+      "elapsedMs": 2
+    },
+    {
+      "at": "2026-10-02T00:31:17.179Z",
+      "status": 0,
+      "failure": "UND_ERR_SOCKET",
+      "elapsedMs": 2
+    },
+    {
+      "at": "2026-10-02T00:31:18.180Z",
+      "status": 0,
+      "failure": "UND_ERR_SOCKET",
+      "elapsedMs": 2
+    },
+    {
+      "at": "2026-10-02T00:31:19.181Z",
+      "status": 0,
+      "failure": "UND_ERR_SOCKET",
+      "elapsedMs": 2
+    },
+    {
+      "at": "2026-10-02T00:31:20.180Z",
+      "status": 0,
+      "failure": "UND_ERR_SOCKET",
+      "elapsedMs": 2
+    },
+    {
+      "at": "2026-10-02T00:31:21.181Z",
+      "status": 0,
+      "failure": "UND_ERR_SOCKET",
+      "elapsedMs": 2
+    },
+    {
+      "at": "2026-10-02T00:31:22.182Z",
+      "status": 0,
+      "failure": "UND_ERR_SOCKET",
+      "elapsedMs": 2
+    },
+    {
+      "at": "2026-10-02T00:31:23.183Z",
+      "status": 0,
+      "failure": "UND_ERR_SOCKET",
+      "elapsedMs": 3
+    },
+    {
+      "at": "2026-10-02T00:31:24.182Z",
+      "status": 0,
+      "failure": "UND_ERR_SOCKET",
+      "elapsedMs": 4
+    },
+    {
+      "at": "2026-10-02T00:31:25.182Z",
+      "status": 0,
+      "failure": "UND_ERR_SOCKET",
+      "elapsedMs": 2
+    },
+    {
+      "at": "2026-10-02T00:31:26.183Z",
+      "status": 0,
+      "failure": "UND_ERR_SOCKET",
+      "elapsedMs": 4
+    },
+    {
+      "at": "2026-10-02T00:31:27.185Z",
+      "status": 0,
+      "failure": "UND_ERR_SOCKET",
+      "elapsedMs": 3
+    },
+    {
+      "at": "2026-10-02T00:31:28.185Z",
+      "status": 0,
+      "failure": "UND_ERR_SOCKET",
+      "elapsedMs": 1
+    },
+    {
+      "at": "2026-10-02T00:31:29.185Z",
+      "status": 0,
+      "failure": "UND_ERR_SOCKET",
+      "elapsedMs": 3
+    },
+    {
+      "at": "2026-10-02T00:31:30.187Z",
+      "status": 0,
+      "failure": "UND_ERR_SOCKET",
+      "elapsedMs": 2
+    },
+    {
+      "at": "2026-10-02T00:31:31.186Z",
+      "status": 0,
+      "failure": "UND_ERR_SOCKET",
+      "elapsedMs": 5
+    },
+    {
+      "at": "2026-10-02T00:31:32.187Z",
+      "status": 0,
+      "failure": "UND_ERR_SOCKET",
+      "elapsedMs": 2
+    },
+    {
+      "at": "2026-10-02T00:31:33.189Z",
+      "status": 0,
+      "failure": "UND_ERR_SOCKET",
+      "elapsedMs": 3
+    },
+    {
+      "at": "2026-10-02T00:31:34.188Z",
+      "status": 0,
+      "failure": "UND_ERR_SOCKET",
+      "elapsedMs": 3
+    },
+    {
+      "at": "2026-10-02T00:31:35.190Z",
+      "status": 0,
+      "failure": "UND_ERR_SOCKET",
+      "elapsedMs": 18
+    },
+    {
+      "at": "2026-10-02T00:31:36.191Z",
+      "status": 0,
+      "failure": "UND_ERR_SOCKET",
+      "elapsedMs": 4
+    },
+    {
+      "at": "2026-10-02T00:31:37.191Z",
+      "status": 200,
+      "elapsedMs": 451
+    },
+    {
+      "at": "2026-10-02T00:31:38.194Z",
+      "status": 200,
+      "elapsedMs": 880
+    },
+    {
+      "at": "2026-10-02T00:31:39.194Z",
+      "status": 200,
+      "elapsedMs": 9
+    },
+    {
+      "at": "2026-10-02T00:31:40.194Z",
+      "status": 200,
+      "elapsedMs": 8
+    },
+    {
+      "at": "2026-10-02T00:31:41.195Z",
+      "status": 200,
+      "elapsedMs": 7
+    },
+    {
+      "at": "2026-10-02T00:31:42.197Z",
+      "status": 200,
+      "elapsedMs": 13
+    },
+    {
+      "at": "2026-10-02T00:31:43.198Z",
+      "status": 200,
+      "elapsedMs": 21
+    },
+    {
+      "at": "2026-10-02T00:31:44.198Z",
+      "status": 200,
+      "elapsedMs": 26
+    },
+    {
+      "at": "2026-10-02T00:31:45.198Z",
+      "status": 200,
+      "elapsedMs": 7
+    },
+    {
+      "at": "2026-10-02T00:31:46.200Z",
+      "status": 200,
+      "elapsedMs": 19
+    },
+    {
+      "at": "2026-10-02T00:31:47.201Z",
+      "status": 200,
+      "elapsedMs": 34
+    },
+    {
+      "at": "2026-10-02T00:31:48.200Z",
+      "status": 200,
+      "elapsedMs": 16
+    },
+    {
+      "at": "2026-10-02T00:31:49.203Z",
+      "status": 200,
+      "elapsedMs": 16
+    },
+    {
+      "at": "2026-10-02T00:31:50.203Z",
+      "status": 200,
+      "elapsedMs": 18
+    },
+    {
+      "at": "2026-10-02T00:31:51.204Z",
+      "status": 200,
+      "elapsedMs": 20
+    },
+    {
+      "at": "2026-10-02T00:31:52.205Z",
+      "status": 200,
+      "elapsedMs": 8
+    },
+    {
+      "at": "2026-10-02T00:31:53.206Z",
+      "status": 200,
+      "elapsedMs": 11
+    },
+    {
+      "at": "2026-10-02T00:31:54.207Z",
+      "status": 200,
+      "elapsedMs": 14
+    },
+    {
+      "at": "2026-10-02T00:31:55.207Z",
+      "status": 200,
+      "elapsedMs": 19
+    },
+    {
+      "at": "2026-10-02T00:31:56.208Z",
+      "status": 200,
+      "elapsedMs": 28
+    },
+    {
+      "at": "2026-10-02T00:31:57.209Z",
+      "status": 200,
+      "elapsedMs": 7
+    },
+    {
+      "at": "2026-10-02T00:31:58.210Z",
+      "status": 200,
+      "elapsedMs": 18
+    },
+    {
+      "at": "2026-10-02T00:31:59.210Z",
+      "status": 200,
+      "elapsedMs": 18
+    },
+    {
+      "at": "2026-10-02T00:32:00.210Z",
+      "status": 200,
+      "elapsedMs": 14
+    },
+    {
+      "at": "2026-10-02T00:32:01.212Z",
+      "status": 200,
+      "elapsedMs": 21
+    },
+    {
+      "at": "2026-10-02T00:32:02.213Z",
+      "status": 200,
+      "elapsedMs": 25
+    },
+    {
+      "at": "2026-10-02T00:32:03.213Z",
+      "status": 200,
+      "elapsedMs": 14
+    },
+    {
+      "at": "2026-10-02T00:32:04.215Z",
+      "status": 200,
+      "elapsedMs": 18
+    },
+    {
+      "at": "2026-10-02T00:32:05.215Z",
+      "status": 200,
+      "elapsedMs": 15
+    },
+    {
+      "at": "2026-10-02T00:32:06.216Z",
+      "status": 200,
+      "elapsedMs": 16
+    },
+    {
+      "at": "2026-10-02T00:32:07.216Z",
+      "status": 200,
+      "elapsedMs": 14
+    },
+    {
+      "at": "2026-10-02T00:32:08.218Z",
+      "status": 200,
+      "elapsedMs": 17
+    },
+    {
+      "at": "2026-10-02T00:32:09.218Z",
+      "status": 200,
+      "elapsedMs": 6
+    },
+    {
+      "at": "2026-10-02T00:32:10.218Z",
+      "status": 200,
+      "elapsedMs": 20
+    },
+    {
+      "at": "2026-10-02T00:32:11.220Z",
+      "status": 200,
+      "elapsedMs": 16
+    },
+    {
+      "at": "2026-10-02T00:32:12.221Z",
+      "status": 200,
+      "elapsedMs": 15
+    },
+    {
+      "at": "2026-10-02T00:32:13.222Z",
+      "status": 200,
+      "elapsedMs": 5
+    },
+    {
+      "at": "2026-10-02T00:32:14.222Z",
+      "status": 200,
+      "elapsedMs": 10
+    },
+    {
+      "at": "2026-10-02T00:32:15.223Z",
+      "status": 200,
+      "elapsedMs": 14
+    },
+    {
+      "at": "2026-10-02T00:32:16.224Z",
+      "status": 200,
+      "elapsedMs": 15
+    },
+    {
+      "at": "2026-10-02T00:32:17.225Z",
+      "status": 200,
+      "elapsedMs": 7
+    },
+    {
+      "at": "2026-10-02T00:32:18.225Z",
+      "status": 200,
+      "elapsedMs": 26
+    },
+    {
+      "at": "2026-10-02T00:32:19.226Z",
+      "status": 200,
+      "elapsedMs": 25
+    },
+    {
+      "at": "2026-10-02T00:32:20.227Z",
+      "status": 200,
+      "elapsedMs": 13
+    },
+    {
+      "at": "2026-10-02T00:32:21.227Z",
+      "status": 200,
+      "elapsedMs": 13
+    },
+    {
+      "at": "2026-10-02T00:32:22.228Z",
+      "status": 200,
+      "elapsedMs": 5
+    },
+    {
+      "at": "2026-10-02T00:32:23.229Z",
+      "status": 200,
+      "elapsedMs": 27
+    },
+    {
+      "at": "2026-10-02T00:32:24.229Z",
+      "status": 200,
+      "elapsedMs": 8
+    },
+    {
+      "at": "2026-10-02T00:32:25.230Z",
+      "status": 200,
+      "elapsedMs": 13
+    },
+    {
+      "at": "2026-10-02T00:32:26.231Z",
+      "status": 200,
+      "elapsedMs": 6
+    },
+    {
+      "at": "2026-10-02T00:32:27.241Z",
+      "status": 200,
+      "elapsedMs": 15
+    },
+    {
+      "at": "2026-10-02T00:32:28.242Z",
+      "status": 200,
+      "elapsedMs": 28
+    },
+    {
+      "at": "2026-10-02T00:32:29.243Z",
+      "status": 200,
+      "elapsedMs": 16
+    },
+    {
+      "at": "2026-10-02T00:32:30.243Z",
+      "status": 200,
+      "elapsedMs": 20
+    },
+    {
+      "at": "2026-10-02T00:32:31.244Z",
+      "status": 200,
+      "elapsedMs": 16
+    },
+    {
+      "at": "2026-10-02T00:32:32.249Z",
+      "status": 200,
+      "elapsedMs": 30
+    },
+    {
+      "at": "2026-10-02T00:32:33.249Z",
+      "status": 200,
+      "elapsedMs": 9
+    },
+    {
+      "at": "2026-10-02T00:32:34.254Z",
+      "status": 200,
+      "elapsedMs": 30
+    },
+    {
+      "at": "2026-10-02T00:32:35.258Z",
+      "status": 200,
+      "elapsedMs": 31
+    },
+    {
+      "at": "2026-10-02T00:32:36.258Z",
+      "status": 200,
+      "elapsedMs": 33
+    },
+    {
+      "at": "2026-10-02T00:32:37.258Z",
+      "status": 200,
+      "elapsedMs": 33
+    },
+    {
+      "at": "2026-10-02T00:32:38.260Z",
+      "status": 200,
+      "elapsedMs": 11
+    },
+    {
+      "at": "2026-10-02T00:32:39.261Z",
+      "status": 200,
+      "elapsedMs": 8
+    },
+    {
+      "at": "2026-10-02T00:32:40.262Z",
+      "status": 200,
+      "elapsedMs": 18
+    },
+    {
+      "at": "2026-10-02T00:32:41.263Z",
+      "status": 200,
+      "elapsedMs": 28
+    },
+    {
+      "at": "2026-10-02T00:32:42.264Z",
+      "status": 200,
+      "elapsedMs": 15
+    },
+    {
+      "at": "2026-10-02T00:32:43.264Z",
+      "status": 200,
+      "elapsedMs": 12
+    },
+    {
+      "at": "2026-10-02T00:32:44.264Z",
+      "status": 200,
+      "elapsedMs": 5
+    },
+    {
+      "at": "2026-10-02T00:32:45.266Z",
+      "status": 200,
+      "elapsedMs": 24
+    },
+    {
+      "at": "2026-10-02T00:32:46.266Z",
+      "status": 200,
+      "elapsedMs": 26
+    },
+    {
+      "at": "2026-10-02T00:32:47.267Z",
+      "status": 200,
+      "elapsedMs": 14
+    },
+    {
+      "at": "2026-10-02T00:32:48.268Z",
+      "status": 200,
+      "elapsedMs": 17
+    },
+    {
+      "at": "2026-10-02T00:32:49.268Z",
+      "status": 200,
+      "elapsedMs": 21
+    },
+    {
+      "at": "2026-10-02T00:32:50.269Z",
+      "status": 200,
+      "elapsedMs": 17
+    },
+    {
+      "at": "2026-10-02T00:32:51.270Z",
+      "status": 200,
+      "elapsedMs": 19
+    },
+    {
+      "at": "2026-10-02T00:32:52.269Z",
+      "status": 200,
+      "elapsedMs": 19
+    },
+    {
+      "at": "2026-10-02T00:32:53.272Z",
+      "status": 200,
+      "elapsedMs": 14
+    },
+    {
+      "at": "2026-10-02T00:32:54.271Z",
+      "status": 200,
+      "elapsedMs": 17
+    },
+    {
+      "at": "2026-10-02T00:32:55.272Z",
+      "status": 200,
+      "elapsedMs": 18
+    },
+    {
+      "at": "2026-10-02T00:32:56.274Z",
+      "status": 200,
+      "elapsedMs": 20
+    },
+    {
+      "at": "2026-10-02T00:32:57.273Z",
+      "status": 200,
+      "elapsedMs": 17
+    },
+    {
+      "at": "2026-10-02T00:32:58.275Z",
+      "status": 200,
+      "elapsedMs": 12
+    },
+    {
+      "at": "2026-10-02T00:32:59.276Z",
+      "status": 200,
+      "elapsedMs": 14
+    },
+    {
+      "at": "2026-10-02T00:33:00.276Z",
+      "status": 200,
+      "elapsedMs": 18
+    },
+    {
+      "at": "2026-10-02T00:33:01.276Z",
+      "status": 200,
+      "elapsedMs": 25
+    },
+    {
+      "at": "2026-10-02T00:33:02.277Z",
+      "status": 200,
+      "elapsedMs": 14
+    },
+    {
+      "at": "2026-10-02T00:33:03.277Z",
+      "status": 200,
+      "elapsedMs": 22
+    },
+    {
+      "at": "2026-10-02T00:33:04.277Z",
+      "status": 200,
+      "elapsedMs": 18
+    },
+    {
+      "at": "2026-10-02T00:33:05.279Z",
+      "status": 200,
+      "elapsedMs": 5
+    },
+    {
+      "at": "2026-10-02T00:33:06.279Z",
+      "status": 200,
+      "elapsedMs": 12
+    },
+    {
+      "at": "2026-10-02T00:33:07.279Z",
+      "status": 200,
+      "elapsedMs": 24
+    },
+    {
+      "at": "2026-10-02T00:33:08.281Z",
+      "status": 200,
+      "elapsedMs": 21
+    },
+    {
+      "at": "2026-10-02T00:33:09.282Z",
+      "status": 200,
+      "elapsedMs": 19
+    },
+    {
+      "at": "2026-10-02T00:33:10.283Z",
+      "status": 200,
+      "elapsedMs": 19
+    },
+    {
+      "at": "2026-10-02T00:33:11.284Z",
+      "status": 200,
+      "elapsedMs": 23
+    },
+    {
+      "at": "2026-10-02T00:33:12.285Z",
+      "status": 200,
+      "elapsedMs": 26
+    },
+    {
+      "at": "2026-10-02T00:33:13.286Z",
+      "status": 200,
+      "elapsedMs": 19
+    },
+    {
+      "at": "2026-10-02T00:33:14.286Z",
+      "status": 200,
+      "elapsedMs": 10
+    },
+    {
+      "at": "2026-10-02T00:33:15.286Z",
+      "status": 200,
+      "elapsedMs": 25
+    },
+    {
+      "at": "2026-10-02T00:33:16.287Z",
+      "status": 200,
+      "elapsedMs": 12
+    },
+    {
+      "at": "2026-10-02T00:33:17.289Z",
+      "status": 200,
+      "elapsedMs": 15
+    },
+    {
+      "at": "2026-10-02T00:33:18.290Z",
+      "status": 200,
+      "elapsedMs": 17
+    },
+    {
+      "at": "2026-10-02T00:33:19.289Z",
+      "status": 200,
+      "elapsedMs": 6
+    },
+    {
+      "at": "2026-10-02T00:33:20.292Z",
+      "status": 200,
+      "elapsedMs": 5
+    },
+    {
+      "at": "2026-10-02T00:33:21.292Z",
+      "status": 200,
+      "elapsedMs": 15
+    },
+    {
+      "at": "2026-10-02T00:33:22.292Z",
+      "status": 200,
+      "elapsedMs": 5
+    },
+    {
+      "at": "2026-10-02T00:33:23.294Z",
+      "status": 200,
+      "elapsedMs": 29
+    },
+    {
+      "at": "2026-10-02T00:33:24.294Z",
+      "status": 200,
+      "elapsedMs": 5
+    },
+    {
+      "at": "2026-10-02T00:33:25.294Z",
+      "status": 200,
+      "elapsedMs": 13
+    },
+    {
+      "at": "2026-10-02T00:33:26.295Z",
+      "status": 200,
+      "elapsedMs": 5
+    },
+    {
+      "at": "2026-10-02T00:33:27.294Z",
+      "status": 200,
+      "elapsedMs": 20
+    },
+    {
+      "at": "2026-10-02T00:33:28.296Z",
+      "status": 200,
+      "elapsedMs": 6
+    },
+    {
+      "at": "2026-10-02T00:33:29.297Z",
+      "status": 200,
+      "elapsedMs": 30
+    },
+    {
+      "at": "2026-10-02T00:33:30.297Z",
+      "status": 200,
+      "elapsedMs": 19
+    },
+    {
+      "at": "2026-10-02T00:33:31.299Z",
+      "status": 200,
+      "elapsedMs": 28
+    },
+    {
+      "at": "2026-10-02T00:33:32.299Z",
+      "status": 200,
+      "elapsedMs": 10
+    },
+    {
+      "at": "2026-10-02T00:33:33.299Z",
+      "status": 200,
+      "elapsedMs": 6
+    },
+    {
+      "at": "2026-10-02T00:33:34.301Z",
+      "status": 200,
+      "elapsedMs": 12
+    },
+    {
+      "at": "2026-10-02T00:33:35.301Z",
+      "status": 200,
+      "elapsedMs": 14
+    },
+    {
+      "at": "2026-10-02T00:33:36.302Z",
+      "status": 200,
+      "elapsedMs": 15
+    },
+    {
+      "at": "2026-10-02T00:33:37.303Z",
+      "status": 200,
+      "elapsedMs": 14
+    },
+    {
+      "at": "2026-10-02T00:33:38.304Z",
+      "status": 200,
+      "elapsedMs": 16
+    },
+    {
+      "at": "2026-10-02T00:33:39.304Z",
+      "status": 200,
+      "elapsedMs": 6
+    },
+    {
+      "at": "2026-10-02T00:33:40.306Z",
+      "status": 200,
+      "elapsedMs": 5
+    },
+    {
+      "at": "2026-10-02T00:33:41.306Z",
+      "status": 200,
+      "elapsedMs": 25
+    },
+    {
+      "at": "2026-10-02T00:33:42.306Z",
+      "status": 200,
+      "elapsedMs": 5
+    },
+    {
+      "at": "2026-10-02T00:33:43.307Z",
+      "status": 200,
+      "elapsedMs": 6
+    },
+    {
+      "at": "2026-10-02T00:33:44.307Z",
+      "status": 200,
+      "elapsedMs": 7
+    },
+    {
+      "at": "2026-10-02T00:33:45.308Z",
+      "status": 200,
+      "elapsedMs": 14
+    },
+    {
+      "at": "2026-10-02T00:33:46.310Z",
+      "status": 200,
+      "elapsedMs": 12
+    },
+    {
+      "at": "2026-10-02T00:33:47.310Z",
+      "status": 200,
+      "elapsedMs": 14
+    },
+    {
+      "at": "2026-10-02T00:33:48.311Z",
+      "status": 200,
+      "elapsedMs": 18
+    },
+    {
+      "at": "2026-10-02T00:33:49.312Z",
+      "status": 200,
+      "elapsedMs": 13
+    },
+    {
+      "at": "2026-10-02T00:33:50.312Z",
+      "status": 200,
+      "elapsedMs": 13
+    },
+    {
+      "at": "2026-10-02T00:33:51.313Z",
+      "status": 200,
+      "elapsedMs": 13
+    },
+    {
+      "at": "2026-10-02T00:33:52.314Z",
+      "status": 200,
+      "elapsedMs": 28
+    },
+    {
+      "at": "2026-10-02T00:33:53.314Z",
+      "status": 200,
+      "elapsedMs": 32
+    },
+    {
+      "at": "2026-10-02T00:33:54.316Z",
+      "status": 200,
+      "elapsedMs": 16
+    },
+    {
+      "at": "2026-10-02T00:33:55.316Z",
+      "status": 200,
+      "elapsedMs": 12
+    },
+    {
+      "at": "2026-10-02T00:33:56.317Z",
+      "status": 200,
+      "elapsedMs": 17
+    },
+    {
+      "at": "2026-10-02T00:33:57.318Z",
+      "status": 200,
+      "elapsedMs": 14
+    },
+    {
+      "at": "2026-10-02T00:33:58.319Z",
+      "status": 200,
+      "elapsedMs": 33
+    },
+    {
+      "at": "2026-10-02T00:33:59.319Z",
+      "status": 200,
+      "elapsedMs": 19
+    },
+    {
+      "at": "2026-10-02T00:34:00.319Z",
+      "status": 200,
+      "elapsedMs": 8
+    },
+    {
+      "at": "2026-10-02T00:34:01.320Z",
+      "status": 200,
+      "elapsedMs": 19
+    },
+    {
+      "at": "2026-10-02T00:34:02.321Z",
+      "status": 200,
+      "elapsedMs": 15
+    },
+    {
+      "at": "2026-10-02T00:34:03.323Z",
+      "status": 200,
+      "elapsedMs": 39
+    },
+    {
+      "at": "2026-10-02T00:34:04.324Z",
+      "status": 200,
+      "elapsedMs": 14
+    },
+    {
+      "at": "2026-10-02T00:34:05.324Z",
+      "status": 200,
+      "elapsedMs": 5
+    },
+    {
+      "at": "2026-10-02T00:34:06.326Z",
+      "status": 200,
+      "elapsedMs": 12
+    },
+    {
+      "at": "2026-10-02T00:34:07.326Z",
+      "status": 200,
+      "elapsedMs": 12
+    },
+    {
+      "at": "2026-10-02T00:34:08.326Z",
+      "status": 200,
+      "elapsedMs": 24
+    },
+    {
+      "at": "2026-10-02T00:34:09.327Z",
+      "status": 200,
+      "elapsedMs": 18
+    },
+    {
+      "at": "2026-10-02T00:34:10.329Z",
+      "status": 200,
+      "elapsedMs": 11
+    },
+    {
+      "at": "2026-10-02T00:34:11.330Z",
+      "status": 200,
+      "elapsedMs": 14
+    },
+    {
+      "at": "2026-10-02T00:34:12.330Z",
+      "status": 200,
+      "elapsedMs": 15
+    },
+    {
+      "at": "2026-10-02T00:34:13.330Z",
+      "status": 200,
+      "elapsedMs": 24
+    },
+    {
+      "at": "2026-10-02T00:34:14.332Z",
+      "status": 200,
+      "elapsedMs": 5
+    },
+    {
+      "at": "2026-10-02T00:34:15.333Z",
+      "status": 200,
+      "elapsedMs": 18
+    },
+    {
+      "at": "2026-10-02T00:34:16.334Z",
+      "status": 200,
+      "elapsedMs": 12
+    },
+    {
+      "at": "2026-10-02T00:34:17.334Z",
+      "status": 200,
+      "elapsedMs": 20
+    },
+    {
+      "at": "2026-10-02T00:34:18.335Z",
+      "status": 200,
+      "elapsedMs": 19
+    },
+    {
+      "at": "2026-10-02T00:34:19.336Z",
+      "status": 200,
+      "elapsedMs": 6
+    },
+    {
+      "at": "2026-10-02T00:34:20.336Z",
+      "status": 200,
+      "elapsedMs": 6
+    },
+    {
+      "at": "2026-10-02T00:34:21.336Z",
+      "status": 200,
+      "elapsedMs": 5
+    },
+    {
+      "at": "2026-10-02T00:34:22.338Z",
+      "status": 200,
+      "elapsedMs": 22
+    },
+    {
+      "at": "2026-10-02T00:34:23.339Z",
+      "status": 200,
+      "elapsedMs": 16
+    },
+    {
+      "at": "2026-10-02T00:34:24.340Z",
+      "status": 200,
+      "elapsedMs": 15
+    },
+    {
+      "at": "2026-10-02T00:34:25.340Z",
+      "status": 200,
+      "elapsedMs": 18
+    },
+    {
+      "at": "2026-10-02T00:34:26.341Z",
+      "status": 200,
+      "elapsedMs": 15
+    },
+    {
+      "at": "2026-10-02T00:34:27.342Z",
+      "status": 200,
+      "elapsedMs": 15
+    },
+    {
+      "at": "2026-10-02T00:34:28.343Z",
+      "status": 200,
+      "elapsedMs": 16
+    },
+    {
+      "at": "2026-10-02T00:34:29.342Z",
+      "status": 200,
+      "elapsedMs": 7
+    },
+    {
+      "at": "2026-10-02T00:34:30.345Z",
+      "status": 200,
+      "elapsedMs": 14
+    },
+    {
+      "at": "2026-10-02T00:34:31.345Z",
+      "status": 200,
+      "elapsedMs": 13
+    },
+    {
+      "at": "2026-10-02T00:34:32.345Z",
+      "status": 200,
+      "elapsedMs": 17
+    },
+    {
+      "at": "2026-10-02T00:34:33.348Z",
+      "status": 200,
+      "elapsedMs": 16
+    },
+    {
+      "at": "2026-10-02T00:34:34.347Z",
+      "status": 200,
+      "elapsedMs": 6
+    },
+    {
+      "at": "2026-10-02T00:34:35.347Z",
+      "status": 200,
+      "elapsedMs": 28
+    },
+    {
+      "at": "2026-10-02T00:34:36.351Z",
+      "status": 200,
+      "elapsedMs": 14
+    },
+    {
+      "at": "2026-10-02T00:34:37.355Z",
+      "status": 200,
+      "elapsedMs": 12
+    },
+    {
+      "at": "2026-10-02T00:34:38.356Z",
+      "status": 200,
+      "elapsedMs": 15
+    },
+    {
+      "at": "2026-10-02T00:34:39.359Z",
+      "status": 200,
+      "elapsedMs": 11
+    },
+    {
+      "at": "2026-10-02T00:34:40.360Z",
+      "status": 200,
+      "elapsedMs": 17
+    },
+    {
+      "at": "2026-10-02T00:34:41.361Z",
+      "status": 200,
+      "elapsedMs": 12
+    },
+    {
+      "at": "2026-10-02T00:34:42.362Z",
+      "status": 200,
+      "elapsedMs": 13
+    },
+    {
+      "at": "2026-10-02T00:34:43.363Z",
+      "status": 200,
+      "elapsedMs": 12
+    },
+    {
+      "at": "2026-10-02T00:34:44.364Z",
+      "status": 200,
+      "elapsedMs": 8
+    },
+    {
+      "at": "2026-10-02T00:34:45.364Z",
+      "status": 200,
+      "elapsedMs": 11
+    },
+    {
+      "at": "2026-10-02T00:34:46.365Z",
+      "status": 200,
+      "elapsedMs": 8
+    },
+    {
+      "at": "2026-10-02T00:34:47.366Z",
+      "status": 200,
+      "elapsedMs": 13
+    },
+    {
+      "at": "2026-10-02T00:34:48.365Z",
+      "status": 200,
+      "elapsedMs": 18
+    },
+    {
+      "at": "2026-10-02T00:34:49.368Z",
+      "status": 200,
+      "elapsedMs": 12
+    },
+    {
+      "at": "2026-10-02T00:34:50.369Z",
+      "status": 200,
+      "elapsedMs": 15
+    },
+    {
+      "at": "2026-10-02T00:34:51.368Z",
+      "status": 200,
+      "elapsedMs": 13
+    },
+    {
+      "at": "2026-10-02T00:34:52.371Z",
+      "status": 200,
+      "elapsedMs": 14
+    },
+    {
+      "at": "2026-10-02T00:34:53.372Z",
+      "status": 200,
+      "elapsedMs": 5
+    },
+    {
+      "at": "2026-10-02T00:34:54.372Z",
+      "status": 200,
+      "elapsedMs": 12
+    },
+    {
+      "at": "2026-10-02T00:34:55.373Z",
+      "status": 200,
+      "elapsedMs": 11
+    },
+    {
+      "at": "2026-10-02T00:34:56.374Z",
+      "status": 200,
+      "elapsedMs": 32
+    },
+    {
+      "at": "2026-10-02T00:34:57.374Z",
+      "status": 200,
+      "elapsedMs": 31
+    },
+    {
+      "at": "2026-10-02T00:34:58.375Z",
+      "status": 200,
+      "elapsedMs": 18
+    },
+    {
+      "at": "2026-10-02T00:34:59.378Z",
+      "status": 200,
+      "elapsedMs": 35
+    },
+    {
+      "at": "2026-10-02T00:35:00.379Z",
+      "status": 200,
+      "elapsedMs": 8
+    }
+  ]
+}

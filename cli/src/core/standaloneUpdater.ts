@@ -6,7 +6,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import { resolveCliPath } from './cliPath';
-import { SpawnCommandRunner } from './process';
+import { SpawnCommandRunner, runOrThrow } from './process';
 import { startManagedProcess } from './processLifecycle';
 import { consumeBoundedJsonLines } from './jsonLines';
 import { systemUpdateApplyAcknowledgement } from './systemUpdateApplyGate';
@@ -18,7 +18,7 @@ import {
   type SystemUpdateOperation,
   type SystemUpdateReleaseChannel,
 } from './systemUpdateContract';
-import { createStandaloneUpdateOperation, StandaloneUpdateJournal } from './standaloneUpdateJournal';
+import { createStandaloneUpdateOperation, StandaloneUpdateJournal, type StandaloneJournalOperation } from './standaloneUpdateJournal';
 import { compareCanvasVersions, StandaloneReleaseResolver, type VerifiedStandaloneRelease } from './standaloneUpdateRelease';
 import {
   createStandaloneUpdateStatusServer,
@@ -30,6 +30,7 @@ export const STANDALONE_UPDATER_IDLE_GRACE_MS = 10 * 60 * 1000;
 const MAX_REQUEST_BODY_BYTES = 4096;
 const MAX_STDERR_BYTES = 64 * 1024;
 const UPDATE_DEADLINE_MS = 3 * 60 * 60 * 1000;
+const CLI_PREPARATION_TIMEOUT_MS = 5 * 60 * 1000;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 const VERSION_PATTERN = /^\d{4}\.\d{1,2}\.\d{1,2}(?:\.\d+)?$/u;
 
@@ -41,6 +42,7 @@ interface CurrentCanvasVersion {
 interface StartStandaloneUpdateInput {
   channel: SystemUpdateReleaseChannel;
   expectedReleaseId?: string;
+  requestId?: string;
 }
 
 interface StandaloneUpdateAvailability {
@@ -50,6 +52,7 @@ interface StandaloneUpdateAvailability {
   currentVersion: string | null;
   updateAvailable: boolean;
   ready: boolean;
+  idempotentStart: true;
   reasons: string[];
   release: {
     releaseId: string;
@@ -71,7 +74,8 @@ export interface StandaloneUpdaterOptions {
     release: VerifiedStandaloneRelease,
     signal: AbortSignal,
   ) => Promise<number>;
-  prepareHostCli?: (release: VerifiedStandaloneRelease, current: CurrentCanvasVersion) => Promise<void>;
+  prepareHostCli?: (release: VerifiedStandaloneRelease, current: CurrentCanvasVersion, signal: AbortSignal) => Promise<void>;
+  cliPreparationTimeoutMs?: number;
   now?: () => Date;
   onBusyChange?: (busy: boolean) => void;
 }
@@ -91,6 +95,12 @@ class StandaloneUpdaterHttpError extends Error {
   ) {
     super(message);
   }
+}
+
+class StandaloneUpdaterDeadlineError extends Error {}
+
+function applyMayHaveStarted(operation: SystemUpdateOperation): boolean {
+  return ['image_pull', 'container_recreate', 'health_verification', 'version_verification', 'rollback'].includes(operation.stage);
 }
 
 function safeMessage(error: unknown, fallback: string): string {
@@ -114,7 +124,7 @@ function parseStartInput(value: unknown): StartStandaloneUpdateInput {
     throw new StandaloneUpdaterHttpError(400, 'request_invalid', 'Update request must be a JSON object.');
   }
   const input = value as Record<string, unknown>;
-  const allowed = new Set(['channel', 'expectedReleaseId']);
+  const allowed = new Set(['channel', 'expectedReleaseId', 'requestId']);
   if (Object.keys(input).some((key) => !allowed.has(key))) {
     throw new StandaloneUpdaterHttpError(400, 'request_invalid', 'Update request contains unsupported fields.');
   }
@@ -123,7 +133,16 @@ function parseStartInput(value: unknown): StartStandaloneUpdateInput {
     (typeof input.expectedReleaseId !== 'string' || !/^[A-Za-z0-9._-]{1,128}$/u.test(input.expectedReleaseId))) {
     throw new StandaloneUpdaterHttpError(400, 'request_invalid', 'Expected release ID is invalid.');
   }
-  return { channel, ...(input.expectedReleaseId ? { expectedReleaseId: input.expectedReleaseId } : {}) };
+  if (input.requestId !== undefined && (typeof input.requestId !== 'string' || !UUID_PATTERN.test(input.requestId))) {
+    throw new StandaloneUpdaterHttpError(400, 'request_invalid', 'Update request ID is invalid.');
+  }
+  return { channel, ...(input.expectedReleaseId ? { expectedReleaseId: input.expectedReleaseId } : {}),
+    ...(typeof input.requestId === 'string' ? { requestId: input.requestId.toLowerCase() } : {}) };
+}
+
+function publicOperation(operation: StandaloneJournalOperation): SystemUpdateOperation {
+  const { startRequest: _startRequest, ...result } = operation;
+  return result;
 }
 
 function statusForEvent(operation: SystemUpdateOperation, event: SystemUpdateEvent): SystemUpdateOperation['status'] {
@@ -136,18 +155,19 @@ function statusForEvent(operation: SystemUpdateOperation, event: SystemUpdateEve
   return 'preflight';
 }
 
-async function readCurrentCanvasVersion(env: NodeJS.ProcessEnv): Promise<CurrentCanvasVersion> {
-  const result = await new SpawnCommandRunner().run(resolveCliPath(env), ['version', '--json', '--no-banner'], {
-    env, timeoutMs: 30_000, capture: 'exact', maxOutputBytes: MAX_STDERR_BYTES,
+async function readCurrentCanvasVersion(env: NodeJS.ProcessEnv, signal?: AbortSignal): Promise<CurrentCanvasVersion> {
+  const result = await runOrThrow(new SpawnCommandRunner(), resolveCliPath(env), ['version', '--json', '--no-banner'], {
+    env, signal, timeoutMs: 20_000, processGroup: true, capture: 'exact', maxOutputBytes: MAX_STDERR_BYTES,
   });
-  if (result.status !== 0) throw new Error(safeMessage(result.stderr, 'Canvas CLI version check failed.'));
   try {
     const parsed = JSON.parse(result.stdout) as { appVersion?: unknown; cliVersion?: unknown };
     return {
       appVersion: typeof parsed.appVersion === 'string' && parsed.appVersion ? parsed.appVersion : null,
       cliVersion: typeof parsed.cliVersion === 'string' && parsed.cliVersion ? parsed.cliVersion : null,
     };
-  } catch { throw new Error('Canvas CLI returned invalid version information.'); }
+  } catch {
+    throw new Error('Canvas CLI returned invalid version information.');
+  }
 }
 
 async function executeCliUpdate(
@@ -174,7 +194,7 @@ async function executeCliUpdate(
       CANVAS_UPDATE_DEADLINE_EPOCH_MS: String(Date.now() + UPDATE_DEADLINE_MS),
     },
     stdio: ['pipe', 'pipe', 'pipe'],
-    timeoutMs: UPDATE_DEADLINE_MS,
+    timeoutMs: UPDATE_DEADLINE_MS + 30_000,
     signal,
   });
   const { child } = managed;
@@ -212,7 +232,7 @@ async function executeCliUpdate(
   const terminated = await managed.completion;
   await processing;
   if (protocolError) throw protocolError;
-  if (terminated.timedOut) throw new Error('Canvas CLI update exceeded its deadline.');
+  if (terminated.timedOut) throw new StandaloneUpdaterDeadlineError('Canvas CLI update exceeded its deadline.');
   if (terminated.error) throw new Error(safeMessage(terminated.error, 'Canvas CLI update stream failed.'));
   const code = terminated.canceled ? 1 : (terminated.code ?? 1);
   if (code !== 0 && stderrBytes > 0) throw new Error(safeMessage(Buffer.concat(stderr).toString('utf8'), 'Canvas CLI update failed.'));
@@ -223,7 +243,10 @@ async function prepareVerifiedHostCli(
   env: NodeJS.ProcessEnv,
   release: VerifiedStandaloneRelease,
   current: CurrentCanvasVersion,
+  signal: AbortSignal,
+  timeoutMs: number,
 ): Promise<void> {
+  signal.throwIfAborted();
   if (current.cliVersion && compareCanvasVersions(current.cliVersion, release.signed.manifest.cliVersion) >= 0) return;
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-updater-cli-'));
   const archiveName = `canvas-notebook-linux-cli-${release.architecture}.tar.gz`;
@@ -231,18 +254,19 @@ async function prepareVerifiedHostCli(
   try {
     await fs.writeFile(checksumPath, `${release.cliArtifact.sha256}  ${archiveName}\n`, { mode: 0o600 });
     const result = await new SpawnCommandRunner().run(resolveCliPath(env), ['cli-update', '--json', '--no-banner'], {
-      env: {
-        ...env,
-        CANVAS_CLI_SELF_UPDATE: 'true',
-        CANVAS_VERSION: release.signed.manifest.cliVersion,
-        CANVAS_LINUX_CLI_URL: release.cliArtifact.url,
-        CANVAS_LINUX_CLI_SHA256_URL: pathToFileURL(checksumPath).toString(),
-      },
-      timeoutMs: 20 * 60 * 1000,
-      maxOutputBytes: MAX_STDERR_BYTES,
+        env: {
+          ...env,
+          CANVAS_CLI_SELF_UPDATE: 'true',
+          CANVAS_VERSION: release.signed.manifest.cliVersion,
+          CANVAS_LINUX_CLI_URL: release.cliArtifact.url,
+          CANVAS_LINUX_CLI_SHA256_URL: pathToFileURL(checksumPath).toString(),
+        },
+        signal, timeoutMs, processGroup: true, maxOutputBytes: MAX_STDERR_BYTES,
     });
+    if (result.status === 124) throw new StandaloneUpdaterDeadlineError('Host CLI preparation exceeded its update deadline.');
     if (result.status !== 0) throw new Error(safeMessage(result.stderr, 'Verified host CLI update failed.'));
-    const verified = await readCurrentCanvasVersion(env);
+    signal.throwIfAborted();
+    const verified = await readCurrentCanvasVersion(env, signal);
     if (!verified.cliVersion || compareCanvasVersions(verified.cliVersion, release.signed.manifest.cliVersion) < 0) {
       throw new Error('Verified host CLI artifact was not activated.');
     }
@@ -264,6 +288,7 @@ export class StandaloneUpdater {
   private activeAbortController: AbortController | null = null;
   private reserving = false;
   private mutationTail: Promise<void> = Promise.resolve();
+  private startTail: Promise<void> = Promise.resolve();
 
   private serializeMutation<T>(action: () => Promise<T>): Promise<T> {
     const result = this.mutationTail.then(action);
@@ -279,7 +304,9 @@ export class StandaloneUpdater {
     this.releaseResolver = options.releaseResolver || new StandaloneReleaseResolver({ env: this.env });
     this.currentVersion = options.currentVersion || (() => readCurrentCanvasVersion(this.env));
     this.executeUpdate = options.executeUpdate || ((operation, onEvent, release, signal) => executeCliUpdate(this.env, operation, onEvent, release, signal));
-    this.prepareHostCli = options.prepareHostCli || ((release, current) => prepareVerifiedHostCli(this.env, release, current));
+    this.prepareHostCli = options.prepareHostCli || ((release, current, signal) => prepareVerifiedHostCli(
+      this.env, release, current, signal, options.cliPreparationTimeoutMs ?? CLI_PREPARATION_TIMEOUT_MS,
+    ));
     this.now = options.now || (() => new Date());
     this.onBusyChange = options.onBusyChange || (() => undefined);
   }
@@ -317,6 +344,7 @@ export class StandaloneUpdater {
       channel,
       currentVersion: current.appVersion,
       updateAvailable,
+      idempotentStart: true,
       ...readiness,
       release: {
         releaseId: release.signed.manifest.releaseId,
@@ -329,44 +357,64 @@ export class StandaloneUpdater {
   }
 
   async startUpdate(input: StartStandaloneUpdateInput): Promise<SystemUpdateOperation> {
-    if (this.busy) throw new StandaloneUpdaterHttpError(409, 'operation_conflict', 'Another Canvas update is already running.');
-    this.reserving = true;
-    this.onBusyChange(true);
-    try {
-      const currentJournalOperation = await this.journal.readCurrentOperation();
-      if (currentJournalOperation && !isTerminalSystemUpdateStatus(currentJournalOperation.status)) {
-        throw new StandaloneUpdaterHttpError(409, 'operation_conflict', 'Another Canvas update is already running.');
+    const result = this.startTail.then(async () => {
+      if (input.requestId) {
+        if (!UUID_PATTERN.test(input.requestId)) throw new StandaloneUpdaterHttpError(400, 'request_invalid', 'Update request ID is invalid.');
+        const requestId = input.requestId;
+        const existing = await this.serializeMutation(async () => {
+          const stored = await this.journal.readOperation(requestId);
+          if (!stored) return null;
+          if (!stored.startRequest || stored.startRequest.channel !== input.channel ||
+            stored.startRequest.expectedReleaseId !== input.expectedReleaseId) {
+            throw new StandaloneUpdaterHttpError(409, 'request_id_conflict', 'Update request ID belongs to another request.');
+          }
+          return publicOperation(await this.recoverUnownedOperation(stored));
+        });
+        if (existing) return existing;
       }
-      const [release, current] = await Promise.all([this.releaseResolver.resolve(input.channel), this.currentVersion()]);
-      if (input.expectedReleaseId && input.expectedReleaseId !== release.signed.manifest.releaseId) {
-        throw new StandaloneUpdaterHttpError(409, 'release_changed', 'The available release changed; review it before updating.');
+      if (this.busy) throw new StandaloneUpdaterHttpError(409, 'operation_conflict', 'Another Canvas update is already running.');
+      this.reserving = true;
+      this.onBusyChange(true);
+      try {
+        const currentJournalOperation = await this.journal.readCurrentOperation();
+        if (currentJournalOperation && !isTerminalSystemUpdateStatus(currentJournalOperation.status)) {
+          throw new StandaloneUpdaterHttpError(409, 'operation_conflict', 'Another Canvas update is already running.');
+        }
+        const [release, current] = await Promise.all([this.releaseResolver.resolve(input.channel), this.currentVersion()]);
+        if (input.expectedReleaseId && input.expectedReleaseId !== release.signed.manifest.releaseId) {
+          throw new StandaloneUpdaterHttpError(409, 'release_changed', 'The available release changed; review it before updating.');
+        }
+        const readiness = this.readiness(release, current);
+        if (!readiness.ready) {
+          throw new StandaloneUpdaterHttpError(412, 'release_incompatible', `Update preflight failed: ${readiness.reasons.join(', ')}`);
+        }
+        if (current.appVersion && compareCanvasVersions(current.appVersion, release.signed.manifest.version) >= 0) {
+          throw new StandaloneUpdaterHttpError(409, 'no_update_available', 'Canvas Notebook is already up to date.');
+        }
+        const operation = createStandaloneUpdateOperation({
+          operationId: input.requestId || crypto.randomUUID(),
+          targetVersion: release.signed.manifest.version,
+          targetImageRef: release.signed.manifest.imageRef,
+          currentVersion: current.appVersion,
+          now: this.now(),
+        });
+        await this.journal.writeOperation({ ...operation, ...(input.requestId ? {
+          startRequest: { channel: input.channel, ...(input.expectedReleaseId ? { expectedReleaseId: input.expectedReleaseId } : {}) },
+        } : {}) });
+        this.activeOperationId = operation.operationId;
+        const abortController = new AbortController();
+        this.activeAbortController = abortController;
+        this.reserving = false;
+        setImmediate(() => void this.runOperation(operation, release, current, abortController));
+        return operation;
+      } catch (error) {
+        this.reserving = false;
+        this.onBusyChange(false);
+        throw error;
       }
-      const readiness = this.readiness(release, current);
-      if (!readiness.ready) {
-        throw new StandaloneUpdaterHttpError(412, 'release_incompatible', `Update preflight failed: ${readiness.reasons.join(', ')}`);
-      }
-      if (current.appVersion && compareCanvasVersions(current.appVersion, release.signed.manifest.version) >= 0) {
-        throw new StandaloneUpdaterHttpError(409, 'no_update_available', 'Canvas Notebook is already up to date.');
-      }
-      const operation = createStandaloneUpdateOperation({
-        operationId: crypto.randomUUID(),
-        targetVersion: release.signed.manifest.version,
-        targetImageRef: release.signed.manifest.imageRef,
-        currentVersion: current.appVersion,
-        now: this.now(),
-      });
-      await this.journal.writeOperation(operation);
-      this.activeOperationId = operation.operationId;
-      const abortController = new AbortController();
-      this.activeAbortController = abortController;
-      this.reserving = false;
-      setImmediate(() => void this.runOperation(operation, release, current, abortController));
-      return operation;
-    } catch (error) {
-      this.reserving = false;
-      this.onBusyChange(false);
-      throw error;
-    }
+    });
+    this.startTail = result.then(() => undefined, () => undefined);
+    return result;
   }
 
   private async recordEvent(operationId: string, event: SystemUpdateEvent): Promise<void> {
@@ -401,7 +449,7 @@ export class StandaloneUpdater {
     abortController: AbortController,
   ): Promise<void> {
     try {
-      await this.prepareHostCli(release, current);
+      await this.prepareHostCli(release, current, abortController.signal);
       if (abortController.signal.aborted) throw new Error('Canvas Notebook update was canceled before the apply phase.');
       const exitCode = await this.executeUpdate!(
         initial,
@@ -415,10 +463,10 @@ export class StandaloneUpdater {
           const completedAt = this.now().toISOString();
           await this.journal.writeOperation({
             ...operation,
-            status: exitCode === 0 ? 'indeterminate' : (operation.rolledBack ? 'rolled_back' : 'failed'),
+            status: operation.rolledBack ? 'rolled_back' : exitCode === 0 || applyMayHaveStarted(operation) ? 'indeterminate' : 'failed',
             updatedAt: completedAt,
             completedAt,
-            errorCode: exitCode === 0 ? 'operation_interrupted' : (operation.errorCode || 'update_execution_failed'),
+            errorCode: operation.errorCode || (exitCode === 0 || applyMayHaveStarted(operation) ? 'operation_interrupted' : 'update_execution_failed'),
             error: operation.error || (exitCode === 0
               ? 'Canvas CLI exited without a final verification event.'
               : 'Canvas CLI update execution failed.'),
@@ -427,15 +475,15 @@ export class StandaloneUpdater {
       });
     } catch (error) {
       await this.serializeMutation(async () => {
-        const operation = await this.journal.readOperation(initial.operationId).catch(() => initial) || initial;
-        if (!isTerminalSystemUpdateStatus(operation.status)) {
+        const operation = await this.journal.readOperation(initial.operationId).catch(() => null);
+        if (operation && !isTerminalSystemUpdateStatus(operation.status)) {
           const completedAt = this.now().toISOString();
           await this.journal.writeOperation({
             ...operation,
-            status: operation.rolledBack ? 'rolled_back' : 'failed',
+            status: operation.rolledBack ? 'rolled_back' : applyMayHaveStarted(operation) ? 'indeterminate' : 'failed',
             updatedAt: completedAt,
             completedAt,
-            errorCode: operation.errorCode || 'update_execution_failed',
+            errorCode: operation.errorCode || (error instanceof StandaloneUpdaterDeadlineError ? 'deadline_exceeded' : applyMayHaveStarted(operation) ? 'operation_interrupted' : 'update_execution_failed'),
             error: safeMessage(error, 'Canvas CLI update execution failed.'),
           });
         }
@@ -449,7 +497,17 @@ export class StandaloneUpdater {
   }
 
   async getOperation(operationId: string): Promise<SystemUpdateOperation | null> {
-    return this.journal.readOperation(operationId);
+    return this.serializeMutation(async () => {
+      const operation = await this.journal.readOperation(operationId);
+      return operation ? publicOperation(await this.recoverUnownedOperation(operation)) : null;
+    });
+  }
+
+  private async recoverUnownedOperation(operation: StandaloneJournalOperation): Promise<StandaloneJournalOperation> {
+    if (this.busy || isTerminalSystemUpdateStatus(operation.status)) return operation;
+    const completedAt = this.now().toISOString();
+    return this.journal.writeOperation({ ...operation, status: 'indeterminate', updatedAt: completedAt,
+      completedAt, errorCode: 'operation_interrupted', error: 'The updater cannot verify execution of this persisted update request.' });
   }
 
   async getEvents(operationId: string, afterSequence: number): Promise<SystemUpdateEvent[]> {
@@ -460,7 +518,7 @@ export class StandaloneUpdater {
     return this.serializeMutation(async () => {
       const operation = await this.journal.readOperation(operationId);
       if (!operation) throw new StandaloneUpdaterHttpError(404, 'operation_not_found', 'Update operation was not found.');
-      if (isTerminalSystemUpdateStatus(operation.status)) return operation;
+      if (isTerminalSystemUpdateStatus(operation.status)) return publicOperation(operation);
       if (this.activeOperationId !== operationId || !this.activeAbortController) {
         throw new StandaloneUpdaterHttpError(409, 'operation_conflict', 'Update operation cannot be canceled from this updater process.');
       }
@@ -485,7 +543,7 @@ export class StandaloneUpdater {
       };
       await this.journal.writeOperation(canceled);
       this.activeAbortController.abort();
-      return canceled;
+      return publicOperation(canceled);
     });
   }
 }

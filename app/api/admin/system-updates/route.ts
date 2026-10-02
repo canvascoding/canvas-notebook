@@ -43,13 +43,14 @@ export async function POST(request: NextRequest) {
 
   let channel: SystemUpdateReleaseChannel = 'stable';
   let expectedReleaseId: string | undefined;
+  let requestId: string | undefined;
   try {
     const payload = await request.json().catch(() => null);
     if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) {
       throw new SystemUpdateBackendError(400, 'request_invalid', 'Update request must be a JSON object.');
     }
     const input = payload as Record<string, unknown>;
-    if (Object.keys(input).some((key) => key !== 'channel' && key !== 'expectedReleaseId')) {
+    if (Object.keys(input).some((key) => !['channel', 'expectedReleaseId', 'requestId'].includes(key))) {
       throw new SystemUpdateBackendError(400, 'request_invalid', 'Update request contains unsupported fields.');
     }
     channel = parseSystemUpdateChannel(input.channel);
@@ -59,9 +60,15 @@ export async function POST(request: NextRequest) {
       }
       expectedReleaseId = input.expectedReleaseId;
     }
+    if (input.requestId !== undefined) {
+      if (typeof input.requestId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(input.requestId)) {
+        throw new SystemUpdateBackendError(400, 'request_invalid', 'Update request ID is invalid.');
+      }
+      requestId = input.requestId.toLowerCase();
+    }
 
     const backend = resolveSystemUpdateBackend();
-    const operation = await backend.startUpdate({ channel, ...(expectedReleaseId ? { expectedReleaseId } : {}) });
+    const operation = await backend.startUpdate({ channel, ...(expectedReleaseId ? { expectedReleaseId } : {}), ...(requestId ? { requestId } : {}) });
     await recordAuditEvent({
       userId: admin.session.user.id,
       source: 'system_update',

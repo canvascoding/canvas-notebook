@@ -52,6 +52,7 @@ function capturedOutputText(state: CapturedOutput): string {
 export class SpawnCommandRunner implements CommandRunner {
   run(command: string, args: string[], options: RunOptions = {}): Promise<CommandResult> {
     return new Promise((resolve, reject) => {
+      options.signal?.throwIfAborted();
       const stdio = options.stdio === 'inherit' ? 'inherit' : 'pipe';
       const managed = startManagedProcess(command, args, { ...options, stdio });
       const { child } = managed;
@@ -92,11 +93,13 @@ export class SpawnCommandRunner implements CommandRunner {
         if (error) capture(stderr, Buffer.from(`\nProcess stream failed: ${(error as NodeJS.ErrnoException).code || error.name}.`, 'utf8'));
         if (timedOut) {
           capture(stderr, Buffer.from('\nCommand exceeded its update deadline.', 'utf8'));
+        } else if (canceled) {
+          capture(stderr, Buffer.from('\nCommand was canceled.', 'utf8'));
         } else if (signal) {
           capture(stderr, Buffer.from(`\nCommand terminated by ${signal}.`, 'utf8'));
         }
         resolve({
-          status: timedOut ? 124 : (captureExceeded || canceled ? 1 : (code ?? 1)),
+          status: timedOut ? 124 : (canceled ? 130 : captureExceeded ? 1 : (code ?? 1)),
           stdout: capturedOutputText(stdout),
           stderr: timedOut ? capturedOutputText(stderr).trim() : capturedOutputText(stderr),
           signal, timedOut, stdoutTruncated: stdout.truncated, stderrTruncated: stderr.truncated,

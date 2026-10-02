@@ -68,6 +68,7 @@ export interface RunOptions {
   signal?: AbortSignal;
   capture?: 'tail' | 'exact';
   maxOutputBytes?: number;
+  processGroup?: boolean;
 }
 
 export interface CommandRunner {

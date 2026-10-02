@@ -1,0 +1,37 @@
+{
+  "purpose": "Supplemental browser visual fixture after live E2E; no update start",
+  "fixture": {
+    "contractVersion": 1,
+    "mode": "managed",
+    "platform": "canvas-installer",
+    "channel": "stable",
+    "currentVersion": "2026.10.1.2",
+    "updateAvailable": true,
+    "ready": true,
+    "idempotentStart": true,
+    "reasons": [],
+    "release": {
+      "releaseId": "758bc93c-42b7-4300-8473-c58262fee8c7",
+      "version": "2026.10.1.2",
+      "publishedAt": "2026-10-02T00:28:41.515Z",
+      "backupRequired": false,
+      "releaseNotesUrl": null
+    },
+    "instructions": []
+  },
+  "viewports": {
+    "desktop": {
+      "viewport": 1440,
+      "documentWidth": 1440,
+      "horizontalOverflow": false,
+      "dialogOpacity": "1"
+    },
+    "mobile": {
+      "viewport": 390,
+      "documentWidth": 390,
+      "horizontalOverflow": false,
+      "dialogOpacity": "1"
+    }
+  },
+  "startPostCount": 0
+}

@@ -40,7 +40,10 @@ async function main() {
   let createdBody: Record<string, unknown> = {};
   let startCount = 0;
   let onExecStarted: (() => void) | undefined;
-  const container = { Id: 'container', Name: '/notebook', Image: 'sha256:image', RestartCount: 0, Config: { Image: 'image:tag' }, State: { Status: 'running', Running: true, Restarting: false, OOMKilled: false, ExitCode: 0, StartedAt: 'start' } };
+  const containerId = 'a'.repeat(64);
+  const imageId = `sha256:${'b'.repeat(64)}`;
+  const created = '2026-10-02T00:00:00Z';
+  const container = { Id: containerId, Name: '/notebook', Image: imageId, RestartCount: 0, Config: { Image: 'image:tag' }, State: { Status: 'running', Running: true, Restarting: false, OOMKilled: false, ExitCode: 0, StartedAt: created } };
   const server = http.createServer(async (req, res) => {
     requests.push(`${req.method} ${req.url}`);
     const json = (body: unknown, status = 200) => { res.writeHead(status, { 'content-type': 'application/json' }); res.end(JSON.stringify(body)); };
@@ -60,7 +63,7 @@ async function main() {
       else json(container);
       return;
     }
-    if (req.url?.includes('/images/')) { json({ Id: 'sha256:image', RepoDigests: ['digest'], Created: 'created' }); return; }
+    if (req.url?.includes('/images/')) { json({ Id: imageId, RepoDigests: [`image@${imageId}`], Created: created }); return; }
     if (req.url?.includes('/exec/') && req.url.endsWith('/json')) { json({ Running: running, ExitCode: running ? null : exitCode }); return; }
     json({}, 404);
   });
@@ -105,9 +108,9 @@ async function main() {
     await assert.rejects(engine.available(), /version negotiation failed/u);
     mode = 'normal';
     assert(await engine.available()); assert(await docker.isReachable());
-    assert.equal(await docker.imageId('registry/image@sha256:abc'), 'sha256:image');
-    assert.equal(await docker.containerImageId('container'), 'sha256:image');
-    assert(await docker.isContainerRunning('container'));
+    assert.equal(await docker.imageId('registry/image@sha256:abc'), imageId);
+    assert.equal(await docker.containerImageId(containerId), imageId);
+    assert(await docker.isContainerRunning(containerId));
     assert.equal(await engine.inspectContainer('missing'), null);
     exitCode = 7;
     let output = await docker.exec('container', ['command', 'literal; no-shell'], { user: 'postgres', timeoutMs:2000 });
@@ -137,12 +140,12 @@ async function main() {
     onExecStarted = () => cancellation.abort();
     await assert.rejects(docker.exec('container', ['command'], {signal:cancellation.signal,timeoutMs:2000}), DockerExecInterruptedError);
     onExecStarted = undefined;
-    mode = 'http-error';await assert.rejects(docker.imageStatus(createDefaultConfig(context.paths, context.platform), 'container'), /HTTP 500/u);
+    mode = 'http-error';await assert.rejects(docker.imageStatus(createDefaultConfig(context.paths, context.platform), containerId), /HTTP 500/u);
     mode = 'oversized-json';await assert.rejects(engine.inspectContainer('container'), /exceeded its limit/u);
     mode = 'normal';running = false;
     const requestOffset = requests.length;
-    const status = await docker.imageStatus(createDefaultConfig(context.paths, context.platform), 'container');
-    assert.equal(status.runningImageId, 'sha256:image');
+    const status = await docker.imageStatus(createDefaultConfig(context.paths, context.platform), containerId);
+    assert.equal(status.runningImageId, imageId);
     assert.equal(requests.slice(requestOffset).filter(route=>route.endsWith('/json') && !route.includes('/exec/')).length, 2);
     assert.equal(runner.calls.length, 0, 'Direct API operations must not spawn Docker CLI commands');
     const contextual = new DockerEngineClient(runner, context, { NODE_ENV: 'test', DOCKER_CONTEXT: 'chosen-context', DOCKER_HOST: 'unix:///wrong-daemon.sock' });

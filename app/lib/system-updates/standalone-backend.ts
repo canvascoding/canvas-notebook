@@ -64,6 +64,7 @@ function parseAvailability(value: unknown, channel: SystemUpdateReleaseChannel):
   if (
     candidate.contractVersion !== 1 || candidate.mode !== 'standalone' || candidate.channel !== channel ||
     typeof candidate.ready !== 'boolean' || typeof candidate.updateAvailable !== 'boolean' ||
+    (candidate.idempotentStart !== undefined && typeof candidate.idempotentStart !== 'boolean') ||
     !Array.isArray(candidate.reasons) || candidate.reasons.some((reason) => typeof reason !== 'string') ||
     typeof release !== 'object' || release === null || typeof release.releaseId !== 'string' ||
     typeof release.version !== 'string' || typeof release.publishedAt !== 'string' ||
@@ -152,7 +153,11 @@ export class StandaloneSystemUpdateBackend implements SystemUpdateBackend {
     const operation = typeof response === 'object' && response !== null
       ? (response as { operation?: unknown }).operation
       : null;
-    return withoutSensitiveOperationFields(parseOperation(operation));
+    const parsed = parseOperation(operation);
+    if (input.requestId && parsed.operationId !== input.requestId) {
+      throw new SystemUpdateBackendError(502, 'updater_protocol_invalid', 'Updater returned another update operation.');
+    }
+    return withoutSensitiveOperationFields(parsed);
   }
 
   async getOperation(operationId: string): Promise<SystemUpdateOperationView> {
