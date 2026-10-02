@@ -31,10 +31,10 @@ export function projectWorkspaceOperationBatchFileViews(input: {
 async function resolveReviewerScope(batch: WorkspaceOperationBatchRecord): Promise<WorkspaceOperationBatchScope> {
   if (!batch.reviewerUserId) throw new Error('BATCH_ACCESS_DENIED');
   const db = await openDb();
-  let user: { id: string; email: string; role: string; name: string } | undefined;
-  try { user = await db.get('SELECT id,email,role,name FROM "user" WHERE id = $1', [batch.reviewerUserId]) as typeof user; }
+  let user: { id: string; email: string; role: string; name: string; banned: boolean | number | null } | undefined;
+  try { user = await db.get('SELECT id,email,role,name,banned FROM "user" WHERE id = $1', [batch.reviewerUserId]) as typeof user; }
   finally { await db.close(); }
-  if (!user) throw new Error('BATCH_ACCESS_DENIED');
+  if (!user || user.banned === true || user.banned === 1) throw new Error('BATCH_ACCESS_DENIED');
   const workspace = await resolvePostgresWorkspaceForActor(resolveWorkspaceActor(user), batch.workspaceId);
   if (!workspace || workspace.status && workspace.status !== 'active' || !workspace.permissions.canRead
     || !workspace.permissions.canWrite || !workspace.permissions.canDelete) throw new Error('BATCH_ACCESS_DENIED');

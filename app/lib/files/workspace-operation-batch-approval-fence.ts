@@ -53,7 +53,7 @@ export async function assertWorkspaceOperationBatchApprovalCurrent(plan: Workspa
       // initializes Yjs. These already-fenced disk bytes remain authoritative.
       // A previously persisted/checkpointed/operated document never gets this exception.
       if (Number(document.state_version) === 0 && !document.has_persisted_state && !document.has_state_history) continue;
-      stale();
+      return stale();
     }
     if (persisted.status !== 'active' || persisted.workspaceId !== scope.workspace.workspaceId
       || persisted.path !== document.path || persisted.degraded

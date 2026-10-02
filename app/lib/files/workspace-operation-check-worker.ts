@@ -10,10 +10,10 @@ import { withWorkspaceMutationLock } from './workspace-mutation-lock';
 
 async function resolveCheckScope(job: WorkspaceOperationCheckRecord): Promise<WorkspaceOperationBatchScope> {
   const db = await openDb();
-  let user: { id: string; email: string; role: string; name: string } | undefined;
-  try { user = await db.get('SELECT id,email,role,name FROM "user" WHERE id=$1', [job.requesterUserId]) as typeof user; }
+  let user: { id: string; email: string; role: string; name: string; banned: boolean | number | null } | undefined;
+  try { user = await db.get('SELECT id,email,role,name,banned FROM "user" WHERE id=$1', [job.requesterUserId]) as typeof user; }
   finally { await db.close(); }
-  if (!user) throw new Error('CHECK_ACCESS_DENIED');
+  if (!user || user.banned === true || user.banned === 1) throw new Error('CHECK_ACCESS_DENIED');
   const workspace = await resolvePostgresWorkspaceForActor(resolveWorkspaceActor(user), job.workspaceId);
   if (!workspace || workspace.status && workspace.status !== 'active' || !workspace.permissions.canRead
     || !workspace.permissions.canWrite || !workspace.permissions.canDelete) throw new Error('CHECK_ACCESS_DENIED');
