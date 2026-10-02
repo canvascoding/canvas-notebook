@@ -198,18 +198,39 @@ async function startHost(input: { baseURL: string; port: number; qaBindingHash?:
   // Only this test launcher installs the socket. Normal dev/prod startup does not.
   const signals = ['SIGTERM', 'SIGINT'] as const;
   const previousHandlers = new Map(signals.map(signal => [signal, new Set(process.rawListeners(signal))]));
+  const applicationHandlers = new Map(signals.map(signal => [signal, [] as ReturnType<typeof process.rawListeners>]));
+  const ownHandlers = new Set<ReturnType<typeof process.rawListeners>[number]>();
+  const adoptApplicationHandlers = () => {
+    for (const signal of signals) {
+      const captured = applicationHandlers.get(signal)!;
+      for (const handler of process.rawListeners(signal)) {
+        if (previousHandlers.get(signal)!.has(handler) || ownHandlers.has(handler)) continue;
+        process.removeListener(signal, handler);
+        if (!captured.includes(handler)) captured.push(handler);
+      }
+    }
+  };
+  let adoptionQueued = false;
+  const observeNewListener = (eventName: string | symbol, listener: (...args: unknown[]) => void) => {
+    if ((eventName !== 'SIGTERM' && eventName !== 'SIGINT') || ownHandlers.has(listener) || adoptionQueued) return;
+    adoptionQueued = true;
+    // newListener fires before the actual registration. A subsequent OS signal
+    // is dispatched after this microtask has adopted the new raw once wrapper.
+    queueMicrotask(() => { adoptionQueued = false; adoptApplicationHandlers(); });
+  };
+  if (input.qaBindingHash) process.on('newListener', observeNewListener);
   requireFromHere('../server.js');
-  const applicationHandlers = new Map(signals.map(signal => [signal,
-    process.rawListeners(signal).filter(handler => !previousHandlers.get(signal)!.has(handler))]));
+  adoptApplicationHandlers();
   let shutdownPromise: Promise<void> | undefined;
   for (const signal of signals) {
-    for (const handler of applicationHandlers.get(signal)!) process.removeListener(signal, handler);
-    process.on(signal, () => {
+    const stop = () => {
       if (shutdownPromise) return;
       shutdownPromise = close().then(async () => {
+        if (input.qaBindingHash) adoptApplicationHandlers();
         // Node dispatches signal listeners synchronously. Yield only after all
         // original handlers have started, preserving their existing grace periods.
-        const results = applicationHandlers.get(signal)!.map(handler => handler.call(process, signal));
+        const handlers = applicationHandlers.get(signal)!.slice();
+        const results = handlers.map(handler => handler.call(process, signal));
         await Promise.all(results);
       }).catch(async () => {
         retainExitEvidence = true;
@@ -222,7 +243,9 @@ async function startHost(input: { baseURL: string; port: number; qaBindingHash?:
         } catch { /* Keep the private receipt and report failure even if the marker cannot be written. */ }
         console.error('Local fixture shutdown failed; drain evidence retained.');
       });
-    });
+    };
+    ownHandlers.add(stop);
+    process.on(signal, stop);
   }
   const deadline = Date.now() + 120_000;
   let ready = false;
@@ -239,18 +262,24 @@ async function startHost(input: { baseURL: string; port: number; qaBindingHash?:
   }
   if (!ready) { process.kill(process.pid, 'SIGTERM'); throw new Error('The real collaboration server did not become ready.'); }
   if (closing) throw new Error('Local fixture host stopped during startup.');
+  if (input.qaBindingHash) adoptApplicationHandlers();
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject);
     server.listen(socketPath, () => { server.off('error', reject); resolve(); });
   });
   await chmod(socketPath, 0o600);
   if (receiptPath) {
+    adoptApplicationHandlers();
     // UID + start identity is checked afresh by the client, without argv or ENV.
     const processStartIdentity = execFileSync('/bin/ps', ['-p', String(process.pid), '-o', 'uid=', '-o', 'lstart='],
       { encoding: 'utf8', timeout: 5_000 }).trim().replace(/\s+/gu, ' ');
     if (!processStartIdentity.startsWith(`${process.getuid?.()} `)) throw new Error('QA host process ownership is unavailable.');
     await writeFile(receiptPath, `${JSON.stringify({ version: 1, pid: process.pid, port: input.port,
       bindingHash: input.qaBindingHash, startedAt: hostStartedAt, processStartIdentity })}\n`, { mode: 0o600, flag: 'wx' });
+  }
+  if (input.qaBindingHash) {
+    adoptApplicationHandlers();
+    if (closing) throw new Error('Local fixture host stopped during startup.');
   }
   console.log(`[Local agent E2E] Socket: ${socketPath}`);
   return { socketPath, receiptPath, close };

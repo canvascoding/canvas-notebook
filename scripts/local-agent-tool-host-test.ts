@@ -517,6 +517,50 @@ test('all captured original signal handlers start synchronously before an earlie
   } finally { finishEarlier(); await Promise.resolve(); await Promise.resolve(); }
 });
 
+test('a late original once handler is adopted after ready and cannot bypass pending tool drain', async () => {
+  let release!: (value: unknown) => void;
+  const pending = new Promise(resolve => { release = resolve; });
+  const { host, state } = await loadHost({ startReady: true, deferredTool: pending });
+  const running = await host.__test.startOwnedCollaborationAgentTestHost();
+  const socket = new EventEmitter() as TestSocket;
+  socket.setTimeout = () => {};
+  socket.end = () => { state.events.push('tool-reply'); };
+  socket.destroy = () => { state.events.push('tool-disconnect'); socket.emit('close'); };
+  state.connectionHandler!(socket);
+  socket.emit('data', Buffer.from(`${JSON.stringify({ input: fixtureInput() })}\n`));
+  for (let round = 0; round < 10 && !state.toolExecutions.length; round += 1) await Promise.resolve();
+  assert.equal(state.toolExecutions.length, 1);
+  const lateOriginal = (signal: string) => { state.events.push(`late-shutdown:${signal}`); };
+  state.processEvents.once('SIGTERM', lateOriginal);
+  const rawOnce = state.processEvents.rawListeners('SIGTERM').at(-1)!;
+  assert.equal((rawOnce as { listener?: unknown }).listener, lateOriginal);
+  state.processEvents.once('non-signal-event', () => state.events.push('non-signal-retained'));
+  await Promise.resolve(); // Like the kernel signal callback, dispatch after registration's microtasks.
+  state.processEvents.emit('non-signal-event');
+  assert.ok(state.events.includes('non-signal-retained'));
+  state.processEvents.emit('SIGTERM', 'SIGTERM');
+  try {
+    await Promise.resolve();
+    assert.equal(state.events.some(event => event.includes('shutdown:')), false,
+      'neither early nor late original handler may start before the pending tool finishes');
+    assert.ok(state.events.includes('preexisting:SIGTERM'));
+  } finally { release({ accepted: true }); await running.close(); await Promise.resolve(); }
+  assert.deepEqual(state.events.filter(event => event.includes('shutdown:')), [
+    'app-shutdown:SIGTERM', 'late-shutdown:SIGTERM',
+  ]);
+  assert.ok(state.events.indexOf('tool-reply') < state.events.indexOf('app-shutdown:SIGTERM'));
+  assert.ok(state.events.indexOf('tool-disconnect') < state.events.indexOf('late-shutdown:SIGTERM'));
+  rawOnce.call(state.processEvents, 'SIGTERM');
+  assert.equal(state.events.filter(event => event === 'late-shutdown:SIGTERM').length, 1,
+    'the captured raw once wrapper still invokes its exact original callback once');
+});
+
+test('the original development launcher does not install the QA late-listener observer', async () => {
+  const { host, state } = await loadHost({ startReady: true });
+  await host.__test.main();
+  assert.equal(state.processEvents.listenerCount('newListener'), 0);
+});
+
 test('post-listen receipt failure never returns a discoverable owned host', async () => {
   const { host, state } = await loadHost({ startReady: true, receiptWriteError: true });
   await assert.rejects(host.__test.startOwnedCollaborationAgentTestHost(), /Receipt failed/u);
