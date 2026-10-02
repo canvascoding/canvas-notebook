@@ -84,7 +84,9 @@ export class LocalMarkdownDocument {
     const analysis = analyzeMarkdownRichMode(markdown, this.frontmatter);
     let content = previous.content;
     if (analysis.mode === 'rich') {
-      const parsed = this.manager.parse(analysis.body);
+      const projection = this.manager.parse(analysis.body);
+      // A local editing document needs a paragraph even when its exact source is empty.
+      const parsed = projection.content?.length ? projection : this.schema.topNodeType.createAndFill()!.toJSON();
       const current = this.richJson(previous);
       preserveAlignedStableIds(current, parsed, stableIdCounts(current));
       content = this.schema.nodeFromJSON(generateRichNodeIds(parsed, this.extensions)).content;

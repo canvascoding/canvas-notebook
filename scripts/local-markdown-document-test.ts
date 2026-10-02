@@ -18,6 +18,101 @@ const edit = (document: LocalMarkdownDocument, view: LocalMarkdownView, after: J
     beforeSelection: textSelection(before), afterSelection: textSelection(caret), group });
 };
 
+for (const frontmatter of ['metadata', 'content'] as const) {
+  test(`empty ${frontmatter} documents have an editable paragraph without changing their source`, () => {
+    const document = new LocalMarkdownDocument('', frontmatter);
+    const snapshot = document.getSnapshot();
+    assert.equal(snapshot.markdown, '');
+    assert.equal(snapshot.revision, 0);
+    assert.equal(snapshot.canUndo, false);
+    assert.equal(snapshot.canRedo, false);
+    const empty = rich(document);
+    assert.equal(empty.content!.length, 1);
+    assert.equal(empty.content![0].type, 'paragraph');
+    assert.equal(empty.content![0].content, undefined);
+    assert.match(empty.content![0].attrs!.id, /^[a-z0-9-]+$/i);
+
+    const sourceOnly = new LocalMarkdownDocument(' ', frontmatter).getSnapshot();
+    assert.equal(sourceOnly.markdown, ' ');
+    assert.equal(sourceOnly.richDocument, null, 'source-only whitespace stays verbatim');
+  });
+
+  test(`deleting all ${frontmatter} source preserves bytes and identities through undo and redo`, () => {
+    const initial = frontmatter === 'metadata' ? '---\r\ntitle: Before\r\n---\r\n\r\nExisting prompt\r\n' : 'Existing prompt\r\n';
+    const document = new LocalMarkdownDocument(initial, frontmatter);
+    const initialRich = rich(document);
+    const view = document.openView('source', () => true);
+    assert(view.changeSource({ revision: 0, markdown: '',
+      beforeSelection: { anchor: 0, head: initial.length }, afterSelection: { anchor: 0, head: 0 } }));
+    assert.equal(document.getSnapshot().markdown, '');
+    const clearedRich = rich(document);
+    assert.equal(clearedRich.content!.length, 1);
+    assert.equal(clearedRich.content![0].type, 'paragraph');
+    assert.equal(clearedRich.content![0].content, undefined, 'the fresh paragraph cannot retain deleted content');
+    assert.ok(clearedRich.content![0].attrs!.id);
+    assert(view.history('undo'));
+    assert.equal(document.getSnapshot().markdown, initial, 'undo restores the exact original source bytes');
+    assert.deepEqual(rich(document), initialRich);
+    assert.deepEqual(document.getSourceSelection(), { anchor: 0, head: initial.length });
+    assert(view.history('redo'));
+    assert.equal(document.getSnapshot().markdown, '');
+    assert.deepEqual(rich(document), clearedRich, 'redo retains the empty paragraph identity');
+    assert.deepEqual(document.getSourceSelection(), { anchor: 0, head: 0 });
+  });
+}
+
+test('metadata-only source remains exact while its empty body has a writable rich projection', () => {
+  const initial = '---\r\ntitle: Empty body\r\n---\r\n\r\n';
+  const document = new LocalMarkdownDocument(initial);
+  assert.equal(document.getSnapshot().markdown, initial);
+  assert.equal(document.getSnapshot().canUndo, false);
+  const empty = rich(document);
+  assert.equal(empty.content!.length, 1);
+  assert.equal(empty.content![0].type, 'paragraph');
+  assert.equal(empty.content![0].content, undefined);
+  assert.ok(empty.content![0].attrs!.id);
+});
+
+test('external empty replacements remove prior content and reset local history', () => {
+  const document = new LocalMarkdownDocument('Existing prompt', 'content');
+  const view = document.openView('source', () => true);
+  assert(document.changeSourceFromOwner('Existing prompt edited'));
+  assert.equal(document.getSnapshot().canUndo, true);
+  document.replaceExternal('');
+  assert.equal(document.getSnapshot().markdown, '');
+  assert.equal(document.getSnapshot().canUndo, false);
+  assert.equal(document.getSnapshot().canRedo, false);
+  assert.equal(document.getSourceSelection(), null);
+  const empty = rich(document);
+  assert.equal(empty.content!.length, 1);
+  assert.equal(empty.content![0].type, 'paragraph');
+  assert.equal(empty.content![0].content, undefined);
+  assert.ok(empty.content![0].attrs!.id);
+  assert.equal(view.history('undo'), false, 'an external clear cannot resurrect the prior prompt');
+  const cleared = document.getSnapshot();
+  document.replaceExternal('');
+  assert.equal(document.getSnapshot(), cleared, 'an empty parent echo preserves the current identity');
+});
+
+test('typing into a new empty rich document and undo keep its paragraph identity', () => {
+  const document = new LocalMarkdownDocument('', 'content');
+  const initialRich = rich(document);
+  const view = document.openView('rich', () => true);
+  const typed = rich(document);
+  typed.content![0].content = [{ type: 'text', text: 'Hello' }];
+  assert(edit(document, view, typed, 1, 6, 'typing'));
+  assert.equal(document.getSnapshot().markdown, 'Hello');
+  assert.deepEqual(ids(rich(document)), ids(initialRich));
+  assert(view.history('undo'));
+  assert.equal(document.getSnapshot().markdown, '');
+  assert.deepEqual(rich(document), initialRich);
+  assert.deepEqual(document.getRichSelection(), textSelection(1));
+  assert(view.history('redo'));
+  assert.equal(document.getSnapshot().markdown, 'Hello');
+  assert.deepEqual(rich(document), typed);
+  assert.deepEqual(document.getRichSelection(), textSelection(6));
+});
+
 test('local rich text and moves keep identities and undo across replaced views', () => {
   const document = new LocalMarkdownDocument(original);
   const initial = rich(document);
