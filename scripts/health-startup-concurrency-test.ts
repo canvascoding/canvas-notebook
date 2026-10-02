@@ -24,6 +24,7 @@ async function main() {
     let queries = 0;
     let releases = 0;
     let authFailure = false;
+    let projectionFailure = false;
     let teamFeatures = false;
     let acquire = () => acquisition.promise;
     type Connection = { get: () => Promise<void>; close: () => Promise<void> };
@@ -44,6 +45,12 @@ async function main() {
       '@/app/lib/collaboration/health': {
         getCollaborationRuntimeHealth: () => ({ websocketReady: true, excalidrawWebsocketReady: true, capabilityReady: true }),
         setCollaborationRuntimeHealth: () => {},
+      },
+      '@/app/lib/collaboration/projection-repository': {
+        readCollaborationProjectionHealth: async () => {
+          if (projectionFailure) throw new Error('private projection diagnostics');
+          return { active: 0, identityConflicts: 0, quarantined: 0, pending: 0, binaryPersistenceFailures: 0 };
+        },
       },
       '@/app/lib/license/entitlements': { requireRuntimeCapability: async () => {}, requireTeamRuntimeLicense: async () => {} },
       '@/app/lib/mcp/server/readiness': { getDirectMcpReadiness: async () => ({ status: 'disabled', code: 'MCP_DISABLED' }) },
@@ -96,6 +103,15 @@ async function main() {
     const healthyTeam = await route.GET();
     assert.equal(healthyTeam.status, 200);
     assert.equal((await healthyTeam.json()).checks.collaboration, 'ok');
+
+    projectionFailure = true;
+    const failedProjection = await route.GET();
+    assert.equal(failedProjection.status, 200, 'unavailable projection diagnostics must not restart a healthy process');
+    const projectionBody = await failedProjection.json();
+    assert.equal(projectionBody.checks.db, 'ok');
+    assert.equal(projectionBody.collaboration.projection, null);
+    assert.doesNotMatch(JSON.stringify(projectionBody), /private projection/);
+    projectionFailure = false;
 
     const lateAcquisition = deferred<Connection>();
     acquire = () => lateAcquisition.promise;

@@ -101,7 +101,10 @@ async function testServerSequencing(unhandled: unknown[]) {
       './server/websocket-server.ts': ws,
       './server/browser-view-server.ts': { createBrowserViewServer: noop },
       './server/collaboration-server.ts': { createCollaborationServer: noop },
+      './app/lib/collaboration/room-owner-local-test.ts': { resolveLocalCollaborationRoomOwnerOptions: () => null },
+      './app/lib/files/workspace-operation-batch-worker.ts': { initializeWorkspaceOperationBatchWorkerRuntime: () => ({ stop: noop }) },
       './server/excalidraw-collaboration/server.ts': { createExcalidrawCollaborationServer: noop },
+      './server/live-events-server.ts': { createLiveEventsServer: () => ({ close: noop }) },
       './server/agent-runtime-loader.ts': { preloadAgentRuntimeModules: async () => {
         events.push('warmup');
         if (scenario === 'warmup-failure') throw failure;
@@ -116,10 +119,10 @@ async function testServerSequencing(unhandled: unknown[]) {
       console: { log: noop, error: noop }, process: { env: {} },
       resolveImportedServerModule: (module: unknown) => module,
       closeChatWebSocketServer: null, flushCollaborationDocuments: null,
-      flushExcalidrawCollaborationDocuments: null, isCanvasWebSocketRequest: null,
+      flushExcalidrawCollaborationDocuments: null, closeLiveEventsServer: null, isCanvasWebSocketRequest: null,
       installChatUpgradeGuard: noop, port: 3000, hostname: 'localhost',
       app: { prepare: async () => { events.push('prepare'); } },
-      server: { listen: () => { events.push('listen'); } },
+      server: { once: noop, listen: () => { events.push('listen'); } },
       scheduleBackgroundMaintenance: noop, recoverStaleAutomationRuns: noop,
     });
     const result = observeStartupTask(exported.startServer());
