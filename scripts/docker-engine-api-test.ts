@@ -39,6 +39,7 @@ async function main() {
   let capturedInput = '';
   let createdBody: Record<string, unknown> = {};
   let startCount = 0;
+  let onExecStarted: (() => void) | undefined;
   const container = { Id: 'container', Name: '/notebook', Image: 'sha256:image', RestartCount: 0, Config: { Image: 'image:tag' }, State: { Status: 'running', Running: true, Restarting: false, OOMKilled: false, ExitCode: 0, StartedAt: 'start' } };
   const server = http.createServer(async (req, res) => {
     requests.push(`${req.method} ${req.url}`);
@@ -77,6 +78,7 @@ async function main() {
         socket.end(Buffer.concat([Buffer.from(`HTTP/1.1 200 OK\r\nContent-Length: ${data.length}\r\n\r\n`), data])); return;
       }
       socket.write('HTTP/1.1 101 UPGRADED\r\nConnection: Upgrade\r\nUpgrade: tcp\r\n\r\n');
+      onExecStarted?.();
       if (mode === 'timeout' || mode === 'abort') return;
       if (mode === 'stdin') {
         socket.on('data', (chunk) => { capturedInput += String(chunk); });
@@ -128,10 +130,13 @@ async function main() {
     await assert.rejects(docker.exec('container', ['command'], {timeoutMs:2000,signal:AbortSignal.timeout(100)}), /request canceled/u);
     mode = 'timeout';
     const before = startCount;
-    await assert.rejects(docker.exec('container', ['command'], {timeoutMs:100}), (error: unknown) => error instanceof DockerExecInterruptedError && error.running === true && error.execId.startsWith('exec-'));
+    await assert.rejects(docker.exec('container', ['command'], {timeoutMs:2000}), (error: unknown) => error instanceof DockerExecInterruptedError && error.running === true && error.execId.startsWith('exec-'));
     assert.equal(startCount, before + 1);
     mode = 'abort';running = true;
-    await assert.rejects(docker.exec('container', ['command'], {signal:AbortSignal.timeout(100)}), DockerExecInterruptedError);
+    const cancellation = new AbortController();
+    onExecStarted = () => cancellation.abort();
+    await assert.rejects(docker.exec('container', ['command'], {signal:cancellation.signal,timeoutMs:2000}), DockerExecInterruptedError);
+    onExecStarted = undefined;
     mode = 'http-error';await assert.rejects(docker.imageStatus(createDefaultConfig(context.paths, context.platform), 'container'), /HTTP 500/u);
     mode = 'oversized-json';await assert.rejects(engine.inspectContainer('container'), /exceeded its limit/u);
     mode = 'normal';running = false;
