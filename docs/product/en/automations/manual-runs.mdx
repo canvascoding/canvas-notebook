@@ -6,24 +6,24 @@ sectionOrder: 6
 order: 5
 locale: en
 translationKey: automations.manual-runs
-updatedAt: 2026-07-17
+updatedAt: 2026-10-02
 ---
 
 # Running an Automation Manually
 
 A manual run uses the saved job definition immediately and records `manual` as its trigger. It is the safest way to validate a new or changed automation before unattended execution.
 
-## Test before activation
+## Validate before the first scheduled run
 
-1. Save the job as paused.
-2. Confirm the workspace, agent, provider readiness, context paths, output, and delivery.
-3. Choose Run Now.
-4. Watch the run status until success or failure.
+1. Save the job as paused while you review its workspace, agent, provider readiness, context paths, output, and delivery.
+2. Choose a next scheduled time far enough ahead to finish the test first.
+3. Activate the job when you are ready to test it. Paused jobs cannot be run manually.
+4. Choose Run Now and watch the run status until success or failure.
 5. Open the result session and any created files.
 6. Review delivery and the event log.
-7. Correct the job, run again, and activate only after the behavior is acceptable.
+7. Correct the job and test again; pause it if the scheduled run should not proceed yet.
 
-A paused job can still be run manually when the interface and access policy allow it. The manual action does not rewrite the saved schedule or next recurring time.
+The manual action does not rewrite the saved schedule or next recurring time. Activating the job does make its schedule eligible to run, so leave enough time to inspect the manual result before the next scheduled occurrence.
 
 ## Avoid duplicate side effects
 

@@ -6,7 +6,7 @@ sectionOrder: 6
 order: 2
 locale: en
 translationKey: automations.scheduled
-updatedAt: 2026-07-17
+updatedAt: 2026-10-02
 ---
 
 # Creating a Scheduled Automation
@@ -22,9 +22,9 @@ Create a scheduled automation when the trigger is time-based and the task can ru
 5. Add specific context paths the agent should inspect.
 6. Choose an output file or directory when the run creates deliverables.
 7. Set delivery behavior for the result message.
-8. Choose once, daily, weekly, or interval scheduling and the correct timezone.
+8. Choose once, daily, weekly, monthly, or interval scheduling and the correct timezone.
 9. Optionally restrict execution to working hours.
-10. Save as paused until a manual test succeeds.
+10. Save as paused while you review the configuration.
 
 ## Example: daily briefing
 
@@ -39,7 +39,7 @@ Set the output directory to `reports/daily/` and schedule the job for the desire
 
 ## Activate carefully
 
-Run once manually, inspect the saved file and run record, then activate the schedule. Confirm the next-run timestamp after saving.
+Choose a next-run time far enough ahead to inspect a manual test first. Activate the job when you are ready to test it; paused jobs cannot be run manually. Run it once, inspect the saved file and run record, then pause the job if you need to make corrections. Confirm the next-run timestamp after saving.
 
 ## Related guides
 
