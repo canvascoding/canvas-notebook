@@ -43,6 +43,9 @@ in `manifest.json` verify the artifacts. `manifest.json` is written last; a
 partial bundle must not authorize repair. This focused bundle supplements the
 full backup and does not replace it. Preserve historical SQLite metadata through
 an explicit read-only export from the backup; the CLI never opens SQLite.
+The standalone CLI decodes raw PostgreSQL flag values explicitly and rejects
+integers outside JavaScript's exact range. Repair fingerprints include the rich
+text representation, schema version, BOM/newline profile and workspace root.
 
 `plan.json` classifies successor identity, scope, schema and actual file hash.
 Restoration is proposed only when the current successor is valid, fully
@@ -139,5 +142,12 @@ the bounded restoration. A container restart cannot resolve identity conflicts.
 The pure recovery tests cover 64 cases, stable reruns, conflicting/missing
 successors, schema/scope failures, changed preconditions and already-restored
 files. They do not attest to the current production inventory or backup. No
-production queries, deployment, restoration or browser automation are part of
-this implementation run.
+production queries, deployment or restoration are part of this implementation
+run. Four focused Playwright E2E tests passed against the local production build
+and managed PostgreSQL stack: offline Code/Bold convergence and durable
+projection, quarantine across reconnect/reload with stale-token rejection,
+navigation during joining, and multi-user block editing/presence/checkpointing.
+Desktop and compact quarantine layouts were inspected. This does not attest to
+the complete E2E suite or a production restore. The standalone recovery CLI is
+also tested in a fresh process against an isolated real PostgreSQL database,
+including raw flags, encoding, quarantine and unsafe-integer rejection.

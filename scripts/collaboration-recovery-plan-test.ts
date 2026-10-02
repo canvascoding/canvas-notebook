@@ -6,10 +6,12 @@ import { planCollaborationRecovery, verifyCollaborationRecoveryCase,
 function fixture(count = 1): CollaborationRecoveryEvidence {
   const states: RecoveryState[] = [];
   const evidence: CollaborationRecoveryEvidence = { states, registry: [], files: [],
-    workspaces: [{ id: 'workspace', organizationId: 'org', type: 'team', status: 'active' }] };
+    workspaces: [{ id: 'workspace', organizationId: 'org', type: 'team', status: 'active',
+      rootRelativePath: 'workspaces/team/org/default/files' }] };
   for (let index = 0; index < count; index++) {
     const base: RecoveryState = { documentId: `old-${index}`, workspaceId: 'workspace', organizationId: 'org',
-      path: `${index}.md`, lifecycleGeneration: 1, documentSequence: 5, checkpointSequence: 5,
+      path: `${index}.md`, representation: 'tiptap_blocks', schemaVersion: 1, newlineStyle: 'lf', hasBom: false,
+      lifecycleGeneration: 1, documentSequence: 5, checkpointSequence: 5,
       stateVector: 'old-vector', yjsHash: 'old-binary', canonicalHash: 'old-canonical', serializedHash: 'old-file',
       computedSerializedHash: 'old-file', validationCode: null, degraded: false };
     states.push(base, { ...base, documentId: `current-${index}`, stateVector: 'current-vector', yjsHash: 'current-binary',
@@ -77,4 +79,35 @@ test('the invalid historical state remains identified for separate clone repair'
   assert.equal(result.schema, 'schema_invalid');
   assert.equal(result.preconditions.orphan.yjsHash, 'old-binary');
   assert.equal(result.proposedAction, 'restore_current_snapshot_after_approval');
+});
+
+for (const [stateIndex, role] of [[0, 'orphan'], [1, 'successor']] as const) {
+  for (const [name, change] of [
+    ['representation', (state: RecoveryState) => { state.representation = 'tiptap_xml'; }],
+    ['schemaVersion', (state: RecoveryState) => { state.schemaVersion++; }],
+    ['newlineStyle', (state: RecoveryState) => { state.newlineStyle = 'crlf'; }],
+    ['hasBom', (state: RecoveryState) => { state.hasBom = true; }],
+  ] as const) {
+    test(`recovery recheck rejects changed ${role} ${name} even with unchanged content hashes`, () => {
+      const original = fixture(); const plan = planCollaborationRecovery(original);
+      const changed = structuredClone(original); change(changed.states[stateIndex]);
+      const observed = planCollaborationRecovery(changed);
+      assert.notEqual(observed.planId, plan.planId);
+      assert.equal(verifyCollaborationRecoveryCase(plan.cases[0], observed), 'changed');
+      changed.files[0].hash = 'current-file';
+      assert.equal(verifyCollaborationRecoveryCase(plan.cases[0], planCollaborationRecovery(changed)), 'changed',
+        'matching current content cannot bypass changed recovery metadata');
+    });
+  }
+}
+
+test('recovery recheck rejects changed workspace root even with identical document and file hashes', () => {
+  const original = fixture(); const plan = planCollaborationRecovery(original);
+  const changed = structuredClone(original);
+  changed.workspaces[0].rootRelativePath = 'workspaces/team/org/replacement/files';
+  const observed = planCollaborationRecovery(changed);
+  assert.notEqual(observed.planId, plan.planId);
+  assert.equal(verifyCollaborationRecoveryCase(plan.cases[0], observed), 'changed');
+  changed.files[0].hash = 'current-file';
+  assert.equal(verifyCollaborationRecoveryCase(plan.cases[0], planCollaborationRecovery(changed)), 'changed');
 });

@@ -7,6 +7,21 @@ import { serializeCanonicalText, type PersistedCollaborationState } from '../app
 import { workspaceAbsoluteRoot } from '../app/lib/workspaces/contracts';
 import { planCollaborationRecovery, recoveryHash, type CollaborationRecoveryEvidence } from '../app/lib/collaboration/recovery-plan';
 
+function postgresFlag(value: unknown): boolean {
+  if (value === true || value === 1 || value === '1') return true;
+  if (value === false || value === 0 || value === '0') return false;
+  throw new Error('Invalid PostgreSQL flag in recovery evidence.');
+}
+
+function postgresInteger(value: unknown, minimum = 0): number {
+  if (typeof value !== 'number' && (typeof value !== 'string' || !/^\d+$/u.test(value))) {
+    throw new Error('Invalid PostgreSQL integer in recovery evidence.');
+  }
+  const number = Number(value);
+  if (!Number.isSafeInteger(number) || number < minimum) throw new Error('Unsafe PostgreSQL integer in recovery evidence.');
+  return number;
+}
+
 async function main() {
   const args = process.argv.slice(2);
   if (args.length !== 2 || args[0] !== '--output' || !path.isAbsolute(args[1])) {
@@ -46,12 +61,12 @@ async function main() {
       states: states.map((row) => {
         const state: PersistedCollaborationState = { documentId: row.document_id, workspaceId: row.workspace_id,
           organizationId: row.organization_id, path: row.path, representation: row.representation,
-          lifecycleGeneration: Number(row.lifecycle_generation), schemaVersion: Number(row.schema_version),
-          yjsState: row.yjs_state, stateVector: row.state_vector, documentSequence: Number(row.document_sequence),
-          checkpointSequence: Number(row.checkpoint_sequence), persistedAt: Number(row.persisted_at),
-          checkpointedAt: row.checkpointed_at === null ? null : Number(row.checkpointed_at), canonicalHash: row.canonical_hash,
-          serializedHash: row.serialized_hash, newlineStyle: row.newline_style, hasBom: Boolean(row.has_bom),
-          degraded: Boolean(row.degraded), status: 'active' };
+          lifecycleGeneration: postgresInteger(row.lifecycle_generation, 1), schemaVersion: postgresInteger(row.schema_version, 1),
+          yjsState: row.yjs_state, stateVector: row.state_vector, documentSequence: postgresInteger(row.document_sequence),
+          checkpointSequence: postgresInteger(row.checkpoint_sequence), persistedAt: postgresInteger(row.persisted_at),
+          checkpointedAt: row.checkpointed_at === null ? null : postgresInteger(row.checkpointed_at), canonicalHash: row.canonical_hash,
+          serializedHash: row.serialized_hash, newlineStyle: row.newline_style, hasBom: postgresFlag(row.has_bom),
+          degraded: postgresFlag(row.degraded), status: 'active' };
         let computedSerializedHash: string | null = null;
         let validationCode: string | null = null;
         try { computedSerializedHash = recoveryHash(serializeCanonicalText(authoritativeCollaborationSnapshot(state).canonicalContent, state)); }
@@ -59,6 +74,7 @@ async function main() {
           ? error.code : 'snapshot_invalid'; }
         return { documentId: state.documentId, workspaceId: state.workspaceId, organizationId: state.organizationId, path: state.path,
           lifecycleGeneration: state.lifecycleGeneration, documentSequence: state.documentSequence, checkpointSequence: state.checkpointSequence,
+          representation: state.representation, schemaVersion: state.schemaVersion, newlineStyle: state.newlineStyle, hasBom: state.hasBom,
           stateVector: Buffer.from(state.stateVector).toString('base64'), yjsHash: recoveryHash(state.yjsState),
           canonicalHash: state.canonicalHash, serializedHash: state.serializedHash, computedSerializedHash,
           validationCode, degraded: state.degraded };
@@ -66,7 +82,8 @@ async function main() {
       registry: registry.map((row) => ({ id: row.id, workspaceId: row.workspace_id, organizationId: row.organization_id,
         path: row.path, provider: row.provider, status: row.status, workspaceType: row.workspace_type,
         snapshotRevisionId: row.snapshot_revision_id })),
-      workspaces: workspaces.map((row) => ({ id: row.id, organizationId: row.organization_id, type: row.type, status: row.status })), files: [],
+      workspaces: workspaces.map((row) => ({ id: row.id, organizationId: row.organization_id, type: row.type, status: row.status,
+        rootRelativePath: row.root_relative_path })), files: [],
     };
     const candidates = planCollaborationRecovery(evidence).cases;
     for (const candidate of candidates) {

@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import type { TextCollaborationRepresentation } from './types';
 
 /** Offline evidence only. No registry inserts, ID rebinding or SQLite fallback. */
 export type RecoveryState = {
@@ -6,6 +7,10 @@ export type RecoveryState = {
   workspaceId: string;
   organizationId: string | null;
   path: string;
+  representation: TextCollaborationRepresentation;
+  schemaVersion: number;
+  newlineStyle: 'lf' | 'crlf';
+  hasBom: boolean;
   lifecycleGeneration: number;
   documentSequence: number;
   checkpointSequence: number;
@@ -27,7 +32,13 @@ export type RecoveryRegistry = {
   workspaceType: string;
   snapshotRevisionId: string | null;
 };
-export type RecoveryWorkspace = { id: string; organizationId: string | null; type: string; status: string };
+export type RecoveryWorkspace = {
+  id: string;
+  organizationId: string | null;
+  type: string;
+  status: string;
+  rootRelativePath: string;
+};
 export type RecoveryFile = { workspaceId: string; path: string; hash: string | null; errorCode: string | null };
 export type CollaborationRecoveryEvidence = {
   states: RecoveryState[];

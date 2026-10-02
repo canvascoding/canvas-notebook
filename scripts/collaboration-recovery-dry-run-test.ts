@@ -34,6 +34,8 @@ async function main() {
       return { rows: rows.map((row) => ({ ...row,
         ...(row.yjs_state ? { yjs_state: Buffer.from(row.yjs_state as Uint8Array) } : {}),
         ...(row.state_vector ? { state_vector: Buffer.from(row.state_vector as Uint8Array) } : {}),
+        ...('degraded' in row ? { degraded: String(row.degraded) } : {}),
+        ...('has_bom' in row ? { has_bom: String(row.has_bom) } : {}),
       })) };
     }
   }
@@ -69,6 +71,14 @@ async function main() {
     const capture = processFixture.argv[3];
     const plan = JSON.parse(await fs.readFile(path.join(capture, 'plan.json'), 'utf8'));
     assert.equal(plan.cases.length, 1); assert.equal(plan.cases[0].proposedAction, 'restore_current_snapshot_after_approval');
+    assert.equal(plan.cases[0].preconditions.successor.degraded, false, 'raw PostgreSQL zero is not quarantine');
+    for (const state of [plan.cases[0].preconditions.orphan, plan.cases[0].preconditions.successor]) {
+      assert.equal(state.representation, 'plain_text');
+      assert.equal(state.schemaVersion, 1);
+      assert.equal(state.newlineStyle, 'lf');
+      assert.equal(state.hasBom, false, 'raw PostgreSQL zero does not add a BOM');
+    }
+    assert.equal(plan.cases[0].preconditions.workspace.rootRelativePath, 'files');
     const manifest = JSON.parse(await fs.readFile(path.join(capture, 'manifest.json'), 'utf8'));
     for (const [name, hash] of Object.entries(manifest.artifacts)) {
       assert.equal(recoveryHash(await fs.readFile(path.join(capture, name))), hash);
