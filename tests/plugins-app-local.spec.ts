@@ -324,16 +324,34 @@ test('admin scope history, workspace switch, Settings shortcut and narrow dark k
     ));
     expect(alternate?.id).toBeTruthy();
     await switcher.click();
+    const alternateInstalled = page.waitForResponse(response => {
+      const url = new URL(response.url());
+      return response.request().method() === 'GET' && url.pathname === '/api/plugins'
+        && url.searchParams.get('scope') === 'user' && url.searchParams.get('workspaceId') === alternate.id
+        && response.request().headers()['x-canvas-workspace-id'] === alternate.id;
+    });
     await page.getByTestId(`workspace-option-${alternate.id}`).click();
     await expect(switcher).toHaveAttribute('data-active-workspace-id', alternate.id);
     await expect(page).toHaveURL(/\/en\/plugins\?view=installed$/);
     await expect(page.getByRole('menu')).toHaveCount(0);
-    await page.waitForLoadState('networkidle');
+    expect((await alternateInstalled).status()).toBe(200);
+    await expect(page.getByRole('tab', { name: en.skills.plugins.storeTabs.installed, exact: true })).toHaveAttribute('aria-selected', 'true');
+    await expect(page.locator('[role="tabpanel"][data-state="active"] [data-slot="skeleton"]')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: en.skills.plugins.reload, exact: true })).toBeEnabled();
     await switcher.click();
+    const sharedInstalled = page.waitForResponse(response => {
+      const url = new URL(response.url());
+      return response.request().method() === 'GET' && url.pathname === '/api/plugins'
+        && url.searchParams.get('scope') === 'user' && url.searchParams.get('workspaceId') === sharedId
+        && response.request().headers()['x-canvas-workspace-id'] === sharedId;
+    });
     await page.getByTestId(`workspace-option-${sharedId}`).click();
     await expect(switcher).toHaveAttribute('data-active-workspace-id', sharedId!);
     await expect(page.getByRole('menu')).toHaveCount(0);
-    await page.waitForLoadState('networkidle');
+    expect((await sharedInstalled).status()).toBe(200);
+    await expect(page.getByRole('tab', { name: en.skills.plugins.storeTabs.installed, exact: true })).toHaveAttribute('aria-selected', 'true');
+    await expect(page.locator('[role="tabpanel"][data-state="active"] [data-slot="skeleton"]')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: en.skills.plugins.reload, exact: true })).toBeEnabled();
     await search.fill('qa-scope-reset');
     await page.getByRole('button', { name: en.skills.scope.organization, exact: true }).click();
     await expect(page).toHaveURL(/scope=organization/);
@@ -801,6 +819,9 @@ test('OAuth completion from an earlier workspace cannot make the new workspace r
             document.documentElement.dataset.qaComposioBody = 'waiting';
             await pendingBody;
             document.documentElement.dataset.qaComposioBody = 'released';
+            // The obsolete poll's synchronous post-JSON workspace guard runs
+            // in its await continuation before the next browser timer task.
+            window.setTimeout(() => { document.documentElement.dataset.qaComposioBodySettled = 'true'; }, 0);
             return { ...body, connectedAccounts: [{ toolkit: { slug: 'gmail' }, status: 'ACTIVE' }] };
           };
         }
@@ -832,7 +853,7 @@ test('OAuth completion from an earlier workspace cannot make the new workspace r
     const originalPreflightCount = state.preflightRequests.filter(request => request.workspace === originalWorkspace).length;
     await page.evaluate(() => window.dispatchEvent(new Event('qa-release-composio-body')));
     await expect(page.locator('html')).toHaveAttribute('data-qa-composio-body', 'released');
-    await page.waitForLoadState('networkidle');
+    await expect(page.locator('html')).toHaveAttribute('data-qa-composio-body-settled', 'true');
     expect(state.preflightRequests.filter(request => request.workspace === originalWorkspace)).toHaveLength(originalPreflightCount);
     await expect(dialog.getByText(en.skills.plugins.preflight.needsSetup, { exact: true })).toBeVisible();
     await expect(dialog.getByRole('button', { name: en.skills.plugins.addPlugin, exact: true })).toBeDisabled();
