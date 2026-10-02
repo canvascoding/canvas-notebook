@@ -9,11 +9,11 @@ const alertVariants = cva(
     variants: {
       variant: {
         default: "border-border bg-card [&>svg]:text-muted-foreground",
-        info: "border-primary/25 bg-primary/5 [&>svg]:text-primary",
-        warning: "border-warning/30 bg-warning/5 [&>svg]:text-warning",
-        success: "border-success/30 bg-success/5 [&>svg]:text-success",
+        info: "border-primary/25 bg-background [&>svg]:text-primary",
+        warning: "border-warning/30 bg-background [&>svg]:text-warning",
+        success: "border-success/30 bg-background [&>svg]:text-success",
         destructive:
-          "border-destructive/35 bg-destructive/5 [&>svg]:text-destructive",
+          "border-destructive/35 bg-background [&>svg]:text-destructive",
       },
       size: {
         default: "px-4 py-3",
@@ -60,7 +60,7 @@ function AlertDescription({ className, ...props }: React.ComponentProps<"div">) 
     <div
       data-slot="alert-description"
       className={cn(
-        "col-start-2 grid min-w-0 grid-cols-1 justify-items-start gap-1 [overflow-wrap:anywhere] text-[length:inherit] leading-relaxed text-muted-foreground [&>*]:min-w-0 [&>*]:max-w-full [&_code]:whitespace-normal [&_p]:leading-relaxed",
+        "col-start-2 grid min-w-0 grid-cols-1 justify-items-start gap-1 [overflow-wrap:anywhere] text-[length:inherit] leading-relaxed text-foreground [&>*]:min-w-0 [&>*]:max-w-full [&_code]:whitespace-normal [&_p]:leading-relaxed",
         className
       )}
       {...props}

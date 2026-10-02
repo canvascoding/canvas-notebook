@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { runInNewContext } from 'node:vm';
 
 import {
   createWorkspaceAccentCssTokens,
@@ -7,6 +8,7 @@ import {
   workspaceAppearanceContrastRatio,
   workspaceAppearanceDefinitionFromProfile,
 } from '../app/lib/workspaces/appearance-theme';
+import { workspaceAppearanceInitScript } from '../app/lib/workspaces/appearance-theme-init';
 import {
   WORKSPACE_BRAND_PRESETS,
   cloneWorkspaceBrandProfile,
@@ -58,5 +60,42 @@ assert.notEqual(darkWorkspaceAccent['--accent'], workspaceAccent['--accent']);
 
 const fallbackAccent = createWorkspaceAccentCssTokens('not-a-color', 'light');
 assert.equal(fallbackAccent['--primary'], '#2563eb');
+
+// The first-paint cache must match the hydrated theme, including status colours
+// whose contrast is adjusted for custom workspace backgrounds.
+for (const backgroundColor of ['#fbf8f1', '#558899', '#047857']) {
+  const cachedDefinition = { ...definition, backgroundColor };
+  for (const { theme, systemDark, mode } of [
+    { theme: 'light', systemDark: false, mode: 'light' },
+    { theme: 'dark', systemDark: false, mode: 'dark' },
+    { theme: 'system', systemDark: false, mode: 'light' },
+    { theme: 'system', systemDark: true, mode: 'dark' },
+  ] as const) {
+    const applied: Record<string, string> = {};
+    const dataset: Record<string, string> = {};
+    const cache = new Map([
+      ['canvas.activeWorkspaceId', 'appearance-test'],
+      ['canvas.workspaceAppearance.appearance-test', JSON.stringify(cachedDefinition)],
+      ['theme', theme],
+    ]);
+    runInNewContext(workspaceAppearanceInitScript, {
+      window: {
+        location: { pathname: '/de/studio' },
+        matchMedia: () => ({ matches: systemDark }),
+      },
+      localStorage: { getItem: (key: string) => cache.get(key) ?? null },
+      document: {
+        documentElement: {
+          dataset,
+          style: { setProperty: (key: string, value: string) => { applied[key] = value; } },
+        },
+      },
+    });
+    assert.deepEqual(applied, createWorkspaceAppearanceCssTokens(cachedDefinition, mode),
+      `First-paint and hydrated tokens must match for ${backgroundColor} in ${theme}/${systemDark ? 'dark' : 'light'}.`);
+    assert.equal(dataset.workspaceAppearance, 'true');
+    assert.equal(dataset.workspaceAppearanceWorkspace, 'appearance-test');
+  }
+}
 
 console.log('workspace-appearance-theme-test: ok');
