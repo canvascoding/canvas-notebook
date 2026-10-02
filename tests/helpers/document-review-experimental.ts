@@ -5,6 +5,7 @@ import path from 'node:path';
 
 import { ownedCollaborationQaEnabled, requireOwnedCollaborationQaTarget } from '../../scripts/lib/owned-collaboration-qa';
 import { createAuthenticatedContext } from './managed-test-context';
+import { prepareOwnedReviewCooldown } from './owned-review-cooldown';
 
 export type ExperimentalState = {
   documentReviewEnabled: boolean;
@@ -48,17 +49,21 @@ export async function setScopedDocumentReview(request: APIRequestContext, enable
 
 /** Existing enabled stacks are read-only. Enabling/restoring is confined to the verified private QA clone. */
 export async function withDocumentReviewEnabled<T>(browser: Browser, run: () => Promise<T>): Promise<T> {
-  const context = await createAuthenticatedContext(browser);
-  const cleanup = await requestFactory.newContext({ baseURL: process.env.BASE_URL,
-    storageState: await context.storageState(), timeout: 15_000 });
+  const baselineContexts = new Set(browser.contexts());
+  let cleanup: APIRequestContext | undefined;
   let initial: ExperimentalState | undefined;
   let owned: ExperimentalState | undefined;
   let lock: Awaited<ReturnType<typeof open>> | undefined;
   let lockPath: string | undefined;
+  let cooldown: Awaited<ReturnType<typeof prepareOwnedReviewCooldown>> | undefined;
   let patchAttempted = false;
+  let primaryFailed = false;
   let primaryError: unknown;
   let result!: T;
   try {
+    const context = await createAuthenticatedContext(browser);
+    cleanup = await requestFactory.newContext({ baseURL: process.env.BASE_URL,
+      storageState: await context.storageState(), timeout: 15_000 });
     if (ownedCollaborationQaEnabled()) {
       const target = await requireOwnedCollaborationQaTarget();
       const session = await cleanup.get('/api/auth/get-session');
@@ -71,6 +76,10 @@ export async function withDocumentReviewEnabled<T>(browser: Browser, run: () => 
       lock = await open(lockPath, 'wx', 0o600);
       await lock.writeFile(JSON.stringify({ pid: process.pid, nonce: randomUUID(), bindingHash: target.bindingHash }));
       await lock.sync();
+      const socketPath = process.env.CANVAS_LOCAL_AGENT_TOOL_SOCKET;
+      expect(socketPath, 'QA review isolation requires the attested live Source tool socket.').toBeTruthy();
+      cooldown = await prepareOwnedReviewCooldown({ directory: path.dirname(target.dataRoot), bindingHash: target.bindingHash,
+        socketPath: socketPath!, leasePath: lockPath, lease: lock });
     }
     initial = await readExperimentalState(cleanup);
     if (!initial.documentReviewEnabled) {
@@ -83,11 +92,11 @@ export async function withDocumentReviewEnabled<T>(browser: Browser, run: () => 
       expect(await readExperimentalState(cleanup)).toEqual(owned);
     }
     result = await run();
-  } catch (error) { primaryError = error; }
+  } catch (error) { primaryFailed = true; primaryError = error; }
   const cleanupErrors: unknown[] = [];
   let restoreVerified = !patchAttempted;
   try {
-    if (initial && owned) {
+    if (initial && owned && cleanup) {
       expect(await readExperimentalState(cleanup), 'Review fixture ownership changed; retain state.').toEqual(owned);
       const restored = await setScopedDocumentReview(cleanup, initial.documentReviewEnabled);
       expect(restored.studioBulkEnabled).toBe(initial.studioBulkEnabled);
@@ -97,13 +106,24 @@ export async function withDocumentReviewEnabled<T>(browser: Browser, run: () => 
       restoreVerified = true;
     } else if (patchAttempted) {
       throw new Error('Review enable acknowledgment is unverified; retain the QA scope for inspection.');
-    } else if (initial && lock) {
+    } else if (initial && lock && cleanup) {
       restoreVerified = false;
       expect(await readExperimentalState(cleanup), 'Review setting changed while the QA fixture held its lease.').toEqual(initial);
       restoreVerified = true;
     }
   } catch (error) { cleanupErrors.push(error); }
-  if (lockPath && lock && restoreVerified) {
+  for (const context of browser.contexts().filter(context => !baselineContexts.has(context))) {
+    try { await context.close(); } catch (error) { cleanupErrors.push(error); }
+  }
+  try {
+    expect(browser.contexts().filter(context => !baselineContexts.has(context)),
+      'Every context created by this review fixture must be closed before publishing quiescence.').toEqual([]);
+  } catch (error) { cleanupErrors.push(error); }
+  try { await cleanup?.dispose(); } catch (error) { cleanupErrors.push(error); }
+  if (lockPath && lock && restoreVerified && cleanupErrors.length === 0) {
+    try { await cooldown?.markQuiescent(); } catch (error) { cleanupErrors.push(error); }
+  }
+  if (lockPath && lock && restoreVerified && cleanupErrors.length === 0) {
     try {
       const held = await lock.stat();
       const current = await lstat(lockPath);
@@ -113,11 +133,9 @@ export async function withDocumentReviewEnabled<T>(browser: Browser, run: () => 
     } catch (error) { cleanupErrors.push(error); }
   }
   try { await lock?.close(); } catch (error) { cleanupErrors.push(error); }
-  try { await context.close(); } catch (error) { cleanupErrors.push(error); }
-  try { await cleanup.dispose(); } catch (error) { cleanupErrors.push(error); }
-  if (cleanupErrors.length) throw new AggregateError(primaryError ? [primaryError, ...cleanupErrors] : cleanupErrors,
+  if (cleanupErrors.length) throw new AggregateError(primaryFailed ? [primaryError, ...cleanupErrors] : cleanupErrors,
     'Document Review fixture cleanup failed.');
-  if (primaryError) throw primaryError;
+  if (primaryFailed) throw primaryError;
   return result;
 }
 
@@ -125,5 +143,5 @@ export const test = base.extend<{ documentReviewFlag: void }>({
   documentReviewFlag: [async ({ browser }, runFixture) => {
     if (process.env.COLLABORATION_E2E !== '1') return runFixture();
     await withDocumentReviewEnabled(browser, runFixture);
-  }, { auto: true }],
+  }, { auto: true, timeout: 150_000 }],
 });

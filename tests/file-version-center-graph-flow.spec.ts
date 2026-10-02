@@ -1,4 +1,4 @@
-import { expect, type Browser, type BrowserContext, type Page } from '@playwright/test';
+import { expect, request as requestFactory, type APIRequestContext, type Browser, type BrowserContext, type Page } from '@playwright/test';
 import { test } from './helpers/document-review-experimental';
 import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
@@ -11,7 +11,8 @@ import { buildFileVersionCenterDeepLinkV1 } from '../app/lib/file-version-center
 import { PROPOSAL_GRAPH_ERROR_CODES, type ProposalActionReceiptV1 } from '../app/lib/file-version-center/contracts/proposal-graph-v1';
 import type { ProposalReviewGraphSessionV1, ProposalReviewActionStatusResponseV1 } from '../app/lib/file-version-center/contracts/proposal-review-session-v1';
 import type { FileVersionCenterRequestV1 } from '../app/lib/file-version-center/contracts/v1';
-import { createAuthenticatedContext, uploadWorkspaceTextFile } from './helpers/managed-test-context';
+import { createAuthenticatedContext } from './helpers/managed-test-context';
+import { withOwnedTestCleanup } from './helpers/owned-test-cleanup';
 import { observeProposalReviewServerErrors } from './helpers/proposal-review-server-errors';
 
 const execFileAsync = promisify(execFile);
@@ -24,7 +25,7 @@ type Fixture = { scope: { workspaceId: string; lineageId: string; documentId: st
   proposals: Array<{ label: string; proposalId: string; operationId: string }>; choiceGroupId: string };
 type Workspace = { id: string; type: string; legacy?: boolean;
   permissions: { canRead?: boolean; canWrite?: boolean; canRunAgent?: boolean } };
-type TestScope = { context: BrowserContext; page: Page; workspaceId: string; filePath: string; fixture: Fixture };
+type TestScope = { context: BrowserContext; cleanup: APIRequestContext; page: Page; workspaceId: string; filePath: string; fixture: Fixture };
 type Timeline = { entries: Array<{ kind: string; source?: string; revisionId?: string; id?: string }> };
 
 function proposal(fixture: Fixture, label: string): Fixture['proposals'][number] {
@@ -57,11 +58,14 @@ async function createFixture(input: { userId: string; role: string; workspaceId:
 async function withFixture(browser: Browser, run: (scope: TestScope) => Promise<void>): Promise<void> {
   const context = await createAuthenticatedContext(browser, { viewport: { width: 1500, height: 950 } });
   const assertNoServerErrors = observeProposalReviewServerErrors(context);
-  const page = await context.newPage();
+  let cleanup: APIRequestContext | undefined;
   const filePath = `fvrc-1006-${randomUUID()}.md`;
   let workspaceId: string | null = null;
   let uploaded = false;
-  try {
+  await withOwnedTestCleanup(async () => {
+    cleanup = await requestFactory.newContext({ baseURL: process.env.BASE_URL || 'http://localhost:3000',
+      storageState: await context.storageState(), timeout: 15_000 });
+    const page = await context.newPage();
     const sessionResponse = await context.request.get('/api/auth/get-session');
     const session = await sessionResponse.json() as { user?: { id?: string; role?: string } };
     expect(sessionResponse.ok()).toBeTruthy();
@@ -77,8 +81,13 @@ async function withFixture(browser: Browser, run: (scope: TestScope) => Promise<
       localStorage.setItem('canvas.activeWorkspaceId', id);
       localStorage.setItem('canvas.notebook.chatVisible', 'false');
     }, workspaceId);
-    await uploadWorkspaceTextFile({ request: context.request, workspaceId, filePath, content: BASE_TEXT });
-    uploaded = true;
+    const upload = await context.request.post('/api/files/upload', {
+      headers: { [WORKSPACE_ID_HEADER]: workspaceId },
+      multipart: { path: '.', files: { name: filePath, mimeType: 'text/markdown', buffer: Buffer.from(BASE_TEXT) } },
+    });
+    uploaded = upload.ok();
+    expect(upload.status(), 'The dedicated graph flow fixture upload must succeed.').toBe(200);
+    expect(await upload.json()).toMatchObject({ success: true, count: 1, files: [filePath] });
     const collaboration = await context.request.post('/api/files/collaboration/session', {
       headers: { [WORKSPACE_ID_HEADER]: workspaceId },
       data: { path: filePath, representation: 'auto', ...COLLABORATION_CLIENT_CAPABILITIES },
@@ -91,20 +100,26 @@ async function withFixture(browser: Browser, run: (scope: TestScope) => Promise<
     expect(fixture.scope.workspaceId).toBe(workspaceId);
     expect(fixture.scope.documentId).toBe(collaborationBody.documentId);
     expect(fixture.proposals.map((item) => item.label)).toEqual(['A', 'B1', 'B2']);
-    await run({ context, page, workspaceId, filePath, fixture });
-  } finally {
-    try {
-      if (uploaded && workspaceId) {
-        const deleted = await context.request.delete('/api/files/delete', {
+    await run({ context, cleanup, page, workspaceId, filePath, fixture });
+  }, [
+    { label: 'graph flow pages', run: async () => {
+      const results = await Promise.allSettled(context.pages().map(page => page.close()));
+      const failures = results.flatMap(result => result.status === 'rejected' ? [result.reason] : []);
+      if (failures.length) throw new AggregateError(failures, 'Owned graph flow pages failed to close.');
+    } },
+    { label: 'graph flow document', run: async () => {
+      if (uploaded && workspaceId && cleanup) {
+        const deleted = await cleanup.delete('/api/files/delete', {
           headers: { [WORKSPACE_ID_HEADER]: workspaceId }, data: { path: filePath },
         });
-        expect(deleted.ok(), 'Could not remove the dedicated graph flow fixture.').toBeTruthy();
+        expect(deleted.status(), 'Could not remove the dedicated graph flow fixture.').toBe(200);
+        expect(await deleted.json()).toMatchObject({ success: true, deleted: [filePath], failed: [] });
       }
-    } finally {
-      await context.close();
-      assertNoServerErrors();
-    }
-  }
+    } },
+    { label: 'graph flow context', run: () => context.close() },
+    { label: 'graph flow cleanup API', run: async () => { await cleanup?.dispose(); } },
+    { label: 'graph flow server observer', run: assertNoServerErrors },
+  ]);
 }
 
 async function review(scope: TestScope, operationId: string): Promise<ProposalReviewGraphSessionV1> {
@@ -178,35 +193,37 @@ test.describe('FVRC-1006 dependency, choice, and recovery browser flows', () => 
       const session = await (await scope.context.request.get('/api/auth/get-session')).json() as {
         user: { id: string; role: string } };
       const fixtureTitle = `FVRC-1007 browser review ${randomUUID()}`;
-      const createdChat = await scope.context.request.post('/api/sessions', {
-        headers: { [WORKSPACE_ID_HEADER]: scope.workspaceId },
-        data: { title: fixtureTitle, workspaceId: scope.workspaceId, agentId: 'bradley' },
-      });
-      expect(createdChat.ok(), 'The real session creation route must authorize the test chat.').toBeTruthy();
-      const createdChatBody = await createdChat.json() as { session: { sessionId: string; agentId: string } };
-      const encoded = Buffer.from(JSON.stringify({ userId: session.user.id, role: session.user.role,
-        workspaceId: scope.workspaceId, documentId: scope.fixture.scope.documentId,
-        lineageId: scope.fixture.scope.lineageId, operationId: parent.operationId, filePath: scope.filePath,
-        sessionId: createdChatBody.session.sessionId, fixtureTitle,
-      })).toString('base64url');
-      let chat: { sessionId: string; agentId: string; groupId: string;
-        app: import('../app/lib/tool-apps/types').BuiltinToolAppDescriptor };
-      try {
-        const created = await execFileAsync(path.join(process.cwd(), 'node_modules/.bin/tsx'), [
-          '--conditions', 'react-server', 'scripts/fvrc-1007-chat-fixture.ts', encoded,
-        ], { cwd: process.cwd(), env: process.env, maxBuffer: 1024 * 1024, timeout: 120_000 });
-        chat = JSON.parse(String(created.stdout).trim().split('\n').at(-1)!);
-      } catch (error) {
-        const stderr = error && typeof error === 'object' && 'stderr' in error && typeof error.stderr === 'string'
-          ? error.stderr : '';
-        const code = /FVRC_CHAT_FIXTURE_FAILED=([a-z_]+:[A-Z0-9_]+)/u.exec(stderr)?.[1] ?? 'load';
-        const deleted = await scope.context.request.delete('/api/sessions', { params: {
-          sessionId: createdChatBody.session.sessionId, agentId: createdChatBody.session.agentId,
-        } });
-        expect(deleted.ok(), 'The failed dedicated test chat must be removed.').toBeTruthy();
-        throw new Error(`The dedicated persisted chat fixture failed (${code}); arguments and private output are redacted.`);
-      }
-      try {
+      let ownedChat: { sessionId: string; agentId: string } | undefined;
+      await withOwnedTestCleanup(async () => {
+        const createdChat = await scope.context.request.post('/api/sessions', {
+          headers: { [WORKSPACE_ID_HEADER]: scope.workspaceId },
+          data: { title: fixtureTitle, workspaceId: scope.workspaceId, agentId: 'bradley' },
+        });
+        const createdChatBody = await createdChat.json() as { session: { sessionId: string; agentId: string } };
+        if (typeof createdChatBody.session?.sessionId === 'string' && createdChatBody.session.sessionId
+          && typeof createdChatBody.session.agentId === 'string' && createdChatBody.session.agentId) {
+          ownedChat = { sessionId: createdChatBody.session.sessionId, agentId: createdChatBody.session.agentId };
+        }
+        expect(createdChat.ok(), 'The real session creation route must authorize the test chat.').toBeTruthy();
+        expect(ownedChat, 'The test chat needs its exact session creation receipt before the native fixture runs.').toBeDefined();
+        const encoded = Buffer.from(JSON.stringify({ userId: session.user.id, role: session.user.role,
+          workspaceId: scope.workspaceId, documentId: scope.fixture.scope.documentId,
+          lineageId: scope.fixture.scope.lineageId, operationId: parent.operationId, filePath: scope.filePath,
+          sessionId: createdChatBody.session.sessionId, fixtureTitle,
+        })).toString('base64url');
+        let chat: { sessionId: string; agentId: string; groupId: string;
+          app: import('../app/lib/tool-apps/types').BuiltinToolAppDescriptor };
+        try {
+          const created = await execFileAsync(path.join(process.cwd(), 'node_modules/.bin/tsx'), [
+            '--conditions', 'react-server', 'scripts/fvrc-1007-chat-fixture.ts', encoded,
+          ], { cwd: process.cwd(), env: process.env, maxBuffer: 1024 * 1024, timeout: 120_000 });
+          chat = JSON.parse(String(created.stdout).trim().split('\n').at(-1)!);
+        } catch (error) {
+          const stderr = error && typeof error === 'object' && 'stderr' in error && typeof error.stderr === 'string'
+            ? error.stderr : '';
+          const code = /FVRC_CHAT_FIXTURE_FAILED=([a-z_]+:[A-Z0-9_]+)/u.exec(stderr)?.[1] ?? 'load';
+          throw new Error(`The dedicated persisted chat fixture failed (${code}); arguments and private output are redacted.`);
+        }
         expect(chat.sessionId).toBe(createdChatBody.session.sessionId);
         expect(chat.agentId).toBe(createdChatBody.session.agentId);
         expect(chat.app.entityId).toBe(chat.groupId);
@@ -309,12 +326,13 @@ test.describe('FVRC-1006 dependency, choice, and recovery browser flows', () => 
         await expect(scope.page.getByTestId('graph-review-comparison').getByRole('button', { name: 'Accept change', exact: true })).toHaveCount(0);
         await testInfo.attach('historical-chat-link-readonly.png', {
           body: await scope.page.getByRole('dialog').screenshot(), contentType: 'image/png' });
-      } finally {
-        const deleted = await scope.context.request.delete('/api/sessions', {
-          params: { sessionId: chat.sessionId, agentId: chat.agentId },
-        });
-        expect(deleted.ok(), 'The dedicated test chat must be removed.').toBeTruthy();
-      }
+      }, [{ label: 'graph flow persisted chat', run: async () => {
+        if (ownedChat) {
+          const deleted = await scope.cleanup.delete('/api/sessions', { params: ownedChat });
+          expect(deleted.status(), 'The dedicated test chat must be removed.').toBe(200);
+          expect(await deleted.json()).toMatchObject({ success: true, deleted: ownedChat.sessionId });
+        }
+      } }]);
     });
   });
 

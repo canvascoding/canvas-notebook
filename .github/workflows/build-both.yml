@@ -78,6 +78,9 @@ jobs:
       - name: Verify internal scheduler authorization
         run: npm run test:internal:scheduler
 
+      - name: Verify owned review fixture cooldown contracts
+        run: node --import tsx --conditions react-server scripts/owned-review-cooldown-contract-test.ts
+
       - name: Verify release source and CLI safety gates
         run: npm run verify:release
 
