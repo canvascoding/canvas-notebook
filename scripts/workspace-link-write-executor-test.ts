@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import test from 'node:test';
 
-import type { getFileCollaborationState, readFileCollaborationState } from '../app/lib/files/collaboration-policy';
+import type { FileCollaborationState, getFileCollaborationState, readFileCollaborationState } from '../app/lib/files/collaboration-policy';
 import type { resolveTextCollaborationState } from '../app/lib/collaboration/document-state-service';
 import type { loadCollaborationStateIncludingArchived } from '../app/lib/collaboration/persistence';
 import type { getFileStats, readFile } from '../app/lib/filesystem/workspace-files';
@@ -54,7 +54,15 @@ for (const representation of ['tiptap_xml', 'tiptap_blocks'] as const) {
         isDirectConnectionAvailable: () => true, isLiveReaderAvailable: () => true,
         loadPersistedState: async () => state,
         readFile: async () => disk,
-        readCollaborationState: (async () => ({ document: { id: state.documentId, status: 'active' } })) as typeof readFileCollaborationState,
+        readCollaborationState: async (): Promise<FileCollaborationState> => ({
+          lineageId: 'home-lineage', path: state.path, strategy: 'crdt_text', crdtCapable: true,
+          sceneCapable: false, lockRequired: false, requiresRevisionCheck: false,
+          latestRevision: null, activeLock: null,
+          document: { id: state.documentId, organizationId: null, customerId: null, projectId: null,
+            workspaceId: state.workspaceId, workspaceType: 'personal', path: state.path,
+            provider: 'yjs', stateVersion: 1, snapshotRevisionId: 'home-checkpoint',
+            status: 'active', createdAt: 1, updatedAt: 1 },
+        }),
         resolveTextState: async (input) => {
           resolutions += 1;
           if (input.requireRepresentationMatch && input.initialRepresentation !== state.representation) {
