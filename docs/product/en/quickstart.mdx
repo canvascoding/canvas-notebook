@@ -1,38 +1,29 @@
 ---
 title: Quickstart
-description: Open your Notebook, configure a first agent, create a Markdown note, and schedule useful work in a few minutes.
+description: Check model access, create a workspace note, and turn a proven task into an automation.
 section: Getting Started
 sectionOrder: 1
 order: 2
 locale: en
 translationKey: getting-started.quickstart
-updatedAt: 2026-07-17
+updatedAt: 2026-10-02
 ---
 
-# Your first five minutes
+# Get started in Canvas Notebook
 
-This quickstart begins with an active Canvas Notebook account. It covers the product itself, not VM provisioning or self-hosting.
+This guide begins after you can sign in to Canvas Notebook. It does not cover installing or self-hosting a Notebook. Start in a personal or shared workspace where you have permission to create files.
 
-Before you start, open your Notebook and check the agent status shown on the home screen or in Settings. If no model is ready, add one provider credential under **Settings → AI Providers & Models**. Provider-specific setup guides will be expanded separately; you only need one working model for this walkthrough.
+Before asking an agent to do work, make sure a model is available to your account. Open **Open apps → More apps → Settings → AI Providers & Models**. An administrator may need to connect a provider and make a model available. Adding a credential alone does not guarantee that an agent has a usable runtime. If Agent Settings shows **No valid runtime available**, ask an administrator to check the provider, model access, and defaults. See [Models and providers](/docs/agents/models-and-providers) for setup details.
 
-## 1. Configure your first agent
+## 1. Start with the main agent
 
-Open **Settings → Agent Settings**. Select the base agent that came with your Notebook, or create a specialized agent for a focused job.
+Open **Open apps → More apps → Settings → Agent Settings**. Canvas Notebook includes **Bradley**, the fixed main agent. Start with Bradley; create a specialized agent only when you need a separate identity or focused instructions. The screenshot shows the agent selector and runtime status.
 
-Give it a clear name and a short purpose. For example:
+![Agent Settings showing Bradley, the built-in main agent, and its model readiness status.](./assets/quickstart-agent-settings.png)
 
-```text
-Name: Daily Marketing Assistant
-Purpose: Organize campaign notes, prepare daily priorities, and keep project files up to date.
-```
+## 2. Create a Markdown note
 
-Keep the initial tool and skill selection small. You can add more capabilities after the first workflow works reliably.
-
-> Screenshot placeholder: Agent Settings with the selected agent, model, purpose, and tool controls visible.
-
-## 2. Create your first Markdown note
-
-Open **Notebook** from the app launcher. In the file explorer, create `welcome.md` and add a small working brief:
+Open **Notebook** from **Open apps → Quick access**. Select the **Files** tab, choose **Create → New file**, enter `welcome.md`, and choose **Create file**. If you want it in a subfolder, choose that destination before creating it. Add a short working brief in the editor:
 
 ```md
 # Weekly campaign
@@ -52,13 +43,13 @@ Independent consultants and small creative teams.
 - Select one direction on Friday
 ```
 
-Save the file, then mention it in chat and ask the agent to summarize the goal or propose the next action. The agent and editor operate against the same workspace file.
+The file belongs to the selected workspace. In **Chat**, mention `welcome.md` and ask Bradley to summarize its goal or propose the next action. This step requires a usable model; if chat reports that no runtime is available, finish provider setup first.
 
-> Screenshot placeholder: Notebook with the file explorer, `welcome.md`, the Markdown editor, and agent chat visible together.
+![The Create new file dialog in Notebook, showing the filename field and root destination.](./assets/quickstart-notebook.png)
 
-## 3. Schedule your first automation
+## 3. Turn a repeatable task into an automation
 
-Open **Automations** and create a daily job called `Daily workspace heartbeat`. Use a prompt that is narrow enough to verify:
+After you have checked the one-off result, open **Automations** from **Open apps → Quick access** and choose **New automation**. Use a prompt with a clear scope and output, for example:
 
 ```text
 Review welcome.md every weekday morning. Summarize the current goal,
@@ -66,37 +57,39 @@ list unfinished actions, and write the result to reports/daily-status.md.
 Do not modify the original note.
 ```
 
-Choose the active workspace, set the schedule, select the output location, and save the job. Run it once manually before relying on the schedule.
+Select a workspace the agent can access, choose a schedule, and keep the automation paused until you have reviewed its configuration. Run it manually first, confirm the result in run history, and only then enable a recurring schedule. Follow [Creating a scheduled automation](/docs/automations/scheduled) for the full setup and [Run history](/docs/automations/run-history) to inspect the result.
 
-This example is a regular scheduled automation with “heartbeat” in its name. Canvas Notebook also provides a dedicated agent Heartbeat under Agent Settings for ongoing agent check-ins. The two workflows have different configuration and delivery behavior.
+An automation is different from the separate agent **Heartbeat** setting. See [Heartbeat and scheduled automations](/docs/automations/heartbeat-vs-automation) to choose the right workflow.
 
-> Screenshot placeholder: Automation editor with name, schedule, prompt, workspace, and output directory.
+![The Automations page with its New automation action.](./assets/quickstart-automations.png)
 
-## 4. Optional: generate your first Studio image
+## 4. Optional: generate a Studio image
 
-Open **Studio → Create**, select image generation, and enter a concrete prompt:
+Open **Studio** from **Open apps → Quick access**. Before generating, make sure an administrator has configured the image provider credentials centrally. Studio displays a credentials prompt when setup is incomplete. Generation may use an external provider; review its terms and your organization’s settings before submitting a prompt.
+
+When image generation is available, describe the subject, setting, and visual style. For example:
 
 ```text
 Editorial product photograph of a matte black notebook on a technical
 grid desk, precise overhead lighting, restrained blue accent, 4:5 format.
 ```
 
-Review the output and save the selected image to your workspace. Later, products, personas, styles, references, and presets can make repeated output more consistent.
+Review the result and use the save-to-workspace action if you want the image stored with your files. See [Generate images](/docs/studio/generate-images) and [Save Studio output to a workspace](/docs/studio/save-to-workspace). Image generation was not run during this review because the local Studio screen required administrator credentials.
 
-> Screenshot placeholder: Studio Create with the prompt bar, format controls, and generated output grid.
+![Canvas Studio's image creation screen with example ideas, a prompt field, and generation controls.](./assets/quickstart-studio.png)
 
-## 5. Optional: connect your first email account
+## 5. Optional: connect email
 
-Open **Email** and add an account. Canvas Notebook supports inbox and sending workflows through configured email connections. Verify the connection before allowing an agent to prepare email work.
+Open **Email** from **Open apps → Quick access**. Connecting an account requires provider details and access; follow [Connect an email account](/docs/email/connect). The inbox and send actions were not exercised in this review to avoid contacting any real recipient.
 
-Start with drafting rather than autonomous sending. Review the sender, recipients, quoted content, and attachments before a message leaves the workspace.
+For account setup, open **Open apps → More apps → Settings → Email** and expand **Connect an account**. System email is a separate instance-level setting and is used for app notifications; it does not connect a personal inbox.
 
-> Screenshot placeholder: Email account setup and inbox with sending policy controls visible.
+![Email settings showing the Connect an account section and separate System email configuration.](./assets/quickstart-email.png)
 
-## You now have a working Notebook
+Before using an agent for email, confirm the account and workspace scope, start with drafts, and review recipients and attachments before sending. See [Email sending policies](/docs/email/policies).
 
-You have an agent, a real workspace document, and a recurring workflow. The optional Studio and email steps show how the same workspace can extend into production and communication without changing the underlying file-based process.
+## Continue from here
 
-Continue with [The 24/7 AI Agent](/docs/features/ai-agent), [Markdown Knowledge Base](/docs/features/knowledge-base), or [Automations](/docs/features/automations).
+You now have a workspace note and a repeatable task pattern. When a model and the relevant integrations are ready, extend the workflow with [the AI agent](/docs/features/ai-agent), the [Markdown knowledge base](/docs/features/knowledge-base), or [Automations](/docs/features/automations).
 
 [Open dashboard](/dashboard)
