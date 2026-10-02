@@ -207,8 +207,10 @@ async function startHost(input: { baseURL: string; port: number; qaBindingHash?:
     process.on(signal, () => {
       if (shutdownPromise) return;
       shutdownPromise = close().then(async () => {
-        // Preserve the application's existing flush/grace period and handler order.
-        for (const handler of applicationHandlers.get(signal)!) await handler.call(process, signal);
+        // Node dispatches signal listeners synchronously. Yield only after all
+        // original handlers have started, preserving their existing grace periods.
+        const results = applicationHandlers.get(signal)!.map(handler => handler.call(process, signal));
+        await Promise.all(results);
       }).catch(async () => {
         retainExitEvidence = true;
         process.exitCode = 1;

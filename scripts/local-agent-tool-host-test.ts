@@ -82,6 +82,7 @@ async function loadHost(options: {
   bridgeReady?: boolean;
   deferredTool?: Promise<unknown>;
   receiptWriteError?: boolean;
+  firstApplicationShutdown?: Promise<void>;
 } = {}): Promise<{ host: HostExports; state: TestState }> {
   const source = await readFile(HOST_FILE, 'utf8');
   const ast = ts.createSourceFile(HOST_FILE, source, ts.ScriptTarget.Latest, true);
@@ -206,9 +207,13 @@ async function loadHost(options: {
             state.serverImports = Number(state.serverImports) + 1;
             if (!options.startReady) throw new Error('test must not import the application server');
             state.events.push('server-import');
-            for (const signal of ['SIGTERM', 'SIGINT']) state.processEvents.on(signal, () => {
-              state.events.push(`app-shutdown:${signal}`);
-            });
+            for (const signal of ['SIGTERM', 'SIGINT']) {
+              if (options.firstApplicationShutdown) state.processEvents.on(signal, () => {
+                state.events.push(`earlier-shutdown-start:${signal}`);
+                return options.firstApplicationShutdown!.then(() => { state.events.push(`earlier-shutdown-finish:${signal}`); });
+              });
+              state.processEvents.on(signal, () => { state.events.push(`app-shutdown:${signal}`); });
+            }
             if (options.bridgeReady !== false) bridge.__canvasCollaborationDirectConnection = () => {};
             return {};
           }
@@ -494,6 +499,22 @@ test('signal drain deadline rejects without app shutdown and retains the exact p
   assert.deepEqual(state.removedFiles, [], 'a failed drain never removes its receipt or socket evidence');
   release({ accepted: true }); await Promise.resolve(); await Promise.resolve();
   assert.equal(state.events.some(event => event.startsWith('app-shutdown:')), false);
+});
+
+test('all captured original signal handlers start synchronously before an earlier async shutdown resolves', async () => {
+  let finishEarlier!: () => void;
+  const firstApplicationShutdown = new Promise<void>(resolve => { finishEarlier = resolve; });
+  const { host, state } = await loadHost({ startReady: true, firstApplicationShutdown });
+  const running = await host.__test.startOwnedCollaborationAgentTestHost();
+  state.processEvents.emit('SIGTERM');
+  try {
+    await running.close(); await Promise.resolve();
+    assert.deepEqual(state.events.filter(event => event.includes('shutdown')), [
+      'earlier-shutdown-start:SIGTERM', 'app-shutdown:SIGTERM',
+    ], 'the later HTTP flush must start while the earlier asynchronous shutdown is still pending');
+    assert.ok(state.events.includes('preexisting:SIGTERM'));
+    assert.equal(state.closeCalls, 1);
+  } finally { finishEarlier(); await Promise.resolve(); await Promise.resolve(); }
 });
 
 test('post-listen receipt failure never returns a discoverable owned host', async () => {
