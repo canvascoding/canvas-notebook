@@ -443,7 +443,7 @@ export function UpdateCenterPanel() {
       )}
 
       {activeOperationId && !operation && !observationError ? (
-        <Alert>
+        <Alert variant="info">
           <Loader2 className="animate-spin" aria-hidden="true" />
           <AlertTitle>{t('reconnecting.title')}</AlertTitle>
           <AlertDescription>{t('reconnecting.description')}</AlertDescription>

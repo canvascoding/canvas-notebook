@@ -51,6 +51,7 @@ import { CanvasSkillIcon } from '@/app/lib/skills/skill-icons';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { InlineNotice } from '@/components/ui/inline-notice';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -1360,9 +1361,9 @@ function CanvasPluginsSection({
           renderConnectorSetupSkeletonRows(items.length)
         ) : null}
         {preflight?.error ? (
-          <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          <InlineNotice variant="destructive" size="compact">
             {preflight.error}
-          </div>
+          </InlineNotice>
         ) : null}
         {!isSetupLoading || preflight?.result ? (
           <div className="space-y-1.5">
@@ -2152,15 +2153,15 @@ function CanvasPluginsSection({
       </div>
 
       {error ? (
-        <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+        <InlineNotice variant="destructive" size="compact">
           {error}
-        </div>
+        </InlineNotice>
       ) : null}
 
       {storeError ? (
-        <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-300">
+        <InlineNotice variant="warning" size="compact">
           {storeError}
-        </div>
+        </InlineNotice>
       ) : null}
 
       <Tabs
@@ -2493,9 +2494,9 @@ function OrganizationCapabilityPolicyPanel() {
           <p className="mt-1 text-xs text-muted-foreground">{t('description')}</p>
         </div>
         {error ? (
-          <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          <InlineNotice variant="destructive" size="compact">
             {error}
-          </div>
+          </InlineNotice>
         ) : null}
         <div className="grid gap-3 lg:grid-cols-[minmax(0,1.5fr)_minmax(9rem,.7fr)_minmax(0,1fr)_minmax(10rem,.8fr)_auto]">
           <label className="space-y-1 text-xs text-muted-foreground">
@@ -3353,9 +3354,9 @@ export function SkillsPanel() {
             </TabsList>
 
             {skillActionError ? (
-              <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              <InlineNotice variant="destructive" size="compact">
                 {skillActionError}
-              </div>
+              </InlineNotice>
             ) : null}
 
             <TabsContent value="installed" className="space-y-4">
@@ -3524,9 +3525,9 @@ export function SkillsPanel() {
                         </div>
 
                         {selectedSkillData.blockedReason ? (
-                          <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive">
+                          <InlineNotice variant="destructive" size="compact">
                             {selectedSkillData.blockedReason}
-                          </div>
+                          </InlineNotice>
                         ) : null}
 
                         {(selectedSkillData.compatibility || selectedSkillData.license) && (
@@ -3629,9 +3630,9 @@ export function SkillsPanel() {
                           </div>
                         ) : previewError ? (
                           <div className="min-h-0 flex-1 overflow-y-auto p-4">
-                            <div className="rounded-lg bg-destructive/10 p-4 text-sm text-destructive">
+                            <InlineNotice variant="destructive" size="compact">
                               {previewError}
-                            </div>
+                            </InlineNotice>
                           </div>
                         ) : isMarkdownFilePath(selectedPath) ? (
                           <div className="min-h-0 flex-1 overflow-hidden" data-testid="skill-markdown-preview">
@@ -3714,9 +3715,9 @@ export function SkillsPanel() {
                 </div>
               ) : null}
               {skillStoreError ? (
-                <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-300">
+                <InlineNotice variant="warning" size="compact">
                   {skillStoreError}
-                </div>
+                </InlineNotice>
               ) : null}
               {skillStoreLoading ? (
                 <div className="flex items-center justify-center rounded-lg border border-dashed py-8 text-muted-foreground">
@@ -3756,9 +3757,9 @@ export function SkillsPanel() {
                 </Button>
               </div>
               {skillStoreError ? (
-                <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-300">
+                <InlineNotice variant="warning" size="compact">
                   {skillStoreError}
-                </div>
+                </InlineNotice>
               ) : null}
               {skillStoreLoading ? (
                 <div className="flex items-center justify-center rounded-lg border border-dashed py-8 text-muted-foreground">

@@ -79,7 +79,7 @@ export function LegalSettingsPanel() {
   const gateApproved = data.releaseGate.status === 'approved';
   return (
     <div className="space-y-4">
-      <Alert variant={gateApproved ? 'default' : 'destructive'}>
+      <Alert variant={gateApproved ? 'success' : 'destructive'}>
         {gateApproved
           ? <CheckCircle2 className="h-4 w-4" />
           : <AlertTriangle className="h-4 w-4" />}

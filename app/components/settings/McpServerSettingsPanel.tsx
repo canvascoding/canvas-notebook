@@ -13,7 +13,6 @@ import {
   Save,
   Server,
   ShieldCheck,
-  TriangleAlert,
   Unplug,
 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
@@ -28,6 +27,7 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
+import { InlineNotice } from '@/components/ui/inline-notice';
 import { cn } from '@/lib/utils';
 import { DirectMcpWorkspaceAccessSwitch } from '@/app/components/settings/DirectMcpWorkspaceAccessSwitch';
 import {
@@ -561,30 +561,27 @@ export function McpServerSettingsPanel({ isAdmin }: { isAdmin: boolean }) {
 
       <CardContent className="space-y-6 pt-6">
         {status?.restartRequired ? (
-          <div className="rounded-lg border border-amber-500/35 bg-amber-500/10 px-4 py-3 text-sm">
-            <p className="font-medium text-foreground">{t('restart.title')}</p>
-            <p className="mt-1 leading-5 text-muted-foreground">{t('restart.description')}</p>
-          </div>
+          <InlineNotice variant="warning" title={t('restart.title')}>
+            {t('restart.description')}
+          </InlineNotice>
         ) : null}
 
         {status?.configurationError ? (
-          <div className="rounded-lg border border-destructive/35 bg-destructive/5 px-4 py-3 text-sm">
-            <p className="font-medium text-destructive">{t('configuration.title')}</p>
-            <p className="mt-1 break-words leading-5 text-muted-foreground">{status.configurationError}</p>
-          </div>
+          <InlineNotice variant="destructive" title={t('configuration.title')}>
+            {status.configurationError}
+          </InlineNotice>
         ) : null}
 
         {status?.activationManagedByEnvironment || status?.capabilitiesManagedByEnvironment ? (
-          <div className="rounded-lg border bg-muted/35 px-4 py-3 text-sm">
-            <p className="font-medium">{t('managed.title')}</p>
-            <p className="mt-1 leading-5 text-muted-foreground">{t('managed.description')}</p>
-          </div>
+          <InlineNotice variant="info" title={t('managed.title')}>
+            {t('managed.description')}
+          </InlineNotice>
         ) : null}
 
         {!isAdmin ? (
-          <div className="rounded-lg border bg-muted/35 px-4 py-3 text-sm text-muted-foreground">
+          <InlineNotice variant="info" size="compact">
             {t('adminOnly')}
-          </div>
+          </InlineNotice>
         ) : null}
 
         {serverIsActive ? (
@@ -629,10 +626,9 @@ export function McpServerSettingsPanel({ isAdmin }: { isAdmin: boolean }) {
           </div>
 
           {serverIsActive && !isMcpWorkspaceConfigurationsLoading && enabledMcpWorkspaceCount === 0 ? (
-            <div className="rounded-lg border border-amber-500/35 bg-amber-500/10 px-4 py-3 text-sm">
-              <p className="font-medium text-foreground">{t('workspaceCatalog.noneEnabled.title')}</p>
-              <p className="mt-1 leading-5 text-muted-foreground">{t('workspaceCatalog.noneEnabled.description')}</p>
-            </div>
+            <InlineNotice variant="warning" title={t('workspaceCatalog.noneEnabled.title')}>
+              {t('workspaceCatalog.noneEnabled.description')}
+            </InlineNotice>
           ) : null}
 
           {isMcpWorkspaceConfigurationsLoading && !mcpWorkspaceConfigurations ? (
@@ -731,65 +727,45 @@ export function McpServerSettingsPanel({ isAdmin }: { isAdmin: boolean }) {
                           ))}
                         </div>
                         {connection.resourcePolicyStatus !== 'active' ? (
-                          <p role="alert" className="mt-3 text-xs text-amber-700 dark:text-amber-300">{t('connections.resourceUnavailable')}</p>
+                          <InlineNotice variant="warning" size="compact" className="mt-3">{t('connections.resourceUnavailable')}</InlineNotice>
                         ) : missingScopes.length > 0 ? (
-                          <div className="mt-3 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-xs text-amber-900 dark:text-amber-100">
-                            <p className="flex items-center gap-2 font-medium">
-                              <TriangleAlert className="h-3.5 w-3.5" aria-hidden="true" />
-                              {t('connections.permissionsMissing.title')}
-                            </p>
-                            <p className="mt-1 leading-5">
-                              {t('connections.permissionsMissing.description', {
-                                scopes: missingScopes.join(', '),
-                              })}
-                            </p>
-                          </div>
+                          <InlineNotice variant="warning" size="compact" className="mt-3" title={t('connections.permissionsMissing.title')}>
+                            {t('connections.permissionsMissing.description', {
+                              scopes: missingScopes.join(', '),
+                            })}
+                          </InlineNotice>
                         ) : status ? (
                           <p className="mt-3 flex items-center gap-2 text-xs text-primary">
                             <Check className="h-3.5 w-3.5" aria-hidden="true" />
                             {t('connections.permissionsComplete')}
                           </p>
                         ) : null}
-                        <div
-                          className={cn(
-                            'mt-3 rounded-md border px-3 py-2 text-xs',
-                            authorizationStatus === 'usable'
-                              ? 'border-primary/25 bg-primary/5 text-primary'
-                              : authorizationStatus === 'unknown'
-                                ? 'border-muted-foreground/20 bg-muted/30 text-muted-foreground'
-                                : 'border-amber-500/40 bg-amber-500/10 text-amber-900 dark:text-amber-100',
-                          )}
-                          role={authorizationStatus === 'usable' ? undefined : 'status'}
-                        >
-                          <p className="flex items-center gap-2 font-medium">
-                            {authorizationStatus === 'usable' ? (
-                              <Check className="h-3.5 w-3.5" aria-hidden="true" />
-                            ) : (
-                              <TriangleAlert className="h-3.5 w-3.5" aria-hidden="true" />
-                            )}
-                            {t(`connections.authorizationStatus.${authorizationStatus}.title`)}
-                          </p>
-                          <p className="mt-1 leading-5">
-                            {t(`connections.authorizationStatus.${authorizationStatus}.description`)}
-                          </p>
-                          {authorizationStatus === 'usable' ? (
-                            <p className="mt-1 leading-5">
-                              {t('connections.usableGrantCount', { count: connection.usableGrantCount })}
-                            </p>
-                          ) : null}
-                          {needsReconnect && status?.endpoint ? (
+                        <InlineNotice
+                          variant={authorizationStatus === 'usable' ? 'success' : authorizationStatus === 'unknown' ? 'info' : 'warning'}
+                          size="compact"
+                          className="mt-3"
+                          title={t(`connections.authorizationStatus.${authorizationStatus}.title`)}
+                          actions={needsReconnect && status?.endpoint ? (
                             <Button
                               type="button"
                               variant="outline"
                               size="xs"
-                              className="mt-2 bg-background text-foreground"
                               onClick={() => void copyText('endpoint', status.endpoint!)}
                             >
                               {copied === 'endpoint' ? <Check /> : <Copy />}
                               {copied === 'endpoint' ? t('copied') : t('connections.copyServerAddress')}
                             </Button>
+                          ) : undefined}
+                        >
+                          <p>
+                            {t(`connections.authorizationStatus.${authorizationStatus}.description`)}
+                          </p>
+                          {authorizationStatus === 'usable' ? (
+                            <p>
+                              {t('connections.usableGrantCount', { count: connection.usableGrantCount })}
+                            </p>
                           ) : null}
-                        </div>
+                        </InlineNotice>
                         <p className="mt-2 text-xs text-muted-foreground">
                           {t('connections.workspaceAccess.selectedCount', { count: connection.allowedWorkspaceCount })}
                         </p>
@@ -899,9 +875,9 @@ export function McpServerSettingsPanel({ isAdmin }: { isAdmin: boolean }) {
                               })}
                             </div>
                             {selectedWorkspaceIds.size === 0 ? (
-                              <p className="mt-3 rounded-md border border-amber-500/35 bg-amber-500/10 px-3 py-2 text-sm text-foreground">
+                              <InlineNotice variant="warning" size="compact" className="mt-3">
                                 {t('connections.workspaceAccess.noneSelected')}
-                              </p>
+                              </InlineNotice>
                             ) : null}
                             <div className="mt-4 flex justify-end">
                               <Button
@@ -1145,8 +1121,8 @@ export function McpServerSettingsPanel({ isAdmin }: { isAdmin: boolean }) {
           </>
         ) : null}
 
-        {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
-        {success ? <p className="text-sm text-primary">{success}</p> : null}
+        {error ? <InlineNotice variant="destructive" size="compact">{error}</InlineNotice> : null}
+        {success ? <InlineNotice variant="success" size="compact">{success}</InlineNotice> : null}
 
         <div className="flex flex-col-reverse gap-2 border-t pt-5 sm:flex-row sm:items-center sm:justify-between">
           <p className={cn('text-xs text-muted-foreground', isDirty && 'text-foreground')}>

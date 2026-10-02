@@ -6,6 +6,7 @@ import { useTranslations } from 'next-intl';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { InlineNotice } from '@/components/ui/inline-notice';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 
@@ -159,23 +160,26 @@ export function DictationSettingsPanel({ onboarding = false }: { onboarding?: bo
           <div className="space-y-2"><Label htmlFor="dictation-model">{t('model')}</Label><select id="dictation-model" value={settings.model} onChange={(event) => { setSettings({ ...settings, model: event.target.value }); setStatus(null); setSaved(false); }} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm">{models[settings.provider].map((model) => <option key={model} value={model}>{model}</option>)}</select></div>
           <div className="space-y-2"><Label htmlFor="dictation-language">{t('language')}</Label><select id="dictation-language" value={settings.language} onChange={(event) => { setSettings({ ...settings, language: event.target.value }); setStatus(null); setSaved(false); }} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"><option value="auto">{t('automatic')}</option><option value="de">Deutsch</option><option value="en">English</option></select></div>
         </div>
-        {settings.provider === 'local' && localInstall?.state === 'disabled' ? <p role="status" className="text-sm text-muted-foreground">{t('localDisabled')}</p> : settings.provider === 'local' ? <div className="space-y-3 rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-sm">
+        {settings.provider === 'local' && localInstall?.state === 'disabled' ? <InlineNotice variant="info" size="compact">{t('localDisabled')}</InlineNotice> : settings.provider === 'local' ? <InlineNotice
+          variant={localInstall?.state === 'installed' ? 'success' : localInstall?.state === 'installing' ? 'info' : localInstall?.state === 'failed' ? 'destructive' : 'warning'}
+          role="group"
+          actions={(localInstall?.state === 'missing' || localInstall?.state === 'failed') ? <Button type="button" variant="outline" size="sm" onClick={() => void installLocalRuntime()} disabled={installing}>
+            {installing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}{t('installLocal')}
+          </Button> : undefined}
+        >
           <p>{t('localNote')}</p>
           <p>{t('localInstallDisclosure')} <a className="underline" href="https://ffmpeg.org/legal.html" target="_blank" rel="noopener noreferrer">{t('localLicenseLink')}</a></p>
-          {localInstall?.state === 'installed' && <p role="status" className="text-emerald-700 dark:text-emerald-400">{t('localInstalled')}</p>}
+          {localInstall?.state === 'installed' && <p role="status">{t('localInstalled')}</p>}
           {localInstall?.state === 'installing' && <p role="status" className="flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" />{t('localInstalling')}</p>}
-          {localInstall?.state === 'failed' && <p role="alert" className="text-destructive">{localInstall.message || t('installError')}</p>}
-          {(localInstall?.state === 'missing' || localInstall?.state === 'failed') && <Button type="button" variant="outline" onClick={() => void installLocalRuntime()} disabled={installing}>
-            {installing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}{t('installLocal')}
-          </Button>}
-        </div> : <div className="space-y-3 rounded-md border border-border bg-muted/30 p-3">
+          {localInstall?.state === 'failed' && <p role="alert">{localInstall.message || t('installError')}</p>}
+        </InlineNotice> : <div className="space-y-3 rounded-md border border-border bg-muted/30 p-3">
           <p className="text-sm text-muted-foreground">{t('cloudNote')}</p>
           <div className="space-y-2">
             <Label htmlFor="dictation-api-key">{settings.provider === 'openai' ? 'OPENAI_API_KEY' : 'GROQ_API_KEY'}</Label>
             <Input id="dictation-api-key" type="password" autoComplete="off" value={apiKey} onChange={(event) => { setApiKey(event.target.value); setCredentialSaved(false); }} placeholder={t('credentialPlaceholder')} />
-            <p role="status" className={`text-xs ${credentials?.[settings.provider]?.configured ? 'text-emerald-700 dark:text-emerald-400' : 'text-amber-700 dark:text-amber-400'}`}>
+            <InlineNotice size="compact" variant={credentials?.[settings.provider]?.configured ? 'success' : 'warning'}>
               {credentials?.[settings.provider]?.configured ? t('credentialConfigured') : t('credentialMissing')}
-            </p>
+            </InlineNotice>
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <Button type="button" variant="outline" onClick={() => void saveCredential()} disabled={credentialSaving || !apiKey.trim()}>
@@ -184,10 +188,10 @@ export function DictationSettingsPanel({ onboarding = false }: { onboarding?: bo
             {credentialSaved && <span role="status" className="text-xs text-muted-foreground">{t('credentialSaved')}</span>}
           </div>
         </div>}
-        {status && settings.enabled && <p role="status" className={status.available ? 'text-sm text-emerald-700 dark:text-emerald-400' : 'text-sm text-amber-700 dark:text-amber-400'}>{status.available ? t('available') : settings.provider === 'local' ? t('localUnavailable') : `${t('unavailable')} ${status.reason ?? ''}`}</p>}
-        {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
+        {status && settings.enabled && <InlineNotice size="compact" variant={status.available ? 'success' : 'warning'}>{status.available ? t('available') : settings.provider === 'local' ? t('localUnavailable') : `${t('unavailable')} ${status.reason ?? ''}`}</InlineNotice>}
         <div className="flex items-center gap-3"><Button type="button" onClick={() => void save()} disabled={saving}>{saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}{t('save')}</Button>{saved && <span role="status" className="text-sm text-muted-foreground">{t('saved')}</span>}</div>
       </>}
+      {error && <InlineNotice variant="destructive" size="compact">{error}</InlineNotice>}
     </section>
   );
 }

@@ -345,7 +345,7 @@ export function ComposioProfileSwitcher({
             <DialogTitle>{t('selectionTitle', { workspace: workspaceName })}</DialogTitle>
             <DialogDescription>{t('selectionDescription')}</DialogDescription>
           </DialogHeader>
-          <Alert className="rounded-lg bg-muted/25">
+          <Alert variant="info">
             <AlertTriangle />
             <AlertTitle>{t('noCopyTitle')}</AlertTitle>
             <AlertDescription>{t('noCopyDescription')}</AlertDescription>

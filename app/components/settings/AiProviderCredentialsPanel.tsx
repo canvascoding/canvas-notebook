@@ -7,6 +7,7 @@ import type { AiAppRuntimeCatalog } from '@/app/lib/agent-runtime-policy/types';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
+import { InlineNotice } from '@/components/ui/inline-notice';
 
 import { ProviderInstallationCredentialEditor } from './ProviderInstallationCredentialEditor';
 
@@ -141,9 +142,9 @@ export function AiProviderCredentialsPanel({
         )}
 
         {!loading && error && (
-          <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive" role="alert">
+          <InlineNotice variant="destructive">
             {error}
-          </div>
+          </InlineNotice>
         )}
 
         {!loading && !error && catalog?.providers.length === 0 && (

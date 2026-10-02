@@ -97,7 +97,7 @@ export function OAuthConsentClient({
             </ul>
           </section>
 
-          <Alert>
+          <Alert variant="info">
             <ShieldCheck aria-hidden="true" />
             <AlertTitle>{t('securityTitle')}</AlertTitle>
             <AlertDescription>

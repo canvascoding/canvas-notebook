@@ -19,6 +19,7 @@ import {
 import { useLocale, useTranslations } from 'next-intl';
 
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { InlineNotice } from '@/components/ui/inline-notice';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -215,7 +216,7 @@ export function UpdateAvailabilityCard({
               <p className="text-sm font-medium text-muted-foreground">{t('currentVersion')}</p>
               <p className="text-2xl font-semibold tracking-tight">{availability.currentVersion || t('unknown')}</p>
             </div>
-            <Alert>
+            <Alert variant="warning">
               <CircleAlert aria-hidden="true" />
               <AlertTitle>{t('readiness.title')}</AlertTitle>
               <AlertDescription>
@@ -252,13 +253,12 @@ export function UpdateAvailabilityCard({
               )}
             </div>
 
-            <div className="flex items-start gap-3 rounded-lg border bg-muted/20 p-4 text-sm leading-6">
-              <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-primary" aria-hidden="true" />
-              <p>{availability.release?.backupRequired ? t('ready.backupRequired') : t('ready.backupIncluded')}</p>
-            </div>
+            <InlineNotice variant="info" icon={<ShieldCheck aria-hidden="true" />}>
+              {availability.release?.backupRequired ? t('ready.backupRequired') : t('ready.backupIncluded')}
+            </InlineNotice>
 
             {!availability.ready && (
-              <Alert>
+              <Alert variant="warning">
                 <CircleAlert aria-hidden="true" />
                 <AlertTitle>{t('readiness.title')}</AlertTitle>
                 <AlertDescription>
@@ -452,7 +452,7 @@ export function UpdateOperationCard({
         {!terminal && <UserPhaseTimeline currentPhase={phase} />}
 
         {connectionInterrupted && !terminal && (
-          <Alert>
+          <Alert variant="info">
             <Loader2 className="animate-spin" aria-hidden="true" />
             <AlertTitle>{t('reconnecting.title')}</AlertTitle>
             <AlertDescription>{t('reconnecting.description')}</AlertDescription>
@@ -460,7 +460,7 @@ export function UpdateOperationCard({
         )}
 
         {phase === 'restoring' && !terminal && (
-          <Alert>
+          <Alert variant="info">
             <RotateCcw aria-hidden="true" />
             <AlertTitle>{t('phases.restoring.title')}</AlertTitle>
             <AlertDescription>{t('phases.restoring.description')}</AlertDescription>
@@ -468,7 +468,7 @@ export function UpdateOperationCard({
         )}
 
         {rolledBack && terminal && (
-          <Alert>
+          <Alert variant="warning">
             <RotateCcw aria-hidden="true" />
             <AlertTitle>{t('operation.rolledBackTitle')}</AlertTitle>
             <AlertDescription>{t('operation.rolledBackDescription')}</AlertDescription>

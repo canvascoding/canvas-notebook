@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { InlineNotice } from '@/components/ui/inline-notice';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 
@@ -377,14 +378,17 @@ export function UnifiedSecretsEditor({ language, isAdmin, onSaved, developerMode
       </CardHeader>
       <CardContent className="space-y-4">
         {loading ? <div role="status" className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />{t.loading}</div> : null}
-        {!loading && error ? <div role="alert" className="space-y-2 text-sm text-destructive"><p>{recoveryMessage || error}</p>{recoveryMessage && <Link href="/settings?tab=secrets" className="inline-block underline underline-offset-4">{t.recoveryLink}</Link>}</div> : null}
-        {!loading && conflict ? (
-          <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm">
-            <span>{t.conflict}</span>
-            <Button type="button" variant="outline" onClick={() => { if (confirmDiscard()) void load(); }}>{t.reloadConflict}</Button>
-          </div>
+        {!loading && error ? (
+          <InlineNotice variant="destructive" actions={recoveryMessage ? <Button asChild variant="outline" size="sm"><Link href="/settings?tab=secrets">{t.recoveryLink}</Link></Button> : undefined}>
+            {recoveryMessage || error}
+          </InlineNotice>
         ) : null}
-        {!loading && saved ? <p role="status" className="text-sm text-primary">{t.saved}</p> : null}
+        {!loading && conflict ? (
+          <InlineNotice variant="warning" actions={<Button type="button" variant="outline" size="sm" onClick={() => { if (confirmDiscard()) void load(); }}>{t.reloadConflict}</Button>}>
+            {t.conflict}
+          </InlineNotice>
+        ) : null}
+        {!loading && saved ? <InlineNotice variant="success" size="compact">{t.saved}</InlineNotice> : null}
         {!loading && state && editorMode === 'raw' && developerMode ? (
           <div className="space-y-2">
             <p className="text-sm text-muted-foreground">{t.rawDescription}</p>

@@ -40,6 +40,7 @@ import {
 } from '@/app/components/settings/SettingsNavigation';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { InlineNotice } from '@/components/ui/inline-notice';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import {
@@ -583,8 +584,8 @@ export function SearchIntegrationCard({
       <p className="text-sm text-muted-foreground">
         {provider === 'ollama' ? t('ollamaDescription') : status?.mode === 'managed' ? t('managedDescription') : t('localDescription')}
       </p>
-      {error && <div className="border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div>}
-      {message && <div className="border border-border bg-muted px-3 py-2 text-sm text-muted-foreground">{message}</div>}
+      {error && <InlineNotice variant="destructive" size="compact">{error}</InlineNotice>}
+      {message && <InlineNotice variant="success" size="compact">{message}</InlineNotice>}
       <div className="space-y-2">
         <Label className="text-xs uppercase tracking-wider text-muted-foreground" htmlFor="search-provider">{t('providerLabel')}</Label>
         <select
@@ -855,16 +856,18 @@ function McpConfigCard(props: {
           </div>
         ) : (
           <>
-            {errorMessage && <div role="alert" className="rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm">
-              <p className="font-medium text-destructive">{errorMessage}</p>
+            {errorMessage && <InlineNotice
+              variant="destructive"
+              title={errorMessage}
+              actions={storageErrorCode ? <Button asChild variant="outline" size="sm"><Link href="/settings?tab=secrets">{t('mcpConfig.openSecrets')}</Link></Button> : undefined}
+            >
               {storageErrorCode ? <>
-                <p className="mt-2 text-muted-foreground">{isAdmin
+                <p>{isAdmin
                   ? t(storageErrorCode === 'mcp_credential_key_missing' ? 'mcpConfig.secureStorageAdminMcpRecovery' : storageErrorCode === 'master_key_missing' ? 'mcpConfig.secureStorageAdminMissing' : 'mcpConfig.secureStorageAdminRecovery')
                   : t('mcpConfig.secureStorageContactAdmin')}</p>
-                <Link href="/settings?tab=secrets" className="mt-2 inline-flex text-primary underline underline-offset-4">{t('mcpConfig.openSecrets')}</Link>
               </> : null}
-            </div>}
-            {editor.success && <p role="status" className="text-sm text-primary">{editor.success}</p>}
+            </InlineNotice>}
+            {editor.success && <InlineNotice variant="success" size="compact">{editor.success}</InlineNotice>}
 
             <div className="space-y-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
@@ -1582,8 +1585,8 @@ export function EmailAccountsCard({
             {t('refresh')}
           </Button>
         </div>}
-        {error && <div className="border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div>}
-        {message && <div className="border border-border bg-muted px-3 py-2 text-sm text-muted-foreground">{message}</div>}
+        {error && <InlineNotice variant="destructive" size="compact">{error}</InlineNotice>}
+        {message && <InlineNotice variant="success" size="compact">{message}</InlineNotice>}
         {showAddAccountPanel && (
           <section className={cn(
             'space-y-4',

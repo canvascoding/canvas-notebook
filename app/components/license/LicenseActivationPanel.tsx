@@ -356,7 +356,7 @@ export function LicenseActivationPanel({
               </div>
 
               {pendingActivation ? (
-                <Alert>
+                <Alert variant="info">
                   <Loader2 className="animate-spin" />
                   <AlertTitle>{copy.activationPendingTitle}</AlertTitle>
                   <AlertDescription>

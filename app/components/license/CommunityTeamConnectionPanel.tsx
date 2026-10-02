@@ -547,7 +547,7 @@ export function CommunityTeamConnectionPanel({
         </div>
 
         {availability ? (
-          <Alert>
+          <Alert variant="info">
             <Info />
             <AlertTitle>{availability.title}</AlertTitle>
             <AlertDescription>{availability.description}</AlertDescription>

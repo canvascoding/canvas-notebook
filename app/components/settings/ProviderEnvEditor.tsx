@@ -2,10 +2,11 @@
 
 import { forwardRef, startTransition, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
-import { Eye, EyeOff, Loader2, Save, Trash2, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Eye, EyeOff, Loader2, Save, Trash2 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { InlineNotice } from '@/components/ui/inline-notice';
 import type { ProviderHelpInfo } from '@/app/lib/pi/provider-help';
 
 interface EnvVarState {
@@ -328,28 +329,16 @@ export const ProviderEnvEditor = forwardRef<ProviderEnvEditorHandle, ProviderEnv
     <div className="space-y-4">
       {/* Message display */}
       {!isLoading && message && (
-        <div
-          className={`flex items-center gap-2 rounded border p-3 text-sm ${
-            message.type === 'success'
-              ? 'border-green-500/30 bg-green-50 text-green-700 dark:border-green-500/30 dark:bg-green-950/30 dark:text-green-400'
-              : 'border-destructive/30 bg-destructive/10 text-destructive'
-          }`}
-        >
-          {message.type === 'success' ? (
-            <CheckCircle2 className="h-4 w-4" />
-          ) : (
-            <AlertCircle className="h-4 w-4" />
-          )}
+        <InlineNotice variant={message.type === 'success' ? 'success' : 'destructive'} size="compact">
           {message.text}
-        </div>
+        </InlineNotice>
       )}
 
       {/* Dirty warning */}
       {!isLoading && hasChanges && (
-        <div className="flex items-center gap-2 rounded border border-yellow-500/30 bg-yellow-50 p-3 text-sm text-yellow-700 dark:border-yellow-500/30 dark:bg-yellow-950/30 dark:text-yellow-400">
-          <AlertCircle className="h-4 w-4" />
+        <InlineNotice variant="warning" size="compact">
           {t('providerEnv.unsavedChanges')}
-        </div>
+        </InlineNotice>
       )}
 
       {/* Loading state */}

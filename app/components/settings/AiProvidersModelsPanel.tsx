@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   BrainCircuit,
-  CheckCircle2,
   ChevronDown,
   CloudDownload,
   Info,
@@ -43,6 +42,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
+import { InlineNotice } from '@/components/ui/inline-notice';
 import { cn } from '@/lib/utils';
 
 import { PiCompactionSettingsPanel } from './PiCompactionSettingsPanel';
@@ -888,15 +888,14 @@ export function AiProvidersModelsPanel({
     return (
       <div className={cn('space-y-4', className)} data-testid="onboarding-provider-panel">
         {error && (
-          <div role="alert" className="rounded-lg border border-destructive/35 bg-destructive/8 px-4 py-3 text-sm text-destructive">
+          <InlineNotice variant="destructive">
             {error}
-          </div>
+          </InlineNotice>
         )}
         {message && (
-          <div role="status" className="flex items-start gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/8 px-4 py-3 text-sm text-emerald-800 dark:text-emerald-200">
-            <CheckCircle2 className="mt-0.5 size-4 shrink-0" />
+          <InlineNotice variant="success">
             {message}
-          </div>
+          </InlineNotice>
         )}
 
         {onboardingConfigured && defaultProvider && defaultModel ? (
@@ -1011,15 +1010,14 @@ export function AiProvidersModelsPanel({
       </header>
 
       {error && (
-        <div role="alert" className="rounded-lg border border-destructive/35 bg-destructive/8 px-4 py-3 text-sm text-destructive">
+        <InlineNotice variant="destructive">
           {error}
-        </div>
+        </InlineNotice>
       )}
       {message && (
-        <div role="status" className="flex items-start gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/8 px-4 py-3 text-sm text-emerald-800 dark:text-emerald-200">
-          <CheckCircle2 className="mt-0.5 size-4 shrink-0" />
+        <InlineNotice variant="success">
           {message}
-        </div>
+        </InlineNotice>
       )}
 
       <PiCompactionSettingsPanel locale={locale} />
