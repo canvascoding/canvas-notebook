@@ -7,6 +7,7 @@ import { createWorkspaceFileOperationPlan, computeWorkspaceFileOperationPlanId,
   type WorkspacePlannerSnapshot } from '@/app/lib/markdown/workspace-file-operation-planner';
 import { buildWorkspaceLinkIndexFromDocuments, type WorkspaceLinkEdge } from '@/app/lib/markdown/workspace-link-index-core';
 import { parseCanvasMarkdownDocument } from '@/app/lib/markdown/obsidian-metadata';
+import { getWorkspaceLinkLogicalTarget } from '@/app/lib/markdown/workspace-file-operation-link-semantics';
 import { isProtectedAppOutputFolder } from '@/app/lib/filesystem/app-output-folders';
 import type { WorkspaceOperationBatchAction, WorkspaceOperationBatchPlan, WorkspaceOperationBatchScope } from './workspace-operation-batch-contract';
 
@@ -129,7 +130,13 @@ export function createWorkspaceOperationBatchPlan(input: {
   const cleanups = new Map<string, Replacement[]>();
   const cleanedContents = new Map(sources.map((source) => [source.path, source.content]));
   for (const source of sources.filter((item) => !deleted(item.path))) {
-    const edges = beforeIndex.edges.filter((edge) => edge.sourcePath === source.path && edge.status === 'resolved' && edge.targetPath && deleted(edge.targetPath));
+    const edges = beforeIndex.edges.filter((edge) => edge.sourcePath === source.path && (
+      edge.status === 'resolved' && edge.targetPath && deleted(edge.targetPath)
+      || edge.status === 'missing' && (() => {
+        const exact = getWorkspaceLinkLogicalTarget(edge);
+        return exact !== null && deleteRoots.some((root) => snapshot.entries.some((entry) => entry.path === root.sourcePath && entry.kind === 'directory')
+          && exact.startsWith(`${root.sourcePath}/`));
+      })()));
     if (!edges.length) continue;
     try {
       const replacements = deleteLinkReplacements(source.content, edges);
@@ -196,6 +203,13 @@ export function createWorkspaceOperationBatchPlan(input: {
   }
   if (previewContents.length > 256 || previewContents.reduce((sum, item) => sum + Buffer.byteLength(item.content), 0) > 64 * 1024 * 1024) {
     issue('content-limit', '.', 'Batch link changes exceed the secure staging limit.');
+  }
+  // Repaired links may require no literal rewrite. Retain their original graph
+  // privately so Undo can restore the recorded missing state, with exact fences.
+  for (const restored of movePlan.linkAssessment?.restoredLinks ?? []) {
+    if (originalDocuments.some((document) => document.path === restored.sourcePath)) continue;
+    const content = snapshot.entries.find((entry) => entry.path === restored.sourcePath)?.markdownContent;
+    if (content !== undefined) originalDocuments.push({ workspaceId: snapshot.workspaceId, path: restored.sourcePath, content });
   }
   const pathSteps = [...deleteRoots];
   const pending = [...moveRoots];

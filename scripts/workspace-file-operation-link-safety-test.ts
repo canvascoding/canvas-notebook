@@ -29,3 +29,13 @@ for (const malformed of [null, {}, { coverage: {} }, { ...safe, linkAssessment: 
   { ...safe, linkAssessment: { ...safe.linkAssessment, warnings: [{ ...safe.linkAssessment!.warnings[0], status: 'not-evaluated' }] } },
 ]) assert.equal(isWorkspaceFileOperationLinkSafe(malformed as LinkPlan), false, 'malformed assessment must fail closed');
 console.log('workspace file operation link safety tests passed');
+const restored: LinkPlan = { coverage, linkAssessment: { version: 1, complete: true, warnings: [], blockers: [], restoredLinks: [
+  { sourcePath: 'archive/old.md', sourcePathAfter: 'archive/old.md', targetLiteral: 'missing.md', targetPath: 'missing.md' },
+] } };
+assert.equal(isWorkspaceFileOperationLinkSafe(restored), true, 'Recorded exact repairs classify the original missing diagnostic');
+assert.equal(isWorkspaceFileOperationLinkSafe({ ...restored, coverage: { ...coverage, unresolvedLinks: [{ ...coverage.unresolvedLinks[0], status: 'ambiguous' }] } }), false,
+  'A repair cannot excuse ambiguity');
+for (const malformed of [null, {}, [null], [{ ...restored.linkAssessment!.restoredLinks![0], targetPath: '../outside.md' }],
+  [{ ...restored.linkAssessment!.restoredLinks![0], sourcePathAfter: '' }]]) {
+  assert.equal(isWorkspaceFileOperationLinkSafe({ ...restored, linkAssessment: { ...restored.linkAssessment!, restoredLinks: malformed } } as LinkPlan), false);
+}

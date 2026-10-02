@@ -91,6 +91,14 @@ export type WorkspaceFileOperationLinkAssessmentV1 = {
   version: 1;
   /** False if an omitted or unevaluated source prevents a safety assessment. */
   complete: boolean;
+  /** A previously missing explicit path repaired at an approved destination. */
+  restoredLinks?: Array<{
+    workspaceId?: string;
+    sourcePath: string;
+    sourcePathAfter?: string;
+    targetLiteral: string;
+    targetPath: string;
+  }>;
   warnings: Array<{
     workspaceId?: string;
     sourcePath: string;

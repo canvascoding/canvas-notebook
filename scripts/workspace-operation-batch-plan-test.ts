@@ -80,3 +80,16 @@ assert.equal(replacement.readiness, 'ready');
 assert.equal(replacement.previewContents[0].content, 'Old [New](Old.md)', 'Delete cleanup precedes new destination binding and preserves exact target identity');
 
 console.log('workspace-operation-batch-plan-test: mixed final state, Markdown cleanup, span translation, dependency/conflict checks and stable mutation identity passed');
+const absentDelete = createWorkspaceOperationBatchPlan({ snapshot: snapshot([dir('Old'), file('Old/Present.md', '# Present'),
+  file('Home.md', '[Absent](Old/missing.md) [[Old/missing|Wiki label]] ![Alt](Old/image.png) [[BareMissing]]\n`[Code](Old/missing.md)`\n[Web](https://example.org/Old/missing.md)')]),
+  actions: [{ reviewId: 'delete-missing', kind: 'delete', selections: [{ sourcePath: 'Old' }] }] });
+assert.equal(absentDelete.readiness, 'ready', JSON.stringify(absentDelete.issues));
+assert.equal(absentDelete.previewContents[0]?.content, 'Absent Wiki label Alt [[BareMissing]]\n`[Code](Old/missing.md)`\n[Web](https://example.org/Old/missing.md)');
+assert.equal(absentDelete.linkEdits.length, 3, 'Only exact missing descendants are unlinked, with their visible labels preserved');
+const repaired = createWorkspaceOperationBatchPlan({ snapshot: snapshot([dir('Old'), file('Old/A.md', '# A'),
+  file('Home.md', '[[New/A|Repaired]]')]), actions: [{ reviewId: 'repair', kind: 'move', selections: [{ sourcePath: 'Old', destinationPath: 'New' }] }] });
+assert.equal(repaired.readiness, 'ready');
+assert.equal(repaired.linkEdits.length, 0);
+assert.equal(repaired.originalDocuments[0]?.content, '[[New/A|Repaired]]', 'Undo retains the original repaired source graph privately');
+assert.equal(repaired.expectedPathState.some((entry) => entry.path === 'Home.md' && entry.contentHash), true);
+assert.equal('originalDocuments' in workspaceOperationBatchPublicPreview(repaired), false);

@@ -17,6 +17,7 @@ import {
 } from './workspace-link-index-core';
 import { MAX_INDEXED_MARKDOWN_BYTES } from './workspace-link-limits';
 import { assessWorkspaceFileOperationLinks } from './workspace-file-operation-link-assessment';
+import { getWorkspaceLinkLogicalTarget, mapWorkspaceLinkLogicalTarget } from './workspace-file-operation-link-semantics';
 
 export type WorkspacePlannerEntry = {
   /** A snapshot identity, such as a file ID; it must not be derived from the path. */
@@ -296,19 +297,23 @@ export function createWorkspaceFileOperationPlan(request: WorkspaceFileOperation
   };
   const pending: PendingEdit[] = [];
   for (const edge of sourceIndex.edges) {
-    if (edge.status !== 'resolved' || !edge.targetPath) continue;
+    if (edge.status !== 'resolved' && edge.status !== 'missing') continue;
+    const logicalTarget = edge.status === 'missing' ? getWorkspaceLinkLogicalTarget(edge) : edge.targetPath;
+    if (!logicalTarget) continue;
     const sourceMapping = mapped.get(edge.sourcePath);
-    const targetMapping = mapped.get(edge.targetPath);
+    const targetMapping = edge.targetPath ? mapped.get(edge.targetPath) : undefined;
+    const mappedLogicalTarget = mapWorkspaceLinkLogicalTarget(logicalTarget, request);
+    const intendedTargetMoved = mappedLogicalTarget !== logicalTarget;
     if (request.kind === 'copy' && !sourceMapping) continue;
-    if (request.kind !== 'copy' && !sourceMapping && !targetMapping) continue;
+    if (request.kind !== 'copy' && !sourceMapping && !targetMapping && !intendedTargetMoved) continue;
     const writeWorkspaceId = request.kind === 'copy' ? request.destinationWorkspaceId : request.sourceWorkspaceId;
     const newSourcePath = sourceMapping?.destinationPath ?? edge.sourcePath;
-    if (request.kind === 'copy' && request.sourceWorkspaceId !== request.destinationWorkspaceId && !targetMapping) {
+    if (request.kind === 'copy' && request.sourceWorkspaceId !== request.destinationWorkspaceId && !targetMapping && !intendedTargetMoved) {
       issue('uncopied-cross-workspace-target', request.destinationWorkspaceId, newSourcePath,
-        `${edge.targetPath} belongs to the source workspace and is not copied.`);
+        `${logicalTarget} belongs to the source workspace and is not copied.`);
       continue;
     }
-    const newTargetPath = targetMapping?.destinationPath ?? edge.targetPath;
+    const newTargetPath = targetMapping?.destinationPath ?? mappedLogicalTarget;
     const source = contents.get(`${request.sourceWorkspaceId}\0${edge.sourcePath}`);
     if (!source) continue;
     const nextTargetLiteral = formatTarget(edge, newTargetPath, newSourcePath, source.content);
@@ -379,6 +384,7 @@ export function createWorkspaceFileOperationPlan(request: WorkspaceFileOperation
     expect(mapping.destinationWorkspaceId, mapping.destinationPath);
   }
   for (const edit of linkEdits) expect(edit.sourceWorkspaceId, edit.sourcePathBefore);
+  for (const restored of linkAssessment.restoredLinks ?? []) expect(restored.workspaceId ?? request.sourceWorkspaceId, restored.sourcePath);
   const basePlan = {
     contractVersion: WORKSPACE_LINK_CONTRACT_VERSION_V1,
     kind: request.kind,

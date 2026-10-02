@@ -211,6 +211,64 @@ async function main() {
     assert.equal(await fs.readFile(absolute('empty-home.md'), 'utf8'), '');
     assert.equal((await makeExecutor().undo({ batchId: emptyId, scope, actorUserId: 'another-authorized-reviewer', actorDisplayName: 'Reviewer' })).status, 'applied');
     assert.equal(await fs.readFile(absolute('empty-home.md'), 'utf8'), '[](empty-target.md)');
+    await write('repair-old/A.md', '# Repaired document');
+    await write('repair-home.md', '[[repair-new/A|Visible label]]');
+    const repairPlan = await buildWorkspaceOperationBatchPlan({ scope, actions: [{ reviewId: 'exact-repair', kind: 'move',
+      selections: [{ sourcePath: 'repair-old', destinationPath: 'repair-new' }] }] });
+    assert.equal(repairPlan.readiness, 'ready', JSON.stringify(repairPlan.issues));
+    assert.equal(repairPlan.linkAssessment.restoredLinks?.length, 1);
+    const repairId = randomUUID();
+    assert.equal((await makeExecutor().execute({ batchId: repairId, plan: repairPlan, scope, actorUserId: 'tester', actorDisplayName: 'Tester' })).status, 'applied');
+    await write('repair-new-backlink.md', '[Later](repair-new/A.md)');
+    await assert.rejects(makeExecutor().assertUndoAvailable({ batchId: repairId, scope }), { code: 'BATCH_UNDO_NEW_BACKLINK' });
+    await fs.unlink(absolute('repair-new-backlink.md'));
+    await makeExecutor().assertUndoAvailable({ batchId: repairId, scope });
+    assert.equal((await makeExecutor().undo({ batchId: repairId, scope, actorUserId: 'tester', actorDisplayName: 'Tester' })).status, 'applied');
+    assert.equal(await fs.readFile(absolute('repair-home.md'), 'utf8'), '[[repair-new/A|Visible label]]', 'Undo restores the originally missing path without guessing a target');
+    const repairAgain = await buildWorkspaceOperationBatchPlan({ scope, actions: repairPlan.actions });
+    const repairAgainId = randomUUID();
+    assert.equal((await makeExecutor().execute({ batchId: repairAgainId, plan: repairAgain, scope, actorUserId: 'tester', actorDisplayName: 'Tester' })).status, 'applied');
+    await write('repair-home.md', '[[repair-new/A|Visible label]] [Later](repair-new/A.md)');
+    await assert.rejects(makeExecutor().assertUndoAvailable({ batchId: repairAgainId, scope }), { code: 'BATCH_UNDO_LINK_CHANGED' });
+
+    await write('mapped-target/A.md', '# Mapped target');
+    await write('repair-source.md', '[[repaired-target/A|Repair moved source]]');
+    const movedRepair = await buildWorkspaceOperationBatchPlan({ scope, actions: [
+      { reviewId: 'mapped-target', kind: 'move', selections: [{ sourcePath: 'mapped-target', destinationPath: 'repaired-target' }] },
+      { reviewId: 'repair-source', kind: 'move', selections: [{ sourcePath: 'repair-source.md', destinationPath: 'moved-repair-source.md' }] },
+    ] });
+    assert.equal(movedRepair.readiness, 'ready', JSON.stringify(movedRepair.issues));
+    const movedRepairId = randomUUID();
+    const movedRepairResult = await makeExecutor().execute({ batchId: movedRepairId, plan: movedRepair, scope, actorUserId: 'tester', actorDisplayName: 'Tester' });
+    assert.equal(movedRepairResult.status, 'applied', movedRepairResult.errorCode ?? '');
+    await write('Other/repaired-target/A.md', '# Later suffix candidate');
+    await assert.rejects(makeExecutor().assertUndoAvailable({ batchId: movedRepairId, scope }), { code: 'BATCH_UNDO_NEW_BACKLINK' });
+    await fs.unlink(absolute('Other/repaired-target/A.md'));
+    await makeExecutor().assertUndoAvailable({ batchId: movedRepairId, scope });
+    const movedRepairUndo = await makeExecutor().undo({ batchId: movedRepairId, scope, actorUserId: 'tester', actorDisplayName: 'Tester' });
+    assert.equal(movedRepairUndo.status, 'applied', movedRepairUndo.errorCode ?? '');
+    assert.equal(await fs.readFile(absolute('repair-source.md'), 'utf8'), '[[repaired-target/A|Repair moved source]]');
+
+    await write('missing-old/Plan.md', '[Missing](missing.md) [[The First 100 Collection]]');
+    await write('missing-home.md', '[Missing](missing-old/absent.md)');
+    const missingPlan = await buildWorkspaceOperationBatchPlan({ scope, actions: [{ reviewId: 'missing-intent', kind: 'move',
+      selections: [{ sourcePath: 'missing-old', destinationPath: 'missing-new' }] }] });
+    assert.equal(missingPlan.readiness, 'ready', JSON.stringify(missingPlan.issues));
+    const missingId = randomUUID();
+    const missingResult = await makeExecutor().execute({ batchId: missingId, plan: missingPlan, scope, actorUserId: 'tester', actorDisplayName: 'Tester' });
+    assert.equal(missingResult.status, 'applied', missingResult.errorCode ?? '');
+    assert.equal(await fs.readFile(absolute('missing-home.md'), 'utf8'), '[Missing](missing-new/absent.md)');
+    assert.equal((await makeExecutor().undo({ batchId: missingId, scope, actorUserId: 'tester', actorDisplayName: 'Tester' })).status, 'applied');
+    assert.equal(await fs.readFile(absolute('missing-home.md'), 'utf8'), '[Missing](missing-old/absent.md)');
+
+    await write('delete-missing/Present.md', '# Present');
+    await write('delete-missing-home.md', '[Gone](delete-missing/absent.md) [[delete-missing/ghost|Ghost]]');
+    const missingDelete = await buildWorkspaceOperationBatchPlan({ scope, actions: [{ reviewId: 'delete-absent', kind: 'delete', selections: [{ sourcePath: 'delete-missing' }] }] });
+    const missingDeleteId = randomUUID();
+    assert.equal((await makeExecutor().execute({ batchId: missingDeleteId, plan: missingDelete, scope, actorUserId: 'tester', actorDisplayName: 'Tester' })).status, 'applied');
+    assert.equal(await fs.readFile(absolute('delete-missing-home.md'), 'utf8'), 'Gone Ghost');
+    assert.equal((await makeExecutor().undo({ batchId: missingDeleteId, scope, actorUserId: 'tester', actorDisplayName: 'Tester' })).status, 'applied');
+    assert.equal(await fs.readFile(absolute('delete-missing-home.md'), 'utf8'), '[Gone](delete-missing/absent.md) [[delete-missing/ghost|Ghost]]');
     console.log('workspace-operation-batch-executor-test: real backups/files, checkpoint, no replay, recoverable trash, access gate, stale, conflict-safe Undo, resumed Undo and empty document passed');
   } finally {
     if (previousData === undefined) delete process.env.DATA; else process.env.DATA = previousData;

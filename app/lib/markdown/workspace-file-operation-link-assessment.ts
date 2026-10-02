@@ -1,5 +1,3 @@
-import path from 'node:path';
-
 import type {
   WorkspaceFileOperationLinkAssessmentV1,
   WorkspaceFilePathMappingV1,
@@ -12,7 +10,7 @@ import {
   type WorkspaceLinkIndex,
 } from './workspace-link-index-core';
 import { MAX_INDEXED_MARKDOWN_BYTES } from './workspace-link-limits';
-import { parseWorkspaceMarkdownHref } from './workspace-local-link-parser';
+import { getWorkspaceLinkLogicalTarget, mapWorkspaceLinkLogicalTarget, workspaceLinkLogicalTargetMatchesPath } from './workspace-file-operation-link-semantics';
 import type { WorkspaceFileOperationPlanRequest } from './workspace-file-operation-planner';
 
 type AssessmentRequest = {
@@ -30,10 +28,6 @@ function sourceEdges(index: WorkspaceLinkIndex): Map<string, WorkspaceLinkEdge[]
     grouped.set(edge.sourcePath, edges);
   }
   return grouped;
-}
-
-function sortedCandidates(edge: WorkspaceLinkEdge): string {
-  return JSON.stringify([...edge.candidates].sort());
 }
 
 /**
@@ -131,29 +125,44 @@ export function assessWorkspaceFileOperationLinks({
     for (const [sourcePath, edges] of sourceEdges(index)) {
       const mapping = workspaceId === request.sourceWorkspaceId ? sourceMappings.get(sourcePath) : undefined;
       for (const [ordinal, edge] of edges.entries()) {
-        const relocated = Boolean(mapping);
         const destinations = mapping
           ? [{ workspaceId: mapping.destinationWorkspaceId, path: mapping.destinationPath, copied: request.kind === 'copy' }]
           : [{ workspaceId, path: sourcePath, copied: false }];
         if (mapping && request.kind === 'copy') destinations.push({ workspaceId, path: sourcePath, copied: false });
         if (edge.status !== 'resolved') {
-          const parsedTarget = edge.kind === 'markdown' ? parseWorkspaceMarkdownHref(edge.targetLiteral) : null;
-          const exactTarget = parsedTarget && path.posix.normalize(parsedTarget.path.startsWith('/')
-            ? parsedTarget.path.slice(1) : path.posix.join(path.posix.dirname(sourcePath), parsedTarget.path));
-          const involvedTarget = workspaceId === request.sourceWorkspaceId
-            && (edge.candidates.some((candidate) => sourceMappings.has(candidate)) || Boolean(exactTarget
-              && request.selections.some((selection) => exactTarget === selection.sourcePath || exactTarget.startsWith(`${selection.sourcePath}/`))));
-          if (relocated || involvedTarget) {
-            block({ workspaceId, sourcePath, targetLiteral: edge.targetLiteral, status: edge.status,
-              reason: 'affected-unresolved-link' });
-            continue;
+          const logicalTarget = getWorkspaceLinkLogicalTarget(edge);
+          let unchanged = true;
+          let restored = false;
+          for (const destination of destinations) {
+            const next = afterEdges.get(destination.workspaceId)?.get(destination.path)?.[ordinal];
+            const targetsMove = workspaceId === request.sourceWorkspaceId && (request.kind !== 'copy' || destination.copied);
+            const expectedLogical = logicalTarget && targetsMove ? mapWorkspaceLinkLogicalTarget(logicalTarget, request) : logicalTarget;
+            const nextLogical = next ? getWorkspaceLinkLogicalTarget(next) : null;
+            const sameLookup = logicalTarget === null ? next?.targetLiteral === edge.targetLiteral : nextLogical === expectedLogical;
+            const expectedCandidates = edge.candidates.map((candidate) => targetsMove
+              ? sourceMappings.get(candidate)?.destinationPath ?? candidate : candidate).sort();
+            // Candidate path mappings carry the exact snapshot identity. A newly
+            // added copy or an alias/title binding is never an unchanged ambiguity.
+            const sameCandidates = next && JSON.stringify([...next.candidates].sort()) === JSON.stringify(expectedCandidates);
+            const approvedRepair = edge.status === 'missing' && next?.status === 'resolved'
+              && next.kind === edge.kind && next.syntax === edge.syntax
+              && next.targetPath && next.candidates.length === 1 && logicalTarget !== null && sameLookup
+              && workspaceLinkLogicalTargetMatchesPath(next, expectedLogical!, next.targetPath)
+              && pathMappings.some((target) => target.destinationWorkspaceId === destination.workspaceId
+                && target.destinationPath === next.targetPath);
+            if (approvedRepair) {
+              assessment.restoredLinks ??= [];
+              assessment.restoredLinks.push({ workspaceId, sourcePath, sourcePathAfter: destination.path,
+                targetLiteral: edge.targetLiteral, targetPath: next!.targetPath! });
+              restored = true;
+            } else if (!next || next.kind !== edge.kind || next.syntax !== edge.syntax || !sameLookup
+              || next.status !== edge.status || next.targetPath !== edge.targetPath || !sameCandidates) {
+              unchanged = false;
+              block({ workspaceId, sourcePath, targetLiteral: edge.targetLiteral, status: next?.status ?? 'not-evaluated',
+                reason: 'resolution-changed' });
+            }
           }
-          const next = afterEdges.get(workspaceId)?.get(sourcePath)?.[ordinal];
-          if (!next || next.kind !== edge.kind || next.syntax !== edge.syntax || next.targetLiteral !== edge.targetLiteral
-            || next.status !== edge.status || next.targetPath !== edge.targetPath || sortedCandidates(next) !== sortedCandidates(edge)) {
-            block({ workspaceId, sourcePath, targetLiteral: edge.targetLiteral, status: next?.status ?? 'not-evaluated',
-              reason: 'resolution-changed' });
-          } else assessment.warnings.push({ workspaceId, sourcePath, targetLiteral: edge.targetLiteral,
+          if (unchanged && !restored) assessment.warnings.push({ workspaceId, sourcePath, targetLiteral: edge.targetLiteral,
             status: edge.status, reason: 'unaffected-existing-link' });
           continue;
         }

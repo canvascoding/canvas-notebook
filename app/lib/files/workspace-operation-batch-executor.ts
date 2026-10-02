@@ -317,6 +317,18 @@ export function createWorkspaceOperationBatchExecutor(dependencies: Dependencies
     // and aliases introduced when deleted Markdown is restored. No user document is rewritten here.
     const snapshot = await buildWorkspacePlannerSnapshot(manifest.workspaceId, input.scope.fileOptions);
     if (snapshot.entries.some((entry) => entry.omissionReason)) conflict('BATCH_UNDO_INDEX_INCOMPLETE');
+    for (const repaired of manifest.plan.linkAssessment.restoredLinks ?? []) {
+      const currentPath = repaired.sourcePathAfter ?? repaired.sourcePath;
+      if (groupWorkspaceLinkWrites(manifest.plan.linkPlan).some((group) => group.path === currentPath)) continue;
+      const original = manifest.plan.originalDocuments.find((document) => document.path === repaired.sourcePath);
+      const expected = manifest.plan.expectedPathState.find((entry) => entry.path === repaired.sourcePath);
+      const current = snapshot.entries.find((entry) => entry.path === currentPath);
+      const expectedIdentity = currentPath === repaired.sourcePath ? expected?.identity
+        : manifest.finalTransitions?.find((transition) => transition.sourcePath === repaired.sourcePath && transition.destinationPath === currentPath)?.destinationIdentity;
+      if (!original || !expected || current?.markdownContent === undefined
+        || digest(current.markdownContent) !== digest(original.content)
+        || !expectedIdentity || current.identity !== expectedIdentity) conflict('BATCH_UNDO_LINK_CHANGED');
+    }
     const currentSources = snapshot.entries.filter((entry) => entry.markdownContent !== undefined)
       .map((entry) => ({ path: entry.path, content: entry.markdownContent! }));
     const currentPaths = snapshot.entries.filter((entry) => entry.kind === 'file').map((entry) => entry.path);
@@ -333,6 +345,13 @@ export function createWorkspaceOperationBatchExecutor(dependencies: Dependencies
     const restoredPaths = [...currentPaths.map((current) => inversePaths.get(current) ?? current),
       ...manifest.plan.deletedPaths.filter((entry) => entry.kind === 'file').map((entry) => entry.path)];
     const restoredIndex = buildWorkspaceLinkIndexFromDocuments(restoredSources, new Date(0), restoredPaths);
+    for (const repaired of manifest.plan.linkAssessment.restoredLinks ?? []) {
+      const originalEdges = restoredIndex.edges.filter((edge) => edge.sourcePath === repaired.sourcePath
+        && edge.targetLiteral === repaired.targetLiteral);
+      if (!originalEdges.length || originalEdges.some((edge) => edge.status !== 'missing' || edge.candidates.length)) {
+        conflict('BATCH_UNDO_NEW_BACKLINK');
+      }
+    }
     for (const document of currentSources.filter((source) => !editedPaths.has(source.path))) {
       const before = currentIndex.edges.filter((edge) => edge.sourcePath === document.path);
       const after = restoredIndex.edges.filter((edge) => edge.sourcePath === (inversePaths.get(document.path) ?? document.path));
@@ -471,7 +490,9 @@ export function createWorkspaceOperationBatchExecutor(dependencies: Dependencies
       for (const edge of finalIndex.edges.filter((candidate) => candidate.status !== 'resolved')) {
         const initialSource = manifest.plan.pathMappings.find((mapping) => mapping.destinationPath === edge.sourcePath)?.sourcePath ?? edge.sourcePath;
         const knownWarning = manifest.plan.coverage.unresolvedLinks.some((warning) => warning.sourcePath === initialSource
-          && warning.targetLiteral === edge.targetLiteral && warning.status === edge.status);
+          && warning.status === edge.status && (warning.targetLiteral === edge.targetLiteral
+            || finalPlan.linkEdits.some((edit) => edit.sourcePathBefore === initialSource && edit.changeKind === 'rewrite'
+              && edit.previousTargetLiteral === warning.targetLiteral && edit.nextTargetLiteral === edge.targetLiteral)));
         if (knownWarning) continue;
         const parsed = edge.kind === 'markdown' ? parseWorkspaceMarkdownHref(edge.targetLiteral) : null;
         const exact = parsed && path.posix.normalize(parsed.path.startsWith('/') ? parsed.path.slice(1)

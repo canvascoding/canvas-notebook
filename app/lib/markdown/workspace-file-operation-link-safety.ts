@@ -21,9 +21,16 @@ export function isWorkspaceFileOperationLinkSafe(
   const warningKeys = new Set(assessment.warnings.map((warning) => JSON.stringify([
     warning.sourcePath, warning.targetLiteral, warning.status,
   ])));
+  const restored = assessment.restoredLinks === undefined ? [] : assessment.restoredLinks;
+  if (!Array.isArray(restored) || restored.some((link) => !link || typeof link.sourcePath !== 'string' || !link.sourcePath
+    || typeof link.targetLiteral !== 'string' || typeof link.targetPath !== 'string' || !link.targetPath
+    || link.targetPath.startsWith('/') || link.targetPath.split('/').some((part) => !part || part === '.' || part === '..')
+    || (link.workspaceId !== undefined && typeof link.workspaceId !== 'string')
+    || (link.sourcePathAfter !== undefined && (typeof link.sourcePathAfter !== 'string' || !link.sourcePathAfter)))) return false;
+  const restoredKeys = new Set(restored.map((link) => JSON.stringify([link.sourcePath, link.targetLiteral])));
   return plan.coverage.unresolvedLinks.every((link) => link
     && typeof link.sourcePath === 'string' && typeof link.targetLiteral === 'string'
-    && warningStatuses.has(link.status) && warningKeys.has(JSON.stringify([
+    && warningStatuses.has(link.status) && (warningKeys.has(JSON.stringify([
     link.sourcePath, link.targetLiteral, link.status,
-  ])));
+  ])) || (link.status === 'missing' && restoredKeys.has(JSON.stringify([link.sourcePath, link.targetLiteral])))));
 }
