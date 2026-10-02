@@ -186,6 +186,7 @@
     "test:mcp:config": "tsx --conditions react-server scripts/mcp-config-test.ts",
     "test:mcp:proxy": "tsx --conditions react-server scripts/mcp-proxy-test.ts",
     "test:mcp:manager": "tsx --conditions react-server scripts/mcp-manager-test.ts",
+    "test:server:shutdown": "node --import tsx scripts/mcp-shutdown-ownership-test.ts && node --import tsx scripts/server-shutdown-coordinator-test.ts",
     "test:mcp:oauth": "tsx --conditions react-server scripts/mcp-oauth-test.ts && npm run test:mcp:desktop-oauth",
     "test:mcp:desktop-oauth": "tsx --conditions react-server scripts/mcp-desktop-oauth-test.ts && tsx scripts/mcp-oauth-client-test.ts && tsx scripts/mcp-oauth-callback-boundary-test.ts",
     "test:mcp:member-access": "tsx --conditions react-server scripts/mcp-member-access-test.ts",

@@ -72,6 +72,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Verify application shutdown ownership
+        run: npm run test:server:shutdown
+
       - name: Verify release source and CLI safety gates
         run: npm run verify:release
 
