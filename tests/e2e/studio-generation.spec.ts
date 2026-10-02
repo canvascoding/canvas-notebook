@@ -1,7 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import dotenv from 'dotenv';
 import path from 'node:path';
-import { createAuthenticatedContext } from '../helpers/managed-test-context';
+import { authenticateManagedTestPage } from '../helpers/managed-test-context';
 
 dotenv.config({ path: path.join(process.cwd(), '.env.local') });
 
@@ -10,18 +10,7 @@ const TEST_EMAIL = process.env.TEST_LOGIN_EMAIL || process.env.BOOTSTRAP_ADMIN_E
 const TEST_PASSWORD = process.env.TEST_LOGIN_PASSWORD || process.env.BOOTSTRAP_ADMIN_PASSWORD || 'change-me';
 
 async function login(page: Page) {
-  const browser = page.context().browser();
-  if (!browser) throw new Error('Studio browser tests require a browser context.');
-  const authenticated = await createAuthenticatedContext(browser, { baseURL: BASE_URL }, {
-    email: TEST_EMAIL, password: TEST_PASSWORD,
-  });
-  try {
-    const state = await authenticated.storageState();
-    await page.context().addCookies(state.cookies);
-    const session = await page.request.get(`${BASE_URL}/api/auth/get-session`);
-    expect(session.ok()).toBeTruthy();
-    expect((await session.json()).user?.id).toBeTruthy();
-  } finally { await authenticated.close(); }
+  await authenticateManagedTestPage(page, { email: TEST_EMAIL, password: TEST_PASSWORD });
 }
 
 async function requireStudioGenerationProvider(page: Page) {
