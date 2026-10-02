@@ -6,6 +6,10 @@ import type * as YTypes from 'yjs';
 import { readCurrentCollaborationDocument } from '@/app/lib/collaboration/document-access';
 import { runCollaborationDirectConnection } from '@/app/lib/collaboration/direct-connection';
 import { loadCollaborationState, type PersistedCollaborationState } from '@/app/lib/collaboration/persistence';
+import { replaceRichMarkdownInYDoc, richMarkdownFromYDoc, validateRichMarkdownYDoc } from '@/app/lib/collaboration/markdown-state';
+import { richDocumentFormat } from '@/app/lib/collaboration/rich-document';
+import { Y } from '@/app/lib/collaboration/server-runtime';
+import { isRichTextCollaborationRepresentation } from '@/app/lib/collaboration/types';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 import type { WorkspaceFileLinkEditV1 } from './workspace-link-contract-v1';
 
@@ -113,9 +117,10 @@ function assertState(state: State | null, input: ActiveWorkspaceLinkEditsInput):
     || state.path !== input.documentPath) {
     throw new WorkspaceLinkYjsEditError('LINK_WRITE_STALE_DOCUMENT', 'The active collaboration document identity changed.');
   }
-  if (state.representation !== 'plain_text' || state.newlineStyle !== 'lf' || state.hasBom) {
+  if ((state.representation !== 'plain_text' && !isRichTextCollaborationRepresentation(state.representation))
+    || state.newlineStyle !== 'lf' || state.hasBom) {
     throw new WorkspaceLinkYjsEditError('LINK_WRITE_UNSUPPORTED',
-      'Only plain Y.Text Markdown with LF and no BOM can receive exact link edits.');
+      'Exact link edits require a supported Markdown representation with LF and no BOM.');
   }
 }
 
@@ -130,35 +135,44 @@ function validateLiveDocument(
   state: State,
   input: ActiveWorkspaceLinkEditsInput,
   edits: readonly WorkspaceFileLinkEditV1[],
-): { result: ActiveWorkspaceLinkPreflightResult; text: YTypes.Text; afterContent: string } {
-  const shared = doc.share.get('content');
-  // Hocuspocus may supply an ESM Y.Doc while the server adapter uses the CJS
-  // Yjs constructor. Applying a persisted update also leaves an AbstractType
-  // placeholder until getText materializes its actual top-level type. A truly
-  // missing or different type must never be created or converted here.
-  const sharedType = shared?.constructor.name;
-  if (sharedType !== 'YText' && sharedType !== 'AbstractType') {
-    throw new WorkspaceLinkYjsEditError('LINK_WRITE_UNSUPPORTED',
-      'The live document is not an unformatted Y.Text content value.');
+): { result: ActiveWorkspaceLinkPreflightResult; text: YTypes.Text | null; afterContent: string } {
+  let text: YTypes.Text | null = null;
+  let content: string;
+  if (isRichTextCollaborationRepresentation(state.representation)) {
+    const validation = validateRichMarkdownYDoc(doc);
+    if (richDocumentFormat(doc) !== state.representation || !validation.valid || validation.markdown === undefined) {
+      throw new WorkspaceLinkYjsEditError('LINK_WRITE_UNSUPPORTED', 'The live rich Markdown representation is invalid.');
+    }
+    content = validation.markdown;
+  } else {
+    const shared = doc.share.get('content');
+    // Hocuspocus may supply an ESM Y.Doc while the server adapter uses the CJS
+    // Yjs constructor. Applying a persisted update also leaves an AbstractType
+    // placeholder until getText materializes its actual top-level type. A truly
+    // missing or different type must never be created or converted here.
+    const sharedType = shared?.constructor.name;
+    if (sharedType !== 'YText' && sharedType !== 'AbstractType') {
+      throw new WorkspaceLinkYjsEditError('LINK_WRITE_UNSUPPORTED',
+        'The live document is not an unformatted Y.Text content value.');
+    }
+    try {
+      text = doc.getText('content');
+    } catch {
+      throw new WorkspaceLinkYjsEditError('LINK_WRITE_UNSUPPORTED',
+        'The live document is not an unformatted Y.Text content value.');
+    }
+    const delta = text.toDelta() as Array<{ insert: unknown; attributes?: Record<string, unknown> }>;
+    const validType = text.constructor.name === 'YText'
+      && Object.is(text, doc.share.get('content'))
+      && (sharedType === 'AbstractType' || Object.is(text, shared));
+    const nonString = delta.some((part) => typeof part.insert !== 'string');
+    const formatted = delta.some((part) => part.attributes && Object.keys(part.attributes).length > 0);
+    if (!validType || nonString || formatted) {
+      throw new WorkspaceLinkYjsEditError('LINK_WRITE_UNSUPPORTED',
+        'The live document is not an unformatted Y.Text content value.');
+    }
+    content = text.toString();
   }
-  let text: YTypes.Text;
-  try {
-    text = doc.getText('content');
-  } catch {
-    throw new WorkspaceLinkYjsEditError('LINK_WRITE_UNSUPPORTED',
-      'The live document is not an unformatted Y.Text content value.');
-  }
-  const delta = text.toDelta() as Array<{ insert: unknown; attributes?: Record<string, unknown> }>;
-  const validType = text.constructor.name === 'YText'
-    && Object.is(text, doc.share.get('content'))
-    && (sharedType === 'AbstractType' || Object.is(text, shared));
-  const nonString = delta.some((part) => typeof part.insert !== 'string');
-  const formatted = delta.some((part) => part.attributes && Object.keys(part.attributes).length > 0);
-  if (!validType || nonString || formatted) {
-    throw new WorkspaceLinkYjsEditError('LINK_WRITE_UNSUPPORTED',
-      'The live document is not an unformatted Y.Text content value.');
-  }
-  const content = text.toString();
   if (content.charCodeAt(0) === 0xfeff || /\r/u.test(content)) {
     throw new WorkspaceLinkYjsEditError('LINK_WRITE_UNSUPPORTED',
       'The live text cannot be rewritten without changing its byte representation.');
@@ -197,6 +211,23 @@ function validateLiveDocument(
   }
   if (afterContent !== input.afterContent) {
     return invalid('The planned Markdown result differs from its link edits.');
+  }
+  if (!text) {
+    // Prove the existing representation adapter can express precisely this
+    // approved result before touching the authoritative room. It preserves
+    // stable rich node identities and never migrates the document to Y.Text.
+    const clone = new Y.Doc();
+    try {
+      Y.applyUpdate(clone, Y.encodeStateAsUpdate(doc));
+      replaceRichMarkdownInYDoc(clone, afterContent, 'workspace_link_preview');
+      const validation = validateRichMarkdownYDoc(clone);
+      if (richDocumentFormat(clone) !== state.representation || !validation.valid || validation.markdown !== afterContent) {
+        throw new WorkspaceLinkYjsEditError('LINK_WRITE_UNSUPPORTED', 'The approved link result cannot round-trip in the rich document.');
+      }
+    } catch (error) {
+      if (error instanceof WorkspaceLinkYjsEditError) throw error;
+      throw new WorkspaceLinkYjsEditError('LINK_WRITE_UNSUPPORTED', 'The approved link result cannot be represented by the rich document.');
+    } finally { clone.destroy(); }
   }
   return {
     text,
@@ -255,13 +286,15 @@ export function createActiveWorkspaceLinkEditService(dependencies: Dependencies 
       }, (doc) => {
         const { text, afterContent, result } = validateLiveDocument(doc, state, input, edits);
         if (result.status === 'already-applied') return { ...result, status: 'already-applied' as const };
-        doc.transact(() => {
+        if (!text) {
+          replaceRichMarkdownInYDoc(doc, afterContent, 'workspace_link_operation');
+        } else doc.transact(() => {
           for (const edit of [...edits].reverse()) {
             text.delete(edit.targetRange.startUtf16, edit.targetRange.endUtf16 - edit.targetRange.startUtf16);
             text.insert(edit.targetRange.startUtf16, edit.nextTargetLiteral);
           }
         }, 'workspace_link_operation');
-        if (text.toString() !== afterContent) {
+        if ((text ? text.toString() : richMarkdownFromYDoc(doc)) !== afterContent) {
           throw new WorkspaceLinkYjsEditError('LINK_WRITE_STALE', 'The live document changed while link edits were applied.');
         }
         return { ...result, status: 'applied' as const };

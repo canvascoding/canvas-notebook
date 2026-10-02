@@ -21,7 +21,8 @@ import {
   type ActiveWorkspaceLinkEditsInput,
 } from '../app/lib/markdown/workspace-link-yjs-edits';
 import { Y as ServerY } from '../app/lib/collaboration/server-runtime';
-import { createPlainTextYDoc } from '../app/lib/collaboration/markdown-state';
+import { createPlainTextYDoc, createRichMarkdownYDoc, replaceRichMarkdownInYDoc, richMarkdownFromYDoc } from '../app/lib/collaboration/markdown-state';
+import { readRichDocumentJson, richDocumentFormat } from '../app/lib/collaboration/rich-document';
 
 const source = 'A [x](./😀.md) B';
 const target = './😀.md';
@@ -158,9 +159,9 @@ test('wrong literal, UTF-8 byte offset, and mismatched result are rejected befor
   });
 });
 
-test('rich text, CRLF profile, BOM, and formatted Y.Text fail closed', async (t) => {
+test('invalid rich roots, CRLF profile, BOM, and formatted Y.Text fail closed', async (t) => {
   for (const [name, options] of [
-    ['rich text', { representation: 'tiptap_blocks' as const }],
+    ['invalid rich root', { representation: 'tiptap_blocks' as const }],
     ['CRLF', { newlineStyle: 'crlf' as const }],
     ['BOM', { hasBom: true }],
   ] as const) await t.test(name, async () => {
@@ -263,3 +264,71 @@ test('a persisted plain Yjs update materializes AbstractType without changing it
     assert.equal(hydrated.getText('content').toString(), afterContent);
   } finally { hydrated.destroy(); initial.destroy(); }
 });
+
+for (const representation of ['tiptap_xml', 'tiptap_blocks'] as const) {
+  test(`${representation} exact Wiki repair preserves rich identities, metadata and idempotent Undo`, async () => {
+    const markdown = '---\ntitle: Note\n---\n# Keep\n\n[[A/Plan|Plan]]\n\n**Bold** and [External](https://example.com).\n';
+    const doc = createRichMarkdownYDoc(markdown, representation);
+    const h = fixture({ representation }, doc, false);
+    try {
+      const before = richMarkdownFromYDoc(doc);
+      const previous = 'A/Plan';
+      const next = 'final/Other';
+      const offset = before.indexOf(previous);
+      const after = before.slice(0, offset) + next + before.slice(offset + previous.length);
+      const input = { ...h.input, afterContent: after, edits: [{ ...h.input.edits[0],
+        expectedContentHash: sha256(before), previousTargetLiteral: previous, nextTargetLiteral: next,
+        targetRange: { startUtf16: offset, endUtf16: offset + previous.length,
+          startUtf8Byte: Buffer.byteLength(before.slice(0, offset)), endUtf8Byte: Buffer.byteLength(before.slice(0, offset + previous.length)) } }] };
+      doc.getMap('comments').set('retained-comment', { body: 'Keep comment metadata' });
+      const beforeJson = readRichDocumentJson(doc);
+      const vectorBefore = Buffer.from(Y.encodeStateVector(doc));
+      const invalid = { ...input, afterContent: before.slice(0, offset) + 'new]] invalid' + before.slice(offset + previous.length),
+        edits: [{ ...input.edits[0], nextTargetLiteral: 'new]] invalid' }] };
+      await assert.rejects(h.service.preflight(invalid), hasCode('LINK_WRITE_UNSUPPORTED'));
+      await assert.rejects(h.service.apply(invalid), hasCode('LINK_WRITE_UNSUPPORTED'));
+      assert.deepEqual(Buffer.from(Y.encodeStateVector(doc)), vectorBefore, 'a non-round-tripping rich result never mutates the room');
+      assert.equal((await h.service.preflight(input)).status, 'ready');
+      assert.deepEqual(Buffer.from(Y.encodeStateVector(doc)), vectorBefore, 'rich preflight never mutates the room');
+      assert.equal(richMarkdownFromYDoc(doc), before);
+      assert.equal((await h.service.apply(input)).status, 'applied');
+      assert.equal(richMarkdownFromYDoc(doc), after);
+      assert.equal(richDocumentFormat(doc), representation);
+      assert.deepEqual(doc.getMap('comments').get('retained-comment'), { body: 'Keep comment metadata' });
+      assert.deepEqual(readRichDocumentJson(doc).content?.map((node) => node.attrs?.id), beforeJson.content?.map((node) => node.attrs?.id),
+        'existing rich block identities survive a link target rewrite');
+      const appliedVector = Buffer.from(Y.encodeStateVector(doc));
+      assert.equal((await h.service.apply(input)).status, 'already-applied');
+      assert.deepEqual(Buffer.from(Y.encodeStateVector(doc)), appliedVector);
+      const undo = { ...input, afterContent: before, edits: [{ ...input.edits[0], expectedContentHash: sha256(after),
+        previousTargetLiteral: next, nextTargetLiteral: previous,
+        targetRange: { startUtf16: offset, endUtf16: offset + next.length,
+          startUtf8Byte: Buffer.byteLength(after.slice(0, offset)), endUtf8Byte: Buffer.byteLength(after.slice(0, offset + next.length)) } }] };
+      assert.equal((await h.service.preflight(undo)).status, 'ready');
+      await h.service.apply(undo);
+      assert.equal(richMarkdownFromYDoc(doc), before);
+      const wrapper = '[[A/Plan|Plan]]';
+      const wrapperOffset = before.indexOf(wrapper);
+      const cleaned = before.slice(0, wrapperOffset) + 'Plan' + before.slice(wrapperOffset + wrapper.length);
+      const cleanup = { ...input, afterContent: cleaned, edits: [{ ...input.edits[0],
+        previousTargetLiteral: wrapper, nextTargetLiteral: 'Plan',
+        targetRange: { startUtf16: wrapperOffset, endUtf16: wrapperOffset + wrapper.length,
+          startUtf8Byte: Buffer.byteLength(before.slice(0, wrapperOffset)), endUtf8Byte: Buffer.byteLength(before.slice(0, wrapperOffset + wrapper.length)) } }] };
+      await h.service.preflight(cleanup);
+      await h.service.apply(cleanup);
+      assert.equal(richMarkdownFromYDoc(doc), cleaned, 'delete cleanup removes the wrapper and retains its visible label');
+      const restore = { ...cleanup, afterContent: before, edits: [{ ...cleanup.edits[0], expectedContentHash: sha256(cleaned),
+        previousTargetLiteral: 'Plan', nextTargetLiteral: wrapper,
+        targetRange: { startUtf16: wrapperOffset, endUtf16: wrapperOffset + 4,
+          startUtf8Byte: Buffer.byteLength(cleaned.slice(0, wrapperOffset)), endUtf8Byte: Buffer.byteLength(cleaned.slice(0, wrapperOffset + 4)) } }] };
+      await h.service.preflight(restore);
+      await h.service.apply(restore);
+      assert.equal(richMarkdownFromYDoc(doc), before);
+      await h.service.preflight(input);
+      replaceRichMarkdownInYDoc(doc, before.replace('**Bold**', '**User edit**'));
+      const concurrent = richMarkdownFromYDoc(doc);
+      await assert.rejects(h.service.apply(input), hasCode('LINK_WRITE_STALE'));
+      assert.equal(richMarkdownFromYDoc(doc), concurrent, 'a concurrent rich edit is never overwritten');
+    } finally { doc.destroy(); }
+  });
+}

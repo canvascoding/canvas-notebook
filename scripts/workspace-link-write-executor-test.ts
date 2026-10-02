@@ -16,10 +16,68 @@ import {
   type WorkspaceLinkWritePreflight,
 } from '../app/lib/markdown/workspace-link-write-executor';
 import type { WorkspaceContext } from '../app/lib/workspaces/types';
+import { createRichMarkdownYDoc, richMarkdownFromYDoc } from '../app/lib/collaboration/markdown-state';
+import { createActiveWorkspaceLinkEditService } from '../app/lib/markdown/workspace-link-yjs-edits';
+import { CollaborationDocumentStateError } from '../app/lib/collaboration/document-state-service';
+import type { PersistedCollaborationState } from '../app/lib/collaboration/persistence';
 
 const original = '[x](./asset.png)';
 const rewritten = '[x](../images/asset.png)';
 const sha256 = (value: Buffer | string) => createHash('sha256').update(value).digest('hex');
+
+for (const representation of ['tiptap_xml', 'tiptap_blocks'] as const) {
+  test(`checkpointed ${representation} Wiki repair preflights and writes without representation migration`, async () => {
+    const doc = createRichMarkdownYDoc('[[A/Plan|Plan]]\n', representation);
+    try {
+      const content = richMarkdownFromYDoc(doc);
+      const plan = createWorkspaceFileOperationPlan({ kind: 'move', sourceWorkspaceId: 'src', destinationWorkspaceId: 'src',
+        selections: [{ sourcePath: 'A/Plan.md', destinationPath: 'final/Other.md' }],
+        snapshots: [{ workspaceId: 'src', entries: [
+          { path: 'A/Plan.md', kind: 'file', identity: 'source', markdownContent: '# Original\n' },
+          { path: 'home.md', kind: 'file', identity: 'home', markdownContent: content },
+        ] }] });
+      assert.equal(plan.readiness, 'ready');
+      const workspace = { workspaceId: 'src', workspaceType: 'personal', rootPath: '/tmp/rich-checkpoint-test' } as WorkspaceContext;
+      const state = { documentId: 'rich-document', workspaceId: 'src', path: 'home.md', representation,
+        lifecycleGeneration: 1, schemaVersion: 1, newlineStyle: 'lf', hasBom: false,
+        degraded: false, status: 'active' } as PersistedCollaborationState;
+      let disk = Buffer.from(content);
+      let resolutions = 0;
+      const active = createActiveWorkspaceLinkEditService({ loadState: async () => state,
+        readCurrent: async (input) => input.read(doc), directConnection: async (input, apply) => {
+          assert.equal(input.documentRepresentation, representation);
+          const result = apply(doc);
+          disk = Buffer.from(richMarkdownFromYDoc(doc));
+          return result;
+        } });
+      const executor = createWorkspaceLinkWriteExecutor({
+        isDirectConnectionAvailable: () => true, isLiveReaderAvailable: () => true,
+        loadPersistedState: async () => state,
+        readFile: async () => disk,
+        readCollaborationState: (async () => ({ document: { id: state.documentId, status: 'active' } })) as typeof readFileCollaborationState,
+        resolveTextState: async (input) => {
+          resolutions += 1;
+          if (input.requireRepresentationMatch && input.initialRepresentation !== state.representation) {
+            throw new CollaborationDocumentStateError('The collaboration document representation is stale.', 'COLLABORATION_REPRESENTATION_MISMATCH');
+          }
+          return { state, initialized: false };
+        }, preflightActive: active.preflight, applyActive: active.apply,
+      });
+      const input: WorkspaceLinkWriteExecutorInput = { plan, source: { workspace, fileOptions: { workspace } },
+        destination: { workspace, fileOptions: { workspace } }, actorUserId: 'reviewer', actorId: 'reviewer',
+        actorDisplayName: 'Reviewer', actorType: 'user', operationId: 'rich-checkpoint-repair' };
+      const preflight = await executor.preflight(input);
+      assert.equal(resolutions, 1);
+      assert.equal(disk.toString(), content);
+      assert.equal(preflight.sources[0].mode, 'active-yjs');
+      const group = groupWorkspaceLinkWrites(plan)[0];
+      assert.equal((await executor.applyGroup(input, group, { preflight })).status, 'applied');
+      assert.equal(disk.toString(), '[[final/Other|Plan]]\n');
+      assert.equal((await executor.applyGroup(input, group, { preflight })).status, 'already-applied');
+      assert.equal(state.representation, representation);
+    } finally { doc.destroy(); }
+  });
+}
 
 function copyPlan(markdownContent = original) {
   const plan = createWorkspaceFileOperationPlan({

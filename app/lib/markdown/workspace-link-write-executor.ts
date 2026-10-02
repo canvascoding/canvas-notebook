@@ -426,15 +426,17 @@ export function createWorkspaceLinkWriteExecutor(dependencies: Dependencies = {}
             throw new WorkspaceLinkWriteExecutorError('LINK_WRITE_UNSUPPORTED',
               'Exact Yjs link edits require Markdown with LF and no BOM.');
           }
+          const persisted = await loadPersistedState(documentId);
+          const initialRepresentation = persisted?.representation ?? 'plain_text';
           const resolved = await resolveTextState({
             document: metadata.document!, workspace: input.source.workspace,
-            path: group.sourcePathBefore, initialRepresentation: 'plain_text',
+            path: group.sourcePathBefore, initialRepresentation,
             initialContent, requireRepresentationMatch: true,
           });
           if (resolved.state.documentId !== documentId
             || resolved.state.workspaceId !== group.sourceWorkspaceId
             || resolved.state.path !== group.sourcePathBefore
-            || resolved.state.representation !== 'plain_text'
+            || resolved.state.representation !== initialRepresentation
             || resolved.state.status !== 'active' || resolved.state.degraded) {
             throw new WorkspaceLinkWriteExecutorError('LINK_WRITE_STALE_DOCUMENT',
               'Initialized collaboration state does not match the planned source.');
