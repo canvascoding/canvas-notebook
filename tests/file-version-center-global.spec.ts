@@ -1,8 +1,13 @@
-import { expect, test, type APIRequestContext, type BrowserContext, type Page, type TestInfo } from '@playwright/test';
-import { execFile } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
+import { expect, request as requestFactory, test as base, type APIRequestContext, type BrowserContext, type Page, type TestInfo } from '@playwright/test';
+import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import { createHash, randomUUID } from 'node:crypto';
+import type { EventEmitter } from 'node:events';
+import { writeFileSync } from 'node:fs';
+import { readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
-import { promisify } from 'node:util';
+import { parse } from 'dotenv';
+import { Client } from 'pg';
+import { MAIN_AGENT_ID } from '../app/lib/agents/main-agent';
 
 import {
   createAuthenticatedContext,
@@ -11,7 +16,6 @@ import {
 } from './helpers/managed-test-context';
 
 const WORKSPACE_ID_HEADER = 'x-canvas-workspace-id';
-const execFileAsync = promisify(execFile);
 
 type Workspace = {
   id: string;
@@ -26,8 +30,11 @@ type Workspace = {
 };
 
 type ToolResult = {
+  isError?: boolean;
   content?: Array<{ type: string; text?: string }>;
   details?: {
+    code?: string;
+    outcome?: string;
     sha256?: string;
     collaboration?: { operationId?: string; reviewRequired?: boolean };
   };
@@ -43,6 +50,319 @@ type Timeline = {
   policy?: { effectiveMode?: string };
   entries: Array<{ kind: string }>;
 };
+
+type ExperimentalState = {
+  documentReviewEnabled: boolean;
+  updatedAt: string | null;
+  studioBulkEnabled: boolean;
+  studioBulkUpdatedAt: string | null;
+};
+
+type OwnedSession = {
+  sessionId: string; agentId: string; userId: string; workspaceId: string; title: string;
+  cleanup?: Promise<void>;
+};
+
+type SeedResources = {
+  request: APIRequestContext;
+  drivers: Set<PersistentAgentToolDriver>;
+  sessions: Map<string, OwnedSession>;
+};
+
+class PersistentAgentToolDriver {
+  private readonly child: ChildProcessWithoutNullStreams & EventEmitter;
+  private readonly exited: Promise<void>;
+  private readonly ready: Promise<void>;
+  private resolveReady!: () => void;
+  private rejectReady!: (error: Error) => void;
+  private pending?: { id: string; resolve: (value: ToolResult) => void; reject: (error: Error) => void; timer: NodeJS.Timeout };
+  private startupTimer: NodeJS.Timeout;
+  private stdout = '';
+  private outputBytes = 0;
+  private stderrBytes = 0;
+  private stderr = Buffer.alloc(0);
+  private exitCode: number | null = null;
+  private didExit = false;
+  private closing = false;
+  private closePromise?: Promise<void>;
+
+  constructor() {
+    this.ready = new Promise<void>((resolve, reject) => { this.resolveReady = resolve; this.rejectReady = reject; });
+    this.child = spawn(process.execPath, [
+      '--import', 'tsx', '--conditions', 'react-server', 'scripts/collaboration-agent-tool-driver.ts', '--persistent',
+    ], { cwd: process.cwd(), env: process.env, stdio: ['pipe', 'pipe', 'pipe'] }) as ChildProcessWithoutNullStreams & EventEmitter;
+    this.startupTimer = setTimeout(() => this.fail(new Error('Agent test driver startup exceeded 30 seconds.')), 30_000);
+    this.exited = new Promise<void>((resolve) => this.child.once('close', (code: number | null) => {
+      this.didExit = true;
+      this.exitCode = code;
+      clearTimeout(this.startupTimer);
+      if (this.stderr.length) {
+        const evidence = `/tmp/canvas-yjs-426b-agent-driver-stderr-${randomUUID()}.log`;
+        try {
+          writeFileSync(evidence, this.stderr, { mode: 0o600, flag: 'wx' });
+          console.log('[version-center driver]', JSON.stringify({ stderrBytes: this.stderrBytes, evidence,
+            stderrHash: createHash('sha256').update(this.stderr).digest('hex') }));
+        } catch { this.fail(new Error('Could not retain bounded private agent driver diagnostics.')); }
+      }
+      if (!this.closing || this.pending) this.fail(new Error('Agent test driver exited before completing its owned request.'));
+      resolve();
+    }));
+    this.child.on('error', () => this.fail(new Error('Agent test driver could not start.')));
+    this.child.stdin.on('error', () => this.fail(new Error('Agent test driver stdin failed.')));
+    this.child.stdout.setEncoding('utf8');
+    this.child.stdout.on('data', (chunk: string) => this.receive(chunk));
+    this.child.stderr.on('data', (chunk: Buffer) => {
+      this.stderrBytes += chunk.length;
+      const remaining = 2 * 1024 * 1024 - this.stderr.length;
+      if (remaining > 0) this.stderr = Buffer.concat([this.stderr, chunk.subarray(0, remaining)]);
+      // Retain bounded private diagnostics without forwarding runtime logs,
+      // tool payloads or environment values. Match the legacy 2-MiB limit.
+      if (this.stderrBytes > 2 * 1024 * 1024) this.fail(new Error('Agent test driver stderr limit exceeded.'));
+    });
+  }
+
+  private fail(error: Error): void {
+    clearTimeout(this.startupTimer);
+    this.rejectReady(error);
+    if (this.pending) {
+      clearTimeout(this.pending.timer);
+      this.pending.reject(error);
+      this.pending = undefined;
+    }
+    if (!this.didExit) this.child.kill('SIGTERM');
+  }
+
+  private receive(chunk: string): void {
+    this.outputBytes += Buffer.byteLength(chunk);
+    this.stdout += chunk;
+    if (this.outputBytes > 8 * 1024 * 1024 || Buffer.byteLength(this.stdout) > 2 * 1024 * 1024) {
+      this.fail(new Error('Agent test driver stdout limit exceeded.'));
+      return;
+    }
+    let newline: number;
+    while ((newline = this.stdout.indexOf('\n')) !== -1) {
+      const line = this.stdout.slice(0, newline);
+      this.stdout = this.stdout.slice(newline + 1);
+      let receipt: { driverProtocol?: number; type?: string; toolCallId?: string; result?: ToolResult };
+      try { receipt = JSON.parse(line); } catch { continue; }
+      if (!receipt || receipt.driverProtocol !== 1) continue;
+      if (receipt.type === 'ready') {
+        clearTimeout(this.startupTimer);
+        this.resolveReady();
+      } else if (receipt.type === 'result' && this.pending && receipt.toolCallId === this.pending.id && receipt.result) {
+        clearTimeout(this.pending.timer);
+        this.pending.resolve(receipt.result);
+        this.pending = undefined;
+      } else this.fail(new Error('Agent test driver returned an unexpected protocol receipt.'));
+    }
+  }
+
+  async execute(input: { toolName: 'read' | 'edit_file'; params: Record<string, unknown>; context: Record<string, unknown> }): Promise<ToolResult> {
+    await this.ready;
+    if (this.closing || this.didExit || this.pending) throw new Error('Agent test driver is unavailable or already executing.');
+    const id = `version-center-browser-${randomUUID()}`;
+    const line = `${JSON.stringify({ ...input, toolCallId: id })}\n`;
+    if (Buffer.byteLength(line) > 2 * 1024 * 1024) throw new Error('Agent test driver request limit exceeded.');
+    return new Promise<ToolResult>((resolve, reject) => {
+      const timer = setTimeout(() => this.fail(new Error(`Agent test driver ${input.toolName} exceeded 30 seconds.`)), 30_000);
+      this.pending = { id, resolve, reject, timer };
+      this.child.stdin.write(line, (error) => { if (error) this.fail(new Error('Agent test driver request write failed.')); });
+    });
+  }
+
+  close(): Promise<void> {
+    if (this.closePromise) return this.closePromise;
+    this.closing = true;
+    this.closePromise = (async () => {
+      this.child.stdin.end();
+      for (const signal of [undefined, 'SIGTERM', 'SIGKILL'] as const) {
+        if (this.didExit) break;
+        if (signal) this.child.kill(signal);
+        let timer: NodeJS.Timeout | undefined;
+        await Promise.race([this.exited, new Promise<void>((resolve) => { timer = setTimeout(resolve, 2_000); })]);
+        clearTimeout(timer);
+      }
+      if (!this.didExit) throw new Error('Owned agent test driver did not exit after bounded cleanup.');
+      if (this.exitCode !== 0) throw new Error('Owned agent test driver exited unsuccessfully.');
+    })();
+    return this.closePromise;
+  }
+
+  hasExited(): boolean { return this.didExit; }
+}
+
+async function cleanupOwnedSession(resources: SeedResources, owned: OwnedSession): Promise<void> {
+  if (owned.cleanup) return owned.cleanup;
+  owned.cleanup = (async () => {
+    const authResponse = await resources.request.get('/api/auth/get-session');
+    expect(authResponse.status(), 'Independent fixture cleanup requires the original authenticated owner.').toBe(200);
+    expect((await authResponse.json()).user?.id).toBe(owned.userId);
+    const listed = await resources.request.get('/api/sessions', { params: { agentId: owned.agentId, workspaceId: owned.workspaceId } });
+    expect(listed.status()).toBe(200);
+    const sessions = (await listed.json()).sessions as Array<{
+      sessionId?: string; agentId?: string; userId?: string; title?: string; workspace?: { workspaceId?: string };
+    }>;
+    expect(Array.isArray(sessions)).toBe(true);
+    const exact = sessions.filter((item) => item.sessionId === owned.sessionId);
+    expect(exact, 'Delete only the exact API-created fixture session.').toHaveLength(1);
+    expect(exact[0]).toMatchObject({ sessionId: owned.sessionId, agentId: owned.agentId, userId: owned.userId, title: owned.title });
+    expect(exact[0].workspace?.workspaceId).toBe(owned.workspaceId);
+    const deleted = await resources.request.delete('/api/sessions', { params: { sessionId: owned.sessionId, agentId: owned.agentId } });
+    expect(deleted.status(), 'The synthetic fixture session must be cleaned up.').toBe(200);
+    expect(await deleted.json()).toMatchObject({ success: true, deleted: owned.sessionId });
+    resources.sessions.delete(owned.sessionId);
+  })();
+  return owned.cleanup;
+}
+
+async function requireOwnedQAReviewFixture(request: APIRequestContext): Promise<void> {
+  const baseURL = new URL(process.env.BASE_URL || '');
+  expect(baseURL.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(baseURL.hostname)
+    && baseURL.port === '4126', 'Experimental fixture requires the owned loopback QA host.').toBe(true);
+  const envFile = process.env.CANVAS_ENV_FILE || '';
+  const qaRoot = path.dirname(envFile);
+  expect(path.basename(envFile) === 'qa-database.env' && path.basename(qaRoot) === 'validation-426b',
+    'Experimental fixture requires the published private QA environment.').toBe(true);
+  expect((await stat(envFile)).mode & 0o777).toBe(0o600);
+  const published = parse(await readFile(envFile));
+  const databaseURL = new URL(published.DATABASE_URL);
+  expect(databaseURL.hostname === '127.0.0.1' && databaseURL.port === '55433'
+    && /^\/canvas_426b_e2e_[a-f0-9]{16}$/u.test(databaseURL.pathname), 'Only the owned QA clone is allowed.').toBe(true);
+  expect(process.env.DATABASE_URL === databaseURL.href, 'Native tool driver must use the published QA database.').toBe(true);
+  const cloneName = databaseURL.pathname.slice(1);
+  const metadataPath = path.join(qaRoot, `qa-clone-${cloneName.slice('canvas_426b_e2e_'.length)}`, 'metadata.json');
+  const metadata = JSON.parse(await readFile(metadataPath, 'utf8')) as {
+    cloneDatabase?: string; cloneOid?: string; privateDataRoot?: string;
+    verifiedSchemaAndCounts?: boolean; purpose?: string; productionRestoreProof?: boolean;
+  };
+  expect(metadata.cloneDatabase).toBe(cloneName);
+  expect(metadata.purpose).toBe('isolated-local-QA-fixture');
+  expect(metadata.productionRestoreProof).toBe(false);
+  expect(metadata.verifiedSchemaAndCounts).toBe(true);
+  expect(path.resolve(process.env.DATA || '') === path.join(qaRoot, 'data')
+    && metadata.privateDataRoot === path.resolve(process.env.DATA || ''), 'Private QA DATA must match the verified clone.').toBe(true);
+  const database = new Client({ connectionString: databaseURL.href, connectionTimeoutMillis: 5_000,
+    statement_timeout: 10_000, query_timeout: 10_000, application_name: 'canvas_426b_review_fixture_guard' });
+  try {
+    await database.connect();
+    await database.query('BEGIN READ ONLY');
+    const identity = (await database.query(`SELECT d.oid::text,current_database() AS name,
+      current_user=(SELECT rolname FROM pg_roles WHERE oid=d.datdba) AS owned
+      FROM pg_database d WHERE d.datname=current_database()`)).rows[0];
+    expect(identity?.oid).toBe(metadata.cloneOid);
+    expect(identity?.name).toBe(cloneName);
+    expect(identity?.owned).toBe(true);
+  } finally {
+    await database.end();
+  }
+  const response = await request.get('/api/auth/get-session');
+  expect(response.status(), 'QA fixture requires an authenticated instance admin.').toBe(200);
+  const session = await response.json() as { user?: { id?: string; email?: string; role?: string } };
+  expect(session.user?.id).toBeTruthy();
+  expect(session.user?.role).toBe('admin');
+  expect(session.user?.email === (process.env.TEST_LOGIN_EMAIL || process.env.BOOTSTRAP_ADMIN_EMAIL),
+    'QA fixture admin must match the configured identity.').toBe(true);
+}
+
+async function readExperimentalState(request: APIRequestContext): Promise<ExperimentalState> {
+  const review = await request.get('/api/document-review/availability');
+  const bulk = await request.get('/api/studio/bulk/availability');
+  expect(review.status(), 'Read Document Review availability.').toBe(200);
+  expect(bulk.status(), 'Read Studio Bulk availability.').toBe(200);
+  const reviewPayload = await review.json() as { success?: boolean; data?: { documentReviewEnabled?: boolean; updatedAt?: string | null } };
+  const bulkPayload = await bulk.json() as { success?: boolean; data?: { studioBulkEnabled?: boolean; updatedAt?: string | null } };
+  expect(reviewPayload.success).toBe(true);
+  expect(bulkPayload.success).toBe(true);
+  expect(typeof reviewPayload.data?.documentReviewEnabled).toBe('boolean');
+  expect(typeof bulkPayload.data?.studioBulkEnabled).toBe('boolean');
+  for (const timestamp of [reviewPayload.data?.updatedAt, bulkPayload.data?.updatedAt]) {
+    expect(timestamp === null || typeof timestamp === 'string' && Number.isFinite(Date.parse(timestamp)),
+      'Experimental audit timestamp must be null or a valid date string.').toBe(true);
+  }
+  return { documentReviewEnabled: reviewPayload.data!.documentReviewEnabled!, updatedAt: reviewPayload.data!.updatedAt!,
+    studioBulkEnabled: bulkPayload.data!.studioBulkEnabled!, studioBulkUpdatedAt: bulkPayload.data!.updatedAt! };
+}
+
+async function setScopedDocumentReview(request: APIRequestContext, enabled: boolean): Promise<ExperimentalState> {
+  // This API has no CAS contract. Only the supported partial boolean is sent.
+  const response = await request.patch('/api/admin/experimental-settings', {
+    headers: { Origin: process.env.BASE_URL! }, data: { documentReviewEnabled: enabled },
+  });
+  expect(response.status(), 'Admin updates only the owned QA Document Review flag.').toBe(200);
+  const payload = await response.json() as { success?: boolean; data?: ExperimentalState };
+  expect(payload.success).toBe(true);
+  expect(payload.data?.documentReviewEnabled).toBe(enabled);
+  expect(typeof payload.data?.updatedAt).toBe('string');
+  expect(Number.isFinite(Date.parse(payload.data!.updatedAt!))).toBe(true);
+  return payload.data!;
+}
+
+const test = base.extend<{ documentReviewFlag: SeedResources }>({
+  documentReviewFlag: [async ({ browser }, runFixture) => {
+    const context = await createAuthenticatedContext(browser);
+    const cleanupRequest = await requestFactory.newContext({
+      baseURL: process.env.BASE_URL, storageState: await context.storageState(), timeout: 15_000,
+    });
+    const resources: SeedResources = { request: cleanupRequest, drivers: new Set(), sessions: new Map() };
+    let initial: ExperimentalState | undefined;
+    let owned: ExperimentalState | undefined;
+    let patchAttempted = false;
+    let primaryError: unknown;
+    try {
+      await requireOwnedQAReviewFixture(cleanupRequest);
+      initial = await readExperimentalState(cleanupRequest);
+      if (initial.documentReviewEnabled) owned = initial;
+      else {
+        patchAttempted = true;
+        owned = await setScopedDocumentReview(cleanupRequest, true);
+      }
+      expect(owned.studioBulkEnabled).toBe(initial.studioBulkEnabled);
+      expect(owned.studioBulkUpdatedAt).toBe(initial.studioBulkUpdatedAt);
+      expect(await readExperimentalState(cleanupRequest)).toEqual(owned);
+      await runFixture(resources);
+    } catch (error) {
+      primaryError = error;
+      throw error;
+    } finally {
+      const cleanupErrors: unknown[] = [];
+      // A test deadline can outlive its page/request context. Stop every owned
+      // native writer and await exit before restoring the instance flag.
+      for (const driver of resources.drivers) {
+        try { await driver.close(); } catch (error) { cleanupErrors.push(error); }
+      }
+      for (const session of resources.sessions.values()) {
+        try {
+          expect([...resources.drivers].every((driver) => driver.hasExited()), 'Do not delete a session with an owned writer still running.').toBe(true);
+          await cleanupOwnedSession(resources, session);
+        } catch (error) { cleanupErrors.push(error); }
+      }
+      try {
+        expect([...resources.drivers].every((driver) => driver.hasExited()),
+          'Keep Document Review enabled if an owned native writer could not be stopped.').toBe(true);
+        if (initial && owned) {
+          // Fail without overwriting an unexpected writer. A normal partial
+          // restore records a new audit timestamp; the API cannot restore it.
+          expect(await readExperimentalState(cleanupRequest), 'Document Review fixture ownership changed unexpectedly.').toEqual(owned);
+          if (!initial.documentReviewEnabled) {
+            const restored = await setScopedDocumentReview(cleanupRequest, initial.documentReviewEnabled);
+            expect(restored.studioBulkEnabled).toBe(initial.studioBulkEnabled);
+            expect(restored.studioBulkUpdatedAt).toBe(initial.studioBulkUpdatedAt);
+            expect(Date.parse(restored.updatedAt!)).toBeGreaterThan(Date.parse(owned.updatedAt!));
+            expect(await readExperimentalState(cleanupRequest)).toEqual(restored);
+          }
+        } else if (patchAttempted) {
+          throw new Error('Document Review enable acknowledgment is unverified; retain state for QA inspection.');
+        }
+      } catch (error) { cleanupErrors.push(error); }
+      try { await context.close(); }
+      catch (error) { cleanupErrors.push(error); }
+      try { await cleanupRequest.dispose(); }
+      catch (error) { cleanupErrors.push(error); }
+      if (cleanupErrors.length) throw new AggregateError(primaryError ? [primaryError, ...cleanupErrors] : cleanupErrors,
+        'Document Review fixture cleanup failed.');
+    }
+  }, { auto: true }],
+});
 
 async function workspaces(request: APIRequestContext): Promise<Workspace[]> {
   const response = await request.get('/api/workspaces');
@@ -72,31 +392,22 @@ async function createVersionedMarkdown(input: {
 }
 
 async function runAgentTool(input: {
+  driver: PersistentAgentToolDriver;
   toolName: 'read' | 'edit_file';
   params: Record<string, unknown>;
   context: Record<string, unknown>;
 }): Promise<ToolResult> {
-  const encoded = Buffer.from(JSON.stringify({
-    toolName: input.toolName,
-    toolCallId: `version-center-browser-${randomUUID()}`,
-    params: input.params,
-    context: input.context,
-  })).toString('base64url');
-  const result = await execFileAsync(
-    path.join(process.cwd(), 'node_modules/.bin/tsx'),
-    ['--conditions', 'react-server', 'scripts/collaboration-agent-tool-driver.ts', encoded],
-    { cwd: process.cwd(), env: process.env, maxBuffer: 2 * 1024 * 1024, timeout: 30_000 },
-  );
-  for (const line of result.stdout.trim().split('\n').reverse()) {
-    try {
-      return JSON.parse(line) as ToolResult;
-    } catch {}
-  }
-  throw new Error(`Agent tool driver returned no JSON receipt: ${result.stdout.slice(-500)}`);
+  const started = Date.now();
+  const result = await input.driver.execute({ toolName: input.toolName, params: input.params, context: input.context });
+  console.log('[version-center seed]', JSON.stringify({ phase: input.toolName, elapsedMs: Date.now() - started,
+    isError: result.isError === true, code: result.details?.code, outcome: result.details?.outcome,
+    operationId: result.details?.collaboration?.operationId, reviewRequired: result.details?.collaboration?.reviewRequired }));
+  return result;
 }
 
 async function seedAgentRevisions(input: {
   request: APIRequestContext;
+  resources: SeedResources;
   workspace: Workspace;
   filePath: string;
   revisions: number;
@@ -105,16 +416,24 @@ async function seedAgentRevisions(input: {
   const auth = await sessionResponse.json() as { user?: { id?: string } } | null;
   expect(sessionResponse.ok()).toBeTruthy();
   expect(auth?.user?.id).toBeTruthy();
+  const title = `File version center browser fixture ${randomUUID()}`;
   const created = await input.request.post('/api/sessions', {
     headers: { [WORKSPACE_ID_HEADER]: input.workspace.id },
     data: {
-      agentId: 'canvas-agent',
+      agentId: MAIN_AGENT_ID,
       workspaceId: input.workspace.id,
-      title: 'File version center browser fixture',
+      title,
     },
   });
-  expect(created.ok(), await created.text()).toBeTruthy();
+  expect(created.ok(), 'Create the real API fixture session.').toBeTruthy();
   const stored = (await created.json()).session as { sessionId: string; agentId: string };
+  expect(typeof stored?.sessionId === 'string' && stored.sessionId.length > 0
+    && typeof stored.agentId === 'string' && stored.agentId.length > 0,
+  'Successful creation must acknowledge concrete session and agent IDs.').toBe(true);
+  const owned: OwnedSession = { sessionId: stored.sessionId, agentId: stored.agentId,
+    userId: auth!.user!.id!, workspaceId: input.workspace.id, title };
+  input.resources.sessions.set(owned.sessionId, owned);
+  expect(stored.agentId).toBe(MAIN_AGENT_ID);
   const context = {
     userId: auth!.user!.id!,
     sessionId: stored.sessionId,
@@ -132,11 +451,17 @@ async function seedAgentRevisions(input: {
     canShare: false,
     legacy: Boolean(input.workspace.legacy),
   };
+  const driver = new PersistentAgentToolDriver();
+  input.resources.drivers.add(driver);
+  let primaryError: unknown;
   try {
     for (let version = 2; version <= input.revisions; version += 1) {
-      const read = await runAgentTool({ toolName: 'read', params: { path: input.filePath }, context });
+      console.log('[version-center seed]', JSON.stringify({ phase: 'revision-start', version }));
+      const read = await runAgentTool({ driver, toolName: 'read', params: { path: input.filePath }, context });
+      expect(read.isError, read.details?.code || 'Version fixture read must succeed.').not.toBe(true);
       expect(read.details?.sha256).toMatch(/^[a-f0-9]{64}$/u);
       const edited = await runAgentTool({
+        driver,
         toolName: 'edit_file',
         params: {
           path: input.filePath,
@@ -146,6 +471,7 @@ async function seedAgentRevisions(input: {
         },
         context,
       });
+      expect(edited.isError, edited.details?.code || 'Version fixture edit must succeed.').not.toBe(true);
       const collaboration = edited.details?.collaboration;
       expect(collaboration?.operationId).toBeTruthy();
       if (collaboration?.reviewRequired) {
@@ -168,14 +494,24 @@ async function seedAgentRevisions(input: {
             },
           },
         );
-        expect(accepted.ok(), await accepted.text()).toBeTruthy();
+        expect(accepted.ok(), 'The actual user must accept the exact proposal version.').toBeTruthy();
+        console.log('[version-center seed]', JSON.stringify({ phase: 'human-accepted', version, operationId: collaboration.operationId }));
       }
+      console.log('[version-center seed]', JSON.stringify({ phase: 'revision-complete', version }));
     }
+  } catch (error) {
+    primaryError = error;
+    throw error;
   } finally {
-    const deleted = await input.request.delete('/api/sessions', {
-      params: { sessionId: stored.sessionId, agentId: stored.agentId },
-    });
-    expect(deleted.ok(), 'The synthetic fixture session must be cleaned up').toBeTruthy();
+    const cleanupErrors: unknown[] = [];
+    try { await driver.close(); } catch (error) { cleanupErrors.push(error); }
+    if (cleanupErrors.length === 0) input.resources.drivers.delete(driver);
+    try {
+      expect(driver.hasExited(), 'Do not delete a session with an owned writer still running.').toBe(true);
+      await cleanupOwnedSession(input.resources, owned);
+    } catch (error) { cleanupErrors.push(error); }
+    if (cleanupErrors.length) throw new AggregateError(primaryError ? [primaryError, ...cleanupErrors] : cleanupErrors,
+      'Agent revision seed cleanup failed.');
   }
 }
 
@@ -235,7 +571,7 @@ async function attachScreenshot(page: Page, testInfo: TestInfo, name: string): P
 test.describe('Global file version center', () => {
   test.setTimeout(180_000);
 
-  test('keeps personal and team capabilities aligned and exposes every document entry point', async ({ browser }, testInfo) => {
+  test('keeps personal and team capabilities aligned and exposes every document entry point', async ({ browser, documentReviewFlag }, testInfo) => {
     const context = await createAuthenticatedContext(browser, { viewport: { width: 1600, height: 900 } });
     const page = await context.newPage();
     const suffix = randomUUID();
@@ -265,7 +601,7 @@ test.describe('Global file version center', () => {
         workspaceId: teamWorkspaceId,
         filePath: teamPath,
       });
-      await seedAgentRevisions({ request: page.request, workspace: team!, filePath: teamPath, revisions: 9 });
+      await seedAgentRevisions({ request: page.request, resources: documentReviewFlag, workspace: team!, filePath: teamPath, revisions: 9 });
 
       const personalTimeline = await resolveTimeline(page.request, personalWorkspaceId, personalPath);
       const teamTimeline = await resolveTimeline(page.request, teamWorkspaceId, teamPath);
@@ -359,7 +695,7 @@ test.describe('Global file version center', () => {
     }
   });
 
-  test('keeps card gutters and the current/history divider inside the mobile scroll area', async ({ browser }, testInfo) => {
+  test('keeps card gutters and the current/history divider inside the mobile scroll area', async ({ browser, documentReviewFlag }, testInfo) => {
     const context = await createAuthenticatedContext(browser, {
       viewport: { width: 390, height: 844 },
       isMobile: true,
@@ -381,7 +717,7 @@ test.describe('Global file version center', () => {
         workspaceId,
         filePath,
       });
-      await seedAgentRevisions({ request: page.request, workspace: team!, filePath, revisions: 10 });
+      await seedAgentRevisions({ request: page.request, resources: documentReviewFlag, workspace: team!, filePath, revisions: 10 });
       await useWorkspace(context, workspaceId);
       await page.goto(`/notebook?path=${encodeURIComponent(filePath)}`, { waitUntil: 'domcontentloaded' });
       await openEditorHistory(page);
