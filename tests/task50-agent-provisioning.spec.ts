@@ -1,12 +1,12 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type APIResponse, type Page } from '@playwright/test';
 
 const TEST_EMAIL = process.env.TEST_LOGIN_EMAIL || process.env.BOOTSTRAP_ADMIN_EMAIL || 'admin@example.com';
 const TEST_PASSWORD = process.env.TEST_LOGIN_PASSWORD || process.env.BOOTSTRAP_ADMIN_PASSWORD || 'change-me';
 const TEST_NAME_PREFIX = 'Task 50 Playwright';
-const TEST_MEMBER_EMAIL_PREFIX = 'task50-agent-member-';
-const TEST_MEMBER_PASSWORD = 'Task50-Member-Password!';
-const BASE_URL = process.env.BASE_URL || 'http://localhost:3000';
-const provisionedMemberIds = new Set<string>();
+const SECONDARY_EMAIL = process.env.TEST_SECONDARY_EMAIL || process.env.LOCAL_TEAM_SEAT_SECONDARY_EMAIL;
+const SECONDARY_PASSWORD = process.env.TEST_SECONDARY_PASSWORD || process.env.LOCAL_TEAM_SEAT_SECONDARY_PASSWORD;
+const ownedAgents = new Map<string, AgentSummary>();
+let adminUserId = '';
 
 type AgentSummary = {
   agentId: string;
@@ -14,6 +14,8 @@ type AgentSummary = {
   revision: number;
   type: string;
   scopeType?: 'user' | 'organization' | 'system';
+  createdByUserId?: string | null;
+  ownerUserId?: string | null;
   access?: {
     canUse: boolean;
     canEdit: boolean;
@@ -27,46 +29,85 @@ type ProvisionedMember = {
   password: string;
 };
 
+async function verifiedSession(page: Page, timeout = 15_000) {
+  const response = await page.request.get('/api/auth/get-session', { timeout });
+  expect(response.ok(), `Session check returned HTTP ${response.status()}.`).toBe(true);
+  const payload = await response.json() as { user?: { id?: string; email?: string; role?: string } };
+  expect(typeof payload.user?.id).toBe('string');
+  expect(payload.user?.id).toBeTruthy();
+  return payload.user!;
+}
+
 async function loginWithCredentials(page: Page, email: string, password: string) {
-  await page.goto('/en/login');
-  await page.getByRole('textbox', { name: /email/i }).fill(email);
-  await page.getByRole('textbox', { name: 'Password', exact: true }).fill(password);
-  await page.locator('button[type="submit"]').click();
-  await page.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 30_000 });
+  const deadline = Date.now() + 45_000;
+  const remainingTimeout = () => {
+    const remainingMs = deadline - Date.now();
+    if (remainingMs <= 0) throw new Error('Actual UI sign-in exceeded its 45-second deadline.');
+    return Math.min(15_000, remainingMs);
+  };
+  await page.goto('/en/login', { waitUntil: 'domcontentloaded', timeout: remainingTimeout() });
+  await page.getByRole('textbox', { name: /email/i }).fill(email, { timeout: remainingTimeout() });
+  await page.getByRole('textbox', { name: 'Password', exact: true }).fill(password, { timeout: remainingTimeout() });
+  const submit = page.locator('button[type="submit"]');
+  let retries = 0;
+  while (true) {
+    await expect(submit).toBeEnabled({ timeout: remainingTimeout() });
+    const [signedIn] = await Promise.all([
+      page.waitForResponse((response) => response.request().method() === 'POST'
+        && new URL(response.url()).pathname === '/api/auth/sign-in/email', { timeout: remainingTimeout() }),
+      submit.click({ timeout: remainingTimeout() }),
+    ]);
+    const result = await signedIn.json().catch(() => null) as { code?: unknown; error?: { code?: unknown } } | null;
+    const rawCode = result?.code ?? result?.error?.code;
+    const safeCode = typeof rawCode === 'string' && /^[A-Z0-9_]{1,80}$/u.test(rawCode) ? rawCode : 'no error code';
+    if (signedIn.status() === 200) {
+      expect(result !== null && typeof result === 'object' && !Array.isArray(result), 'Actual UI sign-in must return a JSON object.').toBe(true);
+      break;
+    }
+    if (signedIn.status() !== 429 || retries >= 2) {
+      throw new Error(`Actual UI sign-in returned HTTP ${signedIn.status()} (${safeCode}).`);
+    }
+    await expect(page).toHaveURL(/\/login(?:\?|$)/, { timeout: remainingTimeout() });
+    await expect(submit).toBeEnabled({ timeout: remainingTimeout() });
+    const retryAfter = signedIn.headers()['x-retry-after'] || signedIn.headers()['retry-after'];
+    const seconds = Number(retryAfter);
+    const requestedMs = retryAfter && Number.isFinite(seconds) && seconds >= 0
+      ? seconds * 1_000 : retryAfter ? Date.parse(retryAfter) - Date.now() : 10_000;
+    const waitMs = Math.max(1_000, Number.isFinite(requestedMs) ? requestedMs : 10_000);
+    if (Date.now() + waitMs >= deadline) throw new Error('Actual UI sign-in 429 retry exceeds its 45-second deadline.');
+    retries += 1;
+    console.info(`[task50] Actual UI sign-in returned 429; waiting ${waitMs}ms before retry ${retries}/2.`);
+    await page.waitForTimeout(waitMs);
+  }
+  const session = await verifiedSession(page, remainingTimeout());
+  expect(session.email === email, 'UI login must authenticate the requested fixture identity.').toBe(true);
+  await page.waitForURL((url) => !url.pathname.includes('/login'), { waitUntil: 'domcontentloaded', timeout: remainingTimeout() });
+  return session;
 }
 
 async function login(page: Page) {
-  await loginWithCredentials(page, TEST_EMAIL, TEST_PASSWORD);
+  return loginWithCredentials(page, TEST_EMAIL, TEST_PASSWORD);
 }
 
-async function provisionMember(page: Page, unique: number): Promise<ProvisionedMember> {
-  const email = `${TEST_MEMBER_EMAIL_PREFIX}${unique}@example.test`;
-  const createResponse = await page.request.post('/api/auth/admin/create-user', {
-    headers: { Origin: BASE_URL },
-    data: {
-      name: `${TEST_NAME_PREFIX} Member ${unique}`,
-      email,
-      password: TEST_MEMBER_PASSWORD,
-      role: 'user',
-    },
-  });
-  const createPayload = await createResponse.json() as { user?: { id?: string } };
-  expect(createResponse.ok(), JSON.stringify(createPayload)).toBeTruthy();
-  expect(createPayload.user?.id).toBeTruthy();
-  const id = createPayload.user!.id!;
-  provisionedMemberIds.add(id);
-
-  const initializeResponse = await page.request.post('/api/onboarding/user-initialize', {
-    data: { userId: id },
-  });
-  const initializePayload = await initializeResponse.json() as {
+async function provisionMember(page: Page, agent: AgentSummary): Promise<ProvisionedMember> {
+  expect(Boolean(SECONDARY_EMAIL && SECONDARY_PASSWORD),
+    'Task 50 requires an existing active non-admin TEST_SECONDARY_EMAIL/PASSWORD fixture.').toBeTruthy();
+  expect(SECONDARY_EMAIL === TEST_EMAIL, 'Secondary fixture must differ from the admin.').toBe(false);
+  expect(ownedAgents.has(agent.agentId)).toBe(true);
+  const response = await page.request.get(`/api/agents/grants?agentId=${encodeURIComponent(agent.agentId)}`);
+  expect(response.ok(), `Grant target catalog returned HTTP ${response.status()}.`).toBe(true);
+  const payload = await response.json() as {
     success?: boolean;
-    data?: { workspaceInitialized?: boolean };
+    data?: { targets?: { users?: Array<{ userId: string; email?: string | null; role: string }> } };
   };
-  expect(initializeResponse.ok(), JSON.stringify(initializePayload)).toBeTruthy();
-  expect(initializePayload.data?.workspaceInitialized).toBe(true);
-
-  return { id, email, password: TEST_MEMBER_PASSWORD };
+  expect(payload.success).toBe(true);
+  const matches = payload.data?.targets?.users?.filter((user) => user.email === SECONDARY_EMAIL) ?? [];
+  expect(matches.length, 'Secondary fixture must already be active and unbanned in the agent organization.').toBe(1);
+  const member = matches[0];
+  expect(['member', 'external'].includes(member.role), 'Secondary fixture must not own or administer the organization.').toBe(true);
+  expect(member.userId).toBeTruthy();
+  expect(member.userId).not.toBe(adminUserId);
+  return { id: member.userId, email: SECONDARY_EMAIL!, password: SECONDARY_PASSWORD! };
 }
 
 async function completeMemberOnboarding(page: Page) {
@@ -75,77 +116,136 @@ async function completeMemberOnboarding(page: Page) {
     success?: boolean;
     defaultWorkspace?: { id?: string; type?: string } | null;
   };
-  expect(workspaceResponse.ok(), JSON.stringify(workspacePayload)).toBeTruthy();
+  expect(workspaceResponse.ok(), `Workspace fixture check returned HTTP ${workspaceResponse.status()}.`).toBe(true);
+  expect(workspacePayload.success).toBe(true);
   expect(workspacePayload.defaultWorkspace?.id).toBeTruthy();
+  expect(workspacePayload.defaultWorkspace?.type).toBe('personal');
 
   const statusResponse = await page.request.get('/api/onboarding/status');
   const statusPayload = await statusResponse.json() as {
     success?: boolean;
     enabled?: boolean;
     instanceComplete?: boolean;
+    userOnboarding?: { step?: string; runtime?: string; profile?: string; tour?: string };
   };
-  expect(statusResponse.ok(), JSON.stringify(statusPayload)).toBeTruthy();
+  expect(statusResponse.ok(), `Onboarding fixture check returned HTTP ${statusResponse.status()}.`).toBe(true);
+  expect(statusPayload.success).toBe(true);
+  expect(typeof statusPayload.enabled).toBe('boolean');
   if (statusPayload.enabled === false) return;
   expect(statusPayload.instanceComplete).toBe(true);
-
-  for (const step of ['workspace', 'profile'] as const) {
-    const response = await page.request.patch('/api/onboarding/user', { data: { step } });
-    expect(response.ok(), await response.text()).toBeTruthy();
+  expect(statusPayload.userOnboarding?.step,
+    'The existing secondary fixture must already have completed personal onboarding.').toBe('complete');
+  for (const field of ['runtime', 'profile', 'tour'] as const) {
+    expect(['completed', 'skipped'].includes(statusPayload.userOnboarding?.[field] ?? '')).toBe(true);
   }
-
-  const skipProfileResponse = await page.request.post('/api/onboarding/profile-skip', { data: {} });
-  expect(skipProfileResponse.ok(), await skipProfileResponse.text()).toBeTruthy();
-
-  const completeResponse = await page.request.patch('/api/onboarding/user', {
-    data: { step: 'complete', tour: 'skipped' },
-  });
-  expect(completeResponse.ok(), await completeResponse.text()).toBeTruthy();
 }
 
 async function listAgents(page: Page): Promise<AgentSummary[]> {
   const response = await page.request.get('/api/agents');
-  if (!response.ok()) return [];
-  const payload = await response.json() as { data?: { agents?: AgentSummary[] } };
-  return payload.data?.agents ?? [];
+  expect(response.ok(), `Agent list returned HTTP ${response.status()}.`).toBe(true);
+  const payload = await response.json() as { success?: boolean; data?: { agents?: AgentSummary[] } };
+  expect(payload.success).toBe(true);
+  expect(Array.isArray(payload.data?.agents)).toBe(true);
+  return payload.data!.agents!;
+}
+
+async function registerCreatedAgent(
+  response: Pick<APIResponse, 'ok' | 'status' | 'json'>,
+  name: string,
+  scopeType: 'user' | 'organization',
+): Promise<AgentSummary> {
+  expect(response.ok(), `Owned agent creation returned HTTP ${response.status()}.`).toBe(true);
+  const payload = await response.json() as { success?: boolean; data?: { agent?: AgentSummary } };
+  const agent = payload.data?.agent;
+  expect(payload.success).toBe(true);
+  expect(typeof agent?.agentId).toBe('string');
+  expect(agent?.agentId).toBeTruthy();
+  expect(agent?.name).toBe(name);
+  expect(agent?.scopeType).toBe(scopeType);
+  expect(agent?.createdByUserId).toBe(adminUserId);
+  expect(agent?.type).not.toBe('main');
+  // Only this request's verified creation receipt authorizes cleanup.
+  ownedAgents.set(agent!.agentId, agent!);
+  return agent!;
+}
+
+function waitForOwnedAgentCreation(page: Page, name: string, scopeType: 'user' | 'organization') {
+  const creation = page.waitForResponse((response) => response.request().method() === 'POST'
+    && new URL(response.url()).pathname === '/api/agents'
+    && response.request().postDataJSON()?.name === name)
+    .then((response) => registerCreatedAgent(response, name, scopeType));
+  // Register the receipt even if the UI action fails after the POST succeeds.
+  void creation.catch(() => undefined);
+  return creation;
 }
 
 async function deleteAgentThroughApi(page: Page, agent: AgentSummary) {
-  if (agent.type === 'main') return;
+  const owned = ownedAgents.get(agent.agentId);
+  expect(owned, "Cleanup requires this test run's exact creation receipt.").toBeDefined();
+  expect(agent.type).not.toBe('main');
+  expect(agent.createdByUserId).toBe(owned!.createdByUserId);
+  expect(agent.createdByUserId).toBe(adminUserId);
+  expect(agent.name).toBe(owned!.name);
   const previewResponse = await page.request.post('/api/agents/delete-preview', {
     data: { agentId: agent.agentId },
   });
-  if (!previewResponse.ok()) return;
+  expect(previewResponse.ok(), `Owned agent delete preview returned HTTP ${previewResponse.status()}.`).toBe(true);
   const preview = await previewResponse.json() as {
-    data?: { agent?: { revision?: number }; confirmationToken?: string };
+    success?: boolean;
+    data?: { agent?: AgentSummary; confirmationToken?: string };
   };
-  const confirmationToken = preview.data?.confirmationToken;
+  expect(preview.success).toBe(true);
+  expect(preview.data?.agent?.agentId).toBe(agent.agentId);
+  expect(preview.data?.agent?.createdByUserId).toBe(adminUserId);
   const expectedRevision = preview.data?.agent?.revision;
-  if (!confirmationToken || typeof expectedRevision !== 'number') return;
-  await page.request.delete('/api/agents', {
+  expect(expectedRevision).toBe(agent.revision);
+  expect(Number.isSafeInteger(expectedRevision) && expectedRevision! > 0).toBe(true);
+  const confirmationToken = preview.data?.confirmationToken;
+  expect(confirmationToken).toBeTruthy();
+  const response = await page.request.delete('/api/agents', {
     data: { agentId: agent.agentId, expectedRevision, confirmationToken },
   });
+  expect(response.ok(), `Owned agent deletion returned HTTP ${response.status()}.`).toBe(true);
+  expect((await response.json() as { success?: boolean }).success).toBe(true);
+  ownedAgents.delete(agent.agentId);
 }
 
 async function cleanupTaskAgents(page: Page) {
-  for (const agent of await listAgents(page)) {
-    if (agent.name.startsWith(TEST_NAME_PREFIX)) {
-      await deleteAgentThroughApi(page, agent);
+  if (ownedAgents.size === 0) return;
+  const current = await listAgents(page);
+  const errors: unknown[] = [];
+  for (const agentId of [...ownedAgents.keys()]) {
+    const agent = current.find((candidate) => candidate.agentId === agentId);
+    if (!agent) {
+      // The UI deletion test already removed this exact owned ID.
+      ownedAgents.delete(agentId);
+      continue;
     }
+    try { await deleteAgentThroughApi(page, agent); }
+    catch (error) { errors.push(error); }
   }
+  if (errors.length) throw new AggregateError(errors, 'Owned Task 50 agent cleanup failed.');
 }
 
-async function offboardProvisionedMembers(page: Page) {
-  for (const userId of [...provisionedMemberIds]) {
-    const response = await page.request.post(`/api/admin/organization/users/${encodeURIComponent(userId)}/offboarding`, {
-      data: {
-        reason: 'Task 50 Playwright cleanup',
-        acknowledgeWarnings: true,
-      },
-    });
-    if (response.ok() || response.status() === 404) {
-      provisionedMemberIds.delete(userId);
-    }
+async function cleanupOwnedSessions(page: Page, sessions: Map<string, string>, ownerUserId: string) {
+  if (sessions.size === 0) return;
+  expect((await verifiedSession(page)).id).toBe(ownerUserId);
+  const errors: unknown[] = [];
+  for (const [sessionId, agentId] of sessions) {
+    expect(ownedAgents.has(agentId)).toBe(true);
+    try {
+      const query = new URLSearchParams({ sessionId, agentId });
+      const response = await page.request.delete(`/api/sessions?${query}`);
+      if (response.status() !== 404) {
+        expect(response.ok(), `Owned session deletion returned HTTP ${response.status()}.`).toBe(true);
+        const payload = await response.json() as { success?: boolean; deleted?: string };
+        expect(payload.success).toBe(true);
+        expect(payload.deleted).toBe(sessionId);
+      }
+      sessions.delete(sessionId);
+    } catch (error) { errors.push(error); }
   }
+  if (errors.length) throw new AggregateError(errors, 'Owned Task 50 session cleanup failed.');
 }
 
 function agentCard(page: Page, agentName: string) {
@@ -168,16 +268,15 @@ test.describe('Task 50 agent provisioning and management', () => {
   test.setTimeout(120_000);
 
   test.beforeEach(async ({ page }) => {
-    await login(page);
+    adminUserId = (await login(page)).id!;
     await cleanupTaskAgents(page);
   });
 
   test.afterEach(async ({ page }) => {
     await cleanupTaskAgents(page);
-    await offboardProvisionedMembers(page);
   });
 
-  test('creates personal and organization agents, grants access, exposes safe management tools, and previews deletion', async ({ browser, page }) => {
+  test('creates personal and organization agents, grants access, exposes safe management tools, and previews deletion', async ({ browser, page }, testInfo) => {
     const unique = Date.now();
     const personalName = `${TEST_NAME_PREFIX} Personal ${unique}`;
     const organizationName = `${TEST_NAME_PREFIX} Organization ${unique}`;
@@ -198,7 +297,7 @@ test.describe('Task 50 agent provisioning and management', () => {
     await expect.poll(() => createDialog.evaluate((element) => (
       element.getAnimations().every((animation) => animation.playState === 'finished')
     ))).toBe(true);
-    await page.screenshot({ path: 'test-results/task50-create-desktop.png', fullPage: false });
+    await page.screenshot({ path: testInfo.outputPath('task50-create-desktop.png'), fullPage: false });
 
     const desktopBox = await createDialog.boundingBox();
     expect(desktopBox).not.toBeNull();
@@ -213,26 +312,31 @@ test.describe('Task 50 agent provisioning and management', () => {
       viewport: { width: 390, height: 844 },
       screen: { width: 390, height: 844 },
     });
-    const mobilePage = await mobileContext.newPage();
-    await login(mobilePage);
-    await mobilePage.goto('/en/settings?tab=agent-settings');
-    await expect(mobilePage.getByText('Agent Selection', { exact: true })).toBeVisible({ timeout: 30_000 });
-    const mobileDialog = await openCreateAgentDialog(mobilePage);
-    await expect(mobileDialog.getByTestId('agent-scope-picker')).toBeVisible();
-    const mobileBox = await mobileDialog.boundingBox();
-    expect(mobileBox).not.toBeNull();
-    await mobilePage.screenshot({ path: 'test-results/task50-create-mobile.png', fullPage: false });
-    expect(mobileBox!.x).toBeGreaterThanOrEqual(0);
-    expect(mobileBox!.y).toBeGreaterThanOrEqual(0);
-    expect(mobileBox!.x + mobileBox!.width).toBeLessThanOrEqual(390);
-    expect(mobileBox!.y + mobileBox!.height).toBeLessThanOrEqual(844);
-    await expect.poll(() => mobileDialog.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
-    await mobileContext.close();
+    try {
+      const mobilePage = await mobileContext.newPage();
+      await login(mobilePage);
+      await mobilePage.goto('/en/settings?tab=agent-settings');
+      await expect(mobilePage.getByText('Agent Selection', { exact: true })).toBeVisible({ timeout: 30_000 });
+      const mobileDialog = await openCreateAgentDialog(mobilePage);
+      await expect(mobileDialog.getByTestId('agent-scope-picker')).toBeVisible();
+      const mobileBox = await mobileDialog.boundingBox();
+      expect(mobileBox).not.toBeNull();
+      await mobilePage.screenshot({ path: testInfo.outputPath('task50-create-mobile.png'), fullPage: false });
+      expect(mobileBox!.x).toBeGreaterThanOrEqual(0);
+      expect(mobileBox!.y).toBeGreaterThanOrEqual(0);
+      expect(mobileBox!.x + mobileBox!.width).toBeLessThanOrEqual(390);
+      expect(mobileBox!.y + mobileBox!.height).toBeLessThanOrEqual(844);
+      await expect.poll(() => mobileDialog.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
+    } finally {
+      await mobileContext.close();
+    }
 
     await openCreateAgentDialog(page);
     await createDialog.getByLabel('Name').fill(personalName);
     await createDialog.getByRole('button', { name: /Only me/ }).click({ force: true });
+    const personalCreation = waitForOwnedAgentCreation(page, personalName, 'user');
     await createDialog.getByRole('button', { name: 'Create agent', exact: true }).click({ force: true });
+    await personalCreation;
     await expect(createDialog.getByTestId('personal-agent-created')).toBeVisible({ timeout: 30_000 });
     await createDialog.getByRole('button', { name: 'Done' }).click();
 
@@ -246,13 +350,23 @@ test.describe('Task 50 agent provisioning and management', () => {
     const organizationScope = createDialog.getByRole('button', { name: /Organization/ });
     await organizationScope.click({ force: true });
     await expect(organizationScope).toHaveAttribute('aria-pressed', 'true');
+    const organizationCreation = waitForOwnedAgentCreation(page, organizationName, 'organization');
     await createDialog.getByRole('button', { name: 'Create agent', exact: true }).click({ force: true });
+    await organizationCreation;
 
     await expect(page.getByText(organizationName, { exact: true })).toBeVisible({ timeout: 30_000 });
-    const dialogGrants = createDialog.getByTestId('agent-grants-editor');
-    const grants = await dialogGrants.isVisible()
-      ? dialogGrants
-      : page.locator('main').getByTestId('agent-grants-editor');
+    // Finish the creation transition before using the selected agent's access editor.
+    await expect(async () => {
+      if (await createDialog.isVisible()) {
+        await createDialog.getByRole('button', { name: 'Done' }).click({ timeout: 1_000 });
+      }
+      await expect(createDialog).toBeHidden({ timeout: 1_000 });
+    }).toPass({ timeout: 15_000 });
+    const organizationCard = agentCard(page, organizationName);
+    await expect(organizationCard.getByRole('button').filter({
+      has: page.getByText(organizationName, { exact: true }),
+    })).toHaveAttribute('aria-pressed', 'true');
+    const grants = page.locator('main').getByTestId('agent-grants-editor');
     await expect(grants).toBeVisible();
 
     await grants.getByLabel('Grant target type').selectOption('workspace');
@@ -265,18 +379,20 @@ test.describe('Task 50 agent provisioning and management', () => {
     await expect(grants.getByText(grantWorkspace!.name, { exact: true })).toBeVisible();
 
     await grants.getByLabel('Grant target type').selectOption('role');
-    await grants.getByLabel('Role').selectOption('member');
+    const rolePicker = grants.getByTestId('grant-target-role-picker');
+    await expect(rolePicker).toHaveAttribute('aria-label', 'Grant target role');
+    await rolePicker.click();
+    await expect(page.getByPlaceholder('Search roles...')).toHaveValue('');
+    const memberOption = page.getByTestId('grant-target-role-picker-option-member');
+    await expect(memberOption).toBeVisible();
+    await memberOption.click();
+    await expect(rolePicker).toContainText('Member');
     await grants.getByLabel('Grant access level').selectOption('user');
     await grants.getByRole('button', { name: 'Add' }).click();
     await expect(grants.getByText('Member', { exact: true })).toBeVisible();
     await expect(grants.getByText('Use', { exact: true })).toHaveCount(2);
     await grants.getByText('Member', { exact: true }).scrollIntoViewIfNeeded();
-    await page.screenshot({ path: 'test-results/task50-organization-grants.png', fullPage: false });
-    if (await createDialog.isVisible()) {
-      await createDialog.getByRole('button', { name: 'Done' }).click();
-    }
-
-    const organizationCard = agentCard(page, organizationName);
+    await page.screenshot({ path: testInfo.outputPath('task50-organization-grants.png'), fullPage: false });
     await expect(organizationCard).toBeVisible();
     await expect(organizationCard.getByText('Organization', { exact: true })).toBeVisible();
     await expect(page.getByTestId('agent-grants-editor').getByText('Member', { exact: true })).toBeVisible();
@@ -317,10 +433,9 @@ test.describe('Task 50 agent provisioning and management', () => {
     await expect(page.getByText(personalName, { exact: true })).toHaveCount(0);
   });
 
-  test('lets an assigned member use an organization agent without management access and removes it after revocation', async ({ browser, page }) => {
+  test('lets an assigned member use an organization agent without management access and removes it after revocation', async ({ browser, page }, testInfo) => {
     const unique = Date.now();
     const organizationName = `${TEST_NAME_PREFIX} Assigned ${unique}`;
-    const member = await provisionMember(page, unique);
 
     const createAgentResponse = await page.request.post('/api/agents', {
       data: {
@@ -329,10 +444,8 @@ test.describe('Task 50 agent provisioning and management', () => {
         iconId: 'bot',
       },
     });
-    const createAgentPayload = await createAgentResponse.json() as { data?: { agent?: AgentSummary } };
-    expect(createAgentResponse.ok(), JSON.stringify(createAgentPayload)).toBeTruthy();
-    const organizationAgent = createAgentPayload.data?.agent;
-    expect(organizationAgent).toBeDefined();
+    const organizationAgent = await registerCreatedAgent(createAgentResponse, organizationName, 'organization');
+    const member = await provisionMember(page, organizationAgent);
 
     await page.goto('/en/settings?tab=agent-settings');
     await expect(page.getByText('Agent Selection', { exact: true })).toBeVisible({ timeout: 30_000 });
@@ -351,9 +464,14 @@ test.describe('Task 50 agent provisioning and management', () => {
     await expect(grants.getByText(member.email, { exact: true })).toBeVisible();
 
     const memberContext = await browser.newContext();
+    const ownedSessions = new Map<string, string>();
+    let primaryError: unknown;
     const memberPage = await memberContext.newPage();
     try {
-      await loginWithCredentials(memberPage, member.email, member.password);
+      const memberSession = await loginWithCredentials(memberPage, member.email, member.password);
+      expect(memberSession.id).toBe(member.id);
+      expect(memberSession.id).not.toBe(adminUserId);
+      expect(memberSession.role).toBe('user');
       await completeMemberOnboarding(memberPage);
 
       const memberAgents = await listAgents(memberPage);
@@ -373,12 +491,12 @@ test.describe('Task 50 agent provisioning and management', () => {
       await expect(assignedOption).toBeVisible();
       await expect(popover.getByRole('button', { name: `Edit ${organizationName}` })).toHaveCount(0);
       await expect.poll(() => popover.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
-      await memberPage.screenshot({ path: 'test-results/task50-member-agent-access.png', fullPage: false });
+      await memberPage.screenshot({ path: testInfo.outputPath('task50-member-agent-access.png'), fullPage: false });
       await assignedOption.click();
       await expect(selector).toHaveAttribute('aria-label', new RegExp(organizationName));
 
       const browserStatusResponse = await memberPage.request.get(`/api/agents/browser?agentId=${encodeURIComponent(organizationAgent!.agentId)}`);
-      expect(browserStatusResponse.ok(), await browserStatusResponse.text()).toBeTruthy();
+      expect(browserStatusResponse.ok(), `Browser status returned HTTP ${browserStatusResponse.status()}.`).toBe(true);
 
       const createSessionResponse = await memberPage.request.post('/api/sessions', {
         data: {
@@ -389,15 +507,25 @@ test.describe('Task 50 agent provisioning and management', () => {
       const createSessionPayload = await createSessionResponse.json() as {
         code?: string;
         error?: string;
-        session?: { agentId?: string; creator?: { email?: string | null } };
+        session?: { sessionId?: string; agentId?: string; creator?: { email?: string | null } };
       };
       if (createSessionResponse.ok()) {
+        const createdSession = createSessionPayload.session;
+        if (typeof createdSession?.sessionId === 'string' && createdSession.sessionId
+          && typeof createdSession.agentId === 'string' && ownedAgents.has(createdSession.agentId)) {
+          ownedSessions.set(createdSession.sessionId, createdSession.agentId);
+        }
+        expect(typeof createdSession?.sessionId).toBe('string');
+        expect(createdSession?.sessionId).toBeTruthy();
         expect(createSessionPayload.session?.agentId).toBe(organizationAgent!.agentId);
         expect(createSessionPayload.session?.creator?.email).toBe(member.email);
       } else {
-        expect(createSessionPayload.code, JSON.stringify(createSessionPayload)).toBe('RUNTIME_CATALOG_NOT_CONFIGURED');
+        expect(createSessionPayload.code).toBe('RUNTIME_CATALOG_NOT_CONFIGURED');
         expect(createSessionPayload.code).not.toBe('AGENT_ACCESS_DENIED');
       }
+
+      // Delete only sessions created by this request while the grant still exists.
+      await cleanupOwnedSessions(memberPage, ownedSessions, member.id);
 
       const profileMutationResponse = await memberPage.request.patch('/api/agents', {
         data: {
@@ -440,7 +568,7 @@ test.describe('Task 50 agent provisioning and management', () => {
           targetId: member.id,
         },
       });
-      expect(revokeResponse.ok(), await revokeResponse.text()).toBeTruthy();
+      expect(revokeResponse.ok(), `Owned agent grant revocation returned HTTP ${revokeResponse.status()}.`).toBe(true);
 
       await expect.poll(async () => (await listAgents(memberPage)).some((agent) => agent.agentId === organizationAgent!.agentId)).toBe(false);
       const revokedBrowserStatusResponse = await memberPage.request.get(`/api/agents/browser?agentId=${encodeURIComponent(organizationAgent!.agentId)}`);
@@ -449,8 +577,19 @@ test.describe('Task 50 agent provisioning and management', () => {
       await expect(memberPage.getByTestId('chat-agent-id')).toBeVisible({ timeout: 30_000 });
       await memberPage.getByTestId('chat-agent-id').click();
       await expect(memberPage.getByTestId('chat-agent-selector-popover').getByText(organizationName, { exact: true })).toHaveCount(0);
+    } catch (error) {
+      primaryError = error;
+      throw error;
     } finally {
-      await memberContext.close();
+      const cleanupErrors: unknown[] = [];
+      try { await cleanupOwnedSessions(memberPage, ownedSessions, member.id); }
+      catch (error) { cleanupErrors.push(error); }
+      try { await memberContext.close(); }
+      catch (error) { cleanupErrors.push(error); }
+      if (cleanupErrors.length) {
+        throw new AggregateError(primaryError ? [primaryError, ...cleanupErrors] : cleanupErrors,
+          'Task 50 member context cleanup failed.');
+      }
     }
   });
 });

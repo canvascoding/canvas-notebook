@@ -293,6 +293,7 @@ export function AgentGrantsEditor({ active, agentId, revision, onChanged }: Agen
     />
   ) : (
     <SearchablePolicyTargetPicker
+      key={`${agentId}:${targetType}`}
       id="agent-grant-target"
       value={targetId}
       options={targetOptions}
