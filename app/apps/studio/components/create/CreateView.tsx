@@ -6,7 +6,6 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNod
 import { useSearchParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import {
-  AlertTriangle,
   Building2,
   ChevronDown,
   Clapperboard,
@@ -15,6 +14,7 @@ import {
   FileVideo,
   ImageIcon,
   KeyRound,
+  Loader2,
   Package,
   Shapes,
   Shirt,
@@ -25,6 +25,7 @@ import {
 } from 'lucide-react';
 import { Link, useRouter } from '@/i18n/navigation';
 import { Button } from '@/components/ui/button';
+import { InlineNotice } from '@/components/ui/inline-notice';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { useStudioGeneration } from '../../hooks/useStudioGeneration';
 import { useStudioPersonas } from '../../hooks/useStudioPersonas';
@@ -32,6 +33,7 @@ import { useStudioPresets } from '../../hooks/useStudioPresets';
 import { useStudioProducts } from '../../hooks/useStudioProducts';
 import { useStudioStyles } from '../../hooks/useStudioStyles';
 import { useStudioBatchActions } from '../../hooks/useStudioBatchActions';
+import { canUseStudioProvider, getMissingProviderRequirement, useStudioProviderConfig, type StudioProviderRequirement } from '../../hooks/useStudioProviderConfig';
 import type { StudioGeneration, StudioGenerationMode, StudioGenerationOutput } from '../../types/generation';
 import { SaveToWorkspaceDialog } from './SaveToWorkspaceDialog';
 import { StudioPreview } from './StudioPreview';
@@ -267,37 +269,6 @@ function StartingPointsPanel({
   );
 }
 
-type StudioProviderRequirement = 'gemini' | 'openai' | 'kie';
-type StudioProviderConfigStatus = 'checking' | 'ready';
-
-function hasProviderAccess(config: StudioProviderConfig, provider: StudioProviderRequirement): boolean {
-  return config.localApiKeys[provider] || config.managedMediaAvailable;
-}
-
-function getMissingProviderRequirement(
-  config: StudioProviderConfig,
-  mode: 'image' | 'video' | 'sound',
-  provider: string,
-): StudioProviderRequirement | null {
-  if (mode === 'video' && provider === 'bytedance') {
-    return hasProviderAccess(config, 'kie') ? null : 'kie';
-  }
-
-  if (mode === 'image' && provider === 'openai') {
-    return hasProviderAccess(config, 'openai') ? null : 'openai';
-  }
-
-  if ((mode === 'image' || mode === 'sound') && provider === 'gemini') {
-    return hasProviderAccess(config, 'gemini') ? null : 'gemini';
-  }
-
-  if (mode === 'video' && provider === 'veo') {
-    return hasProviderAccess(config, 'gemini') ? null : 'gemini';
-  }
-
-  return null;
-}
-
 function ProviderRequirementNotice({
   requirement,
   canManageCentralCredentials,
@@ -309,37 +280,35 @@ function ProviderRequirementNotice({
   const showKieReferral = requirement === 'kie';
 
   return (
-    <div className="flex flex-col gap-3 rounded-[20px] border border-amber-300/80 bg-amber-50/95 p-3 text-amber-950 shadow-sm dark:border-amber-500/35 dark:bg-amber-950/35 dark:text-amber-50 sm:flex-row sm:items-center">
-      <div className="flex min-w-0 flex-1 gap-3">
-        <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-amber-200 text-amber-950 dark:bg-amber-500/25 dark:text-amber-100">
-          <KeyRound className="h-4 w-4" />
-        </div>
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <AlertTriangle className="h-4 w-4" />
-            <p className="text-sm font-semibold">{t(`${requirement}.title`)}</p>
-          </div>
-          <p className="mt-1 text-sm leading-5 text-amber-900/85 dark:text-amber-100/85">
-            {t(`${requirement}.description`)}
-          </p>
-        </div>
-      </div>
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-        {showKieReferral ? (
-          <Button asChild size="sm" className="rounded-full">
-            <a href={KIE_REFERRAL_URL} target="_blank" rel="noreferrer">
-              {t('kie.getKey')}
-              <ExternalLink className="h-4 w-4" />
-            </a>
+    <InlineNotice
+      variant="warning"
+      icon={<KeyRound aria-hidden="true" />}
+      title={t(`${requirement}.title`)}
+      actions={(
+        <>
+          <Button asChild size="sm" variant="outline">
+            <Link href={canManageCentralCredentials ? '/settings?tab=secrets#studio-media-credentials' : '/settings?tab=secrets'}>
+              {canManageCentralCredentials ? t('openCentralCredentials') : t('openPersonalCredentials')}
+            </Link>
           </Button>
-        ) : null}
-        <Button asChild size="sm" variant={showKieReferral ? 'outline' : 'default'} className="rounded-full">
-          <Link href={canManageCentralCredentials ? '/settings?tab=ai-providers#studio-media-credentials' : '/settings?tab=integrations'}>
-            {canManageCentralCredentials ? t('openCentralCredentials') : t('openIntegrations')}
-          </Link>
-        </Button>
-      </div>
-    </div>
+          {showKieReferral ? (
+            <Button asChild size="sm" variant="ghost">
+              <a href={KIE_REFERRAL_URL} target="_blank" rel="noopener noreferrer">
+                {t('kie.getKey')}
+                <ExternalLink aria-hidden="true" className="h-4 w-4" />
+              </a>
+            </Button>
+          ) : null}
+        </>
+      )}
+    >
+      <p>{t(`${requirement}.description`)}</p>
+      {!canManageCentralCredentials ? <p>{t('personalDescription')}</p> : null}
+      <details className="mt-1 min-w-0">
+        <summary className="cursor-pointer rounded-sm text-xs font-medium text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">{t('details')}</summary>
+        <p className="mt-2 text-xs leading-5">{t(`${requirement}.details`)}</p>
+      </details>
+    </InlineNotice>
   );
 }
 
@@ -451,8 +420,7 @@ export function CreateView({ initialProviderConfig = EMPTY_STUDIO_PROVIDER_CONFI
   const startedPendingGenerateRequestRef = useRef<string | null>(null);
   const isMountedRef = useRef(false);
   const [promptOverlayHeight, setPromptOverlayHeight] = useState(180);
-  const [providerConfig, setProviderConfig] = useState<StudioProviderConfig>(initialProviderConfig);
-  const [providerConfigStatus, setProviderConfigStatus] = useState<StudioProviderConfigStatus>('checking');
+  const { providerConfig, providerConfigStatus, refreshProviderConfig } = useStudioProviderConfig(initialProviderConfig);
   const [handoffError, setHandoffError] = useState<string | null>(null);
   const [startingPoints, setStartingPoints] = useState<StartingPoint[]>([]);
   const [startingPointsLoading, setStartingPointsLoading] = useState(true);
@@ -814,31 +782,6 @@ export function CreateView({ initialProviderConfig = EMPTY_STUDIO_PROVIDER_CONFI
   }, []);
 
   useEffect(() => {
-    let cancelled = false;
-
-    async function fetchProviderConfig() {
-      try {
-        const response = await studioApiFetch('/api/studio/config', { credentials: 'include' });
-        const payload = await response.json();
-        if (!cancelled && response.ok && payload.success && payload.config) {
-          setProviderConfig(payload.config as StudioProviderConfig);
-        }
-      } catch (error) {
-        console.error('[Studio] Failed to refresh provider config:', error);
-      } finally {
-        if (!cancelled) {
-          setProviderConfigStatus('ready');
-        }
-      }
-    }
-
-    void fetchProviderConfig();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  useEffect(() => {
     isMountedRef.current = true;
     return () => {
       isMountedRef.current = false;
@@ -914,7 +857,8 @@ export function CreateView({ initialProviderConfig = EMPTY_STUDIO_PROVIDER_CONFI
     [providerConfig, store.mode, store.provider],
   );
   const shouldShowProviderRequirement = providerConfigStatus === 'ready' && missingProviderRequirement !== null;
-  const canGenerateWithProvider = canGenerate && providerConfigStatus === 'ready' && missingProviderRequirement === null;
+  const canUseProvider = canUseStudioProvider(providerConfig, providerConfigStatus, store.mode, store.provider);
+  const canGenerateWithProvider = canGenerate && canUseProvider;
 
   const isInitialGenerationLoad = generationHook.loading && generations.length === 0;
   const completedOutputCount = useMemo(
@@ -956,7 +900,7 @@ export function CreateView({ initialProviderConfig = EMPTY_STUDIO_PROVIDER_CONFI
   ) : null;
 
   const handleGenerate = async () => {
-    if (providerConfigStatus !== 'ready' || missingProviderRequirement) return;
+    if (!canUseProvider) return;
 
     await generate(buildStudioGeneratePayload(store));
   };
@@ -971,7 +915,7 @@ export function CreateView({ initialProviderConfig = EMPTY_STUDIO_PROVIDER_CONFI
       if (initialGenerateRequestId && activeWorkspaceId) {
         clearStudioGenerateHandoff(initialGenerateRequestId);
         queueMicrotask(() => {
-          setHandoffError('Die Studio-Anfrage gehört zu einem anderen Workspace, ist abgelaufen oder wurde bereits verarbeitet.');
+          setHandoffError(t('common.handoffError'));
         });
         router.replace('/studio');
       }
@@ -997,7 +941,7 @@ export function CreateView({ initialProviderConfig = EMPTY_STUDIO_PROVIDER_CONFI
         clearStudioGenerateHandoff(request.id);
       }
     })();
-  }, [activeWorkspaceId, generate, initialGenerateRequestId, router]);
+  }, [activeWorkspaceId, generate, initialGenerateRequestId, router, t]);
 
   const handlePasteImage = useCallback(async (file: File) => {
     try {
@@ -1188,19 +1132,27 @@ export function CreateView({ initialProviderConfig = EMPTY_STUDIO_PROVIDER_CONFI
             />
           ) : null}
 
+          {providerConfigStatus === 'checking' ? (
+            <InlineNotice variant="info" size="compact" icon={<Loader2 aria-hidden="true" className="animate-spin" />} title={t('providerRequirements.checkingTitle')}>
+              {t('providerRequirements.checkingDescription')}
+            </InlineNotice>
+          ) : null}
+          {providerConfigStatus === 'failed' ? (
+            <InlineNotice
+              variant="destructive"
+              size="compact"
+              title={t('providerRequirements.checkFailedTitle')}
+              actions={<Button type="button" size="sm" variant="outline" onClick={() => void refreshProviderConfig()}>{t('providerRequirements.retry')}</Button>}
+            >
+              {t(canUseProvider ? 'providerRequirements.checkFailedAvailable' : 'providerRequirements.checkFailedDescription')}
+            </InlineNotice>
+          ) : null}
+
           {generationHook.error ? (
-            <div className="flex flex-wrap items-center gap-2">
-              <Badge variant="outline" className="rounded-full border-red-500/40 text-red-700 dark:text-red-300">
-                {generationHook.error}
-              </Badge>
-            </div>
+            <InlineNotice variant="destructive" size="compact">{generationHook.error}</InlineNotice>
           ) : null}
           {handoffError ? (
-            <div className="flex flex-wrap items-center gap-2">
-              <Badge variant="outline" className="rounded-full border-amber-500/40 text-amber-700 dark:text-amber-300">
-                {handoffError}
-              </Badge>
-            </div>
+            <InlineNotice variant="warning" size="compact">{handoffError}</InlineNotice>
           ) : null}
         </div>
       </div>

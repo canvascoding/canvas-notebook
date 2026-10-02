@@ -1,7 +1,9 @@
 'use client';
 
-import { AlertCircle, Copy, RefreshCcw, Trash2, Wand2 } from 'lucide-react';
+import { AlertCircle, Copy, Info, Trash2, Wand2 } from 'lucide-react';
+import { useTranslations } from 'next-intl';
 import { Button } from '@/components/ui/button';
+import { InlineNotice } from '@/components/ui/inline-notice';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -20,7 +22,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { getStudioGenerationErrorHint } from '../../utils/generation-error-hints';
 
 interface OutputErrorCardProps {
@@ -32,10 +34,13 @@ interface OutputErrorCardProps {
 }
 
 export function OutputErrorCard({ mode, message, prompt, onDelete, onRemix }: OutputErrorCardProps) {
+  const t = useTranslations('studio.outputError');
+  const promptId = useId();
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [showDetailsDialog, setShowDetailsDialog] = useState(false);
   const [copied, setCopied] = useState(false);
-  const hint = getStudioGenerationErrorHint(message);
+  const hintKey = getStudioGenerationErrorHint(message);
+  const hint = hintKey ? t(hintKey) : null;
 
   const handleDelete = () => {
     setShowDeleteDialog(false);
@@ -58,26 +63,26 @@ export function OutputErrorCard({ mode, message, prompt, onDelete, onRemix }: Ou
   return (
     <>
       <div
-        className={`flex ${hint ? 'min-h-[260px]' : 'aspect-square'} flex-col justify-between rounded-3xl border border-red-500/40 bg-red-500/5 p-4 shadow-sm cursor-pointer transition-colors hover:bg-red-500/10`}
+        className={`flex ${hint ? 'min-h-[260px]' : 'aspect-square'} flex-col justify-between gap-4 rounded-lg border border-destructive/35 bg-destructive/5 p-4 cursor-pointer transition-colors hover:bg-destructive/10`}
         onClick={() => setShowDetailsDialog(true)}
       >
         <div className="flex items-center justify-between">
-          <span className="rounded-full border border-red-500/30 bg-red-500/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-red-700 dark:text-red-300">
-            {mode}
+          <span className="rounded-md border border-border bg-background/60 px-2 py-0.5 text-xs font-medium text-muted-foreground">
+            {t(`mode.${mode}`)}
           </span>
-          <AlertCircle className="h-4 w-4 text-red-600 dark:text-red-300" />
+          <AlertCircle aria-hidden="true" className="h-4 w-4 text-destructive" />
         </div>
 
         <div className="space-y-2">
-          <h3 className="text-sm font-semibold text-foreground">Generation failed</h3>
+          <h3 className="text-sm font-semibold text-foreground">{t('title')}</h3>
           <p
             className={`${hint ? 'line-clamp-2' : 'line-clamp-4'} break-words text-sm leading-6 text-muted-foreground`}
             title={message || undefined}
           >
-            {message || 'The output could not be created. Try again with a simplified prompt or a different preset.'}
+            {message || t('description')}
           </p>
           {hint ? (
-            <p className="border-l-2 border-amber-500/70 pl-2 text-xs leading-5 text-amber-700 dark:text-amber-300">
+            <p className="border-l-2 border-warning/40 pl-2 text-xs leading-5 text-muted-foreground">
               {hint}
             </p>
           ) : null}
@@ -93,47 +98,46 @@ export function OutputErrorCard({ mode, message, prompt, onDelete, onRemix }: Ou
               setShowDetailsDialog(true);
             }}
           >
-            <RefreshCcw className="h-4 w-4" />
-            Remix
+            <Info aria-hidden="true" className="h-4 w-4" />
+            {t('details')}
           </Button>
-          <Button
+          {onDelete ? <Button
             type="button"
             variant="outline"
-            className="w-10 justify-center gap-2 text-red-600 hover:bg-red-500/10 hover:text-red-700"
+            aria-label={t('delete')}
+            className="w-10 justify-center gap-2 text-destructive hover:bg-destructive/10 hover:text-destructive"
             onClick={(e) => {
               e.stopPropagation();
               setShowDeleteDialog(true);
             }}
           >
-            <Trash2 className="h-4 w-4" />
-          </Button>
+            <Trash2 aria-hidden="true" className="h-4 w-4" />
+          </Button> : null}
         </div>
       </div>
 
       <Dialog open={showDetailsDialog} onOpenChange={setShowDetailsDialog}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-red-600">
-              <AlertCircle className="h-5 w-5" />
-              Generation konnte nicht abgeschlossen werden
-            </DialogTitle>
+            <DialogTitle>{t('title')}</DialogTitle>
             <DialogDescription>
-              Die Generierung ist fehlgeschlagen. Der ursprüngliche Prompt ist unten verfügbar und kann kopiert oder remixt werden.
+              {t(prompt ? 'detailsDescription' : 'description')}
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4">
-            <div className="rounded-lg border border-red-500/30 bg-red-500/5 p-3">
-              <p className="text-sm font-medium text-red-700 dark:text-red-300">Fehler:</p>
-              <p className="text-sm text-muted-foreground">
-                {message || 'Unbekannter Fehler bei der Generierung.'}
+            <InlineNotice variant="destructive" size="compact" title={t('errorLabel')}>
+              <p className="max-h-48 overflow-y-auto whitespace-pre-wrap [overflow-wrap:anywhere]">
+                {message || t('unknownError')}
               </p>
-            </div>
+              {hint ? <p>{hint}</p> : null}
+            </InlineNotice>
 
             {prompt && (
               <div className="space-y-2">
-                <label className="text-sm font-medium">Ursprünglicher Prompt:</label>
+                <label htmlFor={promptId} className="text-sm font-medium">{t('originalPrompt')}</label>
                 <textarea
+                  id={promptId}
                   readOnly
                   value={prompt}
                   className="min-h-[120px] w-full rounded-lg border border-border bg-muted/50 p-3 text-sm leading-relaxed text-foreground"
@@ -150,8 +154,8 @@ export function OutputErrorCard({ mode, message, prompt, onDelete, onRemix }: Ou
                 className="gap-2"
                 onClick={handleCopyPrompt}
               >
-                <Copy className="h-4 w-4" />
-                {copied ? 'Kopiert!' : 'Kopieren'}
+                <Copy aria-hidden="true" className="h-4 w-4" />
+                {copied ? t('copied') : t('copy')}
               </Button>
             )}
             {prompt && onRemix && (
@@ -160,19 +164,19 @@ export function OutputErrorCard({ mode, message, prompt, onDelete, onRemix }: Ou
                 className="gap-2"
                 onClick={handleRemix}
               >
-                <Wand2 className="h-4 w-4" />
-                Remixen
+                <Wand2 aria-hidden="true" className="h-4 w-4" />
+                {t('remix')}
               </Button>
             )}
-            <Button
+            {onDelete ? <Button
               type="button"
               variant="outline"
-              className="gap-2 text-red-600 hover:bg-red-500/10 hover:text-red-700"
+              className="gap-2 text-destructive hover:bg-destructive/10 hover:text-destructive"
               onClick={() => setShowDeleteDialog(true)}
             >
-              <Trash2 className="h-4 w-4" />
-              Löschen
-            </Button>
+              <Trash2 aria-hidden="true" className="h-4 w-4" />
+              {t('delete')}
+            </Button> : null}
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -180,18 +184,18 @@ export function OutputErrorCard({ mode, message, prompt, onDelete, onRemix }: Ou
       <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
         <AlertDialogContent className="max-w-sm">
           <AlertDialogHeader>
-            <AlertDialogTitle>Löschen bestätigen</AlertDialogTitle>
+            <AlertDialogTitle>{t('deleteTitle')}</AlertDialogTitle>
             <AlertDialogDescription>
-              Möchtest du diese fehlerhafte Generierung wirklich löschen? Diese Aktion kann nicht rückgängig gemacht werden.
+              {t('deleteDescription')}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Abbrechen</AlertDialogCancel>
+            <AlertDialogCancel>{t('cancel')}</AlertDialogCancel>
             <AlertDialogAction
               onClick={handleDelete}
-              className="bg-red-600 hover:bg-red-700"
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
-              Löschen
+              {t('delete')}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

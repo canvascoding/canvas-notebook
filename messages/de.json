@@ -8065,7 +8065,8 @@
     "title": "Studio",
     "comingSoon": "Coming Soon — Diese Funktion ist bald verfügbar.",
     "common": {
-      "loading": "Lade..."
+      "loading": "Lade...",
+      "handoffError": "Die Studio-Anfrage gehört zu einem anderen Workspace, ist abgelaufen oder wurde bereits verarbeitet."
     },
     "saveToWorkspace": {
       "title": "In Workspace importieren",
@@ -8078,19 +8079,53 @@
     },
     "providerRequirements": {
       "openIntegrations": "Integrationen öffnen",
-      "openCentralCredentials": "Zentrale Zugangsdaten öffnen",
+      "openCentralCredentials": "Zugang einrichten",
+      "openPersonalCredentials": "Persönlichen Zugang einrichten",
+      "personalDescription": "Bitte einen Administrator um einen gemeinsamen Zugang oder richte einen persönlichen Zugang ein.",
+      "details": "Details",
+      "checkingTitle": "Provider-Zugang wird geprüft",
+      "checkingDescription": "Die verfügbaren Zugänge werden geprüft.",
+      "checkFailedTitle": "Provider-Zugang konnte nicht geprüft werden",
+      "checkFailedDescription": "Versuche es erneut, um die Verfügbarkeit dieses Providers zu prüfen.",
+      "checkFailedAvailable": "Der zuletzt bestätigte Zugang bleibt verfügbar. Du kannst die Prüfung erneut versuchen.",
+      "retry": "Erneut versuchen",
       "gemini": {
-        "title": "GEMINI_API_KEY fehlt",
-        "description": "Auf einer Self-Hosted-Instanz konfiguriert der Administrator GEMINI_API_KEY zentral für Gemini-Bilder, Veo-Videos und Lyria-Sound. Ein persönlicher Key ist nur ein optionaler Override; Managed Instanzen nutzen automatisch den Canvas Control Plane Fallback."
+        "title": "Gemini-Zugang einrichten",
+        "description": "Für die gewählte Generierung ist noch kein Gemini-Zugang eingerichtet.",
+        "details": "Auf selbst gehosteten Instanzen konfiguriert ein Administrator GEMINI_API_KEY zentral für Gemini-Bilder, Veo-Videos und Lyria-Sound. Ein persönlicher Key kann diesen ersetzen. Managed Instanzen nutzen automatisch den Zugang über die Canvas Control Plane."
       },
       "openai": {
-        "title": "OPENAI_API_KEY fehlt",
-        "description": "Auf einer Self-Hosted-Instanz konfiguriert der Administrator OPENAI_API_KEY zentral für OpenAI-Bildmodelle. Ein persönlicher Key ist nur ein optionaler Override; Managed Instanzen nutzen automatisch den Canvas Control Plane Fallback."
+        "title": "OpenAI-Zugang einrichten",
+        "description": "Für die gewählte Generierung ist noch kein OpenAI-Zugang eingerichtet.",
+        "details": "Auf selbst gehosteten Instanzen konfiguriert ein Administrator OPENAI_API_KEY zentral für OpenAI-Bildmodelle. Ein persönlicher Key kann diesen ersetzen. Managed Instanzen nutzen automatisch den Zugang über die Canvas Control Plane."
       },
       "kie": {
-        "title": "KIE_API_KEY für Seedance 2.0 fehlt",
-        "description": "Auf einer Self-Hosted-Instanz konfiguriert der Administrator KIE_API_KEY zentral für Seedance 2.0. Ein persönlicher Key ist nur ein optionaler Override; Managed Instanzen nutzen automatisch den Canvas Control Plane Fallback.",
-        "getKey": "KIE.ai Key holen"
+        "title": "KIE.ai-Zugang einrichten",
+        "description": "Für die Video-Generierung mit Seedance ist noch kein KIE.ai-Zugang eingerichtet.",
+        "details": "Auf selbst gehosteten Instanzen konfiguriert ein Administrator KIE_API_KEY zentral für Seedance-Videos. Ein persönlicher Key kann diesen ersetzen. Managed Instanzen nutzen automatisch den Zugang über die Canvas Control Plane.",
+        "getKey": "KIE.ai-Key erhalten"
+      }
+    },
+    "outputError": {
+      "title": "Generierung fehlgeschlagen",
+      "description": "Die Ausgabe konnte nicht erstellt werden. Versuche einen einfacheren Prompt oder ein anderes Preset.",
+      "details": "Details",
+      "detailsDescription": "Die Generierung ist fehlgeschlagen. Du kannst den ursprünglichen Prompt unten kopieren oder remixen.",
+      "errorLabel": "Fehlerdetails",
+      "unknownError": "Die Generierung konnte nicht abgeschlossen werden.",
+      "originalPrompt": "Ursprünglicher Prompt",
+      "copy": "Prompt kopieren",
+      "copied": "Kopiert",
+      "remix": "Remixen",
+      "delete": "Löschen",
+      "deleteTitle": "Fehlerhafte Generierung löschen?",
+      "deleteDescription": "Diese fehlerhafte Generierung wird dauerhaft gelöscht. Die Aktion kann nicht rückgängig gemacht werden.",
+      "cancel": "Abbrechen",
+      "geminiBlockedPrompt": "Gemini kann das Bearbeiten oder Imitieren von Celebrities und bekannten Personen einschränken. Nutze eigene Bilder mit Erlaubnis oder formuliere den Prompt neutraler.",
+      "mode": {
+        "image": "Bild",
+        "video": "Video",
+        "sound": "Sound"
       }
     },
     "tabs": {

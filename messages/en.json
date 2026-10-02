@@ -8066,7 +8066,8 @@
     "title": "Studio",
     "comingSoon": "Coming Soon — This feature will be available soon.",
     "common": {
-      "loading": "Loading..."
+      "loading": "Loading...",
+      "handoffError": "This Studio request belongs to a different workspace, has expired or has already been processed."
     },
     "saveToWorkspace": {
       "title": "Import to workspace",
@@ -8079,19 +8080,53 @@
     },
     "providerRequirements": {
       "openIntegrations": "Open integrations",
-      "openCentralCredentials": "Open central credentials",
+      "openCentralCredentials": "Set up access",
+      "openPersonalCredentials": "Set up personal access",
+      "personalDescription": "Ask an administrator to configure shared access, or set up your own personal access.",
+      "details": "Details",
+      "checkingTitle": "Checking provider access",
+      "checkingDescription": "The available access is being checked.",
+      "checkFailedTitle": "Provider access could not be checked",
+      "checkFailedDescription": "Try again to check whether this provider is available.",
+      "checkFailedAvailable": "The last confirmed access remains available. You can retry the check.",
+      "retry": "Try again",
       "gemini": {
-        "title": "GEMINI_API_KEY is missing",
-        "description": "On self-hosted instances, an administrator configures GEMINI_API_KEY centrally for Gemini images, Veo videos, and Lyria sound. A personal key is only an optional override; managed instances use the Canvas Control Plane fallback automatically."
+        "title": "Set up Gemini access",
+        "description": "Gemini access is required for the selected generation.",
+        "details": "On self-hosted instances, an administrator configures GEMINI_API_KEY centrally for Gemini images, Veo videos and Lyria sound. A personal key can override it. Managed instances automatically use Canvas Control Plane access."
       },
       "openai": {
-        "title": "OPENAI_API_KEY is missing",
-        "description": "On self-hosted instances, an administrator configures OPENAI_API_KEY centrally for OpenAI image models. A personal key is only an optional override; managed instances use the Canvas Control Plane fallback automatically."
+        "title": "Set up OpenAI access",
+        "description": "OpenAI access is required for the selected generation.",
+        "details": "On self-hosted instances, an administrator configures OPENAI_API_KEY centrally for OpenAI image models. A personal key can override it. Managed instances automatically use Canvas Control Plane access."
       },
       "kie": {
-        "title": "KIE_API_KEY is missing for Seedance 2.0",
-        "description": "On self-hosted instances, an administrator configures KIE_API_KEY centrally for Seedance 2.0. A personal key is only an optional override; managed instances use the Canvas Control Plane fallback automatically.",
-        "getKey": "Get KIE.ai key"
+        "title": "Set up KIE.ai access",
+        "description": "KIE.ai access is required for Seedance video generation.",
+        "details": "On self-hosted instances, an administrator configures KIE_API_KEY centrally for Seedance videos. A personal key can override it. Managed instances automatically use Canvas Control Plane access.",
+        "getKey": "Get a KIE.ai key"
+      }
+    },
+    "outputError": {
+      "title": "Generation failed",
+      "description": "The output could not be created. Try a simpler prompt or a different preset.",
+      "details": "Details",
+      "detailsDescription": "The generation failed. You can copy or remix the original prompt below.",
+      "errorLabel": "Error details",
+      "unknownError": "The generation could not be completed.",
+      "originalPrompt": "Original prompt",
+      "copy": "Copy prompt",
+      "copied": "Copied",
+      "remix": "Remix",
+      "delete": "Delete",
+      "deleteTitle": "Delete failed generation?",
+      "deleteDescription": "This failed generation will be permanently deleted. This action cannot be undone.",
+      "cancel": "Cancel",
+      "geminiBlockedPrompt": "Gemini may restrict editing or imitating celebrities and public figures. Use your own images with permission, or try a more neutral prompt.",
+      "mode": {
+        "image": "Image",
+        "video": "Video",
+        "sound": "Sound"
       }
     },
     "tabs": {

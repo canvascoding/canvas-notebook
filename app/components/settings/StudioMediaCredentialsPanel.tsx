@@ -1,10 +1,11 @@
 'use client';
 
-import { useState } from 'react';
+import { startTransition, useEffect, useState } from 'react';
 import { ImageIcon } from 'lucide-react';
 
 import { ProviderEnvEditor } from '@/app/components/settings/ProviderEnvEditor';
 import { SettingsAccordionCard } from '@/app/components/settings/SettingsAccordionCard';
+import { InlineNotice } from '@/components/ui/inline-notice';
 import type { ProviderHelpInfo } from '@/app/lib/pi/provider-help';
 
 type StudioMediaCredentialsPanelProps = {
@@ -57,6 +58,26 @@ export function StudioMediaCredentialsPanel({
   const copy = locale?.toLowerCase().startsWith('de') ? COPY.de : COPY.en;
   const [isOpen, setIsOpen] = useState(false);
 
+  useEffect(() => {
+    let frame: number | undefined;
+    const openFromHash = () => {
+      if (window.location.hash !== '#studio-media-credentials') return;
+      startTransition(() => setIsOpen(true));
+      if (frame !== undefined) window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(() => {
+        const panel = document.getElementById('studio-media-credentials');
+        panel?.scrollIntoView({ block: 'start' });
+        panel?.querySelector<HTMLButtonElement>('button')?.focus({ preventScroll: true });
+      });
+    };
+    openFromHash();
+    window.addEventListener('hashchange', openFromHash);
+    return () => {
+      window.removeEventListener('hashchange', openFromHash);
+      if (frame !== undefined) window.cancelAnimationFrame(frame);
+    };
+  }, []);
+
   return (
     <SettingsAccordionCard
       id="studio-media-credentials"
@@ -69,12 +90,9 @@ export function StudioMediaCredentialsPanel({
       cardClassName="scroll-mt-6"
       contentClassName="space-y-4"
     >
-      <div className="rounded-lg border bg-muted/20 p-3 text-sm text-muted-foreground">
-        <p className="font-medium text-foreground">{copy.capabilities}</p>
-        <p className="mt-1 leading-5">
-          {managedControlPlaneAvailable ? copy.managed : copy.selfHosted}
-        </p>
-      </div>
+      <InlineNotice variant="info" size="compact" title={copy.capabilities}>
+        {managedControlPlaneAvailable ? copy.managed : copy.selfHosted}
+      </InlineNotice>
       <ProviderEnvEditor
         providerId="studio-media"
         envVars={STUDIO_MEDIA_ENV_VARS}
