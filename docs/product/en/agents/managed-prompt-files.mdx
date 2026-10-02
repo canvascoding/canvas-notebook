@@ -1,30 +1,31 @@
 ---
 title: Managed Prompt Files
-description: Understand the six editable Markdown files that define agent role, user context, memory, tone, tool guidance, and heartbeat work.
+description: Understand active agent instruction files, database-backed memory, and retired legacy prompt files.
 section: Agents and Chat
 sectionOrder: 4
 order: 13
 locale: en
 translationKey: agents.managed-prompt-files
-updatedAt: 2026-09-02
+updatedAt: 2026-10-02
 ---
 
 # Managed Prompt Files
 
-Canvas Notebook stores editable agent configuration as managed Markdown files. They are internal runtime state rather than ordinary project files and should be edited through Agent Settings or dedicated agent-management tools.
+Canvas Notebook stores agent instructions as managed Markdown files. They are internal runtime state rather than ordinary project files and should be edited through Agent Settings or dedicated agent-management tools.
 
-## File responsibilities
+## Active instruction files
 
 | File | Purpose |
 | --- | --- |
 | `AGENTS.md` | Role, operating method, boundaries, and quality requirements. |
-| `USER.md` | Legacy user-memory import/export file; database memory is authoritative. |
-| `MEMORY.md` | Legacy agent-memory import/export file; database memory is authoritative. |
 | `SOUL.md` | Identity, tone, and collaboration style. |
 | `TOOLS.md` | Guidance for choosing and using available tools. |
-| `HEARTBEAT.md` | Instructions for the dedicated proactive heartbeat. |
 
-`AGENTS.md`, `SOUL.md`, and `TOOLS.md` contribute to normal session context. Durable user and agent facts come from the scoped database-memory projection. `USER.md` and `MEMORY.md` remain visible for controlled legacy migration and export, but are not injected into normal prompts. `HEARTBEAT.md` is used for heartbeat work rather than being included as a normal prompt block on every chat turn.
+These three instruction files contribute to normal session context. Durable user and agent facts come from scoped database-backed memory, not `USER.md` or `MEMORY.md`; those filenames remain only for controlled legacy import/export and are not injected into normal prompts.
+
+## Retired Heartbeat instructions
+
+Canvas Notebook no longer offers a separate agent Heartbeat setting. The old `HEARTBEAT.md` file is not an active prompt file. Legacy Heartbeat jobs are migrated to workspace automations, carrying their schedule, delivery target, run history, and instructions into the automation. See [Legacy Heartbeats and workspace automations](/docs/automations/heartbeat-config).
 
 ## Scope and inheritance
 

@@ -1,45 +1,30 @@
 ---
-title: Configuring the Agent Heartbeat
-description: Define an agent's proactive instructions, schedule, working hours, and delivery target.
+title: Legacy Heartbeats and Workspace Automations
+description: Understand how older agent Heartbeat jobs move into the current workspace automation system.
 section: Automations
 sectionOrder: 6
 order: 10
 locale: en
 translationKey: automations.heartbeat-config
-updatedAt: 2026-07-17
+updatedAt: 2026-10-02
 ---
 
-# Configuring the Agent Heartbeat
+# Legacy Heartbeats and Workspace Automations
 
-Heartbeat configuration lives with the selected agent in Agent Settings. It combines `HEARTBEAT.md`, an enabled state, a schedule, working hours, and delivery behavior.
+Canvas Notebook no longer has a separate agent-level Heartbeat setting. The old settings endpoint is retired; recurring work is configured as a workspace automation with its own prompt, agent, workspace, schedule, and delivery settings.
 
-## Write proactive instructions
+## What happens to an older Heartbeat
 
-Keep `HEARTBEAT.md` short and action-oriented:
+When the application encounters a legacy Heartbeat job, it migrates that job into the workspace automation system. The migration keeps its schedule, delivery target, and run history, and converts its `HEARTBEAT.md` instructions into the automation prompt. The legacy file is then removed so it is not mistaken for active agent instructions.
 
-```md
-# Heartbeat
+The old `/api/automations/heartbeat` settings API is retired and no longer configures an agent Heartbeat. You do not need to recreate a migrated job unless you want to change its behavior.
 
-- Review `inbox/requests.md` for unassigned urgent items.
-- Check `reports/current-status.md` for a blocker older than two days.
-- If action is needed, explain the evidence and propose the next step.
-- If nothing requires attention, return a concise no-action result.
-```
+## Review recurring work
 
-Do not put passwords, broad permission grants, or a request to create more schedules in the file.
-
-## Configure timing
-
-The default is an hourly interval constrained to weekdays from 09:00 to 18:00 in the preferred server timezone. Adjust interval, daily or weekly times, timezone, and working-hours window to match the real operating rhythm. Enable the heartbeat only after `HEARTBEAT.md` contains a useful task.
-
-## Configure delivery
-
-The default delivery follows the last active channel and its active session when possible. You can select another supported delivery and session mode. The heartbeat result is stored as an automation run even when no active channel receives it.
-
-Review the first few executions for noise. A heartbeat that reports the same non-actionable state every hour should be narrowed or scheduled less frequently.
+Open Automations and review the migrated job's prompt, agent, workspace, timing, and delivery target. Run it manually and inspect the result before relying on the schedule. Use a normal scheduled automation for future recurring work.
 
 ## Related guides
 
-- [Heartbeat versus regular automation](/docs/automations/heartbeat-vs-automation)
-- [Automation delivery options](/docs/automations/delivery)
-- [Agent memory](/docs/agents/memory)
+- [Automations](/docs/features/automations)
+- [Scheduled automations](/docs/automations/scheduled)
+- [Managed prompt files](/docs/agents/managed-prompt-files)

@@ -1,12 +1,12 @@
 ---
 title: Automations
-description: Run agent work on a schedule, through webhooks, or as a dedicated heartbeat with visible history and delivery controls.
+description: Run agent work on a schedule, through webhooks, or manually with visible history and delivery controls.
 section: Core Features
 sectionOrder: 2
 order: 5
 locale: en
 translationKey: features.automations
-updatedAt: 2026-07-17
+updatedAt: 2026-10-02
 ---
 
 # Automations
@@ -25,7 +25,7 @@ Canvas Notebook keeps automation runs visible. You can run a job manually, inspe
 - Trigger work through a custom webhook.
 - Inspect pending, running, completed, retrying, and failed runs.
 - Prevent overlapping execution for the same job.
-- Configure a dedicated agent Heartbeat separately.
+- Review migrated recurring checks alongside other workspace automations.
 - Respect the configured server timezone when calculating schedules.
 
 ## A representative workflow
@@ -41,11 +41,11 @@ List completed work, open decisions, and the next three actions.
 Do not send messages or modify the source files.
 ```
 
-## Scheduled jobs, webhooks, and heartbeat
+## Scheduled jobs and webhooks
 
-A scheduled job runs at a defined time. A webhook job reacts to an external HTTP event and can include event data in its execution context. The dedicated Heartbeat is an agent-level recurring check-in built around the managed `HEARTBEAT.md` instructions.
+A scheduled job runs at a defined time. A webhook job reacts to an external HTTP event and can include event data in its execution context. Both are workspace automations with a prompt, agent context, and run history.
 
-These mechanisms solve related but different problems. Use a normal automation for a named workflow with an explicit output. Use a webhook when another system owns the trigger. Use Heartbeat for recurring agent awareness and check-in behavior.
+Use a scheduled automation for a named workflow that should run at a defined time. Use a webhook when another system owns the trigger. Canvas Notebook no longer has a separate agent-level Heartbeat setting; older Heartbeat jobs are migrated to workspace automations. See [Legacy Heartbeats and workspace automations](/docs/automations/heartbeat-config).
 
 ## Reliability and safety
 

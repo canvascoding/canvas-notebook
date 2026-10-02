@@ -1,42 +1,44 @@
 ---
-title: Heartbeat Versus Regular Automation
-description: Choose between one agent's proactive recurring check and a named task with explicit inputs and outputs.
+title: Scheduled Automations and Webhook Triggers
+description: Choose between time-based workspace automation and work triggered by an external event.
 section: Automations
 sectionOrder: 6
 order: 9
 locale: en
 translationKey: automations.heartbeat-vs-automation
-updatedAt: 2026-07-17
+updatedAt: 2026-10-02
 ---
 
-# Heartbeat Versus Regular Automation
+# Scheduled Automations and Webhook Triggers
 
-Both features use the automation runtime, but they represent different user intentions. A regular automation is a named workflow. A heartbeat is the dedicated proactive check for one user and agent.
+Canvas Notebook runs recurring work as workspace automations. A scheduled automation starts at a configured time; a webhook-triggered automation starts when an external system sends an event.
 
-## Use a regular automation when
+| | Scheduled automation | Webhook-triggered automation |
+| --- | --- | --- |
+| Trigger | A one-time or recurring schedule. | An event sent by an external system. |
+| Instructions | The automation prompt. | The automation prompt plus event data. |
+| Configuration | Automations. | Automations and the external trigger setup. |
+| Scope | The selected workspace and configured output or delivery. | The selected workspace and event-triggered run. |
+| Typical use | A daily report or weekly review. | Process a new order, form, or system event. |
 
-- the task has a business-specific name;
-- it reads defined workspace paths;
-- it writes to a predictable output destination;
-- it needs a once, daily, weekly, interval, or webhook trigger;
-- several independent recurring jobs should coexist;
-- run ownership and delivery need job-specific configuration.
+## Choose a scheduled run when
 
-Examples include a daily report, weekly content plan, webhook intake, or scheduled export review.
+- the work should start at a predictable time;
+- the prompt can name its inputs, output, and boundaries;
+- you want to run it manually before depending on a schedule.
 
-## Use a heartbeat when
+## Choose a webhook when
 
-- the agent should periodically review its durable proactive instructions;
-- one recurring check represents that agent's background responsibility;
-- the behavior belongs in the agent's `HEARTBEAT.md`;
-- delivery should follow the agent's last active or selected channel context.
+- another system owns the event that should start the work;
+- the event data should be available to the automation during the run;
+- the workflow needs to respond to activity rather than a clock.
 
-An agent has a dedicated heartbeat configuration rather than an unlimited list of heartbeat jobs. The heartbeat execution reads `HEARTBEAT.md` and is explicitly told to execute those instructions, not create or reconfigure another automation.
+The separate agent Heartbeat configuration and `HEARTBEAT.md` workflow are retired. Existing Heartbeat jobs are migrated into scheduled workspace automations; see [Legacy Heartbeats and workspace automations](/docs/automations/heartbeat-config).
 
-Do not call an ordinary daily job “heartbeat” merely because it repeats. In the Quickstart, the sample daily check is a normal automation so users can understand scheduling before enabling proactive agent behavior.
+Keep externally triggered work narrow and treat webhook payloads as untrusted input. For scheduled work, test the prompt manually and inspect the run before relying on unattended execution.
 
 ## Related guides
 
-- [Configuring the agent heartbeat](/docs/automations/heartbeat-config)
+- [Legacy Heartbeats and workspace automations](/docs/automations/heartbeat-config)
 - [Creating a scheduled automation](/docs/automations/scheduled)
 - [Managed prompt files](/docs/agents/managed-prompt-files)
