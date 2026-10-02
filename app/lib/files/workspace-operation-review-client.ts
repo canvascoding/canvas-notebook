@@ -1,5 +1,6 @@
 import type { WorkspaceOperationReviewPublic } from './workspace-operation-review-contract';
 import type { WorkspaceOperationBatchPublic } from './workspace-operation-batch-public';
+import type { WorkspaceOperationCheckPublic, WorkspaceOperationCheckResponse } from './workspace-operation-check-contract';
 import { workspaceHeaders } from './client';
 
 export class WorkspaceOperationReviewClientError extends Error {
@@ -135,4 +136,41 @@ export async function updateWorkspaceOperationBatch(input: {
     credentials: 'include', body: JSON.stringify({ action: input.action, planId: input.planId }),
   });
   return readBatchResponse(response, input.workspaceId, input.batchId);
+}
+
+async function readCheckResponse(response: Response, workspaceId: string, expected: {
+  checkId?: string; reviewIds?: string[];
+}): Promise<WorkspaceOperationCheckResponse> {
+  const payload = await readResponse<WorkspaceOperationCheckResponse>(response);
+  const check = payload.check;
+  if (!check || typeof check.checkId !== 'string' || !check.checkId || check.workspaceId !== workspaceId
+    || !Array.isArray(check.reviewIds) || check.reviewIds.some((id) => typeof id !== 'string')
+    || !['queued', 'checking', 'ready', 'blocked', 'failed'].includes(check.status)
+    || expected.checkId && check.checkId !== expected.checkId
+    || expected.reviewIds && JSON.stringify([...check.reviewIds].sort()) !== JSON.stringify([...new Set(expected.reviewIds)].sort())
+    || payload.batch && (payload.batch.workspaceId !== workspaceId || payload.batch.batchId !== check.batchId
+      || !payload.batch.preview || typeof payload.batch.planId !== 'string' || !payload.batch.planId
+      || payload.batch.preview.planId !== payload.batch.planId
+      || JSON.stringify([...payload.batch.reviewIds].sort()) !== JSON.stringify([...check.reviewIds].sort()))) {
+    throw new WorkspaceOperationReviewClientError('Check-Antwort passt nicht zur Anfrage.', response.status, null);
+  }
+  if (['ready', 'blocked'].includes(check.status) && !payload.batch) {
+    throw new WorkspaceOperationReviewClientError('Geprüfte Vorschau fehlt.', response.status, null);
+  }
+  return payload;
+}
+
+export async function startWorkspaceOperationCheck(reviewIds: string[], workspaceId: string): Promise<WorkspaceOperationCheckPublic> {
+  const response = await fetch('/api/files/operation-reviews/checks', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', ...workspaceHeaders(workspaceId) },
+    credentials: 'include', body: JSON.stringify({ reviewIds }),
+  });
+  return (await readCheckResponse(response, workspaceId, { reviewIds })).check;
+}
+
+export async function readWorkspaceOperationCheck(checkId: string, workspaceId: string, signal?: AbortSignal): Promise<WorkspaceOperationCheckResponse> {
+  const response = await fetch(`/api/files/operation-reviews/checks/${encodeURIComponent(checkId)}`, {
+    headers: workspaceHeaders(workspaceId), credentials: 'include', cache: 'no-store', signal,
+  });
+  return readCheckResponse(response, workspaceId, { checkId });
 }

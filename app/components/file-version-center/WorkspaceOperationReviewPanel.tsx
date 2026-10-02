@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { ArrowLeft, ClipboardCheck, Loader2, RefreshCw } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
@@ -12,7 +12,6 @@ import {
   acceptWorkspaceOperationBatch,
   decideWorkspaceOperationReview,
   listWorkspaceOperationReviews,
-  previewWorkspaceOperationBatch,
   readWorkspaceOperationBatch,
   readWorkspaceOperationReview,
   refreshWorkspaceOperationReview,
@@ -33,6 +32,9 @@ import {
 } from '@/app/store/workspace-operation-review-store';
 import { WorkspaceOperationBackupPanel } from './WorkspaceOperationBackupPanel';
 import { WorkspaceOperationBatchDetails } from './WorkspaceOperationBatchDetails';
+import { WorkspaceOperationCheckDetails } from './WorkspaceOperationCheckDetails';
+import { ensureWorkspaceOperationCheck, forgetWorkspaceOperationCheck, useWorkspaceOperationCheck } from './workspaceOperationCheckController';
+import { openWorkspaceOperationSourceDocument } from './workspaceOperationDocumentNavigation';
 
 type ReviewData = { reviews: WorkspaceOperationReviewPublic[]; review: WorkspaceOperationReviewPublic | null;
   previousReview?: WorkspaceOperationReviewPublic | null };
@@ -71,7 +73,7 @@ function ReviewStatus({ review }: { review: WorkspaceOperationReviewPublic }) {
   </span>;
 }
 
-function ReviewDetails({ review }: { review: WorkspaceOperationReviewPublic }) {
+function ReviewDetails({ review, onOpenDocument }: { review: WorkspaceOperationReviewPublic; onOpenDocument?: (path: string, workspaceId: string) => void }) {
   const t = useTranslations('workspaceOperationReview');
   const preview = review.preview;
   const deleting = 'deletedPaths' in preview;
@@ -122,8 +124,19 @@ function ReviewDetails({ review }: { review: WorkspaceOperationReviewPublic }) {
           <p className="break-all font-mono font-semibold">{item.sourcePath}</p>
           {item.targetLiteral ? <p className="break-all font-mono">→ {item.targetLiteral}</p> : null}
           <p className="text-muted-foreground">{t(`linkBlocker_${item.reason}`)}</p>
+          {onOpenDocument ? <Button size="sm" variant="outline" data-testid={`workspace-operation-blocker-open-${index}`}
+            onClick={() => onOpenDocument(item.sourcePath, item.workspaceId ?? review.sourceWorkspaceId)}>{t('openDocument')}</Button> : null}
         </li>)}
       </ul>
+    </section> : null}
+
+    {linkAssessment?.restoredLinks?.length ? <section className="space-y-2 rounded-lg border border-emerald-500/35 bg-emerald-500/[0.05] p-3 text-sm"
+      data-testid="workspace-operation-restored-links">
+      <h3 className="font-semibold">{t('restoredLinks', { count: linkAssessment.restoredLinks.length })}</h3>
+      <ul className="space-y-2 text-xs">{linkAssessment.restoredLinks.map((link, index) => <li key={`${link.sourcePath}:${index}`} className="break-all">
+        <p className="font-mono">{link.sourcePathAfter ?? link.sourcePath}</p>
+        <p>{link.targetLiteral} → {link.targetPath}</p>
+      </li>)}</ul>
     </section> : null}
 
     <section aria-label={t('pathChanges')} data-testid="workspace-operation-path-groups">
@@ -239,13 +252,25 @@ function ReviewDetails({ review }: { review: WorkspaceOperationReviewPublic }) {
 
 export function WorkspaceOperationReviewPanel({ request }: { request: WorkspaceOperationReviewRequest }) {
   const t = useTranslations('workspaceOperationReview');
+  const requestMode = request.mode;
+  const requestWorkspaceId = request.workspaceId;
+  const requestReviewId = request.mode === 'detail' ? request.reviewId : null;
+  const requestKey = JSON.stringify([requestMode, requestWorkspaceId, requestReviewId]);
   const [data, setData] = useState<ReviewData>({ reviews: [], review: null });
+  const [dataScope, setDataScope] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [reload, setReload] = useState(0);
   const [action, setAction] = useState<'accept' | 'reject' | null>(null);
   const [selectedReviews, setSelectedReviews] = useState<Set<string>>(new Set());
-  const [batch, setBatch] = useState<WorkspaceOperationBatchPublic | null>(null);
+  const [batchRecord, setBatchRecord] = useState<{ key: string; value: WorkspaceOperationBatchPublic } | null>(null);
+  const setBatch = useCallback((value: WorkspaceOperationBatchPublic | null) => setBatchRecord(value ? { key: requestKey, value } : null), [requestKey]);
+  const [checkReviewIds, setCheckReviewIds] = useState<string[]>([]);
+  const visibleCheckIds = request.mode === 'detail' ? checkReviewIds.filter((id) => id === request.reviewId) : checkReviewIds;
+  const checkState = useWorkspaceOperationCheck(request.workspaceId, visibleCheckIds);
+  const ownedBatch = batchRecord?.key === requestKey ? batchRecord.value : null;
+  const batch = ownedBatch && !['preview', 'blocked'].includes(ownedBatch.status) ? ownedBatch
+    : checkState ? checkState.batch : ownedBatch;
   const [batchAction, setBatchAction] = useState<'preview' | 'accept' | 'resume' | 'undo' | 'refresh' | null>(null);
   const [refreshedFrom, setRefreshedFrom] = useState<string | null>(null);
   const [undoAvailability, setUndoAvailability] = useState<{
@@ -257,28 +282,33 @@ export function WorkspaceOperationReviewPanel({ request }: { request: WorkspaceO
 
   useEffect(() => {
     const controller = new AbortController();
-    const promise = request.mode === 'list'
-      ? listWorkspaceOperationReviews(request.workspaceId, controller.signal)
+    const promise = requestMode === 'list'
+      ? listWorkspaceOperationReviews(requestWorkspaceId, controller.signal)
         .then((reviews) => ({ reviews, review: null }))
-      : readWorkspaceOperationReview(request.reviewId, request.workspaceId, controller.signal)
+      : readWorkspaceOperationReview(requestReviewId!, requestWorkspaceId, controller.signal)
         .then((review) => ({ reviews: [], review }));
-    void promise.then(async (result) => {
+    void promise.then((result) => {
       if (!controller.signal.aborted) {
         setData(result);
+        setDataScope(JSON.stringify([requestMode, requestWorkspaceId, requestReviewId]));
         setSelectedReviews(new Set());
         setBatch(null);
         setRefreshedFrom(null);
+        setCheckReviewIds([]);
+        setLoading(false);
         if (result.review?.previousReviewId) {
-          const previous = await readWorkspaceOperationReview(result.review.previousReviewId, request.workspaceId, controller.signal).catch(() => null);
-          if (!controller.signal.aborted) setData({ ...result, previousReview: previous });
+          void readWorkspaceOperationReview(result.review.previousReviewId, requestWorkspaceId, controller.signal).then((previous) => {
+            if (!controller.signal.aborted) setData({ ...result, previousReview: previous });
+          }).catch(() => undefined);
         }
         if (result.review?.batchId) {
-          const value = await readWorkspaceOperationBatch(result.review.batchId, request.workspaceId, controller.signal);
-          if (!controller.signal.aborted) setBatch(value);
+          void readWorkspaceOperationBatch(result.review.batchId, requestWorkspaceId, controller.signal).then((value) => {
+            if (!controller.signal.aborted) setBatchRecord({ key: JSON.stringify([requestMode, requestWorkspaceId, requestReviewId]), value });
+          }).catch((loadError) => { if (!controller.signal.aborted) setError(loadError instanceof Error ? loadError.message : t('requestFailed')); });
         } else if (result.review && ['pending', 'stale', 'blocked'].includes(result.review.status)
           && result.review.kind !== 'copy' && !result.review.successorReviewId) {
-          const value = await previewWorkspaceOperationBatch([result.review.reviewId], request.workspaceId);
-          if (!controller.signal.aborted) setBatch(value);
+          setCheckReviewIds([result.review.reviewId]);
+          ensureWorkspaceOperationCheck(requestWorkspaceId, [result.review.reviewId]);
         }
       }
     }).catch((loadError) => {
@@ -287,7 +317,7 @@ export function WorkspaceOperationReviewPanel({ request }: { request: WorkspaceO
       if (!controller.signal.aborted) setLoading(false);
     });
     return () => controller.abort();
-  }, [request, reload, t]);
+  }, [requestMode, requestWorkspaceId, requestReviewId, reload, t, setBatch]);
 
   const runningBatchId = batch && ['queued', 'applying'].includes(batch.status) ? batch.batchId : null;
   useEffect(() => {
@@ -317,7 +347,7 @@ export function WorkspaceOperationReviewPanel({ request }: { request: WorkspaceO
       controller.abort();
       if (timer !== null) window.clearTimeout(timer);
     };
-  }, [runningBatchId, request.workspaceId, t]);
+  }, [runningBatchId, request.workspaceId, t, setBatch]);
 
   const appliedOperationId = data.review?.status === 'applied' ? data.review.operationId : null;
   const appliedAt = data.review?.status === 'applied' ? data.review.updatedAt : null;
@@ -358,25 +388,23 @@ export function WorkspaceOperationReviewPanel({ request }: { request: WorkspaceO
     setReload((value) => value + 1);
   };
 
-  const previewBatch = async (reviewIds: string[]) => {
+  const previewBatch = (reviewIds: string[], fresh = false) => {
     if (batchAction || reviewIds.length === 0) return;
-    setBatchAction('preview');
     setError(null);
-    try {
-      setBatch(await previewWorkspaceOperationBatch(reviewIds, request.workspaceId));
-    } catch (previewError) {
-      setError(previewError instanceof Error ? previewError.message : t('actionFailed'));
-    } finally {
-      setBatchAction(null);
-    }
+    setBatch(null);
+    setCheckReviewIds(reviewIds);
+    ensureWorkspaceOperationCheck(request.workspaceId, reviewIds, fresh);
   };
 
   const acceptBatch = async () => {
-    if (!batch || batchAction || batch.status !== 'preview' || batch.preview.readiness !== 'ready') return;
+    if (loading || dataScope !== requestKey || !batch || batchAction || batch.status !== 'preview' || batch.preview.readiness !== 'ready'
+      || checkState && (checkState.status !== 'ready' || !checkSelectionMatches)) return;
     setBatchAction('accept');
     setError(null);
     try {
       setBatch(await acceptWorkspaceOperationBatch({ batchId: batch.batchId, workspaceId: request.workspaceId, planId: batch.planId }));
+      forgetWorkspaceOperationCheck(request.workspaceId, checkReviewIds);
+      setCheckReviewIds([]);
       window.dispatchEvent(new CustomEvent('notification_summary_updated'));
     } catch (acceptError) {
       setError(acceptError instanceof Error ? acceptError.message : t('actionFailed'));
@@ -407,6 +435,10 @@ export function WorkspaceOperationReviewPanel({ request }: { request: WorkspaceO
     if (!old || batchAction) return;
     if (old.successorReviewId) {
       openWorkspaceOperationReview(old.successorReviewId, request.workspaceId);
+      return;
+    }
+    if (old.kind !== 'copy') {
+      previewBatch([old.reviewId], true);
       return;
     }
     setBatchAction('refresh');
@@ -472,21 +504,33 @@ export function WorkspaceOperationReviewPanel({ request }: { request: WorkspaceO
     }
   };
 
-  const review = data.review;
+  const dataCurrent = dataScope === requestKey;
+  const review = dataCurrent ? data.review : null;
+  const reviews = dataCurrent ? data.reviews : [];
+  const busyLoading = loading || !dataCurrent;
   const currentUndoAvailability = undoAvailability && review?.operationId === undoAvailability.operationId
     ? undoAvailability.value : null;
   const undoLoading = Boolean(appliedOperationId) && currentUndoAvailability === null;
   const canReject = review && ['pending', 'blocked', 'stale'].includes(review.status)
     && (!batch || ['preview', 'blocked', 'needs_review'].includes(batch.status));
   const canAccept = review?.status === 'pending' && review.preview.readiness === 'ready';
-  const eligibleReviews = data.reviews.filter((item) => ['pending', 'stale', 'blocked'].includes(item.status) && item.kind !== 'copy' && !item.successorReviewId);
+  const eligibleReviews = reviews.filter((item) => ['pending', 'stale', 'blocked'].includes(item.status) && item.kind !== 'copy' && !item.successorReviewId);
   const selectedEligible = eligibleReviews.filter((item) => selectedReviews.has(item.reviewId));
+  const checkSelectionMatches = request.mode === 'detail' ? checkReviewIds.length === 1 && checkReviewIds[0] === review?.reviewId
+    : JSON.stringify([...checkReviewIds].sort()) === JSON.stringify(selectedEligible.map((item) => item.reviewId).sort());
+  const checking = checkState && ['starting', 'queued', 'checking'].includes(checkState.status);
+  const checkReviews = review ? [review] : reviews.filter((item) => checkReviewIds.includes(item.reviewId));
+  const openDocument = (path: string, workspaceId: string) => {
+    void openWorkspaceOperationSourceDocument(path, workspaceId).catch((openError) => {
+      setError(openError instanceof Error ? openError.message : t('documentOpenFailed'));
+    });
+  };
   const toggleSelection = (reviewId: string) => setSelectedReviews((current) => {
     const next = new Set(current);
     if (next.has(reviewId)) next.delete(reviewId); else next.add(reviewId);
     return next;
   });
-  return <DialogContent layout="viewport" className="transition-none data-[state=open]:animate-none data-[state=closed]:animate-none" data-testid="workspace-operation-review-center" aria-busy={loading || action !== null || batchAction !== null}>
+  return <DialogContent layout="viewport" className="transition-none data-[state=open]:animate-none data-[state=closed]:animate-none" data-testid="workspace-operation-review-center" aria-busy={busyLoading || action !== null || batchAction !== null}>
     <DialogHeader className="shrink-0 border-b px-4 py-3 pr-12 sm:px-6 sm:py-4 sm:pr-14">
       <div className="flex items-center gap-3">
         <span className="flex size-8 shrink-0 items-center justify-center rounded-lg border bg-muted/45 text-muted-foreground"><ClipboardCheck className="size-4" aria-hidden="true" /></span>
@@ -497,45 +541,56 @@ export function WorkspaceOperationReviewPanel({ request }: { request: WorkspaceO
       </div>
     </DialogHeader>
     <div className="min-h-0 flex-1 overflow-y-auto">
-      {loading ? <p className="flex items-center gap-2 p-6 text-sm text-muted-foreground" role="status"><Loader2 className="size-4 animate-spin" />{t('loading')}</p> : null}
+      {busyLoading ? <p className="flex items-center gap-2 p-6 text-sm text-muted-foreground" role="status"><Loader2 className="size-4 animate-spin" />{t('loading')}</p> : null}
       {error ? <div className="m-4 flex flex-wrap items-center gap-3 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm" role="alert">
         <span className="min-w-0 flex-1">{error}</span>
         <Button variant="outline" size="sm" onClick={retry}><RefreshCw className="size-4" />{t('retry')}</Button>
       </div> : null}
-      {!loading && !batch && request.mode === 'list' ? <div className="space-y-3 p-4 sm:p-6">
-        {data.reviews.length === 0 && !error ? <p className="text-sm text-muted-foreground">{t('empty')}</p> : null}
-        {eligibleReviews.length > 0 ? <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-muted/20 p-3 text-sm">
-          <label className="flex cursor-pointer items-center gap-2">
-            <input type="checkbox" data-testid="workspace-operation-review-select-all" checked={selectedEligible.length === eligibleReviews.length}
-              onChange={(event) => setSelectedReviews(event.target.checked ? new Set(eligibleReviews.map((item) => item.reviewId)) : new Set())} />
-            {t('selectAll')}
-          </label>
-          <span className="text-xs text-muted-foreground">{t('selectedCount', { count: selectedEligible.length })}</span>
-        </div> : null}
-        {data.reviews.map((item) => <div key={item.reviewId} className="flex min-w-0 items-start gap-2 rounded-lg border p-3">
-          {eligibleReviews.some((eligible) => eligible.reviewId === item.reviewId) ? <input type="checkbox"
-            className="mt-1 shrink-0" aria-label={t('selectAction', { path: item.selections.map((selection) => selection.sourcePath).join(', ') })}
-            data-testid={`workspace-operation-review-select-${item.reviewId}`} checked={selectedReviews.has(item.reviewId)}
-            onChange={() => toggleSelection(item.reviewId)} /> : null}
-          <button type="button" className="flex min-w-0 flex-1 items-start gap-3 text-left hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          onClick={() => openWorkspaceOperationReview(item.reviewId, request.workspaceId)}>
-          <ClipboardCheck className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-          <span className="min-w-0 flex-1 space-y-1">
-            <span className="flex flex-wrap items-center gap-2 text-sm font-semibold">{t(`kind_${item.kind}`)} <ReviewStatus review={item} /></span>
-            <span className="block break-all font-mono text-xs text-muted-foreground">
-              {item.selections.map((selection) => selection.sourcePath).join(', ')}
-            </span>
-          </span>
-          </button>
-        </div>)}
-        <WorkspaceOperationBackupPanel workspaceId={request.workspaceId} />
+      {!busyLoading && review && (refreshedFrom || review.previousReviewId) ? <RefreshedReviewNotice review={review} previous={data.previousReview} /> : null}
+      {!busyLoading && checkState ? <WorkspaceOperationCheckDetails state={checkState} reviews={checkReviews}
+        showPaths={!batch} selectionChanged={!checkSelectionMatches} canCheckAgain={request.mode === 'detail' || selectedEligible.length > 0}
+        onCheckAgain={() => previewBatch(request.mode === 'list' ? selectedEligible.map((item) => item.reviewId) : checkReviewIds, true)} /> : null}
+      {!busyLoading && batch ? <WorkspaceOperationBatchDetails batch={batch} onOpenDocument={openDocument} /> : null}
+      {!busyLoading && request.mode === 'list' ? <div className="space-y-3 p-4 sm:p-6">
+        <details open={!checkState && !batch} className="rounded-lg border" data-testid="workspace-operation-selection">
+          <summary className="cursor-pointer px-3 py-3 text-sm font-medium" data-testid="workspace-operation-selection-summary">{t('changeSelection', { count: selectedEligible.length })}</summary>
+          <div className="space-y-3 px-3 pb-3">
+            {reviews.length === 0 && !error ? <p className="text-sm text-muted-foreground">{t('empty')}</p> : null}
+            {eligibleReviews.length > 0 ? <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-muted/20 p-3 text-sm">
+              <label className="flex cursor-pointer items-center gap-2">
+                <input type="checkbox" data-testid="workspace-operation-review-select-all" checked={selectedEligible.length === eligibleReviews.length}
+                  onChange={(event) => setSelectedReviews(event.target.checked ? new Set(eligibleReviews.map((item) => item.reviewId)) : new Set())} />
+                {t('selectAll')}
+              </label>
+              <span className="text-xs text-muted-foreground">{t('selectedCount', { count: selectedEligible.length })}</span>
+            </div> : null}
+            {reviews.map((item) => <div key={item.reviewId} className="flex min-w-0 items-start gap-2 rounded-lg border p-3">
+              {eligibleReviews.some((eligible) => eligible.reviewId === item.reviewId) ? <input type="checkbox"
+                className="mt-1 shrink-0" aria-label={t('selectAction', { path: item.selections.map((selection) => selection.sourcePath).join(', ') })}
+                data-testid={`workspace-operation-review-select-${item.reviewId}`} checked={selectedReviews.has(item.reviewId)}
+                onChange={() => toggleSelection(item.reviewId)} /> : null}
+              <button type="button" className="flex min-w-0 flex-1 items-start gap-3 text-left hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              onClick={() => openWorkspaceOperationReview(item.reviewId, request.workspaceId)}>
+              <ClipboardCheck className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+              <span className="min-w-0 flex-1 space-y-1">
+                <span className="flex flex-wrap items-center gap-2 text-sm font-semibold">{t(`kind_${item.kind}`)} <ReviewStatus review={item} /></span>
+                <span className="block break-all font-mono text-xs text-muted-foreground">
+                  {item.selections.map((selection) => selection.sourcePath).join(', ')}
+                </span>
+              </span>
+              </button>
+            </div>)}
+          </div>
+        </details>
+        <details className="rounded-lg border" data-testid="workspace-operation-backup-details">
+          <summary className="cursor-pointer px-3 py-3 text-sm font-medium">{t('fileBackups')}</summary>
+          <WorkspaceOperationBackupPanel workspaceId={request.workspaceId} />
+        </details>
       </div> : null}
-      {!loading && review && (refreshedFrom || review.previousReviewId) ? <RefreshedReviewNotice review={review} previous={data.previousReview} /> : null}
-      {!loading && batch ? <WorkspaceOperationBatchDetails batch={batch} /> : null}
-      {!loading && !batch && review ? <>
-        <ReviewDetails review={review} />
+      {!busyLoading && !batch && review && !checking ? <>
+        <ReviewDetails review={review} onOpenDocument={openDocument} />
       </> : null}
-      {!loading && !batch && review?.status === 'applied' && review.operationId ? <div className="space-y-2 px-4 pb-4 text-xs sm:px-6">
+      {!busyLoading && !batch && review?.status === 'applied' && review.operationId ? <div className="space-y-2 px-4 pb-4 text-xs sm:px-6">
         {undoLoading ? <p role="status" className="text-muted-foreground">{t('undoChecking')}</p> : null}
         {undoneOperationId === review.operationId || currentUndoAvailability?.reasonCode === 'ALREADY_UNDONE'
           ? <p role="status" className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 p-3">{t('undone')}</p>
@@ -554,6 +609,7 @@ export function WorkspaceOperationReviewPanel({ request }: { request: WorkspaceO
     <DialogFooter className="shrink-0 border-t px-4 py-3 sm:px-6">
       {batch ? <Button variant="ghost" onClick={() => {
         setBatch(null);
+        setCheckReviewIds([]);
         if (request.mode === 'detail') openWorkspaceOperationReviewList(request.workspaceId);
         else retry();
       }}>{t('back')}</Button> : null}
@@ -564,15 +620,15 @@ export function WorkspaceOperationReviewPanel({ request }: { request: WorkspaceO
         <RefreshCw className="size-4" />{t('retry')}
       </Button> : null}
       <Button variant="outline" onClick={closeWorkspaceOperationReview}>{t('close')}</Button>
-      {!batch && request.mode === 'list' ? <Button data-testid="workspace-operation-batch-preview" onClick={() => void previewBatch(selectedEligible.map((item) => item.reviewId))}
+      {request.mode === 'list' && ((!checkState && !batch) || !checkSelectionMatches) ? <Button data-testid="workspace-operation-batch-preview" onClick={() => previewBatch(selectedEligible.map((item) => item.reviewId))}
         disabled={batchAction !== null || selectedEligible.length === 0}>{t('reviewSelected')}</Button> : null}
-      {!batch && review && ['stale', 'blocked'].includes(review.status) ? <Button variant="outline" data-testid="workspace-operation-review-refresh"
+      {!batch && !checkState && review && ['stale', 'blocked'].includes(review.status) ? <Button variant="outline" data-testid="workspace-operation-review-refresh"
         onClick={() => void refreshReview()} disabled={batchAction !== null}>{t(review.successorReviewId ? 'openUpdatedPreview' : 'refreshPreview')}</Button> : null}
-      {batch?.status === 'preview' && batch.preview.readiness === 'ready' ? <Button data-testid="workspace-operation-batch-accept"
+      {!busyLoading && batch?.status === 'preview' && batch.preview.readiness === 'ready' && (!checkState || checkState.status === 'ready' && checkSelectionMatches) ? <Button data-testid="workspace-operation-batch-accept"
         onClick={() => void acceptBatch()} disabled={batchAction !== null}>{t('acceptBatch')}</Button> : null}
-      {batch && ['blocked', 'needs_review'].includes(batch.status) ? <Button data-testid="workspace-operation-review-refresh" variant="outline"
+      {batch && !checkState && ['blocked', 'needs_review'].includes(batch.status) ? <Button data-testid="workspace-operation-review-refresh" variant="outline"
         onClick={() => { if (request.mode === 'detail' && data.review && ['pending', 'blocked', 'stale'].includes(data.review.status)) void refreshReview();
-          else void previewBatch(batch.reviewIds); }} disabled={batchAction !== null}>{t('refreshPreview')}</Button> : null}
+          else previewBatch(batch.reviewIds, true); }} disabled={batchAction !== null}>{t('refreshPreview')}</Button> : null}
       {batch && ['needs_recovery', 'failed'].includes(batch.status) ? <Button data-testid="workspace-operation-batch-resume" variant="outline" onClick={() => void updateBatch('resume')}
         disabled={batchAction !== null}>{t(batch.status === 'failed' ? 'retryBatch' : 'resumeBatch')}</Button> : null}
       {batch?.status === 'applied' && batch.undoAvailable ? <Button variant="outline" onClick={() => void updateBatch('undo')}
@@ -581,7 +637,7 @@ export function WorkspaceOperationReviewPanel({ request }: { request: WorkspaceO
         {action === 'reject' ? <Loader2 className="size-4 animate-spin" /> : null}
         {review.status === 'pending' ? t('reject') : t('dismiss')}
       </Button> : null}
-      {!batch && canAccept && review.kind !== 'copy' ? <Button data-testid="workspace-operation-batch-preview"
+      {!batch && !checkState && canAccept && review.kind !== 'copy' ? <Button data-testid="workspace-operation-batch-preview"
         onClick={() => void previewBatch([review.reviewId])} disabled={batchAction !== null}>{t(review.kind === 'delete' ? 'reviewDelete' : 'reviewSelected')}</Button> : null}
       {!batch && canAccept && review.kind === 'copy' ? <Button onClick={() => void decide('accept')} disabled={action !== null}>
         {action === 'accept' ? <Loader2 className="size-4 animate-spin" /> : null}{t('accept')}

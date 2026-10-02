@@ -12,6 +12,7 @@ import messages from '../messages/en.json';
 import deMessages from '../messages/de.json';
 import type { WorkspaceOperationReviewPublic } from '../app/lib/files/workspace-operation-review-contract';
 import type { WorkspaceOperationBatchPublic } from '../app/lib/files/workspace-operation-batch-public';
+import type { WorkspaceOperationCheckPublic, WorkspaceOperationCheckResponse } from '../app/lib/files/workspace-operation-check-contract';
 import type * as Ui from '../app/components/file-version-center/WorkspaceOperationReviewPanel';
 
 const workspaceId = 'workspace-one';
@@ -66,6 +67,12 @@ async function compileUi(controls: {
   refreshed?: () => WorkspaceOperationReviewPublic;
   closes?: number;
   openList?: (workspaceId: string) => void;
+  checkReads?: string[];
+  readCheck?: (check: WorkspaceOperationCheckPublic) => Promise<WorkspaceOperationCheckResponse>;
+  documentOpens?: Array<{ path: string; workspaceId: string }>;
+  changeDocument?: () => void;
+  savedCheck?: WorkspaceOperationCheckPublic;
+  authScope?: { userId: string; sessionId: string; epoch: number };
 }) {
   const filename = path.resolve('app/components/file-version-center/WorkspaceOperationReviewPanel.tsx');
   const load = createRequire(filename);
@@ -73,7 +80,12 @@ async function compileUi(controls: {
     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS,
       jsx: ts.JsxEmit.ReactJSX, esModuleInterop: true },
   }).outputText;
-  const exports = {} as typeof Ui;
+  const exports = {} as typeof Ui & { disposeChecks: () => void };
+  const authScope = controls.authScope ?? { userId: 'user-one', sessionId: 'session-one', epoch: 1 };
+  const authListeners: Array<() => void> = [];
+  const editorListeners: Array<(state: { activePath: string; draft: string }, prior: { activePath: string; draft: string }) => void> = [];
+  const checks = new Map<string, WorkspaceOperationCheckPublic>();
+  let nextCheck = 0;
   const passthrough = ({ children }: React.PropsWithChildren) => <>{children}</>;
   const button = ({ children, variant: _variant, size: _size, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement> & {
     variant?: string; size?: string;
@@ -102,6 +114,21 @@ async function compileUi(controls: {
       previewWorkspaceOperationBatch: async (ids: string[]) => {
         controls.batchPreviews?.push(ids);
         return controls.previewBatch?.();
+      },
+      startWorkspaceOperationCheck: async (ids: string[]) => {
+        controls.batchPreviews?.push(ids);
+        const check: WorkspaceOperationCheckPublic = { checkId: `check-${++nextCheck}`, workspaceId, reviewIds: ids,
+          status: 'queued', batchId: null, errorCode: null, createdAt: 1, updatedAt: 1 };
+        checks.set(check.checkId, check);
+        return check;
+      },
+      readWorkspaceOperationCheck: async (id: string) => {
+        controls.checkReads?.push(id);
+        const check = checks.get(id) ?? controls.savedCheck!;
+        if (controls.readCheck) return controls.readCheck(check);
+        const value = controls.previewBatch?.() ?? controls.currentBatch?.() ?? batchPreview();
+        return { check: { ...check, status: value.status === 'blocked' ? 'blocked' : 'ready', batchId: value.batchId },
+          batch: { ...value, reviewIds: check.reviewIds } };
       },
       acceptWorkspaceOperationBatch: async (input: { batchId: string; planId: string; workspaceId: string }) => {
         controls.batchAccepts?.push(input);
@@ -136,13 +163,24 @@ async function compileUi(controls: {
     './WorkspaceOperationBackupPanel': {
       WorkspaceOperationBackupPanel: () => <section data-testid="workspace-operation-backups" />,
     },
-    '@/app/store/file-store': { useFileStore: { getState: () => ({ refreshVisibleTree: async () => undefined }) } },
+    '@/app/lib/collaboration/opened-document-registry': {
+      openedDocumentAuthScope: () => authScope,
+      subscribeOpenedDocumentAuthInvalidation: (listener: () => void) => { authListeners.push(listener); return () => undefined; },
+    },
+    '@/app/store/editor-store': { useEditorStore: { subscribe: (listener: typeof editorListeners[number]) => { editorListeners.push(listener); return () => undefined; } } },
+    '@/app/store/workspace-store': { useWorkspaceStore: { getState: () => ({ activeWorkspaceId: workspaceId }) } },
+    '@/app/lib/file-watcher/client': { getFileWatcherClient: () => ({ addEventListener: () => undefined }) },
+    './workspaceOperationDocumentNavigation': {
+      openWorkspaceOperationSourceDocument: async (path: string, workspaceId: string) => { controls.documentOpens?.push({ path, workspaceId }); },
+    },
+    '@/app/store/file-store': { useFileStore: { getState: () => ({ refreshVisibleTree: async () => undefined }), subscribe: () => () => undefined } },
     '@/app/store/workspace-operation-review-store': {
       closeWorkspaceOperationReview: () => { controls.closes = (controls.closes ?? 0) + 1; },
       openWorkspaceOperationReview: (id: string) => controls.opens.push(id),
       openWorkspaceOperationReviewList: (workspaceId: string) => controls.openList?.(workspaceId),
     },
   };
+  controls.changeDocument = () => editorListeners.forEach((listener) => listener({ activePath: 'Docs/index.md', draft: 'edited' }, { activePath: 'Docs/index.md', draft: 'before' }));
   const batchFilename = path.resolve('app/components/file-version-center/WorkspaceOperationBatchDetails.tsx');
   const batchSource = ts.transpileModule(await fs.readFile(batchFilename, 'utf8'), {
     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS,
@@ -154,10 +192,19 @@ async function compileUi(controls: {
     { exports: batchExports }, batchExports,
   );
   mocks['./WorkspaceOperationBatchDetails'] = batchExports;
+  for (const component of ['workspaceOperationCheckController', 'WorkspaceOperationCheckDetails']) {
+    const content = ts.transpileModule(await fs.readFile(path.resolve(`app/components/file-version-center/${component}.${component.endsWith('Controller') ? 'ts' : 'tsx'}`), 'utf8'), {
+      compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX, esModuleInterop: true },
+    }).outputText;
+    const componentExports = {};
+    new Function('require', 'module', 'exports', content)((name: string) => Object.hasOwn(mocks, name) ? mocks[name] : load(name), { exports: componentExports }, componentExports);
+    mocks[`./${component}`] = componentExports;
+  }
   new Function('require', 'module', 'exports', source)(
     (name: string) => Object.hasOwn(mocks, name) ? mocks[name] : load(name),
     { exports }, exports,
   );
+  exports.disposeChecks = () => authListeners.forEach((listener) => listener());
   return exports;
 }
 
@@ -307,6 +354,7 @@ test('workspace operation review shows all decisions against the displayed plan 
     assert.equal(findButton(translate('dismiss')), undefined, 'dismissed review cannot be decided again');
   } finally {
     await act(async () => root.unmount());
+    ui.disposeChecks();
     dom.window.close();
     globalNames.forEach((name, index) => {
       if (prior[index]) Object.defineProperty(globalThis, name, prior[index]);
@@ -382,6 +430,7 @@ test('selected reviews require a combined preview, show exact scope, and reopen 
     await act(async () => root.render(<ui.WorkspaceOperationReviewPanel request={{ mode: 'list', workspaceId }} />));
     const previewButton = document.querySelector<HTMLButtonElement>('[data-testid="workspace-operation-batch-preview"]')!;
     assert.equal(previewButton.disabled, true, 'a selection is required');
+    assert.equal(document.querySelector<HTMLDetailsElement>('[data-testid="workspace-operation-selection"]')?.open, true, 'initial selection is expanded');
     assert.equal(document.querySelector('[data-testid="workspace-operation-review-select-closed-review"]'), null,
       'closed reviews cannot join a fresh action group');
     await act(async () => document.querySelector<HTMLInputElement>('[data-testid="workspace-operation-review-select-all"]')!.click());
@@ -389,8 +438,16 @@ test('selected reviews require a combined preview, show exact scope, and reopen 
     assert.equal(document.querySelector<HTMLInputElement>('[data-testid="workspace-operation-review-select-review-delete"]')!.checked, true,
       'stale proposals can be selected for a freshly rebuilt preview');
     await act(async () => previewButton.click());
-    assert.deepEqual(controls.batchPreviews, [[reviewId, 'review-delete']]);
+    assert.deepEqual(controls.batchPreviews, [['review-delete', reviewId]]);
     assert.deepEqual(controls.batchAccepts, [], 'creating the combined preview never starts execution');
+    const selection = document.querySelector<HTMLDetailsElement>('[data-testid="workspace-operation-selection"]')!;
+    const batchDetails = document.querySelector('[data-testid="workspace-operation-batch-details"]')!;
+    assert.equal(selection.open, false, 'selection folds after the exact preview is ready');
+    assert.equal(document.querySelector('[data-testid="workspace-operation-check-paths"]'), null, 'ready batch paths replace the quick checking paths instead of duplicating them');
+    assert.ok(batchDetails.compareDocumentPosition(selection) & dom.window.Node.DOCUMENT_POSITION_FOLLOWING, 'the concrete plan precedes selection rows');
+    assert.equal(document.querySelector<HTMLDetailsElement>('[data-testid="workspace-operation-backup-details"]')?.open, false, 'backups stay accessible without delaying the decision');
+    assert.equal(document.querySelector('[data-testid="workspace-operation-batch-preview"]'), null, 'a matching checked plan has one approval action');
+    assert.ok(document.querySelector('[data-testid="workspace-operation-batch-accept"]'));
     assert.match(document.querySelector('[data-testid="workspace-operation-batch-status"]')?.textContent ?? '', /Actions: 2 · Files: 3 · Folders: 1 · Link changes: 2/u);
     assert.equal(document.querySelector<HTMLDetailsElement>('[data-testid="workspace-operation-path-children"]')?.open, false);
     assert.equal(document.querySelectorAll('[data-testid="workspace-operation-batch-links"] .divide-y').length, 1,
@@ -416,6 +473,7 @@ test('selected reviews require a combined preview, show exact scope, and reopen 
     assert.deepEqual(controls.decisions, [], 'batch selection does not issue separate single-review approvals');
   } finally {
     await act(async () => root.unmount());
+    ui.disposeChecks();
     dom.window.close();
     globalNames.forEach((name, index) => {
       if (prior[index]) Object.defineProperty(globalThis, name, prior[index]);
@@ -438,7 +496,7 @@ test('refresh creates a successor review and blocked combined plans expose pendi
   blockedBatch.preview.issues = [{ code: 'pending-content-changes', path: 'Docs/index.md', detail: 'A content decision is pending.' }];
   const controls: Parameters<typeof compileUi>[0] = {
     reads: [], decisions: [], opens: [], undoChecks: [], undoCalls: [],
-    current: () => review('stale'), decide: async () => review(), refreshCalls: [], refreshed: () => successor,
+    current: () => ({ ...review('stale'), kind: 'copy' }), decide: async () => review(), refreshCalls: [], refreshed: () => successor,
     batchPreviews: [], previewBatch: () => blockedBatch,
   };
   const ui = await compileUi(controls);
@@ -460,6 +518,7 @@ test('refresh creates a successor review and blocked combined plans expose pendi
     assert.deepEqual(controls.decisions, []);
   } finally {
     await act(async () => root.unmount());
+    ui.disposeChecks();
     dom.window.close();
     globalNames.forEach((name, index) => {
       if (prior[index]) Object.defineProperty(globalThis, name, prior[index]);
@@ -501,6 +560,7 @@ test('back from an automatically refreshed single action opens the list without 
     assert.deepEqual(controls.batchPreviews, [[reviewId]], 'Back never recreates the same detail batch');
   } finally {
     await act(async () => root.unmount());
+    ui.disposeChecks();
     dom.window.close();
     globalNames.forEach((name, index) => {
       if (prior[index]) Object.defineProperty(globalThis, name, prior[index]);
@@ -545,6 +605,181 @@ test('failed action retries the exact approved durable job without creating or a
     assert.equal(document.querySelector('[data-testid="workspace-operation-batch-resume"]'), null);
   } finally {
     await act(async () => root.unmount());
+    ui.disposeChecks();
+    dom.window.close();
+    for (const [name, descriptor] of prior) {
+      if (descriptor) Object.defineProperty(globalThis, name, descriptor);
+      else Reflect.deleteProperty(globalThis, name);
+    }
+  }
+});
+
+test('background checks keep roots visible, survive close and reopen, and require a fresh check after editing', async () => {
+  const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', { url: 'https://canvas.test' });
+  const globals = { window: dom.window, document: dom.window.document, HTMLElement: dom.window.HTMLElement,
+    CustomEvent: dom.window.CustomEvent, IS_REACT_ACT_ENVIRONMENT: true };
+  const prior = new Map(Object.keys(globals).map((name) => [name, Object.getOwnPropertyDescriptor(globalThis, name)]));
+  for (const [name, value] of Object.entries(globals)) Object.defineProperty(globalThis, name, { configurable: true, value });
+  let mode: 'waiting' | 'ready' | 'blocked' | 'failed' = 'waiting';
+  let finish!: (response: WorkspaceOperationCheckResponse) => void;
+  let waitingCheck!: WorkspaceOperationCheckPublic;
+  const checked = batchPreview();
+  checked.reviewIds = [reviewId];
+  checked.preview.linkAssessment.restoredLinks = [{ sourcePath: 'README.md', targetLiteral: './Archive/Docs/target.md', targetPath: 'Archive/Docs/target.md' }];
+  checked.preview.linkAssessment.warnings = [{ sourcePath: 'Unrelated.md', targetLiteral: 'Still missing', status: 'missing', reason: 'unaffected-existing-link' }];
+  const controls: Parameters<typeof compileUi>[0] = {
+    reads: [], decisions: [], opens: [], undoChecks: [], undoCalls: [],
+    current: () => review(), decide: async () => review(), batchPreviews: [], batchAccepts: [], checkReads: [], documentOpens: [],
+    readCheck: async (check) => {
+      if (mode === 'waiting') { waitingCheck = check; return new Promise((resolve) => { finish = resolve; }); }
+      if (mode === 'failed') return { check: { ...check, status: 'failed', errorCode: 'CHECK_FAILED' } };
+      const batch = structuredClone(checked);
+      batch.planId = `fresh-plan-${check.checkId}`;
+      batch.preview.planId = batch.planId;
+      if (mode === 'blocked') {
+        batch.status = 'blocked'; batch.preview.readiness = 'blocked';
+        batch.preview.linkAssessment.blockers = [{ workspaceId, sourcePath: 'Docs/index.md', targetLiteral: 'Ambiguous link', status: 'ambiguous', reason: 'affected-unresolved-link' }];
+      }
+      return { check: { ...check, status: mode, batchId: batch.batchId }, batch };
+    },
+    acceptBatch: () => ({ ...checked, status: 'queued' }), currentBatch: () => ({ ...checked, status: 'applied' }),
+  };
+  const ui = await compileUi(controls);
+  const { createRoot } = await import('react-dom/client');
+  let root = createRoot(document.getElementById('root')!);
+  try {
+    await act(async () => root.render(<ui.WorkspaceOperationReviewPanel request={{ mode: 'detail', reviewId, workspaceId }} />));
+    assert.equal(document.querySelector('[data-testid="workspace-operation-check-status"]')?.getAttribute('data-status'), 'queued');
+    assert.match(document.querySelector('[data-testid="workspace-operation-check-paths"]')?.textContent ?? '', /Docs\/target\.md → Archive\/target\.md/u);
+    assert.equal(document.querySelector('[data-testid="workspace-operation-batch-accept"]'), null, 'no approval while the scan is outstanding');
+    assert.doesNotMatch(document.body.textContent ?? '', /Loading file actions/u, 'the outstanding full scan does not keep the detail loading screen');
+    await act(async () => root.render(<ui.WorkspaceOperationReviewPanel request={{ mode: 'detail', reviewId, workspaceId }} />));
+    assert.equal(controls.batchPreviews?.length, 1, 'rerender reuses the same running check');
+    await act(async () => root.unmount());
+    mode = 'ready';
+    finish({ check: { ...waitingCheck, status: 'ready', batchId: checked.batchId }, batch: checked });
+    await Promise.resolve();
+    root = createRoot(document.getElementById('root')!);
+    await act(async () => root.render(<ui.WorkspaceOperationReviewPanel request={{ mode: 'detail', reviewId, workspaceId }} />));
+    assert.equal(controls.batchPreviews?.length, 1, 'closing and reopening does not create another job');
+    assert.equal(document.querySelector('[data-testid="workspace-operation-check-status"]')?.getAttribute('data-check-id'), 'check-1');
+    assert.ok(document.querySelector('[data-testid="workspace-operation-batch-accept"]'));
+    assert.match(document.querySelector('[data-testid="workspace-operation-restored-links"]')?.textContent ?? '', /Link works after move \(1\)/u);
+    assert.equal(document.querySelector<HTMLDetailsElement>('[data-testid="workspace-operation-technical-details"]')?.open, false);
+    await act(async () => controls.changeDocument?.());
+    assert.equal(document.querySelector('[data-testid="workspace-operation-check-status"]')?.getAttribute('data-status'), 'stale');
+    assert.equal(document.querySelector('[data-testid="workspace-operation-batch-accept"]'), null, 'editing invalidates the displayed approval');
+    mode = 'blocked';
+    await act(async () => document.querySelector<HTMLButtonElement>('[data-testid="workspace-operation-check-again"]')!.click());
+    assert.equal(controls.batchPreviews?.length, 2, 'explicit check again creates a fresh background check');
+    assert.equal(document.querySelectorAll('[data-testid="workspace-operation-link-blockers"]').length, 1);
+    assert.match(document.querySelector('[data-testid="workspace-operation-link-blockers"]')?.textContent ?? '', /Ambiguous link/u);
+    await act(async () => document.querySelector<HTMLButtonElement>('[data-testid="workspace-operation-blocker-open-0"]')!.click());
+    assert.deepEqual(controls.documentOpens, [{ path: 'Docs/index.md', workspaceId }]);
+    mode = 'failed';
+    await act(async () => document.querySelector<HTMLButtonElement>('[data-testid="workspace-operation-check-again"]')!.click());
+    assert.equal(document.querySelector('[data-testid="workspace-operation-check-status"]')?.getAttribute('data-status'), 'failed');
+    assert.equal(document.querySelector('[data-testid="workspace-operation-batch-accept"]'), null);
+    mode = 'ready';
+    await act(async () => document.querySelector<HTMLButtonElement>('[data-testid="workspace-operation-check-again"]')!.click());
+    await act(async () => document.querySelector<HTMLButtonElement>('[data-testid="workspace-operation-batch-accept"]')!.click());
+    assert.deepEqual(controls.batchAccepts, [{ batchId: checked.batchId, workspaceId, planId: 'fresh-plan-check-4' }], 'only the newly checked immutable plan is approved');
+  } finally {
+    await act(async () => root.unmount());
+    ui.disposeChecks();
+    dom.window.close();
+    for (const [name, descriptor] of prior) {
+      if (descriptor) Object.defineProperty(globalThis, name, descriptor);
+      else Reflect.deleteProperty(globalThis, name);
+    }
+  }
+});
+
+test('bulk selection stays interactive while checks run and changes cannot approve another selection', async () => {
+  const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', { url: 'https://canvas.test' });
+  const globals = { window: dom.window, document: dom.window.document, HTMLElement: dom.window.HTMLElement,
+    CustomEvent: dom.window.CustomEvent, IS_REACT_ACT_ENVIRONMENT: true };
+  const prior = new Map(Object.keys(globals).map((name) => [name, Object.getOwnPropertyDescriptor(globalThis, name)]));
+  for (const [name, value] of Object.entries(globals)) Object.defineProperty(globalThis, name, { configurable: true, value });
+  const controls: Parameters<typeof compileUi>[0] = {
+    reads: [], decisions: [], opens: [], undoChecks: [], undoCalls: [], current: () => review(), decide: async () => review(),
+    batchPreviews: [], readCheck: async (check) => ({ check: { ...check, status: 'checking' } }),
+  };
+  const ui = await compileUi(controls);
+  const { createRoot } = await import('react-dom/client');
+  const root = createRoot(document.getElementById('root')!);
+  try {
+    await act(async () => root.render(<ui.WorkspaceOperationReviewPanel request={{ mode: 'list', workspaceId }} />));
+    await act(async () => document.querySelector<HTMLInputElement>('[data-testid="workspace-operation-review-select-all"]')!.click());
+    await act(async () => document.querySelector<HTMLButtonElement>('[data-testid="workspace-operation-batch-preview"]')!.click());
+    assert.equal(document.querySelector('[data-testid="workspace-operation-check-status"]')?.getAttribute('data-status'), 'checking');
+    assert.ok(document.querySelector('[data-testid="workspace-operation-check-paths"]'), 'quick selected roots stay visible while checking');
+    const selection = document.querySelector<HTMLDetailsElement>('[data-testid="workspace-operation-selection"]')!;
+    assert.equal(selection.open, false, 'the checking state comes before collapsed selection');
+    assert.equal(document.querySelector('[data-testid="workspace-operation-batch-preview"]'), null, 'an unchanged selection does not create another checking job');
+    await act(async () => document.querySelector<HTMLElement>('[data-testid="workspace-operation-selection-summary"]')!.click());
+    assert.equal(selection.open, true, 'native selection disclosure remains accessible during checking');
+    const selected = document.querySelector<HTMLInputElement>(`[data-testid="workspace-operation-review-select-${reviewId}"]`)!;
+    assert.equal(selected.disabled, false);
+    await act(async () => selected.click());
+    assert.equal(selected.checked, false, 'selection remains responsive while the full scan runs');
+    assert.ok(document.querySelector('[data-testid="workspace-operation-batch-preview"]'), 'a changed selection can request its own new check');
+    assert.equal(document.querySelector('[data-testid="workspace-operation-check-status"]')?.getAttribute('data-status'), 'stale');
+    assert.equal(document.querySelector('[data-testid="workspace-operation-batch-accept"]'), null);
+    await act(async () => document.querySelector<HTMLButtonElement>('[data-testid="workspace-operation-check-again"]')!.click());
+    assert.deepEqual(controls.batchPreviews, [['review-blocked', reviewId].sort(), ['review-blocked']], 'new check is scoped to the newly selected review IDs');
+  } finally {
+    await act(async () => root.unmount());
+    ui.disposeChecks();
+    dom.window.close();
+    for (const [name, descriptor] of prior) {
+      if (descriptor) Object.defineProperty(globalThis, name, descriptor);
+      else Reflect.deleteProperty(globalThis, name);
+    }
+  }
+});
+
+test('session storage rehydrates a scoped running check through GET and never trusts a prior user receipt', async () => {
+  const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', { url: 'https://canvas.test' });
+  const globals = { window: dom.window, document: dom.window.document, HTMLElement: dom.window.HTMLElement,
+    CustomEvent: dom.window.CustomEvent, IS_REACT_ACT_ENVIRONMENT: true };
+  const prior = new Map(Object.keys(globals).map((name) => [name, Object.getOwnPropertyDescriptor(globalThis, name)]));
+  for (const [name, value] of Object.entries(globals)) Object.defineProperty(globalThis, name, { configurable: true, value });
+  const saved: WorkspaceOperationCheckPublic = { checkId: 'persisted-check', workspaceId, reviewIds: [reviewId], status: 'checking', batchId: null, errorCode: null, createdAt: 1, updatedAt: 1 };
+  const storageKey = `canvas:operation-check:${JSON.stringify(['user-one', 'session-one', workspaceId, [reviewId]])}`;
+  window.sessionStorage.setItem(storageKey, saved.checkId);
+  let respond!: (value: WorkspaceOperationCheckResponse) => void;
+  const controls: Parameters<typeof compileUi>[0] = {
+    reads: [], decisions: [], opens: [], undoChecks: [], undoCalls: [], current: () => review(), decide: async () => review(),
+    savedCheck: saved, batchPreviews: [], checkReads: [], readCheck: () => new Promise((resolve) => { respond = resolve; }),
+  };
+  let ui = await compileUi(controls);
+  const { createRoot } = await import('react-dom/client');
+  let root = createRoot(document.getElementById('root')!);
+  try {
+    await act(async () => root.render(<ui.WorkspaceOperationReviewPanel request={{ mode: 'detail', reviewId, workspaceId }} />));
+    assert.deepEqual(controls.batchPreviews, [], 'reload uses GET for the saved ID rather than starting another scan');
+    assert.deepEqual(controls.checkReads, [saved.checkId]);
+    assert.equal(document.querySelector('[data-testid="workspace-operation-batch-accept"]'), null, 'local storage cannot grant approval before server validation');
+    const ready = batchPreview();
+    ready.reviewIds = [reviewId];
+    await act(async () => respond({ check: { ...saved, status: 'ready', batchId: ready.batchId }, batch: ready }));
+    assert.equal(document.querySelector('[data-testid="workspace-operation-check-status"]')?.getAttribute('data-check-id'), saved.checkId);
+    assert.ok(document.querySelector('[data-testid="workspace-operation-batch-accept"]'));
+    await act(async () => root.unmount());
+    ui.disposeChecks();
+    controls.authScope = { userId: 'user-two', sessionId: 'session-two', epoch: 2 };
+    controls.batchPreviews = []; controls.checkReads = [];
+    controls.readCheck = async (check) => ({ check: { ...check, status: 'checking' } });
+    ui = await compileUi(controls);
+    root = createRoot(document.getElementById('root')!);
+    await act(async () => root.render(<ui.WorkspaceOperationReviewPanel request={{ mode: 'detail', reviewId, workspaceId }} />));
+    assert.deepEqual(controls.batchPreviews, [[reviewId]], 'another user/session cannot reuse the saved receipt');
+    assert.ok(!controls.checkReads.includes(saved.checkId));
+    assert.equal(document.querySelector('[data-testid="workspace-operation-batch-accept"]'), null);
+  } finally {
+    await act(async () => root.unmount());
+    ui.disposeChecks();
     dom.window.close();
     for (const [name, descriptor] of prior) {
       if (descriptor) Object.defineProperty(globalThis, name, descriptor);

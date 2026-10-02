@@ -55,3 +55,44 @@ test('batch client binds preview, approval, refresh and status to the requested 
     globalThis.fetch = originalFetch;
   }
 });
+
+test('background check client validates identity, selection and immutable batch before allowing approval', async () => {
+  const client = await loadClient();
+  const originalFetch = globalThis.fetch;
+  const requests: Array<{ url: string; body: unknown; signal?: AbortSignal | null; workspaceId: string | null }> = [];
+  const check = { checkId: 'check/one', workspaceId: 'workspace-one', reviewIds: ['review-one'], status: 'queued', batchId: null, errorCode: null, createdAt: 1, updatedAt: 1 };
+  let responseBody: object = { check };
+  let status = 202;
+  globalThis.fetch = async (input, init) => {
+    requests.push({ url: String(input), body: typeof init?.body === 'string' ? JSON.parse(init.body) : null,
+      signal: init?.signal, workspaceId: new Headers(init?.headers).get('x-canvas-workspace-id') });
+    assert.equal(init?.credentials, 'include');
+    return Response.json(responseBody, { status });
+  };
+  try {
+    await client.startWorkspaceOperationCheck(['review-one'], 'workspace-one');
+    assert.equal(requests[0].url, '/api/files/operation-reviews/checks');
+    assert.deepEqual(requests[0].body, { reviewIds: ['review-one'] });
+    assert.equal(requests[0].workspaceId, 'workspace-one');
+    status = 200;
+    const controller = new AbortController();
+    await client.readWorkspaceOperationCheck('check/one', 'workspace-one', controller.signal);
+    assert.equal(requests[1].url, '/api/files/operation-reviews/checks/check%2Fone');
+    assert.equal(requests[1].signal, controller.signal);
+    responseBody = { check: { ...check, workspaceId: 'other' } };
+    await assert.rejects(client.readWorkspaceOperationCheck('check/one', 'workspace-one'), /passt nicht zur Anfrage/u);
+    responseBody = { check: { ...check, checkId: 'different-check' } };
+    await assert.rejects(client.readWorkspaceOperationCheck('check/one', 'workspace-one'), /passt nicht zur Anfrage/u);
+    responseBody = { check: { ...check, reviewIds: ['other-review'] } };
+    await assert.rejects(client.startWorkspaceOperationCheck(['review-one'], 'workspace-one'), /passt nicht zur Anfrage/u);
+    responseBody = { check: { ...check, status: 'ready', batchId: 'checked-batch' } };
+    await assert.rejects(client.readWorkspaceOperationCheck('check/one', 'workspace-one'), /Vorschau fehlt/u);
+    const ready = { ...check, status: 'ready', batchId: 'checked-batch' };
+    responseBody = { check: ready, batch: { batchId: 'different-batch', workspaceId: 'workspace-one', reviewIds: ['review-one'], preview: {} } };
+    await assert.rejects(client.readWorkspaceOperationCheck('check/one', 'workspace-one'), /passt nicht zur Anfrage/u);
+    responseBody = { check: ready, batch: { batchId: 'checked-batch', workspaceId: 'workspace-one', reviewIds: ['unapproved-review'], preview: {} } };
+    await assert.rejects(client.readWorkspaceOperationCheck('check/one', 'workspace-one'), /passt nicht zur Anfrage/u);
+    responseBody = { check: ready, batch: { batchId: 'checked-batch', workspaceId: 'workspace-one', reviewIds: ['review-one'], planId: 'immutable-current-plan', preview: { planId: 'immutable-current-plan' } } };
+    assert.equal((await client.readWorkspaceOperationCheck('check/one', 'workspace-one')).batch?.preview.planId, 'immutable-current-plan');
+  } finally { globalThis.fetch = originalFetch; }
+});

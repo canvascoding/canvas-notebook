@@ -1,9 +1,12 @@
 'use client';
 
 import { useTranslations } from 'next-intl';
+import { Button } from '@/components/ui/button';
 import type { WorkspaceOperationBatchPublic } from '@/app/lib/files/workspace-operation-batch-public';
 
-export function WorkspaceOperationBatchDetails({ batch }: { batch: WorkspaceOperationBatchPublic }) {
+export function WorkspaceOperationBatchDetails({ batch, onOpenDocument }: {
+  batch: WorkspaceOperationBatchPublic; onOpenDocument?: (path: string, workspaceId: string) => void;
+}) {
   const t = useTranslations('workspaceOperationReview');
   const preview = batch.preview;
   const running = batch.status === 'queued' || batch.status === 'applying';
@@ -46,6 +49,15 @@ export function WorkspaceOperationBatchDetails({ batch }: { batch: WorkspaceOper
         }))}
       </div>
     </section>
+
+    {preview.linkAssessment.restoredLinks?.length ? <section className="space-y-2 rounded-lg border border-emerald-500/35 bg-emerald-500/[0.05] p-3 text-sm"
+      data-testid="workspace-operation-restored-links">
+      <h3 className="font-semibold">{t('restoredLinks', { count: preview.linkAssessment.restoredLinks.length })}</h3>
+      <ul className="space-y-2 text-xs">{preview.linkAssessment.restoredLinks.map((link, index) => <li key={`${link.sourcePath}:${index}`} className="break-all">
+        <p className="font-mono">{link.sourcePathAfter ?? link.sourcePath}</p>
+        <p>{link.targetLiteral} → {link.targetPath}</p>
+      </li>)}</ul>
+    </section> : null}
     <section aria-label={t('linkChanges')} data-testid="workspace-operation-batch-links">
       <h3 className="mb-2 text-sm font-semibold">{t('linkChanges')} ({preview.linkEdits.length})</h3>
       {linksBySource.size > 0 ? <div className="space-y-3">
@@ -106,6 +118,8 @@ export function WorkspaceOperationBatchDetails({ batch }: { batch: WorkspaceOper
         {preview.linkAssessment.blockers.map((item, index) => <li key={`${item.sourcePath}:${index}`} className="space-y-1">
           <p className="break-all font-mono">{item.sourcePath}{item.targetLiteral ? ` → ${item.targetLiteral}` : ''}</p>
           <p className="text-muted-foreground">{t(`linkBlocker_${item.reason}`)}</p>
+          {onOpenDocument ? <Button size="sm" variant="outline" data-testid={`workspace-operation-blocker-open-${index}`}
+            onClick={() => onOpenDocument(item.sourcePath, item.workspaceId ?? batch.workspaceId)}>{t('openDocument')}</Button> : null}
         </li>)}
       </ul>
     </section> : null}
