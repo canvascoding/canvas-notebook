@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-import { parseFileVersionTimelineRequestV1 } from '@/app/lib/file-version-center/contracts/v1';
+import { FILE_VERSION_HISTORY_PROVENANCE_HEADER_V1, parseFileVersionTimelineRequestV1 } from '@/app/lib/file-version-center/contracts/v1';
 import { observeFileVersionCenter } from '@/app/lib/file-version-center/observability';
 import { FILE_VERSION_CENTER_RATE_LIMITS_V1 } from '@/app/lib/file-version-center/policy-v1';
 import { fileVersionCenterQueryService } from '@/app/lib/file-version-center/query-service';
@@ -35,6 +35,7 @@ export async function POST(request: NextRequest) {
     });
     if (limited) return limited;
     const timeline = await fileVersionCenterQueryService.timeline({
+      includeHistoryProvenance: request.headers.get(FILE_VERSION_HISTORY_PROVENANCE_HEADER_V1) === '1',
       target: body.target,
       access: authorization.access,
       workspace: authorization.workspace,

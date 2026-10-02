@@ -3,6 +3,7 @@ import { test } from './helpers/document-review-experimental';
 import { createHash, randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
+import type { FileVersionTimelineEntryV1 } from '../app/lib/file-version-center/contracts/v1';
 
 import { withOrdinaryAgentDocument } from './helpers/ordinary-agent-document';
 import { runOrdinaryAgentTool } from './helpers/ordinary-agent-tool';
@@ -12,7 +13,7 @@ test('review off writes an existing Markdown document to Yjs and the file before
   test.setTimeout(120_000);
   const initial = '# Plan\n\nEins\n\nZwei\n';
   const updated = '# Plan\n\nEins geändert\n\nZwei\n';
-  await withOrdinaryAgentDocument(browser, initial, async ({ filePath, agentContext, content, revisionCount, page }) => {
+  await withOrdinaryAgentDocument(browser, initial, async ({ filePath, agentContext, content, revisionCount, page, context, target }) => {
     await expect(page.locator('[data-file-review-policy]').getByRole('switch')).not.toBeChecked();
     const before = await revisionCount();
     const read = await runOrdinaryAgentTool({ toolName: 'read', toolCallId: `ordinary-direct-write-${randomUUID()}`,
@@ -43,6 +44,26 @@ test('review off writes an existing Markdown document to Yjs and the file before
     expect(noOp.isError).not.toBe(true);
     expect(await readFile(fullPath, 'utf8')).toBe(updated);
     expect(await revisionCount()).toBe(before + 1);
+    const timelineResponse = await context.request.post('/api/files/version-center/v1/resolve', {
+      headers: { 'x-canvas-workspace-id': target.workspaceId, 'x-canvas-version-history-provenance': '1' },
+      data: { contractVersion: 1, target, initialView: 'history', source: 'deep_link' },
+    });
+    expect(timelineResponse.status()).toBe(200);
+    const { entries } = await timelineResponse.json() as { entries: FileVersionTimelineEntryV1[] };
+    const current = entries.find(entry => entry.kind === 'current');
+    const saved = entries.filter((entry): entry is Extract<FileVersionTimelineEntryV1, { kind: 'revision' }> =>
+      entry.kind === 'revision').sort((a, b) => b.revisionNumber - a.revisionNumber)[0];
+    expect(current?.kind).toBe('current');
+    if (current?.kind !== 'current' || !saved) throw new Error('The owned document needs a current and saved version.');
+    expect(current.displayRevisionId).toBe(saved.revisionId);
+    expect(current.revisionId, 'The physical write fence remains distinct from immutable agent history.').not.toBe(saved.revisionId);
+    expect(saved.content.sha256).toBe(written.details?.afterSha256);
+    expect(current.sha256).toBe(saved.content.sha256);
+    await page.getByRole('button', { name: /^(?:Version history|Versionshistorie)(?: \(view only\)| \(nur ansehen\))?$/iu }).click();
+    const center = page.getByTestId('file-version-center');
+    await expect(center).toBeVisible();
+    await expect(center.locator('button[data-entry-kind="current"]')).toContainText(`Version ${saved.revisionNumber}`);
+    await expect(center.locator('button[data-entry-kind="revision"]')).toHaveCount(before);
   }, { initialReviewRequired: false, bindToolSessionToFixture: true });
 });
 

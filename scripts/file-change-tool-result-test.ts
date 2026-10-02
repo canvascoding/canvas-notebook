@@ -97,13 +97,16 @@ async function main() {
     newlineStyle: 'lf', hasBom: false, degraded: false, status: 'active',
   } satisfies PersistedCollaborationState;
   let collaborationCaptures = 0;
+  let collaborationLoads = 0;
   const attach = createAgentFileToolAppSuccess({
     captureFile: async () => { captures += 1; return captured; },
-    captureCollaboration: async () => { collaborationCaptures += 1; return captured; },
+    captureCollaboration: async () => {
+      collaborationCaptures += 1; return captured;
+    },
     createGroup,
     getCollaborationState: async () => collaborationState,
     getExecutionContext: () => context,
-    loadCollaboration: async () => persisted,
+    loadCollaboration: async () => { collaborationLoads += 1; return persisted; },
     readFile: (filePath: string) => fs.readFile(filePath),
     visibleUiEnabled: () => true,
   });
@@ -162,8 +165,11 @@ async function main() {
       collaboration: { ...reviewResult.collaboration!, operationStatus: 'persisted_yjs', durability: 'persisted_yjs', reviewRequired: false },
     }, 'edit_file', 'edit-applied');
     requireWidget(appliedCollaboration);
-    assert.equal(appliedCollaboration.changeGroup?.entries[0]?.revisionId, 'revision-1');
-    assert.equal(collaborationCaptures, 1);
+    assert.equal(appliedCollaboration.changeGroup?.entries[0]?.operationId, 'operation-1');
+    assert.equal(appliedCollaboration.changeGroup?.entries[0]?.documentId, 'document-1');
+    assert.equal(appliedCollaboration.changeGroup?.entries[0]?.revisionId, undefined);
+    assert.equal(collaborationCaptures, 0, 'the durable operation supplies its existing version');
+    assert.equal(collaborationLoads, 0, 'a later room state must not supply content for an earlier operation');
 
     const largeResult = {
       content: [{ type: 'text' as const, text: `updated\n${'x'.repeat(80_000)}` }],

@@ -8,6 +8,7 @@ import * as decoding from 'lib0/decoding';
 import { WebSocketServer } from 'ws';
 import type { Doc as YDoc } from 'yjs';
 
+import { openDb } from '@/app/lib/db';
 import { collaborationUpdateStateProof } from '@/app/lib/collaboration/state-proof';
 import { COLLABORATION_FAILURE_CODES, isCollaborationStateQuarantined } from '@/app/lib/collaboration/failure';
 import { createCollaborationProjectionRuntime } from '@/app/lib/collaboration/projection-runtime';
@@ -145,6 +146,7 @@ type CollaborationContext = {
   versionSourceSessionId: string | null;
   agentTurnId?: string;
   exactOperationHistoryOwned: boolean;
+  operationHistoryOwnership?: Promise<boolean>;
   initiatedByUserId: string | null;
   operationId: string | null;
   observedDocumentSequence: number | null;
@@ -152,6 +154,54 @@ type CollaborationContext = {
   startupActivity?: ReturnType<typeof createCollaborationRoomStartupActivity>;
   stopAccessWatch?: () => void;
 };
+
+/** Only the stored standalone direct-apply path owns exact immutable bytes. */
+async function standaloneOperationHistoryOwned(
+  input: AgentDirectConnectionInput,
+  appliedTargetIds?: string[],
+): Promise<boolean> {
+  if (!input.actorSessionId || input.agentTurnId || input.mcpAuthority || (input.actorType ?? 'agent') !== 'agent') return false;
+  let connection: Awaited<ReturnType<typeof openDb>> | undefined;
+  try {
+    connection = await openDb();
+    await connection.run('BEGIN READ ONLY');
+    const row = await connection.get(`SELECT status,
+      (applied_at IS NOT NULL AND octet_length(resulting_state_snapshot)>0) AS has_state_snapshot,
+      (octet_length(version_content_snapshot)>0) AS has_version_snapshot, result_json
+      FROM collaboration_agent_operations
+      WHERE operation_id=$1 AND document_id=$2 AND workspace_id=$3
+        AND actor_id=$4 AND initiated_by_user_id=$5 AND actor_session_id=$6
+        AND document_path=$7 AND document_representation=$8
+        AND document_lifecycle_generation=$9 AND schema_version=$10
+        AND organization_id IS NOT DISTINCT FROM $11
+        AND requested_mode='direct_apply' AND operation_type='apply' AND agent_run_id IS NULL`,
+    [input.operationId, input.documentId, input.workspace.workspaceId, input.actorId,
+      input.initiatedByUserId, input.actorSessionId, input.documentPath, input.documentRepresentation,
+      input.documentLifecycleGeneration, input.documentSchemaVersion, input.workspace.organizationId ?? null]) as {
+        status: string; has_state_snapshot: boolean; has_version_snapshot: boolean; result_json: string | null;
+      } | undefined;
+    if (!appliedTargetIds) return row?.status === 'applying';
+    if (!row || !['applied_to_ydoc', 'persisted_yjs', 'checkpointed_file'].includes(row.status)
+      || row.has_state_snapshot !== true || row.has_version_snapshot !== true
+      || appliedTargetIds.length === 0 || appliedTargetIds.some(id => typeof id !== 'string' || !id)
+      || new Set(appliedTargetIds).size !== appliedTargetIds.length) return false;
+    const result = JSON.parse(row.result_json ?? '{}') as { appliedTargetIds?: unknown };
+    const committedTargetIds = result.appliedTargetIds;
+    return Array.isArray(committedTargetIds)
+      && committedTargetIds.every(id => typeof id === 'string' && id.length > 0)
+      && appliedTargetIds.every(id => committedTargetIds.includes(id));
+  } catch {
+    // Missing/unknown evidence retains ordinary capture; it never grants history ownership.
+    return false;
+  } finally {
+    if (connection) {
+      let discard: Error | undefined;
+      try { await connection.run('ROLLBACK'); }
+      catch (error) { discard = error instanceof Error ? error : new Error('Standalone history proof rollback failed.'); }
+      await connection.close(discard);
+    }
+  }
+}
 
 function normalizedPath(requestUrl?: string): string | null {
   const [requestPath, query = ''] = (requestUrl || '').split('?', 2);
@@ -849,9 +899,12 @@ export function createCollaborationServer(server: http.Server, options: {
           lastContext.claims,
           roomOwners?.fence(document),
         );
+        const exactOperationHistoryOwned = lastContext.exactOperationHistoryOwned
+          || (!state.incomingNeedsReconcile && state.persistenceDisposition !== 'unchanged'
+            && await lastContext.operationHistoryOwnership === true);
         if (state.persistenceDisposition !== 'unchanged'
           && !(lastContext.actorType === 'agent' && !state.incomingNeedsReconcile
-            && (lastContext.agentTurnId || lastContext.exactOperationHistoryOwned))) try {
+            && (lastContext.agentTurnId || exactOperationHistoryOwned))) try {
           await fileVersionHistoryService.capturePersistedCollaboration({
             workspace: lastContext.workspace,
             state,
@@ -1298,6 +1351,7 @@ export function createCollaborationServer(server: http.Server, options: {
       },
     ).finally(() => { admittedDirectCreates.delete(context); });
     let result: unknown;
+    let settleHistoryOwnership: ((owned: boolean) => void) | undefined;
     try {
       await withWorkspaceMutationLock(workspace.workspaceId, async () => {
         const document = connection.document;
@@ -1308,12 +1362,20 @@ export function createCollaborationServer(server: http.Server, options: {
           await assertDirectConnectionDocument(input, workspace);
           workspace = await resolveDirectConnectionWorkspace(input);
           context.workspace = workspace;
+          if (onApplied && await standaloneOperationHistoryOwned(input)) {
+            context.operationHistoryOwnership = new Promise<boolean>(resolve => { settleHistoryOwnership = resolve; });
+          }
           await connection.transact((liveDocument) => {
             assertRoomIdentity(liveDocument, context.claims);
             result = apply(liveDocument);
           });
           roomOwners?.fence(document);
           if (onApplied) await onApplied(result as never);
+          if (settleHistoryOwnership) {
+            const appliedTargetIds = result && typeof result === 'object' && 'appliedTargetIds' in result
+              && Array.isArray(result.appliedTargetIds) ? result.appliedTargetIds as string[] : [];
+            settleHistoryOwnership(await standaloneOperationHistoryOwned(input, appliedTargetIds));
+          }
           roomOwners?.fence(document);
           // Do not acquire this room lease in onStoreDocument: disconnect
           // awaits Hocuspocus's saveMutex, which a scheduled store may own.
@@ -1324,8 +1386,11 @@ export function createCollaborationServer(server: http.Server, options: {
         });
       });
     } catch (error) {
+      settleHistoryOwnership?.(false);
       await connection.disconnect({ unloadImmediately: true }).catch(() => undefined);
       throw error;
+    } finally {
+      settleHistoryOwnership?.(false);
     }
     return result as never;
   }));

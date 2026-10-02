@@ -6,6 +6,7 @@ import { WORKSPACE_ID_HEADER } from '@/app/lib/workspaces/constants';
 import { FileVersionCenterClientError } from './client';
 import {
   FILE_VERSION_CENTER_API_V1,
+  FILE_VERSION_HISTORY_PROVENANCE_HEADER_V1,
   parseFileVersionCenterErrorResponseV1,
   parseFileVersionTimelineResponseV1,
   type FileVersionTimelineRequestV1,
@@ -38,6 +39,7 @@ async function requestFileVersionTimelinePage(
       headers: {
         'Content-Type': 'application/json',
         [WORKSPACE_ID_HEADER]: request.target.workspaceId,
+        [FILE_VERSION_HISTORY_PROVENANCE_HEADER_V1]: '1',
       },
       body: JSON.stringify(request),
       signal,

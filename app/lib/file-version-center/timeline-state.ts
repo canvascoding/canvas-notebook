@@ -48,10 +48,11 @@ export function matchingCurrentRevision(
   entries: FileVersionTimelineEntryV1[],
 ): FileVersionTimelineGroups['revisions'][number] | null {
   const current = entries.find((entry) => entry.kind === 'current');
-  if (!current?.revisionId) return null;
+  const displayRevisionId = current?.displayRevisionId ?? current?.revisionId;
+  if (!current || !displayRevisionId) return null;
   return entries.find((entry): entry is FileVersionTimelineGroups['revisions'][number] => (
     entry.kind === 'revision'
-    && entry.revisionId === current.revisionId
+    && entry.revisionId === displayRevisionId
     && entry.content.availability === 'available'
     && entry.content.sha256 === current.sha256
     && entry.content.sizeBytes === current.sizeBytes

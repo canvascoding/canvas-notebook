@@ -2,6 +2,8 @@ import { Type, type Static, type TSchema } from 'typebox';
 import { Value } from 'typebox/value';
 
 export const FILE_VERSION_CENTER_CONTRACT_VERSION = 1 as const;
+/** Opt-in response extension; omitted by older clients and ignored by older servers. */
+export const FILE_VERSION_HISTORY_PROVENANCE_HEADER_V1 = 'x-canvas-version-history-provenance';
 
 /** Hard transport envelopes. Product retention and storage limits live in policy-v1. */
 export const FILE_VERSION_CENTER_CONTRACT_LIMITS = Object.freeze({
@@ -251,6 +253,9 @@ export const FileVersionTimelineEntrySchemaV1 = Type.Union([
     id: Type.Literal('current'),
     observedAt: IsoTimestampSchema,
     revisionId: NullableOpaqueIdSchema,
+    // A proven checkpoint owner supplies display provenance; revisionId stays
+    // the physical compare/restore fence.
+    displayRevisionId: Type.Optional(OpaqueIdSchema),
     stateVectorHash: Type.Optional(Type.String({ pattern: stateVectorHashPattern })),
     sha256: Sha256Schema,
     sizeBytes: Type.Integer({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER }),

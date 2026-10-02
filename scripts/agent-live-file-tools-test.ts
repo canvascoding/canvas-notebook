@@ -55,7 +55,9 @@ async function harness() {
     afterApply: null as (() => void) | null,
     afterLookup: null as (() => void) | null, audits: 0, lookups: 0,
     graphProbes: 0, graphFactoryCalls: 0,
-    idempotencyKeys: [] as Array<string | undefined>, prepared: [] as PreparedCollaborationTextEdit[] };
+    idempotencyKeys: [] as Array<string | undefined>, prepared: [] as PreparedCollaborationTextEdit[],
+    standaloneLinks: [] as Array<Parameters<typeof import('../app/lib/collaboration/agent-operations').linkStandaloneAgentCheckpoint>[0]>,
+    turnLinks: 0 };
   const receipts = new Map<string, { request: AgentFileEditRequestReceipt; operation: PersistedAgentApplyResult;
     identity: { path: string; representation: 'plain_text'; lifecycleGeneration: number; schemaVersion: number } }>();
   let preparedEdits: Parameters<typeof applyExactTextEdits>[1] = [];
@@ -110,8 +112,12 @@ async function harness() {
     },
     '@/app/lib/collaboration/checkpoint': checkpointStore,
     '@/app/lib/document-review-availability': { readDocumentReviewAvailability: () => ({ documentReviewEnabled: controls.reviewEnabled }) },
-    '@/app/lib/file-version-center/agent-turn-history': { agentTurnHistoryService: { linkCheckpoint: async () => undefined } },
+    '@/app/lib/file-version-center/agent-turn-history': { agentTurnHistoryService: { linkCheckpoint: async () => { controls.turnLinks++; } } },
     '@/app/lib/collaboration/agent-operations': {
+      linkStandaloneAgentCheckpoint: async (input: Parameters<typeof import('../app/lib/collaboration/agent-operations').linkStandaloneAgentCheckpoint>[0]) => {
+        controls.standaloneLinks.push(input);
+        return true;
+      },
       AgentFileEditOperationScopeError: OperationScopeError,
       AgentFileReviewDisabledConflictError: class extends Error {
         readonly code = 'DOCUMENT_REVIEW_DISABLED_CONFLICT';
@@ -210,6 +216,10 @@ async function harness() {
       '@/app/lib/files/revision-guard': { sha256Buffer: (buffer: Buffer) => operations.sha256Text(buffer.toString('utf8')) },
       './checkpoint': checkpointStore,
       './persistence': { loadCollaborationState: async () => controls.persistedPresent ? state : null },
+      './projection-repository': { loadCollaborationProjectionStatus: async () => ({
+        projectionFinalized: Boolean(latestRevision && metadata.snapshotRevisionId === latestRevision.id
+          && metadata.stateVersion === state.documentSequence),
+      }) },
     },
   );
   mocks['@/app/lib/collaboration/agent-file-checkpoint'] = checkpoint;
@@ -250,6 +260,33 @@ test('live read/edit/patch do not read or register a stale/unreadable Markdown p
         'the mutation is projected only through the confirmed checkpoint');
     } finally { await h.close(); }
   });
+});
+
+test('a standalone PI edit links only its confirmed checkpoint and keeps the turn path distinct', async () => {
+  const h = await harness();
+  try {
+    const params = { path: 'document.md', oldText: 'Live', newText: 'Edited',
+      expectedSha256: h.current().sha256, idempotencyKey: 'checkpoint-delivery' };
+    await h.operations.editAgentFile(params);
+    assert.equal(h.controls.standaloneLinks.length, 1);
+    const link = h.controls.standaloneLinks[0];
+    assert.equal(link.operationId, 'operation-1');
+    assert.equal(link.documentId, h.state.documentId);
+    assert.equal(link.workspace.workspaceId, h.context.workspaceId);
+    assert.equal(link.userId, h.context.userId);
+    assert.equal(link.actorSessionId, h.context.sessionId);
+    assert.deepEqual(link.checkpoint, { revisionId: `checkpoint-${h.state.documentSequence}`,
+      contentHash: h.current().sha256, sizeBytes: Buffer.byteLength(h.current().content),
+      documentSequence: h.state.documentSequence, lifecycleGeneration: h.state.lifecycleGeneration });
+    await h.operations.editAgentFile(params);
+    assert.equal(h.controls.executed, 1, 'receipt retry does not replay the mutation');
+    assert.deepEqual(h.controls.standaloneLinks[1], link, 'the retry links the same physical receipt');
+    assert.equal(h.controls.turnLinks, 0);
+    h.context.agentTurnId = 'turn-checkpoint';
+    await h.operations.editAgentFile(params);
+    assert.equal(h.controls.standaloneLinks.length, 2, 'a tracked turn keeps its existing grouping path');
+    assert.equal(h.controls.turnLinks, 1);
+  } finally { await h.close(); }
 });
 
 test('operation receipts preserve uncertain, partial and post-commit-read outcomes', async (t) => {

@@ -142,23 +142,10 @@ async function collaborationTarget(input: {
     outcome,
     ...countDiff(input.result.diff),
   };
-  if (outcome !== 'applied') return common;
-  // The durable operation and lineage navigate to current while the turn's
-  // single content version is still being assembled.
-  if (input.context.agentTurnId) return common;
-  const persisted = await input.dependencies.loadCollaboration(document.id);
-  if (!persisted || persisted.status !== 'active' || persisted.workspaceId !== input.context.workspaceId
-    || persisted.path !== input.pathHint || persisted.documentId !== document.id) return null;
-  const capture = await input.dependencies.captureCollaboration({
-    workspace: input.workspace,
-    state: persisted,
-    source: 'agent_apply',
-    actorUserId: input.context.userId,
-    actorType: 'agent',
-    sourceSessionId: input.context.sessionId,
-  });
-  const reference = captureReference(capture, input.result.afterSha256);
-  return reference ? { ...common, ...reference } : null;
+  // The durable operation resolves its immutable version, or navigates to
+  // current while turn history is assembling. A later room snapshot belongs
+  // to its later writer and must never be recaptured for this tool result.
+  return common;
 }
 
 async function durableEntry(

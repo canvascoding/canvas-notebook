@@ -13,6 +13,7 @@ import type {
   FileVersionTimelineResponseV1,
 } from '../app/lib/file-version-center/contracts/v1';
 import type { ProposalReviewSummaryResponseV1 } from '../app/lib/file-version-center/contracts/proposal-review-summary-v1';
+import { FILE_VERSION_HISTORY_PROVENANCE_HEADER_V1 } from '../app/lib/file-version-center/contracts/v1';
 import { observeOpenedDocumentAuth, openedDocumentAuthScope,
   invalidateOpenedDocumentAuth } from '../app/lib/collaboration/opened-document-registry';
 import { createDocumentReviewUiFixture } from './helpers/document-review-ui-fixture';
@@ -158,6 +159,11 @@ async function main() {
   let resolveAttempts = 0;
   globalThis.fetch = async (input, init) => {
     const url = String(input);
+    if (url.endsWith('/resolve') || url.endsWith('/timeline')) {
+      assert.equal(new Headers(init?.headers).get(FILE_VERSION_HISTORY_PROVENANCE_HEADER_V1), '1');
+      assert.equal(Object.hasOwn(JSON.parse(String(init?.body)), 'includeHistoryProvenance'), false,
+        'response negotiation leaves the strict legacy request body unchanged');
+    }
     if (url.endsWith('/proposals/summary')) return legacySummary(String(init?.body));
     if (url.endsWith('/timeline')) {
       timelineAttempts += 1;
@@ -566,6 +572,28 @@ async function main() {
     content: { ...revisionEntry.content, sha256: currentEntry.sha256, sizeBytes: currentEntry.sizeBytes },
   };
   const matchingTimeline = response([currentEntry, savedCurrent, revisionEntry], { hasMore: false, nextCursor: null });
+  const mappedHistory = { ...savedCurrent, id: 'history-current', revisionId: 'history-current', revisionNumber: 19 };
+  const mappedCurrent = { ...currentEntry, displayRevisionId: mappedHistory.revisionId };
+  const mappedTimeline = response([mappedCurrent, mappedHistory, revisionEntry], { hasMore: false, nextCursor: null });
+  assert.equal(matchingCurrentRevision(mappedTimeline.entries)?.revisionNumber, 19,
+    'a proven display reference selects the operation history without changing the physical CAS fence');
+  assert.equal(mappedCurrent.revisionId, 'revision-current');
+  assert.equal(matchingCurrentRevision([mappedCurrent, { ...mappedHistory, content: {
+    ...mappedHistory.content, sha256: 'c'.repeat(64),
+  } }]), null, 'the display reference also requires exact available hash and size');
+  assert.equal(matchingCurrentRevision([currentEntry, mappedHistory]), null,
+    'matching content alone never selects an unrelated history identity');
+  assert.equal(reconcileFileVersionTimelineSelection({ request: { ...request, selectedEntry: {
+    kind: 'revision', id: mappedHistory.id,
+  } }, timeline: mappedTimeline }).key, 'current', 'exact history deep links fold into Current');
+  await act(async () => cardRoot.render(<NextIntlClientProvider locale="en" timeZone="UTC" messages={messages}>
+    <FileVersionTimeline timeline={mappedTimeline}
+      selection={reconcileFileVersionTimelineSelection({ request: { ...request, selectedEntry: undefined }, timeline: mappedTimeline })}
+      onSelect={() => {}} onLoadMore={() => {}} loadingMore={false} loadMoreError={null} />
+  </NextIntlClientProvider>));
+  assert.match(document.querySelector('[data-entry-kind="current"]')?.textContent ?? '', /Version 19/u);
+  assert.deepEqual([...document.querySelectorAll('[data-entry-kind="revision"]')].map(entry => entry.textContent?.match(/Version \d+/u)?.[0]),
+    ['Version 7'], 'the proven current history is folded into Current and only actual older rows remain');
   assert.equal(matchingCurrentRevision(matchingTimeline.entries)?.revisionNumber, 8,
     'only the captured revision with the current content is folded into Current');
   const currentSelection = reconcileFileVersionTimelineSelection({

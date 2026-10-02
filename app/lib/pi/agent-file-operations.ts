@@ -31,7 +31,8 @@ import { loadCollaborationStateIncludingArchived, type PersistedCollaborationSta
 import { confirmCollaborativeFileCheckpoint as confirmSharedCollaborativeFileCheckpoint,
   CollaborationFileCheckpointUnavailableError } from '@/app/lib/collaboration/agent-file-checkpoint';
 import { AgentFileEditOperationScopeError, AgentFileReviewDisabledConflictError,
-  findAgentFileEditOperation, type AgentTextTarget, type PersistedAgentApplyResult } from '@/app/lib/collaboration/agent-operations';
+  findAgentFileEditOperation, linkStandaloneAgentCheckpoint,
+  type AgentTextTarget, type PersistedAgentApplyResult } from '@/app/lib/collaboration/agent-operations';
 import {
   executePreparedCollaborationTextEdit,
   prepareCollaborationMarkdownEdit,
@@ -1880,12 +1881,19 @@ async function confirmCollaborativeFileCheckpoint(input: {
       snapshot: input.snapshot,
       actorSessionId: input.actorSessionId,
       onConfirmed: async (checkpoint) => {
-        const turnId = getAgentExecutionContext()?.agentTurnId;
+        const executionContext = getAgentExecutionContext();
+        const turnId = executionContext?.agentTurnId;
         if (turnId && input.operation?.operationId) {
           await agentTurnHistoryService.linkCheckpoint({ turnId, workspaceId: input.workspace.workspaceId,
             operationId: input.operation.operationId, revisionId: checkpoint.revisionId,
             documentSequence: checkpoint.documentSequence,
             lifecycleGeneration: checkpoint.lifecycleGeneration });
+        } else if (input.operation?.operationId && executionContext?.userId && input.actorSessionId) {
+          await linkStandaloneAgentCheckpoint({
+            operationId: input.operation.operationId, documentId: input.documentId,
+            workspace: input.workspace, userId: executionContext.userId,
+            actorSessionId: input.actorSessionId, checkpoint,
+          });
         }
       },
     });

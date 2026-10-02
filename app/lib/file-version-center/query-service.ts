@@ -388,6 +388,7 @@ export function createFileVersionCenterQueryService(options: {
     },
 
     async timeline(input: {
+      includeHistoryProvenance?: boolean;
       target: FileVersionCenterTargetV1;
       access: FileVersionCenterAccess;
       workspace: WorkspaceContext;
@@ -453,9 +454,84 @@ export function createFileVersionCenterQueryService(options: {
       const pinCurrent = !cursor && limit > 1;
       const currentIncluded = pinCurrent || (cursor?.phase === 'reviews' && cursor.currentIncluded === true);
       const reviewLimit = limit - (pinCurrent ? 1 : 0);
+      // The canonical current fence remains physical. Only an exact, trusted
+      // checkpoint relation may fold a separate agent history row into Current.
+      // Matching bytes alone must not attribute a later human write to an agent.
+      const displayRevision = input.includeHistoryProvenance === true && target.documentId && observed.fence.revisionId
+        ? await database.transaction(async transaction => {
+          const candidates = await transaction.query<{ revision_id: string }>(`
+            SELECT DISTINCT version.id AS revision_id
+            FROM file_revisions physical
+            INNER JOIN collaboration_documents document
+              ON document.id=$4 AND document.workspace_id=physical.workspace_id
+                AND document.lineage_id=physical.lineage_id AND document.status='active' AND document.provider='yjs'
+            INNER JOIN collaboration_yjs_states state
+              ON state.document_id=document.id AND state.workspace_id=document.workspace_id AND state.path=document.path
+                AND state.status='active' AND state.degraded=0 AND state.checkpoint_sequence=state.document_sequence
+                AND document.state_version=state.checkpoint_sequence
+            INNER JOIN collaboration_agent_operations operation
+              ON operation.checkpoint_revision_id=physical.id AND operation.workspace_id=physical.workspace_id
+                AND operation.document_id=document.id AND operation.document_lifecycle_generation=state.lifecycle_generation
+                AND operation.applied_document_sequence=state.document_sequence
+            INNER JOIN file_revisions version
+              ON version.id=operation.version_revision_id AND version.workspace_id=physical.workspace_id
+                AND version.lineage_id=physical.lineage_id AND version.history_only=true
+            INNER JOIN file_revision_contents contents
+              ON contents.revision_id=version.id AND contents.workspace_id=version.workspace_id
+                AND contents.lineage_id=version.lineage_id AND contents.source='agent_apply'
+            INNER JOIN file_version_blobs blob
+              ON blob.blob_id=contents.blob_id AND blob.workspace_id=contents.workspace_id
+                AND blob.content_sha256=version.content_hash AND blob.raw_size_bytes=version.size_bytes
+            WHERE physical.workspace_id=$1 AND physical.lineage_id=$2 AND physical.id=$3 AND physical.history_only=false
+              AND operation.agent_run_id IS NULL AND operation.operation_type='apply' AND operation.requested_mode='direct_apply'
+              AND operation.status IN ('persisted_yjs','checkpointed_file') AND operation.applied_at IS NOT NULL
+              AND physical.content_hash=version.content_hash AND physical.size_bytes=version.size_bytes
+              AND physical.created_at>=operation.applied_at
+              AND NOT EXISTS (SELECT 1 FROM file_revision_contents existing WHERE existing.revision_id=physical.id)
+              AND version.content_hash=$5 AND version.size_bytes=$6
+              AND ($7::text IS NULL OR contents.state_vector_hash=$7)
+            UNION
+            SELECT DISTINCT version.id AS revision_id
+            FROM file_revisions physical
+            INNER JOIN collaboration_documents document
+              ON document.id=$4 AND document.workspace_id=physical.workspace_id
+                AND document.lineage_id=physical.lineage_id AND document.status='active' AND document.provider='yjs'
+            INNER JOIN collaboration_yjs_states state
+              ON state.document_id=document.id AND state.workspace_id=document.workspace_id AND state.path=document.path
+                AND state.status='active' AND state.degraded=0 AND state.checkpoint_sequence=state.document_sequence
+                AND document.state_version=state.checkpoint_sequence
+            INNER JOIN file_agent_turn_checkpoints checkpoint
+              ON checkpoint.revision_id=physical.id AND checkpoint.workspace_id=physical.workspace_id
+                AND checkpoint.lineage_id=physical.lineage_id
+            INNER JOIN file_agent_turn_segments segment
+              ON segment.segment_id=checkpoint.segment_id AND segment.workspace_id=physical.workspace_id
+                AND segment.lineage_id=physical.lineage_id AND segment.finalized_at IS NOT NULL
+                AND segment.lifecycle_generation=state.lifecycle_generation AND segment.document_sequence=state.document_sequence
+            INNER JOIN file_revisions version
+              ON version.id=segment.revision_id AND version.workspace_id=physical.workspace_id AND version.lineage_id=physical.lineage_id
+            INNER JOIN file_revision_contents contents
+              ON contents.revision_id=version.id AND contents.workspace_id=version.workspace_id
+                AND contents.lineage_id=version.lineage_id AND contents.source='agent_apply'
+            INNER JOIN file_version_blobs blob
+              ON blob.blob_id=contents.blob_id AND blob.workspace_id=contents.workspace_id
+                AND blob.content_sha256=version.content_hash AND blob.raw_size_bytes=version.size_bytes
+            WHERE physical.workspace_id=$1 AND physical.lineage_id=$2 AND physical.id=$3 AND physical.history_only=false
+              AND (version.id=physical.id OR NOT EXISTS (
+                SELECT 1 FROM file_revision_contents existing WHERE existing.revision_id=physical.id))
+              AND physical.content_hash=version.content_hash AND physical.size_bytes=version.size_bytes
+              AND physical.created_at>=version.created_at
+              AND version.content_hash=$5 AND version.size_bytes=$6
+              AND segment.content_sha256=version.content_hash AND segment.raw_size_bytes=version.size_bytes
+              AND ($7::text IS NULL OR (contents.state_vector_hash=$7 AND segment.state_vector_hash=$7))
+          `, [target.workspaceId, target.lineageId, observed.fence.revisionId, target.documentId,
+            observed.fence.sha256, observed.sizeBytes, observed.fence.stateVectorHash ?? null]);
+          // Ambiguous provenance is unavailable rather than choosing a winner.
+          return candidates.rows.length === 1 ? candidates.rows[0]!.revision_id : null;
+        }) : null;
       const currentEntry: FileVersionTimelineEntryV1 = {
         kind: 'current', id: 'current', observedAt: new Date(observed.observedAt).toISOString(),
         revisionId: observed.fence.revisionId,
+        ...(displayRevision ? { displayRevisionId: displayRevision } : {}),
         ...(observed.fence.stateVectorHash ? { stateVectorHash: observed.fence.stateVectorHash } : {}),
         sha256: observed.fence.sha256, sizeBytes: observed.sizeBytes,
       };

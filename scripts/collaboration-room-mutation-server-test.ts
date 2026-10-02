@@ -154,11 +154,17 @@ async function main() {
   let accessChecks = 0;
   let stores = 0;
   const historyCaptures: Array<{ source: string; actorUserId: string | null; actorType: string }> = [];
+  let directHistoryContext: unknown;
+  let operationHistoryRow: { status: string; has_state_snapshot: boolean; has_version_snapshot: boolean;
+    result_json: string } | undefined;
   const controlledPersistResults: ControlledPersistResult[] = [];
   let reconciliationObservation: { entered: ReturnType<typeof gate>; completed: ReturnType<typeof gate> } | null = null;
   class ObservedHocuspocus extends Hocuspocus {
     constructor(options: ConstructorParameters<typeof Hocuspocus>[0]) {
-      super({ ...options, async beforeSync(payload) {
+      super({ ...options, async onChange(payload) {
+        if (payload.context?.actorType === 'agent') directHistoryContext = payload.context;
+        await options?.onChange?.(payload);
+      }, async beforeSync(payload) {
         // The production hook acquires its room lease first. This gate then
         // suspends the receiver just before it applies the Yjs update.
         await options?.beforeSync?.(payload);
@@ -179,6 +185,17 @@ async function main() {
   });
   const server = {} as typeof Server;
   new Function('require', 'module', 'exports', compiled.outputText)((name: string) => {
+    if (name === '@/app/lib/db') return { openDb: async () => ({
+      run: async (sql: string) => { assert.ok(['BEGIN READ ONLY', 'ROLLBACK'].includes(sql)); },
+      get: async (sql: string, params: unknown[]) => {
+        assert.match(sql, /requested_mode='direct_apply'/u);
+        assert.match(sql, /operation_type='apply'/u);
+        assert.match(sql, /agent_run_id IS NULL/u);
+        assert.deepEqual(params, [`operation-${params[1]}`, params[1], workspace.workspaceId, 'agent', 'user',
+          'stored-session', `${params[1]}.txt`, 'plain_text', 1, 1, null]);
+        return operationHistoryRow;
+      }, close: async () => {},
+    }) };
     if (name === '@hocuspocus/server') return { Hocuspocus: ObservedHocuspocus };
     if (name === 'ws') return { WebSocketServer: class extends EventEmitter {} };
     if (name.endsWith('/persistence')) return {
@@ -625,6 +642,87 @@ async function main() {
     await bounded(Promise.all([mcpReconciliation.entered.promise, mcpReconciliation.completed.promise]),
       'MCP room reconciliation');
     reconciliationObservation = null;
+
+    // The real Hocuspocus store may own saveMutex while onApplied is still
+    // committing the immutable operation bytes. It must await that proof, not
+    // claim a second version from the same persisted room update.
+    operationHistoryRow = { status: 'applying', has_state_snapshot: false,
+      has_version_snapshot: false, result_json: '{}' };
+    const callbackEntered = trackedGate();
+    const callbackRelease = trackedGate();
+    const capturesBeforeStandalone = historyCaptures.length;
+    const standalone = trackPending(direct(inputFor('doc'), (document) => {
+      document.getText('content').insert(document.getText('content').length, 'PI');
+      return { appliedTargetIds: ['standalone-target'] };
+    }, async () => {
+      callbackEntered.resolve();
+      await callbackRelease.promise;
+      operationHistoryRow = { status: 'applied_to_ydoc', has_state_snapshot: true,
+        has_version_snapshot: true, result_json: JSON.stringify({ appliedTargetIds: ['standalone-target'] }) };
+    }));
+    await bounded(callbackEntered.promise, 'standalone SQL callback entered');
+    const storesBeforeStandalone = stores;
+    let standaloneStoreFinished = false;
+    const standaloneStore = trackPending(instance.storeDocumentHooks(room, {
+      document: room, documentName: 'doc', lastContext: directHistoryContext,
+      lastTransactionOrigin: null, clientsCount: room.getConnectionsCount(), instance,
+    }, true).then(() => { standaloneStoreFinished = true; }));
+    await turn();
+    assert.equal(stores, storesBeforeStandalone + 1, 'the scheduled store persists while SQL proof is pending');
+    assert.equal(standaloneStoreFinished, false, 'history capture waits for the committed operation proof');
+    assert.equal(historyCaptures.length, capturesBeforeStandalone);
+    callbackRelease.resolve();
+    await bounded(Promise.all([standalone, standaloneStore]), 'standalone proof and saveMutex drain');
+    assert.equal(historyCaptures.length, capturesBeforeStandalone,
+      'the exact standalone operation owns its version after its snapshot commits');
+    assert.equal(room.getText('content').toString().endsWith('PI'), true);
+    console.log('PASS standalone operation waits for committed snapshot proof without duplicate history');
+
+    operationHistoryRow = { status: 'applying', has_state_snapshot: false,
+      has_version_snapshot: false, result_json: '{}' };
+    const failedCallbackEntered = trackedGate();
+    const failedCallbackRelease = trackedGate();
+    const capturesBeforeFailedCallback = historyCaptures.length;
+    const callbackFailure = new Error('Deliberate immutable operation SQL failure');
+    const failedStandalone = trackPending(direct(inputFor('doc'), (document) => {
+      document.getText('content').insert(document.getText('content').length, 'FALLBACK');
+      return { appliedTargetIds: ['failed-target'] };
+    }, async () => {
+      failedCallbackEntered.resolve();
+      await failedCallbackRelease.promise;
+      throw callbackFailure;
+    }));
+    await bounded(failedCallbackEntered.promise, 'failed standalone SQL callback entered');
+    let failedStoreFinished = false;
+    const failedStore = trackPending(instance.storeDocumentHooks(room, {
+      document: room, documentName: 'doc', lastContext: directHistoryContext,
+      lastTransactionOrigin: null, clientsCount: room.getConnectionsCount(), instance,
+    }, true).then(() => { failedStoreFinished = true; }));
+    await turn();
+    assert.equal(failedStoreFinished, false);
+    failedCallbackRelease.resolve();
+    await bounded(Promise.all([assert.rejects(failedStandalone, error => error === callbackFailure), failedStore]),
+      'failed callback releases history proof before disconnect waits for saveMutex');
+    assert.ok(historyCaptures.length > capturesBeforeFailedCallback,
+      'missing committed operation bytes retain the ordinary history fallback');
+    assert.equal(historyCaptures.at(-1)?.actorType, 'agent');
+    operationHistoryRow = undefined;
+    console.log('PASS failed standalone callback retains history and releases saveMutex without deadlock');
+
+    const capturesBeforeNoSnapshot = historyCaptures.length;
+    operationHistoryRow = { status: 'applying', has_state_snapshot: false,
+      has_version_snapshot: false, result_json: '{}' };
+    await bounded(direct(inputFor('doc'), (document) => {
+      document.getText('content').insert(document.getText('content').length, 'UNPROVEN');
+      return { appliedTargetIds: [] };
+    }, async () => {
+      operationHistoryRow = { status: 'applied_to_ydoc', has_state_snapshot: true,
+        has_version_snapshot: false, result_json: '{}' };
+    }), 'zero-effect standalone ownership fallback');
+    assert.ok(historyCaptures.length > capturesBeforeNoSnapshot,
+      'zero-effect or unavailable immutable bytes never suppress ordinary history');
+    operationHistoryRow = undefined;
+    console.log('PASS unproven standalone ownership retains ordinary history');
 
     const readsBeforeScoped = ordinaryStateReads;
     const scopedState = async (documentId: string) => { assert.equal(documentId, 'doc'); return states.get('doc')!; };

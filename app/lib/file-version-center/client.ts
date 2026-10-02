@@ -2,6 +2,7 @@
 
 import {
   FILE_VERSION_CENTER_API_V1,
+  FILE_VERSION_HISTORY_PROVENANCE_HEADER_V1,
   FILE_VERSION_CENTER_ERROR_CODES,
   parseFileVersionCenterErrorResponseV1,
   parseFileReviewPolicyV1,
@@ -58,6 +59,7 @@ async function requestFileVersionCenter(
       headers: {
         'Content-Type': 'application/json',
         [WORKSPACE_ID_HEADER]: request.target.workspaceId,
+        [FILE_VERSION_HISTORY_PROVENANCE_HEADER_V1]: '1',
       },
       body: JSON.stringify(request),
       signal,

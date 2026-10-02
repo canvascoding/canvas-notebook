@@ -1,9 +1,8 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 
-import { PGlite } from '@electric-sql/pglite';
-
 import { runPostgresMigrations } from '../app/lib/db/postgres';
+import { createIsolatedFileVersionTestDatabase, type IsolatedFileVersionTestDatabase } from './helpers/isolated-file-version-test-database';
 import { createFileVersionContentStore } from '../app/lib/file-version-center/version-content-store';
 import { createFileVersionCenterQueryService } from '../app/lib/file-version-center/query-service';
 import type { FileVersionCenterDatabase } from '../app/lib/file-version-center/database';
@@ -16,7 +15,7 @@ function sha256(content: string): string {
   return createHash('sha256').update(content).digest('hex');
 }
 
-function database(postgres: PGlite): FileVersionCenterDatabase {
+function database(postgres: IsolatedFileVersionTestDatabase): FileVersionCenterDatabase {
   return {
     transaction: (action) => postgres.transaction(async (transaction) => action({
       query: <Row>(sql: string, params?: unknown[]) => transaction.query<Row>(sql, params),
@@ -58,7 +57,7 @@ const access = (workspaceId = 'workspace-a', canWrite = true) => ({
   canManageWorkspace: canWrite,
 });
 
-async function setup(postgres: PGlite): Promise<void> {
+async function setup(postgres: IsolatedFileVersionTestDatabase): Promise<void> {
   await runPostgresMigrations(postgres as unknown as PgQueryable);
   await postgres.exec(`
     INSERT INTO "user" (id, name, email, email_verified, created_at, updated_at)
@@ -137,7 +136,7 @@ async function setup(postgres: PGlite): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  const postgres = new PGlite();
+  const postgres = await createIsolatedFileVersionTestDatabase();
   try {
     await setup(postgres);
     const service = createFileVersionCenterQueryService({
@@ -476,6 +475,137 @@ async function main(): Promise<void> {
     assert.equal(terminalSelected.entries[0]?.id, 'operation-new',
       'a closed graph historical link survives a later terminal legacy operation status');
     assert.equal(terminalSelected.entries[0]?.kind === 'agent_operation' ? terminalSelected.entries[0].actionsAllowed : true, false);
+
+    // Display history is proven by checkpoint ownership; it never replaces the
+    // physical revision used by compare/restore CAS, even for identical bytes.
+    for (const kind of ['standalone', 'turn'] as const) {
+      const lineageId = `display-${kind}`;
+      const documentId = `document-${kind}`;
+      const physicalId = `physical-${kind}`;
+      const versionId = `history-${kind}`;
+      const content = '# Agent\n';
+      const contentHash = sha256(content);
+      const vectorHash = sha256(`vector-${kind}`);
+      await postgres.query(`INSERT INTO file_collaboration_lineages
+        (id,organization_id,workspace_id,workspace_type,path,status,created_at)
+        VALUES ($1,'org','workspace-a','personal',$2,'active',1)`, [lineageId, `${kind}.md`]);
+      await postgres.query(`INSERT INTO collaboration_documents
+        (id,organization_id,workspace_id,workspace_type,path,lineage_id,provider,state_version,status,created_at,updated_at)
+        VALUES ($1,'org','workspace-a','personal',$2,$3,'yjs',7,'active',1,60)`,
+      [documentId, `${kind}.md`, lineageId]);
+      await postgres.query(`INSERT INTO collaboration_yjs_states
+        (document_id,workspace_id,organization_id,path,representation,lifecycle_generation,schema_version,
+          yjs_state,state_vector,document_sequence,checkpoint_sequence,persisted_at,checkpointed_at,status)
+        VALUES ($1,'workspace-a','org',$2,'plain_text',1,1,'\\x00',$3,7,7,60,60,'active')`,
+      [documentId, `${kind}.md`, Buffer.from(`vector-${kind}`)]);
+      for (const [id, number, historyOnly, createdAt] of [[physicalId, 18, false, 60], [versionId, 19, true, 50]] as const) {
+        await postgres.query(`INSERT INTO file_revisions
+          (id,organization_id,workspace_id,workspace_type,path,content_hash,size_bytes,created_by_user_id,
+            created_by_actor_type,source_session_id,lineage_id,revision_number,created_at,history_only)
+          VALUES ($1,'org','workspace-a','personal',$2,$3,$4,'owner','agent','session-a',$5,$6,$7,$8)`,
+        [id, `${kind}.md`, contentHash, Buffer.byteLength(content), lineageId, number, createdAt, historyOnly]);
+      }
+      await createFileVersionContentStore({ database: database(postgres) }).bindRevisionContent({
+        revisionId: versionId, workspaceId: 'workspace-a', lineageId, content,
+        format: 'markdown', source: 'agent_apply', stateVectorHash: vectorHash,
+      });
+      if (kind === 'standalone') {
+        await postgres.query(`INSERT INTO collaboration_agent_operations
+          (operation_id,document_id,document_path,document_representation,workspace_id,organization_id,
+            document_lifecycle_generation,schema_version,initiated_by_user_id,actor_id,actor_session_id,
+            idempotency_key,payload_hash,status,base_state_vector,operation_type,requested_mode,
+            applied_document_sequence,applied_at,checkpoint_revision_id,version_revision_id,created_at,updated_at)
+          VALUES ('display-operation',$1,$2,'plain_text','workspace-a','org',1,1,'owner','agent','session-a',
+            'display-operation-key',repeat('a',64),'persisted_yjs','\\x00','apply','direct_apply',7,50,$3,$4,1,60)`,
+        [documentId, `${kind}.md`, physicalId, versionId]);
+      } else {
+        await postgres.exec(`INSERT INTO file_agent_turns
+          (turn_id,workspace_id,user_id,source_session_id,outcome,lease_expires_at,created_at,updated_at)
+          VALUES ('display-turn','workspace-a','owner','session-a','completed',100,1,60)`);
+        await postgres.query(`INSERT INTO file_agent_turn_segments
+          (segment_id,turn_id,workspace_id,lineage_id,revision_id,path_hint,content_format,content_sha256,
+            raw_size_bytes,stored_size_bytes,pending_content,state_vector_hash,document_sequence,lifecycle_generation,
+            finalized_at,created_at,updated_at)
+          VALUES ('display-segment','display-turn','workspace-a',$1,$2,$3,'markdown',$4,$5,1,NULL,$6,7,1,60,1,60)`,
+        [lineageId, versionId, `${kind}.md`, contentHash, Buffer.byteLength(content), vectorHash]);
+        await postgres.query(`INSERT INTO file_agent_turn_checkpoints (revision_id,workspace_id,lineage_id,segment_id)
+          VALUES ($1,'workspace-a',$2,'display-segment')`, [physicalId, lineageId]);
+      }
+      let observedVector = vectorHash;
+      let fenceOverride: { revisionId: string | null; sha256: string; sizeBytes: number } | null = null;
+      let createHumanDuringRead = false;
+      let resolvedBeforeRace: string | null = null;
+      const displayService = createFileVersionCenterQueryService({ database: database(postgres),
+        rolloutMode: () => 'full',
+        readPolicy: async () => ({ contractVersion: 1, requestedMode: 'safe_direct', effectiveMode: 'safe_direct',
+          revision: 0, locked: false, reason: 'default_safe_direct' }),
+        current: async (target) => {
+          if (createHumanDuringRead) {
+            createHumanDuringRead = false;
+            resolvedBeforeRace = target.latestRevisionId;
+            await postgres.query(`INSERT INTO file_revisions
+              (id,organization_id,workspace_id,workspace_type,path,content_hash,size_bytes,created_by_user_id,
+                created_by_actor_type,lineage_id,revision_number,created_at)
+              VALUES ($1,'org','workspace-a','personal',$2,$3,$4,'owner','user',$5,20,80)`,
+            [`human-${kind}`, `${kind}.md`, contentHash, Buffer.byteLength(content), lineageId]);
+            fenceOverride = { revisionId: `human-${kind}`, sha256: contentHash, sizeBytes: Buffer.byteLength(content) };
+          }
+          return { fence: { revisionId: fenceOverride ? fenceOverride.revisionId : target.latestRevisionId,
+            sha256: fenceOverride?.sha256 ?? target.latestRevisionHash!, stateVectorHash: observedVector },
+          sizeBytes: fenceOverride?.sizeBytes ?? target.latestRevisionSize, observedAt: 70 };
+        } });
+      const readDisplay = (includeHistoryProvenance = true) => displayService.timeline({
+        ...(includeHistoryProvenance ? { includeHistoryProvenance: true } : {}),
+        target: { kind: 'lineage', workspaceId: 'workspace-a', lineageId }, access: access(), workspace: workspace() });
+      const legacyCurrent = (await readDisplay(false)).entries.find(entry => entry.kind === 'current')!;
+      assert.deepEqual(Object.keys(legacyCurrent).sort(), ['id', 'kind', 'observedAt', 'revisionId', 'sha256', 'sizeBytes', 'stateVectorHash'],
+        'unnegotiated requests retain the complete old strict-v1 current shape');
+      const initial = await readDisplay();
+      const current = initial.entries.find(entry => entry.kind === 'current')!;
+      assert.equal(current.kind === 'current' ? current.revisionId : null, physicalId);
+      assert.equal('displayRevisionId' in current ? current.displayRevisionId : null, versionId,
+        `${kind}: exact history owns the displayed version while physical CAS stays unchanged`);
+      assert.equal(initial.entries.some(entry => entry.kind === 'revision' && entry.revisionId === physicalId), false);
+      fenceOverride = { revisionId: null, sha256: contentHash, sizeBytes: Buffer.byteLength(content) };
+      const nullFence = (await readDisplay()).entries.find(entry => entry.kind === 'current')!;
+      assert.equal('displayRevisionId' in nullFence ? nullFence.displayRevisionId : null, null,
+        'the target projection cannot substitute for a missing authoritative physical fence');
+      fenceOverride = { revisionId: `later-unlinked-${kind}`, sha256: contentHash, sizeBytes: Buffer.byteLength(content) };
+      const racedFence = (await readDisplay()).entries.find(entry => entry.kind === 'current')!;
+      assert.equal(racedFence.kind === 'current' ? racedFence.revisionId : null, `later-unlinked-${kind}`);
+      assert.equal('displayRevisionId' in racedFence ? racedFence.displayRevisionId : null, null,
+        'an older target projection must not label a later authoritative physical fence with identical bytes');
+      fenceOverride = null;
+      observedVector = sha256('later-yjs-state');
+      const changedState = (await readDisplay()).entries.find(entry => entry.kind === 'current')!;
+      assert.equal('displayRevisionId' in changedState ? changedState.displayRevisionId : null, null,
+        'identical content with a different Yjs state cannot inherit the agent display identity');
+      observedVector = vectorHash;
+      if (kind === 'standalone') {
+        await postgres.exec("UPDATE collaboration_agent_operations SET checkpoint_revision_id=NULL WHERE operation_id='display-operation'");
+      } else {
+        await postgres.exec("DELETE FROM file_agent_turn_checkpoints WHERE segment_id='display-segment'");
+      }
+      const unlinked = (await readDisplay()).entries.find(entry => entry.kind === 'current')!;
+      assert.equal('displayRevisionId' in unlinked ? unlinked.displayRevisionId : null, null,
+        'equal hash/size without the exact checkpoint relation is insufficient');
+      if (kind === 'standalone') {
+        await postgres.query("UPDATE collaboration_agent_operations SET checkpoint_revision_id=$1 WHERE operation_id='display-operation'", [physicalId]);
+      } else {
+        await postgres.query(`INSERT INTO file_agent_turn_checkpoints (revision_id,workspace_id,lineage_id,segment_id)
+          VALUES ($1,'workspace-a',$2,'display-segment')`, [physicalId, lineageId]);
+      }
+      createHumanDuringRead = true;
+      const human = (await readDisplay()).entries.find(entry => entry.kind === 'current')!;
+      assert.equal(resolvedBeforeRace, physicalId, 'target resolution precedes the actual later human physical receipt');
+      assert.equal(human.kind === 'current' ? human.revisionId : null, `human-${kind}`);
+      assert.equal('displayRevisionId' in human ? human.displayRevisionId : null, null,
+        'a later human physical receipt with the same bytes must not inherit the old agent label');
+      assert.deepEqual((await postgres.query<{ id: string; revision_number: number | string }>(
+        'SELECT id,revision_number FROM file_revisions WHERE lineage_id=$1 ORDER BY revision_number', [lineageId])).rows
+        .map(row => [row.id, Number(row.revision_number)]), [[physicalId, 18], [versionId, 19], [`human-${kind}`, 20]],
+      'timeline reads never delete or renumber physical/history receipts');
+    }
     console.log('file-version-center-query-test: ok');
   } finally {
     await postgres.close();

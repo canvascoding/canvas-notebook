@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { Value } from 'typebox/value';
+import { Type } from 'typebox';
 
 import {
   FILE_VERSION_CENTER_CONTRACT_LIMITS,
@@ -169,7 +170,23 @@ async function main() {
 
   parseFileVersionCapabilitiesV1(fixtures.valid.capabilities);
   parseFileReviewPolicyV1(fixtures.valid.policy);
-  parseFileVersionTimelineResponseV1(fixtures.valid.timelinePage);
+  const timeline = parseFileVersionTimelineResponseV1(fixtures.valid.timelinePage);
+  const current = timeline.entries.find(entry => entry.kind === 'current');
+  assert(current);
+  // This is the previous shipped strict current key set. It must keep accepting
+  // responses for clients that did not negotiate the HTTP capability.
+  const legacyCurrent = Type.Object({ kind: Type.Literal('current'), id: Type.Literal('current'),
+    observedAt: Type.String(), revisionId: Type.Union([Type.String(), Type.Null()]),
+    stateVectorHash: Type.Optional(Type.String()), sha256: Type.String(), sizeBytes: Type.Integer(),
+  }, { additionalProperties: false });
+  assert.equal(Value.Check(legacyCurrent, current), true);
+  const negotiatedCurrent = { ...current, displayRevisionId: 'proven-history' };
+  parseFileVersionTimelineResponseV1({ ...timeline,
+    entries: timeline.entries.map(entry => entry.kind === 'current' ? negotiatedCurrent : entry) });
+  assert.equal(Value.Check(legacyCurrent, negotiatedCurrent), false,
+    'the extension needs explicit HTTP negotiation because old strict clients reject it');
+  expectContractError(() => parseFileVersionCenterRequestV1({ ...openRequests[0], includeHistoryProvenance: true }),
+    FILE_VERSION_CENTER_ERROR_CODES.invalidRequest);
   parseFileVersionCompareRequestV1(fixtures.valid.compareRequest);
   fixtures.valid.diffPages.forEach(parseFileVersionCompareResponseV1);
   parseFileVersionRestoreRequestV1(fixtures.valid.restoreRequest);

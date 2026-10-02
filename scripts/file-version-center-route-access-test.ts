@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
+import path from 'node:path';
 import { NextRequest, NextResponse } from 'next/server';
+import { loadIsolatedModule } from './helpers/isolated-source-module';
+import * as contracts from '../app/lib/file-version-center/contracts/v1';
 
 import {
   createFileVersionCenterRouteAuthorizer,
@@ -120,6 +123,41 @@ async function main() {
   const hidden = fileVersionCenterCaughtError(new Error('secret database path'));
   assert.equal(hidden.status, 500);
   assert.doesNotMatch(await hidden.text(), /secret database path/u);
+  for (const endpoint of ['resolve', 'timeline']) {
+    const calls: Array<{ includeHistoryProvenance?: boolean }> = [];
+    const route = loadIsolatedModule<{ POST: (request: NextRequest) => Promise<Response> }>(
+      path.resolve(`app/api/files/version-center/v1/${endpoint}/route.ts`), {
+        'next/server': { NextRequest, NextResponse },
+        '@/app/lib/file-version-center/contracts/v1': contracts,
+        '@/app/lib/file-version-center/observability': { observeFileVersionCenter: () => {} },
+        '@/app/lib/file-version-center/policy-v1': { FILE_VERSION_CENTER_RATE_LIMITS_V1: { resolve: {}, timeline: {} } },
+        '@/app/lib/file-version-center/query-service': { fileVersionCenterQueryService: {
+          timeline: async (input: { includeHistoryProvenance?: boolean }) => { calls.push(input); return { entries: [] }; },
+        } },
+        '@/app/lib/file-version-center/route-adapter': {
+          authorizeFileVersionCenterRequest: authorize,
+          readFileVersionCenterJson: (request: NextRequest) => request.json(),
+          applyFileVersionCenterRateLimit: () => null,
+          FILE_VERSION_CENTER_PRIVATE_HEADERS: { 'Cache-Control': 'private, no-store, max-age=0' },
+          fileVersionCenterCaughtError,
+        },
+      },
+    );
+    for (const capability of [null, '0', 'true', '1']) {
+      const headers = new Headers({ 'content-type': 'application/json' });
+      if (capability) headers.set(contracts.FILE_VERSION_HISTORY_PROVENANCE_HEADER_V1, capability);
+      const response = await route.POST(new NextRequest(`https://canvas.test/api/files/version-center/v1/${endpoint}`, {
+        method: 'POST', headers, body: JSON.stringify({ contractVersion: 1,
+          target: { kind: 'lineage', workspaceId: 'workspace-one', lineageId: 'lineage-one' },
+          ...(endpoint === 'resolve' ? { initialView: 'history', source: 'editor' } : {}),
+        }),
+      }));
+      assert.equal(response.status, 200);
+      assert.equal(response.headers.get('cache-control'), 'private, no-store, max-age=0');
+      assert.equal(calls.at(-1)?.includeHistoryProvenance, capability === '1',
+        `${endpoint}: only the exact capability header opts into response provenance`);
+    }
+  }
   console.log('file-version-center-route-access-test: ok');
 }
 

@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
+import { gzipSync } from 'node:zlib';
 
-import { PGlite } from '@electric-sql/pglite';
 import ts from 'typescript';
+import { createIsolatedFileVersionTestDatabase,
+  type IsolatedFileVersionTestDatabase } from './helpers/isolated-file-version-test-database';
 
 import { runPostgresMigrations } from '../app/lib/db/postgres';
 import {
@@ -17,6 +19,8 @@ import type { FileRevisionRecord } from '../app/lib/files/collaboration-policy';
 import type { WorkspaceContext } from '../app/lib/workspaces/types';
 import { createPlainTextYDoc } from '../app/lib/collaboration/markdown-state';
 import { Y } from '../app/lib/collaboration/server-runtime';
+import { openDb } from '../app/lib/db';
+import type { AgentDirectConnectionInput } from '../app/lib/collaboration/direct-connection';
 
 type PgQueryable = Parameters<typeof runPostgresMigrations>[0];
 
@@ -40,7 +44,7 @@ const workspace: WorkspaceContext = {
   legacy: false,
 };
 
-function database(postgres: PGlite): FileVersionCenterDatabase {
+function database(postgres: IsolatedFileVersionTestDatabase): FileVersionCenterDatabase {
   return {
     transaction: (action) => postgres.transaction(async (transaction) => action({
       query: <Row>(sql: string, params?: unknown[]) => transaction.query<Row>(sql, params),
@@ -63,6 +67,68 @@ function checkpointLink(database: FileVersionCenterDatabase) {
       userId: string; actorSessionId: string; checkpoint: { revisionId: string;
         contentHash: string; sizeBytes: number; documentSequence: number; lifecycleGeneration: number };
     }) => Promise<boolean>;
+}
+
+// Execute the production PI callback against the real transactional linker.
+function piCheckpointLink(db: FileVersionCenterDatabase) {
+  const source = ts.createSourceFile('agent-file-operations.ts',
+    readFileSync('app/lib/pi/agent-file-operations.ts', 'utf8'), ts.ScriptTarget.Latest, true);
+  const declaration = source.statements.find((node): node is ts.FunctionDeclaration =>
+    ts.isFunctionDeclaration(node) && node.name?.text === 'confirmCollaborativeFileCheckpoint');
+  assert.ok(declaration);
+  const javascript = ts.transpileModule(declaration.getText(source), {
+    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
+  }).outputText;
+  return async (input: Parameters<ReturnType<typeof checkpointLink>>[0]) => {
+    const confirm = new Function('confirmSharedCollaborativeFileCheckpoint', 'getAgentExecutionContext',
+      'agentTurnHistoryService', 'linkStandaloneAgentCheckpoint',
+      `${javascript}\nreturn confirmCollaborativeFileCheckpoint;`)(
+      async (options: { onConfirmed: (checkpoint: typeof input.checkpoint) => Promise<void> }) => options.onConfirmed(input.checkpoint),
+      () => ({ userId: input.userId }),
+      { linkCheckpoint() { throw new Error('A standalone PI edit must not use turn history.'); } },
+      checkpointLink(db),
+    ) as (options: { inputPath: string; fullPath: string; documentId: string; workspace: WorkspaceContext;
+      snapshot: { path: string }; operation: { operationId: string }; actorSessionId: string }) => Promise<void>;
+    await confirm({ inputPath: 'notes.md', fullPath: '/tmp/fvrc-history-workspace/notes.md',
+      documentId: input.documentId, workspace: input.workspace, snapshot: { path: 'notes.md' },
+      operation: { operationId: input.operationId }, actorSessionId: input.actorSessionId });
+  };
+}
+
+// Exercise the actual widget reference preparation, including its operation id.
+function collaborationWidgetTarget() {
+  const source = ts.createSourceFile('file-change-tool-result.ts',
+    readFileSync('app/lib/pi/file-change-tool-result.ts', 'utf8'), ts.ScriptTarget.Latest, true);
+  const declarations = source.statements.filter((node): node is ts.FunctionDeclaration =>
+    ts.isFunctionDeclaration(node) && ['countDiff', 'captureReference', 'collaborationTarget'].includes(node.name?.text ?? ''));
+  assert.equal(declarations.length, 3);
+  const javascript = ts.transpileModule(declarations.map(node => node.getText(source)).join('\n'), {
+    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
+  }).outputText;
+  return new Function(`${javascript}\nreturn collaborationTarget;`)() as (input: {
+    context: { workspaceId: string; userId: string; sessionId: string }; workspace: WorkspaceContext;
+    pathHint: string; result: { diff: string; afterSha256: string; collaboration: { operationId: string } };
+    dependencies: { getCollaborationState: () => Promise<unknown>; loadCollaboration: () => Promise<unknown>;
+      captureCollaboration: ReturnType<typeof createFileVersionHistoryService>['capturePersistedCollaboration'] };
+  }) => Promise<{ operationId: string; documentId: string; revisionId?: string } | null>;
+}
+
+function standaloneHistoryProof(postgres: IsolatedFileVersionTestDatabase) {
+  const source = ts.createSourceFile('collaboration-server.ts',
+    readFileSync('server/collaboration-server.ts', 'utf8'), ts.ScriptTarget.Latest, true);
+  const declaration = source.statements.find((node): node is ts.FunctionDeclaration =>
+    ts.isFunctionDeclaration(node) && node.name?.text === 'standaloneOperationHistoryOwned');
+  assert.ok(declaration);
+  const javascript = ts.transpileModule(declaration.getText(source), {
+    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
+  }).outputText;
+  const open = process.env.CANVAS_FILE_VERSION_POSTGRES_TEST === '1' ? openDb : async () => ({
+    run: (sql: string) => postgres.query(sql),
+    get: async (sql: string, params: unknown[]) => (await postgres.query(sql, params)).rows[0],
+    close: async () => {},
+  });
+  return new Function('openDb', `${javascript}\nreturn standaloneOperationHistoryOwned;`)(open) as
+    (input: AgentDirectConnectionInput, appliedTargetIds?: string[]) => Promise<boolean>;
 }
 
 function mapRevision(row: {
@@ -97,7 +163,7 @@ function mapRevision(row: {
   };
 }
 
-function ledger(postgres: PGlite): FileVersionHistoryLedger {
+function ledger(postgres: IsolatedFileVersionTestDatabase): FileVersionHistoryLedger {
   let sequence = 0;
   let queue = Promise.resolve();
   return {
@@ -132,7 +198,7 @@ function ledger(postgres: PGlite): FileVersionHistoryLedger {
   };
 }
 
-async function setup(postgres: PGlite): Promise<void> {
+async function setup(postgres: IsolatedFileVersionTestDatabase): Promise<void> {
   await runPostgresMigrations(postgres as unknown as PgQueryable);
   await postgres.exec(`
     INSERT INTO "user" (id, name, email, email_verified, created_at, updated_at)
@@ -155,7 +221,7 @@ async function setup(postgres: PGlite): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  const postgres = new PGlite();
+  const postgres = await createIsolatedFileVersionTestDatabase();
   try {
     await setup(postgres);
     const db = database(postgres);
@@ -365,6 +431,125 @@ async function main(): Promise<void> {
       'the exact unbound MCP physical checkpoint must not duplicate the content version');
     assert.ok(visibleAfterLink.includes('later-human-physical'));
     assert.ok(visibleAfterLink.includes(operation.revision!.id));
+
+    const visibleBeforePi = (await timelineIds()).length;
+    const piContent = '# Standalone PI operation\n';
+    const piHash = createHash('sha256').update(piContent).digest('hex');
+    const piVersion = await service.capture({ workspace, path: 'notes.md', content: piContent,
+      source: 'agent_apply', actorUserId: 'owner', actorType: 'agent', sourceSessionId: 'pi-session',
+      agentOperationId: 'pi-operation-1', historicalLineageId: 'lineage', agentCapturedAt: now + 10 });
+    assert.ok(piVersion.revision);
+    await postgres.query(`INSERT INTO file_revisions
+      (id,organization_id,workspace_id,workspace_type,path,content_hash,size_bytes,
+        created_by_actor_type,lineage_id,revision_number,created_at)
+      VALUES ('pi-physical','org','workspace','personal','notes.md',$1,$2,'system','lineage',
+        (SELECT MAX(revision_number)+1 FROM file_revisions WHERE lineage_id='lineage'),$3)`,
+    [piHash, Buffer.byteLength(piContent), now + 11]);
+    await postgres.query(`INSERT INTO collaboration_agent_operations
+      (operation_id,document_id,document_path,document_representation,workspace_id,organization_id,
+        initiated_by_user_id,actor_id,actor_session_id,idempotency_key,payload_hash,
+        status,base_state_vector,version_revision_id,applied_at,applied_document_sequence,created_at,updated_at)
+      VALUES ('pi-operation-1','document','notes.md','plain_text','workspace','org',
+        'owner','pi-actor','pi-session','pi-key','pi-hash','applying',$1,$2,$3,6,$3,$3)`,
+    [Buffer.alloc(0), piVersion.revision.id, now + 10]);
+    const historyProof = standaloneHistoryProof(postgres);
+    const directInput: AgentDirectConnectionInput = { operationId: 'pi-operation-1', documentId: 'document',
+      documentPath: 'notes.md', documentRepresentation: 'plain_text', documentLifecycleGeneration: 1,
+      documentSchemaVersion: 1, requiresFileCheckpointIdentity: true, workspace, actorId: 'pi-actor', actorDisplayName: 'PI',
+      initiatedByUserId: 'owner', actorSessionId: 'pi-session' };
+    assert.equal(await historyProof(directInput), true, 'the exact stored applying intent can await proof');
+    assert.equal(await historyProof(directInput, ['pi-target']), false, 'applying is not committed ownership');
+    for (const invalid of [{ actorId: 'another-actor' }, { initiatedByUserId: 'another-user' },
+      { actorSessionId: 'another-session' }, { documentPath: 'another.md' },
+      { documentRepresentation: 'tiptap_xml' as const }, { documentLifecycleGeneration: 2 },
+      { documentSchemaVersion: 2 }, { workspace: { ...workspace, workspaceId: 'another-workspace' } },
+      { workspace: { ...workspace, organizationId: 'another-organization' } }, { agentTurnId: 'some-turn' },
+      { actorType: 'user' as const }]) {
+      assert.equal(await historyProof({ ...directInput, ...invalid }), false, 'scope and non-standalone callers fail closed');
+    }
+    await postgres.query(`UPDATE collaboration_agent_operations
+      SET status='applied_to_ydoc',result_json=$2,resulting_state_snapshot=$3,version_content_snapshot=$4
+      WHERE operation_id=$1`, ['pi-operation-1', JSON.stringify({ appliedTargetIds: ['pi-target'] }),
+      Buffer.from('durable-operation-state'), gzipSync(piContent)]);
+    assert.equal(await historyProof(directInput, ['pi-target']), true,
+      'the actual committed snapshots qualify before the later persisted_yjs status');
+    assert.equal(await historyProof(directInput, []), false);
+    assert.equal(await historyProof(directInput, ['wrong-target']), false);
+    await postgres.query("UPDATE collaboration_agent_operations SET version_content_snapshot=NULL WHERE operation_id=$1", ['pi-operation-1']);
+    assert.equal(await historyProof(directInput, ['pi-target']), false, 'missing immutable bytes never own room history');
+    await postgres.query("UPDATE collaboration_agent_operations SET version_content_snapshot=$2 WHERE operation_id=$1", ['pi-operation-1', gzipSync(piContent)]);
+    assert.equal(await historyProof(directInput, ['pi-target']), true);
+    for (const [column, value] of [['requested_mode', 'review_required'], ['operation_type', 'revert'],
+      ['agent_run_id', 'grouped-turn']] as const) {
+      await postgres.query(`UPDATE collaboration_agent_operations SET ${column}=$2 WHERE operation_id=$1`, ['pi-operation-1', value]);
+      assert.equal(await historyProof(directInput, ['pi-target']), false,
+        'review, revert and grouped operations retain their existing history path');
+      await postgres.query(`UPDATE collaboration_agent_operations SET ${column}=$2 WHERE operation_id=$1`,
+      ['pi-operation-1', column === 'requested_mode' ? 'direct_apply' : column === 'operation_type' ? 'apply' : null]);
+    }
+    await postgres.query(`UPDATE collaboration_agent_operations
+      SET status='persisted_yjs',version_content_snapshot=$2 WHERE operation_id=$1`, ['pi-operation-1', gzipSync(piContent)]);
+    const piLinkInput = { operationId: 'pi-operation-1', documentId: 'document', workspace,
+      userId: 'owner', actorSessionId: 'pi-session', checkpoint: { revisionId: 'pi-physical',
+        contentHash: piHash, sizeBytes: Buffer.byteLength(piContent), documentSequence: 6, lifecycleGeneration: 1 } };
+    await piCheckpointLink(db)(piLinkInput);
+    await piCheckpointLink(db)(piLinkInput);
+    assert.equal((await postgres.query<{ checkpoint_revision_id: string }>(
+      "SELECT checkpoint_revision_id FROM collaboration_agent_operations WHERE operation_id='pi-operation-1'"
+    )).rows[0]?.checkpoint_revision_id, 'pi-physical', 'the actual PI callback links its exact standalone checkpoint');
+    const piVisible = await timelineIds();
+    assert.equal(piVisible.length, visibleBeforePi + 1, 'one standalone PI edit adds one visible version');
+    assert.ok(piVisible.includes(piVersion.revision.id));
+    assert.equal(piVisible.includes('pi-physical'), false);
+    const piDoc = createPlainTextYDoc(piContent);
+    const piState = { documentId: 'document', workspaceId: 'workspace', organizationId: 'org', path: 'notes.md',
+      representation: 'plain_text' as const, lifecycleGeneration: 1, schemaVersion: 1,
+      yjsState: Y.encodeStateAsUpdate(piDoc), stateVector: Y.encodeStateVector(piDoc),
+      documentSequence: 6, persistedAt: now + 10, checkpointedAt: now + 11, checkpointSequence: 6,
+      canonicalHash: piHash, serializedHash: piHash, newlineStyle: 'lf' as const, hasBom: false, degraded: false,
+      status: 'active' as const };
+    piDoc.destroy();
+    const widgetInput = { context: { workspaceId: 'workspace', userId: 'owner', sessionId: 'pi-session' }, workspace,
+      pathHint: 'notes.md', result: { diff: '', afterSha256: piHash, collaboration: { operationId: 'pi-operation-1' } },
+      dependencies: { getCollaborationState: async () => ({ lineageId: 'lineage',
+        document: { id: 'document', workspaceId: 'workspace', path: 'notes.md', status: 'active' } }),
+      loadCollaboration: async () => piState, captureCollaboration: service.capturePersistedCollaboration } };
+    let widgetLoads = 0;
+    let widgetCaptures = 0;
+    const guardedWidgetInput = { ...widgetInput, dependencies: { ...widgetInput.dependencies,
+      loadCollaboration: async () => { widgetLoads++; return piState; },
+      captureCollaboration: async (...args: Parameters<typeof service.capturePersistedCollaboration>) => {
+        widgetCaptures++; return service.capturePersistedCollaboration(...args);
+      } } };
+    const piWidget = await collaborationWidgetTarget()(guardedWidgetInput);
+    assert.equal(piWidget?.operationId, 'pi-operation-1');
+    assert.equal(piWidget?.documentId, 'document');
+    assert.equal(piWidget?.revisionId, undefined);
+    assert.equal(widgetLoads, 0, 'the widget preserves its durable operation without reading newer room bytes');
+    assert.equal(widgetCaptures, 0, 'the widget does not create or recapture a second version');
+    assert.equal((await postgres.query<{ count: string }>(
+      "SELECT COUNT(*)::text AS count FROM file_revision_contents WHERE revision_id='pi-physical'"
+    )).rows[0]?.count, '0', 'the widget never binds the raw physical checkpoint');
+    const laterHuman = await service.capture({ workspace, path: 'notes.md', content: '# Human after PI\n',
+      source: 'manual', actorUserId: 'owner', actorType: 'user' });
+    assert.ok(laterHuman.revision);
+    const humanDoc = createPlainTextYDoc('# Human after PI\n');
+    try {
+      const afterHumanWidget = await collaborationWidgetTarget()({ ...guardedWidgetInput,
+        dependencies: { ...guardedWidgetInput.dependencies, loadCollaboration: async () => {
+          widgetLoads++;
+          return { ...piState, yjsState: Y.encodeStateAsUpdate(humanDoc),
+            stateVector: Y.encodeStateVector(humanDoc), documentSequence: 7 };
+        } } });
+      assert.equal(afterHumanWidget?.operationId, 'pi-operation-1', 'a later human keeps the valid operation widget');
+      assert.equal(widgetLoads, 0);
+      assert.equal(widgetCaptures, 0);
+    } finally { humanDoc.destroy(); }
+    assert.equal((await postgres.query<{ id: string }>(`SELECT id FROM file_revisions
+      WHERE lineage_id='lineage' AND history_only=false ORDER BY revision_number DESC LIMIT 1`)).rows[0]?.id,
+    laterHuman.revision.id, 'the later human remains the authoritative physical version');
+    assert.ok((await timelineIds()).includes(laterHuman.revision.id));
+    assert.ok((await timelineIds()).includes(piVersion.revision.id));
     console.log('file-version-history-service-test: ok');
   } finally {
     await postgres.close();
