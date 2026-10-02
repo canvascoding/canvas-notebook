@@ -2,6 +2,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { authenticateManagedTestPage } from './helpers/managed-test-context';
 
 const EXTERNAL_LINK = 'https://example.com/pdf-viewer-link';
 
@@ -108,12 +109,7 @@ test('closing a multi-page PDF leaves Markdown selection usable in the same note
     };
     (window as PdfLifecycleWindow).activePdfSelectionListeners = () => listeners.filter((entry) => !entry.removed && !entry.signal.aborted).length;
   });
-  const login = await page.request.post('/api/auth/sign-in/email', {
-    headers: { Origin: process.env.BASE_URL || 'http://localhost:3000' },
-    data: { email: process.env.TEST_LOGIN_EMAIL || process.env.BOOTSTRAP_ADMIN_EMAIL,
-      password: process.env.TEST_LOGIN_PASSWORD || process.env.BOOTSTRAP_ADMIN_PASSWORD },
-  });
-  expect(login.ok()).toBe(true);
+  await authenticateManagedTestPage(page);
   const { workspaces } = await (await page.request.get('/api/workspaces')).json();
   const workspace = workspaces.find((entry: { name: string; permissions: { canWrite: boolean } }) =>
     entry.name === 'Shared Test Workspace' && entry.permissions.canWrite);
@@ -144,6 +140,12 @@ test('closing a multi-page PDF leaves Markdown selection usable in the same note
         await mobileExplorer.tap();
         await page.getByRole('option').filter({ hasText: pdfName }).tap({ timeout: 15_000 });
       } else {
+        const sidebarToggle = page.getByRole('button', { name: /^(Show|Hide) sidebar$/u });
+        if (await sidebarToggle.getAttribute('aria-pressed') === 'false') {
+          await sidebarToggle.click();
+        }
+        await expect(sidebarToggle).toHaveAttribute('aria-pressed', 'true');
+        await expect(page.locator('#onboarding-notebook-fileBrowser')).toBeVisible();
         await page.getByRole('treeitem', { name: pdfName, exact: true }).click({ timeout: 15_000 });
       }
       await expect(page.locator('[data-pdf-page="1"]')).toBeVisible({ timeout: 30_000 });
@@ -196,13 +198,7 @@ test('PDF text and links remain interactive in private and public previews', asy
   const pageErrors: string[] = [];
   page.on('pageerror', (error) => pageErrors.push(error.message));
 
-  expect((await page.request.post('/api/auth/sign-in/email', {
-    headers: { Origin: process.env.BETTER_AUTH_BASE_URL || process.env.BASE_URL || 'http://localhost:3000' },
-    data: {
-      email: process.env.TEST_LOGIN_EMAIL || process.env.BOOTSTRAP_ADMIN_EMAIL,
-      password: process.env.TEST_LOGIN_PASSWORD || process.env.BOOTSTRAP_ADMIN_PASSWORD,
-    },
-  })).ok()).toBe(true);
+  await authenticateManagedTestPage(page);
 
   const { workspaces } = await (await page.request.get('/api/workspaces')).json();
   const workspace = workspaces.find((entry: {
