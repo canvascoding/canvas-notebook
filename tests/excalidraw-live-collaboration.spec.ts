@@ -276,6 +276,8 @@ test.describe('Excalidraw live collaboration', () => {
       expect(pendingResponse.ok(), await pendingResponse.text()).toBeTruthy();
       const pendingPayload = await pendingResponse.json() as { operations?: Array<{ operationId: string }> };
       expect(pendingPayload.operations?.length).toBe(1);
+      const operationId = pendingPayload.operations![0].operationId;
+      expect(operationId).toBeTruthy();
       await adminPage.bringToFront();
       // Playwright contexts do not always emit the tab focus event when
       // bringToFront() crosses isolated contexts. Dispatch the same event the
@@ -285,11 +287,69 @@ test.describe('Excalidraw live collaboration', () => {
       await expect(review).toBeVisible({ timeout: 20_000 });
       await expect(review).toContainText(/Agent changes|Agentenänderungen/i);
 
-      await memberPage.keyboard.press('ArrowRight');
       await phase('actual-accept-conflict-and-rebase');
-      await review.getByRole('button', { name: /Accept|Annehmen/i }).click();
+      await memberPage.bringToFront();
+      await memberCanvas.click();
+      await memberPage.keyboard.press('ControlOrMeta+A');
+      await memberPage.keyboard.press('ArrowRight');
+      let preAcceptScene: LiveScene | null = null;
+      await expect.poll(async () => {
+        preAcceptScene = sceneFromRead(await runAgentTool({
+          toolName: 'read', toolCallId: `read-before-accept-${suffix}`,
+          params: { path: filePath }, context: agentContext,
+        }));
+        const target = preAcceptScene.elements.find((element) => element.id === initialElement.id);
+        return preAcceptScene.documentId === initialScene!.documentId
+          && preAcceptScene.sceneSequence > movedScene!.sceneSequence
+          && Boolean(target && !target.isDeleted && target.version > currentElement.version
+            && target.x !== currentElement.x);
+      }, { timeout: 20_000 }).toBe(true);
+
+      await adminPage.bringToFront();
+      const acceptUrl = new URL(`/api/files/excalidraw-collaboration/operations/${encodeURIComponent(operationId)}/accept`, BASE_URL).href;
+      type AcceptPayload = {
+        success?: boolean;
+        operation?: {
+          operationId: string;
+          documentId: string;
+          workspaceId: string;
+          status: string;
+          result?: { reviewTargets?: Record<string, { version: number; versionNonce: number; isDeleted: boolean }> };
+        };
+      };
+      const [firstAccept] = await Promise.all([
+        adminPage.waitForResponse((response) => response.url() === acceptUrl
+          && response.request().method() === 'POST', { timeout: 20_000 }),
+        review.getByRole('button', { name: /Accept|Annehmen/i }).click(),
+      ]);
+      expect(firstAccept.status()).toBe(200);
+      const firstPayload = await firstAccept.json() as AcceptPayload;
+      expect(firstPayload).toMatchObject({ success: true, operation: {
+        operationId, documentId: initialScene!.documentId, workspaceId, status: 'needs_review',
+      } });
+      const preAcceptTarget = preAcceptScene!.elements.find((element) => element.id === initialElement.id)!;
+      expect(firstPayload.operation?.result?.reviewTargets?.[initialElement.id]).toEqual({
+        version: preAcceptTarget.version, versionNonce: preAcceptTarget.versionNonce, isDeleted: preAcceptTarget.isDeleted,
+      });
+      const afterFirstAccept = sceneFromRead(await runAgentTool({
+        toolName: 'read', toolCallId: `read-rebased-${suffix}`,
+        params: { path: filePath }, context: agentContext,
+      }));
+      expect(afterFirstAccept.documentId).toBe(preAcceptScene!.documentId);
+      expect(afterFirstAccept.sceneSequence).toBe(preAcceptScene!.sceneSequence);
+      expect(afterFirstAccept.elements).toEqual(preAcceptScene!.elements);
       await expect(review).toBeVisible({ timeout: 20_000 });
-      await review.getByRole('button', { name: /Accept|Annehmen/i }).click();
+      await expect(review).toContainText('changed again after review was created', { timeout: 20_000 });
+      await expect(review.getByRole('button', { name: /Accept|Annehmen/i })).toBeEnabled({ timeout: 20_000 });
+      const [secondAccept] = await Promise.all([
+        adminPage.waitForResponse((response) => response.url() === acceptUrl
+          && response.request().method() === 'POST', { timeout: 20_000 }),
+        review.getByRole('button', { name: /Accept|Annehmen/i }).click(),
+      ]);
+      expect(secondAccept.status()).toBe(200);
+      expect(await secondAccept.json() as AcceptPayload).toMatchObject({ success: true, operation: {
+        operationId, documentId: initialScene!.documentId, workspaceId, status: 'applied',
+      } });
       await expect(review).toBeHidden({ timeout: 20_000 });
 
       const afterAccept = sceneFromRead(await runAgentTool({
