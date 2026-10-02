@@ -4,6 +4,15 @@ import net from 'node:net';
 const TEST_EMAIL = process.env.TEST_LOGIN_EMAIL || process.env.BOOTSTRAP_ADMIN_EMAIL || 'admin@example.com';
 const TEST_PASSWORD = process.env.TEST_LOGIN_PASSWORD || process.env.BOOTSTRAP_ADMIN_PASSWORD || 'change-me';
 
+function browserFixtureUrl(access: string, promptOnLoad = false): string {
+  const url = new URL('/api/browser/view/fixture-page', process.env.BASE_URL || 'http://localhost:3000');
+  // Signed local fixtures require localhost and the running server's port.
+  url.hostname = 'localhost';
+  url.searchParams.set('access', access);
+  if (promptOnLoad) url.searchParams.set('promptOnLoad', '1');
+  return url.toString();
+}
+
 const labels = {
   address: /^(Adresse|Address)$/,
   back: /^(Zurück|Back)$/,
@@ -300,17 +309,18 @@ test.describe('Browser Lab', () => {
     await expect(page.getByText(/^(Entwicklungswerkzeug|Development tool)$/)).toBeVisible();
   });
 
-  test('opens Browser Lab from More Tools on the admin home page', async ({ page }) => {
+  test('opens Browser Lab from the app launcher on the admin home page', async ({ page }) => {
     await login(page);
     await page.setViewportSize({ width: 1440, height: 1200 });
     await page.goto('/');
 
-    const moreToolsButton = page.getByRole('button', { name: /More Tools|Weitere Tools/i });
-    await expect(moreToolsButton).toBeVisible();
-    await expect(page.getByRole('link', { name: 'Browser Lab' })).toHaveCount(0);
-    await moreToolsButton.click();
+    const appLauncherButton = page.getByRole('button', { name: /^(Open apps|Apps öffnen)$/ });
+    await expect(appLauncherButton).toBeVisible();
+    await appLauncherButton.click();
+    await expect(page.getByRole('menuitem', { name: 'Browser Lab', exact: true })).toHaveCount(0);
+    await page.getByRole('menuitem', { name: /^(More apps|Weitere Apps)$/ }).click();
 
-    const browserLabLink = page.getByRole('link', { name: 'Browser Lab' });
+    const browserLabLink = page.getByRole('menuitem', { name: 'Browser Lab', exact: true });
     await expect(browserLabLink).toBeVisible();
     await expect(browserLabLink).toHaveAttribute('href', /\/browser\/lab$/);
     await page.screenshot({
@@ -429,7 +439,7 @@ test.describe('Browser Lab', () => {
     await page.setViewportSize({ width: 1600, height: 900 });
     await login(page);
     const fixtureAccess = await issueBrowserFixtureAccess(page);
-    const fixtureUrl = `http://localhost:3000/api/browser/view/fixture-page?access=${encodeURIComponent(fixtureAccess)}`;
+    const fixtureUrl = browserFixtureUrl(fixtureAccess);
     const session = await findBrowserLabSession(page);
     try {
       await page.goto(`/browser/lab?agentId=${encodeURIComponent(session.agentId)}&sessionId=${encodeURIComponent(session.sessionId)}`);
@@ -485,7 +495,7 @@ test.describe('Browser Lab', () => {
       await page.getByRole('button', { name: labels.dismissError }).click();
       await expect(navigationAlert).toHaveCount(0);
 
-      await address.fill('http://localhost:3000/api/health');
+      await address.fill(new URL('/api/health', fixtureUrl).toString());
       await page.getByRole('button', { name: labels.navigate }).click();
       await expect(navigationAlert).toBeVisible();
       await page.getByRole('button', { name: labels.dismissError }).click();
@@ -687,7 +697,7 @@ test.describe('Browser Lab', () => {
       const frame = page.locator('img[tabindex]');
       await expect(frame).toHaveAttribute('data-live', 'true', { timeout: 60_000 });
       const address = page.getByLabel(labels.address);
-      await address.fill(`http://localhost:3000/api/browser/view/fixture-page?access=${encodeURIComponent(access)}`);
+      await address.fill(browserFixtureUrl(access));
       await address.press('Enter');
       await expect(frame).toHaveAttribute('alt', 'Browser transfer fixture', { timeout: 30_000 });
       const bounds = await frame.boundingBox();
@@ -768,7 +778,7 @@ test.describe('Browser Lab', () => {
       const access = await issueBrowserFixtureAccess(page);
       starting = browserRoundtripCommand(page, session, {
         action: 'start', timeout_ms: 60_000,
-        url: `${process.env.BASE_URL || 'http://localhost:3000'}/api/browser/view/fixture-page?access=${encodeURIComponent(access)}&promptOnLoad=1`,
+        url: browserFixtureUrl(access, true),
       });
       void starting.catch(() => undefined);
       const dialog = page.getByTestId('browser-dialog');
@@ -821,7 +831,7 @@ test.describe('Browser Lab', () => {
         await expect(page.getByTestId('notebook-surface-browser')).toHaveCount(0);
         const access = await issueBrowserFixtureAccess(page);
         const started = await browserRoundtripCommand(page, session, {
-          action: 'start', url: `${process.env.BASE_URL || 'http://localhost:3000'}/api/browser/view/fixture-page?access=${encodeURIComponent(access)}`,
+          action: 'start', url: browserFixtureUrl(access),
         });
         expect(started?.details).not.toHaveProperty('error');
         // No /ws/chat or runtime-status mocks: the real agent runtime must publish this.
@@ -877,7 +887,7 @@ test.describe('Browser Lab', () => {
     });
   }
 
-  test('opens the running browser beside its chat inside the notebook', async ({ page }) => {
+  test('opens the running browser beside its chat inside the notebook', async ({ page }, testInfo) => {
     test.slow();
     const pageErrors: Error[] = [];
     page.on('pageerror', (error) => pageErrors.push(error));
@@ -894,7 +904,9 @@ test.describe('Browser Lab', () => {
       await expect(page.locator('img[tabindex]')).toBeVisible({ timeout: 30_000 });
 
       await page.goto(`/notebook?chat=open&session=${encodeURIComponent(session.sessionId)}`);
-      await page.getByTestId('notebook-surface-chat').click();
+      const visibleChatSurface = page.getByTestId('notebook-surface-chat').filter({ visible: true });
+      await expect(visibleChatSurface).toHaveCount(1);
+      await visibleChatSurface.click();
       await expect(page.getByTestId('chat-session-id')).toHaveAttribute('title', session.sessionId, { timeout: 30_000 });
 
       const browserStatusResponse = await page.request.get(
@@ -914,7 +926,8 @@ test.describe('Browser Lab', () => {
         { timeout: 30_000 },
       );
       await expect(page.getByTestId('notebook-desktop-chat')).toHaveAttribute('data-chat-placement', 'main');
-      await page.getByTestId('notebook-surface-chat').click();
+      await expect(visibleChatSurface).toHaveCount(1);
+      await visibleChatSurface.click();
       await expect(page.getByTestId('notebook-desktop-chat')).toHaveAttribute('aria-hidden', 'false');
       const liveBrowserLink = page.getByTestId('chat-live-browser-link');
       await expect(liveBrowserLink).toBeVisible({ timeout: 30_000 });
@@ -945,7 +958,7 @@ test.describe('Browser Lab', () => {
       await expect(page.locator('img[tabindex]')).toBeVisible();
       await activityToggle.click();
       await expect(page.getByTestId('notebook-desktop-chat')).toHaveAttribute('aria-hidden', 'false');
-      await page.screenshot({ path: 'test-results/notebook-browser-beside-chat.png', fullPage: false });
+      await page.screenshot({ path: testInfo.outputPath('notebook-browser-beside-chat.png'), fullPage: false });
 
       const desktopMetrics = await page.evaluate(() => {
         const browser = document.querySelector<HTMLElement>('[data-testid="notebook-desktop-browser"]')
@@ -971,7 +984,7 @@ test.describe('Browser Lab', () => {
       await expect(page.getByTestId('browser-agent-activity-sheet')).toBeVisible();
       await expect(page.getByTestId('chat-session-id')).toHaveAttribute('title', session.sessionId);
       await page.screenshot({
-        path: 'test-results/notebook-browser-mobile-activity.png',
+        path: testInfo.outputPath('notebook-browser-mobile-activity.png'),
         fullPage: false,
       });
       await page.getByTestId('browser-agent-activity-sheet').getByRole('button', {
@@ -979,12 +992,26 @@ test.describe('Browser Lab', () => {
       }).click();
       await expect(page.getByTestId('browser-agent-activity-sheet')).toHaveCount(0);
       await expect(page.getByTestId('browser-agent-activity-toggle')).toHaveAttribute('aria-expanded', 'false');
-      await page.screenshot({ path: 'test-results/notebook-browser-mobile.png', fullPage: false });
+      await page.screenshot({ path: testInfo.outputPath('notebook-browser-mobile.png'), fullPage: false });
       const mobileMetrics = await page.evaluate(() => ({
         innerWidth: window.innerWidth,
         scrollWidth: document.documentElement.scrollWidth,
       }));
       expect(mobileMetrics.scrollWidth).toBeLessThanOrEqual(mobileMetrics.innerWidth + 1);
+
+      await page.setViewportSize({ width: 1440, height: 900 });
+      await expect(page.getByTestId('notebook-desktop-browser')).toHaveAttribute('aria-hidden', 'false');
+      await expect(page.locator('img[tabindex]')).toBeVisible({ timeout: 30_000 });
+      if (await activityToggle.getAttribute('aria-expanded') !== 'true') await activityToggle.click();
+      await expect(activityToggle).toHaveAttribute('aria-expanded', 'true');
+      await expect(page.getByTestId('notebook-desktop-chat')).toHaveAttribute('aria-hidden', 'false');
+      await expect(page.getByTestId('chat-session-id')).toHaveAttribute('title', session.sessionId);
+      const newChat = page.getByRole('button', { name: /^(Neuer Chat|New Chat)$/i, exact: true });
+      await expect(newChat).toBeVisible();
+      await newChat.click();
+      await expect(page.getByTestId('chat-session-id')).toHaveCount(0);
+      await expect(page.getByTestId('notebook-surface-browser')).toHaveCount(0);
+      await expect(page.getByTestId('notebook-desktop-chat')).toHaveAttribute('aria-hidden', 'false');
       expect(pageErrors).toEqual([]);
     } finally {
       await deleteBrowserLabTestSession(page, session);
@@ -1024,6 +1051,10 @@ test.describe('Browser Lab', () => {
     });
     try {
       await page.goto(`/notebook?chat=open&session=${encodeURIComponent(session.sessionId)}`);
+      const browserSurface = page.getByTestId('notebook-surface-browser');
+      await expect(browserSurface).toBeVisible({ timeout: 30_000 });
+      await browserSurface.click();
+      await expect(browserSurface).toHaveAttribute('aria-selected', 'true');
       await expect.poll(() => requests, { timeout: 30_000 }).toBe(1);
       await page.getByRole('button', { name: /^(Browser-Arbeitsfläche schließen|Close browser work area)$/ }).click();
       releaseTicket();
@@ -1070,7 +1101,7 @@ test.describe('Browser Lab', () => {
       await expect(address).toBeEnabled();
       const frame = page.locator('img[tabindex]');
       await address.fill(
-        `http://localhost:3000/api/browser/view/fixture-page?access=${encodeURIComponent(fixtureAccess!)}`,
+        browserFixtureUrl(fixtureAccess!),
       );
       await page.getByRole('button', { name: labels.navigate }).click();
       await expect(address).toHaveValue(/\/api\/browser\/view\/fixture-page\?access=/, { timeout: 30_000 });

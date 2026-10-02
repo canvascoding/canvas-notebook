@@ -100,7 +100,10 @@ interface CanvasAgentChatProps {
   forcedSessionId?: string | null;
   requestContext?: ChatRequestContext;
   onRuntimeStatusChange?: (status: RuntimeStatus | null) => void;
-  onSessionContextChange?: (context: { agentId: string; sessionId: string } | null) => void;
+  onSessionContextChange?: (
+    context: { agentId: string; sessionId: string } | null,
+    reason?: 'unmount',
+  ) => void;
   onOpenLiveBrowser?: () => void;
   onMediaClick?: (mediaUrl: string) => void;
 }
@@ -1154,6 +1157,8 @@ export default function CanvasAgentChat({
   const activeSession = history.find((session) => session.sessionId === sessionId);
   const activeSessionAgentId = activeSession?.agentId || selectedAgentId;
   useEffect(() => {
+    // A responsive remount must resolve its stored session before clearing context.
+    if (!sessionId && isResolvingInitialChatState) return;
     onSessionContextChange?.(
       sessionId
         ? {
@@ -1162,8 +1167,8 @@ export default function CanvasAgentChat({
           }
         : null,
     );
-  }, [activeSessionAgentId, onSessionContextChange, sessionId]);
-  useEffect(() => () => onSessionContextChange?.(null), [onSessionContextChange]);
+  }, [activeSessionAgentId, isResolvingInitialChatState, onSessionContextChange, sessionId]);
+  useEffect(() => () => onSessionContextChange?.(null, 'unmount'), [onSessionContextChange]);
   const isSessionTitleGenerating = activeSession?.titleGenerationState === 'pending' || activeSession?.titleGenerationState === 'generating';
   const forkDisabledLabel = isSessionTitleGenerating
     ? t('forkUnavailableTitleGenerating')

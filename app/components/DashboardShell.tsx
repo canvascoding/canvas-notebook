@@ -492,6 +492,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
   }, [documentFocus]);
   const [mobileExplorerOpen, setMobileExplorerOpen] = useState(false);
   const [activeChatContext, setActiveChatContext] = useState<{
+    workspaceId: string;
     agentId: string;
     sessionId: string;
   } | null>(null);
@@ -533,6 +534,18 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
   const fileError = useFileStore((fileState) => fileState.fileError);
   const currentDirectory = useFileStore((fileState) => fileState.currentDirectory);
   const activeWorkspaceId = useWorkspaceStore((workspaceState) => workspaceState.activeWorkspaceId);
+  const handleChatSessionContextChange = useCallback((
+    context: { agentId: string; sessionId: string } | null,
+    reason?: 'unmount',
+  ) => {
+    if (reason === 'unmount' || !activeWorkspaceId
+      || useWorkspaceStore.getState().activeWorkspaceId !== activeWorkspaceId) return;
+    setActiveChatContext(context ? { ...context, workspaceId: activeWorkspaceId } : null);
+  }, [activeWorkspaceId]);
+  const handleChatRuntimeStatusChange = useCallback((status: RuntimeStatus | null) => {
+    if (useWorkspaceStore.getState().activeWorkspaceId !== activeWorkspaceId) return;
+    setActiveRuntimeStatus(status);
+  }, [activeWorkspaceId]);
   const workspaceReady = useWorkspaceStore((workspaceState) => workspaceState.initialized);
   const showWorkspaceSwitcher = useShouldShowWorkspaceSwitcher();
   const { chatContext: emailChatContext } = useEmailChatContext();
@@ -570,7 +583,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     clearBrowser,
     openBrowser,
   } = useNotebookToolContext({
-    chatContext: activeChatContext,
+    chatContext: activeChatContext?.workspaceId === activeWorkspaceId ? activeChatContext : null,
     runtimeStatus: activeRuntimeStatus,
     onOpen: handleContextOpen,
     onClose: handleContextUnavailable,
@@ -1037,6 +1050,8 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
       // The route effect still needs to open this workspace's document.
       openedPathRef.current = null;
       previousCurrentFileIdentityRef.current = null;
+      setActiveChatContext(null);
+      setActiveRuntimeStatus(null);
       const restoredTabs = hydrateDocumentTabs(nextWorkspaceId);
       clearEmail();
       clearBrowser();
@@ -1329,7 +1344,10 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
   }, [dispatch]);
   const openLiveBrowser = useCallback(() => {
     openBrowser();
-  }, [openBrowser]);
+    dispatch({ type: 'SHOW_SURFACE', surface: 'browser' });
+    setBrowserActivityOpen(true);
+    if (layout.canDockChat) dispatch({ type: 'SET_CHAT_DOCKED', docked: true });
+  }, [dispatch, layout.canDockChat, openBrowser]);
   const browserActivityUsesSheet =
     !layout.canDockChat && browserActivityOpen && state.mainSurface === 'browser';
   const browserActivityVisible = layout.canDockChat
@@ -1384,8 +1402,8 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
       forcedSessionId={forcedSessionId}
       requestContext={requestContext}
       isSurfaceVisible={chatVisible}
-      onRuntimeStatusChange={setActiveRuntimeStatus}
-      onSessionContextChange={setActiveChatContext}
+      onRuntimeStatusChange={handleChatRuntimeStatusChange}
+      onSessionContextChange={handleChatSessionContextChange}
       onOpenLiveBrowser={openLiveBrowser}
     />
     </NotebookSurfaceMount>
