@@ -236,7 +236,8 @@ test.describe('FVRC-1006 review response navigation fencing', () => {
       const destinationFile = page.locator(`[data-file-path="${teamPath}"]`);
       await expect(destinationFile).toBeVisible({ timeout: 30_000 });
       await destinationFile.dblclick();
-      const versionHistory = page.getByRole('button', { name: 'Version history', exact: true });
+      const versionHistory = page.getByRole('tabpanel', { name: teamPath, exact: true })
+        .getByRole('button', { name: 'Open agent changes: 2', exact: true });
       await expect(versionHistory).toBeVisible({ timeout: 30_000 });
       await expect(versionHistory).toBeEnabled({ timeout: 30_000 });
       await versionHistory.click();
