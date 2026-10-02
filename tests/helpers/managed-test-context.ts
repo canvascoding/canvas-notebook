@@ -58,7 +58,8 @@ function resolveIdentity(identity: AuthenticatedContextIdentity = {}): ResolvedI
 
 function authStatePath(identity: ResolvedIdentity): string {
   const baseUrl = process.env.BASE_URL || 'http://localhost:3000';
-  const identityHash = createHash('sha256').update(`${baseUrl}\0${identity.email}`).digest('hex').slice(0, 24);
+  const credentialHash = createHash('sha256').update(identity.password).digest('hex');
+  const identityHash = createHash('sha256').update(`${baseUrl}\0${identity.email}\0${credentialHash}`).digest('hex').slice(0, 24);
   return path.join(os.tmpdir(), 'canvas-playwright-auth', `${identityHash}.json`);
 }
 
@@ -66,7 +67,7 @@ async function sleep(durationMs: number): Promise<void> {
   await new Promise<void>((resolve) => setTimeout(resolve, durationMs));
 }
 
-async function stateIsAuthorized(browser: Browser, storageStatePath: string): Promise<boolean> {
+async function stateIsAuthorized(browser: Browser, storageStatePath: string, identity: ResolvedIdentity): Promise<boolean> {
   try {
     await fs.access(storageStatePath);
     const context = await browser.newContext({
@@ -74,10 +75,11 @@ async function stateIsAuthorized(browser: Browser, storageStatePath: string): Pr
       storageState: storageStatePath,
     });
     try {
-      const response = await context.request.get('/api/auth/get-session');
-      if (!response.ok()) return false;
-      const payload = await response.json() as { user?: { id?: string } | null };
-      return Boolean(payload.user?.id);
+      const response = await context.request.get('/api/auth/get-session', { timeout: 15_000 });
+      if (response.status() !== 200) return false;
+      const payload = await response.json() as { user?: { id?: string; email?: string } | null } | null;
+      return typeof payload?.user?.id === 'string' && payload.user.id.length > 0
+        && payload.user.email === identity.email;
     } finally {
       await context.close();
     }
@@ -88,7 +90,7 @@ async function stateIsAuthorized(browser: Browser, storageStatePath: string): Pr
 
 async function ensureAuthenticatedState(browser: Browser, identity: ResolvedIdentity): Promise<string> {
   const storageStatePath = authStatePath(identity);
-  if (await stateIsAuthorized(browser, storageStatePath)) return storageStatePath;
+  if (await stateIsAuthorized(browser, storageStatePath, identity)) return storageStatePath;
   await fs.mkdir(path.dirname(storageStatePath), { recursive: true, mode: 0o700 });
   const lockPath = `${storageStatePath}.lock`;
 
@@ -101,26 +103,53 @@ async function ensureAuthenticatedState(browser: Browser, identity: ResolvedIden
       const lockAge = await fs.stat(lockPath).then((stat) => Date.now() - stat.mtimeMs).catch(() => 0);
       if (lockAge > LOCK_STALE_MS) await fs.unlink(lockPath).catch(() => undefined);
       await sleep(LOCK_WAIT_MS);
-      if (await stateIsAuthorized(browser, storageStatePath)) return storageStatePath;
+      if (await stateIsAuthorized(browser, storageStatePath, identity)) return storageStatePath;
       continue;
     }
 
     try {
-      if (await stateIsAuthorized(browser, storageStatePath)) return storageStatePath;
+      const deadline = Date.now() + 45_000;
+      if (await stateIsAuthorized(browser, storageStatePath, identity)) return storageStatePath;
       const baseURL = process.env.BASE_URL || 'http://localhost:3000';
       const context = await browser.newContext({ baseURL });
       const temporaryPath = `${storageStatePath}.${process.pid}.${randomBytes(6).toString('hex')}.tmp`;
       try {
-        const response = await context.request.post('/api/auth/sign-in/email', {
-          headers: { Origin: baseURL },
-          data: {
-            email: identity.email,
-            password: identity.password,
-          },
-        });
-        if (!response.ok()) {
-          // Never include response bodies: auth endpoints can echo credentials or tokens.
-          throw new Error(`Playwright authentication failed (${response.status()}).`);
+        let retries = 0;
+        while (true) {
+          const remainingMs = deadline - Date.now();
+          if (remainingMs <= 0) throw new Error('Playwright authentication exceeded its bounded deadline.');
+          const response = await context.request.post('/api/auth/sign-in/email', {
+            headers: { Origin: baseURL },
+            data: {
+              email: identity.email,
+              password: identity.password,
+            },
+            timeout: Math.min(15_000, remainingMs),
+          }).catch(() => { throw new Error('Playwright authentication failed before receiving an HTTP response.'); });
+          if (response.status() === 200) break;
+          if (response.status() !== 429 || retries >= 2) {
+            // Never include response bodies: auth endpoints can echo credentials or tokens.
+            throw new Error(`Playwright authentication failed (${response.status()}).`);
+          }
+          const retryAfter = response.headers()['x-retry-after'] || response.headers()['retry-after'];
+          const seconds = Number(retryAfter);
+          const requestedMs = retryAfter && Number.isFinite(seconds) && seconds >= 0
+            ? seconds * 1_000 : retryAfter ? Date.parse(retryAfter) - Date.now() : 10_000;
+          const waitMs = Math.max(1_000, Number.isFinite(requestedMs) ? requestedMs : 10_000);
+          if (Date.now() + waitMs >= deadline) throw new Error('Playwright authentication failed (429): retry exceeds its bounded deadline.');
+          retries += 1;
+          console.info(`[managed-test] Authentication returned 429; waiting ${waitMs}ms before retry ${retries}/2.`);
+          await sleep(waitMs);
+        }
+        const sessionRemainingMs = deadline - Date.now();
+        if (sessionRemainingMs <= 0) throw new Error('Playwright authentication exceeded its bounded deadline.');
+        const sessionResponse = await context.request.get('/api/auth/get-session', { timeout: Math.min(15_000, sessionRemainingMs) })
+          .catch(() => { throw new Error('Playwright authentication session check failed before receiving an HTTP response.'); });
+        if (sessionResponse.status() !== 200) throw new Error(`Playwright authentication session check failed (${sessionResponse.status()}).`);
+        const session = await sessionResponse.json()
+          .catch(() => { throw new Error('Playwright authentication session check returned invalid JSON.'); }) as { user?: { id?: string; email?: string } | null } | null;
+        if (typeof session?.user?.id !== 'string' || !session.user.id || session.user.email !== identity.email) {
+          throw new Error('Playwright authentication session identity does not match the configured account.');
         }
         await context.storageState({ path: temporaryPath });
         await fs.chmod(temporaryPath, 0o600);
@@ -210,6 +239,30 @@ export async function createAuthenticatedContext(
     baseURL: options.baseURL || process.env.BASE_URL || 'http://localhost:3000',
     storageState,
   });
+}
+
+/** Authenticate an existing page through the private, identity-checked test cache. */
+export async function authenticateManagedTestPage(
+  page: Page,
+  identityInput: AuthenticatedContextIdentity = {},
+): Promise<void> {
+  const browser = page.context().browser();
+  if (!browser) throw new Error('Managed page authentication requires a browser context.');
+  const identity = resolveIdentity(identityInput);
+  const authenticated = await createAuthenticatedContext(browser, {}, identity);
+  try {
+    const response = await authenticated.request.get('/api/auth/get-session', { timeout: 15_000 })
+      .catch(() => { throw new Error('Managed page authentication session check failed before receiving an HTTP response.'); });
+    if (response.status() !== 200) throw new Error(`Managed page authentication session check failed (${response.status()}).`);
+    const payload = await response.json()
+      .catch(() => { throw new Error('Managed page authentication session check returned invalid JSON.'); }) as { user?: { id?: string; email?: string } | null } | null;
+    if (typeof payload?.user?.id !== 'string' || !payload.user.id || payload.user.email !== identity.email) {
+      throw new Error('Managed page authentication session identity does not match the configured account.');
+    }
+    await page.context().addCookies(await authenticated.cookies());
+  } finally {
+    await authenticated.close();
+  }
 }
 
 export async function uploadWorkspaceTextFile(input: {
