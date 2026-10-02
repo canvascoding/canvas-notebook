@@ -225,7 +225,10 @@ test('a delayed or failed marketplace keeps installed packages usable and skills
       await route.fulfill({ status: 503, json: { success: false, error: 'QA catalog unavailable' } });
     });
     await page.goto('/en/plugins?view=installed');
-    await expect(page.getByText(en.skills.plugins.readiness['personal-connection-required'], { exact: true })).toBeVisible();
+    const installedCard = page.getByRole('button').filter({
+      has: page.getByRole('heading', { name: 'qa-personal-connection', exact: true }),
+    });
+    await expect(installedCard.getByText(en.skills.plugins.readiness['personal-connection-required'], { exact: true })).toBeVisible();
     expect(skillRequests).toEqual([]);
     await capture(page, info, 'installed-catalog-pending');
     await page.getByRole('button', { name: en.skills.plugins.preflight.setup, exact: true }).click();
@@ -979,3 +982,211 @@ for (const marker of ['cancelled', 'failed'] as const) {
     } finally { await context.close(); }
   });
 }
+
+async function mockFilteredCatalog(page: Page) {
+  const installed = [
+    { name: 'qa-ready-active', displayName: 'QA ready active', readiness: 'available', enabled: true },
+    { name: 'qa-required-active', displayName: 'QA required active', readiness: 'personal-connection-required', enabled: true },
+    { name: 'qa-required-disabled', displayName: 'QA required disabled', readiness: 'personal-connection-required', enabled: false },
+    { name: 'qa-ready-disabled', displayName: 'QA ready disabled', readiness: 'disabled', enabled: false },
+    ...Array.from({ length: 12 }, (_, index) => ({
+      name: `qa-installed-filler-${index}`, displayName: `QA installed filler ${index}`, readiness: 'available', enabled: true,
+    })),
+  ].map(plugin => ({
+    ...plugin, resourceId: `user:plugin:${plugin.name}`, scopeType: 'user', version: '1.0.0',
+    description: 'Installed filtering browser fixture', interface: { displayName: plugin.displayName }, skills: [],
+  }));
+  // Keep the update target beyond the first installed catalog page. Its card can
+  // only get update metadata from the independent installedPlugins response.
+  const metadata = [...installed.slice(4), ...installed.slice(0, 4)].map(plugin => ({
+    name: plugin.name, displayName: plugin.displayName, description: plugin.description,
+    latestVersion: plugin.name === 'qa-ready-active' ? '1.1.0' : '1.0.0', skills: [],
+    installed: { installed: true, enabled: plugin.enabled, version: plugin.version, installedPlugin: plugin,
+      updateAvailable: plugin.name === 'qa-ready-active', skills: [],
+      skillSummary: { total: 0, installed: 0, missing: 0, updateAvailable: 0, modified: 0, repairable: 0 } },
+  }));
+  const catalog = Array.from({ length: 96 }, (_, index) => ({
+    name: `qa-mail-${index}`, displayName: `QA Mail ${index}`, description: 'Global catalog filtering browser fixture',
+    category: index % 2 === 0 ? 'Productivity' : 'Design', latestVersion: '1.0.0', skills: [],
+    connectors: index % 3 === 0 ? { email: [{ label: 'Mailbox', recommended: true }] }
+      : index % 3 === 1 ? { mcp: [{ name: 'qa-mcp', recommended: true }] }
+        : { composio: [{ toolkit: 'gmail', recommended: true }] },
+    installed: { installed: false, enabled: false, updateAvailable: false },
+  }));
+  const storeRequests: URL[] = [];
+  const storePages: Array<{ state: string | null; page: number; names: string[] }> = [];
+  const installedRequests: URL[] = [];
+  let unavailable = false;
+  await page.route('**/api/plugins?*', route => {
+    installedRequests.push(new URL(route.request().url()));
+    return route.fulfill({ json: { success: true, plugins: installed } });
+  });
+  await page.route('**/api/plugins/store?*', route => {
+    const url = new URL(route.request().url());
+    storeRequests.push(url);
+    if (unavailable) return route.fulfill({ status: 503, json: { success: false, error: 'QA filtered catalog unavailable' } });
+    const query = (url.searchParams.get('q') || '').trim().toLowerCase();
+    const category = url.searchParams.get('category');
+    const connection = url.searchParams.get('connection');
+    const exactName = url.searchParams.get('name');
+    const state = url.searchParams.get('state');
+    const candidates = exactName ? metadata.filter(plugin => plugin.name === exactName)
+      : state === 'updates' ? metadata.filter(plugin => plugin.installed.updateAvailable)
+        : state === 'installed' ? metadata : [...catalog, ...metadata];
+    const filtered = candidates.filter(plugin => {
+      if (!`${plugin.name} ${plugin.displayName} ${plugin.description}`.toLowerCase().includes(query)) return false;
+      if (category && (!('category' in plugin) || plugin.category !== category)) return false;
+      const type = !('connectors' in plugin) ? 'none'
+        : 'email' in plugin.connectors ? 'email' : 'mcp' in plugin.connectors ? 'mcp' : 'composio';
+      if (connection && connection !== type) return false;
+      return true;
+    });
+    const pageSize = Number(url.searchParams.get('pageSize') || 12);
+    const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+    const currentPage = Math.min(Math.max(1, Number(url.searchParams.get('page') || 1)), totalPages);
+    const pagePlugins = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+    storePages.push({ state, page: currentPage, names: pagePlugins.map(plugin => plugin.name) });
+    return route.fulfill({ json: {
+      success: true, registry: { id: 'qa', name: 'QA catalog', updatedAt: '2026-10-02T00:00:00.000Z' },
+      plugins: pagePlugins, installedPlugins: metadata,
+      facets: { categories: ['Design', 'Productivity'], connectionTypes: ['composio', 'email', 'mcp', 'none'] },
+      pagination: { page: currentPage, pageSize, totalItems: filtered.length, totalPages,
+        hasNextPage: currentPage < totalPages, hasPreviousPage: currentPage > 1 },
+      stats: { total: catalog.length + metadata.length, installed: installed.length, available: catalog.length, updates: 1, filteredTotal: filtered.length },
+    } });
+  });
+  return { installed, metadata, storeRequests, storePages, installedRequests, setUnavailable: (value: boolean) => { unavailable = value; } };
+}
+
+test('combined catalog filters restore query and page through Back and reload without rechecking installed connections', async ({ browser }, info) => {
+  const context = await createAuthenticatedContext(browser);
+  const page = await createAcceptancePage(context);
+  const errors = collectRuntimeErrors(page);
+  try {
+    const state = await mockFilteredCatalog(page);
+    await page.goto('/en/plugins?q=QA%20Mail&category=Productivity&connection=email&page=2');
+    const search = page.getByPlaceholder(en.skills.plugins.searchPlaceholder, { exact: true });
+    const category = page.getByRole('combobox', { name: en.skills.plugins.filters.category, exact: true });
+    const connection = page.getByRole('combobox', { name: en.skills.plugins.filters.connection, exact: true });
+    await expect(search).toHaveValue('QA Mail');
+    await expect(category).toHaveValue('Productivity');
+    await expect(connection).toHaveValue('email');
+    await expect(page.getByRole('heading', { name: 'QA Mail 72', exact: true })).toBeVisible();
+    await expect(page.getByText('Page 2 of 2 · 16 plugins', { exact: true })).toBeVisible();
+    const switcher = page.getByTestId('workspace-switcher');
+    await expect(switcher).toHaveAttribute('data-active-workspace-id', /\S+/);
+    const activeWorkspaceId = await switcher.getAttribute('data-active-workspace-id');
+    await expect.poll(() => state.installedRequests.some(url =>
+      url.searchParams.get('workspaceId') === activeWorkspaceId && url.searchParams.get('fresh') === '1')).toBe(true);
+    const installedRequestCount = state.installedRequests.length;
+    const freshRequestCount = state.installedRequests.filter(url => url.searchParams.get('fresh') === '1').length;
+    await category.selectOption('Design');
+    await expect(page).toHaveURL(url => url.searchParams.get('category') === 'Design'
+      && (!url.searchParams.has('page') || url.searchParams.get('page') === '1'));
+    await expect(page.getByRole('heading', { name: 'QA Mail 3', exact: true })).toBeVisible();
+    await page.goBack();
+    await expect(category).toHaveValue('Productivity');
+    await expect(page.getByRole('heading', { name: 'QA Mail 72', exact: true })).toBeVisible();
+    await expect(page).toHaveURL(url => url.searchParams.get('page') === '2' && url.searchParams.get('connection') === 'email');
+    await page.getByRole('button', { name: en.skills.plugins.pagination.previous, exact: true }).click();
+    await expect(page.getByRole('heading', { name: 'QA Mail 0', exact: true })).toBeVisible();
+    await page.getByRole('button', { name: en.skills.plugins.pagination.next, exact: true }).click();
+    await expect(page.getByRole('heading', { name: 'QA Mail 72', exact: true })).toBeVisible();
+    await connection.selectOption('mcp');
+    await expect(page).toHaveURL(url => url.searchParams.get('connection') === 'mcp'
+      && (!url.searchParams.has('page') || url.searchParams.get('page') === '1'));
+    await expect(page.getByRole('heading', { name: 'QA Mail 4', exact: true })).toBeVisible();
+    await page.goBack();
+    await expect(connection).toHaveValue('email');
+    await expect(page.getByRole('heading', { name: 'QA Mail 72', exact: true })).toBeVisible();
+    await search.fill('QA Mail 90');
+    await expect(page).toHaveURL(url => url.searchParams.get('q') === 'QA Mail 90'
+      && (!url.searchParams.has('page') || url.searchParams.get('page') === '1'));
+    await expect(page.getByText('Page 1 of 1 · 1 plugins', { exact: true })).toBeVisible();
+    expect(state.installedRequests).toHaveLength(installedRequestCount);
+    expect(state.installedRequests.filter(url => url.searchParams.get('fresh') === '1')).toHaveLength(freshRequestCount);
+    await page.reload();
+    await expect(search).toHaveValue('QA Mail 90');
+    await expect(category).toHaveValue('Productivity');
+    await expect(connection).toHaveValue('email');
+    await expect(page.getByRole('heading', { name: 'QA Mail 90', exact: true })).toBeVisible();
+    expect(state.storeRequests.some(url => url.searchParams.get('q') === 'QA Mail'
+      && url.searchParams.get('category') === 'Productivity' && url.searchParams.get('connection') === 'email'
+      && url.searchParams.get('page') === '2')).toBe(true);
+    await page.goto('/en/plugins?q=QA%20Mail&category=Productivity&connection=email&page=99');
+    await expect(page.getByText('Page 2 of 2 · 16 plugins', { exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'QA Mail 72', exact: true })).toBeVisible();
+    expect(state.storeRequests.some(url => url.searchParams.get('page') === '99')).toBe(true);
+    const previousRequests = state.storeRequests.filter(url => url.searchParams.get('page') === '1').length;
+    await page.getByRole('button', { name: en.skills.plugins.pagination.previous, exact: true }).click();
+    await expect(page).toHaveURL(url => !url.searchParams.has('page') || url.searchParams.get('page') === '1');
+    await expect(page.getByText('Page 1 of 2 · 16 plugins', { exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'QA Mail 0', exact: true })).toBeVisible();
+    expect(state.storeRequests.filter(url => url.searchParams.get('page') === '1').length).toBeGreaterThan(previousRequests);
+    expect(state.storeRequests.some(url => url.searchParams.get('page') === '98')).toBe(false);
+    await capture(page, info, 'combined-catalog-filters');
+    expect(errors).toEqual([]);
+  } finally { await context.close(); }
+});
+
+test('installed readiness and activation filters intersect and off-page update metadata stays visible', async ({ browser }, info) => {
+  const context = await createAuthenticatedContext(browser);
+  const page = await createAcceptancePage(context);
+  const errors = collectRuntimeErrors(page);
+  try {
+    const state = await mockFilteredCatalog(page);
+    await page.goto('/en/plugins?view=installed');
+    const readyCard = page.getByRole('heading', { name: 'QA ready active', exact: true }).locator('xpath=ancestor::*[@role="button"][1]');
+    await expect(readyCard.getByText(en.skills.plugins.updateAvailable, { exact: true })).toBeVisible();
+    await expect(readyCard.getByRole('button', { name: en.skills.plugins.update, exact: true })).toBeVisible();
+    expect(state.storePages.some(response => response.state === 'installed' && response.page === 1
+      && !response.names.includes('qa-ready-active'))).toBe(true);
+    const readiness = page.getByRole('combobox', { name: en.skills.plugins.filters.readiness, exact: true });
+    const enabled = page.getByRole('combobox', { name: en.skills.plugins.filters.enabled, exact: true });
+    await readiness.selectOption('personal-connection-required');
+    await enabled.selectOption('disabled');
+    await expect(page).toHaveURL(url => url.searchParams.get('readiness') === 'personal-connection-required'
+      && url.searchParams.get('enabled') === 'disabled');
+    await expect(page.getByRole('heading', { name: 'QA required disabled', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'QA required active', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('heading', { name: 'QA ready active', exact: true })).toHaveCount(0);
+    await page.goBack();
+    await expect(readiness).toHaveValue('personal-connection-required');
+    await expect(page.getByRole('heading', { name: 'QA required active', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'QA required disabled', exact: true })).toBeVisible();
+    await page.goForward();
+    await page.reload();
+    await expect(enabled).toHaveValue('disabled');
+    await expect(readiness).toHaveValue('personal-connection-required');
+    await expect(page.getByRole('heading', { name: 'QA required disabled', exact: true })).toBeVisible();
+    expect(state.metadata.find(plugin => plugin.name === 'qa-ready-active')?.installed.updateAvailable).toBe(true);
+    await capture(page, info, 'installed-filter-intersection');
+    expect(errors).toEqual([]);
+  } finally { await context.close(); }
+});
+
+test('an unavailable filtered catalog keeps installed packages and filter navigation usable', async ({ browser }, info) => {
+  const context = await createAuthenticatedContext(browser);
+  const page = await createAcceptancePage(context);
+  const errors = collectRuntimeErrors(page, ['/api/plugins/store?']);
+  try {
+    const state = await mockFilteredCatalog(page);
+    state.setUnavailable(true);
+    await page.goto('/en/plugins?view=installed');
+    await expect(page.getByText('QA filtered catalog unavailable', { exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'QA ready active', exact: true })).toBeVisible();
+    await expect(page.getByRole('switch', { name: en.skills.plugins.toggle.replace('{name}', 'qa-ready-active'), exact: true })).toBeEnabled();
+    const search = page.getByPlaceholder(en.skills.plugins.searchPlaceholder, { exact: true });
+    await search.fill('QA required');
+    await expect(page.getByRole('heading', { name: 'QA ready active', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('heading', { name: 'QA required active', exact: true })).toBeVisible();
+    await page.getByRole('combobox', { name: en.skills.plugins.filters.enabled, exact: true }).selectOption('disabled');
+    await expect(page.getByRole('heading', { name: 'QA required disabled', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'QA required active', exact: true })).toHaveCount(0);
+    state.setUnavailable(false);
+    await page.getByRole('button', { name: en.skills.plugins.reload, exact: true }).click();
+    await expect(page.getByText('QA filtered catalog unavailable', { exact: true })).toHaveCount(0);
+    await capture(page, info, 'filtered-catalog-unavailable');
+    expect(errors).toEqual([]);
+  } finally { await context.close(); }
+});

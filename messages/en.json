@@ -7335,6 +7335,25 @@
       "stats": "{enabled}/{total} enabled",
       "reload": "Reload",
       "searchPlaceholder": "Search plugins and skills",
+      "noMatches": "No plugins match this search or these filters.",
+      "browse": "Discover plugins",
+      "filters": {
+        "category": "Category",
+        "allCategories": "All categories",
+        "connection": "Connection",
+        "allConnections": "All connections",
+        "connectionTypes": {
+          "composio": "Connected apps",
+          "email": "Email",
+          "mcp": "MCP",
+          "none": "No connection"
+        },
+        "readiness": "Readiness",
+        "allReadiness": "All statuses",
+        "enabled": "Activation",
+        "allEnabled": "All activation states",
+        "clear": "Clear filters"
+      },
       "storeSource": "Source: {name}",
       "officialStore": "Canvas Plugin Store",
       "emptyStore": "No store plugins found.",

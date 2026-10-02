@@ -7334,6 +7334,25 @@
       "stats": "{enabled}/{total} aktiviert",
       "reload": "Neu laden",
       "searchPlaceholder": "Plugins und Skills suchen",
+      "noMatches": "Keine Plugins passen zu dieser Suche oder diesen Filtern.",
+      "browse": "Plugins entdecken",
+      "filters": {
+        "category": "Kategorie",
+        "allCategories": "Alle Kategorien",
+        "connection": "Verbindung",
+        "allConnections": "Alle Verbindungen",
+        "connectionTypes": {
+          "composio": "Verbundene Apps",
+          "email": "E-Mail",
+          "mcp": "MCP",
+          "none": "Ohne Verbindung"
+        },
+        "readiness": "Einsatzbereitschaft",
+        "allReadiness": "Alle Status",
+        "enabled": "Aktivierung",
+        "allEnabled": "Alle Aktivierungszustände",
+        "clear": "Filter zurücksetzen"
+      },
       "storeSource": "Quelle: {name}",
       "officialStore": "Canvas Plugin Store",
       "emptyStore": "Keine Plugins im Store gefunden.",

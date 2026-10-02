@@ -25,6 +25,7 @@ import {
 } from '@/app/lib/plugins/canvas-plugin-manifest';
 import {
   normalizeComposioConnectors,
+  normalizeEmailConnectors,
   normalizeMcpConnectors,
   resolvePluginConnectionReadiness,
 } from '@/app/lib/plugins/plugin-connection-readiness';
@@ -104,6 +105,8 @@ export interface CanvasPluginStoreList {
   plugins: CanvasPluginStorePluginWithState[];
   pagination: CanvasPluginStorePagination;
   stats: CanvasPluginStoreStats;
+  facets: { categories: string[]; connectionTypes: CanvasPluginStoreConnectionType[] };
+  installedPlugins: CanvasPluginStorePluginWithState[];
 }
 
 export interface CanvasPluginStoreInstallResult extends CanvasPluginInstallResult {
@@ -117,12 +120,15 @@ export interface CanvasPluginStoreIcon {
 }
 
 export type CanvasPluginStoreStateFilter = 'all' | 'available' | 'installed' | 'updates';
+export type CanvasPluginStoreConnectionType = 'composio' | 'email' | 'mcp' | 'none';
 
 export interface CanvasPluginStoreListOptions {
   name?: string;
   page?: number;
   pageSize?: number;
   query?: string;
+  category?: string;
+  connection?: CanvasPluginStoreConnectionType;
   state?: CanvasPluginStoreStateFilter;
   scope?: CanvasPluginStorageScope | null;
 }
@@ -652,6 +658,18 @@ function matchesState(plugin: CanvasPluginStorePluginWithState, state: CanvasPlu
   return true;
 }
 
+export function parseCanvasPluginStoreConnectionType(value: unknown): CanvasPluginStoreConnectionType | undefined {
+  return value === 'composio' || value === 'email' || value === 'mcp' || value === 'none' ? value : undefined;
+}
+
+function storeConnectionTypes(plugin: CanvasPluginStorePlugin): CanvasPluginStoreConnectionType[] {
+  const types: CanvasPluginStoreConnectionType[] = [];
+  if (normalizeComposioConnectors(plugin.connectors).length) types.push('composio');
+  if (normalizeEmailConnectors(plugin.connectors).length) types.push('email');
+  if (normalizeMcpConnectors(plugin.connectors).length) types.push('mcp');
+  return types.length ? types : ['none'];
+}
+
 export async function listCanvasPluginStore(options: CanvasPluginStoreListOptions = {}): Promise<CanvasPluginStoreList> {
   const [registry, installedPlugins] = await Promise.all([
     readCanvasPluginStoreRegistry(),
@@ -661,8 +679,11 @@ export async function listCanvasPluginStore(options: CanvasPluginStoreListOption
   const pageSize = clampPositiveInteger(options.pageSize, 12, 50);
   const page = clampPositiveInteger(options.page, 1, 100000);
   const state = options.state || 'all';
+  const category = options.category?.trim().toLowerCase();
   const filtered = enriched.plugins.filter((plugin) => (
     (!options.name || plugin.name === options.name)
+    && (!category || plugin.category?.trim().toLowerCase() === category)
+    && (!options.connection || storeConnectionTypes(plugin).includes(options.connection))
     && matchesState(plugin, state) && matchesStoreQuery(plugin, options.query || '')
   ));
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
@@ -670,6 +691,11 @@ export async function listCanvasPluginStore(options: CanvasPluginStoreListOption
   const offset = (normalizedPage - 1) * pageSize;
   return {
     registry: enriched.registry,
+    facets: {
+      categories: [...new Set(enriched.plugins.map((plugin) => plugin.category).filter((value): value is string => Boolean(value)))].sort((a, b) => a.localeCompare(b)),
+      connectionTypes: [...new Set(enriched.plugins.flatMap(storeConnectionTypes))].sort(),
+    },
+    installedPlugins: enriched.plugins.filter((plugin) => plugin.installed.installed),
     plugins: filtered.slice(offset, offset + pageSize),
     pagination: {
       page: normalizedPage,

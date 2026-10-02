@@ -4,7 +4,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/app/lib/auth';
 import { resolveCapabilityStorageScope } from '@/app/lib/capabilities/request-scope';
 import { readOrganizationPermissionForUser } from '@/app/lib/organization/permissions';
-import { listCanvasPluginStore, type CanvasPluginStoreStateFilter } from '@/app/lib/plugins/canvas-plugin-store';
+import { listCanvasPluginStore, parseCanvasPluginStoreConnectionType, type CanvasPluginStoreStateFilter } from '@/app/lib/plugins/canvas-plugin-store';
 
 function parsePositiveInteger(value: string | null): number | undefined {
   if (!value) return undefined;
@@ -35,6 +35,8 @@ export async function GET(request: NextRequest) {
       page: parsePositiveInteger(request.nextUrl.searchParams.get('page')),
       pageSize: parsePositiveInteger(request.nextUrl.searchParams.get('pageSize')),
       query: request.nextUrl.searchParams.get('q') || '',
+      category: request.nextUrl.searchParams.get('category') || undefined,
+      connection: parseCanvasPluginStoreConnectionType(request.nextUrl.searchParams.get('connection')),
       state: parseState(request.nextUrl.searchParams.get('state')),
       scope,
     });

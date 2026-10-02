@@ -6,24 +6,27 @@ import ts from 'typescript';
 async function main() {
   const source = await fs.readFile('app/components/plugins/PluginsPanel.tsx', 'utf8');
   const parsed = ts.createSourceFile('PluginsPanel.tsx', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
-  let loader: ts.Expression | undefined;
+  const loaders = new Map<string, ts.Expression>();
   const find = (node: ts.Node) => {
-    if (ts.isVariableDeclaration(node) && node.name.getText(parsed) === 'loadPluginData' && node.initializer && ts.isCallExpression(node.initializer)) loader = node.initializer.arguments[0];
+    if (ts.isVariableDeclaration(node) && ['loadPluginData', 'loadInstalledPlugins', 'loadStorePlugins'].includes(node.name.getText(parsed)) && node.initializer && ts.isCallExpression(node.initializer)) loaders.set(node.name.getText(parsed), node.initializer.arguments[0]);
     ts.forEachChild(node, find);
   };
   find(parsed);
-  assert.ok(loader);
-  const js = ts.transpileModule(`(${loader.getText(parsed)})();`, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None } }).outputText;
+  assert.equal(loaders.size, 3);
+  const js = ts.transpileModule(`(() => { ${[...loaders].map(([name, expression]) => `const ${name} = ${expression.getText(parsed)};`).join('\n')}
+    latestPluginLoadersRef.current = { installed: loadInstalledPlugins, store: loadStorePlugins };
+    return loadPluginData(); })();`, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None } }).outputText;
   const script = new vm.Script(js);
   const state: Record<string, unknown> = {};
   const context = vm.createContext({
     Promise, URLSearchParams, Error,
-    pluginLoadRequestRef: { current: 0 }, PLUGIN_STORE_PAGE_SIZE: 12, storeTab: 'installed', storePage: 1, deferredSearchQuery: '', managementScope: 'user',
+    pluginLoadRequestRef: { current: 0 }, storeLoadRequestRef: { current: 0 }, latestPluginLoadersRef: { current: null }, PLUGIN_STORE_PAGE_SIZE: 12, storeTab: 'installed', storePage: 1, deferredSearchQuery: '', managementScope: 'user', categoryFilter: undefined, connectionFilter: undefined,
     activeWorkspaceId: 'workspace-one', composioHeaders: () => ({ 'X-Canvas-Workspace-Id': 'workspace-one' }),
     capabilityScopeUrl: (url: string, scope: string) => `${url}?scope=${scope}`,
     t: (key: string) => `localized:${key}`,
-    EMPTY_STORE_PAGINATION: {}, EMPTY_STORE_STATS: {},
-    ...Object.fromEntries(['IsLoading', 'IsStoreLoading', 'PluginsLoadFailed', 'Error', 'StoreError', 'Plugins', 'StorePlugins', 'StoreMetadata', 'StorePagination', 'StoreStats'].map(key => [`set${key}`, (value: unknown) => { state[key] = value; }])),
+    EMPTY_STORE_PAGINATION: {}, EMPTY_STORE_STATS: {}, EMPTY_STORE_FACETS: {},
+    setDetailRefreshRevision: (update: (revision: number) => number) => { state.DetailRefreshRevision = update(Number(state.DetailRefreshRevision || 0)); },
+    ...Object.fromEntries(['IsLoading', 'IsStoreLoading', 'PluginsLoadFailed', 'Error', 'StoreError', 'Plugins', 'StorePlugins', 'InstalledStorePlugins', 'StoreFacets', 'StoreMetadata', 'StorePagination', 'StoreStats'].map(key => [`set${key}`, (value: unknown) => { state[key] = value; }])),
   });
   let releaseStore!: () => void;
   const storePending = new Promise<void>(resolve => { releaseStore = resolve; });

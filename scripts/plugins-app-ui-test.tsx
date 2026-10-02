@@ -36,6 +36,8 @@ async function main() {
   const fetches: string[] = [];
   let Panel: React.ComponentType<{ canManageOrganizationCapabilities?: boolean }>;
   let installedPlugins: Record<string, unknown>[] = [];
+  let installedMetadata: Record<string, unknown>[] = [];
+  let paginationFixture = false;
   let storeFixtures: Record<string, unknown>[] = [];
   let storeFixtureOffPage = false;
   let storePending: Promise<void> | undefined;
@@ -96,9 +98,10 @@ async function main() {
     }
     if (url.pathname === '/api/plugins/store') {
       await storePending;
+      const catalogPage = Math.min(2, Number(url.searchParams.get('page')) || 1);
       return storeUnavailable
         ? Response.json({ success: false, error: 'Plugin catalog unavailable' }, { status: 503 })
-        : Response.json({ success: true, plugins: storeFixtureOffPage && !url.searchParams.has('name') ? [] : storeFixtures, stats: { updates: 0 } });
+        : Response.json({ success: true, plugins: storeFixtureOffPage && !url.searchParams.has('name') ? [] : storeFixtures, installedPlugins: installedMetadata, facets: { categories: ['Team', 'Tools'], connectionTypes: ['email', 'mcp'] }, stats: { updates: installedMetadata.length }, ...(paginationFixture ? { pagination: { page: catalogPage, pageSize: 12, totalItems: 13, totalPages: 2, hasPreviousPage: catalogPage > 1, hasNextPage: catalogPage < 2 } } : {}) });
     }
     if (url.pathname === '/api/plugins/store/preflight') return Response.json({ success: true, preflight: { ready: true, hasRequiredMissing: false, items: [], summary: { total: 0, ready: 0, requiredMissing: 0, recommendedMissing: 0 } } });
     if (url.pathname === '/api/plugins/store/install') {
@@ -227,6 +230,58 @@ async function main() {
     storeFixtures = [];
     storeFixtureOffPage = false;
     installedPlugins = [];
+
+    const needsConnection = { name: 'filtered-plugin', version: '1.0.0', description: 'Filter fixture', enabled: false, scopeType: 'user', resourceId: 'user:filtered-plugin', readiness: 'personal-connection-required', skills: [] };
+    installedPlugins = [needsConnection,
+      { name: 'ready-plugin', version: '1.0.0', description: 'Ready fixture', enabled: true, readiness: 'available', skills: [] },
+      { name: 'disabled-plugin', version: '1.0.0', description: 'Disabled fixture', enabled: false, readiness: 'disabled', skills: [] },
+    ];
+    installedMetadata = [{ name: 'filtered-plugin', displayName: 'Filtered plugin', description: 'Filter fixture', latestVersion: '2.0.0', installed: { installed: true, enabled: false, version: '1.0.0', updateAvailable: true, installedPlugin: needsConnection } }];
+    dom.window.history.replaceState(null, '', '/en/plugins?view=installed&readiness=personal-connection-required&enabled=disabled');
+    view = render(<PluginsAppClient canManageOrganizationCapabilities />);
+    await waitFor(() => assert.ok(view.getByText('/filtered-plugin')));
+    await waitFor(() => assert.ok(view.getByText(en.skills.plugins.updateAvailable), 'unpaginated metadata supplies update info outside the catalog page'));
+    assert.equal(view.queryByText('/ready-plugin'), null);
+    assert.equal(view.queryByText('/disabled-plugin'), null);
+    const installedLoads = fetches.filter(url => url.startsWith('/api/plugins?')).length;
+    fireEvent.change(view.getByRole('combobox', { name: en.skills.plugins.filters.enabled }), { target: { value: 'enabled' } });
+    await waitFor(() => assert.ok(view.getByText(en.skills.plugins.noMatches)));
+    assert.equal(fetches.filter(url => url.startsWith('/api/plugins?')).length, installedLoads, 'local readiness and activation filters do not refetch fresh installed state');
+    await act(async () => { dom.window.history.back(); await new Promise(resolve => setTimeout(resolve, 30)); });
+    await waitFor(() => assert.ok(view.getByText('/filtered-plugin')));
+    assert.equal((view.getByRole('combobox', { name: en.skills.plugins.filters.enabled }) as HTMLSelectElement).value, 'disabled');
+    fireEvent.click(view.getByRole('button', { name: en.skills.plugins.filters.clear }));
+    await waitFor(() => assert.ok(view.getByText('/ready-plugin')));
+    fireEvent.mouseDown(view.getByRole('tab', { name: en.skills.plugins.storeTabs.discover }), { button: 0 });
+    fireEvent.change(view.getByRole('combobox', { name: en.skills.plugins.filters.category }), { target: { value: 'Team' } });
+    fireEvent.change(view.getByRole('combobox', { name: en.skills.plugins.filters.connection }), { target: { value: 'email' } });
+    fireEvent.change(view.getByRole('textbox', { name: en.skills.plugins.searchPlaceholder }), { target: { value: 'team' } });
+    await waitFor(() => assert.ok(fetches.some(url => url.startsWith('/api/plugins/store?') && new URL(url, 'https://canvas.test').searchParams.get('q') === 'team' && new URL(url, 'https://canvas.test').searchParams.get('category') === 'Team' && new URL(url, 'https://canvas.test').searchParams.get('connection') === 'email')));
+    assert.equal(fetches.filter(url => url.startsWith('/api/plugins?')).length, installedLoads, 'catalog search and filter navigation never repeats fresh installed readiness checks');
+    await act(async () => { dom.window.history.pushState(null, '', '/en/plugins?view=discover&q=team&category=Team&connection=email&page=3'); });
+    fireEvent.change(view.getByRole('combobox', { name: en.skills.plugins.filters.category }), { target: { value: 'Tools' } });
+    assert.equal(new URLSearchParams(dom.window.location.search).has('page'), false);
+    await act(async () => { dom.window.history.back(); await new Promise(resolve => setTimeout(resolve, 30)); });
+    await waitFor(() => assert.equal(new URLSearchParams(dom.window.location.search).get('page'), '3'));
+    assert.equal((view.getByRole('textbox', { name: en.skills.plugins.searchPlaceholder }) as HTMLInputElement).value, 'team');
+    assert.equal((view.getByRole('combobox', { name: en.skills.plugins.filters.category }) as HTMLSelectElement).value, 'Team');
+    cleanup();
+    installedPlugins = [];
+    installedMetadata = [];
+
+    paginationFixture = true;
+    storeFixtures = [{ name: 'page-plugin', displayName: 'Page plugin', description: 'Page fixture', latestVersion: '1.0.0', skills: [], installed: { installed: false, enabled: false, updateAvailable: false } }];
+    dom.window.history.replaceState(null, '', '/en/plugins?view=discover&page=99');
+    view = render(<PluginsAppClient canManageOrganizationCapabilities />);
+    await waitFor(() => assert.ok(view.getByText('/page-plugin')));
+    const previousPage = view.getByRole('button', { name: en.skills.plugins.pagination.previous });
+    assert.equal((previousPage as HTMLButtonElement).disabled, false);
+    fireEvent.click(previousPage);
+    await waitFor(() => assert.equal(new URLSearchParams(dom.window.location.search).has('page'), false, 'Previous leaves a clamped out-of-range URL using the server page'));
+    await waitFor(() => assert.equal((view.getByRole('button', { name: en.skills.plugins.pagination.previous }) as HTMLButtonElement).disabled, true));
+    cleanup();
+    paginationFixture = false;
+    storeFixtures = [];
 
     for (locale of ['de', 'en'] as const) {
       view = render(<PluginsSettingsLink />);

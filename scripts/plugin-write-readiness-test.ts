@@ -6,7 +6,7 @@ import ts from 'typescript';
 async function main() {
   const source = await fs.readFile('app/components/plugins/PluginsPanel.tsx', 'utf8');
   const parsed = ts.createSourceFile('PluginsPanel.tsx', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
-  const names = new Set(['getPreflightKey', 'preflightBlocksPluginWrite', 'installStorePlugin']);
+  const names = new Set(['getPreflightKey', 'preflightBlocksPluginWrite', 'installStorePlugin', 'storeMatchesInstalledPlugin']);
   const handlers: string[] = [];
   const visit = (node: ts.Node) => {
     if (ts.isFunctionDeclaration(node) && node.name && names.has(node.name.text)) handlers.push(node.getText(parsed));
@@ -38,7 +38,7 @@ async function main() {
       activeWorkspaceId: 'workspace-one', activeWorkspaceRef: { current: 'workspace-one' },
       composioHeaders: () => ({ 'Content-Type': 'application/json', 'X-Canvas-Workspace-Id': 'workspace-one' }),
       managementScope: 'user', t: (key: string) => key,
-      loadPluginData: async () => {}, onPluginsChanged: () => {},
+      loadPluginData: async () => { detailRefreshRevision += 1; }, onPluginsChanged: () => {},
       fetch: async (url: string, init: RequestInit) => { writes.push({ url, headers: init.headers }); return Response.json({ success: true }); },
     });
     await script.runInContext(context);
@@ -58,6 +58,26 @@ async function main() {
   assert.equal((await run({ preflight: optionalMissing, connecting: true })).writes.length, 0);
   assert.deepEqual(await run(), { writes: [], checks: 1, detailRefreshRevision: 0 }, 'unknown connector readiness checks before attempting installation');
   assert.deepEqual(await run({ workspaceReady: false }), { writes: [], checks: 0, detailRefreshRevision: 0 }, 'an unresolved workspace never starts checks or package writes');
+  const identityContext: vm.Context = vm.createContext({
+    managementScope: 'user',
+    isAssignedOrganizationPlugin: (plugin: { scopeType?: string }) => identityContext.managementScope === 'user' && plugin.scopeType === 'organization',
+  });
+  const match = new vm.Script(ts.transpileModule(`${handlers.join('\n')}\nstoreMatchesInstalledPlugin;`, {
+    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None },
+  }).outputText).runInContext(identityContext) as (store: object, installed: object) => boolean;
+  const storeIdentity = (record: object) => ({ installed: { installedPlugin: record } });
+  const legacy = { name: 'document-suite' };
+  const resolvedPersonal = { ...legacy, scopeType: 'user', resourceId: 'user:document-suite' };
+  assert.equal(match(storeIdentity(legacy), resolvedPersonal), true, 'legacy own-scope metadata still supports updates/repair after the effective snapshot generates a personal resource ID');
+  assert.equal(match(storeIdentity(resolvedPersonal), legacy), true, 'missing ID on the personal snapshot also keeps its legacy metadata');
+  assert.equal(match(storeIdentity(legacy), { name: 'different-plugin', scopeType: 'user' }), false);
+  assert.equal(match(storeIdentity(resolvedPersonal), { ...resolvedPersonal, resourceId: 'user:other-resource' }), false, 'two present resource IDs must match exactly');
+  const assignedOrganization = { ...legacy, scopeType: 'organization', resourceId: 'organization:document-suite' };
+  assert.equal(match(storeIdentity(legacy), assignedOrganization), false, 'same-name legacy personal metadata cannot match assigned organization identity');
+  assert.equal(match(storeIdentity({ ...assignedOrganization, resourceId: undefined }), assignedOrganization), false, 'organization ownership never uses a name-only fallback');
+  identityContext.managementScope = 'organization';
+  assert.equal(match(storeIdentity(legacy), resolvedPersonal), false, 'personal legacy fallback is limited to personal management scope');
+  assert.equal(match(storeIdentity(assignedOrganization), assignedOrganization), true, 'exact organization resource identity remains supported');
   console.log('Plugin writes: required/pending/failed readiness blocks, optional requirements remain optional, workspace and assigned organization identity are preserved.');
 }
 

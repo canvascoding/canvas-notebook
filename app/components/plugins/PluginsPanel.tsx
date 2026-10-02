@@ -81,6 +81,7 @@ import { WORKSPACE_ID_HEADER } from '@/app/lib/workspaces/constants';
 import { useWorkspaceStore } from '@/app/store/workspace-store';
 import { usePluginNavigation } from '@/app/components/plugins/usePluginNavigation';
 import { pluginSetupSettingsHref } from '@/app/lib/plugins/plugin-return';
+import { PLUGIN_CONNECTION_FILTERS, PLUGIN_READINESS_FILTERS, type PluginNavigation } from '@/app/lib/plugins/plugin-navigation';
 
 interface SkillFileNode {
   name: string;
@@ -295,6 +296,9 @@ type CanvasPluginStoreStats = {
   updates: number;
   filteredTotal: number;
 };
+
+type CanvasPluginStoreFacets = { categories: string[]; connectionTypes: Array<NonNullable<PluginNavigation['connection']>> };
+const EMPTY_STORE_FACETS: CanvasPluginStoreFacets = { categories: [], connectionTypes: [] };
 
 type CanvasSkillStoreEntry = {
   name: string;
@@ -544,12 +548,16 @@ function CanvasPluginsSection({
   }), [activeWorkspaceId]);
   const [plugins, setPlugins] = useState<CanvasPluginSettingsRecord[]>([]);
   const [storePlugins, setStorePlugins] = useState<CanvasPluginStoreEntry[]>([]);
+  const [installedStorePlugins, setInstalledStorePlugins] = useState<CanvasPluginStoreEntry[]>([]);
+  const [storeFacets, setStoreFacets] = useState<CanvasPluginStoreFacets>(EMPTY_STORE_FACETS);
   const [storeMetadata, setStoreMetadata] = useState<CanvasPluginStoreMetadata | null>(null);
   const [storePagination, setStorePagination] = useState<CanvasPluginStorePagination>(EMPTY_STORE_PAGINATION);
   const [storeStats, setStoreStats] = useState<CanvasPluginStoreStats>(EMPTY_STORE_STATS);
   const storeTab = navigation.view as PluginStoreTab;
-  const [storePage, setStorePage] = useState(1);
-  const [searchQuery, setSearchQuery] = useState('');
+  const storePage = navigation.page || 1;
+  const searchQuery = navigation.q || '';
+  const categoryFilter = storeTab === 'discover' || storeTab === 'updates' ? navigation.category : undefined;
+  const connectionFilter = storeTab === 'discover' || storeTab === 'updates' ? navigation.connection : undefined;
   const [isLoading, setIsLoading] = useState(true);
   const [isStoreLoading, setIsStoreLoading] = useState(true);
   const [pluginsLoadFailed, setPluginsLoadFailed] = useState(false);
@@ -570,6 +578,9 @@ function CanvasPluginsSection({
   const [detailStoreError, setDetailStoreError] = useState<string | null>(null);
   const [isDetailStoreLoading, setIsDetailStoreLoading] = useState(false);
   const pluginLoadRequestRef = useRef(0);
+  const storeLoadRequestRef = useRef(0);
+  const latestPluginLoadersRef = useRef<{ installed: () => Promise<void>; store: () => Promise<void> } | null>(null);
+  const mcpSetupRequestRef = useRef(0);
   const connectorFlowRequestRef = useRef(0);
   const mcpAuthorizationRef = useRef<{ controller: AbortController; flow?: McpAuthorizationFlow } | null>(null);
   const preflightRequestRef = useRef<Record<string, number>>({});
@@ -594,11 +605,13 @@ function CanvasPluginsSection({
   }, [detailStorePlugin, selectedInstalledPlugin, selectedPluginDetail, storePlugins]);
 
   useEffect(() => {
+    mcpSetupRequestRef.current += 1;
     connectorFlowRequestRef.current += 1;
     setActiveConnectorAction(null);
     setPreflightByPlugin({});
     setMcpSetupState(EMPTY_PLUGIN_MCP_SETUP_STATE);
     return () => {
+      mcpSetupRequestRef.current += 1;
       connectorFlowRequestRef.current += 1;
       mcpAuthorizationRef.current?.controller.abort();
       if (mcpAuthorizationRef.current?.flow) void cancelMcpAuthorization(mcpAuthorizationRef.current.flow);
@@ -624,8 +637,32 @@ function CanvasPluginsSection({
     return () => { cancelled = true; };
   }, [detailRefreshRevision, managementScope, selectedPluginDetail, t, workspaceReady]);
 
-  const loadPluginData = useCallback(async () => {
+  const loadInstalledPlugins = useCallback(async () => {
     const requestId = ++pluginLoadRequestRef.current;
+    setIsLoading(true);
+    setPluginsLoadFailed(false);
+    setError(null);
+    try {
+      const installedParams = new URLSearchParams({ scope: managementScope, fresh: '1' });
+      if (activeWorkspaceId) installedParams.set('workspaceId', activeWorkspaceId);
+      const response = await fetch(`/api/plugins?${installedParams}`, { credentials: 'include', cache: 'no-store', headers: composioHeaders() });
+      if (requestId !== pluginLoadRequestRef.current) return;
+      const data = await response.json();
+      if (requestId !== pluginLoadRequestRef.current) return;
+      if (!response.ok || !data.success) throw new Error(data.error || t('errors.load'));
+      setPlugins(Array.isArray(data.plugins) ? data.plugins : []);
+    } catch (loadError) {
+      if (requestId === pluginLoadRequestRef.current) {
+        setPluginsLoadFailed(true);
+        setError(loadError instanceof Error ? loadError.message : t('errors.load'));
+      }
+    } finally {
+      if (requestId === pluginLoadRequestRef.current) setIsLoading(false);
+    }
+  }, [activeWorkspaceId, composioHeaders, managementScope, t]);
+
+  const loadStorePlugins = useCallback(async () => {
+    const requestId = ++storeLoadRequestRef.current;
     const storeState = storeTab === 'updates' ? 'updates' : storeTab === 'installed' ? 'installed' : 'all';
     const storeParams = new URLSearchParams({
       page: String(storePage),
@@ -634,56 +671,51 @@ function CanvasPluginsSection({
       state: storeState,
       scope: managementScope,
     });
-
-    setIsLoading(true);
+    if (categoryFilter) storeParams.set('category', categoryFilter);
+    if (connectionFilter) storeParams.set('connection', connectionFilter);
     setIsStoreLoading(true);
-    setPluginsLoadFailed(false);
-    setError(null);
     setStoreError(null);
-    await Promise.all([
-      (async () => {
-        try {
-          const installedParams = new URLSearchParams({ scope: managementScope, fresh: '1' });
-          if (activeWorkspaceId) installedParams.set('workspaceId', activeWorkspaceId);
-          const response = await fetch(`/api/plugins?${installedParams}`, { credentials: 'include', cache: 'no-store', headers: composioHeaders() });
-          const data = await response.json();
-          if (!response.ok || !data.success) throw new Error(data.error || t('errors.load'));
-          if (requestId === pluginLoadRequestRef.current) setPlugins(Array.isArray(data.plugins) ? data.plugins : []);
-        } catch (loadError) {
-          if (requestId === pluginLoadRequestRef.current) {
-            setPluginsLoadFailed(true);
-            setError(loadError instanceof Error ? loadError.message : t('errors.load'));
-          }
-        } finally {
-          if (requestId === pluginLoadRequestRef.current) setIsLoading(false);
-        }
-      })(),
-      (async () => {
-        try {
-          const response = await fetch(`/api/plugins/store?${storeParams}`, { credentials: 'include', cache: 'no-store' });
-          const data = await response.json();
-          if (!response.ok || !data.success) throw new Error(data.error || t('errors.storeLoad'));
-          if (requestId !== pluginLoadRequestRef.current) return;
-          setStorePlugins(Array.isArray(data.plugins) ? data.plugins : []);
-          setStoreMetadata(data.registry || null);
-          setStorePagination(data.pagination || EMPTY_STORE_PAGINATION);
-          setStoreStats(data.stats || EMPTY_STORE_STATS);
-        } catch (loadError) {
-          if (requestId === pluginLoadRequestRef.current) setStoreError(loadError instanceof Error ? loadError.message : t('errors.storeLoad'));
-        } finally {
-          if (requestId === pluginLoadRequestRef.current) setIsStoreLoading(false);
-        }
-      })(),
-    ]);
-  }, [activeWorkspaceId, composioHeaders, deferredSearchQuery, managementScope, storePage, storeTab, t]);
+    try {
+      const response = await fetch(`/api/plugins/store?${storeParams}`, { credentials: 'include', cache: 'no-store' });
+      if (requestId !== storeLoadRequestRef.current) return;
+      const data = await response.json();
+      if (requestId !== storeLoadRequestRef.current) return;
+      if (!response.ok || !data.success) throw new Error(data.error || t('errors.storeLoad'));
+      setStorePlugins(Array.isArray(data.plugins) ? data.plugins : []);
+      setInstalledStorePlugins(Array.isArray(data.installedPlugins) ? data.installedPlugins : []);
+      setStoreFacets(data.facets || EMPTY_STORE_FACETS);
+      setStoreMetadata(data.registry || null);
+      setStorePagination(data.pagination || EMPTY_STORE_PAGINATION);
+      setStoreStats(data.stats || EMPTY_STORE_STATS);
+    } catch (loadError) {
+      if (requestId === storeLoadRequestRef.current) setStoreError(loadError instanceof Error ? loadError.message : t('errors.storeLoad'));
+    } finally {
+      if (requestId === storeLoadRequestRef.current) setIsStoreLoading(false);
+    }
+  }, [categoryFilter, connectionFilter, deferredSearchQuery, managementScope, storePage, storeTab, t]);
+
+  latestPluginLoadersRef.current = { installed: loadInstalledPlugins, store: loadStorePlugins };
+  const loadPluginData = useCallback(async () => {
+    const loaders = latestPluginLoadersRef.current;
+    if (!loaders) return;
+    const installedRequestId = pluginLoadRequestRef.current + 1;
+    await Promise.all([loaders.installed(), loaders.store()]);
+    if (installedRequestId === pluginLoadRequestRef.current) setDetailRefreshRevision((revision) => revision + 1);
+  }, []);
 
   useEffect(() => {
     if (!workspaceReady) return;
     startTransition(() => {
-      void loadPluginData();
+      void loadInstalledPlugins();
     });
     return () => { pluginLoadRequestRef.current += 1; };
-  }, [loadPluginData, workspaceReady]);
+  }, [loadInstalledPlugins, workspaceReady]);
+
+  useEffect(() => {
+    if (!workspaceReady) return;
+    startTransition(() => { void loadStorePlugins(); });
+    return () => { storeLoadRequestRef.current += 1; };
+  }, [loadStorePlugins, workspaceReady]);
 
   const loadComposioConnectorState = useCallback(async (options: { isCancelled?: () => boolean } = {}) => {
     const workspaceId = activeWorkspaceId;
@@ -878,7 +910,9 @@ function CanvasPluginsSection({
 
   async function installStorePlugin(pluginName: string, version?: string) {
     if (!workspaceReady) return;
-    const storePlugin = storePlugins.find((plugin) => plugin.name === pluginName) || (detailStorePlugin?.name === pluginName ? detailStorePlugin : undefined);
+    const storePlugin = storePlugins.find((plugin) => plugin.name === pluginName)
+      || installedStorePlugins.find((plugin) => plugin.name === pluginName)
+      || (detailStorePlugin?.name === pluginName ? detailStorePlugin : undefined);
     const preflightKey = getPreflightKey(pluginName, version);
     const shouldPreflight = Boolean(
       storePlugin
@@ -915,7 +949,6 @@ function CanvasPluginsSection({
       }
       if (activeWorkspaceRef.current !== workspaceId) { onPluginsChanged(); return; }
       await loadPluginData();
-      setDetailRefreshRevision((revision) => revision + 1);
       setPreflightByPlugin((current) => {
         const next = { ...current };
         delete next[preflightKey];
@@ -1140,6 +1173,8 @@ function CanvasPluginsSection({
     connector: CanvasPluginMcpConnector;
   }) {
     const workspaceId = activeWorkspaceId;
+    const requestId = ++mcpSetupRequestRef.current;
+    const isCurrent = () => requestId === mcpSetupRequestRef.current && activeWorkspaceRef.current === workspaceId;
     const fallbackDraft = createMcpServerDraftFromConnector(options.connector);
     setMcpSetupState({
       open: true,
@@ -1172,8 +1207,10 @@ function CanvasPluginsSection({
           }),
         }),
       ]);
+      if (!isCurrent()) return;
 
       const configPayload = await configResponse.json();
+      if (!isCurrent()) return;
       if (!configResponse.ok || !configPayload.success) {
         throw new Error(configPayload.error || t('connectors.mcpLoadError'));
       }
@@ -1182,13 +1219,13 @@ function CanvasPluginsSection({
       const parsedConfig = parseMcpConfigFile(rawContent);
       const existingServer = parsedConfig.mcpServers[options.connector.name];
       const templatePayload = await templateResponse.json().catch(() => null);
+      if (!isCurrent()) return;
       if (!templateResponse.ok || !templatePayload?.success) {
         throw new Error(templatePayload?.error || t('connectors.mcpLoadError'));
       }
       const templateConfig = templatePayload.template?.config;
-      if (activeWorkspaceRef.current !== workspaceId) return;
 
-      setMcpSetupState((current) => ({
+      setMcpSetupState((current) => isCurrent() ? ({
         ...current,
         draft: existingServer
           ? toMcpServerDraft(options.connector.name, existingServer)
@@ -1197,26 +1234,29 @@ function CanvasPluginsSection({
         rawContent,
         isLoading: false,
         error: null,
-      }));
+      }) : current);
     } catch (setupError) {
-      if (activeWorkspaceRef.current !== workspaceId) return;
-      setMcpSetupState((current) => ({
+      if (!isCurrent()) return;
+      setMcpSetupState((current) => isCurrent() ? ({
         ...current,
         isLoading: false,
         error: setupError instanceof Error ? setupError.message : t('connectors.mcpLoadError'),
-      }));
+      }) : current);
     }
   }
 
   async function savePluginMcpServer() {
     if (!mcpSetupState.connector) return;
+    const workspaceId = activeWorkspaceId;
+    const requestId = mcpSetupRequestRef.current;
+    const isCurrent = () => requestId === mcpSetupRequestRef.current && activeWorkspaceRef.current === workspaceId;
 
-    setMcpSetupState((current) => ({
+    setMcpSetupState((current) => isCurrent() ? ({
       ...current,
       isSaving: true,
       error: null,
       errorCode: undefined,
-    }));
+    }) : current);
 
     try {
       const rawContent = updateMcpConfigRawServer(
@@ -1237,6 +1277,7 @@ function CanvasPluginsSection({
           }),
         });
         const saveEnvPayload = await saveEnvResponse.json().catch(() => null);
+        if (!isCurrent()) return;
         if (!saveEnvResponse.ok || !saveEnvPayload?.success) {
           throw new McpAuthorizationError(
             typeof saveEnvPayload?.code === 'string' ? saveEnvPayload.code : 'request_failed',
@@ -1253,6 +1294,7 @@ function CanvasPluginsSection({
         body: JSON.stringify({ rawContent }),
       });
       const saveMcpPayload = await saveMcpResponse.json().catch(() => null);
+      if (!isCurrent()) return;
       if (!saveMcpResponse.ok || !saveMcpPayload?.success) {
         throw new McpAuthorizationError(
           typeof saveMcpPayload?.code === 'string' ? saveMcpPayload.code : 'request_failed',
@@ -1263,16 +1305,19 @@ function CanvasPluginsSection({
       const storePlugin = storeByName.get(mcpSetupState.pluginName);
       if (storePlugin) {
         await checkStorePluginPreflight(storePlugin.name, storePlugin.latestVersion);
+        if (!isCurrent()) return;
       }
       await loadPluginData();
-      setMcpSetupState(EMPTY_PLUGIN_MCP_SETUP_STATE);
+      if (!isCurrent()) return;
+      setMcpSetupState((current) => isCurrent() ? EMPTY_PLUGIN_MCP_SETUP_STATE : current);
     } catch (saveError) {
-      setMcpSetupState((current) => ({
+      if (!isCurrent()) return;
+      setMcpSetupState((current) => isCurrent() ? ({
         ...current,
         isSaving: false,
         error: saveError instanceof Error ? saveError.message : t('connectors.mcpSaveError'),
         errorCode: saveError instanceof McpAuthorizationError ? saveError.code : undefined,
-      }));
+      }) : current);
     }
   }
 
@@ -1692,8 +1737,17 @@ function CanvasPluginsSection({
     );
   }
 
-  const storeByName = new Map(storePlugins.map((plugin) => [plugin.name, plugin]));
+  const storeByName = new Map([...installedStorePlugins, ...storePlugins].map((plugin) => [plugin.name, plugin]));
   if (detailStorePlugin && !storeByName.has(detailStorePlugin.name)) storeByName.set(detailStorePlugin.name, detailStorePlugin);
+
+  function storeMatchesInstalledPlugin(storePlugin: CanvasPluginStoreEntry | undefined, installedPlugin: CanvasPluginSettingsRecord | undefined): boolean {
+    const stored = storePlugin?.installed.installedPlugin;
+    if (!stored || !installedPlugin) return false;
+    if ((stored.scopeType === 'organization') !== (installedPlugin.scopeType === 'organization')) return false;
+    if (stored.resourceId && installedPlugin.resourceId) return stored.resourceId === installedPlugin.resourceId;
+    if (stored.scopeType === 'organization' || installedPlugin.scopeType === 'organization') return false;
+    return managementScope === 'user' && stored.name === installedPlugin.name && !isAssignedOrganizationPlugin(installedPlugin);
+  }
 
   function isStoreEntry(plugin: CanvasPluginStoreEntry | CanvasPluginSettingsRecord): plugin is CanvasPluginStoreEntry {
     return 'latestVersion' in plugin;
@@ -1771,14 +1825,15 @@ function CanvasPluginsSection({
       }));
     const isInstalled = Boolean(installedPlugin || (selectedPluginDetail.source === 'store' && storePlugin?.installed.installed));
     const installedEnabled = Boolean(installedPlugin?.enabled ?? storePlugin?.installed.enabled);
-    const updateAvailable = Boolean(storePlugin?.installed.updateAvailable);
+    const installedMetadataMatches = selectedPluginDetail.source === 'store' || storeMatchesInstalledPlugin(storePlugin, installedPlugin);
+    const updateAvailable = Boolean(installedMetadataMatches && storePlugin?.installed.updateAvailable);
     const isPending = pendingPluginName === selectedPluginDetail.name || pendingPluginName === `store:${selectedPluginDetail.name}`;
     const preflight = storePlugin ? preflightByPlugin[getPreflightKey(storePlugin.name, storePlugin.latestVersion)] : undefined;
     const isChecking = Boolean(preflight?.isLoading || !workspaceReady || isDetailStoreLoading || (selectedPluginDetail.source === 'installed' && isLoading));
     const readinessUnchecked = Boolean(storePlugin && hasConnectorRecommendations(storePlugin.connectors) && !preflight?.result);
     const pluginMissing = selectedPluginDetail.source === 'installed' ? !installedPlugin && !isLoading && !pluginsLoadFailed && workspaceReady : !storePlugin && !isDetailStoreLoading && !detailStoreError;
-    const skillSummary = preflight?.result?.skillSummary || storePlugin?.installed.skillSummary;
-    const skillStates = preflight?.result?.skills || storePlugin?.installed.skills || [];
+    const skillSummary = installedMetadataMatches ? preflight?.result?.skillSummary || storePlugin?.installed.skillSummary : undefined;
+    const skillStates = installedMetadataMatches ? preflight?.result?.skills || storePlugin?.installed.skills || [] : [];
     const skillRepairAvailable = Boolean(isInstalled && skillSummary && skillSummary.repairable > 0);
     const canInstallFromStore = Boolean(storePlugin && !pluginMissing && (!isInstalled || updateAvailable || skillRepairAvailable));
     const storeActionLabel = updateAvailable
@@ -2097,8 +2152,9 @@ function CanvasPluginsSection({
     const description = plugin.interface?.shortDescription || plugin.description;
     const isPending = pendingPluginName === plugin.name || pendingPluginName === `store:${plugin.name}`;
     const storePlugin = storeByName.get(plugin.name);
-    const updateAvailable = Boolean(storePlugin?.installed.updateAvailable);
-    const skillRepairAvailable = Boolean(storePlugin?.installed.skillSummary && storePlugin.installed.skillSummary.repairable > 0);
+    const installedMetadataMatches = storeMatchesInstalledPlugin(storePlugin, plugin);
+    const updateAvailable = Boolean(installedMetadataMatches && storePlugin?.installed.updateAvailable);
+    const skillRepairAvailable = Boolean(installedMetadataMatches && storePlugin?.installed.skillSummary && storePlugin.installed.skillSummary.repairable > 0);
     const updatePreflightState = storePlugin
       ? preflightByPlugin[getPreflightKey(storePlugin.name, storePlugin.latestVersion)]
       : undefined;
@@ -2235,8 +2291,25 @@ function CanvasPluginsSection({
   }
 
   const enabledCount = plugins.filter((plugin) => plugin.enabled).length;
-  const filteredInstalledPlugins = plugins.filter(matchesSearch);
+  const filteredInstalledPlugins = plugins.filter((plugin) => {
+    const readiness = plugin.readiness || (!plugin.enabled ? 'disabled' : plugin.connectionReadiness?.ready === false ? 'personal-connection-required' : 'available');
+    return matchesSearch(plugin)
+      && (!navigation.readiness || readiness === navigation.readiness)
+      && (!navigation.enabled || plugin.enabled === (navigation.enabled === 'enabled'));
+  });
   const updatePlugins = storeTab === 'updates' ? storePlugins : [];
+  const hasListFilters = Boolean(searchQuery.trim() || categoryFilter || connectionFilter || (storeTab === 'installed' && (navigation.readiness || navigation.enabled)));
+  const clearListFilters = () => navigate({ q: undefined, category: undefined, connection: undefined, readiness: undefined, enabled: undefined, page: undefined });
+
+  function renderEmptyPluginList(message: string, browse = false) {
+    return (
+      <div className="space-y-3 rounded-lg border border-dashed px-4 py-6 text-sm text-muted-foreground">
+        <p>{message}</p>
+        {hasListFilters ? <Button variant="outline" size="sm" onClick={clearListFilters}>{t('filters.clear')}</Button>
+          : browse ? <Button variant="outline" size="sm" onClick={() => navigate({ view: 'discover' })}>{t('browse')}</Button> : null}
+      </div>
+    );
+  }
 
   function renderStorePagination() {
     if (storeTab === 'installed' || storeTab === 'advanced' || storePagination.totalItems === 0) {
@@ -2257,7 +2330,7 @@ function CanvasPluginsSection({
             variant="outline"
             size="sm"
             disabled={isStoreLoading || !storePagination.hasPreviousPage}
-            onClick={() => setStorePage((page) => Math.max(1, page - 1))}
+            onClick={() => navigate({ page: Math.max(1, storePagination.page - 1) })}
             className="h-8 gap-1.5"
           >
             <ChevronLeft className="h-3.5 w-3.5" />
@@ -2267,7 +2340,7 @@ function CanvasPluginsSection({
             variant="outline"
             size="sm"
             disabled={isStoreLoading || !storePagination.hasNextPage}
-            onClick={() => setStorePage((page) => page + 1)}
+            onClick={() => navigate({ page: storePagination.page + 1 })}
             className="h-8 gap-1.5"
           >
             {t('pagination.next')}
@@ -2303,14 +2376,50 @@ function CanvasPluginsSection({
         <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
         <Input
           value={searchQuery}
-          onChange={(event) => {
-            setStorePage(1);
-            setSearchQuery(event.target.value);
-          }}
+          onChange={(event) => navigate({ q: event.target.value || undefined })}
+          aria-label={t('searchPlaceholder')}
+          maxLength={512}
           placeholder={t('searchPlaceholder')}
           className="pl-9"
         />
       </div>
+
+      {storeTab !== 'advanced' ? (
+        <div className="flex flex-wrap items-end gap-3">
+          {storeTab === 'installed' ? <>
+            <label className="grid min-w-0 flex-1 gap-1 text-xs text-muted-foreground">
+              {t('filters.readiness')}
+              <select aria-label={t('filters.readiness')} value={navigation.readiness || ''} onChange={(event) => navigate({ readiness: (event.target.value || undefined) as PluginNavigation['readiness'] })} className="h-9 w-full rounded-md border bg-background px-2 text-sm text-foreground">
+                <option value="">{t('filters.allReadiness')}</option>
+                {PLUGIN_READINESS_FILTERS.map((value) => <option key={value} value={value}>{t(`readiness.${value}`)}</option>)}
+              </select>
+            </label>
+            <label className="grid min-w-0 flex-1 gap-1 text-xs text-muted-foreground">
+              {t('filters.enabled')}
+              <select aria-label={t('filters.enabled')} value={navigation.enabled || ''} onChange={(event) => navigate({ enabled: (event.target.value || undefined) as PluginNavigation['enabled'] })} className="h-9 w-full rounded-md border bg-background px-2 text-sm text-foreground">
+                <option value="">{t('filters.allEnabled')}</option>
+                <option value="enabled">{t('enabled')}</option><option value="disabled">{t('disabled')}</option>
+              </select>
+            </label>
+          </> : <>
+            <label className="grid min-w-0 flex-1 gap-1 text-xs text-muted-foreground">
+              {t('filters.category')}
+              <select aria-label={t('filters.category')} value={categoryFilter || ''} onChange={(event) => navigate({ category: event.target.value || undefined })} className="h-9 w-full rounded-md border bg-background px-2 text-sm text-foreground">
+                <option value="">{t('filters.allCategories')}</option>
+                {[...new Set([...storeFacets.categories, ...(categoryFilter ? [categoryFilter] : [])])].map((value) => <option key={value} value={value}>{value}</option>)}
+              </select>
+            </label>
+            <label className="grid min-w-0 flex-1 gap-1 text-xs text-muted-foreground">
+              {t('filters.connection')}
+              <select aria-label={t('filters.connection')} value={connectionFilter || ''} onChange={(event) => navigate({ connection: (event.target.value || undefined) as PluginNavigation['connection'] })} className="h-9 w-full rounded-md border bg-background px-2 text-sm text-foreground">
+                <option value="">{t('filters.allConnections')}</option>
+                {PLUGIN_CONNECTION_FILTERS.map((value) => <option key={value} value={value}>{t(`filters.connectionTypes.${value}`)}</option>)}
+              </select>
+            </label>
+          </>}
+          {hasListFilters ? <Button variant="ghost" size="sm" onClick={clearListFilters} className="shrink-0">{t('filters.clear')}</Button> : null}
+        </div>
+      ) : null}
 
       {displayedError && !selectedPluginDetail ? (
         <InlineNotice variant="destructive" size="compact">
@@ -2328,7 +2437,6 @@ function CanvasPluginsSection({
         value={storeTab}
         onValueChange={(value) => {
           if (value === 'discover' || value === 'installed' || value === 'updates' || value === 'advanced') {
-            setStorePage(1);
             navigate({ view: value });
           }
         }}
@@ -2358,9 +2466,7 @@ function CanvasPluginsSection({
           {isStoreLoading ? (
             renderPluginCardSkeletons()
           ) : storeError ? null : storePlugins.length === 0 ? (
-            <div className="rounded-lg border border-dashed px-4 py-6 text-sm text-muted-foreground">
-              {t('emptyStore')}
-            </div>
+            renderEmptyPluginList(t(hasListFilters ? 'noMatches' : 'emptyStore'))
           ) : (
             <>
               <div className="grid gap-3 md:grid-cols-2">
@@ -2375,9 +2481,7 @@ function CanvasPluginsSection({
           {isLoading ? (
             renderPluginCardSkeletons()
           ) : pluginsLoadFailed ? null : filteredInstalledPlugins.length === 0 ? (
-            <div className="rounded-lg border border-dashed px-4 py-6 text-sm text-muted-foreground">
-              {t('empty')}
-            </div>
+            renderEmptyPluginList(t(plugins.length ? 'noMatches' : 'empty'), !plugins.length)
           ) : (
             <div className="grid gap-3 md:grid-cols-2">
               {filteredInstalledPlugins.map((plugin) => renderInstalledPluginCard(plugin))}
@@ -2389,9 +2493,7 @@ function CanvasPluginsSection({
           {isStoreLoading ? (
             renderPluginCardSkeletons()
           ) : storeError ? null : updatePlugins.length === 0 ? (
-            <div className="rounded-lg border border-dashed px-4 py-6 text-sm text-muted-foreground">
-              {t('noUpdates')}
-            </div>
+            renderEmptyPluginList(t(hasListFilters ? 'noMatches' : 'noUpdates'))
           ) : (
             <>
               <div className="grid gap-3 md:grid-cols-2">
@@ -2429,6 +2531,7 @@ function CanvasPluginsSection({
         open={mcpSetupState.open}
         onOpenChange={(open) => {
           if (!open) {
+            mcpSetupRequestRef.current += 1;
             setMcpSetupState(EMPTY_PLUGIN_MCP_SETUP_STATE);
             return;
           }

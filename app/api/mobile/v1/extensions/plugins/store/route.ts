@@ -7,6 +7,7 @@ import { serializeMobilePluginSummary } from '@/app/lib/mobile/extensions';
 import { readOrganizationPermissionForUser } from '@/app/lib/organization/permissions';
 import {
   listCanvasPluginStore,
+  parseCanvasPluginStoreConnectionType,
   type CanvasPluginStoreStateFilter,
 } from '@/app/lib/plugins/canvas-plugin-store';
 
@@ -39,6 +40,8 @@ export async function GET(request: NextRequest) {
       page: parsePositiveInteger(request.nextUrl.searchParams.get('page')),
       pageSize: parsePositiveInteger(request.nextUrl.searchParams.get('pageSize')),
       query: request.nextUrl.searchParams.get('q') || '',
+      category: request.nextUrl.searchParams.get('category') || undefined,
+      connection: parseCanvasPluginStoreConnectionType(request.nextUrl.searchParams.get('connection')),
       state: parseState(request.nextUrl.searchParams.get('state')),
       scope,
     });
@@ -53,6 +56,8 @@ export async function GET(request: NextRequest) {
       plugins: store.plugins.map(serializeMobilePluginSummary),
       pagination: store.pagination,
       stats: store.stats,
+      facets: store.facets,
+      installedPlugins: store.installedPlugins.map(serializeMobilePluginSummary),
       scope: scope.scopeType,
     }, {
       headers: {
