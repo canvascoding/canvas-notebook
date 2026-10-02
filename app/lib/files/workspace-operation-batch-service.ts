@@ -10,6 +10,7 @@ import type { WorkspaceOperationBatchPublic } from './workspace-operation-batch-
 import { WorkspaceOperationBatchStore, WorkspaceOperationBatchError,
   type WorkspaceOperationBatchRecord } from './workspace-operation-batch-store';
 import { getWorkspaceOperationReview, rebaseReviewSelections, WorkspaceOperationReviewError } from './workspace-operation-review-service';
+import { assertWorkspaceOperationBatchApprovalCurrent } from './workspace-operation-batch-approval-fence';
 
 const store = new WorkspaceOperationBatchStore();
 
@@ -110,7 +111,7 @@ export async function enqueueWorkspaceOperationBatch(input: {
   if (!batch) throw new WorkspaceOperationBatchError('BATCH_NOT_FOUND', 404, 'File action batch not found.');
   assertAccess(input.scope, batch.workspaceId);
   const action = input.action ?? 'accept';
-  return withWorkspaceMutationLock(batch.workspaceId, async () => {
+  const approve = async () => {
     const scope = input.refreshScope ? await input.refreshScope() : input.scope;
     assertAccess(scope, batch.workspaceId);
     if (scope.workspace.rootPath !== input.scope.workspace.rootPath) {
@@ -124,11 +125,9 @@ export async function enqueueWorkspaceOperationBatch(input: {
       }
     }
     if (action === 'accept' && batch.status === 'preview') {
-      const fresh = await buildWorkspaceOperationBatchPlan({ scope, actions: batch.plan.actions });
-      if (fresh.planId !== input.planId || fresh.readiness !== 'ready') {
-        throw new WorkspaceOperationBatchError('PREVIEW_STALE', 409, 'Files changed after the combined preview. Refresh before approval.');
-      }
+      await assertWorkspaceOperationBatchApprovalCurrent(batch.plan, scope);
     }
     return workspaceOperationBatchPublic(await store.enqueue({ ...input, action }));
-  });
+  };
+  return action === 'accept' ? approve() : withWorkspaceMutationLock(batch.workspaceId, approve);
 }

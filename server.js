@@ -819,6 +819,9 @@ async function startServer() {
     const fileActionWorkerModule = require('./app/lib/files/workspace-operation-batch-worker.ts');
     const fileActionWorker = fileActionWorkerModule.initializeWorkspaceOperationBatchWorkerRuntime();
     server.once('close', fileActionWorker.stop);
+    const fileCheckWorkerModule = require('./app/lib/files/workspace-operation-check-worker.ts');
+    const fileCheckWorker = fileCheckWorkerModule.initializeWorkspaceOperationCheckWorkerRuntime();
+    server.once('close', fileCheckWorker.stop);
     const excalidrawCollaborationModule = require('./server/excalidraw-collaboration/server.ts');
     excalidrawCollaborationModule.createExcalidrawCollaborationServer(server);
     flushExcalidrawCollaborationDocuments = excalidrawCollaborationModule.flushExcalidrawCollaborationDocuments;

@@ -63,4 +63,17 @@ export const WORKSPACE_OPERATION_REVIEW_STATEMENTS = [
     ON workspace_file_operation_batches (status, lease_expires_at, created_at)`,
   `CREATE INDEX IF NOT EXISTS idx_workspace_file_operation_reviews_batch
     ON workspace_file_operation_reviews (batch_id) WHERE batch_id IS NOT NULL`,
+  `CREATE TABLE IF NOT EXISTS workspace_file_operation_checks (
+    check_id text PRIMARY KEY, workspace_id text NOT NULL, requester_user_id text NOT NULL,
+    review_ids_json text NOT NULL, selection_key text NOT NULL,
+    status text NOT NULL CHECK (status IN ('queued','checking','ready','blocked','failed')),
+    batch_id text, error_code text, lease_owner text, lease_expires_at bigint,
+    created_at bigint NOT NULL, updated_at bigint NOT NULL,
+    CHECK (char_length(check_id) BETWEEN 16 AND 128)
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_workspace_file_operation_checks_running
+    ON workspace_file_operation_checks (workspace_id, requester_user_id, selection_key)
+    WHERE status IN ('queued','checking')`,
+  `CREATE INDEX IF NOT EXISTS idx_workspace_file_operation_checks_queue
+    ON workspace_file_operation_checks (status,created_at,check_id)`,
 ] as const;
