@@ -8,6 +8,8 @@ import { promisify } from 'node:util';
 
 import { createAuthenticatedContext } from './helpers/managed-test-context';
 import { withOwnedTestCleanup } from './helpers/owned-test-cleanup';
+import { COLLABORATION_CLIENT_CAPABILITIES, type CollaborationSessionResponse } from '../app/lib/collaboration/types';
+import type { LegacyReviewDriverFailure, LegacyReviewDriverInput, LegacyReviewDriverOutput } from '../scripts/collaboration-agent-legacy-review-test-driver';
 import { parseProposalActionReceiptV1, PROPOSAL_GRAPH_ERROR_CODES, type ProposalActionReceiptV1 } from '../app/lib/file-version-center/contracts/proposal-graph-v1';
 import { parseProposalReviewActionApiRequestV1, parseProposalReviewSessionResponseV1, type ProposalReviewActionApiRequestV1 } from '../app/lib/file-version-center/contracts/proposal-review-session-v1';
 
@@ -36,6 +38,7 @@ type ObservedEditor = HTMLElement & {
 type Fixture = {
   owner: Page; peer: Page; editor: Locator; peerEditor: Locator; filePath: string;
   headers: Record<string, string>; agentContext: Record<string, unknown>;
+  storedSession: { sessionId: string; agentId: string; title: string; createdAt: string };
 };
 
 async function runTool(fixture: Fixture, toolName: 'read' | 'edit_file', params: Record<string, unknown>): Promise<ToolResult> {
@@ -131,6 +134,7 @@ async function withFixture(browser: Browser, info: TestInfo, run: (fixture: Fixt
     expect(sessionId).toBeTruthy();
     expect(agentId).toBeTruthy();
     const fixture: Fixture = { owner, peer, filePath, headers,
+      storedSession: { sessionId, agentId, title: storedSession.title, createdAt: storedSession.createdAt },
       editor: owner.locator('.tiptap-editor-shell .ProseMirror'),
       peerEditor: peer.locator('.tiptap-editor-shell .ProseMirror'),
       agentContext: { userId, sessionId, agentId, workspaceId,
@@ -193,6 +197,64 @@ async function propose(fixture: Fixture, oldText = 'Agent target', newText = 'Ag
   const review = await operation(fixture, edited.details!.collaboration!.operationId!);
   expect(review.operationStatus).toBe('needs_review');
   expect(review.proposalVersion).toMatch(/^v1\.[a-f0-9]{64}$/u);
+  return review;
+}
+/** Explicit historical compatibility fixture; ordinary PI/MCP proposals stay on graph review. */
+async function proposeHistoricalLegacy(fixture: Fixture, oldText = 'Agent target', newText = 'Agent revised'): Promise<Operation> {
+  let document: CollaborationSessionResponse | undefined;
+  await expect.poll(async () => {
+    const response = await fixture.owner.request.post('/api/files/collaboration/session', {
+      headers: fixture.headers,
+      data: { path: fixture.filePath, representation: 'auto', ...COLLABORATION_CLIENT_CAPABILITIES },
+    });
+    expect(response.status()).toBe(200);
+    document = await response.json() as CollaborationSessionResponse;
+    return document.documentSequence === document.checkpointSequence;
+  }, { timeout: 20_000 }).toBe(true);
+  const read = await runTool(fixture, 'read', { path: fixture.filePath });
+  expect(read.content?.[0]?.text).toContain('Source: live Yjs collaboration state');
+  expect(read.details?.sha256).toMatch(/^[a-f0-9]{64}$/u);
+  const before = await tree(fixture.editor);
+  await expect.poll(() => tree(fixture.peerEditor)).toEqual(before);
+  const input: LegacyReviewDriverInput = {
+    contractVersion: 1, requestId: randomUUID(),
+    session: { ...fixture.storedSession, userId: String(fixture.agentContext.userId), workspaceId: String(fixture.agentContext.workspaceId) },
+    document: { documentId: document!.documentId, path: fixture.filePath,
+      lifecycleGeneration: document!.lifecycleGeneration, schemaVersion: document!.schemaVersion },
+    expectedSha256: read.details!.sha256!, expectedEditorJson: before,
+    edit: { oldText, newText, expectedOccurrences: 1 },
+  };
+  const encoded = Buffer.from(JSON.stringify(input)).toString('base64url');
+  const result = await execFileAsync(path.join(process.cwd(), 'node_modules/.bin/tsx'),
+    ['--conditions', 'react-server', 'scripts/collaboration-agent-legacy-review-test-driver.ts', encoded],
+    { cwd: process.cwd(), env: process.env, maxBuffer: 256 * 1024, timeout: 30_000 }).catch((error: unknown) => {
+      const stdout = (error as { stdout?: string }).stdout;
+      if (typeof stdout === 'string' && stdout.length <= 256 * 1024) {
+        let failure: LegacyReviewDriverFailure | undefined;
+        try { failure = JSON.parse(stdout) as LegacyReviewDriverFailure; } catch { /* No valid driver receipt. */ }
+        if (failure?.contractVersion === 1 && failure.success === false && failure.requestId === input.requestId) {
+          throw new Error(`Historical review fixture failed at ${failure.stage}; committed operation: ${failure.operation?.operationId ?? 'none'}.`);
+        }
+      }
+      throw new Error('Historical review driver failed without a valid scoped receipt.');
+    });
+  const receipt = JSON.parse(result.stdout) as LegacyReviewDriverOutput;
+  expect(receipt.success).toBe(true);
+  expect(receipt.requestId).toBe(input.requestId);
+  expect(receipt.noDurableMutation).toBe(true);
+  expect(await tree(fixture.editor)).toEqual(before);
+  expect(await tree(fixture.peerEditor)).toEqual(before);
+  const review = await operation(fixture, receipt.operation.operationId);
+  expect(review.operationStatus).toBe('needs_review');
+  expect(review.proposalVersion).toMatch(/^v1\.[a-f0-9]{64}$/u);
+  const response = await fixture.owner.request.post('/api/files/version-center/v1/proposals/review', {
+    headers: fixture.headers, data: { contractVersion: 1,
+      target: { kind: 'document', workspaceId: fixture.agentContext.workspaceId, documentId: review.documentId },
+      selection: { kind: 'operation', operationId: review.operationId } },
+  });
+  expect(response.status()).toBe(200);
+  const session = parseProposalReviewSessionResponseV1(await response.json());
+  expect(session.mode).toBe('legacy');
   return review;
 }
 async function showPanel(fixture: Fixture): Promise<Locator> {
@@ -390,7 +452,7 @@ test.describe('Agent review lifecycle with two real browser clients', () => {
 
   test('selective revert preserves a peer paragraph and a later overlapping revert conflicts', async ({ browser }, info) => {
     await withFixture(browser, info, async (fixture) => {
-      const review = await propose(fixture);
+      const review = await proposeHistoricalLegacy(fixture);
       await acceptInUi(fixture, review);
       await expect.poll(() => text(fixture.peerEditor)).toContain('Agent revised');
       await fixture.peerEditor.getByText('Human paragraph', { exact: true }).click();
@@ -405,7 +467,7 @@ test.describe('Agent review lifecycle with two real browser clients', () => {
       expect(reverted.operationStatus).toBe('reverted'); expectDurable(reverted);
       await expect.poll(() => text(fixture.peerEditor)).toBe('AlphaAgent targetHuman paragraph from colleagueTail');
 
-      const second = await propose(fixture, 'Agent target', 'Agent second');
+      const second = await proposeHistoricalLegacy(fixture, 'Agent target', 'Agent second');
       await acceptInUi(fixture, second);
       await expect.poll(() => text(fixture.peerEditor)).toContain('Agent second');
       await selectParagraph(fixture.peer, fixture.peerEditor, 'Agent second');
@@ -423,6 +485,10 @@ test.describe('Agent review lifecycle with two real browser clients', () => {
       expect(await tree(fixture.editor)).toEqual(beforeConflict);
       await expect.poll(() => tree(fixture.peerEditor)).toEqual(beforeConflict);
       const conflictPanel = await showPanel(fixture);
+      await conflictPanel.locator('button[data-entry-kind="current"]').click();
+      const conflictEntry = conflictPanel.locator(`button[data-entry-kind="agent_operation"][data-operation-id="${conflicted.operationId}"]`);
+      await expect(conflictEntry).toHaveCount(1);
+      await conflictEntry.click();
       await expect(conflictPanel).toContainText(
         /Needs review|Review required|Prüfung erforderlich|conflicts with|kollidiert|comparison is no longer current|Vergleich ist nicht mehr aktuell/u,
         { timeout: 20_000 },
