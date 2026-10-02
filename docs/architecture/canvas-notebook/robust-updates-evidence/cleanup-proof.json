@@ -1,0 +1,48 @@
+{
+  "at": "2026-10-02T00:37:08.686Z",
+  "sourceCommit": "587f72905e08d3a35198457066205c0899294a52",
+  "notebookContainerId": "f8d9d578c3eacda3a284200b127d20d2a3fff1ae513d00efd261ce5c775fb158",
+  "notebookImageId": "sha256:a2937e8eb5d6421c1f7e0412c58ebe6dd0abb75c5459ee8b5864768f630ace99",
+  "hostNotebookRunning": 1,
+  "vmNotebookRunning": 0,
+  "vmAgentInactive": true,
+  "sshForwardStopped": true,
+  "bootstrapLoginVerified": true,
+  "managedFixturesVerified": true,
+  "historyBefore": {
+    "totalItems": 15,
+    "activeItems": 0
+  },
+  "historyAfter": {
+    "totalItems": 15,
+    "activeItems": 0
+  },
+  "services": [
+    {
+      "name": "canvas-local-prod-postgres",
+      "containerId": "eb19abc651f7310f349e07d28deef1ac1d76d326c5be1e4d9df9a90cb2ddd3a0",
+      "healthy": true
+    },
+    {
+      "name": "canvas-local-prod-control-plane-api",
+      "containerId": "050eefbd6bb39878accff3c567ea8ceb36f4cd66248be69398bd526840d8229e",
+      "healthy": true
+    },
+    {
+      "name": "canvas-local-prod-control-plane-web",
+      "containerId": "4f6ed2a338b2b0bb97ffe356417f934426f83c7ece5e1b28dcd920476cacaaf5",
+      "healthy": true
+    },
+    {
+      "name": "canvas-local-prod-notebook",
+      "containerId": "f8d9d578c3eacda3a284200b127d20d2a3fff1ae513d00efd261ce5c775fb158",
+      "healthy": true
+    }
+  ],
+  "postgres": {
+    "serverVersion": "18.4 (Debian 18.4-1.pgdg12+1)",
+    "pgvectorVersion": "0.8.3"
+  },
+  "previousPreferencesRestored": true,
+  "privateDataAndCredentialsPreserved": true
+}

@@ -1,0 +1,902 @@
+{
+  "schemaVersion": 1,
+  "checkedAt": "2026-10-02T00:32:17.974Z",
+  "environment": "isolated managed local stack and OrbStack canvas-managed-e2e",
+  "source": {
+    "notebookCommit": "587f72905e08d3a35198457066205c0899294a52",
+    "notebookBranch": "fix/robust-app-updates",
+    "controlPlaneCommit": "6efea0d4403135e698387c4a4e485c77178c53a9",
+    "controlPlaneBranch": "fix/robust-app-updates",
+    "controlPlaneRelocatedWithIdenticalSource": true
+  },
+  "hostValidation": {
+    "sourceCommit": "587f72905e08d3a35198457066205c0899294a52",
+    "hostNotebookWasHealthyBeforeManagedSwitch": true,
+    "bootstrapLoginVerified": true,
+    "fixturesReady": true,
+    "fixtureRetryPassedAfterTransientStartupDeadlock": true,
+    "publicAssetsReadableAsNode": true,
+    "assetEntries": 4
+  },
+  "managedReadiness": {
+    "at": "2026-10-02T00:28:41.515Z",
+    "healthHttpStatus": 200,
+    "healthStatus": "healthy",
+    "loginHttpStatus": 200,
+    "loginVerified": true,
+    "availabilityHttpStatus": 200,
+    "mode": "managed",
+    "ready": true,
+    "idempotentStart": true,
+    "currentVersion": "2026.10.1.2",
+    "releaseId": "758bc93c-42b7-4300-8473-c58262fee8c7",
+    "preStartCounts": {
+      "totalItems": 14,
+      "activeItems": 0,
+      "vmItems": 14,
+      "vmActiveItems": 0
+    }
+  },
+  "imageTransport": {
+    "hostImageId": "sha256:a2937e8eb5d6421c1f7e0412c58ebe6dd0abb75c5459ee8b5864768f630ace99",
+    "vmImageId": "sha256:792f5b417b7bd2af7774b0bc5be7238dc31ab85eda4f8f172a5eb7120007a2e6",
+    "rootFsIdentical": true,
+    "runtimeConfigIdentical": true,
+    "architecture": "arm64",
+    "transport": "existing private native VM registry with normal Docker push/pull"
+  },
+  "releaseImages": {
+    "actualApplicationVersion": "2026.10.1.2",
+    "baseline": {
+      "imageId": "sha256:792f5b417b7bd2af7774b0bc5be7238dc31ab85eda4f8f172a5eb7120007a2e6",
+      "imageRef": "localhost:5000/canvas/notebook@sha256:792f5b417b7bd2af7774b0bc5be7238dc31ab85eda4f8f172a5eb7120007a2e6",
+      "imageDigest": "sha256:792f5b417b7bd2af7774b0bc5be7238dc31ab85eda4f8f172a5eb7120007a2e6"
+    },
+    "target": {
+      "imageId": "sha256:e092878b1852bf14b5e3984a660f9b662f26e30d21022fe1a9ac4eacafed87b6",
+      "imageRef": "localhost:5000/canvas/notebook@sha256:e092878b1852bf14b5e3984a660f9b662f26e30d21022fe1a9ac4eacafed87b6",
+      "imageDigest": "sha256:e092878b1852bf14b5e3984a660f9b662f26e30d21022fe1a9ac4eacafed87b6"
+    }
+  },
+  "cli": {
+    "version": "2026.10.1.2",
+    "nodeVersion": "v22.23.2",
+    "runtimeValidated": true,
+    "freshBuildPassed": true,
+    "regularInstallerPassed": true,
+    "distTreeMatchesInstalled": true,
+    "distTreeSha256": "bea4ac0c23338312ed983c28116cb93bb744ae8d1bc1641e80a89873375555fc",
+    "compiledFileCount": 33,
+    "runtimeMatchesSource": true,
+    "sourceRuntimeSha256": "1a638b0fe2b68da0489276aca95526c5122fc61ba54d6a2d0d00c1c92ab7b876",
+    "installedRuntimeSha256": "1a638b0fe2b68da0489276aca95526c5122fc61ba54d6a2d0d00c1c92ab7b876",
+    "dockerModuleMatchesBuiltSource": true,
+    "sourceDockerModuleSha256": "e5317d0e08f3995e8a02888b78b8cf27d9a19f29964c485c3e63dce47f824603",
+    "hostArchiveSha256": "e48a4dc58489cff61c578fb6415d1c3faccdc0ebfa0b9b164139c55b95b76431",
+    "linuxArm64ArchiveSha256": "7e41eab32ba72dc8a87810a0201b1577fe4e6a6ed46c7303bf3c4a0e4ea9193d"
+  },
+  "agent": {
+    "version": "2.3.14",
+    "controlCliVersion": "1.5.3",
+    "sourceBundleSha256": "5e68efc09c271a1615e2ae325962979519e2a1774efe0a6da3699bffd10628a1",
+    "servedBundleSha256": "5e68efc09c271a1615e2ae325962979519e2a1774efe0a6da3699bffd10628a1",
+    "installedBundleSha256": "5e68efc09c271a1615e2ae325962979519e2a1774efe0a6da3699bffd10628a1",
+    "installedBundleMatchesSource": true,
+    "installedBundleMatchesServedArtifact": true
+  },
+  "nativeEngine": {
+    "cliVersion": "2026.10.1.2",
+    "transport": "native Docker Engine unix socket",
+    "dockerSubprocesses": 0,
+    "imageId": "sha256:792f5b417b7bd2af7774b0bc5be7238dc31ab85eda4f8f172a5eb7120007a2e6",
+    "runningImageId": "sha256:792f5b417b7bd2af7774b0bc5be7238dc31ab85eda4f8f172a5eb7120007a2e6",
+    "running": true,
+    "containerId": "5bb8e4f775233ac50e3462f4e51c46d0bce19f755ffd8b59957923bbc64582fa"
+  },
+  "idempotency": {
+    "operationId": "dc2640bf-e750-42c3-8dcb-e55059bf78c8",
+    "releaseId": "758bc93c-42b7-4300-8473-c58262fee8c7",
+    "replayCount": 8,
+    "parallelReplay": [
+      {
+        "status": 202,
+        "operationId": "dc2640bf-e750-42c3-8dcb-e55059bf78c8"
+      },
+      {
+        "status": 202,
+        "operationId": "dc2640bf-e750-42c3-8dcb-e55059bf78c8"
+      },
+      {
+        "status": 202,
+        "operationId": "dc2640bf-e750-42c3-8dcb-e55059bf78c8"
+      },
+      {
+        "status": 202,
+        "operationId": "dc2640bf-e750-42c3-8dcb-e55059bf78c8"
+      },
+      {
+        "status": 202,
+        "operationId": "dc2640bf-e750-42c3-8dcb-e55059bf78c8"
+      },
+      {
+        "status": 202,
+        "operationId": "dc2640bf-e750-42c3-8dcb-e55059bf78c8"
+      },
+      {
+        "status": 202,
+        "operationId": "dc2640bf-e750-42c3-8dcb-e55059bf78c8"
+      },
+      {
+        "status": 202,
+        "operationId": "dc2640bf-e750-42c3-8dcb-e55059bf78c8"
+      }
+    ],
+    "mismatchedBinding": {
+      "status": 409,
+      "code": "request_conflict"
+    },
+    "differentKey": {
+      "status": null,
+      "code": "not_executed_to_preserve_single_ui_operation"
+    },
+    "itemsBefore": 15,
+    "itemsAfter": 15
+  },
+  "statusTicketTests": [
+    {
+      "test": "valid_authenticated_snapshot",
+      "httpStatus": 200,
+      "code": null,
+      "status": "running",
+      "stage": "health_verification",
+      "errorCode": null,
+      "rolledBack": false,
+      "lastSequence": 42,
+      "eventCount": 42
+    },
+    {
+      "test": "expired_ticket_readable_401",
+      "httpStatus": 401,
+      "code": "status_ticket_invalid"
+    },
+    {
+      "test": "tampered_ticket_readable_401",
+      "httpStatus": 401,
+      "code": "status_ticket_invalid"
+    },
+    {
+      "test": "missing_ticket_readable_401",
+      "httpStatus": 401,
+      "code": "status_ticket_invalid"
+    },
+    {
+      "test": "ticket_for_different_operation_denied",
+      "httpStatus": 401,
+      "code": "status_ticket_invalid"
+    },
+    {
+      "test": "valid_signed_other_vm_denied",
+      "httpStatus": 404,
+      "code": "operation_not_found"
+    },
+    {
+      "test": "wrong_origin_denied",
+      "httpStatus": 403,
+      "code": null
+    },
+    {
+      "test": "cursor_tail",
+      "httpStatus": 200,
+      "code": null,
+      "status": "running",
+      "stage": "health_verification",
+      "errorCode": null,
+      "rolledBack": false,
+      "lastSequence": 42,
+      "eventCount": 1
+    },
+    {
+      "test": "exact_origin_preflight",
+      "httpStatus": 204
+    },
+    {
+      "test": "wrong_origin_preflight",
+      "httpStatus": 403
+    }
+  ],
+  "update": {
+    "database": {
+      "operationId": "dc2640bf-e750-42c3-8dcb-e55059bf78c8",
+      "runId": "406831f4-1a9e-4cfa-b19b-67bc77d978e9",
+      "status": "succeeded",
+      "phase": "verified",
+      "currentStage": "heartbeat_verification",
+      "failureCode": null,
+      "targetVersion": "2026.10.1.2",
+      "targetDigest": "sha256:e092878b1852bf14b5e3984a660f9b662f26e30d21022fe1a9ac4eacafed87b6",
+      "commandId": "bca544da-818c-497a-b566-216af817b416",
+      "completedAt": "2026-10-02T00:31:40.361",
+      "runStatus": "succeeded",
+      "commandStatus": "done",
+      "commandExitCode": 0
+    },
+    "cliCompletion": {
+      "sequence": 879,
+      "source": "host_cli",
+      "stage": "completed",
+      "status": "succeeded",
+      "occurredAt": "2026-10-02T00:31:38.713"
+    },
+    "centralPostflight": {
+      "sequence": 886,
+      "source": "control_plane",
+      "stage": "heartbeat_verification",
+      "status": "succeeded",
+      "occurredAt": "2026-10-02T00:31:40.361"
+    },
+    "events": [
+      {
+        "sequence": 808,
+        "source": "control_plane",
+        "stage": "queued",
+        "status": "pending",
+        "errorCode": null,
+        "occurredAt": "2026-10-02T00:30:31.576"
+      },
+      {
+        "sequence": 809,
+        "source": "agent",
+        "stage": "request_validation",
+        "status": "running",
+        "errorCode": null,
+        "occurredAt": "2026-10-02T00:30:31.625"
+      },
+      {
+        "sequence": 810,
+        "source": "control_plane",
+        "stage": "agent_dispatch",
+        "status": "succeeded",
+        "errorCode": null,
+        "occurredAt": "2026-10-02T00:30:31.645"
+      },
+      {
+        "sequence": 811,
+        "source": "agent",
+        "stage": "request_validation",
+        "status": "succeeded",
+        "errorCode": null,
+        "occurredAt": "2026-10-02T00:30:31.642"
+      },
+      {
+        "sequence": 812,
+        "source": "agent",
+        "stage": "agent_update_lock",
+        "status": "running",
+        "errorCode": null,
+        "occurredAt": "2026-10-02T00:30:31.665"
+      },
+      {
+        "sequence": 813,
+        "source": "agent",
+        "stage": "agent_update_lock",
+        "status": "succeeded",
+        "errorCode": null,
+        "occurredAt": "2026-10-02T00:30:31.689"
+      },
+      {
+        "sequence": 814,
+        "source": "agent",
+        "stage": "legacy_auto_update_safety",
+        "status": "running",
+        "errorCode": null,
+        "occurredAt": "2026-10-02T00:30:31.727"
+      },
+      {
+        "sequence": 815,
+        "source": "agent",
+        "stage": "legacy_auto_update_safety",
+        "status": "succeeded",
+        "errorCode": null,
+        "occurredAt": "2026-10-02T00:30:32.769"
+      },
+      {
+        "sequence": 816,
+        "source": "agent",
+        "stage": "host_cli_capabilities",
+        "status": "running",
+        "errorCode": null,
+        "occurredAt": "2026-10-02T00:30:32.789"
+      },
+      {
+        "sequence": 817,
+        "source": "agent",
+        "stage": "host_cli_capabilities",
+        "status": "succeeded",
+        "errorCode": null,
+        "occurredAt": "2026-10-02T00:30:32.876"
+      },
+      {
+        "sequence": 818,
+        "source": "agent",
+        "stage": "config_preflight",
+        "status": "running",
+        "errorCode": null,
+        "occurredAt": "2026-10-02T00:30:32.889"
+      },
+      {
+        "sequence": 819,
+        "source": "agent",
+        "stage": "config_preflight",
+        "status": "succeeded",
+        "errorCode": null,
+        "occurredAt": "2026-10-02T00:30:32.917"
+      },
+      {
+        "sequence": 820,
+        "source": "agent",
+        "stage": "notebook_update",
+        "status": "running",
+        "errorCode": null,
+        "occurredAt": "2026-10-02T00:30:32.966"
+      },
+      {
+        "sequence": 821,
+        "source": "agent",
+        "stage": "notebook_update",
+        "status": "running",
+        "errorCode": null,
+        "occurredAt": "2026-10-02T00:30:36.628"
+      },
+      {
+        "sequence": 822,
+        "source": "host_cli",
+        "stage": "request_validation",
+        "status": "running",
+        "errorCode": null,
+        "occurredAt": "2026-10-02T00:30:37.768"
+      },
+      {
+        "sequence": 823,
+        "source": "host_cli",
+        "stage": "request_validation",
+        "status": "succeeded",
+        "errorCode": null,
+        "occurredAt": "2026-10-02T00:30:37.768"
+      },
+      {
+        "sequence": 824,
+        "source": "host_cli",
+        "stage": "operation_lock",
+        "status": "succeeded",
+        "errorCode": null,
+        "occurredAt": "2026-10-02T00:30:37.768"
+      },
+      {
+        "sequence": 825,
+        "source": "host_cli",
+        "stage": "release_verification",
+        "status": "succeeded",
+        "errorCode": null,
+        "occurredAt": "2026-10-02T00:30:37.768"
+      },
+      {
+        "sequence": 826,
+        "source": "host_cli",
+        "stage": "host_cli_capabilities",
+        "status": "skipped",
+        "errorCode": null,
+        "occurredAt": "2026-10-02T00:30:37.769"
+      },
+      {
+        "sequence": 827,
+        "source": "host_cli",
+        "stage": "config_preflight",
+        "status": "running",
+        "errorCode": null,
+        "occurredAt": "2026-10-02T00:30:37.769"
+      },
+      {
+        "sequence": 828,
+        "source": "host_cli",
+        "stage": "database_preflight",
+        "status": "running",
+        "errorCode": null,
+        "occurredAt": "2026-10-02T00:30:37.847"
+      },
+      {
+        "sequence": 829,
+        "source": "host_cli",
+        "stage": "database_preflight",
+        "status": "succeeded",
+        "errorCode": null,
+        "occurredAt": "2026-10-02T00:30:38.477"
+      },
+      {
+        "sequence": 830,
+        "source": "host_cli",
+        "stage": "config_preflight",
+        "status": "running",
+        "errorCode": null,
+        "occurredAt": "2026-10-02T00:30:38.477"
+      },
+      {
+        "sequence": 831,
+        "source": "host_cli",
+        "stage": "config_preflight",
+        "status": "succeeded",
+        "errorCode": null,
+        "occurredAt": "2026-10-02T00:30:38.482"
+      },
+      {
+        "sequence": 832,
+        "source": "host_cli",
+        "stage": "backup",
+        "status": "skipped",
+        "errorCode": null,
+        "occurredAt": "2026-10-02T00:30:38.482"
+      },
+      {
+        "sequence": 833,
+        "source": "host_cli",
+        "stage": "image_pull",
+        "status": "running",
+        "errorCode": null,
+        "occurredAt": "2026-10-02T00:30:38.482"
+      },
+      {
+        "sequence": 834,
+        "source": "host_cli",
+        "stage": "image_pull",
+        "status": "succeeded",
+        "errorCode": null,
+        "occurredAt": "2026-10-02T00:30:39.171"
+      },
+      {
+        "sequence": 835,
+        "source": "host_cli",
+        "stage": "container_recreate",
+        "status": "running",
+        "errorCode": null,
+        "occurredAt": "2026-10-02T00:30:39.171"
+      },
+      {
+        "sequence": 836,
+        "source": "host_cli",
+        "stage": "container_recreate",
+        "status": "running",
+        "errorCode": null,
+        "occurredAt": "2026-10-02T00:30:39.27"
+      },
+      {
+        "sequence": 837,
+        "source": "host_cli",
+        "stage": "container_recreate",
+        "status": "succeeded",
+        "errorCode": null,
+        "occurredAt": "2026-10-02T00:30:40.332"
+      },
+      {
+        "sequence": 838,
+        "source": "host_cli",
+        "stage": "health_verification",
+        "status": "running",
+        "errorCode": null,
+        "occurredAt": "2026-10-02T00:30:40.332"
+      },
+      {
+        "sequence": 839,
+        "source": "host_cli",
+        "stage": "health_verification",
+        "status": "running",
+        "errorCode": null,
+        "occurredAt": "2026-10-02T00:30:40.334"
+      },
+      {
+        "sequence": 840,
+        "source": "agent",
+        "stage": "health_verification",
+        "status": "running",
+        "errorCode": null,
+        "occurredAt": "2026-10-02T00:30:41.638"
+      },
+      {
+        "sequence": 841,
+        "source": "host_cli",
+        "stage": "health_verification",
+        "status": "running",
+        "errorCode": null,
+        "occurredAt": "2026-10-02T00:30:45.335"
+      },
+      {
+        "sequence": 842,
+        "source": "host_cli",
+        "stage": "health_verification",
+        "status": "running",
+        "errorCode": null,
+        "occurredAt": "2026-10-02T00:30:45.374"
+      },
+      {
+        "sequence": 843,
+        "source": "agent",
+        "stage": "health_verification",
+        "status": "running",
+        "errorCode": null,
+        "occurredAt": "2026-10-02T00:30:46.64"
+      },
+      {
+        "sequence": 844,
+        "source": "host_cli",
+        "stage": "health_verification",
+        "status": "running",
+        "errorCode": null,
+        "occurredAt": "2026-10-02T00:30:50.342"
+      },
+      {
+        "sequence": 845,
+        "source": "host_cli",
+        "stage": "health_verification",
+        "status": "running",
+        "errorCode": null,
+        "occurredAt": "2026-10-02T00:30:50.411"
+      },
+      {
+        "sequence": 846,
+        "source": "agent",
+        "stage": "health_verification",
+        "status": "running",
+        "errorCode": null,
+        "occurredAt": "2026-10-02T00:30:51.64"
+      },
+      {
+        "sequence": 847,
+        "source": "host_cli",
+        "stage": "health_verification",
+        "status": "running",
+        "errorCode": null,
+        "occurredAt": "2026-10-02T00:30:55.349"
+      },
+      {
+        "sequence": 848,
+        "source": "host_cli",
+        "stage": "health_verification",
+        "status": "running",
+        "errorCode": null,
+        "occurredAt": "2026-10-02T00:30:55.441"
+      },
+      {
+        "sequence": 849,
+        "source": "agent",
+        "stage": "health_verification",
+        "status": "running",
+        "errorCode": null,
+        "occurredAt": "2026-10-02T00:30:56.64"
+      },
+      {
+        "sequence": 850,
+        "source": "host_cli",
+        "stage": "health_verification",
+        "status": "running",
+        "errorCode": null,
+        "occurredAt": "2026-10-02T00:31:00.359"
+      },
+      {
+        "sequence": 851,
+        "source": "host_cli",
+        "stage": "health_verification",
+        "status": "running",
+        "errorCode": null,
+        "occurredAt": "2026-10-02T00:31:00.452"
+      },
+      {
+        "sequence": 852,
+        "source": "agent",
+        "stage": "health_verification",
+        "status": "running",
+        "errorCode": null,
+        "occurredAt": "2026-10-02T00:31:01.646"
+      },
+      {
+        "sequence": 853,
+        "source": "host_cli",
+        "stage": "health_verification",
+        "status": "running",
+        "errorCode": null,
+        "occurredAt": "2026-10-02T00:31:05.359"
+      },
+      {
+        "sequence": 854,
+        "source": "host_cli",
+        "stage": "health_verification",
+        "status": "running",
+        "errorCode": null,
+        "occurredAt": "2026-10-02T00:31:05.473"
+      },
+      {
+        "sequence": 855,
+        "source": "agent",
+        "stage": "health_verification",
+        "status": "running",
+        "errorCode": null,
+        "occurredAt": "2026-10-02T00:31:06.65"
+      },
+      {
+        "sequence": 856,
+        "source": "host_cli",
+        "stage": "health_verification",
+        "status": "running",
+        "errorCode": null,
+        "occurredAt": "2026-10-02T00:31:10.361"
+      },
+      {
+        "sequence": 857,
+        "source": "host_cli",
+        "stage": "health_verification",
+        "status": "running",
+        "errorCode": null,
+        "occurredAt": "2026-10-02T00:31:10.526"
+      },
+      {
+        "sequence": 858,
+        "source": "agent",
+        "stage": "health_verification",
+        "status": "running",
+        "errorCode": null,
+        "occurredAt": "2026-10-02T00:31:11.899"
+      },
+      {
+        "sequence": 859,
+        "source": "host_cli",
+        "stage": "health_verification",
+        "status": "running",
+        "errorCode": null,
+        "occurredAt": "2026-10-02T00:31:15.367"
+      },
+      {
+        "sequence": 860,
+        "source": "host_cli",
+        "stage": "health_verification",
+        "status": "running",
+        "errorCode": null,
+        "occurredAt": "2026-10-02T00:31:15.578"
+      },
+      {
+        "sequence": 861,
+        "source": "agent",
+        "stage": "health_verification",
+        "status": "running",
+        "errorCode": null,
+        "occurredAt": "2026-10-02T00:31:16.899"
+      },
+      {
+        "sequence": 862,
+        "source": "host_cli",
+        "stage": "health_verification",
+        "status": "running",
+        "errorCode": null,
+        "occurredAt": "2026-10-02T00:31:20.367"
+      },
+      {
+        "sequence": 863,
+        "source": "host_cli",
+        "stage": "health_verification",
+        "status": "running",
+        "errorCode": null,
+        "occurredAt": "2026-10-02T00:31:20.593"
+      },
+      {
+        "sequence": 864,
+        "source": "agent",
+        "stage": "health_verification",
+        "status": "running",
+        "errorCode": null,
+        "occurredAt": "2026-10-02T00:31:21.9"
+      },
+      {
+        "sequence": 865,
+        "source": "host_cli",
+        "stage": "health_verification",
+        "status": "running",
+        "errorCode": null,
+        "occurredAt": "2026-10-02T00:31:25.377"
+      },
+      {
+        "sequence": 866,
+        "source": "host_cli",
+        "stage": "health_verification",
+        "status": "running",
+        "errorCode": null,
+        "occurredAt": "2026-10-02T00:31:25.605"
+      },
+      {
+        "sequence": 867,
+        "source": "agent",
+        "stage": "health_verification",
+        "status": "running",
+        "errorCode": null,
+        "occurredAt": "2026-10-02T00:31:26.902"
+      },
+      {
+        "sequence": 868,
+        "source": "host_cli",
+        "stage": "health_verification",
+        "status": "running",
+        "errorCode": null,
+        "occurredAt": "2026-10-02T00:31:30.377"
+      },
+      {
+        "sequence": 869,
+        "source": "host_cli",
+        "stage": "health_verification",
+        "status": "running",
+        "errorCode": null,
+        "occurredAt": "2026-10-02T00:31:30.616"
+      },
+      {
+        "sequence": 870,
+        "source": "agent",
+        "stage": "health_verification",
+        "status": "running",
+        "errorCode": null,
+        "occurredAt": "2026-10-02T00:31:31.902"
+      },
+      {
+        "sequence": 871,
+        "source": "host_cli",
+        "stage": "health_verification",
+        "status": "running",
+        "errorCode": null,
+        "occurredAt": "2026-10-02T00:31:35.384"
+      },
+      {
+        "sequence": 872,
+        "source": "host_cli",
+        "stage": "health_verification",
+        "status": "running",
+        "errorCode": null,
+        "occurredAt": "2026-10-02T00:31:35.634"
+      },
+      {
+        "sequence": 873,
+        "source": "agent",
+        "stage": "health_verification",
+        "status": "running",
+        "errorCode": null,
+        "occurredAt": "2026-10-02T00:31:36.906"
+      },
+      {
+        "sequence": 874,
+        "source": "host_cli",
+        "stage": "health_verification",
+        "status": "running",
+        "errorCode": null,
+        "occurredAt": "2026-10-02T00:31:37.627"
+      },
+      {
+        "sequence": 875,
+        "source": "host_cli",
+        "stage": "health_verification",
+        "status": "succeeded",
+        "errorCode": null,
+        "occurredAt": "2026-10-02T00:31:37.627"
+      },
+      {
+        "sequence": 876,
+        "source": "host_cli",
+        "stage": "version_verification",
+        "status": "running",
+        "errorCode": null,
+        "occurredAt": "2026-10-02T00:31:37.627"
+      },
+      {
+        "sequence": 877,
+        "source": "host_cli",
+        "stage": "version_verification",
+        "status": "running",
+        "errorCode": null,
+        "occurredAt": "2026-10-02T00:31:37.944"
+      },
+      {
+        "sequence": 878,
+        "source": "host_cli",
+        "stage": "version_verification",
+        "status": "succeeded",
+        "errorCode": null,
+        "occurredAt": "2026-10-02T00:31:38.713"
+      },
+      {
+        "sequence": 879,
+        "source": "host_cli",
+        "stage": "completed",
+        "status": "succeeded",
+        "errorCode": null,
+        "occurredAt": "2026-10-02T00:31:38.713"
+      },
+      {
+        "sequence": 880,
+        "source": "agent",
+        "stage": "notebook_update",
+        "status": "succeeded",
+        "errorCode": null,
+        "occurredAt": "2026-10-02T00:31:38.793"
+      },
+      {
+        "sequence": 881,
+        "source": "agent",
+        "stage": "config_postflight",
+        "status": "running",
+        "errorCode": null,
+        "occurredAt": "2026-10-02T00:31:38.802"
+      },
+      {
+        "sequence": 882,
+        "source": "agent",
+        "stage": "config_postflight",
+        "status": "succeeded",
+        "errorCode": null,
+        "occurredAt": "2026-10-02T00:31:39.182"
+      },
+      {
+        "sequence": 883,
+        "source": "agent",
+        "stage": "agent_update",
+        "status": "running",
+        "errorCode": null,
+        "occurredAt": "2026-10-02T00:31:39.196"
+      },
+      {
+        "sequence": 884,
+        "source": "agent",
+        "stage": "agent_update",
+        "status": "succeeded",
+        "errorCode": null,
+        "occurredAt": "2026-10-02T00:31:39.208"
+      },
+      {
+        "sequence": 885,
+        "source": "control_plane",
+        "stage": "heartbeat_verification",
+        "status": "running",
+        "errorCode": null,
+        "occurredAt": "2026-10-02T00:31:39.226"
+      },
+      {
+        "sequence": 886,
+        "source": "control_plane",
+        "stage": "heartbeat_verification",
+        "status": "succeeded",
+        "errorCode": null,
+        "occurredAt": "2026-10-02T00:31:40.361"
+      }
+    ],
+    "baselineContainer": {
+      "containerId": "5bb8e4f775233ac50e3462f4e51c46d0bce19f755ffd8b59957923bbc64582fa",
+      "imageId": "sha256:792f5b417b7bd2af7774b0bc5be7238dc31ab85eda4f8f172a5eb7120007a2e6",
+      "configuredImage": "localhost:5000/canvas/notebook@sha256:792f5b417b7bd2af7774b0bc5be7238dc31ab85eda4f8f172a5eb7120007a2e6",
+      "running": true,
+      "startedAt": "2026-10-02T00:24:24.81225968Z"
+    },
+    "updatedContainer": {
+      "containerId": "c45630cd0b12163e37386217f9db1b2ddf11e9acff8d91845f795479835c32b5",
+      "imageId": "sha256:e092878b1852bf14b5e3984a660f9b662f26e30d21022fe1a9ac4eacafed87b6",
+      "configuredImage": "localhost:5000/canvas/notebook@sha256:e092878b1852bf14b5e3984a660f9b662f26e30d21022fe1a9ac4eacafed87b6",
+      "running": true,
+      "startedAt": "2026-10-02T00:30:40.187791629Z",
+      "repoDigests": [
+        "localhost:5000/canvas/notebook@sha256:e092878b1852bf14b5e3984a660f9b662f26e30d21022fe1a9ac4eacafed87b6"
+      ]
+    },
+    "heartbeat": {
+      "status": "online",
+      "canvasVersion": "2026.10.1.2",
+      "canvasImageDigest": "sha256:e092878b1852bf14b5e3984a660f9b662f26e30d21022fe1a9ac4eacafed87b6",
+      "appHealthStatus": "healthy",
+      "appHealthCheckedAt": "2026-10-02T00:31:43.957",
+      "lastSeenAt": "2026-10-02T00:32:08.658"
+    }
+  },
+  "assertions": [
+    "The same actual application version switched to a different pinned image digest.",
+    "The Notebook container was recreated.",
+    "Central success follows an explicit heartbeat postflight after CLI completion."
+  ]
+}
