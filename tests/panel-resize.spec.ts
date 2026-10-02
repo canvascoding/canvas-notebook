@@ -59,6 +59,9 @@ test.describe('panel resizing', () => {
       }
     });
     await page.goto('/en/notebook');
+    const sidebarToggle = page.getByRole('button', { name: /^(Show|Hide) sidebar$/u });
+    if (await sidebarToggle.getAttribute('aria-pressed') === 'false') await sidebarToggle.click();
+    await expect(sidebarToggle).toHaveAttribute('aria-pressed', 'true');
 
     const explorerHandle = page.getByTestId('notebook-explorer-resize-handle');
     const explorer = page.locator('#onboarding-notebook-fileBrowser');
@@ -71,6 +74,7 @@ test.describe('panel resizing', () => {
     await expect(explorerHandle).toHaveAttribute('aria-valuenow', String(Math.round(explorerWidthBefore + 70)));
 
     const chatDock = page.getByTestId('notebook-chat-dock');
+    await expect(chatDock).toHaveCount(1);
     await expect(chatDock).toBeEnabled();
     if (await chatDock.getAttribute('aria-pressed') !== 'true') await chatDock.click();
     await expect(chatDock).toHaveAttribute('aria-pressed', 'true');
@@ -90,6 +94,7 @@ test.describe('panel resizing', () => {
 
     await page.reload();
     await expect(explorerHandle).toHaveAttribute('aria-valuenow', String(Math.round(explorerWidthBefore + 70)));
+    await expect(chatDock).toHaveCount(1);
     await expect(chatDock).toBeEnabled();
     if (await chatDock.getAttribute('aria-pressed') !== 'true') await chatDock.click();
     await expect(chatDock).toHaveAttribute('aria-pressed', 'true');
