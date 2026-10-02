@@ -7245,7 +7245,8 @@
       "skills": "Skills"
     },
     "scope": {
-      "title": "Verfuegbarkeitsbereich",
+      "title": "Bereich",
+      "helpSummary": "Bereich erklärt",
       "description": "Lege fest, ob Pakete nur fuer dich oder zentral fuer die Organisation verwaltet werden.",
       "personal": "Nur ich",
       "organization": "Organisation",
@@ -7328,6 +7329,7 @@
     },
     "plugins": {
       "title": "Canvas Plugins",
+      "aboutSummary": "Über Plugins",
       "organizationScope": "Organisation",
       "personalScope": "Persönlich",
       "description": "Installiere und verwalte Plugin-Bundles aus dem Canvas Plugin Store. Ein Plugin kann mehrere Skills plus Connector-Empfehlungen bereitstellen.",
@@ -7350,7 +7352,7 @@
         "readiness": "Einsatzbereitschaft",
         "allReadiness": "Alle Status",
         "enabled": "Aktivierung",
-        "allEnabled": "Alle Aktivierungszustände",
+        "allEnabled": "Alle",
         "clear": "Filter zurücksetzen"
       },
       "storeSource": "Quelle: {name}",

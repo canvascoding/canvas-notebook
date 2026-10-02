@@ -7246,7 +7246,8 @@
       "skills": "Skills"
     },
     "scope": {
-      "title": "Availability scope",
+      "title": "Scope",
+      "helpSummary": "About scopes",
       "description": "Choose whether packages are managed only for you or centrally for the organization.",
       "personal": "Only me",
       "organization": "Organization",
@@ -7329,6 +7330,7 @@
     },
     "plugins": {
       "title": "Canvas Plugins",
+      "aboutSummary": "About plugins",
       "organizationScope": "Organization",
       "personalScope": "Personal",
       "description": "Install and manage plugin bundles from the Canvas Plugin Store. A plugin can provide multiple skills plus connector recommendations.",
@@ -7351,7 +7353,7 @@
         "readiness": "Readiness",
         "allReadiness": "All statuses",
         "enabled": "Activation",
-        "allEnabled": "All activation states",
+        "allEnabled": "All",
         "clear": "Clear filters"
       },
       "storeSource": "Source: {name}",

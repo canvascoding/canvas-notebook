@@ -100,6 +100,12 @@ async function stageSharedWorkspace(page: Page) {
   }, shared.id);
 }
 
+async function openScopeHelp(page: Page, summary: string) {
+  const help = page.locator('details').filter({ has: page.getByText(summary, { exact: true }) });
+  if (await help.getAttribute('open') === null) await help.locator('summary').click();
+  await expect(help).toHaveAttribute('open', '');
+}
+
 test('login restores the requested Plugins view', async ({ browser }, info) => {
   const context = await browser.newContext({ baseURL: process.env.BASE_URL });
   const page = await createAcceptancePage(context);
@@ -331,13 +337,16 @@ test('admin scope history, workspace switch, Settings shortcut and narrow dark k
     await search.fill('qa-scope-reset');
     await page.getByRole('button', { name: en.skills.scope.organization, exact: true }).click();
     await expect(page).toHaveURL(/scope=organization/);
+    await openScopeHelp(page, en.skills.scope.helpSummary);
     await expect(page.getByText(en.skills.scope.organizationHint, { exact: true })).toBeVisible();
     await expect(search).toHaveValue('');
     await expect.poll(() => organizationRequests.length).toBeGreaterThan(0);
     await capture(page, info, 'organization-scope');
     await page.goBack();
+    await openScopeHelp(page, en.skills.scope.helpSummary);
     await expect(page.getByText(en.skills.scope.personalHint, { exact: true })).toBeVisible();
     await page.goForward();
+    await openScopeHelp(page, en.skills.scope.helpSummary);
     await expect(page.getByText(en.skills.scope.organizationHint, { exact: true })).toBeVisible();
     await page.getByRole('button', { name: en.skills.scope.personal, exact: true }).click();
 
@@ -354,6 +363,47 @@ test('admin scope history, workspace switch, Settings shortcut and narrow dark k
 
     await page.setViewportSize({ width: 320, height: 760 });
     await expect(page.locator('html')).toHaveClass(/dark/);
+    const personalScope = page.getByRole('button', { name: en.skills.scope.personal, exact: true });
+    const organizationScope = page.getByRole('button', { name: en.skills.scope.organization, exact: true });
+    await expect(personalScope).toHaveAttribute('aria-pressed', 'true');
+    await expect(organizationScope).toHaveAttribute('aria-pressed', 'false');
+    await organizationScope.focus();
+    await page.keyboard.press('Enter');
+    await expect(organizationScope).toHaveAttribute('aria-pressed', 'true');
+    await expect(personalScope).toHaveAttribute('aria-pressed', 'false');
+    await personalScope.focus();
+    await page.keyboard.press('Enter');
+    await expect(personalScope).toHaveAttribute('aria-pressed', 'true');
+    for (const name of [en.skills.plugins.filters.category, en.skills.plugins.filters.connection]) {
+      const control = page.getByRole('combobox', { name, exact: true });
+      await expect(control).toBeVisible();
+      const box = await control.boundingBox();
+      expect(box).not.toBeNull();
+      expect(box!.x).toBeGreaterThanOrEqual(0);
+      expect(box!.x + box!.width).toBeLessThanOrEqual(320);
+      expect(box!.width).toBeGreaterThanOrEqual(110);
+      expect(box!.height).toBeGreaterThanOrEqual(32);
+      expect(await control.evaluate(element => Number.parseFloat(getComputedStyle(element).fontSize))).toBeGreaterThanOrEqual(14);
+    }
+    const scopeHelp = page.locator('details').filter({ has: page.getByText(en.skills.scope.helpSummary, { exact: true }) });
+    await expect(scopeHelp).not.toHaveAttribute('open');
+    await scopeHelp.locator('summary').focus();
+    await page.keyboard.press('Enter');
+    await expect(scopeHelp).toHaveAttribute('open', '');
+    await expect(scopeHelp.getByText(en.skills.scope.description, { exact: true })).toBeVisible();
+    await expect(scopeHelp.getByText(en.skills.scope.personalHint, { exact: true })).toBeVisible();
+    await expectFit(page);
+    await page.keyboard.press('Space');
+    await expect(scopeHelp).not.toHaveAttribute('open');
+    await expect(scopeHelp.getByText(en.skills.scope.personalHint, { exact: true })).toBeHidden();
+    const aboutPlugins = page.locator('details').filter({ has: page.getByText(en.skills.plugins.aboutSummary, { exact: true }) });
+    await aboutPlugins.locator('summary').focus();
+    await page.keyboard.press('Enter');
+    await expect(aboutPlugins.getByText(en.skills.plugins.description, { exact: true })).toBeVisible();
+    await expectFit(page);
+    await page.keyboard.press('Enter');
+    await expect(aboutPlugins).not.toHaveAttribute('open');
+    await capture(page, info, 'narrow-dark-filters');
     const installed = page.getByRole('tab', { name: en.skills.plugins.storeTabs.installed, exact: true });
     await installed.focus();
     await expect(installed).toBeFocused();
@@ -1348,6 +1398,56 @@ test('a genuine member sees package actions read-only with administrator guidanc
     expect(errors).toEqual([]);
   } finally { await context.close(); }
 });
+
+for (const locale of ['de', 'en'] as const) {
+  test(`${locale} mobile density keeps the first real catalog card and primary action within the initial viewport`, async ({ browser }, info) => {
+    const messages = locale === 'de' ? de : en;
+    const context = await createAuthenticatedContext(browser, {
+      viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true,
+    });
+    const page = await createAcceptancePage(context);
+    const errors = collectRuntimeErrors(page);
+    try {
+      await stageSharedWorkspace(page);
+      await page.goto(`/${locale}/plugins`);
+      await expect(page.getByRole('tab', { name: messages.skills.plugins.storeTabs.discover, exact: true })).toHaveAttribute('aria-selected', 'true');
+      await expect(page.getByRole('button', { name: messages.skills.scope.personal, exact: true })).toHaveAttribute('aria-pressed', 'true');
+      const scopeHelp = page.locator('details').filter({ has: page.getByText(messages.skills.scope.helpSummary, { exact: true }) });
+      const aboutPlugins = page.locator('details').filter({ has: page.getByText(messages.skills.plugins.aboutSummary, { exact: true }) });
+      await expect(scopeHelp).not.toHaveAttribute('open');
+      await expect(aboutPlugins).not.toHaveAttribute('open');
+      await expect(page.getByRole('combobox', { name: messages.skills.plugins.filters.category, exact: true })).toBeVisible();
+      await expect(page.getByRole('combobox', { name: messages.skills.plugins.filters.connection, exact: true })).toBeVisible();
+      // This intentionally selects the first rendered real catalog card. Do not
+      // scroll it into view before measuring the initial mobile layout.
+      const card = page.locator('div[role="button"]:visible').filter({ has: page.locator('h3') }).first();
+      await expect(card).toBeVisible();
+      await expect(page.locator('[role="tabpanel"][data-state="active"] [data-slot="skeleton"]')).toHaveCount(0);
+      await page.waitForLoadState('networkidle');
+      const primaryAction = card.locator('button');
+      await expect(primaryAction).toHaveCount(1);
+      const cardBox = await card.boundingBox();
+      const actionBox = await primaryAction.boundingBox();
+      expect(cardBox).not.toBeNull();
+      expect(actionBox).not.toBeNull();
+      const measurement = {
+        locale, viewport: { width: 390, height: 844 },
+        card: await card.getByRole('heading', { level: 3 }).innerText(),
+        cardTop: cardBox!.y, cardHeight: cardBox!.height,
+        primaryAction: await primaryAction.innerText(), primaryActionBottom: actionBox!.y + actionBox!.height,
+      };
+      info.annotations.push({ type: 'mobile-density', description: JSON.stringify(measurement) });
+      await info.attach('mobile-density.json', { body: JSON.stringify(measurement, null, 2), contentType: 'application/json' });
+      console.info(`[plugins-mobile-density] ${JSON.stringify(measurement)}`);
+      await capture(page, info, `mobile-density-${locale}`);
+      expect(measurement.cardTop).toBeGreaterThanOrEqual(0);
+      expect(measurement.cardTop).toBeLessThanOrEqual(600);
+      expect(measurement.primaryActionBottom).toBeLessThanOrEqual(844);
+      await expectFit(page);
+      expect(errors).toEqual([]);
+    } finally { await context.close(); }
+  });
+}
 
 test('assigned optional activation writes its exact preference while required and blocked policies stay locked', async ({ browser }, info) => {
   const context = await createAuthenticatedContext(browser, {}, {

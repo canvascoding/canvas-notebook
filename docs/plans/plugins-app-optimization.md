@@ -8,7 +8,17 @@ Installed plugins load independently of the marketplace, and skills load when th
 
 Keep package APIs, storage scopes, central secret management and organization capability policies as the source of truth. Moving the UI must not introduce a separate installation implementation.
 
-## Next work, in order
+## Implementation status
+
+All four stages are implemented and locally accepted on 2026-10-02. Plugins is accessible from Home and the app launcher; Settings retains its shortcut. The final production build, twelve focused app checks and 33 Playwright cases passed.
+
+The follow-up review also found and fixed two integration gaps: the app now requests complete resource identities without changing name-based Chat/mobile behavior, and old connection/preflight callbacks are rejected after workspace changes, including A to B to A.
+
+At 390×844, the first real catalog card starts at 545px and its primary action ends at 785px in both locales. The 320px dark-mode layout retains visible scope, readable controls and keyboard-accessible help.
+
+[Final acceptance, boundaries and screenshots](plugins-app-optimization-acceptance.md).
+
+## Completed work, in order
 
 ### 1. Finish the complete connection round trip
 
@@ -58,4 +68,4 @@ Run `npm run test:plugins:app`, focused package/connector regression tests, lint
 
 Browser acceptance covers launcher entry and quick actions, Home entry, old Settings links, direct plugin/skill views, Back/Forward and reload, both locales, desktop and narrow layouts, delayed/failed data sources, organization permission boundaries, and connection setup. Verify visible errors and console errors.
 
-The local acceptance completed on 2026-10-02: [results, boundaries and screenshots](plugins-app-browser-acceptance.md). Nine browser cases passed; the test found and verified a fix for native-history view updates. External OAuth completion and production acceptance remain separate.
+The initial launcher delivery passed nine browser cases: [initial acceptance](plugins-app-browser-acceptance.md). The completed optimization passed 33 cases: [final acceptance](plugins-app-optimization-acceptance.md). External OAuth completion and production acceptance remain separate.

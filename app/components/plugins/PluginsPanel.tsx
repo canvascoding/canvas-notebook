@@ -2163,7 +2163,7 @@ function CanvasPluginsSection({
             openStorePluginDetail(plugin);
           }
         }}
-        className="rounded-lg border bg-background p-4 text-left transition-colors hover:border-primary/40 hover:bg-muted/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="rounded-lg border bg-background p-3 text-left transition-colors hover:border-primary/40 hover:bg-muted/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:p-4"
       >
         <div className="flex items-start gap-3">
           {renderStoreIcon(plugin)}
@@ -2192,7 +2192,7 @@ function CanvasPluginsSection({
             ) : null}
           </div>
         </div>
-        <div className="mt-4 flex flex-col gap-3 border-t pt-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="mt-3 flex flex-col gap-3 border-t pt-3 sm:mt-4 sm:flex-row sm:items-center sm:justify-between">
           <span className="min-w-0 text-xs text-muted-foreground">
             {plugin.publisher?.name || storeMetadata?.name || t('officialStore')}
           </span>
@@ -2248,7 +2248,7 @@ function CanvasPluginsSection({
             openInstalledPluginDetail(plugin);
           }
         }}
-        className="rounded-lg border bg-background p-4 text-left transition-colors hover:border-primary/40 hover:bg-muted/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="rounded-lg border bg-background p-3 text-left transition-colors hover:border-primary/40 hover:bg-muted/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:p-4"
       >
         <div className="flex items-start gap-3">
           <CanvasPluginIcon plugin={plugin} className="h-10 w-10 text-sm" />
@@ -2295,7 +2295,7 @@ function CanvasPluginsSection({
             </div>
           </div>
         </div>
-        <div className="mt-4 flex flex-col gap-3 border-t pt-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="mt-3 flex flex-col gap-3 border-t pt-3 sm:mt-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0 flex-1 space-y-1">
             <label
               className="flex items-center gap-2 text-sm text-muted-foreground"
@@ -2426,24 +2426,27 @@ function CanvasPluginsSection({
   }
 
   return (
-    <section className="space-y-4">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <h2 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+    <section className="space-y-3 sm:space-y-4">
+      <div className="space-y-2">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground sm:text-sm">
             <Package className="h-4 w-4" />
             {t('title')}
           </h2>
-          <p className="mt-1 max-w-3xl text-sm text-muted-foreground">{t('description')}</p>
+          <div className="flex items-center gap-2">
+            <Badge variant="secondary" className="shrink-0 text-[10px] sm:text-xs">
+              {t('stats', { enabled: enabledCount, total: plugins.length })}
+            </Badge>
+            <Button variant="outline" size="sm" onClick={() => void loadPluginData()} disabled={isLoading} aria-label={t('reload')} title={t('reload')} className="h-8 gap-1.5 px-2 sm:px-3">
+              {isLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+              <span className="hidden sm:inline">{t('reload')}</span>
+            </Button>
+          </div>
         </div>
-        <div className="flex items-center gap-2">
-          <Badge variant="secondary" className="shrink-0">
-            {t('stats', { enabled: enabledCount, total: plugins.length })}
-          </Badge>
-          <Button variant="outline" size="sm" onClick={() => void loadPluginData()} disabled={isLoading} className="gap-1.5">
-            {isLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
-            {t('reload')}
-          </Button>
-        </div>
+        <details className="text-xs text-muted-foreground">
+          <summary className="cursor-pointer rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">{t('aboutSummary')}</summary>
+          <p className="mt-2 max-w-3xl text-sm leading-5">{t('description')}</p>
+        </details>
       </div>
 
       <div className="relative">
@@ -2459,7 +2462,7 @@ function CanvasPluginsSection({
       </div>
 
       {storeTab !== 'advanced' ? (
-        <div className="flex flex-wrap items-end gap-3">
+        <div className="grid grid-cols-2 items-end gap-2 sm:gap-3">
           {storeTab === 'installed' ? <>
             <label className="grid min-w-0 flex-1 gap-1 text-xs text-muted-foreground">
               {t('filters.readiness')}
@@ -2491,7 +2494,7 @@ function CanvasPluginsSection({
               </select>
             </label>
           </>}
-          {hasListFilters ? <Button variant="ghost" size="sm" onClick={clearListFilters} className="shrink-0">{t('filters.clear')}</Button> : null}
+          {hasListFilters ? <Button variant="ghost" size="sm" onClick={clearListFilters} className="col-span-2 justify-self-start">{t('filters.clear')}</Button> : null}
         </div>
       ) : null}
 
@@ -3603,18 +3606,17 @@ export function SkillsPanel({ canManageOrganizationCapabilities: initialCanManag
 
   return (
     <>
-      <div className="mb-4 rounded-lg border bg-muted/20 p-4" data-testid="capability-scope-selector">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <p className="text-sm font-medium">{t('scope.title')}</p>
-            <p className="mt-1 text-xs text-muted-foreground">{t('scope.description')}</p>
-          </div>
-          <div className="flex rounded-md border bg-background p-1">
+      <div className="mb-3 rounded-lg border bg-muted/20 p-3 sm:mb-4" data-testid="capability-scope-selector">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-xs font-medium">{t('scope.title')}</p>
+          <div className="flex max-w-full flex-wrap gap-1 rounded-md border bg-background p-1">
             <Button
               type="button"
               size="sm"
               variant={managementScope === 'user' ? 'secondary' : 'ghost'}
+              aria-pressed={managementScope === 'user'}
               onClick={() => changeManagementScope('user')}
+              className="h-8 px-3"
             >
               {t('scope.personal')}
             </Button>
@@ -3623,16 +3625,22 @@ export function SkillsPanel({ canManageOrganizationCapabilities: initialCanManag
                 type="button"
                 size="sm"
                 variant={managementScope === 'organization' ? 'secondary' : 'ghost'}
+                aria-pressed={managementScope === 'organization'}
                 onClick={() => changeManagementScope('organization')}
+                className="h-8 px-3"
               >
                 {t('scope.organization')}
               </Button>
             ) : null}
           </div>
         </div>
-        <p className="mt-3 text-xs text-muted-foreground">
-          {managementScope === 'organization' ? t('scope.organizationHint') : t('scope.personalHint')}
-        </p>
+        <details className="mt-2 text-xs text-muted-foreground">
+          <summary className="cursor-pointer rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">{t('scope.helpSummary')}</summary>
+          <div className="mt-2 space-y-2 leading-5">
+            <p>{t('scope.description')}</p>
+            <p>{managementScope === 'organization' ? t('scope.organizationHint') : t('scope.personalHint')}</p>
+          </div>
+        </details>
       </div>
       {navigation.scope === 'organization' && !canManageOrganizationCapabilities ? (
         <InlineNotice variant="warning" size="compact" className="mb-4">{t('scope.organizationDenied')}</InlineNotice>
@@ -3649,7 +3657,7 @@ export function SkillsPanel({ canManageOrganizationCapabilities: initialCanManag
             navigate({ area: value });
           }
         }}
-        className="space-y-4"
+        className="space-y-3 sm:space-y-4"
       >
         <TabsList className="bg-transparent p-0">
           <TabsTrigger value="plugins" className="rounded-full px-4 data-[state=active]:bg-muted">
