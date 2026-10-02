@@ -2,9 +2,9 @@
 
 Notebook source commit: `428abc24b9669ba9b17bf96136baba469e5276ac` (release `2026.10.1.2`).
 Control Plane worktree: `/Users/frankalexanderweber/.codex/worktrees/docs-usability/canvas-control-plane` at `9ced80737cc5bc41004b517ea09888d3698e3ed7`.
-Notebook runtime: managed local stack, rebuilt from the Notebook worktree on 2026-10-02; health OK; PostgreSQL 18.4. Browser: Google Chrome, 1440x900, light theme. `docs:generate`, markdown/search tests, typecheck, and docs E2E have not run yet.
+Notebook runtime: managed local stack, rebuilt from the Notebook worktree on 2026-10-02; health OK; PostgreSQL 18.4. Browser: Google Chrome. Notebook production build/login and Control Plane `docs:generate`, markdown/search tests, typecheck, and production docs E2E passed. The Control Plane Docker image was not replaced; E2E used the successful host production build on port 4005 to avoid disturbing the shared stack while other agents ran tests.
 
-Current coverage: 3 of 120 pages changed/reviewed; 117 pages remain pending. A pending page has not been certified.
+Current coverage: 9 of 120 pages reviewed; 111 pages remain pending. Three pages were changed in the quickstart/navigation commit; six Core Features overviews were checked against implementation and left unchanged. A pending page has not been certified.
 
 Runtime limitations observed: Bradley reports `No valid runtime available`; Studio reports `GEMINI_API_KEY is missing`; clicking `New automation` reaches `Something went wrong`; Notebook reports live updates disconnected in the test workspace. The secondary fixture account did not authenticate with the expected fallback password, so the existing local bootstrap administrator was used. The full quickstart path could not be completed. Email inbox/send and external Studio generation were not tested.
 
@@ -76,13 +76,13 @@ Runtime limitations observed: Bradley reports `No valid runtime available`; Stud
 | `docs/product/en/email/policies.mdx` | pending | Not reviewed yet. |
 | `docs/product/en/email/read-organize.mdx` | pending | Not reviewed yet. |
 | `docs/product/en/email/troubleshooting.mdx` | pending | Not reviewed yet. |
-| `docs/product/en/features/ai-agent.mdx` | pending | Not reviewed yet. |
-| `docs/product/en/features/automations.mdx` | pending | Not reviewed yet. |
-| `docs/product/en/features/email.mdx` | pending | Not reviewed yet. |
-| `docs/product/en/features/knowledge-base.mdx` | pending | Not reviewed yet. |
-| `docs/product/en/features/skills.mdx` | pending | Not reviewed yet. |
-| `docs/product/en/features/studio.mdx` | pending | Not reviewed yet. |
-| `docs/product/en/index.mdx` | changed | Reviewed and expanded orientation. UI evidence: app switcher lists Quick access (Notebook, Automations, To-dos, Email, Studio) and More apps; settings navigation verified in Chrome. Notebook 2026.10.1.2, source 428abc24b9669ba9b17bf96136baba469e5276ac. Text change + link check pending docs suite. |
+| `docs/product/en/features/ai-agent.mdx` | reviewed | No copy change: overview remains consistent with `app/components/canvas-agent-chat/ChatModelSelector.tsx`, `app/components/settings/AgentSettingsPanel.tsx`, and agent access APIs. Notebook 2026.10.1.2 UI evidence: Agent Settings showed Main/Fixed, while readiness reported No valid runtime available. A real agent conversation and specialized-agent workflow remain unverified. |
+| `docs/product/en/features/automations.mdx` | reviewed | No copy change: schedules and webhook types are implemented in `app/lib/automations/schedule.ts`; run-now rejects an in-flight job in `app/api/automations/jobs/[jobId]/run-now/route.ts`. Automations list UI loaded, but New automation returned Something went wrong, so creating, manually running, scheduling, output, and delivery remain unverified in UI. |
+| `docs/product/en/features/email.mdx` | reviewed | No copy change: email account/message/send flows are implemented under `app/apps/email` and `app/api/email`; Settings > Email visibly separates Connect an account and System email. Inbox access, draft review, attachments, policy behavior, and sending remain unverified; no account was connected and no mail was sent. |
+| `docs/product/en/features/knowledge-base.mdx` | reviewed | No copy change: file and Markdown capabilities are present in `app/components/file-browser`, `app/components/editor`, and `app/lib/markdown`; the file-create dialog was verified in Notebook UI. The test workspace showed live updates disconnected, so saved edits, backlinks, graph, preview, and sharing workflows remain unverified. |
+| `docs/product/en/features/skills.mdx` | reviewed | No copy change: skill UI is implemented in `app/components/settings/SkillsPanel.tsx`, with protected env access through `/api/integrations/env`; Studio's Open central credentials entry point was visible. Installing/enabling a skill or plugin and invoking it remain unverified in UI. |
+| `docs/product/en/features/studio.mdx` | reviewed | No copy change: generation controls and output handling are implemented under `app/apps/studio`; provider credential UI is in `app/components/settings/StudioMediaCredentialsPanel.tsx`. Studio UI showed GEMINI_API_KEY is missing and Open central credentials. No generation, provider cost, or output save was attempted; those behaviors remain unverified. |
+| `docs/product/en/index.mdx` | changed | Reviewed and expanded orientation. UI evidence: app switcher lists Quick access (Notebook, Automations, To-dos, Email, Studio) and More apps; settings navigation verified in Chrome. Notebook 2026.10.1.2, source 428abc24b9669ba9b17bf96136baba469e5276ac. Generated successfully; docs E2E verified all page routes, links, and anchors in the imported Control Plane production build. |
 | `docs/product/en/integrations/browser-runtime.mdx` | pending | Not reviewed yet. |
 | `docs/product/en/integrations/build-skill.mdx` | pending | Not reviewed yet. |
 | `docs/product/en/integrations/channel-delivery.mdx` | pending | Not reviewed yet. |
@@ -98,7 +98,7 @@ Runtime limitations observed: Bradley reports `No valid runtime available`; Stud
 | `docs/product/en/integrations/skills-overview.mdx` | pending | Not reviewed yet. |
 | `docs/product/en/integrations/telegram.mdx` | pending | Not reviewed yet. |
 | `docs/product/en/integrations/upload-skill.mdx` | pending | Not reviewed yet. |
-| `docs/product/en/interface-guide.mdx` | changed | New orientation guide based on observed app-switcher labels and Settings groups in Notebook 2026.10.1.2. Chrome 1440x900, light. Local docs generation, markdown checks, and search checks pass; CP UI route verification is blocked by the unavailable container build. |
+| `docs/product/en/interface-guide.mdx` | changed | New orientation guide based on observed app-switcher labels and Settings groups in Notebook 2026.10.1.2. Chrome 1440x900, light. Local docs generation, markdown checks, search checks, and production docs E2E pass; shared CP container remains on its prior image. |
 | `docs/product/en/notebook/backlinks.mdx` | pending | Not reviewed yet. |
 | `docs/product/en/notebook/code-files.mdx` | pending | Not reviewed yet. |
 | `docs/product/en/notebook/document-graph.mdx` | pending | Not reviewed yet. |
