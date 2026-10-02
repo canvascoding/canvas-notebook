@@ -9,6 +9,7 @@ import { withOrdinaryAgentDocument } from './helpers/ordinary-agent-document';
 import { runOrdinaryAgentTool as runTool, type OrdinaryAgentToolDetails as ToolDetails } from './helpers/ordinary-agent-tool';
 import { createAuthenticatedContext } from './helpers/managed-test-context';
 import { observeProposalReviewServerErrors } from './helpers/proposal-review-server-errors';
+import { withOwnedTestCleanup } from './helpers/owned-test-cleanup';
 
 const BASE_TEXT = '# Ordinary agent edits\n\nA0|B0|C0|D0|E0|F0|G0|H0|I0|J0\n';
 const FINAL_TEXT = '# Ordinary agent edits\n\nA1|B1|C1|D1|E1|F1|G1|H1|I1|J1\n';
@@ -458,7 +459,7 @@ for (const workspaceKind of ['personal', 'team'] as const) test.describe(`Ordina
       const other = await createAuthenticatedContext(browser, { viewport: { width: 1500, height: 950 } }, adminIdentity);
       const assertOtherErrors = observeProposalReviewServerErrors(other);
       let releaseRequests = () => {};
-      try {
+      await withOwnedTestCleanup(async () => {
         const otherAuthResponse = await other.request.get('/api/auth/get-session');
         expect(otherAuthResponse.ok()).toBeTruthy();
         const otherUserId = (await otherAuthResponse.json()).user.id as string;
@@ -578,11 +579,11 @@ for (const workspaceKind of ['personal', 'team'] as const) test.describe(`Ordina
           afterRevisionCount: before + (rejected ? 0 : 1), actionPosts: held.length,
         }, null, 2) });
         await info.attach('ordinary-review-race-final.png', { contentType: 'image/png', body: await page.screenshot({ fullPage: true }) });
-      } finally {
-        releaseRequests();
-        await other.close();
-        assertOtherErrors();
-      }
+      }, [
+        { label: 'held race requests', run: () => releaseRequests() },
+        { label: 'other race context', run: () => other.close() },
+        { label: 'other proposal server observer', run: assertOtherErrors },
+      ]);
     }, { workspaceKind, identity, cleanupIdentity: workspaceKind === 'team' ? adminIdentity : undefined });
   });
 });

@@ -5,6 +5,7 @@ import path from 'node:path';
 import { COLLABORATION_CLIENT_CAPABILITIES } from '../../app/lib/collaboration/types';
 import { createAuthenticatedContext, uploadWorkspaceTextFile, type AuthenticatedContextIdentity } from './managed-test-context';
 import { observeProposalReviewServerErrors, type ProposalReviewServerErrorExpectation } from './proposal-review-server-errors';
+import { withOwnedTestCleanup } from './owned-test-cleanup';
 
 type Workspace = { id: string; name: string; type: string; legacy?: boolean; rootRelativePath: string;
   organizationId?: string | null; customerId?: string | null; projectId?: string | null;
@@ -31,13 +32,16 @@ export async function withOrdinaryAgentDocument(browser: Browser, initialContent
   const workspaceKind = options.workspaceKind ?? 'personal';
   const context = await createAuthenticatedContext(browser, { viewport: { width: 1500, height: 950 } }, options.identity);
   const assertNoServerErrors = observeProposalReviewServerErrors(context, options.expectedReviewServerErrors);
-  const page = await context.newPage();
+  let ownedPage: Page | undefined;
+  let cleanupContext: BrowserContext | undefined;
   const filePath = `fvrc-1008-ordinary-${randomUUID()}.md`;
   let workspaceId: string | undefined;
   let sessionId: string | undefined;
   let agentId: string | undefined;
   let uploaded = false;
-  try {
+  await withOwnedTestCleanup(async () => {
+    const page = await context.newPage();
+    ownedPage = page;
     const authResponse = await context.request.get('/api/auth/get-session');
     expect(authResponse.ok()).toBeTruthy();
     const auth = await authResponse.json() as { user: { id: string } };
@@ -103,30 +107,26 @@ export async function withOrdinaryAgentDocument(browser: Browser, initialContent
       return ((await response.json()).entries as Array<{ kind: string }>).filter(entry => entry.kind === 'revision').length;
     };
     await run({ context, page, filePath, target, representation, agentContext, content, revisionCount });
-  } finally {
-    await page.close().catch(() => undefined);
-    try {
-      try {
-        if (sessionId && agentId) {
-          const response = await context.request.delete('/api/sessions', { params: { sessionId, agentId } });
-          expect(response.ok(), 'Remove only the scoped synthetic agent session.').toBeTruthy();
-        }
-      } finally {
-        if (uploaded && workspaceId) {
-          const cleanup = options.cleanupIdentity ? await createAuthenticatedContext(browser, {}, options.cleanupIdentity) : context;
-          try {
-            const response = await cleanup.request.delete('/api/files/delete', {
-              headers: { 'x-canvas-workspace-id': workspaceId }, data: { path: filePath },
-            });
-            expect(response.ok(), `Remove only the scoped synthetic Markdown document (${response.status()}).`).toBeTruthy();
-          } finally {
-            if (cleanup !== context) await cleanup.close();
-          }
-        }
+  }, [
+    { label: 'document page', run: async () => { await ownedPage?.close(); } },
+    { label: 'agent session', run: async () => {
+      if (sessionId && agentId) {
+        const response = await context.request.delete('/api/sessions', { params: { sessionId, agentId } });
+        expect(response.ok(), 'Remove only the scoped synthetic agent session.').toBeTruthy();
       }
-    } finally {
-      await context.close();
-      assertNoServerErrors();
-    }
-  }
+    } },
+    { label: 'document file', run: async () => {
+      if (uploaded && workspaceId) {
+        const cleanup = options.cleanupIdentity
+          ? (cleanupContext = await createAuthenticatedContext(browser, {}, options.cleanupIdentity)) : context;
+        const response = await cleanup.request.delete('/api/files/delete', {
+          headers: { 'x-canvas-workspace-id': workspaceId }, data: { path: filePath },
+        });
+        expect(response.ok(), `Remove only the scoped synthetic Markdown document (${response.status()}).`).toBeTruthy();
+      }
+    } },
+    { label: 'cleanup identity context', run: async () => { await cleanupContext?.close(); } },
+    { label: 'document context', run: () => context.close() },
+    { label: 'proposal server observer', run: assertNoServerErrors },
+  ]);
 }
