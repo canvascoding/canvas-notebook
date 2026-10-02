@@ -26,6 +26,8 @@ import { parseWorkspaceMarkdownHref } from '@/app/lib/markdown/workspace-local-l
 import { buildWorkspaceOperationBatchPlan, computeWorkspaceOperationBatchPlanId } from './workspace-operation-batch-plan';
 import { workspaceOperationBatchErrorCode, workspaceOperationBatchFailureStatus,
   type WorkspaceOperationBatchMutationEvidence } from './workspace-operation-batch-failure';
+import { projectWorkspaceOperationBatchExecution,
+  type WorkspaceOperationBatchExecutionPublicInput } from './workspace-operation-batch-execution-public';
 import type { WorkspaceOperationBatchExecutionResult, WorkspaceOperationBatchPlan, WorkspaceOperationBatchProgress,
   WorkspaceOperationBatchScope } from './workspace-operation-batch-contract';
 
@@ -649,6 +651,30 @@ export function createWorkspaceOperationBatchExecutor(dependencies: Dependencies
   });
 
   return { execute, undo, assertUndoAvailable,
+    async publicExecution(input: WorkspaceOperationBatchExecutionPublicInput & { batchId: string; scope: WorkspaceOperationBatchScope }) {
+      const workspace = input.scope.workspace;
+      if (workspace.workspaceId !== input.plan.workspaceId || workspace.status !== 'active' || !workspace.permissions.canRead
+        || input.scope.fileOptions.workspace && input.scope.fileOptions.workspace.workspaceId !== workspace.workspaceId) return null;
+      try {
+        const manifest = await load(input.batchId);
+        if (manifest && (manifest.workspaceId !== workspace.workspaceId || manifest.plan.planId !== input.plan.planId)) {
+          return projectWorkspaceOperationBatchExecution(input, null, true);
+        }
+        if (manifest?.undoPlan) {
+          if (computeWorkspaceFileOperationPlanId(manifest.undoPlan) !== manifest.undoPlan.planId) {
+            return projectWorkspaceOperationBatchExecution(input, null, true);
+          }
+          const forward = groupWorkspaceLinkWrites(manifest.plan.linkPlan);
+          const inverse = groupWorkspaceLinkWrites(manifest.undoPlan);
+          if (inverse.length !== forward.length || inverse.some((group, index) => group.workspaceId !== forward[index].workspaceId
+            || group.path !== forward[index].path || group.afterContent !== manifest.plan.originalDocuments
+              .find((document) => document.workspaceId === forward[index].sourceWorkspaceId && document.path === forward[index].sourcePathBefore)?.content)) {
+            return projectWorkspaceOperationBatchExecution(input, null, true);
+          }
+        }
+        return projectWorkspaceOperationBatchExecution(input, manifest);
+      } catch { return projectWorkspaceOperationBatchExecution(input, null, true); }
+    },
     async mutationEvidence(batchId: string, workspaceId: string, undo = false): Promise<WorkspaceOperationBatchMutationEvidence> {
       const manifest = await load(batchId);
       if (!manifest) return 'absent';
@@ -678,6 +704,7 @@ export const executeWorkspaceOperationBatch = (input: ExecuteInput) => createWor
 export const undoWorkspaceOperationBatch = (input: UndoInput) => createWorkspaceOperationBatchExecutor().undo(input);
 export const hasWorkspaceOperationBatchExecution = (batchId: string, workspaceId?: string) => createWorkspaceOperationBatchExecutor().has(batchId, workspaceId);
 export const getWorkspaceOperationBatchMutationEvidence = (batchId: string, workspaceId: string, undo = false) => createWorkspaceOperationBatchExecutor().mutationEvidence(batchId, workspaceId, undo);
+export const getWorkspaceOperationBatchExecutionPublic = (input: WorkspaceOperationBatchExecutionPublicInput & { batchId: string; scope: WorkspaceOperationBatchScope }) => createWorkspaceOperationBatchExecutor().publicExecution(input);
 export const getWorkspaceOperationBatchExecution = (input: { batchId: string; scope: WorkspaceOperationBatchScope }) => createWorkspaceOperationBatchExecutor().get(input);
 export const assertWorkspaceOperationBatchUndoAvailable = (input: { batchId: string; scope: WorkspaceOperationBatchScope }) => createWorkspaceOperationBatchExecutor().assertUndoAvailable(input);
 export const getWorkspaceOperationBatchTransitionProofs = (input: { batchId: string; scope: WorkspaceOperationBatchScope }) => createWorkspaceOperationBatchExecutor().transitions(input);

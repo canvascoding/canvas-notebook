@@ -126,6 +126,24 @@ async function main() {
     assert.equal(outcome.completedActions, outcome.totalActions);
     assert.equal(outcome.trashEntryIds.length, 1);
     assert.equal(await makeExecutor().has(batchId, workspace.workspaceId), true);
+    const forwardPublicInput = { batchId, scope, plan, actionMode: 'apply' as const, status: 'applied',
+      completedActions: outcome.completedActions, phase: 'complete' as const };
+    const forwardLedger = (await makeExecutor().publicExecution(forwardPublicInput))!;
+    assert.equal(forwardLedger.mode, 'apply'); assert.equal(forwardLedger.receiptStatus, 'available');
+    assert.equal(forwardLedger.finalization, 'complete'); assert.ok(forwardLedger.steps.every((step) => step.state === 'applied'));
+    assert.ok(forwardLedger.steps.some((step) => step.kind === 'delete' && step.path === 'old.md'));
+    assert.ok(forwardLedger.steps.some((step) => step.kind === 'move' && step.path === 'notes/a.md' && step.destinationPath === 'channels/a.md'));
+    const publicText = JSON.stringify(forwardLedger);
+    for (const privateField of ['content', 'sha256', 'afterTree', 'backupId', 'sourceIdentity', 'mutationId', 'trashEntryId']) {
+      assert.equal(publicText.includes(`"${privateField}"`), false, privateField);
+    }
+    await fs.rename(workspace.rootPath, `${workspace.rootPath}-temporarily-unavailable`);
+    try { assert.deepEqual(await makeExecutor().publicExecution(forwardPublicInput), forwardLedger, 'journal display does not probe current workspace files'); }
+    finally { await fs.rename(`${workspace.rootPath}-temporarily-unavailable`, workspace.rootPath); }
+    assert.equal(await makeExecutor().publicExecution({ ...forwardPublicInput, scope: { ...scope,
+      workspace: { ...workspace, permissions: { ...workspace.permissions, canRead: false } } } }), null);
+    assert.equal(await makeExecutor().publicExecution({ ...forwardPublicInput, scope: { ...scope,
+      workspace: { ...workspace, status: 'archived' } } }), null);
     const eventCount = events.length;
     assert.equal((await makeExecutor().execute({ batchId, plan, scope, actorUserId: 'tester', actorDisplayName: 'Tester' })).status, 'applied');
     assert.equal(events.length, eventCount, 'Restart/repeat acceptance never replays completed steps');
@@ -144,12 +162,32 @@ async function main() {
     for (const [filename, content] of Object.entries(baseline)) assert.equal(await fs.readFile(absolute(filename), 'utf8'), content);
     await assert.rejects(fs.stat(absolute('channels/a.md')), { code: 'ENOENT' });
     assert.equal((await makeExecutor().undo({ batchId, scope, actorUserId: 'tester', actorDisplayName: 'Tester' })).status, 'applied');
+    const undoLedger = (await makeExecutor().publicExecution({ ...forwardPublicInput, actionMode: 'undo', status: 'undone' }))!;
+    assert.equal(undoLedger.mode, 'undo'); assert.equal(undoLedger.finalization, 'complete');
+    assert.ok(undoLedger.steps.every((step) => step.state === 'applied'));
+    assert.ok(undoLedger.steps.some((step) => step.kind === 'restore' && step.path === 'old.md'));
+    assert.ok(undoLedger.steps.some((step) => step.kind === 'move' && step.path === 'channels/a.md' && step.destinationPath === 'notes/a.md'));
+    const manifestPath = path.join(dataRoot, 'manifests', `${batchId}.json`);
+    const savedManifest = await fs.readFile(manifestPath, 'utf8');
+    try {
+      const envelope = JSON.parse(savedManifest) as { payload: string; sha256: string };
+      const corruptInverse = JSON.parse(envelope.payload) as { undoPlan: { planId: string } };
+      corruptInverse.undoPlan.planId = 'f'.repeat(64);
+      envelope.payload = JSON.stringify(corruptInverse); envelope.sha256 = sha(envelope.payload);
+      await fs.writeFile(manifestPath, JSON.stringify(envelope));
+      const unknownInverse = (await makeExecutor().publicExecution({ ...forwardPublicInput, actionMode: 'undo', status: 'undone' }))!;
+      assert.equal(unknownInverse.receiptStatus, 'unavailable'); assert.equal(unknownInverse.finalization, 'pending', 'even an intact outer digest cannot bless an invalid inverse plan');
+    } finally { await fs.writeFile(manifestPath, savedManifest); }
 
     await write('checkpoint-target.md', '# Target'); await write('checkpoint-home.md', '[Target](checkpoint-target.md)');
     const checkpointPlan = await buildWorkspaceOperationBatchPlan({ scope, actions: [{ reviewId: 'checkpoint', kind: 'delete', selections: [{ sourcePath: 'checkpoint-target.md' }] }] });
     const checkpointId = randomUUID(); checkpointFailures = 1;
     const checkpointPending = await makeExecutor().execute({ batchId: checkpointId, plan: checkpointPlan, scope, actorUserId: 'tester', actorDisplayName: 'Tester' });
     assert.equal(checkpointPending.status, 'needs_recovery');
+    const checkpointLedger = (await makeExecutor().publicExecution({ batchId: checkpointId, scope, plan: checkpointPlan,
+      actionMode: 'apply', status: 'needs_recovery', completedActions: checkpointPending.completedActions, phase: 'recovery' }))!;
+    assert.equal(checkpointLedger.receiptStatus, 'available'); assert.equal(checkpointLedger.finalization, 'pending');
+    assert.ok(checkpointLedger.steps.every((step) => step.state === 'applied'), 'step acknowledgments do not claim checkpoint/final graph completion');
     const committedLinks = events.filter((event) => event === 'link:checkpoint-home.md').length;
     const checkpointResumed = await makeExecutor().execute({ batchId: checkpointId, plan: checkpointPlan, scope, actorUserId: 'tester', actorDisplayName: 'Tester' });
     assert.equal(checkpointResumed.status, 'applied', checkpointResumed.errorCode ?? '');
@@ -229,8 +267,13 @@ async function main() {
     assert.equal((await makeExecutor().get({ batchId: intentId, scope }))!.status, 'needs_recovery');
     await fs.writeFile(path.join(dataRoot, 'manifests', `${intentId}.json`), '{corrupt');
     await assert.rejects(makeExecutor().mutationEvidence(intentId, workspace.workspaceId));
+    const damagedInput = { batchId: intentId, scope, plan: freshPeer, actionMode: 'apply' as const,
+      status: 'needs_recovery', completedActions: 0, phase: 'recovery' as const };
+    const damagedLedger = (await makeExecutor().publicExecution(damagedInput))!;
+    assert.equal(damagedLedger.receiptStatus, 'unavailable'); assert.ok(damagedLedger.steps.every((step) => step.state === 'needs_check'));
     await fs.unlink(path.join(dataRoot, 'manifests', `${intentId}.json`));
     assert.equal(await makeExecutor().mutationEvidence(intentId, workspace.workspaceId), 'absent');
+    assert.deepEqual(await makeExecutor().publicExecution(damagedInput), damagedLedger, 'missing recovery journal remains unknown');
 
     await write('undo-protected.txt', 'Original');
     const protectedPlan = await buildWorkspaceOperationBatchPlan({ scope, actions: [{ reviewId: 'protected-undo', kind: 'move',
@@ -243,6 +286,9 @@ async function main() {
     assert.equal(refusedUndo.status, 'failed'); assert.equal(refusedUndo.errorCode, 'BATCH_UNDO_PATH_CHANGED');
     assert.equal((await makeExecutor().get({ batchId: protectedId, scope }))!.status, 'applied');
     assert.equal(await makeExecutor().mutationEvidence(protectedId, workspace.workspaceId, true), 'pristine');
+    const refusedLedger = (await makeExecutor().publicExecution({ batchId: protectedId, scope, plan: protectedPlan,
+      actionMode: 'undo', status: 'applied', completedActions: 1, phase: 'complete' }))!;
+    assert.equal(refusedLedger.mode, 'apply'); assert.equal(refusedLedger.finalization, 'complete');
     assert.equal(await fs.readFile(absolute('undo-protected-moved.txt'), 'utf8'), 'Peer edit must survive');
     await assert.rejects(fs.stat(absolute('undo-protected.txt')), { code: 'ENOENT' });
 
@@ -299,10 +345,38 @@ async function main() {
     const undoPaused = await makeExecutor().undo({ batchId: resumeId, scope, actorUserId: 'tester', actorDisplayName: 'Tester',
       onProgress: async () => { if (await fs.stat(absolute('resume-a.md')).then(() => true, () => false)) throw new Error('UNDO_WORKER_INTERRUPTED'); } });
     assert.equal(undoPaused.status, 'needs_recovery');
+    const partialInverse = (await makeExecutor().publicExecution({ batchId: resumeId, scope, plan: resumePlan,
+      actionMode: 'undo', status: 'needs_recovery', completedActions: undoPaused.completedActions, phase: 'recovery' }))!;
+    assert.equal(partialInverse.mode, 'undo'); assert.equal(partialInverse.receiptStatus, 'available');
+    assert.equal(partialInverse.finalization, 'pending');
+    assert.ok(partialInverse.steps.some((step) => step.kind === 'move' && step.destinationPath === 'resume-a.md' && step.state === 'applied'));
     const resumedUndo = await makeExecutor().undo({ batchId: resumeId, scope, actorUserId: 'tester', actorDisplayName: 'Tester' });
     assert.equal(resumedUndo.status, 'applied', resumedUndo.errorCode ?? '');
     assert.equal(await fs.readFile(absolute('resume-a.md'), 'utf8'), '[Shared](resume-shared.md)');
     assert.equal(await fs.readFile(absolute('resume-home.md'), 'utf8'), '[A](resume-a.md)');
+
+    await write('ledger-anchor.md', '# Anchor');
+    await write('ledger-undo-dir/doc.md', '[Anchor](../ledger-anchor.md)');
+    await write('ledger-undo-later.txt', 'Later reverse move stays pending');
+    const twoReversePlan = await buildWorkspaceOperationBatchPlan({ scope, actions: [
+      { reviewId: 'ledger-later', kind: 'move', selections: [{ sourcePath: 'ledger-undo-later.txt', destinationPath: 'ledger-undo-later-moved.txt' }] },
+      { reviewId: 'ledger-dir', kind: 'move', selections: [{ sourcePath: 'ledger-undo-dir', destinationPath: 'nested/ledger-undo-dir-moved' }] },
+    ] });
+    const twoReverseId = randomUUID();
+    assert.equal((await makeExecutor().execute({ batchId: twoReverseId, plan: twoReversePlan, scope,
+      actorUserId: 'tester', actorDisplayName: 'Tester' })).status, 'applied');
+    const twoReversePaused = await makeExecutor().undo({ batchId: twoReverseId, scope, actorUserId: 'tester', actorDisplayName: 'Tester',
+      onProgress: async () => { if (await fs.stat(absolute('ledger-undo-dir/doc.md')).then(() => true, () => false)) throw new Error('LATER_REVERSE_STEP_INTERRUPTED'); } });
+    assert.equal(twoReversePaused.status, 'needs_recovery');
+    const twoReverseLedger = (await makeExecutor().publicExecution({ batchId: twoReverseId, scope, plan: twoReversePlan,
+      actionMode: 'undo', status: 'needs_recovery', completedActions: twoReversePaused.completedActions, phase: 'recovery' }))!;
+    assert.equal(twoReverseLedger.receiptStatus, 'available'); assert.equal(twoReverseLedger.finalization, 'pending');
+    const restoredDocument = twoReverseLedger.steps.find((step) => step.phase === 'link' && step.path === 'nested/ledger-undo-dir-moved/doc.md')!;
+    assert.equal(restoredDocument.state, 'applied'); assert.equal(restoredDocument.openPath, 'ledger-undo-dir/doc.md');
+    assert.equal(await fs.readFile(absolute(restoredDocument.openPath!), 'utf8'), '[Anchor](../ledger-anchor.md)');
+    assert.ok(twoReverseLedger.steps.some((step) => step.phase === 'path' && step.destinationPath === 'ledger-undo-later.txt' && step.state === 'pending'));
+    assert.equal(await fs.readFile(absolute('ledger-undo-later-moved.txt'), 'utf8'), 'Later reverse move stays pending');
+    assert.equal((await makeExecutor().undo({ batchId: twoReverseId, scope, actorUserId: 'tester', actorDisplayName: 'Tester' })).status, 'applied');
 
     await write('empty-target.md', '# Empty target'); await write('empty-home.md', '[](empty-target.md)');
     const emptyPlan = await buildWorkspaceOperationBatchPlan({ scope, actions: [{ reviewId: 'empty', kind: 'delete', selections: [{ sourcePath: 'empty-target.md' }] }] });

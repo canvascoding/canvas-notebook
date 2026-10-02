@@ -272,6 +272,9 @@ export function WorkspaceOperationReviewPanel({ request }: { request: WorkspaceO
   const batch = ownedBatch && !['preview', 'blocked'].includes(ownedBatch.status) ? ownedBatch
     : checkState ? checkState.batch : ownedBatch;
   const [batchAction, setBatchAction] = useState<'preview' | 'accept' | 'resume' | 'undo' | 'refresh' | null>(null);
+  const [approvalConflict, setApprovalConflict] = useState<{ key: string; batchId: string } | null>(null);
+  const approvalChanged = approvalConflict?.key === requestKey && approvalConflict.batchId === batch?.batchId
+    && ['preview', 'blocked', 'needs_review'].includes(batch.status);
   const [refreshedFrom, setRefreshedFrom] = useState<string | null>(null);
   const [undoAvailability, setUndoAvailability] = useState<{
     operationId: string; value: WorkspaceOperationUndoAvailability;
@@ -391,13 +394,14 @@ export function WorkspaceOperationReviewPanel({ request }: { request: WorkspaceO
   const previewBatch = (reviewIds: string[], fresh = false) => {
     if (batchAction || reviewIds.length === 0) return;
     setError(null);
+    setApprovalConflict(null);
     setBatch(null);
     setCheckReviewIds(reviewIds);
     ensureWorkspaceOperationCheck(request.workspaceId, reviewIds, fresh);
   };
 
   const acceptBatch = async () => {
-    if (loading || dataScope !== requestKey || !batch || batchAction || batch.status !== 'preview' || batch.preview.readiness !== 'ready'
+    if (loading || dataScope !== requestKey || !batch || batchAction || approvalChanged || batch.status !== 'preview' || batch.preview.readiness !== 'ready'
       || checkState && (checkState.status !== 'ready' || !checkSelectionMatches)) return;
     setBatchAction('accept');
     setError(null);
@@ -407,7 +411,14 @@ export function WorkspaceOperationReviewPanel({ request }: { request: WorkspaceO
       setCheckReviewIds([]);
       window.dispatchEvent(new CustomEvent('notification_summary_updated'));
     } catch (acceptError) {
-      setError(acceptError instanceof Error ? acceptError.message : t('actionFailed'));
+      const stale = acceptError instanceof WorkspaceOperationReviewClientError
+        && ['PREVIEW_STALE', 'BATCH_PLAN_STALE', 'LINK_WRITE_STALE', 'LINK_WRITE_STALE_DOCUMENT'].includes(acceptError.code ?? '');
+      if (stale) {
+        setApprovalConflict({ key: requestKey, batchId: batch.batchId });
+        setBatch(batch);
+        forgetWorkspaceOperationCheck(request.workspaceId, checkReviewIds);
+      }
+      setError(stale ? null : t('actionFailed'));
       const latest = await readWorkspaceOperationBatch(batch.batchId, request.workspaceId).catch(() => null);
       if (latest) setBatch(latest);
     } finally {
@@ -424,7 +435,10 @@ export function WorkspaceOperationReviewPanel({ request }: { request: WorkspaceO
         planId: batch.planId, action: batchDecision }));
       window.dispatchEvent(new CustomEvent('notification_summary_updated'));
     } catch (updateError) {
-      setError(updateError instanceof Error ? updateError.message : t('actionFailed'));
+      const code = updateError instanceof WorkspaceOperationReviewClientError ? updateError.code : null;
+      setError(code === 'BATCH_RESUME_REVIEWER_REQUIRED' ? t('batchResumeReviewerHelp')
+        : batchDecision === 'undo' && (code?.startsWith('BATCH_UNDO_') || code === 'LINK_WRITE_STALE' || code === 'LINK_WRITE_STALE_DOCUMENT')
+          ? t('batchUndoRefusedHelp') : t('actionFailed'));
     } finally {
       setBatchAction(null);
     }
@@ -547,10 +561,10 @@ export function WorkspaceOperationReviewPanel({ request }: { request: WorkspaceO
         <Button variant="outline" size="sm" onClick={retry}><RefreshCw className="size-4" />{t('retry')}</Button>
       </div> : null}
       {!busyLoading && review && (refreshedFrom || review.previousReviewId) ? <RefreshedReviewNotice review={review} previous={data.previousReview} /> : null}
-      {!busyLoading && checkState ? <WorkspaceOperationCheckDetails state={checkState} reviews={checkReviews}
+      {!busyLoading && checkState && !approvalChanged ? <WorkspaceOperationCheckDetails state={checkState} reviews={checkReviews}
         showPaths={!batch} selectionChanged={!checkSelectionMatches} canCheckAgain={request.mode === 'detail' || selectedEligible.length > 0}
         onCheckAgain={() => previewBatch(request.mode === 'list' ? selectedEligible.map((item) => item.reviewId) : checkReviewIds, true)} /> : null}
-      {!busyLoading && batch ? <WorkspaceOperationBatchDetails batch={batch} onOpenDocument={openDocument} /> : null}
+      {!busyLoading && batch ? <WorkspaceOperationBatchDetails batch={batch} onOpenDocument={openDocument} approvalChanged={approvalChanged} /> : null}
       {!busyLoading && request.mode === 'list' ? <div className="space-y-3 p-4 sm:p-6">
         <details open={!checkState && !batch} className="rounded-lg border" data-testid="workspace-operation-selection">
           <summary className="cursor-pointer px-3 py-3 text-sm font-medium" data-testid="workspace-operation-selection-summary">{t('changeSelection', { count: selectedEligible.length })}</summary>
@@ -624,9 +638,9 @@ export function WorkspaceOperationReviewPanel({ request }: { request: WorkspaceO
         disabled={batchAction !== null || selectedEligible.length === 0}>{t('reviewSelected')}</Button> : null}
       {!batch && !checkState && review && ['stale', 'blocked'].includes(review.status) ? <Button variant="outline" data-testid="workspace-operation-review-refresh"
         onClick={() => void refreshReview()} disabled={batchAction !== null}>{t(review.successorReviewId ? 'openUpdatedPreview' : 'refreshPreview')}</Button> : null}
-      {!busyLoading && batch?.status === 'preview' && batch.preview.readiness === 'ready' && (!checkState || checkState.status === 'ready' && checkSelectionMatches) ? <Button data-testid="workspace-operation-batch-accept"
+      {!busyLoading && !approvalChanged && batch?.status === 'preview' && batch.preview.readiness === 'ready' && (!checkState || checkState.status === 'ready' && checkSelectionMatches) ? <Button data-testid="workspace-operation-batch-accept"
         onClick={() => void acceptBatch()} disabled={batchAction !== null}>{t('acceptBatch')}</Button> : null}
-      {batch && !checkState && ['blocked', 'needs_review'].includes(batch.status) ? <Button data-testid="workspace-operation-review-refresh" variant="outline"
+      {batch && !checkState && (approvalChanged || ['blocked', 'needs_review'].includes(batch.status)) ? <Button data-testid="workspace-operation-review-refresh" variant="outline"
         onClick={() => { if (request.mode === 'detail' && data.review && ['pending', 'blocked', 'stale'].includes(data.review.status)) void refreshReview();
           else previewBatch(batch.reviewIds, true); }} disabled={batchAction !== null}>{t('refreshPreview')}</Button> : null}
       {batch && ['needs_recovery', 'failed'].includes(batch.status) ? <Button data-testid="workspace-operation-batch-resume" variant="outline" onClick={() => void updateBatch('resume')}

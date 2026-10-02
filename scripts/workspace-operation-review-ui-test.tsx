@@ -61,6 +61,7 @@ async function compileUi(controls: {
   batchAccepts?: Array<{ batchId: string; planId: string; workspaceId: string }>;
   previewBatch?: () => WorkspaceOperationBatchPublic;
   acceptBatch?: () => WorkspaceOperationBatchPublic;
+  acceptFailure?: { message: string; status: number; code: string };
   batchUpdates?: Array<{ batchId: string; planId: string; workspaceId: string; action: 'resume' | 'undo' }>;
   updateBatch?: () => WorkspaceOperationBatchPublic;
   refreshCalls?: string[];
@@ -90,6 +91,9 @@ async function compileUi(controls: {
   const button = ({ children, variant: _variant, size: _size, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement> & {
     variant?: string; size?: string;
   }) => <button type="button" {...props}>{children}</button>;
+  class ReviewClientError extends Error {
+    constructor(message: string, readonly status: number, readonly code: string | null) { super(message); }
+  }
   const mocks: Record<string, unknown> = {
     'lucide-react': new Proxy({}, { get: () => () => null }),
     'next-intl': { useTranslations: () => translate },
@@ -102,9 +106,7 @@ async function compileUi(controls: {
       DialogTitle: ({ children }: React.PropsWithChildren) => <h2>{children}</h2>,
     },
     '@/app/lib/files/workspace-operation-review-client': {
-      WorkspaceOperationReviewClientError: class extends Error {
-        constructor(message: string, readonly status: number, readonly code: string | null) { super(message); }
-      },
+      WorkspaceOperationReviewClientError: ReviewClientError,
       listWorkspaceOperationReviews: async () => controls.list?.() ?? [review(), { ...review('blocked'), reviewId: 'review-blocked' }],
       readWorkspaceOperationReview: async (id: string) => { controls.reads.push(id); return controls.current(); },
       decideWorkspaceOperationReview: async (input: { reviewId: string; planId: string; action: 'accept' | 'reject' }) => {
@@ -132,6 +134,7 @@ async function compileUi(controls: {
       },
       acceptWorkspaceOperationBatch: async (input: { batchId: string; planId: string; workspaceId: string }) => {
         controls.batchAccepts?.push(input);
+        if (controls.acceptFailure) throw new ReviewClientError(controls.acceptFailure.message, controls.acceptFailure.status, controls.acceptFailure.code);
         return controls.acceptBatch?.();
       },
       readWorkspaceOperationBatch: async (id: string) => {
@@ -786,4 +789,238 @@ test('session storage rehydrates a scoped running check through GET and never tr
       else Reflect.deleteProperty(globalThis, name);
     }
   }
+});
+
+async function withMountedBatchReview(batch: WorkspaceOperationBatchPublic, body: (controls: Parameters<typeof compileUi>[0]) => Promise<void>) {
+  const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', { url: 'https://canvas.test' });
+  const globals = { window: dom.window, document: dom.window.document, HTMLElement: dom.window.HTMLElement,
+    CustomEvent: dom.window.CustomEvent, IS_REACT_ACT_ENVIRONMENT: true };
+  const prior = new Map(Object.keys(globals).map((name) => [name, Object.getOwnPropertyDescriptor(globalThis, name)]));
+  for (const [name, value] of Object.entries(globals)) Object.defineProperty(globalThis, name, { configurable: true, value });
+  let savedBatch = batch;
+  const controls: Parameters<typeof compileUi>[0] = {
+    reads: [], decisions: [], opens: [], undoChecks: [], undoCalls: [],
+    current: () => ({ ...review('needs_recovery'), batchId: batch.batchId }), decide: async () => review(),
+    currentBatch: () => savedBatch, batchPreviews: [], batchAccepts: [], batchUpdates: [], documentOpens: [],
+    updateBatch: () => { savedBatch = { ...savedBatch, status: 'queued' }; return savedBatch; },
+  };
+  const ui = await compileUi(controls);
+  const { createRoot } = await import('react-dom/client');
+  const root = createRoot(document.getElementById('root')!);
+  try {
+    await act(async () => root.render(<ui.WorkspaceOperationReviewPanel request={{ mode: 'detail', reviewId, workspaceId }} />));
+    await body(controls);
+  } finally {
+    await act(async () => root.unmount());
+    ui.disposeChecks(); dom.window.close();
+    for (const [name, descriptor] of prior) {
+      if (descriptor) Object.defineProperty(globalThis, name, descriptor);
+      else Reflect.deleteProperty(globalThis, name);
+    }
+  }
+}
+
+function partialExecutionBatch(mode: 'apply' | 'undo' = 'apply'): WorkspaceOperationBatchPublic {
+  return {
+    ...batchPreview('needs_recovery'), completedActions: 3, errorCode: 'LINK_WRITE_STALE',
+    execution: { mode, receiptStatus: 'available', finalization: 'pending', steps: mode === 'apply' ? [
+      { key: 'path:0', phase: 'path', kind: 'move', path: 'Docs', destinationPath: 'Archive/Docs', reviewId, state: 'applied' },
+      { key: 'path:1', phase: 'path', kind: 'delete', path: 'Old.md', reviewId: 'review-delete', state: 'pending' },
+      { key: 'link:0', phase: 'link', kind: 'link_update', path: 'Reference.md', openPath: 'Reference.md', state: 'pending' },
+      { key: 'link:1', phase: 'link', kind: 'link_update', path: 'Check.md', state: 'needs_check' },
+    ] : [
+      { key: 'path:1', phase: 'path', kind: 'restore', path: 'Old.md', reviewId: 'review-delete', state: 'applied' },
+      { key: 'link:0', phase: 'link', kind: 'link_update', path: 'Reference.md', openPath: 'Reference.md', state: 'pending' },
+      { key: 'path:0', phase: 'path', kind: 'move', path: 'Archive/Docs', destinationPath: 'Docs', reviewId, state: 'needs_check' },
+    ] },
+  };
+}
+
+test('partial forward execution shows exact journal results and resumes only the approved job', async () => {
+  await withMountedBatchReview(partialExecutionBatch(), async (controls) => {
+    const execution = document.querySelector('[data-testid="workspace-operation-execution"]')!;
+    assert.match(execution.textContent ?? '', /Recorded progress/u);
+    const row = (key: string) => document.querySelector(`[data-testid="workspace-operation-execution-step-${key}"]`)!;
+    assert.equal(row('path:0').getAttribute('data-step-state'), 'applied');
+    assert.match(row('path:0').textContent ?? '', /Done/u);
+    assert.match(row('path:0').textContent ?? '', /Docs.*Archive\/Docs/u);
+    assert.equal(row('path:1').getAttribute('data-step-state'), 'pending');
+    assert.match(row('path:1').textContent ?? '', /Still pending/u);
+    assert.equal(row('link:0').getAttribute('data-step-state'), 'pending', 'a numeric progress count cannot invent a completed link write');
+    assert.equal(row('link:1').getAttribute('data-step-state'), 'needs_check');
+    assert.match(row('link:1').textContent ?? '', /Check result/u);
+    assert.ok(document.querySelector('[data-testid="workspace-operation-batch-conflict"]'));
+    assert.equal(document.querySelector('[data-testid="workspace-operation-batch-accept"]'), null);
+    assert.equal(document.querySelector('[data-testid="workspace-operation-review-refresh"]'), null);
+    assert.equal(document.querySelector<HTMLDetailsElement>('[data-testid="workspace-operation-technical-details"]')?.open, false);
+    assert.doesNotMatch(execution.textContent ?? '', /LINK_WRITE_STALE/u, 'technical codes stay outside the decision summary');
+    await act(async () => document.querySelector<HTMLButtonElement>('[data-testid="workspace-operation-execution-open-link:0"]')!.click());
+    assert.deepEqual(controls.documentOpens, [{ path: 'Reference.md', workspaceId }]);
+    await act(async () => document.querySelector<HTMLButtonElement>('[data-testid="workspace-operation-batch-resume"]')!.click());
+    assert.deepEqual(controls.batchUpdates, [{ batchId: 'batch-one', planId: 'combined-plan-123', workspaceId, action: 'resume' }]);
+    assert.deepEqual(controls.batchPreviews, []);
+    assert.deepEqual(controls.batchAccepts, []);
+    assert.deepEqual(controls.decisions, []);
+  });
+});
+
+test('partial Undo shows restoration receipts without reusing the forward move as a completed result', async () => {
+  await withMountedBatchReview(partialExecutionBatch('undo'), async () => {
+    const execution = document.querySelector('[data-testid="workspace-operation-execution"]')!;
+    assert.match(execution.textContent ?? '', /Recorded undo progress/u);
+    assert.equal(document.querySelector('[data-testid="workspace-operation-execution-step-path:1"]')?.getAttribute('data-step-state'), 'applied');
+    assert.match(document.querySelector('[data-testid="workspace-operation-execution-step-path:1"]')?.textContent ?? '', /Old\.md/u);
+    const reversed = document.querySelector('[data-testid="workspace-operation-execution-step-path:0"]')!;
+    assert.equal(reversed.getAttribute('data-step-state'), 'needs_check');
+    assert.match(reversed.textContent ?? '', /Archive\/Docs.*Docs/u);
+    assert.equal(document.querySelector('[data-testid="workspace-operation-execution-step-link:0"]')?.getAttribute('data-step-state'), 'pending');
+    assert.equal(document.querySelector('[data-testid="workspace-operation-batch-receipt"]'), null);
+  });
+});
+
+test('an unavailable execution journal never turns aggregate progress into Done receipts', async () => {
+  const source = partialExecutionBatch();
+  const batch = { ...source, completedActions: 4,
+    execution: { mode: 'apply' as const, receiptStatus: 'unavailable' as const, finalization: 'pending' as const,
+      steps: source.execution!.steps.map((step) => ({ ...step, openPath: undefined, state: 'needs_check' as const })) } };
+  await withMountedBatchReview(batch, async () => {
+    const execution = document.querySelector('[data-testid="workspace-operation-execution"]')!;
+    assert.ok(execution);
+    assert.equal(execution.querySelectorAll('[data-step-state="needs_check"]').length, 4);
+    assert.doesNotMatch(execution.textContent ?? '', /\bDone\b/u);
+    assert.equal(execution.querySelector('[data-testid^="workspace-operation-execution-open-"]'), null, 'unknown locations cannot offer navigation to a guessed path');
+    assert.equal(document.querySelector('[data-testid="workspace-operation-batch-receipt"]'), null);
+    assert.ok(document.querySelector('[data-testid="workspace-operation-batch-resume"]'));
+  });
+});
+
+test('recorded applied steps with pending finalization do not claim the file actions completed', async () => {
+  const batch = partialExecutionBatch();
+  batch.completedActions = batch.totalActions;
+  batch.execution!.steps = batch.execution!.steps.map((step) => ({ ...step, state: 'applied' }));
+  await withMountedBatchReview(batch, async () => {
+    const execution = document.querySelector('[data-testid="workspace-operation-execution"]')!;
+    assert.ok(execution);
+    assert.equal(execution.querySelectorAll('[data-step-state="applied"]').length, 4);
+    assert.match(execution.textContent ?? '', /final|pending/iu);
+    assert.equal(document.querySelector('[data-testid="workspace-operation-batch-receipt"]'), null);
+    assert.doesNotMatch(document.querySelector('[data-testid="workspace-operation-batch-status"]')?.textContent ?? '', /File actions completed/u);
+    assert.ok(document.querySelector('[data-testid="workspace-operation-batch-resume"]'));
+  });
+});
+
+test('a preflight peer conflict offers a fresh check without automatically resuming or approving changed files', async () => {
+  const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', { url: 'https://canvas.test' });
+  const globals = { window: dom.window, document: dom.window.document, HTMLElement: dom.window.HTMLElement,
+    CustomEvent: dom.window.CustomEvent, IS_REACT_ACT_ENVIRONMENT: true };
+  const prior = new Map(Object.keys(globals).map((name) => [name, Object.getOwnPropertyDescriptor(globalThis, name)]));
+  for (const [name, value] of Object.entries(globals)) Object.defineProperty(globalThis, name, { configurable: true, value });
+  const original = batchPreview();
+  const fresh = { ...batchPreview(), batchId: 'fresh-peer-batch', planId: 'fresh-peer-plan',
+    preview: { ...batchPreview().preview, planId: 'fresh-peer-plan' } };
+  const stale: WorkspaceOperationBatchPublic = { ...original, status: 'needs_review', errorCode: 'LINK_WRITE_STALE',
+    execution: { mode: 'apply', receiptStatus: 'not_started', finalization: 'pending', steps: [] } };
+  const controls: Parameters<typeof compileUi>[0] = {
+    reads: [], decisions: [], opens: [], undoChecks: [], undoCalls: [], current: () => review(), decide: async () => review(),
+    batchPreviews: [], batchAccepts: [], batchUpdates: [],
+    previewBatch: () => controls.batchPreviews!.length > 1 ? fresh : original,
+    acceptBatch: () => ({ ...original, status: 'queued' }), currentBatch: () => stale,
+  };
+  const ui = await compileUi(controls);
+  const { createRoot } = await import('react-dom/client');
+  const root = createRoot(document.getElementById('root')!);
+  try {
+    await act(async () => root.render(<ui.WorkspaceOperationReviewPanel request={{ mode: 'detail', reviewId, workspaceId }} />));
+    await act(async () => document.querySelector<HTMLButtonElement>('[data-testid="workspace-operation-batch-accept"]')!.click());
+    assert.ok(document.querySelector('[data-testid="workspace-operation-batch-conflict"]'));
+    assert.equal(document.querySelector('[data-testid="workspace-operation-batch-resume"]'), null);
+    assert.equal(document.querySelector('[data-testid="workspace-operation-batch-accept"]'), null);
+    assert.deepEqual(controls.batchPreviews, [[reviewId]], 'conflict never creates a replacement preview by itself');
+    await act(async () => document.querySelector<HTMLButtonElement>('[data-testid="workspace-operation-review-refresh"]')!.click());
+    assert.deepEqual(controls.batchPreviews, [[reviewId], [reviewId]]);
+    assert.deepEqual(controls.batchUpdates, []);
+    assert.equal(controls.batchAccepts!.length, 1, 'checking current bytes never automatically accepts them');
+    assert.equal(document.querySelector('[data-testid="workspace-operation-plan-id"]')?.textContent, fresh.planId);
+    await act(async () => document.querySelector<HTMLButtonElement>('[data-testid="workspace-operation-batch-accept"]')!.click());
+    assert.deepEqual(controls.batchAccepts![1], { batchId: fresh.batchId, planId: fresh.planId, workspaceId });
+  } finally {
+    await act(async () => root.unmount()); ui.disposeChecks(); dom.window.close();
+    for (const [name, descriptor] of prior) {
+      if (descriptor) Object.defineProperty(globalThis, name, descriptor);
+      else Reflect.deleteProperty(globalThis, name);
+    }
+  }
+});
+
+for (const failedRead of [false, true]) test(`a rejected acceptance race requires a fresh check when follow-up GET ${failedRead ? 'fails' : 'retains the old ready plan'}`, async () => {
+  const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', { url: 'https://canvas.test' });
+  const globals = { window: dom.window, document: dom.window.document, HTMLElement: dom.window.HTMLElement,
+    CustomEvent: dom.window.CustomEvent, IS_REACT_ACT_ENVIRONMENT: true };
+  const prior = new Map(Object.keys(globals).map((name) => [name, Object.getOwnPropertyDescriptor(globalThis, name)]));
+  for (const [name, value] of Object.entries(globals)) Object.defineProperty(globalThis, name, { configurable: true, value });
+  const unchangedServerPlan = batchPreview();
+  const fresh = { ...batchPreview(), batchId: 'acceptance-race-fresh-batch', planId: 'acceptance-race-fresh-plan',
+    preview: { ...batchPreview().preview, planId: 'acceptance-race-fresh-plan' } };
+  const controls: Parameters<typeof compileUi>[0] = {
+    reads: [], decisions: [], opens: [], undoChecks: [], undoCalls: [], current: () => review(), decide: async () => review(),
+    batchPreviews: [], batchAccepts: [], batchUpdates: [], batchReads: [],
+    previewBatch: () => controls.batchPreviews!.length > 1 ? fresh : unchangedServerPlan,
+    currentBatch: () => { if (failedRead) throw new Error('The follow-up GET is unavailable.'); return unchangedServerPlan; },
+    acceptFailure: { message: 'PREVIEW_STALE internal diagnostic', status: 409, code: 'PREVIEW_STALE' },
+    acceptBatch: () => ({ ...fresh, status: 'queued' }),
+  };
+  const ui = await compileUi(controls);
+  const { createRoot } = await import('react-dom/client');
+  const root = createRoot(document.getElementById('root')!);
+  try {
+    const request = { mode: 'detail' as const, reviewId, workspaceId };
+    await act(async () => root.render(<ui.WorkspaceOperationReviewPanel request={request} />));
+    await act(async () => document.querySelector<HTMLButtonElement>('[data-testid="workspace-operation-batch-accept"]')!.click());
+    assert.deepEqual(controls.batchReads, [unchangedServerPlan.batchId], 'the actual saved job is still read after the conflict');
+    assert.equal(unchangedServerPlan.status, 'preview', 'the test server state was never relabeled to invent a successful refresh');
+    assert.equal(document.querySelector('[data-testid="workspace-operation-batch-accept"]'), null);
+    assert.equal(document.querySelector('[data-testid="workspace-operation-check-status"]'), null);
+    assert.equal(document.querySelector('[data-testid="workspace-operation-check-again"]'), null);
+    assert.equal(document.querySelector('[data-testid="workspace-operation-batch-resume"]'), null);
+    const conflict = document.querySelector('[data-testid="workspace-operation-batch-conflict"]')!;
+    assert.ok(conflict);
+    assert.match(conflict.textContent ?? '', /has not changed files or links/iu);
+    assert.doesNotMatch(document.querySelector('[role="alert"]')?.textContent ?? '', /PREVIEW_STALE/u);
+    assert.deepEqual(controls.batchPreviews, [[reviewId]], 'a rejected acceptance never starts a hidden new check');
+    await act(async () => root.render(<ui.WorkspaceOperationReviewPanel request={{ ...request }} />));
+    assert.equal(document.querySelector('[data-testid="workspace-operation-batch-accept"]'), null, 'ordinary rerenders cannot forget the conflict');
+    await act(async () => document.querySelector<HTMLButtonElement>('[data-testid="workspace-operation-review-refresh"]')!.click());
+    assert.deepEqual(controls.batchPreviews, [[reviewId], [reviewId]]);
+    assert.equal(controls.batchAccepts!.length, 1, 'the new check still needs an explicit approval');
+    assert.equal(document.querySelector('[data-testid="workspace-operation-plan-id"]')?.textContent, fresh.planId);
+    controls.acceptFailure = undefined;
+    controls.currentBatch = () => ({ ...fresh, status: 'applied' });
+    await act(async () => document.querySelector<HTMLButtonElement>('[data-testid="workspace-operation-batch-accept"]')!.click());
+    assert.deepEqual(controls.batchAccepts![1], { batchId: fresh.batchId, planId: fresh.planId, workspaceId });
+    assert.deepEqual(controls.batchUpdates, []);
+    assert.equal(document.querySelector('[data-testid="workspace-operation-batch-conflict"]'), null, 'a proven applied result after the fresh approval is not relabeled as a conflict');
+  } finally {
+    await act(async () => root.unmount()); ui.disposeChecks(); dom.window.close();
+    for (const [name, descriptor] of prior) {
+      if (descriptor) Object.defineProperty(globalThis, name, descriptor);
+      else Reflect.deleteProperty(globalThis, name);
+    }
+  }
+});
+
+test('partial Undo opens a proven current source location instead of its historical link path', async () => {
+  const batch = partialExecutionBatch('undo');
+  const restoredFolder = batch.execution!.steps.find((step) => step.key === 'path:0')!;
+  restoredFolder.state = 'applied';
+  const link = batch.execution!.steps.find((step) => step.key === 'link:0')!;
+  link.path = 'Archive/Docs/Reference.md';
+  link.openPath = 'Docs/Reference.md';
+  await withMountedBatchReview(batch, async (controls) => {
+    const row = document.querySelector('[data-testid="workspace-operation-execution-step-link:0"]')!;
+    assert.match(row.textContent ?? '', /Archive\/Docs\/Reference\.md/u, 'the recorded step retains the originally reviewed path');
+    await act(async () => document.querySelector<HTMLButtonElement>('[data-testid="workspace-operation-execution-open-link:0"]')!.click());
+    assert.deepEqual(controls.documentOpens, [{ path: 'Docs/Reference.md', workspaceId }], 'navigation uses the proven reverse-move location');
+    assert.deepEqual(controls.batchPreviews, []);
+    assert.deepEqual(controls.batchAccepts, []);
+  });
 });

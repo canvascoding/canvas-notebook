@@ -4,13 +4,22 @@ import { useTranslations } from 'next-intl';
 import { Button } from '@/components/ui/button';
 import type { WorkspaceOperationBatchPublic } from '@/app/lib/files/workspace-operation-batch-public';
 
-export function WorkspaceOperationBatchDetails({ batch, onOpenDocument }: {
+export function WorkspaceOperationBatchDetails({ batch, onOpenDocument, approvalChanged = false }: {
   batch: WorkspaceOperationBatchPublic; onOpenDocument?: (path: string, workspaceId: string) => void;
+  approvalChanged?: boolean;
 }) {
   const t = useTranslations('workspaceOperationReview');
   const preview = batch.preview;
   const running = batch.status === 'queued' || batch.status === 'applying';
   const applied = batch.status === 'applied' || batch.status === 'undone';
+  const execution = batch.execution;
+  const stopped = batch.status === 'needs_recovery' || batch.status === 'failed';
+  const liveConflict = ['LINK_WRITE_STALE', 'LINK_WRITE_STALE_DOCUMENT', 'BATCH_CHECKPOINT_STATE_CHANGED',
+    'COLLABORATION_DOCUMENT_MISMATCH', 'COLLABORATION_LIFECYCLE_STALE',
+    'COLLABORATION_REPRESENTATION_MISMATCH'].includes(batch.errorCode ?? '');
+  const completedSteps = execution?.steps.filter((step) => step.state === 'applied').length ?? 0;
+  const pendingSteps = execution?.steps.filter((step) => step.state === 'pending').length ?? 0;
+  const uncertainSteps = execution?.steps.filter((step) => step.state === 'needs_check').length ?? 0;
   const affected = new Map<string, 'file' | 'directory'>();
   for (const mapping of preview.pathMappings) affected.set(mapping.sourceIdentity, mapping.sourceKind);
   for (const entry of preview.deletedPaths) affected.set(entry.identity, entry.kind);
@@ -85,7 +94,7 @@ export function WorkspaceOperationBatchDetails({ batch, onOpenDocument }: {
 
   return <div className="space-y-5 px-4 py-4 sm:px-6" data-testid="workspace-operation-batch-details">
     <section className="space-y-2 rounded-lg border bg-muted/20 p-3 text-sm" data-testid="workspace-operation-batch-status" role="status" aria-live="polite">
-      <h2 className="font-semibold">{t(`batchStatus_${batch.status}`)}</h2>
+      <h2 className="font-semibold">{t(approvalChanged ? 'batchStatus_needs_review' : `batchStatus_${batch.status}`)}</h2>
       {applied ? <p data-testid="workspace-operation-batch-receipt">{t(batch.status === 'undone' ? 'batchUndoneSummary' : 'batchAppliedSummary', {
         files: fileCount, folders: folderCount, links: preview.linkEdits.length,
       })}</p> : <p>{t('batchScopeSummary', { actions: preview.actions.length, files: fileCount, folders: folderCount, links: preview.linkEdits.length })}</p>}
@@ -94,10 +103,40 @@ export function WorkspaceOperationBatchDetails({ batch, onOpenDocument }: {
         <progress className="h-2 w-full" aria-label={t('batchProgressLabel')} max={Math.max(1, batch.totalActions)} value={batch.completedActions} />
         <p className="text-xs text-muted-foreground">{t('batchContinuesAfterClose')}</p>
       </> : null}
-      {batch.status === 'needs_review' ? <p>{t('batchNeedsReviewHelp')}</p> : null}
-      {batch.status === 'needs_recovery' ? <p>{t('batchNeedsRecoveryHelp')}</p> : null}
+      {batch.status === 'needs_review' || approvalChanged ? <p data-testid="workspace-operation-batch-conflict">{t('batchNeedsReviewHelp')}</p> : null}
+      {batch.status === 'needs_recovery' ? <p data-testid="workspace-operation-batch-conflict">
+        {t(liveConflict ? 'batchPeerConflictRecoveryHelp' : 'batchNeedsRecoveryHelp')}
+      </p> : null}
       {batch.status === 'failed' ? <p>{t('batchFailedHelp')}</p> : null}
+      {batch.status === 'applied' && batch.errorCode ? <p data-testid="workspace-operation-undo-refused">{t('batchUndoRefusedHelp')}</p> : null}
     </section>
+
+    {stopped ? <section className="space-y-3 rounded-lg border p-3 text-sm" data-testid="workspace-operation-execution"
+      aria-label={t('executionTitle')}>
+      <h3 className="font-semibold">{t(execution?.mode === 'undo' ? 'executionUndoTitle' : 'executionTitle')}</h3>
+      {!execution || execution.receiptStatus === 'unavailable' ? <p>{t('executionUnavailableHelp')}</p>
+        : execution.receiptStatus === 'not_started' ? <p>{t('executionNotStartedHelp')}</p>
+          : <p className="text-xs text-muted-foreground">{t('executionSummary', { completed: completedSteps, pending: pendingSteps, uncertain: uncertainSteps })}</p>}
+      {execution?.receiptStatus === 'available' && execution.finalization === 'pending' && execution.steps.length > 0 && completedSteps === execution.steps.length
+        ? <p data-testid="workspace-operation-finalization-pending">{t('executionFinalizationPending')}</p> : null}
+      {execution?.steps.length ? <ul className="max-h-80 space-y-2 overflow-y-auto">
+        {execution.steps.map((step) => <li key={step.key} className="min-w-0 space-y-2 rounded-lg border bg-muted/15 p-3"
+          data-testid={`workspace-operation-execution-step-${step.key}`} data-step-state={step.state}>
+          <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+            <span className="font-semibold">{t(step.kind === 'link_update' ? 'executionLinkUpdate'
+              : step.kind === 'restore' ? 'executionRestore' : `kind_${step.kind}`)}</span>
+            <span className={step.state === 'applied' ? 'rounded-full bg-emerald-500/10 px-2 py-1 text-emerald-800 dark:text-emerald-200'
+              : 'rounded-full bg-muted px-2 py-1 text-muted-foreground'}>{t(`executionState_${step.state}`)}</span>
+          </div>
+          <p className="break-all font-mono text-xs">{step.path}{step.destinationPath ? ` → ${step.destinationPath}` : ''}</p>
+          {step.phase === 'link' && step.openPath && onOpenDocument ? <Button size="sm" variant="outline"
+            data-testid={`workspace-operation-execution-open-${step.key}`} onClick={() => onOpenDocument(step.openPath!, batch.workspaceId)}>
+            {t('openDocument')}
+          </Button> : null}
+        </li>)}
+      </ul> : null}
+      <p className="text-xs text-muted-foreground">{t('executionResumeHelp')}</p>
+    </section> : null}
 
     {changedReviews.length > 0 && !running && !applied ? <section className="space-y-2 rounded-lg border border-amber-500/35 p-3 text-sm"
       data-testid="workspace-operation-batch-changes">

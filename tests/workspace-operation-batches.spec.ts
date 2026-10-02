@@ -247,6 +247,17 @@ async function armPeerBatchGate(input: { batch: Batch; workspaceId: string; docu
   };
 }
 
+async function openReadyBatchReviewUi(scope: Awaited<ReturnType<typeof setup>>, review: WorkspaceOperationReviewPublic) {
+  const page = await scope.context.newPage();
+  const response = page.waitForResponse((value) => value.url().endsWith('/operation-reviews/checks')
+    && value.request().method() === 'POST' && value.status() === 202);
+  await page.goto(`/en/notebook?workspaceId=${scope.workspaceId}&workspaceOperationReview=${review.reviewId}`);
+  const batch = await scope.checked((await (await response).json()).check);
+  const panel = page.getByTestId('workspace-operation-review-center');
+  await expect(panel.getByTestId('workspace-operation-batch-accept')).toBeVisible({ timeout: 60_000 });
+  return { page, panel, batch };
+}
+
 const move = (sourcePath: string, destinationPath: string): Action => ({ kind: 'move', selections: [{ sourcePath, destinationPath }] });
 const remove = (sourcePath: string): Action => ({ kind: 'delete', selections: [{ sourcePath }] });
 
@@ -385,7 +396,7 @@ test.describe('durable file review batches', () => {
         ]);
         await checkpointRichBrowserDocument(owner);
         const [review] = await s.submit([move('source/A.md', 'moved/A.md')]);
-        const batch = await s.checked(await s.startCheck([review]));
+        const { page: approval, panel, batch } = await openReadyBatchReviewUi(s, review);
         const session = await owner.request.post('/api/files/collaboration/session', {
           headers: s.headers, data: { path: 'shared.md', representation: 'auto', ...COLLABORATION_CLIENT_CAPABILITIES },
         });
@@ -393,7 +404,7 @@ test.describe('durable file review batches', () => {
         const documentId = (await session.json()).documentId as string;
         expect(documentId).toBeTruthy();
         gate = await armPeerBatchGate({ batch, workspaceId: s.workspaceId, documentId, phase: 'preparing' });
-        expect((await s.accept(batch)).ok()).toBeTruthy();
+        await panel.getByTestId('workspace-operation-batch-accept').click();
         const proof = await gate.entered();
         expect(proof.pathReceipts).toBe(0);
         await info.attach('preflight-peer-gate.json', { body: JSON.stringify(proof), contentType: 'application/json' });
@@ -411,11 +422,25 @@ test.describe('durable file review batches', () => {
         await expect.poll(() => s.read('shared.md'), { timeout: 30_000 }).toBe(expected);
         expect(await s.read('source/A.md')).toBe('# A\n');
         await s.absent('moved/A.md');
-        const successor = await s.refresh(review);
-        const fresh = await s.checked(await s.startCheck([successor]));
+        await expect(panel.getByTestId('workspace-operation-batch-conflict')).toBeVisible({ timeout: 30_000 });
+        await expect(panel.getByTestId('workspace-operation-batch-resume')).toHaveCount(0);
+        await expect(panel.getByTestId('workspace-operation-batch-accept')).toHaveCount(0);
+        const freshResponse = approval.waitForResponse((response) => response.url().endsWith('/operation-reviews/checks')
+          && response.request().method() === 'POST' && response.status() === 202);
+        await panel.getByTestId('workspace-operation-review-refresh').click();
+        const fresh = await s.checked((await (await freshResponse).json()).check);
         expect(fresh.planId).not.toBe(batch.planId);
-        expect((await s.accept(fresh)).ok()).toBeTruthy();
+        await expect(panel.getByTestId('workspace-operation-batch-accept')).toBeVisible({ timeout: 60_000 });
+        expect(await s.read('source/A.md')).toBe('# A\n');
+        await s.absent('moved/A.md');
+        const accepted = approval.waitForResponse((response) => response.url().endsWith('/operation-reviews/batches')
+          && response.request().postDataJSON()?.action === 'accept');
+        await panel.getByTestId('workspace-operation-batch-accept').click();
+        const acceptedResponse = await accepted;
+        expect(acceptedResponse.ok()).toBeTruthy();
+        expect(acceptedResponse.request().postDataJSON()).toMatchObject({ action: 'accept', batchId: fresh.batchId, planId: fresh.planId });
         await s.done(fresh);
+        await expect(panel).toContainText('File actions completed', { timeout: 30_000 });
         expect(await s.read('shared.md')).toBe(expected.replace('[[source/A|A]]', '[[moved/A|A]]'));
         await expect(ownerEditor).toContainText(marker);
         await peer.screenshot({ path: info.outputPath('preflight-peer-bytes-preserved.png'), animations: 'disabled' });
@@ -444,7 +469,14 @@ test.describe('durable file review batches', () => {
         ]);
         await checkpointRichBrowserDocument(owner);
         const [review] = await s.submit([move('source/A.md', 'moved/A.md')]);
-        const batch = await s.checked(await s.startCheck([review]));
+        const { page: approval, panel, batch } = await openReadyBatchReviewUi(s, review);
+        let extraChecks = 0;
+        let extraApprovals = 0;
+        approval.on('request', (request) => {
+          if (request.method() !== 'POST') return;
+          if (request.url().endsWith('/operation-reviews/checks')) extraChecks += 1;
+          if (request.url().endsWith('/operation-reviews/batches') && request.postDataJSON()?.action === 'accept') extraApprovals += 1;
+        });
         const session = await owner.request.post('/api/files/collaboration/session', {
           headers: s.headers, data: { path: 'shared.md', representation: 'auto', ...COLLABORATION_CLIENT_CAPABILITIES },
         });
@@ -459,7 +491,7 @@ test.describe('durable file review batches', () => {
         await expect(ownerEditor).not.toContainText(marker);
         expect(await s.read('shared.md')).toBe(shared);
         gate = await armPeerBatchGate({ batch, workspaceId: s.workspaceId, documentId, phase: 'links' });
-        expect((await s.accept(batch)).ok()).toBeTruthy();
+        await panel.getByTestId('workspace-operation-batch-accept').click();
         const proof = await gate.entered();
         await info.attach('offline-peer-path-receipt-gate.json', { body: JSON.stringify(proof), contentType: 'application/json' });
         expect(proof.pathReceipts).toBeGreaterThan(0);
@@ -479,14 +511,43 @@ test.describe('durable file review batches', () => {
         await checkpointRichBrowserDocument(peer);
         const expected = `# Shared\n\n[[source/A|A]]\n\n${marker}\n`;
         await expect.poll(() => s.read('shared.md'), { timeout: 30_000 }).toBe(expected);
-        const resume = await s.context.request.post(`/api/files/operation-reviews/batches/${batch.batchId}`, {
-          headers: s.headers, data: { action: 'resume', planId: batch.planId },
-        });
+        const progress = panel.getByTestId('workspace-operation-execution');
+        await expect(progress).toBeVisible({ timeout: 30_000 });
+        await expect(progress).toContainText('Recorded progress');
+        const pathStep = progress.getByTestId('workspace-operation-execution-step-path:0');
+        const linkStep = progress.getByTestId('workspace-operation-execution-step-link:0');
+        await expect(pathStep).toHaveAttribute('data-step-state', 'applied');
+        await expect(pathStep).toContainText('Done');
+        await expect(pathStep).toContainText('source/A.md');
+        await expect(pathStep).toContainText('moved/A.md');
+        await expect(linkStep).toHaveAttribute('data-step-state', 'pending');
+        await expect(linkStep).toContainText('Still pending');
+        await expect(linkStep).toContainText('shared.md');
+        await expect(panel.getByTestId('workspace-operation-batch-conflict')).toBeVisible();
+        await expect(panel.getByTestId('workspace-operation-batch-accept')).toHaveCount(0);
+        await approval.screenshot({ path: info.outputPath('partial-peer-recovery-desktop.png'), animations: 'disabled' });
+        await approval.setViewportSize({ width: 390, height: 844 });
+        await expect(pathStep).toBeVisible();
+        await expect(linkStep).toBeVisible();
+        await approval.screenshot({ path: info.outputPath('partial-peer-recovery-mobile.png'), animations: 'disabled' });
+        await progress.getByTestId('workspace-operation-execution-open-link:0').click();
+        await expect(panel).not.toBeVisible();
+        await expect(approval.getByRole('tabpanel', { name: 'shared.md', exact: true })).toContainText(marker, { timeout: 30_000 });
+        await approval.goto(`/en/notebook?workspaceId=${s.workspaceId}&workspaceOperationReview=${review.reviewId}`);
+        await expect(panel.getByTestId('workspace-operation-execution')).toBeVisible({ timeout: 30_000 });
+        const resumeResponse = approval.waitForResponse((response) => response.url().endsWith(`/operation-reviews/batches/${batch.batchId}`)
+          && response.request().method() === 'POST' && response.request().postDataJSON()?.action === 'resume');
+        await panel.getByTestId('workspace-operation-batch-resume').click();
+        const resume = await resumeResponse;
         expect(resume.ok()).toBeTruthy();
+        expect(resume.request().postDataJSON()).toEqual({ action: 'resume', planId: batch.planId });
         const queued = (await resume.json()).batch;
         expect(queued.batchId).toBe(batch.batchId);
         expect(queued.planId).toBe(batch.planId);
         await expect.poll(async () => (await s.readBatch(batch)).status, { timeout: 30_000 }).toBe('needs_recovery');
+        await expect(panel.getByTestId('workspace-operation-batch-resume')).toBeVisible({ timeout: 30_000 });
+        expect(extraChecks).toBe(0);
+        expect(extraApprovals).toBe(1);
         expect(await s.read('shared.md')).toBe(expected);
         expect(await s.read('moved/A.md')).toBe('# A\n');
         await s.absent('source/A.md');

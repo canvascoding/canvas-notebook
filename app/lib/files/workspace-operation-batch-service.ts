@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { openDb } from '@/app/lib/db';
 import { withWorkspaceMutationLock } from './workspace-mutation-lock';
 import { buildWorkspaceOperationBatchPlan, workspaceOperationBatchPublicPreview } from './workspace-operation-batch-plan';
-import { assertWorkspaceOperationBatchUndoAvailable } from './workspace-operation-batch-executor';
+import { assertWorkspaceOperationBatchUndoAvailable, getWorkspaceOperationBatchExecutionPublic } from './workspace-operation-batch-executor';
 import type { WorkspaceOperationBatchScope, WorkspaceOperationBatchAction } from './workspace-operation-batch-contract';
 import type { WorkspaceOperationBatchPublic } from './workspace-operation-batch-public';
 import { WorkspaceOperationBatchStore, WorkspaceOperationBatchError,
@@ -36,7 +36,14 @@ export function workspaceOperationBatchPublic(batch: WorkspaceOperationBatchReco
 export async function getWorkspaceOperationBatchReview(batchId: string, scope?: WorkspaceOperationBatchScope): Promise<WorkspaceOperationBatchPublic | null> {
   const batch = await store.get(batchId);
   if (!batch) return null;
+  if (scope && (scope.workspace.workspaceId !== batch.workspaceId || scope.workspace.status !== 'active'
+    || !scope.workspace.permissions.canRead || scope.fileOptions.workspace
+      && scope.fileOptions.workspace.workspaceId !== scope.workspace.workspaceId)) return null;
   const result = workspaceOperationBatchPublic(batch);
+  if (scope && ['applied', 'undone', 'needs_review', 'needs_recovery', 'failed'].includes(batch.status)) {
+    result.execution = await getWorkspaceOperationBatchExecutionPublic({ batchId, scope, plan: batch.plan,
+      actionMode: batch.actionMode, status: batch.status, completedActions: batch.completedActions, phase: batch.phase }) ?? undefined;
+  }
   if (scope && batch.workspaceId === scope.workspace.workspaceId && batch.status === 'applied'
     && scope.workspace.permissions.canWrite && scope.workspace.permissions.canDelete) {
     try {
