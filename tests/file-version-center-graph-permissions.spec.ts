@@ -1,7 +1,7 @@
 import { expect, type BrowserContext } from '@playwright/test';
 import { test } from './helpers/document-review-experimental';
 import { execFile } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -10,7 +10,12 @@ import { promisify } from 'node:util';
 
 import { COLLABORATION_CLIENT_CAPABILITIES } from '../app/lib/collaboration/types';
 import { buildFileVersionCenterDeepLinkV1 } from '../app/lib/file-version-center/contracts/deep-link-v1';
-import type { FileVersionCenterRequestV1 } from '../app/lib/file-version-center/contracts/v1';
+import {
+  FILE_VERSION_HISTORY_PROVENANCE_HEADER_V1,
+  parseFileVersionTimelineResponseV1,
+  type FileVersionCenterRequestV1,
+  type FileVersionTimelineResponseV1,
+} from '../app/lib/file-version-center/contracts/v1';
 import type { ProposalReviewActionApiRequestV1, ProposalReviewSessionResponseV1 } from '../app/lib/file-version-center/contracts/proposal-review-session-v1';
 import { createAuthenticatedContext, uploadWorkspaceTextFile } from './helpers/managed-test-context';
 import { observeProposalReviewServerErrors } from './helpers/proposal-review-server-errors';
@@ -24,7 +29,6 @@ type Workspace = { id: string; type: string };
 type AuthSession = { user?: { id?: string; role?: string } | null };
 type Fixture = { scope: { workspaceId: string; lineageId: string; documentId: string };
   proposals: Array<{ label: string; proposalId: string; operationId: string }> };
-type Timeline = { entries: Array<{ kind: string; source?: string; operationId?: string }> };
 
 function readEnvFile(name: string): Record<string, string> {
   const stateDir = process.env.CANVAS_LOCAL_TEAM_SEAT_STATE_DIR
@@ -67,14 +71,17 @@ async function createFixture(input: { scenario: 'conflict' | 'owner-pair'; userI
   throw new Error('FVRC-1006 permissions fixture driver returned no receipt.');
 }
 
-async function timeline(context: BrowserContext, workspaceId: string, filePath: string): Promise<Timeline> {
+async function timeline(context: BrowserContext, workspaceId: string, filePath: string): Promise<FileVersionTimelineResponseV1> {
   const response = await context.request.post('/api/files/version-center/v1/resolve', {
-    headers: { [WORKSPACE_ID_HEADER]: workspaceId },
+    headers: { [WORKSPACE_ID_HEADER]: workspaceId, [FILE_VERSION_HISTORY_PROVENANCE_HEADER_V1]: '1' },
     data: { contractVersion: 1, target: { kind: 'path', workspaceId, pathHint: filePath },
       initialView: 'history', source: 'file_browser' },
   });
-  expect(response.ok(), `Timeline request returned ${response.status()}.`).toBeTruthy();
-  return response.json() as Promise<Timeline>;
+  expect(response.status(), `Timeline request returned ${response.status()}.`).toBe(200);
+  const result = parseFileVersionTimelineResponseV1(await response.json());
+  expect(result.document.workspaceId).toBe(workspaceId);
+  expect(result.document.path).toBe(filePath);
+  return result;
 }
 
 async function readContent(context: BrowserContext, workspaceId: string, filePath: string): Promise<string> {
@@ -159,15 +166,39 @@ test.describe('FVRC-1006 graph workspace permissions', () => {
         const managerOperationIds = ownerFixture.proposals.map((proposal) => proposal.operationId);
 
         const reviewerTimeline = await timeline(reviewer, workspaceId, filePath);
+        expect(reviewerTimeline.document.lineageId).toBe(fixture.scope.lineageId);
+        expect(reviewerTimeline.document.documentId).toBe(fixture.scope.documentId);
         expect(reviewerTimeline.entries.some((entry) => entry.kind === 'current'),
           'Read access must keep the current document entry visible.').toBe(true);
-        expect(reviewerTimeline.entries.filter((entry) => entry.kind === 'revision')).toHaveLength(1);
+        const currentEntries = reviewerTimeline.entries.filter((entry) => entry.kind === 'current');
+        const savedEntries = reviewerTimeline.entries.filter((entry) => entry.kind === 'revision');
+        expect(currentEntries).toHaveLength(1);
+        expect(savedEntries).toHaveLength(1);
+        const current = currentEntries[0];
+        const saved = savedEntries[0];
+        if (current?.kind !== 'current' || saved?.kind !== 'revision') {
+          throw new Error('Read access needs the exact Current entry and its sole immutable saved revision.');
+        }
+        const contentHash = createHash('sha256').update(CONTENT).digest('hex');
+        const contentSize = Buffer.byteLength(CONTENT, 'utf8');
+        expect(current.displayRevisionId ?? current.revisionId).toBe(saved.revisionId);
+        expect(saved.id).toBe(saved.revisionId);
+        expect(saved.content.availability).toBe('available');
+        expect(saved.content.sha256).toBe(contentHash);
+        expect(saved.content.sizeBytes).toBe(contentSize);
+        expect(current.sha256).toBe(contentHash);
+        expect(current.sizeBytes).toBe(contentSize);
+        const savedVersionProof = { id: saved.id, revisionId: saved.revisionId, revisionNumber: saved.revisionNumber,
+          createdAt: saved.createdAt, source: saved.source, actor: saved.actor, content: saved.content };
         expect(reviewerTimeline.entries.filter((entry) => entry.kind === 'agent_operation')
           .map((entry) => entry.operationId).sort()).toEqual(memberOperationIds.slice().sort());
         const managerTimeline = await timeline(owner, workspaceId, filePath);
+        expect(managerTimeline.document.lineageId).toBe(fixture.scope.lineageId);
+        expect(managerTimeline.document.documentId).toBe(fixture.scope.documentId);
         expect(managerTimeline.entries.filter((entry) => entry.kind === 'agent_operation')
           .map((entry) => entry.operationId).sort()).toEqual([...memberOperationIds, ...managerOperationIds].sort());
         expect(managerTimeline.entries.filter((entry) => entry.kind === 'revision')).toHaveLength(1);
+        expect(managerTimeline.entries.filter((entry) => entry.kind === 'revision')).toMatchObject([savedVersionProof]);
 
         const proposalC = fixture.proposals.find((proposal) => proposal.label === 'C')!;
         const target = { kind: 'document' as const, workspaceId, documentId: fixture.scope.documentId };
@@ -197,8 +228,15 @@ test.describe('FVRC-1006 graph workspace permissions', () => {
         await expect(graph.getByText('Ready to apply').or(graph.getByText('Ready after rebase'))).toBeVisible();
         await expect(graph.getByTestId('graph-review-hunks')).toContainText('130');
         const reviewerTimelineNav = page.getByRole('navigation', { name: 'Document versions and proposed changes' });
-        await expect(reviewerTimelineNav.locator('section[aria-labelledby="version-center-current"] button[data-entry-kind="current"]')).toBeVisible();
-        await expect(reviewerTimelineNav.locator('section[aria-labelledby="version-center-history"] button[data-entry-kind="revision"]')).toHaveCount(1);
+        const currentCard = reviewerTimelineNav.getByRole('region', { name: 'Current', exact: true })
+          .locator('button[data-entry-kind="current"]');
+        await expect(currentCard).toHaveCount(1);
+        await expect(currentCard).toBeVisible();
+        await expect(currentCard.getByText(`Version ${saved.revisionNumber}`, { exact: true })).toBeVisible();
+        await expect(currentCard.locator('time:not(.tabular-nums)')).toHaveAttribute('datetime', saved.createdAt);
+        const olderHistory = reviewerTimelineNav.getByTestId('file-version-history-section');
+        await expect(olderHistory.locator('button[data-entry-kind="revision"]')).toHaveCount(0);
+        await expect(olderHistory.getByText('No older saved versions.', { exact: true })).toBeVisible();
         for (const proposal of ownerFixture.proposals) {
           await expect(reviewerTimelineNav.locator(`button[data-operation-id="${proposal.operationId}"]`)).toHaveCount(0);
         }
@@ -216,6 +254,7 @@ test.describe('FVRC-1006 graph workspace permissions', () => {
         expect(await readContent(reviewer, workspaceId, filePath)).toBe(CONTENT);
         const unchangedTimeline = await timeline(reviewer, workspaceId, filePath);
         expect(unchangedTimeline.entries.filter((entry) => entry.kind === 'revision')).toHaveLength(1);
+        expect(unchangedTimeline.entries.filter((entry) => entry.kind === 'revision')).toMatchObject([savedVersionProof]);
 
         const readOnlyReviewResponse = await reviewer.request.post('/api/files/version-center/v1/proposals/review', {
           headers: { [WORKSPACE_ID_HEADER]: workspaceId },
@@ -236,6 +275,7 @@ test.describe('FVRC-1006 graph workspace permissions', () => {
 
         const currentTimeline = await timeline(reviewer, workspaceId, filePath);
         expect(currentTimeline.entries.filter((entry) => entry.kind === 'revision')).toHaveLength(1);
+        expect(currentTimeline.entries.filter((entry) => entry.kind === 'revision')).toMatchObject([savedVersionProof]);
         expect(await readContent(reviewer, workspaceId, filePath)).toBe(CONTENT);
         await testInfo.attach('read-only-review.png', { body: await page.screenshot({ fullPage: true }), contentType: 'image/png' });
 
@@ -252,6 +292,7 @@ test.describe('FVRC-1006 graph workspace permissions', () => {
         expect(await readContent(owner, workspaceId, filePath)).toBe(CONTENT);
         const finalTimeline = await timeline(owner, workspaceId, filePath);
         expect(finalTimeline.entries.filter((entry) => entry.kind === 'revision')).toHaveLength(1);
+        expect(finalTimeline.entries.filter((entry) => entry.kind === 'revision')).toMatchObject([savedVersionProof]);
         await testInfo.attach('revoked-review-cleared.png', { body: await page.screenshot({ fullPage: true }), contentType: 'image/png' });
       } finally {
         if (workspaceId) {
