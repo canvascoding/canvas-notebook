@@ -1,11 +1,11 @@
 import { test, expect, type Page } from '@playwright/test';
+import { authenticateManagedTestPage } from './helpers/managed-test-context';
 
 async function prepare(page: Page) {
-  const login = await page.request.post('/api/auth/sign-in/email', {
-    headers: { Origin: process.env.BASE_URL || 'http://localhost:3000' },
-    data: { email: process.env.BOOTSTRAP_ADMIN_EMAIL, password: process.env.BOOTSTRAP_ADMIN_PASSWORD },
+  expect(Boolean(process.env.BOOTSTRAP_ADMIN_EMAIL && process.env.BOOTSTRAP_ADMIN_PASSWORD), 'Bootstrap admin credentials must be configured.').toBe(true);
+  await authenticateManagedTestPage(page, {
+    email: process.env.BOOTSTRAP_ADMIN_EMAIL, password: process.env.BOOTSTRAP_ADMIN_PASSWORD,
   });
-  expect(login.ok()).toBeTruthy();
   const { workspaces } = await (await page.request.get('/api/workspaces')).json();
   const personal = workspaces.find((workspace: { type: string }) => workspace.type === 'personal');
   await page.addInitScript(id => localStorage.setItem('canvas.activeWorkspaceId', id), personal.id);

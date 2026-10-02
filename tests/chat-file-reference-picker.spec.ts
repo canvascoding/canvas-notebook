@@ -1,6 +1,7 @@
 import { expect, test, type Browser, type Locator, type Page } from '@playwright/test';
 import dotenv from 'dotenv';
 import path from 'node:path';
+import { authenticateManagedTestPage } from './helpers/managed-test-context';
 
 dotenv.config({ path: path.join(process.cwd(), '.env.local') });
 
@@ -10,17 +11,7 @@ const AUTH_STATE_PATH = 'test-results/chat-file-reference-auth.json';
 const WORKSPACE_ID_HEADER = 'x-canvas-workspace-id';
 
 async function login(page: Page) {
-  const response = await page.request.post('/api/auth/sign-in/email', {
-    headers: {
-      Origin: process.env.BASE_URL || 'http://localhost:3000',
-    },
-    data: {
-      email: TEST_EMAIL,
-      password: TEST_PASSWORD,
-    },
-  });
-
-  expect(response.ok()).toBeTruthy();
+  await authenticateManagedTestPage(page, { email: TEST_EMAIL, password: TEST_PASSWORD });
   await page.goto('/notebook?chat=open', { waitUntil: 'domcontentloaded' });
   await expect(page).toHaveURL(/\/notebook\?chat=open$/, { timeout: 15000 });
 }

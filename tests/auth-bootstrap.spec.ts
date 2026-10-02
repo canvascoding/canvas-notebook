@@ -45,8 +45,65 @@ test.describe('Bootstrap auth flow', () => {
     await page.fill('input[type="email"]', TEST_EMAIL);
     await page.fill('input[type="password"]', TEST_PASSWORD);
     await page.click('button[type="submit"]');
+    await page.waitForURL((url) => !/\/login\/?$/.test(url.pathname), { timeout: 15000 });
 
-    await expect(page).toHaveURL(/\/(?:en\/)?onboarding$/, { timeout: 15000 });
+    const sessionResponse = await page.request.get('/api/auth/get-session', { timeout: 15000 });
+    expect(sessionResponse.status()).toBe(200);
+    const session = await sessionResponse.json() as {
+      user?: { id?: string; email?: string; role?: string };
+    };
+    expect(session.user?.id).toEqual(expect.any(String));
+    expect(session.user?.id).not.toBe('');
+    expect(session.user?.email?.toLowerCase()).toBe(TEST_EMAIL.toLowerCase());
+    expect(
+      session.user?.role === 'admin'
+      || session.user?.email?.toLowerCase() === process.env.BOOTSTRAP_ADMIN_EMAIL?.trim().toLowerCase(),
+      'The instance onboarding fixture requires the authenticated instance administrator.',
+    ).toBe(true);
+
+    const statusResponse = await page.request.get('/api/onboarding/status', { timeout: 15000 });
+    expect(statusResponse.status()).toBe(200);
+    const status = await statusResponse.json() as {
+      success?: boolean;
+      enabled?: boolean;
+      complete?: boolean;
+      instanceComplete?: boolean;
+    };
+    expect(status.success).toBe(true);
+    expect(typeof status.enabled).toBe('boolean');
+    expect(typeof status.complete).toBe('boolean');
+    if (status.enabled) {
+      expect(typeof status.instanceComplete).toBe('boolean');
+      expect(status.complete).toBe(status.instanceComplete);
+    } else {
+      expect(status.complete).toBe(true);
+    }
+
+    const requireFreshOnboarding = process.env.FRESH_ONBOARDING_E2E === '1';
+    test.skip(
+      !requireFreshOnboarding && (status.enabled === false || status.instanceComplete === true),
+      'Requires enabled, incomplete instance onboarding; this server is disabled or already initialized.',
+    );
+    expect(status.enabled, 'FRESH_ONBOARDING_E2E requires onboarding to be enabled.').toBe(true);
+    expect(status.instanceComplete, 'FRESH_ONBOARDING_E2E requires incomplete instance onboarding.').toBe(false);
+
+    const settingsResponse = await page.request.get('/api/server-settings', { timeout: 15000 });
+    expect(settingsResponse.status()).toBe(200);
+    const settings = await settingsResponse.json() as {
+      success?: boolean;
+      data?: { onboardingStep?: string };
+    };
+    expect(settings.success).toBe(true);
+    expect(settings.data).toEqual(expect.any(Object));
+    const instanceStep = settings.data!.onboardingStep ?? 'server';
+    expect(['server', 'license', 'provider', 'workspace', 'review']).toContain(instanceStep);
+    test.skip(
+      !requireFreshOnboarding && instanceStep !== 'server',
+      `Requires fresh instance onboarding at the server step; current step is ${instanceStep}.`,
+    );
+    expect(instanceStep, 'FRESH_ONBOARDING_E2E requires the initial server step.').toBe('server');
+
+    await expect(page).toHaveURL(/\/(?:de|en)\/onboarding$/, { timeout: 15000 });
 
     const scrollRoot = page.getByTestId('onboarding-scroll-root');
     await expect(scrollRoot).toBeVisible();
@@ -78,7 +135,7 @@ test.describe('Bootstrap auth flow', () => {
     if (page.url().includes('/en/login')) {
       await page.getByRole('button', { name: 'Switch language' }).click();
       await page.getByRole('menuitem', { name: 'Deutsch' }).click();
-      await expect(page).toHaveURL('/login', { timeout: 15000 });
+      await expect(page).toHaveURL('/de/login', { timeout: 15000 });
       await page.getByRole('button', { name: 'Switch language' }).click();
       await page.getByRole('menuitem', { name: 'English' }).click();
       await expect(page).toHaveURL('/en/login', { timeout: 15000 });
@@ -88,7 +145,7 @@ test.describe('Bootstrap auth flow', () => {
       await expect(page).toHaveURL('/en/login', { timeout: 15000 });
       await page.getByRole('button', { name: 'Switch language' }).click();
       await page.getByRole('menuitem', { name: 'Deutsch' }).click();
-      await expect(page).toHaveURL('/login', { timeout: 15000 });
+      await expect(page).toHaveURL('/de/login', { timeout: 15000 });
     }
     expect(pageErrors.some((error) => error.message.includes("Cannot read properties of undefined (reading 'toLowerCase')"))).toBe(false);
   });

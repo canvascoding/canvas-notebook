@@ -2,6 +2,7 @@ import { expect, test, type Page, type TestInfo, type WebSocketRoute } from '@pl
 import type { FileChangeAppData } from '@/app/lib/tool-apps/file-change-data';
 import type { FileChangeGroupV1 } from '@/app/lib/file-version-center/contracts/v1';
 import type { PiRuntimeStatus } from '@/app/lib/pi/live-runtime';
+import { authenticateManagedTestPage } from './helpers/managed-test-context';
 
 const SESSION_ID = 'chat-file-change-summary-regression';
 const FILES = ['summary-plan.txt', 'summary-notes.ts', 'summary-report.md'];
@@ -89,10 +90,7 @@ async function loginWorkspace(page: Page) {
   const password = process.env.TEST_LOGIN_PASSWORD || process.env.BOOTSTRAP_ADMIN_PASSWORD;
   expect(email, 'BOOTSTRAP_ADMIN_EMAIL is required').toBeTruthy();
   expect(password, 'BOOTSTRAP_ADMIN_PASSWORD is required').toBeTruthy();
-  const login = await page.request.post('/api/auth/sign-in/email', {
-    headers: { Origin: process.env.BASE_URL || 'http://localhost:3000' }, data: { email, password },
-  });
-  expect(login.ok()).toBeTruthy();
+  await authenticateManagedTestPage(page, { email, password });
   const response = await page.request.get('/api/workspaces');
   expect(response.ok()).toBeTruthy();
   const { workspaces } = await response.json() as { workspaces: Array<{ id: string; type: string }> };

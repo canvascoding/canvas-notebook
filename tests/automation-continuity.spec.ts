@@ -2,6 +2,8 @@ import { randomUUID } from 'node:crypto';
 
 import { expect, test, type Page } from '@playwright/test';
 
+import { authenticateManagedTestPage } from './helpers/managed-test-context';
+
 type CreatedJob = { id: string; workspaceId: string | null };
 type JobDetail = { continuityMode: string; sourceJobIds: string[] };
 
@@ -16,11 +18,7 @@ test.setTimeout(90_000);
 async function signIn(page: Page): Promise<void> {
   expect(adminEmail, 'BOOTSTRAP_ADMIN_EMAIL must be configured.').toBeTruthy();
   expect(adminPassword, 'BOOTSTRAP_ADMIN_PASSWORD must be configured.').toBeTruthy();
-  const response = await page.request.post('/api/auth/sign-in/email', {
-    headers: { Origin: baseURL },
-    data: { email: adminEmail, password: adminPassword },
-  });
-  expect(response.ok(), 'Bootstrap admin login must succeed.').toBe(true);
+  await authenticateManagedTestPage(page, { email: adminEmail, password: adminPassword });
 }
 
 async function createJob(page: Page, name: string, status: 'active' | 'paused',
@@ -51,7 +49,9 @@ async function deleteJobs(page: Page, ids: string[]): Promise<void> {
 }
 
 test('persists last relevant result and one authorized source in the same workspace', async ({ page }) => {
-  expect(new URL(baseURL).origin).toBe('http://127.0.0.1:3100');
+  const target = new URL(baseURL);
+  expect(['localhost', '127.0.0.1', '[::1]'], 'This fixture requires a local QA server.').toContain(target.hostname);
+  expect(target.protocol).toBe('http:');
   await signIn(page);
   const created: string[] = [];
   try {
@@ -95,7 +95,9 @@ test('persists last relevant result and one authorized source in the same worksp
 });
 
 test('renders state on demand and a skipped occurrence separately when there are no runs', async ({ page }) => {
-  expect(new URL(baseURL).origin).toBe('http://127.0.0.1:3100');
+  const target = new URL(baseURL);
+  expect(['localhost', '127.0.0.1', '[::1]'], 'This fixture requires a local QA server.').toContain(target.hostname);
+  expect(target.protocol).toBe('http:');
   await signIn(page);
   const created: string[] = [];
   try {

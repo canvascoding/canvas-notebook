@@ -1,16 +1,11 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
+import { authenticateManagedTestPage } from './helpers/managed-test-context';
 
-const BASE_URL = process.env.BASE_URL || 'http://localhost:3000';
 const TEST_EMAIL = process.env.TEST_LOGIN_EMAIL || process.env.BOOTSTRAP_ADMIN_EMAIL || 'admin@example.com';
 const TEST_PASSWORD = process.env.TEST_LOGIN_PASSWORD || process.env.BOOTSTRAP_ADMIN_PASSWORD || 'change-me';
 
 async function login(page: Page) {
-  const response = await page.request.post('/api/auth/sign-in/email', {
-    headers: { Origin: BASE_URL },
-    data: { email: TEST_EMAIL, password: TEST_PASSWORD },
-  });
-
-  expect(response.ok()).toBeTruthy();
+  await authenticateManagedTestPage(page, { email: TEST_EMAIL, password: TEST_PASSWORD });
 }
 
 async function expectStableHover(handle: Locator, controlledPanel: Locator) {
@@ -75,9 +70,10 @@ test.describe('panel resizing', () => {
     await expect.poll(async () => (await explorer.boundingBox())!.width).toBeCloseTo(explorerWidthBefore + 70, 0);
     await expect(explorerHandle).toHaveAttribute('aria-valuenow', String(Math.round(explorerWidthBefore + 70)));
 
-    const chatModeMenu = page.getByRole('button', { name: /open chat mode menu/i });
-    await chatModeMenu.click();
-    await page.getByRole('menuitemradio', { name: /side panel/i }).click();
+    const chatDock = page.getByTestId('notebook-chat-dock');
+    await expect(chatDock).toBeEnabled();
+    if (await chatDock.getAttribute('aria-pressed') !== 'true') await chatDock.click();
+    await expect(chatDock).toHaveAttribute('aria-pressed', 'true');
 
     const chatHandle = page.getByTestId('notebook-chat-resize-handle');
     const chat = page.locator('#onboarding-notebook-chat');
@@ -94,8 +90,9 @@ test.describe('panel resizing', () => {
 
     await page.reload();
     await expect(explorerHandle).toHaveAttribute('aria-valuenow', String(Math.round(explorerWidthBefore + 70)));
-    await chatModeMenu.click();
-    await page.getByRole('menuitemradio', { name: /side panel/i }).click();
+    await expect(chatDock).toBeEnabled();
+    if (await chatDock.getAttribute('aria-pressed') !== 'true') await chatDock.click();
+    await expect(chatDock).toHaveAttribute('aria-pressed', 'true');
     await expect(chatHandle).toHaveAttribute('aria-valuenow', String(Math.round(chatWidthBefore + 70)));
   });
 

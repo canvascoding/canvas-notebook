@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { parse as parseEnv } from 'dotenv';
 import { existsSync, readFileSync } from 'node:fs';
+import { authenticateManagedTestPage } from './helpers/managed-test-context';
 
 const envFile = process.env.CANVAS_ENV_FILE || '.env.local';
 const fileEnv = existsSync(envFile) ? parseEnv(readFileSync(envFile)) : {};
@@ -12,11 +13,7 @@ const testPassword = fileEnv.TEST_LOGIN_PASSWORD || fileEnv.BOOTSTRAP_ADMIN_PASS
 test('worker progress, transcript and steering stay bound to the selected delegation after reload', async ({ page }) => {
   expect(testEmail).toBeTruthy();
   expect(testPassword).toBeTruthy();
-  const signIn = await page.request.post('/api/auth/sign-in/email', {
-    headers: { Origin: String(test.info().project.use.baseURL || 'http://localhost:3000') },
-    data: { email: testEmail, password: testPassword },
-  });
-  expect(signIn.ok()).toBeTruthy();
+  await authenticateManagedTestPage(page, { email: testEmail, password: testPassword });
   const created = await page.request.post('/api/sessions', {
     data: { agentId: 'bradley', title: 'Subagent live inspection UI test' },
   });

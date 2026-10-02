@@ -1,14 +1,14 @@
 import { test, expect } from '@playwright/test';
+import { authenticateManagedTestPage } from './helpers/managed-test-context';
 
 for (const width of [390, 1440]) {
 for (const count of [0, 1, 5]) {
   test(`home reserves space while loading ${count} files at ${width}px`, async ({ page }, info) => {
     await page.setViewportSize({ width, height: 1000 });
-    const login = await page.request.post('/api/auth/sign-in/email', {
-      headers: { Origin: process.env.BASE_URL || 'http://localhost:3000' },
-      data: { email: process.env.BOOTSTRAP_ADMIN_EMAIL, password: process.env.BOOTSTRAP_ADMIN_PASSWORD },
+    expect(Boolean(process.env.BOOTSTRAP_ADMIN_EMAIL && process.env.BOOTSTRAP_ADMIN_PASSWORD), 'Bootstrap admin credentials must be configured.').toBe(true);
+    await authenticateManagedTestPage(page, {
+      email: process.env.BOOTSTRAP_ADMIN_EMAIL, password: process.env.BOOTSTRAP_ADMIN_PASSWORD,
     });
-    expect(login.ok()).toBeTruthy();
     let releaseFiles!: () => void;
     let releaseWorkspace!: () => void;
     const filesReady = new Promise<void>(resolve => { releaseFiles = resolve; });

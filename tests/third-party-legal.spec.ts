@@ -1,15 +1,11 @@
 import { expect, test, type Page } from '@playwright/test';
+import { authenticateManagedTestPage } from './helpers/managed-test-context';
 
-const BASE_URL = process.env.BASE_URL || 'http://localhost:3000';
 const ADMIN_EMAIL = process.env.TEST_LOGIN_EMAIL || process.env.BOOTSTRAP_ADMIN_EMAIL || 'admin@example.com';
 const ADMIN_PASSWORD = process.env.TEST_LOGIN_PASSWORD || process.env.BOOTSTRAP_ADMIN_PASSWORD || 'change-me';
 
 async function login(page: Page): Promise<void> {
-  const response = await page.request.post('/api/auth/sign-in/email', {
-    headers: { Origin: BASE_URL },
-    data: { email: ADMIN_EMAIL, password: ADMIN_PASSWORD },
-  });
-  expect(response.ok(), await response.text()).toBeTruthy();
+  await authenticateManagedTestPage(page, { email: ADMIN_EMAIL, password: ADMIN_PASSWORD });
 }
 
 test.describe('third-party legal inventory', () => {

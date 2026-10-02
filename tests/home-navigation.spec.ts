@@ -1,11 +1,11 @@
 import { test, expect } from '@playwright/test';
+import { authenticateManagedTestPage } from './helpers/managed-test-context';
 
 async function openHome(page: import('@playwright/test').Page) {
-  const login = await page.request.post('/api/auth/sign-in/email', {
-    headers: { Origin: process.env.BASE_URL || 'http://localhost:3000' },
-    data: { email: process.env.BOOTSTRAP_ADMIN_EMAIL, password: process.env.BOOTSTRAP_ADMIN_PASSWORD },
+  expect(Boolean(process.env.BOOTSTRAP_ADMIN_EMAIL && process.env.BOOTSTRAP_ADMIN_PASSWORD), 'Bootstrap admin credentials must be configured.').toBe(true);
+  await authenticateManagedTestPage(page, {
+    email: process.env.BOOTSTRAP_ADMIN_EMAIL, password: process.env.BOOTSTRAP_ADMIN_PASSWORD,
   });
-  expect(login.ok()).toBeTruthy();
   await page.route('**/api/files/quick-access?*', route => {
     const limit = Number(new URL(route.request().url()).searchParams.get('limit'));
     return route.fulfill({ json: { success: true, data: {

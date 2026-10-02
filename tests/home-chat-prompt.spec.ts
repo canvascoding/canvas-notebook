@@ -2,6 +2,7 @@ import { test, expect, type Page } from '@playwright/test';
 import dotenv from 'dotenv';
 import path from 'node:path';
 import { MAIN_AGENT_DISPLAY_NAME } from '../app/lib/agents/main-agent';
+import { authenticateManagedTestPage } from './helpers/managed-test-context';
 
 dotenv.config({ path: path.join(process.cwd(), '.env.local') });
 
@@ -9,17 +10,7 @@ const TEST_EMAIL = process.env.TEST_LOGIN_EMAIL || process.env.BOOTSTRAP_ADMIN_E
 const TEST_PASSWORD = process.env.TEST_LOGIN_PASSWORD || process.env.BOOTSTRAP_ADMIN_PASSWORD || 'change-me';
 
 async function login(page: Page) {
-  const response = await page.request.post('/api/auth/sign-in/email', {
-    headers: {
-      Origin: process.env.BASE_URL || 'http://localhost:3000',
-    },
-    data: {
-      email: TEST_EMAIL,
-      password: TEST_PASSWORD,
-    },
-  });
-
-  expect(response.ok()).toBeTruthy();
+  await authenticateManagedTestPage(page, { email: TEST_EMAIL, password: TEST_PASSWORD });
 }
 
 async function createFileDataTransfer(page: Page, files: Array<{ name: string; mimeType: string; content: string }>) {

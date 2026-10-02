@@ -1,6 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import dotenv from 'dotenv';
 import path from 'node:path';
+import { authenticateManagedTestPage } from './helpers/managed-test-context';
 
 dotenv.config({ path: path.join(process.cwd(), '.env.local') });
 
@@ -62,17 +63,7 @@ async function login(page: Page) {
     };
     await route.fulfill({ json: { success: true, data: resolution, resolution } });
   });
-  const response = await page.request.post('/api/auth/sign-in/email', {
-    headers: {
-      Origin: process.env.BASE_URL || 'http://localhost:3000',
-    },
-    data: {
-      email: TEST_EMAIL,
-      password: TEST_PASSWORD,
-    },
-  });
-
-  expect(response.ok()).toBeTruthy();
+  await authenticateManagedTestPage(page, { email: TEST_EMAIL, password: TEST_PASSWORD });
 }
 
 async function mockSessionBootstrap(page: Page, sessionId: string, title: string, createdAt: string) {
