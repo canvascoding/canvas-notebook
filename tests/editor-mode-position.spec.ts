@@ -1,5 +1,6 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
+import { authenticateManagedTestPage } from './helpers/managed-test-context';
 import { analyzeMarkdownRichMode, serializeRichMarkdownBody } from '../app/lib/markdown/rich-markdown-codec';
 
 type Mode = 'Read' | 'Edit' | 'Source';
@@ -16,10 +17,7 @@ test.beforeEach(async ({ page }) => {
 
 async function login(page: Page) {
   expect(Boolean(process.env.TEST_LOGIN_EMAIL && process.env.TEST_LOGIN_PASSWORD)).toBe(true);
-  expect((await page.request.post('/api/auth/sign-in/email', {
-    headers: { Origin: process.env.BASE_URL || 'http://localhost:3000' },
-    data: { email: process.env.TEST_LOGIN_EMAIL, password: process.env.TEST_LOGIN_PASSWORD },
-  })).ok()).toBe(true);
+  await authenticateManagedTestPage(page);
   const response = await page.request.get('/api/workspaces');
   expect(response.ok()).toBe(true);
   const { workspaces } = await response.json();

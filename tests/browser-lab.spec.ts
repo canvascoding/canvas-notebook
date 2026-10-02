@@ -1,8 +1,7 @@
-import { expect, test, type Page, type WebSocketRoute } from '@playwright/test';
+import { expect, request as playwrightRequest, test, type APIRequestContext, type Page, type WebSocketRoute } from '@playwright/test';
+import { randomUUID } from 'node:crypto';
 import net from 'node:net';
-
-const TEST_EMAIL = process.env.TEST_LOGIN_EMAIL || process.env.BOOTSTRAP_ADMIN_EMAIL || 'admin@example.com';
-const TEST_PASSWORD = process.env.TEST_LOGIN_PASSWORD || process.env.BOOTSTRAP_ADMIN_PASSWORD || 'change-me';
+import { authenticateManagedTestPage, createAuthenticatedContext } from './helpers/managed-test-context';
 
 function browserFixtureUrl(access: string, promptOnLoad = false): string {
   const url = new URL('/api/browser/view/fixture-page', process.env.BASE_URL || 'http://localhost:3000');
@@ -45,6 +44,11 @@ const labels = {
 
 type AgentSummary = {
   agentId: string;
+  name: string;
+  revision: number;
+  scopeType: string;
+  ownerUserId: string | null;
+  createdByUserId: string | null;
 };
 
 type SessionSummary = {
@@ -70,7 +74,93 @@ type RuntimeCatalogProvider = {
   status: string;
 };
 
-let cachedAuthCookies: Awaited<ReturnType<ReturnType<Page['context']>['cookies']>> | null = null;
+type OwnedBrowserLabResource = { agent: AgentSummary; session?: SessionSummary; attempted: boolean };
+type BrowserLabCleanup = {
+  request: APIRequestContext;
+  userId: string;
+  resources: OwnedBrowserLabResource[];
+  failures: Error[];
+  receipts: Array<{ agentId: string; sessionId?: string; profileRemoved: boolean; sessionRemoved: boolean; agentRemoved: boolean }>;
+};
+const browserLabCleanups = new Map<string, BrowserLabCleanup>();
+
+async function browserLabCleanupFor(page: Page): Promise<BrowserLabCleanup> {
+  const testId = test.info().testId;
+  const existing = browserLabCleanups.get(testId);
+  if (existing) return existing;
+  const browser = page.context().browser();
+  if (!browser) throw new Error('Browser Lab cleanup requires the test-owned browser.');
+  const authenticated = await createAuthenticatedContext(browser);
+  let storageState: Awaited<ReturnType<typeof authenticated.storageState>>;
+  try {
+    storageState = await authenticated.storageState();
+  } finally {
+    await authenticated.close();
+  }
+  const request = await playwrightRequest.newContext({
+    baseURL: process.env.BASE_URL || 'http://localhost:3000', storageState, timeout: 15_000,
+  });
+  try {
+    const response = await request.get('/api/auth/get-session');
+    if (response.status() !== 200) throw new Error('Browser Lab cleanup identity check failed.');
+    const payload = await response.json() as { user?: { id?: string } };
+    if (typeof payload.user?.id !== 'string' || !payload.user.id) throw new Error('Browser Lab cleanup identity is missing.');
+    const cleanup: BrowserLabCleanup = { request, userId: payload.user.id, resources: [], failures: [], receipts: [] };
+    browserLabCleanups.set(testId, cleanup);
+    return cleanup;
+  } catch (error) {
+    await request.dispose();
+    throw error;
+  }
+}
+
+async function recordBrowserLabCleanup(page: Page, phase: string, action: () => Promise<unknown>): Promise<void> {
+  const cleanup = await browserLabCleanupFor(page);
+  try { await action(); } catch {
+    cleanup.failures.push(new Error(`Browser Lab cleanup failed during ${phase}; request details withheld.`));
+  }
+}
+
+function safeBrowserLabPrimary(message: string): string {
+  return message.split('\n').slice(0, 1)
+    .filter((line) => !/cookie|authorization|password|token|headers?/i.test(line))
+    .join('\n').replace(/(https?:\/\/[^\s?]+)\?[^\s]*/g, '$1?[redacted]')
+    .replace(/[A-Za-z0-9_+/=-]{36,}/g, '[redacted]').slice(0, 600) || 'Original Playwright failure retained.';
+}
+
+test.afterEach(async ({ page }, testInfo) => {
+  const cleanup = browserLabCleanups.get(testInfo.testId);
+  if (!cleanup) return;
+  // The body has finished: Playwright has recorded its original error before any API cleanup.
+  const primary = testInfo.errors.map((error) => new Error(safeBrowserLabPrimary(error.message || 'Original Playwright failure retained.')));
+  if (primary.length) {
+    try {
+      await testInfo.attach('browser-lab-primary-before-cleanup', {
+        body: JSON.stringify({ errors: primary.map((error) => error.message) }), contentType: 'application/json',
+      });
+    } catch {
+      cleanup.failures.push(new Error('Browser Lab primary diagnostic attachment could not be saved.'));
+    }
+  }
+  try {
+    if (!page.isClosed()) await recordBrowserLabCleanup(page, 'viewer navigation', () => page.goto('about:blank', { timeout: 15_000 }));
+    for (const resource of cleanup.resources) await deleteBrowserLabTestSession(cleanup, resource);
+  } finally {
+    try { await cleanup.request.dispose(); } catch {
+      cleanup.failures.push(new Error('Browser Lab independent cleanup request context could not be disposed.'));
+    }
+    browserLabCleanups.delete(testInfo.testId);
+  }
+  try {
+    await testInfo.attach('browser-lab-owned-cleanup', {
+      body: JSON.stringify({ receipts: cleanup.receipts, errors: cleanup.failures.map((error) => error.message) }),
+      contentType: 'application/json',
+    });
+  } catch {
+    cleanup.failures.push(new Error('Browser Lab cleanup diagnostic attachment could not be saved.'));
+  }
+  if (cleanup.failures.length) throw new AggregateError([...primary, ...cleanup.failures], 'Browser Lab retained the original failure and cleanup diagnostics.');
+});
 
 async function browserRoundtripCommand(page: Page, session: SessionSummary, input?: Record<string, unknown>) {
   const socketPath = process.env.CANVAS_BROWSER_ROUNDTRIP_SOCKET;
@@ -99,17 +189,7 @@ async function browserRoundtripCommand(page: Page, session: SessionSummary, inpu
 }
 
 async function login(page: Page, destination: string | null = '/'): Promise<void> {
-  if (cachedAuthCookies) {
-    await page.context().addCookies(cachedAuthCookies);
-    if (destination) await page.goto(destination);
-    return;
-  }
-  const response = await page.request.post('/api/auth/sign-in/email', {
-    headers: { Origin: process.env.BASE_URL || 'http://localhost:3000' },
-    data: { email: TEST_EMAIL, password: TEST_PASSWORD },
-  });
-  expect(response.ok(), 'The bootstrap login must succeed.').toBeTruthy();
-  cachedAuthCookies = await page.context().cookies();
+  await authenticateManagedTestPage(page);
   if (destination) await page.goto(destination);
 }
 
@@ -122,6 +202,7 @@ async function issueBrowserFixtureAccess(page: Page): Promise<string> {
 }
 
 async function findBrowserLabSession(page: Page): Promise<SessionSummary> {
+  const cleanup = await browserLabCleanupFor(page);
   const catalogResponse = await page.request.get('/api/admin/agent-runtime/catalog');
   const catalogPayload = await catalogResponse.json().catch(() => ({})) as {
     code?: string;
@@ -146,8 +227,11 @@ async function findBrowserLabSession(page: Page): Promise<SessionSummary> {
   const catalogRevision = catalogPayload.data?.catalog?.revision;
   expect(Number.isSafeInteger(catalogRevision), 'The AI runtime catalog revision is missing.').toBeTruthy();
   const thinkingLevel = model!.thinkingLevels.includes('off') ? 'off' : model!.thinkingLevels[0];
+  const fixtureId = randomUUID();
+  const agentName = `Browser Lab E2E ${fixtureId}`;
+  const agentId = `browser-lab-e2e-${fixtureId}`;
   const agentResponse = await page.request.post('/api/agents', {
-    data: { name: `Browser Lab E2E ${Date.now()}`, scopeType: 'user', enabledTools: ['browser'] },
+    data: { agentId, name: agentName, scopeType: 'user', enabledTools: ['browser'] },
   });
   const agentPayload = await agentResponse.json() as {
     data?: { agent?: AgentSummary & { revision: number } };
@@ -155,6 +239,14 @@ async function findBrowserLabSession(page: Page): Promise<SessionSummary> {
   };
   expect(agentResponse.ok(), agentPayload.error).toBeTruthy();
   const agent = agentPayload.data!.agent!;
+  expect(agent.agentId).toBe(agentId);
+  expect(agent.name).toBe(agentName);
+  expect(agent.scopeType).toBe('user');
+  expect(agent.ownerUserId).toBe(cleanup.userId);
+  expect(agent.createdByUserId).toBe(cleanup.userId);
+  expect(Number.isSafeInteger(agent.revision) && agent.revision >= 0).toBe(true);
+  const owned: OwnedBrowserLabResource = { agent, attempted: false };
+  cleanup.resources.push(owned);
   const createResponse = await page.request.post('/api/sessions', {
     data: {
       agentId: agent!.agentId,
@@ -179,37 +271,95 @@ async function findBrowserLabSession(page: Page): Promise<SessionSummary> {
     JSON.stringify({ code: createPayload.code, error: createPayload.error }),
   ).toBeTruthy();
   expect(createPayload.session?.sessionId, 'The Browser Lab E2E session was not created.').toBeTruthy();
-  return {
-    agentId: createPayload.session?.agentId || agent!.agentId,
+  expect(createPayload.session?.agentId).toBe(agent.agentId);
+  owned.session = {
+    agentId: agent.agentId,
     createdByTest: true,
     createdAgentRevision: agent.revision,
     engine: createPayload.session?.engine || 'pi',
     sessionId: createPayload.session!.sessionId,
     workspace: createPayload.session?.workspace ?? null,
   };
+  return owned.session;
 }
 
-async function deleteBrowserLabTestSession(page: Page, session: SessionSummary): Promise<void> {
-  if (!session.createdByTest) return;
-  if (session.createdAgentRevision !== undefined) {
-    const closed = await page.request.post('/api/agents/browser', {
-      data: { action: 'delete_profile', agentId: session.agentId, sessionId: session.sessionId },
-      timeout: 15_000,
+async function deleteBrowserLabTestSession(cleanup: BrowserLabCleanup, owned: OwnedBrowserLabResource): Promise<void> {
+  if (owned.attempted) return;
+  owned.attempted = true;
+  const { request } = cleanup;
+  const { agent, session } = owned;
+  const receipt = { agentId: agent.agentId, sessionId: session?.sessionId, profileRemoved: false, sessionRemoved: !session, agentRemoved: false };
+  cleanup.receipts.push(receipt);
+  let phase = 'agent ownership';
+  try {
+    const inspected = await request.get(`/api/agents?agentId=${encodeURIComponent(agent.agentId)}`);
+    expect(inspected.status(), phase).toBe(200);
+    const current = (await inspected.json()).data?.agent as AgentSummary | undefined;
+    expect(current, phase).toMatchObject(agent);
+    if (session) {
+      phase = 'session ownership';
+      const before = await request.get(`/api/sessions?agentId=${encodeURIComponent(agent.agentId)}`);
+      expect(before.status(), phase).toBe(200);
+      const existingSessions = (await before.json()).sessions;
+      expect(Array.isArray(existingSessions), phase).toBe(true);
+      expect(existingSessions.map((entry: { sessionId: string }) => entry.sessionId), phase).toEqual([session.sessionId]);
+      phase = 'profile ownership';
+      const browserPath = `/api/agents/browser?agentId=${encodeURIComponent(agent.agentId)}&sessionId=${encodeURIComponent(session.sessionId)}`;
+      const status = await request.get(browserPath);
+      expect(status.status(), phase).toBe(200);
+      const profile = (await status.json()).data?.profile;
+      const identityParts = [cleanup.userId, agent.agentId, session.sessionId, session.workspace?.workspaceId].filter((part): part is string => typeof part === 'string');
+      for (const part of identityParts) expect(part.toLowerCase(), phase).toMatch(/^[a-z0-9._-]{1,96}$/);
+      const scopes = [cleanup.userId.toLowerCase(), agent.agentId.toLowerCase()];
+      if (session.workspace?.workspaceId) scopes.push(`ws-${session.workspace.workspaceId.toLowerCase()}`);
+      const sessionKey = [...scopes, session.sessionId.toLowerCase()].join('__');
+      expect(['agent', 'session'], phase).toContain(profile?.scope);
+      expect(profile.sessionKey, phase).toBe(sessionKey);
+      expect(profile.profileKey, phase).toBe(profile.scope === 'session' ? sessionKey : scopes.join('__'));
+      phase = 'profile removal';
+      const closed = await request.post('/api/agents/browser', {
+        data: { action: 'delete_profile', agentId: agent.agentId, sessionId: session.sessionId }, timeout: 15_000,
+      });
+      expect(closed.status(), phase).toBe(200);
+      const verified = await request.get(browserPath);
+      expect(verified.status(), phase).toBe(200);
+      expect((await verified.json()).data?.profile, phase).toMatchObject({
+        profileKey: profile.profileKey, sessionKey, profileDirExists: false, running: false, sessionRunning: false,
+      });
+      receipt.profileRemoved = true;
+      phase = 'session removal';
+      const deletedSession = await request.delete(`/api/sessions?agentId=${encodeURIComponent(agent.agentId)}&sessionId=${encodeURIComponent(session.sessionId)}`);
+      expect(deletedSession.status(), phase).toBe(200);
+      expect((await deletedSession.json()).deleted, phase).toBe(session.sessionId);
+      const sessions = await request.get(`/api/sessions?agentId=${encodeURIComponent(agent.agentId)}`);
+      expect(sessions.status(), phase).toBe(200);
+      const payload = await sessions.json() as { sessions?: Array<{ sessionId: string }> };
+      expect(Array.isArray(payload.sessions), phase).toBe(true);
+      expect(payload.sessions!.some((entry) => entry.sessionId === session.sessionId), phase).toBe(false);
+      // Agent deletion cascades sessions: refuse it if an unrelated session appeared.
+      expect(payload.sessions, 'Only the receipt-owned session may exist on the fixture agent.').toEqual([]);
+      receipt.sessionRemoved = true;
+    }
+    phase = 'agent deletion preview';
+    const preview = await request.post('/api/agents/delete-preview', { data: { agentId: agent.agentId } });
+    expect(preview.status(), phase).toBe(200);
+    const payload = await preview.json();
+    expect(payload.data?.agent, phase).toMatchObject(agent);
+    expect(payload.data?.impacts?.sessions, phase).toBe(0);
+    expect(typeof payload.data?.confirmationToken, phase).toBe('string');
+    expect(payload.data.confirmationToken.length, phase).toBeGreaterThan(0);
+    phase = 'agent removal';
+    const deleted = await request.delete('/api/agents', {
+      data: { agentId: agent.agentId, expectedRevision: agent.revision, confirmationToken: payload.data.confirmationToken },
     });
-    expect(closed.ok()).toBeTruthy();
-  }
-  const deletedSession = await page.request.delete(
-    `/api/sessions?agentId=${encodeURIComponent(session.agentId)}&sessionId=${encodeURIComponent(session.sessionId)}`,
-  );
-  expect(deletedSession.ok()).toBeTruthy();
-  if (session.createdAgentRevision !== undefined) {
-    const preview = await page.request.post('/api/agents/delete-preview', { data: { agentId: session.agentId } });
-    const payload = await preview.json() as { data: { confirmationToken: string } };
-    expect(preview.ok()).toBeTruthy();
-    const deleted = await page.request.delete('/api/agents', {
-      data: { agentId: session.agentId, expectedRevision: session.createdAgentRevision, confirmationToken: payload.data.confirmationToken },
-    });
-    expect(deleted.ok()).toBeTruthy();
+    expect(deleted.status(), phase).toBe(200);
+    expect((await deleted.json()).data, phase).toMatchObject({ deleted: true, agentId: agent.agentId });
+    const absent = await request.get(`/api/agents?agentId=${encodeURIComponent(agent.agentId)}`);
+    expect(absent.status(), phase).toBe(404);
+    receipt.agentRemoved = true;
+  } catch (error) {
+    const detail = error instanceof Error ? safeBrowserLabPrimary(error.message) : 'Unknown cleanup failure.';
+    cleanup.failures.push(new Error(`Browser Lab cleanup failed during ${phase} for its receipt-owned agent; removal was not verified. ${detail}`));
   }
 }
 
@@ -337,7 +487,8 @@ test.describe('Browser Lab', () => {
     await page.setViewportSize({ width: 1600, height: 900 });
     await login(page);
     const session = await findBrowserLabSession(page);
-    try {
+
+    {
       await page.route('**/api/browser/view', async (route) => {
         await route.fulfill({
           status: 409,
@@ -373,9 +524,8 @@ test.describe('Browser Lab', () => {
       await expect(liveStatus).toBeVisible({ timeout: 60_000 });
       await expect(page.locator('img[tabindex]')).toBeVisible({ timeout: 30_000 });
       await page.getByTitle(labels.disconnect).click();
-    } finally {
-      await deleteBrowserLabTestSession(page, session);
     }
+
   });
 
   test('handles fatal browser errors without an invalid WebSocket close code', async ({ page }) => {
@@ -384,7 +534,8 @@ test.describe('Browser Lab', () => {
 
     await login(page);
     const session = await findBrowserLabSession(page);
-    try {
+
+    {
       await page.route('**/api/browser/view', async (route) => {
         await route.fulfill({
           status: 200,
@@ -427,9 +578,8 @@ test.describe('Browser Lab', () => {
       expect(pageErrors.map((error) => error.message)).not.toContainEqual(
         expect.stringContaining("Failed to execute 'close' on 'WebSocket'"),
       );
-    } finally {
-      await deleteBrowserLabTestSession(page, session);
     }
+
   });
 
   test('connects to the managed browser with cooperative control enabled', async ({ page }) => {
@@ -581,10 +731,8 @@ test.describe('Browser Lab', () => {
       await page.getByTitle(labels.disconnect).click();
       expect(pageErrors).toEqual([]);
     } catch (error) {
-      console.error('Browser cooperative flow failed:', error);
+      console.error('Browser cooperative flow failed:', error instanceof Error ? safeBrowserLabPrimary(error.message) : 'Unknown failure.');
       throw error;
-    } finally {
-      await deleteBrowserLabTestSession(page, session);
     }
   });
 
@@ -641,8 +789,7 @@ test.describe('Browser Lab', () => {
       }
       expect(sockets).toHaveLength(2);
     } finally {
-      await page.goto('about:blank');
-      await deleteBrowserLabTestSession(page, session);
+      await recordBrowserLabCleanup(page, 'viewer navigation', () => page.goto('about:blank'));
     }
   });
 
@@ -669,8 +816,7 @@ test.describe('Browser Lab', () => {
       await page.waitForTimeout(2200);
       expect(requests).toBe(5);
     } finally {
-      await page.goto('about:blank');
-      await deleteBrowserLabTestSession(page, session);
+      await recordBrowserLabCleanup(page, 'viewer navigation', () => page.goto('about:blank'));
     }
   });
 
@@ -724,8 +870,7 @@ test.describe('Browser Lab', () => {
       await expect(dialog).toBeHidden();
       await expect(frame).toHaveAttribute('alt', 'Prompt: Notebook roundtrip');
     } finally {
-      await page.goto('about:blank');
-      await deleteBrowserLabTestSession(page, session);
+      await recordBrowserLabCleanup(page, 'viewer navigation', () => page.goto('about:blank'));
     }
   });
 
@@ -755,9 +900,8 @@ test.describe('Browser Lab', () => {
       const status = await page.request.get(`/api/agents/browser?agentId=${encodeURIComponent(session.agentId)}&sessionId=${encodeURIComponent(session.sessionId)}`);
       expect((await status.json()).data.profile.sessionRunning).toBe(false);
     } finally {
-      await spectator.close();
-      await page.goto('about:blank');
-      await deleteBrowserLabTestSession(page, session);
+      await recordBrowserLabCleanup(page, 'spectator close', () => spectator.close());
+      await recordBrowserLabCleanup(page, 'viewer navigation', () => page.goto('about:blank'));
     }
   });
 
@@ -798,8 +942,8 @@ test.describe('Browser Lab', () => {
       await browserRoundtripCommand(page, session, { action: 'close' });
       await expect(page.getByTestId('notebook-surface-browser')).toHaveCount(0);
     } finally {
-      await page.goto('about:blank');
-      await deleteBrowserLabTestSession(page, session);
+      await recordBrowserLabCleanup(page, 'viewer navigation', () => page.goto('about:blank'));
+
       await starting?.catch(() => undefined);
     }
   });
@@ -880,9 +1024,7 @@ test.describe('Browser Lab', () => {
         expect(status?.details).toHaveProperty('running', false);
         expect(errors).toEqual([]);
       } finally {
-        await page.goto('about:blank');
-        await deleteBrowserLabTestSession(page, session);
-        await deleteBrowserLabTestSession(page, otherSession);
+        await recordBrowserLabCleanup(page, 'viewer navigation', () => page.goto('about:blank'));
       }
     });
   }
@@ -896,7 +1038,8 @@ test.describe('Browser Lab', () => {
     await exposeBrowserRuntimeToNotebook(page, 'browser-lab-session');
     await login(page, null);
     const session = await findBrowserLabSession(page);
-    try {
+
+    {
       await page.goto(`/browser/lab?agentId=${encodeURIComponent(session.agentId)}&sessionId=${encodeURIComponent(session.sessionId)}`);
       await expect(page.getByRole('button', { name: labels.connect })).toBeEnabled({ timeout: 60_000 });
       await page.getByRole('button', { name: labels.connect }).click();
@@ -1013,9 +1156,8 @@ test.describe('Browser Lab', () => {
       await expect(page.getByTestId('notebook-surface-browser')).toHaveCount(0);
       await expect(page.getByTestId('notebook-desktop-chat')).toHaveAttribute('aria-hidden', 'false');
       expect(pageErrors).toEqual([]);
-    } finally {
-      await deleteBrowserLabTestSession(page, session);
     }
+
   });
 
   test('cancels a pending notebook browser ticket when its surface is closed', async ({ page }) => {
@@ -1067,8 +1209,7 @@ test.describe('Browser Lab', () => {
       expect(frameCounts).toHaveLength(1);
     } finally {
       releaseTicket();
-      await page.goto('about:blank');
-      await deleteBrowserLabTestSession(page, session);
+      await recordBrowserLabCleanup(page, 'viewer navigation', () => page.goto('about:blank'));
     }
   });
 
@@ -1155,9 +1296,12 @@ test.describe('Browser Lab', () => {
     } finally {
       const ownedPaths = [fixtureName, downloadedWorkspacePath].filter(Boolean);
       if (ownedPaths.length > 0) {
-        await page.request.delete(`/api/files/delete?${workspaceQuery}`, { data: { path: ownedPaths } });
+        await recordBrowserLabCleanup(page, 'workspace transfer files', async () => {
+          const cleanup = await browserLabCleanupFor(page);
+          const deleted = await cleanup.request.delete(`/api/files/delete?${workspaceQuery}`, { data: { path: ownedPaths } });
+          expect(deleted.ok(), 'Browser Lab owned transfer fixture cleanup must succeed.').toBe(true);
+        });
       }
-      await deleteBrowserLabTestSession(page, session);
     }
   });
 });

@@ -1,4 +1,5 @@
-import { expect, test } from '@playwright/test';
+import { expect } from '@playwright/test';
+import { test } from './helpers/document-review-experimental';
 import { randomUUID } from 'node:crypto';
 
 import { COLLABORATION_CLIENT_CAPABILITIES } from '../app/lib/collaboration/types';

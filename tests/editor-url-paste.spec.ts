@@ -1,12 +1,13 @@
 import { expect, test } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
+import { authenticateManagedTestPage } from './helpers/managed-test-context';
 
 test('URL paste offers link, explicit preview and supported document embed without changing code paste', async ({ page, context }, info) => {
   test.skip(process.env.COLLABORATION_E2E !== '1', 'Requires managed local PostgreSQL.');
   test.setTimeout(90_000);
   page.setDefaultTimeout(10_000);
   await context.grantPermissions(['clipboard-read', 'clipboard-write']);
-  expect((await page.request.post('/api/auth/sign-in/email', { headers: { Origin: process.env.BASE_URL || 'http://localhost:3000' }, data: { email: process.env.TEST_LOGIN_EMAIL, password: process.env.TEST_LOGIN_PASSWORD } })).ok()).toBe(true);
+  await authenticateManagedTestPage(page);
   const { workspaces } = await (await page.request.get('/api/workspaces')).json();
   const workspace = workspaces.find((entry: { name: string }) => entry.name === 'Shared Test Workspace');
   const headers = { 'x-canvas-workspace-id': workspace.id };

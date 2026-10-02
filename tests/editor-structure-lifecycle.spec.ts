@@ -1,13 +1,18 @@
 import { expect, test, type Page } from '@playwright/test';
 import type { JSONContent } from '@tiptap/core';
 import { randomUUID } from 'node:crypto';
+import { authenticateManagedTestPage } from './helpers/managed-test-context';
 
 async function login(page: Page, peer = false) {
-  expect((await page.request.post('/api/auth/sign-in/email', {
-    headers: { Origin: process.env.BASE_URL || 'http://localhost:3000' },
-    data: { email: peer ? process.env.TEST_SECONDARY_EMAIL : process.env.TEST_LOGIN_EMAIL,
-      password: peer ? process.env.TEST_SECONDARY_PASSWORD : process.env.TEST_LOGIN_PASSWORD },
-  })).ok()).toBe(true);
+  if (peer) {
+    expect(Boolean(process.env.TEST_SECONDARY_EMAIL && process.env.TEST_SECONDARY_PASSWORD)).toBe(true);
+    await authenticateManagedTestPage(page, {
+      email: process.env.TEST_SECONDARY_EMAIL,
+      password: process.env.TEST_SECONDARY_PASSWORD,
+    });
+  } else {
+    await authenticateManagedTestPage(page);
+  }
   const { workspaces } = await (await page.request.get('/api/workspaces')).json();
   const workspace = workspaces.find((entry: { name: string }) => entry.name === 'Shared Test Workspace');
   expect(workspace?.id).toBeTruthy();

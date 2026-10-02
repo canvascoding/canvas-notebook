@@ -1,4 +1,5 @@
-import { expect, test, type BrowserContext, type Page } from '@playwright/test';
+import { expect, type BrowserContext, type Page } from '@playwright/test';
+import { test } from './helpers/document-review-experimental';
 import { randomUUID } from 'node:crypto';
 import * as Y from 'yjs';
 

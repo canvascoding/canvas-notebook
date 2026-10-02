@@ -1,4 +1,5 @@
-import { expect, test } from '@playwright/test';
+import { expect } from '@playwright/test';
+import { test } from './helpers/document-review-experimental';
 import { randomUUID } from 'node:crypto';
 import type { CrashPoint } from '../scripts/collaboration-proposal-crash-probe';
 import { buildFileVersionCenterDeepLinkV1 } from '../app/lib/file-version-center/contracts/deep-link-v1';

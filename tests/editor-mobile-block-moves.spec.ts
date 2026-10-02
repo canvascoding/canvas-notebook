@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
+import { authenticateManagedTestPage } from './helpers/managed-test-context';
 
 test.use({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
 
@@ -8,10 +9,7 @@ test(`mobile ${block} moves retain the menu anchor and remain editable after und
   test.skip(process.env.COLLABORATION_E2E !== '1', 'Requires the managed local Postgres stack.');
   test.setTimeout(60_000);
   info.annotations.push({ type: 'input-scope', description: 'Touch viewport and reduced content area are emulated; no native OS keyboard or IME claim.' });
-  expect((await page.request.post('/api/auth/sign-in/email', {
-    headers: { Origin: process.env.BASE_URL || 'http://localhost:3000' },
-    data: { email: process.env.TEST_LOGIN_EMAIL, password: process.env.TEST_LOGIN_PASSWORD },
-  })).ok()).toBe(true);
+  await authenticateManagedTestPage(page);
   const { workspaces } = await (await page.request.get('/api/workspaces')).json();
   const workspace = workspaces.find((entry: { name: string }) => entry.name === 'Shared Test Workspace');
   const headers = { 'x-canvas-workspace-id': workspace.id };
@@ -93,10 +91,7 @@ test('mobile list and table deletion keep structure, history and focus during ba
   test.skip(process.env.COLLABORATION_E2E !== '1', 'Requires the managed local Postgres stack.');
   test.setTimeout(60_000);
   info.annotations.push({ type: 'input-scope', description: 'Touch and DOM selection with browser keyboard events; native iPhone IME remains outside this test.' });
-  expect((await page.request.post('/api/auth/sign-in/email', {
-    headers: { Origin: process.env.BASE_URL || 'http://localhost:3000' },
-    data: { email: process.env.TEST_LOGIN_EMAIL, password: process.env.TEST_LOGIN_PASSWORD },
-  })).ok()).toBe(true);
+  await authenticateManagedTestPage(page);
   const { workspaces } = await (await page.request.get('/api/workspaces')).json();
   const workspace = workspaces.find((entry: { name: string }) => entry.name === 'Shared Test Workspace');
   expect(workspace?.id).toBeTruthy();

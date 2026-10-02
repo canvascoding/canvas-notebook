@@ -1,4 +1,5 @@
-import { expect, test, type Browser, type BrowserContext, type Locator, type Page, type TestInfo } from '@playwright/test';
+import { expect, type Browser, type BrowserContext, type Locator, type Page, type TestInfo } from '@playwright/test';
+import { test } from './helpers/document-review-experimental';
 import type { Editor, JSONContent } from '@tiptap/core';
 import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';

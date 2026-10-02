@@ -3,11 +3,10 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import type { EventEmitter } from 'node:events';
 import { writeFileSync } from 'node:fs';
-import { readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
-import { parse } from 'dotenv';
-import { Client } from 'pg';
 import { MAIN_AGENT_ID } from '../app/lib/agents/main-agent';
+import { requireOwnedCollaborationQaTarget } from '../scripts/lib/owned-collaboration-qa';
+import { readExperimentalState, setScopedDocumentReview, type ExperimentalState } from './helpers/document-review-experimental';
 
 import {
   createAuthenticatedContext,
@@ -51,12 +50,6 @@ type Timeline = {
   entries: Array<{ kind: string }>;
 };
 
-type ExperimentalState = {
-  documentReviewEnabled: boolean;
-  updatedAt: string | null;
-  studioBulkEnabled: boolean;
-  studioBulkUpdatedAt: string | null;
-};
 
 type OwnedSession = {
   sessionId: string; agentId: string; userId: string; workspaceId: string; title: string;
@@ -216,45 +209,7 @@ async function cleanupOwnedSession(resources: SeedResources, owned: OwnedSession
 }
 
 async function requireOwnedQAReviewFixture(request: APIRequestContext): Promise<void> {
-  const baseURL = new URL(process.env.BASE_URL || '');
-  expect(baseURL.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(baseURL.hostname)
-    && baseURL.port === '4126', 'Experimental fixture requires the owned loopback QA host.').toBe(true);
-  const envFile = process.env.CANVAS_ENV_FILE || '';
-  const qaRoot = path.dirname(envFile);
-  expect(path.basename(envFile) === 'qa-database.env' && path.basename(qaRoot) === 'validation-426b',
-    'Experimental fixture requires the published private QA environment.').toBe(true);
-  expect((await stat(envFile)).mode & 0o777).toBe(0o600);
-  const published = parse(await readFile(envFile));
-  const databaseURL = new URL(published.DATABASE_URL);
-  expect(databaseURL.hostname === '127.0.0.1' && databaseURL.port === '55433'
-    && /^\/canvas_426b_e2e_[a-f0-9]{16}$/u.test(databaseURL.pathname), 'Only the owned QA clone is allowed.').toBe(true);
-  expect(process.env.DATABASE_URL === databaseURL.href, 'Native tool driver must use the published QA database.').toBe(true);
-  const cloneName = databaseURL.pathname.slice(1);
-  const metadataPath = path.join(qaRoot, `qa-clone-${cloneName.slice('canvas_426b_e2e_'.length)}`, 'metadata.json');
-  const metadata = JSON.parse(await readFile(metadataPath, 'utf8')) as {
-    cloneDatabase?: string; cloneOid?: string; privateDataRoot?: string;
-    verifiedSchemaAndCounts?: boolean; purpose?: string; productionRestoreProof?: boolean;
-  };
-  expect(metadata.cloneDatabase).toBe(cloneName);
-  expect(metadata.purpose).toBe('isolated-local-QA-fixture');
-  expect(metadata.productionRestoreProof).toBe(false);
-  expect(metadata.verifiedSchemaAndCounts).toBe(true);
-  expect(path.resolve(process.env.DATA || '') === path.join(qaRoot, 'data')
-    && metadata.privateDataRoot === path.resolve(process.env.DATA || ''), 'Private QA DATA must match the verified clone.').toBe(true);
-  const database = new Client({ connectionString: databaseURL.href, connectionTimeoutMillis: 5_000,
-    statement_timeout: 10_000, query_timeout: 10_000, application_name: 'canvas_426b_review_fixture_guard' });
-  try {
-    await database.connect();
-    await database.query('BEGIN READ ONLY');
-    const identity = (await database.query(`SELECT d.oid::text,current_database() AS name,
-      current_user=(SELECT rolname FROM pg_roles WHERE oid=d.datdba) AS owned
-      FROM pg_database d WHERE d.datname=current_database()`)).rows[0];
-    expect(identity?.oid).toBe(metadata.cloneOid);
-    expect(identity?.name).toBe(cloneName);
-    expect(identity?.owned).toBe(true);
-  } finally {
-    await database.end();
-  }
+  await requireOwnedCollaborationQaTarget();
   const response = await request.get('/api/auth/get-session');
   expect(response.status(), 'QA fixture requires an authenticated instance admin.').toBe(200);
   const session = await response.json() as { user?: { id?: string; email?: string; role?: string } };
@@ -262,39 +217,6 @@ async function requireOwnedQAReviewFixture(request: APIRequestContext): Promise<
   expect(session.user?.role).toBe('admin');
   expect(session.user?.email === (process.env.TEST_LOGIN_EMAIL || process.env.BOOTSTRAP_ADMIN_EMAIL),
     'QA fixture admin must match the configured identity.').toBe(true);
-}
-
-async function readExperimentalState(request: APIRequestContext): Promise<ExperimentalState> {
-  const review = await request.get('/api/document-review/availability');
-  const bulk = await request.get('/api/studio/bulk/availability');
-  expect(review.status(), 'Read Document Review availability.').toBe(200);
-  expect(bulk.status(), 'Read Studio Bulk availability.').toBe(200);
-  const reviewPayload = await review.json() as { success?: boolean; data?: { documentReviewEnabled?: boolean; updatedAt?: string | null } };
-  const bulkPayload = await bulk.json() as { success?: boolean; data?: { studioBulkEnabled?: boolean; updatedAt?: string | null } };
-  expect(reviewPayload.success).toBe(true);
-  expect(bulkPayload.success).toBe(true);
-  expect(typeof reviewPayload.data?.documentReviewEnabled).toBe('boolean');
-  expect(typeof bulkPayload.data?.studioBulkEnabled).toBe('boolean');
-  for (const timestamp of [reviewPayload.data?.updatedAt, bulkPayload.data?.updatedAt]) {
-    expect(timestamp === null || typeof timestamp === 'string' && Number.isFinite(Date.parse(timestamp)),
-      'Experimental audit timestamp must be null or a valid date string.').toBe(true);
-  }
-  return { documentReviewEnabled: reviewPayload.data!.documentReviewEnabled!, updatedAt: reviewPayload.data!.updatedAt!,
-    studioBulkEnabled: bulkPayload.data!.studioBulkEnabled!, studioBulkUpdatedAt: bulkPayload.data!.updatedAt! };
-}
-
-async function setScopedDocumentReview(request: APIRequestContext, enabled: boolean): Promise<ExperimentalState> {
-  // This API has no CAS contract. Only the supported partial boolean is sent.
-  const response = await request.patch('/api/admin/experimental-settings', {
-    headers: { Origin: process.env.BASE_URL! }, data: { documentReviewEnabled: enabled },
-  });
-  expect(response.status(), 'Admin updates only the owned QA Document Review flag.').toBe(200);
-  const payload = await response.json() as { success?: boolean; data?: ExperimentalState };
-  expect(payload.success).toBe(true);
-  expect(payload.data?.documentReviewEnabled).toBe(enabled);
-  expect(typeof payload.data?.updatedAt).toBe('string');
-  expect(Number.isFinite(Date.parse(payload.data!.updatedAt!))).toBe(true);
-  return payload.data!;
 }
 
 const test = base.extend<{ documentReviewFlag: SeedResources }>({

@@ -1,15 +1,13 @@
 import { expect, test } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
+import { authenticateManagedTestPage } from './helpers/managed-test-context';
 import { serializeRichMarkdownBody } from '../app/lib/markdown/rich-markdown-codec';
 
 test('table menu moves rows and columns and checkpoints aligned inserted rows', async ({ page }, info) => {
   test.skip(process.env.COLLABORATION_E2E !== '1', 'Requires the managed local Postgres stack.');
   test.setTimeout(90_000);
   page.setDefaultTimeout(10_000);
-  expect((await page.request.post('/api/auth/sign-in/email', {
-    headers: { Origin: process.env.BASE_URL || 'http://localhost:3000' },
-    data: { email: process.env.TEST_LOGIN_EMAIL, password: process.env.TEST_LOGIN_PASSWORD },
-  })).ok()).toBe(true);
+  await authenticateManagedTestPage(page);
   const { workspaces } = await (await page.request.get('/api/workspaces')).json();
   const workspace = workspaces.find((entry: { name: string }) => entry.name === 'Shared Test Workspace');
   const headers = { 'x-canvas-workspace-id': workspace.id };
