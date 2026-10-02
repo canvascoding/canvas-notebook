@@ -3,11 +3,15 @@
 import { useState } from 'react';
 
 import { cn } from '@/lib/utils';
+import { useWorkspaceStore } from '@/app/store/workspace-store';
 
 export type CanvasPluginIconSource = {
   name: string;
   version?: string;
   description?: string;
+  scopeType?: string;
+  resourceId?: string;
+  workspaceId?: string;
   interface?: {
     displayName?: string;
     shortDescription?: string;
@@ -23,7 +27,7 @@ function normalizeAssetPath(assetPath?: string): string | null {
   return normalized.replace(/^\.\//, '').replace(/^\/+/, '');
 }
 
-function resolvePluginAssetUrl(plugin: CanvasPluginIconSource, assetPath?: string): string | null {
+function resolvePluginAssetUrl(plugin: CanvasPluginIconSource, assetPath?: string, workspaceId?: string): string | null {
   const normalized = normalizeAssetPath(assetPath);
   if (!normalized) return null;
 
@@ -31,7 +35,11 @@ function resolvePluginAssetUrl(plugin: CanvasPluginIconSource, assetPath?: strin
     return normalized;
   }
 
-  return `/api/plugins/asset?plugin=${encodeURIComponent(plugin.name)}&path=${encodeURIComponent(normalized)}`;
+  const params = new URLSearchParams({ plugin: plugin.name, path: normalized, scope: plugin.scopeType === 'organization' ? 'organization' : 'user' });
+  if (plugin.resourceId) params.set('resourceId', plugin.resourceId);
+  if (workspaceId) params.set('workspaceId', workspaceId);
+  if (plugin.version) params.set('version', plugin.version);
+  return `/api/plugins/asset?${params}`;
 }
 
 function getPluginInitials(plugin: CanvasPluginIconSource): string {
@@ -93,9 +101,11 @@ export function CanvasPluginIcon({
   imageClassName?: string;
   plugin: CanvasPluginIconSource;
 }) {
-  const [failed, setFailed] = useState(false);
+  const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
+  const [failedUrl, setFailedUrl] = useState<string | null>(null);
   const iconPath = plugin.interface?.icon || plugin.interface?.logo;
-  const iconUrl = failed ? null : resolvePluginAssetUrl(plugin, iconPath);
+  const resolvedUrl = resolvePluginAssetUrl(plugin, iconPath, activeWorkspaceId || plugin.workspaceId);
+  const iconUrl = resolvedUrl === failedUrl ? null : resolvedUrl;
 
   if (iconUrl) {
     return (
@@ -108,10 +118,11 @@ export function CanvasPluginIcon({
       >
         {/* eslint-disable-next-line @next/next/no-img-element -- Plugin assets are local runtime files served through an authenticated API route. */}
         <img
+          key={iconUrl}
           src={iconUrl}
           alt=""
           className={cn('h-full w-full object-cover', imageClassName)}
-          onError={() => setFailed(true)}
+          onError={() => setFailedUrl(iconUrl)}
         />
       </span>
     );

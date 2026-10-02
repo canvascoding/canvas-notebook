@@ -3,9 +3,10 @@ import { NextResponse } from 'next/server';
 
 import { auth } from '@/app/lib/auth';
 import { resolveEffectiveCapabilitySnapshot } from '@/app/lib/capabilities/catalog';
-import { resolveCapabilityExecutionContextForUser, resolveCapabilityStorageScope } from '@/app/lib/capabilities/request-scope';
+import { resolveCapabilityExecutionContextForUser } from '@/app/lib/capabilities/request-scope';
 import { readOrganizationPermissionForUser } from '@/app/lib/organization/permissions';
-import { getCanvasPlugin, type CanvasPluginInstallRecord } from '@/app/lib/plugins/canvas-plugin-registry';
+import type { CanvasPluginInstallRecord } from '@/app/lib/plugins/canvas-plugin-registry';
+import { readExactInstalledPlugin } from '@/app/lib/plugins/installed-plugin-read';
 import {
   isValidCanvasPluginName,
   isValidCanvasPluginVersion,
@@ -85,7 +86,7 @@ export async function POST(request: Request) {
           role: organizationState.permission.role,
           requestedWorkspaceId: stringValue(body.workspaceId) || request.headers.get(WORKSPACE_ID_HEADER),
         });
-        const snapshot = organizationState.permission.canSharePluginsAndSkills
+        const snapshot = organizationState.permission.canSharePluginsAndSkills === true
           ? null : await resolveEffectiveCapabilitySnapshot(executionContext);
         const assignedPlugin = snapshot?.capabilities.find((entry) => (
           entry.ref.resourceType === 'plugin'
@@ -102,13 +103,14 @@ export async function POST(request: Request) {
         return NextResponse.json({ success: false, error: 'Assigned plugin is unavailable in this workspace' }, { status: 403 });
       }
     }
-    const plugin = await getCanvasPlugin(pluginName, resolveCapabilityStorageScope({
-      requestedScope: body.scope,
-      userId: session.user.id,
-      organizationState,
-    }));
-    if (!plugin || (resourceId && plugin.resourceId !== resourceId)
-      || (body.scope === 'organization' && (plugin.scopeType !== 'organization' || plugin.organizationId !== organizationState.organizationId))) {
+    const plugin = await readExactInstalledPlugin({
+      name: pluginName,
+      resourceId,
+      scope: body.scope === 'organization'
+        ? { scopeType: 'organization', organizationId: organizationState.organizationId! }
+        : { scopeType: 'user', userId: session.user.id },
+    });
+    if (!plugin) {
       return NextResponse.json({ success: false, error: 'Plugin not found' }, { status: 404 });
     }
 

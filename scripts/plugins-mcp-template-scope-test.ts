@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import Module from 'node:module';
+import { createCapabilityResourceId } from '../app/lib/capabilities/reference';
 
 type LoadFn = (request: string, parent: NodeModule | null, isMain: boolean) => unknown;
 const internals = Module as typeof Module & { _load: LoadFn };
@@ -11,10 +12,12 @@ let blocked = false;
 let snapshotCalls = 0;
 let readScope: string | null = null;
 let templateRoot: string | null = null;
-const personal = { name: 'same-name', resourceId: 'personal-id', scopeType: 'user', ownerUserId: 'member', version: '1.0.0', installDir: '/plugins/personal', connectors: { mcp: [{ name: 'shared', configPath: 'personal.json' }] } };
+let personal: Record<string, unknown> = { name: 'same-name', resourceId: 'personal-id', scopeType: 'user', ownerUserId: 'member', version: '1.0.0', installDir: '/plugins/personal', connectors: { mcp: [{ name: 'shared', configPath: 'personal.json' }] } };
 const organization = { ...personal, resourceId: 'assigned-id', scopeType: 'organization', organizationId: 'org', installDir: '/plugins/organization', connectors: { mcp: [{ name: 'shared', configPath: 'organization.json' }] } };
 
 internals._load = (request, parent, isMain) => {
+  if (request === 'server-only') return {};
+  if (parent?.filename.endsWith('/installed-plugin-read.ts') && request === '@/app/lib/plugins/canvas-plugin-registry') return { getCanvasPlugin: async (_name: string, scope: { scopeType: string }) => { readScope = scope.scopeType; return scope.scopeType === 'organization' ? organization : personal; } };
   if (parent?.filename.endsWith('/api/plugins/mcp-template/route.ts')) {
     if (request === 'next/headers') return { headers: async () => new Headers() };
     if (request === '@/app/lib/auth') return { auth: { api: { getSession: async () => ({ user: { id: 'member' } }) } } };
@@ -33,7 +36,6 @@ internals._load = (request, parent, isMain) => {
       assert.equal(context.workspaceId, 'org-workspace');
       return { capabilities: assigned ? [{ ref: { resourceType: 'plugin', scopeType: 'organization', resourceId: 'assigned-id', name: 'same-name' }, effectivePolicy: blocked ? 'blocked' : 'required', readiness: 'personal-connection-required' }] : [] };
     } };
-    if (request === '@/app/lib/plugins/canvas-plugin-registry') return { getCanvasPlugin: async (_name: string, scope: { scopeType: string }) => { readScope = scope.scopeType; return scope.scopeType === 'organization' ? organization : personal; } };
     if (request === '@/app/lib/plugins/plugin-mcp-template-service') return { readPluginMcpTemplateFile: async ({ rootDir, configPath }: { rootDir: string; configPath: string }) => { templateRoot = rootDir; return { rawContent: configPath, config: { scope: rootDir } }; } };
     if (request === '@/app/lib/plugins/canvas-plugin-store') return { readCanvasPluginStoreMcpTemplate: async () => ({ source: 'catalog' }) };
   }
@@ -58,6 +60,26 @@ async function main() {
     assert.equal(templateRoot, personal.installDir);
     assert.equal((await request({ scope: 'user', resourceId: 'assigned-id' })).status, 404);
     assert.equal(templateRoot, null, 'identity mismatch cannot fall back to a same-name personal plugin');
+    const originalPersonal = personal;
+    personal = { ...originalPersonal, ownerUserId: 'foreign-user' };
+    assert.equal((await request({ scope: 'user', resourceId: 'personal-id' })).status, 404, 'an explicit foreign owner is denied even when a stored resource ID matches');
+    personal = { ...originalPersonal, resourceId: undefined, scopeType: undefined, ownerUserId: undefined };
+    const legacyResourceId = createCapabilityResourceId({ resourceType: 'plugin', scopeType: 'user', ownerUserId: 'member', sourceType: 'standalone', name: 'same-name' });
+    assert.equal((await request({ scope: 'user', resourceId: legacyResourceId })).status, 200, 'legacy personal template accepts the catalog-synthesized identity');
+    assert.equal((await request({ scope: 'user', resourceId: undefined })).status, 200, 'legacy callers without an identity remain supported');
+    assert.equal((await request({ scope: 'user', resourceId: createCapabilityResourceId({ resourceType: 'plugin', scopeType: 'user', ownerUserId: 'foreign-user', sourceType: 'standalone', name: 'same-name' }) })).status, 404, 'forged legacy ownership cannot resolve a same-name plugin');
+    assert.equal(templateRoot, null);
+    personal = { ...personal, scopeType: 'legacy', resourceId: 'old-system-resource-id' };
+    assert.equal((await request({ scope: 'user', resourceId: legacyResourceId })).status, 200, 'explicit legacy records also use the user catalog fallback');
+    assert.equal((await request({ scope: 'user', resourceId: 'old-system-resource-id' })).status, 404);
+    const systemResourceId = createCapabilityResourceId({ resourceType: 'plugin', scopeType: 'system', sourceType: 'standalone', name: 'same-name' });
+    personal = { ...personal, scopeType: 'system', resourceId: systemResourceId };
+    assert.equal((await request({ scope: 'user', resourceId: systemResourceId })).status, 200, 'user legacy storage fallback preserves recorded global system identity');
+    assert.equal((await request({ scope: 'user', resourceId: undefined })).status, 200);
+    assert.equal((await request({ scope: 'user', resourceId: legacyResourceId })).status, 404, 'a global system record cannot be forged into a personal resource');
+    personal = { ...personal, resourceId: undefined };
+    assert.equal((await request({ scope: 'user', resourceId: systemResourceId })).status, 200, 'system fallback without an ID synthesizes the catalog system identity');
+    personal = originalPersonal;
     assert.equal((await request({ resourceId: 'personal-id' })).status, 403);
     assert.equal((await request({ resourceId: 'foreign-org-id' })).status, 403);
     assert.equal(readScope, null, 'foreign identity is denied before storage lookup');

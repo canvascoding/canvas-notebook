@@ -7390,6 +7390,18 @@
         "personal-connection-required": "Set up your personal connection to use this plugin."
       },
       "requiredHint": "Your organization requires this plugin. It cannot be disabled here.",
+      "permissions": {
+        "askAdmin": "Ask an administrator to install, update, remove or enable plugin packages.",
+        "personalActivation": "Only your activation changes. The organization owns and manages this package.",
+        "personalActivationLabel": "Personal activation",
+        "packageActivation": "Package activation",
+        "packageActivationHint": "Controls whether this installed package is enabled.",
+        "required": "Your organization requires this plugin. Ask an administrator to change the policy.",
+        "blocked": "Organization policy blocks this plugin. Ask an administrator to change the policy.",
+        "conflict": "This package conflicts with another capability. Ask an administrator to resolve the conflict.",
+        "systemScope": "System",
+        "unknownScope": "Unknown"
+      },
       "pagination": {
         "status": "Page {page} of {totalPages} · {totalItems} plugins",
         "previous": "Previous",
@@ -7424,6 +7436,9 @@
       },
       "details": {
         "title": "Plugin details",
+        "ownership": "Package owner",
+        "installedBy": "Installed by",
+        "installedByUnknown": "Not recorded",
         "description": "Description",
         "descriptionFallback": "No description available.",
         "pluginId": "Plugin ID",
@@ -7455,6 +7470,8 @@
       "openComposio": "Connect Composio",
       "connectors": {
         "title": "Recommended connectors",
+        "activeWorkspace": "Workspace: {name}",
+        "noActiveWorkspace": "No active workspace",
         "setupTitle": "Connectors & app check",
         "checking": "Checking",
         "connected": "Connected",

@@ -7389,6 +7389,18 @@
         "personal-connection-required": "Richte deine persönliche Verbindung ein, um dieses Plugin zu nutzen."
       },
       "requiredHint": "Dieses Plugin ist durch die Organisation vorgeschrieben und kann hier nicht deaktiviert werden.",
+      "permissions": {
+        "askAdmin": "Bitte einen Administrator, Plugin-Pakete zu installieren, zu aktualisieren, zu entfernen oder zu aktivieren.",
+        "personalActivation": "Du änderst nur deine persönliche Aktivierung. Die Organisation besitzt und verwaltet dieses Paket.",
+        "personalActivationLabel": "Persönliche Aktivierung",
+        "packageActivation": "Paketaktivierung",
+        "packageActivationHint": "Legt fest, ob dieses installierte Paket aktiviert ist.",
+        "required": "Deine Organisation schreibt dieses Plugin vor. Bitte einen Administrator, die Richtlinie zu ändern.",
+        "blocked": "Die Organisationsrichtlinie blockiert dieses Plugin. Bitte einen Administrator, die Richtlinie zu ändern.",
+        "conflict": "Dieses Paket steht im Konflikt mit einer anderen Funktion. Bitte einen Administrator, den Konflikt aufzulösen.",
+        "systemScope": "System",
+        "unknownScope": "Unbekannt"
+      },
       "pagination": {
         "status": "Seite {page} von {totalPages} · {totalItems} Plugins",
         "previous": "Zurück",
@@ -7423,6 +7435,9 @@
       },
       "details": {
         "title": "Plugin-Details",
+        "ownership": "Eigentümerbereich",
+        "installedBy": "Installiert von",
+        "installedByUnknown": "Nicht erfasst",
         "description": "Beschreibung",
         "descriptionFallback": "Keine Beschreibung vorhanden.",
         "pluginId": "Plugin-ID",
@@ -7454,6 +7469,8 @@
       "openComposio": "Composio verbinden",
       "connectors": {
         "title": "Empfohlene Connectoren",
+        "activeWorkspace": "Workspace: {name}",
+        "noActiveWorkspace": "Kein aktiver Workspace",
         "setupTitle": "Connectoren & App-Check",
         "checking": "Prüfe",
         "connected": "Verbunden",

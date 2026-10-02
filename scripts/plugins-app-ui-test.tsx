@@ -34,6 +34,7 @@ async function main() {
   const originalFetch = globalThis.fetch;
   let locale: 'de' | 'en' = 'de';
   const fetches: string[] = [];
+  const preferenceWrites: Array<{ resourceId: string; enabled: boolean }> = [];
   let Panel: React.ComponentType<{ canManageOrganizationCapabilities?: boolean }>;
   let installedPlugins: Record<string, unknown>[] = [];
   let installedMetadata: Record<string, unknown>[] = [];
@@ -76,7 +77,7 @@ async function main() {
       useRouter: () => ({ push: (href: string) => { dom.window.history.pushState(null, '', `/${locale}${href}`); } }),
       getPathname: ({ href }: { href: string }) => `/${locale}${href}`,
     };
-    if (name === '@/app/store/workspace-store') return { useWorkspaceStore: (select: (state: unknown) => unknown) => select({ activeWorkspaceId: 'workspace-one' }) };
+    if (name === '@/app/store/workspace-store') return { useWorkspaceStore: (select: (state: unknown) => unknown) => select({ activeWorkspaceId: 'workspace-one', workspaces: [{ id: 'workspace-one', name: 'Marketing team' }] }) };
     if (name === '@/app/components/terminal/TerminalAvailabilityProvider') return { useTerminalAvailability: () => ({ terminalEnabled: false }) };
     if (name === '@/app/apps/studio/components/StudioBulkAvailabilityProvider') return { useStudioBulkAvailability: () => ({ studioBulkEnabled }) };
     if (name === '@/app/components/editor/MarkdownEditorClient') return { MarkdownEditor: () => null };
@@ -111,6 +112,13 @@ async function main() {
       installedPlugins = [installed];
       storeFixtures = storeFixtures.map(plugin => ({ ...plugin, installed: { installed: true, enabled: true, version: '1.0.0', updateAvailable: false, installedPlugin: installed } }));
       return Response.json({ success: true, plugin: installed });
+    }
+    if (url.pathname === '/api/skills/preferences') {
+      assert.equal(init?.method, 'PUT');
+      const body = JSON.parse(String(init?.body)) as { resourceId: string; enabled: boolean };
+      preferenceWrites.push(body);
+      installedPlugins = installedPlugins.map(plugin => plugin.resourceId === body.resourceId ? { ...plugin, enabled: body.enabled } : plugin);
+      return Response.json({ success: true });
     }
     if (url.pathname === '/api/skills/store') return skillStoreUnavailable
       ? Response.json({ success: false, error: 'Skill catalog unavailable' }, { status: 503 })
@@ -281,6 +289,83 @@ async function main() {
     await waitFor(() => assert.equal((view.getByRole('button', { name: en.skills.plugins.pagination.previous }) as HTMLButtonElement).disabled, true));
     cleanup();
     paginationFixture = false;
+    storeFixtures = [];
+
+    const personalPackage = {
+      name: 'document-suite', version: '1.0.0', description: 'Personal installed description', enabled: true,
+      scopeType: 'user', resourceId: 'user:document-suite', sourceType: 'standalone', installedBy: 'installer-user',
+      interface: { displayName: 'Personal document suite', icon: 'assets/personal.svg' }, skills: [],
+    };
+    const organizationPackage = {
+      ...personalPackage, resourceId: 'organization:document-suite', scopeType: 'organization', enabled: false,
+      installedBy: undefined, effectivePolicy: 'optional', description: 'Organization installed description',
+      interface: { displayName: 'Organization document suite', icon: 'assets/organization.svg' },
+    };
+    installedPlugins = [personalPackage, organizationPackage,
+      { ...organizationPackage, name: 'required-suite', resourceId: 'organization:required-suite', enabled: true, effectivePolicy: 'required', interface: { displayName: 'Required suite' } },
+      { ...organizationPackage, name: 'blocked-suite', resourceId: 'organization:blocked-suite', readiness: 'blocked', interface: { displayName: 'Blocked suite' } },
+      { ...organizationPackage, name: 'conflict-suite', resourceId: 'organization:conflict-suite', readiness: 'conflict', interface: { displayName: 'Conflict suite' } },
+    ];
+    storeFixtures = [{ name: 'document-suite', displayName: 'Different catalog title', description: 'Different catalog description', latestVersion: '2.0.0', installed: { installed: true, enabled: true, updateAvailable: true, installedPlugin: personalPackage } }];
+    installedMetadata = storeFixtures;
+    dom.window.history.replaceState(null, '', '/en/plugins?view=installed');
+    view = render(<PluginsAppClient canManageOrganizationCapabilities={false} />);
+    await waitFor(() => assert.ok(view.getByText('Personal document suite')));
+    await waitFor(() => assert.ok(view.getByText(en.skills.plugins.updateAvailable)));
+    const personalCard = within(view.getByText('Personal document suite').closest('[role="button"]') as HTMLElement);
+    assert.equal((personalCard.getByRole('switch') as HTMLButtonElement).disabled, true);
+    assert.equal((personalCard.getByRole('button', { name: en.skills.plugins.update }) as HTMLButtonElement).disabled, true);
+    assert.equal((personalCard.getByRole('button', { name: en.skills.plugins.delete }) as HTMLButtonElement).disabled, true);
+    assert.ok(personalCard.getByText(en.skills.plugins.permissions.askAdmin));
+    assert.equal(view.queryByText('standalone'), null, 'internal source values are absent from the primary cards');
+    const organizationCard = within(view.getByText('Organization document suite').closest('[role="button"]') as HTMLElement);
+    assert.equal((organizationCard.getByRole('switch') as HTMLButtonElement).disabled, false, 'members retain optional personal activation');
+    assert.ok(organizationCard.getByText(en.skills.plugins.permissions.personalActivation));
+    fireEvent.click(organizationCard.getByRole('switch'));
+    await waitFor(() => assert.deepEqual(preferenceWrites, [{ resourceId: 'organization:document-suite', enabled: true }]));
+    for (const [title, key] of [['Required suite', 'required'], ['Blocked suite', 'blocked'], ['Conflict suite', 'conflict']] as const) {
+      const lockedCard = within(view.getByText(title).closest('[role="button"]') as HTMLElement);
+      assert.equal((lockedCard.getByRole('switch') as HTMLButtonElement).disabled, true);
+      assert.ok(lockedCard.getByText(en.skills.plugins.permissions[key]));
+    }
+    cleanup();
+
+    for (const [record, expectedInstaller] of [[personalPackage, 'installer-user'], [organizationPackage, en.skills.plugins.details.installedByUnknown]] as const) {
+      dom.window.history.replaceState(null, '', `/en/plugins?view=installed&plugin=document-suite&source=installed&resourceId=${record.resourceId}`);
+      view = render(<PluginsAppClient canManageOrganizationCapabilities={false} />);
+      const detail = within(view.getByRole('dialog'));
+      await waitFor(() => assert.ok(detail.getByText(record.interface.displayName)));
+      assert.ok(detail.getByText(record.description));
+      assert.equal(detail.queryByText('Different catalog title'), null, 'installed identity supplies its own display name');
+      assert.equal(detail.queryByText('Different catalog description'), null, 'same-name catalog text never replaces installed provenance');
+      assert.ok(detail.getByText(en.skills.plugins.details.ownership));
+      assert.ok(detail.getByText(en.skills.plugins.details.installedBy));
+      assert.ok(detail.getByText(expectedInstaller));
+      assert.ok(detail.getByText(en.skills.plugins.connectors.activeWorkspace.replace('{name}', 'Marketing team')));
+      const icon = new URL(view.getByRole('dialog').querySelector('img')!.getAttribute('src')!, dom.window.location.origin);
+      assert.equal(icon.pathname, '/api/plugins/asset');
+      assert.equal(icon.searchParams.get('scope'), record.scopeType);
+      assert.equal(icon.searchParams.get('resourceId'), record.resourceId);
+      assert.equal(icon.searchParams.get('workspaceId'), 'workspace-one');
+      assert.equal(icon.searchParams.get('version'), record.version);
+      assert.equal(icon.searchParams.get('path'), record.interface.icon, 'installed detail renders its exact asset, independent of the same-name catalog entry');
+      cleanup();
+    }
+    dom.window.history.replaceState(null, '', '/en/plugins?view=advanced');
+    view = render(<PluginsAppClient canManageOrganizationCapabilities={false} />);
+    assert.equal((view.getByPlaceholderText(en.skills.plugins.sourcePathPlaceholder) as HTMLInputElement).disabled, true);
+    assert.equal((view.getByRole('button', { name: en.skills.plugins.install }) as HTMLButtonElement).disabled, true);
+    assert.ok(view.getByText(en.skills.plugins.permissions.askAdmin));
+    cleanup();
+    installedPlugins = [];
+    installedMetadata = [];
+    storeFixtures = [{ name: 'available-suite', displayName: 'Available suite', description: 'Available fixture', latestVersion: '1.0.0', installed: { installed: false, enabled: false, updateAvailable: false } }];
+    dom.window.history.replaceState(null, '', '/en/plugins');
+    view = render(<PluginsAppClient canManageOrganizationCapabilities={false} />);
+    await waitFor(() => assert.ok(view.getByText('Available suite')));
+    assert.equal((view.getByRole('button', { name: en.skills.plugins.addPlugin }) as HTMLButtonElement).disabled, true);
+    assert.ok(view.getByText(en.skills.plugins.permissions.askAdmin));
+    cleanup();
     storeFixtures = [];
 
     for (locale of ['de', 'en'] as const) {

@@ -1190,3 +1190,225 @@ test('an unavailable filtered catalog keeps installed packages and filter naviga
     expect(errors).toEqual([]);
   } finally { await context.close(); }
 });
+
+// Real member permissions and workspace access remain unmocked. Package data,
+// preference writes and image bytes are deterministic browser boundaries.
+async function mockOwnershipCatalog(page: Page) {
+  const personal = {
+    name: 'qa-shared-owner', resourceId: 'user:plugin:qa-shared-owner', scopeType: 'user', sourceType: 'standalone',
+    version: '1.0.0', description: 'QA personal package description', enabled: true, readiness: 'available',
+    installedBy: 'qa-personal-installer@example.invalid', skills: [],
+    interface: { displayName: 'QA personal package', icon: 'assets/personal.svg' },
+  };
+  const optional = {
+    ...personal, resourceId: 'organization:plugin:qa-shared-owner', scopeType: 'organization', effectivePolicy: 'optional',
+    description: 'QA organization package description', installedBy: 'qa-organization-installer@example.invalid',
+    interface: { displayName: 'QA optional organization package', icon: 'assets/organization.svg' },
+  };
+  const required = {
+    name: 'qa-required-owner', resourceId: 'organization:plugin:qa-required-owner', scopeType: 'organization',
+    sourceType: 'standalone', version: '1.0.0', description: 'QA legacy installation without installer metadata',
+    enabled: true, readiness: 'available', effectivePolicy: 'required', skills: [],
+    interface: { displayName: 'QA required organization package' },
+  };
+  const blocked = {
+    ...required, name: 'qa-blocked-owner', resourceId: 'organization:plugin:qa-blocked-owner',
+    description: 'QA organization package blocked by policy', enabled: false, readiness: 'blocked', effectivePolicy: 'blocked',
+    interface: { displayName: 'QA blocked organization package' },
+  };
+  const installed = [personal, optional, required, blocked];
+  const catalog = [
+    { name: personal.name, displayName: 'QA same-name catalog package', description: 'QA catalog package description',
+      latestVersion: '1.1.0', skills: [], interface: { icon: 'assets/catalog.svg' },
+      installed: { installed: true, enabled: personal.enabled, version: personal.version, updateAvailable: true, installedPlugin: personal } },
+    ...[required, blocked].map(plugin => ({ name: plugin.name, displayName: plugin.interface.displayName,
+      description: plugin.description, latestVersion: '1.0.0', skills: [],
+      installed: { installed: false, enabled: false, updateAvailable: false } })),
+    { name: 'qa-member-available', displayName: 'QA member available package', description: 'QA uninstalled package',
+      latestVersion: '1.0.0', skills: [], installed: { installed: false, enabled: false, updateAvailable: false } },
+  ];
+  const packageWrites: Array<{ path: string; method: string }> = [];
+  const preferences: Array<{ resourceId: string; enabled: boolean }> = [];
+  const icons: URL[] = [];
+  await page.route('**/api/plugins/**', route => {
+    const request = route.request();
+    if (request.method() === 'GET') return route.continue();
+    packageWrites.push({ path: new URL(request.url()).pathname, method: request.method() });
+    return route.fulfill({ status: 403, json: { success: false, error: 'QA package mutation must stay disabled for members' } });
+  });
+  await page.route('**/api/plugins?*', route => route.fulfill({ json: { success: true, plugins: installed } }));
+  await page.route('**/api/plugins/store?*', route => {
+    const url = new URL(route.request().url());
+    const exactName = url.searchParams.get('name');
+    const state = url.searchParams.get('state');
+    const entries = exactName ? catalog.filter(plugin => plugin.name === exactName)
+      : state === 'installed' ? catalog.filter(plugin => plugin.installed.installed)
+        : state === 'updates' ? catalog.filter(plugin => plugin.installed.updateAvailable) : catalog;
+    return route.fulfill({ json: {
+      success: true, registry: { id: 'qa', name: 'QA catalog', updatedAt: '2026-10-02T00:00:00.000Z' },
+      plugins: entries, installedPlugins: catalog.filter(plugin => plugin.installed.installed),
+      facets: { categories: [], connectionTypes: ['none'] },
+      pagination: { page: 1, pageSize: 12, totalItems: entries.length, totalPages: 1, hasNextPage: false, hasPreviousPage: false },
+      stats: { total: catalog.length, installed: 1, available: catalog.length - 1, updates: 1, filteredTotal: entries.length },
+    } });
+  });
+  await page.route('**/api/plugins/store/preflight', route => {
+    const body = route.request().postDataJSON() as { name: string; version: string };
+    return route.fulfill({ json: { success: true, preflight: {
+      pluginName: body.name, version: body.version, ready: true, items: [],
+      summary: { total: 0, ready: 0, requiredMissing: 0, recommendedMissing: 0 },
+      skills: [], skillSummary: { total: 0, installed: 0, missing: 0, updateAvailable: 0, modified: 0, repairable: 0 },
+    } } });
+  });
+  await page.route('**/api/skills/preferences', route => {
+    const body = route.request().postDataJSON() as { resourceId: string; enabled: boolean };
+    preferences.push(body);
+    const plugin = installed.find(candidate => candidate.resourceId === body.resourceId);
+    if (route.request().method() !== 'PUT' || plugin !== optional) {
+      return route.fulfill({ status: 403, json: { success: false, error: 'QA only the optional organization preference may change' } });
+    }
+    plugin.enabled = body.enabled;
+    return route.fulfill({ json: { success: true, resourceId: body.resourceId, preference: { ...body, revision: preferences.length } } });
+  });
+  await page.route('**/api/plugins/asset?*', route => {
+    icons.push(new URL(route.request().url()));
+    return route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"><rect width="16" height="16" fill="#2463eb"/></svg>' });
+  });
+  return { personal, optional, required, blocked, packageWrites, preferences, icons };
+}
+
+test('a genuine member sees package actions read-only with administrator guidance and sends no package writes', async ({ browser }, info) => {
+  const context = await createAuthenticatedContext(browser, {}, {
+    email: process.env.LOCAL_TEAM_SEAT_SECONDARY_EMAIL, password: process.env.LOCAL_TEAM_SEAT_SECONDARY_PASSWORD,
+  });
+  const page = await createAcceptancePage(context);
+  const errors = collectRuntimeErrors(page);
+  try {
+    expect((await (await page.request.get('/api/skills')).json()).canManageOrganizationCapabilities).toBe(false);
+    await stageSharedWorkspace(page);
+    const state = await mockOwnershipCatalog(page);
+    await page.goto('/en/plugins?view=installed');
+    const card = page.getByRole('button').filter({ has: page.getByRole('heading', { name: state.personal.interface.displayName, exact: true }) });
+    await expect(card.getByRole('switch', { name: en.skills.plugins.toggle.replace('{name}', state.personal.name), exact: true })).toBeDisabled();
+    await expect(card.getByRole('button', { name: en.skills.plugins.update, exact: true })).toBeDisabled();
+    await expect(card.getByRole('button', { name: en.skills.plugins.delete, exact: true })).toBeDisabled();
+    await expect(card.getByText(en.skills.plugins.permissions.askAdmin, { exact: true })).toBeVisible();
+    await card.getByRole('heading', { name: state.personal.interface.displayName, exact: true }).click();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog.getByRole('switch', { name: en.skills.plugins.toggle.replace('{name}', state.personal.name), exact: true })).toBeDisabled();
+    await expect(dialog.getByRole('button', { name: en.skills.plugins.update, exact: true })).toBeDisabled();
+    await expect(dialog.getByRole('button', { name: en.skills.plugins.delete, exact: true })).toBeDisabled();
+    await expect(dialog.getByText(en.skills.plugins.permissions.askAdmin, { exact: true })).toBeVisible();
+    await capture(page, info, 'member-package-readonly');
+    await page.keyboard.press('Escape');
+    await page.getByRole('tab', { name: en.skills.plugins.storeTabs.discover, exact: true }).click();
+    const available = page.getByRole('button').filter({ has: page.getByRole('heading', { name: 'QA member available package', exact: true }) });
+    await expect(available.getByRole('button', { name: en.skills.plugins.addPlugin, exact: true })).toBeDisabled();
+    await available.getByRole('heading', { name: 'QA member available package', exact: true }).click();
+    await expect(dialog.getByRole('button', { name: en.skills.plugins.addPlugin, exact: true })).toBeDisabled();
+    await expect(dialog.getByText(en.skills.plugins.permissions.askAdmin, { exact: true })).toBeVisible();
+    expect(state.packageWrites).toEqual([]);
+    expect(state.preferences).toEqual([]);
+    expect(errors).toEqual([]);
+  } finally { await context.close(); }
+});
+
+test('assigned optional activation writes its exact preference while required and blocked policies stay locked', async ({ browser }, info) => {
+  const context = await createAuthenticatedContext(browser, {}, {
+    email: process.env.LOCAL_TEAM_SEAT_SECONDARY_EMAIL, password: process.env.LOCAL_TEAM_SEAT_SECONDARY_PASSWORD,
+  });
+  const page = await createAcceptancePage(context);
+  const errors = collectRuntimeErrors(page);
+  try {
+    expect((await (await page.request.get('/api/skills')).json()).canManageOrganizationCapabilities).toBe(false);
+    await stageSharedWorkspace(page);
+    const state = await mockOwnershipCatalog(page);
+    await page.goto('/en/plugins?view=installed');
+    const optionalCard = page.getByRole('button').filter({ has: page.getByRole('heading', { name: state.optional.interface.displayName, exact: true }) });
+    await expect(optionalCard.getByText(en.skills.plugins.permissions.personalActivation, { exact: true })).toBeVisible();
+    await optionalCard.getByRole('heading', { name: state.optional.interface.displayName, exact: true }).click();
+    const dialog = page.getByRole('dialog');
+    await expect(page).toHaveURL(url => url.searchParams.get('resourceId') === state.optional.resourceId);
+    const toggle = dialog.getByRole('switch', { name: en.skills.plugins.toggle.replace('{name}', state.optional.name), exact: true });
+    await expect(toggle).toBeEnabled();
+    await expect(toggle).toBeChecked();
+    await expect(dialog.getByText(en.skills.plugins.permissions.personalActivation, { exact: true })).toBeVisible();
+    await expect(dialog.getByRole('button', { name: en.skills.plugins.update, exact: true })).toHaveCount(0);
+    await expect(dialog.getByRole('button', { name: en.skills.plugins.delete, exact: true })).toHaveCount(0);
+    await toggle.click();
+    await expect.poll(() => state.preferences).toEqual([{ resourceId: state.optional.resourceId, enabled: false }]);
+    await expect(toggle).not.toBeChecked();
+    await capture(page, info, 'assigned-personal-activation');
+    await page.keyboard.press('Escape');
+    for (const [plugin, guidance] of [[state.required, en.skills.plugins.permissions.required], [state.blocked, en.skills.plugins.permissions.blocked]] as const) {
+      const card = page.getByRole('button').filter({ has: page.getByRole('heading', { name: plugin.interface.displayName, exact: true }) });
+      await expect(card.getByRole('switch', { name: en.skills.plugins.toggle.replace('{name}', plugin.name), exact: true })).toBeDisabled();
+      await expect(card.getByText(guidance, { exact: true })).toBeVisible();
+      await card.getByRole('heading', { name: plugin.interface.displayName, exact: true }).click();
+      await expect(dialog.getByRole('switch', { name: en.skills.plugins.toggle.replace('{name}', plugin.name), exact: true })).toBeDisabled();
+      await expect(dialog.getByText(guidance, { exact: true })).toBeVisible();
+      await expect(dialog.getByRole('button', { name: en.skills.plugins.update, exact: true })).toHaveCount(0);
+      await expect(dialog.getByRole('button', { name: en.skills.plugins.delete, exact: true })).toHaveCount(0);
+      await page.keyboard.press('Escape');
+    }
+    expect(state.preferences).toEqual([{ resourceId: state.optional.resourceId, enabled: false }]);
+    expect(state.packageWrites).toEqual([]);
+    expect(errors).toEqual([]);
+  } finally { await context.close(); }
+});
+
+test('organization details retain the installed identity, installer and workspace while icons use the exact resource scope', async ({ browser }, info) => {
+  const context = await createAuthenticatedContext(browser, {}, {
+    email: process.env.LOCAL_TEAM_SEAT_SECONDARY_EMAIL, password: process.env.LOCAL_TEAM_SEAT_SECONDARY_PASSWORD,
+  });
+  const page = await createAcceptancePage(context);
+  const errors = collectRuntimeErrors(page);
+  try {
+    expect((await (await page.request.get('/api/skills')).json()).canManageOrganizationCapabilities).toBe(false);
+    await stageSharedWorkspace(page);
+    const state = await mockOwnershipCatalog(page);
+    await page.goto('/en/plugins?view=installed');
+    const switcher = page.getByTestId('workspace-switcher');
+    await expect(switcher).toHaveAttribute('data-active-workspace-id', /\S+/);
+    const workspaceId = await switcher.getAttribute('data-active-workspace-id');
+    await page.getByRole('heading', { name: state.optional.interface.displayName, exact: true }).click();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog.getByRole('heading', { name: state.optional.interface.displayName, exact: true })).toBeVisible();
+    await expect(dialog.getByRole('heading', { name: 'QA same-name catalog package', exact: true })).toHaveCount(0);
+    await expect(dialog.getByText(state.optional.description, { exact: true })).toBeVisible();
+    const owner = dialog.getByText(en.skills.plugins.details.ownership, { exact: true }).locator('..');
+    await expect(owner.getByText(en.skills.plugins.organizationScope, { exact: true })).toBeVisible();
+    await expect(dialog.getByText(en.skills.plugins.details.installedBy, { exact: true })).toBeVisible();
+    await expect(dialog.getByText(state.optional.installedBy, { exact: true })).toBeVisible();
+    await expect(dialog.getByText(state.personal.installedBy, { exact: true })).toHaveCount(0);
+    await expect(dialog.getByText(en.skills.plugins.connectors.activeWorkspace.replace('{name}', 'Shared Test Workspace'), { exact: true })).toBeVisible();
+    await expect(dialog.getByText(workspaceId!, { exact: true })).toHaveCount(0);
+    const organizationIcon = dialog.locator('img[src*="organization.svg"]');
+    await expect(organizationIcon).toHaveAttribute('src', /scope=organization/);
+    const iconUrl = new URL((await organizationIcon.getAttribute('src'))!, process.env.BASE_URL!);
+    expect(iconUrl.searchParams.get('resourceId')).toBe(state.optional.resourceId);
+    expect(iconUrl.searchParams.get('workspaceId')).toBe(workspaceId);
+    await expect.poll(() => state.icons.some(url => url.searchParams.get('path') === 'assets/organization.svg'
+      && url.searchParams.get('resourceId') === state.optional.resourceId && url.searchParams.get('scope') === 'organization'
+      && url.searchParams.get('workspaceId') === workspaceId)).toBe(true);
+    expect(state.icons.filter(url => url.searchParams.get('path') === 'assets/organization.svg')
+      .every(url => url.searchParams.get('scope') === 'organization' && url.searchParams.get('resourceId') === state.optional.resourceId)).toBe(true);
+    await page.reload();
+    await expect(dialog.getByRole('heading', { name: state.optional.interface.displayName, exact: true })).toBeVisible();
+    await expect(page).toHaveURL(url => url.searchParams.get('resourceId') === state.optional.resourceId
+      && url.searchParams.get('workspaceId') === workspaceId);
+    await expect(dialog.getByText(state.optional.installedBy, { exact: true })).toBeVisible();
+    await capture(page, info, 'organization-ownership-metadata');
+    await page.keyboard.press('Escape');
+    await page.getByRole('heading', { name: state.required.interface.displayName, exact: true }).click();
+    await expect(dialog.getByText(en.skills.plugins.details.installedByUnknown, { exact: true })).toBeVisible();
+    await expect(dialog.getByText(state.optional.installedBy, { exact: true })).toHaveCount(0);
+    await page.keyboard.press('Escape');
+    await page.getByRole('heading', { name: state.personal.interface.displayName, exact: true }).click();
+    await expect(dialog.getByRole('heading', { name: state.personal.interface.displayName, exact: true })).toBeVisible();
+    await expect(dialog.getByText(state.personal.installedBy, { exact: true })).toBeVisible();
+    expect(state.packageWrites).toEqual([]);
+    expect(state.preferences).toEqual([]);
+    expect(errors).toEqual([]);
+  } finally { await context.close(); }
+});

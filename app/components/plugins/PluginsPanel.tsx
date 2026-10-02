@@ -177,6 +177,8 @@ type CanvasPluginMcpConnector = {
 
 type CanvasPluginSettingsRecord = {
   resourceId?: string;
+  installedBy?: string;
+  ownerUserId?: string | null;
   scopeType?: 'system' | 'organization' | 'user' | 'legacy';
   sourceType?: 'standalone';
   revision?: number;
@@ -531,9 +533,11 @@ function preflightBlocksPluginWrite(preflight: PluginPreflightState | undefined)
 
 function CanvasPluginsSection({
   managementScope,
+  canManagePackages,
   onPluginsChanged,
 }: {
   managementScope: CapabilityManagementScope;
+  canManagePackages: boolean;
   onPluginsChanged: () => void;
 }) {
   const t = useTranslations('skills.plugins');
@@ -542,6 +546,7 @@ function CanvasPluginsSection({
   const { navigation, navigate } = usePluginNavigation();
   const searchParams = useSearchParams();
   const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId) || '';
+  const activeWorkspaceName = useWorkspaceStore((state) => state.workspaces.find((workspace) => workspace.id === state.activeWorkspaceId)?.name);
   const composioHeaders = useCallback((json = false): HeadersInit => ({
     ...(activeWorkspaceId ? { [WORKSPACE_ID_HEADER]: activeWorkspaceId } : {}),
     ...(json ? { 'Content-Type': 'application/json' } : {}),
@@ -807,6 +812,8 @@ function CanvasPluginsSection({
   }, [loadComposioConnectorState, workspaceReady]);
 
   async function installLocalPlugin() {
+    if (!canManagePackages) { setError(t('permissions.askAdmin')); return; }
+    if (!workspaceReady) return;
     const trimmedPath = sourcePath.trim();
     if (!trimmedPath) {
       setError(t('errors.sourcePathRequired'));
@@ -909,6 +916,7 @@ function CanvasPluginsSection({
   }, [loadPluginData, selectedPluginDetail, workspaceReady]);
 
   async function installStorePlugin(pluginName: string, version?: string) {
+    if (!canManagePackages) { setError(t('permissions.askAdmin')); return; }
     if (!workspaceReady) return;
     const storePlugin = storePlugins.find((plugin) => plugin.name === pluginName)
       || installedStorePlugins.find((plugin) => plugin.name === pluginName)
@@ -963,6 +971,7 @@ function CanvasPluginsSection({
   }
 
   async function setPluginEnabled(plugin: CanvasPluginSettingsRecord, enabled: boolean) {
+    if (!workspaceReady || isPluginPreferenceLocked(plugin)) return;
     setPendingPluginName(plugin.name);
     setError(null);
     try {
@@ -986,7 +995,10 @@ function CanvasPluginsSection({
     }
   }
 
-  async function deletePlugin(pluginName: string) {
+  async function deletePlugin(plugin: CanvasPluginSettingsRecord) {
+    if (!canManagePackages) { setError(t('permissions.askAdmin')); return; }
+    if (!workspaceReady || isAssignedOrganizationPlugin(plugin)) return;
+    const pluginName = plugin.name;
     if (!window.confirm(t('deleteConfirm', { name: pluginName }))) {
       return;
     }
@@ -1013,6 +1025,7 @@ function CanvasPluginsSection({
   }
 
   function isPluginPreferenceLocked(plugin: CanvasPluginSettingsRecord): boolean {
+    if (!isAssignedOrganizationPlugin(plugin) && !canManagePackages) return true;
     if (managementScope !== 'user') return false;
 
     if (plugin.readiness === 'blocked' || plugin.readiness === 'conflict') {
@@ -1020,9 +1033,20 @@ function CanvasPluginsSection({
     }
 
     return isAssignedOrganizationPlugin(plugin) && (
-      plugin.effectivePolicy === 'required'
+      !plugin.resourceId
+      || plugin.effectivePolicy === 'required'
       || plugin.effectivePolicy === 'blocked'
     );
+  }
+
+  function pluginActivationGuidance(plugin: CanvasPluginSettingsRecord): string {
+    if (plugin.readiness === 'blocked' || plugin.effectivePolicy === 'blocked') return t('permissions.blocked');
+    if (plugin.readiness === 'conflict') return t('permissions.conflict');
+    if (isAssignedOrganizationPlugin(plugin)) {
+      if (plugin.effectivePolicy === 'required') return t('permissions.required');
+      return t('permissions.personalActivation');
+    }
+    return canManagePackages ? t('permissions.packageActivationHint') : t('permissions.askAdmin');
   }
 
   function pluginReturnPath() {
@@ -1496,6 +1520,7 @@ function CanvasPluginsSection({
     if (!hasConnectorRecommendations(connectors)) {
       return (
         <div className="rounded-md border border-dashed px-3 py-2 text-sm text-muted-foreground">
+          <p className="mb-1 text-xs">{activeWorkspaceName ? t('connectors.activeWorkspace', { name: activeWorkspaceName }) : t('connectors.noActiveWorkspace')}</p>
           {t('details.noConnectors')}
         </div>
       );
@@ -1517,6 +1542,7 @@ function CanvasPluginsSection({
 
     return (
       <div className="space-y-2 rounded-md border bg-muted/20 p-3">
+        <p className="text-xs text-muted-foreground">{activeWorkspaceName ? t('connectors.activeWorkspace', { name: activeWorkspaceName }) : t('connectors.noActiveWorkspace')}</p>
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
             {hasRequiredMissing ? <Info className="h-3.5 w-3.5" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
@@ -1790,7 +1816,7 @@ function CanvasPluginsSection({
     storePlugin: CanvasPluginStoreEntry | undefined,
     installedPlugin: CanvasPluginSettingsRecord | undefined,
   ) {
-    if (storePlugin) return renderStoreIcon(storePlugin);
+    if (selectedPluginDetail?.source !== 'installed' && storePlugin) return renderStoreIcon(storePlugin);
     if (installedPlugin) return <CanvasPluginIcon plugin={installedPlugin} className="h-10 w-10 text-sm" />;
     return (
       <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border bg-muted text-sm font-semibold text-muted-foreground">
@@ -1804,12 +1830,14 @@ function CanvasPluginsSection({
 
     const storePlugin = storeByName.get(selectedPluginDetail.name);
     const installedPlugin = selectedPluginDetail.source === 'installed' ? selectedInstalledPlugin : storePlugin?.installed.installedPlugin;
-    const displayName = storePlugin?.displayName || installedPlugin?.interface?.displayName || selectedPluginDetail.name;
-    const description = storePlugin?.description
-      || installedPlugin?.interface?.shortDescription
-      || installedPlugin?.description
-      || t('details.descriptionFallback');
-    const category = storePlugin?.category || installedPlugin?.interface?.category;
+    const isInstalledDetail = selectedPluginDetail.source === 'installed';
+    const displayName = isInstalledDetail
+      ? installedPlugin?.interface?.displayName || installedPlugin?.name || selectedPluginDetail.name
+      : storePlugin?.displayName || selectedPluginDetail.name;
+    const description = (isInstalledDetail
+      ? installedPlugin?.interface?.shortDescription || installedPlugin?.description
+      : storePlugin?.description) || t('details.descriptionFallback');
+    const category = isInstalledDetail ? installedPlugin?.interface?.category : storePlugin?.category;
     const publisherName = storePlugin?.publisher?.name || storeMetadata?.name || t('officialStore');
     const connectors = selectedPluginDetail.source === 'installed' ? installedPlugin?.connectors : storePlugin?.connectors;
     const skillItems = installedPlugin?.skills?.length
@@ -1909,6 +1937,18 @@ function CanvasPluginsSection({
                     <div className="mt-1">v{installedPlugin.version}</div>
                   </div>
                 ) : null}
+                {installedPlugin ? (
+                  <>
+                    <div>
+                      <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{t('details.ownership')}</div>
+                      <div className="mt-1">{installedPlugin.scopeType === 'organization' ? t('organizationScope') : installedPlugin.scopeType === 'user' ? t('personalScope') : installedPlugin.scopeType === 'system' ? t('permissions.systemScope') : t('permissions.unknownScope')}</div>
+                    </div>
+                    <div>
+                      <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{t('details.installedBy')}</div>
+                      <div className="mt-1 break-all">{installedPlugin.installedBy?.trim() || t('details.installedByUnknown')}</div>
+                    </div>
+                  </>
+                ) : null}
                 {installedPlugin?.sourceRegistryId ? (
                   <div>
                     <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{t('details.source')}</div>
@@ -1970,25 +2010,31 @@ function CanvasPluginsSection({
 
           <div className="flex shrink-0 flex-col gap-3 border-t px-5 py-3 sm:flex-row sm:items-center sm:justify-between">
             {installedPlugin ? (
-              <label className="flex w-full items-center gap-2 text-sm text-muted-foreground sm:w-auto">
-                <Switch
-                  checked={installedEnabled}
-                  disabled={isPending || isPluginPreferenceLocked(installedPlugin)}
-                  onCheckedChange={(checked) => void setPluginEnabled(installedPlugin, checked)}
-                  aria-label={t('toggle', { name: installedPlugin.name })}
-                />
-                {installedEnabled ? t('enabled') : t('disabled')}
-              </label>
+              <div className="min-w-0 flex-1 space-y-1">
+                <label className="flex w-full items-center gap-2 text-sm text-muted-foreground sm:w-auto">
+                  <Switch
+                    checked={installedEnabled}
+                    disabled={isPending || !workspaceReady || isPluginPreferenceLocked(installedPlugin)}
+                    onCheckedChange={(checked) => void setPluginEnabled(installedPlugin, checked)}
+                    aria-label={t('toggle', { name: installedPlugin.name })}
+                  />
+                  {isAssignedOrganizationPlugin(installedPlugin) ? t('permissions.personalActivationLabel') : t('permissions.packageActivation')}
+                </label>
+                <p className="text-xs text-muted-foreground">{pluginActivationGuidance(installedPlugin)}</p>
+              </div>
             ) : (
-              <span className="w-full text-sm text-muted-foreground sm:w-auto">{t('details.notInstalled')}</span>
+              <div className="space-y-1 text-sm text-muted-foreground">
+                <span>{t('details.notInstalled')}</span>
+                {!canManagePackages ? <p className="text-xs">{t('permissions.askAdmin')}</p> : null}
+              </div>
             )}
             <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
               {installedPlugin && !isAssignedOrganizationPlugin(installedPlugin) ? (
                 <Button
                   variant="ghost"
                   size="sm"
-                  disabled={isPending}
-                  onClick={() => void deletePlugin(installedPlugin.name)}
+                  disabled={isPending || !canManagePackages || !workspaceReady}
+                  onClick={() => void deletePlugin(installedPlugin)}
                   className="w-full gap-1.5 text-destructive hover:bg-destructive/10 hover:text-destructive sm:w-auto"
                 >
                   {isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
@@ -1999,7 +2045,7 @@ function CanvasPluginsSection({
                 <Button
                   variant={canInstallFromStore ? 'default' : 'outline'}
                   size="sm"
-                  disabled={isPending || isChecking || readinessUnchecked || preflightBlocksPluginWrite(preflight) || Boolean(activeConnectorAction) || !canInstallFromStore}
+                  disabled={!canManagePackages || isPending || isChecking || readinessUnchecked || preflightBlocksPluginWrite(preflight) || Boolean(activeConnectorAction) || !canInstallFromStore}
                   onClick={() => void installStorePlugin(storePlugin.name, storePlugin.latestVersion)}
                   className="w-full gap-1.5 sm:w-auto"
                 >
@@ -2128,7 +2174,7 @@ function CanvasPluginsSection({
           <Button
             variant={updateAvailable || !isInstalled || skillRepairAvailable ? 'default' : 'outline'}
             size="sm"
-            disabled={isPending || isChecking || preflightBlocksPluginWrite(preflightState) || Boolean(activeConnectorAction) || (isInstalled && !updateAvailable && !skillRepairAvailable)}
+            disabled={!canManagePackages || isPending || isChecking || preflightBlocksPluginWrite(preflightState) || Boolean(activeConnectorAction) || (isInstalled && !updateAvailable && !skillRepairAvailable)}
             onClick={(event) => {
               event.stopPropagation();
               if (needsPreflight) {
@@ -2143,6 +2189,7 @@ function CanvasPluginsSection({
             {buttonLabel}
           </Button>
         </div>
+        {!canManagePackages ? <p className="mt-2 text-xs text-muted-foreground">{t('permissions.askAdmin')}</p> : null}
       </div>
     );
   }
@@ -2192,7 +2239,6 @@ function CanvasPluginsSection({
                   {plugin.scopeType === 'organization' ? t('organizationScope') : t('personalScope')}
                 </Badge>
               ) : null}
-              {plugin.sourceType ? <Badge variant="outline" className="text-[10px]">{plugin.sourceType}</Badge> : null}
               {plugin.readiness && plugin.readiness !== 'available' && plugin.readiness !== 'disabled' ? (
                 <Badge
                   variant={plugin.readiness === 'blocked' || plugin.readiness === 'conflict' ? 'destructive' : 'secondary'}
@@ -2225,19 +2271,22 @@ function CanvasPluginsSection({
           </div>
         </div>
         <div className="mt-4 flex flex-col gap-3 border-t pt-3 sm:flex-row sm:items-center sm:justify-between">
-          <label
-            className="flex items-center gap-2 text-sm text-muted-foreground"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <Switch
-              checked={plugin.enabled}
-              disabled={isPending || isPluginPreferenceLocked(plugin)}
+          <div className="min-w-0 flex-1 space-y-1">
+            <label
+              className="flex items-center gap-2 text-sm text-muted-foreground"
               onClick={(event) => event.stopPropagation()}
-              onCheckedChange={(checked) => void setPluginEnabled(plugin, checked)}
-              aria-label={t('toggle', { name: plugin.name })}
-            />
-            {plugin.enabled ? t('enabled') : t('disabled')}
-          </label>
+            >
+              <Switch
+                checked={plugin.enabled}
+                disabled={isPending || !workspaceReady || isPluginPreferenceLocked(plugin)}
+                onClick={(event) => event.stopPropagation()}
+                onCheckedChange={(checked) => void setPluginEnabled(plugin, checked)}
+                aria-label={t('toggle', { name: plugin.name })}
+              />
+              {isAssignedOrganizationPlugin(plugin) ? t('permissions.personalActivationLabel') : t('permissions.packageActivation')}
+            </label>
+            <p className="text-xs text-muted-foreground">{pluginActivationGuidance(plugin)}</p>
+          </div>
           <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
             {plugin.readiness === 'personal-connection-required' ? (
               <Button variant="outline" size="sm" className="w-full gap-1.5 sm:w-auto" onClick={(event) => { event.stopPropagation(); openInstalledPluginDetail(plugin); }}>
@@ -2248,7 +2297,7 @@ function CanvasPluginsSection({
               <Button
                 variant="outline"
                 size="sm"
-                disabled={isPending || preflightBlocksPluginWrite(updatePreflightState) || Boolean(activeConnectorAction)}
+                disabled={!canManagePackages || isPending || preflightBlocksPluginWrite(updatePreflightState) || Boolean(activeConnectorAction)}
                 onClick={(event) => {
                   event.stopPropagation();
                   if (updateNeedsPreflight) {
@@ -2274,10 +2323,10 @@ function CanvasPluginsSection({
             {!isAssignedOrganizationPlugin(plugin) ? <Button
               variant="ghost"
               size="sm"
-              disabled={isPending}
+              disabled={!canManagePackages || isPending || !workspaceReady}
               onClick={(event) => {
                 event.stopPropagation();
-                void deletePlugin(plugin.name);
+                void deletePlugin(plugin);
               }}
               className="w-full gap-1.5 text-destructive hover:bg-destructive/10 hover:text-destructive sm:w-auto"
             >
@@ -2515,13 +2564,14 @@ function CanvasPluginsSection({
                 value={sourcePath}
                 onChange={(event) => setSourcePath(event.target.value)}
                 placeholder={t('sourcePathPlaceholder')}
-                disabled={isInstalling}
+                disabled={!canManagePackages || isInstalling || !workspaceReady}
               />
-              <Button onClick={() => void installLocalPlugin()} disabled={isInstalling || !sourcePath.trim()} className="gap-1.5">
+              <Button onClick={() => void installLocalPlugin()} disabled={!canManagePackages || !workspaceReady || isInstalling || !sourcePath.trim()} className="gap-1.5">
                 {isInstalling ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
                 {t('install')}
               </Button>
             </div>
+            {!canManagePackages ? <p className="mt-2 text-xs text-muted-foreground">{t('permissions.askAdmin')}</p> : null}
           </div>
           </TabsContent>
         </Tabs>
@@ -3589,6 +3639,7 @@ export function SkillsPanel({ canManageOrganizationCapabilities: initialCanManag
           <CanvasPluginsSection
             key={managementScope}
             managementScope={managementScope}
+            canManagePackages={canManageOrganizationCapabilities}
             onPluginsChanged={() => {
               setPluginsRevision((revision) => revision + 1);
             }}

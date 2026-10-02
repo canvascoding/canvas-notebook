@@ -72,6 +72,7 @@ export interface CanvasPluginInstallRecord {
   source?: string;
   sourcePath?: string;
   installedAt: string;
+  installedBy?: string;
   updatedAt: string;
   enabled: boolean;
   checksum: string;
@@ -317,6 +318,7 @@ async function adoptLegacyPluginRecordForScope(
       return {
         ...built.record,
         installedAt: record.installedAt,
+        installedBy: record.installedBy,
         updatedAt: record.updatedAt,
       };
     }
@@ -1237,6 +1239,7 @@ export async function installCanvasPluginFromPath(
       registry.plugins[manifest.name] = {
         ...installedRecord,
         installedAt: existingRecord?.installedAt || installedRecord.installedAt,
+        installedBy: existingRecord ? existingRecord.installedBy : options.installedBy,
         revision: (existingRecord?.revision || 0) + 1,
         updatedAt: nowIso(),
       };

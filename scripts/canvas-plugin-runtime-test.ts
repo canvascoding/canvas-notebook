@@ -15,6 +15,25 @@ moduleInternals._load = (request, parent, isMain) => {
   if (request === 'server-only') {
     return {};
   }
+  // Native dynamic imports may omit the parent and use an absolute filename.
+  // Mock only these two provider boundaries; readiness and plugin lifecycle stay real.
+  {
+    if (request === '@/app/lib/composio/composio-context' || request === './composio-context' || request.endsWith('/app/lib/composio/composio-context.ts')) {
+      return { resolveComposioContext: async (input: { userId: string }) => {
+        assert.equal(input.userId, 'test-user');
+        return { userId: input.userId };
+      } };
+    }
+    if (request === '@/app/lib/composio/composio-gateway' || request === './composio-gateway' || request.endsWith('/app/lib/composio/composio-gateway.ts')) {
+      return {
+        getGatewayStatus: async (context: { userId: string }) => {
+          assert.equal(context.userId, 'test-user');
+          return { configured: true, apiKeyValid: true, apiKeyState: 'valid', providerHealthy: true, connectedAccounts: [] };
+        },
+        getGatewayToolkits: async () => ({ toolkits: [{ slug: 'google-drive', name: 'Google Drive', connected: false }] }),
+      };
+    }
+  }
   if (request === '@earendil-works/pi-ai') {
     return {
       completeSimple: async () => {
@@ -220,6 +239,7 @@ This skill lives in the legacy global skills directory.
     let plugins = await listCanvasPlugins();
     assert.equal(plugins.length, 1);
     assert.equal(plugins[0].name, 'test-plugin');
+    assert.equal(plugins[0].installedBy, undefined, 'a legacy installation without installer metadata remains unknown');
     const globalPluginInstallDir = plugins[0].installDir;
     const legacyPluginScope = { userId: 'legacy-plugin-user' };
     assert.equal((await listCanvasPlugins(legacyPluginScope)).some((plugin) => plugin.name === 'test-plugin'), true);
@@ -232,6 +252,7 @@ This skill lives in the legacy global skills directory.
     const legacyPlugins = await listCanvasPlugins(legacyPluginScope);
     assert.equal(legacyPlugins.length, 1);
     assert.equal(legacyPlugins[0].enabled, false);
+    assert.equal(legacyPlugins[0].installedBy, undefined, 'legacy adoption does not invent an installer from the current user');
     assert.match(legacyPlugins[0].installDir, /users\/legacy-plugin-user\/plugins\/installed\/test-plugin\/1\.0\.0$/);
     assert.equal(
       await fs.stat(path.join(dataRoot, 'users', 'legacy-plugin-user', 'plugins', 'installed', 'test-plugin', '1.0.0', '.canvas-plugin', 'plugin.json')).then((stat) => stat.isFile()),
@@ -317,6 +338,7 @@ This skill lives in the legacy global skills directory.
     assert.equal(preflight.pluginName, 'test-plugin');
     assert.equal(preflight.summary.total, 1);
     assert.equal(preflight.items[0].type, 'composio');
+    assert.equal(preflight.items[0].ready, false, 'real readiness evaluates a deterministic missing personal connection');
 
     const storeInstall = await installCanvasPluginFromStore('test-plugin', undefined, { enable: true });
     assert.equal(storeInstall.success, true, storeInstall.error || JSON.stringify(storeInstall.validation));
@@ -351,6 +373,26 @@ This skill lives in the legacy global skills directory.
     store = await listCanvasPluginStore();
     assert.equal(store.plugins[0].installed.skillSummary.missing, 0);
     assert.equal(store.plugins[0].installed.skillSummary.repairable, 0);
+
+    const originalInstaller = 'first-installer@example.com';
+    await writeFile(path.join(dataRoot, 'users', 'known-owner', 'plugins', 'registry.json'), JSON.stringify({ version: 1, updatedAt: new Date().toISOString(), plugins: {} }));
+    const knownInstall = await installCanvasPluginFromPath(pluginRoot, { enable: true, replace: true, installedBy: originalInstaller, scope: { userId: 'known-owner' } });
+    assert.equal(knownInstall.success, true, knownInstall.error || 'Expected first scoped install');
+    assert.equal(knownInstall.plugin?.installedBy, originalInstaller);
+    const knownUpdate = await installCanvasPluginFromPath(pluginRoot, { enable: true, replace: true, installedBy: 'updater@example.com', scope: { userId: 'known-owner' } });
+    assert.equal(knownUpdate.success, true, knownUpdate.error || 'Expected scoped update');
+    assert.equal(knownUpdate.plugin?.installedBy, originalInstaller, 'updates preserve the first installer');
+    assert.equal((await listCanvasPlugins({ userId: 'known-owner' }))[0].installedBy, originalInstaller);
+
+    const unknownUpdate = await installCanvasPluginFromStore('test-plugin', undefined, { enable: true, installedBy: 'later-updater@example.com' });
+    assert.equal(unknownUpdate.success, true, unknownUpdate.error || 'Expected legacy update');
+    assert.equal(unknownUpdate.plugin?.installedBy, undefined, 'updating an installation with unknown provenance keeps it unknown');
+    assert.equal((await deleteCanvasPlugin('test-plugin')).success, true);
+    const freshKnownInstall = await installCanvasPluginFromPath(pluginRoot, { enable: true, installedBy: originalInstaller });
+    assert.equal(freshKnownInstall.success, true, freshKnownInstall.error || 'Expected fresh global install');
+    const knownAdoption = await setCanvasPluginEnabled('test-plugin', false, { userId: 'known-adopter' }, 'adopter@example.com');
+    assert.equal(knownAdoption.success, true, knownAdoption.error || 'Expected known provenance adoption');
+    assert.equal((await listCanvasPlugins({ userId: 'known-adopter' }))[0].installedBy, originalInstaller, 'legacy adoption preserves a recorded first installer');
 
     const pluginScopeA = { userId: 'plugin-user-a' };
     const pluginScopeB = { userId: 'plugin-user-b' };
