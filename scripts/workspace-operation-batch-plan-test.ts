@@ -93,3 +93,10 @@ assert.equal(repaired.linkEdits.length, 0);
 assert.equal(repaired.originalDocuments[0]?.content, '[[New/A|Repaired]]', 'Undo retains the original repaired source graph privately');
 assert.equal(repaired.expectedPathState.some((entry) => entry.path === 'Home.md' && entry.contentHash), true);
 assert.equal('originalDocuments' in workspaceOperationBatchPublicPreview(repaired), false);
+const deletedHtml = createWorkspaceOperationBatchPlan({ snapshot: snapshot([
+  file('Trash.md', '<a href="unknown.md">Unknown outgoing</a>'), file('Home.md', '# Survives')]), actions: [actions[0]] });
+assert.equal(deletedHtml.readiness, 'ready', 'Unevaluated outgoing links in removed documents vanish with their source');
+assert.equal(deletedHtml.linkAssessment.complete, true);
+const survivingHtml = createWorkspaceOperationBatchPlan({ snapshot: snapshot([
+  file('Trash.md', '# Trash'), file('Home.md', '<a href="Trash.md">Potential incoming</a>')]), actions: [actions[0]] });
+assert.equal(survivingHtml.readiness, 'blocked', 'Surviving unevaluated sources retain the fail-closed guard');

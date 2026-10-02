@@ -159,7 +159,8 @@ export function createWorkspaceOperationBatchPlan(input: {
     && candidate.status !== 'resolved' && candidate.candidates.some(deleted))) {
     issue('affected-unresolved-link', edge.sourcePath, `Ambiguous link includes a deleted candidate: ${edge.targetLiteral}`);
   }
-  // Every unevaluated source is retained as a blocker, even when the selected source will be deleted.
+  // Unreadable deleted Markdown may hide incoming Wiki aliases. Unevaluated
+  // outgoing links disappear with the document; surviving sources remain strict.
   for (const omittedSource of omitted.filter((entry) => deleted(entry.path))) issue('incomplete-index', omittedSource.path, 'Unreadable deleted Markdown may contain unknown Wiki aliases.');
   const pathMappings = movePlan.pathMappings.map((mapping) => ({ ...mapping,
     sourceKind: snapshot.entries.find((entry) => entry.path === mapping.sourcePath)!.kind }));

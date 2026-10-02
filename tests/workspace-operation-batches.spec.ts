@@ -11,7 +11,8 @@ import type { WorkspaceOperationReviewPublic, WorkspaceOperationReviewKind } fro
 const run = promisify(execFile);
 type Action = { kind: WorkspaceOperationReviewKind; selections: Array<{ sourcePath: string; destinationPath?: string }> };
 type Batch = { batchId: string; planId: string; status: string; errorCode: string | null; completedActions: number;
-  totalActions: number; preview: { readiness: string; actions: Action[]; linkEdits: unknown[]; issues: Array<{ code: string }> } };
+  totalActions: number; preview: { readiness: string; actions: Action[]; linkEdits: unknown[]; issues: Array<{ code: string }>; linkAssessment?: { warnings: unknown[]; blockers: unknown[]; restoredLinks?: unknown[] } } };
+type Check = { checkId: string; status: string; batchId: string | null; errorCode: string | null };
 
 async function workspace(browser: Browser, body: (scope: Awaited<ReturnType<typeof setup>>) => Promise<void>) {
   const scope = await setup(browser);
@@ -101,6 +102,22 @@ async function setup(browser: Browser) {
     expect(response.ok()).toBeTruthy();
     return (await response.json()).batch;
   };
+  const startCheck = async (reviews: WorkspaceOperationReviewPublic[]): Promise<Check> => {
+    const response = await context.request.post('/api/files/operation-reviews/checks', {
+      headers, data: { reviewIds: reviews.map((review) => review.reviewId) },
+    });
+    expect(response.status()).toBe(202);
+    return (await response.json()).check;
+  };
+  const checkResult = async (check: Check): Promise<{ check: Check; batch?: Batch }> => {
+    const response = await context.request.get(`/api/files/operation-reviews/checks/${check.checkId}`, { headers });
+    expect(response.ok()).toBeTruthy();
+    return response.json();
+  };
+  const checked = async (check: Check, expected = 'ready'): Promise<Batch> => {
+    await expect.poll(async () => (await checkResult(check)).check.status, { timeout: 90_000 }).toBe(expected);
+    return (await checkResult(check)).batch!;
+  };
   const accept = (batch: Batch) => context.request.post('/api/files/operation-reviews/batches', {
     headers, data: { action: 'accept', batchId: batch.batchId, planId: batch.planId },
   });
@@ -126,7 +143,7 @@ async function setup(browser: Browser) {
     localStorage.setItem('canvas.activeWorkspaceId', id);
     localStorage.setItem('canvas.notebook.chatVisible', 'false');
   }, workspaceId);
-  return { context, workspaceId, headers, upload, read, edit, absent, submit, preview, accept, readBatch, done, refresh };
+  return { context, workspaceId, headers, upload, read, edit, absent, submit, preview, accept, readBatch, done, refresh, startCheck, checkResult, checked };
 }
 
 const move = (sourcePath: string, destinationPath: string): Action => ({ kind: 'move', selections: [{ sourcePath, destinationPath }] });
@@ -154,13 +171,22 @@ test.describe('durable file review batches', () => {
       await expect(panel.getByTestId('workspace-operation-technical-details')).not.toHaveAttribute('open', '');
       await panel.getByRole('button', { name: 'Back to list', exact: true }).click();
       await panel.getByTestId('workspace-operation-review-select-all').check();
-      const previewResponse = page.waitForResponse((response) => response.url().endsWith('/operation-reviews/batches')
-        && response.request().postDataJSON()?.action === 'preview');
+      const previewResponse = page.waitForResponse((response) => response.url().endsWith('/operation-reviews/checks')
+        && response.request().method() === 'POST');
       await panel.getByTestId('workspace-operation-batch-preview').click();
       const response = await previewResponse;
       expect(response.ok()).toBeTruthy();
-      const batch = (await response.json()).batch as Batch;
+      const batch = await s.checked((await response.json()).check);
+      await expect(panel.getByTestId('workspace-operation-batch-accept')).toBeVisible({ timeout: 60_000 });
       expect(batch.preview.readiness).toBe('ready');
+      await expect(panel.getByTestId('workspace-operation-selection')).not.toHaveAttribute('open', '');
+      await expect(panel.getByTestId('workspace-operation-backup-details')).not.toHaveAttribute('open', '');
+      await expect(panel.getByTestId('workspace-operation-batch-preview')).toHaveCount(0);
+      await expect(panel.getByTestId('workspace-operation-check-paths')).toHaveCount(0);
+      expect(await panel.getByTestId('workspace-operation-batch-details').evaluate((plan) => {
+        const selection = document.querySelector('[data-testid="workspace-operation-selection"]');
+        return Boolean(selection && plan.compareDocumentPosition(selection) & Node.DOCUMENT_POSITION_FOLLOWING);
+      })).toBeTruthy();
       await expect(panel).toContainText('final/sub/B.md');
       await page.screenshot({ path: info.outputPath('combined-review-desktop.png'), animations: 'disabled' });
       await page.setViewportSize({ width: 390, height: 844 });
@@ -312,35 +338,180 @@ test.describe('durable file review batches', () => {
     });
   });
 
-  test('affected unresolved Wiki links block the UI until a repaired target is included in a refreshed preview', async ({ browser }, info) => {
+  test('real ambiguity opens its document on mobile and checks again after explicit desktop link repair', async ({ browser }, info) => {
     await workspace(browser, async (s) => {
-      await s.upload('source/article.md', '# Article\n[[Missing Collection]]\n');
-      const [review] = await s.submit([move('source', 'final')]);
+      await s.upload('A/Plan.md', '# Original\n');
+      await s.upload('B/Plan.md', '# Other\n');
+      await s.upload('home.md', '[[Plan]]\n');
+      const [review] = await s.submit([move('A/Plan.md', 'final/Other.md')]);
       const page = await s.context.newPage();
       await page.setViewportSize({ width: 390, height: 844 });
       await page.goto(`/en/notebook?workspaceId=${s.workspaceId}&workspaceOperationReview=${review.reviewId}`);
       const panel = page.getByTestId('workspace-operation-review-center');
-      await expect(panel).toBeVisible();
-      await expect(panel).toContainText('Missing Collection');
+      const status = panel.getByTestId('workspace-operation-check-status');
+      await expect(status).toHaveAttribute('data-status', 'blocked', { timeout: 90_000 });
+      const previousCheckId = await status.getAttribute('data-check-id');
       await expect(panel.getByTestId('workspace-operation-batch-accept')).toHaveCount(0);
-      await expect(panel.getByTestId('workspace-operation-review-refresh')).toBeVisible();
-      await page.screenshot({ path: info.outputPath('affected-blocker-mobile.png'), animations: 'disabled' });
-      expect(await s.read('source/article.md')).toBe('# Article\n[[Missing Collection]]\n');
-      await s.upload('Missing Collection.md', '# Collection\n');
-      const refreshResponse = page.waitForResponse((response) => response.url().endsWith(`/operation-reviews/${review.reviewId}`)
-        && response.request().method() === 'POST');
-      await panel.getByTestId('workspace-operation-review-refresh').click();
-      const response = await refreshResponse;
-      expect(response.ok()).toBeTruthy();
-      const updated = (await response.json()).review as WorkspaceOperationReviewPublic;
-      expect(updated.reviewId).not.toBe(review.reviewId);
-      await expect(panel.getByTestId('workspace-operation-batch-accept')).toBeVisible();
-      const acceptance = page.waitForResponse((result) => result.url().endsWith('/operation-reviews/batches')
-        && result.request().postDataJSON()?.action === 'accept');
+      await expect(panel.getByTestId('workspace-operation-blocker-open-0')).toBeVisible();
+      await page.screenshot({ path: info.outputPath('ambiguity-repair-mobile.png'), animations: 'disabled' });
+      await panel.getByTestId('workspace-operation-blocker-open-0').click();
+      await expect(panel).not.toBeVisible();
+      await expect(page.getByTestId('markdown-scroll-container')).toBeVisible({ timeout: 30_000 });
+      // Mobile navigation is verified above; use the desktop toolbar for an explicit link edit.
+      // The mobile toolbar requires a real software keyboard, which this browser does not open.
+      await page.setViewportSize({ width: 1440, height: 1000 });
+      await page.getByRole('group', { name: 'Document view' }).getByRole('button', { name: 'Edit', exact: true }).click();
+      const editor = page.locator('.tiptap-editor-shell .ProseMirror');
+      await expect(editor).toHaveAttribute('contenteditable', 'true', { timeout: 30_000 });
+      await editor.press('ControlOrMeta+Home');
+      await editor.press('Shift+ArrowRight');
+      await expect(page.getByTestId('markdown-desktop-toolbar')).toBeVisible();
+      await page.getByTestId('markdown-toolbar-insert').click();
+      await page.getByRole('menuitem', { name: 'Link', exact: true }).click();
+      const linkDialog = page.getByRole('dialog', { name: 'Insert link', exact: true });
+      const target = linkDialog.getByLabel('Document, heading, or block', { exact: true });
+      await expect(target).toHaveValue('Plan');
+      await target.fill('A/Plan.md');
+      await linkDialog.getByLabel('Display text (optional)', { exact: true }).fill('Plan');
+      await expect(linkDialog.locator('code')).toHaveText('[[A/Plan|Plan]]');
+      await linkDialog.getByRole('button', { name: 'Apply link', exact: true }).click();
+      await expect(linkDialog).not.toBeVisible();
+      const checkpoint = page.waitForResponse((response) => response.url().endsWith('/api/files/collaboration/checkpoint')
+        && response.request().method() === 'POST' && response.ok(), { timeout: 30_000 });
+      await editor.press('ControlOrMeta+s');
+      await checkpoint;
+      await expect.poll(() => s.read('home.md'), { timeout: 30_000 }).toBe('[[A/Plan|Plan]]\n');
+      await page.goto(`/en/notebook?workspaceId=${s.workspaceId}&workspaceOperationReview=${review.reviewId}`);
+      await expect(panel.getByTestId('workspace-operation-check-again')).toBeVisible({ timeout: 60_000 });
+      await panel.getByTestId('workspace-operation-check-again').click();
+      await expect(status).toHaveAttribute('data-status', 'ready', { timeout: 90_000 });
+      expect(await status.getAttribute('data-check-id')).not.toBe(previousCheckId);
       await panel.getByTestId('workspace-operation-batch-accept').click();
-      expect((await acceptance).ok()).toBeTruthy();
       await expect(panel).toContainText('File actions completed', { timeout: 90_000 });
-      expect(await s.read('final/article.md')).toBe('# Article\n[[Missing Collection]]\n');
+      expect(await s.read('home.md')).toBe('[[final/Other|Plan]]\n');
+      expect(await s.read('final/Other.md')).toBe('# Original\n');
+      expect(await s.read('B/Plan.md')).toBe('# Other\n');
+    });
+  });
+
+  test('reported atelier folder move restores its explicit future link and keeps old missing Wiki as a warning', async ({ browser }, info) => {
+    await workspace(browser, async (s) => {
+      const source = '05_content-engine/atelier-notes';
+      const destination = '05_content-engine/channels/atelier-notes';
+      const missing = '# Margiela\n[[The First 100 Collection]]\n';
+      await s.upload(`${source}/_content-plan.md`, '# Content plan\n');
+      for (const group of ['01_margiela-replica-alternative', '02_golden-goose-handmade-look']) {
+        await s.upload(`${source}/${group}/index.html`, '<p>Article</p>\n');
+        await s.upload(`${source}/${group}/shopify-copy.md`, '# Copy\n');
+        await s.upload(`${source}/${group}/${group === '01_margiela-replica-alternative' ? 'maison-margiela-replica-alternative' : 'golden-goose-handmade-look-vs-handbemalt'}.md`, group.startsWith('01') ? missing : '# Golden Goose\n');
+      }
+      const oldLiteral = `[[${source}/_content-plan.md]]\n`;
+      const newLiteral = `[[${destination}/_content-plan.md]]\n`;
+      await s.upload('05_content-engine/CONTENT-STRUKTUR-VORSCHLAG.md', oldLiteral);
+      await s.upload('05_content-engine/strategy/Instagram-Reel-Content-Pipeline-Plan.md', oldLiteral);
+      await s.upload('05_content-engine/campaigns/README.md', newLiteral);
+      const [review] = await s.submit([move(source, destination)]);
+      const page = await s.context.newPage();
+      await page.goto(`/en/notebook?workspaceId=${s.workspaceId}&workspaceOperationReview=${review.reviewId}`);
+      const panel = page.getByTestId('workspace-operation-review-center');
+      await expect(panel.getByTestId('workspace-operation-check-status')).toHaveAttribute('data-status', 'ready', { timeout: 90_000 });
+      await expect(panel.getByTestId('workspace-operation-restored-links')).toContainText('README.md');
+      const checkId = await panel.getByTestId('workspace-operation-check-status').getAttribute('data-check-id');
+      const batch = (await s.checkResult({ checkId: checkId!, status: 'ready', batchId: null, errorCode: null })).batch!;
+      expect(batch.preview.linkEdits).toHaveLength(2);
+      expect(batch.preview.linkAssessment?.blockers).toHaveLength(0);
+      expect(batch.preview.linkAssessment?.restoredLinks).toHaveLength(1);
+      expect(batch.preview.linkAssessment?.warnings.length).toBeGreaterThan(0);
+      await page.screenshot({ path: info.outputPath('atelier-ready-restored-links.png'), animations: 'disabled' });
+      await panel.getByTestId('workspace-operation-batch-accept').click();
+      await s.done(batch);
+      expect(await s.read('05_content-engine/campaigns/README.md')).toBe(newLiteral);
+      expect(await s.read('05_content-engine/CONTENT-STRUKTUR-VORSCHLAG.md')).toBe(newLiteral);
+      expect(await s.read('05_content-engine/strategy/Instagram-Reel-Content-Pipeline-Plan.md')).toBe(newLiteral);
+      expect(await s.read(`${destination}/01_margiela-replica-alternative/maison-margiela-replica-alternative.md`)).toBe(missing);
+      const undo = await s.context.request.post(`/api/files/operation-reviews/batches/${batch.batchId}`, {
+        headers: s.headers, data: { action: 'undo', planId: batch.planId },
+      });
+      expect(undo.ok()).toBeTruthy();
+      await expect.poll(async () => (await s.readBatch(batch)).status, { timeout: 60_000 }).toBe('undone');
+      expect(await s.read(`${source}/_content-plan.md`)).toBe('# Content plan\n');
+      expect(await s.read('05_content-engine/campaigns/README.md')).toBe(newLiteral);
+      expect(await s.read('05_content-engine/CONTENT-STRUKTUR-VORSCHLAG.md')).toBe(oldLiteral);
+    });
+  });
+
+  test('background check survives closing and reloading without resubmitting or applying files', async ({ browser }) => {
+    await workspace(browser, async (s) => {
+      await s.upload('source.md', '# Source\n[Missing](missing.md)\n');
+      const [review] = await s.submit([move('source.md', 'final/deeper/source.md')]);
+      const page = await s.context.newPage();
+      let posts = 0;
+      page.on('request', (request) => { if (request.url().endsWith('/operation-reviews/checks') && request.method() === 'POST') posts += 1; });
+      await page.goto(`/en/notebook?workspaceId=${s.workspaceId}&workspaceOperationReview=${review.reviewId}`);
+      const panel = page.getByTestId('workspace-operation-review-center');
+      const status = panel.getByTestId('workspace-operation-check-status');
+      await expect.poll(async () => status.getAttribute('data-check-id'), { timeout: 60_000 }).toMatch(/.+/);
+      const id = await status.getAttribute('data-check-id');
+      await panel.locator('[data-slot="dialog-footer"]').getByRole('button', { name: 'Close', exact: true }).click();
+      await s.checked({ checkId: id!, status: 'queued', batchId: null, errorCode: null });
+      expect(await s.read('source.md')).toBe('# Source\n[Missing](missing.md)\n');
+      await s.absent('final/deeper/source.md');
+      await page.reload();
+      await page.goto(`/en/notebook?workspaceId=${s.workspaceId}&workspaceOperationReview=${review.reviewId}`);
+      await expect(status).toHaveAttribute('data-status', 'ready', { timeout: 60_000 });
+      await expect(status).toHaveAttribute('data-check-id', id!);
+      expect(posts).toBe(1);
+      await panel.getByTestId('workspace-operation-batch-accept').click();
+      await expect(panel).toContainText('File actions completed', { timeout: 90_000 });
+      expect(await s.read('final/deeper/source.md')).toBe('# Source\n[Missing](../../missing.md)\n');
+    });
+  });
+
+  test('a new backlink after the check requires a fresh review before any file mutation', async ({ browser }) => {
+    await workspace(browser, async (s) => {
+      await s.upload('source.md', '# Source\n');
+      const reviews = await s.submit([move('source.md', 'final/source.md')]);
+      const batch = await s.checked(await s.startCheck(reviews));
+      await s.upload('new-backlink.md', '[Source](source.md)\n');
+      const response = await s.accept(batch);
+      if (response.ok()) {
+        await expect.poll(async () => (await s.readBatch(batch)).status, { timeout: 90_000 }).toBe('needs_review');
+      } else { expect(response.status()).toBe(409); }
+      expect(await s.read('source.md')).toBe('# Source\n');
+      await s.absent('final/source.md');
+      expect(await s.read('new-backlink.md')).toBe('[Source](source.md)\n');
+    });
+  });
+
+  test('delete cleans exact missing descendants while preserving labels and unrelated missing targets', async ({ browser }) => {
+    await workspace(browser, async (s) => {
+      await s.upload('trash/existing.md', '# Existing\n');
+      await s.upload('index.md', '[Existing](trash/existing.md) [Missing](trash/absent.md) [[trash/also.md|Alias]] [Other](other/absent.md)\n');
+      const reviews = await s.submit([remove('trash')]);
+      const batch = await s.checked(await s.startCheck(reviews));
+      expect((await s.accept(batch)).ok()).toBeTruthy();
+      await s.done(batch);
+      expect(await s.read('index.md')).toBe('Existing Missing Alias [Other](other/absent.md)\n');
+      await s.absent('trash/existing.md');
+    });
+  });
+
+  test('Undo of a restored future-path link protects new backlinks created after approval', async ({ browser }) => {
+    await workspace(browser, async (s) => {
+      await s.upload('old.md', '# Original\n');
+      await s.upload('future.md', '[Original](final/old.md)\n');
+      const batch = await s.checked(await s.startCheck(await s.submit([move('old.md', 'final/old.md')])));
+      expect(batch.preview.linkAssessment?.restoredLinks).toHaveLength(1);
+      expect((await s.accept(batch)).ok()).toBeTruthy();
+      await s.done(batch);
+      await s.upload('new.md', '[New backlink](final/old.md)\n');
+      const undo = await s.context.request.post(`/api/files/operation-reviews/batches/${batch.batchId}`, {
+        headers: s.headers, data: { action: 'undo', planId: batch.planId },
+      });
+      expect(undo.status()).toBe(409);
+      expect(await s.read('final/old.md')).toBe('# Original\n');
+      expect(await s.read('new.md')).toBe('[New backlink](final/old.md)\n');
+      await s.absent('old.md');
     });
   });
 

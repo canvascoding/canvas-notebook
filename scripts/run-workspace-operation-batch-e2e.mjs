@@ -7,6 +7,7 @@ import path from 'node:path';
 import net from 'node:net';
 import { randomUUID } from 'node:crypto';
 import { parse } from 'dotenv';
+import { Client } from 'pg';
 import { chromium, request } from '@playwright/test';
 import { uploadWorkspaceTextFile } from '../tests/helpers/managed-test-context.ts';
 
@@ -18,9 +19,23 @@ const port = Number(process.env.CANVAS_BATCH_E2E_PORT || 3001);
 const baseURL = `http://localhost:${port}`;
 const artifacts = path.join(cwd, '.playwright-mcp/file-review-batches');
 const runId = randomUUID();
+const isolatedDatabase = `canvas_file_review_e2e_${runId.replaceAll('-', '')}`;
+const isolatedData = path.join(os.tmpdir(), `canvas-file-review-e2e-${runId}`);
+const managedDatabaseURL = new URL(localEnv.DATABASE_URL || '');
+if (!['postgres:', 'postgresql:'].includes(managedDatabaseURL.protocol)
+  || !['localhost', '127.0.0.1'].includes(managedDatabaseURL.hostname)
+  || managedDatabaseURL.port !== '55433' || managedDatabaseURL.pathname !== '/canvas_notebook') {
+  throw new Error('File review E2E requires the managed loopback PostgreSQL database at 55433/canvas_notebook.');
+}
+const isolatedDatabaseURL = new URL(managedDatabaseURL);
+isolatedDatabaseURL.pathname = `/${isolatedDatabase}`;
 await fs.mkdir(artifacts, { recursive: true });
-const env = { ...process.env, ...localEnv, NODE_ENV: 'development', PORT: String(port),
+const env = { ...process.env, ...localEnv, NODE_ENV: 'development', PORT: String(port), HOSTNAME: 'localhost',
   CANVAS_ENV_FILE: envFile, CANVAS_APP_ROOT: cwd, BASE_URL: baseURL, BETTER_AUTH_BASE_URL: baseURL,
+  DATABASE_URL: isolatedDatabaseURL.href, DATA: isolatedData, CANVAS_DATA_ROOT: isolatedData,
+  CANVAS_DATABASE_MIGRATIONS_COMPLETED: 'false',
+  CANVAS_DEPLOYMENT_MODE: 'community', CANVAS_TEAM_FEATURES_ENABLED: 'false',
+  ONBOARDING: 'false',
   E2E_EXTERNAL_SERVER: '1', CANVAS_BATCH_E2E_RUN_ID: runId };
 if (!env.BOOTSTRAP_ADMIN_EMAIL || !env.BOOTSTRAP_ADMIN_PASSWORD) throw new Error('Managed bootstrap credentials required.');
 for (const [key, value] of Object.entries(env)) if (value !== undefined) process.env[key] = value;
@@ -30,17 +45,33 @@ await new Promise((resolve, reject) => {
   probe.listen(port, '127.0.0.1', () => probe.close(resolve));
 });
 
+// A private database on the existing managed server prevents another checkout's
+// durable worker from claiming our jobs against its different filesystem.
+const databaseAdmin = new Client({ connectionString: managedDatabaseURL.href });
+let isolatedDatabaseCreated = false;
+await databaseAdmin.connect();
+try {
+  await databaseAdmin.query(`CREATE DATABASE "${isolatedDatabase}"`);
+  isolatedDatabaseCreated = true;
+  await fs.mkdir(isolatedData, { mode: 0o700 });
+} catch (error) {
+  if (isolatedDatabaseCreated) await databaseAdmin.query(`DROP DATABASE "${isolatedDatabase}"`);
+  await databaseAdmin.end();
+  throw error;
+}
+
 let server;
+let serverReady = false;
 let log;
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 async function startServer() {
   log = await fs.open(path.join(artifacts, 'owned-server.log'), 'a', 0o600);
   server = spawn(process.execPath, ['--import', 'tsx', 'server.js'], { cwd, env,
     stdio: ['ignore', log.fd, log.fd] });
-  for (let attempt = 0; attempt < 180; attempt += 1) {
+  for (let attempt = 0; attempt < 600; attempt += 1) {
     if (server.exitCode !== null || server.signalCode !== null) throw new Error('Owned E2E server exited during startup. Inspect its private log.');
     const healthy = await fetch(`${baseURL}/api/health`).then((response) => response.ok).catch(() => false);
-    if (healthy) return;
+    if (healthy) { serverReady = true; return; }
     await sleep(500);
   }
   throw new Error('Owned E2E server did not become ready.');
@@ -48,6 +79,7 @@ async function startServer() {
 async function stopServer() {
   const child = server;
   server = undefined;
+  serverReady = false;
   if (child && child.exitCode === null && child.signalCode === null) {
     child.kill('SIGTERM');
     for (let attempt = 0; attempt < 40 && child.exitCode === null && child.signalCode === null; attempt += 1) await sleep(250);
@@ -70,7 +102,7 @@ async function restartScenario(mode = 'queued') {
     } });
     if (!signIn.ok()) throw new Error(`Restart test login failed (${signIn.status()}).`);
     const { user } = await (await api.get('/api/auth/get-session')).json();
-    const created = await api.post('/api/workspaces', { data: { type: 'personal', name: `E2E batch review ${mode === 'crash' ? 'crash' : 'restart'} ${Date.now()}` } });
+    const created = await api.post('/api/workspaces', { data: { type: 'personal', name: `E2E batch review ${mode === 'crash' ? 'crash' : mode === 'check' ? 'check-restart' : 'restart'} ${Date.now()}` } });
     if (!created.ok()) throw new Error('Could not create disposable restart workspace.');
     workspaceId = (await created.json()).workspace.id;
     const headers = { 'x-canvas-workspace-id': workspaceId };
@@ -90,11 +122,11 @@ async function restartScenario(mode = 'queued') {
       'scripts/workspace-operation-batch-e2e-fixture.ts', JSON.stringify(input)], { cwd, env, timeout: 90_000 });
     const reviews = JSON.parse(proposals.stdout.split('\n').find((line) => line.startsWith('BATCH_FIXTURE:')).slice('BATCH_FIXTURE:'.length));
     await stopServer();
-    const prefix = mode === 'crash' ? 'CRASH_BATCH:' : 'OFFLINE_BATCH:';
+    const prefix = mode === 'crash' ? 'CRASH_BATCH:' : mode === 'check' ? 'OFFLINE_CHECK:' : 'OFFLINE_BATCH:';
     let queuedResult;
     try {
       queuedResult = await run(process.execPath, ['--conditions=react-server', '--import', 'tsx',
-        mode === 'crash' ? 'scripts/workspace-operation-batch-crash-fixture.ts' : 'scripts/workspace-operation-batch-offline-fixture.ts',
+        mode === 'crash' ? 'scripts/workspace-operation-batch-crash-fixture.ts' : mode === 'check' ? 'scripts/workspace-operation-check-offline-fixture.ts' : 'scripts/workspace-operation-batch-offline-fixture.ts',
         JSON.stringify({ workspaceId, user, reviewIds: reviews.map((review) => review.reviewId) })], { cwd, env, timeout: 90_000 });
       if (mode === 'crash') throw new Error('Crash fixture unexpectedly exited normally.');
     } catch (error) {
@@ -104,6 +136,27 @@ async function restartScenario(mode = 'queued') {
     const queued = JSON.parse(queuedResult.stdout.split('\n').find((line) => line.startsWith(prefix)).slice(prefix.length));
     if (queued.status !== 'queued') throw new Error('Offline approval was not durably queued.');
     await startServer();
+    if (mode === 'check') {
+      let ready;
+      for (let attempt = 0; attempt < 180; attempt += 1) {
+        const response = await api.get(`/api/files/operation-reviews/checks/${queued.checkId}`, { headers });
+        if (!response.ok()) throw new Error('Restarted check could not be read.');
+        const result = await response.json();
+        if (result.check.status === 'ready') { ready = result; break; }
+        if (['failed', 'blocked'].includes(result.check.status)) throw new Error(`Restarted check ended ${result.check.status}.`);
+        await sleep(500);
+      }
+      if (!ready?.batch) throw new Error('Restarted check did not produce a preview.');
+      const source = await api.get('/api/files/read?path=A.md', { headers });
+      const destination = await api.get('/api/files/read?path=moved%2FA.md', { headers });
+      if (!source.ok() || (await source.json()).data.content !== '# A\n' || destination.status() !== 404) {
+        throw new Error('Read-only background check changed workspace files.');
+      }
+      const accepted = await api.post('/api/files/operation-reviews/batches', { headers,
+        data: { action: 'accept', batchId: ready.batch.batchId, planId: ready.batch.planId } });
+      if (!accepted.ok()) throw new Error('Restarted check result could not be approved.');
+      queued.batchId = ready.batch.batchId;
+    }
     let applied;
     for (let attempt = 0; attempt < 180; attempt += 1) {
       const response = await api.get(`/api/files/operation-reviews/batches/${queued.batchId}`, { headers });
@@ -131,12 +184,13 @@ async function restartScenario(mode = 'queued') {
     await page.getByText('File actions completed', { exact: true }).first().waitFor({ state: 'visible' });
     await page.screenshot({ path: path.join(artifacts, `worker-${mode}-completed.png`), animations: 'disabled' });
     await fs.writeFile(path.join(artifacts, `worker-${mode}.json`), JSON.stringify({ passed: true,
-      scenario: mode === 'crash' ? 'SIGKILL after first physical mutation and durable receipt; fresh worker resumes exact remaining steps'
+      scenario: mode === 'check' ? 'durable read-only check queued offline, resumed by a fresh process, files unchanged until approval' : mode === 'crash' ? 'SIGKILL after first physical mutation and durable receipt; fresh worker resumes exact remaining steps'
         : 'durable approval queued without a running worker, executed by a fresh server process',
       completedSteps: applied.completedActions, totalSteps: applied.totalActions }, null, 2));
     console.log(`Real worker process restart (${mode}): passed`);
   } finally {
     await browser?.close();
+    if (workspaceId && !server) await startServer();
     if (workspaceId && server) await api.delete(`/api/workspaces/${workspaceId}`);
     await api.dispose();
   }
@@ -161,14 +215,34 @@ async function cleanupDisposableRunWorkspaces() {
 }
 
 try {
+  try {
+    await run(process.execPath, ['scripts/bootstrap-admin.js', '--ensure'], { cwd, env, timeout: 180_000 });
+  } catch (error) {
+    await fs.writeFile(path.join(artifacts, 'bootstrap-admin.log'), `${error.stdout || ''}\n${error.stderr || ''}`, { mode: 0o600 });
+    throw new Error('Isolated E2E bootstrap failed; inspect its private log.');
+  }
   await startServer();
   const suite = spawn(process.execPath, ['node_modules/@playwright/test/cli.js', 'test',
-    'tests/workspace-operation-batches.spec.ts', '--workers=1', '--reporter=list'], { cwd, env, stdio: 'inherit' });
+    'tests/workspace-operation-batches.spec.ts', '--workers=1', '--max-failures=1', '--reporter=list'], { cwd, env, stdio: 'inherit' });
   const suiteCode = await new Promise((resolve) => suite.once('exit', (code) => resolve(code ?? 1)));
-  await restartScenario();
-  await restartScenario('crash');
+  if (suiteCode === 0) {
+    await restartScenario();
+    await restartScenario('crash');
+    await restartScenario('check');
+  }
   process.exitCode = suiteCode;
 } finally {
-  try { if (server) await cleanupDisposableRunWorkspaces(); }
-  finally { await stopServer(); }
+  try { if (serverReady) await cleanupDisposableRunWorkspaces(); }
+  finally {
+    try { await stopServer(); }
+    finally {
+      // Both identifiers are generated above, never accepted from a caller.
+      // FORCE closes only lingering test fixture clients in this private DB.
+      try { await databaseAdmin.query(`DROP DATABASE "${isolatedDatabase}" WITH (FORCE)`); }
+      finally {
+        await databaseAdmin.end();
+        await fs.rm(isolatedData, { recursive: true, force: true });
+      }
+    }
+  }
 }
