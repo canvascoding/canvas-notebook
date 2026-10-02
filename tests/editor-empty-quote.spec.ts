@@ -2,18 +2,17 @@ import { expect, test } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
 import corpus from '../app/lib/markdown/core/fixtures.json';
 import { analyzeMarkdownRichMode, serializeRichMarkdownBody } from '../app/lib/markdown/rich-markdown-codec';
+import { ownedCollaborationQaEnabled, requireOwnedCollaborationQaTarget } from '../scripts/lib/owned-collaboration-qa';
+import { authenticateManagedTestPage } from './helpers/managed-test-context';
+
+test.beforeEach(async () => {
+  if (ownedCollaborationQaEnabled()) await requireOwnedCollaborationQaTarget();
+});
 
 test('empty slash quote checkpoints and survives editing, undo, and reload', async ({ page }, info) => {
   test.skip(process.env.COLLABORATION_E2E !== '1', 'Requires the managed local Postgres stack.');
   test.setTimeout(120_000);
-  const response = await page.request.post('/api/auth/sign-in/email', {
-    headers: { Origin: process.env.BASE_URL || 'http://localhost:3000' },
-    data: {
-      email: process.env.TEST_LOGIN_EMAIL || process.env.BOOTSTRAP_ADMIN_EMAIL,
-      password: process.env.TEST_LOGIN_PASSWORD || process.env.BOOTSTRAP_ADMIN_PASSWORD,
-    },
-  });
-  expect(response.ok()).toBe(true);
+  await authenticateManagedTestPage(page);
   const { workspaces } = await (await page.request.get('/api/workspaces')).json();
   const workspace = workspaces.find((entry: { name: string }) => entry.name === 'Shared Test Workspace');
   expect(workspace).toBeTruthy();
@@ -73,14 +72,7 @@ test('empty slash quote checkpoints and survives editing, undo, and reload', asy
 test('shared Markdown structures render, edit, and checkpoint without losing cells or code', async ({ page }, info) => {
   test.skip(process.env.COLLABORATION_E2E !== '1', 'Requires the managed local Postgres stack.');
   test.setTimeout(120_000);
-  const login = await page.request.post('/api/auth/sign-in/email', {
-    headers: { Origin: process.env.BASE_URL || 'http://localhost:3000' },
-    data: {
-      email: process.env.TEST_LOGIN_EMAIL || process.env.BOOTSTRAP_ADMIN_EMAIL,
-      password: process.env.TEST_LOGIN_PASSWORD || process.env.BOOTSTRAP_ADMIN_PASSWORD,
-    },
-  });
-  expect(login.ok()).toBe(true);
+  await authenticateManagedTestPage(page);
   const { workspaces } = await (await page.request.get('/api/workspaces')).json();
   const workspace = workspaces.find((entry: { name: string }) => entry.name === 'Shared Test Workspace');
   const headers = { 'x-canvas-workspace-id': workspace.id };
@@ -119,11 +111,7 @@ test('shared Markdown structures render, edit, and checkpoint without losing cel
 test('reading observes live source without rewriting it and migration waits for other editors', async ({ page }, info) => {
   test.skip(process.env.COLLABORATION_E2E !== '1', 'Requires the managed local Postgres stack.');
   test.setTimeout(120_000);
-  expect((await page.request.post('/api/auth/sign-in/email', {
-    headers: { Origin: process.env.BASE_URL || 'http://localhost:3000' },
-    data: { email: process.env.TEST_LOGIN_EMAIL || process.env.BOOTSTRAP_ADMIN_EMAIL,
-      password: process.env.TEST_LOGIN_PASSWORD || process.env.BOOTSTRAP_ADMIN_PASSWORD },
-  })).ok()).toBe(true);
+  await authenticateManagedTestPage(page);
   const { workspaces } = await (await page.request.get('/api/workspaces')).json();
   const workspace = workspaces.find((entry: { name: string }) => entry.name === 'Shared Test Workspace');
   const headers = { 'x-canvas-workspace-id': workspace.id };
@@ -156,6 +144,10 @@ test('reading observes live source without rewriting it and migration waits for 
     await expect.poll(readContent).toBe(liveSource);
     await expect(page.getByText('Live addition', { exact: true })).toBeVisible();
     await page.getByRole('button', { name: 'Edit', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Read', exact: true })).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.getByRole('button', { name: 'Prepare formatted editing', exact: true })).toHaveCount(0);
+    expect(await readContent()).toBe(liveSource);
+    await page.getByRole('button', { name: 'Source', exact: true }).click();
     await expect(page.getByText('This document stays in source mode so its Markdown is preserved exactly.')).toBeVisible();
     await expect(page.locator('.cm-content')).toHaveAttribute('contenteditable', 'true');
     expect(await readContent()).toBe(liveSource);

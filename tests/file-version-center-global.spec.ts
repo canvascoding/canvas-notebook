@@ -576,6 +576,11 @@ test.describe('Global file version center', () => {
       await page.keyboard.press('Escape');
       await expect(center).toBeHidden();
 
+      const toolbar = page.getByTestId('notebook-toolbar');
+      const showSidebar = toolbar.getByRole('button', { name: /^(?:Show sidebar|Sidebar einblenden)$/iu });
+      if (await showSidebar.isVisible()) await showSidebar.click();
+      await expect(toolbar.getByRole('button', { name: /^(?:Hide sidebar|Sidebar ausblenden)$/iu }))
+        .toHaveAttribute('aria-pressed', 'true');
       const browserRow = page.locator(`[data-file-path="${teamPath}"]`).first();
       await expect(browserRow).toBeVisible();
       await browserRow.click({ button: 'right' });

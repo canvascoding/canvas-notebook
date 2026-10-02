@@ -5,6 +5,8 @@ import { Pool } from 'pg';
 import { expect, request, test, type Browser, type BrowserContext, type Page } from '@playwright/test';
 import type { JSONContent } from '@tiptap/core';
 import { COLLABORATION_CLIENT_CAPABILITIES, type CollaborationSessionResponse } from '../app/lib/collaboration/types';
+import { ownedCollaborationQaEnabled, requireOwnedCollaborationQaTarget } from '../scripts/lib/owned-collaboration-qa';
+import { authenticateManagedTestPage } from './helpers/managed-test-context';
 
 const BASE_URL = process.env.BASE_URL || 'http://localhost:3000';
 const selector = '.tiptap-editor-shell .ProseMirror';
@@ -15,10 +17,9 @@ async function login(browser: Browser, secondary = false) {
   const email = secondary ? process.env.TEST_SECONDARY_EMAIL : process.env.BOOTSTRAP_ADMIN_EMAIL;
   const password = secondary ? process.env.TEST_SECONDARY_PASSWORD : process.env.BOOTSTRAP_ADMIN_PASSWORD;
   expect(Boolean(email && password)).toBe(true);
-  const response = await context.request.post('/api/auth/sign-in/email', {
-    headers: { Origin: BASE_URL }, data: { email, password },
-  });
-  expect(response.status(), 'Managed fixture login').toBe(200);
+  const authPage = await context.newPage();
+  try { await authenticateManagedTestPage(authPage, { email, password }); }
+  finally { await authPage.close(); }
   const workspaces = await context.request.get('/api/workspaces');
   expect(workspaces.ok()).toBe(true);
   const workspace = ((await workspaces.json()).workspaces as Workspace[])
@@ -69,7 +70,8 @@ test.describe('collaboration projection hardening', () => {
     const url = new URL(process.env.DATABASE_URL!);
     expect(['localhost', '127.0.0.1']).toContain(url.hostname);
     expect(url.port).toBe('55433');
-    expect(url.pathname).toBe('/canvas_notebook');
+    if (ownedCollaborationQaEnabled()) await requireOwnedCollaborationQaTarget();
+    else expect(url.pathname).toBe('/canvas_notebook');
     const appUrl = new URL(BASE_URL);
     expect(['localhost', '127.0.0.1']).toContain(appUrl.hostname);
     expect(appUrl.protocol).toBe('http:');

@@ -3,6 +3,8 @@ import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
+import { ownedCollaborationQaEnabled, requireOwnedCollaborationQaTarget } from '../scripts/lib/owned-collaboration-qa';
+import { authenticateManagedTestPage } from './helpers/managed-test-context';
 import { expect, test, type Browser, type BrowserContext, type Locator, type Page } from '@playwright/test';
 import * as Y from 'yjs';
 
@@ -80,7 +82,8 @@ test.describe('real file guest collaboration', () => {
   test.skip(process.env.COLLABORATION_E2E !== '1', 'Requires the managed Team fixture and isolated email transport.');
   test.setTimeout(180_000);
   test('offers the shared editing controls, enforces read-only and revokes an already open writer', async ({ browser }, testInfo) => {
-    expect(new URL(BASE_URL).origin).toBe('http://127.0.0.1:3100');
+    if (ownedCollaborationQaEnabled()) await requireOwnedCollaborationQaTarget();
+    else expect(new URL(BASE_URL).origin).toBe('http://127.0.0.1:3100');
     const ownerContext = await fixtureContext(browser);
     const writerContext = await fixtureContext(browser);
     const readerContext = await fixtureContext(browser);
@@ -91,9 +94,7 @@ test.describe('real file guest collaboration', () => {
     const invitations: Invitation[] = [];
     let workspaceId = '';
     try {
-      const login = await owner.request.post('/api/auth/sign-in/email', { headers: { Origin: BASE_URL },
-        data: { email: process.env.TEST_LOGIN_EMAIL, password: process.env.TEST_LOGIN_PASSWORD } });
-      expect(login.ok()).toBe(true);
+      await authenticateManagedTestPage(owner);
       const workspaces = (await (await owner.request.get('/api/workspaces')).json()).workspaces as Array<{
         id: string; name: string; permissions: { canWrite: boolean; canCreatePublicLinks: boolean } }>;
       const workspace = workspaces.find((candidate) => candidate.name === 'Shared Test Workspace');

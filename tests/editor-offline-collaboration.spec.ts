@@ -6,15 +6,15 @@ import type { JSONContent } from '@tiptap/core';
 import * as Y from 'yjs';
 import { readRichDocumentJson } from '../app/lib/collaboration/rich-document';
 import { COLLABORATION_CLIENT_CAPABILITIES, type CollaborationSessionResponse } from '../app/lib/collaboration/types';
+import { ownedCollaborationQaEnabled, requireOwnedCollaborationQaTarget } from '../scripts/lib/owned-collaboration-qa';
+import { authenticateManagedTestPage } from './helpers/managed-test-context';
 
 const baseURL = process.env.BASE_URL || '';
 const selector = '.tiptap-editor-shell .ProseMirror';
 const content = '# Offline document\n\nAlpha paragraph.\n\nRemove this block.\n\n- **One** two\n- Three\n\n| Name | Value |\n| --- | --- |\n| A | B |';
 
 async function login(page: Page) {
-  expect((await page.request.post('/api/auth/sign-in/email', {
-    headers: { Origin: baseURL }, data: { email: process.env.TEST_LOGIN_EMAIL, password: process.env.TEST_LOGIN_PASSWORD },
-  })).ok()).toBe(true);
+  await authenticateManagedTestPage(page);
   const { workspaces } = await (await page.request.get('/api/workspaces')).json();
   const workspace = workspaces.find((candidate: { name: string; permissions?: { canWrite: boolean } }) =>
     candidate.name === 'Shared Test Workspace' && candidate.permissions?.canWrite);
@@ -127,7 +127,10 @@ async function cleanFiles(context: BrowserContext, headers: Record<string, strin
 
 test.describe('Real local Yjs recovery through browser lifecycles', () => {
   test.skip(process.env.COLLABORATION_E2E !== '1', 'Requires the approved managed local stack.');
-  test.beforeAll(() => expect(baseURL).toBe('http://127.0.0.1:3100'));
+  test.beforeAll(async () => {
+    if (ownedCollaborationQaEnabled()) await requireOwnedCollaborationQaTarget();
+    else expect(baseURL).toBe('http://127.0.0.1:3100');
+  });
   test.setTimeout(120_000);
 
   test('offline rich edits survive Read/Source, another document, reopen and reconnect', async ({ page }, info) => {
@@ -292,7 +295,8 @@ test.describe('Real local Yjs recovery through browser lifecycles', () => {
 // supported multi-tab behavior through the actual replacement transport.
 test('same-browser tabs keep ordinary HTTP requests and document locations available', async ({ page }, info) => {
   test.skip(process.env.COLLABORATION_E2E !== '1', 'Requires the managed local stack.');
-  expect(baseURL).toBe('http://127.0.0.1:3100');
+  if (ownedCollaborationQaEnabled()) await requireOwnedCollaborationQaTarget();
+  else expect(baseURL).toBe('http://127.0.0.1:3100');
   test.setTimeout(90_000);
   const headers = await login(page);
   const filePath = `offline-http-pool-${randomUUID()}.md`;
@@ -304,6 +308,7 @@ test('same-browser tabs keep ordinary HTTP requests and document locations avail
   const liveSubscriptions = pages.map(() => new Set<string>());
   const syncStatuses: number[] = [];
   const eventSources: string[] = [];
+  const subscriptionChannels = pages.map(() => new Map<string, string>());
   const errors: string[] = [];
   pages.forEach((candidate, index) => {
     candidate.on('pageerror', error => errors.push(error.name));
@@ -314,6 +319,12 @@ test('same-browser tabs keep ordinary HTTP requests and document locations avail
     });
     candidate.on('websocket', socket => {
       if (new URL(socket.url()).pathname !== '/ws/live-events') return;
+      socket.on('framesent', event => {
+        const message = JSON.parse(typeof event.payload === 'string' ? event.payload : event.payload.toString());
+        if (message.type === 'subscribe' && typeof message.id === 'string' && typeof message.channel === 'string') {
+          subscriptionChannels[index].set(message.id, message.channel);
+        }
+      });
       socket.on('framereceived', event => {
         const message = JSON.parse(typeof event.payload === 'string' ? event.payload : event.payload.toString());
         if (message.type === 'open' && typeof message.id === 'string') liveSubscriptions[index].add(message.id);
@@ -331,7 +342,9 @@ test('same-browser tabs keep ordinary HTTP requests and document locations avail
       await candidate.goto(`/notebook?path=${encodeURIComponent(filePath)}`, { waitUntil: 'domcontentloaded' });
       await readable(candidate);
     }
-    await expect.poll(() => liveSubscriptions.map(entries => entries.size)).toEqual([3, 3, 3]);
+    await expect.poll(() => liveSubscriptions.map(entries => entries.size)).toEqual([5, 5, 5]);
+    expect(liveSubscriptions.map((entries, index) => [...entries].map(id => subscriptionChannels[index].get(id)).sort()))
+      .toEqual(pages.map(() => ['documentReview', 'files', 'presence', 'studioBulk', 'terminal']));
     await expect.poll(() => syncStatuses.filter(status => status === 200).length).toBeGreaterThanOrEqual(3);
     expect(eventSources).toEqual([]);
     expect(syncStatuses.every(status => status === 200)).toBe(true);
@@ -352,7 +365,8 @@ test('same-browser tabs keep ordinary HTTP requests and document locations avail
 
 test('a native fixture file event invalidates the actual HTTP tree and reference caches', async ({ page }, info) => {
   test.skip(process.env.COLLABORATION_E2E !== '1', 'Requires the managed local stack.');
-  expect(baseURL).toBe('http://127.0.0.1:3100');
+  if (ownedCollaborationQaEnabled()) await requireOwnedCollaborationQaTarget();
+  else expect(baseURL).toBe('http://127.0.0.1:3100');
   test.setTimeout(90_000);
   const headers = await login(page);
   const workspaceId = headers['x-canvas-workspace-id'];

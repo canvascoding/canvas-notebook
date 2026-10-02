@@ -9,6 +9,9 @@ import enMessages from '../messages/en.json';
 import deMessages from '../messages/de.json';
 
 import { createAuthenticatedContext } from './helpers/managed-test-context';
+import { waitForOwnedNotificationSummaryBudget } from './helpers/notification-summary-budget';
+import { aggregateOwnedNativeErrors } from './helpers/owned-native-command';
+import { ownedCollaborationQaEnabled, requireOwnedCollaborationQaTarget } from '../scripts/lib/owned-collaboration-qa';
 
 const BASE_URL = process.env.BASE_URL || 'http://localhost:3000';
 const ADMIN_EMAIL = process.env.TEST_LOGIN_EMAIL || process.env.BOOTSTRAP_ADMIN_EMAIL || 'admin@example.com';
@@ -198,6 +201,28 @@ async function finishFixture(api: APIRequestContext, actions: Array<() => Promis
 test.describe('Markdown live collaboration', () => {
   test.skip(process.env.COLLABORATION_E2E !== '1', 'Requires the explicit Postgres team E2E profile.');
   test.setTimeout(120_000);
+
+  test.beforeAll(async ({ browser }) => {
+    if (!ownedCollaborationQaEnabled()) return;
+    test.setTimeout(150_000);
+    await requireOwnedCollaborationQaTarget();
+    expect(browser.contexts().flatMap((context) => context.pages()),
+      'The QA notification quiet window requires all Notebook pages to be closed.').toHaveLength(0);
+    const context = await fixtureContext(browser);
+    let failure: unknown;
+    try {
+      await waitForOwnedNotificationSummaryBudget(context.request);
+    } catch (error) {
+      failure = error;
+      throw error;
+    } finally {
+      try {
+        await context.close();
+      } catch (cleanupError) {
+        throw aggregateOwnedNativeErrors(failure, [cleanupError], 'Notification preflight context cleanup failed.');
+      }
+    }
+  });
 
   test('closes and switches away while collaboration is still joining', async ({ browser }) => {
     const suffix = randomUUID();

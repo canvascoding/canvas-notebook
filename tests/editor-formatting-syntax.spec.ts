@@ -1,9 +1,7 @@
-import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { promisify } from 'node:util';
-import { expect, test, type Browser, type BrowserContext, type Locator, type Page } from '@playwright/test';
+import { expect, request, test, type APIRequestContext, type Browser, type BrowserContext, type Locator, type Page } from '@playwright/test';
 import { getSchema, type JSONContent } from '@tiptap/core';
 import * as decoding from 'lib0/decoding';
 import * as Y from 'yjs';
@@ -12,10 +10,12 @@ import { COLLABORATION_CLIENT_CAPABILITIES, type CollaborationSessionResponse } 
 import { COLLABORATION_CHECKPOINT_ERROR_CODES } from '../app/lib/collaboration/checkpoint-errors';
 import { equivalentRichDocument } from '../app/lib/markdown/core/equivalence';
 import { analyzeMarkdownRichMode, createRichMarkdownManager, richMarkdownCodecExtensions } from '../app/lib/markdown/rich-markdown-codec';
+import { ownedCollaborationQaEnabled, requireOwnedCollaborationQaTarget } from '../scripts/lib/owned-collaboration-qa';
+import { authenticateManagedTestPage } from './helpers/managed-test-context';
+import { aggregateOwnedNativeErrors, runOwnedNativeCommand } from './helpers/owned-native-command';
 
 const BASE_URL = process.env.BASE_URL || 'http://127.0.0.1:3100';
 const selector = '.tiptap-editor-shell .ProseMirror';
-const execFileAsync = promisify(execFile);
 type Workspace = { id: string; name: string; rootRelativePath: string; permissions: { canWrite: boolean } };
 type Storage = { richJson: JSONContent; validationCode: string | null; canonicalContent: string | null;
   documentSequence: number; checkpointSequence: number; degraded: boolean; binaryHash: string };
@@ -29,7 +29,7 @@ async function login(page: Page, secondary = false): Promise<Workspace> {
   const email = secondary ? process.env.TEST_SECONDARY_EMAIL : process.env.TEST_LOGIN_EMAIL;
   const password = secondary ? process.env.TEST_SECONDARY_PASSWORD : process.env.TEST_LOGIN_PASSWORD;
   expect(Boolean(email && password)).toBe(true);
-  expect((await page.request.post('/api/auth/sign-in/email', { headers: { Origin: BASE_URL }, data: { email, password } })).ok()).toBe(true);
+  await authenticateManagedTestPage(page, { email, password });
   const response = await page.request.get('/api/workspaces');
   expect(response.ok()).toBe(true);
   const workspace = ((await response.json()).workspaces as Workspace[])
@@ -105,10 +105,25 @@ async function session(page: Page, workspace: Workspace, filePath: string) {
 
 async function storage(workspace: Workspace, filePath: string, identity: CollaborationSessionResponse): Promise<Storage> {
   const input = { documentId: identity.documentId, workspaceId: workspace.id, path: filePath, includeRichJson: true };
-  const { stdout } = await execFileAsync(path.join(process.cwd(), 'node_modules/.bin/tsx'),
-    ['--conditions', 'react-server', 'scripts/collaboration-e2e-storage-read.ts', Buffer.from(JSON.stringify(input)).toString('base64url')],
-    { env: process.env, maxBuffer: 2 * 1024 * 1024 });
-  return JSON.parse(stdout) as Storage;
+  await test.info().attach('native-storage-phase', { contentType: 'application/json',
+    body: JSON.stringify({ phase: 'started', documentId: identity.documentId, filePath }) });
+  try {
+    const result = await runOwnedNativeCommand(
+      ['--import', 'tsx', '--conditions', 'react-server', 'scripts/collaboration-e2e-storage-read.ts', Buffer.from(JSON.stringify(input)).toString('base64url')],
+      { label: 'storage-evidence', maxBuffer: 2 * 1024 * 1024 });
+    await test.info().attach('native-storage-phase', { contentType: 'application/json',
+      body: JSON.stringify({ phase: 'exited', documentId: identity.documentId, filePath, child: result.receipt }) });
+    return JSON.parse(result.stdout) as Storage;
+  } catch (error) {
+    try {
+      await test.info().attach('native-storage-phase', { contentType: 'application/json',
+        body: JSON.stringify({ phase: 'failed', documentId: identity.documentId, filePath,
+          child: (error as { ownedChildReceipt?: unknown }).ownedChildReceipt ?? null }) });
+    } catch (attachmentError) {
+      throw aggregateOwnedNativeErrors(error, [attachmentError], 'Native storage command and failure attachment both failed.');
+    }
+    throw error;
+  }
 }
 
 async function localRichTree(page: Page, identity: CollaborationSessionResponse): Promise<JSONContent | null> {
@@ -135,15 +150,19 @@ async function localRichTree(page: Page, identity: CollaborationSessionResponse)
   finally { doc.destroy(); }
 }
 
-async function remove(page: Page, workspace: Workspace | undefined, filePath: string) {
+async function remove(page: Page, workspace: Workspace | undefined, filePath: string, api: APIRequestContext = page.request) {
   if (!workspace) return;
-  const result = await page.request.delete('/api/files/delete', { headers: headers(workspace), data: { path: filePath } });
+  const result = await api.delete('/api/files/delete', { headers: headers(workspace), data: { path: filePath }, timeout: 15_000 });
   expect(result.ok(), 'Only the synthetic document is deleted during cleanup.').toBe(true);
+  expect(await result.json()).toMatchObject({ success: true, deleted: [filePath], failed: [] });
 }
 
 test.describe('formatting preserves Markdown meaning', () => {
   test.skip(process.env.COLLABORATION_E2E !== '1', 'Requires the explicitly authorized managed local stack.');
-  test.beforeEach(() => { expect(new URL(BASE_URL).origin).toBe('http://127.0.0.1:3100'); });
+  test.beforeEach(async () => {
+    if (ownedCollaborationQaEnabled()) await requireOwnedCollaborationQaTarget();
+    else expect(new URL(BASE_URL).origin).toBe('http://127.0.0.1:3100');
+  });
   test.setTimeout(180_000);
 
   test('typed input rules, literal delimiters and breaks survive projection, modes and reopen', async ({ browser }, info) => {
@@ -208,6 +227,14 @@ test.describe('formatting preserves Markdown meaning', () => {
     page.on('pageerror', (error) => errors.push(error.name)); peer.on('pageerror', (error) => errors.push(error.name));
     const filePath = `editor-formatting-${randomUUID()}.md`;
     let workspace: Workspace | undefined;
+    let cleanupApi: APIRequestContext | undefined;
+    let fileCreated = false;
+    let primaryError: unknown;
+    let currentPhase = 'setup';
+    const phase = async (name: string) => {
+      currentPhase = name;
+      await info.attach('formatting-phase', { contentType: 'application/json', body: JSON.stringify({ phase: name, filePath }) });
+    };
     const failures: Array<{ documentId: string; code: string }> = [];
     page.on('websocket', (socket) => {
       if (!new URL(socket.url()).pathname.startsWith('/ws/collaboration')) return;
@@ -223,7 +250,10 @@ test.describe('formatting preserves Markdown meaning', () => {
     });
     try {
       workspace = await login(page); expect((await login(peer, true)).id).toBe(workspace.id);
+      cleanupApi = await request.newContext({ baseURL: BASE_URL, storageState: await context.storageState(), timeout: 15_000 });
       await upload(page, workspace, filePath, '| First | Second |\n| --- | --- |\n| Seed | Neighbor |\n\nPeer paragraph');
+      fileCreated = true;
+      await phase('initial-edit-and-rejected-projection');
       await openRich(page, filePath); await openRich(peer, filePath);
       const identity = await session(page, workspace, filePath);
       const cell = page.locator(selector).locator('td p').first();
@@ -248,6 +278,7 @@ test.describe('formatting preserves Markdown meaning', () => {
       await expect(page.locator(selector)).toHaveAttribute('contenteditable', 'true');
       await expect(page.getByTestId('markdown-save-state')).toHaveCount(0);
       await mode(page, /^(Source|Quelle)$/u);
+      await phase('source-and-read-preserve-native-state');
       await expect(page.getByText('The text view is currently unavailable. You can still open the document in Edit.', { exact: true })).toBeVisible();
       await expect(page.locator('.cm-editor')).toHaveCount(0);
       await expect.poll(() => localRichTree(page, identity)).toEqual(invalid);
@@ -266,15 +297,18 @@ test.describe('formatting preserves Markdown meaning', () => {
         { timeout: 30_000, intervals: [1_000, 2_000] }).toEqual(updated);
       await page.screenshot({ path: info.outputPath('table-code-live-while-projection-rejected.png') });
       expect(await readFile(diskPath(workspace, filePath), 'utf8')).toBe(safeMarkdown);
+      await phase('close-and-reopen-actual-secondary');
       await peerContext.close();
       peerContext = await fixtureContext(browser); peer = await peerContext.newPage();
       peer.on('pageerror', (error) => errors.push(error.name));
       expect((await login(peer, true)).id).toBe(workspace.id);
       await openRich(peer, filePath);
+      await phase('reopened-peer-native-and-local-state');
       await expect.poll(() => richTree(peer)).toEqual(updated);
       await expect.poll(() => localRichTree(peer, identity)).toEqual(updated);
       await expect(peer.getByTestId('markdown-save-state')).toHaveCount(0);
       await selectContent(cell);
+      await phase('remove-inline-code-and-recover-projection');
       await page.getByTestId('markdown-selection-menu').getByRole('button', { name: /^(Inline code|Inline-Code)$/u }).click();
       await expect(cell.locator('code')).toHaveCount(0);
       const recovered = await richTree(page);
@@ -288,9 +322,30 @@ test.describe('formatting preserves Markdown meaning', () => {
       expect(JSON.stringify(recovered)).toContain('odd\\\\|pipe');
       await expect(page.getByTestId('markdown-save-state')).toHaveCount(0);
       expect(errors).toEqual([]);
+    } catch (error) {
+      primaryError = error;
+      try {
+        await info.attach('formatting-failure-phase', { contentType: 'application/json',
+          body: JSON.stringify({ phase: currentPhase, filePath }) });
+      } catch (attachmentError) {
+        primaryError = aggregateOwnedNativeErrors(error, [attachmentError], 'Formatting action and failure attachment both failed.');
+        throw primaryError;
+      }
+      throw error;
     } finally {
-      try { await peerContext.close(); await remove(page, workspace, filePath); }
-      finally { await context.close(); }
+      const cleanupErrors: unknown[] = [];
+      const clean = async (action: () => Promise<unknown>) => { try { await action(); } catch (error) { cleanupErrors.push(error); } };
+      await clean(() => peerContext.close());
+      await clean(() => context.close());
+      const exitUnconfirmed = (primaryError as { ownedChildReceipt?: { exitVerified?: boolean } } | undefined)?.ownedChildReceipt?.exitVerified === false;
+      if (exitUnconfirmed) cleanupErrors.push(new Error('Native child exit is unconfirmed; retain the owned formatting file.'));
+      else if (cleanupApi && fileCreated) await clean(() => remove(page, workspace, filePath, cleanupApi));
+      if (cleanupApi) await clean(() => cleanupApi!.dispose());
+      await clean(() => info.attach('formatting-cleanup', { contentType: 'application/json',
+        body: JSON.stringify({ filePath, workspaceId: workspace?.id, fileCreated,
+          verified: cleanupErrors.length === 0, cleanupFailureCount: cleanupErrors.length }) }));
+      if (cleanupErrors.length) throw aggregateOwnedNativeErrors(primaryError, cleanupErrors,
+        'Formatting fixture cleanup failed; the primary failure and exact owned file were retained.');
     }
   });
 
@@ -312,6 +367,10 @@ test.describe('formatting preserves Markdown meaning', () => {
       await page.goto(`/notebook?path=${encodeURIComponent(filePath)}`, { waitUntil: 'domcontentloaded' });
       await page.getByRole('button', { name: 'Markdown', exact: true }).click();
       await mode(page, /^(Edit|Bearbeiten)$/u);
+      await expect(page.getByRole('button', { name: /^(Read|Lesen)$/u, exact: true })).toHaveAttribute('aria-pressed', 'true');
+      expect(await readFile(diskPath(workspace, filePath), 'utf8')).toBe(original);
+      expect(unexpectedMigrations).toBe(0);
+      await mode(page, /^(Source|Quelltext)$/u);
       const source = page.locator('.cm-content');
       await expect(source).toHaveAttribute('contenteditable', 'true', { timeout: 30_000 });
       await expect(page.getByTestId('markdown-source-preservation-warning')).toBeVisible();
@@ -328,10 +387,13 @@ test.describe('formatting preserves Markdown meaning', () => {
       await mode(page, /^(Read|Lesen)$/u);
       expect(await readFile(diskPath(workspace, filePath), 'utf8')).toBe(original + suffix);
       await mode(page, /^(Edit|Bearbeiten)$/u);
+      await expect(page.getByRole('button', { name: /^(Read|Lesen)$/u, exact: true })).toHaveAttribute('aria-pressed', 'true');
+      await mode(page, /^(Source|Quelltext)$/u);
       await expect(source).toHaveAttribute('contenteditable', 'true');
       await page.reload({ waitUntil: 'domcontentloaded' });
       await page.getByRole('button', { name: 'Markdown', exact: true }).click();
       await mode(page, /^(Edit|Bearbeiten)$/u);
+      await mode(page, /^(Source|Quelltext)$/u);
       await expect(source).toHaveAttribute('contenteditable', 'true', { timeout: 30_000 });
       await expect(page.getByTestId('markdown-source-preservation-warning')).toBeVisible();
       await expect.poll(async () => (await source.locator('.cm-line').allTextContents()).join('\n')).toBe(original + suffix);

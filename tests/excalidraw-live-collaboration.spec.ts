@@ -1,14 +1,16 @@
-import { expect, test, type APIRequestContext, type BrowserContext, type Page } from '@playwright/test';
-import { execFile } from 'node:child_process';
+import { expect, request, test, type APIRequestContext, type BrowserContext, type Page } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
-import { promisify } from 'node:util';
+import { ownedCollaborationQaEnabled, requireOwnedCollaborationQaTarget } from '../scripts/lib/owned-collaboration-qa';
+import { authenticateManagedTestPage } from './helpers/managed-test-context';
+import { aggregateOwnedNativeErrors, runOwnedNativeCommand } from './helpers/owned-native-command';
 
 const BASE_URL = process.env.BASE_URL || 'http://localhost:3000';
 const ADMIN_EMAIL = process.env.TEST_LOGIN_EMAIL || process.env.BOOTSTRAP_ADMIN_EMAIL || 'admin@example.com';
 const ADMIN_PASSWORD = process.env.TEST_LOGIN_PASSWORD || process.env.BOOTSTRAP_ADMIN_PASSWORD || 'change-me';
+const SECONDARY_EMAIL = process.env.TEST_SECONDARY_EMAIL || process.env.LOCAL_TEAM_SEAT_SECONDARY_EMAIL || '';
+const SECONDARY_PASSWORD = process.env.TEST_SECONDARY_PASSWORD || process.env.LOCAL_TEAM_SEAT_SECONDARY_PASSWORD || '';
 const WORKSPACE_ID_HEADER = 'x-canvas-workspace-id';
-const execFileAsync = promisify(execFile);
 
 type WorkspaceSummary = {
   id: string;
@@ -28,27 +30,23 @@ type LiveScene = {
   elements: Array<Record<string, unknown> & { id: string; version: number; versionNonce: number; isDeleted: boolean; x?: number }>;
 };
 
-async function login(page: Page, email: string, password: string): Promise<void> {
-  const response = await page.request.post('/api/auth/sign-in/email', {
-    headers: { Origin: BASE_URL },
-    data: { email, password },
-  });
-  expect(response.ok(), await response.text()).toBeTruthy();
+async function login(page: Page, email: string, password: string): Promise<string> {
+  expect(Boolean(email && password), 'The managed team fixture credentials must be configured.').toBe(true);
+  await authenticateManagedTestPage(page, { email, password });
+  const response = await page.request.get('/api/auth/get-session');
+  expect(response.status(), 'The fixture must retain its actual authenticated session.').toBe(200);
+  const payload = await response.json() as { user?: { id?: string; email?: string } };
+  expect(payload.user?.email).toBe(email);
+  expect(payload.user?.id).toBeTruthy();
+  return payload.user!.id!;
 }
 
 async function organizationWorkspace(request: APIRequestContext): Promise<WorkspaceSummary> {
-  let response = await request.get('/api/workspaces');
-  let payload = await response.json() as { workspaces?: WorkspaceSummary[]; error?: string };
+  const response = await request.get('/api/workspaces');
+  const payload = await response.json() as { workspaces?: WorkspaceSummary[]; error?: string };
   expect(response.ok(), payload.error || 'Could not list workspaces').toBeTruthy();
-  let workspace = payload.workspaces?.find((candidate) => candidate.type === 'organization' && candidate.permissions.canWrite);
-  if (!workspace) {
-    const created = await request.post('/api/workspaces', { data: { type: 'organization', name: 'Excalidraw Collaboration Organization' } });
-    expect(created.ok() || created.status() === 409, await created.text()).toBeTruthy();
-    response = await request.get('/api/workspaces');
-    payload = await response.json() as { workspaces?: WorkspaceSummary[]; error?: string };
-    workspace = payload.workspaces?.find((candidate) => candidate.type === 'organization' && candidate.permissions.canWrite);
-  }
-  expect(workspace).toBeTruthy();
+  const workspace = payload.workspaces?.find((candidate) => candidate.name === 'Shared Test Workspace' && candidate.permissions.canWrite);
+  expect(workspace, 'The existing shared managed fixture must be writable for both team users.').toBeTruthy();
   return workspace!;
 }
 
@@ -72,13 +70,25 @@ async function runAgentTool(input: {
   context: Record<string, unknown>;
 }): Promise<{ content?: Array<{ type: string; text?: string }>; details?: Record<string, unknown> }> {
   const encoded = Buffer.from(JSON.stringify(input)).toString('base64url');
-  const executable = path.join(process.cwd(), 'node_modules', '.bin', 'tsx');
-  const { stdout } = await execFileAsync(
-    executable,
-    ['--conditions', 'react-server', 'scripts/collaboration-agent-tool-driver.ts', encoded],
-    { cwd: process.cwd(), env: process.env, maxBuffer: 4 * 1024 * 1024 },
-  );
-  return JSON.parse(stdout) as { content?: Array<{ type: string; text?: string }>; details?: Record<string, unknown> };
+  await test.info().attach('native-scene-tool-phase', { contentType: 'application/json',
+    body: JSON.stringify({ phase: 'started', toolName: input.toolName, toolCallId: input.toolCallId }) });
+  try {
+    const result = await runOwnedNativeCommand(
+      ['--import', 'tsx', '--conditions', 'react-server', 'scripts/collaboration-agent-tool-driver.ts', encoded],
+      { label: 'scene-tool' });
+    await test.info().attach('native-scene-tool-phase', { contentType: 'application/json',
+      body: JSON.stringify({ phase: 'exited', toolName: input.toolName, toolCallId: input.toolCallId, child: result.receipt }) });
+    return JSON.parse(result.stdout) as { content?: Array<{ type: string; text?: string }>; details?: Record<string, unknown> };
+  } catch (error) {
+    try {
+      await test.info().attach('native-scene-tool-phase', { contentType: 'application/json',
+        body: JSON.stringify({ phase: 'failed', toolName: input.toolName, toolCallId: input.toolCallId,
+          child: (error as { ownedChildReceipt?: unknown }).ownedChildReceipt ?? null }) });
+    } catch (attachmentError) {
+      throw aggregateOwnedNativeErrors(error, [attachmentError], 'Native scene command and failure attachment both failed.');
+    }
+    throw error;
+  }
 }
 
 function sceneFromRead(result: { content?: Array<{ text?: string }> }): LiveScene {
@@ -93,12 +103,11 @@ test.describe('Excalidraw live collaboration', () => {
   test.setTimeout(150_000);
 
   test('converges across users and exposes a safe agent review UI', async ({ browser }, testInfo) => {
+    if (ownedCollaborationQaEnabled()) await requireOwnedCollaborationQaTarget();
     const suffix = `${Date.now()}-${randomUUID()}`;
-    const memberEmail = 'excalidraw-collaboration-member@example.test';
-    const memberPassword = 'Excalidraw-E2E-Password-1!';
     const filePath = `excalidraw-e2e-${suffix}.excalidraw`;
-    const adminContext = await browser.newContext({ viewport: { width: 1280, height: 720 } });
-    const memberContext = await browser.newContext({ viewport: { width: 1280, height: 720 } });
+    const adminContext = await browser.newContext({ baseURL: BASE_URL, viewport: { width: 1280, height: 720 } });
+    const memberContext = await browser.newContext({ baseURL: BASE_URL, viewport: { width: 1280, height: 720 } });
     const adminPage = await adminContext.newPage();
     const memberPage = await memberContext.newPage();
     const browserErrors: string[] = [];
@@ -115,21 +124,22 @@ test.describe('Excalidraw live collaboration', () => {
       });
     }
     let workspaceId: string | null = null;
+    let cleanupApi: APIRequestContext | undefined;
+    let fileCreated = false;
+    let storedSessionId: string | undefined;
+    let storedAgentId: string | undefined;
+    let failure: unknown;
+    let currentPhase = 'setup';
+    const phase = async (name: string) => {
+      currentPhase = name;
+      await testInfo.attach('excalidraw-phase', { contentType: 'application/json', body: JSON.stringify({ phase: name, filePath }) });
+    };
 
     try {
-      await login(adminPage, ADMIN_EMAIL, ADMIN_PASSWORD);
-      const existing = await adminPage.request.get(
-        `/api/auth/admin/list-users?searchValue=${encodeURIComponent(memberEmail)}&searchField=email&filterField=email&filterValue=${encodeURIComponent(memberEmail)}&filterOperator=eq&limit=1`,
-      );
-      const existingPayload = await existing.json() as { users?: Array<{ id: string }> };
-      if (!existingPayload.users?.length) {
-        const created = await adminPage.request.post('/api/auth/admin/create-user', {
-          headers: { Origin: BASE_URL },
-          data: { name: 'Excalidraw Collaboration Member', email: memberEmail, password: memberPassword, role: 'user' },
-        });
-        expect(created.ok(), await created.text()).toBeTruthy();
-      }
-      await login(memberPage, memberEmail, memberPassword);
+      const ownerUserId = await login(adminPage, ADMIN_EMAIL, ADMIN_PASSWORD);
+      cleanupApi = await request.newContext({ baseURL: BASE_URL,
+        storageState: await adminContext.storageState(), timeout: 15_000 });
+      expect(await login(memberPage, SECONDARY_EMAIL, SECONDARY_PASSWORD), 'Two distinct actual team users must coauthor.').not.toBe(ownerUserId);
       const workspace = await organizationWorkspace(adminPage.request);
       workspaceId = workspace.id;
       const memberWorkspace = await organizationWorkspace(memberPage.request);
@@ -141,18 +151,39 @@ test.describe('Excalidraw live collaboration', () => {
         headers: { [WORKSPACE_ID_HEADER]: workspaceId },
         data: { path: filePath, type: 'file' },
       });
+      fileCreated = createdFile.ok();
       expect(createdFile.ok(), await createdFile.text()).toBeTruthy();
+
+      const createdSession = await adminPage.request.post('/api/sessions', {
+        headers: { [WORKSPACE_ID_HEADER]: workspaceId },
+        data: { agentId: 'canvas-agent', workspaceId, title: `Excalidraw collaboration ${suffix}` },
+      });
+      expect(createdSession.status(), 'The tool fixture needs an actual API-owned runtime session.').toBe(200);
+      const createdPayload = await createdSession.json() as { success?: boolean; created?: boolean;
+        session?: { sessionId?: string; agentId?: string; engine?: string; workspace?: { workspaceId?: string } } };
+      const storedSession = createdPayload.session;
+      expect(createdPayload).toMatchObject({ success: true, created: true });
+      expect(storedSession?.sessionId).toBeTruthy();
+      expect(storedSession?.agentId).toBeTruthy();
+      expect(storedSession?.engine).toBe('pi');
+      expect(storedSession?.workspace?.workspaceId).toBe(workspaceId);
+      // Cleanup is allowed only after the complete creation and scope receipt is verified.
+      storedSessionId = storedSession!.sessionId;
+      storedAgentId = storedSession!.agentId;
+      await testInfo.attach('owned-excalidraw-fixture', { contentType: 'application/json',
+        body: JSON.stringify({ workspaceId, filePath, sessionId: storedSessionId, agentId: storedAgentId, fileCreated }) });
+      await phase('join-both-actual-users');
       await Promise.all([openDrawing(adminPage, filePath), openDrawing(memberPage, filePath)]);
       await expect(adminPage.getByTestId('excalidraw-collaboration-status')).toHaveAttribute('data-collaborator-count', '1', { timeout: 15_000 });
 
       const session = await adminPage.request.get('/api/auth/get-session');
       const sessionPayload = await session.json() as { user?: { id?: string } };
-      expect(sessionPayload.user?.id).toBeTruthy();
+      expect(sessionPayload.user?.id).toBe(ownerUserId);
       expect(workspace.rootRelativePath).toBeTruthy();
       const agentContext = {
         userId: sessionPayload.user!.id!,
-        sessionId: `excalidraw-agent-e2e-${suffix}`,
-        agentId: 'canvas-agent',
+        sessionId: storedSessionId!,
+        agentId: storedAgentId!,
         workspaceId,
         workspaceType: workspace.type,
         workspaceName: workspace.name,
@@ -168,6 +199,7 @@ test.describe('Excalidraw live collaboration', () => {
       };
 
       const adminCanvas = adminPage.locator('.excalidraw canvas.excalidraw__canvas.interactive');
+      await phase('draw-and-read-authoritative-scene');
       // Excalidraw's toolbar sits underneath the resizable notebook sidebar at
       // narrow editor widths. Focus the unobscured canvas and use Excalidraw's
       // documented shortcut just like a keyboard user would.
@@ -191,6 +223,7 @@ test.describe('Excalidraw live collaboration', () => {
       const initialElement = initialScene!.elements.find((element) => !element.isDeleted)!;
 
       const memberCanvas = memberPage.locator('.excalidraw canvas.excalidraw__canvas.interactive');
+      await phase('member-edit-and-authoritative-read');
       await memberCanvas.click();
       await memberPage.keyboard.press('ControlOrMeta+A');
       await memberPage.keyboard.press('ArrowRight');
@@ -218,6 +251,7 @@ test.describe('Excalidraw live collaboration', () => {
       await expect(blockedWrite.json()).resolves.toMatchObject({ code: 'COLLABORATION_ACTIVE_WHOLE_FILE_WRITE_BLOCKED' });
 
       const currentElement = movedScene!.elements.find((element) => element.id === initialElement.id)!;
+      await phase('stale-version-creates-human-review');
       const reviewResult = await runAgentTool({
         toolName: 'edit_excalidraw_scene',
         toolCallId: `review-${suffix}`,
@@ -252,6 +286,7 @@ test.describe('Excalidraw live collaboration', () => {
       await expect(review).toContainText(/Agent changes|Agentenänderungen/i);
 
       await memberPage.keyboard.press('ArrowRight');
+      await phase('actual-accept-conflict-and-rebase');
       await review.getByRole('button', { name: /Accept|Annehmen/i }).click();
       await expect(review).toBeVisible({ timeout: 20_000 });
       await review.getByRole('button', { name: /Accept|Annehmen/i }).click();
@@ -281,6 +316,7 @@ test.describe('Excalidraw live collaboration', () => {
         context: agentContext,
       });
       expect((rejectResult.details as { status?: string }).status).toBe('needs_review');
+      await phase('actual-reject-and-responsive-review');
       await expect(review).toBeVisible({ timeout: 20_000 });
 
       await adminPage.setViewportSize({ width: 900, height: 650 });
@@ -297,6 +333,7 @@ test.describe('Excalidraw live collaboration', () => {
       await expect(review).toBeHidden({ timeout: 20_000 });
 
       await memberPage.reload({ waitUntil: 'domcontentloaded' });
+      await phase('reload-member-and-confirm-live-scene');
       const reloadedMemberCanvas = memberPage.locator('.excalidraw canvas.excalidraw__canvas.interactive');
       await expect(reloadedMemberCanvas).toBeVisible({ timeout: 30_000 });
       await reloadedMemberCanvas.click();
@@ -319,15 +356,46 @@ test.describe('Excalidraw live collaboration', () => {
       expect(fit.canvas!.left).toBeGreaterThanOrEqual(0);
       expect(fit.canvas!.right).toBeLessThanOrEqual(900);
       expect(browserErrors, 'Excalidraw collaboration must not emit browser errors.').toEqual([]);
-    } finally {
-      if (workspaceId) {
-        await adminPage.request.delete('/api/files/delete', {
-          headers: { [WORKSPACE_ID_HEADER]: workspaceId },
-          data: { path: filePath },
-        }).catch(() => undefined);
+    } catch (error) {
+      failure = error;
+      try {
+        await testInfo.attach('excalidraw-failure-phase', { contentType: 'application/json',
+          body: JSON.stringify({ phase: currentPhase, filePath, sessionId: storedSessionId }) });
+      } catch (attachmentError) {
+        failure = aggregateOwnedNativeErrors(error, [attachmentError], 'Excalidraw action and failure attachment both failed.');
+        throw failure;
       }
-      await memberContext.close().catch(() => undefined);
-      await adminContext.close().catch(() => undefined);
+      throw error;
+    } finally {
+      const cleanupErrors: unknown[] = [];
+      const clean = async (action: () => Promise<unknown>) => {
+        try { await action(); } catch (error) { cleanupErrors.push(error); }
+      };
+      await clean(() => memberContext.close());
+      await clean(() => adminContext.close());
+      const exitUnconfirmed = (failure as { ownedChildReceipt?: { exitVerified?: boolean } } | undefined)?.ownedChildReceipt?.exitVerified === false;
+      if (exitUnconfirmed) cleanupErrors.push(new Error('Native child exit is unconfirmed; retain the owned drawing and session.'));
+      if (!exitUnconfirmed && cleanupApi && workspaceId && storedSessionId && storedAgentId) await clean(async () => {
+        const deleted = await cleanupApi!.delete('/api/sessions', {
+          headers: { [WORKSPACE_ID_HEADER]: workspaceId! },
+          params: { sessionId: storedSessionId!, agentId: storedAgentId!, workspaceId: workspaceId! },
+        });
+        expect(deleted.status(), 'Only the API-receipted fixture session is deleted.').toBe(200);
+        expect(await deleted.json()).toMatchObject({ success: true, deleted: storedSessionId });
+      });
+      if (!exitUnconfirmed && cleanupApi && workspaceId && fileCreated) await clean(async () => {
+        const deleted = await cleanupApi!.delete('/api/files/delete', {
+          headers: { [WORKSPACE_ID_HEADER]: workspaceId! }, data: { path: filePath },
+        });
+        expect(deleted.status(), 'Only the UUID-owned drawing is deleted.').toBe(200);
+        expect(await deleted.json()).toMatchObject({ success: true, deleted: [filePath], failed: [] });
+      });
+      if (cleanupApi) await clean(() => cleanupApi!.dispose());
+      await clean(() => testInfo.attach('owned-excalidraw-cleanup', { contentType: 'application/json',
+        body: JSON.stringify({ workspaceId, filePath, sessionId: storedSessionId, agentId: storedAgentId,
+          fileCreated, verified: cleanupErrors.length === 0, cleanupFailureCount: cleanupErrors.length }) }));
+      if (cleanupErrors.length) throw aggregateOwnedNativeErrors(failure, cleanupErrors,
+        'Excalidraw fixture cleanup failed; exact owned session and file identities were retained.');
     }
   });
 });
