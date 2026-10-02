@@ -1,8 +1,9 @@
 import { expect } from '@playwright/test';
 import { test } from './helpers/document-review-experimental';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 
 import { buildFileVersionCenterDeepLinkV1 } from '../app/lib/file-version-center/contracts/deep-link-v1';
+import { parseFileVersionTimelineResponseV1 } from '../app/lib/file-version-center/contracts/v1';
 import type { ProposalActionReceiptV1 } from '../app/lib/file-version-center/contracts/proposal-graph-v1';
 import type { ProposalReviewSessionResponseV1 } from '../app/lib/file-version-center/contracts/proposal-review-session-v1';
 import { runOrdinaryAgentTool, type OrdinaryAgentToolDetails } from './helpers/ordinary-agent-tool';
@@ -104,7 +105,7 @@ for (const workspaceKind of ['personal', 'team'] as const) {
               && new URL(request.url()).pathname === '/api/files/version-center/v1/proposals/actions') actionPosts += 1;
           });
           const selectedOrder = order === 'q-p1' ? [q!, p1!] : order === 'p1-q' ? [p1!, q!] : [p1!];
-          const receipts: Array<{ actionType: string; affectedProposalIds: string[] }> = [];
+          const receipts: ProposalActionReceiptV1[] = [];
           for (const [index, selected] of selectedOrder.entries()) {
             const session = await review(selected);
             expect(session.status).toBe(index === 0 ? 'clean' : 'clean_rebased');
@@ -172,9 +173,32 @@ for (const workspaceKind of ['personal', 'team'] as const) {
           const completed = page.getByRole('dialog', { name: 'Versions & changes' });
           await expect(completed.getByRole('region', { name: 'Agent reviews', exact: true }))
             .toContainText('No agent changes need review.', { timeout: 30_000 });
-          await expect(completed.getByRole('heading', { name: 'Current version', exact: true })).toBeVisible();
-          await expect(completed.getByRole('button', { name: /^Current version Current/u }))
+          const lastReceipt = receipts.at(-1);
+          if (lastReceipt?.phase !== 'succeeded' || lastReceipt.result.kind !== 'content_changed') {
+            throw new Error('The final accepted action needs a succeeded content revision receipt.');
+          }
+          const revisionId = lastReceipt.result.revisionId;
+          expect(lastReceipt.result.current.revisionId).toBe(revisionId);
+          const timelineResponse = await context.request.post('/api/files/version-center/v1/resolve', {
+            headers: { ...headers, 'x-canvas-version-history-provenance': '1' },
+            data: { contractVersion: 1, target, initialView: 'history', source: 'deep_link' },
+          });
+          expect(timelineResponse.status()).toBe(200);
+          const timeline = parseFileVersionTimelineResponseV1(await timelineResponse.json());
+          const current = timeline.entries.find(entry => entry.kind === 'current');
+          const saved = timeline.entries.find(entry => entry.kind === 'revision' && entry.revisionId === revisionId);
+          if (current?.kind !== 'current' || saved?.kind !== 'revision') {
+            throw new Error('The final receipt revision needs current display provenance and immutable history.');
+          }
+          expect(current.displayRevisionId ?? current.revisionId).toBe(revisionId);
+          const finalHash = createHash('sha256').update(FINAL).digest('hex');
+          expect(saved.content.sha256).toBe(finalHash);
+          expect(current.sha256).toBe(finalHash);
+          expect(lastReceipt.result.current.contentHash).toBe(finalHash);
+          await expect(completed.getByRole('heading', { name: `Current version · Version ${saved.revisionNumber}`, exact: true })).toBeVisible();
+          await expect(completed.getByRole('region', { name: 'Current', exact: true }).locator('button[data-entry-kind="current"]'))
             .toHaveAttribute('aria-pressed', 'true');
+          await expect(completed.locator('dt').filter({ hasText: /^Version ID$/u }).locator('..').locator('dd')).toHaveText(revisionId);
           await info.attach('ordinary-block-tools-evidence.json', {
             contentType: 'application/json',
             body: JSON.stringify({ workspaceKind, order, representation: 'tiptap_blocks', sameParagraph: true,
