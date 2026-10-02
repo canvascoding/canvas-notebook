@@ -5,6 +5,7 @@ import path from 'node:path';
 
 import type {
   APIRequestContext,
+  APIResponse,
   Browser,
   BrowserContext,
   BrowserContextOptions,
@@ -67,34 +68,93 @@ async function sleep(durationMs: number): Promise<void> {
   await new Promise<void>((resolve) => setTimeout(resolve, durationMs));
 }
 
-async function stateIsAuthorized(browser: Browser, storageStatePath: string, identity: ResolvedIdentity): Promise<boolean> {
-  try {
-    await fs.access(storageStatePath);
-    const context = await browser.newContext({
-      baseURL: process.env.BASE_URL || 'http://localhost:3000',
-      storageState: storageStatePath,
-    });
-    try {
-      const response = await context.request.get('/api/auth/get-session', { timeout: 15_000 });
-      if (response.status() !== 200) return false;
-      const payload = await response.json() as { user?: { id?: string; email?: string } | null } | null;
-      return typeof payload?.user?.id === 'string' && payload.user.id.length > 0
-        && payload.user.email === identity.email;
-    } finally {
-      await context.close();
-    }
-  } catch {
-    return false;
+function authRequestTimeout(deadline: number, phase: string): number {
+  const remainingMs = deadline - Date.now();
+  if (remainingMs <= 0) throw new Error(`${phase} exceeded its bounded deadline.`);
+  return Math.min(15_000, remainingMs);
+}
+
+async function waitForAuthRetry(response: APIResponse, deadline: number, phase: string, retries: number): Promise<void> {
+  const retryAfter = response.headers()['x-retry-after'] || response.headers()['retry-after'];
+  const seconds = Number(retryAfter);
+  const requestedMs = retryAfter && Number.isFinite(seconds) && seconds >= 0
+    ? seconds * 1_000 : retryAfter ? Date.parse(retryAfter) - Date.now() : 10_000;
+  const waitMs = Math.max(1_000, Number.isFinite(requestedMs) ? requestedMs : 10_000);
+  if (Date.now() + waitMs >= deadline) throw new Error(`${phase} failed (429): retry exceeds its bounded deadline.`);
+  console.info(`[managed-test] ${phase} returned 429; waiting ${waitMs}ms before retry ${retries}/2.`);
+  await sleep(waitMs);
+}
+
+/** Retry only throttled session transport; callers still verify the returned identity. */
+export async function requestManagedTestSession(request: APIRequestContext, options: {
+  url?: string;
+  deadline?: number;
+  phase?: 'Playwright authentication' | 'Managed page authentication' | 'Managed test preflight' | 'Managed fixture identity';
+} = {}): Promise<APIResponse> {
+  const deadline = options.deadline ?? Date.now() + 45_000;
+  const phase = options.phase ?? 'Playwright authentication';
+  let retries = 0;
+  while (true) {
+    const response = await request.get(options.url ?? '/api/auth/get-session', {
+      timeout: authRequestTimeout(deadline, phase),
+    }).catch(() => { throw new Error(`${phase} session check failed before receiving an HTTP response.`); });
+    if (response.status() !== 429) return response;
+    if (retries >= 2) throw new Error(`${phase} session check failed (429).`);
+    retries += 1;
+    await waitForAuthRetry(response, deadline, `${phase} session check`, retries);
   }
 }
 
-async function ensureAuthenticatedState(browser: Browser, identity: ResolvedIdentity): Promise<string> {
+async function withManagedAuthCleanup<T>(work: () => Promise<T>, cleanup: ReadonlyArray<() => Promise<unknown>>,
+  phase: string): Promise<T> {
+  let result!: T;
+  let primaryError: unknown;
+  let failed = false;
+  try { result = await work(); } catch (error) { failed = true; primaryError = error; }
+  const cleanupErrors: unknown[] = [];
+  for (const finish of cleanup) {
+    try { await finish(); } catch (error) { cleanupErrors.push(error); }
+  }
+  if (cleanupErrors.length) throw new AggregateError(failed ? [primaryError, ...cleanupErrors] : cleanupErrors,
+    `${phase} cleanup failed.`);
+  if (failed) throw primaryError;
+  return result;
+}
+
+async function removeAuthTemporaryPath(filePath: string): Promise<void> {
+  await fs.unlink(filePath).catch((error: NodeJS.ErrnoException) => { if (error.code !== 'ENOENT') throw error; });
+}
+
+async function stateIsAuthorized(browser: Browser, storageStatePath: string, identity: ResolvedIdentity,
+  deadline: number): Promise<boolean> {
+  let context: BrowserContext;
+  try {
+    await fs.access(storageStatePath);
+    context = await browser.newContext({
+      baseURL: process.env.BASE_URL || 'http://localhost:3000',
+      storageState: storageStatePath,
+    });
+  } catch {
+    return false;
+  }
+  // Throttling, transport and deadline failures must not invalidate credentials or start a new login.
+  return withManagedAuthCleanup(async () => {
+    const response = await requestManagedTestSession(context.request, { deadline });
+    if (response.status() !== 200) return false;
+    const payload = await response.json().catch(() => null) as { user?: { id?: string; email?: string } | null } | null;
+    return typeof payload?.user?.id === 'string' && payload.user.id.length > 0
+      && payload.user.email === identity.email;
+  }, [() => context.close()], 'Playwright cached authentication');
+}
+
+async function ensureAuthenticatedState(browser: Browser, identity: ResolvedIdentity, deadline: number): Promise<string> {
   const storageStatePath = authStatePath(identity);
-  if (await stateIsAuthorized(browser, storageStatePath, identity)) return storageStatePath;
+  if (await stateIsAuthorized(browser, storageStatePath, identity, deadline)) return storageStatePath;
   await fs.mkdir(path.dirname(storageStatePath), { recursive: true, mode: 0o700 });
   const lockPath = `${storageStatePath}.lock`;
 
   for (let attempt = 0; attempt < LOCK_ATTEMPTS; attempt += 1) {
+    authRequestTimeout(deadline, 'Playwright authentication');
     let lock: Awaited<ReturnType<typeof fs.open>> | null = null;
     try {
       lock = await fs.open(lockPath, 'wx', 0o600);
@@ -102,49 +162,36 @@ async function ensureAuthenticatedState(browser: Browser, identity: ResolvedIden
       if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
       const lockAge = await fs.stat(lockPath).then((stat) => Date.now() - stat.mtimeMs).catch(() => 0);
       if (lockAge > LOCK_STALE_MS) await fs.unlink(lockPath).catch(() => undefined);
-      await sleep(LOCK_WAIT_MS);
-      if (await stateIsAuthorized(browser, storageStatePath, identity)) return storageStatePath;
+      await sleep(Math.min(LOCK_WAIT_MS, deadline - Date.now()));
+      if (await stateIsAuthorized(browser, storageStatePath, identity, deadline)) return storageStatePath;
       continue;
     }
 
-    try {
-      const deadline = Date.now() + 45_000;
-      if (await stateIsAuthorized(browser, storageStatePath, identity)) return storageStatePath;
+    return withManagedAuthCleanup(async () => {
+      if (await stateIsAuthorized(browser, storageStatePath, identity, deadline)) return storageStatePath;
       const baseURL = process.env.BASE_URL || 'http://localhost:3000';
       const context = await browser.newContext({ baseURL });
       const temporaryPath = `${storageStatePath}.${process.pid}.${randomBytes(6).toString('hex')}.tmp`;
-      try {
+      await withManagedAuthCleanup(async () => {
         let retries = 0;
         while (true) {
-          const remainingMs = deadline - Date.now();
-          if (remainingMs <= 0) throw new Error('Playwright authentication exceeded its bounded deadline.');
           const response = await context.request.post('/api/auth/sign-in/email', {
             headers: { Origin: baseURL },
             data: {
               email: identity.email,
               password: identity.password,
             },
-            timeout: Math.min(15_000, remainingMs),
+            timeout: authRequestTimeout(deadline, 'Playwright authentication'),
           }).catch(() => { throw new Error('Playwright authentication failed before receiving an HTTP response.'); });
           if (response.status() === 200) break;
           if (response.status() !== 429 || retries >= 2) {
             // Never include response bodies: auth endpoints can echo credentials or tokens.
             throw new Error(`Playwright authentication failed (${response.status()}).`);
           }
-          const retryAfter = response.headers()['x-retry-after'] || response.headers()['retry-after'];
-          const seconds = Number(retryAfter);
-          const requestedMs = retryAfter && Number.isFinite(seconds) && seconds >= 0
-            ? seconds * 1_000 : retryAfter ? Date.parse(retryAfter) - Date.now() : 10_000;
-          const waitMs = Math.max(1_000, Number.isFinite(requestedMs) ? requestedMs : 10_000);
-          if (Date.now() + waitMs >= deadline) throw new Error('Playwright authentication failed (429): retry exceeds its bounded deadline.');
           retries += 1;
-          console.info(`[managed-test] Authentication returned 429; waiting ${waitMs}ms before retry ${retries}/2.`);
-          await sleep(waitMs);
+          await waitForAuthRetry(response, deadline, 'Playwright authentication', retries);
         }
-        const sessionRemainingMs = deadline - Date.now();
-        if (sessionRemainingMs <= 0) throw new Error('Playwright authentication exceeded its bounded deadline.');
-        const sessionResponse = await context.request.get('/api/auth/get-session', { timeout: Math.min(15_000, sessionRemainingMs) })
-          .catch(() => { throw new Error('Playwright authentication session check failed before receiving an HTTP response.'); });
+        const sessionResponse = await requestManagedTestSession(context.request, { deadline });
         if (sessionResponse.status() !== 200) throw new Error(`Playwright authentication session check failed (${sessionResponse.status()}).`);
         const session = await sessionResponse.json()
           .catch(() => { throw new Error('Playwright authentication session check returned invalid JSON.'); }) as { user?: { id?: string; email?: string } | null } | null;
@@ -154,15 +201,9 @@ async function ensureAuthenticatedState(browser: Browser, identity: ResolvedIden
         await context.storageState({ path: temporaryPath });
         await fs.chmod(temporaryPath, 0o600);
         await fs.rename(temporaryPath, storageStatePath);
-      } finally {
-        await context.close();
-        await fs.unlink(temporaryPath).catch(() => undefined);
-      }
+      }, [() => context.close(), () => removeAuthTemporaryPath(temporaryPath)], 'Playwright authentication context');
       return storageStatePath;
-    } finally {
-      await lock.close();
-      await fs.unlink(lockPath).catch(() => undefined);
-    }
+    }, [() => lock!.close(), () => removeAuthTemporaryPath(lockPath)], 'Playwright authentication lock');
   }
   throw new Error('Timed out waiting for the shared Playwright authentication state.');
 }
@@ -193,7 +234,9 @@ export async function runManagedTestPreflight(
     throw new Error('Managed test preflight failed: AUTH_ORIGIN must use http or https.');
   }
 
-  const session = await context.request.get(new URL('/api/auth/get-session', authOrigin).toString());
+  const session = await requestManagedTestSession(context.request, {
+    url: new URL('/api/auth/get-session', authOrigin).toString(), phase: 'Managed test preflight',
+  });
   if (!session.ok()) throw new Error(`Managed test preflight failed: session check returned ${session.status()}.`);
   const sessionPayload = await session.json() as { user?: { id?: string } | null };
   if (!sessionPayload.user?.id) throw new Error('Managed test preflight failed: authenticated session is missing.');
@@ -228,17 +271,23 @@ export async function runManagedTestPreflight(
 
 export const preflightManagedTestContext = runManagedTestPreflight;
 
-export async function createAuthenticatedContext(
-  browser: Browser,
-  options: BrowserContextOptions = {},
-  identityInput: AuthenticatedContextIdentity = {},
-): Promise<BrowserContext> {
-  const storageState = await ensureAuthenticatedState(browser, resolveIdentity(identityInput));
+async function createAuthenticatedContextBeforeDeadline(browser: Browser, options: BrowserContextOptions,
+  identity: ResolvedIdentity, deadline: number): Promise<BrowserContext> {
+  const storageState = await ensureAuthenticatedState(browser, identity, deadline);
+  authRequestTimeout(deadline, 'Playwright authentication');
   return browser.newContext({
     ...options,
     baseURL: options.baseURL || process.env.BASE_URL || 'http://localhost:3000',
     storageState,
   });
+}
+
+export async function createAuthenticatedContext(
+  browser: Browser,
+  options: BrowserContextOptions = {},
+  identityInput: AuthenticatedContextIdentity = {},
+): Promise<BrowserContext> {
+  return createAuthenticatedContextBeforeDeadline(browser, options, resolveIdentity(identityInput), Date.now() + 45_000);
 }
 
 /** Authenticate an existing page through the private, identity-checked test cache. */
@@ -249,10 +298,10 @@ export async function authenticateManagedTestPage(
   const browser = page.context().browser();
   if (!browser) throw new Error('Managed page authentication requires a browser context.');
   const identity = resolveIdentity(identityInput);
-  const authenticated = await createAuthenticatedContext(browser, {}, identity);
-  try {
-    const response = await authenticated.request.get('/api/auth/get-session', { timeout: 15_000 })
-      .catch(() => { throw new Error('Managed page authentication session check failed before receiving an HTTP response.'); });
+  const deadline = Date.now() + 45_000;
+  const authenticated = await createAuthenticatedContextBeforeDeadline(browser, {}, identity, deadline);
+  await withManagedAuthCleanup(async () => {
+    const response = await requestManagedTestSession(authenticated.request, { deadline, phase: 'Managed page authentication' });
     if (response.status() !== 200) throw new Error(`Managed page authentication session check failed (${response.status()}).`);
     const payload = await response.json()
       .catch(() => { throw new Error('Managed page authentication session check returned invalid JSON.'); }) as { user?: { id?: string; email?: string } | null } | null;
@@ -260,9 +309,7 @@ export async function authenticateManagedTestPage(
       throw new Error('Managed page authentication session identity does not match the configured account.');
     }
     await page.context().addCookies(await authenticated.cookies());
-  } finally {
-    await authenticated.close();
-  }
+  }, [() => authenticated.close()], 'Managed page authentication');
 }
 
 export async function uploadWorkspaceTextFile(input: {

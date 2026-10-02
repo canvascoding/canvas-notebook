@@ -10,22 +10,33 @@ import {
   runManagedTestPreflight,
 } from '../tests/helpers/managed-test-context';
 
-type Reply = { ok: () => boolean; status: () => number; json: () => Promise<unknown> };
+type Reply = { ok: () => boolean; status: () => number; json: () => Promise<unknown>; headers: () => Record<string, string> };
 
 function response(payload: unknown, status = 200): Reply {
-  return { ok: () => status >= 200 && status < 300, status: () => status, json: async () => payload };
+  return { ok: () => status >= 200 && status < 300, status: () => status, json: async () => payload,
+    headers: () => ({ 'retry-after': '0' }) };
 }
 
-function requestFor(routes: Record<string, Reply>) {
-  return { get: async (url: string) => routes[new URL(url).pathname] || response({}, 404) };
+function requestFor(routes: Record<string, Reply | Reply[]>) {
+  return { get: async (url: string) => {
+    const route = routes[new URL(url).pathname];
+    return Array.isArray(route) ? (route.length > 1 ? route.shift()! : route[0]!) : route || response({}, 404);
+  } };
 }
 
-function contextFor(routes: Record<string, Reply>) {
+function contextFor(routes: Record<string, Reply | Reply[]>) {
   return { request: requestFor(routes) } as never;
 }
 
 async function rejectsMessage(action: () => Promise<unknown>, message: RegExp): Promise<void> {
   await assert.rejects(action, (error: unknown) => error instanceof Error && message.test(error.message));
+}
+
+async function rejectsAuthAndCleanup(action: () => Promise<unknown>, primary: RegExp): Promise<void> {
+  await assert.rejects(action, (error: unknown) => error instanceof AggregateError
+    && error.errors.length === 2
+    && error.errors[0] instanceof Error && primary.test(error.errors[0].message)
+    && error.errors[1] instanceof Error && error.errors[1].message === 'Synthetic context close failure.');
 }
 
 async function preflightCases(): Promise<void> {
@@ -87,6 +98,17 @@ async function preflightCases(): Promise<void> {
     buildMarker: 'build-1',
     serverMarker: 'server-1',
   });
+
+  let throttledBodyReads = 0;
+  const throttled = { ...response({}, 429), json: async () => {
+    throttledBodyReads += 1;
+    throw new Error('A throttled auth body must never be read.');
+  } };
+  await runManagedTestPreflight(contextFor({ '/api/auth/get-session': [throttled,
+    response({ user: { id: 'user-1' } })] }));
+  await rejectsMessage(() => runManagedTestPreflight(contextFor({ '/api/auth/get-session': throttled })),
+    /session check failed \(429\)/);
+  assert.equal(throttledBodyReads, 0);
 }
 
 async function authCacheRenewalCase(): Promise<void> {
@@ -107,6 +129,15 @@ async function authCacheRenewalCase(): Promise<void> {
   let createdContexts = 0;
   let tamperContext = -1;
   let signInStatuses: number[] = [];
+  let sessionStatuses: number[] = [];
+  let sessionReads = 0;
+  let throttledBodyReads = 0;
+  let invalidJsonContext = -1;
+  let failingCloseContext = -1;
+  let failingTransportContext = -1;
+  let advanceOnSessionContext = -1;
+  let advanceOnSessionMs = 0;
+  const sessionTimeouts: number[] = [];
   let retryAfter = '0';
   const browser = {
     newContext: async (options: { storageState?: string }) => {
@@ -115,7 +146,20 @@ async function authCacheRenewalCase(): Promise<void> {
         ? JSON.parse(await fs.readFile(options.storageState, 'utf8')).user
         : null;
       const request = {
-        get: async () => response({ user: contextNumber === tamperContext ? { id: 'wrong-user', email: 'other@example.test' } : currentUser }),
+        get: async (_url: string, input: { timeout: number }) => {
+          assert.ok(input.timeout > 0 && input.timeout <= 15_000);
+          sessionTimeouts.push(input.timeout);
+          sessionReads += 1;
+          if (contextNumber === failingTransportContext) throw new Error('Synthetic secret transport detail.');
+          if (contextNumber === advanceOnSessionContext) controlledNow += advanceOnSessionMs;
+          const status = sessionStatuses.shift() ?? 200;
+          return { ...response({ user: contextNumber === tamperContext ? { id: 'wrong-user', email: 'other@example.test' } : currentUser }, status),
+            headers: () => ({ 'x-retry-after': retryAfter }), json: async () => {
+              if (status === 429) { throttledBodyReads += 1; throw new Error('A throttled auth body must never be read.'); }
+              if (contextNumber === invalidJsonContext) throw new Error('Synthetic invalid session JSON.');
+              return { user: contextNumber === tamperContext ? { id: 'wrong-user', email: 'other@example.test' } : currentUser };
+            } };
+        },
         post: async (_url: string, input: { data: { password: string }; timeout: number }) => {
           assert.ok(input.timeout > 0 && input.timeout <= 15_000, 'each real auth request must retain its bounded timeout');
           signIns += 1;
@@ -128,11 +172,16 @@ async function authCacheRenewalCase(): Promise<void> {
         request,
         cookies: async () => [{ name: 'fixture-auth', value: 'synthetic', domain: 'managed.test', path: '/' }],
         storageState: async ({ path: target }: { path: string }) => { stateWrites += 1; await fs.writeFile(target, JSON.stringify({ user: currentUser }), 'utf8'); },
-        close: async () => { closedContexts += 1; },
+        close: async () => {
+          closedContexts += 1;
+          if (contextNumber === failingCloseContext) throw new Error('Synthetic context close failure.');
+        },
       };
     },
   } as never;
   const previousBaseURL = process.env.BASE_URL;
+  const originalNow = Date.now;
+  let controlledNow = originalNow();
   process.env.BASE_URL = baseURL;
   try {
     const context = await createAuthenticatedContext(browser, {}, { email, password });
@@ -143,6 +192,52 @@ async function authCacheRenewalCase(): Promise<void> {
     const reused = await createAuthenticatedContext(browser, {}, { email, password });
     await reused.close();
     assert.equal(signIns, 1, 'an exact authenticated identity must reuse its private state');
+
+    let beforeSignIns = signIns;
+    let beforeContexts = createdContexts;
+    let beforeSessionReads = sessionReads;
+    let beforeWrites = stateWrites;
+    const savedCache = await fs.readFile(cachePath, 'utf8');
+    sessionStatuses = [429, 200];
+    const throttledCache = await createAuthenticatedContext(browser, {}, { email, password });
+    await throttledCache.close();
+    assert.equal(signIns, beforeSignIns, 'temporary session throttling must not trigger sign-in');
+    assert.equal(stateWrites, beforeWrites, 'temporary session throttling must not rewrite an exact cache');
+    assert.equal(createdContexts, beforeContexts + 2, 'retry the session in the same verification context without taking the renewal lock');
+    assert.equal(sessionReads, beforeSessionReads + 2);
+    assert.equal(await fs.readFile(cachePath, 'utf8'), savedCache);
+
+    sessionStatuses = [429, 429, 429];
+    beforeSessionReads = sessionReads;
+    await rejectsMessage(() => createAuthenticatedContext(browser, {}, { email, password }), /session check failed \(429\)/);
+    assert.equal(sessionReads, beforeSessionReads + 3, 'session throttling stops after two retries');
+    assert.equal(signIns, beforeSignIns, 'persistent session throttling must not attempt sign-in');
+    assert.equal(await fs.readFile(cachePath, 'utf8'), savedCache);
+    sessionStatuses = [429, 429, 429];
+    failingCloseContext = createdContexts + 1;
+    await rejectsAuthAndCleanup(() => createAuthenticatedContext(browser, {}, { email, password }), /session check failed \(429\)/);
+    assert.equal(signIns, beforeSignIns);
+    assert.equal(await fs.readFile(cachePath, 'utf8'), savedCache);
+    failingCloseContext = -1;
+    sessionStatuses = [];
+    failingTransportContext = createdContexts + 1;
+    beforeSessionReads = sessionReads;
+    const beforeTransportClose = closedContexts;
+    await assert.rejects(() => createAuthenticatedContext(browser, {}, { email, password }),
+      (error: unknown) => error instanceof Error && /session check failed before receiving an HTTP response/.test(error.message)
+        && !error.message.includes('Synthetic secret'));
+    assert.equal(sessionReads, beforeSessionReads + 1, 'transport failures must never retry');
+    assert.equal(signIns, beforeSignIns, 'transport failures must not trigger sign-in');
+    assert.equal(closedContexts, beforeTransportClose + 1);
+    assert.equal(await fs.readFile(cachePath, 'utf8'), savedCache);
+    failingTransportContext = -1;
+    sessionStatuses = [429];
+    retryAfter = '60';
+    await rejectsMessage(() => createAuthenticatedContext(browser, {}, { email, password }), /retry exceeds its bounded deadline/);
+    assert.equal(signIns, beforeSignIns);
+    retryAfter = '0';
+    sessionStatuses = [];
+
     await rejectsMessage(() => createAuthenticatedContext(browser, {}, { email, password: wrongPassword }), /authentication failed \(401\)/);
     assert.equal(signIns, 2, 'incorrect credentials must perform a real failing login instead of reusing a valid cache');
     assert.equal(stateWrites, 1, 'incorrect credentials must never publish a cache');
@@ -166,8 +261,77 @@ async function authCacheRenewalCase(): Promise<void> {
     assert.ok(closedContexts >= beforeFailureClose + 2, 'the rejected temporary auth context must close');
     tamperContext = -1;
 
+    beforeContexts = createdContexts;
+    sessionStatuses = [200, 429, 200];
+    await authenticateManagedTestPage(page, { email, password });
+    assert.equal(cookieTransfers, 2, 'page cookies transfer only after the session retry proves the exact identity');
+    assert.equal(createdContexts, beforeContexts + 2);
+    sessionStatuses = [200, 429, 429, 429];
+    await rejectsMessage(() => authenticateManagedTestPage(page, { email, password }), /session check failed \(429\)/);
+    assert.equal(cookieTransfers, 2, 'failed page verification must never transfer cookies');
+
+    tamperContext = createdContexts + 2;
+    failingCloseContext = tamperContext;
+    await rejectsAuthAndCleanup(() => authenticateManagedTestPage(page, { email, password }), /session identity does not match/);
+    assert.equal(cookieTransfers, 2);
+    tamperContext = -1;
+    failingCloseContext = -1;
+
+    invalidJsonContext = createdContexts + 2;
+    await rejectsMessage(() => authenticateManagedTestPage(page, { email, password }), /session check returned invalid JSON/);
+    assert.equal(cookieTransfers, 2);
+    invalidJsonContext = -1;
+
+    Date.now = () => controlledNow;
+    advanceOnSessionContext = createdContexts + 1;
+    advanceOnSessionMs = 36_000;
+    sessionStatuses = [200, 429];
+    retryAfter = '10';
+    await rejectsMessage(() => authenticateManagedTestPage(page, { email, password }), /retry exceeds its bounded deadline/);
+    assert.ok(sessionTimeouts.at(-1)! <= 9_000, 'page verification must share the elapsed cache-check deadline');
+    assert.equal(cookieTransfers, 2);
+    Date.now = originalNow;
+    advanceOnSessionContext = -1;
+    retryAfter = '0';
+    sessionStatuses = [];
+
     await fs.rm(cachePath);
-    let beforeSignIns = signIns;
+    beforeSignIns = signIns;
+    beforeWrites = stateWrites;
+    sessionStatuses = [429, 200];
+    const verifiedAfterLogin = await createAuthenticatedContext(browser, {}, { email, password });
+    await verifiedAfterLogin.close();
+    assert.equal(signIns, beforeSignIns + 1);
+    assert.equal(stateWrites, beforeWrites + 1, 'post-login retries publish only verified state');
+    await fs.rm(cachePath);
+    sessionStatuses = [429, 429, 429];
+    beforeWrites = stateWrites;
+    await rejectsMessage(() => createAuthenticatedContext(browser, {}, { email, password }), /session check failed \(429\)/);
+    assert.equal(stateWrites, beforeWrites);
+    assert.equal(await fs.access(cachePath).then(() => true, () => false), false);
+    sessionStatuses = [];
+    invalidJsonContext = createdContexts + 1;
+    await rejectsMessage(() => createAuthenticatedContext(browser, {}, { email, password }), /session check returned invalid JSON/);
+    assert.equal(stateWrites, beforeWrites);
+    invalidJsonContext = -1;
+    tamperContext = createdContexts + 1;
+    await rejectsMessage(() => createAuthenticatedContext(browser, {}, { email, password }), /session identity does not match/);
+    assert.equal(stateWrites, beforeWrites);
+    tamperContext = -1;
+
+    tamperContext = createdContexts + 1;
+    failingCloseContext = tamperContext;
+    await rejectsAuthAndCleanup(() => createAuthenticatedContext(browser, {}, { email, password }), /session identity does not match/);
+    assert.equal(stateWrites, beforeWrites);
+    assert.equal(await fs.access(`${cachePath}.lock`).then(() => true, () => false), false,
+      'context cleanup failure must still release the owned renewal lock');
+    assert.deepEqual((await fs.readdir(cacheDir)).filter(name => name.startsWith(`${path.basename(cachePath)}.`)), [],
+      'context cleanup failure must still remove its own temporary state files');
+    tamperContext = -1;
+    failingCloseContext = -1;
+    assert.equal(throttledBodyReads, 0);
+
+    beforeSignIns = signIns;
     signInStatuses = [429, 200];
     const retried = await createAuthenticatedContext(browser, {}, { email, password });
     await retried.close();
@@ -186,6 +350,7 @@ async function authCacheRenewalCase(): Promise<void> {
     await rejectsMessage(() => createAuthenticatedContext(browser, {}, { email, password }), /retry exceeds its bounded deadline/);
     assert.equal(signIns, beforeSignIns + 1, 'a retry beyond the deadline must fail without another request');
   } finally {
+    Date.now = originalNow;
     if (previousBaseURL === undefined) delete process.env.BASE_URL;
     else process.env.BASE_URL = previousBaseURL;
     for (const ownedPath of [cachePath, wrongCachePath]) {
