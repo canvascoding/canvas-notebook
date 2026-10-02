@@ -35,6 +35,10 @@ test.describe('Studio Bulk experimental feature', () => {
       viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true,
     });
     const anonymous = await browser.newContext({ baseURL: process.env.BASE_URL });
+    for (const context of [admin, member, mobile, anonymous]) {
+      context.setDefaultTimeout(30_000);
+      context.setDefaultNavigationTimeout(30_000);
+    }
     const initial = await readStudioBulkAvailability(admin.request);
     const initialDocumentReview = await readDocumentReviewEnabled(admin.request);
     const errors: string[] = [];
@@ -42,8 +46,13 @@ test.describe('Studio Bulk experimental feature', () => {
     const desktop = await admin.newPage();
     const memberPage = await member.newPage();
     const mobilePage = await mobile.newPage();
-    for (const page of [settings, desktop, memberPage, mobilePage]) {
-      page.on('pageerror', error => errors.push(error.message));
+    for (const [label, page] of [['settings', settings], ['desktop', desktop],
+      ['member', memberPage], ['mobile', mobilePage]] as const) {
+      page.on('pageerror', error => {
+        const message = `${label} ${new URL(page.url()).pathname}: ${error.message}`;
+        errors.push(message);
+        console.info(`[studio-bulk-e2e] pageerror ${message}`);
+      });
     }
 
     try {
@@ -61,24 +70,32 @@ test.describe('Studio Bulk experimental feature', () => {
         await assertLauncherBulk(desktop, false);
         await capture(desktop, testInfo, 'desktop-disabled');
 
+        console.info('[studio-bulk-e2e] disabled: mobile navigation to Studio');
         await mobilePage.goto('/studio', { waitUntil: 'domcontentloaded' });
+        console.info('[studio-bulk-e2e] disabled: mobile Studio menu');
         await assertMobileNavigation(mobilePage, false);
+        console.info('[studio-bulk-e2e] disabled: mobile launcher');
         await assertLauncherBulk(mobilePage, false);
         await expectNoHorizontalOverflow(mobilePage);
 
+        console.info('[studio-bulk-e2e] disabled: member experimental settings');
         await memberPage.goto('/settings?tab=experimental', { waitUntil: 'domcontentloaded' });
         await expect(memberPage.getByRole('heading', { name: /^(?:Settings|Einstellungen)$/ }).first()).toBeVisible();
         await expect(memberPage.locator('#studio-bulk-enabled')).toHaveCount(0);
         expect((await readStudioBulkAvailability(member.request)).studioBulkEnabled).toBe(false);
+        console.info('[studio-bulk-e2e] disabled: member toggle denied');
         const denied = await member.request.patch('/api/admin/experimental-settings', {
           headers: { Origin: process.env.BASE_URL! }, data: { studioBulkEnabled: true },
         });
         expect(denied.status()).toBe(403);
         expect((await readStudioBulkAvailability(admin.request)).studioBulkEnabled).toBe(false);
+        console.info('[studio-bulk-e2e] disabled: anonymous availability denied');
         expect((await anonymous.request.get('/api/studio/bulk/availability')).status()).toBe(401);
+        console.info('[studio-bulk-e2e] disabled: anonymous toggle denied');
         expect((await anonymous.request.patch('/api/admin/experimental-settings', {
           data: { studioBulkEnabled: true },
         })).status()).toBe(401);
+        console.info('[studio-bulk-e2e] disabled: first phase complete');
       });
 
       await test.step('Disabled deep links redirect on desktop and mobile', async () => {
@@ -204,6 +221,8 @@ test.describe('Studio Bulk experimental feature', () => {
 
   test('cold or delayed availability hides bulk until the real snapshot and hides it on socket failure', async ({ browser }, testInfo) => {
     const context = await createAuthenticatedContext(browser, { viewport: { width: 1480, height: 1000 } });
+    context.setDefaultTimeout(30_000);
+    context.setDefaultNavigationTimeout(30_000);
     const initial = await readStudioBulkAvailability(context.request);
     const initialDocumentReview = await readDocumentReviewEnabled(context.request);
     const page = await context.newPage();
@@ -284,7 +303,9 @@ async function toggleFromSettings(page: Page, enabled: boolean): Promise<void> {
 }
 
 async function assertLauncherBulk(page: Page, enabled: boolean): Promise<void> {
+  console.info(`[studio-bulk-e2e] launcher ${enabled ? 'enabled' : 'disabled'}: open apps at ${new URL(page.url()).pathname}`);
   await page.getByRole('button', { name: launcherLabel }).click();
+  console.info('[studio-bulk-e2e] launcher: open Studio actions');
   await page.getByLabel(studioActionsLabel).click();
   const panel = page.viewportSize()!.width < 768
     ? page.getByRole('dialog')
@@ -293,6 +314,7 @@ async function assertLauncherBulk(page: Page, enabled: boolean): Promise<void> {
   const bulk = panel.locator('a[href$="/studio/bulk"]');
   if (enabled) await expect(bulk).toBeVisible();
   else await expect(bulk).toHaveCount(0);
+  console.info('[studio-bulk-e2e] launcher: close actions');
   await page.keyboard.press('Escape');
   await expect(panel).not.toBeVisible();
 }

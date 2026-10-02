@@ -341,6 +341,7 @@
     "test:studio:handoff": "tsx scripts/studio-generate-handoff-test.ts",
     "test:studio:idempotency": "tsx --conditions react-server scripts/studio-generation-idempotency-schema-test.ts",
     "test:studio:navigation": "tsx scripts/studio-shell-navigation-test.ts",
+    "test:studio:workspace-hydration": "tsx scripts/studio-workspace-boundary-hydration-test.tsx",
     "test:studio:bulk-experimental": "tsx --conditions react-server scripts/studio-bulk-settings-test.ts && tsx --conditions react-server scripts/studio-bulk-policy-test.ts && tsx scripts/studio-bulk-availability-ui-test.tsx",
     "test:studio:bulk-experimental:e2e": "E2E_EXTERNAL_SERVER=1 playwright test --config playwright.studio-bulk-experimental.config.ts",
     "test:automation:paths": "tsx --conditions react-server scripts/automation-path-migration-test.ts",

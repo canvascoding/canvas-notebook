@@ -5,7 +5,7 @@ import { createAuthenticatedContext } from './managed-test-context';
 export type StudioBulkAvailability = { studioBulkEnabled: boolean; updatedAt: string | null };
 
 export async function readStudioBulkAvailability(request: APIRequestContext): Promise<StudioBulkAvailability> {
-  const response = await request.get('/api/studio/bulk/availability');
+  const response = await request.get('/api/studio/bulk/availability', { timeout: 30_000 });
   expect(response.status(), 'Authenticated Studio Bulk availability').toBe(200);
   expect(response.headers()['cache-control']).toContain('no-store');
   const payload = await response.json();
@@ -15,14 +15,14 @@ export async function readStudioBulkAvailability(request: APIRequestContext): Pr
 }
 
 export async function readDocumentReviewEnabled(request: APIRequestContext): Promise<boolean> {
-  const response = await request.get('/api/document-review/availability');
+  const response = await request.get('/api/document-review/availability', { timeout: 30_000 });
   expect(response.status(), 'Document Review availability stays available').toBe(200);
   return (await response.json()).data.documentReviewEnabled;
 }
 
 export async function setStudioBulkEnabled(request: APIRequestContext, studioBulkEnabled: boolean): Promise<void> {
   const response = await request.patch('/api/admin/experimental-settings', {
-    headers: { Origin: process.env.BASE_URL! }, data: { studioBulkEnabled },
+    headers: { Origin: process.env.BASE_URL! }, data: { studioBulkEnabled }, timeout: 30_000,
   });
   expect(response.status(), 'Admin updates Studio Bulk flag').toBe(200);
   const payload = await response.json();
@@ -37,6 +37,8 @@ export async function setStudioBulkEnabled(request: APIRequestContext, studioBul
 export const test = base.extend<{ studioBulkFlag: void }>({
   page: async ({ browser, viewport }, runFixture) => {
     const context = await createAuthenticatedContext(browser, { viewport });
+    context.setDefaultTimeout(30_000);
+    context.setDefaultNavigationTimeout(30_000);
     try {
       await runFixture(await context.newPage());
     } finally {
