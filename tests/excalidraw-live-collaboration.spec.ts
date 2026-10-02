@@ -209,9 +209,15 @@ test.describe('Excalidraw live collaboration', () => {
       await expect(adminPage.getByRole('radio', { name: /Rectangle|Rechteck/i })).toBeChecked();
       const canvasBox = await adminCanvas.boundingBox();
       expect(canvasBox).toBeTruthy();
-      await adminPage.mouse.move(canvasBox!.x + canvasBox!.width * 0.12, canvasBox!.y + canvasBox!.height * 0.68);
+      const drawingStart = { x: canvasBox!.x + canvasBox!.width * 0.5, y: canvasBox!.y + canvasBox!.height * 0.68 };
+      const drawingEnd = { x: canvasBox!.x + canvasBox!.width * 0.75, y: canvasBox!.y + canvasBox!.height * 0.84 };
+      expect(await adminCanvas.evaluate((canvas, points) =>
+        document.elementFromPoint(points.start.x, points.start.y) === canvas
+          && document.elementFromPoint(points.end.x, points.end.y) === canvas,
+      { start: drawingStart, end: drawingEnd }), 'Both real drawing points must hit the unobscured canvas.').toBe(true);
+      await adminPage.mouse.move(drawingStart.x, drawingStart.y);
       await adminPage.mouse.down();
-      await adminPage.mouse.move(canvasBox!.x + canvasBox!.width * 0.45, canvasBox!.y + canvasBox!.height * 0.84, { steps: 8 });
+      await adminPage.mouse.move(drawingEnd.x, drawingEnd.y, { steps: 8 });
       await adminPage.mouse.up();
 
       let initialScene: LiveScene | null = null;
