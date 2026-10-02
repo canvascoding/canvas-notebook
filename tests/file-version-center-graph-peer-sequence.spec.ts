@@ -9,7 +9,12 @@ import { COLLABORATION_CLIENT_CAPABILITIES } from '../app/lib/collaboration/type
 import { buildFileVersionCenterDeepLinkV1 } from '../app/lib/file-version-center/contracts/deep-link-v1';
 import type { ProposalActionReceiptV1 } from '../app/lib/file-version-center/contracts/proposal-graph-v1';
 import type { ProposalReviewGraphSessionV1 } from '../app/lib/file-version-center/contracts/proposal-review-session-v1';
-import type { FileVersionCenterRequestV1, FileVersionTimelineResponseV1 } from '../app/lib/file-version-center/contracts/v1';
+import {
+  FILE_VERSION_HISTORY_PROVENANCE_HEADER_V1,
+  parseFileVersionTimelineResponseV1,
+  type FileVersionCenterRequestV1,
+  type FileVersionTimelineResponseV1,
+} from '../app/lib/file-version-center/contracts/v1';
 import { createAuthenticatedContext, uploadWorkspaceTextFile } from './helpers/managed-test-context';
 import { observeProposalReviewServerErrors } from './helpers/proposal-review-server-errors';
 
@@ -122,11 +127,15 @@ test.describe('FVRC-1006 PG-U02 selected child across parent acceptance and peer
       const child = fixture.proposals[1]!;
       const timeline = async (): Promise<FileVersionTimelineResponseV1> => {
         const response = await firstContext.request.post('/api/files/version-center/v1/resolve', {
-          headers, data: { contractVersion: 1,
+          headers: { ...headers, [FILE_VERSION_HISTORY_PROVENANCE_HEADER_V1]: '1' }, data: { contractVersion: 1,
             target: { kind: 'path', workspaceId, pathHint: filePath }, initialView: 'history', source: 'file_browser' },
         });
-        const body = await response.json() as FileVersionTimelineResponseV1;
-        expect(response.ok()).toBeTruthy();
+        expect(response.status()).toBe(200);
+        const body = parseFileVersionTimelineResponseV1(await response.json());
+        expect(body.document.workspaceId).toBe(workspaceId);
+        expect(body.document.lineageId).toBe(fixture.scope.lineageId);
+        expect(body.document.documentId).toBe(fixture.scope.documentId);
+        expect(body.document.path).toBe(filePath);
         return body;
       };
       const content = async (): Promise<string> => {
@@ -153,6 +162,7 @@ test.describe('FVRC-1006 PG-U02 selected child across parent acceptance and peer
       const before = await timeline();
       const beforeCurrent = before.entries.find((entry) => entry.kind === 'current');
       expect(beforeCurrent?.kind).toBe('current');
+      if (beforeCurrent?.kind !== 'current') throw new Error('The fixture has no authoritative current document proof.');
       const beforeRevisionCount = before.entries.filter((entry) => entry.kind === 'revision').length;
       await first.goto(reviewLink({ workspaceId, lineageId: fixture.scope.lineageId, operationId: child.operationId }));
       const center = first.getByTestId('file-version-center');
@@ -165,7 +175,12 @@ test.describe('FVRC-1006 PG-U02 selected child across parent acceptance and peer
       await expect(childCard).toBeFocused();
       await expect(childCard).toHaveAttribute('aria-pressed', 'true');
       const currentCard = center.locator('button[data-entry-kind="current"]');
-      const beforeCurrentCardTime = await currentCard.locator('time').getAttribute('datetime');
+      const observedTime = currentCard.locator('time.tabular-nums');
+      await expect(observedTime).toHaveCount(1);
+      const beforeCurrentCardTime = await observedTime.getAttribute('datetime');
+      if (!beforeCurrentCardTime || !Number.isFinite(Date.parse(beforeCurrentCardTime))) {
+        throw new Error('The Current card needs its exact valid observation timestamp.');
+      }
 
       await peerReview.goto(reviewLink({ workspaceId, lineageId: fixture.scope.lineageId, operationId: parent.operationId }));
       const parentGraph = peerReview.getByTestId('graph-review-comparison');
@@ -187,16 +202,36 @@ test.describe('FVRC-1006 PG-U02 selected child across parent acceptance and peer
       if (parentCurrent?.kind !== 'current' || parentReceipt.result?.kind !== 'content_changed') {
         throw new Error('The parent action did not produce a current content revision.');
       }
-      expect(parentCurrent.sha256).toBe(createHash('sha256').update(PARENT_TEXT).digest('hex'));
-      expect(parentCurrent.revisionId).toBe(parentReceipt.result.revisionId);
-      expect(parentCurrent.revisionId).not.toBe(beforeCurrent?.revisionId);
+      const parentHash = createHash('sha256').update(PARENT_TEXT).digest('hex');
+      const parentSize = Buffer.byteLength(PARENT_TEXT, 'utf8');
+      const parentVersionId = parentCurrent.displayRevisionId ?? parentCurrent.revisionId;
+      expect(parentVersionId).toBe(parentReceipt.result.revisionId);
+      const savedParents = afterParent.entries.filter((entry) => entry.kind === 'revision'
+        && entry.revisionId === parentReceipt.result!.revisionId);
+      expect(savedParents).toHaveLength(1);
+      const savedParent = savedParents[0];
+      if (savedParent?.kind !== 'revision') throw new Error('The accepted parent needs its exact immutable saved revision.');
+      expect(savedParent.revisionId).toBe(parentVersionId);
+      expect(savedParent.source).toBe('agent_apply');
+      expect(savedParent.content.availability).toBe('available');
+      expect(savedParent.content.sha256).toBe(parentHash);
+      expect(savedParent.content.sizeBytes).toBe(parentSize);
+      expect(parentCurrent.sha256).toBe(parentHash);
+      expect(parentCurrent.sizeBytes).toBe(parentSize);
+      expect(parentReceipt.result.current.contentHash).toBe(parentHash);
+      expect(parentCurrent.revisionId).not.toBe(beforeCurrent.revisionId);
       expect(afterParent.entries.filter((entry) => entry.kind === 'revision').length).toBe(beforeRevisionCount + 1);
 
       await first.bringToFront();
       await first.evaluate(() => window.dispatchEvent(new Event('focus')));
       await expect(childCard).toHaveAttribute('aria-pressed', 'true');
-      await expect.poll(async () => currentCard.locator('time').getAttribute('datetime'), { timeout: 30_000 })
+      await expect.poll(async () => observedTime.getAttribute('datetime'), { timeout: 30_000 })
         .not.toBe(beforeCurrentCardTime);
+      await expect(observedTime).toHaveCount(1);
+      const parentCurrentCardTime = await observedTime.getAttribute('datetime');
+      if (!parentCurrentCardTime || !Number.isFinite(Date.parse(parentCurrentCardTime))) {
+        throw new Error('The refreshed Current card needs its exact valid observation timestamp.');
+      }
       await expect(graph.getByTestId('graph-review-hunks')).toContainText('A1|B0');
       await expect(graph.getByTestId('graph-review-hunks')).toContainText('A1|B1');
       await expect(graph.getByTestId('graph-review-hunks')).not.toContainText('A0|B0');
@@ -229,10 +264,23 @@ test.describe('FVRC-1006 PG-U02 selected child across parent acceptance and peer
       await expect(graph.getByTestId('graph-review-hunks')).toHaveCount(0);
       await expect(childCard).toBeFocused();
       expect(firstActionPosts).toEqual([]);
-      const peerCurrent = (await timeline()).entries.find((entry) => entry.kind === 'current');
+      const afterPeer = await timeline();
+      const peerCurrent = afterPeer.entries.find((entry) => entry.kind === 'current');
       if (peerCurrent?.kind !== 'current') throw new Error('The peer edit has no current document proof.');
       expect(peerCurrent.sha256).toBe(createHash('sha256').update(PEER_TEXT).digest('hex'));
-      expect(peerCurrent.revisionId).not.toBe(parentReceipt.result.revisionId);
+      expect(peerCurrent.sizeBytes).toBe(Buffer.byteLength(PEER_TEXT, 'utf8'));
+      expect(peerCurrent.revisionId).not.toBe(parentCurrent.revisionId);
+      expect(peerCurrent.displayRevisionId ?? peerCurrent.revisionId).not.toBe(parentReceipt.result.revisionId);
+      const retainedParents = afterPeer.entries.filter((entry) => entry.kind === 'revision'
+        && entry.revisionId === parentReceipt.result!.revisionId);
+      expect(retainedParents).toHaveLength(1);
+      const retainedParent = retainedParents[0];
+      if (retainedParent?.kind !== 'revision') throw new Error('The peer edit must retain the exact immutable parent revision.');
+      expect(retainedParent.revisionId).toBe(savedParent.revisionId);
+      expect(retainedParent.source).toBe('agent_apply');
+      expect(retainedParent.content.availability).toBe('available');
+      expect(retainedParent.content.sha256).toBe(parentHash);
+      expect(retainedParent.content.sizeBytes).toBe(parentSize);
       const conflicted = await childReview();
       expect(conflicted.status).toBe('conflicted');
       expect(conflicted.actions.accept).toBeUndefined();
