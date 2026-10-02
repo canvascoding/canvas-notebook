@@ -1,7 +1,13 @@
-import { test, expect, type Browser, type Page, type WebSocketRoute } from '@playwright/test';
+import { test, expect, request, type Browser, type Page, type WebSocketRoute } from '@playwright/test';
 import type { PiRuntimeStatus } from '@/app/lib/pi/live-runtime';
+import type { AISession } from '@/app/lib/chat/types';
+import type { AgentProfile } from '@/app/lib/agents/registry';
+import { MAIN_AGENT_ID } from '@/app/lib/agents/main-agent';
 import dotenv from 'dotenv';
+import { createHash, randomUUID } from 'node:crypto';
+import { chmod, mkdir } from 'node:fs/promises';
 import path from 'node:path';
+import { authenticateManagedTestPage } from './helpers/managed-test-context';
 
 dotenv.config({ path: path.join(process.cwd(), '.env.local') });
 
@@ -131,24 +137,7 @@ async function mockEffectiveAgentRuntime(page: Page) {
 
 async function login(page: Page) {
   await mockEffectiveAgentRuntime(page);
-  const sessionResponse = await page.request.get('/api/auth/get-session');
-  const sessionPayload = sessionResponse.ok()
-    ? await sessionResponse.json().catch(() => null) as { session?: unknown } | null
-    : null;
-
-  if (!sessionPayload?.session) {
-    const response = await page.request.post('/api/auth/sign-in/email', {
-      headers: {
-        Origin: process.env.BASE_URL || 'http://localhost:3000',
-      },
-      data: {
-        email: TEST_EMAIL,
-        password: TEST_PASSWORD,
-      },
-    });
-
-    expect(response.ok()).toBeTruthy();
-  }
+  await authenticateManagedTestPage(page, { email: TEST_EMAIL, password: TEST_PASSWORD });
   await page.goto('/notebook?chat=open', { waitUntil: 'domcontentloaded' });
   await expect(page).toHaveURL(/\/notebook\?chat=open$/, { timeout: 15000 });
 }
@@ -160,18 +149,74 @@ async function startFreshChat(page: Page) {
   await expect(page.getByTestId('chat-provider-selector')).toBeEnabled({ timeout: 15_000 });
 }
 
-async function mockEmptyChatBootstrap(page: Page, options: { sessionId?: string; title?: string } = {}) {
+async function startLiveMainAgentChat(page: Page) {
+  const agentsResponse = await page.request.get('/api/agents', { timeout: 15_000 });
+  expect(agentsResponse.ok()).toBe(true);
+  const agentsPayload = await agentsResponse.json() as { success?: boolean; data?: { agents?: AgentProfile[] } };
+  expect(agentsPayload.success).toBe(true);
+  const mainAgent = agentsPayload.data?.agents?.find((agent) => agent.agentId === MAIN_AGENT_ID && agent.type === 'main');
+  expect(mainAgent, 'The real main agent must be available to the authenticated test user.').toBeDefined();
+  const effectiveResponse = page.waitForResponse((response) => {
+    const url = new URL(response.url());
+    return response.request().method() === 'GET' && url.pathname === '/api/agent-runtime/effective'
+      && url.searchParams.get('agentId') === MAIN_AGENT_ID;
+  }, { timeout: 15_000 });
+  void effectiveResponse.catch(() => undefined);
+  await page.goto('/notebook?chat=open');
+  await page.getByTestId('chat-agent-id').click();
+  const mainOption = page.getByRole('button').filter({ has: page.getByText(MAIN_AGENT_ID, { exact: true }) });
+  await mainOption.click();
+  await expect(page.getByTestId('chat-agent-id')).toHaveAttribute('aria-label', `Select agent: ${mainAgent!.name}`);
+  const response = await effectiveResponse;
+  expect(response.ok()).toBe(true);
+  const payload = await response.json() as { success?: boolean; data?: { valid?: boolean }; resolution?: { valid?: boolean } };
+  expect(payload.success).toBe(true);
+  expect((payload.resolution ?? payload.data)?.valid, 'The live test must use an actual valid runtime resolution.').toBe(true);
+  await startFreshChat(page);
+  await expect(page.getByTestId('chat-agent-id')).toHaveAttribute('aria-label', `Select agent: ${mainAgent!.name}`);
+}
+
+async function mockEmptyDelegations(page: Page, sessionId: string) {
+  await page.route((url) => url.pathname === '/api/delegations' && url.searchParams.get('sourceSessionId') === sessionId, async (route) => {
+    if (route.request().method() !== 'GET') return route.fallback();
+    await route.fulfill({ json: { success: true, delegations: [] } });
+  });
+}
+
+async function mockEmptyChatBootstrap(page: Page, options: {
+  sessionId?: string; title?: string; agentId?: string;
+  persisted?: boolean; messages?: Record<string, unknown>[];
+} = {}) {
   const mockSessionId = options.sessionId || `sess-mock-${Date.now()}`;
   const mockTitle = options.title || 'New session';
-  let mockSession: Record<string, unknown> | null = null;
+  const createdAt = new Date().toISOString();
+  const initialSession: AISession = {
+    id: 1, sessionId: mockSessionId, title: mockTitle, agentId: options.agentId || 'canvas-agent',
+    model: 'gpt-4o', provider: 'openai', engine: 'pi', createdAt,
+    lastMessageAt: createdAt, lastViewedAt: createdAt, hasUnread: false,
+  };
+  let mockSession: AISession | null = options.persisted ? { ...initialSession } : null;
+  const history = () => ({ success: true, engine: 'pi', messages: options.messages || [], hasMoreBefore: false });
+  await mockEmptyDelegations(page, mockSessionId);
 
   await page.route('**/api/sessions**', async (route) => {
     const request = route.request();
     const method = request.method();
+    const url = new URL(request.url());
+    const isList = url.pathname === '/api/sessions';
+    const isBootstrap = url.pathname === `/api/sessions/${mockSessionId}/bootstrap`;
+    const isMessages = url.pathname === '/api/sessions/messages' && url.searchParams.get('sessionId') === mockSessionId;
+    if (!isList && !isBootstrap && !isMessages) return route.fallback();
+    const workspaceId = url.searchParams.get('workspaceId');
+    if (mockSession && workspaceId) {
+      if (mockSession.workspace) expect(mockSession.workspace.workspaceId).toBe(workspaceId);
+      else mockSession = { ...mockSession, workspace: {
+        workspaceId, workspaceType: 'personal', workspaceName: 'Personal Workspace',
+      } };
+    }
 
-    if (method === 'POST') {
-      const createdAt = new Date().toISOString();
-      let payload: { agentId?: string; model?: string; thinkingLevel?: string; title?: string } = {};
+    if (method === 'POST' && isList) {
+      let payload: { agentId?: string; model?: string; thinkingLevel?: AISession['thinkingLevel']; title?: string; workspace?: AISession['workspace']; workspaceId?: string } = {};
       try {
         payload = request.postDataJSON() as typeof payload;
       } catch {
@@ -190,7 +235,9 @@ async function mockEmptyChatBootstrap(page: Page, options: { sessionId?: string;
         lastMessageAt: createdAt,
         lastViewedAt: createdAt,
         hasUnread: false,
-        creator: null,
+        workspace: payload.workspace || (payload.workspaceId ? {
+          workspaceId: payload.workspaceId, workspaceType: 'personal', workspaceName: 'Personal Workspace',
+        } : null),
       };
 
       await route.fulfill({
@@ -204,13 +251,14 @@ async function mockEmptyChatBootstrap(page: Page, options: { sessionId?: string;
       return;
     }
 
-    if (method === 'PATCH') {
-      let payload: { title?: string } = {};
+    if (method === 'PATCH' && isList) {
+      let payload: { title?: string; sessionId?: string } = {};
       try {
         payload = request.postDataJSON() as typeof payload;
       } catch {
         payload = {};
       }
+      if (payload.sessionId && payload.sessionId !== mockSessionId) return route.fallback();
 
       if (mockSession && payload.title) {
         mockSession = {
@@ -233,7 +281,19 @@ async function mockEmptyChatBootstrap(page: Page, options: { sessionId?: string;
     }
 
     if (method !== 'GET') {
-      await route.continue();
+      await route.fallback();
+      return;
+    }
+
+    if (isBootstrap) {
+      expect(mockSession?.sessionId).toBe(mockSessionId);
+      expect(mockSession?.workspace?.workspaceId).toBe(workspaceId);
+      expect(workspaceId).toBeTruthy();
+      await route.fulfill({ json: { success: true, session: mockSession, messages: history() } });
+      return;
+    }
+    if (isMessages) {
+      await route.fulfill({ json: history() });
       return;
     }
 
@@ -287,6 +347,7 @@ interface MockWsConfig {
   sessionId: string;
   onSubscribe?: () => void;
   onSendMessage?: (message: Record<string, unknown>, context: Record<string, unknown> | undefined, requestId: string) => void;
+  onSendResultStatus?: (message: Record<string, unknown>, context: Record<string, unknown> | undefined, requestId: string) => Record<string, unknown>;
   onGetStatus?: (requestId: string) => Record<string, unknown> | null;
   onControl?: (
     action: string,
@@ -327,8 +388,11 @@ async function setupMockWebSocket(page: Page, config: MockWsConfig) {
   } = config;
 
   let eventQueue: AgentEventPayload[] = [...agentEvents];
+  let activeSocket: WebSocketRoute | null = null;
+  await mockEmptyDelegations(page, sessionId);
 
   await page.routeWebSocket('**/ws/chat', (ws: WebSocketRoute) => {
+    activeSocket = ws;
     ws.send(JSON.stringify({ type: 'auth_success', userId: 'test-user' }));
 
     ws.onMessage((rawMessage) => {
@@ -350,6 +414,7 @@ async function setupMockWebSocket(page: Page, config: MockWsConfig) {
             status: {
               ...createMockRuntimeStatus(sessionId, { phase: 'streaming', canAbort: true }),
               ...(runtimeStatus ?? {}),
+              ...(config.onSendResultStatus?.(message.message, message.context, requestId) ?? {}),
             },
           }));
 
@@ -432,6 +497,12 @@ async function setupMockWebSocket(page: Page, config: MockWsConfig) {
       }
     });
   });
+  return {
+    emitAgentEvent(event: AgentEventPayload) {
+      expect(activeSocket, 'The owned mock chat socket must be connected.').not.toBeNull();
+      activeSocket!.send(JSON.stringify({ type: 'agent_event', sessionId, event }));
+    },
+  };
 }
 
 function _sendAgentEvents(ws: WebSocketRoute, sessionId: string, events: AgentEventPayload[], delayMs = 50) {
@@ -452,19 +523,26 @@ test.describe('PI Chat E2E', () => {
   test.beforeAll(async ({ browser }: { browser: Browser }) => {
     test.setTimeout(120000);
     const context = await browser.newContext({ storageState: undefined });
-    const page = await context.newPage();
-    await login(page);
-    await context.storageState({ path: AUTH_STATE_PATH });
-    await context.close();
+    try {
+      const page = await context.newPage();
+      await login(page);
+      await mkdir(path.dirname(AUTH_STATE_PATH), { recursive: true, mode: 0o700 });
+      await chmod(path.dirname(AUTH_STATE_PATH), 0o700);
+      await context.storageState({ path: AUTH_STATE_PATH });
+      await chmod(AUTH_STATE_PATH, 0o600);
+    } finally {
+      await context.close();
+    }
   });
 
-  test.beforeEach(async ({ page }) => {
-    await mockEffectiveAgentRuntime(page);
+  test.beforeEach(async ({ page }, testInfo) => {
+    const usesLiveRuntime = testInfo.title === 'should keep structured PI context for a second turn'
+      || testInfo.title === 'should send a chat prompt over WebSocket without surfacing an HTTP 401 runtime error';
+    if (!usesLiveRuntime) await mockEffectiveAgentRuntime(page);
   });
 
   test('should render persisted upload references as preview attachments without metadata duplication', async ({ page }) => {
     const sessionId = 'sess-attachment-history';
-    const createdAt = new Date().toISOString();
     const imageId = 'reference---mock.png';
     const documentId = 'briefing---mock.pdf';
     const userText = `Please inspect these uploads.
@@ -500,63 +578,22 @@ contentKind: document
       });
     });
 
-    await page.route(/\/api\/sessions(\?.*)?$/, async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          success: true,
-          sessions: [{
-            id: 1,
-            sessionId,
-            title: 'Attachment history',
-            agentId: 'canvas-agent',
-            model: 'gpt-4o',
-            provider: 'openai',
-            createdAt,
-            engine: 'pi',
-            lastMessageAt: createdAt,
-            lastViewedAt: createdAt,
-            hasUnread: false,
-          }],
-        }),
-      });
-    });
-
-    await page.route(/\/api\/sessions\/messages\?.*$/, async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          success: true,
-          engine: 'pi',
-          hasMoreBefore: false,
-          oldestTimestamp: Date.now(),
-          oldestMessageId: 1,
-          messages: [
-            {
-              id: 1,
-              role: 'user',
-              content: [
-                { type: 'text', text: userText },
-                { type: 'image', data: `/api/files/${encodeURIComponent(imageId)}`, mimeType: 'image/png' },
-              ],
-              timestamp: Date.now(),
-            },
-            {
-              id: 2,
-              role: 'assistant',
-              content: [{ type: 'text', text: 'I can see both uploads.' }],
-              api: 'mock',
-              provider: 'mock',
-              model: 'mock-model',
-              usage: EMPTY_USAGE,
-              stopReason: 'stop',
-              timestamp: Date.now() + 1,
-            },
+    await mockEmptyChatBootstrap(page, {
+      sessionId, title: 'Attachment history', persisted: true,
+      messages: [
+        {
+          id: 1, role: 'user', timestamp: Date.now(),
+          content: [
+            { type: 'text', text: userText },
+            { type: 'image', data: `/api/files/${encodeURIComponent(imageId)}`, mimeType: 'image/png' },
           ],
-        }),
-      });
+        },
+        {
+          id: 2, role: 'assistant', content: [{ type: 'text', text: 'I can see both uploads.' }],
+          api: 'mock', provider: 'mock', model: 'mock-model', usage: EMPTY_USAGE,
+          stopReason: 'stop', timestamp: Date.now() + 1,
+        },
+      ],
     });
 
     await page.route(/\/api\/files\/[^/]+\/preview\?.*$/, async (route) => {
@@ -668,22 +705,38 @@ contentKind: document
     await expect(page.getByRole('button', { name: /session title smoke/i }).first()).toBeVisible();
   });
 
-  test('should keep structured PI context for a second turn', async ({ page }) => {
-    await page.goto('/notebook?chat=open');
-    await startFreshChat(page);
+  test('should keep structured PI context for a second turn', async ({ page }, testInfo) => {
+    test.setTimeout(180_000);
+    await startLiveMainAgentChat(page);
 
     const input = page.getByTestId('chat-input');
     const assistantMessages = page.getByTestId('chat-message-assistant');
-    const marker = 'RESUME_MARKER_ALPHA';
+    const marker = `RESUME_MARKER_${randomUUID().replaceAll('-', '')}`;
 
     await input.fill(`Merke dir exakt dieses Token: ${marker}. Antworte nur mit OK.`);
+    const creationResponse = page.waitForResponse((response) => response.request().method() === 'POST'
+      && new URL(response.url()).pathname === '/api/sessions'
+      && response.request().postDataJSON()?.agentId === MAIN_AGENT_ID);
     await input.press('Enter');
+    const response = await creationResponse;
+    expect(response.ok()).toBe(true);
+    const receipt = await response.json() as { success?: boolean; created?: boolean; session?: AISession };
+    expect(receipt.success).toBe(true);
+    expect(receipt.created).toBe(true);
+    expect(receipt.session?.agentId).toBe(MAIN_AGENT_ID);
+    expect(receipt.session?.sessionId).toBeTruthy();
+    await expect(page.getByTestId('chat-session-id')).toHaveAttribute('title', receipt.session!.sessionId);
+    await testInfo.attach('live-pi-session-receipt', { contentType: 'application/json', body: Buffer.from(JSON.stringify({
+      sessionId: receipt.session!.sessionId, agentId: receipt.session!.agentId,
+      workspaceId: receipt.session!.workspace?.workspaceId, created: receipt.created,
+    })) });
 
     await expect(assistantMessages).toHaveCount(1, { timeout: 60000 });
     await expect.poll(async () => {
       const text = await assistantMessages.first().textContent();
       return (text || '').replace(/\s+/g, ' ').trim();
     }, { timeout: 60000 }).toContain('OK');
+    await expect(page.getByTestId('chat-send')).toHaveAttribute('data-action', 'send');
 
     await input.fill('Gib exakt das Token aus, das ich dir gerade gegeben habe, und nichts anderes.');
     await input.press('Enter');
@@ -693,16 +746,17 @@ contentKind: document
       const text = await assistantMessages.last().textContent();
       return (text || '').replace(/\s+/g, ' ').trim();
     }, { timeout: 60000 }).toContain(marker);
+    await expect(page.getByTestId('chat-send')).toHaveAttribute('data-action', 'send');
   });
 
   test('should send a chat prompt over WebSocket without surfacing an HTTP 401 runtime error', async ({ page }) => {
-    const consoleMessages: string[] = [];
+    let websocket401Count = 0;
     page.on('console', (message) => {
-      consoleMessages.push(message.text());
+      const text = message.text();
+      if (text.includes('[WebSocket] Server error:') && text.includes('HTTP 401')) websocket401Count += 1;
     });
 
-    await page.goto('/notebook?chat=open');
-    await startFreshChat(page);
+    await startLiveMainAgentChat(page);
 
     const input = page.getByTestId('chat-input');
     await input.fill('Antworte kurz, damit ich den WebSocket-Versand prüfen kann.');
@@ -710,21 +764,14 @@ contentKind: document
 
     await expect(page.getByTestId('chat-message-user')).toHaveCount(1, { timeout: 15000 });
 
-    const websocket401 = () =>
-      consoleMessages.find(
-        (text) => text.includes('[WebSocket] Server error:') && text.includes('HTTP 401'),
-      ) || null;
-
-    await expect.poll(websocket401, { timeout: 15000 }).toBeNull();
+    await expect.poll(() => websocket401Count, { timeout: 15000 }).toBe(0);
 
     const assistantMessages = page.getByTestId('chat-message-assistant');
     await expect(assistantMessages.first()).toBeVisible({ timeout: 60000 });
-    await expect.poll(async () => {
-      const text = await assistantMessages.last().textContent();
-      return (text || '').trim().length;
-    }, { timeout: 60000 }).toBeGreaterThan(0);
-
-    expect(websocket401()).toBeNull();
+    await expect(assistantMessages.last().locator('p').first()).toContainText(/\S/, { timeout: 60000 });
+    await expect(assistantMessages.last().getByTestId('chat-assistant-streaming-indicator')).toHaveCount(0);
+    await expect(page.getByTestId('chat-send')).toHaveAttribute('data-action', 'send');
+    expect(websocket401Count).toBe(0);
   });
 
   test('should navigate previous chat inputs with arrow keys', async ({ page }) => {
@@ -1271,98 +1318,50 @@ contentKind: document
     await expect(page.getByTestId('attachment-preview-full-image')).toHaveAttribute('src', secondMediaUrl);
   });
 
-  test('should hide assistant text behind a streaming placeholder until the final message arrives', async ({ page }) => {
+  test('should render incremental assistant text and the final formatted message', async ({ page }) => {
     const sessionId = 'sess-streaming-placeholder';
-
-    let _wsRoute: WebSocketRoute | null = null;
-
-    await page.routeWebSocket('**/ws/chat', (ws: WebSocketRoute) => {
-      _wsRoute = ws;
-      ws.send(JSON.stringify({ type: 'auth_success', userId: 'test-user' }));
-
-      ws.onMessage((rawMessage) => {
-        const message = typeof rawMessage === 'string' ? JSON.parse(rawMessage) : JSON.parse(rawMessage.toString());
-        const { type, requestId } = message;
-
-        if (type === 'subscribe_session') {
-          ws.send(JSON.stringify({ type: 'subscribe_result', requestId, success: true, sessionId }));
-        }
-
-        if (type === 'send_message') {
-          ws.send(JSON.stringify({
-            type: 'send_message_result',
-            requestId,
-            success: true,
-            status: createMockRuntimeStatus(sessionId, { phase: 'streaming' }),
-          }));
-
-          ws.send(JSON.stringify({
-            type: 'agent_event',
-            sessionId,
-            event: {
-              type: 'message_update',
-              assistantMessageEvent: {
-                type: 'text_delta',
-                delta: 'Streaming **bold',
-              },
-            },
-          }));
-
-          setTimeout(() => {
-            ws.send(JSON.stringify({
-              type: 'agent_event',
-              sessionId,
-              event: {
-                type: 'message_end',
-                message: {
-                  role: 'assistant',
-                  content: [{ type: 'text', text: 'Streaming **bold** answer' }],
-                  api: 'mock',
-                  provider: 'mock',
-                  model: 'mock-model',
-                  usage: EMPTY_USAGE,
-                  stopReason: 'stop',
-                  timestamp: Date.now(),
-                },
-              },
-            }));
-          }, 900);
-        }
-
-        if (type === 'get_status') {
-          ws.send(JSON.stringify({
-            type: 'status_result',
-            requestId,
-            success: true,
-            status: createMockRuntimeStatus(sessionId, { phase: 'streaming' }),
-          }));
-        }
-      });
+    let currentStatus = createMockRuntimeStatus(sessionId);
+    const finalMessage = {
+      role: 'assistant', content: [{ type: 'text', text: 'Streaming **bold** answer' }],
+      api: 'mock', provider: 'mock', model: 'mock-model', usage: EMPTY_USAGE,
+      stopReason: 'stop', timestamp: Date.now(),
+    };
+    const socket = await setupMockWebSocket(page, {
+      sessionId,
+      onGetStatus: () => currentStatus as unknown as Record<string, unknown>,
+      onSendMessage: () => {
+        currentStatus = createMockRuntimeStatus(sessionId, { revision: 1, phase: 'streaming', canAbort: true });
+      },
+      agentEvents: [{ type: 'message_start', message: { ...finalMessage, content: [], stopReason: 'streaming' } }],
     });
-
     await mockEmptyChatBootstrap(page, { sessionId });
     await page.goto('/notebook?chat=open');
     await startFreshChat(page);
-
-    const input = page.getByTestId('chat-input');
-    await input.fill('Show streaming state.');
+    await page.getByTestId('chat-input').fill('Show streaming state.');
     await page.getByTestId('chat-send').click();
-
     await expect(page.getByTestId('chat-message-user')).toHaveCount(1, { timeout: 15000 });
-
     const assistantMessages = page.getByTestId('chat-message-assistant');
     await expect(assistantMessages).toHaveCount(1, { timeout: 15000 });
-
     const assistantMessage = assistantMessages.first();
-    await expect(assistantMessage.getByTestId('chat-assistant-streaming-indicator')).toBeVisible({ timeout: 15000 });
-    await expect(page.getByText('Streaming **bold', { exact: false })).toHaveCount(0);
-    await expect(page.getByText('Streaming bold answer', { exact: false })).toHaveCount(0);
-    await expect(assistantMessage.locator('strong')).toHaveCount(0);
+    await expect(assistantMessage.getByTestId('chat-assistant-streaming-indicator')).toBeVisible();
     await expect(assistantMessage).not.toContainText('Streaming');
+    await expect(assistantMessage.locator('strong')).toHaveCount(0);
 
+    socket.emitAgentEvent({ type: 'message_update', assistantMessageEvent: { type: 'text_delta', delta: 'Streaming **bold' } });
+    await expect(assistantMessage).toContainText('Streaming **bold');
+    await expect(assistantMessage).not.toContainText('answer');
+    await expect(assistantMessage.locator('strong')).toHaveCount(0);
+    await expect(assistantMessage.getByTestId('chat-assistant-streaming-indicator')).toHaveCount(0);
+    await expect(page.getByTestId('chat-send')).toHaveAttribute('data-action', 'stop');
+
+    currentStatus = createMockRuntimeStatus(sessionId, { revision: 2 });
+    socket.emitAgentEvent({ type: 'message_end', message: finalMessage });
+    socket.emitAgentEvent({ type: 'agent_end' });
+    socket.emitAgentEvent({ type: 'runtime_status', status: currentStatus });
     await expect(assistantMessage).toContainText('Streaming bold answer');
     await expect(assistantMessage.locator('strong')).toHaveText('bold');
     await expect(assistantMessage.getByTestId('chat-assistant-streaming-indicator')).toHaveCount(0);
+    await expect(page.getByTestId('chat-send')).toHaveAttribute('data-action', 'send');
   });
 
   test('should switch the composer to stop immediately on send and back to send when the final message lands', async ({ page }) => {
@@ -1408,188 +1407,82 @@ contentKind: document
 
   test('should keep the current scroll position when streaming continues after the user scrolls up', async ({ page }) => {
     const sessionId = 'sess-scroll';
-
-    await page.routeWebSocket('**/ws/chat', (ws: WebSocketRoute) => {
-      let streamCallCount = 0;
-      const emptyUsage = { ...EMPTY_USAGE };
-
-      ws.send(JSON.stringify({ type: 'auth_success', userId: 'test-user' }));
-
-      ws.onMessage((rawMessage) => {
-        const message = typeof rawMessage === 'string' ? JSON.parse(rawMessage) : JSON.parse(rawMessage.toString());
-        const { type, requestId } = message;
-
-        if (type === 'subscribe_session') {
-          ws.send(JSON.stringify({ type: 'subscribe_result', requestId, success: true, sessionId }));
-        }
-
-        if (type === 'send_message') {
-          streamCallCount += 1;
-          const isSeedTurn = streamCallCount <= 5;
-          ws.send(JSON.stringify({
-            type: 'send_message_result',
-            requestId,
-            success: true,
-            status: createMockRuntimeStatus(sessionId, { phase: isSeedTurn ? 'idle' : 'streaming' }),
-          }));
-
-          if (isSeedTurn) {
-            const seedText = Array.from(
-              { length: 6 },
-              (_, lineIndex) => `Seed reply ${streamCallCount}, line ${lineIndex + 1}: keep the transcript tall before the streaming placeholder appears.`,
-            ).join('\n');
-
-            ws.send(JSON.stringify({
-              type: 'agent_event',
-              sessionId,
-              event: {
-                type: 'message_end',
-                message: {
-                  role: 'assistant',
-                  content: [{ type: 'text', text: seedText }],
-                  api: 'mock',
-                  provider: 'mock',
-                  model: 'mock-model',
-                  usage: emptyUsage,
-                  stopReason: 'stop',
-                  timestamp: Date.now(),
-                },
-              },
-            }));
-            ws.send(JSON.stringify({ type: 'agent_event', sessionId, event: { type: 'agent_end' } }));
-            ws.send(JSON.stringify({
-              type: 'runtime_status',
-              sessionId,
-              status: createMockRuntimeStatus(sessionId, { phase: 'idle' }),
-            }));
-            return;
-          }
-
-          const totalChunks = 18;
-          const linesPerChunk = 3;
-          let chunkIndex = 0;
-
-          const buildText = (count: number) =>
-            Array.from(
-              { length: count * linesPerChunk },
-              (_, lineIndex) => `Stream line ${lineIndex + 1}: keep this answer growing while I inspect older history.`,
-            ).join('\n');
-
-          const sendChunk = () => {
-            if (chunkIndex >= totalChunks) return;
-
-            const text = buildText(chunkIndex + 1);
-            const event =
-              chunkIndex === totalChunks - 1
-                ? {
-                    type: 'message_end',
-                    message: {
-                      role: 'assistant',
-                      content: [{ type: 'text', text }],
-                      api: 'mock',
-                      provider: 'mock',
-                      model: 'mock-model',
-                      usage: emptyUsage,
-                      stopReason: 'stop',
-                      timestamp: Date.now(),
-                    },
-                  }
-                : {
-                    type: 'message_update',
-                    message: {
-                      role: 'assistant',
-                      content: [{ type: 'text', text }],
-                      api: 'mock',
-                      provider: 'mock',
-                      model: 'mock-model',
-                      usage: emptyUsage,
-                      stopReason: 'streaming',
-                      timestamp: Date.now(),
-                    },
-                    assistantMessageEvent: {
-                      type: 'text_delta',
-                      delta: text,
-                    },
-                  };
-
-            ws.send(JSON.stringify({ type: 'agent_event', sessionId, event }));
-            if (chunkIndex === totalChunks - 1) {
-              ws.send(JSON.stringify({ type: 'agent_event', sessionId, event: { type: 'agent_end' } }));
-              ws.send(JSON.stringify({
-                type: 'runtime_status',
-                sessionId,
-                status: createMockRuntimeStatus(sessionId, { phase: 'idle' }),
-              }));
-            }
-            chunkIndex += 1;
-            setTimeout(sendChunk, 120);
-          };
-
-          setTimeout(sendChunk, 0);
-        }
-
-        if (type === 'get_status') {
-          ws.send(JSON.stringify({
-            type: 'status_result',
-            requestId,
-            success: true,
-            status: createMockRuntimeStatus(sessionId, { phase: streamCallCount > 5 ? 'streaming' : 'idle' }),
-          }));
-        }
-      });
+    let streamCallCount = 0;
+    let currentStatus = createMockRuntimeStatus(sessionId);
+    const assistantMessagePayload = (text: string) => ({
+      role: 'assistant', content: [{ type: 'text', text }],
+      api: 'mock', provider: 'mock', model: 'mock-model', usage: EMPTY_USAGE,
+      stopReason: 'stop', timestamp: Date.now(),
     });
-
+    const socket = await setupMockWebSocket(page, {
+      sessionId, sendEventsAfterSendMessage: false,
+      onGetStatus: () => currentStatus as unknown as Record<string, unknown>,
+      onSendMessage: () => {
+        streamCallCount += 1;
+        currentStatus = createMockRuntimeStatus(sessionId, {
+          revision: streamCallCount, phase: streamCallCount <= 5 ? 'idle' : 'streaming', canAbort: streamCallCount > 5,
+        });
+        if (streamCallCount <= 5) {
+          const seedText = Array.from({ length: 6 }, (_, index) =>
+            `Seed reply ${streamCallCount}, line ${index + 1}: keep the transcript tall before streaming starts.`).join('\n');
+          socket.emitAgentEvent({ type: 'message_end', message: assistantMessagePayload(seedText) });
+          socket.emitAgentEvent({ type: 'agent_end' });
+        } else {
+          socket.emitAgentEvent({ type: 'message_start', message: { ...assistantMessagePayload(''), content: [], stopReason: 'streaming' } });
+        }
+        socket.emitAgentEvent({ type: 'runtime_status', status: currentStatus });
+      },
+    });
     await mockEmptyChatBootstrap(page, { sessionId });
     await page.goto('/notebook?chat=open');
     await startFreshChat(page);
-
     const input = page.getByTestId('chat-input');
     const scrollRegion = page.getByTestId('chat-scroll-region');
     const assistantMessages = page.getByTestId('chat-message-assistant');
-
     for (let index = 0; index < 5; index += 1) {
       await input.fill(`Seed transcript turn ${index + 1}.`);
       await input.press('Enter');
       await expect(assistantMessages).toHaveCount(index + 1, { timeout: 10000 });
-      await expect(assistantMessages.nth(index)).toContainText(`Seed reply ${index + 1}, line 1`, { timeout: 10000 });
+      await expect(assistantMessages.nth(index)).toContainText(`Seed reply ${index + 1}, line 1`);
     }
-
-    await expect
-      .poll(async () => scrollRegion.evaluate((element) => element.scrollHeight - element.clientHeight), { timeout: 10000 })
-      .toBeGreaterThan(240);
-
+    await expect.poll(() => scrollRegion.evaluate((element) => element.scrollHeight - element.clientHeight)).toBeGreaterThan(240);
     await input.fill('Stream a long answer so I can scroll away from the bottom.');
     await input.press('Enter');
-
+    await expect(assistantMessages).toHaveCount(6);
     const assistantMessage = assistantMessages.last();
-    await expect(assistantMessage.getByTestId('chat-assistant-streaming-indicator')).toBeVisible({ timeout: 10000 });
-    await expect(page.getByText('Stream line 30', { exact: false })).toHaveCount(0);
-    await page.waitForTimeout(350);
-
+    await expect(assistantMessage.getByTestId('chat-assistant-streaming-indicator')).toBeVisible();
+    await expect(assistantMessage).not.toContainText('Stream line 30');
+    const lines = Array.from({ length: 54 }, (_, index) =>
+      `Stream line ${index + 1}: keep this answer growing while I inspect older history.`);
+    socket.emitAgentEvent({ type: 'message_update', assistantMessageEvent: { type: 'text_delta', delta: lines.slice(0, 3).join('\n') } });
+    await expect(assistantMessage).toContainText('Stream line 3');
     await scrollRegion.hover();
     await page.mouse.wheel(0, -520);
-    await expect
-      .poll(async () => scrollRegion.evaluate((element) => element.scrollHeight - element.scrollTop - element.clientHeight), { timeout: 2000 })
-      .toBeGreaterThan(120);
-
+    await expect.poll(() => scrollRegion.evaluate((element) => element.scrollHeight - element.scrollTop - element.clientHeight)).toBeGreaterThan(120);
     const lockedScrollTop = await scrollRegion.evaluate((element) => element.scrollTop);
-
     await expect(page.getByTitle('Scroll to bottom')).toBeVisible();
-    await expect(assistantMessage).toContainText('Stream line 30', { timeout: 10000 });
-    await expect(assistantMessage).toContainText('Stream line 48', { timeout: 10000 });
+
+    for (let chunk = 1; chunk < 18; chunk += 1) {
+      socket.emitAgentEvent({ type: 'message_update', assistantMessageEvent: {
+        type: 'text_delta', delta: '\n' + lines.slice(chunk * 3, (chunk + 1) * 3).join('\n'),
+      } });
+      await expect(assistantMessage).toContainText(`Stream line ${(chunk + 1) * 3}`);
+    }
+    await expect(assistantMessage).toContainText('Stream line 30');
+    await expect(assistantMessage).toContainText('Stream line 48');
+    expect((await assistantMessage.textContent())?.match(/Stream line 1:/g)).toHaveLength(1);
+    currentStatus = createMockRuntimeStatus(sessionId, { revision: streamCallCount + 1 });
+    socket.emitAgentEvent({ type: 'message_end', message: assistantMessagePayload(lines.join('\n')) });
+    socket.emitAgentEvent({ type: 'agent_end' });
+    socket.emitAgentEvent({ type: 'runtime_status', status: currentStatus });
+    await expect(page.getByTestId('chat-send')).toHaveAttribute('data-action', 'send');
     await expect(assistantMessage.getByTestId('chat-assistant-streaming-indicator')).toHaveCount(0);
-
-    await page.waitForTimeout(250);
-
+    await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
     const scrollMetricsAfterStreaming = await scrollRegion.evaluate((element) => ({
-      scrollTop: element.scrollTop,
-      scrollHeight: element.scrollHeight,
-      clientHeight: element.clientHeight,
+      scrollTop: element.scrollTop, scrollHeight: element.scrollHeight, clientHeight: element.clientHeight,
     }));
-    expect(
-      Math.abs(scrollMetricsAfterStreaming.scrollTop - lockedScrollTop),
-      `Scroll metrics: ${JSON.stringify({ lockedScrollTop, ...scrollMetricsAfterStreaming })}`,
-    ).toBeLessThan(24);
+    expect(Math.abs(scrollMetricsAfterStreaming.scrollTop - lockedScrollTop),
+      `Scroll metrics: ${JSON.stringify({ lockedScrollTop, ...scrollMetricsAfterStreaming })}`).toBeLessThan(24);
     await expect(page.getByTitle('Scroll to bottom')).toBeVisible();
   });
 
@@ -1819,104 +1712,51 @@ contentKind: document
     const queuedMessages = new Map<string, Record<string, unknown>>();
     const controlActions: string[] = [];
 
-    await page.route('**/api/sessions**', async (route) => {
-      const request = route.request();
-      if (request.method() === 'GET') {
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({
-            success: true,
-            sessions: [
-              {
-                id: 1,
-                sessionId,
-                title: 'Busy runtime session',
-                model: 'gpt-4o',
-                createdAt: new Date().toISOString(),
-              },
-            ],
-          }),
-        });
-        return;
-      }
-
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          success: true,
-          session: {
-            id: 1,
-            sessionId,
-            title: 'Busy runtime session',
-            model: 'gpt-4o',
-            createdAt: new Date().toISOString(),
-          },
-        }),
-      });
-    });
-
-    await page.route('**/api/sessions/messages**', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          success: true,
-          messages: [
-            {
-              id: 'm1',
-              role: 'user',
-              content: 'Check the project status.',
-              timestamp: Date.now() - 1000,
-            },
-            {
-              id: 'm2',
-              role: 'assistant',
-              content: [{ type: 'text', text: 'Working on it.' }],
-              api: 'mock',
-              provider: 'mock',
-              model: 'mock-model',
-              usage: EMPTY_USAGE,
-              stopReason: 'stop',
-              timestamp: Date.now() - 500,
-            },
-          ],
-        }),
-      });
+    await mockEmptyChatBootstrap(page, {
+      sessionId, title: 'Busy runtime session', persisted: true,
+      messages: [
+        { id: 'm1', role: 'user', content: 'Check the project status.', timestamp: Date.now() - 1000 },
+        {
+          id: 'm2', role: 'assistant', content: [{ type: 'text', text: 'Working on it.' }],
+          api: 'mock', provider: 'mock', model: 'mock-model', usage: EMPTY_USAGE,
+          stopReason: 'stop', timestamp: Date.now() - 500,
+        },
+      ],
     });
 
     await setupMockWebSocket(page, {
       sessionId,
       runtimeStatus: currentStatus as Record<string, unknown>,
       onGetStatus: () => currentStatus as unknown as Record<string, unknown>,
-      onControl: (action, message, _requestId, queueItemId) => {
-        controlActions.push(action);
-
-        if (action === 'follow_up') {
-          const content = message?.content;
-          const text = typeof content === 'string'
+      onSendResultStatus: (message) => {
+        const content = message?.content;
+        const text = typeof content === 'string'
+          ? content
+          : Array.isArray(content)
             ? content
-            : Array.isArray(content)
-              ? content
-                .map((part) => {
-                  const item = part as { type?: unknown; text?: unknown };
-                  return item?.type === 'text' && typeof item.text === 'string' ? item.text : '';
-                })
-                .filter(Boolean)
-                .join('\n')
-              : '';
-          currentStatus = {
-            ...currentStatus,
-            followUpQueue: [
-              ...currentStatus.followUpQueue!,
-              { id: 'follow-new', text, attachmentCount: 0 },
-            ],
-          };
-          if (message) {
-            queuedMessages.set('follow-new', message);
-          }
+              .map((part) => {
+                const item = part as { type?: unknown; text?: unknown };
+                return item?.type === 'text' && typeof item.text === 'string' ? item.text : '';
+              })
+              .filter(Boolean)
+              .join('\n')
+            : '';
+        currentStatus = {
+          ...currentStatus,
+          followUpQueue: [
+            ...currentStatus.followUpQueue!,
+            { id: 'follow-new', text, attachmentCount: 0 },
+          ],
+        };
+        if (message) {
+          queuedMessages.set('follow-new', message);
         }
+        currentStatus = { ...currentStatus, revision: currentStatus.revision + 1 };
+        return currentStatus as unknown as Record<string, unknown>;
+      },
+      onControl: (action, _message, _requestId, queueItemId) => {
+        controlActions.push(action);
+        currentStatus = { ...currentStatus, revision: currentStatus.revision + 1 };
 
         if (action === 'promote_queued_to_steer') {
           const entryIndex = currentStatus.followUpQueue!.findIndex((entry) => entry.id === queueItemId);
@@ -1997,7 +1837,7 @@ contentKind: document
     await expect(page.getByTestId('chat-context-details')).toContainText('Earlier messages are available as a summary.');
     await expect(page.getByTestId('chat-compact')).toBeDisabled();
     await page.keyboard.press('Escape');
-    await expect(page.getByTestId('chat-runtime-notice')).toContainText('Context is at 96% of the automatic compaction trigger.');
+    await expect(page.getByTestId('chat-runtime-notice')).toHaveCount(0);
     await expect(page.getByTestId('chat-queue-panel')).toContainText('Summarize afterwards', { timeout: 15000 });
     await expect(page.getByTestId('chat-queue-panel')).toContainText('Stop and inspect README');
 
@@ -2031,6 +1871,14 @@ contentKind: document
     await busyInput.press('Escape');
     await expect.poll(() => controlActions.filter((action) => action === 'abort').length).toBe(1);
     await expect(busyInput).toHaveValue('Draft while the agent is still working');
+    currentStatus = {
+      ...currentStatus, revision: currentStatus.revision + 1, phase: 'idle',
+      activeTool: null, pendingToolCalls: 0, canAbort: false,
+    };
+    await page.evaluate(({ sessionId: targetSessionId, status }) => {
+      window.dispatchEvent(new CustomEvent('agent_event', { detail: { sessionId: targetSessionId, event: { type: 'runtime_status', status } } }));
+    }, { sessionId, status: currentStatus });
+    await expect(page.getByTestId('chat-runtime-notice')).toContainText('Context is at 96% of the automatic compaction trigger.');
   });
 
   test('should start a queued follow-up from Steer after the active run was stopped', async ({ page }) => {
@@ -2427,8 +2275,11 @@ contentKind: document
     await page.setViewportSize({ width: 390, height: 844 });
 
     let includeCreatedAgent = false;
+    let directoryReads = 0;
 
     await page.route(/\/api\/agents(\?.*)?$/, async (route) => {
+      if (route.request().method() !== 'GET') return route.fallback();
+      directoryReads += 1;
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -2494,8 +2345,17 @@ contentKind: document
     await expect(page.getByTestId('chat-header-menu-trigger')).toBeVisible();
     await expect(page.getByTestId('chat-mobile-details-toggle')).toHaveCount(0);
 
+    // First open proves the original directory is loaded before the server changes.
+    await page.getByTestId('chat-agent-id').click();
+    await expect(page.getByTestId('chat-agent-selector-popover')).toBeVisible();
+    await expect(page.getByRole('button', { name: /Bradley\s+canvas-agent/i })).toBeVisible();
+    await expect(page.getByRole('button', { name: /Research Agent\s+research-agent/i })).toHaveCount(0);
+    await page.keyboard.press('Escape');
+    await expect(page.getByTestId('chat-agent-selector-popover')).toBeHidden();
+    const readsBeforeRefresh = directoryReads;
     includeCreatedAgent = true;
     await page.getByTestId('chat-agent-id').click();
+    await expect.poll(() => directoryReads).toBeGreaterThan(readsBeforeRefresh);
     await expect(page.getByTestId('chat-agent-selector-popover')).toBeVisible();
     await expect(page.getByTestId('chat-agent-selector-popover')).toHaveCSS('z-index', '110');
     await expect(page.getByTestId('chat-agent-selector-skeleton')).toHaveCount(0);
@@ -2554,52 +2414,16 @@ contentKind: document
       },
     };
 
-    await page.route('**/api/sessions**', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          success: true,
-          sessions: [
-            {
-              id: 1,
-              sessionId,
-              title: 'Compact session',
-              model: 'gpt-4o',
-              createdAt: new Date().toISOString(),
-            },
-          ],
-        }),
-      });
-    });
-
-    await page.route('**/api/sessions/messages**', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          success: true,
-          messages: [
-            {
-              id: 'm1',
-              role: 'user',
-              content: 'Compress the old context.',
-              timestamp: Date.now() - 1000,
-            },
-            {
-              id: 'm2',
-              role: 'assistant',
-              content: [{ type: 'text', text: 'Ready when you are.' }],
-              api: 'mock',
-              provider: 'mock',
-              model: 'mock-model',
-              usage: EMPTY_USAGE,
-              stopReason: 'stop',
-              timestamp: Date.now() - 500,
-            },
-          ],
-        }),
-      });
+    await mockEmptyChatBootstrap(page, {
+      sessionId, title: 'Compact session', persisted: true,
+      messages: [
+        { id: 'm1', role: 'user', content: 'Compress the old context.', timestamp: Date.now() - 1000 },
+        {
+          id: 'm2', role: 'assistant', content: [{ type: 'text', text: 'Ready when you are.' }],
+          api: 'mock', provider: 'mock', model: 'mock-model', usage: EMPTY_USAGE,
+          stopReason: 'stop', timestamp: Date.now() - 500,
+        },
+      ],
     });
 
     await setupMockWebSocket(page, {
@@ -2857,76 +2681,251 @@ contentKind: document
     await expect(page.getByText('$1.23').first()).toBeVisible();
   });
 
-  test('should save managed prompt files in settings and keep chat working', async ({ page }) => {
-    await page.goto('/settings?tab=agent-settings');
-
-    const managedFilesCard = page.locator('#onboarding-settings-managedFiles');
-    const managedFilesTrigger = managedFilesCard.getByRole('button').first();
-    await expect(managedFilesTrigger).toContainText('Agent Managed Files');
-    await page.waitForTimeout(100);
-    if (await managedFilesTrigger.getAttribute('aria-label') === 'Expand') {
-      await managedFilesTrigger.click();
-    }
-    await expect(managedFilesTrigger).toHaveAttribute('aria-label', 'Collapse');
-    const editor = page.getByTestId('agent-managed-file-editor').locator('[contenteditable="true"]');
-    const saveButton = page.getByTestId('agent-managed-file-save');
-    const marker = `PLAYWRIGHT_PROMPT_MARKER_${Date.now()}`;
-    const existingValue = await editor.textContent() || '';
-
-    await editor.fill(`${existingValue.trim()}\n\n- UI marker: ${marker}\n`);
-    await saveButton.click();
-
-    await expect(page.getByText('Saved AGENTS.md.')).toBeVisible({ timeout: 15000 });
-
-    await page.reload();
-    const reloadedManagedFilesCard = page.locator('#onboarding-settings-managedFiles');
-    const reloadedManagedFilesTrigger = reloadedManagedFilesCard.getByRole('button').first();
-    await expect(reloadedManagedFilesTrigger).toContainText('Agent Managed Files');
-    await page.waitForTimeout(100);
-    if (await reloadedManagedFilesTrigger.getAttribute('aria-label') === 'Expand') {
-      await reloadedManagedFilesTrigger.click();
-    }
-    await expect(reloadedManagedFilesTrigger).toHaveAttribute('aria-label', 'Collapse');
-    await expect(page.getByTestId('agent-managed-file-editor')).toContainText(marker, { timeout: 15000 });
-
-    const sessionId = 'sess-managed-prompt';
-    await setupMockWebSocket(page, {
-      sessionId,
-      eventStartDelayMs: 100,
-      agentEvents: [
-        {
-          type: 'message_end',
-          message: {
-            role: 'assistant',
-            content: [{ type: 'text', text: 'READY' }],
-            api: 'mock',
-            provider: 'mock',
-            model: 'mock-model',
-            usage: EMPTY_USAGE,
-            stopReason: 'stop',
-            timestamp: Date.now(),
-          },
-        },
-        { type: 'agent_end' },
-        { type: 'runtime_status', status: createMockRuntimeStatus(sessionId) },
-      ],
+  test('should save managed prompt files in settings and keep chat working', async ({ page }, testInfo) => {
+    test.setTimeout(180_000);
+    const unique = randomUUID();
+    const requestedAgentId = `pi-e2e-managed-${unique}`;
+    const agentName = `PI managed prompt ${unique}`;
+    const initialContent = '# PI managed prompt fixture\n\nThis agent belongs only to this test.\n';
+    const marker = `PLAYWRIGHT-PROMPT-MARKER-${unique}`;
+    const api = await request.newContext({
+      baseURL: testInfo.project.use.baseURL, storageState: await page.context().storageState(), timeout: 15_000,
     });
-    await mockEmptyChatBootstrap(page, { sessionId });
+    let ownedAgent: AgentProfile | null = null;
+    let creationRevision: number | null = null;
+    let expectedContent = initialContent;
+    let pendingSaveReceipt: Promise<void> | null = null;
+    let primaryError: unknown;
+    let blockedFileWrite: Error | null = null;
+    let creationAttempted = false;
+    const cleanupErrors: unknown[] = [];
+    let ownerUserId = '';
+    try {
+      const identityResponse = await api.get('/api/auth/get-session');
+      expect(identityResponse.ok()).toBe(true);
+      const identity = await identityResponse.json() as { user?: { id?: string } };
+      expect(identity.user?.id).toBeTruthy();
+      ownerUserId = identity.user!.id!;
+      creationAttempted = true;
+      const creationResponse = await api.post('/api/agents', {
+        data: { agentId: requestedAgentId, name: agentName, scopeType: 'user', iconId: 'bot', files: { 'AGENTS.md': initialContent } },
+      });
+      const creation = await creationResponse.json() as { success?: boolean; data?: { agent?: AgentProfile } };
+      // Register this exact creation receipt before any UI action or later assertion.
+      if (creationResponse.ok() && creation.success && creation.data?.agent?.agentId === requestedAgentId) {
+        ownedAgent = creation.data.agent;
+        creationRevision = ownedAgent.revision;
+      }
+      expect(creationResponse.ok(), `Owned agent creation returned HTTP ${creationResponse.status()}.`).toBe(true);
+      expect(creation.success).toBe(true);
+      expect(ownedAgent).not.toBeNull();
+      expect(ownedAgent!.name).toBe(agentName);
+      expect(ownedAgent!.type).toBe('special');
+      expect(ownedAgent!.scopeType).toBe('user');
+      expect(ownedAgent!.ownerUserId).toBe(ownerUserId);
+      expect(ownedAgent!.createdByUserId).toBe(ownerUserId);
+      expect(Number.isSafeInteger(ownedAgent!.revision) && ownedAgent!.revision > 0).toBe(true);
 
-    await page.goto('/notebook?chat=open');
-    await startFreshChat(page);
+      await page.route((url) => url.pathname === '/api/agents/files', async (route) => {
+        if (route.request().method() !== 'PUT') return route.fallback();
+        const payload = route.request().postDataJSON() as { agentId?: string; fileName?: string; expectedRevision?: number };
+        if (payload.agentId !== requestedAgentId || payload.fileName !== 'AGENTS.md' || payload.expectedRevision !== ownedAgent?.revision) {
+          blockedFileWrite = new Error('Blocked a managed-file write outside this test-owned agent and revision.');
+          await route.abort('blockedbyclient');
+          return;
+        }
+        await route.continue();
+      });
+      await page.goto('/settings?tab=agent-settings');
+      const ownAgentButton = page.getByRole('button').filter({ has: page.getByText(agentName, { exact: true }) });
+      await ownAgentButton.click();
+      await expect(ownAgentButton).toHaveAttribute('aria-pressed', 'true');
+      const managedFilesCard = page.locator('#onboarding-settings-managedFiles');
+      const managedFilesTrigger = managedFilesCard.getByRole('button').first();
+      await expect(managedFilesTrigger).toContainText('Agent Managed Files');
+      if (await managedFilesTrigger.getAttribute('aria-expanded') === 'false') await managedFilesTrigger.click();
+      await expect(managedFilesTrigger).toHaveAttribute('aria-expanded', 'true');
+      const editor = page.getByTestId('agent-managed-file-editor').locator('[contenteditable="true"]');
+      await expect(editor).toContainText('PI managed prompt fixture');
+      await editor.click();
+      await editor.press('ControlOrMeta+End');
+      await editor.press('Enter');
+      await editor.pressSequentially(`UI marker: ${marker}`);
+      await expect(editor).toContainText(marker);
+      const saveRevision = ownedAgent!.revision;
+      pendingSaveReceipt = page.waitForResponse((response) => {
+        if (new URL(response.url()).pathname !== '/api/agents/files' || response.request().method() !== 'PUT') return false;
+        const payload = response.request().postDataJSON();
+        return payload?.agentId === requestedAgentId && payload?.fileName === 'AGENTS.md';
+      }, { timeout: 15_000 }).then(async (response) => {
+        const submitted = response.request().postDataJSON() as { agentId: string; fileName: string; expectedRevision: number; content: string };
+        const receipt = await response.json() as { success?: boolean; data?: { content?: string; agent?: AgentProfile } };
+        if (response.ok() && receipt.success && receipt.data?.agent?.agentId === requestedAgentId
+          && receipt.data.agent.name === agentName && receipt.data.agent.createdByUserId === ownerUserId
+          && receipt.data.agent.ownerUserId === ownerUserId && receipt.data.agent.revision === saveRevision + 1
+          && receipt.data.content === submitted.content) {
+          ownedAgent = receipt.data.agent;
+          expectedContent = receipt.data.content;
+        }
+        expect(response.ok(), `Owned prompt save returned HTTP ${response.status()}.`).toBe(true);
+        expect(receipt.success).toBe(true);
+        expect(submitted.expectedRevision).toBe(saveRevision);
+        expect(submitted.content).toContain(marker);
+        expect(receipt.data?.content).toBe(submitted.content);
+        expect(receipt.data?.agent?.revision).toBe(saveRevision + 1);
+      });
+      // Keep the receipt observed even if the UI action fails after the server saved it.
+      void pendingSaveReceipt.catch(() => undefined);
+      await page.getByTestId('agent-managed-file-save').click();
+      await pendingSaveReceipt;
+      await expect(page.getByText('Saved AGENTS.md.')).toBeVisible({ timeout: 15000 });
+      const savedResponse = await api.get(`/api/agents/files?agentId=${encodeURIComponent(requestedAgentId)}`);
+      expect(savedResponse.ok()).toBe(true);
+      const saved = await savedResponse.json() as { success?: boolean; data?: { files?: Record<string, string>; agent?: AgentProfile } };
+      expect(saved.success).toBe(true);
+      expect(saved.data?.files?.['AGENTS.md']).toBe(expectedContent);
+      expect(saved.data?.agent?.revision).toBe(ownedAgent!.revision);
 
-    const input = page.getByTestId('chat-input');
-    await input.fill('Antworte nur mit READY.');
-    await input.press('Enter');
+      await page.reload();
+      await ownAgentButton.click();
+      await expect(ownAgentButton).toHaveAttribute('aria-pressed', 'true');
+      if (await managedFilesTrigger.getAttribute('aria-expanded') === 'false') await managedFilesTrigger.click();
+      await expect(managedFilesTrigger).toHaveAttribute('aria-expanded', 'true');
+      await expect(editor).toContainText(marker, { timeout: 15000 });
+      const reloadedResponse = await api.get(`/api/agents/files?agentId=${encodeURIComponent(requestedAgentId)}`);
+      expect(reloadedResponse.ok()).toBe(true);
+      const reloaded = await reloadedResponse.json() as { success?: boolean; data?: { files?: Record<string, string> } };
+      expect(reloaded.success).toBe(true);
+      expect(reloaded.data?.files?.['AGENTS.md']).toBe(expectedContent);
 
-    const assistantMessages = page.getByTestId('chat-message-assistant');
-    await expect(assistantMessages).toHaveCount(1, { timeout: 60000 });
-    await expect
-      .poll(async () => ((await assistantMessages.first().textContent()) || '').replace(/\s+/g, ' ').trim(), {
-        timeout: 60000,
-      })
-      .toContain('READY');
+      const sessionId = `sess-managed-prompt-${unique}`;
+      await page.route((url) => url.pathname === '/api/user-preferences', async (route) => {
+        if (!['GET', 'PUT', 'PATCH'].includes(route.request().method())) return route.fallback();
+        await route.fulfill({ json: { success: true, data: { lastActiveAgentId: requestedAgentId } } });
+      });
+      let mockSendCount = 0;
+      let mockSubscriptionCount = 0;
+      let currentStatus = createMockRuntimeStatus(sessionId);
+      const finalMessage = {
+        role: 'assistant', content: [{ type: 'text', text: 'READY' }],
+        api: 'mock', provider: 'mock', model: 'mock-model', usage: EMPTY_USAGE,
+        stopReason: 'stop', timestamp: Date.now(),
+      };
+      const socket = await setupMockWebSocket(page, {
+        sessionId,
+        sendEventsAfterSendMessage: false,
+        onSubscribe: () => { mockSubscriptionCount += 1; },
+        onGetStatus: () => currentStatus as unknown as Record<string, unknown>,
+        onSendResultStatus: (message) => {
+          expect(JSON.stringify(message.content)).toContain('Antworte nur mit READY.');
+          mockSendCount += 1;
+          currentStatus = createMockRuntimeStatus(sessionId, { revision: 1, phase: 'streaming', canAbort: true });
+          return currentStatus as unknown as Record<string, unknown>;
+        },
+      });
+      await mockEmptyChatBootstrap(page, { sessionId, agentId: requestedAgentId });
+      await page.goto('/notebook?chat=open');
+      await expect(page.getByTestId('chat-agent-id')).toContainText(agentName);
+      await page.getByTestId('chat-agent-id').click();
+      await page.getByTestId('chat-agent-selector-popover').getByRole('button')
+        .filter({ has: page.getByText(requestedAgentId, { exact: true }) }).click();
+      await expect(page.getByTestId('chat-agent-id')).toHaveAttribute('aria-label', `Select agent: ${agentName}`);
+      await startFreshChat(page);
+      await expect(page.getByTestId('chat-agent-id')).toContainText(agentName);
+      await page.getByTestId('chat-input').fill('Antworte nur mit READY.');
+      const chatCreationResponse = page.waitForResponse((response) => response.request().method() === 'POST'
+        && new URL(response.url()).pathname === '/api/sessions'
+        && response.request().postDataJSON()?.agentId === requestedAgentId, { timeout: 15_000 });
+      void chatCreationResponse.catch(() => undefined);
+      await page.getByTestId('chat-input').press('Enter');
+      const createdResponse = await chatCreationResponse;
+      expect(createdResponse.ok()).toBe(true);
+      const created = await createdResponse.json() as { success?: boolean; session?: AISession };
+      expect(created.success).toBe(true);
+      expect(created.session?.sessionId).toBe(sessionId);
+      expect(created.session?.agentId).toBe(requestedAgentId);
+      await expect(page.getByTestId('chat-session-id')).toHaveAttribute('title', sessionId);
+      await expect.poll(() => mockSendCount).toBe(1);
+      expect(mockSubscriptionCount).toBeGreaterThan(0);
+      const assistantMessages = page.getByTestId('chat-message-assistant');
+      await expect(assistantMessages).toHaveCount(1, { timeout: 15000 });
+      socket.emitAgentEvent({ type: 'message_start', message: { ...finalMessage, content: [], stopReason: 'streaming' } });
+      await expect(assistantMessages.first().getByTestId('chat-assistant-streaming-indicator')).toBeVisible();
+      socket.emitAgentEvent({ type: 'message_update', assistantMessageEvent: { type: 'text_delta', delta: 'READY' } });
+      await expect(assistantMessages.first()).toContainText('READY');
+      socket.emitAgentEvent({ type: 'message_end', message: finalMessage });
+      socket.emitAgentEvent({ type: 'agent_end' });
+      currentStatus = createMockRuntimeStatus(sessionId, { revision: 2 });
+      socket.emitAgentEvent({ type: 'runtime_status', status: currentStatus });
+      await expect(assistantMessages.first()).toContainText('READY');
+      await expect(assistantMessages.first().getByTestId('chat-assistant-streaming-indicator')).toHaveCount(0);
+      await expect(page.getByTestId('chat-send')).toHaveAttribute('data-action', 'send');
+      expect(blockedFileWrite).toBeNull();
+    } catch (error) {
+      primaryError = error;
+    } finally {
+      if (pendingSaveReceipt) {
+        try { await pendingSaveReceipt; } catch (error) { if (error !== primaryError) cleanupErrors.push(error); }
+      }
+      try { await page.close(); } catch (error) { cleanupErrors.push(error); }
+      if (ownedAgent) {
+        try {
+          expect(ownedAgent.agentId).toBe(requestedAgentId);
+          expect(ownedAgent.name).toBe(agentName);
+          expect(ownedAgent.type).toBe('special');
+          expect(ownedAgent.ownerUserId).toBe(ownerUserId);
+          expect(ownedAgent.createdByUserId).toBe(ownerUserId);
+          const filesResponse = await api.get(`/api/agents/files?agentId=${encodeURIComponent(requestedAgentId)}`);
+          expect(filesResponse.ok()).toBe(true);
+          const files = await filesResponse.json() as { success?: boolean; data?: { files?: Record<string, string>; agent?: AgentProfile } };
+          expect(files.success).toBe(true);
+          expect(files.data?.agent?.revision).toBe(ownedAgent.revision);
+          expect(files.data?.files?.['AGENTS.md']).toBe(expectedContent);
+          const previewResponse = await api.post('/api/agents/delete-preview', { data: { agentId: requestedAgentId } });
+          expect(previewResponse.ok()).toBe(true);
+          const preview = await previewResponse.json() as { success?: boolean; data?: {
+            agent?: AgentProfile; impacts?: Record<string, unknown>; confirmationToken?: string;
+          } };
+          expect(preview.success).toBe(true);
+          expect(preview.data?.agent?.agentId).toBe(requestedAgentId);
+          expect(preview.data?.agent?.createdByUserId).toBe(ownerUserId);
+          expect(preview.data?.agent?.revision).toBe(ownedAgent.revision);
+          // No real session/runtime is created by this fixture. Fail closed if anything adopted this agent.
+          for (const dependency of ['sessions', 'members', 'grants', 'capabilityBindings', 'memoryCollections', 'memoryEntries']) {
+            expect(preview.data?.impacts?.[dependency], `Owned agent has unexpected ${dependency}.`).toBe(0);
+          }
+          expect(preview.data?.confirmationToken).toBeTruthy();
+          const deletionResponse = await api.delete('/api/agents', {
+            data: { agentId: requestedAgentId, expectedRevision: ownedAgent.revision, confirmationToken: preview.data!.confirmationToken },
+          });
+          expect(deletionResponse.ok()).toBe(true);
+          const deletion = await deletionResponse.json() as { success?: boolean; data?: { deleted?: boolean; agentId?: string } };
+          expect(deletion.success).toBe(true);
+          expect(deletion.data?.deleted).toBe(true);
+          expect(deletion.data?.agentId).toBe(requestedAgentId);
+          const listResponse = await api.get('/api/agents');
+          expect(listResponse.ok()).toBe(true);
+          const list = await listResponse.json() as { success?: boolean; data?: { agents?: AgentProfile[] } };
+          expect(list.success).toBe(true);
+          expect(list.data?.agents?.some((agent) => agent.agentId === requestedAgentId)).toBe(false);
+          await testInfo.attach('owned-managed-agent-cleanup-receipt', {
+            contentType: 'application/json', body: Buffer.from(JSON.stringify({
+              agentId: requestedAgentId, creationRevision, deletedRevision: ownedAgent.revision,
+              contentSha256: createHash('sha256').update(expectedContent).digest('hex'),
+              ownedDependencies: 0, deleted: true, absentFromCatalog: true,
+            })),
+          });
+        } catch (error) {
+          cleanupErrors.push(new Error(`Owned managed-agent cleanup failed; retained ID ${requestedAgentId}, revision ${ownedAgent.revision}.`, { cause: error }));
+        }
+      } else if (creationAttempted) {
+        cleanupErrors.push(new Error(`No verified creation receipt for requested managed-agent ID ${requestedAgentId}; cleanup requires inspection.`));
+      }
+      if (blockedFileWrite && blockedFileWrite !== primaryError) cleanupErrors.push(blockedFileWrite);
+      try { await api.dispose(); } catch (error) { cleanupErrors.push(error); }
+    }
+    if (cleanupErrors.length) throw new AggregateError(primaryError ? [primaryError, ...cleanupErrors] : cleanupErrors, 'Managed-prompt test or owned cleanup failed.');
+    if (primaryError) throw primaryError;
   });
 
   for (const viewport of [{ name: 'desktop', width: 1280, height: 800 }, { name: 'mobile', width: 390, height: 844 }]) {
@@ -3010,8 +3009,9 @@ contentKind: document
       const panel = page.getByTestId('chat-file-references');
       const items = panel.getByTestId('chat-file-reference-item');
       await expect(panel).toHaveCount(1);
-      await expect(items).toHaveCount(3);
-      await expect(panel).toContainText('17');
+      await expect(items).toHaveCount(5);
+      await expect(panel).toHaveAttribute('aria-label', 'Files · 14');
+      await expect(panel.getByTestId('chat-read-references-toggle')).toContainText('3');
       await expect(page.getByTestId('chat-message-assistant')).not.toContainText('omitted from');
       await expect(panel.locator('[data-path="reports/example-only.odt"]')).toHaveCount(0);
       await expect(panel.locator('[data-path^="inputs/"]')).toHaveCount(0);
@@ -3069,13 +3069,13 @@ contentKind: document
       await panel.getByTestId('chat-read-references-toggle').click();
       await expect(items).toHaveCount(14);
       await panel.getByTestId('chat-file-references-expand').click();
-      await expect(items).toHaveCount(3);
+      await expect(items).toHaveCount(5);
 
       const readsBeforeReload = historyReads;
       await page.goto(`/notebook?chat=open&session=${sessionId}`);
       await expect.poll(() => historyReads).toBeGreaterThan(readsBeforeReload);
       await expect(panel).toHaveCount(1, { timeout: 15000 });
-      await expect(items).toHaveCount(3);
+      await expect(items).toHaveCount(5);
       await panel.getByTestId('chat-file-references-expand').click();
       await expect(items).toHaveCount(14);
       await panel.getByTestId('chat-read-references-toggle').click();

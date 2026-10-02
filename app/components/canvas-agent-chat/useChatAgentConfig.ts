@@ -5,6 +5,7 @@ import { fetchChatAgents } from '@/app/lib/chat/agent-api';
 import { fetchLastActiveAgentId } from '@/app/lib/chat/agent-preferences';
 import type { AgentProfile } from '@/app/lib/chat/types';
 import type { PiThinkingLevel } from '@/app/lib/pi/config';
+import { invalidateNotebookQueries } from '@/app/lib/queries/client';
 
 export const DEFAULT_PROVIDER_ID = '';
 export const DEFAULT_MODEL_ID = '';
@@ -44,9 +45,10 @@ export function useChatAgentConfig({
     ? requestedAgentId
     : initialAgentId;
 
-  const refreshAgents = useCallback(async () => {
+  const refreshAgents = useCallback(async (fresh = true) => {
     const requestSequence = ++agentsRequestSequenceRef.current;
     if (!workspaceId) return;
+    if (fresh) await invalidateNotebookQueries(workspaceId, 'agents');
     const agents = await fetchChatAgents(workspaceId);
     if (requestSequence === agentsRequestSequenceRef.current) {
       setAgentListState({ workspaceId, agents });
@@ -56,7 +58,7 @@ export function useChatAgentConfig({
   useEffect(() => {
     const fetchAgents = async () => {
       try {
-        await refreshAgents();
+        await refreshAgents(false);
       } catch (err) {
         console.error('Failed to fetch agents', err);
       }
