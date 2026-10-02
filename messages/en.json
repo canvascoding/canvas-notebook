@@ -2829,6 +2829,11 @@
         "title": "Skill Gallery",
         "description": "Create, manage, and use skills in chat."
       },
+      "plugins": {
+        "title": "Plugins",
+        "description": "Extend Canvas with plugins, skills and connected apps. Discover new capabilities and manage your installed extensions.",
+        "open": "Open plugins"
+      },
       "terminal": {
         "title": "Terminal",
         "description": "Workspace terminal for real nerds. No GUI, just pure command-line magic."
@@ -7338,6 +7343,10 @@
         "installed": "Installed",
         "updates": "Updates ({count})",
         "advanced": "Advanced"
+      },
+      "navigation": {
+        "updates": "Updates",
+        "skills": "Skills"
       },
       "pagination": {
         "status": "Page {page} of {totalPages} · {totalItems} plugins",

@@ -104,7 +104,7 @@ async function main() {
     readFile('app/lib/composio/composio-toolkit-registry.ts', 'utf8'),
     readFile('app/lib/composio/composio-session.ts', 'utf8'),
     readFile('app/lib/composio/composio-client.ts', 'utf8'),
-    readFile('app/components/settings/SkillsPanel.tsx', 'utf8'),
+    readFile('app/components/plugins/PluginsPanel.tsx', 'utf8'),
     readFile('app/lib/plugins/plugin-connection-readiness.ts', 'utf8'),
   ]);
   assert.match(managedClient, /15_000/u);

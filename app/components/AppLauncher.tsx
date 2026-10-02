@@ -22,6 +22,7 @@ import {
   ShieldCheck,
   Network,
   MonitorUp,
+  Puzzle,
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -54,6 +55,7 @@ const APPS: AppItem[] = [
   { id: 'todos', href: '/todos', icon: ListTodo, hasQuickActions: false },
   { id: 'emails', href: '/emails', icon: Inbox, hasQuickActions: false },
   { id: 'studio', href: '/studio', icon: Sparkles, hasQuickActions: true },
+  { id: 'plugins', href: '/plugins', icon: Puzzle, hasQuickActions: true },
 ];
 
 const MORE_APPS: AppItem[] = [
@@ -99,6 +101,7 @@ function getQuickActions(
   app: AppItem,
   tStudio: ReturnType<typeof useTranslations>,
   tSettings: ReturnType<typeof useTranslations>,
+  tPlugins: ReturnType<typeof useTranslations>,
   studioBulkEnabled: boolean,
 ): QuickAction[] {
   if (app.id === 'settings') {
@@ -108,7 +111,7 @@ function getQuickActions(
       { label: tSettings('tabs.browser'), href: '/settings?tab=browser' },
       { label: tSettings('tabs.workspace'), href: '/settings?tab=workspace' },
       { label: tSettings('tabs.integrations'), href: '/settings?tab=integrations' },
-      { label: tSettings('tabs.skills'), href: '/settings?tab=plugins' },
+      { label: tSettings('tabs.skills'), href: '/plugins' },
     ];
   }
 
@@ -119,6 +122,15 @@ function getQuickActions(
       { label: tStudio('tabs.presets'), href: '/studio/presets' },
       ...(studioBulkEnabled ? [{ label: tStudio('tabs.bulk'), href: '/studio/bulk' }] : []),
       { label: tStudio('tabs.resize'), href: '/studio/aspect-ratio' },
+    ];
+  }
+
+  if (app.id === 'plugins') {
+    return [
+      { label: tPlugins('storeTabs.discover'), href: '/plugins?view=discover' },
+      { label: tPlugins('storeTabs.installed'), href: '/plugins?view=installed' },
+      { label: tPlugins('navigation.updates'), href: '/plugins?view=updates' },
+      { label: tPlugins('navigation.skills'), href: '/plugins?area=skills' },
     ];
   }
 
@@ -138,6 +150,7 @@ export function AppLauncher({ showBrowserLab = false }: { showBrowserLab?: boole
   const tNav = useTranslations('navigation');
   const tStudio = useTranslations('studio');
   const tSettings = useTranslations('settings');
+  const tPlugins = useTranslations('skills.plugins');
   const pathname = usePathname();
   const locale = useLocale();
   const isMobile = useIsMobileLauncher();
@@ -169,13 +182,13 @@ export function AppLauncher({ showBrowserLab = false }: { showBrowserLab?: boole
 
   const activeActions = useMemo(() => {
     if (!activeActionsApp) return [];
-    return getQuickActions(activeActionsApp, tStudio, tSettings, studioBulkEnabled);
-  }, [activeActionsApp, tSettings, tStudio, studioBulkEnabled]);
+    return getQuickActions(activeActionsApp, tStudio, tSettings, tPlugins, studioBulkEnabled);
+  }, [activeActionsApp, tSettings, tStudio, tPlugins, studioBulkEnabled]);
 
   const mobileActions = useMemo(() => {
     if (!mobileActionsApp) return [];
-    return getQuickActions(mobileActionsApp, tStudio, tSettings, studioBulkEnabled);
-  }, [mobileActionsApp, tSettings, tStudio, studioBulkEnabled]);
+    return getQuickActions(mobileActionsApp, tStudio, tSettings, tPlugins, studioBulkEnabled);
+  }, [mobileActionsApp, tSettings, tStudio, tPlugins, studioBulkEnabled]);
 
   const getLocalizedHref = useCallback((href: string) => getPathname({ href, locale }), [locale]);
 

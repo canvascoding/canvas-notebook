@@ -11,7 +11,7 @@ type Request = { url: string; method: string; body: Record<string, unknown> };
 async function main() {
   // Execute the actual component callback with its closure dependencies. This also
   // catches an accidental return to GET-all / PUT without mounting unrelated UI.
-  const source = await fs.readFile('app/components/settings/SkillsPanel.tsx', 'utf8');
+  const source = await fs.readFile('app/components/plugins/PluginsPanel.tsx', 'utf8');
   const parsed = ts.createSourceFile('SkillsPanel.tsx', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
   const handlers: ts.FunctionDeclaration[] = [];
   const find = (node: ts.Node) => {

@@ -6,7 +6,7 @@ const root = process.cwd();
 const read = (relativePath: string) => readFileSync(path.join(root, relativePath), 'utf8');
 
 const agentGrants = read('app/components/agents/AgentGrantsEditor.tsx');
-const capabilityPolicies = read('app/components/settings/SkillsPanel.tsx');
+const capabilityPolicies = read('app/components/plugins/PluginsPanel.tsx');
 const policyRoute = read('app/api/skills/policies/route.ts');
 const agentGrantService = read('app/lib/agents/grants.ts');
 const policyTargets = read('app/lib/organization/policy-targets.ts');

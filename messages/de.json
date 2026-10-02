@@ -2828,6 +2828,11 @@
         "title": "Skill Gallery",
         "description": "Skills erstellen, verwalten und im Chat nutzen."
       },
+      "plugins": {
+        "title": "Plugins",
+        "description": "Erweitere Canvas mit Plugins, Skills und verbundenen Apps. Entdecke neue Möglichkeiten und verwalte deine installierten Erweiterungen.",
+        "open": "Plugins öffnen"
+      },
       "terminal": {
         "title": "Terminal",
         "description": "Workspace Terminal für echte Nerds. Keine GUI, nur pure Kommandozeilen-Magie."
@@ -7337,6 +7342,10 @@
         "installed": "Installiert",
         "updates": "Updates ({count})",
         "advanced": "Advanced"
+      },
+      "navigation": {
+        "updates": "Updates",
+        "skills": "Skills"
       },
       "pagination": {
         "status": "Seite {page} von {totalPages} · {totalItems} Plugins",

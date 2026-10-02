@@ -1,7 +1,7 @@
 'use client';
 
 import Image from 'next/image';
-import { AlertTriangle, ArrowRight, Clock3, Inbox, ListTodo, MailOpen, Sparkles, Workflow } from 'lucide-react';
+import { AlertTriangle, ArrowRight, Clock3, Inbox, ListTodo, MailOpen, Puzzle, Sparkles, Workflow } from 'lucide-react';
 import { useFormatter, useTranslations } from 'next-intl';
 import { useRef, useState, type ReactNode } from 'react';
 
@@ -191,10 +191,17 @@ export function HomeAppLinks({ active, workspaceId }: { active: boolean; workspa
 
   return (
     <section aria-labelledby="home-workspaces-heading" className="flex h-full min-h-0 flex-col">
-      <div className="mb-5 shrink-0">
-        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">{t('workspaceWidgets.eyebrow')}</p>
-        <h2 id="home-workspaces-heading" className="mt-1 text-2xl font-semibold tracking-tight sm:text-3xl">{t('sections.workspace')}</h2>
-        <p className="mt-1 max-w-2xl text-sm text-muted-foreground">{t('pages.workspaceDescription')}</p>
+      <div className="mb-5 flex shrink-0 flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">{t('workspaceWidgets.eyebrow')}</p>
+          <h2 id="home-workspaces-heading" className="mt-1 text-2xl font-semibold tracking-tight sm:text-3xl">{t('sections.workspace')}</h2>
+          <p className="mt-1 max-w-2xl text-sm text-muted-foreground">{t('pages.workspaceDescription')}</p>
+        </div>
+        <Link href="/plugins" className="inline-flex min-h-11 shrink-0 items-center gap-2 rounded-lg border border-border bg-card px-4 text-sm font-medium transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+          <Puzzle className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+          {t('apps.plugins.title')}
+          <ArrowRight className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+        </Link>
       </div>
       {workspaceId ? <div key={workspaceId} className="grid flex-1 gap-4 md:min-h-0 md:grid-cols-2 md:grid-rows-[repeat(2,minmax(15rem,1fr))]">
         <EmailWidget state={widgets.emails} onRetry={() => widgets.retry('emails')} />

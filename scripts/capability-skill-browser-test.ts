@@ -87,7 +87,7 @@ async function main() {
       (error: unknown) => error instanceof CapabilitySkillFileError && error.status === 404,
     );
 
-    const panelSource = await fs.readFile(path.join(process.cwd(), 'app/components/settings/SkillsPanel.tsx'), 'utf8');
+    const panelSource = await fs.readFile(path.join(process.cwd(), 'app/components/plugins/PluginsPanel.tsx'), 'utf8');
     assert.match(panelSource, /capabilityScopeUrl\('\/api\/skills\/tree\?depth=4', requestedScope\)/u);
     assert.match(panelSource, /if \(node\.resourceId\) params\.set\('resourceId', node\.resourceId\)/u);
     assert.doesNotMatch(panelSource, /setSkillTree\(merged\.map/u);

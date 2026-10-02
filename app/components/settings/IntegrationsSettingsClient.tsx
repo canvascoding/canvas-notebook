@@ -345,8 +345,8 @@ const BrowserSettingsPanel = dynamic(
   { loading: SettingsTabLoader },
 );
 
-const SkillsPanel = dynamic(
-  () => import('@/app/components/settings/SkillsPanel').then((module) => module.SkillsPanel),
+const PluginsSettingsLink = dynamic(
+  () => import('@/app/components/plugins/PluginsSettingsLink').then((module) => module.PluginsSettingsLink),
   { loading: SettingsTabLoader },
 );
 
@@ -2886,7 +2886,7 @@ export function IntegrationsSettingsClient({
 
           {renderLazyTabContent('usage', <UsageAnalyticsClient isAdmin={isAdmin} />, { id: 'onboarding-settings-usage' })}
 
-          {renderLazyTabContent('skills', <SkillsPanel />)}
+          {renderLazyTabContent('skills', <PluginsSettingsLink />)}
 
           {renderLazyTabContent('license', (
             <LicenseActivationPanel

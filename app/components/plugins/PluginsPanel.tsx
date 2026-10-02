@@ -78,6 +78,7 @@ import type { CanvasSkill } from '@/app/lib/skills/canvas-skill-manifest';
 import type { OrganizationPolicyTargetCatalog } from '@/app/lib/organization/policy-targets';
 import { WORKSPACE_ID_HEADER } from '@/app/lib/workspaces/constants';
 import { useWorkspaceStore } from '@/app/store/workspace-store';
+import { usePluginNavigation } from '@/app/components/plugins/usePluginNavigation';
 
 interface SkillFileNode {
   name: string;
@@ -133,31 +134,8 @@ const EMPTY_POLICY_TARGETS: OrganizationPolicyTargetCatalog = {
   projects: [],
 };
 
-const PANEL_TAB_STORAGE_KEY = 'canvas.skills.panelTab';
-const PLUGIN_STORE_TAB_STORAGE_KEY = 'canvas.skills.pluginStoreTab';
-const SKILL_LIBRARY_TAB_STORAGE_KEY = 'canvas.skills.skillLibraryTab';
-
 function isMarkdownFilePath(filePath: string) {
   return /\.mdx?$/i.test(filePath);
-}
-
-function readStoredTab<T extends string>(key: string, allowedValues: readonly T[], fallback: T): T {
-  if (typeof window === 'undefined') return fallback;
-  try {
-    const stored = window.localStorage.getItem(key);
-    return allowedValues.includes(stored as T) ? stored as T : fallback;
-  } catch {
-    return fallback;
-  }
-}
-
-function writeStoredTab(key: string, value: string) {
-  if (typeof window === 'undefined') return;
-  try {
-    window.localStorage.setItem(key, value);
-  } catch {
-    // Ignore unavailable storage; tabs still work for the current render.
-  }
 }
 
 function capabilityScopeUrl(url: string, scope: CapabilityManagementScope): string {
@@ -547,6 +525,7 @@ function CanvasPluginsSection({
   onPluginsChanged: () => void;
 }) {
   const t = useTranslations('skills.plugins');
+  const { navigation, navigate } = usePluginNavigation();
   const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId) || '';
   const composioHeaders = useCallback((json = false): HeadersInit => ({
     ...(activeWorkspaceId ? { [WORKSPACE_ID_HEADER]: activeWorkspaceId } : {}),
@@ -557,11 +536,7 @@ function CanvasPluginsSection({
   const [storeMetadata, setStoreMetadata] = useState<CanvasPluginStoreMetadata | null>(null);
   const [storePagination, setStorePagination] = useState<CanvasPluginStorePagination>(EMPTY_STORE_PAGINATION);
   const [storeStats, setStoreStats] = useState<CanvasPluginStoreStats>(EMPTY_STORE_STATS);
-  const [storeTab, setStoreTab] = useState<PluginStoreTab>(() => readStoredTab(
-    PLUGIN_STORE_TAB_STORAGE_KEY,
-    ['discover', 'installed', 'updates', 'advanced'] as const,
-    'discover',
-  ));
+  const storeTab = navigation.view as PluginStoreTab;
   const [storePage, setStorePage] = useState(1);
   const [searchQuery, setSearchQuery] = useState('');
   const [isLoading, setIsLoading] = useState(true);
@@ -2169,8 +2144,7 @@ function CanvasPluginsSection({
         onValueChange={(value) => {
           if (value === 'discover' || value === 'installed' || value === 'updates' || value === 'advanced') {
             setStorePage(1);
-            setStoreTab(value);
-            writeStoredTab(PLUGIN_STORE_TAB_STORAGE_KEY, value);
+            navigate({ view: value });
           }
         }}
         className="space-y-4"
@@ -2614,6 +2588,7 @@ function OrganizationCapabilityPolicyPanel() {
 
 export function SkillsPanel() {
   const t = useTranslations('skills');
+  const { navigation, navigate } = usePluginNavigation();
   const [managementScope, setManagementScope] = useState<CapabilityManagementScope>('user');
   const [canManageOrganizationCapabilities, setCanManageOrganizationCapabilities] = useState(false);
   const [skills, setSkills] = useState<CanvasSkill[]>([]);
@@ -2624,16 +2599,8 @@ export function SkillsPanel() {
   const [uploadOpen, setUploadOpen] = useState(false);
   const [resetSkillsOpen, setResetSkillsOpen] = useState(false);
   const [resetSkillsConfirm, setResetSkillsConfirm] = useState('');
-  const [panelTab, setPanelTab] = useState<SkillsPanelTab>(() => readStoredTab(
-    PANEL_TAB_STORAGE_KEY,
-    ['plugins', 'skills'] as const,
-    'plugins',
-  ));
-  const [skillLibraryTab, setSkillLibraryTab] = useState<SkillLibraryTab>(() => readStoredTab(
-    SKILL_LIBRARY_TAB_STORAGE_KEY,
-    ['installed', 'library', 'updates'] as const,
-    'installed',
-  ));
+  const panelTab: SkillsPanelTab = navigation.area;
+  const skillLibraryTab = (panelTab === 'skills' ? navigation.view : 'installed') as SkillLibraryTab;
   const [skillTree, setSkillTree] = useState<SkillFileNode[]>([]);
   const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set());
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
@@ -3304,8 +3271,7 @@ export function SkillsPanel() {
         value={panelTab}
         onValueChange={(value) => {
           if (value === 'plugins' || value === 'skills') {
-            setPanelTab(value);
-            writeStoredTab(PANEL_TAB_STORAGE_KEY, value);
+            navigate({ area: value });
           }
         }}
         className="space-y-4"
@@ -3335,8 +3301,7 @@ export function SkillsPanel() {
             onValueChange={(value) => {
               if (value === 'installed' || value === 'library' || value === 'updates') {
                 setSkillStorePage(1);
-                setSkillLibraryTab(value);
-                writeStoredTab(SKILL_LIBRARY_TAB_STORAGE_KEY, value);
+                navigate({ view: value });
               }
             }}
             className="space-y-4"

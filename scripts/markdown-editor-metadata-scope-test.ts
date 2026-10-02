@@ -29,7 +29,7 @@ assert.match(
 );
 assert.match(
   markdownEditorSource,
-  /\{showNotebookMetadata && !parsedDocument\.error \? \(\s*<MarkdownPropertiesPanel/u,
+  /\{showNotebookMetadata && !parsedDocument\.error \? \(\s*(?:<div\b[^>]*>\s*)?<MarkdownPropertiesPanel/u,
   'the read-only source fallback must use the same metadata scope',
 );
 assert.match(
@@ -42,7 +42,7 @@ const nonNotebookEditorFiles = [
   'app/apps/automations/components/AutomationsClient.tsx',
   'app/components/public-sharing/PublicFilePreview.tsx',
   'app/components/settings/AgentManagedFilesCard.tsx',
-  'app/components/settings/SkillsPanel.tsx',
+  'app/components/plugins/PluginsPanel.tsx',
   'app/components/skills/SkillDetailDialog.tsx',
 ];
 

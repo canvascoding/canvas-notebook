@@ -389,7 +389,7 @@ export function ChatHeader({
               </DropdownMenuItem>
               {showSkillsLink ? (
                 <DropdownMenuItem asChild>
-                  <Link href="/settings?tab=plugins">
+                  <Link href="/plugins?area=skills">
                     <Lightbulb />
                     <span>{t('viewSkills')}</span>
                   </Link>

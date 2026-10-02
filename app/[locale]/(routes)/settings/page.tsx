@@ -1,7 +1,9 @@
 import { requirePageSession } from '@/app/lib/auth-guards';
 import { IntegrationsSettingsClient } from '@/app/components/settings/IntegrationsSettingsClient';
 import { SuitePageLayout } from '@/app/components/SuitePageLayout';
-import { getTranslations } from 'next-intl/server';
+import { getLocale, getTranslations } from 'next-intl/server';
+import { redirect } from '@/i18n/navigation';
+import { legacyPluginSettingsHref } from '@/app/lib/plugins/plugin-navigation';
 import { isOnboardingHintsEnabled } from '@/app/lib/onboarding/status';
 import { isManagedControlPlaneAvailable } from '@/app/lib/agents/storage';
 import { isAdminUser } from '@/app/lib/admin-auth';
@@ -13,15 +15,18 @@ import { resolveUserProfile } from '@/app/lib/user-profile/service';
 import { cookies } from 'next/headers';
 
 type SettingsPageProps = {
-  searchParams: Promise<{ tab?: string | string[] }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 };
 
 export default async function SettingsPage({ searchParams }: SettingsPageProps) {
   const params = await searchParams;
+  const pluginsHref = legacyPluginSettingsHref(params);
   const allowLicenseRecovery = isOnboardingLicenseRecoveryRequest(params);
   const session = await requirePageSession({
     allowIncompleteUserOnboarding: allowLicenseRecovery,
+    returnTo: pluginsHref ?? undefined,
   });
+  if (pluginsHref) redirect({ href: pluginsHref, locale: await getLocale() });
   const t = await getTranslations('settings');
   const cookieStore = await cookies();
 
