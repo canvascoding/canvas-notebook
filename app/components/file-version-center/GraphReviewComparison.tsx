@@ -7,6 +7,7 @@ import { useTranslations } from 'next-intl';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { InlineNotice } from '@/components/ui/inline-notice';
 import type { FileVersionCenterRequestV1 } from '@/app/lib/file-version-center/contracts/v1';
 import type { FileVersionMutation } from '@/app/lib/file-version-center/action-client';
 import type { ProposalReviewContextV1, ProposalReviewGraphSessionV1, ProposalReviewSessionRequestV1,
@@ -747,7 +748,7 @@ export function GraphReviewComparison({
 
   if (legacyMode && !choosingBranch && selection.kind === 'operation' && !actionIdentity && !reviewPending) return <>{legacy}</>;
   if (actionIdentity && !session) return <div className="flex flex-1 items-center justify-center p-5">
-    <Alert className="max-w-xl rounded-lg" data-testid="graph-review-pending-action">
+    <Alert variant="warning" className="max-w-xl" data-testid="graph-review-pending-action">
       <AlertTriangle aria-hidden="true" /><AlertTitle>{actionBusy ? t('graph.durability.submitting')
         : receiptPhase ? t(`graph.durability.${receiptPhase}`) : t('graph.durability.unconfirmed')}</AlertTitle>
       <AlertDescription className="space-x-2"><Button type="button" variant="outline" size="sm" className="mt-3" disabled={statusBusy}
@@ -765,7 +766,7 @@ export function GraphReviewComparison({
     <LoaderCircle className="mr-2 size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />{t('graph.loading')}
   </div>;
   if (!session) return <div ref={selectionStatusRef} tabIndex={-1} className="flex flex-1 items-center justify-center p-5">
-    <Alert variant="destructive" className="max-w-xl rounded-lg" data-testid="graph-review-load-error">
+    <Alert variant="destructive" className="max-w-xl" data-testid="graph-review-load-error">
       <ShieldAlert aria-hidden="true" /><AlertTitle>{t('graph.loadFailed')}</AlertTitle>
       <AlertDescription><p>{showError}</p>{loadError instanceof ProposalReviewClientError ? <div className="mt-3"><GraphDiagnosis diagnosis={loadError.diagnosis} /></div> : null}<Button type="button" variant="outline" size="sm" className="mt-3" onClick={refresh}>
         <RefreshCw className="size-4" aria-hidden="true" />{t('retry')}
@@ -778,7 +779,7 @@ export function GraphReviewComparison({
     <div><h2 className="text-sm font-semibold">{t('graph.branchOverview.heading')}</h2>
       <p className="mt-1 text-sm text-muted-foreground">{t('graph.branchOverview.description')}</p></div>
     {reviewPending ? <p role="status">{t('graph.refreshing')}</p> : null}
-    {!session.context?.proposals.length ? <Alert><ShieldAlert aria-hidden="true" />
+    {!session.context?.proposals.length ? <Alert variant="warning"><ShieldAlert aria-hidden="true" />
       <AlertTitle>{t('graph.contextUnavailable')}</AlertTitle>
       <AlertDescription>{t('graph.contextUnavailableDescription')}</AlertDescription></Alert> :
       <ul className="space-y-2">{session.context.proposals.map(proposal => <li key={proposal.proposalId}
@@ -816,10 +817,12 @@ export function GraphReviewComparison({
 
   return <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
     data-testid="graph-review-comparison">
-    {reviewPending ? <div role={loadError ? 'alert' : 'status'} className="flex items-center justify-between gap-3 border-b bg-muted/40 px-4 py-2.5 text-sm">
-      <span>{showError ?? t('graph.refreshing')}</span>
-      {!loading && <Button type="button" variant="outline" size="sm" onClick={refresh}><RefreshCw className="size-4" aria-hidden="true" />{t('retry')}</Button>}
-    </div> : null}
+    {reviewPending ? <InlineNotice variant={loadError ? 'destructive' : 'info'} size="compact"
+      className="mx-4 my-3 w-auto shrink-0"
+      actions={!loading ? <Button type="button" variant="outline" size="sm" onClick={refresh}><RefreshCw className="size-4" aria-hidden="true" />{t('retry')}</Button> : null}
+    >
+      {showError ?? t('graph.refreshing')}
+    </InlineNotice> : null}
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-y-contain"
       data-testid="graph-review-body">
       <div className="border-b px-4 py-3 sm:px-5">
@@ -848,13 +851,13 @@ export function GraphReviewComparison({
         </div>
       </div>
       <div className="space-y-4 p-4 sm:p-5">
-        {session.capability.write && !session.context ? <Alert className="rounded-lg border-amber-500/35 bg-amber-500/[0.06]">
-          <AlertTriangle aria-hidden="true" className="text-amber-700 dark:text-amber-300" />
+        {session.capability.write && !session.context ? <Alert variant="warning">
+          <AlertTriangle aria-hidden="true" />
           <AlertTitle>{t('graph.contextUnavailable')}</AlertTitle>
           <AlertDescription>{t('graph.contextUnavailableDescription')}</AlertDescription>
         </Alert> : null}
-        {session.capability.write && session.context?.reasonCode && !historicalProposal ? <Alert className="rounded-lg border-amber-500/35 bg-amber-500/[0.06]">
-          <AlertTriangle aria-hidden="true" className="text-amber-700 dark:text-amber-300" />
+        {session.capability.write && session.context?.reasonCode && !historicalProposal ? <Alert variant="warning">
+          <AlertTriangle aria-hidden="true" />
           <AlertTitle>{t('graph.contextBlocked')}</AlertTitle>
           <AlertDescription>{reviewReason(session.context.reasonCode)}</AlertDescription>
         </Alert> : null}
@@ -866,7 +869,7 @@ export function GraphReviewComparison({
         {transformBusy ? <p role="status" className="flex items-center gap-2 text-xs text-muted-foreground">
           <LoaderCircle className="size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />{t('graph.transform.checking')}
         </p> : null}
-        {transformError ? <Alert variant="destructive" className="rounded-lg" data-testid="graph-review-transform-error">
+        {transformError ? <Alert variant="destructive" data-testid="graph-review-transform-error">
           <ShieldAlert aria-hidden="true" /><AlertTitle>{t('graph.transform.failed')}</AlertTitle>
           <AlertDescription className="space-y-2"><p>{transformError instanceof ProposalReviewClientError
             ? transformError.code.startsWith('PROPOSAL_') ? t(reasonKey(transformError.code)) : t('graph.transportError')
@@ -880,17 +883,17 @@ export function GraphReviewComparison({
               cancelReturnFocusRef.current = transformReturnFocusRef.current;
               setTransformPreview(null);
             }} onConfirm={confirmTransform} /> : null}
-        {historicalProposal ? <Alert className="rounded-lg border bg-muted/25" data-testid="graph-review-historical-status">
-          <History aria-hidden="true" className="text-muted-foreground" />
+        {historicalProposal ? <Alert variant="info" data-testid="graph-review-historical-status">
+          <History aria-hidden="true" />
           <AlertTitle>{t(`graph.context.lifecycle.${historicalProposal.lifecycle}`)}</AlertTitle>
           <AlertDescription>{t('graph.historicalDescription')}</AlertDescription>
-        </Alert> : provenNoEffect ? <Alert className="rounded-lg border-emerald-500/35 bg-emerald-500/[0.055]" data-testid="graph-review-no-effect">
-          <Check aria-hidden="true" className="text-emerald-700 dark:text-emerald-300" />
+        </Alert> : provenNoEffect ? <Alert variant="success" data-testid="graph-review-no-effect">
+          <Check aria-hidden="true" />
           <AlertTitle>{t(statusKey(status))}</AlertTitle>
           <AlertDescription>{t(status === 'empty_effect' && isBatch
             ? 'graph.noEffect.emptySelection' : `graph.noEffect.${status}`)}</AlertDescription>
-        </Alert> : !clean ? <Alert className="rounded-lg border-amber-500/35 bg-amber-500/[0.06]" data-testid="graph-review-blocked">
-          <AlertTriangle aria-hidden="true" className="text-amber-700 dark:text-amber-300" />
+        </Alert> : !clean ? <Alert variant="warning" data-testid="graph-review-blocked">
+          <AlertTriangle aria-hidden="true" />
           <AlertTitle>{t(statusKey(status))}</AlertTitle>
           <AlertDescription>{reviewReason(session.reasonCode)}</AlertDescription>
         </Alert> : null}
@@ -903,8 +906,8 @@ export function GraphReviewComparison({
             </div>
           </div>
           <GraphHunks hunks={displayCompare.hunks} />
-        </> : clean ? <Alert className="rounded-lg border-amber-500/35 bg-amber-500/[0.06]">
-          <AlertTriangle aria-hidden="true" className="text-amber-700 dark:text-amber-300" />
+        </> : clean ? <Alert variant="warning">
+          <AlertTriangle aria-hidden="true" />
           <AlertTitle>{t('graph.compareUnavailable')}</AlertTitle>
           <AlertDescription>{t(reasonKey(displayCompare?.diagnosis.reasonCode ?? session.reasonCode))}</AlertDescription>
         </Alert> : null}
@@ -926,8 +929,8 @@ export function GraphReviewComparison({
           <RefreshCw className="size-4" aria-hidden="true" />{t('graph.refreshComparison')}
         </Button> : null}
       </div> : null}
-      {actionIdentity ? <Alert className="rounded-lg border-amber-500/35 bg-amber-500/[0.06]" data-testid="graph-review-pending-action">
-        <AlertTriangle aria-hidden="true" className="text-amber-700 dark:text-amber-300" />
+      {actionIdentity ? <Alert variant="warning" data-testid="graph-review-pending-action">
+        <AlertTriangle aria-hidden="true" />
         <AlertTitle>{actionBusy ? t('graph.durability.submitting')
           : receiptPhase ? t(`graph.durability.${receiptPhase}`) : t('graph.durability.unconfirmed')}</AlertTitle>
         <AlertDescription className="flex flex-wrap items-center gap-2">
@@ -942,7 +945,8 @@ export function GraphReviewComparison({
         </AlertDescription>
       </Alert> : null}
       {!session.capability.write ? <p role="status" className="text-xs text-muted-foreground">{t('graph.readOnly')}</p> : null}
-      {actionError ? <Alert variant="destructive" className="rounded-lg" data-testid="graph-review-action-error">
+      {actionError ? <Alert variant="destructive" data-testid="graph-review-action-error">
+        <ShieldAlert aria-hidden="true" />
         <AlertTitle>{t(actionIdentity ? 'graph.actionUncertainTitle' : 'graph.actionFailed')}</AlertTitle><AlertDescription className="space-y-2">
           <p>{actionError instanceof ProposalReviewClientError
             ? actionError.code.startsWith('PROPOSAL_') ? t(reasonKey(actionError.code)) : t('graph.transportError')

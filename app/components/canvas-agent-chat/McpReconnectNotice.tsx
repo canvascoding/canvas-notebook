@@ -5,6 +5,7 @@ import { useLocale } from 'next-intl';
 import { PlugZap } from 'lucide-react';
 import { Link } from '@/i18n/navigation';
 import { Button } from '@/components/ui/button';
+import { InlineNotice } from '@/components/ui/inline-notice';
 import { mcpConnectionErrorCopy, mcpConnectionSettingsHref, type McpConnectionHealth, type McpReconnectHint } from '@/app/lib/mcp/connection-health-types';
 
 /** Persisted tool failures offer a current connection action without replaying a tool. */
@@ -32,17 +33,17 @@ export function McpReconnectNotice({ connection }: { connection: McpReconnectHin
       : mcpConnectionErrorCopy(health?.lastErrorCode || 'reauth_required', locale);
 
   return (
-    <div data-testid="mcp-reconnect-notice" className="mt-2 flex max-w-lg flex-wrap items-center gap-3 rounded-lg border border-border/70 bg-muted/30 px-3 py-2 text-xs">
-      <PlugZap className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-      <div className="min-w-0 flex-1">
-        <p className="truncate font-medium">{connection.serverName}</p>
-        <p className="mt-0.5 text-muted-foreground">{description}</p>
-      </div>
-      <Button asChild variant="outline" size="sm" className="h-7 text-xs">
+    <InlineNotice data-testid="mcp-reconnect-notice" className="mt-2 max-w-lg" size="compact"
+      variant={recovered ? 'success' : disabled ? 'info' : 'warning'}
+      icon={<PlugZap aria-hidden="true" />}
+      title={connection.serverName}
+      actions={<Button asChild variant="outline" size="xs">
         <Link href={mcpConnectionSettingsHref(connection.connectionId)}>
           {disabled || recovered ? german ? 'Verbindung öffnen' : 'Open connection' : german ? 'Erneut verbinden' : 'Reconnect'}
         </Link>
-      </Button>
-    </div>
+      </Button>}
+    >
+      {description}
+    </InlineNotice>
   );
 }

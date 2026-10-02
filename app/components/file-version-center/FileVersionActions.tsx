@@ -1,10 +1,10 @@
 'use client';
 
-import { Check, LoaderCircle, MessageSquareText, RotateCcw, X } from 'lucide-react';
+import { Check, LoaderCircle, MessageSquareText, RotateCcw, ShieldAlert, X } from 'lucide-react';
 import { useCallback, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
 
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { InlineNotice } from '@/components/ui/inline-notice';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -129,11 +129,10 @@ export function FileVersionActions({
   return (
     <div className="shrink-0 border-t bg-background/95 px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] backdrop-blur-sm sm:px-5 sm:pb-3">
       {error ? (
-        <Alert variant="destructive" className="mb-3 rounded-lg" data-testid="file-version-action-error">
-          <AlertTitle>{t(actionErrorKey(error))}</AlertTitle>
-          <AlertDescription className="flex flex-wrap items-center justify-between gap-2">
-            <span>{t('actions.errorDescription')}</span>
-            {error instanceof FileVersionActionError && error.retryable ? (
+        <InlineNotice variant="destructive" className="mb-3" data-testid="file-version-action-error"
+          icon={<ShieldAlert aria-hidden="true" />}
+          title={t(actionErrorKey(error))}
+          actions={error instanceof FileVersionActionError && error.retryable ? (
               <Button
                 type="button"
                 variant="outline"
@@ -144,8 +143,9 @@ export function FileVersionActions({
                 {t('actions.retry')}
               </Button>
             ) : null}
-          </AlertDescription>
-        </Alert>
+        >
+          {t('actions.errorDescription')}
+        </InlineNotice>
       ) : null}
       <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between">
         <Button type="button" variant="ghost" size="sm" disabled={Boolean(busy)} onClick={onContinue}>

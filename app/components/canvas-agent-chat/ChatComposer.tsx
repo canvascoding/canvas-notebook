@@ -24,6 +24,8 @@ import { SkillReferenceChipRow } from '@/app/components/canvas-agent-chat/SkillR
 import { TypewriterPromptSuggestion } from '@/app/components/canvas-agent-chat/TypewriterPromptSuggestion';
 import { useChatFileDrop } from '@/app/components/canvas-agent-chat/useChatFileDrop';
 import { useWorkspaceStore } from '@/app/store/workspace-store';
+import { Button } from '@/components/ui/button';
+import { InlineNotice } from '@/components/ui/inline-notice';
 import type {
   AiEffectiveRuntimeResolution,
   AiRuntimeSelection,
@@ -211,35 +213,32 @@ export const ChatComposer = forwardRef<HTMLDivElement, {
       style={{ paddingBottom: isMobile ? 'calc(env(safe-area-inset-bottom) + 0.75rem)' : '0.75rem' }}
     >
       {uploadError && (
-        <div className="mb-2 flex items-center justify-between border border-destructive/30 bg-destructive/10 p-2 text-xs text-destructive">
-          <span>{uploadError}</span>
-          <button type="button" onClick={onClearUploadError} className="ml-2 hover:opacity-70">
-            <X className="h-3 w-3" />
-          </button>
-        </div>
+        <InlineNotice variant="destructive" size="compact" className="mb-2" actions={
+          <Button type="button" variant="ghost" size="icon-xs" aria-label={t('close')} onClick={onClearUploadError}>
+            <X className="size-3" aria-hidden="true" />
+          </Button>
+        }>
+          {uploadError}
+        </InlineNotice>
       )}
 
       {isWebSocketUnavailable && (
-        <div className="mb-2 border border-amber-500/30 bg-amber-500/10 p-2 text-xs text-amber-900 dark:text-amber-100">
-          <div className="font-medium">{t('liveUpdatesUnavailable')}</div>
-          <div className="mt-1 text-[11px] opacity-80">{t('liveUpdatesUnavailableDescription')}</div>
-        </div>
+        <InlineNotice variant="warning" size="compact" className="mb-2" title={t('liveUpdatesUnavailable')}>
+          {t('liveUpdatesUnavailableDescription')}
+        </InlineNotice>
       )}
 
       {showModelRequiredNotice && (
-        <div className="mb-2 flex flex-wrap items-center justify-between gap-2 border border-amber-500/30 bg-amber-500/10 p-2 text-xs text-amber-900 dark:text-amber-100">
-          <div className="min-w-0">
-            <div className="font-medium">{t('modelRequiredTitle')}</div>
-            <div className="mt-1 text-[11px] opacity-80">{t('modelRequiredDescription')}</div>
-          </div>
-          <Link
-            href="/settings?tab=agent-settings&panel=runtime"
-            className="inline-flex shrink-0 items-center gap-1 border border-amber-500/40 bg-background/60 px-2 py-1 text-[11px] font-medium text-foreground transition-colors hover:bg-accent"
-          >
-            <Settings className="h-3 w-3" />
-            {t('openAgentSettings')}
-          </Link>
-        </div>
+        <InlineNotice variant="warning" size="compact" className="mb-2" title={t('modelRequiredTitle')} actions={
+          <Button asChild variant="outline" size="xs">
+            <Link href="/settings?tab=agent-settings&panel=runtime">
+              <Settings className="size-3" aria-hidden="true" />
+              {t('openAgentSettings')}
+            </Link>
+          </Button>
+        }>
+          {t('modelRequiredDescription')}
+        </InlineNotice>
       )}
 
       {delegationPanel}

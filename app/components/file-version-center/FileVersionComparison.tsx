@@ -19,6 +19,7 @@ import { parseCanvasMarkdownDocument } from '@/app/lib/markdown/obsidian-metadat
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { InlineNotice } from '@/components/ui/inline-notice';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import type {
   FileVersionCenterRequestV1,
@@ -369,7 +370,7 @@ function LoadedComparison({
     return (
       <div className="flex min-h-0 flex-1 flex-col">
         <div className="flex min-h-0 flex-1 items-center justify-center p-5">
-          <Alert variant={changed ? 'default' : 'destructive'} className="max-w-xl rounded-lg">
+          <Alert variant={changed ? 'warning' : 'destructive'} className="max-w-xl">
             {changed ? <AlertTriangle aria-hidden="true" /> : <ShieldAlert aria-hidden="true" />}
             <AlertTitle>{changed ? t('comparisonChanged') : t('compareFailed')}</AlertTitle>
             <AlertDescription>
@@ -417,12 +418,14 @@ function LoadedComparison({
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
       {reviewPending ? (
-        <div role={error ? 'alert' : 'status'} data-testid="file-version-comparison-refresh" className="flex items-center justify-between gap-3 border-b bg-muted/40 px-4 py-3 text-sm">
-          <span>{error?.message ?? (loading || timelineRefreshing ? t('loadingComparison') : t('comparisonChanged'))}</span>
-          {!loading && !timelineRefreshing ? <Button variant="outline" size="sm" onClick={() => { void refreshTimeline(); }} disabled={timelineRefreshState === 'refreshing'}>
+        <InlineNotice variant={error ? 'destructive' : 'info'} size="compact"
+          data-testid="file-version-comparison-refresh" className="mx-4 my-3 w-auto shrink-0"
+          actions={!loading && !timelineRefreshing ? <Button variant="outline" size="sm" onClick={() => { void refreshTimeline(); }} disabled={timelineRefreshState === 'refreshing'}>
             <RefreshCw className="size-4" aria-hidden="true" />{t('refreshTimeline')}
           </Button> : null}
-        </div>
+        >
+          {error?.message ?? (loading || timelineRefreshing ? t('loadingComparison') : t('comparisonChanged'))}
+        </InlineNotice>
       ) : null}
       <div className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3 sm:px-5">
         <div className="min-w-0">
@@ -440,8 +443,8 @@ function LoadedComparison({
       </div>
       {unavailable ? (
         <div className="min-h-0 flex-1 overflow-auto">
-          <Alert className="m-4 rounded-lg border-amber-500/35 bg-amber-500/[0.06]">
-            <AlertTriangle className="text-amber-700 dark:text-amber-300" aria-hidden="true" />
+          <Alert variant="warning" className="m-4 w-auto">
+            <AlertTriangle aria-hidden="true" />
             <AlertTitle>{t('candidateUnavailable')}</AlertTitle>
             <AlertDescription className="space-y-3">
               <p>{timelineRefreshState === 'confirmed_stale'
@@ -507,9 +510,9 @@ function LoadedComparison({
               <p className="rounded-lg border border-dashed p-5 text-center text-sm text-muted-foreground">{t('noDifferences')}</p>
             )}
             {payload.response.truncated ? (
-              <p role="status" className="mt-3 flex items-center gap-2 text-xs text-amber-700 dark:text-amber-300">
-                <AlertTriangle className="size-3.5" aria-hidden="true" />{t('comparisonTruncated')}
-              </p>
+              <InlineNotice variant="warning" size="compact" className="mt-3">
+                {t('comparisonTruncated')}
+              </InlineNotice>
             ) : null}
             {payload.response.page.hasMore || hunkError ? (
               <div className="mt-3 space-y-2">
@@ -660,11 +663,11 @@ export function FileVersionComparison({
 
   return (
     <main className="flex min-h-0 min-w-0 flex-1 flex-col bg-background">
-      {localSyncPending ? <div role="status" data-testid="graph-review-local-sync-pending"
-        className="flex items-start gap-2 border-b border-amber-500/35 bg-amber-500/[0.06] px-4 py-3 text-xs text-amber-900 dark:text-amber-100">
-        <ShieldAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
-        <span>{t('graph.localSyncPending')}</span>
-      </div> : null}
+      {localSyncPending ? <InlineNotice variant="warning" size="compact"
+        data-testid="graph-review-local-sync-pending" className="mx-4 my-3 w-auto shrink-0"
+        icon={<ShieldAlert aria-hidden="true" />}>
+        {t('graph.localSyncPending')}
+      </InlineNotice> : null}
       {selection.state === 'invalidated' ? (
         <EmptyComparison
           testId="file-version-selection-unavailable"
