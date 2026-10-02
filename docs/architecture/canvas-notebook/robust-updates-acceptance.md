@@ -5,16 +5,16 @@ in Notebook und Control Plane. Es wurden ausschließlich lokale Testdienste
 und die vorhandene VM `canvas-managed-e2e` verwendet.
 
 Geprüfter Quellstand: Notebook `587f72905` auf Basis von `87d45c7ac`,
-Control Plane `6efea0d` auf Basis von `79847bd`. Die Änderungen sind in
-getrennten Commits abgelegt; es wurde nichts nach `main` gepusht.
+Control Plane `6efea0d` auf Basis von `79847bd`. Die Änderungen der VM-Abnahme sind in getrennten Commits abgelegt.
+Die anschließend geprüfte Integration in `main` ist unten dokumentiert.
 
 Während der Abnahme ist Notebook-`origin/main` auf `4b7e29f31` weitergelaufen.
 Der Vergleich damit enthält zusätzliche Kollaborationsänderungen und wird
 von GitNexus als HIGH bewertet. Gegen die feste Ausgangsbasis umfasst der
 Update-Plan 18 Dateien (63 zugeordnete Symbole, LOW); der Control-Plane-Diff
-umfasst fünf Dateien (LOW). Die Integration in das inzwischen aktualisierte
-`main` wurde nicht geprüft. Vor einem Merge sind Rebase und erneute
-Integrationschecks erforderlich.
+umfasst fünf Dateien (LOW). Diese VM-Abnahme lag vor der Integration in das inzwischen aktualisierte
+`main`. Rebase und erneute Integrationschecks wurden anschließend
+durchgeführt; siehe den Abschnitt zur Main-Integration.
 
 ## Umsetzung
 
@@ -156,8 +156,8 @@ explizit auf die lokale Umgebung begrenzt.
 Ein konkurrierender *neuer* Request-Schlüssel wurde im Live-Lauf nicht
 abgeschickt, damit der Test nach einem möglichen Abschluss keinen weiteren
 Auftrag startet. Dieser Konflikt wird durch die Control-Plane-Service-/Route-
-Regressionen geprüft. Die Integration in das inzwischen fortgeschrittene
-`main` bleibt ein separater erforderlicher Schritt vor einem Merge.
+Regressionen geprüft. Die Integration in das inzwischen fortgeschrittene `main` wurde
+anschließend mit den unten aufgeführten Checks geprüft.
 
 ## Bilder und bereinigter Abschlusszustand
 
@@ -189,3 +189,49 @@ Credentials und Daten sind erhalten. Die Historie bleibt bei 15 Aufträgen,
 Der [Cleanup-Nachweis](robust-updates-evidence/cleanup-proof.json) enthält
 die geprüften Zustände; der reguläre Testzugang ist wieder
 `http://127.0.0.1:3100`.
+
+## Geprüfte Integration in main
+
+Auf ausdrücklichen Wunsch wurden beide Branches am selben Tag auf den
+aktuellen Remote-Stand rebasiert. Notebook-Basis:
+`4b7e29f31c906c41d00850495eba6b1c14abfd32`; Control-Plane-Basis:
+`79847bd4fa6be70350661e3974ef3ed383fddbae`. Beide Rebases sind konfliktfrei.
+Alle sechs ursprünglichen Notebook-Commits sind laut `git range-diff`
+inhaltlich unverändert. Der zentrale Ticket-Fix entspricht jetzt
+`28d8dce4f`; der Control-Plane-Commit bleibt `6efea0d`.
+
+Nach dem Rebase wurden folgende Prüfungen erneut erfolgreich ausgeführt:
+
+- Vollständiger Notebook-Produktionsbuild und `tsc --noEmit`.
+- Gesamte System-Update-/UI-Suite, echte Standalone-Idempotenz,
+  Lifecycle, Updater und Apply-Gate.
+- Notebook-Backend-/Auth-/Route-Integration gegen den geprüften
+  Control-Plane-Quellstand.
+- Zwölf Docker-Engine-Tests, portable CLI-Regressionssuite und CLI-Typecheck.
+- Sämtliche elf Skripte von `npm run test:postgres:startup`, einschließlich
+  Health-Timeout, Serverstart und Scheduling.
+- Control Plane: 23 fokussierte Service-/Route-/Rollback-/Event-Tests,
+  49 Orchestrierungsregressionen mit echter isolierter PostgreSQL-Datenbank,
+  API-Typecheck sowie API-/Agent- und Web-Produktionsbuild.
+
+Die neue Health-/Projection-Diagnose auf `main` und der DB-Startpfad wurden
+zusätzlich gegen den CLI-Health-Vertrag geprüft. Drei von `main` geerbte
+Testfixtures enthielten unvollständige Import-/Server-Mocks. Der separate
+Commit `830a03266` aktualisiert ausschließlich diese Fixtures, erhält ihre
+bestehenden Assertions und prüft zusätzlich, dass ein Diagnosefehler keine
+private Fehlermeldung und keinen falschen Health-Ausfall erzeugt. Die
+Produktlogik wurde dabei nicht geändert. GitNexus bewertete die Anpassung
+als LOW ohne betroffene Produktprozesse.
+
+Die temporäre Control-Plane-Testdatenbank wurde entfernt. Die bestehende
+VM-Update-Historie blieb bei 15 Aufträgen und 0 aktiven Aufträgen. Für den
+Rebase wurde kein weiterer VM-Update-Lauf und kein Containerbuild ausgeführt;
+die vorherigen realen E2E-Belege bleiben ihrem ursprünglichen Quellstand
+zugeordnet, ergänzt durch die Integrationstests oben.
+
+Für keinen der beiden Branches existiert ein zugehöriger PR. Die aktiven
+Notebook-Main-Regeln verbieten Löschen und Non-Fast-forward-Pushes; sie
+fordern weder PR noch zusätzliche Statuschecks. Der aktuelle Notebook-
+Basiscommit hat vier erfolgreiche CodeQL-Checks. GitHub meldet die
+Control-Plane-Main-Branch als ungeschützt und ohne Commit-Checks. Beide
+Integrationen erfolgen als reguläre Fast-forwards, ohne Force-Push.
