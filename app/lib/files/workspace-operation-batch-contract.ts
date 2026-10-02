@@ -38,7 +38,7 @@ export type WorkspaceOperationBatchProgress = {
   phase: 'preparing' | 'paths' | 'links' | 'complete' | 'recovery';
 };
 export type WorkspaceOperationBatchExecutionResult = {
-  status: 'applied' | 'needs_recovery' | 'failed';
+  status: 'applied' | 'needs_review' | 'needs_recovery' | 'failed';
   trashEntryIds: string[];
   completedActions: number;
   totalActions: number;

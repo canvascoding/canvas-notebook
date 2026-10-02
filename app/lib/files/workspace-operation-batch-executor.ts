@@ -24,6 +24,8 @@ import { buildWorkspacePlannerSnapshot } from '@/app/lib/markdown/workspace-file
 import { buildWorkspaceLinkIndexFromDocuments } from '@/app/lib/markdown/workspace-link-index-core';
 import { parseWorkspaceMarkdownHref } from '@/app/lib/markdown/workspace-local-link-parser';
 import { buildWorkspaceOperationBatchPlan, computeWorkspaceOperationBatchPlanId } from './workspace-operation-batch-plan';
+import { workspaceOperationBatchErrorCode, workspaceOperationBatchFailureStatus,
+  type WorkspaceOperationBatchMutationEvidence } from './workspace-operation-batch-failure';
 import type { WorkspaceOperationBatchExecutionResult, WorkspaceOperationBatchPlan, WorkspaceOperationBatchProgress,
   WorkspaceOperationBatchScope } from './workspace-operation-batch-contract';
 
@@ -38,7 +40,7 @@ export type WorkspaceOperationBatchTransitionProof = {
 };
 type Manifest = {
   version: 1; batchId: string; workspaceId: string; actorUserId: string; plan: WorkspaceOperationBatchPlan;
-  status: 'preparing' | 'applying' | 'applied' | 'needs_recovery' | 'failed' | 'undoing' | 'undone';
+  status: 'preparing' | 'applying' | 'applied' | 'needs_review' | 'needs_recovery' | 'failed' | 'undoing' | 'undone';
   beforeTrees: Record<string, TreeEntry[]>; backupIds: string[]; linkPreflight: WorkspaceLinkWritePreflight | null;
   steps: Step[]; undoSteps: Step[]; undoPlan: WorkspaceOperationBatchPlan['linkPlan'] | null;
   undoPreflight: WorkspaceLinkWritePreflight | null; errorCode: string | null;
@@ -204,7 +206,8 @@ export function createWorkspaceOperationBatchExecutor(dependencies: Dependencies
     }
   };
   const result = (manifest: Manifest): WorkspaceOperationBatchExecutionResult => ({
-    status: manifest.status === 'applied' || manifest.status === 'undone' ? 'applied' : manifest.status === 'failed' ? 'failed' : 'needs_recovery',
+    status: manifest.status === 'applied' || manifest.status === 'undone' ? 'applied'
+      : manifest.status === 'failed' || manifest.status === 'needs_review' ? manifest.status : 'needs_recovery',
     trashEntryIds: manifest.steps.flatMap((step) => typeof step.receipt?.trashEntryId === 'string' ? [step.receipt.trashEntryId] : []),
     completedActions: manifest.steps.filter((step) => step.state === 'applied').length,
     totalActions: manifest.plan.pathSteps.length + manifest.plan.previewContents.length, errorCode: manifest.errorCode,
@@ -395,7 +398,7 @@ export function createWorkspaceOperationBatchExecutor(dependencies: Dependencies
         }
         await save(manifest);
       }
-      if (manifest.status === 'preparing' || manifest.status === 'failed' || manifest.status === 'needs_recovery') manifest.status = 'applying';
+      if (['preparing', 'failed', 'needs_review', 'needs_recovery'].includes(manifest.status)) manifest.status = 'applying';
       if (!manifest.steps.some((step) => step.key.startsWith('path:') && step.receipt)) {
         const fresh = await rebuild({ scope: input.scope, actions: manifest.plan.actions });
         if (fresh.readiness !== 'ready' || fresh.planId !== manifest.plan.planId) throw new Error('BATCH_PLAN_STALE');
@@ -523,10 +526,10 @@ export function createWorkspaceOperationBatchExecutor(dependencies: Dependencies
       await progress(input, manifest, 'complete');
       return result(manifest);
     } catch (error) {
-      const code = error instanceof Error ? error.message.slice(0, 160) : 'BATCH_EXECUTION_FAILED';
-      if (!manifest) return { status: 'failed', trashEntryIds: [], completedActions: 0,
+      const code = workspaceOperationBatchErrorCode(error);
+      if (!manifest) return { status: workspaceOperationBatchFailureStatus(code, false), trashEntryIds: [], completedActions: 0,
         totalActions: input.plan.pathSteps.length + input.plan.previewContents.length, errorCode: code };
-      manifest.status = manifest.steps.length ? 'needs_recovery' : 'failed'; manifest.errorCode = code;
+      manifest.status = workspaceOperationBatchFailureStatus(code, manifest.steps.length > 0); manifest.errorCode = code;
       await save(manifest).catch(() => undefined);
       return result(manifest);
     }
@@ -537,6 +540,7 @@ export function createWorkspaceOperationBatchExecutor(dependencies: Dependencies
     const manifest = await load(input.batchId);
     if (!manifest || manifest.workspaceId !== input.scope.workspace.workspaceId) throw new Error('BATCH_ID_CONFLICT');
     if (manifest.status === 'undone') return result(manifest);
+    const forwardComplete = manifest.status === 'applied' || manifest.status === 'undoing' && manifest.undoPlan !== null;
     try {
       if (!manifest.undoPlan) {
         if (manifest.status !== 'applied') throw new Error('BATCH_UNDO_NOT_COMPLETE');
@@ -634,15 +638,24 @@ export function createWorkspaceOperationBatchExecutor(dependencies: Dependencies
       for (const group of recovered.groups) if (await probeLink(recovered.input, group, { preflight: recovered.preflight }) !== 'after') throw new Error('BATCH_UNDO_FINAL_LINK_CHANGED');
       manifest.status = 'undone'; manifest.errorCode = null; await save(manifest); return result(manifest);
     } catch (error) {
-      manifest.errorCode = error instanceof Error ? error.message.slice(0, 160) : 'BATCH_UNDO_FAILED';
+      manifest.errorCode = workspaceOperationBatchErrorCode(error, 'BATCH_UNDO_FAILED');
       // Keep the forward receipt complete when a preflight-only undo was refused.
-      if (manifest.undoSteps.length || manifest.undoPlan) manifest.status = 'undoing';
+      if (manifest.undoSteps.length) manifest.status = 'undoing';
+      else if (forwardComplete) { manifest.status = 'applied'; manifest.undoPlan = null; manifest.undoPreflight = null; }
+      else manifest.status = 'needs_recovery';
       await save(manifest);
-      return { ...result(manifest), status: 'needs_recovery' };
+      return { ...result(manifest), status: manifest.undoSteps.length || !forwardComplete ? 'needs_recovery' : 'failed' };
     }
   });
 
   return { execute, undo, assertUndoAvailable,
+    async mutationEvidence(batchId: string, workspaceId: string, undo = false): Promise<WorkspaceOperationBatchMutationEvidence> {
+      const manifest = await load(batchId);
+      if (!manifest) return 'absent';
+      if (manifest.workspaceId !== workspaceId) throw new Error('BATCH_ID_CONFLICT');
+      if (undo ? manifest.status === 'undone' : manifest.status === 'applied') return 'complete';
+      return (undo ? manifest.undoSteps : manifest.steps).length ? 'started' : 'pristine';
+    },
     async transitions(input: { batchId: string; scope: WorkspaceOperationBatchScope }): Promise<WorkspaceOperationBatchTransitionProof[]> {
       const manifest = await load(input.batchId);
       if (!manifest || manifest.status !== 'applied' || manifest.workspaceId !== input.scope.workspace.workspaceId
@@ -664,6 +677,7 @@ export function createWorkspaceOperationBatchExecutor(dependencies: Dependencies
 export const executeWorkspaceOperationBatch = (input: ExecuteInput) => createWorkspaceOperationBatchExecutor().execute(input);
 export const undoWorkspaceOperationBatch = (input: UndoInput) => createWorkspaceOperationBatchExecutor().undo(input);
 export const hasWorkspaceOperationBatchExecution = (batchId: string, workspaceId?: string) => createWorkspaceOperationBatchExecutor().has(batchId, workspaceId);
+export const getWorkspaceOperationBatchMutationEvidence = (batchId: string, workspaceId: string, undo = false) => createWorkspaceOperationBatchExecutor().mutationEvidence(batchId, workspaceId, undo);
 export const getWorkspaceOperationBatchExecution = (input: { batchId: string; scope: WorkspaceOperationBatchScope }) => createWorkspaceOperationBatchExecutor().get(input);
 export const assertWorkspaceOperationBatchUndoAvailable = (input: { batchId: string; scope: WorkspaceOperationBatchScope }) => createWorkspaceOperationBatchExecutor().assertUndoAvailable(input);
 export const getWorkspaceOperationBatchTransitionProofs = (input: { batchId: string; scope: WorkspaceOperationBatchScope }) => createWorkspaceOperationBatchExecutor().transitions(input);

@@ -21,6 +21,7 @@ const artifacts = path.join(cwd, '.playwright-mcp/file-review-batches');
 const runId = randomUUID();
 const isolatedDatabase = `canvas_file_review_e2e_${runId.replaceAll('-', '')}`;
 const isolatedData = path.join(os.tmpdir(), `canvas-file-review-e2e-${runId}`);
+const peerGateDirectory = path.join(isolatedData, 'peer-gates');
 const managedDatabaseURL = new URL(localEnv.DATABASE_URL || '');
 if (!['postgres:', 'postgresql:'].includes(managedDatabaseURL.protocol)
   || !['localhost', '127.0.0.1'].includes(managedDatabaseURL.hostname)
@@ -36,7 +37,7 @@ const env = { ...process.env, ...localEnv, NODE_ENV: 'development', PORT: String
   CANVAS_DATABASE_MIGRATIONS_COMPLETED: 'false',
   CANVAS_DEPLOYMENT_MODE: 'community', CANVAS_TEAM_FEATURES_ENABLED: 'false',
   ONBOARDING: 'false',
-  E2E_EXTERNAL_SERVER: '1', CANVAS_BATCH_E2E_RUN_ID: runId };
+  E2E_EXTERNAL_SERVER: '1', CANVAS_BATCH_E2E_RUN_ID: runId, CANVAS_BATCH_E2E_GATE_DIR: peerGateDirectory };
 if (!env.BOOTSTRAP_ADMIN_EMAIL || !env.BOOTSTRAP_ADMIN_PASSWORD) throw new Error('Managed bootstrap credentials required.');
 for (const [key, value] of Object.entries(env)) if (value !== undefined) process.env[key] = value;
 await new Promise((resolve, reject) => {
@@ -54,6 +55,7 @@ try {
   await databaseAdmin.query(`CREATE DATABASE "${isolatedDatabase}"`);
   isolatedDatabaseCreated = true;
   await fs.mkdir(isolatedData, { mode: 0o700 });
+  await fs.mkdir(peerGateDirectory, { mode: 0o700 });
 } catch (error) {
   if (isolatedDatabaseCreated) await databaseAdmin.query(`DROP DATABASE "${isolatedDatabase}"`);
   await databaseAdmin.end();
@@ -66,7 +68,7 @@ let log;
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 async function startServer() {
   log = await fs.open(path.join(artifacts, 'owned-server.log'), 'a', 0o600);
-  server = spawn(process.execPath, ['--import', 'tsx', 'server.js'], { cwd, env,
+  server = spawn(process.execPath, ['--import', 'tsx', '--import', './scripts/workspace-operation-batch-e2e-gate.ts', 'server.js'], { cwd, env,
     stdio: ['ignore', log.fd, log.fd] });
   for (let attempt = 0; attempt < 600; attempt += 1) {
     if (server.exitCode !== null || server.signalCode !== null) throw new Error('Owned E2E server exited during startup. Inspect its private log.');
@@ -222,8 +224,10 @@ try {
     throw new Error('Isolated E2E bootstrap failed; inspect its private log.');
   }
   await startServer();
-  const suite = spawn(process.execPath, ['node_modules/@playwright/test/cli.js', 'test',
-    'tests/workspace-operation-batches.spec.ts', '--workers=1', '--max-failures=1', '--reporter=list'], { cwd, env, stdio: 'inherit' });
+  const suiteArgs = ['node_modules/@playwright/test/cli.js', 'test',
+    'tests/workspace-operation-batches.spec.ts', '--workers=1', '--max-failures=1', '--reporter=list'];
+  if (process.env.CANVAS_BATCH_E2E_GREP) suiteArgs.push('--grep', process.env.CANVAS_BATCH_E2E_GREP);
+  const suite = spawn(process.execPath, suiteArgs, { cwd, env, stdio: 'inherit' });
   const suiteCode = await new Promise((resolve) => suite.once('exit', (code) => resolve(code ?? 1)));
   if (suiteCode === 0) {
     await restartScenario();

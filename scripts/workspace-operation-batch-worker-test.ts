@@ -82,6 +82,91 @@ async function main(): Promise<void> {
     assert.deepEqual(staleReview, { status: 'stale', batch_id: null }, 'fresh approval can replace a stale queued plan');
     assert.equal(mutations, 0);
 
+    for (const [name, evidence, completed, phase] of [
+      ['missing-receipt', 'absent', 1, 'paths'], ['missing-intent', 'absent', 0, 'paths'],
+      ['missing-recovery', 'absent', 0, 'recovery'], ['rolled-back-journal', 'pristine', 1, 'paths'],
+      ['corrupt-journal', 'corrupt', 0, 'preparing'],
+    ] as const) {
+      const damaged = await seed(name, `${name}-workspace`); await damaged.enqueue();
+      await pg.query('UPDATE workspace_file_operation_batches SET completed_actions = $2, phase = $3 WHERE batch_id = $1',
+        [damaged.batchId, completed, phase]);
+      let freshBuilds = 0; let writes = 0;
+      await createWorkspaceOperationBatchWorker({ store, resolveScope: async () => scope(`${name}-workspace`),
+        lock: async (_id, action) => action(), hasExecution: async () => evidence !== 'absent',
+        mutationEvidence: async () => { if (evidence === 'corrupt') throw new Error('BATCH_CORRUPT_MANIFEST'); return evidence; },
+        buildPlan: async () => { freshBuilds += 1; return damaged.snapshot; },
+        execute: async () => { writes += 1; throw new Error('unexpected mutation'); } }).tick();
+      const row = (await store.get(damaged.batchId))!;
+      assert.equal(row.status, 'needs_recovery', name); assert.equal(row.completedActions, completed, name);
+      assert.equal(freshBuilds, 0, `${name}: ambiguous old writes cannot be freshly planned`);
+      assert.equal(writes, 0, `${name}: ambiguous journal cannot reach mutation`);
+    }
+    const conflict = await seed('typed-live-conflict', 'typed-live-conflict-workspace'); await conflict.enqueue();
+    await createWorkspaceOperationBatchWorker({ store, resolveScope: async () => scope('typed-live-conflict-workspace'),
+      lock: async (_id, action) => action(), hasExecution: async () => true, mutationEvidence: async () => 'pristine',
+      execute: async () => { throw Object.assign(new Error('Private prose changed after preflight.'), { code: 'LINK_WRITE_STALE' }); },
+    }).tick();
+    const conflictRow = (await store.get(conflict.batchId))!;
+    assert.equal(conflictRow.status, 'needs_review'); assert.equal(conflictRow.errorCode, 'LINK_WRITE_STALE');
+    const conflictReview = (await pg.query<{ status: string; batch_id: string | null; operation_id: string | null }>(
+      'SELECT status,batch_id,operation_id FROM workspace_file_operation_reviews WHERE review_id = $1', [conflict.reviewId])).rows[0]!;
+    assert.deepEqual(conflictReview, { status: 'stale', batch_id: null, operation_id: null }, 'pre-intent live conflict releases review reservations');
+
+    const returnedConflict = await seed('returned-live-conflict', 'returned-live-conflict-workspace'); await returnedConflict.enqueue();
+    await createWorkspaceOperationBatchWorker({ store, resolveScope: async () => scope('returned-live-conflict-workspace'),
+      lock: async (_id, action) => action(), hasExecution: async () => true, mutationEvidence: async () => 'pristine',
+      execute: async () => ({ status: 'needs_review', errorCode: 'LINK_WRITE_STALE', completedActions: 0, totalActions: 1, trashEntryIds: [] }),
+    }).tick();
+    assert.equal((await store.get(returnedConflict.batchId))!.status, 'needs_review');
+    assert.equal((await store.get(returnedConflict.batchId))!.phase, 'preparing');
+
+    const retryBeforeIntent = await seed('retry-before-intent', 'retry-before-intent-workspace'); await retryBeforeIntent.enqueue();
+    let interruptedBeforeIntent = true;
+    const retryDependencies = { store, resolveScope: async () => scope('retry-before-intent-workspace'),
+      lock: async <T>(_id: string, action: () => Promise<T>) => action(), hasExecution: async () => true,
+      mutationEvidence: async () => 'pristine' as const,
+      execute: async () => {
+        if (interruptedBeforeIntent) { interruptedBeforeIntent = false; throw new Error('WORKER_INTERRUPTED'); }
+        throw Object.assign(new Error('Peer prose changed while the worker was stopped.'), { code: 'LINK_WRITE_STALE' });
+      } };
+    await createWorkspaceOperationBatchWorker(retryDependencies).tick();
+    assert.equal((await store.get(retryBeforeIntent.batchId))!.status, 'failed');
+    assert.equal((await store.get(retryBeforeIntent.batchId))!.phase, 'preparing');
+    await store.enqueue({ batchId: retryBeforeIntent.batchId, planId, action: 'resume', userId: 'reviewer', displayName: 'Reviewer' });
+    await createWorkspaceOperationBatchWorker(retryDependencies).tick();
+    assert.equal((await store.get(retryBeforeIntent.batchId))!.status, 'needs_review', 'pre-intent failed retry cannot strand a newly stale review');
+
+    const missingUndo = await seed('missing-undo', 'missing-undo-workspace'); await missingUndo.enqueue();
+    await store.claim('missing-undo-original'); await store.finish(missingUndo.batchId, 'missing-undo-original', { status: 'applied', completedActions: 1 });
+    await store.enqueue({ batchId: missingUndo.batchId, planId, action: 'undo', userId: 'reviewer', displayName: 'Reviewer' });
+    let undoCalls = 0;
+    await createWorkspaceOperationBatchWorker({ store, resolveScope: async () => scope('missing-undo-workspace'),
+      lock: async (_id, action) => action(), hasExecution: async () => false, mutationEvidence: async () => 'absent',
+      undo: async () => { undoCalls += 1; throw new Error('unexpected Undo'); } }).tick();
+    assert.equal((await store.get(missingUndo.batchId))!.status, 'needs_recovery'); assert.equal(undoCalls, 0);
+
+    const refusedUndo = await seed('refused-undo', 'refused-undo-workspace'); await refusedUndo.enqueue();
+    await store.claim('refused-undo-original'); await store.finish(refusedUndo.batchId, 'refused-undo-original', { status: 'applied', completedActions: 1 });
+    await store.enqueue({ batchId: refusedUndo.batchId, planId, action: 'undo', userId: 'reviewer', displayName: 'Reviewer' });
+    await createWorkspaceOperationBatchWorker({ store, resolveScope: async () => scope('refused-undo-workspace'),
+      lock: async (_id, action) => action(), hasExecution: async () => true, mutationEvidence: async () => 'pristine',
+      undo: async () => ({ status: 'failed', errorCode: 'BATCH_UNDO_LINK_CHANGED', completedActions: 1, totalActions: 1, trashEntryIds: [] }),
+    }).tick();
+    assert.equal((await store.get(refusedUndo.batchId))!.status, 'applied', 'pre-intent Undo refusal preserves the completed forward receipt');
+    assert.equal((await store.get(refusedUndo.batchId))!.errorCode, 'BATCH_UNDO_LINK_CHANGED');
+
+    const zeroAck = await seed('zero-ack-intent', 'zero-ack-intent-workspace'); await zeroAck.enqueue();
+    await createWorkspaceOperationBatchWorker({ store, resolveScope: async () => scope('zero-ack-intent-workspace'),
+      lock: async (_id, action) => action(), hasExecution: async () => true, mutationEvidence: async () => 'started',
+      execute: async () => { throw Object.assign(new Error('Private document changed after move intent.'), { code: 'LINK_WRITE_STALE' }); },
+    }).tick();
+    assert.equal((await store.get(zeroAck.batchId))!.status, 'needs_recovery');
+    assert.equal((await store.get(zeroAck.batchId))!.completedActions, 0);
+    assert.equal((await store.get(zeroAck.batchId))!.errorCode, 'LINK_WRITE_STALE');
+    const intentReview = (await pg.query<{ status: string; batch_id: string | null }>(
+      'SELECT status,batch_id FROM workspace_file_operation_reviews WHERE review_id = $1', [zeroAck.reviewId])).rows[0]!;
+    assert.equal(intentReview.status, 'needs_recovery'); assert.equal(intentReview.batch_id, zeroAck.batchId);
+
     const restart = await seed('restart', 'restart-workspace');
     await restart.enqueue();
     let durableReceipt = false;

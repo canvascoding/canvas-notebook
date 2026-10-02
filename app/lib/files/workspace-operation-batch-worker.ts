@@ -7,7 +7,10 @@ import { resolveWorkspaceActor } from '@/app/lib/workspaces/context';
 import { resolvePostgresWorkspaceForActor } from '@/app/lib/workspaces/postgres-runtime';
 import { withWorkspaceMutationLock } from './workspace-mutation-lock';
 import { buildWorkspaceOperationBatchPlan } from './workspace-operation-batch-plan';
-import { executeWorkspaceOperationBatch, hasWorkspaceOperationBatchExecution, undoWorkspaceOperationBatch } from './workspace-operation-batch-executor';
+import { executeWorkspaceOperationBatch, getWorkspaceOperationBatchMutationEvidence,
+  hasWorkspaceOperationBatchExecution, undoWorkspaceOperationBatch } from './workspace-operation-batch-executor';
+import { workspaceOperationBatchErrorCode, workspaceOperationBatchFailureStatus,
+  type WorkspaceOperationBatchMutationEvidence } from './workspace-operation-batch-failure';
 import { WorkspaceOperationBatchStore, type WorkspaceOperationBatchRecord } from './workspace-operation-batch-store';
 import { markDependentWorkspaceOperationReviews } from './workspace-operation-review-service';
 import type { WorkspaceOperationBatchScope, WorkspaceOperationBatchProgress, WorkspaceOperationBatchPlan,
@@ -48,6 +51,7 @@ type WorkerDependencies = {
   execute?: typeof executeWorkspaceOperationBatch;
   undo?: typeof undoWorkspaceOperationBatch;
   hasExecution?: typeof hasWorkspaceOperationBatchExecution;
+  mutationEvidence?: typeof getWorkspaceOperationBatchMutationEvidence;
   dependentReviews?: typeof markDependentWorkspaceOperationReviews;
   projectFileViews?: typeof projectWorkspaceOperationBatchFileViews;
   lock?: typeof withWorkspaceMutationLock;
@@ -61,6 +65,11 @@ export function createWorkspaceOperationBatchWorker(dependencies: WorkerDependen
   const execute = dependencies.execute ?? executeWorkspaceOperationBatch;
   const undo = dependencies.undo ?? undoWorkspaceOperationBatch;
   const hasExecution = dependencies.hasExecution ?? hasWorkspaceOperationBatchExecution;
+  // Legacy test/dependency adapters that only expose existence stay conservative.
+  const mutationEvidence = dependencies.mutationEvidence ?? (dependencies.hasExecution
+    ? async (batchId: string, workspaceId: string): Promise<WorkspaceOperationBatchMutationEvidence> =>
+      await hasExecution(batchId, workspaceId) ? 'started' : 'absent'
+    : getWorkspaceOperationBatchMutationEvidence);
   const dependentReviews = dependencies.dependentReviews ?? markDependentWorkspaceOperationReviews;
   const projectFileViews = dependencies.projectFileViews ?? projectWorkspaceOperationBatchFileViews;
   const lock = dependencies.lock ?? withWorkspaceMutationLock;
@@ -94,6 +103,13 @@ export function createWorkspaceOperationBatchWorker(dependencies: WorkerDependen
           };
           await gate();
           const started = await hasExecution(currentBatch.batchId, currentBatch.workspaceId);
+          const evidence = await mutationEvidence(currentBatch.batchId, currentBatch.workspaceId, currentBatch.actionMode === 'undo');
+          if (currentBatch.completedActions > 0 && (evidence === 'absent' || evidence === 'pristine')
+            || evidence === 'absent' && (currentBatch.actionMode === 'undo'
+              || ['paths', 'links', 'recovery'].includes(currentBatch.phase))) {
+            await store.finish(currentBatch.batchId, owner, { status: 'needs_recovery', errorCode: 'BATCH_JOURNAL_UNAVAILABLE', phase: 'recovery' });
+            return;
+          }
           if (currentBatch.actionMode === 'apply' && !started) {
             const fresh = await buildPlan({ scope, actions: currentBatch.plan.actions });
             if (fresh.readiness !== 'ready' || fresh.planId !== currentBatch.planId) {
@@ -107,22 +123,31 @@ export function createWorkspaceOperationBatchWorker(dependencies: WorkerDependen
             : await execute({ batchId: currentBatch.batchId, plan: currentBatch.plan, scope,
               actorUserId: currentBatch.reviewerUserId!, actorDisplayName: currentBatch.reviewerDisplayName ?? 'Workspace user',
               onProgress: gate });
-          const status = currentBatch.actionMode === 'undo' && result.status === 'applied' ? 'undone' : result.status;
+          const refusedUndo = currentBatch.actionMode === 'undo' && result.status === 'failed'
+            && await mutationEvidence(currentBatch.batchId, currentBatch.workspaceId, true) === 'pristine';
+          const status = currentBatch.actionMode === 'undo' && result.status === 'applied' ? 'undone'
+            : refusedUndo ? 'applied' : result.status;
           projectFileViews({ scope, plan: currentBatch.plan, result, undo: currentBatch.actionMode === 'undo' });
           if (result.status === 'applied') await dependentReviews({ scope, plan: currentBatch.plan,
             excludedReviewIds: currentBatch.reviewIds, undo: currentBatch.actionMode === 'undo' });
           await store.finish(currentBatch.batchId, owner, { status,
             errorCode: result.errorCode, trashEntryIds: result.trashEntryIds,
-            completedActions: result.completedActions, phase: result.status === 'applied' ? 'complete' : 'recovery' });
+            completedActions: result.completedActions, phase: status === 'applied' || status === 'undone' ? 'complete'
+              : result.status === 'needs_recovery' ? 'recovery' : 'preparing' });
         });
         return true;
       } catch (error) {
         if (batch && !leaseLost) {
-          const started = await hasExecution(batch.batchId, batch.workspaceId).catch(() => true);
-          const namedCode = error && typeof error === 'object' && 'code' in error ? String(error.code)
-            : error instanceof Error ? error.message : '';
-          await store.finish(batch.batchId, owner, { status: started ? 'needs_recovery' : 'failed',
-            errorCode: /^[A-Z][A-Z0-9_]{1,127}$/u.test(namedCode) ? namedCode : 'BATCH_EXECUTION_FAILED', phase: 'recovery' });
+          const evidence = await mutationEvidence(batch.batchId, batch.workspaceId, batch.actionMode === 'undo').catch(() => null);
+          const current = await store.get(batch.batchId).catch(() => null);
+          const prior = current ?? batch;
+          const unknown = evidence === null || prior.completedActions > 0 && evidence !== 'complete'
+            || evidence === 'absent' && (batch.actionMode === 'undo'
+            || prior.completedActions > 0 || ['paths', 'links', 'recovery'].includes(prior.phase));
+          const code = workspaceOperationBatchErrorCode(error);
+          const status = workspaceOperationBatchFailureStatus(code, unknown || evidence === 'started' || evidence === 'complete');
+          await store.finish(batch.batchId, owner, { status, errorCode: code,
+            phase: status === 'needs_recovery' ? 'recovery' : 'preparing' });
         }
         return Boolean(batch);
       } finally {

@@ -1,10 +1,15 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { readFile, realpath, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import nodePath from 'node:path';
+import type { JSONContent } from '@tiptap/core';
 import * as Y from 'yjs';
 import WebSocket from 'ws';
 import { HocuspocusProvider, HocuspocusProviderWebsocket } from '@hocuspocus/provider';
 import { collaborationStateProof } from '../app/lib/collaboration/state-proof';
-import { expect, test, type Browser, type BrowserContext } from '@playwright/test';
+import { COLLABORATION_CLIENT_CAPABILITIES } from '../app/lib/collaboration/types';
+import { expect, test, type Browser, type BrowserContext, type Locator, type Page } from '@playwright/test';
 import { createAuthenticatedContext, uploadWorkspaceTextFile } from './helpers/managed-test-context';
 import type { WorkspaceOperationReviewPublic, WorkspaceOperationReviewKind } from '../app/lib/files/workspace-operation-review-contract';
 
@@ -33,13 +38,35 @@ async function setup(browser: Browser) {
     data: { type: 'personal', name: `E2E batch review ${process.env.CANVAS_BATCH_E2E_RUN_ID || 'standalone'} ${Date.now()}` },
   });
   expect(created.ok()).toBeTruthy();
-  const workspaceId = (await created.json()).workspace.id as string;
+  const createdWorkspace = (await created.json()).workspace as { id: string; rootRelativePath?: string };
+  const workspaceId = createdWorkspace.id;
   const headers = { 'x-canvas-workspace-id': workspaceId };
   const upload = (filePath: string, content: string) => uploadWorkspaceTextFile({ request: context.request, workspaceId, filePath, content });
   const read = async (filePath: string) => {
     const response = await context.request.get(`/api/files/read?path=${encodeURIComponent(filePath)}`, { headers });
     expect(response.ok(), `Read ${filePath}`).toBeTruthy();
     return (await response.json()).data.content as string;
+  };
+  const readDisk = async (filePath: string) => {
+    const runId = process.env.CANVAS_BATCH_E2E_RUN_ID;
+    if (!runId || !/^[a-f0-9-]{36}$/u.test(runId)) throw new Error('Disk proof requires an isolated E2E run ID.');
+    const ownedData = nodePath.join(tmpdir(), `canvas-file-review-e2e-${runId}`);
+    if (process.env.DATA !== ownedData) throw new Error('Disk proof must remain inside the runner-owned disposable DATA.');
+    const relativeRoot = createdWorkspace.rootRelativePath;
+    if (!relativeRoot || nodePath.isAbsolute(relativeRoot)) throw new Error('Workspace disk proof requires a relative workspace root.');
+    const inside = (root: string, target: string) => {
+      const relative = nodePath.relative(root, target);
+      return relative !== '' && !nodePath.isAbsolute(relative)
+        && relative !== '..' && !relative.startsWith(`..${nodePath.sep}`);
+    };
+    const workspaceRoot = nodePath.resolve(ownedData, relativeRoot);
+    const file = nodePath.resolve(workspaceRoot, filePath);
+    if (!inside(ownedData, workspaceRoot) || !inside(workspaceRoot, file)) throw new Error('Disk proof path escaped its workspace.');
+    const [physicalData, physicalRoot, physicalFile] = await Promise.all([
+      realpath(ownedData), realpath(workspaceRoot), realpath(file),
+    ]);
+    if (!inside(physicalData, physicalRoot) || !inside(physicalRoot, physicalFile)) throw new Error('Disk proof symlink escaped its workspace.');
+    return readFile(physicalFile, 'utf8');
   };
   const edit = async (filePath: string, content: string) => {
     const response = await context.request.post('/api/files/collaboration/session', {
@@ -143,7 +170,81 @@ async function setup(browser: Browser) {
     localStorage.setItem('canvas.activeWorkspaceId', id);
     localStorage.setItem('canvas.notebook.chatVisible', 'false');
   }, workspaceId);
-  return { context, workspaceId, headers, upload, read, edit, absent, submit, preview, accept, readBatch, done, refresh, startCheck, checkResult, checked };
+  return { context, workspaceId, headers, upload, read, readDisk, edit, absent, submit, preview, accept, readBatch, done, refresh, startCheck, checkResult, checked };
+}
+
+const richEditorSelector = '.tiptap-editor-shell .ProseMirror';
+
+async function openRichBrowserDocument(page: Page, workspaceId: string, filePath: string): Promise<Locator> {
+  await page.goto(`/en/notebook?workspaceId=${workspaceId}&path=${encodeURIComponent(filePath)}`);
+  await page.getByRole('group', { name: 'Document view' }).getByRole('button', { name: 'Edit', exact: true }).click();
+  const editor = page.locator(richEditorSelector);
+  await expect(editor).toHaveAttribute('contenteditable', 'true', { timeout: 30_000 });
+  return editor;
+}
+
+/** Read the actual browser editor; edits below use only normal keyboard input. */
+async function richBrowserTargets(editor: Locator): Promise<string[]> {
+  return editor.evaluate((element) => {
+    const instance = (element as HTMLElement & { editor?: { getJSON(): JSONContent } }).editor;
+    if (!instance) return [];
+    const targets: string[] = [];
+    const visit = (node: JSONContent) => {
+      if (node.type === 'obsidianWikiLink' && typeof node.attrs?.target === 'string') targets.push(node.attrs.target);
+      for (const child of node.content ?? []) visit(child);
+    };
+    visit(instance.getJSON());
+    return targets;
+  });
+}
+
+async function appendRichBrowserParagraph(page: Page, text: string): Promise<void> {
+  const editor = page.locator(richEditorSelector);
+  const paragraph = editor.locator('p').last();
+  const bounds = await paragraph.boundingBox();
+  expect(bounds, 'The last paragraph must have a real click target').toBeTruthy();
+  // Click blank paragraph space, away from the Wiki atom's navigation button.
+  await paragraph.click({ position: { x: bounds!.width - 8, y: bounds!.height / 2 } });
+  await editor.press('End');
+  await expect.poll(() => editor.evaluate((element) => {
+    const instance = (element as HTMLElement & { editor?: { state: {
+      selection: { from: number; empty: boolean }; doc: { content: { size: number } };
+    } } }).editor;
+    return Boolean(instance && instance.state.selection.empty
+      && instance.state.selection.from === instance.state.doc.content.size - 1);
+  })).toBe(true);
+  await editor.press('Enter');
+  await page.keyboard.insertText(text);
+  await expect(editor.locator('p').last()).toHaveText(text);
+}
+
+async function checkpointRichBrowserDocument(page: Page): Promise<void> {
+  const checkpoint = page.waitForResponse((response) => response.url().endsWith('/api/files/collaboration/checkpoint')
+    && response.request().method() === 'POST' && response.ok(), { timeout: 30_000 });
+  await page.locator(richEditorSelector).press('ControlOrMeta+s');
+  await checkpoint;
+}
+
+/** Coordinates scheduling only in the isolated runner; the production worker has no test hooks. */
+async function armPeerBatchGate(input: { batch: Batch; workspaceId: string; documentId: string; phase: 'preparing' | 'links' }) {
+  const directory = process.env.CANVAS_BATCH_E2E_GATE_DIR;
+  const runId = process.env.CANVAS_BATCH_E2E_RUN_ID;
+  expect(directory, 'The isolated runner must expose its private gate directory').toBeTruthy();
+  expect(runId).toBeTruthy();
+  expect(nodePath.isAbsolute(directory!)).toBe(true);
+  expect(input.batch.batchId).toMatch(/^[a-z0-9-]+$/iu);
+  const config = { runId, batchId: input.batch.batchId, workspaceId: input.workspaceId,
+    documentId: input.documentId, phase: input.phase };
+  const prefix = nodePath.join(directory!, input.batch.batchId);
+  await writeFile(`${prefix}.gate.json`, JSON.stringify(config), { mode: 0o600, flag: 'wx' });
+  return {
+    entered: async () => {
+      await expect.poll(async () => readFile(`${prefix}.entered.json`, 'utf8').then(JSON.parse).catch(() => null),
+        { timeout: 30_000 }).toMatchObject(config);
+      return JSON.parse(await readFile(`${prefix}.entered.json`, 'utf8')) as typeof config & { pathReceipts: number };
+    },
+    release: () => writeFile(`${prefix}.release`, 'release', { mode: 0o600 }),
+  };
 }
 
 const move = (sourcePath: string, destinationPath: string): Action => ({ kind: 'move', selections: [{ sourcePath, destinationPath }] });
@@ -211,6 +312,188 @@ test.describe('durable file review batches', () => {
       await s.absent('source/A.md');
       await page.goto(`/en/notebook?workspaceId=${s.workspaceId}&workspaceOperationReview=${reviews[0].reviewId}`);
       await expect(panel).toContainText('File actions completed', { timeout: 30_000 });
+    });
+  });
+
+  test('a second browser receives the worker link rewrite and preserves subsequent real editor changes', async ({ browser }, info) => {
+    await workspace(browser, async (s) => {
+      const shared = '# Shared\n\n[[source/A|A]]\n';
+      await s.upload('source/A.md', '# A\n');
+      await s.upload('shared.md', shared);
+      const peerBrowser = await browser.browserType().launch({ headless: true });
+      const peerContext = await createAuthenticatedContext(peerBrowser, { viewport: { width: 1440, height: 960 } });
+      try {
+        await peerContext.addInitScript((id) => {
+          localStorage.setItem('canvas.activeWorkspaceId', id);
+          localStorage.setItem('canvas.notebook.chatVisible', 'false');
+        }, s.workspaceId);
+        const owner = await s.context.newPage();
+        const peer = await peerContext.newPage();
+        const [ownerEditor, peerEditor] = await Promise.all([
+          openRichBrowserDocument(owner, s.workspaceId, 'shared.md'),
+          openRichBrowserDocument(peer, s.workspaceId, 'shared.md'),
+        ]);
+        await expect.poll(() => richBrowserTargets(peerEditor)).toEqual(['source/A|A']);
+        await checkpointRichBrowserDocument(owner);
+        const reviews = await s.submit([move('source/A.md', 'moved/A.md')]);
+        const batch = await s.checked(await s.startCheck(reviews));
+        expect((await s.accept(batch)).ok()).toBeTruthy();
+        await s.done(batch);
+        await expect.poll(() => richBrowserTargets(peerEditor), { timeout: 30_000 }).toEqual(['moved/A|A']);
+        await expect.poll(() => richBrowserTargets(ownerEditor)).toEqual(['moved/A|A']);
+        const marker = 'Peer paragraph after the live worker rewrite.';
+        await appendRichBrowserParagraph(peer, marker);
+        await expect(ownerEditor).toContainText(marker, { timeout: 30_000 });
+        await checkpointRichBrowserDocument(peer);
+        const expected = `# Shared\n\n[[moved/A|A]]\n\n${marker}\n`;
+        await expect.poll(() => s.read('shared.md'), { timeout: 30_000 }).toBe(expected);
+        await owner.reload();
+        const readMode = owner.getByRole('group', { name: 'Document view' }).getByRole('button', { name: 'Read', exact: true });
+        await expect(readMode).toBeVisible({ timeout: 30_000 });
+        await readMode.click();
+        const documentPanel = owner.getByRole('tabpanel', { name: 'shared.md', exact: true });
+        await expect(documentPanel).toContainText(marker);
+        const renderedLink = documentPanel.locator('[data-canvas-wiki-status]');
+        await expect(renderedLink).toHaveAttribute('data-canvas-wiki-status', 'resolved', { timeout: 30_000 });
+        await renderedLink.click();
+        await expect(owner.getByRole('dialog', { name: 'A', exact: true })).toContainText('moved/A.md');
+        expect(await s.read('shared.md')).toBe(expected);
+        expect(await s.read('moved/A.md')).toBe('# A\n');
+        await s.absent('source/A.md');
+        await peer.screenshot({ path: info.outputPath('two-browser-live-rewrite.png'), animations: 'disabled' });
+      } finally { await peerContext.close(); await peerBrowser.close(); }
+    });
+  });
+
+  test('a real peer edit during worker preflight preserves user bytes and requires a new approved plan', async ({ browser }, info) => {
+    await workspace(browser, async (s) => {
+      await s.upload('source/A.md', '# A\n');
+      await s.upload('shared.md', '# Shared\n\n[[source/A|A]]\n');
+      const peerBrowser = await browser.browserType().launch({ headless: true });
+      const peerContext = await createAuthenticatedContext(peerBrowser, { viewport: { width: 1440, height: 960 } });
+      let gate: Awaited<ReturnType<typeof armPeerBatchGate>> | undefined;
+      try {
+        await peerContext.addInitScript((id) => {
+          localStorage.setItem('canvas.activeWorkspaceId', id);
+          localStorage.setItem('canvas.notebook.chatVisible', 'false');
+        }, s.workspaceId);
+        const owner = await s.context.newPage();
+        const peer = await peerContext.newPage();
+        const [ownerEditor] = await Promise.all([
+          openRichBrowserDocument(owner, s.workspaceId, 'shared.md'),
+          openRichBrowserDocument(peer, s.workspaceId, 'shared.md'),
+        ]);
+        await checkpointRichBrowserDocument(owner);
+        const [review] = await s.submit([move('source/A.md', 'moved/A.md')]);
+        const batch = await s.checked(await s.startCheck([review]));
+        const session = await owner.request.post('/api/files/collaboration/session', {
+          headers: s.headers, data: { path: 'shared.md', representation: 'auto', ...COLLABORATION_CLIENT_CAPABILITIES },
+        });
+        expect(session.ok()).toBeTruthy();
+        const documentId = (await session.json()).documentId as string;
+        expect(documentId).toBeTruthy();
+        gate = await armPeerBatchGate({ batch, workspaceId: s.workspaceId, documentId, phase: 'preparing' });
+        expect((await s.accept(batch)).ok()).toBeTruthy();
+        const proof = await gate.entered();
+        expect(proof.pathReceipts).toBe(0);
+        await info.attach('preflight-peer-gate.json', { body: JSON.stringify(proof), contentType: 'application/json' });
+        expect((await s.readBatch(batch)).status).toBe('applying');
+        const marker = 'Peer bytes typed while the worker is paused in preflight.';
+        await appendRichBrowserParagraph(peer, marker);
+        await expect(ownerEditor).toContainText(marker, { timeout: 30_000 });
+        await gate.release();
+        await expect.poll(async () => (await s.readBatch(batch)).status, { timeout: 30_000 }).toBe('needs_review');
+        const stale = await s.readBatch(batch);
+        expect(stale.completedActions).toBe(0);
+        expect(stale.errorCode).toBeTruthy();
+        await checkpointRichBrowserDocument(peer);
+        const expected = `# Shared\n\n[[source/A|A]]\n\n${marker}\n`;
+        await expect.poll(() => s.read('shared.md'), { timeout: 30_000 }).toBe(expected);
+        expect(await s.read('source/A.md')).toBe('# A\n');
+        await s.absent('moved/A.md');
+        const successor = await s.refresh(review);
+        const fresh = await s.checked(await s.startCheck([successor]));
+        expect(fresh.planId).not.toBe(batch.planId);
+        expect((await s.accept(fresh)).ok()).toBeTruthy();
+        await s.done(fresh);
+        expect(await s.read('shared.md')).toBe(expected.replace('[[source/A|A]]', '[[moved/A|A]]'));
+        await expect(ownerEditor).toContainText(marker);
+        await peer.screenshot({ path: info.outputPath('preflight-peer-bytes-preserved.png'), animations: 'disabled' });
+      } finally { await gate?.release(); await peerContext.close(); await peerBrowser.close(); }
+    });
+  });
+
+  test('an offline peer reconnects after a path receipt and exact-job resume preserves its queued user edit', async ({ browser }, info) => {
+    await workspace(browser, async (s) => {
+      const shared = '# Shared\n\n[[source/A|A]]\n';
+      await s.upload('source/A.md', '# A\n');
+      await s.upload('shared.md', shared);
+      const peerBrowser = await browser.browserType().launch({ headless: true });
+      const peerContext = await createAuthenticatedContext(peerBrowser, { viewport: { width: 1440, height: 960 } });
+      let gate: Awaited<ReturnType<typeof armPeerBatchGate>> | undefined;
+      try {
+        await peerContext.addInitScript((id) => {
+          localStorage.setItem('canvas.activeWorkspaceId', id);
+          localStorage.setItem('canvas.notebook.chatVisible', 'false');
+        }, s.workspaceId);
+        const owner = await s.context.newPage();
+        const peer = await peerContext.newPage();
+        const [ownerEditor, peerEditor] = await Promise.all([
+          openRichBrowserDocument(owner, s.workspaceId, 'shared.md'),
+          openRichBrowserDocument(peer, s.workspaceId, 'shared.md'),
+        ]);
+        await checkpointRichBrowserDocument(owner);
+        const [review] = await s.submit([move('source/A.md', 'moved/A.md')]);
+        const batch = await s.checked(await s.startCheck([review]));
+        const session = await owner.request.post('/api/files/collaboration/session', {
+          headers: s.headers, data: { path: 'shared.md', representation: 'auto', ...COLLABORATION_CLIENT_CAPABILITIES },
+        });
+        expect(session.ok()).toBeTruthy();
+        const documentId = (await session.json()).documentId as string;
+        expect(documentId).toBeTruthy();
+        await expect.poll(() => richBrowserTargets(peerEditor)).toEqual(['source/A|A']);
+        await peerContext.setOffline(true);
+        const marker = 'Queued offline peer bytes after the durable path move.';
+        await appendRichBrowserParagraph(peer, marker);
+        await expect(peerEditor).toContainText(marker);
+        await expect(ownerEditor).not.toContainText(marker);
+        expect(await s.read('shared.md')).toBe(shared);
+        gate = await armPeerBatchGate({ batch, workspaceId: s.workspaceId, documentId, phase: 'links' });
+        expect((await s.accept(batch)).ok()).toBeTruthy();
+        const proof = await gate.entered();
+        await info.attach('offline-peer-path-receipt-gate.json', { body: JSON.stringify(proof), contentType: 'application/json' });
+        expect(proof.pathReceipts).toBeGreaterThan(0);
+        expect((await s.readBatch(batch)).status).toBe('applying');
+        expect(await s.readDisk('moved/A.md')).toBe('# A\n');
+        await s.absent('source/A.md');
+        await expect(ownerEditor).not.toContainText(marker);
+        expect(await s.readDisk('shared.md')).toBe(shared);
+        await peerContext.setOffline(false);
+        await expect(ownerEditor).toContainText(marker, { timeout: 30_000 });
+        await gate.release();
+        await expect.poll(async () => (await s.readBatch(batch)).status, { timeout: 30_000 }).toBe('needs_recovery');
+        const partial = await s.readBatch(batch);
+        expect(partial.completedActions).toBeGreaterThan(0);
+        expect(partial.completedActions).toBeLessThan(partial.totalActions);
+        expect(partial.errorCode).toBeTruthy();
+        await checkpointRichBrowserDocument(peer);
+        const expected = `# Shared\n\n[[source/A|A]]\n\n${marker}\n`;
+        await expect.poll(() => s.read('shared.md'), { timeout: 30_000 }).toBe(expected);
+        const resume = await s.context.request.post(`/api/files/operation-reviews/batches/${batch.batchId}`, {
+          headers: s.headers, data: { action: 'resume', planId: batch.planId },
+        });
+        expect(resume.ok()).toBeTruthy();
+        const queued = (await resume.json()).batch;
+        expect(queued.batchId).toBe(batch.batchId);
+        expect(queued.planId).toBe(batch.planId);
+        await expect.poll(async () => (await s.readBatch(batch)).status, { timeout: 30_000 }).toBe('needs_recovery');
+        expect(await s.read('shared.md')).toBe(expected);
+        expect(await s.read('moved/A.md')).toBe('# A\n');
+        await s.absent('source/A.md');
+        await expect.poll(() => richBrowserTargets(peerEditor)).toEqual(['source/A|A']);
+        await expect(ownerEditor).toContainText(marker);
+        await peer.screenshot({ path: info.outputPath('offline-peer-recovery-preserves-bytes.png'), animations: 'disabled' });
+      } finally { await gate?.release(); await peerContext.setOffline(false); await peerContext.close(); await peerBrowser.close(); }
     });
   });
 

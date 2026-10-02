@@ -38,7 +38,7 @@ async function main() {
     const write = async (relative: string, content: string) => {
       await fs.mkdir(path.dirname(absolute(relative)), { recursive: true }); await fs.writeFile(absolute(relative), content);
     };
-    const makeExecutor = () => createWorkspaceOperationBatchExecutor({
+    const makeExecutor = (overrides: Parameters<typeof createWorkspaceOperationBatchExecutor>[0] = {}) => createWorkspaceOperationBatchExecutor({
       documentProof: async () => null,
       storageRoot: path.join(dataRoot, 'manifests'),
       rename: async (params) => {
@@ -103,6 +103,7 @@ async function main() {
           await fs.writeFile(absolute(group.path), group.afterContent); authoritative.delete(group.path); events.push(`checkpoint:${group.path}`);
         });
       },
+      ...overrides,
     });
     const actions: WorkspaceOperationBatchAction[] = [
       { reviewId: 'delete', kind: 'delete', selections: [{ sourcePath: 'old.md' }] },
@@ -173,9 +174,108 @@ async function main() {
     const stalePlan = await buildWorkspaceOperationBatchPlan({ scope, actions: [{ reviewId: 'stale', kind: 'move', selections: [{ sourcePath: 'stale.md', destinationPath: 'stale-moved.md' }] }] });
     await write('stale.md', '# User changed');
     const stale = await makeExecutor().execute({ batchId: randomUUID(), plan: stalePlan, scope, actorUserId: 'tester', actorDisplayName: 'Tester' });
-    assert.equal(stale.status, 'failed'); assert.equal(stale.errorCode, 'BATCH_PLAN_STALE');
+    assert.equal(stale.status, 'needs_review'); assert.equal(stale.errorCode, 'BATCH_PLAN_STALE');
     assert.equal(await fs.readFile(absolute('stale.md'), 'utf8'), '# User changed');
     await assert.rejects(fs.stat(absolute('stale-moved.md')), { code: 'ENOENT' });
+
+    await write('peer-source.md', '# Source'); await write('peer-home.md', '[Source](peer-source.md)');
+    const peerPlan = await buildWorkspaceOperationBatchPlan({ scope, actions: [{ reviewId: 'peer', kind: 'move',
+      selections: [{ sourcePath: 'peer-source.md', destinationPath: 'peer-moved.md' }] }] });
+    const peerId = randomUUID();
+    const initialPeer = await makeExecutor().execute({ batchId: peerId, plan: peerPlan, scope,
+      actorUserId: 'tester', actorDisplayName: 'Tester', onProgress: (progress) => {
+        if (progress.phase === 'preparing') throw new Error('WORKER_INTERRUPTED');
+      } });
+    assert.equal(initialPeer.status, 'failed');
+    assert.equal(await makeExecutor().mutationEvidence(peerId, workspace.workspaceId), 'pristine');
+    await write('peer-home.md', '[Source](peer-source.md)\nPeer prose remains exact.');
+    const peerRetry = await makeExecutor().execute({ batchId: peerId, plan: peerPlan, scope,
+      actorUserId: 'tester', actorDisplayName: 'Tester' });
+    assert.equal(peerRetry.status, 'needs_review');
+    assert.equal(await fs.readFile(absolute('peer-home.md'), 'utf8'), '[Source](peer-source.md)\nPeer prose remains exact.');
+    await assert.rejects(fs.stat(absolute('peer-moved.md')), { code: 'ENOENT' });
+    const typedConflict = await makeExecutor({ preflight: async () => {
+      throw Object.assign(new Error('Private live document content differs.'), { code: 'LINK_WRITE_STALE' });
+    } }).execute({ batchId: randomUUID(), plan: peerPlan, scope, actorUserId: 'tester', actorDisplayName: 'Tester' });
+    // The changed graph is rejected first, before the injected preflight.
+    assert.equal(typedConflict.status, 'needs_review');
+    const freshPeer = await buildWorkspaceOperationBatchPlan({ scope, actions: peerPlan.actions });
+    const typedPreflight = await makeExecutor({ preflight: async () => {
+      throw Object.assign(new Error('Private live document content differs.'), { code: 'LINK_WRITE_STALE' });
+    } }).execute({ batchId: randomUUID(), plan: freshPeer, scope, actorUserId: 'tester', actorDisplayName: 'Tester' });
+    assert.equal(typedPreflight.status, 'needs_review'); assert.equal(typedPreflight.errorCode, 'LINK_WRITE_STALE');
+
+    const pristineId = randomUUID();
+    const pristine = await makeExecutor().execute({ batchId: pristineId, plan: freshPeer, scope,
+      actorUserId: 'tester', actorDisplayName: 'Tester', onProgress: (progress) => {
+        if (progress.phase === 'paths') throw Object.assign(new Error('Peer changed the document.'), { code: 'LINK_WRITE_STALE' });
+      } });
+    assert.equal(pristine.status, 'needs_review');
+    assert.equal(await makeExecutor().mutationEvidence(pristineId, workspace.workspaceId), 'pristine');
+
+    const intentId = randomUUID();
+    const intent = await makeExecutor({ rename: async (params) => {
+      await fs.rename(absolute(params.oldPath), absolute(params.newPath));
+      throw Object.assign(new Error('The process died before acknowledging the physical move.'), { code: 'LINK_WRITE_STALE' });
+    } }).execute({ batchId: intentId, plan: freshPeer, scope, actorUserId: 'tester', actorDisplayName: 'Tester' });
+    assert.equal(intent.status, 'needs_recovery'); assert.equal(intent.completedActions, 0);
+    assert.equal(intent.stepResults?.[0]?.state, 'intent'); assert.equal(intent.errorCode, 'LINK_WRITE_STALE');
+    assert.equal(await makeExecutor().mutationEvidence(intentId, workspace.workspaceId), 'started');
+    const intentRetry = await makeExecutor().execute({ batchId: intentId, plan: freshPeer, scope, actorUserId: 'tester', actorDisplayName: 'Tester' });
+    assert.equal(intentRetry.status, 'needs_recovery', 'unacknowledged physical mutation never becomes a new preview');
+    assert.equal(await fs.readFile(absolute('peer-moved.md'), 'utf8'), '# Source');
+    const invalidUndo = await makeExecutor().undo({ batchId: intentId, scope, actorUserId: 'tester', actorDisplayName: 'Tester' });
+    assert.equal(invalidUndo.status, 'needs_recovery', 'Undo cannot promote an incomplete forward receipt to applied');
+    assert.equal((await makeExecutor().get({ batchId: intentId, scope }))!.status, 'needs_recovery');
+    await fs.writeFile(path.join(dataRoot, 'manifests', `${intentId}.json`), '{corrupt');
+    await assert.rejects(makeExecutor().mutationEvidence(intentId, workspace.workspaceId));
+    await fs.unlink(path.join(dataRoot, 'manifests', `${intentId}.json`));
+    assert.equal(await makeExecutor().mutationEvidence(intentId, workspace.workspaceId), 'absent');
+
+    await write('undo-protected.txt', 'Original');
+    const protectedPlan = await buildWorkspaceOperationBatchPlan({ scope, actions: [{ reviewId: 'protected-undo', kind: 'move',
+      selections: [{ sourcePath: 'undo-protected.txt', destinationPath: 'undo-protected-moved.txt' }] }] });
+    const protectedId = randomUUID();
+    assert.equal((await makeExecutor().execute({ batchId: protectedId, plan: protectedPlan, scope,
+      actorUserId: 'tester', actorDisplayName: 'Tester' })).status, 'applied');
+    await write('undo-protected-moved.txt', 'Peer edit must survive');
+    const refusedUndo = await makeExecutor().undo({ batchId: protectedId, scope, actorUserId: 'tester', actorDisplayName: 'Tester' });
+    assert.equal(refusedUndo.status, 'failed'); assert.equal(refusedUndo.errorCode, 'BATCH_UNDO_PATH_CHANGED');
+    assert.equal((await makeExecutor().get({ batchId: protectedId, scope }))!.status, 'applied');
+    assert.equal(await makeExecutor().mutationEvidence(protectedId, workspace.workspaceId, true), 'pristine');
+    assert.equal(await fs.readFile(absolute('undo-protected-moved.txt'), 'utf8'), 'Peer edit must survive');
+    await assert.rejects(fs.stat(absolute('undo-protected.txt')), { code: 'ENOENT' });
+
+    await write('boundary-source.txt', 'Source stays untouched');
+    const boundaryPlan = await buildWorkspaceOperationBatchPlan({ scope, actions: [{ reviewId: 'path-boundary', kind: 'move',
+      selections: [{ sourcePath: 'boundary-source.txt', destinationPath: 'boundary-destination.txt' }] }] });
+    let boundaryReads = 0;
+    const boundary = await makeExecutor({ rebuild: async (input) => {
+      const current = await buildWorkspaceOperationBatchPlan(input);
+      if (++boundaryReads === 2) await write('boundary-destination.txt', 'Concurrent destination survives');
+      return current;
+    } }).execute({ batchId: randomUUID(), plan: boundaryPlan, scope, actorUserId: 'tester', actorDisplayName: 'Tester' });
+    assert.equal(boundary.status, 'needs_review'); assert.equal(boundary.errorCode, 'BATCH_UNPROVEN_PATH_INTENT');
+    assert.equal(boundary.completedActions, 0); assert.deepEqual(boundary.stepResults, []);
+    assert.equal(await fs.readFile(absolute('boundary-source.txt'), 'utf8'), 'Source stays untouched');
+    assert.equal(await fs.readFile(absolute('boundary-destination.txt'), 'utf8'), 'Concurrent destination survives');
+
+    await write('checkpoint-boundary-source.md', '# Checkpoint');
+    await write('checkpoint-boundary-home.md', '[Checkpoint](checkpoint-boundary-source.md)');
+    const checkpointBoundaryPlan = await buildWorkspaceOperationBatchPlan({ scope, actions: [{ reviewId: 'checkpoint-boundary', kind: 'move',
+      selections: [{ sourcePath: 'checkpoint-boundary-source.md', destinationPath: 'checkpoint-boundary-moved.md' }] }] });
+    const beforeCheckpointIntent = await makeExecutor({ preflight: async () => {
+      throw new Error('BATCH_CHECKPOINT_STATE_CHANGED');
+    } }).execute({ batchId: randomUUID(), plan: checkpointBoundaryPlan, scope, actorUserId: 'tester', actorDisplayName: 'Tester' });
+    assert.equal(beforeCheckpointIntent.status, 'needs_review'); assert.equal(beforeCheckpointIntent.errorCode, 'BATCH_CHECKPOINT_STATE_CHANGED');
+    assert.equal(await fs.readFile(absolute('checkpoint-boundary-home.md'), 'utf8'), '[Checkpoint](checkpoint-boundary-source.md)');
+    await assert.rejects(fs.stat(absolute('checkpoint-boundary-moved.md')), { code: 'ENOENT' });
+    const afterCheckpointIntent = await makeExecutor({ checkpointLink: async () => {
+      throw new Error('BATCH_CHECKPOINT_STATE_CHANGED');
+    } }).execute({ batchId: randomUUID(), plan: checkpointBoundaryPlan, scope, actorUserId: 'tester', actorDisplayName: 'Tester' });
+    assert.equal(afterCheckpointIntent.status, 'needs_recovery'); assert.equal(afterCheckpointIntent.errorCode, 'BATCH_CHECKPOINT_STATE_CHANGED');
+    assert.ok(afterCheckpointIntent.stepResults?.some((step) => step.state === 'applied'));
+    assert.equal(await fs.readFile(absolute('checkpoint-boundary-moved.md'), 'utf8'), '# Checkpoint');
 
     await write('pause-a.txt', 'A'); await write('pause-b.txt', 'B');
     const pausePlan = await buildWorkspaceOperationBatchPlan({ scope, actions: [
