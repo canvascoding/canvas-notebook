@@ -1,19 +1,9 @@
-import { test, expect, type BrowserContext, type Page } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
-
-let loginCookies: Awaited<ReturnType<BrowserContext['cookies']>> | undefined;
+import { authenticateManagedTestPage } from './helpers/managed-test-context';
 
 async function prepare(page: Page) {
-  if (loginCookies) {
-    await page.context().addCookies(loginCookies);
-  } else {
-    const response = await page.request.post('/api/auth/sign-in/email', {
-      headers: { Origin: process.env.BASE_URL || 'http://localhost:3000' },
-      data: { email: process.env.TEST_LOGIN_EMAIL || process.env.BOOTSTRAP_ADMIN_EMAIL, password: process.env.TEST_LOGIN_PASSWORD || process.env.BOOTSTRAP_ADMIN_PASSWORD },
-    });
-    expect(response.ok()).toBeTruthy();
-    loginCookies = await page.context().cookies();
-  }
+  await authenticateManagedTestPage(page);
   const workspaces = await (await page.request.get('/api/workspaces')).json();
   const workspace = workspaces.workspaces.find((item: { type: string; permissions: { canWrite: boolean } }) => item.type === 'personal' && item.permissions.canWrite);
   expect(workspace).toBeTruthy();
@@ -61,7 +51,17 @@ for (const width of [390, 768, 1440]) {
         }
         await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
         await page.screenshot({ path: info.outputPath(`home-${width}.png`), fullPage: true });
+        const searched = page.waitForResponse(response => {
+          const url = new URL(response.url());
+          return url.pathname === '/api/files/quick-access' && url.searchParams.get('q') === path
+            && response.request().headers()['x-canvas-workspace-id'] === workspaceId;
+        });
         await files.getByRole('textbox', { name: 'Dateien und Chats suchen …' }).fill(path);
+        const searchResponse = await searched;
+        expect(searchResponse.status()).toBe(200);
+        const searchPayload = await searchResponse.json();
+        expect(searchPayload.data.files.some((file: { path: string }) => file.path === path)).toBe(true);
+        await expect(files.locator('[aria-busy]')).toHaveAttribute('aria-busy', 'false');
         await expect(files.getByRole('link', { name: new RegExp(path.replace('.md', '')) })).toHaveCount(1);
         await files.getByRole('link', { name: new RegExp(path.replace('.md', '')) }).click();
         await expect(page).toHaveURL(new RegExp(`/notebook\\?.*path=${path}`));
@@ -100,7 +100,17 @@ for (const width of [390, 1440]) {
           const result = await (await page.request.get('/api/files/quick-access?view=recent', { headers })).json();
           return result.data.files.some((file: { path: string; openedAt: number | null }) => file.path === path && file.openedAt !== null);
         }).toBe(true);
+        const listed = page.waitForResponse(response => {
+          const url = new URL(response.url());
+          return url.pathname === '/api/files/quick-access' && url.searchParams.get('view') === 'recent'
+            && response.request().headers()['x-canvas-workspace-id'] === workspaceId;
+        });
         await page.goto('/de');
+        const listResponse = await listed;
+        expect(listResponse.status()).toBe(200);
+        const listPayload = await listResponse.json();
+        expect(listPayload.data.files.some((file: { path: string }) => file.path === path)).toBe(true);
+        await expect(page.getByTestId('home-files').locator('[aria-busy]')).toHaveAttribute('aria-busy', 'false');
         await expect(page.getByTestId('home-files').getByRole('link', { name: new RegExp(name) })).toBeVisible();
       } finally {
         if (created) expect((await page.request.delete('/api/files/delete', { headers, data: { path } })).ok()).toBeTruthy();
@@ -175,7 +185,8 @@ for (const width of [390, 1440]) {
       const workspaceId = await prepare(page);
       let items = Array.from({ length: 5 }, (_, i) => ({ id: `qa-studio-${i}`, type: 'studio.completed', title: `QA Bild ${i + 1} ist fertig`, detail: 'Ergebnis ansehen und im Projekt weiterverwenden.', occurredAt: new Date(Date.now() - i * 1000).toISOString(), unread: true, priority: 'normal', workspaceId, workspaceName: 'QA Workspace', target: { kind: 'studio', generationId: `qa-generation-${i}` } }));
       let failAction = false;
-      await page.route('**/api/notifications/summary', async route => {
+      await page.route('**/api/notifications/summary*', async route => {
+        if (new URL(route.request().url()).pathname !== '/api/notifications/summary') return route.continue();
         if (route.request().method() === 'PATCH') {
           if (failAction) return route.fulfill({ status: 503, json: { success: false } });
           const body = route.request().postDataJSON();
@@ -254,7 +265,6 @@ for (const width of [390, 1440]) {
       const signOut = page.waitForResponse(response => response.url().endsWith('/api/auth/sign-out') && response.request().method() === 'POST');
       await page.getByRole('menuitem', { name: 'Abmelden', exact: true }).click();
       expect((await signOut).ok()).toBeTruthy();
-      loginCookies = undefined;
       await expect(page).toHaveURL(/\/de\/login/);
       await page.goto('/de');
       await expect(page).toHaveURL(/\/de\/login/);

@@ -1,4 +1,5 @@
 import { expect, test, type Page, type TestInfo, type WebSocketRoute } from '@playwright/test';
+import { authenticateManagedTestPage } from './helpers/managed-test-context';
 
 const TEST_EMAIL = process.env.TEST_LOGIN_EMAIL || process.env.BOOTSTRAP_ADMIN_EMAIL;
 const TEST_PASSWORD = process.env.TEST_LOGIN_PASSWORD || process.env.BOOTSTRAP_ADMIN_PASSWORD;
@@ -131,6 +132,18 @@ function fixtureMessages(laterMessagePairs: number) {
 }
 
 async function installFixtures(page: Page, laterMessagePairs: number, sessionId: string) {
+  // This synthetic session has no persisted delegations. Keep the unrelated
+  // delegation panel from receiving a delayed real-server ownership error.
+  await page.route('**/api/delegations?**', async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    if (request.method() !== 'GET' || url.searchParams.get('sourceSessionId') !== sessionId) {
+      await route.continue();
+      return;
+    }
+    await route.fulfill({ status: 200, contentType: 'application/json',
+      body: JSON.stringify({ success: true, delegations: [] }) });
+  });
   await page.route('**/api/agent-runtime/effective**', async (route) => {
     await route.fulfill({
       status: 200,
@@ -243,11 +256,7 @@ async function installFixtures(page: Page, laterMessagePairs: number, sessionId:
 async function login(page: Page) {
   expect(TEST_EMAIL, 'BOOTSTRAP_ADMIN_EMAIL or TEST_LOGIN_EMAIL is required').toBeTruthy();
   expect(TEST_PASSWORD, 'BOOTSTRAP_ADMIN_PASSWORD or TEST_LOGIN_PASSWORD is required').toBeTruthy();
-  const response = await page.request.post('/api/auth/sign-in/email', {
-    headers: { Origin: process.env.BASE_URL || 'http://localhost:3000' },
-    data: { email: TEST_EMAIL, password: TEST_PASSWORD },
-  });
-  expect(response.ok()).toBeTruthy();
+  await authenticateManagedTestPage(page, { email: TEST_EMAIL, password: TEST_PASSWORD });
 }
 
 const VIEWPORTS = [
@@ -295,7 +304,7 @@ async function runWidgetScrollRegression(
   const initialHeight = await slot.evaluate((element) => element.getBoundingClientRect().height);
   await page.evaluate(() => {
     type TraceWindow = Window & typeof globalThis & {
-      __chatWidgetSamples?: Array<{ t: number; height: number; scrollHeight: number }>;
+      __chatWidgetSamples?: Array<{ t: number; height: number; scrollHeight: number; paddingBottom: number; contentHeight: number; viewportHeight: number }>;
       __chatWidgetSampling?: boolean;
     };
     const traceWindow = window as TraceWindow;
@@ -310,6 +319,9 @@ async function runWidgetScrollRegression(
         t: performance.now() - startedAt,
         height: toolSlot.getBoundingClientRect().height,
         scrollHeight: scroll.scrollHeight,
+        paddingBottom: Number.parseFloat(getComputedStyle(scroll).paddingBottom),
+        contentHeight: scroll.firstElementChild?.getBoundingClientRect().height ?? 0,
+        viewportHeight: scroll.clientHeight,
       });
       if (traceWindow.__chatWidgetSampling && performance.now() - startedAt < 2_200) {
         requestAnimationFrame(sample);
@@ -342,7 +354,7 @@ async function runWidgetScrollRegression(
 
   const samples = await page.evaluate(() => {
     type TraceWindow = Window & typeof globalThis & {
-      __chatWidgetSamples?: Array<{ t: number; height: number; scrollHeight: number }>;
+      __chatWidgetSamples?: Array<{ t: number; height: number; scrollHeight: number; paddingBottom: number; contentHeight: number; viewportHeight: number }>;
       __chatWidgetSampling?: boolean;
     };
     const traceWindow = window as TraceWindow;

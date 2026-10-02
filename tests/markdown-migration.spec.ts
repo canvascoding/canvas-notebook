@@ -155,8 +155,17 @@ test('read-only and unsupported documents keep the existing content protection',
   await expect(page.getByRole('button', { name: 'Prepare formatted editing', exact: true })).toHaveCount(0);
   await page.goto('http://localhost:43122/?unsupported');
   await page.addScriptTag({ content: bundle });
+  const original = '# Raw HTML\n\n<div>Keep exactly</div>\n';
   await page.getByRole('button', { name: 'Edit', exact: true }).click();
-  await expect(page.getByRole('textbox', { name: 'Markdown source' })).toHaveValue('# Raw HTML\n\n<div>Keep exactly</div>\n');
+  await expect(page.getByRole('button', { name: 'Read', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('.tiptap[contenteditable="true"]')).toHaveCount(0);
+  await expect(page.locator('#saved-value')).toHaveJSProperty('textContent', original);
+  expect(requests).toBe(0);
+  await page.getByRole('button', { name: 'Source', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Source', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByRole('textbox', { name: 'Markdown source' })).toHaveValue(original);
+  await expect(page.getByRole('textbox', { name: 'Markdown source' })).toBeEditable();
+  await expect(page.locator('#saved-value')).toHaveJSProperty('textContent', original);
   await expect(page.getByRole('button', { name: 'Prepare formatted editing', exact: true })).toHaveCount(0);
   expect(requests).toBe(0);
 });

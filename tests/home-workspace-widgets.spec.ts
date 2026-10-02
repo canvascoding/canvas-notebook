@@ -1,11 +1,11 @@
 import { expect, test, type Page } from '@playwright/test';
+import { authenticateManagedTestPage } from './helpers/managed-test-context';
 
 async function prepare(page: Page) {
-  const login = await page.request.post('/api/auth/sign-in/email', {
-    headers: { Origin: process.env.BASE_URL || 'http://localhost:3000' },
-    data: { email: process.env.BOOTSTRAP_ADMIN_EMAIL, password: process.env.BOOTSTRAP_ADMIN_PASSWORD },
+  expect(Boolean(process.env.BOOTSTRAP_ADMIN_EMAIL && process.env.BOOTSTRAP_ADMIN_PASSWORD), 'Bootstrap admin credentials must be configured.').toBe(true);
+  await authenticateManagedTestPage(page, {
+    email: process.env.BOOTSTRAP_ADMIN_EMAIL, password: process.env.BOOTSTRAP_ADMIN_PASSWORD,
   });
-  expect(login.ok()).toBeTruthy();
   const { workspaces } = await (await page.request.get('/api/workspaces')).json();
   const workspace = workspaces.find((candidate: { type: string }) => candidate.type === 'personal');
   await page.addInitScript(id => localStorage.setItem('canvas.activeWorkspaceId', id), workspace.id);
@@ -92,6 +92,9 @@ test('workspace widgets fill page two with stable, directly actionable previews'
   await expect(page.getByTestId('workspace-widget-todos-preview').getByText('Launch prüfen')).toBeVisible();
   await expect(page.getByTestId('workspace-widget-automation-preview').getByText('Kampagnen-Report')).toBeVisible();
   await expect(page.getByTestId('workspace-widget-studio-preview').getByText('Editoriales Produktbild für den Launch')).toBeVisible();
+  const studioImage = page.getByTestId('workspace-widget-studio-preview').locator('img');
+  await studioImage.scrollIntoViewIfNeeded();
+  await expect(studioImage).toBeInViewport();
   await expect.poll(() => page.getByTestId('workspace-widget-studio-preview').locator('img').evaluate(image => (image as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
   expect(widgetRequests).toHaveLength(1);
 
@@ -108,7 +111,8 @@ test('workspace widgets fill page two with stable, directly actionable previews'
 
   const todoCard = page.getByTestId('workspace-widget-todos');
   await todoCard.getByRole('link', { name: 'To-dos öffnen', exact: true }).focus();
-  await expect(todoCard.getByRole('link', { name: /Launch prüfen/ })).toHaveAttribute('href', new RegExp(`todo=todo-critical.*workspaceId=${workspace.id}`));
+  await expect(todoCard.getByRole('link', { name: /Launch prüfen/ })).toHaveAttribute('href', '/de?todo=todo-critical');
+  await expect(todoCard.getByRole('link', { name: 'To-dos öffnen', exact: true })).toHaveAttribute('href', `/de/todos?workspaceId=${workspace.id}`);
 
   const automationCard = page.getByTestId('workspace-widget-automation');
   await expect(automationCard.getByRole('link', { name: /Kampagnen-Report/ })).toHaveAttribute('href', '/de/automations/job-latest');
@@ -141,7 +145,7 @@ test('email quick selection waits for the target account before opening its mess
   let foldersRequested = false;
   const detailRequests: string[] = [];
 
-  await page.route('**/api/email/accounts', route => route.fulfill({ json: {
+  await page.route('**/api/email/mailboxes', route => route.fulfill({ json: {
     success: true,
     data: {
       accounts: [{
@@ -152,6 +156,9 @@ test('email quick selection waits for the target account before opening its mess
         displayName: 'Sales',
         isPrimary: true,
         status: 'connected',
+        accountScope: 'personal',
+        connectionState: 'ready',
+        capabilities: { canRead: true, canWrite: true, canManage: true, canDelete: true, canRunAgent: true },
         imapHost: null,
         policy: { readFrom: [], sendTo: [] },
       }],
