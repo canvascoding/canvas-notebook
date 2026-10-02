@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { Pool } from 'pg';
-import { expect, test, type Browser, type BrowserContext, type Page } from '@playwright/test';
+import { expect, request, test, type Browser, type BrowserContext, type Page } from '@playwright/test';
 import type { JSONContent } from '@tiptap/core';
 import { COLLABORATION_CLIENT_CAPABILITIES, type CollaborationSessionResponse } from '../app/lib/collaboration/types';
 
@@ -33,13 +33,17 @@ async function login(browser: Browser, secondary = false) {
 
 async function open(page: Page, filePath: string, writable = true) {
   await page.goto(`/notebook?path=${encodeURIComponent(filePath)}`, { waitUntil: 'domcontentloaded' });
-  if (writable) await page.getByRole('group', { name: /Document view|Dokumentansicht/u })
-    .getByRole('button', { name: /^(Edit|Bearbeiten)$/u }).click();
-  else {
-    await expect(page.locator('body')).toContainText(filePath, { timeout: 30_000 });
-    await page.screenshot({ path: '/tmp/canvas-yjs-426b-quarantine-open.png' });
+  const modes = page.getByRole('group', { name: /Document view|Dokumentansicht/u });
+  const edit = modes.getByRole('button', { name: /^(Edit|Bearbeiten)$/u });
+  if (writable) {
+    await edit.click({ timeout: 15_000 });
+    await expect(page.locator(selector)).toHaveAttribute('contenteditable', 'true', { timeout: 30_000 });
+  } else {
+    await expect(edit).toBeDisabled({ timeout: 30_000 });
+    await modes.getByRole('button', { name: /^(Read|Lesen)$/u }).click({ timeout: 15_000 });
+    await expect(page.locator('.canvas-document-reading')).toBeVisible({ timeout: 30_000 });
+    await expect(page.locator(`${selector}[contenteditable="true"]`)).toHaveCount(0);
   }
-  await expect(page.locator(selector)).toHaveAttribute('contenteditable', String(writable), { timeout: 30_000 });
 }
 
 async function tree(page: Page): Promise<JSONContent> {
@@ -66,17 +70,28 @@ test.describe('collaboration projection hardening', () => {
     expect(['localhost', '127.0.0.1']).toContain(url.hostname);
     expect(url.port).toBe('55433');
     expect(url.pathname).toBe('/canvas_notebook');
-    expect(['localhost', '127.0.0.1']).toContain(new URL(BASE_URL).hostname);
-    expect(['3000', '3100']).toContain(new URL(BASE_URL).port);
-    const pool = new Pool({ connectionString: url.href, max: 1 });
+    const appUrl = new URL(BASE_URL);
+    expect(['localhost', '127.0.0.1']).toContain(appUrl.hostname);
+    expect(appUrl.protocol).toBe('http:');
+    const explicitlyConfiguredPort = process.env.PORT;
+    if (explicitlyConfiguredPort) {
+      expect(explicitlyConfiguredPort).toMatch(/^[1-9]\d*$/u);
+      expect(Number(explicitlyConfiguredPort)).toBeLessThanOrEqual(65535);
+    }
+    expect(['3000', '3100', ...(explicitlyConfiguredPort ? [explicitlyConfiguredPort] : [])]).toContain(appUrl.port);
+    const pool = new Pool({ connectionString: url.href, max: 1, connectionTimeoutMillis: 10_000,
+      query_timeout: 15_000, statement_timeout: 15_000 });
     const owner = await login(browser);
     const peer = await login(browser, true);
     const contexts: BrowserContext[] = [owner.context, peer.context];
     expect(peer.workspace.id).toBe(owner.workspace.id);
+    const cleanupApi = await request.newContext({ baseURL: BASE_URL,
+      storageState: await owner.context.storageState(), timeout: 15_000 });
     const headers = { 'x-canvas-workspace-id': owner.workspace.id };
     const filePath = `collaboration-hardening-${randomUUID()}.md`;
     const page = await owner.context.newPage();
     const peerPage = await peer.context.newPage();
+    page.setDefaultTimeout(30_000); peerPage.setDefaultTimeout(30_000);
     const errors: string[] = [];
     for (const target of [page, peerPage]) {
       target.on('pageerror', (error) => errors.push(error.name));
@@ -84,11 +99,14 @@ test.describe('collaboration projection hardening', () => {
     }
     let identity: CollaborationSessionResponse | undefined;
     let quarantinedBinary: Buffer | undefined;
+    let uploaded = false;
+    let failure: unknown;
     try {
       const upload = await page.request.post('/api/files/upload', { headers, multipart: {
         path: '.', files: { name: filePath, mimeType: 'text/markdown', buffer: Buffer.from('Conflict\n\nUnchanged text\n') },
       } });
       expect(upload.ok()).toBe(true);
+      uploaded = true;
       await open(page, filePath); await open(peerPage, filePath);
       await expect.poll(() => tree(peerPage)).toEqual(await tree(page));
       const original = await tree(page);
@@ -151,18 +169,19 @@ test.describe('collaboration projection hardening', () => {
       const reopened = await reconnect.context.newPage();
       reopened.on('pageerror', (error) => errors.push(error.name));
       reopened.on('console', (message) => { if (message.type() === 'error') errors.push(message.text()); });
-      await open(reopened, filePath, false);
+      await test.step('quarantined reconnect exposes Read and disables Edit', () => open(reopened, filePath, false));
       await expect(reopened.getByTestId('markdown-save-state').getByRole('alert')).toBeVisible();
-      await expect.poll(() => tree(reopened)).toEqual(converged);
+      await expect(reopened.locator('.canvas-document-reading code')).toHaveText('Conflict');
+      await expect(reopened.locator('.canvas-document-reading')).toContainText('Unchanged text');
       const denied = await owner.context.request.post('/api/files/collaboration/checkpoint', {
         headers, data: { token: identity.token, stateVector: identity.stateVector, stateProof: identity.stateProof },
       });
       expect(denied.status()).toBe(409);
       expect((await denied.json()).code).toBe('COLLABORATION_QUARANTINED');
-      await reopened.reload({ waitUntil: 'domcontentloaded' });
-      await expect(reopened.locator(selector)).toHaveAttribute('contenteditable', 'false', { timeout: 30_000 });
+      await test.step('reload preserves the quarantined reading view', () => open(reopened, filePath, false));
       await expect(reopened.getByTestId('markdown-save-state').getByRole('alert')).toBeVisible();
-      await expect.poll(() => tree(reopened)).toEqual(converged);
+      await expect(reopened.locator('.canvas-document-reading code')).toHaveText('Conflict');
+      await expect(reopened.locator('.canvas-document-reading')).toContainText('Unchanged text');
       await reopened.screenshot({ path: info.outputPath('quarantine-reconnected.png') });
       await reopened.setViewportSize({ width: 390, height: 844 });
       const panel = reopened.getByTestId('markdown-save-state');
@@ -179,17 +198,36 @@ test.describe('collaboration projection hardening', () => {
       expect(Number(after.degraded)).toBe(1);
       expect(await readFile(projectedPath, 'utf8')).toBe(markdown);
       expect(errors).toEqual([]);
+    } catch (error) {
+      failure = error;
+      throw error;
     } finally {
-      await owner.context.setOffline(false);
-      if (identity && quarantinedBinary) await pool.query(`UPDATE collaboration_yjs_states SET degraded = 0,
-        projection_error_code = NULL, projection_error_phase = NULL, projection_error_cause = NULL,
-        projection_error_sequence = NULL, projection_error_generation = NULL, projection_error_permanent = 0
-        WHERE document_id = $1 AND workspace_id = $2 AND path = $3 AND yjs_state = $4
-          AND projection_error_code = 'COLLABORATION_SCHEMA_INVALID' AND projection_error_permanent = 1`,
-      [identity.documentId, owner.workspace.id, filePath, quarantinedBinary]);
-      await owner.context.request.delete('/api/files/delete', { headers, data: { path: filePath } }).catch(() => undefined);
-      for (const context of contexts) await context.close().catch(() => undefined);
-      await pool.end();
+      const cleanupErrors: unknown[] = [];
+      const cleanup = async (action: () => Promise<unknown>) => {
+        try { await action(); } catch (error) { cleanupErrors.push(error); }
+      };
+      for (const context of contexts) await cleanup(() => context.close());
+      if (identity && quarantinedBinary) await cleanup(async () => {
+        const cleared = await pool.query(`UPDATE collaboration_yjs_states SET degraded = 0,
+          projection_error_code = NULL, projection_error_phase = NULL, projection_error_cause = NULL,
+          projection_error_sequence = NULL, projection_error_generation = NULL, projection_error_permanent = 0
+          WHERE document_id = $1 AND workspace_id = $2 AND path = $3 AND yjs_state = $4
+            AND projection_error_code = 'COLLABORATION_SCHEMA_INVALID' AND projection_error_permanent = 1`,
+        [identity!.documentId, owner.workspace.id, filePath, quarantinedBinary]);
+        expect(cleared.rowCount, 'Cleanup must clear exactly the injected quarantine.').toBe(1);
+      });
+      if (uploaded) await cleanup(async () => {
+        const deleted = await cleanupApi.delete('/api/files/delete', { headers, data: { path: filePath } });
+        const payload = await deleted.json();
+        expect(deleted.status(), `Cleanup delete (${String(payload.code ?? '')})`).toBe(200);
+        expect(payload).toMatchObject({ success: true, deleted: [filePath], failed: [] });
+      });
+      await cleanup(() => cleanupApi.dispose());
+      await cleanup(() => pool.end());
+      if (cleanupErrors.length) {
+        if (failure) for (const error of cleanupErrors) console.error('Hardening fixture cleanup failed:', error);
+        else throw new AggregateError(cleanupErrors, 'Hardening fixture cleanup failed.');
+      }
     }
   });
 });

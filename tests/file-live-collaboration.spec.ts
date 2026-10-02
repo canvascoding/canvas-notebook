@@ -1,10 +1,12 @@
-import { expect, test, type APIRequestContext, type Browser, type BrowserContext, type Locator, type Page } from '@playwright/test';
+import { expect, request, test, type APIRequestContext, type Browser, type BrowserContext, type Locator, type Page } from '@playwright/test';
 import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { writeFile as writeTestFile } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import type { JSONContent } from '@tiptap/core';
+import enMessages from '../messages/en.json';
+import deMessages from '../messages/de.json';
 
 import { createAuthenticatedContext } from './helpers/managed-test-context';
 
@@ -101,7 +103,8 @@ async function useWorkspace(context: BrowserContext, workspaceId: string): Promi
 
 async function openCollaborativeMarkdown(page: Page, filePath: string): Promise<void> {
   await page.goto(`/notebook?path=${encodeURIComponent(filePath)}`, { waitUntil: 'domcontentloaded' });
-  await page.getByRole('group', { name: 'Document view' }).getByRole('button', { name: 'Edit', exact: true }).click();
+  await page.getByRole('group', { name: /Document view|Dokumentansicht/u })
+    .getByRole('button', { name: /^(Edit|Bearbeiten)$/u }).click();
   await expect(page.locator('.tiptap-editor-shell .ProseMirror')).toBeVisible({ timeout: 30_000 });
   await expect(page.locator('.tiptap-editor-shell .ProseMirror')).toHaveAttribute('contenteditable', 'true', { timeout: 30_000 });
   await expect(page.getByTestId('markdown-save-state')).toHaveCount(0);
@@ -127,9 +130,11 @@ function logBrowserDiagnostics(page: Page, label: string): string[] {
     }
   });
   page.on('websocket', (websocket) => {
-    console.info(`[${label}] websocket opened: ${websocket.url()}`);
+    const socketUrl = new URL(websocket.url());
+    socketUrl.search = ''; socketUrl.hash = '';
+    console.info(`[${label}] websocket opened: ${socketUrl.href}`);
     websocket.on('socketerror', (error) => console.error(`[${label}] websocket error:`, error));
-    websocket.on('close', () => console.info(`[${label}] websocket closed: ${websocket.url()}`));
+    websocket.on('close', () => console.info(`[${label}] websocket closed: ${socketUrl.href}`));
   });
   page.on('response', (response) => {
     if (response.status() === 404) console.info(`[${label}] 404 response: ${response.url()}`);
@@ -161,11 +166,33 @@ async function runAgentTool(input: {
     ['--conditions', 'react-server', 'scripts/collaboration-agent-tool-driver.ts', encoded],
     {
       cwd: process.cwd(),
-      env: process.env,
+      // This fixture covers the legacy operation review adapter explicitly.
+      // Current graph review is covered by the dedicated graph UI specs.
+      env: { ...process.env, CANVAS_PROPOSAL_GRAPH_MODE: 'off' },
       maxBuffer: 2 * 1024 * 1024,
     },
   );
   return JSON.parse(stdout) as AgentToolResult;
+}
+
+async function deleteFixtureFiles(api: APIRequestContext, workspaceId: string, paths: string[]): Promise<void> {
+  const deleted = await api.delete('/api/files/delete', {
+    headers: { [WORKSPACE_ID_HEADER]: workspaceId }, data: { path: paths },
+  });
+  const payload = await deleted.json();
+  expect(deleted.status(), `Fixture cleanup delete (${String(payload.code ?? '')})`).toBe(200);
+  expect(payload).toMatchObject({ success: true, deleted: paths, failed: [] });
+}
+
+async function finishFixture(api: APIRequestContext, actions: Array<() => Promise<unknown>>, failure: unknown): Promise<void> {
+  const cleanupErrors: unknown[] = [];
+  for (const action of [...actions, () => api.dispose()]) {
+    try { await action(); } catch (error) { cleanupErrors.push(error); }
+  }
+  if (cleanupErrors.length) {
+    if (failure) for (const error of cleanupErrors) console.error('Live collaboration fixture cleanup failed:', error);
+    else throw new AggregateError(cleanupErrors, 'Live collaboration fixture cleanup failed.');
+  }
 }
 
 test.describe('Markdown live collaboration', () => {
@@ -177,11 +204,15 @@ test.describe('Markdown live collaboration', () => {
     const joiningPath = `collaboration-joining-${suffix}.md`;
     const readyPath = `collaboration-ready-${suffix}.md`;
     const context = await fixtureContext(browser);
+    const cleanupApi = await request.newContext({ baseURL: BASE_URL,
+      storageState: await context.storageState(), timeout: 15_000 });
     const page = await context.newPage();
+    page.setDefaultTimeout(15_000);
     const errors = logBrowserDiagnostics(page, 'joining-navigation');
     const joinReleases: Array<() => void> = [];
     let joinAttempts = 0;
     let workspaceId: string | null = null;
+    let failure: unknown;
     const releasePendingJoins = () => joinReleases.splice(0).forEach((release) => release());
 
     try {
@@ -213,7 +244,10 @@ test.describe('Markdown live collaboration', () => {
       await openCollaborativeMarkdown(page, readyPath);
       const readyTab = page.getByRole('tab', { name: readyPath, exact: true });
       await expect(readyTab).toHaveAttribute('aria-selected', 'true');
+      const showSidebar = page.getByRole('button', { name: /^(Show sidebar|Sidebar einblenden)$/u });
+      if (await showSidebar.isVisible()) await showSidebar.click();
       const joiningFile = page.locator(`[data-file-path="${joiningPath}"]`).first();
+      await expect(joiningFile).toBeVisible();
 
       await joiningFile.dblclick();
       await expect.poll(() => joinAttempts).toBe(1);
@@ -235,18 +269,15 @@ test.describe('Markdown live collaboration', () => {
       await page.waitForTimeout(250);
       await expect(readyTab).toHaveAttribute('aria-selected', 'true');
       expect(errors).toEqual([]);
+    } catch (error) {
+      failure = error;
+      throw error;
     } finally {
       releasePendingJoins();
-      if (workspaceId) {
-        const headers = { [WORKSPACE_ID_HEADER]: workspaceId };
-        for (const filePath of [joiningPath, readyPath]) {
-          await page.request.delete('/api/files/delete', {
-            headers,
-            data: { path: filePath },
-          }).catch(() => undefined);
-        }
-      }
-      await context.close();
+      await finishFixture(cleanupApi, [
+        () => context.close(),
+        async () => { if (workspaceId) await deleteFixtureFiles(cleanupApi, workspaceId, [joiningPath, readyPath]); },
+      ], failure);
     }
   });
 
@@ -333,8 +364,12 @@ test.describe('Markdown live collaboration', () => {
       await expect.poll(() => tree(editor)).toEqual(moved);
       await expect(owner.getByTestId('markdown-save-state')).toHaveCount(0);
       await owner.goto(`/notebook?path=${encodeURIComponent(filePath)}&collaborationDebug=1`, { waitUntil: 'domcontentloaded' });
+      await owner.getByRole('group', { name: /Document view|Dokumentansicht/u })
+        .getByRole('button', { name: /^(Edit|Bearbeiten)$/u }).click();
       const diagnostics = owner.getByTestId('markdown-save-state');
-      await expect(diagnostics).toHaveAttribute('aria-label', /Developer diagnostics|Entwicklerdiagnose/i);
+      const locale = await owner.locator('html').getAttribute('lang');
+      const messages = locale?.startsWith('de') ? deMessages : enMessages;
+      await expect(diagnostics).toHaveAttribute('aria-label', messages.notebook.editorModes.diagnostics);
       await expect(diagnostics).toHaveCSS('position', 'absolute');
       await expect(diagnostics.getByRole('alert')).toHaveCount(0);
       await expect.poll(() => tree(editor)).toEqual(moved);
@@ -658,11 +693,14 @@ test.describe('Markdown live collaboration', () => {
     }
   });
 
-  test('two fixture users coauthor while real agent tools create, accept and reject exact reviews', async ({ browser }, testInfo) => {
+  test('two fixture users coauthor while real agent tools create, accept and reject exact legacy reviews', async ({ browser }, testInfo) => {
     const suffix = `${Date.now()}-${randomUUID()}`;
     const filePath = `collaboration-agent-review-${suffix}.md`;
     const context = await fixtureContext(browser);
+    const cleanupApi = await request.newContext({ baseURL: BASE_URL,
+      storageState: await context.storageState(), timeout: 15_000 });
     const page = await context.newPage();
+    page.setDefaultTimeout(15_000);
     const peerContext = await fixtureContext(browser, true);
     const peer = await peerContext.newPage();
     const browserErrors = logBrowserDiagnostics(page, 'agent-review');
@@ -670,6 +708,8 @@ test.describe('Markdown live collaboration', () => {
     let workspaceId: string | null = null;
     let storedSessionId: string | null = null;
     let storedAgentId: string | null = null;
+    let previousReviewEnabled: boolean | undefined;
+    let failure: unknown;
 
     try {
       const ownerId = await login(page, ADMIN_EMAIL, ADMIN_PASSWORD);
@@ -679,6 +719,15 @@ test.describe('Markdown live collaboration', () => {
       expect(await organizationWorkspace(peer.request)).toBe(workspaceId);
       await useWorkspace(context, workspaceId);
       await useWorkspace(peerContext, workspaceId);
+      const availability = await cleanupApi.get('/api/document-review/availability');
+      expect(availability.ok()).toBe(true);
+      previousReviewEnabled = (await availability.json()).data.documentReviewEnabled as boolean;
+      expect(typeof previousReviewEnabled).toBe('boolean');
+      const enabled = await cleanupApi.patch('/api/admin/experimental-settings', {
+        headers: { Origin: BASE_URL }, data: { documentReviewEnabled: true },
+      });
+      expect(enabled.ok(), 'The isolated instance admin must enable document review for this fixture.').toBe(true);
+      expect(await enabled.json()).toMatchObject({ success: true, data: { documentReviewEnabled: true } });
       const emptyRejectResponse = await page.request.post(
         '/api/files/collaboration/operations/missing-operation/reject',
         { headers: { [WORKSPACE_ID_HEADER]: workspaceId } },
@@ -870,17 +919,36 @@ test.describe('Markdown live collaboration', () => {
         expect(changedReview.ok()).toBe(true);
         return (await changedReview.json()).operation.proposalVersion;
       }, { timeout: 20_000 }).toBeNull();
+      const authoritativeSnapshot = async () => {
+        const response = await cleanupApi.get('/api/files/read', {
+          headers: { [WORKSPACE_ID_HEADER]: workspaceId! }, params: { path: filePath },
+        });
+        expect(response.ok()).toBe(true);
+        const data = (await response.json()).data as { content: string; revision: { id: string } | null };
+        return { content: data.content, revisionId: data.revision?.id ?? null };
+      };
+      let checkpointedHumanSnapshot: Awaited<ReturnType<typeof authoritativeSnapshot>> | undefined;
+      await expect.poll(async () => {
+        const snapshot = await authoritativeSnapshot();
+        if (!snapshot.content.includes('Final paragraph updated after preview') || snapshot.revisionId === null) return false;
+        checkpointedHumanSnapshot = snapshot;
+        return true;
+      }, { timeout: 20_000 }).toBe(true);
+      const beforeStaleAcceptance = checkpointedHumanSnapshot!;
+      expect(beforeStaleAcceptance.revisionId).not.toBeNull();
+      expect(beforeStaleAcceptance.content).toContain('Final paragraph updated after preview');
       const staleAcceptance = await page.request.post(`${patchUrl}/accept`, {
         headers: { [WORKSPACE_ID_HEADER]: workspaceId },
         data: { idempotencyKey: `stale-accept-${suffix}`, proposalVersion: staleProposalVersion },
       });
       expect(staleAcceptance.status()).toBe(409);
       expect(await staleAcceptance.json()).toMatchObject({ code: 'AGENT_PROPOSAL_CHANGED' });
-      await acceptChange.click();
+      expect(await authoritativeSnapshot()).toEqual(beforeStaleAcceptance);
       expect(await collaborativeEditorText(editor)).toBe(contentAfterHumanEdit);
       await expect(reviewCenter).toBeVisible();
+      await expect(acceptChange).toHaveCount(0, { timeout: 20_000 });
       await expect(reviewCenter).toContainText(
-        /The (?:agent proposal|document) changed|Der Agentenvorschlag wurde geändert|Das Dokument hat sich geändert/i,
+        /The proposal changed, became stale|Der Vorschlag wurde geändert, ist veraltet/u,
       );
       await page.keyboard.press('Escape');
       await expect(reviewCenter).toBeHidden();
@@ -896,6 +964,7 @@ test.describe('Markdown live collaboration', () => {
       await expect.poll(() => collaborativeEditorText(editor)).toContain('Keep this paragraph edited by user');
       await expect.poll(() => collaborativeEditorText(editor)).not.toContain('Combined paragraph');
       await expect(rejectProposal).toHaveCount(0, { timeout: 20_000 });
+      expect(await authoritativeSnapshot()).toEqual(beforeStaleAcceptance);
 
       // A rich Y.Doc can validly retain Markdown that the conservative source
       // codec classifies as source-only. This models an agent review that adds
@@ -961,20 +1030,34 @@ test.describe('Markdown live collaboration', () => {
       const unexpectedBrowserErrors = [...browserErrors, ...peerErrors]
         .filter((message) => !/Failed to load resource:.*409 \(Conflict\)/u.test(message));
       expect(unexpectedBrowserErrors, 'Agent review UI must not emit unexpected browser errors.').toEqual([]);
+    } catch (error) {
+      failure = error;
+      throw error;
     } finally {
-      await peerContext.close();
-      await page.close().catch(() => undefined);
-      if (workspaceId) {
-        if (storedSessionId && storedAgentId) await context.request.delete('/api/sessions', {
-          headers: { [WORKSPACE_ID_HEADER]: workspaceId },
-          params: { sessionId: storedSessionId, agentId: storedAgentId, workspaceId },
-        });
-        await context.request.delete('/api/files/delete', {
-          headers: { [WORKSPACE_ID_HEADER]: workspaceId },
-          data: { path: filePath },
-        }).catch(() => undefined);
-      }
-      await context.close();
+      await finishFixture(cleanupApi, [
+        () => peerContext.close(),
+        () => context.close(),
+        async () => {
+          if (previousReviewEnabled !== undefined) {
+            const restored = await cleanupApi.patch('/api/admin/experimental-settings', {
+              headers: { Origin: BASE_URL }, data: { documentReviewEnabled: previousReviewEnabled },
+            });
+            expect(restored.ok()).toBe(true);
+            expect(await restored.json()).toMatchObject({ success: true,
+              data: { documentReviewEnabled: previousReviewEnabled } });
+          }
+        },
+        async () => {
+          if (workspaceId && storedSessionId && storedAgentId) {
+            const deletedSession = await cleanupApi.delete('/api/sessions', {
+              headers: { [WORKSPACE_ID_HEADER]: workspaceId },
+              params: { sessionId: storedSessionId, agentId: storedAgentId, workspaceId },
+            });
+            expect(deletedSession.status(), 'Agent fixture session cleanup').toBe(200);
+          }
+        },
+        async () => { if (workspaceId) await deleteFixtureFiles(cleanupApi, workspaceId, [filePath]); },
+      ], failure);
     }
   });
 });

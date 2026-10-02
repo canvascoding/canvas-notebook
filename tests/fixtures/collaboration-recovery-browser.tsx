@@ -7,7 +7,7 @@ import { MarkdownSaveState } from '../../app/components/editor/MarkdownDocumentM
 import { useCollaborationDocument } from '../../app/lib/collaboration/client';
 import type { CollaborationSessionResponse } from '../../app/lib/collaboration/types';
 import { prepareRecoverableCollaborationTransition, preserveLocalCollaborationRecovery } from '../../app/lib/collaboration/local-recovery';
-import { registerDocumentTransitionGuard } from '../../app/lib/files/document-transition';
+import { getDocumentTransitionGuard, registerDocumentTransitionGuard } from '../../app/lib/files/document-transition';
 import { useFileStore } from '../../app/store/file-store';
 import { useEditorStore } from '../../app/store/editor-store';
 import { useWorkspaceStore } from '../../app/store/workspace-store';
@@ -39,7 +39,10 @@ async function main() {
   useEditorStore.getState().setActiveFile(path, doc.getText('content').toString());
   function App() {
     const [error, setError] = useState('');
-    const currentPath = useFileStore((state) => state.currentFile?.path);
+    const currentFile = useFileStore((state) => state.currentFile);
+    const currentPath = currentFile?.path;
+    const draft = useEditorStore((state) => state.draft);
+    const revealStatus = useFileStore((state) => state.browserReveal?.status);
     const handle = useCollaborationDocument({ enabled: currentPath === path, workspaceId, path,
       documentKey: 'recovery-fixture', representation: 'plain_text', session });
     const activeDoc = handle?.clientState.indexedDbHydrated ? handle.doc : null;
@@ -59,28 +62,53 @@ async function main() {
       });
     }, [activeDoc]);
     const action = async (kind: 'close' | 'switch' | 'delete') => {
+      const restoredOutput = document.getElementById('restored')!;
+      restoredOutput.textContent = '';
+      setError('');
       try {
-        if (kind === 'close') await useFileStore.getState().closeFile(path);
+        if (kind === 'close') {
+          if (useFileStore.getState().currentFile?.unavailable) {
+            // FileEditor requires an explicit discard for an unavailable file.
+            // First commit this fixture's recovery snapshot before releasing that view.
+            const guard = getDocumentTransitionGuard(workspaceId, path);
+            if (!guard) throw new Error('Recovery guard is not ready.');
+            await guard.prepare();
+            useFileStore.getState().clearCurrentFile();
+            useEditorStore.getState().clear();
+          } else await useFileStore.getState().closeFile(path);
+        }
         if (kind === 'switch') {
           const result = await useFileStore.getState().revealAndLoadFile('other.md', { revealInTree: false });
           if (result.status === 'failed') throw new Error(result.error);
         }
         if (kind === 'delete') await useFileStore.getState().deletePath(path);
         const restored = new Y.Doc();
-        const reader = new IndexeddbPersistence(databaseName, restored);
-        await reader.whenSynced;
-        document.getElementById('restored')!.textContent = restored.getText('content').toString();
-        await reader.destroy(); restored.destroy(); setError('');
+        let reader: IndexeddbPersistence | undefined;
+        let restoredContent: string;
+        try {
+          reader = new IndexeddbPersistence(databaseName, restored);
+          await reader.whenSynced;
+          restoredContent = restored.getText('content').toString();
+        } finally {
+          try { await reader?.destroy(); }
+          finally { restored.destroy(); }
+        }
+        restoredOutput.textContent = restoredContent;
       } catch (failure) { setError(String(failure)); }
     };
     return <NextIntlClientProvider locale="en" messages={messages}>
       <h1>Document recovery test</h1>
       <output data-testid="current-path">{currentPath ?? 'closed'}</output>
-      {currentPath === path && <MarkdownSaveState collaboration={collaboration} content={doc.getText('content').toString()} available filePath={path} />}
+      <output data-testid="current-unavailable">{currentFile?.unavailable ?? 'none'}</output>
+      <output data-testid="current-content">{currentFile?.content ?? ''}</output>
+      <output data-testid="editor-draft">{draft}</output>
+      <output data-testid="collaboration-view">{handle ? 'retained' : 'detached'}</output>
+      <output data-testid="browser-reveal">{revealStatus ?? 'none'}</output>
+      {currentPath === path && <MarkdownSaveState collaboration={collaboration} content={doc.getText('content').toString()} available={!currentFile?.unavailable} filePath={path} />}
       <button disabled={!activeDoc} onClick={() => void action('close')}>Close document</button>
       <button disabled={!activeDoc} onClick={() => void action('switch')}>Open other document</button>
       <button disabled={!activeDoc} onClick={() => void action('delete')}>Delete document</button>
-      <p role="alert">{error}</p>
+      <p role="alert" data-testid="fixture-error">{error}</p>
     </NextIntlClientProvider>;
   }
   createRoot(document.getElementById('root')!).render(<App />);

@@ -149,8 +149,9 @@ for (const workspaceKind of ['personal', 'team'] as const) test.describe(`Ordina
       const completed = page.getByRole('dialog', { name: 'Versions & changes' });
       await expect(completed.getByRole('region', { name: 'Agent reviews', exact: true }))
         .toContainText('No agent changes need review.', { timeout: 30_000 });
-      await expect(completed.getByRole('heading', { name: 'Current version', exact: true })).toBeVisible();
-      await expect(completed.getByRole('button', { name: /^Current version Current/u }))
+      await expect(completed.getByRole('heading', { name: /^Current version(?: · Version \d+)?$/u })).toBeVisible();
+      await expect(completed.getByRole('region', { name: 'Current', exact: true })
+        .getByRole('button', { name: /^Current version(?: Version \d+)? Current/u }))
         .toHaveAttribute('aria-pressed', 'true');
       await info.attach('ordinary-shipping-evidence.json', { contentType: 'application/json', body: JSON.stringify({
         workspaceKind, order, target, filePath, representation, proposals, expected: final,
