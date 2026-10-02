@@ -116,7 +116,14 @@ for (const width of [390, 1440]) {
     await expect(notebook).toBeFocused();
     await page.keyboard.press('ArrowDown');
     await expect(menu.getByRole('menuitem', { name: 'Automationen', exact: true })).toBeFocused();
-    await expect(menu.locator('a[href]')).toHaveCount(5);
+    await expect(menu.locator('a[href]')).toHaveCount(6);
+    for (const [name, href] of [
+      ['Notebook', '/de/notebook'], ['Automationen', '/de/automations'],
+      ['To-dos', '/de/todos'], ['E-Mail', '/de/emails'],
+      ['Studio', '/de/studio'], ['Plugins', '/de/plugins'],
+    ]) {
+      await expect(menu.getByRole('menuitem', { name, exact: true })).toHaveAttribute('href', href);
+    }
     await expect(menu.getByRole('menuitem', { name: 'Dokument-Graph', exact: true })).toHaveCount(0);
     await page.screenshot({ path: info.outputPath(`launcher-${width}-quick.png`), animations: 'disabled' });
     const bounds = (await menu.boundingBox())!;
