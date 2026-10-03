@@ -61,6 +61,17 @@ serialized hash equals its persisted checkpoint hash. The actual file must
 match the historical checkpoint. Unknown external edits, missing current
 snapshots, ambiguous identities and scope discrepancies require manual review.
 
+A valid initialized successor in generation 1 may still have document/checkpoint
+sequence 0. When its observed file already matches its persisted and independently
+serialized Yjs snapshot, recovery may retain those current bytes and archive the
+selected orphan. Preparation additionally verifies registry state version 0,
+initialized lifecycle, full revision scope/hash/size and both checkpoint hashes.
+An initial successor never authorizes restoration over a different file. Its
+normal checkpoint finalizes the receipt and shares without advancing the current
+sequence, generation or Yjs bytes. A first checkpoint may replace the identical
+file through the ordinary pipeline; a completed fresh-process resume verifies the
+journal and preserves the resulting filesystem identity without writing again.
+
 ## Explicit offline operator
 
 Prepare a proposal from the immutable capture. Every operation starts with
