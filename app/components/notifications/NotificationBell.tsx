@@ -131,6 +131,7 @@ export function NotificationBell() {
   }, []);
 
   useEffect(() => {
+    let updateRefresh: number | null = null;
     const initialRefresh = window.setTimeout(() => {
       void refresh();
     }, 0);
@@ -141,12 +142,18 @@ export function NotificationBell() {
     }, 30_000);
 
     const handleUpdate = () => {
-      window.setTimeout(() => void refresh(), 100);
+      if (updateRefresh !== null) window.clearTimeout(updateRefresh);
+      updateRefresh = window.setTimeout(() => {
+        updateRefresh = null;
+        void refresh();
+      }, 100);
     };
     const handleActiveSessionChanged = (event: CustomEvent<{ sessionId: string | null; isVisible: boolean }>) => {
       const nextSessionId = event.detail.isVisible ? event.detail.sessionId : null;
+      if (nextSessionId === activeChatSessionIdRef.current) return;
       activeChatSessionIdRef.current = nextSessionId;
       setActiveChatSessionId(nextSessionId);
+      window.clearTimeout(initialRefresh);
       void refresh();
     };
     window.addEventListener('session_updated', handleUpdate);
@@ -156,6 +163,8 @@ export function NotificationBell() {
     return () => {
       window.clearTimeout(initialRefresh);
       window.clearInterval(interval);
+      if (updateRefresh !== null) window.clearTimeout(updateRefresh);
+      refreshGenerationRef.current += 1;
       window.removeEventListener('session_updated', handleUpdate);
       window.removeEventListener('chat-active-session-changed', handleActiveSessionChanged as EventListener);
       window.removeEventListener('todo_updated', handleUpdate);

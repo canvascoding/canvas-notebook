@@ -336,6 +336,33 @@ test('hides the visible chat notification while mark-as-read PATCH and summary G
   await expect(page.locator('[data-notification-id="chat:sess-visible-race"]')).toHaveCount(0);
 });
 
+test('coalesces notification event bursts and ignores unchanged hidden chat sessions', async ({ page }) => {
+  await login(page);
+  let summaryRequests = 0;
+  await page.route('**/api/notifications/summary**', async route => {
+    summaryRequests += 1;
+    await route.fulfill({ json: chatNotificationSummary('sess-event-burst', false) });
+  });
+  await page.goto('/notebook?chat=closed', { waitUntil: 'domcontentloaded' });
+  await expect.poll(() => summaryRequests).toBeGreaterThanOrEqual(1);
+  await expect(page.getByTestId('notification-bell')).toHaveAttribute('aria-label', /0 unread/);
+  // Observe one complete debounce interval before counting the new burst.
+  await page.evaluate(() => new Promise<void>(resolve => window.setTimeout(resolve, 200)));
+  const beforeBurst = summaryRequests;
+  await page.evaluate(() => {
+    for (let index = 0; index < 20; index += 1) {
+      window.dispatchEvent(new CustomEvent('chat-active-session-changed', {
+        detail: { sessionId: null, isVisible: false },
+      }));
+      window.dispatchEvent(new CustomEvent('notification_summary_updated'));
+    }
+  });
+  await expect.poll(() => summaryRequests).toBe(beforeBurst + 1);
+  await page.evaluate(() => new Promise<void>(resolve => window.setTimeout(resolve, 200)));
+  expect(summaryRequests).toBe(beforeBurst + 1);
+  await expect(page.getByTestId('notification-bell')).toHaveAttribute('aria-label', /0 unread/);
+});
+
 test('does not let an older notification summary GET overwrite a newer response', async ({ page }) => {
   await login(page);
 
