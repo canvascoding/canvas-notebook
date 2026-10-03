@@ -197,13 +197,13 @@ successful fresh backup and restore verification, drain all Notebook writers,
 run the Notebook dry-run, show its explicit case list, then request approval for
 the bounded restoration. A container restart cannot resolve identity conflicts.
 
-## Verification boundary
+## Initial verification through 2 October
 
 The pure recovery tests cover 64 cases, stable reruns, conflicting/missing
 successors, schema/scope failures, changed preconditions and already-restored
-files. They do not attest to the current production inventory or backup. No
-production deployment or restoration has been performed by this implementation.
-Current production backup metadata was read on 2 October: the scheduled backup
+files. They do not attest to the current production inventory or backup. At that
+checkpoint, no production deployment or restoration had been performed.
+Production backup metadata was read on 2 October: the scheduled backup
 failed again; the local archive is from 1 October and the external archive from
 29 September. Neither is a verified fresh restore for this repair. Four focused
 Playwright E2E tests passed against the local production build
@@ -227,3 +227,62 @@ all relevant SQL tables, revisions, inode, mtime and file hash. A process crash
 while writing a temporary journal leaves no partial final marker; publication
 is exclusive and atomic with file/directory fsync. An external same-byte atomic
 file replacement is refused instead of silently rebinding public links.
+
+## Verified status on 3 October
+
+Release `2026.10.3.2`, source commit
+`cf78fe50a8cfcc305e2238f72b33cfa4ee6d73ba`, is published and deployed.
+The tag-triggered multi-architecture build, Control Plane notification and
+standalone publisher completed successfully. All twelve published artifacts
+match the verified build bundle; the five archive checksums, native compliance
+payloads, update signature and image provenance were independently checked.
+The running production container reports the same source commit and version,
+and all eight checked recovery/runtime source files match the release source.
+The Control Plane update completed successfully at 16:48:58 UTC; a subsequent
+direct health check returned HTTP 200 with status `healthy`.
+
+The complete `npm run verify:release` gate passed. Native PostgreSQL and fresh
+CLI checks cover initialized sequence-zero recovery, rejection of changed
+preconditions, finalized shares, exact orphan archival and idempotent resume.
+Earlier selected UI/E2E checks passed; this does not claim that the entire E2E
+suite passed. Review and proposal workflows remain outside the agreed scope.
+
+A fresh full backup, `9d27d43f-7275-4d32-9cfb-15ef2974d972`, completed before
+the rollout. An isolated native PostgreSQL restore completed with actual exit
+code zero. Source and restored hashes matched for all six checked classes:
+PostgreSQL schema/data, workspace bytes, Yjs lifecycle/bytes, registry/lineage,
+revision history/turn links and shares. The original backup and failed earlier
+attempts remain preserved. This pre-rollout proof is not an attestation of the
+production state after resumed writers or after a document repair.
+
+The new release's operator was then run read-only against that restored backup.
+Capture and prepare completed with actual exit code zero, 203 verified bundle
+artifacts, 38 unselected recovery operations without formatting loss, and 27
+manual cases. This capture explicitly has `CURRENT_PRODUCTION_BASELINE=false`;
+no recovery operation has been applied to production. The subsequent production
+health inventory still reports 244 active states, 65 identity conflicts, one
+quarantined state, 24 pending projections and zero binary persistence failures.
+
+The remaining cases need separate treatment:
+
+- Fourteen historical identities have a unique original
+  document-to-snapshot-revision-to-lineage chain, consistent scope and complete
+  revision groups. Revision numbers are evidenced by the historical migration's
+  deterministic ordering, without modifying the original SQLite bytes. All
+  fourteen are initialized sequence-zero states; the current identity importer
+  requires a positive checkpoint, so they are not yet importable.
+- Seven old identities collide with different current PostgreSQL identities at
+  the same paths. Matching content does not authorize replacing those identities.
+- Two historical rename cases retain revision paths from before the rename.
+  Their identity chains are evidenced, but they do not satisfy the present
+  strict same-path import contract.
+- One original document is absent from the closed SQLite evidence.
+- Two current initialized Yjs snapshots and revisions differ from the observed
+  files, which match the historical snapshots. The operator correctly refuses to
+  choose a version automatically.
+- The actual incompatible Code/Bold state needs genuine validation/quarantine
+  followed by a new current capture and verified backup/restore before repair.
+
+Production recovery remains pending. Each bounded apply must bind fresh current
+evidence, verified backup/restore coverage and drained writers; the historical
+capture, published release and healthy process do not substitute for those checks.
