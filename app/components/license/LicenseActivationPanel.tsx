@@ -11,6 +11,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
+import { SettingsAccordionCard } from '@/app/components/settings/SettingsAccordionCard';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Switch } from '@/components/ui/switch';
 import { scrubLicenseKeyFromBrowserUrl } from '@/app/lib/license/browser-url';
@@ -113,6 +114,14 @@ function getActivationCopy(locale: string) {
         statusUnavailableTitle: 'Lizenzstatus nicht verfügbar',
         statusUnavailableDescription: 'Die Lizenz konnte nicht sicher geladen werden. Team-Funktionen bleiben deaktiviert, bis der Status erneut geladen werden kann. Canvas Core bleibt lokal nutzbar.',
         retryStatus: 'Status erneut laden',
+        details: 'Lizenzdetails und Bedingungen',
+        openActivation: 'Freiwillig aktivieren',
+        useKey: 'Vorhandenen Schlüssel verwenden',
+        replaceLicense: 'Lizenz ersetzen oder erneuern',
+        connection: 'Team-Verbindung verwalten',
+        active: 'Aktiv',
+        inactive: 'Nicht aktiviert',
+        managedShort: 'Die Lizenz wird über Canvas verwaltet.',
       }
     : {
         title: 'Community license',
@@ -150,6 +159,14 @@ function getActivationCopy(locale: string) {
         statusUnavailableTitle: 'License status unavailable',
         statusUnavailableDescription: 'The license could not be loaded safely. Team features remain disabled until the status can be loaded again. Canvas Core remains available locally.',
         retryStatus: 'Retry status',
+        details: 'License details and terms',
+        openActivation: 'Activate optionally',
+        useKey: 'Use an existing key',
+        replaceLicense: 'Replace or renew license',
+        connection: 'Manage Team connection',
+        active: 'Active',
+        inactive: 'Not activated',
+        managedShort: 'The license is managed through Canvas.',
       };
 }
 
@@ -171,6 +188,10 @@ export function LicenseActivationPanel({
   const [statusLoadError, setStatusLoadError] = useState<string | null>(null);
   const [registering, setRegistering] = useState(false);
   const [activating, setActivating] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [activationOpen, setActivationOpen] = useState(Boolean(searchParams.get('key')));
+  const [keyOpen, setKeyOpen] = useState(Boolean(searchParams.get('key')));
+  const [connectionOpen, setConnectionOpen] = useState(false);
 
   useEffect(() => {
     scrubLicenseKeyFromBrowserUrl();
@@ -205,9 +226,11 @@ export function LicenseActivationPanel({
   }, [loadStatus]);
 
   const { beginPolling, pendingActivation } = useLicenseEmailActivation({
-    licensed: Boolean(status?.licensed),
+    // Discover server-persisted renewals even while the previous certificate is still valid.
+    licensed: !status || licenseHostingVariant(status) !== 'self-hosted',
     onActivated: async () => {
       await loadStatus();
+      setActivationOpen(false);
       toast.success(copy.activationCompleted);
     },
     onFailure: (failure) => {
@@ -255,6 +278,8 @@ export function LicenseActivationPanel({
       }
       setStatus(payload);
       setKey('');
+      setActivationOpen(false);
+      setKeyOpen(false);
       await loadStatus();
       toast.success('License activated');
     } catch (error) {
@@ -271,7 +296,8 @@ export function LicenseActivationPanel({
   const statusCode = status?.code || codeFromLicenseError(status?.error as Parameters<typeof codeFromLicenseError>[0]);
   const planLabel = isManaged
     ? `Managed${status?.edition ? ` ${status.edition === 'team' ? 'Team' : 'Solo'}` : ''}`
-    : status?.plan === 'unregistered' ? copy.unregistered : status?.plan || copy.loading;
+    : status?.plan === 'unregistered' ? copy.unregistered
+      : status?.plan === 'community' ? `Community ${status.edition === 'team' ? 'Team' : 'Solo'}` : status?.plan || copy.loading;
 
   return (
     <div className="space-y-3 sm:space-y-4">
@@ -284,13 +310,13 @@ export function LicenseActivationPanel({
                 {isManaged ? copy.managedTitle : isSelfHosted ? copy.title : copy.licenseTitle}
               </CardTitle>
               <CardDescription className="leading-5">
-                {isManaged ? copy.managedDescription : !status ? copy.loading : isLicensed
+                {isManaged ? copy.managedShort : !status ? copy.loading : isLicensed
                   ? copy.verified
                   : copy.unverified}
               </CardDescription>
             </div>
             <Badge className="w-fit max-w-full truncate" variant={isLicensed ? 'default' : 'secondary'}>
-              {loading ? copy.loading : planLabel}
+              {loading ? copy.loading : `${planLabel} · ${isLicensed ? copy.active : copy.inactive}`}
             </Badge>
           </div>
 
@@ -309,56 +335,46 @@ export function LicenseActivationPanel({
           ) : null}
         </CardHeader>
         <CardContent className="space-y-4 px-4 sm:px-6">
-          {isSelfHosted ? <div className="border border-border bg-muted/30 px-3 py-3 text-sm sm:px-4">
-            <div className="space-y-3 sm:flex sm:items-start sm:gap-3 sm:space-y-0">
-              <Info className="mt-0.5 hidden h-4 w-4 shrink-0 text-muted-foreground sm:block" />
-              <div className="min-w-0 space-y-3 leading-6">
-                <div>
-                  <p className="flex items-start gap-2 font-medium">
-                    <Info className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground sm:hidden" />
-                    <span>{copy.activationTitle}</span>
-                  </p>
-                  <p className="mt-1 text-muted-foreground">
-                    {copy.activationDescription}
-                  </p>
-                </div>
-                <div>
-                  <p className="font-medium">{copy.termsTitle}</p>
-                  <p className="mt-1 text-muted-foreground">
-                    {copy.termsDescription}
-                  </p>
-                  <p className="mt-2 text-muted-foreground">
-                    {copy.renewalDescription}
-                  </p>
-                  <a
-                    href="https://github.com/canvascoding/canvas-notebook?tab=License-1-ov-file"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="mt-2 inline-flex max-w-full items-center gap-1.5 text-xs font-medium text-foreground underline-offset-4 hover:underline"
-                  >
-                    <span className="min-w-0 truncate">{copy.viewLicense}</span>
-                    <ExternalLink className="h-3 w-3 shrink-0" />
-                  </a>
-                </div>
-              </div>
-            </div>
+          {status?.expiresAt ? <p className="text-sm text-muted-foreground">
+            {copy.expires}: {new Date(status.expiresAt).toLocaleDateString(locale)}
+          </p> : null}
+          {isSelfHosted && !loading && !statusLoadError && !activationOpen ? <div className="flex flex-wrap gap-2">
+            <Button type="button" variant={isLicensed ? 'outline' : 'default'} onClick={() => setActivationOpen(true)}>
+              {isLicensed ? copy.replaceLicense : copy.openActivation}
+            </Button>
+            {!isLicensed ? <Button type="button" variant="ghost" onClick={() => { setActivationOpen(true); setKeyOpen(true); }}>
+              {copy.useKey}
+            </Button> : null}
           </div> : null}
 
-          <div className="grid gap-2 text-sm">
-            <div className="grid gap-1.5 border border-border px-3 py-2.5 sm:flex sm:items-center sm:justify-between sm:gap-3">
-              <span className="text-muted-foreground">{copy.instanceId}</span>
-              <span className="min-w-0 break-all font-mono text-xs sm:text-right">{status?.instanceId || '...'}</span>
-            </div>
-            {status?.expiresAt && (
-              <div className="grid gap-1.5 border border-border px-3 py-2.5 sm:flex sm:items-center sm:justify-between sm:gap-3">
-                <span className="text-muted-foreground">{copy.expires}</span>
-                <span className="min-w-0 break-words sm:text-right">{new Date(status.expiresAt).toLocaleString()}</span>
-              </div>
-            )}
-          </div>
+          {status && !statusLoadError ? <SettingsAccordionCard title={copy.details} isOpen={detailsOpen} onOpenChange={setDetailsOpen}>
+            <p className="break-all text-sm"><span className="text-muted-foreground">{copy.instanceId}: </span><span className="font-mono text-xs">{status.instanceId}</span></p>
+            {isManaged ? <p className="text-sm text-muted-foreground">{copy.managedDescription}</p> : null}
+            {isSelfHosted ? <section className="space-y-2 text-sm text-muted-foreground">
+              <p className="font-medium text-foreground">{copy.termsTitle}</p>
+              <p>{copy.termsDescription}</p>
+              <p>{copy.renewalDescription}</p>
+              <a href="https://github.com/canvascoding/canvas-notebook?tab=License-1-ov-file" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 underline underline-offset-4">
+                {copy.viewLicense}<ExternalLink className="h-3 w-3" />
+              </a>
+            </section> : null}
+          </SettingsAccordionCard> : null}
 
-          {isSelfHosted && !isLicensed && !loading && !statusLoadError && (
-            <>
+          {pendingActivation ? (
+            <Alert variant="info">
+              <Loader2 className="animate-spin" />
+              <AlertTitle>{copy.activationPendingTitle}</AlertTitle>
+              <AlertDescription>
+                {copy.activationPendingDescription}
+              </AlertDescription>
+            </Alert>
+          ) : null}
+
+          {isSelfHosted && activationOpen && !loading && !statusLoadError && (
+            <section className="space-y-4 border-t pt-4" aria-label={copy.activationTitle}>
+              <p className="flex items-center gap-2 text-sm font-medium"><Info className="h-4 w-4" />{copy.activationTitle}</p>
+              <p className="text-sm leading-5 text-muted-foreground">{copy.activationDescription}</p>
+              {!keyOpen ? <>
               <div className="space-y-2">
                 <Label htmlFor="license-email">{copy.email}</Label>
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
@@ -369,16 +385,6 @@ export function LicenseActivationPanel({
                   </Button>
                 </div>
               </div>
-
-              {pendingActivation ? (
-                <Alert variant="info">
-                  <Loader2 className="animate-spin" />
-                  <AlertTitle>{copy.activationPendingTitle}</AlertTitle>
-                  <AlertDescription>
-                    {copy.activationPendingDescription}
-                  </AlertDescription>
-                </Alert>
-              ) : null}
 
               <div className="flex items-start gap-3 border border-border bg-muted/20 px-3 py-3">
                 <Switch
@@ -398,7 +404,9 @@ export function LicenseActivationPanel({
                 </div>
               </div>
 
-              <div className="space-y-2">
+              <Button type="button" variant="ghost" onClick={() => setKeyOpen(true)}>{copy.useKey}</Button>
+              </> : null}
+              {keyOpen ? <div className="space-y-2">
                 <Label htmlFor="license-key">{copy.activationKey}</Label>
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                   <Input id="license-key" value={key} onChange={(event) => setKey(event.target.value)} />
@@ -407,7 +415,9 @@ export function LicenseActivationPanel({
                     {copy.activate}
                   </Button>
                 </div>
-              </div>
+              <Button type="button" variant="ghost" onClick={() => setKeyOpen(false)}>{copy.sendKey}</Button>
+              </div> : null}
+              <Button type="button" variant="ghost" onClick={() => setActivationOpen(false)}>{locale.startsWith('de') ? 'Schließen' : 'Close'}</Button>
 
               {status?.error && (
                 <div className="space-y-1 break-words text-sm text-destructive">
@@ -415,7 +425,7 @@ export function LicenseActivationPanel({
                   {statusCode && <p className="break-all font-mono text-xs text-muted-foreground">{statusCode}</p>}
                 </div>
               )}
-            </>
+            </section>
           )}
         </CardContent>
       </Card>
@@ -425,7 +435,8 @@ export function LicenseActivationPanel({
           onReload={loadStatus}
         />
       ) : null}
-      {isSelfHosted && !loading && !statusLoadError ? <CommunityTeamConnectionPanel
+      {isSelfHosted && !loading && !statusLoadError ? <SettingsAccordionCard title={copy.connection} isOpen={connectionOpen || Boolean(status?.teamSeatHealth?.recovery.reconnectRequired)} onOpenChange={setConnectionOpen}>
+        <CommunityTeamConnectionPanel
         licensed={isLicensed}
         licensePlan={status?.plan || 'unregistered'}
         licenseStatusAvailable={
@@ -434,7 +445,8 @@ export function LicenseActivationPanel({
           && status.error !== 'license_status_unavailable'
         }
         teamSeatRollout={status?.teamSeatRollout}
-      /> : null}
+        />
+      </SettingsAccordionCard> : null}
     </div>
   );
 }
