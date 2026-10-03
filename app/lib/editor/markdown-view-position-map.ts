@@ -248,6 +248,10 @@ function listNodes(token: Token, view: SourceView): SourceNode[] {
       const raw = view.text.startsWith(item.raw, cursor) ? item.raw : item.raw.replace(/\n$/u, '');
       if (view.text.startsWith(raw, cursor)) { itemView = slice(view, cursor, cursor + raw.length); cursor += raw.length; }
     } else {
+      // A footnote tokenizer can leave its separating newline inside the
+      // following task-list token. It belongs to no task item. Start at the
+      // first physical item line before finding the next item's boundary.
+      while (view.text[cursor] === '\n') cursor++;
       const start = cursor;
       const ownLine = physicalLines.find(line => line.offsets[0] === view.offsets[start]);
       const indent = ownLine?.text.match(/^\s*/u)?.[0].length ?? 0;

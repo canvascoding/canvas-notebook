@@ -15,6 +15,7 @@ import {
 } from '@/app/lib/collaboration/types';
 import { liveCollaborationRuntimeAvailable } from '@/app/lib/collaboration/runtime-policy';
 import { issueMobileCollaborationTicket } from '@/app/lib/mobile/collaboration-ticket';
+import { mobileCollaborationProjectionStatus } from '@/app/lib/mobile/collaboration-session';
 import { requireRequestWorkspace, workspaceFileOptions } from '@/app/lib/workspaces/request';
 
 export const dynamic = 'force-dynamic';
@@ -58,6 +59,7 @@ export async function POST(request: NextRequest) {
       fileOptions,
       request: collaborationRequest,
     });
+    const projectionStatus = mobileCollaborationProjectionStatus(grant);
     const sessionId = String((workspaceResult.session.session as { id?: string }).id || '');
     if (!sessionId) throw new Error('Authenticated session has no stable identifier.');
 
@@ -99,6 +101,7 @@ export async function POST(request: NextRequest) {
       checkpointSequence: grant.checkpointSequence,
       stateVector: grant.stateVector,
       stateProof: grant.stateProof,
+      ...projectionStatus,
       token: ticket.token,
       expiresAt: ticket.expiresAt,
       websocketUrl: '/ws/collaboration',

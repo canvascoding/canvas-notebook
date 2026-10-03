@@ -73,6 +73,20 @@ test('task and mixed nested lists keep exact paragraph offsets and identities', 
   allTextBlocksMapped('3. same\n   1. nested\n   2. again\n4. last\n');
 });
 
+test('a task list after a footnote owns both physical items with LF and CRLF', () => {
+  for (const ending of ['\n', '\r\n']) {
+    const markdown = '\uFEFF' + ['---', 'title: Metadata', '---', '', 'Before[^second]', '',
+      '[^second]: Second note', '', '- [ ] task', '- [x] another', '', 'After'].join(ending);
+    const { map } = allTextBlocksMapped(markdown);
+    const list = map.blocks.find(block => block.type === 'taskList')!;
+    assert.equal(list.sourceFrom, markdown.indexOf('- [ ] task'));
+    assert.ok(list.sourceTo >= markdown.indexOf('another') + 'another'.length);
+    const paragraphs = map.blocks.filter(block => block.type === 'paragraph' && block.sourceFrom >= list.sourceFrom && block.sourceTo <= list.sourceTo);
+    assert.equal(paragraphs.length, 2);
+    assert.deepEqual(paragraphs.map(block => block.textOffsets![0]), [markdown.indexOf('task'), markdown.indexOf('another')]);
+  }
+});
+
 test('tables preserve cells, escaped pipes, multiple paragraphs and inline code', () => {
   const markdown = '| Same | Same |\n| --- | --- |\n| first<br><br>second | a\\|b |\n| `same` | same |\n';
   const { map } = allTextBlocksMapped(markdown);
