@@ -21,6 +21,7 @@ export SETUP_CADDY=false
 export BASE_URL="https://team.example.test"
 export CANVAS_DEPLOYMENT_MODE=managed-team
 export CANVAS_DATABASE_PROVIDER=postgres
+export CANVAS_POSTGRES_MODE=managed
 export CANVAS_MANAGED_SERVICES_ENABLED=true
 export CANVAS_CONTROL_PLANE_URL="https://control.example.test"
 export CANVAS_INSTANCE_ID="00000000-0000-4000-8000-000000000001"
@@ -149,6 +150,7 @@ jq -e '
   .env.CANVAS_AUDIT_TRAIL_ENABLED == true and
   .env.CANVAS_MANAGED_BACKUPS_ENABLED == true and
   .env.CANVAS_DATABASE_PROVIDER == "postgres" and
+  .env.CANVAS_POSTGRES_MODE == "managed" and
   .env.CANVAS_POSTGRES_REQUIRED == true and
   .env.CANVAS_POSTGRES_VECTOR_ENABLED == true and
   .autoUpdate.enabled == false and
