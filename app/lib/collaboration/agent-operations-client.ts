@@ -1,5 +1,5 @@
 import type { AgentProposalPreviewMetadata } from './agent-proposal-preview';
-import type { ProposalLifecycleV1 } from '@/app/lib/file-version-center/contracts/proposal-graph-v1';
+import type { ProposalLifecycleV1 } from '@/app/lib/file-version-center/contracts/proposal-lifecycle-v1';
 
 export type CollaborationAgentOperationStatus =
   | 'preparing'

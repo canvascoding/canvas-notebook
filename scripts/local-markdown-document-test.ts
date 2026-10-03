@@ -3,6 +3,9 @@ import { test } from 'node:test';
 import type { JSONContent } from '@tiptap/core';
 
 import { LocalMarkdownDocument, type LocalMarkdownView } from '../app/lib/editor/local-markdown-document';
+import { LocalMarkdownOwner } from '../app/lib/editor/local-markdown-owner';
+import { LocalMarkdownOwnerCore } from '../app/lib/editor/local-markdown-owner-core';
+import type { LocalMarkdownOwnerBackendChange, LocalMarkdownOwnerBackendFactory } from '../app/lib/editor/local-markdown-owner-contract';
 
 const original = 'AAA\n\nBBB\n\nCCC\n';
 const textSelection = (anchor: number, head = anchor) => ({ type: 'text', anchor, head });
@@ -254,4 +257,264 @@ test('metadata drafts preserve the current body and undo with the same document 
   assert.equal(document.getSnapshot().markdown, beforeMetadata);
   assert(view.history('undo'));
   assert.equal(document.getSnapshot().markdown, initial);
+});
+
+// This raw-only backend is the boundary under test: it has no schema, parser or
+// copied owner/history policy. All controlled-value decisions use the real core.
+function createRawOwnerBackend({ markdown, isWritable }: Parameters<LocalMarkdownOwnerBackendFactory<{
+  getSnapshot: () => { markdown: string };
+  subscribe: (listener: (change: LocalMarkdownOwnerBackendChange) => void) => () => void;
+  replaceExternal: (markdown: string) => void;
+}>>[0]) {
+  let snapshot = Object.freeze({ markdown });
+  const listeners = new Set<(change: LocalMarkdownOwnerBackendChange) => void>();
+  const replacements: string[] = [];
+  const publish = (next: string, origin: LocalMarkdownOwnerBackendChange['origin']) => {
+    snapshot = Object.freeze({ markdown: next });
+    for (const listener of listeners) listener({ origin, snapshot });
+  };
+  return {
+    getSnapshot: () => snapshot,
+    subscribe: (listener: (change: LocalMarkdownOwnerBackendChange) => void) => {
+      listeners.add(listener);
+      return () => { listeners.delete(listener); };
+    },
+    replaceExternal: (next: string) => { replacements.push(next); publish(next, 'external'); },
+    edit: (next: string, origin: 'source' | 'rich' | 'history' = 'source') => {
+      if (!isWritable()) return false;
+      publish(next, origin);
+      return true;
+    },
+    project: () => publish(snapshot.markdown, 'projection'),
+    replacements,
+    isWritable,
+    listenerCount: () => listeners.size,
+  };
+}
+
+test('portable owner constructs only enabled backends and gates writes by committed lifetime and rights', () => {
+  const disabled = new LocalMarkdownOwnerCore('disabled', '', false, 'content', false, () => {
+    assert.fail('disabled owners must not construct a local backend');
+  });
+  assert.equal(disabled.document, null);
+  disabled.update('', false, 'always');
+  const disconnectDisabled = disabled.connect();
+  disconnectDisabled();
+
+  let inputScope = '';
+  let inputFrontmatter = '';
+  const owner = new LocalMarkdownOwnerCore('prompt-scope', '', true, 'content', false, (input) => {
+    inputScope = input.scope;
+    inputFrontmatter = input.frontmatter;
+    return createRawOwnerBackend(input);
+  });
+  const document = owner.document!;
+  assert.equal(inputScope, 'prompt-scope');
+  assert.equal(inputFrontmatter, 'content');
+  assert.equal(document.edit('before commit'), false);
+  const values: string[] = [];
+  const onChange = (value: string) => { values.push(value); };
+  owner.update('', false, 'always', onChange);
+  const disconnect = owner.connect();
+  assert(document.edit('accepted'));
+  owner.update('accepted', true, 'always', onChange);
+  assert.equal(document.edit('forbidden'), false);
+  owner.update('accepted', false, 'always', onChange);
+  assert(document.edit('after grant'));
+  disconnect();
+  assert.equal(document.isWritable(), false);
+  assert.equal(document.listenerCount(), 0);
+  assert.equal(document.edit('after unmount'), false);
+  assert.deepEqual(values, ['accepted', 'after grant']);
+});
+
+test('portable owner retains exact opaque source through old parent echoes and deferred empty replacement', () => {
+  const initial = '\uFEFF---\r\ninvalid: [\r\n---\r\n\r\n😀 opaque <Custom />\r\n';
+  const owner = new LocalMarkdownOwnerCore('opaque', initial, true, 'metadata', false, createRawOwnerBackend);
+  const document = owner.document!;
+  const values: string[] = [];
+  const onChange = (value: string) => { values.push(value); };
+  owner.update(initial, false, 'when-blurred', onChange);
+  const disconnect = owner.connect();
+  owner.setFocused(true);
+  const first = initial + 'first\r\n';
+  const second = initial + 'second\r\n';
+  assert(document.edit(first));
+  assert(document.edit(second, 'rich'));
+  owner.update(second, false, 'when-blurred', onChange);
+  owner.update(first, false, 'when-blurred', onChange);
+  assert.equal(document.getSnapshot().markdown, second, 'an older local acknowledgement is not an external replacement');
+  assert.deepEqual(document.replacements, []);
+  assert(document.edit(second + 'dirty\r\n'));
+  owner.update('', false, 'when-blurred', onChange);
+  assert.equal(document.getSnapshot().markdown, second + 'dirty\r\n');
+  owner.setFocused(false);
+  assert.equal(document.getSnapshot().markdown, '', 'empty is an authoritative replacement, not the pending sentinel');
+  assert.deepEqual(document.replacements, ['']);
+  assert.deepEqual(values, [first, second, second + 'dirty\r\n'], 'external replacement is never echoed back as a content edit');
+  disconnect();
+});
+
+test('derived projection publishes to backend subscribers without parent changes or losing the current edit', () => {
+  const owner = new LocalMarkdownOwnerCore('cache', 'before', true, 'content', false, createRawOwnerBackend);
+  const document = owner.document!;
+  const values: string[] = [];
+  let projections = 0;
+  const onChange = (value: string) => { values.push(value); };
+  owner.update('before', false, 'always', onChange);
+  const disconnect = owner.connect();
+  const unsubscribe = document.subscribe(({ origin }) => { if (origin === 'projection') projections++; });
+  assert(document.edit('after'));
+  const beforeProjection = values.length;
+  document.project();
+  assert.equal(projections, 1);
+  assert.equal(values.length, beforeProjection, 'installing a rich cache cannot masquerade as a user edit');
+  owner.update('after', false, 'always', onChange);
+  assert.equal(document.getSnapshot().markdown, 'after');
+  assert.deepEqual(document.replacements, []);
+  unsubscribe();
+  disconnect();
+});
+
+test('permission revocation flushes deferred external source and reconnect does not duplicate callbacks', () => {
+  const owner = new LocalMarkdownOwnerCore('lifetime', 'before', true, 'content', false, createRawOwnerBackend);
+  const document = owner.document!;
+  const firstValues: string[] = [];
+  const firstChange = (value: string) => { firstValues.push(value); };
+  owner.update('before', false, 'when-blurred', firstChange);
+  const disconnect = owner.connect();
+  owner.setFocused(true);
+  assert(document.edit('dirty'));
+  owner.update('external', false, 'when-blurred', firstChange);
+  assert.equal(document.getSnapshot().markdown, 'dirty');
+  owner.update('external', true, 'when-blurred', firstChange);
+  assert.equal(document.getSnapshot().markdown, 'external', 'a revoked writer cannot retain a dirty editable value over authority');
+  assert.equal(document.edit('forbidden'), false);
+  disconnect();
+  const secondValues: string[] = [];
+  const secondChange = (value: string) => { secondValues.push(value); };
+  const disconnectAgain = owner.connect();
+  owner.update('external', false, 'always', secondChange);
+  assert.equal(document.listenerCount(), 1);
+  assert(document.edit('reconnected', 'history'));
+  assert.deepEqual(firstValues, ['dirty']);
+  assert.deepEqual(secondValues, ['reconnected']);
+  disconnectAgain();
+});
+
+test('five-argument Web owner keeps actual rich/source history and identities after delayed acknowledgements', () => {
+  const owner = new LocalMarkdownOwner('web-history', original, true, 'content', false);
+  const document = owner.document!;
+  const values: string[] = [];
+  const onChange = (value: string) => { values.push(value); };
+  owner.update(original, false, 'always', onChange);
+  const disconnect = owner.connect();
+  const initialRich = rich(document);
+  let sourceView = document.openView('source', () => true);
+  const sourceRaw = 'Source ' + original;
+  assert(sourceView.changeSource({ revision: 0, markdown: sourceRaw,
+    beforeSelection: { anchor: 0, head: 0 }, afterSelection: { anchor: 7, head: 7 } }));
+  const richView = document.openView('rich', () => true);
+  const changed = rich(document);
+  changed.content![1].content![0].text = 'Rich BBB';
+  assert(edit(document, richView, changed, 15, 18));
+  const richRaw = document.getSnapshot().markdown;
+  sourceView = document.openView('source', () => true);
+  const finalRaw = richRaw + 'Last source\n';
+  assert(sourceView.changeSource({ revision: document.getSnapshot().revision, markdown: finalRaw,
+    beforeSelection: { anchor: richRaw.length, head: richRaw.length },
+    afterSelection: { anchor: finalRaw.length, head: finalRaw.length } }));
+  owner.update(finalRaw, false, 'always', onChange);
+  owner.update(sourceRaw, false, 'always', onChange);
+  owner.update(richRaw, false, 'always', onChange);
+  assert.equal(document.getSnapshot().markdown, finalRaw);
+  assert(sourceView.history('undo'));
+  assert.equal(document.getSnapshot().markdown, richRaw);
+  assert(sourceView.history('undo'));
+  assert.equal(document.getSnapshot().markdown, sourceRaw);
+  assert(sourceView.history('undo'));
+  assert.equal(document.getSnapshot().markdown, original);
+  assert.deepEqual(rich(document), initialRich, 'the Web wrapper still uses the real PM history and IDs');
+  assert(sourceView.history('redo'));
+  assert(sourceView.history('redo'));
+  assert(sourceView.history('redo'));
+  assert.equal(document.getSnapshot().markdown, finalRaw);
+  owner.update(finalRaw, true, 'always', onChange);
+  assert.equal(sourceView.history('undo'), false);
+  owner.update('Authoritative replacement\n', false, 'always', onChange);
+  assert.equal(document.getSnapshot().markdown, 'Authoritative replacement\n');
+  assert.equal(document.getSnapshot().canUndo, false);
+  assert.equal(sourceView.history('undo'), false);
+  disconnect();
+});
+
+function createUtf16OwnerFixture(value = 'A', sync: 'always' | 'when-blurred' = 'always') {
+  const owner = new LocalMarkdownOwnerCore('utf16-fingerprints', value, true, 'content', false, createRawOwnerBackend);
+  const document = owner.document!;
+  const values: string[] = [];
+  const onChange = (next: string) => { values.push(next); };
+  owner.update(value, false, sync, onChange);
+  const disconnect = owner.connect();
+  return { owner, document, values, onChange, disconnect };
+}
+
+test('UTF-16 fingerprints distinguish genuine replacement characters from unpaired surrogate edits', () => {
+  const { owner, document, values, onChange, disconnect } = createUtf16OwnerFixture();
+  try {
+    assert(document.edit('\uD800'));
+    assert(document.edit('\uD801'));
+    owner.update('\uFFFD', false, 'always', onChange);
+    assert.equal(document.getSnapshot().markdown, '\uFFFD', 'a genuine external value is not a local acknowledgement');
+    assert.deepEqual(document.replacements, ['\uFFFD']);
+    assert.deepEqual(values, ['\uD800', '\uD801'], 'external adoption does not emit a user edit');
+  } finally { disconnect(); }
+});
+
+test('UTF-16 fingerprints retain distinct delayed surrogate acknowledgements after a newer edit', () => {
+  const { owner, document, values, onChange, disconnect } = createUtf16OwnerFixture();
+  try {
+    assert(document.edit('\uD800'));
+    assert(document.edit('\uD801'));
+    assert(document.edit('newest'));
+    owner.update('newest', false, 'always', onChange);
+    owner.update('\uD800', false, 'always', onChange);
+    assert.equal(document.getSnapshot().markdown, 'newest');
+    owner.update('\uD801', false, 'always', onChange);
+    assert.equal(document.getSnapshot().markdown, 'newest', 'each distinct earlier edit has its own acknowledgement');
+    assert.deepEqual(document.replacements, []);
+    assert.deepEqual(values, ['\uD800', '\uD801', 'newest']);
+  } finally { disconnect(); }
+});
+
+test('UTF-16 fingerprints preserve paired emoji, BOM and CRLF through acknowledgement and replacement', () => {
+  const initial = '\uFEFF\uD83D\uDE00 prompt\r\n';
+  const { owner, document, values, onChange, disconnect } = createUtf16OwnerFixture(initial);
+  try {
+    const first = initial + 'first\r\n';
+    const second = initial + 'second\r\n';
+    assert(document.edit(first));
+    assert(document.edit(second));
+    owner.update(second, false, 'always', onChange);
+    owner.update(first, false, 'always', onChange);
+    assert.equal(document.getSnapshot().markdown, second);
+    const external = '\uFEFF\uD83D\uDE03 external\r\n';
+    owner.update(external, false, 'always', onChange);
+    assert.equal(document.getSnapshot().markdown, external, 'adoption preserves literal code units and line endings');
+    assert.deepEqual(document.replacements, [external]);
+    assert.deepEqual(values, [first, second]);
+  } finally { disconnect(); }
+});
+
+test('UTF-16 fingerprints still adopt deferred empty external values without echoing them', () => {
+  const { owner, document, values, onChange, disconnect } = createUtf16OwnerFixture('A', 'when-blurred');
+  try {
+    owner.setFocused(true);
+    assert(document.edit('\uD800'));
+    owner.update('', false, 'when-blurred', onChange);
+    assert.equal(document.getSnapshot().markdown, '\uD800');
+    owner.setFocused(false);
+    assert.equal(document.getSnapshot().markdown, '');
+    assert.deepEqual(document.replacements, ['']);
+    assert.deepEqual(values, ['\uD800']);
+  } finally { disconnect(); }
 });

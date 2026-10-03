@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import type { Static } from 'typebox';
 
 import {
   PROPOSAL_ACTION_RULES_V1,
   PROPOSAL_GRAPH_LIMITS,
   ProposalGraphContractError,
+  ProposalLifecycleSchemaV1,
   canTransitionProposalLifecycleV1,
   canTransitionProposalReceiptV1,
   parseProposalActionFenceV1,
@@ -18,6 +20,7 @@ import {
   projectLegacyProposalV1,
   type ProposalGraphErrorCode,
 } from '../app/lib/file-version-center/contracts/proposal-graph-v1';
+import { PROPOSAL_LIFECYCLE_V1, type ProposalLifecycleV1 } from '../app/lib/file-version-center/contracts/proposal-lifecycle-v1';
 import {
   acceptFenceFixture,
   childProposalFixture,
@@ -32,6 +35,21 @@ import {
 } from './fixtures/proposal-graph-contract-v1';
 
 const absent = Symbol('absent');
+// Bidirectional assignability fails compilation if either vocabulary gains or loses a state.
+type PortableLifecycleMatchesSchema = [Static<typeof ProposalLifecycleSchemaV1>, ProposalLifecycleV1] extends
+  [ProposalLifecycleV1, Static<typeof ProposalLifecycleSchemaV1>] ? true : false;
+const portableLifecycleMatchesSchema: PortableLifecycleMatchesSchema = true;
+
+test('portable proposal lifecycle vocabulary matches the versioned validation schema', () => {
+  assert.equal(portableLifecycleMatchesSchema, true);
+  assert.deepEqual(
+    ProposalLifecycleSchemaV1.anyOf.map((schema) => schema.const).sort(),
+    Object.values(PROPOSAL_LIFECYCLE_V1).sort(),
+  );
+  for (const lifecycle of Object.values(PROPOSAL_LIFECYCLE_V1)) {
+    assert.equal(parseProposalNodeV1({ ...rootProposalFixture, lifecycle }).lifecycle, lifecycle);
+  }
+});
 
 function changed(input: unknown, path: readonly (string | number)[], value: unknown): unknown {
   // Wire payloads have no shared object identity. Break fixture aliases so a
@@ -336,7 +354,7 @@ test('PG-S11/S12: historical resolution and currently verified prerequisites rem
   assert.equal(empty.status, 'empty_effect');
   assert.deepEqual(PROPOSAL_ACTION_RULES_V1.accept.evaluation, ['clean', 'clean_rebased']);
   assert.deepEqual(PROPOSAL_ACTION_RULES_V1.complete_satisfied, {
-    from: ['open'], evaluation: ['satisfied_elsewhere'], resolution: 'satisfied_elsewhere',
+    from: ['open'], evaluation: ['satisfied_elsewhere', 'empty_effect'], resolution: 'satisfied_elsewhere',
     writesContent: false, createsProposal: false, includesDependencies: false, closesAlternatives: false,
   }, 'already-present effect does not implicitly approve alternatives or reapply its parent');
 });
