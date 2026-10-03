@@ -23,7 +23,6 @@ import {
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
-import { Switch } from '@/components/ui/switch';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Link } from '@/i18n/navigation';
 import { cn } from '@/lib/utils';
@@ -89,11 +88,6 @@ export function NotificationBell() {
   const [isLoading, setIsLoading] = useState(false);
   const [isMutating, setIsMutating] = useState(false);
   const [memoryDecisions, setMemoryDecisions] = useState<Record<string, 'approve' | 'reject' | null>>({});
-  const [licenseNoticeEnabled, setLicenseNoticeEnabled] = useState<boolean | null>(null);
-  const [savingLicenseNotice, setSavingLicenseNotice] = useState(false);
-  const [licenseEmailEnabled, setLicenseEmailEnabled] = useState<boolean | null>(null);
-  const [savingLicenseEmail, setSavingLicenseEmail] = useState(false);
-
   const visibleSummary = useMemo(() => {
     if (!summary || !activeChatSessionId) return summary;
     const isActiveChatItem = (item: NotificationItem) => item.target.kind === 'chat' && item.target.sessionId === activeChatSessionId;
@@ -176,66 +170,8 @@ export function NotificationBell() {
     setOpen(nextOpen);
     if (nextOpen) {
       void refresh();
-      void fetch('/api/user-preferences', { credentials: 'include', cache: 'no-store' })
-        .then(async (response) => {
-          const payload = await response.json() as { success?: boolean; data?: {
-            teamLicenseNotificationsEnabled?: boolean; teamLicenseEmailNotificationsEnabled?: boolean;
-          } };
-          if (!response.ok || !payload.success) throw new Error('Preferences unavailable');
-          setLicenseNoticeEnabled(payload.data?.teamLicenseNotificationsEnabled !== false);
-          setLicenseEmailEnabled(payload.data?.teamLicenseEmailNotificationsEnabled !== false);
-        })
-        .catch(() => {
-          setLicenseNoticeEnabled(null);
-          setLicenseEmailEnabled(null);
-          toast.error(locale.toLowerCase().startsWith('de')
-            ? 'Die Lizenz-Benachrichtigungseinstellungen konnten nicht geladen werden.'
-            : 'License notification settings could not be loaded.');
-        });
     }
-  }, [locale, refresh]);
-
-  const saveLicenseNoticePreference = useCallback(async (enabled: boolean) => {
-    setSavingLicenseNotice(true);
-    try {
-      const response = await fetch('/api/user-preferences', {
-        method: 'PATCH', credentials: 'include', cache: 'no-store',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ teamLicenseNotificationsEnabled: enabled }),
-      });
-      const payload = await response.json() as { success?: boolean };
-      if (!response.ok || !payload.success) throw new Error('Preference update failed');
-      setLicenseNoticeEnabled(enabled);
-      window.dispatchEvent(new CustomEvent('notification_summary_updated'));
-      await refresh();
-    } catch {
-      toast.error(locale.toLowerCase().startsWith('de')
-        ? 'Die In-App-Einstellung konnte nicht gespeichert werden.'
-        : 'The in-app notification setting could not be saved.');
-    } finally {
-      setSavingLicenseNotice(false);
-    }
-  }, [locale, refresh]);
-
-  const saveLicenseEmailPreference = useCallback(async (enabled: boolean) => {
-    setSavingLicenseEmail(true);
-    try {
-      const response = await fetch('/api/user-preferences', {
-        method: 'PATCH', credentials: 'include', cache: 'no-store',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ teamLicenseEmailNotificationsEnabled: enabled }),
-      });
-      const payload = await response.json() as { success?: boolean };
-      if (!response.ok || !payload.success) throw new Error('Preference update failed');
-      setLicenseEmailEnabled(enabled);
-    } catch {
-      toast.error(locale.toLowerCase().startsWith('de')
-        ? 'Die E-Mail-Einstellung konnte nicht gespeichert werden.'
-        : 'The email setting could not be saved.');
-    } finally {
-      setSavingLicenseEmail(false);
-    }
-  }, [locale]);
+  }, [refresh]);
 
   const mutateInbox = useCallback(async (payload: NotificationMutation) => {
     await updateNotification(payload);
@@ -501,29 +437,13 @@ export function NotificationBell() {
             </div>
           )}
         </div>
-        <div className="flex items-center justify-between gap-3 border-t border-border px-4 py-3">
-          <label htmlFor="notification-license-in-app" className="text-xs text-muted-foreground">
-            {locale.toLowerCase().startsWith('de') ? 'In-App-Hinweise zur Team-Lizenz' : 'In-app team license alerts'}
-          </label>
-          <Switch
-            id="notification-license-in-app"
-            checked={licenseNoticeEnabled ?? true}
-            onCheckedChange={(enabled) => void saveLicenseNoticePreference(enabled)}
-            disabled={licenseNoticeEnabled === null || savingLicenseNotice}
-            aria-label={locale.toLowerCase().startsWith('de') ? 'Lizenzhinweise in der App' : 'In-app license alerts'}
-          />
-        </div>
-        <div className="flex items-center justify-between gap-3 border-t border-border px-4 py-3">
-          <label htmlFor="notification-license-email" className="text-xs text-muted-foreground">
-            {locale.toLowerCase().startsWith('de') ? 'E-Mail bei Team-Zugangsänderungen' : 'Email for team access changes'}
-          </label>
-          <Switch
-            id="notification-license-email"
-            checked={licenseEmailEnabled ?? true}
-            onCheckedChange={(enabled) => void saveLicenseEmailPreference(enabled)}
-            disabled={licenseEmailEnabled === null || savingLicenseEmail}
-            aria-label={locale.toLowerCase().startsWith('de') ? 'Lizenz-E-Mails' : 'License emails'}
-          />
+        <div className="border-t border-border px-4 py-3">
+          <Link href="/settings?tab=license#license-notifications" onClick={() => {
+            setOpen(false);
+            window.dispatchEvent(new Event('license_notification_settings_requested'));
+          }} className="text-xs text-muted-foreground underline-offset-4 hover:underline">
+            {locale.toLowerCase().startsWith('de') ? 'Lizenz-Einstellungen' : 'License settings'}
+          </Link>
         </div>
       </PopoverContent>
     </Popover>

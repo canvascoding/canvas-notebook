@@ -34,12 +34,7 @@ async function main() {
   const { render, fireEvent } = await import('@testing-library/react');
   const { TeamSeatHealthPanel } = await import('../app/components/license/TeamSeatHealthPanel');
   const actions: string[] = [];
-  const preferenceUpdates: Record<string, unknown>[] = [];
   globalThis.fetch = async (input, init) => {
-    if (String(input) === '/api/user-preferences') {
-      if (init?.method === 'PATCH') preferenceUpdates.push(JSON.parse(String(init.body)) as Record<string, unknown>);
-      return Response.json({ success: true, data: {} });
-    }
     if (String(input) === '/api/license/team/recovery') {
       actions.push(JSON.parse(String(init?.body)).action);
       return Response.json({ success: true });
@@ -78,27 +73,27 @@ async function main() {
     fireEvent.click(details);
     assert.equal(screen.queryByText('Certificate valid until'), null);
     assert.equal(screen.queryByRole('switch'), null);
-    const notifications = screen.getByRole('button', { name: 'Expand: Notifications' });
-    notifications.focus();
-    assert.equal(document.activeElement, notifications);
-    assert.equal(notifications.getAttribute('aria-expanded'), 'false');
-    fireEvent.click(notifications);
-    assert.equal(notifications.getAttribute('aria-expanded'), 'true');
-    const inApp = screen.getByRole('switch', { name: 'Show license events in the notification center' });
-    const email = screen.getByRole('switch', { name: 'Email for team access changes' });
-    fireEvent.click(inApp);
-    await settle();
-    assert.equal(inApp.getAttribute('aria-checked'), 'false');
-    assert.equal(email.getAttribute('aria-checked'), 'true');
-    assert.deepEqual(preferenceUpdates, [{ teamLicenseNotificationsEnabled: false }]);
-    fireEvent.click(notifications);
-    assert.equal(screen.queryByRole('switch'), null);
+    assert.equal(screen.queryByRole('button', { name: 'Expand: Notifications' }), null);
     fireEvent.click(details);
     fireEvent.click(screen.getByRole('button', { name: 'Sync memberships now' }));
     await settle();
     assert.deepEqual(actions, ['sync_snapshot']);
     assert(screen.getByText('Membership sync was scheduled.'));
   } finally { screen.unmount(); }
+
+  const healthyDisclosure = render(<NextIntlClientProvider locale="en" timeZone="UTC" messages={messages}>
+    <TeamSeatHealthPanel health={fixture} discloseHealthy />
+  </NextIntlClientProvider>);
+  try {
+    assert.equal(healthyDisclosure.queryByText('Team license health'), null);
+    assert(healthyDisclosure.getByText('2 / 10 Team seats used'));
+    fireEvent.click(healthyDisclosure.getByRole('button', { name: 'Expand: Synchronization and license details' }));
+    assert(healthyDisclosure.getByText('Team license health'));
+    assert(healthyDisclosure.getByText('Active'));
+    assert(healthyDisclosure.getByRole('button', { name: 'Sync memberships now' }));
+    fireEvent.click(healthyDisclosure.getByRole('button', { name: 'Collapse: Synchronization and license details' }));
+    assert.equal(healthyDisclosure.queryByText('Team license health'), null);
+  } finally { healthyDisclosure.unmount(); }
 
   const errorHealth: TeamSeatHealth = { ...fixture,
     claim: { ...fixture.claim, state: 'idle' },

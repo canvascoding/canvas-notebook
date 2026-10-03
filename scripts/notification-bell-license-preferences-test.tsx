@@ -30,14 +30,9 @@ Object.defineProperty(dom.window.HTMLElement.prototype, 'releasePointerCapture',
 async function main() {
   const { fireEvent, render } = await import('@testing-library/react');
   const { NotificationBell } = await import('../app/components/notifications/NotificationBell');
-  const preferences = {
-    teamLicenseNotificationsEnabled: true,
-    teamLicenseEmailNotificationsEnabled: false,
-  };
-  const patches: Array<Record<string, unknown>> = [];
-  let failNextInAppUpdate = false;
   let summaryReads = 0;
-  globalThis.fetch = async (input, init) => {
+  let preferenceRequests = 0;
+  globalThis.fetch = async (input) => {
     const url = new URL(String(input), window.location.origin);
     if (url.pathname === '/api/notifications/summary') {
       summaryReads++;
@@ -49,18 +44,7 @@ async function main() {
           todoAttention: [], emailAttention: [] },
       } });
     }
-    if (url.pathname === '/api/user-preferences') {
-      if (init?.method === 'PATCH') {
-        const patch = JSON.parse(String(init.body)) as Record<string, unknown>;
-        if (failNextInAppUpdate && 'teamLicenseNotificationsEnabled' in patch) {
-          failNextInAppUpdate = false;
-          return Response.json({ success: false }, { status: 500 });
-        }
-        patches.push(patch);
-        Object.assign(preferences, patch);
-      }
-      return Response.json({ success: true, data: preferences });
-    }
+    if (url.pathname === '/api/user-preferences') preferenceRequests++;
     throw new Error(`Unexpected fetch: ${url.pathname}`);
   };
   const router = { push() {}, replace() {}, prefetch() {}, refresh() {}, back() {}, forward() {},
@@ -77,27 +61,18 @@ async function main() {
     await settle();
     fireEvent.click(screen.getByTestId('notification-bell'));
     await settle();
-    const inApp = screen.getByRole('switch', { name: 'In-app license alerts' });
-    const email = screen.getByRole('switch', { name: 'License emails' });
-    assert.equal(inApp.getAttribute('data-state'), 'checked');
-    assert.equal(email.getAttribute('data-state'), 'unchecked');
-    fireEvent.click(inApp);
+    assert.equal(screen.queryByRole('switch'), null);
+    assert.equal(preferenceRequests, 0);
+    const link = screen.getByRole('link', { name: 'License settings' });
+    assert.match(link.getAttribute('href') || '', /settings\?tab=license#license-notifications$/);
+    assert(summaryReads >= 2, 'opening still refreshes the summary');
+    const readsBeforeUpdate = summaryReads;
+    window.dispatchEvent(new CustomEvent('notification_summary_updated'));
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 300)); });
+    assert(summaryReads > readsBeforeUpdate, 'a preference change still refreshes the bell');
+    fireEvent.click(link);
     await settle();
-    assert.deepEqual(patches[0], { teamLicenseNotificationsEnabled: false });
-    assert.equal(inApp.getAttribute('data-state'), 'unchecked');
-    assert.equal(email.getAttribute('data-state'), 'unchecked');
-    assert(summaryReads >= 2, 'changing in-app preference refreshes the notification summary');
-    fireEvent.click(email);
-    await settle();
-    assert.deepEqual(patches[1], { teamLicenseEmailNotificationsEnabled: true });
-    assert.equal(inApp.getAttribute('data-state'), 'unchecked');
-    assert.equal(email.getAttribute('data-state'), 'checked');
-    failNextInAppUpdate = true;
-    fireEvent.click(inApp);
-    await settle();
-    assert.equal(inApp.getAttribute('data-state'), 'unchecked');
-    assert.equal(email.getAttribute('data-state'), 'checked');
-    assert.equal(patches.length, 2);
+    assert.equal(screen.queryByRole('link', { name: 'License settings' }), null, 'navigation closes the popup');
   } finally {
     screen.unmount();
   }
@@ -112,12 +87,13 @@ async function main() {
     await settle();
     fireEvent.click(germanScreen.getByTestId('notification-bell'));
     await settle();
-    assert(germanScreen.getByRole('switch', { name: 'Lizenzhinweise in der App' }));
-    assert(germanScreen.getByRole('switch', { name: 'Lizenz-E-Mails' }));
+    assert.equal(germanScreen.queryByRole('switch'), null);
+    assert(germanScreen.getByRole('link', { name: 'Lizenz-Einstellungen' }));
+    assert.equal(preferenceRequests, 0);
   } finally {
     germanScreen.unmount();
   }
-  console.info('member notification center exposes independent in-app and email license preferences');
+  console.info('Notification bell discloses a localized settings link, preserves summary refresh, and avoids preference controls and requests');
 }
 
 void main().catch((error) => { console.error(error); process.exitCode = 1; });

@@ -23,6 +23,7 @@ import {
   type TeamSeatRolloutStatus,
 } from './CommunityTeamConnectionPanel';
 import { TeamSeatHealthPanel } from './TeamSeatHealthPanel';
+import { LicenseNotificationSettings } from './LicenseNotificationSettings';
 import {
   useLicenseEmailActivation,
   type PublicLicenseEmailActivation,
@@ -441,8 +442,10 @@ export function LicenseActivationPanel({
         <TeamSeatHealthPanel
           health={status ? status.teamSeatHealth ?? null : undefined}
           onReload={loadStatus}
+          discloseHealthy
         />
       ) : null}
+      {teamApplicable && !loading && !statusLoadError ? <LicenseNotificationSettings /> : null}
       {isSelfHosted && !loading && !statusLoadError ? <details className="rounded-lg border bg-card p-4 sm:px-6" open={connectionOpen || Boolean(status?.teamSeatHealth?.recovery.reconnectRequired)} onToggle={(event) => setConnectionOpen(event.currentTarget.open)}>
         <summary className="cursor-pointer text-sm font-medium">{copy.connection}</summary>
         <div className="pt-4">
