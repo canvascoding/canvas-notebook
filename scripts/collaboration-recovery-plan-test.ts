@@ -81,6 +81,38 @@ test('the invalid historical state remains identified for separate clone repair'
   assert.equal(result.proposedAction, 'restore_current_snapshot_after_approval');
 });
 
+test('a verified initial successor retains its current bytes without advancing any sequence', () => {
+  const evidence = fixture(); const successor = evidence.states[1];
+  successor.documentSequence = 0; successor.checkpointSequence = 0;
+  evidence.files[0].hash = successor.serializedHash;
+  const before = structuredClone(evidence); const plan = planCollaborationRecovery(evidence);
+  assert.equal(plan.cases[0].proposedAction, 'retain_current_file');
+  assert.equal(plan.cases[0].reason, 'file_already_matches_current_snapshot');
+  assert.equal(plan.cases[0].preconditions.successor?.documentSequence, 0);
+  assert.deepEqual(evidence, before);
+  assert.deepEqual(planCollaborationRecovery(structuredClone(evidence)), plan);
+});
+
+test('initial successors cannot restore historical bytes or bypass invalid initial metadata', () => {
+  for (const change of [
+    (e: CollaborationRecoveryEvidence) => { e.files[0].hash = 'old-file'; },
+    (e: CollaborationRecoveryEvidence) => { e.files[0].hash = 'unknown-file'; },
+    (e: CollaborationRecoveryEvidence) => { e.files[0].hash = null; },
+    (e: CollaborationRecoveryEvidence) => { e.states[1].lifecycleGeneration = 2; },
+    (e: CollaborationRecoveryEvidence) => { e.states[1].validationCode = 'schema_invalid'; },
+    (e: CollaborationRecoveryEvidence) => { e.states[1].degraded = true; },
+    (e: CollaborationRecoveryEvidence) => { e.states[1].computedSerializedHash = 'different'; },
+    (e: CollaborationRecoveryEvidence) => { e.registry[0].snapshotRevisionId = null; },
+    (e: CollaborationRecoveryEvidence) => { e.registry[0].organizationId = 'foreign'; },
+    (e: CollaborationRecoveryEvidence) => { e.states[1].documentSequence = -1; },
+    (e: CollaborationRecoveryEvidence) => { e.states[1].checkpointSequence = -1; },
+  ]) {
+    const evidence = fixture(); evidence.states[1].documentSequence = 0; evidence.states[1].checkpointSequence = 0;
+    evidence.files[0].hash = 'current-file'; change(evidence);
+    assert.equal(planCollaborationRecovery(evidence).cases[0].proposedAction, 'manual_review');
+  }
+});
+
 for (const [stateIndex, role] of [[0, 'orphan'], [1, 'successor']] as const) {
   for (const [name, change] of [
     ['representation', (state: RecoveryState) => { state.representation = 'tiptap_xml'; }],

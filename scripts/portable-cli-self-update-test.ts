@@ -68,6 +68,11 @@ async function main() {
     };
     const env = {
       ...process.env,
+      CANVAS_CONTROL_PLANE_URL: '',
+      CANVAS_MANAGED_SERVICES_ENABLED: 'false',
+      CANVAS_CLI_SELF_UPDATE: 'true',
+      CANVAS_CLI_SELF_UPDATE_REEXEC: 'false',
+      CANVAS_CLI_BASE_URL: '',
       CANVAS_CLI_ROOT: currentRoot,
       CANVAS_CLI_SELF_UPDATE_ALLOW_LOCAL: 'true',
       CANVAS_CLI_URL: pathToFileURL(archive).toString(),

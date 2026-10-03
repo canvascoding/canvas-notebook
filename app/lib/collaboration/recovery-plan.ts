@@ -96,8 +96,12 @@ export function planCollaborationRecovery(evidence: CollaborationRecoveryEvidenc
     const fileComparison = !actualFileHash ? 'unavailable'
       : currentHash && actualFileHash === currentHash ? 'current'
         : orphan.serializedHash && actualFileHash === orphan.serializedHash ? 'historical' : 'other';
+    // The initialized generation starts at sequence zero. It can retire an
+    // orphan only while the observed file already equals its verified bytes.
+    const verifiedInitialSnapshot = successor?.lifecycleGeneration === 1
+      && successor.documentSequence === 0 && successor.checkpointSequence === 0 && fileComparison === 'current';
     const currentSnapshotVerified = successor && !successor.degraded && !successor.validationCode
-      && successor.documentSequence === successor.checkpointSequence && successor.checkpointSequence > 0
+      && successor.documentSequence === successor.checkpointSequence && (successor.checkpointSequence > 0 || verifiedInitialSnapshot)
       && currentHash && currentHash === successor.serializedHash && Boolean(successorRegistry?.snapshotRevisionId);
     const proposedAction = !scopeValid || !currentSnapshotVerified || !actualFileHash ? 'manual_review'
       : fileComparison === 'current' ? 'retain_current_file'

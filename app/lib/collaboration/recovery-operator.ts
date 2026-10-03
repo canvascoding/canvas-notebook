@@ -119,6 +119,20 @@ export function prepareCollaborationRecoverySelection(bundle: RecoveryBundle): R
     if (!revisionVerified(revision, state, workspace) || !scoped(registry, state, workspace)) {
       manual.push({ documentId: item.documentId, reason: 'current_revision_not_verified' }); continue;
     }
+    if (state.documentSequence === 0 && state.checkpointSequence === 0) {
+      try {
+        requireValue(state.lifecycleGeneration === 1 && !state.degraded && !state.projectionError
+          && item.proposedAction === 'retain_current_file' && recoveryPostgresInteger(registry.state_version) === 0
+          && registry.yjs_state_lifecycle === 'initialized', 'initial registry not verified');
+        const canonical = authoritativeCollaborationSnapshot(state).canonicalContent;
+        const serialized = serializeCanonicalText(canonical, state);
+        requireValue(recoveryHash(canonical) === state.canonicalHash && recoveryHash(serialized) === state.serializedHash
+          && state.serializedHash === item.preconditions.actualFileHash
+          && Buffer.byteLength(serialized, 'utf8') === recoveryPostgresInteger(revision.size_bytes), 'initial checkpoint not verified');
+      } catch {
+        manual.push({ documentId: item.documentId, reason: 'initial_snapshot_not_verified' }); continue;
+      }
+    }
     const previous = operations.find(operation => operation.kind === 'recover_orphans' && operation.documentId === state.documentId);
     if (previous) { previous.orphans.push({ expectedState: orphan, caseFingerprint: item.fingerprint }); continue; }
     operations.push({ id: '', selected: false, kind: 'recover_orphans', documentId: state.documentId, workspace,
