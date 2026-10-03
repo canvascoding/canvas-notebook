@@ -21,6 +21,7 @@
 
 # production
 /build
+/native/dictation/
 /dist-cli/
 /dist-portable-cli/
 /dist-host-cli/

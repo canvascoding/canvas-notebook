@@ -4,6 +4,7 @@
 
 # Dependencies and build artifacts
 node_modules
+native/dictation
 .next
 
 # Local/env files

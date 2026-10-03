@@ -1,5 +1,13 @@
 # Docker Runtime License Review
 
+## Container-local dictation, 2026-10-04
+
+The [source/notice review](container-local-dictation-review-2026-10-04.md)
+replaces the excluded Faster-Whisper wheels in Docker with a pinned,
+source-built CPU whisper.cpp runtime. Models are installed explicitly through
+Settings and verified before activation. The historical findings below remain
+applicable to the previous wheels; this change does not approve those binaries.
+
 ## Current dictation-image status, 2026-09-28
 
 The July Schema-4 approval below covers the 45-package Python base lock.

@@ -1601,17 +1601,21 @@
     "provider": "Transkriptionsdienst",
     "providerDescription": "Es kann immer nur ein Dienst aktiv sein. Die Auswahl gilt für die ganze Instanz.",
     "providers": {
-      "local": "Lokal (Faster-Whisper)"
+      "local": "Lokal (Whisper)"
     },
     "model": "Modell",
     "language": "Sprache",
     "automatic": "Automatisch erkennen",
-    "localNote": "Lokale Transkription läuft auf diesem Server. Benötigt werden Python 3.10 oder neuer mit pip und Internetzugang für Runtime und Modell. Für das Modell base sind etwa 4 CPU-Kerne und 8 GB RAM ein sinnvoller Ausgangspunkt; größere Modelle brauchen deutlich mehr Ressourcen und Speicherplatz. Das Modell wird bei der ersten Nutzung heruntergeladen.",
+    "localNote": "Lokale Transkription läuft auf diesem Server. Benötigt werden Python 3.11 oder neuer mit pip und Internetzugang für Runtime und Modell. Für das Modell base sind etwa 4 CPU-Kerne und 8 GB RAM ein sinnvoller Ausgangspunkt; größere Modelle brauchen deutlich mehr Ressourcen und Speicherplatz. Das Modell wird bei der ersten Nutzung heruntergeladen.",
+    "containerNote": "Die Aufnahme wird auf diesem Server verarbeitet. Installiere das ausgewählte Modell hier; der Download wird geprüft und dauerhaft gespeichert. Für base sind etwa 4 CPU-Kerne und 8 GB RAM ein sinnvoller Ausgangspunkt. Größere Modelle benötigen mehr RAM und Speicherplatz. Eine GPU ist nicht erforderlich.",
     "localInstallDisclosure": "Die optionale Python-Runtime wird erst auf diesem Server heruntergeladen, wenn ein Instanz-Admin sie installiert. Das PyAV-Wheel enthält FFmpeg mit GPL-Codec-Bibliotheken. Prüfe die Bedingungen für deinen Einsatz:",
     "localLicenseLink": "FFmpeg-Lizenzinformationen",
     "installLocal": "Lokale Transkription installieren",
     "localInstalling": "Lokale Transkriptions-Runtime wird installiert …",
     "localInstalled": "Lokale Transkriptions-Runtime installiert.",
+    "containerInstalling": "Lokales Modell wird heruntergeladen und geprüft …",
+    "containerInstalled": "Lokale Transkription für dieses Modell ist installiert.",
+    "containerUnavailable": "Installiere das ausgewählte lokale Modell, um Diktat zu nutzen.",
     "localUnavailable": "Lokale Transkription ist erst nach der Installation der optionalen Runtime verfügbar.",
     "localDisabled": "Lokale Transkription ist in dieser Docker-Version nicht verfügbar. Wähle OpenAI oder Groq für Cloud-Diktat.",
     "installError": "Die lokale Transkriptions-Runtime konnte nicht installiert werden.",

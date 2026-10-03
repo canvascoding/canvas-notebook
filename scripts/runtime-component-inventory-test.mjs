@@ -40,11 +40,11 @@ assert.match(inventory.evidence.pythonRequirementsSha256, /^[a-f0-9]{64}$/u);
 assert.equal(inventory.evidence.dockerfileSha256, sha256File('Dockerfile'));
 assert.equal(inventory.evidence.nativeDistributionPolicySha256, sha256File(nativePolicyPath));
 assert.equal(inventory.evidence.pythonRequirementsSha256, sha256File(requirementsPath));
-assert.equal(inventory.nativeComponents.length, 2);
-assert.equal(inventory.nativeComponents[0].name, 'node');
-assert.equal(inventory.nativeComponents[0].version, nativePolicy.baseImage.nodeVersion);
+assert.equal(inventory.nativeComponents.length, 3);
+const nodeRuntime = inventory.nativeComponents.find((component) => component.name === 'node');
+assert.equal(nodeRuntime?.version, nativePolicy.baseImage.nodeVersion);
 assert(
-  inventory.nativeComponents[0].noticeFiles.some((entry) => (
+  nodeRuntime.noticeFiles.some((entry) => (
     entry.path === '/usr/local/LICENSE' && /^[a-f0-9]{64}$/u.test(entry.sha256 || '')
   )),
   'the Node runtime must retain its aggregated upstream LICENSE file',
@@ -56,6 +56,23 @@ assert.equal(libvips.sourceUrl, nativePolicy.libvips.sourceUrl);
 assert.equal(libvips.sourceArchiveSha256, nativePolicy.libvips.sourceSha256);
 assert.equal(libvips.license, 'LGPL-2.1-or-later');
 assert.equal(libvips.linkage, 'shared');
+const dictationPolicy = JSON.parse(fs.readFileSync('docs/compliance/dictation-cpp-policy.json', 'utf8'));
+const dictation = inventory.nativeComponents.find((component) => component.name === 'whisper-cpp');
+assert(dictation, 'the source-built dictation executable needs native runtime evidence');
+assert.equal(dictation.version, dictationPolicy.version);
+assert.equal(dictation.sourceSha256, dictationPolicy.sourceSha256);
+assert.equal(dictation.noticeSha256, dictationPolicy.noticeSha256);
+assert.equal(dictation.modelNoticeSha256, dictationPolicy.modelNoticeSha256);
+assert.equal(dictation.policySha256, sha256File('docs/compliance/dictation-cpp-policy.json'));
+assert.equal(dictation.license, dictationPolicy.license);
+assert.deepEqual(dictation.buildOptions, dictationPolicy.buildOptions);
+assert.match(dictation.binarySha256, /^[a-f0-9]{64}$/u);
+assert(['x86_64', 'aarch64'].includes(dictation.architecture));
+assert(dictation.linkedLibraries.length > 0);
+for (const library of dictation.linkedLibraries) {
+  assert.match(library, /^\s*(linux-vdso|libstdc\+\+\.so|libm\.so|libgcc_s\.so|libc\.so|libpthread\.so|\/.*ld-linux)/u);
+  assert.doesNotMatch(library, /not found|libav|x264|x265|libgomp|cuda|mkl/iu);
+}
 assert(inventory.dpkgPackages.length > 0, 'Docker runtime inventory must contain Debian packages');
 assert(inventory.dpkgSourcePackages.length > 0, 'Docker runtime inventory must map Debian source packages');
 assert(inventory.pythonPackages.length > 0, 'Docker runtime inventory must contain Python packages');

@@ -1022,6 +1022,55 @@
       "reviewNotes": "This is an aggregate container position rather than one license grant. The Dockerfile pins the resolved multi-architecture image index digest, all Canvas apt operations use an immutable Debian snapshot, Python wheels and PGDG binaries are version/hash locked, and schema-4 runtime inventories map every installed Debian binary to its exact source package while retaining packaged license/copyright hashes. Tagged release CI verifies amd64 and arm64 evidence before publishing the manifest. The component-level terms remain authoritative under /usr/share/doc and in the release evidence; this aggregate intentionally has no fabricated single license text.",
       "reviewedBy": "Frank Alexander Weber",
       "reviewedAt": "2026-07-17"
+    },
+    {
+      "name": "canvas-built-whisper-cpp",
+      "versionOrCommit": "1.9.4 / 927cfce34f31707e17f2bff35c349632fb9e2c3a",
+      "sourceUrl": "https://codeload.github.com/ggml-org/whisper.cpp/tar.gz/refs/tags/v1.9.4",
+      "packagePathOrArtifact": "/app/native/dictation/whisper-cli and whisper.cpp-source.tar.gz",
+      "usage": "native",
+      "distributedIn": [
+        "docker-image",
+        "native-compliance-release-asset"
+      ],
+      "declaredLicense": "MIT AND MIT-0",
+      "verifiedLicense": "MIT AND MIT-0",
+      "licenseTextPath": "docs/compliance/license-texts/whisper-cpp-1.9.4.txt",
+      "copyrightNotices": [
+        "Copyright (c) 2023-2026 The ggml authors",
+        "Copyright 2025 David Reid",
+        "Copyright (c) 2017 Sean Barrett",
+        "Copyright (c) 2013-2022 Niels Lohmann",
+        "Copyright (c) 2008-2009 Bjoern Hoehrmann",
+        "Copyright (c) 2009 Florian Loitsch",
+        "Copyright (c) 2023 Jeffrey Quesnelle and Bowen Peng"
+      ],
+      "modified": false,
+      "policyDecision": "allowed",
+      "reviewNotes": "Technical source/notice review requested by the owner on 2026-10-04. This replaces the excluded Faster-Whisper wheels only in Docker. The SHA-256-pinned v1.9.4 source is built CPU-only with FFmpeg linking, GPU/BLAS/OpenMP/KleidiAI/llamafile and network downloads disabled. MIT and MIT-0 notices plus the exact source archive ship with the executable. Every image build verifies executable/source/notice hashes, build flags, and system-only ELF linkage; release CI checks both amd64 and arm64. This does not approve the previous PyAV/CTranslate2 wheels. See docs/compliance/container-local-dictation-review-2026-10-04.md.",
+      "reviewedBy": "Codex (technical source and notice review)",
+      "reviewedAt": "2026-10-04"
+    },
+    {
+      "name": "optional-whisper-ggml-models",
+      "versionOrCommit": "5359861c739e955e79d9a303bcbc70fb988958b1",
+      "sourceUrl": "https://huggingface.co/ggerganov/whisper.cpp/blob/5359861c739e955e79d9a303bcbc70fb988958b1/README.md",
+      "packagePathOrArtifact": "/data/dictation/whisper-cpp/<reviewed sha256>.bin and MODEL-LICENSE.txt",
+      "usage": "native",
+      "distributedIn": [
+        "admin-requested-model-download"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextPath": "docs/compliance/license-texts/whisper-models.txt",
+      "copyrightNotices": [
+        "Copyright (c) 2022 OpenAI"
+      ],
+      "modified": false,
+      "policyDecision": "allowed",
+      "reviewNotes": "The pinned model repository identifies the converted OpenAI Whisper models as MIT. All five model downloads are fixed to the reviewed revision and SHA-256/size; the admin installer verifies bytes before activation and installs the upstream Whisper v20250625 MIT notice alongside the model. The base image contains no model weights.",
+      "reviewedBy": "Codex (technical source and notice review)",
+      "reviewedAt": "2026-10-04"
     }
   ]
 }

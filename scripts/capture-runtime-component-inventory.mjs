@@ -371,6 +371,11 @@ const inventory = {
   nativeComponents: [
     {
       ecosystem: 'native',
+      name: 'whisper-cpp',
+      ...JSON.parse(fs.readFileSync(path.join(appRoot, 'native/dictation/evidence.json'), 'utf8')),
+    },
+    {
+      ecosystem: 'native',
       name: 'node',
       version: process.version.replace(/^v/u, ''),
       sourceUrl: `https://github.com/nodejs/node/tree/v${process.version.replace(/^v/u, '')}`,

@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 
 const [
@@ -44,6 +45,24 @@ function verifyArchitecture(inventory, linkage, expectedArchitecture) {
   assert.equal(libvips.sourceArchiveSha256, policy.libvips.sourceSha256);
   assert.equal(libvips.license, policy.libvips.license);
   assert.equal(libvips.linkage, 'shared');
+  const dictationPolicy = JSON.parse(fs.readFileSync('docs/compliance/dictation-cpp-policy.json', 'utf8'));
+  const dictation = inventory.nativeComponents.find((entry) => entry.name === 'whisper-cpp');
+  assert(dictation, `${expectedArchitecture} must inventory the source-built dictation runtime`);
+  assert.equal(dictation.architecture, expectedArchitecture === 'amd64' ? 'x86_64' : 'aarch64');
+  assert.equal(dictation.version, dictationPolicy.version);
+  assert.equal(dictation.sourceUrl, dictationPolicy.sourceUrl);
+  assert.equal(dictation.policySha256, crypto.createHash('sha256').update(fs.readFileSync('docs/compliance/dictation-cpp-policy.json')).digest('hex'));
+  assert.equal(dictation.license, dictationPolicy.license);
+  assert.equal(dictation.sourceSha256, dictationPolicy.sourceSha256);
+  assert.equal(dictation.noticeSha256, dictationPolicy.noticeSha256);
+  assert.equal(dictation.modelNoticeSha256, dictationPolicy.modelNoticeSha256);
+  assert.deepEqual(dictation.buildOptions, dictationPolicy.buildOptions);
+  assert.match(dictation.binarySha256, /^[a-f0-9]{64}$/u);
+  assert(dictation.linkedLibraries.length > 0);
+  for (const library of dictation.linkedLibraries) {
+    assert.match(library, /^\s*(linux-vdso|libstdc\+\+\.so|libm\.so|libgcc_s\.so|libc\.so|libpthread\.so|\/.*ld-linux)/u);
+    assert.doesNotMatch(library, /not found|libav|x264|x265|libgomp|cuda|mkl/iu);
+  }
 
   assert.deepEqual(inventory.installedSharpPrebuiltPackages, []);
   assert.deepEqual(

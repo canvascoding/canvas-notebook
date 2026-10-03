@@ -1,5 +1,11 @@
 # Optional local dictation runtime
 
+**Superseded Docker path:** The
+[2026-10-04 source/notice review](container-local-dictation-review-2026-10-04.md)
+adds a source-built whisper.cpp runtime with model installation in Settings.
+The Python wheels discussed below remain excluded from Docker. The installer
+below is retained only for source/host setups.
+
 The standard Docker image installs only the 45 packages in
 `requirements/runtime-python.txt`. The 13 Faster-Whisper additions are pinned
 and SHA-256 locked in `requirements/dictation-python.txt`, which is shipped as

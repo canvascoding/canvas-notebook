@@ -64,6 +64,16 @@ RUN cc -O2 -Wall -Wextra -Werror -std=c11 \
   -o /opt/canvas-agent-landlock /tmp/canvas-agent-landlock.c \
   && /opt/canvas-agent-landlock --help >/dev/null
 
+FROM canvas-base AS dictation-build
+WORKDIR /source
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends build-essential cmake python3 ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
+COPY scripts/build-dictation-cpp.py ./scripts/build-dictation-cpp.py
+COPY docs/compliance/dictation-cpp-policy.json ./docs/compliance/dictation-cpp-policy.json
+COPY docs/compliance/license-texts/whisper-cpp-1.9.4.txt docs/compliance/license-texts/whisper-models.txt ./docs/compliance/license-texts/
+RUN python3 ./scripts/build-dictation-cpp.py /opt/canvas-dictation
+
 FROM canvas-base AS app-base
 
 RUN set -eux; \
@@ -112,6 +122,10 @@ ARG NPM_VERSION
 ENV NODE_ENV=production \
     PKG_CONFIG_PATH=/usr/local/lib/pkgconfig \
     LD_LIBRARY_PATH=/usr/local/lib
+# Prebuild verifies both optional installer paths using stdlib-only Python tests.
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends python3 \
+  && rm -rf /var/lib/apt/lists/*
 RUN npm install -g npm@${NPM_VERSION}
 
 COPY --from=deps /app/node_modules ./node_modules
@@ -137,6 +151,7 @@ ARG POSTGRES_COMMON_VERSION=293.pgdg12+1
 ARG TARGETPLATFORM
 
 COPY --from=libvips-build /opt/canvas-agent-landlock /usr/local/libexec/canvas-agent-landlock
+COPY --from=dictation-build /opt/canvas-dictation /app/native/dictation
 
 RUN set -eux; \
   apt-get update; \
@@ -236,6 +251,7 @@ RUN test ! -e ./node_modules/better-sqlite3 \
 # Capture and verify the final OS/Python/npm/native payload only after the
 # production node_modules and locally-built sharp addons are present.
 RUN node ./scripts/python-license-inventory-test.mjs
+RUN python3 ./scripts/capture-dictation-cpp-evidence.py /app/native/dictation/evidence.json
 RUN node ./scripts/capture-runtime-component-inventory.mjs \
   --base-image "${NODE_BASE_IMAGE}" \
   --platform "${TARGETPLATFORM}" \

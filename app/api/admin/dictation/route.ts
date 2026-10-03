@@ -4,10 +4,10 @@ import { requireInstanceAdmin } from '@/app/lib/admin-auth';
 import { readDictationCredentialStatuses } from '@/app/lib/dictation/credentials';
 import { readLocalDictationRuntimeStatus, startLocalDictationRuntimeInstall, type LocalDictationRuntimeStatus } from '@/app/lib/dictation/runtime-install';
 import { readDictationAvailability } from '@/app/lib/dictation/service';
-import { readDictationSettings, writeDictationSettings } from '@/app/lib/dictation/settings';
+import { DICTATION_MODELS, readDictationSettings, writeDictationSettings } from '@/app/lib/dictation/settings';
 
 function publicInstallStatus(status: LocalDictationRuntimeStatus) {
-  return { state: status.state, message: status.message };
+  return { state: status.state, message: status.message, engine: status.engine, installedModels: status.installedModels };
 }
 
 export async function GET(request: NextRequest) {
@@ -48,7 +48,12 @@ export async function POST(request: NextRequest) {
   const admin = await requireInstanceAdmin(request);
   if (!admin.ok) return admin.response;
   try {
-    const localInstall = await startLocalDictationRuntimeInstall();
+    const body = await request.json().catch(() => ({})) as { model?: unknown };
+    const model = body.model ?? (await readDictationSettings()).model;
+    if (typeof model !== 'string' || !DICTATION_MODELS.local.includes(model)) {
+      return NextResponse.json({ success: false, error: 'Choose a supported local dictation model.' }, { status: 400 });
+    }
+    const localInstall = await startLocalDictationRuntimeInstall(model);
     return NextResponse.json({ success: true, data: { localInstall: publicInstallStatus(localInstall) } }, {
       status: localInstall.state === 'installing' ? 202 : 200,
       headers: { 'Cache-Control': 'no-store' },

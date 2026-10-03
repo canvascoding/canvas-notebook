@@ -46,13 +46,15 @@ export async function readDictationAvailability(settings?: DictationSettings): P
         reason: 'Local dictation is unavailable in this Docker release. Choose a cloud provider.',
       };
     }
-    const available = await localDictationAvailable();
+    const available = await localDictationAvailable(selected.model);
     return {
       enabled: true,
       available,
       provider: 'local',
       model: selected.model,
-      reason: available ? null : 'Install the optional local runtime in Settings → Dictation.',
+      reason: available ? null : process.env.CANVAS_RUNTIME_ENV === 'docker'
+        ? 'Install the selected local model in Settings → Dictation.'
+        : 'Install the optional local runtime in Settings → Dictation.',
     };
   }
   const available = Boolean(await providerKey(selected.provider));

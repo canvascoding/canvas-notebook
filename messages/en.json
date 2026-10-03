@@ -1602,17 +1602,21 @@
     "provider": "Transcription service",
     "providerDescription": "Only one service can be active. The selection applies to the entire instance.",
     "providers": {
-      "local": "Local (Faster-Whisper)"
+      "local": "Local (Whisper)"
     },
     "model": "Model",
     "language": "Language",
     "automatic": "Detect automatically",
-    "localNote": "Local transcription runs on this server. It needs Python 3.10 or newer with pip and internet access for the runtime and model. About 4 CPU cores and 8 GB RAM are a sensible starting point for the base model; larger models need substantially more resources and disk space. The model downloads on first use.",
+    "localNote": "Local transcription runs on this server. It needs Python 3.11 or newer with pip and internet access for the runtime and model. About 4 CPU cores and 8 GB RAM are a sensible starting point for the base model; larger models need substantially more resources and disk space. The model downloads on first use.",
+    "containerNote": "The recording is processed on this server. Install the selected model here; its download is verified and stored persistently. About 4 CPU cores and 8 GB RAM are a sensible starting point for base. Larger models need more RAM and disk space. A GPU is not required.",
     "localInstallDisclosure": "The optional Python runtime is downloaded to this server only when an instance admin installs it. Its PyAV wheel bundles FFmpeg with GPL codec libraries. Review the terms for your deployment:",
     "localLicenseLink": "FFmpeg license information",
     "installLocal": "Install local transcription",
     "localInstalling": "Installing the local transcription runtime…",
     "localInstalled": "Local transcription runtime installed.",
+    "containerInstalling": "Downloading and verifying the local model…",
+    "containerInstalled": "Local transcription is installed for this model.",
+    "containerUnavailable": "Install the selected local model to use dictation.",
     "localUnavailable": "Local transcription is unavailable until the optional runtime is installed.",
     "localDisabled": "Local transcription is unavailable in this Docker release. Choose OpenAI or Groq for cloud dictation.",
     "installError": "Could not install the local transcription runtime.",

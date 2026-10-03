@@ -1,14 +1,17 @@
 # Third-Party Compliance Runbook
 
-Stand: 2026-09-28
+Stand: 2026-10-04
 
 Der Stand vom 17. Juli 2026 dokumentiert das damalige 45-Paket-Python-Image.
 Ein spaeterer Diktat-Kandidat vom 28. September 2026 enthielt 58 per pip
 installierte Pakete. Die 13 zusaetzlichen Diktatpakete liegen im aktuellen
 Quellstand nur noch als Lock fuer eine optionale Installation unter DATA vor;
 das Basis-Image installiert sie nicht. Die historischen nativen Befunde und
-die noch ausstehende Pruefung dieser Installationsgrenze stehen in
+die Pruefung dieser Installationsgrenze stehen in
 [`docker-runtime-review.md`](docker-runtime-review.md).
+Der neue Container-Pfad verwendet stattdessen den sourcegebauten whisper.cpp
+Runtime mit Modellinstallation in Settings; dessen technische Einzelpruefung
+steht in [`container-local-dictation-review-2026-10-04.md`](container-local-dictation-review-2026-10-04.md).
 
 ## Zweck und rechtliche Einordnung
 
@@ -46,10 +49,10 @@ statische Komponentenmanifest umfasst:
 
 | Kennzahl | Stand |
 | --- | ---: |
-| Komponenten gesamt | 1.967 |
-| ausgelieferter Runtime-/Asset-Bestand | 1.449 |
-| nur Entwicklung beziehungsweise externe Source-Install-Pfade | 518 |
-| automatisch beziehungsweise dokumentiert `allowed` | 1.931 |
+| Komponenten gesamt | 1.966 |
+| ausgelieferter Runtime-/Asset-Bestand | 1.447 |
+| nur Entwicklung beziehungsweise externe Source-Install-Pfade | 519 |
+| automatisch beziehungsweise dokumentiert `allowed` | 1.930 |
 | `review_required` im Gesamtbestand | 36, alle nicht ausgeliefert |
 | pauschal `blocked` | 0 |
 | Blocker im statischen kommerziellen Release-Gate | 0 |
@@ -58,11 +61,16 @@ Der normale Build prueft die exakten Namen, Versionen und Hashes des
 45-Paket-Basis-Locks. Der Runtime-Inventartest im Docker-Build prueft die
 Abwesenheit der optionalen Diktatpakete im Basis-Image. Die 13 Pakete bleiben
 fuer eine optionale Installation versionsgebunden dokumentiert. Der aktuelle
-kommerzielle Docker-Release entfernt Installer und Worker aus dem Image,
-sperrt lokale Auswahl und Installation serverseitig und laesst Cloud-Diktat
-bestehen. Die Images beider Architekturen und die Grenze sind im
+Docker-Quellstand entfernt deren Python-Installer und Faster-Whisper-Worker
+weiterhin aus dem Image. Fuer die lokale Auswahl und Modellinstallation in
+Settings gibt es jetzt den sourcegebauten whisper.cpp-CPU-Runtime mit
+gepinnten Modell-Hashes und ausgelieferten MIT-/MIT-0-Notices. Die statische
+Lizenzpruefung und der Produktions-Build sind gruen; die neuen Linux-Images
+und Browser-Akzeptanz muessen nach tatsaechlicher Ausfuehrung belegt werden.
+Die historischen Images beider Architekturen und die damalige Sperre sind im
 [`optional-dictation-boundary-review-2026-09-29.md`](optional-dictation-boundary-review-2026-09-29.md)
-belegt. `npm run test:licenses:release` ist fuer diesen Docker-Kandidaten gruen.
+belegt. Der aktuelle technische Review steht in
+[`container-local-dictation-review-2026-10-04.md`](container-local-dictation-review-2026-10-04.md).
 Die 14 Blocker des frueheren 58-Paket-Image-Kandidaten sind historische
 Pruefbefunde und keine Aussage ueber den aktuellen Basis-Image-Inhalt.
 Der Release-Workflow startet beide Architektur-Builds erst nach dem strikten

@@ -22,8 +22,11 @@ let idleTimer: NodeJS.Timeout | null = null;
 const pending = new Map<number, Pending>();
 let activeRequests = 0;
 
-export async function localDictationAvailable(): Promise<boolean> {
-  return (await readLocalDictationRuntimeStatus()).state === 'installed';
+export async function localDictationAvailable(model?: string): Promise<boolean> {
+  const runtime = await readLocalDictationRuntimeStatus();
+  return runtime.engine === 'whisper-cpp'
+    ? Boolean(model && runtime.installedModels?.includes(model))
+    : runtime.state === 'installed';
 }
 
 function rejectPending(error: Error): void {
@@ -54,20 +57,20 @@ function armIdleTimer(): void {
   idleTimer.unref();
 }
 
-async function ensureWorker(runtimePath: string): Promise<void> {
+async function ensureWorker(runtimePath: string, cpp = false): Promise<void> {
   if (starting) {
     await starting;
-    return ensureWorker(runtimePath);
+    return ensureWorker(runtimePath, cpp);
   }
   if (worker && !worker.killed && workerRuntimePath === runtimePath) return;
   if (worker) stopWorker();
   starting = (async () => {
     const cacheDir = path.join(resolveCanvasDataRoot(), 'cache', 'dictation-models');
     await fs.mkdir(cacheDir, { recursive: true, mode: 0o700 });
-    const script = path.join(process.cwd(), 'scripts', 'dictation-worker.py');
+    const script = path.join(process.env.CANVAS_APP_ROOT?.trim() || process.cwd(), 'scripts', cpp ? 'dictation-cpp-worker.py' : 'dictation-worker.py');
     const child = spawn(process.env.CANVAS_PYTHON_PATH?.trim() || 'python3', ['-u', script], {
       stdio: 'pipe',
-      env: { ...process.env, HF_HOME: cacheDir, PYTHONUNBUFFERED: '1', PYTHONPATH: runtimePath, PYTHONNOUSERSITE: '1' },
+      env: { ...process.env, HF_HOME: cacheDir, PYTHONUNBUFFERED: '1', PYTHONPATH: runtimePath, PYTHONNOUSERSITE: '1', CANVAS_DICTATION_RUNTIME: runtimePath },
     });
     worker = child;
     workerRuntimePath = runtimePath;
@@ -130,7 +133,8 @@ export async function transcribeLocally(input: {
   language: string;
 }): Promise<string> {
   const runtime = await readLocalDictationRuntimeStatus();
-  if (runtime.state !== 'installed' || !runtime.path) {
+  const cpp = runtime.engine === 'whisper-cpp';
+  if (!runtime.path || (cpp ? !runtime.installedModels?.includes(input.model) : runtime.state !== 'installed')) {
     throw new Error('Local dictation is not installed on this server.');
   }
   if (activeRequests >= 2) throw new Error('Local dictation is busy. Please try again shortly.');
@@ -140,7 +144,7 @@ export async function transcribeLocally(input: {
     directory = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-dictation-'));
     const audioPath = path.join(directory, `recording${input.extension}`);
     await fs.writeFile(audioPath, input.buffer, { mode: 0o600 });
-    await ensureWorker(runtime.path);
+    await ensureWorker(runtime.path, cpp);
     if (!worker) throw new Error('Local dictation worker is unavailable.');
     if (idleTimer) clearTimeout(idleTimer);
     const id = ++nextId;
