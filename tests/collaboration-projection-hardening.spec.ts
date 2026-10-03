@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { Pool } from 'pg';
 import { expect, request, test, type Browser, type BrowserContext, type Page } from '@playwright/test';
-import type { JSONContent } from '@tiptap/core';
+import type { Editor, JSONContent } from '@tiptap/core';
 import { COLLABORATION_CLIENT_CAPABILITIES, type CollaborationSessionResponse } from '../app/lib/collaboration/types';
 import { ownedCollaborationQaEnabled, requireOwnedCollaborationQaTarget } from '../scripts/lib/owned-collaboration-qa';
 import { authenticateManagedTestPage } from './helpers/managed-test-context';
@@ -54,11 +54,13 @@ async function tree(page: Page): Promise<JSONContent> {
 
 async function selectFirstParagraph(page: Page) {
   const paragraph = page.locator(selector).locator('p').first();
-  await paragraph.click();
-  await paragraph.evaluate((element) => {
-    const range = document.createRange(); range.selectNodeContents(element);
-    const selection = getSelection(); selection?.removeAllRanges(); selection?.addRange(range);
-  });
+  await expect(paragraph).toHaveText('Conflict');
+  await paragraph.click({ clickCount: 3 });
+  await expect.poll(() => page.locator(selector).evaluate(element => {
+    const { selection, doc } = (element as HTMLElement & { editor: Editor }).editor.state;
+    return { from: selection.from, to: selection.to, empty: selection.empty,
+      textMatches: doc.textBetween(selection.from, selection.to, '\n') === 'Conflict' };
+  })).toEqual({ from: 1, to: 9, empty: false, textMatches: true });
   await expect(page.getByTestId('markdown-selection-menu')).toBeVisible();
 }
 
