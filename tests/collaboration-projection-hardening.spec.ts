@@ -65,6 +65,31 @@ async function selectFirstParagraph(page: Page) {
   await expect(page.getByTestId('markdown-selection-menu')).toBeVisible();
 }
 
+async function expectQuarantinedContentVisible(page: Page) {
+  const panel = page.getByTestId('markdown-save-state');
+  const content = page.locator('.markdown-editor-content');
+  await expect(content).toContainText('Unchanged text');
+  const code = content.locator('code').filter({ hasText: /^Conflict$/u });
+  await expect(code).toBeVisible();
+  await expect.poll(async () => {
+    const panelBounds = await panel.boundingBox();
+    const contentBounds = await content.boundingBox();
+    return Boolean(panelBounds && contentBounds && contentBounds.height > 0
+      && contentBounds.y >= panelBounds.y + panelBounds.height);
+  }).toBe(true);
+  await code.scrollIntoViewIfNeeded();
+  await expect.poll(() => code.evaluate(element => {
+    const range = document.createRange();
+    range.selectNodeContents(element);
+    const bounds = range.getBoundingClientRect();
+    const x = bounds.x + bounds.width / 2;
+    const y = bounds.y + bounds.height / 2;
+    const hit = document.elementFromPoint(x, y);
+    return bounds.width > 0 && bounds.height > 0 && x >= 0 && x < innerWidth
+      && y >= 0 && y < innerHeight && Boolean(hit && element.contains(hit));
+  })).toBe(true);
+}
+
 test.describe('collaboration projection hardening', () => {
   test.skip(process.env.COLLABORATION_E2E !== '1', 'Requires the authorized managed local PostgreSQL stack.');
   test.setTimeout(180_000);
@@ -192,6 +217,7 @@ test.describe('collaboration projection hardening', () => {
       await expect(reopened.getByTestId('markdown-save-state').getByRole('alert')).toBeVisible();
       await expect(reopened.locator('.canvas-document-reading code')).toHaveText('Conflict');
       await expect(reopened.locator('.canvas-document-reading')).toContainText('Unchanged text');
+      await expectQuarantinedContentVisible(reopened);
       await reopened.screenshot({ path: info.outputPath('quarantine-reconnected.png') });
       await reopened.setViewportSize({ width: 390, height: 844 });
       const panel = reopened.getByTestId('markdown-save-state');
@@ -200,6 +226,7 @@ test.describe('collaboration projection hardening', () => {
       expect(bounds).toBeTruthy();
       expect(bounds!.x).toBeGreaterThanOrEqual(0);
       expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(390);
+      await expectQuarantinedContentVisible(reopened);
       await reopened.screenshot({ path: info.outputPath('quarantine-mobile.png') });
       const after = await row();
       expect(after.yjs_state).toEqual(before.yjs_state);

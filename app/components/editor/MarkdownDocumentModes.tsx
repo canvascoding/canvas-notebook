@@ -177,9 +177,9 @@ function download(content: BlobPart, name: string, type: string) {
   setTimeout(() => URL.revokeObjectURL(url), 1_000);
 }
 
-export function MarkdownSaveState({ collaboration, content, available, isSourceLossless, filePath, onReload }: {
+export function MarkdownSaveState({ collaboration, content, available, isSourceLossless, filePath, onReload, placement = 'overlay' }: {
   collaboration: CollaborationDocument | null; content: string; available: boolean; isSourceLossless?: () => boolean;
-  filePath?: string; onReload?: () => void;
+  filePath?: string; onReload?: () => void; placement?: 'overlay' | 'inline';
 }) {
   const t = useTranslations('notebook');
   const recovery = useMarkdownRecoveryCopy(collaboration, filePath);
@@ -235,7 +235,9 @@ export function MarkdownSaveState({ collaboration, content, available, isSourceL
     indexedDbHydrated: hydrated, remoteSynced: clientState.remoteSynced,
     failure: clientState.failure, projectionError: clientState.projectionError, error,
     retryError, recoveryError: recovery.error }, null, 2);
-  return <aside className="absolute right-3 top-14 z-30 max-h-[calc(100%-4rem)] w-[min(28rem,calc(100%-1.5rem))] overflow-auto rounded-lg border bg-background p-3 text-xs shadow-lg" data-testid="markdown-save-state" aria-label={t(diagnostics ? 'editorModes.diagnostics' : 'editorModes.attention')}>
+  return <aside className={`${placement === 'inline'
+    ? 'relative mx-3 my-3 max-h-[40%] w-auto shrink-0'
+    : 'absolute right-3 top-14 z-30 max-h-[calc(100%-4rem)] w-[min(28rem,calc(100%-1.5rem))]'} overflow-auto rounded-lg border bg-background p-3 text-xs shadow-lg`} data-testid="markdown-save-state" aria-label={t(diagnostics ? 'editorModes.diagnostics' : 'editorModes.attention')}>
     {(issue || retryError || recovery.error) && <div className="space-y-2">
       <p role="alert" className="text-sm font-medium">{t(issue === 'unavailable' ? 'editorModes.unavailable' : `editorModes.failure.${issue ?? 'unknown'}`)}</p>
       {!hydrated ? <p>{t('editorModes.recoveryNotLoaded')}</p>
