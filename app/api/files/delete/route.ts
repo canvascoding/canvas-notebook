@@ -5,6 +5,7 @@ import { withWorkspaceMutationLock } from '@/app/lib/files/workspace-mutation-lo
 import { getExistingDirectWorkspacePathOperation, submitDirectWorkspacePathOperation,
   waitForWorkspacePathOperation } from '@/app/lib/files/workspace-path-operation-service';
 import { workspacePathOperationMetadata, workspacePathOperationResponse } from '@/app/lib/files/workspace-path-operation-response';
+import { recordWorkspacePathOperationProblem } from '@/app/lib/files/workspace-path-operation-problems';
 import { reviewWorkspaceDeletionIfRequired } from '@/app/lib/files/workspace-operation-delete-review';
 import { readDocumentReviewAvailability } from '@/app/lib/document-review-availability';
 import { applyRateLimit, invalidateWorkspaceFileViews, jsonError, jsonServerError,
@@ -16,21 +17,36 @@ export async function DELETE(request: NextRequest): Promise<Response> {
   const workspaceResult = await requireRequestWorkspace(request, { permissions: [...permissions] });
   if (workspaceResult.response) return workspaceResult.response;
   let operation: ReturnType<typeof workspacePathOperationMetadata> | undefined;
+  const problem = { workspace: workspaceResult.workspace, actorUserId: workspaceResult.session.user.id,
+    kind: 'delete' as const, selections: [] as Array<{ sourcePath: string }> };
+  const recordFailure = async (error: unknown) => {
+    const failure = error as { status?: number; code?: string };
+    if (failure?.status === 401 || failure?.status === 403
+      || operation && ['blocked', 'needs_review', 'needs_recovery', 'failed'].includes(operation.status)) return;
+    try { await recordWorkspacePathOperationProblem({ ...problem, error }); }
+    catch { console.error('[File action] Could not persist problem.', 'WORKSPACE_OPERATION_PROBLEM_RECORD_FAILED'); }
+  };
+  const invalid = async (message: string, status: number, code = 'BATCH_INVALID_REQUEST') => {
+    await recordFailure({ code });
+    return jsonError(message, status, { code });
+  };
 
   try {
     const limited = applyRateLimit(request, { limit: 20, windowMs: 60_000, keyPrefix: 'files-delete' });
     if (limited) return limited;
     const { path, idempotencyKey } = await readJsonBody<{ path?: string | string[]; idempotencyKey?: string }>(request);
     const paths = Array.isArray(path) ? path : [path];
+    problem.selections = paths.filter((candidate): candidate is string => typeof candidate === 'string')
+      .map((sourcePath) => ({ sourcePath }));
     if (!paths.length || paths.some((candidate) => typeof candidate !== 'string' || !candidate.trim())) {
-      return jsonError('Path(s) are required', 400);
+      return invalid('Path(s) are required', 400);
     }
     if (idempotencyKey !== undefined && typeof idempotencyKey !== 'string') {
-      return jsonError('Invalid file action identity', 422, { code: 'BATCH_INVALID_REQUEST' });
+      return invalid('Invalid file action identity', 422);
     }
     const pathsToDelete = paths as string[];
     if (pathsToDelete.some((candidate) => isProtectedAppOutputFolder(candidate))) {
-      return jsonError('Protected app output folders cannot be deleted', 403);
+      return invalid('Protected app output folders cannot be deleted', 403, 'BATCH_PROTECTED_PATH');
     }
     const result = await withWorkspaceMutationLock(workspaceResult.workspace.workspaceId, async () => {
       const fresh = await requireRequestWorkspace(request, { permissions: [...permissions] });
@@ -40,6 +56,7 @@ export async function DELETE(request: NextRequest): Promise<Response> {
         || fresh.session.user.id !== workspaceResult.session.user.id) {
         return { mode: 'response' as const, response: jsonError('Workspace access changed before deletion', 403) };
       }
+      problem.workspace = fresh.workspace;
       const scope = { workspace: fresh.workspace, fileOptions: workspaceFileOptions(fresh.workspace) };
       const input = { scope, kind: 'delete' as const,
         selections: pathsToDelete.map((sourcePath) => ({ sourcePath })), idempotencyKey,
@@ -76,14 +93,17 @@ export async function DELETE(request: NextRequest): Promise<Response> {
     invalidateWorkspaceFileViews({ fileOptions: result.scope.fileOptions, fullTree: true,
       mutations: [...deleted.map((path) => ({ path, type: 'unlink' as const })),
         ...(payload.linkUpdates?.updatedFiles ?? []).map((path) => ({ path, type: 'change' as const }))] });
-    await recordAuditEvent({ organizationId: result.scope.workspace.organizationId, workspaceId: batch.workspaceId,
-      userId: workspaceResult.session.user.id, source: 'files', eventType: 'file', entityType: 'workspace_path',
-      entityId: deleted.join(','), action: 'file.delete', status: 'success',
-      summary: `${deleted.length} path(s) moved to trash; linked documents updated.`,
-      metadata: { deleteMode: 'trash', requestedPaths: pathsToDelete, trashed: payload.trashEntries, failed: [],
-        operationId: batch.batchId, planId: batch.planId, workspaceType: result.scope.workspace.workspaceType } });
+    try {
+      await recordAuditEvent({ organizationId: result.scope.workspace.organizationId, workspaceId: batch.workspaceId,
+        userId: workspaceResult.session.user.id, source: 'files', eventType: 'file', entityType: 'workspace_path',
+        entityId: deleted.join(','), action: 'file.delete', status: 'success',
+        summary: `${deleted.length} path(s) moved to trash; linked documents updated.`,
+        metadata: { deleteMode: 'trash', requestedPaths: pathsToDelete, trashed: payload.trashEntries, failed: [],
+          operationId: batch.batchId, planId: batch.planId, workspaceType: result.scope.workspace.workspaceType } });
+    } catch { await recordFailure({ code: 'BATCH_AUDIT_FAILED' }); }
     return jsonSuccess(payload);
   } catch (error) {
+    await recordFailure(error);
     const failure = error as { status?: number; code?: string };
     if (failure?.status && [400, 403, 409, 422, 503].includes(failure.status)) {
       return jsonError(error instanceof Error ? error.message : 'Failed to delete path', failure.status,

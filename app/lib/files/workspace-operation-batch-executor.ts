@@ -209,25 +209,29 @@ export function createWorkspaceOperationBatchExecutor(dependencies: Dependencies
       throw Object.assign(new Error('BATCH_ACCESS_DENIED'), { status: 403 });
     }
   };
-  const result = (manifest: Manifest): WorkspaceOperationBatchExecutionResult => ({
-    status: manifest.status === 'applied' || manifest.status === 'undone' ? 'applied'
-      : manifest.status === 'failed' || manifest.status === 'needs_review' ? manifest.status : 'needs_recovery',
-    trashEntryIds: manifest.steps.flatMap((step) => typeof step.receipt?.trashEntryId === 'string' ? [step.receipt.trashEntryId] : []),
-    completedActions: manifest.steps.filter((step) => step.state === 'applied').length,
-    totalActions: manifest.plan.pathSteps.length + manifest.plan.previewContents.length, errorCode: manifest.errorCode,
-    stepResults: manifest.steps.map((step) => {
-      const index = Number(step.key.split(':')[1]);
-      const pathStep = step.key.startsWith('path:') ? manifest.plan.pathSteps[index] : undefined;
-      const group = !pathStep ? groupWorkspaceLinkWrites(manifest.plan.linkPlan)[index] : undefined;
-      return { key: step.key, phase: pathStep ? 'path' as const : 'link' as const, state: step.state,
-        path: pathStep?.sourcePath ?? group!.path,
-        ...(pathStep ? { reviewId: pathStep.reviewId, destinationPath: pathStep.destinationPath,
-          sourceIdentity: manifest.plan.expectedPathState.find((entry) => entry.path === pathStep.sourcePath)?.identity ?? undefined } : {}),
-        ...(typeof step.receipt?.mutationId === 'string' ? { mutationId: step.receipt.mutationId } : {}),
-        ...(typeof step.receipt?.trashEntryId === 'string' ? { trashEntryId: step.receipt.trashEntryId } : {}),
-      };
-    }),
-  });
+  const result = (manifest: Manifest): WorkspaceOperationBatchExecutionResult => {
+    const undo = manifest.status === 'undoing' || manifest.status === 'undone';
+    const steps = undo ? manifest.undoSteps : manifest.steps;
+    return {
+      status: manifest.status === 'applied' || manifest.status === 'undone' ? 'applied'
+        : manifest.status === 'failed' || manifest.status === 'needs_review' ? manifest.status : 'needs_recovery',
+      trashEntryIds: manifest.steps.flatMap((step) => typeof step.receipt?.trashEntryId === 'string' ? [step.receipt.trashEntryId] : []),
+      completedActions: steps.filter((step) => step.state === 'applied').length,
+      totalActions: manifest.plan.pathSteps.length + manifest.plan.previewContents.length, errorCode: manifest.errorCode,
+      stepResults: steps.map((step) => {
+        const index = Number(step.key.split(':')[1]);
+        const pathStep = step.key.startsWith('path:') ? manifest.plan.pathSteps[index] : undefined;
+        const group = !pathStep ? groupWorkspaceLinkWrites(undo ? manifest.undoPlan! : manifest.plan.linkPlan)[index] : undefined;
+        return { key: step.key, phase: pathStep ? 'path' as const : 'link' as const, state: step.state,
+          path: pathStep?.sourcePath ?? group!.path,
+          ...(pathStep ? { reviewId: pathStep.reviewId, destinationPath: pathStep.destinationPath,
+            sourceIdentity: manifest.plan.expectedPathState.find((entry) => entry.path === pathStep.sourcePath)?.identity ?? undefined } : {}),
+          ...(typeof step.receipt?.mutationId === 'string' ? { mutationId: step.receipt.mutationId } : {}),
+          ...(typeof step.receipt?.trashEntryId === 'string' ? { trashEntryId: step.receipt.trashEntryId } : {}),
+        };
+      }),
+    };
+  };
   const progress = async (input: UndoInput | ExecuteInput, manifest: Manifest, phase: WorkspaceOperationBatchProgress['phase']) => {
     const outcome = result(manifest);
     await input.onProgress?.({ completedActions: outcome.completedActions, totalActions: outcome.totalActions, phase });

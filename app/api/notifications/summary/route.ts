@@ -17,8 +17,9 @@ import {
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 import { markMcpConnectionAttentionRead } from '@/app/lib/mcp/connection-attention';
 import { markTeamLicenseAttentionRead } from '@/app/lib/license/team-license-attention';
-import { workspaceOperationNotificationSource } from '@/app/lib/files/workspace-operation-notification-source';
-import { WORKSPACE_OPERATION_NOTIFICATION_PREFIX } from '@/app/lib/files/workspace-operation-notification-contract';
+import { workspaceOperationNotificationSource, workspacePathOperationNotificationSource } from '@/app/lib/files/workspace-operation-notification-source';
+import { WORKSPACE_OPERATION_NOTIFICATION_PREFIX, WORKSPACE_PATH_OPERATION_NOTIFICATION_PREFIX,
+  WORKSPACE_PATH_PROBLEM_NOTIFICATION_PREFIX } from '@/app/lib/files/workspace-operation-notification-contract';
 
 type PatchPayload = {
   action?: 'mark_all_read' | 'mark_item_read' | 'set_item_read_state' | 'dismiss_item';
@@ -105,7 +106,7 @@ export async function PATCH(request: NextRequest) {
     const scope = await loadMobileInboxScope(session.user);
 
     if (payload.action === 'mark_all_read') {
-      const [inbox, memoryApprovals, mcpConnections, license, fileOperations] = await Promise.all([
+      const [inbox, memoryApprovals, mcpConnections, license, fileOperations, filePathOperations] = await Promise.all([
         markMobileAggregateInboxRead({
           userId: session.user.id,
           workspaces: scope.includedWorkspaces,
@@ -121,8 +122,22 @@ export async function PATCH(request: NextRequest) {
         markTeamLicenseAttentionRead({ userId: session.user.id }),
         Promise.all(scope.includedWorkspaces.map((workspace) =>
           workspaceOperationNotificationSource.markRead({ userId: session.user.id, workspace }))),
+        Promise.all(scope.includedWorkspaces.map((workspace) =>
+          workspacePathOperationNotificationSource.markRead({ userId: session.user.id, workspace }))),
       ]);
-      const data = { inbox, memoryApprovals, mcpConnections, license, fileOperations };
+      const data = { inbox, memoryApprovals, mcpConnections, license, fileOperations, filePathOperations };
+      return NextResponse.json({ success: true, data });
+    }
+
+    if (payload.itemId?.startsWith(WORKSPACE_PATH_OPERATION_NOTIFICATION_PREFIX)
+      || payload.itemId?.startsWith(WORKSPACE_PATH_PROBLEM_NOTIFICATION_PREFIX)) {
+      if (payload.action !== 'mark_item_read') {
+        return NextResponse.json({ success: false, error: 'Inspect the file action to resolve the underlying problem.' }, { status: 400 });
+      }
+      const workspace = scope.includedWorkspaces.find((item) => item.workspaceId === payload.workspaceId);
+      if (!workspace) return NextResponse.json({ success: false, error: 'File action notification not found.' }, { status: 404 });
+      const data = await workspacePathOperationNotificationSource.markRead({ userId: session.user.id, workspace, itemId: payload.itemId });
+      if (!data.updated) return NextResponse.json({ success: false, error: 'File action notification not found.' }, { status: 404 });
       return NextResponse.json({ success: true, data });
     }
 

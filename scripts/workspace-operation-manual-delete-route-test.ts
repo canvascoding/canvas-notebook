@@ -5,6 +5,7 @@ import ts from 'typescript';
 import type { NextRequest } from 'next/server';
 import type * as Route from '../app/api/files/delete/route';
 import type { WorkspacePathOperationInput } from '../app/lib/files/workspace-path-operation-service';
+import type { WorkspacePathOperationProblemInput } from '../app/lib/files/workspace-path-operation-problems';
 
 async function main(): Promise<void> {
   const file = path.resolve('app/api/files/delete/route.ts');
@@ -24,6 +25,9 @@ async function main(): Promise<void> {
   let audits = 0;
   let lockDepth = 0;
   let receiptUnavailable = false;
+  let auditUnavailable = false;
+  let submitError: Error | null = null;
+  const problems: WorkspacePathOperationProblemInput[] = [];
   let existingDirectRequest: WorkspacePathOperationInput | null = null;
   let status = 'applied';
   const permissions: string[][] = [];
@@ -82,6 +86,7 @@ async function main(): Promise<void> {
       },
       submitDirectWorkspacePathOperation: async (input: (typeof submitted)[number]) => {
         assert.equal(lockDepth, 1); submissions += 1; submitted.push(input);
+        if (submitError) throw submitError;
         return { ...operation(), plan: { previewContents: [{ path: 'index.md' }] }, workspaceId: 'workspace' };
       },
       waitForWorkspacePathOperation: async (batch: unknown) => {
@@ -100,7 +105,13 @@ async function main(): Promise<void> {
             expiresAt: new Date(0).toISOString() }] } : { operation: operation() };
       },
     };
-    if (name.endsWith('/audit-service')) return { recordAuditEvent: async () => { audits += 1; } };
+    if (name.endsWith('/workspace-path-operation-problems')) return {
+      recordWorkspacePathOperationProblem: async (input: WorkspacePathOperationProblemInput) => { problems.push(input); },
+    };
+    if (name.endsWith('/audit-service')) return { recordAuditEvent: async () => {
+      audits += 1;
+      if (auditUnavailable) throw new Error('Private audit infrastructure error');
+    } };
     if (name.endsWith('/app-output-folders')) return { isProtectedAppOutputFolder: () => false };
     throw new Error(`Unexpected route dependency: ${name}`);
   }, route, route.exports);
@@ -158,6 +169,7 @@ async function main(): Promise<void> {
   existingDirectRequest = null;
   reviewEnabled = false;
   const auditsAfterApply = audits;
+  const problemsBeforeBatchFailures = problems.length;
   for (const pending of ['queued', 'applying']) {
     status = pending;
     const response = await remove();
@@ -179,6 +191,7 @@ async function main(): Promise<void> {
     assert.equal(body.trashEntries, undefined);
   }
   assert.equal(audits, auditsAfterApply, 'queued and failed jobs never create success audit events');
+  assert.equal(problems.length, problemsBeforeBatchFailures, 'existing durable failures do not produce duplicate problem notices');
   status = 'applied'; receiptUnavailable = true;
   const missing = await remove();
   const missingBody = await missing.json();
@@ -186,18 +199,35 @@ async function main(): Promise<void> {
   assert.equal(missingBody.code, 'BATCH_JOURNAL_UNAVAILABLE');
   assert.equal(missingBody.operation.batchId, 'direct-delete-job');
   assert.equal(missingBody.deleted, undefined);
+  assert.equal((problems.at(-1)!.error as { code: string }).code, 'BATCH_JOURNAL_UNAVAILABLE');
   receiptUnavailable = false;
+  reviewEnabled = false;
+  submitError = Object.assign(new Error('Missing source'), { status: 422, code: 'BATCH_INVALID_REQUEST' });
+  const early = await remove();
+  assert.equal(early.status, 422);
+  assert.equal((await early.json()).operation, undefined);
+  assert.equal(problems.at(-1)!.kind, 'delete');
+  assert.equal(problems.at(-1)!.actorUserId, 'user');
+  assert.deepEqual(problems.at(-1)!.selections, [{ sourcePath: 'target.md' }]);
+  submitError = null; auditUnavailable = true;
+  const audited = await remove();
+  assert.equal(audited.status, 200);
+  assert.deepEqual((await audited.json()).deleted, ['target.md']);
+  assert.equal((problems.at(-1)!.error as { code: string }).code, 'BATCH_AUDIT_FAILED');
+  auditUnavailable = false;
   reviewEnabled = true; needsReview = false;
   const unlinked = await remove();
   assert.equal(unlinked.status, 200, 'unlinked deletion still uses the mandatory durable executor with review enabled');
   assert.equal((await unlinked.json()).operation.status, 'applied');
   const submissionsBeforeDenied = submissions;
+  const problemsBeforeDenied = problems.length;
   revoked = true;
   assert.equal((await remove()).status, 403);
   assert.equal(submissions, submissionsBeforeDenied);
   revoked = false; changedScope = true;
   assert.equal((await remove()).status, 403);
   assert.equal(submissions, submissionsBeforeDenied, 'changed scope is rejected before submission');
+  assert.equal(problems.length, problemsBeforeDenied);
   changedScope = false;
   assert.equal((await remove({ path: [null] })).status, 400);
   assert.equal(submissions, submissionsBeforeDenied);

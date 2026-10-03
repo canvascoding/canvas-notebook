@@ -3284,9 +3284,40 @@
       "automation": "Automation benötigt Aufmerksamkeit",
       "file_change": "Dateiänderung",
       "file_operation": "Dateiaktion prüfen",
+      "file_path_operation": "Dateiaktion",
       "memory": "Memory-Freigabe erforderlich",
       "mcp": "MCP-Verbindung benötigt Aufmerksamkeit",
       "license": "Team-Lizenzereignis"
+    },
+    "filePathOperations": {
+      "openFailed": "Die Dateiaktion konnte nicht geöffnet werden.",
+      "kind_move": "Verschieben",
+      "kind_rename": "Umbenennen",
+      "kind_delete": "Löschen",
+      "queued": {
+        "title": "{action}: vorgemerkt",
+        "detail": "Die Verarbeitung läuft im Hintergrund weiter. Öffne die Aktion, um den Fortschritt zu sehen."
+      },
+      "applying": {
+        "title": "{action}: läuft",
+        "detail": "Dateien und Links werden aktualisiert. Öffne die Aktion, um den Fortschritt zu sehen."
+      },
+      "blocked": {
+        "title": "{action}: blockiert",
+        "detail": "Prüfe das Problem, bevor du die Dateiaktion erneut anforderst."
+      },
+      "stale": {
+        "title": "{action}: Anfrage veraltet",
+        "detail": "Der Arbeitsbereich hat sich geändert. Prüfe die aktuellen Dateien vor einer neuen Anfrage."
+      },
+      "failed": {
+        "title": "{action}: Problem aufgetreten",
+        "detail": "Öffne die Aktion, um ihren Status und den Fehler zu prüfen."
+      },
+      "needs_recovery": {
+        "title": "{action}: Wiederherstellung nötig",
+        "detail": "Prüfe die Wiederherstellungsoptionen, bevor du weitere Dateiaktionen ausführst."
+      }
     },
     "fileOperations": {
       "openFailed": "Die Dateiaktion konnte nicht geöffnet werden.",
@@ -3345,6 +3376,51 @@
     "empty": {
       "title": "Alles gelesen",
       "description": "Neue Antworten, Freigaben, To-dos und wichtige Ergebnisse erscheinen hier."
+    }
+  },
+  "workspacePathOperationStatus": {
+    "title": "Dateiaktion",
+    "description": "Status dieser Dateiaktion und ihrer Link-Aktualisierungen.",
+    "openFailed": "Die Dateiaktion ist in diesem Arbeitsbereich nicht verfügbar.",
+    "close": "Schließen",
+    "refresh": "Aktualisieren",
+    "resume": "Fortsetzen",
+    "undo": "Rückgängig machen",
+    "loading": "Dateiaktion wird geladen…",
+    "resuming": "Warten, bis die fortgesetzte Aktion abgeschlossen ist…",
+    "undoing": "Warten, bis das Rückgängigmachen abgeschlossen ist…",
+    "progress": "{completed} von {total} Schritten abgeschlossen",
+    "errorCode": "Fehlercode",
+    "files": "Betroffene Pfade",
+    "moreFiles": "{count} weitere Pfade",
+    "problemTitle": "Bei der Dateiaktion ist ein Problem aufgetreten",
+    "problemGuidance": "Prüfe die Details und die aktuellen Dateien vor einem erneuten Versuch. Behebe die Ursache, bevor du eine neue Dateiaktion anforderst.",
+    "auditFailed": "Dateien und Links wurden aktualisiert, aber der Audit-Eintrag konnte nicht gespeichert werden. Prüfe die aktuellen Dateien vor einer weiteren Anfrage.",
+    "status": {
+      "queued": "Vorgemerkt",
+      "applying": "Dateien und Links werden aktualisiert",
+      "blocked": "Aktion blockiert",
+      "stale": "Anfrage veraltet",
+      "failed": "Problem bei der Dateiaktion",
+      "needs_recovery": "Wiederherstellung nötig",
+      "applied": "Dateien und Links aktualisiert",
+      "undone": "Aktion rückgängig gemacht"
+    },
+    "guidance": {
+      "queued": "Die Verarbeitung läuft im Hintergrund weiter. Du kannst dieses Fenster schließen und später zurückkehren.",
+      "applying": "Die Aktion läuft noch. Der Status wird automatisch aktualisiert.",
+      "blocked": "Behebe das gemeldete Problem und fordere die Dateiaktion neu an. Diese blockierte Anfrage wird nicht automatisch ausgeführt.",
+      "stale": "Der Arbeitsbereich hat sich nach der Vorbereitung geändert. Prüfe die aktuellen Dateien und stelle eine neue Anfrage.",
+      "failed": "Prüfe den Fehler und die aktuellen Dateien. Nutze eine Wiederherstellungsoption nur, wenn sie verfügbar ist.",
+      "needs_recovery": "Prüfe die aktuellen Dateien, bevor du fortfährst. Verfügbare Wiederherstellungsoptionen gelten für genau diese Aktion.",
+      "applied": "Diese Aktion und ihre Link-Aktualisierungen sind abgeschlossen.",
+      "undone": "Das Rückgängigmachen dieser Aktion und ihrer Link-Aktualisierungen ist abgeschlossen."
+    },
+    "error": {
+      "load": "Der Status konnte nicht geladen werden. Aktualisiere ihn, um den neuesten Stand zu prüfen.",
+      "action": "Die Wiederherstellung konnte nicht bestätigt werden. Aktualisiere den Status vor einer weiteren Aktion.",
+      "access": "Diese Dateiaktion ist nicht verfügbar oder du hast keinen Zugriff mehr darauf.",
+      "identity": "Die Antwort passte nicht zu diesem Arbeitsbereich und dieser Dateiaktion. Aktualisiere den Status, bevor du fortfährst."
     }
   },
   "todos": {

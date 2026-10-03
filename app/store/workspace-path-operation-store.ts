@@ -1,0 +1,195 @@
+'use client';
+
+import { create } from 'zustand';
+import { beginExternalWorkspaceNavigation } from '@/app/lib/workspaces/navigation-sync';
+import { openedDocumentAuthScope, type OpenedDocumentAuthScope } from '@/app/lib/collaboration/opened-document-registry';
+import { WORKSPACE_ID_HEADER } from '@/app/lib/workspaces/constants';
+import type { WorkspacePathOperationResponse } from '@/app/lib/files/workspace-path-operation-public';
+import type { WorkspacePathOperationProblem } from '@/app/lib/files/workspace-path-operation-problems';
+import { useWorkspaceStore } from './workspace-store';
+
+export type WorkspacePathOperationStatusTarget = { workspaceId: string }
+  & ({ batchId: string; problemId?: never } | { problemId: string; batchId?: never });
+export type WorkspacePathOperationStatusRequest = WorkspacePathOperationStatusTarget & { authScope: OpenedDocumentAuthScope };
+export type WorkspacePathOperationStatusResponse = WorkspacePathOperationResponse & { recovery?: { canResume: boolean; canUndo: boolean } };
+type State = {
+  request: WorkspacePathOperationStatusRequest | null;
+  response: WorkspacePathOperationStatusResponse | null;
+  problem: WorkspacePathOperationProblem | null;
+  loading: boolean; busy: boolean;
+  pendingAction: 'resume' | 'undo' | null;
+  error: 'load' | 'action' | 'access' | 'identity' | null;
+  errorCode: string | null;
+};
+const initial: State = { request: null, response: null, problem: null, loading: false, busy: false,
+  pendingAction: null, error: null, errorCode: null };
+export const useWorkspacePathOperationStore = create<State>(() => initial);
+let generation = 0;
+let navigationGeneration = 0;
+let controller: AbortController | null = null;
+let opener: HTMLElement | null = null;
+const pinnedPlans = new WeakMap<WorkspacePathOperationStatusRequest, string>();
+
+const validId = (value: unknown): value is string => typeof value === 'string' && /^[A-Za-z0-9_-]{16,128}$/u.test(value);
+const safeCode = (value: unknown): string | null => typeof value === 'string' && /^[A-Z0-9_:-]{1,100}$/u.test(value) ? value : null;
+const requestCurrent = (request: WorkspacePathOperationStatusRequest) =>
+  useWorkspacePathOperationStore.getState().request === request && openedDocumentAuthScope() === request.authScope
+  && useWorkspaceStore.getState().activeWorkspaceId === request.workspaceId;
+
+function validPath(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0 && value.length <= 4096 && !value.startsWith('/')
+    && !value.includes('\\') && !value.split('/').includes('..') && !/[\p{Cc}\p{Cf}]/u.test(value)
+    && !/^[A-Za-z][A-Za-z0-9+.-]*:/u.test(value);
+}
+
+function validSelections(value: unknown): boolean {
+  return Array.isArray(value) && value.length <= 1000 && value.every((selection) => selection && typeof selection === 'object'
+    && validPath(selection.sourcePath) && (selection.destinationPath === undefined || validPath(selection.destinationPath)));
+}
+
+function readOperation(payload: unknown, request: WorkspacePathOperationStatusRequest, planId?: string): WorkspacePathOperationStatusResponse {
+  const value = payload as WorkspacePathOperationStatusResponse | null;
+  const operation = value?.operation;
+  const expectedPlan = planId ?? pinnedPlans.get(request);
+  if (!operation || operation.batchId !== request.batchId || operation.workspaceId !== request.workspaceId
+    || typeof operation.planId !== 'string' || !/^[a-f0-9]{64}$/u.test(operation.planId) || expectedPlan && operation.planId !== expectedPlan
+    || !['move', 'rename', 'delete'].includes(operation.kind) || !validSelections(operation.selections)
+    || !['preview', 'blocked', 'queued', 'applying', 'applied', 'needs_review', 'needs_recovery', 'failed', 'undone'].includes(operation.status)
+    || !['preparing', 'paths', 'links', 'complete', 'recovery'].includes(operation.phase)
+    || !Number.isSafeInteger(operation.completedActions) || !Number.isSafeInteger(operation.totalActions)
+    || operation.completedActions < 0 || operation.totalActions < operation.completedActions
+    || ['applied', 'undone'].includes(operation.status) && (operation.phase !== 'complete' || operation.completedActions !== operation.totalActions)
+    || value.recovery && (typeof value.recovery.canResume !== 'boolean' || typeof value.recovery.canUndo !== 'boolean')) {
+    throw new Error('identity');
+  }
+  pinnedPlans.set(request, operation.planId);
+  return { operation: { batchId: operation.batchId, planId: operation.planId, workspaceId: operation.workspaceId,
+    status: operation.status, completedActions: operation.completedActions, totalActions: operation.totalActions,
+    phase: operation.phase, errorCode: safeCode(operation.errorCode), kind: operation.kind,
+    selections: operation.selections.map(({ sourcePath, destinationPath }) => ({ sourcePath, ...(destinationPath ? { destinationPath } : {}) })) },
+  ...(value.recovery ? { recovery: { canResume: value.recovery.canResume, canUndo: value.recovery.canUndo } } : {}) };
+}
+
+function readProblem(payload: unknown, request: WorkspacePathOperationStatusRequest): WorkspacePathOperationProblem {
+  const problem = (payload as { problem?: WorkspacePathOperationProblem } | null)?.problem;
+  if (!problem || problem.problemId !== request.problemId || problem.workspaceId !== request.workspaceId
+    || !['move', 'rename', 'delete'].includes(problem.kind) || !validSelections(problem.selections)
+    || !safeCode(problem.errorCode) || !Number.isFinite(problem.createdAt) || !Number.isFinite(problem.updatedAt)) throw new Error('identity');
+  return { problemId: problem.problemId, workspaceId: problem.workspaceId, kind: problem.kind,
+    selections: problem.selections.map(({ sourcePath, destinationPath }) => ({ sourcePath, ...(destinationPath ? { destinationPath } : {}) })),
+    errorCode: problem.errorCode, createdAt: problem.createdAt, updatedAt: problem.updatedAt };
+}
+
+function publishResult(request: WorkspacePathOperationStatusRequest, response: WorkspacePathOperationStatusResponse) {
+  if (!requestCurrent(request)) return;
+  const pendingAction = useWorkspacePathOperationStore.getState().pendingAction;
+  const running = ['queued', 'applying'].includes(response.operation.status);
+  const expected = pendingAction === 'undo' ? 'undone' : 'applied';
+  useWorkspacePathOperationStore.setState({ response, problem: null, loading: false,
+    busy: Boolean(pendingAction && running), pendingAction: running ? pendingAction : null,
+    error: pendingAction && !running && response.operation.status !== expected ? 'action' : null,
+    errorCode: response.operation.errorCode });
+  if (pendingAction && !running && typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('notification_summary_updated'));
+}
+
+export async function openWorkspacePathOperationStatus(target: WorkspacePathOperationStatusTarget): Promise<boolean> {
+  if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/u.test(target.workspaceId)
+    || Boolean(target.batchId) === Boolean(target.problemId) || !validId(target.batchId ?? target.problemId)) return false;
+  const authScope = openedDocumentAuthScope();
+  if (!authScope) return false;
+  const opening = ++navigationGeneration;
+  const release = beginExternalWorkspaceNavigation();
+  try {
+    await useWorkspaceStore.getState().hydrateWorkspaces();
+    if (opening !== navigationGeneration || openedDocumentAuthScope() !== authScope) return false;
+    if (useWorkspaceStore.getState().activeWorkspaceId !== target.workspaceId) {
+      await useWorkspaceStore.getState().setActiveWorkspace(target.workspaceId, 'system');
+    }
+    if (opening !== navigationGeneration || openedDocumentAuthScope() !== authScope
+      || useWorkspaceStore.getState().activeWorkspaceId !== target.workspaceId) return false;
+    generation += 1; controller?.abort(); controller = null;
+    opener = typeof document !== 'undefined' && document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    useWorkspacePathOperationStore.setState({ ...initial, request: { ...target, authScope } });
+    return true;
+  } catch { return false; }
+  finally { release(); }
+}
+
+export function closeWorkspacePathOperationStatus(): void {
+  navigationGeneration += 1; generation += 1; controller?.abort(); controller = null;
+  const request = useWorkspacePathOperationStore.getState().request;
+  useWorkspacePathOperationStore.setState(initial);
+  if (typeof window === 'undefined') return;
+  const url = new URL(window.location.href);
+  if (request && url.searchParams.get('workspaceId') === request.workspaceId) {
+    if (url.searchParams.get('workspacePathBatch') === request.batchId) url.searchParams.delete('workspacePathBatch');
+    if (url.searchParams.get('workspacePathProblem') === request.problemId) url.searchParams.delete('workspacePathProblem');
+    window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
+  }
+  const target = opener; opener = null;
+  window.requestAnimationFrame(() => { if (target?.isConnected) target.focus({ preventScroll: true }); });
+}
+
+export async function reloadWorkspacePathOperationStatus(): Promise<void> {
+  const request = useWorkspacePathOperationStore.getState().request;
+  if (!request || !requestCurrent(request)) return;
+  const load = ++generation;
+  controller?.abort(); controller = new AbortController();
+  useWorkspacePathOperationStore.setState({ loading: true, error: null });
+  try {
+    const response = await fetch(request.batchId ? `/api/files/operations/batches/${encodeURIComponent(request.batchId)}`
+      : `/api/files/operations/problems/${encodeURIComponent(request.problemId!)}`, {
+      credentials: 'include', headers: { [WORKSPACE_ID_HEADER]: request.workspaceId }, cache: 'no-store', signal: controller.signal,
+    });
+    const payload = await response.json().catch(() => null) as { code?: unknown } | null;
+    if (load !== generation || !requestCurrent(request)) return;
+    if (!response.ok) {
+      const denied = [401, 403, 404].includes(response.status);
+      useWorkspacePathOperationStore.setState({ loading: false, busy: false, pendingAction: null,
+        response: null, problem: null, error: denied ? 'access' : 'load', errorCode: safeCode(payload?.code) });
+      return;
+    }
+    if (request.batchId) publishResult(request, readOperation(payload, request,
+      useWorkspacePathOperationStore.getState().response?.operation.planId));
+    else useWorkspacePathOperationStore.setState({ problem: readProblem(payload, request), response: null,
+      loading: false, error: null, errorCode: null });
+  } catch (error) {
+    if (load !== generation || !requestCurrent(request)) return;
+    useWorkspacePathOperationStore.setState({ response: null, problem: null, loading: false, busy: false, pendingAction: null,
+      error: error instanceof Error && error.message === 'identity' ? 'identity' : 'load', errorCode: null });
+  }
+}
+
+/** Recovery remains an explicit action authorized again by the server for this exact plan. */
+export async function recoverWorkspacePathOperation(action: 'resume' | 'undo'): Promise<void> {
+  const state = useWorkspacePathOperationStore.getState();
+  const request = state.request;
+  const operation = state.response?.operation;
+  if (!request?.batchId || !requestCurrent(request) || !operation || state.busy || state.loading || state.error
+    || !(action === 'undo' ? state.response?.recovery?.canUndo : state.response?.recovery?.canResume)) return;
+  const mutation = ++generation;
+  controller?.abort(); controller = new AbortController();
+  useWorkspacePathOperationStore.setState({ busy: true, pendingAction: action, error: null, errorCode: null });
+  try {
+    const response = await fetch(`/api/files/operations/batches/${encodeURIComponent(request.batchId)}`, {
+      method: 'POST', credentials: 'include', signal: controller.signal,
+      headers: { 'Content-Type': 'application/json', [WORKSPACE_ID_HEADER]: request.workspaceId },
+      body: JSON.stringify({ action, planId: operation.planId }),
+    });
+    const payload = await response.json().catch(() => null) as { code?: unknown } | null;
+    if (mutation !== generation || !requestCurrent(request)) return;
+    if (!response.ok) {
+      const denied = [401, 403, 404].includes(response.status);
+      useWorkspacePathOperationStore.setState({ busy: false, pendingAction: null, error: denied ? 'access' : 'action',
+        errorCode: safeCode(payload?.code), ...(denied ? { response: null, problem: null } : {}) });
+      return;
+    }
+    publishResult(request, readOperation(payload, request, operation.planId));
+    if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('notification_summary_updated'));
+  } catch (error) {
+    if (mutation !== generation || !requestCurrent(request)) return;
+    const mismatched = error instanceof Error && error.message === 'identity';
+    useWorkspacePathOperationStore.setState({ busy: false, pendingAction: null,
+      error: mismatched ? 'identity' : 'action', errorCode: null, ...(mismatched ? { response: null, problem: null } : {}) });
+  }
+}

@@ -11,8 +11,10 @@ import { decideMemoryReviewClient, loadMemoryReview } from '@/app/lib/memory/rev
 import type { MemoryReviewDecision, MemoryReviewTarget } from '@/app/lib/memory/contract';
 import type { NotificationItem, NotificationSummary } from './notification-summary';
 import { WORKSPACE_OPERATION_NOTIFICATION_PREFIX, workspaceOperationReviewHref,
-  type WorkspaceOperationNotificationTarget } from '@/app/lib/files/workspace-operation-notification-contract';
+  WORKSPACE_PATH_OPERATION_NOTIFICATION_PREFIX, WORKSPACE_PATH_PROBLEM_NOTIFICATION_PREFIX, workspacePathOperationHref,
+  type WorkspaceOperationNotificationTarget, type WorkspacePathOperationNotificationTarget } from '@/app/lib/files/workspace-operation-notification-contract';
 import { openWorkspaceOperationReview } from '@/app/store/workspace-operation-review-store';
+import { openWorkspacePathOperationStatus } from '@/app/store/workspace-path-operation-store';
 import { buildTodoPopupHref } from '@/app/lib/todos/navigation';
 
 export type NotificationMutation = {
@@ -85,6 +87,9 @@ export function notificationHref(item: NotificationItem): string {
         : `/notebook?workspaceId=${encodeURIComponent(item.workspaceId)}`;
     case 'file_operation':
       return workspaceOperationReviewHref({ workspaceId: item.workspaceId, reviewId: item.target.reviewId });
+    case 'file_path_operation':
+      return item.workspaceId === item.target.workspaceId ? workspacePathOperationHref(item.target)
+        : `/notebook?workspaceId=${encodeURIComponent(item.workspaceId)}`;
   }
   return '/notebook';
 }
@@ -160,12 +165,20 @@ export async function updateNotification(payload: NotificationMutation): Promise
   window.dispatchEvent(new CustomEvent('notification_summary_updated'));
 }
 
+export async function openWorkspacePathOperationNotificationTarget(target: WorkspacePathOperationNotificationTarget): Promise<boolean> {
+  if (!await openWorkspacePathOperationStatus(target)) return false;
+  const itemId = target.batchId ? `${WORKSPACE_PATH_OPERATION_NOTIFICATION_PREFIX}${target.batchId}`
+    : `${WORKSPACE_PATH_PROBLEM_NOTIFICATION_PREFIX}${target.problemId}`;
+  void updateNotification({ action: 'mark_item_read', workspaceId: target.workspaceId, itemId }).catch(() => undefined);
+  return true;
+}
+
 export function homeNotificationItems(summary: NotificationSummary | null): NotificationItem[] {
   if (!summary) return [];
   const unique = new Map<string, NotificationItem>();
   for (const item of [...summary.items, ...summary.sections.notifications, ...summary.sections.todoAttention, ...summary.sections.emailAttention]) {
     unique.set(`${item.workspaceId}:${item.id}`, item);
   }
-  return [...unique.values()].filter((item) => item.unread || item.priority === 'high' || item.target.kind === 'todo' || item.target.kind === 'memory' || item.target.kind === 'email' || item.target.kind === 'file_operation')
+  return [...unique.values()].filter((item) => item.unread || item.priority === 'high' || item.target.kind === 'todo' || item.target.kind === 'memory' || item.target.kind === 'email' || item.target.kind === 'file_operation' || item.target.kind === 'file_path_operation')
     .sort((a, b) => Number(b.priority === 'high') - Number(a.priority === 'high') || Date.parse(b.occurredAt) - Date.parse(a.occurredAt));
 }

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { mock } from 'node:test';
 import { NextRequest } from 'next/server';
+import type { WorkspacePathOperationProblemInput } from '../app/lib/files/workspace-path-operation-problems';
 
 async function main() {
   let authenticated = true;
@@ -13,6 +14,10 @@ async function main() {
   let auditCalls = 0;
   let lockDepth = 0;
   let receiptUnavailable = false;
+  let auditUnavailable = false;
+  let recorderUnavailable = false;
+  let directError: Error | null = null;
+  const problems: WorkspacePathOperationProblemInput[] = [];
   let previewError: Error | null = null;
   let status = 'applied';
   let currentReadiness: 'ready' | 'blocked' = 'ready';
@@ -48,7 +53,14 @@ async function main() {
     jsonServerError: (_prefix: string, error: unknown) => jsonError(String(error), 500),
     readJsonBody: (request: Request) => request.json(),
   } });
-  mock.module('@/app/lib/audit/audit-service', { exports: { recordAuditEvent: async () => { auditCalls += 1; } } });
+  mock.module('@/app/lib/audit/audit-service', { exports: { recordAuditEvent: async () => {
+    auditCalls += 1;
+    if (auditUnavailable) throw new Error('Private audit infrastructure error');
+  } } });
+  mock.module('@/app/lib/files/workspace-path-operation-problems', { exports: { recordWorkspacePathOperationProblem: async (input: WorkspacePathOperationProblemInput) => {
+    if (recorderUnavailable) throw new Error('Private recorder infrastructure error');
+    problems.push(input);
+  } } });
   mock.module('@/app/lib/filesystem/app-output-folders', { exports: { isProtectedAppOutputFolder: () => false } });
   mock.module('@/app/lib/filesystem/workspace-files', { exports: {
     checkRenameConflict: async () => conflict,
@@ -101,6 +113,7 @@ async function main() {
     submitDirectWorkspacePathOperation: async (input: (typeof submitted)[number]) => {
       assert.equal(lockDepth, 1, 'submission follows a refreshed permission check under the mutation lock');
       directCalls += 1; submitted.push(input);
+      if (directError) throw directError;
       if (input.expectedPlanId && input.expectedPlanId !== currentPlanId) throw new WorkspacePreviewStaleError('changed');
       return { ...operation(), workspaceId: 'ws', plan: { previewContents: [{ path: 'Notes/start.md' }] } };
     },
@@ -151,6 +164,7 @@ async function main() {
     previewError = new WorkspacePreviewUnavailableError('unreadable');
     assert.equal((await rename({ dryRun: true })).status, 422);
     previewError = null;
+    assert.equal(problems.length, 0, 'dry-run preview failures do not create operational notifications');
     assert.equal((await rename({ planId: 'b'.repeat(64) })).status, 409);
     const applied = await rename({ planId: currentPlanId, updateLinks: false, idempotencyKey: 'rename-request' });
     const appliedBody = await applied.json();
@@ -162,6 +176,7 @@ async function main() {
     assert.equal(submitted.at(-1)!.expectedPlanId, currentPlanId);
     assert.equal(submitted.at(-1)!.idempotencyKey, 'rename-request');
     const auditsAfterApply = auditCalls;
+    const problemsBeforeBatchFailures = problems.length;
     for (const pending of ['queued', 'applying']) {
       status = pending;
       const response = await rename({ overwrite: true });
@@ -181,6 +196,7 @@ async function main() {
       assert.equal(body.linkUpdates, undefined, 'partial link maintenance never returns a successful result');
     }
     assert.equal(auditCalls, auditsAfterApply);
+    assert.equal(problems.length, problemsBeforeBatchFailures, 'existing durable batch failures own their notification');
     status = 'blocked';
     for (const code of ['FILE_EXISTS', 'DIRECTORY_EXISTS', 'SOURCE_NOT_FOUND']) {
       conflict = { code, type: code === 'DIRECTORY_EXISTS' ? 'directory' : 'file', message: 'Path conflict',
@@ -201,10 +217,35 @@ async function main() {
     assert.equal(missingBody.code, 'BATCH_JOURNAL_UNAVAILABLE');
     assert.equal(missingBody.operation.batchId, 'direct-rename-job');
     assert.equal(missingBody.mutation, undefined);
-    receiptUnavailable = false; revokedInsideLock = true;
+    assert.equal((problems.at(-1)!.error as { code: string }).code, 'BATCH_JOURNAL_UNAVAILABLE');
+    assert.equal(problems.at(-1)!.workspace.workspaceId, 'ws');
+    assert.equal(problems.at(-1)!.actorUserId, 'user');
+    receiptUnavailable = false;
+    directError = Object.assign(new Error('Only files can be overwritten'), { status: 409, code: 'BATCH_OVERWRITE_REQUIRES_FILES' });
+    const early = await rename({ overwrite: true });
+    assert.equal(early.status, 409);
+    assert.equal((await early.json()).operation, undefined, 'pre-plan failure has no fictional batch');
+    assert.equal((problems.at(-1)!.error as { code: string }).code, 'BATCH_OVERWRITE_REQUIRES_FILES');
+    assert.deepEqual(problems.at(-1)!.selections, [{ sourcePath: 'Notes/chart.png', destinationPath: 'Notes/new.png' }]);
+    const originalError = directError;
+    recorderUnavailable = true;
+    const unavailable = await rename({ overwrite: true });
+    assert.equal(unavailable.status, 409);
+    assert.equal((await unavailable.json()).code, 'BATCH_OVERWRITE_REQUIRES_FILES', 'recorder failure does not replace the original operation failure');
+    assert.equal(directError, originalError);
+    recorderUnavailable = false; directError = null; auditUnavailable = true;
+    const audited = await rename();
+    assert.equal(audited.status, 200, 'a failed audit cannot turn a proven completed mutation into a retryable failure');
+    assert.equal((await audited.json()).mutation.operationId, 'receipted-mutation');
+    assert.equal((problems.at(-1)!.error as { code: string }).code, 'BATCH_AUDIT_FAILED');
+    recorderUnavailable = true;
+    assert.equal((await rename()).status, 200, 'completed receipts remain success even if audit and problem persistence are unavailable');
+    recorderUnavailable = false; auditUnavailable = false; revokedInsideLock = true;
     const beforeDenied = directCalls;
+    const problemsBeforeDenied = problems.length;
     assert.equal((await rename()).status, 403);
     assert.equal(directCalls, beforeDenied);
+    assert.equal(problems.length, problemsBeforeDenied, 'revoked authority never creates a foreign workspace problem');
     revokedInsideLock = false;
     assert.equal((await rename({ planId: 'invalid' })).status, 422);
     assert.equal((await rename({ oldPath: 123 })).status, 400);

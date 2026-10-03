@@ -77,4 +77,16 @@ export const WORKSPACE_OPERATION_REVIEW_STATEMENTS = [
     WHERE status IN ('queued','checking')`,
   `CREATE INDEX IF NOT EXISTS idx_workspace_file_operation_checks_queue
     ON workspace_file_operation_checks (status,created_at,check_id)`,
+  `CREATE TABLE IF NOT EXISTS workspace_path_operation_problems (
+    problem_id text PRIMARY KEY CHECK (problem_id ~ '^[a-f0-9]{64}$'),
+    workspace_id text NOT NULL,
+    actor_user_id text NOT NULL,
+    operation_kind text NOT NULL CHECK (operation_kind IN ('move','rename','delete')),
+    selections_json text NOT NULL CHECK (jsonb_typeof(selections_json::jsonb) = 'array'),
+    error_code text NOT NULL CHECK (error_code ~ '^[A-Z][A-Z0-9_]{0,63}$'),
+    created_at bigint NOT NULL,
+    updated_at bigint NOT NULL CHECK (updated_at >= created_at)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_workspace_path_operation_problems_attention
+    ON workspace_path_operation_problems (workspace_id,updated_at DESC,problem_id)`,
 ] as const;

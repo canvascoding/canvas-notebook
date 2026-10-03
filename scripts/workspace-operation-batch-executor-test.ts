@@ -368,9 +368,15 @@ async function main() {
     const twoReversePaused = await makeExecutor().undo({ batchId: twoReverseId, scope, actorUserId: 'tester', actorDisplayName: 'Tester',
       onProgress: async () => { if (await fs.stat(absolute('ledger-undo-dir/doc.md')).then(() => true, () => false)) throw new Error('LATER_REVERSE_STEP_INTERRUPTED'); } });
     assert.equal(twoReversePaused.status, 'needs_recovery');
+    assert.ok(twoReversePaused.completedActions < twoReversePaused.totalActions,
+      'Interrupted Undo counts inverse receipts rather than completed forward steps');
+    assert.equal(twoReversePaused.completedActions,
+      twoReversePaused.stepResults!.filter((step) => step.state === 'applied').length);
     const twoReverseLedger = (await makeExecutor().publicExecution({ batchId: twoReverseId, scope, plan: twoReversePlan,
       actionMode: 'undo', status: 'needs_recovery', completedActions: twoReversePaused.completedActions, phase: 'recovery' }))!;
     assert.equal(twoReverseLedger.receiptStatus, 'available'); assert.equal(twoReverseLedger.finalization, 'pending');
+    assert.equal(twoReversePaused.completedActions,
+      twoReverseLedger.steps.filter((step) => step.state === 'applied').length);
     const restoredDocument = twoReverseLedger.steps.find((step) => step.phase === 'link' && step.path === 'nested/ledger-undo-dir-moved/doc.md')!;
     assert.equal(restoredDocument.state, 'applied'); assert.equal(restoredDocument.openPath, 'ledger-undo-dir/doc.md');
     assert.equal(await fs.readFile(absolute(restoredDocument.openPath!), 'utf8'), '[Anchor](../ledger-anchor.md)');

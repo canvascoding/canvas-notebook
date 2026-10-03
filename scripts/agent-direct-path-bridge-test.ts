@@ -7,6 +7,7 @@ import path from 'node:path';
 import type { WorkspacePathOperationInput } from '../app/lib/files/workspace-path-operation-service';
 import type { WorkspaceOperationBatchRecord } from '../app/lib/files/workspace-operation-batch-store';
 import type { WorkspaceOperationBatchExecutionPublic } from '../app/lib/files/workspace-operation-batch-public';
+import type { WorkspacePathOperationProblemInput } from '../app/lib/files/workspace-path-operation-problems';
 
 async function main(): Promise<void> {
   const dataRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-agent-direct-path-'));
@@ -24,6 +25,10 @@ async function main(): Promise<void> {
   let nextStatus: WorkspaceOperationBatchRecord['status'] = 'applied';
   let journalAvailable = true;
   let trashMetadataUnavailable = false;
+  let auditUnavailable = false;
+  let recorderUnavailable = false;
+  let directSubmissionError: Error | null = null;
+  const problems: WorkspacePathOperationProblemInput[] = [];
   let reviewMode: 'needs_review' | 'direct' = 'needs_review';
   const inputIdentity = (input: WorkspacePathOperationInput) => JSON.stringify([
     input.kind, input.selections, Boolean(input.overwrite), Boolean(input.ignoreMissing), input.actorUserId, input.actorId,
@@ -36,7 +41,16 @@ async function main(): Promise<void> {
     if (request === '@/app/lib/document-review-availability') return {
       readDocumentReviewAvailability: () => ({ documentReviewEnabled: reviewEnabled, updatedAt: null }),
     };
-    if (request === '@/app/lib/audit/audit-service') return { recordAuditEvent: async () => ({ id: 'test-audit' }) };
+    if (request === '@/app/lib/audit/audit-service') return { recordAuditEvent: async () => {
+      if (auditUnavailable) throw new Error('Private audit infrastructure error');
+      return { id: 'test-audit' };
+    } };
+    if (request === '@/app/lib/files/workspace-path-operation-problems') return {
+      recordWorkspacePathOperationProblem: async (input: WorkspacePathOperationProblemInput) => {
+        if (recorderUnavailable) throw new Error('Private recorder infrastructure error');
+        problems.push(input);
+      },
+    };
     if (request === '@/app/lib/filesystem/workspace-files') return {
       ...originalLoad(request, parent, isMain) as object,
       withWorkspaceFileMutationLocks: async (_paths: unknown, _options: unknown, work: () => Promise<unknown>) => {
@@ -71,6 +85,7 @@ async function main(): Promise<void> {
         return row.batch;
       },
       submitDirectWorkspacePathOperation: async (input: WorkspacePathOperationInput) => {
+        if (directSubmissionError) throw directSubmissionError;
         if (input.selections.some((selection) => selection.sourcePath.startsWith('snapshot-'))) {
           assert.equal(lockDepth, 1, 'snapshot capture and initial direct-plan submission share the workspace lock');
         }
@@ -210,6 +225,7 @@ async function main(): Promise<void> {
       assert.equal(await fs.readFile(path.join(workspaceRoot, 'out/replace.md'), 'utf8'), '# replace.md');
 
       nextStatus = 'queued'; await seed('queued.md');
+      const problemsBeforePending = problems.length;
       const queued = await deleteAgentPaths({ paths: ['queued.md'] });
       assert.equal(queued.changed, false); assert.equal(queued.verified, false);
       assert.equal(queued.fileOperation?.status, 'queued'); assert.equal(queued.linkStatus, 'incomplete');
@@ -226,12 +242,15 @@ async function main(): Promise<void> {
       const partial = await deleteAgentPaths({ paths: ['partial.md'] });
       assert.equal(partial.changed, true); assert.equal(partial.verified, false); assert.equal(partial.linkStatus, 'partial');
       assert.equal(partial.fileOperation?.status, 'needs_recovery');
+      assert.equal(problems.length, problemsBeforePending, 'existing durable batch failures are the independent notification source');
 
       nextStatus = 'applied'; journalAvailable = false; await seed('unproven.md');
       const unproven = await deleteAgentPaths({ paths: ['unproven.md'] });
       assert.equal(unproven.changed, false); assert.equal(unproven.verified, false);
       assert.match(unproven.linkWarnings.join(' '), /journal/u);
       assert.equal(await fs.readFile(path.join(workspaceRoot, 'unproven.md'), 'utf8'), '# unproven.md');
+      assert.equal((problems.at(-1)!.error as { code: string }).code, 'BATCH_JOURNAL_UNAVAILABLE');
+      assert.deepEqual(problems.at(-1)!.selections, [{ sourcePath: 'unproven.md' }]);
       journalAvailable = true;
 
       reviewEnabled = true; await seed('review-move.md'); await seed('review-delete.md'); await seed('copy.md');
@@ -325,6 +344,42 @@ async function main(): Promise<void> {
       await assert.rejects(moveAgentPaths({ sourcePaths: ['unexpected-direct.md'], destinationPath: 'out/unexpected-direct.md' }),
         /did not record the file action/u);
       assert.equal(await fs.readFile(path.join(workspaceRoot, 'unexpected-direct.md'), 'utf8'), '# unexpected-direct.md');
+      reviewEnabled = false; reviewMode = 'needs_review'; nextStatus = 'applied';
+      const beforeValidation = problems.length;
+      await assert.rejects(deleteAgentPaths({ paths: ['missing-before-service.md'] }), /does not exist/u);
+      assert.equal(problems.length, beforeValidation + 1);
+      assert.equal(problems.at(-1)!.workspace.workspaceId, context.workspaceId);
+      assert.equal(problems.at(-1)!.actorUserId, context.userId);
+      assert.deepEqual(problems.at(-1)!.selections, [{ sourcePath: 'missing-before-service.md' }]);
+      await assert.rejects(moveAgentPaths({ sourcePaths: [], destinationPath: 'out/empty.md' }));
+      assert.deepEqual(problems.at(-1)!.selections, [], 'invalid empty input creates a generic problem without private path text');
+      await seed('audit-completed.md'); auditUnavailable = true;
+      const audited = await moveAgentPaths({ sourcePaths: ['audit-completed.md'], destinationPath: 'out/audit-completed.md' });
+      assert.equal(audited.verified, true); assert.equal(audited.fileOperation?.status, 'applied');
+      assert.equal((problems.at(-1)!.error as { code: string }).code, 'BATCH_AUDIT_FAILED');
+      auditUnavailable = false;
+      await seed('early-failed.md');
+      const originalError = Object.assign(new Error('Private early service detail'), { code: 'BATCH_OVERWRITE_REQUIRES_FILES', status: 409 });
+      directSubmissionError = originalError; recorderUnavailable = true;
+      await assert.rejects(moveAgentPaths({ sourcePaths: ['early-failed.md'], destinationPath: 'out/early-failed.md', overwrite: true }),
+        (error) => error === originalError, 'unavailable problem persistence never replaces the original thrown error');
+      recorderUnavailable = false;
+      await assert.rejects(moveAgentPaths({ sourcePaths: ['early-failed.md'], destinationPath: 'out/early-failed.md' }), (error) => error === originalError);
+      assert.equal(problems.at(-1)!.error, originalError);
+      await seed('snapshot-error.md');
+      await fs.writeFile(path.join(snapshots, 'known-delete-error.json'), JSON.stringify({ version: 1, id: 'known-delete-error',
+        path: 'snapshot-error.md', resolvedPath: path.join(workspaceRoot, 'snapshot-error.md'), existed: false,
+        size: 0, sha256: null, operation: 'write', createdAt: new Date().toISOString() }));
+      await assert.rejects(restoreAgentFileSnapshot({ snapshotId: 'known-delete-error' }), (error) => error === originalError);
+      assert.equal(problems.at(-1)!.kind, 'delete');
+      assert.deepEqual(problems.at(-1)!.selections, [{ sourcePath: 'snapshot-error.md' }]);
+      directSubmissionError = null;
+      const beforeUnknownSnapshot = problems.length;
+      await assert.rejects(restoreAgentFileSnapshot({ snapshotId: 'unknown-snapshot' }));
+      assert.equal(problems.length, beforeUnknownSnapshot, 'unknown snapshot metadata never fabricates a deletion');
+      await assert.rejects(runWithAgentExecutionContext({ ...context, canDelete: false },
+        () => deleteAgentPaths({ paths: ['early-failed.md'] })));
+      assert.equal(problems.length, beforeUnknownSnapshot, 'denied mutation authority cannot create a workspace problem');
     });
     console.log('agent direct path bridge: OFF direct move/delete/overwrite, ON reviews, unchanged copy, immutable retry with ignored missing paths and no-op jobs, truthful receipts and snapshot queued/recovery retry across flag and actor changes passed');
   } finally {

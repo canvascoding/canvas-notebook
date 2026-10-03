@@ -674,7 +674,9 @@
     "test:mcp:settings": "tsx scripts/mcp-server-dialog-test.tsx && tsx scripts/plugin-mcp-secret-patch-test.ts && npm run test:settings:developer-mode",
     "test:mcp:oauth:e2e": "playwright test tests/mcp-oauth-ui.spec.ts --workers=1",
     "test:files:operation-direct": "tsx --conditions react-server scripts/workspace-path-operation-service-test.ts && tsx --conditions react-server scripts/workspace-operation-direct-worker-test.ts && tsx --conditions react-server scripts/agent-direct-path-bridge-test.ts && tsx scripts/workspace-path-operation-client-test.ts && tsx --conditions react-server scripts/workspace-path-operation-response-test.ts && tsx --conditions react-server scripts/workspace-path-operation-status-route-test.ts",
-    "test:files:operation-direct:e2e": "node --import tsx scripts/run-workspace-operation-batch-e2e.mjs --automatic"
+    "test:files:operation-direct:e2e": "node --import tsx scripts/run-workspace-operation-batch-e2e.mjs --automatic",
+    "test:files:operation-notifications": "tsx --conditions react-server scripts/workspace-path-operation-notification-source-test.ts && tsx --conditions react-server scripts/workspace-path-operation-notification-summary-test.ts && tsx --conditions react-server scripts/workspace-path-operation-problem-route-test.ts && tsx scripts/workspace-path-operation-status-store-test.ts && tsx scripts/workspace-path-operation-status-ui-test.tsx",
+    "test:files:operation-notifications:e2e": "node --import tsx scripts/run-workspace-operation-batch-e2e.mjs --attention"
   },
   "dependencies": {
     "@better-auth/expo": "1.7.1",

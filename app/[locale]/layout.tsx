@@ -17,6 +17,7 @@ import { WorkspaceNavigationSync } from '@/app/components/workspaces/WorkspaceNa
 import { workspaceAppearanceInitScript } from '@/app/lib/workspaces/appearance-theme-init';
 import { WebSocketProvider } from '@/app/components/websocket-provider';
 import { FileVersionCenterHost } from '@/app/components/file-version-center/FileVersionCenterHost';
+import { WorkspacePathOperationStatusHost } from '@/app/components/file-browser/WorkspacePathOperationStatusHost';
 import { EmailReviewHost } from '@/app/components/email-review/EmailReviewHost';
 import { MemoryReviewHost } from '@/app/components/memory-review/MemoryReviewHost';
 import { TodoDetailHost } from '@/app/components/todo-detail/TodoDetailHost';
@@ -113,6 +114,9 @@ export default async function LocaleLayout({
                     <WebSocketProvider enabled>
                       {children}
                       <FileVersionCenterHost />
+                      <Suspense fallback={null}>
+                        <WorkspacePathOperationStatusHost />
+                      </Suspense>
                       <MemoryReviewHost />
                       <Suspense fallback={null}>
                         <TodoDetailHost />

@@ -8,13 +8,14 @@ import { NextRequest } from 'next/server';
 import type { SqlConnection } from '../app/lib/db';
 import { WORKSPACE_OPERATION_REVIEW_STATEMENTS } from '../app/lib/db/workspace-operation-review-migration';
 import { WorkspaceOperationBatchError, WorkspaceOperationBatchStore,
-  type WorkspaceOperationBatchRecord } from '../app/lib/files/workspace-operation-batch-store';
+  workspaceOperationBatchAuthorityUserId, type WorkspaceOperationBatchRecord } from '../app/lib/files/workspace-operation-batch-store';
 import type { WorkspaceOperationBatchPlan, WorkspaceOperationBatchScope,
   WorkspaceOperationBatchExecutionResult } from '../app/lib/files/workspace-operation-batch-contract';
 import type { WorkspaceOperationBatchExecutionPublic } from '../app/lib/files/workspace-operation-batch-public';
 import type * as BatchService from '../app/lib/files/workspace-operation-batch-service';
 import type * as ResponseService from '../app/lib/files/workspace-path-operation-response';
 import type * as Route from '../app/api/files/operations/batches/[batchId]/route';
+import type { WorkspacePathOperationProblemInput } from '../app/lib/files/workspace-path-operation-problems';
 
 const requireNative = createRequire(path.resolve('package.json'));
 
@@ -62,6 +63,9 @@ async function main(): Promise<void> {
   let canRead = true;
   let canWrite = true;
   let canDelete = true;
+  let canRunAgent = true;
+  let agentSessionAvailable = true;
+  let agentSessionReads = 0;
   let revokedOnRefresh = false;
   let changedRootOnRefresh = false;
   let workspaceStatus: 'active' | 'archived' = 'active';
@@ -72,12 +76,19 @@ async function main(): Promise<void> {
   let publicProofAvailable = true;
   let undoAvailable = true;
   let undoChecks = 0;
+  let undoCapabilityChecks = 0;
   let lockDepth = 0;
   const enqueues: Array<Parameters<typeof BatchService.enqueueWorkspaceOperationBatch>[0]> = [];
+  const problems: WorkspacePathOperationProblemInput[] = [];
   const permissions: Array<{ workspaceId: string; requested: string | string[]; userId: string }> = [];
   const jsonError = (error: string, status: number, details: object = {}) =>
     Response.json({ success: false, error, ...details }, { status });
-  const errors = { WorkspaceOperationBatchError, WorkspaceOperationBatchStore: FixtureStore };
+  const errors = { WorkspaceOperationBatchError, WorkspaceOperationBatchStore: FixtureStore, workspaceOperationBatchAuthorityUserId };
+  const assertUndoAvailable = async (input: { batchId: string; scope: WorkspaceOperationBatchScope }) => {
+    if (lockDepth) undoChecks += 1; else undoCapabilityChecks += 1;
+    assert.equal(input.batchId, batchId); assert.equal(input.scope.workspace.workspaceId, workspace.workspaceId);
+    if (!undoAvailable) throw new Error('Newer work prevents Undo');
+  };
   const execution: WorkspaceOperationBatchExecutionResult = {
     status: 'applied', trashEntryIds: [], completedActions: 1, totalActions: 1, errorCode: null,
     stepResults: [{ key: 'path:0', phase: 'path', state: 'applied', path: 'old.bin',
@@ -110,12 +121,7 @@ async function main(): Promise<void> {
       './workspace-operation-batch-plan': { workspaceOperationBatchPublicPreview: () => ({ planId }) },
       './workspace-operation-batch-executor': {
         getWorkspaceOperationBatchExecutionPublic: publicExecution,
-        assertWorkspaceOperationBatchUndoAvailable: async (input: { batchId: string; scope: WorkspaceOperationBatchScope }) => {
-          undoChecks += 1;
-          assert.equal(lockDepth, 1); assert.equal(input.batchId, batchId);
-          assert.equal(input.scope.workspace.workspaceId, workspace.workspaceId);
-          if (!undoAvailable) throw new Error('Newer work prevents Undo');
-        },
+        assertWorkspaceOperationBatchUndoAvailable: assertUndoAvailable,
       },
       './workspace-operation-review-service': {}, './workspace-operation-batch-approval-fence': {},
     });
@@ -129,6 +135,18 @@ async function main(): Promise<void> {
       '@/app/lib/auth': { auth: { api: { getSession: async () => authenticated ? { user: { id: userId, name: 'Initiator' } } : null } } },
       '@/app/lib/files/workspace-operation-batch-store': errors,
       '@/app/lib/files/workspace-path-operation-response': responseService,
+      '@/app/lib/files/workspace-path-operation-problems': { recordWorkspacePathOperationProblem: async (input: WorkspacePathOperationProblemInput) => { problems.push(input); } },
+      '@/app/lib/files/workspace-operation-batch-executor': { assertWorkspaceOperationBatchUndoAvailable: assertUndoAvailable },
+      '@/app/lib/db': { openDb: connect },
+      '@/app/lib/pi/session-workspace-context': { readStoredAgentWorkspaceOnConnection: async (_db: unknown,
+        input: { userId: string; agentId: string; sessionId: string; workspaceId: string; permissions: string[] }) => {
+        agentSessionReads += 1;
+        assert.equal(input.userId, 'initiator'); assert.equal(input.agentId, 'canvas-agent');
+        assert.equal(input.sessionId, 'original-agent-session'); assert.equal(input.workspaceId, workspace.workspaceId);
+        assert.deepEqual(input.permissions, ['canRead', 'canRunAgent', 'canWrite', 'canDelete']);
+        if (!agentSessionAvailable) throw new Error('Originating session revoked');
+        return workspace;
+      } },
       '@/app/lib/files/workspace-operation-batch-service': { enqueueWorkspaceOperationBatch: async (input: (typeof enqueues)[number]) => {
         enqueues.push(input); return service.enqueueWorkspaceOperationBatch(input);
       } },
@@ -148,7 +166,7 @@ async function main(): Promise<void> {
           return { workspace: { ...workspace, status: workspaceStatus,
             workspaceId: foreignScope ? 'foreign-workspace' : workspace.workspaceId,
             rootPath: changedRootOnRefresh && authorityReads > 1 ? '/changed/root' : workspace.rootPath,
-            permissions: { ...workspace.permissions, canRead, canWrite, canDelete } } };
+            permissions: { ...workspace.permissions, canRead, canWrite, canDelete, canRunAgent } } };
         },
       },
     });
@@ -178,7 +196,8 @@ async function main(): Promise<void> {
     assert.equal(pending.status, 200); assert.equal(pending.headers.get('Cache-Control'), 'no-store');
     const pendingBody = await pending.json();
     assert.equal(pendingBody.operation.status, 'queued');
-    assert.deepEqual(Object.keys(pendingBody).sort(), ['operation', 'success']);
+    assert.deepEqual(Object.keys(pendingBody).sort(), ['operation', 'recovery', 'success']);
+    assert.deepEqual(pendingBody.recovery, { canResume: false, canUndo: false });
     assert.equal((await invoke('POST')).status, 403, 'read authority does not authorize recovery');
     canWrite = true;
     assert.equal((await invoke('POST')).status, 403, 'delete authority is separately required');
@@ -189,13 +208,27 @@ async function main(): Promise<void> {
       await settle(status);
       const body = await (await invoke('GET')).json();
       assert.equal(body.operation.status, status);
-      assert.deepEqual(Object.keys(body).sort(), ['operation', 'success']);
+      assert.deepEqual(Object.keys(body).sort(), ['operation', 'recovery', 'success']);
+      assert.deepEqual(body.recovery, { canResume: ['needs_recovery', 'failed'].includes(status), canUndo: false });
     }
+    const originalSessionReads = agentSessionReads;
+    canRunAgent = false;
+    assert.equal((await (await invoke('GET')).json()).recovery.canResume, false);
+    assert.equal(agentSessionReads, originalSessionReads, 'revoked agent permission disables Resume before opening the original session');
+    canRunAgent = true; agentSessionAvailable = false;
+    assert.equal((await (await invoke('GET')).json()).recovery.canResume, false, 'revoked originating session cannot advertise an agent Resume');
+    await settle('failed', 'undo');
+    assert.equal((await (await invoke('GET')).json()).recovery.canResume, true, 'human Undo recovery does not depend on the old agent session');
+    agentSessionAvailable = true;
     await settle('applied');
     const appliedBody = await (await invoke('GET')).json();
     assert.equal(appliedBody.operation.batchId, batchId);
     assert.equal(appliedBody.mutation.operationId, 'actual-filesystem-receipt');
     assert.equal(appliedBody.linkStatus, 'complete');
+    assert.deepEqual(appliedBody.recovery, { canResume: false, canUndo: true });
+    undoAvailable = false;
+    assert.equal((await (await invoke('GET')).json()).recovery.canUndo, false, 'SQL applied alone never proves safe Undo');
+    undoAvailable = true;
     assert.equal(JSON.stringify(appliedBody).includes('original-agent-session'), false);
     for (const missing of ['public', 'raw'] as const) {
       publicProofAvailable = missing !== 'public'; journalAvailable = missing !== 'raw';
@@ -203,6 +236,8 @@ async function main(): Promise<void> {
       assert.equal(response.status, 409);
       const body = await response.json();
       assert.equal(body.code, 'BATCH_JOURNAL_UNAVAILABLE'); assert.equal(body.mutation, undefined);
+      assert.equal((problems.at(-1)!.error as { code: string }).code, 'BATCH_JOURNAL_UNAVAILABLE');
+      assert.equal(problems.at(-1)!.workspace.workspaceId, workspace.workspaceId);
     }
     publicProofAvailable = true; journalAvailable = true;
     await settle('undone', 'undo');
@@ -225,10 +260,13 @@ async function main(): Promise<void> {
     assert.equal(stale.status, 409); assert.equal((await stale.json()).code, 'PREVIEW_STALE');
     assert.equal((await store.get(batchId))?.status, 'failed');
     userId = 'another-member';
+    assert.deepEqual((await (await invoke('GET')).json()).recovery, { canResume: false, canUndo: false });
+    const problemsBeforeDenied = problems.length;
     for (const action of ['resume', 'undo']) {
       const denied = await invoke('POST', { action, planId });
       assert.equal(denied.status, 403); assert.equal((await denied.json()).code, 'BATCH_DIRECT_AUTHORIZATION_REQUIRED');
     }
+    assert.equal(problems.length, problemsBeforeDenied, 'a different actor never creates a foreign problem through rejected recovery');
     userId = 'initiator'; revokedOnRefresh = true;
     assert.equal((await invoke('POST')).status, 403);
     assert.equal((await store.get(batchId))?.status, 'failed', 'revocation is rechecked under the recovery lock');
@@ -261,11 +299,20 @@ async function main(): Promise<void> {
     assert.equal(undoRecord.actionMode, 'undo'); assert.equal(undoRecord.status, 'queued');
     assert.equal(undoRecord.reviewerUserId, null); assert.equal(undoRecord.completedActions, 0);
     assert.equal(undoChecks, 2, 'both Undo requests inspect the genuine operation before queueing');
+    assert.ok(undoCapabilityChecks >= 2);
     assert.ok(permissions.every((entry) => entry.workspaceId === workspace.workspaceId));
     assert.ok(permissions.some((entry) => entry.requested === 'canRead'));
     assert.ok(permissions.some((entry) => JSON.stringify(entry.requested) === JSON.stringify(['canRead', 'canWrite', 'canDelete'])));
     assert.equal(Number((await pg.query<{ count: string }>('SELECT count(*)::text AS count FROM workspace_file_operation_batches')).rows[0]!.count), 1,
       'recovery requeues the original batch without manufacturing another successful operation');
+    await pg.query(`UPDATE workspace_file_operation_batches SET authorization_json=$2,reviewer_user_id=$3 WHERE batch_id=$1`,
+      [batchId, JSON.stringify({ mode: 'review' }), 'original-reviewer']);
+    await settle('failed');
+    assert.equal((await (await invoke('GET')).json()).recovery.canResume, false, 'review recovery belongs to its original reviewer');
+    userId = 'original-reviewer';
+    assert.equal((await (await invoke('GET')).json()).recovery.canResume, true);
+    await settle('applied'); userId = 'another-writer';
+    assert.equal((await (await invoke('GET')).json()).recovery.canUndo, true, 'authorized writers may safely Undo a reviewed batch');
     console.log('workspace path status/recovery route: scoped authority, exact plan, actual receipts, genuine resume/Undo queue and refreshed permissions passed');
   } finally { await pg.close(); }
 }

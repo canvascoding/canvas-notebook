@@ -3285,9 +3285,40 @@
       "automation": "Automation needs attention",
       "file_change": "File change",
       "file_operation": "File action review",
+      "file_path_operation": "File action",
       "memory": "Memory approval required",
       "mcp": "MCP connection needs attention",
       "license": "Team license event"
+    },
+    "filePathOperations": {
+      "openFailed": "The file action could not be opened.",
+      "kind_move": "Move",
+      "kind_rename": "Rename",
+      "kind_delete": "Delete",
+      "queued": {
+        "title": "{action}: queued",
+        "detail": "Processing continues in the background. Open the action to see its progress."
+      },
+      "applying": {
+        "title": "{action}: running",
+        "detail": "Files and links are being updated. Open the action to see its progress."
+      },
+      "blocked": {
+        "title": "{action}: blocked",
+        "detail": "Check the issue before requesting the file action again."
+      },
+      "stale": {
+        "title": "{action}: request outdated",
+        "detail": "The workspace changed. Check the current files before making a new request."
+      },
+      "failed": {
+        "title": "{action}: encountered a problem",
+        "detail": "Open the action to inspect its status and error."
+      },
+      "needs_recovery": {
+        "title": "{action}: recovery needed",
+        "detail": "Inspect the recovery options before running further file actions."
+      }
     },
     "fileOperations": {
       "openFailed": "The file action could not be opened.",
@@ -3346,6 +3377,51 @@
     "empty": {
       "title": "All read",
       "description": "New replies, approvals, to-dos, and important results appear here."
+    }
+  },
+  "workspacePathOperationStatus": {
+    "title": "File action",
+    "description": "Status of this file action and its link updates.",
+    "openFailed": "The file action is unavailable in this workspace.",
+    "close": "Close",
+    "refresh": "Refresh",
+    "resume": "Resume",
+    "undo": "Undo",
+    "loading": "Loading the file action…",
+    "resuming": "Waiting for the resumed action to finish…",
+    "undoing": "Waiting for Undo to finish…",
+    "progress": "{completed} of {total} steps completed",
+    "errorCode": "Error code",
+    "files": "Affected paths",
+    "moreFiles": "{count} more paths",
+    "problemTitle": "The file action encountered a problem",
+    "problemGuidance": "Inspect the details and the current files before retrying. Resolve the cause before making a new file request.",
+    "auditFailed": "Files and links were updated, but the audit record could not be saved. Inspect the current files before making another request.",
+    "status": {
+      "queued": "Queued",
+      "applying": "Updating files and links",
+      "blocked": "Action blocked",
+      "stale": "Request outdated",
+      "failed": "Action encountered a problem",
+      "needs_recovery": "Recovery needed",
+      "applied": "Files and links updated",
+      "undone": "Action undone"
+    },
+    "guidance": {
+      "queued": "Processing continues in the background. You can close this window and return later.",
+      "applying": "The action is still running. The status updates automatically.",
+      "blocked": "Resolve the reported issue, then make a new file request. This blocked request will not run automatically.",
+      "stale": "The workspace changed after this request was prepared. Check the current files and make a new request.",
+      "failed": "Inspect the error and the current files. Use a recovery option only when one is available.",
+      "needs_recovery": "Inspect the current files before continuing. Available recovery options apply to this exact action.",
+      "applied": "This action and its link updates finished.",
+      "undone": "Undo finished for this action and its link updates."
+    },
+    "error": {
+      "load": "The status could not be loaded. Refresh to check the latest state.",
+      "action": "Recovery could not be confirmed. Refresh the status before taking another action.",
+      "access": "This file action is unavailable, or you no longer have access to it.",
+      "identity": "The response did not match this workspace and file action. Refresh before continuing."
     }
   },
   "todos": {

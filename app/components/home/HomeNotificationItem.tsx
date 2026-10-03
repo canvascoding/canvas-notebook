@@ -11,6 +11,7 @@ import {
   emailReviewTargetFromNotification,
   openFileChangeReviewNotification,
   openWorkspaceOperationNotificationTarget,
+  openWorkspacePathOperationNotificationTarget,
   shouldMarkNotificationReadOnOpen,
 } from '@/app/components/notifications/notification-actions';
 import { openEmailReview } from '@/app/store/email-review-store';
@@ -30,6 +31,7 @@ const ICONS = {
   license: KeyRound,
   file_change: FileClock,
   file_operation: FileClock,
+  file_path_operation: FileClock,
 };
 
 export function HomeNotificationItem({
@@ -62,11 +64,15 @@ export function HomeNotificationItem({
     ? t(`fileChanges.${item.fileChangeReason ?? 'needs_review'}.title`)
     : item.target.kind === 'file_operation'
       ? t(`fileOperations.${item.target.status}.title`, { action: t(`fileOperations.kind_${item.target.operationKind}`) })
+    : item.target.kind === 'file_path_operation'
+      ? t(`filePathOperations.${item.target.status}.title`, { action: t(`filePathOperations.kind_${item.target.operationKind}`) })
     : item.title;
   const typeLabel = item.target.kind === 'file_change'
     ? `${t(`fileChanges.${item.fileChangeReason ?? 'needs_review'}.detail`)}${item.workspaceName ? ` · ${item.workspaceName}` : ''}`
     : item.target.kind === 'file_operation'
       ? `${t(`fileOperations.${item.target.status}.detail`)}${item.workspaceName ? ` · ${item.workspaceName}` : ''}`
+    : item.target.kind === 'file_path_operation'
+      ? `${t(`filePathOperations.${item.target.status}.detail`)}${item.workspaceName ? ` · ${item.workspaceName}` : ''}`
     : `${t(`types.${item.target.kind}`)}${item.workspaceName ? ` · ${item.workspaceName}` : ''}`;
   const emailTarget = emailReviewTargetFromNotification(item);
   const isMemory = item.target.kind === 'memory';
@@ -104,13 +110,23 @@ export function HomeNotificationItem({
           });
           return;
         }
+        if (item.target.kind === 'file_path_operation') {
+          if (!isUnmodifiedPrimaryClick(event)) return;
+          event.preventDefault();
+          onOpenFileChange?.();
+          if (item.workspaceId !== item.target.workspaceId) { toast.error(t('filePathOperations.openFailed')); return; }
+          void openWorkspacePathOperationNotificationTarget(item.target).then((opened) => {
+            if (!opened) toast.error(t('filePathOperations.openFailed'));
+          });
+          return;
+        }
         if (item.unread && shouldMarkNotificationReadOnOpen(item)) onRead();
       }} className="flex min-h-[111px] items-start gap-2.5 rounded-lg px-2 py-5 hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
         <Icon className={`mt-0.5 h-4 w-4 shrink-0 ${item.priority === 'high' ? 'text-destructive' : 'text-muted-foreground'}`} />
         <span className="min-w-0 flex-1">
           <span className={`${showActions ? '' : 'line-clamp-2'} text-sm font-medium`}>{title}</span>
           <span className="mt-1 block truncate text-xs text-muted-foreground">{typeLabel}</span>
-          {showActions && item.detail && item.target.kind !== 'file_change' ? <span className="mt-2 block text-sm text-muted-foreground">{item.detail}</span> : null}
+          {showActions && item.detail && item.target.kind !== 'file_change' && item.target.kind !== 'file_path_operation' ? <span className="mt-2 block text-sm text-muted-foreground">{item.detail}</span> : null}
         </span>
         {item.priority === 'high' ? <CircleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0 text-destructive" aria-label={t('highPriority')} /> : null}
       </Link>

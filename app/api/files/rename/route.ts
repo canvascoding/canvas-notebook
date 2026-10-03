@@ -6,6 +6,7 @@ import { withWorkspaceMutationLock } from '@/app/lib/files/workspace-mutation-lo
 import { buildWorkspacePathOperationPlan, submitDirectWorkspacePathOperation,
   waitForWorkspacePathOperation } from '@/app/lib/files/workspace-path-operation-service';
 import { workspacePathOperationMetadata, workspacePathOperationResponse } from '@/app/lib/files/workspace-path-operation-response';
+import { recordWorkspacePathOperationProblem } from '@/app/lib/files/workspace-path-operation-problems';
 import { WorkspacePreviewBlockedError, WorkspacePreviewStaleError,
   WorkspacePreviewUnavailableError } from '@/app/lib/markdown/workspace-file-operation-preview';
 import { applyRateLimit, invalidateWorkspaceFileViews, jsonError, jsonServerError,
@@ -27,23 +28,41 @@ export async function POST(request: NextRequest): Promise<Response> {
   const workspaceResult = await requireRequestWorkspace(request, { permissions: [...permissions] });
   if (workspaceResult.response) return workspaceResult.response;
   let operation: ReturnType<typeof workspacePathOperationMetadata> | undefined;
+  let previewOnly = false;
+  const problem = { workspace: workspaceResult.workspace, actorUserId: workspaceResult.session.user.id,
+    kind: 'rename' as const, selections: [] as Array<{ sourcePath: string; destinationPath?: string }> };
+  const recordFailure = async (error: unknown) => {
+    const failure = error as { status?: number; code?: string };
+    if (previewOnly || failure?.status === 401 || failure?.status === 403
+      || operation && ['blocked', 'needs_review', 'needs_recovery', 'failed'].includes(operation.status)) return;
+    try { await recordWorkspacePathOperationProblem({ ...problem, error }); }
+    catch { console.error('[File action] Could not persist problem.', 'WORKSPACE_OPERATION_PROBLEM_RECORD_FAILED'); }
+  };
+  const invalid = async (message: string, status: number, code = 'BATCH_INVALID_REQUEST') => {
+    await recordFailure({ code });
+    return jsonError(message, status, { code });
+  };
 
   try {
     const limited = applyRateLimit(request, { limit: 20, windowMs: 60_000, keyPrefix: 'files-rename' });
     if (limited) return limited;
-    const { oldPath, newPath, overwrite = false, dryRun = false, planId, idempotencyKey } = await readJsonBody<RenameRequestBody>(request);
+    const body = await readJsonBody<RenameRequestBody>(request);
+    previewOnly = body?.dryRun === true;
+    const { oldPath, newPath, overwrite = false, dryRun = false, planId, idempotencyKey } = body;
+    problem.selections = typeof oldPath === 'string'
+      ? [{ sourcePath: oldPath, ...(typeof newPath === 'string' ? { destinationPath: newPath } : {}) }] : [];
     if (typeof oldPath !== 'string' || typeof newPath !== 'string' || !oldPath.trim() || !newPath.trim()) {
-      return jsonError('oldPath and newPath are required', 400);
+      return invalid('oldPath and newPath are required', 400);
     }
     if (typeof overwrite !== 'boolean' || typeof dryRun !== 'boolean'
       || idempotencyKey !== undefined && typeof idempotencyKey !== 'string') {
-      return jsonError('Invalid file action options', 422, { code: 'BATCH_INVALID_REQUEST' });
+      return invalid('Invalid file action options', 422);
     }
     if (isProtectedAppOutputFolder(oldPath) || isProtectedAppOutputFolder(newPath)) {
-      return jsonError('Protected app output folders cannot be modified or overwritten', 403);
+      return invalid('Protected app output folders cannot be modified or overwritten', 403, 'BATCH_PROTECTED_PATH');
     }
     if (planId !== undefined && (typeof planId !== 'string' || !/^[0-9a-f]{64}$/u.test(planId))) {
-      return jsonError('Invalid file action preview identity', 422, { code: 'PREVIEW_UNSUPPORTED_APPLY' });
+      return invalid('Invalid file action preview identity', 422, 'PREVIEW_UNSUPPORTED_APPLY');
     }
     const result = await withWorkspaceMutationLock(workspaceResult.workspace.workspaceId, async () => {
       const fresh = await requireRequestWorkspace(request, { permissions: [...permissions] });
@@ -53,6 +72,7 @@ export async function POST(request: NextRequest): Promise<Response> {
         || fresh.session.user.id !== workspaceResult.session.user.id) {
         return { mode: 'response' as const, response: jsonError('Workspace access changed before the file action', 403) };
       }
+      problem.workspace = fresh.workspace;
       const scope = { workspace: fresh.workspace, fileOptions: workspaceFileOptions(fresh.workspace) };
       const input = { scope, kind: 'rename' as const, selections: [{ sourcePath: oldPath, destinationPath: newPath }], overwrite };
       if (dryRun) {
@@ -82,13 +102,16 @@ export async function POST(request: NextRequest): Promise<Response> {
       { ...payload, code: batch.errorCode ?? 'WORKSPACE_OPERATION_FAILED' });
     invalidateWorkspaceFileViews({ fileOptions: result.scope.fileOptions, fullTree: true,
       mutations: (payload.linkUpdates?.updatedFiles ?? []).map((path) => ({ path, type: 'change' as const })) });
-    await recordAuditEvent({ organizationId: result.scope.workspace.organizationId, workspaceId: batch.workspaceId,
-      userId: workspaceResult.session.user.id, source: 'files', eventType: 'file', entityType: 'workspace_path',
-      entityId: newPath, action: 'file.rename', status: 'success', summary: `Path renamed from ${oldPath} to ${newPath}.`,
-      metadata: { oldPath, newPath, overwrite, operationId: batch.batchId, planId: batch.planId,
-        linkStatus: payload.linkStatus, linkUpdates: payload.linkUpdates, workspaceType: result.scope.workspace.workspaceType } });
+    try {
+      await recordAuditEvent({ organizationId: result.scope.workspace.organizationId, workspaceId: batch.workspaceId,
+        userId: workspaceResult.session.user.id, source: 'files', eventType: 'file', entityType: 'workspace_path',
+        entityId: newPath, action: 'file.rename', status: 'success', summary: `Path renamed from ${oldPath} to ${newPath}.`,
+        metadata: { oldPath, newPath, overwrite, operationId: batch.batchId, planId: batch.planId,
+          linkStatus: payload.linkStatus, linkUpdates: payload.linkUpdates, workspaceType: result.scope.workspace.workspaceType } });
+    } catch { await recordFailure({ code: 'BATCH_AUDIT_FAILED' }); }
     return jsonSuccess(payload);
   } catch (error) {
+    await recordFailure(error);
     const message = error instanceof Error ? error.message : 'Failed to rename path';
     if (error instanceof WorkspacePreviewStaleError) return jsonError(message, 409, { code: 'PREVIEW_STALE' });
     if (error instanceof WorkspacePreviewUnavailableError) return jsonError(message, 422, { code: 'PREVIEW_UNREADABLE' });
