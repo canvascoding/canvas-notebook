@@ -57,6 +57,7 @@ import { closeWorkspaceOperationReview, useWorkspaceOperationReviewStore } from 
 import { useWorkspaceStore } from '@/app/store/workspace-store';
 import { useWorkspaceOperationReviewNavigation } from './useWorkspaceOperationReviewNavigation';
 import { useDocumentReviewAvailability } from './DocumentReviewAvailabilityProvider';
+import { openWorkspacePathOperationStatus } from '@/app/store/workspace-path-operation-store';
 
 type MobileReviewPane = 'timeline' | 'comparison';
 
@@ -76,12 +77,14 @@ export function FileVersionCenterHost() {
   const t = useTranslations('fileVersionCenter');
   const router = useRouter();
   const { documentReviewEnabled, updatedAt, ready: reviewAvailabilityReady } = useDocumentReviewAvailability();
+  const reviewCenterEnabled = reviewAvailabilityReady && documentReviewEnabled;
   const storedRequest = useFileVersionCenterStore((state) => state.request);
-  const request = documentReviewEnabled ? storedRequest : null;
-  const workspaceReviewRequest = useWorkspaceOperationReviewStore((state) => state.request);
+  const request = reviewCenterEnabled ? storedRequest : null;
+  const storedWorkspaceReviewRequest = useWorkspaceOperationReviewStore((state) => state.request);
+  const workspaceReviewRequest = reviewCenterEnabled ? storedWorkspaceReviewRequest : null;
   const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
   const authScope = useSyncExternalStore(subscribeFileVersionAuth, openedDocumentAuthScope, () => null);
-  useWorkspaceOperationReviewNavigation(authScope);
+  useWorkspaceOperationReviewNavigation(authScope, { ready: reviewAvailabilityReady, enabled: reviewCenterEnabled });
   const workspaceReviewAuthScopeRef = useRef(authScope);
   const targetIdentity = request ? JSON.stringify([authScope, request.target, updatedAt]) : null;
   const [resolvedTimeline, setResolvedTimeline] = useState<{ identity: string;
@@ -206,8 +209,21 @@ export function FileVersionCenterHost() {
   }, [requestSource, requestTarget]);
 
   useEffect(() => {
+    if (reviewCenterEnabled) return;
+    if (storedRequest) closeVersionCenter({ syncLocation: false });
+    if (storedWorkspaceReviewRequest) closeWorkspaceOperationReview();
+  }, [reviewCenterEnabled, storedRequest, storedWorkspaceReviewRequest]);
+
+  useEffect(() => {
     if (!reviewAvailabilityReady) return;
-    if (!documentReviewEnabled) { closeVersionCenter(); return; }
+    if (!reviewCenterEnabled) {
+      const url = new URL(window.location.href);
+      const workspaceId = url.searchParams.get('fvrcWorkspace') ?? url.searchParams.get('workspaceId');
+      if (authScope && workspaceId && [...url.searchParams.keys()].some((key) => key.startsWith('fvrc'))) {
+        void openWorkspacePathOperationStatus({ workspaceId, documentReviewPaused: true });
+      }
+      closeVersionCenter(); closeWorkspaceOperationReview(); return;
+    }
     try {
       syncVersionCenterFromLocation(window.location.search);
     } catch {
@@ -222,7 +238,7 @@ export function FileVersionCenterHost() {
     };
     window.addEventListener('popstate', onPopState);
     return () => window.removeEventListener('popstate', onPopState);
-  }, [documentReviewEnabled, reviewAvailabilityReady]);
+  }, [authScope, reviewCenterEnabled, reviewAvailabilityReady]);
 
   useEffect(() => {
     if (!resolutionRequest) {

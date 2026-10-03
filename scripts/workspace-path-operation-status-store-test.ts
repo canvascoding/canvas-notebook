@@ -6,7 +6,8 @@ import { useWorkspaceStore } from '../app/store/workspace-store';
 import { closeWorkspacePathOperationStatus, openWorkspacePathOperationStatus, recoverWorkspacePathOperation,
   reloadWorkspacePathOperationStatus, useWorkspacePathOperationStore } from '../app/store/workspace-path-operation-store';
 import type { WorkspacePathOperationPublic } from '../app/lib/files/workspace-path-operation-public';
-import { homeNotificationItems, notificationHref, openWorkspacePathOperationNotificationTarget } from '../app/components/notifications/notification-actions';
+import { homeNotificationItems, notificationHref, openWorkspacePathOperationNotificationTarget, openWorkspaceOperationNotificationTarget,
+  openFileChangeReviewNotification } from '../app/components/notifications/notification-actions';
 import type { NotificationItem, NotificationSummary } from '../app/components/notifications/notification-summary';
 
 const workspaceId = 'workspace-status';
@@ -149,6 +150,49 @@ async function main() {
     reply = async () => Response.json({ success: true });
     assert.equal(await openWorkspacePathOperationNotificationTarget(problemNotification.target as Extract<NotificationItem['target'], {kind: 'file_path_operation'}>), true);
     assert.deepEqual(JSON.parse(String(requests.at(-1)?.init?.body)), { action: 'mark_item_read', workspaceId, itemId: `file-path-problem:${problemId}` });
+
+    const reviewId = 'legacy-review-status-123456';
+    const legacy = { reviewId, sourceWorkspaceId: workspaceId, destinationWorkspaceId: workspaceId, kind: 'move', status: 'pending',
+      selections: [{ sourcePath: 'old.md', destinationPath: 'new.md' }], batchId: null, errorCode: null,
+      actor: { id: 'private-actor' }, preview: { content: 'private-document' } };
+    assert.equal(await openWorkspaceOperationNotificationTarget({ workspaceId, reviewId }, { reviewCenterEnabled: false }), true);
+    reply = async () => Response.json({ review: legacy });
+    await reloadWorkspacePathOperationStatus();
+    assert.deepEqual(useWorkspacePathOperationStore.getState().review, { reviewId, kind: 'move', status: 'pending',
+      selections: legacy.selections, batchId: null, errorCode: null });
+    assert.equal(requests.at(-1)?.url, `/api/files/operation-reviews/${reviewId}`);
+    assert.equal(new Headers(requests.at(-1)?.init?.headers).get(WORKSPACE_ID_HEADER), workspaceId);
+    assert.equal(JSON.stringify(useWorkspacePathOperationStore.getState()).includes('private-'), false);
+    const beforePendingReview = requests.length;
+    await recoverWorkspacePathOperation('resume'); await recoverWorkspacePathOperation('undo');
+    assert.equal(requests.length, beforePendingReview, 'disabled pending review has no accept or recovery request');
+    reply = async () => Response.json({ review: { ...legacy, sourceWorkspaceId: 'foreign' } });
+    await reloadWorkspacePathOperationStatus();
+    assert.equal(useWorkspacePathOperationStore.getState().review, null);
+    assert.equal(useWorkspacePathOperationStore.getState().error, 'identity');
+    reply = async () => Response.json(requests.at(-1)?.url.includes('/batches/')
+      ? { operation: operation('applied'), recovery: { canResume: false, canUndo: true } }
+      : { review: { ...legacy, status: 'applied', batchId } });
+    await reloadWorkspacePathOperationStatus();
+    assert.equal(useWorkspacePathOperationStore.getState().response?.operation.status, 'applied', 'legacy record resolves its real durable batch while Review Center is disabled');
+    assert.equal(useWorkspacePathOperationStore.getState().review, null);
+    reply = async () => Response.json({ operation: operation('undone') });
+    await recoverWorkspacePathOperation('undo');
+    assert.equal(requests.at(-1)?.url, `/api/files/operations/batches/${batchId}`);
+    assert.equal(useWorkspacePathOperationStore.getState().response?.operation.status, 'undone', 'verified batch Undo stays available outside the experiment');
+    assert.equal(await openWorkspaceOperationNotificationTarget({ workspaceId, reviewId, batchId, operationKind: 'move' }, { reviewCenterEnabled: false }), true);
+    assert.equal(useWorkspacePathOperationStore.getState().request?.batchId, batchId, 'known legacy notification batch opens status directly');
+    assert.equal(await openWorkspaceOperationNotificationTarget({ workspaceId, reviewId, batchId, operationKind: 'copy' }, { reviewCenterEnabled: false }), true);
+    reply = async () => Response.json({ review: { ...legacy, kind: 'copy', status: 'needs_recovery', batchId, errorCode: 'LEGACY_COPY_FAILED' } });
+    await reloadWorkspacePathOperationStatus();
+    assert.equal(useWorkspacePathOperationStore.getState().review?.status, 'needs_recovery');
+    assert.equal(useWorkspacePathOperationStore.getState().response, null, 'legacy Copy remains truthful read-only metadata');
+    const docItem: NotificationItem = { ...notification, target: { kind: 'file_change', workspaceId, lineageId: 'lineage-one', operationId: 'operation-one' } };
+    assert.equal(await openFileChangeReviewNotification(docItem, { reviewCenterEnabled: false }), true);
+    const beforePausedDocument = requests.length;
+    await reloadWorkspacePathOperationStatus(); await recoverWorkspacePathOperation('resume');
+    assert.equal(requests.length, beforePausedDocument, 'disabled document-review notice cannot fetch previews or apply proposals');
+    assert.equal(useWorkspacePathOperationStore.getState().request?.documentReviewPaused, true);
     observeOpenedDocumentAuth(null);
     assert.equal(await openWorkspacePathOperationStatus({ workspaceId, batchId }), false, 'signed-out navigation cannot select private details');
     console.log('workspace path status store: scoped identity, safe metadata, real recovery outcomes, request races and notification navigation passed');

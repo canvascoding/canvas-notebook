@@ -45,6 +45,7 @@ import { openEmailReview } from '@/app/store/email-review-store';
 import { EmailReviewNotificationActions } from '@/app/components/email-review/EmailReviewNotificationActions';
 import { openMemoryReview } from '@/app/store/memory-review-store';
 import { openTodoDetail } from '@/app/store/todo-detail-store';
+import { useDocumentReviewAvailability } from '@/app/components/file-version-center/DocumentReviewAvailabilityProvider';
 import {
   readNotificationSummary,
   type NotificationItem,
@@ -79,6 +80,8 @@ function isDismissible(item: NotificationItem) {
 }
 
 export function NotificationBell() {
+  const reviewAvailability = useDocumentReviewAvailability();
+  const reviewCenterEnabled = reviewAvailability.ready && reviewAvailability.documentReviewEnabled;
   const t = useTranslations('notifications');
   const emailT = useTranslations('emailReview');
   const locale = useLocale();
@@ -308,13 +311,13 @@ export function NotificationBell() {
       return;
     }
     if (item.target.kind === 'file_change') {
-      if (!await openFileChangeReviewNotification(item)) {
+      if (!await openFileChangeReviewNotification(item, { reviewCenterEnabled })) {
         toast.error(t('fileChanges.openFailed'));
       }
       return;
     }
     if (item.target.kind === 'file_operation') {
-      if (item.workspaceId !== item.target.workspaceId || !await openWorkspaceOperationNotificationTarget(item.target)) {
+      if (item.workspaceId !== item.target.workspaceId || !await openWorkspaceOperationNotificationTarget(item.target, { reviewCenterEnabled })) {
         toast.error(t('fileOperations.openFailed'));
       }
       return;
@@ -350,7 +353,7 @@ export function NotificationBell() {
     }
     if (dispatchOpenChatSession(item.target.sessionId, 'notification', item.workspaceId)) return;
     window.location.assign(notificationHref(item));
-  }, [markItemRead, notificationItems, t]);
+  }, [markItemRead, notificationItems, reviewCenterEnabled, t]);
 
   const decideMemoryItem = useCallback(async (item: NotificationItem, decision: 'approve' | 'reject') => {
     if (item.target.kind !== 'memory') return;

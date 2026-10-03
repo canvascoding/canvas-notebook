@@ -8,6 +8,8 @@ import type { WorkspacePathOperationInput } from '../app/lib/files/workspace-pat
 import type { WorkspaceOperationBatchRecord } from '../app/lib/files/workspace-operation-batch-store';
 import type { WorkspaceOperationBatchExecutionPublic } from '../app/lib/files/workspace-operation-batch-public';
 import type { WorkspacePathOperationProblemInput } from '../app/lib/files/workspace-path-operation-problems';
+import type { SubmitAgentWorkspacePathOperationInput } from '../app/lib/files/workspace-operation-review-service';
+import type { WorkspaceOperationReviewSubmission } from '../app/lib/files/workspace-operation-review-contract';
 
 async function main(): Promise<void> {
   const dataRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-agent-direct-path-'));
@@ -16,11 +18,15 @@ async function main(): Promise<void> {
   const workspaceRoot = path.join(dataRoot, 'workspace');
   await fs.mkdir(path.join(workspaceRoot, 'out'), { recursive: true });
   const directCalls: WorkspacePathOperationInput[] = [];
-  const reviewCalls: Array<{ kind: string }> = [];
+  const reviewCalls: SubmitAgentWorkspacePathOperationInput[] = [];
+  const knownReviews = new Map<string, { input: SubmitAgentWorkspacePathOperationInput; result: WorkspaceOperationReviewSubmission }>();
+  const copyCalls: Array<{ kind: string; actorId: string; actorSessionId?: string }> = [];
   const known = new Map<string, { input: WorkspacePathOperationInput; batch: WorkspaceOperationBatchRecord }>();
   const receipts = new Map<string, WorkspaceOperationBatchExecutionPublic>();
   const trashEntries: Array<{ id: string; originalPath: string; expiresAt: Date }> = [];
   let reviewEnabled = false;
+  let reviewEnabledOnNextLock = false;
+  let disableReviewOnNextSubmission = false;
   let lockDepth = 0;
   let nextStatus: WorkspaceOperationBatchRecord['status'] = 'applied';
   let journalAvailable = true;
@@ -33,6 +39,13 @@ async function main(): Promise<void> {
   const inputIdentity = (input: WorkspacePathOperationInput) => JSON.stringify([
     input.kind, input.selections, Boolean(input.overwrite), Boolean(input.ignoreMissing), input.actorUserId, input.actorId,
     input.actorType, input.actorSessionId, input.expectedPlanId,
+  ]);
+  const reviewKey = (input: SubmitAgentWorkspacePathOperationInput) => JSON.stringify([
+    input.source.workspace.workspaceId, input.actorUserId, input.idempotencyKey,
+  ]);
+  const reviewIdentity = (input: SubmitAgentWorkspacePathOperationInput) => JSON.stringify([
+    input.kind, input.requestSelections ?? input.selections, input.requestOptions,
+    input.actorUserId, input.actorId, input.actorDisplayName, input.actorSessionId,
   ]);
   const internals = Module as typeof Module & { _load: (request: string, parent: NodeModule | null, isMain: boolean) => unknown };
   const originalLoad = internals._load;
@@ -54,6 +67,7 @@ async function main(): Promise<void> {
     if (request === '@/app/lib/filesystem/workspace-files') return {
       ...originalLoad(request, parent, isMain) as object,
       withWorkspaceFileMutationLocks: async (_paths: unknown, _options: unknown, work: () => Promise<unknown>) => {
+        if (reviewEnabledOnNextLock) { reviewEnabled = true; reviewEnabledOnNextLock = false; }
         lockDepth += 1;
         try { return await work(); } finally { lockDepth -= 1; }
       },
@@ -69,10 +83,42 @@ async function main(): Promise<void> {
       getWorkspaceOperationBatchExecutionPublic: async ({ batchId }: { batchId: string }) => receipts.get(batchId) ?? null,
     };
     if (request === '@/app/lib/files/workspace-operation-review-service') return {
-      submitAgentWorkspacePathOperation: async (input: { kind: string }) => {
+      getExistingAgentWorkspacePathOperation: async (input: SubmitAgentWorkspacePathOperationInput) => {
+        const known = input.idempotencyKey ? knownReviews.get(reviewKey(input)) : undefined;
+        if (!known) return null;
+        if (reviewIdentity(input) !== reviewIdentity(known.input)) {
+          throw Object.assign(new Error('Immutable review request conflict'), { code: 'REVIEW_IDEMPOTENCY_CONFLICT' });
+        }
+        return known.result;
+      },
+      submitAgentWorkspacePathOperation: async (input: SubmitAgentWorkspacePathOperationInput) => {
+        if (disableReviewOnNextSubmission) {
+          disableReviewOnNextSubmission = false; reviewEnabled = false;
+          throw Object.assign(new Error('Review gate changed before persistence'), { code: 'DOCUMENT_REVIEW_DISABLED', status: 409 });
+        }
+        assert.equal(reviewEnabled, true, 'OFF cannot submit a new review');
         reviewCalls.push(input);
-        return reviewMode === 'direct' ? { mode: 'direct' } : { mode: 'needs_review', reviewId: `review-${reviewCalls.length}`,
-          planId: 'b'.repeat(64), workspaceId: 'direct-workspace', status: 'pending' };
+        const allMissing = await Promise.all(input.selections.map(async (selection) => {
+          try { await fs.lstat(path.join(workspaceRoot, selection.sourcePath)); return false; }
+          catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return true; throw error; }
+        }));
+        const result: WorkspaceOperationReviewSubmission = reviewMode === 'direct' ? { mode: 'direct' }
+          : allMissing.every(Boolean) ? { mode: 'blocked', reviewId: `review-${reviewCalls.length}`,
+            planId: 'b'.repeat(64), workspaceId: 'direct-workspace', status: 'blocked', code: 'PREVIEW_BLOCKED', message: 'Missing source.' }
+            : { mode: 'needs_review', reviewId: `review-${reviewCalls.length}`,
+              planId: 'b'.repeat(64), workspaceId: 'direct-workspace', status: 'pending' };
+        if (input.idempotencyKey) knownReviews.set(reviewKey(input), { input, result });
+        return result;
+      },
+    };
+    if (request === '@/app/lib/files/workspace-file-operation-service') return {
+      executeWorkspaceFileOperationService: async (input: { kind: string; actorId: string; actorSessionId?: string;
+        selections: Array<{ sourcePath: string; destinationPath: string }> }) => {
+        assert.equal(reviewEnabled, false); assert.equal(lockDepth, 1, 'OFF copies keep the existing fenced executor');
+        assert.equal(input.kind, 'copy'); copyCalls.push(input);
+        for (const selection of input.selections) await fs.cp(path.join(workspaceRoot, selection.sourcePath),
+          path.join(workspaceRoot, selection.destinationPath), { force: false, errorOnExist: true });
+        return { execution: { operationId: `copy-${copyCalls.length}`, status: 'complete', errorCode: null } };
       },
     };
     if (request === '@/app/lib/files/workspace-path-operation-service') return {
@@ -173,6 +219,12 @@ async function main(): Promise<void> {
       const replay = await moveAgentPaths({ sourcePaths: ['move.md'], destinationPath: 'out/move.md', idempotencyKey: 'move-call' });
       assert.equal(replay.fileOperation?.batchId, move.fileOperation?.batchId);
       assert.equal(replay.changed, true); assert.equal(directCalls.length, count, 'retry never replans missing source');
+      reviewEnabled = true;
+      const directAfterToggle = await moveAgentPaths({ sourcePaths: ['move.md'], destinationPath: 'out/move.md', idempotencyKey: 'move-call' });
+      assert.equal(directAfterToggle.fileOperation?.batchId, move.fileOperation?.batchId);
+      assert.equal(directAfterToggle.review, undefined); assert.equal(directAfterToggle.verified, true);
+      assert.equal(reviewCalls.length, 0); assert.equal(directCalls.length, count);
+      reviewEnabled = false;
       const reverted = known.get('move-call')!.batch;
       reverted.status = 'undone'; reverted.actionMode = 'undo';
       await fs.rename(path.join(workspaceRoot, 'out/move.md'), path.join(workspaceRoot, 'move.md'));
@@ -255,20 +307,87 @@ async function main(): Promise<void> {
 
       reviewEnabled = true; await seed('review-move.md'); await seed('review-delete.md'); await seed('copy.md');
       const beforeReviews = directCalls.length;
-      const pendingMove = await moveAgentPaths({ sourcePaths: ['review-move.md'], destinationPath: 'out/review-move.md' });
-      const pendingDelete = await deleteAgentPaths({ paths: ['review-delete.md'] });
+      const reviewMoveRequest = { sourcePaths: ['review-move.md'], destinationPath: 'out/review-move.md', idempotencyKey: 'review-move-key' };
+      const reviewDeleteRequest = { paths: ['review-delete.md'], idempotencyKey: 'review-delete-key' };
+      const pendingMove = await moveAgentPaths(reviewMoveRequest);
+      const pendingDelete = await deleteAgentPaths(reviewDeleteRequest);
       assert.equal(pendingMove.review?.status, 'pending'); assert.equal(pendingDelete.review?.status, 'pending');
       assert.equal(pendingMove.changed, false); assert.equal(pendingDelete.changed, false);
       assert.equal(directCalls.length, beforeReviews);
       await seed('review-ignore-missing.md');
-      const reviewWithMissing = await deleteAgentPaths({ paths: ['review-ignore-missing.md', 'review-absent.md'], ignoreMissing: true });
+      const reviewMissingRequest = { paths: ['review-ignore-missing.md', 'review-absent.md'], ignoreMissing: true,
+        idempotencyKey: 'review-ignore-missing-key' };
+      const reviewWithMissing = await deleteAgentPaths(reviewMissingRequest);
       assert.equal(reviewWithMissing.review?.status, 'pending');
-      const reviewed = reviewCalls.at(-1) as { selections?: Array<{ sourcePath: string }> };
+      const reviewed = reviewCalls.at(-1)!;
       assert.deepEqual(reviewed.selections?.map((selection) => selection.sourcePath), ['review-ignore-missing.md']);
+      assert.deepEqual(reviewCalls.at(-1)!.requestSelections?.map((selection) => selection.sourcePath), reviewMissingRequest.paths);
+      const allMissingReviewRequest = { paths: ['review-all-missing.md'], ignoreMissing: true, idempotencyKey: 'review-all-missing-key' };
+      const allMissingReview = await deleteAgentPaths(allMissingReviewRequest);
+      assert.equal(allMissingReview.review?.status, 'blocked'); assert.equal(allMissingReview.changed, false);
+      await seed('review-copy.md');
+      const reviewCopyRequest = { sourcePaths: ['review-copy.md'], destinationPath: 'out/review-copy.md', idempotencyKey: 'review-copy-key' };
+      const pendingCopy = await copyAgentPaths(reviewCopyRequest);
+      assert.equal(pendingCopy.review?.status, 'pending'); assert.equal(pendingCopy.changed, false); assert.equal(copyCalls.length, 0);
       reviewEnabled = false;
+      const reviewCount = reviewCalls.length;
+      await fs.rm(path.join(workspaceRoot, 'review-move.md'));
+      await seed('out/review-move.md', '# unrelated destination');
+      await fs.rm(path.join(workspaceRoot, 'review-delete.md'));
+      await seed('review-absent.md', '# created after original review');
+      await seed('review-all-missing.md', '# created after blocked review');
+      await fs.rm(path.join(workspaceRoot, 'review-copy.md'));
+      await seed('out/review-copy.md', '# occupied after proposal');
+      for (const [retry, original] of [
+        [await moveAgentPaths(reviewMoveRequest), pendingMove],
+        [await deleteAgentPaths(reviewDeleteRequest), pendingDelete],
+        [await deleteAgentPaths(reviewMissingRequest), reviewWithMissing],
+        [await deleteAgentPaths(allMissingReviewRequest), allMissingReview],
+        [await copyAgentPaths(reviewCopyRequest), pendingCopy],
+      ]) {
+        assert.deepEqual(retry.review, original.review); assert.equal(retry.changed, false);
+        assert.equal(retry.fileOperation, undefined, 'OFF retry returns the original review, never a new direct batch');
+      }
+      assert.equal(directCalls.length, beforeReviews); assert.equal(reviewCalls.length, reviewCount);
+      assert.equal(await fs.readFile(path.join(workspaceRoot, 'out/review-move.md'), 'utf8'), '# unrelated destination');
+      assert.equal(await fs.readFile(path.join(workspaceRoot, 'review-absent.md'), 'utf8'), '# created after original review');
+      assert.equal(await fs.readFile(path.join(workspaceRoot, 'review-all-missing.md'), 'utf8'), '# created after blocked review');
+      assert.equal(await fs.readFile(path.join(workspaceRoot, 'out/review-copy.md'), 'utf8'), '# occupied after proposal');
+      await assert.rejects(moveAgentPaths({ ...reviewMoveRequest, destinationPath: 'out/changed-review.md' }), { code: 'REVIEW_IDEMPOTENCY_CONFLICT' });
+      await assert.rejects(moveAgentPaths({ ...reviewMoveRequest, overwrite: true }), { code: 'REVIEW_IDEMPOTENCY_CONFLICT' });
+      await assert.rejects(deleteAgentPaths({ ...reviewMissingRequest, ignoreMissing: false }), { code: 'REVIEW_IDEMPOTENCY_CONFLICT' });
+      await assert.rejects(deleteAgentPaths({ ...reviewDeleteRequest, recursive: true }), { code: 'REVIEW_IDEMPOTENCY_CONFLICT' });
+      await assert.rejects(copyAgentPaths({ ...reviewCopyRequest, recursive: false }), { code: 'REVIEW_IDEMPOTENCY_CONFLICT' });
+      for (const changedContext of [{ ...context, agentId: 'other-review-agent' }, { ...context, sessionId: 'other-review-session' }]) {
+        await assert.rejects(runWithAgentExecutionContext(changedContext,
+          () => deleteAgentPaths(reviewDeleteRequest)), { code: 'REVIEW_IDEMPOTENCY_CONFLICT' });
+      }
+      const closedReview = knownReviews.get(reviewKey(reviewCalls[1]))!;
+      for (const status of ['rejected', 'stale', 'failed', 'needs_recovery', 'applied'] as const) {
+        closedReview.result = { mode: 'blocked', reviewId: pendingDelete.review!.reviewId, planId: pendingDelete.review!.planId,
+          workspaceId: context.workspaceId, status, code: 'REVIEW_ALREADY_CLOSED', message: 'Original review closed.' };
+        const closedRetry = await deleteAgentPaths(reviewDeleteRequest);
+        assert.equal(closedRetry.review?.status, status); assert.equal(closedRetry.changed, false);
+        assert.equal(closedRetry.fileOperation, undefined);
+      }
       const copy = await copyAgentPaths({ sourcePaths: ['copy.md'], destinationPath: 'out/copy.md' });
-      assert.equal(copy.review?.status, 'pending'); assert.equal(directCalls.length, beforeReviews, 'copy path keeps existing review behavior');
-      assert.deepEqual(reviewCalls.map((input) => input.kind), ['move', 'delete', 'delete', 'copy']);
+      assert.equal(copy.review, undefined); assert.equal(copy.changed, true); assert.equal(copy.verified, true);
+      assert.deepEqual(copy.operationIds, ['copy-1']); assert.equal(directCalls.length, beforeReviews, 'copy stays outside mandatory move/delete jobs');
+      assert.equal(copyCalls[0].actorId, context.agentId); assert.equal(copyCalls[0].actorSessionId, context.sessionId);
+      assert.equal(await fs.readFile(path.join(workspaceRoot, 'copy.md'), 'utf8'), '# copy.md');
+      assert.equal(await fs.readFile(path.join(workspaceRoot, 'out/copy.md'), 'utf8'), '# copy.md');
+      await seed('race-copy.md'); reviewEnabledOnNextLock = true;
+      const copyRace = await copyAgentPaths({ sourcePaths: ['race-copy.md'], destinationPath: 'out/race-copy.md' });
+      assert.equal(copyRace.review?.status, 'pending'); assert.equal(copyCalls.length, 1);
+      await assert.rejects(fs.stat(path.join(workspaceRoot, 'out/race-copy.md')), { code: 'ENOENT' });
+      await seed('race-disabled-move.md'); disableReviewOnNextSubmission = true;
+      const directCountBeforeDisabled = directCalls.length;
+      await assert.rejects(moveAgentPaths({ sourcePaths: ['race-disabled-move.md'], destinationPath: 'out/race-disabled-move.md' }),
+        { code: 'DOCUMENT_REVIEW_DISABLED' });
+      assert.equal(directCalls.length, directCountBeforeDisabled, 'a disabled review submission never falls through to direct execution');
+      assert.equal(await fs.readFile(path.join(workspaceRoot, 'race-disabled-move.md'), 'utf8'), '# race-disabled-move.md');
+      await assert.rejects(fs.stat(path.join(workspaceRoot, 'out/race-disabled-move.md')), { code: 'ENOENT' });
+      reviewEnabled = false;
 
       const snapshots = path.join(dataRoot, 'cache', 'agent-file-snapshots');
       await fs.mkdir(snapshots, { recursive: true });
@@ -340,6 +459,15 @@ async function main(): Promise<void> {
       assert.equal(snapshotReview.changed, false); assert.equal(snapshotReview.review?.status, 'pending');
       assert.equal(snapshotReview.fileOperation, undefined);
       assert.equal(await fs.readFile(path.join(workspaceRoot, 'snapshot-created.md'), 'utf8'), '# recreated');
+      const snapshotReviewCount = reviewCalls.length;
+      const snapshotMetadataCount = (await fs.readdir(snapshots)).length;
+      reviewEnabled = false;
+      await fs.rm(path.join(workspaceRoot, 'snapshot-created.md'));
+      const snapshotReviewRetry = await restoreAgentFileSnapshot({ snapshotId: 'review-absence-snapshot' });
+      assert.deepEqual(snapshotReviewRetry.review, snapshotReview.review); assert.equal(snapshotReviewRetry.changed, false);
+      assert.equal(snapshotReviewRetry.fileOperation, undefined); assert.equal(reviewCalls.length, snapshotReviewCount);
+      assert.equal((await fs.readdir(snapshots)).length, snapshotMetadataCount, 'early snapshot review retry creates no undo snapshot');
+      reviewEnabled = true;
       reviewMode = 'direct'; await seed('unexpected-direct.md');
       await assert.rejects(moveAgentPaths({ sourcePaths: ['unexpected-direct.md'], destinationPath: 'out/unexpected-direct.md' }),
         /did not record the file action/u);
@@ -381,7 +509,7 @@ async function main(): Promise<void> {
         () => deleteAgentPaths({ paths: ['early-failed.md'] })));
       assert.equal(problems.length, beforeUnknownSnapshot, 'denied mutation authority cannot create a workspace problem');
     });
-    console.log('agent direct path bridge: OFF direct move/delete/overwrite, ON reviews, unchanged copy, immutable retry with ignored missing paths and no-op jobs, truthful receipts and snapshot queued/recovery retry across flag and actor changes passed');
+    console.log('agent direct path bridge: OFF direct move/delete and fenced copy, ON reviews, immutable Review/Direct retries across flags, missing paths, actor/options changes and snapshot recovery passed');
   } finally {
     internals._load = originalLoad;
     await fs.rm(dataRoot, { recursive: true, force: true });

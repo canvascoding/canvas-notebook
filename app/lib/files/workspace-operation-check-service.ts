@@ -1,5 +1,6 @@
 import 'server-only';
 import { openDb } from '@/app/lib/db';
+import { readDocumentReviewAvailability } from '@/app/lib/document-review-availability';
 import { WorkspaceOperationBatchError } from './workspace-operation-batch-store';
 import { getWorkspaceOperationBatchReview } from './workspace-operation-batch-service';
 import type { WorkspaceOperationBatchScope } from './workspace-operation-batch-contract';
@@ -34,6 +35,12 @@ export async function getWorkspaceOperationCheckResult(checkId: string, scope: W
 export async function enqueueWorkspaceOperationCheck(input: {
   scope: WorkspaceOperationBatchScope; reviewIds: string[]; requesterUserId: string;
 }): Promise<WorkspaceOperationCheckPublic> {
+  const assertEnabled = () => {
+    if (!readDocumentReviewAvailability().documentReviewEnabled) {
+      throw new WorkspaceOperationBatchError('DOCUMENT_REVIEW_DISABLED', 409, 'The experimental Review Center is disabled.');
+    }
+  };
+  assertEnabled();
   const workspace = input.scope.workspace;
   if (!workspace.permissions.canRead || !workspace.permissions.canWrite || !workspace.permissions.canDelete
     || workspace.status && workspace.status !== 'active') {
@@ -56,6 +63,7 @@ export async function enqueueWorkspaceOperationCheck(input: {
       throw new WorkspaceOperationBatchError('REVIEW_CONFLICT', 409, 'Selected file reviews must still be open in this workspace.');
     }
   } finally { await db.close(); }
+  assertEnabled();
   return workspaceOperationCheckPublic(await store.enqueue({ workspaceId: workspace.workspaceId,
     requesterUserId: input.requesterUserId, reviewIds: input.reviewIds }));
 }

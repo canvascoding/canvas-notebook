@@ -15,6 +15,8 @@ const run = promisify(execFile);
 const cwd = process.cwd();
 const automatic = process.argv.includes('--automatic');
 const attention = process.argv.includes('--attention');
+const reviewToggle = process.argv.includes('--review-toggle');
+const directRestart = process.argv.includes('--direct-restart');
 const envFile = process.env.CANVAS_ENV_FILE || path.join(os.homedir(), '.local/state/canvas-local-team-seat/notebook-host-dev.env');
 const localEnv = parse(await fs.readFile(envFile));
 const port = Number(process.env.CANVAS_BATCH_E2E_PORT || 3001);
@@ -96,7 +98,7 @@ async function stopServer() {
   log = undefined;
 }
 
-async function restartScenario(mode = 'queued') {
+async function restartScenario(mode = 'queued', direct = false) {
   const api = await request.newContext({ baseURL });
   let workspaceId;
   let browser;
@@ -105,6 +107,8 @@ async function restartScenario(mode = 'queued') {
       email: env.BOOTSTRAP_ADMIN_EMAIL, password: env.BOOTSTRAP_ADMIN_PASSWORD,
     } });
     if (!signIn.ok()) throw new Error(`Restart test login failed (${signIn.status()}).`);
+    const availability = await api.patch('/api/admin/experimental-settings', { data: { documentReviewEnabled: !direct } });
+    if (!availability.ok()) throw new Error('Could not set the disposable restart scenario policy.');
     const { user } = await (await api.get('/api/auth/get-session')).json();
     const created = await api.post('/api/workspaces', { data: { type: 'personal', name: `E2E batch review ${mode === 'crash' ? 'crash' : mode === 'check' ? 'check-restart' : 'restart'} ${Date.now()}` } });
     if (!created.ok()) throw new Error('Could not create disposable restart workspace.');
@@ -122,16 +126,20 @@ async function restartScenario(mode = 'queued') {
       { kind: 'move', selections: [{ sourcePath: 'A.md', destinationPath: 'moved/A.md' }] },
       { kind: 'delete', selections: [{ sourcePath: 'B.md' }] },
     ] };
-    const proposals = await run(process.execPath, ['--conditions=react-server', '--import', 'tsx',
-      'scripts/workspace-operation-batch-e2e-fixture.ts', JSON.stringify(input)], { cwd, env, timeout: 90_000 });
-    const reviews = JSON.parse(proposals.stdout.split('\n').find((line) => line.startsWith('BATCH_FIXTURE:')).slice('BATCH_FIXTURE:'.length));
+    let reviews = [];
+    if (!direct) {
+      const proposals = await run(process.execPath, ['--conditions=react-server', '--import', 'tsx',
+        'scripts/workspace-operation-batch-e2e-fixture.ts', JSON.stringify(input)], { cwd, env, timeout: 90_000 });
+      reviews = JSON.parse(proposals.stdout.split('\n').find((line) => line.startsWith('BATCH_FIXTURE:')).slice('BATCH_FIXTURE:'.length));
+    }
     await stopServer();
-    const prefix = mode === 'crash' ? 'CRASH_BATCH:' : mode === 'check' ? 'OFFLINE_CHECK:' : 'OFFLINE_BATCH:';
+    const prefix = direct ? 'DIRECT_BATCH:' : mode === 'crash' ? 'CRASH_BATCH:' : mode === 'check' ? 'OFFLINE_CHECK:' : 'OFFLINE_BATCH:';
     let queuedResult;
     try {
       queuedResult = await run(process.execPath, ['--conditions=react-server', '--import', 'tsx',
-        mode === 'crash' ? 'scripts/workspace-operation-batch-crash-fixture.ts' : mode === 'check' ? 'scripts/workspace-operation-check-offline-fixture.ts' : 'scripts/workspace-operation-batch-offline-fixture.ts',
-        JSON.stringify({ workspaceId, user, reviewIds: reviews.map((review) => review.reviewId) })], { cwd, env, timeout: 90_000 });
+        direct ? 'scripts/workspace-operation-direct-restart-fixture.ts'
+          : mode === 'crash' ? 'scripts/workspace-operation-batch-crash-fixture.ts' : mode === 'check' ? 'scripts/workspace-operation-check-offline-fixture.ts' : 'scripts/workspace-operation-batch-offline-fixture.ts',
+        JSON.stringify(direct ? { workspaceId, user, mode } : { workspaceId, user, reviewIds: reviews.map((review) => review.reviewId) })], { cwd, env, timeout: 90_000 });
       if (mode === 'crash') throw new Error('Crash fixture unexpectedly exited normally.');
     } catch (error) {
       if (mode !== 'crash' || error.signal !== 'SIGKILL' || !error.stdout?.includes(prefix)) throw error;
@@ -163,9 +171,24 @@ async function restartScenario(mode = 'queued') {
     }
     let applied;
     for (let attempt = 0; attempt < 180; attempt += 1) {
-      const response = await api.get(`/api/files/operation-reviews/batches/${queued.batchId}`, { headers });
+      const response = await api.get(direct ? `/api/files/operations/batches/${queued.batchId}`
+        : `/api/files/operation-reviews/batches/${queued.batchId}`, { headers });
       if (!response.ok()) throw new Error('Restarted worker job could not be read.');
-      const { batch } = await response.json();
+      const payload = await response.json();
+      const batch = direct ? payload.operation : payload.batch;
+      if (direct && batch.status === 'applied') {
+        if (payload.linkStatus !== 'complete') throw new Error('Restarted direct job lacks verified link completion.');
+        const detailedResponse = await api.get(`/api/files/operation-reviews/batches/${queued.batchId}`, { headers });
+        if (!detailedResponse.ok()) throw new Error('Restarted direct job receipts could not be read.');
+        const detailed = (await detailedResponse.json()).batch;
+        if (detailed.batchId !== batch.batchId || detailed.planId !== batch.planId
+          || detailed.execution?.receiptStatus !== 'available' || detailed.execution.mode !== 'apply'
+          || detailed.execution.finalization !== 'complete'
+          || detailed.execution.steps.length !== batch.totalActions
+          || detailed.execution.steps.some((step) => step.state !== 'applied')) {
+          throw new Error('Restarted direct job lacks complete physical and link receipts.');
+        }
+      }
       if (batch.status === 'applied') { applied = batch; break; }
       if (['failed', 'needs_recovery', 'needs_review'].includes(batch.status)) throw new Error(`Restarted worker ended ${batch.status} (${batch.errorCode}).`);
       await sleep(500);
@@ -177,21 +200,34 @@ async function restartScenario(mode = 'queued') {
       return (await response.json()).data.content;
     };
     const valid = mode === 'crash' ? await read('moved/A.txt') === 'A bytes\n' && await read('moved/B.txt') === 'B bytes\n'
-      : await read('moved/A.md') === '# A\n' && await read('index.md') === '[A](moved/A.md) B\n';
+      : await read('moved/A.md') === '# A\n' && (direct ? await read('moved/B.md') === '# B\n'
+        && await read('index.md') === '[A](moved/A.md) [B](moved/B.md)\n' : await read('index.md') === '[A](moved/A.md) B\n');
     if (!valid) throw new Error('Restart result differs from approved plan.');
+    if (direct) {
+      const existingReviews = await api.get('/api/files/operation-reviews', { headers });
+      if (!existingReviews.ok() || (await existingReviews.json()).reviews.length !== 0) throw new Error('Direct restart created an unexpected review.');
+      if (mode === 'queued') {
+        const retried = await run(process.execPath, ['--conditions=react-server', '--import', 'tsx',
+          'scripts/workspace-operation-direct-restart-fixture.ts', JSON.stringify({ workspaceId, user, mode })], { cwd, env, timeout: 90_000 });
+        const original = JSON.parse(retried.stdout.split('\n').find((line) => line.startsWith(prefix)).slice(prefix.length));
+        if (original.batchId !== queued.batchId || original.status !== 'applied') throw new Error('Absent-source direct retry did not retain the original completed job.');
+      }
+    }
     browser = await chromium.launch();
     const context = await browser.newContext({ baseURL, storageState: await api.storageState() });
     await context.addInitScript((id) => localStorage.setItem('canvas.activeWorkspaceId', id), workspaceId);
     const page = await context.newPage();
-    await page.goto(`/en/notebook?workspaceId=${workspaceId}&workspaceOperationReview=${reviews[0].reviewId}`);
-    await page.getByTestId('workspace-operation-review-center').waitFor({ state: 'visible' });
-    await page.getByText('File actions completed', { exact: true }).first().waitFor({ state: 'visible' });
-    await page.screenshot({ path: path.join(artifacts, `worker-${mode}-completed.png`), animations: 'disabled' });
-    await fs.writeFile(path.join(artifacts, `worker-${mode}.json`), JSON.stringify({ passed: true,
+    await page.goto(`/en/notebook?workspaceId=${workspaceId}&${direct ? `workspacePathBatch=${queued.batchId}` : `workspaceOperationReview=${reviews[0].reviewId}`}`);
+    await page.getByTestId(direct ? 'workspace-path-operation-status' : 'workspace-operation-review-center').waitFor({ state: 'visible' });
+    await page.getByText(direct ? 'Files and links updated' : 'File actions completed', { exact: true }).first().waitFor({ state: 'visible' });
+    const artifactName = `${direct ? 'direct-' : ''}${mode}`;
+    await page.screenshot({ path: path.join(artifacts, `worker-${artifactName}-completed.png`), animations: 'disabled' });
+    await fs.writeFile(path.join(artifacts, `worker-${artifactName}.json`), JSON.stringify({ passed: true, authorization: direct ? 'direct' : 'review',
       scenario: mode === 'check' ? 'durable read-only check queued offline, resumed by a fresh process, files unchanged until approval' : mode === 'crash' ? 'SIGKILL after first physical mutation and durable receipt; fresh worker resumes exact remaining steps'
-        : 'durable approval queued without a running worker, executed by a fresh server process',
+        : direct ? 'direct job queued with reviews disabled; fresh worker updates paths and links; exact retry returns original job'
+          : 'durable approval queued without a running worker, executed by a fresh server process',
       completedSteps: applied.completedActions, totalSteps: applied.totalActions }, null, 2));
-    console.log(`Real worker process restart (${mode}): passed`);
+    console.log(`Real worker process restart (${artifactName}): passed`);
   } finally {
     await browser?.close();
     if (workspaceId && !server) await startServer();
@@ -226,17 +262,36 @@ try {
     throw new Error('Isolated E2E bootstrap failed; inspect its private log.');
   }
   await startServer();
+  if (!automatic && !attention && !reviewToggle && !directRestart) {
+    const admin = await request.newContext({ baseURL });
+    try {
+      const login = await admin.post('/api/auth/sign-in/email', { headers: { Origin: baseURL }, data: {
+        email: env.BOOTSTRAP_ADMIN_EMAIL, password: env.BOOTSTRAP_ADMIN_PASSWORD,
+      } });
+      if (!login.ok()) throw new Error('Could not prepare the isolated review-enabled regression suite.');
+      const enable = await admin.patch('/api/admin/experimental-settings', { data: { documentReviewEnabled: true } });
+      if (!enable.ok()) throw new Error('Could not enable reviews in the disposable test instance.');
+    } finally { await admin.dispose(); }
+  }
   const suiteArgs = ['node_modules/@playwright/test/cli.js', 'test',
-    attention ? 'tests/workspace-path-operation-notifications.spec.ts'
+    reviewToggle ? 'tests/workspace-operation-review-toggle.spec.ts'
+      : attention ? 'tests/workspace-path-operation-notifications.spec.ts'
       : automatic ? 'tests/workspace-operation-automatic.spec.ts' : 'tests/workspace-operation-batches.spec.ts',
     '--workers=1', '--max-failures=1', '--reporter=list'];
   if (process.env.CANVAS_BATCH_E2E_GREP) suiteArgs.push('--grep', process.env.CANVAS_BATCH_E2E_GREP);
-  const suite = spawn(process.execPath, suiteArgs, { cwd, env, stdio: 'inherit' });
-  const suiteCode = await new Promise((resolve) => suite.once('exit', (code) => resolve(code ?? 1)));
-  if (suiteCode === 0 && !automatic && !attention) {
-    await restartScenario();
-    await restartScenario('crash');
-    await restartScenario('check');
+  let suiteCode = 0;
+  if (!directRestart) {
+    const suite = spawn(process.execPath, suiteArgs, { cwd, env, stdio: 'inherit' });
+    suiteCode = await new Promise((resolve) => suite.once('exit', (code) => resolve(code ?? 1)));
+  }
+  if (suiteCode === 0 && !automatic && !attention && !reviewToggle) {
+    if (!directRestart) {
+      await restartScenario();
+      await restartScenario('crash');
+      await restartScenario('check');
+    }
+    await restartScenario('queued', true);
+    await restartScenario('crash', true);
   }
   process.exitCode = suiteCode;
 } finally {

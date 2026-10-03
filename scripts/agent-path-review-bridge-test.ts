@@ -30,7 +30,8 @@ async function main() {
       submitDirectWorkspacePathOperation: async () => { throw new Error('Review ON must submit a review.'); },
     };
     if (request === '@/app/lib/files/workspace-operation-review-service') {
-      return { submitAgentWorkspacePathOperation: async (input: (typeof calls)[number]) => {
+      return { getExistingAgentWorkspacePathOperation: async () => null,
+        submitAgentWorkspacePathOperation: async (input: (typeof calls)[number]) => {
         calls.push(input);
         return submissionMode === 'blocked'
           ? { mode: 'blocked', reviewId: `review-${calls.length}`, planId: `plan-${calls.length}`,

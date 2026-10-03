@@ -23,6 +23,7 @@ import type { BrowserMode } from '@/app/lib/files/types';
 import { WorkspaceSwitcher, useShouldShowWorkspaceSwitcher } from '@/app/components/workspaces/WorkspaceSwitcher';
 import { useWorkspaceStore } from '@/app/store/workspace-store';
 import { openWorkspaceOperationReviewList } from '@/app/store/workspace-operation-review-store';
+import { useDocumentReviewAvailability } from '@/app/components/file-version-center/DocumentReviewAvailabilityProvider';
 
 export interface FileToolbarHandlers {
   onToggleMultiSelect: () => void;
@@ -52,11 +53,13 @@ const VIEW_MODES: { mode: BrowserMode; Icon: typeof LayoutGrid; labelKey: string
 export function FileToolbar({ variant, isMultiSelectMode, isDeleteDisabled, isRefreshing = false, handlers }: FileToolbarProps) {
   const t = useTranslations('notebook');
   const reviewT = useTranslations('workspaceOperationReview');
+  const reviewAvailability = useDocumentReviewAvailability();
+  const reviewCenterEnabled = reviewAvailability.ready && reviewAvailability.documentReviewEnabled;
   const browserMode = useFileStore((state) => state.browserMode);
   const setBrowserMode = useFileStore((state) => state.setBrowserMode);
   const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
   const openPendingReviews = () => {
-    if (activeWorkspaceId) openWorkspaceOperationReviewList(activeWorkspaceId);
+    if (reviewCenterEnabled && activeWorkspaceId) openWorkspaceOperationReviewList(activeWorkspaceId);
   };
 
   const isMobileSheet = variant === 'mobile-sheet';
@@ -216,11 +219,11 @@ export function FileToolbar({ variant, isMultiSelectMode, isDeleteDisabled, isRe
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" sideOffset={8} className="w-56">
-          <DropdownMenuItem onSelect={openPendingReviews} disabled={!activeWorkspaceId}>
+          {reviewCenterEnabled ? <DropdownMenuItem onSelect={openPendingReviews} disabled={!activeWorkspaceId}>
             <ClipboardCheck className="mr-2 h-4 w-4" />
             {reviewT('toolbarLabel')}
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
+          </DropdownMenuItem> : null}
+          {reviewCenterEnabled ? <DropdownMenuSeparator /> : null}
           {!isDeleteDisabled && (
             <>
               <DropdownMenuItem variant="destructive" onSelect={handlers.onDelete}>
@@ -292,11 +295,11 @@ export function FileToolbar({ variant, isMultiSelectMode, isDeleteDisabled, isRe
           </Button>
           {renderDeleteButton({ showLabel: true })}
 
-          <Button variant="ghost" size="sm" className="h-8 gap-1.5 text-xs"
+          {reviewCenterEnabled ? <Button variant="ghost" size="sm" className="h-8 gap-1.5 text-xs"
             onClick={openPendingReviews} disabled={!activeWorkspaceId} aria-label={reviewT('toolbarLabel')}>
             <ClipboardCheck className="h-4 w-4" />
             <span className="hidden sm:inline">{reviewT('toolbarLabel')}</span>
-          </Button>
+          </Button> : null}
 
           <div className="hidden h-5 w-px bg-border sm:block" />
 
@@ -366,7 +369,7 @@ export function FileToolbar({ variant, isMultiSelectMode, isDeleteDisabled, isRe
           </Tooltip>
           {renderDeleteButton({ tooltipLabel: t('delete') })}
 
-          <Tooltip>
+          {reviewCenterEnabled ? <Tooltip>
             <TooltipTrigger asChild>
               <Button variant="ghost" size="icon-sm" onClick={openPendingReviews}
                 disabled={!activeWorkspaceId} aria-label={reviewT('toolbarLabel')}>
@@ -374,7 +377,7 @@ export function FileToolbar({ variant, isMultiSelectMode, isDeleteDisabled, isRe
               </Button>
             </TooltipTrigger>
             <TooltipContent>{reviewT('toolbarLabel')}</TooltipContent>
-          </Tooltip>
+          </Tooltip> : null}
 
           <div className="hidden h-5 w-px bg-border sm:block" />
 

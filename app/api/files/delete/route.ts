@@ -6,7 +6,7 @@ import { getExistingDirectWorkspacePathOperation, submitDirectWorkspacePathOpera
   waitForWorkspacePathOperation } from '@/app/lib/files/workspace-path-operation-service';
 import { workspacePathOperationMetadata, workspacePathOperationResponse } from '@/app/lib/files/workspace-path-operation-response';
 import { recordWorkspacePathOperationProblem } from '@/app/lib/files/workspace-path-operation-problems';
-import { reviewWorkspaceDeletionIfRequired } from '@/app/lib/files/workspace-operation-delete-review';
+import { getExistingWorkspaceDeletionReview, reviewWorkspaceDeletionIfRequired } from '@/app/lib/files/workspace-operation-delete-review';
 import { readDocumentReviewAvailability } from '@/app/lib/document-review-availability';
 import { applyRateLimit, invalidateWorkspaceFileViews, jsonError, jsonServerError,
   jsonSuccess, readJsonBody } from '@/app/lib/api/route-helpers';
@@ -65,9 +65,13 @@ export async function DELETE(request: NextRequest): Promise<Response> {
       // A retry retains its original direct job even if an administrator enabled reviews afterwards.
       const existing = await getExistingDirectWorkspacePathOperation(input);
       if (existing) return { mode: 'direct' as const, batch: existing, scope };
+      const reviewInput = { scope, paths: pathsToDelete, userId: fresh.session.user.id,
+        displayName: fresh.session.user.name || 'Workspace user', idempotencyKey };
+      // A stored proposal keeps its approval requirement across an ON-to-OFF toggle.
+      const existingReview = await getExistingWorkspaceDeletionReview(reviewInput);
+      if (existingReview) return { mode: 'review' as const, review: existingReview };
       if (readDocumentReviewAvailability().documentReviewEnabled) {
-        const review = await reviewWorkspaceDeletionIfRequired({ scope, paths: pathsToDelete,
-          userId: fresh.session.user.id, displayName: fresh.session.user.name || 'Workspace user' });
+        const review = await reviewWorkspaceDeletionIfRequired(reviewInput);
         if (review) return { mode: 'review' as const, review };
       }
       const batch = await submitDirectWorkspacePathOperation(input);

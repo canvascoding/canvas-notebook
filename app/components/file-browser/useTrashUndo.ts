@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback } from 'react';
+import { useCallback, useLayoutEffect, useRef } from 'react';
 import { useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 import { useShallow } from 'zustand/react/shallow';
@@ -14,11 +14,18 @@ import {
 import { useFileStore } from '@/app/store/file-store';
 import { useWorkspaceStore } from '@/app/store/workspace-store';
 import { openWorkspaceOperationReview } from '@/app/store/workspace-operation-review-store';
+import { openWorkspacePathOperationStatus } from '@/app/store/workspace-path-operation-store';
+import { useDocumentReviewAvailability } from '@/app/components/file-version-center/DocumentReviewAvailabilityProvider';
 import { undoWorkspacePathOperation } from '@/app/lib/files/workspace-path-operation-client';
 import { useFileActionToastTarget } from './FileActionToastScope';
+import { openedDocumentAuthScope } from '@/app/lib/collaboration/opened-document-registry';
 
 export function useTrashUndo(options: { toasterId?: string } = {}) {
   const t = useTranslations('notebook');
+  const reviewAvailability = useDocumentReviewAvailability();
+  const reviewCenterEnabled = reviewAvailability.ready && reviewAvailability.documentReviewEnabled;
+  const reviewCenterEnabledRef = useRef(reviewCenterEnabled);
+  useLayoutEffect(() => { reviewCenterEnabledRef.current = reviewCenterEnabled; }, [reviewCenterEnabled]);
   const toastTarget = useFileActionToastTarget(options.toasterId);
   const { deletePath, refreshDirectory } = useFileStore(useShallow((state) => ({
     deletePath: state.deletePath,
@@ -28,6 +35,7 @@ export function useTrashUndo(options: { toasterId?: string } = {}) {
 
   return useCallback(async (paths: string | string[]): Promise<DeleteWorkspacePathsResult> => {
     const workspaceId = activeWorkspaceId;
+    const authScope = openedDocumentAuthScope();
     let partialError: WorkspaceDeletePartialError | null = null;
     const result = await deletePath(paths, workspaceId).catch((error) => {
       if (!(error instanceof WorkspaceDeletePartialError)) throw error;
@@ -36,8 +44,10 @@ export function useTrashUndo(options: { toasterId?: string } = {}) {
     });
     if (result.reviewRequired) {
       if (result.reviewRequired.workspaceId === workspaceId
-        && useWorkspaceStore.getState().activeWorkspaceId === workspaceId) {
-        openWorkspaceOperationReview(result.reviewRequired.reviewId, workspaceId);
+        && useWorkspaceStore.getState().activeWorkspaceId === workspaceId
+        && openedDocumentAuthScope() === authScope) {
+        if (reviewCenterEnabledRef.current) openWorkspaceOperationReview(result.reviewRequired.reviewId, workspaceId);
+        else void openWorkspacePathOperationStatus({ reviewId: result.reviewRequired.reviewId, workspaceId });
         window.dispatchEvent(new CustomEvent('notification_summary_updated'));
       }
       return result;

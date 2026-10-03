@@ -20,6 +20,9 @@ const modules = Module as typeof Module & { _load: (request: string, parent: Nod
 const originalLoad = modules._load;
 modules._load = (request, parent, isMain) => {
   if (request.endsWith('/useOpenChatFileReference')) return { useOpenChatFileReference: () => async (path: string) => { opened.push(path); } };
+  if (request.endsWith('/DocumentReviewAvailabilityProvider')) return {
+    useDocumentReviewAvailability: () => ({ documentReviewEnabled: false, ready: true, updatedAt: null }),
+  };
   return originalLoad(request, parent, isMain);
 };
 

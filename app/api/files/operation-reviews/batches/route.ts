@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server';
 import { auth } from '@/app/lib/auth';
+import { readDocumentReviewAvailability } from '@/app/lib/document-review-availability';
 import { applyRateLimit, jsonError, jsonServerError, jsonSuccess } from '@/app/lib/api/route-helpers';
 import { createWorkspaceOperationBatchReview, enqueueWorkspaceOperationBatch,
   getWorkspaceOperationBatchReview } from '@/app/lib/files/workspace-operation-batch-service';
@@ -18,6 +19,9 @@ export async function POST(request: NextRequest) {
       if (!Array.isArray(body.reviewIds) || body.reviewIds.some((id) => typeof id !== 'string')) {
         return jsonError('Select file reviews for the combined preview', 422);
       }
+      if (!readDocumentReviewAvailability().documentReviewEnabled) {
+        return jsonError('The experimental Review Center is disabled.', 409, { code: 'DOCUMENT_REVIEW_DISABLED' });
+      }
       const batch = await createWorkspaceOperationBatchReview({
         scope: { workspace: authorized.workspace, fileOptions: workspaceFileOptions(authorized.workspace) },
         reviewIds: body.reviewIds as string[],
@@ -35,6 +39,9 @@ export async function POST(request: NextRequest) {
     const authorized = await requireSessionWorkspace(session, { workspaceId: current.workspaceId,
       permissions: ['canRead', 'canWrite', 'canDelete'] });
     if (authorized.response) return authorized.response;
+    if (current.status === 'preview' && !readDocumentReviewAvailability().documentReviewEnabled) {
+      return jsonError('The experimental Review Center is disabled.', 409, { code: 'DOCUMENT_REVIEW_DISABLED' });
+    }
     const batch = await enqueueWorkspaceOperationBatch({ batchId: body.batchId, planId: body.planId,
       scope: { workspace: authorized.workspace, fileOptions: workspaceFileOptions(authorized.workspace) },
       userId: session.user.id, displayName: session.user.name ?? 'Workspace user', refreshScope: async () => {

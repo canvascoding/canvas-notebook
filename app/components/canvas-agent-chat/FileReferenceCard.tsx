@@ -14,6 +14,7 @@ import { fileSummaryNeedsReview } from '@/app/lib/chat/file-change-summary';
 import { fileChangeAppStatusMessageKey } from '@/app/lib/tool-apps/file-change-data';
 import { FILE_VERSION_CENTER_CONTRACT_VERSION } from '@/app/lib/file-version-center/contracts/v1';
 import { openVersionCenter } from '@/app/store/file-version-center-store';
+import { useDocumentReviewAvailability } from '@/app/components/file-version-center/DocumentReviewAvailabilityProvider';
 
 export type FileReferenceViewState = { expanded: boolean; readsExpanded: boolean; query: string };
 export const DEFAULT_FILE_REFERENCE_VIEW_STATE: FileReferenceViewState = { expanded: false, readsExpanded: false, query: '' };
@@ -33,6 +34,8 @@ export function FileReferenceCard({ references, omittedCount = 0, viewState, onV
   summaryRows, onRefresh, refreshing = false, loadError = false }: FileReferenceCardProps) {
   const t = useTranslations('chat.referenceList');
   const toolT = useTranslations('chat.toolApp');
+  const reviewAvailability = useDocumentReviewAvailability();
+  const reviewCenterEnabled = reviewAvailability.ready && reviewAvailability.documentReviewEnabled;
   const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
   const openFileReference = useOpenChatFileReference();
   const [localState, setLocalState] = React.useState(DEFAULT_FILE_REFERENCE_VIEW_STATE);
@@ -56,7 +59,7 @@ export function FileReferenceCard({ references, omittedCount = 0, viewState, onV
   const visibleReads = reads.filter(matches);
 
   const openChanges = (change: FileSummaryChange) => {
-    if (useWorkspaceStore.getState().activeWorkspaceId !== change.workspaceId) return;
+    if (!reviewCenterEnabled || useWorkspaceStore.getState().activeWorkspaceId !== change.workspaceId) return;
     openVersionCenter({
       contractVersion: FILE_VERSION_CENTER_CONTRACT_VERSION,
       target: { kind: 'change_group', workspaceId: change.workspaceId, changeGroupId: change.groupId, entryId: change.entry.id },
@@ -104,14 +107,14 @@ export function FileReferenceCard({ references, omittedCount = 0, viewState, onV
           </span>
           <ExternalLink aria-hidden="true" className="hidden h-3 w-3 shrink-0 text-muted-foreground group-hover:text-primary sm:block" />
         </button>
-        {changes.length > 0 && <button type="button" data-testid="chat-file-reference-review" data-path={reference.path}
+        {reviewCenterEnabled && changes.length > 0 && <button type="button" data-testid="chat-file-reference-review" data-path={reference.path}
           disabled={!canOpen} title={t('viewChanges')} aria-label={`${t('viewChanges')}: ${reference.path}`}
           onClick={() => openChanges(changes[0])}
           className="mr-1 flex h-8 shrink-0 items-center gap-1 rounded px-2 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50">
           <Eye aria-hidden="true" className="h-3.5 w-3.5" /><span className="hidden sm:inline">{t('viewChanges')}</span>
         </button>}
         </div>
-        {changes.length > 1 && <details className="border-t border-border/40 px-2.5 py-1 text-[11px] text-muted-foreground">
+        {reviewCenterEnabled && changes.length > 1 && <details className="border-t border-border/40 px-2.5 py-1 text-[11px] text-muted-foreground">
           <summary className="cursor-pointer py-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">{t('operations', { count: changes.length })}</summary>
           <div className="flex flex-wrap gap-1.5 py-1">
             {changes.map((change, index) => <button type="button" key={`${change.groupId}:${change.entry.id}`}

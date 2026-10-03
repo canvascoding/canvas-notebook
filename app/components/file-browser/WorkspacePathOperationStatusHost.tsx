@@ -71,13 +71,16 @@ export function WorkspacePathOperationStatusHost() {
 
   const operation = request ? state.response?.operation : null;
   const problem = request ? state.problem : null;
+  const review = request ? state.review : null;
+  const documentPaused = Boolean(request?.documentReviewPaused);
   const running = Boolean(operation && ['queued', 'applying'].includes(operation.status));
   const settled = Boolean(operation && ['applied', 'undone'].includes(operation.status));
-  const selections = operation?.selections ?? problem?.selections ?? [];
-  const code = state.errorCode ?? operation?.errorCode ?? problem?.errorCode;
+  const selections = operation?.selections ?? problem?.selections ?? review?.selections ?? [];
+  const code = state.errorCode ?? operation?.errorCode ?? problem?.errorCode ?? review?.errorCode;
   const status = operation?.status === 'needs_review' ? 'stale' : operation?.status === 'preview' ? 'blocked' : operation?.status;
   const guidance = problem ? problem.errorCode === 'BATCH_AUDIT_FAILED' ? 'auditFailed' : 'problemGuidance'
-    : status ? `guidance.${status}` : null;
+    : documentPaused || review?.status === 'pending' ? 'reviewPausedGuidance'
+    : review ? `legacyGuidance.${review.status}` : status ? `guidance.${status}` : null;
   const canRecover = Boolean(request && !state.loading && !state.busy && !state.error && !running);
 
   return <Dialog open={Boolean(request)} onOpenChange={(open) => { if (!open) closeWorkspacePathOperationStatus(); }}>
@@ -92,12 +95,13 @@ export function WorkspacePathOperationStatusHost() {
       </div>
       <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-4 sm:p-6">
         <div aria-live="polite" aria-atomic="true" className="space-y-3">
-          {state.loading && !operation && !problem ? <p className="flex items-center gap-2 text-sm"><Loader2 className="h-4 w-4 animate-spin" />{t('loading')}</p> : null}
-          {operation || problem ? <div className="flex items-start gap-3 rounded-lg border p-4">
+          {state.loading && !operation && !problem && !review ? <p className="flex items-center gap-2 text-sm"><Loader2 className="h-4 w-4 animate-spin" />{t('loading')}</p> : null}
+          {operation || problem || review || documentPaused ? <div className="flex items-start gap-3 rounded-lg border p-4">
             {running || state.busy ? <Loader2 className="mt-0.5 h-5 w-5 shrink-0 animate-spin text-muted-foreground" />
               : settled ? <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-green-600" /> : <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />}
             <div className="min-w-0 space-y-2">
-              <p className="font-medium">{problem ? t('problemTitle') : t(`status.${status}`)}</p>
+              <p className="font-medium">{problem ? t('problemTitle') : documentPaused || review?.status === 'pending' ? t('reviewPausedTitle')
+                : review ? t(`legacyStatus.${review.status}`) : t(`status.${status}`)}</p>
               {guidance ? <p className="text-sm text-muted-foreground">{t(guidance)}</p> : null}
               {operation ? <p className="text-sm text-muted-foreground">{t('progress', { completed: operation.completedActions, total: operation.totalActions })}</p> : null}
               {state.pendingAction ? <p className="text-sm">{t(state.pendingAction === 'undo' ? 'undoing' : 'resuming')}</p> : null}
@@ -118,7 +122,7 @@ export function WorkspacePathOperationStatusHost() {
         </section> : null}
       </div>
       <div className="flex shrink-0 flex-wrap justify-end gap-2 border-t p-4 sm:px-6">
-        <Button variant="outline" disabled={state.loading || state.busy} onClick={() => void reloadWorkspacePathOperationStatus()}><RefreshCw className="h-4 w-4" />{t('refresh')}</Button>
+        {!documentPaused ? <Button variant="outline" disabled={state.loading || state.busy} onClick={() => void reloadWorkspacePathOperationStatus()}><RefreshCw className="h-4 w-4" />{t('refresh')}</Button> : null}
         {state.response?.recovery?.canUndo && request ? <Button variant="outline" data-testid="workspace-path-operation-undo" disabled={!canRecover}
           onClick={() => void recoverWorkspacePathOperation('undo')}>{t('undo')}</Button> : null}
         {state.response?.recovery?.canResume && request ? <Button data-testid="workspace-path-operation-resume" disabled={!canRecover}

@@ -29,6 +29,8 @@ async function main() {
       await insert(`review-${status}`, status);
     }
     await insert('foreign', 'blocked', 'workspace-b');
+    await postgres.query('UPDATE workspace_file_operation_reviews SET batch_id=$1 WHERE review_id=$2',
+      ['original-approved-batch', 'review-needs_recovery']);
     const result = await source.list(scope);
     assert.equal(result.unreadCount, 7);
     assert.deepEqual(new Set(result.items.map((item) => item.target.status)),
@@ -39,6 +41,9 @@ async function main() {
       assert.match(running.title, /queued|running/u);
     }
     assert.ok(result.items.every((item) => item.workspaceId === 'workspace-a' && item.detail === 'Docs/skill.md'));
+    assert.equal(result.items.find((item) => item.target.status === 'needs_recovery')?.target.batchId,
+      'original-approved-batch', 'original batch remains reachable outside the optional Review Center');
+    assert.equal(result.items.find((item) => item.target.status === 'pending')?.target.batchId, undefined);
     const blocked = result.items.find((item) => item.target.status === 'blocked')!;
     assert.equal(blocked.priority, 'high');
     assert.equal(new URL(blocked.deepLink, 'https://canvas.test').searchParams.get('workspaceOperationReview'), 'review-blocked');

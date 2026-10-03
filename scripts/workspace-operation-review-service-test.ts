@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 import { test } from 'node:test';
 
 import ts from 'typescript';
@@ -24,6 +25,9 @@ async function harness() {
   const rows = new Map<string, Row>();
   const audits = new Set<string>();
   const controls = { planId: PLAN_A, blocked: false, coverageComplete: true, executionCount: 0,
+    pathValidationCount: 0,
+    reviewEnabled: true, disableDuringPreview: false,
+    concurrentInsertStatus: null as string | null,
     auditAvailable: true, auditWrites: 0, journalStatus: 'completed',
     metrics: [] as Array<Record<string, unknown>>,
     lastExecutionInput: null as Record<string, unknown> | null,
@@ -43,7 +47,10 @@ async function harness() {
       if (sql.includes('FROM audit_events')) return audits.has(String(params[0])) ? { id: 'audit-one' } : undefined;
       if (sql.includes('INSERT INTO workspace_file_operation_reviews')) {
         const id = String(params[0]);
-        if (rows.has(id)) return undefined;
+        if (rows.has(id)) {
+          if (controls.concurrentInsertStatus) rows.get(id)!.status = controls.concurrentInsertStatus;
+          return undefined;
+        }
         const row: Row = { review_id: id, plan_id: params[1], request_hash: params[2],
           request_json: params[3], preview_json: params[4], source_workspace_id: params[5],
           destination_workspace_id: params[6], actor_user_id: params[7], actor_id: params[8],
@@ -69,6 +76,10 @@ async function harness() {
     },
     all: async (sql: string, params: unknown[]) => {
       if (sql.includes('FROM collaboration_documents')) return [];
+      if (sql.includes('SELECT DISTINCT actor_session_id')) return [...new Set([...rows.values()]
+        .filter((row) => row.source_workspace_id === params[0] && row.actor_user_id === params[1])
+        .map((row) => row.actor_session_id))].slice(0, 1001).map((actor_session_id) => ({ actor_session_id }));
+      if (sql.includes('review_id = ANY')) return [...rows.values()].filter((row) => (params[0] as string[]).includes(String(row.review_id)));
       if (sql.includes('FROM workspace_file_operation_reviews')) return [...rows.values()]
         .filter((row) => row.source_workspace_id === params[0]
           && ['pending', 'blocked', 'stale', 'needs_recovery', 'failed', 'applying'].includes(String(row.status)));
@@ -79,6 +90,9 @@ async function harness() {
   const service = { exports: {} as typeof Service };
   new Function('require', 'module', 'exports', source)((name: string) => {
     if (name === 'server-only') return {};
+    if (name === '@/app/lib/document-review-availability') return {
+      readDocumentReviewAvailability: () => ({ documentReviewEnabled: controls.reviewEnabled, updatedAt: null }),
+    };
     if (name === '@/app/lib/audit/audit-service') return { recordAuditEvent: async (input: { inputHash: string }) => {
       controls.auditWrites += 1;
       if (!controls.auditAvailable) return null;
@@ -99,7 +113,9 @@ async function harness() {
     if (name === '@/app/lib/markdown/workspace-link-index-core') return { buildWorkspaceLinkIndexFromDocuments: () => ({
       edges: [], coverage: { complete: true, omittedSources: [], unresolvedLinks: [] } }) };
     if (name === '@/app/lib/markdown/workspace-file-operation-preview') return {
-      buildWorkspaceFileOperationPreview: async () => ({ contractVersion: 1, planId: controls.planId,
+      buildWorkspaceFileOperationPreview: async () => {
+        if (controls.disableDuringPreview) controls.reviewEnabled = false;
+        return ({ contractVersion: 1, planId: controls.planId,
         kind: 'move', status: 'planned', pathMappings: [{ sourcePath: 'target.md', destinationPath: 'moved.md',
           sourceIdentity: 'identity', sourceWorkspaceId: 'workspace-one', destinationWorkspaceId: 'workspace-one' }],
         linkEdits: [{ sourcePathBefore: 'index.md', sourcePathAfter: 'index.md',
@@ -112,14 +128,21 @@ async function harness() {
         issues: controls.blocked ? [{ code: 'destination-collision', workspaceId: 'workspace-one',
           path: 'moved.md', detail: 'occupied' }] : controls.coverageComplete ? [] : [{
           code: 'incomplete-index', workspaceId: 'workspace-one', path: '.', detail: 'big Markdown file',
-        }], previewContents: [] }),
+        }], previewContents: [] });
+      },
       buildWorkspacePlannerSnapshot: async () => ({ workspaceId: 'workspace-one', entries: controls.snapshotEntries }),
       assertFreshWorkspaceFileOperationPlan: (_plan: { planId: string }, planId: string) => {
         if (_plan.planId !== planId) throw Error('stale');
       },
     };
     if (name === '@/app/lib/public-sharing/public-file-shares') return { syncPublicSharesAfterDelete: async () => undefined };
-    if (name === '@/app/lib/workspaces/path-guard') return { resolveWorkspacePath: (_workspace: unknown, value: string) => ({ relativePath: value }) };
+    if (name === '@/app/lib/workspaces/path-guard') return { resolveWorkspacePath: (_workspace: unknown, value: string) => {
+      controls.pathValidationCount += 1;
+      if (path.isAbsolute(value) || value.split(/[\\/]/u).includes('..')) {
+        throw Object.assign(new Error('Outside the workspace.'), { code: 'WORKSPACE_PATH_OUTSIDE_ROOT', status: 400 });
+      }
+      return { relativePath: value };
+    } };
     if (name === './workspace-operation-observability') return {
       observeWorkspaceOperation: (input: Record<string, unknown>) => { controls.metrics.push(input); },
     };
@@ -134,17 +157,164 @@ async function harness() {
     return load(name);
   }, service, service.exports);
   const scope = { workspace, fileOptions: { workspace } } as Parameters<typeof service.exports.submitAgentWorkspacePathOperation>[0]['source'];
-  const submit = () => service.exports.submitAgentWorkspacePathOperation({
+  const submitInput = {
     kind: 'move', source: scope, destination: scope,
     selections: [{ sourcePath: 'target.md', destinationPath: 'moved.md' }],
     actorUserId: 'user-one', actorId: 'agent-one', actorDisplayName: 'Agent',
     actorSessionId: 'session-one', idempotencyKey: 'call-one',
-  });
+  } as Parameters<typeof service.exports.submitAgentWorkspacePathOperation>[0];
+  const submit = () => service.exports.submitAgentWorkspacePathOperation(submitInput);
   const accept = (reviewId: string, planId: string, refreshAccess = async () => ({ source: scope, destination: scope })) =>
     service.exports.acceptWorkspaceOperationReview({ reviewId, planId, source: scope, destination: scope,
       reviewerUserId: 'user-one', reviewerDisplayName: 'User', refreshAccess });
-  return { service: service.exports, controls, rows, submit, accept };
+  return { service: service.exports, controls, rows, scope, submitInput, submit, accept };
 }
+
+test('unknown review keys do not validate session-temp paths but stored keys remain immutable', async () => {
+  const h = await harness();
+  h.controls.disableDuringPreview = true;
+  for (const sourcePath of ['/data/session-temp/scratch.md', '../session-temp/scratch.md']) {
+    assert.equal(await h.service.getExistingAgentWorkspacePathOperation({ ...h.submitInput,
+      selections: [{ sourcePath, destinationPath: '/data/session-temp/moved.md' }] }), null);
+  }
+  assert.equal(h.controls.pathValidationCount, 0, 'unknown keys cannot classify or reject paths before the agent does');
+  assert.equal(h.controls.reviewEnabled, true, 'the lookup cannot build a preview');
+  assert.equal(h.rows.size, 0);
+  assert.equal(h.controls.executionCount, 0);
+
+  h.controls.disableDuringPreview = false;
+  const saved = await h.submit();
+  if (saved.mode === 'direct') throw new Error('Expected saved review.');
+  const immutable = JSON.stringify(h.rows.get(saved.reviewId));
+  h.controls.reviewEnabled = false;
+  for (const sourcePath of ['/data/session-temp/scratch.md', '../session-temp/scratch.md']) {
+    await assert.rejects(h.service.getExistingAgentWorkspacePathOperation({ ...h.submitInput,
+      selections: [{ sourcePath, destinationPath: 'moved.md' }] }), { code: 'WORKSPACE_PATH_OUTSIDE_ROOT' });
+    await assert.rejects(h.service.getExistingAgentWorkspacePathOperation({ ...h.submitInput,
+      requestSelections: [{ sourcePath, destinationPath: 'moved.md' }] }), { code: 'WORKSPACE_PATH_OUTSIDE_ROOT' });
+  }
+  await assert.rejects(h.service.getExistingAgentWorkspacePathOperation({ ...h.submitInput,
+    selections: [{ sourcePath: 'another.md', destinationPath: 'moved.md' }] }), { code: 'REVIEW_IDEMPOTENCY_CONFLICT' });
+  assert.equal(JSON.stringify(h.rows.get(saved.reviewId)), immutable);
+  assert.equal(h.rows.size, 1);
+  assert.equal(h.controls.executionCount, 0);
+});
+
+test('disabled experiment blocks new reviews and acceptance while preserving exact pending retries', async () => {
+  const h = await harness();
+  h.controls.reviewEnabled = false;
+  await assert.rejects(h.submit(), { code: 'DOCUMENT_REVIEW_DISABLED', status: 409 });
+  assert.equal(h.rows.size, 0);
+  h.controls.reviewEnabled = true;
+  const saved = await h.submit();
+  if (saved.mode === 'direct') throw new Error('Expected saved review.');
+  const immutable = JSON.stringify(h.rows.get(saved.reviewId));
+  h.controls.reviewEnabled = false;
+  assert.deepEqual(await h.service.getExistingAgentWorkspacePathOperation(h.submitInput), saved);
+  assert.deepEqual(await h.submit(), saved);
+  await assert.rejects(h.accept(saved.reviewId, saved.planId), { code: 'DOCUMENT_REVIEW_DISABLED', status: 409 });
+  await assert.rejects(h.service.refreshWorkspaceOperationReview({ reviewId: saved.reviewId, planId: saved.planId,
+    source: h.scope, destination: h.scope, reviewerUserId: 'user-one', refreshAccess: async () => ({ source: h.scope, destination: h.scope }) }),
+  { code: 'DOCUMENT_REVIEW_DISABLED', status: 409 });
+  assert.equal(h.controls.executionCount, 0);
+  assert.equal(JSON.stringify(h.rows.get(saved.reviewId)), immutable);
+  assert.equal((await h.service.listWorkspaceOperationReviews('workspace-one')).length, 1);
+  h.controls.reviewEnabled = true;
+  assert.equal((await h.accept(saved.reviewId, saved.planId)).status, 'applied');
+  h.controls.reviewEnabled = false;
+  assert.equal((await h.accept(saved.reviewId, saved.planId)).status, 'applied', 'an applied retry remains readable OFF');
+  assert.equal(h.controls.executionCount, 1);
+});
+
+test('disabling during preview or the locked permission refresh cannot persist or accept', async () => {
+  const h = await harness();
+  h.controls.disableDuringPreview = true;
+  await assert.rejects(h.submit(), { code: 'DOCUMENT_REVIEW_DISABLED' });
+  assert.equal(h.rows.size, 0);
+  h.controls.reviewEnabled = true; h.controls.disableDuringPreview = false;
+  const saved = await h.submit();
+  if (saved.mode === 'direct') throw new Error('Expected saved review.');
+  await assert.rejects(h.accept(saved.reviewId, saved.planId, async () => {
+    h.controls.reviewEnabled = false;
+    return { source: h.scope, destination: h.scope };
+  }), { code: 'DOCUMENT_REVIEW_DISABLED' });
+  assert.equal(h.rows.get(saved.reviewId)?.status, 'pending');
+  assert.equal(h.controls.executionCount, 0);
+  h.controls.reviewEnabled = true; h.controls.disableDuringPreview = true;
+  await assert.rejects(h.accept(saved.reviewId, saved.planId), { code: 'DOCUMENT_REVIEW_DISABLED' });
+  assert.equal(h.rows.get(saved.reviewId)?.status, 'pending');
+  assert.equal(h.controls.executionCount, 0);
+});
+
+test('immutable agent retry binds original missing selections, flags, actor, session, and name independently of the feature', async () => {
+  const h = await harness();
+  const input = { ...h.submitInput, selections: [{ sourcePath: 'target.md' }], kind: 'delete' as const,
+    requestSelections: [{ sourcePath: 'target.md' }, { sourcePath: 'absent.md' }],
+    requestOptions: { ignoreMissing: true, recursive: true } };
+  h.controls.snapshotEntries = [{ path: 'target.md', kind: 'file', identity: 'v1', markdownContent: '# Target' }];
+  const saved = await h.service.submitAgentWorkspacePathOperation(input);
+  if (saved.mode === 'direct') throw new Error('Expected saved review.');
+  h.controls.reviewEnabled = false;
+  const retry = { ...input, selections: input.requestSelections };
+  assert.deepEqual(await h.service.getExistingAgentWorkspacePathOperation(retry), saved);
+  for (const changed of [ { actorId: 'other-agent' }, { actorSessionId: 'other-session' }, { actorDisplayName: 'Other name' },
+    { requestOptions: { ignoreMissing: false, recursive: true } }, { requestOptions: { ignoreMissing: true, recursive: false } },
+    { requestSelections: [{ sourcePath: 'replacement.md' }] } ]) {
+    await assert.rejects(h.service.getExistingAgentWorkspacePathOperation({ ...retry, ...changed }), { code: 'REVIEW_IDEMPOTENCY_CONFLICT' });
+  }
+  assert.equal(h.rows.size, 1);
+  assert.equal(h.controls.executionCount, 0);
+});
+
+test('legacy session-bound review keys are found across sessions and ambiguous or oversized scopes fail closed', async () => {
+  const h = await harness();
+  const saved = await h.submit();
+  if (saved.mode === 'direct') throw new Error('Expected saved review.');
+  const row = h.rows.get(saved.reviewId)!;
+  const legacyId = (sessionId: string) => createHash('sha256').update(JSON.stringify(['workspace-operation-review-v1',
+    'workspace-one', 'user-one', sessionId, 'call-one'])).digest('hex');
+  h.rows.delete(saved.reviewId);
+  row.review_id = legacyId('session-one');
+  h.rows.set(String(row.review_id), row);
+  h.controls.reviewEnabled = false;
+  const prior = await h.service.getExistingAgentWorkspacePathOperation(h.submitInput);
+  assert.equal(prior?.mode === 'needs_review' ? prior.reviewId : null, row.review_id);
+  const immutable = JSON.stringify(row);
+  const beforeUnknownPath = h.controls.pathValidationCount;
+  assert.equal(await h.service.getExistingAgentWorkspacePathOperation({ ...h.submitInput,
+    idempotencyKey: 'unknown-temp-key', selections: [{ sourcePath: '/data/session-temp/scratch.md', destinationPath: 'out.md' }] }), null);
+  assert.equal(h.controls.pathValidationCount, beforeUnknownPath, 'unrelated legacy reviews cannot reject a new temp request');
+  await assert.rejects(h.service.getExistingAgentWorkspacePathOperation({ ...h.submitInput,
+    selections: [{ sourcePath: '/data/session-temp/scratch.md', destinationPath: 'out.md' }] }),
+  { code: 'WORKSPACE_PATH_OUTSIDE_ROOT' });
+  assert.equal(JSON.stringify(row), immutable, 'known legacy keys fail before any review mutation');
+  await assert.rejects(h.service.getExistingAgentWorkspacePathOperation({ ...h.submitInput, actorSessionId: 'new-session' }),
+    { code: 'REVIEW_IDEMPOTENCY_CONFLICT' });
+  h.rows.set(legacyId('second-session'), { ...row, review_id: legacyId('second-session'), actor_session_id: 'second-session' });
+  await assert.rejects(h.service.getExistingAgentWorkspacePathOperation(h.submitInput), { code: 'REVIEW_IDEMPOTENCY_CONFLICT' });
+  for (let index = 0; index < 1001; index += 1) h.rows.set(`unrelated-${index}`, {
+    ...row, review_id: `unrelated-${index}`, actor_session_id: `unrelated-session-${index}`,
+  });
+  await assert.rejects(h.service.getExistingAgentWorkspacePathOperation(h.submitInput), { code: 'REVIEW_IDEMPOTENCY_SCOPE_LIMIT' });
+  assert.equal(h.controls.executionCount, 0);
+});
+
+test('concurrent same-key creation returns the stored status and checks immutable actor name', async () => {
+  const h = await harness();
+  h.controls.concurrentInsertStatus = 'queued';
+  const submissions = await Promise.all([h.submit(), h.submit()]);
+  assert.equal(h.rows.size, 1);
+  assert.equal(submissions[0].mode, 'needs_review');
+  assert.equal(submissions[1].mode, 'blocked');
+  assert.equal(submissions[1].mode === 'blocked' ? submissions[1].status : null, 'queued');
+  const changed = await harness();
+  const results = await Promise.allSettled([changed.submit(),
+    changed.service.submitAgentWorkspacePathOperation({ ...changed.submitInput, actorDisplayName: 'Other name' })]);
+  assert.equal(results[0].status, 'fulfilled');
+  assert.equal(results[1].status, 'rejected');
+  assert.equal(results[1].status === 'rejected' ? results[1].reason.code : null, 'REVIEW_IDEMPOTENCY_CONFLICT');
+  assert.equal(changed.rows.size, 1);
+});
 
 test('blocked collision preview remains readable and appears in attention list', async () => {
   const h = await harness(); h.controls.blocked = true;

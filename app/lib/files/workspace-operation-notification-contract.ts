@@ -7,6 +7,7 @@ export type WorkspaceOperationNotificationTarget = {
   kind: 'file_operation';
   workspaceId: string;
   reviewId: string;
+  batchId?: string;
   operationKind: WorkspaceOperationReviewKind;
   status: WorkspaceOperationAttentionStatus;
 };

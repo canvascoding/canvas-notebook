@@ -29,6 +29,7 @@ async function main(): Promise<void> {
   let submitError: Error | null = null;
   const problems: WorkspacePathOperationProblemInput[] = [];
   let existingDirectRequest: WorkspacePathOperationInput | null = null;
+  let existingReview = false;
   let status = 'applied';
   const permissions: string[][] = [];
   const submitted: WorkspacePathOperationInput[] = [];
@@ -57,6 +58,15 @@ async function main(): Promise<void> {
     };
     if (name.endsWith('/document-review-availability')) return { readDocumentReviewAvailability: () => ({ documentReviewEnabled: reviewEnabled }) };
     if (name.endsWith('/workspace-operation-delete-review')) return {
+      getExistingWorkspaceDeletionReview: async (input: { paths: string[]; idempotencyKey?: string }) => {
+        assert.equal(lockDepth, 1);
+        if (!existingReview) return null;
+        if (JSON.stringify(input.paths) !== JSON.stringify(['target.md']) || input.idempotencyKey !== 'delete-request') {
+          throw Object.assign(new Error('Stored delete review identity changed'), { status: 409, code: 'REVIEW_IDEMPOTENCY_CONFLICT' });
+        }
+        return { blocked: false, reviewRequired: { reviewId: 'review-1234567890',
+          planId: 'a'.repeat(64), workspaceId: 'workspace', status: 'pending' } };
+      },
       reviewWorkspaceDeletionIfRequired: async () => {
         reviews += 1; assert.equal(lockDepth, 1);
         return needsReview ? { blocked, reviewRequired: { reviewId: 'review-1234567890',
@@ -127,6 +137,16 @@ async function main(): Promise<void> {
   assert.deepEqual(reviewedBody.deleted, []);
   assert.equal(reviewedBody.reviewRequired.status, 'pending');
   assert.equal(submissions, 0);
+  reviewEnabled = false; existingReview = true;
+  const storedReviewRetry = await remove();
+  assert.equal(storedReviewRetry.status, 200);
+  assert.deepEqual((await storedReviewRetry.json()).reviewRequired, reviewedBody.reviewRequired);
+  assert.equal(submissions, 0, 'a pending review never becomes an automatic delete when the experiment is disabled');
+  const changedReviewRetry = await remove({ path: 'different.md', idempotencyKey: 'delete-request' });
+  assert.equal(changedReviewRetry.status, 409);
+  assert.equal((await changedReviewRetry.json()).code, 'REVIEW_IDEMPOTENCY_CONFLICT');
+  assert.equal(submissions, 0);
+  existingReview = false; reviewEnabled = true;
   blocked = true;
   const blockedReview = await remove();
   assert.equal(blockedReview.status, 409);

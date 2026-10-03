@@ -61,6 +61,8 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { useIsMobile } from '@/hooks/use-mobile';
 import { cn } from '@/lib/utils';
 import { openWorkspaceOperationReview } from '@/app/store/workspace-operation-review-store';
+import { openWorkspacePathOperationStatus } from '@/app/store/workspace-path-operation-store';
+import { useDocumentReviewAvailability } from '@/app/components/file-version-center/DocumentReviewAvailabilityProvider';
 
 function workspaceOperationReviewFromDetails(details: unknown): {
   reviewId: string; workspaceId: string; status: 'pending' | 'blocked';
@@ -213,6 +215,9 @@ export function ToolCallPill({
 }) {
   const t = useTranslations('chat');
   const reviewT = useTranslations('workspaceOperationReview');
+  const statusT = useTranslations('workspacePathOperationStatus');
+  const reviewAvailability = useDocumentReviewAvailability();
+  const reviewCenterEnabled = reviewAvailability.ready && reviewAvailability.documentReviewEnabled;
   const locale = useLocale();
   const isMobile = useIsMobile();
   const [copied, setCopied] = useState(false);
@@ -350,12 +355,15 @@ export function ToolCallPill({
           </div>
           <StoredToolOutputPreview details={getPiMessageDetails(message.piMessage)} scope={toolOutputScope} />
           {pendingReview ? <Button type="button" size="sm" variant="secondary" className="mb-2"
-            data-testid="workspace-operation-open-review"
+            data-testid={reviewCenterEnabled ? 'workspace-operation-open-review' : 'workspace-operation-open-status'}
             onClick={() => {
               handleOpenChange(false);
-              window.setTimeout(() => openWorkspaceOperationReview(pendingReview.reviewId, pendingReview.workspaceId), 0);
+              window.setTimeout(() => {
+                if (reviewCenterEnabled) openWorkspaceOperationReview(pendingReview.reviewId, pendingReview.workspaceId);
+                else void openWorkspacePathOperationStatus({ reviewId: pendingReview.reviewId, workspaceId: pendingReview.workspaceId });
+              }, 0);
             }}>
-            <ClipboardCheck className="mr-1.5 size-4" />{reviewT('openAction')}
+            <ClipboardCheck className="mr-1.5 size-4" />{reviewCenterEnabled ? reviewT('openAction') : statusT('openStatus')}
           </Button> : null}
           {imageAttachments.length > 0 ? (
             <div data-testid="chat-tool-attachments" className="mb-2 flex flex-wrap gap-2">

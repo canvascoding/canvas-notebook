@@ -28,6 +28,7 @@ async function loadRoute<T extends object>(filename: string, mocks: Record<strin
 
 async function harness() {
   const controls = { authenticated: true, revokedOnRefresh: false, sessionRevokedOnRefresh: false,
+    reviewEnabled: true,
     sessionCalls: 0, workspaceCalls: 0, reviewKind: 'move',
     requestedPermissions: [] as unknown[],
     stale: false, applyCalls: 0 };
@@ -56,6 +57,7 @@ async function harness() {
     },
   };
   const mocks = {
+    '@/app/lib/document-review-availability': { readDocumentReviewAvailability: () => ({ documentReviewEnabled: controls.reviewEnabled, updatedAt: null }) },
     '@/app/lib/auth': { auth: { api: { getSession: async () => {
       controls.sessionCalls += 1;
       return controls.authenticated && !(controls.sessionRevokedOnRefresh && controls.sessionCalls > 1)
@@ -100,6 +102,40 @@ test('review API requires session and exact reviewed plan identity', async () =>
   assert.ok(stale);
   assert.equal(stale.status, 409);
   assert.equal((await stale.json()).code, 'PREVIEW_STALE');
+});
+
+test('OFF review actions reject new approval and refresh while authenticated status/list/reject remain accessible', async () => {
+  const h = await harness();
+  h.controls.reviewEnabled = false;
+  for (const action of ['accept', 'refresh']) {
+    const response = await h.detail.POST(h.request({ action, planId: review.planId }), h.context);
+    assert.ok(response);
+    assert.equal(response.status, 409);
+    assert.equal((await response.json()).code, 'DOCUMENT_REVIEW_DISABLED');
+  }
+  assert.equal(h.controls.applyCalls, 0);
+  assert.equal((await h.detail.GET(h.request(), h.context))?.status, 200);
+  assert.equal((await h.list.GET(new NextRequest('https://canvas.test/api/files/operation-reviews?workspaceId=workspace-one'))).status, 200);
+  assert.equal((await h.detail.POST(h.request({ action: 'reject', planId: review.planId }), h.context))?.status, 200);
+});
+
+test('explicit wrong workspace headers cannot expose or mutate an otherwise readable review', async () => {
+  const h = await harness();
+  for (const method of ['GET', 'POST']) {
+    const request = new NextRequest(`https://canvas.test/api/files/operation-reviews/${review.reviewId}`, {
+      method, headers: { 'content-type': 'application/json', 'x-canvas-workspace-id': 'another-readable-workspace' },
+      ...(method === 'POST' ? { body: JSON.stringify({ action: 'accept', planId: review.planId }) } : {}),
+    });
+    const response = await h.detail[method as 'GET' | 'POST'](request, h.context);
+    assert.ok(response);
+    assert.equal(response.status, 403);
+    const payload = await response.json();
+    assert.equal(payload.code, 'REVIEW_ACCESS_DENIED');
+    assert.equal(payload.review, undefined);
+    assert.equal(JSON.stringify(payload).includes('target.md'), false);
+  }
+  assert.equal(h.controls.applyCalls, 0);
+  assert.equal(h.controls.workspaceCalls, 0, 'mismatched navigation is rejected before public workspace projection');
 });
 
 test('review API refreshes permissions within accept and exposes attention states', async () => {

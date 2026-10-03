@@ -2,6 +2,7 @@ import 'server-only';
 
 import { randomUUID } from 'node:crypto';
 import { openDb } from '@/app/lib/db';
+import { readDocumentReviewAvailability } from '@/app/lib/document-review-availability';
 import { withWorkspaceMutationLock } from './workspace-mutation-lock';
 import { buildWorkspaceOperationBatchPlan, workspaceOperationBatchPublicPreview } from './workspace-operation-batch-plan';
 import { assertWorkspaceOperationBatchUndoAvailable, getWorkspaceOperationBatchExecutionPublic } from './workspace-operation-batch-executor';
@@ -13,6 +14,12 @@ import { getWorkspaceOperationReview, rebaseReviewSelections, WorkspaceOperation
 import { assertWorkspaceOperationBatchApprovalCurrent } from './workspace-operation-batch-approval-fence';
 
 const store = new WorkspaceOperationBatchStore();
+
+function assertDocumentReviewEnabled(): void {
+  if (!readDocumentReviewAvailability().documentReviewEnabled) {
+    throw new WorkspaceOperationBatchError('DOCUMENT_REVIEW_DISABLED', 409, 'The experimental Review Center is disabled.');
+  }
+}
 
 function assertAccess(scope: WorkspaceOperationBatchScope, workspaceId = scope.workspace.workspaceId): void {
   if (scope.workspace.workspaceId !== workspaceId || scope.workspace.status && scope.workspace.status !== 'active'
@@ -57,6 +64,7 @@ export async function getWorkspaceOperationBatchReview(batchId: string, scope?: 
 export async function createWorkspaceOperationBatchReview(input: {
   scope: WorkspaceOperationBatchScope; reviewIds: string[];
 }): Promise<WorkspaceOperationBatchPublic> {
+  assertDocumentReviewEnabled();
   assertAccess(input.scope);
   if (!Array.isArray(input.reviewIds) || input.reviewIds.length < 1 || input.reviewIds.length > 50
     || new Set(input.reviewIds).size !== input.reviewIds.length
@@ -64,6 +72,7 @@ export async function createWorkspaceOperationBatchReview(input: {
     throw new WorkspaceOperationBatchError('BATCH_INVALID_SELECTION', 422, 'Select between 1 and 50 distinct file reviews.');
   }
   return withWorkspaceMutationLock(input.scope.workspace.workspaceId, async () => {
+    assertDocumentReviewEnabled();
     const db = await openDb();
     let rows: Record<string, unknown>[];
     try { rows = await db.all(`SELECT * FROM workspace_file_operation_reviews
@@ -101,6 +110,7 @@ export async function createWorkspaceOperationBatchReview(input: {
       }
     }
     const plan = await buildWorkspaceOperationBatchPlan({ scope: input.scope, actions });
+    assertDocumentReviewEnabled();
     const batch = await store.create({ batchId: randomUUID(), plan, reviewRefs: ordered.map((row) => ({
       reviewId: String(row!.review_id), planId: String(row!.plan_id), status: String(row!.status),
     })) });
@@ -131,10 +141,14 @@ export async function enqueueWorkspaceOperationBatch(input: {
         throw new WorkspaceOperationBatchError(code, 409, 'Files or links changed after the batch; automatic undo would overwrite newer work.');
       }
     }
-    if (action === 'accept' && batch.status === 'preview') {
+    const current = await store.get(batch.batchId);
+    if (!current) throw new WorkspaceOperationBatchError('BATCH_NOT_FOUND', 404, 'File action batch not found.');
+    if (action === 'accept' && current.status === 'preview') {
+      assertDocumentReviewEnabled();
       await assertWorkspaceOperationBatchApprovalCurrent(batch.plan, scope);
+      assertDocumentReviewEnabled();
     }
     return workspaceOperationBatchPublic(await store.enqueue({ ...input, action }));
   };
-  return action === 'accept' ? approve() : withWorkspaceMutationLock(batch.workspaceId, approve);
+  return withWorkspaceMutationLock(batch.workspaceId, approve);
 }

@@ -9,19 +9,29 @@ import type { WorkspacePathOperationProblem } from '@/app/lib/files/workspace-pa
 import { useWorkspaceStore } from './workspace-store';
 
 export type WorkspacePathOperationStatusTarget = { workspaceId: string }
-  & ({ batchId: string; problemId?: never } | { problemId: string; batchId?: never });
+  & ({ batchId: string; problemId?: never; reviewId?: never; documentReviewPaused?: never }
+    | { problemId: string; batchId?: never; reviewId?: never; documentReviewPaused?: never }
+    | { reviewId: string; batchId?: never; problemId?: never; documentReviewPaused?: never }
+    | { documentReviewPaused: true; batchId?: never; problemId?: never; reviewId?: never });
 export type WorkspacePathOperationStatusRequest = WorkspacePathOperationStatusTarget & { authScope: OpenedDocumentAuthScope };
 export type WorkspacePathOperationStatusResponse = WorkspacePathOperationResponse & { recovery?: { canResume: boolean; canUndo: boolean } };
+export type WorkspacePathOperationLegacyReviewStatus = {
+  reviewId: string; kind: 'move' | 'rename' | 'delete' | 'copy';
+  status: 'pending' | 'queued' | 'applying' | 'applied' | 'rejected' | 'stale' | 'failed' | 'needs_recovery' | 'blocked';
+  selections: Array<{ sourcePath: string; destinationPath?: string }>; errorCode: string | null;
+  batchId: string | null;
+};
 type State = {
   request: WorkspacePathOperationStatusRequest | null;
   response: WorkspacePathOperationStatusResponse | null;
   problem: WorkspacePathOperationProblem | null;
+  review: WorkspacePathOperationLegacyReviewStatus | null;
   loading: boolean; busy: boolean;
   pendingAction: 'resume' | 'undo' | null;
   error: 'load' | 'action' | 'access' | 'identity' | null;
   errorCode: string | null;
 };
-const initial: State = { request: null, response: null, problem: null, loading: false, busy: false,
+const initial: State = { request: null, response: null, problem: null, review: null, loading: false, busy: false,
   pendingAction: null, error: null, errorCode: null };
 export const useWorkspacePathOperationStore = create<State>(() => initial);
 let generation = 0;
@@ -29,6 +39,8 @@ let navigationGeneration = 0;
 let controller: AbortController | null = null;
 let opener: HTMLElement | null = null;
 const pinnedPlans = new WeakMap<WorkspacePathOperationStatusRequest, string>();
+const resolvedBatches = new WeakMap<WorkspacePathOperationStatusRequest, string>();
+const batchFor = (request: WorkspacePathOperationStatusRequest) => request.batchId ?? resolvedBatches.get(request);
 
 const validId = (value: unknown): value is string => typeof value === 'string' && /^[A-Za-z0-9_-]{16,128}$/u.test(value);
 const safeCode = (value: unknown): string | null => typeof value === 'string' && /^[A-Z0-9_:-]{1,100}$/u.test(value) ? value : null;
@@ -51,7 +63,7 @@ function readOperation(payload: unknown, request: WorkspacePathOperationStatusRe
   const value = payload as WorkspacePathOperationStatusResponse | null;
   const operation = value?.operation;
   const expectedPlan = planId ?? pinnedPlans.get(request);
-  if (!operation || operation.batchId !== request.batchId || operation.workspaceId !== request.workspaceId
+  if (!operation || operation.batchId !== batchFor(request) || operation.workspaceId !== request.workspaceId
     || typeof operation.planId !== 'string' || !/^[a-f0-9]{64}$/u.test(operation.planId) || expectedPlan && operation.planId !== expectedPlan
     || !['move', 'rename', 'delete'].includes(operation.kind) || !validSelections(operation.selections)
     || !['preview', 'blocked', 'queued', 'applying', 'applied', 'needs_review', 'needs_recovery', 'failed', 'undone'].includes(operation.status)
@@ -70,6 +82,17 @@ function readOperation(payload: unknown, request: WorkspacePathOperationStatusRe
   ...(value.recovery ? { recovery: { canResume: value.recovery.canResume, canUndo: value.recovery.canUndo } } : {}) };
 }
 
+function readLegacyReview(payload: unknown, request: WorkspacePathOperationStatusRequest): WorkspacePathOperationLegacyReviewStatus {
+  const review = (payload as { review?: WorkspacePathOperationLegacyReviewStatus & {sourceWorkspaceId: string} } | null)?.review;
+  if (!review || review.reviewId !== request.reviewId || review.sourceWorkspaceId !== request.workspaceId
+    || !['move', 'rename', 'delete', 'copy'].includes(review.kind) || !validSelections(review.selections)
+    || !['pending', 'queued', 'applying', 'applied', 'rejected', 'stale', 'failed', 'needs_recovery', 'blocked'].includes(review.status)
+    || review.batchId !== undefined && review.batchId !== null && !validId(review.batchId)) throw new Error('identity');
+  return { reviewId: review.reviewId, kind: review.kind, status: review.status, errorCode: safeCode(review.errorCode),
+    selections: review.selections.map(({ sourcePath, destinationPath }) => ({ sourcePath, ...(destinationPath ? {destinationPath} : {}) })),
+    batchId: review.batchId ?? null };
+}
+
 function readProblem(payload: unknown, request: WorkspacePathOperationStatusRequest): WorkspacePathOperationProblem {
   const problem = (payload as { problem?: WorkspacePathOperationProblem } | null)?.problem;
   if (!problem || problem.problemId !== request.problemId || problem.workspaceId !== request.workspaceId
@@ -85,7 +108,7 @@ function publishResult(request: WorkspacePathOperationStatusRequest, response: W
   const pendingAction = useWorkspacePathOperationStore.getState().pendingAction;
   const running = ['queued', 'applying'].includes(response.operation.status);
   const expected = pendingAction === 'undo' ? 'undone' : 'applied';
-  useWorkspacePathOperationStore.setState({ response, problem: null, loading: false,
+  useWorkspacePathOperationStore.setState({ response, problem: null, review: null, loading: false,
     busy: Boolean(pendingAction && running), pendingAction: running ? pendingAction : null,
     error: pendingAction && !running && response.operation.status !== expected ? 'action' : null,
     errorCode: response.operation.errorCode });
@@ -94,7 +117,8 @@ function publishResult(request: WorkspacePathOperationStatusRequest, response: W
 
 export async function openWorkspacePathOperationStatus(target: WorkspacePathOperationStatusTarget): Promise<boolean> {
   if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/u.test(target.workspaceId)
-    || Boolean(target.batchId) === Boolean(target.problemId) || !validId(target.batchId ?? target.problemId)) return false;
+    || [target.batchId, target.problemId, target.reviewId, target.documentReviewPaused].filter(Boolean).length !== 1
+    || !target.documentReviewPaused && !validId(target.batchId ?? target.problemId ?? target.reviewId)) return false;
   const authScope = openedDocumentAuthScope();
   if (!authScope) return false;
   const opening = ++navigationGeneration;
@@ -124,6 +148,7 @@ export function closeWorkspacePathOperationStatus(): void {
   if (request && url.searchParams.get('workspaceId') === request.workspaceId) {
     if (url.searchParams.get('workspacePathBatch') === request.batchId) url.searchParams.delete('workspacePathBatch');
     if (url.searchParams.get('workspacePathProblem') === request.problemId) url.searchParams.delete('workspacePathProblem');
+    if (url.searchParams.get('workspaceOperationReview') === request.reviewId) url.searchParams.delete('workspaceOperationReview');
     window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
   }
   const target = opener; opener = null;
@@ -133,11 +158,14 @@ export function closeWorkspacePathOperationStatus(): void {
 export async function reloadWorkspacePathOperationStatus(): Promise<void> {
   const request = useWorkspacePathOperationStore.getState().request;
   if (!request || !requestCurrent(request)) return;
+  if (request.documentReviewPaused) return;
   const load = ++generation;
   controller?.abort(); controller = new AbortController();
   useWorkspacePathOperationStore.setState({ loading: true, error: null });
   try {
-    const response = await fetch(request.batchId ? `/api/files/operations/batches/${encodeURIComponent(request.batchId)}`
+    const batchId = batchFor(request);
+    const response = await fetch(batchId ? `/api/files/operations/batches/${encodeURIComponent(batchId)}`
+      : request.reviewId ? `/api/files/operation-reviews/${encodeURIComponent(request.reviewId)}`
       : `/api/files/operations/problems/${encodeURIComponent(request.problemId!)}`, {
       credentials: 'include', headers: { [WORKSPACE_ID_HEADER]: request.workspaceId }, cache: 'no-store', signal: controller.signal,
     });
@@ -146,16 +174,24 @@ export async function reloadWorkspacePathOperationStatus(): Promise<void> {
     if (!response.ok) {
       const denied = [401, 403, 404].includes(response.status);
       useWorkspacePathOperationStore.setState({ loading: false, busy: false, pendingAction: null,
-        response: null, problem: null, error: denied ? 'access' : 'load', errorCode: safeCode(payload?.code) });
+        response: null, problem: null, review: null, error: denied ? 'access' : 'load', errorCode: safeCode(payload?.code) });
       return;
     }
-    if (request.batchId) publishResult(request, readOperation(payload, request,
+    if (batchId) publishResult(request, readOperation(payload, request,
       useWorkspacePathOperationStore.getState().response?.operation.planId));
+    else if (request.reviewId) {
+      const review = readLegacyReview(payload, request);
+      if (review.batchId && review.kind !== 'copy') {
+        resolvedBatches.set(request, review.batchId);
+        await reloadWorkspacePathOperationStatus();
+      } else useWorkspacePathOperationStore.setState({ review, response: null, problem: null,
+        loading: false, error: null, errorCode: review.errorCode });
+    }
     else useWorkspacePathOperationStore.setState({ problem: readProblem(payload, request), response: null,
-      loading: false, error: null, errorCode: null });
+      review: null, loading: false, error: null, errorCode: null });
   } catch (error) {
     if (load !== generation || !requestCurrent(request)) return;
-    useWorkspacePathOperationStore.setState({ response: null, problem: null, loading: false, busy: false, pendingAction: null,
+    useWorkspacePathOperationStore.setState({ response: null, problem: null, review: null, loading: false, busy: false, pendingAction: null,
       error: error instanceof Error && error.message === 'identity' ? 'identity' : 'load', errorCode: null });
   }
 }
@@ -165,13 +201,14 @@ export async function recoverWorkspacePathOperation(action: 'resume' | 'undo'): 
   const state = useWorkspacePathOperationStore.getState();
   const request = state.request;
   const operation = state.response?.operation;
-  if (!request?.batchId || !requestCurrent(request) || !operation || state.busy || state.loading || state.error
+  const batchId = request ? batchFor(request) : undefined;
+  if (!request || !batchId || !requestCurrent(request) || !operation || state.busy || state.loading || state.error
     || !(action === 'undo' ? state.response?.recovery?.canUndo : state.response?.recovery?.canResume)) return;
   const mutation = ++generation;
   controller?.abort(); controller = new AbortController();
   useWorkspacePathOperationStore.setState({ busy: true, pendingAction: action, error: null, errorCode: null });
   try {
-    const response = await fetch(`/api/files/operations/batches/${encodeURIComponent(request.batchId)}`, {
+    const response = await fetch(`/api/files/operations/batches/${encodeURIComponent(batchId)}`, {
       method: 'POST', credentials: 'include', signal: controller.signal,
       headers: { 'Content-Type': 'application/json', [WORKSPACE_ID_HEADER]: request.workspaceId },
       body: JSON.stringify({ action, planId: operation.planId }),
@@ -181,7 +218,7 @@ export async function recoverWorkspacePathOperation(action: 'resume' | 'undo'): 
     if (!response.ok) {
       const denied = [401, 403, 404].includes(response.status);
       useWorkspacePathOperationStore.setState({ busy: false, pendingAction: null, error: denied ? 'access' : 'action',
-        errorCode: safeCode(payload?.code), ...(denied ? { response: null, problem: null } : {}) });
+        errorCode: safeCode(payload?.code), ...(denied ? { response: null, problem: null, review: null } : {}) });
       return;
     }
     publishResult(request, readOperation(payload, request, operation.planId));
@@ -190,6 +227,6 @@ export async function recoverWorkspacePathOperation(action: 'resume' | 'undo'): 
     if (mutation !== generation || !requestCurrent(request)) return;
     const mismatched = error instanceof Error && error.message === 'identity';
     useWorkspacePathOperationStore.setState({ busy: false, pendingAction: null,
-      error: mismatched ? 'identity' : 'action', errorCode: null, ...(mismatched ? { response: null, problem: null } : {}) });
+      error: mismatched ? 'identity' : 'action', errorCode: null, ...(mismatched ? { response: null, problem: null, review: null } : {}) });
   }
 }

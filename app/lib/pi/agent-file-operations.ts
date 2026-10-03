@@ -88,7 +88,9 @@ import {
 import { loadExcalidrawScene } from '@/app/lib/excalidraw-collaboration/repository';
 import { FILE_VERSION_CENTER_CONTRACT_LIMITS } from '@/app/lib/file-version-center/contracts/v1';
 import { executeWorkspaceFileOperationService } from '@/app/lib/files/workspace-file-operation-service';
-import { submitAgentWorkspacePathOperation } from '@/app/lib/files/workspace-operation-review-service';
+import { getExistingAgentWorkspacePathOperation, submitAgentWorkspacePathOperation,
+  type SubmitAgentWorkspacePathOperationInput } from '@/app/lib/files/workspace-operation-review-service';
+import type { WorkspaceOperationReviewStatus, WorkspaceOperationReviewSubmission } from '@/app/lib/files/workspace-operation-review-contract';
 import { getExistingDirectWorkspacePathOperation, submitDirectWorkspacePathOperation,
   waitForWorkspacePathOperation } from '@/app/lib/files/workspace-path-operation-service';
 import { getWorkspaceOperationBatchExecutionPublic } from '@/app/lib/files/workspace-operation-batch-executor';
@@ -221,7 +223,7 @@ export type AgentPathOperationResult = {
   linkWarnings: string[];
   operationIds?: string[];
   fileOperation?: AgentWorkspaceFileOperation;
-  review?: { reviewId: string; planId: string; status: 'pending' | 'blocked'; workspaceId: string;
+  review?: { reviewId: string; planId: string; status: WorkspaceOperationReviewStatus; workspaceId: string;
     code?: string; message?: string };
   backupIds?: string[];
   trashEntries?: Array<{ id: string; originalPath: string; expiresAt: string }>;
@@ -2615,7 +2617,7 @@ async function snapshotDeletionResult(input: {
   const deleted = removal.entries[0]?.changed === true;
   const completed = removal.fileOperation?.status === 'applied' && removal.verified === true;
   const message = removal.review
-    ? `Snapshot deletion requires review ${removal.review.reviewId}; the workspace has not changed.`
+    ? `Snapshot deletion review ${removal.review.reviewId} is ${removal.review.status}. This response preserves the original request; inspect its recorded outcome before another mutation.`
     : `Snapshot deletion ${removal.fileOperation?.status ?? 'requires inspection'} (${removal.operationIds?.[0] ?? 'unknown operation'}). ${removal.linkWarnings.join(' ')}`;
   const trashEntry = removal.trashEntries?.find((entry) => entry.originalPath === workspacePath);
   const result: AgentFileChangeResult = { path: snapshot.path, resolvedPath: fullPath, changed: deleted,
@@ -2654,6 +2656,10 @@ export async function restoreAgentFileSnapshot(params: { snapshotId: string }): 
       deletionWorkspace.workspaceId, context.userId])) : undefined;
     if (deletionWorkspace && context && identity) {
       const workspacePath = workspaceRelativeAgentPath(deletionWorkspace, fullPath);
+      const knownReview = await retryReviewedAgentWorkspacePath({ operation: 'delete_path', paths: [snapshot.path],
+        idempotencyKey: deletionKey });
+      if (knownReview) return snapshotDeletionResult({ snapshot, fullPath, workspacePath,
+        removal: knownReview, historical: true });
       const known = await getExistingDirectWorkspacePathOperation({
         scope: { workspace: deletionWorkspace, fileOptions: { workspace: deletionWorkspace, mutationActorUserId: context.userId } },
         kind: 'delete', selections: [{ sourcePath: workspacePath }], idempotencyKey: deletionKey,
@@ -3182,6 +3188,7 @@ type AgentWorkspacePathRequest = {
   destinationFullPath?: string;
   overwrite?: boolean;
   ignoreMissing?: boolean;
+  recursive?: boolean;
   expectedPlanId?: string;
   idempotencyKey?: string;
 };
@@ -3334,6 +3341,69 @@ async function retryDirectAgentWorkspacePath(input: {
     await waitForWorkspacePathOperation(known), workspace);
 }
 
+function agentWorkspaceReviewRequest(input: AgentWorkspacePathRequest,
+  requestEntries = input.entries): SubmitAgentWorkspacePathOperationInput {
+  const workspace = getAgentWorkspaceContext();
+  const context = getAgentExecutionContext();
+  if (!workspace || !context) throw new Error('A workspace-bound agent request is required.');
+  const identity = collaborationAgentIdentity(context);
+  const fileOptions = { workspace, mutationActorUserId: context.userId };
+  const selections = (entries: AgentPathOperationEntry[]) => entries.map((entry) => ({
+    sourcePath: workspaceRelativeAgentPathIfWithin(workspace, entry.sourceResolvedPath) ?? entry.sourceResolvedPath,
+    ...(entry.destinationResolvedPath ? { destinationPath:
+      workspaceRelativeAgentPathIfWithin(workspace, entry.destinationResolvedPath) ?? entry.destinationResolvedPath } : {}),
+  }));
+  return {
+    kind: input.operation === 'copy_path' ? 'copy' : input.operation === 'move_path' ? 'move' : 'delete',
+    source: { workspace, fileOptions },
+    ...(input.operation === 'delete_path' ? {} : { destination: { workspace, fileOptions } }),
+    selections: selections(input.entries), requestSelections: selections(requestEntries),
+    requestOptions: { overwrite: input.overwrite, ignoreMissing: input.ignoreMissing, recursive: input.recursive },
+    actorUserId: context.userId, actorId: identity.actorId, actorDisplayName: identity.actorDisplayName,
+    actorSessionId: identity.actorSessionId, idempotencyKey: input.idempotencyKey,
+  };
+}
+
+function reviewedAgentPathResult(input: AgentWorkspacePathRequest,
+  submission: Exclude<WorkspaceOperationReviewSubmission, { mode: 'direct' }>): AgentPathOperationResult {
+  for (const entry of input.entries) entry.changed = false;
+  const result = pathOperationSummary(input.operation, input.entries, input.destinationPath, input.destinationFullPath);
+  result.review = { reviewId: submission.reviewId, planId: submission.planId, status: submission.status,
+    workspaceId: submission.workspaceId,
+    ...(submission.mode === 'blocked' ? { code: submission.code, message: submission.message } : {}) };
+  result.operationIds = [submission.reviewId];
+  result.linkStatus = submission.mode === 'blocked' ? 'incomplete' : null;
+  result.linkWarnings = submission.mode === 'blocked'
+    ? [`Original review ${submission.status} (${submission.code}): ${submission.message}`] : [];
+  return result;
+}
+
+/** A saved review remains the original decision after the feature is disabled or paths change. */
+async function retryReviewedAgentWorkspacePath(input: {
+  operation: AgentPathOperationResult['operation']; paths: string[]; destinationPath?: string;
+  overwrite?: boolean; ignoreMissing?: boolean; recursive?: boolean; idempotencyKey?: string;
+}): Promise<AgentPathOperationResult | null> {
+  if (!input.idempotencyKey || !getAgentExecutionContext() || !getAgentWorkspaceContext()) return null;
+  const multiple = input.paths.length > 1;
+  const destinationFullPath = input.destinationPath ? resolveAgentPath(input.destinationPath) : undefined;
+  let entries: AgentPathOperationEntry[] = input.paths.map((sourcePath) => {
+    const sourceResolvedPath = resolveAgentPath(sourcePath);
+    const destinationResolvedPath = destinationFullPath
+      ? multiple ? getDestinationPathForSource(destinationFullPath, sourceResolvedPath) : destinationFullPath : undefined;
+    return { sourcePath, sourceResolvedPath,
+      ...(destinationResolvedPath ? { destinationResolvedPath,
+        destinationPath: multiple ? getDestinationPathForSource(input.destinationPath!, sourcePath) : input.destinationPath } : {}),
+      type: 'missing', changed: false, overwritten: false, bytes: 0, files: 0, directories: 0, truncated: true };
+  });
+  if (input.operation === 'delete_path') entries = [...new Map(entries.map((entry) => [entry.sourceResolvedPath, entry])).values()]
+    .sort((left, right) => right.sourceResolvedPath.length - left.sourceResolvedPath.length);
+  const request = { ...input, entries, destinationFullPath };
+  const known = await getExistingAgentWorkspacePathOperation(agentWorkspaceReviewRequest(request));
+  if (!known) return null;
+  if (known.mode === 'direct') throw new Error('The original review is missing its recorded decision.');
+  return reviewedAgentPathResult(request, known);
+}
+
 /** Workspace-local move/delete always own link maintenance; review is an optional submission gate. */
 async function submitAgentPathReview(input: {
   operation: AgentPathOperationResult['operation'];
@@ -3343,13 +3413,13 @@ async function submitAgentPathReview(input: {
   destinationFullPath?: string;
   overwrite?: boolean;
   ignoreMissing?: boolean;
+  recursive?: boolean;
   expectedPlanId?: string;
   idempotencyKey?: string;
 }, waitForCompletion = true): Promise<AgentPathOperationResult | null> {
   const workspace = getAgentWorkspaceContext();
   const context = getAgentExecutionContext();
-  const direct = input.operation !== 'copy_path' && !readDocumentReviewAvailability().documentReviewEnabled;
-  const requestedEntries = direct ? input.originalEntries ?? input.entries : input.entries;
+  const requestedEntries = input.originalEntries ?? input.entries;
   if (!workspace || !context || requestedEntries.length === 0) return null;
 
   const sourceInWorkspace = requestedEntries.map((entry) => isPathWithin(entry.sourceResolvedPath, workspace.rootPath));
@@ -3375,43 +3445,16 @@ async function submitAgentPathReview(input: {
     });
   }
 
-  if (direct) {
+  if (!readDocumentReviewAvailability().documentReviewEnabled) {
+    if (input.operation === 'copy_path') return null;
     return submitDirectAgentWorkspacePath({ ...input, entries: requestedEntries }, waitForCompletion);
   }
-
-  const identity = collaborationAgentIdentity(context);
-  const fileOptions = { workspace, mutationActorUserId: context.userId };
-  const submission = await submitAgentWorkspacePathOperation({
-    kind: input.operation === 'copy_path' ? 'copy' : input.operation === 'move_path' ? 'move' : 'delete',
-    source: { workspace, fileOptions },
-    ...(input.operation === 'delete_path' ? {} : { destination: { workspace, fileOptions } }),
-    selections: input.entries.map((entry) => ({
-      sourcePath: workspaceRelativeAgentPath(workspace, entry.sourceResolvedPath),
-      ...(entry.destinationResolvedPath
-        ? { destinationPath: workspaceRelativeAgentPath(workspace, entry.destinationResolvedPath) }
-        : {}),
-    })),
-    actorUserId: context.userId,
-    actorId: identity.actorId,
-    actorDisplayName: identity.actorDisplayName,
-    actorSessionId: context.sessionId,
-    idempotencyKey: input.idempotencyKey,
-  });
+  const reviewedInput = input.entries.length ? input : { ...input, entries: requestedEntries };
+  const submission = await submitAgentWorkspacePathOperation(agentWorkspaceReviewRequest(reviewedInput, requestedEntries));
   if (submission.mode === 'direct') {
-    if (input.operation === 'copy_path') return null;
     throw new Error('The review service did not record the file action.');
   }
-  for (const entry of input.entries) entry.changed = false;
-  const result = pathOperationSummary(input.operation, input.entries, input.destinationPath, input.destinationFullPath);
-  result.review = submission.mode === 'blocked'
-    ? { reviewId: submission.reviewId, planId: submission.planId, status: 'blocked',
-        workspaceId: submission.workspaceId, code: submission.code, message: submission.message }
-    : { reviewId: submission.reviewId, planId: submission.planId, status: 'pending', workspaceId: submission.workspaceId };
-  result.operationIds = [submission.reviewId];
-  result.linkStatus = submission.mode === 'blocked' ? 'incomplete' : null;
-  result.linkWarnings = submission.mode === 'blocked'
-    ? [`Review blocked (${submission.code}): ${submission.message}`] : [];
-  return result;
+  return reviewedAgentPathResult(reviewedInput, submission);
 }
 
 /** Route supported in-workspace agent paths through the same durable operation as the UI. */
@@ -3534,6 +3577,10 @@ export async function copyAgentPaths(params: {
   idempotencyKey?: string;
 }): Promise<AgentPathOperationResult> {
   const sourcePaths = normalizePathList(params.sourcePaths, 'sourcePaths');
+  const priorReview = await retryReviewedAgentWorkspacePath({ operation: 'copy_path', paths: sourcePaths,
+    destinationPath: params.destinationPath, overwrite: params.overwrite, recursive: params.recursive,
+    idempotencyKey: params.idempotencyKey });
+  if (priorReview) return priorReview;
   const multipleSources = sourcePaths.length > 1;
   const destinationFullPath = resolveAgentPath(params.destinationPath);
   await assertAgentWritablePathAllowed(destinationFullPath);
@@ -3592,6 +3639,7 @@ export async function copyAgentPaths(params: {
   const review = await submitAgentPathReview({
     operation: 'copy_path', entries,
     destinationPath: params.destinationPath, destinationFullPath,
+    overwrite: params.overwrite, recursive: params.recursive,
     idempotencyKey: params.idempotencyKey,
   });
   if (review) return review;
@@ -3600,6 +3648,10 @@ export async function copyAgentPaths(params: {
     async () => {
       await assertAgentPathMutationStatesUnchanged(mutationStates, 'copy_path');
       await assertRuntimeTempPathOperationQuota(entries, 'copy');
+      const currentReview = await submitAgentPathReview({ operation: 'copy_path', entries,
+        destinationPath: params.destinationPath, destinationFullPath,
+        overwrite: params.overwrite, recursive: params.recursive, idempotencyKey: params.idempotencyKey });
+      if (currentReview) return currentReview;
       if (!entries.some((entry) => entry.overwritten)) {
         const workspaceResult = await executeAgentWorkspacePathOperation({
           operation: 'copy_path', entries,
@@ -3691,6 +3743,9 @@ export async function moveAgentPaths(params: {
 }): Promise<AgentPathOperationResult> {
   return withAgentWorkspacePathProblems({ kind: 'move', paths: params.sourcePaths, destinationPath: params.destinationPath }, async () => {
     const sourcePaths = normalizePathList(params.sourcePaths, 'sourcePaths');
+    const priorReview = await retryReviewedAgentWorkspacePath({ operation: 'move_path', paths: sourcePaths,
+      destinationPath: params.destinationPath, overwrite: params.overwrite, idempotencyKey: params.idempotencyKey });
+    if (priorReview) return priorReview;
     const prior = await retryDirectAgentWorkspacePath({ operation: 'move_path', paths: sourcePaths,
       destinationPath: params.destinationPath, overwrite: params.overwrite, idempotencyKey: params.idempotencyKey });
     if (prior) return prior;
@@ -3877,6 +3932,9 @@ export async function deleteAgentPaths(params: {
 }): Promise<AgentPathOperationResult> {
   return withAgentWorkspacePathProblems({ kind: 'delete', paths: params.paths }, async () => {
     const requestedPaths = normalizePathList(params.paths, 'paths');
+    const priorReview = await retryReviewedAgentWorkspacePath({ operation: 'delete_path', paths: requestedPaths,
+      ignoreMissing: params.ignoreMissing, recursive: params.recursive, idempotencyKey: params.idempotencyKey });
+    if (priorReview) return priorReview;
     const prior = await retryDirectAgentWorkspacePath({ operation: 'delete_path', paths: requestedPaths,
       ignoreMissing: params.ignoreMissing, idempotencyKey: params.idempotencyKey });
     if (prior) return prior;
@@ -3932,7 +3990,7 @@ export async function deleteAgentPaths(params: {
     const review = await submitAgentPathReview({
       operation: 'delete_path', entries: deletableEntries,
       originalEntries: [...entries].sort((a, b) => b.sourceResolvedPath.length - a.sourceResolvedPath.length),
-      ignoreMissing: params.ignoreMissing, idempotencyKey: params.idempotencyKey,
+      ignoreMissing: params.ignoreMissing, recursive: params.recursive, idempotencyKey: params.idempotencyKey,
     });
     if (review) return review;
     return withAgentWorkspaceMutationLocks(

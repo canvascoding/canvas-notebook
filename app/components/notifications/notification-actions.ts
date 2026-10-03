@@ -16,6 +16,7 @@ import { WORKSPACE_OPERATION_NOTIFICATION_PREFIX, workspaceOperationReviewHref,
 import { openWorkspaceOperationReview } from '@/app/store/workspace-operation-review-store';
 import { openWorkspacePathOperationStatus } from '@/app/store/workspace-path-operation-store';
 import { buildTodoPopupHref } from '@/app/lib/todos/navigation';
+import { openedDocumentAuthScope } from '@/app/lib/collaboration/opened-document-registry';
 
 export type NotificationMutation = {
   action: 'mark_all_read' | 'mark_item_read' | 'set_item_read_state' | 'dismiss_item';
@@ -94,19 +95,22 @@ export function notificationHref(item: NotificationItem): string {
   return '/notebook';
 }
 
-export async function openFileChangeReviewNotification(item: NotificationItem): Promise<boolean> {
+export async function openFileChangeReviewNotification(item: NotificationItem, options: {reviewCenterEnabled?: boolean} = {}): Promise<boolean> {
   if (item.target.kind !== 'file_change' || item.workspaceId !== item.target.workspaceId) return false;
   const generation = ++fileChangeOpenGeneration;
+  if (options.reviewCenterEnabled === false) return openWorkspacePathOperationStatus({ workspaceId: item.workspaceId, documentReviewPaused: true });
+  const authScope = openedDocumentAuthScope();
+  const current = () => generation === fileChangeOpenGeneration && openedDocumentAuthScope() === authScope;
   const releaseNavigation = beginExternalWorkspaceNavigation();
   const baselineHref = `${window.location.pathname}${window.location.search}${window.location.hash}`;
   let preparedHref: string | null = null;
   try {
     await useWorkspaceStore.getState().hydrateWorkspaces();
-    if (generation !== fileChangeOpenGeneration) return true;
+    if (!current()) return true;
     if (useWorkspaceStore.getState().activeWorkspaceId !== item.target.workspaceId) {
       await useWorkspaceStore.getState().setActiveWorkspace(item.target.workspaceId, 'system');
     }
-    if (generation !== fileChangeOpenGeneration) return true;
+    if (!current()) return true;
     if (useWorkspaceStore.getState().activeWorkspaceId !== item.target.workspaceId) {
       throw new Error('The notification workspace is unavailable.');
     }
@@ -116,7 +120,7 @@ export async function openFileChangeReviewNotification(item: NotificationItem): 
     return true;
   } catch {
     const activeHref = `${window.location.pathname}${window.location.search}${window.location.hash}`;
-    if (generation === fileChangeOpenGeneration && preparedHref && activeHref === preparedHref) {
+    if (current() && preparedHref && activeHref === preparedHref) {
       window.history.replaceState(window.history.state, '', baselineHref);
     }
     return false;
@@ -126,19 +130,24 @@ export async function openFileChangeReviewNotification(item: NotificationItem): 
 }
 
 export async function openWorkspaceOperationNotificationTarget(
-  target: Pick<WorkspaceOperationNotificationTarget, 'workspaceId' | 'reviewId'>,
+  target: Pick<WorkspaceOperationNotificationTarget, 'workspaceId' | 'reviewId'> & {batchId?: string; operationKind?: WorkspaceOperationNotificationTarget['operationKind']},
+  options: {reviewCenterEnabled?: boolean} = {},
 ): Promise<boolean> {
   if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/u.test(target.workspaceId)
     || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/u.test(target.reviewId)) return false;
   const generation = ++fileChangeOpenGeneration;
+  if (options.reviewCenterEnabled === false) return openWorkspacePathOperationStatus(target.batchId && target.operationKind !== 'copy'
+    ? { workspaceId: target.workspaceId, batchId: target.batchId } : { workspaceId: target.workspaceId, reviewId: target.reviewId });
+  const authScope = openedDocumentAuthScope();
+  const current = () => generation === fileChangeOpenGeneration && openedDocumentAuthScope() === authScope;
   const releaseNavigation = beginExternalWorkspaceNavigation();
   try {
     await useWorkspaceStore.getState().hydrateWorkspaces();
-    if (generation !== fileChangeOpenGeneration) return true;
+    if (!current()) return true;
     if (useWorkspaceStore.getState().activeWorkspaceId !== target.workspaceId) {
       await useWorkspaceStore.getState().setActiveWorkspace(target.workspaceId, 'system');
     }
-    if (generation !== fileChangeOpenGeneration) return true;
+    if (!current()) return true;
     if (useWorkspaceStore.getState().activeWorkspaceId !== target.workspaceId) return false;
     openWorkspaceOperationReview(target.reviewId, target.workspaceId);
     void updateNotification({ action: 'mark_item_read', workspaceId: target.workspaceId,

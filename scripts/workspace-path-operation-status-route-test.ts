@@ -112,6 +112,7 @@ async function main(): Promise<void> {
       actorId: 'canvas-agent', actorDisplayName: 'Agent', actorType: 'agent', actorSessionId: 'original-agent-session',
       requestHash: 'c'.repeat(64) } });
     const service = await compile<typeof BatchService>('app/lib/files/workspace-operation-batch-service.ts', {
+      '@/app/lib/document-review-availability': { readDocumentReviewAvailability: () => ({ documentReviewEnabled: false, updatedAt: null }) },
       '@/app/lib/db': { openDb: async () => { throw new Error('No unowned database access'); } },
       './workspace-operation-batch-store': errors,
       './workspace-mutation-lock': { withWorkspaceMutationLock: async (_id: string, action: () => Promise<unknown>) => {

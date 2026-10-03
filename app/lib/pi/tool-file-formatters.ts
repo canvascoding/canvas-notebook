@@ -43,7 +43,7 @@ export function formatFileChangeResult(result: AgentFileChangeResult): string {
     action = result.fileOperation?.kind === 'delete' ? 'Deleted'
       : result.snapshot?.existed === false ? 'Created' : 'Updated';
   } else if (result.collaboration?.reviewRequired || result.review) {
-    action = 'Prepared review for';
+    action = result.review ? 'Stored review for' : 'Prepared review for';
   } else if (result.fileOperation) {
     action = `File action ${result.fileOperation.status} for`;
   }
@@ -52,7 +52,7 @@ export function formatFileChangeResult(result: AgentFileChangeResult): string {
     `${action} file: ${result.path}`,
     result.fileOperation ? `Durable file action: ${result.fileOperation.batchId} (${result.fileOperation.status}, ${result.fileOperation.phase}, ${result.fileOperation.completedActions}/${result.fileOperation.totalActions})` : null,
     result.fileOperation?.errorCode ? `File action error: ${result.fileOperation.errorCode}. Inspect Notification Center; do not replay completed steps.` : null,
-    result.review ? `File action review ${result.review.status}: ${result.review.reviewId}. The workspace has not changed.` : null,
+    result.review ? `Stored file action review ${result.review.status}: ${result.review.reviewId}. Inspect the original review outcome before another mutation.` : null,
     result.collaboration
       ? `Live collaboration operation: ${result.collaboration.operationId} (${result.collaboration.operationStatus}, ${result.collaboration.durability})`
       : null,

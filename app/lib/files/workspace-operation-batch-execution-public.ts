@@ -26,6 +26,16 @@ export function projectWorkspaceOperationBatchExecution(
     ...(mode === 'undo' && step.kind !== 'delete' ? { destinationPath: step.sourcePath }
       : mode === 'apply' && step.destinationPath ? { destinationPath: step.destinationPath } : {}),
     reviewId: step.reviewId, state: 'pending' as const }));
+  if (input.plan.readiness !== 'ready' || input.plan.linkPlan.readiness !== 'ready') {
+    // A blocked preview has displayable paths, but no executable write groups or receipts.
+    const linkPaths = [...new Set(input.plan.previewContents.map((entry) => entry.path))];
+    const rows = [...pathRows, ...linkPaths.map((path, index) => ({ key: `link:${index}`, phase: 'link' as const,
+      kind: 'link_update' as const, path, state: 'pending' as const }))];
+    const untouched = !journal && !unreadable && input.actionMode === 'apply' && input.completedActions === 0
+      && input.phase === 'preparing' && ['preview', 'blocked', 'needs_review'].includes(input.status);
+    return { mode, receiptStatus: untouched ? 'not_started' : 'unavailable', finalization: 'pending',
+      steps: untouched ? rows : rows.map((row) => ({ ...row, state: 'needs_check' as const })) };
+  }
   const groups = groupWorkspaceLinkWrites(mode === 'undo' && journal?.undoPlan ? journal.undoPlan : input.plan.linkPlan);
   const linkRows = groups.map((group, index) => ({ key: `link:${index}`, phase: 'link' as const,
     kind: 'link_update' as const, path: group.path, state: 'pending' as const }));

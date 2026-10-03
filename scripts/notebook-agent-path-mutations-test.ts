@@ -49,10 +49,10 @@ async function main() {
     };
     if (request === '@/app/lib/files/workspace-path-operation-service') return directService;
     if (request === '@/app/lib/files/workspace-operation-review-service') return {
+      getExistingAgentWorkspacePathOperation: async () => null,
       submitAgentWorkspacePathOperation: async (input: { kind: string }) => {
-        assert.equal(input.kind, 'copy', 'workspace move/delete must use the durable direct service');
         reviewCalls.push(input);
-        return { mode: 'direct' };
+        throw new Error('Review OFF must skip the optional review service.');
       },
     };
     return originalLoad(request, parent, isMain);
@@ -267,7 +267,7 @@ async function main() {
       assert.ok(directCalls.length >= 5, 'move requests exercised the direct service and journal');
       assert.ok(directCalls.every((input) => input.actorType === 'agent' && input.actorId === 'canvas-agent'
         && input.actorSessionId === 'test' && input.actorUserId === 'test'));
-      assert.ok(reviewCalls.length > 0 && reviewCalls.every((input) => input.kind === 'copy'));
+      assert.equal(reviewCalls.length, 0, 'OFF copy/move/delete execute without optional review submissions');
     });
     console.log('notebook-agent-path-mutations-test: ok');
   } finally {

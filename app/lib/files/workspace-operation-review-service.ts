@@ -5,6 +5,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { invalidateWorkspaceFileViews } from '@/app/lib/api/route-helpers';
 import { openDb } from '@/app/lib/db';
+import { readDocumentReviewAvailability } from '@/app/lib/document-review-availability';
 import { executeLifecycleTransaction } from '@/app/lib/collaboration/lifecycle-transaction';
 import { archiveFileCollaborationPaths, readFileCollaborationState } from '@/app/lib/files/collaboration-policy';
 import { loadCollaborationState } from '@/app/lib/collaboration/persistence';
@@ -38,6 +39,9 @@ export type SubmitAgentWorkspacePathOperationInput = {
   source: Scope;
   destination?: Scope;
   selections: readonly Selection[];
+  /** The original tool request may include ignored missing paths absent from the actual preview. */
+  requestSelections?: readonly Selection[];
+  requestOptions?: { overwrite?: boolean; ignoreMissing?: boolean; recursive?: boolean };
   actorUserId: string;
   actorId: string;
   actorDisplayName: string;
@@ -57,6 +61,12 @@ export class WorkspaceOperationReviewError extends Error {
 
 function fail(code: string, status: number, message: string): never {
   throw new WorkspaceOperationReviewError(code, status, message);
+}
+
+function assertDocumentReviewEnabled(): void {
+  if (!readDocumentReviewAvailability().documentReviewEnabled) {
+    fail('DOCUMENT_REVIEW_DISABLED', 409, 'The experimental Review Center is disabled.');
+  }
 }
 
 function sha(value: unknown): string {
@@ -233,25 +243,72 @@ async function policyReasons(input: SubmitAgentWorkspacePathOperationInput,
   } catch { return ['POLICY_UNAVAILABLE']; }
 }
 
-/** A path operation is a separate workspace-level review scope, never a document graph proposal. */
-export async function submitAgentWorkspacePathOperation(input: SubmitAgentWorkspacePathOperationInput): Promise<WorkspaceOperationReviewSubmission> {
+function agentReviewIdentity(input: SubmitAgentWorkspacePathOperationInput) {
   const request = assertInput(input);
+  const originalRequest = input.requestSelections === undefined ? request
+    : assertInput({ ...input, selections: input.requestSelections });
   const sourceWorkspaceId = input.source.workspace.workspaceId;
   const destinationWorkspaceId = (input.destination ?? input.source).workspace.workspaceId;
-  const requestHash = sha({ request, sourceWorkspaceId, destinationWorkspaceId,
-    actorUserId: input.actorUserId, actorId: input.actorId, actorSessionId: input.actorSessionId ?? null });
+  const requestOptions = { ...(input.requestOptions?.overwrite === true ? { overwrite: true } : {}),
+    ...(input.requestOptions?.ignoreMissing === true ? { ignoreMissing: true } : {}),
+    ...(input.requestOptions?.recursive !== undefined && input.requestOptions.recursive !== (input.kind === 'copy')
+      ? { recursive: input.requestOptions.recursive } : {}) };
+  const requestHash = sha({ request: originalRequest, sourceWorkspaceId, destinationWorkspaceId,
+    actorUserId: input.actorUserId, actorId: input.actorId, actorSessionId: input.actorSessionId ?? null,
+    ...(Object.keys(requestOptions).length ? { requestOptions } : {}) });
   const reviewId = input.idempotencyKey
-    ? sha(['workspace-operation-review-v1', sourceWorkspaceId, input.actorUserId,
-      input.actorSessionId ?? null, input.idempotencyKey]) : randomUUID();
-  const existing = await one('SELECT * FROM workspace_file_operation_reviews WHERE review_id = $1', [reviewId]);
-  if (existing) {
-    if (existing.request_hash !== requestHash) fail('REVIEW_IDEMPOTENCY_CONFLICT', 409, 'The review retry key belongs to another request.');
-    const review = readRow(existing);
-    return review.status === 'pending' ? { mode: 'needs_review', reviewId, planId: review.planId,
-      status: 'pending', workspaceId: sourceWorkspaceId }
-      : { mode: 'blocked', reviewId, planId: review.planId, workspaceId: sourceWorkspaceId,
-        status: review.status, code: 'REVIEW_ALREADY_CLOSED', message: 'The earlier review is no longer pending.' };
+    ? sha(['workspace-operation-review-v2', sourceWorkspaceId, input.actorUserId, input.idempotencyKey]) : randomUUID();
+  return { request, sourceWorkspaceId, destinationWorkspaceId, requestHash, reviewId };
+}
+
+function existingAgentReviewSubmission(existing: ReviewRow, input: SubmitAgentWorkspacePathOperationInput,
+  identity: ReturnType<typeof agentReviewIdentity>): WorkspaceOperationReviewSubmission {
+  if (existing.request_hash !== identity.requestHash || existing.actor_display_name !== input.actorDisplayName) {
+    fail('REVIEW_IDEMPOTENCY_CONFLICT', 409, 'The review retry key belongs to another request.');
   }
+  const review = readRow(existing);
+  return review.status === 'pending' ? { mode: 'needs_review', reviewId: review.reviewId, planId: review.planId,
+    status: 'pending', workspaceId: identity.sourceWorkspaceId }
+    : { mode: 'blocked', reviewId: review.reviewId, planId: review.planId, workspaceId: identity.sourceWorkspaceId,
+      status: review.status, code: 'REVIEW_ALREADY_CLOSED', message: 'The earlier review is no longer pending.' };
+}
+
+async function existingAgentReviewRow(input: SubmitAgentWorkspacePathOperationInput,
+  identity: Pick<ReturnType<typeof agentReviewIdentity>, 'reviewId' | 'sourceWorkspaceId'>): Promise<ReviewRow | null> {
+  if (!input.idempotencyKey) return one('SELECT * FROM workspace_file_operation_reviews WHERE review_id = $1', [identity.reviewId]);
+  // Earlier review IDs included the session. Derive their private IDs from persisted
+  // sessions so changing actor/session can never turn a known review into a new direct job.
+  const sessions = await all(`SELECT DISTINCT actor_session_id FROM workspace_file_operation_reviews
+    WHERE source_workspace_id = $1 AND actor_user_id = $2 LIMIT 1001`, [identity.sourceWorkspaceId, input.actorUserId]);
+  if (sessions.length > 1000) {
+    fail('REVIEW_IDEMPOTENCY_SCOPE_LIMIT', 409, 'The original file action identity cannot be safely verified in this workspace.');
+  }
+  const candidates = [...new Set([identity.reviewId, ...sessions.map((row) => sha(['workspace-operation-review-v1',
+    identity.sourceWorkspaceId, input.actorUserId, row.actor_session_id ?? null, input.idempotencyKey]))])];
+  const existing = await all('SELECT * FROM workspace_file_operation_reviews WHERE review_id = ANY($1::text[])', [candidates]);
+  if (existing.length > 1) fail('REVIEW_IDEMPOTENCY_CONFLICT', 409, 'The review retry key belongs to multiple earlier requests.');
+  return existing[0] ?? null;
+}
+
+/** Exact immutable retries remain addressable when the optional Review Center is disabled. */
+export async function getExistingAgentWorkspacePathOperation(input: SubmitAgentWorkspacePathOperationInput): Promise<WorkspaceOperationReviewSubmission | null> {
+  if (!input.idempotencyKey) return null;
+  // This runs before the caller classifies workspace versus session-temp paths.
+  // Only a stored key may require workspace path and immutable-request validation.
+  const sourceWorkspaceId = input.source.workspace.workspaceId;
+  const reviewId = sha(['workspace-operation-review-v2', sourceWorkspaceId, input.actorUserId, input.idempotencyKey]);
+  const existing = await existingAgentReviewRow(input, { sourceWorkspaceId, reviewId });
+  if (!existing) return null;
+  return existingAgentReviewSubmission(existing, input, agentReviewIdentity(input));
+}
+
+/** A path operation is a separate workspace-level review scope, never a document graph proposal. */
+export async function submitAgentWorkspacePathOperation(input: SubmitAgentWorkspacePathOperationInput): Promise<WorkspaceOperationReviewSubmission> {
+  const identity = agentReviewIdentity(input);
+  const { request, sourceWorkspaceId, destinationWorkspaceId, requestHash, reviewId } = identity;
+  const existing = await existingAgentReviewRow(input, identity);
+  if (existing) return existingAgentReviewSubmission(existing, input, identity);
+  assertDocumentReviewEnabled();
   const preview = await buildPreview(input, request);
   const blocked = preview.readiness !== 'ready';
   const collision = blocked && !('deletedPaths' in preview) && preview.collisions.length > 0;
@@ -264,7 +321,12 @@ export async function submitAgentWorkspacePathOperation(input: SubmitAgentWorksp
   if (blocked) reasons.push(collision ? 'DESTINATION_COLLISION' : 'INCOMPLETE_PREVIEW');
   reasons.push(...await policyReasons(input, preview));
   const now = Date.now();
-  const inserted = await one(`INSERT INTO workspace_file_operation_reviews
+  const inserted = await withWorkspaceMutationLock(sourceWorkspaceId, async () => {
+    assertDocumentReviewEnabled();
+    const db = await openDb();
+    try {
+      assertDocumentReviewEnabled();
+      return await db.get(`INSERT INTO workspace_file_operation_reviews
       (review_id, plan_id, request_hash, request_json, preview_json,
        source_workspace_id, destination_workspace_id, actor_user_id, actor_id,
        actor_session_id, actor_display_name, status, reason_codes_json, created_at, updated_at)
@@ -273,12 +335,15 @@ export async function submitAgentWorkspacePathOperation(input: SubmitAgentWorksp
     [reviewId, preview.planId, requestHash, JSON.stringify(request), JSON.stringify(preview),
       sourceWorkspaceId, destinationWorkspaceId, input.actorUserId, input.actorId,
       input.actorSessionId ?? null, input.actorDisplayName, blocked ? 'blocked' : 'pending',
-      JSON.stringify(reasons), now]);
+      JSON.stringify(reasons), now]) as ReviewRow | undefined ?? null;
+    } finally { await db.close(); }
+  });
   if (!inserted) {
     const concurrent = await one('SELECT * FROM workspace_file_operation_reviews WHERE review_id = $1', [reviewId]);
     if (!concurrent || concurrent.request_hash !== requestHash || concurrent.plan_id !== preview.planId) {
       fail('REVIEW_IDEMPOTENCY_CONFLICT', 409, 'The review changed while creating it.');
     }
+    return existingAgentReviewSubmission(concurrent, input, identity);
   } else {
     if (!preview.coverage.complete) observeWorkspaceOperation({ scope: 'review', kind: request.kind, phase: 'preview',
       outcome: 'incomplete_link_plan', omittedSourceCount: preview.coverage.omittedSources.length,
@@ -409,6 +474,7 @@ export async function acceptWorkspaceOperationReview(input: {
   if (review.planId !== input.planId) fail('PREVIEW_STALE', 409, 'The reviewed plan identity changed.');
   if (review.status === 'applied') return review;
   if (review.status !== 'pending') fail('REVIEW_CONFLICT', 409, 'The review is no longer pending.');
+  assertDocumentReviewEnabled();
   if (review.sourceWorkspaceId !== input.source.workspace.workspaceId
     || review.destinationWorkspaceId !== input.destination.workspace.workspaceId
     || !input.source.workspace.permissions.canRead || !input.destination.workspace.permissions.canWrite
@@ -420,7 +486,9 @@ export async function acceptWorkspaceOperationReview(input: {
     ? <T>(operation: () => Promise<T>) => withWorkspaceCopyMutationLocks(input.source.fileOptions, input.destination.fileOptions, operation)
     : <T>(operation: () => Promise<T>) => withWorkspaceMutationLock(review.sourceWorkspaceId, operation);
   return lock(async () => {
+    assertDocumentReviewEnabled();
     const fresh = await input.refreshAccess();
+    assertDocumentReviewEnabled();
     if (fresh.source.workspace.workspaceId !== review.sourceWorkspaceId
       || fresh.destination.workspace.workspaceId !== review.destinationWorkspaceId
       || !fresh.source.workspace.permissions.canRead || !fresh.destination.workspace.permissions.canWrite
@@ -450,6 +518,7 @@ export async function acceptWorkspaceOperationReview(input: {
       actorDisplayName: String(stored.actor_display_name), actorSessionId,
     };
     const currentPreview = await buildPreview(buildInput, request);
+    assertDocumentReviewEnabled();
     if (currentPreview.planId !== review.planId || currentPreview.readiness !== 'ready') {
       await updateReview(input.reviewId, 'pending', 'stale', { errorCode: 'PREVIEW_STALE' });
       fail('PREVIEW_STALE', 409, 'Files changed since this review. Create a fresh proposal.');
@@ -459,6 +528,7 @@ export async function acceptWorkspaceOperationReview(input: {
         'This deletion affects Markdown links. Open a fresh combined preview to review link cleanup before approval.');
     }
     const operationId = sha(['workspace-operation-review-apply-v1', review.reviewId]);
+    assertDocumentReviewEnabled();
     const reserved = await updateReview(input.reviewId, 'pending', 'applying',
       { operationId, reviewerUserId: input.reviewerUserId });
     if (!reserved) fail('REVIEW_CONFLICT', 409, 'Another reviewer accepted this proposal.');
@@ -626,12 +696,15 @@ export async function refreshWorkspaceOperationReview(input: {
   reviewId: string; planId: string; source: Scope; destination: Scope;
   reviewerUserId: string; refreshAccess: () => Promise<{ source: Scope; destination: Scope }>;
 }): Promise<WorkspaceOperationReviewPublic> {
+  assertDocumentReviewEnabled();
   const original = await rawWorkspaceOperationReview(input.reviewId);
   if (!original) fail('REVIEW_NOT_FOUND', 404, 'File operation review not found.');
   const review = readRow(original);
   if (review.planId !== input.planId) fail('PREVIEW_STALE', 409, 'The exact existing plan is required to refresh.');
   return withWorkspaceMutationLock(review.sourceWorkspaceId, async () => {
+    assertDocumentReviewEnabled();
     const fresh = await input.refreshAccess();
+    assertDocumentReviewEnabled();
     if (fresh.source.workspace.workspaceId !== review.sourceWorkspaceId
       || fresh.destination.workspace.workspaceId !== review.destinationWorkspaceId
       || !fresh.source.workspace.permissions.canRead || !fresh.destination.workspace.permissions.canWrite
@@ -660,6 +733,7 @@ export async function refreshWorkspaceOperationReview(input: {
       if (locked.plan_id !== input.planId || !['pending', 'blocked', 'stale'].includes(String(locked.status)) || locked.batch_id) {
         fail('REVIEW_CONFLICT', 409, 'The review changed while refreshing it.');
       }
+      assertDocumentReviewEnabled();
       const inserted = await db.get(`INSERT INTO workspace_file_operation_reviews
         (review_id,plan_id,request_hash,request_json,preview_json,source_workspace_id,destination_workspace_id,
          actor_user_id,actor_id,actor_session_id,actor_display_name,status,reason_codes_json,previous_review_id,created_at,updated_at)

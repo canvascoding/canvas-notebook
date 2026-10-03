@@ -19,6 +19,7 @@ import { EmailReviewNotificationActions } from '@/app/components/email-review/Em
 import { openMemoryReview } from '@/app/store/memory-review-store';
 import { openTodoDetail } from '@/app/store/todo-detail-store';
 import { isUnmodifiedPrimaryClick } from '@/app/lib/todos/navigation';
+import { useDocumentReviewAvailability } from '@/app/components/file-version-center/DocumentReviewAvailabilityProvider';
 
 const ICONS = {
   chat: MessageSquare,
@@ -58,6 +59,8 @@ export function HomeNotificationItem({
   onMemoryOpen?: () => void;
 }) {
   const t = useTranslations('notifications');
+  const reviewAvailability = useDocumentReviewAvailability();
+  const reviewCenterEnabled = reviewAvailability.ready && reviewAvailability.documentReviewEnabled;
   const Icon = ICONS[item.target.kind];
   const dismissible = item.target.kind === 'studio' || item.target.kind === 'automation';
   const title = item.target.kind === 'file_change'
@@ -96,7 +99,7 @@ export function HomeNotificationItem({
         if (item.target.kind === 'file_change') {
           event.preventDefault();
           onOpenFileChange?.();
-          void openFileChangeReviewNotification(item).then((opened) => {
+          void openFileChangeReviewNotification(item, { reviewCenterEnabled }).then((opened) => {
             if (!opened) toast.error(t('fileChanges.openFailed'));
           });
           return;
@@ -105,7 +108,7 @@ export function HomeNotificationItem({
           event.preventDefault();
           onOpenFileChange?.();
           if (item.workspaceId !== item.target.workspaceId) { toast.error(t('fileOperations.openFailed')); return; }
-          void openWorkspaceOperationNotificationTarget(item.target).then((opened) => {
+          void openWorkspaceOperationNotificationTarget(item.target, { reviewCenterEnabled }).then((opened) => {
             if (!opened) toast.error(t('fileOperations.openFailed'));
           });
           return;

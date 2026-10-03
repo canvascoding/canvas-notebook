@@ -25,7 +25,7 @@ export type WorkspaceOperationNotificationItem = {
 };
 
 type Scope = { userId: string; workspace: WorkspaceContext };
-type Row = { review_id: string; operation_kind: WorkspaceOperationReviewKind;
+type Row = { review_id: string; batch_id: string | null; operation_kind: WorkspaceOperationReviewKind;
   status: WorkspaceOperationAttentionStatus; source_path: string; updated_at: string | number; unread: boolean };
 const ACTIONABLE = `review.source_workspace_id = $1 AND review.destination_workspace_id = $1
   AND review.successor_review_id IS NULL
@@ -52,7 +52,7 @@ export function createWorkspaceOperationNotificationSource(options: {
       const params = [input.workspace.workspaceId, input.userId];
       const counts = await transaction.query<{ total: string | number }>(
         `SELECT COUNT(*) FILTER (WHERE COALESCE(state.read_at, 0) < review.updated_at) AS total ${from}`, params);
-      const rows = await transaction.query<Row>(`SELECT review.review_id, review.status, review.updated_at,
+      const rows = await transaction.query<Row>(`SELECT review.review_id, review.batch_id, review.status, review.updated_at,
         review.request_json::jsonb ->> 'kind' AS operation_kind,
         review.request_json::jsonb #>> '{selections,0,sourcePath}' AS source_path,
         COALESCE(state.read_at, 0) < review.updated_at AS unread ${from}
@@ -63,7 +63,8 @@ export function createWorkspaceOperationNotificationSource(options: {
           || !['rename', 'move', 'copy', 'delete'].includes(row.operation_kind)) return [];
         const target: WorkspaceOperationNotificationTarget = { kind: 'file_operation',
           workspaceId: input.workspace.workspaceId, reviewId: row.review_id,
-          operationKind: row.operation_kind, status: row.status };
+          operationKind: row.operation_kind, status: row.status,
+          ...(typeof row.batch_id === 'string' && /^[A-Za-z0-9_-]{16,128}$/u.test(row.batch_id) ? { batchId: row.batch_id } : {}) };
         return [{ id: `${WORKSPACE_OPERATION_NOTIFICATION_PREFIX}${row.review_id}`,
           type: 'file.operation_review_required', title: row.status === 'queued' ? 'File action queued'
             : row.status === 'applying' ? 'File action running' : 'File action needs attention', detail: row.source_path ?? '',

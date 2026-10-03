@@ -9,7 +9,7 @@ import enMessages from '../messages/en.json';
 import deMessages from '../messages/de.json';
 import type * as StatusUi from '../app/components/file-browser/WorkspacePathOperationStatusHost';
 import type { OpenedDocumentAuthScope } from '../app/lib/collaboration/opened-document-registry';
-import type { WorkspacePathOperationStatusRequest, WorkspacePathOperationStatusResponse, WorkspacePathOperationStatusTarget } from '../app/store/workspace-path-operation-store';
+import type { WorkspacePathOperationLegacyReviewStatus, WorkspacePathOperationStatusRequest, WorkspacePathOperationStatusResponse, WorkspacePathOperationStatusTarget } from '../app/store/workspace-path-operation-store';
 import type { WorkspacePathOperationProblem } from '../app/lib/files/workspace-path-operation-problems';
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'https://canvas.test/en/notebook?workspaceId=workspace-ui' });
@@ -27,9 +27,9 @@ const result = (status: WorkspacePathOperationStatusResponse['operation']['statu
     errorCode: 'CURRENT_CONTENT_CHANGED', selections: [{ sourcePath: 'Docs/target.md', destinationPath: 'Archive/target.md' }] },
 });
 type State = { request: WorkspacePathOperationStatusRequest | null; response: WorkspacePathOperationStatusResponse | null;
-  problem: WorkspacePathOperationProblem | null; loading: boolean; busy: boolean; pendingAction: 'resume' | 'undo' | null;
+  problem: WorkspacePathOperationProblem | null; review: WorkspacePathOperationLegacyReviewStatus | null; loading: boolean; busy: boolean; pendingAction: 'resume' | 'undo' | null;
   error: 'load' | 'action' | 'access' | 'identity' | null; errorCode: string | null };
-const empty = (): State => ({ request: null, response: null, problem: null, loading: false, busy: false, pendingAction: null, error: null, errorCode: null });
+const empty = (): State => ({ request: null, response: null, problem: null, review: null, loading: false, busy: false, pendingAction: null, error: null, errorCode: null });
 type Controls = { state: State; auth: OpenedDocumentAuthScope | null; workspace: string; params: URLSearchParams;
   listeners: Set<() => void>; opened: WorkspacePathOperationStatusTarget[]; recoveries: string[]; loads: number; closes: number };
 
@@ -111,6 +111,18 @@ async function main() {
     assert.ok(screen.getByText(locale === 'en' ? 'Files and links updated' : 'Dateien und Links aktualisiert'));
     fireEvent.click(screen.getByTestId('workspace-path-operation-undo'));
     assert.deepEqual(controls.recoveries, ['resume', 'undo']);
+
+    const reviewId = 'legacy-ui-review-123456';
+    await update({ request: { workspaceId, reviewId, authScope: scope }, response: null,
+      review: { reviewId, kind: 'move', status: 'pending', selections: [{ sourcePath: 'stored.md' }], batchId: null, errorCode: null } });
+    assert.ok(screen.getByText(locale === 'en' ? 'Reviews paused' : 'Reviews pausiert'));
+    assert.ok(screen.getByText(locale === 'en' ? enMessages.workspacePathOperationStatus.reviewPausedGuidance : deMessages.workspacePathOperationStatus.reviewPausedGuidance));
+    assert.equal(screen.queryByTestId('workspace-path-operation-resume'), null);
+    assert.equal(screen.queryByTestId('workspace-path-operation-undo'), null);
+    assert.equal(screen.queryByRole('button', { name: /Accept|Annehmen/u }), null, 'disabled proposals have no approval action');
+    await update({ request: { workspaceId, documentReviewPaused: true, authScope: scope }, review: null });
+    assert.ok(screen.getByText(locale === 'en' ? 'Reviews paused' : 'Reviews pausiert'));
+    assert.equal(screen.queryByRole('button', { name: locale === 'en' ? 'Refresh' : 'Aktualisieren' }), null, 'document-review pause notice has no misleading action');
 
     const problemRequest: WorkspacePathOperationStatusRequest = { workspaceId, problemId: 'c'.repeat(64), authScope: scope };
     const problem: WorkspacePathOperationProblem = { problemId: 'c'.repeat(64), workspaceId, kind: 'delete', selections: [],

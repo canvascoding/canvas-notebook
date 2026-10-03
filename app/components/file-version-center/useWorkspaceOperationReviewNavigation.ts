@@ -7,11 +7,12 @@ import { openWorkspaceOperationNotificationTarget } from '@/app/components/notif
 import type { openedDocumentAuthScope } from '@/app/lib/collaboration/opened-document-registry';
 
 /** Consume a review link after workspace hydration; the detail API checks access again. */
-export function useWorkspaceOperationReviewNavigation(authScope: ReturnType<typeof openedDocumentAuthScope>): void {
+export function useWorkspaceOperationReviewNavigation(authScope: ReturnType<typeof openedDocumentAuthScope>,
+  availability: {ready: boolean; enabled: boolean} = { ready: true, enabled: true }): void {
   const t = useTranslations('notifications');
   const consumedTarget = useRef<string | null>(null);
   useEffect(() => {
-    if (!authScope) return;
+    if (!authScope || !availability.ready) return;
     let disposed = false;
     let opening = false;
     const open = async () => {
@@ -32,7 +33,7 @@ export function useWorkspaceOperationReviewNavigation(authScope: ReturnType<type
       // cannot reopen the original proposal over its successor's result.
       url.searchParams.delete('workspaceOperationReview');
       window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
-      const opened = await openWorkspaceOperationNotificationTarget({ reviewId, workspaceId });
+      const opened = await openWorkspaceOperationNotificationTarget({ reviewId, workspaceId }, { reviewCenterEnabled: availability.enabled });
       opening = false;
       if (!opened) {
         if (consumedTarget.current === targetKey) consumedTarget.current = null;
@@ -48,5 +49,5 @@ export function useWorkspaceOperationReviewNavigation(authScope: ReturnType<type
     void open();
     window.addEventListener('popstate', fromHistory);
     return () => { disposed = true; window.removeEventListener('popstate', fromHistory); };
-  }, [authScope, t]);
+  }, [authScope, availability.ready, availability.enabled, t]);
 }

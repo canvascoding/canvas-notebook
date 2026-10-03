@@ -51,6 +51,7 @@ async function main(): Promise<void> {
     const service = { exports: {} as typeof Service };
     new Function('require', 'module', 'exports', source)((name: string) => {
       if (name === 'server-only') return {};
+      if (name === '@/app/lib/document-review-availability') return { readDocumentReviewAvailability: () => ({ documentReviewEnabled: true, updatedAt: null }) };
       if (name === '@/app/lib/db') return { openDb: connect };
       if (name === '@/app/lib/files/collaboration-policy') return { ...load(name),
         readFileCollaborationState: async ({ path: filePath }: { path: string }) => ({
@@ -68,6 +69,7 @@ async function main(): Promise<void> {
     const batchService = { exports: {} as typeof BatchService };
     new Function('require', 'module', 'exports', batchSource)((name: string) => {
       if (name === 'server-only') return {};
+      if (name === '@/app/lib/document-review-availability') return { readDocumentReviewAvailability: () => ({ documentReviewEnabled: true, updatedAt: null }) };
       if (name === '@/app/lib/db') return { openDb: connect };
       if (name === './workspace-operation-review-service') return service.exports;
       if (name === './workspace-operation-batch-store') return { ...batchLoad(name),
@@ -82,6 +84,7 @@ async function main(): Promise<void> {
     const manual = { exports: {} as typeof ManualDelete };
     new Function('require', 'module', 'exports', manualSource)((name: string) => {
       if (name === 'server-only') return {};
+      if (name === '@/app/lib/document-review-availability') return { readDocumentReviewAvailability: () => ({ documentReviewEnabled: true, updatedAt: null }) };
       if (name === '@/app/lib/db') return { openDb: connect };
       return manualLoad(name);
     }, manual, manual.exports);

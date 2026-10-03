@@ -1,4 +1,5 @@
 import { NextRequest } from 'next/server';
+import { readDocumentReviewAvailability } from '@/app/lib/document-review-availability';
 import { applyRateLimit, jsonError, jsonServerError, jsonSuccess } from '@/app/lib/api/route-helpers';
 import { enqueueWorkspaceOperationCheck } from '@/app/lib/files/workspace-operation-check-service';
 import { WorkspaceOperationBatchError } from '@/app/lib/files/workspace-operation-batch-store';
@@ -13,6 +14,9 @@ export async function POST(request: NextRequest) {
     const body = await request.json() as { reviewIds?: unknown };
     if (!body || Array.isArray(body) || !Array.isArray(body.reviewIds) || body.reviewIds.some((id) => typeof id !== 'string')) {
       return jsonError('Select file reviews for a background check', 422);
+    }
+    if (!readDocumentReviewAvailability().documentReviewEnabled) {
+      return jsonError('The experimental Review Center is disabled.', 409, { code: 'DOCUMENT_REVIEW_DISABLED' });
     }
     const check = await enqueueWorkspaceOperationCheck({
       scope: { workspace: authorized.workspace, fileOptions: workspaceFileOptions(authorized.workspace) },

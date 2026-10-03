@@ -7,6 +7,7 @@ import { NextIntlClientProvider } from 'next-intl';
 import messages from '../messages/en.json';
 import type { NotificationSummary } from '../app/components/notifications/notification-summary';
 import type { OpenChatSessionEventDetail } from '../app/lib/chat/open-chat-session-event';
+import { createDocumentReviewUiFixture } from './helpers/document-review-ui-fixture';
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>', {
   url: 'https://canvas.test/en/notebook?workspaceId=workspace-one',
@@ -34,6 +35,7 @@ async function main() {
   const { useFileVersionCenterStore, closeVersionCenter } = await import('../app/store/file-version-center-store');
   const { useWorkspaceStore } = await import('../app/store/workspace-store');
   const { useWorkspaceOperationReviewStore } = await import('../app/store/workspace-operation-review-store');
+  const ReviewAvailability = await createDocumentReviewUiFixture();
 
   const fileChange = {
     id: 'file-change:operation-one', type: 'file.change_review_required' as const,
@@ -87,7 +89,7 @@ async function main() {
   const screen = render(
     <AppRouterContext.Provider value={router}>
       <NextIntlClientProvider locale="en" timeZone="UTC" messages={messages}>
-        <NotificationBell />
+        <ReviewAvailability enabled><NotificationBell /></ReviewAvailability>
       </NextIntlClientProvider>
     </AppRouterContext.Provider>,
   );

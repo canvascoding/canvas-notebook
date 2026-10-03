@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server';
 
 import { auth } from '@/app/lib/auth';
+import { readDocumentReviewAvailability } from '@/app/lib/document-review-availability';
 import { applyRateLimit, jsonError, jsonServerError, jsonSuccess } from '@/app/lib/api/route-helpers';
 import { acceptWorkspaceOperationReview, getWorkspaceOperationReview,
   refreshWorkspaceOperationReview, rejectWorkspaceOperationReview, WorkspaceOperationReviewError } from '@/app/lib/files/workspace-operation-review-service';
@@ -13,6 +14,10 @@ async function authorize(request: NextRequest, reviewId: string, mutation: boole
   if (!session) return { response: jsonError('Unauthorized', 401) } as const;
   const review = await getWorkspaceOperationReview(reviewId);
   if (!review) return { response: jsonError('Review not found', 404) } as const;
+  const requestedWorkspaceId = request.headers.get('x-canvas-workspace-id');
+  if (requestedWorkspaceId !== null && requestedWorkspaceId.trim() !== review.sourceWorkspaceId) {
+    return { response: jsonError('File action belongs to another workspace', 403, { code: 'REVIEW_ACCESS_DENIED' }) } as const;
+  }
   const source = await requireSessionWorkspace(session, { workspaceId: review.sourceWorkspaceId,
     permissions: mutation && review.kind !== 'copy' ? ['canRead', 'canWrite', 'canDelete'] : 'canRead' });
   if (source.response) return { response: source.response } as const;
@@ -61,6 +66,10 @@ export async function POST(request: NextRequest, context: RouteContext) {
       || !['accept', 'reject', 'refresh'].includes(String(body.action))
       || typeof body.planId !== 'string' || !/^[a-f0-9]{64}$/u.test(body.planId)) {
       return jsonError('A valid action and exact planId are required', 422);
+    }
+    if ((body.action === 'refresh' || body.action === 'accept' && authorized.review.status === 'pending')
+      && !readDocumentReviewAvailability().documentReviewEnabled) {
+      return jsonError('The experimental Review Center is disabled.', 409, { code: 'DOCUMENT_REVIEW_DISABLED' });
     }
     if (body.action === 'refresh') {
       const review = await refreshWorkspaceOperationReview({ reviewId, planId: body.planId,

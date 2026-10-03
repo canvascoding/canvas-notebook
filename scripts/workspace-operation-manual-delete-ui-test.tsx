@@ -10,11 +10,14 @@ import { useTrashUndo } from '../app/components/file-browser/useTrashUndo';
 import { useFileStore } from '../app/store/file-store';
 import { useWorkspaceStore } from '../app/store/workspace-store';
 import { useWorkspaceOperationReviewStore } from '../app/store/workspace-operation-review-store';
+import { useWorkspacePathOperationStore } from '../app/store/workspace-path-operation-store';
+import { observeOpenedDocumentAuth } from '../app/lib/collaboration/opened-document-registry';
 import { WORKSPACE_ID_HEADER } from '../app/lib/workspaces/constants';
+import { createDocumentReviewUiFixture } from './helpers/document-review-ui-fixture';
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'http://localhost' });
 for (const [name, value] of Object.entries({ window: dom.window, document: dom.window.document,
-  CustomEvent: dom.window.CustomEvent, IS_REACT_ACT_ENVIRONMENT: true })) {
+  CustomEvent: dom.window.CustomEvent, HTMLElement: dom.window.HTMLElement, IS_REACT_ACT_ENVIRONMENT: true })) {
   Object.defineProperty(globalThis, name, { value, configurable: true });
 }
 let remove!: ReturnType<typeof useTrashUndo>;
@@ -36,7 +39,7 @@ async function main() {
   useFileStore.setState({ fileTree: tree, selectedNode: node, multiSelectPaths: selection,
     isMultiSelectMode: true, applyPathsDeleted: () => { appliedDeletes++; },
     refreshDirectory: async () => { refreshed++; }, clearMultiSelect: () => { cleared++; } });
-  const required = { reviewId: 'manual-review', planId: 'manual-plan', workspaceId: 'ws-a', status: 'blocked' as const };
+  const required = { reviewId: 'manual-review-12345678', planId: 'manual-plan', workspaceId: 'ws-a', status: 'blocked' as const };
   let status = 409;
   let result: unknown = { deleted: [], failed: [], trashEntries: [], reviewRequired: required };
   globalThis.fetch = (async (input, init) => {
@@ -49,7 +52,8 @@ async function main() {
   assert.deepEqual((await deleteWorkspacePaths([node.path], 'ws-a')).reviewRequired, required,
     'a blocked review on HTTP 409 is a review result, not an ordinary delete failure');
   const root = createRoot(document.createElement('div'));
-  await act(async () => root.render(<NextIntlClientProvider locale="en" timeZone="UTC" messages={messages}><Harness /></NextIntlClientProvider>));
+  const ReviewAvailability = await createDocumentReviewUiFixture();
+  await act(async () => root.render(<NextIntlClientProvider locale="en" timeZone="UTC" messages={messages}><ReviewAvailability enabled><Harness /></ReviewAvailability></NextIntlClientProvider>));
   const toastCount = toast.getHistory().length;
   await act(async () => { await remove(node.path); });
   assert.deepEqual(useWorkspaceOperationReviewStore.getState().request,
@@ -84,6 +88,32 @@ async function main() {
   });
   assert.equal(useWorkspaceOperationReviewStore.getState().request, null,
     'a late review response must not open over the newly selected workspace');
+  assert.equal(appliedDeletes + refreshed + cleared, 0);
+
+  await act(async () => { useWorkspaceStore.setState({ activeWorkspaceId: 'ws-a', hydrateWorkspaces: async () => {} }); });
+  observeOpenedDocumentAuth({ data: { user: { id: 'user-a' }, session: { id: 'session-a' } } });
+  await act(async () => root.render(<NextIntlClientProvider locale="en" timeZone="UTC" messages={messages}><ReviewAvailability enabled><Harness /></ReviewAvailability></NextIntlClientProvider>));
+  let pending!: Promise<unknown>;
+  await act(async () => { pending = remove(node.path); });
+  await act(async () => root.render(<NextIntlClientProvider locale="en" timeZone="UTC" messages={messages}><ReviewAvailability enabled={false}><Harness /></ReviewAvailability></NextIntlClientProvider>));
+  await act(async () => {
+    respond(Response.json({ deleted: [], failed: [], trashEntries: [], reviewRequired: required }, { status: 409 }));
+    await pending;
+  });
+  assert.equal(useWorkspaceOperationReviewStore.getState().request, null, 'a response after disabling never opens Review Center');
+  assert.equal(useWorkspacePathOperationStore.getState().request?.reviewId, required.reviewId,
+    'the original pending review opens in the independent status dialog after disabling');
+
+  useWorkspacePathOperationStore.setState({ request: null });
+  await act(async () => root.render(<NextIntlClientProvider locale="en" timeZone="UTC" messages={messages}><ReviewAvailability enabled><Harness /></ReviewAvailability></NextIntlClientProvider>));
+  await act(async () => { pending = remove(node.path); });
+  observeOpenedDocumentAuth({ data: { user: { id: 'user-b' }, session: { id: 'session-b' } } });
+  await act(async () => {
+    respond(Response.json({ deleted: [], failed: [], trashEntries: [], reviewRequired: required }, { status: 409 }));
+    await pending;
+  });
+  assert.equal(useWorkspaceOperationReviewStore.getState().request, null, 'a late response cannot open a review under another auth identity');
+  assert.equal(useWorkspacePathOperationStore.getState().request, null);
   assert.equal(appliedDeletes + refreshed + cleared, 0);
   await act(async () => root.unmount());
   dom.window.close();

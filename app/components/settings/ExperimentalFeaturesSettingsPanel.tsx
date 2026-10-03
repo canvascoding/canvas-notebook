@@ -16,16 +16,19 @@ export function ExperimentalFeaturesSettingsPanel() {
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState<'idle' | 'saved' | 'error'>('idle');
   const updateReview = async (enabled: boolean) => {
+    if (!ready || saving) return;
     setSaving(true);
     setStatus('idle');
     try {
       const response = await fetch('/api/admin/experimental-settings', {
-        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        method: 'PATCH', credentials: 'include', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ documentReviewEnabled: enabled }),
       });
       const payload = await response.json();
-      if (payload.data && typeof payload.data.documentReviewEnabled === 'boolean') applyAvailability(payload.data);
-      if (!response.ok || !payload.success) throw new Error('Experimental settings update failed');
+      if (!response.ok || !payload.success || !payload.data || typeof payload.data.documentReviewEnabled !== 'boolean') {
+        throw new Error('Experimental settings update failed');
+      }
+      applyAvailability(payload.data);
       setStatus('saved');
     } catch {
       setStatus('error');
@@ -56,6 +59,8 @@ export function ExperimentalFeaturesSettingsPanel() {
           </div>
         </div>
         <p className="text-xs leading-5 text-muted-foreground">{t('editingNote')}</p>
+        <p className="text-xs leading-5 text-muted-foreground">{t('linkMaintenanceNote')}</p>
+        <p className="text-xs leading-5 text-muted-foreground">{t('administratorNote')}</p>
         <div aria-live="polite" className="text-sm">
           {status === 'error' ? <p role="alert" className="text-destructive">{t('saveError')}</p>
             : <p className="text-muted-foreground">{t(saving ? 'saving' : !ready ? 'loading' : status === 'saved' ? 'saved'

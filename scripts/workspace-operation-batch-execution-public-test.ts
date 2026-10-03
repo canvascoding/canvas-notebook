@@ -19,6 +19,21 @@ async function main() {
     { reviewId: 'delete-review', kind: 'delete', selections: [{ sourcePath: 'trash.md' }] },
   ] });
   assert.equal(plan.readiness, 'ready');
+  const blockedPlan = createWorkspaceOperationBatchPlan({ snapshot: { workspaceId: plan.workspaceId, entries: [
+    { path: 'oversized.md', identity: 'private-omitted-source', kind: 'file', omissionReason: 'source-too-large' },
+    { path: 'home.md', identity: 'private-home', kind: 'file', markdownContent: '[Large](oversized.md)' },
+  ] }, actions: [{ reviewId: 'blocked-delete', kind: 'delete', selections: [{ sourcePath: 'oversized.md' }] }] });
+  assert.equal(blockedPlan.readiness, 'blocked');
+  const blockedInput = { plan: blockedPlan, actionMode: 'apply' as const, status: 'blocked', completedActions: 0, phase: 'preparing' as const };
+  const blockedProjection = projectWorkspaceOperationBatchExecution(blockedInput, null);
+  assert.equal(blockedProjection.receiptStatus, 'not_started');
+  assert.equal(blockedProjection.finalization, 'pending');
+  assert.ok(blockedProjection.steps.every((step) => step.state === 'pending'));
+  assert.equal(JSON.stringify(blockedProjection).includes('private-'), false);
+  const impossibleBlockedJournal = projectWorkspaceOperationBatchExecution({ ...blockedInput, status: 'applied', phase: 'complete' },
+    { status: 'applied', steps: [], undoSteps: [], undoPlan: null });
+  assert.equal(impossibleBlockedJournal.receiptStatus, 'unavailable');
+  assert.equal(impossibleBlockedJournal.finalization, 'pending', 'blocked previews cannot manufacture completion receipts');
   const input = { plan, actionMode: 'apply' as const, status: 'needs_recovery', completedActions: 0, phase: 'recovery' as const };
   const pathSteps = plan.pathSteps.map((step, index) => ({ key: `path:${index}`, state: 'applied' as const,
     receipt: { afterTree: [{ identity: 'private-inode', sha256: 'private-hash' }],
@@ -112,6 +127,9 @@ async function main() {
   }).outputText;
   new Function('require', 'module', 'exports', source)((name: string) => {
     if (name === 'server-only') return {};
+    if (name === '@/app/lib/document-review-availability') return {
+      readDocumentReviewAvailability: () => ({ documentReviewEnabled: true, updatedAt: null }),
+    };
     if (name === 'node:crypto') return {};
     if (name.endsWith('/db') || name.endsWith('/workspace-mutation-lock') || name.endsWith('/workspace-operation-review-service')
       || name.endsWith('/workspace-operation-batch-approval-fence')) return {};

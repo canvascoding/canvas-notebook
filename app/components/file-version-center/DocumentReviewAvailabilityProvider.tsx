@@ -6,6 +6,7 @@ import { authClient } from '@/app/lib/auth-client';
 import type { DocumentReviewAvailability } from '@/app/lib/document-review-availability';
 import { LiveEventSource } from '@/app/lib/live-events/client';
 import { closeVersionCenter } from '@/app/store/file-version-center-store';
+import { closeWorkspaceOperationReview } from '@/app/store/workspace-operation-review-store';
 
 type ReviewAvailabilityContext = DocumentReviewAvailability & {
   ready: boolean;
@@ -59,7 +60,10 @@ export function DocumentReviewAvailabilityProvider({ children }: { children: Rea
   const ready = Boolean(userId && snapshot.userId === userId && snapshot.ready);
   useEffect(() => {
     if (!ready) return;
-    if (!snapshot.documentReviewEnabled) closeVersionCenter();
+    if (!snapshot.documentReviewEnabled) {
+      closeVersionCenter({ syncLocation: false });
+      closeWorkspaceOperationReview();
+    }
     window.dispatchEvent(new CustomEvent('notification_summary_updated'));
   }, [ready, snapshot.documentReviewEnabled, snapshot.updatedAt]);
   return <DocumentReviewAvailabilityContext.Provider value={{ documentReviewEnabled: ready && snapshot.documentReviewEnabled,
