@@ -438,7 +438,9 @@ export function LicenseActivationPanel({
           onReload={loadStatus}
         />
       ) : null}
-      {isSelfHosted && !loading && !statusLoadError ? <SettingsAccordionCard title={copy.connection} isOpen={connectionOpen || Boolean(status?.teamSeatHealth?.recovery.reconnectRequired)} onOpenChange={setConnectionOpen}>
+      {isSelfHosted && !loading && !statusLoadError ? <details className="rounded-lg border bg-card p-4 sm:px-6" open={connectionOpen || Boolean(status?.teamSeatHealth?.recovery.reconnectRequired)} onToggle={(event) => setConnectionOpen(event.currentTarget.open)}>
+        <summary className="cursor-pointer text-sm font-medium">{copy.connection}</summary>
+        <div className="pt-4">
         <CommunityTeamConnectionPanel
         licensed={isLicensed}
         licensePlan={status?.plan || 'unregistered'}
@@ -449,7 +451,8 @@ export function LicenseActivationPanel({
         }
         teamSeatRollout={status?.teamSeatRollout}
         />
-      </SettingsAccordionCard> : null}
+        </div>
+      </details> : null}
     </div>
   );
 }
