@@ -3143,6 +3143,7 @@
     "imapMissingDescription": "This account can currently be used for sending and policies. Store IMAP settings to enable inbox, reading, and search.",
     "errors": {
       "loadAccounts": "Could not load email accounts.",
+      "loadSession": "Your session could not be loaded. Please try again.",
       "loadPreferences": "Could not load email settings.",
       "loadFolders": "Could not load folders.",
       "loadMessages": "Could not load messages.",

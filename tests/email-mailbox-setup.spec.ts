@@ -115,6 +115,72 @@ test.describe('Central email mailboxes', () => {
     } finally { await context.close(); }
   });
 
+  for (const failure of ['throttled', 'network'] as const) {
+    test(`cold session ${failure} failure offers a retry before loading mailboxes`, async ({ browser }) => {
+      const context = await createAuthenticatedContext(browser, { viewport: { width: 390, height: 740 } });
+      const fixture = await installFixture(context, [mailbox('support', true)]);
+      let failSession = true;
+      let failedRequests = 0;
+      await context.route('**/api/auth/get-session**', async route => {
+        if (!failSession) return route.continue();
+        failedRequests += 1;
+        if (failure === 'network') return route.abort('connectionfailed');
+        return route.fulfill({ status: 429, headers: { 'X-Retry-After': '1' }, json: { message: 'Too many requests' } });
+      });
+      const page = await context.newPage();
+      try {
+        await page.goto('/de/emails', { waitUntil: 'domcontentloaded' });
+        const error = page.getByTestId('email-session-error');
+        await expect(error).toBeVisible();
+        await expect(error).toContainText('Deine Sitzung konnte nicht geladen werden. Bitte versuche es erneut.');
+        await expect(page.getByText('E-Mail-Konten werden geladen...', { exact: true })).toHaveCount(0);
+        await expect(page.getByTestId('email-setup-guide')).toHaveCount(0);
+        expect(failedRequests).toBeGreaterThan(0);
+        expect(fixture.requests.filter(request => request.path === '/api/email/mailboxes')).toEqual([]);
+        failSession = false;
+        await error.getByRole('button', { name: /erneut versuchen|wiederholen/i }).click();
+        await expect(page.getByTestId('email-mailbox-scope')).toContainText('Customer Support');
+        await expect(page.getByText('Mail for support', { exact: true }).first()).toBeVisible();
+        await expect(error).toHaveCount(0);
+        expect(fixture.writes).toEqual([]);
+      } finally { await context.close(); }
+    });
+  }
+
+  test('a warm throttled session preserves mail and an unauthorized session hides it', async ({ browser }) => {
+    const context = await createAuthenticatedContext(browser);
+    const fixture = await installFixture(context, [mailbox('support', true)]);
+    let sessionStatus = 200;
+    await context.route('**/api/auth/get-session**', async route => {
+      if (sessionStatus === 200) return route.continue();
+      return route.fulfill({ status: sessionStatus, json: { message: 'Session unavailable' } });
+    });
+    const page = await context.newPage();
+    try {
+      await page.goto('/emails', { waitUntil: 'domcontentloaded' });
+      const mail = page.getByText('Mail for support', { exact: true }).first();
+      await expect(mail).toBeVisible();
+      for (const status of [429, 401]) {
+        sessionStatus = status;
+        const response = page.waitForResponse(response => new URL(response.url()).pathname === '/api/auth/get-session' && response.status() === status);
+        // The same storage notification that another tab emits triggers a real session refetch.
+        await page.evaluate(() => window.dispatchEvent(new StorageEvent('storage', {
+          key: 'better-auth.message', newValue: JSON.stringify({ event: 'session', data: { trigger: 'getSession' } }),
+        })));
+        await (await response).finished();
+        if (status === 429) {
+          await expect(mail).toBeVisible();
+          await expect(page.getByTestId('email-session-error')).toHaveCount(0);
+        } else {
+          await expect(page.getByTestId('email-session-error')).toBeVisible();
+          await expect(mail).toHaveCount(0);
+          await expect(page.getByTestId('email-mailbox-scope')).toHaveCount(0);
+        }
+      }
+      expect(fixture.writes).toEqual([]);
+    } finally { await context.close(); }
+  });
+
   test('account load error remains actionable instead of looking like first setup', async ({ browser }) => {
     const context = await createAuthenticatedContext(browser);
     const fixture = await installFixture(context, []); fixture.failLoad = true;

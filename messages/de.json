@@ -3142,6 +3142,7 @@
     "imapMissingDescription": "Dieses Konto kann aktuell für Versand und Richtlinien genutzt werden. Für Inbox, Lesen und Suche muss IMAP in den Kontoeinstellungen gespeichert werden.",
     "errors": {
       "loadAccounts": "E-Mail-Konten konnten nicht geladen werden.",
+      "loadSession": "Deine Sitzung konnte nicht geladen werden. Bitte versuche es erneut.",
       "loadPreferences": "E-Mail-Einstellungen konnten nicht geladen werden.",
       "loadFolders": "Folder konnten nicht geladen werden.",
       "loadMessages": "Nachrichten konnten nicht geladen werden.",

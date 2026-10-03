@@ -66,7 +66,7 @@ export function EmailClient({
   const t = useTranslations('emails');
   const locale = useLocale();
   const tm = useTranslations('emailMailboxes');
-  const { data: session } = authClient.useSession();
+  const { data: session, isPending: isSessionPending, refetch: refetchSession } = authClient.useSession();
   const selectionStorageKey = session?.user.id ? `emails.mailbox:${session.user.id}` : null;
   const setEmailChatContext = useSetEmailChatContext();
   const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
@@ -1272,7 +1272,14 @@ export function EmailClient({
     </div>
   );
 
-  if (isLoadingAccounts) {
+  if (!selectionStorageKey && !isSessionPending) {
+    return <section className="m-4 space-y-3 rounded-md border border-destructive/30 p-4" role="alert" data-testid="email-session-error">
+      <p className="text-sm text-destructive">{t('errors.loadSession')}</p>
+      <Button variant="outline" onClick={() => void refetchSession()}>{tm('retry')}</Button>
+    </section>;
+  }
+
+  if (isLoadingAccounts || !selectionStorageKey) {
     return (
       <div className="flex min-h-64 items-center justify-center text-sm text-muted-foreground">
         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
