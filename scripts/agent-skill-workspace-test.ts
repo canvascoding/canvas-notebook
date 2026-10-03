@@ -11,6 +11,9 @@ const originalLoad = moduleInternals._load;
 const runtimeRefreshes: string[] = [];
 let failNextRuntimeRefresh = false;
 moduleInternals._load = (request, parent, isMain) => {
+  if (request === '@/app/lib/organization/permissions') {
+    return { readOrganizationPermissionForUser: async () => ({ configured: false, organizationId: null, permission: null }) };
+  }
   if (request === 'server-only') {
     return {};
   }

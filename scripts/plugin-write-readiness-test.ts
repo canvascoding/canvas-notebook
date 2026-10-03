@@ -6,7 +6,7 @@ import ts from 'typescript';
 async function main() {
   const source = await fs.readFile('app/components/plugins/PluginsPanel.tsx', 'utf8');
   const parsed = ts.createSourceFile('PluginsPanel.tsx', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
-  const names = new Set(['getPreflightKey', 'preflightBlocksPluginWrite', 'installStorePlugin', 'installLocalPlugin', 'setPluginEnabled', 'deletePlugin', 'isAssignedOrganizationPlugin', 'isPluginPreferenceLocked', 'storeMatchesInstalledPlugin']);
+  const names = new Set(['getPreflightKey', 'preflightBlocksPluginWrite', 'installStorePlugin', 'installLocalPlugin', 'setPluginEnabled', 'deletePlugin', 'isAssignedOrganizationPlugin', 'isStorePackageManagedElsewhere', 'isPluginPreferenceLocked', 'storeMatchesInstalledPlugin']);
   const handlers: string[] = [];
   const visit = (node: ts.Node) => {
     if (ts.isFunctionDeclaration(node) && node.name && names.has(node.name.text)) handlers.push(node.getText(parsed));

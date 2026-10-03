@@ -671,6 +671,7 @@
     "test:settings:developer-mode": "tsx --conditions react-server scripts/developer-mode-preferences-test.ts && tsx scripts/developer-mode-settings-test.tsx",
     "test:plugins:app": "tsx scripts/plugin-navigation-test.ts && tsx scripts/plugin-return-test.ts && tsx scripts/plugins-app-backend-test.ts && tsx scripts/plugins-mcp-template-scope-test.ts && tsx scripts/plugins-asset-scope-test.ts && tsx scripts/plugin-icons-test.tsx && tsx scripts/plugin-store-filter-test.ts && tsx scripts/plugin-write-readiness-test.ts && tsx scripts/plugin-data-loading-test.ts && tsx scripts/plugin-connector-race-test.ts && tsx scripts/plugins-app-ui-test.tsx && tsx scripts/header-navigation-test.ts",
     "test:plugins:app:e2e": "E2E_EXTERNAL_SERVER=1 playwright test --config playwright.plugins-app-local.config.ts",
+    "test:capabilities:deduplication": "tsx --conditions react-server scripts/capability-deduplication-test.ts && tsx --conditions react-server scripts/plugin-activation-protection-test.ts && tsx --conditions react-server scripts/personal-skill-activation-test.ts && tsx scripts/composer-capability-scope-test.tsx && tsx scripts/skill-reference-chip-scope-test.tsx",
     "test:mcp:settings": "tsx scripts/mcp-server-dialog-test.tsx && tsx scripts/plugin-mcp-secret-patch-test.ts && npm run test:settings:developer-mode",
     "test:mcp:oauth:e2e": "playwright test tests/mcp-oauth-ui.spec.ts --workers=1"
   },

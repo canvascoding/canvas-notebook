@@ -10,10 +10,21 @@ import {
   installCanvasPluginFromPath,
   setCanvasPluginEnabled,
   type CanvasPluginInstallRecord,
+  type CanvasPluginInstallResult,
 } from '@/app/lib/plugins/canvas-plugin-registry';
 import { isValidCanvasPluginName, isValidCanvasPluginVersion } from '@/app/lib/plugins/canvas-plugin-manifest';
 
 const PLUGIN_DRAFTS_DIR_NAME = '.canvas-plugin-drafts';
+
+function pluginMutationError(result: CanvasPluginInstallResult, fallback: string): Error {
+  return Object.assign(new Error(result.error || result.validation?.errors.join('\n') || fallback), {
+    code: result.code,
+    status: result.status,
+    protectedResourceId: result.protectedResourceId,
+    protectedScopeType: result.protectedScopeType,
+    protectedName: result.protectedName,
+  });
+}
 
 export type AgentPluginScope = {
   userId: string;
@@ -204,7 +215,7 @@ export async function installCanvasPluginFromWorkspace(params: {
     scope: { userId: params.scope.userId },
   });
   if (!result.success || !result.plugin) {
-    throw new Error(result.error || result.validation?.errors.join('\n') || 'Failed to install plugin package.');
+    throw pluginMutationError(result, 'Failed to install plugin package.');
   }
   return summarizePlugin(result.plugin, workspaceRelativePath(params.workspaceRoot, packageRoot));
 }
@@ -237,7 +248,7 @@ export async function updateCanvasPluginFromWorkspace(params: {
     scope: { userId: params.scope.userId },
   });
   if (!result.success || !result.plugin) {
-    throw new Error(result.error || result.validation?.errors.join('\n') || 'Failed to update plugin package.');
+    throw pluginMutationError(result, 'Failed to update plugin package.');
   }
   return {
     ...summarizePlugin(result.plugin, workspaceRelativePath(params.workspaceRoot, packageRoot)),
@@ -255,7 +266,7 @@ export async function setCanvasPluginEnabledForAgent(params: {
   const name = assertPluginName(params.pluginName);
   const result = await setCanvasPluginEnabled(name, params.enabled, { userId: params.scope.userId }, params.updatedBy);
   if (!result.success || !result.plugin) {
-    throw new Error(result.error || 'Failed to update plugin activation.');
+    throw pluginMutationError(result, 'Failed to update plugin activation.');
   }
   return summarizePlugin(result.plugin, 'installed plugin');
 }

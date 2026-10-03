@@ -5,6 +5,7 @@ import { fileURLToPath } from 'url';
 
 import JSZip from 'jszip';
 import packageMetadata from '@/package.json';
+import { listVisibleInstalledCanvasPlugins } from '@/app/lib/plugins/visible-installed-plugins';
 
 import {
   computeCanvasPluginChecksum,
@@ -595,10 +596,21 @@ async function enrichStorePluginsWithInstalledState(
   installedPlugins: CanvasPluginInstallRecord[],
   scope?: CanvasPluginStorageScope | null,
 ): Promise<{ registry: Omit<CanvasPluginStoreRegistry, 'plugins'>; plugins: CanvasPluginStorePluginWithState[]; stats: Omit<CanvasPluginStoreStats, 'filteredTotal'> }> {
-  const installedByName = new Map(installedPlugins.map((plugin) => [plugin.name, plugin]));
-  const skillRegistry = await readCanvasSkillRegistry(scope);
+  const installedByName = new Map(installedPlugins.map((plugin) => [plugin.name.toLowerCase(), plugin]));
+  const personalSkillRegistry = await readCanvasSkillRegistry(scope);
+  const organizationSkillRegistries = new Map<string, ReturnType<typeof readCanvasSkillRegistry>>();
   const plugins = await Promise.all(registry.plugins.map(async (plugin) => {
-    const installedPlugin = installedByName.get(plugin.name);
+    const installedPlugin = installedByName.get(plugin.name.toLowerCase());
+    const installedScope = installedPlugin?.scopeType === 'organization' && installedPlugin.organizationId
+      ? { scopeType: 'organization' as const, organizationId: installedPlugin.organizationId } : scope;
+    let skillRegistry = personalSkillRegistry;
+    if (installedPlugin?.scopeType === 'organization' && installedPlugin.organizationId) {
+      const organizationId = installedPlugin.organizationId;
+      if (!organizationSkillRegistries.has(organizationId)) {
+        organizationSkillRegistries.set(organizationId, readCanvasSkillRegistry(installedScope));
+      }
+      skillRegistry = await organizationSkillRegistries.get(organizationId)!;
+    }
     const updateAvailable = Boolean(
       installedPlugin && compareVersions(plugin.latestVersion, installedPlugin.version) > 0,
     );
@@ -607,7 +619,7 @@ async function enrichStorePluginsWithInstalledState(
       installedPlugin,
       plugin.latestVersion,
       skillRegistry,
-      scope,
+      installedScope,
     );
 
     return {
@@ -673,7 +685,7 @@ function storeConnectionTypes(plugin: CanvasPluginStorePlugin): CanvasPluginStor
 export async function listCanvasPluginStore(options: CanvasPluginStoreListOptions = {}): Promise<CanvasPluginStoreList> {
   const [registry, installedPlugins] = await Promise.all([
     readCanvasPluginStoreRegistry(),
-    listCanvasPlugins(options.scope),
+    listVisibleInstalledCanvasPlugins(options.scope),
   ]);
   const enriched = await enrichStorePluginsWithInstalledState(registry, installedPlugins, options.scope);
   const pageSize = clampPositiveInteger(options.pageSize, 12, 50);
@@ -722,7 +734,7 @@ export async function getCanvasPluginStorePlugin(
   if (!isValidCanvasPluginName(pluginName)) return null;
   const [registry, installedPlugins] = await Promise.all([
     readCanvasPluginStoreRegistry(),
-    listCanvasPlugins(scope),
+    listVisibleInstalledCanvasPlugins(scope),
   ]);
   const plugin = registry.plugins.find((entry) => entry.name === pluginName);
   if (!plugin) return null;

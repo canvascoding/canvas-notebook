@@ -45,7 +45,7 @@ export async function POST(request: Request) {
     );
 
     if (!result.success) {
-      return NextResponse.json(result, { status: 400 });
+      return NextResponse.json(result, { status: result.statusCode || 400 });
     }
     await recordAuditEvent({
       organizationId: skillPermission.state.organizationId,

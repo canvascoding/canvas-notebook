@@ -29,8 +29,12 @@ export async function POST(
   );
   if (!result.success) {
     return NextResponse.json(
-      { success: false, error: result.error },
-      { status: result.error?.includes('not found') ? 404 : 400 },
+      {
+        success: false, error: result.error, code: result.code,
+        protectedResourceId: result.protectedResourceId, protectedScopeType: result.protectedScopeType,
+        protectedName: result.protectedName,
+      },
+      { status: result.status || (result.error?.includes('not found') ? 404 : 400) },
     );
   }
   await recordAuditEvent({

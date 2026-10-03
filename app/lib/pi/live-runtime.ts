@@ -1897,7 +1897,9 @@ export class LivePiRuntime {
 
     if (latestUserMessageText) {
       try {
-        const pluginBlock = await buildReferencedPluginRuntimeContext(latestUserMessageText, { userId: this.userId });
+        const pluginBlock = await buildReferencedPluginRuntimeContext(latestUserMessageText, { userId: this.userId }, {
+          workspaceId: this.executionContext.workspaceId,
+        });
         if (pluginBlock) {
           sections.push(pluginBlock);
         }

@@ -328,6 +328,7 @@ type CanvasSkillStoreEntry = {
     updateAvailable: boolean;
     modified: boolean;
     restoreAvailable: boolean;
+    managedByOrganization?: boolean;
   };
 };
 
@@ -941,6 +942,10 @@ function CanvasPluginsSection({
     const storePlugin = storePlugins.find((plugin) => plugin.name === pluginName)
       || installedStorePlugins.find((plugin) => plugin.name === pluginName)
       || (detailStorePlugin?.name === pluginName ? detailStorePlugin : undefined);
+    if (isStorePackageManagedElsewhere(storePlugin)) {
+      setError(t('permissions.organizationPackage'));
+      return;
+    }
     const preflightKey = getPreflightKey(pluginName, version);
     const shouldPreflight = Boolean(
       storePlugin
@@ -1042,6 +1047,13 @@ function CanvasPluginsSection({
 
   function isAssignedOrganizationPlugin(plugin: CanvasPluginSettingsRecord): boolean {
     return managementScope === 'user' && plugin.scopeType === 'organization';
+  }
+
+  function isStorePackageManagedElsewhere(plugin?: CanvasPluginStoreEntry): boolean {
+    return managementScope === 'user' && (
+      plugin?.installed.installedPlugin?.scopeType === 'organization'
+      || plugin?.installed.installedPlugin?.scopeType === 'system'
+    );
   }
 
   function isPluginPreferenceLocked(plugin: CanvasPluginSettingsRecord): boolean {
@@ -2126,6 +2138,7 @@ function CanvasPluginsSection({
   function renderStorePluginCard(plugin: CanvasPluginStoreEntry) {
     const isPending = pendingPluginName === `store:${plugin.name}`;
     const isInstalled = plugin.installed.installed;
+    const managedElsewhere = isStorePackageManagedElsewhere(plugin);
     const updateAvailable = plugin.installed.updateAvailable;
     const skillRepairAvailable = Boolean(isInstalled && plugin.installed.skillSummary && plugin.installed.skillSummary.repairable > 0);
     const preflightKey = getPreflightKey(plugin.name, plugin.latestVersion);
@@ -2134,7 +2147,7 @@ function CanvasPluginsSection({
       && !preflightState?.result
       && (!isInstalled || updateAvailable || skillRepairAvailable);
     const isChecking = Boolean(preflightState?.isLoading);
-    const buttonLabel = needsPreflight
+    const buttonLabel = managedElsewhere ? t('installed') : needsPreflight
       ? t('details.openDetails')
       : updateAvailable
       ? t('update')
@@ -2199,7 +2212,7 @@ function CanvasPluginsSection({
           <Button
             variant={updateAvailable || !isInstalled || skillRepairAvailable ? 'default' : 'outline'}
             size="sm"
-            disabled={!canManagePackages || isPending || isChecking || preflightBlocksPluginWrite(preflightState) || Boolean(activeConnectorAction) || (isInstalled && !updateAvailable && !skillRepairAvailable)}
+            disabled={managedElsewhere || !canManagePackages || isPending || isChecking || preflightBlocksPluginWrite(preflightState) || Boolean(activeConnectorAction) || (isInstalled && !updateAvailable && !skillRepairAvailable)}
             onClick={(event) => {
               event.stopPropagation();
               if (needsPreflight) {
@@ -2215,6 +2228,7 @@ function CanvasPluginsSection({
           </Button>
         </div>
         {!canManagePackages ? <p className="mt-2 text-xs text-muted-foreground">{t('permissions.askAdmin')}</p> : null}
+        {managedElsewhere ? <p className="mt-2 text-xs text-muted-foreground">{t('permissions.organizationPackage')}</p> : null}
       </div>
     );
   }
@@ -2955,6 +2969,7 @@ function OrganizationCapabilityPolicyPanel() {
 export function SkillsPanel({ canManageOrganizationCapabilities: initialCanManageOrganization = false }: { canManageOrganizationCapabilities?: boolean } = {}) {
   const t = useTranslations('skills');
   const { navigation, navigate } = usePluginNavigation();
+  const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
   const [canManageOrganizationCapabilities, setCanManageOrganizationCapabilities] = useState(initialCanManageOrganization);
   const managementScope: CapabilityManagementScope = navigation.scope === 'organization' && canManageOrganizationCapabilities ? 'organization' : 'user';
   const [skills, setSkills] = useState<CanvasSkill[]>([]);
@@ -3010,8 +3025,10 @@ export function SkillsPanel({ canManageOrganizationCapabilities: initialCanManag
     try {
       setIsLoading(true);
       setSkillsError(null);
+      const url = new URL(capabilityScopeUrl('/api/skills', requestedScope), window.location.origin);
+      if (activeWorkspaceId) url.searchParams.set('workspaceId', activeWorkspaceId);
       const [skillsRes, statusRes] = await Promise.all([
-        fetch(capabilityScopeUrl('/api/skills', requestedScope)),
+        fetch(`${url.pathname}${url.search}`),
         fetch('/api/skills/status'),
       ]);
       const skillsData = await skillsRes.json();
@@ -3112,13 +3129,16 @@ export function SkillsPanel({ canManageOrganizationCapabilities: initialCanManag
   useEffect(() => {
     if (panelTab !== 'skills') return;
     startTransition(() => {
+      setSelectedSkill(null);
+      setSelectedPath(null);
+      setPreviewContent('');
       loadSkills();
       loadSkillTree();
     });
     return () => { skillsRequestRef.current += 1; skillTreeRequestRef.current += 1; };
     // Skill data is loaded only while the skill area is visible.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [managementScope, panelTab, pluginsRevision]);
+  }, [activeWorkspaceId, managementScope, panelTab, pluginsRevision]);
 
   useEffect(() => {
     if (panelTab === 'skills' && (skillLibraryTab === 'library' || skillLibraryTab === 'updates')) {
@@ -3236,7 +3256,19 @@ export function SkillsPanel({ canManageOrganizationCapabilities: initialCanManag
     }
   }
 
+  function isSkillPackageManagedElsewhere(skillName: string): boolean {
+    if (managementScope !== 'user') return false;
+    const name = skillName.toLowerCase();
+    return skills.some((skill) => skill.name.toLowerCase() === name
+      && (skill.scopeType === 'organization' || skill.scopeType === 'system'))
+      || skillStoreSkills.some((skill) => skill.name.toLowerCase() === name && skill.installed.managedByOrganization === true);
+  }
+
   async function installStoreSkill(skillName: string, version?: string) {
+    if (isSkillPackageManagedElsewhere(skillName)) {
+      setSkillActionError(t('plugins.permissions.organizationPackage'));
+      return;
+    }
     setPendingSkillAction(`install:${skillName}`);
     setSkillActionError(null);
     try {
@@ -3260,6 +3292,10 @@ export function SkillsPanel({ canManageOrganizationCapabilities: initialCanManag
   }
 
   async function restoreSkill(skillName: string, prefer?: 'store' | 'seed') {
+    if (isSkillPackageManagedElsewhere(skillName)) {
+      setSkillActionError(t('plugins.permissions.organizationPackage'));
+      return;
+    }
     setPendingSkillAction(`restore:${skillName}`);
     setSkillActionError(null);
     try {
@@ -3477,7 +3513,8 @@ export function SkillsPanel({ canManageOrganizationCapabilities: initialCanManag
     const isModified = skill.installed.modified;
     const isInstalling = pendingSkillAction === `install:${skill.name}`;
     const isRestoring = pendingSkillAction === `restore:${skill.name}`;
-    const canInstall = !isInstalled || updateAvailable;
+    const managedElsewhere = isSkillPackageManagedElsewhere(skill.name);
+    const canInstall = !managedElsewhere && (!isInstalled || updateAvailable);
     const installLabel = updateAvailable
       ? t('skillLibrary.update')
       : isInstalled
@@ -3519,7 +3556,7 @@ export function SkillsPanel({ canManageOrganizationCapabilities: initialCanManag
               <Button
                 variant="outline"
                 size="sm"
-                disabled={isRestoring || isInstalling}
+                disabled={managedElsewhere || isRestoring || isInstalling}
                 onClick={() => void restoreSkill(skill.name)}
                 className="gap-1.5"
               >
@@ -3545,6 +3582,7 @@ export function SkillsPanel({ canManageOrganizationCapabilities: initialCanManag
             </Button>
           </div>
         </div>
+        {managedElsewhere ? <p className="mt-2 text-xs text-muted-foreground">{t('plugins.permissions.organizationPackage')}</p> : null}
       </div>
     );
   }

@@ -4,6 +4,8 @@ import { refreshPersonalCapabilityRuntime } from '@/app/lib/capabilities/activat
 import { requireActiveCapabilityUser } from '@/app/lib/capabilities/request-auth';
 import { enableSkillInConfig, resolveEnabledSkillNames } from '@/app/lib/skills/enabled-skills';
 import { loadSkillsFromDisk } from '@/app/lib/skills/skill-loader';
+import { isValidAgentSkillName } from '@/app/lib/skills/canvas-skill-manifest';
+import { assertPersonalSkillActivationAllowed, PersonalSkillActivationError } from '@/app/lib/skills/personal-skill-activation';
 import { readEnabledSkillsForScope, writeEnabledSkillsForScope } from '@/app/lib/skills/skill-settings';
 
 export async function POST(
@@ -24,6 +26,13 @@ export async function POST(
     const enabledSkills = await readEnabledSkillsForScope(scope);
     const allSkills = await loadSkillsFromDisk(undefined, scope);
     const allSkillNames = Array.from(new Set(allSkills.map((skill) => skill.name)));
+    if (!isValidAgentSkillName(name)) {
+      return NextResponse.json({ success: false, error: 'Invalid skill name' }, { status: 400 });
+    }
+    if (!allSkillNames.includes(name)) {
+      return NextResponse.json({ success: false, error: 'Skill not found' }, { status: 404 });
+    }
+    await assertPersonalSkillActivationAllowed(name, scope);
     const nextEnabledSkills = enableSkillInConfig(name, enabledSkills, allSkillNames);
 
     if (JSON.stringify(nextEnabledSkills) !== JSON.stringify(enabledSkills || [])) {
@@ -56,6 +65,9 @@ export async function POST(
       enabledSkills: Array.from(resolveEnabledSkillNames(allSkillNames, nextEnabledSkills)),
     });
   } catch (error) {
+    if (error instanceof PersonalSkillActivationError) {
+      return NextResponse.json({ success: false, error: error.message, code: error.code }, { status: error.statusCode });
+    }
     console.error('[Skills API] Error enabling skill:', error);
     return NextResponse.json(
       { success: false, error: 'Failed to enable skill' },

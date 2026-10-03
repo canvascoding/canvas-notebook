@@ -10,6 +10,7 @@ const moduleInternals = Module as typeof Module & {
 const originalLoad = moduleInternals._load;
 moduleInternals._load = (request, parent, isMain) => {
   if (request === 'server-only' || request === '@earendil-works/pi-ai/oauth' || request === '@earendil-works/pi-agent-core') return {};
+  if (request === '@/app/lib/organization/permissions') return { readOrganizationPermissionForUser: async () => ({ organizationId: null, permission: null }) };
   if (request === '@earendil-works/pi-ai/compat') {
     return {
       getModels: () => [],
