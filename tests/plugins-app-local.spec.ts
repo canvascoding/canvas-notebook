@@ -1,9 +1,33 @@
-import { expect, test, type BrowserContext, type Page, type TestInfo } from '@playwright/test';
+import { expect, test as base, type BrowserContext, type Page, type TestInfo } from '@playwright/test';
 import appPackage from '../package.json';
 import de from '../messages/de.json';
 import en from '../messages/en.json';
 import { createAuthenticatedContext } from './helpers/managed-test-context';
 import type { NotificationSummary } from '../app/components/notifications/notification-summary';
+import { ownedCollaborationQaEnabled } from '../scripts/lib/owned-collaboration-qa';
+import { waitForOwnedSuiteRequestBudget } from './helpers/owned-suite-request-budget';
+
+let ownedPluginCases = 0;
+const test = base.extend<{ ownedPluginBudget: void }>({
+  ownedPluginBudget: [async ({ browser }, use, info) => {
+    if (ownedCollaborationQaEnabled()) {
+      if (info.config.workers !== 1) throw new Error('Owned plugin QA requires one sequential worker.');
+      // The measured 12-case sections use 50, 27 and 23 session reads.
+      // Keep later sections independent of the preceding IP/path request chain.
+      if (ownedPluginCases > 0 && ownedPluginCases % 12 === 0) {
+        await waitForOwnedSuiteRequestBudget(browser);
+      }
+      ownedPluginCases += 1;
+    }
+    await use();
+  }, { auto: true, timeout: 150_000 }],
+});
+
+test.beforeAll(async ({ browser }) => {
+  if (!ownedCollaborationQaEnabled()) return;
+  test.setTimeout(150_000);
+  await waitForOwnedSuiteRequestBudget(browser);
+});
 
 // QA inventory: real login and return destination; Home and first launcher page;
 // desktop quick actions/mobile sheet; explicit plugin and skill views, history,

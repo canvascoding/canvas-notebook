@@ -1,5 +1,13 @@
 import { expect, test, type BrowserContext } from '@playwright/test';
 import { createAuthenticatedContext } from './helpers/managed-test-context';
+import { ownedCollaborationQaEnabled } from '../scripts/lib/owned-collaboration-qa';
+import { waitForOwnedSuiteRequestBudget } from './helpers/owned-suite-request-budget';
+
+test.beforeAll(async ({ browser }) => {
+  if (!ownedCollaborationQaEnabled()) return;
+  test.setTimeout(150_000);
+  await waitForOwnedSuiteRequestBudget(browser);
+});
 
 function mailbox(id: string, shared = false, writable = true) {
   return {
