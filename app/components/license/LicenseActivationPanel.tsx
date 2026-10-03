@@ -16,7 +16,7 @@ import { Switch } from '@/components/ui/switch';
 import { scrubLicenseKeyFromBrowserUrl } from '@/app/lib/license/browser-url';
 import { codeFromLicenseError } from '@/app/lib/license/error-codes';
 import type { TeamSeatHealth } from '@/app/lib/license/team-seat-health-types';
-import { licenseHostingVariant } from '@/app/lib/license/ui-policy';
+import { isTeamLicenseApplicable, licenseHostingVariant } from '@/app/lib/license/ui-policy';
 import {
   CommunityTeamConnectionPanel,
   type TeamSeatRolloutStatus,
@@ -35,6 +35,8 @@ type LicenseStatus = {
   hostingMode?: string | null;
   deploymentMode?: string | null;
   edition?: string | null;
+  capabilities?: Record<string, boolean>;
+  features?: Record<string, boolean>;
   expiresAt: string | null;
   error?: string;
   code?: string;
@@ -417,7 +419,7 @@ export function LicenseActivationPanel({
           )}
         </CardContent>
       </Card>
-      {canViewTeamSeatHealth ? (
+      {canViewTeamSeatHealth && isTeamLicenseApplicable(status) ? (
         <TeamSeatHealthPanel
           health={status ? status.teamSeatHealth ?? null : undefined}
           onReload={loadStatus}

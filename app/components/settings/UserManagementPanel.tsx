@@ -9,6 +9,7 @@ import { authClient } from '@/app/lib/auth-client';
 import { includesTeamRuntimeLicense } from '@/app/lib/license/team-runtime-status';
 import type { TeamSeatHealth } from '@/app/lib/license/team-seat-health-types';
 import { TeamSeatHealthPanel } from '@/app/components/license/TeamSeatHealthPanel';
+import { isTeamLicenseApplicable } from '@/app/lib/license/ui-policy';
 import { UserPermissionsDialog } from './UserPermissionsDialog';
 import {
   AlertDialog,
@@ -126,6 +127,8 @@ type LicenseStatusResponse = {
   capabilities?: Record<string, boolean>;
   features?: Record<string, boolean>;
   teamSeatHealth?: TeamSeatHealth | null;
+  edition?: string | null;
+  runtimeDeploymentMode?: string;
 };
 
 type RoleChangeTarget = {
@@ -243,6 +246,7 @@ export function UserManagementPanel({
   const [users, setUsers] = useState<ManagedUser[]>([]);
   const [teamLicenseState, setTeamLicenseState] = useState<TeamLicenseState>('checking');
   const [teamSeatHealth, setTeamSeatHealth] = useState<TeamSeatHealth | null | undefined>(undefined);
+  const [teamHealthApplicable, setTeamHealthApplicable] = useState(false);
   const [total, setTotal] = useState(0);
   const [offset, setOffset] = useState(0);
   const [searchDraft, setSearchDraft] = useState('');
@@ -342,6 +346,7 @@ export function UserManagementPanel({
         throw new Error('LICENSE_STATUS_UNAVAILABLE');
       }
       setTeamLicenseState(response.ok && includesTeamRuntimeLicense(payload) ? 'active' : 'required');
+      setTeamHealthApplicable(isTeamLicenseApplicable(payload));
       if (canViewTeamSeatHealth) {
         setTeamSeatHealth(payload.teamSeatHealth ?? null);
       }
@@ -957,12 +962,6 @@ export function UserManagementPanel({
   if (teamLicenseState !== 'active') {
     return (
       <div className="flex flex-col gap-4">
-        {canViewTeamSeatHealth ? (
-          <TeamSeatHealthPanel
-            health={teamSeatHealth}
-            onReload={loadLicenseStatus}
-          />
-        ) : null}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -1006,10 +1005,11 @@ export function UserManagementPanel({
 
   return (
     <div className="flex flex-col gap-4">
-      {canViewTeamSeatHealth ? (
+      {canViewTeamSeatHealth && teamHealthApplicable && teamSeatHealth ? (
         <TeamSeatHealthPanel
           health={teamSeatHealth}
           onReload={loadLicenseStatus}
+          variant="compact"
         />
       ) : null}
       <Card>

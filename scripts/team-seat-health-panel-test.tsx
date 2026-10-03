@@ -56,12 +56,9 @@ async function main() {
   try {
     await settle();
     assert(screen.getByText('Confirmed in sync'));
-    assert(screen.getByText('Control Plane connection: Connected'));
-    assert(screen.getByText('Active'));
-    assert(screen.getByText('Confirmed'));
-    assert.equal(screen.getAllByText('2').length, 2);
-    assert(screen.getByText('10', { selector: 'p' }));
-    assert(screen.getByText('Licensed'));
+    assert(screen.getByText('2 / 10 Team seats used'));
+    assert.equal(screen.queryByText('Active'), null);
+    assert.equal(screen.queryByRole('button', { name: 'Sync memberships now' }), null);
     assert.equal(screen.queryByText('Offline grace'), null);
     assert.equal(screen.queryByRole('button', { name: 'Refresh license certificate' }), null);
     assert.equal(screen.queryByText('Previous Community operations'), null);
@@ -69,6 +66,11 @@ async function main() {
     assert.equal(details.getAttribute('aria-expanded'), 'false');
     fireEvent.click(details);
     assert.equal(details.getAttribute('aria-expanded'), 'true');
+    assert(screen.getByText('Control Plane connection: Connected'));
+    assert(screen.getByText('Active'));
+    assert(screen.getByText('Confirmed'));
+    assert.equal(screen.getAllByText('2').length, 2);
+    assert(screen.getByText('10', { selector: 'p' }));
     assert(screen.getByText('Certificate valid until'));
     assert(screen.getByText('Grant valid until'));
     assert(screen.getByText('Not applicable · non-billable'));
@@ -91,6 +93,7 @@ async function main() {
     assert.deepEqual(preferenceUpdates, [{ teamLicenseNotificationsEnabled: false }]);
     fireEvent.click(notifications);
     assert.equal(screen.queryByRole('switch'), null);
+    fireEvent.click(details);
     fireEvent.click(screen.getByRole('button', { name: 'Sync memberships now' }));
     await settle();
     assert.deepEqual(actions, ['sync_snapshot']);
@@ -128,7 +131,6 @@ async function main() {
       const confirmedBadge = policyView.getByText('Confirmed in sync');
       assert(confirmedBadge.querySelector('.lucide-circle-check'));
       assert(!confirmedBadge.className.includes('bg-destructive'));
-      assert(policyView.getByText('Control Plane connection: Connected'));
       assert(policyView.getByText(policyState === 'restricted' ? 'Team access restricted' : 'Team access in grace period'));
       assert(policyView.getByText('The grant has expired.'));
       assert(policyView.getByText('Check and renew or reapprove the grant in the Control Plane, then sync again.'));

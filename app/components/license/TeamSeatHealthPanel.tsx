@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 
 import type { TeamSeatHealth } from '@/app/lib/license/team-seat-health-types';
+import { teamHealthAttentionReason } from '@/app/lib/license/ui-policy';
 import { TeamLicenseEmailReview } from './TeamLicenseEmailReview';
 import { SettingsAccordionCard } from '@/app/components/settings/SettingsAccordionCard';
 import { Badge } from '@/components/ui/badge';
@@ -318,9 +319,11 @@ function SeatMetric({
 export function TeamSeatHealthPanel({
   health,
   onReload,
+  variant = 'details',
 }: {
   health: TeamSeatHealth | null | undefined;
   onReload?: () => void | Promise<void>;
+  variant?: 'compact' | 'details';
 }) {
   const locale = useLocale();
   const copy = useMemo(() => copyFor(locale), [locale]);
@@ -335,6 +338,7 @@ export function TeamSeatHealthPanel({
   const [notificationSettingError, setNotificationSettingError] = useState(false);
 
   useEffect(() => {
+    if (variant === 'compact') return;
     let cancelled = false;
     void fetch('/api/user-preferences', { credentials: 'include', cache: 'no-store' })
       .then(async (response) => {
@@ -347,7 +351,7 @@ export function TeamSeatHealthPanel({
       })
       .catch(() => { if (!cancelled) setNotificationSettingError(true); });
     return () => { cancelled = true; };
-  }, []);
+  }, [variant]);
 
   async function saveNotificationSetting(enabled: boolean) {
     setSavingNotificationSetting(true);
@@ -498,6 +502,24 @@ export function TeamSeatHealthPanel({
     ]),
   ];
 
+  const reason = teamHealthAttentionReason(health);
+  const german = locale.startsWith('de');
+  const seatSummary = `${health.sync.observedQuantity ?? '—'} / ${health.sync.licensedQuantity ?? '—'} ${german ? 'Team-Plätze belegt' : 'Team seats used'}`;
+  const notice = reason === 'restricted' ? copy.accessRestricted
+    : reason === 'grace' ? copy.accessGrace
+    : reason === 'capacity' ? german ? 'Alle Team-Plätze sind belegt. Vor weiteren Einladungen das Platzkontingent prüfen.' : 'All Team seats are used. Check the seat limit before inviting more users.'
+    : reason === 'expiring' ? `${german ? 'Der Grant läuft ab am' : 'The grant expires on'} ${formatDate(health.license.termEndsAt ?? null, locale, copy.unknown)}`
+    : reason === 'email' ? copy.emailManualReview
+    : reason === 'sync' ? managed && managedState !== 'current' ? copy.managedActions[managedState] : copy.health.attention
+    : null;
+  if (variant === 'compact') {
+    return <aside className="flex flex-wrap items-center justify-between gap-2 rounded-lg border px-4 py-3 text-sm" aria-label={copy.title}>
+      <div className="min-w-0"><p className="font-medium">{seatSummary}</p>
+        {notice ? <p role="alert" className="mt-1 text-sm text-destructive">{notice}</p> : null}</div>
+      {reason ? <Button asChild variant="outline" size="sm"><a href={`/${locale}/settings?tab=license`}>{german ? 'Lizenz prüfen' : 'Check license'}</a></Button> : null}
+    </aside>;
+  }
+
   return (
     <Card className="overflow-hidden border-border bg-card py-0">
       <CardHeader className="gap-3 px-4 pt-5 sm:px-6">
@@ -511,24 +533,15 @@ export function TeamSeatHealthPanel({
             {statusLabel}
           </Badge>
         </div>
-        <CardDescription>{copy.description}</CardDescription>
-        <p className="text-xs text-muted-foreground">
-          {copy.connection}: {connectionLabel}
-        </p>
+        <CardDescription>{seatSummary}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4 px-4 pb-5 sm:px-6">
-        <div className="grid gap-3 sm:grid-cols-3">
-          <SeatMetric label={copy.seats.observed} value={health.sync.observedQuantity} detail={copy.seats.observedDetail} />
-          <SeatMetric label={managed || health.license.nonBillable ? copy.seats.approved : copy.seats.billed}
-            value={managed || health.license.nonBillable ? health.sync.approvedQuantity : health.sync.billedQuantity}
-            detail={managed || health.license.nonBillable ? copy.confirmedDetail : copy.seats.billedDetail} />
-          <SeatMetric label={copy.seats.licensed} value={health.sync.licensedQuantity} detail={copy.seats.licensedDetail} emphasis />
-        </div>
+        {notice && !policyRequiresAction && !(reason === 'sync' && managed) ? <p role="alert" className="text-sm text-destructive">{notice}</p> : null}
         {health.sync.blocker === 'TEAM_SEAT_SUBJECT_CONFLICT' ? (
           <p role="alert" className="border border-destructive p-3 text-sm text-destructive">{copy.organizationBlocker}</p>
         ) : null}
-        {managed && !(managedState === 'current' && (policyRequiresAction || graceActive)) ? <p role={attention ? 'alert' : 'status'} className={attention ? 'text-sm text-destructive' : 'text-sm text-muted-foreground'}>
-          {copy.managedActions[managedState]}
+        {reason === 'sync' && managed && !(managedState === 'current' && (policyRequiresAction || graceActive)) ? <p role={attention ? 'alert' : 'status'} className={attention ? 'text-sm text-destructive' : 'text-sm text-muted-foreground'}>
+          {notice}
         </p> : null}
         {policyRequiresAction ? <div role="alert" className="space-y-1 border border-destructive p-3 text-sm text-destructive">
           <p className="font-semibold">{managedGrace ? copy.accessGrace : copy.accessRestricted}</p>
@@ -554,7 +567,7 @@ export function TeamSeatHealthPanel({
         {(health.emailDelivery?.manualReview ?? 0) > 0 ? <p role="alert" className="text-sm text-destructive">
           {copy.emailManualReview}: {health.emailDelivery?.manualReview}
         </p> : null}
-        <div className="flex flex-wrap gap-2">
+        {reason ? <div className="flex flex-wrap gap-2">
           {!managed && health.recovery.reconnectRequired ? (
             <Button asChild variant="outline"><a href="#community-team-connection"><Link2Off />{copy.reconnect}</a></Button>
           ) : null}
@@ -566,9 +579,25 @@ export function TeamSeatHealthPanel({
             disabled={!health.recovery.canRefreshLicense || activeAction !== null}>
             {activeAction === 'refresh_license' ? <Loader2 className="animate-spin" /> : <RefreshCw />}{copy.refreshLicense}
           </Button> : null}
-        </div>
+        </div> : null}
         <SettingsAccordionCard title={copy.details} isOpen={detailsOpen} onOpenChange={setDetailsOpen}
           cardClassName="[&_button]:rounded-none [&_span]:rounded-none" summaryItems={[licenseLabel, `${copy.seatLimit}: ${health.license.seatLimit ?? '—'}`]}>
+          <p className="text-xs text-muted-foreground">{copy.connection}: {connectionLabel}</p>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <SeatMetric label={copy.seats.observed} value={health.sync.observedQuantity} detail={copy.seats.observedDetail} />
+            <SeatMetric label={managed || health.license.nonBillable ? copy.seats.approved : copy.seats.billed}
+              value={managed || health.license.nonBillable ? health.sync.approvedQuantity : health.sync.billedQuantity}
+              detail={managed || health.license.nonBillable ? copy.confirmedDetail : copy.seats.billedDetail} />
+            <SeatMetric label={copy.seats.licensed} value={health.sync.licensedQuantity} detail={copy.seats.licensedDetail} emphasis />
+          </div>
+          {!reason ? <div className="flex flex-wrap gap-2">
+            <Button type="button" variant="outline" onClick={() => void runRecovery('sync_snapshot')} disabled={!health.recovery.canSyncSnapshot || activeAction !== null}>
+              {activeAction === 'sync_snapshot' ? <Loader2 className="animate-spin" /> : <RotateCcw />}{copy.syncNow}
+            </Button>
+            {!managed ? <Button type="button" variant="outline" onClick={() => void runRecovery('refresh_license')} disabled={!health.recovery.canRefreshLicense || activeAction !== null}>
+              {activeAction === 'refresh_license' ? <Loader2 className="animate-spin" /> : <RefreshCw />}{copy.refreshLicense}
+            </Button> : null}
+          </div> : null}
           <section aria-label={copy.connection}>
             <dl className="grid gap-2 text-sm">
               {syncDetails.map(([label, value]) => <div key={label} className="flex flex-wrap justify-between gap-2">
