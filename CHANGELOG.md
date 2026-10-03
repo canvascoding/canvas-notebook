@@ -11,6 +11,20 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.10.3.2] - 2026-10-03
+
+### Fixed
+
+- Allowed offline recovery to retire historical collaboration states when a valid initialized document at sequence zero already matches the current file. Recovery verifies the document, registry and revision before using the normal checkpoint pipeline.
+- Preserved current document bytes and made a fresh recovery CLI resume verify the completed journal without writing the file or database rows again.
+
+### Verification
+
+- `npm run test:collaboration:recovery`
+- Native PostgreSQL and CLI checks for initial recovery, changed-state rejection, finalized shares, exact orphan archival and idempotent resume.
+- Existing native PostgreSQL recovery operator regression checks.
+- `npm run verify:release`
+
 ## [2026.10.3.1] - 2026-10-03
 
 ### Added
