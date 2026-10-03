@@ -20,6 +20,8 @@ export type WorkspaceOperationBatchAction = {
   /** Stable action identity. Direct jobs have no associated review row. */
   reviewId: string;
   kind: 'move' | 'rename' | 'delete';
+  /** Only delete may ignore paths absent from its initial snapshot. */
+  ignoreMissing?: boolean;
   selections: Array<{ sourcePath: string; destinationPath?: string }>;
 };
 export type WorkspaceOperationBatchIssue = { code: string; path: string; detail: string; reviewId?: string };

@@ -10,6 +10,9 @@ import type { SqlConnection } from '../app/lib/db';
 import { runPostgresMigrations } from '../app/lib/db/postgres';
 import { setFileCollaborationConnectionFactoryForTests } from '../app/lib/files/collaboration-repository';
 import type { FileEvent } from '../app/lib/filesystem/file-watcher';
+import type { WorkspacePathOperationInput } from '../app/lib/files/workspace-path-operation-service';
+import type { WorkspaceOperationBatchRecord } from '../app/lib/files/workspace-operation-batch-store';
+import type { WorkspaceOperationBatchScope } from '../app/lib/files/workspace-operation-batch-contract';
 
 async function main() {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-agent-rename-'));
@@ -36,13 +39,59 @@ async function main() {
     _load: (request: string, parent: NodeModule | null, isMain: boolean) => unknown;
   };
   const originalLoad = moduleInternals._load;
-  moduleInternals._load = (request, parent, isMain) => request === '@/app/lib/files/workspace-operation-review-service'
-    ? { submitAgentWorkspacePathOperation: async () => ({ mode: 'direct' }) }
-    : originalLoad(request, parent, isMain);
+  const directScopes = new Map<string, WorkspaceOperationBatchScope>();
+  const directCalls: WorkspacePathOperationInput[] = [];
+  const reviewCalls: Array<{ kind: string }> = [];
+  let directService: typeof import('../app/lib/files/workspace-path-operation-service');
+  moduleInternals._load = (request, parent, isMain) => {
+    if (request === '@/app/lib/document-review-availability') return {
+      readDocumentReviewAvailability: () => ({ documentReviewEnabled: false, updatedAt: null }),
+    };
+    if (request === '@/app/lib/files/workspace-path-operation-service') return directService;
+    if (request === '@/app/lib/files/workspace-operation-review-service') return {
+      submitAgentWorkspacePathOperation: async (input: { kind: string }) => {
+        assert.equal(input.kind, 'copy', 'workspace move/delete must use the durable direct service');
+        reviewCalls.push(input);
+        return { mode: 'direct' };
+      },
+    };
+    return originalLoad(request, parent, isMain);
+  };
   const { getFileWatcher } = await import('../app/lib/filesystem/file-watcher');
   try {
     await runPostgresMigrations(postgres as unknown as Parameters<typeof runPostgresMigrations>[0]);
+    await postgres.exec(`
+      INSERT INTO "user" (id,name,email,email_verified,created_at,updated_at)
+        VALUES ('test','Test','agent-path-test@example.test',1,1,1);
+      INSERT INTO canvas_organization_settings (organization_id,owner_user_id,created_at,updated_at)
+        VALUES ('test-org','test',1,1);
+      INSERT INTO canvas_workspaces (id,organization_id,type,owner_user_id,root_relative_path,display_name,created_at,updated_at)
+        VALUES ('test','test-org','personal','test','workspace','Test',1,1);
+    `);
     setFileCollaborationConnectionFactoryForTests(async () => connection);
+    const service = await import('../app/lib/files/workspace-path-operation-service');
+    const { WorkspaceOperationBatchStore } = await import('../app/lib/files/workspace-operation-batch-store');
+    const { createWorkspaceOperationBatchWorker } = await import('../app/lib/files/workspace-operation-batch-worker');
+    const { getWorkspaceOperationBatchExecution } = await import('../app/lib/files/workspace-operation-batch-executor');
+    const store = new WorkspaceOperationBatchStore(async () => connection);
+    const worker = createWorkspaceOperationBatchWorker({ store, resolveScope: async (batch) => {
+      const scope = directScopes.get(batch.batchId);
+      assert.ok(scope, 'the fixture resolves the original authorized workspace');
+      return scope;
+    }, dependentReviews: async () => undefined });
+    directService = { ...service,
+      submitDirectWorkspacePathOperation: async (input) => {
+        directCalls.push(input);
+        const batch = await service.submitDirectWorkspacePathOperation(input, { store });
+        directScopes.set(batch.batchId, input.scope);
+        return batch;
+      },
+      getExistingDirectWorkspacePathOperation: (input) => service.getExistingDirectWorkspacePathOperation(input, store),
+      waitForWorkspacePathOperation: async (batch: WorkspaceOperationBatchRecord) => {
+        if (['queued', 'applying'].includes(batch.status)) assert.equal(await worker.tick(), true);
+        return (await store.get(batch.batchId))!;
+      },
+    };
     const { copyAgentPaths, moveAgentPaths, getAgentWorkspaceContext } = await import('../app/lib/pi/agent-file-operations');
     const { runWithAgentExecutionContext } = await import('../app/lib/pi/agent-execution-context');
     const { getFileCollaborationState } = await import('../app/lib/files/collaboration-policy');
@@ -62,7 +111,13 @@ async function main() {
       const workspace = getAgentWorkspaceContext()!;
       await fs.mkdir(path.join(workspaceRoot, 'blocked'));
       await fs.writeFile(path.join(workspaceRoot, 'blocked', 'missing.md'), '[Missing](./absent.md)');
-      await assert.rejects(() => moveAgentPaths({ sourcePaths: ['notes'], destinationPath: 'archive' }));
+      const blocked = await moveAgentPaths({ sourcePaths: ['notes'], destinationPath: 'archive' });
+      assert.equal(blocked.changed, false, JSON.stringify(blocked));
+      assert.equal(blocked.verified, false);
+      assert.equal(blocked.linkStatus, 'incomplete');
+      assert.equal(blocked.fileOperation?.status, 'needs_review', JSON.stringify(blocked));
+      assert.equal(blocked.fileOperation?.errorCode, 'LINK_WRITE_STALE_DOCUMENT');
+      assert.equal(blocked.review, undefined);
       assert.equal(await fs.readFile(path.join(workspaceRoot, 'notes', 'a.md'), 'utf8'), '# Preserved');
       await assert.rejects(fs.stat(path.join(workspaceRoot, 'archive')));
       await fs.rm(path.join(workspaceRoot, 'blocked'), { recursive: true });
@@ -74,7 +129,17 @@ async function main() {
       });
       assert.equal(batch.verified, true, JSON.stringify(batch));
       assert.equal(batch.linkStatus, 'complete');
-      assert.equal(batch.operationIds?.length, 2);
+      assert.equal(batch.operationIds?.length, 1, 'all selections belong to one durable direct job');
+      assert.equal(batch.fileOperation?.status, 'applied');
+      assert.equal(batch.review, undefined);
+      const batchRecord = await store.get(batch.fileOperation!.batchId);
+      assert.equal(batchRecord?.authorization.mode, 'direct');
+      assert.deepEqual(batchRecord?.reviewIds, []);
+      assert.equal(batchRecord?.reviewerUserId, null);
+      const batchExecution = await getWorkspaceOperationBatchExecution({ batchId: batch.fileOperation!.batchId,
+        scope: directScopes.get(batch.fileOperation!.batchId)! });
+      assert.equal(batchExecution?.status, 'applied');
+      assert.equal(batchExecution?.stepResults?.filter((step) => step.phase === 'path' && step.state === 'applied').length, 2);
       assert.equal(await fs.readFile(path.join(workspaceRoot, 'backup', 'one.bin'), 'utf8'), 'one');
       assert.equal(await fs.readFile(path.join(workspaceRoot, 'backup', 'two.bin'), 'utf8'), 'two');
       const plainCopy = await copyAgentPaths({ sourcePaths: ['backup/one.bin'], destinationPath: 'batch/one.bin' });
@@ -108,16 +173,20 @@ async function main() {
       const overwrittenMove = await moveAgentPaths({
         sourcePaths: ['batch/move-source.bin'], destinationPath: 'backup/move-target.bin', overwrite: true,
       });
-      assert.equal(overwrittenMove.verified, true);
-      assert.equal(overwrittenMove.backupIds?.length, 2);
-      assert.equal(overwrittenMove.entries[0].backupId, overwrittenMove.backupIds?.[0]);
-      assert.equal(overwrittenMove.entries[0].sourceBackupId, overwrittenMove.backupIds?.[1]);
+      assert.equal(overwrittenMove.verified, true, JSON.stringify(overwrittenMove));
+      assert.equal(overwrittenMove.fileOperation?.status, 'applied');
+      assert.equal(overwrittenMove.trashEntries?.length, 1, 'the replaced target has a durable trash receipt');
+      assert.equal(overwrittenMove.trashEntries?.[0].originalPath, 'backup/move-target.bin');
+      assert.equal(overwrittenMove.entries[0].overwritten, true);
       assert.equal(await fs.readFile(path.join(workspaceRoot, 'backup', 'move-target.bin'), 'utf8'), 'moved content');
       await assert.rejects(fs.stat(path.join(workspaceRoot, 'batch', 'move-source.bin')));
-      await fs.rm(path.join(workspaceRoot, 'backup', 'move-target.bin'));
-      await restoreWorkspaceOperationBackup({ workspace, backupId: overwrittenMove.entries[0].backupId! });
+      const moveBatch = await store.get(overwrittenMove.fileOperation!.batchId);
+      const queuedUndo = await store.enqueue({ batchId: moveBatch!.batchId, planId: moveBatch!.planId,
+        userId: 'test', displayName: 'Test', action: 'undo' });
+      const undone = await directService.waitForWorkspacePathOperation(queuedUndo);
+      assert.equal(undone.status, 'undone', JSON.stringify(undone));
+      assert.equal(undone.reviewerUserId, null, 'undo keeps the original direct authority');
       assert.equal(await fs.readFile(path.join(workspaceRoot, 'backup', 'move-target.bin'), 'utf8'), 'previous target');
-      await restoreWorkspaceOperationBackup({ workspace, backupId: overwrittenMove.entries[0].sourceBackupId! });
       assert.equal(await fs.readFile(path.join(workspaceRoot, 'batch', 'move-source.bin'), 'utf8'), 'moved content');
 
       await fs.writeFile(path.join(workspaceRoot, 'batch', 'live.md'), '# Live source');
@@ -180,10 +249,12 @@ async function main() {
       assert.equal(events.some((event) => event.type === 'unlink' && event.relativePath === 'stable.md'), false);
 
       const linkedBefore = await getFileCollaborationState({ workspace, path: 'notes/a.md', ensureDocument: true });
-      await assert.rejects(
-        () => moveAgentPaths({ sourcePaths: ['notes'], destinationPath: 'archive' }),
-        /authoritative collaboration reader or writer is unavailable/u,
-      );
+      const linkedMove = await moveAgentPaths({ sourcePaths: ['notes'], destinationPath: 'archive' });
+      assert.equal(linkedMove.changed, false);
+      assert.equal(linkedMove.verified, false);
+      assert.equal(linkedMove.fileOperation?.status, 'needs_review', JSON.stringify(linkedMove));
+      assert.equal(linkedMove.fileOperation?.errorCode, 'LINK_WRITE_STALE_DOCUMENT');
+      assert.equal(linkedMove.linkStatus, 'incomplete');
       assert.equal(await fs.readFile(path.join(workspaceRoot, 'notes', 'a.md'), 'utf8'), '# Preserved');
       assert.equal(await fs.readFile(path.join(workspaceRoot, 'index.md'), 'utf8'), '[A](notes/a.md)');
       await assert.rejects(fs.stat(path.join(workspaceRoot, 'archive')));
@@ -193,6 +264,10 @@ async function main() {
       const renamedCopy = await copyAgentPaths({ sourcePaths: ['notes/a.md'], destinationPath: 'backup/a-copy.md' });
       assert.equal(renamedCopy.linkStatus, 'incomplete');
       assert.equal(await fs.readFile(path.join(workspaceRoot, 'backup', 'a-copy.md'), 'utf8'), '# Preserved');
+      assert.ok(directCalls.length >= 5, 'move requests exercised the direct service and journal');
+      assert.ok(directCalls.every((input) => input.actorType === 'agent' && input.actorId === 'canvas-agent'
+        && input.actorSessionId === 'test' && input.actorUserId === 'test'));
+      assert.ok(reviewCalls.length > 0 && reviewCalls.every((input) => input.kind === 'copy'));
     });
     console.log('notebook-agent-path-mutations-test: ok');
   } finally {

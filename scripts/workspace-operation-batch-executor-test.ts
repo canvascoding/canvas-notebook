@@ -467,7 +467,26 @@ async function main() {
       actorType: 'user', actorDisplayName: 'Tester' })).status, 'applied');
     assert.deepEqual(attribution.at(-1), { id: 'tester', type: 'user', session: undefined });
     assert.equal(await fs.readFile(absolute('agent-backlink.md'), 'utf8'), '[Agent file](agent-source.md)');
-    console.log('workspace-operation-batch-executor-test: backups, checkpoint, safe recovery/Undo and immutable agent-session attribution passed');
+    const absentAction: WorkspaceOperationBatchAction = { reviewId: 'originally-absent-delete', kind: 'delete', ignoreMissing: true,
+      selections: [{ sourcePath: 'reborn-missing.md' }] };
+    const absentPlan = await buildWorkspaceOperationBatchPlan({ scope, actions: [absentAction] });
+    assert.equal(absentPlan.readiness, 'ready');
+    assert.equal(absentPlan.pathSteps.length, 0);
+    const absentId = randomUUID();
+    const absentInput = { batchId: absentId, plan: absentPlan, scope, actorUserId: 'tester', actorDisplayName: 'Tester' };
+    const noOp = await makeExecutor().execute(absentInput);
+    assert.equal(noOp.status, 'applied'); assert.equal(noOp.totalActions, 0); assert.equal(noOp.completedActions, 0);
+    assert.equal(await makeExecutor().has(absentId, workspace.workspaceId), true, 'No-op has a real durable manifest');
+    const noOpPublic = await makeExecutor().publicExecution({ batchId: absentId, scope, plan: absentPlan,
+      actionMode: 'apply', status: 'applied', completedActions: 0, phase: 'complete' });
+    assert.ok(noOpPublic);
+    assert.equal(noOpPublic.finalization, 'complete'); assert.equal(noOpPublic.receiptStatus, 'available');
+    await write('reborn-missing.md', '# Newly created after the original delete');
+    assert.equal((await makeExecutor().execute(absentInput)).status, 'applied');
+    assert.equal(await fs.readFile(absolute('reborn-missing.md'), 'utf8'), '# Newly created after the original delete');
+    assert.notEqual((await buildWorkspaceOperationBatchPlan({ scope, actions: [absentAction] })).planId, absentPlan.planId,
+      'A newly created source changes a not-yet-started no-op plan and cannot be deleted by stale acceptance');
+    console.log('workspace-operation-batch-executor-test: backups, checkpoint, safe recovery/Undo, actor attribution and durable absent-path no-op passed');
   } finally {
     if (previousData === undefined) delete process.env.DATA; else process.env.DATA = previousData;
     if (previousRoot === undefined) delete process.env.CANVAS_DATA_ROOT; else process.env.CANVAS_DATA_ROOT = previousRoot;

@@ -40,13 +40,19 @@ function formatValidation(validation: AgentFileValidationResult): string {
 export function formatFileChangeResult(result: AgentFileChangeResult): string {
   let action = 'Checked';
   if (result.changed) {
-    action = result.snapshot?.existed === false ? 'Created' : 'Updated';
-  } else if (result.collaboration?.reviewRequired) {
+    action = result.fileOperation?.kind === 'delete' ? 'Deleted'
+      : result.snapshot?.existed === false ? 'Created' : 'Updated';
+  } else if (result.collaboration?.reviewRequired || result.review) {
     action = 'Prepared review for';
+  } else if (result.fileOperation) {
+    action = `File action ${result.fileOperation.status} for`;
   }
 
   return [
     `${action} file: ${result.path}`,
+    result.fileOperation ? `Durable file action: ${result.fileOperation.batchId} (${result.fileOperation.status}, ${result.fileOperation.phase}, ${result.fileOperation.completedActions}/${result.fileOperation.totalActions})` : null,
+    result.fileOperation?.errorCode ? `File action error: ${result.fileOperation.errorCode}. Inspect Notification Center; do not replay completed steps.` : null,
+    result.review ? `File action review ${result.review.status}: ${result.review.reviewId}. The workspace has not changed.` : null,
     result.collaboration
       ? `Live collaboration operation: ${result.collaboration.operationId} (${result.collaboration.operationStatus}, ${result.collaboration.durability})`
       : null,
@@ -95,6 +101,8 @@ export function formatPathOperationResult(result: AgentPathOperationResult): str
     result.destinationPath ? `Destination: ${result.destinationPath}` : null,
     `Type: ${result.type}`,
     `Changed: ${result.changed ? 'yes' : 'no'}`,
+    result.fileOperation ? `Durable file action: ${result.fileOperation.batchId} (${result.fileOperation.status}, ${result.fileOperation.phase}, ${result.fileOperation.completedActions}/${result.fileOperation.totalActions})` : null,
+    result.fileOperation?.errorCode ? `File action error: ${result.fileOperation.errorCode}. Inspect Notification Center; do not replay completed steps.` : null,
     result.review ? `Review ${result.review.status}: ${result.review.reviewId}` : null,
     result.review ? `Review plan: ${result.review.planId}` : null,
     result.review?.status === 'pending'

@@ -13,6 +13,7 @@ import { uploadWorkspaceTextFile } from '../tests/helpers/managed-test-context.t
 
 const run = promisify(execFile);
 const cwd = process.cwd();
+const automatic = process.argv.includes('--automatic');
 const envFile = process.env.CANVAS_ENV_FILE || path.join(os.homedir(), '.local/state/canvas-local-team-seat/notebook-host-dev.env');
 const localEnv = parse(await fs.readFile(envFile));
 const port = Number(process.env.CANVAS_BATCH_E2E_PORT || 3001);
@@ -225,11 +226,12 @@ try {
   }
   await startServer();
   const suiteArgs = ['node_modules/@playwright/test/cli.js', 'test',
-    'tests/workspace-operation-batches.spec.ts', '--workers=1', '--max-failures=1', '--reporter=list'];
+    automatic ? 'tests/workspace-operation-automatic.spec.ts' : 'tests/workspace-operation-batches.spec.ts',
+    '--workers=1', '--max-failures=1', '--reporter=list'];
   if (process.env.CANVAS_BATCH_E2E_GREP) suiteArgs.push('--grep', process.env.CANVAS_BATCH_E2E_GREP);
   const suite = spawn(process.execPath, suiteArgs, { cwd, env, stdio: 'inherit' });
   const suiteCode = await new Promise((resolve) => suite.once('exit', (code) => resolve(code ?? 1)));
-  if (suiteCode === 0) {
+  if (suiteCode === 0 && !automatic) {
     await restartScenario();
     await restartScenario('crash');
     await restartScenario('check');

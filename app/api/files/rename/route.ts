@@ -1,27 +1,16 @@
 import { NextRequest } from 'next/server';
 import { recordAuditEvent } from '@/app/lib/audit/audit-service';
-import { checkRenameConflict, type RenameConflictError } from '@/app/lib/filesystem/workspace-files';
 import { isProtectedAppOutputFolder } from '@/app/lib/filesystem/app-output-folders';
-import { renameWorkspacePath } from '@/app/lib/files/rename-service';
+import { checkRenameConflict } from '@/app/lib/filesystem/workspace-files';
 import { withWorkspaceMutationLock } from '@/app/lib/files/workspace-mutation-lock';
-import {
-  applyRateLimit,
-  invalidateWorkspaceFileViews,
-  jsonError,
-  jsonServerError,
-  jsonSuccess,
-  readJsonBody,
-} from '@/app/lib/api/route-helpers';
+import { buildWorkspacePathOperationPlan, submitDirectWorkspacePathOperation,
+  waitForWorkspacePathOperation } from '@/app/lib/files/workspace-path-operation-service';
+import { workspacePathOperationMetadata, workspacePathOperationResponse } from '@/app/lib/files/workspace-path-operation-response';
+import { WorkspacePreviewBlockedError, WorkspacePreviewStaleError,
+  WorkspacePreviewUnavailableError } from '@/app/lib/markdown/workspace-file-operation-preview';
+import { applyRateLimit, invalidateWorkspaceFileViews, jsonError, jsonServerError,
+  jsonSuccess, readJsonBody } from '@/app/lib/api/route-helpers';
 import { requireRequestWorkspace, workspaceFileOptions } from '@/app/lib/workspaces/request';
-import {
-  applyWorkspaceLinkRename,
-  buildWorkspaceLinkIndex,
-  type WorkspaceLinkRenameResult,
-} from '@/app/lib/markdown/workspace-link-index';
-import type { WorkspaceLinkIndex } from '@/app/lib/markdown/workspace-link-index-core';
-import { assertFreshWorkspaceFileOperationPlan, buildWorkspaceFileOperationPreview, WorkspacePreviewBlockedError, WorkspacePreviewStaleError, WorkspacePreviewUnavailableError } from '@/app/lib/markdown/workspace-file-operation-preview';
-import { assessWorkspaceRenameLinks } from '@/app/lib/markdown/workspace-file-operation-status';
-import { executeWorkspaceFileOperationService } from '@/app/lib/files/workspace-file-operation-service';
 
 interface RenameRequestBody {
   oldPath: string;
@@ -30,246 +19,85 @@ interface RenameRequestBody {
   updateLinks?: boolean;
   dryRun?: boolean;
   planId?: string;
+  idempotencyKey?: string;
 }
 
-export async function POST(request: NextRequest) {
-  const workspaceResult = await requireRequestWorkspace(request, { permissions: ['canWrite', 'canDelete'] });
+export async function POST(request: NextRequest): Promise<Response> {
+  const permissions = ['canRead', 'canWrite', 'canDelete'] as const;
+  const workspaceResult = await requireRequestWorkspace(request, { permissions: [...permissions] });
   if (workspaceResult.response) return workspaceResult.response;
-  const fileOptions = workspaceFileOptions(workspaceResult.workspace);
+  let operation: ReturnType<typeof workspacePathOperationMetadata> | undefined;
 
   try {
-    const rateLimitResponse = applyRateLimit(request, {
-      limit: 20,
-      windowMs: 60_000,
-      keyPrefix: 'files-rename',
-    });
-    if (rateLimitResponse) return rateLimitResponse;
-
-    const body = await readJsonBody<RenameRequestBody>(request);
-    const { oldPath, newPath, overwrite = false, updateLinks = true, dryRun = false, planId } = body;
-
-    if (!oldPath || !newPath) {
+    const limited = applyRateLimit(request, { limit: 20, windowMs: 60_000, keyPrefix: 'files-rename' });
+    if (limited) return limited;
+    const { oldPath, newPath, overwrite = false, dryRun = false, planId, idempotencyKey } = await readJsonBody<RenameRequestBody>(request);
+    if (typeof oldPath !== 'string' || typeof newPath !== 'string' || !oldPath.trim() || !newPath.trim()) {
       return jsonError('oldPath and newPath are required', 400);
     }
-    if (isProtectedAppOutputFolder(oldPath)) {
-      return jsonError(`Protected app output folder cannot be modified: ${oldPath}`, 403);
+    if (typeof overwrite !== 'boolean' || typeof dryRun !== 'boolean'
+      || idempotencyKey !== undefined && typeof idempotencyKey !== 'string') {
+      return jsonError('Invalid file action options', 422, { code: 'BATCH_INVALID_REQUEST' });
     }
-    if (isProtectedAppOutputFolder(newPath)) {
-      return jsonError(`Protected app output folder cannot be overwritten: ${newPath}`, 403);
+    if (isProtectedAppOutputFolder(oldPath) || isProtectedAppOutputFolder(newPath)) {
+      return jsonError('Protected app output folders cannot be modified or overwritten', 403);
     }
-    if (planId !== undefined && (!/^[0-9a-f]{64}$/u.test(planId) || overwrite || !updateLinks)) {
-      return jsonError('This preview cannot be applied with the requested options.', 422, { code: 'PREVIEW_UNSUPPORTED_APPLY' });
+    if (planId !== undefined && (typeof planId !== 'string' || !/^[0-9a-f]{64}$/u.test(planId))) {
+      return jsonError('Invalid file action preview identity', 422, { code: 'PREVIEW_UNSUPPORTED_APPLY' });
     }
-
-    if (dryRun) {
-      if (overwrite) {
-        return jsonError('Dry run cannot safely preview overwrite with the current rename executor.', 422, {
-          code: 'PREVIEW_UNSUPPORTED_COLLISION_POLICY',
-        });
+    const result = await withWorkspaceMutationLock(workspaceResult.workspace.workspaceId, async () => {
+      const fresh = await requireRequestWorkspace(request, { permissions: [...permissions] });
+      if (fresh.response) return { mode: 'response' as const, response: fresh.response };
+      if (fresh.workspace.workspaceId !== workspaceResult.workspace.workspaceId
+        || fresh.workspace.rootPath !== workspaceResult.workspace.rootPath
+        || fresh.session.user.id !== workspaceResult.session.user.id) {
+        return { mode: 'response' as const, response: jsonError('Workspace access changed before the file action', 403) };
       }
-      const plan = await buildWorkspaceFileOperationPreview({
-        kind: 'rename',
-        sourceWorkspaceId: workspaceResult.workspace.workspaceId,
-        destinationWorkspaceId: workspaceResult.workspace.workspaceId,
-        sourceOptions: fileOptions,
-        destinationOptions: fileOptions,
-        selections: [{ sourcePath: oldPath, destinationPath: newPath }],
-      });
-      const { previewContents: _previewContents, ...publicPlan } = plan;
-      return jsonSuccess({ dryRun: true, requiresRevalidation: true, plan: publicPlan });
-    }
-
-    if (!overwrite && updateLinks) {
-      const operation = await executeWorkspaceFileOperationService({
-        kind: 'rename',
-        source: { workspace: workspaceResult.workspace, fileOptions },
-        destination: { workspace: workspaceResult.workspace, fileOptions },
-        selections: [{ sourcePath: oldPath, destinationPath: newPath }],
-        expectedPlanId: planId,
-        actorUserId: workspaceResult.session.user.id,
-        actorId: workspaceResult.session.user.id,
-        actorDisplayName: workspaceResult.session.user.name ?? 'Workspace user',
-        actorType: 'user',
-      });
-      const { execution, plan } = operation;
-      if (execution.status === 'failed') {
-        return jsonError('The file operation could not be applied. Refresh its preview.', 409, {
-          code: 'WORKSPACE_OPERATION_FAILED', operationId: execution.operationId,
-          errorCode: execution.errorCode,
-        });
+      const scope = { workspace: fresh.workspace, fileOptions: workspaceFileOptions(fresh.workspace) };
+      const input = { scope, kind: 'rename' as const, selections: [{ sourcePath: oldPath, destinationPath: newPath }], overwrite };
+      if (dryRun) {
+        const plan = await buildWorkspacePathOperationPlan(input);
+        const { previewContents: _privateContents, ...publicPlan } = plan.linkPlan;
+        return { mode: 'response' as const, response: jsonSuccess({ dryRun: true, requiresRevalidation: true,
+          plan: { ...publicPlan, planId: plan.planId, readiness: plan.readiness } }) };
       }
-      const linkStatus = execution.status === 'complete' ? 'complete' : 'partial';
-      const linkUpdates = {
-        updatedFiles: execution.status === 'complete' ? plan?.previewContents.map((entry) => entry.path) ?? [] : [],
-        updatedLinks: execution.status === 'complete' ? plan?.linkEdits.length ?? 0 : 0,
-        warnings: execution.status === 'complete' ? [] : [
-          'Some planned Markdown links still need recovery. Use the operation ID to retry safely.',
-        ],
-      };
-      const mutation = operation.rename?.mutation ?? {
-        type: 'rename' as const, operationId: execution.operationId,
-        workspaceId: workspaceResult.workspace.workspaceId, oldPath, newPath,
-      };
-      invalidateWorkspaceFileViews({ fileOptions, fullTree: true,
-        mutations: linkUpdates.updatedFiles.map((path) => ({ path, type: 'change' as const })) });
-      if (!operation.alreadyKnown) {
-        await recordAuditEvent({
-          organizationId: workspaceResult.workspace.organizationId,
-          workspaceId: workspaceResult.workspace.workspaceId,
-          userId: workspaceResult.session.user.id, source: 'files', eventType: 'file',
-          entityType: 'workspace_path', entityId: newPath, action: 'file.rename',
-          status: execution.status === 'complete' ? 'success' : 'failure',
-          summary: `Path rename ${execution.status}: ${oldPath} to ${newPath}.`,
-          metadata: { oldPath, newPath, operationId: execution.operationId,
-            planId: execution.planId, linkStatus, completedSteps: execution.completedSteps,
-            pendingSteps: execution.pendingSteps, errorCode: execution.errorCode },
-        });
-      }
-      return jsonSuccess({ linkUpdates, linkStatus, mutation, operation: execution });
-    }
-
-    return await withWorkspaceMutationLock(workspaceResult.workspace.workspaceId, async () => {
-      if (planId) {
-        const currentPlan = await buildWorkspaceFileOperationPreview({
-          kind: 'rename',
-          sourceWorkspaceId: workspaceResult.workspace.workspaceId,
-          destinationWorkspaceId: workspaceResult.workspace.workspaceId,
-          sourceOptions: fileOptions,
-          destinationOptions: fileOptions,
-          selections: [{ sourcePath: oldPath, destinationPath: newPath }],
-        });
-        assertFreshWorkspaceFileOperationPlan(currentPlan, planId);
-      }
-    // Resolve missing sources through the conflict path before reading metadata.
-    // This keeps stale/repeated move requests recoverable for bulk operations
-    // instead of leaking a raw ENOENT as a 500 response.
-    const conflict = await checkRenameConflict(oldPath, newPath, fileOptions);
-    if (conflict) {
-      const conflictError = conflict as RenameConflictError;
-      if (!(overwrite && conflictError.code === 'FILE_EXISTS' && conflictError.type === 'file')) {
-        return jsonError(conflict.message, 409, {
-          code: conflictError.code,
-          type: conflictError.type,
-          sourcePath: conflictError.sourcePath,
-          destPath: conflictError.destPath,
-        });
-      }
-    }
-
-    const shouldUpdateLinks = updateLinks;
-    let preparedLinkIndex: WorkspaceLinkIndex | null = null;
-    let linkIndexWarning: string | null = null;
-    const prepareLinkIndex = async () => {
-      if (!shouldUpdateLinks || preparedLinkIndex || linkIndexWarning) return;
-      try {
-        preparedLinkIndex = await buildWorkspaceLinkIndex(fileOptions);
-      } catch (error) {
-        linkIndexWarning = error instanceof Error ? error.message : String(error);
-      }
-    };
-    const updateRenamedLinks = async (): Promise<WorkspaceLinkRenameResult> => {
-      if (!preparedLinkIndex) {
-        return {
-          updatedFiles: [],
-          updatedLinks: 0,
-          warnings: linkIndexWarning ? [`Link index: ${linkIndexWarning}`] : [],
-        };
-      }
-      try {
-        return await applyWorkspaceLinkRename(
-          preparedLinkIndex,
-          oldPath,
-          newPath,
-          { workspace: workspaceResult.workspace, fileOptions, actorUserId: workspaceResult.session.user.id },
-        );
-      } catch (error) {
-        return {
-          updatedFiles: [],
-          updatedLinks: 0,
-          warnings: [`Link update failed after the path changed: ${error instanceof Error ? error.message : String(error)}`],
-        };
-      }
-    };
-
-    await prepareLinkIndex();
-    const renameResult = await renameWorkspacePath({
-      workspace: workspaceResult.workspace,
-      oldPath,
-      newPath,
-      overwrite,
-      fileOptions,
+      const batch = await submitDirectWorkspacePathOperation({ ...input, expectedPlanId: planId, idempotencyKey,
+        actorUserId: fresh.session.user.id, actorId: fresh.session.user.id,
+        actorDisplayName: fresh.session.user.name || 'Workspace user', actorType: 'user' });
+      return { mode: 'direct' as const, batch, scope };
     });
-    const linkUpdates = await updateRenamedLinks();
-    linkUpdates.warnings.unshift(...renameResult.warnings);
-    const linkAssessment = assessWorkspaceRenameLinks({
-      index: preparedLinkIndex,
-      oldPath,
-      newPath,
-      updateLinks,
-      result: linkUpdates,
-      indexError: linkIndexWarning,
-    });
-    linkUpdates.warnings = linkAssessment.warnings;
-    invalidateWorkspaceFileViews({
-      fileOptions,
-      fullTree: true,
-      mutations: [
-        ...linkUpdates.updatedFiles.map((path) => ({ path, type: 'change' as const })),
-      ],
-    });
-    await recordAuditEvent({
-      organizationId: workspaceResult.workspace.organizationId,
-      workspaceId: workspaceResult.workspace.workspaceId,
-      userId: workspaceResult.session.user.id,
-      source: 'files',
-      eventType: 'file',
-      entityType: 'workspace_path',
-      entityId: newPath,
-      action: 'file.rename',
-      status: 'success',
-      summary: `Path renamed from ${oldPath} to ${newPath}.`,
-      metadata: {
-        oldPath,
-        newPath,
-        overwrite,
-        linkUpdates,
-        linkStatus: linkAssessment.status,
-        backup: renameResult.backup,
-        workspaceType: workspaceResult.workspace.workspaceType,
-      },
-    });
-
-    return jsonSuccess({ linkUpdates, linkStatus: linkAssessment.status,
-      mutation: renameResult.mutation, backup: renameResult.backup });
-    });
+    if (result.mode === 'response') return result.response;
+    // The worker acquires the same lock, so waiting begins after request preparation releases it.
+    operation = workspacePathOperationMetadata(result.batch);
+    const batch = await waitForWorkspacePathOperation(result.batch);
+    operation = workspacePathOperationMetadata(batch);
+    const payload = await workspacePathOperationResponse(batch, result.scope);
+    if (['queued', 'applying'].includes(batch.status)) return jsonSuccess(payload, { status: 202 });
+    if (batch.status === 'blocked') {
+      const conflict = await checkRenameConflict(oldPath, newPath, result.scope.fileOptions);
+      if (conflict) return jsonError(conflict.message, 409, { ...payload, code: conflict.code,
+        type: conflict.type, sourcePath: conflict.sourcePath, destPath: conflict.destPath });
+    }
+    if (batch.status !== 'applied') return jsonError('The file action and its link updates could not be completed.', 409,
+      { ...payload, code: batch.errorCode ?? 'WORKSPACE_OPERATION_FAILED' });
+    invalidateWorkspaceFileViews({ fileOptions: result.scope.fileOptions, fullTree: true,
+      mutations: (payload.linkUpdates?.updatedFiles ?? []).map((path) => ({ path, type: 'change' as const })) });
+    await recordAuditEvent({ organizationId: result.scope.workspace.organizationId, workspaceId: batch.workspaceId,
+      userId: workspaceResult.session.user.id, source: 'files', eventType: 'file', entityType: 'workspace_path',
+      entityId: newPath, action: 'file.rename', status: 'success', summary: `Path renamed from ${oldPath} to ${newPath}.`,
+      metadata: { oldPath, newPath, overwrite, operationId: batch.batchId, planId: batch.planId,
+        linkStatus: payload.linkStatus, linkUpdates: payload.linkUpdates, workspaceType: result.scope.workspace.workspaceType } });
+    return jsonSuccess(payload);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to rename path';
     if (error instanceof WorkspacePreviewStaleError) return jsonError(message, 409, { code: 'PREVIEW_STALE' });
     if (error instanceof WorkspacePreviewUnavailableError) return jsonError(message, 422, { code: 'PREVIEW_UNREADABLE' });
     if (error instanceof WorkspacePreviewBlockedError) return jsonError(message, 409, { code: 'PREVIEW_BLOCKED' });
-    const operationError = error as { status?: number; code?: string };
-    if (error && typeof error === 'object' && 'backup' in error) {
-      return jsonError(message, 409, {
-        code: operationError.code ?? 'WORKSPACE_OPERATION_NEEDS_RECOVERY',
-        backup: error.backup,
-        operationId: 'operationId' in error ? error.operationId : undefined,
-      });
+    const failure = error as { status?: number; code?: string };
+    if (failure?.status && [400, 403, 409, 422, 503].includes(failure.status)) {
+      return jsonError(message, failure.status, { code: failure.code ?? 'WORKSPACE_OPERATION_FAILED',
+        ...(operation ? { operation } : {}) });
     }
-    if (operationError.status && [403, 409, 422, 503].includes(operationError.status)) {
-      return jsonError(message, operationError.status, { code: operationError.code ?? 'WORKSPACE_OPERATION_FAILED' });
-    }
-    
-    // Check if this is a conflict error
-    const conflictError = error as RenameConflictError;
-    if (conflictError.code && ['FILE_EXISTS', 'DIRECTORY_EXISTS', 'SOURCE_NOT_FOUND'].includes(conflictError.code)) {
-      return jsonError(message, 409, {
-        code: conflictError.code,
-        type: conflictError.type,
-        sourcePath: conflictError.sourcePath,
-        destPath: conflictError.destPath,
-      });
-    }
-    
     return jsonServerError('[API] File rename error:', error, 'Failed to rename path');
   }
 }

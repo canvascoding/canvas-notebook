@@ -672,7 +672,9 @@
     "test:plugins:app": "tsx scripts/plugin-navigation-test.ts && tsx scripts/plugin-return-test.ts && tsx scripts/plugins-app-backend-test.ts && tsx scripts/plugins-mcp-template-scope-test.ts && tsx scripts/plugins-asset-scope-test.ts && tsx scripts/plugin-icons-test.tsx && tsx scripts/plugin-store-filter-test.ts && tsx scripts/plugin-write-readiness-test.ts && tsx scripts/plugin-data-loading-test.ts && tsx scripts/plugin-connector-race-test.ts && tsx scripts/plugins-app-ui-test.tsx && tsx scripts/header-navigation-test.ts",
     "test:plugins:app:e2e": "E2E_EXTERNAL_SERVER=1 playwright test --config playwright.plugins-app-local.config.ts",
     "test:mcp:settings": "tsx scripts/mcp-server-dialog-test.tsx && tsx scripts/plugin-mcp-secret-patch-test.ts && npm run test:settings:developer-mode",
-    "test:mcp:oauth:e2e": "playwright test tests/mcp-oauth-ui.spec.ts --workers=1"
+    "test:mcp:oauth:e2e": "playwright test tests/mcp-oauth-ui.spec.ts --workers=1",
+    "test:files:operation-direct": "tsx --conditions react-server scripts/workspace-path-operation-service-test.ts && tsx --conditions react-server scripts/workspace-operation-direct-worker-test.ts && tsx --conditions react-server scripts/agent-direct-path-bridge-test.ts && tsx scripts/workspace-path-operation-client-test.ts && tsx --conditions react-server scripts/workspace-path-operation-response-test.ts && tsx --conditions react-server scripts/workspace-path-operation-status-route-test.ts",
+    "test:files:operation-direct:e2e": "node --import tsx scripts/run-workspace-operation-batch-e2e.mjs --automatic"
   },
   "dependencies": {
     "@better-auth/expo": "1.7.1",

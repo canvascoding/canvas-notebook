@@ -15,6 +15,7 @@ export type WorkspacePathOperationInput = {
   kind: 'move' | 'rename' | 'delete';
   selections: Array<{ sourcePath: string; destinationPath?: string }>;
   overwrite?: boolean;
+  ignoreMissing?: boolean;
   expectedPlanId?: string;
   idempotencyKey?: string;
   actorUserId: string;
@@ -25,17 +26,21 @@ export type WorkspacePathOperationInput = {
 };
 
 const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
+const batchIdFor = (input: WorkspacePathOperationInput) => input.idempotencyKey
+  ? hash(['workspace-path-operation-id-v1', input.scope.workspace.workspaceId, input.actorUserId, input.idempotencyKey])
+  : randomUUID();
 type PlanDependencies = { buildPlan?: typeof buildWorkspaceOperationBatchPlan;
   existingPath?: typeof resolveExistingWorkspacePath; pathIsFile?: (absolutePath: string) => Promise<boolean> };
 const pathIsFile = async (absolutePath: string) => (await fs.lstat(absolutePath)).isFile();
 
 /** Preview identity follows the requested final state, independently of a durable job ID. */
 export async function buildWorkspacePathOperationPlan(input: Pick<WorkspacePathOperationInput,
-  'scope' | 'kind' | 'selections' | 'overwrite'>,
+  'scope' | 'kind' | 'selections' | 'overwrite' | 'ignoreMissing'>,
 dependencies: PlanDependencies = {}) {
   const actionId = hash(['workspace-path-action-v1', input.scope.workspace.workspaceId, input.kind,
     input.selections.map((selection) => ({ sourcePath: selection.sourcePath,
-      ...(selection.destinationPath === undefined ? {} : { destinationPath: selection.destinationPath }) })), Boolean(input.overwrite)]);
+      ...(selection.destinationPath === undefined ? {} : { destinationPath: selection.destinationPath }) })),
+    Boolean(input.overwrite), Boolean(input.ignoreMissing)]);
   const actions: WorkspaceOperationBatchAction[] = [];
   if (input.overwrite) {
     const destinations: string[] = [];
@@ -58,7 +63,8 @@ dependencies: PlanDependencies = {}) {
     if (destinations.length) actions.push({ reviewId: `${actionId}-replace`, kind: 'delete',
       selections: [...new Set(destinations)].map((sourcePath) => ({ sourcePath })) });
   }
-  actions.push({ reviewId: `${actionId}-request`, kind: input.kind, selections: input.selections });
+  actions.push({ reviewId: `${actionId}-request`, kind: input.kind, selections: input.selections,
+    ...(input.ignoreMissing ? { ignoreMissing: true } : {}) });
   return (dependencies.buildPlan ?? buildWorkspaceOperationBatchPlan)({ scope: input.scope, actions });
 }
 
@@ -73,16 +79,16 @@ export async function submitDirectWorkspacePathOperation(input: WorkspacePathOpe
     throw new WorkspaceOperationBatchError('BATCH_ACCESS_DENIED', 403, 'Current workspace permissions are required.');
   }
   if (!input.selections.length || input.selections.length > 1000 || input.overwrite && input.kind === 'delete'
+    || input.ignoreMissing && input.kind !== 'delete'
     || input.idempotencyKey !== undefined && (!input.idempotencyKey || input.idempotencyKey.length > 512)) {
     throw new WorkspaceOperationBatchError('BATCH_INVALID_REQUEST', 422, 'Invalid file action request.');
   }
   const selections = input.selections.map((selection) => ({ sourcePath: selection.sourcePath,
     ...(selection.destinationPath === undefined ? {} : { destinationPath: selection.destinationPath }) }));
   const requestHash = hash(['workspace-path-operation-v1', workspace.workspaceId, input.kind, selections,
-    Boolean(input.overwrite), input.expectedPlanId ?? null, input.actorUserId, input.actorType, input.actorId,
+    Boolean(input.overwrite), Boolean(input.ignoreMissing), input.expectedPlanId ?? null, input.actorUserId, input.actorType, input.actorId,
     input.actorSessionId ?? null]);
-  const batchId = input.idempotencyKey ? hash(['workspace-path-operation-id-v1', workspace.workspaceId,
-    input.actorUserId, input.idempotencyKey]) : randomUUID();
+  const batchId = batchIdFor(input);
   const authorization: WorkspaceOperationDirectAuthorization = { mode: 'direct', actorUserId: input.actorUserId,
     actorId: input.actorId, actorDisplayName: input.actorDisplayName, actorType: input.actorType,
     ...(input.actorSessionId ? { actorSessionId: input.actorSessionId } : {}), requestHash };
@@ -108,4 +114,14 @@ export async function waitForWorkspacePathOperation(batch: WorkspaceOperationBat
     batch = await store.get(batch.batchId) ?? batch;
   }
   return batch;
+}
+
+/** Resolve acknowledged tool retries before inspecting a source that the job may have moved/deleted. */
+export async function getExistingDirectWorkspacePathOperation(input: WorkspacePathOperationInput,
+  store = new WorkspaceOperationBatchStore()): Promise<WorkspaceOperationBatchRecord | null> {
+  if (!input.idempotencyKey) return null;
+  const batchId = batchIdFor(input);
+  if (!await store.get(batchId)) return null;
+  // Reenter the common request validation; a matching key alone never authorizes another actor/request.
+  return submitDirectWorkspacePathOperation(input, { store });
 }

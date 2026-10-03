@@ -2,6 +2,8 @@ import type { ConvertParams } from '@/app/components/shared/ImagePreprocessDialo
 import type { WorkspacePathRenameMutation } from './file-events';
 import type { WorkspaceFileOperationPreview } from '@/app/lib/markdown/workspace-file-operation-planner';
 import type { WorkspaceUploadCommit } from './upload-result';
+import type { WorkspacePathOperationPublic } from './workspace-path-operation-public';
+import { waitForWorkspacePathOperationResult } from './workspace-path-operation-client';
 import { joinWorkspacePath } from './path-utils';
 import { WORKSPACE_ID_HEADER } from '@/app/lib/workspaces/constants';
 import { fetchLiveDocument } from '@/app/lib/collaboration/opened-document-registry';
@@ -57,6 +59,7 @@ export class WorkspaceFileApiError extends Error {
 }
 
 export interface DeleteWorkspacePathsResult {
+  operation?: WorkspacePathOperationPublic;
   deleted?: string[];
   failed?: Array<{ path: string; error: string }>;
   trashEntries?: WorkspaceTrashEntryReference[];
@@ -458,6 +461,7 @@ export async function deleteWorkspacePaths(paths: string[], workspaceId?: string
       }
       return result;
     }
+    if (result.operation) return waitForWorkspacePathOperationResult(result, requestedWorkspaceId);
     if (response.ok) return result;
   }
   if (!response.ok) {
@@ -490,6 +494,7 @@ export async function restoreWorkspaceTrashEntry(
 }
 
 export interface WorkspaceRenameResult {
+  operation?: WorkspacePathOperationPublic;
   mutation?: WorkspacePathRenameMutation;
   linkStatus?: 'complete' | 'partial' | 'incomplete';
   linkUpdates?: {
@@ -544,9 +549,10 @@ export async function renameWorkspacePath(
   workspaceId?: string | null,
   planId?: string,
 ): Promise<WorkspaceRenameResult> {
+  const requestedWorkspaceId = workspaceId ?? getActiveWorkspaceId();
   const response = await fetch('/api/files/rename', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...workspaceHeaders(workspaceId) },
+    headers: { 'Content-Type': 'application/json', ...workspaceHeaders(requestedWorkspaceId) },
     credentials: 'include',
     body: JSON.stringify({ oldPath, newPath, overwrite, planId }),
   });
@@ -569,7 +575,8 @@ export async function renameWorkspacePath(
     throw err;
   }
 
-  return readApiJson<WorkspaceRenameResult>(response, 'Failed to read rename result');
+  return waitForWorkspacePathOperationResult(await readApiJson<WorkspaceRenameResult>(response, 'Failed to read rename result'),
+    requestedWorkspaceId);
 }
 
 export async function copyWorkspacePaths(params: {

@@ -14,9 +14,12 @@ import {
 import { useFileStore } from '@/app/store/file-store';
 import { useWorkspaceStore } from '@/app/store/workspace-store';
 import { openWorkspaceOperationReview } from '@/app/store/workspace-operation-review-store';
+import { undoWorkspacePathOperation } from '@/app/lib/files/workspace-path-operation-client';
+import { useFileActionToastTarget } from './FileActionToastScope';
 
-export function useTrashUndo() {
+export function useTrashUndo(options: { toasterId?: string } = {}) {
   const t = useTranslations('notebook');
+  const toastTarget = useFileActionToastTarget(options.toasterId);
   const { deletePath, refreshDirectory } = useFileStore(useShallow((state) => ({
     deletePath: state.deletePath,
     refreshDirectory: state.refreshDirectory,
@@ -47,6 +50,7 @@ export function useTrashUndo() {
 
     let isRestoring = false;
     toast.success(t('movedToTrash', { count: trashEntries.length }), {
+      ...toastTarget(),
       duration: 8000,
       action: {
         label: t('undo'),
@@ -56,13 +60,16 @@ export function useTrashUndo() {
           void (async () => {
             const restoredPaths: string[] = [];
             try {
-              for (const entry of trashEntries) {
+              if (result.operation) {
+                await undoWorkspacePathOperation(result.operation);
+                restoredPaths.push(...trashEntries.map((entry) => entry.originalPath));
+              } else for (const entry of trashEntries) {
                 const restored = await restoreWorkspaceTrashEntry(entry.id, workspaceId);
                 restoredPaths.push(restored.originalPath);
               }
-              toast.success(t('restoredFromTrash', { count: restoredPaths.length }));
+              toast.success(t('restoredFromTrash', { count: restoredPaths.length }), toastTarget());
             } catch (error) {
-              toast.error(error instanceof Error ? error.message : t('restoreFromTrashFailed'));
+              toast.error(error instanceof Error ? error.message : t('restoreFromTrashFailed'), toastTarget());
             } finally {
               if (
                 restoredPaths.length > 0
@@ -82,5 +89,5 @@ export function useTrashUndo() {
     });
     if (partialError) throw partialError;
     return result;
-  }, [activeWorkspaceId, deletePath, refreshDirectory, t]);
+  }, [activeWorkspaceId, deletePath, refreshDirectory, t, toastTarget]);
 }

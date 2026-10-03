@@ -22,6 +22,13 @@ async function main() {
   const originalLoad = moduleInternals._load;
   moduleInternals._load = (request, parent, isMain) => {
     if (request === 'server-only') return {};
+    if (request === '@/app/lib/document-review-availability') return {
+      readDocumentReviewAvailability: () => ({ documentReviewEnabled: true, updatedAt: null }),
+    };
+    if (request === '@/app/lib/files/workspace-path-operation-service') return {
+      getExistingDirectWorkspacePathOperation: async () => null,
+      submitDirectWorkspacePathOperation: async () => { throw new Error('Review ON must submit a review.'); },
+    };
     if (request === '@/app/lib/files/workspace-operation-review-service') {
       return { submitAgentWorkspacePathOperation: async (input: (typeof calls)[number]) => {
         calls.push(input);

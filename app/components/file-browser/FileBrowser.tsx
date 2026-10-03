@@ -33,6 +33,7 @@ import { useEditorStore } from '@/app/store/editor-store';
 import { invalidateFileReferenceValidationCache } from '@/app/lib/chat/validate-file-paths';
 import { useShallow } from 'zustand/react/shallow';
 import { useTrashUndo } from './useTrashUndo';
+import { FileActionToastScope, MOBILE_FILE_ACTION_TOASTER_ID } from './FileActionToastScope';
 import { WorkspaceUploadProgress } from './WorkspaceUploadProgress';
 import { beginUploadCollection, endUploadCollection, beginUploadJob, finishUploadJob, setUploadJobFiles, updateUploadJob } from '@/app/store/upload-store';
 import { useWorkspaceMove } from './useWorkspaceMove';
@@ -114,7 +115,7 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
     refreshCurrentFileContent: state.refreshCurrentFileContent,
   })));
   const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
-  const deleteWithUndo = useTrashUndo();
+  const deleteWithUndo = useTrashUndo({ toasterId: isMobileSheet ? MOBILE_FILE_ACTION_TOASTER_ID : undefined });
   const moveController = useWorkspaceMove();
   const fileMoveDrag = useFileMoveDrag({ controller: moveController });
 
@@ -580,7 +581,7 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
   );
 
   if (!isFullscreen) {
-    return mainContent;
+    return isMobileSheet ? <FileActionToastScope>{mainContent}</FileActionToastScope> : mainContent;
   }
 
   return (

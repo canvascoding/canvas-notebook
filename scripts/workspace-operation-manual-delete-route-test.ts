@@ -4,6 +4,7 @@ import path from 'node:path';
 import ts from 'typescript';
 import type { NextRequest } from 'next/server';
 import type * as Route from '../app/api/files/delete/route';
+import type { WorkspacePathOperationInput } from '../app/lib/files/workspace-path-operation-service';
 
 async function main(): Promise<void> {
   const file = path.resolve('app/api/files/delete/route.ts');
@@ -12,80 +13,196 @@ async function main(): Promise<void> {
   }).outputText;
   const workspace = { workspaceId: 'workspace', rootPath: '/isolated/workspace', organizationId: null, workspaceType: 'personal' };
   const session = { user: { id: 'user', name: 'User' } };
+  let reviewEnabled = true;
   let blocked = false;
   let needsReview = true;
   let revoked = false;
+  let changedScope = false;
   let accessChecks = 0;
-  let writes = 0;
+  let submissions = 0;
+  let reviews = 0;
   let audits = 0;
-  const json = (value: unknown, status = 200) => Response.json(value, { status });
+  let lockDepth = 0;
+  let receiptUnavailable = false;
+  let existingDirectRequest: WorkspacePathOperationInput | null = null;
+  let status = 'applied';
+  const permissions: string[][] = [];
+  const submitted: WorkspacePathOperationInput[] = [];
+  const operation = () => ({ batchId: 'direct-delete-job', planId: 'a'.repeat(64), workspaceId: 'workspace',
+    kind: 'delete', selections: [{ sourcePath: 'target.md' }], status, completedActions: status === 'applied' ? 2 : 0,
+    totalActions: 2, phase: status === 'applied' ? 'complete' : 'preparing', errorCode: status === 'needs_recovery' ? 'LINK_WRITE_STALE' : null });
+  const json = (value: unknown, code = 200) => Response.json(value, { status: code });
   const route = { exports: {} as typeof Route };
   new Function('require', 'module', 'exports', source)((name: string) => {
     if (name.endsWith('/route-helpers')) return {
       applyRateLimit: () => null, invalidateWorkspaceFileViews: () => undefined,
       readJsonBody: (request: Request) => request.json(),
-      jsonSuccess: (payload: unknown) => json({ success: true, ...(payload as object) }),
-      jsonError: (error: string, status: number, details: object = {}) => json({ success: false, error, ...details }, status),
-      jsonServerError: () => json({ success: false }, 500),
+      jsonSuccess: (payload: unknown, init?: ResponseInit) => json({ success: true, ...(payload as object) }, init?.status),
+      jsonError: (error: string, code: number, details: object = {}) => json({ success: false, error, ...details }, code),
+      jsonServerError: (_prefix: string, error: unknown) => json({ success: false, error: String(error) }, 500),
     };
     if (name.endsWith('/workspaces/request')) return {
-      workspaceFileOptions: () => ({ workspace }),
-      requireRequestWorkspace: async () => {
+      workspaceFileOptions: (scope: typeof workspace) => ({ workspace: scope }),
+      requireRequestWorkspace: async (_request: unknown, options: { permissions: string[] }) => {
+        permissions.push(options.permissions);
         accessChecks += 1;
-        return revoked && accessChecks > 1 ? { response: json({}, 403) } : { workspace, session, response: null };
+        if (revoked && accessChecks > 1) return { response: json({}, 403) };
+        return { workspace: changedScope && accessChecks > 1 ? { ...workspace, rootPath: '/changed/root' } : workspace,
+          session, response: null };
       },
     };
+    if (name.endsWith('/document-review-availability')) return { readDocumentReviewAvailability: () => ({ documentReviewEnabled: reviewEnabled }) };
     if (name.endsWith('/workspace-operation-delete-review')) return {
-      reviewWorkspaceDeletionIfRequired: async () => needsReview ? { blocked, reviewRequired: {
-        reviewId: 'review-1234567890', planId: 'a'.repeat(64), workspaceId: 'workspace', status: blocked ? 'blocked' : 'pending',
-      } } : null,
+      reviewWorkspaceDeletionIfRequired: async () => {
+        reviews += 1; assert.equal(lockDepth, 1);
+        return needsReview ? { blocked, reviewRequired: { reviewId: 'review-1234567890',
+          planId: 'a'.repeat(64), workspaceId: 'workspace', status: blocked ? 'blocked' : 'pending' } } : null;
+      },
     };
-    if (name.endsWith('/workspace-mutation-lock')) return { withWorkspaceMutationLock: (_id: string, action: () => unknown) => action() };
-    if (name.endsWith('/workspace-trash')) return { trashWorkspacePaths: async () => {
-      writes += 1;
-      return { trashed: [{ id: 'trash-id', originalPath: 'target.md', itemType: 'file', sizeBytes: 10, expiresAt: new Date(0) }], failed: [] };
-    } };
+    if (name.endsWith('/workspace-mutation-lock')) return {
+      withWorkspaceMutationLock: async (_id: string, action: () => Promise<unknown>) => {
+        lockDepth += 1;
+        try { return await action(); } finally { lockDepth -= 1; }
+      },
+    };
+    if (name.endsWith('/workspace-path-operation-service')) return {
+      getExistingDirectWorkspacePathOperation: async (input: WorkspacePathOperationInput) => {
+        assert.equal(lockDepth, 1, 'retry lookup follows the fresh permission check under the mutation lock');
+        if (!existingDirectRequest) return null;
+        assert.equal(input.scope.workspace.workspaceId, workspace.workspaceId);
+        assert.equal(input.scope.fileOptions.workspace?.workspaceId, workspace.workspaceId);
+        assert.equal(input.actorUserId, session.user.id);
+        assert.equal(input.actorId, session.user.id);
+        assert.equal(input.actorType, 'user');
+        const identity = ({ scope: _scope, actorDisplayName: _name, ...request }: WorkspacePathOperationInput) => JSON.stringify(request);
+        if (identity(input) !== identity(existingDirectRequest)) {
+          throw Object.assign(new Error('File action request identity changed'), { status: 409, code: 'BATCH_IDEMPOTENCY_CONFLICT' });
+        }
+        return { ...operation(), plan: { previewContents: [{ path: 'index.md' }] }, workspaceId: 'workspace' };
+      },
+      submitDirectWorkspacePathOperation: async (input: (typeof submitted)[number]) => {
+        assert.equal(lockDepth, 1); submissions += 1; submitted.push(input);
+        return { ...operation(), plan: { previewContents: [{ path: 'index.md' }] }, workspaceId: 'workspace' };
+      },
+      waitForWorkspacePathOperation: async (batch: unknown) => {
+        assert.equal(lockDepth, 0, 'waiting under the preparation lock would prevent worker execution');
+        return batch;
+      },
+    };
+    if (name.endsWith('/workspace-path-operation-response')) return {
+      workspacePathOperationMetadata: operation,
+      workspacePathOperationResponse: async () => {
+        assert.equal(lockDepth, 0);
+        if (receiptUnavailable) throw Object.assign(new Error('Missing receipt'), { status: 409, code: 'BATCH_JOURNAL_UNAVAILABLE' });
+        return status === 'applied' ? { operation: operation(), deleted: ['target.md'], failed: [],
+          linkStatus: 'complete', linkUpdates: { updatedFiles: ['index.md'], updatedLinks: 1, warnings: [] },
+          trashEntries: [{ id: 'trash-id', originalPath: 'target.md', itemType: 'file', sizeBytes: 10,
+            expiresAt: new Date(0).toISOString() }] } : { operation: operation() };
+      },
+    };
     if (name.endsWith('/audit-service')) return { recordAuditEvent: async () => { audits += 1; } };
     if (name.endsWith('/app-output-folders')) return { isProtectedAppOutputFolder: () => false };
-    if (name.endsWith('/public-file-shares')) return { syncPublicSharesAfterDelete: async () => undefined };
-    if (name.endsWith('/collaboration-policy')) return { archiveFileCollaborationPaths: async () => undefined };
-    if (name.endsWith('/path-utils')) return { getParentDirectory: () => '.' };
     throw new Error(`Unexpected route dependency: ${name}`);
   }, route, route.exports);
-  const remove = () => {
+  const remove = (body: object = { path: 'target.md', idempotencyKey: 'delete-request' }) => {
     accessChecks = 0;
     return route.exports.DELETE(new Request('http://localhost/api/files/delete', {
-      method: 'DELETE', body: JSON.stringify({ path: 'target.md' }),
+      method: 'DELETE', body: JSON.stringify(body),
     }) as unknown as NextRequest);
   };
-  const ready = await remove();
-  assert.equal(ready.status, 200);
-  const readyBody = await ready.json();
-  assert.deepEqual(readyBody.deleted, []);
-  assert.deepEqual(readyBody.trashEntries, []);
-  assert.equal(readyBody.reviewRequired.status, 'pending');
-  assert.equal(writes, 0);
+  const reviewed = await remove();
+  const reviewedBody = await reviewed.json();
+  assert.equal(reviewed.status, 200);
+  assert.deepEqual(reviewedBody.deleted, []);
+  assert.equal(reviewedBody.reviewRequired.status, 'pending');
+  assert.equal(submissions, 0);
   blocked = true;
-  const unsafe = await remove();
-  assert.equal(unsafe.status, 409);
-  const unsafeBody = await unsafe.json();
-  assert.equal(unsafeBody.success, false);
-  assert.equal(unsafeBody.code, 'PREVIEW_BLOCKED');
-  assert.equal(unsafeBody.reviewRequired.status, 'blocked');
-  assert.equal(writes, 0);
-  needsReview = false;
+  const blockedReview = await remove();
+  assert.equal(blockedReview.status, 409);
+  assert.equal((await blockedReview.json()).code, 'PREVIEW_BLOCKED');
+  assert.equal(submissions, 0);
+  reviewEnabled = false;
+  const priorReviews = reviews;
   const direct = await remove();
-  assert.equal(direct.status, 200);
   const directBody = await direct.json();
+  assert.equal(direct.status, 200);
   assert.deepEqual(directBody.deleted, ['target.md']);
   assert.equal(directBody.trashEntries[0].id, 'trash-id');
-  assert.deepEqual(directBody.failed, []);
-  assert.equal(writes, 1);
+  assert.equal(directBody.linkStatus, 'complete');
+  assert.equal(directBody.operation.status, 'applied');
+  assert.equal(directBody.reviewRequired, undefined);
+  assert.equal(reviews, priorReviews, 'disabled experiment never creates a delete review');
+  assert.equal(submitted[0].idempotencyKey, 'delete-request');
+  assert.equal(submitted[0].actorType, 'user');
+  assert.deepEqual(submitted[0].selections, [{ sourcePath: 'target.md' }]);
   assert.equal(audits, 1);
+  existingDirectRequest = submitted[0];
+  reviewEnabled = true;
+  const submissionsBeforeRetry = submissions;
+  const reviewsBeforeRetry = reviews;
+  const retried = await remove();
+  const retriedBody = await retried.json();
+  assert.equal(retried.status, 200);
+  assert.deepEqual(retriedBody.operation, directBody.operation, 'the original completed direct operation survives an OFF-to-ON review toggle');
+  assert.deepEqual(retriedBody.deleted, directBody.deleted);
+  assert.deepEqual(retriedBody.trashEntries, directBody.trashEntries, 'retry returns the original proven trash receipt');
+  assert.equal(retriedBody.linkStatus, 'complete');
+  assert.equal(retriedBody.reviewRequired, undefined);
+  assert.equal(submissions, submissionsBeforeRetry, 'acknowledged retry never submits another deletion');
+  assert.equal(reviews, reviewsBeforeRetry, 'acknowledged direct retry is resolved before the optional review gate');
+  const conflictingRetry = await remove({ path: 'different.md', idempotencyKey: 'delete-request' });
+  assert.equal(conflictingRetry.status, 409);
+  assert.equal((await conflictingRetry.json()).code, 'BATCH_IDEMPOTENCY_CONFLICT');
+  assert.equal(submissions, submissionsBeforeRetry);
+  assert.equal(reviews, reviewsBeforeRetry, 'a changed request cannot manufacture a review under the same key');
+  existingDirectRequest = null;
+  reviewEnabled = false;
+  const auditsAfterApply = audits;
+  for (const pending of ['queued', 'applying']) {
+    status = pending;
+    const response = await remove();
+    const body = await response.json();
+    assert.equal(response.status, 202);
+    assert.equal(body.operation.status, pending);
+    assert.equal(body.deleted, undefined);
+    assert.equal(body.trashEntries, undefined);
+    assert.equal(body.linkStatus, undefined);
+  }
+  for (const failed of ['blocked', 'needs_review', 'needs_recovery', 'failed']) {
+    status = failed;
+    const response = await remove();
+    const body = await response.json();
+    assert.equal(response.status, 409);
+    assert.equal(body.success, false);
+    assert.equal(body.operation.status, failed);
+    assert.equal(body.deleted, undefined, 'a partial deletion cannot be advertised as complete');
+    assert.equal(body.trashEntries, undefined);
+  }
+  assert.equal(audits, auditsAfterApply, 'queued and failed jobs never create success audit events');
+  status = 'applied'; receiptUnavailable = true;
+  const missing = await remove();
+  const missingBody = await missing.json();
+  assert.equal(missing.status, 409);
+  assert.equal(missingBody.code, 'BATCH_JOURNAL_UNAVAILABLE');
+  assert.equal(missingBody.operation.batchId, 'direct-delete-job');
+  assert.equal(missingBody.deleted, undefined);
+  receiptUnavailable = false;
+  reviewEnabled = true; needsReview = false;
+  const unlinked = await remove();
+  assert.equal(unlinked.status, 200, 'unlinked deletion still uses the mandatory durable executor with review enabled');
+  assert.equal((await unlinked.json()).operation.status, 'applied');
+  const submissionsBeforeDenied = submissions;
   revoked = true;
   assert.equal((await remove()).status, 403);
-  assert.equal(writes, 1, 'revoked access inside the lock prevents direct trash');
-  console.log('manual DELETE route: pending cleanup reference, blocked409 without mutation, legacy trash shape, refreshed permission fence OK');
+  assert.equal(submissions, submissionsBeforeDenied);
+  revoked = false; changedScope = true;
+  assert.equal((await remove()).status, 403);
+  assert.equal(submissions, submissionsBeforeDenied, 'changed scope is rejected before submission');
+  changedScope = false;
+  assert.equal((await remove({ path: [null] })).status, 400);
+  assert.equal(submissions, submissionsBeforeDenied);
+  assert.ok(permissions.every((value) => JSON.stringify(value) === JSON.stringify(['canRead', 'canWrite', 'canDelete'])));
+  console.log('manual DELETE route: optional review, mandatory durable deletion, queued/failed truth, actual-receipt errors, lock release, refreshed read/write/delete authority and applied audit OK');
 }
 
 void main().catch((error: unknown) => { console.error(error); process.exitCode = 1; });

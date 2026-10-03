@@ -104,13 +104,17 @@ export function createWorkspaceOperationBatchPlan(input: {
     if (!action.reviewId || reviewIds.has(action.reviewId)) issue('duplicate-review', '.', 'Review identifiers must be unique.');
     reviewIds.add(action.reviewId);
     if (!['move', 'rename', 'delete'].includes(action.kind)) { issue('unsupported-action', '.', 'Copy must be reviewed separately.', action.reviewId); continue; }
+    if (action.ignoreMissing && action.kind !== 'delete') issue('invalid-action', '.', 'Only delete can ignore absent paths.', action.reviewId);
     if (!action.selections.length) issue('missing-selection', '.', 'An action needs at least one source.', action.reviewId);
     for (const selection of action.selections) {
       if (!validPath(selection.sourcePath) || action.kind !== 'delete' && !validPath(selection.destinationPath)
         || action.kind === 'delete' && selection.destinationPath !== undefined) {
         issue('invalid-path', selection.sourcePath, 'Canonical supported workspace paths are required.', action.reviewId); continue;
       }
-      if (!snapshot.entries.some((entry) => entry.path === selection.sourcePath)) issue('missing-source', selection.sourcePath, 'Selected path is absent.', action.reviewId);
+      if (!snapshot.entries.some((entry) => entry.path === selection.sourcePath)) {
+        if (action.kind === 'delete' && action.ignoreMissing) continue;
+        issue('missing-source', selection.sourcePath, 'Selected path is absent.', action.reviewId);
+      }
       if (roots.some((root) => within(selection.sourcePath, root.sourcePath) || within(root.sourcePath, selection.sourcePath))) {
         issue('overlapping-selection', selection.sourcePath, 'Selected sources overlap; choose one action for each path.', action.reviewId);
       }
