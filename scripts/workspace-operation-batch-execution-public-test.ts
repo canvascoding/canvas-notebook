@@ -101,6 +101,7 @@ async function main() {
     workspaceType: 'personal', organizationId: null, ownerUserId: 'reader', legacy: false, status: 'active',
     permissions: { canRead: true, canWrite: false, canDelete: false, canRunAgent: false, canManageWorkspace: false, canCreatePublicLinks: false } }, fileOptions: {} };
   const batch: WorkspaceOperationBatchRecord = { batchId: 'public-ledger-batch-1234567890', planId: plan.planId, workspaceId: plan.workspaceId,
+    authorization: { mode: 'review' },
     reviewIds: plan.actions.map((action) => action.reviewId), reviewRefs: [], plan, status: 'applied', actionMode: 'apply',
     reviewerUserId: 'reviewer', reviewerDisplayName: 'Reviewer', completedActions: 3, totalActions: 3, phase: 'complete',
     errorCode: null, trashEntryIds: [], leaseOwner: null, createdAt: 1, updatedAt: 2 };

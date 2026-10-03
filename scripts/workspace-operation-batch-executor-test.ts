@@ -443,7 +443,31 @@ async function main() {
     assert.equal(await fs.readFile(absolute('delete-missing-home.md'), 'utf8'), 'Gone Ghost');
     assert.equal((await makeExecutor().undo({ batchId: missingDeleteId, scope, actorUserId: 'tester', actorDisplayName: 'Tester' })).status, 'applied');
     assert.equal(await fs.readFile(absolute('delete-missing-home.md'), 'utf8'), '[Gone](delete-missing/absent.md) [[delete-missing/ghost|Ghost]]');
-    console.log('workspace-operation-batch-executor-test: real backups/files, checkpoint, no replay, recoverable trash, access gate, stale, conflict-safe Undo, resumed Undo and empty document passed');
+    await write('agent-source.md', '# Agent file');
+    await write('agent-backlink.md', '[Agent file](agent-source.md)');
+    const agentPlan = await buildWorkspaceOperationBatchPlan({ scope, actions: [{ reviewId: 'agent-move', kind: 'move',
+      selections: [{ sourcePath: 'agent-source.md', destinationPath: 'agent-moved.md' }] }] });
+    const agentId = randomUUID();
+    const attribution: Array<{ id: string; type: string; session?: string }> = [];
+    let failAgentCheckpoint = true;
+    const agentExecutor = () => makeExecutor({ checkpointLink: async (input) => {
+      attribution.push({ id: input.actorId, type: input.actorType!, session: input.actorSessionId });
+      if (failAgentCheckpoint) { failAgentCheckpoint = false; throw new Error('CHECKPOINT_TRANSPORT_FAILED'); }
+    } });
+    const agentInput = { batchId: agentId, plan: agentPlan, scope, actorUserId: 'tester', actorDisplayName: 'Agent',
+      actorId: 'actual-agent', actorType: 'agent' as const, actorSessionId: 'originating-session' };
+    assert.equal((await agentExecutor().execute(agentInput)).status, 'needs_recovery');
+    await assert.rejects(agentExecutor().execute({ ...agentInput, actorSessionId: 'different-session' }), /BATCH_ID_CONFLICT/u);
+    await assert.rejects(agentExecutor().execute({ ...agentInput, actorId: 'tester', actorType: 'user', actorSessionId: undefined }), /BATCH_ID_CONFLICT/u);
+    assert.equal((await agentExecutor().execute(agentInput)).status, 'applied');
+    assert.ok(attribution.length >= 2);
+    assert.ok(attribution.every((actor) => actor.id === 'actual-agent' && actor.type === 'agent' && actor.session === 'originating-session'));
+    assert.equal(await fs.readFile(absolute('agent-backlink.md'), 'utf8'), '[Agent file](agent-moved.md)');
+    assert.equal((await agentExecutor().undo({ batchId: agentId, scope, actorUserId: 'tester', actorId: 'tester',
+      actorType: 'user', actorDisplayName: 'Tester' })).status, 'applied');
+    assert.deepEqual(attribution.at(-1), { id: 'tester', type: 'user', session: undefined });
+    assert.equal(await fs.readFile(absolute('agent-backlink.md'), 'utf8'), '[Agent file](agent-source.md)');
+    console.log('workspace-operation-batch-executor-test: backups, checkpoint, safe recovery/Undo and immutable agent-session attribution passed');
   } finally {
     if (previousData === undefined) delete process.env.DATA; else process.env.DATA = previousData;
     if (previousRoot === undefined) delete process.env.CANVAS_DATA_ROOT; else process.env.CANVAS_DATA_ROOT = previousRoot;

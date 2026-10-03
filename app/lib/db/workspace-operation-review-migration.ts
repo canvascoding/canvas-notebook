@@ -61,6 +61,7 @@ export const WORKSPACE_OPERATION_REVIEW_STATEMENTS = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_workspace_file_operation_batches_work
     ON workspace_file_operation_batches (status, lease_expires_at, created_at)`,
+  `ALTER TABLE workspace_file_operation_batches ADD COLUMN IF NOT EXISTS authorization_json text NOT NULL DEFAULT '{"mode":"review"}'`,
   `CREATE INDEX IF NOT EXISTS idx_workspace_file_operation_reviews_batch
     ON workspace_file_operation_reviews (batch_id) WHERE batch_id IS NOT NULL`,
   `CREATE TABLE IF NOT EXISTS workspace_file_operation_checks (

@@ -2,7 +2,8 @@ import 'server-only';
 
 import { openDb, type SqlConnection } from '@/app/lib/db';
 import { executeLifecycleTransaction } from '@/app/lib/collaboration/lifecycle-transaction';
-import type { WorkspaceOperationBatchPlan, WorkspaceOperationBatchProgress } from './workspace-operation-batch-contract';
+import type { WorkspaceOperationBatchAuthorization, WorkspaceOperationDirectAuthorization,
+  WorkspaceOperationBatchPlan, WorkspaceOperationBatchProgress } from './workspace-operation-batch-contract';
 
 export type WorkspaceOperationBatchStatus = 'preview' | 'blocked' | 'queued' | 'applying' | 'applied'
   | 'needs_review' | 'needs_recovery' | 'failed' | 'undone';
@@ -10,6 +11,7 @@ export type WorkspaceOperationBatchReviewRef = { reviewId: string; planId: strin
 export type WorkspaceOperationBatchRecord = {
   batchId: string; planId: string; workspaceId: string; reviewIds: string[];
   reviewRefs: WorkspaceOperationBatchReviewRef[]; plan: WorkspaceOperationBatchPlan;
+  authorization: WorkspaceOperationBatchAuthorization;
   status: WorkspaceOperationBatchStatus; actionMode: 'apply' | 'undo';
   reviewerUserId: string | null; reviewerDisplayName: string | null;
   completedActions: number; totalActions: number; phase: WorkspaceOperationBatchProgress['phase'];
@@ -23,10 +25,29 @@ export class WorkspaceOperationBatchError extends Error {
   }
 }
 
+function authorization(value: unknown): WorkspaceOperationBatchAuthorization {
+  if (value === undefined || value === null) return { mode: 'review' };
+  const parsed = JSON.parse(String(value)) as WorkspaceOperationBatchAuthorization;
+  if (parsed?.mode === 'review') return { mode: 'review' };
+  if (parsed?.mode !== 'direct' || ![parsed.actorUserId, parsed.actorId, parsed.actorDisplayName]
+    .every((field) => typeof field === 'string' && field.trim().length > 0)
+    || !['user', 'agent'].includes(parsed.actorType) || typeof parsed.requestHash !== 'string'
+    || !/^[a-f0-9]{64}$/u.test(parsed.requestHash)
+    || parsed.actorType === 'agent' && (typeof parsed.actorSessionId !== 'string' || !parsed.actorSessionId.trim())) {
+    throw new WorkspaceOperationBatchError('BATCH_INVALID_AUTHORIZATION', 409, 'File action authorization is unavailable.');
+  }
+  return parsed;
+}
+
+export function workspaceOperationBatchAuthorityUserId(batch: WorkspaceOperationBatchRecord): string | null {
+  return batch.authorization?.mode === 'direct' ? batch.authorization.actorUserId : batch.reviewerUserId;
+}
+
 function record(row: Record<string, unknown>): WorkspaceOperationBatchRecord {
   return {
     batchId: String(row.batch_id), planId: String(row.plan_id), workspaceId: String(row.workspace_id),
     reviewIds: JSON.parse(String(row.review_ids_json)), reviewRefs: JSON.parse(String(row.review_refs_json)),
+    authorization: authorization(row.authorization_json),
     plan: JSON.parse(String(row.plan_json)), status: row.status as WorkspaceOperationBatchStatus,
     actionMode: row.action_mode as 'apply' | 'undo', reviewerUserId: row.reviewer_user_id == null ? null : String(row.reviewer_user_id),
     reviewerDisplayName: row.reviewer_display_name == null ? null : String(row.reviewer_display_name),
@@ -62,6 +83,35 @@ export class WorkspaceOperationBatchStore {
     return result!;
   }
 
+  async createDirect(input: { batchId: string; plan: WorkspaceOperationBatchPlan;
+    authorization: WorkspaceOperationDirectAuthorization }): Promise<WorkspaceOperationBatchRecord> {
+    if (authorization(JSON.stringify(input.authorization)).mode !== 'direct') {
+      throw new WorkspaceOperationBatchError('BATCH_INVALID_AUTHORIZATION', 409, 'Direct file action authorization is required.');
+    }
+    if (!/^[A-Za-z0-9_-]{16,128}$/u.test(input.batchId)) {
+      throw new WorkspaceOperationBatchError('BATCH_INVALID_ID', 422, 'Invalid file action identity.');
+    }
+    const result = await this.query(`INSERT INTO workspace_file_operation_batches
+      (batch_id,plan_id,workspace_id,review_ids_json,review_refs_json,plan_json,authorization_json,
+       status,error_code,total_actions,created_at,updated_at)
+      VALUES ($1,$2,$3,'[]','[]',$4,$5,$6,$7,$8,$9,$9)
+      ON CONFLICT (batch_id) DO NOTHING RETURNING *`,
+    [input.batchId, input.plan.planId, input.plan.workspaceId, JSON.stringify(input.plan), JSON.stringify(input.authorization),
+      input.plan.readiness === 'ready' ? 'queued' : 'blocked', input.plan.readiness === 'ready' ? null : 'PREVIEW_BLOCKED',
+      input.plan.pathSteps.length + input.plan.previewContents.length, this.now()]);
+    if (result) return result;
+    const existing = await this.get(input.batchId);
+    if (!existing || existing.workspaceId !== input.plan.workspaceId || existing.authorization.mode !== 'direct'
+      || existing.authorization.actorUserId !== input.authorization.actorUserId
+      || existing.authorization.actorId !== input.authorization.actorId
+      || existing.authorization.actorType !== input.authorization.actorType
+      || existing.authorization.actorSessionId !== input.authorization.actorSessionId
+      || existing.authorization.requestHash !== input.authorization.requestHash) {
+      throw new WorkspaceOperationBatchError('BATCH_IDEMPOTENCY_CONFLICT', 409, 'This file action identity belongs to another request.');
+    }
+    return existing;
+  }
+
   async enqueue(input: { batchId: string; planId: string; userId: string; displayName: string;
     action?: 'accept' | 'resume' | 'undo' }): Promise<WorkspaceOperationBatchRecord> {
     const action = input.action ?? 'accept';
@@ -70,13 +120,19 @@ export class WorkspaceOperationBatchStore {
       if (!row) throw new WorkspaceOperationBatchError('BATCH_NOT_FOUND', 404, 'File action batch not found.');
       const batch = record(row as Record<string, unknown>);
       if (batch.planId !== input.planId) throw new WorkspaceOperationBatchError('PREVIEW_STALE', 409, 'The exact batch plan is required.');
-      if (action === 'resume' && batch.reviewerUserId !== input.userId) {
+      const direct = batch.authorization.mode === 'direct';
+      const authorityUserId = workspaceOperationBatchAuthorityUserId(batch);
+      if (direct && (action === 'accept' || authorityUserId !== input.userId)) {
+        throw new WorkspaceOperationBatchError('BATCH_DIRECT_AUTHORIZATION_REQUIRED', 403,
+          'Only the initiating user can resume or undo this direct file action.');
+      }
+      if (action === 'resume' && authorityUserId !== input.userId) {
         throw new WorkspaceOperationBatchError('BATCH_RESUME_REVIEWER_REQUIRED', 403,
           'Only the reviewer who approved this job can resume it. Their current workspace permissions are still required.');
       }
       if (['queued', 'applying'].includes(batch.status)) {
         const expectedMode = action === 'undo' ? 'undo' : action === 'accept' ? 'apply' : batch.actionMode;
-        if (batch.reviewerUserId !== input.userId || expectedMode !== batch.actionMode) {
+        if (authorityUserId !== input.userId || expectedMode !== batch.actionMode) {
           throw new WorkspaceOperationBatchError('BATCH_CONFLICT', 409, 'The batch is already assigned to another accepted action.');
         }
         return batch;
@@ -104,12 +160,13 @@ export class WorkspaceOperationBatchStore {
         completed_actions = CASE WHEN $6 THEN 0 ELSE completed_actions END,
         phase = CASE WHEN $6 THEN 'preparing' ELSE phase END
         WHERE batch_id = $1 RETURNING *`,
-      [input.batchId, input.userId, action === 'resume' ? batch.reviewerDisplayName ?? input.displayName : input.displayName,
+      [input.batchId, direct ? null : input.userId,
+        direct ? null : action === 'resume' ? batch.reviewerDisplayName ?? input.displayName : input.displayName,
         action === 'undo' ? 'undo' : batch.actionMode, this.now(), action === 'undo']);
       return record(updated as Record<string, unknown>);
     }, recoverCommitted: async (value, commitError) => {
       const persisted = await this.get(value.batchId);
-      if (persisted?.planId === value.planId && persisted.reviewerUserId === input.userId
+      if (persisted?.planId === value.planId && workspaceOperationBatchAuthorityUserId(persisted) === input.userId
         && ['queued', 'applying', 'applied', 'undone'].includes(persisted.status)) return persisted;
       throw new WorkspaceOperationBatchError('BATCH_COMMIT_UNCONFIRMED', 503,
         commitError instanceof Error ? commitError.message : 'Batch approval could not be confirmed. Retry the same approval.');

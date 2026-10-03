@@ -5,7 +5,19 @@ import type { WorkspaceFileLinkEditV1, WorkspaceFilePathMappingV1, WorkspaceLink
   WorkspaceFileOperationLinkAssessmentV1 } from '@/app/lib/markdown/workspace-link-contract-v1';
 
 export type WorkspaceOperationBatchScope = { workspace: WorkspaceContext; fileOptions: WorkspaceFileOperationOptions };
+/** Direct authorization is an actual mutation request, never an accepted review. */
+export type WorkspaceOperationDirectAuthorization = {
+  mode: 'direct';
+  actorUserId: string;
+  actorId: string;
+  actorDisplayName: string;
+  actorType: 'user' | 'agent';
+  actorSessionId?: string;
+  requestHash: string;
+};
+export type WorkspaceOperationBatchAuthorization = { mode: 'review' } | WorkspaceOperationDirectAuthorization;
 export type WorkspaceOperationBatchAction = {
+  /** Stable action identity. Direct jobs have no associated review row. */
   reviewId: string;
   kind: 'move' | 'rename' | 'delete';
   selections: Array<{ sourcePath: string; destinationPath?: string }>;

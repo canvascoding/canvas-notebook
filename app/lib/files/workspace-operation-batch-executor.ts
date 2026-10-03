@@ -42,6 +42,7 @@ export type WorkspaceOperationBatchTransitionProof = {
 };
 type Manifest = {
   version: 1; batchId: string; workspaceId: string; actorUserId: string; plan: WorkspaceOperationBatchPlan;
+  actorId?: string; actorType?: 'user' | 'agent'; actorSessionId?: string;
   status: 'preparing' | 'applying' | 'applied' | 'needs_review' | 'needs_recovery' | 'failed' | 'undoing' | 'undone';
   beforeTrees: Record<string, TreeEntry[]>; backupIds: string[]; linkPreflight: WorkspaceLinkWritePreflight | null;
   steps: Step[]; undoSteps: Step[]; undoPlan: WorkspaceOperationBatchPlan['linkPlan'] | null;
@@ -50,6 +51,7 @@ type Manifest = {
 };
 type ExecuteInput = { batchId: string; plan: WorkspaceOperationBatchPlan; scope: WorkspaceOperationBatchScope;
   actorUserId: string; actorDisplayName: string;
+  actorId?: string; actorType?: 'user' | 'agent'; actorSessionId?: string;
   onProgress?: (progress: WorkspaceOperationBatchProgress) => void | Promise<void> };
 type UndoInput = Omit<ExecuteInput, 'plan'>;
 
@@ -234,7 +236,8 @@ export function createWorkspaceOperationBatchExecutor(dependencies: Dependencies
   const linkInput = (input: UndoInput | ExecuteInput, manifest: Manifest, undo = false): WorkspaceLinkWriteExecutorInput => ({
     plan: undo ? manifest.undoPlan! : manifest.plan.linkPlan,
     source: input.scope, destination: input.scope, actorUserId: input.actorUserId,
-    actorId: input.actorUserId, actorDisplayName: input.actorDisplayName, actorType: 'user',
+    actorId: input.actorId ?? input.actorUserId, actorDisplayName: input.actorDisplayName,
+    actorType: input.actorType ?? 'user', actorSessionId: input.actorSessionId,
     operationId: `${manifest.batchId}${undo ? '-undo' : ''}`,
   });
   const recoveredUndoLinks = (input: UndoInput, manifest: Manifest) => {
@@ -376,6 +379,9 @@ export function createWorkspaceOperationBatchExecutor(dependencies: Dependencies
     assertAccess(input);
     let manifest = await load(input.batchId);
     if (manifest && (manifest.workspaceId !== input.scope.workspace.workspaceId || manifest.actorUserId !== input.actorUserId
+      || (manifest.actorId ?? manifest.actorUserId) !== (input.actorId ?? input.actorUserId)
+      || (manifest.actorType ?? 'user') !== (input.actorType ?? 'user')
+      || manifest.actorSessionId !== input.actorSessionId
       || manifest.plan.planId !== input.plan.planId)) throw Object.assign(new Error('BATCH_ID_CONFLICT'), { status: 409 });
     if (manifest?.status === 'applied') return result(manifest);
     if (manifest && ['undoing', 'undone'].includes(manifest.status)) throw new Error('BATCH_ALREADY_REVERTED');
@@ -386,6 +392,7 @@ export function createWorkspaceOperationBatchExecutor(dependencies: Dependencies
         const fresh = await rebuild({ scope: input.scope, actions: input.plan.actions });
         if (fresh.readiness !== 'ready' || fresh.planId !== input.plan.planId) throw Object.assign(new Error('BATCH_PLAN_STALE'), { status: 409 });
         manifest = { version: 1, batchId: input.batchId, workspaceId: fresh.workspaceId, actorUserId: input.actorUserId,
+          actorId: input.actorId ?? input.actorUserId, actorType: input.actorType ?? 'user', actorSessionId: input.actorSessionId,
           plan: fresh, status: 'preparing', beforeTrees: {}, backupIds: [], linkPreflight: null, steps: [], undoSteps: [], undoPlan: null, undoPreflight: null, errorCode: null };
         for (const step of fresh.pathSteps) manifest.beforeTrees[step.sourcePath] = (await pathTree(input.scope, step.sourcePath))!;
         const groups = groupWorkspaceLinkWrites(fresh.linkPlan);

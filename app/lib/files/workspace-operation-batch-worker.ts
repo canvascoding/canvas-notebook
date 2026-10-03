@@ -4,14 +4,16 @@ import { randomUUID } from 'node:crypto';
 import { openDb } from '@/app/lib/db';
 import { invalidateWorkspaceFileViews } from '@/app/lib/api/route-helpers';
 import { resolveWorkspaceActor } from '@/app/lib/workspaces/context';
-import { resolvePostgresWorkspaceForActor } from '@/app/lib/workspaces/postgres-runtime';
+import { readPostgresWorkspaceForActorOnConnection } from '@/app/lib/workspaces/postgres-runtime';
+import { readStoredAgentWorkspaceOnConnection } from '@/app/lib/pi/session-workspace-context';
 import { withWorkspaceMutationLock } from './workspace-mutation-lock';
 import { buildWorkspaceOperationBatchPlan } from './workspace-operation-batch-plan';
 import { executeWorkspaceOperationBatch, getWorkspaceOperationBatchMutationEvidence,
   hasWorkspaceOperationBatchExecution, undoWorkspaceOperationBatch } from './workspace-operation-batch-executor';
 import { workspaceOperationBatchErrorCode, workspaceOperationBatchFailureStatus,
   type WorkspaceOperationBatchMutationEvidence } from './workspace-operation-batch-failure';
-import { WorkspaceOperationBatchStore, type WorkspaceOperationBatchRecord } from './workspace-operation-batch-store';
+import { WorkspaceOperationBatchStore, workspaceOperationBatchAuthorityUserId,
+  type WorkspaceOperationBatchRecord } from './workspace-operation-batch-store';
 import { markDependentWorkspaceOperationReviews } from './workspace-operation-review-service';
 import type { WorkspaceOperationBatchScope, WorkspaceOperationBatchProgress, WorkspaceOperationBatchPlan,
   WorkspaceOperationBatchExecutionResult } from './workspace-operation-batch-contract';
@@ -32,16 +34,24 @@ export function projectWorkspaceOperationBatchFileViews(input: {
 }
 
 async function resolveReviewerScope(batch: WorkspaceOperationBatchRecord): Promise<WorkspaceOperationBatchScope> {
-  if (!batch.reviewerUserId) throw new Error('BATCH_ACCESS_DENIED');
+  const userId = workspaceOperationBatchAuthorityUserId(batch);
+  if (!userId) throw new Error('BATCH_ACCESS_DENIED');
   const db = await openDb();
-  let user: { id: string; email: string; role: string; name: string; banned: boolean | number | null } | undefined;
-  try { user = await db.get('SELECT id,email,role,name,banned FROM "user" WHERE id = $1', [batch.reviewerUserId]) as typeof user; }
-  finally { await db.close(); }
-  if (!user || user.banned === true || user.banned === 1) throw new Error('BATCH_ACCESS_DENIED');
-  const workspace = await resolvePostgresWorkspaceForActor(resolveWorkspaceActor(user), batch.workspaceId);
-  if (!workspace || workspace.status && workspace.status !== 'active' || !workspace.permissions.canRead
-    || !workspace.permissions.canWrite || !workspace.permissions.canDelete) throw new Error('BATCH_ACCESS_DENIED');
-  return { workspace, fileOptions: { workspace } };
+  try {
+    const user = await db.get('SELECT id,email,role,name,banned FROM "user" WHERE id = $1', [userId]) as
+      { id: string; email: string; role: string; name: string; banned: boolean | number | null } | undefined;
+    if (!user || user.banned === true || user.banned === 1) throw new Error('BATCH_ACCESS_DENIED');
+    const direct = batch.authorization?.mode === 'direct' ? batch.authorization : null;
+    // Resuming an agent request needs its live originating session. Undo is a new human request.
+    const workspace = direct?.actorType === 'agent' && batch.actionMode === 'apply'
+      ? await readStoredAgentWorkspaceOnConnection(db, { userId, agentId: direct.actorId,
+        sessionId: direct.actorSessionId!, workspaceId: batch.workspaceId,
+        permissions: ['canRead', 'canRunAgent', 'canWrite', 'canDelete'] })
+      : await readPostgresWorkspaceForActorOnConnection(db, resolveWorkspaceActor(user), batch.workspaceId);
+    if (!workspace || workspace.status && workspace.status !== 'active' || !workspace.permissions.canRead
+      || !workspace.permissions.canWrite || !workspace.permissions.canDelete) throw new Error('BATCH_ACCESS_DENIED');
+    return { workspace, fileOptions: { workspace } };
+  } finally { await db.close(); }
 }
 
 type WorkerDependencies = {
@@ -117,11 +127,16 @@ export function createWorkspaceOperationBatchWorker(dependencies: WorkerDependen
               return;
             }
           }
+          const direct = currentBatch.authorization?.mode === 'direct' ? currentBatch.authorization : null;
+          const actorUserId = workspaceOperationBatchAuthorityUserId(currentBatch)!;
+          const actorDisplayName = direct && currentBatch.actionMode === 'undo' ? 'Workspace user'
+            : direct?.actorDisplayName ?? currentBatch.reviewerDisplayName ?? 'Workspace user';
           const result = currentBatch.actionMode === 'undo'
-            ? await undo({ batchId: currentBatch.batchId, scope, actorUserId: currentBatch.reviewerUserId!,
-              actorDisplayName: currentBatch.reviewerDisplayName ?? 'Workspace user', onProgress: gate })
+            ? await undo({ batchId: currentBatch.batchId, scope, actorUserId,
+              actorDisplayName, actorId: actorUserId, actorType: 'user', onProgress: gate })
             : await execute({ batchId: currentBatch.batchId, plan: currentBatch.plan, scope,
-              actorUserId: currentBatch.reviewerUserId!, actorDisplayName: currentBatch.reviewerDisplayName ?? 'Workspace user',
+              actorUserId, actorDisplayName, actorId: direct?.actorId ?? actorUserId,
+              actorType: direct?.actorType ?? 'user', actorSessionId: direct?.actorSessionId,
               onProgress: gate });
           const refusedUndo = currentBatch.actionMode === 'undo' && result.status === 'failed'
             && await mutationEvidence(currentBatch.batchId, currentBatch.workspaceId, true) === 'pristine';
