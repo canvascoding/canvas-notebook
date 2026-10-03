@@ -1,6 +1,6 @@
 'use client';
 
-import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
 import { AlertTriangle, Ban, CheckCircle2, Copy, ExternalLink, KeyRound, Loader2, MailPlus, MoreHorizontal, Plus, RefreshCw, Search, Shield, UserCog, UserMinus } from 'lucide-react';
 
@@ -9,7 +9,7 @@ import { authClient } from '@/app/lib/auth-client';
 import { includesTeamRuntimeLicense } from '@/app/lib/license/team-runtime-status';
 import type { TeamSeatHealth } from '@/app/lib/license/team-seat-health-types';
 import { TeamSeatHealthPanel } from '@/app/components/license/TeamSeatHealthPanel';
-import { isTeamLicenseApplicable } from '@/app/lib/license/ui-policy';
+import { isLicenseUiStatus, isTeamLicenseApplicable } from '@/app/lib/license/ui-policy';
 import { UserPermissionsDialog } from './UserPermissionsDialog';
 import { SettingsAccordionCard } from './SettingsAccordionCard';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
@@ -249,6 +249,7 @@ export function UserManagementPanel({
   const [teamLicenseState, setTeamLicenseState] = useState<TeamLicenseState>('checking');
   const [teamSeatHealth, setTeamSeatHealth] = useState<TeamSeatHealth | null | undefined>(undefined);
   const [teamHealthApplicable, setTeamHealthApplicable] = useState(false);
+  const licenseRequest = useRef(0);
   const [total, setTotal] = useState(0);
   const [offset, setOffset] = useState(0);
   const [searchDraft, setSearchDraft] = useState('');
@@ -336,24 +337,29 @@ export function UserManagementPanel({
   }, [isAdmin, offset, searchValue, t, teamLicenseState]);
 
   const loadLicenseStatus = useCallback(async () => {
+    const requestId = ++licenseRequest.current;
+    if (canViewTeamSeatHealth) setTeamSeatHealth(undefined);
     try {
       const response = await fetch('/api/license/status', {
         cache: 'no-store',
         credentials: 'include',
+        signal: AbortSignal.timeout(15000),
       });
       const payload = await response.json().catch(() => ({})) as LicenseStatusResponse;
-      if (!response.ok || payload.success === false) {
+      if (!response.ok || !isLicenseUiStatus(payload)) {
         throw new Error('LICENSE_STATUS_UNAVAILABLE');
       }
       if (payload.error === 'license_status_unavailable') {
         throw new Error('LICENSE_STATUS_UNAVAILABLE');
       }
-      setTeamLicenseState(response.ok && includesTeamRuntimeLicense(payload) ? 'active' : 'required');
+      if (requestId !== licenseRequest.current) return;
+      setTeamLicenseState(includesTeamRuntimeLicense(payload) ? 'active' : 'required');
       setTeamHealthApplicable(isTeamLicenseApplicable(payload));
       if (canViewTeamSeatHealth) {
         setTeamSeatHealth(payload.teamSeatHealth ?? null);
       }
     } catch {
+      if (requestId !== licenseRequest.current) return;
       setTeamLicenseState('unavailable');
       if (canViewTeamSeatHealth) setTeamSeatHealth(null);
     }
@@ -1108,7 +1114,7 @@ export function UserManagementPanel({
               </Button>
             </div>
           </div>
-          {canViewTeamSeatHealth && teamHealthApplicable && teamSeatHealth ? (
+          {canViewTeamSeatHealth && teamHealthApplicable ? (
             <TeamSeatHealthPanel
               health={teamSeatHealth}
               onReload={loadLicenseStatus}

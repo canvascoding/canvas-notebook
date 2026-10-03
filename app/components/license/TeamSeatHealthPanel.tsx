@@ -423,6 +423,7 @@ export function TeamSeatHealthPanel({
   }
 
   if (health === undefined) {
+    if (variant === 'compact') return <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />{locale.startsWith('de') ? 'Team-Status wird geladen' : 'Loading Team status'}</p>;
     return (
       <Card className="overflow-hidden py-0">
         <div className="h-1 bg-muted" />
@@ -440,6 +441,10 @@ export function TeamSeatHealthPanel({
   }
 
   if (!health) {
+    if (variant === 'compact') return <div role="alert" className="flex flex-wrap items-center justify-between gap-2 text-sm">
+      <p className="text-destructive">{copy.unavailable}</p>
+      {onReload ? <Button type="button" size="sm" variant="outline" onClick={() => void onReload()}><RefreshCw />{copy.reload}</Button> : null}
+    </div>;
     return (
       <Card className="border-destructive bg-card">
         <CardHeader>

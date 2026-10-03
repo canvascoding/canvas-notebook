@@ -42,4 +42,25 @@ export function teamHealthAttentionReason(health: TeamSeatHealth, now = Date.now
   if ((health.emailDelivery?.manualReview ?? 0) > 0) return 'email';
   return null;
 }
+
+export function isLicenseUiStatus(value: unknown): boolean {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const status = value as Record<string, unknown>;
+  if (status.success !== true || typeof status.licensed !== 'boolean'
+    || typeof status.plan !== 'string' || !status.plan.trim()
+    || typeof status.instanceId !== 'string' || !status.instanceId.trim()
+    || status.error === 'license_status_unavailable') return false;
+  for (const field of ['runtimeDeploymentMode', 'hostingMode', 'deploymentMode'] as const) {
+    if (status[field] != null && typeof status[field] !== 'string') return false;
+  }
+  if (licenseHostingVariant(status as Parameters<typeof licenseHostingVariant>[0]) === null) return false;
+  if (status.expiresAt != null && (typeof status.expiresAt !== 'string' || !Number.isFinite(Date.parse(status.expiresAt)))) return false;
+  if (status.teamSeatHealth != null) {
+    if (typeof status.teamSeatHealth !== 'object' || Array.isArray(status.teamSeatHealth)) return false;
+    const health = status.teamSeatHealth as Record<string, unknown>;
+    if (!['license', 'sync', 'claim', 'grace', 'recovery'].every((field) =>
+      health[field] && typeof health[field] === 'object' && !Array.isArray(health[field]))) return false;
+  }
+  return true;
+}
 import type { TeamSeatHealth } from './team-seat-health-types';

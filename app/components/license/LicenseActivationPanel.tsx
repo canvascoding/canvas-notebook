@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useLocale } from 'next-intl';
 import { CheckCircle2, ExternalLink, Info, KeyRound, Loader2, Mail, ShieldAlert } from 'lucide-react';
@@ -17,7 +17,7 @@ import { Switch } from '@/components/ui/switch';
 import { scrubLicenseKeyFromBrowserUrl } from '@/app/lib/license/browser-url';
 import { codeFromLicenseError } from '@/app/lib/license/error-codes';
 import type { TeamSeatHealth } from '@/app/lib/license/team-seat-health-types';
-import { isTeamLicenseApplicable, licenseHostingVariant } from '@/app/lib/license/ui-policy';
+import { isLicenseUiStatus, isTeamLicenseApplicable, licenseHostingVariant } from '@/app/lib/license/ui-policy';
 import {
   CommunityTeamConnectionPanel,
   type TeamSeatRolloutStatus,
@@ -112,7 +112,7 @@ function getActivationCopy(locale: string) {
         activationKey: 'Aktivierungs-Key',
         activate: 'Aktivieren',
         statusUnavailableTitle: 'Lizenzstatus nicht verfügbar',
-        statusUnavailableDescription: 'Die Lizenz konnte nicht sicher geladen werden. Team-Funktionen bleiben deaktiviert, bis der Status erneut geladen werden kann. Canvas Core bleibt lokal nutzbar.',
+        statusUnavailableDescription: 'Die Lizenz konnte nicht sicher geladen werden. Bitte lade den Status erneut.',
         retryStatus: 'Status erneut laden',
         details: 'Lizenzdetails und Bedingungen',
         openActivation: 'Freiwillig aktivieren',
@@ -157,7 +157,7 @@ function getActivationCopy(locale: string) {
         activationKey: 'Activation key',
         activate: 'Activate',
         statusUnavailableTitle: 'License status unavailable',
-        statusUnavailableDescription: 'The license could not be loaded safely. Team features remain disabled until the status can be loaded again. Canvas Core remains available locally.',
+        statusUnavailableDescription: 'The license could not be loaded safely. Please retry loading the status.',
         retryStatus: 'Retry status',
         details: 'License details and terms',
         openActivation: 'Activate optionally',
@@ -192,29 +192,34 @@ export function LicenseActivationPanel({
   const [activationOpen, setActivationOpen] = useState(Boolean(searchParams.get('key')));
   const [keyOpen, setKeyOpen] = useState(Boolean(searchParams.get('key')));
   const [connectionOpen, setConnectionOpen] = useState(false);
+  const statusRequest = useRef(0);
 
   useEffect(() => {
     scrubLicenseKeyFromBrowserUrl();
   }, []);
 
   const loadStatus = useCallback(async () => {
+    const requestId = ++statusRequest.current;
     setLoading(true);
     try {
       const response = await fetch('/api/license/status', {
         cache: 'no-store',
         credentials: 'include',
+        signal: AbortSignal.timeout(15000),
       });
       const payload = await response.json().catch(() => ({})) as LicenseStatus;
-      if (!response.ok || payload.success === false) {
+      if (!response.ok || !isLicenseUiStatus(payload)) {
         throw new Error(payload.error || copy.statusUnavailableDescription);
       }
+      if (requestId !== statusRequest.current) return;
       setStatus(payload);
       setStatusLoadError(null);
     } catch (error) {
+      if (requestId !== statusRequest.current) return;
       setStatus(null);
       setStatusLoadError(error instanceof Error ? error.message : copy.statusUnavailableDescription);
     } finally {
-      setLoading(false);
+      if (requestId === statusRequest.current) setLoading(false);
     }
   }, [copy.statusUnavailableDescription]);
 
@@ -308,17 +313,17 @@ export function LicenseActivationPanel({
           <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div className="min-w-0 space-y-1.5">
               <CardTitle className="flex min-w-0 items-center gap-2 text-base sm:text-lg">
-                {isLicensed ? <CheckCircle2 className="h-5 w-5 shrink-0" /> : <ShieldAlert className="h-5 w-5 shrink-0" />}
+                {loading ? <Loader2 className="h-5 w-5 shrink-0 animate-spin" /> : isLicensed ? <CheckCircle2 className="h-5 w-5 shrink-0" /> : <ShieldAlert className="h-5 w-5 shrink-0" />}
                 {isManaged ? copy.managedTitle : isSelfHosted ? copy.title : copy.licenseTitle}
               </CardTitle>
               <CardDescription className="leading-5">
-                {isManaged ? copy.managedShort : !status ? copy.loading : isLicensed
+                {statusLoadError ? copy.statusUnavailableDescription : isManaged ? copy.managedShort : !status ? copy.loading : isLicensed
                   ? copy.verified
                   : copy.unverified}
               </CardDescription>
             </div>
             <Badge className="w-fit max-w-full truncate" variant={isLicensed ? 'default' : 'secondary'}>
-              {loading ? copy.loading : `${planLabel} · ${isLicensed ? copy.active : copy.inactive}`}
+              {loading ? copy.loading : statusLoadError ? locale.startsWith('de') ? 'Unbekannt' : 'Unknown' : `${planLabel} · ${isLicensed ? copy.active : copy.inactive}`}
             </Badge>
           </div>
 
@@ -328,7 +333,7 @@ export function LicenseActivationPanel({
               <AlertTitle>{copy.statusUnavailableTitle}</AlertTitle>
               <AlertDescription>
                 <p>{statusLoadError}</p>
-                <Button type="button" variant="outline" size="sm" onClick={() => void loadStatus()}>
+                <Button type="button" variant="outline" size="sm" disabled={loading} onClick={() => void loadStatus()}>
                   <Loader2 className={loading ? 'animate-spin' : undefined} />
                   {copy.retryStatus}
                 </Button>
