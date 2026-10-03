@@ -459,14 +459,23 @@ export function TeamSeatHealthPanel({
 
   const managed = health.mode === 'managed-team';
   const managedState = health.sync.managedState ?? 'never';
-  const statusLabel = managed ? copy.managedStates[managedState] : copy.health[health.sync.state];
-  const attention = managed
-    ? managedState === 'error' || managedState === 'stale' || managedState === 'adoption_required'
-    : health.sync.state === 'attention' || health.sync.state === 'stale';
-  const healthy = managed ? managedState === 'current' : health.sync.state === 'healthy';
   const managedPolicy = managed ? health.managedAccessPolicy : null;
   const managedGrace = managedPolicy?.state === 'grace';
   const policyRequiresAction = managedPolicy?.state === 'restricted' || managedGrace;
+  const managedCurrent = managedState === 'current'
+    && (health.sync.state === 'healthy' || policyRequiresAction);
+  const statusLabel = managed
+    ? managedState === 'current' && !managedCurrent ? copy.health[health.sync.state] : copy.managedStates[managedState]
+    : copy.health[health.sync.state];
+  const attention = managed
+    ? managedState === 'error' || managedState === 'stale' || managedState === 'adoption_required'
+      || (!policyRequiresAction && (health.sync.state === 'attention' || health.sync.state === 'stale'))
+    : health.sync.state === 'attention' || health.sync.state === 'stale';
+  const healthy = managed ? managedCurrent : health.sync.state === 'healthy';
+  const connectionLabel = managed
+    ? healthy ? copy.connectionStates.connected
+      : managedState === 'current' ? copy.health[health.sync.state] : copy.managedStates[managedState]
+    : copy.connectionStates[health.claim.state];
   const graceActive = managedGrace || health.grace.licenseState === 'grace' || health.grace.licenseState === 'grace_required';
   const graceExpiry = managedGrace ? managedPolicy?.graceEndsAt ?? null : health.grace.expiresAt;
   const graceRemaining = managedGrace ? null : formatDuration(health.grace.remainingSeconds, locale);
@@ -504,7 +513,7 @@ export function TeamSeatHealthPanel({
         </div>
         <CardDescription>{copy.description}</CardDescription>
         <p className="text-xs text-muted-foreground">
-          {copy.connection}: {copy.connectionStates[health.claim.state]}
+          {copy.connection}: {connectionLabel}
         </p>
       </CardHeader>
       <CardContent className="space-y-4 px-4 pb-5 sm:px-6">
@@ -588,12 +597,6 @@ export function TeamSeatHealthPanel({
             {health.sync.reconciliationReason ? <p className="break-words text-xs text-muted-foreground">{health.sync.reconciliationReason}</p> : null}
             {!managed ? <p className="text-xs text-muted-foreground">{copy.refreshPhase}: {health.grace.refreshPhase || copy.unknown}</p> : null}
           </section>
-          {managed && health.historicalCommunity ? <section aria-label={copy.history} className="space-y-2 border-t border-border pt-3">
-            <p className="text-xs font-semibold uppercase tracking-wider">{copy.history}</p>
-            <p className="text-xs text-muted-foreground">{copy.historyNotice}</p>
-            <dl className="grid gap-2 text-sm"><div className="flex justify-between"><dt>{copy.pending}</dt><dd>{health.historicalCommunity.pendingOperations}</dd></div>
-              <div className="flex justify-between"><dt>{copy.failed}</dt><dd>{health.historicalCommunity.failedOperations}</dd></div></dl>
-          </section> : null}
           <p className="border-t border-border pt-3 text-xs text-muted-foreground">{copy.ownerOnly} {copy.safety}</p>
         </SettingsAccordionCard>
         <SettingsAccordionCard title={copy.notifications} isOpen={notificationsOpen} onOpenChange={setNotificationsOpen}

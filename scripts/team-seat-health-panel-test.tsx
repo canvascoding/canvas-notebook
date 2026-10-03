@@ -18,7 +18,7 @@ const fixture: TeamSeatHealth = {
   historicalCommunity: { pendingOperations: 1, failedOperations: 6 },
   license: { class: 'manual', environment: 'production', seatLimit: 10,
     expiresAt: '2026-09-30T11:00:00Z', termEndsAt: '2027-09-30T11:00:00Z', nonBillable: true, billingMode: 'manual_grant' },
-  claim: { state: 'connected', connectionExpiresAt: null, reconnectReason: null },
+  claim: { state: 'idle', connectionExpiresAt: null, reconnectReason: null },
   sync: { state: 'healthy', managedState: 'current', lastAttemptAt: '2026-09-30T10:00:00Z', lastError: null,
     membershipRevision: 5, entitlementsVersion: 7, blocker: null, observedQuantity: 2, approvedQuantity: 2,
     billedQuantity: null, licensedQuantity: 10, lastSyncAt: '2026-09-30T10:00:00Z', nextReportAt: '2026-09-30T10:01:00Z',
@@ -72,7 +72,7 @@ async function main() {
     assert(screen.getByText('Certificate valid until'));
     assert(screen.getByText('Grant valid until'));
     assert(screen.getByText('Not applicable · non-billable'));
-    assert(screen.getByRole('region', { name: 'Previous Community operations' }));
+    assert.equal(screen.queryByRole('region', { name: 'Previous Community operations' }), null);
     fireEvent.click(details);
     assert.equal(screen.queryByText('Certificate valid until'), null);
     assert.equal(screen.queryByRole('switch'), null);

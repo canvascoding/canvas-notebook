@@ -16,6 +16,7 @@ import { Switch } from '@/components/ui/switch';
 import { scrubLicenseKeyFromBrowserUrl } from '@/app/lib/license/browser-url';
 import { codeFromLicenseError } from '@/app/lib/license/error-codes';
 import type { TeamSeatHealth } from '@/app/lib/license/team-seat-health-types';
+import { licenseHostingVariant } from '@/app/lib/license/ui-policy';
 import {
   CommunityTeamConnectionPanel,
   type TeamSeatRolloutStatus,
@@ -30,6 +31,10 @@ type LicenseStatus = {
   licensed: boolean;
   plan: string;
   instanceId: string;
+  runtimeDeploymentMode?: string;
+  hostingMode?: string | null;
+  deploymentMode?: string | null;
+  edition?: string | null;
   expiresAt: string | null;
   error?: string;
   code?: string;
@@ -72,6 +77,8 @@ function getActivationCopy(locale: string) {
   return isGerman
     ? {
         title: 'Community-Lizenz',
+        licenseTitle: 'Lizenz',
+        managedTitle: 'Managed-Lizenz',
         verified: 'Die freiwillige Community-Lizenz ist für diese Instanz aktiv.',
         unverified: 'Die Aktivierung ist freiwillig. Canvas Notebook kann lokal auch ohne Community-Lizenz genutzt werden.',
         loading: 'Lade',
@@ -107,6 +114,8 @@ function getActivationCopy(locale: string) {
       }
     : {
         title: 'Community license',
+        licenseTitle: 'License',
+        managedTitle: 'Managed license',
         verified: 'The optional Community license is active for this instance.',
         unverified: 'Activation is optional. Canvas Notebook can be used locally without a Community license.',
         loading: 'Loading',
@@ -254,9 +263,13 @@ export function LicenseActivationPanel({
   }
 
   const isLicensed = Boolean(status?.licensed);
-  const isManaged = status?.plan === 'managed';
+  const hostingVariant = licenseHostingVariant(status);
+  const isManaged = hostingVariant === 'managed';
+  const isSelfHosted = hostingVariant === 'self-hosted';
   const statusCode = status?.code || codeFromLicenseError(status?.error as Parameters<typeof codeFromLicenseError>[0]);
-  const planLabel = status?.plan === 'unregistered' ? copy.unregistered : status?.plan || copy.unregistered;
+  const planLabel = isManaged
+    ? `Managed${status?.edition ? ` ${status.edition === 'team' ? 'Team' : 'Solo'}` : ''}`
+    : status?.plan === 'unregistered' ? copy.unregistered : status?.plan || copy.loading;
 
   return (
     <div className="space-y-3 sm:space-y-4">
@@ -266,10 +279,10 @@ export function LicenseActivationPanel({
             <div className="min-w-0 space-y-1.5">
               <CardTitle className="flex min-w-0 items-center gap-2 text-base sm:text-lg">
                 {isLicensed ? <CheckCircle2 className="h-5 w-5 shrink-0" /> : <ShieldAlert className="h-5 w-5 shrink-0" />}
-                {copy.title}
+                {isManaged ? copy.managedTitle : isSelfHosted ? copy.title : copy.licenseTitle}
               </CardTitle>
               <CardDescription className="leading-5">
-                {isLicensed
+                {isManaged ? copy.managedDescription : !status ? copy.loading : isLicensed
                   ? copy.verified
                   : copy.unverified}
               </CardDescription>
@@ -294,7 +307,7 @@ export function LicenseActivationPanel({
           ) : null}
         </CardHeader>
         <CardContent className="space-y-4 px-4 sm:px-6">
-          <div className="border border-border bg-muted/30 px-3 py-3 text-sm sm:px-4">
+          {isSelfHosted ? <div className="border border-border bg-muted/30 px-3 py-3 text-sm sm:px-4">
             <div className="space-y-3 sm:flex sm:items-start sm:gap-3 sm:space-y-0">
               <Info className="mt-0.5 hidden h-4 w-4 shrink-0 text-muted-foreground sm:block" />
               <div className="min-w-0 space-y-3 leading-6">
@@ -313,7 +326,7 @@ export function LicenseActivationPanel({
                     {copy.termsDescription}
                   </p>
                   <p className="mt-2 text-muted-foreground">
-                    {isManaged ? copy.managedDescription : copy.renewalDescription}
+                    {copy.renewalDescription}
                   </p>
                   <a
                     href="https://github.com/canvascoding/canvas-notebook?tab=License-1-ov-file"
@@ -327,7 +340,7 @@ export function LicenseActivationPanel({
                 </div>
               </div>
             </div>
-          </div>
+          </div> : null}
 
           <div className="grid gap-2 text-sm">
             <div className="grid gap-1.5 border border-border px-3 py-2.5 sm:flex sm:items-center sm:justify-between sm:gap-3">
@@ -342,7 +355,7 @@ export function LicenseActivationPanel({
             )}
           </div>
 
-          {!isLicensed && (
+          {isSelfHosted && !isLicensed && !loading && !statusLoadError && (
             <>
               <div className="space-y-2">
                 <Label htmlFor="license-email">{copy.email}</Label>
@@ -410,7 +423,7 @@ export function LicenseActivationPanel({
           onReload={loadStatus}
         />
       ) : null}
-      <CommunityTeamConnectionPanel
+      {isSelfHosted && !loading && !statusLoadError ? <CommunityTeamConnectionPanel
         licensed={isLicensed}
         licensePlan={status?.plan || 'unregistered'}
         licenseStatusAvailable={
@@ -419,7 +432,7 @@ export function LicenseActivationPanel({
           && status.error !== 'license_status_unavailable'
         }
         teamSeatRollout={status?.teamSeatRollout}
-      />
+      /> : null}
     </div>
   );
 }

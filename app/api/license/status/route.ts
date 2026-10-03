@@ -20,6 +20,7 @@ import {
 } from '@/app/lib/organization/permissions';
 
 export async function GET(request: NextRequest) {
+  const runtimeDeploymentMode = getDeploymentMode().trim().toLowerCase().replaceAll('_', '-');
   const status = await getLicenseStatus();
   const code = codeFromLicenseStatus(status);
   const teamSeatRollout = resolveTeamSeatRolloutStatus();
@@ -46,10 +47,10 @@ export async function GET(request: NextRequest) {
         try {
           const [diagnostics, claim, emailDelivery, managedStatus] = await Promise.all([
             readTeamSeatSyncDiagnostics(database, organization.organizationId),
-            getDeploymentMode() === 'managed-team'
+            runtimeDeploymentMode === 'managed-team'
               ? Promise.resolve({ state: 'idle' as const, claimId: null }) : getCommunityLicenseClaimStatus(),
             readTeamLicenseEmailOutboxDiagnostics(database, organization.organizationId),
-            getDeploymentMode() === 'managed-team'
+            runtimeDeploymentMode === 'managed-team'
               ? readManagedTeamSyncStatus(status.instanceId) : Promise.resolve(null),
           ]);
           const organizationRows = await database.all(`
@@ -62,10 +63,10 @@ export async function GET(request: NextRequest) {
             teamSeatHealth: {
               ...buildTeamSeatHealth({
                 organizationId: organization.organizationId,
-                mode: getDeploymentMode() === 'managed-team' ? 'managed-team' : 'community',
+                mode: runtimeDeploymentMode === 'managed-team' ? 'managed-team' : 'community',
                 managedStatus,
                 managedConfigured: Boolean(process.env.CANVAS_INSTANCE_TOKEN?.trim()),
-                organizationReady: getDeploymentMode() === 'managed-team'
+                organizationReady: runtimeDeploymentMode === 'managed-team'
                   ? organizationRows.length === 1
                     && organizationRows[0].organization_id === organization.organizationId
                   : status.hostingMode !== 'community'
@@ -101,6 +102,7 @@ export async function GET(request: NextRequest) {
     {
       success: true,
       ...publicLicenseStatus(status, code),
+      runtimeDeploymentMode,
       runtimeDatabaseProvider: getDatabaseProvider(),
       teamSeatRollout,
       ...ownerHealth,
