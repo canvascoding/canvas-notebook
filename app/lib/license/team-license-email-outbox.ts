@@ -6,7 +6,10 @@ import { getUserPreferences } from '@/app/lib/user-preferences';
 import { getSystemSmtpConfigurationStatus } from '@/app/lib/email/system-smtp-config';
 import { getManagedSystemEmailAvailability, ManagedSystemEmailDeliveryUnknownError, sendManagedSystemEmail } from '@/app/lib/email/managed-system-email-client';
 import { sendSystemSmtpEmail, SystemSmtpDeliveryUnknownError } from '@/app/lib/email/system-smtp-service';
+import { renderTeamLicenseNotificationEmail } from '@/app/lib/email/templates/team-license-notification';
 import { redactTeamControlPlaneLogText } from '@/app/lib/control-plane/team-client';
+import { getServerPreferredTimeZone } from '@/app/lib/server-settings';
+import { normalizePublicOrigin } from '@/app/lib/utils/request-origin';
 
 type EmailDatabase = Pick<SqlConnection, 'get' | 'run' | 'close'>;
 export type TeamLicenseEmailKind = 'owner_restricted' | 'owner_restored' | 'owner_mixed' | 'member_paused' | 'member_restored'
@@ -21,9 +24,13 @@ type EmailJob = {
   seat_limit: number | string;
   attempts: number | string;
   email: string | null;
+  recipient_name: string | null;
+  owner_email: string | null;
+  created_at: number | string;
+  audit_metadata_json: string | null;
 };
 
-type EmailMessage = { to: string; subject: string; body: string; idempotencyKey: string };
+type EmailMessage = { to: string; subject: string; body: string; isHtml: true; idempotencyKey: string };
 type Delivery = (message: EmailMessage) => Promise<{ messageId: string | null }>;
 
 export async function readTeamLicenseEmailOutboxDiagnostics(
@@ -92,77 +99,17 @@ export async function supersedeObsoleteTeamLicenseWarnings(
   `, [input.organizationId, input.grantId, input.termEndsAt, input.grace, input.now, input.restricted]);
 }
 
-function messageFor(job: EmailJob, to: string, locale: string): EmailMessage {
-  const german = locale.toLowerCase().startsWith('de');
-  const seats = Number(job.seat_limit);
-  if (job.event_kind.startsWith('owner_term_') || job.event_kind.startsWith('member_term_')) {
-    const stage = Number(job.event_kind.match(/^(?:owner|member)_term_(14|3|1)d$/u)?.[1]);
-    const member = job.event_kind.startsWith('member_');
-    const date = new Date(job.reason);
-    const term = Number.isFinite(date.getTime())
-      ? new Intl.DateTimeFormat(german ? 'de-DE' : 'en-US', {
-        dateStyle: 'medium', timeStyle: 'short', timeZone: 'Europe/Berlin',
-      }).format(date)
-      : job.reason;
-    return {
-      to,
-      subject: german
-        ? `Canvas Notebook: Team-Grant endet in ${stage} ${stage === 1 ? 'Tag' : 'Tagen'}`
-        : `Canvas Notebook: Team grant ends within ${stage} ${stage === 1 ? 'day' : 'days'}`,
-      body: german
-        ? member
-          ? `Die Team-Lizenz für Canvas Notebook endet am ${term}. Dein Zugang kann danach eingeschränkt werden. Deine Daten bleiben erhalten. Bitte wende dich an den Organisations-Owner.`
-          : `Dein kostenfreier Team-Grant für bis zu ${seats} Plätze endet am ${term}. Bitte verlängere den Grant im Control Plane, damit der Team-Zugang bestehen bleibt.`
-        : member
-          ? `The Canvas Notebook team license ends on ${term}. Your access may be restricted afterward. Your data will be retained. Please contact the organization owner.`
-          : `Your free Team grant for up to ${seats} seats ends on ${term}. Renew the grant in Control Plane to keep Team access available.`,
-      idempotencyKey: job.id,
-    };
-  }
-  if (job.event_kind === 'owner_grace' || job.event_kind === 'member_grace') {
-    const date = new Date(job.reason);
-    const deadline = Number.isFinite(date.getTime())
-      ? new Intl.DateTimeFormat(german ? 'de-DE' : 'en-US', {
-        dateStyle: 'medium', timeStyle: 'short', timeZone: 'Europe/Berlin',
-      }).format(date) : job.reason;
-    const owner = job.event_kind === 'owner_grace';
-    return {
-      to,
-      subject: german ? 'Canvas Notebook: Team-Zugang endet bald' : 'Canvas Notebook: Team access ends soon',
-      body: german
-        ? owner
-          ? `Dein kostenfreier Team-Grant ist abgelaufen. Während der Schonfrist bis ${deadline} bleiben bestehende Zugänge aktiv. Verlängere den Grant im Control Plane, bevor Mitglieder den Zugang verlieren.`
-          : `Die Team-Lizenz ist abgelaufen. Dein Zugang bleibt während der Schonfrist bis ${deadline} verfügbar und kann danach pausiert werden. Deine Daten bleiben erhalten. Bitte wende dich an den Organisations-Owner.`
-        : owner
-          ? `Your free Team grant has expired. Existing access remains active during the grace period until ${deadline}. Renew the grant in Control Plane before members lose access.`
-          : `The team license has expired. Your access remains available during the grace period until ${deadline} and may then be paused. Your data will be retained. Please contact the organization owner.`,
-      idempotencyKey: job.id,
-    };
-  }
-  const member = job.event_kind.startsWith('member_');
-  const restored = job.event_kind === 'member_restored' || job.event_kind === 'owner_restored';
-  const subject = german
-    ? restored ? 'Canvas Notebook: Team-Zugang wiederhergestellt' : 'Canvas Notebook: Team-Zugang geändert'
-    : restored ? 'Canvas Notebook: Team access restored' : 'Canvas Notebook: Team access changed';
-  let body: string;
-  if (member) {
-    body = restored
-      ? german
-        ? 'Dein Team-Zugang zu Canvas Notebook wurde wiederhergestellt. Du kannst dich erneut anmelden. Deine Daten sind erhalten geblieben.'
-        : 'Your Canvas Notebook team access has been restored. You can sign in again. Your data was retained.'
-      : german
-        ? `Dein Team-Zugang zu Canvas Notebook ist derzeit pausiert, weil die Team-Lizenz oder das Seat-Limit (${seats}) geändert wurde. Du kannst dich vorerst nicht anmelden. Deine Daten bleiben erhalten. Bitte wende dich an den Organisations-Owner.`
-        : `Your Canvas Notebook team access is paused because the team license or seat limit (${seats}) changed. You cannot sign in for now. Your data is retained. Please contact the organization owner.`;
-  } else {
-    body = restored
-      ? german
-        ? `Team-Zugänge wurden innerhalb des aktuellen Limits von ${seats} Plätzen wiederhergestellt. Betroffene Mitglieder können sich erneut anmelden.`
-        : `Team access was restored within the current limit of ${seats} seats. Affected members can sign in again.`
-      : german
-        ? `Der Team-Zugang wurde geändert. Das aktuelle Limit beträgt ${seats} Plätze. Betroffene Mitglieder können sich vorerst nicht anmelden; ihre Daten bleiben erhalten. Prüfe die Team-Lizenz in Canvas Notebook.`
-        : `Team access changed. The current limit is ${seats} seats. Affected members cannot sign in for now; their data remains intact. Review the team license in Canvas Notebook.`;
-  }
-  return { to, subject, body, idempotencyKey: job.id };
+async function messageFor(job: EmailJob, to: string, locale: string): Promise<EmailMessage> {
+  const rendered = renderTeamLicenseNotificationEmail({
+    kind: job.event_kind, reason: job.reason, seatLimit: Number(job.seat_limit),
+    recipientName: job.recipient_name, ownerEmail: job.owner_email,
+    occurredAt: Number(job.created_at), metadataJson: job.audit_metadata_json,
+    appUrl: normalizePublicOrigin(process.env.BASE_URL)
+      || normalizePublicOrigin(process.env.APP_BASE_URL)
+      || normalizePublicOrigin(process.env.BETTER_AUTH_BASE_URL),
+    timeZone: await getServerPreferredTimeZone(),
+  }, locale);
+  return { to, subject: rendered.subject, body: rendered.html, isHtml: true, idempotencyKey: job.id };
 }
 
 async function sendSystemEmail(message: EmailMessage): Promise<{ messageId: string | null }> {
@@ -172,13 +119,14 @@ async function sendSystemEmail(message: EmailMessage): Promise<{ messageId: stri
     if (!availability.available) throw new Error('Managed system email is unavailable.');
     return sendManagedSystemEmail({
       purpose: 'automation_alert', to: [message.to], subject: message.subject,
-      body: message.body, idempotencyKey: message.idempotencyKey,
+      body: message.body, isHtml: message.isHtml, idempotencyKey: message.idempotencyKey,
     });
   }
   if (status.deliveryMode === 'local' && status.complete) {
     const domain = status.fromAddress?.split('@')[1] || 'canvas-notebook.local';
     const messageId = `<${createHash('sha256').update(message.idempotencyKey).digest('hex')}@${domain}>`;
-    return sendSystemSmtpEmail({ to: [message.to], subject: message.subject, body: message.body, messageId });
+    return sendSystemSmtpEmail({ to: [message.to], subject: message.subject,
+      body: message.body, isHtml: message.isHtml, messageId });
   }
   throw new Error('System email delivery is unavailable.');
 }
@@ -222,8 +170,15 @@ export async function processTeamLicenseEmailOutbox(options: {
           FOR UPDATE SKIP LOCKED
         )
         RETURNING outbox.id, outbox.user_id, outbox.event_kind, outbox.reason,
-          outbox.seat_limit, outbox.attempts,
-          (SELECT email FROM "user" WHERE id = outbox.user_id) AS email
+          outbox.seat_limit, outbox.attempts, outbox.created_at,
+          (SELECT email FROM "user" WHERE id = outbox.user_id) AS email,
+          (SELECT name FROM "user" WHERE id = outbox.user_id) AS recipient_name,
+          (SELECT owner.email FROM canvas_organization_settings organization
+            JOIN "user" owner ON owner.id = organization.owner_user_id
+            WHERE organization.organization_id = outbox.organization_id) AS owner_email,
+          (SELECT event.metadata_json FROM audit_events event
+            WHERE event.id = outbox.audit_event_id AND event.organization_id = outbox.organization_id
+              AND event.source = 'license' AND event.status = 'success') AS audit_metadata_json
       `, [now, now + 120_000]) as EmailJob | undefined;
       if (!job) break;
       try {
@@ -247,7 +202,7 @@ export async function processTeamLicenseEmailOutbox(options: {
           counts.skipped += 1;
           continue;
         }
-        const response = await (options.deliver ?? sendSystemEmail)(messageFor(job, email, preferences.locale ?? 'en'));
+        const response = await (options.deliver ?? sendSystemEmail)(await messageFor(job, email, preferences.locale ?? 'en'));
         await database.run(`
           UPDATE team_license_email_outbox SET status = 'delivered', lease_until = NULL,
             message_id = $2, error = NULL, delivered_at = $3, updated_at = $3
