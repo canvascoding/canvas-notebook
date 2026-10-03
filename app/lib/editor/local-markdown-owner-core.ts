@@ -3,7 +3,15 @@ import type { MarkdownFrontmatterMode } from '../markdown/editor-document';
 import type { LocalMarkdownOwnerBackend, LocalMarkdownOwnerBackendFactory } from './local-markdown-owner-contract';
 
 function valueKey(value: string): string {
-  return Array.from(digest(new TextEncoder().encode(value)), (byte) => byte.toString(16).padStart(2, '0')).join('');
+  // Fingerprints must preserve unpaired surrogates too: UTF-8 encoding replaces
+  // them with U+FFFD, which would conflate distinct controlled values.
+  const bytes = new Uint8Array(value.length * 2);
+  for (let index = 0; index < value.length; index++) {
+    const unit = value.charCodeAt(index);
+    bytes[index * 2] = unit >>> 8;
+    bytes[index * 2 + 1] = unit & 0xff;
+  }
+  return Array.from(digest(bytes), (byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
 /** The controlled React value protocol and permissions live outside the views. */

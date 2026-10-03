@@ -447,3 +447,74 @@ test('five-argument Web owner keeps actual rich/source history and identities af
   assert.equal(sourceView.history('undo'), false);
   disconnect();
 });
+
+function createUtf16OwnerFixture(value = 'A', sync: 'always' | 'when-blurred' = 'always') {
+  const owner = new LocalMarkdownOwnerCore('utf16-fingerprints', value, true, 'content', false, createRawOwnerBackend);
+  const document = owner.document!;
+  const values: string[] = [];
+  const onChange = (next: string) => { values.push(next); };
+  owner.update(value, false, sync, onChange);
+  const disconnect = owner.connect();
+  return { owner, document, values, onChange, disconnect };
+}
+
+test('UTF-16 fingerprints distinguish genuine replacement characters from unpaired surrogate edits', () => {
+  const { owner, document, values, onChange, disconnect } = createUtf16OwnerFixture();
+  try {
+    assert(document.edit('\uD800'));
+    assert(document.edit('\uD801'));
+    owner.update('\uFFFD', false, 'always', onChange);
+    assert.equal(document.getSnapshot().markdown, '\uFFFD', 'a genuine external value is not a local acknowledgement');
+    assert.deepEqual(document.replacements, ['\uFFFD']);
+    assert.deepEqual(values, ['\uD800', '\uD801'], 'external adoption does not emit a user edit');
+  } finally { disconnect(); }
+});
+
+test('UTF-16 fingerprints retain distinct delayed surrogate acknowledgements after a newer edit', () => {
+  const { owner, document, values, onChange, disconnect } = createUtf16OwnerFixture();
+  try {
+    assert(document.edit('\uD800'));
+    assert(document.edit('\uD801'));
+    assert(document.edit('newest'));
+    owner.update('newest', false, 'always', onChange);
+    owner.update('\uD800', false, 'always', onChange);
+    assert.equal(document.getSnapshot().markdown, 'newest');
+    owner.update('\uD801', false, 'always', onChange);
+    assert.equal(document.getSnapshot().markdown, 'newest', 'each distinct earlier edit has its own acknowledgement');
+    assert.deepEqual(document.replacements, []);
+    assert.deepEqual(values, ['\uD800', '\uD801', 'newest']);
+  } finally { disconnect(); }
+});
+
+test('UTF-16 fingerprints preserve paired emoji, BOM and CRLF through acknowledgement and replacement', () => {
+  const initial = '\uFEFF\uD83D\uDE00 prompt\r\n';
+  const { owner, document, values, onChange, disconnect } = createUtf16OwnerFixture(initial);
+  try {
+    const first = initial + 'first\r\n';
+    const second = initial + 'second\r\n';
+    assert(document.edit(first));
+    assert(document.edit(second));
+    owner.update(second, false, 'always', onChange);
+    owner.update(first, false, 'always', onChange);
+    assert.equal(document.getSnapshot().markdown, second);
+    const external = '\uFEFF\uD83D\uDE03 external\r\n';
+    owner.update(external, false, 'always', onChange);
+    assert.equal(document.getSnapshot().markdown, external, 'adoption preserves literal code units and line endings');
+    assert.deepEqual(document.replacements, [external]);
+    assert.deepEqual(values, [first, second]);
+  } finally { disconnect(); }
+});
+
+test('UTF-16 fingerprints still adopt deferred empty external values without echoing them', () => {
+  const { owner, document, values, onChange, disconnect } = createUtf16OwnerFixture('A', 'when-blurred');
+  try {
+    owner.setFocused(true);
+    assert(document.edit('\uD800'));
+    owner.update('', false, 'when-blurred', onChange);
+    assert.equal(document.getSnapshot().markdown, '\uD800');
+    owner.setFocused(false);
+    assert.equal(document.getSnapshot().markdown, '');
+    assert.deepEqual(document.replacements, ['']);
+    assert.deepEqual(values, ['\uD800']);
+  } finally { disconnect(); }
+});
