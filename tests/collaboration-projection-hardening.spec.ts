@@ -7,6 +7,7 @@ import type { Editor, JSONContent } from '@tiptap/core';
 import { COLLABORATION_CLIENT_CAPABILITIES, type CollaborationSessionResponse } from '../app/lib/collaboration/types';
 import { ownedCollaborationQaEnabled, requireOwnedCollaborationQaTarget } from '../scripts/lib/owned-collaboration-qa';
 import { authenticateManagedTestPage } from './helpers/managed-test-context';
+import { waitForOwnedSuiteRequestBudget } from './helpers/owned-suite-request-budget';
 
 const BASE_URL = process.env.BASE_URL || 'http://localhost:3000';
 const selector = '.tiptap-editor-shell .ProseMirror';
@@ -67,6 +68,11 @@ async function selectFirstParagraph(page: Page) {
 test.describe('collaboration projection hardening', () => {
   test.skip(process.env.COLLABORATION_E2E !== '1', 'Requires the authorized managed local PostgreSQL stack.');
   test.setTimeout(180_000);
+
+  test.beforeAll(async ({ browser }) => {
+    test.setTimeout(150_000);
+    await waitForOwnedSuiteRequestBudget(browser);
+  });
 
   test('offline Code/Bold conflicts converge, project, reopen and preserve quarantine across reconnect', async ({ browser }, info) => {
     const url = new URL(process.env.DATABASE_URL!);
