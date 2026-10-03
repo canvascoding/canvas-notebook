@@ -15,6 +15,9 @@ moduleInternals._load = (request, parent, isMain) => {
   if (request === 'server-only') {
     return {};
   }
+  if (request === '@/app/lib/organization/permissions') {
+    return { readOrganizationPermissionForUser: async () => ({ organizationId: null, permission: null }) };
+  }
   // Native dynamic imports may omit the parent and use an absolute filename.
   // Mock only these two provider boundaries; readiness and plugin lifecycle stay real.
   {

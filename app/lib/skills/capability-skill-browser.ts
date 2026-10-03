@@ -3,6 +3,7 @@ import 'server-only';
 import type { Stats } from 'node:fs';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
+import { selectVisibleCapabilities } from '@/app/lib/capabilities/visible-capabilities';
 
 import type {
   CapabilityCandidate,
@@ -46,11 +47,12 @@ export function selectBrowsableSkillCandidates(
   candidates: CapabilityCandidate[],
   managementScope: 'user' | 'organization',
 ): CapabilityCandidate[] {
-  return candidates.filter((candidate) => (
+  const scoped = candidates.filter((candidate) => (
     candidate.ref.resourceType === 'skill'
     && Boolean(candidate.runtimePath)
     && (managementScope !== 'organization' || candidate.ref.scopeType === 'organization')
   ));
+  return managementScope === 'organization' ? scoped : selectVisibleCapabilities(scoped);
 }
 
 function toBrowserPath(value: string): string {

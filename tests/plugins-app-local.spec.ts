@@ -923,7 +923,7 @@ test('a direct store detail resolves independently of the visible catalog page',
   } finally { await context.close(); }
 });
 
-test('same-name personal and assigned plugins keep separate ownership and controls', async ({ browser }, info) => {
+test('a same-name organization namespace hides personal activation until the organization package is removed', async ({ browser }, info) => {
   const context = await createAuthenticatedContext(browser);
   const page = await createAcceptancePage(context);
   const errors = collectRuntimeErrors(page);
@@ -936,10 +936,19 @@ test('same-name personal and assigned plugins keep separate ownership and contro
       effectivePolicy: 'required', readiness: 'available',
       interface: { ...fixture.plugin.interface, displayName: 'QA assigned mailbox' },
     };
-    await page.route('**/api/plugins?*', route => route.fulfill({ json: {
-      success: true, plugins: [fixture.plugin, assigned],
-    } }));
+    // The real registry/GET regression tests cover projection. This browser
+    // boundary reflects the effective response, including a stored personal
+    // package that becomes visible only when the organization record is removed.
+    let organizationPresent = true;
+    await page.route('**/api/plugins?*', route => {
+      const plugins = [organizationPresent ? assigned : fixture.plugin];
+      return route.fulfill({ json: { success: true, plugins,
+        stats: { total: 1, enabled: plugins.filter(plugin => plugin.enabled).length, disabled: plugins.filter(plugin => !plugin.enabled).length },
+      } });
+    });
     await page.goto('/en/plugins?view=installed');
+    await expect(page.getByRole('heading', { name: fixture.entry.displayName, exact: true })).toHaveCount(0);
+    await expect(page.getByRole('heading', { name: 'QA assigned mailbox', exact: true })).toHaveCount(1);
     await page.getByRole('heading', { name: 'QA assigned mailbox', exact: true }).click();
     await expect(page).toHaveURL(url => url.searchParams.get('resourceId') === assigned.resourceId);
     const dialog = page.getByRole('dialog');
@@ -950,7 +959,21 @@ test('same-name personal and assigned plugins keep separate ownership and contro
     await page.reload();
     await expect(page).toHaveURL(url => url.searchParams.get('resourceId') === assigned.resourceId);
     await expect(dialog.getByRole('switch', { name: en.skills.plugins.toggle.replace('{name}', fixture.name), exact: true })).toBeDisabled();
+    assigned.enabled = false;
+    assigned.effectivePolicy = 'blocked';
+    assigned.readiness = 'blocked';
+    await page.reload();
+    await expect(dialog.getByText(en.skills.plugins.permissions.blocked, { exact: true })).toBeVisible();
+    await expect(dialog.getByRole('switch', { name: en.skills.plugins.toggle.replace('{name}', fixture.name), exact: true })).toBeDisabled();
+    await expect(dialog.getByRole('switch', { name: en.skills.plugins.toggle.replace('{name}', fixture.name), exact: true })).not.toBeChecked();
     await page.keyboard.press('Escape');
+    await expect(page.getByRole('heading', { name: fixture.entry.displayName, exact: true })).toHaveCount(0);
+    await expect(page.getByRole('heading', { name: 'QA assigned mailbox', exact: true })).toHaveCount(1);
+    expect(state.installs()).toBe(0);
+    organizationPresent = false;
+    await page.getByRole('button', { name: en.skills.plugins.reload, exact: true }).click();
+    await expect(page.getByRole('heading', { name: 'QA assigned mailbox', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('heading', { name: fixture.entry.displayName, exact: true })).toHaveCount(1);
     await page.getByRole('heading', { name: fixture.entry.displayName, exact: true }).click();
     await expect(page).toHaveURL(url => url.searchParams.get('resourceId') === fixture.plugin.resourceId);
     await expect(dialog.getByRole('switch', { name: en.skills.plugins.toggle.replace('{name}', fixture.name), exact: true })).toBeEnabled();
@@ -1034,7 +1057,7 @@ test('assigned MCP setup uses the exact organization resource rather than a same
       description: 'Assigned organization MCP browser fixture', connectors: { mcp: [assignedConnector] },
       interface: { displayName: 'QA assigned MCP' },
     };
-    await page.route('**/api/plugins?*', route => route.fulfill({ json: { success: true, plugins: [personal, assigned] } }));
+    await page.route('**/api/plugins?*', route => route.fulfill({ json: { success: true, plugins: [assigned], stats: { total: 1, enabled: 1, disabled: 0 } } }));
     await page.route('**/api/plugins/store?*', route => route.fulfill({ json: {
       success: true, registry: { id: 'qa', name: 'QA catalog', updatedAt: '2026-10-02T00:00:00.000Z' },
       plugins: [{ name, displayName: 'QA catalog MCP', description: 'Same-name catalog browser fixture',
@@ -1324,15 +1347,16 @@ test('an unavailable filtered catalog keeps installed packages and filter naviga
 
 // Real member permissions and workspace access remain unmocked. Package data,
 // preference writes and image bytes are deterministic browser boundaries.
-async function mockOwnershipCatalog(page: Page) {
+async function mockOwnershipCatalog(page: Page, sameName = true) {
+  const personalName = sameName ? 'qa-shared-owner' : 'qa-personal-owner';
   const personal = {
-    name: 'qa-shared-owner', resourceId: 'user:plugin:qa-shared-owner', scopeType: 'user', sourceType: 'standalone',
+    name: personalName, resourceId: `user:plugin:${personalName}`, scopeType: 'user', sourceType: 'standalone',
     version: '1.0.0', description: 'QA personal package description', enabled: true, readiness: 'available',
     installedBy: 'qa-personal-installer@example.invalid', skills: [],
     interface: { displayName: 'QA personal package', icon: 'assets/personal.svg' },
   };
   const optional = {
-    ...personal, resourceId: 'organization:plugin:qa-shared-owner', scopeType: 'organization', effectivePolicy: 'optional',
+    ...personal, name: 'qa-shared-owner', resourceId: 'organization:plugin:qa-shared-owner', scopeType: 'organization', effectivePolicy: 'optional',
     description: 'QA organization package description', installedBy: 'qa-organization-installer@example.invalid',
     interface: { displayName: 'QA optional organization package', icon: 'assets/organization.svg' },
   };
@@ -1347,7 +1371,7 @@ async function mockOwnershipCatalog(page: Page) {
     description: 'QA organization package blocked by policy', enabled: false, readiness: 'blocked', effectivePolicy: 'blocked',
     interface: { displayName: 'QA blocked organization package' },
   };
-  const installed = [personal, optional, required, blocked];
+  const installed = [...(sameName ? [] : [personal]), optional, required, blocked];
   const catalog = [
     { name: personal.name, displayName: 'QA same-name catalog package', description: 'QA catalog package description',
       latestVersion: '1.1.0', skills: [], interface: { icon: 'assets/catalog.svg' },
@@ -1367,7 +1391,9 @@ async function mockOwnershipCatalog(page: Page) {
     packageWrites.push({ path: new URL(request.url()).pathname, method: request.method() });
     return route.fulfill({ status: 403, json: { success: false, error: 'QA package mutation must stay disabled for members' } });
   });
-  await page.route('**/api/plugins?*', route => route.fulfill({ json: { success: true, plugins: installed } }));
+  await page.route('**/api/plugins?*', route => route.fulfill({ json: { success: true, plugins: installed,
+    stats: { total: installed.length, enabled: installed.filter(plugin => plugin.enabled).length, disabled: installed.filter(plugin => !plugin.enabled).length },
+  } }));
   await page.route('**/api/plugins/store?*', route => {
     const url = new URL(route.request().url());
     const exactName = url.searchParams.get('name');
@@ -1399,6 +1425,7 @@ async function mockOwnershipCatalog(page: Page) {
       return route.fulfill({ status: 403, json: { success: false, error: 'QA only the optional organization preference may change' } });
     }
     plugin.enabled = body.enabled;
+    plugin.readiness = body.enabled ? 'available' : 'disabled';
     return route.fulfill({ json: { success: true, resourceId: body.resourceId, preference: { ...body, revision: preferences.length } } });
   });
   await page.route('**/api/plugins/asset?*', route => {
@@ -1417,7 +1444,7 @@ test('a genuine member sees package actions read-only with administrator guidanc
   try {
     expect((await (await page.request.get('/api/skills')).json()).canManageOrganizationCapabilities).toBe(false);
     await stageSharedWorkspace(page);
-    const state = await mockOwnershipCatalog(page);
+    const state = await mockOwnershipCatalog(page, false);
     await page.goto('/en/plugins?view=installed');
     const card = page.getByRole('button').filter({ has: page.getByRole('heading', { name: state.personal.interface.displayName, exact: true }) });
     await expect(card.getByRole('switch', { name: en.skills.plugins.toggle.replace('{name}', state.personal.name), exact: true })).toBeDisabled();
@@ -1430,6 +1457,7 @@ test('a genuine member sees package actions read-only with administrator guidanc
     await expect(dialog.getByRole('button', { name: en.skills.plugins.update, exact: true })).toBeDisabled();
     await expect(dialog.getByRole('button', { name: en.skills.plugins.delete, exact: true })).toBeDisabled();
     await expect(dialog.getByText(en.skills.plugins.permissions.askAdmin, { exact: true })).toBeVisible();
+    await expect(dialog.getByText(state.personal.installedBy, { exact: true })).toBeVisible();
     await capture(page, info, 'member-package-readonly');
     await page.keyboard.press('Escape');
     await page.getByRole('tab', { name: en.skills.plugins.storeTabs.discover, exact: true }).click();
@@ -1506,6 +1534,7 @@ test('assigned optional activation writes its exact preference while required an
     const state = await mockOwnershipCatalog(page);
     await page.goto('/en/plugins?view=installed');
     const optionalCard = page.getByRole('button').filter({ has: page.getByRole('heading', { name: state.optional.interface.displayName, exact: true }) });
+    await expect(page.getByRole('heading', { name: state.personal.interface.displayName, exact: true })).toHaveCount(0);
     await expect(optionalCard.getByText(en.skills.plugins.permissions.personalActivation, { exact: true })).toBeVisible();
     await optionalCard.getByRole('heading', { name: state.optional.interface.displayName, exact: true }).click();
     const dialog = page.getByRole('dialog');
@@ -1521,6 +1550,8 @@ test('assigned optional activation writes its exact preference while required an
     await expect(toggle).not.toBeChecked();
     await capture(page, info, 'assigned-personal-activation');
     await page.keyboard.press('Escape');
+    await expect(page.getByRole('heading', { name: state.personal.interface.displayName, exact: true })).toHaveCount(0);
+    await expect(page.getByRole('heading', { name: state.optional.interface.displayName, exact: true })).toHaveCount(1);
     for (const [plugin, guidance] of [[state.required, en.skills.plugins.permissions.required], [state.blocked, en.skills.plugins.permissions.blocked]] as const) {
       const card = page.getByRole('button').filter({ has: page.getByRole('heading', { name: plugin.interface.displayName, exact: true }) });
       await expect(card.getByRole('switch', { name: en.skills.plugins.toggle.replace('{name}', plugin.name), exact: true })).toBeDisabled();
@@ -1585,9 +1616,7 @@ test('organization details retain the installed identity, installer and workspac
     await expect(dialog.getByText(en.skills.plugins.details.installedByUnknown, { exact: true })).toBeVisible();
     await expect(dialog.getByText(state.optional.installedBy, { exact: true })).toHaveCount(0);
     await page.keyboard.press('Escape');
-    await page.getByRole('heading', { name: state.personal.interface.displayName, exact: true }).click();
-    await expect(dialog.getByRole('heading', { name: state.personal.interface.displayName, exact: true })).toBeVisible();
-    await expect(dialog.getByText(state.personal.installedBy, { exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: state.personal.interface.displayName, exact: true })).toHaveCount(0);
     expect(state.packageWrites).toEqual([]);
     expect(state.preferences).toEqual([]);
     expect(errors).toEqual([]);

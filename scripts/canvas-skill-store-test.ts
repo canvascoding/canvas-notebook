@@ -12,6 +12,9 @@ const moduleInternals = Module as typeof Module & {
 };
 const originalLoad = moduleInternals._load;
 moduleInternals._load = (request, parent, isMain) => {
+  if (request === '@/app/lib/organization/permissions') {
+    return { readOrganizationPermissionForUser: async () => ({ configured: false, organizationId: null, permission: null }) };
+  }
   if (request === 'server-only') {
     return {};
   }

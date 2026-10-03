@@ -45,7 +45,7 @@ export async function POST(request: Request) {
     );
 
     if (!result.success) {
-      return NextResponse.json(result, { status: result.validation?.valid === false ? 400 : 409 });
+      return NextResponse.json(result, { status: result.status || (result.validation?.valid === false ? 400 : 409) });
     }
     await recordAuditEvent({
       organizationId: pluginPermission.state.organizationId,

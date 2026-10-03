@@ -1,10 +1,11 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import { CanvasPluginIcon } from '@/app/lib/plugins/plugin-icons';
 import { CanvasSkillIcon } from '@/app/lib/skills/skill-icons';
 import type { CanvasSkillInterface } from '@/app/lib/skills/canvas-skill-manifest';
+import { useWorkspaceStore } from '@/app/store/workspace-store';
 import { cn } from '@/lib/utils';
 
 export type SkillReferenceChipSkill = {
@@ -12,6 +13,9 @@ export type SkillReferenceChipSkill = {
   title: string;
   description: string;
   enabled?: boolean;
+  resourceId?: string;
+  scopeType?: 'system' | 'organization' | 'user';
+  workspaceId?: string;
   interface?: CanvasSkillInterface;
   plugin?: {
     name: string;
@@ -24,6 +28,9 @@ export type SkillReferenceChipPlugin = {
   version: string;
   description: string;
   enabled?: boolean;
+  resourceId?: string;
+  scopeType?: 'system' | 'organization' | 'user';
+  workspaceId?: string;
   interface?: {
     displayName?: string;
     shortDescription?: string;
@@ -47,62 +54,92 @@ type PluginApiResponse = {
   plugins?: SkillReferenceChipPlugin[];
 };
 
-let cachedReferences: CapabilityReferenceChipItem[] | null = null;
-let pendingReferencesRequest: Promise<CapabilityReferenceChipItem[]> | null = null;
+type WorkspaceReferenceCache = {
+  workspaceId: string;
+  references: CapabilityReferenceChipItem[] | null;
+  pending: Promise<CapabilityReferenceChipItem[]> | null;
+  consumers: number;
+};
+
+// Retain only the current workspace's entries. Returning to a previous
+// workspace creates a fresh cache, including while its old JSON is pending.
+let referenceCache: WorkspaceReferenceCache | null = null;
+const EMPTY_REFERENCES: CapabilityReferenceChipItem[] = [];
 
 const SKILL_REFERENCE_PATTERN = /(^|[\s([{"'`,;])\/([a-z0-9]+(?:-[a-z0-9]+)*)(?=$|[\s)\]}",.;:!?])/g;
 
-async function loadSkillReferences(): Promise<CapabilityReferenceChipItem[]> {
-  if (cachedReferences) {
-    return cachedReferences;
+async function loadSkillReferences(workspaceId: string, cache: WorkspaceReferenceCache): Promise<CapabilityReferenceChipItem[]> {
+  if (cache.references) {
+    return cache.references;
   }
+  if (cache.pending) return cache.pending;
+  const query = new URLSearchParams({ workspaceId });
 
-  pendingReferencesRequest ??= Promise.all([
-    fetch('/api/plugins')
+  const request: Promise<CapabilityReferenceChipItem[]> = Promise.all([
+    fetch(`/api/plugins?${query}`)
       .then(async (response) => {
         if (!response.ok) return [];
         const data = (await response.json()) as PluginApiResponse;
         return (data.success && Array.isArray(data.plugins) ? data.plugins : [])
           .filter((plugin) => plugin.enabled !== false)
-          .map((plugin) => ({ ...plugin, kind: 'plugin' as const }));
+          .map((plugin) => ({ ...plugin, workspaceId, kind: 'plugin' as const }));
       })
       .catch(() => []),
-    fetch('/api/skills')
+    fetch(`/api/skills?${query}`)
       .then(async (response) => {
         if (!response.ok) return [];
         const data = (await response.json()) as SkillApiResponse;
         return (data.success && Array.isArray(data.skills) ? data.skills : [])
           .filter((skill) => skill.enabled !== false)
-          .map((skill) => ({ ...skill, kind: 'skill' as const }));
+          .map((skill) => ({ ...skill, workspaceId, kind: 'skill' as const }));
       })
       .catch(() => []),
   ])
     .then(([plugins, skills]) => {
-      cachedReferences = [...plugins, ...skills];
-      return cachedReferences;
+      const references = [...plugins, ...skills];
+      if (referenceCache === cache && useWorkspaceStore.getState().activeWorkspaceId === workspaceId) {
+        cache.references = references;
+      }
+      return references;
     })
     .catch(() => [])
     .finally(() => {
-      pendingReferencesRequest = null;
+      if (cache.pending === request) cache.pending = null;
     });
-
-  return pendingReferencesRequest;
+  cache.pending = request;
+  return request;
 }
 
 export function useSkillReferenceCatalog(): Map<string, CapabilityReferenceChipItem> {
-  const [references, setReferences] = useState<CapabilityReferenceChipItem[]>(cachedReferences || []);
+  const workspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
+  const workspaceIdentity = useMemo(() => Symbol(workspaceId ?? undefined), [workspaceId]);
+  const workspaceIdentityRef = useRef(workspaceIdentity);
+  useLayoutEffect(() => { workspaceIdentityRef.current = workspaceIdentity; }, [workspaceIdentity]);
+  const [state, setState] = useState({ workspaceIdentity, references: EMPTY_REFERENCES });
+  const references = state.workspaceIdentity === workspaceIdentity ? state.references : EMPTY_REFERENCES;
 
   useEffect(() => {
+    if (!workspaceId) {
+      referenceCache = null;
+      return;
+    }
+    if (referenceCache?.workspaceId !== workspaceId) {
+      referenceCache = { workspaceId, references: null, pending: null, consumers: 0 };
+    }
+    const cache = referenceCache;
+    cache.consumers += 1;
     let cancelled = false;
-    void loadSkillReferences().then((nextReferences) => {
-      if (!cancelled) {
-        setReferences(nextReferences);
+    void loadSkillReferences(workspaceId, cache).then((nextReferences) => {
+      if (!cancelled && workspaceIdentityRef.current === workspaceIdentity && referenceCache === cache) {
+        setState({ workspaceIdentity, references: nextReferences });
       }
     });
     return () => {
       cancelled = true;
+      cache.consumers -= 1;
+      if (cache.consumers === 0 && referenceCache === cache) referenceCache = null;
     };
-  }, []);
+  }, [workspaceId, workspaceIdentity]);
 
   return useMemo(() => {
     const catalog = new Map<string, CapabilityReferenceChipItem>();

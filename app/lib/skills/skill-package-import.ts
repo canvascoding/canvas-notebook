@@ -28,6 +28,7 @@ import { coreSkillInstallError, isCoreSkillName } from '@/app/lib/skills/core-sk
 import { enableSkillInConfig } from '@/app/lib/skills/enabled-skills';
 import { getSkillNames, loadSkillByName } from '@/app/lib/skills/skill-loader';
 import { readEnabledSkillsForScope, writeEnabledSkillsForScope } from '@/app/lib/skills/skill-settings';
+import { assertPersonalSkillActivationAllowed, PersonalSkillActivationError } from '@/app/lib/skills/personal-skill-activation';
 
 const MAX_SKILL_ARCHIVE_BYTES = 100 * 1024 * 1024;
 const MAX_SKILL_EXTRACTED_BYTES = 250 * 1024 * 1024;
@@ -384,6 +385,7 @@ async function enableImportedSkill(
   scope?: CanvasSkillStorageScope | null,
   updatedBy?: string,
 ): Promise<void> {
+  await assertPersonalSkillActivationAllowed(skillName, scope);
   const enabledSkills = await readEnabledSkillsForScope(scope);
   const allSkillNames = await getSkillNames(scope);
   const nextEnabledSkills = enableSkillInConfig(skillName, enabledSkills, allSkillNames);
@@ -407,8 +409,6 @@ export async function importSkillPackage(
   let tempRoot: string | null = null;
 
   try {
-    await adoptLegacyStandaloneSkillsForScope(options.scope);
-
     const created = await createTempPackageRoot(source);
     tempRoot = created.tempRoot;
     const packageRoot = await resolveSkillPackageRoot(created.extractRoot);
@@ -417,6 +417,10 @@ export async function importSkillPackage(
       : path.basename(packageRoot);
     const { skillName, validation } = await validateUploadedPackage(packageRoot, expectedDirectoryName);
 
+    if (options.enable !== false) {
+      await assertPersonalSkillActivationAllowed(skillName, options.scope);
+    }
+    await adoptLegacyStandaloneSkillsForScope(options.scope);
     await ensureSkillCanBeInstalled(skillName, options.scope);
     const registryBeforeInstall = await readCanvasSkillRegistry(options.scope);
     const installDir = await copySkillPackage(packageRoot, skillName, options.scope);
@@ -435,6 +439,7 @@ export async function importSkillPackage(
 
     if (options.enable !== false) {
       await enableImportedSkill(skillName, options.scope, options.updatedBy).catch((error) => {
+        if (error instanceof PersonalSkillActivationError) throw error;
         console.warn('[SkillPackageImport] Could not auto-enable skill:', skillName, error);
       });
     }
