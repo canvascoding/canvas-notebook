@@ -11,6 +11,31 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.10.3.1] - 2026-10-03
+
+### Added
+
+- Added an offline collaboration recovery operator with immutable evidence, exact document fingerprints, verified backup and restore requirements, and resumable recovery journals.
+
+### Fixed
+
+- Hardened PostgreSQL recovery evidence decoding and preservation of document identity, history, shares, and newer edits during recovery.
+- Kept readable document content visible beside recovery actions on desktop and mobile when collaboration is quarantined.
+- Recovered mailbox setup after interrupted session checks and coalesced redundant notification refreshes.
+- Allowed a valid stored license certificate to recover from an outdated environment certificate and preserved scoped provider configuration.
+- Improved live document reads, agent file navigation, and orderly test and server shutdown.
+
+### Security
+
+- Updated the pinned pypdf runtime to 6.19.0 to address PDF parser denial-of-service vulnerabilities.
+
+### Verification
+
+- Production build and focused lint checks.
+- Selected UI and E2E scope: 91 passed, two optional Email Tour cases skipped; 19 subsequent editor and recovery checks passed after the final UI correction. Review and proposal workflows are outside this acceptance scope.
+- Standalone raw PostgreSQL dry-run and recovery operator integration checks.
+- `npm run verify:release`
+
 ## [2026.10.1.2] - 2026-10-01
 
 ### Fixed
