@@ -11,7 +11,7 @@ export type TeamLicenseAttentionItem = {
   previewUrl: null;
   occurredAt: string;
   unread: boolean;
-  priority: 'high';
+  priority: 'high' | 'normal';
   workspaceId: string;
   workspaceName: string;
   target: { kind: 'license' };
@@ -31,7 +31,26 @@ type AttentionOptions = {
   database?: Pick<SqlConnection, 'all' | 'run' | 'close'>;
   enabled?: boolean;
   locale?: string;
+  activeOnly?: boolean;
 };
+
+function activeLicenseRows(rows: LifecycleAuditRow[]): LifecycleAuditRow[] {
+  const seen = new Set<string>();
+  return rows.filter((row) => {
+    const metadata = JSON.parse(row.metadata_json || '{}') as Record<string, unknown>;
+    const warning = row.action.startsWith('team.grant_expiring_')
+      || row.action === 'team.owner_grace' || row.action === 'team.member_grace';
+    const correlated = typeof metadata.instanceId === 'string' && typeof metadata.grantId === 'string';
+    const key = warning
+      ? correlated ? JSON.stringify([row.organization_id, 'grant', metadata.instanceId, metadata.grantId, metadata.termEndsAt])
+        : JSON.stringify([row.organization_id, 'uncorrelated-warning', row.id])
+      : JSON.stringify([row.organization_id, 'access']);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    // Supersede before filtering read state: reading the newest event cannot revive an older one.
+    return row.read_at === null;
+  });
+}
 
 function hasMembershipTransition(row: LifecycleAuditRow): boolean {
   try {
@@ -80,16 +99,24 @@ export async function listTeamLicenseAttention(
             WHERE membership.organization_id = event.organization_id
               AND membership.user_id = $1 AND membership.status = 'active'
               AND membership.role <> 'owner')))
+        AND ($2 = false OR NOT EXISTS (SELECT 1 FROM audit_events resolution
+          WHERE resolution.entity_id = event.id AND resolution.organization_id = event.organization_id
+            AND resolution.user_id = event.user_id AND resolution.source = 'license'
+            AND resolution.status = 'success' AND resolution.event_type = 'license_term_warning_resolved'))
       ORDER BY event.created_at DESC, event.id DESC
       LIMIT 50
-    `, [input.userId]) as LifecycleAuditRow[];
-    return rows.filter(hasMembershipTransition).map((row) => {
+    `, [input.userId, input.activeOnly === true]) as LifecycleAuditRow[];
+    const validRows = rows.filter(hasMembershipTransition);
+    return (input.activeOnly ? activeLicenseRows(validRows) : validRows).map((row) => {
+      const metadata = JSON.parse(row.metadata_json || '{}') as Record<string, unknown>;
       const warningDays = Number(row.action.match(/^team\.grant_expiring_(14|3|1)d$/u)?.[1]);
       const warning = Number.isFinite(warningDays);
       const memberWarning = warning && row.owner_user_id !== input.userId;
       const graceWarning = row.action === 'team.owner_grace' || row.action === 'team.member_grace';
       const ownerGraceWarning = row.action === 'team.owner_grace';
       const restored = row.action === 'team.access_restored';
+      const partialRestore = restored && (Number(metadata.remainingFallbackUsers) > 0
+        || Number(metadata.suspendedMemberships) > 0);
       const expired = !restored && row.action === 'team.solo_fallback_applied';
       return {
         id: `license:${row.id}`,
@@ -99,6 +126,8 @@ export async function listTeamLicenseAttention(
           : warning
           ? german ? `Team-Grant endet in ${warningDays} ${warningDays === 1 ? 'Tag' : 'Tagen'}`
             : `Team grant ends within ${warningDays} ${warningDays === 1 ? 'day' : 'days'}`
+          : partialRestore
+          ? german ? 'Team-Zugang teilweise wiederhergestellt' : 'Team access partially restored'
           : restored
           ? german ? 'Team-Zugang wiederhergestellt' : 'Team access restored'
           : expired
@@ -116,6 +145,9 @@ export async function listTeamLicenseAttention(
               : 'The team license ends soon. Your access may be restricted afterward. Contact the organization owner.'
             : german ? 'Verlängere den kostenfreien Grant im Control Plane, damit der Team-Zugang bestehen bleibt.'
               : 'Renew the free grant in Control Plane to keep Team access available.'
+          : partialRestore
+          ? german ? 'Einige Teammitglieder können sich wieder anmelden. Weitere Zugänge bleiben eingeschränkt. Prüfe die Team-Lizenz.'
+            : 'Some team members can sign in again. Other access remains restricted. Review the team license.'
           : restored
           ? german ? 'Betroffene Teammitglieder können sich wieder anmelden.' : 'Affected team members can sign in again.'
           : german ? 'Betroffene Teammitglieder können sich derzeit nicht anmelden. Prüfe die Team-Lizenz.'
@@ -123,7 +155,7 @@ export async function listTeamLicenseAttention(
         previewUrl: null,
         occurredAt: new Date(Number(row.created_at)).toISOString(),
         unread: row.read_at === null,
-        priority: 'high' as const,
+        priority: restored && !partialRestore ? 'normal' as const : 'high' as const,
         workspaceId: `organization:${row.organization_id}`,
         workspaceName: german ? 'Organisation' : 'Organization',
         target: { kind: 'license' as const },

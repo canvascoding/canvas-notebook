@@ -3,6 +3,7 @@ import 'server-only';
 import { createHash } from 'node:crypto';
 import type { SqlConnection } from '@/app/lib/db';
 import { enqueueTeamLicenseEmail, supersedeObsoleteTeamLicenseWarnings, type TeamLicenseEmailKind } from './team-license-email-outbox';
+import { resolveObsoleteTeamLicenseInAppWarnings } from './team-license-warning-resolution';
 
 export type TermWarningStage = 14 | 3 | 1;
 
@@ -36,25 +37,34 @@ export async function recordTeamLicenseTermWarning(input: {
     organizationId: input.organizationId, grantId: input.grantId,
     termEndsAt: input.termEndsAt, grace: Boolean(graceEndsAt), restricted: input.restricted === true, now,
   });
-  if (!stage && !graceEndsAt) return { stage: null, created: false };
-  const owner = await input.database.get(`
-    SELECT owner_user_id FROM canvas_organization_settings WHERE organization_id = $1
-  `, [input.organizationId]) as { owner_user_id: string | null } | undefined;
-  if (!owner?.owner_user_id) return { stage, created: false };
-  const members = await input.database.all(`
-    SELECT DISTINCT membership.user_id
-    FROM team_memberships membership
-    WHERE membership.organization_id = $1 AND membership.status = 'active'
-      AND membership.role <> 'owner' AND membership.user_id IS NOT NULL
-      AND membership.user_id <> $2
-  `, [input.organizationId, owner.owner_user_id]) as Array<{ user_id: string }>;
-  const recipients = stage
-    ? [{ userId: owner.owner_user_id, kind: `owner_term_${stage}d` as TeamLicenseEmailKind },
-      ...members.map((member) => ({ userId: member.user_id, kind: `member_term_${stage}d` as TeamLicenseEmailKind }))]
-    : [{ userId: owner.owner_user_id, kind: 'owner_grace' as TeamLicenseEmailKind },
-      ...members.map((member) => ({ userId: member.user_id, kind: 'member_grace' as TeamLicenseEmailKind }))];
   await input.database.run('BEGIN');
   try {
+    await resolveObsoleteTeamLicenseInAppWarnings({
+      ...input, grace: Boolean(graceEndsAt), restricted: input.restricted === true, now,
+    });
+    if (!stage && !graceEndsAt) {
+      await input.database.run('COMMIT');
+      return { stage: null, created: false };
+    }
+    const owner = await input.database.get(`
+      SELECT owner_user_id FROM canvas_organization_settings WHERE organization_id = $1
+    `, [input.organizationId]) as { owner_user_id: string | null } | undefined;
+    if (!owner?.owner_user_id) {
+      await input.database.run('COMMIT');
+      return { stage, created: false };
+    }
+    const members = await input.database.all(`
+      SELECT DISTINCT membership.user_id
+      FROM team_memberships membership
+      WHERE membership.organization_id = $1 AND membership.status = 'active'
+        AND membership.role <> 'owner' AND membership.user_id IS NOT NULL
+        AND membership.user_id <> $2
+    `, [input.organizationId, owner.owner_user_id]) as Array<{ user_id: string }>;
+    const recipients = stage
+      ? [{ userId: owner.owner_user_id, kind: `owner_term_${stage}d` as TeamLicenseEmailKind },
+        ...members.map((member) => ({ userId: member.user_id, kind: `member_term_${stage}d` as TeamLicenseEmailKind }))]
+      : [{ userId: owner.owner_user_id, kind: 'owner_grace' as TeamLicenseEmailKind },
+        ...members.map((member) => ({ userId: member.user_id, kind: 'member_grace' as TeamLicenseEmailKind }))];
     let created = false;
     for (const recipient of recipients) {
       const eventId = `license-term:${createHash('sha256').update(JSON.stringify([

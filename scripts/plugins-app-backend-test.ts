@@ -81,7 +81,7 @@ internals._load = (request, parent, isMain) => {
     } };
     if (request === '@/app/lib/capabilities/catalog') return { resolveEffectiveCapabilitySnapshot: async () => {
       assert.equal(readinessCalls.length % 2, 0, 'both exact manifests are checked before snapshot resolution');
-      return { capabilities: (repeatAssignedResource ? [personal, organization, organization] : [personal, organization]).map(plugin => ({ ref: { ...plugin, resourceType: 'plugin' }, effectiveEnabled: plugin.scopeType === 'user', readiness: plugin.scopeType === 'organization' ? 'personal-connection-required' : 'available' })) };
+      return { capabilities: (repeatAssignedResource ? [personal, organization, organization] : [personal, organization]).map(plugin => ({ ref: { ...plugin, resourceType: 'plugin' }, effectiveEnabled: plugin.scopeType === 'organization', readiness: plugin.scopeType === 'organization' ? 'personal-connection-required' : 'conflict' })) };
     } };
   }
   if (file.endsWith('/api/email/oauth/callback/route.ts')) {
@@ -95,6 +95,7 @@ internals._load = (request, parent, isMain) => {
   if (file.endsWith('/email/local-service.ts') && request.startsWith('@/app/lib/') && request !== '@/app/lib/runtime-data-paths') return {};
   if (file.endsWith('/canvas-plugin-store.ts')) {
     if (request === '@/app/lib/plugins/canvas-plugin-registry') return { listCanvasPlugins: async () => [] };
+    if (request === '@/app/lib/plugins/visible-installed-plugins') return { listVisibleInstalledCanvasPlugins: async () => [] };
     if (request === '@/app/lib/skills/canvas-skill-store') return { readCanvasSkillRegistry: async () => ({ skills: {} }) };
     if (request === '@/app/lib/plugins/plugin-mcp-template-service') return {};
   }
@@ -166,24 +167,24 @@ async function main() {
     const defaultResponse = await pluginsGet(new NextRequest('https://canvas.example.test/api/plugins?fresh=1', { headers: { 'x-canvas-workspace-id': 'requested-workspace' } }));
     assert.equal(defaultResponse.status, 200);
     const defaultBody = await defaultResponse.json();
-    assert.deepEqual(defaultBody.plugins.map((plugin: { resourceId: string }) => plugin.resourceId), ['personal'], 'existing Chat and mobile consumers keep the user-preferred name-based default');
+    assert.deepEqual(defaultBody.plugins.map((plugin: { resourceId: string }) => plugin.resourceId), ['assigned'], 'Chat and mobile use the organization namespace owner rather than the hidden personal copy');
     assert.deepEqual(defaultBody.stats, { total: 1, enabled: 1, disabled: 0 });
     const pluginsResponse = await pluginsGet(new NextRequest('https://canvas.example.test/api/plugins?identity=resource&fresh=1', { headers: { 'x-canvas-workspace-id': 'requested-workspace' } }));
     assert.equal(pluginsResponse.status, 200);
     const installedBody = await pluginsResponse.json();
     const installed = installedBody.plugins;
-    assert.equal(installed.length, 2, 'the presentation API preserves personal and assigned organization identities with the same name');
-    assert.deepEqual(installed.map((plugin: { resourceId: string; scopeType: string }) => [plugin.resourceId, plugin.scopeType]), [['personal', 'user'], ['assigned', 'organization']]);
-    assert.deepEqual(installedBody.stats, { total: 2, enabled: 1, disabled: 1 }, 'statistics count exact resources and their effective state');
+    assert.equal(installed.length, 1, 'the presentation API hides the shadowed personal copy while retaining the organization identity');
+    assert.deepEqual(installed.map((plugin: { resourceId: string; scopeType: string }) => [plugin.resourceId, plugin.scopeType]), [['assigned', 'organization']]);
+    assert.deepEqual(installedBody.stats, { total: 1, enabled: 1, disabled: 0 }, 'statistics count visible resources and their effective state');
     assert.equal(installed.find((plugin: { resourceId: string }) => plugin.resourceId === 'assigned').connectionReadiness.summary.requiredMissing, 1);
-    assert.equal(installed.find((plugin: { resourceId: string }) => plugin.resourceId === 'personal').connectionReadiness.ready, true);
+    assert.equal(installed.some((plugin: { resourceId: string }) => plugin.resourceId === 'personal'), false);
     const orgDetail = readPluginNavigation(new URL('https://canvas.example.test/en/plugins?view=installed&plugin=same-name&source=installed&resourceId=assigned&workspaceId=verified-workspace').searchParams);
     assert.equal(installed.find((plugin: { resourceId: string }) => plugin.resourceId === orgDetail.resourceId)?.scopeType, 'organization', 'an exact organization detail URL resolves the real API response instead of falling back to the same-name personal record');
     assert.ok(readinessCalls.every(call => call.fresh === true && call.workspaceId === 'verified-workspace' && call.userId === 'owner'));
     repeatAssignedResource = true;
     const repeated = await pluginsGet(new NextRequest('https://canvas.example.test/api/plugins?identity=resource&fresh=1', { headers: { 'x-canvas-workspace-id': 'requested-workspace' } }));
     const repeatedBody = await repeated.json();
-    assert.equal(repeatedBody.plugins.length, 2, 'duplicate snapshot references collapse only when they carry the same resource identity');
+    assert.equal(repeatedBody.plugins.length, 1, 'duplicate resource references and shadowed personal identities do not reappear');
     assert.deepEqual(repeatedBody.stats, installedBody.stats);
     repeatAssignedResource = false;
     await pluginsGet(new NextRequest('https://canvas.example.test/api/plugins?identity=resource&workspaceId=requested-workspace'));

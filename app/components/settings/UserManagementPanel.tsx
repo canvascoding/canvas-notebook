@@ -1,15 +1,18 @@
 'use client';
 
-import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
-import { AlertTriangle, Ban, CheckCircle2, Copy, ExternalLink, KeyRound, Loader2, MailPlus, Plus, RefreshCw, Search, Shield, UserCog, UserMinus } from 'lucide-react';
+import { AlertTriangle, Ban, CheckCircle2, Copy, ExternalLink, KeyRound, Loader2, MailPlus, MoreHorizontal, Plus, RefreshCw, Search, Shield, UserCog, UserMinus } from 'lucide-react';
 
 import { Link } from '@/i18n/navigation';
 import { authClient } from '@/app/lib/auth-client';
 import { includesTeamRuntimeLicense } from '@/app/lib/license/team-runtime-status';
 import type { TeamSeatHealth } from '@/app/lib/license/team-seat-health-types';
 import { TeamSeatHealthPanel } from '@/app/components/license/TeamSeatHealthPanel';
+import { isLicenseUiStatus, isTeamLicenseApplicable } from '@/app/lib/license/ui-policy';
 import { UserPermissionsDialog } from './UserPermissionsDialog';
+import { SettingsAccordionCard } from './SettingsAccordionCard';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -126,6 +129,8 @@ type LicenseStatusResponse = {
   capabilities?: Record<string, boolean>;
   features?: Record<string, boolean>;
   teamSeatHealth?: TeamSeatHealth | null;
+  edition?: string | null;
+  runtimeDeploymentMode?: string;
 };
 
 type RoleChangeTarget = {
@@ -243,6 +248,8 @@ export function UserManagementPanel({
   const [users, setUsers] = useState<ManagedUser[]>([]);
   const [teamLicenseState, setTeamLicenseState] = useState<TeamLicenseState>('checking');
   const [teamSeatHealth, setTeamSeatHealth] = useState<TeamSeatHealth | null | undefined>(undefined);
+  const [teamHealthApplicable, setTeamHealthApplicable] = useState(false);
+  const licenseRequest = useRef(0);
   const [total, setTotal] = useState(0);
   const [offset, setOffset] = useState(0);
   const [searchDraft, setSearchDraft] = useState('');
@@ -262,6 +269,7 @@ export function UserManagementPanel({
   const [inviteDraft, setInviteDraft] = useState<CreateUserDraft>(() => createEmptyDraft());
   const [createdInviteLink, setCreatedInviteLink] = useState<string | null>(null);
   const [invitations, setInvitations] = useState<TeamInvitation[]>([]);
+  const [invitationHistoryOpen, setInvitationHistoryOpen] = useState(false);
   const [invitationSeatQuotes, setInvitationSeatQuotes] = useState<Record<string, MembershipSeatQuote>>({});
   const [permissionsTarget, setPermissionsTarget] = useState<ManagedUser | null>(null);
   const [passwordTarget, setPasswordTarget] = useState<ManagedUser | null>(null);
@@ -329,23 +337,29 @@ export function UserManagementPanel({
   }, [isAdmin, offset, searchValue, t, teamLicenseState]);
 
   const loadLicenseStatus = useCallback(async () => {
+    const requestId = ++licenseRequest.current;
+    if (canViewTeamSeatHealth) setTeamSeatHealth(undefined);
     try {
       const response = await fetch('/api/license/status', {
         cache: 'no-store',
         credentials: 'include',
+        signal: AbortSignal.timeout(15000),
       });
       const payload = await response.json().catch(() => ({})) as LicenseStatusResponse;
-      if (!response.ok || payload.success === false) {
+      if (!response.ok || !isLicenseUiStatus(payload)) {
         throw new Error('LICENSE_STATUS_UNAVAILABLE');
       }
       if (payload.error === 'license_status_unavailable') {
         throw new Error('LICENSE_STATUS_UNAVAILABLE');
       }
-      setTeamLicenseState(response.ok && includesTeamRuntimeLicense(payload) ? 'active' : 'required');
+      if (requestId !== licenseRequest.current) return;
+      setTeamLicenseState(includesTeamRuntimeLicense(payload) ? 'active' : 'required');
+      setTeamHealthApplicable(isTeamLicenseApplicable(payload));
       if (canViewTeamSeatHealth) {
         setTeamSeatHealth(payload.teamSeatHealth ?? null);
       }
     } catch {
+      if (requestId !== licenseRequest.current) return;
       setTeamLicenseState('unavailable');
       if (canViewTeamSeatHealth) setTeamSeatHealth(null);
     }
@@ -849,99 +863,167 @@ export function UserManagementPanel({
     const isSelf = user.id === currentUserId;
     const isRowBusy = activeAction?.endsWith(user.id) ?? false;
     const isBanned = Boolean(user.banned);
-    const buttonClassName = options.compact ? 'w-full min-w-0' : undefined;
-    const wrapperClassName = options.compact
-      ? 'grid grid-cols-2 gap-2'
-      : 'flex flex-wrap justify-end gap-2';
-
     return (
-      <div className={wrapperClassName}>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className={buttonClassName}
-          onClick={() => {
-            setPermissionsTarget(user);
-            resetTransientState();
-          }}
-          disabled={isRowBusy || activeAction !== null}
-        >
-          <UserCog data-icon="inline-start" />
-          {t('actions.permissions')}
-        </Button>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className={buttonClassName}
-          onClick={() => {
-            setRoleTarget({ user, nextRole: role === 'admin' ? 'user' : 'admin' });
-            resetTransientState();
-          }}
-          disabled={isSelf || isRowBusy || activeAction !== null}
-        >
-          <Shield data-icon="inline-start" />
-          {role === 'admin' ? t('actions.makeUser') : t('actions.makeAdmin')}
-        </Button>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className={buttonClassName}
-          onClick={() => {
-            setPasswordTarget(user);
-            setPasswordDraft('');
-            resetTransientState();
-          }}
-          disabled={isRowBusy || activeAction !== null}
-        >
-          <KeyRound data-icon="inline-start" />
-          {t('actions.password')}
-        </Button>
-        {isBanned ? (
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className={buttonClassName}
-            onClick={() => void unbanUser(user)}
-            disabled={isRowBusy || activeAction !== null}
-          >
-            <CheckCircle2 data-icon="inline-start" />
-            {t('actions.unban')}
-          </Button>
-        ) : (
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className={buttonClassName}
-            onClick={() => {
-              setBanTarget(user);
-              setBanReason('');
-              resetTransientState();
-            }}
-            disabled={isSelf || isRowBusy || activeAction !== null}
-          >
-            <Ban data-icon="inline-start" />
-            {t('actions.ban')}
-          </Button>
-        )}
-        <Button
-          type="button"
-          variant="destructive"
-          size="sm"
-          className={buttonClassName}
-          onClick={() => openOffboardingDialog(user)}
-          disabled={isSelf || isRowBusy || activeAction !== null}
-        >
-          <UserMinus data-icon="inline-start" />
-          {t('actions.offboard')}
-        </Button>
+      <div className={options.compact ? 'w-full' : 'flex justify-end'}>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button type="button" variant="outline" size="sm" className={options.compact ? 'w-full' : undefined}
+              aria-label={`${t('columns.actions')}: ${user.email}`} disabled={activeAction !== null}>
+              <MoreHorizontal data-icon="inline-start" />{t('columns.actions')}
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem
+              onSelect={() => {
+                setPermissionsTarget(user);
+                resetTransientState();
+              }}
+              disabled={isRowBusy || activeAction !== null}
+            >
+              <UserCog data-icon="inline-start" />
+              {t('actions.permissions')}
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onSelect={() => {
+                setRoleTarget({ user, nextRole: role === 'admin' ? 'user' : 'admin' });
+                resetTransientState();
+              }}
+              disabled={isSelf || isRowBusy || activeAction !== null}
+            >
+              <Shield data-icon="inline-start" />
+              {role === 'admin' ? t('actions.makeUser') : t('actions.makeAdmin')}
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onSelect={() => {
+                setPasswordTarget(user);
+                setPasswordDraft('');
+                resetTransientState();
+              }}
+              disabled={isRowBusy || activeAction !== null}
+            >
+              <KeyRound data-icon="inline-start" />
+              {t('actions.password')}
+            </DropdownMenuItem>
+            {isBanned ? (
+              <DropdownMenuItem
+                onSelect={() => void unbanUser(user)}
+                disabled={isRowBusy || activeAction !== null}
+              >
+                <CheckCircle2 data-icon="inline-start" />
+                {t('actions.unban')}
+              </DropdownMenuItem>
+            ) : (
+              <DropdownMenuItem
+                onSelect={() => {
+                  setBanTarget(user);
+                  setBanReason('');
+                  resetTransientState();
+                }}
+                disabled={isSelf || isRowBusy || activeAction !== null}
+              >
+                <Ban data-icon="inline-start" />
+                {t('actions.ban')}
+              </DropdownMenuItem>
+            )}
+            <DropdownMenuItem
+              variant="destructive"
+              onSelect={() => openOffboardingDialog(user)}
+              disabled={isSelf || isRowBusy || activeAction !== null}
+            >
+              <UserMinus data-icon="inline-start" />
+              {t('actions.offboard')}
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
     );
   };
+
+  const currentInvitations = invitations.filter((invitation) => invitation.status === 'pending' || invitation.status === 'accepted');
+  const archivedInvitations = invitations.filter((invitation) => invitation.status !== 'pending' && invitation.status !== 'accepted');
+  const renderInvitations = (items: TeamInvitation[]) => (
+    <div className="rounded-md border">
+      <div className="border-b px-3 py-2">
+        <p className="font-medium text-foreground">{t('invitations.title')}</p>
+        <p className="text-xs text-muted-foreground">{t('invitations.description')}</p>
+      </div>
+      <div className="divide-y">
+        {items.map((invitation) => (
+          <div key={invitation.id} className="flex flex-col gap-2 px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <p className="truncate text-sm font-medium text-foreground">{invitation.email}</p>
+              <p className="text-xs text-muted-foreground">
+                {t(`roles.${invitation.role}`)} · {t(`invitations.status.${invitation.status}`)} · {formatDate(invitation.expiresAt, locale)}
+              </p>
+              {invitationSeatQuotes[invitation.id] && (
+                <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                  <span>
+                    {invitationSeatQuotes[invitation.id].quote.quantityBefore}
+                    {' → '}
+                    {invitationSeatQuotes[invitation.id].quote.quantityAfter}
+                    {' · '}
+                    {formatMoney(
+                      invitationSeatQuotes[invitation.id].quote.recurringAmountCents,
+                      invitationSeatQuotes[invitation.id].quote.currency,
+                      locale,
+                    )}
+                    {' / '}
+                    {t('seatQuote.month')}
+                  </span>
+                  {invitationSeatQuotes[invitation.id].approval.url ? (
+                    <Button asChild size="sm" variant="link" className="h-auto px-0 text-xs">
+                      <a
+                        href={invitationSeatQuotes[invitation.id].approval.url!}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        <ExternalLink data-icon="inline-start" />
+                        {t('seatQuote.openApproval')}
+                      </a>
+                    </Button>
+                  ) : (
+                    <span>{t('invitations.billingOwnerOnly')}</span>
+                  )}
+                </div>
+              )}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {invitation.status === 'accepted' && (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={activeAction !== null}
+                  onClick={() => void loadInvitationSeatQuote(invitation)}
+                >
+                  {activeAction === `invite:quote:${invitation.id}`
+                    ? <Loader2 data-icon="inline-start" className="animate-spin" />
+                    : <RefreshCw data-icon="inline-start" />}
+                  {t('invitations.billingStatus')}
+                </Button>
+              )}
+              {(invitation.status === 'pending' || invitation.status === 'accepted') && (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={activeAction !== null}
+                  onClick={() => void revokeInvitation(invitation)}
+                >
+                  {activeAction === `invite:revoke:${invitation.id}`
+                    ? <Loader2 data-icon="inline-start" className="animate-spin" />
+                    : <Ban data-icon="inline-start" />}
+                  {invitation.status === 'accepted'
+                    ? t('invitations.decline')
+                    : t('invitations.revoke')}
+                </Button>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 
   if (!isAdmin) {
     return (
@@ -957,12 +1039,6 @@ export function UserManagementPanel({
   if (teamLicenseState !== 'active') {
     return (
       <div className="flex flex-col gap-4">
-        {canViewTeamSeatHealth ? (
-          <TeamSeatHealthPanel
-            health={teamSeatHealth}
-            onReload={loadLicenseStatus}
-          />
-        ) : null}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -1006,12 +1082,6 @@ export function UserManagementPanel({
 
   return (
     <div className="flex flex-col gap-4">
-      {canViewTeamSeatHealth ? (
-        <TeamSeatHealthPanel
-          health={teamSeatHealth}
-          onReload={loadLicenseStatus}
-        />
-      ) : null}
       <Card>
         <CardHeader className="gap-3">
           <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
@@ -1028,6 +1098,9 @@ export function UserManagementPanel({
                 <MailPlus data-icon="inline-start" />
                 {t('inviteUser')}
               </Button>
+              {currentInvitations.length > 0 ? <Button asChild type="button" variant="ghost" size="sm">
+                <a href="#team-invitations">{t('invitations.title')} ({currentInvitations.length})</a>
+              </Button> : null}
               <Button
                 type="button"
                 onClick={() => {
@@ -1041,6 +1114,13 @@ export function UserManagementPanel({
               </Button>
             </div>
           </div>
+          {canViewTeamSeatHealth && teamHealthApplicable ? (
+            <TeamSeatHealthPanel
+              health={teamSeatHealth}
+              onReload={loadLicenseStatus}
+              variant="compact"
+            />
+          ) : null}
           <form className="flex flex-col gap-2 sm:flex-row" onSubmit={submitSearch}>
             <div className="relative min-w-0 flex-1">
               <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
@@ -1071,96 +1151,9 @@ export function UserManagementPanel({
           </form>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
-          <div className="rounded-md border bg-muted/40 p-3 text-sm">
-            <p className="font-medium text-foreground">{t('provisioningNoteTitle')}</p>
-            <p className="mt-1 text-muted-foreground">{t('provisioningNoteDescription')}</p>
-          </div>
           {error && <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div>}
           {message && <div className="rounded-md border border-border bg-muted px-3 py-2 text-sm text-muted-foreground">{message}</div>}
 
-          {invitations.length > 0 && (
-            <div className="rounded-md border">
-              <div className="border-b px-3 py-2">
-                <p className="font-medium text-foreground">{t('invitations.title')}</p>
-                <p className="text-xs text-muted-foreground">{t('invitations.description')}</p>
-              </div>
-              <div className="divide-y">
-                {invitations.map((invitation) => (
-                  <div key={invitation.id} className="flex flex-col gap-2 px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-medium text-foreground">{invitation.email}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {t(`roles.${invitation.role}`)} · {t(`invitations.status.${invitation.status}`)} · {formatDate(invitation.expiresAt, locale)}
-                      </p>
-                      {invitationSeatQuotes[invitation.id] && (
-                        <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                          <span>
-                            {invitationSeatQuotes[invitation.id].quote.quantityBefore}
-                            {' → '}
-                            {invitationSeatQuotes[invitation.id].quote.quantityAfter}
-                            {' · '}
-                            {formatMoney(
-                              invitationSeatQuotes[invitation.id].quote.recurringAmountCents,
-                              invitationSeatQuotes[invitation.id].quote.currency,
-                              locale,
-                            )}
-                            {' / '}
-                            {t('seatQuote.month')}
-                          </span>
-                          {invitationSeatQuotes[invitation.id].approval.url ? (
-                            <Button asChild size="sm" variant="link" className="h-auto px-0 text-xs">
-                              <a
-                                href={invitationSeatQuotes[invitation.id].approval.url!}
-                                target="_blank"
-                                rel="noreferrer"
-                              >
-                                <ExternalLink data-icon="inline-start" />
-                                {t('seatQuote.openApproval')}
-                              </a>
-                            </Button>
-                          ) : (
-                            <span>{t('invitations.billingOwnerOnly')}</span>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      {invitation.status === 'accepted' && (
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          disabled={activeAction !== null}
-                          onClick={() => void loadInvitationSeatQuote(invitation)}
-                        >
-                          {activeAction === `invite:quote:${invitation.id}`
-                            ? <Loader2 data-icon="inline-start" className="animate-spin" />
-                            : <RefreshCw data-icon="inline-start" />}
-                          {t('invitations.billingStatus')}
-                        </Button>
-                      )}
-                      {(invitation.status === 'pending' || invitation.status === 'accepted') && (
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          disabled={activeAction !== null}
-                          onClick={() => void revokeInvitation(invitation)}
-                        >
-                          {activeAction === `invite:revoke:${invitation.id}`
-                            ? <Loader2 data-icon="inline-start" className="animate-spin" />
-                            : <Ban data-icon="inline-start" />}
-                          {invitation.status === 'accepted'
-                            ? t('invitations.decline')
-                            : t('invitations.revoke')}
-                        </Button>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
 
           <div className="flex flex-col gap-3 md:hidden">
             {isLoading ? (
@@ -1304,6 +1297,12 @@ export function UserManagementPanel({
               </Button>
             </div>
           </div>
+          {currentInvitations.length > 0 ? <section id="team-invitations">{renderInvitations(currentInvitations)}</section> : null}
+          {archivedInvitations.length > 0 ? <SettingsAccordionCard
+            title={`${locale.startsWith('de') ? 'Frühere Einladungen' : 'Previous invitations'} (${archivedInvitations.length})`}
+            isOpen={invitationHistoryOpen} onOpenChange={setInvitationHistoryOpen}>
+            {renderInvitations(archivedInvitations)}
+          </SettingsAccordionCard> : null}
         </CardContent>
       </Card>
 
@@ -1334,7 +1333,7 @@ export function UserManagementPanel({
           }
         }}
       >
-        <DialogContent>
+        <DialogContent className="max-h-[85dvh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
               {reactivationTarget ? t('reactivationDialog.title') : t('createDialog.title')}
@@ -1345,6 +1344,10 @@ export function UserManagementPanel({
                 : t('createDialog.description')}
             </DialogDescription>
           </DialogHeader>
+          <div className="rounded-md border bg-muted/40 p-3 text-sm">
+            <p className="font-medium text-foreground">{t('provisioningNoteTitle')}</p>
+            <p className="mt-1 text-muted-foreground">{t('provisioningNoteDescription')}</p>
+          </div>
           {managedPendingKey ? (
             <div className="flex flex-col gap-4">
               <p className="text-sm text-muted-foreground">{t('managedPending.description')}</p>
@@ -1613,11 +1616,15 @@ export function UserManagementPanel({
           }
         }}
       >
-        <DialogContent>
+        <DialogContent className="max-h-[85dvh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{t('invitationDialog.title')}</DialogTitle>
             <DialogDescription>{t('invitationDialog.description')}</DialogDescription>
           </DialogHeader>
+          <div className="rounded-md border bg-muted/40 p-3 text-sm">
+            <p className="font-medium text-foreground">{t('provisioningNoteTitle')}</p>
+            <p className="mt-1 text-muted-foreground">{t('provisioningNoteDescription')}</p>
+          </div>
           {createdInviteLink ? (
             <div className="flex flex-col gap-3">
               <Label htmlFor="team-invitation-link">{t('invitationDialog.linkLabel')}</Label>

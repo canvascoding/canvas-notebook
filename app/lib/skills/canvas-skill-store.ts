@@ -36,9 +36,10 @@ import { coreSkillInstallError, isCoreSkillName } from '@/app/lib/skills/core-sk
 import { loadCoreSkillByName } from '@/app/lib/skills/core-skill-loader';
 import { loadSkillByName, getSkillNames } from '@/app/lib/skills/skill-loader';
 import { loadSkillSummaries, type SkillSummary } from '@/app/lib/skills/skill-summaries';
-import { DISABLED_ALL_SKILLS_SENTINEL, enableSkillInConfig } from '@/app/lib/skills/enabled-skills';
+import { DISABLED_ALL_SKILLS_SENTINEL, enableSkillInConfig, resolveEnabledSkillNames } from '@/app/lib/skills/enabled-skills';
 import { adoptLegacyStandaloneSkillsForScope } from '@/app/lib/skills/legacy-skill-adoption';
 import { readEnabledSkillsForScope, writeEnabledSkillsForScope } from '@/app/lib/skills/skill-settings';
+import { assertPersonalSkillActivationAllowed, PersonalSkillActivationError, readProtectedPersonalSkillNamespace } from '@/app/lib/skills/personal-skill-activation';
 
 export const DEFAULT_CANVAS_SKILL_STORE_REGISTRY_URL =
   'https://raw.githubusercontent.com/canvascoding/canvas-notebook-plugin-marketplace/main/registry.json';
@@ -128,6 +129,7 @@ export interface CanvasSkillStoreInstalledState {
   modified: boolean;
   restoreAvailable: boolean;
   installedSkill?: CanvasSkillInstallRecord;
+  managedByOrganization?: boolean;
 }
 
 export type CanvasSkillStoreSkillWithState = CanvasSkillStoreSkill & {
@@ -171,6 +173,8 @@ export interface CanvasSkillStoreList {
 export interface CanvasSkillStoreInstallResult {
   success: boolean;
   error?: string;
+  code?: string;
+  statusCode?: number;
   skill?: CanvasSkillInstallRecord;
   storeSkill?: CanvasSkillStoreSkill;
   storeVersion?: CanvasSkillStoreVersion;
@@ -580,17 +584,26 @@ async function enrichStoreSkillsWithInstalledState(
   registry: CanvasSkillStoreRegistry,
   scope?: CanvasSkillStoreScope | null,
 ): Promise<{ registry: Omit<CanvasSkillStoreRegistry, 'skills'>; skills: CanvasSkillStoreSkillWithState[]; stats: Omit<CanvasSkillStoreStats, 'filteredTotal'> }> {
-  const [localRegistry, enabledSkills] = await Promise.all([
+  const [localRegistry, enabledSkills, organizationNamespace] = await Promise.all([
     readCanvasSkillRegistry(scope),
     readEnabledSkillsForScope(scope),
+    readProtectedPersonalSkillNamespace(scope),
   ]);
+  const organizationEnabledSkills = organizationNamespace.organizationScope
+    ? resolveEnabledSkillNames(organizationNamespace.names, await readEnabledSkillsForScope(organizationNamespace.organizationScope))
+    : new Set<string>();
   const standaloneSkills = await listStandaloneSkillSummaries(enabledSkills, scope);
   const standaloneByName = new Map(standaloneSkills.map((skill) => [skill.name, skill]));
 
   const skills = registry.skills.map((skill) => {
-    const installedSummary = standaloneByName.get(skill.name);
-    const installedSkill = localRegistry.skills[skill.name];
-    const installedVersion = installedSkill?.version || installedSummary?.version;
+    const normalizedName = skill.name.trim().toLowerCase();
+    const managedByOrganization = organizationNamespace.names.has(normalizedName);
+    const installedSummary = managedByOrganization ? undefined : standaloneByName.get(skill.name);
+    const installedSkill = managedByOrganization
+      ? organizationNamespace.skillsByName.get(normalizedName)
+      : localRegistry.skills[skill.name];
+    const pluginSkill = organizationNamespace.pluginSkillsByName.get(normalizedName);
+    const installedVersion = installedSkill?.version || (managedByOrganization ? pluginSkill?.skill.version || pluginSkill?.plugin.version : installedSummary?.version);
     const updateAvailable = Boolean(
       installedSummary && installedVersion && compareVersions(skill.latestVersion, installedVersion) > 0,
     );
@@ -598,13 +611,16 @@ async function enrichStoreSkillsWithInstalledState(
     return {
       ...skill,
       installed: {
-        installed: Boolean(installedSkill || installedSummary),
-        enabled: installedSummary?.enabled ?? Boolean(installedSkill),
+        installed: managedByOrganization || Boolean(installedSkill || installedSummary),
+        enabled: managedByOrganization
+          ? organizationEnabledSkills.has(normalizedName) && (installedSkill?.sourceType !== 'plugin' || Boolean(pluginSkill?.plugin.enabled)) && (!pluginSkill || pluginSkill.plugin.enabled)
+          : installedSummary?.enabled ?? Boolean(installedSkill),
         version: installedVersion,
         updateAvailable,
         modified: false,
-        restoreAvailable: Boolean(installedSkill || installedSummary),
+        restoreAvailable: !managedByOrganization && Boolean(installedSkill || installedSummary),
         installedSkill,
+        managedByOrganization,
       },
     };
   });
@@ -645,6 +661,7 @@ async function addPageStateDetails(
   scope?: CanvasSkillStoreScope | null,
 ): Promise<CanvasSkillStoreSkillWithState> {
   if (!skill.installed.installed) return skill;
+  if (skill.installed.managedByOrganization) return skill;
 
   const record = skill.installed.installedSkill;
   const installDir = record?.installDir || path.join(await resolveReadableScopedSkillsDataDir(scope), skill.name);
@@ -850,6 +867,7 @@ async function enableInstalledSkill(
   scope?: CanvasSkillStoreScope | null,
   updatedBy?: string,
 ): Promise<void> {
+  await assertPersonalSkillActivationAllowed(skillName, scope);
   const enabledSkills = await readEnabledSkillsForScope(scope);
   const registry = await readCanvasSkillRegistry(scope);
   const allSkillNames = Array.from(new Set([
@@ -954,6 +972,9 @@ export async function installCanvasSkillFromStore(
 
   let tempRoot: string | null = null;
   try {
+    if (options.enable !== false) {
+      await assertPersonalSkillActivationAllowed(skillName, options.scope);
+    }
     await adoptLegacyStandaloneSkillsForScope(options.scope);
 
     const registry = await readCanvasSkillStoreRegistry();
@@ -987,6 +1008,7 @@ export async function installCanvasSkillFromStore(
 
     if (options.enable !== false) {
       await enableInstalledSkill(skillName, options.scope, options.updatedBy).catch((error) => {
+        if (error instanceof PersonalSkillActivationError) throw error;
         console.warn('[CanvasSkillStore] Failed to auto-enable skill:', error);
       });
     }
@@ -996,6 +1018,7 @@ export async function installCanvasSkillFromStore(
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Failed to install skill from store',
+      ...(error instanceof PersonalSkillActivationError ? { code: error.code, statusCode: error.statusCode } : {}),
     };
   } finally {
     if (tempRoot) {
@@ -1021,6 +1044,9 @@ async function restoreSeedSkill(
   }
 
   try {
+    if (options.enable !== false) {
+      await assertPersonalSkillActivationAllowed(skillName, options.scope);
+    }
     await adoptLegacyStandaloneSkillsForScope(options.scope);
 
     await ensureStandaloneSkillInstallAllowed(skillName, options.replace ?? true, options.scope);
@@ -1041,6 +1067,7 @@ async function restoreSeedSkill(
 
     if (options.enable !== false) {
       await enableInstalledSkill(skillName, options.scope, options.updatedBy).catch((error) => {
+        if (error instanceof PersonalSkillActivationError) throw error;
         console.warn('[CanvasSkillStore] Failed to auto-enable restored seed skill:', error);
       });
     }
@@ -1050,6 +1077,7 @@ async function restoreSeedSkill(
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Failed to restore seed skill',
+      ...(error instanceof PersonalSkillActivationError ? { code: error.code, statusCode: error.statusCode } : {}),
     };
   }
 }
@@ -1081,7 +1109,7 @@ export async function restoreCanvasSkill(
       scope: options.scope,
       updatedBy: options.updatedBy,
     });
-    if (storeResult.success || options.prefer === 'store') {
+    if (storeResult.success || storeResult.code === 'SKILL_SCOPE_PROTECTED' || options.prefer === 'store') {
       return storeResult;
     }
   }

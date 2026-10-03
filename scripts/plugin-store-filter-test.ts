@@ -14,6 +14,7 @@ internals._load = (request, parent, isMain) => {
   if (request === 'server-only') return {};
   if (parent?.filename.endsWith('/canvas-plugin-store.ts')) {
     if (request === '@/app/lib/plugins/canvas-plugin-registry') return { listCanvasPlugins: async () => [installed] };
+    if (request === '@/app/lib/plugins/visible-installed-plugins') return { listVisibleInstalledCanvasPlugins: async () => [installed] };
     if (request === '@/app/lib/skills/canvas-skill-store') return { readCanvasSkillRegistry: async () => ({ skills: {} }) };
     if (request === '@/app/lib/plugins/plugin-mcp-template-service') return {};
   }

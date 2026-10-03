@@ -1,5 +1,7 @@
 import { Type, type Static, type TSchema } from 'typebox';
 import { Value } from 'typebox/value';
+import { PROPOSAL_LIFECYCLE_V1, type ProposalLifecycleV1 } from './proposal-lifecycle-v1';
+export type { ProposalLifecycleV1 } from './proposal-lifecycle-v1';
 
 /** New contracts are inert until graph-aware persistence and mutation routes are enabled. */
 export const PROPOSAL_GRAPH_CONTRACT_VERSION = 1 as const;
@@ -169,11 +171,11 @@ export const ProposalAuthoredCandidateSchemaV1 = Type.Object({
 export type ProposalAuthoredCandidateV1 = Readonly<Static<typeof ProposalAuthoredCandidateSchemaV1>>;
 
 export const ProposalLifecycleSchemaV1 = Type.Union([
-  Type.Literal('open'), Type.Literal('applied'), Type.Literal('included'),
-  Type.Literal('rejected'), Type.Literal('superseded'), Type.Literal('alternative_not_selected'),
-  Type.Literal('satisfied_elsewhere'), Type.Literal('expired'),
+  Type.Literal(PROPOSAL_LIFECYCLE_V1.open), Type.Literal(PROPOSAL_LIFECYCLE_V1.applied),
+  Type.Literal(PROPOSAL_LIFECYCLE_V1.included), Type.Literal(PROPOSAL_LIFECYCLE_V1.rejected),
+  Type.Literal(PROPOSAL_LIFECYCLE_V1.superseded), Type.Literal(PROPOSAL_LIFECYCLE_V1.alternativeNotSelected),
+  Type.Literal(PROPOSAL_LIFECYCLE_V1.satisfiedElsewhere), Type.Literal(PROPOSAL_LIFECYCLE_V1.expired),
 ]);
-export type ProposalLifecycleV1 = Static<typeof ProposalLifecycleSchemaV1>;
 
 export const ProposalEvaluationStatusSchemaV1 = Type.Union([
   Type.Literal('rebase_pending'), Type.Literal('clean'), Type.Literal('clean_rebased'),

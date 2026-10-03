@@ -20,6 +20,7 @@ import {
 } from '@/app/lib/plugins/canvas-plugin-registry';
 import { adoptLegacyStandaloneSkillsForScope } from '@/app/lib/skills/legacy-skill-adoption';
 import { readEnabledSkillsForScope, writeEnabledSkillsForScope } from './skill-settings';
+import { assertPersonalSkillActivationAllowed, PersonalSkillActivationError } from './personal-skill-activation';
 // Re-export the Canvas skill manifest API for existing call sites.
 export type { CanvasSkill, ValidationResult } from './canvas-skill-manifest';
 export {
@@ -189,7 +190,7 @@ export async function createSkillDirectory(
   description: string,
   content?: string,
   scope?: CanvasSkillStorageScope | null,
-): Promise<{ success: boolean; error?: string; path?: string }> {
+): Promise<{ success: boolean; error?: string; path?: string; code?: string; statusCode?: number }> {
   try {
     if (!isValidAgentSkillName(name)) {
       return { success: false, error: 'Invalid skill name' };
@@ -198,6 +199,7 @@ export async function createSkillDirectory(
       return { success: false, error: coreSkillInstallError(name) };
     }
 
+    await assertPersonalSkillActivationAllowed(name, scope);
     await adoptLegacyStandaloneSkillsForScope(scope);
 
     // Check if skill already exists
@@ -217,6 +219,7 @@ export async function createSkillDirectory(
 
     // Auto-enable the new skill in pi-runtime-config
     try {
+      await assertPersonalSkillActivationAllowed(name, scope);
       const enabledSkills = await readEnabledSkillsForScope(scope);
       if (!areAllSkillsEnabled(enabledSkills)) {
         const allSkillNames = await getSkillNames(scope);
@@ -225,6 +228,7 @@ export async function createSkillDirectory(
         console.log(`[SkillLoader] Auto-enabled skill "${name}" in config`);
       }
     } catch (cfgError) {
+      if (cfgError instanceof PersonalSkillActivationError) throw cfgError;
       console.warn(`[SkillLoader] Could not auto-enable skill "${name}" in config:`, cfgError);
     }
 
@@ -234,7 +238,11 @@ export async function createSkillDirectory(
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     console.error(`[SkillLoader] Error creating skill ${name}:`, error);
-    return { success: false, error: errorMessage };
+    return {
+      success: false,
+      error: errorMessage,
+      ...(error instanceof PersonalSkillActivationError ? { code: error.code, statusCode: error.statusCode } : {}),
+    };
   }
 }
 

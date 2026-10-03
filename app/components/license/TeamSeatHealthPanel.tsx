@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useLocale } from 'next-intl';
 import {
   Activity,
@@ -15,11 +15,11 @@ import {
 } from 'lucide-react';
 
 import type { TeamSeatHealth } from '@/app/lib/license/team-seat-health-types';
+import { teamHealthAttentionReason } from '@/app/lib/license/ui-policy';
 import { TeamLicenseEmailReview } from './TeamLicenseEmailReview';
 import { SettingsAccordionCard } from '@/app/components/settings/SettingsAccordionCard';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Switch } from '@/components/ui/switch';
 import {
   Card,
   CardContent,
@@ -318,76 +318,20 @@ function SeatMetric({
 export function TeamSeatHealthPanel({
   health,
   onReload,
+  variant = 'details',
+  discloseHealthy = false,
 }: {
   health: TeamSeatHealth | null | undefined;
   onReload?: () => void | Promise<void>;
+  variant?: 'compact' | 'details';
+  discloseHealthy?: boolean;
 }) {
   const locale = useLocale();
   const copy = useMemo(() => copyFor(locale), [locale]);
   const [detailsOpen, setDetailsOpen] = useState(false);
-  const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [activeAction, setActiveAction] = useState<RecoveryAction | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [licenseNotificationsEnabled, setLicenseNotificationsEnabled] = useState<boolean | null>(null);
-  const [licenseEmailNotificationsEnabled, setLicenseEmailNotificationsEnabled] = useState<boolean | null>(null);
-  const [savingNotificationSetting, setSavingNotificationSetting] = useState(false);
-  const [notificationSettingError, setNotificationSettingError] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    void fetch('/api/user-preferences', { credentials: 'include', cache: 'no-store' })
-      .then(async (response) => {
-        const payload = await response.json() as { success?: boolean; data?: { teamLicenseNotificationsEnabled?: boolean; teamLicenseEmailNotificationsEnabled?: boolean } };
-        if (!response.ok || !payload.success) throw new Error('Preference unavailable');
-        if (!cancelled) {
-          setLicenseNotificationsEnabled(payload.data?.teamLicenseNotificationsEnabled !== false);
-          setLicenseEmailNotificationsEnabled(payload.data?.teamLicenseEmailNotificationsEnabled !== false);
-        }
-      })
-      .catch(() => { if (!cancelled) setNotificationSettingError(true); });
-    return () => { cancelled = true; };
-  }, []);
-
-  async function saveNotificationSetting(enabled: boolean) {
-    setSavingNotificationSetting(true);
-    setNotificationSettingError(false);
-    try {
-      const response = await fetch('/api/user-preferences', {
-        method: 'PATCH', credentials: 'include', cache: 'no-store',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ teamLicenseNotificationsEnabled: enabled }),
-      });
-      const payload = await response.json() as { success?: boolean };
-      if (!response.ok || !payload.success) throw new Error('Preference update failed');
-      setLicenseNotificationsEnabled(enabled);
-      window.dispatchEvent(new CustomEvent('notification_summary_updated'));
-    } catch {
-      setNotificationSettingError(true);
-    } finally {
-      setSavingNotificationSetting(false);
-    }
-  }
-
-  async function saveEmailNotificationSetting(enabled: boolean) {
-    setSavingNotificationSetting(true);
-    setNotificationSettingError(false);
-    try {
-      const response = await fetch('/api/user-preferences', {
-        method: 'PATCH', credentials: 'include', cache: 'no-store',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ teamLicenseEmailNotificationsEnabled: enabled }),
-      });
-      const payload = await response.json() as { success?: boolean };
-      if (!response.ok || !payload.success) throw new Error('Preference update failed');
-      setLicenseEmailNotificationsEnabled(enabled);
-    } catch {
-      setNotificationSettingError(true);
-    } finally {
-      setSavingNotificationSetting(false);
-    }
-  }
-
   async function runRecovery(action: RecoveryAction) {
     setActiveAction(action);
     setActionMessage(null);
@@ -419,6 +363,7 @@ export function TeamSeatHealthPanel({
   }
 
   if (health === undefined) {
+    if (variant === 'compact') return <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />{locale.startsWith('de') ? 'Team-Status wird geladen' : 'Loading Team status'}</p>;
     return (
       <Card className="overflow-hidden py-0">
         <div className="h-1 bg-muted" />
@@ -436,6 +381,10 @@ export function TeamSeatHealthPanel({
   }
 
   if (!health) {
+    if (variant === 'compact') return <div role="alert" className="flex flex-wrap items-center justify-between gap-2 text-sm">
+      <p className="text-destructive">{copy.unavailable}</p>
+      {onReload ? <Button type="button" size="sm" variant="outline" onClick={() => void onReload()}><RefreshCw />{copy.reload}</Button> : null}
+    </div>;
     return (
       <Card className="border-destructive bg-card">
         <CardHeader>
@@ -459,14 +408,23 @@ export function TeamSeatHealthPanel({
 
   const managed = health.mode === 'managed-team';
   const managedState = health.sync.managedState ?? 'never';
-  const statusLabel = managed ? copy.managedStates[managedState] : copy.health[health.sync.state];
-  const attention = managed
-    ? managedState === 'error' || managedState === 'stale' || managedState === 'adoption_required'
-    : health.sync.state === 'attention' || health.sync.state === 'stale';
-  const healthy = managed ? managedState === 'current' : health.sync.state === 'healthy';
   const managedPolicy = managed ? health.managedAccessPolicy : null;
   const managedGrace = managedPolicy?.state === 'grace';
   const policyRequiresAction = managedPolicy?.state === 'restricted' || managedGrace;
+  const managedCurrent = managedState === 'current'
+    && (health.sync.state === 'healthy' || policyRequiresAction);
+  const statusLabel = managed
+    ? managedState === 'current' && !managedCurrent ? copy.health[health.sync.state] : copy.managedStates[managedState]
+    : copy.health[health.sync.state];
+  const attention = managed
+    ? managedState === 'error' || managedState === 'stale' || managedState === 'adoption_required'
+      || (!policyRequiresAction && (health.sync.state === 'attention' || health.sync.state === 'stale'))
+    : health.sync.state === 'attention' || health.sync.state === 'stale';
+  const healthy = managed ? managedCurrent : health.sync.state === 'healthy';
+  const connectionLabel = managed
+    ? healthy ? copy.connectionStates.connected
+      : managedState === 'current' ? copy.health[health.sync.state] : copy.managedStates[managedState]
+    : copy.connectionStates[health.claim.state];
   const graceActive = managedGrace || health.grace.licenseState === 'grace' || health.grace.licenseState === 'grace_required';
   const graceExpiry = managedGrace ? managedPolicy?.graceEndsAt ?? null : health.grace.expiresAt;
   const graceRemaining = managedGrace ? null : formatDuration(health.grace.remainingSeconds, locale);
@@ -489,6 +447,29 @@ export function TeamSeatHealthPanel({
     ]),
   ];
 
+  const reason = teamHealthAttentionReason(health);
+  const german = locale.startsWith('de');
+  const seatSummary = `${health.sync.observedQuantity ?? '—'} / ${health.sync.licensedQuantity ?? '—'} ${german ? 'Team-Plätze belegt' : 'Team seats used'}`;
+  const notice = reason === 'restricted' ? copy.accessRestricted
+    : reason === 'grace' ? copy.accessGrace
+    : reason === 'capacity' ? german ? 'Alle Team-Plätze sind belegt. Vor weiteren Einladungen das Platzkontingent prüfen.' : 'All Team seats are used. Check the seat limit before inviting more users.'
+    : reason === 'expiring' ? `${german ? 'Der Grant läuft ab am' : 'The grant expires on'} ${formatDate(health.license.termEndsAt ?? null, locale, copy.unknown)}`
+    : reason === 'email' ? copy.emailManualReview
+    : reason === 'sync' ? managed && managedState !== 'current' ? copy.managedActions[managedState] : copy.health.attention
+    : null;
+  if (variant === 'compact') {
+    return <aside className="flex flex-wrap items-center justify-between gap-2 rounded-lg border px-4 py-3 text-sm" aria-label={copy.title}>
+      <div className="min-w-0"><p className="font-medium">{seatSummary}</p>
+        {notice ? <p role="alert" className="mt-1 text-sm text-destructive">{notice}</p> : null}</div>
+      {reason ? <Button asChild variant="outline" size="sm"><a href={`/${locale}/settings?tab=license`}>{german ? 'Lizenz prüfen' : 'Check license'}</a></Button> : null}
+    </aside>;
+  }
+  if (discloseHealthy && !reason && !detailsOpen) {
+    return <SettingsAccordionCard title={copy.details} isOpen={false} onOpenChange={setDetailsOpen} summaryItems={[seatSummary]}>
+      {null}
+    </SettingsAccordionCard>;
+  }
+
   return (
     <Card className="overflow-hidden border-border bg-card py-0">
       <CardHeader className="gap-3 px-4 pt-5 sm:px-6">
@@ -502,24 +483,15 @@ export function TeamSeatHealthPanel({
             {statusLabel}
           </Badge>
         </div>
-        <CardDescription>{copy.description}</CardDescription>
-        <p className="text-xs text-muted-foreground">
-          {copy.connection}: {copy.connectionStates[health.claim.state]}
-        </p>
+        <CardDescription>{seatSummary}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4 px-4 pb-5 sm:px-6">
-        <div className="grid gap-3 sm:grid-cols-3">
-          <SeatMetric label={copy.seats.observed} value={health.sync.observedQuantity} detail={copy.seats.observedDetail} />
-          <SeatMetric label={managed || health.license.nonBillable ? copy.seats.approved : copy.seats.billed}
-            value={managed || health.license.nonBillable ? health.sync.approvedQuantity : health.sync.billedQuantity}
-            detail={managed || health.license.nonBillable ? copy.confirmedDetail : copy.seats.billedDetail} />
-          <SeatMetric label={copy.seats.licensed} value={health.sync.licensedQuantity} detail={copy.seats.licensedDetail} emphasis />
-        </div>
+        {notice && !policyRequiresAction && !(reason === 'sync' && managed) ? <p role="alert" className="text-sm text-destructive">{notice}</p> : null}
         {health.sync.blocker === 'TEAM_SEAT_SUBJECT_CONFLICT' ? (
           <p role="alert" className="border border-destructive p-3 text-sm text-destructive">{copy.organizationBlocker}</p>
         ) : null}
-        {managed && !(managedState === 'current' && (policyRequiresAction || graceActive)) ? <p role={attention ? 'alert' : 'status'} className={attention ? 'text-sm text-destructive' : 'text-sm text-muted-foreground'}>
-          {copy.managedActions[managedState]}
+        {reason === 'sync' && managed && !(managedState === 'current' && (policyRequiresAction || graceActive)) ? <p role={attention ? 'alert' : 'status'} className={attention ? 'text-sm text-destructive' : 'text-sm text-muted-foreground'}>
+          {notice}
         </p> : null}
         {policyRequiresAction ? <div role="alert" className="space-y-1 border border-destructive p-3 text-sm text-destructive">
           <p className="font-semibold">{managedGrace ? copy.accessGrace : copy.accessRestricted}</p>
@@ -541,11 +513,10 @@ export function TeamSeatHealthPanel({
         ) : null}
         {actionMessage ? <p className="text-sm text-muted-foreground" role="status">{actionMessage}</p> : null}
         {actionError ? <p className="text-sm text-destructive" role="alert">{actionError}</p> : null}
-        {notificationSettingError ? <p role="alert" className="text-sm text-destructive">{copy.notificationSettingUnavailable}</p> : null}
         {(health.emailDelivery?.manualReview ?? 0) > 0 ? <p role="alert" className="text-sm text-destructive">
           {copy.emailManualReview}: {health.emailDelivery?.manualReview}
         </p> : null}
-        <div className="flex flex-wrap gap-2">
+        {reason ? <div className="flex flex-wrap gap-2">
           {!managed && health.recovery.reconnectRequired ? (
             <Button asChild variant="outline"><a href="#community-team-connection"><Link2Off />{copy.reconnect}</a></Button>
           ) : null}
@@ -557,9 +528,25 @@ export function TeamSeatHealthPanel({
             disabled={!health.recovery.canRefreshLicense || activeAction !== null}>
             {activeAction === 'refresh_license' ? <Loader2 className="animate-spin" /> : <RefreshCw />}{copy.refreshLicense}
           </Button> : null}
-        </div>
+        </div> : null}
         <SettingsAccordionCard title={copy.details} isOpen={detailsOpen} onOpenChange={setDetailsOpen}
           cardClassName="[&_button]:rounded-none [&_span]:rounded-none" summaryItems={[licenseLabel, `${copy.seatLimit}: ${health.license.seatLimit ?? '—'}`]}>
+          <p className="text-xs text-muted-foreground">{copy.connection}: {connectionLabel}</p>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <SeatMetric label={copy.seats.observed} value={health.sync.observedQuantity} detail={copy.seats.observedDetail} />
+            <SeatMetric label={managed || health.license.nonBillable ? copy.seats.approved : copy.seats.billed}
+              value={managed || health.license.nonBillable ? health.sync.approvedQuantity : health.sync.billedQuantity}
+              detail={managed || health.license.nonBillable ? copy.confirmedDetail : copy.seats.billedDetail} />
+            <SeatMetric label={copy.seats.licensed} value={health.sync.licensedQuantity} detail={copy.seats.licensedDetail} emphasis />
+          </div>
+          {!reason ? <div className="flex flex-wrap gap-2">
+            <Button type="button" variant="outline" onClick={() => void runRecovery('sync_snapshot')} disabled={!health.recovery.canSyncSnapshot || activeAction !== null}>
+              {activeAction === 'sync_snapshot' ? <Loader2 className="animate-spin" /> : <RotateCcw />}{copy.syncNow}
+            </Button>
+            {!managed ? <Button type="button" variant="outline" onClick={() => void runRecovery('refresh_license')} disabled={!health.recovery.canRefreshLicense || activeAction !== null}>
+              {activeAction === 'refresh_license' ? <Loader2 className="animate-spin" /> : <RefreshCw />}{copy.refreshLicense}
+            </Button> : null}
+          </div> : null}
           <section aria-label={copy.connection}>
             <dl className="grid gap-2 text-sm">
               {syncDetails.map(([label, value]) => <div key={label} className="flex flex-wrap justify-between gap-2">
@@ -588,35 +575,12 @@ export function TeamSeatHealthPanel({
             {health.sync.reconciliationReason ? <p className="break-words text-xs text-muted-foreground">{health.sync.reconciliationReason}</p> : null}
             {!managed ? <p className="text-xs text-muted-foreground">{copy.refreshPhase}: {health.grace.refreshPhase || copy.unknown}</p> : null}
           </section>
-          {managed && health.historicalCommunity ? <section aria-label={copy.history} className="space-y-2 border-t border-border pt-3">
-            <p className="text-xs font-semibold uppercase tracking-wider">{copy.history}</p>
-            <p className="text-xs text-muted-foreground">{copy.historyNotice}</p>
-            <dl className="grid gap-2 text-sm"><div className="flex justify-between"><dt>{copy.pending}</dt><dd>{health.historicalCommunity.pendingOperations}</dd></div>
-              <div className="flex justify-between"><dt>{copy.failed}</dt><dd>{health.historicalCommunity.failedOperations}</dd></div></dl>
-          </section> : null}
-          <p className="border-t border-border pt-3 text-xs text-muted-foreground">{copy.ownerOnly} {copy.safety}</p>
-        </SettingsAccordionCard>
-        <SettingsAccordionCard title={copy.notifications} isOpen={notificationsOpen} onOpenChange={setNotificationsOpen}
-          cardClassName="[&_button]:rounded-none [&_span]:rounded-none">
-          <section className="flex items-start justify-between gap-4">
-            <div><label htmlFor="team-license-notifications" className="text-sm font-medium">{copy.notificationSetting}</label>
-              <p className="mt-1 text-xs text-muted-foreground">{copy.notificationSettingDetail}</p></div>
-            <Switch id="team-license-notifications" checked={licenseNotificationsEnabled ?? true}
-              onCheckedChange={(enabled) => void saveNotificationSetting(enabled)} disabled={licenseNotificationsEnabled === null || savingNotificationSetting}
-              aria-label={copy.notificationSetting} />
-          </section>
-          <section className="flex items-start justify-between gap-4 border-t border-border pt-3">
-            <div><label htmlFor="team-license-email-notifications" className="text-sm font-medium">{copy.emailNotificationSetting}</label>
-              <p className="mt-1 text-xs text-muted-foreground">{copy.emailNotificationSettingDetail}</p></div>
-            <Switch id="team-license-email-notifications" checked={licenseEmailNotificationsEnabled ?? true}
-              onCheckedChange={(enabled) => void saveEmailNotificationSetting(enabled)} disabled={licenseEmailNotificationsEnabled === null || savingNotificationSetting}
-              aria-label={copy.emailNotificationSetting} />
-          </section>
           <dl className="grid gap-2 border-t border-border pt-3 text-sm">
             <div className="flex justify-between"><dt>{copy.emailRetryPending}</dt><dd>{health.emailDelivery?.retryPending ?? 0}</dd></div>
             <div className="flex justify-between"><dt>{copy.emailManualReview}</dt><dd>{health.emailDelivery?.manualReview ?? 0}</dd></div>
           </dl>
           <TeamLicenseEmailReview count={health.emailDelivery?.manualReview ?? 0} onReload={onReload} />
+          <p className="border-t border-border pt-3 text-xs text-muted-foreground">{copy.ownerOnly} {copy.safety}</p>
         </SettingsAccordionCard>
       </CardContent>
     </Card>

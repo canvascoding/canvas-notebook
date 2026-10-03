@@ -7500,6 +7500,7 @@
         "personalActivationLabel": "Personal activation",
         "packageActivation": "Package activation",
         "packageActivationHint": "Controls whether this installed package is enabled.",
+        "organizationPackage": "This package is centrally managed. Use the provided installation; manage the package in organization settings.",
         "required": "Your organization requires this plugin. Ask an administrator to change the policy.",
         "blocked": "Organization policy blocks this plugin. Ask an administrator to change the policy.",
         "conflict": "This package conflicts with another capability. Ask an administrator to resolve the conflict.",

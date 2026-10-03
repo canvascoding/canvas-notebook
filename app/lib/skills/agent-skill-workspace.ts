@@ -30,6 +30,7 @@ import { adoptLegacyStandaloneSkillsForScope } from '@/app/lib/skills/legacy-ski
 import { getSkillNames, loadSkillByName } from '@/app/lib/skills/skill-loader';
 import { importSkillPackage } from '@/app/lib/skills/skill-package-import';
 import { readEnabledSkillsForScope, writeEnabledSkillsForScope } from '@/app/lib/skills/skill-settings';
+import { assertPersonalSkillActivationAllowed, PersonalSkillActivationError } from '@/app/lib/skills/personal-skill-activation';
 
 const SKILL_DRAFTS_DIR_NAME = '.canvas-skill-drafts';
 const IGNORED_PACKAGE_ENTRIES = new Set(['.git', 'node_modules', '.DS_Store']);
@@ -356,6 +357,7 @@ async function enableInstalledSkill(
   scope: CanvasSkillStorageScope,
   updatedBy?: string,
 ): Promise<void> {
+  await assertPersonalSkillActivationAllowed(skillName, scope);
   const enabledSkills = await readEnabledSkillsForScope(scope);
   const allSkillNames = await getSkillNames(scope);
   const nextEnabledSkills = enableSkillInConfig(skillName, enabledSkills, allSkillNames);
@@ -835,6 +837,9 @@ export async function updateCanvasSkillFromWorkspace(params: {
   const scope = { userId: params.scope.userId };
   const skillName = params.skillName.trim();
   assertValidSkillName(skillName);
+  if (params.enable !== false) {
+    await assertPersonalSkillActivationAllowed(skillName, scope);
+  }
   await adoptLegacyStandaloneSkillsForScope(scope);
   const expectedVersion = params.expectedVersion.trim();
   const expectedChecksum = params.expectedChecksum.trim().replace(/^sha256:/i, '').toLowerCase();
@@ -880,6 +885,7 @@ export async function updateCanvasSkillFromWorkspace(params: {
 
   if (params.enable !== false) {
     await enableInstalledSkill(skillName, scope, params.updatedBy).catch((error) => {
+      if (error instanceof PersonalSkillActivationError) throw error;
       console.warn('[AgentSkillWorkspace] Failed to auto-enable updated skill:', error);
     });
   }

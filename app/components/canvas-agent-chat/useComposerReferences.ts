@@ -4,8 +4,11 @@ import {
   useCallback,
   createElement,
   useEffect,
+  useLayoutEffect,
+  useMemo,
   useRef,
   useState,
+  startTransition,
   type ChangeEvent,
   type Dispatch,
   type RefObject,
@@ -58,13 +61,18 @@ export function useComposerReferences({
   const [activeReferenceMatch, setActiveReferenceMatch] = useState<ComposerReferenceMatch | null>(null);
   const [referencePickerItems, setReferencePickerItems] = useState<ComposerReferencePickerItem<ReferencePickerValue>[]>([]);
   const [selectedReferenceIndex, setSelectedReferenceIndex] = useState(0);
-  const [availableSkills, setAvailableSkills] = useState<SkillPickerSkill[] | null>(null);
-  const [availablePlugins, setAvailablePlugins] = useState<PluginPickerPlugin[] | null>(null);
+  const [skillCache, setSkillCache] = useState<{ workspaceIdentity: symbol; skills: SkillPickerSkill[] } | null>(null);
+  const [pluginCache, setPluginCache] = useState<{ workspaceIdentity: symbol; plugins: PluginPickerPlugin[] } | null>(null);
   const [isLoadingReferenceItems, setIsLoadingReferenceItems] = useState(false);
   const [referencePickerError, setReferencePickerError] = useState<string | null>(null);
   const referenceRequestIdRef = useRef(0);
   const referenceAbortControllerRef = useRef<AbortController | null>(null);
   const referenceDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const workspaceIdentity = useMemo(() => Symbol(workspaceId ?? undefined), [workspaceId]);
+  const workspaceIdentityRef = useRef(workspaceIdentity);
+  useLayoutEffect(() => { workspaceIdentityRef.current = workspaceIdentity; }, [workspaceIdentity]);
+  const availableSkills = skillCache?.workspaceIdentity === workspaceIdentity ? skillCache.skills : null;
+  const availablePlugins = pluginCache?.workspaceIdentity === workspaceIdentity ? pluginCache.plugins : null;
 
   const closeReferencePicker = useCallback(() => {
     if (referenceDebounceTimerRef.current) {
@@ -80,6 +88,10 @@ export function useComposerReferences({
     setIsLoadingReferenceItems(false);
     referenceRequestIdRef.current += 1;
   }, []);
+
+  useEffect(() => {
+    startTransition(closeReferencePicker);
+  }, [closeReferencePicker, workspaceId]);
 
   useEffect(() => () => {
     if (referenceDebounceTimerRef.current) clearTimeout(referenceDebounceTimerRef.current);
@@ -141,53 +153,46 @@ export function useComposerReferences({
   }, [agentId, relevantSkillNames]);
 
   const fetchPlugins = useCallback(async (signal?: AbortSignal) => {
+    if (signal?.aborted || workspaceIdentityRef.current !== workspaceIdentity) throw new DOMException('Workspace changed', 'AbortError');
     if (availablePlugins) {
       return availablePlugins;
     }
 
-    const res = await fetch('/api/plugins', { cache: 'no-store', credentials: 'include', signal });
+    const params = new URLSearchParams();
+    if (workspaceId) params.set('workspaceId', workspaceId);
+    const res = await fetch(`/api/plugins?${params}`, { cache: 'no-store', credentials: 'include', signal });
     const data = await safeFetchJson<{ success: boolean; plugins?: PluginPickerPlugin[]; error?: string }>(res);
+    if (signal?.aborted || workspaceIdentityRef.current !== workspaceIdentity) throw new DOMException('Workspace changed', 'AbortError');
     if (!res.ok || !data?.success) {
       throw new Error(data?.error || 'Failed to load plugins');
     }
 
     const nextPlugins = (data.plugins || [])
       .filter((plugin) => plugin.enabled !== false)
-      .map((plugin) => ({
-        description: plugin.description,
-        enabled: plugin.enabled,
-        interface: plugin.interface,
-        name: plugin.name,
-        skills: plugin.skills,
-        version: plugin.version,
-      }));
-    setAvailablePlugins(nextPlugins);
+      .map((plugin) => ({ ...plugin }));
+    setPluginCache({ workspaceIdentity, plugins: nextPlugins });
     return nextPlugins;
-  }, [availablePlugins]);
+  }, [availablePlugins, workspaceId, workspaceIdentity]);
 
   const fetchSkills = useCallback(async (signal?: AbortSignal) => {
+    if (signal?.aborted || workspaceIdentityRef.current !== workspaceIdentity) throw new DOMException('Workspace changed', 'AbortError');
     if (availableSkills) {
       return availableSkills;
     }
 
-    const res = await fetch('/api/skills', { cache: 'no-store', credentials: 'include', signal });
+    const params = new URLSearchParams();
+    if (workspaceId) params.set('workspaceId', workspaceId);
+    const res = await fetch(`/api/skills?${params}`, { cache: 'no-store', credentials: 'include', signal });
     const data = await safeFetchJson<{ success: boolean; skills?: Array<SkillPickerSkill & { path?: string }>; error?: string }>(res);
+    if (signal?.aborted || workspaceIdentityRef.current !== workspaceIdentity) throw new DOMException('Workspace changed', 'AbortError');
     if (!res.ok || !data?.success) {
       throw new Error(data?.error || 'Failed to load skills');
     }
 
-    const nextSkills = (data.skills || []).filter((skill) => skill.enabled).map((skill) => ({
-      description: skill.description,
-      enabled: skill.enabled,
-      core: skill.core,
-      interface: skill.interface,
-      name: skill.name,
-      plugin: skill.plugin,
-      title: skill.title,
-    }));
-    setAvailableSkills(nextSkills);
+    const nextSkills = (data.skills || []).filter((skill) => skill.enabled).map((skill) => ({ ...skill }));
+    setSkillCache({ workspaceIdentity, skills: nextSkills });
     return nextSkills;
-  }, [availableSkills]);
+  }, [availableSkills, workspaceId, workspaceIdentity]);
 
   const fetchCapabilities = useCallback(async (signal?: AbortSignal) => {
     const [pluginResult, skillResult] = await Promise.allSettled([

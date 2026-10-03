@@ -3,6 +3,7 @@ import { headers } from 'next/headers';
 
 import { auth } from '@/app/lib/auth';
 import { loadCapabilityCandidates, resolveEffectiveCapabilitySnapshot } from '@/app/lib/capabilities/catalog';
+import { selectVisibleCapabilities } from '@/app/lib/capabilities/visible-capabilities';
 import {
   resolveCapabilityExecutionContextForUser,
   resolveCapabilityStorageScope,
@@ -72,7 +73,7 @@ export async function GET(request: NextRequest) {
       const pluginNames = new Map(snapshot.capabilities
         .filter((entry) => entry.ref.resourceType === 'plugin')
         .map((entry) => [entry.ref.resourceId, entry.ref]));
-      skills = (await Promise.all(snapshot.capabilities
+      skills = (await Promise.all(selectVisibleCapabilities(snapshot.capabilities)
         .filter((entry) => entry.ref.resourceType === 'skill' && entry.runtimePath)
         .map(async (entry) => {
           const skill = await parseSkillFile(entry.runtimePath!);

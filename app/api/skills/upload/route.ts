@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { PersonalSkillActivationError } from '@/app/lib/skills/personal-skill-activation';
 import { requireOrganizationPermission } from '@/app/lib/organization/permissions';
 import {
   importSkillPackage,
@@ -104,6 +105,9 @@ export async function POST(request: Request) {
     return NextResponse.json(result);
   } catch (error) {
     console.error('[Skills Upload API] Error:', error);
+    if (error instanceof PersonalSkillActivationError) {
+      return NextResponse.json({ success: false, error: error.message, code: error.code }, { status: error.statusCode });
+    }
     if (error instanceof SkillPackageImportError) {
       return NextResponse.json(
         { success: false, error: error.message, validation: error.validation },

@@ -12,12 +12,20 @@ export async function POST(
   const payload = await response.json().catch(() => null) as {
     success?: boolean;
     error?: string;
+    code?: string;
+    protectedResourceId?: string;
+    protectedScopeType?: string;
+    protectedName?: string;
     plugin?: CanvasPluginInstallRecord;
   } | null;
   if (!response.ok || !payload?.success || !payload.plugin) {
     return NextResponse.json({
       success: false,
       error: payload?.error || 'Failed to enable plugin',
+      code: payload?.code,
+      protectedResourceId: payload?.protectedResourceId,
+      protectedScopeType: payload?.protectedScopeType,
+      protectedName: payload?.protectedName,
     }, { status: response.status });
   }
   return NextResponse.json({

@@ -1,7 +1,11 @@
 import 'server-only';
+import { resolveEffectiveCapabilitySnapshot } from '@/app/lib/capabilities/catalog';
+import { resolveCapabilityExecutionContextForUser } from '@/app/lib/capabilities/request-scope';
+import { resolveDataStorageScope } from '@/app/lib/runtime-data-paths';
+import { listVisibleInstalledCanvasPlugins } from '@/app/lib/plugins/visible-installed-plugins';
+import { resolveActivePluginOrganizationScope } from '@/app/lib/plugins/plugin-scope-protection';
 
 import {
-  listCanvasPlugins,
   type CanvasPluginInstallRecord,
   type CanvasPluginStorageScope,
 } from '@/app/lib/plugins/canvas-plugin-registry';
@@ -126,13 +130,32 @@ function formatPluginContext(plugin: CanvasPluginInstallRecord): string {
 export async function buildReferencedPluginRuntimeContext(
   content: string,
   scope?: CanvasPluginStorageScope | null,
+  options: { workspaceId?: string | null } = {},
 ): Promise<string | null> {
   const referenceNames = extractSlashReferenceNames(content);
   if (referenceNames.length === 0) {
     return null;
   }
 
-  const plugins = await listCanvasPlugins(scope);
+  let plugins = await listVisibleInstalledCanvasPlugins(scope);
+  const organizationScope = await resolveActivePluginOrganizationScope(scope);
+  if (organizationScope && scope?.userId) {
+    const context = await resolveCapabilityExecutionContextForUser({
+      userId: scope.userId, organizationId: organizationScope.organizationId,
+      requestedWorkspaceId: options.workspaceId,
+    });
+    const snapshot = await resolveEffectiveCapabilitySnapshot(context);
+    const effectiveResourceIds = new Set(snapshot.capabilities.filter((entry) => (
+      entry.ref.resourceType === 'plugin' && entry.effectiveEnabled
+      && entry.readiness !== 'blocked' && entry.readiness !== 'conflict'
+    )).map((entry) => entry.ref.resourceId));
+    plugins = plugins.flatMap((plugin) => plugin.resourceId && effectiveResourceIds.has(plugin.resourceId)
+      ? [{ ...plugin, enabled: true }] : []);
+  } else if (resolveDataStorageScope(scope).scopeType === 'user') {
+    // A membership revoked between the list read and the current authority
+    // check cannot leave an organization winner in the unscoped fallback.
+    plugins = plugins.filter((plugin) => plugin.scopeType !== 'organization');
+  }
   const enabledPluginsByName = new Map(
     plugins
       .filter((plugin) => plugin.enabled)

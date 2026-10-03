@@ -378,7 +378,7 @@ function main(): void {
   );
   assert.match(connectionPanel, /availabilityNotice/u);
   assert.match(connectionPanel, /licenseStatusAvailable/u);
-  assert.match(connectionPanel, /<Alert>/u);
+  assert.match(connectionPanel, /<Alert(?:\s|>)/u);
 
   const licenseStatusSource = readFileSync(
     path.join(process.cwd(), 'app/lib/license/index.ts'),

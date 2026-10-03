@@ -9,6 +9,10 @@ export async function POST(request: Request) {
   const payload = await response.json().catch(() => null) as {
     success?: boolean;
     error?: string;
+    code?: string;
+    protectedResourceId?: string;
+    protectedScopeType?: string;
+    protectedName?: string;
     plugin?: CanvasPluginInstallRecord;
   } | null;
 
@@ -16,6 +20,10 @@ export async function POST(request: Request) {
     return NextResponse.json({
       success: false,
       error: payload?.error || 'Failed to install plugin',
+      code: payload?.code,
+      protectedResourceId: payload?.protectedResourceId,
+      protectedScopeType: payload?.protectedScopeType,
+      protectedName: payload?.protectedName,
     }, { status: response.status });
   }
 

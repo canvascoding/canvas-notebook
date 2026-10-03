@@ -39,6 +39,7 @@ import {
   type CanvasPluginValidationResult,
 } from '@/app/lib/plugins/canvas-plugin-manifest';
 import { requirePathInside } from '@/app/lib/security/safe-paths';
+import { resolveActivePluginOrganizationScope } from '@/app/lib/plugins/plugin-scope-protection';
 
 export interface CanvasPluginSkillRecord {
   name: string;
@@ -135,6 +136,11 @@ export interface CanvasPluginInstallOptions {
 export interface CanvasPluginInstallResult {
   success: boolean;
   error?: string;
+  code?: 'CAPABILITY_NAMESPACE_PROTECTED';
+  status?: number;
+  protectedResourceId?: string;
+  protectedScopeType?: 'system' | 'organization';
+  protectedName?: string;
   validation?: CanvasPluginValidationResult;
   plugin?: CanvasPluginInstallRecord;
 }
@@ -1100,6 +1106,68 @@ async function refreshPluginRuntimeForScope(scope?: CanvasPluginStorageScope | n
   await requestPiRuntimePromptRefreshForUser(userId);
 }
 
+async function pluginActivationProtection(
+  name: string,
+  scope?: CanvasPluginStorageScope | null,
+): Promise<CanvasPluginInstallResult | null> {
+  if (resolveDataStorageScope(scope).scopeType !== 'user') return null;
+  const ownRegistry = await readCanvasPluginRegistry(scope);
+  const systemPlugin = Object.values(ownRegistry.plugins).find((plugin) => (
+    plugin.scopeType === 'system' && plugin.name.toLowerCase() === name.toLowerCase()
+  ));
+  const organizationScope = systemPlugin ? null : await resolveActivePluginOrganizationScope(scope);
+  const organizationRegistry = organizationScope ? await readCanvasPluginRegistry(organizationScope) : null;
+  const protectedPlugin = systemPlugin || Object.values(organizationRegistry?.plugins || {}).find((plugin) => (
+    plugin.name.toLowerCase() === name.toLowerCase()
+  ));
+  if (!protectedPlugin) return null;
+  const protectedScopeType = systemPlugin ? 'system' : 'organization';
+  return {
+    success: false,
+    code: 'CAPABILITY_NAMESPACE_PROTECTED',
+    status: 409,
+    error: `Plugin "${name}" is protected by the ${protectedScopeType} scope and cannot be activated personally.`,
+    protectedScopeType,
+    protectedResourceId: (protectedPlugin.scopeType !== 'legacy' && protectedPlugin.resourceId) || createCapabilityResourceId({
+      resourceType: 'plugin',
+      scopeType: protectedScopeType,
+      sourceType: 'standalone',
+      name: protectedPlugin.name,
+      organizationId: organizationScope?.organizationId,
+    }),
+  };
+}
+
+async function pluginSkillActivationProtection(
+  skillNames: string[],
+  scope?: CanvasPluginStorageScope | null,
+): Promise<CanvasPluginInstallResult | null> {
+  if (resolveDataStorageScope(scope).scopeType !== 'user' || skillNames.length === 0) return null;
+  const { readProtectedPersonalSkillNamespace } = await import('@/app/lib/skills/personal-skill-activation');
+  const namespace = await readProtectedPersonalSkillNamespace(scope);
+  const protectedName = skillNames.find((name) => namespace.names.has(name.trim().toLowerCase()));
+  if (!protectedName) return null;
+  const key = protectedName.trim().toLowerCase();
+  const standalone = namespace.skillsByName.get(key);
+  const pluginSkill = namespace.pluginSkillsByName.get(key);
+  return {
+    success: false,
+    code: 'CAPABILITY_NAMESPACE_PROTECTED',
+    status: 409,
+    error: `Skill "${protectedName}" is protected by the organization scope and cannot be activated through a personal plugin.`,
+    protectedScopeType: 'organization',
+    protectedName,
+    protectedResourceId: (standalone?.scopeType !== 'legacy' && standalone?.resourceId) || createCapabilityResourceId({
+      resourceType: 'skill',
+      scopeType: 'organization',
+      sourceType: pluginSkill ? 'plugin' : 'standalone',
+      name: protectedName,
+      organizationId: namespace.organizationScope?.organizationId,
+      sourcePluginName: pluginSkill?.plugin.name,
+    }),
+  };
+}
+
 export async function installCanvasPluginFromPath(
   sourcePath: string,
   options: CanvasPluginInstallOptions = {},
@@ -1116,20 +1184,12 @@ export async function installCanvasPluginFromPath(
   const manifest = validation.manifest;
   const rootDir = validation.rootDir;
   return withPluginMutation(options.scope, async () => {
-    await adoptLegacyStandaloneSkillsForScope(options.scope);
-    const installDir = resolvePluginInstallDir(manifest.name, manifest.version, options.scope);
-    const registry = await readCanvasPluginRegistryForWrite(options.scope);
-    const existingRecord = registry.plugins[manifest.name];
-
-    if (existingRecord && existingRecord.version === manifest.version && !options.replace) {
-      return {
-        success: false,
-        error: `Plugin "${manifest.name}" version ${manifest.version} is already installed. Use replace to reinstall it.`,
-        validation,
-        plugin: existingRecord,
-      };
+    const existing = await getCanvasPlugin(manifest.name, options.scope);
+    const enable = options.enable ?? existing?.enabled ?? true;
+    if (enable) {
+      const protection = await pluginActivationProtection(manifest.name, options.scope);
+      if (protection) return { ...protection, validation };
     }
-
     const candidateSkills = await parsePluginSkillsFromManifest(
       manifest,
       rootDir,
@@ -1144,6 +1204,23 @@ export async function installCanvasPluginFromPath(
           valid: false,
           errors: [...validation.errors, ...candidateSkills.errors],
         },
+      };
+    }
+    if (enable) {
+      const protection = await pluginSkillActivationProtection(candidateSkills.records.map((skill) => skill.name), options.scope);
+      if (protection) return { ...protection, validation };
+    }
+    await adoptLegacyStandaloneSkillsForScope(options.scope);
+    const installDir = resolvePluginInstallDir(manifest.name, manifest.version, options.scope);
+    const registry = await readCanvasPluginRegistryForWrite(options.scope);
+    const existingRecord = registry.plugins[manifest.name];
+
+    if (existingRecord && existingRecord.version === manifest.version && !options.replace) {
+      return {
+        success: false,
+        error: `Plugin "${manifest.name}" version ${manifest.version} is already installed. Use replace to reinstall it.`,
+        validation,
+        plugin: existingRecord,
       };
     }
 
@@ -1355,12 +1432,19 @@ export async function setCanvasPluginEnabled(
   enabled: boolean,
   scope?: CanvasPluginStorageScope | null,
   updatedBy?: string,
-): Promise<{ success: boolean; error?: string; plugin?: CanvasPluginInstallRecord }> {
+): Promise<CanvasPluginInstallResult> {
   if (!isValidCanvasPluginName(name)) {
     return { success: false, error: 'Invalid plugin name' };
   }
 
   return withPluginMutation(scope, async () => {
+    if (enabled) {
+      const protection = await pluginActivationProtection(name, scope);
+      if (protection) return protection;
+      const existing = await getCanvasPlugin(name, scope);
+      const skillProtection = await pluginSkillActivationProtection(existing?.skills.map((skill) => skill.name) || [], scope);
+      if (skillProtection) return skillProtection;
+    }
     const registry = await readCanvasPluginRegistryForWrite(scope);
     const plugin = registry.plugins[name];
     if (!plugin) {

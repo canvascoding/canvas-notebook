@@ -7499,6 +7499,7 @@
         "personalActivationLabel": "Persönliche Aktivierung",
         "packageActivation": "Paketaktivierung",
         "packageActivationHint": "Legt fest, ob dieses installierte Paket aktiviert ist.",
+        "organizationPackage": "Dieses Paket wird zentral verwaltet. Nutze die bereitgestellte Installation; Änderungen am Paket erfolgen im Organisationsbereich.",
         "required": "Deine Organisation schreibt dieses Plugin vor. Bitte einen Administrator, die Richtlinie zu ändern.",
         "blocked": "Die Organisationsrichtlinie blockiert dieses Plugin. Bitte einen Administrator, die Richtlinie zu ändern.",
         "conflict": "Dieses Paket steht im Konflikt mit einer anderen Funktion. Bitte einen Administrator, den Konflikt aufzulösen.",

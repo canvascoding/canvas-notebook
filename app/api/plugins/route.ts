@@ -3,6 +3,7 @@ import { headers } from 'next/headers';
 
 import { auth } from '@/app/lib/auth';
 import { resolveEffectiveCapabilitySnapshot } from '@/app/lib/capabilities/catalog';
+import { selectVisibleCapabilities } from '@/app/lib/capabilities/visible-capabilities';
 import {
   resolveCapabilityExecutionContextForUser,
   resolveCapabilityStorageScope,
@@ -71,7 +72,7 @@ export async function GET(request: NextRequest) {
         ...plugins.map((plugin) => [`user:${plugin.name}`, plugin] as const),
         ...organizationPlugins.map((plugin) => [`organization:${plugin.name}`, plugin] as const),
       ]);
-      plugins = snapshot.capabilities
+      plugins = selectVisibleCapabilities(snapshot.capabilities)
         .filter((entry) => entry.ref.resourceType === 'plugin')
         .flatMap((entry) => {
           if (entry.ref.scopeType === 'system') return [];
@@ -93,8 +94,8 @@ export async function GET(request: NextRequest) {
           }];
         });
     }
-    if (request.nextUrl.searchParams.get('identity') === 'resource') {
-      // The Plugins app presents every exact personal and assigned resource.
+    if (executionContext || request.nextUrl.searchParams.get('identity') === 'resource') {
+      // Preserve the exact identities of the visible namespace owners.
       const pluginsByResource = new Map<string, typeof plugins[number]>();
       for (const plugin of plugins) {
         const key = plugin.resourceId

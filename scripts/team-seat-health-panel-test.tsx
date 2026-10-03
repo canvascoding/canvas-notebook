@@ -18,7 +18,7 @@ const fixture: TeamSeatHealth = {
   historicalCommunity: { pendingOperations: 1, failedOperations: 6 },
   license: { class: 'manual', environment: 'production', seatLimit: 10,
     expiresAt: '2026-09-30T11:00:00Z', termEndsAt: '2027-09-30T11:00:00Z', nonBillable: true, billingMode: 'manual_grant' },
-  claim: { state: 'connected', connectionExpiresAt: null, reconnectReason: null },
+  claim: { state: 'idle', connectionExpiresAt: null, reconnectReason: null },
   sync: { state: 'healthy', managedState: 'current', lastAttemptAt: '2026-09-30T10:00:00Z', lastError: null,
     membershipRevision: 5, entitlementsVersion: 7, blocker: null, observedQuantity: 2, approvedQuantity: 2,
     billedQuantity: null, licensedQuantity: 10, lastSyncAt: '2026-09-30T10:00:00Z', nextReportAt: '2026-09-30T10:01:00Z',
@@ -34,12 +34,7 @@ async function main() {
   const { render, fireEvent } = await import('@testing-library/react');
   const { TeamSeatHealthPanel } = await import('../app/components/license/TeamSeatHealthPanel');
   const actions: string[] = [];
-  const preferenceUpdates: Record<string, unknown>[] = [];
   globalThis.fetch = async (input, init) => {
-    if (String(input) === '/api/user-preferences') {
-      if (init?.method === 'PATCH') preferenceUpdates.push(JSON.parse(String(init.body)) as Record<string, unknown>);
-      return Response.json({ success: true, data: {} });
-    }
     if (String(input) === '/api/license/team/recovery') {
       actions.push(JSON.parse(String(init?.body)).action);
       return Response.json({ success: true });
@@ -56,12 +51,9 @@ async function main() {
   try {
     await settle();
     assert(screen.getByText('Confirmed in sync'));
-    assert(screen.getByText('Control Plane connection: Connected'));
-    assert(screen.getByText('Active'));
-    assert(screen.getByText('Confirmed'));
-    assert.equal(screen.getAllByText('2').length, 2);
-    assert(screen.getByText('10', { selector: 'p' }));
-    assert(screen.getByText('Licensed'));
+    assert(screen.getByText('2 / 10 Team seats used'));
+    assert.equal(screen.queryByText('Active'), null);
+    assert.equal(screen.queryByRole('button', { name: 'Sync memberships now' }), null);
     assert.equal(screen.queryByText('Offline grace'), null);
     assert.equal(screen.queryByRole('button', { name: 'Refresh license certificate' }), null);
     assert.equal(screen.queryByText('Previous Community operations'), null);
@@ -69,33 +61,39 @@ async function main() {
     assert.equal(details.getAttribute('aria-expanded'), 'false');
     fireEvent.click(details);
     assert.equal(details.getAttribute('aria-expanded'), 'true');
+    assert(screen.getByText('Control Plane connection: Connected'));
+    assert(screen.getByText('Active'));
+    assert(screen.getByText('Confirmed'));
+    assert.equal(screen.getAllByText('2').length, 2);
+    assert(screen.getByText('10', { selector: 'p' }));
     assert(screen.getByText('Certificate valid until'));
     assert(screen.getByText('Grant valid until'));
     assert(screen.getByText('Not applicable · non-billable'));
-    assert(screen.getByRole('region', { name: 'Previous Community operations' }));
+    assert.equal(screen.queryByRole('region', { name: 'Previous Community operations' }), null);
     fireEvent.click(details);
     assert.equal(screen.queryByText('Certificate valid until'), null);
     assert.equal(screen.queryByRole('switch'), null);
-    const notifications = screen.getByRole('button', { name: 'Expand: Notifications' });
-    notifications.focus();
-    assert.equal(document.activeElement, notifications);
-    assert.equal(notifications.getAttribute('aria-expanded'), 'false');
-    fireEvent.click(notifications);
-    assert.equal(notifications.getAttribute('aria-expanded'), 'true');
-    const inApp = screen.getByRole('switch', { name: 'Show license events in the notification center' });
-    const email = screen.getByRole('switch', { name: 'Email for team access changes' });
-    fireEvent.click(inApp);
-    await settle();
-    assert.equal(inApp.getAttribute('aria-checked'), 'false');
-    assert.equal(email.getAttribute('aria-checked'), 'true');
-    assert.deepEqual(preferenceUpdates, [{ teamLicenseNotificationsEnabled: false }]);
-    fireEvent.click(notifications);
-    assert.equal(screen.queryByRole('switch'), null);
+    assert.equal(screen.queryByRole('button', { name: 'Expand: Notifications' }), null);
+    fireEvent.click(details);
     fireEvent.click(screen.getByRole('button', { name: 'Sync memberships now' }));
     await settle();
     assert.deepEqual(actions, ['sync_snapshot']);
     assert(screen.getByText('Membership sync was scheduled.'));
   } finally { screen.unmount(); }
+
+  const healthyDisclosure = render(<NextIntlClientProvider locale="en" timeZone="UTC" messages={messages}>
+    <TeamSeatHealthPanel health={fixture} discloseHealthy />
+  </NextIntlClientProvider>);
+  try {
+    assert.equal(healthyDisclosure.queryByText('Team license health'), null);
+    assert(healthyDisclosure.getByText('2 / 10 Team seats used'));
+    fireEvent.click(healthyDisclosure.getByRole('button', { name: 'Expand: Synchronization and license details' }));
+    assert(healthyDisclosure.getByText('Team license health'));
+    assert(healthyDisclosure.getByText('Active'));
+    assert(healthyDisclosure.getByRole('button', { name: 'Sync memberships now' }));
+    fireEvent.click(healthyDisclosure.getByRole('button', { name: 'Collapse: Synchronization and license details' }));
+    assert.equal(healthyDisclosure.queryByText('Team license health'), null);
+  } finally { healthyDisclosure.unmount(); }
 
   const errorHealth: TeamSeatHealth = { ...fixture,
     claim: { ...fixture.claim, state: 'idle' },
@@ -128,7 +126,6 @@ async function main() {
       const confirmedBadge = policyView.getByText('Confirmed in sync');
       assert(confirmedBadge.querySelector('.lucide-circle-check'));
       assert(!confirmedBadge.className.includes('bg-destructive'));
-      assert(policyView.getByText('Control Plane connection: Connected'));
       assert(policyView.getByText(policyState === 'restricted' ? 'Team access restricted' : 'Team access in grace period'));
       assert(policyView.getByText('The grant has expired.'));
       assert(policyView.getByText('Check and renew or reapprove the grant in the Control Plane, then sync again.'));
