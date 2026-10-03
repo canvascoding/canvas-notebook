@@ -16,6 +16,7 @@ import { decodeLicenseJwt, verifyLicenseJwtDetailed } from './jwt';
 import { loadStoredLicenseCert } from './storage';
 import { recordManagedTeamAccessPolicy } from './managed-team-access-policy';
 import { recordTeamLicenseTermWarning } from './team-license-term-warning';
+import { resolveObsoleteTeamLicenseInAppWarnings } from './team-license-warning-resolution';
 import { managedTeamSyncError, recordManagedTeamSyncStatus } from './managed-team-sync-status';
 import { withKeyedOperationLock } from '@/app/lib/concurrency/keyed-operation-lock';
 import { retireManagedCommunitySnapshotOperations } from './managed-community-outbox';
@@ -575,6 +576,7 @@ async function performManagedTeamSyncCycle(options: {
     let error: string | undefined;
     let appliedMemberCount = 0;
     let warningGrantId: string | null = null;
+    let hasNonManualLicense = false;
     try {
       assertManagedMappings(local.members, sync.members, 'revoke');
       const fingerprint = createHash('sha256').update(license.certificate).digest('hex');
@@ -636,6 +638,7 @@ async function performManagedTeamSyncCycle(options: {
         entitlementsVersion: license.entitlementsVersion,
         policy: policy ?? { state: 'active', reason: null, graceEndsAt: null, allowNewMembers: true },
       });
+      hasNonManualLicense = decoded.licenseClass !== 'manual';
       if (((sync.status === 'ready' && policy?.state === 'active')
         || (sync.status === 'policy_ready' && (policy?.state === 'grace' || policy?.state === 'restricted')))
         && decoded.licenseClass === 'manual' && decoded.licenseEnvironment === 'production'
@@ -690,6 +693,15 @@ async function performManagedTeamSyncCycle(options: {
         seatLimit: license.seatLimit,
       }).catch((caught) => {
         console.warn('[license/managed-sync] term warning deferred', {
+          error: redactTeamControlPlaneLogText(caught instanceof Error ? caught.message : String(caught)),
+        });
+      });
+    } else if (!error && hasNonManualLicense) {
+      await resolveObsoleteTeamLicenseInAppWarnings({
+        database, instanceId, organizationId: local.organizationId,
+        grantId: null, termEndsAt: null, grace: false, restricted: false, now: Date.now(),
+      }).catch((caught) => {
+        console.warn('[license/managed-sync] warning resolution deferred', {
           error: redactTeamControlPlaneLogText(caught instanceof Error ? caught.message : String(caught)),
         });
       });

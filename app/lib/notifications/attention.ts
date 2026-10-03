@@ -75,7 +75,7 @@ export async function readNotificationAttention(input: {
     }), 0),
     settleNotificationSource(listMemoryApprovalAttention({ userId: input.userId, workspaces: input.workspaces }), []),
     settleNotificationSource(listMcpConnectionAttention({ userId: input.userId, now: now.getTime() }), []),
-    settleNotificationSource(listTeamLicenseAttention({ userId: input.userId }), []),
+    settleNotificationSource(listTeamLicenseAttention({ userId: input.userId, activeOnly: true }), []),
     settleNotificationSource(Promise.all(input.workspaces.map((workspace) =>
       workspaceOperationNotificationSource.list({ userId: input.userId, workspace }))), []),
   ]);
