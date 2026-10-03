@@ -293,6 +293,8 @@ export function LicenseActivationPanel({
   const hostingVariant = licenseHostingVariant(status);
   const isManaged = hostingVariant === 'managed';
   const isSelfHosted = hostingVariant === 'self-hosted';
+  const teamApplicable = isTeamLicenseApplicable(status);
+  const relevantExpiry = teamApplicable ? status?.teamSeatHealth?.license.termEndsAt : status?.expiresAt;
   const statusCode = status?.code || codeFromLicenseError(status?.error as Parameters<typeof codeFromLicenseError>[0]);
   const planLabel = isManaged
     ? `Managed${status?.edition ? ` ${status.edition === 'team' ? 'Team' : 'Solo'}` : ''}`
@@ -335,8 +337,8 @@ export function LicenseActivationPanel({
           ) : null}
         </CardHeader>
         <CardContent className="space-y-4 px-4 sm:px-6">
-          {status?.expiresAt ? <p className="text-sm text-muted-foreground">
-            {copy.expires}: {new Date(status.expiresAt).toLocaleDateString(locale)}
+          {relevantExpiry ? <p className="text-sm text-muted-foreground">
+            {teamApplicable ? locale.startsWith('de') ? 'Team-Lizenz gültig bis' : 'Team license valid until' : copy.expires}: {new Date(relevantExpiry).toLocaleDateString(locale)}
           </p> : null}
           {isSelfHosted && !loading && !statusLoadError && !activationOpen ? <div className="flex flex-wrap gap-2">
             <Button type="button" variant={isLicensed ? 'outline' : 'default'} onClick={() => setActivationOpen(true)}>
@@ -349,6 +351,7 @@ export function LicenseActivationPanel({
 
           {status && !statusLoadError ? <SettingsAccordionCard title={copy.details} isOpen={detailsOpen} onOpenChange={setDetailsOpen}>
             <p className="break-all text-sm"><span className="text-muted-foreground">{copy.instanceId}: </span><span className="font-mono text-xs">{status.instanceId}</span></p>
+            {status.expiresAt ? <p className="text-sm text-muted-foreground">{locale.startsWith('de') ? 'Zertifikat gültig bis' : 'Certificate valid until'}: {new Date(status.expiresAt).toLocaleString(locale)}</p> : null}
             {isManaged ? <p className="text-sm text-muted-foreground">{copy.managedDescription}</p> : null}
             {isSelfHosted ? <section className="space-y-2 text-sm text-muted-foreground">
               <p className="font-medium text-foreground">{copy.termsTitle}</p>
@@ -429,7 +432,7 @@ export function LicenseActivationPanel({
           )}
         </CardContent>
       </Card>
-      {canViewTeamSeatHealth && isTeamLicenseApplicable(status) ? (
+      {canViewTeamSeatHealth && teamApplicable ? (
         <TeamSeatHealthPanel
           health={status ? status.teamSeatHealth ?? null : undefined}
           onReload={loadStatus}
