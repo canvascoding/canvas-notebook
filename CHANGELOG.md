@@ -11,6 +11,26 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.10.4.1] - 2026-10-04
+
+### Added
+
+- Added managed installation of a local CPU dictation runtime and speech model from Settings, with container build and license records.
+- Added durable file move and delete operations with link maintenance, progress, recovery, and failure notifications; core file safety remains available when the optional Review Center is disabled.
+
+### Changed
+
+- Reorganized team licensing and user management, added personal license notification preferences, and clarified team license emails and access context.
+- Scoped plugin and skill capabilities to their owner and activation scope, and preserved shared Markdown editing contracts across mobile and desktop.
+
+### Fixed
+
+- Improved handling of unknown license and team states, grant validity, certificate expiry, and license notification visibility.
+
+### Verification
+
+- `npm run verify:release`
+
 ## [2026.10.3.2] - 2026-10-03
 
 ### Fixed
