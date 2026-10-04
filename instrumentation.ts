@@ -44,5 +44,10 @@ export const onRequestError: typeof Sentry.captureRequestError = (error, request
   if (shouldSuppressDevelopmentRequestError(error)) {
     return;
   }
+  // Next.js 16.3 can report an expected client-aborted RSC stream as a render error.
+  // https://github.com/vercel/next.js/issues/96704
+  if (error instanceof Error && error.message === 'The destination stream closed early.') {
+    return;
+  }
   return Sentry.captureRequestError(error, request, context);
 };
