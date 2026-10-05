@@ -99,7 +99,16 @@ function buildGatewayTool(
     label: definition.label,
     description: definition.name === 'composio' && !findOperation(operations, 'COMPOSIO_SEARCH_TOOLS')
       ? 'On-demand gateway for permitted Composio-connected external-app operations. Use search without a query to list permitted operations, describe to load a schema, then call.'
-      : definition.description,
+      : [
+          definition.description,
+          ...(definition.name === 'composio' && findOperation(operations, 'COMPOSIO_SEARCH_TOOLS') ? [
+            'App tool slugs returned by COMPOSIO_SEARCH_TOOLS are provider actions, never gateway operation names.',
+            ...(findOperation(operations, 'COMPOSIO_GET_TOOL_SCHEMAS')
+              ? ['Fetch their schemas by calling operation COMPOSIO_GET_TOOL_SCHEMAS with arguments.tools containing the discovered slugs.'] : []),
+            ...(findOperation(operations, 'composio_execute')
+              ? ['Execute by calling operation composio_execute with arguments.action set to the discovered app tool slug and arguments.params matching its schema.'] : []),
+          ] : []),
+        ].join(' '),
     executionMode: 'sequential',
     parameters: Type.Object({
       action: Type.Union([

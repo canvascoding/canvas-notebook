@@ -179,15 +179,16 @@ export function createComposioManageConnectionsTool(context?: ResolvedComposioCo
 
           case 'status': {
             const account = await refreshGatewayToolkit(toolkit, context);
-            if (account.status && account.status !== 'NOT_CONNECTED') {
-              return textResult(_toolCallId, JSON.stringify({
-                connected: true,
-                toolkit,
-                status: account.status,
-                connected_at: account.connectedAt,
-              }));
-            }
-            return textResult(_toolCallId, JSON.stringify({ connected: false, toolkit }));
+            return textResult(_toolCallId, JSON.stringify({
+              connected: account.status === 'ACTIVE',
+              toolkit,
+              status: account.status,
+              connected_at: account.connectedAt,
+              workspace_id: context.workspaceId,
+              profile_id: context.profileId,
+              profile_name: context.profileName,
+              profile_source: context.profileSource,
+            }));
           }
 
           default:

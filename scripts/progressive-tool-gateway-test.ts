@@ -125,6 +125,9 @@ async function main() {
   assert.equal(externalCalls.length, 0);
   const appSchema = await composio.execute('app-schema', { action: 'describe', operation: 'COMPOSIO_SEARCH_TOOLS' });
   assert.match(getText(appSchema), /"toolkits"/);
+  assert.match(composio.description, /never gateway operation names/);
+  assert.match(composio.description, /operation COMPOSIO_GET_TOOL_SCHEMAS with arguments.tools/);
+  assert.match(composio.description, /operation composio_execute with arguments.action/);
   const appTools = await composio.execute('app-tools', { action: 'call', operation: 'COMPOSIO_SEARCH_TOOLS', arguments: { toolkits: ['canva'] } });
   assert.match(getText(appTools), /CANVA_LIST_DESIGNS/);
   assert.deepEqual(externalCalls, [{ name: 'COMPOSIO_SEARCH_TOOLS', params: { toolkits: ['canva'] } }]);
@@ -137,6 +140,10 @@ async function main() {
   assert.match(getText(statusSearch), /COMPOSIO_MANAGE_CONNECTIONS/);
   assert.doesNotMatch(getText(statusSearch), /COMPOSIO_SEARCH_TOOLS|composio_execute/);
   assert.equal(withAllowedProgressiveGatewayOperations(composio, []), null);
+  const searchOnly = withAllowedProgressiveGatewayOperations(composio, ['COMPOSIO_SEARCH_TOOLS']);
+  assert.ok(searchOnly);
+  assert.match(searchOnly.description, /never gateway operation names/);
+  assert.doesNotMatch(searchOnly.description, /COMPOSIO_GET_TOOL_SCHEMAS|composio_execute/);
 
   console.log('progressive-tool-gateway-test: ok');
 }
