@@ -137,7 +137,7 @@ function buildGatewayTool(
                 'Next step: use describe with one exact operation name to load its input schema.',
               ];
           if (definition.name === 'composio' && findOperation(operations, 'COMPOSIO_SEARCH_TOOLS')) {
-            lines.push('', 'This gateway search lists agent operations; it does not query external-app tools or check connection status. For a named app, describe COMPOSIO_SEARCH_TOOLS, then call it with arguments containing its exact toolkit slug in toolkits (for Canva: {"toolkits":["canva"]}). Omit the inner query to list the app catalog. Do not infer that an app is disconnected or Composio is unconfigured from a gateway search result.');
+            lines.push('', 'This gateway search lists agent operations; it does not query external-app tools or check connection status. For a named app, describe COMPOSIO_SEARCH_TOOLS, then call it with arguments containing its exact toolkit slug in toolkits. Omit the inner query to list the app catalog. Do not infer that an app is disconnected or Composio is unconfigured from a gateway search result.');
           }
           return textResult(lines.join('\n'), {
             gateway: definition.name,
@@ -338,7 +338,7 @@ export const PROGRESSIVE_GATEWAY_DEFINITIONS: readonly ProgressiveGatewayDefinit
   {
     name: 'composio',
     label: 'Using connected apps',
-    description: 'For named apps, describe COMPOSIO_SEARCH_TOOLS, then call it with toolkits containing the app slug (Canva: ["canva"]). Gateway search lists agent operations; it does not check app connections. Discover app tools and schemas before executing.',
+    description: 'For named apps, describe COMPOSIO_SEARCH_TOOLS, then call it with toolkits containing the exact app slug. Gateway search lists agent operations; it does not check app connections. Discover app tools and schemas before executing.',
     operations: [
       'COMPOSIO_SEARCH_TOOLS',
       'COMPOSIO_GET_TOOL_SCHEMAS',

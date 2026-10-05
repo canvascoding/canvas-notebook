@@ -11,16 +11,31 @@ import { createPiTestDatabase } from './helpers/pi-test-database';
 
 type ProviderCall = { path: string; body: Record<string, unknown>; userIds: string | null };
 
+// Different catalogs and parameter schemas exercise the shared Composio protocol.
+// These are controlled API fixtures, not live-provider acceptance tests.
+const APP_FIXTURES = [
+  { toolkit: 'canva', name: 'Canva', action: 'CANVA_LIST_USER_DESIGNS', params: { query: 'test' },
+    properties: { query: { type: 'string' } } },
+  { toolkit: 'gmail', name: 'Gmail', action: 'GMAIL_FIXTURE_READ_MESSAGES', params: { limit: 3 },
+    properties: { limit: { type: 'integer' } } },
+  { toolkit: 'github', name: 'GitHub', action: 'GITHUB_FIXTURE_READ_REPOSITORY', params: { owner: 'fixture', repo: 'sample' },
+    properties: { owner: { type: 'string' }, repo: { type: 'string' } } },
+  { toolkit: 'slack', name: 'Slack', action: 'SLACK_FIXTURE_READ_CHANNEL', params: { channel_id: 'channel-fixture' },
+    properties: { channel_id: { type: 'string' } } },
+  { toolkit: 'googledrive', name: 'Google Drive', action: 'GOOGLEDRIVE_FIXTURE_READ_FILES', params: { folder_id: 'folder-fixture' },
+    properties: { folder_id: { type: 'string' } } },
+];
+
 async function createProviderFixture() {
-  const accounts = new Map<string, string>();
+  const accounts = new Map<string, Map<string, string>>();
   const sessions = new Map<string, string>();
   const calls: ProviderCall[] = [];
-  const tool = {
-    slug: 'CANVA_LIST_USER_DESIGNS', name: 'List User Designs',
-    description: 'List designs for the connected Canva user.',
-    toolkit: { slug: 'canva', name: 'Canva' }, version: '20261005_00',
-    input_parameters: { type: 'object', properties: {}, required: [] },
-  };
+  const tools = APP_FIXTURES.map((app) => ({
+    slug: app.action, name: `Read ${app.name} fixture records`,
+    description: `Read records for the connected ${app.name} user.`,
+    toolkit: { slug: app.toolkit, name: app.name }, version: '20261005_00',
+    input_parameters: { type: 'object', properties: app.properties, required: Object.keys(app.properties) },
+  }));
   const server = http.createServer(async (request, response) => {
     let raw = '';
     for await (const chunk of request) raw += chunk;
@@ -33,16 +48,17 @@ async function createProviderFixture() {
     };
     if (url.pathname === '/api/v3.1/connected_accounts') {
       const userId = url.searchParams.get('user_ids')!;
-      const status = accounts.get(userId);
       const filter = url.searchParams.get('statuses');
-      return send({ items: status && (!filter || filter.split(',').includes(status)) ? [{
-        id: `ca_${userId}`, toolkit: { slug: 'canva' }, status, status_reason: null,
-        auth_config: { id: 'ac_canva', is_composio_managed: true, is_disabled: false },
+      const items = Array.from(accounts.get(userId) || []).filter(([, status]) => !filter || filter.split(',').includes(status))
+        .map(([toolkit, status]) => ({
+        id: `ca_${userId}_${toolkit}`, toolkit: { slug: toolkit }, status, status_reason: null,
+        auth_config: { id: `ac_${toolkit}`, is_composio_managed: true, is_disabled: false },
         is_disabled: false, created_at: '2026-10-05T00:00:00Z', updated_at: '2026-10-05T00:00:00Z',
-      }] : [], next_cursor: null, total_pages: 1 });
+      }));
+      return send({ items, next_cursor: null, total_pages: 1 });
     }
     if (url.pathname === '/api/v3.1/toolkits') {
-      return send({ items: [{ slug: 'canva', name: 'Canva', meta: {}, is_local_toolkit: false, no_auth: false }] });
+      return send({ items: APP_FIXTURES.map((app) => ({ slug: app.toolkit, name: app.name, meta: {}, is_local_toolkit: false, no_auth: false })) });
     }
     if (url.pathname === '/api/v3.1/tool_router/session') {
       const sessionId = `session_${sessions.size}`;
@@ -52,19 +68,24 @@ async function createProviderFixture() {
     const link = url.pathname.match(/^\/api\/v3.1\/tool_router\/session\/([^/]+)\/link$/u);
     if (link) {
       const userId = sessions.get(link[1])!;
-      accounts.set(userId, 'ACTIVE');
-      return send({ connected_account_id: `ca_${userId}`, redirect_url: String(body.callback_url) });
+      const toolkit = String(body.toolkit);
+      assert.ok(APP_FIXTURES.some((app) => app.toolkit === toolkit));
+      const userAccounts = accounts.get(userId) || new Map<string, string>();
+      userAccounts.set(toolkit, 'ACTIVE');
+      accounts.set(userId, userAccounts);
+      return send({ connected_account_id: `ca_${userId}_${toolkit}`, redirect_url: String(body.callback_url) });
     }
     if (url.pathname === '/api/v3.1/tools') {
-      assert.equal(url.searchParams.get('toolkit_slug'), 'canva');
-      return send({ items: [tool], next_cursor: null, total_pages: 1 });
+      return send({ items: tools.filter((tool) => tool.toolkit.slug === url.searchParams.get('toolkit_slug')), next_cursor: null, total_pages: 1 });
     }
-    if (url.pathname === `/api/v3.1/tools/${tool.slug}`) return send(tool);
-    if (url.pathname === `/api/v3.1/tools/execute/${tool.slug}`) {
+    const schemaTool = tools.find((tool) => url.pathname === `/api/v3.1/tools/${tool.slug}`);
+    if (schemaTool) return send(schemaTool);
+    const executionTool = tools.find((tool) => url.pathname === `/api/v3.1/tools/execute/${tool.slug}`);
+    if (executionTool) {
       const userId = String(body.user_id);
-      const active = accounts.get(userId) === 'ACTIVE';
-      return send({ successful: active, error: active ? null : 'Canva is not connected for this user',
-        data: active ? { designs: [{ id: `design_${userId}` }], owner: userId } : {}, log_id: 'fixture-read' });
+      const active = accounts.get(userId)?.get(executionTool.toolkit.slug) === 'ACTIVE';
+      return send({ successful: active, error: active ? null : `${executionTool.toolkit.name} is not connected for this user`,
+        data: active ? { toolkit: executionTool.toolkit.slug, owner: userId, params: body.arguments } : {}, log_id: 'fixture-read' });
     }
     response.writeHead(404);
     response.end(JSON.stringify({ error: `Unexpected fixture endpoint: ${url.pathname}` }));
@@ -137,65 +158,83 @@ async function main() {
     const makeGateway = async (userId: string) => createProgressiveGatewayTool(definition,
       createComposioTools(await resolveComposioContext({ userId, workspaceId: workspace.workspaceId })));
     const statusFor = async (userId: string) => (await uiStatus(request(userId, '/api/composio/status'))).json();
-    const connected = await uiConnect(request('user-a', '/api/composio/connect/canva', 'POST'), { params: Promise.resolve({ toolkit: 'canva' }) });
-    assert.equal(connected.status, 200);
-    const connection = await connected.json();
-    const callback = await oauthCallback(new NextRequest(connection.redirectUrl));
-    assert.equal(callback.status, 307);
     const contextA = await resolveComposioContext({ userId: 'user-a', workspaceId: workspace.workspaceId });
     const contextB = await resolveComposioContext({ userId: 'user-b', workspaceId: workspace.workspaceId });
     assert.notEqual(contextA.composioUserId, contextB.composioUserId);
-    const uiA = await statusFor('user-a');
-    assert.equal(uiA.effectiveProfile.id, contextA.profileId);
-    assert.equal(uiA.connectedAccounts.length, 1);
-    assert.equal((await statusFor('user-b')).connectedAccounts.length, 0);
-    const pluginReadiness = (userId: string) => resolvePluginConnectionReadiness({
+    // User B has their own Slack account. That cannot authorize any other app,
+    // nor can user A inherit it merely by sharing the workspace.
+    provider.accounts.set(contextB.composioUserId, new Map([['slack', 'ACTIVE']]));
+    const pluginReadiness = (userId: string, toolkit: string) => resolvePluginConnectionReadiness({
       userId, workspaceId: workspace.workspaceId, fresh: true,
-      connectors: { composio: [{ toolkit: 'canva', required: true }] },
+      connectors: { composio: [{ toolkit, required: true }] },
     });
-    assert.equal((await pluginReadiness('user-a')).ready, true);
-    assert.equal((await pluginReadiness('user-b')).ready, false);
     const gatewayA = await makeGateway('user-a');
-    const operationSearch = await gatewayA.execute('find-canva', { action: 'search', query: 'Canva' });
-    assert.equal((operationSearch.details as { fallback: boolean }).fallback, true);
-    assert.match(JSON.stringify(operationSearch), /COMPOSIO_SEARCH_TOOLS/u);
-    const search = payload(await gatewayA.execute('discover', { action: 'call', operation: 'COMPOSIO_SEARCH_TOOLS', arguments: { toolkits: ['canva'] } }));
-    assert.equal((search.tools as Array<{ slug: string }>)[0].slug, 'CANVA_LIST_USER_DESIGNS');
-    const schemas = payload(await gatewayA.execute('schema', { action: 'call', operation: 'COMPOSIO_GET_TOOL_SCHEMAS', arguments: { tools: ['CANVA_LIST_USER_DESIGNS'] } }));
-    assert.equal((schemas.CANVA_LIST_USER_DESIGNS as { type: string }).type, 'object');
-    const execute = (gateway: typeof gatewayA) => gateway.execute('read-designs', { action: 'call', operation: 'composio_execute', arguments: { action: 'CANVA_LIST_USER_DESIGNS', params: {} } }).then(payload);
-    const resultA = await execute(gatewayA);
-    assert.equal(resultA.successful, true);
-    assert.equal((resultA.data as { owner: string }).owner, contextA.composioUserId);
-    const resultB = await execute(await makeGateway('user-b'));
-    assert.equal(resultB.successful, false);
-    assert.deepEqual(resultB.data, {});
+    const gatewayB = await makeGateway('user-b');
+    const execute = (gateway: typeof gatewayA, app: typeof APP_FIXTURES[number]) => gateway.execute(`read-${app.toolkit}`, {
+      action: 'call', operation: 'composio_execute', arguments: { action: app.action, params: app.params },
+    }).then(payload);
+    for (const [index, app] of APP_FIXTURES.entries()) {
+      assert.equal((await execute(gatewayA, app)).successful, false, 'Another user connection cannot authorize this user');
+      const connected = await uiConnect(request('user-a', `/api/composio/connect/${app.toolkit}`, 'POST'), { params: Promise.resolve({ toolkit: app.toolkit }) });
+      assert.equal(connected.status, 200);
+      const callback = await oauthCallback(new NextRequest((await connected.json()).redirectUrl));
+      assert.equal(callback.status, 307);
+      const uiA = await statusFor('user-a');
+      assert.equal(uiA.effectiveProfile.id, contextA.profileId);
+      assert.equal(uiA.connectedAccounts.length, index + 1);
+      assert.ok(uiA.connectedAccounts.some((account: { toolkit: { slug: string } }) => account.toolkit.slug === app.toolkit));
+      assert.equal((await pluginReadiness('user-a', app.toolkit)).ready, true);
+      assert.equal((await pluginReadiness('user-b', app.toolkit)).ready, app.toolkit === 'slack');
+      const operationSearch = await gatewayA.execute(`find-${app.toolkit}`, { action: 'search', query: app.name });
+      assert.equal((operationSearch.details as { fallback: boolean }).fallback, true);
+      assert.match(JSON.stringify(operationSearch), /COMPOSIO_SEARCH_TOOLS/u);
+      const search = payload(await gatewayA.execute('discover', { action: 'call', operation: 'COMPOSIO_SEARCH_TOOLS', arguments: { toolkits: [app.toolkit] } }));
+      assert.deepEqual((search.tools as Array<{ slug: string }>).map((tool) => tool.slug), [app.action]);
+      const schemas = payload(await gatewayA.execute('schema', { action: 'call', operation: 'COMPOSIO_GET_TOOL_SCHEMAS', arguments: { tools: [app.action] } }));
+      const schema = schemas[app.action] as { type: string; properties: Record<string, unknown> };
+      assert.equal(schema.type, 'object');
+      assert.deepEqual(schema.properties, app.properties);
+      const resultA = await execute(gatewayA, app);
+      assert.equal(resultA.successful, true);
+      assert.deepEqual(resultA.data, { toolkit: app.toolkit, owner: contextA.composioUserId, params: app.params });
+      const resultB = await execute(gatewayB, app);
+      assert.equal(resultB.successful, app.toolkit === 'slack');
+      assert.deepEqual(resultB.data, app.toolkit === 'slack'
+        ? { toolkit: app.toolkit, owner: contextB.composioUserId, params: app.params } : {});
+      const executionCalls = provider.calls.filter((call) => call.path.endsWith(`/tools/execute/${app.action}`));
+      assert.deepEqual(executionCalls.map((call) => call.body.user_id), [contextA.composioUserId, contextA.composioUserId, contextB.composioUserId]);
+      assert.ok(executionCalls.every((call) => JSON.stringify(call.body.arguments) === JSON.stringify(app.params)));
+    }
+    assert.deepEqual((await statusFor('user-b')).connectedAccounts.map((account: { toolkit: { slug: string } }) => account.toolkit.slug), ['slack']);
     const executionCalls = provider.calls.filter((call) => call.path.includes('/tools/execute/'));
-    assert.deepEqual(executionCalls.map((call) => call.body.user_id), [contextA.composioUserId, contextB.composioUserId]);
     assert.ok(executionCalls.every((call) => call.body.version === '20261005_00'));
-    assert.equal(provider.calls.find((call) => call.path === '/api/v3.1/tool_router/session')!.body.user_id, contextA.composioUserId);
-    const profile = await createComposioProfile({ ownerUserId: 'user-a', name: 'Other Canva account' });
+    assert.ok(provider.calls.filter((call) => call.path === '/api/v3.1/tool_router/session').every((call) => call.body.user_id === contextA.composioUserId));
+    const profile = await createComposioProfile({ ownerUserId: 'user-a', name: 'Other app accounts' });
     await assert.rejects(setComposioWorkspaceProfileOverride({ userId: 'user-b', workspaceId: workspace.workspaceId, profileId: profile.id }), /not found/u);
     await setComposioWorkspaceProfileOverride({ userId: 'user-a', workspaceId: workspace.workspaceId, profileId: profile.id });
     const switchedContext = await resolveComposioContext({ userId: 'user-a', workspaceId: workspace.workspaceId });
     assert.equal((await statusFor('user-a')).effectiveProfile.id, profile.id);
-    assert.equal((await pluginReadiness('user-a')).ready, false);
-    assert.equal((await execute(await makeGateway('user-a'))).successful, false);
-    assert.equal(provider.calls.filter((call) => call.path.includes('/tools/execute/')).at(-1)!.body.user_id, switchedContext.composioUserId);
     const switchedGateway = await makeGateway('user-a');
-    for (const status of ['ACTIVE', 'EXPIRED', 'REVOKED', 'INACTIVE', 'INITIATED', 'FAILED']) {
-      provider.accounts.set(switchedContext.composioUserId, status);
-      const result = payload(await switchedGateway.execute(`status-${status}`, { action: 'call', operation: 'COMPOSIO_MANAGE_CONNECTIONS', arguments: { action: 'status', toolkit: 'canva' } }));
-      assert.equal(result.connected, status === 'ACTIVE', `${status} must agree with the UI usable-connection state`);
-      assert.equal(result.status, status);
-      assert.equal(result.profile_id, switchedContext.profileId);
-      assert.equal(result.workspace_id, workspace.workspaceId);
+    for (const app of APP_FIXTURES) {
+      assert.equal((await pluginReadiness('user-a', app.toolkit)).ready, false);
+      assert.equal((await execute(switchedGateway, app)).successful, false);
+      assert.equal(provider.calls.filter((call) => call.path.includes('/tools/execute/')).at(-1)!.body.user_id, switchedContext.composioUserId);
+      for (const status of ['ACTIVE', 'EXPIRED', 'REVOKED', 'INACTIVE', 'INITIATED', 'FAILED']) {
+        provider.accounts.set(switchedContext.composioUserId, new Map([[app.toolkit, status]]));
+        const result = payload(await switchedGateway.execute(`status-${app.toolkit}-${status}`, { action: 'call', operation: 'COMPOSIO_MANAGE_CONNECTIONS', arguments: { action: 'status', toolkit: app.toolkit } }));
+        assert.equal(result.connected, status === 'ACTIVE', `${app.toolkit}: ${status} must agree with the UI usable-connection state`);
+        assert.equal(result.status, status);
+        assert.equal(result.profile_id, switchedContext.profileId);
+        assert.equal(result.workspace_id, workspace.workspaceId);
+        assert.equal((await statusFor('user-a')).connectedAccounts.length, status === 'ACTIVE' ? 1 : 0);
+      }
+      provider.accounts.delete(switchedContext.composioUserId);
+      const missing = payload(await switchedGateway.execute(`status-missing-${app.toolkit}`, { action: 'call', operation: 'COMPOSIO_MANAGE_CONNECTIONS', arguments: { action: 'status', toolkit: app.toolkit } }));
+      assert.equal(missing.connected, false);
+      assert.equal(missing.status, 'NOT_CONNECTED');
     }
-    provider.accounts.delete(switchedContext.composioUserId);
-    const missing = payload(await switchedGateway.execute('status-missing', { action: 'call', operation: 'COMPOSIO_MANAGE_CONNECTIONS', arguments: { action: 'status', toolkit: 'canva' } }));
-    assert.equal(missing.connected, false);
-    assert.equal(missing.status, 'NOT_CONNECTED');
-    console.log('composio-agent-user-flow-test: ok (real SDK HTTP, UI routes, two users, profile switch, connection lifecycle)');
+    assert.ok(provider.calls.filter((call) => call.path === '/api/v3.1/connected_accounts').every((call) => call.userIds && [contextA.composioUserId, contextB.composioUserId, switchedContext.composioUserId].includes(call.userIds)));
+    console.log('composio-agent-user-flow-test: ok (5 app catalogs, real SDK HTTP, UI routes, app/user isolation, profile switch, connection lifecycle)');
   } finally {
     internals._load = originalLoad;
     await provider.close();
