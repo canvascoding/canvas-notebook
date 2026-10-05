@@ -1642,7 +1642,13 @@
     "emptyRecording": "The recording is empty.",
     "recordingError": "Recording was interrupted.",
     "unsupportedBrowser": "This browser does not support microphone recording.",
-    "microphoneError": "Microphone access failed. Check the browser permission."
+    "microphoneRequesting": "Requesting microphone permission",
+    "microphoneInsecure": "Microphone access requires HTTPS or localhost. Open the app over a secure connection.",
+    "microphonePolicyBlocked": "This page's security policy blocks the microphone. Contact the instance administrator.",
+    "microphonePermissionDenied": "Microphone access was blocked. Allow the microphone in your browser's site settings and check microphone access in your system settings.",
+    "microphoneNotFound": "No microphone was found. Connect a microphone and try again.",
+    "microphoneBusy": "The microphone is unavailable. Check whether another app is using it or your system settings are blocking it.",
+    "microphoneError": "Could not start microphone recording. Try again."
   },
   "chat": {
     "metadataTitle": "Canvas Chat | Canvas Notebook",

@@ -1641,7 +1641,13 @@
     "emptyRecording": "Die Aufnahme ist leer.",
     "recordingError": "Die Aufnahme wurde unterbrochen.",
     "unsupportedBrowser": "Dieser Browser unterstützt keine Mikrofonaufnahme.",
-    "microphoneError": "Mikrofonzugriff nicht möglich. Bitte Berechtigung prüfen."
+    "microphoneRequesting": "Mikrofonfreigabe wird angefragt",
+    "microphoneInsecure": "Mikrofonzugriff benötigt HTTPS oder localhost. Öffne die App über eine sichere Verbindung.",
+    "microphonePolicyBlocked": "Die Sicherheitseinstellungen dieser Seite blockieren das Mikrofon. Bitte kontaktiere den Instanz-Administrator.",
+    "microphonePermissionDenied": "Mikrofonzugriff wurde blockiert. Erlaube das Mikrofon in den Website-Einstellungen deines Browsers und prüfe die Mikrofonfreigabe in den Systemeinstellungen.",
+    "microphoneNotFound": "Kein Mikrofon gefunden. Verbinde ein Mikrofon und versuche es erneut.",
+    "microphoneBusy": "Das Mikrofon ist nicht verfügbar. Prüfe, ob es von einer anderen App verwendet wird oder in den Systemeinstellungen blockiert ist.",
+    "microphoneError": "Die Mikrofonaufnahme konnte nicht gestartet werden. Versuche es erneut."
   },
   "chat": {
     "metadataTitle": "Canvas Chat | Canvas Notebook",

@@ -80,7 +80,7 @@ function setCommonHeaders(response: NextResponse) {
   response.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
   response.headers.set(
     'Permissions-Policy',
-    'camera=(), microphone=(), geolocation=()'
+    'camera=(), microphone=(self), geolocation=()'
   );
 
   const connectSources = ["'self'", 'ws:', 'wss:', 'https://o4511053822099456.ingest.de.sentry.io', 'https://api.github.com'];
