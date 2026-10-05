@@ -97,7 +97,9 @@ function buildGatewayTool(
   const tool: ProgressiveGatewayTool = {
     name: definition.name,
     label: definition.label,
-    description: definition.description,
+    description: definition.name === 'composio' && !findOperation(operations, 'COMPOSIO_SEARCH_TOOLS')
+      ? 'On-demand gateway for permitted Composio-connected external-app operations. Use search without a query to list permitted operations, describe to load a schema, then call.'
+      : definition.description,
     executionMode: 'sequential',
     parameters: Type.Object({
       action: Type.Union([
@@ -113,26 +115,33 @@ function buildGatewayTool(
       const params = (rawParams || {}) as GatewayParams;
       try {
         if (params.action === 'search') {
-          const matches = searchOperations(operations, params.query);
+          const queryMatches = searchOperations(operations, params.query);
+          const fallback = queryMatches.length === 0 && operations.length > 0;
+          const matches = fallback ? operations.slice(0, MAX_SEARCH_RESULTS) : queryMatches;
           const lines = matches.length === 0
-            ? ['No permitted operations matched this query.']
+            ? ['No operations are permitted for this agent.']
             : [
+                ...(fallback ? ['No operation names matched this query. The permitted gateway operations are listed below.'] : []),
                 `Available ${definition.label} operations:`,
                 ...matches.map((operation) => `- \`${operation.name}\`: ${summarizeDescription(operation.description)}`),
                 '',
                 'Next step: use describe with one exact operation name to load its input schema.',
               ];
+          if (definition.name === 'composio' && findOperation(operations, 'COMPOSIO_SEARCH_TOOLS')) {
+            lines.push('', 'This gateway search lists agent operations; it does not query external-app tools or check connection status. For a named app, describe COMPOSIO_SEARCH_TOOLS, then call it with arguments containing its exact toolkit slug in toolkits (for Canva: {"toolkits":["canva"]}). Omit the inner query to list the app catalog. Do not infer that an app is disconnected or Composio is unconfigured from a gateway search result.');
+          }
           return textResult(lines.join('\n'), {
             gateway: definition.name,
             action: 'search',
             query: params.query || null,
+            fallback,
             operations: matches.map((operation) => ({ name: operation.name, label: operation.label, description: summarizeDescription(operation.description) })),
           });
         }
 
         const operation = findOperation(operations, params.operation);
         if (!operation) {
-          throw new Error('This operation is not available to the active agent. Use search to see permitted operations.');
+          throw new Error('This operation is not available to the active agent. Use search without a query to see permitted operations.');
         }
 
         if (params.action === 'describe') {
@@ -195,8 +204,8 @@ function buildGatewayTool(
     },
     progressiveGateway: {
       definition,
-      operations: sourceOperations,
-      withAllowedOperations: (nextAllowedOperationNames) => buildGatewayTool(definition, sourceOperations, nextAllowedOperationNames),
+      operations,
+      withAllowedOperations: (nextAllowedOperationNames) => buildGatewayTool(definition, operations, nextAllowedOperationNames),
     },
   };
 
@@ -320,7 +329,7 @@ export const PROGRESSIVE_GATEWAY_DEFINITIONS: readonly ProgressiveGatewayDefinit
   {
     name: 'composio',
     label: 'Using connected apps',
-    description: 'On-demand gateway for Composio-connected external apps. Use search, describe, then call. Connection management and external-tool schemas are disclosed only when needed.',
+    description: 'For named apps, describe COMPOSIO_SEARCH_TOOLS, then call it with toolkits containing the app slug (Canva: ["canva"]). Gateway search lists agent operations; it does not check app connections. Discover app tools and schemas before executing.',
     operations: [
       'COMPOSIO_SEARCH_TOOLS',
       'COMPOSIO_GET_TOOL_SCHEMAS',
