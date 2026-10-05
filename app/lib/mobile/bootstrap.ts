@@ -2,6 +2,7 @@ import 'server-only';
 
 import { MOBILE_INBOX_FILE_CHANGES_CAPABILITY } from './inbox-capabilities';
 import { MOBILE_EMAIL_REVIEW_CAPABILITY } from './email-capabilities';
+import { MOBILE_DICTATION_CAPABILITY } from './dictation-capabilities';
 
 import type { MobileCompatibility } from './compatibility';
 import type { MobileUserProfile } from './user-profile';
@@ -118,6 +119,7 @@ export function createMobileBootstrap(input: {
     'chat.runtime_control',
     'chat.compaction',
     'chat.runtime_selection',
+    MOBILE_DICTATION_CAPABILITY,
     'browser.live_view',
     'agents.manage',
     'push.devices',

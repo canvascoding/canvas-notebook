@@ -10,22 +10,16 @@ import { Input } from '@/components/ui/input';
 import { InlineNotice } from '@/components/ui/inline-notice';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
+import { DICTATION_MODELS as models, TRANSCRIPTION_API_KEYS, type DictationProvider as Provider,
+  type DictationSettings as Settings, type CloudDictationProvider } from '@/app/lib/transcription/config';
 
-type Provider = 'local' | 'openai' | 'groq';
-type Settings = { enabled: boolean; provider: Provider; model: string; language: string };
 type Status = { available: boolean; reason: string | null };
 type LocalInstall = { state: 'missing' | 'installing' | 'installed' | 'failed' | 'disabled'; message?: string; engine?: 'faster-whisper' | 'whisper-cpp'; installedModels?: string[] };
 type CredentialStatus = { configured: boolean; source: 'integrations' | 'agents' | 'environment' | null };
-type Credentials = Record<'openai' | 'groq', CredentialStatus>;
+type Credentials = Record<CloudDictationProvider, CredentialStatus>;
 type ResponseData = { success: boolean; data?: { settings: Settings; status: Status; transcriptionStatus: Status; localInstall: LocalInstall; credentials: Credentials }; error?: string };
 type InstallResponse = { success: boolean; data?: { localInstall: LocalInstall }; error?: string };
 type CredentialResponse = { success: boolean; data?: { credentials: Credentials; status: Status }; error?: string };
-
-const models: Record<Provider, readonly string[]> = {
-  local: ['tiny', 'base', 'small', 'medium', 'large-v3'],
-  openai: ['gpt-4o-mini-transcribe', 'gpt-4o-transcribe', 'whisper-1'],
-  groq: ['whisper-large-v3-turbo', 'whisper-large-v3'],
-};
 
 export function DictationSettingsPanel({ onboarding = false }: { onboarding?: boolean }) {
   const t = useTranslations('dictation');
@@ -164,13 +158,27 @@ export function DictationSettingsPanel({ onboarding = false }: { onboarding?: bo
             <option value="local" disabled={localInstall?.state === 'disabled'}>{t('providers.local')}</option>
             <option value="openai">OpenAI</option>
             <option value="groq">Groq</option>
+            <option value="gemini">Google Gemini</option>
+            <option value="wispr">Wispr Flow</option>
           </select>
           <p className="text-xs text-muted-foreground">{t('providerDescription')}</p>
         </div>
         <div className="grid gap-4 sm:grid-cols-2">
-          <div className="space-y-2"><Label htmlFor="dictation-model">{t('model')}</Label><select id="dictation-model" value={settings.model} onChange={(event) => { setSettings({ ...settings, model: event.target.value }); setStatus(null); setSaved(false); }} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm">{models[settings.provider].map((model) => <option key={model} value={model}>{model}</option>)}</select></div>
+          <div className="space-y-2"><Label htmlFor="dictation-model">{t('model')}</Label><select id="dictation-model" value={settings.model} onChange={(event) => { setSettings({ ...settings, model: event.target.value }); setStatus(null); setSaved(false); }} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm">{models[settings.provider].map((model) => <option key={model} value={model}>{settings.provider === 'wispr' ? t('wisprModel') : model}</option>)}</select></div>
           <div className="space-y-2"><Label htmlFor="dictation-language">{t('language')}</Label><select id="dictation-language" value={settings.language} onChange={(event) => { setSettings({ ...settings, language: event.target.value }); setStatus(null); setSaved(false); }} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"><option value="auto">{t('automatic')}</option><option value="de">Deutsch</option><option value="en">English</option></select></div>
         </div>
+        {settings.provider === 'gemini' && <div className="space-y-2">
+          <Label htmlFor="dictation-mode">{t('mode')}</Label>
+          <select id="dictation-mode" value={settings.mode ?? 'smart'} onChange={(event) => {
+            setSettings({ ...settings, mode: event.target.value as 'smart' | 'verbatim' }); setStatus(null); setSaved(false);
+          }} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
+            <option value="smart">{t('smartMode')}</option><option value="verbatim">{t('verbatimMode')}</option>
+          </select>
+          <p className="text-xs text-muted-foreground">{t('geminiNote')}</p>
+        </div>}
+        {settings.provider === 'wispr' && <InlineNotice variant="info" size="compact">
+          {t('wisprNote')} <a href="https://api-docs.wisprflow.ai/quickstart" target="_blank" rel="noopener noreferrer" className="underline">{t('wisprAccess')}</a>
+        </InlineNotice>}
         {settings.provider === 'local' && localInstall?.state === 'disabled' ? <InlineNotice variant="info" size="compact">{t('localDisabled')}</InlineNotice> : settings.provider === 'local' ? <InlineNotice
           variant={modelInstalled ? 'success' : localInstall?.state === 'installing' ? 'info' : localInstall?.state === 'failed' ? 'destructive' : 'warning'}
           role="group"
@@ -187,7 +195,7 @@ export function DictationSettingsPanel({ onboarding = false }: { onboarding?: bo
           <p className="text-sm text-muted-foreground">{t('cloudNote')}</p>
           <Link href="/settings?tab=secrets" className="text-sm underline">{t('manageSecrets')}</Link>
           <div className="space-y-2">
-            <Label htmlFor="dictation-api-key">{settings.provider === 'openai' ? 'OPENAI_API_KEY' : 'GROQ_API_KEY'}</Label>
+            <Label htmlFor="dictation-api-key">{TRANSCRIPTION_API_KEYS[settings.provider]}</Label>
             <Input id="dictation-api-key" type="password" autoComplete="off" value={apiKey} onChange={(event) => { setApiKey(event.target.value); setCredentialSaved(false); }} placeholder={t('credentialPlaceholder')} />
             <InlineNotice size="compact" variant={credentials?.[settings.provider]?.configured ? 'success' : 'warning'}>
               {credentials?.[settings.provider]?.configured ? t('credentialConfigured') : t('credentialMissing')}
@@ -200,7 +208,7 @@ export function DictationSettingsPanel({ onboarding = false }: { onboarding?: bo
             {credentialSaved && <span role="status" className="text-xs text-muted-foreground">{t('credentialSaved')}</span>}
           </div>
         </div>}
-        {status && <InlineNotice size="compact" variant={status.available ? 'success' : 'warning'}>{status.available ? t('serviceAvailable') : settings.provider === 'local' ? t(localInstall?.engine === 'whisper-cpp' ? 'containerUnavailable' : 'localUnavailable') : `${t('unavailable')} ${status.reason ?? ''}`}</InlineNotice>}
+        {status && <InlineNotice size="compact" variant={status.available ? 'success' : 'warning'}>{status.available ? t(settings.provider === 'local' ? 'serviceAvailable' : 'cloudConfigured') : settings.provider === 'local' ? t(localInstall?.engine === 'whisper-cpp' ? 'containerUnavailable' : 'localUnavailable') : `${t('unavailable')} ${status.reason ?? ''}`}</InlineNotice>}
         <div className="flex items-center gap-3"><Button type="button" onClick={() => void save()} disabled={saving}>{saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}{t('save')}</Button>{saved && <span role="status" className="text-sm text-muted-foreground">{t('saved')}</span>}</div>
       </>}
       {error && <InlineNotice variant="destructive" size="compact">{error}</InlineNotice>}

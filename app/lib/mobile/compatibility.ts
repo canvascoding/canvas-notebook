@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 
 import { MOBILE_INBOX_FILE_CHANGES_CAPABILITY } from './inbox-capabilities';
 import { MOBILE_EMAIL_REVIEW_CAPABILITY } from './email-capabilities';
+import { MOBILE_DICTATION_CAPABILITY } from './dictation-capabilities';
 
 export const MOBILE_API_VERSION = 'v1' as const;
 export const MINIMUM_MOBILE_CLIENT_VERSION = '0.1.0' as const;
@@ -37,6 +38,7 @@ export type MobileCompatibility = {
       'chat.runtime_control',
       'chat.compaction',
       'chat.runtime_selection',
+      typeof MOBILE_DICTATION_CAPABILITY,
       'browser.live_view',
       'agents.manage',
       'push.devices',
@@ -155,6 +157,7 @@ export function createMobileCompatibility(input: {
         'chat.runtime_control',
         'chat.compaction',
         'chat.runtime_selection',
+        MOBILE_DICTATION_CAPABILITY,
         'browser.live_view',
         'agents.manage',
         'push.devices',

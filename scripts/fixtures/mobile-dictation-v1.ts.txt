@@ -1,0 +1,34 @@
+// Expo v1 consumer snapshot: canvas-notebook-mobile ab48ab232841af077618491877e5fc3ed4adb109.
+import { isRecord } from '@/lib/mobile-api';
+import { MobileApiError } from '@/features/workspaces/bootstrap';
+export const MOBILE_DICTATION_CAPABILITY = 'chat.dictation.v1';
+export const MAX_DICTATION_AUDIO_BYTES = 25 * 1024 * 1024;
+export const MAX_DICTATION_TEXT_BYTES = 64 * 1024;
+export type DictationAvailability = { enabled: boolean; available: boolean; provider: 'local' | 'openai' | 'groq'; model: string; language: string; reasonCode: 'disabled' | 'runtime_unavailable' | 'credential_missing' | 'temporarily_unavailable' | null };
+const acceptedMimeTypes = ['audio/webm', 'video/webm', 'audio/ogg', 'audio/mp4', 'audio/mpeg', 'audio/wav'] as const;
+function fail(): never { throw new MobileApiError('The dictation response could not be verified.', 502, 'INVALID_DICTATION'); }
+function envelope(value: unknown, workspaceId: string) {
+  if (!isRecord(value) || value.success !== true || value.contractVersion !== 1 || value.workspaceId !== workspaceId || !Number.isSafeInteger(value.checkedAt)
+    || Number(value.checkedAt) < 0 || new TextEncoder().encode(JSON.stringify(value)).byteLength > MAX_DICTATION_TEXT_BYTES + 16 * 1024) fail();
+  return value;
+}
+export function parseDictationAvailability(value: unknown, workspaceId: string): DictationAvailability {
+  const payload = envelope(value, workspaceId), item = payload.availability, limits = payload.limits;
+  if (!isRecord(item) || !isRecord(limits) || typeof item.enabled !== 'boolean' || typeof item.available !== 'boolean' || item.available && !item.enabled
+    || !['local', 'openai', 'groq'].includes(String(item.provider)) || typeof item.model !== 'string' || new TextEncoder().encode(item.model).byteLength > 200
+    || typeof item.language !== 'string' || !/^(auto|[a-z]{2})$/iu.test(item.language)
+    || item.reasonCode !== null && !['disabled', 'runtime_unavailable', 'credential_missing', 'temporarily_unavailable'].includes(String(item.reasonCode))
+    || item.available && item.reasonCode !== null || !item.enabled && item.reasonCode !== 'disabled'
+    || limits.maxAudioBytes !== MAX_DICTATION_AUDIO_BYTES || limits.maxTextBytes !== MAX_DICTATION_TEXT_BYTES || !Array.isArray(limits.acceptedMimeTypes)
+    || limits.acceptedMimeTypes.length !== acceptedMimeTypes.length || acceptedMimeTypes.some(type => !(limits.acceptedMimeTypes as unknown[]).includes(type))) fail();
+  return { enabled: item.enabled, available: item.available, provider: item.provider as DictationAvailability['provider'], model: item.model, language: item.language, reasonCode: item.reasonCode as DictationAvailability['reasonCode'] };
+}
+export function parseDictationTranscript(value: unknown, workspaceId: string): string {
+  const payload = envelope(value, workspaceId); if (!isRecord(payload.data) || typeof payload.data.text !== 'string' || new TextEncoder().encode(payload.data.text).byteLength > MAX_DICTATION_TEXT_BYTES) fail();
+  return payload.data.text;
+}
+/** Diktat stays editable; this helper deliberately has no send or queue action. */
+export function appendDictationDraft(draft: string, transcript: string): string {
+  const text = transcript.trim(); if (!text) return draft;
+  return draft ? `${draft}${/\s$/u.test(draft) ? '' : ' '}${text}` : text;
+}

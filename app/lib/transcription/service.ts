@@ -5,6 +5,11 @@ import { resolveDictationCredential } from '@/app/lib/dictation/credentials';
 import { localDictationAvailable, transcribeLocally } from '@/app/lib/dictation/local-worker';
 import { localDictationRuntimeSupported } from '@/app/lib/dictation/runtime-install';
 import { readDictationSettings, validateDictationSettings, type DictationSettings } from '@/app/lib/dictation/settings';
+import { TRANSCRIPTION_API_KEYS } from './config';
+import { TranscriptionServiceError } from './errors';
+import { transcribeWithGemini, transcribeWithWispr } from './cloud-providers';
+import { wisprAudioConversionAvailable } from './wav';
+export { TranscriptionServiceError } from './errors';
 
 export const MAX_AUDIO_TRANSCRIPTION_BYTES = 25 * 1024 * 1024;
 const CLOUD_TIMEOUT_MS = 90_000;
@@ -41,14 +46,8 @@ export type TranscriptionAvailability = {
   model: string;
   reason: string | null;
   code: string | null;
+  unavailableReason?: 'credential_missing' | 'runtime_unavailable' | null;
 };
-
-export class TranscriptionServiceError extends Error {
-  constructor(message: string, public readonly code: string, public readonly status: number) {
-    super(message);
-    this.name = 'TranscriptionServiceError';
-  }
-}
 
 async function selectedSettings(settings?: DictationSettings): Promise<DictationSettings> {
   return validateDictationSettings(settings ?? await readDictationSettings());
@@ -57,18 +56,25 @@ async function selectedSettings(settings?: DictationSettings): Promise<Dictation
 export async function readTranscriptionAvailability(settings?: DictationSettings): Promise<TranscriptionAvailability> {
   const selected = await selectedSettings(settings);
   let reason: string | null = null;
+  let unavailableReason: TranscriptionAvailability['unavailableReason'] = null;
   if (selected.provider === 'local') {
     if (!localDictationRuntimeSupported()) {
       reason = 'Local transcription is unavailable in this Docker release. Choose a cloud provider in /settings?tab=dictation.';
+      unavailableReason = 'runtime_unavailable';
     } else if (!await localDictationAvailable(selected.model)) {
       reason = 'Install the selected local transcription model in /settings?tab=dictation.';
+      unavailableReason = 'runtime_unavailable';
     }
   } else if (!(await resolveDictationCredential(selected.provider)).value) {
-    const key = selected.provider === 'groq' ? 'GROQ_API_KEY' : 'OPENAI_API_KEY';
+    const key = TRANSCRIPTION_API_KEYS[selected.provider];
     reason = `${key} is missing from the instance-wide transcription credentials. Configure it in /settings?tab=secrets.`;
+    unavailableReason = 'credential_missing';
+  } else if (selected.provider === 'wispr' && !await wisprAudioConversionAvailable()) {
+    reason = 'Wispr requires FFmpeg on the server to convert recordings.';
+    unavailableReason = 'runtime_unavailable';
   }
   return { available: !reason, provider: selected.provider, model: selected.model,
-    reason, code: reason ? 'TRANSCRIPTION_UNAVAILABLE' : null };
+    reason, code: reason ? 'TRANSCRIPTION_UNAVAILABLE' : null, unavailableReason };
 }
 
 function audioFormat(request: TranscribeAudioRequest): { mimeType: string; extension: string } {
@@ -114,24 +120,29 @@ export async function transcribeAudio(request: TranscribeAudioRequest, settings?
       aborted(request.signal);
       if (!key) {
         throw new TranscriptionServiceError(
-          `${selected.provider === 'groq' ? 'GROQ_API_KEY' : 'OPENAI_API_KEY'} is missing from the instance-wide transcription credentials. Configure it in /settings?tab=secrets.`,
+          `${TRANSCRIPTION_API_KEYS[selected.provider]} is missing from the instance-wide transcription credentials. Configure it in /settings?tab=secrets.`,
           'TRANSCRIPTION_UNAVAILABLE', 503,
         );
       }
-      const form = new FormData();
-      form.set('file', new Blob([new Uint8Array(request.buffer)], { type: format.mimeType }), path.basename(request.filename));
-      form.set('model', selected.model);
-      form.set('response_format', 'json');
-      if (language !== 'auto') form.set('language', language);
-      if (prompt) form.set('prompt', prompt);
       cloudSignal = AbortSignal.any([AbortSignal.timeout(CLOUD_TIMEOUT_MS), ...(request.signal ? [request.signal] : [])]);
-      const baseUrl = selected.provider === 'groq' ? 'https://api.groq.com/openai/v1' : 'https://api.openai.com/v1';
-      const response = await fetch(`${baseUrl}/audio/transcriptions`, {
-        method: 'POST', headers: { Authorization: `Bearer ${key}` }, body: form, signal: cloudSignal,
-      });
-      if (!response.ok) throw new TranscriptionServiceError(`${selected.provider} transcription failed (${response.status}).`, 'TRANSCRIPTION_FAILED', 502);
-      const result = await response.json() as { text?: unknown };
-      text = typeof result.text === 'string' ? result.text : '';
+      if (selected.provider === 'gemini' || selected.provider === 'wispr') {
+        const transcribe = selected.provider === 'gemini' ? transcribeWithGemini : transcribeWithWispr;
+        text = await transcribe({ buffer: request.buffer, mimeType: format.mimeType, key, language, prompt, signal: cloudSignal, settings: selected });
+      } else {
+        const form = new FormData();
+        form.set('file', new Blob([new Uint8Array(request.buffer)], { type: format.mimeType }), path.basename(request.filename));
+        form.set('model', selected.model);
+        form.set('response_format', 'json');
+        if (language !== 'auto') form.set('language', language);
+        if (prompt) form.set('prompt', prompt);
+        const baseUrl = selected.provider === 'groq' ? 'https://api.groq.com/openai/v1' : 'https://api.openai.com/v1';
+        const response = await fetch(`${baseUrl}/audio/transcriptions`, {
+          method: 'POST', headers: { Authorization: `Bearer ${key}` }, body: form, signal: cloudSignal,
+        });
+        if (!response.ok) throw new TranscriptionServiceError(`${selected.provider} transcription failed (${response.status}).`, 'TRANSCRIPTION_FAILED', 502);
+        const result = await response.json() as { text?: unknown };
+        text = typeof result.text === 'string' ? result.text : '';
+      }
     }
     aborted(request.signal);
     text = text.trim();

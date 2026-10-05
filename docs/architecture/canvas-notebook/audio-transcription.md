@@ -1,10 +1,10 @@
 # Shared audio transcription
 
-UI dictation and the Pi `transcribe_audio` tool call `transcribeAudio` in
+Web dictation, mobile dictation and the Pi `transcribe_audio` tool call `transcribeAudio` in
 `app/lib/transcription/service.ts`. It owns format and size validation, provider
 dispatch, transcript normalization, cancellation, timeouts, and result metadata.
 
-The instance administrator selects the provider (`local`, `openai`, or `groq`),
+The instance administrator selects the provider (`local`, `openai`, `groq`, `gemini`, or `wispr`),
 model, and default language in **Settings → Dictation**. Each request loads that
 selection, or the UI route passes the same settings snapshot used for its
 availability check. A tool call may override language and supply vocabulary
@@ -32,6 +32,61 @@ settings take precedence; no cloud provider is selected automatically from a key
 The legacy Telegram integration retains its existing integration transcription
 service. It is outside this migration.
 
+## Gemini and Wispr
+
+The browser-safe catalog in `app/lib/transcription/config.ts` supplies settings
+validation, provider/model selectors and credential names. Credentials remain in
+the instance system Secrets store: `OPENAI_API_KEY`, `GROQ_API_KEY`,
+`GEMINI_API_KEY`, or `WISPR_API_KEY`. Saving a key does not prove that the remote
+API grants access; access errors are reported when transcribing.
+
+- Gemini uses `gemini-3.5-transcribe` through the existing Google GenAI SDK and
+  Interactions API. Optional `mode` is `smart` (default) or `verbatim`; older settings
+  require no migration. Language and agent vocabulary hints use transcription
+  configuration. Interactions set `store: false`. Uploaded audio is deleted in
+  `finally`, including failed/cancelled requests, with a separate five-second
+  cleanup timeout. A cleanup failure logs a generic warning and preserves a
+  completed transcript; deletion is then unconfirmed.
+- Wispr uses its documented REST transcription endpoint. API access requires
+  approval for the organization by Wispr. `flow` is our service identifier; the
+  API chooses its model, and we do not send an undocumented Canto model parameter.
+  The server converts native M4A and browser recordings with FFmpeg to 16 kHz mono
+  PCM WAV. FFmpeg is already part of the supported container runtime. Conversion
+  permits only pipe input/output protocols, uses no temporary files and is bounded
+  by the shared request timeout, output cap and Wispr's six-minute audio limit.
+  Availability reports a missing converter independently of a missing key.
+
+These adapters process complete audio uploads. Gemini Live and Wispr WebSocket
+streaming are separate APIs and are not selected by these file transcription paths.
+
+Provider references: [Google transcription](https://ai.google.dev/gemini-api/docs/transcribe),
+[Wispr access](https://api-docs.wisprflow.ai/quickstart),
+[Wispr REST quickstart](https://api-docs.wisprflow.ai/rest_api_quickstart).
+
+## Existing Expo app: mobile contract v1
+
+The mobile bootstrap and public compatibility response advertise `chat.dictation.v1`. The existing Expo client
+uses the following server routes without changing its provider selection logic:
+
+- `GET /api/mobile/v1/dictation/availability`: a v1 envelope with workspace ID,
+  timestamp, readiness and the client's exact audio/text limits.
+- `POST /api/mobile/v1/dictation/transcribe`: multipart `audio` (including native
+  `audio/mp4` M4A) and `contractVersion=1`; returns `data.text` in the v1 envelope.
+
+Both authenticate and authorize the requested workspace. Transcription shares
+the web microphone quota and enable flag, bounds streamed uploads even without
+Content-Length, passes caller cancellation and uses one settings snapshot.
+Provider/model fields supplied by an upload cannot override server settings.
+
+The existing Expo parser accepts only `local`, `openai`, or `groq` in the legacy
+`availability.provider` field, which the current app neither displays nor uses to
+route transcription. For v1 compatibility, Gemini and Wispr use `openai` in that
+legacy field. The additive `availability.transcriptionProvider` always identifies
+the actual provider; `model` is also actual. New consumers should read
+`transcriptionProvider`, rather than infer the upstream API from the legacy field.
+The shared service, web UI and agent tool always retain actual provider identity.
+The old Expo parser ignores the additive field and needs no changes or rebuild.
+
 ## Boundaries
 
 - The UI route owns authentication, rate limiting, upload handling, and the
@@ -57,3 +112,12 @@ selection, readiness while the microphone is disabled, credential errors, and
 the unchanged text-insertion flow. Deterministic provider responses in tests are
 fixtures; they do not establish external provider availability or container
 acceptance.
+
+`npm run test:transcription` includes Gemini/Wispr request fixtures, real FFmpeg
+conversion of WAV/M4A/WebM and mobile v1 route/contract regression tests. The latter
+use the unchanged Expo parser when its checkout is available, or a pinned parser
+fixture for standalone CI (`CANVAS_MOBILE_CLIENT_DIR` selects a checkout).
+`scripts/dictation-credentials-test.ts` checks instance credential scope.
+`scripts/transcription-settings-browser-test.ts` exercises provider/model/mode,
+key feedback and saving on desktop and a narrow viewport with mocked settings
+responses; it does not change real keys or make upstream transcription calls.

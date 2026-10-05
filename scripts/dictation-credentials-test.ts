@@ -5,7 +5,7 @@ import path from 'node:path';
 
 async function main() {
   const dataRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-dictation-credentials-'));
-  const names = ['CANVAS_DATA_ROOT', 'DATA', 'INTEGRATIONS_ENV_PATH', 'AGENTS_ENV_PATH', 'OPENAI_API_KEY', 'GROQ_API_KEY'] as const;
+  const names = ['CANVAS_DATA_ROOT', 'DATA', 'INTEGRATIONS_ENV_PATH', 'AGENTS_ENV_PATH', 'OPENAI_API_KEY', 'GROQ_API_KEY', 'GEMINI_API_KEY', 'WISPR_API_KEY'] as const;
   const previous = Object.fromEntries(names.map((name) => [name, process.env[name]]));
   try {
     process.env.CANVAS_DATA_ROOT = dataRoot;
@@ -34,7 +34,18 @@ async function main() {
     assert.deepEqual(await readDictationCredentialStatuses(), {
       openai: { configured: true, source: 'integrations' },
       groq: { configured: true, source: 'environment' },
+      gemini: { configured: false, source: null },
+      wispr: { configured: false, source: null },
     });
+    for (const [provider, key] of [['gemini', 'GEMINI_API_KEY'], ['wispr', 'WISPR_API_KEY']] as const) {
+      await writeScopedEnvRaw('integrations', `${key}=fixture-personal-key\n`, { secretScope: 'user', userId: 'admin' });
+      assert.deepEqual(await resolveDictationCredential(provider), { value: null, source: null });
+      await saveDictationCredential(provider, `fixture-system-${provider}`);
+      assert.deepEqual(await resolveDictationCredential(provider), { value: `fixture-system-${provider}`, source: 'integrations' });
+      const state = await readScopedEnvState('integrations');
+      assert.equal(state.entries.find(entry => entry.key === 'OPENAI_API_KEY')?.value, 'dictation-system-key');
+      assert.equal((await readDictationCredentialStatuses())[provider].configured, true);
+    }
   } finally {
     for (const name of names) {
       const value = previous[name];
