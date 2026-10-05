@@ -1,9 +1,13 @@
-# Canvas Plugin Tool Gateway
+# Canvas Agent Tools und Plugin Gateway
 
 Stand: 2026-10-05, auf Basis von `409897b9d`.
 Status: Architekturvorschlag. Die gemeinsame Schicht ist noch nicht implementiert.
 
 ## Ziel und Entscheidungsvorschlag
+
+Das zentrale Produktziel ist ein fertig konfigurierter Workflow-Agent: Eine berechtigte Verwaltung wählt Tools, Plugins, Skills und konkrete Verbindungen aus und stellt den Agenten bestimmten Nutzern oder einem Team bereit. Diese Nutzer können den Workflow ausführen, ohne die Integrationen selbst erneut einzurichten oder die Tool-Konfiguration ändern zu müssen. Gemeinsame Canva-Verbindungen sind ein ausdrücklicher Bestandteil des Zielbilds.
+
+Die gemeinsame Steuerung umfasst Canvas-eigene Tools und externe Integrationen. Sie vereinheitlicht Auswahl, Berechtigungen, Bindungen und Readiness; sie ersetzt nicht die bestehenden Fachtools oder deren Ausführungsverträge. **E-Mail verwendet das vorhandene Canvas-E-Mail-Tool.** Composio-Gmail oder ein Gmail-MCP sind kein Standardweg für E-Mail-Workflows. Ein Design-Agent erhält nur die ihm zugewiesenen Design-Fähigkeiten; die Aktivierung eines allgemeinen Gateways darf ihm nicht automatisch sämtliche Apps eines Verbindungsprofils zugänglich machen.
 
 Der Agent erhält einen gemeinsamen Zugang `integrations` für externe Tools. Canvas übernimmt die Suche, eindeutige Zielauflösung, Schema-Bereitstellung und Weiterleitung. Zwei Adapter führen die Aufrufe aus: direkt konfigurierte MCP-Verbindungen und Composio-Apps. Canvas-Plugins ergänzen diese Integrationen um Skills, fachliche Fähigkeiten und nachvollziehbare Connector-Bindungen.
 
@@ -27,6 +31,9 @@ Eigenständig konfigurierte MCP-Server und Composio-Apps bleiben nutzbar, auch w
 | Direkte MCP-Tools | `mcp/direct-tools.ts`: ausdrücklich ausgewählte Tools erhalten eigene Modell-Schemas | Kompatibilitätsweg mit eigenen Berechtigungen; darf beim Gateway-Umbau nicht verschwinden oder mehr Rechte erhalten |
 | Composio | `composio-tools.ts`, `composio-gateway.ts`: Suche, Schemas, Ausführung und Verbindungsstatus; lokale und Managed-Anbindung | Eigener Gateway-Vertrag; keine einfache Agentenliste aller verbundenen/verfügbaren Apps |
 | Identität | MCP hat persönliche `connectionId` und Eigentümerprüfung; Composio hat nutzereigene Profile mit Auswahl je Nutzer und Workspace; Organisationen können öffentliche MCP-Definitionen freigeben | Workspace-Auswahl teilt keinen Account mit Teammitgliedern; kein gemeinsames Modell für organisations-/teamweit verwendbare Accounts; Anzeigenamen dürfen keine Identitäten ersetzen |
+| Mehrere Composio-Profile | `composio-profiles.ts`, `ComposioProfileSwitcher.tsx`: Erstellen, Umbenennen und Archivieren; eigene Provider-Identität pro Profil; Standardprofil und Auswahl je Nutzer/Workspace; gebundene Automationen und Behandlung betroffener Trigger bei Profilwechsel | Profile sind nutzereigen; keine gemeinsamen Organisations-/Team-Profile und keine feste Auswahl je Agent/Workflow-Fähigkeit |
+| Agentenbereitstellung | `agents/access.ts`, `agents/grants.ts`: getrennte Nutzungs-, Bearbeitungs- und Verwaltungsrechte; Bereitstellung an Nutzer, Organisation, Rolle, Workspace und Projekt | Agent-Zugriff allein gewährt noch keinen Zugriff auf eine gemeinsame externe Verbindung |
+| Agenten-Tool-/Plugin-Auswahl | `effective-runtime-config.ts`, `tool-registry.ts`: Tool-Auswahl pro Agent mit Vererbung; `agent_capability_bindings` speichert Plugin-/Skill-Referenzen; ausgewählte Skills werden im Prompt berücksichtigt | Namensbasierte `relevantConnections` sind noch keine validierten Account-Bindungen; Gateway-Operationen begrenzen noch nicht verbindlich Apps und Provider-Aktionen eines Workflow-Agenten |
 | Registrierung | `tool-registry.ts`: MCP, direkte MCP-Tools und Composio werden getrennt registriert und nach Agent-Konfiguration gefiltert | Gemeinsamer Eintrittspunkt fehlt; alte Präferenzen müssen auf interne Adapter-Rechte abgebildet werden |
 | UI-Readiness | `plugin-connection-readiness.ts`: getrennte Prüfung der Connectoren | MCP-Readiness sucht den Konfigurationsschlüssel nach Connector-Namen statt einer stabilen Bindung; Prüfung von Konfiguration/Aktivierung und OAuth beweist keine erfolgreiche Tool-Abfrage, Freigabe oder Erreichbarkeit |
 | Ergebnisdarstellung | `mcp/tool-result.ts`, `pi/tool-output-preparation.ts`: Output-Budgets, gespeicherte Ergebnisse und MCP-App-Metadaten | Diese Verträge müssen beim neuen Routing erhalten bleiben |
@@ -45,16 +52,19 @@ Eigenständig konfigurierte MCP-Server und Composio-Apps bleiben nutzbar, auch w
 
 ```mermaid
 flowchart TD
-  A[Agent mit Auftrag und relevantem Skill-Kontext] --> G[Canvas integrations Gateway]
+  V[Zentrale Agent-Konfiguration mit Tools, Plugins und Verbindungen] --> P[Effektive Agent-, Organisations- und Workspace-Policy]
+  A[Agent mit Auftrag und relevantem Skill-Kontext] --> P
+  P --> N[Native Canvas-Tools, etwa E-Mail]
+  P --> G[Canvas integrations Gateway]
   G --> C[Gemeinsamer Katalog und Zielauflösung]
-  C --> P[Effektive Agent- und Workspace-Policy]
   C --> B[Plugin-Fähigkeiten und Connector-Bindungen]
   C --> S[Schema-Service]
   S --> R[Dispatcher mit erneut geprüfter Identität]
   R --> M[MCP-Adapter]
   R --> O[Composio-Adapter]
-  M --> MM[Bestehender MCP-Manager und persönliche Verbindung]
-  O --> OG[Bestehender Composio-Gateway und Nutzerprofil]
+  M --> MM[MCP-Manager und erlaubte persönliche oder gemeinsame Verbindung]
+  O --> OG[Composio-Gateway und gebundenes persönliches oder gemeinsames Profil]
+  N --> U[Bestehende Ergebnisaufbereitung und Chat-Darstellung]
   MM --> U[Bestehende Ergebnisaufbereitung und Chat-Darstellung]
   OG --> U
 ```
@@ -77,6 +87,8 @@ Die Schicht ist ein fachlicher Tool-Proxy. Sie ist kein frei konfigurierbarer HT
 | `app/lib/pi/integration-tool-gateway.ts` | Schlankes AgentTool für den öffentlichen Vertrag; keine zweite Kopie der Provider-Logik |
 
 Die bisherigen Plugin-/Skill-Policy-Dienste bleiben die Autorität für Plugin-Ressourcen. Der neue Provider-Katalog wird daraus und aus den Verbindungsdiensten abgeleitet. Es entsteht keine zweite unabhängige Speicherung von API-Keys, OAuth-Tokens oder Verbindungsstatus.
+
+Die Agent-Konfiguration wird serverseitig zu einem effektiven Ausführungsumfang aufgelöst: native Tools, sichtbare Plugin-/Skill-Ressourcen, erlaubte externe Apps/Tools und konkrete Bindungen. Organisations-/Workspace-Vorgaben, Agent-Auswahl, Verbindungsfreigaben und Ausführungsmodus begrenzen diesen Umfang gemeinsam. Ein eingeschränkter Workflow-Agent erhält kein allgemeines App-Katalogrecht durch bloßes Aktivieren von `integrations`. Nicht zugewiesene Apps und Aktionen bleiben sowohl bei Discovery als auch bei `describe`/`call` ausgeschlossen. Bestehende Vererbungs-/Standardkonfigurationen werden nicht nachträglich in leere oder uneingeschränkte Allowlisten umgedeutet.
 
 ## Ein öffentlicher Agentenvertrag
 
@@ -124,9 +136,11 @@ Weitere Zustände: `setup_required`, `auth_required`, `disabled`, `degraded` und
 
 Tool-Treffer liefern `toolRef`, `providerRef`, Namen, Kurzbeschreibung und verfügbare Hinweise zur Wirkung. Vollständige Schemas kommen erst durch `describe`. Tool-Referenzen werden aus Backend-Identität und exaktem Tool-Namen abgeleitet; der Agent muss sie weder konstruieren noch zerlegen.
 
-MCP-Referenzen verwenden `connectionId`, nicht Server-Anzeigenamen. Composio-Referenzen verwenden den Toolkit-Slug; die konkrete Account-/Profilbindung kommt ausschließlich aus dem serverseitigen Ausführungskontext. Für Legacy-MCP-Konfigurationen ohne stabile ID braucht der Adapter eine kompatible, bereichsgebundene Referenzauflösung.
+MCP-Referenzen verwenden `connectionId`, nicht Server-Anzeigenamen. Composio-App-Identität verwendet den Toolkit-Slug; eine ausführbare Referenz bindet zusätzlich die ausgewählte Profil-/Account-Verbindung. Die konkrete Provider-Identität kommt ausschließlich aus dem serverseitigen Ausführungskontext. Für Legacy-MCP-Konfigurationen ohne stabile ID braucht der Adapter eine kompatible, bereichsgebundene Referenzauflösung.
 
-`schemaRef` bindet das geladene Schema an Tool-Version, Verbindungs-/Profilrevision und effektive Policy. Ein Profilwechsel oder ein anderes Schema zwischen `describe` und `call` liefert `binding_changed` beziehungsweise `schema_changed` mit einem konkreten nächsten Schritt. Der Aufruf wird nicht stillschweigend unter einem anderen Account ausgeführt.
+Bei mehreren persönlichen oder freigegebenen gemeinsamen Verbindungen derselben App unterscheiden Provider-Treffer auch die Bindung über eine opake Referenz. `composio:canva` allein identifiziert dann keinen Account. Der Treffer zeigt den verständlichen Verbindungs-/Profilnamen und Bereich; seine Referenz löst serverseitig auf genau diese zulässige Bindung auf. Der Agent darf weder eine fremde Profil-ID noch die Provider-Identität selbst wählen.
+
+`schemaRef` bindet das geladene Schema an Tool-Version, Verbindungs-/Profilrevision und effektive Policy. Ein Wechsel der tatsächlich gebundenen Verbindung oder ein anderes Schema zwischen `describe` und `call` liefert `binding_changed` beziehungsweise `schema_changed` mit einem konkreten nächsten Schritt. Der Aufruf wird nicht stillschweigend unter einem anderen Account ausgeführt. Ein Wechsel eines unbeteiligten persönlichen Profils verändert eine feste gemeinsame Workflow-Bindung nicht.
 
 ### Beispiel: Canva ist über MCP und Composio verfügbar
 
@@ -154,11 +168,11 @@ Die tatsächlichen `arguments` ergeben sich aus dem geladenen Schema. Bei Compos
 
 Alle folgenden Auswahlregeln gelten ausschließlich innerhalb der aktuell erlaubten Quellen und Verbindungen. Eine Nutzervorgabe oder Plugin-Bindung kann keine Organisationssperre, Eigentümerprüfung oder Agent-Tool-Grenze überschreiben.
 
-1. Eine ausdrückliche Nutzervorgabe wie „über Composio“ hat Vorrang.
-2. Danach gilt eine validierte, bereits ausgewählte Connector-Bindung eines Plugins/Workflows.
+1. Ein zentral festgelegter Workflow-Agent verwendet seine validierte Connector-Bindung. Ist sie verbindlich, kann eine Nutzervorgabe sie nicht durch eine andere Verbindung ersetzen; Canvas zeigt die notwendige Konfigurationsänderung.
+2. Bei erlaubter freier Auswahl hat eine ausdrückliche Nutzervorgabe wie „über Composio“ Vorrang; danach gilt eine bereits bestätigte Connector-Bindung eines Plugins/Workflows.
 3. Ohne Bindung werden passende, ausführbare Kandidaten höher eingestuft als Kandidaten mit fehlender Verbindung. Bei gleicher Eignung steht der konfigurierte MCP vor Composio, entsprechend dem gewünschten Beispiel.
 4. Innerhalb dieser Regeln zählen exakte App-/Toolkit-/Verbindungs-Identität, deklarierte Aliase und Tool-Funktion stärker als lose Beschreibungswörter. Komplexe App-Namen wie „Google Drive“ werden über Katalog-Metadaten und Aliase aufgelöst, nicht allein durch Slug-Raten.
-5. Die Reihenfolge ist eine Empfehlung. Gleiche App-Namen garantieren nicht, dass MCP und Composio dieselben Funktionen bieten. Fehlt eine benötigte Funktion, wird neu gesucht; Alternativen bleiben sichtbar.
+5. Das Ranking bei freier Auswahl ist eine Empfehlung. Gleiche App-Namen garantieren nicht, dass MCP und Composio dieselben Funktionen bieten. Fehlt eine benötigte Funktion, werden erlaubte Alternativen gesucht; eine verbindliche Workflow-Bindung wird nicht automatisch ersetzt.
 
 Die ersten Treffer enthalten kleine Beschreibungen und Zustände. Provider-Tool-Kataloge werden bedarfsgerecht geladen; `list providers` öffnet nicht vorsorglich jeden MCP-Server und lädt nicht alle Composio-Tools. Bounded parallel discovery, Timeout pro Provider, Cache und Cursor begrenzen Laufzeit und Promptgröße.
 
@@ -187,7 +201,7 @@ Ein Plugin beschreibt fachliche Fähigkeiten statt nur eine Liste unabhängiger 
 }
 ```
 
-`connector` verweist auf einen im Paket validierten MCP-Connector; Canvas löst ihn auf eine tatsächliche persönliche Verbindung beziehungsweise eine freigegebene Definition auf. Paket-Manifeste speichern keine fremden Nutzer-Verbindungs-IDs. Composio-Tool-Hinweise können die Suche eingrenzen, ersetzen aber nicht die reale Schema-Abfrage.
+`connector` verweist auf einen im Paket validierten MCP-Connector; Canvas löst ihn auf eine erlaubte persönliche oder gemeinsame Verbindung beziehungsweise eine freigegebene Definition auf. Paket-Manifeste speichern keine installationsspezifischen Verbindungs-IDs. Composio-Tool-Hinweise können die Suche eingrenzen, ersetzen aber nicht die reale Schema-Abfrage.
 
 Innerhalb einer Fähigkeit reicht eine passende Alternative aus. Ein Workflow mit Canva **und** Slack beschreibt zwei benötigte Fähigkeiten. So wird nicht versehentlich gleichzeitig Canva-MCP **und** Canva über Composio vorgeschrieben.
 
@@ -209,17 +223,18 @@ Organisationen können Plugins und Skills bereitstellen und über die bestehende
 
 Bei MCP dürfen Organisationsadmins öffentliche HTTP-/OAuth-Definitionen einschließlich erlaubter OAuth-Metadaten und Scopes freigeben. Mitglieder erzeugen daraus persönliche Verbindungen mit `serverDefinitionId`, `connectionId` und Eigentümerbindung. Die Freigabe enthält keine persönlichen Tokens; Entfernung oder Änderung wird bei Aufrufen erneut geprüft. Composio-Profile gehören ebenfalls einem Nutzer. Der Workspace-Override ist durch **Nutzer plus Workspace** identifiziert und verweist ausschließlich auf ein eigenes aktives Profil. Zwei Personen im selben Team können dadurch verschiedene Accounts verwenden.
 
-Codegrundlage: `plugins/canvas-plugin-manifest.ts`, `plugins/canvas-plugin-registry.ts`, `capabilities/types.ts`, `capabilities/management-actions.ts`, `capabilities/effective-resolver.ts`, `organization/policy-targets.ts`, `components/plugins/PluginsPanel.tsx`, `mcp/server-definitions.ts`, `mcp/personal-connections.ts`, `mcp/access.ts`, `composio/composio-profiles.ts` und `workspaces/types.ts` unter `app/` beziehungsweise `app/lib/`.
+Codegrundlage: `plugins/canvas-plugin-manifest.ts`, `plugins/canvas-plugin-registry.ts`, `capabilities/types.ts`, `capabilities/management-actions.ts`, `capabilities/effective-resolver.ts`, `organization/policy-targets.ts`, `components/plugins/PluginsPanel.tsx`, `mcp/server-definitions.ts`, `mcp/personal-connections.ts`, `mcp/access.ts`, `composio/composio-profiles.ts`, `composio/composio-workspace-profile-change.ts`, `components/settings/ComposioProfileSwitcher.tsx`, `agents/capability-bindings.ts`, `agents/management-actions.ts`, `agents/effective-runtime-config.ts`, `agents/access.ts`, `agents/grants.ts`, `agents/system-prompt.ts`, `pi/tool-registry.ts` und `workspaces/types.ts` unter `app/` beziehungsweise `app/lib/`.
 
 ### Was die neue Schicht zusätzlich speichern und prüfen muss
 
-Die erforderlichen Informationen verteilen sich auf drei Verträge. Ein exportierbares Plugin-Paket wird nicht mit installations- oder nutzerspezifischen Accounts vermischt.
+Die erforderlichen Informationen verteilen sich auf vier Verträge. Ein exportierbares Plugin-Paket wird nicht mit installations- oder nutzerspezifischen Accounts vermischt.
 
 | Vertrag | Zu speichernde Informationen | Zuständigkeit |
 | --- | --- | --- |
 | Plugin-Manifest | Stabile logische Capability-/Connector-IDs, App, Pflichtfähigkeiten und Alternativen, Skill-Referenzen, benötigte Tool-Funktionen, öffentliche Konfigurations-/Authentifizierungsanforderungen und ENV-Schlüsselnamen | Paketautor; Installation validiert Struktur und Referenzen. Bestehende Connector-Felder bleiben kompatibel. Composio-Tool-Hinweise allein sind keine Allowlist. |
 | Organisations-/Workspace-Vorgaben | Plugin-Ressourcenreferenz und Capability-ID, erlaubte Quellen und Tool-Rechte, bevorzugte Quelle innerhalb der erlaubten Menge, freigegebene MCP-Definitionsreferenzen beziehungsweise Composio-Toolkit-/Auth-Konfigurationsreferenzen, Zielbereich, Revision und Änderungsakteur | Berechtigte Organisationsverwaltung; Team-Vorgaben über Workspace-Ziel. Auth-Konfigurationsreferenzen müssen vor Speicherung für den Bereich validiert werden. Bestehende Plugin-Aktivierungsregeln bleiben im Capability-Policy-Store. |
-| Konkrete Laufzeitbindung | Plugin-/Capability-/Connector-Referenz, Nutzer und Workspace, ausgewählte Quelle, MCP-`connectionId` oder Composio-`profileId` plus Toolkit und bei erforderlicher eindeutiger Account-Wahl verifizierte Account-Referenz, Bindungsrevision | Serverseitig geprüfte Verbindungsauswahl. Persönliche Bindungen dürfen nur eigene Accounts referenzieren. Die Bindung speichert Referenzen, keine kopierten Tokens. |
+| Agent-/Workflow-Konfiguration | Agent-ID, erforderliche Plugin-/Skill-Ressourcen, erlaubte native Tools, erlaubte externe Apps und Provider-Aktionen, Bindungsreferenzen je Fähigkeit, verbindliche oder wählbare Verbindung, Revision | Bestehende Agent-Verwaltung und Zugriffsrechte werden erweitert. Plugin-Auswahl und Skill-Prompt sind keine alleinige Ausführungsberechtigung. |
+| Konkrete Laufzeitbindung | Plugin-/Capability-/Connector-Referenz, Agent-/Workspace-Bezug und bei persönlichen Bindungen Nutzer, ausgewählte Quelle, MCP-`connectionId` oder Composio-`profileId` plus Toolkit und gegebenenfalls eindeutige Account-Referenz, Eigentumsbereich, Bindungsrevision | Persönliche Bindungen prüfen Eigentümer; gemeinsame Bindungen prüfen explizite Freigabe und den aktuellen ausführenden Nutzer/Agenten. Die Bindung speichert Referenzen, keine kopierten Tokens. |
 
 Secrets bleiben in den bestehenden zentralen Secrets-/Credential-Diensten und ihrem tatsächlich unterstützten Berechtigungsbereich. Ein Auth-Konfigurations-Identifier oder eine Account-Referenz darf niemals als vom Agenten beliebig einsetzbare Provider-Identität behandelt werden. Fehlende OAuth-Scopes oder erforderliche Konfiguration liefern einen konkreten Verbindungsschritt; ein gespeicherter Soll-Zustand wird nicht als erfolgreiche Authentifizierung ausgegeben.
 
@@ -227,20 +242,42 @@ Für MCP muss die Zuordnung vom logischen Plugin-Connector über die freigegeben
 
 Composio führt heutige lokale Tool-Aufrufe mit der Identität des Nutzerprofils aus; der bestehende `/execute`-Vertrag im Managed-Weg erhält Aktion und Parameter. Eine explizite Auswahl zwischen mehreren Accounts desselben Toolkits ist dadurch noch nicht als gemeinsamer Vertrag umgesetzt. Der neue Adapter muss eine eindeutige Bindung nachweisen oder `binding_required` zurückgeben. Eine Erweiterung um konkrete Account-Auswahl ist vor Umsetzung gegen lokales SDK und den Control-Plane-Vertrag zu prüfen. Profilrevision allein beweist nicht, dass sich der aktive Toolkit-Account unverändert gehalten hat; auch Account-Wechsel und Widerruf invalidieren die Schema-/Bindungsreferenz.
 
-Vorgaben können erlaubte Alternativen einschränken: Ein Plugin mag Gmail über MCP oder Composio unterstützen, während die Organisation in einem Team nur eine freigegebene MCP-Definition erlaubt. Die Policy wird vor Discovery und erneut vor Ausführung angewandt. Einschränkende Connector-/Tool-Vorgaben gelten auch für bestehende MCP-/Composio-Eintrittspunkte und direkte MCP-Tools, solange diese angeboten werden. Der spätere Wechsel zum Gateway darf keinen Umgehungsweg schaffen. Ohne neue explizite Vorgaben behalten heutige eigenständige Integrationen ihre bestehenden Rechte.
+Vorgaben können erlaubte Alternativen einschränken: Ein Plugin mag Canva über MCP oder Composio unterstützen, während die Organisation in einem Team nur eine freigegebene MCP-Verbindung erlaubt. Die Policy wird vor Discovery und erneut vor Ausführung angewandt. Einschränkende Connector-/Tool-Vorgaben gelten auch für bestehende MCP-/Composio-Eintrittspunkte und direkte MCP-Tools, solange diese angeboten werden. Der spätere Wechsel zum Gateway darf keinen Umgehungsweg schaffen. Ohne neue explizite Vorgaben behalten heutige eigenständige Integrationen ihre bestehenden Rechte.
 
-### Beispiel für Organisation und Vertriebsteam
+### Vorhandene Composio-Profile weiterverwenden
 
-1. Die Organisation installiert ein Gmail-Workflow-Plugin und macht es für den Team-Workspace „Vertrieb“ verpflichtend. Das ist mit der heutigen Plugin-Policy möglich.
-2. Eine ergänzende Connector-Vorgabe erlaubt die freigegebene Gmail-MCP-Definition oder das Composio-Toolkit `gmail`; das ist Teil der neuen Bindungsschicht.
-3. Anna verbindet ihr Gmail-Konto und wählt für diesen Workflow ihre persönliche MCP-Verbindung. Ben wählt sein eigenes Composio-Profil. Beide erfüllen dieselbe Team-Vorgabe mit unterschiedlichen persönlichen Bindungen, sofern beide Quellen erlaubt sind.
-4. Der Agent erhält jeweils nur zulässige Treffer und führt unter der eigenen bestätigten Bindung aus. Nach Account-/Profil-/Policy-Wechsel muss er eine aktuelle Bindung und ein aktuelles Schema laden.
+Ein Composio-Profil ist ein Container für Verbindungen unter einer eigenen Provider-Identität. Es ist keine Tool-Allowlist. Heute erzeugt `createComposioProfile` eine neue Identität; das Standardprofil und die Nutzer-/Workspace-Auswahl bestimmen den normalen Agentenkontext. Profile können mehrere Apps enthalten. Die UI zeigt verbundene Apps und Nutzungszahlen. Genutzte beziehungsweise Standardprofile können nicht beliebig archiviert werden; Profilwechsel berücksichtigen gebundene Automationen und migrieren oder pausieren betroffene Trigger.
 
-**Ein einmal verbundenes Postfach für das ganze Team ist ein anderer Ausführungsvertrag und heute nicht durch diese Policy vorhanden.** Dafür braucht es einen ausdrücklich organisations- oder workspacegebundenen Verbindungsressourcentyp, Verwaltungs- und Nutzungsrechte, Credential-/OAuth-Verantwortung, Audit-Zuordnung zum ausführenden Menschen oder zur Automation und Widerruf. Ein vorhandenes privates OAuth-Profil wird dafür nicht umgedeutet oder vererbt. Der erste Gateway-Stand unterstützt Organisations-/Team-Vorgaben mit persönlichen Verbindungen. Gemeinsame Accounts erhalten vor Freischaltung einen gesonderten Umsetzungs- und Abnahme-Gate; eine als gemeinsam deklarierte, noch nicht unterstützte Verbindung muss einen klaren Einrichtungsschritt beziehungsweise Fehler liefern.
+Diese Mechanik bleibt die Grundlage. Es entsteht kein zweites Composio-Profilsystem. Ergänzt werden ausdrückliche Eigentumsbereiche `user`, `organization` und `workspace` für Profile beziehungsweise daraus freigegebene Verbindungsressourcen. `workspace` bildet ein Team ab und bleibt an seine Organisation gebunden. Persönliche Profile, Identitäten und bestehende Overrides bleiben bei der Migration persönlich. Neue gemeinsame Profile werden ausdrücklich eingerichtet; eine persönliche Verbindung wird nicht durch Umbenennen oder Agentenfreigabe automatisch gemeinsam.
+
+Eine Workflow-Bindung wählt eine konkrete App-Verbindung innerhalb eines freigegebenen Profils, etwa „Canva aus Marketing“. Sie ersetzt nicht den gesamten Composio-Kontext der Person und schaltet nicht die anderen Apps im Profil frei. Ein Agent kann somit Canva aus einem gemeinsamen Marketing-Profil und eine andere erlaubte App aus einem persönlichen Profil verwenden, wenn der Workflow dies ausdrücklich vorsieht. Pro Aufruf wird die passende Bindung aufgelöst. Ohne feste Workflow-Bindung bleiben persönliche Standard-/Workspace-Auswahl im bisherigen Modus erhalten.
+
+Gebundene Workflow-Verbindungen haben Vorrang vor persönlichen Profilwechseln. Das Umschalten des privaten Workspace-Profils darf eine verbindliche Team-Canva-Verbindung nicht austauschen. Eine Änderung der zentralen Bindung erzeugt eine neue Revision und verlangt erneutes Laden von Schema und Kontext. Bestehende persönliche Trigger-Wechsel behalten ihren Vertrag; gemeinsame Automationen benötigen eigene gebundene Freigaben und dürfen nicht durch den Profilwechsel eines einzelnen Teammitglieds migriert werden.
+
+### Gemeinsame Verbindungen und Berechtigungen
+
+MCP und Composio erhalten dieselbe Canvas-Semantik einer freigegebenen Verbindungsressource. Bei MCP umfasst diese die tatsächlich verwendbare Server-/Credential-Bindung; eine öffentliche Organisationsdefinition allein teilt weiterhin keine OAuth-Verbindung. Bei Composio referenziert sie das gemeinsame Profil, die konkrete App und den zulässigen verbundenen Account. Backend-Konfiguration, Status und Tokens verbleiben in den jeweiligen bestehenden Diensten; der gemeinsame Katalog speichert ihre geprüften Referenzen und Freigaben.
+
+Die Verwaltung kann eine Verbindung für eine Organisation, einen Team-Workspace oder bestimmte Nutzer freigeben und die Nutzung über ausgewählte Agenten auf bestimmte Tools einschränken. Agentennutzungsrecht und Verbindungsrecht bleiben getrennte Prüfungen. Eine ausdrücklich eingerichtete Nutzung über einen Workflow-Agenten darf dessen Nutzern die begrenzte Verbindungsausführung erlauben, ohne das gesamte Profil oder dessen Verwaltung zugänglich zu machen. Bloßes `canUse` für einen Agenten genügt dazu nicht; auch die Verbindung muss diesem Agenten für den aktuellen Bereich und Tool-Umfang ausdrücklich freigegeben sein.
+
+Der Ausführungskontext unterscheidet den auftraggebenden Nutzer, den Agenten und die Identität der Verbindung beim Anbieter. Der Audit-Eintrag enthält alle drei Bezüge. Ausführung über einen Organisationsaccount macht den Nutzer nicht zum Profilersteller oder Organisationsadmin. Mitgliedschaft, Agentfreigabe, Verbindungsfreigabe und Tool-Rechte werden vor jedem Aufruf erneut geprüft. Entzug eines Zugriffs, Archivierung oder Widerruf einer Verbindung stoppt weitere Aufrufe und betroffene Automationen und invalidiert Caches.
+
+Secrets für gemeinsame Ressourcen verwenden die zentralen Organisation-Credential-Dienste mit enger Ressourcenbindung. Ein Team-Workspace benötigt dafür keine ungeprüfte neue ENV-Datei oder ein weitergereichtes privates Nutzer-Secret. Lokale und Managed-Composio-Kontexte sowie OAuth-Rückkehr, Status, Ausführung und Trigger müssen denselben Eigentums-/Freigabevertrag unterstützen. Der entsprechende Control-Plane-Vertrag wird vor Umsetzung gemeinsam geprüft; Notebook-interne Freigaben allein reichen nicht aus. Tatsächliche App-Funktionen und OAuth-Rechte sind anhand des Katalogs und verbundenen Accounts zu prüfen, auch bei Canva.
+
+### Zentral bereitgestellter Marketing-Agent
+
+1. Die Verwaltung richtet „Canva Marketing“ einmal als gemeinsame Verbindung ein: manuell über MCP oder über Canva aus dem verfügbaren Composio-Katalog. Sie verbindet und prüft den dafür vorgesehenen Canva-Account.
+2. Sie installiert das Canva-Workflow-Plugin mit seinen Design-Skills und weist es dem Agenten „Marketing-Designer“ zu.
+3. Die Agent-Konfiguration bindet die Fähigkeit `designs` verbindlich an „Canva Marketing“ und erlaubt nur die benötigten Design-Aktionen sowie ausgewählte Canvas-Tools.
+4. Der Agent wird dem Marketing-Team oder einzelnen Nutzern mit `canUse` bereitgestellt; Bearbeiten/Verwalten bleibt bei den berechtigten Personen. Die Verbindung erhält die passende begrenzte Agentenfreigabe.
+5. Ein Teammitglied beauftragt den Agenten. Canvas lädt den relevanten Skill und nur die erlaubten Tools, prüft Schema und Bindung und führt mit dem gemeinsamen Canva-Account aus. Ein erneuter OAuth-Login jedes Teammitglieds ist für diese freigegebene Verbindung nicht erforderlich.
+6. Benötigt ein anderer Workflow E-Mail, erhält er die nativen Canvas-E-Mail-Tools und deren bestehenden Mailbox-/Outbox-Vertrag. Dafür wird keine Composio-Gmail-Verbindung eingerichtet.
+
+Vor Bereitstellung prüft Canvas die Einrichtung pro Zielbereich: notwendige Plugins/Skills verfügbar, Tool-Rechte gesetzt, Verbindung freigegeben, Authentifizierung gültig und benötigte Funktionen erreichbar. Bei Problemen bleibt sichtbar, welcher konkrete Einrichtungsschritt fehlt. Ein Nutzer erhält entweder den einsatzbereiten Workflow oder eine klare Statusmeldung; die Skill-Anweisung allein beweist keine Einsatzbereitschaft.
 
 ## Ausführung, Identität und Ergebnisse
 
-- Der Dispatcher verwendet den serverseitig aufgelösten Nutzer-, Agent-, Session- und Workspace-Kontext. MCP wird erneut über die bestehenden Zugriffsprüfungen aufgelöst; Composio über das aktuelle oder für die Automation bereits gebundene, nutzereigene Profil.
+- Der Dispatcher verwendet den serverseitig aufgelösten Nutzer-, Agent-, Session- und Workspace-Kontext. Persönliche Verbindungen behalten die Eigentümerprüfung; gemeinsame Verbindungen verwenden den ausdrücklich ergänzten Freigabevertrag. Composio löst die Workflow-Bindung oder im bisherigen persönlichen Modus das aktuelle beziehungsweise für die Automation gebundene Profil auf.
 - Bestehende Agent-Präferenzen für `mcp`, einzelne direkte MCP-Tools und die einzelnen Composio-Operationen werden intern erhalten. Nur die Erlaubnis zum Suchen gewährt keine Erlaubnis zum Ausführen. Ein neues sichtbares Gateway darf gesperrte Backend-Funktionen nicht reaktivieren.
 - Delegierte Worker behalten ihre Toolset-Grenzen. E-Mail-getriggerte Automationen erhalten dadurch keine externen Integrationen. Sonstige Automationen übernehmen ihren gebundenen Identitätsvertrag.
 - Im Planungsmodus bleiben externe Ausführung und OAuth-/Verbindungsänderungen gesperrt. Discovery kann in einer späteren geprüften Variante ausschließlich vorhandene Metadaten/Caches lesen; fehlende Caches dürfen dabei keine Serverstarts oder versteckten Tool-Aufrufe auslösen.
@@ -249,9 +286,11 @@ Vorgaben können erlaubte Alternativen einschränken: Ein Plugin mag Gmail über
 - Die vorhandene konkrete Composio-Tool-Version bleibt gebunden. Canvas-eigene Wrapper mit Namen wie `COMPOSIO_SEARCH_TOOLS` werden nicht mit ähnlich benannten Composio-Session-Metatools vermischt; deren Argumente und Session-Anforderungen sind unterschiedlich.
 - Ergebnisse behalten Text, strukturierte Daten und die vorhandenen sicheren Multimodal-/Resource-Wege. `prepareMcpToolInvocation` erhält die aktuellen MCP-App-Metadaten; `prepareToolOutput` übernimmt Budgets und gespeicherte Originale. Die Schicht darf daraus nicht pauschal einen JSON-Text machen und damit die Darstellung verlieren.
 - Fehler werden einheitlich klassifiziert: fehlende Verbindung, Provider-Ausfall, fehlendes Tool, fehlende Berechtigung, ungültige Argumente, geänderte Bindung/Schema und unbekannter Ausführungszustand. Provider-Retry-Regeln bleiben erhalten; keine automatischen Wiederholungen unsicherer Schreibaufrufe.
-- Caches sind nach Nutzer, Workspace/Organisation, Verbindung beziehungsweise Composio-Profil und relevanten Revisionen getrennt. Verbindungs-, Profil-, Policy- und Schema-Änderungen invalidieren betroffene Einträge. MCP-Tool-Listen können Änderungsbenachrichtigungen liefern; ihre Verarbeitung wird im Adapter berücksichtigt.
+- Caches sind nach ausführendem Nutzer, Agent, Workspace/Organisation, Verbindung beziehungsweise Composio-Profil und relevanten Bindungs-/Freigabe-/Policy-Revisionen getrennt. Gemeinsame Verbindungen erlauben keine Weitergabe eines ungefilterten Katalogs zwischen verschieden berechtigten Agenten oder Nutzern. Verbindungs-, Profil-, Freigabe-, Policy- und Schema-Änderungen invalidieren betroffene Einträge. MCP-Tool-Listen können Änderungsbenachrichtigungen liefern; ihre Verarbeitung wird im Adapter berücksichtigt.
 
 ## UI und Runtime
+
+Agent-Verwaltung bietet eine gemeinsame Konfiguration für native Tools, Plugins/Skills und externe Verbindungsbindungen. Sie zeigt „Marketing-Designer → Canva-Plugin → Canva Marketing über Composio“, den Zielbereich und den geprüften Einrichtungszustand. Gemeinsame und persönliche Profile sind verständlich gekennzeichnet. Technische Transport-/Credential-Details werden bei Bedarf eingeblendet. Nutzer mit ausschließlich `canUse` erhalten den Workflow, können aber seine Tools oder verbindlichen Accounts nicht ändern.
 
 Plugins-Seite, Integrationen/MCP-Settings und Agenten-Discovery verwenden dieselben normalisierten Zustände, sobald der gemeinsame Service eingeführt ist. Provider-Konfigurationsformulare und die bestehenden OAuth-Flows bleiben bestehen.
 
@@ -271,11 +310,12 @@ Jeder Schritt erhält einen eigenen Commit und ein Abnahme-Gate. Der nächste be
 | 1 — Vertrag und Katalog | Öffentliche Descriptoren und Scope-/Policy-Vertrag; kleine Provider-Liste/-Suche; MCP- und Composio-Katalog-Adapter; Status und Referenzen | Beide Canva-Quellen separat; mehrere gleich benannte MCP-Verbindungen; Organisations-/Team-Workspace-Kontext korrekt; keine Auth-/Nutzerverwechslung; No-auth-App; Teilfehler und Pagination; keine pauschale Remote-Tool-Vorladung |
 | 2 — Schema und Dispatcher | Tool-Suche/-Liste, `describe`, `call`, Schema-/Bindungsrevision; vorhandene Ergebnisaufbereitung | Realer lokaler MCP-Fixture-Server und echtes Composio-SDK gegen HTTP-Fixture; Argumente/Versionen korrekt; stale Schema, Profilwechsel und `outcome_unknown` ohne falsche Ausführung |
 | 3 — Agenten-Runtime | Neuer Eintrittspunkt hinter Feature-Flag; alte Rechte auf Adapter-Funktionen abgebildet; kompakter Prompt und konkrete nächste Aufrufe | Flag aus: heutige Schemas/Rechte unverändert. Flag an: ein Discovery-Vertrag. Registry-/Policy-/Delegations-/Automation-Tests und Browser-Chat für beide Quellen grün |
-| 4 — Plugin-/Skill-Bindungen | Validierte Fähigkeitsgruppen, alternative Connectoren, passende Skill-Referenzen; gespeicherte Organisations-/Workspace-Vorgaben und persönliche Bindungen; gemeinsame Readiness | Alte Pakete unverändert; ein erlaubter erfüllter Alternativ-Connector genügt; Canva+Slack braucht beide Fähigkeiten; Team-Pflicht, Quellenbeschränkung und Organisations-Vorrang korrekt; eigene Accounts zweier Teammitglieder getrennt; keine Umgehung über Legacy-/Direkttools; unklare Account-Auswahl gesperrt |
-| 5 — UI und Rückkehr | Gemeinsame Statusdarstellung, Einrichtungsschritte und Invalidierung nach Verbindung/Profilwechsel; Mobile-Vertrag | Playwright auf Desktop und schmalem Viewport; OAuth-Rückkehr, gleicher Chat nach Profilwechsel, beide Quellen und Fehlerzustände; separater Mobile-Client-Vertrag geprüft |
-| 6 — kontrollierter Rollout | Standardmodus umstellen, Telemetrie vergleichen, Rückfall über Flag testen, Produktdokumentation aktualisieren | Vollständige relevante Regression und `npm run build`; Produktionsabnahme beider Provider mit tatsächlichen Accounts; keine Veröffentlichung ohne passenden Auftrag |
+| 4 — Profile und gemeinsame Verbindungen | Vorhandene Composio-Profilmechanik um Organisations-/Workspace-Bereiche und gezielte App-/Agentenfreigaben erweitern; entsprechende gemeinsame MCP-Verbindung; lokale und Managed-Verträge | Zwei Nutzer führen über denselben freigegebenen Canva-Account aus; andere Apps des Profils bleiben verborgen; keine fremde Organisation, keine privaten Tokens; Widerruf wirksam; bestehende persönliche Profile/Overrides/Trigger unverändert; tatsächlicher Provider-Account im Aufruf eindeutig |
+| 5 — Workflow-Agenten und Plugin-/Skill-Bindungen | Fähigkeitsgruppen, Alternativen und Skill-Referenzen; zentrale Agent-Tool-Rechte und verbindliche persönliche/gemeinsame Verbindungsbindungen; Bereitstellung mit vorhandenen Agent-Grants; Readiness | Alte Pakete unverändert; ein erlaubter erfüllter Alternativ-Connector genügt; Canva+Slack braucht beide Fähigkeiten; `canUse` erlaubt keine Konfigurationsänderung; persönliche Profilwahl tauscht festen Team-Account nicht aus; kein fremdes Toolkit oder Legacy-/Direkttool-Umweg; E-Mail verwendet Canvas-Fachtools |
+| 6 — UI und Rückkehr | Gemeinsame Agent-Konfiguration, Statusdarstellung, Einrichtungsschritte und Invalidierung nach Verbindung/Profilwechsel; Mobile-Vertrag | Playwright auf Desktop und schmalem Viewport; Admin richtet ein, zwei Teamnutzer verwenden den Workflow ohne eigenen Canva-Login; persönliche/gemeinsame Profile und Fehler verständlich; OAuth-Rückkehr korrekt; separater Mobile-Client-Vertrag geprüft |
+| 7 — kontrollierter Rollout | Standardmodus umstellen, Telemetrie vergleichen, Rückfall über Flag testen, Produktdokumentation aktualisieren | Vollständige relevante Regression und `npm run build`; Produktionsabnahme beider Provider mit tatsächlichen Accounts und gemeinsamer Canva-Verbindung; keine Veröffentlichung ohne passenden Auftrag |
 
-Feature-Flag: vorläufiger Name `integrationToolGatewayEnabled`, standardmäßig aus bis Schritt 6. Die Flag ändert den Agenten-Eintrittspunkt, nicht den Besitz von Verbindungen oder die bestehenden Rechte. Die genaue Einbindung verwendet den vorhandenen Policy-/Feature-Mechanismus.
+Feature-Flag: vorläufiger Name `integrationToolGatewayEnabled`, standardmäßig aus bis Schritt 7. Die Flag ändert den Agenten-Eintrittspunkt, nicht von sich aus den Besitz von Verbindungen oder die bestehenden Rechte. Gemeinsame Verbindungen benötigen ausdrückliche Einrichtung/Freigabe nach Schritt 4. Die genaue Einbindung verwendet den vorhandenen Policy-/Feature-Mechanismus.
 
 ### Besonders betroffene bestehende Stellen
 
@@ -308,7 +348,11 @@ Zusätzliche verpflichtende Szenarien:
 11. Organisationsplugin für Team-Workspace verpflichtend, für anderen Workspace optional; fremde Organisations-/Workspace-Ziele werden abgewiesen, Revisionkonflikte und Audit-Zuordnung bleiben erhalten.
 12. Einschränkung einer Plugin-Alternative auf eine freigegebene MCP-Definition beziehungsweise Composio-App; gesperrte Quelle bleibt auch über Legacy-/Direkttools gesperrt. Ohne neue Vorgabe bleiben bestehende eigenständige Integrationen nutzbar.
 13. Logischer MCP-Connector mit individuell benannter persönlicher Verbindung, zwei passende Verbindungen, mehrere Composio-Accounts desselben Toolkits, Account-Wechsel ohne Profilwechsel und Widerruf: keine zufällige oder veraltete Account-Auswahl.
-14. Zwei Nutzer im selben Team-Workspace mit unterschiedlichen persönlichen Bindungen; eine gemeinsame Account-Deklaration kann ohne eigenen unterstützten Verbindungsvertrag nicht ausgeführt werden.
+14. Zwei Nutzer im selben Team-Workspace mit unterschiedlichen persönlichen Bindungen und mit einer ausdrücklich freigegebenen gemeinsamen Canva-Verbindung; beide Fälle werden korrekt getrennt ausgeführt.
+15. Gemeinsames Composio-Profil mit Canva und weiteren Apps: Design-Agent kann ausschließlich die ihm erlaubten Canva-Aktionen finden und ausführen. Eine Freigabe des Profils allein erweitert seinen Tool-Umfang nicht.
+16. Verbindlicher Workflow-Account bleibt bei persönlichem Profil-/Workspace-Wechsel gebunden; Änderung durch berechtigte Verwaltung erfordert neue Revision. Nutzer mit `canUse` können die Vorgabe nicht ändern; Zugriffsentzug stoppt Aufrufe und gebundene Automationen.
+17. Zentraler Marketing-Agent mit gemeinsamem Canva-Account über MCP und alternativ Composio, zwei berechtigte Nutzer, unberechtigter Nutzer und fremde Organisation; Audit unterscheidet Auftraggeber, Agent und Provider-Identität. Gemeinsame Automationen werden nicht durch persönliche Profilwechsel migriert.
+18. Agenten mit E-Mail-Fähigkeiten verwenden die nativen Canvas-E-Mail-Tools mit ihren bestehenden Review-/Outbox-Regeln; externe Mail-Tools erscheinen nicht als automatische Alternative. Breite Gateway-Aktivierung darf weder diese Fachregeln noch Workflow-App-/Tool-Grenzen umgehen.
 
 Vor Produktionsdeployment gilt der Repository-Gate `npm run test:all`. Container werden nur auf ausdrücklichen Auftrag gebaut und erst nach erfolgreichem Host-Build; die verwaltete lokale Umgebung verhindert parallele Teststacks.
 
@@ -316,7 +360,7 @@ Erfolgskriterien sind korrektes Routing, korrekte Identität und Schema-Verwendu
 
 ## Umfang der ersten Umsetzung
 
-Der erste vollständig integrierte Stand umfasst MCP-Tools und Composio-App-Aktionen hinter `integrations`, Plugin-Fähigkeiten mit Alternativen, Organisations-/Team-Workspace-Vorgaben und persönliche Connector-Bindungen, relevante Skill-Verweise und gemeinsame Status-/Rückkehrverträge. Gemeinsam genutzte Organisations-/Team-Accounts benötigen den oben beschriebenen zusätzlichen Verbindungsvertrag und einen eigenen Abnahme-Gate. Bestehende E-Mail-/Studio-Fachtools behalten ihre eigenen Regeln; sie können später über weitere Adapter aufgenommen werden, wenn deren fachliche Verträge ausdrücklich abgebildet werden.
+Der vollständig integrierte Zielstand umfasst zentral bereitgestellte Workflow-Agenten, gemeinsame Auswahl/Rechte für native Tools und externe Integrationen, MCP-/Composio-Discovery, Plugin-/Skill-Fähigkeiten und verbindliche persönliche beziehungsweise gemeinsame Verbindungen. Organisations-/Team-Verbindungen sind mit Schritt 4 Bestandteil dieses Plans. Bestehende E-Mail-/Studio-Fachtools behalten ihre eigene Ausführung und Fachregeln; die zentrale Tool-Konfiguration steuert ihre Freigabe gemeinsam mit den externen Integrationen. E-Mail wird dafür nicht zu Composio oder einem externen MCP verlagert.
 
 Ein neues öffentliches Canvas-MCP-Serverprodukt, eine generische HTTP-Proxy-API, ein Composio-SDK-Upgrade und die automatische Installation beliebiger externer MCP-Server sind eigene Vorhaben. Sie sind für den hier geplanten gemeinsamen Agenten-Zugang nicht erforderlich.
 
