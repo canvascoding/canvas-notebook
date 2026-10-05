@@ -60,13 +60,13 @@ function WidgetCard({ id, title, description, href, icon: Icon, preview, footer,
       }}
     >
       <header className="flex items-start justify-between gap-4 border-b border-border/70 px-5 py-4">
-        <div className="flex min-w-0 items-start gap-3">
+        <Link href={displayedContent.href} aria-label={t('openApp', { app: title })} className="flex min-w-0 items-start gap-3 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
           <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-muted text-foreground"><Icon className="h-4 w-4" aria-hidden="true" /></span>
           <div className="min-w-0">
             <h3 className="truncate text-sm font-semibold">{title}</h3>
             <p className="mt-0.5 line-clamp-1 text-xs text-muted-foreground">{description}</p>
           </div>
-        </div>
+        </Link>
         <Link href={displayedContent.href} aria-label={t('openApp', { app: title })} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><ArrowRight className="h-4 w-4" /></Link>
       </header>
       <div className={`${styles.widgetBody} flex-1`}>
