@@ -33,6 +33,7 @@ def main():
             segments, _ = model.transcribe(
                 request["path"],
                 language=None if language == "auto" else language,
+                initial_prompt=request.get("prompt") or None,
                 beam_size=5,
                 condition_on_previous_text=False,
                 vad_filter=True,

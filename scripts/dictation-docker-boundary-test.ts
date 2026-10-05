@@ -35,7 +35,7 @@ async function main() {
     assert.match(availability.reason ?? '', /unavailable in this Docker release/u);
     await assert.rejects(
       transcribeDictationFile(new File([new Uint8Array([1])], 'sample.wav', { type: 'audio/wav' }), localSettings),
-      /not installed on this server/u,
+      /unavailable in this Docker release/u,
     );
 
     const native = path.join(temporary, 'native/dictation');

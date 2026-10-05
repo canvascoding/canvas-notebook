@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { Loader2, Save } from 'lucide-react';
 import { useTranslations } from 'next-intl';
+import Link from 'next/link';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -16,7 +17,7 @@ type Status = { available: boolean; reason: string | null };
 type LocalInstall = { state: 'missing' | 'installing' | 'installed' | 'failed' | 'disabled'; message?: string; engine?: 'faster-whisper' | 'whisper-cpp'; installedModels?: string[] };
 type CredentialStatus = { configured: boolean; source: 'integrations' | 'agents' | 'environment' | null };
 type Credentials = Record<'openai' | 'groq', CredentialStatus>;
-type ResponseData = { success: boolean; data?: { settings: Settings; status: Status; localInstall: LocalInstall; credentials: Credentials }; error?: string };
+type ResponseData = { success: boolean; data?: { settings: Settings; status: Status; transcriptionStatus: Status; localInstall: LocalInstall; credentials: Credentials }; error?: string };
 type InstallResponse = { success: boolean; data?: { localInstall: LocalInstall }; error?: string };
 type CredentialResponse = { success: boolean; data?: { credentials: Credentials; status: Status }; error?: string };
 
@@ -47,7 +48,7 @@ export function DictationSettingsPanel({ onboarding = false }: { onboarding?: bo
       .then(async (response) => {
         const body = await response.json() as ResponseData;
         if (!response.ok || !body.data) throw new Error(body.error || t('loadError'));
-        if (active) { setSettings(body.data.settings); setStatus(body.data.status); setLocalInstall(body.data.localInstall); setCredentials(body.data.credentials); }
+        if (active) { setSettings(body.data.settings); setStatus(body.data.transcriptionStatus); setLocalInstall(body.data.localInstall); setCredentials(body.data.credentials); }
       })
       .catch((cause: unknown) => { if (active) setError(cause instanceof Error ? cause.message : t('loadError')); })
       .finally(() => { if (active) setLoading(false); });
@@ -64,7 +65,7 @@ export function DictationSettingsPanel({ onboarding = false }: { onboarding?: bo
         if (!response.ok || !body.data) throw new Error(body.error || t('loadError'));
         if (active) {
           setLocalInstall(body.data.localInstall);
-          setStatus(settings && Object.entries(body.data.settings).every(([key, value]) => settings[key as keyof Settings] === value) ? body.data.status : null);
+          setStatus(settings && Object.entries(body.data.settings).every(([key, value]) => settings[key as keyof Settings] === value) ? body.data.transcriptionStatus : null);
         }
       } catch (cause) {
         if (active) setError(cause instanceof Error ? cause.message : t('loadError'));
@@ -104,7 +105,7 @@ export function DictationSettingsPanel({ onboarding = false }: { onboarding?: bo
       const body = await response.json() as ResponseData;
       if (!response.ok || !body.data) throw new Error(body.error || t('saveError'));
       setSettings(body.data.settings);
-      setStatus(body.data.status);
+      setStatus(body.data.transcriptionStatus);
       setLocalInstall(body.data.localInstall);
       setCredentials(body.data.credentials);
       setSaved(true);
@@ -149,6 +150,7 @@ export function DictationSettingsPanel({ onboarding = false }: { onboarding?: bo
       {onboarding && <div><h3 className="text-lg font-semibold">{t('title')}</h3><p className="text-sm text-muted-foreground">{t('description')}</p></div>}
       {loading && <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />{t('loading')}</p>}
       {settings && <>
+        <p className="text-sm text-muted-foreground">{t('sharedServiceDescription')}</p>
         <div className="flex items-center justify-between gap-4">
           <div><Label htmlFor="dictation-enabled" className="font-medium">{t('enabled')}</Label><p className="text-sm text-muted-foreground">{t('enabledDescription')}</p></div>
           <Switch id="dictation-enabled" checked={settings.enabled} onCheckedChange={(enabled) => { setSettings({ ...settings, enabled }); setStatus(null); setSaved(false); }} />
@@ -183,6 +185,7 @@ export function DictationSettingsPanel({ onboarding = false }: { onboarding?: bo
           {localInstall?.state === 'failed' && <p role="alert">{localInstall.message || t('installError')}</p>}
         </InlineNotice> : <div className="space-y-3 rounded-md border border-border bg-muted/30 p-3">
           <p className="text-sm text-muted-foreground">{t('cloudNote')}</p>
+          <Link href="/settings?tab=secrets" className="text-sm underline">{t('manageSecrets')}</Link>
           <div className="space-y-2">
             <Label htmlFor="dictation-api-key">{settings.provider === 'openai' ? 'OPENAI_API_KEY' : 'GROQ_API_KEY'}</Label>
             <Input id="dictation-api-key" type="password" autoComplete="off" value={apiKey} onChange={(event) => { setApiKey(event.target.value); setCredentialSaved(false); }} placeholder={t('credentialPlaceholder')} />
@@ -197,7 +200,7 @@ export function DictationSettingsPanel({ onboarding = false }: { onboarding?: bo
             {credentialSaved && <span role="status" className="text-xs text-muted-foreground">{t('credentialSaved')}</span>}
           </div>
         </div>}
-        {status && settings.enabled && <InlineNotice size="compact" variant={status.available ? 'success' : 'warning'}>{status.available ? t('available') : settings.provider === 'local' ? t(localInstall?.engine === 'whisper-cpp' ? 'containerUnavailable' : 'localUnavailable') : `${t('unavailable')} ${status.reason ?? ''}`}</InlineNotice>}
+        {status && <InlineNotice size="compact" variant={status.available ? 'success' : 'warning'}>{status.available ? t('serviceAvailable') : settings.provider === 'local' ? t(localInstall?.engine === 'whisper-cpp' ? 'containerUnavailable' : 'localUnavailable') : `${t('unavailable')} ${status.reason ?? ''}`}</InlineNotice>}
         <div className="flex items-center gap-3"><Button type="button" onClick={() => void save()} disabled={saving}>{saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}{t('save')}</Button>{saved && <span role="status" className="text-sm text-muted-foreground">{t('saved')}</span>}</div>
       </>}
       {error && <InlineNotice variant="destructive" size="compact">{error}</InlineNotice>}

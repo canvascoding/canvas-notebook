@@ -4,6 +4,7 @@ import { requireInstanceAdmin } from '@/app/lib/admin-auth';
 import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { readDictationCredentialStatuses, saveDictationCredential, type CloudDictationProvider } from '@/app/lib/dictation/credentials';
 import { readDictationAvailability } from '@/app/lib/dictation/service';
+import { readTranscriptionAvailability } from '@/app/lib/transcription/service';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 
 export async function PUT(request: NextRequest) {
@@ -42,6 +43,7 @@ export async function PUT(request: NextRequest) {
       data: {
         credentials: await readDictationCredentialStatuses(),
         status: await readDictationAvailability(),
+        transcriptionStatus: await readTranscriptionAvailability(),
       },
     }, { headers: { 'Cache-Control': 'no-store' } });
   } catch (error) {
