@@ -119,6 +119,15 @@ export type CapabilityPackageDraft = {
   updatedAt: number;
 };
 
+/** Creator-only recovery metadata. These references never authorize package reads. */
+export type CapabilityPackageOwnedDraftStatus = Pick<CapabilityPackageDraft,
+  'draftRef' | 'resourceRef' | 'sourceResourceRef' | 'kind' | 'name' | 'draftRevision' | 'operation' | 'createdAt' | 'updatedAt'> & {
+  targetOwnership: Exclude<CapabilityResourceOwnerScope, { type: 'system' }>;
+};
+export const CAPABILITY_PACKAGE_DRAFT_LIST_LIMITS = Object.freeze({ defaultLimit: 20, maxLimit: 50, maxCursorLength: 1_024 });
+export type CapabilityPackageOwnedDraftListQuery = { limit?: number; cursor?: string };
+export type CapabilityPackageOwnedDraftList = { drafts: CapabilityPackageOwnedDraftStatus[]; nextCursor: string | null };
+
 export type CapabilityPackageDescriptor = {
   resource: CapabilityResourceMetadata;
   access: CapabilityResourceAccess;

@@ -1,7 +1,7 @@
 import 'server-only';
 
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { openDb, type SqlConnection } from '@/app/lib/db';
 import {resolveOrganizationDataRoot,resolveUserDataRoot} from '@/app/lib/runtime-data-paths';
@@ -9,11 +9,12 @@ import type { CapabilityResourceActor, CapabilityResourceOwnerScope, CapabilityR
 import { authority } from '../scope-authority';
 import { createCapabilityPackageTargetOnConnection, isAuthorizedCapabilityPackageResource, isHeldCapabilityPackageResource,
   withAuthorizedCapabilityPackageResource, withAuthorizedCapabilityPackageTarget } from '../resources/store';
-import { CAPABILITY_PACKAGE_CONTRACT_VERSION, CAPABILITY_PACKAGE_LIMITS, CapabilityPackageError,
+import { CAPABILITY_PACKAGE_CONTRACT_VERSION, CAPABILITY_PACKAGE_LIMITS, CAPABILITY_PACKAGE_DRAFT_LIST_LIMITS, CapabilityPackageError,
   type AuthorizedCapabilityPackageResource, type CapabilityPackageDraft, type CapabilityPackageDraftCreation,
   type CapabilityPackageDraftSeed, type CapabilityPackageExpectedHead, type CapabilityPackagePublicationResult,
   type CapabilityPackagePublishedRevision, type CapabilityPackagePublishRequest, type CapabilityPackageSourceStamp,
-  type CapabilityPackageState, type CapabilityPackagePublishedSummary } from './contracts';
+  type CapabilityPackageState, type CapabilityPackagePublishedSummary, type CapabilityPackageOwnedDraftStatus,
+  type CapabilityPackageOwnedDraftList, type CapabilityPackageOwnedDraftListQuery } from './contracts';
 
 type Row = Record<string, unknown>;
 export type CapabilityPackageDraftRecord = { draft: CapabilityPackageDraft; targetStorage: CapabilityResourceStorageBinding;
@@ -168,20 +169,111 @@ export async function getCapabilityPackageDraft(actorInput: CapabilityResourceAc
   return (await getCapabilityPackageDraftRecord(actorInput,draftRef)).draft;
 }
 
+const ownedDraftStatusColumns = 'draft_ref,resource_ref,source_resource_ref,kind,name,draft_revision,operation,target_ownership,created_at,updated_at';
+const canonicalResourceRef = /^canvas-resource:[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/u;
+const canonicalDraftRef = /^canvas-package-draft:[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/u;
+
+function ownedDraftStatusUnavailable(): never {
+  return fail('PACKAGE_SNAPSHOT_UNAVAILABLE', 'Stored package draft status is unavailable.', 503);
+}
+function ownedDraftStatusNumber(value: unknown, positive = false): number {
+  if (typeof value !== 'number' && !(typeof value === 'string' && /^\d+$/u.test(value))) return ownedDraftStatusUnavailable();
+  const result = Number(value);
+  if (!Number.isSafeInteger(result) || result < (positive ? 1 : 0)) return ownedDraftStatusUnavailable();
+  return result;
+}
+function ownedDraftStatusOwnership(value: unknown): CapabilityPackageOwnedDraftStatus['targetOwnership'] {
+  if (typeof value !== 'string' || value.length > 1_024) return ownedDraftStatusUnavailable();
+  let parsed: unknown;
+  try { parsed = JSON.parse(value); } catch { return ownedDraftStatusUnavailable(); }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return ownedDraftStatusUnavailable();
+  const owner = parsed as Row;
+  const validId = (id: unknown): id is string => typeof id === 'string' && id.length > 0 && id.length <= 200 && !/[\u0000-\u001f]/u.test(id);
+  const exact = (fields: string[]) => Object.keys(owner).length === fields.length && fields.every(field => Object.hasOwn(owner, field));
+  if (owner.type === 'user' && exact(['type','ownerUserId','organizationId']) && validId(owner.ownerUserId)
+    && (owner.organizationId === null || validId(owner.organizationId))) {
+    return { type: 'user', ownerUserId: owner.ownerUserId, organizationId: owner.organizationId };
+  }
+  if (owner.type === 'organization' && exact(['type','organizationId']) && validId(owner.organizationId)) {
+    return { type: 'organization', organizationId: owner.organizationId };
+  }
+  if (owner.type === 'team' && exact(['type','organizationId','workspaceId']) && validId(owner.organizationId) && validId(owner.workspaceId)) {
+    return { type: 'team', organizationId: owner.organizationId, workspaceId: owner.workspaceId };
+  }
+  return ownedDraftStatusUnavailable();
+}
+/** Only selected safe SQL columns are consumed, never a full private draft record. */
+function projectOwnedDraftStatus(row: Row): CapabilityPackageOwnedDraftStatus {
+  const { draft_ref: draftRef, resource_ref: resourceRef, source_resource_ref: sourceResourceRef, kind, name, operation } = row;
+  if (typeof draftRef !== 'string' || !canonicalDraftRef.test(draftRef) || typeof resourceRef !== 'string' || !canonicalResourceRef.test(resourceRef)
+    || !['skill','plugin'].includes(String(kind)) || typeof name !== 'string' || name !== name.trim().normalize('NFKC')
+    || name !== name.toLowerCase() || Array.from(name).length > 64 || !/^[\p{L}\p{N}]+(?:-[\p{L}\p{N}]+)*$/u.test(name)
+    || kind === 'plugin' && !/^[a-z0-9]+(?:-[a-z0-9]+)*$/u.test(name) || operation !== 'edit' && operation !== 'fork'
+    || typeof sourceResourceRef !== 'string' || sourceResourceRef.length > 2_048
+    || !canonicalResourceRef.test(sourceResourceRef) && !(sourceResourceRef.startsWith(`canvas-capability:v1:${String(kind)}:`)
+      && /^[a-zA-Z0-9%_.:~-]+$/u.test(sourceResourceRef))) return ownedDraftStatusUnavailable();
+  const createdAt = ownedDraftStatusNumber(row.created_at), updatedAt = ownedDraftStatusNumber(row.updated_at);
+  if (updatedAt < createdAt) return ownedDraftStatusUnavailable();
+  return { draftRef, resourceRef, sourceResourceRef, kind: kind as CapabilityPackageOwnedDraftStatus['kind'], name, operation,
+    draftRevision: ownedDraftStatusNumber(row.draft_revision, true), targetOwnership: ownedDraftStatusOwnership(row.target_ownership), createdAt, updatedAt };
+}
+async function assertOwnedDraftActor(database: SqlConnection, actor: CapabilityResourceActor): Promise<void> {
+  const current = await authority(database, actor);
+  if (!current.valid || !current.contextValid) fail('PACKAGE_ACCESS_DENIED', 'An active actor and workspace are required.', 403);
+}
+function ownedDraftCursorContext(actor: CapabilityResourceActor): string {
+  return createHash('sha256').update(JSON.stringify([actor.userId, actor.workspaceId ?? null])).digest('hex');
+}
+function ownedDraftListQuery(value: CapabilityPackageOwnedDraftListQuery): { limit: number; cursor: string | undefined } {
+  if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).some(key => key !== 'limit' && key !== 'cursor')) {
+    return fail('PACKAGE_REQUEST_INVALID', 'The draft list query is invalid.');
+  }
+  const limit = value.limit === undefined ? CAPABILITY_PACKAGE_DRAFT_LIST_LIMITS.defaultLimit : value.limit;
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > CAPABILITY_PACKAGE_DRAFT_LIST_LIMITS.maxLimit
+    || value.cursor !== undefined && (typeof value.cursor !== 'string' || !value.cursor || value.cursor.length > CAPABILITY_PACKAGE_DRAFT_LIST_LIMITS.maxCursorLength)) {
+    return fail('PACKAGE_REQUEST_INVALID', 'The draft list query is invalid.');
+  }
+  return { limit, cursor: value.cursor };
+}
+function decodeOwnedDraftCursor(cursor: string, actor: CapabilityResourceActor): { updatedAt: number; draftRef: string } {
+  const invalid = (): never => fail('PACKAGE_REQUEST_INVALID', 'The draft list cursor is invalid.');
+  if (!/^[a-zA-Z0-9_-]+$/u.test(cursor)) return invalid();
+  const bytes = Buffer.from(cursor, 'base64url');
+  if (bytes.toString('base64url') !== cursor) return invalid();
+  let parsed: unknown;
+  try { parsed = JSON.parse(bytes.toString('utf8')); } catch { return invalid(); }
+  if (!Array.isArray(parsed) || parsed.length !== 4 || parsed[0] !== 1 || parsed[1] !== ownedDraftCursorContext(actor)
+    || !Number.isSafeInteger(parsed[2]) || parsed[2] < 0 || typeof parsed[3] !== 'string' || !canonicalDraftRef.test(parsed[3])) return invalid();
+  return { updatedAt: parsed[2] as number, draftRef: parsed[3] };
+}
+function encodeOwnedDraftCursor(status: CapabilityPackageOwnedDraftStatus, actor: CapabilityResourceActor): string {
+  return Buffer.from(JSON.stringify([1, ownedDraftCursorContext(actor), status.updatedAt, status.draftRef])).toString('base64url');
+}
+
 /** Creator-only recovery metadata grants no source bytes, edit rights or filesystem receipt. */
-export async function getCapabilityPackageOwnedDraftStatus(actorInput:CapabilityResourceActor,draftRef:string):Promise<{
-  draftRef:string;resourceRef:string;kind:CapabilityPackageDraft['kind'];name:string;draftRevision:number;
-  operation:CapabilityPackageDraft['operation'];targetOwnership:CapabilityResourceOwnerScope;
-}> {
+export async function getCapabilityPackageOwnedDraftStatus(actorInput:CapabilityResourceActor,draftRef:string):Promise<CapabilityPackageOwnedDraftStatus> {
   const actor=actorSnapshot(actorInput),ref=text(draftRef,'Draft reference');
   return usingDatabase(undefined,async database=>{
-    const current=await authority(database,actor);
-    if(!current.valid||!current.contextValid)fail('PACKAGE_ACCESS_DENIED','An active actor and workspace are required.',403);
-    const row=await database.get('SELECT * FROM capability_package_drafts WHERE draft_ref=$1 AND actor_user_id=$2',[ref,actor.userId]) as Row|undefined;
+    await assertOwnedDraftActor(database, actor);
+    const row=await database.get(`SELECT ${ownedDraftStatusColumns} FROM capability_package_drafts WHERE draft_ref=$1 AND actor_user_id=$2`,[ref,actor.userId]) as Row|undefined;
     if(!row)fail('PACKAGE_NOT_FOUND','The package draft was not found.',404);
-    const stored=mapDraft(row),draft=stored.draft;
-    return {draftRef:draft.draftRef,resourceRef:draft.resourceRef,kind:draft.kind,name:draft.name,draftRevision:draft.draftRevision,
-      operation:draft.operation,targetOwnership:structuredClone(stored.targetOwnership)};
+    return projectOwnedDraftStatus(row);
+  });
+}
+
+/** Actor-bound keyset pagination; a cursor never grants source, target or another creator's rights. */
+export async function listCapabilityPackageOwnedDraftStatuses(actorInput: CapabilityResourceActor,
+  queryInput: CapabilityPackageOwnedDraftListQuery = {}): Promise<CapabilityPackageOwnedDraftList> {
+  const actor = actorSnapshot(actorInput), query = ownedDraftListQuery(queryInput);
+  const cursor = query.cursor ? decodeOwnedDraftCursor(query.cursor, actor) : null;
+  return usingDatabase(undefined, async database => {
+    await assertOwnedDraftActor(database, actor);
+    const rows = await database.all(`SELECT ${ownedDraftStatusColumns} FROM capability_package_drafts WHERE actor_user_id=$1
+      ${cursor ? 'AND (updated_at < $2 OR (updated_at = $2 AND draft_ref > $3))' : ''}
+      ORDER BY updated_at DESC,draft_ref ASC LIMIT $${cursor ? 4 : 2}`,
+    cursor ? [actor.userId,cursor.updatedAt,cursor.draftRef,query.limit + 1] : [actor.userId,query.limit + 1]) as Row[];
+    const statuses = rows.map(projectOwnedDraftStatus), drafts = statuses.slice(0, query.limit);
+    return { drafts, nextCursor: statuses.length > query.limit ? encodeOwnedDraftCursor(drafts[drafts.length - 1], actor) : null };
   });
 }
 

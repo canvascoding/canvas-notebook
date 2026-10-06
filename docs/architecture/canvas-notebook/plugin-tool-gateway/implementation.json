@@ -139,7 +139,41 @@
         "5c-a agent authority and 5c-b explicit workflow bindings completed and separately committed; overall redesign/rollout acceptance remains6a-7"
       ]
     },
-    { "id": "6a", "name": "Plugin-Seite und Store-Redesign", "status": "pending", "evidence": [] },
+    {
+      "id": "6a",
+      "name": "Plugin-Seite und Store-Redesign",
+      "status": "in_progress",
+      "substeps": [
+        {
+          "id": "6a-a",
+          "name": "Globale private Entwuerfe und stabile Navigation",
+          "status": "complete",
+          "evidence": [
+            "Detailed acceptance: evidence/step-6a-a-draft-navigation.md; creator-only safe status list, bounded actor/context keyset cursor, exact source/fork resume, isolated editor state and current permissions",
+            "Actual PostgreSQL-engine authority/GET/CAS tests and real React/JSDOM editor, draft list, navigation/history/Header fixtures PASS; pending discard blocks navigation and revoked source reads remain denied",
+            "Final npm run build including TypeScript, whole-tree TypeScript, changed-source ESLint and package/plugin regressions PASS",
+            "Final actual production-browser Playwright: 3/3 PASS, Chromium one worker/no retries/44.5sec; exact save/reopen, dirty Back/Forward/Home zero writes, revocation/stale409/refresh/discard and foreign admin404 before Source-I/O; desktop1280/mobile390 Light/Dark inspected",
+            "Strict receipted cleanup and independent read-only SQL/filesystem: own resources/drafts/versions/preferences/intake0; verified own host stopped; foreign container and shared PostgreSQL/Control Plane preserved; no container build/push/deployment",
+            "Navigation supports team/own/shared contract but complete browsing UI and store/provenance/update handling remain later6a; gateway feature flag stays default off"
+          ]
+        },
+        {
+          "id": "6a-b",
+          "name": "Bereichs- und herkunftsgenauer Katalog mit versionierten Store-Updates",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "6a-c",
+          "name": "Progressive-Disclosure Plugin-UI und Installations-/Update-/Freigabe-UX",
+          "status": "pending",
+          "evidence": []
+        }
+      ],
+      "evidence": [
+        "6a-a locally accepted; exact store provenance, scoped browsing and full UI redesign remain6a-b/6a-c before6b."
+      ]
+    },
     { "id": "6b", "name": "Agent-Konfiguration, OAuth-Rueckkehr und Mobile-Vertrag", "status": "pending", "evidence": [] },
     { "id": "7", "name": "End-to-End-Abnahme und kontrollierter Rollout", "status": "pending", "evidence": [] }
   ],

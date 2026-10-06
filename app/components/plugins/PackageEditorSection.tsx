@@ -11,15 +11,19 @@ import { Switch } from '@/components/ui/switch';
 import { InlineNotice } from '@/components/ui/inline-notice';
 import type { CapabilityResourceOwnerScope } from '@/app/lib/capabilities/resources/contracts';
 import type { CapabilityPackageDescriptor, CapabilityPackageDraft, CapabilityPackageFileRead,
-  CapabilityPackagePublishedRevision, CapabilityPackageTreeEntry, CapabilityPackageValidation } from '@/app/lib/capabilities/packages/contracts';
+  CapabilityPackageOwnedDraftStatus, CapabilityPackagePublishedRevision, CapabilityPackageTreeEntry, CapabilityPackageValidation } from '@/app/lib/capabilities/packages/contracts';
+import { usePluginEditorNavigationGuard } from './plugin-navigation-guard';
 
 type ScopeChoice = { type: 'user' | 'organization' | 'team'; workspaceId?: string; label: string };
 type VersionSummary = Pick<CapabilityPackagePublishedRevision, 'revisionRef' | 'version' | 'publishedAt'>;
 type DraftView = { draft: CapabilityPackageDraft; target: { ownership: CapabilityResourceOwnerScope;
   expectedMetadataRevision: number; expectedGrantsRevision: number } };
 type FileView = { file: CapabilityPackageFileRead; text: string | null };
-type OwnedDraftStatus = Pick<CapabilityPackageDraft, 'draftRef' | 'resourceRef' | 'kind' | 'name' | 'draftRevision' | 'operation'>
-  & { targetOwnership: CapabilityResourceOwnerScope };
+type OwnedDraftStatus = CapabilityPackageOwnedDraftStatus;
+type PackageEditorProps = {
+  resourceRef: string; workspaceId?: string | null; onUpdated?: () => void;
+  initialDraftRef?: string; initiallyOpen?: boolean;
+};
 type ApiPayload<T> = { success: boolean; data?: T; code?: string };
 class PackageRequestError extends Error {
   constructor(readonly status: number, readonly code: string) { super(code); }
@@ -43,14 +47,19 @@ function textContent(file: CapabilityPackageFileRead): string | null {
 }
 
 /** One collapsed package editor for standalone skills and plugins; all operations use the same server actions. */
-export function PackageEditorSection({ resourceRef, workspaceId, onUpdated }: {
-  resourceRef: string; workspaceId?: string | null; onUpdated?: () => void;
-}) {
+export function PackageEditorSection(props: PackageEditorProps) {
+  return <PackageEditorSession key={JSON.stringify([props.resourceRef, props.workspaceId ?? '', props.initialDraftRef ?? ''])} {...props} />;
+}
+
+/** Each exact resource/workspace/draft selection owns its state and request generation. */
+function PackageEditorSession({ resourceRef, workspaceId, onUpdated, initialDraftRef, initiallyOpen = false }: PackageEditorProps) {
   const t = useTranslations('skills.packageEditor');
+  const storageKey = `canvas-private-package-draft:${resourceRef}:${workspaceId || ''}`;
   const [descriptor, setDescriptor] = useState<CapabilityPackageDescriptor | null>(null);
   const [draftView, setDraftView] = useState<DraftView | null>(null);
   const [blockedDraft, setBlockedDraft] = useState<OwnedDraftStatus | null>(null);
-  const [requestedKey, setRequestedKey] = useState('');
+  const [requestedKey, setRequestedKey] = useState(initiallyOpen ? storageKey : '');
+  const [open, setOpen] = useState(initiallyOpen);
   const [tree, setTree] = useState<CapabilityPackageTreeEntry[]>([]);
   const [versions, setVersions] = useState<VersionSummary[]>([]);
   const [selectedVersion, setSelectedVersion] = useState('');
@@ -70,9 +79,10 @@ export function PackageEditorSection({ resourceRef, workspaceId, onUpdated }: {
   const loadRevision = useRef(0);
   const readController = useRef<AbortController | null>(null);
   const upload = useRef<HTMLInputElement | null>(null);
-  const storageKey = `canvas-private-package-draft:${resourceRef}:${workspaceId || ''}`;
+  const resumedDraft = useRef(initialDraftRef);
   const dirty = fileView?.text !== null && fileView?.text !== undefined && fileText !== fileView.text;
   const newFile = fileView?.file.checksum === '';
+  usePluginEditorNavigationGuard({ dirty, pending });
 
   const apiPath = useCallback((suffix: string, query?: Record<string, string | number>) => {
     const parameters = new URLSearchParams();
@@ -90,6 +100,7 @@ export function PackageEditorSection({ resourceRef, workspaceId, onUpdated }: {
   }, [apiPath]);
   const json = (body: unknown): RequestInit => ({ headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   const rememberDraft = (reference: string | null) => {
+    resumedDraft.current = reference ?? undefined;
     if (reference) localStorage.setItem(storageKey, reference);
     else localStorage.removeItem(storageKey);
   };
@@ -97,8 +108,11 @@ export function PackageEditorSection({ resourceRef, workspaceId, onUpdated }: {
     ? t(failure.status === 409 ? 'conflict' : failure.status === 403 || failure.status === 404 ? 'accessError' : 'requestError')
     : t('requestError'), [t]);
 
-  const loadDraft = useCallback(async (reference: string, signal?: AbortSignal) => {
+  const loadDraft = useCallback(async (reference: string, signal?: AbortSignal, expected?: OwnedDraftStatus) => {
     const result = await request<DraftView & { files: CapabilityPackageTreeEntry[] }>(`/drafts/${encodeURIComponent(reference)}/tree`, { signal });
+    if (result.draft.draftRef !== reference || expected && result.draft.resourceRef !== expected.resourceRef) {
+      throw new PackageRequestError(403, 'PACKAGE_ACCESS_DENIED');
+    }
     return result;
   }, [request]);
   const load = useCallback(async () => {
@@ -111,24 +125,34 @@ export function PackageEditorSection({ resourceRef, workspaceId, onUpdated }: {
     let owned: OwnedDraftStatus | null = null;
     try {
       const reference = encodeURIComponent(resourceRef);
-      let saved = localStorage.getItem(storageKey);
+      let saved = resumedDraft.current || localStorage.getItem(storageKey);
+      const explicitResume = Boolean(initialDraftRef && saved === initialDraftRef);
       if (saved) {
-        try { owned = (await request<{ status: OwnedDraftStatus }>(`/drafts/${encodeURIComponent(saved)}/status`, { signal: controller.signal })).status; }
+        try {
+          const status = (await request<{ status: OwnedDraftStatus }>(`/drafts/${encodeURIComponent(saved)}/status`, { signal: controller.signal })).status;
+          if (status.draftRef !== saved || !status.sourceResourceRef || explicitResume && status.sourceResourceRef !== resourceRef) {
+            throw new PackageRequestError(403, 'PACKAGE_ACCESS_DENIED');
+          }
+          owned = status;
+        }
         catch (failure) {
-          if (failure instanceof PackageRequestError && failure.status === 404) { localStorage.removeItem(storageKey); saved = null; }
+          if (!explicitResume && failure instanceof PackageRequestError && failure.status === 404) { localStorage.removeItem(storageKey); saved = null; }
           else throw failure;
         }
       }
       // Whole-package checks stay sequential so opening a large package does not allocate several inventories at once.
       const packageData = await request<{ package: CapabilityPackageDescriptor }>(`/${reference}`, { signal: controller.signal });
+      if (owned && packageData.package.resource.resourceRef !== owned.sourceResourceRef) {
+        owned = null;
+        throw new PackageRequestError(403, 'PACKAGE_ACCESS_DENIED');
+      }
       const scopeData = await request<{ scopes: ScopeChoice[] }>('/scopes', { signal: controller.signal });
       const versionData = await request<{ versions: VersionSummary[] }>(`/${reference}/versions`, { signal: controller.signal });
       let draftData: (DraftView & { files: CapabilityPackageTreeEntry[] }) | null = null;
       if (saved) {
-        try { draftData = await loadDraft(saved, controller.signal); }
+        try { draftData = await loadDraft(saved, controller.signal, owned ?? undefined); }
         catch (failure) {
-          if (failure instanceof PackageRequestError && failure.status === 404) localStorage.removeItem(storageKey);
-          else if (!(failure instanceof PackageRequestError && failure.status === 403 && owned)) throw failure;
+          if (!(failure instanceof PackageRequestError && [403, 404].includes(failure.status) && owned)) throw failure;
         }
       }
       const treeData = draftData || (owned ? { files: [] } : packageData.package.published
@@ -138,17 +162,19 @@ export function PackageEditorSection({ resourceRef, workspaceId, onUpdated }: {
       setDescriptor(packageData.package); setScopes(scopeData.scopes); setVersions(versionData.versions);
       setSelectedVersion(packageData.package.published?.revisionRef || '');
       setDraftView(draftData); setBlockedDraft(draftData ? null : owned); setTree(treeData.files); setError(null); setValidation(null);
-      if (!draftData && !owned) { setFilePath(''); setFileView(null); setFileText(''); }
+      if (!draftData) { setFilePath(''); setFileView(null); setFileText(''); }
     } catch (failure) {
       if (current === generation.current && revision === loadRevision.current && !controller.signal.aborted) {
         setError(errorMessage(failure));
         setDescriptor(null); setVersions([]);
-        if (owned) { setDraftView(null); setBlockedDraft(owned); setTree([]); }
+        if (owned || failure instanceof PackageRequestError && [403, 404].includes(failure.status)) {
+          setDraftView(null); setBlockedDraft(owned); setTree([]); setFilePath(''); setFileView(null); setFileText(''); setValidation(null);
+        }
       }
     } finally {
       if (current === generation.current && revision === loadRevision.current && !controller.signal.aborted) setLoading(false);
     }
-  }, [errorMessage, loadDraft, request, resourceRef, storageKey]);
+  }, [errorMessage, initialDraftRef, loadDraft, request, resourceRef, storageKey]);
 
   useEffect(() => {
     startTransition(() => {
@@ -267,7 +293,7 @@ export function PackageEditorSection({ resourceRef, workspaceId, onUpdated }: {
     : owner?.type === 'organization' ? t('organization') : owner?.type === 'system' ? t('core') : t('personal');
 
   return <section data-testid="package-editor" className="rounded-lg border bg-muted/10">
-    <details key={storageKey} onToggle={event => { if (event.currentTarget.open) setRequestedKey(storageKey); }}>
+    <details key={storageKey} open={open} onToggle={event => { setOpen(event.currentTarget.open); if (event.currentTarget.open) setRequestedKey(storageKey); }}>
       <summary className="cursor-pointer list-none px-4 py-3 focus-visible:outline-2 focus-visible:outline-ring">
         <span className="flex min-w-0 items-center gap-2"><FileCode2 className="h-4 w-4 shrink-0" />
           <span className="flex-1 font-medium">{t('title')}</span>

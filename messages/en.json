@@ -7890,6 +7890,32 @@
         "deleteFailed": "Failed to delete skill"
       }
     },
+    "drafts": {
+      "title": "My private drafts",
+      "description": "Only you can see these drafts. Package access is checked again when you open one.",
+      "empty": "You have no private package drafts.",
+      "loading": "Loading private drafts…",
+      "refresh": "Refresh",
+      "loadMore": "Load more",
+      "open": "Open draft",
+      "discard": "Discard",
+      "pending": "Working…",
+      "discarded": "Private draft discarded.",
+      "conflict": "This draft changed. Refresh the list before discarding it.",
+      "requestError": "Private drafts could not be loaded. Try again.",
+      "accessError": "Your current account or workspace cannot access this action.",
+      "skill": "Skill",
+      "plugin": "Plugin",
+      "edit": "Editing draft",
+      "fork": "Variant draft",
+      "personal": "Personal",
+      "team": "Team",
+      "organization": "Organization",
+      "updated": "Updated {date}",
+      "backToDrafts": "Back to drafts",
+      "backToInstalled": "Back to installed",
+      "unsavedNavigation": "Discard the unsaved changes to this file and leave this view? Your saved draft will remain available."
+    },
     "packageEditor": {
       "reloadReview": "The current draft was loaded. Your unsaved edits are preserved. Review the current saved file before saving.",
       "currentSavedFile": "View the current saved file",

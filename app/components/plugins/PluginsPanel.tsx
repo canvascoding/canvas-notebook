@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef, startTransition, useDeferredValue } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
+import { confirmPluginNavigation } from './plugin-navigation-guard';
 import { useSearchParams } from 'next/navigation';
 import { Link, useRouter } from '@/i18n/navigation';
 import {
@@ -3020,6 +3021,7 @@ export function SkillsPanel({ canManageOrganizationCapabilities: initialCanManag
 
   const changeManagementScope = useCallback((scope: CapabilityManagementScope) => {
     if (scope === managementScope) return;
+    if (!navigate({ scope })) return;
     skillsRequestRef.current += 1;
     skillTreeRequestRef.current += 1;
     setSkillTree([]);
@@ -3027,7 +3029,6 @@ export function SkillsPanel({ canManageOrganizationCapabilities: initialCanManag
     setSelectedSkill(null);
     setSelectedPath(null);
     setRightView('info');
-    navigate({ scope });
   }, [managementScope, navigate]);
 
   async function loadSkills() {
@@ -3183,6 +3184,7 @@ export function SkillsPanel({ canManageOrganizationCapabilities: initialCanManag
       || namedSkills.find((entry) => entry.scopeType !== 'organization')
       || namedSkills[0];
     if (skill) {
+      if (!confirmPluginNavigation()) return;
       setSelectedSkill(skill);
       setRightView('info');
       setSelectedPath(node.path);
@@ -3190,6 +3192,7 @@ export function SkillsPanel({ canManageOrganizationCapabilities: initialCanManag
   }, [skills]);
 
   const handleFileClick = useCallback(async (node: SkillFileNode) => {
+    if (!confirmPluginNavigation()) return;
     setSelectedPath(node.path);
     setRightView('preview');
     setPreviewLoading(true);

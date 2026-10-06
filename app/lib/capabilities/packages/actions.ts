@@ -12,7 +12,7 @@ import { isValidAgentSkillName } from '@/app/lib/skills/canvas-skill-manifest';
 import { refreshCapabilityRuntimeForScope } from '../activation-actions';
 import { CapabilityPackageError, type AuthorizedCapabilityPackageResource, type AuthorizedCapabilityPackageSource, type CapabilityPackageDescriptor,
   type CapabilityPackageDraft, type CapabilityPackageDraftLocation, type CapabilityPackagePublishedLocation,
-  type CapabilityPackageSourceStamp } from './contracts';
+  type CapabilityPackageSourceStamp, type CapabilityPackageOwnedDraftListQuery } from './contracts';
 import { resolveCapabilityPackageArtifact, assertCapabilityPackageArtifactCurrent, validateCapabilityPackage,
   capabilityPackageLegacyStorageBinding, stageCapabilityPackageRegistryPointer, withCapabilityPackageRegistryPublication,
   type ResolvedCapabilityPackageArtifact } from './artifacts';
@@ -21,7 +21,7 @@ import { createCapabilityPackageDraft, deleteCapabilityPackageDraftFile, listCap
   resolveOwnerScopedPackageVersionPath, verifyCapabilityPackageSnapshot, writeCapabilityPackageDraftFile } from './io';
 import { beginCapabilityPackageDraft, discardCapabilityPackageDraft, getCapabilityPackageDraftRecord,
   getCapabilityPackagePublishedRevision, listCapabilityPackagePublishedRevisions, getCapabilityPackageState,
-  getCapabilityPackageOwnedDraftStatus, mutateCapabilityPackageDraft, publishCapabilityPackageDraft,
+  getCapabilityPackageOwnedDraftStatus, listCapabilityPackageOwnedDraftStatuses, mutateCapabilityPackageDraft, publishCapabilityPackageDraft,
   withCapabilityPackageDraftRead, withCapabilityPackagePublication, type CapabilityPackageDraftRecord } from './store';
 import { capabilityPackageDiscardSchema, capabilityPackageDraftCreationSchema, capabilityPackageDraftReferenceSchema,
   capabilityPackageFileDeleteSchema, capabilityPackageFileReadSchema, capabilityPackageFileWriteSchema,
@@ -150,6 +150,11 @@ export async function readCapabilityPackageDraftAction(actor: CapabilityResource
 
 export async function readCapabilityPackageOwnedDraftStatusAction(actor: CapabilityResourceActor, reference: string) {
   return { status: await getCapabilityPackageOwnedDraftStatus(actor, capabilityPackageDraftReferenceSchema.parse(reference)) };
+}
+
+/** Listing recovery metadata does not resolve or read the source package. */
+export async function listCapabilityPackageOwnedDraftStatusesAction(actor: CapabilityResourceActor, value: unknown = {}) {
+  return listCapabilityPackageOwnedDraftStatuses(actor, value as CapabilityPackageOwnedDraftListQuery);
 }
 
 export async function listCapabilityPackageDraftFilesAction(actor: CapabilityResourceActor, reference: string) {

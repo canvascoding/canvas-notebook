@@ -7889,6 +7889,32 @@
         "deleteFailed": "Skill konnte nicht gelöscht werden"
       }
     },
+    "drafts": {
+      "title": "Meine privaten Entwürfe",
+      "description": "Nur du kannst diese Entwürfe sehen. Beim Öffnen wird der Zugriff auf das Paket erneut geprüft.",
+      "empty": "Du hast keine privaten Paketentwürfe.",
+      "loading": "Private Entwürfe werden geladen…",
+      "refresh": "Aktualisieren",
+      "loadMore": "Mehr laden",
+      "open": "Entwurf öffnen",
+      "discard": "Verwerfen",
+      "pending": "Wird bearbeitet…",
+      "discarded": "Privater Entwurf verworfen.",
+      "conflict": "Dieser Entwurf wurde geändert. Aktualisiere die Liste, bevor du ihn verwirfst.",
+      "requestError": "Private Entwürfe konnten nicht geladen werden. Versuche es erneut.",
+      "accessError": "Dein aktuelles Konto oder dein Workspace hat keinen Zugriff auf diese Aktion.",
+      "skill": "Skill",
+      "plugin": "Plugin",
+      "edit": "Bearbeitungsentwurf",
+      "fork": "Variantenentwurf",
+      "personal": "Persönlich",
+      "team": "Team",
+      "organization": "Organisation",
+      "updated": "Aktualisiert {date}",
+      "backToDrafts": "Zurück zu den Entwürfen",
+      "backToInstalled": "Zurück zu Installiert",
+      "unsavedNavigation": "Die ungespeicherten Änderungen an dieser Datei verwerfen und diese Ansicht verlassen? Der gespeicherte Entwurf bleibt erhalten."
+    },
     "packageEditor": {
       "reloadReview": "Der aktuelle Entwurf wurde geladen. Deine ungespeicherten Änderungen bleiben erhalten. Prüfe vor dem Speichern den aktuell gespeicherten Dateiinhalt.",
       "currentSavedFile": "Aktuell gespeicherten Dateiinhalt ansehen",

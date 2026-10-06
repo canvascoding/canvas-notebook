@@ -12,6 +12,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
+import { confirmPluginNavigation } from '@/app/components/plugins/plugin-navigation-guard';
 
 type AppBackButtonProps = {
   fallbackHref: string;
@@ -28,6 +29,7 @@ export function AppBackButton({ fallbackHref, preferFallback = false, className 
     // A new tab starts with one history entry. In that case we keep people in Canvas
     // rather than invoking the browser's unavailable back action.
     if (preferFallback || window.history.length <= 1) {
+      if (!confirmPluginNavigation()) return;
       router.replace(fallbackHref);
       return;
     }
@@ -36,6 +38,7 @@ export function AppBackButton({ fallbackHref, preferFallback = false, className 
   };
 
   const handleHome = () => {
+    if (!confirmPluginNavigation()) return;
     router.push('/');
   };
 
