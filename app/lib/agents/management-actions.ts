@@ -9,6 +9,7 @@ import {
 import {
   createAgentManagerMembership,
   getAgentAccess,
+  getAgentAccessOnConnection,
   listAgentAccessForUser,
   requireAgentAccess,
   type AgentAccess,
@@ -39,6 +40,7 @@ import {
   listAgentProfiles,
   normalizeManagedAgentId,
   updateAgentProfile,
+  readAgentProfileOnConnection,
   type AgentProfile,
 } from '@/app/lib/agents/registry';
 import {
@@ -57,7 +59,8 @@ import {
 } from '@/app/lib/agents/storage';
 import { resolveEffectiveCapabilitySnapshot } from '@/app/lib/capabilities/catalog';
 import type { EffectiveCapabilitySnapshot } from '@/app/lib/capabilities/types';
-import { openDb } from '@/app/lib/db';
+import { openDb, type SqlConnection } from '@/app/lib/db';
+import { isAgentActorContextError, resolveVerifiedAgentActorContextOnConnection } from '@/app/lib/agents/actor-context';
 import { isOrganizationAdminLike, readOrganizationPermissionForUser } from '@/app/lib/organization/permissions';
 import { assertBrowserToolCanBeEnabled } from '@/app/lib/pi/browser/settings-service';
 
@@ -180,11 +183,72 @@ async function requireProfile(
   agentIdInput: string,
   permission: keyof AgentAccess,
 ): Promise<AgentProfile> {
+  actor = await verifiedManagementActor(actor);
   const agentId = normalizeManagedAgentId(agentIdInput);
   const profile = await getAgentProfile(agentId);
   if (!profile) throw new AgentManagementError('AGENT_NOT_FOUND', 'Agent not found.', 404);
   await requireAgentAccess(actor.userId, agentId, permission, accessContext(actor));
   return profile;
+}
+
+async function verifiedManagementActor(actor: AgentManagementActor, database?: SqlConnection): Promise<AgentManagementActor> {
+  const captured = structuredClone(actor);
+  const connection = database ?? await openDb();
+  try {
+    const verified = await resolveVerifiedAgentActorContextOnConnection(captured, connection, { lock: Boolean(database) });
+    const rest = { ...captured };
+    delete rest.organizationId;
+    delete rest.workspaceId;
+    delete rest.projectId;
+    return { ...rest, userId: verified.userId, ...verified.context };
+  } finally {
+    if (!database) await connection.close();
+  }
+}
+
+/** Profile CAS and dependent SQL mutations commit together under current actor and agent authority. */
+async function withAgentManagementWrite<T>(input: {
+  actor: AgentManagementActor;
+  agentId: string;
+  expectedRevision: number;
+  permission: 'canEdit' | 'canManage';
+}, operation: (profile: AgentProfile, actor: AgentManagementActor, database: SqlConnection) => Promise<T>): Promise<T> {
+  const captured = structuredClone(input);
+  const database = await openDb();
+  try {
+    await database.run('BEGIN');
+    const actor = await verifiedManagementActor(captured.actor, database);
+    const profile = await readAgentProfileOnConnection(database, captured.agentId, true);
+    if (!profile) throw new AgentManagementError('AGENT_NOT_FOUND', 'Agent not found.', 404);
+    const grants = await database.all('SELECT id, target_type, target_id FROM agent_grants WHERE agent_id = $1 ORDER BY id FOR SHARE',
+      [profile.agentId]) as Array<{ target_type: string; target_id: string }>;
+    await database.all('SELECT user_id FROM agent_members WHERE agent_id = $1 ORDER BY user_id FOR SHARE', [profile.agentId]);
+    if (!actor.workspaceId && profile.organizationId) {
+      // Global management can be granted through any reachable scope. Hold the
+      // actual matching scope authority as well as the agent/grant rows.
+      const targets = grants.filter((grant) => grant.target_type === 'workspace' || grant.target_type === 'project')
+        .sort((left, right) => `${left.target_type}:${left.target_id}`.localeCompare(`${right.target_type}:${right.target_id}`));
+      for (const target of targets) {
+        try {
+          await resolveVerifiedAgentActorContextOnConnection({ userId: actor.userId, organizationId: profile.organizationId,
+            ...(target.target_type === 'workspace' ? { workspaceId: target.target_id } : { projectId: target.target_id }) }, database, { lock: true });
+        } catch (error) {
+          if (!isAgentActorContextError(error)) throw error;
+        }
+      }
+    }
+    const access = await getAgentAccessOnConnection(database, actor.userId, profile.agentId, accessContext(actor));
+    if (!access[captured.permission]) throw new AgentManagementError('AGENT_ACCESS_DENIED', 'Agent access denied.', 403);
+    ensureExpectedRevision(profile, captured.expectedRevision);
+    const result = await operation(profile, actor, database);
+    await database.run('COMMIT');
+    return result;
+  } catch (error) {
+    try { await database.run('ROLLBACK'); } catch { /* Preserve the original failure. */ }
+    throw error;
+  } finally {
+    await database.close();
+  }
 }
 
 async function auditAgentAction(input: {
@@ -439,6 +503,7 @@ export async function inspectManagedAgent(
 }
 
 export async function createManagedAgent(actor: AgentManagementActor, input: CreateManagedAgentInput) {
+  actor = await verifiedManagementActor(actor);
   const scopeType = input.scopeType === 'organization' ? 'organization' : 'user';
   const { organizationId: actorOrganizationId } = await actorOrganization(actor);
   const organizationId = scopeType === 'organization'
@@ -627,62 +692,48 @@ export async function updateManagedAgentCapabilities(input: {
   relevantSkills?: string[] | null;
   relevantConnections?: string[] | null;
 }) {
-  const existing = await requireProfile(input.actor, input.agentId, 'canEdit');
-  if (existing.type === 'main') throw new AgentManagementError('AGENT_MAIN_PROTECTED', 'Bradley\'s capabilities are managed by organization policy.', 403);
-  ensureExpectedRevision(existing, input.expectedRevision);
-  const previous = await listAgentCapabilityBindings(existing.agentId);
-  const relevantSkills = input.relevantSkills === undefined
-    ? existing.relevantSkills
-    : input.relevantSkills;
-  const relevantConnections = input.relevantConnections === undefined
-    ? existing.relevantConnections
-    : input.relevantConnections;
-  const capabilities = input.capabilities === undefined
-    ? previous
-      .filter((binding) => binding.resourceType === 'plugin')
-      .map((binding) => ({
-        resourceType: 'plugin' as const,
-        resourceId: binding.resourceId,
-        name: binding.name,
-        requirement: binding.requirement,
-      }))
-    : input.capabilities;
-  const resolved = await resolveCapabilityBindings({
-    actor: input.actor,
-    scopeType: existing.scopeType === 'organization' ? 'organization' : 'user',
-    capabilities,
-    relevantSkills,
-    relevantConnections,
-  });
-  await replaceAgentCapabilityBindings(existing.agentId, resolved.bindings);
+  const captured = structuredClone(input);
+  const actor = await verifiedManagementActor(captured.actor);
+  const preflight = await openDb();
+  let preparedProfile: AgentProfile;
+  let previous: AgentCapabilityBinding[];
   try {
+    const profile = await readAgentProfileOnConnection(preflight, captured.agentId);
+    if (!profile) throw new AgentManagementError('AGENT_NOT_FOUND', 'Agent not found.', 404);
+    if (profile.type === 'main') throw new AgentManagementError('AGENT_MAIN_PROTECTED', 'Bradley\'s capabilities are managed by organization policy.', 403);
+    const access = await getAgentAccessOnConnection(preflight, actor.userId, profile.agentId, accessContext(actor));
+    if (!access.canEdit) throw new AgentManagementError('AGENT_ACCESS_DENIED', 'Agent access denied.', 403);
+    ensureExpectedRevision(profile, captured.expectedRevision);
+    preparedProfile = profile;
+    previous = await listAgentCapabilityBindings(profile.agentId, preflight);
+  } finally {
+    await preflight.close();
+  }
+  const relevantSkills = captured.relevantSkills === undefined ? preparedProfile.relevantSkills : captured.relevantSkills;
+  const relevantConnections = captured.relevantConnections === undefined ? preparedProfile.relevantConnections : captured.relevantConnections;
+  const capabilities = captured.capabilities === undefined
+    ? previous.filter((binding) => binding.resourceType === 'plugin').map((binding) => ({
+      resourceType: 'plugin' as const, resourceId: binding.resourceId, name: binding.name, requirement: binding.requirement,
+    }))
+    : captured.capabilities;
+  // Catalogue readers borrow their own connections. Complete them before holding
+  // a write lease; the transaction then rechecks actor/agent rights and profile CAS.
+  const resolved = await resolveCapabilityBindings({ actor,
+    scopeType: preparedProfile.scopeType === 'organization' ? 'organization' : 'user', capabilities, relevantSkills, relevantConnections });
+  const committed = await withAgentManagementWrite({ ...captured, actor, permission: 'canEdit' }, async (existing, currentActor, database) => {
     const agent = await updateAgentProfile({
       agentId: existing.agentId,
-      expectedRevision: input.expectedRevision,
+      expectedRevision: captured.expectedRevision,
       relevantSkills,
       relevantConnections,
-    });
-    const bindings = await listAgentCapabilityBindings(existing.agentId);
-    await auditAgentAction({
-      actor: input.actor,
-      profile: agent,
-      agentId: agent.agentId,
-      action: 'agent.update_capabilities',
-      input: { resourceIds: resolved.bindings.map((binding) => binding.resourceId) },
-      output: { revision: agent.revision },
-    });
-    return { agent, bindings, readiness: readinessForBindings(bindings, resolved.snapshot) };
-  } catch (error) {
-    await replaceAgentCapabilityBindings(existing.agentId, previous.map((binding) => ({
-      resourceType: binding.resourceType,
-      scopeType: binding.scopeType,
-      resourceId: binding.resourceId,
-      name: binding.name,
-      version: binding.version,
-      requirement: binding.requirement,
-    })));
-    throw error;
-  }
+    }, database);
+    const bindings = await replaceAgentCapabilityBindings(existing.agentId, resolved.bindings, database);
+    return { actor: currentActor, result: { agent, bindings, readiness: readinessForBindings(bindings, resolved.snapshot) } };
+  });
+  const { agent, bindings } = committed.result;
+  await auditAgentAction({ actor: committed.actor, profile: agent, agentId: agent.agentId, action: 'agent.update_capabilities',
+    input: { resourceIds: bindings.map((binding) => binding.resourceId) }, output: { revision: agent.revision } });
+  return committed.result;
 }
 
 export async function updateManagedAgentFile(input: {
@@ -772,31 +823,19 @@ export async function setManagedAgentGrant(input: {
   canEdit?: boolean;
   canManage?: boolean;
 }) {
-  const existing = await requireProfile(input.actor, input.agentId, 'canManage');
-  if (existing.scopeType !== 'organization' || !existing.organizationId) {
-    throw new AgentManagementError('AGENT_PERSONAL_GRANTS_UNSUPPORTED', 'Personal agents cannot be shared.');
-  }
-  ensureExpectedRevision(existing, input.expectedRevision);
-  const previous = (await listAgentGrants(existing.agentId)).find((grant) => (
-    grant.targetType === input.targetType && grant.targetId === input.targetId
-  ));
-  const grant = await upsertAgentGrant({
-    ...input,
-    organizationId: existing.organizationId,
-    actorUserId: input.actor.userId,
-  });
-  try {
-    const agent = await updateAgentProfile({ agentId: existing.agentId, expectedRevision: input.expectedRevision });
-    await auditAgentAction({ actor: input.actor, profile: agent, agentId: agent.agentId, action: 'agent.set_grant', input, output: { revision: agent.revision } });
-    return { agent, grant };
-  } catch (error) {
-    if (previous) {
-      await upsertAgentGrant({ ...previous, actorUserId: previous.updatedByUserId });
-    } else {
-      await removeAgentGrant(input);
+  const captured = structuredClone(input);
+  const committed = await withAgentManagementWrite({ ...captured, permission: 'canManage' }, async (existing, actor, database) => {
+    if (existing.scopeType !== 'organization' || !existing.organizationId) {
+      throw new AgentManagementError('AGENT_PERSONAL_GRANTS_UNSUPPORTED', 'Personal agents cannot be shared.');
     }
-    throw error;
-  }
+    const grant = await upsertAgentGrant({ ...captured, organizationId: existing.organizationId, actorUserId: actor.userId }, database);
+    const agent = await updateAgentProfile({ agentId: existing.agentId, expectedRevision: captured.expectedRevision }, database);
+    return { actor, result: { agent, grant } };
+  });
+  const { agent } = committed.result;
+  await auditAgentAction({ actor: committed.actor, profile: agent, agentId: agent.agentId, action: 'agent.set_grant',
+    input: captured, output: { revision: agent.revision } });
+  return committed.result;
 }
 
 export async function removeManagedAgentGrant(input: {
@@ -806,23 +845,21 @@ export async function removeManagedAgentGrant(input: {
   targetType: AgentGrantTargetType;
   targetId: string;
 }) {
-  const existing = await requireProfile(input.actor, input.agentId, 'canManage');
-  if (existing.scopeType !== 'organization') {
-    throw new AgentManagementError('AGENT_PERSONAL_GRANTS_UNSUPPORTED', 'Personal agents cannot be shared.');
-  }
-  ensureExpectedRevision(existing, input.expectedRevision);
-  const previous = (await listAgentGrants(existing.agentId)).find((grant) => (
-    grant.targetType === input.targetType && grant.targetId === input.targetId
-  ));
-  await removeAgentGrant(input);
-  try {
-    const agent = await updateAgentProfile({ agentId: existing.agentId, expectedRevision: input.expectedRevision });
-    await auditAgentAction({ actor: input.actor, profile: agent, agentId: agent.agentId, action: 'agent.remove_grant', input, output: { revision: agent.revision } });
-    return { agent, removed: Boolean(previous) };
-  } catch (error) {
-    if (previous) await upsertAgentGrant({ ...previous, actorUserId: previous.updatedByUserId });
-    throw error;
-  }
+  const captured = structuredClone(input);
+  const committed = await withAgentManagementWrite({ ...captured, permission: 'canManage' }, async (existing, actor, database) => {
+    if (existing.scopeType !== 'organization') {
+      throw new AgentManagementError('AGENT_PERSONAL_GRANTS_UNSUPPORTED', 'Personal agents cannot be shared.');
+    }
+    const previous = (await listAgentGrants(existing.agentId, database)).find((grant) => (
+      grant.targetType === captured.targetType && grant.targetId === captured.targetId));
+    await removeAgentGrant(captured, database);
+    const agent = await updateAgentProfile({ agentId: existing.agentId, expectedRevision: captured.expectedRevision }, database);
+    return { actor, result: { agent, removed: Boolean(previous) } };
+  });
+  const { agent } = committed.result;
+  await auditAgentAction({ actor: committed.actor, profile: agent, agentId: agent.agentId, action: 'agent.remove_grant',
+    input: captured, output: { revision: agent.revision } });
+  return committed.result;
 }
 
 export async function previewManagedAgentDeletion(actor: AgentManagementActor, agentId: string) {

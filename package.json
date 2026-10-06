@@ -510,6 +510,8 @@
     "test:todos:email-reply": "tsx --conditions react-server scripts/todo-email-reply-watcher-test.ts",
     "test:todos:file-links": "tsx scripts/todo-file-link-display-test.ts",
     "test:agents:runtime": "tsx --conditions react-server scripts/agent-runtime-config-test.ts",
+    "test:agents:workflow:authority": "tsx --conditions react-server scripts/agent-actor-context-test.ts",
+    "test:agents:workflow:authority:native": "node --import tsx scripts/agent-workflow-foundation-native-test.ts",
     "test:agents:provider-coverage": "tsx --conditions react-server scripts/agent-runtime-provider-coverage-test.ts",
     "test:onboarding:profile": "tsx --conditions react-server scripts/onboarding-profile-test.ts",
     "test:onboarding:preferences": "tsx --conditions react-server scripts/onboarding-preferences-test.ts",

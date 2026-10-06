@@ -433,6 +433,8 @@ Codegrundlage: `app/components/plugins/PluginsPanel.tsx`, `app/lib/plugins/plugi
 
 Jeder Schritt erhält einen eigenen Commit und ein Abnahme-Gate. Der nächste beginnt nach erfolgreicher Abnahme des vorherigen.
 
+Schritt 5c hat zwei aufeinanderfolgende Teilabnahmen. **5c-a** schließt die im aktuellen Agentenvertrag nachgewiesenen Kontext-/CAS-Lücken: aktuelle serverseitige Workspace-/Projektautorität, eindeutiges Profil-CAS und gemeinsame SQL-Transaktionen für Profil, Capability-Zuordnungen und Agent-Freigaben. Alte Paket-/Bindungsfelder bleiben dabei unverändert. Erst nach dessen Commit folgt **5c-b** mit dem additiven Workflow-Paketvertrag, konkreten gespeicherten Verbindungen, providerbezogenen Toolregeln und deren vollständiger Runtime-Durchsetzung.
+
 | Schritt | Ergebnis | Abnahme-Gate |
 | --- | --- | --- |
 | 0 — abgeschlossen | Allgemeiner Composio-Fix und dokumentierte Ausgangsbasis | Fünf-App-SDK-Test, User-/Profil-Trennung, Build und Browser-Agentenlauf grün; lokale Veröffentlichungssituation klar |

@@ -91,7 +91,7 @@
       "Fresh full GitNexus index: staged562 symbols/73files, compare-main2138 symbols/260files across completed steps; actual diff and expected package/catalog/agent/registry flows reviewed alongside the previously reported HIGH/CRITICAL symbol impacts; git diff --cached --check PASS",
       "Interim editor and separate default activation only; global own-draft navigation/store/updates remains6a, script execution/egress bridge5b, mandatory workflow bindings5c, Mobile/MCPApps/DesktopOAuth6b and actual live/shared Canva accounts7; default-off flag unchanged; DB-less legacy runtime-config fixture still requires PostgreSQL DATABASE_URL"
     ] },
-    { "id": "5b", "name": "Skill-Code-Laufzeit und begrenzte Tool-Bruecke", "status": "complete", "evidence": [
+    { "id": "5b", "name": "Skill-Code-Laufzeit und begrenzte Tool-Bruecke", "status": "complete", "commits": ["e19dac2d4"], "evidence": [
       "Detailed acceptance: evidence/step-5b-script-runtime.md and script-runtime.md; strict published package declarations, list/describe and explicit default-disabled Node/Python run",
       "npm run test:skills:scripts full manifest/authorization/bridge/actions suite PASS with actual PostgreSQL engine, native read/Outbox/file operations, exact MCP HTTP/Composio SDK and live permissions; isolated PGlite transaction leases fix a diagnosed test-only PG25001",
       "Actual Darwin/arm64 and existing Linux/arm64 process gates PASS: exact immutable package/SDK roots, private scratch, no secrets/egress/new processes, bounded RPC/logs, abort/revoke/unknown and delayed watcher lifecycle; actual 60-second deadline tested; native x86-64 not tested",
@@ -100,7 +100,33 @@
       "Actual cross-process preference/CAS and strict own cleanup guards PASS; independent final native PG/filesystem readback own resource/draft/version/preference/intake counts0; own verified Notebook server stopped, existing stack untouched, no container build/publication",
       "Workflow bindings5c, complete Plugin-page redesign6a, Mobile/MCPApps/DesktopOAuth6b and live/shared Canva accounts7 remain; gateway flag remains default off"
     ] },
-    { "id": "5c", "name": "Workflow-Agenten und verbindliche Capability-Bindungen", "status": "pending", "evidence": [] },
+    {
+      "id": "5c",
+      "name": "Workflow-Agenten und verbindliche Capability-Bindungen",
+      "status": "in_progress",
+      "substeps": [
+        {
+          "id": "5c-a",
+          "name": "Aktuelle Agent-Autoritaet und atomare Konfigurationsaenderungen",
+          "status": "complete",
+          "evidence": [
+            "Detailed acceptance: evidence/step-5c-a-agent-authority.md; actual canonical scope authority, exact profile UPDATE RETURNING and transactional capability/grant CAS",
+            "Native PostgreSQL max8 pressure, one complete winner/seven409, observed row-lock revocation and actual SQL-trigger rollback: PASS; exact own nonce DB/DATA cleanup",
+            "Final build, full TypeScript, changed-source ESLint, actor/gateway/registry/package/script regressions: PASS; external own-personal regression fixed without weakening shared scope rights",
+            "Playwright actual managed admin/member: four PASS, one project fixture skip, one worker/no retries/9.1sec; native real-project gate separate; Desktop1280/light/Mobile390/dark inspected",
+            "Guarded cleanup and independent SQL/filesystem readback: own agents/directories0, own team disabled; verified own host server stopped, foreign testcontainer unchanged",
+            "Workflow contract, mandatory version/connection binding and per-provider runtime policy remain5c-b; broader legacy profile/model/file sagas are not claimed atomic"
+          ]
+        },
+        {
+          "id": "5c-b",
+          "name": "Workflow-Vertrag, gespeicherte Bindungen und Runtime-Durchsetzung",
+          "status": "pending",
+          "evidence": []
+        }
+      ],
+      "evidence": []
+    },
     { "id": "6a", "name": "Plugin-Seite und Store-Redesign", "status": "pending", "evidence": [] },
     { "id": "6b", "name": "Agent-Konfiguration, OAuth-Rueckkehr und Mobile-Vertrag", "status": "pending", "evidence": [] },
     { "id": "7", "name": "End-to-End-Abnahme und kontrollierter Rollout", "status": "pending", "evidence": [] }

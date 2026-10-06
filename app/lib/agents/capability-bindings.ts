@@ -2,7 +2,7 @@ import 'server-only';
 
 import { randomUUID } from 'node:crypto';
 
-import { openDb } from '@/app/lib/db';
+import { openDb, type SqlConnection } from '@/app/lib/db';
 export type AgentCapabilityBindingInput = {
   resourceType: 'skill' | 'plugin' | 'connection';
   scopeType: 'system' | 'organization' | 'user';
@@ -71,8 +71,8 @@ function normalizeBinding(input: AgentCapabilityBindingInput): Omit<AgentCapabil
   };
 }
 
-export async function listAgentCapabilityBindings(agentId: string): Promise<AgentCapabilityBinding[]> {
-  const database = await openDb();
+export async function listAgentCapabilityBindings(agentId: string, connection?: SqlConnection): Promise<AgentCapabilityBinding[]> {
+  const database = connection ?? await openDb();
   try {
     const rows = await database.all(
       `SELECT id, agent_id, resource_type, scope_type, resource_id, name, version, requirement, revision
@@ -83,13 +83,14 @@ export async function listAgentCapabilityBindings(agentId: string): Promise<Agen
     ) as BindingRow[];
     return rows.map(mapBinding);
   } finally {
-    await database.close();
+    if (!connection) await database.close();
   }
 }
 
 export async function replaceAgentCapabilityBindings(
   agentId: string,
   inputs: AgentCapabilityBindingInput[],
+  connection?: SqlConnection,
 ): Promise<AgentCapabilityBinding[]> {
   const normalized = inputs.map(normalizeBinding);
   const keys = new Set<string>();
@@ -99,9 +100,9 @@ export async function replaceAgentCapabilityBindings(
     keys.add(key);
   }
 
-  const database = await openDb();
+  const database = connection ?? await openDb();
   try {
-    await database.run('BEGIN');
+    if (!connection) await database.run('BEGIN');
     await database.run(`DELETE FROM agent_capability_bindings WHERE agent_id = $1`, [agentId]);
     const now = Date.now();
     for (const binding of normalized) {
@@ -124,16 +125,19 @@ export async function replaceAgentCapabilityBindings(
         ],
       );
     }
-    await database.run('COMMIT');
+    const bindings = await listAgentCapabilityBindings(agentId, database);
+    if (!connection) await database.run('COMMIT');
+    return bindings;
   } catch (error) {
-    try {
-      await database.run('ROLLBACK');
-    } catch {
-      // Preserve the original write error.
+    if (!connection) {
+      try {
+        await database.run('ROLLBACK');
+      } catch {
+        // Preserve the original write error.
+      }
     }
     throw error;
   } finally {
-    await database.close();
+    if (!connection) await database.close();
   }
-  return listAgentCapabilityBindings(agentId);
 }

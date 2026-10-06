@@ -2,8 +2,9 @@ import 'server-only';
 
 import { and, asc, eq, sql } from 'drizzle-orm';
 
-import { db } from '@/app/lib/db';
+import { db, type SqlConnection } from '@/app/lib/db';
 import { agents, piSessions } from '@/app/lib/db/schema';
+import { normalizeDatabaseTimestamp } from '@/app/lib/db/timestamps';
 import { deletePiSessionsByDbIds } from '@/app/lib/pi/session-deletion';
 import type { PiThinkingLevel } from '@/app/lib/pi/config';
 import { DEFAULT_AGENT_ICON_ID, normalizeAgentIconId, type AgentIconId } from './icons';
@@ -388,6 +389,32 @@ export async function getAgentProfile(agentId?: string | null): Promise<AgentPro
   return row ? mapAgent(row) : null;
 }
 
+function mapSqlAgent(row: Record<string, unknown>): AgentProfile {
+  const text = (key: string): string | null => typeof row[key] === 'string' ? row[key] as string : null;
+  return mapAgent({
+    id: Number(row.id), agentId: String(row.agent_id), name: String(row.name),
+    iconId: String(row.icon_id), type: String(row.type), removable: Number(row.removable) !== 0,
+    defaultProviderInstallationId: text('default_provider_installation_id'),
+    defaultProvider: text('default_provider'), defaultModel: text('default_model'), defaultThinking: text('default_thinking'),
+    enabledToolsJson: text('enabled_tools_json'), relevantSkillsJson: text('relevant_skills_json'), relevantConnectionsJson: text('relevant_connections_json'),
+    accessPolicy: String(row.access_policy), scopeType: String(row.scope_type), organizationId: text('organization_id'),
+    ownerUserId: text('owner_user_id'), createdByUserId: text('created_by_user_id'), revision: Number(row.revision),
+    createdAt: new Date(normalizeDatabaseTimestamp(Number(row.created_at))),
+    updatedAt: new Date(normalizeDatabaseTimestamp(Number(row.updated_at))),
+  });
+}
+
+/** Reads an existing profile on the caller's transaction without running built-in repairs. */
+export async function readAgentProfileOnConnection(
+  database: SqlConnection,
+  agentIdInput: string,
+  lock = false,
+): Promise<AgentProfile | null> {
+  const row = await database.get(`SELECT * FROM agents WHERE agent_id = $1${lock ? ' FOR UPDATE' : ''}`,
+    [normalizeManagedAgentId(agentIdInput)]) as Record<string, unknown> | undefined;
+  return row ? mapSqlAgent(row) : null;
+}
+
 function slugifyAgentId(name: string): string {
   const normalized = name
     .trim()
@@ -483,9 +510,9 @@ export async function updateAgentProfile(input: {
   organizationId?: string | null;
   ownerUserId?: string | null;
   expectedRevision?: number;
-}): Promise<AgentProfile> {
+}, connection?: SqlConnection): Promise<AgentProfile> {
   const agentId = normalizeManagedAgentId(input.agentId);
-  const existing = await getAgentProfile(agentId);
+  const existing = connection ? await readAgentProfileOnConnection(connection, agentId) : await getAgentProfile(agentId);
   if (!existing) {
     throw new Error('Agent not found.');
   }
@@ -531,8 +558,7 @@ export async function updateAgentProfile(input: {
     throw new Error('Organization agents cannot have a personal owner.');
   }
 
-  await db.update(agents)
-    .set({
+  const updates = {
       name: nextName,
       iconId: input.iconId === undefined ? existing.iconId : normalizeAgentIconId(input.iconId),
       defaultProviderInstallationId: updatesAgentDefault
@@ -547,24 +573,45 @@ export async function updateAgentProfile(input: {
       scopeType: isSystemAgent ? 'system' : nextScopeType,
       organizationId: isSystemAgent ? null : nextOrganizationId,
       ownerUserId: isSystemAgent ? null : nextOwnerUserId,
-      revision: sql`${agents.revision} + 1`,
       updatedAt: new Date(),
-    })
+  };
+  if (connection) {
+    const columnNames: Record<keyof typeof updates, string> = {
+      name: 'name', iconId: 'icon_id', defaultProviderInstallationId: 'default_provider_installation_id',
+      defaultProvider: 'default_provider', defaultModel: 'default_model', defaultThinking: 'default_thinking',
+      enabledToolsJson: 'enabled_tools_json', relevantSkillsJson: 'relevant_skills_json', relevantConnectionsJson: 'relevant_connections_json',
+      scopeType: 'scope_type', organizationId: 'organization_id', ownerUserId: 'owner_user_id', updatedAt: 'updated_at',
+    };
+    const entries = Object.entries(updates) as Array<[keyof typeof updates, (typeof updates)[keyof typeof updates]]>;
+    const values: unknown[] = entries.map(([, value]) => value instanceof Date ? value.getTime() : value);
+    const assignments = entries.map(([key], index) => `${columnNames[key]} = $${index + 1}`);
+    values.push(agentId);
+    let predicate = `agent_id = $${values.length}`;
+    if (input.expectedRevision !== undefined) {
+      values.push(input.expectedRevision);
+      predicate += ` AND revision = $${values.length}`;
+    }
+    const row = await connection.get(`UPDATE agents SET ${assignments.join(', ')}, revision = revision + 1 WHERE ${predicate} RETURNING *`,
+      values) as Record<string, unknown> | undefined;
+    if (!row) {
+      const current = await readAgentProfileOnConnection(connection, agentId);
+      if (input.expectedRevision !== undefined) throw new AgentRevisionConflictError(current?.revision ?? input.expectedRevision);
+      throw new Error('Agent could not be updated.');
+    }
+    return mapSqlAgent(row);
+  }
+  const [updated] = await db.update(agents)
+    .set({ ...updates, revision: sql`${agents.revision} + 1` })
     .where(input.expectedRevision === undefined
       ? eq(agents.agentId, agentId)
-      : and(eq(agents.agentId, agentId), eq(agents.revision, input.expectedRevision)));
-
-  const updated = await getAgentProfile(agentId);
+      : and(eq(agents.agentId, agentId), eq(agents.revision, input.expectedRevision)))
+    .returning();
   if (!updated) {
+    const current = await getAgentProfile(agentId);
+    if (input.expectedRevision !== undefined) throw new AgentRevisionConflictError(current?.revision ?? input.expectedRevision);
     throw new Error('Agent could not be updated.');
   }
-  if (
-    input.expectedRevision !== undefined &&
-    updated.revision !== input.expectedRevision + 1
-  ) {
-    throw new AgentRevisionConflictError(updated.revision);
-  }
-  return updated;
+  return mapAgent(updated);
 }
 
 export async function deleteAgentProfile(agentIdInput: string, expectedRevision?: number): Promise<void> {
