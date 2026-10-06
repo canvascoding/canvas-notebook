@@ -32,7 +32,7 @@ async function main() {
   const { createEmailClassificationStore } = await import('../app/lib/email/classification/store');
   const { DEFAULT_EMAIL_CLASSIFICATION_CONFIGURATION } = await import('../app/lib/email/classification/settings-types');
   const { emailClassificationMailboxRef, emailClassificationMessageIdentity } = await import('../app/lib/email/classification/identity');
-  const { ingestEmailClassificationMetadata } = await import('../app/lib/email/classification/index-service');
+  const { ingestEmailClassificationMetadata, readEmailClassificationProjectionBatch } = await import('../app/lib/email/classification/index-service');
   const { createEmailClassificationWorker, emailClassificationRetryDelay } = await import('../app/lib/email/classification/worker');
   const { initializeEmailClassificationRuntime, notifyEmailClassificationSettingsChanged } = await import('../app/lib/email/classification/runtime');
   const { DecisionModelError } = await import('../app/lib/decision-models/errors');
@@ -293,6 +293,67 @@ async function main() {
     const cycle = await restricted.worker.runCycle();
     assert.equal(cycle.indexed, 1); assert.equal(cycle.claimed, 0); assert.equal(restricted.calls.read, 0); assert.equal(restricted.calls.model, 0, 'Personal AI also respects sender restrictions.');
   } finally { await restricted.close(); }
+
+  let listProvider: (ownerUserId: string, parameters: Record<string, unknown>, options: Record<string, unknown>) => Promise<Record<string, unknown>> = async () => { throw new Error('Inject the default list provider.'); };
+  let readProvider: (ownerUserId: string, accountId: string, canonicalId: string, folder: string, options: Record<string, unknown>) => Promise<Record<string, unknown>> = async () => { throw new Error('Inject the default read provider.'); };
+  const defaultServiceFixture = {
+    listEmailMessages: (...args: Parameters<typeof listProvider>) => listProvider(...args),
+    readEmailMessage: (...args: Parameters<typeof readProvider>) => readProvider(...args),
+  };
+  for (const policyScope of ['personal-restricted', 'work-restricted', 'work-allowed'] as const) {
+    const policy = await fixture();
+    const previousLoad = loader._load;
+    try {
+      const workspace = policyScope.startsWith('work');
+      const allowed = policyScope === 'work-allowed';
+      const origin = { ...policy.mailbox(), workspaceId: workspace ? 'policy-workspace' : null, mailboxId: workspace ? 'policy-mailbox' : null };
+      const mailbox = { ...origin, mailboxRef: emailClassificationMailboxRef(origin), policyRevision: policyScope,
+        readFrom: [allowed ? 'customer@example.test' : 'owner@example.test'] };
+      policy.setMailboxes([mailbox]);
+      const listPolicies: boolean[] = [];
+      const bodyPolicies: boolean[] = [];
+      listProvider = async (ownerUserId: string, parameters: Record<string, unknown>, options: Record<string, unknown>) => {
+        assert.equal(ownerUserId, mailbox.ownerUserId);
+        assert.equal(parameters.accountId, mailbox.accountId);
+        assert.equal(parameters.folder, 'INBOX');
+        assert.equal(options.actorUserId, mailbox.ownerUserId);
+        assert.equal(options.workspaceId, mailbox.workspaceId);
+        assert.equal(options.cacheMode, 'provider');
+        assert.equal(options.skipClassification, true);
+        assert.equal(options.prefetchDetails, false);
+        listPolicies.push(options.enforceReadPolicy === true);
+        const messages = options.enforceReadPolicy && !allowed ? [] : policy.messages();
+        return { messages, total: messages.length, hasMore: false, nextOffset: null };
+      };
+      readProvider = async (_ownerUserId: string, _accountId: string, canonicalId: string, _folder: string, options: Record<string, unknown>) => {
+        bodyPolicies.push(options.enforceReadPolicy === true);
+        policy.calls.read++;
+        return { message: { ...policy.messages()[0], id: canonicalId, body: BODY_MARKER } };
+      };
+      loader._load = (request, parent, isMain) => {
+        if (request === '@/app/lib/email/service' || request.endsWith('/app/lib/email/service.ts')) return defaultServiceFixture;
+        return previousLoad(request, parent, isMain);
+      };
+      const worker = createEmailClassificationWorker({ ...policy.dependencies, listMessages: undefined, readMessage: undefined });
+      const cycle = await worker.runCycle();
+      assert.deepEqual(listPolicies, [workspace], 'Default metadata retrieval follows the human read policy: full personal Inbox, restricted work Inbox.');
+      assert.equal((await policy.store.readMailbox(mailbox.mailboxRef))?.coverage, 'complete', 'Confirmed human-visible coverage stays honest even when AI cannot evaluate that sender.');
+      assert.equal(cycle.indexed, policyScope === 'work-restricted' ? 0 : 1);
+      if (allowed) {
+        assert.deepEqual(bodyPolicies, [true], 'The default body retrieval retains the AI read policy.');
+        assert.equal(cycle.completed, 1);
+      } else {
+        assert.deepEqual(bodyPolicies, []); assert.equal(policy.calls.read, 0); assert.equal(policy.calls.model, 0);
+        assert.equal(cycle.claimed, 0, 'AI-ineligible senders never create model jobs.');
+        if (!workspace) {
+          const metadata = (await policy.store.readMessages([policy.ref()]))[0];
+          assert.equal(metadata.inInbox, true, 'Personal human-visible metadata survives reconciliation although the AI sender policy excludes it.');
+          const projected = await readEmailClassificationProjectionBatch({ actorUserId: 'owner', mailbox, messages: policy.messages() }, { store: policy.store });
+          assert.equal(projected.get(metadata.messageRef)?.classification.status, 'pending');
+        }
+      }
+    } finally { loader._load = previousLoad; await policy.close(); }
+  }
 
   for (const boundary of ['before_body', 'before_model', 'before_publication'] as const) {
     const revoke = await fixture();

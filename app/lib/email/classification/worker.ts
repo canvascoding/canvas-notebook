@@ -110,7 +110,7 @@ export function emailClassificationRetryDelay(attempts: number, random = Math.ra
 
 async function defaultList(input: RawListInput): Promise<EmailClassificationWorkerPage> {
   const service = await import('@/app/lib/email/service');
-  const options = { actorUserId: input.actorUserId, workspaceId: input.mailbox.workspaceId, enforceReadPolicy: true, cacheMode: 'provider' as const, skipClassification: true, prefetchDetails: false };
+  const options = { actorUserId: input.actorUserId, workspaceId: input.mailbox.workspaceId, enforceReadPolicy: Boolean(input.mailbox.workspaceId), cacheMode: 'provider' as const, skipClassification: true, prefetchDetails: false };
   const raw = await service.listEmailMessages(input.mailbox.ownerUserId, { accountId: input.mailbox.accountId,
     folder: input.mailbox.provider === 'microsoft' ? 'inbox' : 'INBOX', offset: input.offset, limit: input.limit }, options) as Record<string, unknown>;
   return { messages: Array.isArray(raw.messages) ? raw.messages.filter((message): message is Record<string, unknown> => Boolean(message && typeof message === 'object' && !Array.isArray(message))) : [],
