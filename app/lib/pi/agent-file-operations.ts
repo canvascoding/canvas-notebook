@@ -3,6 +3,7 @@ import { existsSync, promises as fs, realpathSync } from 'node:fs';
 import type { Stats } from 'node:fs';
 import path from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
+import { resolveFreshAgentSkillReadRoots } from '@/app/lib/skills/fresh-agent-skill-read-roots';
 
 import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { DEFAULT_MANAGED_AGENT_ID } from '@/app/lib/agents/storage';
@@ -378,8 +379,7 @@ async function assertAgentRuntimeTempWriteQuota(params: {
   });
 }
 
-function assertContextWorkspaceReadAllowed(candidatePath: string): void {
-  const executionContext = getAgentExecutionContext();
+function assertContextWorkspaceReadAllowed(candidatePath: string, executionContext = getAgentExecutionContext()): void {
   if (!executionContext) return;
 
   const resolvedPath = path.resolve(candidatePath);
@@ -481,7 +481,12 @@ export function isProtectedAgentPath(candidatePath: string): boolean {
 }
 
 export async function assertAgentPathAllowed(candidatePath: string): Promise<void> {
-  assertContextWorkspaceReadAllowed(candidatePath);
+  const captured = getAgentExecutionContext();
+  let checkedContext = captured;
+  if (captured && isPathWithinAnyRootVariant(candidatePath, [...(captured.skillReadRoots ?? [])])) {
+    checkedContext = { ...captured, skillReadRoots: await resolveFreshAgentSkillReadRoots(captured) };
+  }
+  assertContextWorkspaceReadAllowed(candidatePath, checkedContext);
 
   if (isProtectedAgentPath(candidatePath)) {
     throw new Error('Access to this path is restricted for security reasons.');
@@ -489,7 +494,10 @@ export async function assertAgentPathAllowed(candidatePath: string): Promise<voi
 
   try {
     const realPath = await fs.realpath(candidatePath);
-    assertContextWorkspaceReadAllowed(realPath);
+    if (captured && isPathWithinAnyRootVariant(realPath, [...(captured.skillReadRoots ?? [])])) {
+      checkedContext = { ...captured, skillReadRoots: await resolveFreshAgentSkillReadRoots(captured) };
+    }
+    assertContextWorkspaceReadAllowed(realPath, checkedContext);
     if (isProtectedAgentPath(realPath)) {
       throw new Error('Access to this path is restricted for security reasons.');
     }

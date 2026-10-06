@@ -6,6 +6,7 @@ import { fileURLToPath } from 'url';
 import JSZip from 'jszip';
 import packageMetadata from '@/package.json';
 import { listVisibleInstalledCanvasPlugins } from '@/app/lib/plugins/visible-installed-plugins';
+import type { CapabilityResourceActor } from '@/app/lib/capabilities/resources/contracts';
 
 import {
   computeCanvasPluginChecksum,
@@ -132,6 +133,8 @@ export interface CanvasPluginStoreListOptions {
   connection?: CanvasPluginStoreConnectionType;
   state?: CanvasPluginStoreStateFilter;
   scope?: CanvasPluginStorageScope | null;
+  /** Authenticated server actor; never accepted from a model or request body. */
+  actor?: CapabilityResourceActor;
 }
 
 export interface CanvasPluginStorePagination {
@@ -598,18 +601,21 @@ async function enrichStorePluginsWithInstalledState(
 ): Promise<{ registry: Omit<CanvasPluginStoreRegistry, 'plugins'>; plugins: CanvasPluginStorePluginWithState[]; stats: Omit<CanvasPluginStoreStats, 'filteredTotal'> }> {
   const installedByName = new Map(installedPlugins.map((plugin) => [plugin.name.toLowerCase(), plugin]));
   const personalSkillRegistry = await readCanvasSkillRegistry(scope);
-  const organizationSkillRegistries = new Map<string, ReturnType<typeof readCanvasSkillRegistry>>();
+  const scopedSkillRegistries = new Map<string, ReturnType<typeof readCanvasSkillRegistry>>();
   const plugins = await Promise.all(registry.plugins.map(async (plugin) => {
     const installedPlugin = installedByName.get(plugin.name.toLowerCase());
     const installedScope = installedPlugin?.scopeType === 'organization' && installedPlugin.organizationId
-      ? { scopeType: 'organization' as const, organizationId: installedPlugin.organizationId } : scope;
+      ? { scopeType: 'organization' as const, organizationId: installedPlugin.organizationId }
+      : installedPlugin?.scopeType === 'user' && installedPlugin.ownerUserId
+        ? { scopeType: 'user' as const, userId: installedPlugin.ownerUserId } : scope;
     let skillRegistry = personalSkillRegistry;
-    if (installedPlugin?.scopeType === 'organization' && installedPlugin.organizationId) {
-      const organizationId = installedPlugin.organizationId;
-      if (!organizationSkillRegistries.has(organizationId)) {
-        organizationSkillRegistries.set(organizationId, readCanvasSkillRegistry(installedScope));
+    if (installedPlugin && (installedPlugin.scopeType === 'organization' || installedPlugin.ownerUserId)) {
+      const storageKey = installedPlugin.scopeType === 'organization'
+        ? `organization:${installedPlugin.organizationId}` : `user:${installedPlugin.ownerUserId}`;
+      if (!scopedSkillRegistries.has(storageKey)) {
+        scopedSkillRegistries.set(storageKey, readCanvasSkillRegistry(installedScope));
       }
-      skillRegistry = await organizationSkillRegistries.get(organizationId)!;
+      skillRegistry = await scopedSkillRegistries.get(storageKey)!;
     }
     const updateAvailable = Boolean(
       installedPlugin && compareVersions(plugin.latestVersion, installedPlugin.version) > 0,
@@ -685,7 +691,7 @@ function storeConnectionTypes(plugin: CanvasPluginStorePlugin): CanvasPluginStor
 export async function listCanvasPluginStore(options: CanvasPluginStoreListOptions = {}): Promise<CanvasPluginStoreList> {
   const [registry, installedPlugins] = await Promise.all([
     readCanvasPluginStoreRegistry(),
-    listVisibleInstalledCanvasPlugins(options.scope),
+    listVisibleInstalledCanvasPlugins(options.scope, options.actor),
   ]);
   const enriched = await enrichStorePluginsWithInstalledState(registry, installedPlugins, options.scope);
   const pageSize = clampPositiveInteger(options.pageSize, 12, 50);
@@ -727,6 +733,7 @@ export async function listCanvasPluginStore(options: CanvasPluginStoreListOption
 export async function getCanvasPluginStorePlugin(
   pluginName: string,
   scope?: CanvasPluginStorageScope | null,
+  actor?: CapabilityResourceActor,
 ): Promise<{
   registry: Omit<CanvasPluginStoreRegistry, 'plugins'>;
   plugin: CanvasPluginStorePluginWithState;
@@ -734,7 +741,7 @@ export async function getCanvasPluginStorePlugin(
   if (!isValidCanvasPluginName(pluginName)) return null;
   const [registry, installedPlugins] = await Promise.all([
     readCanvasPluginStoreRegistry(),
-    listVisibleInstalledCanvasPlugins(scope),
+    listVisibleInstalledCanvasPlugins(scope, actor),
   ]);
   const plugin = registry.plugins.find((entry) => entry.name === pluginName);
   if (!plugin) return null;

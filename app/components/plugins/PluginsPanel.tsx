@@ -35,6 +35,8 @@ import {
   type PolicyTargetOption,
 } from '@/app/components/organization/SearchablePolicyTargetPicker';
 import { SkillDetailDialog } from '@/app/components/skills/SkillDetailDialog';
+import { ResourceManagementSection } from '@/app/components/plugins/ResourceManagementSection';
+import type { CapabilityResourceAccess, CapabilityResourceMetadata } from '@/app/lib/capabilities/resources/contracts';
 import { SkillUploadDialog } from '@/app/components/skills/SkillUploadDialog';
 import {
   McpServerDialog,
@@ -177,6 +179,8 @@ type CanvasPluginMcpConnector = {
 
 type CanvasPluginSettingsRecord = {
   resourceId?: string;
+  resourceMetadata?: CapabilityResourceMetadata;
+  resourceAccess?: CapabilityResourceAccess;
   installedBy?: string;
   ownerUserId?: string | null;
   scopeType?: 'system' | 'organization' | 'user' | 'legacy';
@@ -1868,11 +1872,12 @@ function CanvasPluginsSection({
     const storePlugin = storeByName.get(selectedPluginDetail.name);
     const installedPlugin = selectedPluginDetail.source === 'installed' ? selectedInstalledPlugin : storePlugin?.installed.installedPlugin;
     const isInstalledDetail = selectedPluginDetail.source === 'installed';
+    const ownershipType = installedPlugin?.resourceMetadata?.ownership.type || installedPlugin?.scopeType;
     const displayName = isInstalledDetail
-      ? installedPlugin?.interface?.displayName || installedPlugin?.name || selectedPluginDetail.name
+      ? installedPlugin?.resourceMetadata?.displayName || installedPlugin?.interface?.displayName || installedPlugin?.name || selectedPluginDetail.name
       : storePlugin?.displayName || selectedPluginDetail.name;
     const description = (isInstalledDetail
-      ? installedPlugin?.interface?.shortDescription || installedPlugin?.description
+      ? installedPlugin?.resourceMetadata?.description ?? installedPlugin?.interface?.shortDescription ?? installedPlugin?.description
       : storePlugin?.description) || t('details.descriptionFallback');
     const category = isInstalledDetail ? installedPlugin?.interface?.category : storePlugin?.category;
     const publisherName = storePlugin?.publisher?.name || storeMetadata?.name || t('officialStore');
@@ -1978,7 +1983,7 @@ function CanvasPluginsSection({
                   <>
                     <div>
                       <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{t('details.ownership')}</div>
-                      <div className="mt-1">{installedPlugin.scopeType === 'organization' ? t('organizationScope') : installedPlugin.scopeType === 'user' ? t('personalScope') : installedPlugin.scopeType === 'system' ? t('permissions.systemScope') : t('permissions.unknownScope')}</div>
+                      <div className="mt-1">{ownershipType === 'team' ? t('teamScope') : ownershipType === 'organization' ? t('organizationScope') : ownershipType === 'user' ? t('personalScope') : ownershipType === 'system' ? t('permissions.systemScope') : t('permissions.unknownScope')}</div>
                     </div>
                     <div>
                       <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{t('details.installedBy')}</div>
@@ -2042,6 +2047,8 @@ function CanvasPluginsSection({
                   {renderPluginSkillCheck(skillStates, skillSummary)}
                 </section>
               ) : null}
+              {installedPlugin?.resourceId ? <ResourceManagementSection resourceRef={installedPlugin.resourceId}
+                workspaceId={activeWorkspaceId} onUpdated={() => { void loadPluginData(); }} /> : null}
             </div>
           </div>
 
@@ -2234,8 +2241,8 @@ function CanvasPluginsSection({
   }
 
   function renderInstalledPluginCard(plugin: CanvasPluginSettingsRecord) {
-    const displayName = plugin.interface?.displayName || plugin.name;
-    const description = plugin.interface?.shortDescription || plugin.description;
+    const displayName = plugin.resourceMetadata?.displayName || plugin.interface?.displayName || plugin.name;
+    const description = plugin.resourceMetadata?.description ?? plugin.interface?.shortDescription ?? plugin.description;
     const isPending = pendingPluginName === plugin.name || pendingPluginName === `store:${plugin.name}`;
     const storePlugin = storeByName.get(plugin.name);
     const installedMetadataMatches = storeMatchesInstalledPlugin(storePlugin, plugin);
@@ -3868,7 +3875,7 @@ export function SkillsPanel({ canManageOrganizationCapabilities: initialCanManag
                           <div className="flex min-w-0 flex-1 items-start gap-3">
                             <CanvasSkillIcon skill={selectedSkillData} className="h-12 w-12 text-sm" />
                             <div className="min-w-0">
-                              <h2 className="text-xl font-bold">{selectedSkillData.title}</h2>
+                              <h2 className="text-xl font-bold">{selectedSkillData.resourceMetadata?.displayName || selectedSkillData.title}</h2>
                               <div className="mt-1 flex flex-wrap items-center gap-2">
                                 <span className="text-sm font-mono text-muted-foreground">{selectedSkillData.name}</span>
                                 <Badge variant={selectedSkillData.enabled ? 'default' : 'secondary'} className="text-xs">
@@ -3917,7 +3924,7 @@ export function SkillsPanel({ canManageOrganizationCapabilities: initialCanManag
 
                         <div className="bg-muted/30 rounded-lg p-4">
                           <p className="text-sm text-muted-foreground whitespace-pre-wrap leading-relaxed">
-                            {selectedSkillData.description}
+                            {selectedSkillData.resourceMetadata?.description ?? selectedSkillData.description}
                           </p>
                         </div>
 
@@ -3926,6 +3933,8 @@ export function SkillsPanel({ canManageOrganizationCapabilities: initialCanManag
                             {selectedSkillData.blockedReason}
                           </InlineNotice>
                         ) : null}
+                        {selectedSkillData.resourceId ? <ResourceManagementSection resourceRef={selectedSkillData.resourceId}
+                          workspaceId={activeWorkspaceId} onUpdated={() => { void loadSkills(); }} /> : null}
 
                         {(selectedSkillData.compatibility || selectedSkillData.license) && (
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">

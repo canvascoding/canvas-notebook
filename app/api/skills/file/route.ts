@@ -3,14 +3,11 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import { headers } from 'next/headers';
 import { auth } from '@/app/lib/auth';
-import { loadCapabilityCandidates } from '@/app/lib/capabilities/catalog';
-import { parseCapabilityManagementScope } from '@/app/lib/capabilities/request-scope';
-import { readOrganizationPermissionForUser } from '@/app/lib/organization/permissions';
-import { resolveReadableScopedSkillsDataDir } from '@/app/lib/runtime-data-paths';
+import { assertReadableCapabilityCandidate, resolveReadableCapabilityCandidate } from '@/app/lib/capabilities/resources/read';
+import { CapabilityResourceError } from '@/app/lib/capabilities/resources/contracts';
 import {
   CapabilitySkillFileError,
   resolveCapabilitySkillFile,
-  selectBrowsableSkillCandidates,
 } from '@/app/lib/skills/capability-skill-browser';
 import { resolveCoreSkillFilePath } from '@/app/lib/skills/core-skill-loader';
 
@@ -40,31 +37,14 @@ export async function GET(request: NextRequest) {
     }
 
     if (resourceId) {
-      const organizationState = await readOrganizationPermissionForUser(session.user.id);
-      if (!organizationState.organizationId || organizationState.permission?.status !== 'active') {
-        return NextResponse.json(
-          { success: false, error: 'Active organization membership required' },
-          { status: 403 },
-        );
-      }
-      const managementScope = parseCapabilityManagementScope(searchParams.get('scope'));
-      const candidates = await loadCapabilityCandidates({
-        organizationId: organizationState.organizationId,
-        userId: session.user.id,
-        role: organizationState.permission.role,
-      }, { resolveConnections: false });
-      const resolved = await resolveCapabilitySkillFile(
-        selectBrowsableSkillCandidates(candidates, managementScope),
-        { resourceId, relativePath: filePath },
-      );
+      const actor = { userId: session.user.id, workspaceId: searchParams.get('workspaceId') };
+      const selected = await resolveReadableCapabilityCandidate(actor, { resourceType: 'skill', resourceId,
+        scope: searchParams.get('scope') === 'organization' ? 'organization' : 'user' });
+      const resolved = await resolveCapabilitySkillFile(selected.candidates, { resourceId, relativePath: filePath });
       const content = await fs.readFile(resolved.filePath, 'utf-8');
-      return NextResponse.json({
-        success: true,
-        content,
-        name: path.basename(resolved.filePath),
-        size: resolved.stat.size,
-        modified: resolved.stat.mtimeMs,
-      });
+      await assertReadableCapabilityCandidate(actor, selected.candidate, selected.candidates);
+      return NextResponse.json({ success: true, content, name: path.basename(resolved.filePath),
+        size: resolved.stat.size, modified: resolved.stat.mtimeMs });
     }
 
     const sanitizedPath = sanitizeFilePath(filePath);
@@ -85,21 +65,16 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    const skillsDir = await resolveReadableScopedSkillsDataDir({ userId: session.user.id });
-    const fullPath = path.join(skillsDir, sanitizedPath);
-    const resolvedPath = path.resolve(fullPath);
-    const resolvedSkillsDir = path.resolve(skillsDir);
-
-    if (!resolvedPath.startsWith(`${resolvedSkillsDir}${path.sep}`)) {
-      return NextResponse.json({ success: false, error: 'Invalid path' }, { status: 400 });
-    }
-
-    const stat = await fs.stat(resolvedPath);
-    if (stat.isDirectory()) {
-      return NextResponse.json({ success: false, error: 'Path is a directory, not a file' }, { status: 400 });
-    }
-
+    const [skillName, ...relativeParts] = sanitizedPath.split('/');
+    const actor = { userId: session.user.id, workspaceId: searchParams.get('workspaceId') };
+    const selected = await resolveReadableCapabilityCandidate(actor, { resourceType: 'skill', name: skillName });
+    const resolved = await resolveCapabilitySkillFile(selected.candidates, {
+      resourceId: selected.candidate.ref.resourceId, relativePath: relativeParts.join('/'),
+    });
+    const stat = resolved.stat;
+    const resolvedPath = resolved.filePath;
     const content = await fs.readFile(resolvedPath, 'utf-8');
+    await assertReadableCapabilityCandidate(actor, selected.candidate, selected.candidates);
 
     return NextResponse.json({
       success: true,
@@ -109,7 +84,7 @@ export async function GET(request: NextRequest) {
       modified: stat.mtimeMs,
     });
   } catch (error) {
-    if (error instanceof CapabilitySkillFileError) {
+    if (error instanceof CapabilitySkillFileError || error instanceof CapabilityResourceError) {
       return NextResponse.json({ success: false, error: error.message }, { status: error.status });
     }
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {

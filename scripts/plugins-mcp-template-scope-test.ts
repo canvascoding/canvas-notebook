@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import Module from 'node:module';
 import { createCapabilityResourceId } from '../app/lib/capabilities/reference';
+import { legacyInstalledPluginCandidate, unmanagedCapabilityResourceStoreFixture } from './helpers/unmanaged-capability-resource-store-fixture';
 
 type LoadFn = (request: string, parent: NodeModule | null, isMain: boolean) => unknown;
 const internals = Module as typeof Module & { _load: LoadFn };
@@ -12,11 +13,20 @@ let blocked = false;
 let snapshotCalls = 0;
 let readScope: string | null = null;
 let templateRoot: string | null = null;
+let organizationPresent = true;
+const unmanagedResources = unmanagedCapabilityResourceStoreFixture(() => memberActive ? 'org' : null);
 let personal: Record<string, unknown> = { name: 'same-name', resourceId: 'personal-id', scopeType: 'user', ownerUserId: 'member', version: '1.0.0', installDir: '/plugins/personal', connectors: { mcp: [{ name: 'shared', configPath: 'personal.json' }] } };
 const organization = { ...personal, resourceId: 'assigned-id', scopeType: 'organization', organizationId: 'org', installDir: '/plugins/organization', connectors: { mcp: [{ name: 'shared', configPath: 'organization.json' }] } };
 
 internals._load = (request, parent, isMain) => {
   if (request === 'server-only') return {};
+  if (request === './store' && parent?.filename.includes('/capabilities/resources/')) return unmanagedResources;
+  if (parent?.filename.endsWith('/capabilities/resources/read.ts')) {
+    if (request === '@/app/lib/organization/permissions') return { readOrganizationPermissionForUser: async () => ({ configured: true, organizationId: 'org', permission: { status: memberActive ? 'active' : 'disabled', role: 'member' } }) };
+    if (request === '../request-scope') return { resolveCapabilityExecutionContextForUser: async () => ({ userId: 'member', organizationId: 'org', workspaceId: 'org-workspace' }) };
+    if (request === '../catalog') return { loadCapabilityCandidates: async () => [legacyInstalledPluginCandidate('member', personal),
+      ...(organizationPresent ? [legacyInstalledPluginCandidate('member', organization)] : [])] };
+  }
   if (parent?.filename.endsWith('/installed-plugin-read.ts') && request === '@/app/lib/plugins/canvas-plugin-registry') return { getCanvasPlugin: async (_name: string, scope: { scopeType: string }) => { readScope = scope.scopeType; return scope.scopeType === 'organization' ? organization : personal; } };
   if (parent?.filename.endsWith('/api/plugins/mcp-template/route.ts')) {
     if (request === 'next/headers') return { headers: async () => new Headers() };
@@ -56,7 +66,9 @@ async function main() {
     assert.equal(templateRoot, organization.installDir);
     assert.equal((await assignedResult.json()).template.rawContent, 'organization.json', 'same-name personal templates cannot replace exact assigned organization identity');
     const personalResult = await request({ scope: 'user', resourceId: 'personal-id' });
-    assert.equal(personalResult.status, 200);
+    assert.equal(personalResult.status, 404, 'An exact personal ID cannot bypass a reserved org namespace.');
+    organizationPresent = false;
+    assert.equal((await request({ scope: 'user', resourceId: 'personal-id' })).status, 200);
     assert.equal(templateRoot, personal.installDir);
     assert.equal((await request({ scope: 'user', resourceId: 'assigned-id' })).status, 404);
     assert.equal(templateRoot, null, 'identity mismatch cannot fall back to a same-name personal plugin');
@@ -80,6 +92,7 @@ async function main() {
     personal = { ...personal, resourceId: undefined };
     assert.equal((await request({ scope: 'user', resourceId: systemResourceId })).status, 200, 'system fallback without an ID synthesizes the catalog system identity');
     personal = originalPersonal;
+    organizationPresent = true;
     assert.equal((await request({ resourceId: 'personal-id' })).status, 403);
     assert.equal((await request({ resourceId: 'foreign-org-id' })).status, 403);
     assert.equal(readScope, null, 'foreign identity is denied before storage lookup');

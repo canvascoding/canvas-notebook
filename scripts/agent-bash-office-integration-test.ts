@@ -1,46 +1,72 @@
 import assert from 'node:assert/strict';
 import { promises as fs } from 'node:fs';
+import Module from 'node:module';
 import path from 'node:path';
 
-import {
-  buildAgentBashEnvironment,
-  executeAgentBashCommand,
-} from '../app/lib/pi/agent-bash-runtime';
-import {
-  cleanupAgentRuntimeTempDirs,
-  ensureAgentRuntimeTempDir,
-} from '../app/lib/pi/agent-runtime-temp';
 import type { AgentExecutionContext } from '../app/lib/pi/agent-execution-context';
+import { createPiTestDatabase } from './helpers/pi-test-database';
 
 const quote = (value: string) => `'${value.replace(/'/g, `'"'"'`)}'`;
 
 async function main() {
   const fixture = await fs.mkdtemp(path.join(process.cwd(), '.agent-bash-office-test-'));
   const keys = ['DATA', 'CANVAS_DATA_ROOT', 'CANVAS_RUNTIME_ENV', 'CANVAS_AGENT_BASH_SANDBOX',
-    'CANVAS_AGENT_LANDLOCK_PATH', 'CANVAS_AGENT_RUNTIME_TEMP_MAX_BYTES'] as const;
+    'CANVAS_AGENT_LANDLOCK_PATH', 'CANVAS_AGENT_RUNTIME_TEMP_MAX_BYTES', 'CANVAS_ORGANIZATION_ID',
+    'CANVAS_DEPLOYMENT_MODE', 'CANVAS_TEAM_FEATURES_ENABLED', 'BASE_URL', 'CANVAS_MCP_DIRECT_ENABLED'] as const;
   const previous = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
-  const workspace = path.join(fixture, 'workspace');
-  const skill = path.join(fixture, 'skill');
-  const secret = path.join(fixture, 'private', 'secret.txt');
   const data = path.join(fixture, 'data');
+  const workspace = path.join(data, 'workspaces', 'team', 'bash-office-org', 'files');
+  const skill = path.join(data, 'users', 'bash-office-user', 'skills', 'office-fixture');
+  const secret = path.join(fixture, 'private', 'secret.txt');
   process.env.DATA = data;
   process.env.CANVAS_DATA_ROOT = data;
   process.env.CANVAS_RUNTIME_ENV = 'test';
+  process.env.CANVAS_ORGANIZATION_ID = 'bash-office-org';
+  process.env.CANVAS_DEPLOYMENT_MODE = 'team';
+  process.env.CANVAS_TEAM_FEATURES_ENABLED = 'true';
+  process.env.BASE_URL = 'http://localhost:3001';
+  process.env.CANVAS_MCP_DIRECT_ENABLED = 'false';
   process.env.CANVAS_AGENT_BASH_SANDBOX = process.platform === 'linux' ? 'required' : 'local-development';
   delete process.env.CANVAS_AGENT_RUNTIME_TEMP_MAX_BYTES;
+  const database = await createPiTestDatabase();
+  const loader = Module as typeof Module & { _load: (name: string, parent: NodeModule | null, main: boolean) => unknown };
+  const originalLoad = loader._load;
+  loader._load = (name, parent, mainModule) => {
+    if (name === '@/app/lib/db' || /\/app\/lib\/db(?:\/index)?(?:\.ts)?$/u.test(name)) return database;
+    return originalLoad(name, parent, mainModule);
+  };
 
   try {
-    await Promise.all([workspace, skill, path.dirname(secret), data].map((directory) => fs.mkdir(directory)));
+    await Promise.all([workspace, skill, path.dirname(secret), data].map((directory) => fs.mkdir(directory, { recursive: true })));
+    const raw = await database.openDb();
+    await raw.run(`INSERT INTO "user" (id,name,email,email_verified,role,created_at,updated_at)
+      VALUES ('bash-office-user','Office fixture','office-fixture@example.test',1,'user',1,1)`);
+    await raw.run(`INSERT INTO canvas_organization_settings (organization_id,owner_user_id,deployment_mode,team_features_enabled,created_at,updated_at)
+      VALUES ('bash-office-org','bash-office-user','team',1,1,1)`);
+    await raw.run(`INSERT INTO organization_user_permissions (organization_id,user_id,role,status,can_share_plugins_and_skills,created_at,updated_at)
+      VALUES ('bash-office-org','bash-office-user','owner','active',1,1,1)`);
+    await raw.run(`INSERT INTO canvas_workspaces (id,organization_id,type,root_relative_path,display_name,status,created_at,updated_at)
+      VALUES ('bash-office-workspace','bash-office-org','team','workspaces/team/bash-office-org/files','Bash Office test','active',1,1)`);
+    await raw.run(`INSERT INTO canvas_workspace_members (organization_id,workspace_id,user_id,role,status,can_read,can_write,can_manage,created_at,updated_at)
+      VALUES ('bash-office-org','bash-office-workspace','bash-office-user','member','active',1,1,1,1,1)`);
+    await raw.run(`INSERT INTO agents (agent_id,name,type,access_policy,scope_type,owner_user_id,created_by_user_id,relevant_skills_json,created_at,updated_at)
+      VALUES ('office-agent','Office fixture agent','custom','restricted','user','bash-office-user','bash-office-user','["office-fixture"]',1,1)`);
     await fs.writeFile(path.join(workspace, 'original.docx'), 'original document bytes');
+    await fs.writeFile(path.join(skill, 'SKILL.md'), '---\nname: office-fixture\ndescription: Office read fixture\n---\n\n# Office fixture\n');
     await fs.writeFile(path.join(skill, 'readable.txt'), 'skill-readable');
     await fs.writeFile(secret, 'private-sentinel');
-    const context: AgentExecutionContext = {
-      userId: 'bash-office-user', sessionId: 'bash-office-session', agentId: 'office-agent',
-      workspaceId: 'bash-office-workspace', workspaceType: 'team', workspaceName: 'Bash Office test',
-      organizationId: 'bash-office-org', customerId: null, projectId: null,
-      workspaceRoot: workspace, workspaceRootRelativePath: null,
-      canWrite: true, canDelete: true, canShare: false, legacy: false, skillReadRoots: [skill],
+    const { buildAgentBashEnvironment, executeAgentBashCommand } = await import('../app/lib/pi/agent-bash-runtime');
+    const { cleanupAgentRuntimeTempDirs, ensureAgentRuntimeTempDir } = await import('../app/lib/pi/agent-runtime-temp');
+    const { resolveAgentExecutionContextForSession } = await import('../app/lib/pi/session-workspace-context');
+    const resolveContext = async (sessionId: string): Promise<AgentExecutionContext> => {
+      await raw.run(`INSERT INTO pi_sessions (session_id,user_id,agent_id,workspace_id,workspace_type,organization_id,workspace_root_relative_path,provider,model,created_at,updated_at)
+        VALUES ($1,'bash-office-user','office-agent','bash-office-workspace','team','bash-office-org','workspaces/team/bash-office-org/files','fixture','fixture',1,1)`, [sessionId]);
+      const issued = await resolveAgentExecutionContextForSession({ userId: 'bash-office-user', sessionId, agentId: 'office-agent' });
+      assert(issued.skillReadRoots?.includes(skill), 'The actual personal package must be selected by the owned agent and its current workspace.');
+      assert.equal(issued.workspaceRoot, workspace);
+      return { ...issued, skillReadRoots: [skill] };
     };
+    const context = await resolveContext('bash-office-session');
     const scratch = await ensureAgentRuntimeTempDir(context);
     await fs.symlink(workspace, path.join(scratch, 'workspace-alias'));
     const environment = buildAgentBashEnvironment({ sourceEnv: process.env, workspaceDir: workspace, tempDir: scratch });
@@ -107,7 +133,7 @@ print(json.dumps({'cwd': os.getcwd(), 'home': os.environ['HOME'], 'cache': os.en
       await observed;
     }
 
-    const quotaContext = { ...context, sessionId: 'quota-session' };
+    const quotaContext = await resolveContext('quota-session');
     const quotaScratch = await ensureAgentRuntimeTempDir(quotaContext);
     process.env.CANVAS_AGENT_RUNTIME_TEMP_MAX_BYTES = '4';
     try {
@@ -131,6 +157,8 @@ print(json.dumps({'cwd': os.getcwd(), 'home': os.environ['HOME'], 'cache': os.en
     assert.equal(await fs.readFile(path.join(workspace, 'original.docx'), 'utf8'), 'original document bytes');
     console.log(`agent-bash-office-integration-test: ${process.platform} passed; layered confinement, argv/env/cwd, 2 MiB output, quota cleanup, live lease and abort verified`);
   } finally {
+    loader._load = originalLoad;
+    await database.close();
     for (const key of keys) {
       if (previous[key] === undefined) delete process.env[key];
       else process.env[key] = previous[key];
@@ -139,4 +167,4 @@ print(json.dumps({'cwd': os.getcwd(), 'home': os.environ['HOME'], 'cache': os.en
   }
 }
 
-void main();
+void main().catch((error) => { console.error(error); process.exitCode = 1; });

@@ -1,7 +1,7 @@
 # Canvas Agent Tools und Plugin Gateway
 
 Stand: 2026-10-06, auf Basis des Composio-Fixes `409897b9d` und der geprüften bestehenden Agent-/Skill-Verwaltung.
-Status: Umsetzung auf `feat/plugin-integration-gateway`. Schritte 1 bis 3 (Vertrag, Policy, Provider-Katalog, Kontextauflösung, Schema-/Dispatcher-Strecke und öffentliche Agenten-Runtime hinter standardmäßig ausgeschalteter Feature-Flag) sind implementiert und geprüft. Gemeinsame Ressourcen, Workflow-Bindungen und das Plugin-Redesign folgen. Der verbindliche Fortschritt mit Abnahmebelegen steht in [implementation.json](implementation.json).
+Status: Umsetzung auf `feat/plugin-integration-gateway`. Schritte 1 bis 3 (Vertrag, Policy, Provider-Katalog, Kontextauflösung, Schema-/Dispatcher-Strecke und öffentliche Agenten-Runtime hinter standardmäßig ausgeschalteter Feature-Flag) sowie Schritt 4a (Ressourcenmetadaten, getrennte Rechte und gezielte Freigaben mit identischen UI-/Agenten-Actions) sind implementiert und geprüft. Gemeinsame Verbindungen, versionierte Pakete, Workflow-Bindungen und das Plugin-Redesign folgen. Der verbindliche Fortschritt mit Abnahmebelegen steht in [implementation.json](implementation.json).
 
 ## Ziel und Entscheidungsvorschlag
 
@@ -506,4 +506,6 @@ Der vollständig integrierte Zielstand umfasst die grundlegend überarbeitete Pl
 
 Ein neues öffentliches Canvas-MCP-Serverprodukt, eine generische HTTP-Proxy-API, ein Composio-SDK-Upgrade und die automatische Installation beliebiger externer MCP-Server sind eigene Vorhaben. Sie sind für den hier geplanten gemeinsamen Agenten-Zugang nicht erforderlich.
 
-Nächster Umsetzungsschritt: **Schritt 4a — Ressourcenmetadaten und gezielte Freigaben**, auf den geprüften Agenten-/Katalog-/Schema-/Dispatcher-Verträgen aufbauend.
+Schritt 4a ergänzt persönliche, Organisations- und logisch teameigene Ressourcen mit Metadaten, Verantwortlichkeit, Bearbeiter, getrennten Verwenden-/Bearbeiten-/Verwalten-Rechten und gezielten Freigaben. Katalog, Datei-/Asset-Lesen, Store-Status, Agenten-Lesewurzeln und Verwaltung prüfen denselben aktuellen Rechtevertrag. Persönliche Pakete erhalten keine impliziten Organisationsadminrechte. Plugin-Skills erben den Bereich und die Freigaben ihres Pakets und bleiben als enthaltene Quellen schreibgeschützt. Die Management-UI ist ein geprüfter Zwischenstand innerhalb der bestehenden Detailansicht; das grundlegende Seiten-Redesign bleibt Schritt 6a. Team-Artefakte liegen weiterhin im Organisationsspeicher. Paketbearbeitung, Bereichsveröffentlichung und Versionierung folgen in Schritt 5a; Ressourcenfreigabe allein teilt keine Verbindungs-Credentials.
+
+Nächster Umsetzungsschritt: **Schritt 4b — Gemeinsame MCP-Verbindungen und Composio-Profile**, auf den geprüften Ressourcen- und Gateway-Verträgen aufbauend.

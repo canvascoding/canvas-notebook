@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { NextRequest } from 'next/server';
 import { createCapabilityResourceId } from '../app/lib/capabilities/reference';
+import { legacyInstalledPluginCandidate, unmanagedCapabilityResourceStoreFixture } from './helpers/unmanaged-capability-resource-store-fixture';
 
 type LoadFn = (request: string, parent: NodeModule | null, isMain: boolean) => unknown;
 const internals = Module as typeof Module & { _load: LoadFn };
@@ -19,9 +20,18 @@ let snapshotCalls = 0;
 let storageReads = 0;
 let personal: Record<string, unknown>;
 let organization: Record<string, unknown>;
+let organizationPresent = true;
+const unmanagedResources = unmanagedCapabilityResourceStoreFixture(() => active ? 'org' : null);
 
 internals._load = (request, parent, isMain) => {
   if (request === 'server-only') return {};
+  if (request === './store' && parent?.filename.includes('/capabilities/resources/')) return unmanagedResources;
+  if (parent?.filename.endsWith('/capabilities/resources/read.ts')) {
+    if (request === '@/app/lib/organization/permissions') return { readOrganizationPermissionForUser: async () => ({ configured: true, organizationId: 'org', permission: { status: active ? 'active' : 'disabled', role: 'member' } }) };
+    if (request === '../request-scope') return { resolveCapabilityExecutionContextForUser: async () => ({ userId: 'member', organizationId: 'org', workspaceId: 'org-workspace' }) };
+    if (request === '../catalog') return { loadCapabilityCandidates: async () => [legacyInstalledPluginCandidate('member', personal),
+      ...(organizationPresent ? [legacyInstalledPluginCandidate('member', organization)] : [])] };
+  }
   if (parent?.filename.endsWith('/installed-plugin-read.ts') && request === '@/app/lib/plugins/canvas-plugin-registry') return {
     getCanvasPlugin: async (name: string, scope: { scopeType: string; userId?: string; organizationId?: string }) => {
       storageReads += 1;
@@ -73,8 +83,11 @@ async function main() {
     assert.equal(exactOrg.headers.get('content-type'), 'image/svg+xml');
     assert.equal(await exactOrg.text(), '<svg>organization</svg>', 'same-name personal icon cannot replace the assigned organization asset');
     const exactPersonal = await request({ scope: 'user', resourceId: 'personal-resource' });
-    assert.equal(exactPersonal.status, 200);
-    assert.equal(await exactPersonal.text(), '<svg>personal</svg>');
+    assert.equal(exactPersonal.status, 404, 'An exact personal ID cannot bypass a reserved org namespace.');
+    organizationPresent = false;
+    const unshadowedPersonal = await request({ scope: 'user', resourceId: 'personal-resource' });
+    assert.equal(unshadowedPersonal.status, 200);
+    assert.equal(await unshadowedPersonal.text(), '<svg>personal</svg>');
     assert.equal((await request({ scope: 'user', resourceId: 'org-resource' })).status, 404);
     const originalPersonal = personal;
     personal = { ...personal, ownerUserId: 'foreign-user' };
@@ -92,6 +105,7 @@ async function main() {
     personal = { ...personal, resourceId: undefined };
     assert.equal((await request({ scope: 'user', resourceId: systemId })).status, 200);
     personal = originalPersonal;
+    organizationPresent = true;
     for (const patch of [{ resourceId: 'foreign-resource' }, { resourceId: 'personal-resource' }, { resourceId: undefined }]) {
       const before = storageReads;
       assert.equal((await request(patch)).status, 403);

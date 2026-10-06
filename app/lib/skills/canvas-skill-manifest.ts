@@ -1,6 +1,7 @@
 import { promises as fs } from 'fs';
 import path from 'path';
 import YAML from 'yaml';
+import type { CapabilityResourceAccess, CapabilityResourceMetadata } from '@/app/lib/capabilities/resources/contracts';
 
 import {
   resolveScopedSkillsDataDir,
@@ -45,6 +46,8 @@ export interface CanvasSkill {
   core?: boolean;
   isCustom?: boolean;
   resourceId?: string;
+  resourceMetadata?: CapabilityResourceMetadata;
+  resourceAccess?: CapabilityResourceAccess;
   scopeType?: 'system' | 'organization' | 'user';
   sourceType?: 'core' | 'standalone' | 'plugin';
   revision?: number;

@@ -35,7 +35,7 @@
       "git diff --check: PASS; initial GitNexus staged detection was partial, final refreshed staged detection found 256 changed symbols in 27 files; the full actual diff was reviewed alongside symbol impacts",
       "The unified dispatcher is not wired into the public agent registry yet. Browser chat acceptance belongs to step 3; live third-party OAuth/account acceptance remains in step 7."
     ] },
-    { "id": "3", "name": "Agenten-Runtime und Feature-Flag", "status": "complete", "evidence": [
+    { "id": "3", "name": "Agenten-Runtime und Feature-Flag", "status": "complete", "commits": ["1ffeebd27"], "evidence": [
       "npm run test:integrations:gateway: PASS on final source (2026-10-06): catalogue, schema/dispatcher, actual MCP HTTP/STDIO and Composio SDK fixtures, runtime policy, durable uncertainty, registry, settings, receipts, delegation and automation barriers",
       "Real PostgreSQL permission/task fixtures and actual getPiTools managed/ephemeral workers: selected Composio schemas remain call-only, exact account/version bindings, fresh final-dispatch revocation prevents business POSTs",
       "Durable unknown outcomes block the exact parent/child turn after cache eviction or restart, including MCP-only children; atomic automation job/queued-retry pause also covers a late child result after its parent completed",
@@ -48,7 +48,22 @@
       "Fresh GitNexus index and final staged detection: 368 changed symbols in 55 files; compare-main regression detection: 791 symbols in 81 files across completed steps. Expected scope reviewed alongside individual HIGH/CRITICAL impacts; git diff --cached --check PASS",
       "Live third-party OAuth/accounts, shared Canva account, complete LLM delegation lifecycle, shared-resource rights and full redesign remain later acceptance work; fixture acceptance is not live-provider acceptance"
     ] },
-    { "id": "4a", "name": "Ressourcenmetadaten und gezielte Freigaben", "status": "pending", "evidence": [] },
+    { "id": "4a", "name": "Ressourcenmetadaten und gezielte Freigaben", "status": "complete", "evidence": [
+      "Capability resource SQL store: immutable server-derived storage/ownership, canonical references plus exact legacy aliases, independent use/edit/manage grants, separate revisions and atomic durable actor history",
+      "Native PostgreSQL store concurrency fixture with eight Pool clients: PASS (adoption and metadata CAS, membership revocation during row-lock wait, target rollback and responsible-person management guard); owned temporary database and DATA cleaned up",
+      "Actual PostgreSQL-engine package/action/API/agent fixtures: capability-resource-store/actions/access/entrypoints tests PASS; strict actor/storage fields, exact shared personal identities, same-scope child metadata, current rights, immutable package checksums and safe reader DTOs",
+      "Personal-scope regression reproduced RED and fixed GREEN: unrelated organization admins have no implicit read/edit/manage on adopted personal packages; explicit manage-only grant remains independent and immediate self-revocation denies access",
+      "Description contract boundary: 4096 characters accepted, 4097 rejected without metadata/revision/history mutation; no package-content change from metadata edits",
+      "Catalog namespace and native read-root regressions: inaccessible organization names still reserve their namespace; plugin child rights inherit the actual parent; captured roots intersect current permissions; revoked roots prevent local and Landlock process launch",
+      "npm run test:integrations:gateway and npm run test:plugins:app: PASS on final source; capability deduplication, agent skill-file access, native Darwin Bash/Office and Bash contract/source gates PASS",
+      "npm run build, npx tsc --noEmit --pretty false --incremental false, ESLint all 59 changed source/fixture files and git diff --check: PASS on final accepted source (2026-10-06)",
+      "Playwright capability-resource-management-local.spec.ts: 1/1 PASS, one worker, no retries, 15.9 seconds against final production build and existing managed PostgreSQL/Control Plane; actual admin/member identities, team ownership, independent rights, metadata edit, stale-save 409 with draft preservation, reload and revocation",
+      "Desktop 1280px and mobile 390px light/dark: real searchable pickers, ordinary click, keyboard selection, focus return and Escape within dialog; clear-person button, grant row and save button fully in viewport; final screenshots inspected",
+      "Earlier phase-4a gateway browser acceptance: 4/4 PASS for natural-language MCP/Composio chats, selected profile/account/version, member policy and planning zero provider calls; final gateway runtime regression repeated after final rights changes",
+      "Temporary browser package, intake and optionally owned team cleaned up with exact identity/checksum or snapshot guards; owned Notebook/provider processes stopped; existing PostgreSQL/Control Plane preserved, no container build or publication",
+      "Fresh full GitNexus index: staged detection 299 symbols in 63 files; compare-main 1085 symbols in 137 files across completed steps. Expected diff and previously reported HIGH/CRITICAL symbol impacts reviewed; git diff --cached --check PASS",
+      "Team remains logical organization storage; resource sharing does not bypass activation policies or share accounts; package editing/promotion/versioning, actual Linux kernel execution acceptance, live provider accounts and complete Plugin-page redesign remain later steps"
+    ] },
     { "id": "4b", "name": "Gemeinsame MCP-Verbindungen und Composio-Profile", "status": "pending", "evidence": [] },
     { "id": "5a", "name": "Gemeinsame und versionierte Skill-Pakete", "status": "pending", "evidence": [] },
     { "id": "5b", "name": "Skill-Code-Laufzeit und begrenzte Tool-Bruecke", "status": "pending", "evidence": [] },

@@ -4,7 +4,9 @@ import path from 'path';
 import { headers } from 'next/headers';
 
 import { auth } from '@/app/lib/auth';
-import { resolveReadableScopedSkillsDataDir } from '@/app/lib/runtime-data-paths';
+import { assertReadableCapabilityCandidate, resolveReadableCapabilityCandidate } from '@/app/lib/capabilities/resources/read';
+import { CapabilityResourceError } from '@/app/lib/capabilities/resources/contracts';
+import { resolveCapabilitySkillFile } from '@/app/lib/skills/capability-skill-browser';
 
 const IMAGE_CONTENT_TYPES: Record<string, string> = {
   '.gif': 'image/gif',
@@ -43,28 +45,25 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ success: false, error: 'Only image assets are supported' }, { status: 400 });
   }
 
-  const skillsDir = await resolveReadableScopedSkillsDataDir({ userId: session.user.id });
-  const fullPath = path.join(skillsDir, sanitizedPath);
-  const resolvedPath = path.resolve(/*turbopackIgnore: true*/ fullPath);
-  const resolvedSkillsDir = path.resolve(/*turbopackIgnore: true*/ skillsDir);
-  if (!resolvedPath.startsWith(`${resolvedSkillsDir}${path.sep}`)) {
-    return NextResponse.json({ success: false, error: 'Invalid path' }, { status: 400 });
-  }
-
   try {
-    const stat = await fs.stat(resolvedPath);
-    if (!stat.isFile()) {
-      return NextResponse.json({ success: false, error: 'Path is not a file' }, { status: 400 });
-    }
-
+    const actor = { userId: session.user.id, workspaceId: request.nextUrl.searchParams.get('workspaceId') };
+    const resourceId = request.nextUrl.searchParams.get('resourceId') || undefined;
+    const [skillName, ...relativeParts] = sanitizedPath.split('/');
+    const selected = await resolveReadableCapabilityCandidate(actor, { resourceType: 'skill', resourceId,
+      name: resourceId ? undefined : skillName });
+    const resolved = await resolveCapabilitySkillFile(selected.candidates, { resourceId: selected.candidate.ref.resourceId,
+      relativePath: resourceId ? sanitizedPath : relativeParts.join('/') });
+    const resolvedPath = resolved.filePath;
     const bytes = await fs.readFile(resolvedPath);
+    await assertReadableCapabilityCandidate(actor, selected.candidate, selected.candidates);
     return new NextResponse(new Uint8Array(bytes), {
       headers: {
-        'Cache-Control': 'private, max-age=3600',
+        'Cache-Control': 'private, no-store',
         'Content-Type': contentType,
       },
     });
   } catch (error) {
+    if (error instanceof CapabilityResourceError) return NextResponse.json({ success: false, error: error.message }, { status: error.status });
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
       return NextResponse.json({ success: false, error: 'Asset not found' }, { status: 404 });
     }

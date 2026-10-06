@@ -16,6 +16,7 @@ import {
 } from '@/app/lib/onboarding/profile';
 import { createOnboardingProfileTool, createUserScopedTools } from '@/app/lib/pi/scoped-tools';
 import { createAgentManagementTools } from '@/app/lib/pi/agent-management-tools';
+import { createCapabilityResourceTools } from '@/app/lib/pi/capability-resource-tools';
 import { DEFAULT_MANAGED_AGENT_ID } from '@/app/lib/agents/storage';
 import {
   EMAIL_AGENT_ALLOWED_TOOL_NAME_SET,
@@ -103,7 +104,7 @@ function getToolGroup(toolName: string): PiToolGroup {
   if (toolName === 'transcribe_audio') return 'Audio';
   if (['create_pdf', 'pdf_to_markdown', 'split_pdf', 'edit_pdf_pages', 'checkout_docx', 'commit_docx', 'inspect_docx_checkout', 'release_docx_checkout'].includes(toolName)) return 'Documents';
   if (toolName === 'email' || toolName.startsWith('email_')) return 'Email';
-  if (toolName === 'canvas_extensions' || toolName.includes('canvas_skill') || toolName.includes('canvas_plugin')) return 'Skills';
+  if (toolName === 'canvas_extensions' || toolName.includes('canvas_skill') || toolName.includes('canvas_plugin') || toolName.includes('canvas_resource')) return 'Skills';
   if (toolName === 'automation_manage' || toolName.includes('automation_job')) return 'Automation';
   if (toolName.startsWith('web_')) return 'Web';
   if (toolName.includes('human_todo')) return 'Todo';
@@ -199,8 +200,13 @@ function getToolNotes(tool: AgentTool, group: PiToolGroup): string[] {
     notes.push('Disabled by default. Use only when the user explicitly requests public sharing and never for secrets or folders.');
   }
   if (group === 'Skills') {
-    notes.push('Can inspect, create, install, update, or discard personal Canvas skills through validated package workflows.');
-    notes.push('Requires plugin and skill sharing permission. Skill package contents are validated before installation and are not logged in audit metadata.');
+    if (tool.name.includes('canvas_resource')) {
+      notes.push('Inspects or configures installed plugin/skill resource metadata and sharing through the same fresh permission and revision actions as the UI/API.');
+      notes.push('Resource use, edit and manage rights are independent. Changing metadata or grants does not reconnect, promote or edit package contents.');
+    } else {
+      notes.push('Can inspect, create, install, update, or discard personal Canvas skills through validated package workflows.');
+      notes.push('Requires plugin and skill sharing permission. Skill package contents are validated before installation and are not logged in audit metadata.');
+    }
   }
   if (group === 'Onboarding') {
     notes.push('Only available during the initial Bradley onboarding profile session.');
@@ -249,7 +255,7 @@ function getToolNotes(tool: AgentTool, group: PiToolGroup): string[] {
 }
 
 export function buildPiToolRegistry(userId?: string, agentId?: string | null, sessionId?: string | null): AgentTool[] {
-  const userScopedTools = createUserScopedTools(userId, agentId, sessionId);
+  const userScopedTools = [...createUserScopedTools(userId, agentId, sessionId), ...createCapabilityResourceTools(userId, agentId, sessionId)];
   const normalizedAgentId = agentId?.trim().toLowerCase() || DEFAULT_MANAGED_AGENT_ID;
   const agentManagementTools = normalizedAgentId === DEFAULT_MANAGED_AGENT_ID
     ? createAgentManagementTools(userId || '__tool-metadata__', normalizedAgentId, sessionId)
@@ -278,7 +284,7 @@ export async function buildPiToolRegistryAsync(
         return undefined;
       })
     : undefined;
-  const userScopedTools = createUserScopedTools(userId, agentId, sessionId, { accountLocale })
+  const userScopedTools = [...createUserScopedTools(userId, agentId, sessionId, { accountLocale }), ...createCapabilityResourceTools(userId, agentId, sessionId)]
     .filter((tool) => !useIntegrationGateway || tool.name !== 'mcp');
   const normalizedAgentId = agentId?.trim().toLowerCase() || DEFAULT_MANAGED_AGENT_ID;
   const agentManagementTools = normalizedAgentId === DEFAULT_MANAGED_AGENT_ID

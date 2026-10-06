@@ -2,7 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { headers } from 'next/headers';
 
 import { auth } from '@/app/lib/auth';
-import { resolveEffectiveCapabilitySnapshot } from '@/app/lib/capabilities/catalog';
+import { loadCapabilityCandidates, resolveEffectiveCapabilitySnapshot } from '@/app/lib/capabilities/catalog';
+import { resolveEffectiveCapabilities } from '@/app/lib/capabilities/effective-resolver';
+import { assertReadableCapabilityCandidate } from '@/app/lib/capabilities/resources/read';
+import { readExactInstalledPlugin } from '@/app/lib/plugins/installed-plugin-read';
 import { selectVisibleCapabilities } from '@/app/lib/capabilities/visible-capabilities';
 import {
   resolveCapabilityExecutionContextForUser,
@@ -12,10 +15,6 @@ import { readOrganizationPermissionForUser } from '@/app/lib/organization/permis
 import { resolveAgentSessionWorkspaceForUser } from '@/app/lib/pi/session-workspace-context';
 import { resolvePluginConnectionReadiness } from '@/app/lib/plugins/plugin-connection-readiness';
 import { WORKSPACE_ID_HEADER } from '@/app/lib/workspaces/constants';
-import {
-  deduplicateCanvasPluginInstallRecords,
-  listCanvasPlugins,
-} from '@/app/lib/plugins/canvas-plugin-registry';
 
 export async function GET(request: NextRequest) {
   const session = await auth.api.getSession({ headers: await headers() });
@@ -32,85 +31,41 @@ export async function GET(request: NextRequest) {
     });
     const requestedWorkspaceId = request.nextUrl.searchParams.get('workspaceId')
       || request.headers.get(WORKSPACE_ID_HEADER);
-    const includesOrganizationAssignments = Boolean(
-      scope.scopeType === 'user'
-      && organizationState.organizationId
-      && organizationState.permission?.status === 'active'
-    );
-    const [personalPlugins, organizationPlugins, executionContext] = await Promise.all([
-      listCanvasPlugins(scope),
-      includesOrganizationAssignments ? listCanvasPlugins({
-        scopeType: 'organization',
-        organizationId: organizationState.organizationId!,
-      }) : Promise.resolve([]),
-      includesOrganizationAssignments ? resolveCapabilityExecutionContextForUser({
-          userId: session.user.id,
-          organizationId: organizationState.organizationId!,
-          role: organizationState.permission!.role,
-          requestedWorkspaceId,
-        }) : Promise.resolve(null),
-    ]);
+    const executionContext = organizationState.organizationId && organizationState.permission?.status === 'active'
+      ? await resolveCapabilityExecutionContextForUser({ userId: session.user.id,
+        organizationId: organizationState.organizationId, role: organizationState.permission.role, requestedWorkspaceId })
+      : null;
     const workspaceId = executionContext?.workspaceId || (await resolveAgentSessionWorkspaceForUser({
-      userId: session.user.id,
-      workspaceId: requestedWorkspaceId || undefined,
-      permissions: ['canRead', 'canRunAgent'],
+      userId: session.user.id, workspaceId: requestedWorkspaceId || undefined, permissions: ['canRead', 'canRunAgent'],
     })).workspaceId;
-    const readinessEntries = await Promise.all([
-      ...personalPlugins.map((plugin) => ({ key: `${scope.scopeType}:${plugin.name}`, plugin })),
-      ...organizationPlugins.map((plugin) => ({ key: `organization:${plugin.name}`, plugin })),
-    ].map(async ({ key, plugin }) => [key, await resolvePluginConnectionReadiness({
-      connectors: plugin.connectors,
-      userId: session.user.id,
-      workspaceId,
-      fresh: request.nextUrl.searchParams.get('fresh') === '1',
-    })] as const));
-    const connectionReadinessByScope = new Map(readinessEntries);
-    let plugins = personalPlugins;
-    if (executionContext) {
-      const snapshot = await resolveEffectiveCapabilitySnapshot(executionContext);
-      const installedByScope = new Map([
-        ...plugins.map((plugin) => [`user:${plugin.name}`, plugin] as const),
-        ...organizationPlugins.map((plugin) => [`organization:${plugin.name}`, plugin] as const),
-      ]);
-      plugins = selectVisibleCapabilities(snapshot.capabilities)
-        .filter((entry) => entry.ref.resourceType === 'plugin')
-        .flatMap((entry) => {
-          if (entry.ref.scopeType === 'system') return [];
-          const installed = installedByScope.get(`${entry.ref.scopeType}:${entry.ref.name}`);
-          if (!installed) return [];
-          return [{
-            ...installed,
-            resourceId: entry.ref.resourceId,
-            scopeType: entry.ref.scopeType,
-            sourceType: 'standalone' as const,
-            organizationId: entry.ref.organizationId,
-            ownerUserId: entry.ref.ownerUserId,
-            revision: entry.ref.revision,
-            enabled: entry.effectiveEnabled,
-            effectivePolicy: entry.effectivePolicy,
-            readiness: entry.readiness,
-            blockedReason: entry.blockedReason,
-            conflictResourceIds: entry.conflictResourceIds,
-          }];
-        });
-    }
-    if (executionContext || request.nextUrl.searchParams.get('identity') === 'resource') {
-      // Preserve the exact identities of the visible namespace owners.
-      const pluginsByResource = new Map<string, typeof plugins[number]>();
-      for (const plugin of plugins) {
-        const key = plugin.resourceId
-          ? `resource:${plugin.resourceId}`
-          : `name:${plugin.scopeType || scope.scopeType}:${plugin.name}`;
-        pluginsByResource.set(key, plugin);
-      }
-      plugins = [...pluginsByResource.values()].sort((left, right) => left.name.localeCompare(right.name));
-    } else {
-      plugins = deduplicateCanvasPluginInstallRecords(plugins, scope.scopeType);
-    }
-    const pluginsWithReadiness = plugins.map((plugin) => ({
-      ...plugin,
-      connectionReadiness: connectionReadinessByScope.get(`${plugin.scopeType === 'organization' ? 'organization' : scope.scopeType}:${plugin.name}`),
-    }));
+    const snapshot = executionContext ? await resolveEffectiveCapabilitySnapshot(executionContext)
+      : resolveEffectiveCapabilities({ context: { userId: session.user.id, organizationId: '' },
+        candidates: await loadCapabilityCandidates({ userId: session.user.id, organizationId: '' }, { resolveConnections: false }), policies: [] });
+    const actor = { userId: session.user.id, workspaceId };
+    const visible = scope.scopeType === 'organization'
+      ? snapshot.capabilities.filter(entry => entry.ref.scopeType === 'organization')
+      : selectVisibleCapabilities(snapshot.capabilities);
+    const plugins = (await Promise.all(visible.filter(entry => entry.ref.resourceType === 'plugin'
+      && entry.resourceAccess?.canRead !== false).map(async entry => {
+      const installed = await readExactInstalledPlugin({ name: entry.ref.name, resourceId: entry.ref.resourceId,
+        scope: entry.ref.scopeType === 'organization'
+          ? { scopeType: 'organization', organizationId: entry.ref.organizationId! }
+          : { scopeType: 'user', userId: entry.ref.scopeType === 'system' ? session.user.id : entry.ref.ownerUserId! } });
+      if (!installed) return null;
+      const connectionReadiness = await resolvePluginConnectionReadiness({ connectors: installed.connectors,
+        userId: session.user.id, workspaceId, fresh: request.nextUrl.searchParams.get('fresh') === '1' });
+      await assertReadableCapabilityCandidate(actor, entry, snapshot.capabilities);
+      const foreignPersonal = entry.ref.scopeType === 'user' && entry.ref.ownerUserId !== session.user.id;
+      return { ...installed, ...(foreignPersonal ? { installDir: '', manifestPath: '', skillsDir: undefined, sourcePath: undefined,
+        skills: installed.skills.map(skill => ({ ...skill, path: '', directory: '', standaloneDir: undefined })) } : {}),
+        resourceId: entry.ref.resourceId, scopeType: entry.ref.scopeType, sourceType: 'standalone' as const,
+        organizationId: entry.ref.organizationId, ownerUserId: entry.ref.ownerUserId, revision: entry.ref.revision,
+        enabled: entry.effectiveEnabled, effectivePolicy: entry.effectivePolicy, readiness: entry.readiness,
+        blockedReason: entry.blockedReason, conflictResourceIds: entry.conflictResourceIds, connectionReadiness,
+        resourceMetadata: entry.resourceMetadata, resourceAccess: entry.resourceAccess,
+        description: entry.resourceMetadata?.description ?? installed.description };
+    }))).filter((plugin): plugin is NonNullable<typeof plugin> => Boolean(plugin));
+    const pluginsWithReadiness = plugins;
     return NextResponse.json({
       success: true,
       plugins: pluginsWithReadiness,

@@ -9,6 +9,7 @@ import {
 } from '@/app/lib/pi/agent-runtime-temp';
 import type { AgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
 import { executeAgentSandboxedProcess } from '@/app/lib/pi/agent-shell-sandbox';
+import { revalidateAgentBashSkillReadRoots } from '@/app/lib/skills/fresh-agent-skill-read-roots';
 
 export type AgentBashWorkingDirectory = 'temp' | 'workspace';
 export type AgentBashSandboxMode = 'landlock' | 'local-development';
@@ -198,8 +199,9 @@ export async function executeAgentBashCommand(params: {
     : () => undefined;
   try {
     if (sandboxMode === 'local-development') {
+      const currentContext = await revalidateAgentBashSkillReadRoots(params.executionContext);
       const result = await executeAgentSandboxedProcess({ executable: '/bin/bash', args: ['-lc', params.command] }, {
-        context: params.executionContext,
+        context: currentContext,
         cwd: params.cwd,
         env: params.env,
         signal: params.signal,
@@ -215,17 +217,18 @@ export async function executeAgentBashCommand(params: {
     await fs.access(launcherPath, fsConstants.X_OK).catch(() => {
       throw new Error(`Agent Bash is unavailable because the required Landlock launcher is not executable: ${launcherPath}`);
     });
+    const currentContext = await revalidateAgentBashSkillReadRoots(params.executionContext);
     const args = await buildAgentLandlockArguments({
       command: params.command,
       cwd: params.cwd,
       workspaceDir: params.workspaceDir,
       tempDir: params.tempDir,
-      skillReadRoots: params.executionContext.skillReadRoots,
+      skillReadRoots: currentContext!.skillReadRoots,
     });
     // Keep the read allowlist inside the native write/metadata confinement.
     // Kernel restrictions intersect, so neither layer can widen the other.
     const result = await executeAgentSandboxedProcess({ executable: launcherPath, args }, {
-      context: params.executionContext,
+      context: await revalidateAgentBashSkillReadRoots(currentContext),
       cwd: params.tempDir,
       env: params.env,
       signal: params.signal,

@@ -118,6 +118,11 @@ export const DELEGATABLE_PI_TOOLSETS = new Set<PiToolset>([
 ]);
 
 export const SKILL_TOOL_NAMES = [
+  'inspect_canvas_resource',
+  'configure_canvas_resource',
+  'update_canvas_resource_metadata',
+  'set_canvas_resource_grants',
+  'list_canvas_resource_targets',
   'create_canvas_plugin_draft',
   'inspect_canvas_plugin',
   'install_canvas_plugin_from_workspace',

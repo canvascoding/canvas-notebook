@@ -1117,6 +1117,95 @@ export const capabilityPolicies = pgTable("capability_policies", {
   effectCheck: check("capability_policies_effect_check", sql`${table.effect} IN ('optional', 'default-enabled', 'required', 'blocked')`),
 }));
 
+// Resource ownership is independent of creator/editor identity and of runtime grants.
+export const capabilityResources = pgTable("capability_resources", {
+  resourceRef: text("resource_ref").primaryKey(),
+  storageBindingKey: text("storage_binding_key").notNull().unique(),
+  legacyResourceId: text("legacy_resource_id").notNull().unique(),
+  resourceType: text("resource_type").notNull(),
+  sourceType: text("source_type").notNull(),
+  sourcePluginId: text("source_plugin_id"),
+  artifactName: text("artifact_name").notNull(),
+  storageScopeType: text("storage_scope_type").notNull(),
+  storageOrganizationId: text("storage_organization_id").references(() => canvasOrganizationSettings.organizationId, { onDelete: 'cascade' }),
+  storageOwnerUserId: text("storage_owner_user_id").references(() => user.id, { onDelete: 'cascade' }),
+  ownershipType: text("ownership_type").notNull(),
+  organizationId: text("organization_id").references(() => canvasOrganizationSettings.organizationId, { onDelete: 'cascade' }),
+  ownerUserId: text("owner_user_id").references(() => user.id, { onDelete: 'cascade' }),
+  teamWorkspaceId: text("team_workspace_id").references(() => canvasWorkspaces.id, { onDelete: 'cascade' }),
+  displayName: text("display_name"),
+  description: text("description"),
+  responsibleUserId: text("responsible_user_id").references(() => user.id, { onDelete: 'set null' }),
+  createdByUserId: text("created_by_user_id").references(() => user.id, { onDelete: 'set null' }),
+  updatedByUserId: text("updated_by_user_id").references(() => user.id, { onDelete: 'set null' }),
+  metadataRevision: bigint("metadata_revision", { mode: "number" }).notNull().default(1),
+  grantsRevision: bigint("grants_revision", { mode: "number" }).notNull().default(1),
+  accessMode: text("access_mode").notNull().default('inherit'),
+  status: text("status").notNull().default('active'),
+  createdAt: pgTimestamp("created_at").notNull(),
+  updatedAt: pgTimestamp("updated_at").notNull(),
+}, (table) => ({
+  organizationIdx: index("idx_capability_resources_organization").on(table.organizationId, table.ownershipType, table.status),
+  ownerIdx: index("idx_capability_resources_owner").on(table.ownerUserId, table.status),
+  teamIdx: index("idx_capability_resources_team").on(table.teamWorkspaceId, table.status),
+  resourceTypeCheck: check("capability_resources_type_check", sql`${table.resourceType} IN ('skill', 'plugin')`),
+  sourceTypeCheck: check("capability_resources_source_check", sql`${table.sourceType} IN ('core', 'standalone', 'plugin')`),
+  revisionsCheck: check("capability_resources_revisions_check", sql`${table.metadataRevision} >= 1 AND ${table.grantsRevision} >= 1`),
+  accessModeCheck: check("capability_resources_access_check", sql`${table.accessMode} IN ('inherit', 'restricted')`),
+  statusCheck: check("capability_resources_status_check", sql`${table.status} IN ('active', 'archived')`),
+  ownershipCheck: check("capability_resources_ownership_check", sql`
+    (${table.ownershipType} = 'user' AND ${table.ownerUserId} IS NOT NULL AND ${table.teamWorkspaceId} IS NULL
+      AND ${table.storageScopeType} = 'user' AND ${table.storageOwnerUserId} = ${table.ownerUserId} AND ${table.storageOrganizationId} IS NULL)
+    OR (${table.ownershipType} = 'organization' AND ${table.organizationId} IS NOT NULL AND ${table.ownerUserId} IS NULL AND ${table.teamWorkspaceId} IS NULL
+      AND ${table.storageScopeType} = 'organization' AND ${table.storageOrganizationId} = ${table.organizationId} AND ${table.storageOwnerUserId} IS NULL)
+    OR (${table.ownershipType} = 'team' AND ${table.organizationId} IS NOT NULL AND ${table.ownerUserId} IS NULL AND ${table.teamWorkspaceId} IS NOT NULL
+      AND ${table.storageScopeType} = 'organization' AND ${table.storageOrganizationId} = ${table.organizationId} AND ${table.storageOwnerUserId} IS NULL)
+    OR (${table.ownershipType} = 'system' AND ${table.organizationId} IS NULL AND ${table.ownerUserId} IS NULL AND ${table.teamWorkspaceId} IS NULL
+      AND ${table.storageScopeType} = 'system' AND ${table.storageOrganizationId} IS NULL AND ${table.storageOwnerUserId} IS NULL)
+  `),
+}));
+
+export const capabilityResourceGrants = pgTable("capability_resource_grants", {
+  id: text("id").primaryKey(),
+  resourceRef: text("resource_ref").notNull().references(() => capabilityResources.resourceRef, { onDelete: 'cascade' }),
+  targetType: text("target_type").notNull(),
+  targetId: text("target_id").notNull(),
+  targetUserId: text("target_user_id").references(() => user.id, { onDelete: 'cascade' }),
+  targetWorkspaceId: text("target_workspace_id").references(() => canvasWorkspaces.id, { onDelete: 'cascade' }),
+  targetProjectId: text("target_project_id").references(() => canvasProjects.id, { onDelete: 'cascade' }),
+  canUse: pgBoolean("can_use").notNull().default(false),
+  canEdit: pgBoolean("can_edit").notNull().default(false),
+  canManage: pgBoolean("can_manage").notNull().default(false),
+  createdByUserId: text("created_by_user_id").references(() => user.id, { onDelete: 'set null' }),
+  updatedByUserId: text("updated_by_user_id").references(() => user.id, { onDelete: 'set null' }),
+  createdAt: pgTimestamp("created_at").notNull(),
+  updatedAt: pgTimestamp("updated_at").notNull(),
+}, (table) => ({
+  bindingIdx: uniqueIndex("idx_capability_resource_grants_binding").on(table.resourceRef, table.targetType, table.targetId),
+  targetIdx: index("idx_capability_resource_grants_target").on(table.targetType, table.targetId, table.resourceRef),
+  flagsCheck: check("capability_resource_grants_flags_check", sql`${table.canUse} IN (0, 1) AND ${table.canEdit} IN (0, 1) AND ${table.canManage} IN (0, 1)`),
+  targetCheck: check("capability_resource_grants_target_check", sql`
+    (${table.targetType} IN ('organization', 'role') AND ${table.targetUserId} IS NULL AND ${table.targetWorkspaceId} IS NULL AND ${table.targetProjectId} IS NULL)
+    OR (${table.targetType} = 'user' AND ${table.targetUserId} IS NOT NULL AND ${table.targetUserId} = ${table.targetId} AND ${table.targetWorkspaceId} IS NULL AND ${table.targetProjectId} IS NULL)
+    OR (${table.targetType} = 'workspace' AND ${table.targetWorkspaceId} IS NOT NULL AND ${table.targetWorkspaceId} = ${table.targetId} AND ${table.targetUserId} IS NULL AND ${table.targetProjectId} IS NULL)
+    OR (${table.targetType} = 'project' AND ${table.targetProjectId} IS NOT NULL AND ${table.targetProjectId} = ${table.targetId} AND ${table.targetUserId} IS NULL AND ${table.targetWorkspaceId} IS NULL)
+  `),
+}));
+
+// Audit history contains revisions and actor identity only, never artifact bodies or credentials.
+export const capabilityResourceHistory = pgTable("capability_resource_history", {
+  id: text("id").primaryKey(),
+  resourceRef: text("resource_ref").notNull().references(() => capabilityResources.resourceRef, { onDelete: 'cascade' }),
+  actorUserId: text("actor_user_id").references(() => user.id, { onDelete: 'set null' }),
+  action: text("action").notNull(),
+  metadataRevision: bigint("metadata_revision", { mode: "number" }).notNull(),
+  grantsRevision: bigint("grants_revision", { mode: "number" }).notNull(),
+  createdAt: pgTimestamp("created_at").notNull(),
+}, (table) => ({
+  resourceIdx: index("idx_capability_resource_history_resource").on(table.resourceRef, table.createdAt),
+  actionCheck: check("capability_resource_history_action_check", sql`${table.action} IN ('adopt', 'mutate')`),
+}));
+
 export const aiProviderInstallations = pgTable("ai_provider_installations", {
   id: text("id").primaryKey(),
   organizationId: text("organization_id").notNull().references(() => canvasOrganizationSettings.organizationId, { onDelete: 'cascade' }),
