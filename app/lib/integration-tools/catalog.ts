@@ -9,7 +9,9 @@ import {
   type IntegrationSourceSnapshot,
 } from './contracts';
 import { isIntegrationOperationAllowed } from './policy';
+import { projectWorkflowProviderAssociations } from './workflow-provider-associations';
 import { listIntegrationProviders, searchIntegrationProviders } from './search';
+import { overlayPersonalWorkflowProviderCatalog } from './workflow-personal-bindings';
 
 export type IntegrationCatalogAdapter = (context: IntegrationExecutionContext, policy?: IntegrationPolicy) => Promise<IntegrationSourceSnapshot>;
 export type IntegrationCatalogAdapters = Record<IntegrationSource, IntegrationCatalogAdapter>;
@@ -53,7 +55,7 @@ async function readAdapter(
       || snapshot.providerErrors.some((error) => error.source !== source)) {
       return failedSnapshot(source, false);
     }
-    return snapshot;
+    return projectWorkflowProviderAssociations(context, overlayPersonalWorkflowProviderCatalog(context, snapshot));
   } catch {
     // Raw provider errors may contain URLs, tokens or identity data; keep the public issue safe.
     return failedSnapshot(source, false);

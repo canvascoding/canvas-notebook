@@ -16,6 +16,7 @@ import {
   loadCanvasSkillInterface,
   parseFrontmatter,
   parseSkillFile,
+  validateStandaloneSkillWorkflow,
   validateFrontmatter,
   type CanvasSkillStorageScope,
   type ValidationResult,
@@ -292,6 +293,7 @@ async function validateUploadedPackage(
   if (!parsed) {
     throw new SkillPackageImportError('Skill package contains an invalid SKILL.md.', 400, validation);
   }
+  await validateStandaloneSkillWorkflow(parsed);
 
   return { skillName: parsed.name, validation };
 }

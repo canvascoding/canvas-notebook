@@ -16,6 +16,7 @@ export type ProgressiveGatewayDefinition = {
   label: string;
   description: string;
   operations: readonly string[];
+  errorBoundary?: 'agent_management';
 };
 
 export type ProgressiveGatewayMetadata = {
@@ -122,6 +123,7 @@ function buildGatewayTool(
     }),
     execute: async (toolCallId, rawParams, signal) => {
       const params = (rawParams || {}) as GatewayParams;
+      let operationStarted = false;
       try {
         if (params.action === 'search') {
           const queryMatches = searchOperations(operations, params.query);
@@ -181,6 +183,7 @@ function buildGatewayTool(
           if (!Value.Check(operation.parameters, args)) {
             throw new Error(`Invalid arguments for ${operation.name}: ${formatSchemaErrors(operation.parameters, args)}`);
           }
+          operationStarted = true;
           const result = await operation.execute(toolCallId, args, signal);
           return {
             ...result,
@@ -202,12 +205,15 @@ function buildGatewayTool(
 
         throw new Error('action must be search, describe, or call.');
       } catch (error) {
-        const message = getErrorMessage(error);
+        const publicError = operationStarted && definition.errorBoundary === 'agent_management'
+          ? (await import('@/app/lib/agents/management-actions')).managementErrorDetails(error) : null;
+        const message = publicError?.message ?? getErrorMessage(error);
         return textResult(`Error: ${message}`, {
           gateway: definition.name,
           action: params.action || null,
           operation: params.operation || null,
           error: message,
+          ...(publicError ? { code: publicError.code, ...(publicError.details ?? {}) } : {}),
         });
       }
     },
@@ -268,6 +274,7 @@ export function withAllowedProgressiveGatewayOperations(
 export const PROGRESSIVE_GATEWAY_DEFINITIONS: readonly ProgressiveGatewayDefinition[] = [
   {
     name: 'agent_manage',
+    errorBoundary: 'agent_management',
     label: 'Managing agents',
     description: 'On-demand gateway for creating and changing complete personal or organization agents. Use search, describe, then call. Mutations require explicit user intent and enforce the same scope, permission, policy, revision, storage, confirmation, and audit rules as the UI/API.',
     operations: [
@@ -275,6 +282,8 @@ export const PROGRESSIVE_GATEWAY_DEFINITIONS: readonly ProgressiveGatewayDefinit
       'update_agent_profile',
       'update_agent_runtime',
       'update_agent_capabilities',
+      'update_agent_configuration',
+      'set_agent_workflow_choice',
       'update_agent_file',
       'set_agent_grant',
       'remove_agent_grant',

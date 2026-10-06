@@ -7344,6 +7344,64 @@
     },
     "backToPlugin": "Zurück zum Plugin"
   },
+  "agentWorkflow": {
+    "title": "Workflow-Verbindungen",
+    "description": "Wähle die erlaubten Verbindungen für deine Nutzung von {agent}.",
+    "open": "Meine Verbindungen auswählen",
+    "openFor": "Workflow-Verbindungen für {agent}",
+    "settingsDescription": "Paketversionen und erlaubte Verbindungen werden zentral konfiguriert. Deine Auswahl gilt nur für dich.",
+    "connection": "Verbindung",
+    "connectionFor": "Verbindung für {application}",
+    "defaultChoice": "Vorgabe der Administration verwenden",
+    "defaultHint": "Die Vorgabe verwendet die zentral ausgewählte Verbindung.",
+    "noSelection": "Keine Verbindung ausgewählt",
+    "noSlots": "Dieser Workflow hat keine Verbindungsauswahl. Seine Paketversionen bleiben zentral konfiguriert.",
+    "packagesUnavailable": "Mindestens ein konfiguriertes Paket ist nicht verfügbar. Prüfe Freigaben und Versionen.",
+    "notConfigured": "Dieser Agent hat keine aktive Workflow-Konfiguration.",
+    "fixed": "Festgelegt",
+    "selectable": "Deine Auswahl",
+    "fixedDescription": "Diese Verbindung ist zentral festgelegt und kann hier nicht geändert werden.",
+    "personal": {
+      "open": "Persönliche Verbindung auswählen",
+      "hide": "Persönliche Verbindungen ausblenden",
+      "description": "Wähle eine deiner eigenen erlaubten Verbindungen. Konten werden erst geprüft, wenn du eine Verbindung auswählst.",
+      "loading": "Persönliche Verbindungen werden geladen…",
+      "provider": "Persönliche Verbindung",
+      "chooseProvider": "Verbindung auswählen",
+      "account": "Verbundenes Konto",
+      "chooseAccount": "Konto auswählen",
+      "noAccounts": "Für diese Verbindung ist kein erlaubtes aktives Konto verfügbar.",
+      "empty": "Keine persönliche Verbindung entspricht den von der Administration erlaubten Alternativen.",
+      "reload": "Persönliche Verbindungen neu laden",
+      "checkCredentials": "Zugangsdaten prüfen",
+      "use": "Diese Verbindung verwenden",
+      "error": "Persönliche Verbindungen konnten nicht geladen werden. Lade sie neu oder wähle eine andere Verbindung."
+    },
+    "currentPersonal": "Aktuelle persönliche Verbindung",
+    "unavailable": "Nicht verfügbar",
+    "unavailableSelection": "Vorherige Auswahl ist nicht verfügbar",
+    "reload": "Aktuelle Auswahl neu laden",
+    "loading": "Deine erlaubten Verbindungen werden geladen…",
+    "save": "Auswahl speichern",
+    "saved": "Gespeichert",
+    "close": "Schließen",
+    "scope": {
+      "organization": "Organisation",
+      "team": "Team",
+      "personal": "Persönlich"
+    },
+    "status": {
+      "unknown": "Wird bei der Nutzung geprüft",
+      "setup_required": "Verbindung muss eingerichtet werden",
+      "unavailable": "Nicht verfügbar"
+    },
+    "errors": {
+      "conflict": "Der Workflow oder deine gespeicherte Auswahl wurde geändert. Lade die aktuelle Auswahl vor dem Speichern neu. Deine ungespeicherte Wahl bleibt erhalten, wenn sie weiterhin erlaubt ist.",
+      "denied": "Du hast keinen Zugriff mehr auf diese Workflow-Auswahl.",
+      "load": "Die aktuelle Auswahl konnte nicht geladen werden. Lade sie vor dem Speichern neu.",
+      "save": "Die Auswahl konnte nicht gespeichert werden. Lade die aktuelle Auswahl vor einem neuen Versuch neu."
+    }
+  },
   "sharedConnections": {
     "title": "Gemeinsame Verbindungen",
     "description": "Konten für die Organisation, Teams und gezielt freigegebene Personen.",

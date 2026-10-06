@@ -7,12 +7,12 @@ import {
   inspectManagedAgent,
   listManagedAgents,
   managementErrorDetails,
-  updateManagedAgentCapabilities,
-  updateManagedAgentProfile,
-  updateManagedAgentRuntime,
   type AgentManagementActor,
   type CreateManagedAgentInput,
 } from '@/app/lib/agents/management-actions';
+import { updateManagedAgentConfiguration } from '@/app/lib/agents/workflow-configuration';
+import { updateAgentConfigurationSchema } from '@/app/lib/agents/workflow-api-contracts';
+import { AgentWorkflowError } from '@/app/lib/agents/workflow-contracts';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 import { requireSessionWorkspace } from '@/app/lib/workspaces/request';
 
@@ -44,11 +44,6 @@ function errorResponse(error: unknown, fallback: string): NextResponse {
 
 function stringValue(value: unknown): string | undefined {
   return typeof value === 'string' ? value : undefined;
-}
-
-function stringArrayValue(value: unknown): string[] | null {
-  if (!Array.isArray(value)) return null;
-  return value.filter((entry): entry is string => typeof entry === 'string');
 }
 
 function hasAny(payload: Record<string, unknown>, fields: readonly string[]): boolean {
@@ -112,62 +107,18 @@ export async function PATCH(request: NextRequest) {
   if (!limited.ok) return limited.response;
 
   try {
-    const payload = (await request.json().catch(() => ({}))) as Record<string, unknown>;
-    const agentId = stringValue(payload.agentId);
-    const expectedRevision = payload.expectedRevision;
-    if (!agentId) throw new Error('agentId is required.');
-    if (typeof expectedRevision !== 'number') throw new Error('expectedRevision is required.');
+    const parsed = updateAgentConfigurationSchema.safeParse(await request.json().catch(() => null));
+    if (!parsed.success) throw new AgentWorkflowError('AGENT_CONFIGURATION_INVALID', 'The agent configuration contains invalid or unsupported fields.', 400);
+    const payload = parsed.data;
+    const agentId = payload.agentId;
     const actor = actorFromRequest(request, session);
-    let revision = expectedRevision;
-    let agent;
-
-    if (hasAny(payload, ['name', 'iconId'])) {
-      agent = await updateManagedAgentProfile({
-        actor,
-        agentId,
-        expectedRevision: revision,
-        name: stringValue(payload.name),
-        iconId: payload.iconId as string | null | undefined,
-      });
-      revision = agent.revision;
+    if (!hasAny(payload, ['name', 'iconId', 'enabledTools', 'defaultProviderInstallationId', 'defaultProvider', 'defaultModel',
+      'defaultThinking', 'capabilities', 'relevantSkills', 'relevantConnections', 'workflow'])) {
+      throw new AgentWorkflowError('AGENT_CONFIGURATION_INVALID', 'No supported agent changes were provided.', 400);
     }
-    if (hasAny(payload, [
-      'enabledTools',
-      'defaultProviderInstallationId',
-      'defaultProvider',
-      'defaultModel',
-      'defaultThinking',
-    ])) {
-      agent = await updateManagedAgentRuntime({
-        actor,
-        agentId,
-        expectedRevision: revision,
-        enabledTools: Object.hasOwn(payload, 'enabledTools') ? stringArrayValue(payload.enabledTools) : undefined,
-        defaultProviderInstallationId: payload.defaultProviderInstallationId,
-        defaultProvider: payload.defaultProvider,
-        defaultModel: payload.defaultModel,
-        defaultThinking: payload.defaultThinking,
-        expectedCatalogRevision: payload.expectedCatalogRevision,
-      });
-      revision = agent.revision;
-    }
-    if (hasAny(payload, ['capabilities', 'relevantSkills', 'relevantConnections'])) {
-      const result = await updateManagedAgentCapabilities({
-        actor,
-        agentId,
-        expectedRevision: revision,
-        capabilities: Array.isArray(payload.capabilities)
-          ? payload.capabilities as Parameters<typeof updateManagedAgentCapabilities>[0]['capabilities']
-          : undefined,
-        relevantSkills: Object.hasOwn(payload, 'relevantSkills') ? stringArrayValue(payload.relevantSkills) : undefined,
-        relevantConnections: Object.hasOwn(payload, 'relevantConnections') ? stringArrayValue(payload.relevantConnections) : undefined,
-      });
-      agent = result.agent;
-      revision = agent.revision;
-    }
-    if (!agent) throw new Error('No supported agent changes were provided.');
+    const { agent, workflow } = await updateManagedAgentConfiguration({ actor, ...payload });
     const access = await inspectManagedAgent(actor, agentId);
-    return NextResponse.json({ success: true, data: { agent: { ...agent, access: access.access } } });
+    return NextResponse.json({ success: true, data: { agent: { ...agent, access: access.access }, workflow } });
   } catch (error) {
     return errorResponse(error, 'Failed to update agent.');
   }

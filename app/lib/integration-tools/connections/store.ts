@@ -6,6 +6,8 @@ import { openDb, type SqlConnection } from '@/app/lib/db';
 import { authority, lockOwnership, lockCapabilityScopeWorkspaceAuthority, matchesCapabilityScopeGrant, validateTarget, listCapabilityScopeTargetsOnConnection, type Authority } from '@/app/lib/capabilities/scope-authority';
 import { readStoredAgentWorkspaceOnConnection } from '@/app/lib/pi/session-workspace-context';
 import { assertUserSeatAccess } from '@/app/lib/license/seat-limit';
+import { getAgentAccessOnConnection } from '@/app/lib/agents/access';
+import type { AgentProfile } from '@/app/lib/agents/registry';
 import { schemaFingerprint } from '../schema';
 import { assertSharedIntegrationOwnershipManagement } from './ownership';
 import {
@@ -29,6 +31,76 @@ const authorityState = authorizationHost.__canvasSharedConnectionAuthorityV1 ??=
 const heldAuthorization = authorityState.held;
 const issuedAuthorizations = authorityState.issued;
 const NO_ACCESS = { canRead: false, canUse: false, canManage: false };
+
+export type IntegrationConnectionBindingActor = IntegrationConnectionActor & { projectId?: string | null };
+export type IntegrationConnectionBindingBatch = { readonly connectionRefs: readonly string[] };
+export type IntegrationConnectionBindingAuthorization = IntegrationConnectionRecord & {
+  actor: IntegrationConnectionActor; canUse: boolean; canManage: boolean; allowedToolNames: readonly string[] | null; authorizationRevision: string;
+};
+type BindingBatchState = { database: SqlConnection; actor: IntegrationConnectionBindingActor; entries: IntegrationConnectionRecord[] };
+const batchHost = globalThis as typeof globalThis & { __canvasConnectionBindingBatchesV1?: WeakMap<object, BindingBatchState> };
+const bindingBatches = batchHost.__canvasConnectionBindingBatchesV1 ??= new WeakMap<object, BindingBatchState>();
+
+/** Caller owns BEGIN/COMMIT. Lock connection rows before taking any Agent FOR UPDATE lock. */
+export async function lockIntegrationConnectionBindingsOnConnection(database: SqlConnection, input: IntegrationConnectionBindingActor,
+  references: readonly string[]): Promise<IntegrationConnectionBindingBatch> {
+  const actor = { ...actorSnapshot(input), ...(input.projectId == null ? {} : { projectId: text(input.projectId, 'Project') }) };
+  if (actor.agentId || actor.sessionId || actor.policyRevision) fail('CONNECTION_CONTEXT_CHANGED', 'Configuration authority does not accept a runtime session.', 403);
+  const refs = [...new Set(references.map(validateIntegrationConnectionRef))].sort();
+  if (refs.length > 128) fail('CONNECTION_REQUEST_INVALID', 'Too many selected connection bindings.');
+  const current = await authority(database, actor, true);
+  if (!current.valid || !current.contextValid) fail('CONNECTION_ACCESS_DENIED', 'The current connection context is unavailable.', 403);
+  const entries: IntegrationConnectionRecord[] = [];
+  for (const ref of refs) entries.push(await recordOn(database, ref, true));
+  const batch = Object.freeze({ connectionRefs: Object.freeze(refs) });
+  bindingBatches.set(batch, { database, actor, entries });
+  return batch;
+}
+
+/** Separate binding purpose; never issues an execution proof or invents a persisted session. */
+export async function authorizeIntegrationConnectionBindingsOnConnection(database: SqlConnection, batch: IntegrationConnectionBindingBatch,
+  agent: AgentProfile, purpose: 'configure' | 'read'): Promise<IntegrationConnectionBindingAuthorization[]> {
+  const held = bindingBatches.get(batch);
+  if (!held || held.database !== database || !['configure', 'read'].includes(purpose)) fail('CONNECTION_ACCESS_DENIED', 'A current binding transaction is required.', 403);
+  const actor = held.actor;
+  const agentAccess = await getAgentAccessOnConnection(database, actor.userId, agent.agentId,
+    { organizationId: actor.organizationId, workspaceId: actor.workspaceId, projectId: actor.projectId });
+  if (!(purpose === 'configure' ? agentAccess.canEdit : agentAccess.canUse)) fail('CONNECTION_ACCESS_DENIED', 'Agent configuration access is not granted.', 403);
+  const result: IntegrationConnectionBindingAuthorization[] = [];
+  for (const entry of held.entries) {
+    const resource = entry.resource, owner = resource.ownership;
+    const grants = await grantsOn(database, resource.connectionRef);
+    let current = await authority(database, actor, true);
+    await lockCapabilityScopeWorkspaceAuthority(database, current, owner, grants.filter(grant => grant.targetType !== 'agent')
+      .map(grant => ({ targetType: grant.targetType as Exclude<IntegrationConnectionGrant['targetType'], 'agent'>, targetId: grant.targetId })));
+    await lockOwnership(database, owner, current);
+    current = await authority(database, actor, true);
+    const membership = current.memberships.get(owner.organizationId);
+    const configured = await database.get('SELECT organization_id FROM canvas_organization_settings ORDER BY created_at LIMIT 1') as Row | undefined;
+    const team = owner.type === 'team' ? current.workspaces.get(owner.workspaceId) : null;
+    const teamActive = owner.type === 'organization' || Boolean(await database.get("SELECT id FROM canvas_workspaces WHERE id=$1 AND organization_id=$2 AND type='team' AND status='active'", [owner.workspaceId, owner.organizationId]));
+    const valid = current.valid && current.contextValid && membership?.status === 'active' && configured?.organization_id === owner.organizationId
+      && (!actor.organizationId || actor.organizationId === owner.organizationId) && (!current.requestedWorkspace || current.requestedWorkspace.organizationId === owner.organizationId)
+      && teamActive && resource.status === 'active' && (agent.organizationId === owner.organizationId || agent.type === 'main' && agent.ownerUserId === null);
+    const manager = valid && (['owner', 'admin'].includes(membership!.role) || team?.canManage === true);
+    const inherited = valid && membership!.role !== 'external' && resource.accessMode === 'inherit' && (owner.type === 'organization' || team?.canRead === true);
+    let canUse = Boolean(inherited), canManage = Boolean(manager);
+    const bounds: Array<string[] | null> = inherited ? [null] : [];
+    for (const grant of valid ? grants : []) {
+      const matches = grant.targetType === 'agent' ? grant.targetId === agent.agentId
+        : matchesCapabilityScopeGrant(current, owner.organizationId, actor.workspaceId, { targetType: grant.targetType, targetId: grant.targetId });
+      if (!matches) continue;
+      if (grant.canUse) { canUse = true; bounds.push(grant.allowedToolNames); }
+      canManage ||= grant.targetType !== 'agent' && grant.canManage;
+    }
+    if (!valid || !canUse) fail('CONNECTION_ACCESS_DENIED', 'The selected connection is not granted to this agent and current actor.', 403);
+    let allowed: string[] | null = bounds.some(bound => bound === null) ? null : [...new Set(bounds.flatMap(bound => bound ?? []))].sort();
+    if (resource.allowedToolNames !== null) allowed = allowed === null ? [...resource.allowedToolNames] : allowed.filter(name => resource.allowedToolNames!.includes(name));
+    result.push(Object.freeze({ ...structuredClone(entry), actor: Object.freeze({ ...actor }), canUse, canManage,
+      allowedToolNames: allowed ? Object.freeze(allowed) : null, authorizationRevision: schemaFingerprint({ resource, backend: entry.backend, actor, agentId: agent.agentId, allowed }) }));
+  }
+  return result;
+}
 
 function fail(code: string, message: string, status = 400): never { throw new IntegrationConnectionError(code, message, status); }
 function text(value: unknown, label: string, max = 200): string {

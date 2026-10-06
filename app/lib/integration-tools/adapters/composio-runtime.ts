@@ -14,6 +14,7 @@ import { IntegrationReferenceCache } from '../reference-cache';
 import { createIntegrationMetadataCacheKey, integrationMetadataCache } from '../metadata-cache';
 import type { IntegrationAdapterToolPage, IntegrationAdapterToolSchema, IntegrationResolvedProvider, IntegrationToolAdapter } from '../runtime-contracts';
 import { schemaFingerprint } from '../schema';
+import { createIntegrationProviderRef } from '../references';
 import { isComposioIntegrationApplicationVisible, listComposioIntegrationProviders } from './composio';
 import { integrationConnectionProviderScope, type AuthorizedIntegrationConnection } from '../connections/contracts';
 import { attachIntegrationProviderAuthorization, createSharedIntegrationProviderRef, findSharedIntegrationConnectionAuthorization,
@@ -128,10 +129,10 @@ async function liveToolkit(context: ResolvedComposioContext, mode: Binding['mode
   });
 }
 
-async function liveAccounts(context: ResolvedComposioContext, mode: Binding['mode'], client: Binding['client']): Promise<RecordValue[]> {
+async function liveAccounts(context: ResolvedComposioContext, mode: Binding['mode'], client: Binding['client'], selectedToolkit?: string): Promise<RecordValue[]> {
   return withSignal(undefined, false, async (signal) => {
     const backend = context.sharedBinding?.authorization.backend;
-    const toolkit = backend?.source === 'composio' ? backend.toolkit : null;
+    const toolkit = backend?.source === 'composio' ? backend.toolkit : selectedToolkit || null;
     if (mode === 'managed') {
       const result = record(await requestManagedComposio('/status', { signal, bindingProtocolErrors: true,
         ...(toolkit ? { query: new URLSearchParams({ toolkit }) } : {}) }, context));
@@ -233,8 +234,28 @@ async function credentialRevision(context: ResolvedComposioContext, mode: Bindin
 }
 
 async function resolveProvider(context: IntegrationExecutionContext, providerRef: string): Promise<IntegrationResolvedProvider> {
+  if (providerRef.startsWith('composio:v1:personal:')) {
+    return (await import('../workflow-personal-bindings')).resolveAttachedPersonalWorkflowProvider(context, providerRef);
+  }
   const shared = await findSharedIntegrationConnectionAuthorization(context, providerRef);
   if (shared) return resolveSharedComposioIntegrationProvider(context, shared);
+  const inspection = await inspectPersonalComposioIntegrationProvider(context, providerRef);
+  return resolvePersonalComposioInspection(inspection);
+}
+
+export type PersonalComposioProviderInspection = {
+  executionContext: IntegrationExecutionContext;
+  provider: import('../contracts').IntegrationProviderDescriptor;
+  context: ResolvedComposioContext;
+  mode: Binding['mode']; managed: ManagedCapabilities | null; client: Binding['client'];
+  credentialRevision: string; noAuth: boolean; accounts: RecordValue[];
+};
+
+/** Uses the same scoped provider/SDK path as runtime; it performs no tool or business call. */
+export async function inspectPersonalComposioIntegrationProvider(context: IntegrationExecutionContext, providerRef: string): Promise<PersonalComposioProviderInspection> {
+  if (!providerRef.startsWith('composio:v1:') || providerRef.includes(':personal:') || providerRef.includes(':shared:')) {
+    throw new IntegrationContractError('provider_denied', 'Choose an owned Composio app from the integration catalogue.');
+  }
   const catalogue = await listComposioIntegrationProviders(context);
   const provider = catalogue.providers.find((item) => item.providerRef === providerRef);
   if (!provider || provider.scope.type !== 'user' || provider.scope.ownerUserId !== context.actorUserId || !provider.application) {
@@ -246,29 +267,86 @@ async function resolveProvider(context: IntegrationExecutionContext, providerRef
     throw new IntegrationContractError('provider_denied', 'The selected Composio profile could not be verified.');
   }
   const profileId = provider.scope.resourceId.slice(prefix.length, -suffix.length);
+  const inspection = await inspectOwnedPersonalComposioToolkit(context, { profileId, toolkit: provider.application });
+  if (inspection.provider.providerRef !== providerRef) throw new IntegrationContractError('provider_denied', 'The selected Composio profile could not be verified.');
+  return { ...inspection, provider };
+}
+
+/** The caller gates the declared app before this exact profile/toolkit metadata probe. */
+export async function inspectOwnedPersonalComposioToolkit(context: IntegrationExecutionContext,
+  input: { profileId: string; toolkit: string; expectedProviderRef?: string }): Promise<PersonalComposioProviderInspection> {
+  const { profileId, toolkit } = input;
+  if (!profileId || !/^[a-z0-9][a-z0-9_-]{0,127}$/u.test(toolkit) || !isComposioIntegrationApplicationVisible(toolkit)) {
+    throw new IntegrationContractError('provider_denied', 'Choose an allowed Composio app from an owned profile.');
+  }
   // Always resolve the explicit owned binding. A changed workspace default cannot
   // silently reroute a previously selected provider or invalidate an unrelated one.
   const resolved = await resolveBoundComposioContext({ userId: context.actorUserId, workspaceId: context.workspaceId, profileId });
+  const scope = { type: 'user' as const, ownerUserId: context.actorUserId, resourceId: `profile:${resolved.profileId}:${toolkit}` };
+  const providerRef = createIntegrationProviderRef({ source: 'composio', scope, profileId: resolved.profileId, toolkit });
+  if (input.expectedProviderRef !== undefined && input.expectedProviderRef !== providerRef) {
+    throw new IntegrationContractError('provider_denied', 'The selected Composio provider does not match its owned profile and app.');
+  }
   const mode = await getComposioMode(resolved.storageScope);
   if (mode === 'disabled') throw new IntegrationContractError('provider_unavailable', 'Composio is not configured.');
   const managed = mode === 'managed' ? await managedCapabilities(resolved) : null;
   const client = mode === 'local' ? await getComposio(resolved.storageScope) : null;
-  const app = await liveToolkit(resolved, mode, provider.application, client);
+  const app = await liveToolkit(resolved, mode, toolkit, client);
   const noAuth = (app.noAuth ?? app.isNoAuth ?? app.no_auth) === true;
-  const accounts = noAuth ? [] : (await liveAccounts(resolved, mode, client)).filter((item) => record(item.toolkit).slug === provider.application);
+  const accounts = noAuth ? [] : (await liveAccounts(resolved, mode, client, toolkit)).filter((item) => record(item.toolkit).slug === toolkit);
+  const revision = await credentialRevision(resolved, mode, managed, client);
+  const provider: PersonalComposioProviderInspection['provider'] = {
+    providerRef,
+    source: 'composio', application: toolkit, aliases: [toolkit, string(app.name) || toolkit],
+    displayName: `${string(app.name) || toolkit} · ${resolved.profileName}`, connection: { displayName: resolved.profileName, effective: false },
+    scope, state: 'unknown', configured: true, requiresAuth: !noAuth, authorized: 'unknown', health: 'unknown', canExecute: false,
+    checkedAt: new Date().toISOString(), statusSource: 'provider', pluginRefs: [], skillRefs: [], matchReasons: [], nextActions: [],
+  };
+  return { executionContext: { ...context }, provider, context: resolved, mode, managed, client,
+    credentialRevision: revision, noAuth, accounts };
+}
+
+/** Resolve the opaque choice only among owned profiles for the already permitted app. */
+export async function inspectPermittedPersonalComposioProvider(context: IntegrationExecutionContext, providerRef: string,
+  toolkit: string): Promise<PersonalComposioProviderInspection> {
+  if (!/^[a-z0-9][a-z0-9_-]{0,127}$/u.test(toolkit) || !isComposioIntegrationApplicationVisible(toolkit)) {
+    throw new IntegrationContractError('provider_denied', 'The selected Composio app is not allowed.');
+  }
+  const { listComposioProfiles } = await import('@/app/lib/composio/composio-profiles');
+  const profiles = await listComposioProfiles(context.actorUserId);
+  const profile = profiles.find(item => item.ownerUserId === context.actorUserId && item.status === 'active'
+    && createIntegrationProviderRef({ source: 'composio', profileId: item.id, toolkit,
+      scope: { type: 'user', resourceId: `profile:${item.id}:${toolkit}`, ownerUserId: context.actorUserId } }) === providerRef);
+  if (!profile) throw new IntegrationContractError('provider_denied', 'Choose an owned profile for the permitted Composio app.');
+  return inspectOwnedPersonalComposioToolkit(context, { profileId: profile.id, toolkit, expectedProviderRef: providerRef });
+}
+
+/** A held configuration transaction checks local identity without making provider requests. */
+export async function readPersonalComposioProviderCredentialRevision(previous: PersonalComposioProviderInspection): Promise<string> {
+  const mode = await getComposioMode(previous.context.storageScope);
+  if (mode !== previous.mode) throw new IntegrationContractError('binding_changed', 'The Composio provider mode changed. Choose the connection again.');
+  return credentialRevision(previous.context, previous.mode, previous.managed, previous.client);
+}
+
+/** An explicit selection is supplied only through the workflow service's private issued proof. */
+export function resolvePersonalComposioInspection(inspection: PersonalComposioProviderInspection, selectedAccountId?: string | null): IntegrationResolvedProvider {
+  const { executionContext: context, provider, context: resolved, mode, managed, client, noAuth, accounts, credentialRevision: revision } = inspection;
   const active = new Map(accounts.filter((item) => item.status === 'ACTIVE' && item.isDisabled !== true && item.is_disabled !== true
     && string(item.id)).map((item) => [string(item.id), item]));
-  const canExecute = noAuth || active.size === 1;
-  const accountId = !noAuth && active.size === 1 ? active.keys().next().value! : null;
-  const revision = await credentialRevision(resolved, mode, managed, client);
-  const binding: Binding = { kind: 'composio_binding', context: resolved, toolkit: provider.application, mode, accountId, noAuth, managed,
+  if (selectedAccountId !== undefined && (noAuth ? selectedAccountId !== null : !selectedAccountId || !active.has(selectedAccountId))) {
+    throw new IntegrationContractError('binding_changed', 'The selected Composio account is unavailable. Choose the app account again.');
+  }
+  const canExecute = noAuth || selectedAccountId !== undefined || active.size === 1;
+  const accountId = selectedAccountId === undefined ? !noAuth && active.size === 1 ? active.keys().next().value! : null : selectedAccountId;
+  const binding: Binding = { kind: 'composio_binding', context: resolved, toolkit: provider.application!, mode, accountId, noAuth, managed,
     client, credentialRevision: revision };
   return { provider: { ...provider, configured: true, requiresAuth: !noAuth, authorized: noAuth || active.size > 0,
     health: 'healthy', canExecute, state: canExecute ? 'ready' : active.size > 1 ? 'unknown' : 'auth_required',
     checkedAt: new Date().toISOString(), statusSource: 'provider' }, binding,
     bindingRevision: schemaFingerprint([context.actorUserId, context.organizationId ?? null, resolved.workspaceId,
       resolved.profileId, resolved.cacheRevision, resolved.composioUserId, mode, revision, noAuth,
-      accounts.map((item) => [string(item.id), string(item.status), item.isDisabled === true || item.is_disabled === true]).sort()]) };
+      (selectedAccountId === undefined ? accounts : accounts.filter(item => item.id === selectedAccountId))
+        .map((item) => [string(item.id), string(item.status), item.isDisabled === true || item.is_disabled === true]).sort()]) };
 }
 
 function pageError(providerRef: string, error: unknown): IntegrationProviderError {

@@ -2,6 +2,8 @@ import 'server-only';
 
 import { and, eq, isNull } from 'drizzle-orm';
 import { resolveAgentRuntimeSettings } from '@/app/lib/agents/effective-runtime-config';
+import type { AgentWorkflowRuntimeProjection } from '@/app/lib/agents/workflow-runtime';
+import { getRuntimeAgentWorkflowMode } from '@/app/lib/agents/workflow-runtime-mode';
 import { db } from '@/app/lib/db';
 import { piDelegations, piSessions } from '@/app/lib/db/schema';
 import type { AgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
@@ -17,6 +19,8 @@ export type ResolvedIntegrationRuntimePolicy = {
   policy: IntegrationPolicy;
   policyRevision: string;
   delegation: IntegrationDelegationTaskBinding | null;
+  /** Private issued authority; never persisted or included in model/UI metadata. */
+  workflowProjection?: AgentWorkflowRuntimeProjection | null;
 };
 
 /** Persisted task identity supplies the ceiling for either worker type; missing provenance never means unrestricted. */
@@ -88,11 +92,18 @@ export async function resolveIntegrationRuntimePolicy(input: {
   let delegationBinding: string | null = null;
   let delegationTask: IntegrationDelegationTaskBinding | null = null;
   let agentRevision: number | null = null;
+  let workflowProjection: AgentWorkflowRuntimeProjection | null = null;
+  let workflowPolicy: IntegrationPolicy | null = null;
   if (!planningMode && !emailEventAutomation) {
     try {
       const settings = await resolveAgentRuntimeSettings(executionContext.agentId);
       if (settings.agentId !== executionContext.agentId) throw new Error('The selected agent changed.');
       agentRevision = settings.agent.revision;
+      if (await getRuntimeAgentWorkflowMode(executionContext) === 1) {
+        const { resolveAgentWorkflowRuntimeProjection } = await import('@/app/lib/agents/workflow-runtime');
+        workflowProjection = await resolveAgentWorkflowRuntimeProjection(executionContext);
+      }
+      workflowPolicy = workflowProjection?.policy ?? null;
       const configured = settings.enabledTools.map((name) => name.trim());
       effectiveNames = configured.includes('__none__') ? new Set()
         : configured.length > 0 && !isLegacyEnabledToolsValue(configured)
@@ -109,13 +120,18 @@ export async function resolveIntegrationRuntimePolicy(input: {
     } catch {
       throw new IntegrationContractError('provider_denied', 'The current agent integration permissions could not be verified. Reload its tools.');
     }
+  } else if (await getRuntimeAgentWorkflowMode(executionContext) === 1) {
+    // Planning and inbox construction never inspect provider accounts or tools.
+    workflowPolicy = { allowedSources: null, allowedProviderRefs: null, allowedApplications: null,
+      allowedToolNames: null, allowedOperations: null, providerToolRules: [] };
   }
   const policy = intersectIntegrationPolicies(createIntegrationPolicyFromLegacyTools({
     legacyToolNames: effectiveNames, planningMode, emailEventAutomation,
-  }), ceiling, ...restrictions);
+  }), ceiling, ...(workflowPolicy ? [workflowPolicy] : []), ...restrictions);
   return {
     policy,
     delegation: delegationTask,
+    workflowProjection,
     policyRevision: `integration-policy:v1:${schemaFingerprint({
       actorUserId: executionContext.userId,
       organizationId: executionContext.organizationId,
@@ -123,6 +139,7 @@ export async function resolveIntegrationRuntimePolicy(input: {
       agentId: executionContext.agentId,
       sessionId: executionContext.sessionId,
       agentRevision,
+      workflowRevision: workflowProjection?.revision ?? null,
       delegationBinding,
       workspacePermissions: { canWrite: executionContext.canWrite, canDelete: executionContext.canDelete, canShare: executionContext.canShare },
       policy,

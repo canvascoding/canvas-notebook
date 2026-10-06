@@ -12,7 +12,8 @@ import { resolveRuntimeIntegrationExecutionContext } from '@/app/lib/integration
 import { prepareDelegatedIntegrationBindings } from '@/app/lib/integration-tools/delegation';
 import { readPrivateDelegatedIntegrationSnapshot } from '@/app/lib/integration-tools/delegation-contracts';
 import { integrationDispatcher, type IntegrationDispatchResult } from '@/app/lib/integration-tools/dispatcher';
-import { createIntegrationPolicyFromLegacyTools, INTEGRATION_LEGACY_CAPABILITY_NAMES, intersectIntegrationPolicies } from '@/app/lib/integration-tools/policy';
+import { createIntegrationPolicyFromLegacyTools, INTEGRATION_LEGACY_CAPABILITY_NAMES, intersectIntegrationPolicies,
+  integrationPolicyAllowedToolNames, isIntegrationProviderOperationAllowed } from '@/app/lib/integration-tools/policy';
 import { readIntegrationToolReceipt, type IntegrationToolReceipt } from '@/app/lib/integration-tools/receipt';
 import { IntegrationReferenceCache } from '@/app/lib/integration-tools/reference-cache';
 import { resolveIntegrationRuntimePolicy } from '@/app/lib/integration-tools/runtime-policy';
@@ -60,6 +61,11 @@ const receiptLabels = gatewayHost.__canvasIntegrationReceiptLabelsV1 ??= new Int
 
 function freezePolicy(policy: IntegrationPolicy): IntegrationPolicy {
   const copy = structuredClone(policy);
+  for (const rule of copy.providerToolRules ?? []) {
+    if (rule.allowedToolNames) Object.freeze(rule.allowedToolNames);
+    if (rule.allowedOperations) Object.freeze(rule.allowedOperations);
+    Object.freeze(rule);
+  }
   for (const value of Object.values(copy)) if (Array.isArray(value)) Object.freeze(value);
   return Object.freeze(copy);
 }
@@ -171,7 +177,12 @@ export function createIntegrationGatewayTool(
         const resolved = await dependencies.resolveContext({ executionContext: { ...current }, policyRevision: 'script-binding-check' });
         const runtime = await dependencies.resolvePolicy({ executionContext: resolved.executionContext, ceiling,
           planningMode: options.planningMode, emailEventAutomation: options.emailEventAutomation });
-        return { ...dependencies.dispatcher.inspectIssuedToolIdentity({ ...resolved.integrationContext, policyRevision: runtime.policyRevision }, runtime.policy, toolRef, schemaRef),
+        const context = { ...resolved.integrationContext, policyRevision: runtime.policyRevision };
+        if (runtime.workflowProjection) {
+          const { attachAgentWorkflowRuntimeProjection } = await import('@/app/lib/agents/workflow-runtime');
+          attachAgentWorkflowRuntimeProjection(context, runtime.workflowProjection);
+        }
+        return { ...dependencies.dispatcher.inspectIssuedToolIdentity(context, runtime.policy, toolRef, schemaRef),
           inputSchema: structuredClone(details.inputSchema) };
       },
     },
@@ -211,6 +222,22 @@ export function createIntegrationGatewayTool(
             context: { ...resolved.integrationContext, policyRevision: runtimePolicy.policyRevision },
             policy: runtimePolicy.policy, executionContext: resolved.executionContext,
           };
+          if (runtimePolicy.workflowProjection) {
+            const { attachAgentWorkflowRuntimeProjection } = await import('@/app/lib/agents/workflow-runtime');
+            attachAgentWorkflowRuntimeProjection(authority.context, runtimePolicy.workflowProjection);
+          }
+          if (request?.action === 'call' && runtimePolicy.workflowProjection && dependencies.dispatcher.inspectIssuedToolIdentity) {
+            const issued = dependencies.dispatcher.inspectIssuedToolIdentity(authority.context, authority.policy, request.toolRef, request.schemaRef);
+            const names = integrationPolicyAllowedToolNames(authority.policy, issued.source, issued.providerRef);
+            if (!isIntegrationProviderOperationAllowed(authority.policy, issued.source, issued.providerRef, 'call')
+              || names !== null && !names.includes(issued.toolName)
+              || authority.policy.allowedApplications !== null
+                && (!issued.application || !authority.policy.allowedApplications.includes(issued.application))) {
+              throw new IntegrationContractError('tool_denied', ERROR_MESSAGES.tool_denied);
+            }
+          } else if (request?.action === 'call' && runtimePolicy.workflowProjection) {
+            throw new IntegrationContractError('tool_denied', ERROR_MESSAGES.tool_denied);
+          }
           const task = runtimePolicy.delegation;
           if (request?.action === 'call' && task) {
             delegatedParentTurn = {
@@ -233,6 +260,16 @@ export function createIntegrationGatewayTool(
               userId: parent.actorUserId, sessionId: parent.sessionId, agentId: parent.agentId,
               workspaceId: parent.workspaceId, agentTurnId: parent.agentTurnId ?? undefined,
             };
+          }
+          if (request?.action === 'call') {
+            if (isIntegrationTurnUncertain(uncertainTurn!) || await dependencies.isPersistedUncertain(uncertainTurn!)) {
+              throw new IntegrationContractError('outcome_unknown', ERROR_MESSAGES.outcome_unknown);
+            }
+            if (runtimePolicy.workflowProjection) {
+              const { assertAgentWorkflowRuntimeReady } = await import('@/app/lib/agents/workflow-runtime');
+              await assertAgentWorkflowRuntimeReady({ context: authority.context, policy: authority.policy,
+                projection: runtimePolicy.workflowProjection, signal });
+            }
           }
           return authority;
         };

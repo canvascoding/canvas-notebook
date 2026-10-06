@@ -15,12 +15,15 @@ import {
   type IntegrationToolPage,
   type IntegrationToolSchema,
 } from './contracts';
-import { isIntegrationOperationAllowed, isIntegrationProviderVisible, isIntegrationToolAllowed } from './policy';
+import { integrationPolicyAllowedToolNames, isIntegrationProviderOperationAllowed, isIntegrationProviderReferenceAllowed, isIntegrationProviderVisible, isIntegrationToolAllowed } from './policy';
 import { findSharedIntegrationConnectionAuthorization, getIntegrationProviderAuthorization, integrationProviderAllowedToolNames,
   revalidateIntegrationProviderAuthorization } from './connections/provider-authorization';
 import type { AuthorizedIntegrationConnection } from './connections/contracts';
 import { createSharedIntegrationPolicyDescriptor } from './connections/provider-policy';
 import { IntegrationReferenceCache } from './reference-cache';
+import { transferPersonalWorkflowProviderTargets } from './workflow-personal-bindings';
+import { transferWorkflowProviderAssociations } from './workflow-provider-associations';
+import { getAttachedPersonalWorkflowProviderDescriptor } from './workflow-personal-provenance';
 import { createIntegrationToolRef } from './references';
 import type { DelegatedComposioToolBinding, IntegrationBindingSelection } from './delegation-contracts';
 import type {
@@ -95,8 +98,22 @@ async function assertSharedProviderPolicy(context: IntegrationExecutionContext, 
     throw new IntegrationContractError('provider_denied', 'This integration is not available to the current agent.');
   }
   if (toolName ? !isIntegrationToolAllowed(context, policy, provider, toolName, operation)
-    : integrationProviderAllowedToolNames(context, provider, policy.allowedToolNames)?.length === 0) {
+    : integrationProviderAllowedToolNames(context, provider, integrationPolicyAllowedToolNames(policy, provider.source, providerRef))?.length === 0) {
     throw new IntegrationContractError('tool_denied', 'No requested tools are enabled for this shared connection.');
+  }
+}
+
+function assertPersonalProviderPolicy(context: IntegrationExecutionContext, policy: IntegrationPolicy,
+  providerRef: string, operation: IntegrationOperation, toolName?: string): void {
+  if (!/^(mcp|composio):v1:personal:/u.test(providerRef)) return;
+  const provider = getAttachedPersonalWorkflowProviderDescriptor(context, providerRef);
+  if (!provider || !isIntegrationProviderVisible(context, policy, provider)) {
+    throw new IntegrationContractError('provider_denied', 'This integration is not available to the current agent.');
+  }
+  if (!isIntegrationProviderOperationAllowed(policy, provider.source, providerRef, operation)
+    || (toolName ? !isIntegrationToolAllowed(context, policy, provider, toolName, operation)
+      : integrationPolicyAllowedToolNames(policy, provider.source, providerRef)?.length === 0)) {
+    throw new IntegrationContractError('tool_denied', 'The requested tools are not enabled for this workflow connection.');
   }
 }
 
@@ -113,7 +130,8 @@ export class IntegrationDispatcher {
       || issued.route.source !== route.source || issued.contextFingerprint !== currentPolicyFingerprint(context, policy)) {
       throw new IntegrationContractError('schema_changed', 'Load the current tool schema before executing.');
     }
-    return { source: route.source, toolName: route.toolName, ...(issued.application ? { application: issued.application } : {}) };
+    return { source: route.source, providerRef: route.providerRef, toolName: route.toolName,
+      ...(issued.application ? { application: issued.application } : {}) };
   }
 
   constructor(private readonly dependencies: {
@@ -141,6 +159,8 @@ export class IntegrationDispatcher {
     signal?: AbortSignal;
   }): Promise<DelegatedComposioToolBinding> {
     const context = { ...input.context };
+    transferPersonalWorkflowProviderTargets(input.context, context);
+    transferWorkflowProviderAssociations(input.context, context);
     const policy = structuredClone(input.policy);
     const selection = { ...input.selection };
     if (!context.sessionId?.trim()) throw new IntegrationContractError('provider_denied', 'An owned parent session is required for integration handoff.');
@@ -163,11 +183,13 @@ export class IntegrationDispatcher {
     signal?.throwIfAborted();
     if (sourceFromProviderRef(binding.providerRef) !== 'composio'
       || binding.tool.name !== binding.toolName || !binding.tool.toolVersion
-      || !isIntegrationOperationAllowed(policy, 'composio', operation)) {
+      || !isIntegrationProviderOperationAllowed(policy, 'composio', binding.providerRef, operation)
+      || integrationPolicyAllowedToolNames(policy, 'composio', binding.providerRef)?.includes(binding.toolName) === false) {
       throw new IntegrationContractError('tool_denied', 'The approved Composio operation is not available to this agent.');
     }
     const shared = await findSharedIntegrationConnectionAuthorization(context, binding.providerRef, 'use', binding.toolName);
     await assertSharedProviderPolicy(context, policy, shared, binding.providerRef, operation, binding.toolName);
+    assertPersonalProviderPolicy(context, policy, binding.providerRef, operation, binding.toolName);
     const adapter = await this.adapter('composio');
     const resolved = await adapter.resolveProvider(context, binding.providerRef);
     assertProviderAllowed(context, policy, resolved, binding.providerRef);
@@ -193,6 +215,8 @@ export class IntegrationDispatcher {
     operation: 'describe' | 'call'; signal?: AbortSignal;
   }): Promise<void> {
     const context = { ...input.context };
+    transferPersonalWorkflowProviderTargets(input.context, context);
+    transferWorkflowProviderAssociations(input.context, context);
     const policy = structuredClone(input.policy);
     const binding = structuredClone(input.binding);
     await this.checkDelegatedComposioSchema(context, policy, binding, input.operation, input.signal);
@@ -206,6 +230,8 @@ export class IntegrationDispatcher {
     signal?: AbortSignal;
   }): Promise<IntegrationToolSchema> {
     const context = { ...input.context };
+    transferPersonalWorkflowProviderTargets(input.context, context);
+    transferWorkflowProviderAssociations(input.context, context);
     const policy = structuredClone(input.policy);
     const binding = structuredClone(input.binding);
     if (!context.sessionId?.trim()) throw new IntegrationContractError('provider_denied', 'An owned worker session is required for integration handoff.');
@@ -246,6 +272,8 @@ export class IntegrationDispatcher {
       : { ...parsedRequest };
     // Capture a single server-resolved context and policy; do not accept either from tool arguments.
     const context = { ...input.context };
+    transferPersonalWorkflowProviderTargets(input.context, context);
+    transferWorkflowProviderAssociations(input.context, context);
     const policy = structuredClone(input.policy);
     const signal = input.signal;
     const toolCallId = input.toolCallId;
@@ -264,18 +292,22 @@ export class IntegrationDispatcher {
     if ('target' in request && request.target === 'tools') {
       const source = sourceFromProviderRef(request.providerRef);
       const operation = request.action === 'list' ? 'list_tools' : 'search_tools';
-      if (!isIntegrationOperationAllowed(policy, source, operation)) {
+      if (!isIntegrationProviderReferenceAllowed(policy, source, request.providerRef)) {
+        throw new IntegrationContractError('provider_denied', 'This integration is not available to the current agent.');
+      }
+      if (!isIntegrationProviderOperationAllowed(policy, source, request.providerRef, operation)) {
         throw new IntegrationContractError('tool_denied', 'Tool discovery is not enabled for this integration source.');
       }
       const shared = await findSharedIntegrationConnectionAuthorization(context, request.providerRef, 'use');
       await assertSharedProviderPolicy(context, policy, shared, request.providerRef, operation);
+      assertPersonalProviderPolicy(context, policy, request.providerRef, operation);
       const adapter = await this.adapter(source);
       const resolved = await adapter.resolveProvider(context, request.providerRef);
       assertProviderAllowed(context, policy, resolved, request.providerRef);
       const page = await adapter.listTools(context, resolved, {
         query: request.action === 'search' ? request.query : undefined,
         limit: request.limit ?? 12, cursor: request.cursor, signal,
-        allowedToolNames: integrationProviderAllowedToolNames(context, resolved.provider, policy.allowedToolNames),
+        allowedToolNames: integrationProviderAllowedToolNames(context, resolved.provider, integrationPolicyAllowedToolNames(policy, source, request.providerRef)),
       });
       await revalidateIntegrationProviderAuthorization(context, resolved.provider, 'use');
       const tools: IntegrationToolDescriptor[] = page.tools
@@ -303,11 +335,16 @@ export class IntegrationDispatcher {
 
     const route = this.routes.get(`${namespace}:${request.toolRef}`);
     if (!route) throw new IntegrationContractError('tool_not_found', 'Find this tool in the current integration context before loading its schema.');
-    if (!isIntegrationOperationAllowed(policy, route.source, request.action)) {
+    if (!isIntegrationProviderReferenceAllowed(policy, route.source, route.providerRef)) {
+      throw new IntegrationContractError('provider_denied', 'This integration is not available to the current agent.');
+    }
+    if (!isIntegrationProviderOperationAllowed(policy, route.source, route.providerRef, request.action)
+      || integrationPolicyAllowedToolNames(policy, route.source, route.providerRef)?.includes(route.toolName) === false) {
       throw new IntegrationContractError('tool_denied', 'This tool operation is not enabled for the current agent.');
     }
     const shared = await findSharedIntegrationConnectionAuthorization(context, route.providerRef, 'use', route.toolName);
     await assertSharedProviderPolicy(context, policy, shared, route.providerRef, request.action, route.toolName);
+    assertPersonalProviderPolicy(context, policy, route.providerRef, request.action, route.toolName);
     const adapter = await this.adapter(route.source);
     const resolved = await adapter.resolveProvider(context, route.providerRef);
     assertProviderAllowed(context, policy, resolved, route.providerRef);
@@ -370,6 +407,9 @@ export class IntegrationDispatcher {
     await validateIntegrationArguments(current.inputSchema, args);
     const beforeDispatch = async () => {
       await beforeToolCall?.();
+      if (!isIntegrationToolAllowed(context, policy, resolved.provider, route.toolName, 'call')) {
+        throw new IntegrationContractError('tool_denied', 'This tool is not available to the current agent.');
+      }
       await revalidateIntegrationProviderAuthorization(context, resolved.provider, 'use', route.toolName);
     };
     await beforeDispatch();

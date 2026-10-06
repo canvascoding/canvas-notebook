@@ -29,6 +29,7 @@ type McpRuntimeBinding = {
   configAuthHash: string;
   configHash: string;
   environmentRevision: string;
+  workflowIdentity?: { ownerUserId: string; connectionId: string; serverDefinitionId: string | null; fingerprint: string };
 };
 type McpDescriptionCatalog = { tools: IntegrationAdapterTool[]; revision: string };
 
@@ -37,6 +38,9 @@ function denied(): IntegrationContractError {
 }
 
 async function resolveProvider(context: IntegrationExecutionContext, providerRef: string): Promise<IntegrationResolvedProvider> {
+  if (providerRef.startsWith('mcp:v1:personal:')) {
+    return (await import('../workflow-personal-bindings')).resolveAttachedPersonalWorkflowProvider(context, providerRef);
+  }
   const authorization = await findSharedIntegrationConnectionAuthorization(context, providerRef);
   if (authorization) {
     const current = await resolveSharedMcpIntegrationProvider(context, authorization, 'use');
@@ -82,8 +86,20 @@ async function resolveProvider(context: IntegrationExecutionContext, providerRef
       environmentRevision: environment.revision, definitionRevision: definition?.revision || null,
       definitionConfig: definition?.config || null,
     }),
-    binding: { connectionId: connection.connectionId, serverName, scope: credentialScope, configAuthHash, configHash, environmentRevision: environment.revision } satisfies McpRuntimeBinding,
+    binding: { connectionId: connection.connectionId, serverName, scope: credentialScope, configAuthHash, configHash, environmentRevision: environment.revision,
+      workflowIdentity: { ownerUserId: actor.userId, connectionId: connection.connectionId, serverDefinitionId: connection.serverDefinitionId || null,
+        fingerprint: schemaFingerprint([connection.connectionId, actor.userId, connection.organizationId || null,
+          configAuthHash, connection.enabled !== false, connection.authVersion || 1, lifecycle.generation,
+          environment.revision, definition?.enabled ?? null, definition?.revision ?? null, definition?.config || null]) } } satisfies McpRuntimeBinding,
   };
+}
+
+export async function inspectPersonalMcpIntegrationProvider(context: IntegrationExecutionContext, providerRef: string) {
+  if (!providerRef.startsWith('mcp:v1:') || providerRef.includes(':personal:') || providerRef.includes(':shared:')) throw denied();
+  const resolved = await resolveProvider(context, providerRef);
+  const identity = (resolved.binding as McpRuntimeBinding).workflowIdentity;
+  if (!identity || identity.ownerUserId !== context.actorUserId) throw denied();
+  return { resolved, identity };
 }
 
 async function freshProvider(context: IntegrationExecutionContext, previous: IntegrationResolvedProvider) {

@@ -1,6 +1,7 @@
 import 'server-only';
 
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 
 import type { AgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
 import { getAgentProfile, normalizeManagedAgentId } from '@/app/lib/agents/registry';
@@ -11,7 +12,7 @@ import { resolveCapabilityExecutionContextForUser } from '@/app/lib/capabilities
 import { readOrganizationPermissionForUser } from '@/app/lib/organization/permissions';
 import type { CapabilityCandidate, EffectiveCapabilitySnapshot } from '@/app/lib/capabilities/types';
 import { capabilityResourceStorageBinding } from '../resources/storage-binding';
-import { withAuthorizedCapabilityPackageResource } from '../resources/store';
+import { findCapabilityResourceRecord, withAuthorizedCapabilityPackageResource } from '../resources/store';
 import type { CapabilityResourceStorageBinding } from '../resources/contracts';
 import { selectPromptSkillsForAgent } from '@/app/lib/skills/agent-skill-selection';
 import { parseSkillFile, type CanvasSkill } from '@/app/lib/skills/canvas-skill-manifest';
@@ -19,6 +20,8 @@ import { getSkillsContext } from '@/app/lib/skills/skill-context';
 import { CapabilityPackageError, type CapabilityPackagePublishedLocation, type CapabilityPackagePublishedRevision } from './contracts';
 import { findCapabilityPackageStateForStorage, getCapabilityPackagePublishedRevision } from './store';
 import { normalizeCapabilityPackageRelativePath, resolveOwnerScopedPackageVersionPath, verifyCapabilityPackageSnapshot } from './io';
+import { createCapabilityReference } from '../reference';
+import type { AgentWorkflowInternalSnapshot, StoredAgentWorkflowPackage } from '@/app/lib/agents/workflow-contracts';
 
 /** Server-only receipt. Its strings are not authority; the private issued proof is required. */
 export type HeldCapabilityPackageRuntimeBinding = Readonly<{
@@ -44,6 +47,151 @@ type RuntimeBindingRegistry = { issued: WeakSet<object>; proofs: WeakMap<object,
 const registryKey = Symbol.for('canvas.capability.package-runtime-bindings.v1');
 const shared = globalThis as typeof globalThis & { [registryKey]?: RuntimeBindingRegistry };
 const registry = shared[registryKey] ??= { issued: new WeakSet(), proofs: new WeakMap() };
+
+/** Private server-only selection; package strings alone never authorize execution. */
+export type AuthorizedAgentWorkflowPackageSelections = Readonly<{
+  workflowVersion: 1 | null;
+  workflowRevision: number;
+  packages: readonly StoredAgentWorkflowPackage[];
+  fingerprint: string;
+  snapshot: AgentWorkflowInternalSnapshot;
+}>;
+type PinnedPackage = { configuration: StoredAgentWorkflowPackage; candidate: CapabilityCandidate;
+  storage: CapabilityResourceStorageBinding; location: CapabilityPackagePublishedLocation;
+  published: CapabilityPackagePublishedRevision; skills: CapabilityCandidate[] };
+type WorkflowSelectionProof = { actorKey: string; effective: EffectiveCapabilitySnapshot; pinned: PinnedPackage[] };
+const workflowRegistryKey = Symbol.for('canvas.capability.workflow-package-selections.v1');
+const workflowGlobal = globalThis as typeof globalThis & { [workflowRegistryKey]?: WeakMap<object, WorkflowSelectionProof> };
+const workflowRegistry = workflowGlobal[workflowRegistryKey] ??= new WeakMap<object, WorkflowSelectionProof>();
+
+export function isAuthorizedAgentWorkflowPackageSelections(value: unknown,
+  context: AgentExecutionContext): value is AuthorizedAgentWorkflowPackageSelections {
+  return Boolean(value && typeof value === 'object' && workflowRegistry.get(value)?.actorKey === actorKey(context));
+}
+
+/** One fresh reader and the same local package authority serve prompt, script and integration projection. */
+export async function getAuthorizedAgentWorkflowPackageSelections(
+  context: AgentExecutionContext,
+): Promise<AuthorizedAgentWorkflowPackageSelections> {
+  const { readManagedAgentWorkflow, isManagedAgentWorkflowSnapshot } = await import('@/app/lib/agents/workflow-configuration');
+  const snapshot = await readManagedAgentWorkflow({ userId: context.userId, sessionId: context.sessionId,
+    source: 'system', sourceAgentId: normalizeManagedAgentId(context.agentId),
+    organizationId: context.organizationId, workspaceId: context.workspaceId, projectId: context.projectId },
+  normalizeManagedAgentId(context.agentId));
+  if (!isManagedAgentWorkflowSnapshot(snapshot) || !snapshot.access.canUse
+    || snapshot.agent.agentId !== normalizeManagedAgentId(context.agentId)
+    || (snapshot.workflowVersion !== null && snapshot.workflowVersion !== 1)) {
+    throw new CapabilityPackageError('PACKAGE_ACCESS_DENIED', 'The runtime workflow cannot be verified.', 403);
+  }
+  const effective = await currentSnapshot(context, false), pinned: PinnedPackage[] = [];
+  if (snapshot.workflowVersion === 1) {
+    const verified = new Set<string>();
+    for (const binding of snapshot.bindings) {
+      if (binding.resourceType === 'connection') continue;
+      if (!binding.configuration) throw new CapabilityPackageError('PACKAGE_INVALID', 'The runtime workflow package is invalid.', 409);
+      const configuration = binding.configuration;
+      const record = await findCapabilityResourceRecord(configuration.resourceRef);
+      const candidate = record && effective.capabilities.find(entry => entry.ref.resourceId === record.storage.resourceId);
+      if (!record || !candidate || !candidate.runtimePath || candidate.ref.sourceType === 'core'
+        || candidate.ref.sourceType === 'plugin' || candidate.ref.resourceId !== binding.resourceId) {
+        throw new CapabilityPackageError('PACKAGE_ACCESS_DENIED', 'The configured package is unavailable.', 403);
+      }
+      const storage = capabilityResourceStorageBinding(record.storage);
+      const entry = await withAuthorizedCapabilityPackageResource({ userId: context.userId, workspaceId: context.workspaceId }, storage, 'use', undefined,
+        async (authorization, database): Promise<PinnedPackage> => {
+          const state = await findCapabilityPackageStateForStorage(storage, database);
+          const published = state?.resourceRef === configuration.resourceRef
+            ? await getCapabilityPackagePublishedRevision(configuration.resourceRef, configuration.publishedRevisionRef, database) : null;
+          if (!published || published.checksum !== configuration.checksum || published.kind !== candidate.ref.resourceType) {
+            throw new CapabilityPackageError('PACKAGE_SNAPSHOT_UNAVAILABLE', 'The configured package revision is unavailable.', 409);
+          }
+          const location: CapabilityPackagePublishedLocation = { ...published, owner: authorization.record.metadata.ownership,
+            rootPath: resolveOwnerScopedPackageVersionPath({ ...published, owner: authorization.record.metadata.ownership }) };
+          if (!verified.has(published.revisionRef)) { await verifyCapabilityPackageSnapshot(location); verified.add(published.revisionRef); }
+          const skills: CapabilityCandidate[] = [];
+          const seen = new Set<string>(), names = new Set<string>();
+          for (const selected of configuration.selectedSkills) {
+            const relative = selected.relativeRoot;
+            if (relative) normalizeCapabilityPackageRelativePath(relative);
+            if ((published.kind === 'skill' && relative !== '') || (published.kind === 'plugin' && !relative)
+              || seen.has(relative) || names.has(selected.name) || !published.files.some(file => file.path === (relative ? `${relative}/SKILL.md` : 'SKILL.md'))) {
+              throw new CapabilityPackageError('PACKAGE_INVALID', 'The configured skill selection is invalid.', 409);
+            }
+            seen.add(relative);
+            names.add(selected.name);
+            if (configuration.skillSelection.kind === 'skills' && !configuration.skillSelection.relativeRoots.includes(relative)) {
+              throw new CapabilityPackageError('PACKAGE_INVALID', 'The configured skill selection is invalid.', 409);
+            }
+            const skill = await parseSkillFile(path.join(location.rootPath, ...relative.split('/').filter(Boolean), 'SKILL.md'));
+            if (!skill || skill.name !== selected.name) throw new CapabilityPackageError('PACKAGE_INVALID', 'The configured skill identity is invalid.', 409);
+            const ref = published.kind === 'skill' ? { ...candidate.ref, version: skill.version ?? published.version, checksum: published.checksum }
+              : createCapabilityReference({ resourceType: 'skill', scopeType: candidate.ref.scopeType, name: skill.name,
+                version: skill.version ?? published.version, revision: candidate.ref.revision, checksum: published.checksum, sourceType: 'plugin',
+                organizationId: candidate.ref.organizationId, ownerUserId: candidate.ref.ownerUserId,
+                sourcePluginId: candidate.ref.resourceId, sourcePluginName: candidate.ref.name });
+            const current = effective.capabilities.find(value => value.ref.resourceId === ref.resourceId);
+            skills.push({ ...(current ?? candidate), ref, description: skill.description, runtimePath: skill.path,
+              ...(published.kind === 'plugin' ? { pluginResourceId: candidate.ref.resourceId } : {}),
+              resourceAccess: { ...authorization.access, canEdit: false, canManage: false }, resourceMetadata: authorization.record.metadata });
+          }
+          if (configuration.skillSelection.kind === 'skills' && (skills.length !== configuration.skillSelection.relativeRoots.length)) {
+            throw new CapabilityPackageError('PACKAGE_INVALID', 'The configured skill selection is incomplete.', 409);
+          }
+          return { configuration, candidate: { ...candidate, resourceAccess: authorization.access, resourceMetadata: authorization.record.metadata },
+            storage, location, published, skills };
+        });
+      pinned.push(entry);
+    }
+  }
+  const selectedIds = new Set(pinned.flatMap(entry => [entry.candidate.ref.resourceId, ...entry.skills.map(skill => skill.ref.resourceId)]));
+  const additions = pinned.flatMap(entry => entry.skills).filter(candidate => !effective.capabilities.some(entry => entry.ref.resourceId === candidate.ref.resourceId));
+  const state = await readOrganizationPermissionForUser(context.userId);
+  const policies = context.organizationId ? await withCapabilityPolicyStore(store => store.listOrganizationPolicies(context.organizationId!)) : [];
+  const projected = snapshot.workflowVersion === null ? effective : resolveEffectiveCapabilities({
+    context: { userId: effective.userId, organizationId: effective.organizationId, workspaceId: effective.workspaceId,
+      projectId: effective.projectId, role: state.permission?.role },
+    candidates: [...effective.capabilities, ...additions].map(candidate => selectedIds.has(candidate.ref.resourceId)
+      ? { ...candidate, enabled: true, userPreference: 'enabled' as const, connectionRequirementCount: 0 } : candidate), policies,
+  });
+  for (const entry of pinned) {
+    for (const candidate of [entry.candidate, ...entry.skills]) {
+      const current = projected.capabilities.find(value => value.ref.resourceId === candidate.ref.resourceId);
+      if (!current?.effectiveEnabled || current.readiness !== 'available' || current.resourceAccess?.canUse === false) {
+        throw new CapabilityPackageError('PACKAGE_ACCESS_DENIED', 'The configured package is blocked or unavailable.', 403);
+      }
+    }
+  }
+  const result: AuthorizedAgentWorkflowPackageSelections = Object.freeze({ workflowVersion: snapshot.workflowVersion,
+    workflowRevision: snapshot.workflowRevision, packages: Object.freeze(pinned.map(entry => entry.configuration)), snapshot,
+    fingerprint: createHash('sha256').update(JSON.stringify([snapshot.agent.revision, snapshot.workflowVersion, snapshot.workflowRevision,
+      snapshot.preferenceRevision, snapshot.choices, snapshot.workflowVersion === null ? projected.snapshotId
+        : projected.capabilities.filter(candidate => selectedIds.has(candidate.ref.resourceId)).map(candidate => [candidate.ref.resourceId,
+          candidate.effectiveEnabled, candidate.readiness, candidate.effectivePolicy, candidate.resourceAccess?.canUse,
+          candidate.matchedPolicies.map(policy => [policy.id, policy.revision, policy.effect])]), pinned.map(entry => [entry.published.resourceRef,
+        entry.published.revisionRef, entry.published.checksum, entry.candidate.resourceMetadata?.metadataRevision,
+        entry.candidate.resourceMetadata?.grantsRevision, entry.configuration.selectedSkills])])).digest('hex') });
+  workflowRegistry.set(result, { actorKey: actorKey(context), effective: projected, pinned });
+  return result;
+}
+
+function selectedRuntimeSkills(snapshot: EffectiveCapabilitySnapshot, agentId: string | null | undefined,
+  relevantSkills: string[] | null | undefined, workflow: AuthorizedAgentWorkflowPackageSelections): CapabilityCandidate[] {
+  if (workflow.workflowVersion === null) return selectedSkills(snapshot, agentId, relevantSkills);
+  const proof = workflowRegistry.get(workflow)!;
+  const required = selectedSkills(snapshot, agentId, relevantSkills).filter(candidate => candidate.ref.sourceType === 'core'
+    || snapshot.capabilities.find(entry => entry.ref.resourceId === candidate.ref.resourceId)?.effectivePolicy === 'required');
+  return [...new Map([...required, ...proof.pinned.flatMap(entry => entry.skills)].map(candidate => [candidate.ref.resourceId, candidate])).values()];
+}
+
+function issuePinnedSkill(context: AgentExecutionContext, entry: PinnedPackage, candidate: CapabilityCandidate): HeldCapabilityPackageRuntimeBinding {
+  const selected = entry.configuration.selectedSkills.find(skill => skill.name === candidate.ref.name)!;
+  const parentStorage = entry.published.kind === 'plugin' ? entry.storage : undefined;
+  return issue(context, { resourceRef: entry.published.resourceRef, publishedRevisionRef: entry.published.revisionRef,
+    checksum: entry.published.checksum, childRelativeRoot: selected.relativeRoot, skillName: candidate.ref.name,
+    resourceId: candidate.ref.resourceId, runtimePath: candidate.runtimePath! },
+  { storage: capabilityResourceStorageBinding(candidate.ref), ...(parentStorage ? { parentStorage } : {}), candidate,
+    ...(parentStorage ? { parentCandidate: entry.candidate } : {}), location: entry.location, published: entry.published });
+}
 
 function actorKey(context: AgentExecutionContext): string {
   return JSON.stringify([context.userId, context.sessionId, context.agentId ?? null, context.workspaceId,
@@ -151,12 +299,16 @@ async function captureSelectedBinding(context: AgentExecutionContext, candidate:
 export async function captureCapabilityPackageRuntimeBindings(context: AgentExecutionContext): Promise<{
   skillReadRoots: string[]; skillPackageBindings: HeldCapabilityPackageRuntimeBinding[];
 }> {
-  const [snapshot, profile] = await Promise.all([currentSnapshot(context, true), getAgentProfile(normalizeManagedAgentId(context.agentId))]);
-  const selected = selectedSkills(snapshot, context.agentId, profile?.relevantSkills);
+  const workflow = await getAuthorizedAgentWorkflowPackageSelections(context);
+  const proof = workflowRegistry.get(workflow)!;
+  const snapshot = proof.effective;
+  const selected = selectedRuntimeSkills(snapshot, context.agentId, workflow.snapshot.agent.relevantSkills, workflow);
   const verified = new Set<string>();
   const skillReadRoots: string[] = [], skillPackageBindings: HeldCapabilityPackageRuntimeBinding[] = [];
   for (const candidate of selected) {
-    const binding = await captureSelectedBinding(context, candidate, snapshot.capabilities, verified);
+    const pinned = proof.pinned.find(entry => entry.skills.some(skill => skill.ref.resourceId === candidate.ref.resourceId));
+    const binding = pinned ? issuePinnedSkill(context, pinned, candidate)
+      : await captureSelectedBinding(context, candidate, snapshot.capabilities, verified);
     if (binding) skillPackageBindings.push(binding);
     skillReadRoots.push(path.dirname(path.resolve(binding?.runtimePath ?? candidate.runtimePath!)));
   }
@@ -175,6 +327,15 @@ export async function getAuthorizedCapabilityPackageRuntimeBindings(context:Agen
 export async function revalidateCapabilityPackageRuntimeBindings(context: AgentExecutionContext,
   snapshot: EffectiveCapabilitySnapshot, relevantSkills?: string[] | null,
   selectionAgentId = context.agentId): Promise<HeldCapabilityPackageRuntimeBinding[]> {
+  const workflow = await getAuthorizedAgentWorkflowPackageSelections({ ...context, agentId: selectionAgentId ?? null });
+  let workflowIds: Set<string> | undefined;
+  const workflowPinned = workflowRegistry.get(workflow)!.pinned.flatMap(entry => entry.skills.map(skill => ({ entry, skill })));
+  if (workflow.workflowVersion === 1) {
+    const proof = workflowRegistry.get(workflow)!;
+    workflowIds = new Set(selectedRuntimeSkills(proof.effective, selectionAgentId, workflow.snapshot.agent.relevantSkills, workflow)
+      .map(candidate => candidate.ref.resourceId));
+    snapshot = proof.effective;
+  }
   const authorized: HeldCapabilityPackageRuntimeBinding[] = [];
   const additions: CapabilityCandidate[] = [];
   const verified = new Set<string>();
@@ -217,8 +378,15 @@ export async function revalidateCapabilityPackageRuntimeBindings(context: AgentE
       workspaceId: snapshot.workspaceId, projectId: snapshot.projectId, role: state.permission?.role },
     candidates: [...snapshot.capabilities, ...additions], policies });
   }
-  const currentIds = new Set(selectedSkills(effective, selectionAgentId, relevantSkills).map(candidate => candidate.ref.resourceId));
-  return authorized.filter(binding => currentIds.has(binding.resourceId));
+  const currentIds = workflowIds ?? new Set(selectedSkills(effective, selectionAgentId, relevantSkills).map(candidate => candidate.ref.resourceId));
+  return authorized.filter(binding => {
+    if (!currentIds.has(binding.resourceId)) return false;
+    const match = workflowPinned.find(value => value.skill.ref.resourceId === binding.resourceId);
+    return !match || (match.entry.published.resourceRef === binding.resourceRef
+      && match.entry.published.revisionRef === binding.publishedRevisionRef && match.entry.published.checksum === binding.checksum
+      && match.skill.runtimePath === binding.runtimePath
+      && match.entry.configuration.selectedSkills.some(skill => skill.name === binding.skillName && skill.relativeRoot === binding.childRelativeRoot));
+  });
 }
 
 /** Child contexts receive a new proof for the same held version, never a copied parent proof. */
@@ -227,7 +395,8 @@ export async function reissueCapabilityPackageRuntimeBindings(previous: AgentExe
   if (previous.userId !== next.userId || previous.workspaceId !== next.workspaceId || previous.organizationId !== next.organizationId) {
     throw new CapabilityPackageError('PACKAGE_ACCESS_DENIED', 'The runtime package actor cannot change.', 403);
   }
-  const [snapshot, profile] = await Promise.all([currentSnapshot(previous, false), getAgentProfile(normalizeManagedAgentId(next.agentId))]);
+  const workflow = await getAuthorizedAgentWorkflowPackageSelections(next);
+  const snapshot = workflowRegistry.get(workflow)!.effective, profile = workflow.snapshot.agent;
   const retained = await revalidateCapabilityPackageRuntimeBindings(previous, snapshot, profile?.relevantSkills, next.agentId);
   const bindings = retained.map(binding => {
     const proof = registry.proofs.get(binding)!;
@@ -235,7 +404,7 @@ export async function reissueCapabilityPackageRuntimeBindings(previous: AgentExe
   });
   const roots = new Set(bindings.map(binding => path.dirname(path.resolve(binding.runtimePath))));
   const managedRoots = new Set((previous.skillPackageBindings ?? []).map(binding => path.dirname(path.resolve(binding.runtimePath))));
-  const selectedLegacyRoots = new Set(selectedSkills(snapshot, next.agentId, profile?.relevantSkills)
+  const selectedLegacyRoots = new Set(selectedRuntimeSkills(snapshot, next.agentId, profile?.relevantSkills, workflow)
     .filter(candidate => !candidate.runtimePath!.split(path.sep).join('/').includes('/capability-packages/published/'))
     .map(candidate => path.dirname(path.resolve(candidate.runtimePath!))));
   const legacyRoots = (previous.skillReadRoots ?? []).filter(root => !managedRoots.has(path.resolve(root)) && selectedLegacyRoots.has(path.resolve(root)));
@@ -244,11 +413,12 @@ export async function reissueCapabilityPackageRuntimeBindings(previous: AgentExe
 
 /** Render the same captured version paths used by the file and Bash runtime. */
 export async function loadCapabilityPackageRuntimeSkills(context: AgentExecutionContext): Promise<CanvasSkill[]> {
-  const [snapshot, profile] = await Promise.all([currentSnapshot(context, false), getAgentProfile(normalizeManagedAgentId(context.agentId))]);
+  const workflow = await getAuthorizedAgentWorkflowPackageSelections(context);
+  const snapshot = workflowRegistry.get(workflow)!.effective, profile = workflow.snapshot.agent;
   const bindings = await revalidateCapabilityPackageRuntimeBindings(context, snapshot, profile?.relevantSkills);
   const legacyRoots = new Set((context.skillReadRoots ?? []).map(root => path.resolve(root)));
   for (const binding of context.skillPackageBindings ?? []) legacyRoots.delete(path.dirname(path.resolve(binding.runtimePath)));
-  const candidates = selectedSkills(snapshot, context.agentId, profile?.relevantSkills);
+  const candidates = selectedRuntimeSkills(snapshot, context.agentId, profile?.relevantSkills, workflow);
   const paths = [...bindings.map(binding => binding.runtimePath), ...candidates.filter(candidate =>
     legacyRoots.has(path.dirname(path.resolve(candidate.runtimePath!)))).map(candidate => candidate.runtimePath!)];
   const skills: CanvasSkill[] = [];

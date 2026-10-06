@@ -617,13 +617,26 @@ export async function parsePluginSkillsFromManifest(
   );
   const records = [...bundled.records, ...referenced.records];
   const errors = [...bundled.errors, ...referenced.errors];
+  const skills = [...bundled.skills, ...referenced.skills];
+
+  if (errors.length === 0 && (manifest.workflow || skills.some(skill => skill.workflow))) {
+    const { isWorkflowManifestError, validateWorkflowReferences } = await import('@/app/lib/capabilities/workflow-contracts');
+    const context = { mcpConnectors: manifest.connectors?.mcp ?? [], skillNames: records.map(record => record.name), allowMcpConnectors: false };
+    try {
+      if (manifest.workflow) validateWorkflowReferences(manifest.workflow, context);
+      for (const skill of skills) if (skill.workflow) validateWorkflowReferences(skill.workflow, context);
+    } catch (error) {
+      if (!isWorkflowManifestError(error)) throw error;
+      errors.push(...error.errors);
+    }
+  }
 
   if (records.length === 0) {
     errors.push('Plugin must contain at least one bundled skill or skillRef.');
   }
 
   return {
-    skills: [...bundled.skills, ...referenced.skills],
+    skills,
     records,
     errors,
   };

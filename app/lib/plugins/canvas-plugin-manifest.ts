@@ -1,8 +1,11 @@
 import { promises as fs } from 'fs';
 import path from 'path';
+import YAML from 'yaml';
 
 import { isPathInside, requirePathInside, resolvePathInside } from '@/app/lib/security/safe-paths';
 import { isValidAgentSkillName } from '@/app/lib/skills/canvas-skill-manifest';
+import { CAPABILITY_WORKFLOW_LIMITS, isWorkflowManifestError, parseWorkflowManifest, validateWorkflowConnectorReferences, WorkflowManifestError,
+  type GenericWorkflowManifestV1 } from '@/app/lib/capabilities/workflow-contracts';
 
 export { isPathInside } from '@/app/lib/security/safe-paths';
 
@@ -83,6 +86,7 @@ export interface CanvasPluginManifest {
   skillRefs?: CanvasPluginSkillReference[];
   interface?: CanvasPluginInterface;
   connectors?: CanvasPluginConnectorManifest;
+  workflow?: GenericWorkflowManifestV1;
 }
 
 export interface CanvasPluginValidationResult {
@@ -335,8 +339,28 @@ function normalizeManifest(parsed: unknown): CanvasPluginManifest | null {
     interface: normalizeInterface(parsed.interface),
     connectors: normalizeConnectors(parsed),
   };
+  if (Object.hasOwn(parsed, 'workflow')) {
+    manifest.workflow = parseWorkflowManifest(parsed.workflow);
+    validateWorkflowConnectorReferences(manifest.workflow, manifest.connectors?.mcp ?? []);
+  }
 
   return manifest;
+}
+
+/** The new block rejects ambiguous JSON keys; unrelated legacy keys keep their existing parsing behavior. */
+function validatePluginWorkflowJsonKeys(raw: string): void {
+  if (Buffer.byteLength(raw, 'utf8') > CAPABILITY_WORKFLOW_LIMITS.documentBytes) {
+    throw new WorkflowManifestError(['workflow: The declaration document exceeds its size limit.']);
+  }
+  const document = YAML.parseDocument(raw);
+  if (!YAML.isMap(document.contents)) throw new WorkflowManifestError();
+  const blocks = document.contents.items.filter(pair => YAML.isScalar(pair.key) && pair.key.value === 'workflow');
+  if (blocks.length !== 1) throw new WorkflowManifestError(['workflow: Duplicate JSON fields are not allowed.']);
+  const value = blocks[0].value;
+  const range = YAML.isNode(value) ? value.range : null;
+  if (!range || document.errors.some(error => error.pos[0] >= range[0] && error.pos[0] < range[1])) {
+    throw new WorkflowManifestError(['workflow: Duplicate or invalid JSON fields are not allowed.']);
+  }
 }
 
 export function resolvePluginManifestPath(pluginRoot: string): string {
@@ -525,7 +549,15 @@ export async function validateCanvasPluginPackage(sourcePath: string): Promise<C
     };
   }
 
-  const manifest = normalizeManifest(parsed);
+  let manifest: CanvasPluginManifest | null;
+  try {
+    if (isRecord(parsed) && Object.hasOwn(parsed, 'workflow')) validatePluginWorkflowJsonKeys(rawManifest);
+    manifest = normalizeManifest(parsed);
+  }
+  catch (error) {
+    if (!isWorkflowManifestError(error)) throw error;
+    return { valid: false, errors: [...error.errors], warnings, rootDir, manifestPath };
+  }
   if (!manifest) {
     errors.push('Plugin manifest must be a JSON object.');
   }

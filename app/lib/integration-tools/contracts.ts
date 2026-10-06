@@ -25,12 +25,21 @@ export type IntegrationProviderScope =
   | { type: 'workspace'; resourceId: string; organizationId: string; workspaceId: string };
 
 /** null is unrestricted, [] denies all. Independent restrictions always intersect. */
+export type IntegrationProviderToolRule = {
+  source: IntegrationSource;
+  providerRef: string;
+  allowedToolNames: readonly string[] | null;
+  allowedOperations: readonly IntegrationOperation[] | null;
+};
+
 export type IntegrationPolicy = {
   allowedSources: readonly IntegrationSource[] | null;
   allowedProviderRefs: readonly string[] | null;
   allowedApplications: readonly string[] | null;
   allowedToolNames: readonly string[] | null;
   allowedOperations: readonly string[] | null;
+  /** A non-null matrix is a closed set of concrete providers, each with its own tool and operation rules. */
+  providerToolRules?: readonly IntegrationProviderToolRule[] | null;
 };
 
 const sourceSchema = Type.Union([Type.Literal('mcp'), Type.Literal('composio')]);

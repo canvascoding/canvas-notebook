@@ -9,7 +9,8 @@ import type { CapabilityCandidate, CapabilityResourceType } from '@/app/lib/capa
 import { buildPublishedCanvasPluginRecord, computeCanvasPluginChecksum, parsePluginSkillsFromManifest, readCanvasPluginRegistry, writeCanvasPluginRegistry,
   type CanvasPluginInstallRecord } from '@/app/lib/plugins/canvas-plugin-registry';
 import { isValidCanvasPluginVersion, validateCanvasPluginPackage, type CanvasPluginManifest } from '@/app/lib/plugins/canvas-plugin-manifest';
-import { loadCanvasSkillInterface, parseSkillFile, type CanvasSkill } from '@/app/lib/skills/canvas-skill-manifest';
+import { CANVAS_SKILL_INTERFACE_PATH, loadCanvasSkillInterface, parseSkillFile, validateStandaloneSkillWorkflow, type CanvasSkill } from '@/app/lib/skills/canvas-skill-manifest';
+import { isWorkflowManifestError, type WorkflowDeclaration } from '@/app/lib/capabilities/workflow-contracts';
 import { readCanvasSkillRegistry, writeCanvasSkillRegistry, type CanvasSkillInstallRecord } from '@/app/lib/skills/canvas-skill-store';
 import { requirePathInside } from '@/app/lib/security/safe-paths';
 import { createCapabilityResourceId } from '@/app/lib/capabilities/reference';
@@ -43,6 +44,7 @@ export type ValidatedCapabilityPackage = {
   totalBytes: number;
   manifest?: CanvasPluginManifest;
   skill?: CanvasSkill;
+  workflowDeclarations?: WorkflowDeclaration[];
 };
 
 function invalid(message: string): never { throw new CapabilityPackageError('PACKAGE_INVALID', message, 400); }
@@ -142,6 +144,7 @@ export async function validateCompleteCapabilityPackage(kind: CapabilityResource
   const inventory = await readExactPackageInventory(packageRoot);
   let name: string, version: string, description: string;
   let manifest: CanvasPluginManifest | undefined, skill: CanvasSkill | undefined;
+  const workflowDeclarations: WorkflowDeclaration[] = [];
   if (kind === 'plugin') {
     const result = await validateCanvasPluginPackage(packageRoot);
     if (!result.valid || !result.manifest) invalid(result.errors.join(' ') || 'The plugin package is invalid.');
@@ -151,12 +154,22 @@ export async function validateCompleteCapabilityPackage(kind: CapabilityResource
     if (!result.skillsDir) invalid('The plugin package must contain bundled skills.');
     const children = await parsePluginSkillsFromManifest(manifest, packageRoot, result.skillsDir);
     if (children.errors.length || !children.records.length) invalid(children.errors.join(' ') || 'The plugin package must contain bundled skills.');
+    if (manifest.workflow) workflowDeclarations.push({ declarationPath: '.canvas-plugin/plugin.json', workflow: manifest.workflow });
+    for (const child of children.skills) {
+      if (!child.workflow) continue;
+      const relativePath = path.relative(packageRoot, path.join(child.directory, CANVAS_SKILL_INTERFACE_PATH)).split(path.sep).join('/');
+      requirePathInside(packageRoot, relativePath);
+      workflowDeclarations.push({ declarationPath: relativePath, workflow: child.workflow });
+    }
   } else {
     const diagnostics: string[] = [];
     const parsed = await parseSkillFile(requirePathInside(packageRoot, 'SKILL.md'), { validateDirectoryName: false,
       onDiagnostic: message => diagnostics.push(message) });
     if (!parsed) invalid(diagnostics.join(' ') || 'The skill package is invalid.');
     skill = parsed;
+    try { await validateStandaloneSkillWorkflow(skill); }
+    catch (error) { if (!isWorkflowManifestError(error)) throw error; invalid(error.message); }
+    if (skill.workflow) workflowDeclarations.push({ declarationPath: 'agents/canvas.yaml', workflow: skill.workflow });
     if (!skill.version || !isValidCanvasPluginVersion(skill.version)) invalid('Declare a valid package version in SKILL.md or agents/canvas.yaml.');
     name = skill.name; version = skill.version; description = skill.description;
   }
@@ -164,7 +177,7 @@ export async function validateCompleteCapabilityPackage(kind: CapabilityResource
   const checksum = await computeCanvasPluginChecksum(packageRoot);
   if (checksum !== inventory.checksum) invalid('The package changed during validation. Validate it again.');
   return { kind, name, version, description, checksum, fileCount: inventory.files.length, totalBytes: inventory.totalBytes,
-    ...(manifest ? { manifest } : {}), ...(skill ? { skill } : {}) };
+    ...(manifest ? { manifest } : {}), ...(skill ? { skill } : {}), ...(workflowDeclarations.length ? { workflowDeclarations } : {}) };
 }
 
 export async function readCapabilityPackageManifest(kind: CapabilityResourceType, packageRoot: string): Promise<string> {

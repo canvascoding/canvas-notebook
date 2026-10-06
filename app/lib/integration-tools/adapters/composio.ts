@@ -251,6 +251,14 @@ export async function listComposioIntegrationProviders(context: IntegrationExecu
     providerErrors: [{ source: 'composio', code: 'COMPOSIO_SHARED_ACCESS_UNAVAILABLE',
       message: 'Shared Composio connection access could not be checked.', retryable: true }],
   }));
+  const restrictedRefs = policy?.providerToolRules == null ? policy?.allowedProviderRefs
+    : policy.providerToolRules.filter(rule => rule.source === 'composio'
+      && (policy.allowedProviderRefs === null || policy.allowedProviderRefs.includes(rule.providerRef))).map(rule => rule.providerRef);
+  if (restrictedRefs && restrictedRefs.filter(ref => ref.startsWith('composio:v1:')).every(ref =>
+    /^composio:v1:(?:personal|shared):/u.test(ref))) {
+    return mergeSharedProviders({ source: 'composio', providers: [], complete: true, providerErrors: [],
+      revision: 'workflow-scoped-personal-metadata' }, shared);
+  }
   const providerErrors: IntegrationProviderError[] = [];
   const timerController = new AbortController();
   const timer = setTimeout(() => timerController.abort(), CATALOGUE_TIMEOUT_MS);

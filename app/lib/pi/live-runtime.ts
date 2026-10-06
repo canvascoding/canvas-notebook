@@ -1529,6 +1529,7 @@ export class LivePiRuntime {
     this.tools = await getPiTools(this.userId, this.agentId, this.sessionId, {
       executionContext: this.executionContext,
       browserMode,
+      planningMode: this.planningMode,
     });
     this.browserToolMode = browserMode;
     this.browserToolsNeedRefresh = false;
@@ -3036,7 +3037,9 @@ export class LivePiRuntime {
   }
 }
 
-async function createRuntime(sessionId: string, userId: string): Promise<LivePiRuntime> {
+export type PiRuntimeCreationOptions = { initialPlanningMode?: boolean; metadataOnlyExternal?: boolean };
+
+async function createRuntime(sessionId: string, userId: string, options: PiRuntimeCreationOptions = {}): Promise<LivePiRuntime> {
   const timing = createOperationTiming();
   const sessionRecord = await findUnambiguousOwnedPiSessionForRuntime({ sessionId, userId });
   timing.mark('sessionLookup');
@@ -3112,6 +3115,8 @@ async function createRuntime(sessionId: string, userId: string): Promise<LivePiR
   const tools = await getPiTools(userId, agentId, sessionId, {
     executionContext,
     browserMode: browserSnapshot.running ? 'active' : 'dormant',
+    planningMode: options.initialPlanningMode === true,
+    metadataOnlyExternal: options.metadataOnlyExternal === true,
   });
   timing.mark('tools');
   const workspaceFileTreePrompt = ['ls', 'read', 'rg', 'grep', 'glob', 'inspect_document_relations']
@@ -3219,6 +3224,7 @@ async function createRuntime(sessionId: string, userId: string): Promise<LivePiR
       idleCompaction: process.env.CANVAS_PI_IDLE_COMPACTION_ENABLED === 'true',
     },
   );
+  runtime.setPlanningMode(options.initialPlanningMode === true);
   runtimeRef.current = runtime;
 
   const unsubscribe = agent.subscribe(async (event) => {
@@ -3344,7 +3350,7 @@ async function evictPiRuntimeInstance(
   return true;
 }
 
-export async function getOrCreatePiRuntimeWithState(sessionId: string, userId: string) {
+export async function getOrCreatePiRuntimeWithState(sessionId: string, userId: string, options: PiRuntimeCreationOptions = {}) {
   const store = getStore();
   const key = getRuntimeKey(sessionId, userId);
   const existing = store.runtimes.get(key);
@@ -3354,7 +3360,8 @@ export async function getOrCreatePiRuntimeWithState(sessionId: string, userId: s
     return { runtime, created: false };
   }
 
-  const runtimePromise = createRuntime(sessionId, userId);
+  const runtimePromise = createRuntime(sessionId, userId, { initialPlanningMode: options.initialPlanningMode === true,
+    metadataOnlyExternal: options.metadataOnlyExternal === true });
   store.runtimes.set(key, runtimePromise);
 
   try {
@@ -3385,7 +3392,7 @@ export async function dispatchPiRuntimeUserMessage(
       : null;
     const runtimeHandle = runtimeInstance && currentRuntime === runtimeInstance
       ? { runtime: runtimeInstance, created: false }
-      : await getOrCreatePiRuntimeWithState(sessionId, userId);
+      : await getOrCreatePiRuntimeWithState(sessionId, userId, { initialPlanningMode: context?.planningMode === true });
     const runtime = runtimeHandle.runtime;
     applyPiRuntimePromptContext(runtime, context);
     if (!runtimeHandle.created) {

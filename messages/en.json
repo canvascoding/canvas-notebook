@@ -7345,6 +7345,64 @@
     },
     "backToPlugin": "Back to plugin"
   },
+  "agentWorkflow": {
+    "title": "Workflow connections",
+    "description": "Choose the permitted connections for your use of {agent}.",
+    "open": "Choose my connections",
+    "openFor": "Workflow connections for {agent}",
+    "settingsDescription": "The package versions and permitted connections are configured centrally. Your selection applies only to you.",
+    "connection": "Connection",
+    "connectionFor": "Connection for {application}",
+    "defaultChoice": "Use administrator default",
+    "defaultHint": "The administrator default uses the connection selected centrally.",
+    "noSelection": "No connection selected",
+    "noSlots": "This workflow has no connection choices. Its package versions remain configured centrally.",
+    "packagesUnavailable": "At least one configured package is unavailable. Check its access and version.",
+    "notConfigured": "This agent has no active workflow configuration.",
+    "fixed": "Fixed",
+    "selectable": "Your choice",
+    "fixedDescription": "This connection is set centrally and cannot be changed here.",
+    "personal": {
+      "open": "Choose a personal connection",
+      "hide": "Hide personal connections",
+      "description": "Choose one of your own permitted connections. Accounts are checked only after you choose a provider.",
+      "loading": "Loading personal connections…",
+      "provider": "Personal connection",
+      "chooseProvider": "Choose a connection",
+      "account": "Connected account",
+      "chooseAccount": "Choose an account",
+      "noAccounts": "No permitted active account is available for this connection.",
+      "empty": "No personal connection matches the administrator’s permitted alternatives.",
+      "reload": "Reload personal connections",
+      "checkCredentials": "Check credentials",
+      "use": "Use this connection",
+      "error": "Personal connections could not be loaded. Reload or choose another connection."
+    },
+    "currentPersonal": "Current personal connection",
+    "unavailable": "Unavailable",
+    "unavailableSelection": "Previous selection is unavailable",
+    "reload": "Reload current choices",
+    "loading": "Loading your permitted connections…",
+    "save": "Save choice",
+    "saved": "Saved",
+    "close": "Close",
+    "scope": {
+      "organization": "Organization",
+      "team": "Team",
+      "personal": "Personal"
+    },
+    "status": {
+      "unknown": "Checked when used",
+      "setup_required": "Connection setup required",
+      "unavailable": "Unavailable"
+    },
+    "errors": {
+      "conflict": "The workflow or your saved selection changed. Reload the current choices before saving. Your unsaved choice is kept if it is still permitted.",
+      "denied": "You no longer have access to these workflow choices.",
+      "load": "The current choices could not be loaded. Reload before saving.",
+      "save": "The choice could not be saved. Reload the current choices before trying again."
+    }
+  },
   "sharedConnections": {
     "title": "Shared connections",
     "description": "Accounts for your organization, teams and explicitly selected people.",

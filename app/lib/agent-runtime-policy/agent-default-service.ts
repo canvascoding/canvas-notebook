@@ -2,7 +2,7 @@ import 'server-only';
 
 import { AiRuntimeInputError, parseRuntimeSelection } from '@/app/lib/agent-runtime-policy/runtime-service';
 import type { AiRuntimeSelection } from '@/app/lib/agent-runtime-policy/types';
-import { openDb } from '@/app/lib/db';
+import { openDb, type SqlConnection } from '@/app/lib/db';
 
 export class AgentDefaultPolicyError extends Error {
   constructor(
@@ -85,6 +85,87 @@ function storedThinkingLevels(value: unknown): string[] {
  * transaction. PostgreSQL locks the catalog-default row so a catalog revision
  * cannot commit between validation and the agent update.
  */
+export type AgentDefaultValidationInput = {
+  organizationId: string;
+  selection: AiRuntimeSelection | null;
+  expectedCatalogRevision?: number;
+};
+
+/** Caller-owned transaction, validation only; Agent CAS performs the actual write. */
+export async function validateAgentDefaultOnConnection(connection: SqlConnection,
+  input: AgentDefaultValidationInput): Promise<{ catalogRevision: number | null }> {
+  let catalogRevision: number | null = null;
+  if (input.selection) {
+    if (input.expectedCatalogRevision === undefined) {
+      throw new AiRuntimeInputError(
+        'INVALID_CATALOG_REVISION',
+        'expectedCatalogRevision is required for an agent model default.',
+      );
+    }
+    const defaults = await connection.get(
+      `SELECT catalog_revision
+       FROM ai_runtime_defaults
+       WHERE organization_id = $1
+       LIMIT 1 FOR UPDATE`,
+      [input.organizationId],
+    ) as { catalog_revision?: unknown } | undefined;
+    catalogRevision = numberValue(defaults?.catalog_revision);
+    if (catalogRevision !== input.expectedCatalogRevision) {
+      throw new AgentDefaultPolicyError(
+        'AGENT_DEFAULT_CATALOG_REVISION_CONFLICT',
+        'The AI runtime catalog changed. Reload the available models and try again.',
+        409,
+        catalogRevision,
+      );
+    }
+
+    const provider = await connection.get(
+      `SELECT provider_id, enabled, status
+       FROM ai_provider_installations
+       WHERE organization_id = $1 AND id = $2
+       LIMIT 1`,
+      [input.organizationId, input.selection.providerInstallationId],
+    ) as { provider_id?: string; enabled?: unknown; status?: string } | undefined;
+    if (!provider || !booleanValue(provider.enabled)) {
+      throw new AgentDefaultPolicyError(
+        'PROVIDER_INSTALLATION_NOT_ALLOWED',
+        'Agent defaults must use an enabled provider installation from the app catalog.',
+      );
+    }
+    if (provider.status !== 'ready') {
+      throw new AgentDefaultPolicyError('PROVIDER_NOT_READY', 'The selected provider installation is not ready.');
+    }
+    if (provider.provider_id !== input.selection.providerId) {
+      throw new AgentDefaultPolicyError(
+        'PROVIDER_ID_MISMATCH',
+        'The selected provider does not match its provider installation.',
+      );
+    }
+
+    const model = await connection.get(
+      `SELECT enabled, thinking_levels_json
+       FROM ai_provider_models
+       WHERE organization_id = $1 AND provider_installation_id = $2 AND model_id = $3
+       LIMIT 1`,
+      [input.organizationId, input.selection.providerInstallationId, input.selection.modelId],
+    ) as { enabled?: unknown; thinking_levels_json?: unknown } | undefined;
+    if (!model || !booleanValue(model.enabled)) {
+      throw new AgentDefaultPolicyError(
+        'MODEL_NOT_ALLOWED',
+        'Agent defaults must use an enabled model from the app catalog.',
+      );
+    }
+    if (!storedThinkingLevels(model.thinking_levels_json).includes(input.selection.thinkingLevel)) {
+      throw new AgentDefaultPolicyError(
+        'INVALID_INTELLIGENCE',
+        'The selected intelligence level is not supported by this model.',
+      );
+    }
+  }
+
+  return { catalogRevision };
+}
+
 export async function writeAgentDefaultWithCatalogValidation(input: {
   organizationId: string;
   agentId: string;
@@ -97,74 +178,7 @@ export async function writeAgentDefaultWithCatalogValidation(input: {
     await connection.run('BEGIN');
     transactionStarted = true;
 
-    let catalogRevision: number | null = null;
-    if (input.selection) {
-      if (input.expectedCatalogRevision === undefined) {
-        throw new AiRuntimeInputError(
-          'INVALID_CATALOG_REVISION',
-          'expectedCatalogRevision is required for an agent model default.',
-        );
-      }
-      const defaults = await connection.get(
-        `SELECT catalog_revision
-         FROM ai_runtime_defaults
-         WHERE organization_id = $1
-         LIMIT 1 FOR UPDATE`,
-        [input.organizationId],
-      ) as { catalog_revision?: unknown } | undefined;
-      catalogRevision = numberValue(defaults?.catalog_revision);
-      if (catalogRevision !== input.expectedCatalogRevision) {
-        throw new AgentDefaultPolicyError(
-          'AGENT_DEFAULT_CATALOG_REVISION_CONFLICT',
-          'The AI runtime catalog changed. Reload the available models and try again.',
-          409,
-          catalogRevision,
-        );
-      }
-
-      const provider = await connection.get(
-        `SELECT provider_id, enabled, status
-         FROM ai_provider_installations
-         WHERE organization_id = $1 AND id = $2
-         LIMIT 1`,
-        [input.organizationId, input.selection.providerInstallationId],
-      ) as { provider_id?: string; enabled?: unknown; status?: string } | undefined;
-      if (!provider || !booleanValue(provider.enabled)) {
-        throw new AgentDefaultPolicyError(
-          'PROVIDER_INSTALLATION_NOT_ALLOWED',
-          'Agent defaults must use an enabled provider installation from the app catalog.',
-        );
-      }
-      if (provider.status !== 'ready') {
-        throw new AgentDefaultPolicyError('PROVIDER_NOT_READY', 'The selected provider installation is not ready.');
-      }
-      if (provider.provider_id !== input.selection.providerId) {
-        throw new AgentDefaultPolicyError(
-          'PROVIDER_ID_MISMATCH',
-          'The selected provider does not match its provider installation.',
-        );
-      }
-
-      const model = await connection.get(
-        `SELECT enabled, thinking_levels_json
-         FROM ai_provider_models
-         WHERE organization_id = $1 AND provider_installation_id = $2 AND model_id = $3
-         LIMIT 1`,
-        [input.organizationId, input.selection.providerInstallationId, input.selection.modelId],
-      ) as { enabled?: unknown; thinking_levels_json?: unknown } | undefined;
-      if (!model || !booleanValue(model.enabled)) {
-        throw new AgentDefaultPolicyError(
-          'MODEL_NOT_ALLOWED',
-          'Agent defaults must use an enabled model from the app catalog.',
-        );
-      }
-      if (!storedThinkingLevels(model.thinking_levels_json).includes(input.selection.thinkingLevel)) {
-        throw new AgentDefaultPolicyError(
-          'INVALID_INTELLIGENCE',
-          'The selected intelligence level is not supported by this model.',
-        );
-      }
-    }
+    const { catalogRevision } = await validateAgentDefaultOnConnection(connection, input);
 
     const update = await connection.run(
       `UPDATE agents

@@ -13,6 +13,7 @@ import { DEFAULT_MANAGED_AGENT_ID, EMAIL_MANAGED_AGENT_ID, SYSTEM_MANAGED_AGENT_
 import { EMAIL_AGENT_DEFAULT_ENABLED_TOOLS } from '../pi/email-agent-policy';
 import { DISABLED_ALL_TOOLS_SENTINEL } from '../pi/enabled-tools';
 import { MEMORY_MANAGER_AGENT_ID, MEMORY_MANAGER_AGENT_NAME } from '../memory/constants';
+import { AgentWorkflowError } from './workflow-contracts';
 
 export { EMAIL_MANAGED_AGENT_ID } from './storage';
 export { MAIN_AGENT_DISPLAY_NAME } from './main-agent';
@@ -80,6 +81,8 @@ export type AgentProfile = {
   ownerUserId: string | null;
   createdByUserId: string | null;
   revision: number;
+  workflowVersion?: number | null;
+  workflowRevision?: number;
   createdAt: string;
   updatedAt: string;
 };
@@ -162,6 +165,8 @@ function mapAgent(row: typeof agents.$inferSelect): AgentProfile {
     ownerUserId: row.ownerUserId ?? null,
     createdByUserId: row.createdByUserId ?? null,
     revision: row.revision || 1,
+    workflowVersion: row.workflowVersion ?? null,
+    workflowRevision: row.workflowRevision ?? 0,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
@@ -399,6 +404,7 @@ function mapSqlAgent(row: Record<string, unknown>): AgentProfile {
     enabledToolsJson: text('enabled_tools_json'), relevantSkillsJson: text('relevant_skills_json'), relevantConnectionsJson: text('relevant_connections_json'),
     accessPolicy: String(row.access_policy), scopeType: String(row.scope_type), organizationId: text('organization_id'),
     ownerUserId: text('owner_user_id'), createdByUserId: text('created_by_user_id'), revision: Number(row.revision),
+    workflowVersion: row.workflow_version == null ? null : Number(row.workflow_version), workflowRevision: Number(row.workflow_revision ?? 0),
     createdAt: new Date(normalizeDatabaseTimestamp(Number(row.created_at))),
     updatedAt: new Date(normalizeDatabaseTimestamp(Number(row.updated_at))),
   });
@@ -510,6 +516,9 @@ export async function updateAgentProfile(input: {
   organizationId?: string | null;
   ownerUserId?: string | null;
   expectedRevision?: number;
+  workflowVersion?: 1 | null;
+  workflowRevision?: number;
+  expectedWorkflowRevision?: number;
 }, connection?: SqlConnection): Promise<AgentProfile> {
   const agentId = normalizeManagedAgentId(input.agentId);
   const existing = connection ? await readAgentProfileOnConnection(connection, agentId) : await getAgentProfile(agentId);
@@ -519,6 +528,11 @@ export async function updateAgentProfile(input: {
   if (input.expectedRevision !== undefined && input.expectedRevision !== existing.revision) {
     throw new AgentRevisionConflictError(existing.revision);
   }
+  if (input.expectedWorkflowRevision !== undefined && input.expectedWorkflowRevision !== (existing.workflowRevision ?? 0)) {
+    throw new AgentWorkflowError('AGENT_WORKFLOW_REVISION_CONFLICT', 'The workflow configuration changed. Reload it before saving.', 409);
+  }
+  if (input.workflowRevision !== undefined && (!Number.isSafeInteger(input.workflowRevision) || input.workflowRevision < 0)
+    || input.workflowVersion !== undefined && input.workflowVersion !== null && input.workflowVersion !== 1) throw new Error('The workflow header is invalid.');
 
   const nextName = input.name === undefined || input.name === null ? existing.name : input.name.trim();
   if (!nextName) {
@@ -570,6 +584,8 @@ export async function updateAgentProfile(input: {
       enabledToolsJson: input.enabledTools === undefined ? stringifyEnabledTools(existing.enabledTools) : stringifyEnabledTools(input.enabledTools),
       relevantSkillsJson: input.relevantSkills === undefined ? stringifyStringList(existing.relevantSkills) : stringifyStringList(input.relevantSkills),
       relevantConnectionsJson: input.relevantConnections === undefined ? stringifyStringList(existing.relevantConnections) : stringifyStringList(input.relevantConnections),
+      workflowVersion: input.workflowVersion === undefined ? existing.workflowVersion ?? null : input.workflowVersion,
+      workflowRevision: input.workflowRevision === undefined ? existing.workflowRevision ?? 0 : input.workflowRevision,
       scopeType: isSystemAgent ? 'system' : nextScopeType,
       organizationId: isSystemAgent ? null : nextOrganizationId,
       ownerUserId: isSystemAgent ? null : nextOwnerUserId,
@@ -580,6 +596,7 @@ export async function updateAgentProfile(input: {
       name: 'name', iconId: 'icon_id', defaultProviderInstallationId: 'default_provider_installation_id',
       defaultProvider: 'default_provider', defaultModel: 'default_model', defaultThinking: 'default_thinking',
       enabledToolsJson: 'enabled_tools_json', relevantSkillsJson: 'relevant_skills_json', relevantConnectionsJson: 'relevant_connections_json',
+      workflowVersion: 'workflow_version', workflowRevision: 'workflow_revision',
       scopeType: 'scope_type', organizationId: 'organization_id', ownerUserId: 'owner_user_id', updatedAt: 'updated_at',
     };
     const entries = Object.entries(updates) as Array<[keyof typeof updates, (typeof updates)[keyof typeof updates]]>;
@@ -590,6 +607,10 @@ export async function updateAgentProfile(input: {
     if (input.expectedRevision !== undefined) {
       values.push(input.expectedRevision);
       predicate += ` AND revision = $${values.length}`;
+    }
+    if (input.expectedWorkflowRevision !== undefined) {
+      values.push(input.expectedWorkflowRevision);
+      predicate += ` AND workflow_revision = $${values.length}`;
     }
     const row = await connection.get(`UPDATE agents SET ${assignments.join(', ')}, revision = revision + 1 WHERE ${predicate} RETURNING *`,
       values) as Record<string, unknown> | undefined;
@@ -602,9 +623,8 @@ export async function updateAgentProfile(input: {
   }
   const [updated] = await db.update(agents)
     .set({ ...updates, revision: sql`${agents.revision} + 1` })
-    .where(input.expectedRevision === undefined
-      ? eq(agents.agentId, agentId)
-      : and(eq(agents.agentId, agentId), eq(agents.revision, input.expectedRevision)))
+    .where(and(eq(agents.agentId, agentId), input.expectedRevision === undefined ? undefined : eq(agents.revision, input.expectedRevision),
+      input.expectedWorkflowRevision === undefined ? undefined : eq(agents.workflowRevision, input.expectedWorkflowRevision)))
     .returning();
   if (!updated) {
     const current = await getAgentProfile(agentId);

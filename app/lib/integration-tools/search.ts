@@ -14,7 +14,7 @@ import {
   type IntegrationSource,
   type IntegrationSourceSnapshot,
 } from './contracts';
-import { isIntegrationOperationAllowed, isIntegrationProviderVisible } from './policy';
+import { integrationPolicyAllowedToolNames, isIntegrationOperationAllowed, isIntegrationProviderOperationAllowed, isIntegrationProviderVisible } from './policy';
 import { getIntegrationProviderAuthorization, integrationProviderAllowedToolNames, transferIntegrationProviderAuthorization } from './connections/provider-authorization';
 
 const DEFAULT_PAGE_SIZE = 12;
@@ -109,16 +109,18 @@ function gatewayOperation(action: IntegrationNextAction): IntegrationOperation |
 
 function projectProvider(provider: IntegrationProviderDescriptor, policy: IntegrationPolicy, context: IntegrationExecutionContext): IntegrationProviderDescriptor {
   const authorization = getIntegrationProviderAuthorization(context, provider);
+  const allowedToolNames = integrationProviderAllowedToolNames(context, provider, integrationPolicyAllowedToolNames(policy, provider.source, provider.providerRef));
   const canExecute = provider.canExecute
-    && isIntegrationOperationAllowed(policy, provider.source, 'call')
+    && isIntegrationProviderOperationAllowed(policy, provider.source, provider.providerRef, 'call')
     && (!authorization || authorization.access.canUse)
-    && integrationProviderAllowedToolNames(context, provider, policy.allowedToolNames)?.length !== 0;
+    && allowedToolNames?.length !== 0;
   return transferIntegrationProviderAuthorization(context, provider, {
     ...provider,
     canExecute,
     nextActions: provider.nextActions.filter((next) => {
       const operation = gatewayOperation(next);
-      return operation === null || (isIntegrationOperationAllowed(policy, provider.source, operation)
+      return operation === null || (isIntegrationProviderOperationAllowed(policy, provider.source, provider.providerRef, operation)
+        && (operation === 'list_providers' || operation === 'search_providers' || allowedToolNames?.length !== 0)
         && (!authorization || operation === 'list_providers' || operation === 'search_providers'
           || authorization.access.canUse && authorization.allowedToolNames?.length !== 0)
         && (operation !== 'call' || canExecute));
@@ -170,7 +172,8 @@ function providerPage(
   const activeSnapshots = snapshots.filter((snapshot) => (!validated.source || validated.source === snapshot.source)
     && isIntegrationOperationAllowed(policy, snapshot.source, operation));
   const visible = activeSnapshots.flatMap((snapshot) => snapshot.providers)
-    .filter((provider) => isIntegrationProviderVisible(context, policy, provider))
+    .filter((provider) => isIntegrationProviderVisible(context, policy, provider)
+      && isIntegrationProviderOperationAllowed(policy, provider.source, provider.providerRef, operation))
     .map((provider) => projectProvider(provider, policy, context));
   const visibleRefs = new Set(visible.map((provider) => provider.providerRef));
   const unique = new Map<string, IntegrationProviderDescriptor>();

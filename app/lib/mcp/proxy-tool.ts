@@ -15,6 +15,7 @@ import { prepareMcpToolInvocation } from '@/app/lib/mcp/tool-result';
 import type { McpScope } from '@/app/lib/mcp/scope';
 import { mcpReconnectDetails } from '@/app/lib/mcp/connection-health';
 import { filterMcpToolsForModel } from '@/app/lib/mcp/apps-metadata';
+import { assertLegacyIntegrationEntryPointAllowed } from '@/app/lib/integration-tools/legacy-gate';
 
 type McpAction =
   | 'list_servers'
@@ -396,7 +397,8 @@ async function handleCallTool(
     throw new Error('call_tool arguments must be a JSON object.');
   }
 
-  const invocation = await callMcpToolWithCurrentMetadata(serverName, toolName, args, signal, scope);
+  const invocation = await callMcpToolWithCurrentMetadata(serverName, toolName, args, signal, scope,
+    { beforeDispatch: assertLegacyIntegrationEntryPointAllowed });
   return prepareMcpToolInvocation(serverName, toolName, invocation, args, toolCallId);
 }
 
@@ -481,6 +483,7 @@ export function createMcpProxyTool(userId?: string, systemScope?: McpScope): Age
       const p = params as McpProxyParams;
       const scope = getMcpScope(userId) || (systemScope?.legacy === true ? systemScope : undefined);
       try {
+        await assertLegacyIntegrationEntryPointAllowed();
         await requireMcpUserAccess(scope);
         switch (p.action) {
           case 'list_servers':

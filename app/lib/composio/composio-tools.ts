@@ -1,6 +1,7 @@
 import 'server-only';
 
 import { getAgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
+import { assertLegacyIntegrationEntryPointAllowed } from '@/app/lib/integration-tools/legacy-gate';
 import { prepareToolOutput } from '@/app/lib/pi/tool-output-preparation';
 import { Type } from 'typebox';
 import {
@@ -60,6 +61,7 @@ export function createComposioSearchToolsTool(context?: ResolvedComposioContext 
     parameters: ComposioSearchToolsParameters,
     execute: async (_toolCallId: string, params: unknown) => {
       try {
+        await assertLegacyIntegrationEntryPointAllowed();
         assertResolvedComposioContext(context);
         const p = params as { query?: string; toolkits?: string[] };
         const query = String(p.query || '');
@@ -81,6 +83,7 @@ export function createComposioGetToolSchemasTool(context?: ResolvedComposioConte
     parameters: ComposioGetToolSchemasParameters,
     execute: async (_toolCallId: string, params: unknown) => {
       try {
+        await assertLegacyIntegrationEntryPointAllowed();
         assertResolvedComposioContext(context);
         const p = params as { tools: string[] };
         const tools = Array.isArray(p.tools) ? p.tools : [];
@@ -105,6 +108,7 @@ export function createComposioExecuteTool(context?: ResolvedComposioContext | nu
       const toolParams = (p.params && typeof p.params === 'object') ? p.params as Record<string, unknown> : {};
       const toolkitName = action.split('_')[0]?.toLowerCase() ?? '';
       try {
+        await assertLegacyIntegrationEntryPointAllowed();
         assertResolvedComposioContext(context);
         const result = await executeGatewayTool(action, toolParams, context);
 
@@ -159,6 +163,7 @@ export function createComposioManageConnectionsTool(context?: ResolvedComposioCo
     execute: async (_toolCallId: string, params: unknown) => {
       const p = params as { action: 'connect' | 'disconnect' | 'status'; toolkit: string };
       try {
+        await assertLegacyIntegrationEntryPointAllowed();
         assertResolvedComposioContext(context);
         const action = p.action;
         const toolkit = p.toolkit;

@@ -131,6 +131,25 @@ async function main() {
     const immutablePage = await runWithAgentExecutionContext(context, () => immutableTool.execute('immutable-ceiling', { action: 'list', target: 'providers' }));
     assert.deepEqual((details(immutablePage).providers as IntegrationProviderDescriptor[]).map((item) => item.source), ['mcp']);
 
+    const mutableMatrix = { ...ceiling, providerToolRules: [{ source: 'mcp' as const, providerRef: providers.mcp.providerRef,
+      allowedToolNames: ['create_design'], allowedOperations: ['list_providers', 'list_tools', 'describe'] as const }] };
+    const immutableMatrix = createIntegrationGatewayTool({ userId: 'alice', agentId: 'design-agent', sessionId: 'agent-session',
+      executionContext: context, policyCeiling: mutableMatrix }, { dispatcher, isEnabled: () => true });
+    mutableMatrix.providerToolRules[0].allowedToolNames.push('other_design');
+    const exposedRule = immutableMatrix.integrationGateway.policyCeiling.providerToolRules![0];
+    assert.equal(Reflect.set(exposedRule, 'allowedToolNames', null), false, 'A registered ceiling cannot lose its tool restriction.');
+    assert.equal(Reflect.set(exposedRule.allowedToolNames!, '0', 'other_design'), false);
+    assert.equal(Reflect.set(exposedRule.allowedOperations!, '3', 'call'), false, 'An exposed operation array cannot grant calls.');
+    const matrixTools = await runWithAgentExecutionContext(context, () => immutableMatrix.execute('immutable-matrix-list',
+      { action: 'list', target: 'tools', providerRef: providers.mcp.providerRef }));
+    const matrixRef = (details(matrixTools) as IntegrationToolPage).tools[0].toolRef;
+    const matrixSchema = details(await runWithAgentExecutionContext(context, () => immutableMatrix.execute('immutable-matrix-describe',
+      { action: 'describe', toolRef: matrixRef }))) as IntegrationToolSchema;
+    const beforeMatrixCall = counts.business;
+    assert.equal(code(await runWithAgentExecutionContext(context, () => immutableMatrix.execute('immutable-matrix-call',
+      { action: 'call', toolRef: matrixSchema.toolRef, schemaRef: matrixSchema.schemaRef, arguments: { message: 'Blocked' } }))), 'tool_denied');
+    assert.equal(counts.business, beforeMatrixCall, 'Nested ceiling mutation attempts cannot enable a business call.');
+
     const page = await execute({ action: 'list', target: 'providers' });
     assert.equal((details(page).providers as IntegrationProviderDescriptor[]).length, 2);
     const describe = async (source: IntegrationSource = 'mcp', turn = context.agentTurnId) => {

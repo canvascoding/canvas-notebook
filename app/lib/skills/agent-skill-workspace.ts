@@ -16,6 +16,7 @@ import {
   isValidAgentSkillName,
   loadCanvasSkillInterface,
   parseSkillFile,
+  validateStandaloneSkillWorkflow,
   type CanvasSkill,
   type CanvasSkillStorageScope,
 } from '@/app/lib/skills/canvas-skill-manifest';
@@ -312,6 +313,7 @@ async function validateWorkspaceSkillPackage(
       ? diagnostics.join(' ')
       : 'Skill package contains an invalid SKILL.md.');
   }
+  await validateStandaloneSkillWorkflow(skill);
   if (expectedName && skill.name !== expectedName) {
     throw new Error(`Skill package name mismatch: expected "${expectedName}", got "${skill.name}".`);
   }

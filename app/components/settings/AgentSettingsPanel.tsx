@@ -20,6 +20,9 @@ import { AgentManagedFilesCard, type ManagedFileName, type ResetTarget } from '.
 import { AgentToolsCard, type ToolMetadata } from './AgentToolsCard';
 import { AgentConnectionsPicker, AgentRelevantSkillsPicker } from './AgentCapabilityPickers';
 import { AgentGrantsEditor } from '@/app/components/agents/AgentGrantsEditor';
+import { AgentWorkflowChoiceDialog } from '@/app/components/agents/AgentWorkflowChoiceDialog';
+import { Route } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { AgentSelectorCard, type AgentProfileItem } from './AgentSelectorCard';
 import { AgentSettingsAccordionCard } from './AgentSettingsAccordionCard';
 import { AgentRuntimePreferenceCard } from './AgentRuntimePreferenceCard';
@@ -33,6 +36,7 @@ function buildAgentQuery(agentId: string): string {
 }
 
 type SessionItem = AgentSessionItem;
+type WorkflowAgentProfileItem = AgentProfileItem & { workflowVersion?: number | null; workflowRevision?: number };
 
 type AgentToolsConfigData = {
   agentId: string;
@@ -272,13 +276,16 @@ export function AgentSettingsPanel({
   canManageAgentDefaults?: boolean;
 }) {
   const t = useTranslations('settings');
+  const tWorkflow = useTranslations('agentWorkflow');
   const searchParams = useSearchParams();
   const requestedPanel = searchParams.get('panel')
     ?? (searchParams.get('tab') === 'my-agent-runtime' ? 'runtime' : null);
   const shouldOpenCreateAgentDialog = searchParams.get('createAgent') === '1';
   const [agentSectionOpenById, setAgentSectionOpenById] = useState<AgentSettingsSectionOpenState>(() => getFallbackAgentSectionOpenState(requestedPanel));
 
-  const [agents, setAgents] = useState<AgentProfileItem[]>([]);
+  const [agents, setAgents] = useState<WorkflowAgentProfileItem[]>([]);
+  const [workflowDialogOpen, setWorkflowDialogOpen] = useState(false);
+  const workflowTriggerRef = useRef<HTMLButtonElement>(null);
   const [agentsLoading, setAgentsLoading] = useState(true);
   const [agentsError, setAgentsError] = useState<string | null>(null);
   const [selectedAgentId, setSelectedAgentId] = useState(DEFAULT_AGENT_ID);
@@ -345,6 +352,7 @@ export function AgentSettingsPanel({
   }, [requestedPanel]);
 
   const resetAgentScopedState = useCallback(() => {
+    setWorkflowDialogOpen(false);
     sessionsRequestSeqRef.current += 1;
     setDoctorResult(null);
     setDoctorError(null);
@@ -388,6 +396,8 @@ export function AgentSettingsPanel({
     setAgents((current) => current.map((entry) => entry.agentId === agent.agentId ? { ...entry, ...agent } : entry));
   }, []);
   const isMainAgent = selectedAgentId === DEFAULT_AGENT_ID || selectedAgent?.type === 'main';
+  const hasWorkflowConfiguration = selectedAgent?.workflowVersion != null;
+  const isWorkflowUseOnly = selectedAgent?.workflowVersion === 1 && selectedAgent.access?.canEdit === false;
   const toolsOverrideEnabled = isMainAgent || Array.isArray(selectedAgent?.enabledTools);
   const skillsOverrideEnabled = !isMainAgent && Array.isArray(selectedAgent?.relevantSkills);
   const connectionsOverrideEnabled = !isMainAgent && Array.isArray(selectedAgent?.relevantConnections);
@@ -425,8 +435,8 @@ export function AgentSettingsPanel({
     setAgentsError(null);
 
     try {
-      const payload = await fetchJson<{ agents: AgentProfileItem[] }>('/api/agents');
-      const nextAgents = (payload.agents || []).filter((agent) => agent.access?.canEdit !== false);
+      const payload = await fetchJson<{ agents: WorkflowAgentProfileItem[] }>('/api/agents');
+      const nextAgents = (payload.agents || []).filter((agent) => agent.access?.canEdit !== false || agent.workflowVersion === 1 && agent.access.canUse);
       setAgents(nextAgents);
       setSelectedAgentId((current) => {
         if (nextAgents.some((agent) => agent.agentId === current)) {
@@ -702,13 +712,14 @@ export function AgentSettingsPanel({
   }, [loadAgents]);
 
   useEffect(() => {
+    if (isWorkflowUseOnly) return;
     startTransition(() => {
       void loadFiles();
       void loadSessions();
       void loadTools();
       void loadToolsConfig();
     });
-  }, [loadFiles, loadSessions, loadTools, loadToolsConfig]);
+  }, [isWorkflowUseOnly, loadFiles, loadSessions, loadTools, loadToolsConfig]);
 
   useEffect(() => {
     if (SHOW_AGENT_DOCTOR_SECTION && searchParams.get('panel') === 'doctor' && !doctorResult && !doctorRunning) {
@@ -1263,6 +1274,16 @@ export function AgentSettingsPanel({
         onReload={() => void loadAgents()}
       />
 
+      {selectedAgent?.workflowVersion === 1 && selectedAgent.access?.canUse ? <Card data-testid="agent-settings-workflow">
+        <CardHeader><CardTitle className="flex items-center gap-2"><Route className="size-4" />{tWorkflow('title')}</CardTitle>
+          <CardDescription>{tWorkflow('settingsDescription')}</CardDescription></CardHeader>
+        <CardContent><Button ref={workflowTriggerRef} type="button" variant="outline" onClick={() => setWorkflowDialogOpen(true)}>{tWorkflow('open')}</Button></CardContent>
+      </Card> : null}
+      {selectedAgent ? <AgentWorkflowChoiceDialog key={selectedAgent.agentId} open={workflowDialogOpen} agentId={selectedAgent.agentId}
+        agentName={selectedAgent.name} onOpenChange={setWorkflowDialogOpen} onRestoreFocus={() => workflowTriggerRef.current?.focus()} /> : null}
+
+      {!isWorkflowUseOnly ? <>
+
       {selectedAgent?.scopeType === 'organization' && selectedAgent.access?.canManage ? (
         <Card>
           <CardContent className="pt-6">
@@ -1315,7 +1336,7 @@ export function AgentSettingsPanel({
                 aria-label={t('agentPanel.inheritance.toolsOverride')}
               />
             </div>
-            <div className="flex items-center justify-between gap-4 rounded-md border bg-muted/20 p-3">
+            {!hasWorkflowConfiguration ? <><div className="flex items-center justify-between gap-4 rounded-md border bg-muted/20 p-3">
               <div className="min-w-0">
                 <p className="text-sm font-medium">{t('agentPanel.capabilities.skillsToggle')}</p>
                 <p className="truncate text-xs text-muted-foreground">
@@ -1347,6 +1368,7 @@ export function AgentSettingsPanel({
                 aria-label={t('agentPanel.capabilities.connectionsToggle')}
               />
             </div>
+            </> : null}
             {modelOverrideError && <p className="text-sm text-destructive md:col-span-2">{modelOverrideError}</p>}
             {capabilitiesError && <p className="text-sm text-destructive md:col-span-2">{capabilitiesError}</p>}
           </CardContent>
@@ -1402,7 +1424,7 @@ export function AgentSettingsPanel({
         />
       )}
 
-      {!isMainAgent && connectionsOverrideEnabled && (
+      {!hasWorkflowConfiguration && !isMainAgent && connectionsOverrideEnabled && (
         <AgentSettingsAccordionCard
           title={t('agentPanel.capabilities.connectionsTitle')}
           description={t('agentPanel.capabilities.connectionsDescription')}
@@ -1419,7 +1441,7 @@ export function AgentSettingsPanel({
         </AgentSettingsAccordionCard>
       )}
 
-      {!isMainAgent && skillsOverrideEnabled && (
+      {!hasWorkflowConfiguration && !isMainAgent && skillsOverrideEnabled && (
         <AgentSettingsAccordionCard
           title={t('agentPanel.capabilities.skillsTitle')}
           description={t('agentPanel.capabilities.skillsDescription')}
@@ -1513,6 +1535,7 @@ export function AgentSettingsPanel({
           onRunDoctor={() => void runDoctor()}
         />
       )}
+      </> : null}
     </div>
   );
 }

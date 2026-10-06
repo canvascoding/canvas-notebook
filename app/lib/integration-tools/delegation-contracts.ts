@@ -2,6 +2,7 @@ import type { IntegrationPolicy } from './contracts';
 import { IntegrationContractError } from './contracts';
 import type { IntegrationAdapterToolSchema } from './runtime-contracts';
 import { cloneIntegrationArguments } from './schema';
+import { isIntegrationProviderToolRulesValid } from './policy';
 
 export const MAX_DELEGATED_INTEGRATION_BINDINGS = 8;
 export type IntegrationBindingSelection = { toolRef: string; schemaRef: string };
@@ -90,11 +91,12 @@ export function readPrivateDelegatedIntegrationSnapshot(value: unknown): Private
   if (parent.agentTurnId !== null && !nonempty(parent.agentTurnId)) return denied();
   const policy = record(parent.policy);
   const policyKeys = ['allowedSources', 'allowedProviderRefs', 'allowedApplications', 'allowedToolNames', 'allowedOperations'];
-  keys(policy, policyKeys);
+  keys(policy, [...policyKeys, 'providerToolRules']);
   for (const field of policyKeys) {
     const entry = policy[field];
     if (entry !== null && (!Array.isArray(entry) || entry.length > 2048 || entry.some(item => !nonempty(item)))) denied();
   }
+  if (!isIntegrationProviderToolRulesValid(policy.providerToolRules)) return denied();
   for (const item of captured.bindings) {
     const binding = record(item);
     keys(binding, ['providerRef', 'toolName', 'bindingRevision', 'tool']);

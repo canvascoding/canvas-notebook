@@ -103,12 +103,15 @@
     {
       "id": "5c",
       "name": "Workflow-Agenten und verbindliche Capability-Bindungen",
-      "status": "in_progress",
+      "status": "complete",
       "substeps": [
         {
           "id": "5c-a",
           "name": "Aktuelle Agent-Autoritaet und atomare Konfigurationsaenderungen",
           "status": "complete",
+          "commits": [
+            "186cb8f4d"
+          ],
           "evidence": [
             "Detailed acceptance: evidence/step-5c-a-agent-authority.md; actual canonical scope authority, exact profile UPDATE RETURNING and transactional capability/grant CAS",
             "Native PostgreSQL max8 pressure, one complete winner/seven409, observed row-lock revocation and actual SQL-trigger rollback: PASS; exact own nonce DB/DATA cleanup",
@@ -121,11 +124,20 @@
         {
           "id": "5c-b",
           "name": "Workflow-Vertrag, gespeicherte Bindungen und Runtime-Durchsetzung",
-          "status": "pending",
-          "evidence": []
+          "status": "complete",
+          "evidence": [
+            "Detailed acceptance: evidence/step-5c-b-workflow-bindings.md and workflow-contract.md; optional portable v1, exact mandatory package/skill/provider/account pins, atomic central configuration and separate own-choice CAS",
+            "Actual signed Team/PGlite registry/gateway/SDK/MCP workflows, native PostgreSQL max8 pressure/locks/rollback, provider matrices, personal explicit account discovery, current grants and pinned bytes: PASS; planning/email provider zero-I/O",
+            "Final npm run build including TypeScript, changed-source ESLint, nine workflow fixture suites plus actual React/Radix UI, registry/gateway/connections/packages/scripts regressions: PASS",
+            "Playwright final production build: 3 PASS, Chromium one worker/no retries/1.1min; actual authenticated Admin/Member, central403/legacy409, own selection CAS/reload/default-reset, stale/revoke, personal metadata0providerCalls, desktop1280/mobile390 light/dark and focus",
+            "Final guarded cleanup plus independent read-only SQL: own agents0/packageResources0, exactly2 own MCP resources archived; audit/physical backend retained; verified own host/provider stopped and foreign stack unchanged",
+            "Feature flag remains default off; MCP Apps/Desktop OAuth and broader agent setup UX remain6b, plugin redesign6a and actual live/shared Canva acceptance7; no push/container build/deployment"
+          ]
         }
       ],
-      "evidence": []
+      "evidence": [
+        "5c-a agent authority and 5c-b explicit workflow bindings completed and separately committed; overall redesign/rollout acceptance remains6a-7"
+      ]
     },
     { "id": "6a", "name": "Plugin-Seite und Store-Redesign", "status": "pending", "evidence": [] },
     { "id": "6b", "name": "Agent-Konfiguration, OAuth-Rueckkehr und Mobile-Vertrag", "status": "pending", "evidence": [] },
