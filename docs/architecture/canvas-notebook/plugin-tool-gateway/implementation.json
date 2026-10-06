@@ -12,7 +12,7 @@
   },
   "steps": [
     { "id": "0", "name": "Allgemeiner Composio-Fix", "status": "complete", "commits": ["d8cb779df", "e83f7cdcc", "409897b9d"] },
-    { "id": "1", "name": "Vertrag und Provider-Katalog", "status": "complete", "evidence": [
+    { "id": "1", "name": "Vertrag und Provider-Katalog", "status": "complete", "commits": ["e4a8499e8"], "evidence": [
       "npm run test:integrations:gateway:catalog: PASS (strict contract, scopes/policies/cursors, PostgreSQL session/workspace/agent access, real MCP HTTP fixture, real local Composio SDK HTTP and Managed fixture)",
       "npm run test:mcp:member-access: PASS",
       "npm run test:composio:user-scope: PASS",
@@ -22,7 +22,7 @@
       "git diff --check: PASS",
       "Provider fixtures prove the protocol and isolation; actual third-party account acceptance remains in step 7."
     ] },
-    { "id": "2", "name": "Tool-Suche, Schema und Dispatcher", "status": "complete", "evidence": [
+    { "id": "2", "name": "Tool-Suche, Schema und Dispatcher", "status": "complete", "commits": ["aa51e1a41"], "evidence": [
       "npm run test:integrations:gateway: PASS (catalog plus complete JSON Schema worker, bounded cache, dispatcher and actual MCP/Composio SDK HTTP fixtures)",
       "CANVAS_CONTROL_PLANE_TEST_ROOT=<isolated Control Plane worktree> npm run test:integrations:gateway:managed: PASS (actual Fastify routes and SDK, exact account/version, schema/credential races, no-auth and one uncertain POST)",
       "Control Plane feat/plugin-integration-gateway commit a9d7984: additive binding protocol; npm run test:managed-composio-binding and full workspace npm run typecheck: PASS",
@@ -32,7 +32,7 @@
       "MCP final header guard, HTTP URL and STDIO ENV rotation, four gated parallel close cases and delayed old-call failure: PASS",
       "npx tsc --noEmit --pretty false --incremental false and ESLint all changed runtime modules/scripts: PASS",
       "npm run build and npm run test:licenses: PASS (2026-10-06); generated license changes only update the lockfile hash",
-      "git diff --check: PASS; fresh GitNexus staged detection is partial, so the full actual diff was reviewed alongside symbol impacts",
+      "git diff --check: PASS; initial GitNexus staged detection was partial, final refreshed staged detection found 256 changed symbols in 27 files; the full actual diff was reviewed alongside symbol impacts",
       "The unified dispatcher is not wired into the public agent registry yet. Browser chat acceptance belongs to step 3; live third-party OAuth/account acceptance remains in step 7."
     ] },
     { "id": "3", "name": "Agenten-Runtime und Feature-Flag", "status": "pending", "evidence": [] },
@@ -46,7 +46,7 @@
     { "id": "7", "name": "End-to-End-Abnahme und kontrollierter Rollout", "status": "pending", "evidence": [] }
   ],
   "finalAcceptance": {
-    "planScenarios": "1-27",
+    "planScenarios": "1-29",
     "build": "pending",
     "focusedRegression": "pending",
     "playwrightDesktopAndMobile": "pending",
