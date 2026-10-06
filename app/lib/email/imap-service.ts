@@ -613,8 +613,9 @@ async function updateImapMessageFlag(
   flag: string,
   enabled: boolean,
   action: string,
+  frozenSecret?: EmailAccountSmtpSecret,
 ) {
-  const secret = await readStoredEmailAccountSecret(account);
+  const secret = frozenSecret ?? await readStoredEmailAccountSecret(account);
   if (secret.authType !== 'smtp_imap') throw new Error('Email account is not an SMTP/IMAP account.');
   requireImapSecret(secret);
   const result = await withImapMessage(secret, messageId, folder, async (client, reference, folderPath) => {
@@ -992,8 +993,10 @@ export async function setImapEmailMessageAnswered(
   messageId: string,
   folder: string | undefined,
   answered: boolean,
+  /** Server-internal accepted-reply bookkeeping pins the original authorized connection. */
+  frozenSecret?: EmailAccountSmtpSecret,
 ) {
-  return updateImapMessageFlag(account, messageId, folder, '\\Answered', answered, answered ? 'mark-answered' : 'clear-answered');
+  return updateImapMessageFlag(account, messageId, folder, '\\Answered', answered, answered ? 'mark-answered' : 'clear-answered', frozenSecret);
 }
 
 export async function moveImapEmailMessage(

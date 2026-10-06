@@ -11,7 +11,7 @@ Der Nutzer hat Umsetzung und Playwright freigegeben und Mailpit für lokale Mail
 - [x] 4. Hintergrund-Synchronisation/Klassifizierung, vollständiger autorisierter Gesamtfeed, Paging/Ranking, Cache-Anreicherung und Lifecycleinvalidierung.
 - [x] 5. Adminoberfläche und sichere Secrets-Anbindung.
 - [x] 6. Fokus/Klassisch, Alle/Einzel/Persönlich/Arbeit, Progressive Disclosure, Herkunft bei Mailaktionen und persönliche Erledigung.
-- [ ] 7. Qualitäts-/Recovery-Dokumentation, relevante Regressionsprüfungen, Typecheck/Lint/Build und abschließende E2E-/UI-Abnahme.
+- [x] 7. Qualitäts-/Recovery-Dokumentation, relevante Regressionsprüfungen, Typecheck/Lint/Build und abschließende E2E-/UI-Abnahme.
 
 ## Abschlussanforderungen
 
@@ -21,21 +21,21 @@ Der Nutzer hat Umsetzung und Playwright freigegeben und Mailpit für lokale Mail
 | Vier Felder und echte Wahrscheinlichkeiten, unbekannt ungleich null Prozent | `npm run test:email:classification:policy`; Choice-Verteilungen getrennt von Provider-Confidence | Phase 1 geprüft |
 | Zentraler Adminschalter, standardmäßig aus, keine persönlichen AI-Schalter | Admin-/Availability-/Worker-Tests und Browser | API, Worker und Admin-UI geprüft |
 | System-Secrets ohne Prozess-/Userfallback | Credential-/Route-Tests, Secrets-UI | System-API, sicherer UI-Status und Secrets-Link geprüft |
-| Sichere dauerhafte Persistenz, Leases/Revisionen/Toggle-Rennen | PGlite mit echter Startupmigration und zusätzliche PostgreSQL-18-Prüfung über unabhängige Sessions in eigenem temporärem Schema | Phase 2 geprüft; API-Anschluss offen |
-| Persönliche/Workspace-Rechte samt Senderpolicy auch bei Cachetreffer | Feed-/Boundary-/Revocation-Tests | Backend und UI-Verträge geprüft; finale reale Readonly-Abnahme offen |
-| Lokale und verwaltete persönliche, vorhandene gemeinsame Postfächer | Registry-/Service-/Feedtests | Backend geprüft; reale lokale Abnahme offen |
+| Sichere dauerhafte Persistenz, Leases/Revisionen/Toggle-Rennen | PGlite mit echter Startupmigration und zusätzliche PostgreSQL-18-Prüfung über unabhängige Sessions in eigenem temporärem Schema | Persistenz, APIs und aktuelle UI-Anbindung geprüft |
+| Persönliche/Workspace-Rechte samt Senderpolicy auch bei Cachetreffer | Feed-/Boundary-/Revocation-Tests | Backend-/UI-Verträge und reale Readonly-Abnahme bestanden |
+| Lokale und verwaltete persönliche, vorhandene gemeinsame Postfächer | Registry-/Service-/Feedtests | Registry-/Serviceverträge geprüft; reale lokale SMTP/IMAP-Abnahme bestanden; verwalteter externer Dienst nicht live geprüft |
 | Metadatensync unabhängig von AI; Verarbeitung bei geschlossenem Browser | Scheduler-/Worker-/Restarttests | Worker/Runtime und echter Host mit sieben Jev-Testmails geprüft |
 | Batch-Anreicherung ohne AI im Read-Pfad und ohne verlorene Korrekturen | Cache-/Enrichmenttests | Backend geprüft |
 | Globales Ranking über synchronisierten Bestand, stabile Cursor und ehrliche Coverage | Mehrseitige Feedtests | Backend und UI-Hook geprüft; echter Fokusfeed sichtbar |
-| Fokus/Klassisch und alle Postfachscopes, gespeicherte Moduswahl | Browser-E2E samt Reload und zentralem Toggle | Implementiert und fokussiert geprüft; abschließende reale E2E offen |
-| Mailaktionen/Anhänge/Absender verwenden Herkunft der gewählten Mail | Browser-/Route-Tests mit gleichen IDs in verschiedenen Postfächern | Offen |
-| Unbewertete/unsichere/gestörte Quellen sichtbar, Prozentdetails bei Bedarf | Responsive Browser-E2E | Offen |
-| Persönliches Erledigen/Undo schließt keinen Team-Case | Store-/Policy-/Browserprüfungen | Offen |
-| Compose/Review, Sendefehler und unklarer Versandstatus bleiben erhalten | Bestehende und neue Mail-/Reviewregressionen | Source-/Dialogregressionen bestanden; echter Antwortversand offen |
-| Keine springende Liste oder verlorenen Entwürfe bei Scope-/Moduswechsel | Browser-E2E | Offen |
-| Typecheck, relevante Lints, Produktionsbuild | Aktuelle Command-Ergebnisse | Offen |
-| Abschließender E2E-Test mit visueller Prüfung Desktop/Mobile | Aktueller Playwright-Report und Screenshots | Offen |
-| Lokale echte Mailtests mit Mailpit | SMTP-Eingang, Notebook-Abruf/Klassifizierung und Antwort an Mailpit | Offen |
+| Fokus/Klassisch und alle Postfachscopes, gespeicherte Moduswahl | Browser-E2E samt Reload und zentralem Toggle | Reale E2E mit Scopes, Reload, gespeichertem Modus und zentralem Toggle bestanden |
+| Mailaktionen/Anhänge/Absender verwenden Herkunft der gewählten Mail | Browser-/Route-Tests mit gleichen IDs in verschiedenen Postfächern | Reale kollidierende UIDs, Arbeits-Anhang und festgehaltener Reply-Absender bestanden |
+| Unbewertete/unsichere/gestörte Quellen sichtbar, Prozentdetails bei Bedarf | UI-/Hook-Tests und responsive reale Browserabnahme | Sichere Fehler-/Unknown-Verträge geprüft; reale Review-/Detailsansicht und internes Scrollen bestanden |
+| Persönliches Erledigen/Undo schließt keinen Team-Case | Store-/Policy-/Browserprüfungen | Readonly-Done/Undo, getrennte Administratoransicht und verweigerte Korrektur bestanden |
+| Compose/Review, Sendefehler und unklarer Versandstatus bleiben erhalten | Bestehende und neue Mail-/Reviewregressionen | Source-/Dialog-/Reviewregressionen und echter Reply-Versand bestanden |
+| Keine springende Liste oder verlorenen Entwürfe bei Scope-/Moduswechsel | Hook-/Composerregression und Browser-E2E | Snapshot-/Paging-/Sessionrennen geprüft; minimierter tatsächlicher Reply-Entwurf erhalten |
+| Typecheck, relevante Lints, Produktionsbuild | Aktuelle Command-Ergebnisse | Bestanden; Produktionsbuild meldet 47 dynamische Dateipfad-/Tracingwarnungen |
+| Abschließender E2E-Test mit visueller Prüfung Desktop/Mobile | Aktueller Playwright-Report und Screenshots | Drei reale Fälle gegen finalen Produktionsbuild, 54,1 Sekunden; Screenshots geprüft |
+| Lokale echte Mailtests mit Mailpit | SMTP-Eingang, Notebook-Abruf/Klassifizierung und Antwort an Mailpit | CA-geprüftes STARTTLS, echter Eingang/IMAP, Anhang-Download und Reply-Inhalt bestanden |
 | Reale Jev-Anbindung | Synthetischer Providerrequest mit zentral konfiguriertem User-Key | System-Key importiert; API-/UI-Probe und sieben echte lokale Mailbewertungen erfolgreich |
 
 Die synthetischen Canary-Mails sind keine statistische Kalibrierung. Automatische Spam-Ausblendung bleibt ohne explizit dokumentiertes geprüftes Schwellenprofil deaktiviert.
@@ -102,3 +102,20 @@ Die Bewertung steht kompakt über der Nachricht. Wahrscheinlichkeiten, Verteilun
 Geprüft am 2026-10-06: Experience-/Preferences-/Katalogtest, Focus-Hook-/DOM-Test, Composer-Source-/Dialogtests, Feedtests und aktualisierter Context-Intent-Test bestanden. Die bestehende Playwright-Such-/Layoutserie bestand mit sieben Fällen; deren kontrollierte Legacy-Fixture ist vom aktuellen zentralen KI-Status unabhängig. Echter Jev-Feed zeigt sieben lokale synthetische E-Mails aus drei Quellen, zwei im Fokus und eine unter Noch prüfen. Arbeitsmail und persönliche Mail mit kollidierenden IMAP-IDs öffnen die jeweilige echte Quelle. Ratings aufklappbar, Desktop hell/dunkel sowie Mobile 390px visuell geprüft, kein horizontaler Überlauf und keine Pageerrors.
 
 Die letzte Read-only-Prüfung fand und schloss sechs konkrete Übergangsfehler (Sourcewechsel, spät geladene Ordner, Detail-Mutation-Fence, entfernte Composerrechte, ignorierte Tool-Suche, unerreichbarer Entwurf ohne Konten). Reale Antwort, Anhang-Download, Readonly-Done, zentraler Toggle/Reload, vollständiger Build und abschließende E2E bleiben Phase 7.
+
+
+## Phase 7: Abschluss
+
+Deutsch/englische Nutzer- und Adminanleitungen beschreiben Fokus/Klassisch, Bereiche, progressive Details, unbekannte Prozentwerte, persönliche Erledigung, System-Secrets und festgehaltene Entwürfe. Die Betriebs-/Recovery-Dokumentation trennt Metadatenabdeckung von historischen KI-Limits, Providervertrag von Qualitätsmessung sowie Raw-Wiederverwendung von fachlicher Neuklassifizierung. Die technischen Kalibrierungsfelder sind kein Nachweis; automatische Spam-Ausblendung bleibt ohne geprüften Bericht gesperrt.
+
+Die reale Versandprüfung deckte einen fehlenden Antwort-Lifecycle auf. Bestätigter Reply/Reply-all erfasst jetzt die ursprüngliche aktuelle Quelle, verwendet einen passenden eingefrorenen IMAP-Verbindungsstand und schreibt einen revisionsgebundenen lokalen Beleg für die indexierte Originalnachricht. Nachgelagerte Flag-/DB-Fehler verwandeln eine bestätigte Zustellung nicht in einen Wiederholungsfehler. Weiterleitungen, Entwürfe, Fehlschläge und unklare Zustellungen erzeugen keinen Beleg. Additive `accepted_reply_at`-Persistenz übersteht widersprechende Providerflags ohne unnötige Indexrevisionen; explizites Clear-answered setzt sie zurück. Rebind, Binding/Policywechsel und Rechteentzug sind gesondert geprüft.
+
+Die letzte visuelle Prüfung fand einen überfüllten Reader bei erweiterten Bewertungen. Der Bewertungsbereich ist nun separat scrollbar und auf höchstens die halbe Readerhöhe begrenzt; der E-Mail-Text bleibt darunter sichtbar. Der finale reale E2E prüft diese Geometrie auf Desktop und Mobile, erreicht den Readonly-Hinweis durch tatsächliches internes Scrollen und benutzt Done ohne erzwungenen Klick.
+
+Aktuelle Prüfungen am 2026-10-06: globaler Typecheck, relevante ESLints, neuer Accepted-Reply-Test, bestehende Store-/Cache-/IMAPreferenz-, Review-/Mailbox-/Actor-/Tool-/Attachment-, Inbox-Flow-, Focus-UI- und Context-Intent-Prüfungen bestanden. Die Legacy-Such-/Layoutserie bestand mit sieben Playwrightfällen. Vollständiges `npm run build` mit `NODE_ENV=production` bestand einschließlich Lizenzgate und TypeScript; 47 Warnungen zu dynamischen Dateipfaden/Tracing verbleiben. Frühere ungültige ENV-/Typversuche zählen nicht als erfolgreiche Builds.
+
+Abschließender Lauf: `E2E_EXTERNAL_SERVER=1 CANVAS_EMAIL_CLASSIFICATION_FIXTURE_FILE=<privater Fixturepfad> npx playwright test tests/email-classification-local.spec.ts --workers=1 --reporter=line` gegen den finalen lokalen Produktionsbuild: **3 bestanden, 54,1 Sekunden**. Keine Core-Mail-/Klassifizierungs-/Settings-/Preferences-Interceptions. Nachgewiesen: alle und einzelne persönliche/Arbeitsbereiche, gespeicherter Modus, zentral aus/ein mit gleichen Ratings, gleiche IMAP-UIDs in zwei echten Quellen, tatsächlicher Arbeits-Anhang-Download, minimierter Reply-Entwurf mit festem Absender, expliziter Versand mit From/To/Inhalt in Mailpit, tatsächlich gesetztes IMAP-Answered, Readonly-Done/Undo ohne Änderung des Administratorzustands und Korrektur-403. Desktop hell/dunkel und Mobile hell/dunkel sind visuell geprüft.
+
+Lokale eigene Testressourcen anschließend entfernt: zwei persönliche Testaccounts, ein Arbeits-Testaccount, sein Workspace und ausschließlich dessen Nur-Lese-Mitgliedschaft. Vorhandene persönliche und Arbeitsaccounts bleiben bestehen. KI-Schalter wieder deaktiviert, ursprüngliche persönliche Moduswahl zurückgesetzt; der autorisiert importierte Jev-Schlüssel bleibt als konfiguriertes System-Secret erhalten. Eigener Notebook-Testserver und native Mailpit-/GreenMail-Prozesse beendet, getestete Ports frei; vorhandener Control-Plane-/PostgreSQL-Stack und anderer SMTP-Prozess unberührt. Nachweise und Screenshots liegen privat unter `~/.local/state/canvas-local-team-seat/email-classification-test/final-e2e/`, Build-/Cleanupnachweis im übergeordneten Testverzeichnis.
+
+Keine Container gebaut, kein Push/PR/Release und keine Produktionsbereitstellung. Reale Jev-Funktionalität sowie lokales SMTP/IMAP sind geprüft; ein echtes alternatives Open-Source-Modell und ein verwalteter externer Maildienst wurden nicht live getestet. Die synthetischen Mails sind weiterhin kein Spam-Kalibrierungsnachweis.

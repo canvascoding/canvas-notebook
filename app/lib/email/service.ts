@@ -83,6 +83,7 @@ import {
 } from '@/app/lib/email/managed-client';
 import { saveSmtpEmailAccount, testSmtpConnection, testStoredSmtpEmailAccount, type SmtpAccountInput } from '@/app/lib/email/smtp-service';
 import type { EmailClassificationEnrichedPayload } from '@/app/lib/email/classification/enrichment';
+import { captureAcceptedEmailReply, recordAcceptedEmailReply } from '@/app/lib/email/accepted-reply';
 
 type EmailSearchInput = {
   offset?: number;
@@ -879,7 +880,10 @@ export async function sendEmailDerivedMessage(
   overrides?: EmailDerivedDraftOverrides,
   options?: EmailReadPolicyOptions & EmailDeliveryOptions,
 ) {
+  const reply = await captureAcceptedEmailReply({ actorUserId: options?.actorUserId ?? userId, ownerUserId: userId,
+    accountId, accountSource: 'local', workspaceId: options?.workspaceId, messageId, folder, mode });
   const result = await sendLocalEmailDerivedMessage(userId, accountId, messageId, folder, mode, overrides, options);
+  await recordAcceptedEmailReply(reply, result.sent === true);
   return invalidateLocalOAuthMailboxResult(userId, result);
 }
 

@@ -1,0 +1,43 @@
+---
+title: E-Mail-Vorbereitung administrieren
+description: Die E-Mail-Vorbereitung zentral aktivieren, Anbieter wählen, System-Secrets verwalten und pausierte oder unvollständige Verarbeitung erkennen.
+section: Administration und Sicherheit
+sectionOrder: 10
+order: 17
+locale: de
+translationKey: admin.email-classification
+updatedAt: 2026-10-06
+---
+
+# E-Mail-Vorbereitung administrieren
+
+Ein Instanzadministrator verwaltet die E-Mail-Vorbereitung unter Einstellungen → System-E-Mail. Sie ist standardmäßig deaktiviert und gilt zentral für alle Nutzer des Servers, einschließlich persönlicher und gemeinsamer Arbeitspostfächer. Postfachberechtigungen und Absenderregeln gelten weiterhin. Der SMTP-Absender für Systembenachrichtigungen ist separat konfiguriert.
+
+## Vor der Aktivierung konfigurieren
+
+1. Öffne Anbieter und Konfiguration und wähle TypeSafe Jev oder einen System-One-kompatiblen Anbieter. Trage das Modell und bei einem kompatiblen Dienst dessen Endpoint ein.
+2. Öffne [Einstellungen → Secrets](/settings?tab=secrets), wähle den Bereich System und speichere den Anbieterschlüssel. In der Vorbereitungskarte steht ausschließlich der Schlüsselname, beispielsweise `TYPESAFE_API_KEY`. Trage dort keinen Schlüsselwert ein. Ein persönlicher oder Organisationsschlüssel konfiguriert diese Serverfunktion nicht.
+3. Wähle Entwurf testen. Der Test bewertet eine feste synthetische E-Mail und funktioniert auch bei deaktivierter Vorbereitung und ungespeicherten Einstellungen. Er liest kein echtes Postfach.
+4. Aktiviere Für alle aktivieren und wähle Einstellungen speichern. Prüfe danach den gespeicherten Aktivierungs- und Verarbeitungsstatus.
+
+Ein ausdrücklich erlaubter kompatibler Endpoint im privaten Netz kann durch einen leeren Schlüsselnamen ohne Authentifizierung konfiguriert werden. Ein fehlender benannter Schlüssel bleibt ein Konfigurationsfehler.
+
+Nach der Aktivierung wird Fokus zur Standardansicht; eine gespeicherte Wahl für Klassisch bleibt bestehen. Der Ansichtswechsel deaktiviert die Hintergrundvorbereitung nicht. Zentrales Abschalten führt zur klassischen Ansicht und pausiert neue Modellbewertungen. Gespeicherte Bewertungen bleiben für eine spätere Verwendung erhalten.
+
+## Details bei Bedarf anpassen
+
+Erweiterte Einstellungen enthält das Tagesbudget für Bewertungsversuche, Parallelität, Timeout, Synchronisationsintervall und Grenzen der anfänglichen historischen Vorbereitung. Postfachkontext und Kategorienkriterien beschreiben die Bewertung persönlicher und gemeinsamer Arbeitspostfächer. Entscheidungsschwellen lassen mittlere Werte zur Prüfung sichtbar.
+
+Ein erfolgreicher Beispieltest prüft Verbindung und Antwortkompatibilität. Er belegt keine Genauigkeit und kalibriert keine Wahrscheinlichkeiten. Automatische Spamzuordnung benötigt ein separat geprüftes Anbieter-/Modell-/Schemaprofil. Die Karte bietet keinen Schalter, der eine solche Prüfung einfach als erledigt erklärt.
+
+## Status prüfen und Störungen beheben
+
+Aktivierung und Verarbeitungsstatus sind getrennt. Ein Anbieter- oder Schlüsselproblem sowie das ausgeschöpfte Tagesbudget können neue Vorbereitung pausieren, während gespeicherte Bewertungen nutzbar bleiben. Auch die Erfassung kann unvollständig oder fehlgeschlagen sein. Verarbeitungsdetails zeigt erfasste, vorbereitete, wartende und fehlgeschlagene Nachrichten sowie das verbleibende Tagesbudget. Das sind Betriebszahlen und kein Genauigkeitsbericht.
+
+Prüfe bei fehlenden oder unlesbaren Zugangsdaten die System-Secrets und teste den Entwurf erneut. Repariere bei einem E-Mail-Verbindungsproblem das betroffene Postfach. Nutzer können es währenddessen einzeln in Klassisch öffnen. Aktualisiere einen unbekannten Status, bevor du ihn als leeren Arbeitsbestand interpretierst.
+
+Speichert eine andere Administration zuerst, bleiben deine Eingaben erhalten und das Speichern wird gesperrt. Gespeicherte Konfiguration neu laden ersetzt deinen Entwurf bewusst durch die aktuellen Einstellungen. Eine Secrets-Änderung aktualisiert den Zugangsstatus, ohne ungespeicherte Konfigurationseingaben zu ersetzen.
+
+## Weitere Anleitungen
+
+- [Mit E-Mail-Fokus arbeiten](/docs/email/focus)

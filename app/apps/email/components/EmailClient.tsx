@@ -1731,8 +1731,10 @@ export function EmailClient({
           />}
 
           {layoutMode === 'wide' && <section className="flex min-h-0 flex-col overflow-hidden border border-border bg-card">
-            {experienceMode === 'focus' && currentAssessmentItem && <EmailClassificationDetails item={currentAssessmentItem} userId={session?.user.id || ''}
-              onItemChange={applyClassificationItem} onUnavailable={() => clearReader()} />}
+            {experienceMode === 'focus' && currentAssessmentItem && <div className="max-h-[min(40dvh,50%)] shrink-0 overflow-y-auto" data-testid="email-assessment-scroll">
+              <EmailClassificationDetails item={currentAssessmentItem} userId={session?.user.id || ''}
+                onItemChange={applyClassificationItem} onUnavailable={() => clearReader()} />
+            </div>}
             <EmailMessageViewer
               key={`email-message-viewer:${mailboxScopeKey}:${selectedMessage?.selectionKey || selectedMessage?.id || 'empty'}:${readerRevision}`}
               actions={selectedMessage ? { canWrite: canWriteActiveAccount, canRunAgent, activeAction: activeMessageAction, folders, onAction: handleMessageAction } : undefined}
@@ -1768,7 +1770,7 @@ export function EmailClient({
                 {selectedMessage ? `${t('from')}: ${selectedMessage.from}` : t('loadingMessage')}
               </DialogDescription>
             </DialogHeader>
-            {experienceMode === 'focus' && currentAssessmentItem && <div className="[&>section]:pr-12">
+            {experienceMode === 'focus' && currentAssessmentItem && <div className="max-h-[min(40dvh,50%)] shrink-0 overflow-y-auto [&>section]:pr-12" data-testid="email-assessment-scroll">
               <EmailClassificationDetails item={currentAssessmentItem} userId={session?.user.id || ''}
                 onItemChange={applyClassificationItem} onUnavailable={() => clearReader()} />
             </div>}

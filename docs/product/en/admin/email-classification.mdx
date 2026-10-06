@@ -1,0 +1,45 @@
+---
+title: Administering Email Preparation
+description: Enable email preparation centrally, select a provider, manage System Secrets and recognize paused or incomplete processing.
+section: Administration and Security
+sectionOrder: 10
+order: 17
+locale: en
+translationKey: admin.email-classification
+updatedAt: 2026-10-06
+---
+
+# Administering Email Preparation
+
+An instance administrator manages Email preparation in Settings → System Email. It starts disabled and applies centrally to everyone on the server, including personal and shared work mailboxes. Mailbox permissions and sender rules continue to apply. It is separate from the system SMTP sender used for notifications.
+
+## Configure before enabling
+
+1. Open Provider and configuration and select TypeSafe Jev or a System One compatible provider. Set the model and, for a compatible service, its endpoint.
+2. Open [Settings → Secrets](/settings?tab=secrets), choose the System scope and save the provider key. In the preparation card enter only its credential name, such as `TYPESAFE_API_KEY`; never paste the key value into that field. A personal or organization key does not configure this server feature.
+3. Choose Test draft. It evaluates a fixed synthetic email and is available while preparation is disabled and before saving your edits. It does not read a real mailbox.
+4. Set Enable for everyone and choose Save settings. Confirm the saved activation and processing status.
+
+An explicitly allowed private-network compatible endpoint can be configured without authentication by leaving the credential name empty. A missing named key remains a configuration error.
+
+Users get Focus by default when enabled, with a saved Classic choice respected. Changing the view does not disable background preparation. Disabling centrally returns users to Classic and pauses new model evaluations while keeping stored assessments for later use.
+
+## Adjust details when necessary
+
+Advanced settings contains the daily attempt budget, concurrency, timeout, synchronization interval and initial historical preparation limits. Mailbox context and category criteria describe how personal and shared work mail should be evaluated. Decision thresholds leave intermediate scores visible for review.
+
+A successful sample checks connection and response compatibility. It does not validate accuracy or calibrate probabilities. Automatic suspected-spam sorting requires a separately evaluated provider/model/schema profile. The card does not offer a checkbox to declare that evaluation complete.
+
+## Read status and recover
+
+Activation and processing status are separate. A provider/key problem or exhausted daily budget can pause new preparation while saved assessments remain usable. Index coverage can also be incomplete or failed. Processing details shows captured, prepared, waiting and failed counts and the available daily budget; these are operational counts rather than an accuracy report.
+
+For missing or unreadable credentials, check System Secrets and test the draft again. For an email connection problem, repair the affected mailbox. Users can select that mailbox in Classic while you investigate. Unknown status should be retried before interpreting it as an empty workload.
+
+If another administrator saves first, your edits remain in place and saving is blocked. Reload saved configuration deliberately replaces your draft with the latest settings. A Secrets update refreshes credential status without replacing unsaved configuration edits.
+
+## Related guides
+
+- [Working with Email Focus](/docs/email/focus)
+- [System email configuration](/docs/admin/system-email)
+- [Managing API keys and secrets](/docs/integrations/secrets)
