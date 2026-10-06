@@ -1,0 +1,189 @@
+<div id="canvas-email-focus-concept" class="viz-dotted-background">
+  <section class="cef-product" aria-label="Canvas E-Mail-Entwurf">
+    <header class="cef-header">
+      <div class="cef-heading"><h2>E-Mails</h2><span class="cef-secondary">Entwurf · Beispieldaten</span></div>
+      <div class="cef-controls">
+        <label class="cef-scope">Postfächer
+          <select id="cef-scope" class="cursor-interaction">
+            <option value="all">Alle Postfächer</option>
+            <option value="personal">Persönlich</option>
+            <option value="work">Arbeit</option>
+            <optgroup label="Persönlich"><option value="private">Privates Postfach</option></optgroup>
+            <optgroup label="Canvas Studios"><option value="support">Support</option><option value="security">Sicherheit · Nur lesen</option></optgroup>
+          </select>
+        </label>
+        <div class="cef-mode" role="group" aria-label="Arbeitsmodus">
+          <button type="button" class="cursor-interaction" data-mode="focus" aria-pressed="true">Fokus</button>
+          <button type="button" class="cursor-interaction" data-mode="classic" aria-pressed="false">Klassisch</button>
+        </div>
+      </div>
+    </header>
+    <div class="cef-nav" id="cef-nav">
+      <div class="cef-view" role="group" aria-label="Mailansicht">
+        <button type="button" class="cursor-interaction" data-view="important" aria-pressed="true">Wichtig</button>
+        <button type="button" class="cursor-interaction" data-view="all" aria-pressed="false">Alle E-Mails</button>
+        <button type="button" class="cursor-interaction" id="cef-filter-toggle" aria-expanded="false" aria-controls="cef-filters">Filter</button>
+      </div>
+      <div id="cef-filters" class="cef-filters" hidden>
+        <label>Kategorie <select id="cef-category" class="cursor-interaction"><option value="all">Alle Kategorien</option><option>Support</option><option>Sicherheit</option><option>Korrespondenz</option><option>Rechnungen</option><option>Newsletter</option></select></label>
+        <button type="button" id="cef-spam" class="cursor-interaction" aria-pressed="false">Spamverdacht</button>
+      </div>
+    </div>
+    <div class="cef-columns">
+      <section class="cef-list" aria-label="Nachrichten">
+        <div id="cef-summary" class="cef-list-title" aria-live="polite"></div>
+        <div id="cef-messages"></div>
+        <button type="button" id="cef-more" class="cef-more cursor-interaction"></button>
+      </section>
+      <section id="cef-reader" class="cef-reader" aria-label="Geöffnete E-Mail"></section>
+    </div>
+    <div id="cef-feedback" class="cef-feedback" hidden role="status"></div>
+  </section>
+</div>
+<style>
+  #canvas-email-focus-concept { padding: 12px 0; }
+  #canvas-email-focus-concept .cef-product { --cef-bg: light-dark(#ffffff,#18181b); --cef-fg: light-dark(#202024,#eeeeef); --cef-soft: light-dark(#f5f5f6,#232326); --cef-secondary: light-dark(#60606a,#a8a8b2); --cef-border: light-dark(#e4e4e7,#39393f); --cef-active: light-dark(#242428,#e8e8ed); --cef-on-active: light-dark(#ffffff,#202024); --cef-urgent: light-dark(#873c20,#ffc4a5); --cef-urgent-bg: light-dark(#fff1e9,#3c2a23); background:var(--cef-bg); color:var(--cef-fg); font-family:ui-sans-serif,system-ui,sans-serif; font-size:14px; line-height:1.5; border:1px solid var(--cef-border); border-radius:12px; overflow-wrap:anywhere; }
+  #canvas-email-focus-concept .cef-header { padding:18px; border-bottom:1px solid var(--cef-border); }
+  #canvas-email-focus-concept .cef-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+  #canvas-email-focus-concept h2 { font-size:20px; font-weight:500; margin:0; }
+  #canvas-email-focus-concept h3 { font-size:16px; font-weight:500; margin:0 0 8px; }
+  #canvas-email-focus-concept .cef-secondary { color:var(--cef-secondary); font-size:12px; }
+  #canvas-email-focus-concept .cef-controls { display:flex; align-items:end; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-top:14px; }
+  #canvas-email-focus-concept label { display:grid; gap:4px; font-size:12px; font-weight:500; }
+  #canvas-email-focus-concept select, #canvas-email-focus-concept textarea { max-width:100%; box-sizing:border-box; min-width:0; border:1px solid var(--cef-border); border-radius:7px; background:var(--cef-bg); color:var(--cef-fg); padding:7px 10px; font:inherit; font-size:14px; }
+  #canvas-email-focus-concept button { font:inherit; font-weight:400; color:var(--cef-fg); background:transparent; border:1px solid var(--cef-border); border-radius:7px; padding:6px 10px; }
+  #canvas-email-focus-concept button[aria-pressed="true"], #canvas-email-focus-concept .cef-primary { color:var(--cef-on-active); background:var(--cef-active); border-color:var(--cef-active); }
+  #canvas-email-focus-concept .cef-mode, #canvas-email-focus-concept .cef-view { display:flex; gap:5px; flex-wrap:wrap; }
+  #canvas-email-focus-concept .cef-nav { padding:10px 18px; border-bottom:1px solid var(--cef-border); }
+  #canvas-email-focus-concept .cef-filters { display:flex; gap:12px; align-items:end; flex-wrap:wrap; margin-top:10px; }
+  #canvas-email-focus-concept [hidden] { display:none!important; }
+  #canvas-email-focus-concept .cef-columns { display:grid; grid-template-columns:minmax(0,1.2fr) minmax(0,1fr); }
+  #canvas-email-focus-concept .cef-list { min-width:0; border-right:1px solid var(--cef-border); padding:12px; }
+  #canvas-email-focus-concept .cef-list-title { padding:2px 6px 10px; font-weight:500; }
+  #canvas-email-focus-concept .cef-group-heading { display:flex; justify-content:space-between; gap:12px; font-size:12px; font-weight:500; padding:12px 6px 4px; color:var(--cef-secondary); }
+  #canvas-email-focus-concept .cef-row { display:block; width:100%; text-align:left; border:0; border-radius:7px; padding:10px; margin:3px 0; box-sizing:border-box; }
+  #canvas-email-focus-concept .cef-row[aria-current="true"] { background:var(--cef-soft); }
+  #canvas-email-focus-concept .cef-row:hover { background:var(--cef-soft); }
+  #canvas-email-focus-concept .cef-row-top { display:flex; justify-content:space-between; align-items:start; gap:8px; }
+  #canvas-email-focus-concept .cef-subject { display:block; font-weight:500; margin:2px 0; }
+  #canvas-email-focus-concept .cef-snippet { display:block; color:var(--cef-secondary); font-size:12px; }
+  #canvas-email-focus-concept .cef-tags { display:flex; flex-wrap:wrap; align-items:center; gap:5px; margin-top:6px; font-size:11px; }
+  #canvas-email-focus-concept .cef-reason { padding:1px 6px; border-radius:4px; background:var(--cef-soft); color:var(--cef-fg); }
+  #canvas-email-focus-concept .cef-urgent { color:var(--cef-urgent); background:var(--cef-urgent-bg); }
+  #canvas-email-focus-concept .cef-more { display:block; margin:12px 6px 3px; max-width:calc(100% - 12px); }
+  #canvas-email-focus-concept .cef-reader { padding:20px; min-width:0; }
+  #canvas-email-focus-concept .cef-meta { color:var(--cef-secondary); font-size:12px; margin:0 0 12px; }
+  #canvas-email-focus-concept .cef-body { margin:16px 0; white-space:pre-line; }
+  #canvas-email-focus-concept .cef-actions { display:flex; gap:8px; flex-wrap:wrap; margin:14px 0; }
+  #canvas-email-focus-concept .cef-rating-toggle { margin-top:10px; }
+  #canvas-email-focus-concept .cef-rating { margin:14px 0 0; border-top:1px solid var(--cef-border); padding-top:12px; }
+  #canvas-email-focus-concept dl { margin:0; display:grid; grid-template-columns:minmax(0,1fr) auto; gap:8px; font-size:12px; }
+  #canvas-email-focus-concept dt { color:var(--cef-secondary); }
+  #canvas-email-focus-concept dd { margin:0; font-variant-numeric:tabular-nums; }
+  #canvas-email-focus-concept .cef-compose { margin-top:16px; }
+  #canvas-email-focus-concept textarea { display:block; width:100%; min-height:100px; resize:vertical; margin:8px 0; }
+  #canvas-email-focus-concept .cef-feedback { display:flex; gap:10px; align-items:center; flex-wrap:wrap; padding:10px 18px; border-top:1px solid var(--cef-border); font-size:12px; }
+  @media(max-width:640px) { #canvas-email-focus-concept .cef-columns { grid-template-columns:minmax(0,1fr); } #canvas-email-focus-concept .cef-list { border-right:0; border-bottom:1px solid var(--cef-border); } #canvas-email-focus-concept .cef-reader { padding:16px; } }
+  @media(pointer:coarse) { #canvas-email-focus-concept button, #canvas-email-focus-concept select { min-height:44px; } #canvas-email-focus-concept select, #canvas-email-focus-concept textarea { font-size:16px; } }
+</style>
+<script>
+(() => {
+  const root = document.getElementById('canvas-email-focus-concept');
+  const el = id => root.querySelector('#' + id);
+  const mailboxes = {private:{name:'Privat',address:'alex@example.com',kind:'personal',canSend:true},support:{name:'Support · Canvas Studios',address:'support@canvasstudios.example',kind:'work',canSend:true},security:{name:'Sicherheit · Canvas Studios',address:'security@canvasstudios.example',kind:'work',canSend:false}};
+  const messages = [
+    {id:'order',box:'support',sender:'Mia Keller',subject:'Meine Bestellung ist nicht angekommen',snippet:'Ich warte seit zwei Wochen. Könnt ihr bitte nachsehen?',body:'Hallo,\n\nich warte seit zwei Wochen auf meine Bestellung. Könnt ihr bitte nachsehen?\n\nDanke, Mia',time:'10:10',date:9,category:'Support',priority:'Hoch',spam:3,reply:94,replyStatus:'unknown',group:'important'},
+    {id:'security',box:'security',sender:'Kontosicherheit',subject:'Ungewöhnlicher Zugriff auf das Teamkonto',snippet:'Bitte prüft den Zugriff und sichert bei Bedarf das Konto.',body:'Ein ungewöhnlicher Zugriff wurde erkannt. Bitte prüft den Zugriff und sichert bei Bedarf das Konto. Dies ist eine automatische Mitteilung.',time:'09:45',date:8,category:'Sicherheit',priority:'Akut',spam:4,reply:2,replyStatus:'not_needed',group:'important'},
+    {id:'new',box:'support',sender:'Jonas Brandt',subject:'Kurze Rückfrage zur Lieferung',snippet:'Könnt ihr die Lieferadresse noch ändern?',body:'Hallo, könnt ihr die Lieferadresse noch ändern? Meine Bestellung ging heute Morgen ein.',time:'09:30',date:7,category:null,priority:null,spam:null,reply:null,replyStatus:'unknown',group:'pending'},
+    {id:'meet',box:'private',sender:'Sam',subject:'Passt dir Donnerstag für unser Treffen?',snippet:'Ich könnte ab 18 Uhr. Was meinst du?',body:'Hallo Alex,\n\nDonnerstag könnte ich ab 18 Uhr. Was meinst du?\n\nSam',time:'09:20',date:6,category:'Korrespondenz',priority:'Normal',spam:1,reply:91,replyStatus:'unanswered',group:'reply'},
+    {id:'quote',box:'support',sender:'Lea Wagner',subject:'Rückfrage zu eurem Angebot',snippet:'Können wir die Details nächste Woche besprechen?',body:'Vielen Dank für das Angebot. Können wir die Details nächste Woche besprechen?',time:'08:50',date:5,category:'Support',priority:'Normal',spam:2,reply:88,replyStatus:'unanswered',group:'reply'},
+    {id:'conflict',box:'security',sender:'Account Service',subject:'Dringende Kontoprüfung erforderlich',snippet:'Bitte bestätigen Sie sofort Ihre Zugangsdaten.',body:'Bitte bestätigen Sie sofort Ihre Zugangsdaten. Die hohe Dringlichkeit und der Spamverdacht widersprechen sich; diese Nachricht muss geprüft werden.',time:'08:30',date:4,category:'Sicherheit',priority:'Hoch',spam:86,reply:12,replyStatus:'unknown',group:'review'},
+    {id:'invoice',box:'private',sender:'Studio Supplies',subject:'Beleg für deine Bestellung',snippet:'Dein Beleg liegt vor. Es ist keine Aktion erforderlich.',body:'Vielen Dank für deine Bestellung. Dein Beleg liegt vor. Es ist keine Aktion erforderlich.',time:'08:10',date:3,category:'Rechnungen',priority:'Niedrig',spam:2,reply:3,replyStatus:'not_needed',group:'other'},
+    {id:'newsletter',box:'private',sender:'Design Notes',subject:'Neue Ideen für dein Wochenende',snippet:'Dein abonnierter Newsletter ist da.',body:'Dein abonnierter Newsletter ist da. Viel Freude mit den neuen Ideen!',time:'Gestern',date:2,category:'Newsletter',priority:'Niedrig',spam:8,reply:1,replyStatus:'not_needed',group:'other'},
+    {id:'spam',box:'support',sender:'Business Promotion',subject:'Exklusives Angebot für Ihr Unternehmen',snippet:'Unaufgeforderte Massenwerbung.',body:'Unaufgeforderte Massenwerbung. In diesem Beispiel liegt ein belastbarer Spamverdacht vor.',time:'Gestern',date:1,category:'Newsletter',priority:'Niedrig',spam:99,reply:1,replyStatus:'not_needed',group:'spam'}
+  ];
+  const scopes = ['all','personal','work',...Object.keys(mailboxes)];
+  let state = {mode:'focus',scope:'all',view:'important',category:'all',filters:false,selected:'order',details:false,dismissed:[],composing:false,draft:'',drafts:{}};
+  let lastDismissed = null;
+  const density = {compact:false};
+  const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  function restore(snapshot) {
+    const value = snapshot?.privateContent;
+    if (!value || typeof value !== 'object') return;
+    if (['focus','classic'].includes(value.mode)) state.mode = value.mode;
+    if (scopes.includes(value.scope)) state.scope = value.scope;
+    if (['important','all','spam'].includes(value.view)) state.view = value.view;
+    if (['all','Support','Sicherheit','Korrespondenz','Rechnungen','Newsletter'].includes(value.category)) state.category = value.category;
+    if (messages.some(m => m.id === value.selected)) state.selected = value.selected;
+    state.details = value.details === true; state.filters = value.filters === true;
+    state.dismissed = Array.isArray(value.dismissed) ? value.dismissed.filter(id => messages.some(m => m.id === id)) : [];
+    state.draft = typeof value.draft === 'string' ? value.draft.slice(0,1000) : '';
+    state.composing = value.composing === true;
+    state.drafts = {};
+    messages.forEach(m => { if (typeof value.drafts?.[m.id] === 'string') state.drafts[m.id] = value.drafts[m.id].slice(0,1000); });
+  }
+  function save() {
+    if (typeof window.openai?.setWidgetState !== 'function') return;
+    const snapshot = {modelContent:{experience:state.mode,mailboxScope:state.scope,view:state.view},privateContent:{...state,drafts:{}}};
+    Object.entries(state.drafts).forEach(([id,draft]) => {
+      if (id === state.selected) return;
+      snapshot.privateContent.drafts[id] = draft;
+      if (new TextEncoder().encode(JSON.stringify(snapshot)).length > 15000) delete snapshot.privateContent.drafts[id];
+    });
+    window.openai.setWidgetState(snapshot).catch(() => {});
+  }
+  const scoped = () => messages.filter(m => state.scope === 'all' || m.box === state.scope || mailboxes[m.box].kind === state.scope);
+  function row(m) {
+    const reasons = m.group === 'important' ? [m.priority === 'Akut' ? 'Akute Priorität' : 'Hohe Priorität',...(m.id === 'order' ? ['Antwort erforderlich'] : [])] : m.group === 'reply' ? ['Antwort erforderlich'] : m.group === 'review' ? ['Einschätzung prüfen'] : m.group === 'pending' ? ['Bewertung ausstehend'] : [];
+    return `<button type="button" class="cef-row cursor-interaction" data-message="${m.id}" aria-current="${m.id === state.selected}"><span class="cef-row-top"><span>${esc(m.sender)}</span><span class="cef-secondary">${esc(m.time)}</span></span><span class="cef-subject">${esc(m.subject)}</span>${density.compact ? '' : `<span class="cef-snippet">${esc(m.snippet)}</span>`}<span class="cef-tags"><span class="cef-secondary">${esc(mailboxes[m.box].name)}</span>${state.mode === 'focus' ? reasons.map(reason => `<span class="cef-reason ${m.group === 'important' ? 'cef-urgent' : ''}">${reason}</span>`).join('') : ''}</span></button>`;
+  }
+  function renderReader() {
+    const m = messages.find(message => message.id === state.selected);
+    if (!m) { el('cef-reader').innerHTML = '<p class="cef-secondary">Wähle eine Nachricht.</p>'; return; }
+    const box = mailboxes[m.box];
+    const replyStatus = m.replyStatus === 'unknown' ? 'Antwortstatus unbekannt' : m.replyStatus === 'unanswered' ? 'Bisher nicht beantwortet' : 'Keine Antwort erforderlich';
+    const done = state.dismissed.includes(m.id);
+    el('cef-reader').innerHTML = `<p class="cef-meta">${esc(box.name)}${box.canSend ? '' : ' · Nur lesen'}${scoped().some(item => item.id === m.id) ? '' : ' · Außerhalb dieser Ansicht'}</p><h3>${esc(m.subject)}</h3><p class="cef-meta">Von ${esc(m.sender)}<br>An ${esc(box.address)}</p><div class="cef-tags">${m.category ? `<span class="cef-reason">${esc(m.category)}</span><span class="cef-reason ${m.group === 'important' ? 'cef-urgent' : ''}">${esc(m.priority)}</span>` : '<span class="cef-reason">Noch nicht vorbereitet</span>'}</div><p class="cef-body">${esc(m.body)}</p><div class="cef-actions">${box.canSend ? '<button type="button" class="cef-primary cursor-interaction" data-action="reply">Antworten</button>' : ''}<button type="button" class="cursor-interaction" data-action="done">${done ? 'Erledigung zurücknehmen' : 'Für mich erledigt'}</button></div>${state.composing && box.canSend ? `<div class="cef-compose"><label>Antwort von ${esc(box.address)}<textarea id="cef-draft" maxlength="1000" placeholder="Dein Antwortentwurf">${esc(state.draft)}</textarea></label><div class="cef-secondary">Entwurf im Beispiel · wird nicht gesendet</div><button type="button" class="cursor-interaction" data-action="close-draft">Entwurf schließen</button></div>` : ''}<button type="button" class="cef-rating-toggle cursor-interaction" data-action="details" aria-expanded="${state.details}" aria-controls="cef-rating">${state.details ? 'Bewertung schließen' : 'Bewertung ansehen'}</button><div id="cef-rating" class="cef-rating" ${state.details ? '' : 'hidden'}><dl><dt>Kategorie</dt><dd>${esc(m.category ?? 'Ausstehend')}</dd><dt>Priorität</dt><dd>${esc(m.priority ?? '—')}</dd><dt>Spamverdacht</dt><dd>${m.spam === null ? '—' : m.spam + ' %'}</dd><dt>Antwortbedarf</dt><dd>${m.reply === null ? '—' : m.reply + ' %'}</dd></dl><p class="cef-secondary">${m.group === 'pending' ? 'Bewertung läuft. Fehlende Werte sind keine 0 %.' : 'Antwortbedarf = Wahrscheinlichkeit, dass eine Antwort nötig ist.'}<br>${esc(replyStatus)}</p>${m.group === 'review' ? '<p class="cef-secondary">Dringlichkeit und Spamverdacht widersprechen sich. Diese Mail bleibt sichtbar.</p>' : ''}</div>`;
+  }
+  function render() {
+    el('cef-scope').value = state.scope; el('cef-category').value = state.category;
+    root.querySelectorAll('[data-mode]').forEach(button => button.setAttribute('aria-pressed',String(button.dataset.mode === state.mode)));
+    root.querySelectorAll('[data-view]').forEach(button => { button.hidden = state.mode === 'classic' && button.dataset.view === 'important'; button.setAttribute('aria-pressed',String(button.dataset.view === state.view || state.mode === 'classic' && button.dataset.view === 'all')); });
+    el('cef-filters').hidden = !state.filters; el('cef-filter-toggle').setAttribute('aria-expanded',String(state.filters)); el('cef-spam').setAttribute('aria-pressed',String(state.view === 'spam'));
+    const source = scoped().filter(m => state.category === 'all' || m.category === state.category);
+    let visible = source;
+    const important = state.mode === 'focus' && state.view === 'important';
+    if (important) visible = source.filter(m => !state.dismissed.includes(m.id) && ['important','reply','review','pending'].includes(m.group));
+    else if (state.view === 'spam') visible = source.filter(m => m.group === 'spam');
+    el('cef-summary').textContent = state.view === 'spam' ? 'Spamverdacht' : important ? 'Was jetzt Aufmerksamkeit braucht' : 'Posteingänge · Neueste zuerst';
+    const groups = important ? [['important','Jetzt wichtig'],['reply','Antwort erforderlich'],['review','Noch prüfen'],['pending','Noch nicht vorbereitet']] : [['all','']];
+    el('cef-messages').innerHTML = groups.map(([key,label]) => { const rows = visible.filter(m => key === 'all' || m.group === key).sort((a,b) => b.date - a.date); return rows.length ? `${label ? `<div class="cef-group-heading"><span>${label}</span><span>${rows.length}</span></div>` : ''}${rows.map(row).join('')}` : ''; }).join('') || '<p class="cef-secondary">Keine Nachrichten in dieser Ansicht.</p>';
+    el('cef-more').hidden = !important;
+    el('cef-more').textContent = `Weitere E-Mails · ${source.length - visible.length}`;
+    renderReader();
+  }
+  root.addEventListener('click', event => {
+    const button = event.target.closest('button'); if (!button) return;
+    if (button.dataset.mode) { state.mode = button.dataset.mode; state.view = state.mode === 'classic' ? 'all' : 'important'; }
+    else if (button.dataset.view) state.view = button.dataset.view;
+    else if (button.dataset.message) { if (state.selected !== button.dataset.message) { if (state.draft) state.drafts[state.selected] = state.draft; state.selected = button.dataset.message; state.draft = state.drafts[state.selected] ?? ''; state.composing = !!state.draft; state.details = false; } }
+    else if (button.id === 'cef-filter-toggle') state.filters = !state.filters;
+    else if (button.id === 'cef-more') state.view = 'all';
+    else if (button.id === 'cef-spam') state.view = state.view === 'spam' ? 'all' : 'spam';
+    else if (button.dataset.action === 'details') state.details = !state.details;
+    else if (button.dataset.action === 'reply') state.composing = true;
+    else if (button.dataset.action === 'close-draft') state.composing = false;
+    else if (button.dataset.action === 'done') {
+      if (state.dismissed.includes(state.selected)) state.dismissed = state.dismissed.filter(id => id !== state.selected);
+      else { state.dismissed.push(state.selected); lastDismissed = state.selected; el('cef-feedback').hidden = false; el('cef-feedback').innerHTML = 'Nur für dich erledigt. <button type="button" class="cursor-interaction" data-action="undo">Rückgängig</button>'; }
+    } else if (button.dataset.action === 'undo') { state.dismissed = state.dismissed.filter(id => id !== lastDismissed); lastDismissed = null; el('cef-feedback').hidden = true; }
+    render(); save();
+  });
+  el('cef-scope').addEventListener('change', event => { state.scope = event.target.value; render(); save(); });
+  el('cef-category').addEventListener('change', event => { state.category = event.target.value; render(); save(); });
+  root.addEventListener('input', event => { if (event.target.id === 'cef-draft') { state.draft = event.target.value.slice(0,1000); state.drafts[state.selected] = state.draft; save(); } });
+  restore(window.openai?.widgetState); render();
+  window.addEventListener('openai:set_globals', event => { if (event.detail?.globals?.widgetState) { restore(event.detail.globals.widgetState); render(); } });
+  if (globalThis.Tweak) { const tweak = new Tweak({container:root.querySelector('.cef-product'),onChange:render}); tweak.addToggle(density,'compact',{label:'Kompakte Mailzeilen'}); }
+})();
+</script>
