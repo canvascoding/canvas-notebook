@@ -43,3 +43,8 @@ export function matchesEmailMailboxScope(mailbox: Pick<AuthorizedEmailClassifica
 export function emailOriginSelectionKey(origin: Pick<EmailMessageOrigin, 'accountSource' | 'accountOwnerId' | 'accountId' | 'workspaceId' | 'folder' | 'canonicalId'>): string {
   return JSON.stringify([origin.accountSource, origin.accountOwnerId, origin.accountId, origin.workspaceId, origin.folder, origin.canonicalId]);
 }
+
+/** Authorized source chooser data; credentials and owner identifiers stay on the server. */
+export type EmailMailboxSourceOption = Pick<AuthorizedEmailClassificationMailbox,
+  'mailboxRef' | 'accountId' | 'accountSource' | 'workspaceId' | 'mailboxId'
+  | 'emailAddress' | 'displayName' | 'workspaceName' | 'capabilities'>;

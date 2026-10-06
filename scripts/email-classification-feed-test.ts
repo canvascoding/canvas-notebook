@@ -117,6 +117,20 @@ async function main() {
     assert.deepEqual(seen,expected,'Full SQL-ranked pagination has neither duplicates nor mailbox truncation');
     assert.equal(new Set(seen).size,expected.length);
 
+    const focusDefault=await readEmailClassificationFeed({userId:'owner',scope:{kind:'all'},mode:'focus',limit:100},dependencies);
+    assert.equal(focusDefault.view,'focus');
+    assert.ok(focusDefault.items.every(item=>item.classification?.group==='important'||item.classification?.group==='reply'),'The focus start list contains only important mail and reply needs');
+    assert.equal(focusDefault.items.length,focusDefault.counts.groups.important+focusDefault.counts.groups.reply);
+    assert.ok(focusDefault.counts.groups.review>0 && focusDefault.counts.groups.pending>0,'Review and pending counts remain visible outside the start list');
+    assert.equal(focusDefault.counts.total,visible.length);
+    const reviewView=await readEmailClassificationFeed({userId:'owner',scope:{kind:'all'},view:'review',limit:100},dependencies);
+    assert.ok(reviewView.items.length>0 && reviewView.items.every(item=>item.classification?.group==='review'));
+    assert.equal(reviewView.items.length,reviewView.counts.groups.review);
+    const pendingView=await readEmailClassificationFeed({userId:'owner',scope:{kind:'all'},view:'pending',limit:100},dependencies);
+    assert.ok(pendingView.items.length>0 && pendingView.items.every(item=>item.classification?.group==='pending'));
+    assert.equal(pendingView.items.length,pendingView.counts.groups.pending);
+    assert.ok(pendingView.coverage.some(source=>source.failed>0 && source.pending>0),'Failed/pending coverage remains honest while the start list stays focused');
+
     const stable=await readEmailClassificationFeed({userId:'owner',scope:{kind:'all'},view:'all',limit:2},dependencies);
     const frozen=await postgres.query<{message_ref:string;classification_json:EmailClassification}>('SELECT message_ref,classification_json FROM email_classification_feed_rows WHERE snapshot_id=$1 ORDER BY ordinal',[stable.snapshot.id]);
     await postgres.query(`UPDATE email_classification_results SET raw_json=jsonb_set(raw_json,'{replyProbability}','0.9'::jsonb),version=version+1 WHERE raw_json IS NOT NULL`);

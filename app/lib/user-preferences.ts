@@ -96,6 +96,7 @@ function normalizeUserOnboardingState(value: unknown): UserOnboardingState | und
 
 export type UserPreferences = {
   developerMode?: boolean;
+  emailExperienceMode?: 'focus' | 'classic';
   emailAllowRemoteImages?: boolean;
   emailRemoteImageAllowedSenders?: string[];
   inboxExcludedWorkspaceIds?: string[];
@@ -175,6 +176,7 @@ function normalizePreferences(value: unknown): UserPreferences {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
   const record = value as {
     developerMode?: unknown;
+    emailExperienceMode?: unknown;
     emailAllowRemoteImages?: unknown;
     emailRemoteImageAllowedSenders?: unknown;
     inboxExcludedWorkspaceIds?: unknown;
@@ -191,6 +193,7 @@ function normalizePreferences(value: unknown): UserPreferences {
   const onboarding = normalizeUserOnboardingState(record.onboarding);
   return {
     developerMode: record.developerMode === true,
+    ...(record.emailExperienceMode === 'focus' || record.emailExperienceMode === 'classic' ? { emailExperienceMode: record.emailExperienceMode } : {}),
     ...(typeof record.emailAllowRemoteImages === 'boolean' ? { emailAllowRemoteImages: record.emailAllowRemoteImages } : {}),
     ...(emailRemoteImageAllowedSenders.length > 0 ? { emailRemoteImageAllowedSenders } : {}),
     ...(inboxExcludedWorkspaceIds.length > 0 ? { inboxExcludedWorkspaceIds } : {}),
@@ -292,6 +295,15 @@ async function updateUserPreferencesUnlocked(
   if ('developerMode' in updates) {
     if (typeof updates.developerMode !== 'boolean') throw new Error('Unsupported developer mode setting.');
     nextPreferences.developerMode = updates.developerMode;
+  }
+
+  if ('emailExperienceMode' in updates) {
+    if (updates.emailExperienceMode === undefined) {
+      delete nextPreferences.emailExperienceMode;
+    } else {
+      if (updates.emailExperienceMode !== 'focus' && updates.emailExperienceMode !== 'classic') throw new Error('Unsupported email experience mode.');
+      nextPreferences.emailExperienceMode = updates.emailExperienceMode;
+    }
   }
 
   if ('locale' in updates) {

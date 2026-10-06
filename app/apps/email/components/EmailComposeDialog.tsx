@@ -2,7 +2,7 @@
 
 import { useTranslations } from 'next-intl';
 import { useCallback, useMemo, useRef, useState, type ChangeEvent, type KeyboardEvent } from 'react';
-import { FileText, Loader2, Mail, Plus, Sparkles, Wrench, X } from 'lucide-react';
+import { FileText, Loader2, Mail, Minimize2, Plus, Sparkles, Wrench, X } from 'lucide-react';
 
 import { EmailAttachmentPanel } from '@/app/apps/email/components/EmailAttachmentPanel';
 import { EmailMessageBody } from '@/app/apps/email/components/EmailMessageReader';
@@ -277,6 +277,10 @@ export function EmailComposeDialog({
   isSubmitting,
   canGenerateAi = true,
   submitDisabled = false,
+  composeMinimized = false,
+  onMinimize,
+  minimizeLabel,
+  attachmentWorkspaceId,
   onOpenOutbox,
   senderAddress,
   labels,
@@ -297,6 +301,10 @@ export function EmailComposeDialog({
   isSubmitting: boolean;
   canGenerateAi?: boolean;
   submitDisabled?: boolean;
+  composeMinimized?: boolean;
+  onMinimize?(): void;
+  minimizeLabel?: string;
+  attachmentWorkspaceId?: string | null;
   onOpenOutbox?(): void;
   senderAddress: string;
   accountId?: string;
@@ -310,7 +318,9 @@ export function EmailComposeDialog({
   onUpdate(updates: Partial<Pick<EmailComposeDraft, 'aiMode' | 'aiPrompt' | 'aiTone' | 'attachments' | 'body' | 'bodyHtml' | 'ccText' | 'contextFiles' | 'subject' | 'toText' | 'usedContext'>>): void;
 }) {
   const tm = useTranslations('emailMailboxes');
-  const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
+  const currentWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
+  const activeWorkspaceId = attachmentWorkspaceId === undefined ? currentWorkspaceId : attachmentWorkspaceId;
+  const attachmentWorkspaceChanged = activeWorkspaceId !== currentWorkspaceId;
   const [isReferencePickerOpen, setIsReferencePickerOpen] = useState(false);
   const [activeReferenceMatch, setActiveReferenceMatch] = useState<ComposerReferenceMatch | null>(null);
   const [referencePickerItems, setReferencePickerItems] = useState<ComposerReferencePickerItem<FilePickerFile>[]>([]);
@@ -453,7 +463,7 @@ export function EmailComposeDialog({
   }, [activeReferenceMatch, closeReferencePicker, draft, loadReferenceFiles, onUpdate]);
 
   return (
-    <Dialog open={Boolean(draft)} onOpenChange={(open) => {
+    <Dialog open={Boolean(draft) && !composeMinimized} onOpenChange={(open) => {
       if (!open && !isSubmitting && !isGeneratingAi) onClose();
     }}>
       <DialogContent layout="viewport">
@@ -602,6 +612,7 @@ export function EmailComposeDialog({
                   </div>
                   {mailboxWorkspaceId && <p data-testid="email-shared-inline-image-help" className="text-xs leading-5 text-muted-foreground">{tm('sharedInlineImages')}</p>}
                   <EmailAttachmentPanel attachments={displayedAttachments} disabled={isSubmitting || isGeneratingAi} labels={labels} onChange={updateDisplayedAttachments} />
+                  {attachmentWorkspaceChanged && <p className="text-xs leading-5 text-muted-foreground">{tm('attachmentWorkspaceChanged')}</p>}
                   {error ? <div className="border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive"><p className="break-words">{error}</p></div> : null}
                 </section>
 
@@ -636,6 +647,7 @@ export function EmailComposeDialog({
             </div>
             <DialogFooter className="shrink-0 border-t border-border px-4 py-3 sm:px-6">
               {onOpenOutbox && <Button type="button" variant="outline" onClick={onOpenOutbox}>{tm('openOutbox')}</Button>}
+              {onMinimize && minimizeLabel && <Button data-testid="email-compose-minimize" type="button" variant="outline" onClick={() => { closeReferencePicker(); onMinimize(); }}><Minimize2 className="mr-2 h-4 w-4" />{minimizeLabel}</Button>}
               <Button type="button" variant="outline" onClick={onClose} disabled={isSubmitting || isGeneratingAi}>{labels.cancel}</Button>
               <Button type="button" onClick={onSubmit} disabled={submitDisabled || isSubmitting || isGeneratingAi}>
                 {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Mail className="mr-2 h-4 w-4" />}

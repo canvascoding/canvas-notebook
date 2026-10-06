@@ -10,7 +10,7 @@ Der Nutzer hat Umsetzung und Playwright freigegeben und Mailpit für lokale Mail
 - [x] 3. Zentrale System-Credentials, Admin-Settings/Availability, Provider-Vertragsabnahme und Limits/Abbruch.
 - [x] 4. Hintergrund-Synchronisation/Klassifizierung, vollständiger autorisierter Gesamtfeed, Paging/Ranking, Cache-Anreicherung und Lifecycleinvalidierung.
 - [x] 5. Adminoberfläche und sichere Secrets-Anbindung.
-- [ ] 6. Fokus/Klassisch, Alle/Einzel/Persönlich/Arbeit, Progressive Disclosure, Herkunft bei Mailaktionen und persönliche Erledigung.
+- [x] 6. Fokus/Klassisch, Alle/Einzel/Persönlich/Arbeit, Progressive Disclosure, Herkunft bei Mailaktionen und persönliche Erledigung.
 - [ ] 7. Qualitäts-/Recovery-Dokumentation, relevante Regressionsprüfungen, Typecheck/Lint/Build und abschließende E2E-/UI-Abnahme.
 
 ## Abschlussanforderungen
@@ -22,16 +22,16 @@ Der Nutzer hat Umsetzung und Playwright freigegeben und Mailpit für lokale Mail
 | Zentraler Adminschalter, standardmäßig aus, keine persönlichen AI-Schalter | Admin-/Availability-/Worker-Tests und Browser | API, Worker und Admin-UI geprüft |
 | System-Secrets ohne Prozess-/Userfallback | Credential-/Route-Tests, Secrets-UI | System-API, sicherer UI-Status und Secrets-Link geprüft |
 | Sichere dauerhafte Persistenz, Leases/Revisionen/Toggle-Rennen | PGlite mit echter Startupmigration und zusätzliche PostgreSQL-18-Prüfung über unabhängige Sessions in eigenem temporärem Schema | Phase 2 geprüft; API-Anschluss offen |
-| Persönliche/Workspace-Rechte samt Senderpolicy auch bei Cachetreffer | Feed-/Boundary-/Revocation-Tests | Backend geprüft; UI offen |
+| Persönliche/Workspace-Rechte samt Senderpolicy auch bei Cachetreffer | Feed-/Boundary-/Revocation-Tests | Backend und UI-Verträge geprüft; finale reale Readonly-Abnahme offen |
 | Lokale und verwaltete persönliche, vorhandene gemeinsame Postfächer | Registry-/Service-/Feedtests | Backend geprüft; reale lokale Abnahme offen |
 | Metadatensync unabhängig von AI; Verarbeitung bei geschlossenem Browser | Scheduler-/Worker-/Restarttests | Worker/Runtime und echter Host mit sieben Jev-Testmails geprüft |
 | Batch-Anreicherung ohne AI im Read-Pfad und ohne verlorene Korrekturen | Cache-/Enrichmenttests | Backend geprüft |
-| Globales Ranking über synchronisierten Bestand, stabile Cursor und ehrliche Coverage | Mehrseitige Feedtests | Backend geprüft; UI offen |
-| Fokus/Klassisch und alle Postfachscopes, gespeicherte Moduswahl | Browser-E2E samt Reload und zentralem Toggle | Offen |
+| Globales Ranking über synchronisierten Bestand, stabile Cursor und ehrliche Coverage | Mehrseitige Feedtests | Backend und UI-Hook geprüft; echter Fokusfeed sichtbar |
+| Fokus/Klassisch und alle Postfachscopes, gespeicherte Moduswahl | Browser-E2E samt Reload und zentralem Toggle | Implementiert und fokussiert geprüft; abschließende reale E2E offen |
 | Mailaktionen/Anhänge/Absender verwenden Herkunft der gewählten Mail | Browser-/Route-Tests mit gleichen IDs in verschiedenen Postfächern | Offen |
 | Unbewertete/unsichere/gestörte Quellen sichtbar, Prozentdetails bei Bedarf | Responsive Browser-E2E | Offen |
 | Persönliches Erledigen/Undo schließt keinen Team-Case | Store-/Policy-/Browserprüfungen | Offen |
-| Compose/Review, Sendefehler und unklarer Versandstatus bleiben erhalten | Bestehende und neue Mail-/Reviewregressionen | Offen |
+| Compose/Review, Sendefehler und unklarer Versandstatus bleiben erhalten | Bestehende und neue Mail-/Reviewregressionen | Source-/Dialogregressionen bestanden; echter Antwortversand offen |
 | Keine springende Liste oder verlorenen Entwürfe bei Scope-/Moduswechsel | Browser-E2E | Offen |
 | Typecheck, relevante Lints, Produktionsbuild | Aktuelle Command-Ergebnisse | Offen |
 | Abschließender E2E-Test mit visueller Prüfung Desktop/Mobile | Aktueller Playwright-Report und Screenshots | Offen |
@@ -89,3 +89,16 @@ Die Karte im bestehenden E-Mail-Einstellungstab ist ausschließlich für Instanz
 Settings-CAS hält fremde Änderungen und lokale Entwürfe getrennt. Ein später Secrets-Refresh ersetzt keine Eingabe; Konflikte verlangen bewusstes Neuladen. Fehlermeldungen sind sichere deutsche/englische Texte. Das erfolgreiche Save-Event enthält nur enabled/revision. Eine kostenlose Kalibrierungsfreigabe wird nicht angeboten.
 
 Geprüft am 2026-10-06: `npm run test:email:classification:settings-ui`, scoped ESLint und globale Typeprüfung bestanden. Echter Browser mit Bootstrapadmin: Karte, eingeklappte Details, System-Key-Status, Jev-Beispielrequest und zentrales Speichern bestanden; Screenshots Desktop hell/dunkel und Mobile visuell geprüft, 390px ohne horizontalen Überlauf und ohne Pageerrors. Normaler bestehender Testnutzer sieht die Karte nicht und erhält auf der Adminroute 403. Lokale native Mailpit-/GreenMail-Kette verwendet CA-geprüftes STARTTLS und IMAP; kein neuer Container wurde gebaut. Der zentrale KI-Schalter wurde nach diesem Prüfschritt wieder deaktiviert; Ratings bleiben gespeichert. Fokus-UX, echter Antwortversand und abschließende E2E-Abnahme bleiben offen.
+
+
+## Phase 6: Ergebnisse
+
+Der zentrale Schalter aktiviert standardmäßig Fokus; die persönliche Moduswahl speichert ausschließlich Fokus/Klassisch. Alle, Persönlich, Arbeit und einzelne aktuelle Postfächer verwenden einen autorisierten Quellkatalog. Fokus zeigt wichtige bzw. beantwortungsbedürftige Nachrichten zuerst; Noch prüfen und Noch nicht vorbereitet bleiben direkt erreichbar, alle Nachrichten und weitere Kategorien sind bewusst zugänglich. Suchumfang und Indexabdeckung werden ehrlich benannt. Einzel-Klassisch erhält die vollständige bestehende Ordner-/Anbietersuche. Der alte Layout-Fokus heißt jetzt Ablenkungsfrei.
+
+Die gemeinsame Liste nutzt unverwechselbare Mailbox-/Nachrichtenreferenzen. Öffnen aktiviert die tatsächliche Quelle für Body, Anhänge und Aktionen; schnelle Auswahl, verspätetes Mark-read, Rechteentzug und Quellenwechsel sind abgegrenzt. Die explizite Detailauswahl wird nicht durch eine unabhängige Hintergrundmutation verworfen. Tool-Suchintents wechseln in das passende einzelne klassische Postfach und erhalten ihren Zielordner. Gleichbleibende Snapshots verhindern springende Reihenfolgen; neue Ratings verlangen eine bewusst angewendete Aktualisierung.
+
+Die Bewertung steht kompakt über der Nachricht. Wahrscheinlichkeiten, Verteilungen und Korrekturen werden erst aufgeklappt; fehlende Werte bleiben unbekannt. Persönliches Erledigen/Undo ist von Mail-Read/Answered und Workspace-Cases getrennt. Korrekturen prüfen aktuelle Schreibrechte und Versionen. Entwürfe pinnen Absender und Attachment-Workspace, lassen sich minimieren und wieder öffnen und bleiben auch bei letzter entfernter Quelle zugänglich; Versand/AI sind dann gesperrt. Unklarer Versandstatus öffnet ohne belegte Draft-ID nur die vorhandene Reviewübersicht.
+
+Geprüft am 2026-10-06: Experience-/Preferences-/Katalogtest, Focus-Hook-/DOM-Test, Composer-Source-/Dialogtests, Feedtests und aktualisierter Context-Intent-Test bestanden. Die bestehende Playwright-Such-/Layoutserie bestand mit sieben Fällen; deren kontrollierte Legacy-Fixture ist vom aktuellen zentralen KI-Status unabhängig. Echter Jev-Feed zeigt sieben lokale synthetische E-Mails aus drei Quellen, zwei im Fokus und eine unter Noch prüfen. Arbeitsmail und persönliche Mail mit kollidierenden IMAP-IDs öffnen die jeweilige echte Quelle. Ratings aufklappbar, Desktop hell/dunkel sowie Mobile 390px visuell geprüft, kein horizontaler Überlauf und keine Pageerrors.
+
+Die letzte Read-only-Prüfung fand und schloss sechs konkrete Übergangsfehler (Sourcewechsel, spät geladene Ordner, Detail-Mutation-Fence, entfernte Composerrechte, ignorierte Tool-Suche, unerreichbarer Entwurf ohne Konten). Reale Antwort, Anhang-Download, Readonly-Done, zentraler Toggle/Reload, vollständiger Build und abschließende E2E bleiben Phase 7.
