@@ -131,7 +131,7 @@ export async function readEmailClassificationFeed(input: EmailClassificationFeed
     }
     const page=await connection.query<PageRow>(`${snapshotCandidatesSQL}
       SELECT s.* FROM visible_snapshot s
-      WHERE s.ordinal>$4 AND ($5='all' OR $5='focus' AND s.classification_json->>'group' IN ('important','reply','review','pending') OR s.classification_json->>'group'=$5)
+      WHERE s.ordinal>$4 AND ($5='all' OR $5='focus' AND s.classification_json->>'group' IN ('important','reply') OR s.classification_json->>'group'=$5)
       ORDER BY s.ordinal LIMIT $6`,[input.userId,authorization,snapshot.id,cursor?.after ?? 0,view,validated.limit+1]);
     const groupCounts=await connection.query<{group:EmailFocusGroup;category:string|null;count:string}>(`${snapshotCandidatesSQL}
       SELECT classification_json->>'group' AS "group",classification_json->>'category' AS category,count(*)::text AS count FROM visible_snapshot GROUP BY 1,2`,[input.userId,authorization,snapshot.id]);

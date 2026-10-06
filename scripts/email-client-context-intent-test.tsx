@@ -5,10 +5,11 @@ import { NextIntlClientProvider } from 'next-intl';
 import { EmailChatProvider, useEmailChatContext } from '../app/apps/email/context/email-chat-context';
 import type { ChatRequestContext } from '../app/lib/chat/types';
 import type { NotebookEmailContextIntent } from '../app/lib/notebook/context-surface';
+import type { EmailClassificationFeed } from '../app/lib/email/classification/feed-types';
 import translations from '../messages/en.json';
 
-const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'http://localhost/notebook' });
-for (const name of ['window', 'document', 'navigator', 'HTMLElement', 'HTMLInputElement', 'Event', 'CustomEvent', 'MutationObserver'] as const) {
+const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'http://localhost/notebook', pretendToBeVisual: true });
+for (const name of ['self', 'window', 'document', 'navigator', 'HTMLElement', 'HTMLInputElement', 'HTMLFormElement', 'HTMLSelectElement', 'Element', 'Node', 'DOMParser', 'Event', 'CustomEvent', 'MutationObserver', 'getComputedStyle', 'requestAnimationFrame', 'cancelAnimationFrame'] as const) {
   Object.defineProperty(globalThis, name, { value: dom.window[name], configurable: true });
 }
 Object.defineProperty(globalThis, 'IS_REACT_ACT_ENVIRONMENT', { value: true, configurable: true });
@@ -21,6 +22,8 @@ dom.window.HTMLElement.prototype.getBoundingClientRect = () => ({
 
 type ListRequest = { accountId: string; folder: string; query: string; offset: number };
 const listRequests: ListRequest[] = [];
+const feedRequests: URL[] = [];
+const preferenceWrites: string[] = [];
 const unexpectedRequests: string[] = [];
 let holdNextListResponse = false;
 let releaseListResponse: (() => void) | null = null;
@@ -33,30 +36,62 @@ function ChatContextProbe() {
 const accounts = ['account-a', 'account-b'].map((id, index) => ({
   id, provider: 'gmail', authType: 'oauth', emailAddress: `${id}@example.com`,
   displayName: id, isPrimary: index === 0, status: 'active', imapHost: null,
+  accountScope: 'personal' as const, workspaceId: null, mailboxId: null, workspaceName: null, connectionState: 'ready' as const,
+  capabilities: { canRead: true, canWrite: true, canDelete: true, canRunAgent: true, canManage: true },
   policy: { readFrom: [], sendTo: [] },
 }));
+const sources = accounts.map((account, index) => ({ mailboxRef: `emb:${(index === 0 ? 'a' : 'b').repeat(64)}`,
+  accountSource: 'local' as const, accountId: account.id, workspaceId: null, mailboxId: null,
+  emailAddress: account.emailAddress, displayName: account.displayName, workspaceName: null, capabilities: account.capabilities }));
+const fixtureUserId = 'email-context-fixture-user';
+let preferenceMode: string | null = null;
 const folders = ['INBOX', 'Archive'].map((name) => ({
   id: name, name, path: name, role: name === 'INBOX' ? 'inbox' : 'archive',
   messageCount: 1, unseenCount: 0,
 }));
 
 globalThis.fetch = (async (input, init) => {
-  const url = String(input);
+  const url = new URL(String(input), 'http://localhost');
+  const path = url.pathname;
   let data: unknown;
-  if (url.endsWith('/api/auth/get-session')) return Response.json(null);
-  if (url === '/api/workspaces') return Response.json({ success: true, workspaces: [] });
-  if (url === '/api/email/accounts') data = { accounts };
-  else if (url === '/api/user-preferences') data = {};
-  else if (url === '/api/email/outbox') data = [];
-  else if (url.startsWith('/api/email/folders?')) data = { folders };
-  else if (/\/api\/email\/accounts\/[^/]+\/messages\/message-a\?/u.test(url)) {
+  if (path === '/api/auth/get-session') return Response.json({
+    user: { id: fixtureUserId, name: 'Context fixture', email: 'context-fixture@example.test', emailVerified: true,
+      createdAt: '2026-10-01T00:00:00Z', updatedAt: '2026-10-01T00:00:00Z', role: 'user' },
+    session: { id: 'context-test-session', token: 'synthetic-context-test-token', userId: fixtureUserId,
+      createdAt: '2026-10-01T00:00:00Z', updatedAt: '2026-10-01T00:00:00Z', expiresAt: '2099-01-01T00:00:00Z' },
+  });
+  if (path === '/api/workspaces') return Response.json({ success: true, workspaces: [] });
+  if (path === '/api/email/mailboxes') data = { accounts, setup: { canManageBusiness: false, manageableWorkspaces: [] } };
+  else if (path === '/api/email/classification/availability') data = { enabled: true, available: true, revision: 1, defaultMode: 'focus', reason: null };
+  else if (path === '/api/email/classification/mailboxes') data = { mailboxes: sources };
+  else if (path === '/api/email/classification/feed') {
+    feedRequests.push(url);
+    const mode = url.searchParams.get('mode') === 'classic' ? 'classic' : 'focus';
+    const feed: EmailClassificationFeed = { mode, requestedMode: mode, view: mode === 'classic' ? 'all' : 'focus',
+      scope: url.searchParams.get('scope') === 'mailbox' ? { kind: 'mailbox', mailboxRef: url.searchParams.get('mailboxRef')! } : { kind: 'all' },
+      items: [], nextCursor: null, snapshot: { id: '11111111-1111-4111-8111-111111111111', expiresAt: Date.now() + 600_000 },
+      counts: { total: 0, groups: { important: 0, reply: 0, review: 0, pending: 0, other: 0, spam: 0, done: 0 }, categories: {} },
+      coverage: sources.map(source => ({ mailboxRef: source.mailboxRef, state: 'complete', indexed: 0, pending: 0, failed: 0, stale: 0, lastSyncAt: Date.now() })),
+      limits: { initialLookbackDays: 30, maxHistoricalMessages: 5_000 }, hasUpdates: false };
+    data = feed;
+  }
+  else if (path === '/api/user-preferences') {
+    if (init?.method === 'PATCH') {
+      const update = JSON.parse(String(init.body)) as { emailExperienceMode?: string };
+      if (update.emailExperienceMode) { preferenceMode = update.emailExperienceMode; preferenceWrites.push(preferenceMode); }
+    }
+    data = { emailExperienceMode: preferenceMode };
+  }
+  else if (path === '/api/email/outbox') data = [];
+  else if (path === '/api/email/folders') data = { folders };
+  else if (/^\/api\/email\/accounts\/[^/]+\/messages\/message-a$/u.test(path)) {
     data = { message: {
-      id: 'message-a', folder: new URL(url, 'http://localhost').searchParams.get('folder'),
+      id: 'message-a', folder: url.searchParams.get('folder'),
       from: 'sender@example.com', subject: 'Test message', date: '2026-09-09T10:00:00Z',
       body: 'Persistent reader body', isRead: true, attachments: [],
     } };
   }
-  else if (url === '/api/email/messages/list') {
+  else if (path === '/api/email/messages/list') {
     const request = JSON.parse(String(init?.body)) as ListRequest;
     listRequests.push(request);
     data = { messages: [{
@@ -68,7 +103,7 @@ globalThis.fetch = (async (input, init) => {
       await new Promise<void>((resolve) => { releaseListResponse = resolve; });
     }
   } else {
-    unexpectedRequests.push(url);
+    unexpectedRequests.push(url.toString());
     throw new Error(`Unexpected test request: ${url}`);
   }
   return Response.json({ success: true, data });
@@ -125,10 +160,27 @@ async function main() {
   }
   const intent: NotebookEmailContextIntent = {
     kind: 'email', toolCallId: 'search-a', toolName: 'email_search_messages', status: 'running',
-    accountId: 'account-a', folder: 'INBOX', query: 'agent query',
+    accountId: 'account-a', folder: 'Archive', query: 'agent query',
   };
   try {
+    await render(null);
+    const focusButton = [...container.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === translations.emailFocus.focus);
+    assert.equal(focusButton?.getAttribute('aria-pressed'), 'true', 'classification enabled starts in Focus when no user override is saved');
+    assert.equal(feedRequests.at(-1)?.searchParams.get('mode'), 'focus');
+    assert.equal(feedRequests.at(-1)?.searchParams.get('scope'), 'all');
+    const scopeSelect = container.querySelector<HTMLSelectElement>('#email-focus-scope');
+    assert.ok(scopeSelect);
+    await act(async () => {
+      scopeSelect.value = `mailbox:${sources[1].mailboxRef}`;
+      scopeSelect.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+    });
+    await flush();
+    assert.equal(feedRequests.at(-1)?.searchParams.get('mailboxRef'), sources[1].mailboxRef, 'start the tool search from the previous single B Focus scope');
     await render(intent);
+    assert.equal(container.querySelector<HTMLSelectElement>('#email-focus-scope')?.value, `mailbox:${sources[0].mailboxRef}`, 'tool search selects actual A rather than retaining old single B');
+    assert.equal(preferenceWrites.at(-1), 'classic', 'tool search intentionally opens the existing single mailbox search');
+    assert.equal(listRequests.at(-1)?.accountId, 'account-a');
+    assert.equal(listRequests.at(-1)?.folder, 'Archive', 'switching to Classic must preserve the intent Archive folder');
     assert.equal(searchInput().value, 'agent query');
     assert.equal(listRequests.at(-1)?.query, 'agent query');
     await typeQuery('user query');
