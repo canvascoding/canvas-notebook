@@ -24,6 +24,9 @@
   "scripts": {
     "test:decision-models": "tsx scripts/decision-models-test.ts",
     "test:email:classification:policy": "tsx scripts/email-classification-policy-test.ts",
+    "test:email:classification:identity": "tsx --conditions react-server scripts/email-classification-identity-test.ts",
+    "test:email:classification:store": "tsx --conditions react-server scripts/email-classification-store-test.ts",
+    "test:email:classification:postgres": "NODE_ENV=test tsx --conditions react-server scripts/email-classification-postgres-test.ts",
     "test:cli:management-api": "tsx scripts/management-api-test.ts",
     "test:cli:docker-engine": "npm run cli:build && tsx scripts/docker-engine-read-test.ts && tsx scripts/docker-engine-api-test.ts && tsx scripts/docker-management-context-test.ts",
     "test:cli:docker-engine:local": "tsx scripts/docker-engine-local-canary.ts",

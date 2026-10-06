@@ -1,0 +1,466 @@
+import 'server-only';
+
+import { randomUUID } from 'node:crypto';
+import { validateEmailClassificationOverride } from './policy';
+import {
+  DEFAULT_EMAIL_CLASSIFICATION_CONFIGURATION, type EmailClassificationConfiguration, type EmailClassificationSettings,
+} from './settings-types';
+import { resetChangedEmailSpamValidation, validateEmailClassificationConfiguration } from './settings-validation';
+import { emailClassificationEvaluationFingerprint } from './settings-evaluation';
+import { EMAIL_CATEGORY_IDS, EMAIL_PRIORITIES, type EmailClassificationRaw, type EmailClassificationOverride } from './types';
+import {
+  EmailClassificationStoreStateError, EmailClassificationVersionConflictError,
+  type EmailClassificationQueryable, type EmailClassificationTransaction,
+  type EmailClassificationMailboxInput, type StoredEmailClassificationMailbox,
+  type EmailIndexedMessageList, type EmailClassificationMetadataInput, type StoredEmailClassificationMetadata,
+  type StoredEmailClassificationJob, type StoredEmailClassificationResult, type StoredEmailPersonalFocusState,
+} from './store-types';
+
+type Row = Record<string, unknown>;
+
+function integer(value: unknown, name: string, minimum = 0): number {
+  const number = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN;
+  if (!Number.isSafeInteger(number) || number < minimum) throw new Error(`Invalid ${name}.`);
+  return number;
+}
+
+function text(value: unknown, name: string, maximum = 500): string {
+  if (typeof value !== 'string' || !value.trim() || value.length > maximum || /[\u0000\r\n]/u.test(value)) throw new Error(`Invalid ${name}.`);
+  return value.trim();
+}
+
+function nullableText(value: string | null, name: string): string | null {
+  return value === null ? null : text(value, name);
+}
+
+function object<T>(value: unknown): T {
+  return (typeof value === 'string' ? JSON.parse(value) : value) as T;
+}
+
+function defaults(): EmailClassificationSettings {
+  return { revision: 0, configuration: structuredClone(DEFAULT_EMAIL_CLASSIFICATION_CONFIGURATION), updatedAt: null, updatedByUserId: null };
+}
+
+function settingsFromRow(row?: Row): EmailClassificationSettings {
+  return row ? {
+    revision: integer(row.revision, 'settings revision', 1),
+    configuration: validateEmailClassificationConfiguration(object(row.configuration_json)),
+    updatedAt: integer(row.updated_at, 'settings time'), updatedByUserId: row.updated_by_user_id as string | null,
+  } : defaults();
+}
+
+function mailboxFromRow(row: Row): StoredEmailClassificationMailbox {
+  return {
+    mailboxRef: String(row.mailbox_ref), ownerUserId: String(row.owner_user_id),
+    accountSource: row.account_source as StoredEmailClassificationMailbox['accountSource'], accountId: String(row.account_id), provider: String(row.provider),
+    workspaceId: row.workspace_id as string | null, mailboxId: row.mailbox_id as string | null,
+    bindingRevision: String(row.binding_revision), policyRevision: String(row.policy_revision),
+    active: row.active === true, readFrom: object<string[]>(row.read_from_json), indexRevision: integer(row.index_revision, 'mailbox index revision', 1),
+    lastSyncAt: row.last_sync_at === null ? null : integer(row.last_sync_at, 'sync time'), syncCursor: row.sync_cursor as string | null,
+    coverage: row.coverage as StoredEmailClassificationMailbox['coverage'], createdAt: integer(row.created_at, 'mailbox created time'), updatedAt: integer(row.updated_at, 'mailbox updated time'),
+  };
+}
+
+function metadataFromRow(row: Row): StoredEmailClassificationMetadata {
+  return {
+    messageRef: String(row.message_ref), mailboxRef: String(row.mailbox_ref), canonicalId: String(row.canonical_id), folder: String(row.folder),
+    dateTimestamp: row.date_timestamp === null ? null : integer(row.date_timestamp, 'message date'),
+    replyStatus: row.reply_status as StoredEmailClassificationMetadata['replyStatus'], fingerprint: String(row.fingerprint), list: object<EmailIndexedMessageList>(row.list_json),
+    mailbox: mailboxFromRow(object<Row>(row.mailbox_data)), indexRevision: integer(row.index_revision, 'message index revision', 1),
+    createdAt: integer(row.created_at, 'message created time'), updatedAt: integer(row.updated_at, 'message updated time'),
+  };
+}
+
+function jobFromRow(row: Row): StoredEmailClassificationJob {
+  return {
+    id: String(row.id), messageRef: String(row.message_ref), mailboxRef: String(row.mailbox_ref), configurationRevision: integer(row.configuration_revision, 'configuration revision', 1),
+    fingerprint: String(row.fingerprint), bindingRevision: String(row.binding_revision), policyRevision: String(row.policy_revision),
+    status: row.status as StoredEmailClassificationJob['status'], attempts: integer(row.attempts, 'attempts'), nextAttemptAt: integer(row.next_attempt_at, 'next attempt'),
+    leaseUntil: row.lease_until === null ? null : integer(row.lease_until, 'lease'), claimToken: row.claim_token as string | null, errorCode: row.error_code as string | null,
+    createdAt: integer(row.created_at, 'job created time'), updatedAt: integer(row.updated_at, 'job updated time'),
+  };
+}
+
+function resultFromRow(row: Row): StoredEmailClassificationResult {
+  return {
+    messageRef: String(row.message_ref), raw: row.raw_json === null ? null : object<EmailClassificationRaw>(row.raw_json),
+    configurationRevision: row.configuration_revision === null ? null : integer(row.configuration_revision, 'result configuration', 1),
+    evaluationFingerprint: row.evaluation_fingerprint as string | null,
+    fingerprint: row.fingerprint as string | null, bindingRevision: row.binding_revision as string | null, policyRevision: row.policy_revision as string | null,
+    resultRevision: integer(row.result_revision, 'result revision'), overrides: validateEmailClassificationOverride(object(row.overrides_json)),
+    version: integer(row.version, 'result version', 1), updatedAt: integer(row.updated_at, 'result time'),
+  };
+}
+
+function focusFromRow(row: Row): StoredEmailPersonalFocusState {
+  return { userId: String(row.user_id), messageRef: String(row.message_ref), done: row.done === true, version: integer(row.version, 'focus version', 1), updatedAt: integer(row.updated_at, 'focus time') };
+}
+
+function normalizeMailbox(input: EmailClassificationMailboxInput): EmailClassificationMailboxInput {
+  if (!['local', 'managed'].includes(input.accountSource) || typeof input.active !== 'boolean') throw new Error('Invalid mailbox source or activation.');
+  const workspaceId = nullableText(input.workspaceId, 'workspace');
+  const mailboxId = nullableText(input.mailboxId, 'workspace mailbox');
+  if ((workspaceId === null) !== (mailboxId === null)) throw new Error('Workspace and mailbox identities must be supplied together.');
+  if (!Array.isArray(input.readFrom) || input.readFrom.length > 500) throw new Error('Invalid mailbox read policy.');
+  return {
+    mailboxRef: text(input.mailboxRef, 'mailbox reference'), ownerUserId: text(input.ownerUserId, 'owner'), accountSource: input.accountSource,
+    accountId: text(input.accountId, 'account'), provider: text(input.provider, 'provider', 100), workspaceId, mailboxId,
+    bindingRevision: text(input.bindingRevision, 'binding revision'), policyRevision: text(input.policyRevision, 'policy revision'), active: input.active,
+    readFrom: input.readFrom.map(value => text(value, 'allowed sender', 500)),
+  };
+}
+
+function normalizeList(list: EmailIndexedMessageList): EmailIndexedMessageList {
+  const header = (value: unknown, limit: number) => typeof value === 'string' ? value.replace(/\u0000/gu, '').slice(0, limit) : '';
+  const addresses = (values: string[] | undefined) => values === undefined ? undefined : Array.isArray(values)
+    ? values.slice(0, 100).map(value => header(value, 500)) : undefined;
+  const normalized: EmailIndexedMessageList = { from: header(list.from, 1_000), subject: header(list.subject, 2_000), date: header(list.date, 200), snippet: header(list.snippet, 2_000) };
+  for (const key of ['to', 'cc'] as const) { const value = addresses(list[key]); if (value !== undefined) normalized[key] = value; }
+  for (const key of ['isRead', 'isFlagged', 'hasAttachments'] as const) if (typeof list[key] === 'boolean') normalized[key] = list[key];
+  if (list.threadId === null || typeof list.threadId === 'string') normalized.threadId = list.threadId === null ? null : header(list.threadId, 500);
+  return normalized;
+}
+
+function normalizedRaw(raw: EmailClassificationRaw): EmailClassificationRaw {
+  if (!(EMAIL_CATEGORY_IDS as readonly unknown[]).includes(raw.category) || !(EMAIL_PRIORITIES as readonly unknown[]).includes(raw.priority)) throw new Error('Invalid classification choices.');
+  const probability = (value: number | null): number | null => {
+    if (value === null) return null;
+    if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 1) throw new Error('Invalid classification probability.');
+    return value;
+  };
+  const distribution = (value: Record<string, number> | null) => value === null ? null : Object.fromEntries(Object.entries(value).map(([key, number]) => [text(key, 'choice', 100), probability(number)])) as Record<string, number>;
+  const spamProbability = probability(raw.spamProbability);
+  const replyProbability = probability(raw.replyProbability);
+  if (spamProbability === null || replyProbability === null || typeof raw.bodyWasTruncated !== 'boolean') throw new Error('Incomplete classification.');
+  const usage = raw.usage === null ? null : Object.fromEntries(Object.entries(raw.usage).filter(([key, value]) => value !== undefined && ['inputTokens', 'outputTokens', 'requests'].includes(key)).map(([key, value]) => [key, integer(value, 'usage')]));
+  return {
+    category: raw.category, categoryProbabilities: distribution(raw.categoryProbabilities), categoryConfidence: probability(raw.categoryConfidence),
+    priority: raw.priority, priorityProbabilities: distribution(raw.priorityProbabilities), priorityConfidence: probability(raw.priorityConfidence), spamProbability, replyProbability,
+    providerId: text(raw.providerId, 'result provider', 128), model: text(raw.model, 'result model', 200), adapterVersion: text(raw.adapterVersion, 'adapter version', 200), schemaVersion: text(raw.schemaVersion, 'schema version', 200),
+    probabilitySemantics: text(raw.probabilitySemantics, 'probability semantics', 100), calibrationReference: raw.calibrationReference === null ? null : text(raw.calibrationReference, 'calibration reference', 200),
+    latencyMs: integer(raw.latencyMs, 'latency'), evaluatedAt: integer(raw.evaluatedAt, 'evaluation time'), evaluatedBodyCharacters: integer(raw.evaluatedBodyCharacters, 'evaluated characters'), bodyWasTruncated: raw.bodyWasTruncated, usage,
+  };
+}
+
+/** Low-level store; services must authorize every source and personal state before use. */
+export class PostgresEmailClassificationStore {
+  constructor(private readonly postgres: EmailClassificationQueryable, private readonly transaction: EmailClassificationTransaction) {}
+
+  private async lockSettings(connection: EmailClassificationQueryable): Promise<EmailClassificationSettings> {
+    const result = await connection.query("SELECT * FROM email_classification_settings WHERE id = 'instance' FOR UPDATE");
+    return settingsFromRow(result.rows[0]);
+  }
+
+  async readSettings(): Promise<EmailClassificationSettings> {
+    return settingsFromRow((await this.postgres.query("SELECT * FROM email_classification_settings WHERE id = 'instance'")).rows[0]);
+  }
+
+  async updateSettings(input: { expectedRevision: number; actorUserId: string; configuration: EmailClassificationConfiguration; now?: number }): Promise<EmailClassificationSettings> {
+    const expected = integer(input.expectedRevision, 'expected settings revision');
+    const actor = text(input.actorUserId, 'settings actor');
+    const validated = validateEmailClassificationConfiguration(input.configuration);
+    const now = integer(input.now ?? Date.now(), 'time');
+    return this.transaction(async connection => {
+      const previous = await this.lockSettings(connection);
+      if (previous.revision !== expected) throw new EmailClassificationVersionConflictError();
+      const configuration = resetChangedEmailSpamValidation(previous.configuration, validated);
+      const updated = expected === 0
+        ? await connection.query(`INSERT INTO email_classification_settings(id, revision, configuration_json, updated_at, updated_by_user_id)
+            VALUES ('instance', 1, $1::jsonb, $2, $3) ON CONFLICT(id) DO NOTHING RETURNING *`, [JSON.stringify(configuration), now, actor])
+        : await connection.query(`UPDATE email_classification_settings SET revision = revision + 1, configuration_json = $1::jsonb, updated_at = $2, updated_by_user_id = $3
+            WHERE id = 'instance' AND revision = $4 RETURNING *`, [JSON.stringify(configuration), now, actor, expected]);
+      if (!updated.rows[0]) throw new EmailClassificationVersionConflictError();
+      if (!configuration.enabled) {
+        await connection.query(`UPDATE email_classification_jobs SET status = 'canceled', lease_until = NULL, claim_token = NULL, error_code = 'disabled', updated_at = $1
+          WHERE status IN ('pending', 'processing', 'retry')`, [now]);
+      }
+      return settingsFromRow(updated.rows[0]);
+    });
+  }
+
+  async upsertMailbox(input: EmailClassificationMailboxInput, now = Date.now()): Promise<StoredEmailClassificationMailbox> {
+    const mailbox = normalizeMailbox(input); integer(now, 'time');
+    return this.transaction(async connection => {
+      await this.lockSettings(connection);
+      const previous = (await connection.query('SELECT * FROM email_classification_mailboxes WHERE mailbox_ref = $1 FOR UPDATE', [mailbox.mailboxRef])).rows[0];
+      if (previous && (previous.owner_user_id !== mailbox.ownerUserId || previous.account_source !== mailbox.accountSource || previous.account_id !== mailbox.accountId || previous.workspace_id !== mailbox.workspaceId || previous.mailbox_id !== mailbox.mailboxId)) {
+        throw new EmailClassificationStoreStateError('A mailbox reference cannot be reassigned to another owner or scope.');
+      }
+      const changed = previous && (previous.binding_revision !== mailbox.bindingRevision || previous.policy_revision !== mailbox.policyRevision || previous.active !== mailbox.active || previous.provider !== mailbox.provider || JSON.stringify(object(previous.read_from_json)) !== JSON.stringify(mailbox.readFrom));
+      const result = await connection.query(`INSERT INTO email_classification_mailboxes(mailbox_ref, owner_user_id, account_source, account_id, provider, workspace_id, mailbox_id,
+        binding_revision, policy_revision, read_from_json, active, created_at, updated_at)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11,$12,$12)
+        ON CONFLICT(mailbox_ref) DO UPDATE SET provider = EXCLUDED.provider, binding_revision = EXCLUDED.binding_revision, policy_revision = EXCLUDED.policy_revision,
+          read_from_json = EXCLUDED.read_from_json, active = EXCLUDED.active, index_revision = email_classification_mailboxes.index_revision + $13,
+          coverage = CASE WHEN $13 = 1 THEN 'pending' ELSE email_classification_mailboxes.coverage END,
+          sync_cursor = CASE WHEN $13 = 1 THEN NULL ELSE email_classification_mailboxes.sync_cursor END,
+          last_sync_at = CASE WHEN $13 = 1 THEN NULL ELSE email_classification_mailboxes.last_sync_at END,
+          updated_at = EXCLUDED.updated_at
+        WHERE email_classification_mailboxes.owner_user_id = EXCLUDED.owner_user_id AND email_classification_mailboxes.account_source = EXCLUDED.account_source
+          AND email_classification_mailboxes.account_id = EXCLUDED.account_id AND email_classification_mailboxes.workspace_id IS NOT DISTINCT FROM EXCLUDED.workspace_id
+          AND email_classification_mailboxes.mailbox_id IS NOT DISTINCT FROM EXCLUDED.mailbox_id RETURNING *`,
+      [mailbox.mailboxRef, mailbox.ownerUserId, mailbox.accountSource, mailbox.accountId, mailbox.provider, mailbox.workspaceId, mailbox.mailboxId,
+        mailbox.bindingRevision, mailbox.policyRevision, JSON.stringify(mailbox.readFrom), mailbox.active, now, changed ? 1 : 0]);
+      if (!result.rows[0]) throw new EmailClassificationStoreStateError('A mailbox reference cannot be reassigned to another owner or scope.');
+      if (changed || !mailbox.active) await connection.query(`UPDATE email_classification_jobs SET status = 'canceled', lease_until = NULL, claim_token = NULL, error_code = 'mailbox_changed', updated_at = $2
+        WHERE mailbox_ref = $1 AND status IN ('pending','processing','retry')`, [mailbox.mailboxRef, now]);
+      return mailboxFromRow(result.rows[0]);
+    });
+  }
+
+  async readMailbox(mailboxRef: string): Promise<StoredEmailClassificationMailbox | null> {
+    const row = (await this.postgres.query('SELECT * FROM email_classification_mailboxes WHERE mailbox_ref = $1', [text(mailboxRef, 'mailbox reference')])).rows[0];
+    return row ? mailboxFromRow(row) : null;
+  }
+
+  async deactivateMailbox(mailboxRef: string, now = Date.now()): Promise<void> {
+    text(mailboxRef, 'mailbox reference'); integer(now, 'time');
+    await this.transaction(async connection => {
+      await this.lockSettings(connection);
+      await connection.query('UPDATE email_classification_mailboxes SET active = false, index_revision = index_revision + 1, updated_at = $2 WHERE mailbox_ref = $1 AND active', [mailboxRef, now]);
+      await connection.query(`UPDATE email_classification_jobs SET status = 'canceled', lease_until = NULL, claim_token = NULL, error_code = 'mailbox_inactive', updated_at = $2
+        WHERE mailbox_ref = $1 AND status IN ('pending','processing','retry')`, [mailboxRef, now]);
+    });
+  }
+
+  async recordMailboxSync(input: { mailboxRef: string; bindingRevision: string; policyRevision: string; cursor: string | null; coverage: StoredEmailClassificationMailbox['coverage']; now?: number }): Promise<boolean> {
+    if (!['pending', 'partial', 'complete', 'failed'].includes(input.coverage)) throw new Error('Invalid mailbox coverage.');
+    const updated = await this.postgres.query(`UPDATE email_classification_mailboxes SET last_sync_at = $2, sync_cursor = $3, coverage = $4, updated_at = $2
+      WHERE mailbox_ref = $1 AND active AND binding_revision = $5 AND policy_revision = $6 RETURNING mailbox_ref`,
+    [text(input.mailboxRef, 'mailbox reference'), integer(input.now ?? Date.now(), 'time'), input.cursor === null ? null : text(input.cursor, 'sync cursor', 10_000), input.coverage,
+      text(input.bindingRevision, 'binding revision'), text(input.policyRevision, 'policy revision')]);
+    return updated.rows.length > 0;
+  }
+
+  async upsertMessageMetadata(input: EmailClassificationMetadataInput, now = Date.now()): Promise<StoredEmailClassificationMetadata> {
+    const messageRef = text(input.messageRef, 'message reference'); const mailboxRef = text(input.mailboxRef, 'mailbox reference');
+    const canonicalId = text(input.canonicalId, 'provider reference', 2_000); const folder = text(input.folder, 'folder');
+    const fingerprint = text(input.fingerprint, 'fingerprint'); integer(now, 'time');
+    if (!['answered', 'unanswered', 'unknown'].includes(input.replyStatus)) throw new Error('Invalid reply status.');
+    const date = input.dateTimestamp === null ? null : integer(input.dateTimestamp, 'message date');
+    const list = normalizeList(input.list);
+    return this.transaction(async connection => {
+      await this.lockSettings(connection);
+      const mailboxRow = (await connection.query('SELECT * FROM email_classification_mailboxes WHERE mailbox_ref = $1 AND active FOR UPDATE', [mailboxRef])).rows[0];
+      if (!mailboxRow) throw new EmailClassificationStoreStateError();
+      const previous = (await connection.query('SELECT * FROM email_classification_messages WHERE message_ref = $1 FOR UPDATE', [messageRef])).rows[0];
+      if (previous && (previous.mailbox_ref !== mailboxRef || previous.canonical_id !== canonicalId)) throw new EmailClassificationStoreStateError('A message reference cannot be reassigned to another provider message.');
+      const result = await connection.query(`INSERT INTO email_classification_messages(message_ref,mailbox_ref,canonical_id,folder,date_timestamp,reply_status,fingerprint,list_json,created_at,updated_at)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$9) ON CONFLICT(message_ref) DO UPDATE SET
+          folder = EXCLUDED.folder, date_timestamp = EXCLUDED.date_timestamp, reply_status = EXCLUDED.reply_status, fingerprint = EXCLUDED.fingerprint, list_json = EXCLUDED.list_json,
+          index_revision = email_classification_messages.index_revision + 1, updated_at = EXCLUDED.updated_at
+        WHERE email_classification_messages.folder IS DISTINCT FROM EXCLUDED.folder OR email_classification_messages.date_timestamp IS DISTINCT FROM EXCLUDED.date_timestamp
+          OR email_classification_messages.reply_status IS DISTINCT FROM EXCLUDED.reply_status OR email_classification_messages.fingerprint IS DISTINCT FROM EXCLUDED.fingerprint
+          OR email_classification_messages.list_json IS DISTINCT FROM EXCLUDED.list_json RETURNING *`,
+      [messageRef, mailboxRef, canonicalId, folder, date, input.replyStatus, fingerprint, JSON.stringify(list), now]);
+      const row = result.rows[0] ?? previous;
+      const currentMailbox = result.rows.length ? (await connection.query('UPDATE email_classification_mailboxes SET index_revision = index_revision + 1, updated_at = $2 WHERE mailbox_ref = $1 RETURNING *', [mailboxRef, now])).rows[0] : mailboxRow;
+      if (previous && previous.fingerprint !== fingerprint) await connection.query(`UPDATE email_classification_jobs SET status = 'canceled', lease_until = NULL, claim_token = NULL, error_code = 'message_changed', updated_at = $2
+        WHERE message_ref = $1 AND status IN ('pending','processing','retry')`, [messageRef, now]);
+      return metadataFromRow({ ...row, mailbox_data: currentMailbox });
+    });
+  }
+
+  async readMessages(messageRefs: string[]): Promise<StoredEmailClassificationMetadata[]> {
+    if (!messageRefs.length) return [];
+    if (messageRefs.length > 1_000) throw new Error('Too many message references.');
+    const result = await this.postgres.query(`SELECT message.*, to_jsonb(mailbox) AS mailbox_data FROM email_classification_messages message
+      JOIN email_classification_mailboxes mailbox ON mailbox.mailbox_ref = message.mailbox_ref
+      WHERE message.message_ref = ANY($1::text[]) AND mailbox.active`, [messageRefs.map(value => text(value, 'message reference'))]);
+    return result.rows.map(metadataFromRow);
+  }
+
+  async enqueueClassification(input: { messageRef: string; configurationRevision: number; fingerprint: string; now?: number }): Promise<StoredEmailClassificationJob | null> {
+    const messageRef = text(input.messageRef, 'message reference'); const fingerprint = text(input.fingerprint, 'fingerprint');
+    const revision = integer(input.configurationRevision, 'configuration revision', 1); const now = integer(input.now ?? Date.now(), 'time');
+    return this.transaction(async connection => {
+      const settings = await this.lockSettings(connection);
+      if (!settings.configuration.enabled || settings.revision !== revision) return null;
+      const message = (await connection.query(`SELECT message.*, mailbox.binding_revision, mailbox.policy_revision FROM email_classification_messages message
+        JOIN email_classification_mailboxes mailbox ON mailbox.mailbox_ref = message.mailbox_ref
+        WHERE message.message_ref = $1 AND message.fingerprint = $2 AND mailbox.active FOR UPDATE OF mailbox, message`, [messageRef, fingerprint])).rows[0];
+      if (!message) return null;
+      const result = await connection.query(`INSERT INTO email_classification_jobs(id,message_ref,mailbox_ref,configuration_revision,fingerprint,binding_revision,policy_revision,status,next_attempt_at,created_at,updated_at)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,'pending',$8,$8,$8)
+        ON CONFLICT(message_ref,configuration_revision,fingerprint) DO UPDATE SET binding_revision = EXCLUDED.binding_revision, policy_revision = EXCLUDED.policy_revision,
+          status = 'pending', attempts = 0, next_attempt_at = EXCLUDED.next_attempt_at, lease_until = NULL, claim_token = NULL, error_code = NULL, updated_at = EXCLUDED.updated_at
+        WHERE email_classification_jobs.binding_revision <> EXCLUDED.binding_revision OR email_classification_jobs.policy_revision <> EXCLUDED.policy_revision
+          OR (email_classification_jobs.status = 'canceled' AND email_classification_jobs.claim_token IS NULL AND email_classification_jobs.lease_until IS NULL) RETURNING *`,
+      [randomUUID(), messageRef, message.mailbox_ref, revision, fingerprint, message.binding_revision, message.policy_revision, now]);
+      const row = result.rows[0] ?? (await connection.query('SELECT * FROM email_classification_jobs WHERE message_ref = $1 AND configuration_revision = $2 AND fingerprint = $3', [messageRef, revision, fingerprint])).rows[0];
+      return row ? jobFromRow(row) : null;
+    });
+  }
+
+  async claimJobs(input: { limit: number; leaseMs: number; now?: number }): Promise<StoredEmailClassificationJob[]> {
+    const limit = Math.min(integer(input.limit, 'claim limit', 1), 100); const leaseMs = integer(input.leaseMs, 'lease duration', 1);
+    if (leaseMs > 600_000) throw new Error('Lease duration is too large.');
+    const now = integer(input.now ?? Date.now(), 'time');
+    return this.transaction(async connection => {
+      const settings = await this.lockSettings(connection);
+      if (!settings.configuration.enabled) return [];
+      const dayStart = Math.floor(now / 86_400_000) * 86_400_000;
+      await connection.query('INSERT INTO email_classification_daily_budget(day_start, attempts) VALUES ($1,0) ON CONFLICT(day_start) DO NOTHING', [dayStart]);
+      const budget = (await connection.query('SELECT attempts FROM email_classification_daily_budget WHERE day_start = $1 FOR UPDATE', [dayStart])).rows[0];
+      const remaining = Math.max(0, settings.configuration.maxEmailsPerDay - integer(budget.attempts, 'daily attempts'));
+      if (remaining === 0) return [];
+      await connection.query(`UPDATE email_classification_jobs SET status = 'canceled', lease_until = NULL, claim_token = NULL, error_code = 'stale_configuration', updated_at = $2
+        WHERE configuration_revision <> $1 AND status IN ('pending','processing','retry')`, [settings.revision, now]);
+      const candidates = await connection.query(`SELECT job.* FROM email_classification_jobs job
+        JOIN email_classification_messages message ON message.message_ref = job.message_ref
+        JOIN email_classification_mailboxes mailbox ON mailbox.mailbox_ref = job.mailbox_ref
+        WHERE job.configuration_revision = $1 AND mailbox.active AND job.binding_revision = mailbox.binding_revision AND job.policy_revision = mailbox.policy_revision
+          AND job.fingerprint = message.fingerprint AND ((job.status IN ('pending','retry') AND job.next_attempt_at <= $2) OR (job.status = 'processing' AND job.lease_until <= $2))
+        ORDER BY job.next_attempt_at, job.created_at, job.id LIMIT $3 FOR UPDATE OF job SKIP LOCKED`, [settings.revision, now, Math.min(limit, remaining)]);
+      const jobs: StoredEmailClassificationJob[] = [];
+      for (const candidate of candidates.rows) {
+        const updated = await connection.query(`UPDATE email_classification_jobs SET status = 'processing', attempts = attempts + 1, lease_until = $2, claim_token = $3, error_code = NULL, updated_at = $4
+          WHERE id = $1 RETURNING *`, [candidate.id, now + leaseMs, randomUUID(), now]);
+        jobs.push(jobFromRow(updated.rows[0]));
+      }
+      if (jobs.length) await connection.query('UPDATE email_classification_daily_budget SET attempts = attempts + $2 WHERE day_start = $1', [dayStart, jobs.length]);
+      return jobs;
+    });
+  }
+
+  async readJob(id: string): Promise<StoredEmailClassificationJob | null> {
+    const row = (await this.postgres.query('SELECT * FROM email_classification_jobs WHERE id = $1', [text(id, 'job ID')])).rows[0];
+    return row ? jobFromRow(row) : null;
+  }
+
+  async completeJob(input: { jobId: string; claimToken: string; raw: EmailClassificationRaw; now?: number }): Promise<boolean> {
+    const id = text(input.jobId, 'job ID'); const token = text(input.claimToken, 'claim token'); const raw = normalizedRaw(input.raw); const now = integer(input.now ?? Date.now(), 'time');
+    return this.transaction(async connection => {
+      const settings = await this.lockSettings(connection);
+      const jobRow = (await connection.query('SELECT * FROM email_classification_jobs WHERE id = $1 FOR UPDATE', [id])).rows[0];
+      if (!jobRow) return false;
+      const job = jobFromRow(jobRow);
+      if (job.status !== 'processing' || job.claimToken !== token || job.leaseUntil === null || job.leaseUntil <= now) return false;
+      const message = (await connection.query(`SELECT message.*, mailbox.active, mailbox.binding_revision, mailbox.policy_revision FROM email_classification_messages message
+        JOIN email_classification_mailboxes mailbox ON mailbox.mailbox_ref = message.mailbox_ref WHERE message.message_ref = $1 FOR UPDATE OF mailbox, message`, [job.messageRef])).rows[0];
+      const valid = settings.configuration.enabled && settings.revision === job.configurationRevision && message?.active === true
+        && message.fingerprint === job.fingerprint && message.binding_revision === job.bindingRevision && message.policy_revision === job.policyRevision
+        && raw.providerId === settings.configuration.providerId;
+      if (!valid) {
+        await connection.query("UPDATE email_classification_jobs SET status = 'canceled', lease_until = NULL, claim_token = NULL, error_code = 'stale_claim', updated_at = $2 WHERE id = $1", [id, now]);
+        return false;
+      }
+      await connection.query(`INSERT INTO email_classification_results(message_ref,raw_json,configuration_revision,fingerprint,binding_revision,policy_revision,result_revision,version,updated_at,evaluation_fingerprint)
+        VALUES ($1,$2::jsonb,$3,$4,$5,$6,1,1,$7,$8) ON CONFLICT(message_ref) DO UPDATE SET
+          raw_json = EXCLUDED.raw_json, configuration_revision = EXCLUDED.configuration_revision, fingerprint = EXCLUDED.fingerprint,
+          evaluation_fingerprint = EXCLUDED.evaluation_fingerprint,
+          binding_revision = EXCLUDED.binding_revision, policy_revision = EXCLUDED.policy_revision, result_revision = email_classification_results.result_revision + 1,
+          version = email_classification_results.version + 1, updated_at = EXCLUDED.updated_at`,
+      [job.messageRef, JSON.stringify(raw), job.configurationRevision, job.fingerprint, job.bindingRevision, job.policyRevision, now, emailClassificationEvaluationFingerprint(settings.configuration)]);
+      await connection.query("UPDATE email_classification_jobs SET status = 'completed', lease_until = NULL, claim_token = NULL, error_code = NULL, updated_at = $2 WHERE id = $1", [id, now]);
+      return true;
+    });
+  }
+
+  async renewClaim(input: { jobId: string; claimToken: string; leaseMs: number; now?: number }): Promise<boolean> {
+    const now = integer(input.now ?? Date.now(), 'time'); const leaseMs = integer(input.leaseMs, 'lease duration', 1);
+    if (leaseMs > 600_000) throw new Error('Lease duration is too large.');
+    return this.transaction(async connection => {
+      const settings = await this.lockSettings(connection);
+      if (!settings.configuration.enabled) return false;
+      const updated = await connection.query(`UPDATE email_classification_jobs SET lease_until = $3, updated_at = $4 WHERE id = $1 AND claim_token = $2
+        AND status = 'processing' AND lease_until > $4 AND configuration_revision = $5 RETURNING id`,
+      [text(input.jobId, 'job ID'), text(input.claimToken, 'claim token'), now + leaseMs, now, settings.revision]);
+      return updated.rows.length > 0;
+    });
+  }
+
+  async retryJob(input: { jobId: string; claimToken: string; errorCode: string; nextAttemptAt: number; terminal?: boolean; now?: number }): Promise<boolean> {
+    const now = integer(input.now ?? Date.now(), 'time');
+    return this.transaction(async connection => {
+      const settings = await this.lockSettings(connection);
+      if (!settings.configuration.enabled) return false;
+      const updated = await connection.query(`UPDATE email_classification_jobs SET status = $3, lease_until = NULL, claim_token = NULL, error_code = $4, next_attempt_at = $5, updated_at = $6
+        WHERE id = $1 AND claim_token = $2 AND status = 'processing' AND lease_until > $6 AND configuration_revision = $7 RETURNING id`,
+      [text(input.jobId, 'job ID'), text(input.claimToken, 'claim token'), input.terminal ? 'failed' : 'retry', text(input.errorCode, 'error code', 100), integer(input.nextAttemptAt, 'next attempt'), now, settings.revision]);
+      return updated.rows.length > 0;
+    });
+  }
+
+  async readResultsBatch(messageRefs: string[]): Promise<StoredEmailClassificationResult[]> {
+    if (!messageRefs.length) return [];
+    if (messageRefs.length > 1_000) throw new Error('Too many result references.');
+    const result = await this.postgres.query(`SELECT result.* FROM email_classification_results result JOIN email_classification_messages message ON message.message_ref = result.message_ref
+      JOIN email_classification_mailboxes mailbox ON mailbox.mailbox_ref = message.mailbox_ref
+      WHERE result.message_ref = ANY($1::text[]) AND mailbox.active`, [messageRefs.map(value => text(value, 'message reference'))]);
+    return result.rows.map(resultFromRow);
+  }
+
+  async updateOverride(input: { messageRef: string; expectedVersion: number; overrides: EmailClassificationOverride; now?: number }): Promise<StoredEmailClassificationResult> {
+    const messageRef = text(input.messageRef, 'message reference'); const expected = integer(input.expectedVersion, 'expected result version');
+    const overrides = validateEmailClassificationOverride(input.overrides); const now = integer(input.now ?? Date.now(), 'time');
+    return this.transaction(async connection => {
+      await this.lockSettings(connection);
+      const message = (await connection.query(`SELECT message.message_ref FROM email_classification_messages message JOIN email_classification_mailboxes mailbox ON mailbox.mailbox_ref = message.mailbox_ref
+        WHERE message.message_ref = $1 AND mailbox.active FOR UPDATE OF mailbox, message`, [messageRef])).rows[0];
+      if (!message) throw new EmailClassificationStoreStateError();
+      const previous = (await connection.query('SELECT * FROM email_classification_results WHERE message_ref = $1 FOR UPDATE', [messageRef])).rows[0];
+      if ((previous ? integer(previous.version, 'result version', 1) : 0) !== expected) throw new EmailClassificationVersionConflictError();
+      const updated = expected === 0
+        ? await connection.query(`INSERT INTO email_classification_results(message_ref,overrides_json,version,updated_at) VALUES ($1,$2::jsonb,1,$3) ON CONFLICT(message_ref) DO NOTHING RETURNING *`, [messageRef, JSON.stringify(overrides), now])
+        : await connection.query('UPDATE email_classification_results SET overrides_json = $2::jsonb, version = version + 1, updated_at = $3 WHERE message_ref = $1 AND version = $4 RETURNING *', [messageRef, JSON.stringify(overrides), now, expected]);
+      if (!updated.rows[0]) throw new EmailClassificationVersionConflictError();
+      return resultFromRow(updated.rows[0]);
+    });
+  }
+
+  async readPersonalFocusStates(userId: string, messageRefs: string[]): Promise<StoredEmailPersonalFocusState[]> {
+    text(userId, 'focus user'); if (!messageRefs.length) return [];
+    if (messageRefs.length > 1_000) throw new Error('Too many focus references.');
+    const result = await this.postgres.query('SELECT * FROM email_classification_personal_focus WHERE user_id = $1 AND message_ref = ANY($2::text[])', [userId, messageRefs.map(value => text(value, 'message reference'))]);
+    return result.rows.map(focusFromRow);
+  }
+
+  async setPersonalFocusState(input: { userId: string; messageRef: string; expectedVersion: number; done: boolean; now?: number }): Promise<StoredEmailPersonalFocusState> {
+    const userId = text(input.userId, 'focus user'); const messageRef = text(input.messageRef, 'message reference'); const expected = integer(input.expectedVersion, 'expected focus version');
+    if (typeof input.done !== 'boolean') throw new Error('Invalid personal completion state.');
+    const now = integer(input.now ?? Date.now(), 'time');
+    return this.transaction(async connection => {
+      await this.lockSettings(connection);
+      const message = (await connection.query(`SELECT message.message_ref FROM email_classification_messages message JOIN email_classification_mailboxes mailbox ON mailbox.mailbox_ref = message.mailbox_ref
+        WHERE message.message_ref = $1 AND mailbox.active FOR UPDATE OF mailbox, message`, [messageRef])).rows[0];
+      if (!message) throw new EmailClassificationStoreStateError();
+      const previous = (await connection.query('SELECT * FROM email_classification_personal_focus WHERE user_id = $1 AND message_ref = $2 FOR UPDATE', [userId, messageRef])).rows[0];
+      if ((previous ? integer(previous.version, 'focus version', 1) : 0) !== expected) throw new EmailClassificationVersionConflictError();
+      const updated = expected === 0
+        ? await connection.query('INSERT INTO email_classification_personal_focus(user_id,message_ref,done,version,updated_at) VALUES ($1,$2,$3,1,$4) ON CONFLICT(user_id,message_ref) DO NOTHING RETURNING *', [userId, messageRef, input.done, now])
+        : await connection.query('UPDATE email_classification_personal_focus SET done = $3, version = version + 1, updated_at = $4 WHERE user_id = $1 AND message_ref = $2 AND version = $5 RETURNING *', [userId, messageRef, input.done, now, expected]);
+      if (!updated.rows[0]) throw new EmailClassificationVersionConflictError();
+      return focusFromRow(updated.rows[0]);
+    });
+  }
+}
+
+export function createEmailClassificationStore(options: { postgres: EmailClassificationQueryable; transaction: EmailClassificationTransaction }): PostgresEmailClassificationStore {
+  return new PostgresEmailClassificationStore(options.postgres, options.transaction);
+}
+
+let runtimeStorePromise: Promise<PostgresEmailClassificationStore> | null = null;
+
+export function getRuntimeEmailClassificationStore(): Promise<PostgresEmailClassificationStore> {
+  runtimeStorePromise ??= import('@/app/lib/db').then(database => {
+    database.assertDatabaseAvailable();
+    const postgres = database.getPostgresRuntimeQueryable();
+    if (!postgres) throw new Error('PostgreSQL runtime pool is not initialized.');
+    const transaction: EmailClassificationTransaction = async operation => {
+      const connection = await postgres.connect();
+      let discard: Error | undefined;
+      try {
+        await connection.query('BEGIN');
+        const result = await operation(connection);
+        await connection.query('COMMIT');
+        return result;
+      } catch (error) {
+        try { await connection.query('ROLLBACK'); } catch (rollbackError) { discard = rollbackError instanceof Error ? rollbackError : new Error('Transaction rollback failed.'); }
+        throw error;
+      } finally { connection.release(discard); }
+    };
+    return createEmailClassificationStore({ postgres, transaction });
+  }).catch(error => { runtimeStorePromise = null; throw error; });
+  return runtimeStorePromise;
+}
