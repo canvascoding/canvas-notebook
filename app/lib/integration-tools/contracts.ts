@@ -82,6 +82,12 @@ export type IntegrationProviderRequest = Extract<IntegrationRequest, { target: '
 export type IntegrationToolRequest = Extract<IntegrationRequest, { target: 'tools' }>;
 export type IntegrationNextAction =
   | { kind: 'gateway'; request: IntegrationRequest; label: string }
+  | {
+    kind: 'input_required';
+    label: string;
+    request: { action: 'call'; toolRef: string; schemaRef: string };
+    requiredArguments: readonly string[];
+  }
   | { kind: 'setup'; href: string; label: string };
 
 export type IntegrationProviderDescriptor = {
@@ -166,7 +172,8 @@ export type IntegrationToolSchema = {
   providerRef: string;
   schemaRef: string;
   toolVersion: string | null;
-  inputSchema: Record<string, unknown>;
+  inputSchema: Record<string, unknown> | boolean;
+  outputSchema?: Record<string, unknown> | boolean;
   skillRefs: readonly string[];
   nextActions: readonly IntegrationNextAction[];
 };
@@ -174,7 +181,7 @@ export type IntegrationToolSchema = {
 export type IntegrationErrorCode =
   | 'invalid_request' | 'invalid_cursor' | 'provider_unavailable' | 'provider_denied'
   | 'tool_not_found' | 'tool_denied' | 'binding_changed' | 'schema_changed'
-  | 'invalid_arguments' | 'outcome_unknown';
+  | 'invalid_arguments' | 'schema_unsupported' | 'outcome_unknown';
 
 export type IntegrationErrorResult = {
   version: typeof INTEGRATION_CONTRACT_VERSION;

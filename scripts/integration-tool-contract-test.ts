@@ -198,4 +198,12 @@ testSearchRankingAndScopes();
 testPoliciesAndPartialErrors();
 testContextBoundPagination();
 testReadyBeforeMetadata();
+const inputTemplateProvider = provider('mcp', 'template-connection', { nextActions: [{
+  kind: 'input_required', label: 'Supply the tool arguments', requiredArguments: ['title'],
+  request: { action: 'call', toolRef: 'tool-template', schemaRef: 'schema-template' },
+}] });
+const inputTemplateRequest = { action: 'list' as const, target: 'providers' as const };
+assert.equal(listIntegrationProviders(snapshots([inputTemplateProvider]), inputTemplateRequest, context, policy).providers[0].nextActions.length, 1);
+assert.equal(listIntegrationProviders(snapshots([inputTemplateProvider]), inputTemplateRequest, context,
+  { ...policy, allowedOperations: ['mcp.list_providers'] }).providers[0].nextActions.length, 0, 'Forbidden calls do not leak through input-required templates.');
 console.log('PASS integration contracts, stable scoped identities, deterministic search, allowlists, partial errors and context-bound pagination');

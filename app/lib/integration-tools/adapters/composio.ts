@@ -114,6 +114,7 @@ async function loadLocalCollections(contexts: readonly ResolvedComposioContext[]
 
 async function loadManagedCollections(contexts: readonly ResolvedComposioContext[], signal: AbortSignal) {
   const cataloguePromise = collectPages((cursor) => requestManagedComposio('/toolkits', {
+    signal,
     query: new URLSearchParams({ limit: '1000', ...(cursor ? { cursor } : {}) }),
   }, contexts[0]), 'toolkits', 'catalogue', signal);
   const accounts: ProfileAccounts[] = [];
@@ -123,7 +124,7 @@ async function loadManagedCollections(contexts: readonly ResolvedComposioContext
       const context = contexts[index++];
       try {
         signal.throwIfAborted();
-        const status = record(await requestManagedComposio('/status', {}, context));
+        const status = record(await requestManagedComposio('/status', { signal }, context));
         if (!Array.isArray(status.connectedAccounts)) throw badResponse();
         const healthy = status.providerHealthy !== false && status.apiKeyValid !== false;
         accounts.push({

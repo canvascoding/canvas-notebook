@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { expandMcpEnvValue, mcpConfigUsesChangedEnv } from '@/app/lib/mcp/env-references';
 import { assertMcpConnectionAccess, requireMcpUserAccess } from './access';
 import { resolveMcpCredentialScope } from './credential-storage';
@@ -15,6 +16,7 @@ import {
   readMcpAppToolMetadata,
 } from '@/app/lib/mcp/apps-metadata';
 import { isMcpAppsEnabled } from '@/app/lib/mcp/apps-config';
+import { integrationMetadataCache } from '@/app/lib/integration-tools/metadata-cache';
 
 import {
   Client,
@@ -26,7 +28,7 @@ import {
 } from '@modelcontextprotocol/client';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 
-import { readMcpAvailableEnv as readAvailableEnv, resolveMcpTransportValues } from '@/app/lib/mcp/env-runtime';
+import { readMcpAvailableEnv as readAvailableEnv, readMcpAvailableEnvSnapshot, resolveMcpSnapshotTransportValues } from '@/app/lib/mcp/env-runtime';
 import { isMcpServerEnabled, readMcpConfig, resolveMcpConfigPath, type McpConfig, type McpServerConfig } from '@/app/lib/mcp/config';
 import {
   getValidMcpAccessToken,
@@ -59,6 +61,7 @@ type ManagedConnection = {
   config: McpServerConfig;
   authGeneration?: number;
   authorizationState?: string;
+  environmentRevision?: string;
   abortController: AbortController;
   closed?: boolean;
   client?: Client;
@@ -81,6 +84,18 @@ type McpCacheFile = {
     lastRefreshedAt: string;
   }>;
 };
+
+type McpInvocationBinding = { entry: ManagedConnection; client: Client; environmentRevision: string };
+const mcpInvocationBindings = new AsyncLocalStorage<McpInvocationBinding | null>();
+
+function changedInvocationEnvironment(): Error {
+  return Object.assign(new Error('MCP credentials or the selected client changed before dispatch.'), { code: 'mcp_environment_binding_changed', status: 409 });
+}
+
+function assertInvocationClient(entry: ManagedConnection, binding: McpInvocationBinding): void {
+  if (binding.entry !== entry || binding.client !== entry.client || entry.closed
+    || entry.environmentRevision !== binding.environmentRevision) throw changedInvocationEnvironment();
+}
 
 type McpManagerStore = {
   entries: Map<string, ManagedConnection>;
@@ -219,8 +234,8 @@ function expandEnvValue(value: string, availableEnv: Record<string, string>, mis
   return expandMcpEnvValue(value, availableEnv, missing);
 }
 
-async function resolveServerEnv(config: McpServerConfig, scope?: McpScope | null): Promise<Record<string, string>> {
-  const availableEnv = await readAvailableEnv(scope);
+async function resolveServerEnv(config: McpServerConfig, scope?: McpScope | null, snapshotValues?: Record<string, string>): Promise<Record<string, string>> {
+  const availableEnv = snapshotValues || await readAvailableEnv(scope);
   const missing = new Set<string>();
   const resolved: Record<string, string> = getSafeStdioBaseEnv();
   for (const [key, value] of Object.entries(config.env || {})) {
@@ -243,8 +258,8 @@ async function resolveServerEnv(config: McpServerConfig, scope?: McpScope | null
   return resolved;
 }
 
-async function resolveHttpHeaders(config: McpServerConfig, accessToken: string | null, scope?: McpScope | null): Promise<Record<string, string> | undefined> {
-  const availableEnv = await readAvailableEnv(scope);
+async function resolveHttpHeaders(config: McpServerConfig, accessToken: string | null, scope?: McpScope | null, snapshotValues?: Record<string, string>): Promise<Record<string, string> | undefined> {
+  const availableEnv = snapshotValues || await readAvailableEnv(scope);
   const missing = new Set<string>();
   const headers: Record<string, string> = {};
 
@@ -281,9 +296,12 @@ async function resolveHttpHeaders(config: McpServerConfig, accessToken: string |
 
 async function createClient(entry: ManagedConnection, signal?: AbortSignal): Promise<Client> {
   const timeoutMs = getTimeoutMs(entry.config);
+  const environment = await readMcpAvailableEnvSnapshot(entry.scope);
+  entry.environmentRevision = environment.revision;
   const client = new Client(
     { name: 'canvas-notebook-mcp-proxy', version: '1.0.0' },
     {
+      listChanged: { tools: { autoRefresh: false, debounceMs: 0, onChanged: () => integrationMetadataCache.clear() } },
       capabilities: isMcpAppsEnabled() ? {
         extensions: {
           'io.modelcontextprotocol/ui': {
@@ -314,8 +332,8 @@ async function createClient(entry: ManagedConnection, signal?: AbortSignal): Pro
     });
     const transport = new StdioClientTransport({
       command,
-      args: (await resolveMcpTransportValues({ args: entry.config.args }, entry.scope)).args,
-      env: await resolveServerEnv(entry.config, entry.scope),
+      args: resolveMcpSnapshotTransportValues({ args: entry.config.args }, environment).args,
+      env: await resolveServerEnv(entry.config, entry.scope, environment.values),
       cwd: typeof entry.config.cwd === 'string' && entry.config.cwd.trim() ? entry.config.cwd : undefined,
       stderr: 'pipe',
     });
@@ -343,7 +361,7 @@ async function createClient(entry: ManagedConnection, signal?: AbortSignal): Pro
   }
 
   if (entry.transport === 'http') {
-    const url = (await resolveMcpTransportValues({ url: entry.config.url }, entry.scope)).url?.trim();
+    const url = resolveMcpSnapshotTransportValues({ url: entry.config.url }, environment).url?.trim();
     if (!url) throw new Error(`MCP server "${entry.serverName}" is missing url.`);
     const validatedUrl = await assertMcpHttpUrlAllowed(url, `MCP server "${entry.serverName}" URL`);
     logMcp('info', 'Connecting HTTP server', { server: entry.serverName, url: entry.config.url, timeoutMs });
@@ -396,16 +414,25 @@ async function observeManagedFailure(entry: ManagedConnection, error: unknown): 
 }
 
 async function fetchManagedMcpRequest(entry: ManagedConnection, input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  const invocation = mcpInvocationBindings.getStore();
+  if (invocation) assertInvocationClient(entry, invocation);
   const current = await readCurrentMcpConnection(entry);
   const identity = current.connectionId || entry.serverName;
   const expectedAuthorizationState = entry.scope?.userId ? entry.authorizationState ?? null : undefined;
   const token = await getValidMcpAccessToken(identity, current, entry.configHash, entry.scope, { expectedAuthorizationState });
   const headers = new Headers(input instanceof Request ? input.headers : undefined);
   new Headers(init?.headers).forEach((value, name) => headers.set(name, value));
-  const authenticatedHeaders = await resolveHttpHeaders(current, token, entry.scope);
+  const environment = invocation ? await readMcpAvailableEnvSnapshot(entry.scope) : undefined;
+  if (invocation && environment?.revision !== invocation.environmentRevision) throw changedInvocationEnvironment();
+  const authenticatedHeaders = await resolveHttpHeaders(current, token, entry.scope, environment?.values);
   for (const [name, value] of Object.entries(authenticatedHeaders || {})) headers.set(name, value);
   // Token refresh and secret loading may yield to a concurrent config change.
   await readCurrentMcpConnection(entry);
+  if (invocation) {
+    const latestEnvironment = await readMcpAvailableEnvSnapshot(entry.scope);
+    if (latestEnvironment.revision !== invocation.environmentRevision) throw changedInvocationEnvironment();
+    assertInvocationClient(entry, invocation);
+  }
   entry.abortController.signal.throwIfAborted();
   const response = await fetchMcpHttp(input, {
     ...init, headers,
@@ -439,11 +466,15 @@ async function getManagedConnection(serverName: string, signal?: AbortSignal, sc
   const lifecycle = serverConfig.connectionId && normalizedScope?.userId
     ? await readMcpOAuthLifecycle(serverConfig.connectionId, resolveMcpCredentialScope({ ...serverConfig, connectionId: serverConfig.connectionId }, normalizedScope)) : undefined;
   const authGeneration = lifecycle?.generation;
+  const environment = await readMcpAvailableEnvSnapshot(normalizedScope);
   const store = getStore();
   let entry = store.entries.get(key);
-  if (entry && (entry.authGeneration !== authGeneration || entry.authorizationState !== lifecycle?.lastCompletedState)) {
-    await closeMcpServer(serverConfig.connectionId || serverName, normalizedScope);
-    entry = undefined;
+  if (entry && (entry.authGeneration !== authGeneration || entry.authorizationState !== lifecycle?.lastCompletedState
+    || entry.environmentRevision !== environment.revision)) {
+    await closeManagedEntries([[key, entry]]);
+    // Another caller may have replaced the old entry while its client closed.
+    // Resolve current access, configuration, OAuth and ENV before reusing it.
+    return getManagedConnection(serverName, signal, normalizedScope);
   }
 
   if (!entry) {
@@ -456,6 +487,7 @@ async function getManagedConnection(serverName: string, signal?: AbortSignal, sc
       config: serverConfig,
       authGeneration,
       authorizationState: lifecycle?.lastCompletedState,
+      environmentRevision: environment.revision,
       abortController: new AbortController(),
       activeCalls: 0,
       lastUsedAt: Date.now(),
@@ -479,7 +511,7 @@ async function getManagedConnection(serverName: string, signal?: AbortSignal, sc
       .catch(async (error) => {
         entry.closed = true;
         entry.abortController.abort(error);
-        store.entries.delete(key);
+        if (store.entries.get(key) === entry) store.entries.delete(key);
         entry.lastError = getErrorMessage(error);
         await observeManagedFailure(entry, error);
         logMcp('error', 'Connection failed', {
@@ -527,7 +559,7 @@ async function withManagedConnection<T>(
         error.resourceMetadataUrl?.toString(),
         entry.scope,
       );
-      await closeMcpServer(entry.config.connectionId || serverName, entry.scope);
+      await closeManagedEntries([[entry.key, entry]]);
       const scopeText = challengedScopes.length ? ` Required scopes: ${challengedScopes.join(' ')}.` : '';
       const stepUpError = new Error(
         `MCP server "${serverName}" requires additional OAuth authorization.${scopeText} Use mcp auth_start to continue.`,
@@ -541,7 +573,7 @@ async function withManagedConnection<T>(
     entry.lastError = enhanced.message;
     await observeManagedFailure(entry, enhanced);
     // Transport/auth failures must not leave a stale session available for reuse.
-    await closeMcpServer(entry.config.connectionId || serverName, entry.scope);
+    await closeManagedEntries([[entry.key, entry]]);
     throw enhanced;
   } finally {
     entry.activeCalls = Math.max(0, entry.activeCalls - 1);
@@ -646,19 +678,33 @@ export async function callMcpToolWithCurrentMetadata(
   args: Record<string, unknown>,
   signal?: AbortSignal,
   scope?: McpScope | null,
+  options: {
+    validateTool?: (tool: Tool, connection: Readonly<McpServerConfig>) => void | Promise<void>;
+    expectedEnvironmentRevision?: string;
+  } = {},
 ): Promise<McpToolCallWithCurrentMetadata> {
-  return withManagedConnection(serverName, async (entry, client) => {
+  return mcpInvocationBindings.run(null, () => withManagedConnection(serverName, async (entry, client) => {
     const currentTools = await withTimeout(client.listTools(), getTimeoutMs(entry.config), signal);
     const currentTool = currentTools.tools.find((tool) => tool.name === toolName);
     if (!currentTool) throw new Error(`Unknown MCP tool "${toolName}" on server "${entry.serverName}".`);
     if (!isMcpAppToolVisibleToModel(currentTool)) {
       throw new Error(`MCP tool "${toolName}" is available only to its MCP App and cannot be called by a model.`);
     }
+    if (options.validateTool) await options.validateTool(currentTool, entry.config);
+    const invocation = options.expectedEnvironmentRevision
+      ? { entry, client, environmentRevision: options.expectedEnvironmentRevision } : null;
+    if (invocation) {
+      assertInvocationClient(entry, invocation);
+      const environment = await readMcpAvailableEnvSnapshot(entry.scope);
+      if (environment.revision !== invocation.environmentRevision) throw changedInvocationEnvironment();
+    }
     logMcp('info', 'Calling tool', { server: serverName, tool: toolName });
-    const result = await withTimeout(client.callTool({ name: toolName, arguments: args }), getTimeoutMs(entry.config), signal) as CallToolResult;
+    const result = await mcpInvocationBindings.run(invocation, () => withTimeout(
+      client.callTool({ name: toolName, arguments: args }), getTimeoutMs(entry.config), signal,
+    )) as CallToolResult;
     logMcp(result.isError ? 'warn' : 'info', 'Tool call finished', { server: serverName, tool: toolName, isError: Boolean(result.isError) });
     return { result, tool: currentTool, connectionId: entry.config.connectionId || null };
-  }, signal, scope);
+  }, signal, scope));
 }
 
 function requireMcpAppsEnabled(): void {
@@ -776,45 +822,39 @@ function configReferencesAnyEnvKey(config: McpServerConfig, changedEnvKeys: Set<
   return mcpConfigUsesChangedEnv(config, changedEnvKeys, availableEnv);
 }
 
-export async function closeMcpServer(serverName: string, scope?: McpScope | null): Promise<void> {
-  const normalizedScope = normalizeMcpScope(scope);
+async function closeManagedEntries(targets: Array<[string, ManagedConnection]>): Promise<void> {
   const store = getStore();
-  for (const [key, entry] of store.entries) {
-    if (!matchesManagedOwner(entry, normalizedScope)) continue;
-    if (entry.serverName !== serverName && entry.config.connectionId !== serverName) continue;
-    logMcp('info', 'Closing server', { server: entry.serverName, transport: entry.transport, pid: entry.processPid });
-    store.entries.delete(key);
+  // Remove every captured entry before awaiting transport close. A concurrent
+  // replacement is a distinct connection and must survive this close request.
+  for (const [key, entry] of targets) {
+    if (store.entries.get(key) === entry) store.entries.delete(key);
     entry.closed = true;
     entry.abortController.abort(new Error('MCP connection closed.'));
+  }
+  for (const [, entry] of targets) {
+    logMcp('info', 'Closing server', { server: entry.serverName, transport: entry.transport, pid: entry.processPid });
     await (entry.client || entry.connectingClient)?.close().catch(() => undefined);
   }
+}
+
+export async function closeMcpServer(serverName: string, scope?: McpScope | null): Promise<void> {
+  const normalizedScope = normalizeMcpScope(scope);
+  const targets = [...getStore().entries].filter(([, entry]) => matchesManagedOwner(entry, normalizedScope)
+    && (entry.serverName === serverName || entry.config.connectionId === serverName));
+  await closeManagedEntries(targets);
 }
 
 export async function closeMcpServersForScope(scope?: McpScope | null, changedEnvKeys?: string[]): Promise<void> {
   const normalizedScope = normalizeMcpScope(scope);
   const changedKeys = changedEnvKeys === undefined ? null : new Set(changedEnvKeys);
   const availableEnv = changedKeys ? await readAvailableEnv(normalizedScope) : {};
-  const store = getStore();
-  for (const [key, entry] of store.entries) {
-    if (!matchesManagedOwner(entry, normalizedScope)) continue;
-    if (changedKeys && !configReferencesAnyEnvKey(entry.config, changedKeys, availableEnv)) continue;
-    logMcp('info', 'Closing scoped server', { server: entry.serverName, transport: entry.transport, pid: entry.processPid });
-    store.entries.delete(key);
-    entry.closed = true;
-    entry.abortController.abort(new Error('MCP connection closed.'));
-    await (entry.client || entry.connectingClient)?.close().catch(() => undefined);
-  }
+  const targets = [...getStore().entries].filter(([, entry]) => matchesManagedOwner(entry, normalizedScope)
+    && (!changedKeys || configReferencesAnyEnvKey(entry.config, changedKeys, availableEnv)));
+  await closeManagedEntries(targets);
 }
 
 export async function closeAllMcpServers(): Promise<void> {
-  const store = getStore();
-  for (const entry of store.entries.values()) {
-    logMcp('info', 'Closing server', { server: entry.serverName, transport: entry.transport, pid: entry.processPid });
-    entry.closed = true;
-    entry.abortController.abort(new Error('MCP connection closed.'));
-    await (entry.client || entry.connectingClient)?.close().catch(() => undefined);
-  }
-  store.entries.clear();
+  await closeManagedEntries([...getStore().entries]);
 }
 
 /** The app server owns its resource drain and final process exit. */

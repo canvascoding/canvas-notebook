@@ -22,7 +22,19 @@
       "git diff --check: PASS",
       "Provider fixtures prove the protocol and isolation; actual third-party account acceptance remains in step 7."
     ] },
-    { "id": "2", "name": "Tool-Suche, Schema und Dispatcher", "status": "pending", "evidence": [] },
+    { "id": "2", "name": "Tool-Suche, Schema und Dispatcher", "status": "complete", "evidence": [
+      "npm run test:integrations:gateway: PASS (catalog plus complete JSON Schema worker, bounded cache, dispatcher and actual MCP/Composio SDK HTTP fixtures)",
+      "CANVAS_CONTROL_PLANE_TEST_ROOT=<isolated Control Plane worktree> npm run test:integrations:gateway:managed: PASS (actual Fastify routes and SDK, exact account/version, schema/credential races, no-auth and one uncertain POST)",
+      "Control Plane feat/plugin-integration-gateway commit a9d7984: additive binding protocol; npm run test:managed-composio-binding and full workspace npm run typecheck: PASS",
+      "Control Plane managedComposioReliability/Triggers/Identity/ToolDiscovery: 22/22 PASS",
+      "MCP manager/direct/proxy/unified-config-env/manager-auth and Composio user-scope/agent-user-flow/reliability regressions: PASS",
+      "Real MCP tools/list_changed invalidates compact metadata without preloading tools; fresh rights and ENV checks deny stale cache use",
+      "MCP final header guard, HTTP URL and STDIO ENV rotation, four gated parallel close cases and delayed old-call failure: PASS",
+      "npx tsc --noEmit --pretty false --incremental false and ESLint all changed runtime modules/scripts: PASS",
+      "npm run build and npm run test:licenses: PASS (2026-10-06); generated license changes only update the lockfile hash",
+      "git diff --check: PASS; fresh GitNexus staged detection is partial, so the full actual diff was reviewed alongside symbol impacts",
+      "The unified dispatcher is not wired into the public agent registry yet. Browser chat acceptance belongs to step 3; live third-party OAuth/account acceptance remains in step 7."
+    ] },
     { "id": "3", "name": "Agenten-Runtime und Feature-Flag", "status": "pending", "evidence": [] },
     { "id": "4a", "name": "Ressourcenmetadaten und gezielte Freigaben", "status": "pending", "evidence": [] },
     { "id": "4b", "name": "Gemeinsame MCP-Verbindungen und Composio-Profile", "status": "pending", "evidence": [] },

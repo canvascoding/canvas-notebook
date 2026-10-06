@@ -96,6 +96,7 @@ function readCursor(cursor: string | undefined, binding: string): number {
 }
 
 function gatewayOperation(action: IntegrationNextAction): IntegrationOperation | null {
+  if (action.kind === 'input_required') return 'call';
   if (action.kind !== 'gateway') return null;
   const request = action.request;
   return request.action === 'describe' || request.action === 'call'

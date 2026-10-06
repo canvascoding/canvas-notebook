@@ -1,7 +1,7 @@
 # Canvas Agent Tools und Plugin Gateway
 
 Stand: 2026-10-06, auf Basis des Composio-Fixes `409897b9d` und der geprüften bestehenden Agent-/Skill-Verwaltung.
-Status: Umsetzung auf `feat/plugin-integration-gateway`. Schritt 1 (Vertrag, Policy, Provider-Katalog und serverseitige Kontextauflösung) ist implementiert und geprüft; Runtime, gemeinsame Ressourcen und UI folgen. Der verbindliche Fortschritt mit Abnahmebelegen steht in [implementation.json](implementation.json).
+Status: Umsetzung auf `feat/plugin-integration-gateway`. Schritte 1 und 2 (Vertrag, Policy, Provider-Katalog, Kontextauflösung sowie Schema-/Dispatcher-Strecke für MCP und Composio) sind implementiert und geprüft. Die öffentliche Agenten-Runtime, gemeinsame Ressourcen und UI folgen. Der verbindliche Fortschritt mit Abnahmebelegen steht in [implementation.json](implementation.json).
 
 ## Ziel und Entscheidungsvorschlag
 
@@ -492,4 +492,4 @@ Der vollständig integrierte Zielstand umfasst die grundlegend überarbeitete Pl
 
 Ein neues öffentliches Canvas-MCP-Serverprodukt, eine generische HTTP-Proxy-API, ein Composio-SDK-Upgrade und die automatische Installation beliebiger externer MCP-Server sind eigene Vorhaben. Sie sind für den hier geplanten gemeinsamen Agenten-Zugang nicht erforderlich.
 
-Empfohlener nächster Umsetzungsschritt: **Schritt 1 — gemeinsamer Vertrag und Provider-Katalog**, auf dem getesteten allgemeinen Composio-Fix aufbauend.
+Nächster Umsetzungsschritt: **Schritt 3 — Agenten-Runtime und Feature-Flag**, auf den geprüften Katalog-/Schema-/Dispatcher-Verträgen aufbauend.
