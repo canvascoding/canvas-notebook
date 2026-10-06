@@ -11,6 +11,9 @@ import {
 import { getSkillsDir, isValidAgentSkillName } from '@/app/lib/skills/canvas-skill-manifest';
 import { coreSkillInstallError, isCoreSkillName } from '@/app/lib/skills/core-skills';
 import { adoptLegacyStandaloneSkillsForScope } from '@/app/lib/skills/legacy-skill-adoption';
+import { readCanvasSkillRegistry } from '@/app/lib/skills/canvas-skill-store';
+import { assertLegacyCapabilityPackageMutationAllowed, withCapabilityPackageRegistryLock } from '@/app/lib/capabilities/packages/artifacts';
+import { isCapabilityPackageError } from '@/app/lib/capabilities/packages/contracts';
 
 export async function GET(
   request: Request,
@@ -94,13 +97,18 @@ export async function PUT(
     }
 
     // Write updated content to SKILL.md
-    await fs.writeFile(skillMdPath, content, 'utf-8');
+    await withCapabilityPackageRegistryLock('skill', scope, async () => {
+      const current = (await readCanvasSkillRegistry(scope)).skills[name];
+      await assertLegacyCapabilityPackageMutationAllowed('skill', name, scope, current);
+      await fs.writeFile(skillMdPath, content, 'utf-8');
+    });
 
     return NextResponse.json({
       success: true,
       message: 'Skill updated successfully',
     });
   } catch (error) {
+    if (isCapabilityPackageError(error)) return NextResponse.json({ success: false, error: error.message, code: error.code }, { status: error.status });
     console.error(`[Skills API] Error saving SKILL.md for skill:`, error);
     return NextResponse.json(
       { success: false, error: 'Failed to save SKILL.md' },

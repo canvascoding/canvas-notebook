@@ -55,7 +55,8 @@ import {
   PiSessionBusyError,
   withExclusivePiSessionExecution,
 } from '@/app/lib/pi/session-exclusive-execution';
-import { loadPiSessionSystemPromptSnapshot } from '@/app/lib/pi/system-prompt-snapshot';
+import { createPiSystemPromptSnapshot, loadPiSessionSystemPromptSnapshot } from '@/app/lib/pi/system-prompt-snapshot';
+import { requiresCapabilityPackageBoundPrompt } from '@/app/lib/capabilities/packages/runtime-bindings';
 import { getPiTools } from '@/app/lib/pi/tool-registry';
 import {
   appendEffectiveToolCapabilitiesPrompt,
@@ -529,6 +530,7 @@ export async function executeAutomationRun(runId: string): Promise<void> {
       // capability boundary is enforced in the tool registry, where only
       // read-only workspace tools and human-review email operations survive.
       const tools = await getPiTools(automationUserId, job.agentId, piSessionId, {
+        executionContext,
         automationExecution: true,
         automationJobState: { jobId: job.id, runId: run.id },
         workspaceEmailAutomation: emailInboxEventContext
@@ -543,11 +545,16 @@ export async function executeAutomationRun(runId: string): Promise<void> {
           : undefined,
       });
       assertAutomationExecutionActive(executionSignal);
-      const promptSnapshot = await loadPiSessionSystemPromptSnapshot({
+      let promptSnapshot = await loadPiSessionSystemPromptSnapshot({
         sessionId: piSessionId,
         userId: automationUserId,
         agentId: job.agentId,
       });
+      if (requiresCapabilityPackageBoundPrompt(executionContext, promptSnapshot.systemPrompt)) {
+        promptSnapshot = await createPiSystemPromptSnapshot(job.agentId, { userId: automationUserId,
+          organizationId: executionContext.organizationId, workspaceId: executionContext.workspaceId,
+          projectId: executionContext.projectId }, { executionContext });
+      }
       assertAutomationExecutionActive(executionSignal);
       const automationBrandContext = await getWorkspaceBrandPromptBlock(automationWorkspace.workspaceId);
       const baseSystemPrompt = appendWorkspaceBrandPromptBlock(

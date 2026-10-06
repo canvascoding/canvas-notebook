@@ -6,17 +6,18 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import JSZip from 'jszip';
+import { createPiTestDatabase } from './helpers/pi-test-database';
+
+let fixtureDatabase: Awaited<ReturnType<typeof createPiTestDatabase>> | undefined;
 
 const moduleInternals = Module as typeof Module & {
   _load: (request: string, parent: NodeModule | null, isMain: boolean) => unknown;
 };
 const originalLoad = moduleInternals._load;
 moduleInternals._load = (request, parent, isMain) => {
+  if (fixtureDatabase && (request === '@/app/lib/db' || /\/app\/lib\/db(?:\/index)?(?:\.ts)?$/u.test(request))) return fixtureDatabase;
   if (request === 'server-only') {
     return {};
-  }
-  if (request === '@/app/lib/organization/permissions') {
-    return { readOrganizationPermissionForUser: async () => ({ organizationId: null, permission: null }) };
   }
   // Native dynamic imports may omit the parent and use an absolute filename.
   // Mock only these two provider boundaries; readiness and plugin lifecycle stay real.
@@ -198,7 +199,15 @@ async function main() {
   const pluginRoot = await createTestPluginPackage();
   const seedRefPluginRoot = await createSeedRefPluginPackage();
   let storeRoot: string | null = null;
+  const envKeys = ['CANVAS_DATA_ROOT', 'CANVAS_PLUGIN_STORE_REGISTRY_URL', 'BASE_URL', 'BETTER_AUTH_BASE_URL'] as const;
+  const previousEnv = Object.fromEntries(envKeys.map(key => [key, process.env[key]]));
   process.env.CANVAS_DATA_ROOT = dataRoot;
+  process.env.BASE_URL = 'http://127.0.0.1:3000';
+  process.env.BETTER_AUTH_BASE_URL = 'http://127.0.0.1:3000';
+  fixtureDatabase = await createPiTestDatabase();
+  const raw = await fixtureDatabase.openDb();
+  for (const id of ['test-user', 'plugin-user-a', 'plugin-user-b']) await raw.run(
+    'INSERT INTO "user" (id,name,email,email_verified,role,banned,created_at,updated_at) VALUES ($1,$1,$2,1,\'user\',0,1000,1000)', [id, `${id}@plugin-runtime.example.test`]);
 
   try {
     const { DEFAULT_PI_CONFIG } = await import('../app/lib/pi/config');
@@ -286,7 +295,7 @@ This skill lives in the legacy global skills directory.
     let skills = await loadSkillsFromDisk();
     assert.equal(skills.some((skill) => skill.name === 'test-plugin-skill' && !skill.plugin), true);
 
-    const pluginRuntimeContext = await buildReferencedPluginRuntimeContext('Use /test-plugin for this workflow.');
+    const pluginRuntimeContext = await buildReferencedPluginRuntimeContext('Use /test-plugin for this workflow.', undefined, { actor: { userId: 'test-user' } });
     assert.match(pluginRuntimeContext || '', /Referenced Canvas Plugins/);
     assert.match(pluginRuntimeContext || '', /test-plugin-skill/);
 
@@ -325,7 +334,7 @@ This skill lives in the legacy global skills directory.
     storeRoot = path.dirname(registryPath);
     process.env.CANVAS_PLUGIN_STORE_REGISTRY_URL = pathToFileURL(registryPath).toString();
 
-    let store = await listCanvasPluginStore();
+    let store = await listCanvasPluginStore({ actor: { userId: 'test-user' } });
     assert.equal(store.plugins.length, 1);
     assert.equal(store.plugins[0].name, 'test-plugin');
     assert.equal(store.plugins[0].installed.installed, false);
@@ -348,7 +357,7 @@ This skill lives in the legacy global skills directory.
     assert.equal(storeInstall.plugin?.skills[0].materialized, true);
     assert.equal(storeInstall.plugin?.skills[0].preexistingStandalone, false);
 
-    store = await listCanvasPluginStore();
+    store = await listCanvasPluginStore({ actor: { userId: 'test-user' } });
     assert.equal(store.plugins[0].installed.installed, true);
     assert.equal(store.plugins[0].installed.version, '1.0.0');
     assert.equal(store.plugins[0].installed.skillSummary.total, 1);
@@ -357,7 +366,7 @@ This skill lives in the legacy global skills directory.
     await fs.rm(path.join(dataRoot, 'skills', 'test-plugin-skill'), { recursive: true, force: true });
     await removeCanvasSkillRegistryRecord('test-plugin-skill');
 
-    store = await listCanvasPluginStore();
+    store = await listCanvasPluginStore({ actor: { userId: 'test-user' } });
     assert.equal(store.plugins[0].installed.skillSummary.missing, 1);
     assert.equal(store.plugins[0].installed.skillSummary.repairable, 1);
 
@@ -373,7 +382,7 @@ This skill lives in the legacy global skills directory.
       true,
     );
 
-    store = await listCanvasPluginStore();
+    store = await listCanvasPluginStore({ actor: { userId: 'test-user' } });
     assert.equal(store.plugins[0].installed.skillSummary.missing, 0);
     assert.equal(store.plugins[0].installed.skillSummary.repairable, 0);
 
@@ -436,6 +445,8 @@ This skill lives in the legacy global skills directory.
     console.log('canvas plugin runtime test passed');
   } finally {
     moduleInternals._load = originalLoad;
+    await fixtureDatabase.close(); fixtureDatabase = undefined;
+    for (const key of envKeys) { if (previousEnv[key] === undefined) delete process.env[key]; else process.env[key] = previousEnv[key]; }
     await fs.rm(dataRoot, { recursive: true, force: true });
     await fs.rm(pluginRoot, { recursive: true, force: true });
     await fs.rm(seedRefPluginRoot, { recursive: true, force: true });

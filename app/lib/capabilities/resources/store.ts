@@ -21,6 +21,9 @@ import {
 } from './contracts';
 
 import { authority, validateTarget, lockOwnership, lockCapabilityScopeWorkspaceAuthority, matchesCapabilityScopeGrant, listCapabilityScopeTargetsOnConnection, type Authority } from '../scope-authority';
+import { projectCapabilityPluginChildAccess } from './child-access';
+import { CapabilityPackageError, type AuthorizedCapabilityPackageResource, type CapabilityPackageExpectedResourceRevisions,
+  type CapabilityPackageOperation } from '../packages/contracts';
 
 const NO_ACCESS: CapabilityResourceAccess = { canRead: false, canUse: false, canEdit: false, canManage: false };
 const OWN_ACCESS: CapabilityResourceAccess = { canRead: true, canUse: true, canEdit: true, canManage: true };
@@ -399,4 +402,141 @@ export async function listCapabilityResourceGrantTargets(actorInput: CapabilityR
     if (!organizationId) return { users: [], workspaces: [], projects: [] };
     return listCapabilityScopeTargetsOnConnection(database, organizationId, actor.userId);
   });
+}
+
+type PackageAuthorityRegistry = { issued: WeakSet<object>; held: WeakMap<object, SqlConnection> };
+const packageAuthorityKey = Symbol.for('canvas.capability.package-authority.v1');
+const packageAuthorityGlobal = globalThis as typeof globalThis & { [packageAuthorityKey]?: PackageAuthorityRegistry };
+const packageAuthority = packageAuthorityGlobal[packageAuthorityKey] ??= { issued: new WeakSet(), held: new WeakMap() };
+
+export function isAuthorizedCapabilityPackageResource(value: unknown): value is AuthorizedCapabilityPackageResource {
+  return Boolean(value && typeof value === 'object' && packageAuthority.issued.has(value));
+}
+
+/** A receipt is valid for publication only while its issuing SQL transaction remains held. */
+export function isHeldCapabilityPackageResource(value: unknown, database: SqlConnection): value is AuthorizedCapabilityPackageResource {
+  return isAuthorizedCapabilityPackageResource(value) && packageAuthority.held.get(value) === database;
+}
+
+export type CapabilityPackageAuthorizationOptions = { parentStorage?: CapabilityResourceStorageBinding; database?: SqlConnection };
+
+/** Uses the existing resource authority on the same connection; no second permission service is opened. */
+export async function withAuthorizedCapabilityPackageResource<T>(
+  actorInput: CapabilityResourceActor,
+  storageInput: CapabilityResourceStorageBinding,
+  operation: CapabilityPackageOperation,
+  expected: CapabilityPackageExpectedResourceRevisions | undefined,
+  callback: (authorization: AuthorizedCapabilityPackageResource, database: SqlConnection) => Promise<T>,
+  options: CapabilityPackageAuthorizationOptions = {},
+): Promise<T> {
+  const actor = actorSnapshot(actorInput), storage = storageSnapshot(storageInput);
+  if (!['read', 'use', 'edit', 'publish'].includes(operation)) throw new CapabilityPackageError('PACKAGE_REQUEST_INVALID', 'The package operation is invalid.');
+  const parentStorage = options.parentStorage ? storageSnapshot(options.parentStorage) : null;
+  if (storage.resourceType === 'skill' && storage.sourceType === 'plugin') {
+    if (!parentStorage || parentStorage.resourceType !== 'plugin' || parentStorage.resourceId !== storage.sourcePluginId
+      || parentStorage.scopeType !== storage.scopeType || parentStorage.ownerUserId !== storage.ownerUserId
+      || parentStorage.organizationId !== storage.organizationId) {
+      throw new CapabilityPackageError('PACKAGE_ACCESS_DENIED', 'The source plugin binding is required.', 403);
+    }
+  } else if (parentStorage) throw new CapabilityPackageError('PACKAGE_REQUEST_INVALID', 'This package has no source plugin.');
+  if (expected && (!Number.isSafeInteger(expected.expectedMetadataRevision) || expected.expectedMetadataRevision < 0
+    || !Number.isSafeInteger(expected.expectedGrantsRevision) || expected.expectedGrantsRevision < 0)) {
+    throw new CapabilityPackageError('PACKAGE_REQUEST_INVALID', 'Both resource revisions are required.');
+  }
+  const execute = async (database: SqlConnection): Promise<T> => {
+    // Canonical organization/user authority precedes resource locks, as in the shared connection store.
+    let auth = await authority(database, actor, true);
+    for (const resourceId of [...new Set([storage.resourceId,...(parentStorage ? [parentStorage.resourceId] : [])])].sort()) {
+      await database.get('SELECT pg_advisory_xact_lock(hashtextextended($1,0))', [`capability-resource:${resourceId}`]);
+    }
+    const parent = parentStorage ? await findStorage(database, parentStorage, true)
+      ?? { metadata: baseline(parentStorage), storage: parentStorage } : null;
+    const entry = await findStorage(database, storage, true) ?? { metadata: baseline(storage), storage };
+    const governed = parent ?? entry;
+    await lockActorWorkspaceAuthority(database, auth, governed.metadata.ownership, governed.metadata.metadataRevision ? governed.metadata.resourceRef : undefined);
+    await lockOwnership(database, governed.metadata.ownership, auth);
+    auth = await authority(database, actor, true);
+    const ownAccess = await accessOnConnection(database, actor, entry, auth);
+    const projected = parent ? projectCapabilityPluginChildAccess({ metadata: entry.metadata, access: ownAccess },
+      { metadata: parent.metadata, access: await accessOnConnection(database, actor, parent, auth) }) : { metadata: entry.metadata, access: ownAccess };
+    const allowed = operation === 'read' ? projected.access.canRead : operation === 'use' ? projected.access.canUse : projected.access.canEdit;
+    if (!allowed) throw new CapabilityPackageError(readOnly(storage) && ['edit', 'publish'].includes(operation) ? 'PACKAGE_READ_ONLY' : 'PACKAGE_ACCESS_DENIED', 'The package operation is not permitted.', 403);
+    if (expected && (projected.metadata.metadataRevision !== expected.expectedMetadataRevision
+      || projected.metadata.grantsRevision !== expected.expectedGrantsRevision)) {
+      throw new CapabilityPackageError('PACKAGE_REVISION_CONFLICT', 'Package metadata or grants changed. Reload before editing.', 409);
+    }
+    const receipt: AuthorizedCapabilityPackageResource = { actor: Object.freeze({ ...actor }),
+      record: Object.freeze({ metadata: Object.freeze({ ...projected.metadata, ownership: Object.freeze({ ...projected.metadata.ownership }) }), storage: Object.freeze({ ...storage }) }),
+      access: Object.freeze({ ...projected.access }), operation };
+    Object.freeze(receipt); packageAuthority.issued.add(receipt); packageAuthority.held.set(receipt, database);
+    try { return await callback(receipt, database); } finally { packageAuthority.held.delete(receipt); }
+  };
+  return options.database ? execute(options.database) : connection(execute, true);
+}
+
+export async function authorizeCapabilityPackageResource(
+  actor: CapabilityResourceActor, storage: CapabilityResourceStorageBinding, operation: CapabilityPackageOperation,
+  options: CapabilityPackageAuthorizationOptions & { expectedRevisions?: CapabilityPackageExpectedResourceRevisions } = {},
+): Promise<AuthorizedCapabilityPackageResource> {
+  return withAuthorizedCapabilityPackageResource(actor, storage, operation, options.expectedRevisions, async authorization => authorization, options);
+}
+
+/** A new copy requires actual target management; it creates no visible resource until publication. */
+export async function withAuthorizedCapabilityPackageTarget<T>(
+  actorInput: CapabilityResourceActor, storageInput: CapabilityResourceStorageBinding,
+  ownershipInput: Exclude<CapabilityResourceOwnerScope, { type: 'system' }>,
+  callback: (authorization: AuthorizedCapabilityPackageResource, database: SqlConnection) => Promise<T>,
+  options: {database?:SqlConnection} = {},
+): Promise<T> {
+  const actor = actorSnapshot(actorInput), storage = storageSnapshot(storageInput), ownership = ownershipSnapshot(ownershipInput);
+  if (readOnly(storage) || storage.sourceType !== 'standalone' || ownership.type === 'system'
+    || (storage.scopeType === 'user' ? ownership.type !== 'user' || ownership.ownerUserId !== storage.ownerUserId || ownership.ownerUserId !== actor.userId
+      : !['organization', 'team'].includes(ownership.type) || orgOf(ownership) !== storage.organizationId)) {
+    throw new CapabilityPackageError('PACKAGE_ACCESS_DENIED', 'The target ownership is not permitted.', 403);
+  }
+  const execute = async (database:SqlConnection):Promise<T> => {
+    let auth = await authority(database, actor, true);
+    await database.get('SELECT pg_advisory_xact_lock(hashtextextended($1,0))', [`capability-resource:${storage.resourceId}`]);
+    if (await findStorage(database, storage, true)) throw new CapabilityPackageError('PACKAGE_NAMESPACE_CONFLICT', 'The target resource already exists.', 409);
+    await lockActorWorkspaceAuthority(database, auth, ownership);
+    await lockOwnership(database, ownership, auth);
+    auth = await authority(database, actor, true);
+    const entry: CapabilityResourceRecord = { metadata: { ...baseline(storage), ownership, accessMode: 'restricted' }, storage };
+    const access = await accessOnConnection(database, actor, entry, auth);
+    if (!access.canManage) throw new CapabilityPackageError('PACKAGE_ACCESS_DENIED', 'Target management permission is required.', 403);
+    const receipt: AuthorizedCapabilityPackageResource = Object.freeze({ actor: Object.freeze({ ...actor }),
+      record: Object.freeze({ metadata: Object.freeze({ ...entry.metadata, ownership: Object.freeze({ ...ownership }) }), storage: Object.freeze({ ...storage }) }),
+      access: Object.freeze({ ...access }), operation: 'publish' });
+    packageAuthority.issued.add(receipt); packageAuthority.held.set(receipt, database);
+    try { return await callback(receipt, database); } finally { packageAuthority.held.delete(receipt); }
+  };
+  return options.database ? execute(options.database) : connection(execute,true);
+}
+
+export async function authorizeCapabilityPackageTarget(
+  actor: CapabilityResourceActor, storage: CapabilityResourceStorageBinding, ownership: Exclude<CapabilityResourceOwnerScope, { type: 'system' }>,
+): Promise<AuthorizedCapabilityPackageResource> {
+  return withAuthorizedCapabilityPackageTarget(actor, storage, ownership, async authorization => authorization);
+}
+
+/** Internal publication primitive. Its receipt and connection must come from the same held transaction. */
+export async function createCapabilityPackageTargetOnConnection(
+  authorization: AuthorizedCapabilityPackageResource, resourceRef: string, database: SqlConnection,
+): Promise<CapabilityResourceRecord> {
+  if (!isHeldCapabilityPackageResource(authorization, database) || !authorization.access.canManage
+    || authorization.record.metadata.metadataRevision !== 0 || !/^canvas-resource:[0-9a-f-]{36}$/u.test(resourceRef)) {
+    throw new CapabilityPackageError('PACKAGE_ACCESS_DENIED', 'The target publication is not authorized.', 403);
+  }
+  const { storage, metadata } = authorization.record, ownership = metadata.ownership;
+  if (await findStorage(database, storage, true)) throw new CapabilityPackageError('PACKAGE_NAMESPACE_CONFLICT', 'The target resource already exists.', 409);
+  const now = Date.now();
+  await database.run(`INSERT INTO capability_resources (resource_ref,storage_binding_key,legacy_resource_id,resource_type,source_type,source_plugin_id,artifact_name,
+    storage_scope_type,storage_organization_id,storage_owner_user_id,ownership_type,organization_id,owner_user_id,team_workspace_id,
+    display_name,description,responsible_user_id,created_by_user_id,updated_by_user_id,metadata_revision,grants_revision,access_mode,status,created_at,updated_at)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,NULL,NULL,NULL,$15,$15,1,1,'restricted','active',$16,$16)`,
+  [resourceRef, storageKey(storage), storage.resourceId, storage.resourceType, storage.sourceType, storage.sourcePluginId, storage.name,
+    storage.scopeType, storage.organizationId, storage.ownerUserId, ownership.type, orgOf(ownership), ownership.type === 'user' ? ownership.ownerUserId : null,
+    ownership.type === 'team' ? ownership.workspaceId : null, authorization.actor.userId, now]);
+  await history(database, resourceRef, authorization.actor, 'adopt', 1, 1, now);
+  return (await findOnConnection(database, resourceRef))!;
 }

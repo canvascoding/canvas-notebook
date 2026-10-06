@@ -40,6 +40,7 @@ import { DISABLED_ALL_SKILLS_SENTINEL, enableSkillInConfig, resolveEnabledSkillN
 import { adoptLegacyStandaloneSkillsForScope } from '@/app/lib/skills/legacy-skill-adoption';
 import { readEnabledSkillsForScope, writeEnabledSkillsForScope } from '@/app/lib/skills/skill-settings';
 import { assertPersonalSkillActivationAllowed, PersonalSkillActivationError, readProtectedPersonalSkillNamespace } from '@/app/lib/skills/personal-skill-activation';
+import { withCapabilityPackageRegistryLock } from '@/app/lib/capabilities/packages/artifacts';
 
 export const DEFAULT_CANVAS_SKILL_STORE_REGISTRY_URL =
   'https://raw.githubusercontent.com/canvascoding/canvas-notebook-plugin-marketplace/main/registry.json';
@@ -92,6 +93,10 @@ export interface CanvasSkillStoreRegistry {
 }
 
 export interface CanvasSkillInstallRecord {
+  packageDefaultEnabled?: boolean;
+  packageManaged?: boolean;
+  packageResourceRef?: string;
+  publishedRevisionRef?: string;
   resourceId?: string;
   scopeType?: DataStorageScopeType;
   organizationId?: string | null;
@@ -522,16 +527,24 @@ export async function writeCanvasSkillRegistry(
   registry: CanvasSkillRegistry,
   scope?: CanvasSkillStoreScope | null,
 ): Promise<void> {
-  await ensureSkillRoot(scope);
-  const registryPath = resolveScopedSkillRegistryPath(scope);
-  const tmpPath = createAtomicTempPath(registryPath);
-  const nextRegistry: CanvasSkillRegistry = {
-    ...registry,
-    version: 1,
-    updatedAt: nowIso(),
-  };
-  await fs.writeFile(tmpPath, `${JSON.stringify(nextRegistry, null, 2)}\n`, 'utf-8');
-  await fs.rename(tmpPath, registryPath);
+  return withCapabilityPackageRegistryLock('skill', scope, async () => {
+    await ensureSkillRoot(scope);
+    const registryPath = resolveScopedSkillRegistryPath(scope);
+    const previous = await fs.readFile(registryPath, 'utf8').then(raw => JSON.parse(raw) as CanvasSkillRegistry).catch(error => {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return createEmptySkillRegistry();
+      throw error;
+    });
+    const { assertCapabilityPackageRegistryWriteAllowed } = await import('@/app/lib/capabilities/packages/artifacts');
+    await assertCapabilityPackageRegistryWriteAllowed('skill', previous.skills, registry.skills, scope);
+    const tmpPath = createAtomicTempPath(registryPath);
+    const nextRegistry: CanvasSkillRegistry = {
+      ...registry,
+      version: 1,
+      updatedAt: nowIso(),
+    };
+    await fs.writeFile(tmpPath, `${JSON.stringify(nextRegistry, null, 2)}\n`, 'utf-8');
+    await fs.rename(tmpPath, registryPath);
+  });
 }
 
 export async function removeCanvasSkillRegistryRecord(
@@ -550,20 +563,28 @@ export async function resetCanvasSkillsDirectory(
   updatedBy = 'unknown',
   scope?: CanvasSkillStoreScope | null,
 ): Promise<CanvasSkillsResetResult> {
-  const skillsDir = resolveScopedSkillsDataDir(scope);
-  const deletedAt = nowIso();
+  return withCapabilityPackageRegistryLock('skill', scope, async () => {
+    const skillsDir = resolveScopedSkillsDataDir(scope);
+    const deletedAt = nowIso();
+    const registry = await readCanvasSkillRegistry(scope);
+    const { assertLegacyCapabilityPackageMutationAllowed } = await import('@/app/lib/capabilities/packages/artifacts');
+    for (const record of Object.values(registry.skills)) await assertLegacyCapabilityPackageMutationAllowed('skill', record.name, scope, record);
 
-  await fs.rm(skillsDir, { recursive: true, force: true });
-  await fs.mkdir(skillsDir, { recursive: true });
-  await writeCanvasSkillRegistry(createEmptySkillRegistry(), scope);
+    await fs.mkdir(skillsDir, { recursive: true });
+    const lockFile = path.basename(`${resolveScopedSkillRegistryPath(scope)}.lock`);
+    for (const entry of await fs.readdir(skillsDir)) {
+      if (entry !== lockFile) await fs.rm(requirePathInside(skillsDir, entry), { recursive: true, force: true });
+    }
+    await writeCanvasSkillRegistry(createEmptySkillRegistry(), scope);
 
-  await writeEnabledSkillsForScope([DISABLED_ALL_SKILLS_SENTINEL], { scope, updatedBy });
+    await writeEnabledSkillsForScope([DISABLED_ALL_SKILLS_SENTINEL], { scope, updatedBy });
 
-  return {
-    success: true,
-    skillsDir,
-    deletedAt,
-  };
+    return {
+      success: true,
+      skillsDir,
+      deletedAt,
+    };
+  });
 }
 
 async function listStandaloneSkillSummaries(
@@ -970,61 +991,68 @@ export async function installCanvasSkillFromStore(
     return { success: false, error: 'Invalid skill version' };
   }
 
-  let tempRoot: string | null = null;
-  try {
-    if (options.enable !== false) {
-      await assertPersonalSkillActivationAllowed(skillName, options.scope);
-    }
-    await adoptLegacyStandaloneSkillsForScope(options.scope);
+  return withCapabilityPackageRegistryLock('skill', options.scope, async () => {
+    let tempRoot: string | null = null;
+    try {
+      if (options.enable !== false) {
+        await assertPersonalSkillActivationAllowed(skillName, options.scope);
+      }
+      await adoptLegacyStandaloneSkillsForScope(options.scope);
+      const existing = (await readCanvasSkillRegistry(options.scope)).skills[skillName];
+      const { assertLegacyCapabilityPackageMutationAllowed } = await import('@/app/lib/capabilities/packages/artifacts');
+      await assertLegacyCapabilityPackageMutationAllowed('skill', skillName, options.scope, existing);
 
-    const registry = await readCanvasSkillStoreRegistry();
-    const storeSkill = registry.skills.find((skill) => skill.name === skillName);
-    if (!storeSkill) {
-      return { success: false, error: `Skill "${skillName}" not found in the Canvas Skill Library.` };
-    }
-    const selectedVersion = version || storeSkill.latestVersion;
-    const storeVersion = storeSkill.versions[selectedVersion];
-    if (!storeVersion) {
-      return { success: false, error: `Version ${selectedVersion} is not available for skill "${skillName}".`, storeSkill };
-    }
+      const registry = await readCanvasSkillStoreRegistry();
+      const storeSkill = registry.skills.find((skill) => skill.name === skillName);
+      if (!storeSkill) {
+        return { success: false, error: `Skill "${skillName}" not found in the Canvas Skill Library.` };
+      }
+      const selectedVersion = version || storeSkill.latestVersion;
+      const storeVersion = storeSkill.versions[selectedVersion];
+      if (!storeVersion) {
+        return { success: false, error: `Version ${selectedVersion} is not available for skill "${skillName}".`, storeSkill };
+      }
 
-    await ensureStandaloneSkillInstallAllowed(skillName, options.replace ?? true, options.scope);
-    const archiveBytes = await readUrlBytes(storeVersion.downloadUrl);
-    const extracted = await extractPackageFromArchive(archiveBytes, storeVersion.packagePath);
-    tempRoot = extracted.tempRoot;
-    await verifyPackageChecksum(extracted.packageRoot, storeVersion.checksum);
-    await validateSkillPackage(extracted.packageRoot, skillName);
-    const backupPath = await backupExistingSkill(skillName, options.scope);
-    const installDir = await copySkillPackage(extracted.packageRoot, skillName, selectedVersion, options.scope);
-    const record = await writeInstalledSkillRecord(
-      skillName,
-      selectedVersion,
-      'store',
-      storeVersion.downloadUrl,
-      { id: registry.id, url: registry.registryUrl },
-      installDir,
-      options.scope,
-    );
+      await ensureStandaloneSkillInstallAllowed(skillName, options.replace ?? true, options.scope);
+      const archiveBytes = await readUrlBytes(storeVersion.downloadUrl);
+      const extracted = await extractPackageFromArchive(archiveBytes, storeVersion.packagePath);
+      tempRoot = extracted.tempRoot;
+      await verifyPackageChecksum(extracted.packageRoot, storeVersion.checksum);
+      await validateSkillPackage(extracted.packageRoot, skillName);
+      const backupPath = await backupExistingSkill(skillName, options.scope);
+      const installDir = await copySkillPackage(extracted.packageRoot, skillName, selectedVersion, options.scope);
+      const record = await writeInstalledSkillRecord(
+        skillName,
+        selectedVersion,
+        'store',
+        storeVersion.downloadUrl,
+        { id: registry.id, url: registry.registryUrl },
+        installDir,
+        options.scope,
+      );
 
-    if (options.enable !== false) {
-      await enableInstalledSkill(skillName, options.scope, options.updatedBy).catch((error) => {
-        if (error instanceof PersonalSkillActivationError) throw error;
-        console.warn('[CanvasSkillStore] Failed to auto-enable skill:', error);
-      });
-    }
+      if (options.enable !== false) {
+        await enableInstalledSkill(skillName, options.scope, options.updatedBy).catch((error) => {
+          if (error instanceof PersonalSkillActivationError) throw error;
+          console.warn('[CanvasSkillStore] Failed to auto-enable skill:', error);
+        });
+      }
 
-    return { success: true, skill: record, storeSkill, storeVersion, backupPath };
-  } catch (error) {
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : 'Failed to install skill from store',
-      ...(error instanceof PersonalSkillActivationError ? { code: error.code, statusCode: error.statusCode } : {}),
-    };
-  } finally {
-    if (tempRoot) {
-      await fs.rm(tempRoot, { recursive: true, force: true }).catch(() => undefined);
+      return { success: true, skill: record, storeSkill, storeVersion, backupPath };
+    } catch (error) {
+      const { isCapabilityPackageError } = await import('@/app/lib/capabilities/packages/contracts');
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to install skill from store',
+        ...(isCapabilityPackageError(error) ? { code: error.code, statusCode: error.status } : {}),
+        ...(error instanceof PersonalSkillActivationError ? { code: error.code, statusCode: error.statusCode } : {}),
+      };
+    } finally {
+      if (tempRoot) {
+        await fs.rm(tempRoot, { recursive: true, force: true }).catch(() => undefined);
+      }
     }
-  }
+  });
 }
 
 async function restoreSeedSkill(
@@ -1043,43 +1071,50 @@ async function restoreSeedSkill(
     return { success: false, error: `No seed skill named "${skillName}" is available.` };
   }
 
-  try {
-    if (options.enable !== false) {
-      await assertPersonalSkillActivationAllowed(skillName, options.scope);
+  return withCapabilityPackageRegistryLock('skill', options.scope, async () => {
+    try {
+      if (options.enable !== false) {
+        await assertPersonalSkillActivationAllowed(skillName, options.scope);
+      }
+      await adoptLegacyStandaloneSkillsForScope(options.scope);
+      const existing = (await readCanvasSkillRegistry(options.scope)).skills[skillName];
+      const { assertLegacyCapabilityPackageMutationAllowed } = await import('@/app/lib/capabilities/packages/artifacts');
+      await assertLegacyCapabilityPackageMutationAllowed('skill', skillName, options.scope, existing);
+
+      await ensureStandaloneSkillInstallAllowed(skillName, options.replace ?? true, options.scope);
+      await validateSkillPackage(seedRoot, skillName);
+      const backupPath = await backupExistingSkill(skillName, options.scope);
+      const sourceSkill = await validateSkillPackage(seedRoot, skillName);
+      const installDir = await copySkillPackage(seedRoot, skillName, sourceSkill.version || 'seed', options.scope);
+      const skill = await validateSkillPackage(installDir, skillName);
+      const record = await writeInstalledSkillRecord(
+        skillName,
+        skill.version || 'seed',
+        'seed',
+        seedRoot,
+        undefined,
+        installDir,
+        options.scope,
+      );
+
+      if (options.enable !== false) {
+        await enableInstalledSkill(skillName, options.scope, options.updatedBy).catch((error) => {
+          if (error instanceof PersonalSkillActivationError) throw error;
+          console.warn('[CanvasSkillStore] Failed to auto-enable restored seed skill:', error);
+        });
+      }
+
+      return { success: true, skill: record, backupPath };
+    } catch (error) {
+      const { isCapabilityPackageError } = await import('@/app/lib/capabilities/packages/contracts');
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to restore seed skill',
+        ...(isCapabilityPackageError(error) ? { code: error.code, statusCode: error.status } : {}),
+        ...(error instanceof PersonalSkillActivationError ? { code: error.code, statusCode: error.statusCode } : {}),
+      };
     }
-    await adoptLegacyStandaloneSkillsForScope(options.scope);
-
-    await ensureStandaloneSkillInstallAllowed(skillName, options.replace ?? true, options.scope);
-    await validateSkillPackage(seedRoot, skillName);
-    const backupPath = await backupExistingSkill(skillName, options.scope);
-    const sourceSkill = await validateSkillPackage(seedRoot, skillName);
-    const installDir = await copySkillPackage(seedRoot, skillName, sourceSkill.version || 'seed', options.scope);
-    const skill = await validateSkillPackage(installDir, skillName);
-    const record = await writeInstalledSkillRecord(
-      skillName,
-      skill.version || 'seed',
-      'seed',
-      seedRoot,
-      undefined,
-      installDir,
-      options.scope,
-    );
-
-    if (options.enable !== false) {
-      await enableInstalledSkill(skillName, options.scope, options.updatedBy).catch((error) => {
-        if (error instanceof PersonalSkillActivationError) throw error;
-        console.warn('[CanvasSkillStore] Failed to auto-enable restored seed skill:', error);
-      });
-    }
-
-    return { success: true, skill: record, backupPath };
-  } catch (error) {
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : 'Failed to restore seed skill',
-      ...(error instanceof PersonalSkillActivationError ? { code: error.code, statusCode: error.statusCode } : {}),
-    };
-  }
+  });
 }
 
 export async function restoreCanvasSkill(

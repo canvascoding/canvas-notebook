@@ -104,7 +104,7 @@ function getToolGroup(toolName: string): PiToolGroup {
   if (toolName === 'transcribe_audio') return 'Audio';
   if (['create_pdf', 'pdf_to_markdown', 'split_pdf', 'edit_pdf_pages', 'checkout_docx', 'commit_docx', 'inspect_docx_checkout', 'release_docx_checkout'].includes(toolName)) return 'Documents';
   if (toolName === 'email' || toolName.startsWith('email_')) return 'Email';
-  if (toolName === 'canvas_extensions' || toolName.includes('canvas_skill') || toolName.includes('canvas_plugin') || toolName.includes('canvas_resource')) return 'Skills';
+  if (toolName === 'canvas_extensions' || toolName.includes('canvas_skill') || toolName.includes('canvas_plugin') || toolName.includes('canvas_resource') || toolName.includes('canvas_package')) return 'Skills';
   if (toolName === 'automation_manage' || toolName.includes('automation_job')) return 'Automation';
   if (toolName.startsWith('web_')) return 'Web';
   if (toolName.includes('human_todo')) return 'Todo';
@@ -203,6 +203,9 @@ function getToolNotes(tool: AgentTool, group: PiToolGroup): string[] {
     if (tool.name.includes('canvas_resource')) {
       notes.push('Inspects or configures installed plugin/skill resource metadata and sharing through the same fresh permission and revision actions as the UI/API.');
       notes.push('Resource use, edit and manage rights are independent. Changing metadata or grants does not reconnect, promote or edit package contents.');
+    } else if (tool.name.includes('canvas_package') || tool.name === 'canvas_extensions') {
+      notes.push('Reads or edits complete personal, team and organization packages through the same actor-bound, current permission and revision actions as the UI/API. Drafts are private to their creator and published bytes are immutable.');
+      notes.push('Edit, use and manage rights are independent. Publishing an existing package requires current edit rights; a new variant additionally requires target management and copies no accounts or grants.');
     } else {
       notes.push('Can inspect, create, install, update, or discard personal Canvas skills through validated package workflows.');
       notes.push('Requires plugin and skill sharing permission. Skill package contents are validated before installation and are not logged in audit metadata.');

@@ -11,6 +11,7 @@ import { resolveCapabilityExecutionContextForUser } from '@/app/lib/capabilities
 import { readOrganizationPermissionForUser } from '@/app/lib/organization/permissions';
 import { resolveAgentSessionWorkspaceForUser } from '@/app/lib/pi/session-workspace-context';
 import { getEffectiveSkillReadRoots } from './effective-skill-read-roots';
+import { revalidateCapabilityPackageRuntimeBindings } from '@/app/lib/capabilities/packages/runtime-bindings';
 
 /** Revalidate server-issued roots without discovering providers or granting new paths. */
 export async function resolveFreshAgentSkillReadRoots(executionContext: AgentExecutionContext): Promise<string[]> {
@@ -43,7 +44,11 @@ export async function resolveFreshAgentSkillReadRoots(executionContext: AgentExe
     candidates: executionCandidates, policies });
   const current = new Set(getEffectiveSkillReadRoots({ snapshot, agentId, relevantSkills: profile?.relevantSkills })
     .map(root => path.resolve(root)));
-  return approved.filter(root => current.has(root));
+  const bindings = await revalidateCapabilityPackageRuntimeBindings(captured, snapshot, profile?.relevantSkills);
+  const declaredManagedRoots = new Set((captured.skillPackageBindings ?? []).map(binding => path.dirname(path.resolve(binding.runtimePath))));
+  const managedRoots = new Set(bindings.map(binding => path.dirname(path.resolve(binding.runtimePath))));
+  return approved.filter(root => managedRoots.has(root) || (!declaredManagedRoots.has(root)
+    && !root.split(path.sep).join('/').includes('/capability-packages/published/') && current.has(root)));
 }
 
 /** A shell may retain arbitrary path references, so a revoked captured root closes its launch. */

@@ -8,6 +8,7 @@ import JSZip from 'jszip';
 
 import { computeCanvasPluginChecksum } from '@/app/lib/plugins/canvas-plugin-registry';
 import { createAtomicTempPath } from '@/app/lib/runtime-data-paths';
+import { withCapabilityPackageRegistryLock } from '@/app/lib/capabilities/packages/artifacts';
 import { requirePathInside } from '@/app/lib/security/safe-paths';
 import { adoptLegacyStandaloneSkillsForScope } from '@/app/lib/skills/legacy-skill-adoption';
 import {
@@ -420,7 +421,11 @@ export async function importSkillPackage(
     if (options.enable !== false) {
       await assertPersonalSkillActivationAllowed(skillName, options.scope);
     }
+    return await withCapabilityPackageRegistryLock('skill', options.scope, async () => {
     await adoptLegacyStandaloneSkillsForScope(options.scope);
+    const existing = (await readCanvasSkillRegistry(options.scope)).skills[skillName];
+    const { assertLegacyCapabilityPackageMutationAllowed } = await import('@/app/lib/capabilities/packages/artifacts');
+    await assertLegacyCapabilityPackageMutationAllowed('skill', skillName, options.scope, existing);
     await ensureSkillCanBeInstalled(skillName, options.scope);
     const registryBeforeInstall = await readCanvasSkillRegistry(options.scope);
     const installDir = await copySkillPackage(packageRoot, skillName, options.scope);
@@ -452,6 +457,7 @@ export async function importSkillPackage(
       importedFiles: created.importedFiles,
       sourceKind: source.kind,
     };
+    });
   } finally {
     if (tempRoot) {
       await fs.rm(tempRoot, { recursive: true, force: true }).catch(() => undefined);

@@ -64,7 +64,7 @@
       "Fresh full GitNexus index: staged detection 299 symbols in 63 files; compare-main 1085 symbols in 137 files across completed steps. Expected diff and previously reported HIGH/CRITICAL symbol impacts reviewed; git diff --cached --check PASS",
       "Team remains logical organization storage; resource sharing does not bypass activation policies or share accounts; package editing/promotion/versioning, actual Linux kernel execution acceptance, live provider accounts and complete Plugin-page redesign remain later steps"
     ] },
-    { "id": "4b", "name": "Gemeinsame MCP-Verbindungen und Composio-Profile", "status": "complete", "relatedCommits": { "controlPlane": "a052a627cde3e16efae44e56c9a42303322ba9d5" }, "evidence": [
+    { "id": "4b", "name": "Gemeinsame MCP-Verbindungen und Composio-Profile", "status": "complete", "commits": ["c0d46373b"], "relatedCommits": { "controlPlane": "a052a627cde3e16efae44e56c9a42303322ba9d5" }, "evidence": [
       "Detailed acceptance: evidence/step-4b-shared-connections.md; explicit organization/team ownership, separate use/manage rights, server-issued exact resource/backend proofs, current agent/workspace/grant policy and safe public metadata/account handles",
       "Native PostgreSQL with eight clients and actual PostgreSQL-engine fixtures: PASS for store/API authority, separate revisions, CAS, target validation, revocation during row-lock wait, creator lifecycle and publication repair; owned temporary databases cleaned up",
       "Production-browser PostgreSQL40P01 reproduced RED in an observed native organization/user lock race and fixed GREEN by the shared authority taking organization before user; existing native resource store and actual resource actions/access/entrypoints PASS",
@@ -77,7 +77,20 @@
       "Owned inert key restored with revision/value guard, MCP slot removed, own connections/profile archived and only own teams soft-disabled; audit/archive rows retained, owned Notebook/provider processes stopped, existing PostgreSQL/Control Plane and unrelated data preserved; no container build/publication",
       "Actual live-provider/shared Canva acceptance remains step7; shared MCP Apps and Desktop OAuth explicitly unsupported until6b; skill package/code/workflow/redesign work remains5a-6b; default-off gateway flag unchanged"
     ] },
-    { "id": "5a", "name": "Gemeinsame und versionierte Skill-Pakete", "status": "pending", "evidence": [] },
+    { "id": "5a", "name": "Gemeinsame und versionierte Skill-Pakete", "status": "complete", "evidence": [
+      "Detailed acceptance: evidence/step-5a-versioned-packages.md; complete user/organization/team plugin/skill packages, actor-private revisioned drafts, immutable full snapshots and current independent edit/use/manage authority",
+      "npm run test:capabilities:packages: six IO/store/actions/HTTP/artifact/agent/runtime/cleanup-guard fixtures PASS; actual PostgreSQL-engine schema, canonical actor context, full scripts/binary assets, immutable history, source/fork rights, CAS and seed dependency provenance",
+      "Native PostgreSQL with eight Pool clients: PASS for draft COW/CAS, observed blocked publisher revocation before filesystem staging, registry-to-SQL rollback, immutable head and target namespace uniqueness; owned temporary databases and DATA cleaned up",
+      "Actual agent gateway package operations and runtime: PASS for strict schemas/current actor/session, manager-only default activation without byte/metadata/grant/version changes, held v1 after v2, restricted child reissue, prompt/read-root parity, full-byte tamper and current revocation before file/Bash launch",
+      "npm run test:integrations:gateway, npm run test:plugins:app and focused legacy skill/plugin/Bash/delegation gates PASS; unmarked file-only legacy paths preserved, marked orphan/corrupt packages fail closed",
+      "npm run build, full TypeScript, changed-source ESLint and git diff --check PASS; final UI authority recovery source built and checked again",
+      "Playwright capability-package-management-local.spec.ts: final 4/4 PASS, one worker, no retries, 1.6 minutes against actual production build/managed PostgreSQL/admin+member; full code/assets, stale CAS/read failure/binary replacement, old revision, org/team forks, default activation and automatic edit-only revocation recovery",
+      "Desktop1280/mobile390 light/dark expanded/collapsed editor, reachable Save and no overflow; stable final screenshots visually inspected",
+      "Natural-language MCP and Composio gateway chats with exact binding PASS; planning provider stream initially ended without finish_reason and no tools, targeted admin/planning retry2/2 PASS with zero provider requests; no claim of one full 4/4 run",
+      "Strict receipted own browser cleanup and actual registry locks through confirmed SQL commit/final removal PASS; independent readback confirmed own resource/draft/version/intake counts0, own Notebook/provider stopped, unrelated environments untouched; no container build/publication",
+      "Fresh full GitNexus index: staged562 symbols/73files, compare-main2138 symbols/260files across completed steps; actual diff and expected package/catalog/agent/registry flows reviewed alongside the previously reported HIGH/CRITICAL symbol impacts; git diff --cached --check PASS",
+      "Interim editor and separate default activation only; global own-draft navigation/store/updates remains6a, script execution/egress bridge5b, mandatory workflow bindings5c, Mobile/MCPApps/DesktopOAuth6b and actual live/shared Canva accounts7; default-off flag unchanged; DB-less legacy runtime-config fixture still requires PostgreSQL DATABASE_URL"
+    ] },
     { "id": "5b", "name": "Skill-Code-Laufzeit und begrenzte Tool-Bruecke", "status": "pending", "evidence": [] },
     { "id": "5c", "name": "Workflow-Agenten und verbindliche Capability-Bindungen", "status": "pending", "evidence": [] },
     { "id": "6a", "name": "Plugin-Seite und Store-Redesign", "status": "pending", "evidence": [] },

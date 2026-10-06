@@ -5,6 +5,14 @@ import { type AgentTool } from '@earendil-works/pi-agent-core';
  * Whitelist approach: new tools are blocked by default until explicitly added here.
  */
 export const PLANNING_MODE_ALLOWED_TOOLS = new Set([
+  'inspect_canvas_package',
+  'list_canvas_package_scopes',
+  'inspect_canvas_package_draft',
+  'list_canvas_package_draft_files',
+  'read_canvas_package_draft_file',
+  'list_canvas_package_files',
+  'read_canvas_package_file',
+  'validate_canvas_package_draft',
   'web_search',
   'web_fetch',
   'rg',

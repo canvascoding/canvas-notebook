@@ -8,6 +8,7 @@ import YAML from 'yaml';
 import { computeCanvasPluginChecksum } from '@/app/lib/plugins/canvas-plugin-registry';
 import { isValidCanvasPluginVersion } from '@/app/lib/plugins/canvas-plugin-manifest';
 import { createAtomicTempPath, resolveScopedSkillsDataDir } from '@/app/lib/runtime-data-paths';
+import { withCapabilityPackageRegistryLock } from '@/app/lib/capabilities/packages/artifacts';
 import { requirePathInside } from '@/app/lib/security/safe-paths';
 import {
   CANVAS_SKILL_INTERFACE_PATH,
@@ -840,71 +841,76 @@ export async function updateCanvasSkillFromWorkspace(params: {
   if (params.enable !== false) {
     await assertPersonalSkillActivationAllowed(skillName, scope);
   }
-  await adoptLegacyStandaloneSkillsForScope(scope);
-  const expectedVersion = params.expectedVersion.trim();
-  const expectedChecksum = params.expectedChecksum.trim().replace(/^sha256:/i, '').toLowerCase();
-  if (!expectedVersion) {
-    throw new Error('expectedVersion is required.');
-  }
-  if (!/^[a-f0-9]{64}$/i.test(expectedChecksum)) {
-    throw new Error('expectedChecksum must be a SHA-256 hex digest.');
-  }
+  return withCapabilityPackageRegistryLock('skill', scope, async () => {
+    await adoptLegacyStandaloneSkillsForScope(scope);
+    const current = (await readCanvasSkillRegistry(scope)).skills[skillName];
+    const { assertLegacyCapabilityPackageMutationAllowed } = await import('@/app/lib/capabilities/packages/artifacts');
+    await assertLegacyCapabilityPackageMutationAllowed('skill', skillName, scope, current);
+    const expectedVersion = params.expectedVersion.trim();
+    const expectedChecksum = params.expectedChecksum.trim().replace(/^sha256:/i, '').toLowerCase();
+    if (!expectedVersion) {
+      throw new Error('expectedVersion is required.');
+    }
+    if (!/^[a-f0-9]{64}$/i.test(expectedChecksum)) {
+      throw new Error('expectedChecksum must be a SHA-256 hex digest.');
+    }
 
-  const existing = await getExistingSkillPackage(skillName, params.scope, 'personal');
-  if (!existing.editable) {
-    throw new Error(`Skill "${skillName}" is managed and cannot be updated directly. Create a personal fork with a different name instead.`);
-  }
-  if (existing.version !== expectedVersion) {
-    throw new Error(`Skill version changed since inspection. Expected ${expectedVersion}, found ${existing.version}.`);
-  }
-  if (existing.checksum !== expectedChecksum) {
-    throw new Error('Skill checksum changed since inspection. Inspect the skill again before updating.');
-  }
+    const existing = await getExistingSkillPackage(skillName, params.scope, 'personal');
+    if (!existing.editable) {
+      throw new Error(`Skill "${skillName}" is managed and cannot be updated directly. Create a personal fork with a different name instead.`);
+    }
+    if (existing.version !== expectedVersion) {
+      throw new Error(`Skill version changed since inspection. Expected ${expectedVersion}, found ${existing.version}.`);
+    }
+    if (existing.checksum !== expectedChecksum) {
+      throw new Error('Skill checksum changed since inspection. Inspect the skill again before updating.');
+    }
 
-  const workspacePackage = await resolveWorkspacePackage(params.workspaceRoot, params.draftPath);
-  const nextSkill = await validateWorkspaceSkillPackage(workspacePackage.packageRoot, skillName);
-  const previousRegistry = await readCanvasSkillRegistry(scope);
-  const replacement = await replaceSkillPackageAtomically(workspacePackage.packageRoot, skillName, scope);
-  let record: CanvasSkillInstallRecord;
-  try {
-    record = await writeLocalSkillRecord({
-      skillName,
-      version: nextSkill.version || 'local',
-      description: nextSkill.description,
-      license: nextSkill.license,
-      installDir: replacement.installDir,
-      sourcePath: `workspace:${workspacePackage.displayPath}`,
-      scope,
-    });
-    await replacement.commit();
-  } catch (error) {
-    await replacement.rollback().catch(() => undefined);
-    await writeCanvasSkillRegistry(previousRegistry, scope).catch(() => undefined);
-    throw error;
-  }
+    const workspacePackage = await resolveWorkspacePackage(params.workspaceRoot, params.draftPath);
+    const nextSkill = await validateWorkspaceSkillPackage(workspacePackage.packageRoot, skillName);
+    const previousRegistry = await readCanvasSkillRegistry(scope);
+    const replacement = await replaceSkillPackageAtomically(workspacePackage.packageRoot, skillName, scope);
+    let record: CanvasSkillInstallRecord;
+    try {
+      record = await writeLocalSkillRecord({
+        skillName,
+        version: nextSkill.version || 'local',
+        description: nextSkill.description,
+        license: nextSkill.license,
+        installDir: replacement.installDir,
+        sourcePath: `workspace:${workspacePackage.displayPath}`,
+        scope,
+      });
+      await replacement.commit();
+    } catch (error) {
+      await replacement.rollback().catch(() => undefined);
+      await writeCanvasSkillRegistry(previousRegistry, scope).catch(() => undefined);
+      throw error;
+    }
 
-  if (params.enable !== false) {
-    await enableInstalledSkill(skillName, scope, params.updatedBy).catch((error) => {
-      if (error instanceof PersonalSkillActivationError) throw error;
-      console.warn('[AgentSkillWorkspace] Failed to auto-enable updated skill:', error);
-    });
-  }
+    if (params.enable !== false) {
+      await enableInstalledSkill(skillName, scope, params.updatedBy).catch((error) => {
+        if (error instanceof PersonalSkillActivationError) throw error;
+        console.warn('[AgentSkillWorkspace] Failed to auto-enable updated skill:', error);
+      });
+    }
 
-  const cleanup = await cleanupDraftIfManaged(params.workspaceRoot, workspacePackage.packageRoot, params.cleanupDraft !== false);
-  await refreshPersonalSkillRuntime(scope.userId);
-  return {
-    success: true,
-    name: skillName,
-    path: requirePathInside(replacement.installDir, 'SKILL.md'),
-    previousVersion: existing.version,
-    version: record.version,
-    previousChecksum: existing.checksum,
-    checksum: record.checksum,
-    files: workspacePackage.files.length,
-    draftPath: workspacePackage.displayPath,
-    draftCleaned: cleanup.cleaned,
-    cleanupSkippedReason: cleanup.reason,
-  };
+    const cleanup = await cleanupDraftIfManaged(params.workspaceRoot, workspacePackage.packageRoot, params.cleanupDraft !== false);
+    await refreshPersonalSkillRuntime(scope.userId);
+    return {
+      success: true,
+      name: skillName,
+      path: requirePathInside(replacement.installDir, 'SKILL.md'),
+      previousVersion: existing.version,
+      version: record.version,
+      previousChecksum: existing.checksum,
+      checksum: record.checksum,
+      files: workspacePackage.files.length,
+      draftPath: workspacePackage.displayPath,
+      draftCleaned: cleanup.cleaned,
+      cleanupSkippedReason: cleanup.reason,
+    };
+  });
 }
 
 export async function discardCanvasSkillDraft(params: {

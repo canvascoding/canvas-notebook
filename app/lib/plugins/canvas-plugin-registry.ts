@@ -55,6 +55,9 @@ export interface CanvasPluginSkillRecord {
 }
 
 export interface CanvasPluginInstallRecord {
+  packageManaged?: boolean;
+  packageResourceRef?: string;
+  publishedRevisionRef?: string;
   resourceId?: string;
   scopeType?: DataStorageScopeType;
   sourceType?: 'standalone';
@@ -175,7 +178,8 @@ async function withPluginMutation<T>(
 
   await previous;
   try {
-    return await operation();
+    const { withCapabilityPackageRegistryLock } = await import('@/app/lib/capabilities/packages/artifacts');
+    return await withCapabilityPackageRegistryLock('plugin', scope, () => withCapabilityPackageRegistryLock('skill', scope, operation));
   } finally {
     release();
     void current.finally(() => {
@@ -245,16 +249,25 @@ export async function writeCanvasPluginRegistry(
   registry: CanvasPluginRegistry,
   scope?: CanvasPluginStorageScope | null,
 ): Promise<void> {
-  await ensurePluginsRoot(scope);
-  const registryPath = resolveScopedPluginRegistryPath(scope);
-  const tmpPath = createAtomicTempPath(registryPath);
-  const nextRegistry: CanvasPluginRegistry = {
-    ...registry,
-    version: 1,
-    updatedAt: nowIso(),
-  };
-  await fs.writeFile(tmpPath, `${JSON.stringify(nextRegistry, null, 2)}\n`, 'utf-8');
-  await fs.rename(tmpPath, registryPath);
+  const { withCapabilityPackageRegistryLock } = await import('@/app/lib/capabilities/packages/artifacts');
+  return withCapabilityPackageRegistryLock('plugin', scope, async () => {
+    await ensurePluginsRoot(scope);
+    const registryPath = resolveScopedPluginRegistryPath(scope);
+    const previous = await fs.readFile(registryPath, 'utf8').then(raw => JSON.parse(raw) as CanvasPluginRegistry).catch(error => {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return createEmptyRegistry();
+      throw error;
+    });
+    const { assertCapabilityPackageRegistryWriteAllowed } = await import('@/app/lib/capabilities/packages/artifacts');
+    await assertCapabilityPackageRegistryWriteAllowed('plugin', previous.plugins, registry.plugins, scope);
+    const tmpPath = createAtomicTempPath(registryPath);
+    const nextRegistry: CanvasPluginRegistry = {
+      ...registry,
+      version: 1,
+      updatedAt: nowIso(),
+    };
+    await fs.writeFile(tmpPath, `${JSON.stringify(nextRegistry, null, 2)}\n`, 'utf-8');
+    await fs.rename(tmpPath, registryPath);
+  });
 }
 
 async function readCanvasPluginRegistryForWrite(
@@ -386,15 +399,24 @@ async function writeStandaloneSkillRegistry(
   registry: StandaloneSkillRegistry,
   scope?: CanvasPluginStorageScope | null,
 ): Promise<void> {
-  await fs.mkdir(resolveScopedSkillsDataDir(scope), { recursive: true });
-  const registryPath = resolveScopedSkillRegistryPath(scope);
-  const tmpPath = createAtomicTempPath(registryPath);
-  await fs.writeFile(tmpPath, `${JSON.stringify({
-    ...registry,
-    version: 1,
-    updatedAt: nowIso(),
-  }, null, 2)}\n`, 'utf-8');
-  await fs.rename(tmpPath, registryPath);
+  const { withCapabilityPackageRegistryLock } = await import('@/app/lib/capabilities/packages/artifacts');
+  return withCapabilityPackageRegistryLock('skill', scope, async () => {
+    await fs.mkdir(resolveScopedSkillsDataDir(scope), { recursive: true });
+    const registryPath = resolveScopedSkillRegistryPath(scope);
+    const previous = await fs.readFile(registryPath, 'utf8').then(raw => JSON.parse(raw) as StandaloneSkillRegistry).catch(error => {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return createEmptyStandaloneSkillRegistry();
+      throw error;
+    });
+    const { assertCapabilityPackageRegistryWriteAllowed } = await import('@/app/lib/capabilities/packages/artifacts');
+    await assertCapabilityPackageRegistryWriteAllowed('skill', previous.skills, registry.skills, scope);
+    const tmpPath = createAtomicTempPath(registryPath);
+    await fs.writeFile(tmpPath, `${JSON.stringify({
+      ...registry,
+      version: 1,
+      updatedAt: nowIso(),
+    }, null, 2)}\n`, 'utf-8');
+    await fs.rename(tmpPath, registryPath);
+  });
 }
 
 function resolvePluginInstallDir(
@@ -573,7 +595,7 @@ async function parseReferencedPluginSkills(
   return { skills, records, errors };
 }
 
-async function parsePluginSkillsFromManifest(
+export async function parsePluginSkillsFromManifest(
   manifest: CanvasPluginManifest,
   pluginRoot: string,
   skillsDir?: string,
@@ -727,6 +749,8 @@ async function materializePluginSkills(
     }
 
     const standaloneRecord = standaloneRegistry.skills[skill.name];
+    const { assertLegacyCapabilityPackageMutationAllowed } = await import('@/app/lib/capabilities/packages/artifacts');
+    await assertLegacyCapabilityPackageMutationAllowed('skill', skill.name, scope, standaloneRecord);
     const pluginOwnedStandalone = Boolean(
       standaloneRecord?.sourceType === 'plugin'
       && standaloneRecord.sourcePluginName === record.name,
@@ -887,6 +911,32 @@ async function buildPluginRecordFromInstalledPackage(
   return { record, errors: [] };
 }
 
+export async function buildPublishedCanvasPluginRecord(packageRoot: string, input: {
+  scope: CanvasPluginStorageScope;
+  resourceId: string;
+  revision: number;
+  publishedRevisionRef: string;
+  packageResourceRef: string;
+  enabled: boolean;
+  installedBy: string;
+  previous?: CanvasPluginInstallRecord;
+}): Promise<CanvasPluginInstallRecord> {
+  const validation = await validateCanvasPluginPackage(packageRoot);
+  if (!validation.valid || !validation.manifest) throw new Error('The published plugin package is invalid.');
+  if (validation.manifest.skillRefs?.some(reference => reference.source === 'seed')) throw new Error('Published plugin skills must be bundled.');
+  const result = await buildPluginRecordFromInstalledPackage(validation.manifest, packageRoot, packageRoot, input.enabled, {
+    scope: input.scope, installedBy: input.installedBy,
+    sourcePathLabel: input.previous?.sourcePath || `capability-package:${input.resourceId}`,
+    sourceRegistryId: input.previous?.sourceRegistryId, sourceRegistryUrl: input.previous?.sourceRegistryUrl,
+  });
+  if (!result.record || result.errors.length) throw new Error('The published plugin skills are invalid.');
+  return { ...result.record, resourceId: input.resourceId, revision: input.revision, packageManaged: true,
+    packageResourceRef: input.packageResourceRef, publishedRevisionRef: input.publishedRevisionRef,
+    installedAt: input.previous?.installedAt || result.record.installedAt,
+    installedBy: input.previous ? input.previous.installedBy : input.installedBy,
+    skills: result.record.skills.map(skill => ({ ...skill, materialized: false, preexistingStandalone: false })) };
+}
+
 function rebasePluginRecordPaths(
   record: CanvasPluginInstallRecord,
   fromRoot: string,
@@ -952,6 +1002,8 @@ async function removePluginOwnedMaterializedSkills(
     const standalone = standaloneRegistry.skills[skill.name];
     if (standalone?.sourceType !== 'plugin' || standalone.sourcePluginName !== plugin.name) continue;
 
+    const { assertLegacyCapabilityPackageMutationAllowed } = await import('@/app/lib/capabilities/packages/artifacts');
+    await assertLegacyCapabilityPackageMutationAllowed('skill', skill.name, scope, standalone);
     const directory = standalone.installDir || resolveStandaloneSkillDir(skill.name, scope);
     const exists = await fs.stat(directory).then(() => true).catch(() => false);
     if (exists) {
@@ -1185,6 +1237,8 @@ export async function installCanvasPluginFromPath(
   const rootDir = validation.rootDir;
   return withPluginMutation(options.scope, async () => {
     const existing = await getCanvasPlugin(manifest.name, options.scope);
+    const { assertLegacyCapabilityPackageMutationAllowed } = await import('@/app/lib/capabilities/packages/artifacts');
+    await assertLegacyCapabilityPackageMutationAllowed('plugin', manifest.name, options.scope, existing || undefined);
     const enable = options.enable ?? existing?.enabled ?? true;
     if (enable) {
       const protection = await pluginActivationProtection(manifest.name, options.scope);
@@ -1491,6 +1545,8 @@ export async function deleteCanvasPlugin(
       return { success: false, error: `Plugin "${name}" not found` };
     }
 
+    const { assertLegacyCapabilityPackageMutationAllowed } = await import('@/app/lib/capabilities/packages/artifacts');
+    await assertLegacyCapabilityPackageMutationAllowed('plugin', name, scope, plugin);
     const skillSnapshot = await snapshotPluginSkillMutation(plugin.skills, scope);
     const registrySnapshot = await snapshotPluginMutationFile(resolveScopedPluginRegistryPath(scope));
     const enabledSkillsSnapshot = await snapshotPluginMutationFile(resolveEnabledSkillsStoragePath(scope));
@@ -1544,6 +1600,7 @@ export async function deleteCanvasPlugin(
 export async function loadEnabledPluginSkills(
   enabledSkills?: string[],
   scope?: CanvasPluginStorageScope | null,
+  options: { excludePackageManaged?: boolean } = {},
 ): Promise<CanvasSkill[]> {
   const registry = await readCanvasPluginRegistry(scope);
   const pluginSkills: CanvasSkill[] = [];
@@ -1551,6 +1608,7 @@ export async function loadEnabledPluginSkills(
   const enabledSkillNameSet = resolveEnabledSkillNames(allSkillNames, enabledSkills);
 
   for (const plugin of Object.values(registry.plugins)) {
+    if (options.excludePackageManaged && plugin.packageManaged) continue;
     if (!plugin.enabled) {
       continue;
     }

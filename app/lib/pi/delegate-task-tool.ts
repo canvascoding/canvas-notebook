@@ -33,7 +33,8 @@ import {
   buildPiSystemPromptSnapshotFromText,
   createPiSystemPromptSnapshot,
 } from '@/app/lib/pi/system-prompt-snapshot';
-import type { AgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
+import { getAgentExecutionContext, type AgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
+import { reissueCapabilityPackageRuntimeBindings, requiresCapabilityPackageBoundPrompt } from '@/app/lib/capabilities/packages/runtime-bindings';
 import { buildActiveWorkspacePromptBlock } from '@/app/lib/pi/runtime-prompt-context';
 import {
   buildWorkspaceFileTreePrompt,
@@ -924,6 +925,11 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, onTimeout: () =>
 }
 
 async function startEphemeralDelegatedRun(request: DelegateTaskRequest): Promise<DelegateTaskResult> {
+  const ambientParent = getAgentExecutionContext();
+  const capturedParent = ambientParent && ambientParent.userId === request.userId
+    && ambientParent.sessionId === request.sourceSessionId && ambientParent.agentId === request.sourceAgentId
+    ? { ...ambientParent, skillReadRoots: [...(ambientParent.skillReadRoots ?? [])],
+      skillPackageBindings: [...(ambientParent.skillPackageBindings ?? [])] } : null;
   if (request.sessionId) {
     throw new Error('session_id is only supported when target_agent_id is set.');
   }
@@ -995,9 +1001,17 @@ async function startEphemeralDelegatedRun(request: DelegateTaskRequest): Promise
             agentTurnId,
           };
         }
+        const packageSource = capturedParent ?? finalScope.executionContext;
+        childExecutionContext = await reissueCapabilityPackageRuntimeBindings(packageSource, childExecutionContext);
+        const useBoundPackagePrompt = requiresCapabilityPackageBoundPrompt(packageSource)
+          || requiresCapabilityPackageBoundPrompt(childExecutionContext);
         const { systemPrompt: managedSystemPrompt } = await loadManagedAgentSystemPrompt(request.sourceAgentId, {
           userId: request.userId,
-        });
+          ...(useBoundPackagePrompt ? {
+            workspaceId: childExecutionContext.workspaceId, organizationId: childExecutionContext.organizationId,
+            customerId: childExecutionContext.customerId, projectId: childExecutionContext.projectId,
+          } : {}),
+        }, useBoundPackagePrompt ? { executionContext: childExecutionContext } : undefined);
         const workspacePromptBlock = buildActiveWorkspacePromptBlock({
           workspaceId: childExecutionContext.workspaceId,
           workspaceType: childExecutionContext.workspaceType,

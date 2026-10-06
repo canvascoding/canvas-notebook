@@ -1234,6 +1234,57 @@ export const capabilityResourceHistory = pgTable("capability_resource_history", 
   actionCheck: check("capability_resource_history_action_check", sql`${table.action} IN ('adopt', 'mutate')`),
 }));
 
+// Package bytes have an independent immutable history; resource grants remain authoritative.
+export const capabilityPackageStates = pgTable('capability_package_states', {
+  resourceRef: text('resource_ref').primaryKey().references(() => capabilityResources.resourceRef, { onDelete: 'cascade' }),
+  kind: text('kind').notNull(),
+  name: text('name').notNull(),
+  packageRevision: bigint('package_revision', { mode: 'number' }).notNull(),
+  currentPublishedRevisionRef: text('current_published_revision_ref').notNull(),
+  currentSourceStamp: text('current_source_stamp').notNull(),
+  updatedByUserId: text('updated_by_user_id').references(() => user.id, { onDelete: 'set null' }),
+  updatedAt: pgTimestamp('updated_at').notNull(),
+}, table => ({
+  kindCheck: check('capability_package_states_kind_check', sql`${table.kind} IN ('skill','plugin')`),
+  revisionCheck: check('capability_package_states_revision_check', sql`${table.packageRevision} >= 1`),
+}));
+
+export const capabilityPackageVersions = pgTable('capability_package_versions', {
+  revisionRef: text('revision_ref').primaryKey(),
+  resourceRef: text('resource_ref').notNull().references(() => capabilityResources.resourceRef, { onDelete: 'cascade' }),
+  kind: text('kind').notNull(), name: text('name').notNull(), version: text('version').notNull(), checksum: text('checksum').notNull(),
+  files: text('files').notNull(), totalBytes: bigint('total_bytes', { mode: 'number' }).notNull(),
+  publishedByUserId: text('published_by_user_id').references(() => user.id, { onDelete: 'set null' }),
+  publishedAt: pgTimestamp('published_at').notNull(), baseRevisionRef: text('base_revision_ref'),
+  sourceResourceRef: text('source_resource_ref').notNull(), sourceRevisionRef: text('source_revision_ref'), sourceChecksum: text('source_checksum').notNull(),
+  sourceStamp: text('source_stamp').notNull(),
+}, table => ({
+  resourceIdx: index('idx_capability_package_versions_resource').on(table.resourceRef, table.publishedAt),
+  kindCheck: check('capability_package_versions_kind_check', sql`${table.kind} IN ('skill','plugin')`),
+  sizeCheck: check('capability_package_versions_size_check', sql`${table.totalBytes} >= 0 AND ${table.totalBytes} <= 262144000`),
+}));
+
+// A fork target is reserved privately and is created only in the successful publication transaction.
+export const capabilityPackageDrafts = pgTable('capability_package_drafts', {
+  draftRef: text('draft_ref').primaryKey(), resourceRef: text('resource_ref').notNull(),
+  actorUserId: text('actor_user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  kind: text('kind').notNull(), name: text('name').notNull(), operation: text('operation').notNull(),
+  draftRevision: bigint('draft_revision', { mode: 'number' }).notNull().default(1),
+  basePackageRevision: bigint('base_package_revision', { mode: 'number' }).notNull(), basePublishedRevisionRef: text('base_published_revision_ref'),
+  baseSourceStamp: text('base_source_stamp').notNull(), sourceResourceRef: text('source_resource_ref').notNull(),
+  sourceMetadataRevision: bigint('source_metadata_revision', { mode: 'number' }).notNull(),
+  sourceGrantsRevision: bigint('source_grants_revision', { mode: 'number' }).notNull(),
+  sourcePackageRevision: bigint('source_package_revision', { mode: 'number' }).notNull(), sourcePublishedRevisionRef: text('source_published_revision_ref'),
+  sourceStorage: text('source_storage').notNull(), sourceParentStorage: text('source_parent_storage'),
+  targetStorage: text('target_storage').notNull(), targetOwnership: text('target_ownership').notNull(),
+  createdAt: pgTimestamp('created_at').notNull(), updatedAt: pgTimestamp('updated_at').notNull(),
+}, table => ({
+  actorIdx: index('idx_capability_package_drafts_actor').on(table.actorUserId, table.createdAt),
+  kindCheck: check('capability_package_drafts_kind_check', sql`${table.kind} IN ('skill','plugin')`),
+  operationCheck: check('capability_package_drafts_operation_check', sql`${table.operation} IN ('edit','fork')`),
+  revisionCheck: check('capability_package_drafts_revision_check', sql`${table.draftRevision} >= 1 AND ${table.basePackageRevision} >= 0`),
+}));
+
 // Shared provider bindings have their own lifecycle; package grants do not grant accounts.
 export const integrationConnectionResources = pgTable("integration_connection_resources", {
   connectionRef: text("connection_ref").primaryKey(),

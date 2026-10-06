@@ -1,3 +1,4 @@
+import { isCapabilityPackageError } from '@/app/lib/capabilities/packages/contracts';
 import { NextResponse } from 'next/server';
 
 import { recordAuditEvent } from '@/app/lib/audit/audit-service';
@@ -78,6 +79,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json(result);
   } catch (error) {
+    if (isCapabilityPackageError(error)) return NextResponse.json({ success: false, error: error.message, code: error.code }, { status: error.status });
     console.error('[Plugins Store Install API] Error:', error);
     return NextResponse.json(
       { success: false, error: 'Failed to install plugin from store' },

@@ -87,7 +87,7 @@ export const PI_TOOLSETS: Record<PiToolset, PiToolsetInfo> = {
   skills: {
     name: 'skills',
     label: 'Plugins & Skills',
-    description: 'Create, inspect, install, update, activate, and remove personal Canvas plugins and skills.',
+    description: 'Inspect, edit, publish and configure authorized personal, team or organization Canvas plugins and complete skill packages.',
   },
   studio: {
     name: 'studio',
@@ -118,6 +118,20 @@ export const DELEGATABLE_PI_TOOLSETS = new Set<PiToolset>([
 ]);
 
 export const SKILL_TOOL_NAMES = [
+  'inspect_canvas_package',
+  'set_canvas_package_activation',
+  'list_canvas_package_scopes',
+  'create_canvas_package_draft',
+  'inspect_canvas_package_draft',
+  'list_canvas_package_draft_files',
+  'read_canvas_package_draft_file',
+  'write_canvas_package_draft_file',
+  'delete_canvas_package_draft_file',
+  'validate_canvas_package_draft',
+  'publish_canvas_package_draft',
+  'discard_canvas_package_draft',
+  'list_canvas_package_files',
+  'read_canvas_package_file',
   'inspect_canvas_resource',
   'configure_canvas_resource',
   'update_canvas_resource_metadata',

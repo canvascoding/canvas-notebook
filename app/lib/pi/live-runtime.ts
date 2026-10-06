@@ -141,7 +141,8 @@ import {
   type RuntimeQueueEntry,
   type RuntimeQueuePreview,
 } from '@/app/lib/pi/runtime-queue';
-import { resolveAgentExecutionContextForSession } from '@/app/lib/pi/session-workspace-context';
+import { addEffectiveSkillReadRoots, resolveAgentExecutionContextForSession } from '@/app/lib/pi/session-workspace-context';
+import { requiresCapabilityPackageBoundPrompt } from '@/app/lib/capabilities/packages/runtime-bindings';
 import type { AgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
 import { withPiSessionOperationLock } from '@/app/lib/pi/session-operation-lock';
 import { createOperationTiming, type OperationTiming } from '@/app/lib/observability/operation-timing';
@@ -1552,12 +1553,21 @@ export class LivePiRuntime {
         eq(piSessions.agentId, this.agentId),
       ),
     });
+    const nextContext = await addEffectiveSkillReadRoots(this.executionContext);
     const snapshot = await createPiSystemPromptSnapshot(this.agentId, {
       userId: this.userId,
       organizationId: session?.organizationId,
       workspaceId: session?.workspaceId,
       projectId: session?.projectId,
-    });
+    }, requiresCapabilityPackageBoundPrompt(nextContext, this.systemPrompt) ? { executionContext: nextContext } : undefined);
+    // Package selection may perform IO. A newly started run keeps its old
+    // prompt and roots together until the next idle refresh boundary.
+    if (this.isRunning || this.agent.state.isStreaming) {
+      this.systemPromptRefreshRequested = true;
+      return;
+    }
+    this.executionContext.skillReadRoots = nextContext.skillReadRoots;
+    this.executionContext.skillPackageBindings = nextContext.skillPackageBindings;
     this.systemPrompt = snapshot.systemPrompt;
     this.systemPromptRefreshRequested = false;
     this.invalidateContextBudget();
@@ -3089,9 +3099,13 @@ async function createRuntime(sessionId: string, userId: string): Promise<LivePiR
     summaryThroughSequence: null,
     summaryRevision: 0,
   };
-  const promptSnapshot = sessionRecord
+  let promptSnapshot = sessionRecord
     ? await ensurePiSessionSystemPromptSnapshot(sessionRecord)
     : await createPiSystemPromptSnapshot(agentId, { userId });
+  if (requiresCapabilityPackageBoundPrompt(executionContext, promptSnapshot.systemPrompt)) {
+    promptSnapshot = await createPiSystemPromptSnapshot(agentId, { userId, organizationId: executionContext.organizationId,
+      workspaceId: executionContext.workspaceId, projectId: executionContext.projectId }, { executionContext });
+  }
   timing.mark('systemPrompt');
   const systemPrompt = promptSnapshot.systemPrompt;
   const browserSnapshot = await refreshBrowserSessionSnapshot(executionContext);
@@ -3488,13 +3502,18 @@ export async function getPiRuntimeStatus(sessionId: string, userId: string): Pro
     summaryThroughSequence: null,
     summaryRevision: 0,
   };
-  const promptSnapshot = await ensurePiSessionSystemPromptSnapshot(sessionRecord);
-  const systemPrompt = promptSnapshot.systemPrompt;
+  let promptSnapshot = await ensurePiSessionSystemPromptSnapshot(sessionRecord);
   const executionContext = await resolveAgentExecutionContextForSession({
     sessionId,
     userId,
     agentId: sessionRecord.agentId,
   });
+  if (requiresCapabilityPackageBoundPrompt(executionContext, promptSnapshot.systemPrompt)) {
+    promptSnapshot = await createPiSystemPromptSnapshot(sessionRecord.agentId, { userId,
+      organizationId: executionContext.organizationId, workspaceId: executionContext.workspaceId,
+      projectId: executionContext.projectId }, { executionContext });
+  }
+  const systemPrompt = promptSnapshot.systemPrompt;
   if (!executionContext.organizationId) {
     throw new Error('Complete the app AI runtime setup before loading the session runtime.');
   }

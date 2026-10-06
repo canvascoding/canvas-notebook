@@ -7,10 +7,7 @@ import { getAgentAccessOnConnection, requireAgentAccess } from '@/app/lib/agents
 import { DEFAULT_MANAGED_AGENT_ID } from '@/app/lib/agents/storage';
 import { db, openDb, type SqlConnection } from '@/app/lib/db';
 import { piSessions } from '@/app/lib/db/schema';
-import {
-  resolveEffectiveSkillReadRoots,
-  resolvePersonalSkillReadRoots,
-} from '@/app/lib/skills/effective-skill-read-roots';
+import { captureCapabilityPackageRuntimeBindings } from '@/app/lib/capabilities/packages/runtime-bindings';
 import {
   LEGACY_PERSONAL_WORKSPACE_ID,
   resolveWorkspaceActor,
@@ -175,31 +172,11 @@ export function workspaceFromAgentExecutionContext(executionContext: AgentExecut
 export async function addEffectiveSkillReadRoots(
   executionContext: AgentExecutionContext,
 ): Promise<AgentExecutionContext> {
-  if (!executionContext.organizationId) {
-    try {
-      const skillReadRoots = await resolvePersonalSkillReadRoots({
-        userId: executionContext.userId,
-        agentId: executionContext.agentId,
-      });
-      return { ...executionContext, skillReadRoots };
-    } catch (error) {
-      console.warn('[AgentExecutionContext] Failed to resolve personal skill read roots:', error);
-      return { ...executionContext, skillReadRoots: [] };
-    }
-  }
-
   try {
-    const skillReadRoots = await resolveEffectiveSkillReadRoots({
-      organizationId: executionContext.organizationId,
-      userId: executionContext.userId,
-      workspaceId: executionContext.workspaceId,
-      projectId: executionContext.projectId,
-      agentId: executionContext.agentId,
-    });
-    return { ...executionContext, skillReadRoots };
+    return { ...executionContext, ...await captureCapabilityPackageRuntimeBindings(executionContext) };
   } catch (error) {
     console.warn('[AgentExecutionContext] Failed to resolve effective skill read roots:', error);
-    return { ...executionContext, skillReadRoots: [] };
+    return { ...executionContext, skillReadRoots: [], skillPackageBindings: [] };
   }
 }
 

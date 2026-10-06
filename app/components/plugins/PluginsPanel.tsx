@@ -36,6 +36,7 @@ import {
 } from '@/app/components/organization/SearchablePolicyTargetPicker';
 import { SkillDetailDialog } from '@/app/components/skills/SkillDetailDialog';
 import { ResourceManagementSection } from '@/app/components/plugins/ResourceManagementSection';
+import { PackageEditorSection } from '@/app/components/plugins/PackageEditorSection';
 import { SharedConnectionsSection } from '@/app/components/plugins/SharedConnectionsSection';
 import type { CapabilityResourceAccess, CapabilityResourceMetadata } from '@/app/lib/capabilities/resources/contracts';
 import { SkillUploadDialog } from '@/app/components/skills/SkillUploadDialog';
@@ -2050,6 +2051,8 @@ function CanvasPluginsSection({
               ) : null}
               {installedPlugin?.resourceId ? <ResourceManagementSection resourceRef={installedPlugin.resourceId}
                 workspaceId={activeWorkspaceId} onUpdated={() => { void loadPluginData(); }} /> : null}
+              {installedPlugin?.resourceId ? <PackageEditorSection resourceRef={installedPlugin.resourceId}
+                workspaceId={activeWorkspaceId} onUpdated={() => { void loadPluginData(); }} /> : null}
             </div>
           </div>
 
@@ -3936,6 +3939,8 @@ export function SkillsPanel({ canManageOrganizationCapabilities: initialCanManag
                           </InlineNotice>
                         ) : null}
                         {selectedSkillData.resourceId ? <ResourceManagementSection resourceRef={selectedSkillData.resourceId}
+                          workspaceId={activeWorkspaceId} onUpdated={() => { void loadSkills(); }} /> : null}
+                        {selectedSkillData.resourceId ? <PackageEditorSection resourceRef={selectedSkillData.resourceId}
                           workspaceId={activeWorkspaceId} onUpdated={() => { void loadSkills(); }} /> : null}
 
                         {(selectedSkillData.compatibility || selectedSkillData.license) && (

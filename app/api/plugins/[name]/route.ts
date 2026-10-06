@@ -1,3 +1,4 @@
+import { isCapabilityPackageError } from '@/app/lib/capabilities/packages/contracts';
 import { NextResponse } from 'next/server';
 import { headers } from 'next/headers';
 
@@ -61,11 +62,17 @@ export async function DELETE(
     organizationState: pluginPermission.state,
   });
   const existingPlugin = await getCanvasPlugin(name, capabilityScope);
-  const result = await deleteCanvasPlugin(
-    name,
-    capabilityScope,
-    pluginPermission.session.user.email || pluginPermission.session.user.id,
-  );
+  let result;
+  try {
+    result = await deleteCanvasPlugin(
+      name,
+      capabilityScope,
+      pluginPermission.session.user.email || pluginPermission.session.user.id,
+    );
+  } catch (error) {
+    if (isCapabilityPackageError(error)) return NextResponse.json({ success: false, error: error.message, code: error.code }, { status: error.status });
+    throw error;
+  }
   if (!result.success) {
     return NextResponse.json(
       { success: false, error: result.error },
