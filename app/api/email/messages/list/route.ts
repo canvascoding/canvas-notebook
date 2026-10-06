@@ -4,6 +4,7 @@ import { after, NextRequest, NextResponse } from 'next/server';
 
 import { auth } from '@/app/lib/auth';
 import { listEmailMessages } from '@/app/lib/email/service';
+import { isEmailClassificationAccessUnavailableError } from '@/app/lib/email/classification/enrichment';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 
 async function requireSession(request: NextRequest) {
@@ -23,11 +24,14 @@ export async function POST(request: NextRequest) {
     const access = await resolveEmailMailboxAccess({ userId: session.user.id, accountId: body.accountId, mailboxWorkspaceId: body.mailboxWorkspaceId, operation: 'read' });
     const data = await listEmailMessages(access.accountOwnerId, { ...body, accountId: access.accountId }, {
       ...access.readOptions,
+      actorUserId: session.user.id,
+      workspaceId: access.workspaceId,
       prefetchDetails: true,
       scheduleBackgroundTask: after,
     });
     return NextResponse.json({ success: true, data });
   } catch (error) {
+    if (isEmailClassificationAccessUnavailableError(error)) return NextResponse.json({ success: false, code: error.code, error: error.message }, { status: error.status });
     if (error instanceof EmailMailboxAccessError) {
       return NextResponse.json({ success: false, error: error.message }, { status: error.status });
     }

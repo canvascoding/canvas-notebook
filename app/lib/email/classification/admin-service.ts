@@ -8,6 +8,7 @@ import { normalizeEmailClassificationResult } from './normalize';
 import { projectEmailClassification } from './policy';
 import { buildEmailClassificationQuestions, buildEmailDecisionState, EMAIL_CLASSIFICATION_SCHEMA_VERSION } from './schema';
 import { emailClassificationEvaluationFingerprint } from './settings-evaluation';
+import { notifyEmailClassificationSettingsChanged } from './runtime-control';
 import type { EmailClassificationConfiguration, EmailClassificationSettings } from './settings-types';
 import { validateEmailClassificationConfiguration } from './settings-validation';
 import { getRuntimeEmailClassificationStore, type PostgresEmailClassificationStore } from './store';
@@ -233,6 +234,7 @@ export async function updateAdminEmailClassificationSettings(input: {
   if (previous.revision !== input.expectedRevision) throw new EmailClassificationVersionConflictError();
   if (configuration.enabled) requireUsableCredential(resolveEmailClassificationCredential(configuration, dependencies));
   const settings = await store.updateSettings({ expectedRevision: input.expectedRevision, configuration, actorUserId: input.actorUserId, now: timestamp(dependencies) });
+  notifyEmailClassificationSettingsChanged();
   const changedFields = Object.keys(settings.configuration).filter(key => JSON.stringify(previous.configuration[key as keyof EmailClassificationConfiguration]) !== JSON.stringify(settings.configuration[key as keyof EmailClassificationConfiguration]));
   return { ...await adminSnapshot(settings, dependencies), changedFields };
 }
