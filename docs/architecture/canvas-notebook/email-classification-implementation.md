@@ -7,7 +7,7 @@ Der Nutzer hat Umsetzung und Playwright freigegeben und Mailpit für lokale Mail
 
 - [x] 1. Decision-Vertrag, Providerfähigkeiten, Vier-Felder-Schema, deterministische Policy und versionierte synthetische Evaluation.
 - [x] 2. PostgreSQL-Persistenz, Settingsrevision, lokale/verwaltete Mailboxidentität, unabhängiger Metadatenindex, Jobs/Leases, Korrekturen und persönlicher Fokuszustand.
-- [ ] 3. Zentrale System-Credentials, Admin-Settings/Availability, Provider-Vertragsabnahme und Limits/Abbruch.
+- [x] 3. Zentrale System-Credentials, Admin-Settings/Availability, Provider-Vertragsabnahme und Limits/Abbruch.
 - [ ] 4. Hintergrund-Synchronisation/Klassifizierung, vollständiger autorisierter Gesamtfeed, Paging/Ranking, Cache-Anreicherung und Lifecycleinvalidierung.
 - [ ] 5. Adminoberfläche und sichere Secrets-Anbindung.
 - [ ] 6. Fokus/Klassisch, Alle/Einzel/Persönlich/Arbeit, Progressive Disclosure, Herkunft bei Mailaktionen und persönliche Erledigung.
@@ -19,8 +19,8 @@ Der Nutzer hat Umsetzung und Playwright freigegeben und Mailpit für lokale Mail
 | --- | --- | --- |
 | Austauschbare Decision-Provider ohne Mail-/DB-Wissen | `npm run test:decision-models`; TypeSafe und kompatibler Adapter, unabhängige Registry | Phase 1 geprüft |
 | Vier Felder und echte Wahrscheinlichkeiten, unbekannt ungleich null Prozent | `npm run test:email:classification:policy`; Choice-Verteilungen getrennt von Provider-Confidence | Phase 1 geprüft |
-| Zentraler Adminschalter, standardmäßig aus, keine persönlichen AI-Schalter | Admin-/Availability-/Worker-Tests und Browser | Offen |
-| System-Secrets ohne Prozess-/Userfallback | Credential-/Route-Tests, Secrets-UI | Offen |
+| Zentraler Adminschalter, standardmäßig aus, keine persönlichen AI-Schalter | Admin-/Availability-/Worker-Tests und Browser | API geprüft; Worker/UI offen |
+| System-Secrets ohne Prozess-/Userfallback | Credential-/Route-Tests, Secrets-UI | Backend geprüft; Secrets-UI offen |
 | Sichere dauerhafte Persistenz, Leases/Revisionen/Toggle-Rennen | PGlite mit echter Startupmigration und zusätzliche PostgreSQL-18-Prüfung über unabhängige Sessions in eigenem temporärem Schema | Phase 2 geprüft; API-Anschluss offen |
 | Persönliche/Workspace-Rechte samt Senderpolicy auch bei Cachetreffer | Feed-/Boundary-/Revocation-Tests | Offen |
 | Lokale und verwaltete persönliche, vorhandene gemeinsame Postfächer | Registry-/Service-/Feedtests | Offen |
@@ -59,3 +59,11 @@ Die Registry verwendet bestehende Nutzer-/Workspace-Autorisierung und löst Owne
 Ein separater Evaluation-Fingerprint erlaubt die Wiederverwendung gültiger Rohbewertungen nach Aus-/Einschalten und Änderungen an Laufzeitlimits. Modell, Endpoint, Schema und fachliche Kriterien sind Bestandteil dieses Fingerprints; reine manuelle Korrekturen erzeugen keine Modellbewertung.
 
 Geprüft am 2026-10-06: neue Identitäts-/Configtests, PGlite-Storetests, bestehende Workspace-Mailmigration, Personal-Boundary- und Mailbox-/Mutations-/AI-Actor-/Tool-/Attachmenttests bestanden. Zusätzlich native PostgreSQL 18 mit unabhängigen Sessions: Settings- und Fokus-CAS, exklusive Claims, Tagescap, verspäteter Sync und Abschalten vor Ergebnisübernahme bestanden. Das eigene temporäre Schema wurde anschließend entfernt; bestehende Daten blieben außerhalb dieses Schemas. Nach der Fingerprint-Ergänzung wurden die neuen Tests, native PostgreSQL-Prüfung, scoped ESLint und globale Typeprüfung erfolgreich wiederholt. GitNexus Scopeprüfung: 15 erwartete Dateien, keine fremden Produktabläufe.
+
+## Phase 3: Ergebnisse
+
+Provider-Credentials stammen ausschließlich aus zentralen System-Secrets. Fehlende, nicht lesbare oder ungültige Keys sind unterscheidbare sichere Statuswerte; Keys erscheinen weder in DTOs noch Auditdaten. Nur ein bewusst ohne Credential konfigurierter kompatibler privater Endpoint kann anonym genutzt werden. TypeSafe-Keys sind der bestehenden Integrationskategorie zugeordnet (GitNexus LOW, ein direkter Aufrufer).
+
+Die neuen Settings- und Testrouten verlangen Instanzadminrechte, vertrauenswürdigen Mutation-Origin und verifizierte Sessionidentität für Rate Limits. Settingsänderungen verwenden den atomaren Store-CAS. Der Test nutzt ausschließlich eine serverseitige Beispielmail, darf vor Aktivierung stattfinden und bestätigt keine Spamqualität. Die öffentliche Availability liefert fünf sichere Statusfelder und führt nur einen Tagesbudget-Lookup aus; umfangreiche Bestandsstatistiken gehören zur Adminabfrage. Vorbereitete Fokusdaten bleiben bei Budget-/Providerstörungen nutzbar.
+
+Geprüft am 2026-10-06: Adminservice-Test mit echten PGlite-CAS/Jobs/Budget/Ergebnissen, Routetests mit echten Admin-/Originhelpers, bestehende Secrets-Store/-API- und Settings-ENV-UI-Tests, Decision-Harness/Policy-Tests sowie scoped ESLint und globale Typeprüfung bestanden. Reale Jev-Anfragen und Browserabnahme bleiben offen. Branch-Scopeprüfung erfolgt vor dem Phasencommit.
