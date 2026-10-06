@@ -18,6 +18,7 @@ import { COLLABORATION_ROOM_OWNER_UP_SQL, COLLABORATION_ROOM_RELEASE_UP_SQL } fr
 import { COLLABORATION_ADMISSION_STATEMENTS } from './collaboration-admission-migration';
 import { COLLABORATION_RECOVERY_STATEMENTS } from './collaboration-recovery-migration';
 import { runEmailCachePostgresMigration } from '@/app/lib/email/cache/postgres-migration';
+import { runEmailClassificationPostgresMigration } from '@/app/lib/email/classification/postgres-migration';
 import { resolvePostgresRuntimeOptions } from './postgres-runtime-options';
 import { postgresFailureCode } from './postgres-diagnostics';
 
@@ -1074,6 +1075,7 @@ export async function runPostgresMigrations(pool: PgQueryable): Promise<void> {
   await pool.query('CREATE INDEX IF NOT EXISTS idx_workspace_email_mailboxes_workspace_status ON workspace_email_mailboxes (workspace_id, status)');
   await pool.query('CREATE INDEX IF NOT EXISTS idx_workspace_email_mailboxes_account_status ON workspace_email_mailboxes (email_account_id, status)');
   await pool.query("CREATE UNIQUE INDEX IF NOT EXISTS idx_workspace_email_mailboxes_active_account ON workspace_email_mailboxes (email_account_id) WHERE status = 'active'");
+  await runEmailClassificationPostgresMigration(pool);
   await pool.query(`
     UPDATE email_accounts
     SET account_scope = 'workspace', is_primary = 0
