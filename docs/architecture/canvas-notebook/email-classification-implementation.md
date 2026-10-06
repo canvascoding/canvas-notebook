@@ -9,7 +9,7 @@ Der Nutzer hat Umsetzung und Playwright freigegeben und Mailpit für lokale Mail
 - [x] 2. PostgreSQL-Persistenz, Settingsrevision, lokale/verwaltete Mailboxidentität, unabhängiger Metadatenindex, Jobs/Leases, Korrekturen und persönlicher Fokuszustand.
 - [x] 3. Zentrale System-Credentials, Admin-Settings/Availability, Provider-Vertragsabnahme und Limits/Abbruch.
 - [x] 4. Hintergrund-Synchronisation/Klassifizierung, vollständiger autorisierter Gesamtfeed, Paging/Ranking, Cache-Anreicherung und Lifecycleinvalidierung.
-- [ ] 5. Adminoberfläche und sichere Secrets-Anbindung.
+- [x] 5. Adminoberfläche und sichere Secrets-Anbindung.
 - [ ] 6. Fokus/Klassisch, Alle/Einzel/Persönlich/Arbeit, Progressive Disclosure, Herkunft bei Mailaktionen und persönliche Erledigung.
 - [ ] 7. Qualitäts-/Recovery-Dokumentation, relevante Regressionsprüfungen, Typecheck/Lint/Build und abschließende E2E-/UI-Abnahme.
 
@@ -19,12 +19,12 @@ Der Nutzer hat Umsetzung und Playwright freigegeben und Mailpit für lokale Mail
 | --- | --- | --- |
 | Austauschbare Decision-Provider ohne Mail-/DB-Wissen | `npm run test:decision-models`; TypeSafe und kompatibler Adapter, unabhängige Registry | Phase 1 geprüft |
 | Vier Felder und echte Wahrscheinlichkeiten, unbekannt ungleich null Prozent | `npm run test:email:classification:policy`; Choice-Verteilungen getrennt von Provider-Confidence | Phase 1 geprüft |
-| Zentraler Adminschalter, standardmäßig aus, keine persönlichen AI-Schalter | Admin-/Availability-/Worker-Tests und Browser | API geprüft; Worker/UI offen |
-| System-Secrets ohne Prozess-/Userfallback | Credential-/Route-Tests, Secrets-UI | Backend geprüft; Secrets-UI offen |
+| Zentraler Adminschalter, standardmäßig aus, keine persönlichen AI-Schalter | Admin-/Availability-/Worker-Tests und Browser | API, Worker und Admin-UI geprüft |
+| System-Secrets ohne Prozess-/Userfallback | Credential-/Route-Tests, Secrets-UI | System-API, sicherer UI-Status und Secrets-Link geprüft |
 | Sichere dauerhafte Persistenz, Leases/Revisionen/Toggle-Rennen | PGlite mit echter Startupmigration und zusätzliche PostgreSQL-18-Prüfung über unabhängige Sessions in eigenem temporärem Schema | Phase 2 geprüft; API-Anschluss offen |
 | Persönliche/Workspace-Rechte samt Senderpolicy auch bei Cachetreffer | Feed-/Boundary-/Revocation-Tests | Backend geprüft; UI offen |
 | Lokale und verwaltete persönliche, vorhandene gemeinsame Postfächer | Registry-/Service-/Feedtests | Backend geprüft; reale lokale Abnahme offen |
-| Metadatensync unabhängig von AI; Verarbeitung bei geschlossenem Browser | Scheduler-/Worker-/Restarttests | Worker/Runtime geprüft; laufender Host offen |
+| Metadatensync unabhängig von AI; Verarbeitung bei geschlossenem Browser | Scheduler-/Worker-/Restarttests | Worker/Runtime und echter Host mit sieben Jev-Testmails geprüft |
 | Batch-Anreicherung ohne AI im Read-Pfad und ohne verlorene Korrekturen | Cache-/Enrichmenttests | Backend geprüft |
 | Globales Ranking über synchronisierten Bestand, stabile Cursor und ehrliche Coverage | Mehrseitige Feedtests | Backend geprüft; UI offen |
 | Fokus/Klassisch und alle Postfachscopes, gespeicherte Moduswahl | Browser-E2E samt Reload und zentralem Toggle | Offen |
@@ -36,7 +36,7 @@ Der Nutzer hat Umsetzung und Playwright freigegeben und Mailpit für lokale Mail
 | Typecheck, relevante Lints, Produktionsbuild | Aktuelle Command-Ergebnisse | Offen |
 | Abschließender E2E-Test mit visueller Prüfung Desktop/Mobile | Aktueller Playwright-Report und Screenshots | Offen |
 | Lokale echte Mailtests mit Mailpit | SMTP-Eingang, Notebook-Abruf/Klassifizierung und Antwort an Mailpit | Offen |
-| Reale Jev-Anbindung | Synthetischer Providerrequest mit zentral konfiguriertem User-Key | Key als Desktop-Datei bereitgestellt; Import und Request offen |
+| Reale Jev-Anbindung | Synthetischer Providerrequest mit zentral konfiguriertem User-Key | System-Key importiert; API-/UI-Probe und sieben echte lokale Mailbewertungen erfolgreich |
 
 Die synthetischen Canary-Mails sind keine statistische Kalibrierung. Automatische Spam-Ausblendung bleibt ohne explizit dokumentiertes geprüftes Schwellenprofil deaktiviert.
 
@@ -81,3 +81,11 @@ Alle lokalen/verwalteten List-/Such-/Detailzweige ergänzen Bewertungen nach dem
 Geprüft am 2026-10-06: Index-, Worker-, Feed-/State-/Routen-, Enrichment-, Lifecycle- und Rebindtests mit PGlite bestanden; zusätzlich bestehende Mailbox-/Actor-/Tool-/Attachmentregressionen. Native PostgreSQL 18 mit getrennten Sessions bestätigt globale Parallelität eins bei freiem Tagesbudget sowie exklusive Sync-Leases. Globale Typeprüfung, scoped ESLint, Serversyntax sowie Startup-Ownership, Memory-Scheduling und Session-Cleanup bestanden. Die isolierte Startupfixture benötigte drei fehlende Mock-/Globalzeilen für bereits im Ausgangsstand vorhandene Abhängigkeiten; Assertions und Produktstartup blieben unverändert. Alle laufenden Host-/UI-Abnahmen, Mailpit und echte Modellrequests bleiben offen. GitNexus und staged Diffcheck werden vor dem Phasencommit ausgeführt.
 
 Live-Nachprüfung mit Mailpit/GreenMail: Der persönliche Metadatenscan verwendete zunächst die engeren KI-Leseregeln und meldete dadurch einen leeren, vollständigen Index. Der Scan folgt jetzt der menschlichen Sichtbarkeit; Workspace-Senderregeln und KI-Sender-/Body-Prüfungen bleiben erhalten. Der Regressionstest ruft die tatsächlichen List-/Read-Adapter auf und bestätigt sichtbare unbewertete persönliche Mails ohne Body-/Modellaufruf. Nach Host-Neustart wurden alle sieben synthetischen Testmails aus drei Quellen bei geschlossenem Browser mit dem echten Jev bewertet; drei Quellen vollständig erfasst, null ausstehende/fehlgeschlagene Aufträge. Worker-Test, scoped ESLint und globale Typeprüfung bestanden. Ein realer Request ist weiterhin keine statistische Kalibrierung.
+
+## Phase 5: Ergebnisse
+
+Die Karte im bestehenden E-Mail-Einstellungstab ist ausschließlich für Instanzadministratoren eingebunden. Der zentrale Schalter steht außerhalb der eingeklappten Anbieter-/Konfigurationsfelder; Limits, Kontext/Kriterien, Schwellen und Laufzeitstatistik sind weitere Details. Der Status benennt Aktivierung und gestörte Verarbeitung getrennt. Credentialwerte werden nie geladen oder angezeigt; Schlüsselname, Systemstatus und Link zur bestehenden Secrets-Verwaltung reichen aus. Die feste Beispielmail darf bei deaktivierter Verarbeitung und mit ungespeichertem Entwurf getestet werden.
+
+Settings-CAS hält fremde Änderungen und lokale Entwürfe getrennt. Ein später Secrets-Refresh ersetzt keine Eingabe; Konflikte verlangen bewusstes Neuladen. Fehlermeldungen sind sichere deutsche/englische Texte. Das erfolgreiche Save-Event enthält nur enabled/revision. Eine kostenlose Kalibrierungsfreigabe wird nicht angeboten.
+
+Geprüft am 2026-10-06: `npm run test:email:classification:settings-ui`, scoped ESLint und globale Typeprüfung bestanden. Echter Browser mit Bootstrapadmin: Karte, eingeklappte Details, System-Key-Status, Jev-Beispielrequest und zentrales Speichern bestanden; Screenshots Desktop hell/dunkel und Mobile visuell geprüft, 390px ohne horizontalen Überlauf und ohne Pageerrors. Normaler bestehender Testnutzer sieht die Karte nicht und erhält auf der Adminroute 403. Lokale native Mailpit-/GreenMail-Kette verwendet CA-geprüftes STARTTLS und IMAP; kein neuer Container wurde gebaut. Der zentrale KI-Schalter wurde nach diesem Prüfschritt wieder deaktiviert; Ratings bleiben gespeichert. Fokus-UX, echter Antwortversand und abschließende E2E-Abnahme bleiben offen.
