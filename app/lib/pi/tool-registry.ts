@@ -17,6 +17,7 @@ import {
 import { createOnboardingProfileTool, createUserScopedTools } from '@/app/lib/pi/scoped-tools';
 import { createAgentManagementTools } from '@/app/lib/pi/agent-management-tools';
 import { createCapabilityResourceTools } from '@/app/lib/pi/capability-resource-tools';
+import { createSkillScriptTools } from '@/app/lib/pi/skill-script-tools';
 import { DEFAULT_MANAGED_AGENT_ID } from '@/app/lib/agents/storage';
 import {
   EMAIL_AGENT_ALLOWED_TOOL_NAME_SET,
@@ -200,7 +201,10 @@ function getToolNotes(tool: AgentTool, group: PiToolGroup): string[] {
     notes.push('Disabled by default. Use only when the user explicitly requests public sharing and never for secrets or folders.');
   }
   if (group === 'Skills') {
-    if (tool.name.includes('canvas_resource')) {
+    if (tool.name.includes('canvas_skill_script')) {
+      notes.push('Runs only declared Node/Python entrypoints from a selected published package revision. The run tool is disabled by default and requires explicit agent configuration.');
+      notes.push('Direct networking and provider credentials are unavailable in scripts. Tool aliases use current native/integration permissions; outputs use Canvas file revision and workspace checks.');
+    } else if (tool.name.includes('canvas_resource')) {
       notes.push('Inspects or configures installed plugin/skill resource metadata and sharing through the same fresh permission and revision actions as the UI/API.');
       notes.push('Resource use, edit and manage rights are independent. Changing metadata or grants does not reconnect, promote or edit package contents.');
     } else if (tool.name.includes('canvas_package') || tool.name === 'canvas_extensions') {
@@ -258,7 +262,8 @@ function getToolNotes(tool: AgentTool, group: PiToolGroup): string[] {
 }
 
 export function buildPiToolRegistry(userId?: string, agentId?: string | null, sessionId?: string | null): AgentTool[] {
-  const userScopedTools = [...createUserScopedTools(userId, agentId, sessionId), ...createCapabilityResourceTools(userId, agentId, sessionId)];
+  const userScopedTools = [...createUserScopedTools(userId, agentId, sessionId), ...createCapabilityResourceTools(userId, agentId, sessionId),
+    ...createSkillScriptTools(userId, agentId, sessionId)];
   const normalizedAgentId = agentId?.trim().toLowerCase() || DEFAULT_MANAGED_AGENT_ID;
   const agentManagementTools = normalizedAgentId === DEFAULT_MANAGED_AGENT_ID
     ? createAgentManagementTools(userId || '__tool-metadata__', normalizedAgentId, sessionId)
@@ -287,7 +292,8 @@ export async function buildPiToolRegistryAsync(
         return undefined;
       })
     : undefined;
-  const userScopedTools = [...createUserScopedTools(userId, agentId, sessionId, { accountLocale }), ...createCapabilityResourceTools(userId, agentId, sessionId)]
+  const userScopedTools = [...createUserScopedTools(userId, agentId, sessionId, { accountLocale }), ...createCapabilityResourceTools(userId, agentId, sessionId),
+    ...createSkillScriptTools(userId, agentId, sessionId)]
     .filter((tool) => !useIntegrationGateway || tool.name !== 'mcp');
   const normalizedAgentId = agentId?.trim().toLowerCase() || DEFAULT_MANAGED_AGENT_ID;
   const agentManagementTools = normalizedAgentId === DEFAULT_MANAGED_AGENT_ID
@@ -418,6 +424,8 @@ export async function getPiTools(
     workspaceEmailAutomation?: WorkspaceEmailAutomationToolContext;
     automationExecution?: boolean;
     automationJobState?: { jobId: string; runId: string };
+    /** Restricted script bridges never use the compatibility default-tool fallback. */
+    strictAuthorization?: boolean;
   } = {},
 ): Promise<AgentTool[]> {
   let resolvedExecutionContext: AgentExecutionContext | undefined;
@@ -451,6 +459,9 @@ export async function getPiTools(
 
   try {
     const effectiveConfig = await resolveAgentRuntimeSettings(agentId);
+    if (options.strictAuthorization && effectiveConfig.agentId !== agentId) {
+      throw new Error('The current script agent settings do not match the authenticated session.');
+    }
     const enabledTools = effectiveConfig.enabledTools;
     const explicitlyDisabledAll = allIntegrationGatewayTools(allTools)
       && enabledTools.some((name) => name.trim() === DISABLED_ALL_TOOLS_SENTINEL);
@@ -480,6 +491,10 @@ export async function getPiTools(
       allTools.push(createOnboardingProfileTool(userId, agentId, sessionId));
     }
   } catch (error) {
+    if (options.strictAuthorization) {
+      console.error('[ToolRegistry] Current script tool permissions could not be verified; no tools granted.');
+      return [];
+    }
     console.error('[ToolRegistry] Error reading config for tool filtering, returning default tools:', error);
     // Fallback: exclude disabled-by-default tools even on error
     const allToolNames = getProgressiveGatewayCapabilityNames(allTools);
@@ -522,7 +537,7 @@ export async function getPiTools(
   let workerToolsets: string[] | null = null;
   if (userId && sessionId) {
     workerToolsets = await getDelegatedWorkerToolsets({ userId, sessionId });
-    if (readIntegrationToolGatewayAvailability().integrationToolGatewayEnabled && resolvedExecutionContext) {
+    if ((readIntegrationToolGatewayAvailability().integrationToolGatewayEnabled || options.strictAuthorization) && resolvedExecutionContext) {
       try {
         const task = await resolveIntegrationDelegationTaskBinding(resolvedExecutionContext);
         if (task?.workerType === 'ephemeral') {

@@ -163,6 +163,13 @@ export async function captureCapabilityPackageRuntimeBindings(context: AgentExec
   return { skillReadRoots: [...new Set(skillReadRoots)], skillPackageBindings };
 }
 
+/** Server-derived current selection and private issued proofs; callers cannot supply an authorization snapshot. */
+export async function getAuthorizedCapabilityPackageRuntimeBindings(context:AgentExecutionContext):Promise<HeldCapabilityPackageRuntimeBinding[]>{
+  const captured={...context,skillPackageBindings:[...(context.skillPackageBindings??[])]};
+  const [snapshot,profile]=await Promise.all([currentSnapshot(captured,false),getAgentProfile(normalizeManagedAgentId(captured.agentId))]);
+  return revalidateCapabilityPackageRuntimeBindings(captured,snapshot,profile?.relevantSkills);
+}
+
 /** Current rights and activation are fresh; a valid later head never replaces an issued old version.
  * An unavailable/unconfirmed current resource closes all its held versions until explicit repair. */
 export async function revalidateCapabilityPackageRuntimeBindings(context: AgentExecutionContext,

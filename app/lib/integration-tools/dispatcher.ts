@@ -44,6 +44,7 @@ type IssuedSchema = {
   contextFingerprint: string;
   bindingRevision: string;
   authorizationRevision?: string;
+  application?: string;
   tool: IntegrationAdapterToolSchema;
 };
 
@@ -103,6 +104,17 @@ async function assertSharedProviderPolicy(context: IntegrationExecutionContext, 
 export class IntegrationDispatcher {
   private readonly routes: IntegrationReferenceCache<ToolRoute>;
   private readonly schemas: IntegrationReferenceCache<IssuedSchema>;
+
+  inspectIssuedToolIdentity(context: IntegrationExecutionContext, policy: IntegrationPolicy, toolRef: string, schemaRef: string) {
+    const namespace = contextNamespace(context);
+    const route = this.routes.get(`${namespace}:${toolRef}`);
+    const issued = this.schemas.get(`${namespace}:${schemaRef}`);
+    if (!route || !issued || issued.route.providerRef !== route.providerRef || issued.route.toolName !== route.toolName
+      || issued.route.source !== route.source || issued.contextFingerprint !== currentPolicyFingerprint(context, policy)) {
+      throw new IntegrationContractError('schema_changed', 'Load the current tool schema before executing.');
+    }
+    return { source: route.source, toolName: route.toolName, ...(issued.application ? { application: issued.application } : {}) };
+  }
 
   constructor(private readonly dependencies: {
     adapters?: IntegrationToolAdapters;
@@ -316,6 +328,7 @@ export class IntegrationDispatcher {
       this.schemas.set(`${namespace}:${schemaRef}`, {
         route: { ...route }, schemaRef, bindingRevision: resolved.bindingRevision,
         authorizationRevision: getIntegrationProviderAuthorization(context, resolved.provider)?.authorizationRevision,
+        application: resolved.provider.application,
         contextFingerprint: currentPolicyFingerprint(context, policy), tool: structuredClone(tool),
       });
       await revalidateIntegrationProviderAuthorization(context, resolved.provider, 'use', route.toolName);

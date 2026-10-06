@@ -77,7 +77,7 @@
       "Owned inert key restored with revision/value guard, MCP slot removed, own connections/profile archived and only own teams soft-disabled; audit/archive rows retained, owned Notebook/provider processes stopped, existing PostgreSQL/Control Plane and unrelated data preserved; no container build/publication",
       "Actual live-provider/shared Canva acceptance remains step7; shared MCP Apps and Desktop OAuth explicitly unsupported until6b; skill package/code/workflow/redesign work remains5a-6b; default-off gateway flag unchanged"
     ] },
-    { "id": "5a", "name": "Gemeinsame und versionierte Skill-Pakete", "status": "complete", "evidence": [
+    { "id": "5a", "name": "Gemeinsame und versionierte Skill-Pakete", "status": "complete", "commits": ["8e7670b69"], "evidence": [
       "Detailed acceptance: evidence/step-5a-versioned-packages.md; complete user/organization/team plugin/skill packages, actor-private revisioned drafts, immutable full snapshots and current independent edit/use/manage authority",
       "npm run test:capabilities:packages: six IO/store/actions/HTTP/artifact/agent/runtime/cleanup-guard fixtures PASS; actual PostgreSQL-engine schema, canonical actor context, full scripts/binary assets, immutable history, source/fork rights, CAS and seed dependency provenance",
       "Native PostgreSQL with eight Pool clients: PASS for draft COW/CAS, observed blocked publisher revocation before filesystem staging, registry-to-SQL rollback, immutable head and target namespace uniqueness; owned temporary databases and DATA cleaned up",
@@ -91,7 +91,15 @@
       "Fresh full GitNexus index: staged562 symbols/73files, compare-main2138 symbols/260files across completed steps; actual diff and expected package/catalog/agent/registry flows reviewed alongside the previously reported HIGH/CRITICAL symbol impacts; git diff --cached --check PASS",
       "Interim editor and separate default activation only; global own-draft navigation/store/updates remains6a, script execution/egress bridge5b, mandatory workflow bindings5c, Mobile/MCPApps/DesktopOAuth6b and actual live/shared Canva accounts7; default-off flag unchanged; DB-less legacy runtime-config fixture still requires PostgreSQL DATABASE_URL"
     ] },
-    { "id": "5b", "name": "Skill-Code-Laufzeit und begrenzte Tool-Bruecke", "status": "pending", "evidence": [] },
+    { "id": "5b", "name": "Skill-Code-Laufzeit und begrenzte Tool-Bruecke", "status": "complete", "evidence": [
+      "Detailed acceptance: evidence/step-5b-script-runtime.md and script-runtime.md; strict published package declarations, list/describe and explicit default-disabled Node/Python run",
+      "npm run test:skills:scripts full manifest/authorization/bridge/actions suite PASS with actual PostgreSQL engine, native read/Outbox/file operations, exact MCP HTTP/Composio SDK and live permissions; isolated PGlite transaction leases fix a diagnosed test-only PG25001",
+      "Actual Darwin/arm64 and existing Linux/arm64 process gates PASS: exact immutable package/SDK roots, private scratch, no secrets/egress/new processes, bounded RPC/logs, abort/revoke/unknown and delayed watcher lifecycle; actual 60-second deadline tested; native x86-64 not tested",
+      "Final npm run build, whole TypeScript, all changed-source/fixture ESLint, registry/file-reference/gateway/package regressions and diff check PASS; build has dynamic-file tracing/buildtime OAuth URL warnings",
+      "Playwright first full3/3 PASS in3.5min for real model Node/Python and planning no Run; final targeted Node/Python2/2 PASS in2.6min after test-only hydration/mobile-label/sidebar-state fixes; 1280/390 light/dark compact/expanded screenshots inspected",
+      "Actual cross-process preference/CAS and strict own cleanup guards PASS; independent final native PG/filesystem readback own resource/draft/version/preference/intake counts0; own verified Notebook server stopped, existing stack untouched, no container build/publication",
+      "Workflow bindings5c, complete Plugin-page redesign6a, Mobile/MCPApps/DesktopOAuth6b and live/shared Canva accounts7 remain; gateway flag remains default off"
+    ] },
     { "id": "5c", "name": "Workflow-Agenten und verbindliche Capability-Bindungen", "status": "pending", "evidence": [] },
     { "id": "6a", "name": "Plugin-Seite und Store-Redesign", "status": "pending", "evidence": [] },
     { "id": "6b", "name": "Agent-Konfiguration, OAuth-Rueckkehr und Mobile-Vertrag", "status": "pending", "evidence": [] },

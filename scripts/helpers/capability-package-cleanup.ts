@@ -21,6 +21,10 @@ async function main() {
   for(const revision of receipt.resourceRevisions){assert.match(revision.resourceRef,/^canvas-resource:[a-f0-9-]{36}$/u);assert.equal(revision.metadataRevision,1);assert([1,2,3].includes(revision.grantsRevision));if(revision.grantsRevision!==1)assert.equal(revision.resourceRef,receipt.sourceResourceRef,'Only the explicitly receipted original revoke/restore may have revision2/3.');}
   assert.equal(new Set(receipt.resourceRevisions.map(value=>value.resourceRef)).size,receipt.resourceRevisions.length);
   assert(receipt.names.includes(receipt.sourceName));assert(receipt.actorIds.includes(receipt.adminId));assert(receipt.actorIds.length<=2);
+  const preferences=receipt.preferences??[];
+  assert(Array.isArray(preferences)&&preferences.length<=2);
+  assert.equal(new Set(preferences.map(value=>`${value.userId}:${value.resourceId}`)).size,preferences.length);
+  for(const preference of preferences){assert(receipt.actorIds.includes(preference.userId));assert.equal(typeof preference.resourceId,'string');assert(preference.resourceId.length>0);assert.equal(typeof preference.enabled,'boolean');assert(Number.isSafeInteger(preference.revision)&&preference.revision>0);}
   const data=await fs.realpath(process.env.DATA??'');assert.equal(data,await fs.realpath(receipt.dataRoot));
   assert(data.startsWith(path.join(os.homedir(),'.local/state/canvas-local-team-seat/') ));assert.equal(path.basename(data),'notebook-data');
   assert(path.basename(receipt.sourceDirectory).startsWith(`${receipt.sourceName}-`));
@@ -30,7 +34,8 @@ async function main() {
   const {withCapabilityPackageRegistryPublication,withCapabilityPackageRegistryLock}=await import('../../app/lib/capabilities/packages/artifacts');
   const {withAuthorizedCapabilityPackageResource}=await import('../../app/lib/capabilities/resources/store');
   const {readExactPackageInventory,resolveOwnerScopedPackageVersionPath,verifyCapabilityPackageSnapshot}=await import('../../app/lib/capabilities/packages/io');
-  const {resolveScopedPluginRegistryPath,resolveScopedSkillRegistryPath,resolveScopedInstalledPluginsDir,resolveScopedSkillsDataDir,resolveUserDataRoot,createAtomicTempPath}=await import('../../app/lib/runtime-data-paths');
+  const {resolveScopedPluginRegistryPath,resolveScopedSkillRegistryPath,resolveScopedInstalledPluginsDir,resolveScopedSkillsDataDir,resolveUserDataRoot,resolveUserSettingsDir,createAtomicTempPath}=await import('../../app/lib/runtime-data-paths');
+  const {withFileMutationLock}=await import('../../app/lib/secrets/file-mutation-lock');
   const scope={scopeType:'organization' as const,organizationId:receipt.organizationId};
   assert.equal((await readExactPackageInventory(receipt.sourceDirectory)).checksum,receipt.initialChecksum,'Fixture intake bytes changed; preserve it.');
   const pluginRegistryPath=resolveScopedPluginRegistryPath(scope),skillRegistryPath=resolveScopedSkillRegistryPath(scope);
@@ -42,6 +47,7 @@ async function main() {
   for(const row of frozen){assert.equal(row.resource_type,'plugin');assert.equal(row.source_type,'standalone');assert.equal(row.storage_scope_type,'organization');assert.equal(row.storage_organization_id,receipt.organizationId);assert.equal(String(row.created_by_user_id),receipt.adminId);
     const revision=receipt.resourceRevisions.find(value=>value.resourceRef===row.resource_ref);assert(revision);assert.equal(Number(row.metadata_revision),revision.metadataRevision);assert.equal(Number(row.grants_revision),revision.grantsRevision);if(revision.grantsRevision!==1)assert.equal(row.artifact_name,receipt.sourceName);assert.equal(row.status,'active');assert.equal(row.access_mode,'restricted');}
   assert.equal(frozen.length,receipt.resourceRevisions.length,'Every adopted fixture resource requires an exact own revision receipt.');
+  for(const preference of preferences)assert(frozen.some(row=>row.legacy_resource_id===preference.resourceId),'Only an exact owned adopted resource preference may be removed.');
   for(const row of drafts){assert(receipt.actorIds.includes(String(row.actor_user_id)));assert(receipt.names.includes(String(row.name)));}
   const original=JSON.parse(await fs.readFile(pluginRegistryPath,'utf8')) as {plugins:Record<string,Row>};
   const anchor=original.plugins[receipt.sourceName];assert(anchor);assert.equal(anchor.name,receipt.sourceName);
@@ -50,6 +56,20 @@ async function main() {
   const safeDirectory=async(directory:string)=>{assert(directory.startsWith(`${data}${path.sep}`));assert.equal(await fs.realpath(directory),path.resolve(directory));assert((await fs.lstat(directory)).isDirectory());};
   const captureRegistry=async(file:string)=>{const raw=await fs.readFile(file,'utf8').catch(error=>{if(error.code==='ENOENT')return null;throw error;});snapshots.set(file,raw);return raw?JSON.parse(raw) as {plugins?:Record<string,Row>;skills?:Record<string,Row>;revision?:number}:null;};
   const actor={userId:receipt.adminId};
+  const preferenceFiles=[...new Set(preferences.map(value=>path.join(resolveUserSettingsDir(value.userId),'capabilities.json')))].sort();
+  const preferenceSnapshots=new Map<string,string>();
+  const withPreferenceLocks=async(index:number,operation:()=>Promise<void>):Promise<void>=>{
+    const file=preferenceFiles[index];if(!file)return operation();
+    await safeDirectory(path.dirname(file));
+    return withFileMutationLock(file,async()=>{
+      const stat=await fs.lstat(file);assert(stat.isFile()&&!stat.isSymbolicLink()&&stat.nlink===1);assert.equal(await fs.realpath(file),file);
+      const raw=await fs.readFile(file,'utf8');const document=JSON.parse(raw) as {version:number;preferences:Record<string,{enabled:boolean;revision:number}>};assert.equal(document.version,1);
+      for(const expected of preferences.filter(value=>path.join(resolveUserSettingsDir(value.userId),'capabilities.json')===file)){const observed=document.preferences[expected.resourceId];assert(observed);assert.equal(observed.enabled,expected.enabled);assert.equal(observed.revision,expected.revision);}
+      preferenceSnapshots.set(file,raw);
+      endChecks.push(async()=>{assert.equal(await fs.readFile(file,'utf8'),raw,'Personal activation changed; preserve fixture.');});
+      return withPreferenceLocks(index+1,operation);
+    });
+  };
   const registerVersionContainer=async(resourceRef:string,name:string,owner:CapabilityResourceOwnerScope)=>{
     assert.match(resourceRef,/^canvas-resource:[a-f0-9-]{36}$/u);
     const example=resolveOwnerScopedPackageVersionPath({resourceRef,revisionRef:'canvas-package-revision:00000000-0000-0000-0000-000000000000',kind:'plugin',name,owner});
@@ -65,7 +85,7 @@ async function main() {
       assert.deepEqual((await fs.readdir(path.join(container,child))).sort(),[name,'published.json'].sort());
     }endChecks.push(async()=>{await safeDirectory(container);await assertExactCleanupChildren(container,children);for(const snapshot of captured){await verifyCapabilityPackageSnapshot(snapshot);await assertExactCleanupChildren(path.dirname(snapshot.rootPath),[name,'published.json']);}});removals.add(container);
   };
-  await runConfirmedCapabilityPackageCleanup({withLock:operation=>withCapabilityPackageRegistryPublication(binding,()=>withCapabilityPackageRegistryLock('skill',scope,operation)),commit:()=>withAuthorizedCapabilityPackageResource(actor,binding,'read',undefined,async(authorization,database)=>{
+  await runConfirmedCapabilityPackageCleanup({withLock:operation=>withCapabilityPackageRegistryPublication(binding,()=>withCapabilityPackageRegistryLock('skill',scope,()=>withPreferenceLocks(0,operation))),commit:()=>withAuthorizedCapabilityPackageResource(actor,binding,'read',undefined,async(authorization,database)=>{
     assert(authorization.access.canManage,'Only the actual fixture manager may clean up owned resources.');
     const current=await database.all('SELECT * FROM capability_resources WHERE artifact_name=ANY($1::text[]) ORDER BY resource_ref FOR UPDATE',[receipt.names]) as Row[];
     assert.equal(JSON.stringify([...current].sort((a,b)=>String(a.resource_ref).localeCompare(String(b.resource_ref)))),JSON.stringify([...frozen].sort((a,b)=>String(a.resource_ref).localeCompare(String(b.resource_ref)))),'Resource rows changed; preserve fixture.');
@@ -116,6 +136,12 @@ async function main() {
   // Every end-check completes before the first destructive filesystem operation.
   for(const check of endChecks)await check();
   assert.equal((await readExactPackageInventory(receipt.sourceDirectory)).checksum,receipt.initialChecksum);
+  for(const[file,raw]of preferenceSnapshots){
+    const document=JSON.parse(raw) as {updatedAt:string;preferences:Record<string,unknown>};
+    for(const expected of preferences.filter(value=>path.join(resolveUserSettingsDir(value.userId),'capabilities.json')===file))delete document.preferences[expected.resourceId];
+    document.updatedAt=new Date().toISOString();const temporary=createAtomicTempPath(file);
+    try{await fs.writeFile(temporary,`${JSON.stringify(document,null,2)}\n`);await fs.rename(temporary,file);assert.deepEqual(JSON.parse(await fs.readFile(file,'utf8')),document,'Owned preference removal must preserve every unrelated entry.');}finally{await fs.rm(temporary,{force:true});}
+  }
   const unlock=async(directory:string):Promise<void>=>{const stat=await fs.lstat(directory);assert(!stat.isSymbolicLink());if(stat.isDirectory()){await fs.chmod(directory,0o700);for(const name of await fs.readdir(directory))await unlock(path.join(directory,name));}};
   for(const directory of removals){await safeDirectory(directory);await unlock(directory);await fs.rm(directory,{recursive:true});}
   const legacyParent=path.join(resolveScopedInstalledPluginsDir(scope),receipt.sourceName);

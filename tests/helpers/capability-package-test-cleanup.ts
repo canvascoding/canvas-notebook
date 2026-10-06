@@ -9,6 +9,7 @@ export type OwnedCapabilityPackageFixture = {
   publications:Array<{resourceRef:string;revisionRef:string;checksum:string;version:string}>;
   resourceRevisions:Array<{resourceRef:string;metadataRevision:number;grantsRevision:number}>;
   sourceResourceRef?:string;
+  preferences?:Array<{userId:string;resourceId:string;revision:number;enabled:boolean}>;
 };
 
 /** Failed cleanup keeps a private recovery receipt. Errors disclose its path only. */

@@ -34,7 +34,7 @@ export type IntegrationGatewayOptions = {
 };
 
 export type IntegrationGatewayDependencies = {
-  dispatcher: Pick<typeof integrationDispatcher, 'execute'>;
+  dispatcher: Pick<typeof integrationDispatcher, 'execute'> & Partial<Pick<typeof integrationDispatcher, 'inspectIssuedToolIdentity'>>;
   resolveContext: typeof resolveRuntimeIntegrationExecutionContext;
   resolvePolicy: typeof resolveIntegrationRuntimePolicy;
   prepareDelegation: typeof prepareDelegatedIntegrationBindings;
@@ -48,6 +48,7 @@ export type IntegrationGatewayAgentTool = AgentTool<typeof IntegrationRequestSch
   integrationGateway: {
     readonly policyCeiling: IntegrationPolicy;
     withPolicyCeiling: (policy: IntegrationPolicy) => IntegrationGatewayAgentTool;
+    inspectScriptBinding: (toolRef: string, schemaRef: string, signal?: AbortSignal) => Promise<{ source: 'mcp' | 'composio'; application?: string; toolName: string; inputSchema: Record<string, unknown> | boolean }>;
   };
 };
 
@@ -141,7 +142,7 @@ export function createIntegrationGatewayTool(
     isPersistedUncertain: isPersistedIntegrationTurnUncertain, persistUncertain: persistIntegrationTurnUncertain,
     isEnabled: () => readIntegrationToolGatewayAvailability().integrationToolGatewayEnabled, ...overrides,
   };
-  return {
+  const tool: IntegrationGatewayAgentTool = {
     name: 'integrations',
     label: 'Integrations',
     description: 'Find available MCP and Composio integrations, then discover their tools. Use list/search with target providers first; choose the returned providerRef, list/search its tools, describe a returned toolRef, and call with the returned schemaRef and arguments matching its inputSchema. Follow nextActions and pagination. References select one exact account; never invent identities, schemas or references. Native Canvas email tools remain the email workflow. If outcome_unknown is returned, inspect the provider outcome before repeating; never retry or switch providers automatically.',
@@ -151,6 +152,28 @@ export function createIntegrationGatewayTool(
     integrationGateway: {
       policyCeiling: ceiling,
       withPolicyCeiling: (policy) => createIntegrationGatewayTool({ ...options, policyCeiling: intersectIntegrationPolicies(ceiling, policy) }, dependencies),
+      async inspectScriptBinding(toolRef, schemaRef, signal) {
+        const result = await tool.execute('script-binding-check', { action: 'describe', toolRef }, signal);
+        const details = result.details as { schemaRef?: string; inputSchema: Record<string, unknown> | boolean;
+          nextActions?: Array<{ kind: string }>; integrationError?: IntegrationErrorResult };
+        if (details.integrationError) throw new IntegrationContractError(details.integrationError.error.code, details.integrationError.error.message);
+        if (details.schemaRef !== schemaRef || !dependencies.dispatcher.inspectIssuedToolIdentity) {
+          throw new IntegrationContractError('schema_changed', ERROR_MESSAGES.schema_changed);
+        }
+        if (!details.nextActions?.some(action => action.kind === 'input_required')) {
+          throw new IntegrationContractError('tool_denied', ERROR_MESSAGES.tool_denied);
+        }
+        const current = getAgentExecutionContext() ?? executionContext;
+        if (!current || !options.userId || !options.sessionId || current.userId !== options.userId || current.sessionId !== options.sessionId
+          || options.agentId && current.agentId !== options.agentId || executionContext && !sameIdentity(executionContext, current)) {
+          throw new IntegrationContractError('provider_denied', ERROR_MESSAGES.provider_denied);
+        }
+        const resolved = await dependencies.resolveContext({ executionContext: { ...current }, policyRevision: 'script-binding-check' });
+        const runtime = await dependencies.resolvePolicy({ executionContext: resolved.executionContext, ceiling,
+          planningMode: options.planningMode, emailEventAutomation: options.emailEventAutomation });
+        return { ...dependencies.dispatcher.inspectIssuedToolIdentity({ ...resolved.integrationContext, policyRevision: runtime.policyRevision }, runtime.policy, toolRef, schemaRef),
+          inputSchema: structuredClone(details.inputSchema) };
+      },
     },
     async execute(toolCallId, params, signal) {
       let request: IntegrationRequest | undefined;
@@ -291,6 +314,7 @@ export function createIntegrationGatewayTool(
       }
     },
   };
+  return tool;
 }
 
 export function isIntegrationGatewayTool(tool: AgentTool): tool is IntegrationGatewayAgentTool {

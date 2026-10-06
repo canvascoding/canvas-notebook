@@ -118,6 +118,9 @@ export const DELEGATABLE_PI_TOOLSETS = new Set<PiToolset>([
 ]);
 
 export const SKILL_TOOL_NAMES = [
+  'list_canvas_skill_scripts',
+  'describe_canvas_skill_script',
+  'run_canvas_skill_script',
   'inspect_canvas_package',
   'set_canvas_package_activation',
   'list_canvas_package_scopes',

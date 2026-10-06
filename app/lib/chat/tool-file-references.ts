@@ -50,7 +50,8 @@ export function extractLegacyToolFileReferences(input: {
   normalizePath?: (path: unknown) => string | null;
 }): ChatFileReference[] {
   const details = input.details;
-  if (!record(details) || details.error || details.isError === true) return [];
+  if (!record(details) || details.isError === true
+    || details.error && !(input.toolName === 'run_canvas_skill_script' && details.kind === 'skill_script_result')) return [];
   const normalize = input.normalizePath ?? normalizeReferenceWorkspacePath;
   const references: ChatFileReference[] = [];
   const add = (value: unknown, kind: ChatFileReferenceKind) => {
@@ -70,6 +71,9 @@ export function extractLegacyToolFileReferences(input: {
   } else if (input.toolName === 'write' || input.toolName === 'edit_file') mutation(details);
   else if (input.toolName === 'apply_patch' && details.kind === 'file_patch_batch' && Array.isArray(details.results)) {
     details.results.forEach(mutation);
+  }
+  else if (input.toolName === 'run_canvas_skill_script' && details.kind === 'skill_script_result' && Array.isArray(details.files)) {
+    details.files.forEach(mutation);
   }
   return references;
 }
