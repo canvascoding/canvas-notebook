@@ -1,0 +1,46 @@
+{
+  "version": 1,
+  "branch": "feat/plugin-integration-gateway",
+  "plan": "docs/architecture/canvas-notebook/plugin-tool-gateway/plan.md",
+  "status": "in_progress",
+  "rules": {
+    "sequentialAcceptance": true,
+    "commitCompletedSteps": true,
+    "playwrightAuthorized": true,
+    "containerBuildAuthorized": false,
+    "publishAuthorized": false
+  },
+  "steps": [
+    { "id": "0", "name": "Allgemeiner Composio-Fix", "status": "complete", "commits": ["d8cb779df", "e83f7cdcc", "409897b9d"] },
+    { "id": "1", "name": "Vertrag und Provider-Katalog", "status": "complete", "evidence": [
+      "npm run test:integrations:gateway:catalog: PASS (strict contract, scopes/policies/cursors, PostgreSQL session/workspace/agent access, real MCP HTTP fixture, real local Composio SDK HTTP and Managed fixture)",
+      "npm run test:mcp:member-access: PASS",
+      "npm run test:composio:user-scope: PASS",
+      "npx tsc --noEmit --pretty false --incremental false: PASS",
+      "ESLint changed integration modules and five focused scripts: PASS",
+      "npm run build: PASS (2026-10-06)",
+      "git diff --check: PASS",
+      "Provider fixtures prove the protocol and isolation; actual third-party account acceptance remains in step 7."
+    ] },
+    { "id": "2", "name": "Tool-Suche, Schema und Dispatcher", "status": "pending", "evidence": [] },
+    { "id": "3", "name": "Agenten-Runtime und Feature-Flag", "status": "pending", "evidence": [] },
+    { "id": "4a", "name": "Ressourcenmetadaten und gezielte Freigaben", "status": "pending", "evidence": [] },
+    { "id": "4b", "name": "Gemeinsame MCP-Verbindungen und Composio-Profile", "status": "pending", "evidence": [] },
+    { "id": "5a", "name": "Gemeinsame und versionierte Skill-Pakete", "status": "pending", "evidence": [] },
+    { "id": "5b", "name": "Skill-Code-Laufzeit und begrenzte Tool-Bruecke", "status": "pending", "evidence": [] },
+    { "id": "5c", "name": "Workflow-Agenten und verbindliche Capability-Bindungen", "status": "pending", "evidence": [] },
+    { "id": "6a", "name": "Plugin-Seite und Store-Redesign", "status": "pending", "evidence": [] },
+    { "id": "6b", "name": "Agent-Konfiguration, OAuth-Rueckkehr und Mobile-Vertrag", "status": "pending", "evidence": [] },
+    { "id": "7", "name": "End-to-End-Abnahme und kontrollierter Rollout", "status": "pending", "evidence": [] }
+  ],
+  "finalAcceptance": {
+    "planScenarios": "1-27",
+    "build": "pending",
+    "focusedRegression": "pending",
+    "playwrightDesktopAndMobile": "pending",
+    "actualMcpAccount": "pending",
+    "actualComposioAccount": "pending",
+    "sharedCanvaAccount": "pending",
+    "publication": "requires_separate_authorization"
+  }
+}

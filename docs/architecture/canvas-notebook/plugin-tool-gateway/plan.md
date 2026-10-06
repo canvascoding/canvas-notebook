@@ -1,7 +1,7 @@
 # Canvas Agent Tools und Plugin Gateway
 
 Stand: 2026-10-06, auf Basis des Composio-Fixes `409897b9d` und der geprüften bestehenden Agent-/Skill-Verwaltung.
-Status: Architekturvorschlag. Die gemeinsame Schicht ist noch nicht implementiert.
+Status: Umsetzung auf `feat/plugin-integration-gateway`. Schritt 1 (Vertrag, Policy, Provider-Katalog und serverseitige Kontextauflösung) ist implementiert und geprüft; Runtime, gemeinsame Ressourcen und UI folgen. Der verbindliche Fortschritt mit Abnahmebelegen steht in [implementation.json](implementation.json).
 
 ## Ziel und Entscheidungsvorschlag
 

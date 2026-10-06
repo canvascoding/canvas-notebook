@@ -381,6 +381,7 @@
     "test:email:inbox-flow": "tsx --conditions react-server scripts/email-inbox-reading-flow-test.ts",
     "test:composio:user-scope": "tsx scripts/composio-user-scope-test.ts",
     "test:composio:agent-user-flow": "tsx scripts/composio-agent-user-flow-test.ts",
+    "test:integrations:gateway:catalog": "tsx scripts/integration-tool-contract-test.ts && tsx --conditions react-server scripts/integration-tool-catalog-test.ts && tsx --conditions react-server scripts/integration-tool-context-test.ts && tsx --conditions react-server scripts/integration-tool-mcp-catalog-test.ts && tsx --conditions react-server scripts/integration-tool-composio-catalog-test.ts",
     "test:auth:setup": "tsx --conditions react-server scripts/auth-setup-test.ts",
     "test:auth:seat-limit": "tsx --conditions react-server scripts/auth-seat-limit-test.ts",
     "test:mobile:compatibility": "tsx --conditions react-server scripts/mobile-compatibility-test.ts && tsx --conditions react-server scripts/mobile-compatibility-route-test.ts && tsx --conditions react-server scripts/mobile-app-promotion-test.ts && tsx --conditions react-server scripts/mobile-app-promotion-postgres-test.ts && tsx scripts/mobile-setup-link-test.ts && tsx scripts/mobile-setup-card-ui-test.tsx",
