@@ -20,6 +20,7 @@ import { McpServerSettingsPanel } from '@/app/components/settings/McpServerSetti
 import { McpConnectionHealthStatus } from '@/app/components/settings/McpConnectionHealthStatus';
 import { McpSharedDefinitionsPanel } from '@/app/components/settings/McpSharedDefinitionsPanel';
 import { SystemEmailSettingsPanel } from '@/app/components/settings/SystemEmailSettingsPanel';
+import { EmailClassificationSettingsCard } from '@/app/components/settings/EmailClassificationSettingsCard';
 import { UpdateCenterPanel } from '@/app/components/settings/UpdateCenterPanel';
 import {
   McpServerDialog,
@@ -2871,6 +2872,7 @@ export function IntegrationsSettingsClient({
 
           {renderLazyTabContent('system-email', (
             <>
+              {isAdmin && <EmailClassificationSettingsCard />}
               <EmailAccountsCard
                 isOpen={integrationsSectionOpenById.emailAccounts}
                 onOpenChange={(isOpen) => setIntegrationsSectionOpen('emailAccounts', isOpen)}
