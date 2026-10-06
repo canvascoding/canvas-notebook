@@ -158,7 +158,7 @@ const TOOLSET_TOOL_NAMES: Record<PiToolset, Set<string>> = {
     'update_automation_job',
   ]),
   browser: new Set(['browser']),
-  composio: new Set(['composio', 'composio_execute']),
+  composio: new Set(['composio', 'composio_execute', 'integrations']),
   delegation: new Set(['delegate_task']),
   email: new Set([
     'email_create_or_update_case',
@@ -174,7 +174,7 @@ const TOOLSET_TOOL_NAMES: Record<PiToolset, Set<string>> = {
   ]),
   file: new Set(['apply_patch', 'checkout_docx', 'commit_docx', 'inspect_docx_checkout', 'release_docx_checkout', 'copy_path', 'delete_path', 'edit_excalidraw_scene', 'edit_file', 'glob', 'grep', 'inspect_document_relations', 'list_file_snapshots', 'ls', 'move_path', 'public_share_file', 'read', 'restore_file_snapshot', 'rg', 'write']),
   memory: new Set(['memory']),
-  mcp: new Set(['mcp']),
+  mcp: new Set(['mcp', 'integrations']),
   pdf: new Set(['create_pdf', 'pdf_to_markdown', 'split_pdf', 'edit_pdf_pages']),
   session_search: new Set(['session_search']),
   skills: new Set([...SKILL_TOOL_NAMES, 'canvas_extensions']),

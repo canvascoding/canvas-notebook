@@ -236,7 +236,7 @@ export function ToolCallPill({
   const imageAttachments = getPreviewableToolImageAttachments(message);
   const imagePreviewGroup = previewGroup?.length ? previewGroup : imageAttachments;
   const primaryAttachmentName = imageAttachments[0]?.name;
-  const targetPreview = primaryAttachmentName || getToolTargetPreview(message.toolArgs);
+  const targetPreview = display.context || primaryAttachmentName || getToolTargetPreview(message.toolArgs);
   const isOpen = open ?? uncontrolledOpen;
 
   const handleOpenChange = (nextOpen: boolean) => {
@@ -272,7 +272,7 @@ export function ToolCallPill({
             ? 'border-amber-500/30 bg-amber-500/10 text-amber-700 hover:bg-amber-500/15 dark:text-amber-300'
             : 'border-border/70 bg-background/85 text-muted-foreground hover:border-primary/30 hover:bg-accent hover:text-foreground'
       }`}
-      aria-label={`${display.label}: ${toolStatusLabel}`}
+      aria-label={`${display.label}${display.context ? ` · ${display.context}` : ''}: ${toolStatusLabel}`}
     >
       <Icon className="h-3.5 w-3.5 shrink-0" />
       <span className="min-w-0 truncate font-medium">{display.label}</span>
@@ -308,6 +308,8 @@ export function ToolCallPill({
               )}
             </div>
             <div className="mt-0.5 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+              {display.context ? <span data-testid="chat-integration-context">{display.context}</span> : null}
+              {display.toolLabel ? <span>{display.toolLabel}</span> : null}
               {isMobile ? (
                 <DialogDescription asChild>
                   <span>{toolStatusLabel}</span>
@@ -468,7 +470,7 @@ export function ToolBatchDisclosure({
   const isAborting = batch.calls.some((call) => call.message?.status === 'aborting');
   const isRunning = completedCount < batch.calls.length || batch.calls.some((call) => call.message?.status === 'sending');
   const duration = formatRunDuration(batch.startedAt, batch.endedAt);
-  const targetPreview = getToolTargetPreview(primaryCall?.toolArgs);
+  const targetPreview = display.context || getToolTargetPreview(primaryCall?.toolArgs);
   const summary = batch.calls.length > 1
     ? t('toolBatchSummary', { label: display.label, count: batch.calls.length })
     : display.label;
@@ -499,7 +501,8 @@ export function ToolBatchDisclosure({
           <Icon className={cn('h-4 w-4 shrink-0', errorCount > 0 ? 'text-destructive' : 'text-muted-foreground')} />
           <span className="min-w-0 truncate font-medium">{summary}</span>
           {targetPreview ? (
-            <span className="hidden min-w-0 max-w-[12rem] truncate text-xs text-muted-foreground/75 sm:inline">
+            <span className={cn('min-w-0 max-w-[12rem] truncate text-xs text-muted-foreground/75',
+              !display.context && 'hidden sm:inline')}>
               {targetPreview}
             </span>
           ) : null}

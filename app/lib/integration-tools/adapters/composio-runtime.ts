@@ -329,6 +329,8 @@ async function callTool(context: IntegrationExecutionContext, provider: Integrat
   const checkedCredentials = await credentialRevision(binding.context, binding.mode,
     binding.mode === 'managed' ? await managedCapabilities(binding.context) : null, binding.client);
   if (checkedCredentials !== binding.credentialRevision) throw new IntegrationContractError('binding_changed', 'The Composio provider configuration changed. Load the schema again.');
+  await input.beforeDispatch?.();
+  input.signal?.throwIfAborted();
   const result = await withSignal(input.signal, true, async (signal) => {
     if (binding.mode === 'managed') return requestManagedComposio('/execute', { method: 'POST', signal, bindingProtocolErrors: true, body: {
       bindingProtocolVersion: 1, action: tool.name, params: args, toolkit: binding.toolkit, version,

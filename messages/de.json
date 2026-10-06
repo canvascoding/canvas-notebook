@@ -7314,6 +7314,13 @@
       }
     },
     "experimental": {
+      "integrationToolGatewayTitle": "Agenten-Integrationen",
+      "enableIntegrationToolGateway": "Gemeinsame Suche für Agenten-Integrationen aktivieren",
+      "integrationToolGatewayDescription": "Agenten finden verfügbare MCP-Verbindungen und Composio-Apps über eine gemeinsame Suche und laden die benötigten Tools schrittweise.",
+      "integrationToolGatewayNote": "Bestehende Agentenberechtigungen und verbundene Profile gelten weiterhin. Änderungen werden bei der nächsten Agentenanfrage berücksichtigt.",
+      "integrationToolGatewayEnabled": "Gemeinsame Integrationssuche ist aktiviert.",
+      "integrationToolGatewayDisabled": "Gemeinsame Integrationssuche ist ausgeschaltet.",
+      "integrationToolGatewayLoadError": "Die Integrationseinstellung konnte nicht geladen werden. Öffne diese Seite erneut, um es noch einmal zu versuchen.",
       "studioBulkTitle": "Studio Bulk-Generierung",
       "enableStudioBulk": "Studio Bulk-Generierung aktivieren",
       "studioBulkDescription": "Aktiviert den experimentellen Bulk-Bereich im Studio, um mehrere Produkte mit gemeinsamen Einstellungen zu generieren. Die bisherigen Studio-Berechtigungen gelten weiterhin.",

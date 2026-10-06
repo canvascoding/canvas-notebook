@@ -63,7 +63,8 @@ export function createIntegrationSchemaRef(input: {
   return `schema:v1:${schemaFingerprint({
     version: 1,
     context: { actorUserId: context.actorUserId, organizationId: context.organizationId ?? null,
-      workspaceId: context.workspaceId ?? null, agentId: context.agentId ?? null, policyRevision: context.policyRevision },
+      workspaceId: context.workspaceId ?? null, agentId: context.agentId ?? null,
+      sessionId: context.sessionId ?? null, policyRevision: context.policyRevision },
     policy: input.policy,
     providerRef: input.providerRef,
     bindingRevision: input.bindingRevision,

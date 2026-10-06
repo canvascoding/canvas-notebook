@@ -17,6 +17,7 @@ import {
 import { isIntegrationOperationAllowed, isIntegrationProviderVisible, isIntegrationToolAllowed } from './policy';
 import { IntegrationReferenceCache } from './reference-cache';
 import { createIntegrationToolRef } from './references';
+import type { DelegatedComposioToolBinding, IntegrationBindingSelection } from './delegation-contracts';
 import type {
   IntegrationAdapterToolSchema,
   IntegrationResolvedProvider,
@@ -53,7 +54,7 @@ export type IntegrationCallResult = {
 export type IntegrationDispatchResult = IntegrationProviderPage | IntegrationToolPage | IntegrationToolSchema | IntegrationCallResult;
 
 function contextNamespace(context: IntegrationExecutionContext): string {
-  return schemaFingerprint([context.actorUserId, context.organizationId || null, context.workspaceId || null, context.agentId || null]);
+  return schemaFingerprint([context.actorUserId, context.organizationId || null, context.workspaceId || null, context.agentId || null, context.sessionId || null]);
 }
 
 function currentPolicyFingerprint(context: IntegrationExecutionContext, policy: IntegrationPolicy): string {
@@ -95,6 +96,99 @@ export class IntegrationDispatcher {
     return adapter;
   }
 
+  /** Server-only handoff: a reference is selected from a schema actually issued to this parent session. */
+  async exportDelegatedComposioSchema(input: {
+    context: IntegrationExecutionContext;
+    policy: IntegrationPolicy;
+    selection: IntegrationBindingSelection;
+    signal?: AbortSignal;
+  }): Promise<DelegatedComposioToolBinding> {
+    const context = { ...input.context };
+    const policy = structuredClone(input.policy);
+    const selection = { ...input.selection };
+    if (!context.sessionId?.trim()) throw new IntegrationContractError('provider_denied', 'An owned parent session is required for integration handoff.');
+    const namespace = contextNamespace(context);
+    const route = this.routes.get(`${namespace}:${selection.toolRef}`);
+    const issued = this.schemas.get(`${namespace}:${selection.schemaRef}`);
+    if (!route || route.source !== 'composio' || !issued
+      || issued.route.providerRef !== route.providerRef || issued.route.toolName !== route.toolName
+      || issued.contextFingerprint !== currentPolicyFingerprint(context, policy)) {
+      throw new IntegrationContractError('schema_changed', 'Describe the selected Composio operation in the current parent session before handing it off.');
+    }
+    const binding = { providerRef: route.providerRef, toolName: route.toolName,
+      bindingRevision: issued.bindingRevision, tool: structuredClone(issued.tool) };
+    await this.checkDelegatedComposioSchema(context, policy, binding, 'describe', input.signal);
+    return binding;
+  }
+
+  private async checkDelegatedComposioSchema(context: IntegrationExecutionContext, policy: IntegrationPolicy,
+    binding: DelegatedComposioToolBinding, operation: 'describe' | 'call', signal?: AbortSignal): Promise<IntegrationResolvedProvider> {
+    signal?.throwIfAborted();
+    if (sourceFromProviderRef(binding.providerRef) !== 'composio'
+      || binding.tool.name !== binding.toolName || !binding.tool.toolVersion
+      || !isIntegrationOperationAllowed(policy, 'composio', operation)) {
+      throw new IntegrationContractError('tool_denied', 'The approved Composio operation is not available to this agent.');
+    }
+    const adapter = await this.adapter('composio');
+    const resolved = await adapter.resolveProvider(context, binding.providerRef);
+    assertProviderAllowed(context, policy, resolved, binding.providerRef);
+    if (!isIntegrationToolAllowed(context, policy, resolved.provider, binding.toolName, operation)) {
+      throw new IntegrationContractError('tool_denied', 'The approved Composio operation is not available to this agent.');
+    }
+    if (resolved.bindingRevision !== binding.bindingRevision) {
+      throw new IntegrationContractError('binding_changed', 'The approved Composio connection changed. Ask the delegating agent to refresh it.');
+    }
+    if (!resolved.provider.canExecute) throw new IntegrationContractError('provider_unavailable', 'The approved Composio connection is unavailable.');
+    const current = structuredClone(await adapter.describeTool(context, resolved, binding.toolName, signal));
+    await validateIntegrationSchema(current.inputSchema);
+    if (current.outputSchema !== undefined) await validateIntegrationSchema(current.outputSchema);
+    if (schemaFingerprint(current) !== schemaFingerprint(binding.tool)) {
+      throw new IntegrationContractError('schema_changed', 'The approved Composio operation changed. Ask the delegating agent to refresh it.');
+    }
+    return resolved;
+  }
+
+  /** Persisted, bounded metadata can be revalidated after a parent reference cache expires. */
+  async verifyDelegatedComposioSchema(input: {
+    context: IntegrationExecutionContext; policy: IntegrationPolicy; binding: DelegatedComposioToolBinding;
+    operation: 'describe' | 'call'; signal?: AbortSignal;
+  }): Promise<void> {
+    const context = { ...input.context };
+    const policy = structuredClone(input.policy);
+    const binding = structuredClone(input.binding);
+    await this.checkDelegatedComposioSchema(context, policy, binding, input.operation, input.signal);
+  }
+
+  /** Internal validation uses call rights; it does not grant or perform public tool discovery/describe. */
+  async seedDelegatedComposioSchema(input: {
+    context: IntegrationExecutionContext;
+    policy: IntegrationPolicy;
+    binding: DelegatedComposioToolBinding;
+    signal?: AbortSignal;
+  }): Promise<IntegrationToolSchema> {
+    const context = { ...input.context };
+    const policy = structuredClone(input.policy);
+    const binding = structuredClone(input.binding);
+    if (!context.sessionId?.trim()) throw new IntegrationContractError('provider_denied', 'An owned worker session is required for integration handoff.');
+    const resolved = await this.checkDelegatedComposioSchema(context, policy, binding, 'call', input.signal);
+    const toolRef = createIntegrationToolRef(binding.providerRef, binding.toolName);
+    const schemaRef = createIntegrationSchemaRef({ context, policy, ...binding,
+      toolVersion: binding.tool.toolVersion, inputSchema: binding.tool.inputSchema, outputSchema: binding.tool.outputSchema });
+    const route: ToolRoute = { source: 'composio', providerRef: binding.providerRef, toolName: binding.toolName };
+    const namespace = contextNamespace(context);
+    this.routes.set(`${namespace}:${toolRef}`, route);
+    this.schemas.set(`${namespace}:${schemaRef}`, { route, schemaRef, bindingRevision: binding.bindingRevision,
+      contextFingerprint: currentPolicyFingerprint(context, policy), tool: binding.tool });
+    return { version: INTEGRATION_CONTRACT_VERSION, toolRef, providerRef: binding.providerRef, schemaRef,
+      toolVersion: binding.tool.toolVersion, inputSchema: structuredClone(binding.tool.inputSchema),
+      ...(binding.tool.outputSchema === undefined ? {} : { outputSchema: structuredClone(binding.tool.outputSchema) }),
+      skillRefs: resolved.provider.skillRefs,
+      nextActions: [{ kind: 'input_required', label: 'Execute the operation approved for this delegated task',
+        request: { action: 'call', toolRef, schemaRef }, requiredArguments: typeof binding.tool.inputSchema === 'object'
+          && Array.isArray(binding.tool.inputSchema.required) ? binding.tool.inputSchema.required.filter((key): key is string => typeof key === 'string') : [] }],
+    };
+  }
+
   async execute(input: {
     context: IntegrationExecutionContext;
     policy: IntegrationPolicy;
@@ -103,6 +197,7 @@ export class IntegrationDispatcher {
     signal?: AbortSignal;
     preferredSource?: IntegrationSource;
     confirmedProviderRefs?: readonly string[];
+    beforeToolCall?: () => Promise<void>;
   }): Promise<IntegrationDispatchResult> {
     const parsedRequest = parseIntegrationRequest(input.request);
     const request = parsedRequest.action === 'call'
@@ -113,6 +208,7 @@ export class IntegrationDispatcher {
     const policy = structuredClone(input.policy);
     const signal = input.signal;
     const toolCallId = input.toolCallId;
+    const beforeToolCall = input.beforeToolCall;
     if (!context.actorUserId.trim() || !context.policyRevision.trim()) {
       throw new IntegrationContractError('provider_denied', 'A current authenticated integration context is required.');
     }
@@ -219,8 +315,9 @@ export class IntegrationDispatcher {
     }
     const args = request.arguments;
     await validateIntegrationArguments(current.inputSchema, args);
+    await beforeToolCall?.();
     signal?.throwIfAborted();
-    const result = await adapter.callTool(context, resolved, current, args, { toolCallId, signal });
+    const result = await adapter.callTool(context, resolved, current, args, { toolCallId, signal, beforeDispatch: beforeToolCall });
     return {
       version: INTEGRATION_CONTRACT_VERSION, target: 'result', toolRef: request.toolRef,
       providerRef: route.providerRef, source: route.source, displayName: resolved.provider.displayName, result,

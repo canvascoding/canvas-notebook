@@ -7315,6 +7315,13 @@
       }
     },
     "experimental": {
+      "integrationToolGatewayTitle": "Agent integrations",
+      "enableIntegrationToolGateway": "Enable shared discovery for agent integrations",
+      "integrationToolGatewayDescription": "Agents find available MCP connections and Composio apps through shared discovery and load the tools they need step by step.",
+      "integrationToolGatewayNote": "Existing agent permissions and connected profiles continue to apply. Changes take effect on the next agent request.",
+      "integrationToolGatewayEnabled": "Shared integration discovery is enabled.",
+      "integrationToolGatewayDisabled": "Shared integration discovery is disabled.",
+      "integrationToolGatewayLoadError": "Could not load the integration setting. Reopen this page to try again.",
       "studioBulkTitle": "Studio Bulk Generation",
       "enableStudioBulk": "Enable Studio bulk generation",
       "studioBulkDescription": "Enables the experimental Bulk area in Studio to generate multiple products with shared settings. Existing Studio permissions still apply.",

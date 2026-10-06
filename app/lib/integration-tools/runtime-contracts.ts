@@ -45,7 +45,12 @@ export type IntegrationToolAdapter = {
   describeTool(context: IntegrationExecutionContext, provider: IntegrationResolvedProvider, toolName: string, signal?: AbortSignal): Promise<IntegrationAdapterToolSchema>;
   /** Recheck binding and concrete schema/version before exactly one provider execution. */
   callTool(context: IntegrationExecutionContext, provider: IntegrationResolvedProvider, tool: IntegrationAdapterToolSchema,
-    args: Record<string, unknown>, input: { toolCallId: string; signal?: AbortSignal }): Promise<AgentToolResult<unknown>>;
+    args: Record<string, unknown>, input: {
+      toolCallId: string;
+      signal?: AbortSignal;
+      /** Trusted runtime authority check after adapter metadata reads, immediately before business dispatch. */
+      beforeDispatch?: () => Promise<void>;
+    }): Promise<AgentToolResult<unknown>>;
 };
 
 export type IntegrationToolAdapters = Record<IntegrationSource, IntegrationToolAdapter>;

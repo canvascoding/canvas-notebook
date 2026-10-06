@@ -3,6 +3,7 @@ import { finalizeToolOutputBlocks } from '@/app/lib/pi/tool-output-block-storage
 import { runAgentLoop, type AgentContext, type AgentLoopConfig, type AgentMessage, type ThinkingLevel } from '@earendil-works/pi-agent-core';
 import { createInitialSystemMessage, normalizeContext, toToolDeclaration, type Api, type ProviderId } from '@earendil-works/pi-ai';
 import { replaceNextTurnContext } from '@/app/lib/pi/next-turn-context';
+import { getIntegrationGatewayErrorOverride, readIntegrationGatewayErrorCode, INTEGRATION_GATEWAY_ERROR_MESSAGES } from '@/app/lib/integration-tools/agent-errors';
 
 import {
   resolveAndPinSessionRuntime,
@@ -93,6 +94,7 @@ import {
   revalidateAutomationRunClaim,
   recordAutomationRunContextProvenance,
   updateAutomationJob,
+  automationRunIntegrationTurnId,
 } from './store';
 import { resolveAutomationRunWorkspace } from './policy';
 import { type AutomationJobRecord, type AutomationRunRecord } from './types';
@@ -358,6 +360,22 @@ export async function executeAutomationRun(runId: string): Promise<void> {
   }
 
   const automationUserId = job.responsibleUserId || job.ownerUserId || job.createdByUserId;
+  let uncertainIntegrationOutcome = false;
+  let uncertainTerminal: Promise<AutomationRunRecord | null> | undefined;
+  const persistUncertainOutcome = (events: string[] = []): Promise<AutomationRunRecord | null> => {
+    uncertainIntegrationOutcome = true;
+    // Persist the queue barrier as soon as the trusted tool reports uncertainty,
+    // before presentation, session persistence, abort or notification can fail.
+    uncertainTerminal ??= markAutomationRunFinished(run.id, {
+      status: 'failed', errorMessage: INTEGRATION_GATEWAY_ERROR_MESSAGES.outcome_unknown,
+      resultText: `Automation stopped: ${INTEGRATION_GATEWAY_ERROR_MESSAGES.outcome_unknown}`,
+      eventsLog: events.slice(),
+      metadataJson: { agentId: job.agentId, status: 'failed', integrationErrorCode: 'outcome_unknown',
+        automationPaused: true, automationPauseReason: 'integration_outcome_unknown', retryAt: null },
+      expectation: runTransitionExpectation, pauseJobForUnknownOutcome: true,
+    }).catch((error) => { uncertainTerminal = undefined; throw error; });
+    return uncertainTerminal;
+  };
   console.log(`[Automationen] Starting run ${runId} for job "${job.name}" (type=${job.jobType}, scope=${job.scope}, workspace=${job.workspaceId ?? 'legacy'})`);
 
   try {
@@ -393,12 +411,12 @@ export async function executeAutomationRun(runId: string): Promise<void> {
       status: 'running',
       attemptNumber: startedRun.attemptNumber,
     };
-    let executionContext = await addEffectiveSkillReadRoots(workspaceToAgentExecutionContext({
+    let executionContext = await addEffectiveSkillReadRoots({ ...workspaceToAgentExecutionContext({
       workspace: automationWorkspace,
       userId: automationUserId,
       sessionId: piSessionId,
       agentId: job.agentId,
-    }));
+    }), agentTurnId: automationRunIntegrationTurnId(run.id) });
 
     await withExclusivePiSessionExecution({
       sessionId: piSessionId,
@@ -411,12 +429,12 @@ export async function executeAutomationRun(runId: string): Promise<void> {
           throw new Error('Automation workspace identity changed while waiting for session execution.');
         }
         automationWorkspace = refreshedWorkspace;
-        executionContext = await addEffectiveSkillReadRoots(workspaceToAgentExecutionContext({
+        executionContext = await addEffectiveSkillReadRoots({ ...workspaceToAgentExecutionContext({
           workspace: refreshedWorkspace,
           userId: automationUserId,
           sessionId: piSessionId,
           agentId: job.agentId,
-        }));
+        }), agentTurnId: automationRunIntegrationTurnId(run.id) });
       },
       operation: async (reservation) => {
         try {
@@ -860,6 +878,13 @@ export async function executeAutomationRun(runId: string): Promise<void> {
         const thinkingLevel = executableRuntime.selection.selection.thinkingLevel as ThinkingLevel;
         const config = {
           model,
+          afterToolCall: async (context) => {
+            const override = getIntegrationGatewayErrorOverride(context);
+            if (readIntegrationGatewayErrorCode(context.toolCall.name, context.result.details) === 'outcome_unknown') {
+              await persistUncertainOutcome(events);
+            }
+            return override;
+          },
           reasoning: thinkingLevel === 'off' ? undefined : thinkingLevel,
           convertToLlm: async (messages: AgentMessage[]) => {
             latestProviderSourceMessages = messages.slice();
@@ -966,6 +991,12 @@ export async function executeAutomationRun(runId: string): Promise<void> {
           executionSignal,
           mainRequestStreamFn,
         );
+        finalMessages = loopMessages;
+        if (uncertainIntegrationOutcome || loopMessages.some((message) => message.role === 'toolResult'
+          && readIntegrationGatewayErrorCode(message.toolName, message.details) === 'outcome_unknown')) {
+          await persistUncertainOutcome(events);
+          throw new Error(INTEGRATION_GATEWAY_ERROR_MESSAGES.outcome_unknown);
+        }
         assertAutomationExecutionActive(executionSignal);
         events.push(...loopEvents);
         finalMessages = loopMessages;
@@ -1093,10 +1124,12 @@ export async function executeAutomationRun(runId: string): Promise<void> {
         const duration = Date.now() - runStartTime;
         console.log(`[Automationen] Run ${runId} completed successfully (duration=${duration}ms)`);
       } catch (error) {
-        assertAutomationExecutionActive(executionSignal);
-        const message = error instanceof Error ? error.message : 'Automation run failed.';
+        if (uncertainIntegrationOutcome) await persistUncertainOutcome(events);
+        else assertAutomationExecutionActive(executionSignal);
+        const message = uncertainIntegrationOutcome ? INTEGRATION_GATEWAY_ERROR_MESSAGES.outcome_unknown
+          : error instanceof Error ? error.message : 'Automation run failed.';
         const pauseJobAfterFailure = shouldPauseAutomationAfterDeliveryFailure(dispatchResult);
-        const retryAt = pauseJobAfterFailure ? null : calculateRetryAt(runTransitionExpectation.attemptNumber);
+        const retryAt = uncertainIntegrationOutcome || pauseJobAfterFailure ? null : calculateRetryAt(runTransitionExpectation.attemptNumber);
         const fallbackErrorMessage = createAutomationErrorMessage(message, model.provider, model.id, model.api);
         const persistedMessages = finalMessages.length > 0
           ? (extractAssistantText(finalMessages) ? finalMessages : [...finalMessages, fallbackErrorMessage])
@@ -1113,7 +1146,7 @@ export async function executeAutomationRun(runId: string): Promise<void> {
           promptPersistedBeforeRun,
         });
         if (sessionReadyForPersistence) {
-          await savePiSession(
+          const persistSession = savePiSession(
             piSessionId,
             automationUserId,
             provider,
@@ -1130,7 +1163,23 @@ export async function executeAutomationRun(runId: string): Promise<void> {
               workspaceId: automationWorkspace.workspaceId,
             },
           );
-          assertAutomationExecutionActive(executionSignal);
+          if (uncertainIntegrationOutcome) {
+            await persistSession.catch(() => console.warn(`[Automationen] Uncertain run ${runId} is paused; session output could not be saved`));
+          } else {
+            await persistSession;
+            assertAutomationExecutionActive(executionSignal);
+          }
+        }
+
+        if (uncertainIntegrationOutcome) {
+          const stoppedRun = await persistUncertainOutcome(events);
+          if (stoppedRun) {
+            await markWorkspaceEmailAutomationEventRunFinished({ run: stoppedRun, status: 'failed', errorMessage: message }).catch(() => undefined);
+            await sendAutomationTerminalPush({ userId: automationUserId, workspaceId: job.workspaceId,
+              runId: run.id, jobName: job.name, triggerType: run.triggerType, status: 'failed' }).catch(() => undefined);
+          }
+          console.error(`[Automationen] Run ${runId} stopped with an uncertain external action; job ${job.id} is paused for review`);
+          return;
         }
 
         if (retryAt) {
@@ -1207,6 +1256,11 @@ export async function executeAutomationRun(runId: string): Promise<void> {
       },
     });
   } catch (error) {
+    if (uncertainIntegrationOutcome) {
+      await persistUncertainOutcome();
+      console.error(`[Automationen] Run ${runId} remains paused after an uncertain external action`);
+      return;
+    }
     const message = error instanceof Error ? error.message : 'Automation run preparation failed.';
     if (error instanceof AutomationRunClaimLostError) {
       console.warn(`[Automationen] Run ${runId} stopped because its claim was lost before session execution`);

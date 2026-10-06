@@ -12,6 +12,7 @@ import type { McpScope } from '@/app/lib/mcp/scope';
 import { prepareMcpToolInvocation } from '@/app/lib/mcp/tool-result';
 import { assertUnifiedEnvReadable, readUnifiedEnvState } from '@/app/lib/secrets/unified-env-store';
 import { IntegrationContractError, INTEGRATION_MAX_PAGE_SIZE, type IntegrationExecutionContext } from '../contracts';
+import { readIntegrationContractErrorCode } from '../agent-errors';
 import { createIntegrationProviderRef } from '../references';
 import type { IntegrationAdapterTool, IntegrationAdapterToolSchema, IntegrationResolvedProvider, IntegrationToolAdapter } from '../runtime-contracts';
 import { createIntegrationMetadataCacheKey, integrationMetadataCache } from '../metadata-cache';
@@ -192,12 +193,16 @@ export const mcpIntegrationToolAdapter: IntegrationToolAdapter = {
             throw new IntegrationContractError('schema_changed', 'This MCP tool schema changed before execution. Describe the tool again.');
           }
           input.signal?.throwIfAborted();
+        },
+        beforeDispatch: async () => {
+          await input.beforeDispatch?.();
+          input.signal?.throwIfAborted();
           invocationStarted = true;
         },
       });
       return await prepareMcpToolInvocation(binding.serverName, expectedTool.name, invocation, args, input.toolCallId);
     } catch (error) {
-      if (error instanceof IntegrationContractError) throw error;
+      if (readIntegrationContractErrorCode(error)) throw error;
       if ((error as { code?: unknown } | null)?.code === 'mcp_environment_binding_changed') {
         throw new IntegrationContractError('binding_changed', 'This MCP account changed before dispatch. Discover its tools and schema again.');
       }

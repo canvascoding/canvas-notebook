@@ -58,3 +58,33 @@ export async function resolveIntegrationExecutionContext(input: {
     executionContext,
   };
 }
+
+/** Resolve lazily when a tool runs: delegated and automation sessions are persisted before model execution. */
+export async function resolveRuntimeIntegrationExecutionContext(input: {
+  executionContext: AgentExecutionContext;
+  policyRevision: string;
+}): Promise<ResolvedIntegrationExecutionContext> {
+  const expected = { ...input.executionContext };
+  const policyRevision = input.policyRevision;
+  if (!expected.workspaceId.trim() || !expected.agentId?.trim()) {
+    throw new IntegrationContractError('invalid_request', 'A server-bound agent and workspace are required for integrations.');
+  }
+  const resolved = await resolveIntegrationExecutionContext({
+    actorUserId: expected.userId,
+    sessionId: expected.sessionId,
+    agentId: expected.agentId,
+    policyRevision,
+  });
+  const current = resolved.executionContext;
+  if (current.userId !== expected.userId || current.sessionId !== expected.sessionId
+    || current.agentId !== expected.agentId || current.workspaceId !== expected.workspaceId
+    || current.workspaceType !== expected.workspaceType || current.organizationId !== expected.organizationId
+    || current.customerId !== expected.customerId || current.projectId !== expected.projectId
+    || current.workspaceRoot !== expected.workspaceRoot || current.workspaceRootRelativePath !== expected.workspaceRootRelativePath
+    || current.legacy !== expected.legacy) {
+    throw new IntegrationContractError('provider_denied', 'The originating agent workspace changed. Reload its tools before continuing.');
+  }
+  return { ...resolved, integrationContext: { ...resolved.integrationContext, sessionId: expected.sessionId }, executionContext: { ...current,
+    ...(expected.agentTurnId ? { agentTurnId: expected.agentTurnId } : {}),
+  } };
+}

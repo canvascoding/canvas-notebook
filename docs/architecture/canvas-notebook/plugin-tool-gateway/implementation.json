@@ -35,7 +35,19 @@
       "git diff --check: PASS; initial GitNexus staged detection was partial, final refreshed staged detection found 256 changed symbols in 27 files; the full actual diff was reviewed alongside symbol impacts",
       "The unified dispatcher is not wired into the public agent registry yet. Browser chat acceptance belongs to step 3; live third-party OAuth/account acceptance remains in step 7."
     ] },
-    { "id": "3", "name": "Agenten-Runtime und Feature-Flag", "status": "pending", "evidence": [] },
+    { "id": "3", "name": "Agenten-Runtime und Feature-Flag", "status": "complete", "evidence": [
+      "npm run test:integrations:gateway: PASS on final source (2026-10-06): catalogue, schema/dispatcher, actual MCP HTTP/STDIO and Composio SDK fixtures, runtime policy, durable uncertainty, registry, settings, receipts, delegation and automation barriers",
+      "Real PostgreSQL permission/task fixtures and actual getPiTools managed/ephemeral workers: selected Composio schemas remain call-only, exact account/version bindings, fresh final-dispatch revocation prevents business POSTs",
+      "Durable unknown outcomes block the exact parent/child turn after cache eviction or restart, including MCP-only children; atomic automation job/queued-retry pause also covers a late child result after its parent completed",
+      "Flag-off legacy/native regressions, MCP manager/direct/proxy, delegate-task, native automation and Control Plane managed binding fixtures: PASS; empty sentinel denies onboarding tools only in the new mode",
+      "Admin-only default-off feature flag, persisted safe receipts and source-first compact MCP/Composio labels: focused policy/settings/SSR tests and changed-file ESLint PASS",
+      "npm run build and npx tsc --noEmit --pretty false --incremental false: PASS on final source; one fresh host production Notebook with the existing managed PostgreSQL/Control Plane stack, no container build",
+      "Playwright tests/integration-tool-gateway-local.spec.ts: 4/4 PASS, one worker, no retries, 2.9 minutes against final production build; actual natural-language model chats for MCP and Composio, explicit profile/account/version, admin/member rights and planning-mode zero provider requests",
+      "Desktop 1280px and mobile 390px light/dark compact headers, expanded steps and fully opened details: strict source/provider/profile assertions, viewport checks and inspected stable screenshots; technical references remain in details",
+      "Owned browser sessions/agent/MCP entry/profile/inert secret key/experimental flag cleaned up with ownership and revision guards; unrelated configuration preserved",
+      "Fresh GitNexus index and final staged detection: 368 changed symbols in 55 files; compare-main regression detection: 791 symbols in 81 files across completed steps. Expected scope reviewed alongside individual HIGH/CRITICAL impacts; git diff --cached --check PASS",
+      "Live third-party OAuth/accounts, shared Canva account, complete LLM delegation lifecycle, shared-resource rights and full redesign remain later acceptance work; fixture acceptance is not live-provider acceptance"
+    ] },
     { "id": "4a", "name": "Ressourcenmetadaten und gezielte Freigaben", "status": "pending", "evidence": [] },
     { "id": "4b", "name": "Gemeinsame MCP-Verbindungen und Composio-Profile", "status": "pending", "evidence": [] },
     { "id": "5a", "name": "Gemeinsame und versionierte Skill-Pakete", "status": "pending", "evidence": [] },

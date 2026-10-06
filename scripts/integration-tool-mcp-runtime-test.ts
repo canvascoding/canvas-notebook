@@ -235,6 +235,21 @@ async function main() {
     assert.equal(fixture.lists, listsBeforeNotification, 'the notification does not auto-refresh or preload tool schemas');
     await expectCode(() => adapter.listTools(context, provider, { limit: 1, cursor: firstPage.nextCursor! }), 'invalid_cursor');
     fixture.tools = structuredClone(initialTools);
+    const foreignDenial = Object.assign(new Error('A current runtime grant was revoked.'), { code: 'provider_denied' });
+    Object.defineProperty(foreignDenial, Symbol.for('canvas.integration.contract-error.v1'), { value: true });
+    for (const denyAtGuard of [1, 2]) {
+      const listsBeforeAuthorityGuard = fixture.lists;
+      let authorityGuards = 0;
+      await expectCode(() => adapter.callTool(context, provider, schema, args, {
+        toolCallId: `late-runtime-denial-${denyAtGuard}`, beforeDispatch: async () => {
+          authorityGuards += 1;
+          if (authorityGuards === denyAtGuard) throw foreignDenial;
+        },
+      }), 'provider_denied');
+      assert.equal(authorityGuards, denyAtGuard);
+      assert(fixture.lists > listsBeforeAuthorityGuard, 'the authority guard runs after the real MCP metadata read');
+      assert.equal(fixture.calls.length, 1, 'a runtime denial at the adapter or final HTTP boundary prevents the business tool');
+    }
     fixture.onNextList(() => {
       fixture.tools[0].inputSchema = { type: 'object', properties: { brand: { type: 'string' } }, required: ['brand'] };
     });

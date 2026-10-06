@@ -1,4 +1,5 @@
 import type { AfterToolCallContext, AfterToolCallResult } from '@earendil-works/pi-agent-core';
+import { getIntegrationGatewayErrorOverride } from '@/app/lib/integration-tools/agent-errors';
 
 const DEFAULT_WARNING_THRESHOLD = 2;
 const DEFAULT_TERMINATION_THRESHOLD = 4;
@@ -147,6 +148,8 @@ export function createToolLoopGuard(options: ToolLoopGuardOptions = {}) {
     },
 
     afterToolCall(context: AfterToolCallContext): AfterToolCallResult | undefined {
+      const integrationError = getIntegrationGatewayErrorOverride(context);
+      if (integrationError) context = { ...context, isError: true };
       if (!isErrorLikeToolResult(context)) {
         lastFailureSignature = null;
         repeatedFailureCount = 0;
@@ -158,7 +161,7 @@ export function createToolLoopGuard(options: ToolLoopGuardOptions = {}) {
       lastFailureSignature = signature;
 
       if (repeatedFailureCount < warningThreshold) {
-        return undefined;
+        return integrationError;
       }
 
       const terminated = repeatedFailureCount >= terminationThreshold;

@@ -1,3 +1,5 @@
+import { getIntegrationToolDisplayInfo } from './integration-tool-display';
+
 export type ToolDisplayTone =
   | 'command'
   | 'file'
@@ -37,6 +39,8 @@ export type ToolDisplayTone =
 export type ToolDisplayInfo = {
   label: string;
   tone: ToolDisplayTone;
+  context?: string;
+  toolLabel?: string;
 };
 
 type ToolDisplayEntry = {
@@ -161,6 +165,7 @@ function parseToolArguments(args: unknown): Record<string, unknown> | undefined 
 }
 
 export function getToolDisplayInfo(toolName: string | undefined, locale: string, details?: unknown, args?: unknown): ToolDisplayInfo {
+  if (toolName === 'integrations') return getIntegrationToolDisplayInfo(locale, details, parseToolArguments(args));
   const metadata = isRecord(details) ? details : parseToolArguments(args);
   if (toolName === 'agent_manage' && (metadata?.action === 'search' || metadata?.action === 'describe')) {
     return {

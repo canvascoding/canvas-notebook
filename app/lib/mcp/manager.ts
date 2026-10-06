@@ -85,7 +85,12 @@ type McpCacheFile = {
   }>;
 };
 
-type McpInvocationBinding = { entry: ManagedConnection; client: Client; environmentRevision: string };
+type McpInvocationBinding = {
+  entry: ManagedConnection;
+  client: Client;
+  environmentRevision: string;
+  beforeDispatch?: () => Promise<void>;
+};
 const mcpInvocationBindings = new AsyncLocalStorage<McpInvocationBinding | null>();
 
 function changedInvocationEnvironment(): Error {
@@ -433,6 +438,8 @@ async function fetchManagedMcpRequest(entry: ManagedConnection, input: RequestIn
     if (latestEnvironment.revision !== invocation.environmentRevision) throw changedInvocationEnvironment();
     assertInvocationClient(entry, invocation);
   }
+  await invocation?.beforeDispatch?.();
+  if (invocation) assertInvocationClient(entry, invocation);
   entry.abortController.signal.throwIfAborted();
   const response = await fetchMcpHttp(input, {
     ...init, headers,
@@ -681,6 +688,7 @@ export async function callMcpToolWithCurrentMetadata(
   options: {
     validateTool?: (tool: Tool, connection: Readonly<McpServerConfig>) => void | Promise<void>;
     expectedEnvironmentRevision?: string;
+    beforeDispatch?: () => Promise<void>;
   } = {},
 ): Promise<McpToolCallWithCurrentMetadata> {
   return mcpInvocationBindings.run(null, () => withManagedConnection(serverName, async (entry, client) => {
@@ -692,12 +700,15 @@ export async function callMcpToolWithCurrentMetadata(
     }
     if (options.validateTool) await options.validateTool(currentTool, entry.config);
     const invocation = options.expectedEnvironmentRevision
-      ? { entry, client, environmentRevision: options.expectedEnvironmentRevision } : null;
+      ? { entry, client, environmentRevision: options.expectedEnvironmentRevision, beforeDispatch: options.beforeDispatch } : null;
     if (invocation) {
       assertInvocationClient(entry, invocation);
       const environment = await readMcpAvailableEnvSnapshot(entry.scope);
       if (environment.revision !== invocation.environmentRevision) throw changedInvocationEnvironment();
     }
+    await options.beforeDispatch?.();
+    if (invocation) assertInvocationClient(entry, invocation);
+    signal?.throwIfAborted();
     logMcp('info', 'Calling tool', { server: serverName, tool: toolName });
     const result = await mcpInvocationBindings.run(invocation, () => withTimeout(
       client.callTool({ name: toolName, arguments: args }), getTimeoutMs(entry.config), signal,

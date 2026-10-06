@@ -72,3 +72,40 @@ export function intersectIntegrationPolicies(...policies: readonly IntegrationPo
     allowedOperations: intersect(policies.map((policy) => policy.allowedOperations)),
   };
 }
+
+/** The actual operation names in the legacy registry, never guessed provider tool names. */
+export const INTEGRATION_LEGACY_CAPABILITY_NAMES = Object.freeze([
+  'mcp',
+  'COMPOSIO_SEARCH_TOOLS',
+  'COMPOSIO_GET_TOOL_SCHEMAS',
+  'composio_execute',
+  'COMPOSIO_MANAGE_CONNECTIONS',
+] as const);
+
+const LEGACY_INTEGRATION_OPERATIONS: Readonly<Record<string, readonly string[]>> = Object.freeze(Object.assign(Object.create(null) as Record<string, readonly string[]>, {
+  mcp: ['mcp.list_providers', 'mcp.search_providers', 'mcp.list_tools', 'mcp.search_tools', 'mcp.describe', 'mcp.call'],
+  COMPOSIO_SEARCH_TOOLS: ['composio.list_providers', 'composio.search_providers', 'composio.list_tools', 'composio.search_tools'],
+  COMPOSIO_GET_TOOL_SCHEMAS: ['composio.describe'],
+  composio_execute: ['composio.call'],
+  COMPOSIO_MANAGE_CONNECTIONS: ['composio.list_providers', 'composio.search_providers'],
+}));
+
+/** Adapt already effective legacy permissions; group names and direct MCP names grant nothing. */
+export function createIntegrationPolicyFromLegacyTools(input: {
+  legacyToolNames: Iterable<string>;
+  planningMode?: boolean;
+  emailEventAutomation?: boolean;
+  restrictions?: readonly IntegrationPolicy[];
+}): IntegrationPolicy {
+  const names = new Set(Array.from(input.legacyToolNames, (name) => name.trim()));
+  const deny = input.planningMode === true || input.emailEventAutomation === true || names.has('__none__');
+  const operations = deny ? [] : [...new Set([...names].flatMap((name) => LEGACY_INTEGRATION_OPERATIONS[name] ?? []))].sort();
+  const sources = (['mcp', 'composio'] as const).filter((source) => operations.some((operation) => operation.startsWith(`${source}.`)));
+  return intersectIntegrationPolicies({
+    allowedSources: sources,
+    allowedProviderRefs: null,
+    allowedApplications: null,
+    allowedToolNames: null,
+    allowedOperations: operations,
+  }, ...(input.restrictions ?? []));
+}

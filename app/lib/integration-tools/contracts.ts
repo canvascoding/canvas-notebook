@@ -14,6 +14,8 @@ export type IntegrationExecutionContext = {
   organizationId?: string | null;
   workspaceId?: string | null;
   agentId?: string | null;
+  /** Set only from a verified persisted runtime session, never from model arguments. */
+  sessionId?: string | null;
   policyRevision: string;
 };
 
@@ -193,6 +195,7 @@ export class IntegrationContractError extends Error {
   constructor(readonly code: IntegrationErrorCode, message: string) {
     super(message);
     this.name = 'IntegrationContractError';
+    Object.defineProperty(this, Symbol.for('canvas.integration.contract-error.v1'), { value: true });
   }
 }
 

@@ -1402,11 +1402,29 @@ export const piSessionCompactionAttempts = pgTable("pi_session_compaction_attemp
   stateCheck: check("pi_compaction_attempts_state_check", sql`${table.state} IN ('running', 'succeeded', 'no_op', 'deferred', 'failed', 'aborted', 'stale', 'timed_out')`),
 }));
 
+// Append-only uncertainty prevents old queued integration bindings from retrying
+// after process restart or expiry of the bounded in-memory turn cache.
+export const integrationTurnOutcomes = pgTable("integration_turn_outcomes", {
+  bindingKey: text("binding_key").primaryKey(),
+  actorUserId: text("actor_user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  sessionId: text("session_id").notNull(),
+  // Historical issued identity must not be rewritten by generic agent-ID alias migrations.
+  agentId: text("agent_identity"),
+  workspaceId: text("workspace_id").notNull(),
+  agentTurnId: text("agent_turn_id"),
+  outcome: text("outcome").notNull().default("outcome_unknown"),
+  createdAt: pgTimestamp("created_at").notNull(),
+}, (table) => ({
+  outcomeCheck: check("integration_turn_outcomes_outcome_check", sql`${table.outcome} = 'outcome_unknown'`),
+}));
+
 export const piDelegations = pgTable("pi_delegations", {
   id: text("id").primaryKey(),
   userId: text("user_id").notNull().references(() => user.id, { onDelete: 'cascade' }),
   sourceSessionId: text("source_session_id").notNull(),
   sourceAgentId: text("source_agent_id").notNull(),
+  // Immutable server-issued turn; the SQL name excludes generic agent-ID backfills.
+  sourceAgentTurnId: text("source_agent_turn_identity"),
   workerSessionId: text("worker_session_id").notNull(),
   requestedSessionId: text("requested_session_id"),
   targetAgentId: text("target_agent_id"),
@@ -1415,6 +1433,8 @@ export const piDelegations = pgTable("pi_delegations", {
   context: text("context"),
   workerRole: text("worker_role"),
   toolsetsJson: text("toolsets_json").notNull().default("[]"),
+  // Server-validated metadata for explicitly handed-off Composio operations; never credentials.
+  integrationBindingsJson: text("integration_bindings_json"),
   status: text("status").notNull().default("queued"),
   resultStatus: text("result_status"),
   resultText: text("result_text"),
