@@ -20,6 +20,7 @@ import { COLLABORATION_RECOVERY_STATEMENTS } from './collaboration-recovery-migr
 import { runEmailCachePostgresMigration } from '@/app/lib/email/cache/postgres-migration';
 import { resolvePostgresRuntimeOptions } from './postgres-runtime-options';
 import { postgresFailureCode } from './postgres-diagnostics';
+import { migrateSharedComposioProfiles } from './composio-shared-profile-migration';
 
 const LEGACY_EPOCH_TIMESTAMP_MIGRATION_KEY = 'epoch-seconds-to-milliseconds-v2';
 const LEGACY_EPOCH_TIMESTAMP_UNIT_ENV = 'CANVAS_LEGACY_EPOCH_TIMESTAMP_UNIT';
@@ -1599,6 +1600,7 @@ export async function runPostgresMigrations(pool: PgQueryable): Promise<void> {
       await pool.query(createColumnAddSql(table, column));
     }
   }
+  await migrateSharedComposioProfiles(pool);
 
   await pool.query('ALTER TABLE memory_user_settings ALTER COLUMN automatic_memory_enabled SET DEFAULT 0');
   for (const statement of PUBLIC_SHARE_UNIQUENESS_STATEMENTS) await pool.query(statement);

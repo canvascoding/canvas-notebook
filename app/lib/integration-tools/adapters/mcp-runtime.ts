@@ -17,7 +17,9 @@ import { createIntegrationProviderRef } from '../references';
 import type { IntegrationAdapterTool, IntegrationAdapterToolSchema, IntegrationResolvedProvider, IntegrationToolAdapter } from '../runtime-contracts';
 import { createIntegrationMetadataCacheKey, integrationMetadataCache } from '../metadata-cache';
 import { schemaFingerprint } from '../schema';
-import { listMcpIntegrationProviders } from './mcp';
+import { listMcpIntegrationProviders, resolveSharedMcpIntegrationProvider } from './mcp';
+import { findSharedIntegrationConnectionAuthorization, integrationProviderAllowedToolNames,
+  revalidateIntegrationProviderAuthorization } from '../connections/provider-authorization';
 
 const CURSOR_MAX_AGE_MS = 15 * 60_000;
 type McpRuntimeBinding = {
@@ -35,6 +37,21 @@ function denied(): IntegrationContractError {
 }
 
 async function resolveProvider(context: IntegrationExecutionContext, providerRef: string): Promise<IntegrationResolvedProvider> {
+  const authorization = await findSharedIntegrationConnectionAuthorization(context, providerRef);
+  if (authorization) {
+    const current = await resolveSharedMcpIntegrationProvider(context, authorization, 'use');
+    const resource = current.resolved.authorization.resource;
+    const { connection, scope, serverName, environmentRevision, authGeneration, authorizationState } = current.resolved;
+    const configAuthHash = hashMcpAuthConfig(connection);
+    const configHash = hashMcpServerConfig(connection);
+    return { provider: current.provider,
+      bindingRevision: schemaFingerprint([resource.connectionRef, resource.ownership,
+        resource.metadataRevision, resource.grantsRevision, resource.bindingRevision,
+        resource.allowedToolNames, current.resolved.authorization.backend,
+        configAuthHash, configHash, connection.enabled, connection.authVersion, environmentRevision, authGeneration, authorizationState]),
+      binding: { connectionId: connection.connectionId, serverName, scope, configAuthHash, configHash, environmentRevision } satisfies McpRuntimeBinding,
+    };
+  }
   const snapshot = await listMcpIntegrationProviders(context);
   const provider = snapshot.providers.find(item => item.providerRef === providerRef && item.configured && item.scope.type === 'user');
   if (!provider || provider.scope.type !== 'user' || provider.scope.ownerUserId !== context.actorUserId) throw denied();
@@ -129,6 +146,8 @@ export const mcpIntegrationToolAdapter: IntegrationToolAdapter = {
   source: 'mcp',
   resolveProvider,
   async listTools(context, previous, input) {
+    await revalidateIntegrationProviderAuthorization(context, previous.provider, 'use');
+    input = { ...input, allowedToolNames: integrationProviderAllowedToolNames(context, previous.provider, input.allowedToolNames) };
     if (!Number.isInteger(input.limit) || input.limit < 1 || input.limit > INTEGRATION_MAX_PAGE_SIZE) {
       throw new IntegrationContractError('invalid_request', 'Choose a tool page size between 1 and 50.');
     }
@@ -171,12 +190,14 @@ export const mcpIntegrationToolAdapter: IntegrationToolAdapter = {
     };
   },
   async describeTool(context, previous, toolName, signal) {
+    await revalidateIntegrationProviderAuthorization(context, previous.provider, 'use', toolName);
     const { tools } = await currentTools(context, previous, signal);
     const tool = tools.find(item => item.name === toolName);
     if (!tool) throw new IntegrationContractError('tool_not_found', 'This MCP tool is no longer visible on the selected connection.');
     return asToolSchema(tool);
   },
   async callTool(context, previous, expectedTool, args, input) {
+    await revalidateIntegrationProviderAuthorization(context, previous.provider, 'use', expectedTool.name);
     input.signal?.throwIfAborted();
     const provider = await freshProvider(context, previous);
     const binding = provider.binding as McpRuntimeBinding;
@@ -196,6 +217,7 @@ export const mcpIntegrationToolAdapter: IntegrationToolAdapter = {
         },
         beforeDispatch: async () => {
           await input.beforeDispatch?.();
+          await revalidateIntegrationProviderAuthorization(context, provider.provider, 'use', expectedTool.name);
           input.signal?.throwIfAborted();
           invocationStarted = true;
         },

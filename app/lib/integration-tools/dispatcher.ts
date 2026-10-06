@@ -7,6 +7,7 @@ import {
   IntegrationContractError,
   parseIntegrationRequest,
   type IntegrationExecutionContext,
+  type IntegrationOperation,
   type IntegrationPolicy,
   type IntegrationProviderPage,
   type IntegrationSource,
@@ -15,6 +16,10 @@ import {
   type IntegrationToolSchema,
 } from './contracts';
 import { isIntegrationOperationAllowed, isIntegrationProviderVisible, isIntegrationToolAllowed } from './policy';
+import { findSharedIntegrationConnectionAuthorization, getIntegrationProviderAuthorization, integrationProviderAllowedToolNames,
+  revalidateIntegrationProviderAuthorization } from './connections/provider-authorization';
+import type { AuthorizedIntegrationConnection } from './connections/contracts';
+import { createSharedIntegrationPolicyDescriptor } from './connections/provider-policy';
 import { IntegrationReferenceCache } from './reference-cache';
 import { createIntegrationToolRef } from './references';
 import type { DelegatedComposioToolBinding, IntegrationBindingSelection } from './delegation-contracts';
@@ -38,6 +43,7 @@ type IssuedSchema = {
   schemaRef: string;
   contextFingerprint: string;
   bindingRevision: string;
+  authorizationRevision?: string;
   tool: IntegrationAdapterToolSchema;
 };
 
@@ -61,6 +67,11 @@ function currentPolicyFingerprint(context: IntegrationExecutionContext, policy: 
   return schemaFingerprint({ context, policy });
 }
 
+function schemaBindingRevision(context: IntegrationExecutionContext, provider: IntegrationResolvedProvider): string {
+  const authorization = getIntegrationProviderAuthorization(context, provider.provider);
+  return authorization ? schemaFingerprint([provider.bindingRevision, authorization.authorizationRevision]) : provider.bindingRevision;
+}
+
 function sourceFromProviderRef(providerRef: string): IntegrationSource {
   if (providerRef.startsWith('mcp:v1:')) return 'mcp';
   if (providerRef.startsWith('composio:v1:')) return 'composio';
@@ -71,6 +82,20 @@ function assertProviderAllowed(context: IntegrationExecutionContext, policy: Int
   if (provider.provider.providerRef !== providerRef || provider.provider.source !== sourceFromProviderRef(providerRef)
     || !provider.bindingRevision.trim() || !isIntegrationProviderVisible(context, policy, provider.provider)) {
     throw new IntegrationContractError('provider_denied', 'This integration is not available to the current agent.');
+  }
+}
+
+/** Resource metadata is sufficient to apply routing restrictions before provider discovery. */
+async function assertSharedProviderPolicy(context: IntegrationExecutionContext, policy: IntegrationPolicy,
+  authorization: AuthorizedIntegrationConnection | null, providerRef: string, operation: IntegrationOperation, toolName?: string): Promise<void> {
+  if (!authorization) return;
+  const provider = await createSharedIntegrationPolicyDescriptor(context, authorization);
+  if (provider.providerRef !== providerRef || !isIntegrationProviderVisible(context, policy, provider)) {
+    throw new IntegrationContractError('provider_denied', 'This integration is not available to the current agent.');
+  }
+  if (toolName ? !isIntegrationToolAllowed(context, policy, provider, toolName, operation)
+    : integrationProviderAllowedToolNames(context, provider, policy.allowedToolNames)?.length === 0) {
+    throw new IntegrationContractError('tool_denied', 'No requested tools are enabled for this shared connection.');
   }
 }
 
@@ -129,6 +154,8 @@ export class IntegrationDispatcher {
       || !isIntegrationOperationAllowed(policy, 'composio', operation)) {
       throw new IntegrationContractError('tool_denied', 'The approved Composio operation is not available to this agent.');
     }
+    const shared = await findSharedIntegrationConnectionAuthorization(context, binding.providerRef, 'use', binding.toolName);
+    await assertSharedProviderPolicy(context, policy, shared, binding.providerRef, operation, binding.toolName);
     const adapter = await this.adapter('composio');
     const resolved = await adapter.resolveProvider(context, binding.providerRef);
     assertProviderAllowed(context, policy, resolved, binding.providerRef);
@@ -173,11 +200,13 @@ export class IntegrationDispatcher {
     const resolved = await this.checkDelegatedComposioSchema(context, policy, binding, 'call', input.signal);
     const toolRef = createIntegrationToolRef(binding.providerRef, binding.toolName);
     const schemaRef = createIntegrationSchemaRef({ context, policy, ...binding,
+      bindingRevision: schemaBindingRevision(context, resolved),
       toolVersion: binding.tool.toolVersion, inputSchema: binding.tool.inputSchema, outputSchema: binding.tool.outputSchema });
     const route: ToolRoute = { source: 'composio', providerRef: binding.providerRef, toolName: binding.toolName };
     const namespace = contextNamespace(context);
     this.routes.set(`${namespace}:${toolRef}`, route);
     this.schemas.set(`${namespace}:${schemaRef}`, { route, schemaRef, bindingRevision: binding.bindingRevision,
+      authorizationRevision: getIntegrationProviderAuthorization(context, resolved.provider)?.authorizationRevision,
       contextFingerprint: currentPolicyFingerprint(context, policy), tool: binding.tool });
     return { version: INTEGRATION_CONTRACT_VERSION, toolRef, providerRef: binding.providerRef, schemaRef,
       toolVersion: binding.tool.toolVersion, inputSchema: structuredClone(binding.tool.inputSchema),
@@ -226,13 +255,17 @@ export class IntegrationDispatcher {
       if (!isIntegrationOperationAllowed(policy, source, operation)) {
         throw new IntegrationContractError('tool_denied', 'Tool discovery is not enabled for this integration source.');
       }
+      const shared = await findSharedIntegrationConnectionAuthorization(context, request.providerRef, 'use');
+      await assertSharedProviderPolicy(context, policy, shared, request.providerRef, operation);
       const adapter = await this.adapter(source);
       const resolved = await adapter.resolveProvider(context, request.providerRef);
       assertProviderAllowed(context, policy, resolved, request.providerRef);
       const page = await adapter.listTools(context, resolved, {
         query: request.action === 'search' ? request.query : undefined,
-        limit: request.limit ?? 12, cursor: request.cursor, signal, allowedToolNames: policy.allowedToolNames,
+        limit: request.limit ?? 12, cursor: request.cursor, signal,
+        allowedToolNames: integrationProviderAllowedToolNames(context, resolved.provider, policy.allowedToolNames),
       });
+      await revalidateIntegrationProviderAuthorization(context, resolved.provider, 'use');
       const tools: IntegrationToolDescriptor[] = page.tools
         .filter((tool) => isIntegrationToolAllowed(context, policy, resolved.provider, tool.name, operation))
         .map((tool) => {
@@ -261,6 +294,8 @@ export class IntegrationDispatcher {
     if (!isIntegrationOperationAllowed(policy, route.source, request.action)) {
       throw new IntegrationContractError('tool_denied', 'This tool operation is not enabled for the current agent.');
     }
+    const shared = await findSharedIntegrationConnectionAuthorization(context, route.providerRef, 'use', route.toolName);
+    await assertSharedProviderPolicy(context, policy, shared, route.providerRef, request.action, route.toolName);
     const adapter = await this.adapter(route.source);
     const resolved = await adapter.resolveProvider(context, route.providerRef);
     assertProviderAllowed(context, policy, resolved, route.providerRef);
@@ -274,14 +309,16 @@ export class IntegrationDispatcher {
       await validateIntegrationSchema(tool.inputSchema);
       if (tool.outputSchema !== undefined) await validateIntegrationSchema(tool.outputSchema);
       const schemaRef = createIntegrationSchemaRef({
-        context, policy, providerRef: route.providerRef, bindingRevision: resolved.bindingRevision,
+        context, policy, providerRef: route.providerRef, bindingRevision: schemaBindingRevision(context, resolved),
         toolName: route.toolName, toolVersion: tool.toolVersion,
         inputSchema: tool.inputSchema, outputSchema: tool.outputSchema,
       });
       this.schemas.set(`${namespace}:${schemaRef}`, {
         route: { ...route }, schemaRef, bindingRevision: resolved.bindingRevision,
+        authorizationRevision: getIntegrationProviderAuthorization(context, resolved.provider)?.authorizationRevision,
         contextFingerprint: currentPolicyFingerprint(context, policy), tool: structuredClone(tool),
       });
+      await revalidateIntegrationProviderAuthorization(context, resolved.provider, 'use', route.toolName);
       return {
         version: INTEGRATION_CONTRACT_VERSION, toolRef: request.toolRef, providerRef: route.providerRef,
         schemaRef, toolVersion: tool.toolVersion, inputSchema: structuredClone(tool.inputSchema),
@@ -304,6 +341,9 @@ export class IntegrationDispatcher {
     if (issued.bindingRevision !== resolved.bindingRevision) {
       throw new IntegrationContractError('binding_changed', 'The selected connection changed. Load the tool schema again.');
     }
+    if (issued.authorizationRevision !== getIntegrationProviderAuthorization(context, resolved.provider)?.authorizationRevision) {
+      throw new IntegrationContractError('binding_changed', 'The shared integration grants changed. Load the tool schema again.');
+    }
     if (!resolved.provider.canExecute) {
       throw new IntegrationContractError('provider_unavailable', 'Complete the selected integration connection before executing.');
     }
@@ -315,9 +355,13 @@ export class IntegrationDispatcher {
     }
     const args = request.arguments;
     await validateIntegrationArguments(current.inputSchema, args);
-    await beforeToolCall?.();
+    const beforeDispatch = async () => {
+      await beforeToolCall?.();
+      await revalidateIntegrationProviderAuthorization(context, resolved.provider, 'use', route.toolName);
+    };
+    await beforeDispatch();
     signal?.throwIfAborted();
-    const result = await adapter.callTool(context, resolved, current, args, { toolCallId, signal, beforeDispatch: beforeToolCall });
+    const result = await adapter.callTool(context, resolved, current, args, { toolCallId, signal, beforeDispatch });
     return {
       version: INTEGRATION_CONTRACT_VERSION, target: 'result', toolRef: request.toolRef,
       providerRef: route.providerRef, source: route.source, displayName: resolved.provider.displayName, result,

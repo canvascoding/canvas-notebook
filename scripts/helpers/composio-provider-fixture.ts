@@ -2,7 +2,7 @@ import { once } from 'node:events';
 import http from 'node:http';
 
 type Account = { id: string; toolkit: string; status: string };
-type Call = { path: string; body: Record<string, unknown>; userId: string | null; apiKey: string | null; toolNames: string | null };
+type Call = { path: string; body: Record<string, unknown>; userId: string | null; apiKey: string | null; toolNames: string | null; toolkitSlugs: string | null };
 const APPS = [
   { slug: 'canva', name: 'Canva', no_auth: false },
   { slug: 'slack', name: 'Slack', no_auth: false },
@@ -15,9 +15,14 @@ export async function createComposioProviderFixture() {
   const calls: Call[] = [];
   const versions = new Map<string, string>();
   const inputs = new Map<string, Record<string, unknown>>();
+  const sessions = new Map<string, string>();
+  const callbacks = new Map<string, string>();
+  let pendingSequence = 0;
   let unknownOutcome = false;
+  let unknownManagement = false;
   let failNextToolPage = false;
   let rotateOnToolRead: (() => Promise<void>) | null = null;
+  let rotateOnEndpoint: { path: string; callback: () => Promise<void> } | null = null;
   let legacyCapabilityStatus = 404;
   const baseTools = [
     { slug: 'DESIGN_CREATE', name: 'Create design', description: 'Create a design', toolkit: { slug: 'canva', name: 'Canva' },
@@ -41,8 +46,34 @@ export async function createComposioProviderFixture() {
     const url = new URL(request.url!, 'http://localhost');
     calls.push({ path: url.pathname, body, userId: url.searchParams.get('user_ids'),
       apiKey: typeof request.headers['x-api-key'] === 'string' ? request.headers['x-api-key'] : null,
-      toolNames: url.searchParams.get('tool_slugs') });
+      toolNames: url.searchParams.get('tool_slugs'), toolkitSlugs: url.searchParams.get('toolkit_slugs') });
+    if (rotateOnEndpoint?.path === url.pathname) {
+      const rotation = rotateOnEndpoint;
+      rotateOnEndpoint = null;
+      await rotation.callback();
+    }
     const send = (payload: unknown, status = 200) => { response.writeHead(status, { 'Content-Type': 'application/json' }); response.end(JSON.stringify(payload)); };
+    if (url.pathname === '/api/v3.1/tool_router/session' && request.method === 'POST') {
+      const sessionId = `fixture-session-${sessions.size + 1}`;
+      sessions.set(sessionId, String(body.user_id));
+      return send({ session_id: sessionId, mcp: { url: 'https://fixture.example.test/mcp' }, tool_router_tools: [], config: { user_id: body.user_id } });
+    }
+    const linkingSession = url.pathname.match(/^\/api\/v3\.1\/tool_router\/session\/([^/]+)\/link$/u)?.[1];
+    if (linkingSession && request.method === 'POST') {
+      if (unknownManagement) { request.socket.destroy(); return; }
+      const userId = sessions.get(linkingSession);
+      if (!userId || !APPS.some(app => app.slug === body.toolkit)) return send({ error: 'Invalid OAuth fixture selection' }, 400);
+      const id = `fixture-initiated-${++pendingSequence}`;
+      accounts.set(userId, [...(accounts.get(userId) || []), { id, toolkit: String(body.toolkit), status: 'INITIATED' }]);
+      callbacks.set(id, String(body.callback_url));
+      return send({ connected_account_id: id, redirect_url: `https://fixture.example.test/oauth/${id}` });
+    }
+    const deletingAccount = url.pathname.match(/^\/api\/v3\.1\/connected_accounts\/([^/]+)$/u)?.[1];
+    if (deletingAccount && request.method === 'DELETE') {
+      if (unknownManagement) { request.socket.destroy(); return; }
+      for (const [userId, values] of accounts) accounts.set(userId, values.filter(account => account.id !== deletingAccount));
+      return send({ success: true });
+    }
     if (url.pathname === '/v1/managed/composio/capabilities') return send({ error: 'SECRET-LEGACY-PROXY-BODY' }, legacyCapabilityStatus);
     if (url.pathname === '/v1/managed/composio/toolkits') return send({ toolkits: APPS.map((app) => ({ ...app, noAuth: app.no_auth })) });
     if (url.pathname === '/v1/managed/composio/status') return send({ configured: true, apiKeyValid: true, providerHealthy: true,
@@ -57,7 +88,8 @@ export async function createComposioProviderFixture() {
         total_pages: matching.length > 2 ? 2 : 1, current_page: offset ? 2 : 1, total_items: matching.length });
     }
     if (url.pathname === '/api/v3.1/connected_accounts') return send({
-      items: (accounts.get(url.searchParams.get('user_ids') || '') || []).map((account) => ({ id: account.id,
+      items: (accounts.get(url.searchParams.get('user_ids') || '') || []).filter(account => !url.searchParams.get('toolkit_slugs')
+        || url.searchParams.get('toolkit_slugs')!.split(',').includes(account.toolkit)).map((account) => ({ id: account.id,
         toolkit: { slug: account.toolkit, name: APPS.find((app) => app.slug === account.toolkit)!.name },
         status: account.status, status_reason: null, is_disabled: false,
         auth_config: { id: 'fixture-auth', is_composio_managed: true, is_disabled: false },
@@ -90,9 +122,15 @@ export async function createComposioProviderFixture() {
   });
   server.listen(0, '127.0.0.1'); await once(server, 'listening');
   return { accounts, calls, versions, inputs, baseUrl: `http://127.0.0.1:${(server.address() as { port: number }).port}`,
+    completeOAuth: (accountId: string) => {
+      for (const values of accounts.values()) for (const account of values) if (account.id === accountId) account.status = 'ACTIVE';
+      return callbacks.get(accountId);
+    },
     setUnknown: (value: boolean) => { unknownOutcome = value; },
+    setUnknownManagement: (value: boolean) => { unknownManagement = value; },
     failPage: () => { failNextToolPage = true; },
     rotateOnRead: (callback: () => Promise<void>) => { rotateOnToolRead = callback; },
+    rotateOnEndpoint: (endpoint: string, callback: () => Promise<void>) => { rotateOnEndpoint = { path: endpoint, callback }; },
     setLegacyCapabilityStatus: (value: number) => { legacyCapabilityStatus = value; },
     close: async () => { server.closeAllConnections(); await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve())); } };
 }

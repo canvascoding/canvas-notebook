@@ -5,6 +5,7 @@ import type {
   IntegrationProviderDescriptor,
   IntegrationSource,
 } from './contracts';
+import { getIntegrationProviderAuthorization } from './connections/provider-authorization';
 
 /** The default preserves existing access; it never bypasses an adapter's ownership checks. */
 export const UNRESTRICTED_INTEGRATION_POLICY: IntegrationPolicy = Object.freeze({
@@ -36,9 +37,11 @@ export function isIntegrationProviderVisible(
 ): boolean {
   if (!context.actorUserId.trim() || !context.policyRevision.trim()) return false;
   const scope = provider.scope;
+  const authorization = getIntegrationProviderAuthorization(context, provider);
+  if (/^(mcp|composio):v1:shared:/u.test(provider.providerRef) && !authorization) return false;
   if (scope.type === 'user' && scope.ownerUserId !== context.actorUserId) return false;
   if (scope.type !== 'user' && (!context.organizationId || scope.organizationId !== context.organizationId)) return false;
-  if (scope.type === 'workspace' && (!context.workspaceId || scope.workspaceId !== context.workspaceId)) return false;
+  if (scope.type === 'workspace' && (!context.workspaceId || scope.workspaceId !== context.workspaceId) && !authorization) return false;
   return includesOrUnrestricted(policy.allowedSources, provider.source)
     && includesOrUnrestricted(policy.allowedProviderRefs, provider.providerRef)
     && (policy.allowedApplications === null
@@ -52,9 +55,11 @@ export function isIntegrationToolAllowed(
   toolName: string,
   operation: IntegrationOperation,
 ): boolean {
+  const authorization = getIntegrationProviderAuthorization(context, provider);
   return isIntegrationProviderVisible(context, policy, provider)
     && isIntegrationOperationAllowed(policy, provider.source, operation)
-    && includesOrUnrestricted(policy.allowedToolNames, toolName);
+    && includesOrUnrestricted(policy.allowedToolNames, toolName)
+    && (!authorization || authorization.access.canUse && includesOrUnrestricted(authorization.allowedToolNames, toolName));
 }
 
 /** Restrictions compose monotonically. An empty set cannot be restored by a later policy. */

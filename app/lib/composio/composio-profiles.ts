@@ -13,9 +13,14 @@ const PROFILE_NAME_MAX_LENGTH = 80;
 const PROFILE_ID_PREFIX = 'cmp_profile_';
 const LOCAL_COMPOSIO_USER_ID_PREFIX = 'canvas-profile-';
 
+export function createScopedComposioProfileIdentity(): { id: string; composioUserId: string } {
+  return { id: `${PROFILE_ID_PREFIX}${randomUUID()}`, composioUserId: createComposioUserId() };
+}
+
 type ProfileRow = {
   id: string;
-  owner_user_id: string;
+  owner_user_id: string | null;
+  scope_type?: string;
   name: string;
   composio_user_id: string;
   is_default: number;
@@ -111,6 +116,9 @@ function profileStatus(value: string): ComposioConnectionProfileStatus {
 }
 
 function profileFromRow(row: ProfileRow | ProfileWithUsageRow): ComposioConnectionProfile {
+  if (!row.owner_user_id || row.scope_type && row.scope_type !== 'user') {
+    throw new ComposioProfileError('COMPOSIO_PROFILE_NOT_FOUND', 'The personal connection profile was not found.', 404);
+  }
   return {
     id: row.id,
     ownerUserId: row.owner_user_id,

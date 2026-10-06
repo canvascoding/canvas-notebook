@@ -36,6 +36,7 @@ import {
 } from '@/app/components/organization/SearchablePolicyTargetPicker';
 import { SkillDetailDialog } from '@/app/components/skills/SkillDetailDialog';
 import { ResourceManagementSection } from '@/app/components/plugins/ResourceManagementSection';
+import { SharedConnectionsSection } from '@/app/components/plugins/SharedConnectionsSection';
 import type { CapabilityResourceAccess, CapabilityResourceMetadata } from '@/app/lib/capabilities/resources/contracts';
 import { SkillUploadDialog } from '@/app/components/skills/SkillUploadDialog';
 import {
@@ -3690,6 +3691,7 @@ export function SkillsPanel({ canManageOrganizationCapabilities: initialCanManag
       {navigation.scope === 'organization' && !canManageOrganizationCapabilities ? (
         <InlineNotice variant="warning" size="compact" className="mb-4">{t('scope.organizationDenied')}</InlineNotice>
       ) : null}
+      <SharedConnectionsSection key={activeWorkspaceId || 'no-workspace'} workspaceId={activeWorkspaceId} />
       {managementScope === 'organization' ? (
         <div className="mb-4">
           <OrganizationCapabilityPolicyPanel />

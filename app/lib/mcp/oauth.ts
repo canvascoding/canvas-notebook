@@ -14,6 +14,8 @@ import { commitMcpOAuthLifecycle, fencedMcpOAuthWrite, invalidateMcpOAuthLifecyc
 import { withMcpStorageLock } from '@/app/lib/mcp/storage-lock';
 import { classifyMcpConnectionFailure, recordMcpConnectionObservation } from '@/app/lib/mcp/connection-health';
 import { fetchMcpHttp } from '@/app/lib/mcp/http';
+import { authorizeSharedMcpScope } from '@/app/lib/mcp/shared-access';
+import type { IntegrationConnectionRevisions, SharedIntegrationConnectionOwnership } from '@/app/lib/integration-tools/connections/contracts';
 import {
   normalizeMcpScope,
   requireMcpCredentialScope,
@@ -97,9 +99,21 @@ export type OAuthStateRecord = {
   configHash: string;
   createdAt: string;
   expiresAt: string;
+  shared?: {
+    connectionRef: string;
+    ownership: SharedIntegrationConnectionOwnership;
+    initiatingUserId: string;
+    revisions: IntegrationConnectionRevisions;
+    authorizationRevision: string;
+  };
 };
 
-type OAuthConnectionSnapshot = Pick<OAuthStateRecord, 'connectionId' | 'organizationId' | 'authVersion' | 'configHash' | 'lifecycleGeneration'>;
+type OAuthConnectionSnapshot = Pick<OAuthStateRecord, 'connectionId' | 'organizationId' | 'authVersion' | 'configHash' | 'lifecycleGeneration' | 'shared'>;
+
+function sharedOAuthSnapshot(scope: McpScope): Pick<OAuthStateRecord, 'shared'> {
+  return scope.shared ? { shared: { connectionRef: scope.shared.connectionRef, ownership: scope.shared.ownership,
+    initiatingUserId: scope.shared.actor.userId, revisions: scope.shared.revisions, authorizationRevision: scope.shared.authorizationRevision } } : {};
+}
 
 export type OAuthTokenRecord = {
   lifecycleGeneration?: number;
@@ -237,8 +251,9 @@ function getOriginFromRequest(requestOrigin: string | null | undefined): string 
   return (requestOrigin || fallback || 'http://localhost:3000').replace(/\/+$/u, '');
 }
 
-function getRedirectUri(oauth: OAuthServerConfig, requestOrigin: string | null | undefined): string {
+function getRedirectUri(oauth: OAuthServerConfig, requestOrigin: string | null | undefined, scope?: McpScope | null): string {
   const origin = getOriginFromRequest(requestOrigin);
+  if (scope?.shared) return `${origin}/api/mcp/shared-connections/oauth/callback`;
   return oauth.redirectUri || `${origin}/api/mcp/oauth/callback`;
 }
 
@@ -249,7 +264,7 @@ export function getMcpOAuthClientMetadata(requestOrigin?: string | null): McpOAu
     client_id: clientId,
     client_name: 'Canvas Notebook MCP',
     client_uri: origin,
-    redirect_uris: [`${origin}/api/mcp/oauth/callback`],
+    redirect_uris: [`${origin}/api/mcp/oauth/callback`, `${origin}/api/mcp/shared-connections/oauth/callback`],
     grant_types: ['authorization_code', 'refresh_token'],
     response_types: ['code'],
     token_endpoint_auth_method: 'none',
@@ -567,7 +582,7 @@ export async function getMcpOAuthStatus(serverName: string, requestOrigin?: stri
     const token = await readJsonIfExists<OAuthTokenRecord>((await getOAuthTokenRelativePath(serverName, credentialScope)), credentialScope);
     const bound = await isBoundOAuthToken(token, serverConfig, lifecycle.generation, credentialScope);
     const authorized = bound && token !== null && (!isExpired(token) || Boolean(token.refreshToken));
-    const redirectUri = getRedirectUri(oauth, requestOrigin);
+    const redirectUri = getRedirectUri(oauth, requestOrigin, credentialScope);
     return {
       serverName,
       configured: true,
@@ -600,7 +615,8 @@ export async function getMcpOAuthStatus(serverName: string, requestOrigin?: stri
 }
 
 export async function startMcpOAuth(serverName: string, requestOrigin?: string | null, mcpScope?: McpScope | null, options: { desktop?: boolean } = {}): Promise<McpOAuthStartResult> {
-  const normalizedScope = requireMcpCredentialScope(mcpScope);
+  const requested = requireMcpCredentialScope(mcpScope);
+  const normalizedScope = requested.shared ? requireMcpCredentialScope({ ...requested, shared: { ...requested.shared, operation: 'manage' } }) : requested;
   if (options.desktop && !normalizedScope.userId) throw new McpOAuthError('Desktop OAuth requires a signed-in connection owner.', 401);
   const { serverConfig, credentialScope, oauth, configHash } = await resolveServerForOAuth(serverName, normalizedScope);
   await assertMcpConnectionAccess(serverConfig.connectionId, normalizedScope);
@@ -609,10 +625,11 @@ export async function startMcpOAuth(serverName: string, requestOrigin?: string |
   const snapshot: OAuthConnectionSnapshot = {
     connectionId: serverConfig.connectionId, authVersion: serverConfig.authVersion || 1,
     organizationId: credentialScope.organizationId || null, configHash, lifecycleGeneration: lifecycle.generation,
+    ...sharedOAuthSnapshot(credentialScope),
   };
   return withMcpOAuthLifecycleLock(serverConfig.connectionId, credentialScope, async () => {
     await assertCurrentOAuthState(snapshot, credentialScope);
-    const redirectUri = getRedirectUri(oauth, requestOrigin);
+    const redirectUri = getRedirectUri(oauth, requestOrigin, credentialScope);
     const endpoints = await resolveOAuthEndpoints(oauth, serverConfig, credentialScope);
     const client = await resolveClient(
       serverName,
@@ -680,6 +697,7 @@ export async function startMcpOAuth(serverName: string, requestOrigin?: string |
       configHash,
       createdAt: new Date().toISOString(),
       expiresAt: new Date(Date.now() + 10 * 60_000).toISOString(),
+      ...sharedOAuthSnapshot(credentialScope),
     } satisfies OAuthStateRecord;
     await fencedMcpOAuthWrite(snapshot.connectionId, snapshot.lifecycleGeneration, credentialScope, () => writeJsonPrivate(getOAuthStateRelativePath(state), stateRecord, credentialScope));
     if (options.desktop) {
@@ -848,6 +866,14 @@ export async function assertMcpDesktopOAuthSnapshot(snapshot: Pick<OAuthStateRec
 }
 
 async function assertCurrentOAuthState(stored: OAuthConnectionSnapshot & { serverUrl?: string }, scope?: McpScope | null): Promise<void> {
+  if (scope?.shared) {
+    await authorizeSharedMcpScope(scope);
+    if (!stored.shared || stored.shared.connectionRef !== scope.shared.connectionRef
+      || stored.shared.initiatingUserId !== scope.shared.actor.userId
+      || JSON.stringify(stored.shared.ownership) !== JSON.stringify(scope.shared.ownership)
+      || JSON.stringify(stored.shared.revisions) !== JSON.stringify(scope.shared.revisions)
+      || stored.shared.authorizationRevision !== scope.shared.authorizationRevision) throw new McpOAuthError('Shared OAuth setup or its management permissions changed. Start authorization again.', 409);
+  } else if (stored.shared) throw new McpOAuthError('Shared OAuth state requires its exact shared resource scope.', 409);
   await assertMcpConnectionAccess(stored.connectionId, scope);
   const current = await resolveMcpCredentialConnection(stored.connectionId, scope);
   const credentialScope = resolveMcpCredentialScope(current, scope);
@@ -880,7 +906,7 @@ export async function recordMcpOAuthScopeChallenge(
   }
   configHash = hashMcpAuthConfig(connection);
   const lifecycle = await readMcpOAuthLifecycle(connection.connectionId, credentialScope);
-  const snapshot: OAuthConnectionSnapshot = { connectionId: connection.connectionId, organizationId: credentialScope.organizationId || null, authVersion: connection.authVersion || 1, configHash, lifecycleGeneration: lifecycle.generation };
+  const snapshot: OAuthConnectionSnapshot = { connectionId: connection.connectionId, organizationId: credentialScope.organizationId || null, authVersion: connection.authVersion || 1, configHash, lifecycleGeneration: lifecycle.generation, ...sharedOAuthSnapshot(credentialScope) };
   const challengePath = (await getOAuthScopeChallengeRelativePath(serverName, credentialScope));
   return withMcpOAuthLifecycleLock(connection.connectionId, credentialScope, async () => {
     await assertCurrentOAuthState(snapshot, credentialScope);
@@ -1077,6 +1103,7 @@ export async function getValidMcpAccessToken(serverName: string, serverConfig: M
       connectionId: connection.connectionId, authVersion: connection.authVersion || 1,
       organizationId: credentialScope.organizationId || null, configHash, lifecycleGeneration: lifecycle.generation,
       serverUrl: token.serverUrl,
+      ...sharedOAuthSnapshot(credentialScope),
     };
     await assertCurrentOAuthState(snapshot, credentialScope);
     const current = await readJsonIfExists<OAuthTokenRecord>(tokenRelativePath, credentialScope);

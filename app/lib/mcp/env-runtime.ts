@@ -2,12 +2,20 @@ import { readScopedEnvState } from '@/app/lib/integrations/env-config';
 import { assertUnifiedEnvReadable, projectEnvView, readUnifiedEnvState } from '@/app/lib/secrets/unified-env-store';
 import { expandMcpEnvValue } from './env-references';
 import { normalizeMcpScope, type McpScope } from './scope';
+import { readSharedMcpEnvironment } from './shared-secrets';
 
 export type McpEnvironmentSnapshot = { values: Record<string, string>; revision: string };
 
 /** One physical revision supplies both MCP views; no mixed-account read is possible. */
 export async function readMcpAvailableEnvSnapshot(scope?: McpScope | null): Promise<McpEnvironmentSnapshot> {
   const normalized = normalizeMcpScope(scope);
+  if (normalized?.shared) {
+    const { readMcpConfig } = await import('./config');
+    const config = await readMcpConfig(normalized);
+    const connection = Object.values(config.mcpServers).find(item => item.connectionId === normalized.shared!.connectionId);
+    if (!connection) throw new Error('Shared MCP configuration is unavailable.');
+    return readSharedMcpEnvironment(normalized, connection);
+  }
   const storageScope = normalized?.userId ? { userId: normalized.userId } : { secretScope: 'legacy' as const };
   const state = await readUnifiedEnvState(storageScope);
   assertUnifiedEnvReadable(state);
@@ -28,6 +36,7 @@ export function resolveMcpSnapshotTransportValues(config: { url?: string; args?:
 /** The MCP owner cascade has no process, organization or other-user fallback. */
 export async function readMcpAvailableEnv(scope?: McpScope | null): Promise<Record<string, string>> {
   const normalized = normalizeMcpScope(scope);
+  if (normalized?.shared) return (await readMcpAvailableEnvSnapshot(normalized)).values;
   const storageScope = normalized?.userId ? { userId: normalized.userId } : { secretScope: 'legacy' as const };
   const [integrations, agents] = await Promise.all([
     readScopedEnvState('integrations', storageScope), readScopedEnvState('agents', storageScope),

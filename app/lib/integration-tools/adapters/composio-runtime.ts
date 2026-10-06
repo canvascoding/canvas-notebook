@@ -1,7 +1,7 @@
 import 'server-only';
 
 import { randomUUID } from 'node:crypto';
-import { getComposio, getComposioMode, getLocalComposioApiKey, type ComposioMode } from '@/app/lib/composio/composio-client';
+import { getComposio, getComposioMode, getComposioForContext, getComposioModeForContext, getLocalComposioApiKeyForContext, type ComposioMode } from '@/app/lib/composio/composio-client';
 import { resolveBoundComposioContext, type ResolvedComposioContext } from '@/app/lib/composio/composio-context';
 import { requestManagedComposio, ManagedComposioProtocolError } from '@/app/lib/composio/managed-composio-client';
 import { classifyComposioFailure, ComposioProviderError } from '@/app/lib/composio/composio-provider-error';
@@ -14,7 +14,10 @@ import { IntegrationReferenceCache } from '../reference-cache';
 import { createIntegrationMetadataCacheKey, integrationMetadataCache } from '../metadata-cache';
 import type { IntegrationAdapterToolPage, IntegrationAdapterToolSchema, IntegrationResolvedProvider, IntegrationToolAdapter } from '../runtime-contracts';
 import { schemaFingerprint } from '../schema';
-import { listComposioIntegrationProviders } from './composio';
+import { isComposioIntegrationApplicationVisible, listComposioIntegrationProviders } from './composio';
+import { integrationConnectionProviderScope, type AuthorizedIntegrationConnection } from '../connections/contracts';
+import { attachIntegrationProviderAuthorization, createSharedIntegrationProviderRef, findSharedIntegrationConnectionAuthorization,
+  getIntegrationProviderAuthorization, integrationProviderAllowedToolNames, revalidateIntegrationProviderAuthorization } from '../connections/provider-authorization';
 
 type RecordValue = Record<string, unknown>;
 type ManagedCapabilities = { credentialRevision: string };
@@ -55,7 +58,8 @@ function concreteVersion(value: unknown): string {
 function bindingFor(context: IntegrationExecutionContext, provider: IntegrationResolvedProvider): Binding {
   const binding = provider.binding as Binding | null;
   if (!binding || binding.kind !== 'composio_binding' || binding.context.userId !== context.actorUserId
-    || provider.provider.scope.type !== 'user' || provider.provider.scope.ownerUserId !== context.actorUserId) {
+    || (!getIntegrationProviderAuthorization(context, provider.provider)
+      && (provider.provider.scope.type !== 'user' || provider.provider.scope.ownerUserId !== context.actorUserId))) {
     throw new IntegrationContractError('provider_denied', 'Choose a Composio app from the current integration catalogue.');
   }
   return binding;
@@ -89,7 +93,8 @@ async function managedCapabilities(context: ResolvedComposioContext): Promise<Ma
   try {
     const result = record(await requestManagedComposio('/capabilities', { bindingProtocolErrors: true }, context));
     if (result.bindingProtocolVersion !== 1 || result.exactAccountBinding !== true || result.concreteToolVersions !== true
-      || result.paginatedToolCatalog !== true || result.supportsToolNameFilter !== true || !string(result.credentialRevision)) {
+      || result.paginatedToolCatalog !== true || result.supportsToolNameFilter !== true || !string(result.credentialRevision)
+      || context.sharedBinding && (result.sharedBindingProtocolVersion !== 2 || result.exactConnectionManagement !== true || result.oauthAccountBinding !== true)) {
       throw new IntegrationContractError('provider_unavailable', 'Managed Composio requires the current connection binding protocol. Update the Control Plane.');
     }
     return { credentialRevision: string(result.credentialRevision) };
@@ -125,8 +130,11 @@ async function liveToolkit(context: ResolvedComposioContext, mode: Binding['mode
 
 async function liveAccounts(context: ResolvedComposioContext, mode: Binding['mode'], client: Binding['client']): Promise<RecordValue[]> {
   return withSignal(undefined, false, async (signal) => {
+    const backend = context.sharedBinding?.authorization.backend;
+    const toolkit = backend?.source === 'composio' ? backend.toolkit : null;
     if (mode === 'managed') {
-      const result = record(await requestManagedComposio('/status', { signal, bindingProtocolErrors: true }, context));
+      const result = record(await requestManagedComposio('/status', { signal, bindingProtocolErrors: true,
+        ...(toolkit ? { query: new URLSearchParams({ toolkit }) } : {}) }, context));
       if (result.configured === false || result.providerHealthy === false || result.apiKeyValid === false || !Array.isArray(result.connectedAccounts)) {
         throw new IntegrationContractError('provider_unavailable', 'The selected Composio connection could not be verified.');
       }
@@ -138,7 +146,8 @@ async function liveAccounts(context: ResolvedComposioContext, mode: Binding['mod
     let cursor: string | undefined;
     for (let page = 0; page < MAX_PAGES; page += 1) {
       signal.throwIfAborted();
-      const result = await client.connectedAccounts.list({ userIds: [context.composioUserId], limit: 100, cursor }, { signal });
+      const result = await client.connectedAccounts.list({ userIds: [context.composioUserId],
+        ...(toolkit ? { toolkitSlugs: [toolkit] } : {}), limit: 100, cursor }, { signal });
       accounts.push(...result.items.map((item) => item as unknown as RecordValue));
       if (!result.nextCursor) {
         if (result.totalPages > page + 1) break;
@@ -151,11 +160,70 @@ async function liveAccounts(context: ResolvedComposioContext, mode: Binding['mod
   });
 }
 
+/** Shared discovery resolves one selected app/account; it never substitutes an owned profile or sibling account. */
+export async function resolveSharedComposioIntegrationProvider(
+  context: IntegrationExecutionContext,
+  authorization: AuthorizedIntegrationConnection,
+): Promise<IntegrationResolvedProvider> {
+  const { resource, backend } = authorization;
+  if (backend.source !== 'composio' || !resource.application || resource.application !== backend.toolkit
+    || !isComposioIntegrationApplicationVisible(backend.toolkit)) {
+    throw new IntegrationContractError('provider_denied', 'The shared Composio app is not available.');
+  }
+  const { resolveAuthorizedComposioConnectionContext } = await import('@/app/lib/composio/composio-shared-context');
+  const resolved = await resolveAuthorizedComposioConnectionContext(authorization);
+  const mode = await getComposioModeForContext(resolved);
+  const providerRef = createSharedIntegrationProviderRef(resource);
+  const provider: import('../contracts').IntegrationProviderDescriptor = {
+    providerRef, source: 'composio', application: backend.toolkit, aliases: [backend.toolkit],
+    displayName: resource.displayName, description: resource.description || undefined,
+    scope: integrationConnectionProviderScope(resource), connection: { displayName: resource.displayName, effective: false },
+    state: 'setup_required', configured: mode !== 'disabled', requiresAuth: 'unknown', authorized: 'unknown',
+    health: 'unknown', canExecute: false, checkedAt: null, statusSource: 'configuration',
+    pluginRefs: [], skillRefs: [], matchReasons: [],
+    nextActions: authorization.access.canManage ? [{ kind: 'setup', href: '/settings?tab=integrations', label: 'Review shared connection' }] : [],
+  };
+  const managed = mode === 'managed' ? await managedCapabilities(resolved) : null;
+  const client = mode === 'local' ? await getComposioForContext(resolved) : null;
+  let noAuth = false;
+  let accountId: string | null = null;
+  let accountStatus: unknown = null;
+  let revision = 'provider_not_configured';
+  if (mode !== 'disabled') {
+    const app = await liveToolkit(resolved, mode, backend.toolkit, client);
+    const providerNoAuth = (app.noAuth ?? app.isNoAuth ?? app.no_auth) === true;
+    noAuth = backend.accountBinding === 'no_auth' && backend.connectedAccountId === null && providerNoAuth;
+    const accounts = backend.accountBinding === 'account' ? await liveAccounts(resolved, mode, client) : [];
+    const account = accounts.find(item => string(item.id) === backend.connectedAccountId
+      && string(record(item.toolkit).slug) === backend.toolkit);
+    const active = Boolean(account && account.status === 'ACTIVE' && account.isDisabled !== true && account.is_disabled !== true);
+    accountId = active ? backend.connectedAccountId : null;
+    accountStatus = account ? [string(account.id), string(account.status), account.isDisabled === true || account.is_disabled === true] : null;
+    revision = await credentialRevision(resolved, mode, managed, client);
+    provider.requiresAuth = !providerNoAuth;
+    provider.authorized = noAuth || active;
+    provider.health = 'healthy';
+    provider.checkedAt = new Date().toISOString();
+    provider.statusSource = 'provider';
+    provider.canExecute = (noAuth || active) && authorization.access.canUse && authorization.allowedToolNames?.length !== 0;
+    provider.state = noAuth || active ? 'ready' : 'auth_required';
+    if (provider.canExecute) provider.nextActions = [{ kind: 'gateway', label: 'List available tools',
+      request: { action: 'list', target: 'tools', providerRef } }];
+  }
+  await attachIntegrationProviderAuthorization(context, provider, authorization);
+  const binding: Binding = { kind: 'composio_binding', context: resolved, toolkit: backend.toolkit,
+    mode: backend.mode, accountId, noAuth, managed, client, credentialRevision: revision };
+  return { provider, binding, bindingRevision: schemaFingerprint([resource.connectionRef, resource.ownership,
+    resource.metadataRevision, resource.grantsRevision, resource.bindingRevision, resource.allowedToolNames,
+    backend, resolved.profileId, resolved.sharedBinding?.profileRevision, resolved.composioUserId, mode,
+    revision, accountStatus, noAuth]) };
+}
+
 async function credentialRevision(context: ResolvedComposioContext, mode: Binding['mode'], managed: ManagedCapabilities | null, client: Binding['client']) {
   const [system, scoped, key] = await Promise.all([
-    readScopedEnvState('integrations', { secretScope: 'legacy' }),
+    context.sharedBinding ? Promise.resolve({ revision: 'shared-no-system-fallback' }) : readScopedEnvState('integrations', { secretScope: 'legacy' }),
     readScopedEnvState('integrations', context.storageScope),
-    getLocalComposioApiKey(context.storageScope),
+    getLocalComposioApiKeyForContext(context),
   ]);
   if (mode === 'local' && (!client || client.getConfig().apiKey !== key)) {
     throw new IntegrationContractError('binding_changed', 'The Composio provider configuration changed. Reload the selected connection.');
@@ -165,6 +233,8 @@ async function credentialRevision(context: ResolvedComposioContext, mode: Bindin
 }
 
 async function resolveProvider(context: IntegrationExecutionContext, providerRef: string): Promise<IntegrationResolvedProvider> {
+  const shared = await findSharedIntegrationConnectionAuthorization(context, providerRef);
+  if (shared) return resolveSharedComposioIntegrationProvider(context, shared);
   const catalogue = await listComposioIntegrationProviders(context);
   const provider = catalogue.providers.find((item) => item.providerRef === providerRef);
   if (!provider || provider.scope.type !== 'user' || provider.scope.ownerUserId !== context.actorUserId || !provider.application) {
@@ -212,7 +282,9 @@ function pageError(providerRef: string, error: unknown): IntegrationProviderErro
 async function listTools(context: IntegrationExecutionContext, provider: IntegrationResolvedProvider,
   input: Parameters<IntegrationToolAdapter['listTools']>[2]): Promise<IntegrationAdapterToolPage> {
   const binding = bindingFor(context, provider);
-  const allowed = input.allowedToolNames === null || input.allowedToolNames === undefined ? null : [...new Set(input.allowedToolNames)].sort();
+  await revalidateIntegrationProviderAuthorization(context, provider.provider, 'use');
+  const names = integrationProviderAllowedToolNames(context, provider.provider, input.allowedToolNames);
+  const allowed = names === null ? null : [...new Set(names)].sort();
   if (allowed?.length === 0) return { tools: [], complete: true, providerErrors: [], nextCursor: null };
   const query = input.query?.trim() || '';
   const fingerprint = schemaFingerprint([context, provider.bindingRevision, query, input.limit, allowed]);
@@ -273,6 +345,7 @@ async function listTools(context: IntegrationExecutionContext, provider: Integra
     });
   } catch (error) { complete = false; errors.push(pageError(provider.provider.providerRef, error)); }
   input.signal?.throwIfAborted();
+  await revalidateIntegrationProviderAuthorization(context, provider.provider, 'use');
   if (!complete && errors.length === 0) errors.push(pageError(provider.provider.providerRef, new ComposioProviderError('Invalid catalogue page.', {
     code: 'COMPOSIO_BAD_RESPONSE', retryable: false,
   })));
@@ -286,6 +359,7 @@ async function listTools(context: IntegrationExecutionContext, provider: Integra
 
 async function describeTool(context: IntegrationExecutionContext, provider: IntegrationResolvedProvider, toolName: string,
   signal?: AbortSignal): Promise<ToolSchema> {
+  await revalidateIntegrationProviderAuthorization(context, provider.provider, 'use', toolName);
   const binding = bindingFor(context, provider);
   return withSignal(signal, false, async (readSignal) => {
     let tool: RecordValue;
@@ -319,6 +393,7 @@ async function describeTool(context: IntegrationExecutionContext, provider: Inte
 
 async function callTool(context: IntegrationExecutionContext, provider: IntegrationResolvedProvider, tool: IntegrationAdapterToolSchema,
   args: RecordValue, input: Parameters<IntegrationToolAdapter['callTool']>[4]) {
+  await revalidateIntegrationProviderAuthorization(context, provider.provider, 'use', tool.name);
   const current = await resolveProvider(context, provider.provider.providerRef);
   if (current.bindingRevision !== provider.bindingRevision) throw new IntegrationContractError('binding_changed', 'The selected Composio account changed. Load the schema again.');
   if (!current.provider.canExecute) throw new IntegrationContractError('provider_unavailable', 'Select a single active Composio account before executing this tool.');
@@ -330,6 +405,7 @@ async function callTool(context: IntegrationExecutionContext, provider: Integrat
     binding.mode === 'managed' ? await managedCapabilities(binding.context) : null, binding.client);
   if (checkedCredentials !== binding.credentialRevision) throw new IntegrationContractError('binding_changed', 'The Composio provider configuration changed. Load the schema again.');
   await input.beforeDispatch?.();
+  await revalidateIntegrationProviderAuthorization(context, current.provider, 'use', tool.name);
   input.signal?.throwIfAborted();
   const result = await withSignal(input.signal, true, async (signal) => {
     if (binding.mode === 'managed') return requestManagedComposio('/execute', { method: 'POST', signal, bindingProtocolErrors: true, body: {

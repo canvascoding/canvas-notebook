@@ -13,11 +13,16 @@ import { resolveComposioToolkitAccess } from '@/app/lib/composio/composio-toolki
 import { requestManagedComposio } from '@/app/lib/composio/managed-composio-client';
 import type {
   IntegrationExecutionContext,
+  IntegrationPolicy,
   IntegrationProviderDescriptor,
   IntegrationProviderError,
   IntegrationSourceSnapshot,
 } from '../contracts';
 import { createIntegrationProviderRef } from '../references';
+import { integrationConnectionActorFromContext } from '../connections/contracts';
+import { revalidateIntegrationProviderAuthorization } from '../connections/provider-authorization';
+import { createSharedIntegrationPolicyDescriptor } from '../connections/provider-policy';
+import { isIntegrationProviderVisible } from '../policy';
 
 // Keep the same native-provider exclusions as the existing Composio catalogue.
 const HIDDEN_TOOLKITS = new Set(['gemini', 'google_veo', 'nano_banana', 'openai', 'anthropic', 'google']);
@@ -39,6 +44,43 @@ function string(value: unknown): string {
 function toolkitSlug(value: unknown): string {
   const slug = string(value);
   return slug && slug.length <= 128 && !HIDDEN_TOOLKITS.has(slug.toLowerCase()) ? slug : '';
+}
+
+export function isComposioIntegrationApplicationVisible(value: string): boolean {
+  return toolkitSlug(value) === value;
+}
+
+async function sharedProviders(context: IntegrationExecutionContext, policy?: IntegrationPolicy): Promise<IntegrationSourceSnapshot> {
+  const { listSharedIntegrationConnections, authorizeIntegrationConnection } = await import('../connections/store');
+  const actor = integrationConnectionActorFromContext(context);
+  const connections = await listSharedIntegrationConnections(actor, 'composio');
+  const providers: IntegrationProviderDescriptor[] = [];
+  const providerErrors: IntegrationProviderError[] = [];
+  const revisions: unknown[] = [];
+  const { resolveSharedComposioIntegrationProvider } = await import('./composio-runtime');
+  for (const { resource } of connections) {
+    if (resource.status !== 'active' || !resource.application || !isComposioIntegrationApplicationVisible(resource.application)) continue;
+    try {
+      const authorization = await authorizeIntegrationConnection(actor, resource.connectionRef, 'inspect');
+      if (policy && !isIntegrationProviderVisible(context, policy, await createSharedIntegrationPolicyDescriptor(context, authorization))) continue;
+      const resolved = await resolveSharedComposioIntegrationProvider(context, authorization);
+      await revalidateIntegrationProviderAuthorization(context, resolved.provider);
+      providers.push(resolved.provider);
+      revisions.push([resource.connectionRef, authorization.authorizationRevision, resolved.bindingRevision]);
+    } catch {
+      providerErrors.push({ source: 'composio', code: 'COMPOSIO_SHARED_STATUS_UNAVAILABLE',
+        message: 'A shared Composio connection could not be checked.', retryable: true });
+    }
+  }
+  return { source: 'composio', providers, providerErrors, complete: providerErrors.length === 0,
+    revision: createHash('sha256').update(JSON.stringify([revisions, providerErrors])).digest('base64url') };
+}
+
+async function mergeSharedProviders(personal: IntegrationSourceSnapshot, shared: Promise<IntegrationSourceSnapshot>): Promise<IntegrationSourceSnapshot> {
+  const additions = await shared;
+  return { source: 'composio', providers: [...personal.providers, ...additions.providers].sort((a,b) => a.providerRef.localeCompare(b.providerRef)),
+    complete: personal.complete && additions.complete, providerErrors: [...personal.providerErrors, ...additions.providerErrors],
+    revision: createHash('sha256').update(JSON.stringify([personal.revision, additions.revision])).digest('base64url') };
 }
 
 function safeFailure(error: unknown, operation: 'catalogue' | 'accounts' | 'profiles'): IntegrationProviderError {
@@ -203,14 +245,19 @@ function providersForProfile(input: {
 }
 
 /** App metadata and exact actor-owned profile bindings only; never fetch tools. */
-export async function listComposioIntegrationProviders(context: IntegrationExecutionContext): Promise<IntegrationSourceSnapshot> {
+export async function listComposioIntegrationProviders(context: IntegrationExecutionContext, policy?: IntegrationPolicy): Promise<IntegrationSourceSnapshot> {
+  const shared = sharedProviders(context, policy).catch((): IntegrationSourceSnapshot => ({
+    source: 'composio', providers: [], complete: false, revision: 'shared_connections_unavailable',
+    providerErrors: [{ source: 'composio', code: 'COMPOSIO_SHARED_ACCESS_UNAVAILABLE',
+      message: 'Shared Composio connection access could not be checked.', retryable: true }],
+  }));
   const providerErrors: IntegrationProviderError[] = [];
   const timerController = new AbortController();
   const timer = setTimeout(() => timerController.abort(), CATALOGUE_TIMEOUT_MS);
   try {
     const effective = await resolveComposioContext({ userId: context.actorUserId, workspaceId: context.workspaceId });
     const mode = await getComposioMode(effective.storageScope);
-    if (mode === 'disabled') return { source: 'composio', providers: [], complete: true, providerErrors: [], revision: 'disabled' };
+    if (mode === 'disabled') return await mergeSharedProviders({ source: 'composio', providers: [], complete: true, providerErrors: [], revision: 'disabled' }, shared);
     const profiles = await listComposioProfiles(context.actorUserId);
     const contexts: ResolvedComposioContext[] = [];
     for (const profile of profiles) {
@@ -221,8 +268,8 @@ export async function listComposioIntegrationProviders(context: IntegrationExecu
         }));
       } catch (error) { providerErrors.push(safeFailure(error, 'profiles')); }
     }
-    if (contexts.length === 0) return { source: 'composio', providers: [], complete: false,
-      providerErrors, revision: 'profiles_unavailable' };
+    if (contexts.length === 0) return await mergeSharedProviders({ source: 'composio', providers: [], complete: false,
+      providerErrors, revision: 'profiles_unavailable' }, shared);
     const { catalogue, accounts } = mode === 'local'
       ? await loadLocalCollections(contexts, timerController.signal)
       : await loadManagedCollections(contexts, timerController.signal);
@@ -238,10 +285,10 @@ export async function listComposioIntegrationProviders(context: IntegrationExecu
       ]).sort()]).sort(),
       providers: providers.map(({ checkedAt: _checkedAt, ...provider }) => provider), providerErrors,
     })).digest('base64url');
-    return { source: 'composio', providers, complete: catalogue.complete && providerErrors.length === 0,
-      providerErrors, revision };
+    return await mergeSharedProviders({ source: 'composio', providers, complete: catalogue.complete && providerErrors.length === 0,
+      providerErrors, revision }, shared);
   } catch (error) {
-    return { source: 'composio', providers: [], complete: false,
-      providerErrors: [safeFailure(error, 'profiles')], revision: 'profiles_unavailable' };
+    return await mergeSharedProviders({ source: 'composio', providers: [], complete: false,
+      providerErrors: [safeFailure(error, 'profiles')], revision: 'profiles_unavailable' }, shared);
   } finally { clearTimeout(timer); }
 }

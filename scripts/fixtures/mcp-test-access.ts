@@ -22,6 +22,14 @@ export function installMcpAccessMocks(): McpAccessMocks {
   };
   const originalLoad = moduleInternals._load;
   moduleInternals._load = (request, parent, isMain) => {
+    // These legacy fixtures have no governed shared resources. New shared
+    // connection fixtures use actual PostgreSQL authority and never install this seam.
+    if (/integration-tools[\/]connections[\/]store(?:\.ts)?$/u.test(request)
+      || /^(?:\.\.\/)?connections\/store$/u.test(request)
+      || request === './store' && parent?.filename.includes('/integration-tools/connections/')) {
+      return { listSharedIntegrationConnections: async () => [], getIntegrationConnectionRecord: async () => null,
+        isAuthorizedIntegrationConnection: () => false };
+    }
     if (request.includes('license/seat-limit')) {
       return {
         assertUserSeatAccess: async ({ userId }: { userId: string }) => {

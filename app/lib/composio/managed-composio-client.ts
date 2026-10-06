@@ -3,6 +3,7 @@ import 'server-only';
 import { classifyComposioFailure, ComposioProviderError } from './composio-provider-error';
 import { getManagedControlPlaneBaseUrl } from '../managed/control-plane-url';
 import type { ResolvedComposioContext } from './composio-context';
+import { managedComposioConnectionContext } from './composio-managed-connection-context';
 
 export type ManagedRequestOptions = { method?: string; body?: Record<string, unknown>; query?: URLSearchParams;
   signal?: AbortSignal; bindingProtocolErrors?: boolean };
@@ -57,10 +58,13 @@ export async function requestManagedComposio<T>(path: string, options: ManagedRe
   const operation = operationFor(path, method);
   const url = new URL(`${controlPlaneBaseUrl()}/v1/managed/composio${path}`);
   options.query?.forEach((value, key) => url.searchParams.set(key, value));
-  const body = options.body ? JSON.stringify({ ...options.body, composioUserId: context.composioUserId }) : undefined;
+  const sharedContext = managedComposioConnectionContext(context);
+  const body = options.body ? JSON.stringify({ ...options.body, composioUserId: context.composioUserId,
+    ...(sharedContext && path === '/execute' ? { bindingProtocolVersion: 2 } : {}) }) : undefined;
   const headers: Record<string, string> = {
     Authorization: `Bearer ${instanceToken()}`,
     'X-Canvas-Composio-User-Id': context.composioUserId,
+    ...(sharedContext ? { 'X-Canvas-Composio-Connection-Context': JSON.stringify(sharedContext) } : {}),
     ...(body ? { 'Content-Type': 'application/json' } : {}),
   };
   for (let attempt = 0; attempt < (operation === 'read' ? 2 : 1); attempt += 1) {

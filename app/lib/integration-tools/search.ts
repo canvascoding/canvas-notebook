@@ -15,6 +15,7 @@ import {
   type IntegrationSourceSnapshot,
 } from './contracts';
 import { isIntegrationOperationAllowed, isIntegrationProviderVisible } from './policy';
+import { getIntegrationProviderAuthorization, integrationProviderAllowedToolNames, transferIntegrationProviderAuthorization } from './connections/provider-authorization';
 
 const DEFAULT_PAGE_SIZE = 12;
 const CURSOR_MAX_AGE_MS = 15 * 60 * 1000;
@@ -63,6 +64,8 @@ function cursorBinding(
       // Timestamps alone do not invalidate a page; changed identity/state/metadata does.
       providers: snapshot.providers.map(({ checkedAt: _checkedAt, ...provider }) => provider)
         .sort((a, b) => a.providerRef < b.providerRef ? -1 : a.providerRef > b.providerRef ? 1 : 0),
+      authorizationRevisions: snapshot.providers.map(provider => [provider.providerRef,
+        getIntegrationProviderAuthorization(context, provider)?.authorizationRevision ?? null]).sort(),
       errors: snapshot.providerErrors,
     })).sort((a, b) => a.source < b.source ? -1 : a.source > b.source ? 1 : 0),
   });
@@ -104,19 +107,23 @@ function gatewayOperation(action: IntegrationNextAction): IntegrationOperation |
     : `${request.action}_${request.target}`;
 }
 
-function projectProvider(provider: IntegrationProviderDescriptor, policy: IntegrationPolicy): IntegrationProviderDescriptor {
+function projectProvider(provider: IntegrationProviderDescriptor, policy: IntegrationPolicy, context: IntegrationExecutionContext): IntegrationProviderDescriptor {
+  const authorization = getIntegrationProviderAuthorization(context, provider);
   const canExecute = provider.canExecute
     && isIntegrationOperationAllowed(policy, provider.source, 'call')
-    && policy.allowedToolNames?.length !== 0;
-  return {
+    && (!authorization || authorization.access.canUse)
+    && integrationProviderAllowedToolNames(context, provider, policy.allowedToolNames)?.length !== 0;
+  return transferIntegrationProviderAuthorization(context, provider, {
     ...provider,
     canExecute,
     nextActions: provider.nextActions.filter((next) => {
       const operation = gatewayOperation(next);
       return operation === null || (isIntegrationOperationAllowed(policy, provider.source, operation)
+        && (!authorization || operation === 'list_providers' || operation === 'search_providers'
+          || authorization.access.canUse && authorization.allowedToolNames?.length !== 0)
         && (operation !== 'call' || canExecute));
     }),
-  };
+  });
 }
 
 function matchesFilters(provider: IntegrationProviderDescriptor, request: IntegrationProviderRequest): boolean {
@@ -164,7 +171,7 @@ function providerPage(
     && isIntegrationOperationAllowed(policy, snapshot.source, operation));
   const visible = activeSnapshots.flatMap((snapshot) => snapshot.providers)
     .filter((provider) => isIntegrationProviderVisible(context, policy, provider))
-    .map((provider) => projectProvider(provider, policy));
+    .map((provider) => projectProvider(provider, policy, context));
   const visibleRefs = new Set(visible.map((provider) => provider.providerRef));
   const unique = new Map<string, IntegrationProviderDescriptor>();
   // Deduplicate identity, never display names; two accounts for one app remain separate.
@@ -188,7 +195,8 @@ function providerPage(
   const offset = readCursor(validated.cursor, binding);
   if (offset > ranked.length) throw new IntegrationContractError('invalid_cursor', 'This page is no longer available. Start the search again.');
   const limit = Math.min(validated.limit || DEFAULT_PAGE_SIZE, INTEGRATION_MAX_PAGE_SIZE);
-  const providers = ranked.slice(offset, offset + limit).map(({ provider, match }) => ({ ...provider, matchReasons: match.reasons }));
+  const providers = ranked.slice(offset, offset + limit).map(({ provider, match }) => transferIntegrationProviderAuthorization(
+    context, provider, { ...provider, matchReasons: match.reasons }));
   const nextCursor = offset + limit < ranked.length ? createCursor(offset + limit, binding) : null;
   const providerErrors = activeSnapshots.flatMap((snapshot) => snapshot.providerErrors)
     .filter((error) => !error.providerRef || visibleRefs.has(error.providerRef));

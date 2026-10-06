@@ -42,6 +42,9 @@ export async function prepareMcpToolInvocation(server: string, tool: string,
   const prepared = await prepareMcpToolResult(server, tool, invocation.result, toolCallId);
   const app = invocation.connectionId ? readMcpAppToolMetadata(invocation.tool) : null;
   if (!app || !invocation.connectionId) return prepared;
+  if (invocation.sharedConnectionRef) return { ...prepared, details: { ...(prepared.details as Record<string, unknown>),
+    mcpAppUnavailable: { code: 'MCP_SHARED_APP_UNSUPPORTED', reason: 'Interactive previews for shared MCP connections are not available yet. The tool result is available.' },
+  } };
   const fitsWidget = JSON.stringify({ input, result: invocation.result }).length <= 2 * 1024 * 1024;
   return { ...prepared, details: { ...(prepared.details as Record<string, unknown>),
     mcpApp: { version: 1 as const, connectionId: invocation.connectionId, toolName: invocation.tool.name, resourceUri: app.resourceUri },

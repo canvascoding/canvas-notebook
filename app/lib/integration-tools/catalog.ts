@@ -11,12 +11,12 @@ import {
 import { isIntegrationOperationAllowed } from './policy';
 import { listIntegrationProviders, searchIntegrationProviders } from './search';
 
-export type IntegrationCatalogAdapter = (context: IntegrationExecutionContext) => Promise<IntegrationSourceSnapshot>;
+export type IntegrationCatalogAdapter = (context: IntegrationExecutionContext, policy?: IntegrationPolicy) => Promise<IntegrationSourceSnapshot>;
 export type IntegrationCatalogAdapters = Record<IntegrationSource, IntegrationCatalogAdapter>;
 
 const DEFAULT_ADAPTERS: IntegrationCatalogAdapters = {
-  mcp: async (context) => (await import('./adapters/mcp')).listMcpIntegrationProviders(context),
-  composio: async (context) => (await import('./adapters/composio')).listComposioIntegrationProviders(context),
+  mcp: async (context, policy) => (await import('./adapters/mcp')).listMcpIntegrationProviders(context, policy),
+  composio: async (context, policy) => (await import('./adapters/composio')).listComposioIntegrationProviders(context, policy),
 };
 
 function failedSnapshot(source: IntegrationSource, timeout: boolean): IntegrationSourceSnapshot {
@@ -39,13 +39,14 @@ async function readAdapter(
   adapter: IntegrationCatalogAdapter,
   context: IntegrationExecutionContext,
   timeoutMs: number,
+  policy: IntegrationPolicy,
 ): Promise<IntegrationSourceSnapshot> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     const timeout = new Promise<IntegrationSourceSnapshot>((resolve) => {
       timer = setTimeout(() => resolve(failedSnapshot(source, true)), timeoutMs);
     });
-    const snapshot = await Promise.race([Promise.resolve().then(() => adapter(context)), timeout]);
+    const snapshot = await Promise.race([Promise.resolve().then(() => adapter(context, policy)), timeout]);
     // A source cannot contribute another source's entries or errors, even through a malformed adapter.
     if (snapshot.source !== source
       || snapshot.providers.some((provider) => provider.source !== source)
@@ -86,7 +87,7 @@ export async function getIntegrationProviderCatalog(input: {
   const sources = (['mcp', 'composio'] as const).filter((source) =>
     (!request.source || request.source === source) && isIntegrationOperationAllowed(input.policy, source, operation));
   const adapters = input.adapters ?? DEFAULT_ADAPTERS;
-  const snapshots = await Promise.all(sources.map((source) => readAdapter(source, adapters[source], input.context, timeoutMs)));
+  const snapshots = await Promise.all(sources.map((source) => readAdapter(source, adapters[source], input.context, timeoutMs, input.policy)));
   const options = { preferredSource: input.preferredSource, confirmedProviderRefs: input.confirmedProviderRefs };
   return request.action === 'list'
     ? listIntegrationProviders(snapshots, request, input.context, input.policy, options)

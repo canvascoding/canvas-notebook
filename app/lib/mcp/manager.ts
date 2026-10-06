@@ -91,7 +91,24 @@ type McpInvocationBinding = {
   environmentRevision: string;
   beforeDispatch?: () => Promise<void>;
 };
-const mcpInvocationBindings = new AsyncLocalStorage<McpInvocationBinding | null>();
+type McpInvocationAuthority = { bindings: AsyncLocalStorage<McpInvocationBinding | null>; sharedScopes: AsyncLocalStorage<McpScope | null> };
+const invocationGlobal = globalThis as typeof globalThis & { __canvasMcpInvocationAuthorityV1?: McpInvocationAuthority };
+// Managed clients are process-global; their first module's transport closures
+// must see the current invocation even when a later Next bundle reuses them.
+const invocationAuthority = invocationGlobal.__canvasMcpInvocationAuthorityV1 ??= {
+  bindings: new AsyncLocalStorage<McpInvocationBinding | null>(), sharedScopes: new AsyncLocalStorage<McpScope | null>(),
+};
+const mcpInvocationBindings = invocationAuthority.bindings;
+const sharedMcpInvocationScopes = invocationAuthority.sharedScopes;
+
+function currentManagedScope(entry: ManagedConnection): McpScope | null {
+  if (!entry.scope?.shared) return entry.scope;
+  const current = sharedMcpInvocationScopes.getStore();
+  if (!current?.shared || getMcpScopeKey(current) !== getMcpScopeKey(entry.scope)) {
+    throw Object.assign(new Error('Shared MCP execution requires its current authorized caller.'), { code: 'mcp_connection_changed', status: 403 });
+  }
+  return current;
+}
 
 function changedInvocationEnvironment(): Error {
   return Object.assign(new Error('MCP credentials or the selected client changed before dispatch.'), { code: 'mcp_environment_binding_changed', status: 409 });
@@ -393,13 +410,14 @@ async function createClient(entry: ManagedConnection, signal?: AbortSignal): Pro
 
 async function readCurrentMcpConnection(entry: ManagedConnection): Promise<McpServerConfig> {
   entry.abortController.signal.throwIfAborted();
-  const { connection: current } = await assertMcpConnectionAccess(entry.config.connectionId || entry.serverName, entry.scope);
+  const scope = currentManagedScope(entry);
+  const { connection: current } = await assertMcpConnectionAccess(entry.config.connectionId || entry.serverName, scope);
   if (!current || !isMcpServerEnabled(current) || hashMcpAuthConfig(current) !== hashMcpAuthConfig(entry.config)
     || current.authVersion !== entry.config.authVersion) {
     throw new Error('MCP connection was removed, disabled or changed. Reconnect before continuing.');
   }
-  if (current.connectionId && entry.scope?.userId) {
-    const lifecycle = await readMcpOAuthLifecycle(current.connectionId, resolveMcpCredentialScope({ ...current, connectionId: current.connectionId }, entry.scope));
+  if (current.connectionId && (scope?.userId || scope?.shared)) {
+    const lifecycle = await readMcpOAuthLifecycle(current.connectionId, resolveMcpCredentialScope({ ...current, connectionId: current.connectionId }, scope));
     if (lifecycle.generation !== entry.authGeneration || lifecycle.lastCompletedState !== entry.authorizationState) {
       throw Object.assign(new Error('MCP authorization changed. Reconnect the client and retry explicitly.'), { code: 'mcp_connection_changed', status: 409 });
     }
@@ -408,7 +426,7 @@ async function readCurrentMcpConnection(entry: ManagedConnection): Promise<McpSe
 }
 
 async function observeManagedConnection(entry: ManagedConnection, observation: McpConnectionObservation): Promise<void> {
-  await recordMcpConnectionObservation(entry.config, entry.scope, observation, { generation: entry.authGeneration })
+  await recordMcpConnectionObservation(entry.config, currentManagedScope(entry), observation, { generation: entry.authGeneration })
     .catch(() => logMcp('warn', 'Could not persist connection status', { server: entry.serverName }));
 }
 
@@ -422,19 +440,20 @@ async function fetchManagedMcpRequest(entry: ManagedConnection, input: RequestIn
   const invocation = mcpInvocationBindings.getStore();
   if (invocation) assertInvocationClient(entry, invocation);
   const current = await readCurrentMcpConnection(entry);
+  const scope = currentManagedScope(entry);
   const identity = current.connectionId || entry.serverName;
-  const expectedAuthorizationState = entry.scope?.userId ? entry.authorizationState ?? null : undefined;
-  const token = await getValidMcpAccessToken(identity, current, entry.configHash, entry.scope, { expectedAuthorizationState });
+  const expectedAuthorizationState = scope?.userId || scope?.shared ? entry.authorizationState ?? null : undefined;
+  const token = await getValidMcpAccessToken(identity, current, entry.configHash, scope, { expectedAuthorizationState });
   const headers = new Headers(input instanceof Request ? input.headers : undefined);
   new Headers(init?.headers).forEach((value, name) => headers.set(name, value));
-  const environment = invocation ? await readMcpAvailableEnvSnapshot(entry.scope) : undefined;
+  const environment = invocation ? await readMcpAvailableEnvSnapshot(scope) : undefined;
   if (invocation && environment?.revision !== invocation.environmentRevision) throw changedInvocationEnvironment();
-  const authenticatedHeaders = await resolveHttpHeaders(current, token, entry.scope, environment?.values);
+  const authenticatedHeaders = await resolveHttpHeaders(current, token, scope, environment?.values);
   for (const [name, value] of Object.entries(authenticatedHeaders || {})) headers.set(name, value);
   // Token refresh and secret loading may yield to a concurrent config change.
   await readCurrentMcpConnection(entry);
   if (invocation) {
-    const latestEnvironment = await readMcpAvailableEnvSnapshot(entry.scope);
+    const latestEnvironment = await readMcpAvailableEnvSnapshot(scope);
     if (latestEnvironment.revision !== invocation.environmentRevision) throw changedInvocationEnvironment();
     assertInvocationClient(entry, invocation);
   }
@@ -451,7 +470,7 @@ async function fetchManagedMcpRequest(entry: ManagedConnection, input: RequestIn
   if (response.status === 401 && token) {
     await response.body?.cancel();
     // Refresh is safe to perform here; the rejected operation is never replayed.
-    await getValidMcpAccessToken(identity, current, entry.configHash, entry.scope, { forceRefresh: true, rejectedAccessToken: token, expectedAuthorizationState });
+    await getValidMcpAccessToken(identity, current, entry.configHash, scope, { forceRefresh: true, rejectedAccessToken: token, expectedAuthorizationState });
     const error = new Error('MCP authorization was renewed. The previous operation was not replayed; reconnect and retry it explicitly.');
     Object.assign(error, { code: 'mcp_auth_renewed', status: 409 });
     throw error;
@@ -470,7 +489,7 @@ async function getManagedConnection(serverName: string, signal?: AbortSignal, sc
 
   const configHash = hashMcpServerConfig(serverConfig);
   const key = getEntryKey(normalizedScope, serverName, configHash);
-  const lifecycle = serverConfig.connectionId && normalizedScope?.userId
+  const lifecycle = serverConfig.connectionId && (normalizedScope?.userId || normalizedScope?.shared)
     ? await readMcpOAuthLifecycle(serverConfig.connectionId, resolveMcpCredentialScope({ ...serverConfig, connectionId: serverConfig.connectionId }, normalizedScope)) : undefined;
   const authGeneration = lifecycle?.generation;
   const environment = await readMcpAvailableEnvSnapshot(normalizedScope);
@@ -544,6 +563,7 @@ async function withManagedConnection<T>(
   signal?: AbortSignal,
   scope?: McpScope | null,
 ): Promise<T> {
+  return sharedMcpInvocationScopes.run(scope?.shared ? normalizeMcpScope(scope) : null, async () => {
   const entry = await getManagedConnection(serverName, signal, scope);
   if (!entry.client) throw new Error(`MCP server "${serverName}" is not connected.`);
 
@@ -564,7 +584,7 @@ async function withManagedConnection<T>(
         entry.configHash,
         error.requiredScope,
         error.resourceMetadataUrl?.toString(),
-        entry.scope,
+        currentManagedScope(entry),
       );
       await closeManagedEntries([[entry.key, entry]]);
       const scopeText = challengedScopes.length ? ` Required scopes: ${challengedScopes.join(' ')}.` : '';
@@ -586,6 +606,7 @@ async function withManagedConnection<T>(
     entry.activeCalls = Math.max(0, entry.activeCalls - 1);
     entry.lastUsedAt = Date.now();
   }
+  });
 }
 
 function resolveCachePath(scope?: McpScope | null): string {
@@ -676,6 +697,7 @@ export type McpToolCallWithCurrentMetadata = {
   result: CallToolResult;
   tool: Tool;
   connectionId: string | null;
+  sharedConnectionRef?: string;
 };
 
 /** Executes a model-visible tool and returns the exact, live tool metadata. */
@@ -691,6 +713,7 @@ export async function callMcpToolWithCurrentMetadata(
     beforeDispatch?: () => Promise<void>;
   } = {},
 ): Promise<McpToolCallWithCurrentMetadata> {
+  if (scope?.shared) scope = normalizeMcpScope({ ...scope, shared: { ...scope.shared, operation: 'use', toolName } });
   return mcpInvocationBindings.run(null, () => withManagedConnection(serverName, async (entry, client) => {
     const currentTools = await withTimeout(client.listTools(), getTimeoutMs(entry.config), signal);
     const currentTool = currentTools.tools.find((tool) => tool.name === toolName);
@@ -703,7 +726,7 @@ export async function callMcpToolWithCurrentMetadata(
       ? { entry, client, environmentRevision: options.expectedEnvironmentRevision, beforeDispatch: options.beforeDispatch } : null;
     if (invocation) {
       assertInvocationClient(entry, invocation);
-      const environment = await readMcpAvailableEnvSnapshot(entry.scope);
+      const environment = await readMcpAvailableEnvSnapshot(currentManagedScope(entry));
       if (environment.revision !== invocation.environmentRevision) throw changedInvocationEnvironment();
     }
     await options.beforeDispatch?.();
@@ -714,7 +737,8 @@ export async function callMcpToolWithCurrentMetadata(
       client.callTool({ name: toolName, arguments: args }), getTimeoutMs(entry.config), signal,
     )) as CallToolResult;
     logMcp(result.isError ? 'warn' : 'info', 'Tool call finished', { server: serverName, tool: toolName, isError: Boolean(result.isError) });
-    return { result, tool: currentTool, connectionId: entry.config.connectionId || null };
+    return { result, tool: currentTool, connectionId: entry.config.connectionId || null,
+      ...(scope?.shared ? { sharedConnectionRef: scope.shared.connectionRef } : {}) };
   }, signal, scope));
 }
 
