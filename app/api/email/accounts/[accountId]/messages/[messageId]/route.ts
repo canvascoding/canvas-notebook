@@ -5,6 +5,7 @@ import { auth } from '@/app/lib/auth';
 import { isEmailMessageNotFoundError } from '@/app/lib/email/errors';
 import { isImapMailboxChangedError } from '@/app/lib/email/imap-service';
 import { readEmailMessage } from '@/app/lib/email/service';
+import { isEmailClassificationAccessUnavailableError } from '@/app/lib/email/classification/enrichment';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 
 async function requireSession(request: NextRequest) {
@@ -24,10 +25,13 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     const access = await resolveEmailMailboxAccess({ userId: session.user.id, accountId, mailboxWorkspaceId: request.nextUrl.searchParams.get('mailboxWorkspaceId'), operation: 'read' });
     const data = await readEmailMessage(access.accountOwnerId, access.accountId, messageId, folder, {
       ...access.readOptions,
+      actorUserId: session.user.id,
+      workspaceId: access.workspaceId,
       scheduleBackgroundTask: after,
     });
     return NextResponse.json({ success: true, data });
   } catch (error) {
+    if (isEmailClassificationAccessUnavailableError(error)) return NextResponse.json({ success: false, code: error.code, error: error.message }, { status: error.status });
     if (error instanceof EmailMailboxAccessError) {
       return NextResponse.json({ success: false, error: error.message }, { status: error.status });
     }

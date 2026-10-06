@@ -81,7 +81,13 @@ async function main() {
     const raw: EmailClassificationRaw = { category: 'support', categoryProbabilities: { support: 1 }, categoryConfidence: 1, priority: 'normal', priorityProbabilities: { normal: 1 }, priorityConfidence: 1, spamProbability: 0, replyProbability: 1, providerId: 'typesafe', model: 'jev-1.13.0', adapterVersion: 'fixture', schemaVersion: 'email-triage.v1', probabilitySemantics: 'model_probability', calibrationReference: null, latencyMs: 1, evaluatedAt: now, evaluatedBodyCharacters: 1, bodyWasTruncated: false, usage: null };
     assert.equal(await second.completeJob({ jobId: claimsA[0].id, claimToken: claimsA[0].claimToken!, raw, now: now + 1 }), false);
     assert.equal((await first.readMessages(['one','two','three'])).length, 3, 'AI toggle preserves the independent metadata index.');
-    console.log('Native PostgreSQL 18 classification races passed: independent sessions, settings/focus CAS, exclusive leases, daily cap, stale sync and disable-before-result.');
+    const resumed = await first.updateSettings({ expectedRevision: 2, actorUserId: 'owner', configuration: { ...configuration, enabled: true, maxEmailsPerDay: 20, concurrency: 1 } });
+    for (const id of ['one','two','three']) await first.enqueueClassification({ messageRef: id, fingerprint: id, configurationRevision: resumed.revision, now: now + 2 });
+    const slots = await Promise.all([first.claimJobs({ limit: 3, leaseMs: 60_000, now: now + 3 }), second.claimJobs({ limit: 3, leaseMs: 60_000, now: now + 3 })]);
+    assert.equal(slots.flat().length, 1, 'Global concurrency remains one across independent workers even with spare daily budget.');
+    const syncClaims = await Promise.all([first.claimMailboxSync({ mailboxRef: mailbox.mailboxRef, leaseMs: 10_000, now }), second.claimMailboxSync({ mailboxRef: mailbox.mailboxRef, leaseMs: 10_000, now })]);
+    assert.equal(syncClaims.filter(Boolean).length, 1, 'Only one session may synchronize this mailbox.');
+    console.log('Native PostgreSQL 18 classification races passed: settings/focus CAS, exclusive leases, shared daily/concurrency limits, sync claims, stale sync and disable-before-result.');
   } finally {
     await pool?.end();
     if (created) await administrator.query(`DROP SCHEMA "${schema}" CASCADE`);

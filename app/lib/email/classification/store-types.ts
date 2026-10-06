@@ -18,12 +18,14 @@ export interface EmailClassificationMailboxInput {
   workspaceId: string | null;
   mailboxId: string | null;
   bindingRevision: string;
+  connectionRevision?: string;
   policyRevision: string;
   active: boolean;
   readFrom: string[];
 }
 
 export interface StoredEmailClassificationMailbox extends EmailClassificationMailboxInput {
+  connectionRevision: string;
   indexRevision: number;
   lastSyncAt: number | null;
   syncCursor: string | null;
@@ -53,11 +55,15 @@ export interface EmailClassificationMetadataInput {
   folder: string;
   dateTimestamp: number | null;
   replyStatus: EmailReplyStatus;
+  inInbox?: boolean;
+  lastSeenInboxAt?: number;
   fingerprint: string;
   list: EmailIndexedMessageList;
 }
 
 export interface StoredEmailClassificationMetadata extends EmailClassificationMetadataInput {
+  inInbox: boolean;
+  lastSeenInboxAt: number;
   mailbox: StoredEmailClassificationMailbox;
   indexRevision: number;
   createdAt: number;

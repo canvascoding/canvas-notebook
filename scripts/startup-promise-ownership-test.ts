@@ -98,11 +98,13 @@ async function testServerSequencing(unhandled: unknown[]) {
         events.push('schema');
         if (scenario === 'schema-failure') throw failure;
       } },
+      './app/lib/mcp/manager.ts': { closeAllMcpServers: noop, registerMcpShutdownCoordinator: noop },
       './server/websocket-server.ts': ws,
       './server/browser-view-server.ts': { createBrowserViewServer: noop },
       './server/collaboration-server.ts': { createCollaborationServer: noop },
       './app/lib/collaboration/room-owner-local-test.ts': { resolveLocalCollaborationRoomOwnerOptions: () => null },
       './app/lib/files/workspace-operation-batch-worker.ts': { initializeWorkspaceOperationBatchWorkerRuntime: () => ({ stop: noop }) },
+      './app/lib/files/workspace-operation-check-worker.ts': { initializeWorkspaceOperationCheckWorkerRuntime: () => ({ stop: noop }) },
       './server/excalidraw-collaboration/server.ts': { createExcalidrawCollaborationServer: noop },
       './server/live-events-server.ts': { createLiveEventsServer: () => ({ close: noop }) },
       './server/agent-runtime-loader.ts': { preloadAgentRuntimeModules: async () => {
@@ -119,6 +121,7 @@ async function testServerSequencing(unhandled: unknown[]) {
       console: { log: noop, error: noop }, process: { env: {} },
       resolveImportedServerModule: (module: unknown) => module,
       closeChatWebSocketServer: null, flushCollaborationDocuments: null,
+      closeMcpServers: null, shutdownServer: noop,
       flushExcalidrawCollaborationDocuments: null, closeLiveEventsServer: null, isCanvasWebSocketRequest: null,
       installChatUpgradeGuard: noop, port: 3000, hostname: 'localhost',
       app: { prepare: async () => { events.push('prepare'); } },

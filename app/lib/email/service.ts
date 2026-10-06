@@ -70,6 +70,7 @@ import {
 } from '@/app/lib/email/inbound-attachments';
 import type { EmailDeliveryOrigin } from '@/app/lib/email/policy';
 import { logEmailClientEvent } from '@/app/lib/email/logging';
+import { notifyEmailClassificationAccountChanged, notifyEmailClassificationMessageChanged } from '@/app/lib/email/classification/lifecycle';
 import {
   getManagedEmailOAuthRedirectUri,
   isManagedEmailAvailable,
@@ -81,6 +82,7 @@ import {
   type ManagedEmailAccount,
 } from '@/app/lib/email/managed-client';
 import { saveSmtpEmailAccount, testSmtpConnection, testStoredSmtpEmailAccount, type SmtpAccountInput } from '@/app/lib/email/smtp-service';
+import type { EmailClassificationEnrichedPayload } from '@/app/lib/email/classification/enrichment';
 
 type EmailSearchInput = {
   offset?: number;
@@ -97,7 +99,7 @@ type EmailMessageListInput = EmailSearchInput & {
   offset?: number;
 };
 
-type EmailReadPolicyOptions = {
+export type EmailReadPolicyOptions = {
   /** Authenticated actor for AI/files; provider ownership may differ for shared mailboxes. */
   actorUserId?: string;
   enforceReadPolicy?: boolean;
@@ -105,6 +107,8 @@ type EmailReadPolicyOptions = {
   cacheMode?: EmailCacheMode;
   prefetchDetails?: boolean;
   scheduleBackgroundTask?: EmailCacheBackgroundScheduler;
+  /** Background workers fetch raw mail without recursively registering or projecting it. */
+  skipClassification?: boolean;
 };
 
 export type EmailDeliveryOptions = {
@@ -378,9 +382,12 @@ export async function updateEmailPolicy(userId: string, accountId: string, polic
       method: 'PATCH',
       body: JSON.stringify(policy),
     }, managedEmailScope(userId));
+    await notifyEmailClassificationAccountChanged({ ownerUserId: userId, accountId, accountSource: 'managed' });
     return normalizeManagedAccount(payload.account);
   }
-  return updateLocalEmailPolicy(userId, accountId, policy);
+  const account = await updateLocalEmailPolicy(userId, accountId, policy);
+  await notifyEmailClassificationAccountChanged({ ownerUserId: userId, accountId, accountSource: 'local' });
+  return account;
 }
 
 export async function setEmailMainAccount(userId: string, accountId: string) {
@@ -400,17 +407,20 @@ export async function disconnectEmailAccount(userId: string, accountId: string) 
       managedEmailScope(userId),
     );
     await purgeEmailMailboxCache({ userId, accountId: managedAccount.id, accountSource: 'managed' });
+    await notifyEmailClassificationAccountChanged({ ownerUserId: userId, accountId: managedAccount.id, accountSource: 'managed' });
     return { success: true };
   }
   const localAccount = await resolveLocalEmailCacheAccount(userId, accountId);
   const result = await disconnectLocalEmailAccount(userId, localAccount.account.id);
   await purgeEmailMailboxCache({ userId, accountId: localAccount.account.id, accountSource: 'local' });
+  await notifyEmailClassificationAccountChanged({ ownerUserId: userId, accountId: localAccount.account.id, accountSource: 'local' });
   return result;
 }
 
 export async function saveEmailSmtpAccount(userId: string, input: SmtpAccountInput, options?: { verify?: boolean }) {
   const account = await saveSmtpEmailAccount(userId, input, options);
   await reactivateEmailMailboxCache({ userId, accountId: account.id, accountSource: 'local' });
+  await notifyEmailClassificationAccountChanged({ ownerUserId: userId, accountId: account.id, accountSource: 'local' });
   return account;
 }
 
@@ -501,11 +511,29 @@ async function loadManagedEmailSearch(userId: string, managedAccount: ManagedEma
   };
 }
 
+async function enrichEmailReadResult<T>(userId: string, result: T, accountSource: 'local' | 'managed', accountId?: string, folder?: string, options?: EmailReadPolicyOptions): Promise<EmailClassificationEnrichedPayload<T>> {
+  if (options?.skipClassification) return result as EmailClassificationEnrichedPayload<T>;
+  const payload = result && typeof result === 'object' && !Array.isArray(result) ? result as Record<string, unknown> : {};
+  const cache = payload.cache && typeof payload.cache === 'object' ? payload.cache as Record<string, unknown> : null;
+  // Import after this service is initialized: registry authorization itself calls listEmailAccounts.
+  const { enrichEmailClassificationPayload } = await import('@/app/lib/email/classification/enrichment');
+  return enrichEmailClassificationPayload(result, {
+    actorUserId: options?.actorUserId || userId,
+    accountOwnerId: userId,
+    accountId: accountId || emailAccountId(payload.account) || '',
+    accountSource,
+    workspaceId: options?.workspaceId || null,
+    folder: typeof payload.folder === 'string' ? payload.folder : folder,
+    provenance: cache?.source === 'cache' ? 'cache' : 'provider',
+    scheduleBackgroundTask: options?.scheduleBackgroundTask,
+  });
+}
+
 export async function searchEmail(userId: string, input: EmailSearchInput, options?: EmailReadPolicyOptions) {
   parseEmailSearchQuery(input.query);
   const managedAccount = await findManagedEmailAccount(userId, input.accountId);
-  if (managedAccount) return loadManagedEmailSearch(userId, managedAccount, input);
-  return searchLocalEmail(userId, input, options);
+  if (managedAccount) return enrichEmailReadResult(userId, await loadManagedEmailSearch(userId, managedAccount, input), 'managed', managedAccount.id, input.folder, options);
+  return enrichEmailReadResult(userId, await searchLocalEmail(userId, input, options), 'local', input.accountId, input.folder, options);
 }
 
 async function loadManagedEmailMessage(
@@ -581,11 +609,11 @@ function scheduleEmailDetailPrefetch(input: {
 export async function listEmailMessages(userId: string, input: EmailMessageListInput, options?: EmailReadPolicyOptions) {
   parseEmailSearchQuery(input.query);
   const managedAccount = await findManagedEmailAccount(userId, input.accountId);
-  if (managedAccount) return loadManagedEmailSearch(userId, managedAccount, input);
+  if (managedAccount) return enrichEmailReadResult(userId, await loadManagedEmailSearch(userId, managedAccount, input), 'managed', managedAccount.id, input.folder, options);
   // Search paging/limits are part of its response; the current list cache stores only messages/total.
   // Bypass it instead of losing continuation metadata or replaying stale queries.
   if (input.query?.trim() || input.folder === 'all' || (input.filter && input.filter !== 'all') || input.from || input.hasAttachments) {
-    return listLocalEmailMessages(userId, input, options);
+    return enrichEmailReadResult(userId, await listLocalEmailMessages(userId, input, options), 'local', input.accountId, input.folder, options);
   }
 
   if (shouldUseEmailCache(options)) {
@@ -641,18 +669,18 @@ export async function listEmailMessages(userId: string, input: EmailMessageListI
         return loaded;
       },
     });
-    return result;
+    return enrichEmailReadResult(userId, result, 'local', resolved.account.id, folder, options);
   }
-  return listLocalEmailMessages(userId, input, options);
+  return enrichEmailReadResult(userId, await listLocalEmailMessages(userId, input, options), 'local', input.accountId, input.folder, options);
 }
 
 export async function readEmailMessage(userId: string, accountId: string, messageId: string, folder?: string, options?: EmailReadPolicyOptions) {
   const managedAccount = await findManagedEmailAccount(userId, accountId);
   if (managedAccount) {
     const load = () => loadManagedEmailMessage(userId, managedAccount, messageId, folder);
-    if (!shouldUseEmailCache(options)) return load();
+    if (!shouldUseEmailCache(options)) return enrichEmailReadResult(userId, await load(), 'managed', managedAccount.id, folder, options);
     const store = await getRuntimeEmailCacheStore();
-    return readThroughEmailDetail<EmailDetailPayload>({
+    const result = await readThroughEmailDetail<EmailDetailPayload>({
       runtime: { store, scheduleBackgroundTask: options?.scheduleBackgroundTask },
       mailbox: {
         userId,
@@ -665,12 +693,13 @@ export async function readEmailMessage(userId: string, accountId: string, messag
       load,
       fromCache: (message) => ({ account: managedAccount, message }),
     });
+    return enrichEmailReadResult(userId, result, 'managed', managedAccount.id, folder, options);
   }
 
   if (shouldUseEmailCache(options)) {
     const resolved = await resolveLocalEmailCacheAccount(userId, accountId);
     const store = await getRuntimeEmailCacheStore();
-    return readThroughEmailDetail<EmailDetailPayload>({
+    const result = await readThroughEmailDetail<EmailDetailPayload>({
       runtime: { store, scheduleBackgroundTask: options?.scheduleBackgroundTask },
       mailbox: {
         userId,
@@ -683,8 +712,9 @@ export async function readEmailMessage(userId: string, accountId: string, messag
       load: () => readLocalEmailMessage(userId, accountId, messageId, folder, options),
       fromCache: (message) => ({ account: resolved.account, message }),
     });
+    return enrichEmailReadResult(userId, result, 'local', resolved.account.id, folder, options);
   }
-  return readLocalEmailMessage(userId, accountId, messageId, folder, options);
+  return enrichEmailReadResult(userId, await readLocalEmailMessage(userId, accountId, messageId, folder, options), 'local', accountId, folder, options);
 }
 
 function filenameFromContentDisposition(value: string | null): string {
@@ -749,7 +779,7 @@ export async function setEmailMessageRead(
   read: boolean,
 ) {
   const resolved = await resolveLocalEmailCacheAccount(userId, accountId);
-  return runLocalEmailMessageReadMutation(
+  const result = await runLocalEmailMessageReadMutation(
     {
       userId,
       accountId: resolved.account.id,
@@ -758,6 +788,8 @@ export async function setEmailMessageRead(
     },
     () => setLocalEmailMessageRead(userId, accountId, messageId, folder, read),
   );
+  await notifyEmailClassificationMessageChanged({ ownerUserId: userId, accountId, accountSource: 'local', messageId, folder, read });
+  return result;
 }
 
 export async function setEmailMessageAnswered(
@@ -767,38 +799,48 @@ export async function setEmailMessageAnswered(
   folder: string | undefined,
   answered: boolean,
 ) {
-  return runLocalEmailMailboxMutation(
+  const result = await runLocalEmailMailboxMutation(
     { userId, accountId },
     () => setLocalEmailMessageAnswered(userId, accountId, messageId, folder, answered),
   );
+  await notifyEmailClassificationMessageChanged({ ownerUserId: userId, accountId, accountSource: 'local', messageId, folder, answered });
+  return result;
 }
 
 export async function archiveEmailMessage(userId: string, accountId: string, messageId: string, folder?: string) {
-  return runLocalEmailMailboxMutation(
+  const result = await runLocalEmailMailboxMutation(
     { userId, accountId },
     () => archiveLocalEmailMessage(userId, accountId, messageId, folder),
   );
+  await notifyEmailClassificationMessageChanged({ ownerUserId: userId, accountId, accountSource: 'local', messageId, folder, leaveInbox: true });
+  return result;
 }
 
 export async function moveEmailMessage(userId: string, accountId: string, messageId: string, folder: string | undefined, destination: string) {
-  return runLocalEmailMailboxMutation(
+  const result = await runLocalEmailMailboxMutation(
     { userId, accountId },
     () => moveLocalEmailMessage(userId, accountId, messageId, folder, destination),
   );
+  await notifyEmailClassificationMessageChanged({ ownerUserId: userId, accountId, accountSource: 'local', messageId, folder, leaveInbox: destination.toLowerCase() !== 'inbox' });
+  return result;
 }
 
 export async function trashEmailMessage(userId: string, accountId: string, messageId: string, folder?: string) {
-  return runLocalEmailMailboxMutation(
+  const result = await runLocalEmailMailboxMutation(
     { userId, accountId },
     () => trashLocalEmailMessage(userId, accountId, messageId, folder),
   );
+  await notifyEmailClassificationMessageChanged({ ownerUserId: userId, accountId, accountSource: 'local', messageId, folder, leaveInbox: true });
+  return result;
 }
 
 export async function deleteEmailMessagePermanently(userId: string, accountId: string, messageId: string, folder?: string) {
-  return runLocalEmailMailboxMutation(
+  const result = await runLocalEmailMailboxMutation(
     { userId, accountId },
     () => deleteLocalEmailMessagePermanently(userId, accountId, messageId, folder),
   );
+  await notifyEmailClassificationMessageChanged({ ownerUserId: userId, accountId, accountSource: 'local', messageId, folder, remove: true });
+  return result;
 }
 
 export async function summarizeEmailMessage(userId: string, accountId: string, messageId: string, folder?: string, options?: EmailReadPolicyOptions) {

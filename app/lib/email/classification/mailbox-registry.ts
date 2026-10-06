@@ -44,15 +44,17 @@ export async function resolveAuthorizedEmailClassificationMailboxes(userId: stri
       if (local && local.status !== 'active') return null;
       if (access.workspaceId && (!local || !binding || local.accountScope !== 'workspace')) return null;
       const readFrom = normalizeEmailPolicyList(local ? (JSON.parse(local.policyJson) as { readFrom?: unknown }).readFrom : account.policy.readFrom);
+      const connectionRevision = emailClassificationFingerprint([access.accountOwnerId, local ? 'local' : 'managed', access.accountId, access.workspaceId, access.mailboxId,
+        local?.provider ?? account.provider, local?.authType ?? account.authType,
+        local?.createdAt?.getTime() ?? account.createdAt ?? null, local?.providerAccountId ?? null,
+        local?.providerAccountId ? null : local?.emailAddress ?? account.emailAddress,
+        account.imapHost ?? null, account.imapPort ?? null, account.imapUsername ?? null, account.imapSecure ?? null]);
       const descriptor = {
         ownerUserId: access.accountOwnerId, accountSource: local ? 'local' as const : 'managed' as const,
         accountId: access.accountId, workspaceId: access.workspaceId, mailboxId: access.mailboxId,
         provider: local?.authType === 'smtp_imap' ? 'imap' : local?.provider ?? account.provider,
-        bindingRevision: emailClassificationFingerprint([access.accountOwnerId, local ? 'local' : 'managed', access.accountId, access.workspaceId, access.mailboxId,
-          local?.provider ?? account.provider, local?.authType ?? account.authType, local?.status ?? account.status,
-          local?.createdAt?.getTime() ?? account.createdAt ?? null, local?.providerAccountId ?? null, local?.emailAddress ?? account.emailAddress,
-          account.imapHost ?? null, account.imapPort ?? null, account.imapUsername ?? null, account.imapSecure ?? null,
-          binding?.updatedAt?.getTime() ?? null]),
+        connectionRevision,
+        bindingRevision: emailClassificationFingerprint([connectionRevision, binding?.updatedAt?.getTime() ?? null]),
         policyRevision: emailClassificationFingerprint([Boolean(access.workspaceId), [...readFrom].sort()]),
         active: true, readFrom,
         emailAddress: local?.emailAddress ?? account.emailAddress, displayName: account.displayName, workspaceName: account.workspaceName,

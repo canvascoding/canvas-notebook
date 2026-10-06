@@ -1,3 +1,5 @@
+import { EMAIL_CLASSIFICATION_FEED_STORAGE_UP_SQL } from './feed-postgres-migration';
+
 type EmailClassificationMigrationQueryable = {
   query: (sql: string) => Promise<unknown>;
   exec?: (sql: string) => Promise<unknown>;
@@ -24,6 +26,8 @@ export const EMAIL_CLASSIFICATION_STORAGE_UP_SQL = `
     workspace_id text,
     mailbox_id text,
     binding_revision text NOT NULL,
+    connection_revision text NOT NULL DEFAULT '',
+    last_claimed_at bigint NOT NULL DEFAULT 0,
     policy_revision text NOT NULL,
     read_from_json jsonb NOT NULL CHECK (jsonb_typeof(read_from_json) = 'array'),
     active boolean NOT NULL,
@@ -35,6 +39,9 @@ export const EMAIL_CLASSIFICATION_STORAGE_UP_SQL = `
     updated_at bigint NOT NULL,
     CHECK ((workspace_id IS NULL AND mailbox_id IS NULL) OR (workspace_id IS NOT NULL AND mailbox_id IS NOT NULL))
   );
+  ALTER TABLE email_classification_mailboxes ADD COLUMN IF NOT EXISTS connection_revision text NOT NULL DEFAULT '';
+  UPDATE email_classification_mailboxes SET connection_revision = binding_revision WHERE connection_revision = '';
+  ALTER TABLE email_classification_mailboxes ADD COLUMN IF NOT EXISTS last_claimed_at bigint NOT NULL DEFAULT 0;
   CREATE INDEX IF NOT EXISTS idx_email_classification_mailbox_owner
     ON email_classification_mailboxes(owner_user_id, active);
   CREATE INDEX IF NOT EXISTS idx_email_classification_mailbox_source
@@ -47,6 +54,8 @@ export const EMAIL_CLASSIFICATION_STORAGE_UP_SQL = `
     folder text NOT NULL,
     date_timestamp bigint,
     reply_status text NOT NULL CHECK (reply_status IN ('answered', 'unanswered', 'unknown')),
+    in_inbox boolean NOT NULL DEFAULT true,
+    last_seen_inbox_at bigint NOT NULL DEFAULT 0,
     fingerprint text NOT NULL,
     list_json jsonb NOT NULL CHECK (jsonb_typeof(list_json) = 'object'),
     index_revision bigint NOT NULL DEFAULT 1 CHECK (index_revision >= 1),
@@ -55,14 +64,19 @@ export const EMAIL_CLASSIFICATION_STORAGE_UP_SQL = `
     UNIQUE(mailbox_ref, canonical_id),
     UNIQUE(message_ref, mailbox_ref)
   );
+  ALTER TABLE email_classification_messages ADD COLUMN IF NOT EXISTS in_inbox boolean NOT NULL DEFAULT true;
+  ALTER TABLE email_classification_messages ADD COLUMN IF NOT EXISTS last_seen_inbox_at bigint NOT NULL DEFAULT 0;
   CREATE INDEX IF NOT EXISTS idx_email_classification_message_mailbox_date
     ON email_classification_messages(mailbox_ref, date_timestamp DESC, message_ref);
+  CREATE INDEX IF NOT EXISTS idx_email_classification_message_inbox_date
+    ON email_classification_messages(mailbox_ref, date_timestamp DESC, message_ref) WHERE in_inbox;
 
   CREATE TABLE IF NOT EXISTS email_classification_jobs (
     id text PRIMARY KEY,
     message_ref text NOT NULL,
     mailbox_ref text NOT NULL,
     configuration_revision bigint NOT NULL CHECK (configuration_revision >= 1),
+    evaluation_fingerprint text,
     fingerprint text NOT NULL,
     binding_revision text NOT NULL,
     policy_revision text NOT NULL,
@@ -79,6 +93,9 @@ export const EMAIL_CLASSIFICATION_STORAGE_UP_SQL = `
     CHECK ((status = 'processing' AND lease_until IS NOT NULL AND claim_token IS NOT NULL)
       OR (status <> 'processing' AND lease_until IS NULL AND claim_token IS NULL))
   );
+  ALTER TABLE email_classification_jobs ADD COLUMN IF NOT EXISTS evaluation_fingerprint text;
+  CREATE INDEX IF NOT EXISTS idx_email_classification_job_evaluation
+    ON email_classification_jobs(message_ref, evaluation_fingerprint);
   CREATE INDEX IF NOT EXISTS idx_email_classification_jobs_ready
     ON email_classification_jobs(status, next_attempt_at, lease_until);
 
@@ -112,6 +129,14 @@ export const EMAIL_CLASSIFICATION_STORAGE_UP_SQL = `
     day_start bigint PRIMARY KEY CHECK (day_start >= 0),
     attempts bigint NOT NULL DEFAULT 0 CHECK (attempts >= 0)
   );
+
+  CREATE TABLE IF NOT EXISTS email_classification_mailbox_sync_leases (
+    mailbox_ref text PRIMARY KEY REFERENCES email_classification_mailboxes(mailbox_ref) ON DELETE CASCADE,
+    claim_token text NOT NULL,
+    lease_until bigint NOT NULL
+  );
+
+  ${EMAIL_CLASSIFICATION_FEED_STORAGE_UP_SQL}
 `;
 
 export async function runEmailClassificationPostgresMigration(postgres: EmailClassificationMigrationQueryable): Promise<void> {

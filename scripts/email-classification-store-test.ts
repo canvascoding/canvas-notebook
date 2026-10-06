@@ -20,7 +20,7 @@ const raw: EmailClassificationRaw = {
 };
 const mailbox: EmailClassificationMailboxInput = {
   mailboxRef: 'personal-mailbox', ownerUserId: 'owner', accountSource: 'managed', accountId: 'remote-no-local-account', provider: 'google',
-  workspaceId: null, mailboxId: null, bindingRevision: 'binding-1', policyRevision: 'policy-1', readFrom: [], active: true,
+  workspaceId: null, mailboxId: null, bindingRevision: 'binding-1', connectionRevision: 'connection-1', policyRevision: 'policy-1', readFrom: [], active: true,
 };
 const message = (id: string, overrides: Partial<EmailClassificationMetadataInput> = {}): EmailClassificationMetadataInput => ({
   messageRef: id, mailboxRef: mailbox.mailboxRef, canonicalId: `provider-${id}`, folder: 'INBOX', dateTimestamp: 1_000,
@@ -45,7 +45,7 @@ async function main() {
     const schema = await postgres.query<{ table_name: string; column_name: string; data_type: string }>(`SELECT table_name,column_name,data_type FROM information_schema.columns WHERE table_schema = 'public' ORDER BY table_name,column_name`);
     await runEmailClassificationPostgresMigration(postgres as unknown as EmailClassificationQueryable);
     assert.deepEqual((await postgres.query(`SELECT table_name,column_name,data_type FROM information_schema.columns WHERE table_schema = 'public' ORDER BY table_name,column_name`)).rows, schema.rows, 'Repeated migration is idempotent');
-    assert.equal(new Set(schema.rows.map(row => row.table_name)).size, 8);
+    assert.equal(new Set(schema.rows.map(row => row.table_name)).size, 11);
     assert.ok(schema.rows.some(row => row.table_name === 'email_classification_messages' && row.column_name === 'list_json' && row.data_type === 'jsonb'));
     assert.ok(schema.rows.some(row => row.table_name === 'email_classification_results' && row.column_name === 'evaluation_fingerprint' && row.data_type === 'text'));
     await postgres.exec('ALTER TABLE email_classification_results DROP COLUMN evaluation_fingerprint');

@@ -572,6 +572,17 @@ function scheduleBackgroundMaintenance() {
       .catch((err) => {
         console.warn('[Startup] Memory review worker could not be initialized:', err.message);
       });
+    import('./app/lib/email/classification/runtime.ts')
+      .then((classificationModule) => {
+        resolveImportedServerModule(
+          classificationModule,
+          ['initializeEmailClassificationRuntime'],
+          'Email classification',
+        ).initializeEmailClassificationRuntime();
+      })
+      .catch(() => {
+        console.warn('[Startup] Email classification runtime could not be initialized.');
+      });
   }, 1500);
   timer.unref?.();
   console.log('[Startup] Background maintenance scheduled');
