@@ -54,6 +54,7 @@ export const EMAIL_CLASSIFICATION_STORAGE_UP_SQL = `
     folder text NOT NULL,
     date_timestamp bigint,
     reply_status text NOT NULL CHECK (reply_status IN ('answered', 'unanswered', 'unknown')),
+    accepted_reply_at bigint,
     in_inbox boolean NOT NULL DEFAULT true,
     last_seen_inbox_at bigint NOT NULL DEFAULT 0,
     fingerprint text NOT NULL,
@@ -66,6 +67,7 @@ export const EMAIL_CLASSIFICATION_STORAGE_UP_SQL = `
   );
   ALTER TABLE email_classification_messages ADD COLUMN IF NOT EXISTS in_inbox boolean NOT NULL DEFAULT true;
   ALTER TABLE email_classification_messages ADD COLUMN IF NOT EXISTS last_seen_inbox_at bigint NOT NULL DEFAULT 0;
+  ALTER TABLE email_classification_messages ADD COLUMN IF NOT EXISTS accepted_reply_at bigint;
   CREATE INDEX IF NOT EXISTS idx_email_classification_message_mailbox_date
     ON email_classification_messages(mailbox_ref, date_timestamp DESC, message_ref);
   CREATE INDEX IF NOT EXISTS idx_email_classification_message_inbox_date

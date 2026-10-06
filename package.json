@@ -33,6 +33,8 @@
     "test:email:classification:focus-ui": "tsx scripts/email-focus-ui-test.tsx",
     "test:email:compose:source": "tsx scripts/email-compose-source-test.tsx",
     "test:email:compose:dialog-source": "tsx scripts/email-compose-dialog-source-test.tsx",
+    "test:email:accepted-reply": "tsx --conditions react-server scripts/email-accepted-reply-test.ts",
+    "test:email:classification:e2e": "E2E_EXTERNAL_SERVER=1 playwright test tests/email-classification-local.spec.ts --workers=1",
     "test:email:classification:routes": "tsx --conditions react-server scripts/email-classification-routes-test.ts",
     "test:email:classification:index": "tsx --conditions react-server scripts/email-classification-index-test.ts",
     "test:email:classification:worker": "tsx --conditions react-server scripts/email-classification-worker-test.ts",

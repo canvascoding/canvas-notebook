@@ -51,7 +51,7 @@
     "undoItem": "Undo done for me: {subject}",
     "donePersonalHint": "Marks this email as handled in your own Focus view.",
     "loadMore": "Load more",
-    "indexScopeHint": "Indexed inboxes · initial lookback up to {days} days and {maximum} messages per mailbox. Open a mailbox in Classic for other folders and older mail.",
+    "indexScopeHint": "Initial ratings cover up to {days} days and {maximum} messages per mailbox. Open a mailbox in Classic for other folders and full mailbox search.",
     "sources": {
       "personal": "Personal",
       "work": "Work"

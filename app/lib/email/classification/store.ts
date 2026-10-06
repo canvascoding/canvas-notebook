@@ -262,12 +262,13 @@ export class PostgresEmailClassificationStore {
       const result = await connection.query(`INSERT INTO email_classification_messages(message_ref,mailbox_ref,canonical_id,folder,date_timestamp,reply_status,fingerprint,list_json,created_at,updated_at,in_inbox)
         VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$9,COALESCE($10,true)) ON CONFLICT(message_ref) DO UPDATE SET
           folder = EXCLUDED.folder, date_timestamp = EXCLUDED.date_timestamp,
-          reply_status = CASE WHEN EXCLUDED.reply_status = 'unknown' THEN email_classification_messages.reply_status ELSE EXCLUDED.reply_status END,
+          reply_status = CASE WHEN email_classification_messages.accepted_reply_at IS NOT NULL THEN 'answered'
+            WHEN EXCLUDED.reply_status = 'unknown' THEN email_classification_messages.reply_status ELSE EXCLUDED.reply_status END,
           fingerprint = EXCLUDED.fingerprint, list_json = EXCLUDED.list_json,
           in_inbox = COALESCE($10,email_classification_messages.in_inbox),
           index_revision = email_classification_messages.index_revision + 1, updated_at = EXCLUDED.updated_at
         WHERE email_classification_messages.folder IS DISTINCT FROM EXCLUDED.folder OR email_classification_messages.date_timestamp IS DISTINCT FROM EXCLUDED.date_timestamp
-          OR (EXCLUDED.reply_status <> 'unknown' AND email_classification_messages.reply_status IS DISTINCT FROM EXCLUDED.reply_status) OR email_classification_messages.fingerprint IS DISTINCT FROM EXCLUDED.fingerprint
+          OR (email_classification_messages.accepted_reply_at IS NULL AND EXCLUDED.reply_status <> 'unknown' AND email_classification_messages.reply_status IS DISTINCT FROM EXCLUDED.reply_status) OR email_classification_messages.fingerprint IS DISTINCT FROM EXCLUDED.fingerprint
           OR email_classification_messages.list_json IS DISTINCT FROM EXCLUDED.list_json
           OR ($10 IS NOT NULL AND email_classification_messages.in_inbox IS DISTINCT FROM $10) RETURNING *`,
       [messageRef, mailboxRef, canonicalId, folder, date, input.replyStatus, fingerprint, JSON.stringify(list), now, input.inInbox ?? null]);
@@ -322,12 +323,31 @@ export class PostgresEmailClassificationStore {
         await connection.query(`UPDATE email_classification_messages SET
           list_json = CASE WHEN $2::boolean IS NULL THEN list_json ELSE jsonb_set(list_json,'{isRead}',to_jsonb($2::boolean),true) END,
           reply_status = CASE WHEN $3::boolean IS NULL THEN reply_status WHEN $3 THEN 'answered' ELSE 'unanswered' END,
+          accepted_reply_at = CASE WHEN $3::boolean = false THEN NULL ELSE accepted_reply_at END,
           in_inbox = CASE WHEN $4::boolean THEN false ELSE in_inbox END, index_revision = index_revision + 1, updated_at = $5
           WHERE message_ref = ANY($1::text[])`, [refs, input.read ?? null, input.answered ?? null, input.leaveInbox ?? false, now]);
         if (input.leaveInbox) await connection.query(`UPDATE email_classification_jobs SET status = 'canceled', lease_until = NULL, claim_token = NULL, error_code = 'left_inbox', updated_at = $2
           WHERE message_ref = ANY($1::text[]) AND status IN ('pending','processing','retry')`, [refs, now]);
       }
       await connection.query('UPDATE email_classification_mailboxes SET index_revision = index_revision + 1, updated_at = $2 WHERE mailbox_ref = ANY($1::text[])', [[...new Set(selected.rows.map(row => String(row.mailbox_ref)))], now]);
+    });
+  }
+
+  /** A confirmed send is evidence for one original source, fenced against rebinding. */
+  async confirmAcceptedReply(input: { mailboxRef: string; messageRef: string; connectionRevision: string; bindingRevision: string; policyRevision: string; now?: number }): Promise<boolean> {
+    const now = integer(input.now ?? Date.now(), 'time');
+    return this.transaction(async connection => {
+      await this.lockSettings(connection);
+      const mailbox = (await connection.query(`SELECT * FROM email_classification_mailboxes WHERE mailbox_ref = $1 AND active
+        AND connection_revision = $2 AND binding_revision = $3 AND policy_revision = $4 FOR UPDATE`,
+      [text(input.mailboxRef, 'mailbox reference'), text(input.connectionRevision, 'connection revision'), text(input.bindingRevision, 'binding revision'), text(input.policyRevision, 'policy revision')])).rows[0];
+      if (!mailbox) return false;
+      const updated = await connection.query(`UPDATE email_classification_messages SET reply_status = 'answered',
+        accepted_reply_at = $3, index_revision = index_revision + 1, updated_at = $3 WHERE mailbox_ref = $1 AND message_ref = $2 RETURNING message_ref`,
+      [input.mailboxRef, text(input.messageRef, 'message reference'), now]);
+      if (!updated.rows.length) return false;
+      await connection.query('UPDATE email_classification_mailboxes SET index_revision = index_revision + 1, updated_at = $2 WHERE mailbox_ref = $1', [input.mailboxRef, now]);
+      return true;
     });
   }
 

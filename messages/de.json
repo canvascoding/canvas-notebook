@@ -51,7 +51,7 @@
     "undoItem": "Erledigt zurücknehmen: {subject}",
     "donePersonalHint": "Markiert diese E-Mail nur in deiner eigenen Fokus-Ansicht als bearbeitet.",
     "loadMore": "Weitere laden",
-    "indexScopeHint": "Erfasste Posteingänge · anfänglich bis zu {days} Tage und {maximum} Nachrichten je Postfach. Für andere Ordner und ältere E-Mails öffne ein Postfach in Klassisch.",
+    "indexScopeHint": "Bewertungen zunächst für bis zu {days} Tage und {maximum} Nachrichten je Postfach. Für andere Ordner und die vollständige Postfachsuche öffne ein Postfach in Klassisch.",
     "sources": {
       "personal": "Persönlich",
       "work": "Arbeit"

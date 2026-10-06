@@ -9,6 +9,7 @@ import { EmailMailboxAccessError, resolveEmailMailboxAccess } from '@/app/lib/em
 import { createWorkspaceOutboxDraft, findWorkspaceOutboxDraft, updateWorkspaceOutboxDraft, sendWorkspaceOutboxDraft } from '@/app/lib/email/workspace-inbox-outbox';
 import { snapshotBrowserEmailAttachments, BrowserEmailAttachmentError } from '@/app/lib/email/attachments';
 import type { LocalEmailDraftInput } from '@/app/lib/email/draft-store';
+import { captureAcceptedEmailReply, recordAcceptedEmailReply } from '@/app/lib/email/accepted-reply';
 
 type ComposeInput = LocalEmailDraftInput & { mailboxWorkspaceId?: unknown; attachmentWorkspaceId?: unknown; expectedVersion?: number };
 type MailboxAccess = Awaited<ReturnType<typeof resolveEmailMailboxAccess>>;
@@ -74,5 +75,10 @@ export async function createBrowserEmailDerivedDraft(userId: string, input: { ac
   const account = await db.query.emailAccounts.findFirst({ where: and(eq(emailAccounts.id, access.accountId), eq(emailAccounts.userId, access.accountOwnerId)) });
   const draft = buildEmailDerivedDraft({ accountId: access.accountId, message: result.message as Record<string, unknown>, mode: input.mode, ownAddresses: new Set(account ? [account.emailAddress] : []), ...input.overrides });
   const compose = { ...draft, attachmentWorkspaceId: input.attachmentWorkspaceId, accountId: access.accountId, mailboxWorkspaceId: access.workspaceId };
-  return send ? sendBrowserEmailMessage(userId, compose) : createBrowserEmailDraft(userId, compose, access);
+  if (!send) return createBrowserEmailDraft(userId, compose, access);
+  const reply = await captureAcceptedEmailReply({ actorUserId: userId, ownerUserId: access.accountOwnerId, accountId: access.accountId,
+    accountSource: 'local', workspaceId: access.workspaceId, messageId: input.messageId, folder: input.folder, mode: input.mode });
+  const sent = await sendBrowserEmailMessage(userId, compose);
+  await recordAcceptedEmailReply(reply, sent !== null && typeof sent === 'object' && !Array.isArray(sent) && 'status' in sent && sent.status === 'sent');
+  return sent;
 }
