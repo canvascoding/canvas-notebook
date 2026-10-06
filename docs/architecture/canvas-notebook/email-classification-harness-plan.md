@@ -8,7 +8,9 @@ Status: Architektur- und Umsetzungsvorschlag. Es wurde kein Produktcode verände
 
 Ein Serveradministrator aktiviert die automatische Kategorisierung zentral für alle berechtigten Postfächer der Instanz. Persönliche und gemeinsame Workspace-Postfächer verwenden denselben Dienst. Nutzer müssen keinen eigenen Provider konfigurieren und erhalten keinen individuellen Aktivierungsschalter.
 
-V1 umfasst **Kategorie, Priorität, Spam-% und Antwortbedarf-%**, passende Filter/Sortierung, gruppierte Ansichten und manuelle Korrekturen. Alle vier Bewertungen gehören zu einem gemeinsamen versionierten Fragenschema und werden möglichst in einem Providerrequest pro Mail ermittelt. Standardmäßig ist die Funktion ausgeschaltet. Die erste Version sortiert innerhalb von Canvas mit virtuellen Ansichten; automatische Änderungen an Gmail-Labels, Outlook-Kategorien oder IMAP-Ordnern sind eine spätere, gesonderte Erweiterung. Mails bleiben über die normale Ordneransicht erreichbar.
+V1 umfasst **Kategorie, Priorität, Spam-% und Antwortbedarf-%** als Grundlage einer neuen Arbeitsansicht: **Fokus** zeigt vorrangig wichtige Nachrichten und Antwortbedarf, **Klassisch** die vertraute chronologische Ansicht. Beide Modi funktionieren für ein einzelnes Postfach und für alle berechtigten Postfächer gemeinsam, einschließlich Arbeitspostfächern. Kategorien, Prozentwerte und erweiterte Filter erscheinen schrittweise bei Bedarf. Alle vier Bewertungen gehören zu einem gemeinsamen versionierten Fragenschema und werden möglichst in einem Providerrequest pro Mail ermittelt.
+
+Der zentrale KI-Schalter ist standardmäßig ausgeschaltet. Nach seiner Aktivierung wird Fokus zur Standardansicht für Nutzer ohne gespeicherte Moduswahl; eine ausdrücklich gewählte klassische Ansicht bleibt erhalten. Dieser UI-Schalter wählt die Arbeitsweise, nicht die Teilnahme an der zentralen Verarbeitung. Die erste Version sortiert innerhalb von Canvas mit virtuellen Ansichten; automatische Änderungen an Gmail-Labels, Outlook-Kategorien oder IMAP-Ordnern sind eine spätere, gesonderte Erweiterung. Jede berechtigte Mail bleibt über „Alle E-Mails“ bzw. die normale Ordneransicht erreichbar.
 
 Ein zentraler Schalter ist sinnvoll. Trotzdem muss die Administrationsoberfläche erkennen lassen, ob Mailinhalte an einen externen Dienst gehen oder auf einem selbst betriebenen Endpunkt verarbeitet werden. Ein Modellfehler darf eine wichtige Mail weder verschwinden lassen noch den normalen Postfachabruf blockieren.
 
@@ -28,6 +30,14 @@ Ein zentraler Schalter ist sinnvoll. Trotzdem muss die Administrationsoberfläch
 | Administration | `requireInstanceAdmin` und die Settings-Komponenten liefern das Muster für zentrale Adminfunktionen. Der bestehende E-Mail-Bereich nutzt den Settings-Tab `system-email`. |
 | Secrets | `/api/integrations/env` und der gemeinsame ENV-Speicher unterstützen System-, Organisations- und User-Bereiche. Die zentrale V1-Konfiguration verwendet System-Secrets; persönliche Providerkeys werden nicht automatisch übernommen. |
 | Mobile | Die vorhandenen nativen APIs betreffen Inbox-Cases und Entwurfsprüfung (`email.review.v1`). Eine native vollständige Mailbox mit Kategorien ist ein eigener Clientumfang; das Backend wird dafür erweiterbar gehalten. |
+
+### 2.1 Aktuelle Mail-UX und notwendiger Umbau
+
+Der Client arbeitet mit genau einem aktiven Konto/Postfach und einem Ordner (`EmailClient.tsx:182-196`). Der Header bietet Postfachauswahl, Verfassen, Refresh und Suche (`EmailMailboxHeader.tsx:65-135`). Die Liste zeigt Absender, Zeit, Betreff, Vorschautext und Gelesenstatus; es gibt keine Bewertungsspalten (`EmailMailboxNavigation.tsx:247-289`). Der bestehende „Focus“-Button blendet vor allem Layoutbereiche aus und sendet ein Layoutsignal an die Shell (`EmailClient.tsx:106-140`); er priorisiert keine Nachrichten. „Alle Ordner“ in der Suche meint nur das ausgewählte Postfach (`EmailClient.tsx:533-565`, `EmailSearchBar.tsx:47-49`).
+
+Desktop nutzt Postfachnavigation, Liste und Reader; schmale Ansichten öffnen die Nachricht in einem Dialog (`EmailWorkspaceLayout.tsx:18-22`, `EmailClient.tsx:1479-1512`). Öffnen markiert eine Mail heute automatisch als gelesen (`EmailClient.tsx:687`), bedeutet aber nicht erledigt. Die vorhandenen Reader-, Compose- und Versandprüfungsabläufe sind wichtige Bestandteile der neuen Ansicht. Der global gehostete Review Center darf weder durch Scopewahl noch durch niedrige KI-Priorität verschwinden (`EmailReviewCenter.tsx:11,55-68`).
+
+Folgerung: Der neue Fokusmodus ist eine eigene Ansicht mit eigenen Datenabfragen. Den bisherigen Layoutschalter benennen wir in **„Ablenkungsfrei“** um und verschieben ihn in die Anzeigeoptionen. Die bestehende Listenansicht bleibt als klassischer Modus verwendbar. Die Erweiterung benötigt keinen vollständigen Neubau von Nachrichtendarstellung und Antworteditor.
 
 ## 3. Jev und offene Alternativen
 
@@ -57,15 +67,18 @@ V1 liefert den TypeSafe-Adapter und einen konfigurierbaren, anhand von Vertragsf
 ```mermaid
 flowchart TD
   A[Admin-Einstellungen und zentraler Schalter] --> B[E-Mail-Klassifizierungsdienst]
-  C[Autorisierte Listen-, Such- und Detailabrufe] --> B
-  D[Hintergrund-Synchronisation der Postfächer] --> B
+  C[Autorisierte Listen-, Such- und Detailabrufe] --> M[Autorisierter Mail-Metadatenindex]
+  D[Hintergrund-Synchronisation der Postfächer] --> M
+  M --> K[Gemeinsamer Feed und klassische Mailansichten]
+  M -. bei aktivierter KI .-> B
   B --> E[Postgres: Aufträge und Ergebnisse]
   E --> F[Worker mit Policy- und Rechteprüfung]
   F --> G[Decision-Provider-Harness]
   G --> H[TypeSafe Jev]
   G --> I[Kompatibler lokaler Dienst, etwa Kev]
   G --> J[Weitere Adapter]
-  E --> K[Autorisierte Kategorien und Mailansichten]
+  E -. optionale Bewertungsanreicherung .-> K
+  K --> L[Fokusliste, Kategorien und Bewertungsdetails]
 ```
 
 ### 4.1 Allgemeiner Decision-Harness
@@ -89,14 +102,16 @@ Der Adapter erledigt Transport und Formatumwandlung. Der Harness validiert Antwo
 
 Unter `app/lib/email/classification/` liegen `schema.ts`, `policy.ts`, `settings-store.ts`, `mailbox-registry.ts`, `store.ts`, `service.ts`, `worker.ts` und `availability.ts`. Die Namen sind Vorschläge, keine bereits implementierten Module.
 
-Postgres speichert vier fachliche Bereiche:
+Postgres speichert diese fachlichen Bereiche:
 
 | Bereich | Inhalt |
 | --- | --- |
 | Zentrale Einstellungen | Instanz-ID, Aktivierung, Provider-/Modellreferenz, Schemaprofil, Schwellenprofil, Limits und monotone Revision; Änderungen mit `expectedRevision`, Änderungszeit und Admin-ID. |
 | Mailbox-Synchronisation | Kontoinhaber, tatsächlicher Berechtigungsbereich, `accountSource: local/managed`, Account-ID, Bindungsrevision, Provider, letzter erfolgreicher Sync, Cursor und Abdeckungsstatus. Verwaltete Account-IDs dürfen nicht ungeprüft eine lokale `email_accounts`-Zeile voraussetzen. |
+| Mail-Metadatenindex | Kanonische Mailreferenz, Herkunft, tatsächlicher Providerordner, begrenzte Listenmetadaten, Zeit, Antwortstatus samt Verfügbarkeit und Indexrevision. Dauerhafte Grundlage für aggregierte Ansichten und Zähler, unabhängig von Klassifizierung und kurzlebigem Cache; aktuelle Rechte vor Ausgabe prüfen. |
 | Klassifizierungsaufträge | Nachrichtenreferenz, Schema-/Modell-/Policyrevision, Fingerprint, Zustand, Versuche, `nextAttemptAt`, Lease und Claim-Token. Eindeutiger Auftrag pro Nachricht und Konfigurations-/Inhaltsstand. |
 | Ergebnisse und Korrekturen | Gewählte Kategorie/Priorität mit jeweils optionaler Verteilung, Spam- und Antwortbedarfwahrscheinlichkeit, Provider-Confidence pro Frage, Score-Semantik, ausgewerteter Inhaltsumfang, Modell-/Adapter-/Kalibrierungsversion, Zeit, abgeleitete Entscheidungen und davon getrennte manuelle Korrekturen mit Version. Kategorie, wirksame Priorität und binäre Werte erhalten für Filter/Sortierung indizierbare Felder. |
+| Persönlicher Fokuszustand | Nutzer-ID + kanonische Mailreferenz + Revision für „Für mich erledigt“ und optional spätere Wiedervorlage. Dieser Zustand verändert weder Modellbewertung noch gemeinsamen Workspace-Case. Das gespeicherte Ansichtsformat verwendet den bestehenden `UserPreferences`-Dienst. |
 
 Ergebnisse sind unabhängig von kurzlebigen Cacheeinträgen und von Automation-Inbox-Cases. Gemeinsame Postfächer erhalten ein Ergebnis pro Mail, das alle berechtigten Nutzer sehen; persönliche bleiben an den Inhaber gebunden. Kein Schlüssel hängt vom zufällig aufrufenden Workspace-Mitglied ab.
 
@@ -107,8 +122,8 @@ Migrationen folgen den bestehenden Postgres-Startmigrationen. Einstellungen lieg
 ### 4.3 Verarbeitung und vollständige Abdeckung
 
 1. Ein eigener Discovery-Dienst registriert aktive lokale und verwaltete Postfächer und prüft aktuelle Bindungen und Besitzverhältnisse. Reine SMTP-Konten ohne lesbare Inbox werden ausgelassen.
-2. Ein serverseitiger Worker synchronisiert neue eingehende Nachrichten auch bei geschlossenem Browser. Paging/Cursor, überlappende Abruffenster und Deduplizierung verhindern, dass ein hohes Mailaufkommen hinter einem festen Top-50-Fenster verschwindet. Beim erstmaligen Einschalten wird ein begrenzter jüngerer Inbox-Bestand erfasst; eine komplette historische Analyse bleibt eine explizite Adminaktion mit Mengen-/Kostenlimit.
-3. Listen-, Such- und Detailwege ergänzen nach ihrer bestehenden Autorisierung gespeicherte Klassifizierungsdaten und legen fehlende Aufträge idempotent an. Eine gemeinsame Wrapper-Schicht deckt alle Rückgabepfade ab. Rohabrufe für Worker, Reply-Watcher und bestehende Automationen bleiben nutzbar; der Worker darf sich beim Nachladen nicht erneut selbst einreihen.
+2. Ein serverseitiger Metadaten-Sync synchronisiert neue eingehende Nachrichten auch bei geschlossenem Browser. Paging/Cursor, überlappende Abruffenster und Deduplizierung verhindern, dass ein hohes Mailaufkommen hinter einem festen Top-50-Fenster verschwindet. Dieser Mailindex dient auch dem klassischen Gesamtfeed und bleibt von Klassifizierungsaufträgen getrennt. Bei aktivierter KI wird ein begrenzter jüngerer Inbox-Bestand zur Analyse eingereiht; eine komplette historische Analyse bleibt eine explizite Adminaktion mit Mengen-/Kostenlimit.
+3. Listen-, Such- und Detailwege ergänzen nach ihrer bestehenden Autorisierung und bei aktivierter KI gültige gespeicherte Klassifizierungsdaten. Fehlende Aufträge werden nur bei aktivierter, gültig konfigurierter Klassifizierung idempotent angelegt; normale Metadatensynchronisation ist davon unabhängig. Eine gemeinsame Wrapper-Schicht deckt alle Rückgabepfade ab. Rohabrufe für Metadaten-Sync, Klassifizierungsworker, Reply-Watcher und bestehende Automationen bleiben nutzbar; der Worker darf sich beim Nachladen nicht erneut selbst einreihen.
 4. Der Worker beansprucht Aufträge mit Postgres-Leases/Claim-Token. Vor Inhaltsabruf, Provideraufruf und Ergebnisübernahme prüft er Aktivierung, Konfigurationsrevision, aktives Konto, Eigentümer/Organisation und aktuelle Bindung. Die Klassifizierung ist ein expliziter zentraler Dienstauftrag und verwendet keine zufällige Chat-Modellauswahl eines Nutzers.
 5. Bereits autorisiert vorhandene Inhalte werden bevorzugt. Fehlen sie, verwendet der Worker die vorhandenen Maildienste mit der für Hintergrundverarbeitung geltenden Lesepolicy. Ein Cachetreffer hebt die Policy nicht auf. Klassifizierung markiert Mails nicht als gelesen.
 6. Pro Mail geht begrenzter bereinigter Text an den Provider: Absender, Empfänger, Betreff und Haupttext; bei HTML-only-Mails sichere Textextraktion. Der zentral konfigurierte Bewertungskontext enthält den tatsächlichen Postfachzweck und gegebenenfalls einen begrenzten Organisationskontext. Geschäftliche Dringlichkeitsregeln werden nicht ungeprüft auf persönliche Postfächer übertragen. Anhänge, externe Bilder und verlinkte Webseiten werden nicht nachgeladen. Kürzung und verwendeter Umfang werden festgehalten; ein Snippet-Ergebnis wird nicht als vollständige Inhaltsprüfung ausgegeben.
@@ -127,11 +142,11 @@ Geplante APIs: `GET/PATCH /api/admin/email-classification/settings`, `POST /api/
 
 | Zustand | Verhalten |
 | --- | --- |
-| Aus / Einstellung fehlt | Keine automatische Discovery, keine Aufträge, keine Provideraufrufe und keine KI-Sortierung. Normale Postfachansicht. |
+| Aus / Einstellung fehlt | Keine automatische Klassifizierungs-Discovery, keine KI-Aufträge, keine Provideraufrufe und keine KI-Sortierung. Klassische Mailansicht; autorisierter normaler Abruf und der Mailindex für gemeinsame Ansichten bleiben unabhängig nutzbar. |
 | Aktiv und bereit | Neue Mails werden im Hintergrund analysiert; vorhandene, gültige Ergebnisse sofort angezeigt. |
 | Aktiv, Konfiguration fehlt | Sichtbarer Adminhinweis mit `/settings?tab=secrets`; Mails bleiben unverändert lesbar. Aktivierung setzt validierte Konfiguration voraus, später entfernte Credentials werden als Störung angezeigt. |
 | Provider gestört | Bestehende gültige Kategorien bleiben verfügbar; neue Mails zeigen „Noch nicht kategorisiert“ bzw. ausstehende Analyse. Keine erzwungene Ersatzkategorie. |
-| Ausschalten während eines Laufs | Revision erhöhen, wartende Aufträge pausieren, laufende Requests bestmöglich abbrechen. Bereits versandte Inhalte lassen sich nicht zurückholen; spätere Antworten werden nicht mehr angewendet. Filter und Ansichten wechseln zurück. |
+| Ausschalten während eines Laufs | Revision erhöhen, wartende Aufträge pausieren, laufende Requests bestmöglich abbrechen. Bereits versandte Inhalte lassen sich nicht zurückholen; spätere Antworten werden nicht mehr angewendet. Effektive Ansicht wird klassisch; Postfachscope, geöffnete Mail und Entwürfe bleiben erhalten, die gespeicherte Moduspräferenz wird nicht überschrieben. |
 | Wieder einschalten | Gültige Ergebnisse wiederverwenden, offene Aufträge kontrolliert fortsetzen. Veraltete Modell-/Schemastände als solche behandeln. Keine unbegrenzte Neuverarbeitung des Bestands. |
 
 Availability wird nach Änderungen und bei Fokuswechsel aktualisiert. Der Server prüft den Schalter unabhängig vom UI. Frühere Ergebnisse werden beim Ausschalten nicht automatisch gelöscht; Aufbewahrung/Löschung ist eine gesonderte Datenfunktion mit Anbindung an Konto-/Nutzerlöschung und Sperrung bei Disconnect.
@@ -154,9 +169,25 @@ Jeder Cacheabruf bleibt aktuell autorisiert. Workspace-Lesepolicies werden auch 
 
 Abnahme: Cachetreffer mit Kategorien ohne KI-Aufruf, eine Sammelabfrage statt N Einzelabfragen, Cachemiss mit erhaltenen Ergebnissen, Korrektur während Provider-Refresh, kein Verlust bei Cachebereinigung, korrekte Kategorienzähler über mehrere Seiten, sofortige Deaktivierung trotz warmem Cache sowie unveränderte persönliche und Workspace-Zugriffsgrenzen. Die Latenz wird mit und ohne Anreicherung gemessen; eine konkrete Beschleunigung ist erst nach Umsetzung und Messung bestätigt.
 
-## 5. Kategorie, Priorität, Spam-%, Antwortbedarf-% und UI
+### 4.6 Gemeinsamer Feed und vollständige Herkunft jeder Mail
 
-Die Nutzerreferenz zeigt eine tabellarische Mailansicht mit den Spalten Kategorie, Priorität, Spam und Reply. Dieses fachliche Muster wird übernommen; Performance-/Batchdiagnose erscheint in den Adminwerkzeugen. Das gemeinsame Schema erhält diese Definitionen:
+`listEmailMailboxes(userId)` in `mailbox-access.ts:37-78` vereinigt bereits persönliche lokale/verwaltete Konten und aktive zugängliche Workspace-Bindungen. Das ist die Grundlage für die Scopeauswahl, nicht die rein persönliche Kontoliste. **„Alle Postfächer“ umfasst nur die aktuell lesbaren Postfächer des angemeldeten Nutzers**, unabhängig vom gerade geöffneten App-Workspace. Lizenz, aktuelle Mitgliedschaft, Bindung und Workspace-Lesepolicy werden berücksichtigt. Send-only-/getrennte Konten zählen nicht als verfügbare Eingangspostfächer. Administrationsrechte erteilen keinen zusätzlichen Mailzugriff. Die Ausschlüsse des allgemeinen Inbox-Widgets werden nicht still auf diesen eigenständigen Mailfeed übertragen.
+
+Vorgeschlagener eigener Vertrag: `GET /api/email/feed` mit Postfachscope (`all`, `personal`, `work`, konkrete Mailboxreferenz), Ansicht (`important`, `all`, Kategorie, Spamverdacht), Filter, Sortierung, Limit und opakem Cursor. Fokus-/klassischer Modus bestimmen passende Abfragen, bleiben von der Postfachauswahl getrennt. Der Server ermittelt die erlaubten Postfächer und filtert vor Ranking, Zählern und Ausgabe. Ein künstlicher Account „all“ ist kein Ersatz für diesen Vertrag.
+
+Jeder Feed-Eintrag enthält seine kanonische Identität und vollständige Herkunft: Mailboxreferenz, Accountquelle/Account-ID, Inhaber, Workspace/Berechtigungsbereich, tatsächlicher Ordner, normalisierte Providerreferenz und verfügbare Aktionen. `PublicEmailAccount`/die heutige Kontonormalisierung liefern `accountSource` noch nicht; die Registry muss diese Herkunft serverseitig auflösen, statt sie aus ID-Präfixen oder einem globalen Managed-Modus zu erraten. Der aktuelle `EmailMessageSummary` besitzt diese Herkunft ebenfalls noch nicht; `mailboxFetch`, Detailabruf und Mutationen hängen heute am aktiven Konto (`EmailClient.tsx:365-381,637-647,948-960`). Detail, Anhänge, Antwortabsender, Verschieben, Archivieren und Korrekturen lösen künftig die Herkunft **der ausgewählten Nachricht** auf und werden serverseitig erneut autorisiert. Neue Nachrichten aus „Alle“ benötigen vor dem Entwurf ein konkretes sendeberechtigtes Absenderpostfach. Deep Links und Chatkontext bewahren die exakte Mailherkunft; der Feed-Scope darf nicht als Agent-Workspace ausgegeben werden.
+
+Ranking und Zähler laufen über den gesamten synchronisierten, autorisierten Metadatenindex plus wirksame Bewertungen und persönlichen Fokuszustand. Die ersten zehn Mails je Konto zusammenzukleben liefert weder globales Ranking noch vollständige Zahlen. Der Cursor bindet Nutzer, Scope/Berechtigungsstand, Filter, Rankingrevision und Snapshot; stabile Tie-Breaker sind Datum und kanonische Mailidentität. Rechteentzug wirkt sofort auch bei noch gültigem Snapshot. Dieselbe reale Mail wird innerhalb desselben Zugriffsbereichs dedupliziert; identische Betreffzeilen oder RFC-Message-IDs in verschiedenen Postfächern reichen dafür nicht.
+
+Abdeckung und Fehler werden je Quelle erfasst. Faire Discovery verhindert, dass ein großes Arbeitspostfach die persönlichen oder kleineren Postfächer verdrängt. Fehlende Provider-Pagingfähigkeit ist eine sichtbare Einschränkung. Berechtigungen und die aktuelle Sender-Lesepolicy werden vor Ausgabe bei Index-, Cachetreffern und Zählern erneut geprüft (`mailbox-access.ts:107`, `local-service.ts:1151`). Ein gemeinsamer Feedcache ergänzt zum bisherigen Schlüssel Nutzer/Fokuszustandsrevision, autorisierten Postfachscope und Ranking-/Indexrevision. Ein Konto-/Scopewechsel darf keine fremden zwischengespeicherten Zeilen kurz anzeigen.
+
+Der allgemeine Mailindex und sein leseberechtigter Abruf sind von KI-Aufträgen getrennt. So funktioniert **Klassisch + Alle Postfächer** auch nach zentralem Ausschalten als chronologischer Feed. Beide Modi starten mit den **Posteingängen** des gewählten Scopes; Gesendet, Papierkorb und tatsächliche Provider-Spamordner werden nicht still hinzugemischt. Inbox-Ordner werden pro Provider aufgelöst, statt überall dieselbe Ordner-ID vorauszusetzen. Einzelpostfächer behalten ihre echten Ordner; die Gesamtansicht bekommt keinen erfundenen globalen Provider-Ordnerbaum. „Ordner öffnen“ führt zunächst zur Auswahl eines konkreten Postfachs. Coverage und historische Reichweite gelten auch für den klassischen Gesamtfeed; der Cache mit 7/30 Tagen Retention ist kein vollständiger Index. Der bisherige direkte Providerabruf der klassischen Einzelmailbox bleibt erreichbar.
+
+## 5. Bewertungen und neue Mail-UX nach Progressive Disclosure
+
+### 5.1 Fachlicher Bewertungsvertrag
+
+Die Nutzerreferenz zeigt eine tabellarische Mailansicht mit den Spalten Kategorie, Priorität, Spam und Reply. Diese vier fachlichen Bewertungen werden übernommen. Die neue Nutzeranforderung verändert ihre Darstellung: **keine ständig sichtbare Vier-Spalten-Bewertungstabelle als Standard**, sondern eine vorbereitete Fokusliste. Performance-/Batchdiagnose erscheint in den Adminwerkzeugen. Das gemeinsame Schema erhält diese Definitionen:
 
 | Frage | Typ im Canvas-Harness | Bedeutung und Anzeige |
 | --- | --- | --- |
@@ -179,17 +210,64 @@ Die Normalisierung muss die Herkunft des Antwortstatus erhalten: ausdrücklich b
 
 Die deterministische Policy verwendet frage-/providerbezogene Schwellen, den Abstand der besten Choice-Kandidaten und separat validierte Spam-/Antwortbedarfprofile. Für Kategorie, Priorität, Spam und Antwortbedarf gibt es unabhängige Unsicherheitszustände. Unvollständige oder nicht kalibrierte Ergebnisse dürfen die automatische Spam-Sortierung nicht aktivieren. Es gibt zunächst keine als universell richtig behaupteten 80-/95-/99-Prozent-Grenzen. Die Schwellen entstehen aus der Auswertung unseres Maildatensatzes. Anwendungsregeln bestimmen erst danach, welche Ansicht/Markierung entsteht. Benachrichtigungen, Mitarbeiterzuweisung und Änderungen an Inbox-Cases benötigen einen expliziten späteren Regelumfang; ein Modellrequest führt solche Aktionen nicht selbst aus.
 
-Im breiten Mailclient erscheinen die vier kompakten Spalten **Kategorie | Priorität | Spam-% | Antwortbedarf-%**. Auf schmalen Ansichten werden Kategorie/Priorität als Badges und die Prozentwerte in einer kompakten Zusatzzeile bzw. im Detail angezeigt. Werte nahe der jeweils unsicheren Zone erhalten keine eindeutige Ja/Nein-Markierung. Tooltips erklären die Modellbewertung; fehlende oder ausstehende Ergebnisse zeigen „Noch nicht analysiert“ bzw. einen Strich. Rohwahrscheinlichkeiten werden von manuellen Entscheidungen getrennt erkennbar angezeigt.
+### 5.2 Zwei unabhängige Entscheidungen: Postfachscope und Arbeitsmodus
 
-Kategorien, „Spamverdacht“ und „Antwort erforderlich“ ergänzen die bestehenden Ordner. Mails können nach Kategorie gruppiert, nach Priorität geordnet sowie nach Spam-/Antwortbedarfwert gefiltert oder sortiert werden; Datum plus stabile Nachrichtenreferenz bilden die Tie-Breaker. Die normale Inbox zeigt weiterhin alle Mails. Eine geprüfte Klassifikation kann eine Nachricht der virtuellen Spamverdacht-Ansicht zuordnen; ungeklärte Ergebnisse bleiben ohne automatische Umleitung sichtbar. Keine automatische Löschung und kein automatischer Versand.
+Oben stehen zwei klar beschriftete, getrennte Bedienelemente: **„Alle Postfächer ▾“** und **„Fokus | Klassisch“**. Die Postfachauswahl bietet Alle, Persönlich, Arbeit und einzelne Postfächer, nach Workspace gruppiert. „Arbeit“ meint die lesbaren gemeinsamen Workspace-Postfächer; ein persönliches Konto mit geschäftlicher Adresse bleibt zunächst persönlich, solange kein expliziter Postfachtyp existiert. Die Bezeichnung darf nicht aus der Domain geraten werden.
+
+Empfehlung für den ersten Einstieg bei aktivierter KI: **Alle Postfächer + Fokus**. Danach merken wir die bewusste Auswahl. Moduswechsel verändert weder Postfachscope noch eine geöffnete Mail oder einen ungespeicherten Entwurf. „Klassisch“ ist eine verständliche Nutzerbezeichnung; „Legacy“ bleibt interne Terminologie. Klassisch + Einzelpostfach nutzt die vorhandene Ordner-/Listenansicht; Klassisch + Alle zeigt die gleichen Posteingänge chronologisch, immer mit Herkunft.
+
+`emailExperienceMode: focus | classic` wird im vorhandenen `UserPreferences`-Dienst und `/api/user-preferences` gespeichert. Type, Normalisierung, Update-Whitelist und API-Validierung müssen gemeinsam erweitert werden (`user-preferences.ts:97,174,281`, `app/api/user-preferences/route.ts:71`). Ohne gespeicherte Wahl bestimmt die zentrale Availability den Standard. Gewünschter und wirksamer Modus bleiben getrennt: Bei KI aus ist die effektive Ansicht klassisch; nach Wiederaktivierung gilt die gespeicherte Wahl wieder. Die vorhandene Session-Postfachwahl kann um typisierten Scope erweitert werden; eine dauerhafte Scopepräferenz ist unabhängig davon optional. Es gibt keinen personenbezogenen KI-Ausschalter.
+
+### 5.3 Erste Ebene: wichtige Mails statt Rohbewertungen
+
+Die Standardansicht verwendet eine ruhige, überschaubare Aufgabenliste. Jede Zeile zeigt Absender, Betreff, vorhandenen Vorschautext, Datum und höchstens ein bis zwei konkrete Gründe, etwa **„Hohe Priorität“** oder **„Antwort erforderlich“**. In Gesamt-/Arbeitsscopes ist die Postfachherkunft immer sichtbar. Prozentwerte, neun Kategorie-Tabs, Providerdaten und Volltext-Zusammenfassungen stehen nicht in jeder Zeile. V1 nutzt bestehende Snippets; zusätzliche generative Zusammenfassungen wären ein eigener asynchroner Umfang.
+
+| Sichtbare Gruppe | Regel und Nutzen |
+| --- | --- |
+| Jetzt wichtig | Wirksame hohe/akute Priorität, sofern ausreichend belastbar. Auch wichtige Information ohne Antwortbedarf gehört hierhin. |
+| Antwort erforderlich | Übrige Mails mit belastbarem wirksamem Antwortbedarf, die weder nachweislich beantwortet noch persönlich erledigt sind. Bei unbekanntem Antwortstatus sagt die UI „Antwortstatus unbekannt“ statt sicher „offen“. |
+| Noch prüfen | Unsichere relevante Ergebnisse, Konflikt zwischen hoher Priorität und Spamverdacht sowie unvollständige Bewertungen. Diese Mails werden nicht als unwichtig behandelt. |
+| Noch nicht vorbereitet | Sichtbarer Zugang zu neuen/unbewerteten Mails mit Anzahl und Vorschau; beim initialen Lauf bzw. Providerfehler besonders deutlich. Solange Ergebnisse fehlen, bleiben diese Mails unmittelbar erreichbar. |
+
+Eine Nachricht steht höchstens einmal in den Gruppen. Eine dringende Supportmail mit Antwortbedarf steht unter „Jetzt wichtig“ und trägt zusätzlich den Antwortgrund. Sortierung ist nachvollziehbar: Gruppe, wirksame Priorität, gegebenenfalls zuverlässiger Antwortbedarf, Datum, kanonische Referenz. Wir addieren keine willkürlichen vier Scores zu einer scheinbar präzisen Gesamtwichtigkeit. Kategorie beschreibt Zweck und Filter, nicht automatisch Wert. Ein noch nicht kalibriertes Signal darf keine wichtige Mail verstecken.
+
+Die Zuordnung ist deterministisch: Zuerst aktuelle Leserechte prüfen und für den persönlichen Fokus erledigte Referenzen ausschließen; sie bleiben in „Alle E-Mails“ erreichbar. Ohne Bewertung folgt „Noch nicht vorbereitet“. Ein Wichtigkeits-/Spamkonflikt oder entscheidungsrelevante Unsicherheit geht vor und führt zu „Noch prüfen“. Erst danach folgen belastbarer Spam ohne Wichtigkeitskonflikt → Spamansicht, hohe/akute Priorität → „Jetzt wichtig“, verbleibender Antwortbedarf → „Antwort erforderlich“, sonst → „Weitere E-Mails“. Eine bloß unsichere Inhaltskategorie muss eine ansonsten eindeutige Wichtigkeitsentscheidung nicht blockieren. Die Reihenfolge der Prüfung ist von der sichtbaren Reihenfolge der Gruppen getrennt.
+
+**„Alle E-Mails“** bleibt als direkte Ansicht immer erreichbar. **„Weitere E-Mails“** führt zu übriger Information/Newslettern; Kategorien und Spamverdacht liegen hinter „Filter“ bzw. einer aufklappbaren Navigation. Eine geprüfte Spamzuordnung ist eine virtuelle Ansicht. Ein hoher Spamwert bei gleichzeitig hoher Dringlichkeit führt zunächst zu „Noch prüfen“. Tatsächliche Provider-Spamordner bleiben separat über das Einzelpostfach erreichbar. Keine automatische Löschung, kein automatischer Versand.
+
+### 5.4 Zweite und dritte Ebene: lesen, handeln, Bewertung verstehen
+
+Beim Öffnen bleibt der vorhandene Reader mit Antworteditor erhalten. Direkt relevant sind Mailherkunft, Kategorie/Priorität und die berechtigte nächste Aktion. **„Antworten“** verwendet den tatsächlichen Herkunftsaccount. Eine wichtige Sicherheitswarnung ohne Antwortbedarf kann **„Für mich erledigt“** anbieten. Bei Read-only-Postfächern werden Schreibaktionen bedarfsgerecht erläutert, während Lesen und persönliche Fokusbearbeitung möglich bleiben. Mobile zeigt denselben Ablauf im bestehenden Nachrichten-Dialog; Details brauchen keinen Hover.
+
+**„Bewertung ansehen“** klappt erst dann die vier Felder auf: Kategorie, Priorität, Spam-% und Antwortbedarf-%. „Antwortbedarf“ bezeichnet P(Antwort erforderlich), nicht eine Vorhersage des Nutzerverhaltens. Unsicherheit, ausstehende Analyse und unbekannter tatsächlicher Antwortstatus werden sprachlich erklärt. Fehlende Prozentwerte sind ein Strich, keine 0. Verteilungen können bei Bedarf tiefer eingeblendet werden; Modell-/Transportdiagnose bleibt außerhalb des gewöhnlichen Mailablaufs.
+
+An dieser Stelle können berechtigte Nutzer die Einschätzung korrigieren. Rohwahrscheinlichkeiten und wirksame manuelle Entscheidung bleiben getrennt erkennbar. Eine Korrektur verändert nicht künstlich den originalen Modellwert. Die Prozentwerte dienen dem Verständnis, nicht als Pflichtlektüre vor jeder Antwort.
+
+### 5.5 Erledigung und gemeinsame Arbeitspostfächer
+
+**Gelesen ist nicht erledigt.** Öffnen allein entfernt keine Mail aus dem Fokus. Bestätigtes Antworten, bewusstes Archivieren oder eine rückgängig machbare persönliche Erledigung können die eigene Aufgabenliste verändern. „Für mich erledigt“ ist ein neuer nutzergebundener Zustand mit eigener Nachrichtenreferenz; er setzt weder Provider-Gelesenstatus noch Versandstatus noch den Workspace-Case auf geschlossen. Bereits beantwortete Mails verlieren den Antwortbedarf als Aufgabe, können aber weiterhin eine ungeklärte wichtige Information enthalten. Neue eingehende Nachrichten werden nicht durch die Erledigung einer älteren Mail dauerhaft unterdrückt; eine spätere Threadgruppierung muss das explizit berücksichtigen.
+
+Gemeinsame Postfächer verwenden dieselbe Fokus-UX und dieselben gemeinsamen Klassifizierungsergebnisse. Ein Nutzer kann mit Leserecht seinen persönlichen Fokuszustand ändern; hierfür wird ausschließlich sein Zustand geschrieben und die Mail als `read` autorisiert. Gemeinsame Kategorie-/Prioritätskorrekturen benötigen weiterhin Schreibrecht. „Für mich erledigt“ bedeutet nicht, dass das Team den Vorgang abgeschlossen hat. Bestehende Case-Zuweisungen und Case-Prioritäten behalten ihren eigenen Vertrag; V1 erzeugt nicht automatisch für jede Mail einen neuen Case.
+
+Der vorhandene **Postausgang / Entwürfe prüfen** bleibt in beiden Modi erreichbar. Sein globaler Scope wird klar benannt; seine Zähler sind keine Zähler des ausgewählten Eingangspostfachs. Ein leerer Eintrag braucht keine große dauerhafte Fläche. Anstehende menschliche Freigabe, fehlgeschlagener Versand und unklarer Versandstatus bleiben sichtbar, unabhängig von Fokus-Ranking und Postfachscope.
 
 Benutzer können Kategorie/Priorität korrigieren, „Kein Spam“ wählen und Antwortbedarf bestätigen/verwerfen. Persönliche Korrekturen gelten im eigenen Postfach; Workspace-Korrekturen gelten gemeinsam und benötigen Schreibberechtigung. Read-only-Nutzer sehen die Ergebnisse. Korrekturen verwenden `expectedVersion` und werden vom Worker nicht überschrieben; sie bestimmen die wirksamen Ansichten, schreiben aber keine künstlichen 0-/100-Prozentwerte in die originale Modellbewertung. Optionales späteres Training ist ein eigener Prozess.
 
+### 5.6 Suche, Aktualisierung und ehrliche Zustände
+
 **Filter, Sortierung und Zähler für alle vier Felder müssen serverseitig über den synchronisierten Nachrichtenbestand arbeiten**, nicht nachträglich die gerade geladenen zehn Mails filtern. Dafür braucht der Klassifizierungsindex aktuelle Nachrichtenreferenzen und begrenzte Listenmetadaten unabhängig vom SWR-Cache. Ansichtsabfragen liefern stabile Cursor, berücksichtigen wirksame Korrekturen, prüfen aktuelle Mailboxrechte und entfernen/verbergen nicht mehr erreichbare Referenzen. Zähler beschreiben ihre Abdeckung: analysiert, ausstehend, historisch nicht erfasst und letzter erfolgreicher Sync. Ein unvollständiger Sync darf nicht als vollständiges Postfach ausgegeben werden.
 
-Suche, Kategorien und Ordner müssen klar definierte kombinierbare Filter haben. Falls ein verwalteter Provider den nötigen Such-/Pagingvertrag nicht unterstützt, zeigt die UI die Einschränkung; sie erfindet keine vollständige Trefferzahl. V1 benötigt keine neue Control-Plane-Klassifizierungslogik, nutzt aber nur tatsächlich verfügbare Mailabrufverträge.
+Suche durchsucht standardmäßig alle erreichbaren Mails im gewählten Postfachscope statt nur dessen Fokusgruppe. Während der Suche steht sichtbar „Suchergebnisse · Alle E-Mails“; Beenden stellt die vorige Arbeitsansicht wieder her. Bei Einzelpostfächern sind „Dieser Ordner“ und „Alle Ordner“ eindeutige Suchbereiche; bei Gesamt-/Arbeitsscope heißt es „Ausgewählte Postfächer“. Kategorien und erweiterte Filter werden bewusst kombiniert. Falls ein verwalteter Provider den nötigen Such-/Pagingvertrag nicht unterstützt, zeigt die UI die Einschränkung; sie erfindet keine vollständige Trefferzahl. Eine globale historische Providersuche ist ohne gemeinsamen Pagingvertrag nicht zugesichert. V1 benötigt keine neue Control-Plane-Klassifizierungslogik.
 
-Native Clients können später denselben Ergebnisvertrag verwenden. Bestehende Inbox-Case-Prioritäten und Entwurfsprüfungen werden nicht automatisch aus der neuen Klassifikation umgeschrieben.
+Neue Ergebnisse aktualisieren Hinweise, verschieben aber keine Zeilen während Lesen, Schreiben oder Mehrfachauswahl. Eine sichtbare Aktion **„Neue wichtige Mails“** übernimmt eine neue Reihenfolge bewusst. Rechtsentzug entfernt unberechtigte Inhalte unmittelbar. Erst nachgewiesen leere wichtige Gruppen rechtfertigen „Keine wichtigen Mails“; bei ausstehenden Analysen heißt es „Bewertung läuft“. Quelle nicht verbunden, nur teilweise synchronisiert und Provider gestört sind getrennte Zustände mit gezieltem Einstieg, keine generische leere Liste.
+
+### 5.7 Komponenten und Abnahme der neuen Erfahrung
+
+Neue fachliche Bausteine: `EmailScopeSelector`, `EmailExperienceSwitch`, `EmailFocusFeed`, `EmailRatingDetails` sowie ein gemeinsamer Controller für selektierte Mailherkunft. Der klassische Renderer und vorhandene Reader-/Compose-Komponenten werden wiederverwendet. Die komplette neue Logik wird nicht zusätzlich in den bereits großen `EmailClient.tsx` gepackt. Backend-Verträge bleiben unabhängig vom Layout; native Clients können sie später ebenfalls verwenden.
+
+Abnahmefälle: Alle/Einzel/Persönlich/Arbeit in beiden Modi; richtige Absenderadresse im Reply/Compose; Read-only-Quelle und entzogenes Senderleserecht trotz warmem Cache; globale Postausgangsfehler; wichtige Mail ohne Antwortbedarf; Antwortbedarf mit unbekanntem Status; gleiche Nachricht in nur einer Gruppe; neue/unbewertete Mails; initiale Teilabdeckung; Providerfehler; persönliches Erledigen ohne Teamabschluss und Undo; neue Mail nach alter Erledigung; zentral aus/ein mit erhaltener Scope-/Moduswahl; Suche findet Mail außerhalb des Fokus; ausstehender Entwurf und geöffnete Mail bleiben beim Moduswechsel erhalten; Keyboard, 320px-Mobile und breiter Desktop; keine springende Liste bei asynchronem Ranking.
+
+Ein interaktiver UI-Entwurf mit erfundenen Beispieldaten liegt unter `email-focus-preview/email-focus-ux.html`. Er zeigt Scope, Fokus/Klassisch, Mailauswahl und aufklappbare Bewertungen; er implementiert keine Produktfunktion und verbindet sich mit keinem Postfach.
 
 ## 6. Qualität und Sicherheitsgrenzen
 
@@ -217,11 +295,11 @@ Das sind Grenzen des Callgraphen, keine Vollständigkeitsgarantie: Quellcodeprü
 Die Umsetzung erfolgt sequenziell; jede Phase wird fertig geprüft und separat committet, bevor die nächste beginnt:
 
 1. **Vertrag und Policy:** Fragetypen, Providerfähigkeiten, normalisierte Vier-Felder-Resultate, zentraler Bewertungskontext, Startschema, Aktivierungssemantik und versionierter Evaluationssatz. Abnahme: zwei Choice- und zwei binäre Fragen pro Mail, explizite SDK-/HTTP-Abbildung, austauschbare Adapter ohne Mail-/Datenbankwissen, kein impliziter Fallback.
-2. **Persistenz und Rechte:** Postgres-Migration, zentrale Settingsrevision, Registry für lokale/verwaltete Konten, Job-Leases, Ergebnisse und manuelle Overrides. Abnahme: Deduplizierung, Besitzer-/Organisationsgrenzen, Disconnect/Löschung, Toggle- und Claim-Rennen.
+2. **Persistenz und Rechte:** Postgres-Migration, zentrale Settingsrevision, Registry/Metadatenindex für lokale/verwaltete Konten, Job-Leases, Ergebnisse, manuelle Overrides und persönlicher Fokuszustand. Abnahme: Deduplizierung, aktuelle Sender-Lesepolicy, Besitzer-/Organisationsgrenzen, Disconnect/Löschung, Toggle- und Claim-Rennen; eigener Erledigungszustand schließt keinen gemeinsamen Fall.
 3. **Provideranschluss:** TypeSafe und kompatibler HTTP-Adapter, scoped Secrets, Limits/Abbruch, strenge Antwortvalidierung. Abnahme: Vertragsfixtures, Konfigurationsfehler, 429/529/Timeout und unsichere Resultate; reale Providerabnahme getrennt dokumentieren.
-4. **Hintergrundablauf und Cache-Anreicherung:** Serverstart, faire Discovery/Synchronisation für persönliche und gemeinsame sowie lokale und verwaltete Postfächer, Nachladen und gesammelte Resultatanreicherung von Listen/Details. Abnahme: geschlossener Browser, mehr als ein Abruffenster, Neustart, Modellwechsel, Ausschalten während Request sowie warmem Cache, Erhalt manueller Korrekturen bei Provider-Refresh und gemessene Abruflatenz; keine Änderung des Gelesenstatus.
+4. **Hintergrundablauf, gemeinsamer Feed und Cache-Anreicherung:** Serverstart, faire Metadatensynchronisation getrennt von KI-Aufträgen für persönliche/gemeinsame und lokale/verwaltete Postfächer, vollständige Herkunft, serverseitiges Ranking/Cursor/Zähler und gesammelte Resultatanreicherung von Listen/Details. Abnahme: alle berechtigten Posteingänge, mehr als ein Abruffenster, geschlossener Browser, Neustart, Rechteentzug bei warmem Cache, unbekannte Abdeckung, Modellwechsel, Ausschalten während Request, chronologischer Feed bei KI aus, Erhalt manueller Korrekturen bei Provider-Refresh und gemessene Abruflatenz; keine Änderung des Gelesenstatus.
 5. **Adminoberfläche:** Karte im E-Mail-Settingsbereich, Schalter, Providerwahl/-test, zentrale Regelprofile, sichere Availability und Lauf-/Verbrauchsstatus. Abnahme: Admin-only UI/API, Default aus, sofortige serverseitige Sperre, Secrets-Link und Konfigurationskonflikte; unbekannte Usage/Kosten bleiben als unbekannt erkennbar.
-6. **Mailbox-UI:** Vier Bewertungsfelder, Badges/Kategoriengruppen, autorisierte serverseitige Filter/Sortierung/Zähler, Antwortbedarfsansicht, Abdeckungsanzeige und Korrekturaktionen. Abnahme: mehrere Seiten, getrennte Modellwahrscheinlichkeit/Antwortstatus/manuelle Entscheidung, Suche/Filter, Account-/Workspacewechsel, read-only, responsive UI, Modellwechsel und Ausschalten bei aktiver Kategorienansicht.
+6. **Mailbox-UI:** Scopeauswahl und gespeichertes Fokus/Klassisch, wichtigste Mails zuerst, drei Anzeigeebenen, persönliches Erledigen/Undo, Korrekturen, lesbare Coverage und weiterhin sichtbarer Postausgang. Reader-/Compose-Verträge an ausgewählte Mailherkunft binden. Abnahme vollständig nach 5.7, einschließlich aller Scopes/Modi, responsive UI und zentralem Ausschalten; diese Phase kann sequenziell in fertige Teilaufgaben Scope/klassischer Gesamtfeed, Fokusliste, Details/Bearbeitung aufgeteilt werden.
 7. **Qualität und Rollout:** Providervergleich, Schwellenprofile, zunächst Beobachtung und anschließend kategorisierte Ansichten. Spam-Sortierung erst mit bestandener eigener Evaluation. Betriebsdokumentation mit Limits, Recovery und Datenaufbewahrung.
 
 Fokussierte Tests ergänzen die vorhandenen Mailbox-, persönlichen Boundary-, Cache-, Identity-, AI-Scope-, Inbox- und Mobile-Vertragstests. Danach Typecheck, relevante Lints und `npm run build`. UI-/End-to-End-Abnahme ist erforderlich; Playwright/Chrome DevTools werden nach der Repositoryregel erst nach ausdrücklicher Freigabe genutzt. Für einen benötigten lokalen Stack gilt `canvas-local-team-seat-dev`; Container werden nur bei explizitem Auftrag gebaut, nach erfolgreichem Build und ohne parallele Teststacks.
