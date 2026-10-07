@@ -35,7 +35,11 @@ async function main() {
     for (const id of ['owner', 'creator', 'delegate', 'reader', 'unassigned']) await raw.run(
       "INSERT INTO organization_user_permissions (organization_id,user_id,role,status,can_share_plugins_and_skills,created_at,updated_at) VALUES ('org-management',$1,$2,'active',0,1000,1000)",
       [id, id === 'owner' ? 'owner' : id === 'creator' ? 'admin' : 'member']);
+    await raw.run("INSERT INTO canvas_workspaces (id,organization_id,type,owner_user_id,root_relative_path,display_name,status,created_at,updated_at) VALUES ('browse-delegate','org-management','personal','delegate','workspaces/browse-delegate/files','Browse','active',1000,1000)");
+    await raw.run("INSERT INTO canvas_workspaces (id,organization_id,type,root_relative_path,display_name,status,created_at,updated_at) VALUES ('return-team','org-management','team','workspaces/return-team/files','Return team','active',1000,1000)");
+    await raw.run("INSERT INTO canvas_workspace_members (organization_id,workspace_id,user_id,role,status,can_read,can_manage,created_at,updated_at) VALUES ('org-management','return-team','delegate','member','active',1,1,1000,1000)");
     const actor = (userId: string) => ({ userId, workspaceId: null });
+    const browsingActor = { userId: 'delegate', workspaceId: 'browse-delegate' };
     const ownership = { type: 'organization' as const, organizationId: 'org-management' };
     const { replaceScopedEnvEntries } = await import('../app/lib/integrations/env-config');
     const orgScope = { secretScope: 'organization' as const, organizationId: ownership.organizationId };
@@ -49,6 +53,7 @@ async function main() {
     const callback = await import('../app/api/composio/shared/callback/route');
     const profileRoutes = await import('../app/api/composio/shared-profiles/route');
     const accountRoutes = await import('../app/api/composio/shared-connections/[connectionRef]/accounts/route');
+    const connectRoute = await import('../app/api/composio/shared-connections/[connectionRef]/connect/route');
     const profile = await profiles.createSharedComposioProfile({ actor: actor('creator'), ownership, name: 'Shared designs', providerMode: 'local' });
     await assert.rejects(backend.prepareSharedComposioConnectionBackend(actor('creator'), { profileId: profile.id, ownership, toolkit: 'canva' }), hasCode('setup_required'));
     assert.equal(provider.calls.length, 0, 'An absent org key must not use existing system or user keys');
@@ -81,7 +86,7 @@ async function main() {
     await assert.rejects(actions.bindSharedComposioConnectionAccount(actor('delegate'), ref, { accountRef: selection.accounts[0].accountRef, revisions: selection.revisions }));
     assert.equal((await actions.getSharedComposioConnectionStatus(actor('reader'), ref)).state, 'ready');
     await assert.rejects(profiles.mutateSharedComposioProfile({ actor: actor('creator'), profileId: profile.id, expectedProfileRevision: 1, status: 'archived' }), hasCode('profile_in_use'));
-    const start = () => revisions().then(value => actions.connectSharedComposioConnection(actor('delegate'), ref, { revisions: value }));
+    const start = (returnLocale?: 'de' | 'en') => revisions().then(value => actions.connectSharedComposioConnection(returnLocale ? browsingActor : actor('delegate'), ref, { revisions: value, returnLocale }));
     const sessionCalls = () => provider.calls.filter(call => call.path === '/api/v3.1/tool_router/session').length;
     const linkCalls = () => provider.calls.filter(call => /\/session\/[^/]+\/link$/u.test(call.path)).length;
     let sessionsBefore = sessionCalls();
@@ -102,10 +107,18 @@ async function main() {
     const returnUrl = provider.completeOAuth(initiated.id)!;
     const completed = await callback.GET(new Request(returnUrl));
     assert.equal(completed.status, 307);
+    assert.equal(completed.headers.get('Cache-Control'), 'no-store');
+    assert.equal(completed.headers.get('Referrer-Policy'), 'no-referrer');
     assert.match(completed.headers.get('location')!, /composio=connected/u);
+    const legacyReturn = new URL(completed.headers.get('location')!);
+    assert.equal(legacyReturn.pathname, '/settings');
+    assert.equal(legacyReturn.searchParams.has('sharedOAuth'), false, 'Legacy flows keep their established return markers');
     assert.equal(await selectedAccount(), initiated.id, 'OAuth binds the exact initiated account among multiple ACTIVE accounts');
-    assert.equal((await callback.GET(new Request(returnUrl))).status, 409, 'Consumed callback cannot be replayed');
-    const staleFlow = await start();
+    const legacyReplay = await callback.GET(new Request(returnUrl));
+    assert.equal(legacyReplay.status, 409, 'Consumed callback cannot be replayed');
+    assert.equal(legacyReplay.headers.get('Cache-Control'), 'no-store');
+    assert.equal(legacyReplay.headers.get('Referrer-Policy'), 'no-referrer');
+    const staleFlow = await start('de');
     const stalePending = provider.accounts.get(profile.composioUserId)!.find(account => account.status === 'INITIATED')!;
     const staleReturn = provider.completeOAuth(stalePending.id)!;
     const before = await revisions();
@@ -114,7 +127,7 @@ async function main() {
     assert.equal((await callback.GET(new Request(staleReturn))).status, 409);
     assert.equal(await selectedAccount(), initiated.id);
     assert(staleFlow.flowId);
-    const rotatedFlow = await start();
+    const rotatedFlow = await start('en');
     const rotatedPending = provider.accounts.get(profile.composioUserId)!.find(account => account.status === 'INITIATED')!;
     const rotatedReturn = provider.completeOAuth(rotatedPending.id)!;
     await setKey('fixture-rotated-organization-key');
@@ -122,7 +135,7 @@ async function main() {
     assert.equal(await selectedAccount(), initiated.id);
     assert(rotatedFlow.flowId);
     await setKey('fixture-organization-key');
-    const revokedFlow = await start();
+    const revokedFlow = await start('de');
     const revokedPending = provider.accounts.get(profile.composioUserId)!.find(account => account.status === 'INITIATED')!;
     const revokedReturn = provider.completeOAuth(revokedPending.id)!;
     const priorRevoke = await revisions();
@@ -163,6 +176,124 @@ async function main() {
     assert.equal(await selectedAccount(), null);
     assert(provider.accounts.get(profile.composioUserId)!.some(account => account.id === 'canva-account-first'));
     assert(!provider.accounts.get(profile.composioUserId)!.some(account => account.id === initiated.id));
+    const apiRevision = await revisions();
+    const connectBody = { expectedMetadataRevision: apiRevision.metadataRevision, expectedGrantsRevision: apiRevision.grantsRevision,
+      expectedBindingRevision: apiRevision.bindingRevision, returnLocale: 'de' };
+    const connectRequest = (body: unknown) => new Request(`http://localhost/api/composio/shared-connections/${encodeURIComponent(ref)}/connect?workspaceId=browse-delegate`, {
+      method: 'POST', headers: { 'x-fixture-user': 'delegate', 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const invalidCallsBefore = provider.calls.length;
+    const flowCountBefore = await raw.get('SELECT COUNT(*) AS count FROM composio_oauth_flow_states');
+    for (const invalid of [{ ...connectBody, returnLocale: 'fr' }, { ...connectBody, actor: { userId: 'creator' } },
+      { ...connectBody, ownerUserId: 'creator' }, { ...connectBody, profileId: profile.id }]) {
+      assert.equal((await connectRoute.POST(connectRequest(invalid), { params: Promise.resolve({ connectionRef: ref }) })).status, 400);
+    }
+    for (const returnPath of ['https://outside.example.test/', '/settings?sharedOAuth=connected',
+      '/de/plugins?view=advanced&scope=team&teamId=foreign&workspaceId=browse-delegate&sharedOAuth=connected',
+      '/de/plugins?sharedOAuth=cancelled']) {
+      await assert.rejects(actions.connectSharedComposioConnection(browsingActor, ref, { revisions: apiRevision, returnPath }), error =>
+        error instanceof Error && (error as Error & { status?: number }).status === 400);
+    }
+    await assert.rejects(actions.connectSharedComposioConnection(actor('delegate'), ref, { revisions: apiRevision, returnLocale: 'en' }), error =>
+      error instanceof Error && (error as Error & { status?: number }).status === 400);
+    assert.equal(provider.calls.length, invalidCallsBefore, 'Invalid locale, context or reserved return markers must fail before provider I/O');
+    assert.deepEqual(await raw.get('SELECT COUNT(*) AS count FROM composio_oauth_flow_states'), flowCountBefore, 'Invalid setup must not create a flow');
+    const unknownFlow = await callback.GET(new Request(`http://localhost/api/composio/shared/callback?flow=${'z'.repeat(43)}&connectionRef=${encodeURIComponent(ref)}&workspaceId=browse-delegate`));
+    assert.equal(unknownFlow.status, 409);
+    assert.equal(unknownFlow.headers.get('Cache-Control'), 'no-store');
+    assert.equal(unknownFlow.headers.get('Referrer-Policy'), 'no-referrer');
+    assert.equal(unknownFlow.headers.has('location'), false);
+    const unknownPayload = await unknownFlow.json() as { success: boolean; code: string; error: string };
+    assert.deepEqual(unknownPayload, { success: false, code: 'binding_changed', error: 'The shared OAuth flow expired or changed. Start setup again.' });
+    assert.equal(provider.calls.length, invalidCallsBefore, 'Unknown flow query hints cannot trigger provider inspection or a private-context return');
+    const orgConnected = await connectRoute.POST(connectRequest(connectBody), { params: Promise.resolve({ connectionRef: ref }) });
+    assert.equal(orgConnected.status, 200);
+    const orgPending = provider.accounts.get(profile.composioUserId)!.find(account => account.status === 'INITIATED')!;
+    assert(orgPending, 'The real SDK must create one exact pending account');
+    const orgCallbackUrl = provider.completeOAuth(orgPending.id)!;
+    const orgCallback = new URL(orgCallbackUrl);
+    orgCallback.searchParams.set('workspaceId', 'foreign-workspace');
+    orgCallback.searchParams.set('returnPath', '//outside.example.test/');
+    const orgCompleted = await callback.GET(new Request(orgCallback));
+    assert.equal(orgCompleted.status, 307);
+    assert.equal(orgCompleted.headers.get('Cache-Control'), 'no-store');
+    assert.equal(orgCompleted.headers.get('Referrer-Policy'), 'no-referrer');
+    const orgReturn = new URL(orgCompleted.headers.get('location')!);
+    assert.equal(orgReturn.pathname, '/de/plugins');
+    assert.deepEqual(Object.fromEntries(orgReturn.searchParams), { view: 'advanced', scope: 'organization', workspaceId: 'browse-delegate', connectionRef: ref, sharedOAuth: 'connected' });
+    assert.equal(await selectedAccount(), orgPending.id);
+    const canonicalReplay = await callback.GET(new Request(orgCallbackUrl));
+    assert.equal(canonicalReplay.status, 409);
+    assert.equal(canonicalReplay.headers.get('Cache-Control'), 'no-store');
+    assert.equal(canonicalReplay.headers.get('Referrer-Policy'), 'no-referrer');
+    for (const providerError of ['access_denied', 'provider-failed']) {
+      const beforeCancellation = await revisions();
+      const cancelled = await start('en');
+      assert(cancelled.flowId);
+      const pending = provider.accounts.get(profile.composioUserId)!.find(account => account.status === 'INITIATED')!;
+      const cancelUrl = new URL(provider.completeOAuth(pending.id)!);
+      cancelUrl.searchParams.set('error', providerError);
+      const cancellation = await callback.GET(new Request(cancelUrl));
+      assert.equal(cancellation.status, 307);
+      assert.equal(cancellation.headers.get('Cache-Control'), 'no-store');
+      assert.equal(cancellation.headers.get('Referrer-Policy'), 'no-referrer');
+      const destination = new URL(cancellation.headers.get('location')!);
+      assert.equal(destination.pathname, '/en/plugins');
+      assert.equal(destination.searchParams.get('sharedOAuth'), providerError === 'access_denied' ? 'cancelled' : 'failed');
+      assert.equal(destination.searchParams.get('connectionRef'), ref);
+      assert.equal(destination.searchParams.get('workspaceId'), 'browse-delegate');
+      assert.equal(destination.searchParams.has('composio'), false);
+      assert.deepEqual(await revisions(), beforeCancellation);
+      assert.equal(await selectedAccount(), orgPending.id, 'Cancellation cannot replace the previously bound exact account');
+    }
+    for (const unsafePath of ['', 'https://outside.example.test/', '/settings?sharedOAuth=connected',
+      '/de/plugins?view=advanced&scope=organization&workspaceId=foreign-workspace&connectionRef=foreign&sharedOAuth=connected']) {
+      await start('de');
+      const pending = provider.accounts.get(profile.composioUserId)!.find(account => account.status === 'INITIATED')!;
+      const flowUrl = provider.completeOAuth(pending.id)!;
+      const changed = await raw.run('UPDATE composio_oauth_flow_states SET return_path=$1 WHERE pending_account_id=$2 AND consumed_at IS NULL', [unsafePath, pending.id]);
+      assert.equal(changed.changes, 1);
+      const beforeReturnFailure = await revisions();
+      const callsBeforeReturnFailure: number = provider.calls.length;
+      const rejected = await callback.GET(new Request(flowUrl));
+      assert.equal(rejected.status, 400);
+      assert.equal(rejected.headers.get('Cache-Control'), 'no-store');
+      assert.equal(rejected.headers.get('Referrer-Policy'), 'no-referrer');
+      assert.equal(rejected.headers.has('location'), false, 'Unsafe or mismatched stored routing must never redirect to a private context');
+      assert.equal(provider.calls.length, callsBeforeReturnFailure, 'Stored path failure must precede provider account inspection');
+      assert.deepEqual(await revisions(), beforeReturnFailure);
+      assert.equal(await selectedAccount(), orgPending.id);
+    }
+    await start('en');
+    const expiredPending = provider.accounts.get(profile.composioUserId)!.find(account => account.status === 'INITIATED')!;
+    const expiredUrl = provider.completeOAuth(expiredPending.id)!;
+    assert.equal((await raw.run('UPDATE composio_oauth_flow_states SET expires_at=0 WHERE pending_account_id=$1 AND consumed_at IS NULL', [expiredPending.id])).changes, 1);
+    const beforeExpiry = await revisions(), callsBeforeExpiry = provider.calls.length;
+    const expired = await callback.GET(new Request(expiredUrl));
+    assert.equal(expired.status, 409);
+    assert.equal(expired.headers.has('location'), false);
+    assert.equal(provider.calls.length, callsBeforeExpiry);
+    assert.deepEqual(await revisions(), beforeExpiry);
+    assert.equal(await selectedAccount(), orgPending.id);
+    const teamOwnership = { type: 'team' as const, organizationId: ownership.organizationId, workspaceId: 'return-team' };
+    const teamProfile = await profiles.createSharedComposioProfile({ actor: browsingActor, ownership: teamOwnership, name: 'Team return designs', providerMode: 'local' });
+    const teamConnection = await store.createSharedIntegrationConnection(browsingActor, { ownership: teamOwnership, displayName: 'Team Canva', grants: [],
+      backend: await backend.prepareSharedComposioConnectionBackend(browsingActor, { profileId: teamProfile.id, ownership: teamOwnership, toolkit: 'canva' }) });
+    const teamBefore = teamConnection.resource;
+    const teamStart = await actions.connectSharedComposioConnection(browsingActor, teamBefore.connectionRef, { returnLocale: 'en', revisions: {
+      metadataRevision: teamBefore.metadataRevision, grantsRevision: teamBefore.grantsRevision, bindingRevision: teamBefore.bindingRevision } });
+    assert(teamStart.flowId);
+    const teamPending = provider.accounts.get(teamProfile.composioUserId)!.find(account => account.status === 'INITIATED')!;
+    const teamCompleted = await callback.GET(new Request(provider.completeOAuth(teamPending.id)!));
+    assert.equal(teamCompleted.status, 307);
+    const teamReturn = new URL(teamCompleted.headers.get('location')!);
+    assert.equal(teamReturn.pathname, '/en/plugins');
+    assert.deepEqual(Object.fromEntries(teamReturn.searchParams), { view: 'advanced', scope: 'team', teamId: 'return-team',
+      workspaceId: 'browse-delegate', connectionRef: teamBefore.connectionRef, sharedOAuth: 'connected' });
+    const teamSaved = (await store.getIntegrationConnectionRecord(teamBefore.connectionRef))!;
+    assert.deepEqual(teamSaved.resource.ownership, teamOwnership);
+    assert.equal(teamSaved.backend.source === 'composio' ? teamSaved.backend.connectedAccountId : null, teamPending.id);
+    assert.equal(provider.calls.some(call => call.path === '/api/v3/tools/execute' || call.path === '/api/v3.1/tools/execute'), false, 'OAuth setup performs no provider business tool calls');
+    console.log('PASS scoped Composio browser returns: real Org/Team ownership and original workspace, exact initiated account, strict locale/API inputs, legacy markers, cancellation, replay and stored path tamper fences');
     const noAuth = await backend.prepareSharedComposioConnectionBackend(actor('creator'), { profileId: profile.id, ownership, toolkit: 'duckduckgo' });
     assert.equal(noAuth.accountBinding, 'no_auth');
     assert(provider.calls.every(call => call.apiKey === 'fixture-organization-key' || call.apiKey === 'fixture-rotated-organization-key'), 'Shared local uses only the owning organization key');

@@ -34,6 +34,9 @@ async function main() {
   const originalFetch = globalThis.fetch;
   let locale: 'de' | 'en' = 'de';
   const fetches: string[] = [];
+  const authFetches: string[] = [];
+  const uiSession={user:{id:'fixture-user',name:'Fixture User',email:'user@fixture.invalid',emailVerified:true,createdAt:new Date(0),updatedAt:new Date(0),role:'member',banned:false},
+    session:{id:'fixture-plugins-ui-session',token:'CONTROLLED_UI_IDENTITY_ONLY',userId:'fixture-user',expiresAt:new Date('2099-01-01'),createdAt:new Date(0),updatedAt:new Date(0)}};
   const preferenceWrites: Array<{ resourceId: string; enabled: boolean }> = [];
   let Panel: React.ComponentType<{ canManageOrganizationCapabilities?: boolean }>;
   let installedPlugins: Record<string, unknown>[] = [];
@@ -87,6 +90,7 @@ async function main() {
   };
   globalThis.fetch = async (input, init) => {
     const url = new URL(String(input), dom.window.location.origin);
+    if(url.pathname==='/api/auth/get-session'){assert.equal(init?.method??'GET','GET');authFetches.push(url.pathname);return Response.json(uiSession);}
     fetches.push(url.pathname + url.search);
     if (url.pathname === '/api/skills') return skillsUnavailable
       ? Response.json({ success: false, error: 'Skill service unavailable' }, { status: 503 })
@@ -129,6 +133,10 @@ async function main() {
     if (url.pathname === '/api/skills/policies') return Response.json({ success: true, policies: [] });
     throw new Error(`Unexpected fetch: ${url.pathname}`);
   };
+  // Seed only real UI identity; current resource-rights DTO assertions remain independent.
+  const {authClient}=await import('../app/lib/auth-client');
+  const sessionAtom=authClient.$store.atoms.session,originalSession=sessionAtom.get();
+  sessionAtom.set({...sessionAtom.get(),data:uiSession,error:null,isPending:false,isRefetching:false});
   try {
     const { render, fireEvent, waitFor, cleanup, within } = await import('@testing-library/react');
     const { SkillsPanel } = await import('../app/components/plugins/PluginsPanel');
@@ -460,8 +468,10 @@ async function main() {
         cleanup();
       }
     }
+    assert(authFetches.every(path=>path==='/api/auth/get-session'));
     console.log('Plugins UI: launcher in both locales, direct views and history, lazy skill loading, delayed/failed catalog, readable connection status, skill retry and organization scope boundaries passed');
   } finally {
+    sessionAtom.set(originalSession);
     internals._load = originalLoad;
     globalThis.fetch = originalFetch;
     dom.window.close();

@@ -9,6 +9,7 @@ import { IntegrationConnectionError, type IntegrationConnectionActor, type Integ
   type SharedIntegrationConnectionOwnership } from '@/app/lib/integration-tools/connections/contracts';
 import type { ResolvedComposioContext } from './composio-context';
 import { isAuthorizedIntegrationConnection } from '@/app/lib/integration-tools/connections/store';
+import { createSharedConnectionOAuthReturn, sharedConnectionOAuthReturnHref } from '@/app/lib/integration-tools/connections/oauth-return';
 
 const actorSchema = z.object({ userId: z.string(), workspaceId: z.string().nullable().optional(), organizationId: z.string().nullable().optional(),
   agentId: z.string().nullable().optional(), sessionId: z.string().nullable().optional(), policyRevision: z.string().optional() }).strict();
@@ -22,8 +23,32 @@ export type SharedComposioOAuthFlow = {
   pendingAccountId: string; returnPath: string; expiresAt: number;
 };
 
+/** Resolve routing from the issued connection, before provider I/O or flow writes. */
+export function resolveSharedComposioOAuthReturnPath(context: ResolvedComposioContext,
+  input: { returnLocale?: 'de' | 'en'; returnPath?: string | null }): string {
+  const shared = context.sharedBinding;
+  if (!shared || !isAuthorizedIntegrationConnection(shared.authorization)) {
+    throw new IntegrationConnectionError('invalid_request', 'A managed app connection is required.');
+  }
+  const { resource, actor } = shared.authorization;
+  if (input.returnLocale !== undefined) {
+    return sharedConnectionOAuthReturnHref(createSharedConnectionOAuthReturn(resource, actor, input.returnLocale), 'connected');
+  }
+  const path = safeAppReturnTo(input.returnPath || `/settings?tab=integrations&connectionRef=${encodeURIComponent(resource.connectionRef)}`);
+  if (!path) throw new IntegrationConnectionError('invalid_request', 'Choose a valid app return path.');
+  const destination = new URL(path, 'https://canvas.invalid');
+  if (destination.searchParams.has('sharedOAuth')) {
+    const locale = /^\/(de|en)\/plugins$/u.exec(destination.pathname)?.[1];
+    if (locale !== 'de' && locale !== 'en'
+      || path !== sharedConnectionOAuthReturnHref(createSharedConnectionOAuthReturn(resource, actor, locale), 'connected')) {
+      throw new IntegrationConnectionError('invalid_request', 'The shared sign-in return path is invalid.');
+    }
+  }
+  return path;
+}
+
 export async function createSharedComposioOAuthFlowState(input: { context: ResolvedComposioContext; credentialRevision: string;
-  returnPath?: string | null }, externalDatabase?: SqlConnection) {
+  returnPath?: string | null; returnLocale?: 'de' | 'en' }, externalDatabase?: SqlConnection) {
   const shared = input.context.sharedBinding;
   if (!shared || !isAuthorizedIntegrationConnection(shared.authorization) || shared.authorization.operation !== 'manage'
     || !shared.authorization.access.canManage || shared.authorization.backend.source !== 'composio') {
@@ -32,8 +57,7 @@ export async function createSharedComposioOAuthFlowState(input: { context: Resol
   const { resource, actor, backend, authorizationRevision } = shared.authorization;
   const state = randomBytes(32).toString('base64url');
   const expiresAt = Date.now() + 15 * 60_000;
-  const returnPath = safeAppReturnTo(input.returnPath || `/settings?tab=integrations&connectionRef=${encodeURIComponent(resource.connectionRef)}`);
-  if (!returnPath) throw new IntegrationConnectionError('invalid_request', 'Choose a valid app return path.');
+  const returnPath = resolveSharedComposioOAuthReturnPath(input.context, input);
   const database = externalDatabase || await openDb();
   try {
     await database.run(`DELETE FROM composio_oauth_flow_states WHERE expires_at < $1 OR consumed_at < $2`, [Date.now(), Date.now() - 60 * 60_000]);

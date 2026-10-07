@@ -10,7 +10,8 @@ import { getComposioForContext, getLocalComposioApiKeyForContext } from './compo
 import { listSharedComposioAppAccounts, readExactSharedComposioAccount, readSharedComposioToolkit,
   requireSharedManagedComposioCapabilities, sharedComposioCredentialRevision, withSharedComposioSignal } from './composio-shared-backend';
 import { createSharedComposioAccountReference, readSharedComposioAccountReference } from './composio-shared-account-reference';
-import { bindSharedComposioOAuthPendingAccount, consumeSharedComposioOAuthFlowState, createSharedComposioOAuthFlowState } from './composio-shared-oauth-state';
+import { bindSharedComposioOAuthPendingAccount, consumeSharedComposioOAuthFlowState, createSharedComposioOAuthFlowState,
+  resolveSharedComposioOAuthReturnPath } from './composio-shared-oauth-state';
 import { requestManagedComposio } from './managed-composio-client';
 
 function backend(context: ResolvedComposioContext) {
@@ -90,10 +91,11 @@ export async function bindSharedComposioConnectionAccount(actor: IntegrationConn
 }
 
 export async function connectSharedComposioConnection(actor: IntegrationConnectionActor, connectionRef: string,
-  input: { revisions: IntegrationConnectionRevisions; returnPath?: string | null }) {
+  input: { revisions: IntegrationConnectionRevisions; returnPath?: string | null; returnLocale?: 'de' | 'en' }) {
   return withAuthorizedIntegrationConnection(actor, connectionRef, 'manage', input.revisions, async (auth, database) => {
     const context = await resolveAuthorizedComposioConnectionContext(auth);
     const binding = backend(context);
+    const returnPath = resolveSharedComposioOAuthReturnPath(context, input);
     await lockProfile(context, database);
     const credentialRevision = await sharedComposioCredentialRevision(context);
     const client = await pinLocalMutationClient(context);
@@ -103,7 +105,7 @@ export async function connectSharedComposioConnection(actor: IntegrationConnecti
       await publishIntegrationConnectionBinding(actor, connectionRef, input.revisions, { ...binding, accountBinding: 'no_auth', connectedAccountId: null });
       return { redirectUrl: null, noAuth: true };
     }
-    const flow = await createSharedComposioOAuthFlowState({ context, credentialRevision, returnPath: input.returnPath }, database);
+    const flow = await createSharedComposioOAuthFlowState({ context, credentialRevision, returnPath }, database);
     const linked = await withSharedComposioSignal(true, async signal => {
       if (binding.mode === 'managed') {
         await requireSharedManagedComposioCapabilities(context, signal);
@@ -127,22 +129,27 @@ export async function connectSharedComposioConnection(actor: IntegrationConnecti
 
 export async function completeSharedComposioOAuthFlow(state: string, providerError?: string | null) {
   const flow = await consumeSharedComposioOAuthFlowState(state);
-  await withAuthorizedIntegrationConnection(flow.actor, flow.connectionRef, 'manage', flow.revisions, async (auth, database) => {
+  const returnPath = await withAuthorizedIntegrationConnection(flow.actor, flow.connectionRef, 'manage', flow.revisions, async (auth, database) => {
     const context = await resolveAuthorizedComposioConnectionContext(auth);
     const binding = backend(context);
+    if (!flow.returnPath) throw new IntegrationConnectionError('invalid_request', 'The shared sign-in return path is invalid.');
+    const returnPath = resolveSharedComposioOAuthReturnPath(context, { returnPath: flow.returnPath });
     await lockProfile(context, database);
     if (auth.authorizationRevision !== flow.authorizationRevision || context.profileId !== flow.profileId
+      || auth.resource.ownership.type !== flow.ownership.type || auth.resource.ownership.organizationId !== flow.ownership.organizationId
+      || (auth.resource.ownership.type === 'team' ? auth.resource.ownership.workspaceId : null) !== (flow.ownership.type === 'team' ? flow.ownership.workspaceId : null)
       || context.composioUserId !== flow.composioUserId || context.sharedBinding!.profileRevision !== flow.profileRevision
       || binding.toolkit !== flow.toolkit || binding.mode !== flow.providerMode || flow.credentialRevision !== await sharedComposioCredentialRevision(context)) {
       throw new IntegrationConnectionError('binding_changed', 'The shared OAuth scope or configuration changed. Start setup again.', 409);
     }
-    if (providerError) return;
+    if (providerError) return returnPath;
     const account = await readExactSharedComposioAccount(context, flow.pendingAccountId);
     if (account.status !== 'ACTIVE' || account.isDisabled) throw new IntegrationConnectionError('auth_required', 'The selected OAuth account is not active. Complete setup again.', 409);
     if (flow.credentialRevision !== await sharedComposioCredentialRevision(context)) throw new IntegrationConnectionError('binding_changed', 'The provider configuration changed during OAuth.', 409);
     await publishIntegrationConnectionBinding(flow.actor, flow.connectionRef, flow.revisions, { ...binding, accountBinding: 'account', connectedAccountId: flow.pendingAccountId });
+    return returnPath;
   });
-  return { returnPath: flow.returnPath, toolkit: flow.toolkit, connectionRef: flow.connectionRef,
+  return { returnPath, toolkit: flow.toolkit, connectionRef: flow.connectionRef,
     status: providerError ? providerError === 'access_denied' ? 'cancelled' : 'failed' : 'connected' };
 }
 

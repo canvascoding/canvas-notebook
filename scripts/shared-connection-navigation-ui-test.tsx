@@ -30,14 +30,15 @@ async function main(){
     ?{Link:React.forwardRef<HTMLAnchorElement,React.AnchorHTMLAttributes<HTMLAnchorElement>>(function FixtureLink(props,ref){return <a {...props} ref={ref}/>;})}
     :originalLoad(name,parent,isMain);
   const { render,screen,fireEvent,waitFor,cleanup,act,within }=await import('@testing-library/react');
-  const { SharedConnectionsSection }=await import('../app/components/plugins/SharedConnectionsSection');
+  const uiSession={user:{id:'fixture-admin',name:'Fixture Admin',email:'admin@fixture.invalid',emailVerified:true,createdAt:new Date(0),updatedAt:new Date(0),role:'admin',banned:false},
+    session:{id:'fixture-ui-session',token:'CONTROLLED_UI_IDENTITY_ONLY',userId:'fixture-admin',expiresAt:new Date('2099-01-01'),createdAt:new Date(0),updatedAt:new Date(0)}};
   const { PluginNavigationGuard,confirmPluginNavigation,usePluginEditorNavigationGuard }=await import('../app/components/plugins/plugin-navigation-guard');
   const labels=en.sharedConnections,refs={mcp:'canvas-connection:11111111-1111-4111-8111-111111111111',composio:'canvas-connection:22222222-2222-4222-8222-222222222222'};
   const initial=(source:'mcp'|'composio'):IntegrationConnectionDescriptor=>({resource:{connectionRef:refs[source],source,ownership:{type:'organization',organizationId:'fixture-org'},
     displayName:`Owned ${source} fixture`,description:'Saved description',application:source==='composio'?'canva':null,responsibleUserId:null,createdByUserId:'fixture-admin',updatedByUserId:'fixture-admin',
     metadataRevision:1,grantsRevision:1,bindingRevision:1,allowedToolNames:null,accessMode:'restricted',status:'active',createdAt:1,updatedAt:1},
     access:{canRead:true,canUse:false,canManage:true},grants:[]});
-  let records={mcp:initial('mcp'),composio:initial('composio')},accepts=false,prompts=0,writeStatus=200;
+  let records={mcp:initial('mcp'),composio:initial('composio')},accepts=false,prompts=0,writeStatus=200,currentLocale:'en'|'de'='en';
   type Seen={path:string;method:string;body:Record<string,unknown>|null;workspaceId:string|null};
   const requests:Seen[]=[];let releaseWrite:(()=>void)|undefined,writeGate:Promise<void>|undefined;
   let oauthStatus=200,oauthFailure:'none'|'fetch'|'json'='none',oauthJsonStarted=0;
@@ -47,6 +48,7 @@ async function main(){
   const ok=(data:unknown)=>Response.json({success:true,data});
   globalThis.fetch=async(input,init)=>{
     const url=new URL(String(input),window.location.origin),pathname=decodeURIComponent(url.pathname),method=init?.method??'GET';
+    if(pathname==='/api/auth/get-session')return Response.json(uiSession);
     const workspaceId=new Headers(init?.headers).get('x-canvas-workspace-id');
     assert(['fixture-workspace','next-fixture-workspace'].includes(workspaceId??''));
     const body=init?.body?JSON.parse(String(init.body)) as Record<string,unknown>:null;requests.push({path:pathname,method,body,workspaceId});
@@ -76,6 +78,10 @@ async function main(){
     }
     throw new Error(`Unexpected controlled UI endpoint ${method} ${pathname}`);
   };
+  // BetterAuth captures fetch when its real client is constructed, so install transport first.
+  const { authClient }=await import('../app/lib/auth-client');
+  const sessionAtom=authClient.$store.atoms.session,originalSession=sessionAtom.get();
+  const { SharedConnectionsSection }=await import('../app/components/plugins/SharedConnectionsSection');
   function App({locale='en',workspaceId='fixture-workspace'}:{locale?:'en'|'de';workspaceId?:string}){
     const [epoch,setEpoch]=useState(0),[scope,setScope]=useState('organization');
     return <NextIntlClientProvider locale={locale} messages={locale==='en'?en:de} timeZone="UTC">
@@ -92,6 +98,7 @@ async function main(){
   const reset=async(locale:'en'|'de'='en')=>{
     observeNavigation=undefined;cleanup();releaseWrite?.();releaseOAuthJson?.();releaseWrite=undefined;writeGate=undefined;releaseOAuthJson=undefined;oauthJsonGate=undefined;
     oauthStatus=200;oauthFailure='none';oauthJsonStarted=0;records={mcp:initial('mcp'),composio:initial('composio')};requests.length=0;accepts=false;prompts=0;writeStatus=200;
+    currentLocale=locale;sessionAtom.set({...sessionAtom.get(),data:uiSession,error:null,isPending:false,isRefetching:false});
     window.history.replaceState(null,'','/en/plugins?view=advanced&scope=organization');window.history.pushState(null,'','/en/plugins?view=advanced&task=connections');
     const view=render(<App locale={locale}/>);await waitReady();return view;
   };
@@ -183,7 +190,7 @@ async function main(){
         const details=button.closest('details');assert(details);details.open=true;return button;};
       const exactOAuthRequest=(source:'mcp'|'composio')=>{
         assert.equal(writes().length,1);assert.deepEqual(writes()[0],{path:`/api/${source}/shared-connections/${refs[source]}/${source==='mcp'?'oauth':'connect'}`,
-          method:'POST',workspaceId:'fixture-workspace',body:{expectedMetadataRevision:1,expectedGrantsRevision:1,expectedBindingRevision:1}});
+          method:'POST',workspaceId:'fixture-workspace',body:{expectedMetadataRevision:1,expectedGrantsRevision:1,expectedBindingRevision:1,returnLocale:currentLocale}});
       };
       for(const source of ['mcp','composio'] as const){
         await reset();editor=await openEditor(source);observe();assert.equal(confirmPluginNavigation(),true);
@@ -220,16 +227,16 @@ async function main(){
       for(const outcome of ['fetch','json',403,409,503] as const){
         await reset();editor=await openEditor();observe();const connect=connectButton(editor);
         if(typeof outcome==='number')oauthStatus=outcome;else oauthFailure=outcome;
-        const baseline=structuredClone(records.mcp);change('shared-edit-name',`Retained ${outcome}`);
+        const baseline=structuredClone(records.mcp);
         fireEvent.click(connect);await screen.findByText(outcome===409?labels.conflict:labels.saveError);
         assert.equal(redirects,0);exactOAuthRequest('mcp');assert.deepEqual(records.mcp,baseline);
-        assert.equal(value('shared-edit-name'),`Retained ${outcome}`);assert.equal(value('shared-edit-description'),'Saved description');
+        assert.equal(value('shared-edit-name'),baseline.resource.displayName);assert.equal(value('shared-edit-description'),'Saved description');
         assert.equal(document.body.textContent?.includes('PRIVATE_'),false);assert.equal(prompts,0);
-        // A prompt here distinguishes a settled Parent counter from a still-pending write:
-        // the dirty form is retained and cancellation cannot close it.
-        fireEvent.click(closeButton(editor));assert.equal(prompts,1);assert(document.body.contains(editor));assert.equal(redirects,0);
+        assert.equal(confirmPluginNavigation(),true,'A failed clean request must settle the Parent counter.');assert.equal(prompts,0);
+        if(outcome!==409){change('shared-edit-name',`Unsaved after ${outcome}`);fireEvent.click(closeButton(editor));assert.equal(prompts,1);assert(document.body.contains(editor));assert.equal(value('shared-edit-name'),`Unsaved after ${outcome}`);}
+        assert.equal(redirects,0);
         assert.equal((connect as HTMLButtonElement).disabled,outcome===409);
-        console.log(`PASS OAuth ${outcome}: no redirect/auto-retry, Parent pending settled, dirty draft and baseline retained.`);
+        console.log(`PASS OAuth ${outcome}: clean request has no redirect/auto-retry, Parent pending settles, saved baseline retained.`);
       }
       for(const outcome of ['url','error'] as const){
         const view=await reset();editor=await openEditor();observe();writeGate=new Promise<void>(resolve=>{releaseWrite=resolve;});
@@ -245,16 +252,22 @@ async function main(){
       function OtherEditorFence({dirty,pending}:{dirty:boolean;pending:boolean}){usePluginEditorNavigationGuard({dirty,pending});return <p>Other fixture editor</p>;}
       for(const kind of ['dirty','pending'] as const){
         await reset();editor=await openEditor();observe();const other=render(<OtherEditorFence dirty={kind==='dirty'} pending={kind==='pending'}/>);
-        fireEvent.click(connectButton(editor));await waitFor(()=>assert.equal(redirects,1));
-        assert.deepEqual(preventedAtAssign,[true],`Acknowledged OAuth must not bypass another editor's boolean ${kind} guard.`);assert.equal(prompts,0);
-        other.unmount();assert.equal(unload(),false);assert.equal(confirmPluginNavigation(),true);exactOAuthRequest('mcp');
+        fireEvent.click(connectButton(editor));await act(async()=>{await new Promise(resolve=>setTimeout(resolve,30));});
+        assert.equal(writes().length,0,`Another editor's boolean ${kind} guard must block OAuth start.`);assert.equal(redirects,0);assert.equal(prompts,0);
+        other.unmount();assert.equal(unload(),false);assert.equal(confirmPluginNavigation(),true);
       }
+      await reset();editor=await openEditor();observe();writeGate=new Promise<void>(resolve=>{releaseWrite=resolve;});
+      fireEvent.click(connectButton(editor));await waitFor(()=>assert.equal(writes().length,1));
+      const lateOther=render(<OtherEditorFence dirty pending={false}/>);
+      await act(async()=>releaseWrite?.());await waitFor(()=>assert.equal(redirects,1));
+      assert.deepEqual(preventedAtAssign,[true],'A newly dirty independent editor after POST still owns its unload protection at ACK.');
+      assert.equal(prompts,0);exactOAuthRequest('mcp');lateOther.unmount();assert.equal(unload(),false);
       observeNavigation=undefined;
-      console.log('PASS OAuth pending-only matrix. Controlled HTTP/React synchronous assign boundary; no native OAuth, server authority, dirty-authorize preflight or actor-only policy claims.');
+      console.log('PASS OAuth pending/dirty-start matrix. Controlled HTTP/React synchronous assign boundary; no native OAuth or server-authority claims.');
     }
 
     await reset('de');await openCreate();assert(screen.getByRole('dialog',{name:de.sharedConnections.createTitle}));
     console.log('PASS real SharedConnections Parent/Forms/Intl/Radix navigation: dirty hidden/staged inputs, local Escape/X/Reload and scope/history fences, actual Parent pending single Save, programmatic successful close, retained409 and German labels. Controlled SafeDTO HTTP only; no server/provider authority, OAuth acceptance or production-browser claims.');
-  }finally{observeNavigation=undefined;releaseWrite?.();releaseOAuthJson?.();cleanup();loader._load=originalLoad;globalThis.fetch=originalFetch;window.confirm=originalConfirm;dom.window.close();}
+  }finally{observeNavigation=undefined;releaseWrite?.();releaseOAuthJson?.();cleanup();sessionAtom.set(originalSession);loader._load=originalLoad;globalThis.fetch=originalFetch;window.confirm=originalConfirm;dom.window.close();}
 }
 main().catch(error=>{console.error(error);process.exitCode=1;});

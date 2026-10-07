@@ -159,7 +159,8 @@ function PluginWorkspaceSession({ workspaceId }: { workspaceId: string }) {
           {legacy && legacy.status !== 'loading' ? <Button variant="outline" onClick={() => navigate({ ...clearDetail, q: sourceName, kind: sourceKind })}>{t('showVariants')}</Button> : null}</div>
           : view === 'advanced' ? <div className="space-y-5"><Button variant="ghost" onClick={() => navigate({ view: 'installed' })}><ArrowLeft className="size-4" />{t('back')}</Button>
             <h2 className="text-lg font-semibold">{t('advanced')}</h2><p className="max-w-2xl text-sm text-muted-foreground">{t('connectionHint')}</p>
-            {sharedOwnership ? <SharedConnectionsSection workspaceId={workspaceId} ownership={sharedOwnership} initiallyOpen />
+            {sharedOwnership ? <SharedConnectionsSection workspaceId={workspaceId} ownership={sharedOwnership} initiallyOpen
+              initialConnectionRef={navigation.connectionRef} returnStatus={navigation.sharedOAuth} />
               : <div className="flex flex-wrap gap-3"><Button variant="outline" asChild><Link href="/settings?tab=mcp">{t('manageMcp')}</Link></Button>
                 <Button variant="outline" asChild><Link href="/settings?tab=integrations">{t('manageIntegrations')}</Link></Button></div>}
           </div> : <>

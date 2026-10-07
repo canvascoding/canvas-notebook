@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { completeSharedMcpOAuth } from '@/app/lib/mcp/shared-oauth';
+import { completeSharedMcpOAuthWithReturn } from '@/app/lib/mcp/shared-oauth';
+import { sharedConnectionOAuthReturnHref } from '@/app/lib/integration-tools/connections/oauth-return';
 import { sharedMcpRequestActor, sharedMcpResponseError } from '../../http';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 
@@ -15,7 +16,12 @@ export async function GET(request: NextRequest) {
     const actor = await sharedMcpRequestActor(request);
     if (actor instanceof NextResponse) return response('Remain signed in as the initiating connection manager to finish sign-in.', actor.status);
     const params = new URL(request.url).searchParams;
-    const record = await completeSharedMcpOAuth(actor, { state: params.get('state') ?? '', code: params.get('code'), error: params.get('error'), issuer: params.get('iss') });
-    return response(record ? 'Shared connection sign-in was saved. You can close this window.' : 'Shared sign-in was cancelled.');
+    const completed = await completeSharedMcpOAuthWithReturn(actor, { state: params.get('state') ?? '', code: params.get('code'), error: params.get('error'), issuer: params.get('iss') });
+    if (completed.returnContext && completed.appOrigin) {
+      const redirect = NextResponse.redirect(new URL(sharedConnectionOAuthReturnHref(completed.returnContext, completed.record ? 'connected' : 'cancelled'), completed.appOrigin), 303);
+      redirect.headers.set('Cache-Control', 'no-store'); redirect.headers.set('Referrer-Policy', 'no-referrer');
+      return redirect;
+    }
+    return response(completed.record ? 'Shared connection sign-in was saved. You can close this window.' : 'Shared sign-in was cancelled.');
   } catch (error) { return response('Shared connection sign-in could not be completed. Reload the connection and start sign-in again.', sharedMcpResponseError(error).status); }
 }

@@ -54,12 +54,14 @@ function storeList(value:CapabilityResourceDescriptor):CapabilityPackageStoreLis
 
 async function main() {
   const {render,screen,fireEvent,cleanup,waitFor,act}=await import('@testing-library/react');
-  const {PackageDetailWorkspace}=await import('../app/components/plugins/PackageDetailWorkspace');
   const {PackageEditorSection}=await import('../app/components/plugins/PackageEditorSection');
   const {confirmPluginNavigation}=await import('../app/components/plugins/plugin-navigation-guard');
   const intl=(content:React.ReactNode)=><NextIntlClientProvider locale="en" timeZone="UTC" messages={messages}>{content}</NextIntlClientProvider>;
   const originalFetch=globalThis.fetch,originalConfirm=window.confirm;
   const requests:Array<{path:string;workspace:string|null;method:string;query:URLSearchParams}>=[];
+  const authRequests:Array<{path:string;method:string}>=[];
+  const uiSession={user:{id:'editor',name:'Fixture Editor',email:'editor@fixture.invalid',emailVerified:true,createdAt:new Date(0),updatedAt:new Date(0),role:'member',banned:false},
+    session:{id:'fixture-detail-ui-session',token:'CONTROLLED_UI_IDENTITY_ONLY',userId:'editor',expiresAt:new Date('2099-01-01'),createdAt:new Date(0),updatedAt:new Date(0)}};
   let resource=descriptor(),offered=presentation(resource),packageDescriptor=packageView(resource),store:CapabilityPackageStoreListResponse|null=null;
   let metadataStatus=200,presentationStatus=200,heldBase:Promise<void>|undefined,heldFile:Promise<void>|undefined,heldWrite:Promise<void>|undefined;
   const navigation:Partial<PluginNavigation>[]=[],updates:CapabilityPackageStoreSelection[]=[];
@@ -72,6 +74,7 @@ async function main() {
   const body=(data:unknown,status=200)=>Response.json(status===200?{success:true,data}:{success:false,code:'CAPABILITY_RESOURCE_NOT_FOUND',error:'PRIVATE_ERROR_BODY'}, {status});
   globalThis.fetch=async(input,init)=>{
     const url=new URL(String(input),'http://canvas.test'),method=init?.method||'GET';
+    if(url.pathname==='/api/auth/get-session'){assert.equal(method,'GET');authRequests.push({path:url.pathname,method});return Response.json(uiSession);}
     requests.push({path:url.pathname,workspace:url.searchParams.get('workspaceId')||(init?.headers?new Headers(init.headers).get('x-canvas-workspace-id'):null),method,query:url.searchParams});
     assert.equal(init?.cache,'no-store');
     const selected=resource,presented=offered,pkg=packageDescriptor;
@@ -94,6 +97,11 @@ async function main() {
     if(url.pathname.startsWith('/api/capabilities/packages/')) return body({package:pkg});
     throw new Error(`Unexpected request: ${url.pathname}`);
   };
+  // BetterAuth must capture this controlled transport before the real detail imports it.
+  const {authClient}=await import('../app/lib/auth-client');
+  const sessionAtom=authClient.$store.atoms.session,originalSession=sessionAtom.get();
+  sessionAtom.set({...sessionAtom.get(),data:uiSession,error:null,isPending:false,isRefetching:false});
+  const {PackageDetailWorkspace}=await import('../app/components/plugins/PackageDetailWorkspace');
   function Detail({reference=resourceRef,workspace='team-design',initialTask='overview',selectedFile}:{reference?:string;workspace?:string;initialTask?:React.ComponentProps<typeof PackageDetailWorkspace>['task'];selectedFile?:string}) {
     const [task,setTask]=React.useState(initialTask);
     return intl(<PackageDetailWorkspace resourceRef={reference} workspaceId={workspace} task={task} file={selectedFile} store={store} onUpdated={()=>{}}
@@ -101,7 +109,8 @@ async function main() {
       onClose={()=>{if(confirmPluginNavigation())closeCount+=1;}} onStoreUpdate={(source,canonicalRef)=>{updates.push(source);updateTargets.push(canonicalRef);}} />);
   }
   const reset=()=>{cleanup();requests.length=0;navigation.length=0;updates.length=0;updateTargets.length=0;closeCount=0;localStorage.clear();resource=descriptor();offered=presentation(resource);packageDescriptor=packageView(resource);store=null;
-    metadataStatus=200;presentationStatus=200;heldBase=undefined;heldFile=undefined;heldWrite=undefined;};
+    metadataStatus=200;presentationStatus=200;heldBase=undefined;heldFile=undefined;heldWrite=undefined;
+    sessionAtom.set({...sessionAtom.get(),data:uiSession,error:null,isPending:false,isRefetching:false});};
   try {
     render(<Detail />);await screen.findByText('Design workspace');
     assert.deepEqual(requests.map(request=>request.path).sort(),[`/api/capabilities/packages/${encodeURIComponent(resourceRef)}/presentation`,`/api/capabilities/resources/${encodeURIComponent(resourceRef)}`].sort());
@@ -114,6 +123,7 @@ async function main() {
     fireEvent.mouseDown(screen.getByTestId('package-detail-tab-sharing'),{button:0});await screen.findByTestId('resource-management');
     assert(!requests.some(request=>request.path.endsWith('/targets')));assert(!screen.queryByTestId('resource-save'));
     fireEvent.mouseDown(screen.getByTestId('package-detail-tab-connections'),{button:0});await screen.findByText('Design shared account');
+    await waitFor(()=>assert(authRequests.length>0));assert(authRequests.every(request=>request.method==='GET'));
     assert(screen.queryByText('Other team account')===null);assert(document.body.textContent?.includes('CANVAS_DESIGN_KEY'));assert(document.body.textContent?.includes('Declared by design-package'));
     assert(!requests.some(request=>request.method!=='GET'),'read-only tasks cannot create accounts or change package state');
     fireEvent.click(screen.getByTestId('package-detail-back'));assert.equal(closeCount,1);
@@ -186,6 +196,6 @@ async function main() {
     await act(async()=>releaseWrite());
     assert(requests.some(request=>request.method==='PUT'),'only the explicit Save action starts a write');
     console.log('PackageDetail real React lazy requests, exact variants/rights, source update correlation, ownership, late responses and Editor guarded deep links PASS.');
-  } finally {cleanup();globalThis.fetch=originalFetch;window.confirm=originalConfirm;dom.window.close();}
+  } finally {cleanup();sessionAtom.set(originalSession);globalThis.fetch=originalFetch;window.confirm=originalConfirm;dom.window.close();}
 }
 main().catch(error=>{console.error(error);process.exitCode=1;});

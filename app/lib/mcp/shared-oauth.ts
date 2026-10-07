@@ -11,9 +11,11 @@ import { stageSharedMcpBindingPublication } from './shared-publication';
 import { withMcpStorageLock } from './storage-lock';
 import { removeMcpStoragePath } from './storage';
 import { closeMcpServer } from './manager';
+import { createSharedConnectionOAuthReturn, validateSharedConnectionOAuthReturn, type SharedConnectionOAuthReturnContext } from '@/app/lib/integration-tools/connections/oauth-return';
 
 type SharedOAuthRoute = { connectionId: string; connectionRef: string; actor: IntegrationConnectionActor;
-  revisions: IntegrationConnectionRevisions; authorizationRevision: string; expiresAt: string };
+  revisions: IntegrationConnectionRevisions; authorizationRevision: string; expiresAt: string;
+  returnContext?: SharedConnectionOAuthReturnContext; appOrigin?: string };
 function routePath(state: string): string {
   if (!/^[A-Za-z0-9_-]{32}$/u.test(state)) throw new IntegrationConnectionError('CONNECTION_OAUTH_STATE_INVALID', 'Invalid shared OAuth state.', 400);
   return `shared-oauth-routing/${state}.json`;
@@ -24,13 +26,15 @@ function backendId(record: IntegrationConnectionRecord): string {
 }
 
 export async function startSharedMcpOAuth(actor: IntegrationConnectionActor, connectionRef: string,
-  expected: IntegrationConnectionRevisions, origin: string): Promise<Awaited<ReturnType<typeof startMcpOAuth>>> {
+  expected: IntegrationConnectionRevisions, origin: string, options: { returnLocale?: 'de' | 'en' } = {}): Promise<Awaited<ReturnType<typeof startMcpOAuth>>> {
   return withAuthorizedIntegrationConnection(actor, connectionRef, 'manage', structuredClone(expected), async authorization => {
+    const returnContext = options.returnLocale === undefined ? undefined
+      : createSharedConnectionOAuthReturn(authorization.resource, authorization.actor, options.returnLocale);
     const result = await startMcpOAuth(backendId(authorization), origin, sharedMcpScope(authorization));
     try {
       await writeMcpCredentialJson(routePath(result.state), { connectionId: backendId(authorization), connectionRef,
         actor: authorization.actor, revisions: expected, authorizationRevision: authorization.authorizationRevision,
-        expiresAt: result.expiresAt } satisfies SharedOAuthRoute, MCP_SYSTEM_SCOPE);
+        expiresAt: result.expiresAt, ...(returnContext ? { returnContext, appOrigin: new URL(result.redirectUri).origin } : {}) } satisfies SharedOAuthRoute, MCP_SYSTEM_SCOPE);
     } catch (error) {
       await rejectMcpOAuthCallback(result.state, null, sharedMcpScope(authorization)).catch(() => undefined);
       throw error;
@@ -42,6 +46,13 @@ export async function startSharedMcpOAuth(actor: IntegrationConnectionActor, con
 /** The callback is bound to its initiating manager and exact resource. No personal fallback exists. */
 export async function completeSharedMcpOAuth(actor: IntegrationConnectionActor,
   input: { state: string; code?: string | null; error?: string | null; issuer?: string | null }): Promise<IntegrationConnectionRecord | null> {
+  return (await completeSharedMcpOAuthWithReturn(actor, input)).record;
+}
+
+export async function completeSharedMcpOAuthWithReturn(actor: IntegrationConnectionActor,
+  input: { state: string; code?: string | null; error?: string | null; issuer?: string | null }): Promise<{
+    record: IntegrationConnectionRecord | null; returnContext?: SharedConnectionOAuthReturnContext; appOrigin?: string;
+  }> {
   const captured = structuredClone(input);
   const route = await withMcpStorageLock(`shared-oauth-route-${captured.state}`, MCP_SYSTEM_SCOPE, async () => {
     const path = routePath(captured.state);
@@ -56,13 +67,28 @@ export async function completeSharedMcpOAuth(actor: IntegrationConnectionActor,
     if (backendId(authorization) !== route.connectionId || authorization.authorizationRevision !== route.authorizationRevision) {
       throw new IntegrationConnectionError('CONNECTION_BINDING_CHANGED', 'Shared sign-in permissions changed. Start sign-in again.', 409);
     }
+    let returnContext: SharedConnectionOAuthReturnContext | undefined, appOrigin: string | undefined;
+    if (route.returnContext !== undefined || route.appOrigin !== undefined) {
+      validateSharedConnectionOAuthReturn(route.returnContext, authorization.resource, route.actor);
+      if (typeof route.appOrigin !== 'string') throw new IntegrationConnectionError('CONNECTION_OAUTH_RETURN_INVALID', 'The shared sign-in return origin is invalid.');
+      const savedOrigin = new URL(route.appOrigin);
+      if (!['http:', 'https:'].includes(savedOrigin.protocol) || savedOrigin.origin !== route.appOrigin || savedOrigin.username || savedOrigin.password) {
+        throw new IntegrationConnectionError('CONNECTION_OAUTH_RETURN_INVALID', 'The shared sign-in return origin is invalid.');
+      }
+      returnContext = structuredClone(route.returnContext); appOrigin = savedOrigin.origin;
+    }
     const scope = sharedMcpScope(authorization);
-    if (captured.error) { await rejectMcpOAuthCallback(captured.state, captured.issuer, scope); return null; }
+    if (captured.error) {
+      await rejectMcpOAuthCallback(captured.state, captured.issuer, scope);
+      if (returnContext && captured.error !== 'access_denied') throw new IntegrationConnectionError('CONNECTION_OAUTH_PROVIDER_ERROR', 'The provider could not complete shared sign-in.');
+      return { record: null, ...(returnContext ? { returnContext, appOrigin } : {}) };
+    }
     if (!captured.code) throw new IntegrationConnectionError('CONNECTION_OAUTH_STATE_INVALID', 'Missing shared authorization code.', 400);
     await stageSharedMcpBindingPublication(authorization);
     await completeMcpOAuthCallback(captured.code, captured.state, captured.issuer, scope);
     await closeMcpServer(route.connectionId, scope);
-    return publishIntegrationConnectionBinding(route.actor, route.connectionRef, route.revisions, authorization.backend);
+    const record = await publishIntegrationConnectionBinding(route.actor, route.connectionRef, route.revisions, authorization.backend);
+    return { record, ...(returnContext ? { returnContext, appOrigin } : {}) };
   });
 }
 

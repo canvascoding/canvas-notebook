@@ -30,6 +30,8 @@ export type PluginNavigation = {
   task?: typeof PLUGIN_DETAIL_TASKS[number];
   file?: string;
   workspaceId?: string;
+  connectionRef?: string;
+  sharedOAuth?: 'connected' | 'cancelled' | 'failed';
   q?: string;
   page?: number;
   category?: string;
@@ -42,7 +44,7 @@ const UUID = '[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}';
 const RESOURCE_REF = new RegExp(`^canvas-resource:${UUID}$`, 'u');
 const DRAFT_REF = new RegExp(`^canvas-package-draft:${UUID}$`, 'u');
 const LEGACY_RESOURCE_REF = /^canvas-capability:v1:(?:plugin|skill):(?:system|(?:org|user):[a-z0-9_.%~-]+):(?:core|standalone|plugin:[a-z0-9_.%~-]+):[a-z0-9_.%~-]+$/iu;
-const DETAIL_KEYS = ['plugin', 'skill', 'source', 'storeRegistryId', 'storeVersion', 'storeChecksum', 'resourceId', 'resourceRef', 'draftRef', 'task', 'file'] as const;
+const DETAIL_KEYS = ['plugin', 'skill', 'source', 'storeRegistryId', 'storeVersion', 'storeChecksum', 'resourceId', 'resourceRef', 'draftRef', 'task', 'file', 'connectionRef', 'sharedOAuth'] as const;
 
 /** URL identity is a selection only; the server resolves current access for every read/write. */
 export function isPluginNavigationResourceRef(value: string): boolean {
@@ -112,12 +114,22 @@ export function readPluginNavigation(params: Pick<URLSearchParams, 'get'>): Plug
   }
   const workspaceId = params.get('workspaceId');
   if (workspaceId && workspaceId.length <= 256) navigation.workspaceId = workspaceId;
+  if (area === 'plugins' && view === 'advanced' && navigation.workspaceId && navigation.workspaceId === navigation.workspaceId.trim()
+    && !/[\\\u0000-\u001f\u007f]/u.test(navigation.workspaceId) && (scope === 'organization' || scope === 'team' && navigation.teamId)) {
+    const connectionRef = params.get('connectionRef');
+    if (connectionRef && new RegExp(`^canvas-connection:${UUID}$`, 'u').test(connectionRef)) {
+      navigation.connectionRef = connectionRef;
+      const result = params.get('sharedOAuth');
+      if (result === 'connected' || result === 'cancelled' || result === 'failed') navigation.sharedOAuth = result;
+    }
+  }
   return navigation;
 }
 
 export function updatePluginNavigation(search: string, patch: Partial<PluginNavigation>): string {
   const params = new URLSearchParams(search);
   const current = readPluginNavigation(params);
+  if ('workspaceId' in patch && patch.workspaceId !== current.workspaceId) { params.delete('connectionRef'); params.delete('sharedOAuth'); }
   if (patch.area && patch.area !== current.area) { params.delete('view'); params.delete('kind'); }
   if (patch.scope && patch.scope !== current.scope) {
     for (const key of FILTER_KEYS) params.delete(key);
@@ -156,7 +168,7 @@ export function updatePluginNavigation(search: string, patch: Partial<PluginNavi
   params.set('view', next.view);
   if (next.scope === 'user') params.delete('scope');
   else params.set('scope', next.scope);
-  for (const key of ['teamId', 'audience', 'kind', 'skill', 'resourceRef', 'draftRef', 'task', 'file', 'storeRegistryId', 'storeVersion', 'storeChecksum'] as const) {
+  for (const key of ['teamId', 'audience', 'kind', 'skill', 'resourceRef', 'draftRef', 'task', 'file', 'storeRegistryId', 'storeVersion', 'storeChecksum', 'connectionRef', 'sharedOAuth'] as const) {
     if (next[key] === undefined) params.delete(key);
     else params.set(key, next[key]);
   }

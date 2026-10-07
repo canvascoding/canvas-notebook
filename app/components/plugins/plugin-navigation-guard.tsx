@@ -12,6 +12,11 @@ function isEditorPending(editor: EditorState): boolean {
   return typeof editor.pending === 'function' ? editor.pending() : editor.pending;
 }
 
+/** OAuth must start from a clean state; accepting a discard dialog grants no write authority. */
+export function hasPluginNavigationBlockers(): boolean {
+  return [...editors.values()].some(editor => editor.dirty || isEditorPending(editor));
+}
+
 export function confirmPluginNavigation(): boolean {
   if ([...editors.values()].some(isEditorPending)) return false;
   return ![...editors.values()].some(editor => editor.dirty) || window.confirm(unsavedChangesMessage);

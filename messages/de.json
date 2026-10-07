@@ -7425,6 +7425,7 @@
     "managementOnly": "Du kannst die Verbindung verwalten. Die Verwendung ist dir nicht freigegeben.",
     "accountSetup": "Konto und Anmeldung", "accountHint": "Die Anmeldung und Kontowahl gelten ausschließlich für diese Verbindung und ihren Eigentumsbereich.",
     "connect": "Anmelden", "checkStatus": "Verbindung prüfen", "disconnect": "Konto trennen", "connected": "Konto verbunden", "connectionRequired": "Anmeldung erforderlich",
+    "saveBeforeConnect": "Speichere oder verwerfe deine Änderungen, bevor du dich anmeldest.", "oauthCancelled": "Die Anmeldung wurde abgebrochen. Du kannst es erneut versuchen.", "oauthFailed": "Die Anmeldung konnte nicht abgeschlossen werden. Prüfe die Verbindung und versuche es erneut.",
     "loadAccounts": "Vorhandene App-Konten laden", "account": "App-Konto", "chooseAccount": "Konto ausdrücklich auswählen", "bindAccount": "Dieses Konto verwenden",
     "metadataAndGrants": "Metadaten und Freigaben", "descriptionField": "Beschreibung", "responsible": "Verantwortliche Person",
     "repairSetup": "Server-Einrichtung ersetzen oder reparieren", "repairHint": "Für berechtigte Verwalter: vollständige HTTP- oder STDIO-Konfiguration eingeben. Zugangsdaten gehören ausschließlich in Ressourcen-Slots; verwende die von Canvas erzeugten Slot-Platzhalter. STDIO erfordert zusätzlich die Freigabe durch die Instanz und Organisationsverwaltung.",

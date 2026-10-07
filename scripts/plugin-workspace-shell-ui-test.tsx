@@ -64,7 +64,6 @@ async function main() {
   window.confirm = value => { confirmations.push(value ?? ''); return !rejectsDirty; };
   const { render, screen, fireEvent, waitFor, cleanup, act } = await import('@testing-library/react');
   const { PluginNavigationGuard, usePluginEditorNavigationGuard: useGuard } = await import('../app/components/plugins/plugin-navigation-guard');
-  const { PluginWorkspace } = await import('../app/components/plugins/PluginWorkspace');
   const ownRef = 'canvas-resource:11111111-1111-4111-8111-111111111111', orgRef = 'canvas-resource:22222222-2222-4222-8222-222222222222';
   const ownLegacyAlias = 'canvas-capability:v1:plugin:user:fixture-user:standalone:design-bundle';
   const childRef = 'canvas-resource:33333333-3333-4333-8333-333333333333', teamRef = 'canvas-resource:44444444-4444-4444-8444-444444444444';
@@ -78,6 +77,7 @@ async function main() {
     item(teamRef, 'team-context', 'skill', { type: 'team', organizationId: 'fixture-org', workspaceId: 'readable-team' })];
   type Seen = { url: URL; init?: RequestInit };
   const requests: Seen[] = [];
+  const authRequests: Array<{ path: string; method: string }> = [];
   const holds = new Map<string, { promise: Promise<void>; release(): void }>();
   let catalogError = false, storeError = false;
   const hold = (key: string) => { let release!: () => void; holds.set(key, { promise: new Promise<void>(resolve => { release = resolve; }), release }); return release; };
@@ -109,7 +109,12 @@ async function main() {
         summary: { total: 21, updates: 0, modified: 0, unknown: 21, observed: 0, comparison: 'unknown' } } };
   };
   globalThis.fetch = async (input, init) => {
-    const url = new URL(String(input), window.location.origin); requests.push({ url, init });
+    const url = new URL(String(input), window.location.origin);
+    if (url.pathname === '/api/auth/get-session') {
+      assert.equal(url.origin, window.location.origin); assert.equal(init?.method ?? 'GET', 'GET');
+      authRequests.push({ path: url.pathname, method: init?.method ?? 'GET' }); return Response.json(null);
+    }
+    requests.push({ url, init });
     const pathname = decodeURIComponent(url.pathname);
     const workspaceId = url.searchParams.get('workspaceId'); assert(workspaceId);
     if (url.pathname === '/api/plugins/catalog' || url.pathname === '/api/capabilities/packages/store') {
@@ -128,6 +133,9 @@ async function main() {
     if (pathname === `/api/capabilities/packages/${sourceRef}`) return Response.json({ success: false, code: 'PACKAGE_ACCESS_DENIED' }, { status: 403 });
     throw new Error(`Unexpected UI metadata endpoint: ${url.pathname}`);
   };
+  // The imported real SharedSection constructs BetterAuth even though this gate never mounts it.
+  // Register its nullable controlled auth transport before importing the shell, without a hook mock.
+  const { PluginWorkspace } = await import('../app/components/plugins/PluginWorkspace');
   const App = ({ locale = 'en' }: { locale?: 'en' | 'de' }) => <NextIntlClientProvider locale={locale} messages={locale === 'en' ? en : de} timeZone="UTC">
     <PluginNavigationGuard unsavedChangesMessage={(locale === 'en' ? en : de).skills.drafts.unsavedNavigation} /><PluginWorkspace canManageOrganizationCapabilities={false} />
   </NextIntlClientProvider>;
@@ -327,6 +335,7 @@ async function main() {
     refreshed.rerender(<App locale="de" />); await screen.findByRole('heading', { name: de.skills.workspace.shell.title, level: 1 });
     assert(screen.getByRole('button', { name: 'Organisation' }));
     rejectsDirty = false;
+    assert(authRequests.length > 0); assert(authRequests.every(request => request.path === '/api/auth/get-session' && request.method === 'GET'));
     console.log('Plugin workspace shell React/history/Intl PASS: default mixed installed, readonly Org/Team selection, exact/unique/ambiguous/missing/late legacy links, dirty/pending Back and Header Refresh fences, source tuples, explicit workspace forwarding, late-response denial and private-draft recovery. Controlled HTTP transport only; no server-authority or responsive-browser claims.');
   } finally {
     for (const value of holds.values()) value.release(); cleanup(); loader._load = originalLoad; globalThis.fetch = originalFetch; window.confirm = originalConfirm; dom.window.close();

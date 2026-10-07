@@ -35,11 +35,13 @@ export function handleHtmlPreviewBoundary(request: IncomingMessage, response: Se
   const apiPath=pathname.startsWith('/api/') || pathname.startsWith('/media/');
   const browserCrossOrigin=['cross-site','same-site'].includes(String(request.headers['sec-fetch-site'] || ''));
   // OAuth providers return by cross-origin document navigation, which carries
-  // SameSite=Lax cookies. Exact GET callbacks validate a single-use, expiring
-  // state; shared browser sign-in also requires its initiating manager session.
+  // SameSite=Lax cookies. Exact GET callbacks retain their single-use, expiring
+  // state validation and existing browser authentication contracts.
   // Keep subresource/iframe requests and untrusted preview origins blocked.
   const composioCallbackNavigation = request.method === 'GET'
-    && pathname === '/api/composio/callback'
+    && (pathname === '/api/composio/callback'
+      || (pathname === '/api/composio/shared/callback'
+        && /^[A-Za-z0-9_-]{43}$/u.test(new URL(request.url || '/', 'http://localhost').searchParams.get('flow') || '')))
     && (!request.headers['sec-fetch-mode'] || request.headers['sec-fetch-mode'] === 'navigate')
     && (!request.headers['sec-fetch-dest'] || request.headers['sec-fetch-dest'] === 'document');
   const mcpCallbackNavigation = request.method === 'GET'

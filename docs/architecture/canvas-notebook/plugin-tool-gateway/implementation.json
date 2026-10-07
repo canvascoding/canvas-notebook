@@ -292,13 +292,21 @@
           "Actual owned PostgreSQL production-host Playwright1/1 PASS, one worker/no retries4.5sec test6.2sec total: normal UI Organization connection, genuine held start, pre-ACK X/Escape fence, no unload dialogs, HTTPS consent/approval, callback200, exactly one exchange and binding-only revision advance, no business tools or sessions",
           "Final verified_closed/no outstanding or forbidden requests; own AS/contexts/issuer/host closed and independent all30 own DBs/DATA/TMP absent across15 workflow/OAuth fixtures including separate preserved-attempt recovery; foreign managed stack preserved, no container/push/deploy/default-off flag change"
         ] },
-        { "id": "6b-d-2", "name": "Gebundene Browser- und Desktop-OAuth-Rueckkehr ueber den HTTP-Transport", "status": "pending", "evidence": [] },
+        { "id": "6b-d-2", "name": "Gebundene Browser- und Desktop-OAuth-Rueckkehr ueber den HTTP-Transport", "status": "in_progress", "substeps": [
+          { "id": "6b-d-2a", "name": "Gebundene gemeinsame Browser-Rueckkehr und exakte Verbindungs-Wiederoeffnung", "status": "complete", "evidence": [
+            "Detailed acceptance: evidence/step-6b-d-2a-bound-browser-return.md; strict saved locale/original workspace/actual ownership/exact connection return, fresh status truth, auth-session cancellation and dirty OAuth preflight",
+            "Actual React/BetterAuth-store RED to GREEN,14 fresh MCP status cases and callback privacy-header RED to GREEN; actual SQL/local MCP/Composio SDK/HTTP fixtures plus full UI/security/personal OAuth/shared/required Managed gates PASS; final build/post-build TypeScript/changed-source ESLint PASS",
+            "Final owned production-host Playwright1/1 PASS one worker/no retries6.2sec test8.0sec total: genuine held ACK/HTTPS approval, callback303, canonical exact return/reopened editor/current Connected status, binding-only revision advance and one exchange; final verified_closed, independent all34 owned DBs/DATA/TMP absent, foreign stack preserved"
+          ] },
+          { "id": "6b-d-2b", "name": "Gemeinsame MCP-Desktoptransaktionen mit Manager-Finalisierung", "status": "pending", "evidence": [] },
+          { "id": "6b-d-2c", "name": "Gemeinsame Composio-Desktop-Rueckkehr und Client-Abnahme", "status": "pending", "evidence": [] }
+        ], "evidence": [] },
         { "id": "6b-d-3", "name": "Gemeinsame MCP Apps mit aktuellen Sitzungs- und Ressourcenrechten", "status": "pending", "evidence": [] }
       ], "evidence": [] },
       { "id": "6b-e", "name": "Versionierte native Mobile-Ressourcen-, Verbindungs- und Chat-Vertraege", "status": "pending", "evidence": [] },
       { "id": "6b-f", "name": "Gemeinsamer Workflow mit zwei Nutzern und finaler Client-Vertragsabnahme", "status": "pending", "evidence": [] }
     ], "openFindings": [
-      "6b-d-1 locally accepted: synchronous OAuth-start pending fence and authenticated same-browser shared MCP callback. Bound return to the originating Plugins scope, shared Desktop/system-browser and Composio HTTP return, actor-only invalidation and dirty-authorize preflight remain6b-d-2; shared MCP Apps remain6b-d-3. Native Mobile/final shared runtime/live provider acceptance remain6b-e/f/7; gateway stays default-off."
+      "6b-d-1 and6b-d-2a locally accepted: synchronous pending fence, bound same-browser shared MCP return/exact editor reopening, controlled Composio return and privacy headers, fresh provider status, auth-session invalidation and dirty OAuth preflight. Shared MCP Desktop manager finalization remains6b-d-2b and Composio system-browser/client return remains6b-d-2c; shared MCP Apps remain6b-d-3. Native Mobile/final shared runtime/live provider acceptance remain6b-e/f/7; gateway stays default-off."
     ], "evidence": [] },
     { "id": "7", "name": "End-to-End-Abnahme und kontrollierter Rollout", "status": "pending", "evidence": [] }
   ],

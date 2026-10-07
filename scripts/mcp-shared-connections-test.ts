@@ -225,6 +225,90 @@ async function main() {
     await assert.rejects(() => oauth.completeSharedMcpOAuth(admin, { state: staleStart.state, code: 'auth-code' }), { code: 'CONNECTION_REVISION_CONFLICT' });
     assert.equal(provider.forms.length, exchangeCount, 'Stale OAuth revisions cannot exchange/publish credentials.');
 
+    const returns = await import('../app/lib/integration-tools/connections/oauth-return');
+    const { NextRequest } = await import('next/server');
+    const callbackRoute = await import('../app/api/mcp/shared-connections/oauth/callback/route');
+    const oauthRoute = await import('../app/api/mcp/shared-connections/[connectionRef]/oauth/route');
+    const returnRecord = await current(authorized.resource.connectionRef);
+    const returnContext = returns.createSharedConnectionOAuthReturn(returnRecord.resource, admin, 'de');
+    assert.equal(returnContext.workspaceId, admin.workspaceId);
+    assert.deepEqual(returnContext.ownership, owner, 'The return team is the actual owner, not the execution workspace.');
+    const href = returns.sharedConnectionOAuthReturnHref(returnContext, 'connected');
+    const local = new URL(href, 'http://localhost:3000');
+    assert.equal(local.pathname, '/de/plugins');
+    assert.deepEqual([...local.searchParams.keys()], ['view', 'scope', 'teamId', 'workspaceId', 'connectionRef', 'sharedOAuth']);
+    assert.equal(local.searchParams.get('view'), 'advanced'); assert.equal(local.searchParams.get('scope'), 'team');
+    assert.equal(local.searchParams.get('teamId'), 'team'); assert.equal(local.hash, '');
+    for (const context of [
+      { ...returnContext, version: 2 }, { ...returnContext, locale: 'fr' }, { ...returnContext, workspaceId: '' },
+      { ...returnContext, state: 'private-state' }, { ...returnContext, returnTo: '//foreign.invalid' },
+      { ...returnContext, ownership: { ...owner, backendId: 'private-backend' } },
+    ]) assert.throws(() => returns.validateSharedConnectionOAuthReturn(context, returnRecord.resource, admin), { code: 'CONNECTION_OAUTH_RETURN_INVALID' });
+    for (const context of [
+      { ...returnContext, workspaceId: 'ws-bob' }, { ...returnContext, connectionRef: `canvas-connection:${randomUUID()}` },
+      { ...returnContext, ownership: { ...owner, workspaceId: 'another-team' } },
+    ]) assert.throws(() => returns.validateSharedConnectionOAuthReturn(context, returnRecord.resource, admin), { code: 'CONNECTION_OAUTH_RETURN_CHANGED' });
+    assert.throws(() => returns.sharedConnectionOAuthReturnHref(returnContext, 'unknown' as never), { code: 'CONNECTION_OAUTH_RETURN_INVALID' });
+    const beforeInvalidReturn = provider.requests();
+    await assert.rejects(() => oauth.startSharedMcpOAuth({ ...admin, workspaceId: null }, returnRecord.resource.connectionRef,
+      rev(returnRecord), 'http://localhost:3000', { returnLocale: 'de' }), { code: 'CONNECTION_OAUTH_RETURN_INVALID' });
+    assert.equal(provider.requests(), beforeInvalidReturn, 'A missing return workspace rejects before any provider discovery.');
+
+    const localeStart = await oauth.startSharedMcpOAuth(admin, returnRecord.resource.connectionRef, rev(returnRecord), 'http://localhost:3000', { returnLocale: 'de' });
+    await assert.rejects(() => oauth.completeSharedMcpOAuthWithReturn(bob, { state: localeStart.state, code: 'auth-code', issuer: provider.origin }), { code: 'CONNECTION_OAUTH_STATE_INVALID' });
+    const beforeReturnExchange = provider.forms.length, beforeReturnCalls = provider.calls.length;
+    const returned = await callbackRoute.GET(new NextRequest(`http://callback-host.invalid/api/mcp/shared-connections/oauth/callback?${new URLSearchParams({
+      state: localeStart.state, code: 'auth-code', iss: provider.origin, returnTo: 'https://foreign.invalid/', returnLocale: 'en',
+      workspaceId: 'ws-bob', connectionRef: `canvas-connection:${randomUUID()}`,
+    })}`));
+    assert.equal(returned.status, 303); assert.equal(returned.headers.get('location'), `http://localhost:3000${href}`);
+    assert.equal(returned.headers.get('Cache-Control'), 'no-store'); assert.equal(returned.headers.get('Referrer-Policy'), 'no-referrer');
+    assert(!returned.headers.get('location')!.includes(localeStart.state)); assert(!returned.headers.get('location')!.includes('auth-code'));
+    assert(!returned.headers.get('location')!.includes(provider.origin));
+    assert.equal(provider.forms.length, beforeReturnExchange + 1); assert.equal(provider.calls.length, beforeReturnCalls);
+    const afterReturn = await current(returnRecord.resource.connectionRef);
+    assert.equal(afterReturn.resource.bindingRevision, returnRecord.resource.bindingRevision + 1);
+    assert.equal(afterReturn.resource.metadataRevision, returnRecord.resource.metadataRevision); assert.equal(afterReturn.resource.grantsRevision, returnRecord.resource.grantsRevision);
+    const cancelStart = await oauth.startSharedMcpOAuth(admin, afterReturn.resource.connectionRef, rev(afterReturn), 'http://localhost:3000', { returnLocale: 'en' });
+    const cancelCount = provider.forms.length;
+    const cancelled = await callbackRoute.GET(new NextRequest(`http://callback-host.invalid/api/mcp/shared-connections/oauth/callback?${new URLSearchParams({ state: cancelStart.state, error: 'access_denied', iss: provider.origin })}`));
+    const cancelHref = returns.sharedConnectionOAuthReturnHref(returns.createSharedConnectionOAuthReturn(afterReturn.resource, admin, 'en'), 'cancelled');
+    assert.equal(cancelled.status, 303); assert.equal(cancelled.headers.get('location'), `http://localhost:3000${cancelHref}`);
+    assert.deepEqual(await current(afterReturn.resource.connectionRef), afterReturn); assert.equal(provider.forms.length, cancelCount);
+    const replay = await callbackRoute.GET(new NextRequest(`http://localhost:3000/api/mcp/shared-connections/oauth/callback?${new URLSearchParams({ state: cancelStart.state, error: 'access_denied', iss: provider.origin })}`));
+    assert.equal(replay.status, 409); assert.equal(replay.headers.get('location'), null);
+    const providerError = await oauth.startSharedMcpOAuth(admin, afterReturn.resource.connectionRef, rev(afterReturn), 'http://localhost:3000', { returnLocale: 'en' });
+    const failedReturn = await callbackRoute.GET(new NextRequest(`http://localhost:3000/api/mcp/shared-connections/oauth/callback?${new URLSearchParams({ state: providerError.state, error: 'server_error', iss: provider.origin })}`));
+    assert.equal(failedReturn.status, 400); assert.equal(failedReturn.headers.get('location'), null); assert.equal(provider.forms.length, cancelCount);
+    const legacyCancel = await oauth.startSharedMcpOAuth(admin, afterReturn.resource.connectionRef, rev(afterReturn), 'http://localhost:3000');
+    const legacyResponse = await callbackRoute.GET(new NextRequest(`http://localhost:3000/api/mcp/shared-connections/oauth/callback?${new URLSearchParams({ state: legacyCancel.state, error: 'access_denied', iss: provider.origin })}`));
+    assert.equal(legacyResponse.status, 200); assert.equal(legacyResponse.headers.get('location'), null);
+    assert((await legacyResponse.text()).includes('Shared sign-in was cancelled.'));
+
+    const organizationReturn = await shared.createSharedMcpConnection(admin, { ownership: { type: 'organization', organizationId: 'org' }, displayName: 'Organization browser return',
+      config: { url: provider.url, auth: 'oauth' } });
+    const requestRevisions = { expectedMetadataRevision: organizationReturn.resource.metadataRevision,
+      expectedGrantsRevision: organizationReturn.resource.grantsRevision, expectedBindingRevision: organizationReturn.resource.bindingRevision };
+    const beforeInvalidPost = provider.requests();
+    for (const fields of [{ returnLocale: 'fr' }, { returnLocale: 'en', returnContext }, { returnLocale: 'en', returnTo: '//foreign.invalid' }]) {
+      const rejected = await oauthRoute.POST(new Request('http://localhost:3000/api/mcp/shared-connections/own/oauth', {
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'x-canvas-workspace-id': admin.workspaceId }, body: JSON.stringify({ ...requestRevisions, ...fields }),
+      }), { params: Promise.resolve({ connectionRef: organizationReturn.resource.connectionRef }) });
+      assert.equal(rejected.status, 400);
+    }
+    assert.equal(provider.requests(), beforeInvalidPost, 'Forged public return data never reaches OAuth discovery.');
+    const acceptedReturn = await oauthRoute.POST(new Request('http://localhost:3000/api/mcp/shared-connections/own/oauth', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'x-canvas-workspace-id': admin.workspaceId }, body: JSON.stringify({ ...requestRevisions, returnLocale: 'en' }),
+    }), { params: Promise.resolve({ connectionRef: organizationReturn.resource.connectionRef }) });
+    assert.equal(acceptedReturn.status, 200);
+    const acceptedStart = (await acceptedReturn.json()).data;
+    assert.deepEqual(Object.keys(acceptedStart).sort(), ['authorizationUrl', 'expiresAt', 'redirectUri', 'state'], 'Public starts never expose private return receipts or origins.');
+    const organizationCompleted = await oauth.completeSharedMcpOAuthWithReturn(admin, { state: acceptedStart.state, error: 'access_denied', issuer: provider.origin });
+    assert.equal(organizationCompleted.record, null); assert.equal(organizationCompleted.appOrigin, 'http://localhost:3000');
+    assert.equal(organizationCompleted.returnContext?.ownership.type, 'organization');
+    assert(!returns.sharedConnectionOAuthReturnHref(organizationCompleted.returnContext!, 'cancelled').includes('teamId'));
+    console.log('Shared MCP return: exact Org/Team/context, real callback 303, private source origin, strict request fields, cancellation, replay and legacy terminal HTML PASS.');
+
     const startFile = path.join(root, 'stdio-starts.txt');
     const stdioInput = { ownership: owner, displayName: 'Shared STDIO', grants: [{ ...grants[0], allowedToolNames: ['echo'] }], config: {
       command: process.execPath, args: [path.resolve('node_modules/tsx/dist/cli.mjs'), path.resolve('scripts/fixtures/fake-mcp-server.ts')],

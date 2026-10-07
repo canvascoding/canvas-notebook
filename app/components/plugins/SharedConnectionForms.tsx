@@ -12,7 +12,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { InlineNotice } from '@/components/ui/inline-notice';
 import { SharedConnectionRequestError, type SharedConnectionApi } from './shared-connections-client';
-import { confirmPluginNavigation, usePluginEditorNavigationGuard } from './plugin-navigation-guard';
+import { confirmPluginNavigation, hasPluginNavigationBlockers, usePluginEditorNavigationGuard } from './plugin-navigation-guard';
 
 const EMPTY_TARGETS: IntegrationConnectionTargetCatalog = { users: [], workspaces: [], projects: [], agents: [] };
 const tools = (value: string): string[] | null => value.trim() ? [...new Set(value.split(/[\n,]/u).map(name => name.trim()).filter(Boolean))] : null;
@@ -100,8 +100,9 @@ export function SharedConnectionCreateForm({ api, scopes, onSaved }: {
   </div>;
 }
 
-export function SharedConnectionEditor({ api, initial, onSaved }: {
+export function SharedConnectionEditor({ api, initial, onSaved, returnLocale, returnStatus }: {
   api: SharedConnectionApi; initial: IntegrationConnectionDescriptor; onSaved: () => void;
+  returnLocale?: 'de' | 'en'; returnStatus?: 'connected' | 'cancelled' | 'failed';
 }) {
   const t = useTranslations('sharedConnections');
   const [connection, setConnection] = useState(initial), [targets, setTargets] = useState(EMPTY_TARGETS);
@@ -130,6 +131,7 @@ export function SharedConnectionEditor({ api, initial, onSaved }: {
     try {
       const value = (await api<{ connection: IntegrationConnectionDescriptor }>(path)).connection;
       if (!alive.current) return;
+      if (value.resource.connectionRef !== initial.resource.connectionRef || value.resource.source !== initial.resource.source) throw new Error('connection_selection_unavailable');
       setConnection(value); setName(value.resource.displayName); setDescription(value.resource.description || ''); setResponsible(value.resource.responsibleUserId || '');
       setAccessMode(value.resource.accessMode); setAllowedTools((value.resource.allowedToolNames || []).join('\n'));
       setToolMode(value.resource.allowedToolNames === null ? 'all' : value.resource.allowedToolNames.length ? 'selected' : 'none');
@@ -138,10 +140,21 @@ export function SharedConnectionEditor({ api, initial, onSaved }: {
         const result = await api<{ targets: IntegrationConnectionTargetCatalog }>(`${path}/targets`);
         if (alive.current) setTargets(result.targets);
       }
+      if (returnStatus === 'connected' && value.access.canManage) {
+        const current = await api<{ configured?: boolean; authorized?: boolean; requiresAuth?: boolean; code?: string | null; status?: { connected?: boolean } }>(`${providerPath}/${value.resource.source === 'mcp' ? 'oauth' : 'status'}`);
+        if (!alive.current) return;
+        const connected = value.resource.source === 'mcp'
+          ? current.configured === true && (current.code === null || current.code === undefined)
+            && (current.requiresAuth === false || current.requiresAuth === true && current.authorized === true)
+          : current.status?.connected === true;
+        setStatus(t(connected ? 'connected' : 'connectionRequired'));
+      } else if (returnStatus === 'cancelled' || returnStatus === 'failed') {
+        if (alive.current) setStatus(t(returnStatus === 'cancelled' ? 'oauthCancelled' : 'oauthFailed'));
+      }
       if (alive.current) setReady(true);
     } catch { if (alive.current) setError(t('loadError')); }
     finally { if (alive.current) setLoading(false); }
-  }, [api, path, t]);
+  }, [api, initial.resource.connectionRef, initial.resource.source, path, providerPath, returnStatus, t]);
   useEffect(() => { alive.current = true; queueMicrotask(() => void load()); return () => { alive.current = false; }; }, [load]);
   const userOptions: PolicyTargetOption[] = targets.users.map(user => ({ id: user.userId, label: user.name || user.email || t('unknownTarget'), description: user.name ? user.email : null }));
   const options: PolicyTargetOption[] = targetType === 'user' ? userOptions
@@ -170,8 +183,10 @@ export function SharedConnectionEditor({ api, initial, onSaved }: {
     });
   }
   async function authorize() {
+    if (hasPluginNavigationBlockers()) { setError(t('saveBeforeConnect')); return; }
     await run(async () => {
-      const result = await api<{ redirectUrl?: string | null; authorizationUrl?: string }>(`${providerPath}/${connection.resource.source === 'mcp' ? 'oauth' : 'connect'}`, revisions(connection));
+      const result = await api<{ redirectUrl?: string | null; authorizationUrl?: string }>(`${providerPath}/${connection.resource.source === 'mcp' ? 'oauth' : 'connect'}`,
+        { ...revisions(connection), ...(returnLocale ? { returnLocale } : {}) });
       if (!alive.current) return;
       const redirect = result.authorizationUrl || result.redirectUrl;
       if (!redirect) { await load(); return; }
@@ -198,7 +213,7 @@ export function SharedConnectionEditor({ api, initial, onSaved }: {
     {error ? <InlineNotice variant="destructive" size="compact">{error}</InlineNotice> : null}
     <Button size="sm" variant="outline" disabled={busy} onClick={reload} data-testid="shared-connection-editor-reload">{t('reload')}</Button>
     {connection.access.canManage ? <>
-      <details className="space-y-3 rounded-lg border p-3"><summary className="cursor-pointer text-sm font-medium">{t('accountSetup')}</summary>
+      <details open={Boolean(returnStatus)} className="space-y-3 rounded-lg border p-3"><summary className="cursor-pointer text-sm font-medium">{t('accountSetup')}</summary>
         <div className="space-y-3 pt-3">
           <p className="text-xs text-muted-foreground">{t('accountHint')}</p>
           <div className="flex flex-wrap gap-2"><Button size="sm" disabled={disabled} onClick={() => void authorize()}>{t('connect')}</Button>

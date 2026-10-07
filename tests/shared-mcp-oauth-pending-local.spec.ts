@@ -166,7 +166,7 @@ test.beforeAll(async ({ browser }) => {
     oauthWrites: 0, consentWrites: 0, humanActivityWrites: 0, watchWrites: 0, authorized: false };
   await persistOAuthBrowserReceipt();
   admin = await createAuthenticatedContext(browser, { baseURL: baseUrl, viewport: { width: 1280, height: 900 },
-    extraHTTPHeaders: { Origin: baseUrl }, ignoreHTTPSErrors: true });
+    ignoreHTTPSErrors: true });
   await runManagedTestPreflight(admin, { baseURL: baseUrl });
   const sessionResponse = await requestManagedTestSession(admin.request); expect(sessionResponse.status()).toBe(200);
   expect((await sessionResponse.json() as { user: { id: string; role: string } }).user).toMatchObject({ id: fixture.actorId, role: 'admin' });
@@ -206,7 +206,7 @@ test.beforeAll(async ({ browser }) => {
     }
     if (method === 'POST' && connection && url.pathname === `/api/mcp/shared-connections/${encodeURIComponent(connection.resource.connectionRef)}/oauth`) {
       expect(request.postDataJSON()).toEqual({ expectedMetadataRevision: connection.resource.metadataRevision,
-        expectedGrantsRevision: connection.resource.grantsRevision, expectedBindingRevision: connection.resource.bindingRevision });
+        expectedGrantsRevision: connection.resource.grantsRevision, expectedBindingRevision: connection.resource.bindingRevision, returnLocale: 'en' });
       receipt.oauthWrites += 1; expect(receipt.oauthWrites).toBe(1); await persistOAuthBrowserReceipt(); await route.continue(); return;
     }
     if (method === 'POST' && url.pathname === '/api/instance/human-activity' && !request.postData()) {
@@ -240,7 +240,7 @@ test('clean shared MCP Connect blocks pre-ACK close, then completes real OAuth w
     await currentPage.route(`${baseUrl}${oauthPath}`, async route => {
       if (route.request().method() !== 'POST') { await route.fallback(); return; }
       expect(route.request().postDataJSON()).toEqual({ expectedMetadataRevision: before.resource.metadataRevision,
-        expectedGrantsRevision: before.resource.grantsRevision, expectedBindingRevision: before.resource.bindingRevision });
+        expectedGrantsRevision: before.resource.grantsRevision, expectedBindingRevision: before.resource.bindingRevision, returnLocale: 'en' });
       receipt.oauthWrites += 1; expect(receipt.oauthWrites).toBe(1); await persistOAuthBrowserReceipt();
       const original = await route.fetch({ timeout: 30_000 });
       const reply = await readOAuthData<{ authorizationUrl: string; state: string; redirectUri: string }>(original, 'Actual held OAuth start');
@@ -269,8 +269,20 @@ test('clean shared MCP Connect blocks pre-ACK close, then completes real OAuth w
     await currentPage.getByRole('button', { name: 'Approve', exact: true }).click();
     const callbackResponse = await callback;
     receipt.callbackStatus = callbackResponse.status(); receipt.phase = 'callback_received'; await persistOAuthBrowserReceipt();
-    expect(receipt.callbackStatus).toBe(200);
-    await expect(currentPage.getByText('Shared connection sign-in was saved. You can close this window.', { exact: true })).toBeVisible();
+    expect(receipt.callbackStatus).toBe(303);
+    await expect.poll(() => {
+      const returned = new URL(currentPage.url());
+      return returned.origin === baseUrl && returned.pathname === '/en/plugins'
+        && returned.searchParams.get('view') === 'advanced' && returned.searchParams.get('scope') === 'organization'
+        && returned.searchParams.get('workspaceId') === workspaceId && returned.searchParams.get('connectionRef') === before.resource.connectionRef
+        && returned.searchParams.get('sharedOAuth') === 'connected'
+        && [...returned.searchParams.keys()].sort().join(',') === 'connectionRef,scope,sharedOAuth,view,workspaceId' && !returned.hash;
+    }, { message: 'The callback must return to its bound local Plugins context without OAuth parameters.' }).toBe(true);
+    const returnedEditor = currentPage.getByTestId('shared-connection-edit-dialog');
+    await expect(returnedEditor).toBeVisible();
+    await expect(returnedEditor.locator('#shared-edit-name')).toHaveValue(`Shared OAuth ${fixture.nonce}`);
+    await expect(returnedEditor.getByText(labels.connected, { exact: true })).toBeVisible();
+    expect(receipt.unexpectedDialogs).toEqual([]);
     receipt.outstanding = null;
     const status = await readOwnOAuthStatus(); expect(status).toMatchObject({ configured: true, requiresAuth: true, authorized: true, authStatus: 'authorized' });
     const current = (await readOAuthData<{ connection: IntegrationConnectionDescriptor }>(await admin!.request.get(`/api/integrations/shared-connections/${encodeURIComponent(before.resource.connectionRef)}?${new URLSearchParams({ workspaceId })}`), 'Own post-OAuth binding')).connection;
