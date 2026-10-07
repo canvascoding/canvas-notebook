@@ -14,6 +14,17 @@ Credit reservation happens before dispatch. Unknown token counts remain unknown.
 
 Existing stored configurations migrate to direct execution. Fresh managed instances offer the Control Plane default without enabling email preparation. Worker and synthetic provider test share `execution-service.ts`. Temporary catalog failures preserve the last confirmed model identity and all local ratings. A confirmed inference change advances the settings revision and clears spam validation before eligible messages are reassessed.
 
-Eligibility stays unchanged for personal and business inboxes: every unread Inbox message regardless of age, plus all other Inbox messages from the last 30 days. The archive is not backfilled. Managed worker operation IDs are persisted independently from job claims; network retries keep the ID, while confirmed budget/auth/rate rejection can receive a new persisted ID.
+Eligibility stays unchanged for personal and business inboxes: every unread Inbox message regardless of age, plus all other Inbox messages from the last 30 days. The archive is not backfilled. Managed worker operation IDs are persisted independently from job claims; network retries keep the ID. A new ID requires an explicitly correlated safe budget/auth/rate rejection for the same operation; generic ingress or connection errors cannot authorize one.
 
 Focused checks: `npm run test:decision-models`, `npm run test:email:classification:managed`, and the existing classification worker/admin/store/selection checks. Paired production builds, the single managed local stack and browser acceptance must pass before this feature is declared ready. Roll out Control Plane before Notebook so the versioned capability is present.
+
+## Local acceptance on 2026-10-07
+
+- Paired API/web/Notebook production builds, typechecks, focused lint and shared package manifest verification passed. The single local stack was rebuilt from these worktrees; PostgreSQL 18 and all four long-running services are healthy.
+- Fourteen actual Control Plane API checks passed, covering scope/entitlement, explicit pricing, budget denial before dispatch, native HTTP evaluation, replay, payload conflict, in-flight duplicate, persistent limits, revision fence, timeout hold and single usage/ledger capture. The opt-in PostgreSQL regression also passed, including confirmed manual token persistence.
+- Nine selected synthetic emails passed through native CA-verified SMTP/IMAP, Notebook worker, Control Plane and a synthetic SystemOne-compatible provider. Personal and work mailboxes, old unread and recent read selection passed. Old read mail remained visible as not selected. The complete owned fixture reached 34 prepared messages with zero failed or pending jobs.
+- Browser acceptance passed DE/EN managed tests and mode changes, all/personal/work/single-mailbox Focus scopes, the home prepared preview and responsive light/dark settings. Control Plane profile editing, tariffs, instance-based testing, uncertain-operation release and mobile layout passed. Screenshots were visually inspected.
+- A tariff change and a real temporary Control Plane API pause preserved all 34 ratings and their evaluation timestamps without advancing settings revision.
+- The original disabled direct configuration and user preferences were restored. Three isolated native test accounts remain connected for local testing. The synthetic central profile is free and is a test fixture, not a quality-calibrated production model.
+
+This acceptance does not include paid Jev/OpenAI live calls, a push, or production rollout. For contracts and operational details see [Managed Decision Models](../architecture/canvas-notebook/managed-decision-models.md).
