@@ -1,4 +1,5 @@
 import { type AgentTool } from '@earendil-works/pi-agent-core';
+import { isProgressiveGatewayTool, withAllowedProgressiveGatewayOperations } from './progressive-tool-gateway';
 
 /**
  * Tools allowed in Planning Mode (read-only, no side effects).
@@ -42,5 +43,11 @@ export const PLANNING_MODE_ALLOWED_TOOLS = new Set([
 ]);
 
 export function filterToolsForPlanningMode(tools: AgentTool[]): AgentTool[] {
-  return tools.filter((tool) => PLANNING_MODE_ALLOWED_TOOLS.has(tool.name));
+  return tools.flatMap((tool) => {
+    if (isProgressiveGatewayTool(tool)) {
+      const constrained = withAllowedProgressiveGatewayOperations(tool, PLANNING_MODE_ALLOWED_TOOLS);
+      return constrained ? [constrained] : [];
+    }
+    return PLANNING_MODE_ALLOWED_TOOLS.has(tool.name) ? [tool] : [];
+  });
 }

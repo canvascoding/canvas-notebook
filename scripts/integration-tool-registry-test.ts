@@ -65,7 +65,8 @@ async function main() {
     assert(legacy.some(tool => tool.name === 'mcp'));
     assert(legacy.some(tool => tool.name === 'composio'));
     assert(!legacy.some(tool => tool.name === 'integrations'));
-    const legacySchemas = legacy.map(tool => ({ name: tool.name, schema: tool.parameters }));
+    // Snapshot the complete wire schema: Zod/TypeBox metadata can contain functions that are not transport-serializable.
+    const legacySchemas = JSON.parse(JSON.stringify(legacy.map(tool => ({ name: tool.name, schema: tool.parameters }))));
     const direct = legacy.find(tool => tool.name.startsWith('mcp_'));
     assert(direct, 'an explicitly selected real MCP tool uses the existing direct schema');
     const starts = (await fs.readFile(startsFile, 'utf8')).trim().split('\n').length;
@@ -224,7 +225,8 @@ async function main() {
 
     await setExperimentalFeatures('registry-user', { integrationToolGatewayEnabled: false });
     const restoredLegacy = await buildPiToolRegistryAsync('registry-user');
-    assert.deepEqual(restoredLegacy.map(tool => ({ name: tool.name, schema: tool.parameters })), legacySchemas, 'flag rollback restores the exact previous top-level schemas');
+    const restoredSchemas = JSON.parse(JSON.stringify(restoredLegacy.map(tool => ({ name: tool.name, schema: tool.parameters }))));
+    assert.deepEqual(restoredSchemas, legacySchemas, 'flag rollback restores the exact previous complete wire schemas');
     console.log('integration-tool-registry-test: ok');
   } finally {
     await closeConnections?.().catch(() => undefined);

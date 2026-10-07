@@ -10,7 +10,8 @@ const state = path.join(os.homedir(), '.local/state/canvas-local-team-seat');
 dotenv.config({ path: path.join(state, 'notebook-host-dev.env'), override: true, quiet: true });
 dotenv.config({ path: path.join(state, 'fixtures.env'), override: false, quiet: true });
 const mode = process.argv[2];
-if (!['fixture', 'host', 'browser'].includes(mode)) throw new Error('Choose the explicit fixture, host or browser mode. No automatic server lifecycle is performed.');
+if (!['fixture', 'host', 'browser', 'planning-browser'].includes(mode)) throw new Error('Choose the explicit fixture, host, browser or planning-browser mode. No automatic server lifecycle is performed.');
+if (mode === 'planning-browser' && process.argv.length > 4) throw new Error('Planning acceptance uses only its fixed configuration; additional CLI overrides are not supported.');
 const intake = fs.readFileSync('/tmp/canvas-plugin-gateway-stage4a-intake-path', 'utf8').trim();
 if (!path.isAbsolute(intake)) throw new Error('An absolute owned source intake is required.');
 Object.assign(process.env, { CANVAS_APP_ROOT: repo, HOSTNAME: '127.0.0.1', PORT: '3001', BASE_URL: 'http://127.0.0.1:3001',
@@ -37,7 +38,8 @@ if (mode === 'fixture') {
     MOBILE_PLUGIN_ACCESS_FIXTURE: fixtureFile, MOBILE_PLUGIN_ACCESS_SOURCE_PROOF: fixture.proofFile });
   process.env.NODE_ENV = mode === 'host' ? 'production' : 'test';
   args = mode === 'host' ? ['--import', 'tsx', 'server.js']
-    : [path.join(repo, 'node_modules/@playwright/test/cli.js'), 'test', '--config', 'playwright.mobile-plugin-access-production.config.ts', ...process.argv.slice(4)];
+    : [path.join(repo, 'node_modules/@playwright/test/cli.js'), 'test', '--config', mode === 'planning-browser'
+      ? 'playwright.planning-progressive-production.config.ts' : 'playwright.mobile-plugin-access-production.config.ts', ...process.argv.slice(4)];
 }
 const child = spawn(process.execPath, args, { cwd: repo, env: process.env, stdio: 'inherit' });
 // Forward signals exclusively to this launcher's own child; never discover or stop another stack/server.

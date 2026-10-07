@@ -522,7 +522,7 @@
     "test:agents:workflow:ui": "tsx scripts/agent-workflow-choice-ui-test.tsx",
     "test:agents:workflow:errors": "tsx --conditions react-server scripts/agent-workflow-error-reflection-test.ts",
     "test:agents:workflow:packages": "tsx --conditions react-server scripts/capability-workflow-runtime-test.ts",
-    "test:agents:workflow:planning": "tsx --conditions react-server scripts/pi-runtime-initial-planning-test.ts",
+    "test:agents:workflow:planning": "tsx --conditions react-server scripts/pi-runtime-initial-planning-test.ts && tsx --conditions react-server scripts/planning-progressive-runtime-test.ts",
     "test:agents:workflow:integration": "tsx --conditions react-server scripts/agent-workflow-integration-runtime-test.ts",
     "test:agents:workflow": "npm run test:agents:workflow:manifest && npm run test:agents:workflow:configuration && npm run test:agents:workflow:policy && npm run test:agents:workflow:personal && npm run test:agents:workflow:personal-options && npm run test:agents:workflow:errors && npm run test:agents:workflow:ui && npm run test:agents:workflow:packages && npm run test:agents:workflow:planning && npm run test:agents:workflow:integration",
     "test:agents:provider-coverage": "tsx --conditions react-server scripts/agent-runtime-provider-coverage-test.ts",

@@ -249,14 +249,20 @@
         "Strict receipted cleanup and independent readback own resource/draft/version/preference/intake0; only own host/HTTPS processes stopped, foreign managed stack preserved, no container/push/deployment/default-off flag change",
         "Full refreshed graph PASS; broader Gateway suite remains partial at existing registry rollback-schema assertion also reproduced using HEAD catalog/read modules. Planning/schema acceptance6b-b, native Mobile/OAuth and live-account acceptance remain later gates"
       ] },
-      { "id": "6b-b", "name": "Effektive read-only Planning-Gateways und Werkzeugmetadaten", "status": "pending", "evidence": [] },
+      { "id": "6b-b", "name": "Effektive read-only Planning-Gateways und Werkzeugmetadaten", "status": "complete", "evidence": [
+        "Detailed acceptance: evidence/step-6b-b-planning-gateways.md; missing Planning reads and actual lost gateway execution-context wrapper reproduced RED, then corrected without whitelist expansion or authority fallback",
+        "Actual isolated PGlite/FS/Registry/LivePiRuntime/Agent SDK without outer ALS PASS: allowed progressive reads, monotone ceilings, current grant/config withdrawal, prompt/metadata parity and zero network/model/business calls",
+        "Final full Gateway and Workflow suites, agent-turn context, complete registry rollback wire schemas, production build, sequential whole-tree TypeScript, changed-source ESLint and diff check PASS",
+        "Actual production-host Playwright1/1 PASS, one Chromium worker/no retries1.3min test1.8min total: unchanged Bradley, own UI Org install and fresh chat, three persisted progressive read results, unchanged package/publication/grants/default config and no drafts or forbidden writes",
+        "Strict exact-session STOP/idle/delete/bootstrap404 and unchanged package receipt cleanup PASS; independent own resources/drafts/versions/preferences/intake0 after both browser runs; foreign managed stack preserved, no container/push/deploy/default-off flag change",
+        "Additional external-output fixture remains baseline RED before its first wrapper invocation: null-agent legacy identity denied before provider/signal dispatch, independently reproduced with Current and HEAD; no claim of subsequent output/archive cases or native/live-account acceptance"
+      ] },
       { "id": "6b-c", "name": "Zentrale Workflow-Konfiguration und sichere Agentenwechsel im UI", "status": "pending", "evidence": [] },
       { "id": "6b-d", "name": "Gemeinsame MCP Apps und gebundene Browser-/Desktop-OAuth-Rueckkehr", "status": "pending", "evidence": [] },
       { "id": "6b-e", "name": "Versionierte native Mobile-Ressourcen-, Verbindungs- und Chat-Vertraege", "status": "pending", "evidence": [] },
       { "id": "6b-f", "name": "Gemeinsamer Workflow mit zwei Nutzern und finaler Client-Vertragsabnahme", "status": "pending", "evidence": [] }
     ], "openFindings": [
-      "Actual Parent/Forms controlled React reproduction: synchronous beforeUnload at clean OAuth location.assign still sees the parent API pending registration before its next layout commit. Parent counter and authorize code are unchanged from35ce9c4b7; native browser timing remains unverified. Required regression: npm run test:plugins:connections:oauth; preserve expected unblocked navigation and verify actual OAuth transport/return before accepting6b.",
-      "Gateway broader regression stops at integration-tool-registry-test rollback schema assertion. Read-only rerun with both unchanged HEAD common-read modules loaded reproduces the same assertion. Complete actual schema/metadata and whole Gateway regression in6b-b; do not count the partial suite as PASS."
+      "Actual Parent/Forms controlled React reproduction: synchronous beforeUnload at clean OAuth location.assign still sees the parent API pending registration before its next layout commit. Parent counter and authorize code are unchanged from35ce9c4b7; native browser timing remains unverified. Required regression: npm run test:plugins:connections:oauth; preserve expected unblocked navigation and verify actual OAuth transport/return before accepting6b."
     ], "evidence": [] },
     { "id": "7", "name": "End-to-End-Abnahme und kontrollierter Rollout", "status": "pending", "evidence": [] }
   ],
