@@ -26,7 +26,7 @@ const PRIORITIES: readonly EmailPriority[] = ['low', 'normal', 'high', 'urgent']
 type BooleanChoice = 'auto' | 'yes' | 'no';
 type CorrectionDraft = { category: EmailCategory | 'auto'; priority: EmailPriority | 'auto'; isSpam: BooleanChoice; needsReply: BooleanChoice };
 type DetailError = 'loadError' | 'mutationError' | 'refreshError' | 'invalidCorrection' | null;
-type Reason = 'highPriority' | 'needsReply' | 'answered' | 'uncertain' | 'pending' | 'failed' | 'stale' | 'spam' | 'done' | 'ordinary';
+type Reason = 'highPriority' | 'needsReply' | 'answered' | 'uncertain' | 'pending' | 'failed' | 'stale' | 'not_selected' | 'spam' | 'done' | 'ordinary';
 
 function selectionIdentity(userId: string, item: EmailClassificationFeedItem | null): string {
   return JSON.stringify([userId, item?.messageRef, item?.selectionKey, item?.origin.mailboxRef,
@@ -45,7 +45,7 @@ function readableReasons(item: EmailClassificationFeedItem): Reason[] {
   if (item.personalFocus.done) return ['done'];
   const classification = item.classification;
   if (!classification) return ['pending'];
-  if (classification.status === 'pending' || classification.status === 'failed' || classification.status === 'stale') return [classification.status];
+  if (classification.status === 'pending' || classification.status === 'failed' || classification.status === 'stale' || classification.status === 'not_selected') return [classification.status];
   const reasons: Reason[] = [];
   if (classification.isSpam === true) reasons.push('spam');
   if (classification.priority === 'high' || classification.priority === 'urgent') reasons.push('highPriority');

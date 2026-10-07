@@ -22,7 +22,7 @@ function reasonKeys(item: EmailClassificationFeedItem): string[] {
   const classification = item.classification;
   if (!classification) return [];
   if (classification.personallyDone) return ['done'];
-  if (classification.status === 'failed' || classification.status === 'stale' || classification.status === 'pending') return [classification.status];
+  if (classification.status === 'failed' || classification.status === 'stale' || classification.status === 'pending' || classification.status === 'not_selected') return [classification.status];
   if (classification.group === 'review' || classification.status === 'uncertain') return ['uncertain'];
   const reasons: string[] = [];
   if (classification.priority === 'high' || classification.priority === 'urgent') reasons.push('highPriority');

@@ -72,10 +72,12 @@ async function main() {
     const view = render(wrap()); await tick();
     const enable = view.getByRole('switch', { name: 'Enable for everyone' });
     assert.equal(enable.getAttribute('aria-checked'), 'false');
+    assert(view.getByText(en.emailClassificationSettings.selectionHint));
     assert.equal(enable.closest('[data-slot="collapsible-content"]'), null, 'Central activation stays outside the collapsed configuration');
     assert.equal(view.queryByLabelText('Model'), null, 'Provider details start hidden');
     fireEvent.click(view.getByRole('button', { name: 'Provider and configuration' }));
     const model = view.getByLabelText('Model') as HTMLInputElement;
+    assert.equal(view.getByLabelText(en.emailClassificationSettings.limits.initialLookbackDays).getAttribute('max'), '30');
     fireEvent.change(model, { target: { value: 'jev-draft' } });
     await act(async () => { fireEvent.click(view.getByRole('button', { name: 'Test draft' })); });
     assert.equal(probes[0].configuration.enabled, false); assert.equal(probes[0].configuration.model, 'jev-draft');
