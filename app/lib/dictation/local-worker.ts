@@ -7,7 +7,7 @@ import path from 'node:path';
 import readline from 'node:readline';
 
 import { resolveCanvasDataRoot } from '@/app/lib/runtime-data-paths';
-import { readLocalDictationRuntimeStatus } from './runtime-install';
+import { ensureHostDictationModel, readLocalDictationRuntimeStatus } from './runtime-install';
 
 const IDLE_MS = 5 * 60_000;
 const TRANSCRIPTION_TIMEOUT_MS = 3 * 60_000;
@@ -114,7 +114,8 @@ async function ensureWorker(runtimePath: string, cpp = false): Promise<ChildProc
   const script = path.join(process.env.CANVAS_APP_ROOT?.trim() || process.cwd(), 'scripts', cpp ? 'dictation-cpp-worker.py' : 'dictation-worker.py');
   const child = spawn(process.env.CANVAS_PYTHON_PATH?.trim() || 'python3', ['-u', script], {
     stdio: 'pipe',
-    env: { ...process.env, HF_HOME: cacheDir, PYTHONUNBUFFERED: '1', PYTHONPATH: runtimePath, PYTHONNOUSERSITE: '1', CANVAS_DICTATION_RUNTIME: runtimePath },
+    env: { ...process.env, HF_HOME: cacheDir, PYTHONUNBUFFERED: '1', PYTHONPATH: runtimePath, PYTHONNOUSERSITE: '1', CANVAS_DICTATION_RUNTIME: runtimePath,
+      CANVAS_DICTATION_MODEL_ROOT: path.join(resolveCanvasDataRoot(), 'dictation', 'models') },
   });
   state.worker = child;
   state.workerRuntimePath = runtimeIdentity;
@@ -233,6 +234,7 @@ function cancellationError(): Error {
 
 export async function transcribeLocally(input: LocalTranscriptionInput): Promise<string> {
   if (input.signal?.aborted) throw cancellationError();
+  await ensureHostDictationModel(input.model, input.signal);
   const runtime = await readLocalDictationRuntimeStatus();
   if (input.signal?.aborted) throw cancellationError();
   const cpp = runtime.engine === 'whisper-cpp';

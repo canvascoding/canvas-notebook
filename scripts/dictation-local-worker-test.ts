@@ -69,7 +69,7 @@ async function harness() {
     const mocks: Record<string, unknown> = {
       'server-only': {},
       '@/app/lib/runtime-data-paths': { resolveCanvasDataRoot: () => root },
-      './runtime-install': { readLocalDictationRuntimeStatus: async () => ({ ...runtime }) },
+      './runtime-install': { readLocalDictationRuntimeStatus: async () => ({ ...runtime }), ensureHostDictationModel: async () => undefined },
       'node:child_process': { spawn: () => {
         const child = new FakeChild();
         children.push(child);

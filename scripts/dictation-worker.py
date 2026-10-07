@@ -6,7 +6,9 @@ output is one JSON line; audio stays in a temporary file owned by the Node side.
 """
 
 import json
+import os
 import sys
+from pathlib import Path
 
 from faster_whisper import WhisperModel
 
@@ -27,7 +29,10 @@ def main():
             requested_model = request["model"]
             if model is None or requested_model != model_name:
                 # A CPU/int8 baseline works on servers without CUDA drivers.
-                model = WhisperModel(requested_model, device="cpu", compute_type="int8", cpu_threads=4, num_workers=1)
+                root = os.environ.get('CANVAS_DICTATION_MODEL_ROOT')
+                source = str(Path(root) / requested_model) if root else requested_model
+                model = WhisperModel(source, device="cpu", compute_type="int8", cpu_threads=4, num_workers=1,
+                                     **({'local_files_only': True} if root else {}))
                 model_name = requested_model
             language = request.get("language")
             segments, _ = model.transcribe(
