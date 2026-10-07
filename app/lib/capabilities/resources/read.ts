@@ -18,7 +18,9 @@ export async function loadCapabilityCandidatesForResourceActor(actor: Capability
   }
   const context = state.organizationId && state.permission?.status === 'active'
     ? await resolveCapabilityExecutionContextForUser({ userId: actor.userId, organizationId: state.organizationId,
-      role: state.permission.role, requestedWorkspaceId: actor.workspaceId })
+      role: state.permission.role, requestedWorkspaceId: actor.workspaceId }).catch(() => {
+      throw new CapabilityResourceError('CAPABILITY_RESOURCE_UNAVAILABLE', 'Resource is unavailable.', 404);
+    })
     : { userId: actor.userId, organizationId: '' };
   return loadCapabilityCandidates(context, { resolveConnections: false });
 }

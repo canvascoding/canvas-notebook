@@ -51,9 +51,9 @@ type CatalogPackagePointer = { name: string; resourceId?: string; version: strin
 /** A local load receipt avoids hashing one parent for each bundled child. It is never reused across calls. */
 async function readableCurrentPackagePointer(record: CatalogPackagePointer, storage: CapabilityResourceStorageBinding,
   scope: CanvasPluginStorageScope, actor: CapabilityResolutionContext, verified: Set<string>): Promise<boolean> {
-  if (!record.packageManaged && !record.packageResourceRef && !record.publishedRevisionRef) return true;
   try {
     if (!(await getCapabilityResourceAccess({ userId: actor.userId, workspaceId: actor.workspaceId }, storage)).access.canRead) return false;
+    if (!record.packageManaged && !record.packageResourceRef && !record.publishedRevisionRef) return true;
     const key = JSON.stringify([record.resourceId, record.packageResourceRef, record.publishedRevisionRef, record.checksum, record.installDir, scope]);
     if (!verified.has(key)) {
       const { assertCapabilityPackageRegistryPointerCurrent } = await import('./packages/artifacts');

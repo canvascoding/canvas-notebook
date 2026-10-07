@@ -241,8 +241,22 @@
         "6a-a,6a-b and6a-c locally accepted: scoped browsing, exact verified Store provenance, atomic import/update, private drafts and package/sharing/connection-form navigation. Effective Planning, native Mobile and OAuth return remain6b; actual live-account acceptance remains7."
       ]
     },
-    { "id": "6b", "name": "Agent-Konfiguration, OAuth-Rueckkehr und Mobile-Vertrag", "status": "pending", "openFindings": [
-      "Actual Parent/Forms controlled React reproduction: synchronous beforeUnload at clean OAuth location.assign still sees the parent API pending registration before its next layout commit. Parent counter and authorize code are unchanged from35ce9c4b7; native browser timing remains unverified. Required regression: npm run test:plugins:connections:oauth; preserve expected unblocked navigation and verify actual OAuth transport/return before accepting6b."
+    { "id": "6b", "name": "Agent-Konfiguration, OAuth-Rueckkehr und Mobile-Vertrag", "status": "in_progress", "substeps": [
+      { "id": "6b-a", "name": "Aktuelle Ressourcenrechte vor mobilen Plugin- und Asset-Lesern", "status": "complete", "evidence": [
+        "Detailed acceptance: evidence/step-6b-a-mobile-resource-reads.md; actual mobile restricted-member200, legacy cold content reads and wrong-workspace500 reproduced then corrected through current shared authority, exact refs/scopes, final byte/DTO rechecks and no-store",
+        "Final real isolated PGlite/FS/mobile handler matrix, existing resource Access/Actions/Entrypoints, plugin catalog/provenance/app/shared-connection and Gateway settings/receipt/automation gates PASS; final production build, sequential whole-tree TypeScript and focused ESLint PASS",
+        "Actual production-host Playwright1/1 PASS, one Chromium worker/no retries15.8sec test49sec total: actual admin/member and own HTTPS Store, UI Org installation/restricted Use-only grant/revoke, canonical and legacy mobile Detail/PNG reads and immediate no-fallback404; no API/provider mocks",
+        "Strict receipted cleanup and independent readback own resource/draft/version/preference/intake0; only own host/HTTPS processes stopped, foreign managed stack preserved, no container/push/deployment/default-off flag change",
+        "Full refreshed graph PASS; broader Gateway suite remains partial at existing registry rollback-schema assertion also reproduced using HEAD catalog/read modules. Planning/schema acceptance6b-b, native Mobile/OAuth and live-account acceptance remain later gates"
+      ] },
+      { "id": "6b-b", "name": "Effektive read-only Planning-Gateways und Werkzeugmetadaten", "status": "pending", "evidence": [] },
+      { "id": "6b-c", "name": "Zentrale Workflow-Konfiguration und sichere Agentenwechsel im UI", "status": "pending", "evidence": [] },
+      { "id": "6b-d", "name": "Gemeinsame MCP Apps und gebundene Browser-/Desktop-OAuth-Rueckkehr", "status": "pending", "evidence": [] },
+      { "id": "6b-e", "name": "Versionierte native Mobile-Ressourcen-, Verbindungs- und Chat-Vertraege", "status": "pending", "evidence": [] },
+      { "id": "6b-f", "name": "Gemeinsamer Workflow mit zwei Nutzern und finaler Client-Vertragsabnahme", "status": "pending", "evidence": [] }
+    ], "openFindings": [
+      "Actual Parent/Forms controlled React reproduction: synchronous beforeUnload at clean OAuth location.assign still sees the parent API pending registration before its next layout commit. Parent counter and authorize code are unchanged from35ce9c4b7; native browser timing remains unverified. Required regression: npm run test:plugins:connections:oauth; preserve expected unblocked navigation and verify actual OAuth transport/return before accepting6b.",
+      "Gateway broader regression stops at integration-tool-registry-test rollback schema assertion. Read-only rerun with both unchanged HEAD common-read modules loaded reproduces the same assertion. Complete actual schema/metadata and whole Gateway regression in6b-b; do not count the partial suite as PASS."
     ], "evidence": [] },
     { "id": "7", "name": "End-to-End-Abnahme und kontrollierter Rollout", "status": "pending", "evidence": [] }
   ],

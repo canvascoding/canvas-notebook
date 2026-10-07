@@ -164,7 +164,12 @@ async function main() {
     const storeResponse = await storeGet(new NextRequest('http://fixture/api/plugins/store?workspaceId=team-a'));
     assert.equal(storeResponse.status, 200);
     const storeBody = await storeResponse.json();
-    assert.deepEqual(storeBody.installedPlugins.map((entry: { name: string }) => entry.name), ['bob-design']);
+    assert.deepEqual(storeBody.installedPlugins, [], 'An installed package without verified Store provenance does not claim an upstream match.');
+    const sharedStoreResource = storeBody.installedResources.find((entry: { metadata: { resourceRef: string } }) => entry.metadata.resourceRef === adopted.metadata.resourceRef);
+    assert(sharedStoreResource, 'The exact readable shared package remains in the installed resource projection.');
+    assert.equal(sharedStoreResource.artifact.name, 'bob-design');
+    assert.equal(sharedStoreResource.access.canRead, true);
+    assert.equal(sharedStoreResource.storeState.origin, 'unknown');
     assert.doesNotMatch(JSON.stringify(storeBody), /ORG_PRIVATE_BODY|PERSONAL_SHADOW_BODY|FOREIGN_UNSHARED_BODY/);
     authenticatedUser = 'charlie';
     const legacyList = await pluginsGet(new NextRequest('http://fixture/api/plugins?workspaceId=team-a'));
@@ -179,8 +184,12 @@ async function main() {
     assert.equal(legacyRead.plugin.name, 'legacy-design');
     const legacyStore = await storeGet(new NextRequest('http://fixture/api/plugins/store?workspaceId=team-a'));
     assert.equal(legacyStore.status, 200);
-    assert.deepEqual((await legacyStore.json()).installedPlugins.map((entry: { name: string }) => entry.name), ['legacy-design'],
-      'Existing global system fallback packages preserve the Store installed state.');
+    const legacyStoreBody = await legacyStore.json();
+    assert.deepEqual(legacyStoreBody.installedPlugins, [], 'A legacy system package has no invented Store provenance.');
+    const legacyStoreResource = legacyStoreBody.installedResources.find((entry: { artifact: { name: string; scopeType: string } }) => entry.artifact.name === 'legacy-design' && entry.artifact.scopeType === 'system');
+    assert(legacyStoreResource, 'Existing global system fallback packages preserve the exact installed resource state.');
+    assert.equal(legacyStoreResource.access.canRead, true);
+    assert.equal(legacyStoreResource.storeState.origin, 'unknown');
     authenticatedUser = 'alice';
     if (previousStoreUrl === undefined) delete process.env.CANVAS_PLUGIN_STORE_REGISTRY_URL;
     else process.env.CANVAS_PLUGIN_STORE_REGISTRY_URL = previousStoreUrl;
