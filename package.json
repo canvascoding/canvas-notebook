@@ -397,6 +397,7 @@
     "test:email:agent-profile": "tsx --conditions react-server scripts/email-agent-profile-test.ts",
     "test:email:workspace-postgres-migration": "tsx --conditions react-server scripts/workspace-email-postgres-migration-test.ts",
     "test:email:system": "tsx --conditions react-server scripts/system-email-notification-test.ts",
+    "test:email:system-defaults": "tsx --conditions react-server scripts/system-email-defaults-test.ts",
     "test:email:ai-request-body": "tsx --conditions react-server scripts/email-ai-request-body-test.ts",
     "test:email:ai-runtime-scope": "tsx --conditions react-server scripts/email-ai-runtime-scope-test.ts",
     "test:email:client-ai-stream": "tsx scripts/email-client-ai-stream-test.ts",
