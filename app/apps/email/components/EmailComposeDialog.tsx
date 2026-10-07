@@ -611,7 +611,8 @@ export function EmailComposeDialog({
                     />
                   </div>
                   {mailboxWorkspaceId && <p data-testid="email-shared-inline-image-help" className="text-xs leading-5 text-muted-foreground">{tm('sharedInlineImages')}</p>}
-                  <EmailAttachmentPanel attachments={displayedAttachments} disabled={isSubmitting || isGeneratingAi} labels={labels} onChange={updateDisplayedAttachments} />
+                  <EmailAttachmentPanel attachments={displayedAttachments} disabled={isSubmitting || isGeneratingAi} labels={labels} onChange={updateDisplayedAttachments}
+                    workspaceId={activeWorkspaceId} previewContextKey={JSON.stringify([accountId, mailboxWorkspaceId, draft.mode, draft.message?.id || 'new'])} />
                   {attachmentWorkspaceChanged && <p className="text-xs leading-5 text-muted-foreground">{tm('attachmentWorkspaceChanged')}</p>}
                   {error ? <div className="border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive"><p className="break-words">{error}</p></div> : null}
                 </section>

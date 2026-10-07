@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { useSearchParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
@@ -13,6 +13,8 @@ import { Label } from '@/components/ui/label';
 import { Link } from '@/i18n/navigation';
 import { cn } from '@/lib/utils';
 import { emailReviewKey, emailReviewTarget } from '@/app/lib/email/review-client';
+import { draftEmailAttachmentPreviewItems } from '@/app/lib/email/attachment-preview';
+import { useEmailAttachmentPreview } from '@/app/apps/email/components/useEmailAttachmentPreview';
 import {
   useEmailReviewStore, openEmailReview, closeEmailReview, selectEmailReview,
   updateEmailReviewForm, initializeEmailReviewEditor, saveActiveEmailReview, sendActiveEmailReview, rejectActiveEmailReview,
@@ -31,6 +33,8 @@ export function EmailReviewHost() {
   const [queueVisible, setQueueVisible] = useState(true);
   const [showFormatting, setShowFormatting] = useState(false);
   const entry = state.activeEntry;
+  const previewItems = useMemo(() => draftEmailAttachmentPreviewItems(entry), [entry]);
+  const attachmentPreview = useEmailAttachmentPreview(previewItems, entry ? `${emailReviewKey(entry)}:${entry.version}` : 'closed');
   const failed = state.queue.filter((item) => item.status === 'send_failed' || item.status === 'send_uncertain');
   const queue = state.filter === 'failed' ? failed : state.queue;
   const locked = !entry?.canWrite || ['sending', 'sent', 'discarded', 'send_uncertain'].includes(entry?.status || '');
@@ -116,7 +120,10 @@ export function EmailReviewHost() {
                 {(entry.errorMessage || entry.status === 'send_uncertain') && <details className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm"><summary className="cursor-pointer font-medium text-destructive">{t('errorDetails')}</summary><p className="mt-2 break-words">{entry.errorMessage}</p><p className="mt-2 text-muted-foreground">{entry.status === 'send_uncertain' ? t('uncertainHelp') : t('retainedHelp')}</p></details>}
                 {!entry.canWrite && <p className="text-sm text-muted-foreground">{t('readOnly')}</p>}
                 {entry.status === 'sending' && <p role="status" className="text-sm text-muted-foreground">{t('sending')}</p>}
-                {Boolean(entry.attachments?.length) && <details className="rounded-md border p-3"><summary className="cursor-pointer text-xs font-medium"><Paperclip className="mr-2 inline size-3" />{t('attachments')} ({entry.attachments!.length})</summary><ul className="mt-2 flex flex-wrap gap-2">{entry.attachments!.map((attachment, index) => <li key={attachment.id || index} className="max-w-full truncate rounded-md bg-muted px-3 py-2 text-xs">{attachment.name || t('attachment')}</li>)}</ul><p className="mt-2 text-xs text-muted-foreground">{t('attachmentsRetained')}</p></details>}
+                {Boolean(entry.attachments?.length) && <details className="rounded-md border p-3"><summary className="cursor-pointer text-xs font-medium"><Paperclip className="mr-2 inline size-3" />{t('attachments')} ({entry.attachments!.length})</summary><ul className="mt-2 flex flex-wrap gap-2">{previewItems.map(attachment => <li key={attachment.id} className="max-w-full"><button type="button" data-testid="email-attachment-preview-trigger" data-attachment-id={attachment.id}
+                  aria-label={attachmentPreview.openLabel(attachment.name)} disabled={!attachmentPreview.canOpen}
+                  className="block max-w-full truncate rounded-md bg-muted px-3 py-2 text-left text-xs hover:underline focus-visible:outline-2 focus-visible:outline-ring"
+                  onClick={() => attachmentPreview.openAttachment(attachment.id)}>{attachment.name || t('attachment')}</button></li>)}</ul><p className="mt-2 text-xs text-muted-foreground">{t('attachmentsRetained')}</p></details>}
               </div>}
             </div>
             <div className="shrink-0 border-t bg-background px-4 py-3 sm:px-6">
@@ -128,6 +135,7 @@ export function EmailReviewHost() {
         </div>
       </DialogContent>
     </Dialog>
+    {attachmentPreview.dialog}
     <AlertDialog open={Boolean(state.pendingNavigation)} onOpenChange={(open) => { if (!open) cancelEmailReviewNavigation(); }}>
       <AlertDialogContent data-testid="email-review-unsaved-dialog"><AlertDialogHeader><AlertDialogTitle>{t('unsavedTitle')}</AlertDialogTitle><AlertDialogDescription>{t('unsavedDescription')}</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><Button variant="outline" onClick={() => cancelEmailReviewNavigation()}>{t('keepEditing')}</Button><Button variant="destructive" onClick={() => void confirmDiscardEmailReviewNavigation()}>{t('discardChanges')}</Button></AlertDialogFooter></AlertDialogContent>
     </AlertDialog>
