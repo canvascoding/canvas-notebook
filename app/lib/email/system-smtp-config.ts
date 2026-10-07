@@ -108,14 +108,11 @@ function parseConfiguredValues(values: SystemSmtpValues): SystemSmtpConfiguratio
   };
 }
 
-function hasLocalSmtpValues(values: SystemSmtpValues): boolean {
-  return Object.entries(values).some(([key, value]) => key !== 'deliveryMode' && value.trim().length > 0);
-}
-
 function resolveDeliveryMode(values: SystemSmtpValues): SystemEmailDeliveryMode {
   const configured = values.deliveryMode.trim().toLowerCase();
   if (configured === 'managed' || configured === 'local' || configured === 'disabled') return configured;
-  if (isManagedSystemEmailAvailable() && !hasLocalSmtpValues(values)) return 'managed';
+  // An explicit administrator choice takes precedence over the installation default.
+  if (isManagedSystemEmailAvailable()) return 'managed';
   return 'local';
 }
 
