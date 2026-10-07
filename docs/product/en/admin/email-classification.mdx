@@ -15,8 +15,8 @@ An instance administrator manages Email preparation in Settings → System Email
 
 ## Configure before enabling
 
-1. Open Provider and configuration and select TypeSafe Jev, OpenAI Decisions or a System One compatible provider. Set the model and, for a compatible service, its endpoint.
-2. Open [Settings → Secrets](/settings?tab=secrets), choose the System scope and save the provider key. In the preparation card enter only its credential name, such as `TYPESAFE_API_KEY`; never paste the key value into that field. A personal or organization key does not configure this server feature.
+1. With Canvas managed, select an approved decision model. Control Plane manages providers, credentials and pricing centrally; no local provider key is required. Existing own-provider configurations remain available. Open Provider and configuration to change deployment mode.
+2. For an own provider, select TypeSafe Jev, OpenAI Decisions or a System One compatible service and its model there. Set the endpoint for a compatible service. Save the provider key in [Settings → Secrets](/settings?tab=secrets) under the System scope. The preparation card needs only the credential name, such as `TYPESAFE_API_KEY`, never the key value. Personal or organization keys do not configure this server feature.
 3. Choose Test draft. It evaluates a fixed synthetic email and is available while preparation is disabled and before saving your edits. It does not read a real mailbox.
 4. Set Enable for everyone and choose Save settings. Confirm the saved activation and processing status.
 
@@ -36,7 +36,9 @@ A successful sample checks connection and response compatibility. It does not va
 
 Activation and processing status are separate. A provider/key problem or exhausted daily budget can pause new preparation while saved assessments remain usable. Index coverage can also be incomplete or failed. Processing details shows captured, prepared, waiting and failed counts and the available daily budget; these are operational counts rather than an accuracy report.
 
-For missing or unreadable credentials, check System Secrets and test the draft again. For an email connection problem, repair the affected mailbox. Users can select that mailbox in Classic while you investigate. Unknown status should be retried before interpreting it as an empty workload.
+In managed mode, check the instance connection, approved models, organization entitlement and credits in Control Plane. A temporary outage keeps saved assessments visible while new preparation waits. Pricing changes do not trigger new assessments. An actual model change reassesses only the selected backlog and resets previous spam-validation approval.
+
+For missing or unreadable own-provider credentials, check System Secrets and test the draft again. For an email connection problem, repair the affected mailbox. Users can select that mailbox in Classic while you investigate. Unknown status should be retried before interpreting it as an empty workload.
 
 If another administrator saves first, your edits remain in place and saving is blocked. Reload saved configuration deliberately replaces your draft with the latest settings. A Secrets update refreshes credential status without replacing unsaved configuration edits.
 

@@ -15,8 +15,8 @@ Ein Instanzadministrator verwaltet die E-Mail-Vorbereitung unter Einstellungen �
 
 ## Vor der Aktivierung konfigurieren
 
-1. Öffne Anbieter und Konfiguration und wähle TypeSafe Jev, OpenAI Decisions oder einen System-One-kompatiblen Anbieter. Trage das Modell und bei einem kompatiblen Dienst dessen Endpoint ein.
-2. Öffne [Einstellungen → Secrets](/settings?tab=secrets), wähle den Bereich System und speichere den Anbieterschlüssel. In der Vorbereitungskarte steht ausschließlich der Schlüsselname, beispielsweise `TYPESAFE_API_KEY`. Trage dort keinen Schlüsselwert ein. Ein persönlicher oder Organisationsschlüssel konfiguriert diese Serverfunktion nicht.
+1. Bei Canvas verwaltet wähle ein freigegebenes Bewertungsmodell. Die Control Plane verwaltet Anbieter, Zugangsdaten und Preise zentral. In diesem Modus wird kein lokaler Anbieterschlüssel benötigt. Bestehende eigene Anbieterkonfigurationen bleiben erhalten; unter Anbieter und Konfiguration kannst du die Bereitstellung wechseln.
+2. Für einen eigenen Anbieter wähle dort TypeSafe Jev, OpenAI Decisions oder einen System-One-kompatiblen Dienst und dessen Modell. Bei einem kompatiblen Dienst trage auch den Endpoint ein. Speichere den Anbieterschlüssel unter [Einstellungen → Secrets](/settings?tab=secrets) im Bereich System. Die Vorbereitungskarte benötigt ausschließlich den Schlüsselnamen, beispielsweise `TYPESAFE_API_KEY`, keinen Schlüsselwert. Persönliche oder Organisationsschlüssel konfigurieren diese Serverfunktion nicht.
 3. Wähle Entwurf testen. Der Test bewertet eine feste synthetische E-Mail und funktioniert auch bei deaktivierter Vorbereitung und ungespeicherten Einstellungen. Er liest kein echtes Postfach.
 4. Aktiviere Für alle aktivieren und wähle Einstellungen speichern. Prüfe danach den gespeicherten Aktivierungs- und Verarbeitungsstatus.
 
@@ -36,7 +36,9 @@ Ein erfolgreicher Beispieltest prüft Verbindung und Antwortkompatibilität. Er 
 
 Aktivierung und Verarbeitungsstatus sind getrennt. Ein Anbieter- oder Schlüsselproblem sowie das ausgeschöpfte Tagesbudget können neue Vorbereitung pausieren, während gespeicherte Bewertungen nutzbar bleiben. Auch die Erfassung kann unvollständig oder fehlgeschlagen sein. Verarbeitungsdetails zeigt erfasste, vorbereitete, wartende und fehlgeschlagene Nachrichten sowie das verbleibende Tagesbudget. Das sind Betriebszahlen und kein Genauigkeitsbericht.
 
-Prüfe bei fehlenden oder unlesbaren Zugangsdaten die System-Secrets und teste den Entwurf erneut. Repariere bei einem E-Mail-Verbindungsproblem das betroffene Postfach. Nutzer können es währenddessen einzeln in Klassisch öffnen. Aktualisiere einen unbekannten Status, bevor du ihn als leeren Arbeitsbestand interpretierst.
+Im verwalteten Modus prüfe bei einer Störung die Instanzverbindung, freigegebene Modelle, Organisationsberechtigung und das Guthaben in der Control Plane. Bei einem vorübergehenden Ausfall bleiben gespeicherte Bewertungen sichtbar; neue Vorbereitung wartet. Preisänderungen erzeugen keine neuen Bewertungen. Ein tatsächlicher Modellwechsel bewertet nur den ausgewählten Bestand erneut und setzt eine bisherige Spamfreigabe zurück.
+
+Prüfe bei fehlenden oder unlesbaren Zugangsdaten eines eigenen Anbieters die System-Secrets und teste den Entwurf erneut. Repariere bei einem E-Mail-Verbindungsproblem das betroffene Postfach. Nutzer können es währenddessen einzeln in Klassisch öffnen. Aktualisiere einen unbekannten Status, bevor du ihn als leeren Arbeitsbestand interpretierst.
 
 Speichert eine andere Administration zuerst, bleiben deine Eingaben erhalten und das Speichern wird gesperrt. Gespeicherte Konfiguration neu laden ersetzt deinen Entwurf bewusst durch die aktuellen Einstellungen. Eine Secrets-Änderung aktualisiert den Zugangsstatus, ohne ungespeicherte Konfigurationseingaben zu ersetzen.
 
