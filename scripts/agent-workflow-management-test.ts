@@ -332,6 +332,45 @@ async function main() {
     };
     const callCount = provider.calls.length, managed = await header(); safe(managed);
     assert.deepEqual(managed.access, { canUse: false, canEdit: true, canManage: false });
+    if (process.argv.includes('--configuration-discovery')) {
+      const agentActions = await import('../app/lib/agents/management-actions');
+      assert(!(await agentActions.listManagedAgents(editor)).some(item => item.agentId === agent.agentId),
+        'Legacy use discovery must still exclude the Edit-only manager.');
+      const configured = await agentActions.listManagedAgents(editor, { purpose: 'configure' });
+      assert(configured.some(item => item.agentId === agent.agentId && item.access.canEdit && !item.access.canUse),
+        'Configuration discovery must include an independently Edit-authorized manager.');
+      assert(!(await agentActions.listManagedAgents(outsider, { purpose: 'configure' })).some(item => item.agentId === agent.agentId));
+      await assert.rejects(() => agentActions.listManagedAgents({ ...editor, workspaceId: 'personal-owner' }, { purpose: 'configure' }));
+      let authenticatedUser: string | null = 'editor';
+      modules.set('@/app/lib/auth', { auth: { api: { getSession: async () => authenticatedUser ? {
+        user: { id: authenticatedUser }, session: { id: 'controlled-discovery-session' },
+      } : null } } });
+      const route = await import('../app/api/agents/route'), { NextRequest } = await import('next/server');
+      const request = (extra: Record<string, string> = {}) => new NextRequest(`http://127.0.0.1:3001/api/agents?${new URLSearchParams({
+        workspaceId: 'personal-editor', ...extra,
+      })}`);
+      const legacy = await route.GET(request()); assert.equal(legacy.status, 200);
+      assert(!(await legacy.json()).data.agents.some((item: { agentId: string }) => item.agentId === agent.agentId));
+      const response = await route.GET(request({ purpose: 'configure' })); assert.equal(response.status, 200);
+      assert.equal(response.headers.get('Cache-Control'), 'no-store');
+      assert((await response.json()).data.agents.some((item: { agentId: string; access: { canUse: boolean; canEdit: boolean } }) =>
+        item.agentId === agent.agentId && item.access.canEdit && !item.access.canUse));
+      assert.equal((await route.GET(request({ purpose: 'configure', agentId: agent.agentId }))).status, 400);
+      assert.equal((await route.GET(request({ purpose: 'invalid' }))).status, 400);
+      assert.equal((await route.GET(request({ purpose: 'configure', organizationId: 'foreign-organization' }))).status, 403,
+        'An explicit organization identity must not be replaced by the readable workspace organization.');
+      assert.equal((await route.GET(request({ purpose: 'configure', projectId: 'foreign-project' }))).status, 403,
+        'An explicit project identity must not be replaced by the readable workspace project.');
+      assert.equal((await route.GET(new NextRequest(`${request({ purpose: 'configure' }).url}&purpose=use`))).status, 400);
+      assert.equal((await route.GET(request({ agentId: agent.agentId }))).status, 403, 'Configuration discovery does not authorize legacy content inspection.');
+      authenticatedUser = null; assert.equal((await route.GET(request({ purpose: 'configure' }))).status, 401);
+      console.log('PASS actual Edit-only configuration discovery with unchanged legacy use discovery.');
+      return;
+    }
+    assert.equal(managed.bindingSummaries?.[0]?.scopeLabel, 'organization');
+    assert.equal(managed.bindingSummaries?.[0]?.source, 'composio');
+    assert.equal(managed.bindingSummaries?.[0]?.resourceRef, ref);
+    assert.equal(managed.bindingSummaries?.[0]?.publishedRevisionRef, v1.published.revisionRef);
     assert.equal(managed.unavailableConnectionCount, 0, 'Configure-authorized connections must not be mistaken for unavailable solely because AgentUse is false.');
     await assert.rejects(() => header(user), { code: 'AGENT_ACCESS_DENIED' });
     await assert.rejects(() => header(manager), { code: 'AGENT_ACCESS_DENIED' });
@@ -427,6 +466,7 @@ async function main() {
     try {
       await raw.run('UPDATE agent_capability_bindings SET configuration_json=$1 WHERE agent_id=$2 AND configuration_json IS NOT NULL', [JSON.stringify(unavailablePin), agent.agentId]);
       const unavailable = await header(); assert.equal(unavailable.configurationState, 'blocked'); assert.equal(unavailable.configuration, null);
+      assert.deepEqual(unavailable.bindingSummaries, [], 'Blocked bindings must not reveal unavailable connection labels.');
       assert(unavailable.unavailablePackageCount > 0, 'A missing stored pin must be explicitly unavailable, never silently replaced by HEAD.');
     } finally { await raw.run('UPDATE agent_capability_bindings SET configuration_json=$1 WHERE agent_id=$2 AND configuration_json IS NOT NULL', [storedPin.configuration_json, agent.agentId]); }
     console.log('PASS actual independent package/connection grants, CAS rollback, v1 child pin after removed HEAD child, no missing-pin fallback.');
@@ -497,6 +537,8 @@ async function main() {
     if (originalTarget.mode !== 'fixed' || originalTarget.target.kind !== 'personal' || originalTarget.target.personalBinding?.source !== 'composio') throw new Error('Expected actual exact personal Composio binding.');
     assert.equal(originalTarget.target.personalBinding.connectedAccountId, 'PERSONAL_ACCOUNT_B', 'Central configuration must persist the explicitly selected second account.');
     const publicPersonal = await header(editor, personalAgent.agentId); safe(publicPersonal);
+    assert.equal(publicPersonal.bindingSummaries?.[0]?.scopeLabel, 'personal');
+    assert.equal(publicPersonal.bindingSummaries?.[0]?.label, 'Personal Composio connection');
     assert(!JSON.stringify(publicPersonal).includes(selectedProfile.id)); assert(!JSON.stringify(publicPersonal).includes('PERSONAL_ACCOUNT_B'));
     const retained = retention.createRetainedAgentWorkflowTarget(editor, privateBefore, slot); assert(retained);
     const retainedPkg = structuredClone(pkg), retainedSelection = retainedPkg.declarations[0].capabilities[0].selection;

@@ -30,7 +30,7 @@ import { AgentWorkflowError, parseAgentWorkflowConfiguration, type AgentWorkflow
   type AgentWorkflowPackageConfiguration, type StoredAgentWorkflowTarget } from './workflow-contracts';
 import { agentWorkflowManagementRequestSchema, type AgentWorkflowManagementRequest, type AgentWorkflowManagementHeader,
   type AgentWorkflowManagementOptions, type AgentWorkflowManagementPackageVersion, type AgentWorkflowPackageOption,
-  type AgentWorkflowManagementConnection } from './workflow-management-contracts';
+  type AgentWorkflowManagementConnection, type AgentWorkflowManagementBindingSummary } from './workflow-management-contracts';
 
 type Manager = { actor: AgentManagementActor; organizationId: string | null; snapshot: AgentWorkflowInternalSnapshot };
 type Followup = Exclude<AgentWorkflowManagementRequest, { view: 'management' }>;
@@ -351,12 +351,30 @@ async function management(current: Manager): Promise<AgentWorkflowManagementOpti
     const unavailablePackageCount = unavailablePackages.size, unavailableConnectionCount = unavailableConnections.size;
     const blocked = unavailablePackageCount > 0 || unavailableConnectionCount > 0;
     const fresh = state.current;
+    const bindingSummaries: AgentWorkflowManagementBindingSummary[] = blocked ? [] : fresh.snapshot.bindings.flatMap(binding => {
+      const pkg = binding.configuration;
+      if (!pkg) return [];
+      return pkg.declarations.flatMap(declaration => declaration.capabilities.flatMap(capability => {
+        const choices = capability.selection.mode === 'fixed' ? [capability.selection] : capability.selection.allowedChoices;
+        return choices.map(choice => {
+          const target = choice.target;
+          const connection = target.kind === 'shared' ? state.connections.get(target.connectionRef) : undefined;
+          return { resourceRef: pkg.resourceRef, publishedRevisionRef: pkg.publishedRevisionRef,
+            declarationPath: declaration.declarationPath, capabilityId: capability.capabilityId, alternativeKey: choice.alternativeKey,
+            ...('choiceId' in choice ? { choiceId: choice.choiceId } : {}), source: target.source,
+            label: connection ? label(connection.resource.displayName, 'Shared connection')
+              : target.source === 'mcp' ? 'Personal MCP connection' : 'Personal Composio connection',
+            scopeLabel: connection ? connection.resource.ownership.type === 'team' ? 'team' as const : 'organization' as const : 'personal' as const,
+            status: connection?.backend.source === 'composio' && connection.backend.accountBinding === 'pending' ? 'setup_required' as const : 'unknown' as const };
+        });
+      }));
+    });
     return { ...header(fresh), view: 'management', access: { ...fresh.snapshot.access }, profile: {
       agentId: fresh.snapshot.agent.agentId, name: label(fresh.snapshot.agent.name, 'Agent'), iconId: fresh.snapshot.agent.iconId,
       scopeType: fresh.snapshot.agent.scopeType, enabledTools: fresh.snapshot.agent.enabledTools && [...fresh.snapshot.agent.enabledTools] },
       workflowVersion: fresh.snapshot.workflowVersion, configurationState: fresh.snapshot.workflowVersion === null ? 'legacy' : blocked ? 'blocked' : 'available',
       configuration: fresh.snapshot.workflowVersion === 1 && !blocked ? parseAgentWorkflowConfiguration({ version: 1, packages }) : null,
-      unavailablePackageCount, unavailableConnectionCount };
+      unavailablePackageCount, unavailableConnectionCount, bindingSummaries };
   });
 }
 function paginate<T>(items: T[], request: { q?: string; page: number; limit: number }) {

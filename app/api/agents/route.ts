@@ -57,18 +57,23 @@ export async function GET(request: NextRequest) {
   if (!limited.ok) return limited.response;
 
   try {
+    const purpose = request.nextUrl.searchParams.get('purpose') ?? 'use';
+    if (request.nextUrl.searchParams.getAll('purpose').length > 1 || !['use', 'configure'].includes(purpose)
+      || purpose === 'configure' && request.nextUrl.searchParams.has('agentId')) {
+      return NextResponse.json({ success: false, code: 'AGENT_REQUEST_INVALID', error: 'The agent list purpose is invalid.' }, { status: 400 });
+    }
     let actor = actorFromRequest(request, session);
     if (actor.workspaceId) {
       const workspaceAccess = await requireSessionWorkspace(session, {
         workspaceId: actor.workspaceId,
-        permissions: ['canRead', 'canRunAgent'],
+        permissions: purpose === 'configure' ? ['canRead'] : ['canRead', 'canRunAgent'],
       });
       if (workspaceAccess.response) return workspaceAccess.response;
       actor = {
         ...actor,
-        organizationId: workspaceAccess.workspace.organizationId,
+        organizationId: purpose === 'configure' ? actor.organizationId ?? workspaceAccess.workspace.organizationId : workspaceAccess.workspace.organizationId,
         workspaceId: workspaceAccess.workspace.workspaceId,
-        projectId: workspaceAccess.workspace.projectId,
+        projectId: purpose === 'configure' ? actor.projectId ?? workspaceAccess.workspace.projectId : workspaceAccess.workspace.projectId,
       };
     }
     const agentId = request.nextUrl.searchParams.get('agentId');
@@ -79,7 +84,8 @@ export async function GET(request: NextRequest) {
       });
       return NextResponse.json({ success: true, data: inspected });
     }
-    return NextResponse.json({ success: true, data: { agents: await listManagedAgents(actor) } });
+    return NextResponse.json({ success: true, data: { agents: await listManagedAgents(actor, { purpose: purpose as 'use' | 'configure' }) } },
+      purpose === 'configure' ? { headers: { 'Cache-Control': 'no-store' } } : undefined);
   } catch (error) {
     return errorResponse(error, 'Failed to list agents.');
   }

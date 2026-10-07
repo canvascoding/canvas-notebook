@@ -19,6 +19,7 @@ import {
   getAgentAccessOnConnection,
   listAgentAccessForUser,
   requireAgentAccess,
+  AgentAccessError,
   type AgentAccess,
   type AgentAccessContext,
 } from '@/app/lib/agents/access';
@@ -474,15 +475,23 @@ async function writeInitialFiles(
   }
 }
 
-export async function listManagedAgents(actor: AgentManagementActor): Promise<Array<AgentProfile & { access: AgentAccess }>> {
-  const context = accessContext(actor);
+export async function listManagedAgents(actor: AgentManagementActor,
+  options: { purpose?: 'use' | 'configure' } = {}): Promise<Array<AgentProfile & { access: AgentAccess }>> {
+  const purpose = options.purpose ?? 'use';
+  if (purpose !== 'use' && purpose !== 'configure') throw new AgentManagementError('AGENT_REQUEST_INVALID', 'The agent list purpose is invalid.');
+  const currentActor = purpose === 'configure' ? await verifiedManagementActor(actor) : actor;
+  const context = accessContext(currentActor);
   const [profiles, accessMap] = await Promise.all([
     listAgentProfiles(),
-    listAgentAccessForUser(actor.userId, context),
+    purpose === 'configure' ? Promise.resolve(null) : listAgentAccessForUser(currentActor.userId, context),
   ]);
+  // Runtime discovery intentionally filters to Use. Settings also need independent Edit,
+  // so resolve those current rights without changing the shared runtime access map.
+  const currentAccessMap = accessMap ?? new Map(await Promise.all(profiles.map(async profile =>
+    [profile.agentId, await getAgentAccess(currentActor.userId, profile.agentId, context)] as const)));
   return profiles.flatMap((profile) => {
-    const access = accessMap.get(profile.agentId);
-    return access?.canUse ? [{ ...profile, access }] : [];
+    const access = currentAccessMap.get(profile.agentId);
+    return access && (access.canUse || purpose === 'configure' && access.canEdit) ? [{ ...profile, access }] : [];
   });
 }
 
@@ -901,7 +910,7 @@ export function managementErrorDetails(error: unknown): { code: string; message:
         : integrationCode === 'tool_not_found' ? 404 : integrationCode === 'provider_unavailable' ? 503 : 400;
     return { code: integrationCode, message: INTEGRATION_GATEWAY_ERROR_MESSAGES[integrationCode], status };
   }
-  if (error instanceof AgentDefaultPolicyError || error instanceof AiRuntimeInputError
+  if (error instanceof AgentAccessError || error instanceof AgentDefaultPolicyError || error instanceof AiRuntimeInputError
     || isAgentActorContextError(error) || isAgentWorkflowError(error)
     || isCapabilityPackageError(error) || error instanceof CapabilityResourceError || isIntegrationConnectionError(error)) {
     return { code: error.code, message: error.message, status: error.status,

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
 import { execFile, spawn, type ChildProcess } from 'node:child_process';
-import { createWriteStream } from 'node:fs';
+import { constants, createWriteStream } from 'node:fs';
 import fs from 'node:fs/promises';
 import net from 'node:net';
 import os from 'node:os';
@@ -9,6 +9,32 @@ import path from 'node:path';
 import { Pool } from 'pg';
 
 type Child = { process: ChildProcess; pid: number; closed: Promise<number | null>; ended: boolean };
+
+/** Published packages are sealed. Restore only this proved, stopped fixture tree; never follow links. */
+async function makeOwnDirectoriesWritable(treeRoot: string, proof: { device: string; inode: string }): Promise<void> {
+  const root = await fs.lstat(treeRoot);
+  assert(root.isDirectory() && !root.isSymbolicLink());
+  assert.equal(String(root.dev), proof.device); assert.equal(String(root.ino), proof.inode);
+  let visited = 0;
+  const visit = async (directory: string, depth: number): Promise<void> => {
+    assert(depth <= 64 && ++visited <= 30_000, 'The own fixture directory traversal exceeded its bounds.');
+    const relative = path.relative(treeRoot, directory);
+    assert(relative === '' || relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));
+    const entry = await fs.lstat(directory);
+    if (!entry.isDirectory() || entry.isSymbolicLink()) return;
+    assert.equal(entry.dev, root.dev); assert.equal(entry.uid, root.uid);
+    const handle = await fs.open(directory, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
+    try {
+      const held = await handle.stat();
+      assert.equal(held.dev, entry.dev); assert.equal(held.ino, entry.ino); assert.equal(held.uid, root.uid);
+      await handle.chmod(0o700);
+      const current = await fs.lstat(directory);
+      assert(current.isDirectory() && !current.isSymbolicLink()); assert.equal(current.ino, held.ino); assert.equal(current.dev, held.dev);
+      for (const name of await fs.readdir(directory)) await visit(path.join(directory, name), depth + 1);
+    } finally { await handle.close(); }
+  };
+  await visit(treeRoot, 0);
+}
 type Receipt = {
   version: 1; nonce: string; repo: string; fixtureRoot: string; dataRoot: string; tmpRoot: string;
   ownerMarker: string; rootDevice: string; rootInode: string; databaseName: string; databaseOwner: string | null;
@@ -89,6 +115,7 @@ async function main(): Promise<void> {
   const baseEnv = Object.fromEntries(permittedEnv.flatMap(key => process.env[key] ? [[key, process.env[key]]] : []));
   const env: NodeJS.ProcessEnv = { ...baseEnv, NODE_ENV: 'test', DATABASE_URL: runtimeUrl.toString(),
     DATA: dataRoot, CANVAS_DATA_ROOT: dataRoot, CANVAS_APP_ROOT: repo, TMPDIR: tmpRoot, CANVAS_ENV_FILE: emptyEnv,
+    CANVAS_PLUGIN_LOCAL_SOURCE_ROOT: path.join(dataRoot, 'workflow-editor-intake'),
     CANVAS_DATABASE_PROVIDER: 'postgres', CANVAS_POSTGRES_POOL_MAX: '8', CANVAS_DEPLOYMENT_MODE: 'community',
     CANVAS_ORGANIZATION_ID: `agent-settings-browser-${nonce}`, CANVAS_INSTANCE_ID: `agent-settings-browser-${nonce}`,
     CANVAS_MANAGED_SERVICES_ENABLED: 'false', CANVAS_INSTANCE_TOKEN: '', CANVAS_LICENSE_CERT: '',
@@ -248,6 +275,7 @@ async function main(): Promise<void> {
         const current = (await administration.query(`SELECT pg_get_userbyid(datdba) AS owner,current_user AS role,
           shobj_description(oid,'pg_database') AS marker FROM pg_database WHERE datname=$1`, [receipt.databaseName])).rows[0];
         assert(current && current.owner === receipt.databaseOwner && current.owner === current.role && current.marker === marker);
+        for (const directory of [dataRoot, tmpRoot]) await makeOwnDirectoriesWritable(directory, receipt.directoryProofs[directory]);
         // No FORCE and no backend termination: an unexpected live connection
         // makes cleanup fail and preserves DATA and the private receipt.
         await administration.query(`DROP DATABASE "${receipt.databaseName}"`);

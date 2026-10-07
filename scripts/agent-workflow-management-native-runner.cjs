@@ -54,7 +54,7 @@ async function main() {
   const redact = value => value.replaceAll(maintenance.toString(), '[redacted-postgres-url]')
     .replace(/postgres(?:ql)?:\/\/\S+/gu, '[redacted-postgres-url]');
   try {
-    for (const mode of ['', '--empty-profile-read-only', '--late-read-revoke', '--mcp-approval-retention', '--planning-metadata-only']) {
+    for (const mode of ['', '--empty-profile-read-only', '--late-read-revoke', '--mcp-approval-retention', '--planning-metadata-only', '--configuration-discovery']) {
       assert(!cancelled, 'The native fixture was cancelled; preserve any unconfirmed database.');
       let created, cleaned, receiptError;
       console.log(`Native workflow management case: ${mode || 'base'}.`);

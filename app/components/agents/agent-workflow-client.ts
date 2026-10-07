@@ -25,7 +25,7 @@ export function retainWorkflowDrafts(previous: Record<string, string>, descripto
   }
   return result;
 }
-async function requestWorkflow<T>(url: string, init?: RequestInit): Promise<T> {
+export async function requestWorkflow<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, { credentials: 'include', cache: 'no-store', ...init });
   const payload = await response.json().catch(() => null) as { success?: boolean; data?: T; code?: string } | null;
   if (!response.ok || !payload?.success || !payload.data) throw new AgentWorkflowClientError(response.status, payload?.code || 'WORKFLOW_REQUEST_FAILED');

@@ -265,14 +265,18 @@
           "Private acknowledged nonce DB/DATA/TMP lifecycle, exact positive child PID/port/cwd proof and no force/backend termination/Agent DELETE; independent all-four-run readback own DB/DATA/TMP/recorded servers0, foreign stack preserved; no container/push/deploy/default-off flag change",
           "Failed fixture assumptions retained separately: unique short A/B names, external telemetry-origin filtering, explicit GET/PATCH access projection comparison and separately counted actual human-activity POST; no product change or weakened agent/revision/tool assertion from those corrections"
         ] },
-        { "id": "6b-c-2", "name": "Autorisierte zentrale Workflow-Projektion und Konfiguration", "status": "in_progress", "substeps": [
+        { "id": "6b-c-2", "name": "Autorisierte zentrale Workflow-Projektion und Konfiguration", "status": "complete", "substeps": [
           { "id": "6b-c-2a", "name": "Sichere Verwaltungsprojektion, Versionsauswahl und Bindungserhalt", "status": "complete", "evidence": [
             "Detailed acceptance: evidence/step-6b-c-2a-workflow-management.md; strict actor/CAS management views, immutable package inventories and private binding retention; actual late permission, profile write, MCP approval, email admin and Planning alias RED to GREEN",
             "Complete workflow/gateway and both real cross-repository Managed gates PASS; five isolated native PostgreSQL cases PASS with max8/current production timestamp parser; production build, final TypeScript/ESLint PASS",
             "Actual authenticated production HTTP and agent-switch Playwright 2/2 PASS; all 17 acknowledged own databases and browser DATA/TMP independently read back as zero; foreign stack untouched"
           ] },
-          { "id": "6b-c-2b", "name": "Zentraler Workflow-Editor mit gebundenen Entwuerfen", "status": "pending", "evidence": [] }
-        ], "evidence": [] },
+          { "id": "6b-c-2b", "name": "Zentraler Workflow-Editor mit gebundenen Entwuerfen", "status": "complete", "evidence": [
+            "Detailed acceptance: evidence/step-6b-c-2b-workflow-editor.md; actual stale Agent-list revision RED to GREEN, independently Edit-authorized configuration discovery and strict original actor/scope identity",
+            "18 actual React cases, full Workflow/Gateway and both required standalone cross-repository Managed gates PASS; six isolated native PostgreSQL management cases PASS; production build, final TypeScript/ESLint and refreshed graph PASS",
+            "Actual production-host Playwright 3/3 PASS (one worker/no retries15.4sec): real immutable publication, exact single skill root, central PATCH/fresh read/nativeTools preservation, genuine A/B race,390px/1280px QA and focus return; all18 acknowledged own DBs and browserDATA/TMP independently absent, foreign stack untouched"
+          ] }
+        ], "evidence": ["6b-c-2a server projection and6b-c-2b bound central workflow editor locally accepted; actual multi-user Admin/User acceptance remains6b-c-3."] },
         { "id": "6b-c-3", "name": "Tatsaechliche Admin-/Nutzer-Abnahme der Workflow-Einstellungen", "status": "pending", "evidence": [] }
       ], "evidence": [] },
       { "id": "6b-d", "name": "Gemeinsame MCP Apps und gebundene Browser-/Desktop-OAuth-Rueckkehr", "status": "pending", "evidence": [] },

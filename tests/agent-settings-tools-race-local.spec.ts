@@ -6,6 +6,9 @@ import { createAuthenticatedContext, requestManagedTestSession, runManagedTestPr
 import type { AgentProfile } from '../app/lib/agents/registry';
 import type { AgentWorkflowManagement, AgentWorkflowManagementOptions } from '../app/lib/agents/workflow-management-contracts';
 import type { ClientWorkspaceResponse } from '../app/lib/workspaces/client-types';
+import type { CapabilityPackageDescriptor, CapabilityPackageDraft, CapabilityPackagePublishedRevision,
+  CapabilityPackageState } from '../app/lib/capabilities/packages/contracts';
+import type { CapabilityResourceDescriptor } from '../app/lib/capabilities/resources/contracts';
 import en from '../messages/en.json';
 
 type Fixture = { version: 1; nonce: string; repo: string; fixtureRoot: string; dataRoot: string; tmpRoot: string;
@@ -18,6 +21,7 @@ type BrowserReceipt = { version: 1; nonce: string; actorId: string; phase: strin
   heldResponses: number; fulfilledResponses: number; cancelledResponses: number };
 let fixture: Fixture, admin: BrowserContext, page: Page, workspaceId = '';
 let a: AgentProfile | undefined, b: AgentProfile | undefined;
+let c: AgentProfile | undefined, cExpected: Inspection | undefined;
 let aBefore: Inspection | undefined, defaultBefore: { inspection: Inspection; config: ToolsState['config'] } | undefined;
 let receipt: BrowserReceipt, receiptPath = '';
 const labels = en.settings.agentPanel;
@@ -41,7 +45,7 @@ async function tools(agentId: string): Promise<ToolsState> {
   const result = await data<ToolsState>(await admin.request.get(`/api/agents/tools?${new URLSearchParams({ agentId })}`), 'Exact tools read');
   expect(result.config.agentId).toBe(agentId); return result;
 }
-async function createOwn(label: 'A' | 'B', enabledTools: string[]): Promise<AgentProfile> {
+async function createOwn(label: 'A' | 'B' | 'C', enabledTools: string[]): Promise<AgentProfile> {
   const name = `Switch ${label} ${fixture.nonce}`;
   receipt.outstanding = `create:${label}`; await persist();
   const created = await data<Inspection>(await admin.request.post('/api/agents', { data: {
@@ -75,7 +79,13 @@ async function exactOwned(): Promise<void> {
     expect(sessions.status()).toBe(200);
     expect((await sessions.json() as { sessions: unknown[] }).sessions).toEqual([]);
   }
-  receipt.agents = [currentA.agent, currentB.agent]; await persist();
+  if (c) {
+    const currentC = await inspect(c.agentId);
+    expect(currentC).toEqual(cExpected);
+    expect((await admin.request.get(`/api/sessions?${new URLSearchParams({ agentId: c.agentId })}`)).status()).toBe(200);
+    receipt.agents = [currentA.agent, currentB.agent, currentC.agent];
+  } else receipt.agents = [currentA.agent, currentB.agent];
+  await persist();
 }
 
 test.beforeAll(async ({ browser }) => {
@@ -222,4 +232,116 @@ test('late genuine A responses cannot replace B tools or change the B save targe
     await expect(toolSwitch('ls')).toBeChecked(); await expect(toolSwitch('grep')).toBeChecked(); await expect(toolSwitch('read')).not.toBeChecked();
     await exactOwned(); expect(receipt.forbiddenWrites).toEqual([]);
   } finally { delayA = false; release(); await Promise.allSettled(delayed); }
+});
+
+async function setupWorkflowEditorPackage() {
+  const name = `workflow-editor-${fixture.nonce}`, child = 'selected-context', sibling = 'other-context';
+  const intake = path.join(fixture.dataRoot, 'workflow-editor-intake', name);
+  expect(process.env.CANVAS_PLUGIN_LOCAL_SOURCE_ROOT).toBe(path.dirname(intake));
+  await fs.mkdir(path.join(intake, '.canvas-plugin'), { recursive: true });
+  for (const skill of [child, sibling]) {
+    const directory = path.join(intake, 'skills', skill);
+    await fs.mkdir(directory, { recursive: true });
+    await fs.writeFile(path.join(directory, 'SKILL.md'), `---\nname: ${skill}\ndescription: Isolated workflow editor context\nmetadata:\n  version: "1.0.0"\n---\nUse the configured workflow.\n`);
+  }
+  await fs.mkdir(path.join(intake, 'skills', child, 'agents'));
+  await fs.writeFile(path.join(intake, 'skills', child, 'agents', 'canvas.yaml'), 'workflow:\n  version: 1\n  integrationCapabilities: []\n');
+  await fs.writeFile(path.join(intake, '.canvas-plugin', 'plugin.json'), JSON.stringify({ name, version: '1.0.0',
+    description: 'Own isolated workflow editor acceptance', skills: 'skills', workflow: { version: 1, integrationCapabilities: [] } }));
+  receipt.outstanding = 'install:workflow-editor'; await persist();
+  const installed = await admin.request.post('/api/plugins/install', { data: { sourcePath: intake, scope: 'user', enable: true, replace: false } });
+  expect(installed.status()).toBe(200);
+  const result = await installed.json() as { success: boolean; plugin: { resourceId: string; name: string } };
+  expect(result.success).toBe(true); expect(result.plugin.name).toBe(name);
+  const resource = await data<{ resource: CapabilityResourceDescriptor }>(await admin.request.post(
+    `/api/capabilities/resources/${encodeURIComponent(result.plugin.resourceId)}`, { data: {
+      expectedMetadataRevision: 0, expectedGrantsRevision: 0, accessMode: 'inherit',
+    } }), 'Own personal package adoption');
+  const ref = resource.resource.metadata.resourceRef;
+  const descriptor = await data<{ package: CapabilityPackageDescriptor }>(await admin.request.get(
+    `/api/capabilities/packages/${encodeURIComponent(ref)}`), 'Own personal package descriptor');
+  const expected = { expectedMetadataRevision: resource.resource.metadata.metadataRevision,
+    expectedGrantsRevision: resource.resource.metadata.grantsRevision,
+    expectedPackageRevision: descriptor.package.state?.packageRevision ?? 0,
+    expectedPublishedRevisionRef: descriptor.package.state?.currentPublishedRevisionRef ?? null };
+  receipt.outstanding = 'publish:workflow-editor'; await persist();
+  const created = await data<{ draft: CapabilityPackageDraft }>(await admin.request.post('/api/capabilities/packages/drafts', {
+    data: { operation: 'edit', resourceRef: ref, ...expected },
+  }), 'Own personal package publication draft');
+  const publication = await data<{ state: CapabilityPackageState; published: CapabilityPackagePublishedRevision }>(
+    await admin.request.post(`/api/capabilities/packages/drafts/${encodeURIComponent(created.draft.draftRef)}/publish`, {
+      data: { draftRef: created.draft.draftRef, expectedDraftRevision: created.draft.draftRevision, ...expected },
+    }), 'Own exact immutable package publication');
+  expect(publication.published.resourceRef).toBe(ref); expect(publication.published.version).toBe('1.0.0');
+  receipt.outstanding = null; await persist();
+  return { name, child, sibling, ref, publication };
+}
+
+test('real central editor selects an exact published skill root and preserves native tools', async function workflowEditorBrowserAcceptance() {
+  await page.unroute('**/api/**');
+  const pkg = await setupWorkflowEditorPackage();
+  c = await createOwn('C', ['read']); cExpected = await inspect(c.agentId);
+  const target = c, before = cExpected, ui = en.agentWorkflowManagement;
+  const workflowWrites: Array<{ agentId: string; expectedRevision: number; expectedWorkflowRevision: number; workflow: unknown; enabledTools?: unknown }> = [];
+  await page.route('**/api/**', async route => {
+    const request = route.request(), url = new URL(request.url());
+    if (url.origin !== 'http://127.0.0.1:3001') { await route.abort(); return; }
+    if (request.method() === 'POST' && url.pathname === '/api/instance/human-activity') {
+      receipt.humanActivityWrites += 1; await persist(); await route.continue(); return;
+    }
+    if (!['GET', 'HEAD', 'OPTIONS'].includes(request.method())) {
+      const body = url.pathname === '/api/agents' && request.method() === 'PATCH' ? request.postDataJSON() : null;
+      if (!body || body.agentId !== target.agentId || Object.hasOwn(body, 'enabledTools') || !Object.hasOwn(body, 'workflow')) {
+        receipt.forbiddenWrites.push(`${request.method()}:${url.pathname}`); await persist(); await route.abort(); return;
+      }
+      workflowWrites.push(body);
+    }
+    await route.continue();
+  });
+  await page.goto(`/en/settings?${new URLSearchParams({ tab: 'agent-settings', workspaceId })}`, { waitUntil: 'domcontentloaded' });
+  await selector(target).click();
+  await page.getByTestId('agent-settings-workflow-management-open').click();
+  const dialog = page.getByTestId('agent-workflow-management-dialog');
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole('button', { name: ui.legacy.configure, exact: true }).click();
+  await dialog.getByRole('button', { name: ui.packages.add, exact: true }).click();
+  await dialog.getByRole('combobox', { name: ui.packages.versionFor.replace('{name}', pkg.name) }).selectOption(pkg.publication.published.revisionRef);
+  await dialog.getByRole('button', { name: ui.packages.addSelected, exact: true }).click();
+  const row = dialog.getByTestId('workflow-management-package');
+  await row.getByRole('button', { expanded: false }).click();
+  await row.getByRole('combobox', { name: ui.packages.selection }).selectOption('skills');
+  await row.getByRole('checkbox', { name: ui.packages.skill.replace('{name}', pkg.sibling) }).uncheck();
+  await expect(row.getByRole('checkbox', { name: ui.packages.skill.replace('{name}', pkg.child) })).toBeChecked();
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await dialog.evaluate(element => ({ viewport: window.innerWidth, width: element.getBoundingClientRect().width,
+    scrollWidth: element.scrollWidth, clientWidth: element.clientWidth }))).toMatchObject({ viewport: 390 });
+  expect(await dialog.evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
+  await page.screenshot({ path: path.join(fixture.fixtureRoot, 'workflow-editor-narrow.png') });
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.screenshot({ path: path.join(fixture.fixtureRoot, 'workflow-editor-desktop.png') });
+  const saved = page.waitForResponse(response => response.url().includes('/api/agents?') && response.request().method() === 'PATCH');
+  receipt.outstanding = 'workflow:C'; await persist();
+  await dialog.getByRole('button', { name: ui.save, exact: true }).click();
+  await data(await saved, 'Actual editor central PATCH');
+  cExpected = await inspect(target.agentId);
+  expect(cExpected.agent).toMatchObject({ agentId: target.agentId, revision: before.agent.revision + 1,
+    workflowRevision: (before.agent.workflowRevision ?? 0) + 1, workflowVersion: 1, enabledTools: before.agent.enabledTools });
+  expect(workflowWrites).toHaveLength(1);
+  expect(workflowWrites[0]).toEqual({ agentId: target.agentId, expectedRevision: before.agent.revision,
+    expectedWorkflowRevision: before.agent.workflowRevision ?? 0, workflow: { version: 1, packages: [{
+      resourceRef: pkg.ref, publishedRevisionRef: pkg.publication.published.revisionRef, checksum: pkg.publication.published.checksum,
+      skillSelection: { kind: 'skills', relativeRoots: [`skills/${pkg.child}`] },
+      declarations: [{ declarationPath: `skills/${pkg.child}/agents/canvas.yaml`, capabilities: [] }],
+    }] } });
+  receipt.outstanding = null; await persist();
+  const management = await data<AgentWorkflowManagement>(await admin.request.get(`/api/agents/workflow?${new URLSearchParams({
+    agentId: target.agentId, workspaceId, view: 'management',
+  })}`), 'Actual editor fresh management read');
+  expect(management.configurationState).toBe('available'); expect(management.configuration).toEqual(workflowWrites[0].workflow);
+  expect(management.profile.enabledTools).toEqual(['read']);
+  await expect(dialog.getByRole('button', { name: ui.save, exact: true })).toBeDisabled();
+  await dialog.getByRole('button', { name: ui.close, exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(page.getByTestId('agent-settings-workflow-management-open')).toBeFocused();
+  await exactOwned();
 });

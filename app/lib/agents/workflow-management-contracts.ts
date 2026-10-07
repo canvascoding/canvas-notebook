@@ -29,11 +29,17 @@ export const agentWorkflowManagementRequestSchema = z.discriminatedUnion('view',
 ]);
 export type AgentWorkflowManagementRequest = z.infer<typeof agentWorkflowManagementRequestSchema>;
 export type AgentWorkflowManagementHeader = { schemaVersion: 1; agentId: string; revision: number; workflowRevision: number };
+export type AgentWorkflowManagementBindingSummary = {
+  resourceRef: string; publishedRevisionRef: string; declarationPath: string; capabilityId: string; alternativeKey: string;
+  choiceId?: string; source: 'mcp' | 'composio'; label: string; scopeLabel: 'personal' | 'organization' | 'team';
+  status: 'unknown' | 'setup_required';
+};
 export type AgentWorkflowManagement = AgentWorkflowManagementHeader & {
   view: 'management'; access: { canUse: boolean; canEdit: boolean; canManage: boolean };
   profile: { agentId: string; name: string; iconId: string | null; scopeType: 'user' | 'organization' | 'system'; enabledTools: string[] | null };
   workflowVersion: 1 | null; configurationState: 'legacy' | 'available' | 'blocked';
   configuration: AgentWorkflowConfiguration | null; unavailablePackageCount: number; unavailableConnectionCount: number;
+  bindingSummaries?: AgentWorkflowManagementBindingSummary[];
 };
 export type AgentWorkflowPackageVersionOption = { revisionRef: string; version: string; checksum: string; publishedAt: number };
 export type AgentWorkflowPackageOption = { resourceRef: string; name: string; displayName: string; kind: 'plugin' | 'skill';
