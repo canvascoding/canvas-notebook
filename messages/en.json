@@ -270,6 +270,7 @@
       "rateLimited": "The provider or this request is temporarily rate limited. Try again later.",
       "endpoint": "The endpoint is not allowed. Check its address and the private-network setting.",
       "invalidResponse": "The provider did not return a valid assessment for the sample.",
+      "refused": "The provider declined to assess the sample email. Review the criteria or choose another provider.",
       "unavailable": "Email preparation is temporarily unavailable. Your edits remain available."
     }
   },

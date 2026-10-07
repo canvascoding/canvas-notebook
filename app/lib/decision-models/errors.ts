@@ -3,6 +3,7 @@ export type DecisionErrorCode =
   | 'invalid_request'
   | 'unsupported_capability'
   | 'invalid_response'
+  | 'refused'
   | 'endpoint_rejected'
   | 'authentication_failed'
   | 'timeout'
@@ -15,6 +16,7 @@ const ERROR_MESSAGES: Record<DecisionErrorCode, string> = {
   invalid_request: 'The decision request does not match the supported contract.',
   unsupported_capability: 'The decision provider does not support the requested capability.',
   invalid_response: 'The decision provider returned an invalid result.',
+  refused: 'The decision provider declined to evaluate the request.',
   endpoint_rejected: 'The decision provider endpoint is not allowed.',
   authentication_failed: 'The decision provider credentials were rejected.',
   timeout: 'The decision provider request timed out.',

@@ -7,6 +7,7 @@ import {
 } from '../app/lib/email/classification/admin-service';
 import { resolveEmailClassificationCredential } from '../app/lib/email/classification/credential-service';
 import { DEFAULT_EMAIL_CLASSIFICATION_CONFIGURATION } from '../app/lib/email/classification/settings-types';
+import { resetChangedEmailSpamValidation, validateEmailClassificationConfiguration } from '../app/lib/email/classification/settings-validation';
 import { runEmailClassificationPostgresMigration } from '../app/lib/email/classification/postgres-migration';
 import { createEmailClassificationStore } from '../app/lib/email/classification/store';
 import type { EmailClassificationQueryable } from '../app/lib/email/classification/store-types';
@@ -64,6 +65,25 @@ async function main() {
   assert.equal(resolveEmailClassificationCredential({ ...anonymous, credentialKey: 'EMAIL_CLASSIFICATION_API_KEY' }, { readSecret: () => null }).status.status, 'missing', 'Configured-but-missing is not anonymous.');
   assert.equal(resolveEmailClassificationCredential({ ...anonymous, allowPrivateNetwork: false }, { readSecret }).status.status, 'missing');
   assert.equal(resolveEmailClassificationCredential({ ...config(), credentialKey: null, allowPrivateNetwork: true }, { readSecret }).status.status, 'missing', 'TypeSafe cannot become anonymous.');
+  const openAI = { ...config(), providerId: 'openai-decisions', model: 'gpt-6-luna', credentialKey: 'OPENAI_API_KEY' };
+  const openAICredentialRequests: unknown[] = [];
+  const openAISecret = (key: string, scope: { secretScope: 'system' }) => {
+    openAICredentialRequests.push({ key, scope }); return key === 'OPENAI_API_KEY' && scope.secretScope === 'system' ? KEY_MARKER : null;
+  };
+  assert.equal(resolveEmailClassificationCredential(openAI, { readSecret: openAISecret }).status.status, 'configured');
+  assert.deepEqual(openAICredentialRequests, [{ key: 'OPENAI_API_KEY', scope: { secretScope: 'system' } }]);
+  assert.equal(resolveEmailClassificationCredential(openAI, { readSecret: () => null }).status.status, 'missing');
+  assert.equal(resolveEmailClassificationCredential({ ...openAI, credentialKey: null, allowPrivateNetwork: true }, { readSecret: openAISecret }).status.status, 'missing', 'OpenAI cannot become anonymous.');
+  assert.equal(openAICredentialRequests.length, 1, 'Missing credential configuration never searches an ambient key.');
+  const normalizedOpenAI = validateEmailClassificationConfiguration({ ...openAI, allowPrivateNetwork: true, endpoint: 'https://api.openai.com/v1/decisions' });
+  assert.equal(normalizedOpenAI.endpoint, null); assert.equal(normalizedOpenAI.allowPrivateNetwork, false);
+  assert.throws(() => validateEmailClassificationConfiguration({ ...openAI, credentialKey: null }));
+  assert.throws(() => validateEmailClassificationConfiguration({ ...openAI, model: 'gpt-6-sol' }));
+  assert.throws(() => validateEmailClassificationConfiguration({ ...openAI, endpoint: 'https://api.openai.com/v1/responses' }));
+  const validatedTypeSafe = { ...config(), policy: { ...config().policy, spamSortingValidated: true, calibrationReference: 'Labeled TypeSafe test set', validatedProviderId: 'typesafe', validatedModel: 'jev-1.13.0', validatedSchemaVersion: 'email.v1' } };
+  const switchedProvider = resetChangedEmailSpamValidation(validatedTypeSafe, { ...openAI, policy: validatedTypeSafe.policy });
+  assert.equal(switchedProvider.policy.spamSortingValidated, false); assert.equal(switchedProvider.policy.calibrationReference, null);
+  assert.equal(switchedProvider.policy.validatedProviderId, null); assert.equal(switchedProvider.policy.validatedModel, null); assert.equal(switchedProvider.policy.validatedSchemaVersion, null);
 
   const postgres = new PGlite();
   try {
@@ -78,7 +98,8 @@ async function main() {
     assert.equal(initial.credentials.status, 'configured');
     assert.equal(initial.health.counts?.indexed, 0);
     assert.equal(initial.health.usage?.reportedInputTokens, null, 'Unknown usage is never invented as zero.');
-    assert.deepEqual(initial.providerOptions.map(option => option.id), ['typesafe', 'systemone']);
+    assert.deepEqual(initial.providerOptions.map(option => option.id), ['typesafe', 'systemone', 'openai-decisions']);
+    assert.deepEqual(initial.providerOptions.find(option => option.id === 'openai-decisions'), { id: 'openai-decisions', label: 'OpenAI Decisions', requiresEndpoint: false, defaultModel: 'gpt-6-luna', credentialKeyDefault: 'OPENAI_API_KEY' });
     assert.equal(JSON.stringify(initial).includes(KEY_MARKER), false);
     const readsBeforeDisabled = credentialRequests.length;
     await readEmailClassificationAvailability(dependencies);
@@ -180,6 +201,29 @@ async function main() {
     } });
     assert.equal(anonymousProbe.providerId, 'systemone'); assert.equal(anonymousProbe.calibrationVerified, false);
     assert.equal((await store.readSettings()).configuration.policy.spamSortingValidated, false);
+    const beforeOpenAIProbe = (await store.readSettings()).revision;
+    const openAIProbe = await testEmailClassificationProvider({ configuration: openAI }, { ...dependencies, readSecret: openAISecret, evaluate: async input => {
+      assert.equal(input.configuration.providerId, 'openai-decisions'); assert.equal(input.configuration.model, 'gpt-6-luna');
+      assert.equal(input.configuration.endpoint, undefined); assert.equal(input.configuration.allowPrivateNetwork, false);
+      assert.equal(input.credential?.apiKey, KEY_MARKER); assert.equal(Object.keys(input.questions).length, 4);
+      assert.deepEqual((input.state as { email: unknown }).email, (evaluated[0].state as { email: unknown }).email, 'OpenAI probes use the same immutable synthetic email, not indexed mail.');
+      return { ...result(), providerId: 'openai-decisions', model: 'gpt-6-luna', adapterVersion: 'openai-decisions.v1', usage: { inputTokens: 450, outputTokens: 0, requests: 1 } };
+    } });
+    assert.equal(openAIProbe.providerId, 'openai-decisions'); assert.equal(openAIProbe.model, 'gpt-6-luna');
+    assert.equal(openAIProbe.calibrationVerified, false); assert.equal(openAIProbe.testedRevision, null);
+    assert.equal(JSON.stringify(openAIProbe).includes(KEY_MARKER), false);
+    assert.equal((await store.readSettings()).revision, beforeOpenAIProbe, 'The new-provider probe does not save or enable unsaved settings.');
+    await rejection(testEmailClassificationProvider({ configuration: openAI }, { ...dependencies, readSecret: () => null, evaluate: async () => { throw new Error('Missing system key must prevent a provider request.'); } }), 'EMAIL_CLASSIFICATION_CREDENTIAL_MISSING', 409);
+    await rejection(testEmailClassificationProvider({ configuration: { ...openAI, model: 'gpt-6-sol' } }, dependencies), 'EMAIL_CLASSIFICATION_INVALID_CONFIGURATION', 400);
+    await rejection(testEmailClassificationProvider({ configuration: openAI }, { ...dependencies, readSecret: openAISecret, evaluate: async () => { throw new DecisionModelError('refused', { providerId: 'openai-decisions' }); } }), 'EMAIL_CLASSIFICATION_REFUSED', 502);
+    await rejection(updateAdminEmailClassificationSettings({ expectedRevision: beforeOpenAIProbe, actorUserId: 'admin', configuration: { ...openAI, enabled: true } }, { ...dependencies, readSecret: () => null }), 'EMAIL_CLASSIFICATION_CREDENTIAL_MISSING', 409);
+    const openAISaved = await updateAdminEmailClassificationSettings({ expectedRevision: beforeOpenAIProbe, actorUserId: 'admin', configuration: { ...openAI, enabled: true } }, { ...dependencies, readSecret: openAISecret });
+    assert.equal(openAISaved.settings.configuration.providerId, 'openai-decisions'); assert.equal(openAISaved.settings.configuration.model, 'gpt-6-luna');
+    assert.equal(openAISaved.settings.configuration.endpoint, null); assert.equal(openAISaved.settings.configuration.allowPrivateNetwork, false);
+    assert.equal(openAISaved.credentials.scope, 'system'); assert.equal(openAISaved.credentials.status, 'configured');
+    assert.equal(openAISaved.availability.defaultMode, 'focus'); assert.equal(openAISaved.availability.available, true);
+    assert.equal(openAISaved.settings.configuration.policy.spamSortingValidated, false);
+    assert.equal(JSON.stringify(openAISaved).includes(KEY_MARKER), false);
     console.log('Email classification admin service passed: system-only credentials, CAS, synthetic unsaved probes, safe availability and PostgreSQL runtime health.');
   } finally { await postgres.close(); }
 }

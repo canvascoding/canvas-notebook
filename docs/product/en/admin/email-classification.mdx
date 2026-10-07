@@ -6,7 +6,7 @@ sectionOrder: 10
 order: 17
 locale: en
 translationKey: admin.email-classification
-updatedAt: 2026-10-06
+updatedAt: 2026-10-07
 ---
 
 # Administering Email Preparation
@@ -15,10 +15,12 @@ An instance administrator manages Email preparation in Settings → System Email
 
 ## Configure before enabling
 
-1. Open Provider and configuration and select TypeSafe Jev or a System One compatible provider. Set the model and, for a compatible service, its endpoint.
+1. Open Provider and configuration and select TypeSafe Jev, OpenAI Decisions or a System One compatible provider. Set the model and, for a compatible service, its endpoint.
 2. Open [Settings → Secrets](/settings?tab=secrets), choose the System scope and save the provider key. In the preparation card enter only its credential name, such as `TYPESAFE_API_KEY`; never paste the key value into that field. A personal or organization key does not configure this server feature.
 3. Choose Test draft. It evaluates a fixed synthetic email and is available while preparation is disabled and before saving your edits. It does not read a real mailbox.
 4. Set Enable for everyone and choose Save settings. Confirm the saved activation and processing status.
+
+OpenAI Decisions uses `gpt-6-luna`, the fixed OpenAI endpoint and the System Secret `OPENAI_API_KEY` by default. The native Decisions service is in public beta. A declined assessment has a separate error state; review the criteria or select another provider.
 
 An explicitly allowed private-network compatible endpoint can be configured without authentication by leaving the credential name empty. A missing named key remains a configuration error.
 

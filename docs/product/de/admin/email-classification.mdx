@@ -6,7 +6,7 @@ sectionOrder: 10
 order: 17
 locale: de
 translationKey: admin.email-classification
-updatedAt: 2026-10-06
+updatedAt: 2026-10-07
 ---
 
 # E-Mail-Vorbereitung administrieren
@@ -15,10 +15,12 @@ Ein Instanzadministrator verwaltet die E-Mail-Vorbereitung unter Einstellungen �
 
 ## Vor der Aktivierung konfigurieren
 
-1. Öffne Anbieter und Konfiguration und wähle TypeSafe Jev oder einen System-One-kompatiblen Anbieter. Trage das Modell und bei einem kompatiblen Dienst dessen Endpoint ein.
+1. Öffne Anbieter und Konfiguration und wähle TypeSafe Jev, OpenAI Decisions oder einen System-One-kompatiblen Anbieter. Trage das Modell und bei einem kompatiblen Dienst dessen Endpoint ein.
 2. Öffne [Einstellungen → Secrets](/settings?tab=secrets), wähle den Bereich System und speichere den Anbieterschlüssel. In der Vorbereitungskarte steht ausschließlich der Schlüsselname, beispielsweise `TYPESAFE_API_KEY`. Trage dort keinen Schlüsselwert ein. Ein persönlicher oder Organisationsschlüssel konfiguriert diese Serverfunktion nicht.
 3. Wähle Entwurf testen. Der Test bewertet eine feste synthetische E-Mail und funktioniert auch bei deaktivierter Vorbereitung und ungespeicherten Einstellungen. Er liest kein echtes Postfach.
 4. Aktiviere Für alle aktivieren und wähle Einstellungen speichern. Prüfe danach den gespeicherten Aktivierungs- und Verarbeitungsstatus.
+
+OpenAI Decisions verwendet `gpt-6-luna`, den festen OpenAI-Endpoint und standardmäßig das System-Secret `OPENAI_API_KEY`. Der native Decisions-Dienst befindet sich in der öffentlichen Beta. Eine abgelehnte Bewertung wird als eigener Fehler angezeigt; prüfe dann die Kriterien oder wähle einen anderen Anbieter.
 
 Ein ausdrücklich erlaubter kompatibler Endpoint im privaten Netz kann durch einen leeren Schlüsselnamen ohne Authentifizierung konfiguriert werden. Ein fehlender benannter Schlüssel bleibt ein Konfigurationsfehler.
 

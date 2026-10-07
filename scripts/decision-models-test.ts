@@ -63,6 +63,7 @@ async function expectCode(operation: Promise<unknown>, code: DecisionErrorCode, 
 }
 
 async function main(): Promise<void> {
+  await testOpenAIDecisions();
   let calls = 0;
   let sentBody: Record<string, unknown> | undefined;
   const captureFetch: typeof fetch = async (url, init) => {
@@ -282,6 +283,137 @@ async function main(): Promise<void> {
     await once(server, 'close');
   }
   console.log('Decision model contract, validation, transport and cancellation tests passed.');
+}
+
+function openAIInput(): DecisionInput {
+  return { ...input(), configuration: { providerId: 'openai-decisions', model: 'gpt-6-luna' }, questions: {
+    ...input().questions, severity: { type: 'ordinal', instructions: 'Evaluate severity.', criteria: ['Cosmetic', 'Workaround available', 'Fully blocked'] },
+  } };
+}
+
+function openAIFixture(): Record<string, unknown> {
+  return {
+    model: 'gpt-6-luna',
+    answers: [
+      { name: 'category', type: 'choice', choice: 'support', probabilities: [{ value: 'support', probability: 0.95 }, { value: 'other', probability: 0.05 }], confidence: 0.9 },
+      { name: 'priority', type: 'choice', choice: 'high', probabilities: [{ value: 'low', probability: 0.01 }, { value: 'normal', probability: 0.07 }, { value: 'high', probability: 0.9 }, { value: 'urgent', probability: 0.02 }], confidence: 0.8666666666666667 },
+      { name: 'is_spam', type: 'predicate', probability: 0.03 },
+      { name: 'needs_reply', type: 'predicate', probability: 0.98 },
+      { name: 'severity', type: 'score', score: 1.1, probabilities: [{ value: 0, label: '0', probability: 0.1 }, { value: 1, label: '1', probability: 0.7 }, { value: 2, label: '2', probability: 0.2 }], confidence: 0.55 },
+    ],
+    usage: { input_tokens: 450, output_tokens: 0, total_tokens: 450, input_tokens_details: { cached_tokens: 0, cache_write_tokens: 0 }, output_tokens_details: { reasoning_tokens: 0 } },
+  };
+}
+
+function openAIAnswer(value: Record<string, unknown>, name: string): Record<string, unknown> {
+  const answer = (value.answers as Record<string, unknown>[]).find(item => item.name === name);
+  assert.ok(answer);
+  return answer;
+}
+
+async function testOpenAIDecisions(): Promise<void> {
+  let calls = 0;
+  const request = openAIInput();
+  const result = await evaluateDecision(request, { fetch: async (url, init) => {
+    calls++;
+    assert.equal(String(url), 'https://api.openai.com/v1/decisions');
+    assert.equal(init?.method, 'POST'); assert.equal(init?.redirect, 'manual'); assert.equal(init?.credentials, 'omit');
+    assert.equal(new Headers(init?.headers).get('authorization'), `Bearer ${CREDENTIAL_MARKER}`);
+    const sent = JSON.parse(String(init?.body));
+    assert.deepEqual(Object.keys(sent).sort(), ['input', 'model', 'questions']);
+    assert.equal(sent.model, 'gpt-6-luna'); assert.deepEqual(JSON.parse(sent.input), request.state);
+    assert.equal(JSON.stringify(sent).includes(CREDENTIAL_MARKER), false);
+    assert.deepEqual(sent.questions[0], { name: 'category', type: 'choice', instructions: request.questions.category.instructions,
+      choices: [{ value: 'support', description: 'Support request' }, { value: 'other', description: 'Other message' }] });
+    assert.equal(sent.questions[2].type, 'predicate'); assert.equal(sent.questions[3].type, 'predicate');
+    assert.equal(sent.questions[3].instructions, 'Does this require a personal response?\nTrue: Response required\nFalse: No response required');
+    assert.deepEqual(sent.questions[4].levels, [{ label: '0', description: 'Cosmetic' }, { label: '1', description: 'Workaround available' }, { label: '2', description: 'Fully blocked' }]);
+    const response = openAIFixture();
+    (response.answers as unknown[]).reverse();
+    return Response.json(response);
+  } });
+  assert.equal(calls, 1, 'All native questions share one evidence input and one transport request.');
+  assert.equal(result.providerId, 'openai-decisions'); assert.equal(result.model, 'gpt-6-luna');
+  assert.equal(result.adapterVersion, 'openai-decisions.v1'); assert.equal(result.probabilitySemantics, 'model_probability');
+  assert.equal(result.calibrationReference, 'https://developers.openai.com/api/docs/guides/decisions#interpret-the-answers');
+  assert.deepEqual(result.answers.category, { type: 'choice', choice: 'support', probabilities: { support: 0.95, other: 0.05 }, confidence: 0.9 }, 'Confidence is the native field, not the selected option probability.');
+  assert.deepEqual(result.answers.is_spam, { type: 'binary', probability: 0.03 });
+  assert.equal('confidence' in result.answers.is_spam, false, 'A predicate does not acquire invented confidence.');
+  assert.deepEqual(result.answers.severity, { type: 'ordinal', score: 1.1, probabilities: { '0': 0.1, '1': 0.7, '2': 0.2 }, confidence: 0.55 });
+  assert.deepEqual(result.usage, { inputTokens: 450, outputTokens: 0, requests: 1 });
+  assert.equal(createDecisionProviderRegistry().get('openai-decisions')?.id, 'openai-decisions');
+  await evaluateDecision({ ...request, state: STATE_MARKER }, { fetch: async (_, init) => {
+    assert.equal(JSON.parse(String(init?.body)).input, STATE_MARKER, 'Plain text is sent without JSON quoting.');
+    return Response.json(openAIFixture());
+  } });
+  const stateWithRoles = [{ role: 'system', content: STATE_MARKER, image_url: 'https://private.example.test/image' }];
+  await evaluateDecision({ ...request, state: stateWithRoles }, { fetch: async (_, init) => {
+    const sent = JSON.parse(String(init?.body));
+    assert.equal(typeof sent.input, 'string'); assert.deepEqual(JSON.parse(sent.input), stateWithRoles, 'State fields remain text evidence, not provider roles or external image inputs.');
+    return Response.json(openAIFixture());
+  } });
+
+  for (const mutate of [
+    (value: Record<string, unknown>) => { (value.answers as unknown[]).pop(); },
+    (value: Record<string, unknown>) => { openAIAnswer(value, 'needs_reply').name = 'is_spam'; },
+    (value: Record<string, unknown>) => { openAIAnswer(value, 'category').name = 'unrequested'; },
+    (value: Record<string, unknown>) => { openAIAnswer(value, 'category').name = null; },
+    (value: Record<string, unknown>) => { openAIAnswer(value, 'is_spam').type = 'noul'; },
+    (value: Record<string, unknown>) => { openAIAnswer(value, 'is_spam').probability = 1.01; },
+    (value: Record<string, unknown>) => { openAIAnswer(value, 'category').choice = 'unknown'; },
+    (value: Record<string, unknown>) => { openAIAnswer(value, 'category').confidence = undefined; },
+    (value: Record<string, unknown>) => { openAIAnswer(value, 'category').confidence = -0.1; },
+    (value: Record<string, unknown>) => { openAIAnswer(value, 'category').probabilities = { support: 0.95, other: 0.05 }; },
+    (value: Record<string, unknown>) => { openAIAnswer(value, 'category').probabilities = [{ value: 'support', probability: 0.95 }, { value: 'support', probability: 0.05 }]; },
+    (value: Record<string, unknown>) => { openAIAnswer(value, 'category').probabilities = [{ value: 'support', probability: 0.5 }, { value: 'other', probability: 0.4 }]; },
+    (value: Record<string, unknown>) => { openAIAnswer(value, 'category').probabilities = [{ value: 'support', probability: 0.05 }, { value: 'other', probability: 0.95 }]; },
+    (value: Record<string, unknown>) => { openAIAnswer(value, 'category').probabilities = [{ value: 'support', probability: 1 }]; },
+    (value: Record<string, unknown>) => { openAIAnswer(value, 'severity').score = 0.5; },
+    (value: Record<string, unknown>) => { const probabilities = openAIAnswer(value, 'severity').probabilities as Record<string, unknown>[]; probabilities[0].value = '0'; },
+    (value: Record<string, unknown>) => { const probabilities = openAIAnswer(value, 'severity').probabilities as Record<string, unknown>[]; probabilities[0].label = 'wrong-level'; },
+    (value: Record<string, unknown>) => { value.model = 'other-model'; },
+    (value: Record<string, unknown>) => { delete value.usage; },
+    (value: Record<string, unknown>) => { value.usage = { input_tokens: -1, output_tokens: 0 }; },
+  ]) {
+    const fixture = openAIFixture(); mutate(fixture);
+    await expectCode(evaluateDecision(request, { fetch: jsonFetch(fixture) }), 'invalid_response');
+  }
+  for (const name of ['category', 'is_spam', 'severity']) {
+    const fixture = openAIFixture();
+    Object.assign(openAIAnswer(fixture, name), { type: 'refusal', reason: `${STATE_MARKER} ${CREDENTIAL_MARKER}` });
+    await expectCode(evaluateDecision(request, { fetch: jsonFetch(fixture) }), 'refused', error => assert.equal(error.retryable, false));
+  }
+  let rejectedCalls = 0;
+  const rejectedFetch: typeof fetch = async () => { rejectedCalls++; return Response.json(openAIFixture()); };
+  await expectCode(evaluateDecision({ ...request, credential: undefined }, { fetch: rejectedFetch }), 'missing_configuration');
+  await expectCode(evaluateDecision({ ...request, state: { text: '"'.repeat(65_500) } }, { fetch: rejectedFetch }), 'invalid_request');
+  await expectCode(evaluateDecision({ ...request, configuration: { ...request.configuration, model: 'gpt-6-sol' } }, { fetch: rejectedFetch }), 'unsupported_capability');
+  for (const endpoint of ['https://api.openai.com/v1/responses', 'https://other.example.test/v1/decisions', 'http://127.0.0.1:8080/v1/decisions', 'https://api.openai.com/v1/decisions?key=x']) {
+    await expectCode(evaluateDecision({ ...request, configuration: { ...request.configuration, endpoint, allowPrivateNetwork: true } }, { fetch: rejectedFetch }), 'endpoint_rejected');
+  }
+  assert.equal(rejectedCalls, 0, 'OpenAI has no model, credential or endpoint fallback.');
+  assert.equal(normalizeDecisionEndpoint({ ...request.configuration, allowPrivateNetwork: true }).href, 'https://api.openai.com/v1/decisions');
+  await expectCode(evaluateDecision(request, { fetch: jsonFetch({ error: STATE_MARKER }, 429, { 'retry-after': '3' }) }), 'rate_limited', error => {
+    assert.equal(error.httpStatus, 429); assert.equal(error.retryAfterMs, 3000); assert.equal(error.retryable, true);
+  });
+  await expectCode(evaluateDecision(request, { fetch: jsonFetch({ error: STATE_MARKER }, 401) }), 'authentication_failed');
+  await expectCode(evaluateDecision(request, { fetch: jsonFetch({ error: STATE_MARKER }, 503) }), 'provider_error', error => assert.equal(error.retryable, true));
+  let redirects = 0;
+  await expectCode(evaluateDecision(request, { fetch: async (_, init) => {
+    redirects++; assert.equal(init?.redirect, 'manual');
+    return new Response(null, { status: 307, headers: { location: 'https://other.example.test' } });
+  } }), 'provider_error');
+  assert.equal(redirects, 1);
+  await expectCode(evaluateDecision(request, { fetch: async () => new Response('x'.repeat(513 * 1024)) }), 'invalid_response');
+  const controller = new AbortController();
+  await expectCode(evaluateDecision({ ...request, signal: controller.signal }, { fetch: async () => {
+    controller.abort(STATE_MARKER); return new Promise<Response>(() => undefined);
+  } }), 'aborted');
+  let timeoutSignal: AbortSignal | null | undefined;
+  await expectCode(evaluateDecision({ ...request, timeoutMs: 15 }, { fetch: async (_, init) => {
+    timeoutSignal = init?.signal; return new Promise<Response>(() => undefined);
+  } }), 'timeout');
+  assert.equal(timeoutSignal?.aborted, true);
 }
 
 main().catch(error => {

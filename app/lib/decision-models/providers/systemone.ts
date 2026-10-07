@@ -1,10 +1,7 @@
-import { readBoundedResponseBody } from '../../security/safe-external-fetch';
 import { DecisionModelError } from '../errors';
-import { normalizeDecisionEndpoint, requestDecisionHttp } from '../http';
 import type { DecisionAnswer, DecisionInput, DecisionProvider, DecisionProviderContext, DecisionProviderResult, DecisionQuestion } from '../types';
 import { isDecisionRecord } from '../validation';
-
-const MAX_RESPONSE_BYTES = 512 * 1024;
+import { postDecisionJson } from './http-json';
 
 export function toSystemOneQuestions(questions: Record<string, DecisionQuestion>): Record<string, unknown> {
   return Object.fromEntries(Object.entries(questions).map(([id, question]) => [id, {
@@ -12,14 +9,6 @@ export function toSystemOneQuestions(questions: Record<string, DecisionQuestion>
     instructions: question.instructions,
     ...(question.criteria === undefined ? {} : { criteria: question.criteria }),
   }]));
-}
-
-function retryAfterMs(response: Response): number | undefined {
-  const value = response.headers.get('retry-after');
-  if (!value) return undefined;
-  const seconds = Number(value);
-  const duration = Number.isFinite(seconds) ? seconds * 1000 : Date.parse(value) - Date.now();
-  return Number.isFinite(duration) && duration >= 0 ? Math.min(Math.ceil(duration), 24 * 60 * 60 * 1000) : undefined;
 }
 
 function invalidResponse(providerId: string): never {
@@ -77,37 +66,9 @@ function normalizeSystemOneResult(raw: unknown, input: DecisionInput, requireFul
 }
 
 export async function evaluateSystemOne(input: DecisionInput, context: DecisionProviderContext, requireFullDistribution: boolean): Promise<DecisionProviderResult> {
-  const providerId = input.configuration.providerId;
-  const endpoint = normalizeDecisionEndpoint(input.configuration);
-  const apiKey = input.credential?.apiKey?.trim();
-  if (providerId === 'typesafe' && !apiKey) throw new DecisionModelError('missing_configuration', { providerId });
-  const body = JSON.stringify({ state: input.state, model: input.configuration.model, questions: toSystemOneQuestions(input.questions) });
-  const headers: Record<string, string> = { 'content-type': 'application/json', accept: 'application/json' };
-  if (apiKey) headers.authorization = `Bearer ${apiKey}`;
-  const response = context.fetch
-    ? await context.fetch(endpoint, { method: 'POST', headers, body, signal: context.signal, redirect: 'manual', credentials: 'omit' })
-    : await requestDecisionHttp(endpoint, input.configuration, { body, headers, signal: context.signal, timeoutMs: context.timeoutMs });
-  if (!response.ok) {
-    void response.body?.cancel().catch(() => undefined);
-    if (response.status === 401 || response.status === 403) throw new DecisionModelError('authentication_failed', { providerId, httpStatus: response.status });
-    if (response.status === 429 || response.status === 529) throw new DecisionModelError('rate_limited', {
-      providerId, httpStatus: response.status, retryAfterMs: retryAfterMs(response), retryable: true,
-    });
-    throw new DecisionModelError('provider_error', { providerId, httpStatus: response.status, retryable: response.status >= 500 });
-  }
-  const length = response.headers.get('content-length');
-  if (length !== null && Number(length) > MAX_RESPONSE_BYTES) {
-    void response.body?.cancel().catch(() => undefined);
-    invalidResponse(providerId);
-  }
-  let raw: unknown;
-  try {
-    const buffer = await readBoundedResponseBody(response, MAX_RESPONSE_BYTES, context.signal);
-    raw = JSON.parse(buffer.toString('utf8'));
-  } catch {
-    if (context.signal.aborted) context.signal.throwIfAborted();
-    invalidResponse(providerId);
-  }
+  const raw = await postDecisionJson(input, context, {
+    state: input.state, model: input.configuration.model, questions: toSystemOneQuestions(input.questions),
+  }, { requireCredential: input.configuration.providerId === 'typesafe', maxRequestBytes: systemOneDecisionProvider.capabilities.maxRequestBytes });
   return normalizeSystemOneResult(raw, input, requireFullDistribution);
 }
 
