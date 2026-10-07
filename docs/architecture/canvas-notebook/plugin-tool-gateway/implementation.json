@@ -160,7 +160,7 @@
         {
           "id": "6a-b",
           "name": "Bereichs- und herkunftsgenauer Katalog mit versionierten Store-Updates",
-          "status": "in_progress",
+          "status": "complete",
           "substeps": [
             {
               "id": "6a-b-1",
@@ -183,7 +183,19 @@
               "First browser cleanup stopped at old ownSource grantrev3 cap; current bound ownSource accepts two receipted revoke/restore rounds through5, all authority/byte/revision guards retained; recovery and repeated cleanup PASS, independent owned resource/draft/version/preference/intake counts0, exact settings restoration, own host stopped and foreign stack preserved",
               "Store application with exact target/head/meta/grant CAS remains6a-b-3; full browse/detail redesign6a-c, mobile/OAuth parity6b and live provider acceptance7 remain pending; no container build/publication/default-off flag change"
             ] },
-            { "id": "6a-b-3", "name": "Atomarer versionierter Store-Import und gezieltes Update", "status": "pending", "evidence": [] }
+            {
+              "id": "6a-b-3",
+              "name": "Atomarer versionierter Store-Import und gezieltes Update",
+              "status": "complete",
+              "evidence": [
+                "Detailed acceptance: evidence/step-6a-b3-store-application.md; private verified bounded Store preparation and common atomic publication for plugin/skill across personal/org/team, independent initial grants/responsible person and restricted disabled first visibility",
+                "Exact-source reviewed updates require Manage+Edit, current metadata/grant/head/local-digest CAS and explicit modified-content replacement; ownership/sharing/defaults, immutable legacy/seed history and workflow v1 pins preserved",
+                "Full PGlite application and native PostgreSQL 8-client namespace/head winner + observed row-lock revoke tests PASS; real BetterAuth HTTP/AgentTools/receipts/ack-loss/source-race boundaries and no HTTP within held SQL",
+                "Production build, whole-tree TypeScript and focused ESLint PASS; 6 package/12 plugin-app/6 provenance/3 catalog regressions PASS; actual production-host Playwright 3/3 PASS with inspected 1280/390 light/dark interim UI and independent own-fixture zero cleanup",
+                "Fresh staged graph279 symbols/37files LOW; cumulative compare against main4056 symbols/401files/16 expected earlierflows CRITICAL warned; own host3001 stopped and foreign stack not reconfigured",
+                "Effective legacy Planning filter removes whole canvas_extensions gateway; Store reads whitelist-only until6b. Full browse/detail redesign6a-c, native Mobile/OAuth6b and live providers7 remain; gateway default-off unchanged; no push/container/deployment"
+              ]
+            }
           ],
           "evidence": []
         },

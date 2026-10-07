@@ -8,6 +8,8 @@ import { capabilityPackageReferenceSchema, capabilityPackageDraftReferenceSchema
   capabilityPackagePublishSchema, capabilityPackageFileWriteSchema, capabilityPackageFileDeleteSchema,
   capabilityPackageFileReadSchema, capabilityPackageDiscardSchema, capabilityPackagePublishedTreeSchema,
   capabilityPackagePublishedFileSchema, capabilityPackageActivationSchema } from '@/app/lib/capabilities/packages/schemas';
+import { capabilityPackageStoreListSchema, capabilityPackageStoreInstallSchema,
+  capabilityPackageStoreUpdateReviewSchema, capabilityPackageStoreUpdateSchema } from '@/app/lib/capabilities/packages/store-contracts';
 import {
   addMemory,
   deleteMemory,
@@ -1329,6 +1331,7 @@ function createAgentPluginTools(userId?: string): AgentTool[] {
 }
 
 export const CAPABILITY_PACKAGE_TOOL_NAMES = [
+  'list_canvas_package_store', 'inspect_canvas_package_store_update', 'install_canvas_package_from_store', 'update_canvas_package_from_store',
   'inspect_canvas_package', 'list_canvas_package_scopes', 'create_canvas_package_draft', 'inspect_canvas_package_draft',
   'list_canvas_package_draft_files', 'read_canvas_package_draft_file', 'write_canvas_package_draft_file',
   'delete_canvas_package_draft_file', 'validate_canvas_package_draft', 'publish_canvas_package_draft',
@@ -1367,6 +1370,14 @@ export function createCapabilityPackageTools(userId?: string, agentId?: string |
   });
   const without = (params: Record<string, unknown>, key: string) => Object.fromEntries(Object.entries(params).filter(([name]) => name !== key));
   return [
+    tool('list_canvas_package_store', 'Lists configured Canvas Store plugin and skill offerings and currently readable exact installed variants. Use kind and q to narrow discovery. Store offerings are not permission to use a connection. Source outages and unknown comparisons remain explicit; no archives are downloaded.', capabilityPackageStoreListSchema,
+      async (_actions, actor, params) => (await import('@/app/lib/capabilities/packages/store-actions')).listCapabilityPackageStoreAction(actor, params)),
+    tool('inspect_canvas_package_store_update', 'Reviews one exact readable resourceRef against an explicitly selected configured Store source, version and checksum. Returns current metadata, grants, content head and local checksum for a subsequent explicit update. This inspection never installs or downloads archives.', capabilityPackageStoreUpdateReviewSchema.extend(reference.shape).strict(),
+      async (_actions, actor, params) => (await import('@/app/lib/capabilities/packages/store-actions')).inspectCapabilityPackageStoreUpdateAction(actor, params.resourceRef as string, without(params, 'resourceRef'))),
+    tool('install_canvas_package_from_store', 'Installs a verified exact Store plugin or skill version as a new immutable managed package in an explicitly chosen personal, organization or team scope. Starts disabled and restricted with only explicitly validated initial grants and responsible person. Requires current target management and explicit user installation intent. Rejects namespace collisions; never replaces a same-name resource.', capabilityPackageStoreInstallSchema,
+      async (_actions, actor, params) => (await import('@/app/lib/capabilities/packages/store-actions')).installCapabilityPackageFromStoreAction(actor, params)),
+    tool('update_canvas_package_from_store', 'Publishes a verified selected Store version to one exact resourceRef under fresh manage AND edit rights. Requires all review metadata, grant, package-head and local-checksum revisions, plus explicit replaceLocalChanges choice. Use only when the user requested this reviewed update. Preserves ownership, grants, responsible person, activation, previous versions and workflow pins; source conflicts never silently overwrite.', capabilityPackageStoreUpdateSchema.extend(reference.shape).strict(),
+      async (_actions, actor, params) => (await import('@/app/lib/capabilities/packages/store-actions')).updateCapabilityPackageFromStoreAction(actor, params.resourceRef as string, without(params, 'resourceRef'))),
     tool('inspect_canvas_package', 'Inspects one readable installed full package and returns current content, metadata and grant revisions. Discover resourceRef with inspect_canvas_resource; inspect before drafting or publishing. Core and plugin-contained skills require a distinct fork or editing the containing plugin.', reference,
       (actions, actor, params) => actions.inspectCapabilityPackage(actor, params.resourceRef as string)),
     tool('list_canvas_package_scopes', 'Lists personal, organization and actual team targets this actor may create a new package in. This cannot grant access or change ownership of an existing package.', z.object({}).strict(),

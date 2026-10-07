@@ -1,14 +1,14 @@
 import { promises as fs } from 'fs';
-import os from 'os';
 import path from 'path';
-import { fileURLToPath } from 'url';
 
-import JSZip from 'jszip';
 import packageMetadata from '@/package.json';
 import { listVisibleInstalledCanvasPlugins } from '@/app/lib/plugins/visible-installed-plugins';
 import type { CapabilityResourceActor } from '@/app/lib/capabilities/resources/contracts';
 import { createCapabilityResourceId } from '@/app/lib/capabilities/reference';
-import { issueVerifiedCapabilityStoreOrigin } from '@/app/lib/capabilities/packages/store-origin';
+import { issueVerifiedCapabilityStoreOrigin, capabilityStoreRegistryIdentity } from '@/app/lib/capabilities/packages/store-origin';
+import { CapabilityPackageError } from '@/app/lib/capabilities/packages/contracts';
+import type { CapabilityPackageStoreSelection } from '@/app/lib/capabilities/packages/store-contracts';
+import { readBoundedStorePackageBytes, normalizeStoreArchivePath, extractBoundedStorePackageArchive } from './store-package-archive';
 import type { CapabilityStoreComparison } from './store-installed-resource';
 import type { SafeActorSkillStoreResource } from '@/app/lib/skills/actor-skill-store-state';
 
@@ -21,7 +21,6 @@ import {
   type CanvasPluginInstallResult,
 } from '@/app/lib/plugins/canvas-plugin-registry';
 import {
-  isPathInside,
   isValidCanvasVersion,
   isValidCanvasPluginName,
   isValidCanvasPluginVersion,
@@ -44,9 +43,6 @@ export const DEFAULT_CANVAS_PLUGIN_STORE_REGISTRY_URL =
 
 const MAX_STORE_ICON_BYTES = 2 * 1024 * 1024;
 const MAX_STORE_ARCHIVE_BYTES = 250 * 1024 * 1024;
-const MAX_STORE_ARCHIVE_FILES = 2_000;
-const MAX_STORE_EXTRACTED_BYTES = 250 * 1024 * 1024;
-const STORE_FETCH_TIMEOUT_MS = 20_000;
 const CANVAS_VERSION = packageMetadata.version;
 
 export interface CanvasPluginStorePublisher {
@@ -441,36 +437,7 @@ function validateRegistryUrl(rawUrl: string): URL {
 }
 
 async function readUrlBytes(rawUrl: string, maxBytes = MAX_STORE_ARCHIVE_BYTES): Promise<Buffer> {
-  const url = validateRegistryUrl(rawUrl);
-  if (url.protocol === 'file:') {
-    const filePath = fileURLToPath(url);
-    const stat = await fs.stat(filePath);
-    if (stat.size > maxBytes) {
-      throw new Error(`Plugin store file exceeds the ${Math.floor(maxBytes / (1024 * 1024))} MB limit.`);
-    }
-    return fs.readFile(filePath);
-  }
-
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), STORE_FETCH_TIMEOUT_MS);
-  let response: Response;
-  try {
-    response = await fetch(url, { cache: 'no-store', signal: controller.signal });
-  } finally {
-    clearTimeout(timeout);
-  }
-  if (!response.ok) {
-    throw new Error(`Request failed with ${response.status} ${response.statusText}`);
-  }
-  const contentLength = Number.parseInt(response.headers.get('content-length') || '', 10);
-  if (Number.isFinite(contentLength) && contentLength > maxBytes) {
-    throw new Error(`Plugin store response exceeds the ${Math.floor(maxBytes / (1024 * 1024))} MB limit.`);
-  }
-  const bytes = Buffer.from(await response.arrayBuffer());
-  if (bytes.byteLength > maxBytes) {
-    throw new Error(`Plugin store response exceeds the ${Math.floor(maxBytes / (1024 * 1024))} MB limit.`);
-  }
-  return bytes;
+  return readBoundedStorePackageBytes(validateRegistryUrl(rawUrl), maxBytes);
 }
 
 async function readJsonUrl(rawUrl: string): Promise<unknown> {
@@ -775,71 +742,11 @@ export async function getCanvasPluginStorePlugin(
 }
 
 function sanitizeArchivePath(archivePath: string): string {
-  return archivePath
-    .replace(/\0/g, '')
-    .replace(/\\/g, '/')
-    .replace(/^\/+/, '')
-    .replace(/\/+$/, '');
+  return normalizeStoreArchivePath(archivePath);
 }
 
-async function extractPackageFromArchive(
-  archiveBytes: Buffer,
-  packagePath: string | undefined,
-): Promise<{ tempRoot: string; packageRoot: string }> {
-  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-plugin-store-'));
-  const packageRoot = path.join(tempRoot, 'package');
-  await fs.mkdir(packageRoot, { recursive: true });
-
-  const zip = await JSZip.loadAsync(archiveBytes);
-  const normalizedPackagePath = packagePath ? sanitizeArchivePath(packagePath) : '';
-  let extractedCount = 0;
-  let extractedBytes = 0;
-
-  for (const entry of Object.values(zip.files)) {
-    if (entry.dir) continue;
-
-    const entryPath = sanitizeArchivePath(entry.name);
-    if (!entryPath || entryPath.includes('../')) {
-      continue;
-    }
-
-    let relativePath = entryPath;
-    if (normalizedPackagePath) {
-      const prefix = `${normalizedPackagePath}/`;
-      if (!entryPath.startsWith(prefix)) {
-        continue;
-      }
-      relativePath = entryPath.slice(prefix.length);
-    }
-
-    if (!relativePath || relativePath.includes('../')) {
-      continue;
-    }
-
-    const targetPath = path.join(packageRoot, relativePath);
-    if (!isPathInside(packageRoot, targetPath)) {
-      throw new Error('Plugin archive contains an invalid path.');
-    }
-
-    const bytes = await entry.async('nodebuffer');
-    extractedCount += 1;
-    extractedBytes += bytes.byteLength;
-    if (extractedCount > MAX_STORE_ARCHIVE_FILES) {
-      throw new Error(`Plugin archive contains too many files. Maximum is ${MAX_STORE_ARCHIVE_FILES}.`);
-    }
-    if (extractedBytes > MAX_STORE_EXTRACTED_BYTES) {
-      throw new Error('Plugin archive expands beyond the 250 MB package limit.');
-    }
-    await fs.mkdir(path.dirname(targetPath), { recursive: true });
-    await fs.writeFile(targetPath, bytes);
-  }
-
-  if (extractedCount === 0) {
-    await fs.rm(tempRoot, { recursive: true, force: true });
-    throw new Error('Plugin package path was not found in the downloaded archive.');
-  }
-
-  return { tempRoot, packageRoot };
+async function extractPackageFromArchive(archiveBytes: Buffer, packagePath: string | undefined): Promise<{ tempRoot: string; packageRoot: string }> {
+  return extractBoundedStorePackageArchive(archiveBytes, packagePath ? sanitizeArchivePath(packagePath) : undefined, 'plugin');
 }
 
 async function verifyPackageChecksum(packageRoot: string, expectedChecksum: string): Promise<void> {
@@ -873,6 +780,59 @@ function assertMinimumCanvasVersion(minCanvasVersion: string | undefined): void 
   if (compareVersions(CANVAS_VERSION, minCanvasVersion) < 0) {
     throw new Error(`Plugin requires Canvas ${minCanvasVersion} or later. This Canvas installation is ${CANVAS_VERSION}.`);
   }
+}
+
+/** Private configured-source intake; no installed registry or resource is mutated. */
+export async function prepareCanvasPluginStoreArchive(input: CapabilityPackageStoreSelection & {resourceId: string;
+  expectedOrigin?: {registryIdentity: string; version: string; upstreamChecksum: string}}) {
+  const registry = await readCanvasPluginStoreRegistry();
+  const storePlugin = registry.plugins.find(plugin => plugin.name === input.entryKey);
+  const storeVersion = storePlugin?.versions[input.version];
+  if (input.kind !== 'plugin' || registry.id !== input.registryId || !storePlugin || !storeVersion
+    || storeVersion.checksum !== input.checksum) throw new CapabilityPackageError('PACKAGE_SOURCE_CHANGED', 'The Store offering changed. Reload the Store.', 409);
+  const identity = capabilityStoreRegistryIdentity(registry.registryUrl);
+  if (input.expectedOrigin && (input.expectedOrigin.registryIdentity !== identity
+    || storePlugin.versions[input.expectedOrigin.version]?.checksum !== input.expectedOrigin.upstreamChecksum)) {
+    throw new CapabilityPackageError('PACKAGE_SOURCE_CHANGED', 'The original Store offering changed. Reload the Store.', 409);
+  }
+  return preparePluginArchive(registry, storePlugin, storeVersion, input.resourceId, input.expectedOrigin);
+}
+
+async function preparePluginArchive(registry: CanvasPluginStoreRegistry, storePlugin: CanvasPluginStorePlugin,
+  storeVersion: CanvasPluginStoreVersion, resourceId: string,
+  expectedOrigin?: {registryIdentity: string; version: string; upstreamChecksum: string}) {
+  const baseline = expectedOrigin ? Object.freeze({...expectedOrigin}) : undefined;
+  assertMinimumCanvasVersion(storeVersion.minCanvasVersion);
+  const archiveBytes = await readUrlBytes(storeVersion.downloadUrl);
+  const extracted = await extractPackageFromArchive(archiveBytes, storeVersion.packagePath);
+  try {
+    await verifyPackageChecksum(extracted.packageRoot, storeVersion.checksum);
+    await assertStorePackageIdentity(extracted.packageRoot, storePlugin.name, storeVersion.version);
+    const storeOrigin = await issueVerifiedCapabilityStoreOrigin({ resourceId, registryId: registry.id, registryUrl: registry.registryUrl,
+      kind: 'plugin', entryKey: storePlugin.name, version: storeVersion.version, upstreamChecksum: storeVersion.checksum, packageRoot: extracted.packageRoot });
+    const verifyCurrent = async (options: {verifyRegistry?: boolean} = {}) => {
+      const assertConfiguredSource = () => {
+        if (capabilityStoreRegistryIdentity(getRegistryUrl()) !== storeOrigin.registryIdentity) {
+          throw new CapabilityPackageError('PACKAGE_SOURCE_CHANGED', 'The configured Store source changed.', 409);
+        }
+      };
+      assertConfiguredSource();
+      if (!options.verifyRegistry) return;
+      let current: CanvasPluginStoreRegistry;
+      try { current = await readCanvasPluginStoreRegistry(); }
+      catch { throw new CapabilityPackageError('PACKAGE_SNAPSHOT_UNAVAILABLE', 'The configured Store is unavailable.', 503); }
+      assertConfiguredSource();
+      const offering = current.plugins.find(value => value.name === storeOrigin.entryKey);
+      if (current.id !== storeOrigin.registryId || capabilityStoreRegistryIdentity(current.registryUrl) !== storeOrigin.registryIdentity
+        || offering?.versions[storeOrigin.version]?.checksum !== storeOrigin.upstreamChecksum
+        || baseline && (baseline.registryIdentity !== storeOrigin.registryIdentity
+          || offering?.versions[baseline.version]?.checksum !== baseline.upstreamChecksum)) {
+        throw new CapabilityPackageError('PACKAGE_SOURCE_CHANGED', 'The Store offering changed. Reload the Store.', 409);
+      }
+    };
+    await verifyCurrent();
+    return { ...extracted, registry, storePlugin, storeVersion, storeOrigin, verifyCurrent };
+  } catch (error) { await fs.rm(extracted.tempRoot, { recursive: true, force: true }); throw error; }
 }
 
 export async function installCanvasPluginFromStore(
@@ -916,17 +876,12 @@ export async function installCanvasPluginFromStore(
 
   let tempRoot: string | null = null;
   try {
-    const archiveBytes = await readUrlBytes(storeVersion.downloadUrl);
-    const extracted = await extractPackageFromArchive(archiveBytes, storeVersion.packagePath);
-    tempRoot = extracted.tempRoot;
-    await verifyPackageChecksum(extracted.packageRoot, storeVersion.checksum);
-    await assertStorePackageIdentity(extracted.packageRoot, pluginName, selectedVersion);
-
     const storage = resolveDataStorageScope(options.scope);
     const resourceId = createCapabilityResourceId({ resourceType: 'plugin', scopeType: storage.scopeType === 'legacy' ? 'system' : storage.scopeType,
       name: pluginName, sourceType: 'standalone', organizationId: storage.organizationId, ownerUserId: storage.userId });
-    const storeOrigin = await issueVerifiedCapabilityStoreOrigin({ resourceId, registryId: registry.id, registryUrl: registry.registryUrl,
-      kind: 'plugin', entryKey: pluginName, version: selectedVersion, upstreamChecksum: storeVersion.checksum, packageRoot: extracted.packageRoot });
+    const extracted = await preparePluginArchive(registry, storePlugin, storeVersion, resourceId);
+    tempRoot = extracted.tempRoot;
+    const storeOrigin = extracted.storeOrigin;
 
     const installResult = await installCanvasPluginFromPath(extracted.packageRoot, {
       enable: options.enable,

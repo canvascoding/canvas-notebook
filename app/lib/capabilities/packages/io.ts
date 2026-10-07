@@ -262,12 +262,13 @@ function assertDraftLocation(location: CapabilityPackageDraftLocation): void {
   }
 }
 
-export async function createCapabilityPackageDraft(source: CapabilityPackagePrivateLocation,
-  draft: CapabilityPackageDraftLocation,
-  options: { expectedSourceChecksum?: string; bundledReferences?: readonly {
-    source: CapabilityPackagePrivateLocation; relativeTargetRoot: string; checksum: string;
-  }[] } = {}): Promise<ExactCapabilityPackageInventory> {
-  assertDraftLocation(draft);
+type PackageSourceCopyOptions = { expectedSourceChecksum?: string; bundledReferences?: readonly {
+  source: CapabilityPackagePrivateLocation; relativeTargetRoot: string; checksum: string;
+}[] };
+
+/** Internal IO only; callers must hold or revalidate the exact source's read authority. */
+export async function copyCapabilityPackageSourceWithReferences(source: CapabilityPackagePrivateLocation,
+  targetRoot: string, options: PackageSourceCopyOptions = {}): Promise<ExactCapabilityPackageInventory> {
   const sourceInventory = await readExactPackageInventory(source.rootPath);
   if (options.expectedSourceChecksum !== undefined && sourceInventory.checksum !== options.expectedSourceChecksum) {
     throw new CapabilityPackageError('PACKAGE_SOURCE_CHANGED', 'The source package changed before draft capture.', 409);
@@ -282,7 +283,9 @@ export async function createCapabilityPackageDraft(source: CapabilityPackagePriv
     if (!manifestFile) throw new CapabilityPackageError('PACKAGE_INVALID', 'The plugin manifest is missing.', 400);
     manifest = JSON.parse(manifestFile.bytes.toString('utf8')) as Record<string, unknown>;
     if (!manifest || typeof manifest !== 'object' || Array.isArray(manifest)) throw new CapabilityPackageError('PACKAGE_INVALID', 'The plugin manifest is invalid.', 400);
-    const declared = Array.isArray(manifest.skillRefs) ? manifest.skillRefs : [];
+    const rawDeclared = manifest.skillRefs ?? manifest.skill_refs ?? manifest.seedSkills ?? manifest.seed_skills;
+    const declared = (Array.isArray(rawDeclared) ? rawDeclared : rawDeclared === undefined ? [] : [rawDeclared])
+      .map(value => typeof value === 'string' ? { name: value, source: 'seed' } : value);
     if (declared.length !== references.length) throw new CapabilityPackageError('PACKAGE_SOURCE_CHANGED', 'The referenced skill set changed before capture.', 409);
     const prefix = typeof manifest.skills === 'string' && manifest.skills ? path.posix.normalize(manifest.skills) : 'skills';
     if (prefix !== '.') normalizeCapabilityPackageRelativePath(prefix);
@@ -313,7 +316,7 @@ export async function createCapabilityPackageDraft(source: CapabilityPackagePriv
     // The published package owns its complete dependency bytes. It never follows
     // seed directories again after this actor-authorized source capture.
     manifest.skills = prefix === '.' ? '.' : `./${prefix}`;
-    delete manifest.skillRefs;
+    for (const alias of ['skillRefs', 'skill_refs', 'seedSkills', 'seed_skills']) delete manifest[alias];
     const bytes = Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`);
     totalBytes += bytes.byteLength - manifestFile.size;
     if (totalBytes > CAPABILITY_PACKAGE_LIMITS.maxTotalBytes) limit('The package exceeds its byte limit.');
@@ -323,8 +326,17 @@ export async function createCapabilityPackageDraft(source: CapabilityPackagePriv
   }
   // Capture all dependencies before creating any draft bytes. All subsequent
   // writes use those immutable buffers rather than rereading mutable sources.
-  await writeCapturedInventory({ files, directories: [...directories].sort(), totalBytes }, draft.rootPath);
-  let inventory = await readExactPackageInventory(draft.rootPath);
+  await writeCapturedInventory({ files, directories: [...directories].sort(), totalBytes }, targetRoot);
+  return readExactPackageInventory(targetRoot);
+}
+
+export async function createCapabilityPackageDraft(source: CapabilityPackagePrivateLocation,
+  draft: CapabilityPackageDraftLocation,
+  options: { expectedSourceChecksum?: string; bundledReferences?: readonly {
+    source: CapabilityPackagePrivateLocation; relativeTargetRoot: string; checksum: string;
+  }[] } = {}): Promise<ExactCapabilityPackageInventory> {
+  assertDraftLocation(draft);
+  let inventory = await copyCapabilityPackageSourceWithReferences(source, draft.rootPath, options);
   if (source.name !== draft.name) {
     const relative = draft.kind === 'plugin' ? '.canvas-plugin/plugin.json' : 'SKILL.md';
     const file = inventory.files.find(entry => entry.path === relative);
@@ -482,18 +494,40 @@ export async function preparePublishedSnapshot(draft: CapabilityPackageDraftLoca
   identity: CapabilityPackageRevisionIdentity & { owner: CapabilityResourceOwnerScope },
   validation: CapabilityPackageValidation): Promise<CapabilityPackagePreparedSnapshot> {
   assertDraftLocation(draft);
+  return prepareExactPublishedSnapshot(draft.rootPath, identity, validation);
+}
+
+async function prepareExactPublishedSnapshot(sourceRoot: string,
+  identity: CapabilityPackageRevisionIdentity & { owner: CapabilityResourceOwnerScope },
+  validation: CapabilityPackageValidation): Promise<CapabilityPackagePreparedSnapshot> {
   if (identity.owner.type === 'system') throw new CapabilityPackageError('PACKAGE_READ_ONLY', 'Bundled packages cannot be published in place.', 403);
   if (!validation.valid || validation.name !== identity.name || validation.kind !== identity.kind || validation.version !== identity.version
     || validation.checksum !== identity.checksum) throw new CapabilityPackageError('PACKAGE_INVALID', 'The validated package identity changed.', 409);
   const location: CapabilityPackagePublishedLocation = { ...identity,
     rootPath: resolveOwnerScopedPackageVersionPath(identity) };
-  const inventory = await copyExactPackage(draft.rootPath, location.rootPath);
+  const inventory = await copyExactPackage(sourceRoot, location.rootPath);
   if (inventory.checksum !== identity.checksum) throw new CapabilityPackageError('PACKAGE_SOURCE_CHANGED', 'The draft changed after validation.', 409);
   const marker: CapabilityPackageSnapshotMarker = { contractVersion: CAPABILITY_PACKAGE_CONTRACT_VERSION,
     resourceRef: identity.resourceRef, revisionRef: identity.revisionRef, checksum: identity.checksum };
   await fs.writeFile(markerPath(location), `${JSON.stringify(marker)}\n`, { encoding: 'utf8', flag: 'wx', mode: 0o400 });
   await sealPackageDirectory(location.rootPath, inventory);
   return { location, marker, validation };
+}
+
+/** Store publication supplies its source only through a held, private preparation context. */
+export async function prepareHeldStorePackageSnapshot(
+  authorization: import('./contracts').AuthorizedCapabilityPackageResource,
+  identity: CapabilityPackageRevisionIdentity & { owner: CapabilityResourceOwnerScope },
+  validation: CapabilityPackageValidation, database: import('@/app/lib/db').SqlConnection,
+): Promise<CapabilityPackagePreparedSnapshot> {
+  const { getHeldCapabilityStorePublicationSource } = await import('./store');
+  const source = getHeldCapabilityStorePublicationSource(authorization, database, identity.revisionRef);
+  if (identity.resourceRef !== authorization.record.metadata.resourceRef || identity.kind !== authorization.record.storage.resourceType
+    || identity.name !== authorization.record.storage.name || identity.checksum !== source.checksum
+    || JSON.stringify(identity.owner) !== JSON.stringify(authorization.record.metadata.ownership)) {
+    throw new CapabilityPackageError('PACKAGE_ACCESS_DENIED', 'The Store snapshot is not bound to this publication.', 403);
+  }
+  return prepareExactPublishedSnapshot(source.rootPath, identity, validation);
 }
 
 export async function verifyCapabilityPackageSnapshot(location: CapabilityPackagePublishedLocation,

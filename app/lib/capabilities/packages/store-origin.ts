@@ -134,3 +134,20 @@ export function compareCapabilityStoreVersions(left: string, right: string): -1 
   }
   return 0;
 }
+
+/** Rebind a verified import after trusted normalization, retaining the upstream bytes' identity. */
+export async function rebaseIssuedCapabilityStoreOrigin(value: CapabilityStoreOrigin,
+  input: {resourceId: string; packageRoot: string}): Promise<CapabilityStoreOrigin> {
+  const original = normalizeCapabilityStoreOrigin(value);
+  if (!original || !isIssuedCapabilityStoreOrigin(value, original.resourceId)
+    || original.relation !== 'installed' || original.componentPath !== undefined) {
+    throw new Error('A verified Store import is required.');
+  }
+  const { readExactPackageInventory } = await import('./io');
+  const inventory = await readExactPackageInventory(input.packageRoot);
+  const next = normalizeCapabilityStoreOrigin({ ...original, resourceId: input.resourceId,
+    baselineChecksum: inventory.checksum }, input.resourceId);
+  if (!next) throw new Error('The verified store origin is invalid.');
+  issued.add(next);
+  return Object.freeze(next);
+}

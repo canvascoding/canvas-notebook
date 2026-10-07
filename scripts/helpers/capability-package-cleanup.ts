@@ -18,6 +18,8 @@ async function main() {
   for(const name of receipt.names) assert.match(name,new RegExp(`^package-editor-qa-(?:org-|team-)?${receipt.nonce}$`,'u'));
   assert(Array.isArray(receipt.resourceRevisions)&&receipt.resourceRevisions.length<=receipt.names.length);
   if(receipt.sourceResourceRef)assert.match(receipt.sourceResourceRef,/^canvas-resource:[a-f0-9-]{36}$/u);
+  if(receipt.initialManaged!==undefined)assert.equal(typeof receipt.initialManaged,'boolean');
+  if(receipt.initialManaged){assert(receipt.sourceResourceRef);assert(receipt.publications.some(version=>version.resourceRef===receipt.sourceResourceRef&&version.checksum===receipt.initialChecksum&&version.version===receipt.initialVersion));}
   for(const revision of receipt.resourceRevisions){assert.match(revision.resourceRef,/^canvas-resource:[a-f0-9-]{36}$/u);assert.equal(revision.metadataRevision,1);assert([1,2,3,4,5].includes(revision.grantsRevision));if(revision.grantsRevision!==1)assert.equal(revision.resourceRef,receipt.sourceResourceRef,'Only the exact receipted source may contain the two grant/revoke rounds (revisions2–5).');}
   assert.equal(new Set(receipt.resourceRevisions.map(value=>value.resourceRef)).size,receipt.resourceRevisions.length);
   assert(receipt.names.includes(receipt.sourceName));assert(receipt.actorIds.includes(receipt.adminId));assert(receipt.actorIds.length<=2);
@@ -109,9 +111,14 @@ async function main() {
       delete plugins.plugins[name];
     }
     const legacyRoot=path.join(resolveScopedInstalledPluginsDir(scope),receipt.sourceName,receipt.initialVersion);
-    await safeDirectory(legacyRoot);assert.equal((await readExactPackageInventory(legacyRoot)).checksum,receipt.initialChecksum);
-    await safeDirectory(path.dirname(legacyRoot));await assertExactCleanupChildren(path.dirname(legacyRoot),[receipt.initialVersion]);removals.add(legacyRoot);
-    endChecks.push(async()=>{await safeDirectory(legacyRoot);await assertExactCleanupChildren(path.dirname(legacyRoot),[receipt.initialVersion]);assert.equal((await readExactPackageInventory(legacyRoot)).checksum,receipt.initialChecksum);});
+    if(receipt.initialManaged){
+      assert.equal(await fs.lstat(path.dirname(legacyRoot)).catch(error=>{if(error.code==='ENOENT')return null;throw error;}),null,'An initially managed fixture must not remove a legacy directory.');
+      endChecks.push(async()=>assert.equal(await fs.lstat(path.dirname(legacyRoot)).catch(error=>{if(error.code==='ENOENT')return null;throw error;}),null));
+    }else{
+      await safeDirectory(legacyRoot);assert.equal((await readExactPackageInventory(legacyRoot)).checksum,receipt.initialChecksum);
+      await safeDirectory(path.dirname(legacyRoot));await assertExactCleanupChildren(path.dirname(legacyRoot),[receipt.initialVersion]);removals.add(legacyRoot);
+      endChecks.push(async()=>{await safeDirectory(legacyRoot);await assertExactCleanupChildren(path.dirname(legacyRoot),[receipt.initialVersion]);assert.equal((await readExactPackageInventory(legacyRoot)).checksum,receipt.initialChecksum);});
+    }
     if(!current.some(row=>row.artifact_name===receipt.sourceName)){const pointer=plugins.plugins[receipt.sourceName];assert(pointer&&!pointer.packageManaged);assert.equal(pointer.checksum,receipt.initialChecksum);delete plugins.plugins[receipt.sourceName];}
     for(const [name,record]of Object.entries(skills?.skills??{})){
       if(record.sourceType!=='plugin'||!receipt.names.includes(String(record.sourcePluginName)))continue;
@@ -145,7 +152,7 @@ async function main() {
   const unlock=async(directory:string):Promise<void>=>{const stat=await fs.lstat(directory);assert(!stat.isSymbolicLink());if(stat.isDirectory()){await fs.chmod(directory,0o700);for(const name of await fs.readdir(directory))await unlock(path.join(directory,name));}};
   for(const directory of removals){await safeDirectory(directory);await unlock(directory);await fs.rm(directory,{recursive:true});}
   const legacyParent=path.join(resolveScopedInstalledPluginsDir(scope),receipt.sourceName);
-  await safeDirectory(legacyParent);if((await fs.readdir(legacyParent)).length===0)await fs.rmdir(legacyParent);
+  if(!receipt.initialManaged){await safeDirectory(legacyParent);if((await fs.readdir(legacyParent)).length===0)await fs.rmdir(legacyParent);}
   assert.equal((await readExactPackageInventory(receipt.sourceDirectory)).checksum,receipt.initialChecksum);await fs.rm(receipt.sourceDirectory,{recursive:true});
   }});
   const final=await openDb();try{assert.equal((await final.get('SELECT COUNT(*)::integer AS count FROM capability_resources WHERE artifact_name=ANY($1::text[])',[receipt.names]) as {count:number}).count,0);assert.equal((await final.get('SELECT COUNT(*)::integer AS count FROM capability_package_drafts WHERE name=ANY($1::text[])',[receipt.names]) as {count:number}).count,0);}finally{await final.close();}

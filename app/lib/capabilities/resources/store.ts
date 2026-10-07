@@ -496,14 +496,17 @@ export async function withAuthorizedCapabilityPackageTarget<T>(
   }
   const execute = async (database:SqlConnection):Promise<T> => {
     let auth = await authority(database, actor, true);
+    const entry: CapabilityResourceRecord = { metadata: { ...baseline(storage), ownership, accessMode: 'restricted' }, storage };
+    if (!(await accessOnConnection(database, actor, entry, auth)).canManage) {
+      throw new CapabilityPackageError('PACKAGE_ACCESS_DENIED', 'Target management permission is required.', 403);
+    }
     await database.get('SELECT pg_advisory_xact_lock(hashtextextended($1,0))', [`capability-resource:${storage.resourceId}`]);
-    if (await findStorage(database, storage, true)) throw new CapabilityPackageError('PACKAGE_NAMESPACE_CONFLICT', 'The target resource already exists.', 409);
     await lockActorWorkspaceAuthority(database, auth, ownership);
     await lockOwnership(database, ownership, auth);
     auth = await authority(database, actor, true);
-    const entry: CapabilityResourceRecord = { metadata: { ...baseline(storage), ownership, accessMode: 'restricted' }, storage };
     const access = await accessOnConnection(database, actor, entry, auth);
     if (!access.canManage) throw new CapabilityPackageError('PACKAGE_ACCESS_DENIED', 'Target management permission is required.', 403);
+    if (await findStorage(database, storage, true)) throw new CapabilityPackageError('PACKAGE_NAMESPACE_CONFLICT', 'The target resource already exists.', 409);
     const receipt: AuthorizedCapabilityPackageResource = Object.freeze({ actor: Object.freeze({ ...actor }),
       record: Object.freeze({ metadata: Object.freeze({ ...entry.metadata, ownership: Object.freeze({ ...ownership }) }), storage: Object.freeze({ ...storage }) }),
       access: Object.freeze({ ...access }), operation: 'publish' });
@@ -522,6 +525,7 @@ export async function authorizeCapabilityPackageTarget(
 /** Internal publication primitive. Its receipt and connection must come from the same held transaction. */
 export async function createCapabilityPackageTargetOnConnection(
   authorization: AuthorizedCapabilityPackageResource, resourceRef: string, database: SqlConnection,
+  options: { grants?: CapabilityResourceGrantInput[]; responsibleUserId?: string | null; preserveBaselineAccessMode?: boolean } = {},
 ): Promise<CapabilityResourceRecord> {
   if (!isHeldCapabilityPackageResource(authorization, database) || !authorization.access.canManage
     || authorization.record.metadata.metadataRevision !== 0 || !/^canvas-resource:[0-9a-f-]{36}$/u.test(resourceRef)) {
@@ -529,14 +533,25 @@ export async function createCapabilityPackageTargetOnConnection(
   }
   const { storage, metadata } = authorization.record, ownership = metadata.ownership;
   if (await findStorage(database, storage, true)) throw new CapabilityPackageError('PACKAGE_NAMESPACE_CONFLICT', 'The target resource already exists.', 409);
+  const desiredGrants = grantsSnapshot(options.grants ?? []);
+  const responsibleUserId = options.responsibleUserId == null ? null : text(options.responsibleUserId, 'Responsible user', 200);
+  const currentAuthority = await authority(database, authorization.actor, true);
+  for (const grant of desiredGrants) await validateTarget(database, orgOf(ownership), grant);
+  if (responsibleUserId) {
+    if (orgOf(ownership)) await validateTarget(database, orgOf(ownership), { targetType: 'user', targetId: responsibleUserId });
+    else if (ownership.type !== 'user' || responsibleUserId !== ownership.ownerUserId) error('RESOURCE_TARGET_INVALID', 'Responsible user is outside the resource scope.');
+  }
+  await lockCapabilityScopeWorkspaceAuthority(database, currentAuthority, ownership, desiredGrants);
+  const accessMode = options.preserveBaselineAccessMode ? metadata.accessMode : 'restricted';
   const now = Date.now();
   await database.run(`INSERT INTO capability_resources (resource_ref,storage_binding_key,legacy_resource_id,resource_type,source_type,source_plugin_id,artifact_name,
     storage_scope_type,storage_organization_id,storage_owner_user_id,ownership_type,organization_id,owner_user_id,team_workspace_id,
     display_name,description,responsible_user_id,created_by_user_id,updated_by_user_id,metadata_revision,grants_revision,access_mode,status,created_at,updated_at)
-    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,NULL,NULL,NULL,$15,$15,1,1,'restricted','active',$16,$16)`,
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,NULL,NULL,$17,$15,$15,1,1,$18,'active',$16,$16)`,
   [resourceRef, storageKey(storage), storage.resourceId, storage.resourceType, storage.sourceType, storage.sourcePluginId, storage.name,
     storage.scopeType, storage.organizationId, storage.ownerUserId, ownership.type, orgOf(ownership), ownership.type === 'user' ? ownership.ownerUserId : null,
-    ownership.type === 'team' ? ownership.workspaceId : null, authorization.actor.userId, now]);
+    ownership.type === 'team' ? ownership.workspaceId : null, authorization.actor.userId, now, responsibleUserId, accessMode]);
+  await replaceGrants(database, resourceRef, authorization.actor.userId, desiredGrants, now);
   await history(database, resourceRef, authorization.actor, 'adopt', 1, 1, now);
   return (await findOnConnection(database, resourceRef))!;
 }

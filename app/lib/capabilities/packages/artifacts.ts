@@ -56,16 +56,40 @@ function storage(candidate: CapabilityCandidate): CapabilityResourceStorageBindi
     sourceType: ref.sourceType, organizationId: ref.organizationId, ownerUserId: ref.ownerUserId, sourcePluginId: ref.sourcePluginId };
 }
 
+async function readExactPackagePlugin(actor: CapabilityResourceActor, candidate: CapabilityCandidate,
+  candidates: readonly CapabilityCandidate[]) {
+  const { assertReadableCapabilityCandidate } = await import('@/app/lib/capabilities/resources/read');
+  const { readExactInstalledPlugin } = await import('@/app/lib/plugins/installed-plugin-read');
+  await assertReadableCapabilityCandidate(actor, candidate, candidates);
+  const plugin = await readExactInstalledPlugin({ name: candidate.ref.name, resourceId: candidate.ref.resourceId,
+    scope: candidate.ref.scopeType === 'organization'
+      ? { scopeType: 'organization', organizationId: candidate.ref.organizationId! }
+      : { scopeType: 'user', userId: candidate.ref.scopeType === 'system' ? actor.userId : candidate.ref.ownerUserId! } });
+  if (!plugin) throw new CapabilityPackageError('PACKAGE_NOT_FOUND', 'The package was not found.', 404);
+  await assertReadableCapabilityCandidate(actor, candidate, candidates);
+  return plugin;
+}
+
 export async function resolveCapabilityPackageArtifact(actor: CapabilityResourceActor, resourceRef: string): Promise<ResolvedCapabilityPackageArtifact> {
   const { inspectCapabilityResource } = await import('@/app/lib/capabilities/resources/actions');
-  const { assertReadableCapabilityCandidate, readReadableCapabilityPlugin, resolveReadableCapabilityCandidate } = await import('@/app/lib/capabilities/resources/read');
+  const { assertReadableCapabilityCandidate, loadCapabilityCandidatesForResourceActor } = await import('@/app/lib/capabilities/resources/read');
   const descriptor = await inspectCapabilityResource(actor, resourceRef);
   if (!descriptor.access.canRead) throw new CapabilityPackageError('PACKAGE_NOT_FOUND', 'The package was not found.', 404);
-  const input = { resourceId: descriptor.metadata.resourceRef,
-    ...(descriptor.artifact.scopeType === 'organization' ? { scope: 'organization' as const } : {}) };
-  const pluginResult = descriptor.artifact.resourceType === 'plugin' ? await readReadableCapabilityPlugin(actor, input) : null;
-  const resolved = pluginResult || await resolveReadableCapabilityCandidate(actor, { ...input, resourceType: 'skill' });
-  const candidate = resolved.candidate;
+  // Explicit package references select an instance, including readable shadowed variants.
+  // Runtime name selection is deliberately independent from this management read.
+  const candidates = await loadCapabilityCandidatesForResourceActor(actor);
+  const matching = candidates.filter(candidate => candidate.ref.resourceType === descriptor.artifact.resourceType
+    && ['plugin', 'skill'].includes(candidate.ref.resourceType)
+    && candidate.ref.resourceId === descriptor.artifact.resourceId && candidate.resourceAccess?.canRead !== false);
+  if (matching.length !== 1) throw new CapabilityPackageError('PACKAGE_NOT_FOUND', 'The package was not found.', 404);
+  const candidate = matching[0];
+  await assertReadableCapabilityCandidate(actor, candidate, candidates);
+  const resolved = { candidate, candidates };
+  let pluginResult = null;
+  if (candidate.ref.resourceType === 'plugin') {
+    const plugin = await readExactPackagePlugin(actor, candidate, candidates);
+    pluginResult = { ...resolved, plugin };
+  }
   let defaultEnabled = pluginResult?.plugin.enabled ?? true;
   let storedOrigin = pluginResult?.plugin.storeOrigin;
   if (candidate.ref.resourceType === 'skill' && candidate.ref.sourceType === 'standalone' && candidate.ref.scopeType !== 'system') {
@@ -112,8 +136,7 @@ export async function resolveCapabilityPackageArtifact(actor: CapabilityResource
   if (candidate.ref.sourceType === 'plugin') {
     const parent = resolved.candidates.find(value => value.ref.resourceType === 'plugin' && value.ref.resourceId === candidate.ref.sourcePluginId);
     if (!parent) throw new CapabilityPackageError('PACKAGE_SOURCE_CHANGED', 'The containing plugin is unavailable.', 409);
-    const parentResolved = await readReadableCapabilityPlugin(actor, { resourceId: parent.ref.resourceId,
-      ...(parent.ref.scopeType === 'organization' ? { scope: 'organization' as const } : {}) });
+    const parentResolved = { plugin: await readExactPackagePlugin(actor, parent, candidates) };
     defaultEnabled = parentResolved.plugin.enabled;
     const parentMetadata = parent.resourceMetadata || (await inspectCapabilityResource(actor, parent.ref.resourceId)).metadata;
     const relativeRoot = path.relative(parentResolved.plugin.installDir, packageRoot).split(path.sep).join('/');

@@ -5,7 +5,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { openDb, type SqlConnection } from '@/app/lib/db';
 import {resolveOrganizationDataRoot,resolveUserDataRoot} from '@/app/lib/runtime-data-paths';
-import type { CapabilityResourceActor, CapabilityResourceOwnerScope, CapabilityResourceStorageBinding } from '../resources/contracts';
+import type { CapabilityResourceActor, CapabilityResourceOwnerScope, CapabilityResourceStorageBinding, CapabilityResourceGrantInput } from '../resources/contracts';
 import { authority } from '../scope-authority';
 import { createCapabilityPackageTargetOnConnection, isAuthorizedCapabilityPackageResource, isHeldCapabilityPackageResource,
   withAuthorizedCapabilityPackageResource, withAuthorizedCapabilityPackageTarget } from '../resources/store';
@@ -16,6 +16,9 @@ import { CAPABILITY_PACKAGE_CONTRACT_VERSION, CAPABILITY_PACKAGE_LIMITS, CAPABIL
   type CapabilityPackageState, type CapabilityPackagePublishedSummary, type CapabilityPackageOwnedDraftStatus,
   type CapabilityPackageOwnedDraftList, type CapabilityPackageOwnedDraftListQuery } from './contracts';
 import { deriveCapabilityStoreOrigin, normalizeCapabilityStoreOrigin, sameCapabilityStoreOrigin, type CapabilityStoreOrigin } from './store-origin';
+import { assertPreparedCapabilityStorePackage, getPreparedCapabilityStorePackage, type PreparedCapabilityStorePackage } from './store-source';
+import type { CapabilityPackageStoreUpdateRequest } from './store-contracts';
+import { readHeldLegacyCapabilityStoreHistory, type PreparedLegacyCapabilityStoreHistory } from './legacy-store-source';
 
 type Row = Record<string, unknown>;
 export type CapabilityPackageDraftRecord = { draft: CapabilityPackageDraft; targetStorage: CapabilityResourceStorageBinding;
@@ -27,7 +30,8 @@ type Publication = { authorization: AuthorizedCapabilityPackageResource; binding
 const publicationKey = Symbol.for('canvas.capability.package-publication.v1');
 const publicationGlobal = globalThis as typeof globalThis & { [publicationKey]?: AsyncLocalStorage<Publication> };
 const publications = publicationGlobal[publicationKey] ??= new AsyncLocalStorage<Publication>();
-type OriginPreparation = { authorization: AuthorizedCapabilityPackageResource; database: SqlConnection; revisionRef: string; expectedOrigin?: CapabilityStoreOrigin };
+type OriginPreparation = { authorization: AuthorizedCapabilityPackageResource; database: SqlConnection; revisionRef: string; expectedOrigin?: CapabilityStoreOrigin;
+  source?: { rootPath: string; checksum: string } };
 const originPreparationKey = Symbol.for('canvas.capability.package-origin-preparation.v1');
 const originPreparationGlobal = globalThis as typeof globalThis & { [originPreparationKey]?: AsyncLocalStorage<OriginPreparation> };
 const originPreparations = originPreparationGlobal[originPreparationKey] ??= new AsyncLocalStorage<OriginPreparation>();
@@ -511,31 +515,10 @@ export async function publishCapabilityPackageDraft(actorInput: CapabilityResour
       const heldDraft = Object.freeze(structuredClone(draft));
       const prepared = await originPreparations.run({ authorization, expectedOrigin, database, revisionRef },
         () => callback({authorization,draft:heldDraft,state,revisionRef},database));
-      const { snapshot } = prepared, validation = snapshot.validation, sourceStamp = stampSnapshot(prepared.sourceStamp);
-      if (!validation.valid || validation.kind !== draft.kind || validation.name !== draft.name || !validation.version || !validation.checksum
-        || snapshot.location.resourceRef !== draft.resourceRef || snapshot.location.revisionRef !== revisionRef || snapshot.location.name !== draft.name
-        || snapshot.location.kind !== draft.kind || snapshot.location.version !== validation.version || snapshot.location.checksum !== validation.checksum
-        || snapshot.marker.contractVersion !== CAPABILITY_PACKAGE_CONTRACT_VERSION || snapshot.marker.resourceRef !== draft.resourceRef || snapshot.marker.revisionRef !== revisionRef
-        || snapshot.marker.checksum !== validation.checksum || sourceStamp.resourceId !== authorization.record.storage.resourceId || sourceStamp.kind !== draft.kind
-        || sourceStamp.name !== draft.name || sourceStamp.version !== validation.version || sourceStamp.checksum !== validation.checksum
-        || sourceStamp.registryChecksum !== validation.checksum || !sameCapabilityStoreOrigin(sourceStamp.storeOrigin, expectedOrigin)
-        || validation.files.length > CAPABILITY_PACKAGE_LIMITS.maxFiles
-        || validation.totalBytes > CAPABILITY_PACKAGE_LIMITS.maxTotalBytes) fail('PACKAGE_INVALID','The prepared snapshot does not match this publication.');
-      const now = Date.now();
-      const published: CapabilityPackagePublishedRevision = { contractVersion: CAPABILITY_PACKAGE_CONTRACT_VERSION,resourceRef:draft.resourceRef,revisionRef,
-        kind:draft.kind,name:draft.name,version:validation.version,checksum:validation.checksum,files:structuredClone(validation.files),totalBytes:validation.totalBytes,
-        publishedByUserId:actor.userId,publishedAt:now,baseRevisionRef:state?.currentPublishedRevisionRef ?? null,
-        sourceResourceRef:draft.sourceResourceRef,sourceRevisionRef:draft.sourcePublishedRevisionRef,sourceChecksum:draft.baseSourceStamp.checksum,sourceStamp:structuredClone(draft.baseSourceStamp) };
-      await database.run(`INSERT INTO capability_package_versions (revision_ref,resource_ref,kind,name,version,checksum,files,total_bytes,published_by_user_id,published_at,base_revision_ref,source_resource_ref,source_revision_ref,source_checksum,source_stamp)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,[revisionRef,draft.resourceRef,draft.kind,draft.name,published.version,published.checksum,JSON.stringify(published.files),published.totalBytes,actor.userId,now,published.baseRevisionRef,published.sourceResourceRef,published.sourceRevisionRef,published.sourceChecksum,JSON.stringify(published.sourceStamp)]);
-      const next: CapabilityPackageState = {contractVersion:CAPABILITY_PACKAGE_CONTRACT_VERSION,resourceRef:draft.resourceRef,kind:draft.kind,name:draft.name,
-        packageRevision:(state?.packageRevision ?? 0)+1,currentPublishedRevisionRef:revisionRef,currentSourceStamp:sourceStamp,updatedByUserId:actor.userId,updatedAt:now};
-      await database.run(`INSERT INTO capability_package_states (resource_ref,kind,name,package_revision,current_published_revision_ref,current_source_stamp,updated_by_user_id,updated_at)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT (resource_ref) DO UPDATE SET package_revision=EXCLUDED.package_revision,
-        current_published_revision_ref=EXCLUDED.current_published_revision_ref,current_source_stamp=EXCLUDED.current_source_stamp,updated_by_user_id=EXCLUDED.updated_by_user_id,updated_at=EXCLUDED.updated_at`,
-      [next.resourceRef,next.kind,next.name,next.packageRevision,revisionRef,JSON.stringify(sourceStamp),actor.userId,now]);
+      const result = await commitCapabilityPackagePublication(authorization, database, state, revisionRef, prepared, expectedOrigin,
+        { resourceRef: draft.sourceResourceRef, revisionRef: draft.sourcePublishedRevisionRef, stamp: draft.baseSourceStamp });
       await database.run('DELETE FROM capability_package_drafts WHERE draft_ref=$1 AND actor_user_id=$2',[draft.draftRef,actor.userId]);
-      return {state:next,published};
+      return result;
     };
     if (draft.operation === 'fork') {
       const created = await createCapabilityPackageTargetOnConnection(initial,draft.resourceRef,database);
@@ -546,5 +529,140 @@ export async function publishCapabilityPackageDraft(actorInput: CapabilityResour
       return withAuthorizedCapabilityPackageResource(actor,created.storage,'publish',expected,publish,{database});
     }
     return withAuthorizedCapabilityPackageResource(actor,stored.targetStorage,'publish',request,publish,{database});
+  });
+}
+
+async function commitCapabilityPackagePublication(authorization: AuthorizedCapabilityPackageResource, database: SqlConnection,
+  state: CapabilityPackageState | null, revisionRef: string, prepared: CapabilityPackagePublicationResult,
+  expectedOrigin: CapabilityStoreOrigin | undefined, provenance: { resourceRef: string; revisionRef: string | null; stamp: CapabilityPackageSourceStamp },
+): Promise<{ state: CapabilityPackageState; published: CapabilityPackagePublishedRevision }> {
+  if (!isHeldCapabilityPackageResource(authorization, database)) fail('PACKAGE_ACCESS_DENIED', 'A held publication is required.', 403);
+  const storage = authorization.record.storage, resourceRef = authorization.record.metadata.resourceRef;
+  const { snapshot } = prepared, validation = snapshot.validation, sourceStamp = stampSnapshot(prepared.sourceStamp);
+  if (!validation.valid || validation.kind !== storage.resourceType || validation.name !== storage.name || !validation.version || !validation.checksum
+    || snapshot.location.resourceRef !== resourceRef || snapshot.location.revisionRef !== revisionRef || snapshot.location.name !== storage.name
+    || snapshot.location.kind !== storage.resourceType || snapshot.location.version !== validation.version || snapshot.location.checksum !== validation.checksum
+    || snapshot.marker.contractVersion !== CAPABILITY_PACKAGE_CONTRACT_VERSION || snapshot.marker.resourceRef !== resourceRef || snapshot.marker.revisionRef !== revisionRef
+    || snapshot.marker.checksum !== validation.checksum || sourceStamp.resourceId !== authorization.record.storage.resourceId || sourceStamp.kind !== storage.resourceType
+    || sourceStamp.name !== storage.name || sourceStamp.version !== validation.version || sourceStamp.checksum !== validation.checksum
+    || sourceStamp.registryChecksum !== validation.checksum || !sameCapabilityStoreOrigin(sourceStamp.storeOrigin, expectedOrigin)
+    || validation.files.length > CAPABILITY_PACKAGE_LIMITS.maxFiles
+    || validation.totalBytes > CAPABILITY_PACKAGE_LIMITS.maxTotalBytes) fail('PACKAGE_INVALID','The prepared snapshot does not match this publication.');
+  const now = Date.now();
+  const published: CapabilityPackagePublishedRevision = { contractVersion: CAPABILITY_PACKAGE_CONTRACT_VERSION,resourceRef:resourceRef,revisionRef,
+    kind:storage.resourceType,name:storage.name,version:validation.version,checksum:validation.checksum,files:structuredClone(validation.files),totalBytes:validation.totalBytes,
+    publishedByUserId:authorization.actor.userId,publishedAt:now,baseRevisionRef:state?.currentPublishedRevisionRef ?? null,
+    sourceResourceRef:provenance.resourceRef,sourceRevisionRef:provenance.revisionRef,sourceChecksum:provenance.stamp.checksum,sourceStamp:structuredClone(provenance.stamp) };
+  await database.run(`INSERT INTO capability_package_versions (revision_ref,resource_ref,kind,name,version,checksum,files,total_bytes,published_by_user_id,published_at,base_revision_ref,source_resource_ref,source_revision_ref,source_checksum,source_stamp)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,[revisionRef,resourceRef,storage.resourceType,storage.name,published.version,published.checksum,JSON.stringify(published.files),published.totalBytes,authorization.actor.userId,now,published.baseRevisionRef,published.sourceResourceRef,published.sourceRevisionRef,published.sourceChecksum,JSON.stringify(published.sourceStamp)]);
+  const next: CapabilityPackageState = {contractVersion:CAPABILITY_PACKAGE_CONTRACT_VERSION,resourceRef:resourceRef,kind:storage.resourceType,name:storage.name,
+    packageRevision:(state?.packageRevision ?? 0)+1,currentPublishedRevisionRef:revisionRef,currentSourceStamp:sourceStamp,updatedByUserId:authorization.actor.userId,updatedAt:now};
+  await database.run(`INSERT INTO capability_package_states (resource_ref,kind,name,package_revision,current_published_revision_ref,current_source_stamp,updated_by_user_id,updated_at)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT (resource_ref) DO UPDATE SET package_revision=EXCLUDED.package_revision,
+    current_published_revision_ref=EXCLUDED.current_published_revision_ref,current_source_stamp=EXCLUDED.current_source_stamp,updated_by_user_id=EXCLUDED.updated_by_user_id,updated_at=EXCLUDED.updated_at`,
+  [next.resourceRef,next.kind,next.name,next.packageRevision,revisionRef,JSON.stringify(sourceStamp),authorization.actor.userId,now]);
+  return { state: next, published };
+}
+
+export type CapabilityStorePublicationContext = {
+  authorization: AuthorizedCapabilityPackageResource; state: CapabilityPackageState | null; revisionRef: string;
+  version: string; checksum: string; storeOrigin: CapabilityStoreOrigin; legacyHistory: boolean; newResource: boolean;
+  validation?: import('./contracts').CapabilityPackageValidation;
+};
+export type CapabilityStorePublicationInput = {
+  storage: CapabilityResourceStorageBinding; prepared: PreparedCapabilityStorePackage;
+} & ({ operation: 'install'; ownership: Exclude<CapabilityResourceOwnerScope, { type: 'system' }>;
+  resourceRef: string; grants: CapabilityResourceGrantInput[]; responsibleUserId?: string | null;
+} | { operation: 'update'; resourceRef: string; request: CapabilityPackageStoreUpdateRequest;
+  currentSource: { rootPath: string; stamp: CapabilityPackageSourceStamp }; legacyHistory?: PreparedLegacyCapabilityStoreHistory; });
+
+/** IO cannot accept a caller's source path: the exact source belongs to this held SQL preparation. */
+export function getHeldCapabilityStorePublicationSource(authorization: AuthorizedCapabilityPackageResource,
+  database: SqlConnection, revisionRef: string): Readonly<{ rootPath: string; checksum: string }> {
+  const current = originPreparations.getStore();
+  if (!current || !current.source || current.authorization !== authorization || current.database !== database
+    || current.revisionRef !== revisionRef || !isHeldCapabilityPackageResource(authorization, database)) {
+    fail('PACKAGE_ACCESS_DENIED', 'A held Store publication source is required.', 403);
+  }
+  return Object.freeze({ ...current.source });
+}
+
+/** Current authority and all content/permission revisions remain held through the immutable publication. */
+export async function publishCapabilityPackageFromStore(actorInput: CapabilityResourceActor, input: CapabilityStorePublicationInput,
+  callback: (context: CapabilityStorePublicationContext, database: SqlConnection) => Promise<CapabilityPackagePublicationResult>,
+): Promise<{ state: CapabilityPackageState; published: CapabilityPackagePublishedRevision }> {
+  const actor = actorSnapshot(actorInput), storage = Object.freeze(structuredClone(input.storage));
+  const preparedSource = getPreparedCapabilityStorePackage(input.prepared);
+  if (storage.sourceType !== 'standalone' || storage.scopeType === 'system' || storage.sourcePluginId !== null
+    || preparedSource.resourceId !== storage.resourceId || preparedSource.kind !== storage.resourceType || preparedSource.entryKey !== storage.name) {
+    fail('PACKAGE_ACCESS_DENIED', 'The Store package is not bound to this target.', 403);
+  }
+  const captured = input.operation === 'install' ? { ...input, prepared: input.prepared,
+    ownership: structuredClone(input.ownership), grants: structuredClone(input.grants) }
+    : { ...input, prepared: input.prepared, request: structuredClone(input.request), currentSource: structuredClone(input.currentSource) };
+  const sourceOrigin = normalizeCapabilityStoreOrigin(preparedSource.storeOrigin, storage.resourceId);
+  if (!sourceOrigin) fail('PACKAGE_ACCESS_DENIED', 'The Store package origin is unavailable.', 403);
+  const publish = async (authorization: AuthorizedCapabilityPackageResource, database: SqlConnection) => {
+    if (!authorization.access.canManage || !authorization.access.canEdit) {
+      fail('PACKAGE_ACCESS_DENIED', 'Store publication requires both management and editing permission.', 403);
+    }
+    await assertPreparedCapabilityStorePackage(captured.prepared, { kind: preparedSource.kind, registryId: preparedSource.registryId,
+      entryKey: preparedSource.entryKey, version: preparedSource.version, checksum: preparedSource.upstreamChecksum,
+      resourceId: storage.resourceId }, { database });
+    let state = await getCapabilityPackageState(authorization.record.metadata.resourceRef, database);
+    if (captured.operation === 'update') {
+      assertHead(state, captured.request);
+      if (captured.currentSource.stamp.checksum !== captured.request.expectedLocalChecksum) {
+        fail('PACKAGE_SOURCE_CHANGED', 'The installed package changed after its update was reviewed.', 409);
+      }
+      const { readExactPackageInventory } = await import('./io');
+      if ((await readExactPackageInventory(captured.currentSource.rootPath)).checksum !== captured.request.expectedLocalChecksum) {
+        fail('PACKAGE_SOURCE_CHANGED', 'The installed package bytes changed after review.', 409);
+      }
+      // Default activation can advance the registry revision without changing immutable content.
+      assertCurrentSource(state, state ? { ...captured.currentSource.stamp,
+        artifactRevision: state.currentSourceStamp.artifactRevision } : captured.currentSource.stamp);
+    } else assertHead(state, { expectedPackageRevision: 0, expectedPublishedRevisionRef: null });
+    const prepare = async (rootPath: string, checksum: string, version: string, origin: CapabilityStoreOrigin,
+      legacyHistory: boolean, provenance: { resourceRef: string; revisionRef: string | null; stamp: CapabilityPackageSourceStamp },
+      validation?: import('./contracts').CapabilityPackageValidation) => {
+      const revisionRef = `canvas-package-revision:${randomUUID()}`;
+      const expectedOrigin = Object.freeze(origin);
+      const result = await originPreparations.run({ authorization, database, revisionRef, expectedOrigin,
+        source: Object.freeze({ rootPath, checksum }) }, () => callback({ authorization, state, revisionRef, version,
+        checksum, storeOrigin: expectedOrigin, legacyHistory, newResource: captured.operation === 'install', validation }, database));
+      return commitCapabilityPackagePublication(authorization, database, state, revisionRef, result, expectedOrigin, provenance);
+    };
+    if (captured.operation === 'update' && !state) {
+      const oldOrigin = normalizeCapabilityStoreOrigin(captured.currentSource.stamp.storeOrigin, storage.resourceId);
+      if (!oldOrigin || oldOrigin.relation !== 'installed') fail('PACKAGE_SOURCE_CHANGED', 'The current Store origin is not verifiable.', 409);
+      if (!captured.legacyHistory) fail('PACKAGE_ACCESS_DENIED', 'A verified legacy history capture is required.', 403);
+      const legacy = await readHeldLegacyCapabilityStoreHistory(captured.legacyHistory, authorization, database);
+      const historical = await prepare(legacy.rootPath, legacy.checksum,
+        captured.currentSource.stamp.version, oldOrigin, true, { resourceRef: authorization.record.metadata.resourceRef,
+          revisionRef: null, stamp: captured.currentSource.stamp }, legacy.validation);
+      state = historical.state;
+    }
+    const upstreamStamp: CapabilityPackageSourceStamp = { resourceId: storage.resourceId, kind: storage.resourceType,
+      name: storage.name, version: preparedSource.version, artifactRevision: null, registryChecksum: preparedSource.upstreamChecksum,
+      checksum: preparedSource.baselineChecksum, sourcePluginId: null, storeOrigin: sourceOrigin };
+    return prepare(preparedSource.packageRoot, preparedSource.baselineChecksum, preparedSource.version, sourceOrigin, false,
+      { resourceRef: authorization.record.metadata.resourceRef, revisionRef: state?.currentPublishedRevisionRef ?? null,
+        stamp: captured.operation === 'update' ? state!.currentSourceStamp : upstreamStamp });
+  };
+  if (captured.operation === 'install') {
+    return withAuthorizedCapabilityPackageTarget(actor, storage, captured.ownership, async (initial, database) => {
+      await createCapabilityPackageTargetOnConnection(initial, captured.resourceRef, database,
+        { grants: captured.grants, responsibleUserId: captured.responsibleUserId });
+      return withAuthorizedCapabilityPackageResource(actor, storage, 'publish', { expectedMetadataRevision: 1, expectedGrantsRevision: 1 }, publish, { database });
+    });
+  }
+  return withAuthorizedCapabilityPackageResource(actor, storage, 'publish', captured.request, async (initial, database) => {
+    if (!initial.access.canManage || !initial.access.canEdit) fail('PACKAGE_ACCESS_DENIED', 'Store update requires management and editing permission.', 403);
+    if (initial.record.metadata.resourceRef !== captured.resourceRef) fail('PACKAGE_SOURCE_CHANGED', 'The selected installed resource changed.', 409);
+    if (initial.record.metadata.metadataRevision !== 0) return publish(initial, database);
+    const resourceRef = `canvas-resource:${randomUUID()}`;
+    await createCapabilityPackageTargetOnConnection(initial, resourceRef, database, { preserveBaselineAccessMode: true });
+    return withAuthorizedCapabilityPackageResource(actor, storage, 'publish', { expectedMetadataRevision: 1, expectedGrantsRevision: 1 }, publish, { database });
   });
 }
