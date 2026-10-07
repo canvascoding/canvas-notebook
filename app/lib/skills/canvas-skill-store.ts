@@ -42,6 +42,8 @@ import { adoptLegacyStandaloneSkillsForScope } from '@/app/lib/skills/legacy-ski
 import { readEnabledSkillsForScope, writeEnabledSkillsForScope } from '@/app/lib/skills/skill-settings';
 import { assertPersonalSkillActivationAllowed, PersonalSkillActivationError, readProtectedPersonalSkillNamespace } from '@/app/lib/skills/personal-skill-activation';
 import { withCapabilityPackageRegistryLock } from '@/app/lib/capabilities/packages/artifacts';
+import type { CapabilityResourceActor } from '@/app/lib/capabilities/resources/contracts';
+import type { SafeActorSkillStoreResource } from './actor-skill-store-state';
 
 export const DEFAULT_CANVAS_SKILL_STORE_REGISTRY_URL =
   'https://raw.githubusercontent.com/canvascoding/canvas-notebook-plugin-marketplace/main/registry.json';
@@ -136,6 +138,9 @@ export interface CanvasSkillStoreInstalledState {
   restoreAvailable: boolean;
   installedSkill?: CanvasSkillInstallRecord;
   managedByOrganization?: boolean;
+  /** Present only on the actor-authorized projection. Each readable instance remains exact. */
+  resources?: SafeActorSkillStoreResource[];
+  comparison?: 'unknown';
 }
 
 export type CanvasSkillStoreSkillWithState = CanvasSkillStoreSkill & {
@@ -150,6 +155,7 @@ export interface CanvasSkillStoreListOptions {
   query?: string;
   state?: CanvasSkillStoreStateFilter;
   scope?: CanvasSkillStoreScope | null;
+  actor?: CapabilityResourceActor;
 }
 
 export interface CanvasSkillStorePagination {
@@ -174,6 +180,7 @@ export interface CanvasSkillStoreList {
   skills: CanvasSkillStoreSkillWithState[];
   pagination: CanvasSkillStorePagination;
   stats: CanvasSkillStoreStats;
+  comparison?: 'unknown';
 }
 
 export interface CanvasSkillStoreInstallResult {
@@ -703,8 +710,12 @@ async function addPageStateDetails(
 }
 
 export async function listCanvasSkillStore(options: CanvasSkillStoreListOptions = {}): Promise<CanvasSkillStoreList> {
+  const actor = options.actor ? { userId: options.actor.userId, workspaceId: options.actor.workspaceId ?? null } : undefined;
+  if (actor) await (await import('./actor-skill-store-state')).assertActorCanvasSkillStoreContext(actor);
   const registry = await readCanvasSkillStoreRegistry();
-  const enriched = await enrichStoreSkillsWithInstalledState(registry, options.scope);
+  const enriched = actor
+    ? await (await import('./actor-skill-store-state')).readActorCanvasSkillStoreState(registry, actor, options.scope)
+    : await enrichStoreSkillsWithInstalledState(registry, options.scope);
   const pageSize = clampPositiveInteger(options.pageSize, 12, 50);
   const page = clampPositiveInteger(options.page, 1, 100000);
   const state = options.state || 'all';
@@ -714,11 +725,13 @@ export async function listCanvasSkillStore(options: CanvasSkillStoreListOptions 
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const normalizedPage = Math.min(page, totalPages);
   const offset = (normalizedPage - 1) * pageSize;
-  const pageSkills = await Promise.all(filtered.slice(offset, offset + pageSize).map((skill) => addPageStateDetails(skill, options.scope)));
+  const pageSkills = actor ? filtered.slice(offset, offset + pageSize)
+    : await Promise.all(filtered.slice(offset, offset + pageSize).map((skill) => addPageStateDetails(skill, options.scope)));
 
   return {
     registry: enriched.registry,
     skills: pageSkills,
+    ...(actor ? { comparison: 'unknown' as const } : {}),
     pagination: {
       page: normalizedPage,
       pageSize,

@@ -336,6 +336,7 @@ type CanvasSkillStoreEntry = {
     modified: boolean;
     restoreAvailable: boolean;
     managedByOrganization?: boolean;
+    comparison?: 'unknown';
   };
 };
 
@@ -3006,6 +3007,7 @@ export function SkillsPanel({ canManageOrganizationCapabilities: initialCanManag
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [skillStoreSkills, setSkillStoreSkills] = useState<CanvasSkillStoreEntry[]>([]);
   const [skillStoreMetadata, setSkillStoreMetadata] = useState<CanvasSkillStoreMetadata | null>(null);
+  const [skillStoreComparison, setSkillStoreComparison] = useState<'unknown' | null>(null);
   const [skillStorePagination, setSkillStorePagination] = useState<CanvasSkillStorePagination>(EMPTY_SKILL_STORE_PAGINATION);
   const [skillStoreStats, setSkillStoreStats] = useState<CanvasSkillStoreStats>(EMPTY_SKILL_STORE_STATS);
   const [skillStorePage, setSkillStorePage] = useState(1);
@@ -3109,7 +3111,7 @@ export function SkillsPanel({ canManageOrganizationCapabilities: initialCanManag
       state: storeState,
       scope: managementScope,
     });
-
+    if (activeWorkspaceId) params.set('workspaceId', activeWorkspaceId);
     setSkillStoreLoading(true);
     setSkillStoreError(null);
     try {
@@ -3124,19 +3126,21 @@ export function SkillsPanel({ canManageOrganizationCapabilities: initialCanManag
       }
       setSkillStoreSkills(Array.isArray(data.skills) ? data.skills : []);
       setSkillStoreMetadata(data.registry || null);
+      setSkillStoreComparison(data.comparison === 'unknown' ? 'unknown' : null);
       setSkillStorePagination(data.pagination || EMPTY_SKILL_STORE_PAGINATION);
       setSkillStoreStats(data.stats || EMPTY_SKILL_STORE_STATS);
     } catch (error) {
       if (requestId !== skillStoreRequestRef.current) return;
       setSkillStoreSkills([]);
       setSkillStoreMetadata(null);
+      setSkillStoreComparison(null);
       setSkillStorePagination(EMPTY_SKILL_STORE_PAGINATION);
       setSkillStoreStats(EMPTY_SKILL_STORE_STATS);
       setSkillStoreError(error instanceof Error ? error.message : t('skillLibrary.errors.storeLoad'));
     } finally {
       if (requestId === skillStoreRequestRef.current) setSkillStoreLoading(false);
     }
-  }, [deferredSkillStoreQuery, managementScope, skillLibraryTab, skillStorePage, t]);
+  }, [activeWorkspaceId, deferredSkillStoreQuery, managementScope, skillLibraryTab, skillStorePage, t]);
 
   useEffect(() => {
     if (panelTab !== 'skills') return;
@@ -3596,6 +3600,7 @@ export function SkillsPanel({ canManageOrganizationCapabilities: initialCanManag
             </Button>
           </div>
         </div>
+        {isInstalled && skill.installed.comparison === 'unknown' ? <p className="mt-2 text-xs text-muted-foreground">{t('skillLibrary.comparisonUnknown')}</p> : null}
         {managedElsewhere ? <p className="mt-2 text-xs text-muted-foreground">{t('plugins.permissions.organizationPackage')}</p> : null}
       </div>
     );
@@ -4184,7 +4189,7 @@ export function SkillsPanel({ canManageOrganizationCapabilities: initialCanManag
                 </div>
               ) : skillStoreError ? null : skillStoreSkills.length === 0 ? (
                 <div className="rounded-lg border border-dashed px-4 py-6 text-sm text-muted-foreground">
-                  {t('skillLibrary.noUpdates')}
+                  {t(skillStoreComparison === 'unknown' ? 'skillLibrary.comparisonUnknown' : 'skillLibrary.noUpdates')}
                 </div>
               ) : (
                 <>

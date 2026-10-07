@@ -45,6 +45,7 @@ async function main() {
   let storeUnavailable = false;
   let skillsUnavailable = false;
   let skillStoreUnavailable = false;
+  let skillStoreComparisonUnknown = false;
   let organizationAllowed = false;
   let scopeFixtures = false;
   let studioBulkEnabled = false;
@@ -122,7 +123,7 @@ async function main() {
     }
     if (url.pathname === '/api/skills/store') return skillStoreUnavailable
       ? Response.json({ success: false, error: 'Skill catalog unavailable' }, { status: 503 })
-      : Response.json({ success: true, skills: [], stats: { updates: 0 } });
+      : Response.json({ success: true, skills: [], stats: { updates: 0 }, ...(skillStoreComparisonUnknown ? { comparison: 'unknown' } : {}) });
     if (url.pathname === '/api/skills/effective') return Response.json({ success: true, snapshot: { organizationId: 'organization-test', capabilities: [] } });
     if (url.pathname === '/api/skills/policies') return Response.json({ success: true, policies: [] });
     throw new Error(`Unexpected fetch: ${url.pathname}`);
@@ -209,6 +210,20 @@ async function main() {
     assert.equal(view.queryByText(de.skills.skillLibrary.emptyStore), null);
     cleanup();
     skillStoreUnavailable = false;
+
+    skillStoreComparisonUnknown = true;
+    for (const language of ['de', 'en'] as const) {
+      locale = language;
+      dom.window.history.replaceState(null, '', `/${language}/plugins?area=skills&view=updates`);
+      view = render(<PluginsAppClient canManageOrganizationCapabilities={false} />);
+      const messages = language === 'de' ? de : en;
+      await waitFor(() => assert.ok(view.getByText(messages.skills.skillLibrary.comparisonUnknown)));
+      assert.equal(view.queryByText(messages.skills.skillLibrary.noUpdates), null, 'unknown store comparison cannot claim there are no updates');
+      assert.ok(fetches.some(url => url.startsWith('/api/skills/store?') && new URL(url, dom.window.location.origin).searchParams.get('workspaceId') === 'workspace-one'), 'store requests retain the current workspace authority context');
+      cleanup();
+    }
+    skillStoreComparisonUnknown = false;
+    locale = 'de';
 
     fetches.length = 0;
     dom.window.history.replaceState(null, '', '/de/plugins?scope=organization');

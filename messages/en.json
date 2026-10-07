@@ -7785,6 +7785,7 @@
       }
     },
     "skillLibrary": {
+      "comparisonUnknown": "Comparison with the store source is not available yet. Update status is unknown.",
       "tabs": {
         "installed": "Installed",
         "library": "Skill Library",

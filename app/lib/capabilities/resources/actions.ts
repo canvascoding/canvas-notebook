@@ -148,6 +148,8 @@ async function descriptor(actor: CapabilityResourceActor, context: CapabilityRes
   const effective = entries.get(ref.resourceId);
   const result: CapabilityResourceDescriptor = {
     metadata: resolved.metadata, access: resolved.access,
+    description: (resolved.metadata.description ?? candidate.description)
+      .replace(/[\u0000-\u001f\u007f-\u009f\u200e\u200f\u202a-\u202e\u2066-\u2069]/gu, '').slice(0, 4096),
     artifact: { resourceType: ref.resourceType, resourceId: ref.resourceId, scopeType: ref.scopeType, name: ref.name,
       version: ref.version, revision: ref.revision, checksum: ref.checksum, sourceType: ref.sourceType, sourcePluginId: ref.sourcePluginId },
     activation: { effectivePolicy: effective?.effectivePolicy || 'optional', enabled: effective?.effectiveEnabled === true && resolved.access.canUse,

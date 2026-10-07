@@ -160,7 +160,24 @@
         {
           "id": "6a-b",
           "name": "Bereichs- und herkunftsgenauer Katalog mit versionierten Store-Updates",
-          "status": "pending",
+          "status": "in_progress",
+          "substeps": [
+            {
+              "id": "6a-b-1",
+              "name": "Exakte Installed-Metadaten und sichere Actor-Store-Projektion",
+              "status": "complete",
+              "evidence": [
+                "Detailed acceptance: evidence/step-6a-b1-actor-catalog.md; safe exact-resource management catalog, independent ownership/audience/current team read scopes, strict bounded API selection, no runtime namespace changes",
+                "Actual PostgreSQL/PGlite/Registry/BetterAuth authority and API PASS: same-name instances, browse versus creation, current activation, parent pagination, banned403 RED-to-GREEN, nonexistent/former creator/membership/grant revoke; safe actor Store/multiplicity/URL projection and mobile GET parity",
+                "Final build including TypeScript, final whole-tree TypeScript, changed-source ESLint, resource/actions/access/entrypoints, six package fixtures, legacy SkillStore and PluginApp/DE-EN Unknown UI regressions PASS",
+                "Actual production browser final2/2 PASS, Chromium one worker/no retries40.1sec: hidden source notinstalled through public Store, exact shared organization references, strict team/workspace/query and revocation; visible unknown comparison; 1280/390 Light/Dark inspected",
+                "Own receipted cleanup with early private setup recovery and exact scoped SkillSettings snapshot restoration; independent readback own resources/drafts/versions/preferences/intake/enabledSkill0; verified own host stopped, foreign stack unchanged; no container build/push/deployment",
+                "Comparison stays unknown; durable verified upstream provenance and atomic versioned Store import/update remain6a-b-2/3; full new browsing UI remains6a-c; default-off flag unchanged"
+              ]
+            },
+            { "id": "6a-b-2", "name": "Verifizierte dauerhafte Store-Herkunft pro Ressourceninstanz", "status": "pending", "evidence": [] },
+            { "id": "6a-b-3", "name": "Atomarer versionierter Store-Import und gezieltes Update", "status": "pending", "evidence": [] }
+          ],
           "evidence": []
         },
         {

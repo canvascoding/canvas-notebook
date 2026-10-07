@@ -56,6 +56,8 @@ export type CapabilityResourceMetadata = {
 export type CapabilityResourceDescriptor = {
   metadata: CapabilityResourceMetadata;
   access: CapabilityResourceAccess;
+  /** Safe current package description when no metadata override has been set. */
+  description?: string;
   artifact: Pick<CapabilityReference, 'resourceType' | 'resourceId' | 'scopeType' | 'name' | 'version' | 'revision' | 'checksum' | 'sourceType' | 'sourcePluginId'>;
   /** Returned only to resource managers; ordinary readers see their effective rights. */
   grants?: CapabilityResourceGrant[];
