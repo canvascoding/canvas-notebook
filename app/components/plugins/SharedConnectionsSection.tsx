@@ -12,7 +12,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { InlineNotice } from '@/components/ui/inline-notice';
-import { usePluginEditorNavigationGuard } from './plugin-navigation-guard';
+import { confirmPluginNavigation, usePluginEditorNavigationGuard } from './plugin-navigation-guard';
 
 type SharedConnectionsProps = { workspaceId?: string | null; ownership?: CapabilityResourceOwnerScope; initiallyOpen?: boolean };
 
@@ -82,7 +82,7 @@ function SharedConnectionsSession({ workspaceId, ownership, initiallyOpen = fals
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-xs text-muted-foreground">{t('separateAccountHint')}</p>
         <div className="flex flex-wrap gap-2">
-          <Button variant="outline" size="sm" onClick={() => void load()} disabled={loading}><RefreshCw className="mr-2 size-4" />{t('reload')}</Button>
+          <Button variant="outline" size="sm" onClick={() => { if (writes.current === 0 && confirmPluginNavigation()) refresh(); }} disabled={loading}><RefreshCw className="mr-2 size-4" />{t('reload')}</Button>
           {scopes.length ? <Button size="sm" onClick={() => setCreateOpen(true)} disabled={loading} data-testid="shared-connection-create"><Plus className="mr-2 size-4" />{t('create')}</Button> : null}
         </div>
       </div>
@@ -97,11 +97,11 @@ function SharedConnectionsSession({ workspaceId, ownership, initiallyOpen = fals
               <Badge variant="outline">{connection.resource.status === 'archived' ? t('archived') : connection.access.canManage ? t('manage') : t('canUse')}</Badge>
             </button>)}</div>}
     </div> : null}
-    <Dialog open={createOpen} onOpenChange={setCreateOpen}><DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-xl">
+    <Dialog open={createOpen} onOpenChange={value => { if (!value && (writes.current > 0 || !confirmPluginNavigation())) return; setCreateOpen(value); }}><DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-xl" data-testid="shared-connection-create-dialog">
       <DialogHeader><DialogTitle>{t('createTitle')}</DialogTitle><DialogDescription>{t('createDescription')}</DialogDescription></DialogHeader>
       {createOpen ? <SharedConnectionCreateForm api={api} scopes={scopes} onSaved={refresh} /> : null}
     </DialogContent></Dialog>
-    <Dialog open={Boolean(selected)} onOpenChange={value => { if (!value) setSelected(null); }}><DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-2xl">
+    <Dialog open={Boolean(selected)} onOpenChange={value => { if (!value && writes.current === 0 && confirmPluginNavigation()) setSelected(null); }}><DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-2xl" data-testid="shared-connection-edit-dialog">
       <DialogHeader><DialogTitle>{selected?.resource.displayName}</DialogTitle><DialogDescription>{selected ? scopeLabel(selected) : ''}</DialogDescription></DialogHeader>
       {selected ? <SharedConnectionEditor key={selected.resource.connectionRef} api={api} initial={selected} onSaved={refresh} /> : null}
     </DialogContent></Dialog>

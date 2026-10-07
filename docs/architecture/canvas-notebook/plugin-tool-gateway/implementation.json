@@ -142,7 +142,7 @@
     {
       "id": "6a",
       "name": "Plugin-Seite und Store-Redesign",
-      "status": "in_progress",
+      "status": "complete",
       "substeps": [
         {
           "id": "6a-a",
@@ -202,7 +202,7 @@
         {
           "id": "6a-c",
           "name": "Progressive-Disclosure Plugin-UI und Installations-/Update-/Freigabe-UX",
-          "status": "in_progress",
+          "status": "complete",
           "substeps": [
             { "id": "6a-c-1", "name": "Gemeinsame Bereichsprojektion, sichere Detaildaten und Installationsziele", "status": "complete", "evidence": [
               "Detailed acceptance: evidence/step-6a-c1-scoped-store-reads.md; one current Own/Shared/Team/Org selector, exact installed Store correlation independent of offering search, separate pagination and one prioritized 32-resource provenance budget with explicit unknown/partial coverage",
@@ -217,7 +217,7 @@
               "Final full graph PASS; staged294symbols/31files MEDIUM expected Settings navigation flow, cumulative main4446symbols/437files/16earlierflows CRITICAL warned. Independent own-nonce resource/draft/version/preference/intake counts0; exact own host3001 stopped and foreign managed stack preserved",
               "Full mutating click/keyboard/focus acceptance remains6a-c-3; effective Planning/mobile/OAuth6b and live external accounts7 pending. Gateway default-off, no push/container/deployment"
             ] },
-            { "id": "6a-c-3", "name": "Vollstaendige Klickabnahme, Fehler-/Rechtezustaende und responsive Darstellung", "status": "in_progress", "substeps": [
+            { "id": "6a-c-3", "name": "Vollstaendige Klickabnahme, Fehler-/Rechtezustaende und responsive Darstellung", "status": "complete", "substeps": [
               { "id": "6a-c-3a", "name": "Paket-Klickworkflow und geschuetzte Freigabeaenderungen", "status": "complete", "evidence": [
                 "Detailed acceptance: evidence/step-6a-c3a-package-click-acceptance.md; real organization Store installation, independent recipient/responsibility, immutable local publication and exact legacy-alias update with manual CAS409 review",
                 "Resource sharing dirty/pending Reload/Scope/History guard and precise metadata field changes; grants-only PATCH retains metadata revision. Seven workspace React gates, cleanup receipt/lock gates, focused ESLint and final production build PASS",
@@ -225,17 +225,25 @@
                 "Desktop1280/light and narrow390/dark package/read-only/revoked/version states captured and inspected. Independent own fixture SQL/filesystem resource/draft/version/preference/intake0; exact own host3001 stopped, foreign managed stack preserved",
                 "Full graph after incremental UTF-8 failure PASS. Shared connection form dirty/local-dialog protection remains3b; effective Planning/mobile/OAuth6b and live account acceptance7 remain. Gateway default-off; no container build/publication"
               ] },
-              { "id": "6a-c-3b", "name": "Geschuetzte Verbindungsformulare und lokale Dialognavigation", "status": "pending", "evidence": [] }
+              { "id": "6a-c-3b", "name": "Geschuetzte Verbindungsformulare und lokale Dialognavigation", "status": "complete", "evidence": [
+                "Detailed acceptance: evidence/step-6a-c3b-connection-form-navigation.md; shared MCP/Composio create/editor dirty inputs, staged grants/accounts/repair data, guarded own Reload and local Dialog Close with unchanged Parent API-write authority",
+                "Eight workspace React/Intl gates plus final focused new Parent/Forms/Radix test and ESLint PASS; final production build and sequential whole-tree TypeScript PASS after correcting four test-only Testing Library locator types",
+                "Actual production-host Playwright final2/2 PASS, one Chromium worker/no retries15.3sec, existing admin and real scope/profile GETs, no route mocks or connection/profile/ENV/workspace mutations. EN/DE1280/390 light/dark inputfit/focus asserted and four representative final captures inspected",
+                "Final full graph PASS; only generated documentation blocks restored. Own host3001 PID/CWD/numeric loopback listener verified and stopped; foreign managed stack preserved; no container build/push/deployment",
+                "Separate controlled synchronous OAuth-beforeUnload regression remains RED with its expected unblocked navigation assertion retained; existing Parent counter/authorize timing and native browser behavior require6b. No actual OAuth, native Mobile or live provider acceptance is claimed; gateway default-off"
+              ] }
             ], "evidence": [] }
           ],
           "evidence": []
         }
       ],
       "evidence": [
-        "6a-a locally accepted; exact store provenance, scoped browsing and full UI redesign remain6a-b/6a-c before6b."
+        "6a-a,6a-b and6a-c locally accepted: scoped browsing, exact verified Store provenance, atomic import/update, private drafts and package/sharing/connection-form navigation. Effective Planning, native Mobile and OAuth return remain6b; actual live-account acceptance remains7."
       ]
     },
-    { "id": "6b", "name": "Agent-Konfiguration, OAuth-Rueckkehr und Mobile-Vertrag", "status": "pending", "evidence": [] },
+    { "id": "6b", "name": "Agent-Konfiguration, OAuth-Rueckkehr und Mobile-Vertrag", "status": "pending", "openFindings": [
+      "Actual Parent/Forms controlled React reproduction: synchronous beforeUnload at clean OAuth location.assign still sees the parent API pending registration before its next layout commit. Parent counter and authorize code are unchanged from35ce9c4b7; native browser timing remains unverified. Required regression: npm run test:plugins:connections:oauth; preserve expected unblocked navigation and verify actual OAuth transport/return before accepting6b."
+    ], "evidence": [] },
     { "id": "7", "name": "End-to-End-Abnahme und kontrollierter Rollout", "status": "pending", "evidence": [] }
   ],
   "finalAcceptance": {

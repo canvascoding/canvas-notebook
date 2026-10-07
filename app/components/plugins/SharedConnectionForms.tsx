@@ -12,6 +12,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { InlineNotice } from '@/components/ui/inline-notice';
 import { SharedConnectionRequestError, type SharedConnectionApi } from './shared-connections-client';
+import { confirmPluginNavigation, usePluginEditorNavigationGuard } from './plugin-navigation-guard';
 
 const EMPTY_TARGETS: IntegrationConnectionTargetCatalog = { users: [], workspaces: [], projects: [], agents: [] };
 const tools = (value: string): string[] | null => value.trim() ? [...new Set(value.split(/[\n,]/u).map(name => name.trim()).filter(Boolean))] : null;
@@ -33,6 +34,10 @@ export function SharedConnectionCreateForm({ api, scopes, onSaved }: {
   const [profileId, setProfileId] = useState(''), [profileName, setProfileName] = useState(''), [mode, setMode] = useState<'local' | 'managed'>('local');
   const [busy, setBusy] = useState(false), [loading, setLoading] = useState(false), [error, setError] = useState<string | null>(null);
   const scope = scopes[scopeIndex], alive = useRef(true), request = useRef(0);
+  const dirty = scopeIndex !== 0 || source !== 'mcp' || mode !== 'local' || oauth
+    || [name, url, token, app, profileId, profileName].some(value => value !== '');
+  // Only the parent's actual API-write counter supplies pending authority; busy also covers OAuth redirects and reads.
+  usePluginEditorNavigationGuard({ dirty, pending: false });
   useEffect(() => { alive.current = true; return () => { alive.current = false; request.current += 1; }; }, []);
   const loadProfiles = useCallback(async () => {
     const current = ++request.current;
@@ -110,6 +115,14 @@ export function SharedConnectionEditor({ api, initial, onSaved }: {
   const [portal, setPortal] = useState<HTMLElement | null>(null), [accounts, setAccounts] = useState<Array<{ accountRef: string; label: string; selectable: boolean }>>([]), [accountRef, setAccountRef] = useState('');
   const [status, setStatus] = useState<string | null>(null), alive = useRef(true);
   const [repairConfiguration, setRepairConfiguration] = useState(''), [repairSecrets, setRepairSecrets] = useState('');
+  const dirty = ready && (
+    name !== connection.resource.displayName || description !== (connection.resource.description || '')
+    || responsible !== (connection.resource.responsibleUserId || '') || accessMode !== connection.resource.accessMode
+    || toolMode !== (connection.resource.allowedToolNames === null ? 'all' : connection.resource.allowedToolNames.length ? 'selected' : 'none')
+    || allowedTools !== (connection.resource.allowedToolNames || []).join('\n')
+    || JSON.stringify(grantList) !== JSON.stringify((connection.grants || []).map(({ targetType, targetId, canUse, canManage, allowedToolNames }) => ({ targetType, targetId, canUse, canManage, allowedToolNames })))
+  ) || targetId !== '' || canUse || canManage || grantTools !== '' || accountRef !== '' || repairConfiguration !== '' || repairSecrets !== '';
+  usePluginEditorNavigationGuard({ dirty, pending: false });
   const path = `/api/integrations/shared-connections/${encodeURIComponent(initial.resource.connectionRef)}`;
   const providerPath = `/api/${initial.resource.source}/shared-connections/${encodeURIComponent(initial.resource.connectionRef)}`;
   const load = useCallback(async () => {
@@ -173,11 +186,17 @@ export function SharedConnectionEditor({ api, initial, onSaved }: {
       if (alive.current) { setAccounts(result.accounts); setAccountRef(''); }
     });
   }
+  function reload() {
+    if (!confirmPluginNavigation()) return;
+    setConflict(false); setTargetId(''); setCanUse(false); setCanManage(false); setGrantTools('');
+    setRepairConfiguration(''); setRepairSecrets(''); setAccounts([]); setAccountRef('');
+    void load();
+  }
   return <div ref={setPortal} className="space-y-4" data-testid="shared-connection-editor">
     <p className="text-sm text-muted-foreground">{connection.resource.description || t('separateAccountHint')}</p>
     <p className="text-xs text-muted-foreground">{connection.access.canUse ? t('canUse') : t('managementOnly')}</p>
     {error ? <InlineNotice variant="destructive" size="compact">{error}</InlineNotice> : null}
-    <Button size="sm" variant="outline" disabled={busy} onClick={() => { setConflict(false); void load(); }}>{t('reload')}</Button>
+    <Button size="sm" variant="outline" disabled={busy} onClick={reload} data-testid="shared-connection-editor-reload">{t('reload')}</Button>
     {connection.access.canManage ? <>
       <details className="space-y-3 rounded-lg border p-3"><summary className="cursor-pointer text-sm font-medium">{t('accountSetup')}</summary>
         <div className="space-y-3 pt-3">
@@ -234,7 +253,7 @@ export function SharedConnectionEditor({ api, initial, onSaved }: {
               setTargetId(''); setCanUse(false); setCanManage(false); setGrantTools('');
             }}>{t('addGrant')}</Button>
           </div>
-          <div className="flex flex-wrap gap-2"><Button disabled={disabled || !name.trim()} onClick={() => void save()}>{busy ? t('saving') : t('save')}</Button>
+          <div className="flex flex-wrap gap-2"><Button disabled={disabled || !name.trim()} onClick={() => void save()} data-testid="shared-connection-save">{busy ? t('saving') : t('save')}</Button>
             <Button variant="outline" disabled={disabled} onClick={() => void run(async () => { await api(path, { ...revisions(connection), status: connection.resource.status === 'active' ? 'archived' : 'active' }, 'PATCH'); if (alive.current) onSaved(); })}>{t(connection.resource.status === 'active' ? 'archive' : 'restore')}</Button></div>
         </div>
       </details>
