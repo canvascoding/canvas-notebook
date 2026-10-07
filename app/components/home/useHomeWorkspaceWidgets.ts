@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { HomeWidgetEmailCacheMetadata } from '@/app/lib/home/workspace-email-widget';
 import {
@@ -35,6 +35,9 @@ export type HomeWidgetState<T> = {
 };
 
 type HomeWorkspaceWidgetSnapshot = {
+  requestKey: string;
+  emailEnabled: boolean;
+  accessDenied: boolean;
   workspaceId: string | null;
   emails: HomeWidgetState<HomeWidgetEmail[]>;
   todos: HomeWidgetState<HomeWidgetTodo[]>;
@@ -73,8 +76,11 @@ type LoadWidgetOptions = {
 
 type LoadWidgets = (widgets: readonly HomeWidgetName[], options?: LoadWidgetOptions) => Promise<void>;
 
-function initialSnapshot(workspaceId: string | null): HomeWorkspaceWidgetSnapshot {
+function initialSnapshot(workspaceId: string | null, requestKey: string, emailEnabled: boolean): HomeWorkspaceWidgetSnapshot {
   return {
+    requestKey,
+    emailEnabled,
+    accessDenied: false,
     workspaceId,
     emails: { status: 'idle', data: [] },
     todos: { status: 'idle', data: [] },
@@ -111,13 +117,16 @@ function eventWidgetSelection(event: Event): HomeWidgetName[] {
   return selected.length > 0 ? HOME_WIDGET_NAMES.filter((name) => selected.includes(name)) : [...HOME_WIDGET_NAMES];
 }
 
-export function useHomeWorkspaceWidgets(workspaceId: string | undefined, active: boolean) {
-  const [snapshot, setSnapshot] = useState<HomeWorkspaceWidgetSnapshot>(() => initialSnapshot(workspaceId ?? null));
+export function useHomeWorkspaceWidgets(workspaceId: string | undefined, active: boolean, options: { emailEnabled?: boolean; actorId?: string } = {}) {
+  const emailEnabled = options.emailEnabled !== false;
+  const requestKey = JSON.stringify([workspaceId ?? null, options.actorId ?? '']);
+  const [snapshot, setSnapshot] = useState<HomeWorkspaceWidgetSnapshot>(() => initialSnapshot(workspaceId ?? null, requestKey, emailEnabled));
   const requestGenerationRef = useRef<Record<HomeWidgetName, number>>({ emails: 0, todos: 0, automation: 0, studio: 0 });
   const activeControllersRef = useRef(new Set<AbortController>());
   const emailFollowUpTimersRef = useRef(new Map<string, number>());
   const loadWidgetsRef = useRef<LoadWidgets>(async () => undefined);
-  const current = snapshot.workspaceId === (workspaceId ?? null) ? snapshot : initialSnapshot(workspaceId ?? null);
+  const current = useMemo(() => snapshot.requestKey !== requestKey ? initialSnapshot(workspaceId ?? null, requestKey, emailEnabled)
+    : snapshot.emailEnabled !== emailEnabled ? { ...snapshot, emails: { status: 'idle' as const, data: [] } } : snapshot, [snapshot, requestKey, workspaceId, emailEnabled]);
   const currentSnapshotRef = useRef(current);
 
   useEffect(() => {
@@ -126,7 +135,7 @@ export function useHomeWorkspaceWidgets(workspaceId: string | undefined, active:
 
   const loadWidgets = useCallback<LoadWidgets>(async (widgets, options = {}) => {
     if (!active || !workspaceId) return;
-    const requested = HOME_WIDGET_NAMES.filter((name) => widgets.includes(name));
+    const requested = HOME_WIDGET_NAMES.filter((name) => widgets.includes(name) && (name !== 'emails' || emailEnabled));
     if (requested.length === 0) return;
     const requestWorkspaceId = workspaceId;
     const generations = new Map<HomeWidgetName, number>();
@@ -145,10 +154,12 @@ export function useHomeWorkspaceWidgets(workspaceId: string | undefined, active:
 
     if (!options.background) {
       setSnapshot((previous) => {
-        const base = previous.workspaceId === requestWorkspaceId ? previous : initialSnapshot(requestWorkspaceId);
+        const base = previous.requestKey === requestKey ? previous : initialSnapshot(requestWorkspaceId, requestKey, emailEnabled);
         return {
           ...base,
-          emails: requested.includes('emails') ? loadingGate(base.emails) : base.emails,
+          emailEnabled,
+          emails: requested.includes('emails') ? loadingGate(base.emailEnabled === emailEnabled ? base.emails : { status: 'idle', data: [] })
+            : base.emailEnabled === emailEnabled ? base.emails : { status: 'idle', data: [] },
           todos: requested.includes('todos') ? loadingGate(base.todos) : base.todos,
           automation: requested.includes('automation') ? loadingGate(base.automation) : base.automation,
           studio: requested.includes('studio') ? loadingGate(base.studio) : base.studio,
@@ -164,14 +175,29 @@ export function useHomeWorkspaceWidgets(workspaceId: string | undefined, active:
         cache: 'no-store',
         signal: controller.signal,
       });
+      if (response.status === 401 || response.status === 403) {
+        if (controller.signal.aborted || !requested.some(isCurrent)) return;
+        // A current session/workspace denial invalidates every preview and all older pending work.
+        for (const widget of HOME_WIDGET_NAMES) requestGenerationRef.current[widget]++;
+        for (const pending of activeControllersRef.current) pending.abort();
+        for (const timer of emailFollowUpTimersRef.current.values()) window.clearTimeout(timer);
+        emailFollowUpTimersRef.current.clear();
+        setSnapshot(previous => previous.requestKey !== requestKey ? previous : {
+          ...initialSnapshot(requestWorkspaceId, requestKey, emailEnabled), accessDenied: true,
+          emails: { status: 'error', data: [] }, todos: { status: 'error', data: [] },
+          automation: { status: 'error', data: null }, studio: { status: 'error', data: null },
+        });
+        return;
+      }
       const payload = await response.json().catch(() => null) as HomeWorkspaceWidgetResponse | null;
       if (!response.ok || !payload?.success || !payload.data) throw new Error('Workspace widgets could not be loaded.');
       if (controller.signal.aborted) return;
       const data = payload.data;
       setSnapshot((previous) => {
-        if (previous.workspaceId !== requestWorkspaceId) return previous;
+        if (previous.requestKey !== requestKey) return previous;
         return {
           ...previous,
+          accessDenied: false,
           emails: requested.includes('emails') && isCurrent('emails') ? resultState(previous.emails, data.emails) : previous.emails,
           todos: requested.includes('todos') && isCurrent('todos') ? resultState(previous.todos, data.todos) : previous.todos,
           automation: requested.includes('automation') && isCurrent('automation') ? resultState(previous.automation, data.automation) : previous.automation,
@@ -202,6 +228,7 @@ export function useHomeWorkspaceWidgets(workspaceId: string | undefined, active:
             if (
               requestGenerationRef.current.emails !== generations.get('emails')
               || latest.workspaceId !== requestWorkspaceId
+              || latest.requestKey !== requestKey
               || latest.emails.cache?.refreshToken !== emailCache.refreshToken
               || latest.emails.cache.state !== 'stale'
               || !latest.emails.cache.refreshQueued
@@ -222,7 +249,7 @@ export function useHomeWorkspaceWidgets(workspaceId: string | undefined, active:
     } catch {
       if (controller.signal.aborted) return;
       setSnapshot((previous) => {
-        if (previous.workspaceId !== requestWorkspaceId) return previous;
+        if (previous.requestKey !== requestKey) return previous;
         return {
           ...previous,
           emails: requested.includes('emails') && isCurrent('emails') ? failedState(previous.emails) : previous.emails,
@@ -234,7 +261,7 @@ export function useHomeWorkspaceWidgets(workspaceId: string | undefined, active:
     } finally {
       activeControllersRef.current.delete(controller);
     }
-  }, [active, workspaceId]);
+  }, [active, workspaceId, requestKey, emailEnabled]);
   useEffect(() => {
     loadWidgetsRef.current = loadWidgets;
   }, [loadWidgets]);
@@ -248,7 +275,7 @@ export function useHomeWorkspaceWidgets(workspaceId: string | undefined, active:
     const controllers = activeControllersRef.current;
     const followUpTimers = emailFollowUpTimersRef.current;
     const initialTimer = window.setTimeout(() => {
-      void loadWidgets(HOME_WIDGET_NAMES, { allowEmailFollowUp: true });
+      void loadWidgetsRef.current(HOME_WIDGET_NAMES, { allowEmailFollowUp: true });
     }, 0);
     return () => {
       window.clearTimeout(initialTimer);
@@ -257,7 +284,16 @@ export function useHomeWorkspaceWidgets(workspaceId: string | undefined, active:
       for (const timer of followUpTimers.values()) window.clearTimeout(timer);
       followUpTimers.clear();
     };
-  }, [active, loadWidgets, workspaceId]);
+  }, [active, requestKey, workspaceId]);
+
+  const emailSelectionRef = useRef({ requestKey, enabled: emailEnabled });
+  useEffect(() => {
+    const previous = emailSelectionRef.current;
+    emailSelectionRef.current = { requestKey, enabled: emailEnabled };
+    if (active && workspaceId && previous.requestKey === requestKey && !previous.enabled && emailEnabled) {
+      void loadWidgets(['emails'], { allowEmailFollowUp: true });
+    }
+  }, [active, workspaceId, requestKey, emailEnabled, loadWidgets]);
 
   useEffect(() => {
     if (!active) return;

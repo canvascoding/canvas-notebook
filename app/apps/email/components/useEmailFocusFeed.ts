@@ -8,7 +8,7 @@ import type { EmailCategory } from '@/app/lib/email/classification/types';
 export interface EmailFocusFeedError { code: string; status: number }
 export interface UseEmailFocusFeedInput {
   userId: string; enabled: boolean; scope: EmailMailboxScope; mode: EmailFeedMode; view: EmailFeedView;
-  category?: EmailCategory | null; search: string;
+  category?: EmailCategory | null; search: string; limit?: number;
 }
 type FeedState = {
   key: string; feed: EmailClassificationFeed | null; loading: boolean; loadingMore: boolean;
@@ -24,7 +24,7 @@ function snapshotStartCursor(feed: EmailClassificationFeed): string {
   return btoa(JSON.stringify({ v: 1, id: feed.snapshot.id, after: 0 })).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/u, '');
 }
 function feedURL(input: UseEmailFocusFeedInput, cursor?: string) {
-  const query = new URLSearchParams({ scope: input.scope.kind, mode: input.mode, view: input.view, limit: '50' });
+  const query = new URLSearchParams({ scope: input.scope.kind, mode: input.mode, view: input.view, limit: String(input.limit ?? 50) });
   if (input.scope.kind === 'mailbox') query.set('mailboxRef', input.scope.mailboxRef);
   if (input.category) query.set('category', input.category);
   if (input.search.trim()) query.set('search', input.search.trim().slice(0, 300));
@@ -34,9 +34,9 @@ function feedURL(input: UseEmailFocusFeedInput, cursor?: string) {
 
 /** The visible snapshot changes only after navigation, a user refresh, paging or a user mutation. */
 export function useEmailFocusFeed(input: UseEmailFocusFeedInput) {
-  const { userId, enabled, mode, view, category, search, scope } = input;
+  const { userId, enabled, mode, view, category, search, scope, limit = 50 } = input;
   const mailboxRef = scope.kind === 'mailbox' ? scope.mailboxRef : '';
-  const key = JSON.stringify([userId, enabled, scope.kind, mailboxRef, mode, view, category ?? '', search.trim().slice(0, 300)]);
+  const key = JSON.stringify([userId, enabled, scope.kind, mailboxRef, mode, view, category ?? '', search.trim().slice(0, 300), limit]);
   const active = enabled && Boolean(userId);
   const [state, setState] = useState<FeedState>({ key: '', feed: null, loading: false, loadingMore: false, error: null, hasUpdates: false });
   const contextRef = useRef<RequestContext | null>(null);
@@ -65,6 +65,10 @@ export function useEmailFocusFeed(input: UseEmailFocusFeedInput) {
     try {
       const cursor = kind === 'poll' ? snapshotStartCursor(context.feed!) : kind === 'more' ? context.feed!.nextCursor! : undefined;
       const response = await fetch(feedURL(selection, cursor), { credentials: 'include', cache: 'no-store', signal: controller.signal });
+      if (!current()) return;
+      if (response.status === 401 || response.status === 403) {
+        throw { code: response.status === 401 ? 'UNAUTHORIZED' : 'FORBIDDEN', status: response.status } satisfies EmailFocusFeedError;
+      }
       const payload = await response.json();
       if (!current()) return;
       if (!response.ok || !payload.success) {
@@ -105,7 +109,7 @@ export function useEmailFocusFeed(input: UseEmailFocusFeedInput) {
     const context: RequestContext = { key, cancelled: false, controllers: new Set(), foreground: null, poll: null, feed: null, confirmedAt: 0, authorityTimer: null };
     contextRef.current = context;
     if (!active) return () => { context.cancelled = true; };
-    const selection: UseEmailFocusFeedInput = { userId, enabled, scope: scope.kind === 'mailbox' ? { kind: 'mailbox', mailboxRef } : { kind: scope.kind }, mode, view, category, search };
+    const selection: UseEmailFocusFeedInput = { userId, enabled, scope: scope.kind === 'mailbox' ? { kind: 'mailbox', mailboxRef } : { kind: scope.kind }, mode, view, category, search, limit };
     const start = window.setTimeout(() => { void request(context, selection, 'replace'); }, search.trim() ? 250 : 0);
     const checkRights = () => {
       if (document.visibilityState !== 'visible') return;
@@ -120,7 +124,7 @@ export function useEmailFocusFeed(input: UseEmailFocusFeedInput) {
       document.removeEventListener('visibilitychange', checkRights); window.removeEventListener('focus', checkRights);
       for (const controller of context.controllers) controller.abort(); context.controllers.clear();
     };
-  }, [key, active, userId, enabled, scope.kind, mailboxRef, mode, view, category, search, request, clearUnconfirmed]);
+  }, [key, active, userId, enabled, scope.kind, mailboxRef, mode, view, category, search, limit, request, clearUnconfirmed]);
 
   const reload = useCallback(() => {
     const context = contextRef.current;

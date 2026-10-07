@@ -4,6 +4,7 @@ import type {
   EmailAgentUiView,
 } from '@/app/lib/email/agent-ui-intent';
 import type { BrowserSessionSnapshot } from '@/app/lib/pi/browser/types';
+import type { EmailFeedMode, EmailFeedView } from '@/app/lib/email/classification/feed-types';
 
 export type NotebookChatContext = {
   agentId: string;
@@ -24,6 +25,12 @@ export type NotebookEmailContextIntent = {
   draftId?: string;
   folder?: string;
   messageId?: string;
+  /** Durable reference resolved through current mailbox authorization. */
+  messageRef?: string;
+  /** Ephemeral navigation choices, separate from the legacy agent scope. */
+  experienceMode?: EmailFeedMode;
+  feedScope?: 'all' | 'personal' | 'work';
+  feedView?: EmailFeedView;
   threadId?: string;
   query?: string;
   subject?: string;

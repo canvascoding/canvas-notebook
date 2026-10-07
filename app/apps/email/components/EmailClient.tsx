@@ -27,6 +27,7 @@ import { extractEmailAddressForCompose } from '@/app/apps/email/components/email
 import { isFetchNetworkError } from '@/app/apps/email/components/email-client-network';
 import { emailAccountSelectionKey, emailAccountContextKey, emailFeedMessageSummary, sameEmailSelection } from './email-focus-integration';
 import { setEmailPersonalFocusDone } from './email-classification-client';
+import { emailFocusIntentKey, resolvedEmailFocusMessage } from './email-focus-deep-link';
 import type {
   EmailAccount,
   EmailComposeDialogLabels,
@@ -95,6 +96,23 @@ export function EmailClient({
   const [emailRemoteImageAllowedSenders, setEmailRemoteImageAllowedSenders] = useState<string[]>([]);
   const [classificationAvailability, setClassificationAvailability] = useState<EmailClassificationAvailability | null>(null);
   const [experienceChoice, setExperienceChoice] = useState<EmailFeedMode | null>(null);
+  const [intentExperience, setIntentExperience] = useState<{ key: string; mode: EmailFeedMode } | null>(null);
+  const feedIntentKey = emailFocusIntentKey(contextIntent);
+  const feedIntentIdentity = feedIntentKey ? JSON.stringify([selectionStorageKey, session?.session.id, feedIntentKey]) : null;
+  const currentFeedIntentRef = useRef(feedIntentIdentity);
+  const configuredFeedIntentRef = useRef<string | null>(null);
+  const appliedFeedIntentRef = useRef<string | null>(null);
+  const feedIntentNavigationEpochRef = useRef(0);
+  const cancelFeedIntentRequestRef = useRef<(() => void) | null>(null);
+  const consumeExternalFeedIntent = useCallback(() => {
+    feedIntentNavigationEpochRef.current++;
+    if (currentFeedIntentRef.current) appliedFeedIntentRef.current = currentFeedIntentRef.current;
+    cancelFeedIntentRequestRef.current?.();
+  }, []);
+  useLayoutEffect(() => {
+    currentFeedIntentRef.current = feedIntentIdentity;
+    if (!feedIntentIdentity) { configuredFeedIntentRef.current = null; appliedFeedIntentRef.current = null; }
+  }, [feedIntentIdentity]);
   const [emailPreferencesReady, setEmailPreferencesReady] = useState(false);
   const [emailPreferencesUser, setEmailPreferencesUser] = useState<string | null>(null);
   const [focusConfigurationUser, setFocusConfigurationUser] = useState<string | null>(null);
@@ -211,6 +229,7 @@ export function EmailClient({
   const activeAccountRef = useRef<string>('');
   const activeFolderRef = useRef('INBOX');
   const composeDraftRef = useRef(false);
+  const minimizeComposeRef = useRef<() => void>(() => undefined);
   const appliedContextIntentRef = useRef<string | null>(null);
   const appliedSearchToolCallRef = useRef<string | null>(null);
 
@@ -230,7 +249,8 @@ export function EmailClient({
   const canReadActiveAccount = Boolean(deniedMailboxKey !== mailboxScopeKey && activeAccount && (activeAccount.capabilities?.canRead ?? (activeAccount.authType !== 'smtp_imap' || activeAccount.imapHost)));
   const canWriteActiveAccount = Boolean(deniedMailboxKey !== mailboxScopeKey && activeAccount && (activeAccount.capabilities?.canWrite ?? true));
   const canRunAgent = canWriteActiveAccount && (activeAccount?.capabilities?.canRunAgent ?? true);
-  const experienceMode: EmailFeedMode = classificationAvailability?.enabled && experienceChoice !== 'classic' ? 'focus' : 'classic';
+  const effectiveExperience = intentExperience?.key === feedIntentIdentity ? intentExperience.mode : experienceChoice;
+  const experienceMode: EmailFeedMode = classificationAvailability?.enabled && effectiveExperience !== 'classic' ? 'focus' : 'classic';
   const focusControlsReady = Boolean(selectionStorageKey && accountsUser === selectionStorageKey && focusConfigurationUser === selectionStorageKey
     && emailPreferencesUser === selectionStorageKey && classificationAvailability && emailPreferencesReady);
   const usesIndexedFeed = focusControlsReady && (experienceMode === 'focus' || focusScope.kind !== 'mailbox');
@@ -480,7 +500,9 @@ export function EmailClient({
 
   const changeExperienceMode = useCallback(async (mode: EmailFeedMode, preserveCurrentMailboxAndFolder = false) => {
     if (!selectionStorageKey || mode === 'focus' && !classificationAvailability?.enabled) return;
-    const epoch = ++modeWriteEpochRef.current; const previous = experienceChoice;
+    consumeExternalFeedIntent();
+    const epoch = ++modeWriteEpochRef.current; const previous = experienceChoice; const previousIntent = intentExperience;
+    setIntentExperience(null);
     setExperienceChoice(mode);
     if (!preserveCurrentMailboxAndFolder && mode === 'classic' && focusScope.kind === 'mailbox') {
       const source = focusSources.find(source => source.mailboxRef === focusScope.mailboxRef);
@@ -498,11 +520,12 @@ export function EmailClient({
       modeWriteChainRef.current = write;
       await write;
     } catch {
-      if (currentUserRef.current === selectionStorageKey && epoch === modeWriteEpochRef.current) { setExperienceChoice(previous); setError(tf('modeSaveError')); }
+      if (currentUserRef.current === selectionStorageKey && epoch === modeWriteEpochRef.current) { setExperienceChoice(previous); setIntentExperience(previousIntent); setError(tf('modeSaveError')); }
     }
-  }, [selectionStorageKey, classificationAvailability?.enabled, experienceChoice, focusScope, focusSources, mailboxScopeKey, activeFolder, clearReader, tf]);
+  }, [selectionStorageKey, classificationAvailability?.enabled, experienceChoice, intentExperience, focusScope, focusSources, mailboxScopeKey, activeFolder, clearReader, tf, consumeExternalFeedIntent]);
 
   const changeFocusScope = (scope: EmailMailboxScope) => {
+    consumeExternalFeedIntent();
     setFocusScope(scope); setFocusSearch('');
     try { window.localStorage.setItem(`emails.feedScope:${selectionStorageKey}`, JSON.stringify(scope)); } catch { /* Optional presentation preference. */ }
     if (scope.kind === 'mailbox' && experienceMode === 'classic') {
@@ -581,7 +604,8 @@ export function EmailClient({
   }, [emailRemoteImageAllowedSenders, t]);
 
   const selectAccount = (accountId: string) => {
-    if (composeController.draft) composeController.minimize();
+    consumeExternalFeedIntent();
+    if (composeDraftRef.current) minimizeComposeRef.current();
     const source = focusSources.find(source => (source.workspaceId ? `${source.accountId}:${source.workspaceId}` : source.accountId) === accountId);
     if (source && focusControlsReady) setFocusScope({ kind: 'mailbox', mailboxRef: source.mailboxRef });
     setDeniedMailboxKey(null);
@@ -596,6 +620,7 @@ export function EmailClient({
   };
 
   const selectFolder = (folder: string) => {
+    consumeExternalFeedIntent();
     if (folder === activeFolder) return;
     listRequestRef.current?.abort();
     clearReader();
@@ -858,6 +883,7 @@ export function EmailClient({
   }, [mailboxFetch, mailboxScopeKey, activeAccount, activeFolder, cancelDetailFollowUp, clearMessageSummary, layoutMode, markMessageReadOnOpen, scheduleDetailFollowUp, t]);
 
   const openFeedMessage = (item: EmailClassificationFeedItem, openDialog = false) => {
+    if (composeDraftRef.current) minimizeComposeRef.current();
     const account = accounts.find(candidate => candidate.id === item.origin.accountId && (candidate.workspaceId || null) === item.origin.workspaceId);
     const source = focusSources.find(candidate => candidate.mailboxRef === item.origin.mailboxRef && candidate.accountSource === item.origin.accountSource);
     if (!account || !source || !source.capabilities.canRead) { setError(tf('selectionError')); void loadFocusConfiguration(); return; }
@@ -874,6 +900,8 @@ export function EmailClient({
     setDeniedMailboxKey(null);
     setActiveAccountId(emailAccountSelectionKey(account)); setActiveFolder(item.origin.folder);
   };
+  const openFeedMessageRef = useRef(openFeedMessage);
+  useLayoutEffect(() => { openFeedMessageRef.current = openFeedMessage; });
 
   useEffect(() => {
     const queued = pendingFeedOpenRef.current;
@@ -925,6 +953,7 @@ export function EmailClient({
   }, [cancelDetailFollowUp, cancelListFollowUp]);
 
   useEffect(() => {
+    if (feedIntentKey) return;
     if (!contextIntent) {
       appliedContextIntentRef.current = null;
       appliedSearchToolCallRef.current = null;
@@ -1032,6 +1061,7 @@ export function EmailClient({
     clearReader,
     changeExperienceMode,
     contextIntent,
+    feedIntentKey,
     focusSources,
     foldersAccountId,
     isLoadingAccounts,
@@ -1154,7 +1184,63 @@ export function EmailClient({
     submit: submitComposeDraft,
     updateDraft: updateComposeDraft,
   } = composeController;
-  useLayoutEffect(() => { composeDraftRef.current = Boolean(composeDraft); }, [composeDraft]);
+  const minimizeCompose = composeController.minimize;
+  useLayoutEffect(() => { composeDraftRef.current = Boolean(composeDraft); minimizeComposeRef.current = minimizeCompose; }, [composeDraft, minimizeCompose]);
+
+  useEffect(() => {
+    if (!feedIntentIdentity || !contextIntent || !focusControlsReady || !focusSourcesReady
+      || appliedFeedIntentRef.current === feedIntentIdentity) return;
+    const controller = new AbortController();
+    let deadline: number | null = null;
+    const timer = window.setTimeout(() => {
+      if (currentFeedIntentRef.current !== feedIntentIdentity || controller.signal.aborted) return;
+      if (configuredFeedIntentRef.current !== feedIntentIdentity) {
+        configuredFeedIntentRef.current = feedIntentIdentity;
+        modeWriteEpochRef.current++;
+        if (composeDraftRef.current) minimizeComposeRef.current();
+        clearReader();
+        setIntentExperience({ key: feedIntentIdentity, mode: contextIntent.experienceMode ?? 'focus' });
+        setFocusScope({ kind: contextIntent.feedScope ?? 'all' });
+        setFocusView(contextIntent.feedView ?? 'focus');
+        setFocusCategory(null); setFocusSearch(''); setError(null);
+      }
+      const epoch = feedSelectionEpochRef.current;
+      const navigationEpoch = feedIntentNavigationEpochRef.current;
+      const current = () => !controller.signal.aborted && currentFeedIntentRef.current === feedIntentIdentity
+        && currentUserRef.current === selectionStorageKey && feedSelectionEpochRef.current === epoch
+        && feedIntentNavigationEpochRef.current === navigationEpoch;
+      if (contextIntent.messageRef === undefined) { appliedFeedIntentRef.current = feedIntentIdentity; return; }
+      const messageRef = contextIntent.messageRef;
+      if (!/^emm:[a-f0-9]{64}$/u.test(messageRef)) {
+        appliedFeedIntentRef.current = feedIntentIdentity; setError(tf('selectionError')); return;
+      }
+      deadline = window.setTimeout(() => {
+        const ownsSelection = current();
+        controller.abort();
+        if (ownsSelection) { appliedFeedIntentRef.current = feedIntentIdentity; clearReader(); setError(tf('selectionError')); }
+      }, 30_000);
+      void (async () => {
+        try {
+          const response = await fetch(`/api/email/classification/message?${new URLSearchParams({ messageRef })}`, {
+            credentials: 'include', cache: 'no-store', signal: controller.signal,
+          });
+          if (!current()) return;
+          const payload: unknown = await response.json();
+          if (!current()) return;
+          const item = response.ok && payload && typeof payload === 'object' && 'success' in payload && payload.success === true
+            && 'data' in payload ? resolvedEmailFocusMessage(payload.data, messageRef) : null;
+          appliedFeedIntentRef.current = feedIntentIdentity;
+          if (!item) { clearReader(); setError(tf('selectionError')); return; }
+          openFeedMessageRef.current(item);
+        } catch {
+          if (current()) { appliedFeedIntentRef.current = feedIntentIdentity; clearReader(); setError(tf('selectionError')); }
+        } finally { if (deadline !== null) window.clearTimeout(deadline); }
+      })();
+    }, 0);
+    const cancel = () => { window.clearTimeout(timer); if (deadline !== null) window.clearTimeout(deadline); controller.abort(); };
+    cancelFeedIntentRequestRef.current = cancel;
+    return () => { cancel(); if (cancelFeedIntentRequestRef.current === cancel) cancelFeedIntentRequestRef.current = null; };
+  }, [feedIntentIdentity, contextIntent, focusControlsReady, focusSourcesReady, selectionStorageKey, clearReader, tf]);
 
   const openFocusCompose = () => {
     if (composeController.draft) { composeController.resume(); return; }
@@ -1596,7 +1682,7 @@ export function EmailClient({
       )}>
         {focusControlsReady && <EmailFocusHeader scope={focusScope} mode={experienceMode} classificationEnabled={classificationAvailability?.enabled ?? false}
           mailboxes={focusSources} search={focusSearch} onScopeChange={changeFocusScope} onModeChange={mode => void changeExperienceMode(mode)}
-          onSearchChange={setFocusSearch} onCompose={openFocusCompose} onRefresh={() => { focusFeed.reload(); void loadFocusConfiguration(); }}
+          onSearchChange={value => { consumeExternalFeedIntent(); setFocusSearch(value); }} onCompose={openFocusCompose} onRefresh={() => { focusFeed.reload(); void loadFocusConfiguration(); }}
           loading={focusFeed.loading || focusFeed.loadingMore} canCompose={accounts.some(account => account.capabilities?.canWrite !== false)}
           mailboxesLoading={!focusSourcesReady && !focusSourcesError} mailboxesError={focusSourcesError} controlsOnly={!usesIndexedFeed}
           focused={focused} onDistractionFree={toggleFocus} />}
@@ -1672,8 +1758,8 @@ export function EmailClient({
         >
           {usesIndexedFeed ? <>
             <EmailFocusNavigation feed={focusFeed.feed} view={focusSearch || experienceMode === 'classic' ? 'all' : focusView}
-              category={focusSearch ? null : focusCategory} onViewChange={view => { setFocusView(view); setFocusSearch(''); }}
-              onCategoryChange={setFocusCategory} onOpen={openFeedMessage} onDone={(item, done) => void markPersonalFocus(item, done)}
+              category={focusSearch ? null : focusCategory} onViewChange={view => { consumeExternalFeedIntent(); setFocusView(view); setFocusSearch(''); }}
+              onCategoryChange={category => { consumeExternalFeedIntent(); setFocusCategory(category); }} onOpen={(item, dialog) => { consumeExternalFeedIntent(); openFeedMessage(item, dialog); }} onDone={(item, done) => void markPersonalFocus(item, done)}
               selectionKey={selectedFeedItem?.selectionKey || ''} loading={focusFeed.loading} loadingMore={focusFeed.loadingMore}
               error={focusFeed.error} hasUpdates={focusFeed.hasUpdates} hasMore={focusFeed.hasMore} onReload={focusFeed.reload}
               onLoadMore={focusFeed.loadMore} aggregate={focusScope.kind !== 'mailbox'} />
