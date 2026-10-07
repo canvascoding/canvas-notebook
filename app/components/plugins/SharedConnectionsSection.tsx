@@ -1,6 +1,6 @@
 'use client';
 
-import { startTransition, useCallback, useEffect, useRef, useState } from 'react';
+import { startTransition, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
 import { authClient } from '@/app/lib/auth-client';
 import { Loader2, Plus, RefreshCw } from 'lucide-react';
@@ -22,12 +22,12 @@ export function SharedConnectionsSection(props: SharedConnectionsProps) {
   const { data: session, isPending, error } = authClient.useSession();
   const enabled = Boolean(session?.user.id && !isPending && !error);
   return <SharedConnectionsSession key={JSON.stringify([session?.user.id ?? null, session?.session.id ?? null, enabled,
-    props.workspaceId ?? '', props.ownership ?? null, props.initialConnectionRef ?? null])} {...props} enabled={enabled} authError={Boolean(error)} />;
+    props.workspaceId ?? '', props.ownership ?? null, props.initialConnectionRef ?? null])} {...props} enabled={enabled} authError={Boolean(error)} actorId={session?.user.id ?? null} authSessionId={session?.session.id ?? null} />;
 }
 
 /** Scope changes own a separate mounted state, including pending reads and account selection. */
 function SharedConnectionsSession({ workspaceId, ownership, initiallyOpen = false, initialConnectionRef, returnStatus,
-  enabled, authError }: SharedConnectionsProps & { enabled: boolean; authError: boolean }) {
+  enabled, authError, actorId, authSessionId }: SharedConnectionsProps & { enabled: boolean; authError: boolean; actorId: string | null; authSessionId: string | null }) {
   const t = useTranslations('sharedConnections'), locale = useLocale();
   const [open, setOpen] = useState(initiallyOpen);
   const [connections, setConnections] = useState<IntegrationConnectionDescriptor[]>([]);
@@ -37,7 +37,13 @@ function SharedConnectionsSession({ workspaceId, ownership, initiallyOpen = fals
   const [createOpen, setCreateOpen] = useState(false);
   const [selected, setSelected] = useState<IntegrationConnectionDescriptor | null>(null);
   const revision = useRef(0), alive = useRef(true);
-  const initialAttempted = useRef(false);
+  const initialAttempted = useRef(false), selectedRef = useRef<string | null>(null);
+  const isCurrentSession = useCallback((connectionRef: string) => {
+    const current = authClient.$store.atoms.session.get();
+    return alive.current && enabled && !current.isPending && !current.error
+      && current.data?.user.id === actorId && current.data?.session.id === authSessionId
+      && selectedRef.current === connectionRef;
+  }, [actorId, authSessionId, enabled]);
   const writes = useRef(0);
   const readPending = useCallback(() => writes.current > 0, []);
   usePluginEditorNavigationGuard({ dirty: false, pending: readPending });
@@ -76,16 +82,16 @@ function SharedConnectionsSession({ workspaceId, ownership, initiallyOpen = fals
         const exact = (await api<{ connection: IntegrationConnectionDescriptor }>(`/api/integrations/shared-connections/${encodeURIComponent(initialConnectionRef!)}`)).connection;
         if (!alive.current || request !== revision.current) return;
         if (exact.resource.connectionRef !== initialConnectionRef || !matchesOwnership(exact.resource.ownership)) throw new Error('connection_selection_unavailable');
-        initialAttempted.current = true; setSelected(exact);
+        initialAttempted.current = true; selectedRef.current = exact.resource.connectionRef; setSelected(exact);
       }
       setConnections(list.connections.filter(connection => matchesOwnership(connection.resource.ownership)));
       setScopes(setup.scopes.filter(scope => matchesOwnership(scope.ownership)));
-    } catch { if (alive.current && request === revision.current) { if (reopen) initialAttempted.current = true; setSelected(null); setConnections([]); setScopes([]); setError(true); } }
+    } catch { if (alive.current && request === revision.current) { if (reopen) initialAttempted.current = true; selectedRef.current = null; setSelected(null); setConnections([]); setScopes([]); setError(true); } }
     finally { if (alive.current && request === revision.current) setLoading(false); }
   }, [api, enabled, initialConnectionRef, matchesOwnership, workspaceId]);
-  useEffect(() => { alive.current = true; return () => { alive.current = false; revision.current += 1; }; }, []);
+  useLayoutEffect(() => { alive.current = true; return () => { alive.current = false; selectedRef.current = null; revision.current += 1; }; }, []);
   useEffect(() => { if (initiallyOpen && enabled) startTransition(() => { void load(); }); }, [enabled, initiallyOpen, load]);
-  const refresh = (retryReturn = false) => { if (retryReturn) initialAttempted.current = false; setSelected(null); setCreateOpen(false); void load(); };
+  const refresh = (retryReturn = false) => { if (retryReturn) initialAttempted.current = false; selectedRef.current = null; setSelected(null); setCreateOpen(false); void load(); };
   const scopeLabel = (value: IntegrationConnectionDescriptor) => value.resource.ownership.type === 'organization' ? t('organization')
     : `${t('team')} · ${value.ownershipLabel || scopes.find(scope => scope.ownership.type === 'team' && value.resource.ownership.type === 'team'
       && scope.ownership.workspaceId === value.resource.ownership.workspaceId)?.label || t('sharedTeam')}`;
@@ -110,7 +116,7 @@ function SharedConnectionsSession({ workspaceId, ownership, initiallyOpen = fals
           : !connections.length ? <p className="py-3 text-sm text-muted-foreground">{t('empty')}</p>
             : <div className="divide-y rounded-lg border">{connections.map(connection => <button type="button" key={connection.resource.connectionRef}
               className="flex w-full min-w-0 flex-wrap items-center justify-between gap-3 p-3 text-left hover:bg-muted/30"
-              onClick={() => setSelected(connection)} data-testid="shared-connection-row">
+              onClick={() => { selectedRef.current = connection.resource.connectionRef; setSelected(connection); }} data-testid="shared-connection-row">
               <span className="min-w-0"><span className="block break-words text-sm font-medium">{connection.resource.displayName}</span>
                 <span className="mt-1 block text-xs text-muted-foreground">{scopeLabel(connection)} · {connection.resource.source === 'mcp' ? t('mcp') : t('composio')}</span></span>
               <Badge variant="outline">{connection.resource.status === 'archived' ? t('archived') : connection.access.canManage ? t('manage') : t('canUse')}</Badge>
@@ -120,9 +126,9 @@ function SharedConnectionsSession({ workspaceId, ownership, initiallyOpen = fals
       <DialogHeader><DialogTitle>{t('createTitle')}</DialogTitle><DialogDescription>{t('createDescription')}</DialogDescription></DialogHeader>
       {createOpen ? <SharedConnectionCreateForm api={api} scopes={scopes} onSaved={refresh} /> : null}
     </DialogContent></Dialog>
-    <Dialog open={Boolean(selected)} onOpenChange={value => { if (!value && writes.current === 0 && confirmPluginNavigation()) setSelected(null); }}><DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-2xl" data-testid="shared-connection-edit-dialog">
+    <Dialog open={Boolean(selected)} onOpenChange={value => { if (!value && writes.current === 0 && confirmPluginNavigation()) { selectedRef.current = null; setSelected(null); } }}><DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-2xl" data-testid="shared-connection-edit-dialog">
       <DialogHeader><DialogTitle>{selected?.resource.displayName}</DialogTitle><DialogDescription>{selected ? scopeLabel(selected) : ''}</DialogDescription></DialogHeader>
-      {selected ? <SharedConnectionEditor key={selected.resource.connectionRef} api={api} initial={selected} onSaved={refresh}
+      {selected ? <SharedConnectionEditor key={selected.resource.connectionRef} api={api} initial={selected} onSaved={refresh} workspaceId={workspaceId ?? null} isCurrentSession={isCurrentSession}
         returnLocale={workspaceId && (locale === 'de' || locale === 'en') ? locale : undefined}
         returnStatus={selected.resource.connectionRef === initialConnectionRef ? returnStatus : undefined} /> : null}
     </DialogContent></Dialog>

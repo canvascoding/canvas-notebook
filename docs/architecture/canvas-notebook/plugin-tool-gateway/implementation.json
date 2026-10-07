@@ -300,7 +300,7 @@
           ] },
           { "id": "6b-d-2b", "name": "Gemeinsame MCP-Desktoptransaktionen mit Manager-Finalisierung", "status": "in_progress", "substeps": [
             { "id": "6b-d-2b-1", "name": "Gemeinsamer Desktop-Serververtrag und atomarer Publikationsbeleg", "status": "complete", "evidence": ["evidence/step-6b-d-2b-1-shared-desktop-server.md"] },
-            { "id": "6b-d-2b-2", "name": "Exakte Desktop-API, Client- und UI-Anbindung", "status": "pending", "evidence": [] },
+            { "id": "6b-d-2b-2", "name": "Exakte Desktop-API, Client- und UI-Anbindung", "status": "complete", "evidence": ["evidence/step-6b-d-2b-2-shared-desktop-client.md"] },
             { "id": "6b-d-2b-3", "name": "Tatsaechliche Systembrowser- und Manager-Abnahme", "status": "pending", "evidence": [] }
           ], "evidence": [] },
           { "id": "6b-d-2c", "name": "Gemeinsame Composio-Desktop-Rueckkehr und Client-Abnahme", "status": "pending", "evidence": [] }

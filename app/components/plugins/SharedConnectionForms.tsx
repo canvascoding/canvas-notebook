@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { Link } from '@/i18n/navigation';
 import type { IntegrationConnectionDescriptor, IntegrationConnectionGrantInput, IntegrationConnectionScopeChoice,
@@ -12,6 +12,9 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { InlineNotice } from '@/components/ui/inline-notice';
 import { SharedConnectionRequestError, type SharedConnectionApi } from './shared-connections-client';
+import { SharedMcpAuthorizationError, startSharedMcpAuthorization, waitForSharedMcpAuthorization, cancelSharedMcpAuthorization, readSharedMcpAuthorizationStatus, finalizeSharedMcpAuthorization,
+  type SharedMcpAuthorizationFlow, type SharedMcpAuthorizationOptions, type SharedMcpAuthorizationSummary } from '@/app/lib/desktop/shared-mcp-oauth-client';
+import { isSharedConnectionConnected } from './shared-connection-oauth-state';
 import { confirmPluginNavigation, hasPluginNavigationBlockers, usePluginEditorNavigationGuard } from './plugin-navigation-guard';
 
 const EMPTY_TARGETS: IntegrationConnectionTargetCatalog = { users: [], workspaces: [], projects: [], agents: [] };
@@ -100,7 +103,8 @@ export function SharedConnectionCreateForm({ api, scopes, onSaved }: {
   </div>;
 }
 
-export function SharedConnectionEditor({ api, initial, onSaved, returnLocale, returnStatus }: {
+export function SharedConnectionEditor({ api, initial, onSaved, returnLocale, returnStatus, workspaceId, isCurrentSession }: {
+  workspaceId: string | null; isCurrentSession: (connectionRef: string) => boolean;
   api: SharedConnectionApi; initial: IntegrationConnectionDescriptor; onSaved: () => void;
   returnLocale?: 'de' | 'en'; returnStatus?: 'connected' | 'cancelled' | 'failed';
 }) {
@@ -115,6 +119,10 @@ export function SharedConnectionEditor({ api, initial, onSaved, returnLocale, re
   const [busy, setBusy] = useState(false), [loading, setLoading] = useState(true), [ready, setReady] = useState(false), [conflict, setConflict] = useState(false), [error, setError] = useState<string | null>(null);
   const [portal, setPortal] = useState<HTMLElement | null>(null), [accounts, setAccounts] = useState<Array<{ accountRef: string; label: string; selectable: boolean }>>([]), [accountRef, setAccountRef] = useState('');
   const [status, setStatus] = useState<string | null>(null), alive = useRef(true);
+  const desktopFlowRef = useRef<SharedMcpAuthorizationFlow | null>(null), desktopController = useRef<AbortController | null>(null);
+  const desktopOutcome = useRef<SharedMcpAuthorizationSummary | null>(null);
+  const [desktopFlow, setDesktopFlow] = useState<SharedMcpAuthorizationFlow | null>(null), [desktopCancelling, setDesktopCancelling] = useState(false);
+  const desktopPending = useCallback(() => desktopFlowRef.current !== null, []);
   const [repairConfiguration, setRepairConfiguration] = useState(''), [repairSecrets, setRepairSecrets] = useState('');
   const dirty = ready && (
     name !== connection.resource.displayName || description !== (connection.resource.description || '')
@@ -123,14 +131,15 @@ export function SharedConnectionEditor({ api, initial, onSaved, returnLocale, re
     || allowedTools !== (connection.resource.allowedToolNames || []).join('\n')
     || JSON.stringify(grantList) !== JSON.stringify((connection.grants || []).map(({ targetType, targetId, canUse, canManage, allowedToolNames }) => ({ targetType, targetId, canUse, canManage, allowedToolNames })))
   ) || targetId !== '' || canUse || canManage || grantTools !== '' || accountRef !== '' || repairConfiguration !== '' || repairSecrets !== '';
-  usePluginEditorNavigationGuard({ dirty, pending: false });
+  usePluginEditorNavigationGuard({ dirty, pending: desktopPending });
   const path = `/api/integrations/shared-connections/${encodeURIComponent(initial.resource.connectionRef)}`;
   const providerPath = `/api/${initial.resource.source}/shared-connections/${encodeURIComponent(initial.resource.connectionRef)}`;
-  const load = useCallback(async () => {
+  const load = useCallback(async (desktopCompleted = false) => {
+    if (!alive.current || !isCurrentSession(initial.resource.connectionRef)) return;
     setLoading(true); setReady(false); setError(null); setAccounts([]); setAccountRef(''); setStatus(null); setTargets(EMPTY_TARGETS);
     try {
       const value = (await api<{ connection: IntegrationConnectionDescriptor }>(path)).connection;
-      if (!alive.current) return;
+      if (!alive.current || !isCurrentSession(initial.resource.connectionRef)) return;
       if (value.resource.connectionRef !== initial.resource.connectionRef || value.resource.source !== initial.resource.source) throw new Error('connection_selection_unavailable');
       setConnection(value); setName(value.resource.displayName); setDescription(value.resource.description || ''); setResponsible(value.resource.responsibleUserId || '');
       setAccessMode(value.resource.accessMode); setAllowedTools((value.resource.allowedToolNames || []).join('\n'));
@@ -138,24 +147,23 @@ export function SharedConnectionEditor({ api, initial, onSaved, returnLocale, re
       setGrantList((value.grants || []).map(({ targetType, targetId, canUse, canManage, allowedToolNames }) => ({ targetType, targetId, canUse, canManage, allowedToolNames })));
       if (value.access.canManage) {
         const result = await api<{ targets: IntegrationConnectionTargetCatalog }>(`${path}/targets`);
-        if (alive.current) setTargets(result.targets);
+        if (!alive.current || !isCurrentSession(initial.resource.connectionRef)) return;
+        setTargets(result.targets);
       }
-      if (returnStatus === 'connected' && value.access.canManage) {
-        const current = await api<{ configured?: boolean; authorized?: boolean; requiresAuth?: boolean; code?: string | null; status?: { connected?: boolean } }>(`${providerPath}/${value.resource.source === 'mcp' ? 'oauth' : 'status'}`);
-        if (!alive.current) return;
-        const connected = value.resource.source === 'mcp'
-          ? current.configured === true && (current.code === null || current.code === undefined)
-            && (current.requiresAuth === false || current.requiresAuth === true && current.authorized === true)
-          : current.status?.connected === true;
+      if ((desktopCompleted || returnStatus === 'connected') && value.access.canManage) {
+        const current = await api<unknown>(`${providerPath}/${value.resource.source === 'mcp' ? 'oauth' : 'status'}`);
+        if (!alive.current || !isCurrentSession(initial.resource.connectionRef)) return;
+        const connected = isSharedConnectionConnected(value.resource.source, current);
         setStatus(t(connected ? 'connected' : 'connectionRequired'));
       } else if (returnStatus === 'cancelled' || returnStatus === 'failed') {
-        if (alive.current) setStatus(t(returnStatus === 'cancelled' ? 'oauthCancelled' : 'oauthFailed'));
+        if (alive.current && isCurrentSession(initial.resource.connectionRef)) setStatus(t(returnStatus === 'cancelled' ? 'oauthCancelled' : 'oauthFailed'));
       }
-      if (alive.current) setReady(true);
-    } catch { if (alive.current) setError(t('loadError')); }
-    finally { if (alive.current) setLoading(false); }
-  }, [api, initial.resource.connectionRef, initial.resource.source, path, providerPath, returnStatus, t]);
-  useEffect(() => { alive.current = true; queueMicrotask(() => void load()); return () => { alive.current = false; }; }, [load]);
+      if (alive.current && isCurrentSession(initial.resource.connectionRef)) setReady(true);
+    } catch { if (alive.current && isCurrentSession(initial.resource.connectionRef)) setError(t('loadError')); }
+    finally { if (alive.current && isCurrentSession(initial.resource.connectionRef)) setLoading(false); }
+  }, [api, initial.resource.connectionRef, initial.resource.source, isCurrentSession, path, providerPath, returnStatus, t]);
+  useLayoutEffect(() => { alive.current = true; return () => { alive.current = false; desktopController.current?.abort(); }; }, []);
+  useEffect(() => { queueMicrotask(() => void load()); }, [load]);
   const userOptions: PolicyTargetOption[] = targets.users.map(user => ({ id: user.userId, label: user.name || user.email || t('unknownTarget'), description: user.name ? user.email : null }));
   const options: PolicyTargetOption[] = targetType === 'user' ? userOptions
     : targetType === 'workspace' ? targets.workspaces.map(value => ({ id: value.workspaceId, label: value.name, description: null }))
@@ -168,26 +176,91 @@ export function SharedConnectionEditor({ api, initial, onSaved, returnLocale, re
       : grant.targetType === 'project' ? targets.projects.find(value => value.projectId === grant.targetId)?.name
         : grant.targetType === 'agent' ? targets.agents.find(value => value.agentId === grant.targetId)?.name
           : grant.targetType === 'role' ? t(`roles.${grant.targetId}`) : t('organization');
-  const disabled = loading || busy || conflict || !ready;
+  const disabled = loading || busy || conflict || !ready || desktopFlow !== null;
   async function run(operation: () => Promise<void>) {
+    if (!alive.current || !isCurrentSession(initial.resource.connectionRef)) return;
     setBusy(true); setError(null);
     try { await operation(); }
-    catch (failure) { if (alive.current) { const stale = failure instanceof SharedConnectionRequestError && failure.status === 409; setConflict(stale); setError(t(stale ? 'conflict' : 'saveError')); } }
-    finally { if (alive.current) setBusy(false); }
+    catch (failure) { if (alive.current && isCurrentSession(initial.resource.connectionRef)) { const stale = failure instanceof SharedConnectionRequestError && failure.status === 409; setConflict(stale); setError(t(stale ? 'conflict' : 'saveError')); } }
+    finally { if (alive.current && isCurrentSession(initial.resource.connectionRef)) setBusy(false); }
   }
   async function save() {
     await run(async () => {
       await api(path, { ...revisions(connection), metadata: { displayName: name, description, responsibleUserId: responsible || null },
         grants: grantList, accessMode, allowedToolNames: toolMode === 'all' ? null : toolMode === 'none' ? [] : tools(allowedTools) ?? [] }, 'PATCH');
-      if (alive.current) onSaved();
+      if (alive.current && isCurrentSession(initial.resource.connectionRef)) onSaved();
+    });
+  }
+  function desktopOptions(controller: AbortController): SharedMcpAuthorizationOptions {
+    return { api, signal: controller.signal, isCurrent: () => alive.current && isCurrentSession(initial.resource.connectionRef),
+      ...(workspaceId !== null && returnLocale ? { returnLocale } : {}),
+      onStatus: value => { desktopOutcome.current = value; } };
+  }
+  async function clearDesktopFlow(result: SharedMcpAuthorizationSummary) {
+    if (!alive.current || !isCurrentSession(initial.resource.connectionRef)) return;
+    desktopController.current?.abort(); desktopController.current = null; desktopFlowRef.current = null; setDesktopFlow(null);
+    if (result.status === 'completed') await load(true);
+    else setStatus(t(result.status === 'cancelled' ? 'oauthCancelled' : 'oauthFailed'));
+  }
+  async function cancelDesktopFlow() {
+    const flow = desktopFlowRef.current;
+    if (!flow || desktopCancelling || !alive.current || !isCurrentSession(initial.resource.connectionRef)) return;
+    desktopController.current?.abort();
+    const controller = new AbortController(); desktopController.current = controller;
+    setDesktopCancelling(true); setError(null);
+    try { await clearDesktopFlow(await cancelSharedMcpAuthorization(flow, desktopOptions(controller))); }
+    catch (failure) { if (alive.current && isCurrentSession(initial.resource.connectionRef)) {
+      const denied = failure instanceof SharedMcpAuthorizationError && failure.status !== null && [400, 401, 403, 404, 409, 410].includes(failure.status);
+      if (denied) { desktopController.current?.abort(); desktopFlowRef.current = null; setDesktopFlow(null); setReady(false); setConflict(failure.status === 409); }
+      setError(t(denied ? failure.status === 409 ? 'conflict' : 'oauthFailed' : 'desktopUnconfirmed'));
+    } }
+    finally { if (alive.current && isCurrentSession(initial.resource.connectionRef)) setDesktopCancelling(false); }
+  }
+  async function resumeDesktopFlow() {
+    const flow = desktopFlowRef.current;
+    if (!flow || busy || desktopCancelling || !alive.current || !isCurrentSession(initial.resource.connectionRef)) return;
+    const controller = new AbortController(); desktopController.current?.abort(); desktopController.current = controller;
+    await run(async () => {
+      try {
+        let result = await readSharedMcpAuthorizationStatus(flow, desktopOptions(controller));
+        if (result.status === 'callback_received') result = await finalizeSharedMcpAuthorization(flow, desktopOptions(controller));
+        if (result.status === 'waiting' || result.status === 'callback_received') {
+          setStatus(t('desktopWaiting'));
+          result = await waitForSharedMcpAuthorization(flow, desktopOptions(controller));
+        }
+        await clearDesktopFlow(result);
+      } catch (failure) {
+        if (!alive.current || !isCurrentSession(initial.resource.connectionRef) || controller.signal.aborted) return;
+        const denied = failure instanceof SharedMcpAuthorizationError && failure.status !== null && [400, 401, 403, 404, 409, 410].includes(failure.status);
+        if (denied) { desktopController.current?.abort(); desktopFlowRef.current = null; setDesktopFlow(null); setReady(false); setConflict(failure.status === 409); }
+        setError(t(denied ? failure.status === 409 ? 'conflict' : 'oauthFailed' : 'desktopUnconfirmed'));
+      }
     });
   }
   async function authorize() {
     if (hasPluginNavigationBlockers()) { setError(t('saveBeforeConnect')); return; }
     await run(async () => {
+      if (connection.resource.source === 'mcp' && Reflect.get(window, 'canvasDesktop')) {
+        const controller = new AbortController(); desktopController.current = controller; desktopOutcome.current = null;
+        try {
+          const flow = await startSharedMcpAuthorization({ connectionRef: initial.resource.connectionRef, workspaceId }, revisions(connection), {
+            ...desktopOptions(controller), onStarted: value => { desktopFlowRef.current = value; setDesktopFlow(value); setStatus(t('desktopWaiting')); },
+          });
+          await clearDesktopFlow(await waitForSharedMcpAuthorization(flow, desktopOptions(controller)));
+        } catch (failure) {
+          if (!alive.current || !isCurrentSession(initial.resource.connectionRef) || controller.signal.aborted) return;
+          const result = desktopOutcome.current as SharedMcpAuthorizationSummary | null;
+          if (result && result.status !== 'waiting' && result.status !== 'callback_received') { await clearDesktopFlow(result); return; }
+          const denied = failure instanceof SharedMcpAuthorizationError && failure.status !== null && [400, 401, 403, 404, 409, 410].includes(failure.status);
+          if (denied) { desktopController.current?.abort(); desktopFlowRef.current = null; setDesktopFlow(null); setReady(false); setConflict(failure.status === 409); }
+          setError(t(failure instanceof SharedMcpAuthorizationError && failure.code === 'desktop_update_required'
+            ? 'desktopUpdateRequired' : denied && failure.status === 409 ? 'conflict' : desktopFlowRef.current ? 'desktopUnconfirmed' : 'oauthFailed'));
+        }
+        return;
+      }
       const result = await api<{ redirectUrl?: string | null; authorizationUrl?: string }>(`${providerPath}/${connection.resource.source === 'mcp' ? 'oauth' : 'connect'}`,
         { ...revisions(connection), ...(returnLocale ? { returnLocale } : {}) });
-      if (!alive.current) return;
+      if (!alive.current || !isCurrentSession(initial.resource.connectionRef)) return;
       const redirect = result.authorizationUrl || result.redirectUrl;
       if (!redirect) { await load(); return; }
       const url = new URL(redirect);
@@ -198,7 +271,7 @@ export function SharedConnectionEditor({ api, initial, onSaved, returnLocale, re
   async function loadAccounts() {
     await run(async () => {
       const result = await api<{ accounts: Array<{ accountRef: string; label: string; selectable: boolean }> }>(`${providerPath}/accounts`);
-      if (alive.current) { setAccounts(result.accounts); setAccountRef(''); }
+      if (alive.current && isCurrentSession(initial.resource.connectionRef)) { setAccounts(result.accounts); setAccountRef(''); }
     });
   }
   function reload() {
@@ -218,25 +291,29 @@ export function SharedConnectionEditor({ api, initial, onSaved, returnLocale, re
           <p className="text-xs text-muted-foreground">{t('accountHint')}</p>
           <div className="flex flex-wrap gap-2"><Button size="sm" disabled={disabled} onClick={() => void authorize()}>{t('connect')}</Button>
             <Button size="sm" variant="outline" disabled={disabled} onClick={() => void run(async () => {
-              const result = await api<{ status?: { connected: boolean }; authorized?: boolean; requiresAuth?: boolean }>(`${providerPath}/${connection.resource.source === 'mcp' ? 'oauth' : 'status'}`);
-              if (alive.current) setStatus(t(result.status?.connected || result.authorized || result.requiresAuth === false ? 'connected' : 'connectionRequired'));
+              const result = await api<unknown>(`${providerPath}/${connection.resource.source === 'mcp' ? 'oauth' : 'status'}`);
+              if (alive.current && isCurrentSession(initial.resource.connectionRef)) setStatus(t(isSharedConnectionConnected(connection.resource.source, result) ? 'connected' : 'connectionRequired'));
             })}>{t('checkStatus')}</Button>
             <Button size="sm" variant="outline" disabled={disabled} onClick={() => void run(async () => {
               await api(`${providerPath}/${connection.resource.source === 'mcp' ? 'oauth' : 'disconnect'}`, revisions(connection), connection.resource.source === 'mcp' ? 'DELETE' : 'POST');
-              if (alive.current) await load();
+              if (alive.current && isCurrentSession(initial.resource.connectionRef)) await load();
             })}>{t('disconnect')}</Button></div>
           {status ? <p className="text-sm">{status}</p> : null}
+          {desktopFlow ? <div className="flex flex-wrap gap-2">
+            <Button size="sm" variant="outline" disabled={busy || desktopCancelling} onClick={() => void resumeDesktopFlow()} data-testid="shared-desktop-resume">{t('desktopCheck')}</Button>
+            <Button size="sm" variant="outline" disabled={desktopCancelling} onClick={() => void cancelDesktopFlow()} data-testid="shared-desktop-cancel">{t('desktopCancel')}</Button>
+          </div> : null}
           {connection.resource.source === 'composio' ? <><Button size="sm" variant="outline" disabled={disabled} onClick={() => void loadAccounts()}>{t('loadAccounts')}</Button>
             {accounts.length ? <div className="space-y-2"><Label htmlFor="shared-account">{t('account')}</Label><select id="shared-account" className={selectClass} value={accountRef} disabled={disabled} onChange={event => setAccountRef(event.target.value)}>
               <option value="">{t('chooseAccount')}</option>{accounts.map(account => <option key={account.accountRef} value={account.accountRef} disabled={!account.selectable}>{account.label}</option>)}</select>
-              <Button size="sm" disabled={disabled || !accountRef} onClick={() => void run(async () => { await api(`${providerPath}/accounts`, { ...revisions(connection), accountRef }, 'PATCH'); if (alive.current) await load(); })}>{t('bindAccount')}</Button></div> : null}</> : null}
+              <Button size="sm" disabled={disabled || !accountRef} onClick={() => void run(async () => { await api(`${providerPath}/accounts`, { ...revisions(connection), accountRef }, 'PATCH'); if (alive.current && isCurrentSession(initial.resource.connectionRef)) await load(); })}>{t('bindAccount')}</Button></div> : null}</> : null}
           {connection.resource.source === 'mcp' ? <details className="rounded-md border p-3"><summary className="cursor-pointer text-sm">{t('repairSetup')}</summary><div className="mt-3 space-y-2">
             <p className="text-xs text-muted-foreground">{t('repairHint')}</p><Label htmlFor="shared-repair-config">{t('configuration')}</Label><Textarea id="shared-repair-config" className="font-mono text-xs" value={repairConfiguration} disabled={disabled} onChange={event => setRepairConfiguration(event.target.value)} placeholder={'{"url":"https://…","transport":"http"}'} />
             <Label htmlFor="shared-repair-secrets">{t('secretSlots')}</Label><Textarea id="shared-repair-secrets" className="font-mono text-xs" value={repairSecrets} disabled={disabled} onChange={event => setRepairSecrets(event.target.value)} placeholder={'[{"name":"TOKEN","value":"…"}]'} />
             <Button size="sm" variant="outline" disabled={disabled || !repairConfiguration.trim()} onClick={() => void run(async () => {
               const config: unknown = JSON.parse(repairConfiguration), secrets: unknown = repairSecrets.trim() ? JSON.parse(repairSecrets) : [];
               await api(`${providerPath}/configuration`, { ...revisions(connection), config, secrets }, 'PUT');
-              if (alive.current) { setRepairSecrets(''); await load(); }
+              if (alive.current && isCurrentSession(initial.resource.connectionRef)) { setRepairSecrets(''); await load(); }
             })}>{t('saveSetup')}</Button>
           </div></details> : null}
         </div>
@@ -269,7 +346,7 @@ export function SharedConnectionEditor({ api, initial, onSaved, returnLocale, re
             }}>{t('addGrant')}</Button>
           </div>
           <div className="flex flex-wrap gap-2"><Button disabled={disabled || !name.trim()} onClick={() => void save()} data-testid="shared-connection-save">{busy ? t('saving') : t('save')}</Button>
-            <Button variant="outline" disabled={disabled} onClick={() => void run(async () => { await api(path, { ...revisions(connection), status: connection.resource.status === 'active' ? 'archived' : 'active' }, 'PATCH'); if (alive.current) onSaved(); })}>{t(connection.resource.status === 'active' ? 'archive' : 'restore')}</Button></div>
+            <Button variant="outline" disabled={disabled} onClick={() => void run(async () => { await api(path, { ...revisions(connection), status: connection.resource.status === 'active' ? 'archived' : 'active' }, 'PATCH'); if (alive.current && isCurrentSession(initial.resource.connectionRef)) onSaved(); })}>{t(connection.resource.status === 'active' ? 'archive' : 'restore')}</Button></div>
         </div>
       </details>
     </> : null}

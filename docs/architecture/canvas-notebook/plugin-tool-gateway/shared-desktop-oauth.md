@@ -1,6 +1,6 @@
 # Shared MCP Desktop OAuth server contract
 
-Implementation status:6b-d-2b-1 locally accepted; see [server evidence](evidence/step-6b-d-2b-1-shared-desktop-server.md). Client/API wiring and actual system-browser acceptance are separate6b-d-2b-2/3 gates. The gateway remains default-off.
+Implementation status:6b-d-2b-1 server contract and6b-d-2b-2 API/client/UI locally accepted; see [server evidence](evidence/step-6b-d-2b-1-shared-desktop-server.md) and [client evidence](evidence/step-6b-d-2b-2-shared-desktop-client.md). Actual Electron/system-browser acceptance remains6b-d-2b-3. The gateway remains default-off.
 
 ## Identity and private storage
 
@@ -30,8 +30,18 @@ The provider-owned SQL receipt stores SHA256(state), snapshot/actor/session fing
 
 At unchanged starting revisions, exact token/lifecycle state can avoid a second exchange while retrying a failed publication. The actual sealed token must bind the exact authorization state, connection, configuration/version/generation, server, issuer, client and resource and have a valid bearer credential/lifetime. After binding publication, recovery additionally requires this exact SQL receipt, fresh original-session/Manage authority, its post-publication revision proof and the still-bound token/lifecycle state. Generic bind history, any authorized token or `bindingRevision + 1` alone cannot prove completion. In particular, token commit followed by SQL rollback and an unrelated later bind must not turn the old flow into success. A locator expired after committed publication may recover only through that same complete proof.
 
+## Authenticated API and desktop client
+
+Shared start POST accepts the three exact expected revisions, optional de/en returnLocale and optional desktop boolean. Only desktop=true captures the original human user and session from one BetterAuth response; callers cannot supply either proof. The desktop ACK additionally echoes the exact canonical connectionRef. Browser callers retain their established payload and return. Desktop start is limited to30 requests per minute per verified user.
+
+The exact `/api/mcp/shared-connections/<connectionRef>/oauth/desktop` GET accepts one desktop state and optional workspaceId. POST accepts only state plus action=finalize/cancel and optional workspace selection in its query. Duplicate/conflicting workspace selectors, extra action/query/body fields and malformed references/states fail closed. Every response is no-store. Current identity then enters the common Manage/session/snapshot service; a second session of the same user is insufficient.
+
+The shared client uses only the Parent API adapter and captured reference/workspace. A private issued-flow receipt validates state, deadline and status replies. Every await checks current mounted actor/session/selection. No shared flow is persisted or routed to personal endpoints. A synchronous onStarted callback holds the navigation guard before IPC. Explicit Cancel and status/resume remain available for unconfirmed acknowledgements; mutations are never automatically replayed. A cancel result already completed is checked through fresh provider readiness.
+
+Preload advertises sharedMcpOAuthVersion=1. An older bridge fails before any start request. The main launcher builds its own exact status URL at the configured Canvas origin, verifies the authenticated waiting reply and safe URL, and fences window/frame URL/session/cookie changes across awaits. Cookie values stay in private process memory. A changed session even after A/B/A replacement invalidates opening; listeners are removed in finally. Personal launcher semantics remain unchanged.
+
 ## Required acceptance
 
 The server gate uses real isolated SQL authority and local OAuth HTTP, including wrong user/session/reference/workspace, public collection with zero SQL/exchange/publication, issuer/nonce/replay/cancel/expiry, current grants/CAS/config/generation, publication rollback, exact same-flow recovery and corrupt receipts. Startup migration is additive and must preserve its rows on repetition. Personal desktop and browser OAuth regression remains required.
 
-The next substep captures authenticated sessions in strict shared API routes, adds the exact-reference desktop launcher and UI polling/cancellation fences. Actual system-browser, session-change and manager-only completion acceptance follows on the final production build. Controlled SQL/protocol tests do not establish live provider, Electron or external browser acceptance.
+Controlled server, HTTP, actual React and Electron-boundary tests are locally accepted. Actual Electron/system-browser, session-change and manager-only completion acceptance follows on the final production build. Controlled SQL/protocol/IPC tests do not establish live provider, Electron OS or external browser acceptance.
