@@ -4,6 +4,7 @@ import path from 'node:path';
 import { expect, test, type APIResponse, type BrowserContext, type Locator, type Page, type Response } from '@playwright/test';
 import { createAuthenticatedContext, requestManagedTestSession, runManagedTestPreflight } from './helpers/managed-test-context';
 import type { AgentProfile } from '../app/lib/agents/registry';
+import type { AgentWorkflowManagement, AgentWorkflowManagementOptions } from '../app/lib/agents/workflow-management-contracts';
 import type { ClientWorkspaceResponse } from '../app/lib/workspaces/client-types';
 import en from '../messages/en.json';
 
@@ -116,6 +117,41 @@ test.afterAll(async () => {
   } finally { await admin?.close(); }
   // The owning fixture drops ONLY its whole acknowledged database and DATA
   // after its server exits. This suite never calls Agent DELETE or session POST.
+});
+
+test('authenticated workflow management reads keep exact revisions and native defaults', async () => {
+  expect(a && aBefore).toBeTruthy();
+  const agent = a!, endpoint = '/api/agents/workflow';
+  const selectors = { agentId: agent.agentId, workspaceId };
+  const response = await admin.request.get(`${endpoint}?${new URLSearchParams({ ...selectors, view: 'management' })}`);
+  expect(response.headers()['cache-control']).toBe('no-store');
+  const current = await data<AgentWorkflowManagement>(response, 'Authenticated central workflow inspection');
+  expect(current).toMatchObject({ schemaVersion: 1, view: 'management', agentId: agent.agentId,
+    revision: agent.revision, workflowRevision: agent.workflowRevision ?? 0,
+    workflowVersion: null, configurationState: 'legacy', configuration: null,
+    unavailablePackageCount: 0, unavailableConnectionCount: 0,
+    profile: { agentId: agent.agentId, name: agent.name, scopeType: 'user', enabledTools: ['read'] },
+    access: { canUse: true, canEdit: true, canManage: true } });
+  const query = new URLSearchParams({ ...selectors, view: 'packages',
+    expectedRevision: String(current.revision), expectedWorkflowRevision: String(current.workflowRevision) });
+  const options = await data<AgentWorkflowManagementOptions>(await admin.request.get(`${endpoint}?${query}`), 'Authenticated published package discovery');
+  expect(options).toMatchObject({ schemaVersion: 1, view: 'packages', agentId: current.agentId,
+    revision: current.revision, workflowRevision: current.workflowRevision });
+  const publicJson = JSON.stringify([current, options]);
+  for (const field of ['personalBinding', 'bindingFingerprint', 'boundProviderRef', 'connectedAccountId', 'composioUserId', 'rootPath']) {
+    expect(publicJson).not.toMatch(new RegExp(`"${field}"\\s*:`, 'u'));
+  }
+  query.set('expectedRevision', String(current.revision + 1));
+  expect((await admin.request.get(`${endpoint}?${query}`)).status()).toBe(409);
+  query.set('expectedRevision', String(current.revision));
+  expect((await admin.request.get(`${endpoint}?${query}&page=1&page=2`)).status()).toBe(400);
+  expect((await admin.request.get(`${endpoint}?${new URLSearchParams({ ...selectors, view: 'management', unsupported: 'value' })}`)).status()).toBe(400);
+  expect((await admin.request.get(`${endpoint}?${new URLSearchParams({ agentId: 'bradley', workspaceId, view: 'management' })}`)).status()).toBe(403);
+  const anonymous = await admin.browser()!.newContext({ baseURL: 'http://127.0.0.1:3001' });
+  try {
+    expect((await anonymous.request.get(`${endpoint}?${new URLSearchParams({ ...selectors, view: 'management' })}`)).status()).toBe(401);
+  } finally { await anonymous.close(); }
+  await exactOwned();
 });
 
 test('late genuine A responses cannot replace B tools or change the B save target', async () => {

@@ -6,6 +6,8 @@ import { z } from 'zod';
 import { updateManagedAgentConfiguration, inspectManagedAgentWorkflow, listManagedAgentWorkflowOptions,
   setManagedAgentWorkflowChoice } from '@/app/lib/agents/workflow-configuration';
 import { agentWorkflowPersonalOptionsSchema, bindOwnAgentWorkflowChoiceInput, updateAgentConfigurationSchema, updateAgentWorkflowChoiceSchema } from '@/app/lib/agents/workflow-api-contracts';
+import { agentWorkflowManagementPersonalConnectionsRequestSchema, agentWorkflowManagementRequestSchema } from '@/app/lib/agents/workflow-management-contracts';
+import { listAgentWorkflowManagementOptions } from '@/app/lib/agents/workflow-management';
 
 import {
   AgentManagementError,
@@ -27,6 +29,21 @@ import { DEFAULT_MANAGED_AGENT_ID, type AgentManagedFileName } from '@/app/lib/a
 import { getAgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
 
 const nullableString = Type.Union([Type.String(), Type.Null()]);
+// The Planning-whitelisted operation always remains local metadata. Explicit
+// account discovery belongs to the existing non-whitelisted personal tool.
+const [firstManagementMetadataSchema, ...remainingManagementMetadataSchemas] = agentWorkflowManagementRequestSchema.options
+  .map(schema => schema.shape.view.value === 'personal-connections'
+    ? agentWorkflowManagementPersonalConnectionsRequestSchema.omit({ providerRef: true }) : schema);
+const agentWorkflowManagementMetadataToolSchema = z.discriminatedUnion('view',
+  [firstManagementMetadataSchema, ...remainingManagementMetadataSchemas]);
+const agentWorkflowOptionsToolSchema = z.union([
+  z.object({ agentId: z.string().min(1).max(256), view: z.literal('options').optional() }).strict(),
+  agentWorkflowManagementMetadataToolSchema,
+]);
+const agentWorkflowPersonalToolSchema = z.union([
+  agentWorkflowPersonalOptionsSchema,
+  agentWorkflowManagementPersonalConnectionsRequestSchema.required({ providerRef: true }),
+]);
 const capabilitySelectionSchema = Type.Object({
   resourceType: Type.Union([Type.Literal('skill'), Type.Literal('plugin')]),
   resourceId: Type.Optional(Type.String({ description: 'Stable capability resource ID from inspect/search results.' })),
@@ -180,10 +197,14 @@ export function createAgentManagementTools(
 
   const personalWorkflowOptions: AgentTool = {
     name: 'list_agent_workflow_personal_options', label: 'Find own workflow connections',
-    description: 'Explicit discovery for a centrally allowed personal workflow choice. Start with agentId/capabilityKey to list your permitted providers without external requests. Then select one returned alternativeKey/providerRef to inspect its exact Composio app and account chooser. Return only server-issued references and use set_agent_workflow_choice to save. This can query external account metadata and is unavailable in planning mode; fixed central bindings are never changed.',
-    parameters: Type.Unsafe(z.toJSONSchema(agentWorkflowPersonalOptionsSchema, { target: 'draft-7' })),
+    description: 'Explicit discovery for a centrally allowed personal workflow choice. Start with agentId/capabilityKey to list your permitted providers without external requests, then select a returned alternativeKey/providerRef for its exact account chooser. Central editors may instead use view=personal-connections with the exact published declaration, agent/workflow revisions and a providerRef returned by list_agent_workflow_options. Return only server-issued references. This can query external account metadata and is unavailable in planning mode; it never changes a binding.',
+    parameters: Type.Unsafe(z.toJSONSchema(agentWorkflowPersonalToolSchema, { target: 'draft-7', io: 'input' })),
     execute: async (_toolCallId, params) => {
-      const input = agentWorkflowPersonalOptionsSchema.parse(params);
+      const input = agentWorkflowPersonalToolSchema.parse(params);
+      if ('view' in input) {
+        const data = await listAgentWorkflowManagementOptions(actor(userId, sessionId), input);
+        return result('Your exact personal account options for central configuration.', { management: data });
+      }
       const { listAgentWorkflowPersonalOptions } = await import('@/app/lib/agents/workflow-personal-options');
       const data = await listAgentWorkflowPersonalOptions(actor(userId, sessionId), input);
       return result('Your permitted personal workflow connections.', { options: data });
@@ -278,10 +299,15 @@ export function createAgentManagementTools(
   };
   const workflowOptions: AgentTool = {
     name: 'list_agent_workflow_options', label: 'List agent workflow choices',
-    description: 'Lists this actor’s allowed choices for the current centrally configured workflow. A fixed connection cannot be changed; selectable choices require the returned workflow and preference revisions.',
-    parameters: Type.Object({ agentId: Type.String() }, { additionalProperties: false }),
+    description: 'Lists this actor’s allowed choices for the current centrally configured workflow by default. A fixed connection cannot be changed; selectable choices require the returned workflow and preference revisions. Central editors with canEdit may start with view=management, then request packages, package-version, connections, personal-connections or personal-mcp-definitions using the returned exact agent and workflow revisions. This operation reads metadata only. To inspect accounts, pass a returned personal providerRef and the exact declaration to list_agent_workflow_personal_options outside planning mode. Management results never expose private account IDs, credentials or fingerprints.',
+    parameters: Type.Unsafe(z.toJSONSchema(agentWorkflowOptionsToolSchema, { target: 'draft-7', io: 'input' })),
     execute: async (_toolCallId, params) => {
-      const data = await listManagedAgentWorkflowOptions(actor(userId, sessionId), (params as { agentId: string }).agentId);
+      const input = agentWorkflowOptionsToolSchema.parse(params);
+      if (input.view && input.view !== 'options') {
+        const data = await listAgentWorkflowManagementOptions(actor(userId, sessionId), input);
+        return result(`Workflow configuration options for ${input.agentId}.`, { management: data });
+      }
+      const data = await listManagedAgentWorkflowOptions(actor(userId, sessionId), input.agentId);
       return result(`Allowed workflow choices for ${data.agentId}.`, { workflow: data });
     },
   };

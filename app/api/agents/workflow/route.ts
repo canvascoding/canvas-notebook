@@ -4,6 +4,8 @@ import { managementErrorDetails, type AgentManagementActor } from '@/app/lib/age
 import { inspectManagedAgentWorkflow, listManagedAgentWorkflowOptions, setManagedAgentWorkflowChoice } from '@/app/lib/agents/workflow-configuration';
 import { agentWorkflowPersonalOptionsSchema, bindOwnAgentWorkflowChoiceInput, updateAgentWorkflowChoiceSchema } from '@/app/lib/agents/workflow-api-contracts';
 import { AgentWorkflowError } from '@/app/lib/agents/workflow-contracts';
+import { agentWorkflowManagementRequestSchema } from '@/app/lib/agents/workflow-management-contracts';
+import { listAgentWorkflowManagementOptions } from '@/app/lib/agents/workflow-management';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 
 function actor(request: NextRequest, userId: string, sessionId: string): AgentManagementActor {
@@ -24,6 +26,19 @@ export async function GET(request: NextRequest) {
     if (!agentId) throw new AgentWorkflowError('AGENT_WORKFLOW_INVALID', 'An exact agent is required.', 400);
     const currentActor = actor(request, session.user.id, session.session.id);
     const view = request.nextUrl.searchParams.get('view');
+    if (view && ['management', 'packages', 'package-version', 'connections', 'personal-connections', 'personal-mcp-definitions'].includes(view)) {
+      const params = request.nextUrl.searchParams;
+      const raw: Record<string, unknown> = {};
+      for (const [key, value] of params) {
+        if (['organizationId', 'workspaceId', 'projectId'].includes(key)) continue;
+        if (Object.hasOwn(raw, key)) throw new AgentWorkflowError('AGENT_WORKFLOW_INVALID', 'Duplicate configuration selectors are not supported.', 400);
+        raw[key] = ['expectedRevision', 'expectedWorkflowRevision', 'page', 'limit'].includes(key) ? Number(value) : value;
+      }
+      const parsed = agentWorkflowManagementRequestSchema.safeParse(raw);
+      if (!parsed.success) throw new AgentWorkflowError('AGENT_WORKFLOW_INVALID', 'Choose an exact workflow configuration and permitted published version.', 400);
+      const data = await listAgentWorkflowManagementOptions(currentActor, parsed.data);
+      return NextResponse.json({ success: true, data }, { headers: { 'Cache-Control': 'no-store' } });
+    }
     if (view === 'personal-options') {
       const params = request.nextUrl.searchParams, rawRevision = params.get('expectedWorkflowRevision');
       const parsed = agentWorkflowPersonalOptionsSchema.safeParse({ agentId, capabilityKey: params.get('capabilityKey'),

@@ -264,19 +264,19 @@ export async function publishCapabilityPackageDraftAction(actor: CapabilityResou
   });
 }
 
-async function withPublishedPackage<T>(actor: CapabilityResourceActor, reference: string, selectedRevision: string | undefined,
-  callback: (location: CapabilityPackagePublishedLocation | ResolvedCapabilityPackageArtifact['location']) => Promise<T>): Promise<T> {
+export async function withPublishedPackage<T>(actor: CapabilityResourceActor, reference: string, selectedRevision: string | undefined,
+  callback: (location: CapabilityPackagePublishedLocation | ResolvedCapabilityPackageArtifact['location'], authorization: AuthorizedCapabilityPackageResource) => Promise<T>): Promise<T> {
   const source = await resolveCapabilityPackageArtifact(actor, capabilityPackageReferenceSchema.parse(reference));
   return withAuthorizedCapabilityPackageResource(actor, source.storage, 'read', undefined, async (authorization, database) => {
     const published = await getCapabilityPackagePublishedRevision(authorization.record.metadata.resourceRef, selectedRevision, database);
     if (!published) {
       if (selectedRevision) throw new CapabilityPackageError('PACKAGE_NOT_FOUND', 'The selected package version was not found.', 404);
-      return callback(source.location);
+      return callback(source.location, authorization);
     }
     const identity = { ...published, owner: authorization.record.metadata.ownership };
     const location = { ...identity, rootPath: resolveOwnerScopedPackageVersionPath(identity) };
     await verifyCapabilityPackageSnapshot(location);
-    return callback(location);
+    return callback(location, authorization);
   }, { parentStorage: parentStorage(source) });
 }
 

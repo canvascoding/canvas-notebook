@@ -271,6 +271,11 @@ export async function ensureDefaultComposioProfile(ownerUserIdValue: string): Pr
 export async function listComposioProfiles(ownerUserIdValue: string): Promise<ComposioConnectionProfile[]> {
   const ownerUserId = normalizeUserId(ownerUserIdValue);
   await ensureDefaultComposioProfile(ownerUserId);
+  return listExistingComposioProfiles(ownerUserId);
+}
+
+export async function listExistingComposioProfiles(ownerUserIdValue: string): Promise<ComposioConnectionProfile[]> {
+  const ownerUserId = normalizeUserId(ownerUserIdValue);
   return withDatabase(async (database) => {
     const rows = await database.all(`
       SELECT

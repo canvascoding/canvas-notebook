@@ -28,6 +28,7 @@ import { listRawAgentCapabilityBindings, replaceAgentCapabilityBindings, type Ag
 import { auditAgentAction, validateSpecialAgentTools, resolveCapabilityBindings, type AgentManagementActor } from './management-actions';
 import { normalizeAgentIconId } from './icons';
 import { EMAIL_MANAGED_AGENT_ID } from './storage';
+import { resolveRetainedAgentWorkflowTarget, type AgentWorkflowBindingSlot } from './workflow-binding-retention';
 import { AgentWorkflowError, parseAgentWorkflowConfiguration, parseStoredAgentWorkflowTarget, agentWorkflowCapabilityKey,
   agentWorkflowTargetSchema, type AgentWorkflowPackageConfiguration, type AgentWorkflowDescriptor, type AgentWorkflowInternalSnapshot,
   type AgentWorkflowChoice, type AgentWorkflowTarget, type StoredAgentWorkflowTarget, type StoredAgentWorkflowPackage,
@@ -53,7 +54,7 @@ function references(packages: readonly PreparedPackage[]): string[] {
 }
 
 /** Global agent grants remain conditional on their currently reachable scope. */
-async function holdAgentGrantAuthority(database: SqlConnection, actor: AgentManagementActor, agent: AgentProfile): Promise<void> {
+export async function holdAgentGrantAuthority(database: SqlConnection, actor: AgentManagementActor, agent: AgentProfile): Promise<void> {
   const grants = await database.all('SELECT id,target_type,target_id FROM agent_grants WHERE agent_id=$1 ORDER BY id FOR SHARE', [agent.agentId]) as Array<{ target_type: string; target_id: string }>;
   await database.all('SELECT user_id FROM agent_members WHERE agent_id=$1 ORDER BY user_id FOR SHARE', [agent.agentId]);
   if (actor.workspaceId || !agent.organizationId) return;
@@ -145,7 +146,32 @@ export function getSelectedAgentWorkflowCapability(snapshot: AgentWorkflowIntern
 }
 
 async function prepareTarget(actor: AgentManagementActor, target: AgentWorkflowTarget, alternative: WorkflowIntegrationAlternative,
-  prepared: PreparedTargets): Promise<StoredAgentWorkflowTarget> {
+  prepared: PreparedTargets, retention?: { before: AgentWorkflowInternalSnapshot; slot: AgentWorkflowBindingSlot }): Promise<StoredAgentWorkflowTarget> {
+  if (target.kind === 'retained') {
+    if (!retention) fail('AGENT_WORKFLOW_RETENTION_INVALID', 'An exact existing configuration slot is required.');
+    const original = resolveRetainedAgentWorkflowTarget(actor, retention.before, retention.slot, target.retainedBindingRef);
+    if (original.kind === 'shared') {
+      if (original.source !== 'mcp' || alternative.source !== 'mcp' || original.verifiedMcpMapping?.connector !== alternative.connector) {
+        fail('AGENT_WORKFLOW_RETENTION_INVALID', 'The existing MCP binding does not match this declared alternative.');
+      }
+      const backend = await resolveSharedMcpBackend({ userId: actor.userId, workspaceId: actor.workspaceId, organizationId: actor.organizationId },
+        original.connectionRef, 'manage');
+      if (backend.authorization.resource.bindingRevision !== original.bindingRevision) fail('AGENT_WORKFLOW_BINDING_CHANGED', 'The selected MCP binding changed.');
+      // Preserve the original approval. Existing transaction guards revalidate its exact hash and definition revision.
+      prepared.mcp.push({ target: original, scope: backend.scope, connectionId: backend.connection.connectionId });
+      return original;
+    }
+    if (original.kind !== 'personal' || original.source !== alternative.source || !original.personalBinding || !original.boundProviderRef || !original.bindingFingerprint
+      || alternative.source === 'composio' && (original.personalBinding.source !== 'composio' || original.personalBinding.toolkit !== alternative.toolkit)) {
+      fail('AGENT_WORKFLOW_RETENTION_INVALID', 'The existing personal binding does not match this declared alternative.');
+    }
+    const helpers = await import('@/app/lib/integration-tools/workflow-personal-bindings');
+    const proof = await helpers.verifyStoredPersonalWorkflowProviderTarget({ actor, target: { binding: original.personalBinding,
+      boundProviderRef: original.boundProviderRef, baseProviderRef: original.providerRef, bindingFingerprint: original.bindingFingerprint } });
+    helpers.getPreparedPersonalWorkflowProviderTarget(proof);
+    prepared.personal.push(proof);
+    return original;
+  }
   if (target.source !== alternative.source) fail('AGENT_WORKFLOW_BINDING_INVALID', 'The selected source does not match this declared alternative.');
   if (target.kind === 'personal') {
     if (target.ownerUserId !== actor.userId) fail('AGENT_WORKFLOW_BINDING_DENIED', 'Choose your own personal connection.', 403);
@@ -176,7 +202,8 @@ async function prepareTarget(actor: AgentManagementActor, target: AgentWorkflowT
   return stored;
 }
 
-async function preparePackage(actor: AgentManagementActor, input: AgentWorkflowPackageConfiguration, prepared: PreparedTargets): Promise<PreparedPackage> {
+async function preparePackage(actor: AgentManagementActor, input: AgentWorkflowPackageConfiguration, prepared: PreparedTargets,
+  before: AgentWorkflowInternalSnapshot): Promise<PreparedPackage> {
   const source = await resolveCapabilityPackageArtifact({ userId: actor.userId, workspaceId: actor.workspaceId }, input.resourceRef);
   if (source.storage.sourceType === 'plugin') fail('AGENT_WORKFLOW_PACKAGE_INVALID', 'Select the published parent package and its exact child roots.');
   if (!source.descriptor.access.canUse || source.descriptor.activation?.effectivePolicy === 'blocked' || source.descriptor.activation?.readiness === 'conflict') {
@@ -225,8 +252,11 @@ async function preparePackage(actor: AgentManagementActor, input: AgentWorkflowP
         if (!match) fail('AGENT_WORKFLOW_ALTERNATIVE_INVALID', 'Choose an exact declared alternative.'); return match;
       };
       let selection: StoredAgentWorkflowPackage['declarations'][number]['capabilities'][number]['selection'];
+      const bindingSlot: AgentWorkflowBindingSlot = { resourceRef: input.resourceRef, publishedRevisionRef: input.publishedRevisionRef,
+        declarationPath: declaration.declarationPath, capabilityId: capability.id, alternativeKey: '' };
       if (selected.selection.mode === 'fixed') selection = { ...selected.selection,
-        target: await prepareTarget(actor, selected.selection.target, alternative(selected.selection.alternativeKey), prepared) };
+        target: await prepareTarget(actor, selected.selection.target, alternative(selected.selection.alternativeKey), prepared,
+          { before, slot: { ...bindingSlot, alternativeKey: selected.selection.alternativeKey } }) };
       else {
         const policy = selected.selection.personalPolicy;
         for (const key of policy?.alternativeKeys ?? []) {
@@ -236,7 +266,8 @@ async function preparePackage(actor: AgentManagementActor, input: AgentWorkflowP
           }
         }
         selection = { ...selected.selection, allowedChoices: await Promise.all(selected.selection.allowedChoices.map(async choice => ({ ...choice,
-          target: await prepareTarget(actor, choice.target, alternative(choice.alternativeKey), prepared) }))) };
+          target: await prepareTarget(actor, choice.target, alternative(choice.alternativeKey), prepared,
+            { before, slot: { ...bindingSlot, alternativeKey: choice.alternativeKey, choiceId: choice.choiceId } }) }))) };
       }
       capabilities.push({ capabilityId: capability.id, application: capability.application, alternatives: structuredClone(capability.alternatives),
         required: capability.required || selected.required === true, selection });
@@ -302,6 +333,9 @@ export async function updateManagedAgentConfiguration(input: UpdateManagedAgentC
     const verified = await resolveVerifiedAgentActorContextOnConnection(captured.actor, preflight);
     actor = { ...captured.actor, organizationId: verified.context.organizationId, workspaceId: verified.context.workspaceId, projectId: verified.context.projectId };
     before = await readManagedAgentWorkflowOnConnection(preflight, captured.agentId);
+    if (changesWorkflow && before.agent.agentId === EMAIL_MANAGED_AGENT_ID && !['owner', 'admin'].includes(verified.organizationRole ?? '')) {
+      fail('AGENT_ORGANIZATION_ADMIN_REQUIRED', 'Organization administration is required to configure the email agent.', 403);
+    }
     if (changesWorkflow && changesLegacyCapabilities) fail('AGENT_WORKFLOW_INVALID', 'Use either explicit workflow bindings or legacy capability fields in one update.', 400);
     if (before.workflowVersion !== null && changesLegacyCapabilities) fail('AGENT_WORKFLOW_UPDATE_REQUIRED', 'Update the explicit workflow configuration to change its package bindings.');
     if (before.agent.type === 'main') fail('AGENT_MAIN_PROTECTED', 'The built-in main agent is configured through organization policy.', 403);
@@ -318,7 +352,7 @@ export async function updateManagedAgentConfiguration(input: UpdateManagedAgentC
   const configuration = changesWorkflow && captured.workflow !== null ? parseAgentWorkflowConfiguration(captured.workflow) : null;
   const packages: PreparedPackage[] = [];
   for (const entry of configuration?.packages ?? []) {
-    const selected = await preparePackage(actor!, entry, prepared);
+    const selected = await preparePackage(actor!, entry, prepared, before!);
     if (before!.agent.scopeType === 'organization' && selected.storage.scopeType === 'user') fail('AGENT_ORGANIZATION_CAPABILITY_SCOPE_INVALID', 'Organization agents cannot embed personal packages.', 403);
     if (before!.agent.scopeType === 'organization' && targets(selected.stored).some(target => target.kind === 'personal')) fail('AGENT_WORKFLOW_BINDING_DENIED', 'Use shared fixed bindings or an explicit per-user personal choice policy for an organization agent.', 403);
     packages.push(selected);
@@ -335,7 +369,7 @@ export async function updateManagedAgentConfiguration(input: UpdateManagedAgentC
   try {
     await database.run('BEGIN');
     const verified = await resolveVerifiedAgentActorContextOnConnection(actor!, database, { lock: true });
-    if (captured.enabledTools !== undefined && before!.agent.agentId === EMAIL_MANAGED_AGENT_ID && !['owner', 'admin'].includes(verified.organizationRole ?? '')) {
+    if ((captured.enabledTools !== undefined || changesWorkflow) && before!.agent.agentId === EMAIL_MANAGED_AGENT_ID && !['owner', 'admin'].includes(verified.organizationRole ?? '')) {
       fail('AGENT_ORGANIZATION_ADMIN_REQUIRED', 'Organization administration is required to configure the email agent.', 403);
     }
     const batch = await lockIntegrationConnectionBindingsOnConnection(database, { userId: actor!.userId, ...verified.context }, references(packages));

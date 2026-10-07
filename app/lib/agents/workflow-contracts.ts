@@ -19,7 +19,9 @@ const sharedTargetSchema = z.object({ kind: z.literal('shared'), source: z.enum(
   bindingRevision: z.number().int().positive(), mcpMapping: z.object({ kind: z.literal('manager_confirmation') }).strict().optional() }).strict();
 const personalTargetSchema = z.object({ kind: z.literal('personal'), source: z.enum(['mcp', 'composio']), ownerUserId: text,
   providerRef: text, accountSelectionRef: z.string().min(1).max(8_192).optional() }).strict();
-export const agentWorkflowTargetSchema = z.discriminatedUnion('kind', [sharedTargetSchema, personalTargetSchema]);
+const retainedTargetSchema = z.object({ kind: z.literal('retained'),
+  retainedBindingRef: z.string().regex(/^agent-workflow-retain:v1:[a-f0-9]{64}$/u) }).strict();
+export const agentWorkflowTargetSchema = z.discriminatedUnion('kind', [sharedTargetSchema, personalTargetSchema, retainedTargetSchema]);
 const choiceSchema = z.object({ choiceId: text, alternativeKey: text, target: agentWorkflowTargetSchema, toolCap }).strict();
 const personalPolicySchema = z.object({ sources: z.array(z.enum(['mcp', 'composio'])).min(1).max(2),
   alternativeKeys: z.array(text).min(1).max(8), toolCap,
@@ -42,7 +44,7 @@ export type AgentWorkflowSelection = z.infer<typeof selectionSchema>;
 export type AgentWorkflowPackageConfiguration = z.infer<typeof agentWorkflowPackageSchema>;
 export type AgentWorkflowConfiguration = z.infer<typeof configurationSchema>;
 /** Private exact provider identity; never emitted in legacy binding DTOs. */
-export type StoredAgentWorkflowTarget = AgentWorkflowTarget & { bindingFingerprint?: string;
+export type StoredAgentWorkflowTarget = Exclude<AgentWorkflowTarget, { kind: 'retained' }> & { bindingFingerprint?: string;
   boundProviderRef?: string; personalBinding?: {
     source: 'mcp'; ownerUserId: string; connectionId: string; serverDefinitionId: string | null;
   } | { source: 'composio'; ownerUserId: string; profileId: string; toolkit: string; mode: 'local' | 'managed';

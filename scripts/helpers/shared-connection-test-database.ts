@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { Pool } from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import * as schema from '../../app/lib/db/schema';
-import { runPostgresMigrations } from '../../app/lib/db/postgres';
+import { createPostgresPool, runPostgresMigrations } from '../../app/lib/db/postgres';
 import type { SqlConnection } from '../../app/lib/db';
 import { createPiTestDatabase } from './pi-test-database';
 
@@ -19,7 +19,22 @@ export async function createSharedConnectionTestDatabase() {
   const administration = new Pool({ connectionString: localUrl.toString(), max: 1 });
   let created = false;
   const testUrl = new URL(localUrl); testUrl.pathname = `/${name}`;
-  const pool = new Pool({ connectionString: testUrl.toString(), max: 8 });
+  // Use the actual runtime bootstrap, including its INT8 timestamp parser.
+  // This synchronous constructor never connects before the nonce URL is set;
+  // restore the caller's maintenance URL before any asynchronous work resumes.
+  const previousDatabaseUrl = process.env.DATABASE_URL;
+  const previousPoolMax = process.env.CANVAS_POSTGRES_POOL_MAX;
+  let pool: Pool;
+  try {
+    process.env.DATABASE_URL = testUrl.toString();
+    process.env.CANVAS_POSTGRES_POOL_MAX = '8';
+    pool = createPostgresPool();
+  } finally {
+    if (previousDatabaseUrl === undefined) delete process.env.DATABASE_URL;
+    else process.env.DATABASE_URL = previousDatabaseUrl;
+    if (previousPoolMax === undefined) delete process.env.CANVAS_POSTGRES_POOL_MAX;
+    else process.env.CANVAS_POSTGRES_POOL_MAX = previousPoolMax;
+  }
   const cleanup = async () => {
     await pool.end();
     try {

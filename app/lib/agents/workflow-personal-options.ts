@@ -2,7 +2,7 @@ import 'server-only';
 
 import { z } from 'zod';
 import { openDb } from '@/app/lib/db';
-import { listComposioProfiles } from '@/app/lib/composio/composio-profiles';
+import { listExistingComposioProfiles } from '@/app/lib/composio/composio-profiles';
 import { isComposioIntegrationApplicationVisible } from '@/app/lib/integration-tools/adapters/composio';
 import { createIntegrationProviderRef } from '@/app/lib/integration-tools/references';
 import { listPersonalWorkflowProviderAccountChoices } from '@/app/lib/integration-tools/workflow-personal-bindings';
@@ -17,6 +17,7 @@ import type { AgentManagementActor } from './management-actions';
 import { readManagedAgentWorkflow } from './workflow-configuration';
 import { AgentWorkflowError, agentWorkflowCapabilityKey, type AgentWorkflowInternalSnapshot } from './workflow-contracts';
 import { agentWorkflowPersonalOptionsSchema } from './workflow-api-contracts';
+import type { WorkflowIntegrationAlternative } from '@/app/lib/capabilities/workflow-contracts';
 
 export type AgentWorkflowPersonalOptionsRequest = z.infer<typeof agentWorkflowPersonalOptionsSchema>;
 export type AgentWorkflowPersonalProviderOption = {
@@ -72,23 +73,14 @@ async function permitted(actor: AgentManagementActor, request: AgentWorkflowPers
   return { snapshot, policy, alternatives };
 }
 
-/** Discovery has no provider I/O until the user selects an already permitted exact provider. */
-export async function listAgentWorkflowPersonalOptions(actorInput: AgentManagementActor,
-  unknownRequest: AgentWorkflowPersonalOptionsRequest): Promise<AgentWorkflowPersonalOptions> {
-  const actor = structuredClone(actorInput), parsed = agentWorkflowPersonalOptionsSchema.safeParse(unknownRequest);
-  if (!parsed.success) fail('AGENT_WORKFLOW_CHOICE_INVALID', 'The personal discovery request is invalid.', 400);
-  const request = parsed.data, initial = await permitted(actor, request);
-  const database = await openDb();
-  let currentActor: AgentManagementActor;
-  try {
-    const verified = await resolveVerifiedAgentActorContextOnConnection(actor, database);
-    currentActor = { ...actor, organizationId: verified.organizationId, workspaceId: verified.context.workspaceId, projectId: verified.context.projectId };
-  } finally { await database.close(); }
-  const result: AgentWorkflowPersonalOptions = { agentId: initial.snapshot.agent.agentId, workflowRevision: initial.snapshot.workflowRevision,
-    preferenceRevision: initial.snapshot.preferenceRevision, capabilityKey: request.capabilityKey, alternatives: [] };
-  const alternatives = initial.alternatives.filter(alternative => !request.alternativeKey
-    || `${alternative.source}:${alternative.source === 'mcp' ? alternative.connector : alternative.toolkit}` === request.alternativeKey);
-  const profiles = alternatives.some(alternative => alternative.source === 'composio') ? await listComposioProfiles(currentActor.userId) : [];
+/** Callers authorize the exact declaration before invoking this shared own-provider enumeration. */
+export async function enumerateOwnAgentWorkflowProviders(input: {
+  actor: AgentManagementActor; alternatives: readonly WorkflowIntegrationAlternative[];
+  mcpDefinitionMappings?: readonly { connector: string; serverDefinitionIds: readonly string[] }[]; providerRef?: string;
+}): Promise<{ alternatives: AgentWorkflowPersonalOptions['alternatives']; revalidate: () => Promise<void> }> {
+  const currentActor = structuredClone(input.actor), alternatives = structuredClone(input.alternatives);
+  const result: AgentWorkflowPersonalOptions['alternatives'] = [];
+  const profiles = alternatives.some(alternative => alternative.source === 'composio') ? await listExistingComposioProfiles(currentActor.userId) : [];
   if (profiles.length > 32) fail('AGENT_WORKFLOW_OPTIONS_UNAVAILABLE', 'Too many personal profiles are available for this chooser.', 503);
   const mcpActor = alternatives.some(alternative => alternative.source === 'mcp') ? await requireMcpUserAccess({ userId: currentActor.userId }) : null;
   const definitions = mcpActor?.organizationId ? await listMcpServerDefinitions(mcpActor.organizationId) : [];
@@ -105,11 +97,11 @@ export async function listAgentWorkflowPersonalOptions(actorInput: AgentManageme
         const providerRef = createIntegrationProviderRef({ source: 'composio', scope, profileId: profile.id, toolkit: alternative.toolkit });
         const option: AgentWorkflowPersonalProviderOption = { providerRef, label: label(profile.name, 'Personal Composio profile'),
           profileLabel: label(profile.name, 'Personal Composio profile'), origin: 'personal', status: 'unverified' };
-        if (request.providerRef === providerRef) selectedProfile = profile;
+        if (input.providerRef === providerRef) selectedProfile = profile;
         providers.push(option);
       }
     } else {
-      const mapped = initial.policy.mcpDefinitionMappings?.find(mapping => mapping.connector === alternative.connector)?.serverDefinitionIds ?? [];
+      const mapped = input.mcpDefinitionMappings?.find(mapping => mapping.connector === alternative.connector)?.serverDefinitionIds ?? [];
       const approved = new Map(definitions.filter(definition => definition.enabled && mapped.includes(definition.id)).map(definition => [definition.id, definition]));
       for (const [serverName, connection] of Object.entries(mcpConfig.mcpServers)) {
         const definition = connection.serverDefinitionId ? approved.get(connection.serverDefinitionId) : undefined;
@@ -121,8 +113,8 @@ export async function listAgentWorkflowPersonalOptions(actorInput: AgentManageme
         providers.push({ providerRef, label: label(connection.displayName || serverName, 'Personal MCP connection'), origin: 'personal', status: 'unverified' });
       }
     }
-    if (request.providerRef) {
-      const selected = providers.find(provider => provider.providerRef === request.providerRef);
+    if (input.providerRef) {
+      const selected = providers.find(provider => provider.providerRef === input.providerRef);
       if (!selected) fail('AGENT_WORKFLOW_CHOICE_DENIED', 'The selected personal provider is not allowed.');
       if (alternative.source === 'composio') {
         try {
@@ -142,16 +134,38 @@ export async function listAgentWorkflowPersonalOptions(actorInput: AgentManageme
       }
       providers.splice(0, providers.length, selected);
     }
-    result.alternatives.push({ alternativeKey, source: alternative.source, providers });
+    result.push({ alternativeKey, source: alternative.source, providers });
   }
+  return { alternatives: result, revalidate: async () => {
+    if (selectedProfile) {
+      const current = (await listExistingComposioProfiles(currentActor.userId)).find(profile => profile.id === selectedProfile.id);
+      if (!current || current.ownerUserId !== selectedProfile.ownerUserId || current.composioUserId !== selectedProfile.composioUserId
+        || current.updatedAt.getTime() !== selectedProfile.updatedAt.getTime()) {
+        fail('AGENT_WORKFLOW_REVISION_CONFLICT', 'The selected personal profile changed. Reload its choices.', 409);
+      }
+    }
+  } };
+}
+
+/** Discovery has no provider I/O until the user selects an already permitted exact provider. */
+export async function listAgentWorkflowPersonalOptions(actorInput: AgentManagementActor,
+  unknownRequest: AgentWorkflowPersonalOptionsRequest): Promise<AgentWorkflowPersonalOptions> {
+  const actor = structuredClone(actorInput), parsed = agentWorkflowPersonalOptionsSchema.safeParse(unknownRequest);
+  if (!parsed.success) fail('AGENT_WORKFLOW_CHOICE_INVALID', 'The personal discovery request is invalid.', 400);
+  const request = parsed.data, initial = await permitted(actor, request);
+  const database = await openDb();
+  let currentActor: AgentManagementActor;
+  try {
+    const verified = await resolveVerifiedAgentActorContextOnConnection(actor, database);
+    currentActor = { ...actor, organizationId: verified.organizationId, workspaceId: verified.context.workspaceId, projectId: verified.context.projectId };
+  } finally { await database.close(); }
+  const alternatives = initial.alternatives.filter(alternative => !request.alternativeKey
+    || `${alternative.source}:${alternative.source === 'mcp' ? alternative.connector : alternative.toolkit}` === request.alternativeKey);
+  const providers = await enumerateOwnAgentWorkflowProviders({ actor: currentActor, alternatives,
+    mcpDefinitionMappings: initial.policy.mcpDefinitionMappings, providerRef: request.providerRef });
   const final = await permitted(currentActor, { ...request, expectedWorkflowRevision: initial.snapshot.workflowRevision });
   if (final.snapshot.agent.revision !== initial.snapshot.agent.revision) fail('AGENT_WORKFLOW_REVISION_CONFLICT', 'The agent configuration changed. Reload its choices.', 409);
-  if (selectedProfile) {
-    const current = (await listComposioProfiles(currentActor.userId)).find(profile => profile.id === selectedProfile.id);
-    if (!current || current.ownerUserId !== selectedProfile.ownerUserId || current.composioUserId !== selectedProfile.composioUserId
-      || current.updatedAt.getTime() !== selectedProfile.updatedAt.getTime()) {
-      fail('AGENT_WORKFLOW_REVISION_CONFLICT', 'The selected personal profile changed. Reload its choices.', 409);
-    }
-  }
-  return result;
+  await providers.revalidate();
+  return { agentId: initial.snapshot.agent.agentId, workflowRevision: initial.snapshot.workflowRevision,
+    preferenceRevision: initial.snapshot.preferenceRevision, capabilityKey: request.capabilityKey, alternatives: providers.alternatives };
 }
