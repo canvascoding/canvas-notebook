@@ -119,12 +119,12 @@ export async function readEmailClassificationFeed(input: EmailClassificationFeed
         VALUES($1,$2,$3,$4,$5,$6,$7,$8)`,[id,input.userId,selectorHash,authorizationSignature,signature,settings.revision,now,now+TTL]);
       await connection.query(`${EMAIL_CLASSIFICATION_PROJECTED_SQL}
         INSERT INTO email_classification_feed_rows(snapshot_id,ordinal,message_ref,mailbox_ref,canonical_id,folder,list_json,classification_json,focus_version)
-        SELECT $9, row_number() OVER (ORDER BY
-          CASE WHEN $8='focus' THEN group_rank ELSE 0 END,
-          CASE WHEN $8='focus' THEN priority_rank ELSE 0 END,
-          CASE WHEN $8='focus' THEN reply_rank ELSE 0 END,
+        SELECT $11, row_number() OVER (ORDER BY
+          CASE WHEN $10='focus' THEN group_rank ELSE 0 END,
+          CASE WHEN $10='focus' THEN priority_rank ELSE 0 END,
+          CASE WHEN $10='focus' THEN reply_rank ELSE 0 END,
           date_timestamp DESC NULLS LAST, message_ref ASC), message_ref,mailbox_ref,canonical_id,folder,list_json,classification_json,focus_version FROM projected`,
-      [input.userId,authorization,JSON.stringify(settings.configuration.policy),emailClassificationEvaluationFingerprint(settings.configuration),settings.revision,category,validated.search,mode,id]);
+      [input.userId,authorization,JSON.stringify(settings.configuration.policy),emailClassificationEvaluationFingerprint(settings.configuration),settings.revision,category,validated.search,now,settings.configuration.initialLookbackDays,mode,id]);
       snapshot=(await connection.query<SnapshotRow>('SELECT * FROM email_classification_feed_snapshots WHERE id=$1',[id])).rows[0];
       await connection.query(`DELETE FROM email_classification_feed_snapshots WHERE user_id=$1 AND id<>$2 AND id IN (
         SELECT id FROM email_classification_feed_snapshots WHERE user_id=$1 AND id<>$2 ORDER BY created_at DESC,id DESC OFFSET 2)`,[input.userId,id]);
@@ -143,7 +143,7 @@ export async function readEmailClassificationFeed(input: EmailClassificationFeed
     const coverageRows=await connection.query<{mailbox_ref:string;indexed:string;pending:string;failed:string;stale:string}>(`${EMAIL_CLASSIFICATION_PROJECTED_SQL}
       SELECT mailbox_ref,count(*)::text AS indexed,count(*) FILTER(WHERE decision_status='pending')::text AS pending,
       count(*) FILTER(WHERE decision_status='failed')::text AS failed,count(*) FILTER(WHERE decision_status='stale')::text AS stale FROM grouped GROUP BY mailbox_ref`,
-    [input.userId,authorization,JSON.stringify(settings.configuration.policy),emailClassificationEvaluationFingerprint(settings.configuration),settings.revision,category,validated.search]);
+    [input.userId,authorization,JSON.stringify(settings.configuration.policy),emailClassificationEvaluationFingerprint(settings.configuration),settings.revision,category,validated.search,now,settings.configuration.initialLookbackDays]);
     const sourceRows=await connection.query<{mailbox_ref:string;coverage:EmailClassificationFeedCoverage['state'];last_sync_at:string|null}>(`SELECT mailbox_ref,coverage,last_sync_at FROM email_classification_mailboxes WHERE mailbox_ref=ANY($1::text[])`,[mailboxes.map(mailbox=>mailbox.mailboxRef)]);
     const coverage=mailboxes.map(mailbox=> {
       const source=sourceRows.rows.find(row=>row.mailbox_ref===mailbox.mailboxRef); const count=coverageRows.rows.find(row=>row.mailbox_ref===mailbox.mailboxRef);

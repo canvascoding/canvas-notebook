@@ -14,6 +14,7 @@ import type { AuthorizedEmailClassificationMailbox } from './mailbox-types';
 import { normalizeEmailClassificationResult } from './normalize';
 import { buildEmailClassificationQuestions, buildEmailDecisionState, EMAIL_CLASSIFICATION_SCHEMA_VERSION } from './schema';
 import { emailClassificationEvaluationFingerprint } from './settings-evaluation';
+import { isEmailSelectedForClassification } from './selection';
 import type { EmailClassificationConfiguration } from './settings-types';
 import { getRuntimeEmailClassificationStore, type PostgresEmailClassificationStore } from './store';
 import type { StoredEmailClassificationJob, StoredEmailClassificationMailbox, StoredEmailClassificationMetadata } from './store-types';
@@ -64,7 +65,7 @@ export interface EmailClassificationCycleResult {
 }
 
 type SyncCursor = {
-  version: 1; phase: 'backfill' | 'head' | 'blocked'; offset: number;
+  version: 2; phase: 'backfill' | 'head' | 'blocked'; offset: number;
   scanned: number; historicalQueued: number; headCheckedAt: number; complete: boolean;
   evaluationFingerprint: string | null; generationStartedAt: number;
 };
@@ -76,12 +77,12 @@ class WorkerCancelled extends Error {
 function cursorFrom(value: string | null): SyncCursor {
   try {
     const parsed = value ? JSON.parse(value) as SyncCursor : null;
-    if (parsed?.version === 1 && ['backfill', 'head', 'blocked'].includes(parsed.phase)
+    if (parsed?.version === 2 && ['backfill', 'head', 'blocked'].includes(parsed.phase)
       && [parsed.offset, parsed.scanned, parsed.historicalQueued, parsed.headCheckedAt, parsed.generationStartedAt].every(number => Number.isSafeInteger(number) && number >= 0)
-      && parsed.offset <= 10_000 && typeof parsed.complete === 'boolean'
+      && typeof parsed.complete === 'boolean'
       && (parsed.evaluationFingerprint === null || typeof parsed.evaluationFingerprint === 'string')) return parsed;
   } catch { /* Restart a bounded scan after an invalid or obsolete cursor. */ }
-  return { version: 1, phase: 'backfill', offset: 0, scanned: 0, historicalQueued: 0, headCheckedAt: 0, complete: false, evaluationFingerprint: null, generationStartedAt: 0 };
+  return { version: 2, phase: 'backfill', offset: 0, scanned: 0, historicalQueued: 0, headCheckedAt: 0, complete: false, evaluationFingerprint: null, generationStartedAt: 0 };
 }
 
 function normalizedInboxMessage(message: Record<string, unknown>, page: EmailClassificationWorkerPage, mailbox: AuthorizedEmailClassificationMailbox): Record<string, unknown> {
@@ -200,7 +201,7 @@ export function createEmailClassificationWorker(dependencies: EmailClassificatio
     const headDue = now() - cursor.headCheckedAt >= settings.configuration.syncIntervalSeconds * 1000;
     if (cursor.phase !== 'backfill' && !headDue) return;
     if (cursor.phase !== 'backfill') {
-      cursor.phase = 'backfill'; cursor.offset = 0; cursor.scanned = 0; cursor.complete = false; cursor.generationStartedAt = 0;
+      cursor.phase = 'backfill'; cursor.offset = 0; cursor.scanned = 0; cursor.historicalQueued = 0; cursor.complete = false; cursor.generationStartedAt = 0;
     }
     if (cursor.offset === 0 && cursor.generationStartedAt === 0) cursor.generationStartedAt = now();
     const syncClaim = await store.claimMailboxSync({ mailboxRef: source.mailbox.mailboxRef, leaseMs: 120_000, now: now() });
@@ -228,12 +229,12 @@ export function createEmailClassificationWorker(dependencies: EmailClassificatio
           if (!metadata) { invalidIdentity = true; continue; }
           result.indexed++;
           const latest = await store.readSettings();
-          const recent = metadata.dateTimestamp === null || metadata.dateTimestamp >= now() - latest.configuration.initialLookbackDays * 86_400_000;
           const incoming = head && cursor.headCheckedAt > 0 && !existing.has(metadata.messageRef);
           const previouslySelected = selected.has(metadata.messageRef);
           const withinHistoricalBudget = incoming || previouslySelected || cursor.historicalQueued < latest.configuration.maxHistoricalMessages;
           if (latest.configuration.enabled && emailClassificationEvaluationFingerprint(latest.configuration) === evaluationFingerprint
-            && recent && withinHistoricalBudget && canClassifyIndexedEmail(source.mailbox, metadata.list.from)) {
+            && isEmailSelectedForClassification(metadata, latest.configuration.initialLookbackDays, now())
+            && withinHistoricalBudget && canClassifyIndexedEmail(source.mailbox, metadata.list.from)) {
             const oldResult = (await store.readResultsBatch([metadata.messageRef]))[0];
             if (!isCurrent(oldResult ?? null, metadata, latest.configuration)) {
               const enqueued = await store.enqueueClassification({ messageRef: metadata.messageRef, fingerprint: metadata.fingerprint, configurationRevision: latest.revision, now: now() });
@@ -265,7 +266,7 @@ export function createEmailClassificationWorker(dependencies: EmailClassificatio
           break;
         }
         const continuation = page.nextOffset;
-        if (continuation === null || !Number.isSafeInteger(continuation) || continuation <= requestedOffset || continuation > 10_000
+        if (continuation === null || !Number.isSafeInteger(continuation) || continuation <= requestedOffset
           || continuation <= cursor.offset && cursor.offset > 0) {
           cursor.phase = 'blocked'; cursor.complete = false; coverage = 'partial'; break;
         }
@@ -308,6 +309,7 @@ export function createEmailClassificationWorker(dependencies: EmailClassificatio
         || !currentMetadata || !currentMetadata.inInbox || currentMetadata.fingerprint !== job.fingerprint || currentMetadata.mailbox.bindingRevision !== job.bindingRevision
         || currentMetadata.mailbox.policyRevision !== job.policyRevision) throw new WorkerCancelled('stale_claim');
       metadata = currentMetadata;
+      if (!isEmailSelectedForClassification(metadata, settings.configuration.initialLookbackDays, now())) throw new WorkerCancelled('not_selected');
       if (!source) throw new WorkerCancelled('source_unavailable');
       source = await freshSource(source, job);
       if (!canClassifyIndexedEmail(source.mailbox, metadata.list.from)) throw new WorkerCancelled('sender_policy');
@@ -341,6 +343,13 @@ export function createEmailClassificationWorker(dependencies: EmailClassificatio
       if (!source || !metadata || !canClassifyIndexedEmail(source.mailbox, String(raw.from ?? metadata.list.from))) throw new WorkerCancelled('sender_policy');
       const identity = emailClassificationMessageIdentity(source.mailbox, { ...raw, id: String(raw.id ?? metadata.canonicalId), folder: String(raw.folder ?? metadata.folder) });
       if (identity.messageRef !== job.messageRef) throw new WorkerCancelled('message_changed');
+      // Provider flags can be newer than the index (e.g. another mail client read an old mail).
+      const observedDate = typeof raw.date === 'string' ? Date.parse(raw.date) : metadata.dateTimestamp;
+      if (!isEmailSelectedForClassification({ inInbox: metadata.inInbox,
+        dateTimestamp: observedDate !== null && Number.isSafeInteger(observedDate) ? observedDate : null,
+        list: { isRead: typeof raw.isRead === 'boolean' ? raw.isRead : metadata.list.isRead } }, configuration.initialLookbackDays, now())) {
+        throw new WorkerCancelled('not_selected');
+      }
       const originalBody = typeof raw.body === 'string' && raw.body.trim() ? raw.body : typeof raw.bodyHtml === 'string' ? raw.bodyHtml : '';
       const boundedBody = originalBody.slice(0, 64_000);
       const body = isLikelyHtmlEmailContent(boundedBody) || !raw.body ? htmlToPlainText(boundedBody) : boundedBody;

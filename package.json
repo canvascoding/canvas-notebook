@@ -24,6 +24,7 @@
   "scripts": {
     "test:decision-models": "tsx scripts/decision-models-test.ts",
     "test:email:classification:policy": "tsx scripts/email-classification-policy-test.ts",
+    "test:email:classification:selection": "tsx --conditions react-server scripts/email-classification-selection-test.ts",
     "test:email:classification:identity": "tsx --conditions react-server scripts/email-classification-identity-test.ts",
     "test:email:classification:store": "tsx --conditions react-server scripts/email-classification-store-test.ts",
     "test:email:classification:postgres": "NODE_ENV=test tsx --conditions react-server scripts/email-classification-postgres-test.ts",

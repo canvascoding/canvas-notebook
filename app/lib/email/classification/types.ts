@@ -6,7 +6,7 @@ export const EMAIL_CATEGORY_IDS = [
 export type EmailCategory = typeof EMAIL_CATEGORY_IDS[number];
 export const EMAIL_PRIORITIES = ['low', 'normal', 'high', 'urgent'] as const;
 export type EmailPriority = typeof EMAIL_PRIORITIES[number];
-export type EmailDecisionState = 'ready' | 'uncertain' | 'pending' | 'failed' | 'stale';
+export type EmailDecisionState = 'ready' | 'uncertain' | 'pending' | 'failed' | 'stale' | 'not_selected';
 export type EmailReplyStatus = 'answered' | 'unanswered' | 'unknown';
 export type EmailFocusGroup = 'important' | 'reply' | 'review' | 'pending' | 'other' | 'spam' | 'done';
 

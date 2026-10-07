@@ -7,6 +7,7 @@ import { isStoredEmailClassificationResultCurrent } from './index-service';
 import { projectEmailClassification, validateEmailClassificationOverride } from './policy';
 import { EmailClassificationStoreStateError, EmailClassificationVersionConflictError } from './store-types';
 import type { EmailClassificationOverride, EmailClassificationRaw } from './types';
+import { isEmailSelectedForClassification } from './selection';
 
 type StateDependencies = Pick<EmailClassificationFeedDependencies,'store'|'mailboxes'|'now'>;
 export interface EmailClassificationMessageDetail extends EmailClassificationFeedItem {
@@ -34,7 +35,8 @@ export async function readEmailClassificationMessage(input: {userId:string;messa
   const current=isStoredEmailClassificationResultCurrent(result,metadata,settings.configuration);
   const jobs=settings.revision ? await deps.store.readClassificationJobStates([input.messageRef],settings.revision):new Map();
   const raw=current?result!.raw:null;
-  const state=current?undefined:jobs.get(input.messageRef)==='failed'?'failed':result?.raw?'stale':'pending';
+  const selected=isEmailSelectedForClassification(metadata,settings.configuration.initialLookbackDays,deps.now());
+  const state=current?undefined:!selected?'not_selected':jobs.get(input.messageRef)==='failed'?'failed':result?.raw?'stale':'pending';
   const origin=emailFeedMessageOrigin(mailbox,{canonical_id:metadata.canonicalId,folder:metadata.folder});
   return {messageRef:input.messageRef,selectionKey:emailOriginSelectionKey(origin),origin,message:metadata.list,
     classification:settings.configuration.enabled?projectEmailClassification({raw,overrides:result?.overrides,policy:settings.configuration.policy,

@@ -1,4 +1,5 @@
 import { EMAIL_CLASSIFICATION_FEED_STORAGE_UP_SQL } from './feed-postgres-migration';
+import { emailClassificationSelectionSql, MAX_EMAIL_CLASSIFICATION_LOOKBACK_DAYS } from './selection';
 
 type EmailClassificationMigrationQueryable = {
   query: (sql: string) => Promise<unknown>;
@@ -137,6 +138,18 @@ export const EMAIL_CLASSIFICATION_STORAGE_UP_SQL = `
     claim_token text NOT NULL,
     lease_until bigint NOT NULL
   );
+
+  -- Normalize legacy windows once; revisions fence requests started under the old limits.
+  UPDATE email_classification_settings SET
+    configuration_json = jsonb_set(configuration_json, '{initialLookbackDays}', '${MAX_EMAIL_CLASSIFICATION_LOOKBACK_DAYS}'::jsonb),
+    revision = revision + 1, updated_at = (extract(epoch FROM CURRENT_TIMESTAMP) * 1000)::bigint
+    WHERE jsonb_typeof(configuration_json->'initialLookbackDays') = 'number'
+      AND (configuration_json->>'initialLookbackDays')::numeric > ${MAX_EMAIL_CLASSIFICATION_LOOKBACK_DAYS};
+  UPDATE email_classification_jobs job SET status = 'canceled', lease_until = NULL, claim_token = NULL,
+    error_code = 'not_selected', updated_at = (extract(epoch FROM CURRENT_TIMESTAMP) * 1000)::bigint
+    FROM email_classification_messages message, email_classification_settings settings
+    WHERE message.message_ref = job.message_ref AND settings.id = 'instance' AND job.status IN ('pending','processing','retry')
+      AND NOT coalesce(${emailClassificationSelectionSql('message', '(extract(epoch FROM CURRENT_TIMESTAMP) * 1000)::bigint', "settings.configuration_json->>'initialLookbackDays'")},false);
 
   ${EMAIL_CLASSIFICATION_FEED_STORAGE_UP_SQL}
 `;
