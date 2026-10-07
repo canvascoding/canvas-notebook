@@ -9944,5 +9944,26 @@
     "exitFocus": "Exit focus view",
     "invalidQuery": "Invalid search: {reason}",
     "noMatches": "No matches. Check the keywords or expand the search scope."
+  },
+  "emailAttachmentPreview": {
+    "open": "Preview {name}",
+    "download": "Download",
+    "close": "Close preview",
+    "previous": "Previous",
+    "next": "Next",
+    "loading": "Loading attachment…",
+    "unsupported": "A preview is not available for this format. You can download the attachment.",
+    "empty": "This file is empty.",
+    "truncated": "The preview shows the first 2 MB. Download the file to read its entire contents.",
+    "blockedImage": "Embedded image not loaded",
+    "inertLink": "Link shown without opening",
+    "table": "Attachment table",
+    "errors": {
+      "unavailable": "This attachment is no longer available.",
+      "forbidden": "You no longer have access to this attachment.",
+      "changed": "This draft or mailbox has changed. Close the preview and reload the email.",
+      "large": "This attachment is too large for a preview. You can download it instead.",
+      "failed": "The attachment could not be opened. Close the preview and try again, or download the file."
+    }
   }
 }

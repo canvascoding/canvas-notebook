@@ -389,6 +389,7 @@
     "test:email:derived-draft": "tsx scripts/email-derived-draft-html-test.ts",
     "test:email:mime": "tsx scripts/email-mime-header-test.ts",
     "test:email:attachments": "tsx scripts/email-attachments-test.ts",
+    "test:email:attachment-preview": "tsx scripts/email-attachment-preview-test.ts",
     "test:email:inbound-attachments": "tsx --conditions react-server scripts/email-inbound-attachments-test.ts && tsx --conditions react-server scripts/email-attachment-batch-test.ts",
     "test:email:accounts": "tsx scripts/email-accounts-service-test.ts",
     "test:email:mailboxes": "tsx --conditions react-server scripts/email-mailbox-access-test.ts && tsx --conditions react-server scripts/email-mailbox-mutation-route-test.ts && tsx --conditions react-server scripts/email-ai-mailbox-actor-test.ts && tsx --conditions react-server scripts/email-tool-mailbox-context-test.ts && tsx --conditions react-server scripts/email-browser-attachments-test.ts",

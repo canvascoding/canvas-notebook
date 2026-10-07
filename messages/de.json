@@ -9943,5 +9943,26 @@
     "exitFocus": "Fokusansicht verlassen",
     "invalidQuery": "Ungültige Suche: {reason}",
     "noMatches": "Keine Treffer. Prüfe die Suchbegriffe oder erweitere den Suchbereich."
+  },
+  "emailAttachmentPreview": {
+    "open": "Anhang {name} ansehen",
+    "download": "Herunterladen",
+    "close": "Vorschau schließen",
+    "previous": "Zurück",
+    "next": "Weiter",
+    "loading": "Anhang wird geladen…",
+    "unsupported": "Für dieses Format ist keine Vorschau verfügbar. Du kannst den Anhang herunterladen.",
+    "empty": "Diese Datei ist leer.",
+    "truncated": "Die Vorschau zeigt die ersten 2 MB. Lade die Datei herunter, um den gesamten Inhalt zu lesen.",
+    "blockedImage": "Eingebettetes Bild nicht geladen",
+    "inertLink": "Link wird ohne Öffnen angezeigt",
+    "table": "Tabelle im Anhang",
+    "errors": {
+      "unavailable": "Dieser Anhang ist nicht mehr verfügbar.",
+      "forbidden": "Du hast keinen Zugriff mehr auf diesen Anhang.",
+      "changed": "Dieser Entwurf oder dieses Postfach hat sich geändert. Schließe die Vorschau und lade die E-Mail neu.",
+      "large": "Dieser Anhang ist zu groß für die Vorschau. Du kannst ihn herunterladen.",
+      "failed": "Der Anhang konnte nicht geöffnet werden. Schließe die Vorschau und versuche es erneut oder lade die Datei herunter."
+    }
   }
 }

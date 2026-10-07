@@ -3,6 +3,8 @@
 import { useMemo, useState } from 'react';
 import { ChevronDown, Download, FolderInput, Loader2, Paperclip } from 'lucide-react';
 import { toast } from 'sonner';
+import { inboundEmailAttachmentPreviewItems } from '@/app/lib/email/attachment-preview';
+import { useEmailAttachmentPreview } from './useEmailAttachmentPreview';
 
 import { WorkspaceDestinationPicker } from '@/app/components/workspaces/WorkspaceDestinationPicker';
 import { useFileStore } from '@/app/store/file-store';
@@ -91,6 +93,8 @@ export function EmailAttachmentActions({
   messageId: string;
 }) {
   const activeWorkspace = useWorkspaceStore(selectActiveWorkspace);
+  const previewItems = useMemo(() => inboundEmailAttachmentPreviewItems({ accountId, messageId, folder, workspaceId: mailboxWorkspaceId, attachments }), [accountId, messageId, folder, mailboxWorkspaceId, attachments]);
+  const preview = useEmailAttachmentPreview(previewItems, JSON.stringify([accountId, mailboxWorkspaceId, messageId, folder]), onMailboxAccessChanged);
   const refreshDirectory = useFileStore((state) => state.refreshDirectory);
   const downloadableAttachments = useMemo(
     () => attachments.filter((attachment) => attachment.downloadable !== false && Boolean(attachment.id)),
@@ -176,7 +180,7 @@ export function EmailAttachmentActions({
       </div>
 
       <div className="mt-2 flex flex-col gap-2">
-        {attachments.map((attachment) => {
+        {attachments.map((attachment, index) => {
           const canDownload = attachment.downloadable !== false && Boolean(accountId && attachment.id);
           const downloadUrl = canDownload
             ? attachmentDownloadUrl(accountId!, messageId, attachment.id, folder, mailboxWorkspaceId)
@@ -185,7 +189,10 @@ export function EmailAttachmentActions({
           return (
             <div key={attachment.id || attachment.filename} className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border bg-card px-3 py-2 text-sm">
               <div className="min-w-0 flex-1">
-                <div className="truncate font-medium">{attachment.filename}</div>
+                <button type="button" data-testid="email-attachment-preview-trigger" data-attachment-id={previewItems[index].id}
+                  aria-label={preview.openLabel(attachment.filename)} disabled={!preview.canOpen}
+                  className="block max-w-full truncate text-left font-medium hover:underline focus-visible:outline-2 focus-visible:outline-ring"
+                  onClick={() => preview.openAttachment(previewItems[index].id)}>{attachment.filename}</button>
                 <div className="text-xs text-muted-foreground">
                   {[attachment.contentType || labels.unknownAttachmentType, sizeLabel].filter(Boolean).join(' · ')}
                 </div>
@@ -255,6 +262,7 @@ export function EmailAttachmentActions({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {preview.dialog}
     </div>
   );
 }

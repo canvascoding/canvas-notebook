@@ -36,6 +36,7 @@ interface OfficeEditorProps {
   onChange?: () => void;
   readOnly?: boolean;
   sourceUrl?: string;
+  sourceData?: ArrayBuffer;
   preserveSnapshot?: boolean;
   contentRevision?: string;
 }
@@ -53,7 +54,7 @@ export interface OfficeEditorRef {
 }
 
 export const OfficeEditor = forwardRef<OfficeEditorRef, OfficeEditorProps>(
-  function OfficeEditor({ path: currentPath, extension, updateDraft, onChange, readOnly = false, sourceUrl: currentSourceUrl, preserveSnapshot = false, contentRevision }, ref) {
+  function OfficeEditor({ path: currentPath, extension, updateDraft, onChange, readOnly = false, sourceUrl: currentSourceUrl, sourceData: currentSourceData, preserveSnapshot = false, contentRevision }, ref) {
     const dirtyRef = useRef(false);
     const changeVersionRef = useRef(0);
     const [hasLocalChanges, setHasLocalChanges] = useState(false);
@@ -65,12 +66,13 @@ export const OfficeEditor = forwardRef<OfficeEditorRef, OfficeEditorProps>(
       changeVersionRef.current += 1;
       onChangeRef.current?.();
     }, []);
-    const [snapshot, setSnapshot] = useState(() => ({ path: currentPath, sourceUrl: currentSourceUrl, revision: contentRevision }));
+    const [snapshot, setSnapshot] = useState(() => ({ path: currentPath, sourceUrl: currentSourceUrl, sourceData: currentSourceData, revision: contentRevision }));
     if (preserveSnapshot && snapshot.revision !== contentRevision && !hasLocalChanges) {
-      setSnapshot({ path: currentPath, sourceUrl: currentSourceUrl, revision: contentRevision });
+      setSnapshot({ path: currentPath, sourceUrl: currentSourceUrl, sourceData: currentSourceData, revision: contentRevision });
     }
     const path = preserveSnapshot ? snapshot.path : currentPath;
     const sourceUrl = preserveSnapshot ? snapshot.sourceUrl : currentSourceUrl;
+    const sourceData = preserveSnapshot ? snapshot.sourceData : currentSourceData;
     const t = useTranslations('notebook');
     const docxEditorRef = useRef<{ save: () => Promise<ArrayBuffer | null> } | null>(null);
     const spreadsheetEditorRef = useRef<{ save: () => Promise<string | null>; getData: () => { name: string; data: (string | number | boolean)[][] }[] | null; hasChanges: () => boolean } | null>(null);
@@ -150,14 +152,14 @@ export const OfficeEditor = forwardRef<OfficeEditorRef, OfficeEditorProps>(
         // Load DOCX file for the new editor
         const loadDocx = async () => {
           try {
-            const fetchOptions: RequestInit = { credentials: 'include' };
-            if (!sourceUrl) {
-              fetchOptions.headers = workspaceHeaders();
+            let arrayBuffer = sourceData?.slice(0);
+            if (!arrayBuffer) {
+              const fetchOptions: RequestInit = { credentials: 'include' };
+              if (!sourceUrl) fetchOptions.headers = workspaceHeaders();
+              const response = await fetch(sourceUrl ?? workspaceDownloadUrl(path), fetchOptions);
+              if (!response.ok) throw new Error(`Fetch failed: ${response.status}`);
+              arrayBuffer = await response.arrayBuffer();
             }
-
-            const response = await fetch(sourceUrl ?? workspaceDownloadUrl(path), fetchOptions);
-            if (!response.ok) throw new Error(`Fetch failed: ${response.status}`);
-            const arrayBuffer = await response.arrayBuffer();
             if (!cancelled) {
               setDocxFile({ path, buffer: arrayBuffer, error: null });
             }
@@ -177,7 +179,7 @@ export const OfficeEditor = forwardRef<OfficeEditorRef, OfficeEditorProps>(
           cancelled = true;
         };
       }
-    }, [path, extension, sourceUrl]);
+    }, [path, extension, sourceUrl, sourceData]);
 
     if (isLoadingDocx) {
       return <OfficeDocumentLoadingSkeleton path={path} extension={extension} />;
@@ -244,6 +246,7 @@ export const OfficeEditor = forwardRef<OfficeEditorRef, OfficeEditorProps>(
             onChange={handleSpreadsheetChange}
             readOnly={readOnly}
             sourceUrl={sourceUrl}
+            sourceData={sourceData}
           />
         </div>
       );
