@@ -41,6 +41,7 @@ type Receipt = {
   directoryProofs: Record<string, { device: string; inode: string }>; listenerVerified: boolean;
   createAcknowledged: boolean; phase: string; serverPid: number | null; issuerPid?: number | null; actorId: string | null;
   uncertain: boolean; databaseDropped: boolean; dataRemoved: boolean;
+  tlsFiles?: { key: { path: string; device: string; inode: string }; certificate: { path: string; device: string; inode: string } };
 };
 type IssuerReady = {
   version: 1; nonce: string; fixtureRoot: string; origin: string; certificatePath: string;
@@ -139,6 +140,8 @@ async function main(): Promise<void> {
   assert.equal(maintenance.pathname, '/postgres'); assert.equal(maintenance.search, ''); assert.equal(maintenance.hash, '');
   assert(process.env.BOOTSTRAP_ADMIN_EMAIL && process.env.BOOTSTRAP_ADMIN_PASSWORD);
   const workflow = process.env.CANVAS_AGENT_WORKFLOW_MULTIUSER_BROWSER_RUN === '1';
+  const oauth = process.env.CANVAS_SHARED_MCP_OAUTH_BROWSER_RUN === '1';
+  assert(!oauth || workflow, 'The OAuth browser fixture requires its owned Team issuer.');
   const controlPlaneRoot = workflow ? await fs.realpath(process.env.CANVAS_CONTROL_PLANE_TEST_ROOT ?? '') : null;
   const repo = await fs.realpath(process.cwd());
   await fs.access(path.join(repo, '.next/BUILD_ID'));
@@ -213,6 +216,7 @@ async function main(): Promise<void> {
     MCP_ALLOW_PRIVATE_NETWORK: 'true', MCP_ALLOW_INSECURE_HTTP: 'true',
     TEST_SECONDARY_EMAIL: `workflow-member-${nonce}@example.test`, TEST_SECONDARY_PASSWORD: randomBytes(24).toString('base64url'),
     TEST_EDITOR_EMAIL: `workflow-editor-${nonce}@example.test`, TEST_EDITOR_PASSWORD: randomBytes(24).toString('base64url') });
+  if (oauth) env.CANVAS_SHARED_MCP_OAUTH_BROWSER_RUN = '1';
   const startChild = (args: string[], phase: string, nodeEnv: 'production' | 'test' | 'development', overrides: Record<string, string> = {}): Child => {
     abort.signal.throwIfAborted();
     const log = createWriteStream(path.join(root, `${phase}.log`), { mode: 0o600 });
@@ -291,6 +295,25 @@ async function main(): Promise<void> {
   };
   let bodyFailure: unknown;
   try {
+    if (oauth) {
+      await assertRoot();
+      const keyPath = path.join(root, 'tls-key.pem'), certificatePath = path.join(root, 'tls-cert.pem');
+      await new Promise<void>((resolve, reject) => {
+        execFile('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1', '-subj', '/CN=localhost',
+          '-addext', 'subjectAltName=DNS:localhost,IP:127.0.0.1', '-keyout', keyPath, '-out', certificatePath],
+        { timeout: 15_000, maxBuffer: 64 * 1024 }, error => error ? reject(new Error('The private OAuth TLS fixture could not be created.')) : resolve());
+      });
+      for (const file of [keyPath, certificatePath]) await fs.chmod(file, 0o600);
+      const key = await fs.lstat(keyPath), certificate = await fs.lstat(certificatePath);
+      for (const entry of [key, certificate]) {
+        assert(entry.isFile() && !entry.isSymbolicLink() && entry.nlink === 1 && entry.uid === rootStat.uid && (entry.mode & 0o777) === 0o600);
+      }
+      receipt.tlsFiles = { key: { path: keyPath, device: String(key.dev), inode: String(key.ino) },
+        certificate: { path: certificatePath, device: String(certificate.dev), inode: String(certificate.ino) } };
+      Object.assign(env, { CANVAS_SHARED_MCP_OAUTH_TLS_KEY: keyPath, CANVAS_SHARED_MCP_OAUTH_TLS_CERT: certificatePath,
+        NODE_EXTRA_CA_CERTS: certificatePath });
+      await persist();
+    }
     const collisions = await administration.query('SELECT datname FROM pg_database WHERE datname=$1', [receipt.databaseName]);
     assert.equal(collisions.rowCount, 0, 'A pre-existing database cannot become this fixture.');
     receipt.databaseOwner = (await administration.query('SELECT current_user AS role')).rows[0].role;
@@ -360,7 +383,8 @@ async function main(): Promise<void> {
     assert(healthy && !server.ended, 'The recorded isolated production host must become ready.');
     await assertOwnedListener(); receipt.listenerVerified = true;
     receipt.phase = 'browser'; await persist();
-    const browser = startChild([path.join(repo, 'node_modules/@playwright/test/cli.js'), 'test', '--config', 'playwright.agent-settings-tools-production.config.ts'], 'browser', 'test');
+    const browser = startChild([path.join(repo, 'node_modules/@playwright/test/cli.js'), 'test', '--config', oauth
+      ? 'playwright.shared-mcp-oauth-production.config.ts' : 'playwright.agent-settings-tools-production.config.ts'], 'browser', 'test');
     const browserCode = await waitChild(browser, workflow ? 600_000 : 300_000);
     const browserReceipt = JSON.parse(await fs.readFile(path.join(root, 'browser-receipt.json'), 'utf8')) as { nonce: string; actorId: string; phase: string; outstanding: unknown };
     assert.equal(browserReceipt.nonce, nonce); assert.equal(browserReceipt.actorId, receipt.actorId);

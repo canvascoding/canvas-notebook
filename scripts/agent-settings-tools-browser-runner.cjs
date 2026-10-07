@@ -6,10 +6,11 @@ const { spawn } = require('node:child_process');
 const dotenv = require('dotenv');
 
 const repo = path.resolve(__dirname, '..');
-if (process.argv.length !== 3 || !['run', 'run-workflow'].includes(process.argv[2])) {
-  throw new Error('Choose the fixed isolated acceptance command: run or run-workflow.');
+if (process.argv.length !== 3 || !['run', 'run-workflow', 'run-workflow-oauth'].includes(process.argv[2])) {
+  throw new Error('Choose the fixed isolated acceptance command: run, run-workflow or run-workflow-oauth.');
 }
-const workflow = process.argv[2] === 'run-workflow';
+const workflow = process.argv[2] !== 'run';
+const oauth = process.argv[2] === 'run-workflow-oauth';
 const privateEnv = path.join(os.homedir(), '.local/state/canvas-local-team-seat/notebook-host-dev.env');
 const stat = fs.lstatSync(privateEnv);
 if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1 || (stat.mode & 0o077) !== 0) {
@@ -40,6 +41,7 @@ if (workflow) {
   childEnv.CANVAS_AGENT_WORKFLOW_MULTIUSER_BROWSER_RUN = '1';
   childEnv.CANVAS_CONTROL_PLANE_TEST_ROOT = controlPlaneRoot;
 }
+if (oauth) childEnv.CANVAS_SHARED_MCP_OAUTH_BROWSER_RUN = '1';
 const child = spawn(process.execPath, ['--conditions=react-server', '--import', 'tsx', 'scripts/helpers/agent-settings-tools-browser-fixture.ts'], {
   cwd: repo, env: childEnv, stdio: ['ignore', 'inherit', 'inherit'],
 });

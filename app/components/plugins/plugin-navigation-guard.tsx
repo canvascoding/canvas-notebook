@@ -3,13 +3,17 @@
 import { useLayoutEffect, useRef } from 'react';
 
 const HISTORY_KEY = '__canvasPluginNavigation';
-type EditorState = { dirty: boolean; pending: boolean };
+type EditorState = { dirty: boolean; pending: boolean | (() => boolean) };
 type HistoryPosition = { group: string; index: number };
 const editors = new Map<symbol, EditorState>();
 let unsavedChangesMessage = 'Discard unsaved changes?';
 
+function isEditorPending(editor: EditorState): boolean {
+  return typeof editor.pending === 'function' ? editor.pending() : editor.pending;
+}
+
 export function confirmPluginNavigation(): boolean {
-  if ([...editors.values()].some(editor => editor.pending)) return false;
+  if ([...editors.values()].some(isEditorPending)) return false;
   return ![...editors.values()].some(editor => editor.dirty) || window.confirm(unsavedChangesMessage);
 }
 
@@ -88,7 +92,7 @@ export function PluginNavigationGuard({ unsavedChangesMessage: message }: { unsa
     };
     const beforeUnload = (event: BeforeUnloadEvent) => {
       if (approvedUnload) { approvedUnload = false; return; }
-      if (![...editors.values()].some(editor => editor.dirty || editor.pending)) return;
+      if (![...editors.values()].some(editor => editor.dirty || isEditorPending(editor))) return;
       event.preventDefault(); event.returnValue = '';
     };
     const fromLink = (event: MouseEvent) => {

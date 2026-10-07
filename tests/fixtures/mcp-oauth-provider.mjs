@@ -1,5 +1,6 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { createServer } from 'node:http';
+import { createServer as createHttpsServer } from 'node:https';
 
 const MAX_BODY_BYTES = 1024 * 1024;
 const GRANT_LIFETIME_MS = 10 * 60 * 1000;
@@ -42,11 +43,12 @@ function sameChallenge(verifier, expected) {
 }
 
 /**
- * A real, loopback-only HTTP MCP and OAuth provider for browser/Electron E2E.
+ * A real, loopback-only HTTP(S) MCP and OAuth provider for browser/Electron E2E.
  * The returned stats contain counters only; authorization codes and tokens stay
  * in memory and are never logged or exposed through a diagnostics endpoint.
  */
 export async function startMcpOAuthProvider(options = {}) {
+  if (options.tls && (!options.tls.key || !options.tls.cert)) throw new Error('The own HTTPS provider requires its private key and certificate.');
   const allowedOrigins = options.allowedRedirectOrigins
     ? new Set(options.allowedRedirectOrigins.map((entry) => new URL(entry).origin))
     : undefined;
@@ -71,7 +73,10 @@ export async function startMcpOAuthProvider(options = {}) {
   };
   let origin;
 
-  const server = createServer(async (request, response) => {
+  // The existing personal fixture retains HTTP by default. TLS is selected
+  // explicitly by its owned production-host acceptance caller.
+  const server = options.tls ? createHttpsServer(options.tls) : createServer();
+  server.on('request', async (request, response) => {
     stats.requests += 1;
     try {
       const target = new URL(request.url || '/', origin);
@@ -261,7 +266,7 @@ export async function startMcpOAuthProvider(options = {}) {
     server.listen(0, '127.0.0.1', resolve);
   });
   const address = server.address();
-  origin = `http://127.0.0.1:${address.port}`;
+  origin = `${options.tls ? 'https' : 'http'}://127.0.0.1:${address.port}`;
   let closing;
   return {
     origin,

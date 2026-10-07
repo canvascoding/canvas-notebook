@@ -35,16 +35,18 @@ export function handleHtmlPreviewBoundary(request: IncomingMessage, response: Se
   const apiPath=pathname.startsWith('/api/') || pathname.startsWith('/media/');
   const browserCrossOrigin=['cross-site','same-site'].includes(String(request.headers['sec-fetch-site'] || ''));
   // OAuth providers return by cross-origin document navigation, which carries
-  // SameSite=Lax cookies. This exact GET callback authenticates the flow with a
-  // single-use, expiring state token rather than the browser's session cookie.
+  // SameSite=Lax cookies. Exact GET callbacks validate a single-use, expiring
+  // state; shared browser sign-in also requires its initiating manager session.
   // Keep subresource/iframe requests and untrusted preview origins blocked.
   const composioCallbackNavigation = request.method === 'GET'
     && pathname === '/api/composio/callback'
     && (!request.headers['sec-fetch-mode'] || request.headers['sec-fetch-mode'] === 'navigate')
     && (!request.headers['sec-fetch-dest'] || request.headers['sec-fetch-dest'] === 'document');
   const mcpCallbackNavigation = request.method === 'GET'
-    && pathname === '/api/mcp/oauth/callback'
-    && /^(?:desktop_)?[A-Za-z0-9_-]{32}$/u.test(new URL(request.url || '/', 'http://localhost').searchParams.get('state') || '')
+    && ((pathname === '/api/mcp/oauth/callback'
+      && /^(?:desktop_)?[A-Za-z0-9_-]{32}$/u.test(new URL(request.url || '/', 'http://localhost').searchParams.get('state') || ''))
+      || (pathname === '/api/mcp/shared-connections/oauth/callback'
+        && /^[A-Za-z0-9_-]{32}$/u.test(new URL(request.url || '/', 'http://localhost').searchParams.get('state') || '')))
     && (!request.headers['sec-fetch-mode'] || request.headers['sec-fetch-mode'] === 'navigate')
     && (!request.headers['sec-fetch-dest'] || request.headers['sec-fetch-dest'] === 'document');
   const crossOriginCookie=browserCrossOrigin && Boolean(request.headers.cookie)

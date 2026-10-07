@@ -284,11 +284,21 @@
           "Final verified_closed/no outstanding or forbidden writes; own issuer/host closed, independent all22 own DBs/DATA/TMP absent including separately audited preserved attempts, foreign stack unchanged; no container/push/deploy/default-off flag change"
         ] }
       ], "evidence": ["6b-c complete: bound native tool snapshots, central configuration and actual Admin/Member settings/Chat acceptance; OAuth return/native Mobile/final shared runtime remain6b-d/e/f."] },
-      { "id": "6b-d", "name": "Gemeinsame MCP Apps und gebundene Browser-/Desktop-OAuth-Rueckkehr", "status": "pending", "evidence": [] },
+      { "id": "6b-d", "name": "Gemeinsame MCP Apps und gebundene Browser-/Desktop-OAuth-Rueckkehr", "status": "in_progress", "substeps": [
+        { "id": "6b-d-1", "name": "Synchroner Navigationsschutz und Browser-OAuth fuer gemeinsame MCP-Verbindungen", "status": "complete", "evidence": [
+          "Detailed acceptance: evidence/step-6b-d-1-shared-browser-oauth.md; actual synchronous Parent pending-beforeUnload RED to GREEN with unchanged boolean/dirty guards, held HTTP/JSON ACK, retained conflicts/errors and keyed scope cancellation",
+          "Actual HTTPS provider/native production-host browser reproduced callback403 at the HTTP preview boundary before exchange; exact authenticated shared GET callback fixed with strict state/navigation and unchanged preview/subresource/ordinary API denials",
+          "Final full production build, post-build whole-tree TypeScript, changed-source ESLint, HTML preview security and complete personal MCP/browser/desktop OAuth regression PASS; stale existing client-metadata test now expects both exact registered callback addresses",
+          "Actual owned PostgreSQL production-host Playwright1/1 PASS, one worker/no retries4.5sec test6.2sec total: normal UI Organization connection, genuine held start, pre-ACK X/Escape fence, no unload dialogs, HTTPS consent/approval, callback200, exactly one exchange and binding-only revision advance, no business tools or sessions",
+          "Final verified_closed/no outstanding or forbidden requests; own AS/contexts/issuer/host closed and independent all30 own DBs/DATA/TMP absent across15 workflow/OAuth fixtures including separate preserved-attempt recovery; foreign managed stack preserved, no container/push/deploy/default-off flag change"
+        ] },
+        { "id": "6b-d-2", "name": "Gebundene Browser- und Desktop-OAuth-Rueckkehr ueber den HTTP-Transport", "status": "pending", "evidence": [] },
+        { "id": "6b-d-3", "name": "Gemeinsame MCP Apps mit aktuellen Sitzungs- und Ressourcenrechten", "status": "pending", "evidence": [] }
+      ], "evidence": [] },
       { "id": "6b-e", "name": "Versionierte native Mobile-Ressourcen-, Verbindungs- und Chat-Vertraege", "status": "pending", "evidence": [] },
       { "id": "6b-f", "name": "Gemeinsamer Workflow mit zwei Nutzern und finaler Client-Vertragsabnahme", "status": "pending", "evidence": [] }
     ], "openFindings": [
-      "Actual Parent/Forms controlled React reproduction: synchronous beforeUnload at clean OAuth location.assign still sees the parent API pending registration before its next layout commit. Parent counter and authorize code are unchanged from35ce9c4b7; native browser timing remains unverified. Required regression: npm run test:plugins:connections:oauth; preserve expected unblocked navigation and verify actual OAuth transport/return before accepting6b."
+      "6b-d-1 locally accepted: synchronous OAuth-start pending fence and authenticated same-browser shared MCP callback. Bound return to the originating Plugins scope, shared Desktop/system-browser and Composio HTTP return, actor-only invalidation and dirty-authorize preflight remain6b-d-2; shared MCP Apps remain6b-d-3. Native Mobile/final shared runtime/live provider acceptance remain6b-e/f/7; gateway stays default-off."
     ], "evidence": [] },
     { "id": "7", "name": "End-to-End-Abnahme und kontrollierter Rollout", "status": "pending", "evidence": [] }
   ],

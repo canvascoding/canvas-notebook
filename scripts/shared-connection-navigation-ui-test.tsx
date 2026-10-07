@@ -31,22 +31,25 @@ async function main(){
     :originalLoad(name,parent,isMain);
   const { render,screen,fireEvent,waitFor,cleanup,act,within }=await import('@testing-library/react');
   const { SharedConnectionsSection }=await import('../app/components/plugins/SharedConnectionsSection');
-  const { PluginNavigationGuard,confirmPluginNavigation }=await import('../app/components/plugins/plugin-navigation-guard');
+  const { PluginNavigationGuard,confirmPluginNavigation,usePluginEditorNavigationGuard }=await import('../app/components/plugins/plugin-navigation-guard');
   const labels=en.sharedConnections,refs={mcp:'canvas-connection:11111111-1111-4111-8111-111111111111',composio:'canvas-connection:22222222-2222-4222-8222-222222222222'};
   const initial=(source:'mcp'|'composio'):IntegrationConnectionDescriptor=>({resource:{connectionRef:refs[source],source,ownership:{type:'organization',organizationId:'fixture-org'},
     displayName:`Owned ${source} fixture`,description:'Saved description',application:source==='composio'?'canva':null,responsibleUserId:null,createdByUserId:'fixture-admin',updatedByUserId:'fixture-admin',
     metadataRevision:1,grantsRevision:1,bindingRevision:1,allowedToolNames:null,accessMode:'restricted',status:'active',createdAt:1,updatedAt:1},
     access:{canRead:true,canUse:false,canManage:true},grants:[]});
   let records={mcp:initial('mcp'),composio:initial('composio')},accepts=false,prompts=0,writeStatus=200;
-  type Seen={path:string;method:string;body:Record<string,unknown>|null};
+  type Seen={path:string;method:string;body:Record<string,unknown>|null;workspaceId:string|null};
   const requests:Seen[]=[];let releaseWrite:(()=>void)|undefined,writeGate:Promise<void>|undefined;
+  let oauthStatus=200,oauthFailure:'none'|'fetch'|'json'='none',oauthJsonStarted=0;
+  let oauthJsonGate:Promise<void>|undefined,releaseOAuthJson:(()=>void)|undefined;
   const writes=()=>requests.filter(request=>request.method!=='GET');
   window.confirm=()=>{prompts++;return accepts;};
   const ok=(data:unknown)=>Response.json({success:true,data});
   globalThis.fetch=async(input,init)=>{
     const url=new URL(String(input),window.location.origin),pathname=decodeURIComponent(url.pathname),method=init?.method??'GET';
-    assert.equal(new Headers(init?.headers).get('x-canvas-workspace-id'),'fixture-workspace');
-    const body=init?.body?JSON.parse(String(init.body)) as Record<string,unknown>:null;requests.push({path:pathname,method,body});
+    const workspaceId=new Headers(init?.headers).get('x-canvas-workspace-id');
+    assert(['fixture-workspace','next-fixture-workspace'].includes(workspaceId??''));
+    const body=init?.body?JSON.parse(String(init.body)) as Record<string,unknown>:null;requests.push({path:pathname,method,body,workspaceId});
     if(pathname==='/api/integrations/shared-connections/setup')return ok({scopes:[{ownership:{type:'organization',organizationId:'fixture-org'},label:'Organization'}]});
     if(pathname==='/api/integrations/shared-connections'&&method==='GET')return ok({connections:structuredClone(Object.values(records))});
     if(pathname==='/api/composio/shared-profiles'&&method==='GET')return ok({profiles:[{id:'fixture-profile',name:'Own shared profile',providerMode:'local'}]});
@@ -54,7 +57,16 @@ async function main(){
     if(pathname.endsWith('/targets')&&method==='GET')return ok({targets:{users:[{userId:'fixture-reader',name:'Reader',email:'reader@fixture.invalid',role:'member'}],workspaces:[],projects:[],agents:[]}});
     if(pathname.startsWith('/api/integrations/shared-connections/')&&method==='GET')return ok({connection:structuredClone(record)});
     if(pathname.endsWith('/accounts')&&method==='GET')return ok({accounts:[{accountRef:'opaque-owned-account',label:'Own account',selectable:true}]});
-    if(pathname.endsWith('/oauth')&&method==='POST'){await writeGate;return ok({authorizationUrl:'https://login.fixture.invalid/oauth'});}
+    if((pathname.endsWith('/oauth')||pathname.endsWith('/connect'))&&method==='POST'){
+      await writeGate;
+      if(oauthFailure==='fetch')throw new Error('PRIVATE_ACK_LOSS_BODY');
+      const response=oauthStatus===200?ok(source==='mcp'?{authorizationUrl:'https://login.fixture.invalid/oauth'}:{redirectUrl:'https://login.fixture.invalid/connect'})
+        :Response.json({success:false,code:oauthStatus===409?'binding_changed':'provider_denied',error:'PRIVATE_PROVIDER_BODY'},{status:oauthStatus});
+      const readJson=response.json.bind(response);
+      Object.defineProperty(response,'json',{value:async()=>{oauthJsonStarted++;await oauthJsonGate;
+        if(oauthFailure==='json')throw new Error('PRIVATE_ACK_JSON_BODY');return readJson();}});
+      return response;
+    }
     if(pathname.startsWith('/api/integrations/shared-connections/')&&method==='PATCH'){
       await writeGate;
       if(writeStatus===409){record.resource={...record.resource,metadataRevision:2,displayName:'Remote current label'};return Response.json({success:false,code:'binding_changed',error:'PRIVATE_PROVIDER_BODY'},{status:409});}
@@ -64,13 +76,13 @@ async function main(){
     }
     throw new Error(`Unexpected controlled UI endpoint ${method} ${pathname}`);
   };
-  function App({locale='en'}:{locale?:'en'|'de'}){
+  function App({locale='en',workspaceId='fixture-workspace'}:{locale?:'en'|'de';workspaceId?:string}){
     const [epoch,setEpoch]=useState(0),[scope,setScope]=useState('organization');
     return <NextIntlClientProvider locale={locale} messages={locale==='en'?en:de} timeZone="UTC">
       <PluginNavigationGuard unsavedChangesMessage={(locale==='en'?en:de).skills.drafts.unsavedNavigation}/>
       <header><button type="button" onClick={()=>{if(confirmPluginNavigation())setEpoch(value=>value+1);}}>Fixture Header Reload</button>
         <button type="button" onClick={()=>{if(confirmPluginNavigation()){window.history.pushState(null,'','/en/plugins?scope=user');setScope('user');}}}>Fixture scope navigation</button><output data-testid="fixture-scope">{scope}</output></header>
-      <SharedConnectionsSection key={epoch} workspaceId="fixture-workspace" ownership={{type:'organization',organizationId:'fixture-org'}} initiallyOpen/>
+      <SharedConnectionsSection key={epoch} workspaceId={workspaceId} ownership={{type:'organization',organizationId:'fixture-org'}} initiallyOpen/>
     </NextIntlClientProvider>;
   }
   const field=(id:string)=>{const value=document.getElementById(id);assert(value,`Expected field ${id}`);return value;};
@@ -78,8 +90,10 @@ async function main(){
   const value=(id:string)=>(field(id) as HTMLInputElement|HTMLSelectElement|HTMLTextAreaElement).value;
   const waitReady=async()=>{await waitFor(()=>assert.equal((screen.getByTestId('shared-connection-create') as HTMLButtonElement).disabled,false));};
   const reset=async(locale:'en'|'de'='en')=>{
-    cleanup();releaseWrite?.();releaseWrite=undefined;writeGate=undefined;records={mcp:initial('mcp'),composio:initial('composio')};requests.length=0;accepts=false;prompts=0;writeStatus=200;
-    window.history.replaceState(null,'','/en/plugins?view=advanced&scope=organization');window.history.pushState(null,'','/en/plugins?view=advanced&task=connections');render(<App locale={locale}/>);await waitReady();
+    observeNavigation=undefined;cleanup();releaseWrite?.();releaseOAuthJson?.();releaseWrite=undefined;writeGate=undefined;releaseOAuthJson=undefined;oauthJsonGate=undefined;
+    oauthStatus=200;oauthFailure='none';oauthJsonStarted=0;records={mcp:initial('mcp'),composio:initial('composio')};requests.length=0;accepts=false;prompts=0;writeStatus=200;
+    window.history.replaceState(null,'','/en/plugins?view=advanced&scope=organization');window.history.pushState(null,'','/en/plugins?view=advanced&task=connections');
+    const view=render(<App locale={locale}/>);await waitReady();return view;
   };
   const openCreate=async()=>{fireEvent.click(screen.getByTestId('shared-connection-create'));return screen.findByTestId('shared-connection-create-dialog');};
   const openEditor=async(source:'mcp'|'composio'='mcp')=>{
@@ -160,18 +174,87 @@ async function main(){
     assert.equal(writes().length,1);assert.equal(document.body.textContent?.includes('PRIVATE_PROVIDER_BODY'),false);
 
     if(process.argv.includes('--oauth-pending-regression')){
-      // Separate open 6b boundary: injected synchronous beforeUnload at actual assign; native browser timing is unknown.
-      await reset();editor=await openEditor();let redirects=0,unloadPrevented=false;assert.equal(confirmPluginNavigation(),true);
-      observeNavigation=()=>{redirects++;const event=new Event('beforeunload',{cancelable:true});window.dispatchEvent(event);unloadPrevented=event.defaultPrevented;};
-      const connect=within(editor).getByRole('button',{name:labels.connect,hidden:true});
-      const connectDetails=connect.closest('details');assert(connectDetails);connectDetails.open=true;
-      fireEvent.click(connect);await waitFor(()=>assert.equal(redirects,1));
-      assert.equal(unloadPrevented,false,'The clean intentional OAuth navigation must not acquire a child busy/pending unload fence.');assert.equal(prompts,0);
-      assert.equal(writes().length,1);assert(writes()[0].path.endsWith('/oauth'));observeNavigation=undefined;
+      // Actual location.assign invokes JSDOM's navigation boundary; the observer injects
+      // beforeUnload synchronously there. This proves React/Guard ordering, not native timing.
+      let redirects=0;const preventedAtAssign:boolean[]=[];
+      const unload=()=>{const event=new Event('beforeunload',{cancelable:true});window.dispatchEvent(event);return event.defaultPrevented;};
+      const observe=()=>{redirects=0;preventedAtAssign.length=0;observeNavigation=()=>{redirects++;preventedAtAssign.push(unload());};};
+      const connectButton=(dialog:HTMLElement)=>{const button=within(dialog).getByRole('button',{name:labels.connect,hidden:true});
+        const details=button.closest('details');assert(details);details.open=true;return button;};
+      const exactOAuthRequest=(source:'mcp'|'composio')=>{
+        assert.equal(writes().length,1);assert.deepEqual(writes()[0],{path:`/api/${source}/shared-connections/${refs[source]}/${source==='mcp'?'oauth':'connect'}`,
+          method:'POST',workspaceId:'fixture-workspace',body:{expectedMetadataRevision:1,expectedGrantsRevision:1,expectedBindingRevision:1}});
+      };
+      for(const source of ['mcp','composio'] as const){
+        await reset();editor=await openEditor(source);observe();assert.equal(confirmPluginNavigation(),true);
+        const connect=connectButton(editor);fireEvent.click(connect);
+        await waitFor(()=>assert.equal(redirects,1));
+        assert.deepEqual(preventedAtAssign,[false],'The clean intentional OAuth navigation must not acquire a child busy/pending unload fence.');
+        assert.equal(prompts,0);exactOAuthRequest(source);
+        await waitFor(()=>assert.equal((connect as HTMLButtonElement).disabled,false));
+        assert.equal(unload(),false);assert.equal(confirmPluginNavigation(),true);
+        // A later ordinary dirty editor must still be protected; there is no general unload exemption.
+        change('shared-edit-name','Unsaved after acknowledged OAuth');assert.equal(unload(),true);
+        assert.equal(confirmPluginNavigation(),false);assert.equal(prompts,1);exactOAuthRequest(source);
+        console.log(`PASS OAuth clean ${source}: synchronous ACK assign unfenced, exact scoped CAS POST, ordinary dirty guard retained.`);
+      }
+      for(const boundary of ['http','json'] as const){
+        await reset();editor=await openEditor();observe();const connect=connectButton(editor);
+        if(boundary==='http')writeGate=new Promise<void>(resolve=>{releaseWrite=resolve;});
+        else oauthJsonGate=new Promise<void>(resolve=>{releaseOAuthJson=resolve;});
+        fireEvent.click(connect);await waitFor(()=>assert.equal(writes().length,1));
+        if(boundary==='json')await waitFor(()=>assert.equal(oauthJsonStarted,1));
+        const pendingHref=window.location.href;assert.equal(unload(),true);assert.equal(confirmPluginNavigation(),false);assert.equal(prompts,0);
+        escape();fireEvent.click(closeButton(editor));
+        // Controlled background callbacks exercise Guard consumers, not native behind-modal clicks.
+        fireEvent.click(screen.getByRole('button',{name:'Fixture Header Reload',hidden:true}));
+        fireEvent.click(screen.getByRole('button',{name:'Fixture scope navigation',hidden:true}));
+        await act(async()=>{window.history.back();await new Promise(resolve=>setTimeout(resolve,40));});
+        await waitFor(()=>assert.equal(window.location.href,pendingHref));assert(document.body.contains(editor));assert.equal(prompts,0);
+        assert.equal((connect as HTMLButtonElement).disabled,true);fireEvent.click(connect);exactOAuthRequest('mcp');assert.equal(redirects,0);
+        await act(async()=>{if(boundary==='http')releaseWrite?.();else releaseOAuthJson?.();});
+        await waitFor(()=>assert.equal(redirects,1));assert.deepEqual(preventedAtAssign,[false]);assert.equal(prompts,0);
+        await waitFor(()=>assert.equal((connect as HTMLButtonElement).disabled,false));assert.equal(unload(),false);assert.equal(confirmPluginNavigation(),true);exactOAuthRequest('mcp');
+        console.log(`PASS OAuth ${boundary} acknowledgement boundary: pending refuses departure/no duplicate, settled clean ACK permits exactly one redirect.`);
+      }
+      for(const outcome of ['fetch','json',403,409,503] as const){
+        await reset();editor=await openEditor();observe();const connect=connectButton(editor);
+        if(typeof outcome==='number')oauthStatus=outcome;else oauthFailure=outcome;
+        const baseline=structuredClone(records.mcp);change('shared-edit-name',`Retained ${outcome}`);
+        fireEvent.click(connect);await screen.findByText(outcome===409?labels.conflict:labels.saveError);
+        assert.equal(redirects,0);exactOAuthRequest('mcp');assert.deepEqual(records.mcp,baseline);
+        assert.equal(value('shared-edit-name'),`Retained ${outcome}`);assert.equal(value('shared-edit-description'),'Saved description');
+        assert.equal(document.body.textContent?.includes('PRIVATE_'),false);assert.equal(prompts,0);
+        // A prompt here distinguishes a settled Parent counter from a still-pending write:
+        // the dirty form is retained and cancellation cannot close it.
+        fireEvent.click(closeButton(editor));assert.equal(prompts,1);assert(document.body.contains(editor));assert.equal(redirects,0);
+        assert.equal((connect as HTMLButtonElement).disabled,outcome===409);
+        console.log(`PASS OAuth ${outcome}: no redirect/auto-retry, Parent pending settled, dirty draft and baseline retained.`);
+      }
+      for(const outcome of ['url','error'] as const){
+        const view=await reset();editor=await openEditor();observe();writeGate=new Promise<void>(resolve=>{releaseWrite=resolve;});
+        if(outcome==='error')oauthFailure='fetch';fireEvent.click(connectButton(editor));await waitFor(()=>assert.equal(writes().length,1));
+        const baseline=structuredClone(records.mcp);view.rerender(<App workspaceId="next-fixture-workspace"/>);await waitReady();
+        assert.equal(Boolean(screen.queryByTestId('shared-connection-edit-dialog')),false);
+        await act(async()=>releaseWrite?.());assert.equal(redirects,0);assert.deepEqual(records.mcp,baseline);
+        assert.equal(confirmPluginNavigation(),true);assert.equal(unload(),false);assert.equal(prompts,0);exactOAuthRequest('mcp');
+        assert(requests.filter(request=>request.method==='GET').some(request=>request.workspaceId==='next-fixture-workspace'));
+        assert.equal(document.body.textContent?.includes('PRIVATE_'),false);
+        console.log(`PASS OAuth late ${outcome}: old keyed scope response ignored without redirect/current-scope state or guard pollution.`);
+      }
+      function OtherEditorFence({dirty,pending}:{dirty:boolean;pending:boolean}){usePluginEditorNavigationGuard({dirty,pending});return <p>Other fixture editor</p>;}
+      for(const kind of ['dirty','pending'] as const){
+        await reset();editor=await openEditor();observe();const other=render(<OtherEditorFence dirty={kind==='dirty'} pending={kind==='pending'}/>);
+        fireEvent.click(connectButton(editor));await waitFor(()=>assert.equal(redirects,1));
+        assert.deepEqual(preventedAtAssign,[true],`Acknowledged OAuth must not bypass another editor's boolean ${kind} guard.`);assert.equal(prompts,0);
+        other.unmount();assert.equal(unload(),false);assert.equal(confirmPluginNavigation(),true);exactOAuthRequest('mcp');
+      }
+      observeNavigation=undefined;
+      console.log('PASS OAuth pending-only matrix. Controlled HTTP/React synchronous assign boundary; no native OAuth, server authority, dirty-authorize preflight or actor-only policy claims.');
     }
 
     await reset('de');await openCreate();assert(screen.getByRole('dialog',{name:de.sharedConnections.createTitle}));
     console.log('PASS real SharedConnections Parent/Forms/Intl/Radix navigation: dirty hidden/staged inputs, local Escape/X/Reload and scope/history fences, actual Parent pending single Save, programmatic successful close, retained409 and German labels. Controlled SafeDTO HTTP only; no server/provider authority, OAuth acceptance or production-browser claims.');
-  }finally{observeNavigation=undefined;releaseWrite?.();cleanup();loader._load=originalLoad;globalThis.fetch=originalFetch;window.confirm=originalConfirm;dom.window.close();}
+  }finally{observeNavigation=undefined;releaseWrite?.();releaseOAuthJson?.();cleanup();loader._load=originalLoad;globalThis.fetch=originalFetch;window.confirm=originalConfirm;dom.window.close();}
 }
 main().catch(error=>{console.error(error);process.exitCode=1;});

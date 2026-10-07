@@ -207,7 +207,7 @@ async function main() {
       client_id: 'https://canvas.example.com/api/mcp/oauth/client-metadata',
       client_name: 'Canvas Notebook MCP',
       client_uri: 'https://canvas.example.com',
-      redirect_uris: ['https://canvas.example.com/api/mcp/oauth/callback'],
+      redirect_uris: ['https://canvas.example.com/api/mcp/oauth/callback', 'https://canvas.example.com/api/mcp/shared-connections/oauth/callback'],
       grant_types: ['authorization_code', 'refresh_token'],
       response_types: ['code'],
       token_endpoint_auth_method: 'none',

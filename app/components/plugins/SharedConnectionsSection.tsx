@@ -31,11 +31,12 @@ function SharedConnectionsSession({ workspaceId, ownership, initiallyOpen = fals
   const [createOpen, setCreateOpen] = useState(false);
   const [selected, setSelected] = useState<IntegrationConnectionDescriptor | null>(null);
   const revision = useRef(0), alive = useRef(true);
-  const writes = useRef(0), [pending, setPending] = useState(false);
-  usePluginEditorNavigationGuard({ dirty: false, pending });
+  const writes = useRef(0);
+  const readPending = useCallback(() => writes.current > 0, []);
+  usePluginEditorNavigationGuard({ dirty: false, pending: readPending });
   const api: SharedConnectionApi = useCallback(async <T,>(url: string, body?: unknown, method?: 'POST' | 'PATCH' | 'PUT' | 'DELETE'): Promise<T> => {
     const mutation = method !== undefined || body !== undefined;
-    if (mutation) { writes.current += 1; setPending(true); }
+    if (mutation) writes.current += 1;
     try {
       const response = await fetch(url, { method: method ?? (body === undefined ? 'GET' : 'POST'), cache: 'no-store', credentials: 'include',
       headers: { ...(workspaceId ? { [WORKSPACE_ID_HEADER]: workspaceId } : {}), ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
@@ -44,7 +45,7 @@ function SharedConnectionsSession({ workspaceId, ownership, initiallyOpen = fals
     if (!response.ok || !payload.success || !payload.data) throw new SharedConnectionRequestError(response.status, payload.code || 'connection_unavailable');
       return payload.data;
     } finally {
-      if (mutation) { writes.current -= 1; if (alive.current) setPending(writes.current > 0); }
+      if (mutation) writes.current -= 1;
     }
   }, [workspaceId]);
   const matchesOwnership = useCallback((owner: CapabilityResourceOwnerScope) => !ownership || owner.type === ownership.type
