@@ -148,6 +148,15 @@ desktop and narrow viewports, checks page reload and model isolation, then uses
 explicit transport fixtures for deterministic failure/retry/progress rendering.
 Container acceptance requires a current rebuilt/recreated image separately.
 
+Container acceptance on 2026-10-07 passed against a freshly rebuilt Linux image
+(`66cba918c`, local port 3100), with an absent `tiny` model at the start. The browser
+test observed real upstream download bytes, recovered after reloading the page,
+recognized the bundled sample and a browser MediaRecorder upload through the
+shared local service, and left saved provider/model/microphone settings unchanged.
+Desktop (1280px) and narrow (390px) views passed; deterministic failure/retry and
+progress rendering checks used explicit transport fixtures. Microphone audio was
+provided by Chromium's audio-backed fake device, not a physical microphone.
+
 Run the service, route, and agent adapter regression scripts alongside the local
 worker and Python protocol tests. Browser acceptance covers provider/model/language
 selection, readiness while the microphone is disabled, credential errors, and
