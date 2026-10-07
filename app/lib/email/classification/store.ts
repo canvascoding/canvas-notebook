@@ -513,7 +513,10 @@ export class PostgresEmailClassificationStore {
         && isEmailSelectedForClassification({ inInbox: message.in_inbox === true,
           dateTimestamp: message.date_timestamp === null ? null : Number(message.date_timestamp), list: object<EmailIndexedMessageList>(message.list_json) }, settings.configuration.initialLookbackDays, now)
         && message.fingerprint === job.fingerprint && message.binding_revision === job.bindingRevision && message.policy_revision === job.policyRevision
-        && raw.providerId === settings.configuration.providerId;
+        && (settings.configuration.executionMode === 'managed'
+          ? settings.configuration.managedModel !== null && raw.providerId === settings.configuration.managedModel.providerId
+            && raw.model === settings.configuration.managedModel.model && raw.adapterVersion === settings.configuration.managedModel.adapterVersion
+          : raw.providerId === settings.configuration.providerId);
       if (!valid) {
         await connection.query("UPDATE email_classification_jobs SET status = 'canceled', lease_until = NULL, claim_token = NULL, error_code = 'stale_claim', updated_at = $2 WHERE id = $1", [id, now]);
         return false;

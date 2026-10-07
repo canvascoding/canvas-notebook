@@ -29,7 +29,41 @@ const message = (id: string, overrides: Partial<EmailClassificationMetadataInput
   ...overrides,
 });
 
+async function verifyManagedPublication() {
+  const postgres = new PGlite();
+  try {
+    await postgres.exec(`CREATE TABLE "user"(id text PRIMARY KEY); INSERT INTO "user" VALUES ('owner'), ('admin');`);
+    await runEmailClassificationPostgresMigration(postgres);
+    const store = createEmailClassificationStore({
+      postgres: postgres as unknown as EmailClassificationQueryable,
+      transaction: operation => postgres.transaction(connection => operation(connection as unknown as EmailClassificationQueryable)),
+    });
+    const managedModel = { ref: 'central-model', providerId: 'systemone', model: 'kev', adapterVersion: 'systemone-http.v1', inferenceRevision: 'sha256:' + 'a'.repeat(64) };
+    const settings = await store.updateSettings({ expectedRevision: 0, actorUserId: 'admin', now: 100,
+      configuration: { ...DEFAULT_EMAIL_CLASSIFICATION_CONFIGURATION, enabled: true, executionMode: 'managed', managedModelRef: managedModel.ref, managedModel } });
+    await store.upsertMailbox(mailbox, 101);
+    const managedRaw = { ...raw, providerId: managedModel.providerId, model: managedModel.model, adapterVersion: managedModel.adapterVersion };
+    for (const [id, value, accepted] of [
+      ['managed-valid', managedRaw, true],
+      ['managed-wrong-provider', { ...managedRaw, providerId: 'typesafe' }, false],
+      ['managed-wrong-model', { ...managedRaw, model: 'another-model' }, false],
+      ['managed-wrong-adapter', { ...managedRaw, adapterVersion: 'another-adapter' }, false],
+    ] as const) {
+      await store.upsertMessageMetadata(message(id), 102);
+      await store.enqueueClassification({ messageRef: id, fingerprint: message(id).fingerprint, configurationRevision: settings.revision, now: 103 });
+      const [claim] = await store.claimJobs({ limit: 1, leaseMs: 100, now: 104 });
+      assert.equal(await store.completeJob({ jobId: claim.id, claimToken: claim.claimToken!, raw: value, now: 105 }), accepted, id);
+      assert.equal((await store.readResultsBatch([id])).length, accepted ? 1 : 0, id);
+      assert.equal((await store.readJob(claim.id))?.status, accepted ? 'completed' : 'canceled', id);
+    }
+    const stored = (await store.readResultsBatch(['managed-valid']))[0];
+    assert.equal(stored.raw?.providerId, 'systemone', 'Managed results do not use the preserved direct provider selection');
+    assert.equal(stored.evaluationFingerprint, emailClassificationEvaluationFingerprint(settings.configuration));
+  } finally { await postgres.close(); }
+}
+
 async function main() {
+  await verifyManagedPublication();
   const brokenMigration = new PGlite();
   try {
     await brokenMigration.exec('CREATE TABLE "user"(id text PRIMARY KEY); CREATE TABLE email_classification_messages(message_ref text PRIMARY KEY);');
