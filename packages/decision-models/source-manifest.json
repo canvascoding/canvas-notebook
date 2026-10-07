@@ -7,6 +7,7 @@
     "src/errors.ts": "0f7caf3345fe7c83bfd3f2d6a8929217956f232fae8fe312867fa519a0c40cc3",
     "src/http.ts": "dbb3df81b97f6608511871b421cc43df9f4d32d7bb977fc4c685f5e149edc258",
     "src/index.ts": "42e09b2eccf96fb6590d4d25eb573964b5cc8f06d389a8ff8b9acdecf0a20d1b",
+    "src/managed.ts": "435d2d15e9273efda0edb3bfad46a6b25e2bde94bea9ac02857891f6eeea040e",
     "src/providers/http-json.ts": "31536a6648711990f08a6e9e87e86c3a7f68815b08af9cc649d53fdd100f4df5",
     "src/providers/openai-decisions.ts": "0a376e3462d157280ee21291f1c11008f3e465aa64bb8f547ff539d85a175fea",
     "src/providers/systemone.ts": "8b2b3c0d15ffed9e06b4fcbc6e4a5a1a0a4f42318ac645dc16134cb5d286d7ea",
