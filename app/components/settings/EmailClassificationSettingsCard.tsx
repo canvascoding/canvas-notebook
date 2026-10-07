@@ -18,7 +18,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 
-type FailureKey = 'load' | 'save' | 'test' | 'conflict' | 'access' | 'invalid' | 'credentialMissing' | 'credentialUnavailable' | 'authentication' | 'timeout' | 'rateLimited' | 'endpoint' | 'invalidResponse' | 'unavailable';
+type FailureKey = 'load' | 'save' | 'test' | 'conflict' | 'access' | 'invalid' | 'credentialMissing' | 'credentialUnavailable' | 'authentication' | 'timeout' | 'rateLimited' | 'endpoint' | 'invalidResponse' | 'refused' | 'unavailable';
 class RequestFailure extends Error {
   constructor(readonly key: FailureKey) { super(key); }
 }
@@ -31,6 +31,7 @@ function requestFailure(response: Response, payload: { code?: string }, fallback
     EMAIL_CLASSIFICATION_CREDENTIAL_UNAVAILABLE: 'credentialUnavailable', EMAIL_CLASSIFICATION_AUTHENTICATION_FAILED: 'authentication',
     EMAIL_CLASSIFICATION_TIMEOUT: 'timeout', EMAIL_CLASSIFICATION_RATE_LIMITED: 'rateLimited',
     EMAIL_CLASSIFICATION_ENDPOINT_REJECTED: 'endpoint', EMAIL_CLASSIFICATION_INVALID_RESPONSE: 'invalidResponse',
+    EMAIL_CLASSIFICATION_REFUSED: 'refused',
     EMAIL_CLASSIFICATION_UNAVAILABLE: 'unavailable',
   };
   return new RequestFailure(codes[payload.code ?? ''] ?? (response.status === 429 ? 'rateLimited' : fallback));

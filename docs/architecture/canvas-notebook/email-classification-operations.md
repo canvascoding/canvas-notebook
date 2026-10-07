@@ -1,14 +1,20 @@
 # E-Mail-Klassifizierung: Qualität, Betrieb und Recovery
 
-Stand: 2026-10-06. Implementierter Vertrag unter `app/lib/email/classification/`; ursprüngliche Anforderungen im [Harness-Plan](email-classification-harness-plan.md), Prüfnachweise im [Umsetzungsnachweis](email-classification-implementation.md). Nutzer-/Adminbedienung: [Fokus](../../product/de/email/focus.mdx), [Vorbereitung administrieren](../../product/de/admin/email-classification.mdx).
+Stand: 2026-10-07. Implementierter Vertrag unter `app/lib/email/classification/`; ursprüngliche Anforderungen im [Harness-Plan](email-classification-harness-plan.md), Prüfnachweise im [Umsetzungsnachweis](email-classification-implementation.md). Nutzer-/Adminbedienung: [Fokus](../../product/de/email/focus.mdx), [Vorbereitung administrieren](../../product/de/admin/email-classification.mdx).
 
 ## Aktivierung und Datenbereiche
 
 Die Instanzkonfiguration ist standardmäßig deaktiviert. Ein Instanzadministrator aktiviert sie zentral für persönliche und zugewiesene gemeinsame Postfächer. Eine persönliche Fokus/Klassisch-Präferenz steuert die Ansicht. Sie schaltet die Hintergrundbewertung nicht ab. Der gewählte Anbieter erhält zulässige Mailheader und einen auf 16.000 Zeichen begrenzten Nachrichtentext mit versionierten Bewertungsfragen; Kürzung bleibt im Detail erkennbar.
 
-Credentials werden ausschließlich aus System-Secrets aufgelöst. TypeSafe verwendet standardmäßig den Namen `TYPESAFE_API_KEY`, der kompatible Adapter `EMAIL_CLASSIFICATION_API_KEY`. Verwaltung erfolgt über `/settings?tab=secrets` und den zentralen ENV-Service; persönliche, Organisations- und Prozesswerte sind kein Fallback. Die Admin-/Nutzerantworten enthalten sicheren Zugangsstatus, keine Schlüsselwerte. Ein anonymer kompatibler Endpoint braucht die ausdrückliche private Netzwerkfreigabe und einen bewusst leeren Schlüsselnamen.
+Credentials werden ausschließlich aus System-Secrets aufgelöst. TypeSafe verwendet standardmäßig den Namen `TYPESAFE_API_KEY`, OpenAI Decisions `OPENAI_API_KEY`, der kompatible Adapter `EMAIL_CLASSIFICATION_API_KEY`. Verwaltung erfolgt über `/settings?tab=secrets` und den zentralen ENV-Service; persönliche, Organisations- und Prozesswerte sind kein Fallback. Die Admin-/Nutzerantworten enthalten sicheren Zugangsstatus, keine Schlüsselwerte. Ein anonymer kompatibler Endpoint braucht die ausdrückliche private Netzwerkfreigabe und einen bewusst leeren Schlüsselnamen.
 
 PostgreSQL speichert Metadatenindex, Rohbewertungen, menschliche Korrekturen, persönlichen Erledigtzustand, Jobs, Leases und Feed-Snapshots getrennt. Der flüchtige Mailcache ist keine Recovery-Quelle für Bewertungen. Rohbewertungen erhalten Anbieter-, Modell-, Adapter-, Schema-, Wahrscheinlichkeits- und Inhaltsumfangsinformationen. Der Mailfingerprint umfasst Mailboxreferenz, kanonische Provider-ID, Absender, Betreff und Datum; er enthält keinen Bodyhash. Persönliches Erledigen verändert keinen Team-Case, Antwort- oder Mail-Lesestatus.
+
+## OpenAI Decisions
+
+Der zusätzliche Provider `openai-decisions` verwendet die native [OpenAI Decisions API](https://developers.openai.com/api/docs/guides/decisions) mit `gpt-6-luna` und dem festen öffentlichen Endpoint `https://api.openai.com/v1/decisions`. Ein eigener Endpoint und private Netzwerkfreigabe sind für diesen Anbieter ausgeschlossen. Die bestehende TypeSafe-Voreinstellung bleibt erhalten.
+
+Choice-, Binary- und Ordinalfragen werden in native Choice-, Predicate- und Scorefragen übersetzt. Wahrscheinlichkeitsverteilungen und separat gelieferte Confidence bleiben erhalten; ordinale Scores behalten ihren gewichteten Wert. Unvollständige oder widersprüchliche Antworten werden abgewiesen. Eine native Refusal beendet die Bewertung mit einem sicheren, nicht wiederholbaren Fehler; Ablehnungstext und Mailinhalt erscheinen nicht in öffentlichen Fehlermeldungen. Ein erfolgreicher Test ist weiterhin kein Spamkalibrierungsnachweis.
 
 ## Grenzen und laufende Verarbeitung
 

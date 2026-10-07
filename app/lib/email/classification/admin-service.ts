@@ -208,6 +208,7 @@ function providerOptions(): EmailClassificationProviderOption[] {
   return [
     { id: 'typesafe', label: 'TypeSafe Jev', requiresEndpoint: false, defaultModel: 'jev-1.13.0', credentialKeyDefault: 'TYPESAFE_API_KEY' },
     { id: 'systemone', label: 'System One compatible', requiresEndpoint: true, defaultModel: 'kev', credentialKeyDefault: 'EMAIL_CLASSIFICATION_API_KEY' },
+    { id: 'openai-decisions', label: 'OpenAI Decisions', requiresEndpoint: false, defaultModel: 'gpt-6-luna', credentialKeyDefault: 'OPENAI_API_KEY' },
   ];
 }
 

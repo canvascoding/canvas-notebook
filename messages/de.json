@@ -270,6 +270,7 @@
       "rateLimited": "Der Anbieter oder diese Anfrage wird vorübergehend begrenzt. Versuche es später erneut.",
       "endpoint": "Der Endpunkt ist nicht erlaubt. Prüfe die Adresse und die Einstellung für private Netzwerke.",
       "invalidResponse": "Der Anbieter hat für das Beispiel keine gültige Bewertung geliefert.",
+      "refused": "Der Anbieter hat die Bewertung der Beispielmail abgelehnt. Prüfe die Kriterien oder wähle einen anderen Anbieter.",
       "unavailable": "Die E-Mail-Vorbereitung ist vorübergehend nicht verfügbar. Deine Änderungen bleiben erhalten."
     }
   },

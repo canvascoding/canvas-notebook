@@ -20,7 +20,8 @@ function snapshot(revision = 1): EmailClassificationAdminSettings {
     availability: { enabled: false, available: false, revision, defaultMode: 'classic', reason: 'disabled' },
     credentials: { status: 'configured', configured: true, scope: 'system', anonymous: false, settingsLink: '/settings?tab=secrets' },
     providerOptions: [{ id: 'typesafe', label: 'TypeSafe Jev', requiresEndpoint: false, defaultModel: 'jev-1.13.0', credentialKeyDefault: 'TYPESAFE_API_KEY' },
-      { id: 'systemone', label: 'System One compatible', requiresEndpoint: true, defaultModel: 'kev', credentialKeyDefault: 'EMAIL_CLASSIFICATION_API_KEY' }],
+      { id: 'systemone', label: 'System One compatible', requiresEndpoint: true, defaultModel: 'kev', credentialKeyDefault: 'EMAIL_CLASSIFICATION_API_KEY' },
+      { id: 'openai-decisions', label: 'OpenAI Decisions', requiresEndpoint: false, defaultModel: 'gpt-6-luna', credentialKeyDefault: 'OPENAI_API_KEY' }],
     health: { state: 'paused', counts: { indexed: 9, analyzed: 5, pending: 2, processing: 1, failed: 1 },
       mailboxes: { active: 2, pending: 0, partial: 1, complete: 1, failed: 0, lastSyncAt: null },
       budget: { dayStart: 0, resetsAt: 86_400_000, used: 5, remaining: 1995, limit: 2000 }, usage: null, averageLatencyMs: null, lastCompletedAt: null },
@@ -41,14 +42,16 @@ async function main() {
   let deferRead = false;
   let denyRead = false;
   let failProbe = false;
+  let refuseProbe = false;
   const privateMessage = 'PRIVATE_PROVIDER_OR_SECRET_VALUE_MUST_NEVER_RENDER';
   globalThis.fetch = async (input, init) => {
     const url = new URL(String(input), 'http://localhost');
     assert.equal(init?.credentials, 'include');
     if (url.pathname === '/api/admin/email-classification/test') {
       probes.push(JSON.parse(String(init?.body)));
+      if (refuseProbe) return Response.json({ success: false, code: 'EMAIL_CLASSIFICATION_REFUSED', error: privateMessage }, { status: 502 });
       if (failProbe) return Response.json({ success: false, code: 'EMAIL_CLASSIFICATION_INVALID_RESPONSE', error: privateMessage }, { status: 502 });
-      return Response.json({ success: true, data: { success: true, providerId: 'typesafe', model: probes.at(-1)!.configuration.model,
+      return Response.json({ success: true, data: { success: true, providerId: probes.at(-1)!.configuration.providerId, model: probes.at(-1)!.configuration.model,
         latencyMs: 42, classification: projectEmailClassification({ raw: null }), ratings: { spamProbability: 0.02, replyProbability: 0.9 } } });
     }
     assert.equal(url.pathname, '/api/admin/email-classification/settings', 'The card never reads an ENV snapshot or secret value');
@@ -80,6 +83,29 @@ async function main() {
     assert.equal(view.getAllByText('Unconfirmed').length, 2, 'Unknown category/priority are not fabricated as other/normal');
     assert.equal(view.getByRole('link', { name: 'Manage system Secrets' }).getAttribute('href'), '/settings?tab=secrets');
     assert.equal(view.container.querySelector('input[type="password"]'), null, 'Only a credential name is editable here');
+
+    const provider = view.getByLabelText('Provider');
+    fireEvent.change(provider, { target: { value: 'systemone' } });
+    fireEvent.change(view.getByLabelText(en.emailClassificationSettings.endpoint), { target: { value: 'http://127.0.0.1:11434/v1/systemone' } });
+    fireEvent.change(provider, { target: { value: 'openai-decisions' } });
+    assert.equal(model.value, 'gpt-6-luna');
+    assert.equal((view.getByLabelText('System credential name') as HTMLInputElement).value, 'OPENAI_API_KEY');
+    assert.equal(view.queryByLabelText(en.emailClassificationSettings.endpoint), null, 'OpenAI uses its fixed native Decisions endpoint');
+    await act(async () => { fireEvent.click(view.getByRole('button', { name: 'Test draft' })); });
+    assert.equal(probes.at(-1)!.configuration.providerId, 'openai-decisions');
+    assert.equal(probes.at(-1)!.configuration.model, 'gpt-6-luna');
+    assert.equal(probes.at(-1)!.configuration.credentialKey, 'OPENAI_API_KEY');
+    assert.equal(probes.at(-1)!.configuration.endpoint, null, 'A custom compatible endpoint cannot carry over to OpenAI');
+    assert.equal(probes.at(-1)!.configuration.allowPrivateNetwork, false);
+    assert.equal(probes.at(-1)!.configuration.enabled, false);
+    assert.equal(writes.length, 0, 'Provider selection and probing leave the saved provider and activation unchanged');
+    refuseProbe = true;
+    await act(async () => { fireEvent.click(view.getByRole('button', { name: 'Test draft' })); });
+    assert(view.getByText('The provider declined to assess the sample email. Review the criteria or choose another provider.'));
+    assert.equal(view.container.textContent?.includes(privateMessage), false);
+    refuseProbe = false;
+    fireEvent.change(provider, { target: { value: 'typesafe' } });
+    fireEvent.change(model, { target: { value: 'jev-draft' } });
 
     deferRead = true;
     await act(async () => { window.dispatchEvent(new CustomEvent('canvas_secrets_updated')); });
@@ -119,7 +145,7 @@ async function main() {
     assert.equal((denied.getByRole('switch', { name: 'Für alle aktivieren' }) as HTMLButtonElement).disabled, true);
     assert.equal(denied.container.textContent?.includes(privateMessage), false, 'Denied API details are never rendered');
     assert.equal(denied.queryByLabelText('Modell'), null);
-    console.log('Email classification settings UI passed: visible central switch, progressive disclosure, disabled draft probe, secret-free credential guidance, Secrets race protection, CAS preservation/reload, safe saved event and localized failures.');
+    console.log('Email classification settings UI passed: central switch, progressive disclosure, disabled OpenAI/Jev draft probes, fixed OpenAI endpoint/model/System Secret defaults, safe refusal, Secrets race protection, CAS preservation/reload and localized failures.');
   } finally {
     cleanup(); globalThis.fetch = originalFetch; window.removeEventListener('canvas-email-classification-settings-updated', onSaved); dom.window.close();
   }

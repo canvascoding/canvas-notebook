@@ -8,6 +8,7 @@ import { DecisionModelError } from './errors';
 import type { DecisionProviderConfiguration } from './types';
 
 const TYPESAFE_ENDPOINT = 'https://api.typesafe.ai/v1/systemone';
+const OPENAI_DECISIONS_ENDPOINT = 'https://api.openai.com/v1/decisions';
 
 function rejectEndpoint(providerId: string): never {
   throw new DecisionModelError('endpoint_rejected', { providerId });
@@ -15,9 +16,11 @@ function rejectEndpoint(providerId: string): never {
 
 /** Normalize only trusted provider configuration; credentials must never be embedded in URLs. */
 export function normalizeDecisionEndpoint(configuration: DecisionProviderConfiguration): URL {
-  if (configuration.providerId === 'typesafe') {
-    if (configuration.endpoint && configuration.endpoint !== TYPESAFE_ENDPOINT) rejectEndpoint(configuration.providerId);
-    return new URL(TYPESAFE_ENDPOINT);
+  const fixedEndpoint = configuration.providerId === 'typesafe' ? TYPESAFE_ENDPOINT
+    : configuration.providerId === 'openai-decisions' ? OPENAI_DECISIONS_ENDPOINT : undefined;
+  if (fixedEndpoint) {
+    if (configuration.endpoint && configuration.endpoint !== fixedEndpoint) rejectEndpoint(configuration.providerId);
+    return new URL(fixedEndpoint);
   }
   if (!configuration.endpoint) throw new DecisionModelError('missing_configuration', { providerId: configuration.providerId });
   try {
@@ -59,7 +62,8 @@ function isForbiddenInternalTarget(address: string): boolean {
 
 async function resolveDecisionAddress(url: URL, configuration: DecisionProviderConfiguration): Promise<{ address: string; family: 4 | 6 }> {
   try {
-    if (configuration.providerId === 'typesafe' || !configuration.allowPrivateNetwork) return await resolvePublicNetworkAddress(url);
+    if (configuration.providerId === 'typesafe' || configuration.providerId === 'openai-decisions'
+      || !configuration.allowPrivateNetwork) return await resolvePublicNetworkAddress(url);
     const hostname = url.hostname.replace(/^\[|\]$/gu, '');
     const family = net.isIP(hostname);
     const addresses = family ? [{ address: hostname, family }] : await dns.lookup(hostname, { all: true, verbatim: true });
