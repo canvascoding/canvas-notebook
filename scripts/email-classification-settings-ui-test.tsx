@@ -44,12 +44,14 @@ async function main() {
   let denyRead = false;
   let failProbe = false;
   let refuseProbe = false;
+  let managedBudget = false;
   const privateMessage = 'PRIVATE_PROVIDER_OR_SECRET_VALUE_MUST_NEVER_RENDER';
   globalThis.fetch = async (input, init) => {
     const url = new URL(String(input), 'http://localhost');
     assert.equal(init?.credentials, 'include');
     if (url.pathname === '/api/admin/email-classification/test') {
       probes.push(JSON.parse(String(init?.body)));
+      if (managedBudget) return Response.json({ success: false, code: 'EMAIL_CLASSIFICATION_MANAGED_BUDGET_EXHAUSTED', error: privateMessage }, { status: 402 });
       if (refuseProbe) return Response.json({ success: false, code: 'EMAIL_CLASSIFICATION_REFUSED', error: privateMessage }, { status: 502 });
       if (failProbe) return Response.json({ success: false, code: 'EMAIL_CLASSIFICATION_INVALID_RESPONSE', error: privateMessage }, { status: 502 });
       return Response.json({ success: true, data: { success: true, providerId: probes.at(-1)!.configuration.providerId, model: probes.at(-1)!.configuration.model,
@@ -148,6 +150,33 @@ async function main() {
     assert.equal((denied.getByRole('switch', { name: 'Für alle aktivieren' }) as HTMLButtonElement).disabled, true);
     assert.equal(denied.container.textContent?.includes(privateMessage), false, 'Denied API details are never rendered');
     assert.equal(denied.queryByLabelText('Modell'), null);
+    cleanup(); denyRead = false;
+    server = snapshot(10);
+    const profile = { ref: 'central-jev', name: 'Central Jev', providerId: 'typesafe', model: 'jev-1.13.0', inferenceRevision: `sha256:${'a'.repeat(64)}`, adapterVersion: 'fixture', status: 'ready' as const, available: true, timeoutMs: 30000,
+      capabilities: { questionTypes: ['choice', 'binary'] as const, simultaneousQuestions: true, choiceProbabilities: 'required' as const, ordinalProbabilities: 'required' as const, binaryProbabilities: true, maxChoices: 255, maxOrdinalLevels: 10, maxStateBytes: 131072, maxRequestBytes: 262144, probabilitySemantics: 'model_probability' as const } };
+    server.settings.configuration.executionMode = 'managed'; server.settings.configuration.managedModelRef = profile.ref;
+    server.settings.configuration.managedModel = { ref: profile.ref, providerId: profile.providerId, model: profile.model, inferenceRevision: profile.inferenceRevision, adapterVersion: profile.adapterVersion };
+    server.credentials = { ...server.credentials, status: 'missing', configured: false };
+    server.execution = { mode: 'managed', reason: null, managed: { status: 'ready', code: null, catalog: { contractVersion: 1, catalogRevision: profile.inferenceRevision, defaultModelRef: profile.ref, models: [profile, { ...profile, ref: 'central-second', name: 'Second decision model' }] } } };
+    const managed = render(wrap('de')); await tick();
+    assert(managed.getByText(de.emailClassificationSettings.managed.title));
+    assert(managed.getByLabelText(de.emailClassificationSettings.managed.model));
+    assert.equal(managed.queryByLabelText(de.emailClassificationSettings.credential), null);
+    assert.equal(managed.queryByText(de.emailClassificationSettings.availability.missing_configuration), null, 'Managed readiness never demands a local system key.');
+    fireEvent.click(managed.getByRole('button', { name: de.emailClassificationSettings.configuration }));
+    assert.equal(managed.queryByLabelText(de.emailClassificationSettings.credential), null, 'Even expanded managed details contain no local key form.');
+    fireEvent.change(managed.getByLabelText(de.emailClassificationSettings.managed.model), { target: { value: 'central-second' } });
+    managedBudget = true;
+    await act(async () => { fireEvent.click(managed.getByRole('button', { name: de.emailClassificationSettings.testAction })); });
+    assert.equal(probes.at(-1)!.configuration.executionMode, 'managed');
+    assert.equal(probes.at(-1)!.configuration.managedModelRef, 'central-second');
+    assert.equal(probes.at(-1)!.configuration.enabled, false);
+    assert(managed.getByText(de.emailClassificationSettings.errors.managedBudget));
+    assert.equal(managed.container.textContent?.includes(privateMessage), false);
+    fireEvent.change(managed.getByLabelText(de.emailClassificationSettings.deliveryMode), { target: { value: 'direct' } });
+    assert(managed.getByLabelText(de.emailClassificationSettings.credential));
+    fireEvent.change(managed.getByLabelText(de.emailClassificationSettings.deliveryMode), { target: { value: 'managed' } });
+    assert.equal(managed.queryByLabelText(de.emailClassificationSettings.credential), null);
     console.log('Email classification settings UI passed: central switch, progressive disclosure, disabled OpenAI/Jev draft probes, fixed OpenAI endpoint/model/System Secret defaults, safe refusal, Secrets race protection, CAS preservation/reload and localized failures.');
   } finally {
     cleanup(); globalThis.fetch = originalFetch; window.removeEventListener('canvas-email-classification-settings-updated', onSaved); dom.window.close();

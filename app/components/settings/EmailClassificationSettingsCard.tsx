@@ -18,7 +18,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 
-type FailureKey = 'load' | 'save' | 'test' | 'conflict' | 'access' | 'invalid' | 'credentialMissing' | 'credentialUnavailable' | 'authentication' | 'timeout' | 'rateLimited' | 'endpoint' | 'invalidResponse' | 'refused' | 'unavailable';
+type FailureKey = 'load' | 'save' | 'test' | 'conflict' | 'access' | 'invalid' | 'credentialMissing' | 'credentialUnavailable' | 'authentication' | 'timeout' | 'rateLimited' | 'endpoint' | 'invalidResponse' | 'refused' | 'unavailable' | 'managedConnection' | 'managedAccess' | 'managedModel' | 'managedBudget' | 'managedReview';
 class RequestFailure extends Error {
   constructor(readonly key: FailureKey) { super(key); }
 }
@@ -33,6 +33,15 @@ function requestFailure(response: Response, payload: { code?: string }, fallback
     EMAIL_CLASSIFICATION_ENDPOINT_REJECTED: 'endpoint', EMAIL_CLASSIFICATION_INVALID_RESPONSE: 'invalidResponse',
     EMAIL_CLASSIFICATION_REFUSED: 'refused',
     EMAIL_CLASSIFICATION_UNAVAILABLE: 'unavailable',
+    EMAIL_CLASSIFICATION_MANAGED_MISSING_CONNECTION: 'managedConnection', EMAIL_CLASSIFICATION_MANAGED_AUTHENTICATION_FAILED: 'managedConnection',
+    EMAIL_CLASSIFICATION_MANAGED_SCOPE_DENIED: 'managedAccess', EMAIL_CLASSIFICATION_MANAGED_ENTITLEMENT_DENIED: 'managedAccess',
+    EMAIL_CLASSIFICATION_MANAGED_BUDGET_EXHAUSTED: 'managedBudget', EMAIL_CLASSIFICATION_MANAGED_MODEL_CHANGED: 'managedModel',
+    EMAIL_CLASSIFICATION_MANAGED_MISSING_CONFIGURATION: 'managedModel', EMAIL_CLASSIFICATION_MANAGED_MISSING_CREDENTIALS: 'managedModel',
+    EMAIL_CLASSIFICATION_MANAGED_MISSING_PRICING: 'managedModel', EMAIL_CLASSIFICATION_MANAGED_CONFIGURATION_UNAVAILABLE: 'managedModel',
+    EMAIL_CLASSIFICATION_MANAGED_OUTCOME_UNKNOWN: 'managedReview', EMAIL_CLASSIFICATION_MANAGED_PROVIDER_UNAVAILABLE: 'unavailable',
+    EMAIL_CLASSIFICATION_MANAGED_RATE_LIMITED: 'rateLimited', EMAIL_CLASSIFICATION_MANAGED_IN_PROGRESS: 'rateLimited',
+    EMAIL_CLASSIFICATION_MANAGED_INVALID_RESPONSE: 'invalidResponse', EMAIL_CLASSIFICATION_MANAGED_REFUSED: 'refused',
+    EMAIL_CLASSIFICATION_MANAGED_UNSUPPORTED_CAPABILITY: 'managedModel',
   };
   return new RequestFailure(codes[payload.code ?? ''] ?? (response.status === 429 ? 'rateLimited' : fallback));
 }
@@ -145,11 +154,19 @@ export function EmailClassificationSettingsCard() {
   }
 
   const provider = snapshot?.providerOptions.find(option => option.id === draft?.providerId);
-  const providerDraftChanged = draft !== null && snapshot !== null && ['providerId', 'model', 'endpoint', 'credentialKey', 'allowPrivateNetwork']
+  const providerDraftChanged = draft !== null && snapshot !== null && ['executionMode', 'managedModelRef', 'providerId', 'model', 'endpoint', 'credentialKey', 'allowPrivateNetwork']
     .some(key => draft[key as keyof EmailClassificationConfiguration] !== snapshot.settings.configuration[key as keyof EmailClassificationConfiguration]);
   const busy = action !== null;
   const status = !snapshot || loadError ? 'unknown' : snapshot.availability.enabled ? 'enabled' : 'disabled';
   const credentials = providerDraftChanged ? 'draft' : snapshot?.credentials.anonymous ? 'anonymous' : snapshot?.credentials.status ?? 'unknown';
+  const managed = draft?.executionMode === 'managed';
+  const managedCatalog = snapshot?.execution?.managed;
+  const managedModels = managedCatalog?.catalog?.models ?? [];
+  const managedRef = draft?.managedModelRef ?? managedCatalog?.catalog?.defaultModelRef;
+  const managedModel = managedModels.find(model => model.ref === managedRef);
+  const managedReason = managedCatalog?.status !== 'ready' ? managedCatalog?.code ?? 'provider_unavailable'
+    : managedModel?.available ? snapshot?.execution?.mode === 'managed' ? snapshot.execution.reason : null : managedModel?.status ?? 'missing_configuration';
+  const reasonKeys: Record<string, string> = { missing_connection: 'connection', authentication_failed: 'connection', scope_denied: 'access', entitlement_denied: 'access', budget_exhausted: 'budget', missing_configuration: 'model', missing_credentials: 'model', missing_pricing: 'pricing', configuration_unavailable: 'model', model_changed: 'changed', unsupported_capability: 'version', invalid_response: 'version', in_progress: 'waiting', rate_limited: 'waiting' };
   const errorActions = error === 'conflict' || serverChanged
     ? <Button type="button" variant="outline" size="sm" disabled={busy || refreshing} onClick={() => void refresh(true)}>{t('reloadDraft')}</Button>
     : error === 'credentialMissing' || error === 'credentialUnavailable' || error === 'authentication'
@@ -184,7 +201,7 @@ export function EmailClassificationSettingsCard() {
           </div>
           {loading ? <p className="text-muted-foreground">{t('loading')}</p> : snapshot && !loadError && (
             <>
-              <p className="text-muted-foreground">{snapshot.availability.reason && snapshot.availability.reason !== 'disabled'
+              <p className="text-muted-foreground">{managed ? managedReason ? t(`managed.reasons.${reasonKeys[managedReason] ?? 'unavailable'}`) : t(`processing.${snapshot.execution?.mode === 'managed' ? snapshot.health.state : 'idle'}`) : snapshot.availability.reason && snapshot.availability.reason !== 'disabled'
                 ? t(`availability.${snapshot.availability.reason}`) : t(`processing.${snapshot.health.state}`)}</p>
               {snapshot.health.counts && snapshot.availability.enabled && <p className="text-xs text-muted-foreground">{t('progress', snapshot.health.counts)}</p>}
             </>
@@ -196,6 +213,18 @@ export function EmailClassificationSettingsCard() {
         </InlineNotice>}
         {saved && <InlineNotice variant="success">{t('saved')}</InlineNotice>}
 
+        {draft && managed && <div className="space-y-3 rounded-md border p-4" data-testid="email-classification-managed">
+          <div className="space-y-1"><p className="text-sm font-medium">{t('managed.title')}</p><p className="text-xs text-muted-foreground">{t('managed.hint')}</p></div>
+          <div className="space-y-2"><Label htmlFor="email-classification-managed-model">{t('managed.model')}</Label>
+            <select id="email-classification-managed-model" className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-xs focus-visible:outline-ring disabled:opacity-50" value={draft.managedModelRef ?? ''} disabled={busy || managedCatalog?.status !== 'ready'}
+              onChange={event => edit(current => ({ ...current, managedModelRef: event.target.value || null, managedModel: null }))}>
+              <option value="">{managedCatalog?.catalog?.defaultModelRef ? t('managed.default', { model: managedModels.find(model => model.ref === managedCatalog.catalog?.defaultModelRef)?.name ?? managedCatalog.catalog.defaultModelRef }) : t('managed.noDefault')}</option>
+              {managedModels.map(model => <option key={model.ref} value={model.ref} disabled={!model.available}>{model.name}{model.available ? '' : ` · ${t('managed.notReady')}`}</option>)}
+              {draft.managedModelRef && !managedModels.some(model => model.ref === draft.managedModelRef) && <option value={draft.managedModelRef}>{draft.managedModel?.model ?? draft.managedModelRef} · {t('managed.notReady')}</option>}
+            </select>
+          </div>
+        </div>}
+
         {draft && snapshot && <Collapsible open={open} onOpenChange={setOpen}>
           <CollapsibleTrigger asChild>
             <Button type="button" variant="ghost" className="h-auto min-h-10 w-full justify-between px-0 text-left" aria-label={t('configuration')}>
@@ -203,7 +232,16 @@ export function EmailClassificationSettingsCard() {
             </Button>
           </CollapsibleTrigger>
           <CollapsibleContent className="space-y-5 pt-2">
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-2"><Label htmlFor="email-classification-execution-mode">{t('deliveryMode')}</Label>
+              <select id="email-classification-execution-mode" className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-xs focus-visible:outline-ring disabled:opacity-50" value={draft.executionMode} disabled={busy}
+                onChange={event => edit(current => ({ ...current, executionMode: event.target.value as 'direct' | 'managed' }))}>
+                <option value="managed">{t('managed.title')}</option><option value="direct">{t('directMode')}</option>
+              </select>
+            </div>
+            {managed ? <dl className="grid gap-3 rounded-md border p-4 text-sm sm:grid-cols-2">
+              <div><dt className="text-xs text-muted-foreground">{t('provider')}</dt><dd>{managedModel?.providerId ?? draft.managedModel?.providerId ?? t('unknown')}</dd></div>
+              <div><dt className="text-xs text-muted-foreground">{t('model')}</dt><dd className="break-all">{managedModel?.model ?? draft.managedModel?.model ?? t('unknown')}</dd></div>
+            </dl> : <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2"><Label htmlFor="email-classification-provider">{t('provider')}</Label>
                 <select id="email-classification-provider" className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-xs focus-visible:outline-ring disabled:opacity-50" value={draft.providerId} disabled={busy}
                   onChange={event => { const next = snapshot.providerOptions.find(option => option.id === event.target.value); if (next) edit(current => ({ ...current, providerId: next.id, model: next.defaultModel,
@@ -222,11 +260,11 @@ export function EmailClassificationSettingsCard() {
                 <p className="text-xs text-muted-foreground">{t('credentialHint')}</p>
                 <div className="flex flex-wrap items-center gap-3 text-xs"><span>{t(`credentials.${credentials}`)}</span><Link href="/settings?tab=secrets" className="font-medium text-primary underline underline-offset-4">{t('secretsLink')}</Link></div>
               </div>
-            </div>
+            </div>}
             <div className="space-y-3 rounded-md border p-4">
               <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
                 <div className="space-y-1"><p className="text-sm font-medium">{t('testTitle')}</p><p className="text-xs leading-relaxed text-muted-foreground">{t('testHint')}</p></div>
-                <Button type="button" variant="outline" className="shrink-0" disabled={busy} onClick={() => void test()}>
+                <Button type="button" variant="outline" className="shrink-0" disabled={busy || managed && (managedCatalog?.status !== 'ready' || !managedModel?.available)} onClick={() => void test()}>
                   {action === 'test' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FlaskConical className="mr-2 h-4 w-4" />}{t('testAction')}
                 </Button>
               </div>
@@ -248,7 +286,7 @@ export function EmailClassificationSettingsCard() {
                     <Input id={`email-classification-${field.key}`} type="number" min={field.min} max={field.max} step={1} value={draft[field.key]} disabled={busy}
                       onChange={event => edit(current => ({ ...current, [field.key]: Number(event.target.value) }))} /></div>)}
                 </div>
-                {provider?.requiresEndpoint && <div className="flex items-start justify-between gap-4 rounded-md bg-muted/30 p-3"><div className="space-y-1">
+                {!managed && provider?.requiresEndpoint && <div className="flex items-start justify-between gap-4 rounded-md bg-muted/30 p-3"><div className="space-y-1">
                   <Label htmlFor="email-classification-private-network">{t('privateNetwork')}</Label><p className="text-xs text-muted-foreground">{t('privateNetworkHint')}</p>
                 </div><Switch id="email-classification-private-network" checked={draft.allowPrivateNetwork} disabled={busy} onCheckedChange={allowPrivateNetwork => edit(current => ({ ...current, allowPrivateNetwork }))} /></div>}
                 <details className="rounded-md border"><summary className="cursor-pointer px-3 py-3 text-sm font-medium focus-visible:outline-ring">{t('contextAndCriteria')}</summary>

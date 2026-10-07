@@ -41,6 +41,7 @@ export interface EmailClassificationProviderOption {
 
 export interface EmailClassificationRuntimeHealth {
   state: 'idle' | 'processing' | 'paused' | 'unavailable';
+  blockedReason?: string | null;
   counts: { indexed: number; analyzed: number; pending: number; processing: number; failed: number } | null;
   mailboxes: { active: number; pending: number; partial: number; complete: number; failed: number; lastSyncAt: number | null } | null;
   budget: { dayStart: number; resetsAt: number; limit: number; used: number | null; remaining: number | null };
@@ -162,7 +163,7 @@ export async function readEmailClassificationRuntimeHealth(settings: EmailClassi
       WHERE result.raw_json IS NOT NULL AND result.evaluation_fingerprint = $2 AND result.fingerprint = message.fingerprint
         AND result.binding_revision = message.binding_revision AND result.policy_revision = message.policy_revision
     ), current_jobs AS (
-      SELECT job.status FROM email_classification_jobs job JOIN indexed message ON message.message_ref = job.message_ref
+      SELECT job.status, job.error_code, job.updated_at FROM email_classification_jobs job JOIN indexed message ON message.message_ref = job.message_ref
       WHERE message.selected AND job.configuration_revision = $1 AND job.fingerprint = message.fingerprint
         AND job.binding_revision = message.binding_revision AND job.policy_revision = message.policy_revision
     ) SELECT
@@ -171,6 +172,7 @@ export async function readEmailClassificationRuntimeHealth(settings: EmailClassi
       (SELECT count(*) FROM current_jobs WHERE status IN ('pending','retry')) AS pending,
       (SELECT count(*) FROM current_jobs WHERE status = 'processing') AS processing,
       (SELECT count(*) FROM current_jobs WHERE status = 'failed') AS failed,
+      (SELECT error_code FROM current_jobs WHERE status = 'retry' ORDER BY updated_at DESC LIMIT 1) AS last_worker_error,
       (SELECT count(*) FROM active_mailboxes) AS mailbox_active,
       (SELECT count(*) FROM active_mailboxes WHERE coverage = 'pending') AS mailbox_pending,
       (SELECT count(*) FROM active_mailboxes WHERE coverage = 'partial') AS mailbox_partial,
@@ -189,8 +191,9 @@ export async function readEmailClassificationRuntimeHealth(settings: EmailClassi
     const used = row.budget_used === null ? 0 : count(row.budget_used);
     const remaining = Math.max(0, budgetBase.limit - used);
     const counts = { indexed: count(row.indexed), analyzed: count(row.analyzed), pending: count(row.pending), processing: count(row.processing), failed: count(row.failed) };
+    const blockedReason = settings.configuration.executionMode === 'managed' && typeof row.last_worker_error === 'string' && ['missing_connection', 'scope_denied', 'entitlement_denied', 'budget_exhausted', 'provider_unavailable', 'in_progress', 'rate_limited', 'missing_configuration'].includes(row.last_worker_error) ? row.last_worker_error : null;
     return {
-      state: !settings.configuration.enabled || remaining === 0 ? 'paused' : counts.processing > 0 ? 'processing' : 'idle',
+      state: !settings.configuration.enabled || remaining === 0 || blockedReason ? 'paused' : counts.processing > 0 ? 'processing' : 'idle', blockedReason,
       counts,
       mailboxes: { active: count(row.mailbox_active), pending: count(row.mailbox_pending), partial: count(row.mailbox_partial), complete: count(row.mailbox_complete), failed: count(row.mailbox_failed), lastSyncAt: metric(row.last_sync_at) },
       budget: { ...budgetBase, used, remaining },
@@ -230,7 +233,7 @@ async function adminSnapshot(settings: EmailClassificationSettings, dependencies
   const managedCatalog = execution.catalog ?? await (dependencies.readManagedCatalog ?? (() => readManagedDecisionModels(dependencies)))();
   const health = await readEmailClassificationRuntimeHealth(settings, dependencies);
   if (settings.configuration.enabled && credential.status.status !== 'configured' && health.state !== 'unavailable') health.state = 'paused';
-  return { settings, availability: availability(settings, credential.status, health), credentials: credential.status, health, providerOptions: providerOptions(), execution: { mode: execution.mode, reason: execution.reason, managed: managedCatalog } };
+  return { settings, availability: availability(settings, credential.status, health), credentials: credential.status, health, providerOptions: providerOptions(), execution: { mode: execution.mode, reason: execution.reason ?? health.blockedReason ?? null, managed: managedCatalog } };
 }
 
 export async function readAdminEmailClassificationSettings(dependencies: EmailClassificationAdminServiceDependencies = {}): Promise<EmailClassificationAdminSettings> {

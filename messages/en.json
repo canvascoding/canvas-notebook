@@ -273,7 +273,33 @@
       "endpoint": "The endpoint is not allowed. Check its address and the private-network setting.",
       "invalidResponse": "The provider did not return a valid assessment for the sample.",
       "refused": "The provider declined to assess the sample email. Review the criteria or choose another provider.",
-      "unavailable": "Email preparation is temporarily unavailable. Your edits remain available."
+      "unavailable": "Email preparation is temporarily unavailable. Your edits remain available.",
+      "managedConnection": "Check the managed connection and instance token in the Control Plane. A license connection alone is insufficient.",
+      "managedAccess": "Enable decision model access for this instance and organization in the Control Plane.",
+      "managedModel": "Check the selected model, its central credentials and pricing in the Control Plane.",
+      "managedBudget": "Managed usage credits are insufficient for this evaluation.",
+      "managedReview": "This evaluation outcome is uncertain. A Control Plane administrator must review the operation before it is started again."
+    },
+    "deliveryMode": "Delivery",
+    "directMode": "Own provider",
+    "managed": {
+      "title": "Canvas managed",
+      "hint": "The Control Plane manages the model, credentials and billing centrally. No local API keys are required here.",
+      "model": "Decision model",
+      "default": "Control Plane default: {model}",
+      "noDefault": "No default model configured",
+      "notReady": "Not ready",
+      "reasons": {
+        "connection": "The managed connection is not confirmed. Check instance access in the Control Plane; saved ratings remain available.",
+        "access": "Decision models are not enabled for this instance or organization.",
+        "budget": "Managed usage credits are insufficient. Preparation is waiting; saved ratings remain available.",
+        "model": "The selected decision model needs central configuration. Check its model and credentials in the Control Plane.",
+        "pricing": "This model needs an active decision tariff in the Control Plane.",
+        "changed": "The decision model changed. Refresh its selection before preparing new email.",
+        "version": "This decision catalog is incompatible with this Notebook version. Check the versions of both services.",
+        "waiting": "Managed preparation is waiting for available capacity.",
+        "unavailable": "The Control Plane is temporarily unavailable. Existing ratings are retained."
+      }
     }
   },
   "emailMailboxes": {

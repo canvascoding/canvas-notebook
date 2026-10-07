@@ -273,7 +273,33 @@
       "endpoint": "Der Endpunkt ist nicht erlaubt. Prüfe die Adresse und die Einstellung für private Netzwerke.",
       "invalidResponse": "Der Anbieter hat für das Beispiel keine gültige Bewertung geliefert.",
       "refused": "Der Anbieter hat die Bewertung der Beispielmail abgelehnt. Prüfe die Kriterien oder wähle einen anderen Anbieter.",
-      "unavailable": "Die E-Mail-Vorbereitung ist vorübergehend nicht verfügbar. Deine Änderungen bleiben erhalten."
+      "unavailable": "Die E-Mail-Vorbereitung ist vorübergehend nicht verfügbar. Deine Änderungen bleiben erhalten.",
+      "managedConnection": "Prüfe die Managed-Verbindung und den Instanz-Token in der Control Plane. Ein Lizenzzugang allein genügt nicht.",
+      "managedAccess": "Aktiviere den Zugriff auf Bewertungsmodelle für diese Instanz und Organisation in der Control Plane.",
+      "managedModel": "Prüfe das ausgewählte Modell, seine zentralen Zugangsdaten und seinen Tarif in der Control Plane.",
+      "managedBudget": "Das Managed-Guthaben reicht für diese Bewertung nicht aus.",
+      "managedReview": "Der Ausgang dieser Bewertung ist unklar. Ein Control-Plane-Administrator muss den Vorgang prüfen, bevor er erneut gestartet wird."
+    },
+    "deliveryMode": "Bereitstellung",
+    "directMode": "Eigener Anbieter",
+    "managed": {
+      "title": "Canvas verwaltet",
+      "hint": "Modell, Zugangsschlüssel und Abrechnung werden zentral in der Control Plane verwaltet. Hier sind keine lokalen API-Schlüssel erforderlich.",
+      "model": "Bewertungsmodell",
+      "default": "Control-Plane-Standard: {model}",
+      "noDefault": "Kein Standardmodell konfiguriert",
+      "notReady": "Nicht bereit",
+      "reasons": {
+        "connection": "Die Managed-Verbindung ist nicht bestätigt. Prüfe den Instanzzugriff in der Control Plane; gespeicherte Bewertungen bleiben verfügbar.",
+        "access": "Der Zugriff auf Bewertungsmodelle ist für diese Instanz oder Organisation nicht freigeschaltet.",
+        "budget": "Das Managed-Guthaben reicht nicht aus. Die Vorbereitung wartet; gespeicherte Bewertungen bleiben verfügbar.",
+        "model": "Das ausgewählte Bewertungsmodell benötigt eine zentrale Konfiguration. Prüfe Modell und Zugang in der Control Plane.",
+        "pricing": "Für dieses Modell fehlt ein aktiver Bewertungstarif in der Control Plane.",
+        "changed": "Das Bewertungsmodell hat sich geändert. Aktualisiere die Auswahl, bevor neue E-Mails vorbereitet werden.",
+        "version": "Der Bewertungskatalog ist mit dieser Notebook-Version nicht kompatibel. Prüfe die Versionen beider Dienste.",
+        "waiting": "Die Managed-Verarbeitung wartet auf verfügbare Kapazität.",
+        "unavailable": "Die Control Plane ist vorübergehend nicht erreichbar. Vorhandene Bewertungen bleiben erhalten."
+      }
     }
   },
   "emailMailboxes": {
