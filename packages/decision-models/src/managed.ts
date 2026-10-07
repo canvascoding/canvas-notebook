@@ -1,6 +1,16 @@
-import type { DecisionInput, DecisionProviderCapabilities, DecisionResult } from './types.js';
+import { createHash } from 'node:crypto';
+import { decisionProviderRegistry } from './registry.js';
+import type { DecisionInput, DecisionProviderCapabilities, DecisionProviderConfiguration, DecisionResult } from './types.js';
 
 export const MANAGED_DECISION_CONTRACT_VERSION = 1 as const;
+
+export function decisionInferenceRevision(configuration: DecisionProviderConfiguration, modelRevision = '1'): string {
+  const provider = decisionProviderRegistry.get(configuration.providerId);
+  return `sha256:${createHash('sha256').update(JSON.stringify({
+    providerId: configuration.providerId, model: configuration.model, endpoint: configuration.endpoint ?? null, modelRevision,
+    adapterVersion: provider?.adapterVersion, capabilities: provider?.capabilities,
+  })).digest('hex')}`;
+}
 
 export type ManagedDecisionModelStatus = 'ready' | 'missing_credentials' | 'configuration_unavailable' | 'missing_pricing';
 

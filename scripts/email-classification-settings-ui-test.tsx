@@ -16,6 +16,7 @@ Object.defineProperty(globalThis, 'IS_REACT_ACT_ENVIRONMENT', { value: true, con
 
 function snapshot(revision = 1): EmailClassificationAdminSettings {
   return {
+    execution: { mode: 'direct', reason: null, managed: null },
     settings: { revision, configuration: structuredClone(DEFAULT_EMAIL_CLASSIFICATION_CONFIGURATION), updatedAt: null, updatedByUserId: null },
     availability: { enabled: false, available: false, revision, defaultMode: 'classic', reason: 'disabled' },
     credentials: { status: 'configured', configured: true, scope: 'system', anonymous: false, settingsLink: '/settings?tab=secrets' },

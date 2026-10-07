@@ -3,6 +3,9 @@ import { DEFAULT_EMAIL_CLASSIFICATION_POLICY, type EmailClassificationPolicy } f
 
 export interface EmailClassificationConfiguration {
   enabled: boolean;
+  executionMode: 'direct' | 'managed';
+  managedModelRef: string | null;
+  managedModel: { ref: string; providerId: string; model: string; inferenceRevision: string; adapterVersion: string } | null;
   providerId: string;
   model: string;
   endpoint: string | null;
@@ -26,6 +29,7 @@ export interface EmailClassificationSettings {
 }
 
 export const DEFAULT_EMAIL_CLASSIFICATION_CONFIGURATION: Readonly<EmailClassificationConfiguration> = {
+  executionMode: 'direct', managedModelRef: null, managedModel: null,
   enabled: false, providerId: 'typesafe', model: 'jev-1.13.0', endpoint: null, allowPrivateNetwork: false,
   credentialKey: 'TYPESAFE_API_KEY', concurrency: 2, timeoutMs: 30_000, maxEmailsPerDay: 2_000,
   initialLookbackDays: 30, maxHistoricalMessages: 5_000, syncIntervalSeconds: 60,

@@ -97,6 +97,7 @@ export const EMAIL_CLASSIFICATION_STORAGE_UP_SQL = `
       OR (status <> 'processing' AND lease_until IS NULL AND claim_token IS NULL))
   );
   ALTER TABLE email_classification_jobs ADD COLUMN IF NOT EXISTS evaluation_fingerprint text;
+  ALTER TABLE email_classification_jobs ADD COLUMN IF NOT EXISTS decision_request_id text;
   CREATE INDEX IF NOT EXISTS idx_email_classification_job_evaluation
     ON email_classification_jobs(message_ref, evaluation_fingerprint);
   CREATE INDEX IF NOT EXISTS idx_email_classification_jobs_ready

@@ -1,9 +1,10 @@
 import 'server-only';
 
 import { DecisionModelError } from '@/app/lib/decision-models/errors';
-import { evaluateDecision } from '@/app/lib/decision-models/service';
 import type { DecisionInput, DecisionResult } from '@/app/lib/decision-models/types';
-import { resolveEmailClassificationCredential, type EmailClassificationCredentialResolution, type EmailClassificationCredentialStatus, type EmailClassificationSecretReader } from './credential-service';
+import type { EmailClassificationCredentialResolution, EmailClassificationCredentialStatus, EmailClassificationSecretReader } from './credential-service';
+import { resolveEmailClassificationExecution, executeEmailClassification, managedEmailConfiguration, reconcileEmailClassificationExecution, type EmailClassificationExecutionDependencies, type EmailClassificationExecution } from './execution-service';
+import { ManagedDecisionClientError, readManagedDecisionModels, type ManagedDecisionCatalogResolution } from '@/app/lib/managed/decision-client';
 import { normalizeEmailClassificationResult } from './normalize';
 import { projectEmailClassification } from './policy';
 import { buildEmailClassificationQuestions, buildEmailDecisionState, EMAIL_CLASSIFICATION_SCHEMA_VERSION } from './schema';
@@ -49,6 +50,7 @@ export interface EmailClassificationRuntimeHealth {
 }
 
 export interface EmailClassificationAdminSettings {
+  execution: { mode: 'direct' | 'managed'; reason: string | null; managed: ManagedDecisionCatalogResolution | null };
   settings: EmailClassificationSettings;
   availability: EmailClassificationAvailability;
   credentials: EmailClassificationCredentialStatus;
@@ -58,7 +60,7 @@ export interface EmailClassificationAdminSettings {
 
 export type EmailClassificationAdminStore = Pick<PostgresEmailClassificationStore, 'readSettings' | 'updateSettings'>;
 
-export interface EmailClassificationAdminServiceDependencies {
+export interface EmailClassificationAdminServiceDependencies extends EmailClassificationExecutionDependencies {
   store?: EmailClassificationAdminStore;
   postgres?: EmailClassificationQueryable;
   readSecret?: EmailClassificationSecretReader;
@@ -74,6 +76,7 @@ export class EmailClassificationAdminServiceError extends Error {
 }
 
 export function emailClassificationAdminErrorDetails(error: unknown): { code: string; status: number; message: string; settingsLink?: string } {
+  if (error instanceof ManagedDecisionClientError) return { code: `EMAIL_CLASSIFICATION_MANAGED_${error.managedCode.toUpperCase()}`, status: error.managedCode === 'budget_exhausted' || error.managedCode === 'entitlement_denied' ? 402 : error.httpStatus === 409 ? 409 : 503, message: error.message };
   if (error instanceof EmailClassificationAdminServiceError) {
     return { code: error.code, status: error.status, message: error.message, ...(error.settingsLink ? { settingsLink: error.settingsLink } : {}) };
   }
@@ -102,6 +105,11 @@ function requireUsableCredential(resolution: EmailClassificationCredentialResolu
   if (resolution.status.status === 'unavailable') {
     throw new EmailClassificationAdminServiceError('EMAIL_CLASSIFICATION_CREDENTIAL_UNAVAILABLE', 503, 'The selected system credential cannot be used. Check system Secrets.', SECRETS_LINK);
   }
+}
+
+function requireUsableExecution(execution: EmailClassificationExecution): void {
+  if (execution.mode === 'direct') return requireUsableCredential(execution.credential);
+  if (!execution.ready) throw new EmailClassificationAdminServiceError(`EMAIL_CLASSIFICATION_MANAGED_${(execution.reason ?? 'UNAVAILABLE').toUpperCase()}`, execution.reason === 'budget_exhausted' || execution.reason === 'entitlement_denied' ? 402 : 409, 'The managed decision model is not ready. Check the Control Plane connection, access, model credentials and pricing.');
 }
 
 async function storeFor(dependencies: EmailClassificationAdminServiceDependencies): Promise<EmailClassificationAdminStore> {
@@ -215,15 +223,19 @@ function providerOptions(): EmailClassificationProviderOption[] {
 }
 
 async function adminSnapshot(settings: EmailClassificationSettings, dependencies: EmailClassificationAdminServiceDependencies): Promise<EmailClassificationAdminSettings> {
-  const credential = resolveEmailClassificationCredential(settings.configuration, dependencies);
+  const execution = await resolveEmailClassificationExecution(settings.configuration, dependencies);
+  if (settings.configuration.enabled && dependencies.store) settings = await reconcileEmailClassificationExecution(dependencies.store, settings, execution);
+  else if (!settings.configuration.enabled) settings = { ...settings, configuration: managedEmailConfiguration(settings.configuration, execution) };
+  const credential = execution.credential;
+  const managedCatalog = execution.catalog ?? await (dependencies.readManagedCatalog ?? (() => readManagedDecisionModels(dependencies)))();
   const health = await readEmailClassificationRuntimeHealth(settings, dependencies);
   if (settings.configuration.enabled && credential.status.status !== 'configured' && health.state !== 'unavailable') health.state = 'paused';
-  return { settings, availability: availability(settings, credential.status, health), credentials: credential.status, health, providerOptions: providerOptions() };
+  return { settings, availability: availability(settings, credential.status, health), credentials: credential.status, health, providerOptions: providerOptions(), execution: { mode: execution.mode, reason: execution.reason, managed: managedCatalog } };
 }
 
 export async function readAdminEmailClassificationSettings(dependencies: EmailClassificationAdminServiceDependencies = {}): Promise<EmailClassificationAdminSettings> {
   const store = await storeFor(dependencies);
-  return adminSnapshot(await store.readSettings(), dependencies);
+  return adminSnapshot(await store.readSettings(), { ...dependencies, store });
 }
 
 export async function updateAdminEmailClassificationSettings(input: {
@@ -231,21 +243,27 @@ export async function updateAdminEmailClassificationSettings(input: {
 }, dependencies: EmailClassificationAdminServiceDependencies = {}): Promise<EmailClassificationAdminSettings & { changedFields: string[] }> {
   if (!Number.isSafeInteger(input.expectedRevision) || input.expectedRevision < 0
     || typeof input.actorUserId !== 'string' || !input.actorUserId.trim() || input.actorUserId.length > 500) invalidConfiguration();
-  const configuration = validatedConfiguration(input.configuration);
+  let configuration = validatedConfiguration(input.configuration);
   const store = await storeFor(dependencies);
   const previous = await store.readSettings();
   if (previous.revision !== input.expectedRevision) throw new EmailClassificationVersionConflictError();
-  if (configuration.enabled) requireUsableCredential(resolveEmailClassificationCredential(configuration, dependencies));
+  configuration = { ...configuration, managedModel: configuration.managedModelRef === previous.configuration.managedModelRef ? previous.configuration.managedModel : null };
+  const execution = await resolveEmailClassificationExecution(configuration, dependencies);
+  configuration = managedEmailConfiguration(configuration, execution);
+  if (configuration.enabled) requireUsableExecution(execution);
   const settings = await store.updateSettings({ expectedRevision: input.expectedRevision, configuration, actorUserId: input.actorUserId, now: timestamp(dependencies) });
   notifyEmailClassificationSettingsChanged();
   const changedFields = Object.keys(settings.configuration).filter(key => JSON.stringify(previous.configuration[key as keyof EmailClassificationConfiguration]) !== JSON.stringify(settings.configuration[key as keyof EmailClassificationConfiguration]));
-  return { ...await adminSnapshot(settings, dependencies), changedFields };
+  return { ...await adminSnapshot(settings, { ...dependencies, store }), changedFields };
 }
 
 export async function readEmailClassificationAvailability(dependencies: EmailClassificationAdminServiceDependencies = {}): Promise<EmailClassificationAvailability> {
-  const settings = await (await storeFor(dependencies)).readSettings();
+  const store = await storeFor(dependencies);
+  let settings = await store.readSettings();
   if (!settings.configuration.enabled) return { enabled: false, available: false, revision: settings.revision, defaultMode: 'classic', reason: 'disabled' };
-  const credential = resolveEmailClassificationCredential(settings.configuration, dependencies);
+  const execution = await resolveEmailClassificationExecution(settings.configuration, dependencies);
+  settings = await reconcileEmailClassificationExecution(store, settings, execution);
+  const credential = execution.credential;
   // Normal UI polling must never scan the mail corpus or admin usage aggregates.
   let health: AvailabilityRuntime | null = null;
   if (credential.status.configured) {
@@ -280,19 +298,18 @@ export interface EmailClassificationProviderTestResult {
 export async function testEmailClassificationProvider(input: { configuration?: unknown; signal?: AbortSignal } = {}, dependencies: EmailClassificationAdminServiceDependencies = {}): Promise<EmailClassificationProviderTestResult> {
   if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).some(key => !['configuration', 'signal'].includes(key))) invalidConfiguration();
   const saved = input.configuration === undefined ? await (await storeFor(dependencies)).readSettings() : null;
-  const configuration = validatedConfiguration(input.configuration ?? saved?.configuration);
-  const credential = resolveEmailClassificationCredential(configuration, dependencies);
-  requireUsableCredential(credential);
+  let configuration = validatedConfiguration(input.configuration ?? saved?.configuration);
+  const execution = await resolveEmailClassificationExecution(configuration, dependencies);
+  requireUsableExecution(execution);
+  configuration = managedEmailConfiguration(configuration, execution);
   const state = buildEmailDecisionState({
     from: 'customer@example.test', to: ['support@example.test'], subject: 'Order delayed',
     body: 'My order has not arrived after two weeks. Please investigate and reply with an update.', mailboxScope: 'workspace',
   }, configuration.questionProfile);
-  const result = await (dependencies.evaluate ?? evaluateDecision)({
+  const result = await executeEmailClassification(configuration, {
     state: state.state, questions: buildEmailClassificationQuestions(configuration.questionProfile), schemaVersion: EMAIL_CLASSIFICATION_SCHEMA_VERSION,
-    configuration: { providerId: configuration.providerId, model: configuration.model, endpoint: configuration.endpoint ?? undefined, allowPrivateNetwork: configuration.allowPrivateNetwork },
-    credential: credential.value ? { apiKey: credential.value } : undefined,
-    timeoutMs: configuration.timeoutMs, signal: input.signal,
-  });
+    signal: input.signal,
+  }, execution, undefined, dependencies);
   let raw: EmailClassificationRaw;
   try { raw = normalizeEmailClassificationResult(result, { evaluatedBodyCharacters: state.evaluatedBodyCharacters, bodyWasTruncated: state.bodyWasTruncated, evaluatedAt: timestamp(dependencies) }); }
   catch { throw new EmailClassificationAdminServiceError('EMAIL_CLASSIFICATION_INVALID_RESPONSE', 502, 'The decision provider returned an invalid email assessment.'); }

@@ -39,6 +39,7 @@
     "test:email:classification:routes": "tsx --conditions react-server scripts/email-classification-routes-test.ts",
     "test:email:classification:index": "tsx --conditions react-server scripts/email-classification-index-test.ts",
     "test:email:classification:worker": "tsx --conditions react-server scripts/email-classification-worker-test.ts",
+    "test:email:classification:managed": "tsx --conditions react-server scripts/email-classification-managed-test.ts",
     "test:email:classification:feed": "tsx --conditions react-server scripts/email-classification-feed-test.ts",
     "test:email:classification:enrichment": "tsx --conditions react-server scripts/email-classification-enrichment-test.ts",
     "test:email:classification:lifecycle": "tsx --conditions react-server scripts/email-classification-lifecycle-test.ts",

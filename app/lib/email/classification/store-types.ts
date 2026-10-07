@@ -74,6 +74,7 @@ export type EmailClassificationJobStatus = 'pending' | 'processing' | 'retry' | 
 
 export interface StoredEmailClassificationJob {
   id: string;
+  decisionRequestId?: string | null;
   messageRef: string;
   mailboxRef: string;
   configurationRevision: number;

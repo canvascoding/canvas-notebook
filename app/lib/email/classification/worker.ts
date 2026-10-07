@@ -1,12 +1,14 @@
 import 'server-only';
 
-import { evaluateDecision } from '@/app/lib/decision-models/service';
+import { randomUUID } from 'node:crypto';
 import { DecisionModelError } from '@/app/lib/decision-models/errors';
 import type { DecisionInput, DecisionResult } from '@/app/lib/decision-models/types';
 import { htmlToPlainText } from '@/app/lib/email/html-conversion';
 import { isLikelyHtmlEmailContent } from '@/app/lib/email/html-content';
 import { EMAIL_SEARCH_SYNTAX_VERSION } from '@/app/lib/email/search-query';
-import { resolveEmailClassificationCredential, type EmailClassificationCredentialResolution } from './credential-service';
+import type { EmailClassificationCredentialResolution } from './credential-service';
+import { resolveEmailClassificationExecution, executeEmailClassification, reconcileEmailClassificationExecution, type EmailClassificationExecutionDependencies } from './execution-service';
+import { ManagedDecisionClientError } from '@/app/lib/managed/decision-client';
 import { emailClassificationMessageIdentity } from './identity';
 import { ingestEmailClassificationMetadata, isStoredEmailClassificationResultCurrent } from './index-service';
 import { canClassifyIndexedEmail, listEmailClassificationDiscoveryUserIds, resolveAuthorizedEmailClassificationMailboxes } from './mailbox-registry';
@@ -21,6 +23,7 @@ import type { StoredEmailClassificationJob, StoredEmailClassificationMailbox, St
 
 type WorkerStoreMethods = 'readSettings' | 'upsertMailbox' | 'readMailbox' | 'deactivateMailbox' | 'recordMailboxSync' | 'claimMailboxSync' | 'releaseMailboxSync' | 'reconcileMailboxInbox' | 'readMessages' | 'readResultsBatch' | 'readClassificationHistory' | 'enqueueClassification' | 'claimJobs' | 'readJob' | 'renewClaim' | 'retryJob' | 'completeJob';
 export type EmailClassificationWorkerStore = Pick<PostgresEmailClassificationStore, WorkerStoreMethods> & {
+  updateSettings?: PostgresEmailClassificationStore['updateSettings'];
   cancelClaim(input: { jobId: string; claimToken: string; errorCode: string; now?: number }): Promise<boolean>;
   listActiveMailboxes?(): Promise<StoredEmailClassificationMailbox[]>;
 };
@@ -38,7 +41,7 @@ type MailboxActor = { mailbox: AuthorizedEmailClassificationMailbox; actorUserId
 type RawListInput = MailboxActor & { offset: number; limit: number; signal: AbortSignal };
 type RawReadInput = MailboxActor & { message: StoredEmailClassificationMetadata; signal: AbortSignal };
 
-export interface EmailClassificationWorkerDependencies {
+export interface EmailClassificationWorkerDependencies extends EmailClassificationExecutionDependencies {
   getStore?: () => Promise<EmailClassificationWorkerStore>;
   listUserIds?: () => Promise<string[]>;
   resolveMailboxes?: (actorUserId: string) => Promise<AuthorizedEmailClassificationMailbox[]>;
@@ -313,7 +316,12 @@ export function createEmailClassificationWorker(dependencies: EmailClassificatio
       if (!source) throw new WorkerCancelled('source_unavailable');
       source = await freshSource(source, job);
       if (!canClassifyIndexedEmail(source.mailbox, metadata.list.from)) throw new WorkerCancelled('sender_policy');
-      if (!(dependencies.resolveCredential ?? resolveEmailClassificationCredential)(settings.configuration).status.configured) throw new WorkerCancelled('credential_unavailable');
+      const execution = await resolveEmailClassificationExecution(settings.configuration, dependencies);
+      if (!execution.ready) {
+        if (execution.mode === 'managed') throw new ManagedDecisionClientError(execution.catalog?.code ?? 'missing_configuration', { retryable: true });
+        throw new WorkerCancelled('credential_unavailable');
+      }
+      if (execution.mode === 'managed' && execution.managedModel?.inferenceRevision !== settings.configuration.managedModel?.inferenceRevision) throw new WorkerCancelled('managed_model_changed');
       return settings.configuration;
     };
     const interval = setInterval(() => {
@@ -333,8 +341,6 @@ export function createEmailClassificationWorker(dependencies: EmailClassificatio
         else result.canceled++;
         return;
       }
-      const credential = (dependencies.resolveCredential ?? resolveEmailClassificationCredential)(configuration);
-      if (!credential.status.configured) throw new WorkerCancelled('credential_unavailable');
       const rawTimer = setTimeout(() => controller.abort(new DecisionModelError('timeout', { retryable: true })), dependencies.rawTimeoutMs ?? 60_000);
       let raw: Record<string, unknown>;
       try { raw = await withAbort((dependencies.readMessage ?? defaultRead)({ ...source, message: metadata, signal: controller.signal }), controller.signal); }
@@ -357,11 +363,9 @@ export function createEmailClassificationWorker(dependencies: EmailClassificatio
         to: Array.isArray(raw.to) ? raw.to.map(String) : metadata.list.to ?? [], subject: String(raw.subject ?? metadata.list.subject), body,
         mailboxScope: source.mailbox.workspaceId ? 'workspace' : 'personal' }, configuration.questionProfile);
       const current = await check();
-      const currentCredential = (dependencies.resolveCredential ?? resolveEmailClassificationCredential)(current);
-      if (!currentCredential.status.configured) throw new WorkerCancelled('credential_unavailable');
-      const decision = await withAbort((dependencies.evaluate ?? evaluateDecision)({ state: state.state, questions: buildEmailClassificationQuestions(current.questionProfile),
-        schemaVersion: EMAIL_CLASSIFICATION_SCHEMA_VERSION, configuration: { providerId: current.providerId, model: current.model, endpoint: current.endpoint ?? undefined, allowPrivateNetwork: current.allowPrivateNetwork },
-        credential: currentCredential.value ? { apiKey: currentCredential.value } : undefined, timeoutMs: current.timeoutMs, signal: controller.signal }), controller.signal);
+      const execution = await resolveEmailClassificationExecution(current, dependencies);
+      const decision = await withAbort(executeEmailClassification(current, { state: state.state, questions: buildEmailClassificationQuestions(current.questionProfile),
+        schemaVersion: EMAIL_CLASSIFICATION_SCHEMA_VERSION, signal: controller.signal }, execution, job.decisionRequestId ?? job.id, dependencies), controller.signal);
       await check();
       const normalized = normalizeEmailClassificationResult(decision, { evaluatedBodyCharacters: state.evaluatedBodyCharacters,
         bodyWasTruncated: state.bodyWasTruncated || originalBody.length > 64_000, evaluatedAt: now() });
@@ -372,12 +376,13 @@ export function createEmailClassificationWorker(dependencies: EmailClassificatio
       if (error instanceof WorkerCancelled) {
         await store.cancelClaim({ jobId: job.id, claimToken: job.claimToken, errorCode: error.code, now: now() }); result.canceled++;
       } else {
-        const code = error instanceof DecisionModelError ? error.code : 'source_error';
-        const terminal = job.attempts >= Math.max(1, dependencies.maxAttempts ?? 5)
-          || error instanceof DecisionModelError && !error.retryable && !['aborted', 'authentication_failed'].includes(error.code);
+        const code = error instanceof ManagedDecisionClientError ? error.managedCode : error instanceof DecisionModelError ? error.code : 'source_error';
+        const managedPaused = error instanceof ManagedDecisionClientError && ['missing_connection', 'missing_configuration', 'scope_denied', 'entitlement_denied', 'budget_exhausted', 'model_changed', 'in_progress', 'provider_unavailable', 'rate_limited'].includes(error.managedCode);
+        const terminal = !managedPaused && (job.attempts >= Math.max(1, dependencies.maxAttempts ?? 5)
+          || error instanceof DecisionModelError && !error.retryable && !['aborted', 'authentication_failed'].includes(error.code));
         const delay = emailClassificationRetryDelay(job.attempts, dependencies.random, error instanceof DecisionModelError ? error.retryAfterMs : undefined);
         if (error instanceof DecisionModelError && ['rate_limited', 'authentication_failed', 'provider_error', 'timeout'].includes(error.code)) circuitUntil = Math.max(circuitUntil, now() + delay);
-        if (await store.retryJob({ jobId: job.id, claimToken: job.claimToken, errorCode: code, nextAttemptAt: now() + delay, terminal, now: now() })) {
+        if (await store.retryJob({ jobId: job.id, claimToken: job.claimToken, errorCode: code, nextAttemptAt: now() + delay, terminal, ...(error instanceof ManagedDecisionClientError && error.canReissue && !terminal ? { decisionRequestId: randomUUID() } : {}), now: now() })) {
           if (terminal) result.failed++; else result.retried++;
         } else result.canceled++;
       }
@@ -388,6 +393,10 @@ export function createEmailClassificationWorker(dependencies: EmailClassificatio
     const result: EmailClassificationCycleResult = { discovered: 0, synced: 0, indexed: 0, claimed: 0, completed: 0, reused: 0, retried: 0, failed: 0, canceled: 0 };
     if (stopped) return result;
     const store = await (dependencies.getStore ?? getRuntimeEmailClassificationStore)();
+    const initialSettings = await store.readSettings();
+    if (initialSettings.configuration.enabled && initialSettings.configuration.executionMode === 'managed') {
+      await reconcileEmailClassificationExecution(store, initialSettings, await resolveEmailClassificationExecution(initialSettings.configuration, dependencies));
+    }
     let sources = await discover(store);
     result.discovered = sources.size;
     const entries = [...sources.values()];
@@ -396,10 +405,10 @@ export function createEmailClassificationWorker(dependencies: EmailClassificatio
     if (entries.length) nextMailbox = (nextMailbox + maximum) % entries.length;
     const settings = await store.readSettings();
     if (stopped || !settings.configuration.enabled) return result;
-    const credential = (dependencies.resolveCredential ?? resolveEmailClassificationCredential)(settings.configuration);
-    const providerKey = `${settings.configuration.providerId}:${settings.configuration.model}:${settings.configuration.endpoint ?? ''}`;
+    const execution = await resolveEmailClassificationExecution(settings.configuration, dependencies);
+    const providerKey = emailClassificationEvaluationFingerprint(settings.configuration);
     if (providerKey !== circuitProvider) { circuitProvider = providerKey; circuitUntil = 0; }
-    if (stopped || !settings.configuration.enabled || !credential.status.configured || circuitUntil > now()) return result;
+    if (stopped || !settings.configuration.enabled || !execution.ready || circuitUntil > now()) return result;
     const leaseMs = Math.min(600_000, Math.max(60_000, settings.configuration.timeoutMs + (dependencies.rawTimeoutMs ?? 60_000) + 30_000));
     const jobs = await store.claimJobs({ limit: settings.configuration.concurrency, leaseMs, now: now() });
     result.claimed = jobs.length;

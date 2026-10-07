@@ -1,4 +1,5 @@
 import 'server-only';
+import { hasManagedSystemUpdateIntent } from '@/app/lib/managed/control-plane-url-policy';
 
 import { randomUUID } from 'node:crypto';
 import { validateEmailClassificationOverride } from './policy';
@@ -39,7 +40,9 @@ function object<T>(value: unknown): T {
 }
 
 function defaults(): EmailClassificationSettings {
-  return { revision: 0, configuration: structuredClone(DEFAULT_EMAIL_CLASSIFICATION_CONFIGURATION), updatedAt: null, updatedByUserId: null };
+  const configuration: EmailClassificationConfiguration = structuredClone(DEFAULT_EMAIL_CLASSIFICATION_CONFIGURATION);
+  if (hasManagedSystemUpdateIntent(process.env) && process.env.CANVAS_INSTANCE_TOKEN?.trim()) configuration.executionMode = 'managed';
+  return { revision: 0, configuration, updatedAt: null, updatedByUserId: null };
 }
 
 function settingsFromRow(row?: Row): EmailClassificationSettings {
@@ -75,6 +78,7 @@ function metadataFromRow(row: Row): StoredEmailClassificationMetadata {
 
 function jobFromRow(row: Row): StoredEmailClassificationJob {
   return {
+    decisionRequestId: typeof row.decision_request_id === 'string' ? row.decision_request_id : null,
     id: String(row.id), messageRef: String(row.message_ref), mailboxRef: String(row.mailbox_ref), configurationRevision: integer(row.configuration_revision, 'configuration revision', 1),
     fingerprint: String(row.fingerprint), bindingRevision: String(row.binding_revision), policyRevision: String(row.policy_revision),
     status: row.status as StoredEmailClassificationJob['status'], attempts: integer(row.attempts, 'attempts'), nextAttemptAt: integer(row.next_attempt_at, 'next attempt'),
@@ -157,9 +161,9 @@ export class PostgresEmailClassificationStore {
     return settingsFromRow((await this.postgres.query("SELECT * FROM email_classification_settings WHERE id = 'instance'")).rows[0]);
   }
 
-  async updateSettings(input: { expectedRevision: number; actorUserId: string; configuration: EmailClassificationConfiguration; now?: number }): Promise<EmailClassificationSettings> {
+  async updateSettings(input: { expectedRevision: number; actorUserId: string | null; configuration: EmailClassificationConfiguration; now?: number }): Promise<EmailClassificationSettings> {
     const expected = integer(input.expectedRevision, 'expected settings revision');
-    const actor = text(input.actorUserId, 'settings actor');
+    const actor = input.actorUserId === null ? null : text(input.actorUserId, 'settings actor');
     const validated = validateEmailClassificationConfiguration(input.configuration);
     const now = integer(input.now ?? Date.now(), 'time');
     return this.transaction(async connection => {
@@ -433,7 +437,7 @@ export class PostgresEmailClassificationStore {
         ORDER BY eligible.mailbox_position, eligible.last_claimed_at, eligible.next_attempt_at, eligible.created_at, eligible.id LIMIT $3 FOR UPDATE OF job SKIP LOCKED`, [settings.revision, now, Math.min(limit, remaining, slots), settings.configuration.initialLookbackDays]);
       const jobs: StoredEmailClassificationJob[] = [];
       for (const candidate of candidates.rows) {
-        const updated = await connection.query(`UPDATE email_classification_jobs SET status = 'processing', attempts = attempts + 1, lease_until = $2, claim_token = $3, error_code = NULL, updated_at = $4
+        const updated = await connection.query(`UPDATE email_classification_jobs SET status = 'processing', attempts = attempts + 1, lease_until = $2, claim_token = $3, error_code = NULL, updated_at = $4, decision_request_id = coalesce(decision_request_id, id)
           WHERE id = $1 RETURNING *`, [candidate.id, now + leaseMs, randomUUID(), now]);
         jobs.push(jobFromRow(updated.rows[0]));
         await connection.query('UPDATE email_classification_mailboxes SET last_claimed_at = $2 WHERE mailbox_ref = $1', [candidate.mailbox_ref, now]);
@@ -539,14 +543,14 @@ export class PostgresEmailClassificationStore {
     });
   }
 
-  async retryJob(input: { jobId: string; claimToken: string; errorCode: string; nextAttemptAt: number; terminal?: boolean; now?: number }): Promise<boolean> {
+  async retryJob(input: { jobId: string; claimToken: string; errorCode: string; nextAttemptAt: number; terminal?: boolean; decisionRequestId?: string; now?: number }): Promise<boolean> {
     const now = integer(input.now ?? Date.now(), 'time');
     return this.transaction(async connection => {
       const settings = await this.lockSettings(connection);
       if (!settings.configuration.enabled) return false;
-      const updated = await connection.query(`UPDATE email_classification_jobs SET status = $3, lease_until = NULL, claim_token = NULL, error_code = $4, next_attempt_at = $5, updated_at = $6
+      const updated = await connection.query(`UPDATE email_classification_jobs SET status = $3, lease_until = NULL, claim_token = NULL, error_code = $4, next_attempt_at = $5, updated_at = $6, decision_request_id = coalesce($8, decision_request_id)
         WHERE id = $1 AND claim_token = $2 AND status = 'processing' AND lease_until > $6 AND configuration_revision = $7 RETURNING id`,
-      [text(input.jobId, 'job ID'), text(input.claimToken, 'claim token'), input.terminal ? 'failed' : 'retry', text(input.errorCode, 'error code', 100), integer(input.nextAttemptAt, 'next attempt'), now, settings.revision]);
+      [text(input.jobId, 'job ID'), text(input.claimToken, 'claim token'), input.terminal ? 'failed' : 'retry', text(input.errorCode, 'error code', 100), integer(input.nextAttemptAt, 'next attempt'), now, settings.revision, input.decisionRequestId ? text(input.decisionRequestId, 'decision request ID', 160) : null]);
       return updated.rows.length > 0;
     });
   }
