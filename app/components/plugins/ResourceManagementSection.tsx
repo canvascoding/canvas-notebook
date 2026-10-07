@@ -15,6 +15,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { InlineNotice } from '@/components/ui/inline-notice';
+import { confirmPluginNavigation, usePluginEditorNavigationGuard } from './plugin-navigation-guard';
 
 type ResourceResponse = { success: boolean; data?: { resource: CapabilityResourceDescriptor }; code?: string };
 const EMPTY_ORGANIZATION_POLICY_TARGETS: OrganizationPolicyTargetCatalog = { users: [], workspaces: [], projects: [] };
@@ -47,6 +48,19 @@ export function ResourceManagementSection({ resourceRef, workspaceId, onUpdated 
   const controller = useRef<AbortController | null>(null);
   const requestRevision = useRef(0);
   const writeRevision = useRef(0);
+  const dirty = Boolean(resource && (
+    displayName !== (resource.metadata.displayName || '')
+    || description !== (resource.metadata.description || '')
+    || responsible !== (resource.metadata.responsibleUserId || '')
+    || JSON.stringify(grants) !== JSON.stringify(grantInputs(resource))
+    || accessMode !== resource.metadata.accessMode
+    || resource.metadata.metadataRevision === 0 && (
+      ownerType !== (resource.metadata.ownership.type === 'system' ? 'user' : resource.metadata.ownership.type)
+      || teamId !== (resource.metadata.ownership.type === 'team' ? resource.metadata.ownership.workspaceId : '')
+    )
+    || targetId !== '' || Object.values(newRights).some(Boolean)
+  ));
+  usePluginEditorNavigationGuard({ dirty, pending });
   const path = useCallback((suffix = '') => {
     const query = workspaceId ? `?${new URLSearchParams({ workspaceId })}` : '';
     return `/api/capabilities/resources/${encodeURIComponent(resourceRef)}${suffix}${query}`;
@@ -125,8 +139,10 @@ export function ResourceManagementSection({ resourceRef, workspaceId, onUpdated 
     try {
       const metadata: CapabilityResourceMetadataPatch = {};
       if (resource.access.canEdit) {
-        metadata.displayName = displayName.trim() || null;
-        metadata.description = description.trim() || null;
+        const nextDisplayName = displayName.trim() || null;
+        const nextDescription = description.trim() || null;
+        if (nextDisplayName !== resource.metadata.displayName) metadata.displayName = nextDisplayName;
+        if (nextDescription !== resource.metadata.description) metadata.description = nextDescription;
       }
       if (resource.access.canManage && !targetsUnavailable && responsible !== (resource.metadata.responsibleUserId || '')) metadata.responsibleUserId = responsible || null;
       const input: CapabilityResourceMutation = {
@@ -158,6 +174,13 @@ export function ResourceManagementSection({ resourceRef, workspaceId, onUpdated 
     finally { if (write === writeRevision.current) setPending(false); }
   }
 
+  function reload() {
+    if (!confirmPluginNavigation()) return;
+    setConflict(false); setError(null); setTargetId('');
+    setNewRights({ canUse: false, canEdit: false, canManage: false });
+    void load();
+  }
+
   function addGrant() {
     if (!targetId || !options.some(option => option.id === targetId)) return;
     if (grants.some(grant => grant.targetType === targetType && grant.targetId === targetId)) return;
@@ -166,7 +189,7 @@ export function ResourceManagementSection({ resourceRef, workspaceId, onUpdated 
   }
 
   if (loading && !resource) return <section data-testid="resource-management" className="rounded-lg border p-4 text-sm text-muted-foreground"><Loader2 className="mr-2 inline size-4 animate-spin" />{t('loading')}</section>;
-  if (!resource) return <section data-testid="resource-management" className="space-y-2 rounded-lg border p-4"><InlineNotice size="compact">{error || t('loadError')}</InlineNotice><Button variant="outline" size="sm" onClick={() => { setError(null); void load(); }}>{t('reload')}</Button></section>;
+  if (!resource) return <section data-testid="resource-management" className="space-y-2 rounded-lg border p-4"><InlineNotice size="compact">{error || t('loadError')}</InlineNotice><Button variant="outline" size="sm" onClick={reload}>{t('reload')}</Button></section>;
   const { metadata, access, artifact } = resource;
   const ownership = metadata.ownership;
   const unmanaged = metadata.metadataRevision === 0;
@@ -186,7 +209,7 @@ export function ResourceManagementSection({ resourceRef, workspaceId, onUpdated 
     <p className="text-xs text-muted-foreground">{t('rightsHint')}</p>
     {error ? <InlineNotice variant="destructive" size="compact">{error}</InlineNotice> : null}
     {targetsUnavailable ? <InlineNotice size="compact">{t('targetsError')}</InlineNotice> : null}
-    {conflict ? <Button size="sm" variant="outline" onClick={() => { setConflict(false); setError(null); void load(); }}><RefreshCw className="mr-2 size-4" />{t('reload')}</Button> : null}
+    {conflict ? <Button size="sm" variant="outline" onClick={reload}><RefreshCw className="mr-2 size-4" />{t('reload')}</Button> : null}
     {canSave ? <details className="group space-y-3">
       <summary className="cursor-pointer text-sm font-medium">{t('edit')}</summary>
       <div className="space-y-4 pt-2">

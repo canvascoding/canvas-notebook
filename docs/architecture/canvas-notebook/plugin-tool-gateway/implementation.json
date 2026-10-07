@@ -217,7 +217,16 @@
               "Final full graph PASS; staged294symbols/31files MEDIUM expected Settings navigation flow, cumulative main4446symbols/437files/16earlierflows CRITICAL warned. Independent own-nonce resource/draft/version/preference/intake counts0; exact own host3001 stopped and foreign managed stack preserved",
               "Full mutating click/keyboard/focus acceptance remains6a-c-3; effective Planning/mobile/OAuth6b and live external accounts7 pending. Gateway default-off, no push/container/deployment"
             ] },
-            { "id": "6a-c-3", "name": "Vollstaendige Klickabnahme, Fehler-/Rechtezustaende und responsive Darstellung", "status": "pending", "evidence": [] }
+            { "id": "6a-c-3", "name": "Vollstaendige Klickabnahme, Fehler-/Rechtezustaende und responsive Darstellung", "status": "in_progress", "substeps": [
+              { "id": "6a-c-3a", "name": "Paket-Klickworkflow und geschuetzte Freigabeaenderungen", "status": "complete", "evidence": [
+                "Detailed acceptance: evidence/step-6a-c3a-package-click-acceptance.md; real organization Store installation, independent recipient/responsibility, immutable local publication and exact legacy-alias update with manual CAS409 review",
+                "Resource sharing dirty/pending Reload/Scope/History guard and precise metadata field changes; grants-only PATCH retains metadata revision. Seven workspace React gates, cleanup receipt/lock gates, focused ESLint and final production build PASS",
+                "Final actual production-host Playwright1/1 PASS, one Chromium worker/no retries,56.6sec test/1.5min total; actual admin/member and owned HTTPS Store, original real PUT/PATCH responses held only for pending checks; no fabricated provider or server DTO",
+                "Desktop1280/light and narrow390/dark package/read-only/revoked/version states captured and inspected. Independent own fixture SQL/filesystem resource/draft/version/preference/intake0; exact own host3001 stopped, foreign managed stack preserved",
+                "Full graph after incremental UTF-8 failure PASS. Shared connection form dirty/local-dialog protection remains3b; effective Planning/mobile/OAuth6b and live account acceptance7 remain. Gateway default-off; no container build/publication"
+              ] },
+              { "id": "6a-c-3b", "name": "Geschuetzte Verbindungsformulare und lokale Dialognavigation", "status": "pending", "evidence": [] }
+            ], "evidence": [] }
           ],
           "evidence": []
         }

@@ -5,7 +5,7 @@ import path from 'node:path';
 import dotenv from 'dotenv';
 import type { OwnedCapabilityPackageFixture } from '../../tests/helpers/capability-package-test-cleanup';
 import type { CapabilityResourceStorageBinding,CapabilityResourceOwnerScope } from '../../app/lib/capabilities/resources/contracts';
-import {assertExactCleanupChildren,runConfirmedCapabilityPackageCleanup} from '../../tests/helpers/capability-package-cleanup-guards';
+import {assertExactCleanupChildren,assertOwnedCapabilityPackageSourceDirectory,assertReceiptedCapabilityPackageVersionDirectories,runConfirmedCapabilityPackageCleanup} from '../../tests/helpers/capability-package-cleanup-guards';
 
 type Row=Record<string,unknown>;
 async function main() {
@@ -30,6 +30,9 @@ async function main() {
   const data=await fs.realpath(process.env.DATA??'');assert.equal(data,await fs.realpath(receipt.dataRoot));
   assert(data.startsWith(path.join(os.homedir(),'.local/state/canvas-local-team-seat/') ));assert.equal(path.basename(data),'notebook-data');
   assert(path.basename(receipt.sourceDirectory).startsWith(`${receipt.sourceName}-`));
+  const assertSourceDirectoryProof=async()=>{if(receipt.sourceDirectoryProof)await assertOwnedCapabilityPackageSourceDirectory({sourceDirectory:receipt.sourceDirectory,
+    initialChecksum:receipt.initialChecksum,proof:receipt.sourceDirectoryProof,configuredSourceRoot:process.env.CANVAS_PLUGIN_LOCAL_SOURCE_ROOT});};
+  await assertSourceDirectoryProof();
   const manifest=JSON.parse(await fs.readFile(path.join(receipt.sourceDirectory,'.canvas-plugin/plugin.json'),'utf8')) as {name:string;version:string};
   assert.equal(manifest.name,receipt.sourceName);assert.equal(manifest.version,receipt.initialVersion);
   const {openDb}=await import('../../app/lib/db');
@@ -75,17 +78,21 @@ async function main() {
   const registerVersionContainer=async(resourceRef:string,name:string,owner:CapabilityResourceOwnerScope)=>{
     assert.match(resourceRef,/^canvas-resource:[a-f0-9-]{36}$/u);
     const example=resolveOwnerScopedPackageVersionPath({resourceRef,revisionRef:'canvas-package-revision:00000000-0000-0000-0000-000000000000',kind:'plugin',name,owner});
-    const container=path.dirname(path.dirname(example));const existing=await fs.lstat(container).catch(error=>{if(error.code==='ENOENT')return null;throw error;});if(!existing)return;
+    const container=path.dirname(path.dirname(example));
+    const children=await assertReceiptedCapabilityPackageVersionDirectories(container,resourceRef,receipt.publications);
+    const existing=await fs.lstat(container).catch(error=>{if(error.code==='ENOENT')return null;throw error;});if(!existing)return;
     await safeDirectory(container);
-    const children=await fs.readdir(container);const captured:Array<Parameters<typeof verifyCapabilityPackageSnapshot>[0]>=[];
+    const captured:Array<Parameters<typeof verifyCapabilityPackageSnapshot>[0]>=[];
     for(const child of children){assert.match(child,/^[a-f0-9-]{36}$/u);const rootPath=path.join(container,child,name);
+      const expected=receipt.publications.find(publication=>publication.resourceRef===resourceRef&&publication.revisionRef===`canvas-package-revision:${child}`);assert(expected);
       const marker=JSON.parse(await fs.readFile(path.join(container,child,'published.json'),'utf8')) as {resourceRef:string;revisionRef:string;checksum:string};
       assert.equal(marker.resourceRef,resourceRef);assert.equal(marker.revisionRef,`canvas-package-revision:${child}`);assert.match(marker.checksum,/^[a-f0-9]{64}$/u);
-      const packageManifest=JSON.parse(await fs.readFile(path.join(rootPath,'.canvas-plugin/plugin.json'),'utf8')) as {name:string;version:string};assert.equal(packageManifest.name,name);
+      assert.equal(marker.checksum,expected.checksum);
+      const packageManifest=JSON.parse(await fs.readFile(path.join(rootPath,'.canvas-plugin/plugin.json'),'utf8')) as {name:string;version:string};assert.equal(packageManifest.name,name);assert.equal(packageManifest.version,expected.version);
       const snapshot={resourceRef,revisionRef:marker.revisionRef,checksum:marker.checksum,version:packageManifest.version,kind:'plugin' as const,name,owner,rootPath};
       await verifyCapabilityPackageSnapshot(snapshot);captured.push(snapshot);
       assert.deepEqual((await fs.readdir(path.join(container,child))).sort(),[name,'published.json'].sort());
-    }endChecks.push(async()=>{await safeDirectory(container);await assertExactCleanupChildren(container,children);for(const snapshot of captured){await verifyCapabilityPackageSnapshot(snapshot);await assertExactCleanupChildren(path.dirname(snapshot.rootPath),[name,'published.json']);}});removals.add(container);
+    }endChecks.push(async()=>{await safeDirectory(container);await assertReceiptedCapabilityPackageVersionDirectories(container,resourceRef,receipt.publications);for(const snapshot of captured){await verifyCapabilityPackageSnapshot(snapshot);await assertExactCleanupChildren(path.dirname(snapshot.rootPath),[name,'published.json']);}});removals.add(container);
   };
   await runConfirmedCapabilityPackageCleanup({withLock:operation=>withCapabilityPackageRegistryPublication(binding,()=>withCapabilityPackageRegistryLock('skill',scope,()=>withPreferenceLocks(0,operation))),commit:()=>withAuthorizedCapabilityPackageResource(actor,binding,'read',undefined,async(authorization,database)=>{
     assert(authorization.access.canManage,'Only the actual fixture manager may clean up owned resources.');
@@ -141,6 +148,7 @@ async function main() {
     }catch(error){for(const[file,raw]of snapshots){if(raw!==null){const temp=createAtomicTempPath(file);await fs.writeFile(temp,raw);await fs.rename(temp,file);}}throw error;}
   }),finalize:async()=>{
   // Every end-check completes before the first destructive filesystem operation.
+  await assertSourceDirectoryProof();
   for(const check of endChecks)await check();
   assert.equal((await readExactPackageInventory(receipt.sourceDirectory)).checksum,receipt.initialChecksum);
   for(const[file,raw]of preferenceSnapshots){

@@ -3,6 +3,10 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
+export type OwnedCapabilityPackageSourceDirectoryProof = {
+  resolvedPath:string;parentPath:string;device:string;inode:string;mode:number;checksum:string;
+};
+
 export type OwnedCapabilityPackageFixture = {
   nonce:string;names:string[];actorIds:string[];adminId:string;organizationId:string;
   dataRoot:string;sourceDirectory:string;sourceName:string;initialChecksum:string;initialVersion:string;
@@ -10,6 +14,7 @@ export type OwnedCapabilityPackageFixture = {
   resourceRevisions:Array<{resourceRef:string;metadataRevision:number;grantsRevision:number}>;
   sourceResourceRef?:string;
   initialManaged?:boolean;
+  sourceDirectoryProof?:OwnedCapabilityPackageSourceDirectoryProof;
   preferences?:Array<{userId:string;resourceId:string;revision:number;enabled:boolean}>;
 };
 
