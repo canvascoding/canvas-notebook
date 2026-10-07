@@ -6,6 +6,8 @@ import { type AgentTool } from '@earendil-works/pi-agent-core';
  */
 export const PLANNING_MODE_ALLOWED_TOOLS = new Set([
   'list_canvas_package_store',
+  'inspect_canvas_package_presentation',
+  'inspect_canvas_package_store_install_options',
   'inspect_canvas_package_store_update',
   'list_canvas_skill_scripts',
   'describe_canvas_skill_script',

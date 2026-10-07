@@ -85,9 +85,12 @@ export async function readInstalledStoreResource(actor: CapabilityResourceActor,
 }
 
 /** Budget exhaustion or unavailable package bytes never remove current readable metadata. */
-export async function readInstalledStoreResources(actor: CapabilityResourceActor, descriptors: readonly CapabilityResourceDescriptor[]): Promise<Map<string, PrivateInstalledStoreResource>> {
+export async function readInstalledStoreResources(actor: CapabilityResourceActor, descriptors: readonly CapabilityResourceDescriptor[],
+  options: { preserveInputOrder?: boolean } = {}): Promise<Map<string, PrivateInstalledStoreResource>> {
   const results = new Map<string, PrivateInstalledStoreResource>();
-  const selected = [...descriptors].sort((a, b) => a.metadata.resourceRef.localeCompare(b.metadata.resourceRef)).slice(0, 32);
+  const ordered = [...descriptors];
+  if (!options.preserveInputOrder) ordered.sort((a, b) => a.metadata.resourceRef.localeCompare(b.metadata.resourceRef));
+  const selected = ordered.slice(0, 32);
   let cursor = 0;
   await Promise.all(Array.from({ length: 2 }, async () => {
     while (cursor < selected.length) {

@@ -2,13 +2,12 @@ import 'server-only';
 
 import { randomUUID } from 'node:crypto';
 import { openDb } from '@/app/lib/db';
-import { readOrganizationPermissionForUser } from '@/app/lib/organization/permissions';
-import type { CapabilityResourceActor, CapabilityResourceOwnerScope, CapabilityResourceStorageBinding } from '../resources/contracts';
+import type { CapabilityResourceActor, CapabilityResourceStorageBinding } from '../resources/contracts';
 import { authority } from '../scope-authority';
 import { authorizeCapabilityPackageTarget, withAuthorizedCapabilityPackageResource } from '../resources/store';
 import { refreshCapabilityRuntimeForScope } from '../activation-actions';
 import { CapabilityPackageError, type CapabilityPackagePublishedRevision, type CapabilityPackageState, type CapabilityPackageSourceStamp } from './contracts';
-import { assertCapabilityPackageArtifactCurrent, capabilityPackageLegacyStorageBinding, capabilityPackageRegistryStorage,
+import { assertCapabilityPackageArtifactCurrent, capabilityPackageRegistryStorage,
   resolveCapabilityPackageArtifact, stageCapabilityPackageRegistryPointer,
   withCapabilityPackageRegistryLock, withCapabilityPackageRegistryPublication, type ResolvedCapabilityPackageArtifact } from './artifacts';
 import { prepareHeldStorePackageSnapshot, readExactPackageInventory } from './io';
@@ -21,9 +20,12 @@ import { capabilityPackageStoreInstallSchema, capabilityPackageStoreListSchema, 
   capabilityPackageStoreUpdateSchema, type CapabilityPackageStoreApplicationResult,
   type CapabilityPackageStoreSelection, type CapabilityPackageStoreUpdateReview } from './store-contracts';
 import { disposeLegacyCapabilityStoreHistory, prepareLegacyCapabilityStoreHistory } from './legacy-store-source';
-import { projectSafeInstalledStoreResource } from '@/app/lib/skills/actor-skill-store-state';
-import { UNKNOWN_CAPABILITY_STORE_STATE } from '@/app/lib/plugins/store-installed-resource';
-import { projectCapabilityPackageStoreVersions } from './store-offerings';
+import { readInstalledStoreResources } from '@/app/lib/plugins/store-installed-resource';
+import { resolvePluginWorkspaceCatalogScopeContext } from '@/app/lib/plugins/plugin-workspace-selection';
+import { selectPluginWorkspaceCatalogResources } from '@/app/lib/plugins/plugin-workspace-catalog';
+import { capabilityPackageStoreCatalogQuery, prioritizeScopedStoreResources, projectScopedCapabilityPackageStore,
+  retainCurrentScopedStoreObservations, type CapabilityPackageStoreSources } from './store-scoped-projection';
+import { resolvedOwnership, storageForOwner } from './store-target';
 
 function snapshotActor(actor: CapabilityResourceActor): CapabilityResourceActor {
   return Object.freeze({ userId: actor.userId, workspaceId: actor.workspaceId ?? null });
@@ -34,20 +36,6 @@ async function assertActor(actor: CapabilityResourceActor): Promise<void> {
     const current = await authority(database, actor);
     if (!current.valid || !current.contextValid) throw new CapabilityPackageError('PACKAGE_ACCESS_DENIED', 'An active actor and workspace are required.', 403);
   } finally { await database.close(); }
-}
-async function resolvedOwnership(actor: CapabilityResourceActor,
-  choice: { type: 'user' | 'organization' } | { type: 'team'; workspaceId: string }): Promise<Exclude<CapabilityResourceOwnerScope, { type: 'system' }>> {
-  const organization = await readOrganizationPermissionForUser(actor.userId);
-  if (choice.type === 'user') return { type: 'user', ownerUserId: actor.userId, organizationId: organization.organizationId ?? null };
-  if (!organization.organizationId || !organization.configured || organization.permission?.status !== 'active') {
-    throw new CapabilityPackageError('PACKAGE_ACCESS_DENIED', 'An active organization is required.', 403);
-  }
-  return choice.type === 'team' ? { type: 'team', organizationId: organization.organizationId, workspaceId: choice.workspaceId }
-    : { type: 'organization', organizationId: organization.organizationId };
-}
-function storageForOwner(kind: 'skill' | 'plugin', name: string, owner: Exclude<CapabilityResourceOwnerScope, { type: 'system' }>): CapabilityResourceStorageBinding {
-  return capabilityPackageLegacyStorageBinding(kind, name, owner.type === 'user'
-    ? { scopeType: 'user', userId: owner.ownerUserId } : { scopeType: 'organization', organizationId: owner.organizationId });
 }
 async function readOffering(source: CapabilityPackageStoreSelection) {
   try {
@@ -111,38 +99,27 @@ function sameSourceStamp(left: CapabilityPackageSourceStamp, right: CapabilityPa
 /** Store discovery uses existing fresh actor projections and returns only safe, bounded metadata. */
 export async function listCapabilityPackageStoreAction(actorInput: CapabilityResourceActor, value: unknown = {}) {
   const actor = snapshotActor(actorInput), query = capabilityPackageStoreListSchema.parse(structuredClone(value));
-  await assertActor(actor);
-  const kinds = query.kind ? [query.kind] : ['plugin', 'skill'] as const;
-  const stores = [];
-  for (const kind of kinds) {
-    const options = { actor, query: query.q, page: query.page, pageSize: query.limit };
-    const result = kind === 'plugin'
-      ? await (await import('@/app/lib/plugins/canvas-plugin-store')).listCanvasPluginStore(options)
-      : await (await import('@/app/lib/skills/canvas-skill-store')).listCanvasSkillStore(options);
-    const offerings = 'plugins' in result ? result.plugins : result.skills;
-    stores.push({ kind, registry: { id: result.registry.id, name: result.registry.name, updatedAt: result.registry.updatedAt },
-      availability: result.availability ?? 'available', pagination: result.pagination,
-      offerings: offerings.map(offering => ({ kind, registryId: result.registry.id, entryKey: offering.name,
-        displayName: offering.displayName, description: offering.description, latestVersion: offering.latestVersion,
-        versions: projectCapabilityPackageStoreVersions(offering.versions, offering.latestVersion) })),
-      installedResources: result.installedResources?.slice(0, 50) ?? [] });
-  }
+  const scopeQuery = capabilityPackageStoreCatalogQuery(query);
+  const initialContext = await resolvePluginWorkspaceCatalogScopeContext(actor);
+  // Reject inaccessible teams before opening a remote registry or reading package bytes.
+  selectPluginWorkspaceCatalogResources([], initialContext, scopeQuery);
   const { listCapabilityResources } = await import('../resources/actions');
-  const current = new Map((await listCapabilityResources(actor)).filter(resource => resource.access.canRead && resource.metadata.status === 'active')
-    .map(resource => [resource.metadata.resourceRef, resource]));
-  for (const store of stores) {
-    store.installedResources = store.installedResources.flatMap(previous => {
-      const readable = current.get(previous.metadata.resourceRef);
-      if (!readable || readable.artifact.resourceType !== store.kind) return [];
-      const fresh = projectSafeInstalledStoreResource(readable);
-      const unchanged = JSON.stringify(previous.artifact) === JSON.stringify(fresh.artifact)
-        && previous.metadata.metadataRevision === fresh.metadata.metadataRevision
-        && previous.metadata.grantsRevision === fresh.metadata.grantsRevision
-        && JSON.stringify(previous.metadata.ownership) === JSON.stringify(fresh.metadata.ownership);
-      return [{ ...fresh, storeState: unchanged ? previous.storeState : { ...UNKNOWN_CAPABILITY_STORE_STATE } }];
-    });
+  const initial = await listCapabilityResources(actor);
+  const selected = selectPluginWorkspaceCatalogResources(initial, initialContext, { ...scopeQuery, q: '' });
+  const visible = selectPluginWorkspaceCatalogResources(initial, initialContext, scopeQuery);
+  const sources: CapabilityPackageStoreSources = { plugin: null, skill: null };
+  for (const kind of query.kind ? [query.kind] : ['plugin', 'skill'] as const) {
+    try {
+      if (kind === 'plugin') sources.plugin = await (await import('@/app/lib/plugins/canvas-plugin-store')).readCanvasPluginStoreRegistry();
+      else sources.skill = await (await import('@/app/lib/skills/canvas-skill-store')).readCanvasSkillStoreRegistry();
+    } catch { /* An unavailable registry never removes current readable installed metadata. */ }
   }
-  return { schemaVersion: 1 as const, stores };
+  const observations = await readInstalledStoreResources(actor, prioritizeScopedStoreResources(selected, scopeQuery, visible), { preserveInputOrder: true });
+  // Re-read both scope and resource authority after every kind/read await. No earlier DTO is returned verbatim.
+  const current = await listCapabilityResources(actor), context = await resolvePluginWorkspaceCatalogScopeContext(actor);
+  const currentSelected = selectPluginWorkspaceCatalogResources(current, context, { ...scopeQuery, q: '' });
+  return projectScopedCapabilityPackageStore(current, context, query, sources,
+    retainCurrentScopedStoreObservations(selected, currentSelected, observations));
 }
 
 /** Review fetches registry metadata only; it does not download or publish an archive. */

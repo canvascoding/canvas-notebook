@@ -119,6 +119,9 @@ export const DELEGATABLE_PI_TOOLSETS = new Set<PiToolset>([
 
 export const SKILL_TOOL_NAMES = [
   'list_canvas_package_store',
+  'inspect_canvas_package_presentation',
+  'inspect_canvas_package_store_offering',
+  'inspect_canvas_package_store_install_options',
   'inspect_canvas_package_store_update',
   'install_canvas_package_from_store',
   'update_canvas_package_from_store',

@@ -1,7 +1,7 @@
 import { type AgentTool } from '@earendil-works/pi-agent-core';
 import { Type } from 'typebox';
 import { z } from 'zod';
-import type { CapabilityResourceActor } from '@/app/lib/capabilities/resources/contracts';
+import { CapabilityResourceError, type CapabilityResourceActor } from '@/app/lib/capabilities/resources/contracts';
 import { CapabilityPackageError, isCapabilityPackageError } from '@/app/lib/capabilities/packages/contracts';
 import { toPublicCapabilityPackageMetadata } from '@/app/lib/capabilities/packages/public-metadata';
 import { capabilityPackageReferenceSchema, capabilityPackageDraftReferenceSchema, capabilityPackageDraftCreationSchema,
@@ -10,6 +10,8 @@ import { capabilityPackageReferenceSchema, capabilityPackageDraftReferenceSchema
   capabilityPackagePublishedFileSchema, capabilityPackageActivationSchema } from '@/app/lib/capabilities/packages/schemas';
 import { capabilityPackageStoreListSchema, capabilityPackageStoreInstallSchema,
   capabilityPackageStoreUpdateReviewSchema, capabilityPackageStoreUpdateSchema } from '@/app/lib/capabilities/packages/store-contracts';
+import { capabilityPackageStoreOfferingPresentationSchema } from '@/app/lib/capabilities/packages/presentation-contracts';
+import { capabilityPackageStoreInstallOptionsSchema } from '@/app/lib/capabilities/packages/store-install-options-contracts';
 import {
   addMemory,
   deleteMemory,
@@ -1332,6 +1334,7 @@ function createAgentPluginTools(userId?: string): AgentTool[] {
 
 export const CAPABILITY_PACKAGE_TOOL_NAMES = [
   'list_canvas_package_store', 'inspect_canvas_package_store_update', 'install_canvas_package_from_store', 'update_canvas_package_from_store',
+  'inspect_canvas_package_presentation', 'inspect_canvas_package_store_offering', 'inspect_canvas_package_store_install_options',
   'inspect_canvas_package', 'list_canvas_package_scopes', 'create_canvas_package_draft', 'inspect_canvas_package_draft',
   'list_canvas_package_draft_files', 'read_canvas_package_draft_file', 'write_canvas_package_draft_file',
   'delete_canvas_package_draft_file', 'validate_canvas_package_draft', 'publish_canvas_package_draft',
@@ -1361,7 +1364,7 @@ export function createCapabilityPackageTools(userId?: string, agentId?: string |
         const result = toPublicCapabilityPackageMetadata(await operation(await import('@/app/lib/capabilities/packages/actions'), current, params));
         return { content: [{ type: 'text', text: JSON.stringify(result) }], details: { capabilityPackage: { operation: name, result } } };
       } catch (error) {
-        const known = isCapabilityPackageError(error), invalid = error instanceof z.ZodError;
+        const known = isCapabilityPackageError(error) || error instanceof CapabilityResourceError, invalid = error instanceof z.ZodError;
         const message = known ? error.message : invalid ? 'Invalid package tool arguments.' : 'Package management is currently unavailable.';
         return { content: [{ type: 'text', text: `Error: ${message}` }], details: { error: message,
           code: known ? error.code : invalid ? 'PACKAGE_REQUEST_INVALID' : 'PACKAGE_SNAPSHOT_UNAVAILABLE' } };
@@ -1370,8 +1373,14 @@ export function createCapabilityPackageTools(userId?: string, agentId?: string |
   });
   const without = (params: Record<string, unknown>, key: string) => Object.fromEntries(Object.entries(params).filter(([name]) => name !== key));
   return [
-    tool('list_canvas_package_store', 'Lists configured Canvas Store plugin and skill offerings and currently readable exact installed variants. Use kind and q to narrow discovery. Store offerings are not permission to use a connection. Source outages and unknown comparisons remain explicit; no archives are downloaded.', capabilityPackageStoreListSchema,
+    tool('list_canvas_package_store', 'Lists configured Canvas Store plugin and skill offerings and currently readable exact installed variants in the selected scope. Personal own/shared, explicit teamId and organization selection use current Read rights; team discovery never falls back to personal. Use kind, q and separate offering/installed pagination to narrow discovery. Preserve exact resourceRef for subsequent operations. Scope counts and bounded comparison coverage remain explicit, including unknown and partial results. Store offerings are not permission to use a connection; no archives are downloaded.', capabilityPackageStoreListSchema,
       async (_actions, actor, params) => (await import('@/app/lib/capabilities/packages/store-actions')).listCapabilityPackageStoreAction(actor, params)),
+    tool('inspect_canvas_package_presentation', 'Reads safe metadata for one exact readable installed plugin or skill: declared requirements, workflow alternatives, child skills, script descriptions and configuration key names. Discover resourceRef first. Declarations do not grant access, select an account or prove connection readiness. Returns no credentials, configuration values, source paths or executable content; never executes scripts or contacts providers.', reference,
+      async (_actions, actor, params) => (await import('@/app/lib/capabilities/packages/presentation-actions')).inspectCapabilityPackagePresentationAction(actor, params.resourceRef as string)),
+    tool('inspect_canvas_package_store_offering', 'Previews the complete declarations of an explicitly selected configured Store kind, registry, entry, version and checksum. Downloads and validates the selected archive before returning safe metadata; never installs, publishes, executes code or connects an account. Use its requirements to explain an installation before requesting an explicit target.', capabilityPackageStoreOfferingPresentationSchema,
+      async (_actions, actor, params) => (await import('@/app/lib/capabilities/packages/presentation-actions')).inspectCapabilityPackageStoreOfferingAction(actor, params)),
+    tool('inspect_canvas_package_store_install_options', 'Lists current bounded responsible-person and grant targets for an explicitly chosen personal, organization or team installation scope. Requires fresh target Manage authority before reading the directory. The exact Store source remains a selection and is verified during installation. This read does not create a package, download an archive, change grants or share an account. Use list_canvas_package_scopes to discover permitted creation scopes first.', capabilityPackageStoreInstallOptionsSchema,
+      async (_actions, actor, params) => (await import('@/app/lib/capabilities/packages/store-install-options')).inspectCapabilityPackageStoreInstallOptionsAction(actor, params)),
     tool('inspect_canvas_package_store_update', 'Reviews one exact readable resourceRef against an explicitly selected configured Store source, version and checksum. Returns current metadata, grants, content head and local checksum for a subsequent explicit update. This inspection never installs or downloads archives.', capabilityPackageStoreUpdateReviewSchema.extend(reference.shape).strict(),
       async (_actions, actor, params) => (await import('@/app/lib/capabilities/packages/store-actions')).inspectCapabilityPackageStoreUpdateAction(actor, params.resourceRef as string, without(params, 'resourceRef'))),
     tool('install_canvas_package_from_store', 'Installs a verified exact Store plugin or skill version as a new immutable managed package in an explicitly chosen personal, organization or team scope. Starts disabled and restricted with only explicitly validated initial grants and responsible person. Requires current target management and explicit user installation intent. Rejects namespace collisions; never replaces a same-name resource.', capabilityPackageStoreInstallSchema,

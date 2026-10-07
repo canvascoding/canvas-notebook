@@ -202,7 +202,17 @@
         {
           "id": "6a-c",
           "name": "Progressive-Disclosure Plugin-UI und Installations-/Update-/Freigabe-UX",
-          "status": "pending",
+          "status": "in_progress",
+          "substeps": [
+            { "id": "6a-c-1", "name": "Gemeinsame Bereichsprojektion, sichere Detaildaten und Installationsziele", "status": "complete", "evidence": [
+              "Detailed acceptance: evidence/step-6a-c1-scoped-store-reads.md; one current Own/Shared/Team/Org selector, exact installed Store correlation independent of offering search, separate pagination and one prioritized 32-resource provenance budget with explicit unknown/partial coverage",
+              "Safe installed/verified Store presentations and current target-Manage installation options shared by Web/Mobile/actual AgentTools; current parent/actor/source checks, independent recipient authority, no credential/path/script-body disclosure or preview publication/provider execution",
+              "Final production build, whole-tree TypeScript, focused ESLint, new actual/pure read gates, three catalog and three Store application regressions PASS; production-host Playwright1/1 PASS and independent owned-fixture zero readback; own host3001 stopped, foreign stack untouched",
+              "Full graph after incremental UTF-8 failure PASS; staged129symbols/31files LOW and cumulative main comparison4167symbols/419files/16earlierflows CRITICAL warned. New workspace/wizard/detail/click UI remains6a-c-2/3, effective Planning/mobile/OAuth6b and live providers7; gateway default-off, no push/container/deployment"
+            ] },
+            { "id": "6a-c-2", "name": "Neuer Workspace, fokussierte Details und Store-/Freigabeablauf", "status": "pending", "evidence": [] },
+            { "id": "6a-c-3", "name": "Vollstaendige Klickabnahme, Fehler-/Rechtezustaende und responsive Darstellung", "status": "pending", "evidence": [] }
+          ],
           "evidence": []
         }
       ],
