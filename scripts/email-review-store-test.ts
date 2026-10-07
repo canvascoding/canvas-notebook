@@ -65,6 +65,41 @@ async function main() {
     sendFailure = false; lostSendResponse = false; lostRejectResponse = false; terminalRead = false; conflict = false; unauthorized = false; workspaceFailure = false; readFailure = false; sendGate = null; releaseSend = null; deferredRead = null; requests.length = 0;
   }
   const target = (draftId: string) => ({ scope: 'personal' as const, draftId });
+  reset(); await store.openEmailReview(target('first'));
+  const originalHtml = store.useEmailReviewStore.getState().form.bodyHtml;
+  const editorContext = { reviewKey: client.emailReviewKey(target('first')), version: 1, documentKey: 'original-document' };
+  store.initializeEmailReviewEditor({ ...editorContext, sourceHtml: originalHtml });
+  store.updateEmailReviewForm({ bodyHtml: '<p>Hello <b>world</b></p>' }, editorContext);
+  assert.equal(store.useEmailReviewStore.getState().dirty, false);
+  store.updateEmailReviewForm({ bodyHtml: '<p>Hello <em>world</em></p>' }, { ...editorContext, documentKey: 'italic-document' });
+  assert.equal(store.useEmailReviewStore.getState().dirty, true);
+  store.updateEmailReviewForm({ bodyHtml: '<p>Hello <b>world</b></p>' }, editorContext);
+  assert.equal(store.useEmailReviewStore.getState().dirty, false);
+  store.updateEmailReviewForm({ subject: 'Changed subject' });
+  assert.equal(store.useEmailReviewStore.getState().dirty, true);
+  store.updateEmailReviewForm({ subject: 'first' });
+  assert.equal(store.useEmailReviewStore.getState().dirty, false);
+  await store.selectEmailReview(target('second'));
+  store.updateEmailReviewForm({ bodyHtml: '<p>Delayed first editor</p>' }, editorContext);
+  store.initializeEmailReviewEditor({ ...editorContext, sourceHtml: store.useEmailReviewStore.getState().form.bodyHtml });
+  assert.equal(store.useEmailReviewStore.getState().activeEntry?.id, 'second');
+  assert.equal(store.useEmailReviewStore.getState().form.bodyHtml, originalHtml);
+  assert.equal(store.useEmailReviewStore.getState().dirty, false);
+  assert.equal(store.useEmailReviewStore.getState().editorDocument, null);
+
+  reset(); await store.openEmailReview(target('first'));
+  store.updateEmailReviewForm({ subject: 'Edited before editor readiness' });
+  store.initializeEmailReviewEditor({ ...editorContext, sourceHtml: originalHtml });
+  assert.equal(store.useEmailReviewStore.getState().dirty, true);
+  assert.equal(await store.saveActiveEmailReview(), true);
+  store.updateEmailReviewForm({ bodyHtml: '<p>Delayed previous version</p>' }, editorContext);
+  assert.equal(store.useEmailReviewStore.getState().activeEntry?.version, 2);
+  assert.equal(store.useEmailReviewStore.getState().dirty, false);
+  assert.equal(store.useEmailReviewStore.getState().form.bodyHtml, originalHtml);
+  store.closeEmailReview();
+  store.initializeEmailReviewEditor({ ...editorContext, sourceHtml: originalHtml });
+  assert.equal(store.useEmailReviewStore.getState().editorDocument, null);
+
   reset();
   await store.openEmailReview(target('first'));
   assert.equal(store.useEmailReviewStore.getState().queue.length, 3);
@@ -119,7 +154,9 @@ async function main() {
   conflict = true; drafts.first.version = 7;
   assert.equal(await store.sendActiveEmailReview(), false);
   assert.equal(store.useEmailReviewStore.getState().activeEntry?.version, 1);
-  assert.equal(store.useEmailReviewStore.getState().dirty, true);
+  assert.equal(store.useEmailReviewStore.getState().dirty, false);
+  assert.equal(store.useEmailReviewStore.getState().needsReload, true);
+  assert.equal(await store.sendActiveEmailReview(), false);
 
   reset(); await store.openEmailReview(target('first'));
   store.updateEmailReviewForm({ subject: 'Keep my edits' }); conflict = true;

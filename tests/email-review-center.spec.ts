@@ -87,6 +87,75 @@ async function openDraft(page: Page, id: string, workspaceId?: string) {
 // provided privately through the existing managed test environment.
 test.describe('Global email review', () => {
   test.setTimeout(120_000);
+  for (const viewport of [{ width: 1440, height: 960 }, { width: 390, height: 844 }]) {
+    test(`unchanged rich drafts navigate freely and real edits remain protected at ${viewport.width}px`, async ({ browser }, testInfo) => {
+      const context = await createAuthenticatedContext(browser, { viewport });
+      const samples = [
+        draft('unchanged-bold', 'Bold proposal', { body: '<p>Hello <b>world</b></p>' }),
+        draft('unchanged-link', 'Link proposal', { body: '<p><a href="https://example.test">Example</a></p>' }),
+        draft('unchanged-list', 'List proposal', { body: '<ul><li><p>First item</p></li><li><p>Second item</p></li></ul>' }),
+        draft('unchanged-table', 'Table proposal', { body: '<table><tbody><tr><td>Cell</td></tr></tbody></table>' }),
+        draft('unchanged-text', 'Text proposal', { body: 'First line\nSecond line', isHtml: false }),
+      ];
+      const fixture = await installOutboxFixture(context, samples);
+      const page = await context.newPage();
+      try {
+        await openDraft(page, samples[0].id);
+        const dialog = page.getByTestId('email-review-host');
+        const editor = dialog.locator('.ProseMirror');
+        const warning = page.getByTestId('email-review-unsaved-dialog');
+        for (const sample of samples) {
+          await expect(dialog.getByTestId('email-review-subject')).toHaveValue(sample.subject);
+          await expect(editor).toBeVisible();
+          await editor.click();
+          await page.keyboard.press('ArrowLeft');
+          await dialog.getByTestId('email-review-formatting').click();
+          await dialog.getByTestId('email-review-formatting').click();
+          await expect(dialog.getByTestId('email-review-save')).toBeDisabled();
+          await dialog.getByTestId('email-review-postpone').click();
+          await expect(warning).toBeHidden();
+        }
+        await expect(dialog.getByTestId('email-review-subject')).toHaveValue(samples[0].subject);
+        expect(fixture.writes).toEqual([]);
+        await editor.click();
+        await page.keyboard.press('End');
+        await page.keyboard.type(' edited');
+        await expect(dialog.getByTestId('email-review-save')).toBeEnabled();
+        await dialog.getByTestId('email-review-postpone').click();
+        await expect(warning).toBeVisible();
+        await warning.getByRole('button', { name: /weiter bearbeiten|keep editing/i }).click();
+        await editor.click();
+        await page.keyboard.press('ControlOrMeta+z');
+        await expect(dialog.getByTestId('email-review-save')).toBeDisabled();
+        await page.keyboard.press('ControlOrMeta+a');
+        await page.keyboard.press('ControlOrMeta+b');
+        await expect(dialog.getByTestId('email-review-save')).toBeEnabled();
+        await dialog.getByTestId('email-review-postpone').click();
+        await expect(warning).toBeVisible();
+        await warning.getByRole('button', { name: /weiter bearbeiten|keep editing/i }).click();
+        await editor.click();
+        await page.keyboard.press('ControlOrMeta+z');
+        await expect(dialog.getByTestId('email-review-save')).toBeDisabled();
+        await dialog.getByTestId('email-review-recipient-details').click();
+        await dialog.getByTestId('email-review-bcc').fill('changed@example.test');
+        await expect(dialog.getByTestId('email-review-save')).toBeEnabled();
+        await dialog.getByTestId('email-review-bcc').fill('blind@example.test');
+        await expect(dialog.getByTestId('email-review-save')).toBeDisabled();
+        await dialog.getByTestId('email-review-subject').fill('Real subject edit');
+        await dialog.getByTestId('email-review-save').click();
+        await expect.poll(() => fixture.drafts.get(samples[0].id)?.subject).toBe('Real subject edit');
+        await expect(dialog.getByTestId('email-review-save')).toBeDisabled();
+        await dialog.getByTestId('email-review-postpone').click();
+        await expect(warning).toBeHidden();
+        expect(fixture.writes).toHaveLength(1);
+        expect(fixture.unexpected).toEqual([]);
+        await page.screenshot({ path: testInfo.outputPath(`email-review-clean-${viewport.width}.png`) });
+        await page.keyboard.press('Escape');
+        await expect(dialog).toBeHidden();
+        await expect(warning).toBeHidden();
+      } finally { await context.close(); }
+    });
+  }
   test('preserves formatted content and BCC while saving, then rejects and advances', async ({ browser }, testInfo) => {
     const context = await createAuthenticatedContext(browser, { viewport: { width: 1440, height: 960 } });
     const fixture = await installOutboxFixture(context, [draft('review-first', 'First proposal'), draft('review-next', 'Next proposal')]);
