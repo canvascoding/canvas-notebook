@@ -7,6 +7,10 @@ import JSZip from 'jszip';
 import packageMetadata from '@/package.json';
 import { listVisibleInstalledCanvasPlugins } from '@/app/lib/plugins/visible-installed-plugins';
 import type { CapabilityResourceActor } from '@/app/lib/capabilities/resources/contracts';
+import { createCapabilityResourceId } from '@/app/lib/capabilities/reference';
+import { issueVerifiedCapabilityStoreOrigin } from '@/app/lib/capabilities/packages/store-origin';
+import type { CapabilityStoreComparison } from './store-installed-resource';
+import type { SafeActorSkillStoreResource } from '@/app/lib/skills/actor-skill-store-state';
 
 import {
   computeCanvasPluginChecksum,
@@ -33,12 +37,11 @@ import {
 } from '@/app/lib/plugins/plugin-connection-readiness';
 import { readPluginMcpTemplateFile } from '@/app/lib/plugins/plugin-mcp-template-service';
 import { readCanvasSkillRegistry, type CanvasSkillInstallRecord } from '@/app/lib/skills/canvas-skill-store';
-import { resolveReadableScopedSkillsDataDir } from '@/app/lib/runtime-data-paths';
+import { resolveReadableScopedSkillsDataDir, resolveDataStorageScope } from '@/app/lib/runtime-data-paths';
 
 export const DEFAULT_CANVAS_PLUGIN_STORE_REGISTRY_URL =
   'https://raw.githubusercontent.com/canvascoding/canvas-notebook-plugin-marketplace/main/registry.json';
 
-const MAX_STORE_REGISTRY_BYTES = 5 * 1024 * 1024;
 const MAX_STORE_ICON_BYTES = 2 * 1024 * 1024;
 const MAX_STORE_ARCHIVE_BYTES = 250 * 1024 * 1024;
 const MAX_STORE_ARCHIVE_FILES = 2_000;
@@ -96,6 +99,8 @@ export interface CanvasPluginStoreInstalledState {
   installedPlugin?: CanvasPluginInstallRecord;
   skills: CanvasPluginStoreSkillState[];
   skillSummary: CanvasPluginStoreSkillSummary;
+  resources?: SafeActorSkillStoreResource[];
+  comparison?: CapabilityStoreComparison;
 }
 
 export type CanvasPluginStorePluginWithState = CanvasPluginStorePlugin & {
@@ -109,6 +114,9 @@ export interface CanvasPluginStoreList {
   stats: CanvasPluginStoreStats;
   facets: { categories: string[]; connectionTypes: CanvasPluginStoreConnectionType[] };
   installedPlugins: CanvasPluginStorePluginWithState[];
+  installedResources?: SafeActorSkillStoreResource[];
+  comparison?: CapabilityStoreComparison;
+  availability?: 'available' | 'unavailable';
 }
 
 export interface CanvasPluginStoreInstallResult extends CanvasPluginInstallResult {
@@ -466,8 +474,8 @@ async function readUrlBytes(rawUrl: string, maxBytes = MAX_STORE_ARCHIVE_BYTES):
 }
 
 async function readJsonUrl(rawUrl: string): Promise<unknown> {
-  const bytes = await readUrlBytes(rawUrl, MAX_STORE_REGISTRY_BYTES);
-  return JSON.parse(bytes.toString('utf-8')) as unknown;
+  const { readBoundedStoreRegistryJson } = await import('./store-registry-reader');
+  return readBoundedStoreRegistryJson(rawUrl);
 }
 
 function normalizeStoreVersion(value: unknown): CanvasPluginStoreVersion | null {
@@ -475,7 +483,7 @@ function normalizeStoreVersion(value: unknown): CanvasPluginStoreVersion | null 
   const version = stringValue(value.version);
   const downloadUrl = stringValue(value.downloadUrl ?? value.download_url);
   const checksum = stringValue(value.checksum);
-  if (!version || !downloadUrl || !checksum || !isValidCanvasPluginVersion(version)) {
+  if (!version || !downloadUrl || !checksum || !isValidCanvasPluginVersion(version) || !/^[a-f0-9]{64}$/u.test(normalizeChecksum(checksum))) {
     return null;
   }
 
@@ -483,7 +491,7 @@ function normalizeStoreVersion(value: unknown): CanvasPluginStoreVersion | null 
     version,
     downloadUrl,
     packagePath: stringValue(value.packagePath ?? value.package_path),
-    checksum,
+    checksum: normalizeChecksum(checksum),
     manifestPath: stringValue(value.manifestPath ?? value.manifest_path),
     releasedAt: stringValue(value.releasedAt ?? value.released_at),
     minCanvasVersion: stringValue(value.minCanvasVersion ?? value.min_canvas_version),
@@ -503,7 +511,7 @@ function normalizeStorePlugin(value: unknown, registryUrl: string): CanvasPlugin
   const versions: Record<string, CanvasPluginStoreVersion> = {};
   for (const [versionKey, versionValue] of Object.entries(rawVersions)) {
     const version = normalizeStoreVersion(versionValue);
-    if (!version || versionKey !== version.version) continue;
+    if (!version || versionKey !== version.version) throw new Error('The plugin store contains an invalid version entry.');
     versions[version.version] = {
       ...version,
       downloadUrl: resolveRegistryRelativeUrl(registryUrl, version.downloadUrl) || version.downloadUrl,
@@ -551,6 +559,9 @@ export async function readCanvasPluginStoreRegistry(): Promise<CanvasPluginStore
       .map((entry) => normalizeStorePlugin(entry, registryUrl))
       .filter((entry): entry is CanvasPluginStorePlugin => Boolean(entry))
     : [];
+  if (!Array.isArray(parsed.plugins) || plugins.length !== parsed.plugins.length || new Set(plugins.map(plugin => plugin.name)).size !== plugins.length) {
+    throw new Error('The plugin store contains invalid or duplicate entries.');
+  }
 
   return {
     schemaVersion: 1,
@@ -689,6 +700,10 @@ function storeConnectionTypes(plugin: CanvasPluginStorePlugin): CanvasPluginStor
 }
 
 export async function listCanvasPluginStore(options: CanvasPluginStoreListOptions = {}): Promise<CanvasPluginStoreList> {
+  if (options.actor) {
+    const { listActorCanvasPluginStore } = await import('./actor-plugin-store-state');
+    return listActorCanvasPluginStore({ ...options, actor: options.actor }, readCanvasPluginStoreRegistry);
+  }
   const [registry, installedPlugins] = await Promise.all([
     readCanvasPluginStoreRegistry(),
     listVisibleInstalledCanvasPlugins(options.scope, options.actor),
@@ -739,6 +754,10 @@ export async function getCanvasPluginStorePlugin(
   plugin: CanvasPluginStorePluginWithState;
 } | null> {
   if (!isValidCanvasPluginName(pluginName)) return null;
+  if (actor) {
+    const store = await listCanvasPluginStore({ name: pluginName, scope, actor });
+    return store.plugins[0] ? { registry: store.registry, plugin: store.plugins[0] } : null;
+  }
   const [registry, installedPlugins] = await Promise.all([
     readCanvasPluginStoreRegistry(),
     listVisibleInstalledCanvasPlugins(scope, actor),
@@ -903,6 +922,12 @@ export async function installCanvasPluginFromStore(
     await verifyPackageChecksum(extracted.packageRoot, storeVersion.checksum);
     await assertStorePackageIdentity(extracted.packageRoot, pluginName, selectedVersion);
 
+    const storage = resolveDataStorageScope(options.scope);
+    const resourceId = createCapabilityResourceId({ resourceType: 'plugin', scopeType: storage.scopeType === 'legacy' ? 'system' : storage.scopeType,
+      name: pluginName, sourceType: 'standalone', organizationId: storage.organizationId, ownerUserId: storage.userId });
+    const storeOrigin = await issueVerifiedCapabilityStoreOrigin({ resourceId, registryId: registry.id, registryUrl: registry.registryUrl,
+      kind: 'plugin', entryKey: pluginName, version: selectedVersion, upstreamChecksum: storeVersion.checksum, packageRoot: extracted.packageRoot });
+
     const installResult = await installCanvasPluginFromPath(extracted.packageRoot, {
       enable: options.enable,
       replace: options.replace ?? true,
@@ -910,6 +935,7 @@ export async function installCanvasPluginFromStore(
       sourcePathLabel: storeVersion.downloadUrl,
       sourceRegistryId: registry.id,
       sourceRegistryUrl: registry.registryUrl,
+      storeOrigin,
       scope: options.scope,
     });
 

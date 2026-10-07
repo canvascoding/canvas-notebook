@@ -33,12 +33,16 @@ async function main() {
   Object.assign(team.metadata, { sourceRegistryUrl: 'private-origin' });
   const projected = projectActorCanvasSkillStoreState(registry, [personal, team, denied], { scopeType: 'user', userId: 'reader' });
   const state = projected.skills[0].installed;
-  assert.deepEqual(state.resources?.map(resource => resource.metadata.resourceRef), ['personal', 'team']);
+  assert.deepEqual(projected.installedResources.map(resource => resource.metadata.resourceRef), ['personal', 'team']);
+  assert.deepEqual(state.resources, []); assert.equal(state.installed, false, 'A matching name is not a verified Store origin.');
   assert.equal(state.version, undefined); assert.equal(state.enabled, false);
-  assert.equal(state.installedSkill, undefined); assert.equal(state.comparison, 'unknown');
+  assert.equal(state.installedSkill, undefined); assert.equal(projected.comparison, 'unknown');
   assert.equal(state.updateAvailable, false); assert.equal(state.modified, false); assert.equal(state.restoreAvailable, false);
-  assert.equal(state.resources?.[1].activation?.enabled, true);
-  assert.equal(state.resources?.[1].activation?.readiness, 'unknown');
+  assert.equal(projected.installedResources[1].activation?.enabled, true);
+  assert.equal(projected.installedResources[1].activation?.readiness, 'unknown');
+  assert.equal(projected.installedResources[0].artifact.version, '1.0.0');
+  assert.equal(projected.installedResources[1].metadata.ownership.type, 'team');
+  assert(projected.installedResources.every(resource => resource.storeState?.origin === 'unknown'));
   assert.equal(projected.skills[1].installed.installed, false);
   assert.equal(projected.registry.registryUrl, ''); assert.equal(projected.registry.homepage, 'https://store.example.test/info');
   assert.equal(projected.registry.publisher?.url, undefined); assert.equal(projected.skills[0].iconUrl, undefined);
@@ -49,9 +53,10 @@ async function main() {
     assert(!JSON.stringify(projected).includes(forbidden), forbidden);
   }
   const organization = projectActorCanvasSkillStoreState(registry, [personal, team], { scopeType: 'organization', organizationId: 'org-a' });
-  assert.deepEqual(organization.skills[0].installed.resources?.map(resource => resource.metadata.resourceRef), ['team']);
-  assert.equal(organization.skills[0].installed.version, '2.0.0');
-  assert.equal(organization.skills[0].installed.enabled, true);
+  assert.deepEqual(organization.installedResources.map(resource => resource.metadata.resourceRef), ['team']);
+  assert.deepEqual(organization.skills[0].installed.resources, []); assert.equal(organization.skills[0].installed.installed, false);
+  assert.equal(organization.installedResources[0].artifact.version, '2.0.0');
+  assert.equal(organization.installedResources[0].activation?.enabled, true);
   assert.equal(projectActorCanvasSkillStoreState(registry, [team], { scopeType: 'organization', organizationId: 'org-b' }).stats.installed, 0);
 
   // Route transport only: real ACL/store fixtures run independently. These seams

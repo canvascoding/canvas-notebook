@@ -18,7 +18,7 @@ async function main() {
   for(const name of receipt.names) assert.match(name,new RegExp(`^package-editor-qa-(?:org-|team-)?${receipt.nonce}$`,'u'));
   assert(Array.isArray(receipt.resourceRevisions)&&receipt.resourceRevisions.length<=receipt.names.length);
   if(receipt.sourceResourceRef)assert.match(receipt.sourceResourceRef,/^canvas-resource:[a-f0-9-]{36}$/u);
-  for(const revision of receipt.resourceRevisions){assert.match(revision.resourceRef,/^canvas-resource:[a-f0-9-]{36}$/u);assert.equal(revision.metadataRevision,1);assert([1,2,3].includes(revision.grantsRevision));if(revision.grantsRevision!==1)assert.equal(revision.resourceRef,receipt.sourceResourceRef,'Only the explicitly receipted original revoke/restore may have revision2/3.');}
+  for(const revision of receipt.resourceRevisions){assert.match(revision.resourceRef,/^canvas-resource:[a-f0-9-]{36}$/u);assert.equal(revision.metadataRevision,1);assert([1,2,3,4,5].includes(revision.grantsRevision));if(revision.grantsRevision!==1)assert.equal(revision.resourceRef,receipt.sourceResourceRef,'Only the exact receipted source may contain the two grant/revoke rounds (revisions2–5).');}
   assert.equal(new Set(receipt.resourceRevisions.map(value=>value.resourceRef)).size,receipt.resourceRevisions.length);
   assert(receipt.names.includes(receipt.sourceName));assert(receipt.actorIds.includes(receipt.adminId));assert(receipt.actorIds.length<=2);
   const preferences=receipt.preferences??[];

@@ -44,6 +44,8 @@ import { assertPersonalSkillActivationAllowed, PersonalSkillActivationError, rea
 import { withCapabilityPackageRegistryLock } from '@/app/lib/capabilities/packages/artifacts';
 import type { CapabilityResourceActor } from '@/app/lib/capabilities/resources/contracts';
 import type { SafeActorSkillStoreResource } from './actor-skill-store-state';
+import { issueVerifiedCapabilityStoreOrigin, isIssuedCapabilityStoreOrigin, type CapabilityStoreOrigin } from '@/app/lib/capabilities/packages/store-origin';
+import type { CapabilityStoreComparison } from '@/app/lib/plugins/store-installed-resource';
 
 export const DEFAULT_CANVAS_SKILL_STORE_REGISTRY_URL =
   'https://raw.githubusercontent.com/canvascoding/canvas-notebook-plugin-marketplace/main/registry.json';
@@ -96,6 +98,7 @@ export interface CanvasSkillStoreRegistry {
 }
 
 export interface CanvasSkillInstallRecord {
+  storeOrigin?: CapabilityStoreOrigin;
   packageDefaultEnabled?: boolean;
   packageManaged?: boolean;
   packageResourceRef?: string;
@@ -140,7 +143,7 @@ export interface CanvasSkillStoreInstalledState {
   managedByOrganization?: boolean;
   /** Present only on the actor-authorized projection. Each readable instance remains exact. */
   resources?: SafeActorSkillStoreResource[];
-  comparison?: 'unknown';
+  comparison?: CapabilityStoreComparison;
 }
 
 export type CanvasSkillStoreSkillWithState = CanvasSkillStoreSkill & {
@@ -180,7 +183,9 @@ export interface CanvasSkillStoreList {
   skills: CanvasSkillStoreSkillWithState[];
   pagination: CanvasSkillStorePagination;
   stats: CanvasSkillStoreStats;
-  comparison?: 'unknown';
+  comparison?: CapabilityStoreComparison;
+  availability?: 'available' | 'unavailable';
+  installedResources?: SafeActorSkillStoreResource[];
 }
 
 export interface CanvasSkillStoreInstallResult {
@@ -301,8 +306,8 @@ async function readUrlBytes(rawUrl: string): Promise<Buffer> {
 }
 
 async function readJsonUrl(rawUrl: string): Promise<unknown> {
-  const bytes = await readUrlBytes(rawUrl);
-  return JSON.parse(bytes.toString('utf-8')) as unknown;
+  const { readBoundedStoreRegistryJson } = await import('@/app/lib/plugins/store-registry-reader');
+  return readBoundedStoreRegistryJson(rawUrl, { allowedProtocols: ['https:', 'http:', 'file:'] });
 }
 
 function normalizeStoreVersion(value: unknown): CanvasSkillStoreVersion | null {
@@ -310,7 +315,7 @@ function normalizeStoreVersion(value: unknown): CanvasSkillStoreVersion | null {
   const version = stringValue(value.version);
   const downloadUrl = stringValue(value.downloadUrl ?? value.download_url);
   const checksum = stringValue(value.checksum);
-  if (!version || !downloadUrl || !checksum || !isValidCanvasPluginVersion(version)) {
+  if (!version || !downloadUrl || !checksum || !isValidCanvasPluginVersion(version) || !/^[a-f0-9]{64}$/u.test(normalizeChecksum(checksum))) {
     return null;
   }
 
@@ -318,7 +323,7 @@ function normalizeStoreVersion(value: unknown): CanvasSkillStoreVersion | null {
     version,
     downloadUrl,
     packagePath: stringValue(value.packagePath ?? value.package_path),
-    checksum,
+    checksum: normalizeChecksum(checksum),
     releasedAt: stringValue(value.releasedAt ?? value.released_at),
     minCanvasVersion: stringValue(value.minCanvasVersion ?? value.min_canvas_version),
     notes: stringValue(value.notes),
@@ -337,7 +342,7 @@ function normalizeStoreSkill(value: unknown, registryUrl: string): CanvasSkillSt
   const versions: Record<string, CanvasSkillStoreVersion> = {};
   for (const [versionKey, versionValue] of Object.entries(rawVersions)) {
     const version = normalizeStoreVersion(versionValue);
-    if (!version) continue;
+    if (!version || versionKey !== version.version) throw new Error('The skill store contains an invalid version entry.');
     versions[versionKey] = {
       ...version,
       downloadUrl: resolveRegistryRelativeUrl(registryUrl, version.downloadUrl) || version.downloadUrl,
@@ -385,6 +390,9 @@ export async function readCanvasSkillStoreRegistry(): Promise<CanvasSkillStoreRe
       .map((entry) => normalizeStoreSkill(entry, registryUrl))
       .filter((entry): entry is CanvasSkillStoreSkill => Boolean(entry))
     : [];
+  if (!Array.isArray(parsed.skills) || skills.length !== parsed.skills.length || new Set(skills.map(skill => skill.name)).size !== skills.length) {
+    throw new Error('The skill store contains invalid or duplicate entries.');
+  }
 
   return {
     schemaVersion: 1,
@@ -710,12 +718,12 @@ async function addPageStateDetails(
 }
 
 export async function listCanvasSkillStore(options: CanvasSkillStoreListOptions = {}): Promise<CanvasSkillStoreList> {
-  const actor = options.actor ? { userId: options.actor.userId, workspaceId: options.actor.workspaceId ?? null } : undefined;
-  if (actor) await (await import('./actor-skill-store-state')).assertActorCanvasSkillStoreContext(actor);
+  if (options.actor) {
+    const { listActorCanvasSkillStore } = await import('./actor-skill-store-state');
+    return listActorCanvasSkillStore({ ...options, actor: options.actor }, readCanvasSkillStoreRegistry);
+  }
   const registry = await readCanvasSkillStoreRegistry();
-  const enriched = actor
-    ? await (await import('./actor-skill-store-state')).readActorCanvasSkillStoreState(registry, actor, options.scope)
-    : await enrichStoreSkillsWithInstalledState(registry, options.scope);
+  const enriched = await enrichStoreSkillsWithInstalledState(registry, options.scope);
   const pageSize = clampPositiveInteger(options.pageSize, 12, 50);
   const page = clampPositiveInteger(options.page, 1, 100000);
   const state = options.state || 'all';
@@ -725,13 +733,11 @@ export async function listCanvasSkillStore(options: CanvasSkillStoreListOptions 
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const normalizedPage = Math.min(page, totalPages);
   const offset = (normalizedPage - 1) * pageSize;
-  const pageSkills = actor ? filtered.slice(offset, offset + pageSize)
-    : await Promise.all(filtered.slice(offset, offset + pageSize).map((skill) => addPageStateDetails(skill, options.scope)));
+  const pageSkills = await Promise.all(filtered.slice(offset, offset + pageSize).map((skill) => addPageStateDetails(skill, options.scope)));
 
   return {
     registry: enriched.registry,
     skills: pageSkills,
-    ...(actor ? { comparison: 'unknown' as const } : {}),
     pagination: {
       page: normalizedPage,
       pageSize,
@@ -920,7 +926,7 @@ async function writeInstalledSkillRecord(
   version: string,
   sourceType: CanvasSkillInstallRecord['sourceType'],
   sourcePath: string,
-  sourceRegistry: { id?: string; url?: string } | undefined,
+  sourceRegistry: { id?: string; url?: string; storeOrigin?: CapabilityStoreOrigin } | undefined,
   installDir: string,
   scope?: CanvasSkillStoreScope | null,
 ): Promise<CanvasSkillInstallRecord> {
@@ -957,6 +963,11 @@ async function writeInstalledSkillRecord(
     skillPath: requirePathInside(installDir, 'SKILL.md'),
     interface: await loadCanvasSkillInterface(installDir),
   };
+  if (sourceRegistry?.storeOrigin) {
+    if (!isIssuedCapabilityStoreOrigin(sourceRegistry.storeOrigin, record.resourceId!)
+      || sourceRegistry.storeOrigin.baselineChecksum !== checksum) throw new Error('The skill store import proof is invalid.');
+    record.storeOrigin = sourceRegistry.storeOrigin;
+  }
   registry.skills[skillName] = record;
   await writeCanvasSkillRegistry(registry, scope);
   return record;
@@ -1033,7 +1044,13 @@ export async function installCanvasSkillFromStore(
       const extracted = await extractPackageFromArchive(archiveBytes, storeVersion.packagePath);
       tempRoot = extracted.tempRoot;
       await verifyPackageChecksum(extracted.packageRoot, storeVersion.checksum);
-      await validateSkillPackage(extracted.packageRoot, skillName);
+      const packageSkill = await validateSkillPackage(extracted.packageRoot, skillName);
+      if (packageSkill.version !== selectedVersion) throw new Error('The downloaded skill version does not match the store.');
+      const storage = resolveDataStorageScope(options.scope);
+      const resourceId = createCapabilityResourceId({ resourceType: 'skill', scopeType: storage.scopeType === 'legacy' ? 'system' : storage.scopeType,
+        name: skillName, sourceType: 'standalone', organizationId: storage.organizationId, ownerUserId: storage.userId });
+      const storeOrigin = await issueVerifiedCapabilityStoreOrigin({ resourceId, registryId: registry.id, registryUrl: registry.registryUrl,
+        kind: 'skill', entryKey: skillName, version: selectedVersion, upstreamChecksum: storeVersion.checksum, packageRoot: extracted.packageRoot });
       const backupPath = await backupExistingSkill(skillName, options.scope);
       const installDir = await copySkillPackage(extracted.packageRoot, skillName, selectedVersion, options.scope);
       const record = await writeInstalledSkillRecord(
@@ -1041,7 +1058,7 @@ export async function installCanvasSkillFromStore(
         selectedVersion,
         'store',
         storeVersion.downloadUrl,
-        { id: registry.id, url: registry.registryUrl },
+        { id: registry.id, url: registry.registryUrl, storeOrigin },
         installDir,
         options.scope,
       );

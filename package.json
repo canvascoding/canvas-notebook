@@ -698,6 +698,7 @@
     "test:capabilities:packages:drafts": "tsx --conditions react-server scripts/capability-package-drafts-test.ts",
     "test:capabilities:packages:editor-ui": "tsx scripts/capability-package-editor-ui-test.tsx && tsx scripts/package-drafts-workspace-ui-test.tsx",
     "test:plugins:catalog": "tsx --conditions react-server scripts/plugin-workspace-catalog-test.ts && tsx --conditions react-server scripts/actor-skill-store-state-test.ts && tsx --conditions react-server scripts/plugin-workspace-catalog-authority-test.ts",
+    "test:plugins:provenance": "tsx --conditions react-server scripts/capability-store-origin-test.ts && tsx --conditions react-server scripts/capability-package-origin-test.ts && tsx --conditions react-server scripts/capability-store-adoption-test.ts && tsx --conditions react-server scripts/store-origin-readers-test.ts && tsx --conditions react-server scripts/capability-package-public-metadata-test.ts && tsx --conditions react-server scripts/capability-package-store-provenance-test.ts",
     "test:plugins:navigation": "tsx scripts/plugin-navigation-test.ts && tsx scripts/plugin-navigation-guard-test.tsx",
     "test:capabilities:packages:native": "tsx --conditions react-server scripts/capability-package-native-test.ts",
     "test:capabilities:preferences:lock": "tsx --conditions react-server scripts/capability-preference-lock-test.ts",

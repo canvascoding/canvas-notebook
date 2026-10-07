@@ -33,6 +33,7 @@ import { getSkillNames, loadSkillByName } from '@/app/lib/skills/skill-loader';
 import { importSkillPackage } from '@/app/lib/skills/skill-package-import';
 import { readEnabledSkillsForScope, writeEnabledSkillsForScope } from '@/app/lib/skills/skill-settings';
 import { assertPersonalSkillActivationAllowed, PersonalSkillActivationError } from '@/app/lib/skills/personal-skill-activation';
+import { normalizeCapabilityStoreOrigin } from '@/app/lib/capabilities/packages/store-origin';
 
 const SKILL_DRAFTS_DIR_NAME = '.canvas-skill-drafts';
 const IGNORED_PACKAGE_ENTRIES = new Set(['.git', 'node_modules', '.DS_Store']);
@@ -380,6 +381,14 @@ async function writeLocalSkillRecord(params: {
   const registry = await readCanvasSkillRegistry(params.scope);
   const existing = registry.skills[params.skillName];
   const record: CanvasSkillInstallRecord = {
+    resourceId: existing?.resourceId,
+    scopeType: existing?.scopeType,
+    organizationId: existing?.organizationId,
+    ownerUserId: existing?.ownerUserId,
+    revision: (existing?.revision || 0) + 1,
+    storeOrigin: normalizeCapabilityStoreOrigin(existing?.storeOrigin, existing?.resourceId) ?? undefined,
+    sourceRegistryId: existing?.sourceRegistryId,
+    sourceRegistryUrl: existing?.sourceRegistryUrl,
     name: params.skillName,
     version: params.version,
     description: params.description,

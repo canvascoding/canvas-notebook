@@ -133,6 +133,15 @@ async function main() {
       const result = await store.installCanvasSkillFromStore(name, version, { scope, enable: false, replace: false });
       assert.ok(result.success && result.skill?.resourceId, result.error || 'Actual skill fixture installation failed.'); installedSkills.set(key, result.skill!);
     }
+    // Represent pre-provenance legacy installations: real validated bytes/identity,
+    // with no optional import receipt. ACL and current activation stay unchanged.
+    const { resolveScopedSkillRegistryPath } = await import('../app/lib/runtime-data-paths');
+    for (const scope of [ownScope('alice'), orgScope, ownScope('bob')]) {
+      const file = resolveScopedSkillRegistryPath(scope);
+      const document = JSON.parse(await fs.readFile(file, 'utf8')) as Awaited<ReturnType<typeof store.readCanvasSkillRegistry>>;
+      delete document.skills['catalog-design'].storeOrigin;
+      await fs.writeFile(file, JSON.stringify(document));
+    }
     const actions = await import('../app/lib/capabilities/resources/actions');
     const owner = { userId: 'owner', workspaceId: 'personal-owner' }, alice = { userId: 'alice', workspaceId: 'personal-alice' };
     const grant = (targetId: string) => ({ targetType: 'user' as const, targetId, canUse: true, canEdit: false, canManage: false });
@@ -233,19 +242,29 @@ async function main() {
     await sql.run('UPDATE "user" SET banned=1 WHERE id=\'banned\'');
     for (const userId of ['inactive', 'banned']) await assert.rejects(() => read({ userId, workspaceId: `personal-${userId}` }), { status: 403 });
     const state = await store.listCanvasSkillStore({ actor: alice, scope: ownScope('alice'), pageSize: 50 });
-    assert.equal(state.comparison, 'unknown');
+    assert.equal(state.comparison, 'partial', 'Known single Store origin and unknown legacy instances remain distinct.');
     const multiple = state.skills.find(skill => skill.name === 'catalog-design')!.installed;
-    assert.equal(multiple.resources?.length, 3); assert.equal(multiple.version, undefined); assert.equal(multiple.enabled, false);
+    const multipleResources = state.installedResources!.filter(resource => resource.artifact.name === 'catalog-design');
+    assert.equal(multipleResources.length, 3); assert.deepEqual(multiple.resources, []); assert.equal(multiple.installed, false);
+    assert.equal(multiple.version, undefined); assert.equal(multiple.enabled, false);
     assert.equal(multiple.installedSkill, undefined); assert.equal(multiple.restoreAvailable, false); assert.equal(multiple.modified, false); assert.equal(multiple.updateAvailable, false);
-    assert.deepEqual(new Set(multiple.resources!.map(resource => resource.metadata.resourceRef)), new Set(['skill-own', 'skill-team', 'skill-shared'].map(key => descriptors.get(key)!.metadata.resourceRef)));
-    for (const name of ['hidden-skill', 'private-skill']) { const installed = state.skills.find(skill => skill.name === name)!.installed; assert.equal(installed.installed, false); assert.deepEqual(installed.resources, []); }
+    assert.deepEqual(new Set(multipleResources.map(resource => resource.metadata.resourceRef)), new Set(['skill-own', 'skill-team', 'skill-shared'].map(key => descriptors.get(key)!.metadata.resourceRef)));
+    assert(multipleResources.every(resource => resource.storeState?.origin === 'unknown'));
+    assert.equal(multipleResources.find(resource => resource.metadata.resourceRef === descriptors.get('skill-team')!.metadata.resourceRef)!.metadata.ownership.type, 'team');
+    for (const name of ['hidden-skill', 'private-skill']) {
+      const installed = state.skills.find(skill => skill.name === name)!.installed; assert.equal(installed.installed, false); assert.deepEqual(installed.resources, []);
+      assert(!state.installedResources!.some(resource => resource.artifact.name === name));
+    }
     const single = state.skills.find(skill => skill.name === 'single-skill')!.installed;
     assert.equal(single.resources?.length, 1); assert.equal(single.enabled, true); assert.equal(single.version, '1.0.0');
+    const singleResource = state.installedResources!.find(resource => resource.artifact.name === 'single-skill')!;
+    assert.equal(singleResource.activation?.enabled, true); assert.equal(singleResource.artifact.version, '1.0.0');
     const serializedState = JSON.stringify(state);
     assert(!serializedState.includes(root)); assert(!serializedState.includes(sourceBytesMarker));
     for (const skill of state.skills) for (const resource of skill.installed.resources || []) assert(!Object.hasOwn(resource.artifact, 'checksum'));
-    assert(observedChecksumCalls > 0, 'The non-mutating checksum observer sees the real source-catalog IO; zero extra probes does not imply zero catalog IO.');
-    assert.equal(legacyProbes, 0, 'Actor store adds no legacy modification/restore checksum probe beyond the authorized resource catalog.');
+    for (const resource of state.installedResources || []) assert(!Object.hasOwn(resource.artifact, 'checksum'));
+    assert(observedChecksumCalls > 0, 'Current ACL catalog and bounded authorized comparison perform real checksum IO.');
+    assert.equal(legacyProbes, 0, 'Authorized comparison adds no legacy modification/restore path.');
     const invalidActorsAccepted: string[] = [];
     for (const userId of ['banned', 'nonexistent']) {
       try {

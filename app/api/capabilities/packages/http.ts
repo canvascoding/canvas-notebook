@@ -5,8 +5,13 @@ import { readBoundedJson } from '@/app/lib/api/bounded-json';
 import { resourceRequestActor, resourceResponse } from '@/app/api/capabilities/resources/http';
 import { CapabilityResourceError } from '@/app/lib/capabilities/resources/contracts';
 import { CAPABILITY_PACKAGE_LIMITS, CapabilityPackageError, isCapabilityPackageError } from '@/app/lib/capabilities/packages/contracts';
+import { toPublicCapabilityPackageMetadata } from '@/app/lib/capabilities/packages/public-metadata';
 
-export { resourceRequestActor as packageRequestActor, resourceResponse as packageResponse };
+export { resourceRequestActor as packageRequestActor };
+
+export function packageResponse(data: Record<string, unknown>): NextResponse {
+  return resourceResponse(toPublicCapabilityPackageMetadata(data));
+}
 
 export async function packageRequestJson(request: Request, fileWrite = false): Promise<unknown> {
   const limit = fileWrite ? Math.ceil(CAPABILITY_PACKAGE_LIMITS.maxFileBytes * 4 / 3) + 16 * 1024 : 16 * 1024;

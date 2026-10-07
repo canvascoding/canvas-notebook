@@ -1,6 +1,7 @@
 import { isCapabilityPackageError } from '@/app/lib/capabilities/packages/contracts';
 import { NextResponse } from 'next/server';
 import { headers } from 'next/headers';
+import { toPublicCapabilityPackageMetadata } from '@/app/lib/capabilities/packages/public-metadata';
 
 import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { refreshCapabilityRuntimeForScope } from '@/app/lib/capabilities/activation-actions';
@@ -35,11 +36,11 @@ export async function GET(
       throw new CapabilityResourceError('CAPABILITY_RESOURCE_NOT_FOUND', 'Plugin not found.', 404);
     }
     const foreignPersonal = selected.candidate.ref.scopeType === 'user' && selected.candidate.ref.ownerUserId !== session.user.id;
-    return NextResponse.json({ success: true, plugin: { ...selected.plugin,
+    return NextResponse.json(toPublicCapabilityPackageMetadata({ success: true, plugin: { ...selected.plugin,
       ...(foreignPersonal ? { installDir: '', manifestPath: '', skillsDir: undefined, sourcePath: undefined,
         skills: selected.plugin.skills.map(skill => ({ ...skill, path: '', directory: '', standaloneDir: undefined })) } : {}),
       resourceMetadata: selected.candidate.resourceMetadata, resourceAccess: selected.candidate.resourceAccess,
-    } });
+    } }));
   } catch (error) {
     if (error instanceof CapabilityResourceError) return NextResponse.json({ success: false, error: error.message }, { status: error.status });
     return NextResponse.json({ success: false, error: 'Plugin unavailable' }, { status: 500 });

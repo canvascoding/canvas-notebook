@@ -5,12 +5,20 @@ import {
   createAtomicTempPath,
   resolveScopedSkillRegistryPath,
   resolveScopedSkillsDataDir,
+  resolveDataStorageScope,
   shouldUseLegacyScopedSkillsFallback,
   type UserScopedDataStorageScope,
 } from '@/app/lib/runtime-data-paths';
 import { isPathInside } from '@/app/lib/plugins/canvas-plugin-manifest';
+import { createCapabilityResourceId } from '@/app/lib/capabilities/reference';
+import { deriveCapabilityStoreOrigin, normalizeCapabilityStoreOrigin, type CapabilityStoreOrigin } from '@/app/lib/capabilities/packages/store-origin';
 
 type StandaloneSkillRegistryRecord = {
+  storeOrigin?: CapabilityStoreOrigin;
+  resourceId?: string;
+  scopeType?: string;
+  organizationId?: string | null;
+  ownerUserId?: string | null;
   name: string;
   version: string;
   description: string;
@@ -77,6 +85,8 @@ function rebaseLegacyStandaloneSkillRecord(
   record: StandaloneSkillRegistryRecord,
   legacySkillsDir: string,
   scopedSkillsDir: string,
+  scope?: UserScopedDataStorageScope | null,
+  copiedFromLegacy = false,
 ): StandaloneSkillRegistryRecord {
   const rebaseSkillPath = (value: string): string => {
     return isPathInside(legacySkillsDir, value)
@@ -84,8 +94,17 @@ function rebaseLegacyStandaloneSkillRecord(
       : value;
   };
 
+  const origin = copiedFromLegacy && record.resourceId ? normalizeCapabilityStoreOrigin(record.storeOrigin, record.resourceId) : null;
+  const storage = resolveDataStorageScope(scope);
+  const resourceId = origin ? createCapabilityResourceId({ resourceType: 'skill', name: record.name,
+    sourceType: record.sourceType === 'plugin' ? 'plugin' : 'standalone', sourcePluginName: record.sourcePluginName,
+    scopeType: storage.scopeType === 'legacy' ? 'system' : storage.scopeType,
+    organizationId: storage.organizationId, ownerUserId: storage.userId }) : undefined;
   return {
     ...record,
+    ...(record.storeOrigin !== undefined && !origin ? { storeOrigin: undefined } : {}),
+    ...(origin && resourceId ? { resourceId, scopeType: storage.scopeType, organizationId: storage.organizationId,
+      ownerUserId: storage.userId, storeOrigin: deriveCapabilityStoreOrigin(origin, resourceId) } : {}),
     installDir: rebaseSkillPath(record.installDir),
     skillPath: rebaseSkillPath(record.skillPath),
   };
@@ -106,6 +125,7 @@ export async function adoptLegacyStandaloneSkillsForScope(
 
   const entries = await fs.readdir(legacySkillsDir, { withFileTypes: true }).catch(() => []);
   const failedSkillCopies = new Set<string>();
+  const copiedSkillNames = new Set<string>();
   await fs.mkdir(scopedSkillsDir, { recursive: true });
 
   for (const entry of entries) {
@@ -132,6 +152,7 @@ export async function adoptLegacyStandaloneSkillsForScope(
         preserveTimestamps: true,
         filter: (source) => !IGNORED_SKILL_COPY_ENTRIES.has(path.basename(source)),
       });
+      copiedSkillNames.add(entry.name);
     } catch (error) {
       failedSkillCopies.add(entry.name);
       console.warn(`[LegacySkillAdoption] Failed to adopt legacy skill "${entry.name}" for user scope:`, error);
@@ -144,7 +165,7 @@ export async function adoptLegacyStandaloneSkillsForScope(
     if (scopedRegistry.skills[skillName] || failedSkillCopies.has(skillName)) {
       continue;
     }
-    scopedRegistry.skills[skillName] = rebaseLegacyStandaloneSkillRecord(record, legacySkillsDir, scopedSkillsDir);
+    scopedRegistry.skills[skillName] = rebaseLegacyStandaloneSkillRecord(record, legacySkillsDir, scopedSkillsDir, scope, copiedSkillNames.has(skillName));
   }
   await writeStandaloneSkillRegistryFile(resolveScopedSkillRegistryPath(scope), scopedRegistry);
 

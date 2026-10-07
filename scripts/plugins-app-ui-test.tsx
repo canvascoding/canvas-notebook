@@ -46,6 +46,7 @@ async function main() {
   let skillsUnavailable = false;
   let skillStoreUnavailable = false;
   let skillStoreComparisonUnknown = false;
+  let actorSkillStoreResponse: Record<string, unknown> | undefined;
   let organizationAllowed = false;
   let scopeFixtures = false;
   let studioBulkEnabled = false;
@@ -123,7 +124,7 @@ async function main() {
     }
     if (url.pathname === '/api/skills/store') return skillStoreUnavailable
       ? Response.json({ success: false, error: 'Skill catalog unavailable' }, { status: 503 })
-      : Response.json({ success: true, skills: [], stats: { updates: 0 }, ...(skillStoreComparisonUnknown ? { comparison: 'unknown' } : {}) });
+      : Response.json({ success: true, skills: [], stats: { updates: 0 }, ...(skillStoreComparisonUnknown ? { comparison: 'unknown' } : {}), ...actorSkillStoreResponse });
     if (url.pathname === '/api/skills/effective') return Response.json({ success: true, snapshot: { organizationId: 'organization-test', capabilities: [] } });
     if (url.pathname === '/api/skills/policies') return Response.json({ success: true, policies: [] });
     throw new Error(`Unexpected fetch: ${url.pathname}`);
@@ -223,6 +224,33 @@ async function main() {
       cleanup();
     }
     skillStoreComparisonUnknown = false;
+    for (const comparison of ['partial', 'unknown'] as const) {
+      actorSkillStoreResponse = { comparison, availability: 'available' };
+      dom.window.history.replaceState(null, '', '/en/plugins?area=skills&view=updates');
+      view = render(<PluginsAppClient canManageOrganizationCapabilities />);
+      await waitFor(() => assert.ok(view.getByText(en.skills.skillLibrary.comparisonUnknown)));
+      assert.equal(view.queryByText(en.skills.skillLibrary.noUpdates), null);
+      cleanup();
+    }
+    actorSkillStoreResponse = { comparison: 'known', availability: 'available', stats: { updates: 1 }, skills: [{
+      name: 'verified-skill', displayName: 'Verified skill', description: 'Exact upstream baseline', latestVersion: '2.0.0',
+      installed: { installed: true, enabled: true, version: '99.0.0', updateAvailable: true, modified: true,
+        restoreAvailable: false, comparison: 'known', resources: [{ metadata: { resourceRef: 'exact-instance' } }] },
+    }] };
+    dom.window.history.replaceState(null, '', '/en/plugins?area=skills&view=updates');
+    view = render(<PluginsAppClient canManageOrganizationCapabilities />);
+    await waitFor(() => assert.ok(view.getByText('Verified skill')));
+    assert.equal((view.getByRole('button', { name: en.skills.skillLibrary.update }) as HTMLButtonElement).disabled, true,
+      'A verified update cannot invoke the legacy replacement route without an exact installation review.');
+    assert.ok(view.getByText(en.skills.skillLibrary.versionedUpdateRequired));
+    cleanup();
+    actorSkillStoreResponse = { comparison: 'unknown', availability: 'unavailable' };
+    dom.window.history.replaceState(null, '', '/en/plugins?area=skills&view=library');
+    view = render(<PluginsAppClient canManageOrganizationCapabilities />);
+    await waitFor(() => assert.ok(view.getByText(en.skills.skillLibrary.errors.storeLoad)));
+    assert.equal(view.queryByText(en.skills.skillLibrary.noUpdates), null);
+    cleanup();
+    actorSkillStoreResponse = undefined;
     locale = 'de';
 
     fetches.length = 0;

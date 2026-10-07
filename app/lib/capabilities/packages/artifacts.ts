@@ -20,6 +20,7 @@ import { withFileMutationLock } from '@/app/lib/secrets/file-mutation-lock';
 import { readExactPackageInventory, resolveOwnerScopedPackageVersionPath, verifyCapabilityPackageSnapshot } from './io';
 import { CapabilityPackageError, isCapabilityPackageError, type CapabilityPackageSourceStamp, type CapabilityPackageValidation,
   type CapabilityPackagePrivateLocation, type CapabilityPackagePreparedSnapshot, type AuthorizedCapabilityPackageResource } from './contracts';
+import { deriveCapabilityStoreOrigin, isIssuedCapabilityStoreOrigin, normalizeCapabilityStoreOrigin, sameCapabilityStoreOrigin, type CapabilityStoreOrigin } from './store-origin';
 
 export type ResolvedCapabilityPackageArtifact = {
   descriptor: CapabilityResourceDescriptor;
@@ -66,9 +67,12 @@ export async function resolveCapabilityPackageArtifact(actor: CapabilityResource
   const resolved = pluginResult || await resolveReadableCapabilityCandidate(actor, { ...input, resourceType: 'skill' });
   const candidate = resolved.candidate;
   let defaultEnabled = pluginResult?.plugin.enabled ?? true;
+  let storedOrigin = pluginResult?.plugin.storeOrigin;
   if (candidate.ref.resourceType === 'skill' && candidate.ref.sourceType === 'standalone' && candidate.ref.scopeType !== 'system') {
     const record = (await readCanvasSkillRegistry(capabilityPackageRegistryStorage(storage(candidate)))).skills[candidate.ref.name];
     defaultEnabled = record?.packageDefaultEnabled !== false;
+    storedOrigin = record?.storeOrigin;
+    if (record) await assertCapabilityPackageRegistryPointerCurrent('skill', record, capabilityPackageRegistryStorage(storage(candidate)));
   }
   const packageRoot = pluginResult ? pluginResult.plugin.installDir : candidate.runtimePath ? path.dirname(candidate.runtimePath) : null;
   if (!packageRoot) throw new CapabilityPackageError('PACKAGE_NOT_FOUND', 'The package was not found.', 404);
@@ -80,6 +84,8 @@ export async function resolveCapabilityPackageArtifact(actor: CapabilityResource
   const sourceStamp: CapabilityPackageSourceStamp = { resourceId: candidate.ref.resourceId, kind: candidate.ref.resourceType,
     name: candidate.ref.name, version: candidate.ref.version, artifactRevision: candidate.ref.revision,
     checksum: inventory.checksum, registryChecksum: candidate.ref.checksum, sourcePluginId: candidate.ref.sourcePluginId };
+  const origin = normalizeCapabilityStoreOrigin(storedOrigin, candidate.ref.resourceId);
+  if (origin) sourceStamp.storeOrigin = origin;
   const bundledReferences: ResolvedCapabilityPackageArtifact['bundledReferences'] = [];
   const sourceManifest = pluginResult ? (await validateCanvasPluginPackage(packageRoot)).manifest : null;
   if (pluginResult && !sourceManifest) invalid('The installed plugin manifest is unavailable.');
@@ -118,6 +124,13 @@ export async function resolveCapabilityPackageArtifact(actor: CapabilityResource
     sourceStamp.parentResourceRef = parentMetadata.resourceRef;
     sourceStamp.parentRevisionRef = parentResolved.plugin.publishedRevisionRef || null;
     sourceStamp.relativeRoot = externalSeed ? null : relativeRoot;
+    // A bundled child is an exact component of its verified parent offering.
+    // External seed references have no corresponding upstream component path.
+    if (!externalSeed) {
+      const parentOrigin = normalizeCapabilityStoreOrigin(parentResolved.plugin.storeOrigin, parent.ref.resourceId);
+      const childOrigin = deriveCapabilityStoreOrigin(parentOrigin, candidate.ref.resourceId, relativeRoot);
+      if (childOrigin) sourceStamp.storeOrigin = childOrigin;
+    }
   }
   return { descriptor, candidate, candidates: resolved.candidates, storage: storage(candidate), packageRoot, sourceStamp,
     location: { rootPath: packageRoot, resourceRef: descriptor.metadata.resourceRef, owner: descriptor.metadata.ownership,
@@ -133,6 +146,7 @@ export async function assertCapabilityPackageArtifactCurrent(actor: CapabilityRe
     || after.artifact.checksum !== before.artifact.checksum || after.artifact.revision !== before.artifact.revision
     || after.metadata.metadataRevision !== before.metadata.metadataRevision || after.metadata.grantsRevision !== before.metadata.grantsRevision
     || current.sourceStamp.checksum !== previous.sourceStamp.checksum
+    || !sameCapabilityStoreOrigin(current.sourceStamp.storeOrigin, previous.sourceStamp.storeOrigin)
     || JSON.stringify(current.sourceStamp.dependencies || []) !== JSON.stringify(previous.sourceStamp.dependencies || [])
     || path.resolve(current.packageRoot) !== path.resolve(previous.packageRoot)) {
     throw new CapabilityPackageError('PACKAGE_SOURCE_CHANGED', 'The source package or its access changed. Inspect it again.', 409);
@@ -232,8 +246,8 @@ export function capabilityPackageLegacyStorageBinding(kind: CapabilityResourceTy
       organizationId: storage.organizationId, ownerUserId: storage.userId }) };
 }
 
-type RegistryPackagePointer = { version: string; checksum: string; installDir: string;
-  packageManaged?: boolean; packageResourceRef?: string; publishedRevisionRef?: string; enabled?: boolean; packageDefaultEnabled?: boolean };
+type RegistryPackagePointer = { version: string; checksum: string; installDir: string; resourceId?: string;
+  packageManaged?: boolean; packageResourceRef?: string; publishedRevisionRef?: string; enabled?: boolean; packageDefaultEnabled?: boolean; storeOrigin?: CapabilityStoreOrigin };
 
 export async function assertCapabilityPackageRegistryPointerCurrent(kind: CapabilityResourceType,
   record: RegistryPackagePointer & { name: string; resourceId?: string }, scope?: CapabilityDataStorageScope | null): Promise<void> {
@@ -253,7 +267,8 @@ export async function assertCapabilityPackageRegistryPointerCurrent(kind: Capabi
     const published = state?.currentPublishedRevisionRef === record.publishedRevisionRef
       ? await store.getCapabilityPackagePublishedRevision(record.packageResourceRef, record.publishedRevisionRef) : null;
     if (!state || !published || state.kind !== kind || state.name !== record.name || state.currentSourceStamp.resourceId !== record.resourceId
-      || published.kind !== kind || published.name !== record.name || published.version !== record.version || published.checksum !== record.checksum) return unavailable();
+      || published.kind !== kind || published.name !== record.name || published.version !== record.version || published.checksum !== record.checksum
+      || !sameCapabilityStoreOrigin(record.storeOrigin, state.currentSourceStamp.storeOrigin)) return unavailable();
   }
   await verifyCapabilityPackageSnapshot(location, { verifyBytes: true });
 }
@@ -275,19 +290,29 @@ export async function assertCapabilityPackageRegistryWriteAllowed(kind: Capabili
   for (const name of new Set([...Object.keys(previous), ...Object.keys(next)])) {
     const before = previous[name], after = next[name];
     if (!before?.packageManaged && !before?.packageResourceRef && !before?.publishedRevisionRef
-      && !after?.packageManaged && !after?.packageResourceRef && !after?.publishedRevisionRef) continue;
+      && !after?.packageManaged && !after?.packageResourceRef && !after?.publishedRevisionRef) {
+      if (after?.storeOrigin !== undefined) {
+        const resourceId = after.resourceId ?? capabilityPackageLegacyStorageBinding(kind, name, scope).resourceId;
+        if (!normalizeCapabilityStoreOrigin(after.storeOrigin, resourceId)
+          || !sameCapabilityStoreOrigin(before?.storeOrigin, after.storeOrigin) && !isIssuedCapabilityStoreOrigin(after.storeOrigin, resourceId)) {
+          throw new CapabilityPackageError('PACKAGE_REVISION_CONFLICT', 'A changed Store origin requires a verified exact import.', 409);
+        }
+      }
+      continue;
+    }
     const binding = capabilityPackageLegacyStorageBinding(kind, name, scope);
     const store = await import('./store');
     if (before && after && before.version === after.version && before.checksum === after.checksum
       && before.installDir === after.installDir && before.packageManaged === after.packageManaged
       && before.enabled === after.enabled && before.packageDefaultEnabled === after.packageDefaultEnabled
-      && before.packageResourceRef === after.packageResourceRef && before.publishedRevisionRef === after.publishedRevisionRef) {
+      && before.packageResourceRef === after.packageResourceRef && before.publishedRevisionRef === after.publishedRevisionRef
+      && sameCapabilityStoreOrigin(before.storeOrigin, after.storeOrigin)) {
       if (!store.isCapabilityPackagePublicationAllowed(binding, after)) {
         if (!after.packageManaged || !after.packageResourceRef || !after.publishedRevisionRef) {
           throw new CapabilityPackageError('PACKAGE_SNAPSHOT_UNAVAILABLE', 'The installed package publication is unavailable.', 503);
         }
         await store.assertCapabilityPackageCommittedReference({ resourceRef: after.packageResourceRef,
-          revisionRef: after.publishedRevisionRef, version: after.version, checksum: after.checksum });
+          revisionRef: after.publishedRevisionRef, version: after.version, checksum: after.checksum, storeOrigin: after.storeOrigin });
       }
       continue;
     }
@@ -303,7 +328,8 @@ export async function stageCapabilityPackageRegistryPointer(authorization: Autho
   snapshot: CapabilityPackagePreparedSnapshot, input?: { enabled?: boolean; newResource?: boolean }) {
   const binding = authorization.record.storage;
   const store = await import('./store');
-  const next = { version: snapshot.location.version, checksum: snapshot.location.checksum, installDir: snapshot.location.rootPath };
+  const storeOrigin = store.getCapabilityPackagePublicationStoreOrigin(binding);
+  const next = { version: snapshot.location.version, checksum: snapshot.location.checksum, installDir: snapshot.location.rootPath, storeOrigin };
   if (!store.isCapabilityPackagePublicationAllowed(binding, next) || binding.resourceType !== snapshot.location.kind
     || binding.name !== snapshot.location.name || authorization.record.metadata.resourceRef !== snapshot.location.resourceRef) {
     throw new CapabilityPackageError('PACKAGE_ACCESS_DENIED', 'An authorized exact package publication is required.', 403);
@@ -325,7 +351,7 @@ export async function stageCapabilityPackageRegistryPointer(authorization: Autho
     record = await buildPublishedCanvasPluginRecord(snapshot.location.rootPath, { scope, resourceId: binding.resourceId,
       revision: (previous?.revision || 0) + 1, packageResourceRef: snapshot.location.resourceRef,
       publishedRevisionRef: snapshot.location.revisionRef, enabled: input?.enabled ?? previous?.enabled ?? false,
-      installedBy: authorization.actor.userId, previous });
+      installedBy: authorization.actor.userId, previous, storeOrigin });
     registry.plugins[binding.name] = record;
     await writeCanvasPluginRegistry(registry, scope);
   } else {
@@ -344,7 +370,7 @@ export async function stageCapabilityPackageRegistryPointer(authorization: Autho
       description: validated.description, license: validated.skill?.license, sourceType: previous?.sourceType || 'local',
       sourcePath: previous?.sourcePath || `capability-package:${snapshot.location.resourceRef}`,
       installedAt: previous?.installedAt || now, updatedAt: now, checksum: validated.checksum, installDir: snapshot.location.rootPath,
-      skillPath: requirePathInside(snapshot.location.rootPath, 'SKILL.md'), interface: await loadCanvasSkillInterface(snapshot.location.rootPath) };
+      skillPath: requirePathInside(snapshot.location.rootPath, 'SKILL.md'), interface: await loadCanvasSkillInterface(snapshot.location.rootPath), storeOrigin };
     registry.skills[binding.name] = record;
     await writeCanvasSkillRegistry(registry, scope);
   }

@@ -6,6 +6,7 @@ import type {
   CapabilityResourceRecord,
   CapabilityResourceStorageBinding,
 } from '../resources/contracts';
+import type { CapabilityStoreOrigin } from './store-origin';
 
 export const CAPABILITY_PACKAGE_CONTRACT_VERSION = 1 as const;
 export type CapabilityPackageKind = 'skill' | 'plugin';
@@ -71,6 +72,8 @@ export type CapabilityPackageSourceStamp = {
   parentResourceRef?: string | null;
   parentRevisionRef?: string | null;
   relativeRoot?: string | null;
+  /** Verified import history stays independent of the current local package label and digest. */
+  storeOrigin?: CapabilityStoreOrigin;
   dependencies?: Array<{resourceId:string;name:string;version:string;checksum:string;relativeRoot:string}>;
 };
 

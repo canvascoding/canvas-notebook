@@ -277,6 +277,7 @@ type CanvasPluginStoreEntry = {
     version?: string;
     updateAvailable: boolean;
     installedPlugin?: CanvasPluginSettingsRecord;
+    resources?: unknown[];
     skills?: PluginSkillState[];
     skillSummary?: PluginSkillSummary;
   };
@@ -336,7 +337,8 @@ type CanvasSkillStoreEntry = {
     modified: boolean;
     restoreAvailable: boolean;
     managedByOrganization?: boolean;
-    comparison?: 'unknown';
+    comparison?: 'known' | 'partial' | 'unknown';
+    resources?: unknown[];
   };
 };
 
@@ -707,6 +709,7 @@ function CanvasPluginsSection({
       if (!response.ok || !data.success) throw new Error(data.error || t('errors.storeLoad'));
       setStorePlugins(Array.isArray(data.plugins) ? data.plugins : []);
       setInstalledStorePlugins(Array.isArray(data.installedPlugins) ? data.installedPlugins : []);
+      if (data.availability === 'unavailable') setStoreError(t('errors.storeLoad'));
       setStoreFacets(data.facets || EMPTY_STORE_FACETS);
       setStoreMetadata(data.registry || null);
       setStorePagination(data.pagination || EMPTY_STORE_PAGINATION);
@@ -950,6 +953,10 @@ function CanvasPluginsSection({
     const storePlugin = storePlugins.find((plugin) => plugin.name === pluginName)
       || installedStorePlugins.find((plugin) => plugin.name === pluginName)
       || (detailStorePlugin?.name === pluginName ? detailStorePlugin : undefined);
+    if (storePlugin?.installed.resources && storePlugin.installed.installed) {
+      setError(t('details.versionedUpdateRequired'));
+      return;
+    }
     if (isStorePackageManagedElsewhere(storePlugin)) {
       setError(t('permissions.organizationPackage'));
       return;
@@ -979,7 +986,7 @@ function CanvasPluginsSection({
           name: pluginName,
           version,
           enable: storePlugin?.installed.installed ? storePlugin.installed.enabled : true,
-          replace: true,
+          replace: storePlugin?.installed.resources === undefined,
           scope: managementScope,
         }),
       });
@@ -1909,7 +1916,8 @@ function CanvasPluginsSection({
     const skillSummary = installedMetadataMatches ? preflight?.result?.skillSummary || storePlugin?.installed.skillSummary : undefined;
     const skillStates = installedMetadataMatches ? preflight?.result?.skills || storePlugin?.installed.skills || [] : [];
     const skillRepairAvailable = Boolean(isInstalled && skillSummary && skillSummary.repairable > 0);
-    const canInstallFromStore = Boolean(storePlugin && !pluginMissing && (!isInstalled || updateAvailable || skillRepairAvailable));
+    const canInstallFromStore = Boolean(storePlugin && !pluginMissing && (!isInstalled || updateAvailable || skillRepairAvailable)
+      && !(storePlugin.installed.resources && isInstalled));
     const storeActionLabel = updateAvailable
       ? t('update')
       : skillRepairAvailable
@@ -1957,6 +1965,7 @@ function CanvasPluginsSection({
               {detailStoreError ? <InlineNotice variant="destructive" size="compact">{detailStoreError}</InlineNotice> : null}
               {pluginMissing ? <InlineNotice size="compact">{t('details.notFound')}</InlineNotice> : null}
               {installedPlugin?.connectionReadiness?.ready === false ? <InlineNotice size="compact">{t('details.installedNeedsSetup')}</InlineNotice> : null}
+              {storePlugin?.installed.resources && storePlugin.installed.installed && updateAvailable ? <InlineNotice size="compact">{t('details.versionedUpdateRequired')}</InlineNotice> : null}
               <section className="space-y-2">
                 <h3 className="text-sm font-semibold">{t('details.description')}</h3>
                 <p className="text-sm leading-6 text-muted-foreground">{description}</p>
@@ -2225,7 +2234,7 @@ function CanvasPluginsSection({
           <Button
             variant={updateAvailable || !isInstalled || skillRepairAvailable ? 'default' : 'outline'}
             size="sm"
-            disabled={managedElsewhere || !canManagePackages || isPending || isChecking || preflightBlocksPluginWrite(preflightState) || Boolean(activeConnectorAction) || (isInstalled && !updateAvailable && !skillRepairAvailable)}
+            disabled={managedElsewhere || !canManagePackages || isPending || isChecking || preflightBlocksPluginWrite(preflightState) || Boolean(activeConnectorAction) || (isInstalled && (plugin.installed.resources !== undefined || !updateAvailable && !skillRepairAvailable))}
             onClick={(event) => {
               event.stopPropagation();
               if (needsPreflight) {
@@ -3007,7 +3016,7 @@ export function SkillsPanel({ canManageOrganizationCapabilities: initialCanManag
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [skillStoreSkills, setSkillStoreSkills] = useState<CanvasSkillStoreEntry[]>([]);
   const [skillStoreMetadata, setSkillStoreMetadata] = useState<CanvasSkillStoreMetadata | null>(null);
-  const [skillStoreComparison, setSkillStoreComparison] = useState<'unknown' | null>(null);
+  const [skillStoreComparison, setSkillStoreComparison] = useState<'known' | 'partial' | 'unknown' | null>(null);
   const [skillStorePagination, setSkillStorePagination] = useState<CanvasSkillStorePagination>(EMPTY_SKILL_STORE_PAGINATION);
   const [skillStoreStats, setSkillStoreStats] = useState<CanvasSkillStoreStats>(EMPTY_SKILL_STORE_STATS);
   const [skillStorePage, setSkillStorePage] = useState(1);
@@ -3126,7 +3135,8 @@ export function SkillsPanel({ canManageOrganizationCapabilities: initialCanManag
       }
       setSkillStoreSkills(Array.isArray(data.skills) ? data.skills : []);
       setSkillStoreMetadata(data.registry || null);
-      setSkillStoreComparison(data.comparison === 'unknown' ? 'unknown' : null);
+      setSkillStoreComparison(['known', 'partial', 'unknown'].includes(data.comparison) ? data.comparison : null);
+      if (data.availability === 'unavailable') setSkillStoreError(t('skillLibrary.errors.storeLoad'));
       setSkillStorePagination(data.pagination || EMPTY_SKILL_STORE_PAGINATION);
       setSkillStoreStats(data.stats || EMPTY_SKILL_STORE_STATS);
     } catch (error) {
@@ -3283,6 +3293,11 @@ export function SkillsPanel({ canManageOrganizationCapabilities: initialCanManag
   }
 
   async function installStoreSkill(skillName: string, version?: string) {
+    const offering = skillStoreSkills.find(skill => skill.name === skillName);
+    if (offering?.installed.resources && offering.installed.installed) {
+      setSkillActionError(t('skillLibrary.versionedUpdateRequired'));
+      return;
+    }
     if (isSkillPackageManagedElsewhere(skillName)) {
       setSkillActionError(t('plugins.permissions.organizationPackage'));
       return;
@@ -3293,7 +3308,7 @@ export function SkillsPanel({ canManageOrganizationCapabilities: initialCanManag
       const response = await fetch('/api/skills/store/install', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: skillName, version, enable: true, replace: true, scope: managementScope }),
+        body: JSON.stringify({ name: skillName, version, enable: true, replace: offering?.installed.resources === undefined, scope: managementScope }),
       });
       const data = await response.json();
       if (!data.success) {
@@ -3532,7 +3547,7 @@ export function SkillsPanel({ canManageOrganizationCapabilities: initialCanManag
     const isInstalling = pendingSkillAction === `install:${skill.name}`;
     const isRestoring = pendingSkillAction === `restore:${skill.name}`;
     const managedElsewhere = isSkillPackageManagedElsewhere(skill.name);
-    const canInstall = !managedElsewhere && (!isInstalled || updateAvailable);
+    const canInstall = !managedElsewhere && (!isInstalled || updateAvailable) && !(skill.installed.resources && isInstalled);
     const installLabel = updateAvailable
       ? t('skillLibrary.update')
       : isInstalled
@@ -3600,7 +3615,8 @@ export function SkillsPanel({ canManageOrganizationCapabilities: initialCanManag
             </Button>
           </div>
         </div>
-        {isInstalled && skill.installed.comparison === 'unknown' ? <p className="mt-2 text-xs text-muted-foreground">{t('skillLibrary.comparisonUnknown')}</p> : null}
+        {isInstalled && skill.installed.comparison && skill.installed.comparison !== 'known' ? <p className="mt-2 text-xs text-muted-foreground">{t('skillLibrary.comparisonUnknown')}</p> : null}
+        {isInstalled && updateAvailable && skill.installed.resources ? <p className="mt-2 text-xs text-muted-foreground">{t('skillLibrary.versionedUpdateRequired')}</p> : null}
         {managedElsewhere ? <p className="mt-2 text-xs text-muted-foreground">{t('plugins.permissions.organizationPackage')}</p> : null}
       </div>
     );
@@ -4189,7 +4205,7 @@ export function SkillsPanel({ canManageOrganizationCapabilities: initialCanManag
                 </div>
               ) : skillStoreError ? null : skillStoreSkills.length === 0 ? (
                 <div className="rounded-lg border border-dashed px-4 py-6 text-sm text-muted-foreground">
-                  {t(skillStoreComparison === 'unknown' ? 'skillLibrary.comparisonUnknown' : 'skillLibrary.noUpdates')}
+                  {t(skillStoreComparison && skillStoreComparison !== 'known' ? 'skillLibrary.comparisonUnknown' : 'skillLibrary.noUpdates')}
                 </div>
               ) : (
                 <>

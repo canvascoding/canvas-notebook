@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { headers } from 'next/headers';
+import { toPublicCapabilityPackageMetadata } from '@/app/lib/capabilities/packages/public-metadata';
 
 import { auth } from '@/app/lib/auth';
 import { loadCapabilityCandidates, resolveEffectiveCapabilitySnapshot } from '@/app/lib/capabilities/catalog';
@@ -66,7 +67,7 @@ export async function GET(request: NextRequest) {
         description: entry.resourceMetadata?.description ?? installed.description };
     }))).filter((plugin): plugin is NonNullable<typeof plugin> => Boolean(plugin));
     const pluginsWithReadiness = plugins;
-    return NextResponse.json({
+    return NextResponse.json(toPublicCapabilityPackageMetadata({
       success: true,
       plugins: pluginsWithReadiness,
       stats: {
@@ -75,7 +76,7 @@ export async function GET(request: NextRequest) {
         disabled: plugins.filter((plugin) => !plugin.enabled).length,
       },
       scope: scope.scopeType,
-    });
+    }));
   } catch (error) {
     console.error('[Plugins API] Error loading plugins:', error);
     return NextResponse.json(

@@ -31,6 +31,7 @@ import { enableSkillInConfig } from '@/app/lib/skills/enabled-skills';
 import { getSkillNames, loadSkillByName } from '@/app/lib/skills/skill-loader';
 import { readEnabledSkillsForScope, writeEnabledSkillsForScope } from '@/app/lib/skills/skill-settings';
 import { assertPersonalSkillActivationAllowed, PersonalSkillActivationError } from '@/app/lib/skills/personal-skill-activation';
+import { normalizeCapabilityStoreOrigin } from '@/app/lib/capabilities/packages/store-origin';
 
 const MAX_SKILL_ARCHIVE_BYTES = 100 * 1024 * 1024;
 const MAX_SKILL_EXTRACTED_BYTES = 250 * 1024 * 1024;
@@ -364,6 +365,14 @@ async function writeLocalSkillRegistryRecord(params: {
   const registry = await readCanvasSkillRegistry(params.scope);
   const existing = registry.skills[params.skillName];
   const record: CanvasSkillInstallRecord = {
+    resourceId: existing?.resourceId,
+    scopeType: existing?.scopeType,
+    organizationId: existing?.organizationId,
+    ownerUserId: existing?.ownerUserId,
+    revision: (existing?.revision || 0) + 1,
+    storeOrigin: normalizeCapabilityStoreOrigin(existing?.storeOrigin, existing?.resourceId) ?? undefined,
+    sourceRegistryId: existing?.sourceRegistryId,
+    sourceRegistryUrl: existing?.sourceRegistryUrl,
     name: skill.name,
     version: skill.version || 'local',
     description: skill.description,

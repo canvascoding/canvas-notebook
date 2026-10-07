@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { expect, test, type APIResponse, type BrowserContext, type Page } from '@playwright/test';
 import { createAuthenticatedContext, requestManagedTestSession, runManagedTestPreflight } from './helpers/managed-test-context';
 import { cleanupOwnedCapabilityPackageFixture, type OwnedCapabilityPackageFixture } from './helpers/capability-package-test-cleanup';
@@ -162,15 +163,19 @@ test.describe('Actual actor-safe installed catalog and skill library', () => {
     const children = await catalog({ scope: 'user', audience: 'shared', kind: 'skill', q: child }); expect(children.items).toHaveLength(1);
     expect(children.items[0].parentResourceRef).toBe(source.metadata.resourceRef);
     const safe = JSON.stringify(shared); for (const field of ['grants', 'checksum', 'installDir', 'sourcePath', 'manifestPath']) expect(safe).not.toContain(`"${field}"`);
-    const store = await library(); expect(store.skills[0].installed.resources).toHaveLength(1); expect(store.skills[0].installed.comparison).toBe('unknown');
+    const store = await library();
+    expect(store.skills[0].installed.resources).toEqual([]); expect(store.skills[0].installed.installed).toBe(false);
+    const exact = store.installedResources!.find(resource => resource.artifact.name === child)!;
+    expect(exact.metadata.resourceRef).toBe(children.items[0].resourceRef);
+    expect(exact.storeState?.origin).toBe('unknown'); expect(exact.storeState?.upstream).toBe('unknown');
     expect(store.skills[0].installed.updateAvailable).toBe(false); expect(store.skills[0].installed.restoreAvailable).toBe(false);
     expect(store.skills[0].installed.installedSkill).toBeUndefined(); expect(JSON.stringify(store)).not.toContain(receipt!.sourceDirectory);
-    await openLibrary('library'); await expect(page.getByText(en.skills.skillLibrary.comparisonUnknown, { exact: true })).toBeVisible();
+    await openLibrary('updates'); await expect(page.getByText(en.skills.skillLibrary.comparisonUnknown, { exact: true })).toBeVisible();
     for (const [width, theme] of [[1280, 'light'], [1280, 'dark'], [390, 'light'], [390, 'dark']] as const) {
-      await page.setViewportSize({ width, height: 900 }); await page.evaluate(value => localStorage.setItem('theme', value), theme); await openLibrary('library');
+      await page.setViewportSize({ width, height: 900 }); await page.evaluate(value => localStorage.setItem('theme', value), theme); await openLibrary('updates');
       await expect(page.getByText(en.skills.skillLibrary.comparisonUnknown, { exact: true })).toBeVisible();
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
-      await page.screenshot({ path: path.join(artifacts, `catalog-library-${width}-${theme}.png`), fullPage: true, animations: 'disabled' });
+      await page.screenshot({ path: path.join(artifacts, `catalog-updates-${width}-${theme}.png`), fullPage: true, animations: 'disabled' });
     }
     await openLibrary('updates'); await expect(page.getByText(en.skills.skillLibrary.comparisonUnknown, { exact: true })).toBeVisible();
     await expect(page.getByText(en.skills.skillLibrary.noUpdates, { exact: true })).toHaveCount(0);
@@ -178,5 +183,31 @@ test.describe('Actual actor-safe installed catalog and skill library', () => {
     expect((await catalog({ scope: 'user', audience: 'shared', q: name })).items).toEqual([]);
     expect((await library()).skills[0].installed.resources).toEqual([]);
     await openLibrary('library'); await expect(page.getByText(en.skills.skillLibrary.comparisonUnknown, { exact: true })).toHaveCount(0);
+  });
+  test('a configured Store outage retains current exact installed metadata and visible retry', async () => {
+    await grants(true);
+    const configured = process.env.CANVAS_PLUGIN_STORE_REGISTRY_URL;
+    if (!configured || !configured.startsWith('file:')) throw new Error('The owned file registry fixture is required.');
+    const file = fileURLToPath(configured), original = await fs.readFile(file, 'utf8');
+    expect(original).toContain(nonce);
+    const unavailable = JSON.stringify({ ownedUnavailableFixture: nonce });
+    await fs.writeFile(file, unavailable);
+    try {
+      const store = await library();
+      expect(store.availability).toBe('unavailable'); expect(store.comparison).toBe('unknown'); expect(store.skills).toEqual([]);
+      const exact = store.installedResources!.find(resource => resource.artifact.name === child)!;
+      expect(exact.metadata.ownership).toEqual({ type: 'organization', organizationId });
+      expect(exact.storeState?.upstream).toBe('unknown');
+      expect(JSON.stringify(store)).not.toContain(receipt!.sourceDirectory);
+      await openLibrary('library'); await expect(page.getByText(en.skills.skillLibrary.errors.storeLoad, { exact: true })).toBeVisible();
+      await expect(page.getByText(en.skills.skillLibrary.noUpdates, { exact: true })).toHaveCount(0);
+    } finally {
+      expect(await fs.readFile(file, 'utf8')).toBe(unavailable);
+      const temporary = `${file}.catalog-${nonce}.tmp`;
+      await fs.writeFile(temporary, original, { mode: 0o600 }); await fs.rename(temporary, file);
+      await grants(false);
+    }
+    expect((await library()).availability).toBe('available');
+    expect((await catalog({ scope: 'user', audience: 'shared', q: name })).items).toEqual([]);
   });
 });

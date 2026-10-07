@@ -15,17 +15,22 @@ import { CAPABILITY_PACKAGE_CONTRACT_VERSION, CAPABILITY_PACKAGE_LIMITS, CAPABIL
   type CapabilityPackagePublishedRevision, type CapabilityPackagePublishRequest, type CapabilityPackageSourceStamp,
   type CapabilityPackageState, type CapabilityPackagePublishedSummary, type CapabilityPackageOwnedDraftStatus,
   type CapabilityPackageOwnedDraftList, type CapabilityPackageOwnedDraftListQuery } from './contracts';
+import { deriveCapabilityStoreOrigin, normalizeCapabilityStoreOrigin, sameCapabilityStoreOrigin, type CapabilityStoreOrigin } from './store-origin';
 
 type Row = Record<string, unknown>;
 export type CapabilityPackageDraftRecord = { draft: CapabilityPackageDraft; targetStorage: CapabilityResourceStorageBinding;
   targetOwnership: Exclude<CapabilityResourceOwnerScope, { type: 'system' }>;
   sourceStorage: CapabilityResourceStorageBinding; sourceParentStorage?: CapabilityResourceStorageBinding };
 type PrivateDraft = CapabilityPackageDraftRecord;
-export type CapabilityPackagePublicationBinding = { revisionRef: string; version: string; checksum: string; rootPath: string };
+export type CapabilityPackagePublicationBinding = { revisionRef: string; version: string; checksum: string; rootPath: string; storeOrigin?: CapabilityStoreOrigin };
 type Publication = { authorization: AuthorizedCapabilityPackageResource; binding: CapabilityPackagePublicationBinding; database: SqlConnection };
 const publicationKey = Symbol.for('canvas.capability.package-publication.v1');
 const publicationGlobal = globalThis as typeof globalThis & { [publicationKey]?: AsyncLocalStorage<Publication> };
 const publications = publicationGlobal[publicationKey] ??= new AsyncLocalStorage<Publication>();
+type OriginPreparation = { authorization: AuthorizedCapabilityPackageResource; database: SqlConnection; revisionRef: string; expectedOrigin?: CapabilityStoreOrigin };
+const originPreparationKey = Symbol.for('canvas.capability.package-origin-preparation.v1');
+const originPreparationGlobal = globalThis as typeof globalThis & { [originPreparationKey]?: AsyncLocalStorage<OriginPreparation> };
+const originPreparations = originPreparationGlobal[originPreparationKey] ??= new AsyncLocalStorage<OriginPreparation>();
 export type CapabilityPackageActivationBinding=CapabilityPackagePublicationBinding & {previousEnabled:boolean};
 type Activation={authorization:AuthorizedCapabilityPackageResource;binding:CapabilityPackageActivationBinding;enabled:boolean;database:SqlConnection};
 const activationKey=Symbol.for('canvas.capability.package-activation.v1');
@@ -63,6 +68,11 @@ function stampSnapshot(stamp: CapabilityPackageSourceStamp): CapabilityPackageSo
   if (!['skill', 'plugin'].includes(result.kind) || typeof result.registryChecksum !== 'string' || result.registryChecksum.length > 256
     || !/^[a-f0-9]{64}$/u.test(result.checksum) || result.artifactRevision !== null && (!Number.isSafeInteger(result.artifactRevision) || result.artifactRevision < 0)) {
     fail('PACKAGE_REQUEST_INVALID', 'The package source stamp is invalid.');
+  }
+  if (result.storeOrigin !== undefined) {
+    const origin = normalizeCapabilityStoreOrigin(result.storeOrigin, result.resourceId);
+    if (!origin) fail('PACKAGE_REQUEST_INVALID', 'The package source origin is invalid.');
+    result.storeOrigin = origin;
   }
   if(result.dependencies!==undefined) {
     if(!Array.isArray(result.dependencies)||result.dependencies.length>CAPABILITY_PACKAGE_LIMITS.maxFiles) fail('PACKAGE_REQUEST_INVALID','The source dependency list is invalid.');
@@ -119,7 +129,8 @@ function assertCurrentSource(state: CapabilityPackageState | null, stamp: Capabi
   const canonical=(value:CapabilityPackageSourceStamp)=>JSON.stringify([value.resourceId,value.kind,value.name,value.version,value.artifactRevision,
     value.registryChecksum,value.checksum,value.sourcePluginId,value.parentResourceRef??null,value.parentRevisionRef??null,value.relativeRoot??null,
     (value.dependencies??[]).map(dependency=>[dependency.resourceId,dependency.name,dependency.version,dependency.checksum,dependency.relativeRoot]).sort((a,b)=>String(a[4]).localeCompare(String(b[4])))]);
-  if (state && canonical(state.currentSourceStamp) !== canonical(stamp)) fail('PACKAGE_SOURCE_CHANGED', 'The installed package pointer changed.', 409);
+  if (state && (canonical(state.currentSourceStamp) !== canonical(stamp)
+    || !sameCapabilityStoreOrigin(state.currentSourceStamp.storeOrigin, stamp.storeOrigin))) fail('PACKAGE_SOURCE_CHANGED', 'The installed package pointer changed.', 409);
 }
 
 /** Internal metadata lookup. Content readers must first hold current resource authorization. */
@@ -157,10 +168,11 @@ export async function findCapabilityPackageStateForStorage(storage: CapabilityRe
 }
 
 /** Current SQL head and the staged registry marker must agree; an uncommitted file pointer is unusable. */
-export async function assertCapabilityPackageCommittedReference(input: { resourceRef: string; revisionRef: string; version: string; checksum: string }): Promise<void> {
+export async function assertCapabilityPackageCommittedReference(input: { resourceRef: string; revisionRef: string; version: string; checksum: string; storeOrigin?: CapabilityStoreOrigin }): Promise<void> {
   const state = await getCapabilityPackageState(input.resourceRef);
   const published = state ? await getCapabilityPackagePublishedRevision(input.resourceRef, state.currentPublishedRevisionRef) : null;
-  if (!state || state.currentPublishedRevisionRef !== input.revisionRef || !published || published.version !== input.version || published.checksum !== input.checksum) {
+  if (!state || state.currentPublishedRevisionRef !== input.revisionRef || !published || published.version !== input.version || published.checksum !== input.checksum
+    || 'storeOrigin' in input && !sameCapabilityStoreOrigin(state.currentSourceStamp.storeOrigin, input.storeOrigin)) {
     fail('PACKAGE_SNAPSHOT_UNAVAILABLE', 'The installed package publication is unavailable.', 503);
   }
 }
@@ -404,15 +416,28 @@ export async function withCapabilityPackagePublication<T>(authorization: Authori
   if (!/^canvas-package-revision:[a-f0-9-]{36}$/u.test(binding.revisionRef) || !/^[a-f0-9]{64}$/u.test(binding.checksum)
     || !path.isAbsolute(binding.rootPath)) fail('PACKAGE_REQUEST_INVALID','The publication binding is invalid.');
   text(binding.version,'Version',200);
+  const preparing = originPreparations.getStore();
+  if (preparing && (preparing.authorization !== authorization || preparing.database !== database || preparing.revisionRef !== binding.revisionRef)) {
+    fail('PACKAGE_ACCESS_DENIED', 'The package origin is not bound to this publication.', 403);
+  }
+  // Shape-valid JSON cannot add a Store history to an authorized content publication.
+  if (!sameCapabilityStoreOrigin(binding.storeOrigin, preparing?.expectedOrigin)) fail('PACKAGE_ACCESS_DENIED', 'The package origin does not match its held draft source.', 403);
   return publications.run({authorization,binding,database},callback);
 }
 export function isCapabilityPackagePublicationAllowed(storage: CapabilityResourceStorageBinding,
-  next?: {version:string;checksum:string;installDir?:string}): boolean {
+  next?: {version:string;checksum:string;installDir?:string;storeOrigin?:CapabilityStoreOrigin}): boolean {
   const current = publications.getStore();
   return Boolean(current && isHeldCapabilityPackageResource(current.authorization,current.database)
     && sameStorage(current.authorization.record.storage,storage)
     && (!next || next.version === current.binding.version && next.checksum === current.binding.checksum
-      && (!next.installDir || path.resolve(next.installDir) === path.resolve(current.binding.rootPath))));
+      && (!next.installDir || path.resolve(next.installDir) === path.resolve(current.binding.rootPath))
+      && (!('storeOrigin' in next) || sameCapabilityStoreOrigin(next.storeOrigin, current.binding.storeOrigin))));
+}
+/** Only the exact held SQL publication may expose the draft-derived origin to a registry builder. */
+export function getCapabilityPackagePublicationStoreOrigin(storage: CapabilityResourceStorageBinding): CapabilityStoreOrigin | undefined {
+  if (!isCapabilityPackagePublicationAllowed(storage)) fail('PACKAGE_ACCESS_DENIED', 'The package origin requires a held publication.', 403);
+  const origin = publications.getStore()?.binding.storeOrigin;
+  return origin ? normalizeCapabilityStoreOrigin(origin, storage.resourceId) ?? undefined : undefined;
 }
 export async function assertCapabilityPackageLegacyMutationAllowed(storage: CapabilityResourceStorageBinding,
   next?: {version:string;checksum:string;installDir?:string}): Promise<void> {
@@ -480,7 +505,12 @@ export async function publishCapabilityPackageDraft(actorInput: CapabilityResour
       if (draft.basePackageRevision !== request.expectedPackageRevision || draft.basePublishedRevisionRef !== request.expectedPublishedRevisionRef) fail('PACKAGE_REVISION_CONFLICT','The draft is based on another package revision.',409);
       if (draft.operation === 'edit') assertCurrentSource(state,draft.baseSourceStamp);
       const revisionRef = `canvas-package-revision:${randomUUID()}`;
-      const prepared = await callback({authorization,draft:Object.freeze(structuredClone(draft)),state,revisionRef},database);
+      const baseOrigin = normalizeCapabilityStoreOrigin(draft.baseSourceStamp.storeOrigin, draft.baseSourceStamp.resourceId) ?? undefined;
+      const publishedOrigin = draft.operation === 'fork' ? deriveCapabilityStoreOrigin(baseOrigin, authorization.record.storage.resourceId) : baseOrigin;
+      const expectedOrigin = publishedOrigin ? Object.freeze(publishedOrigin) : undefined;
+      const heldDraft = Object.freeze(structuredClone(draft));
+      const prepared = await originPreparations.run({ authorization, expectedOrigin, database, revisionRef },
+        () => callback({authorization,draft:heldDraft,state,revisionRef},database));
       const { snapshot } = prepared, validation = snapshot.validation, sourceStamp = stampSnapshot(prepared.sourceStamp);
       if (!validation.valid || validation.kind !== draft.kind || validation.name !== draft.name || !validation.version || !validation.checksum
         || snapshot.location.resourceRef !== draft.resourceRef || snapshot.location.revisionRef !== revisionRef || snapshot.location.name !== draft.name
@@ -488,7 +518,8 @@ export async function publishCapabilityPackageDraft(actorInput: CapabilityResour
         || snapshot.marker.contractVersion !== CAPABILITY_PACKAGE_CONTRACT_VERSION || snapshot.marker.resourceRef !== draft.resourceRef || snapshot.marker.revisionRef !== revisionRef
         || snapshot.marker.checksum !== validation.checksum || sourceStamp.resourceId !== authorization.record.storage.resourceId || sourceStamp.kind !== draft.kind
         || sourceStamp.name !== draft.name || sourceStamp.version !== validation.version || sourceStamp.checksum !== validation.checksum
-        || sourceStamp.registryChecksum !== validation.checksum || validation.files.length > CAPABILITY_PACKAGE_LIMITS.maxFiles
+        || sourceStamp.registryChecksum !== validation.checksum || !sameCapabilityStoreOrigin(sourceStamp.storeOrigin, expectedOrigin)
+        || validation.files.length > CAPABILITY_PACKAGE_LIMITS.maxFiles
         || validation.totalBytes > CAPABILITY_PACKAGE_LIMITS.maxTotalBytes) fail('PACKAGE_INVALID','The prepared snapshot does not match this publication.');
       const now = Date.now();
       const published: CapabilityPackagePublishedRevision = { contractVersion: CAPABILITY_PACKAGE_CONTRACT_VERSION,resourceRef:draft.resourceRef,revisionRef,

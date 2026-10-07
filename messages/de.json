@@ -7728,7 +7728,8 @@
         "noSkills": "Keine Skills angegeben.",
         "noConnectors": "Keine Connector-Empfehlungen hinterlegt.",
         "notFound": "Dieses Plugin ist in diesem Bereich nicht mehr verfügbar.",
-        "installedNeedsSetup": "Installiert. Richte die erforderlichen Verbindungen ein, um dieses Plugin zu nutzen."
+        "installedNeedsSetup": "Installiert. Richte die erforderlichen Verbindungen ein, um dieses Plugin zu nutzen.",
+        "versionedUpdateRequired": "Wähle die installierte Variante, um ihre Version und Änderungen zu prüfen."
       },
       "sourcePathPlaceholder": "/absoluter/pfad/zum/plugin-paket",
       "install": "Plugin installieren",
@@ -7784,7 +7785,8 @@
       }
     },
     "skillLibrary": {
-      "comparisonUnknown": "Der Vergleich mit der Store-Herkunft ist noch nicht verfügbar. Der Update-Status ist unbekannt.",
+      "comparisonUnknown": "Ein vollständiger Vergleich mit dem Store ist nicht verfügbar. Ungeprüfte Update-Status bleiben unbekannt.",
+      "versionedUpdateRequired": "Wähle die installierte Variante, um ihre Version und Änderungen zu prüfen.",
       "tabs": {
         "installed": "Installiert",
         "library": "Skill Library",

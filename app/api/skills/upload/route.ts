@@ -1,5 +1,6 @@
 import { isCapabilityPackageError } from '@/app/lib/capabilities/packages/contracts';
 import { NextResponse } from 'next/server';
+import { toPublicCapabilityPackageMetadata } from '@/app/lib/capabilities/packages/public-metadata';
 import { PersonalSkillActivationError } from '@/app/lib/skills/personal-skill-activation';
 import { requireOrganizationPermission } from '@/app/lib/organization/permissions';
 import {
@@ -103,7 +104,7 @@ export async function POST(request: Request) {
     });
 
     console.log(`[Skills Upload API] Created skill: ${result.path}`);
-    return NextResponse.json(result);
+    return NextResponse.json(toPublicCapabilityPackageMetadata(result));
   } catch (error) {
     if (isCapabilityPackageError(error)) return NextResponse.json({ success: false, error: error.message, code: error.code }, { status: error.status });
     console.error('[Skills Upload API] Error:', error);

@@ -3,6 +3,7 @@ import { Type } from 'typebox';
 import { z } from 'zod';
 import type { CapabilityResourceActor } from '@/app/lib/capabilities/resources/contracts';
 import { CapabilityPackageError, isCapabilityPackageError } from '@/app/lib/capabilities/packages/contracts';
+import { toPublicCapabilityPackageMetadata } from '@/app/lib/capabilities/packages/public-metadata';
 import { capabilityPackageReferenceSchema, capabilityPackageDraftReferenceSchema, capabilityPackageDraftCreationSchema,
   capabilityPackagePublishSchema, capabilityPackageFileWriteSchema, capabilityPackageFileDeleteSchema,
   capabilityPackageFileReadSchema, capabilityPackageDiscardSchema, capabilityPackagePublishedTreeSchema,
@@ -1354,7 +1355,7 @@ export function createCapabilityPackageTools(userId?: string, agentId?: string |
       try {
         const current = actor();
         const params = schema.parse(value) as Record<string, unknown>;
-        const result = await operation(await import('@/app/lib/capabilities/packages/actions'), current, params);
+        const result = toPublicCapabilityPackageMetadata(await operation(await import('@/app/lib/capabilities/packages/actions'), current, params));
         return { content: [{ type: 'text', text: JSON.stringify(result) }], details: { capabilityPackage: { operation: name, result } } };
       } catch (error) {
         const known = isCapabilityPackageError(error), invalid = error instanceof z.ZodError;

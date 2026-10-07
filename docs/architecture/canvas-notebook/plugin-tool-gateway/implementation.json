@@ -175,7 +175,14 @@
                 "Comparison stays unknown; durable verified upstream provenance and atomic versioned Store import/update remain6a-b-2/3; full new browsing UI remains6a-c; default-off flag unchanged"
               ]
             },
-            { "id": "6a-b-2", "name": "Verifizierte dauerhafte Store-Herkunft pro Ressourceninstanz", "status": "pending", "evidence": [] },
+            { "id": "6a-b-2", "name": "Verifizierte dauerhafte Store-Herkunft pro Ressourceninstanz", "status": "complete", "evidence": [
+              "Detailed acceptance: evidence/step-6a-b2-store-provenance.md; private verified exact-instance Store anchors, independent baseline/current bytes/version, same-instance edit preservation, derived fork/child/scoped adoption and strict publication/registry/SQL origin proof",
+              "Six provenance and three catalog fixtures PASS: real PGlite/BetterAuth/HTTP Registry/ZIP/Store/publish/tools; v1 base survives local99/100 and recognizes2, exact sources/scopes, unknown legacy, forged/tampered origins, conflict/outage/delayed rights revoke; private HTTP/model/host transport proof stripped with internal origin retained",
+              "Full package and PluginApp, legacy SkillStore/AgentWorkspace, new real-FS adoption-race and guarded cleanup tests PASS; actual React UI unknown/partial/outage and old replacement actions blocked; native8-client PostgreSQL CAS/queued revoke/rollback/namespace gate PASS",
+              "Final production build, whole-tree TypeScript including afterbuild, changed-source/fixture ESLint and diffcheck PASS; final3/3 Chromium browser one worker/no retries1.4min,1280/390 Light/Dark inspected",
+              "First browser cleanup stopped at old ownSource grantrev3 cap; current bound ownSource accepts two receipted revoke/restore rounds through5, all authority/byte/revision guards retained; recovery and repeated cleanup PASS, independent owned resource/draft/version/preference/intake counts0, exact settings restoration, own host stopped and foreign stack preserved",
+              "Store application with exact target/head/meta/grant CAS remains6a-b-3; full browse/detail redesign6a-c, mobile/OAuth parity6b and live provider acceptance7 remain pending; no container build/publication/default-off flag change"
+            ] },
             { "id": "6a-b-3", "name": "Atomarer versionierter Store-Import und gezieltes Update", "status": "pending", "evidence": [] }
           ],
           "evidence": []

@@ -27,6 +27,7 @@ import { capabilityPackageDiscardSchema, capabilityPackageDraftCreationSchema, c
   capabilityPackageFileDeleteSchema, capabilityPackageFileReadSchema, capabilityPackageFileWriteSchema,
   capabilityPackagePublishedFileSchema, capabilityPackagePublishedTreeSchema, capabilityPackagePublishSchema,
   capabilityPackageReferenceSchema } from './schemas';
+import { deriveCapabilityStoreOrigin, normalizeCapabilityStoreOrigin, sameCapabilityStoreOrigin } from './store-origin';
 
 function parentStorage(source: ResolvedCapabilityPackageArtifact): CapabilityResourceStorageBinding | undefined {
   if (source.storage.sourceType !== 'plugin') return undefined;
@@ -206,6 +207,7 @@ function sameSource(left: CapabilityPackageSourceStamp, right: CapabilityPackage
   return left.resourceId === right.resourceId && left.kind === right.kind && left.name === right.name && left.version === right.version
     && left.artifactRevision === right.artifactRevision && left.checksum === right.checksum && left.registryChecksum === right.registryChecksum
     && left.sourcePluginId === right.sourcePluginId
+    && sameCapabilityStoreOrigin(left.storeOrigin, right.storeOrigin)
     && JSON.stringify(left.dependencies || []) === JSON.stringify(right.dependencies || []);
 }
 
@@ -231,13 +233,16 @@ export async function publishCapabilityPackageDraftAction(actor: CapabilityResou
           kind: context.draft.kind, name: context.draft.name, owner: context.authorization.record.metadata.ownership,
           version: validation.version, checksum: validation.checksum }, validation);
         stagedRef = context.revisionRef;
+        const sourceOrigin = normalizeCapabilityStoreOrigin(context.draft.baseSourceStamp.storeOrigin, context.draft.baseSourceStamp.resourceId) ?? undefined;
+        const storeOrigin = context.draft.operation === 'fork' ? deriveCapabilityStoreOrigin(sourceOrigin, context.authorization.record.storage.resourceId) : sourceOrigin;
         staged = await withCapabilityPackagePublication(context.authorization, { revisionRef: context.revisionRef,
-          version: validation.version, checksum: validation.checksum, rootPath: snapshot.location.rootPath }, database,
+          version: validation.version, checksum: validation.checksum, rootPath: snapshot.location.rootPath, storeOrigin }, database,
         () => stageCapabilityPackageRegistryPointer(context.authorization, snapshot, context.draft.operation === 'fork' ? { enabled: false, newResource: true } : undefined));
         const pointer = staged.record;
         return { snapshot, sourceStamp: { resourceId: context.authorization.record.storage.resourceId, kind: context.draft.kind,
           name: context.draft.name, version: validation.version, artifactRevision: pointer.revision ?? null,
-          checksum: validation.checksum, registryChecksum: validation.checksum, sourcePluginId: null } };
+          checksum: validation.checksum, registryChecksum: validation.checksum, sourcePluginId: null,
+          ...(storeOrigin ? { storeOrigin } : {}) } };
       });
     } catch (error) {
       if (!staged) throw error;

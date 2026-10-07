@@ -3,7 +3,9 @@ import 'server-only';
 import { CapabilityResourceError, type CapabilityResourceActor, type CapabilityResourceDescriptor } from '@/app/lib/capabilities/resources/contracts';
 import { openDb } from '@/app/lib/db';
 import { authority } from '@/app/lib/capabilities/scope-authority';
-import type { CanvasSkillStoreRegistry, CanvasSkillStoreScope, CanvasSkillStoreSkill, CanvasSkillStoreSkillWithState, CanvasSkillStoreStats } from './canvas-skill-store';
+import type { CanvasSkillStoreRegistry, CanvasSkillStoreScope, CanvasSkillStoreSkill, CanvasSkillStoreSkillWithState, CanvasSkillStoreStats, CanvasSkillStoreListOptions, CanvasSkillStoreList } from './canvas-skill-store';
+import { capabilityStoreComparison, compareInstalledStoreResource, installedStoreResourceObservation, readInstalledStoreResources,
+  storeOriginMatchesOffering, type CapabilityStoreComparison, type PrivateInstalledStoreResource, type SafeCapabilityStoreState } from '@/app/lib/plugins/store-installed-resource';
 
 /** The actor-facing store never returns installation paths, digests or grant inventories. */
 export type SafeActorSkillStoreResource = {
@@ -13,6 +15,7 @@ export type SafeActorSkillStoreResource = {
   activation?: CapabilityResourceDescriptor['activation'];
   ownershipLabel?: string;
   people?: CapabilityResourceDescriptor['people'];
+  storeState?: SafeCapabilityStoreState;
 };
 
 function publicStoreUrl(value: string | undefined): string | undefined {
@@ -75,38 +78,46 @@ function safeResource(descriptor: CapabilityResourceDescriptor): SafeActorSkillS
 
 /** Descriptors come from the fresh ACL catalog; names only group visible instances, never authorize them. */
 export function projectActorCanvasSkillStoreState(
-  registry: CanvasSkillStoreRegistry,
+  source: CanvasSkillStoreRegistry | null,
   descriptors: readonly CapabilityResourceDescriptor[],
   scope?: CanvasSkillStoreScope | null,
-): { registry: Omit<CanvasSkillStoreRegistry, 'skills'>; skills: CanvasSkillStoreSkillWithState[]; stats: Omit<CanvasSkillStoreStats, 'filteredTotal'> } {
-  const byName = new Map<string, SafeActorSkillStoreResource[]>();
+  observations: ReadonlyMap<string, PrivateInstalledStoreResource> = new Map(),
+): { registry: Omit<CanvasSkillStoreRegistry, 'skills'>; skills: CanvasSkillStoreSkillWithState[]; stats: Omit<CanvasSkillStoreStats, 'filteredTotal'>;
+  installedResources: SafeActorSkillStoreResource[]; comparison: CapabilityStoreComparison; availability: 'available' | 'unavailable' } {
+  const registry = source ?? { schemaVersion: 1 as const, id: '', name: '', updatedAt: '', registryUrl: '', skills: [] };
+  const installedResources: SafeActorSkillStoreResource[] = [];
+  const privateByRef = new Map<string, PrivateInstalledStoreResource>();
   for (const descriptor of descriptors) {
     if (!descriptor.access.canRead || descriptor.metadata.status !== 'active' || descriptor.artifact.resourceType !== 'skill') continue;
     const ownership = descriptor.metadata.ownership;
     if (scope?.scopeType === 'organization' && (descriptor.artifact.scopeType !== 'organization'
       || (ownership.type !== 'organization' && ownership.type !== 'team') || ownership.organizationId !== scope.organizationId)) continue;
-    const key = descriptor.artifact.name.trim().toLowerCase();
-    const resources = byName.get(key) || [];
-    resources.push(safeResource(descriptor));
-    byName.set(key, resources);
+    const observed = observations.get(descriptor.metadata.resourceRef);
+    const current = observed?.observation === installedStoreResourceObservation(descriptor) ? observed : undefined;
+    if (current) privateByRef.set(descriptor.metadata.resourceRef, current);
+    const offering = current?.origin?.kind === 'skill' ? registry.skills.find(skill => skill.name === current.origin?.entryKey) : undefined;
+    installedResources.push({ ...safeResource(descriptor), storeState: compareInstalledStoreResource(current, source, offering, 'skill') });
   }
+  installedResources.sort((a, b) => a.metadata.resourceRef.localeCompare(b.metadata.resourceRef));
   const skills = registry.skills.map(skill => {
-    const resources = (byName.get(skill.name.trim().toLowerCase()) || []).sort((a, b) => a.metadata.resourceRef.localeCompare(b.metadata.resourceRef));
+    const resources = installedResources.filter(resource => storeOriginMatchesOffering(privateByRef.get(resource.metadata.resourceRef)?.origin ?? null, registry, 'skill', skill.name));
     const single = resources.length === 1 ? resources[0] : undefined;
     return { ...publicStoreOffering(skill), installed: {
-      installed: resources.length > 0, enabled: single?.activation?.enabled === true,
+      installed: resources.some(resource => resource.storeState?.origin === 'verified'), enabled: single?.activation?.enabled === true,
       ...(single ? { version: single.artifact.version,
         managedByOrganization: single.metadata.ownership.type === 'organization' || single.metadata.ownership.type === 'team' } : {}),
-      updateAvailable: false, modified: false, restoreAvailable: false,
-      comparison: 'unknown' as const, resources,
+      updateAvailable: resources.some(resource => resource.storeState?.upstream === 'update-available'),
+      modified: resources.some(resource => resource.storeState?.localChanges === 'modified'), restoreAvailable: false,
+      comparison: capabilityStoreComparison(resources.map(resource => resource.storeState!), Boolean(source)), resources,
     } };
   });
   const registryMetadata = { schemaVersion: registry.schemaVersion, id: registry.id, name: registry.name, updatedAt: registry.updatedAt,
     registryUrl: publicStoreUrl(registry.registryUrl) || '', homepage: publicStoreUrl(registry.homepage),
     publisher: registry.publisher ? { name: registry.publisher.name, url: publicStoreUrl(registry.publisher.url) } : undefined };
-  return { registry: registryMetadata, skills, stats: {
+  return { registry: registryMetadata, skills, installedResources, availability: source ? 'available' : 'unavailable',
+    comparison: capabilityStoreComparison(installedResources.map(resource => resource.storeState!), Boolean(source)), stats: {
     total: skills.length, installed: skills.filter(skill => skill.installed.installed).length,
-    available: skills.filter(skill => !skill.installed.installed).length, updates: 0,
+    available: skills.filter(skill => !skill.installed.installed).length, updates: skills.filter(skill => skill.installed.updateAvailable).length,
   } };
 }
 
@@ -129,5 +140,39 @@ export async function readActorCanvasSkillStoreState(
   await assertActorCanvasSkillStoreContext(actor);
   // Keep the legacy registry/loader import cycle out of the un-migrated no-actor path.
   const { listCapabilityResources } = await import('@/app/lib/capabilities/resources/actions');
-  return projectActorCanvasSkillStoreState(registry, await listCapabilityResources(actor), scope);
+  const initial = await listCapabilityResources(actor);
+  const observations = await readInstalledStoreResources(actor, scopedSkills(initial, scope));
+  await assertActorCanvasSkillStoreContext(actor);
+  return projectActorCanvasSkillStoreState(registry, await listCapabilityResources(actor), scope, observations);
 }
+
+function scopedSkills(resources: readonly CapabilityResourceDescriptor[], scope?: CanvasSkillStoreScope | null): CapabilityResourceDescriptor[] {
+  return resources.filter(resource => resource.access.canRead && resource.artifact.resourceType === 'skill' && resource.metadata.status === 'active'
+    && (scope?.scopeType !== 'organization' || resource.artifact.scopeType === 'organization'
+      && (resource.metadata.ownership.type === 'organization' || resource.metadata.ownership.type === 'team')
+      && resource.metadata.ownership.organizationId === scope.organizationId));
+}
+
+export async function listActorCanvasSkillStore(options: CanvasSkillStoreListOptions & { actor: CapabilityResourceActor },
+  readRegistry: () => Promise<CanvasSkillStoreRegistry>): Promise<CanvasSkillStoreList> {
+  const actor = { userId: options.actor.userId, workspaceId: options.actor.workspaceId };
+  await assertActorCanvasSkillStoreContext(actor);
+  const { listCapabilityResources } = await import('@/app/lib/capabilities/resources/actions');
+  const initial = await listCapabilityResources(actor);
+  let registry: CanvasSkillStoreRegistry | null = null;
+  try { registry = await readRegistry(); } catch { /* Installed authority remains independent of the remote catalog. */ }
+  const observations = await readInstalledStoreResources(actor, scopedSkills(initial, options.scope));
+  await assertActorCanvasSkillStoreContext(actor);
+  const enriched = projectActorCanvasSkillStoreState(registry, await listCapabilityResources(actor), options.scope, observations);
+  const query = (options.query || '').trim().toLowerCase();
+  const filtered = enriched.skills.filter(skill => (options.state !== 'installed' || skill.installed.installed)
+    && (options.state !== 'available' || !skill.installed.installed) && (options.state !== 'updates' || skill.installed.updateAvailable)
+    && (!query || [skill.name, skill.displayName, skill.description, skill.category || ''].join(' ').toLowerCase().includes(query)));
+  const integer = (value: number | undefined, fallback: number, max: number) => Number.isFinite(value) && value! > 0 ? Math.min(Math.floor(value!), max) : fallback;
+  const pageSize = integer(options.pageSize, 12, 50), totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const page = Math.min(integer(options.page, 1, 100000), totalPages);
+  return { ...enriched, skills: filtered.slice((page - 1) * pageSize, page * pageSize), stats: { ...enriched.stats, filteredTotal: filtered.length },
+    pagination: { page, pageSize, totalItems: filtered.length, totalPages, hasNextPage: page < totalPages, hasPreviousPage: page > 1 } };
+}
+
+export { safeResource as projectSafeInstalledStoreResource, publicStoreUrl };
