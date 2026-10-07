@@ -191,6 +191,14 @@ export type AiUserCredentialEligibility = {
   connected: boolean;
   consentGranted: boolean;
   grantRevision: number | null;
+  verification?: AiPersonalProviderVerification;
+};
+
+export type AiPersonalProviderVerification = {
+  status: 'ready' | 'degraded' | 'unverified';
+  verifiedAt: string | null;
+  checkedAt: string | null;
+  failureCode: string | null;
 };
 
 export type AiEffectiveCatalogProvider = {

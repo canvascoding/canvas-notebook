@@ -5,6 +5,7 @@
 
 import { readFileSync } from 'fs';
 import { join } from 'path';
+import { createHash, randomUUID } from 'node:crypto';
 import type {
   AuthEvent,
   AuthPrompt,
@@ -182,7 +183,7 @@ async function mutateAuthFile<T>(scope: OAuthStorageScope | null | undefined, op
   return result;
 }
 
-function credentialStoreForScope(scope?: OAuthStorageScope | null): CredentialStore {
+function credentialStoreForScope(scope?: OAuthStorageScope | null, newConnection = false): CredentialStore {
   return {
     read: async (providerId, options) => mutateAuthFile(scope, async auth => {
       options?.signal?.throwIfAborted();
@@ -199,7 +200,12 @@ function credentialStoreForScope(scope?: OAuthStorageScope | null): CredentialSt
       if (next) {
         const normalized = normalizeOAuthCredential(next);
         if (!normalized || ['__proto__', 'constructor', 'prototype'].includes(providerId)) throw new Error('Invalid PI OAuth provider credential.');
-        auth[providerId] = normalized;
+        const previous = auth[providerId];
+        auth[providerId] = {
+          ...normalized,
+          canvasConnectionId: newConnection ? randomUUID() : connectionId(normalized) ?? connectionId(previous)
+            ?? (previous ? legacyConnectionId(previous) : randomUUID()),
+        } as OAuthCredential;
       }
       return auth[providerId];
     }),
@@ -210,9 +216,24 @@ function credentialStoreForScope(scope?: OAuthStorageScope | null): CredentialSt
   };
 }
 
-async function modelsForScope(scope?: OAuthStorageScope | null) {
+async function modelsForScope(scope?: OAuthStorageScope | null, newConnection = false) {
   const { builtinModels } = await import('@earendil-works/pi-ai/providers/all');
-  return builtinModels({ credentials: credentialStoreForScope(scope) });
+  return builtinModels({ credentials: credentialStoreForScope(scope, newConnection) });
+}
+
+function connectionId(credential?: OAuthCredential): string | null {
+  const value = (credential as OAuthCredential & { canvasConnectionId?: unknown } | undefined)?.canvasConnectionId;
+  return typeof value === 'string' && value ? value : null;
+}
+
+function legacyConnectionId(credential: OAuthCredential): string {
+  return createHash('sha256').update(credential.refresh).digest('hex');
+}
+
+/** Opaque owner-scoped connection identity. Refresh preserves it; reconnect replaces it. */
+export function getProviderConnectionId(provider: OAuthProviderId, scope: OAuthStorageScope): string | null {
+  const credential = getProviderCredentials(provider, scope);
+  return credential?.refresh ? connectionId(credential) ?? legacyConnectionId(credential) : null;
 }
 
 /**
@@ -242,7 +263,7 @@ export async function saveProviderCredentials(
 ): Promise<void> {
   const normalized = normalizeOAuthCredential(credentials);
   if (!normalized) throw new Error(`Invalid OAuth credentials for ${provider}.`);
-  await credentialStoreForScope(scope).modify(provider, async () => normalized);
+  await credentialStoreForScope(scope, true).modify(provider, async () => normalized);
 }
 
 /**
@@ -280,7 +301,7 @@ export async function initiateOAuthLogin(
   onProgress?: ProgressCallback,
   scope?: OAuthStorageScope | null,
 ): Promise<OAuthCredentials> {
-  const models = await modelsForScope(scope);
+  const models = await modelsForScope(scope, true);
   const credential = await models.login(provider, 'oauth', {
     prompt: async (prompt: AuthPrompt) => {
       prompt.signal?.throwIfAborted();

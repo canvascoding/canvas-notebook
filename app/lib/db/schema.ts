@@ -1140,6 +1140,23 @@ export const aiProviderInstallations = pgTable("ai_provider_installations", {
   organizationStatusIdx: index("idx_ai_provider_installations_org_status").on(table.organizationId, table.status),
 }));
 
+export const aiUserProviderVerifications = pgTable("ai_user_provider_verifications", {
+  organizationId: text("organization_id").notNull().references(() => canvasOrganizationSettings.organizationId, { onDelete: 'cascade' }),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: 'cascade' }),
+  providerInstallationId: text("provider_installation_id").notNull().references(() => aiProviderInstallations.id, { onDelete: 'cascade' }),
+  connectionId: text("connection_id").notNull(),
+  targetFingerprint: text("target_fingerprint").notNull(),
+  modelId: text("model_id").notNull(),
+  status: text("status").notNull(),
+  failureCode: text("failure_code"),
+  verifiedAt: pgTimestamp("verified_at"),
+  checkedAt: pgTimestamp("checked_at").notNull(),
+  revision: bigint("revision", { mode: "number" }).notNull().default(1),
+}, (table) => ({
+  pk: primaryKey(table.organizationId, table.userId, table.providerInstallationId),
+  statusCheck: check("ai_user_provider_verifications_status_check", sql`${table.status} IN ('ready', 'degraded', 'unverified')`),
+}));
+
 export const aiProviderModels = pgTable("ai_provider_models", {
   organizationId: text("organization_id").notNull().references(() => canvasOrganizationSettings.organizationId, { onDelete: 'cascade' }),
   providerInstallationId: text("provider_installation_id").notNull().references(() => aiProviderInstallations.id, { onDelete: 'cascade' }),
