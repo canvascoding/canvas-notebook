@@ -2851,7 +2851,19 @@
         "empty": "You're all caught up. New messages appear here.",
         "unknownSender": "Unknown sender",
         "noSubject": "No subject",
-        "openAll": "Open inbox"
+        "openAll": "Open inbox",
+        "focusDescription": "Priorities across personal and work mailboxes",
+        "focusCount": "{count} in Focus",
+        "importantCount": "{count} important",
+        "replyCount": "{count} other replies needed",
+        "openFocus": "Open Email Focus",
+        "unconfirmed": "Email preparation could not be confirmed. Refresh this card.",
+        "emptyFocus": "No important mail in the captured inboxes right now.",
+        "emptyPreparing": "Review or preparation is still pending. All emails keeps the remaining mail within reach.",
+        "partial": "Not fully prepared yet",
+        "preparationPaused": "New preparation paused",
+        "sourceFailed": "A mailbox could not be fully captured",
+        "updatesAvailable": "New assessments available"
       },
       "todos": {
         "title": "To-dos",

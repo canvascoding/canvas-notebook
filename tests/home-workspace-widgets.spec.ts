@@ -12,6 +12,10 @@ async function prepare(page: Page) {
   await page.route('**/api/files/quick-access?*', route => route.fulfill({ json: { success: true, data: { files: [], total: 0, workspaceFileCount: 0, view: 'recent', favorites: [] } } }));
   await page.route('**/api/home/chats?*', route => route.fulfill({ json: { success: true, data: { chats: [], hasMore: false } } }));
   await page.route('**/api/mobile-app-promotion', route => route.fulfill({ json: { success: true, promotion: { eligible: false } } }));
+  // This suite exercises the preserved legacy SWR path, independently of instance preparation.
+  await page.route('**/api/email/classification/availability', route => route.fulfill({ json: {
+    success: true, data: { enabled: false, available: false, revision: 0, defaultMode: 'classic', reason: 'disabled' },
+  } }));
   return workspace as { id: string };
 }
 
@@ -22,6 +26,7 @@ async function mockWidgets(page: Page, workspaceId: string, options: {
   staleEmailFollowUp?: boolean;
 } = {}) {
   const widgetRequests: string[] = [];
+  let emailResponses = 0;
   let releaseEmailFollowUp: () => void = () => undefined;
   const emailFollowUpGate = new Promise<void>((resolve) => {
     releaseEmailFollowUp = resolve;
@@ -30,8 +35,10 @@ async function mockWidgets(page: Page, workspaceId: string, options: {
     widgetRequests.push(route.request().url());
     const requestUrl = new URL(route.request().url());
     expect(requestUrl.searchParams.get('workspaceId')).toBe(workspaceId);
-    const isEmailFollowUp = requestUrl.searchParams.get('widgets') === 'emails';
+    const requestsEmail = requestUrl.searchParams.get('widgets')?.split(',').includes('emails') ?? false;
+    const isEmailFollowUp = requestsEmail && emailResponses > 0;
     if (options.staleEmailFollowUp && isEmailFollowUp) await emailFollowUpGate;
+    if (requestsEmail) emailResponses++;
     const cachedAt = '2026-09-08T12:00:00.000Z';
     const ready = <T,>(data: T) => ({ status: 'ready' as const, data, cachedAt, stale: false });
     const initialEmails = [
@@ -96,7 +103,9 @@ test('workspace widgets fill page two with stable, directly actionable previews'
   await studioImage.scrollIntoViewIfNeeded();
   await expect(studioImage).toBeInViewport();
   await expect.poll(() => page.getByTestId('workspace-widget-studio-preview').locator('img').evaluate(image => (image as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
-  expect(widgetRequests).toHaveLength(1);
+  const requestedWidgets = widgetRequests.flatMap(request => new URL(request).searchParams.get('widgets')?.split(',') ?? []);
+  expect([...new Set(requestedWidgets)].sort()).toEqual(['automation', 'emails', 'studio', 'todos']);
+  for (const name of ['todos', 'studio', 'automation']) expect(requestedWidgets.filter(widget => widget === name)).toHaveLength(1);
 
   const emailCard = page.getByTestId('workspace-widget-email');
   const emailPreview = page.getByTestId('workspace-widget-email-preview');
@@ -284,7 +293,7 @@ test('touch layout keeps quick selections visible in one column', async ({ page 
   await page.getByRole('button', { name: 'Zum Workspace', exact: true }).click();
   const cards = page.locator('#home-workspace article[data-testid^="workspace-widget-"]');
   await expect(cards).toHaveCount(4);
-  await expect.poll(() => widgetRequests.map(request => new URL(request).searchParams.get('widgets'))).toContain('emails,todos,automation,studio');
+  await expect.poll(() => [...new Set(widgetRequests.flatMap(request => new URL(request).searchParams.get('widgets')?.split(',') ?? []))].sort()).toEqual(['automation', 'emails', 'studio', 'todos']);
   await expect(page.getByTestId('workspace-widget-email-preview').getByText('Schnellauswahl')).toBeVisible();
   const [firstBox, secondBox] = await cards.evaluateAll(elements => elements.slice(0, 2).map(element => {
     const box = element.getBoundingClientRect();
@@ -317,7 +326,7 @@ test('email preview keeps its active click targets stable during a delayed refre
   const emailCard = page.getByTestId('workspace-widget-email');
   await expect(emailCard.getByText('Launch-Freigabe')).toBeVisible();
   await emailCard.hover();
-  await expect.poll(() => widgetRequests.length).toBe(2);
+  await expect.poll(() => widgetRequests.filter(request => new URL(request).searchParams.get('widgets')?.split(',').includes('emails')).length).toBe(2);
   releaseEmailFollowUp();
   await page.waitForTimeout(100);
   await expect(emailCard.getByText('Launch-Freigabe')).toBeVisible();

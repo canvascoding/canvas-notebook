@@ -1,6 +1,7 @@
 import { EmailClient } from '@/app/apps/email/components/EmailClient';
 import { requirePageSession } from '@/app/lib/auth-guards';
 import type { NotebookEmailContextIntent } from '@/app/lib/notebook/context-surface';
+import { emailFocusIntentFromSearchParams } from '@/app/apps/email/components/email-focus-deep-link';
 
 type EmailsPageProps = {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
@@ -17,7 +18,7 @@ export default async function EmailsPage({ searchParams }: EmailsPageProps) {
   const accountId = getFirstSearchParam(params.accountId);
   const messageId = getFirstSearchParam(params.messageId);
   const folder = getFirstSearchParam(params.folder);
-  const contextIntent: NotebookEmailContextIntent | null = accountId && messageId
+  const contextIntent: NotebookEmailContextIntent | null = emailFocusIntentFromSearchParams(params) ?? (accountId && messageId
     ? {
       kind: 'email',
       toolCallId: null,
@@ -27,7 +28,7 @@ export default async function EmailsPage({ searchParams }: EmailsPageProps) {
       folder,
       messageId,
     }
-    : null;
+    : null);
 
   return <EmailClient contextIntent={contextIntent} />;
 }

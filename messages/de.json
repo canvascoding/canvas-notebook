@@ -2850,7 +2850,19 @@
         "empty": "Alles gelesen – neue Nachrichten erscheinen hier.",
         "unknownSender": "Unbekannter Absender",
         "noSubject": "Ohne Betreff",
-        "openAll": "Posteingang öffnen"
+        "openAll": "Posteingang öffnen",
+        "focusDescription": "Prioritäten aus persönlichen und Arbeitspostfächern",
+        "focusCount": "{count} im Fokus",
+        "importantCount": "{count} wichtig",
+        "replyCount": "{count} weitere Antworten",
+        "openFocus": "E-Mail-Fokus öffnen",
+        "unconfirmed": "Die E-Mail-Vorbereitung konnte nicht bestätigt werden. Aktualisiere die Karte.",
+        "emptyFocus": "Gerade keine wichtigen E-Mails im erfassten Bereich.",
+        "emptyPreparing": "Prüfung oder Vorbereitung ist noch offen. Die übrigen Nachrichten findest du unter Alle E-Mails.",
+        "partial": "Noch nicht vollständig vorbereitet",
+        "preparationPaused": "Neue Vorbereitung pausiert",
+        "sourceFailed": "Ein Postfach konnte nicht vollständig erfasst werden",
+        "updatesAvailable": "Neue Bewertungen verfügbar"
       },
       "todos": {
         "title": "To-dos",
