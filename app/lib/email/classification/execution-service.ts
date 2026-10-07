@@ -47,7 +47,11 @@ export function managedEmailConfiguration(configuration: EmailClassificationConf
 export async function reconcileEmailClassificationExecution(store: Pick<PostgresEmailClassificationStore, 'readSettings'> & Partial<Pick<PostgresEmailClassificationStore, 'updateSettings'>>, settings: EmailClassificationSettings, execution: EmailClassificationExecution): Promise<EmailClassificationSettings> {
   if (settings.configuration.executionMode !== 'managed' || !execution.managedModel || !store.updateSettings) return settings;
   const configuration = managedEmailConfiguration(settings.configuration, execution);
-  if (JSON.stringify(configuration.managedModel) === JSON.stringify(settings.configuration.managedModel) && configuration.managedModelRef === settings.configuration.managedModelRef) return settings;
+  const current = settings.configuration.managedModel;
+  const resolved = configuration.managedModel;
+  if (current && resolved && current.ref === resolved.ref && current.providerId === resolved.providerId && current.model === resolved.model
+    && current.inferenceRevision === resolved.inferenceRevision && current.adapterVersion === resolved.adapterVersion
+    && configuration.managedModelRef === settings.configuration.managedModelRef) return settings;
   try { return await store.updateSettings({ expectedRevision: settings.revision, configuration, actorUserId: null, now: Date.now() }); }
   catch (error) { if (error instanceof EmailClassificationVersionConflictError) return store.readSettings(); throw error; }
 }

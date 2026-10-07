@@ -4,7 +4,7 @@ import { PGlite } from '@electric-sql/pglite';
 import { decisionProviderRegistry } from '../app/lib/decision-models/registry';
 import { decisionInferenceRevision, type ManagedDecisionCatalog, type ManagedDecisionModel } from '@canvas/decision-models/managed';
 import { readManagedDecisionModels, evaluateManagedDecisionModel, ManagedDecisionClientError } from '../app/lib/managed/decision-client';
-import { DEFAULT_EMAIL_CLASSIFICATION_CONFIGURATION } from '../app/lib/email/classification/settings-types';
+import { DEFAULT_EMAIL_CLASSIFICATION_CONFIGURATION, type EmailClassificationConfiguration } from '../app/lib/email/classification/settings-types';
 import { validateEmailClassificationConfiguration } from '../app/lib/email/classification/settings-validation';
 import { emailClassificationEvaluationFingerprint } from '../app/lib/email/classification/settings-evaluation';
 import { runEmailClassificationPostgresMigration } from '../app/lib/email/classification/postgres-migration';
@@ -38,6 +38,7 @@ async function main() {
   const { createEmailClassificationWorker } = await import('../app/lib/email/classification/worker');
   const { ingestEmailClassificationMetadata } = await import('../app/lib/email/classification/index-service');
   const { testEmailClassificationProvider } = await import('../app/lib/email/classification/admin-service');
+  const { reconcileEmailClassificationExecution, resolveEmailClassificationExecution } = await import('../app/lib/email/classification/execution-service');
   const legacy = structuredClone(DEFAULT_EMAIL_CLASSIFICATION_CONFIGURATION) as unknown as Record<string, unknown>;
   delete legacy.executionMode; delete legacy.managedModelRef; delete legacy.managedModel;
   assert.equal(validateEmailClassificationConfiguration(legacy).executionMode, 'direct');
@@ -68,6 +69,10 @@ async function main() {
     await runEmailClassificationPostgresMigration(postgres as unknown as EmailClassificationQueryable);
     const store = createEmailClassificationStore({ postgres: postgres as unknown as EmailClassificationQueryable, transaction: operation => postgres.transaction(connection => operation(connection as unknown as EmailClassificationQueryable)) });
     await store.updateSettings({ expectedRevision: 0, actorUserId: 'admin', configuration: { ...configuration, enabled: true, concurrency: 8 }, now });
+    const stable = await store.readSettings();
+    const reordered = { ...stable, configuration: { ...stable.configuration, managedModel: Object.fromEntries(Object.entries(stable.configuration.managedModel!).reverse()) as NonNullable<EmailClassificationConfiguration['managedModel']> } };
+    const unchanged = await reconcileEmailClassificationExecution(store, reordered, await resolveEmailClassificationExecution(stable.configuration, dependencies));
+    assert.equal(unchanged.revision, stable.revision, 'JSON field ordering must not create a new configuration revision.');
     const mailboxes: AuthorizedEmailClassificationMailbox[] = [null, 'workspace'].map(workspaceId => {
       const identity = { ownerUserId: 'owner', accountSource: 'local' as const, accountId: workspaceId ?? 'personal', provider: 'google', workspaceId, mailboxId: workspaceId ? 'business' : null };
       return { ...identity, mailboxRef: emailClassificationMailboxRef(identity), bindingRevision: 'binding', policyRevision: 'policy', connectionRevision: 'connection', active: true, readFrom: [], emailAddress: 'owner@example.test', displayName: null, workspaceName: workspaceId, capabilities: { canRead: true, canWrite: true, canDelete: true, canManage: true, canRunAgent: true } };
