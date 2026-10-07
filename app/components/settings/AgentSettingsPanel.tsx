@@ -43,6 +43,17 @@ type AgentToolsConfigData = {
   enabledTools: string[];
 };
 
+type AgentToolsMutationTicket = {
+  agentId: string;
+  selectionEpoch: number;
+  expectedRevision: number | undefined;
+};
+
+type AgentToolsSaveToken = AgentToolsMutationTicket & {
+  settled: Promise<void>;
+  settle: () => void;
+};
+
 type AgentSettingsSectionId = 'runtime' | 'tools' | 'connections' | 'skills' | 'files' | 'sessions' | 'doctor';
 type AgentSettingsSectionOpenState = Record<AgentSettingsSectionId, boolean>;
 
@@ -328,6 +339,12 @@ export function AgentSettingsPanel({
   const [toolsSaving, setToolsSaving] = useState(false);
   const [toolsError, setToolsError] = useState<string | null>(null);
   const [toolsConfig, setToolsConfig] = useState<AgentToolsConfigData | null>(null);
+  const selectedAgentIdRef = useRef(DEFAULT_AGENT_ID);
+  const toolsSelectionEpochRef = useRef(0);
+  const toolsRequestSeqRef = useRef(0);
+  const toolsSnapshotRef = useRef<{ selectionEpoch: number; config: AgentToolsConfigData } | null>(null);
+  const toolsSaveTokenRef = useRef<AgentToolsSaveToken | null>(null);
+  const toolsMountedRef = useRef(true);
   const [toolSearchQuery, setToolSearchQuery] = useState('');
   const [activeToolGroups, setActiveToolGroups] = useState<Set<string>>(new Set());
   const [capabilitiesSaving, setCapabilitiesSaving] = useState(false);
@@ -338,6 +355,19 @@ export function AgentSettingsPanel({
   const [modelOverrideSaving, setModelOverrideSaving] = useState(false);
   const [modelOverrideError, setModelOverrideError] = useState<string | null>(null);
 
+  const isCurrentToolsSelection = useCallback((agentId: string, selectionEpoch: number) => (
+    toolsMountedRef.current && selectedAgentIdRef.current === agentId && toolsSelectionEpochRef.current === selectionEpoch
+  ), []);
+
+  useEffect(() => {
+    toolsMountedRef.current = true;
+    return () => {
+      toolsMountedRef.current = false;
+      toolsSelectionEpochRef.current += 1;
+      toolsRequestSeqRef.current += 1;
+      toolsSnapshotRef.current = null;
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -354,6 +384,9 @@ export function AgentSettingsPanel({
   const resetAgentScopedState = useCallback(() => {
     setWorkflowDialogOpen(false);
     sessionsRequestSeqRef.current += 1;
+    toolsSelectionEpochRef.current += 1;
+    toolsRequestSeqRef.current += 1;
+    toolsSnapshotRef.current = null;
     setDoctorResult(null);
     setDoctorError(null);
     setFiles(null);
@@ -367,7 +400,10 @@ export function AgentSettingsPanel({
     setCreateTitle('');
     setSessionPendingId(null);
     setRenameDrafts({});
+    setAvailableTools([]);
     setToolsConfig(null);
+    setToolsLoading(true);
+    setToolsError(null);
     setOpenToolRows({});
     setActiveToolGroups(new Set());
     setCapabilitiesError(null);
@@ -376,7 +412,8 @@ export function AgentSettingsPanel({
   }, []);
 
   const selectAgent = useCallback((agentId: string) => {
-    if (agentId === selectedAgentId) return;
+    if (agentId === selectedAgentIdRef.current) return;
+    selectedAgentIdRef.current = agentId;
     resetAgentScopedState();
     setSelectedAgentId(agentId);
     if (agentId !== DEFAULT_AGENT_ID) {
@@ -386,7 +423,7 @@ export function AgentSettingsPanel({
         return nextState;
       });
     }
-  }, [resetAgentScopedState, selectedAgentId]);
+  }, [resetAgentScopedState]);
 
   const selectedAgent = useMemo(
     () => agents.find((agent) => agent.agentId === selectedAgentId) || null,
@@ -438,20 +475,18 @@ export function AgentSettingsPanel({
       const payload = await fetchJson<{ agents: WorkflowAgentProfileItem[] }>('/api/agents');
       const nextAgents = (payload.agents || []).filter((agent) => agent.access?.canEdit !== false || agent.workflowVersion === 1 && agent.access.canUse);
       setAgents(nextAgents);
-      setSelectedAgentId((current) => {
-        if (nextAgents.some((agent) => agent.agentId === current)) {
-          return current;
-        }
-        return nextAgents.find((agent) => agent.agentId === DEFAULT_AGENT_ID)?.agentId
+      if (!nextAgents.some((agent) => agent.agentId === selectedAgentIdRef.current)) {
+        const nextAgentId = nextAgents.find((agent) => agent.agentId === DEFAULT_AGENT_ID)?.agentId
           || nextAgents[0]?.agentId
           || DEFAULT_AGENT_ID;
-      });
+        selectAgent(nextAgentId);
+      }
     } catch (error) {
       setAgentsError(error instanceof Error ? error.message : t('agentPanel.selector.errors.load'));
     } finally {
       setAgentsLoading(false);
     }
-  }, [t]);
+  }, [selectAgent, t]);
 
   const loadFiles = useCallback(async () => {
     setFilesLoading(true);
@@ -542,10 +577,7 @@ export function AgentSettingsPanel({
       if (!response.ok || !body.success) {
         throw new Error(body.error || t('agentPanel.selector.errors.delete'));
       }
-      if (selectedAgentId === agentId) {
-        resetAgentScopedState();
-        setSelectedAgentId(DEFAULT_AGENT_ID);
-      }
+      if (selectedAgentIdRef.current === agentId) selectAgent(DEFAULT_AGENT_ID);
       await loadAgents();
     } catch (error) {
       setAgentsError(error instanceof Error ? error.message : t('agentPanel.selector.errors.delete'));
@@ -595,27 +627,42 @@ export function AgentSettingsPanel({
   }, [selectedAgentId, t]);
 
   const loadTools = useCallback(async () => {
+    const agentId = selectedAgentId;
+    const selectionEpoch = toolsSelectionEpochRef.current;
+    if (!isCurrentToolsSelection(agentId, selectionEpoch)) return;
+    const requestSeq = ++toolsRequestSeqRef.current;
+    const isCurrentRequest = () => isCurrentToolsSelection(agentId, selectionEpoch) && toolsRequestSeqRef.current === requestSeq;
+    toolsSnapshotRef.current = null;
     setToolsLoading(true);
     setToolsError(null);
 
     try {
-      const payload = await fetchJson<{ tools: ToolMetadata[] }>(`/api/agents/tools?${buildAgentQuery(selectedAgentId)}`);
+      const pendingSave = toolsSaveTokenRef.current;
+      if (pendingSave?.agentId === agentId) {
+        await pendingSave.settled;
+        if (!isCurrentRequest()) return;
+      }
+      const payload = await fetchJson<{ tools: ToolMetadata[]; config: AgentToolsConfigData }>(`/api/agents/tools?${buildAgentQuery(agentId)}`);
+      if (!isCurrentRequest()) return;
+      if (!Array.isArray(payload.tools) || payload.config?.agentId !== agentId || !Array.isArray(payload.config.enabledTools)
+        || payload.config.enabledTools.some(name => typeof name !== 'string')) throw new Error(t('agentPanel.tools.saveError'));
+      toolsSnapshotRef.current = { selectionEpoch, config: payload.config };
       setAvailableTools(payload.tools);
-    } catch (error) {
-      setToolsError(error instanceof Error ? error.message : t('agentPanel.tools.loading'));
-    } finally {
-      setToolsLoading(false);
-    }
-  }, [selectedAgentId, t]);
-
-  const loadToolsConfig = useCallback(async () => {
-    try {
-      const payload = await fetchJson<{ config: AgentToolsConfigData }>(`/api/agents/tools?${buildAgentQuery(selectedAgentId)}`);
       setToolsConfig(payload.config);
     } catch (error) {
-      setToolsError(error instanceof Error ? error.message : t('agentPanel.tools.saveError'));
+      if (!isCurrentRequest()) return;
+      toolsSnapshotRef.current = null;
+      setAvailableTools([]);
+      setToolsConfig(null);
+      setToolsError(error instanceof Error ? error.message : t('agentPanel.tools.loading'));
+    } finally {
+      if (isCurrentRequest()) setToolsLoading(false);
     }
-  }, [selectedAgentId, t]);
+  }, [isCurrentToolsSelection, selectedAgentId, t]);
+
+  const loadToolsConfig = useCallback(async () => {
+    await loadTools();
+  }, [loadTools]);
 
   /* Retired legacy heartbeat settings.
   const loadHeartbeatConfig = useCallback(async () => {
@@ -659,21 +706,25 @@ export function AgentSettingsPanel({
   }, []);
   */
 
-  const patchSelectedAgent = useCallback(async (payload: Record<string, unknown>) => {
+  const patchSelectedAgent = useCallback(async (payload: Record<string, unknown>, ticket?: AgentToolsMutationTicket) => {
     if (isMainAgent || !selectedAgent) return;
+    const target = ticket ?? { agentId: selectedAgentId, selectionEpoch: toolsSelectionEpochRef.current, expectedRevision: selectedAgent.revision };
+    if (selectedAgent.agentId !== target.agentId || !isCurrentToolsSelection(target.agentId, target.selectionEpoch)) return;
     const result = await fetchJson<{ agent: AgentProfileItem }>('/api/agents', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        agentId: selectedAgentId,
-        expectedRevision: selectedAgent.revision,
         ...payload,
+        agentId: target.agentId,
+        expectedRevision: target.expectedRevision,
       }),
     });
+    if (!isCurrentToolsSelection(target.agentId, target.selectionEpoch)) return;
+    if (result.agent.agentId !== target.agentId) throw new Error(t('agentPanel.tools.saveError'));
     mergeAgent(result.agent);
     await loadAgents();
-    await loadToolsConfig();
-  }, [isMainAgent, loadAgents, loadToolsConfig, mergeAgent, selectedAgent, selectedAgentId]);
+    if (!ticket && isCurrentToolsSelection(target.agentId, target.selectionEpoch)) await loadToolsConfig();
+  }, [isCurrentToolsSelection, isMainAgent, loadAgents, loadToolsConfig, mergeAgent, selectedAgent, selectedAgentId, t]);
 
   const setAgentSectionOpen = useCallback((sectionId: AgentSettingsSectionId, isOpen: boolean) => {
     setAgentSectionOpenById((current) => {
@@ -717,9 +768,8 @@ export function AgentSettingsPanel({
       void loadFiles();
       void loadSessions();
       void loadTools();
-      void loadToolsConfig();
     });
-  }, [isWorkflowUseOnly, loadFiles, loadSessions, loadTools, loadToolsConfig]);
+  }, [isWorkflowUseOnly, loadFiles, loadSessions, loadTools]);
 
   useEffect(() => {
     if (SHOW_AGENT_DOCTOR_SECTION && searchParams.get('panel') === 'doctor' && !doctorResult && !doctorRunning) {
@@ -1021,7 +1071,7 @@ export function AgentSettingsPanel({
   };
 
   const getActiveEnabledTools = (): string[] => {
-    return toolsConfig?.enabledTools ?? [];
+    return toolsConfig?.agentId === selectedAgentId && !toolsLoading ? toolsConfig.enabledTools : [];
   };
 
   const isToolEnabled = (toolName: string): boolean => {
@@ -1038,28 +1088,51 @@ export function AgentSettingsPanel({
     return enabledSet.has(toolName);
   };
 
-  const saveToolsConfig = async (newEnabledTools: string[]) => {
-    if (!toolsConfig) return;
+  const saveToolsSelection = async (newEnabledTools: string[] | null, fallback: string) => {
+    const snapshot = toolsSnapshotRef.current;
+    if (!snapshot || toolsConfig !== snapshot.config || toolsLoading || toolsSaveTokenRef.current
+      || snapshot.config.agentId !== selectedAgentId || !isCurrentToolsSelection(selectedAgentId, snapshot.selectionEpoch)
+      || !isMainAgent && selectedAgent?.agentId !== selectedAgentId || isMainAgent && newEnabledTools === null) return;
+    let settle!: () => void;
+    const settled = new Promise<void>(resolve => { settle = resolve; });
+    const ticket: AgentToolsSaveToken = { agentId: selectedAgentId, selectionEpoch: snapshot.selectionEpoch,
+      expectedRevision: selectedAgent?.revision, settled, settle };
+    toolsSaveTokenRef.current = ticket;
+    toolsRequestSeqRef.current += 1;
     setToolsSaving(true);
     setToolsError(null);
+    let saved = false;
 
     try {
       if (!isMainAgent) {
-        await patchSelectedAgent({ enabledTools: newEnabledTools });
-        return;
+        await patchSelectedAgent({ enabledTools: newEnabledTools === null ? null : [...newEnabledTools] }, ticket);
+      } else {
+        const payload = await fetchJson<{ config: AgentToolsConfigData }>('/api/agents/tools', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ agentId: ticket.agentId, enabledTools: newEnabledTools === null ? null : [...newEnabledTools] }),
+        });
+        if (payload.config?.agentId !== ticket.agentId || !Array.isArray(payload.config.enabledTools)) throw new Error(fallback);
+        if (isCurrentToolsSelection(ticket.agentId, ticket.selectionEpoch)) {
+          toolsSnapshotRef.current = { selectionEpoch: ticket.selectionEpoch, config: payload.config };
+          setToolsConfig(payload.config);
+        }
       }
-
-      const payload = await fetchJson<{ config: AgentToolsConfigData }>('/api/agents/tools', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ agentId: selectedAgentId, enabledTools: newEnabledTools }),
-      });
-      setToolsConfig(payload.config);
+      saved = true;
     } catch (error) {
-      setToolsError(error instanceof Error ? error.message : t('agentPanel.tools.saveError'));
+      if (isCurrentToolsSelection(ticket.agentId, ticket.selectionEpoch)) setToolsError(error instanceof Error ? error.message : fallback);
     } finally {
-      setToolsSaving(false);
+      if (toolsSaveTokenRef.current === ticket) {
+        toolsSaveTokenRef.current = null;
+        if (toolsMountedRef.current) setToolsSaving(false);
+      }
+      ticket.settle();
     }
+    if (saved && isCurrentToolsSelection(ticket.agentId, ticket.selectionEpoch)) await loadToolsConfig();
+  };
+
+  const saveToolsConfig = async (newEnabledTools: string[]) => {
+    await saveToolsSelection(newEnabledTools, t('agentPanel.tools.saveError'));
   };
 
   const handleToolToggle = (toolName: string, enabled: boolean) => {
@@ -1093,15 +1166,7 @@ export function AgentSettingsPanel({
 
   const setToolsOverrideEnabled = async (enabled: boolean) => {
     if (isMainAgent) return;
-    setToolsSaving(true);
-    setToolsError(null);
-    try {
-      await patchSelectedAgent({ enabledTools: enabled ? getActiveEnabledTools() : null });
-    } catch (error) {
-      setToolsError(error instanceof Error ? error.message : t('agentPanel.inheritance.errors.save'));
-    } finally {
-      setToolsSaving(false);
-    }
+    await saveToolsSelection(enabled ? getActiveEnabledTools() : null, t('agentPanel.inheritance.errors.save'));
   };
 
   const setAgentModelOverrideEnabled = async (enabled: boolean) => {

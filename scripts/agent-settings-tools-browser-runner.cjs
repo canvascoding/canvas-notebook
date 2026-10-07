@@ -1,0 +1,41 @@
+/* eslint-disable @typescript-eslint/no-require-imports -- Fixed CommonJS launcher reads private credentials before starting its isolated child. */
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const { spawn } = require('node:child_process');
+const dotenv = require('dotenv');
+
+const repo = path.resolve(__dirname, '..');
+if (process.argv.length !== 3 || process.argv[2] !== 'run') {
+  throw new Error('Use the fixed isolated acceptance command: node scripts/agent-settings-tools-browser-runner.cjs run');
+}
+const privateEnv = path.join(os.homedir(), '.local/state/canvas-local-team-seat/notebook-host-dev.env');
+const stat = fs.lstatSync(privateEnv);
+if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1 || (stat.mode & 0o077) !== 0) {
+  throw new Error('The existing bootstrap configuration must be a private regular file.');
+}
+// Parse into RAM only. Never inherit the managed instance's providers, license,
+// CP tokens, paths, NODE_OPTIONS, NODE_PATH or repository env-file selection.
+const secrets = dotenv.parse(fs.readFileSync(privateEnv));
+if (!secrets.BOOTSTRAP_ADMIN_EMAIL?.trim() || !secrets.BOOTSTRAP_ADMIN_PASSWORD
+  || secrets.BOOTSTRAP_ADMIN_PASSWORD.length < 8) throw new Error('Existing bootstrap credentials are required.');
+const maintenance = new URL(secrets.DATABASE_URL || '');
+if (maintenance.protocol !== 'postgresql:' && maintenance.protocol !== 'postgres:'
+  || maintenance.hostname !== '127.0.0.1' || maintenance.port !== '55433' || maintenance.search || maintenance.hash
+  || !maintenance.username) throw new Error('Only the existing local PostgreSQL on port 55433 is supported.');
+maintenance.pathname = '/postgres';
+const childEnv = Object.fromEntries(['PATH', 'HOME', 'LANG', 'LC_ALL'].flatMap(key => process.env[key] ? [[key, process.env[key]]] : []));
+Object.assign(childEnv, {
+  NODE_ENV: 'test', __NEXT_PROCESSED_ENV: 'true', NEXT_TELEMETRY_DISABLED: '1',
+  CANVAS_AGENT_SETTINGS_BROWSER_RUN: '1', DATABASE_URL: maintenance.toString(), CANVAS_DATABASE_PROVIDER: 'postgres',
+  BOOTSTRAP_ADMIN_EMAIL: secrets.BOOTSTRAP_ADMIN_EMAIL, BOOTSTRAP_ADMIN_PASSWORD: secrets.BOOTSTRAP_ADMIN_PASSWORD,
+  BOOTSTRAP_ADMIN_NAME: 'Isolated Agent Settings Owner',
+});
+const child = spawn(process.execPath, ['--conditions=react-server', '--import', 'tsx', 'scripts/helpers/agent-settings-tools-browser-fixture.ts'], {
+  cwd: repo, env: childEnv, stdio: ['ignore', 'inherit', 'inherit'],
+});
+// This launcher controls only its own child. The fixture owns the server/DB
+// lifecycle and preserves its recovery receipt when cancellation is uncertain.
+for (const signal of ['SIGTERM', 'SIGINT']) process.on(signal, () => child.kill(signal));
+child.on('error', () => { console.error('The isolated acceptance fixture could not start.'); process.exitCode = 1; });
+child.on('exit', code => { process.exitCode = code ?? 1; });
