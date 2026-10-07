@@ -62,4 +62,6 @@ export type ManagedDecisionFailure = {
   code: ManagedDecisionFailureCode;
   retryable: boolean;
   retryAfterMs?: number;
+  requestId?: string;
+  canReissue?: boolean;
 };

@@ -61,6 +61,13 @@ async function main() {
   const down = await readManagedDecisionModels({ env, force: true, fetch: async () => { throw new Error('Synthetic connection outage'); } });
   assert.equal(down.status, 'unavailable'); assert.equal(down.catalog?.models[0].ref, model.ref);
   await assert.rejects(evaluateManagedDecisionModel({ state: 'Synthetic input', questions: { needs_reply: { type: 'binary', instructions: 'Needs reply?' } }, schemaVersion: 'test.v1', configuration: { providerId: 'typesafe', model: model.model } }, model, 'synthetic-operation', { env, fetch: async () => Response.json({ contractVersion: 1, modelRef: model.ref, requestId: 'different-operation', inferenceRevision: model.inferenceRevision, result: decision() }) }), { managedCode: 'invalid_response' });
+  const retryInput = { state: 'Synthetic input', questions: { needs_reply: { type: 'binary' as const, instructions: 'Needs reply?' } }, schemaVersion: 'test.v1', configuration: { providerId: 'typesafe', model: model.model } };
+  for (const failure of [{ code: 'authentication_failed', status: 401 }, { code: 'rate_limited', status: 429 }]) {
+    await assert.rejects(evaluateManagedDecisionModel(retryInput, model, 'synthetic-operation', { env, fetch: async () => Response.json({ ...failure, retryable: true }, { status: failure.status }) }), (error: unknown) => error instanceof ManagedDecisionClientError && !error.canReissue);
+  }
+  for (const requestId of ['synthetic-operation', 'another-operation']) {
+    await assert.rejects(evaluateManagedDecisionModel(retryInput, model, 'synthetic-operation', { env, fetch: async () => Response.json({ code: 'budget_exhausted', retryable: true, canReissue: true, requestId }, { status: 402 }) }), (error: unknown) => error instanceof ManagedDecisionClientError && error.canReissue === (requestId === 'synthetic-operation'));
+  }
 
   const postgres = new PGlite();
   const now = Date.now(); let time = now;
@@ -90,7 +97,7 @@ async function main() {
       readMessage: async input => ({ ...messages.find(message => message.id === input.message.canonicalId), body: 'Synthetic support question' }),
       resolveCredential: () => { throw new Error('No local credentials in managed mode.'); }, evaluate: async () => { throw new Error('No direct provider fallback.'); },
       readManagedCatalog: async () => ({ status: available ? 'ready' : 'unavailable', code: available ? null : 'provider_unavailable', catalog: activeCatalog }),
-      evaluateManaged: async (_input, _profile, id) => { calls++; requestIds.push(id); if (budgetReject) { budgetReject = false; throw new ManagedDecisionClientError('budget_exhausted', { retryable: true }); } return decision(); },
+      evaluateManaged: async (_input, _profile, id) => { calls++; requestIds.push(id); if (budgetReject) { budgetReject = false; throw new ManagedDecisionClientError('budget_exhausted', { retryable: true, canReissue: true }); } return decision(); },
     });
     assert.equal((await worker.runCycle()).completed, 4);
     const before = await store.readSettings(); const fingerprint = emailClassificationEvaluationFingerprint(before.configuration);

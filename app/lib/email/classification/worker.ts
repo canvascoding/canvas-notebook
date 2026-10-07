@@ -377,7 +377,7 @@ export function createEmailClassificationWorker(dependencies: EmailClassificatio
         await store.cancelClaim({ jobId: job.id, claimToken: job.claimToken, errorCode: error.code, now: now() }); result.canceled++;
       } else {
         const code = error instanceof ManagedDecisionClientError ? error.managedCode : error instanceof DecisionModelError ? error.code : 'source_error';
-        const managedPaused = error instanceof ManagedDecisionClientError && ['missing_connection', 'missing_configuration', 'scope_denied', 'entitlement_denied', 'budget_exhausted', 'model_changed', 'in_progress', 'provider_unavailable', 'rate_limited'].includes(error.managedCode);
+        const managedPaused = error instanceof ManagedDecisionClientError && ['missing_connection', 'missing_configuration', 'authentication_failed', 'scope_denied', 'entitlement_denied', 'budget_exhausted', 'model_changed', 'in_progress', 'provider_unavailable', 'rate_limited'].includes(error.managedCode);
         const terminal = !managedPaused && (job.attempts >= Math.max(1, dependencies.maxAttempts ?? 5)
           || error instanceof DecisionModelError && !error.retryable && !['aborted', 'authentication_failed'].includes(error.code));
         const delay = emailClassificationRetryDelay(job.attempts, dependencies.random, error instanceof DecisionModelError ? error.retryAfterMs : undefined);

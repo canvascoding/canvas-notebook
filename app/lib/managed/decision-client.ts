@@ -12,10 +12,10 @@ const MANAGED_CODES = new Set<ManagedDecisionFailureCode>([...COMMON_CODES, 'mis
 export class ManagedDecisionClientError extends DecisionModelError {
   readonly managedCode: ManagedDecisionFailureCode;
   readonly canReissue: boolean;
-  constructor(code: ManagedDecisionFailureCode, options: { retryable?: boolean; retryAfterMs?: number; httpStatus?: number } = {}) {
+  constructor(code: ManagedDecisionFailureCode, options: { retryable?: boolean; retryAfterMs?: number; httpStatus?: number; canReissue?: boolean } = {}) {
     super(COMMON_CODES.has(code as DecisionErrorCode) ? code as DecisionErrorCode : 'provider_error', options);
     this.managedCode = code;
-    this.canReissue = ['budget_exhausted', 'rate_limited', 'authentication_failed'].includes(code);
+    this.canReissue = options.canReissue === true && ['budget_exhausted', 'rate_limited', 'authentication_failed'].includes(code);
     const messages: Partial<Record<ManagedDecisionFailureCode, string>> = {
       missing_connection: 'Connect this instance to Canvas managed services before using managed decision models.',
       scope_denied: 'Decision models are not enabled for this managed instance.',
@@ -60,10 +60,10 @@ async function readJson(response: Response): Promise<unknown> {
   } finally { await reader.cancel().catch(() => undefined); reader.releaseLock(); }
 }
 
-function responseError(value: unknown, status: number): ManagedDecisionClientError {
+function responseError(value: unknown, status: number, requestId?: string): ManagedDecisionClientError {
   const record = isDecisionRecord(value) ? value : {};
   const code = typeof record.code === 'string' && MANAGED_CODES.has(record.code as ManagedDecisionFailureCode) ? record.code as ManagedDecisionFailureCode : status === 401 ? 'authentication_failed' : status === 403 ? 'scope_denied' : status === 429 ? 'rate_limited' : 'provider_unavailable';
-  return new ManagedDecisionClientError(code, { httpStatus: status, retryable: record.retryable === true || !record.code && status >= 500, ...(typeof record.retryAfterMs === 'number' && Number.isSafeInteger(record.retryAfterMs) && record.retryAfterMs >= 0 ? { retryAfterMs: Math.min(record.retryAfterMs, 86400000) } : {}) });
+  return new ManagedDecisionClientError(code, { httpStatus: status, canReissue: requestId !== undefined && record.requestId === requestId && record.canReissue === true, retryable: record.retryable === true || !record.code && status >= 500, ...(typeof record.retryAfterMs === 'number' && Number.isSafeInteger(record.retryAfterMs) && record.retryAfterMs >= 0 ? { retryAfterMs: Math.min(record.retryAfterMs, 86400000) } : {}) });
 }
 
 function parseCatalog(value: unknown): ManagedDecisionCatalog {
@@ -122,7 +122,7 @@ export async function evaluateManagedDecisionModel(input: DecisionInput, model: 
   try {
     const response = await (dependencies.fetch ?? fetch)(`${selected.origin}/v1/managed/decisions/evaluate`, { method: 'POST', headers: { authorization: `Bearer ${selected.token}`, 'content-type': 'application/json' }, body: JSON.stringify(request), redirect: 'error', cache: 'no-store', signal: controller.signal });
     const value = await readJson(response);
-    if (!response.ok) throw responseError(value, response.status);
+    if (!response.ok) throw responseError(value, response.status, requestId);
     if (!isDecisionRecord(value) || value.contractVersion !== 1 || value.requestId !== requestId || value.modelRef !== model.ref || value.inferenceRevision !== model.inferenceRevision || !isDecisionRecord(value.result)) throw new ManagedDecisionClientError('invalid_response');
     const result = value.result as unknown as DecisionResult;
     validateDecisionResult(result, validated, provider);
