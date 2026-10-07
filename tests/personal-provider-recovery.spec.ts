@@ -7,7 +7,9 @@ const managedId = `aip_${'c'.repeat(24)}`;
 const personalId = `aip_${'a'.repeat(24)}`;
 const personalName = 'OpenAI Codex (ChatGPT Login)';
 
-async function fixture(page: Page, consentInitially = true) {
+async function fixture(page: Page, consentInitially = true, providerId = 'openai-codex', connectedInitially = true) {
+  const displayName = providerId === 'openai' ? 'OpenAI (ChatGPT Login)' : personalName;
+  let connected = connectedInitially;
   let status: 'ready' | 'degraded' = 'degraded';
   let consent = consentInitially;
   let failureCode: string | null = 'MODEL_TEST_FAILED';
@@ -24,8 +26,8 @@ async function fixture(page: Page, consentInitially = true) {
     providers: [
       { installationId: managedId, providerId: 'canvas-control-plane', name: 'Canvas Control Plane', source: 'managed', credentialScope: 'managed', credentialAvailable: true, selectable: true, status: 'ready',
         models: [{ id: 'managed-model', name: 'Managed model', enabled: true, isProviderDefault: true, reasoning: true, supportsVision: false, thinkingLevels: ['medium'], metadata: {}, revision: 1 }] },
-      { installationId: personalId, providerId: 'openai-codex', name: personalName, source: 'built-in', credentialScope: 'user', authMethod: 'oauth', credentialAvailable: consent, selectable: consent && status === 'ready', status,
-        userCredentialEligibility: { state: consent ? 'ready' : 'consent_required', connected: true, consentGranted: consent, grantRevision: consent ? 8 : null,
+      { installationId: personalId, providerId, name: displayName, source: 'built-in', credentialScope: 'user', authMethod: 'oauth', credentialAvailable: connected && consent, selectable: connected && consent && status === 'ready', status,
+        userCredentialEligibility: { state: !connected ? 'not_connected' : consent ? 'ready' : 'consent_required', connected, consentGranted: consent, grantRevision: consent ? 8 : null,
           verification: { status, verifiedAt: '2026-10-01T00:00:00Z', checkedAt: '2026-10-01T00:00:00Z', failureCode } },
         models: [{ id: 'gpt-6-sol', name: 'GPT-6 Sol', enabled: true, isProviderDefault: true, reasoning: true, supportsVision: true, thinkingLevels: ['medium', 'high'], metadata: {}, revision: 1 }] },
     ],
@@ -40,10 +42,17 @@ async function fixture(page: Page, consentInitially = true) {
   await page.route(/\/api\/agents(\?.*)?$/, route => route.fulfill({ json: { success: true, data: { agents: [{ agentId: MAIN_AGENT_ID, name: 'Canvas Agent', type: 'main', iconId: 'bot', removable: false }] } } }));
   await page.route(/\/api\/sessions(\?.*)?$/, route => route.fulfill({ json: { success: true, sessions: [] } }));
   await page.route('**/api/user-preferences', route => route.fulfill({ json: { success: true, data: { lastActiveAgentId: MAIN_AGENT_ID } } }));
-  await page.route('**/api/oauth/pi/status**', route => route.fulfill({ json: { success: true, provider: { provider: 'openai-codex', displayName: personalName, connected: true } } }));
+  await page.route('**/api/oauth/pi/status**', route => route.fulfill({ json: { success: true, provider: { provider: providerId, displayName, connected } } }));
   await page.route('**/api/oauth/pi/initiate', async route => {
     oauthInitiations++;
-    await route.fulfill({ status: 500, json: { success: false } });
+    expect(route.request().postDataJSON()).toEqual({ provider: 'openai' });
+    await route.fulfill({ json: { success: true, flowId: 'fixture-login', authUrl: 'https://auth.openai.com/fixture', instructions: 'Paste the full final callback URL.' } });
+  });
+  await page.route('**/api/oauth/pi/poll**', route => route.fulfill({ json: { success: true, status: 'waiting_for_code', authUrl: 'https://auth.openai.com/fixture' } }));
+  await page.route('**/api/oauth/pi/exchange', async route => {
+    expect(route.request().postDataJSON()).toEqual({ flowId: 'fixture-login', provider: 'openai', code: 'http://127.0.0.1:1455/auth/callback?code=fixture&state=fixture-state&client_id=fixture-client' });
+    connected = true;
+    await route.fulfill({ json: { success: true } });
   });
   await page.route('**/api/agent-runtime/user-credential-grants**', async route => {
     if (route.request().method() === 'PUT') {
@@ -73,9 +82,9 @@ async function fixture(page: Page, consentInitially = true) {
   };
 }
 
-async function openPersonal(page: Page, mobile: boolean) {
+async function openPersonal(page: Page, mobile: boolean, name = personalName) {
   await page.getByTestId('chat-provider-selector').click();
-  await page.getByRole(mobile ? 'button' : 'menuitem', { name: new RegExp(personalName.replace(/[()]/g, '\\$&')) }).click();
+  await page.getByRole(mobile ? 'button' : 'menuitem', { name: new RegExp(name.replace(/[()]/g, '\\$&')) }).click();
   await expect(page.getByTestId('chat-personal-provider-dialog')).toBeVisible();
   await expect(page.getByTestId('chat-personal-provider-dialog')).toHaveCSS('opacity', '1');
   if (mobile) await expect(page.getByRole('dialog', { name: 'Provider', exact: true })).toHaveCount(0);
@@ -130,4 +139,30 @@ test('closing a pending personal check cannot switch providers later', async ({ 
     await expect(page.getByTestId('chat-personal-provider-dialog')).toHaveCount(0);
     await expect(page.getByTestId('chat-provider-selector')).toContainText('Canvas Control Plane');
   } finally { release.resolve(); }
+});
+
+test('new ChatGPT login preserves the full callback and checks the model after connecting', async ({ page }) => {
+  test.setTimeout(90_000);
+  const name = 'OpenAI (ChatGPT Login)';
+  const state = await fixture(page, true, 'openai', false);
+  await openPersonal(page, false, name);
+  await expect(page.getByTestId('chat-personal-provider-verify')).toBeDisabled();
+  await page.getByTestId('pi-oauth-connect-button').click();
+  await expect(page.getByTestId('pi-oauth-code-input')).toBeVisible();
+  await page.getByTestId('pi-oauth-code-input').fill('http://127.0.0.1:1455/auth/callback?code=fixture&state=fixture-state&client_id=fixture-client');
+  await page.getByTestId('pi-oauth-complete-button').click();
+  await expect(page.getByTestId('chat-personal-provider-dialog')).toHaveCount(0);
+  await expect(page.getByTestId('chat-provider-selector')).toContainText(name);
+  expect(state.logins()).toBe(1); expect(state.requests()).toBe(1);
+});
+
+test('new ChatGPT account can recover without another login on mobile', async ({ page }) => {
+  test.setTimeout(90_000);
+  await page.setViewportSize({ width: 390, height: 844 });
+  const name = 'OpenAI (ChatGPT Login)';
+  const state = await fixture(page, true, 'openai');
+  await openPersonal(page, true, name);
+  await page.getByTestId('chat-personal-provider-verify').click();
+  await expect(page.getByTestId('chat-provider-selector')).toContainText(name);
+  expect(state.logins()).toBe(0); expect(state.requests()).toBe(1);
 });

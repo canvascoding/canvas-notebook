@@ -76,11 +76,14 @@ export const PROVIDER_HELP: Record<string, ProviderHelpInfo> = {
   openai: {
     category: 'api-key',
     title: 'OpenAI',
-    shortDescription: 'OpenAI API (GPT-4, GPT-3.5, etc.)',
+    shortDescription: 'OpenAI models via API key or personal ChatGPT login',
+    supportsBothAuthMethods: true,
     setupSteps: [
-      'Get your API key from https://platform.openai.com/api-keys',
-      'Add the key to Agent Environment settings',
-      'Save and verify the provider status',
+      'Choose API key or OAuth when adding the provider',
+      'For API billing, add OPENAI_API_KEY from https://platform.openai.com/api-keys to Secrets',
+      'For ChatGPT login, choose OAuth with per-user credentials and click "Connect Account"',
+      'Complete sign-in in your browser; if needed, paste the full final callback URL into Canvas',
+      'Approve personal use in the chat and check the model connection',
     ],
     envVars: [
       { name: 'OPENAI_API_KEY', description: 'Your OpenAI API key', scope: 'agents', required: true },
@@ -474,8 +477,8 @@ export const PROVIDER_HELP: Record<string, ProviderHelpInfo> = {
   // OAuth/CLI Providers - Now using PI OAuth
   'openai-codex': {
     category: 'oauth-cli',
-    title: 'OpenAI Codex (ChatGPT Login)',
-    shortDescription: 'OpenAI Codex via ChatGPT subscription OAuth (requires eligible ChatGPT plan)',
+    title: 'OpenAI Codex (Legacy ChatGPT Login)',
+    shortDescription: 'Legacy Codex subscription OAuth for existing ChatGPT connections',
     setupSteps: [
       'Click "Connect Account" in the OAuth section',
       'Open the device-code URL in your browser',
@@ -483,6 +486,7 @@ export const PROVIDER_HELP: Record<string, ProviderHelpInfo> = {
       'Keep the dialog open while Canvas waits for PI to finish the token exchange',
     ],
     notes: [
+      'For new ChatGPT connections, choose OpenAI with OAuth authentication',
       'Use the regular OpenAI provider with OPENAI_API_KEY for OpenAI API billing',
       'This provider is for Codex subscription-style access through ChatGPT login',
       'Canvas uses pi-ai provider-owned OAuth so the device-code flow works in headless/container setups',
@@ -738,7 +742,7 @@ export function supportsBothAuthMethods(providerId: string): boolean {
 export type AuthMethodCategory = 'api-key' | 'oauth' | 'self-hosted' | 'cloud-infra';
 
 export function getVisibleOAuthProviders(): string[] {
-  return ['openai-codex', 'openrouter', 'kimi-coding', 'meta', 'radius', 'xai'];
+  return ['openai', 'openai-codex', 'openrouter', 'kimi-coding', 'meta', 'radius', 'xai'];
 }
 
 export function getApiKeyProviders(): string[] {

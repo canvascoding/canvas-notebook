@@ -1,6 +1,6 @@
 {
   "schemaVersion": 6,
-  "lockfileSha256": "0bab495bdca49ef9778cdecbc35c137282bc2d202adbd0ad1b5debbe7cdcbbb5",
+  "lockfileSha256": "b7555890f59770df2f307d6741e35d3c123bb7cc4d31dc6df56ef5feee8b511d",
   "entries": {
     "node_modules/@aws-sdk/credential-provider-http@3.972.74": {
       "packagePath": "node_modules/@aws-sdk/credential-provider-http",
@@ -78,78 +78,6 @@
       "noticeTexts": [],
       "copyrightNotices": [
         "Copyright (c) 2020 Jeremy Danyow"
-      ]
-    },
-    "node_modules/@earendil-works/chord@0.87.1": {
-      "packagePath": "node_modules/@earendil-works/chord",
-      "name": "@earendil-works/chord",
-      "version": "0.87.1",
-      "packageResolved": "https://registry.npmjs.org/@earendil-works/chord/-/chord-0.87.1.tgz",
-      "packageIntegrity": "sha512-bg7IkJGFcEaMqqYgOGUiq5Ky9RghpRfrlZ8I/v/1b4bBZ02A7t3E+6uhPRbadwWb/kWsnVFbZsqOKRN4a3LLCg==",
-      "lookupCompleted": true,
-      "sourceUrl": "https://github.com/earendil-works/pi/tree/f07218c4d4bbc12bef056a7058c3dd49dfe41abe",
-      "sourceRevision": "f07218c4d4bbc12bef056a7058c3dd49dfe41abe",
-      "verificationSource": "https://raw.githubusercontent.com/earendil-works/pi/f07218c4d4bbc12bef056a7058c3dd49dfe41abe/LICENSE",
-      "verificationNote": null,
-      "licenseFileName": "UPSTREAM:LICENSE",
-      "licenseText": "MIT License\n\nCopyright (c) 2025 Mario Zechner\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n",
-      "noticeTexts": [],
-      "copyrightNotices": [
-        "Copyright (c) 2025 Mario Zechner"
-      ]
-    },
-    "node_modules/@earendil-works/pi-agent-core@0.87.1": {
-      "packagePath": "node_modules/@earendil-works/pi-agent-core",
-      "name": "@earendil-works/pi-agent-core",
-      "version": "0.87.1",
-      "packageResolved": "https://registry.npmjs.org/@earendil-works/pi-agent-core/-/pi-agent-core-0.87.1.tgz",
-      "packageIntegrity": "sha512-Zev3B0HK7YS5A4EZQ2XnEqiJuirx6QBiltJ+LpmjV5a/+2IU0cfKtIfnkNkORK707XOvKBY2WRtk7cAwHpbh2Q==",
-      "lookupCompleted": true,
-      "sourceUrl": "https://github.com/earendil-works/pi/tree/f07218c4d4bbc12bef056a7058c3dd49dfe41abe",
-      "sourceRevision": "f07218c4d4bbc12bef056a7058c3dd49dfe41abe",
-      "verificationSource": "https://raw.githubusercontent.com/earendil-works/pi/f07218c4d4bbc12bef056a7058c3dd49dfe41abe/LICENSE",
-      "verificationNote": null,
-      "licenseFileName": "UPSTREAM:LICENSE",
-      "licenseText": "MIT License\n\nCopyright (c) 2025 Mario Zechner\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n",
-      "noticeTexts": [],
-      "copyrightNotices": [
-        "Copyright (c) 2025 Mario Zechner"
-      ]
-    },
-    "node_modules/@earendil-works/pi-ai@0.87.1": {
-      "packagePath": "node_modules/@earendil-works/pi-ai",
-      "name": "@earendil-works/pi-ai",
-      "version": "0.87.1",
-      "packageResolved": "https://registry.npmjs.org/@earendil-works/pi-ai/-/pi-ai-0.87.1.tgz",
-      "packageIntegrity": "sha512-X/3PfQBnnoeVdO9Cv8zHghUMglzlgNZYGNzoPnbRoGnHl3Rw3TlA2UKSUB7BRHUOxMryHXYa8dnjWZlbRheDZA==",
-      "lookupCompleted": true,
-      "sourceUrl": "https://github.com/earendil-works/pi/tree/f07218c4d4bbc12bef056a7058c3dd49dfe41abe",
-      "sourceRevision": "f07218c4d4bbc12bef056a7058c3dd49dfe41abe",
-      "verificationSource": "https://raw.githubusercontent.com/earendil-works/pi/f07218c4d4bbc12bef056a7058c3dd49dfe41abe/LICENSE",
-      "verificationNote": null,
-      "licenseFileName": "UPSTREAM:LICENSE",
-      "licenseText": "MIT License\n\nCopyright (c) 2025 Mario Zechner\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n",
-      "noticeTexts": [],
-      "copyrightNotices": [
-        "Copyright (c) 2025 Mario Zechner"
-      ]
-    },
-    "node_modules/@earendil-works/pi-telemetry@0.87.1": {
-      "packagePath": "node_modules/@earendil-works/pi-telemetry",
-      "name": "@earendil-works/pi-telemetry",
-      "version": "0.87.1",
-      "packageResolved": "https://registry.npmjs.org/@earendil-works/pi-telemetry/-/pi-telemetry-0.87.1.tgz",
-      "packageIntegrity": "sha512-MC6TRQH5lgMXpcN+Vku2WMI2T8BsiUPzMQHGo81uqFZD3/9O79WWJAysEDGuzduP6R4tvtgwMLwmqIxynM10JQ==",
-      "lookupCompleted": true,
-      "sourceUrl": "https://github.com/earendil-works/pi/tree/f07218c4d4bbc12bef056a7058c3dd49dfe41abe",
-      "sourceRevision": "f07218c4d4bbc12bef056a7058c3dd49dfe41abe",
-      "verificationSource": "https://raw.githubusercontent.com/earendil-works/pi/f07218c4d4bbc12bef056a7058c3dd49dfe41abe/LICENSE",
-      "verificationNote": null,
-      "licenseFileName": "UPSTREAM:LICENSE",
-      "licenseText": "MIT License\n\nCopyright (c) 2025 Mario Zechner\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n",
-      "noticeTexts": [],
-      "copyrightNotices": [
-        "Copyright (c) 2025 Mario Zechner"
       ]
     },
     "node_modules/@electron-internal/extract-zip@1.0.4": {
@@ -6400,6 +6328,60 @@
       "copyrightNotices": [
         "Copyright (c) 2015-2020 Formidable Labs.",
         "Copyright (c) 2016-2020 Alexey Svetliakov <https://github.com/asvetliakov>,"
+      ]
+    },
+    "node_modules/@earendil-works/pi-agent-core@1.0.4": {
+      "packagePath": "node_modules/@earendil-works/pi-agent-core",
+      "name": "@earendil-works/pi-agent-core",
+      "version": "1.0.4",
+      "packageResolved": "https://registry.npmjs.org/@earendil-works/pi-agent-core/-/pi-agent-core-1.0.4.tgz",
+      "packageIntegrity": "sha512-/xGICE+N/+G9N7KfYFSxlE8G8fQcBlLHKiY+j1Ehz9vvb1zhvGneWosFK56d2qmA5oteafeG7yKr2nqU4ed9ig==",
+      "lookupCompleted": true,
+      "sourceUrl": "https://github.com/earendil-works/pi/tree/7c10bd4337495ee613f2224843ecdf349b80d1df",
+      "sourceRevision": "7c10bd4337495ee613f2224843ecdf349b80d1df",
+      "verificationSource": "https://raw.githubusercontent.com/earendil-works/pi/7c10bd4337495ee613f2224843ecdf349b80d1df/LICENSE",
+      "verificationNote": null,
+      "licenseFileName": "UPSTREAM:LICENSE",
+      "licenseText": "MIT License\n\nCopyright (c) 2025 Mario Zechner\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n",
+      "noticeTexts": [],
+      "copyrightNotices": [
+        "Copyright (c) 2025 Mario Zechner"
+      ]
+    },
+    "node_modules/@earendil-works/pi-ai@1.0.4": {
+      "packagePath": "node_modules/@earendil-works/pi-ai",
+      "name": "@earendil-works/pi-ai",
+      "version": "1.0.4",
+      "packageResolved": "https://registry.npmjs.org/@earendil-works/pi-ai/-/pi-ai-1.0.4.tgz",
+      "packageIntegrity": "sha512-/Eu5R0gfor6wcmRcVyOmulUiZmsHJ0bKu5wXXnpCoSHF3y4FnW4fgnjRlLjNza8NJWXdvW5Uew90Zukx7Sh2rw==",
+      "lookupCompleted": true,
+      "sourceUrl": "https://github.com/earendil-works/pi/tree/7c10bd4337495ee613f2224843ecdf349b80d1df",
+      "sourceRevision": "7c10bd4337495ee613f2224843ecdf349b80d1df",
+      "verificationSource": "https://raw.githubusercontent.com/earendil-works/pi/7c10bd4337495ee613f2224843ecdf349b80d1df/LICENSE",
+      "verificationNote": null,
+      "licenseFileName": "UPSTREAM:LICENSE",
+      "licenseText": "MIT License\n\nCopyright (c) 2025 Mario Zechner\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n",
+      "noticeTexts": [],
+      "copyrightNotices": [
+        "Copyright (c) 2025 Mario Zechner"
+      ]
+    },
+    "node_modules/@earendil-works/pi-telemetry@1.0.4": {
+      "packagePath": "node_modules/@earendil-works/pi-telemetry",
+      "name": "@earendil-works/pi-telemetry",
+      "version": "1.0.4",
+      "packageResolved": "https://registry.npmjs.org/@earendil-works/pi-telemetry/-/pi-telemetry-1.0.4.tgz",
+      "packageIntegrity": "sha512-DL2eXXtnL5/VQkuQd97fL57GXTG1/zKHtMmDsrv8tGeJ5EgYYTWvzy44dqbYL0lD0Z22v/NOwqU3PHO75HVrqA==",
+      "lookupCompleted": true,
+      "sourceUrl": "https://github.com/earendil-works/pi/tree/7c10bd4337495ee613f2224843ecdf349b80d1df",
+      "sourceRevision": "7c10bd4337495ee613f2224843ecdf349b80d1df",
+      "verificationSource": "https://raw.githubusercontent.com/earendil-works/pi/7c10bd4337495ee613f2224843ecdf349b80d1df/LICENSE",
+      "verificationNote": null,
+      "licenseFileName": "UPSTREAM:LICENSE",
+      "licenseText": "MIT License\n\nCopyright (c) 2025 Mario Zechner\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n",
+      "noticeTexts": [],
+      "copyrightNotices": [
+        "Copyright (c) 2025 Mario Zechner"
       ]
     }
   }

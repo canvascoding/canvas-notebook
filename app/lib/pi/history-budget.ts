@@ -179,12 +179,14 @@ export function estimatePiMessageTokens(message: AgentMessage): number {
   if ('content' in message) {
     return MESSAGE_OVERHEAD_TOKENS + estimateContentTokens(message.content);
   }
-  if ('summary' in message && typeof message.summary === 'string') {
-    return MESSAGE_OVERHEAD_TOKENS + estimateTextTokens(message.summary);
+  // Historical SDK messages remain readable even after their roles leave AgentMessage.
+  const legacy = message as { summary?: unknown; command?: unknown; output?: unknown };
+  if (typeof legacy.summary === 'string') {
+    return MESSAGE_OVERHEAD_TOKENS + estimateTextTokens(legacy.summary);
   }
-  if ('command' in message || 'output' in message) {
-    const command = 'command' in message && typeof message.command === 'string' ? message.command : '';
-    const output = 'output' in message && typeof message.output === 'string' ? message.output : '';
+  if ('command' in legacy || 'output' in legacy) {
+    const command = typeof legacy.command === 'string' ? legacy.command : '';
+    const output = typeof legacy.output === 'string' ? legacy.output : '';
     return MESSAGE_OVERHEAD_TOKENS + estimateTextTokens(`${command}\n${output}`);
   }
   return MESSAGE_OVERHEAD_TOKENS;
@@ -197,12 +199,13 @@ export function estimatePiMessagePayloadBytes(message: AgentMessage): number {
   if ('content' in message) {
     return MESSAGE_OVERHEAD_BYTES + estimateContentPayloadBytes(message.content);
   }
-  if ('summary' in message && typeof message.summary === 'string') {
-    return MESSAGE_OVERHEAD_BYTES + estimateTextBytes(message.summary);
+  const legacy = message as { summary?: unknown; command?: unknown; output?: unknown };
+  if (typeof legacy.summary === 'string') {
+    return MESSAGE_OVERHEAD_BYTES + estimateTextBytes(legacy.summary);
   }
-  if ('command' in message || 'output' in message) {
-    const command = 'command' in message && typeof message.command === 'string' ? message.command : '';
-    const output = 'output' in message && typeof message.output === 'string' ? message.output : '';
+  if ('command' in legacy || 'output' in legacy) {
+    const command = typeof legacy.command === 'string' ? legacy.command : '';
+    const output = typeof legacy.output === 'string' ? legacy.output : '';
     return MESSAGE_OVERHEAD_BYTES + estimateTextBytes(`${command}\n${output}`);
   }
   return MESSAGE_OVERHEAD_BYTES;

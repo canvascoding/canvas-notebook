@@ -2,14 +2,14 @@
   "schemaVersion": 1,
   "generator": "scripts/generate-third-party-notices.ts",
   "packageVersion": "2026.10.4.1",
-  "lockfileSha256": "0bab495bdca49ef9778cdecbc35c137282bc2d202adbd0ad1b5debbe7cdcbbb5",
+  "lockfileSha256": "b7555890f59770df2f307d6741e35d3c123bb7cc4d31dc6df56ef5feee8b511d",
   "summary": {
-    "totalComponents": 1966,
-    "npmComponents": 1940,
+    "totalComponents": 1964,
+    "npmComponents": 1938,
     "nonNpmComponents": 26,
-    "runtimeComponents": 1447,
-    "developmentOnlyComponents": 519,
-    "allowed": 1930,
+    "runtimeComponents": 1444,
+    "developmentOnlyComponents": 520,
+    "allowed": 1928,
     "reviewRequired": 36,
     "blocked": 0,
     "distributedReviewRequired": 0,
@@ -6147,6 +6147,25 @@
       "reviewNotes": "Inherited development-only classification from eslint."
     },
     {
+      "name": "ignore",
+      "versionOrCommit": "7.0.8",
+      "sourceUrl": "https://github.com/kaelzhang/node-ignore",
+      "packagePathOrArtifact": "node_modules/ignore",
+      "usage": "development-only",
+      "distributedIn": [
+        "source-development-install"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "node_modules/ignore/LICENSE-MIT",
+      "licenseTextSha256": "542e7521fab287d3d2ea83e0145692c7d82ea81b28f141be6686364929d33079",
+      "copyrightNotices": [
+        "Copyright (c) 2013 Kael Zhang <i@kael.me>, contributors"
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
       "name": "imurmurhash",
       "versionOrCommit": "0.1.4",
       "sourceUrl": "https://github.com/jensyt/imurmurhash-js/tree/9f40361c7e2835a9b7b8eaa1cbab2a9f94ee22a2",
@@ -10680,7 +10699,7 @@
     },
     {
       "name": "@anthropic-ai/sdk",
-      "versionOrCommit": "0.124.0",
+      "versionOrCommit": "0.129.0",
       "sourceUrl": "github:anthropics/anthropic-sdk-typescript",
       "packagePathOrArtifact": "node_modules/@anthropic-ai/sdk",
       "usage": "runtime",
@@ -12945,32 +12964,9 @@
       "policyDecision": "allowed"
     },
     {
-      "name": "@earendil-works/chord",
-      "versionOrCommit": "0.87.1",
-      "sourceUrl": "https://github.com/earendil-works/pi/tree/f07218c4d4bbc12bef056a7058c3dd49dfe41abe",
-      "packagePathOrArtifact": "node_modules/@earendil-works/chord",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "MIT",
-      "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@earendil-works/chord@0.87.1",
-      "licenseTextSha256": "4f6a1985796db5225e3b1e59972bd47e07a27a0748427cb3d3c8fbf39f9311f0",
-      "copyrightNotices": [
-        "Copyright (c) 2025 Mario Zechner"
-      ],
-      "modified": false,
-      "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/earendil-works/pi/f07218c4d4bbc12bef056a7058c3dd49dfe41abe/LICENSE Published source revision: f07218c4d4bbc12bef056a7058c3dd49dfe41abe"
-    },
-    {
       "name": "@earendil-works/pi-agent-core",
-      "versionOrCommit": "0.87.1",
-      "sourceUrl": "https://github.com/earendil-works/pi/tree/f07218c4d4bbc12bef056a7058c3dd49dfe41abe",
+      "versionOrCommit": "1.0.4",
+      "sourceUrl": "https://github.com/earendil-works/pi/tree/7c10bd4337495ee613f2224843ecdf349b80d1df",
       "packagePathOrArtifact": "node_modules/@earendil-works/pi-agent-core",
       "usage": "runtime",
       "distributedIn": [
@@ -12981,19 +12977,19 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@earendil-works/pi-agent-core@0.87.1",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@earendil-works/pi-agent-core@1.0.4",
       "licenseTextSha256": "4f6a1985796db5225e3b1e59972bd47e07a27a0748427cb3d3c8fbf39f9311f0",
       "copyrightNotices": [
         "Copyright (c) 2025 Mario Zechner"
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/earendil-works/pi/f07218c4d4bbc12bef056a7058c3dd49dfe41abe/LICENSE Published source revision: f07218c4d4bbc12bef056a7058c3dd49dfe41abe"
+      "reviewNotes": "License text source: https://raw.githubusercontent.com/earendil-works/pi/7c10bd4337495ee613f2224843ecdf349b80d1df/LICENSE Published source revision: 7c10bd4337495ee613f2224843ecdf349b80d1df"
     },
     {
       "name": "@earendil-works/pi-ai",
-      "versionOrCommit": "0.87.1",
-      "sourceUrl": "https://github.com/earendil-works/pi/tree/f07218c4d4bbc12bef056a7058c3dd49dfe41abe",
+      "versionOrCommit": "1.0.4",
+      "sourceUrl": "https://github.com/earendil-works/pi/tree/7c10bd4337495ee613f2224843ecdf349b80d1df",
       "packagePathOrArtifact": "node_modules/@earendil-works/pi-ai",
       "usage": "runtime",
       "distributedIn": [
@@ -13004,19 +13000,19 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@earendil-works/pi-ai@0.87.1",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@earendil-works/pi-ai@1.0.4",
       "licenseTextSha256": "4f6a1985796db5225e3b1e59972bd47e07a27a0748427cb3d3c8fbf39f9311f0",
       "copyrightNotices": [
         "Copyright (c) 2025 Mario Zechner"
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/earendil-works/pi/f07218c4d4bbc12bef056a7058c3dd49dfe41abe/LICENSE Published source revision: f07218c4d4bbc12bef056a7058c3dd49dfe41abe"
+      "reviewNotes": "License text source: https://raw.githubusercontent.com/earendil-works/pi/7c10bd4337495ee613f2224843ecdf349b80d1df/LICENSE Published source revision: 7c10bd4337495ee613f2224843ecdf349b80d1df"
     },
     {
       "name": "@earendil-works/pi-telemetry",
-      "versionOrCommit": "0.87.1",
-      "sourceUrl": "https://github.com/earendil-works/pi/tree/f07218c4d4bbc12bef056a7058c3dd49dfe41abe",
+      "versionOrCommit": "1.0.4",
+      "sourceUrl": "https://github.com/earendil-works/pi/tree/7c10bd4337495ee613f2224843ecdf349b80d1df",
       "packagePathOrArtifact": "node_modules/@earendil-works/pi-telemetry",
       "usage": "runtime",
       "distributedIn": [
@@ -13027,14 +13023,14 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@earendil-works/pi-telemetry@0.87.1",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@earendil-works/pi-telemetry@1.0.4",
       "licenseTextSha256": "4f6a1985796db5225e3b1e59972bd47e07a27a0748427cb3d3c8fbf39f9311f0",
       "copyrightNotices": [
         "Copyright (c) 2025 Mario Zechner"
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/earendil-works/pi/f07218c4d4bbc12bef056a7058c3dd49dfe41abe/LICENSE Published source revision: f07218c4d4bbc12bef056a7058c3dd49dfe41abe"
+      "reviewNotes": "License text source: https://raw.githubusercontent.com/earendil-works/pi/7c10bd4337495ee613f2224843ecdf349b80d1df/LICENSE Published source revision: 7c10bd4337495ee613f2224843ecdf349b80d1df"
     },
     {
       "name": "@eigenpal/docx-js-editor",
@@ -28177,28 +28173,6 @@
       "policyDecision": "allowed"
     },
     {
-      "name": "diff",
-      "versionOrCommit": "8.0.4",
-      "sourceUrl": "https://github.com/kpdecker/jsdiff",
-      "packagePathOrArtifact": "node_modules/diff",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "BSD-3-Clause",
-      "verifiedLicense": "BSD-3-Clause",
-      "licenseTextRef": "node_modules/diff/LICENSE",
-      "licenseTextSha256": "eda81a415869e67809f6a9f3fd6056062cb83a462118e07eec5e92b2e0c40ce9",
-      "copyrightNotices": [
-        "Copyright (c) 2009-2015, Kevin Decker <kpdecker@gmail.com>"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
       "name": "dingbat-to-unicode",
       "versionOrCommit": "1.0.1",
       "sourceUrl": "https://github.com/mwilliamson/dingbat-to-unicode/tree/b27f259b49907f99b1b9097abba5a9668106b779/js",
@@ -31173,28 +31147,6 @@
       "licenseTextSha256": "18d45466ba3253deae04667e267a91ea8de8548f18c1125264d1c9db28194cc1",
       "copyrightNotices": [
         "Copyright 2008 Fair Oaks Labs, Inc."
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
-      "name": "ignore",
-      "versionOrCommit": "7.0.8",
-      "sourceUrl": "https://github.com/kaelzhang/node-ignore",
-      "packagePathOrArtifact": "node_modules/ignore",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "MIT",
-      "verifiedLicense": "MIT",
-      "licenseTextRef": "node_modules/ignore/LICENSE-MIT",
-      "licenseTextSha256": "542e7521fab287d3d2ea83e0145692c7d82ea81b28f141be6686364929d33079",
-      "copyrightNotices": [
-        "Copyright (c) 2013 Kael Zhang <i@kael.me>, contributors"
       ],
       "modified": false,
       "policyDecision": "allowed"
@@ -35822,30 +35774,6 @@
     },
     {
       "name": "openai",
-      "versionOrCommit": "6.40.0",
-      "sourceUrl": "github:openai/openai-node",
-      "packagePathOrArtifact": "node_modules/@earendil-works/pi-ai/node_modules/openai",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "Apache-2.0",
-      "verifiedLicense": "Apache-2.0",
-      "licenseTextRef": "node_modules/@earendil-works/pi-ai/node_modules/openai/LICENSE",
-      "licenseTextSha256": "636eb7d79da9bb6d515a4b3fd417aa26679eb3cf16396ddab4bc55fa74e616e4",
-      "copyrightNotices": [
-        "(c) You must retain, in the Source form of any Derivative Works",
-        "Copyright 2026 OpenAI",
-        "that You distribute, all copyright, patent, trademark, and"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
-      "name": "openai",
       "versionOrCommit": "6.46.0",
       "sourceUrl": "github:openai/openai-node",
       "packagePathOrArtifact": "node_modules/openai",
@@ -35859,6 +35787,30 @@
       "declaredLicense": "Apache-2.0",
       "verifiedLicense": "Apache-2.0",
       "licenseTextRef": "node_modules/openai/LICENSE",
+      "licenseTextSha256": "636eb7d79da9bb6d515a4b3fd417aa26679eb3cf16396ddab4bc55fa74e616e4",
+      "copyrightNotices": [
+        "(c) You must retain, in the Source form of any Derivative Works",
+        "Copyright 2026 OpenAI",
+        "that You distribute, all copyright, patent, trademark, and"
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
+      "name": "openai",
+      "versionOrCommit": "7.19.0",
+      "sourceUrl": "github:openai/openai-node",
+      "packagePathOrArtifact": "node_modules/@earendil-works/pi-ai/node_modules/openai",
+      "usage": "runtime",
+      "distributedIn": [
+        "source-release",
+        "next-server",
+        "docker-image",
+        "electron-web-app"
+      ],
+      "declaredLicense": "Apache-2.0",
+      "verifiedLicense": "Apache-2.0",
+      "licenseTextRef": "node_modules/@earendil-works/pi-ai/node_modules/openai/LICENSE",
       "licenseTextSha256": "636eb7d79da9bb6d515a4b3fd417aa26679eb3cf16396ddab4bc55fa74e616e4",
       "copyrightNotices": [
         "(c) You must retain, in the Source form of any Derivative Works",

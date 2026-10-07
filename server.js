@@ -54,7 +54,6 @@ const esmOnlyPackageAliases = new Map();
 addEsmOnlyPackageAliases('@earendil-works/pi-ai', esmOnlyPackageAliases);
 addEsmOnlyPackageAliases('@earendil-works/pi-agent-core', esmOnlyPackageAliases);
 addEsmOnlyPackageAliases('@earendil-works/pi-telemetry', esmOnlyPackageAliases);
-addEsmOnlyPackageAliases('@earendil-works/chord', esmOnlyPackageAliases);
 
 function resolveEsmOnlyPackageAlias(request, aliases) {
   const exact = aliases.get(request);

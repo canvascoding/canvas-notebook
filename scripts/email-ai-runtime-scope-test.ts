@@ -309,10 +309,14 @@ const originalLoad = moduleInternals._load;
 
 moduleInternals._load = (request, parent, isMain) => {
   if (request === 'server-only') return {};
+  if (request === '@earendil-works/pi-ai') {
+    const sdk = originalLoad.call(Module, require.resolve('../node_modules/@earendil-works/pi-ai/dist/index.js'), parent, isMain) as typeof import('@earendil-works/pi-ai');
+    // Transcript normalization is pure; direct provider streaming remains unavailable to Email AI.
+    return { normalizeContext: sdk.normalizeContext };
+  }
 
   if (
-    request === '@earendil-works/pi-ai'
-    || request === '@earendil-works/pi-ai/compat'
+    request === '@earendil-works/pi-ai/compat'
     || matchesModule(request, 'app/lib/agents/effective-runtime-config')
     || matchesModule(request, 'app/lib/pi/api-key-resolver')
   ) {

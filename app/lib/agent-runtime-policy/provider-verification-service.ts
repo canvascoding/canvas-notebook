@@ -63,6 +63,26 @@ function previousVerificationTimestamp(provider: AiProviderInstallation): number
   return Number.isFinite(value) ? value : null;
 }
 
+function classifyProviderProbeFailure(error: unknown, fallback: ProbeFailureCode): ProbeFailureCode {
+  const messages: string[] = [];
+  const seen = new Set<unknown>();
+  let current = error;
+  // Pi wraps refresh errors in ModelsError. Inspect bounded causes without returning provider text to clients.
+  for (let depth = 0; depth < 5 && current && !seen.has(current); depth++) {
+    seen.add(current);
+    if (typeof current === 'string') { messages.push(current); break; }
+    if (typeof current !== 'object') break;
+    const record = current as { message?: unknown; status?: unknown; cause?: unknown };
+    if (typeof record.message === 'string') messages.push(record.message);
+    if (typeof record.status === 'number') messages.push(String(record.status));
+    current = record.cause;
+  }
+  const text = messages.join(' ');
+  if (/\b429\b|rate.?limit|quota|usage.?limit/iu.test(text)) return 'PROVIDER_RATE_LIMITED';
+  if (/\b(401|403)\b|unauthori[sz]ed|invalid.*token|token.*expired/iu.test(text)) return 'PROVIDER_AUTH_REJECTED';
+  return fallback;
+}
+
 function failedStatus(provider: AiProviderInstallation): Exclude<VerificationStatus, 'ready'> {
   return provider.status === 'ready' || provider.status === 'degraded' || Boolean(provider.verifiedAt)
     ? 'degraded'
@@ -325,21 +345,14 @@ export async function verifyProviderInstallation(input: {
         && !(preflightFailure.error instanceof ProviderVerificationError)
         && !(preflightFailure.error instanceof AiRuntimeExecutionError)
       ) {
-        const message = preflightFailure.error instanceof Error ? preflightFailure.error.message : '';
-        failureCode = /\b429\b|rate.?limit|quota|usage.?limit/iu.test(message) ? 'PROVIDER_RATE_LIMITED'
-          : /\b(401|403)\b|unauthori[sz]ed|invalid.*token|token.*expired/iu.test(message) ? 'PROVIDER_AUTH_REJECTED'
-          : 'CREDENTIAL_LOOKUP_FAILED';
+        failureCode = classifyProviderProbeFailure(preflightFailure.error, 'CREDENTIAL_LOOKUP_FAILED');
       } else {
         throw preflightFailure.error;
       }
     } else {
       failureCode = probe.code ?? 'MODEL_TEST_FAILED';
       if (failureCode === 'MODEL_TEST_FAILED' && probe.error) {
-        if (/\b(401|403)\b|unauthori[sz]ed|invalid.*token|token.*expired/iu.test(probe.error)) {
-          failureCode = 'PROVIDER_AUTH_REJECTED';
-        } else if (/\b429\b|rate.?limit|quota|usage.?limit/iu.test(probe.error)) {
-          failureCode = 'PROVIDER_RATE_LIMITED';
-        }
+        failureCode = classifyProviderProbeFailure(probe.error, 'MODEL_TEST_FAILED');
       }
       if (
         failureCode === 'MODEL_TEST_ABORTED'

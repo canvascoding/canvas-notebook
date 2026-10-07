@@ -33,6 +33,7 @@ export type OAuthCredentials = PiOAuthCredentials;
 
 export const PI_OAUTH_PROVIDERS = [
   'anthropic',
+  'openai',
   'openai-codex',
   'github-copilot',
   'kimi-coding',
@@ -46,10 +47,13 @@ export type OAuthProviderId = (typeof PI_OAUTH_PROVIDERS)[number];
 export type { OAuthPrompt };
 
 const PI_OAUTH_SECRET_KEY = 'CANVAS_CREDENTIAL_PI_OAUTH';
+const PI_OAUTH_DEVICE_ID_KEY = 'CANVAS_PI_OAUTH_DEVICE_ID';
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export type OAuthStorageScope = UserScopedDataStorageScope;
 
 export const PI_VISIBLE_OAUTH_PROVIDERS: OAuthProviderId[] = [
+  'openai',
   'openai-codex',
   'openrouter',
   'kimi-coding',
@@ -61,7 +65,8 @@ export const PI_VISIBLE_OAUTH_PROVIDERS: OAuthProviderId[] = [
 // Provider display names – dynamic lookup for providers registered at runtime
 export const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
   'anthropic': 'Anthropic (Claude legacy OAuth)',
-  'openai-codex': 'OpenAI Codex (ChatGPT Login)',
+  'openai': 'OpenAI (ChatGPT Login)',
+  'openai-codex': 'OpenAI Codex (Legacy ChatGPT Login)',
   'github-copilot': 'GitHub Copilot',
   'kimi-coding': 'Kimi Code',
   'meta': 'Meta AI',
@@ -106,6 +111,19 @@ function hasUserScope(scope?: OAuthStorageScope | null): boolean {
 
 function oauthSecretScope(scope?: OAuthStorageScope | null): EnvStorageScope {
   return hasUserScope(scope) ? { userId: scope!.userId } : { secretScope: 'system' };
+}
+
+/** One stable installation identity, independent of account, reconnect and token refresh. */
+export async function getOrCreatePiOAuthDeviceId(): Promise<string> {
+  let deviceId = '';
+  await mutateUnifiedSecretValue(PI_OAUTH_DEVICE_ID_KEY, async current => {
+    if (current !== null && !UUID_PATTERN.test(current)) {
+      throw new Error('Invalid Canvas Pi OAuth device ID in system Secrets.');
+    }
+    deviceId = current ?? randomUUID();
+    return deviceId;
+  }, { secretScope: 'system' });
+  return deviceId;
 }
 
 /** Canonical durable storage path; auth.json paths are read-only migration sources. */
@@ -302,6 +320,7 @@ export async function initiateOAuthLogin(
   scope?: OAuthStorageScope | null,
 ): Promise<OAuthCredentials> {
   const models = await modelsForScope(scope, true);
+  const deviceId = provider === 'openai' ? await getOrCreatePiOAuthDeviceId() : undefined;
   const credential = await models.login(provider, 'oauth', {
     prompt: async (prompt: AuthPrompt) => {
       prompt.signal?.throwIfAborted();
@@ -326,7 +345,7 @@ export async function initiateOAuthLogin(
         onProgress?.(event.message);
       }
     },
-  });
+  }, deviceId ? { getDeviceId: () => deviceId } : undefined);
   if (credential.type !== 'oauth') throw new Error(`Provider ${provider} did not return OAuth credentials.`);
   return credential;
 }

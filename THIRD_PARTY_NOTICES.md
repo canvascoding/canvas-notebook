@@ -4,8 +4,8 @@ This file is generated from `package-lock.json`, installed package license files
 versioned overrides, and the bundled non-npm component inventory.
 
 - Canvas Notebook version: 2026.10.4.1
-- Lockfile SHA-256: `0bab495bdca49ef9778cdecbc35c137282bc2d202adbd0ad1b5debbe7cdcbbb5`
-- Distributed components: 1447
+- Lockfile SHA-256: `b7555890f59770df2f307d6741e35d3c123bb7cc4d31dc6df56ef5feee8b511d`
+- Distributed components: 1444
 - Release gate: **approved**
 
 Canvas Notebook itself is licensed separately under the root `LICENSE` file.
@@ -41,7 +41,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | node-docker-base | node:24-bookworm-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d | native | Multiple | allowed |
 | optional-whisper-ggml-models | 5359861c739e955e79d9a303bcbc70fb988958b1 | native | MIT | allowed |
 | @antfu/install-pkg | 1.1.0 | runtime | MIT | allowed |
-| @anthropic-ai/sdk | 0.124.0 | runtime | MIT | allowed |
+| @anthropic-ai/sdk | 0.129.0 | runtime | MIT | allowed |
 | @apm-js-collab/code-transformer-bundler-plugins | 0.5.0 | runtime | MIT | allowed |
 | @apm-js-collab/code-transformer | 0.15.0 | runtime | Apache-2.0 | allowed |
 | @apm-js-collab/tracing-hooks | 0.10.1 | runtime | Apache-2.0 | allowed |
@@ -141,10 +141,9 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | @csstools/postcss-is-pseudo-class | 5.0.3 | runtime | MIT-0 | allowed |
 | @csstools/selector-resolve-nested | 3.1.0 | runtime | MIT-0 | allowed |
 | @csstools/selector-specificity | 5.0.0 | runtime | MIT-0 | allowed |
-| @earendil-works/chord | 0.87.1 | runtime | MIT | allowed |
-| @earendil-works/pi-agent-core | 0.87.1 | runtime | MIT | allowed |
-| @earendil-works/pi-ai | 0.87.1 | runtime | MIT | allowed |
-| @earendil-works/pi-telemetry | 0.87.1 | runtime | MIT | allowed |
+| @earendil-works/pi-agent-core | 1.0.4 | runtime | MIT | allowed |
+| @earendil-works/pi-ai | 1.0.4 | runtime | MIT | allowed |
+| @earendil-works/pi-telemetry | 1.0.4 | runtime | MIT | allowed |
 | @eigenpal/docx-js-editor | 0.5.3 | runtime | MIT | allowed |
 | @electric-sql/pglite | 0.5.4 | runtime | Apache-2.0 | allowed |
 | @emnapi/runtime | 1.11.3 | runtime | MIT | allowed |
@@ -794,7 +793,6 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | detect-node-es | 1.1.0 | runtime | MIT | allowed |
 | devlop | 1.1.0 | runtime | MIT | allowed |
 | devtools-protocol | 0.0.1638949 | runtime | BSD-3-Clause | allowed |
-| diff | 8.0.4 | runtime | BSD-3-Clause | allowed |
 | dingbat-to-unicode | 1.0.1 | runtime | BSD-2-Clause | allowed |
 | dom-accessibility-api | 0.5.16 | runtime | MIT | allowed |
 | dom-serializer | 2.0.0 | runtime | MIT | allowed |
@@ -929,7 +927,6 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | iconv-lite | 0.7.3 | runtime | MIT | allowed |
 | icu-minify | 4.13.2 | runtime | MIT | allowed |
 | ieee754 | 1.2.1 | runtime | BSD-3-Clause | allowed |
-| ignore | 7.0.8 | runtime | MIT | allowed |
 | image-blob-reduce | 3.0.1 | runtime | MIT | allowed |
 | image-size | 2.0.4 | runtime | MIT | allowed |
 | imapflow | 1.7.8 | runtime | MIT | allowed |
@@ -1137,8 +1134,8 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | on-finished | 2.4.1 | runtime | MIT | allowed |
 | once | 1.4.0 | runtime | ISC | allowed |
 | open-color | 1.9.1 | runtime | MIT | allowed |
-| openai | 6.40.0 | runtime | Apache-2.0 | allowed |
 | openai | 6.46.0 | runtime | Apache-2.0 | allowed |
+| openai | 7.19.0 | runtime | Apache-2.0 | allowed |
 | openai | 7.20.0 | runtime | Apache-2.0 | allowed |
 | opensrc | 0.7.3 | runtime | Apache-2.0 | allowed |
 | option | 0.2.4 | runtime | BSD-2-Clause | allowed |
@@ -9201,7 +9198,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ### License text 4f6a1985796d
 
-Applies to @earendil-works/chord@0.87.1, @earendil-works/pi-agent-core@0.87.1, @earendil-works/pi-ai@0.87.1, @earendil-works/pi-telemetry@0.87.1.
+Applies to @earendil-works/pi-agent-core@1.0.4, @earendil-works/pi-ai@1.0.4, @earendil-works/pi-telemetry@1.0.4.
 
 Copyright notices:
 
@@ -9849,38 +9846,6 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 [others]: https://github.com/json5/json5/contributors
-```
-
-### License text 542e7521fab2
-
-Applies to ignore@7.0.8.
-
-Copyright notices:
-
-- Copyright (c) 2013 Kael Zhang <i@kael.me>, contributors
-
-```text
-Copyright (c) 2013 Kael Zhang <i@kael.me>, contributors
-http://kael.me/
-
-Permission is hereby granted, free of charge, to any person obtaining
-a copy of this software and associated documentation files (the
-"Software"), to deal in the Software without restriction, including
-without limitation the rights to use, copy, modify, merge, publish,
-distribute, sublicense, and/or sell copies of the Software, and to
-permit persons to whom the Software is furnished to do so, subject to
-the following conditions:
-
-The above copyright notice and this permission notice shall be
-included in all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
-EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
-NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
-LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
-OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
-WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
 ### License text 5446db1e43fe
@@ -11785,7 +11750,7 @@ USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ### License text 636eb7d79da9
 
-Applies to openai@6.40.0, openai@6.46.0, openai@7.20.0.
+Applies to openai@6.46.0, openai@7.19.0, openai@7.20.0.
 
 Copyright notices:
 
@@ -28787,46 +28752,6 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.**
 ```
 
-### License text eda81a415869
-
-Applies to diff@8.0.4.
-
-Copyright notices:
-
-- Copyright (c) 2009-2015, Kevin Decker <kpdecker@gmail.com>
-
-```text
-BSD 3-Clause License
-
-Copyright (c) 2009-2015, Kevin Decker <kpdecker@gmail.com>
-All rights reserved.
-
-Redistribution and use in source and binary forms, with or without
-modification, are permitted provided that the following conditions are met:
-
-1. Redistributions of source code must retain the above copyright notice, this
-   list of conditions and the following disclaimer.
-
-2. Redistributions in binary form must reproduce the above copyright notice,
-   this list of conditions and the following disclaimer in the documentation
-   and/or other materials provided with the distribution.
-
-3. Neither the name of the copyright holder nor the names of its
-   contributors may be used to endorse or promote products derived from
-   this software without specific prior written permission.
-
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
-FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
-DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
-SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
-CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
-OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-```
-
 ### License text ee765244e2d5
 
 Applies to @next/env@16.3.8, @next/swc-darwin-arm64@16.3.8, @next/swc-darwin-x64@16.3.8, @next/swc-linux-arm64-gnu@16.3.8, @next/swc-linux-arm64-musl@16.3.8, @next/swc-linux-x64-gnu@16.3.8, @next/swc-linux-x64-musl@16.3.8, @next/swc-win32-arm64-msvc@16.3.8, @next/swc-win32-x64-msvc@16.3.8, next@16.3.8.
@@ -29513,7 +29438,7 @@ SOFTWARE.
 
 ### License text f8508be03f7b
 
-Applies to @anthropic-ai/sdk@0.124.0.
+Applies to @anthropic-ai/sdk@0.129.0.
 
 Copyright notices:
 

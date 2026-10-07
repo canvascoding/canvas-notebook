@@ -15,8 +15,9 @@ async function main() {
   const originalLoad = internals._load;
   const sdk = originalLoad.call(Module, path.resolve('node_modules/@earendil-works/pi-ai/dist/index.js'), undefined, false) as typeof import('@earendil-works/pi-ai');
   const id = `aip_${'a'.repeat(24)}`;
+  const providerId = process.argv.includes('--openai') ? 'openai' : 'openai-codex';
   const model = {
-    id: 'gpt-6-sol', name: 'Fixture', provider: 'openai-codex', api: 'openai-codex-responses' as const,
+    id: 'gpt-6-sol', name: 'Fixture', provider: providerId, api: providerId === 'openai' ? 'openai-responses' as const : 'openai-codex-responses' as const,
     baseUrl: 'https://unused.invalid', reasoning: true, input: ['text'] as ['text'],
     contextWindow: 32_000, maxTokens: 4_000, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
   };
@@ -58,7 +59,7 @@ async function main() {
       },
     };
     if (name === '@earendil-works/pi-ai/compat') return {
-      getProviders: () => ['openai-codex'], getModels: () => [model], registerBuiltInApiProviders: () => {},
+      getProviders: () => [providerId], getModels: () => [model], registerBuiltInApiProviders: () => {},
       createAssistantMessageEventStream: sdk.createAssistantMessageEventStream,
       completeSimple: async () => {
         providerRequests++;
@@ -80,7 +81,7 @@ async function main() {
     );
     await db.run('INSERT INTO canvas_organization_settings (organization_id, owner_user_id, created_at, updated_at) VALUES ($1, $2, 1, 1)', ['org-fixture', 'owner-a']);
     await db.run(`INSERT INTO ai_provider_installations (id, organization_id, provider_id, display_name, source, credential_scope, enabled, status, config_json, revision, created_at, updated_at)
-      VALUES ($1, 'org-fixture', 'openai-codex', 'Codex', 'built-in', 'user', 1, 'degraded', '{"authMethod":"oauth"}', 1, 1, 1)`, [id]);
+      VALUES ($1, 'org-fixture', $2, 'Codex', 'built-in', 'user', 1, 'degraded', '{"authMethod":"oauth"}', 1, 1, 1)`, [id, providerId]);
     await db.run(`INSERT INTO ai_provider_models (organization_id, provider_installation_id, model_id, display_name, enabled, is_provider_default, reasoning, supports_vision, thinking_levels_json, metadata_json, revision, created_at, updated_at)
       VALUES ('org-fixture', $1, 'gpt-6-sol', 'Fixture', 1, 1, 1, 0, '["medium"]', '{"contextWindow":32000,"maxTokens":4000}', 1, 1, 1)`, [id]);
     await db.run("INSERT INTO ai_runtime_defaults (organization_id, catalog_revision, migration_state, created_at, updated_at) VALUES ('org-fixture', 7, 'configured', 1, 1)");
@@ -90,8 +91,8 @@ async function main() {
     const { verifyPersonalProvider } = await import('../app/lib/agent-runtime-policy/personal-provider-verification');
     const { resolveEffectiveAgentRuntime } = await import('../app/lib/agent-runtime-policy/runtime-resolver');
     const { resolveExecutableAgentRuntime } = await import('../app/lib/agent-runtime-policy/provider-runtime');
-    const contextFor = (userId: string) => ({ organizationId: 'org-fixture', userId, workspaceId: 'workspace-fixture', workspaceType: 'team' as const, agentId: 'canvas-agent', executionMode: 'interactive' as const, principal: { type: 'user' as const, userId, credentialSubjectUserId: userId }, requestedSelection: { providerInstallationId: id, providerId: 'openai-codex', modelId: model.id, thinkingLevel: 'medium' as const } });
-    for (const userId of ['owner-a', 'owner-b']) await oauth.saveProviderCredentials('openai-codex', { access: `fixture-${userId}`, refresh: `fixture-refresh-${userId}`, expires: Date.now() + 3_600_000 }, { userId });
+    const contextFor = (userId: string) => ({ organizationId: 'org-fixture', userId, workspaceId: 'workspace-fixture', workspaceType: 'team' as const, agentId: 'canvas-agent', executionMode: 'interactive' as const, principal: { type: 'user' as const, userId, credentialSubjectUserId: userId }, requestedSelection: { providerInstallationId: id, providerId, modelId: model.id, thinkingLevel: 'medium' as const } });
+    for (const userId of ['owner-a', 'owner-b']) await oauth.saveProviderCredentials(providerId, { access: `fixture-${userId}`, refresh: `fixture-refresh-${userId}`, expires: Date.now() + 3_600_000 }, { userId });
     const a = contextFor('owner-a'); const b = contextFor('owner-b');
     assert.equal((await resolveEffectiveAgentRuntime(a)).providers[0].selectable, false);
     assert.equal((await verifyPersonalProvider({ context: a, providerInstallationId: id })).success, true);
@@ -108,9 +109,11 @@ async function main() {
     assert.equal(failed.success, false); assert.equal(failed.code, 'PROVIDER_RATE_LIMITED');
     assert.equal((await resolveEffectiveAgentRuntime(a)).providers[0].selectable, true, 'another owner failure cannot block A');
     assert.equal((await readPersonalProviderVerification({ provider, organizationId: a.organizationId, userId: b.userId })).failureCode, 'PROVIDER_RATE_LIMITED');
-    duringAuth = async () => { throw new Error('HTTP 429 fixture refresh quota'); };
+    duringAuth = async () => { throw new Error('OAuth refresh failed', { cause: new Error('HTTP 429 fixture refresh quota') }); };
     const refreshLimited = await verifyPersonalProvider({ context: a, providerInstallationId: id });
     assert.equal(refreshLimited.code, 'PROVIDER_RATE_LIMITED', 'refresh throttling must not be reported as a rejected login');
+    duringAuth = async () => { throw new Error('OAuth refresh failed', { cause: new Error('HTTP 401 fixture invalid token') }); };
+    assert.equal((await verifyPersonalProvider({ context: a, providerInstallationId: id })).code, 'PROVIDER_AUTH_REJECTED');
     responseError = null;
     await verifyPersonalProvider({ context: a, providerInstallationId: id });
     const beforeBlocked = providerRequests;
@@ -129,7 +132,7 @@ async function main() {
     await assert.rejects(verifyPersonalProvider({ context: a, providerInstallationId: id }), { code: 'PERSONAL_PROVIDER_NOT_ALLOWED' });
     assert.equal(providerRequests, beforeBlocked); policy = null;
     // Reconnect during runtime credential lookup must be caught by the final readiness check.
-    duringAuth = async () => { await oauth.saveProviderCredentials('openai-codex', { access: 'new-fixture', refresh: 'new-fixture-refresh', expires: Date.now() + 3_600_000 }, { userId: a.userId }); };
+    duringAuth = async () => { await oauth.saveProviderCredentials(providerId, { access: 'new-fixture', refresh: 'new-fixture-refresh', expires: Date.now() + 3_600_000 }, { userId: a.userId }); };
     assert.equal((await (await runtime.streamFn(model, sdk.normalizeContext({ messages: [] }))).result()).stopReason, 'error');
     assert.equal(providerRequests, beforeBlocked);
     assert.equal((await resolveEffectiveAgentRuntime(a)).providers[0].selectable, false);
@@ -139,10 +142,10 @@ async function main() {
     assert.equal((await readPersonalProviderVerification({ provider: { ...provider, config: { ...provider.config, openaiCompatibleBaseUrl: 'https://changed.invalid' } }, organizationId: a.organizationId, userId: a.userId })).status, 'unverified');
     await assert.rejects(writePersonalProviderVerification({ organizationId: a.organizationId, userId: a.userId, provider, modelId: model.id, catalogRevision: 7, connectionId: personalProviderConnectionId(provider, a.userId)!, expectedRevision: 0, status: 'degraded', failureCode: 'MODEL_TEST_FAILED', verifiedAt: null, checkedAt: Date.now() }), { code: 'PROVIDER_VERIFICATION_CONFLICT' });
     assert.equal((await readPersonalProviderVerification({ provider, organizationId: a.organizationId, userId: a.userId })).status, 'ready');
-    await oauth.removeProviderCredentials('openai-codex', { userId: a.userId });
+    await oauth.removeProviderCredentials(providerId, { userId: a.userId });
     assert.equal((await readPersonalProviderVerification({ provider, organizationId: a.organizationId, userId: a.userId })).status, 'unverified');
     // Exercise the real public route with ordinary-user auth and real scoped probe/store/resolution.
-    await oauth.saveProviderCredentials('openai-codex', { access: 'route-fixture', refresh: 'route-refresh', expires: Date.now() + 3_600_000 }, { userId: a.userId });
+    await oauth.saveProviderCredentials(providerId, { access: 'route-fixture', refresh: 'route-refresh', expires: Date.now() + 3_600_000 }, { userId: a.userId });
     const { POST } = await import('../app/api/agent-runtime/personal-provider-verify/route');
     const { NextRequest } = await import('next/server');
     const payload = { workspaceId: a.workspaceId, agentId: a.agentId, providerInstallationId: id, modelId: model.id };

@@ -331,23 +331,23 @@ export function projectAgentMessageForLoadedContext(
   if (mode === 'raw') return message;
   if (message.role === 'toolResult') {
     const ranged = resizeTextReadResult(message, getTextLimit(mode)) ?? message;
-    let projected = compactToolResultMessage(ranged, mode, rawContentLength);
+    let projected = compactToolResultMessage(ranged, mode, rawContentLength) as typeof message;
     const references = readChatFileReferences(message.details);
     if (references && mode === 'display') projected = { ...projected, details: {
       ...(projected as { details?: Record<string, unknown> }).details, chatFileReferences: references,
-    } } as AgentMessage;
+    } } as typeof message;
     // UI receipts are not additional model evidence and need no context tokens.
     const projectedDetails = (projected as { details?: unknown }).details;
     if (mode === 'context' && isRecord(projectedDetails)) {
       const { chatFileReferences: _uiReferences, ...contextDetails } = projectedDetails;
-      projected = { ...projected, details: contextDetails } as AgentMessage;
+      projected = { ...projected, details: contextDetails } as typeof message;
     }
     const view = (message.details as { toolOutputView?: unknown } | undefined)?.toolOutputView;
     // A server-created view is bounded independently; legacy details truncation
     // must not silently corrupt its text or its exact pagination coordinates.
     if (view && mode === 'context') return { ...projected, details: {
       ...(projected as { details?: Record<string, unknown> }).details, toolOutputView: view,
-    } } as AgentMessage;
+    } } as unknown as typeof message;
     return projected;
   }
   return compactInlineImagesForProjection(message, mode, rawContentLength);
