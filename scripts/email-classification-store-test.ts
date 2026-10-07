@@ -23,9 +23,9 @@ const mailbox: EmailClassificationMailboxInput = {
   workspaceId: null, mailboxId: null, bindingRevision: 'binding-1', connectionRevision: 'connection-1', policyRevision: 'policy-1', readFrom: [], active: true,
 };
 const message = (id: string, overrides: Partial<EmailClassificationMetadataInput> = {}): EmailClassificationMetadataInput => ({
-  messageRef: id, mailboxRef: mailbox.mailboxRef, canonicalId: `provider-${id}`, folder: 'INBOX', dateTimestamp: 1_000,
+  messageRef: id, mailboxRef: mailbox.mailboxRef, canonicalId: `provider-${id}`, folder: 'INBOX', dateTimestamp: 100,
   replyStatus: 'unknown', fingerprint: `fingerprint-${id}`,
-  list: { from: 'customer@example.test', subject: 'Delayed order', date: '1970-01-01T00:00:01Z', snippet: 'Please investigate', isRead: false, threadId: 'thread-1' },
+  list: { from: 'customer@example.test', subject: 'Delayed order', date: '1970-01-01T00:00:00.100Z', snippet: 'Please investigate', isRead: false, threadId: 'thread-1' },
   ...overrides,
 });
 

@@ -7,6 +7,7 @@ import {
 } from './settings-types';
 import { resetChangedEmailSpamValidation, validateEmailClassificationConfiguration } from './settings-validation';
 import { emailClassificationEvaluationFingerprint } from './settings-evaluation';
+import { emailClassificationSelectionSql, isEmailSelectedForClassification } from './selection';
 import { EMAIL_CATEGORY_IDS, EMAIL_PRIORITIES, type EmailClassificationRaw, type EmailClassificationOverride } from './types';
 import {
   EmailClassificationStoreStateError, EmailClassificationVersionConflictError,
@@ -381,7 +382,9 @@ export class PostgresEmailClassificationStore {
       if (!settings.configuration.enabled || settings.revision !== revision) return null;
       const message = (await connection.query(`SELECT message.*, mailbox.binding_revision, mailbox.policy_revision FROM email_classification_messages message
         JOIN email_classification_mailboxes mailbox ON mailbox.mailbox_ref = message.mailbox_ref
-        WHERE message.message_ref = $1 AND message.fingerprint = $2 AND message.in_inbox AND mailbox.active FOR UPDATE OF mailbox, message`, [messageRef, fingerprint])).rows[0];
+        WHERE message.message_ref = $1 AND message.fingerprint = $2 AND mailbox.active
+          AND ${emailClassificationSelectionSql('message', '$3', '$4')} FOR UPDATE OF mailbox, message`,
+      [messageRef, fingerprint, now, settings.configuration.initialLookbackDays])).rows[0];
       if (!message) return null;
       const result = await connection.query(`INSERT INTO email_classification_jobs(id,message_ref,mailbox_ref,configuration_revision,fingerprint,binding_revision,policy_revision,status,next_attempt_at,created_at,updated_at,evaluation_fingerprint)
         VALUES ($1,$2,$3,$4,$5,$6,$7,'pending',$8,$8,$8,$9)
@@ -402,6 +405,12 @@ export class PostgresEmailClassificationStore {
     return this.transaction(async connection => {
       const settings = await this.lockSettings(connection);
       if (!settings.configuration.enabled) return [];
+      // Cancel legacy/ineligible work even when the daily budget has already been exhausted.
+      await connection.query(`UPDATE email_classification_jobs job SET status = 'canceled', lease_until = NULL,
+        claim_token = NULL, error_code = 'not_selected', updated_at = $1 FROM email_classification_messages message
+        WHERE message.message_ref = job.message_ref AND job.status IN ('pending','processing','retry')
+          AND NOT coalesce(${emailClassificationSelectionSql('message', '$1', '$2')}, false)`,
+      [now, settings.configuration.initialLookbackDays]);
       const dayStart = Math.floor(now / 86_400_000) * 86_400_000;
       await connection.query('INSERT INTO email_classification_daily_budget(day_start, attempts) VALUES ($1,0) ON CONFLICT(day_start) DO NOTHING', [dayStart]);
       const budget = (await connection.query('SELECT attempts FROM email_classification_daily_budget WHERE day_start = $1 FOR UPDATE', [dayStart])).rows[0];
@@ -418,9 +427,10 @@ export class PostgresEmailClassificationStore {
         JOIN email_classification_messages message ON message.message_ref = job.message_ref
         JOIN email_classification_mailboxes mailbox ON mailbox.mailbox_ref = job.mailbox_ref
         WHERE job.configuration_revision = $1 AND message.in_inbox AND mailbox.active AND job.binding_revision = mailbox.binding_revision AND job.policy_revision = mailbox.policy_revision
+          AND ${emailClassificationSelectionSql('message', '$2', '$4')}
           AND job.fingerprint = message.fingerprint AND ((job.status IN ('pending','retry') AND job.next_attempt_at <= $2) OR (job.status = 'processing' AND job.lease_until <= $2))
         ) SELECT job.* FROM eligible JOIN email_classification_jobs job ON job.id = eligible.id
-        ORDER BY eligible.mailbox_position, eligible.last_claimed_at, eligible.next_attempt_at, eligible.created_at, eligible.id LIMIT $3 FOR UPDATE OF job SKIP LOCKED`, [settings.revision, now, Math.min(limit, remaining, slots)]);
+        ORDER BY eligible.mailbox_position, eligible.last_claimed_at, eligible.next_attempt_at, eligible.created_at, eligible.id LIMIT $3 FOR UPDATE OF job SKIP LOCKED`, [settings.revision, now, Math.min(limit, remaining, slots), settings.configuration.initialLookbackDays]);
       const jobs: StoredEmailClassificationJob[] = [];
       for (const candidate of candidates.rows) {
         const updated = await connection.query(`UPDATE email_classification_jobs SET status = 'processing', attempts = attempts + 1, lease_until = $2, claim_token = $3, error_code = NULL, updated_at = $4
@@ -496,6 +506,8 @@ export class PostgresEmailClassificationStore {
       const message = (await connection.query(`SELECT message.*, mailbox.active, mailbox.binding_revision, mailbox.policy_revision FROM email_classification_messages message
         JOIN email_classification_mailboxes mailbox ON mailbox.mailbox_ref = message.mailbox_ref WHERE message.message_ref = $1 FOR UPDATE OF mailbox, message`, [job.messageRef])).rows[0];
       const valid = settings.configuration.enabled && settings.revision === job.configurationRevision && message?.active === true && message.in_inbox === true
+        && isEmailSelectedForClassification({ inInbox: message.in_inbox === true,
+          dateTimestamp: message.date_timestamp === null ? null : Number(message.date_timestamp), list: object<EmailIndexedMessageList>(message.list_json) }, settings.configuration.initialLookbackDays, now)
         && message.fingerprint === job.fingerprint && message.binding_revision === job.bindingRevision && message.policy_revision === job.policyRevision
         && raw.providerId === settings.configuration.providerId;
       if (!valid) {

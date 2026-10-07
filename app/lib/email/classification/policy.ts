@@ -68,13 +68,13 @@ export function emailFocusGroup(classification: Omit<EmailClassification, 'group
   const { states, priority, isSpam, needsReply } = classification;
   const isImportant = priority === 'high' || priority === 'urgent';
   const usable = [states.priority, states.spam, states.reply].some(state => state === 'ready' || state === 'uncertain');
-  if (!usable) return 'pending';
+  if (!usable) return classification.status === 'not_selected' ? 'other' : 'pending';
   if (isImportant && isSpam === true) return 'review';
   if (states.priority === 'uncertain' || states.spam === 'uncertain' || states.reply === 'uncertain') return 'review';
   if (isSpam === true) return 'spam';
   if (isImportant && states.priority === 'ready') return 'important';
   if (needsReply === true && classification.replyStatus !== 'answered') return 'reply';
-  if (states.priority !== 'ready' || states.spam !== 'ready' || states.reply !== 'ready') return 'pending';
+  if (states.priority !== 'ready' || states.spam !== 'ready' || states.reply !== 'ready') return classification.status === 'not_selected' ? 'other' : 'pending';
   return 'other';
 }
 
@@ -85,7 +85,7 @@ export function projectEmailClassification(input: {
   replyStatus?: EmailReplyStatus;
   personallyDone?: boolean;
   version?: number;
-  unavailableState?: 'pending' | 'failed' | 'stale';
+  unavailableState?: 'pending' | 'failed' | 'stale' | 'not_selected';
 }): EmailClassification {
   const raw = input.unavailableState === 'stale' ? null : input.raw;
   const policy = input.policy ?? DEFAULT_EMAIL_CLASSIFICATION_POLICY;

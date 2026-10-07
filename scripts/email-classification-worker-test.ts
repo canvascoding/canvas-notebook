@@ -160,7 +160,7 @@ async function main() {
     await scanLimited.runCycle();
     assert.equal((await bounded.store.readMailbox(bounded.mailbox().mailboxRef))?.coverage, 'partial', 'A provider scan ceiling without a total remains partial.');
     bounded.tick(61_000);
-    const offsetLimited = createEmailClassificationWorker({ ...bounded.dependencies, listMessages: async () => ({ ...page, confirmed: true, hasMore: true, nextOffset: 10_001 }) });
+    const offsetLimited = createEmailClassificationWorker({ ...bounded.dependencies, listMessages: async () => ({ ...page, confirmed: true, hasMore: true, nextOffset: Number.MAX_SAFE_INTEGER + 1 }) });
     await offsetLimited.runCycle();
     assert.equal((await bounded.store.readMailbox(bounded.mailbox().mailboxRef))?.coverage, 'partial');
     bounded.tick(61_000);
@@ -202,10 +202,10 @@ async function main() {
     await historyRevision.store.updateSettings({ expectedRevision: settings.revision, actorUserId: 'admin', configuration: { ...settings.configuration, concurrency: 2 }, now: historyRevision.now() });
     historyRevision.worker.cancelActive();
     historyRevision.tick(61_000);
-    assert.equal((await historyRevision.worker.runCycle()).completed, 1, 'A previously selected historical email is re-enqueued after runtime settings change despite an exhausted cap.');
-    assert.equal(historyRevision.calls.model, 2);
-    assert.equal((await historyRevision.store.readResultsBatch(historyRevision.messages().map(message => historyRevision.ref(message)))).length, 2);
-    assert.equal(JSON.parse((await historyRevision.store.readMailbox(historyRevision.mailbox().mailboxRef))!.syncCursor!).historicalQueued, 2);
+    assert.equal((await historyRevision.worker.runCycle()).completed, 2, 'A new sweep resumes prior work and selects the next historical batch.');
+    assert.equal(historyRevision.calls.model, 3);
+    assert.equal((await historyRevision.store.readResultsBatch(historyRevision.messages().map(message => historyRevision.ref(message)))).length, 3);
+    assert.equal(JSON.parse((await historyRevision.store.readMailbox(historyRevision.mailbox().mailboxRef))!.syncCursor!).historicalQueued, 1);
   } finally { await historyRevision.close(); }
 
   const overlap = await fixture({ count: 130, maxHistory: 100 });
@@ -282,10 +282,60 @@ async function main() {
 
   const old = await fixture({ maxLookback: 1 });
   try {
-    old.setMessages([{ ...old.messages()[0], date: new Date(BASE_NOW - 2 * 86_400_000).toISOString() }]);
+    old.setMessages([{ ...old.messages()[0], isRead: true, date: new Date(BASE_NOW - 2 * 86_400_000).toISOString() }]);
     const cycle = await old.worker.runCycle();
     assert.equal(cycle.indexed, 1); assert.equal(cycle.claimed, 0); assert.equal(old.calls.read, 0);
   } finally { await old.close(); }
+
+  const selected = await fixture({ maxHistory: 1 });
+  try {
+    const seed = selected.messages()[0];
+    selected.setMessages([
+      { ...seed, id: 'old-unread', date: new Date(BASE_NOW - 120 * 86_400_000).toISOString(), isRead: false },
+      { ...seed, id: 'recent-read', date: new Date(BASE_NOW - 20 * 86_400_000).toISOString(), isRead: true },
+      { ...seed, id: 'old-read', date: new Date(BASE_NOW - 31 * 86_400_000).toISOString(), isRead: true },
+      { ...seed, id: 'recent-unknown', isRead: undefined },
+      { ...seed, id: 'unknown-old', date: new Date(BASE_NOW - 120 * 86_400_000).toISOString(), isRead: undefined },
+      { ...seed, id: 'undated-unread', date: 'unknown', isRead: false },
+      { ...seed, id: 'undated-read', date: 'unknown', isRead: true },
+    ]);
+    for (let sweep = 0; sweep < 4; sweep++) {
+      await selected.worker.runCycle(); selected.tick(61_000);
+    }
+    const results = await selected.store.readResultsBatch(selected.messages().map(message => selected.ref(message)));
+    const rated = selected.messages().filter(message => results.some(result => result.messageRef === selected.ref(message))).map(message => message.id).sort();
+    assert.deepEqual(rated, ['old-unread', 'recent-read', 'recent-unknown', 'undated-unread']);
+    assert.equal(selected.calls.model, 4, 'Per-sweep batches eventually prepare every eligible email, without permanently excluding unread history.');
+    const oldUnread = selected.messages().find(message => message.id === 'old-unread')!;
+    await selected.store.updateIndexedMessageState({ ownerUserId: 'owner', accountId: 'account', accountSource: 'local', canonicalId: String(oldUnread.id), read: true, now: selected.now() });
+    const projection = await readEmailClassificationProjectionBatch({ actorUserId: 'owner', mailbox: selected.mailbox(), messages: [{ ...oldUnread, isRead: true }], now: selected.now() }, { store: selected.store });
+    assert.equal(projection.get(selected.ref(oldUnread))?.classification.status, 'ready', 'Reading an old rated email preserves its durable assessment.');
+  } finally { await selected.close(); }
+
+  const providerRead = await fixture();
+  try {
+    providerRead.setMessages([{ ...providerRead.messages()[0], date: new Date(BASE_NOW - 120 * 86_400_000).toISOString() }]);
+    const worker = createEmailClassificationWorker({ ...providerRead.dependencies,
+      readMessage: async input => ({ ...await providerRead.dependencies.readMessage!(input), isRead: true }),
+    });
+    const cycle = await worker.runCycle();
+    assert.equal(cycle.canceled, 1); assert.equal(providerRead.calls.model, 0, 'Fresh provider read flags fence an old mail before any model call.');
+  } finally { await providerRead.close(); }
+
+  for (const days of [120, 20]) {
+    const readDuringModel = await fixture();
+    try {
+      readDuringModel.setMessages([{ ...readDuringModel.messages()[0], date: new Date(BASE_NOW - days * 86_400_000).toISOString() }]);
+      const worker = createEmailClassificationWorker({ ...readDuringModel.dependencies, evaluate: async input => {
+        const answer = await readDuringModel.dependencies.evaluate!(input);
+        await readDuringModel.store.updateIndexedMessageState({ ownerUserId: 'owner', accountId: 'account', accountSource: 'local', canonicalId: 'message-0', read: true, now: readDuringModel.now() });
+        return answer;
+      } });
+      const cycle = await worker.runCycle();
+      assert.equal(cycle.completed, days === 20 ? 1 : 0, 'A read transition remains eligible only within the recent window.');
+      assert.equal(cycle.canceled, days === 120 ? 1 : 0);
+    } finally { await readDuringModel.close(); }
+  }
 
   const restricted = await fixture();
   try {

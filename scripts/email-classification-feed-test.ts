@@ -26,7 +26,7 @@ async function main() {
     await runEmailClassificationFeedPostgresMigration(postgres);
     const store = createEmailClassificationStore({ postgres:postgres as unknown as EmailClassificationQueryable,
       transaction: operation=>postgres.transaction(connection=>operation(connection as unknown as EmailClassificationQueryable)) });
-    let now = 10_000;
+    let now = Date.now();
     const makeMailbox = (accountId:string,workspaceId:string|null):AuthorizedEmailClassificationMailbox => {
       const descriptor={ownerUserId:'owner',accountSource:workspaceId?'local' as const:'managed' as const,accountId,provider:'google',workspaceId,
         mailboxId:workspaceId?'binding-'+accountId:null,bindingRevision:'binding-'+accountId,policyRevision:'policy-'+accountId,
@@ -48,12 +48,12 @@ async function main() {
       priority:'normal',priorityProbabilities:{normal:0.9,low:0.1},priorityConfidence:0.9,spamProbability:0.1,replyProbability:0.1,
       providerId:'typesafe',model:'jev-1.13.0',adapterVersion:'fixture',schemaVersion:EMAIL_CLASSIFICATION_SCHEMA_VERSION,
       probabilitySemantics:'model_probability',calibrationReference:null,latencyMs:10,evaluatedAt:now,evaluatedBodyCharacters:100,bodyWasTruncated:false,usage:null};
-    const fixtures:Array<{metadata:EmailClassificationMetadataInput;raw:EmailClassificationRaw|null;overrides:EmailClassificationOverride;state?:'pending'|'stale'|'failed';done:boolean}> = [];
-    async function insert(id:string,mailbox:AuthorizedEmailClassificationMailbox,options:{raw?:Partial<EmailClassificationRaw>|null;overrides?:EmailClassificationOverride;state?:'pending'|'stale'|'failed';done?:boolean;from?:string;date?:number;inInbox?:boolean}={}) {
+    const fixtures:Array<{metadata:EmailClassificationMetadataInput;raw:EmailClassificationRaw|null;overrides:EmailClassificationOverride;state?:'pending'|'stale'|'failed'|'not_selected';done:boolean}> = [];
+    async function insert(id:string,mailbox:AuthorizedEmailClassificationMailbox,options:{raw?:Partial<EmailClassificationRaw>|null;overrides?:EmailClassificationOverride;state?:'pending'|'stale'|'failed'|'not_selected';done?:boolean;from?:string;date?:number|null;isRead?:boolean;inInbox?:boolean}={}) {
       const messageRef='emm:'+emailClassificationFingerprint([mailbox.mailboxRef,id]);
       const raw=options.raw===null?null:{...baseRaw,...options.raw};
-      const metadata:EmailClassificationMetadataInput={messageRef,mailboxRef:mailbox.mailboxRef,canonicalId:id,folder:'INBOX',dateTimestamp:options.date??now,
-        replyStatus:'unknown',fingerprint:'fingerprint-'+id,inInbox:options.inInbox??true,list:{from:options.from??'Customer <customer@example.test>',subject:id,date:'2026-10-06',snippet:'Short preview'}};
+      const metadata:EmailClassificationMetadataInput={messageRef,mailboxRef:mailbox.mailboxRef,canonicalId:id,folder:'INBOX',dateTimestamp:options.date===undefined?now:options.date,
+        replyStatus:'unknown',fingerprint:'fingerprint-'+id,inInbox:options.inInbox??true,list:{from:options.from??'Customer <customer@example.test>',subject:id,date:'2026-10-06',snippet:'Short preview',isRead:options.isRead}};
       await store.upsertMessageMetadata(metadata,now);
       if(raw||options.overrides)await postgres.query(`INSERT INTO email_classification_results(message_ref,raw_json,configuration_revision,evaluation_fingerprint,fingerprint,binding_revision,policy_revision,overrides_json,version,result_revision,updated_at)
         VALUES($1,$2::jsonb,$3,$4,$5,$6,$7,$8::jsonb,1,1,$9)`,[messageRef,raw?JSON.stringify(raw):null,raw?settings.revision:null,raw?(options.state==='stale'?'obsolete-evaluation':hash):null,
@@ -85,6 +85,12 @@ async function main() {
     await postgres.query('UPDATE email_classification_results SET evaluation_fingerprint=\'obsolete-evaluation\' WHERE message_ref=$1',[fixtures[fixtures.length-1].metadata.messageRef]);
     fixtures[fixtures.length-1].state='failed';
     await insert('done',work,{done:true});
+    await insert('old-unread-selected',personal,{raw:null,date:now-365*86_400_000,isRead:false});
+    await insert('recent-read-selected',work,{raw:null,date:now-20*86_400_000,isRead:true});
+    await insert('boundary-read-selected',personal,{raw:null,date:now-30*86_400_000,isRead:true});
+    const excluded=await insert('old-read-not-selected',work,{raw:null,date:now-31*86_400_000,isRead:true,state:'not_selected'});
+    await insert('unknown-date-not-selected',personal,{raw:null,date:null,state:'not_selected'});
+    await insert('future-read-not-selected',personal,{raw:null,date:now+1,isRead:true,state:'not_selected'});
     await insert('blocked-sender',work,{from:'attacker@evil.test',raw:{priority:'urgent',priorityProbabilities:{urgent:0.99,high:0.01}}});
     await insert('subdomain-blocked',work,{from:'attacker@sub.example.test'});
     await insert('sent-not-inbox',work,{inInbox:false});
@@ -92,7 +98,7 @@ async function main() {
 
     // PostgreSQL projection is compared field-for-field to the application policy oracle.
     const oracle=await postgres.query<{message_ref:string;classification_json:EmailClassification}>(`${EMAIL_CLASSIFICATION_PROJECTED_SQL} SELECT message_ref,classification_json FROM projected`,
-      ['owner',emailFeedAuthorizedParameter(authorized),JSON.stringify(settings.configuration.policy),hash,settings.revision,null,'']);
+      ['owner',emailFeedAuthorizedParameter(authorized),JSON.stringify(settings.configuration.policy),hash,settings.revision,null,'',now,settings.configuration.initialLookbackDays]);
     const visible=fixtures.filter(fixture=>fixture.metadata.inInbox!==false && !['blocked-sender','subdomain-blocked'].includes(fixture.metadata.canonicalId));
     assert.equal(oracle.rows.length,visible.length);
     for(const row of oracle.rows) {
@@ -129,6 +135,12 @@ async function main() {
     const pendingView=await readEmailClassificationFeed({userId:'owner',scope:{kind:'all'},view:'pending',limit:100},dependencies);
     assert.ok(pendingView.items.length>0 && pendingView.items.every(item=>item.classification?.group==='pending'));
     assert.equal(pendingView.items.length,pendingView.counts.groups.pending);
+    assert.ok(!pendingView.items.some(item=>item.messageRef===excluded),'Excluded old read mail is not counted as waiting.');
+    const excludedDetail=await readEmailClassificationMessage({userId:'owner',messageRef:excluded},dependencies);
+    assert.equal(excludedDetail.classification?.status,'not_selected');
+    assert.equal(excludedDetail.classification?.group,'other');
+    const remaining=await readEmailClassificationFeed({userId:'owner',scope:{kind:'work'},view:'other',limit:100},dependencies);
+    assert(remaining.items.some(item=>item.messageRef===excluded),'Unselected messages remain reachable in All/Other views.');
     assert.ok(pendingView.coverage.some(source=>source.failed>0 && source.pending>0),'Failed/pending coverage remains honest while the start list stays focused');
 
     const stable=await readEmailClassificationFeed({userId:'owner',scope:{kind:'all'},view:'all',limit:2},dependencies);

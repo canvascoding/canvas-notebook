@@ -5,6 +5,7 @@ import { emailClassificationFingerprint, emailClassificationMessageIdentity, ema
 import type { AuthorizedEmailClassificationMailbox } from './mailbox-types';
 import { projectEmailClassification } from './policy';
 import { emailClassificationEvaluationFingerprint } from './settings-evaluation';
+import { isEmailSelectedForClassification } from './selection';
 import type { EmailClassificationConfiguration, EmailClassificationSettings } from './settings-types';
 import { getRuntimeEmailClassificationStore, type PostgresEmailClassificationStore } from './store';
 import { EmailClassificationStoreStateError, type EmailIndexedMessageList, type StoredEmailClassificationMetadata, type StoredEmailClassificationResult } from './store-types';
@@ -95,6 +96,7 @@ export async function ingestEmailClassificationMetadata(input: {
   if (!input.enqueue || !metadata.inInbox || !isEmailAddressAllowed(metadata.list.from, mailbox.readFrom)) return metadata;
   const settings = input.settings ?? await store.readSettings();
   if (!settings.configuration.enabled) return metadata;
+  if (!isEmailSelectedForClassification(metadata, settings.configuration.initialLookbackDays, input.now ?? Date.now())) return metadata;
   const result = (await store.readResultsBatch([metadata.messageRef]))[0];
   if (!isStoredEmailClassificationResultCurrent(result, metadata, settings.configuration)) {
     await store.enqueueClassification({ messageRef: metadata.messageRef, configurationRevision: settings.revision, fingerprint: metadata.fingerprint, now: input.now });
@@ -133,7 +135,8 @@ export async function readEmailClassificationProjectionBatch(input: {
       && metadata.mailbox.bindingRevision === input.mailbox.bindingRevision && metadata.mailbox.policyRevision === input.mailbox.policyRevision
       && isStoredEmailClassificationResultCurrent(result, metadata, settings.configuration);
     const raw = current ? result!.raw : null;
-    const state = current ? undefined : jobStates.get(candidate.metadata.messageRef) === 'failed' ? 'failed' : result?.raw ? 'stale' : 'pending';
+    const selected = isEmailSelectedForClassification(metadata ?? candidate.metadata, settings.configuration.initialLookbackDays, input.now ?? Date.now());
+    const state = current ? undefined : !selected ? 'not_selected' : jobStates.get(candidate.metadata.messageRef) === 'failed' ? 'failed' : result?.raw ? 'stale' : 'pending';
     // True provider flags can update reply status before metadata sync catches up.
     const observedReply = emailClassificationReplyStatus(candidate.message, input.provenance);
     const replyStatus = observedReply !== 'unknown' ? observedReply : metadata?.replyStatus ?? 'unknown';

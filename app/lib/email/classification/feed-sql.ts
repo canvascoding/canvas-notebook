@@ -1,3 +1,5 @@
+import { emailClassificationSelectionSql } from './selection';
+
 /** Mirrors projectEmailClassification. The PostgreSQL oracle tests exercise both implementations. */
 export const EMAIL_CLASSIFICATION_SENDER_SQL = `(
   a.workspace_id IS NULL OR jsonb_array_length(a.read_from) = 0 OR EXISTS (
@@ -39,7 +41,8 @@ export const EMAIL_CLASSIFICATION_PROJECTED_SQL = `
     SELECT c.*, coalesce(c.overrides_json, '{}'::jsonb) AS overrides,
       CASE WHEN c.stored_raw IS NOT NULL AND c.evaluation_fingerprint=$4 AND c.result_fingerprint=c.fingerprint
         AND c.result_binding=c.binding_revision AND c.result_policy=c.policy_revision THEN c.stored_raw END AS raw,
-      CASE WHEN j.status='failed' THEN 'failed' WHEN c.stored_raw IS NOT NULL AND NOT coalesce(c.evaluation_fingerprint=$4 AND c.result_fingerprint=c.fingerprint
+      CASE WHEN NOT coalesce(${emailClassificationSelectionSql('c', '$8', '$9')},false) THEN 'not_selected'
+        WHEN j.status='failed' THEN 'failed' WHEN c.stored_raw IS NOT NULL AND NOT coalesce(c.evaluation_fingerprint=$4 AND c.result_fingerprint=c.fingerprint
         AND c.result_binding=c.binding_revision AND c.result_policy=c.policy_revision,false) THEN 'stale'
         ELSE 'pending' END AS missing
     FROM candidates c LEFT JOIN latest_jobs j ON j.message_ref=c.message_ref
@@ -78,13 +81,13 @@ export const EMAIL_CLASSIFICATION_PROJECTED_SQL = `
   ), grouped AS (
     SELECT e.*,
       CASE WHEN personally_done THEN 'done'
-        WHEN NOT (priority_state IN ('ready','uncertain') OR spam_state IN ('ready','uncertain') OR reply_state IN ('ready','uncertain')) THEN 'pending'
+        WHEN NOT (priority_state IN ('ready','uncertain') OR spam_state IN ('ready','uncertain') OR reply_state IN ('ready','uncertain')) THEN CASE WHEN missing='not_selected' THEN 'other' ELSE 'pending' END
         WHEN priority IN ('high','urgent') AND is_spam=true THEN 'review'
         WHEN 'uncertain' IN (priority_state,spam_state,reply_state) THEN 'review'
         WHEN is_spam=true THEN 'spam'
         WHEN priority IN ('high','urgent') AND priority_state='ready' THEN 'important'
         WHEN needs_reply=true AND reply_status <> 'answered' THEN 'reply'
-        WHEN priority_state <> 'ready' OR spam_state <> 'ready' OR reply_state <> 'ready' THEN 'pending'
+        WHEN priority_state <> 'ready' OR spam_state <> 'ready' OR reply_state <> 'ready' THEN CASE WHEN missing='not_selected' THEN 'other' ELSE 'pending' END
         ELSE 'other' END AS focus_group,
       CASE WHEN category_state='ready' AND priority_state='ready' AND spam_state='ready' AND reply_state='ready' THEN 'ready'
         WHEN 'uncertain' IN (category_state,priority_state,spam_state,reply_state) THEN 'uncertain' ELSE missing END AS decision_status

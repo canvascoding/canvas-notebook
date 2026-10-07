@@ -8,6 +8,7 @@ import { normalizeEmailClassificationResult } from './normalize';
 import { projectEmailClassification } from './policy';
 import { buildEmailClassificationQuestions, buildEmailDecisionState, EMAIL_CLASSIFICATION_SCHEMA_VERSION } from './schema';
 import { emailClassificationEvaluationFingerprint } from './settings-evaluation';
+import { emailClassificationSelectionSql } from './selection';
 import { notifyEmailClassificationSettingsChanged } from './runtime-control';
 import type { EmailClassificationConfiguration, EmailClassificationSettings } from './settings-types';
 import { validateEmailClassificationConfiguration } from './settings-validation';
@@ -145,7 +146,8 @@ export async function readEmailClassificationRuntimeHealth(settings: EmailClassi
     const result = await postgres.query(`WITH active_mailboxes AS (
       SELECT mailbox_ref, binding_revision, policy_revision, coverage, last_sync_at FROM email_classification_mailboxes WHERE active
     ), indexed AS (
-      SELECT message.message_ref, message.fingerprint, mailbox.binding_revision, mailbox.policy_revision
+      SELECT message.message_ref, message.fingerprint, mailbox.binding_revision, mailbox.policy_revision,
+        coalesce(${emailClassificationSelectionSql('message', '$4', '$5')},false) AS selected
       FROM email_classification_messages message JOIN active_mailboxes mailbox ON mailbox.mailbox_ref = message.mailbox_ref
     ), current_results AS (
       SELECT result.raw_json, result.updated_at FROM email_classification_results result JOIN indexed message ON message.message_ref = result.message_ref
@@ -153,7 +155,7 @@ export async function readEmailClassificationRuntimeHealth(settings: EmailClassi
         AND result.binding_revision = message.binding_revision AND result.policy_revision = message.policy_revision
     ), current_jobs AS (
       SELECT job.status FROM email_classification_jobs job JOIN indexed message ON message.message_ref = job.message_ref
-      WHERE job.configuration_revision = $1 AND job.fingerprint = message.fingerprint
+      WHERE message.selected AND job.configuration_revision = $1 AND job.fingerprint = message.fingerprint
         AND job.binding_revision = message.binding_revision AND job.policy_revision = message.policy_revision
     ) SELECT
       (SELECT count(*) FROM indexed) AS indexed,
@@ -173,7 +175,7 @@ export async function readEmailClassificationRuntimeHealth(settings: EmailClassi
       (SELECT count(*) FROM current_results WHERE raw_json->'usage'->>'inputTokens' IS NOT NULL OR raw_json->'usage'->>'outputTokens' IS NOT NULL) AS usage_samples,
       (SELECT avg((raw_json->>'latencyMs')::numeric) FROM current_results) AS average_latency_ms,
       (SELECT max(updated_at) FROM current_results) AS last_completed_at`,
-    [settings.revision, emailClassificationEvaluationFingerprint(settings.configuration), dayStart]);
+    [settings.revision, emailClassificationEvaluationFingerprint(settings.configuration), dayStart, now, settings.configuration.initialLookbackDays]);
     const row = result.rows[0];
     if (!row) throw new Error('Missing runtime statistics.');
     const used = row.budget_used === null ? 0 : count(row.budget_used);

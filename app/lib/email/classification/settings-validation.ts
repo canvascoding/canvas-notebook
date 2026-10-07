@@ -4,6 +4,7 @@ import { OPENAI_DECISIONS_MODEL } from '@/app/lib/decision-models/providers/open
 import { validateEmailClassificationPolicy } from './policy';
 import { validateEmailQuestionProfile } from './schema';
 import { DEFAULT_EMAIL_CLASSIFICATION_CONFIGURATION, type EmailClassificationConfiguration } from './settings-types';
+import { MAX_EMAIL_CLASSIFICATION_LOOKBACK_DAYS } from './selection';
 
 export function validateEmailClassificationConfiguration(value: unknown): EmailClassificationConfiguration {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid email classification configuration.');
@@ -33,7 +34,7 @@ export function validateEmailClassificationConfiguration(value: unknown): EmailC
     endpoint: fixedProvider ? null : normalizedEndpoint.toString(),
     allowPrivateNetwork: fixedProvider ? false : record.allowPrivateNetwork,
     credentialKey, concurrency: integer('concurrency', 1, 8), timeoutMs: integer('timeoutMs', 1_000, 120_000),
-    maxEmailsPerDay: integer('maxEmailsPerDay', 1, 100_000), initialLookbackDays: integer('initialLookbackDays', 1, 365),
+    maxEmailsPerDay: integer('maxEmailsPerDay', 1, 100_000), initialLookbackDays: integer('initialLookbackDays', 1, MAX_EMAIL_CLASSIFICATION_LOOKBACK_DAYS),
     maxHistoricalMessages: integer('maxHistoricalMessages', 1, 100_000), syncIntervalSeconds: integer('syncIntervalSeconds', 15, 3_600),
     questionProfile: validateEmailQuestionProfile(record.questionProfile), policy: validateEmailClassificationPolicy(record.policy),
   };
