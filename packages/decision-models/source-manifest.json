@@ -1,0 +1,21 @@
+{
+  "package": "@canvas/decision-models",
+  "version": "1.0.0",
+  "files": {
+    "README.md": "5b22ed2590bdb4801d60ac279e016d0d277cba1afce8efe01d6ea6b5396ecf4d",
+    "package.json": "0762825c79665f6da41299f87a946b25a7981a229fc89f3b2047ac9b1f44ad8a",
+    "src/errors.ts": "0f7caf3345fe7c83bfd3f2d6a8929217956f232fae8fe312867fa519a0c40cc3",
+    "src/http.ts": "dbb3df81b97f6608511871b421cc43df9f4d32d7bb977fc4c685f5e149edc258",
+    "src/index.ts": "42e09b2eccf96fb6590d4d25eb573964b5cc8f06d389a8ff8b9acdecf0a20d1b",
+    "src/providers/http-json.ts": "31536a6648711990f08a6e9e87e86c3a7f68815b08af9cc649d53fdd100f4df5",
+    "src/providers/openai-decisions.ts": "0a376e3462d157280ee21291f1c11008f3e465aa64bb8f547ff539d85a175fea",
+    "src/providers/systemone.ts": "8b2b3c0d15ffed9e06b4fcbc6e4a5a1a0a4f42318ac645dc16134cb5d286d7ea",
+    "src/providers/typesafe.ts": "1d1a636962f777211853833bf98d07ee2adfdb0e6ea45682e4e43961f9ae30ad",
+    "src/registry.ts": "119179a594719d9b3c205e354431240c6457fa00e0d02853e98d36674fb915f1",
+    "src/security/safe-external-fetch.ts": "44a4f9c15fc8b7591f823d73ba80673973db25870fc5af3d3560e331c1bf0c32",
+    "src/service.ts": "a2c57485642707607e0b13ea2b940305ab13414b18a584a7dd4fc8a960314d1d",
+    "src/types.ts": "433b06dd9a54cc6313df4bbdda2b135daf200e39f740ad77c872c2b5f4f9282c",
+    "src/validation.ts": "beadc8b3f53e11f0fa28bcd7335d06a2791d6fed4cb92e13a5340712cc010225",
+    "tsconfig.json": "3f379e61399b7206cf79aa17cd8a8e224de2cb494e41e0ead4aa611d6aa41c6b"
+  }
+}

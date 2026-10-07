@@ -60,7 +60,7 @@
     "electron:pack": "npm run electron:build",
     "electron:package": "npm run electron:sync-version && electron-builder --projectDir electron --publish never",
     "electron:dist": "npm run electron:sync-version && npm run build && electron-builder --projectDir electron --publish never",
-    "prebuild": "npm run build:tool-apps && npm run test:licenses",
+    "prebuild": "npm run build:decision-models && npm run build:tool-apps && npm run test:licenses",
     "build": "node --disable-warning=DEP0205 ./node_modules/next/dist/bin/next build && bash scripts/inject-cli-version.sh",
     "backup:create": "tsx --conditions react-server scripts/create-full-backup.ts",
     "start": "NODE_ENV=production ./scripts/start-services.sh",
@@ -709,7 +709,8 @@
     "test:files:operation-restarts:e2e": "node --import tsx scripts/run-workspace-operation-batch-e2e.mjs --direct-restart",
     "test:files:operation-review-toggle": "tsx --conditions react-server scripts/workspace-operation-review-availability-test.ts && tsx scripts/workspace-operation-review-gating-ui-test.tsx",
     "test:dictation:preparation": "python3 scripts/dictation-host-model-test.py && tsx --conditions react-server scripts/local-dictation-preparation-test.ts && tsx --conditions react-server scripts/local-dictation-route-test.ts",
-    "test:dictation:e2e": "tsx scripts/local-dictation-browser-test.ts"
+    "test:dictation:e2e": "tsx scripts/local-dictation-browser-test.ts",
+    "build:decision-models": "tsc -p packages/decision-models/tsconfig.json"
   },
   "dependencies": {
     "@better-auth/expo": "1.7.1",
@@ -874,7 +875,8 @@
     "y-protocols": "^1.0.6",
     "yaml": "^2.9.0",
     "yjs": "13.6.31",
-    "zustand": "^5.0.9"
+    "zustand": "^5.0.9",
+    "@canvas/decision-models": "file:packages/decision-models"
   },
   "devDependencies": {
     "@electric-sql/pglite": "0.5.4",

@@ -108,6 +108,7 @@ RUN apt-get update \
 RUN npm install -g npm@${NPM_VERSION} node-addon-api@8.9.0 node-gyp@12.4.0
 
 COPY package.json package-lock.json .npmrc* ./
+COPY packages/decision-models ./packages/decision-models
 COPY patches ./patches
 # Install the complete locked graph, including build/test peers. Legacy mode
 # omits locked peers needed by the typecheck and compliance inventory. Force
@@ -244,6 +245,7 @@ RUN rm -f ./scripts/apply-pending-migration-restore.ts \
 COPY --from=builder /app/seed_sys_prompts ./seed_sys_prompts
 
 # Copy production node_modules for external packages (better-auth, etc.)
+COPY --from=builder /app/packages/decision-models ./packages/decision-models
 COPY --from=builder /app/node_modules ./node_modules
 RUN test ! -e ./node_modules/better-sqlite3 \
   && ! command -v sqlite3 >/dev/null 2>&1
