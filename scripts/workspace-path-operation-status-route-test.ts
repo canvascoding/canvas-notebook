@@ -16,6 +16,7 @@ import type * as BatchService from '../app/lib/files/workspace-operation-batch-s
 import type * as ResponseService from '../app/lib/files/workspace-path-operation-response';
 import type * as Route from '../app/api/files/operations/batches/[batchId]/route';
 import type { WorkspacePathOperationProblemInput } from '../app/lib/files/workspace-path-operation-problems';
+import { workspacePathOperationPublicIssues } from '../app/lib/files/workspace-path-operation-public';
 
 const requireNative = createRequire(path.resolve('package.json'));
 
@@ -127,6 +128,7 @@ async function main(): Promise<void> {
       './workspace-operation-review-service': {}, './workspace-operation-batch-approval-fence': {},
     });
     const responseService = await compile<typeof ResponseService>('app/lib/files/workspace-path-operation-response.ts', {
+      './workspace-path-operation-public': { workspacePathOperationPublicIssues },
       '@/app/lib/filesystem/workspace-trash': { listWorkspaceTrashEntries: async () => [] },
       './workspace-operation-batch-store': errors,
       './workspace-operation-batch-executor': { getWorkspaceOperationBatchExecutionPublic: publicExecution,

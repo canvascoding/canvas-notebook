@@ -103,6 +103,34 @@ async function main() {
     assert.deepEqual(result, { operation: workspacePathOperationMetadata(batch) }, 'unsettled SQL status never claims mutation success');
   }
   assert.equal(reads, 0, 'unsettled status reads do not load private journal');
+  for (const [entries, expected] of [
+    [[], [{ code: 'missing-source', path: 'ek-fuchs-transkript.md' }]],
+    [[{ path: 'ek-fuchs-transkript.md', kind: 'file', identity: 'source', markdownContent: '# Transcript' },
+      { path: 'Notes/transcript.md', kind: 'file', identity: 'destination', markdownContent: '# Existing' }],
+    [{ code: 'destination-collision', path: 'Notes/transcript.md' }]],
+    [[{ path: 'ek-fuchs-transkript.md', kind: 'file', identity: 'source', markdownContent: '# Transcript' },
+      { path: 'Notes/unreadable.md', kind: 'file', identity: 'unreadable', omissionReason: 'source-unreadable' }],
+    [{ code: 'uninspected-source', path: 'Notes/unreadable.md' }]],
+  ] as const) {
+    const plan = createWorkspaceOperationBatchPlan({ snapshot: { workspaceId: scope.workspace.workspaceId, entries },
+      actions: [{ reviewId: 'blocked-move', kind: 'move', selections: [{ sourcePath: 'ek-fuchs-transkript.md', destinationPath: 'Notes/transcript.md' }] }] });
+    assert.equal(plan.readiness, 'blocked');
+    const blocked = { ...move.batch, plan, planId: plan.planId, status: 'blocked' as const,
+      completedActions: 0, totalActions: plan.pathSteps.length + plan.previewContents.length,
+      phase: 'preparing' as const, errorCode: 'PREVIEW_BLOCKED' };
+    const response = await workspacePathOperationResponse(blocked, scope, { execution });
+    assert.deepEqual(response.operation.issues, expected, 'blocked moves expose the exact deduplicated reason and document path');
+    assert.equal(JSON.stringify(response).includes('"detail"'), false, 'private diagnostic details are never public');
+    assert.equal(response.mutation, undefined, 'diagnostics do not claim or execute a move');
+  }
+  const privateIssues = workspacePathOperationMetadata({ ...move.batch, plan: { ...move.batch.plan,
+    issues: [{ code: 'future-conflict', path: '/private/secret.md', detail: 'private diagnostic' },
+      { code: 'incomplete-index', path: 'Notes/link.md', detail: 'private target literal' }],
+    linkAssessment: { ...move.batch.plan.linkAssessment, blockers: [{ reason: 'resolution-changed', status: 'ambiguous',
+      sourcePath: 'Notes/link.md', targetLiteral: 'private target literal' }] } } });
+  assert.deepEqual(privateIssues.issues, [{ code: 'future-conflict', path: '' }, { code: 'resolution-changed', path: 'Notes/link.md' }]);
+  assert.equal(JSON.stringify(privateIssues).includes('private'), false);
+  assert.equal(reads, 0, 'blocked diagnostics do not inspect execution receipts');
   const result = await workspacePathOperationResponse(move.batch, scope, { execution });
   assert.deepEqual(result.mutation, { type: 'rename', operationId: 'filesystem-mutation-0',
     workspaceId: scope.workspace.workspaceId, oldPath: 'old.md', newPath: 'new.md' });

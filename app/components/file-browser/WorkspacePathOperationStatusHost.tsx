@@ -13,6 +13,20 @@ import { useWorkspaceStore } from '@/app/store/workspace-store';
 import { closeWorkspacePathOperationStatus, openWorkspacePathOperationStatus, recoverWorkspacePathOperation,
   reloadWorkspacePathOperationStatus, useWorkspacePathOperationStore } from '@/app/store/workspace-path-operation-store';
 
+const issueKeys: Record<string, string> = {
+  'missing-source': 'missingSource', 'destination-collision': 'destinationCollision',
+  'invalid-path': 'invalidPath', 'overlapping-selection': 'overlap', 'overlapping-edits': 'overlap', 'unsupported-overlap': 'overlap',
+  'duplicate-destination': 'duplicateDestination', 'directory-cycle': 'directoryCycle',
+  'incomplete-index': 'incompleteIndex', 'stale-content': 'staleContent',
+  'unsupported-target-format': 'unsupportedLink', 'unsupported-delete-link': 'unsupportedLink',
+  'affected-unresolved-link': 'unresolvedLink', 'uninspected-source': 'uninspectedSource',
+  'unevaluated-link': 'unsupportedLink', 'resolution-changed': 'resolutionChanged',
+  'action-limit': 'limit', 'path-limit': 'limit', 'missing-selection': 'missingSelection',
+  'duplicate-review': 'invalidAction', 'invalid-action': 'invalidAction',
+  'unsupported-action': 'unsupportedAction', 'unsupported-operation': 'unsupportedAction',
+  'cross-workspace-move': 'crossWorkspaceMove', 'uncopied-cross-workspace-target': 'uncopiedTarget',
+};
+
 function subscribeAuth(listener: () => void) {
   const session = authClient.$store.atoms.session.listen(listener);
   const invalidation = subscribeOpenedDocumentAuthInvalidation(listener);
@@ -76,6 +90,7 @@ export function WorkspacePathOperationStatusHost() {
   const running = Boolean(operation && ['queued', 'applying'].includes(operation.status));
   const settled = Boolean(operation && ['applied', 'undone'].includes(operation.status));
   const selections = operation?.selections ?? problem?.selections ?? review?.selections ?? [];
+  const issues = operation?.issues ?? [];
   const code = state.errorCode ?? operation?.errorCode ?? problem?.errorCode ?? review?.errorCode;
   const status = operation?.status === 'needs_review' ? 'stale' : operation?.status === 'preview' ? 'blocked' : operation?.status;
   const guidance = problem ? problem.errorCode === 'BATCH_AUDIT_FAILED' ? 'auditFailed' : 'problemGuidance'
@@ -110,12 +125,22 @@ export function WorkspacePathOperationStatusHost() {
           {state.error ? <p role="alert" className="rounded-lg border border-destructive/30 p-4 text-sm text-destructive">{t(`error.${state.error}`)}</p> : null}
           {code ? <p className="break-all text-sm"><span className="text-muted-foreground">{t('errorCode')}: </span><code>{code}</code></p> : null}
         </div>
+        {issues.length ? <section aria-label={t('blockers')} className="space-y-3" data-testid="workspace-path-operation-issues">
+          <h2 className="text-sm font-medium">{t('blockers')}</h2>
+          <ul className="divide-y rounded-lg border border-amber-500/30">
+            {issues.map((issue, index) => <li key={index} className="space-y-1 p-3 text-sm [overflow-wrap:anywhere]">
+              <p>{t(`issue.${Object.hasOwn(issueKeys, issue.code) ? issueKeys[issue.code] : 'unknown'}`)}</p>
+              {issue.path && issue.path !== '.' ? <p className="font-mono text-xs text-muted-foreground">{issue.path}</p> : null}
+              <p className="text-xs text-muted-foreground"><code>{issue.code}</code></p>
+            </li>)}
+          </ul>
+        </section> : null}
         {selections.length ? <section aria-label={t('files')} className="space-y-3">
           <h2 className="text-sm font-medium">{t('files')}</h2>
           <ul className="divide-y rounded-lg border">
             {selections.slice(0, 20).map((selection, index) => <li key={index} className="space-y-1 p-3 text-sm [overflow-wrap:anywhere]">
-              <span className="block">{selection.sourcePath}</span>
-              {selection.destinationPath ? <span className="flex items-start gap-2 text-muted-foreground"><ArrowRight aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0" /><span>{selection.destinationPath}</span></span> : null}
+              <p><span className="text-muted-foreground">{t('sourcePath')}: </span>{selection.sourcePath}</p>
+              {selection.destinationPath ? <p className="flex items-start gap-2 text-muted-foreground"><ArrowRight aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0" /><span>{t('destinationPath')}: {selection.destinationPath}</span></p> : null}
             </li>)}
           </ul>
           {selections.length > 20 ? <p className="text-sm text-muted-foreground">{t('moreFiles', { count: selections.length - 20 })}</p> : null}

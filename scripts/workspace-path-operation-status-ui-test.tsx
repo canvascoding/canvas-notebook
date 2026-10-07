@@ -98,6 +98,23 @@ async function main() {
     assert.equal(screen.queryByTestId('workspace-path-operation-undo'), null);
     assert.equal(controls.recoveries.length, 0, 'opening blocked status cannot run the action');
     assert.ok(!document.body.textContent?.includes('workspacePathOperationStatus.'), 'all product copy is localized');
+    const messages = locale === 'en' ? enMessages.workspacePathOperationStatus : deMessages.workspacePathOperationStatus;
+    const blocked = { ...result(), operation: { ...result().operation, errorCode: 'PREVIEW_BLOCKED',
+      selections: [{ sourcePath: 'ek-fuchs-transkript.md', destinationPath: 'Koenenstrasse_8/WEG/Waermepumpe/Notizen/2026-10-07_EK-Fuchs_Waermepumpe_Besprechung_Transkript.md' }],
+      issues: [{ code: 'destination-collision', path: 'Notes/transcript.md' },
+        { code: 'uninspected-source', path: 'Notes/unreadable.md' },
+        { code: 'resolution-changed', path: 'Notes/link.md' }, { code: 'future-conflict', path: '' }] } };
+    await update({ response: blocked });
+    assert.ok(screen.getByRole('region', { name: messages.blockers }));
+    assert.ok(screen.getByTestId('workspace-path-operation-issues').parentElement?.classList.contains('overflow-y-auto'),
+      'long lists of blockers stay in the scrollable dialog body');
+    for (const key of ['destinationCollision', 'uninspectedSource', 'resolutionChanged', 'unknown'] as const) {
+      assert.ok(screen.getByText(messages.issue[key]), 'each reason has localized corrective guidance');
+    }
+    assert.ok(screen.getByText(`${messages.sourcePath}:`).parentElement?.textContent?.includes('ek-fuchs-transkript.md'));
+    assert.ok(screen.getByText(/2026-10-07_EK-Fuchs_Waermepumpe_Besprechung_Transkript\.md/u).textContent?.startsWith(`${messages.destinationPath}:`));
+    assert.equal(screen.queryByTestId('workspace-path-operation-resume'), null);
+    assert.equal(controls.recoveries.length, 0, 'showing blocker details cannot execute or resume the action');
 
     await update({ response: { ...result('needs_recovery'), recovery: { canResume: true, canUndo: false } } });
     fireEvent.click(screen.getByTestId('workspace-path-operation-resume'));

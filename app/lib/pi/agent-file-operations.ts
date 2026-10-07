@@ -96,6 +96,7 @@ import { getExistingDirectWorkspacePathOperation, submitDirectWorkspacePathOpera
 import { getWorkspaceOperationBatchExecutionPublic } from '@/app/lib/files/workspace-operation-batch-executor';
 import type { WorkspaceOperationBatchRecord } from '@/app/lib/files/workspace-operation-batch-store';
 import type { WorkspaceOperationBatchPublic } from '@/app/lib/files/workspace-operation-batch-public';
+import { workspacePathOperationPublicIssues, type WorkspacePathOperationIssue } from '@/app/lib/files/workspace-path-operation-public';
 import { captureWorkspaceOperationBackup } from '@/app/lib/files/workspace-operation-backup';
 import {
   parseOptionalProposalToolEditV1, parseProposalToolReadRequestV1,
@@ -161,7 +162,7 @@ export type AgentFileChangeResult = {
 
 export type AgentWorkspaceFileOperation = Pick<WorkspaceOperationBatchPublic,
   'batchId' | 'planId' | 'workspaceId' | 'status' | 'completedActions' | 'totalActions' | 'phase' | 'errorCode'>
-  & { kind?: 'move' | 'rename' | 'delete' };
+  & { kind?: 'move' | 'rename' | 'delete'; issues?: WorkspacePathOperationIssue[] };
 
 /** An existing operation must be inspected instead of silently applying a new edit. */
 export class AgentFileOperationOutcomeUnavailableError extends Error {
@@ -3227,9 +3228,11 @@ async function agentDirectWorkspacePathResult(input: AgentWorkspacePathRequest,
   result.changed = paths.length > 0;
   result.verified = complete;
   result.operationIds = [batch.batchId];
+  const issues = workspacePathOperationPublicIssues(batch.plan);
   result.fileOperation = { batchId: batch.batchId, planId: batch.planId, workspaceId: batch.workspaceId,
     status: batch.status, completedActions: batch.completedActions, totalActions: batch.totalActions,
-    phase: batch.phase, errorCode: batch.errorCode, kind: batch.plan.actions.at(-1)?.kind };
+    phase: batch.phase, errorCode: batch.errorCode, kind: batch.plan.actions.at(-1)?.kind,
+    ...(issues.length ? { issues } : {}) };
   result.linkStatus = complete ? 'complete' : paths.length ? 'partial' : 'incomplete';
   result.linkWarnings = complete ? [] : [
     ['queued', 'applying'].includes(batch.status)

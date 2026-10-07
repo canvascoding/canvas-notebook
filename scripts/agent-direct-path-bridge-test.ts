@@ -156,7 +156,7 @@ async function main(): Promise<void> {
           authorization: { mode: 'direct', ...input }, reviewIds: [], reviewRefs: [], reviewerUserId: null,
           reviewerDisplayName: null, completedActions: 0, totalActions: pathSteps.length, phase: 'preparing',
           errorCode: null, trashEntryIds: [], leaseOwner: null, createdAt: 1, updatedAt: 1,
-          plan: { pathSteps, actions: [{ kind: input.kind, selections: input.selections }],
+          plan: { pathSteps, actions: [{ kind: input.kind, selections: input.selections }], issues: [], linkAssessment: { blockers: [] },
             expectedPathState: originals.map((original) => ({ path: original.path,
               contentHash: createHash('sha256').update(original.content).digest('hex') })),
             deletedDocuments: input.kind === 'delete' ? originals : [],
@@ -173,6 +173,11 @@ async function main(): Promise<void> {
         batch.status = nextStatus;
         batch.phase = nextStatus === 'applied' ? 'complete' : nextStatus === 'needs_recovery' ? 'recovery' : 'preparing';
         batch.errorCode = nextStatus === 'needs_recovery' ? 'LINK_WRITE_STALE' : nextStatus === 'blocked' ? 'PREVIEW_BLOCKED' : null;
+        if (nextStatus === 'blocked') {
+          batch.plan.issues = [{ code: 'incomplete-index', path: 'Notes/reference.md', detail: 'private diagnostic' }];
+          batch.plan.linkAssessment.blockers = [{ reason: 'resolution-changed', status: 'ambiguous',
+            sourcePath: 'Notes/reference.md', targetLiteral: 'private target literal' }];
+        }
         const applied = ['applied', 'needs_recovery'].includes(nextStatus) && journalAvailable;
         if (applied) {
           for (const step of batch.plan.pathSteps) {
@@ -288,6 +293,9 @@ async function main(): Promise<void> {
       const blocked = await deleteAgentPaths({ paths: ['blocked.md'] });
       assert.equal(blocked.changed, false); assert.equal(blocked.review, undefined);
       assert.equal(blocked.fileOperation?.errorCode, 'PREVIEW_BLOCKED');
+      assert.deepEqual(blocked.fileOperation?.issues, [{ code: 'resolution-changed', path: 'Notes/reference.md' }],
+        'the agent receives the actionable blocker instead of only PREVIEW_BLOCKED');
+      assert.equal(JSON.stringify(blocked.fileOperation).includes('private'), false);
       assert.equal(await fs.readFile(path.join(workspaceRoot, 'blocked.md'), 'utf8'), '# blocked.md');
 
       nextStatus = 'needs_recovery'; await seed('partial.md');

@@ -66,6 +66,9 @@ function readOperation(payload: unknown, request: WorkspacePathOperationStatusRe
   if (!operation || operation.batchId !== batchFor(request) || operation.workspaceId !== request.workspaceId
     || typeof operation.planId !== 'string' || !/^[a-f0-9]{64}$/u.test(operation.planId) || expectedPlan && operation.planId !== expectedPlan
     || !['move', 'rename', 'delete'].includes(operation.kind) || !validSelections(operation.selections)
+    || operation.issues !== undefined && (!Array.isArray(operation.issues) || operation.issues.some((issue) => !issue
+      || typeof issue.code !== 'string' || !/^[a-z][a-z0-9-]{0,99}$/u.test(issue.code)
+      || issue.path !== '' && !validPath(issue.path)))
     || !['preview', 'blocked', 'queued', 'applying', 'applied', 'needs_review', 'needs_recovery', 'failed', 'undone'].includes(operation.status)
     || !['preparing', 'paths', 'links', 'complete', 'recovery'].includes(operation.phase)
     || !Number.isSafeInteger(operation.completedActions) || !Number.isSafeInteger(operation.totalActions)
@@ -78,7 +81,8 @@ function readOperation(payload: unknown, request: WorkspacePathOperationStatusRe
   return { operation: { batchId: operation.batchId, planId: operation.planId, workspaceId: operation.workspaceId,
     status: operation.status, completedActions: operation.completedActions, totalActions: operation.totalActions,
     phase: operation.phase, errorCode: safeCode(operation.errorCode), kind: operation.kind,
-    selections: operation.selections.map(({ sourcePath, destinationPath }) => ({ sourcePath, ...(destinationPath ? { destinationPath } : {}) })) },
+    selections: operation.selections.map(({ sourcePath, destinationPath }) => ({ sourcePath, ...(destinationPath ? { destinationPath } : {}) })),
+    ...(operation.issues ? { issues: operation.issues.map(({ code, path }) => ({ code, path })) } : {}) },
   ...(value.recovery ? { recovery: { canResume: value.recovery.canResume, canUndo: value.recovery.canUndo } } : {}) };
 }
 
