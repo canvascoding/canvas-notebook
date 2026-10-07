@@ -210,7 +210,13 @@
               "Final production build, whole-tree TypeScript, focused ESLint, new actual/pure read gates, three catalog and three Store application regressions PASS; production-host Playwright1/1 PASS and independent owned-fixture zero readback; own host3001 stopped, foreign stack untouched",
               "Full graph after incremental UTF-8 failure PASS; staged129symbols/31files LOW and cumulative main comparison4167symbols/419files/16earlierflows CRITICAL warned. New workspace/wizard/detail/click UI remains6a-c-2/3, effective Planning/mobile/OAuth6b and live providers7; gateway default-off, no push/container/deployment"
             ] },
-            { "id": "6a-c-2", "name": "Neuer Workspace, fokussierte Details und Store-/Freigabeablauf", "status": "pending", "evidence": [] },
+            { "id": "6a-c-2", "name": "Neuer Workspace, fokussierte Details und Store-/Freigabeablauf", "status": "complete", "evidence": [
+              "Detailed acceptance: evidence/step-6a-c2-plugin-workspace-ui.md; scoped mixed installed/Store/Updates/private Drafts workspace, exact legacy resolution, explicit browsing context, lazy safe Detail/Sharing/Content/Versions and exact Store target/grant/update wizard",
+              "Six real React/SafeDTO workspace gates, existing editor/drafts/target-picker and twelve legacy PluginApp regressions PASS; current dirty/pending Header/History guard, unique/ambiguous/missing/late legacy links, registry/digest picker binding and canonical alias updates",
+              "Final production build, whole-tree TypeScript and focused source/fixture ESLint PASS; actual production-host Playwright3/3 one worker/no retries37.4sec, DE/EN1280/390light/dark captured and representative layouts inspected, explicit missingTeam and unreadableRef remain closed; no package install/update/provider execution in this gate",
+              "Final full graph PASS; staged294symbols/31files MEDIUM expected Settings navigation flow, cumulative main4446symbols/437files/16earlierflows CRITICAL warned. Independent own-nonce resource/draft/version/preference/intake counts0; exact own host3001 stopped and foreign managed stack preserved",
+              "Full mutating click/keyboard/focus acceptance remains6a-c-3; effective Planning/mobile/OAuth6b and live external accounts7 pending. Gateway default-off, no push/container/deployment"
+            ] },
             { "id": "6a-c-3", "name": "Vollstaendige Klickabnahme, Fehler-/Rechtezustaende und responsive Darstellung", "status": "pending", "evidence": [] }
           ],
           "evidence": []

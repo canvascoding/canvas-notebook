@@ -84,7 +84,7 @@ export function SearchablePolicyTargetPicker({
         align="start"
         className="w-[var(--radix-popover-trigger-width)] min-w-[18rem] p-0"
       >
-        <Command>
+        <Command label={searchPlaceholder}>
           <CommandInput aria-label={searchPlaceholder} placeholder={searchPlaceholder} />
           <CommandList>
             <CommandEmpty>{emptyLabel}</CommandEmpty>

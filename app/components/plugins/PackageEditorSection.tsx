@@ -1,6 +1,6 @@
 'use client';
 
-import { startTransition, useCallback, useEffect, useRef, useState } from 'react';
+import { startTransition, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { Download, FileCode2, Loader2, RefreshCw, Trash2, Upload } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -22,7 +22,7 @@ type FileView = { file: CapabilityPackageFileRead; text: string | null };
 type OwnedDraftStatus = CapabilityPackageOwnedDraftStatus;
 type PackageEditorProps = {
   resourceRef: string; workspaceId?: string | null; onUpdated?: () => void;
-  initialDraftRef?: string; initiallyOpen?: boolean;
+  initialDraftRef?: string; initiallyOpen?: boolean; initialFile?: string;
 };
 type ApiPayload<T> = { success: boolean; data?: T; code?: string };
 class PackageRequestError extends Error {
@@ -52,7 +52,7 @@ export function PackageEditorSection(props: PackageEditorProps) {
 }
 
 /** Each exact resource/workspace/draft selection owns its state and request generation. */
-function PackageEditorSession({ resourceRef, workspaceId, onUpdated, initialDraftRef, initiallyOpen = false }: PackageEditorProps) {
+function PackageEditorSession({ resourceRef, workspaceId, onUpdated, initialDraftRef, initiallyOpen = false, initialFile }: PackageEditorProps) {
   const t = useTranslations('skills.packageEditor');
   const storageKey = `canvas-private-package-draft:${resourceRef}:${workspaceId || ''}`;
   const [descriptor, setDescriptor] = useState<CapabilityPackageDescriptor | null>(null);
@@ -81,6 +81,13 @@ function PackageEditorSession({ resourceRef, workspaceId, onUpdated, initialDraf
   const upload = useRef<HTMLInputElement | null>(null);
   const resumedDraft = useRef(initialDraftRef);
   const dirty = fileView?.text !== null && fileView?.text !== undefined && fileText !== fileView.text;
+  const requestedInitialFile = useRef(initialFile);
+  const attemptedInitialFiles = useRef(new Set<string>());
+  const currentEditor = useRef({ dirty, pending, filePath });
+  useLayoutEffect(() => {
+    requestedInitialFile.current = initialFile;
+    currentEditor.current = { dirty, pending, filePath };
+  }, [initialFile, dirty, pending, filePath]);
   const newFile = fileView?.file.checksum === '';
   usePluginEditorNavigationGuard({ dirty, pending });
 
@@ -159,10 +166,27 @@ function PackageEditorSession({ resourceRef, workspaceId, onUpdated, initialDraf
         ? { files: packageData.package.published.files.map(file => ({ ...file, type: 'file' as const })) }
         : await request<{ files: CapabilityPackageTreeEntry[] }>(`/${reference}/tree`, { signal: controller.signal }));
       if (current !== generation.current || revision !== loadRevision.current || controller.signal.aborted) return;
+      const initialPath = requestedInitialFile.current;
+      let initialView: FileView | null = null;
+      if (initialPath && !attemptedInitialFiles.current.has(initialPath) && !currentEditor.current.dirty && !currentEditor.current.pending
+        && !currentEditor.current.filePath && (!owned || draftData) && treeData.files.some(file => file.type === 'file' && file.path === initialPath)) {
+        attemptedInitialFiles.current.add(initialPath);
+        const capturedFile = treeData.files.find(file => file.type === 'file' && file.path === initialPath);
+        const selected = await request<{file: CapabilityPackageFileRead; draft?: CapabilityPackageDraft}>(draftData
+          ? `/drafts/${encodeURIComponent(draftData.draft.draftRef)}/file` : `/${reference}/file`, {signal: controller.signal},
+        {path: initialPath, maxBytes: 1024 * 1024, ...(draftData || !packageData.package.published ? {} : {revisionRef: packageData.package.published.revisionRef})});
+        if (current !== generation.current || revision !== loadRevision.current || controller.signal.aborted) return;
+        if (selected.file.path !== initialPath || capturedFile?.type !== 'file' || selected.file.checksum !== capturedFile.checksum
+          || selected.file.size !== capturedFile.size || draftData && (selected.draft?.draftRef !== draftData.draft.draftRef
+            || selected.draft?.draftRevision !== draftData.draft.draftRevision)) throw new PackageRequestError(409, 'PACKAGE_REVISION_CONFLICT');
+        initialView = {file: selected.file, text: textContent(selected.file)};
+      }
       setDescriptor(packageData.package); setScopes(scopeData.scopes); setVersions(versionData.versions);
       setSelectedVersion(packageData.package.published?.revisionRef || '');
       setDraftView(draftData); setBlockedDraft(draftData ? null : owned); setTree(treeData.files); setError(null); setValidation(null);
-      if (!draftData) { setFilePath(''); setFileView(null); setFileText(''); }
+      if (initialView && !currentEditor.current.dirty && !currentEditor.current.pending && !currentEditor.current.filePath) {
+        setFilePath(initialView.file.path); setFileView(initialView); setFileText(initialView.text || '');
+      } else if (!draftData) { setFilePath(''); setFileView(null); setFileText(''); }
     } catch (failure) {
       if (current === generation.current && revision === loadRevision.current && !controller.signal.aborted) {
         setError(errorMessage(failure));

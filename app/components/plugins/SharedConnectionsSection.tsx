@@ -1,9 +1,10 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { startTransition, useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { Loader2, Plus, RefreshCw } from 'lucide-react';
 import type { IntegrationConnectionDescriptor, IntegrationConnectionScopeChoice } from '@/app/lib/integration-tools/connections/contracts';
+import type { CapabilityResourceOwnerScope } from '@/app/lib/capabilities/resources/contracts';
 import { WORKSPACE_ID_HEADER } from '@/app/lib/workspaces/constants';
 import { SharedConnectionCreateForm, SharedConnectionEditor } from './SharedConnectionForms';
 import { SharedConnectionRequestError, type SharedConnectionApi } from './shared-connections-client';
@@ -11,10 +12,18 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { InlineNotice } from '@/components/ui/inline-notice';
+import { usePluginEditorNavigationGuard } from './plugin-navigation-guard';
 
-export function SharedConnectionsSection({ workspaceId }: { workspaceId?: string | null }) {
+type SharedConnectionsProps = { workspaceId?: string | null; ownership?: CapabilityResourceOwnerScope; initiallyOpen?: boolean };
+
+export function SharedConnectionsSection(props: SharedConnectionsProps) {
+  return <SharedConnectionsSession key={JSON.stringify([props.workspaceId ?? '', props.ownership ?? null])} {...props} />;
+}
+
+/** Scope changes own a separate mounted state, including pending reads and account selection. */
+function SharedConnectionsSession({ workspaceId, ownership, initiallyOpen = false }: SharedConnectionsProps) {
   const t = useTranslations('sharedConnections');
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(initiallyOpen);
   const [connections, setConnections] = useState<IntegrationConnectionDescriptor[]>([]);
   const [scopes, setScopes] = useState<IntegrationConnectionScopeChoice[]>([]);
   const [loading, setLoading] = useState(false);
@@ -22,14 +31,26 @@ export function SharedConnectionsSection({ workspaceId }: { workspaceId?: string
   const [createOpen, setCreateOpen] = useState(false);
   const [selected, setSelected] = useState<IntegrationConnectionDescriptor | null>(null);
   const revision = useRef(0), alive = useRef(true);
+  const writes = useRef(0), [pending, setPending] = useState(false);
+  usePluginEditorNavigationGuard({ dirty: false, pending });
   const api: SharedConnectionApi = useCallback(async <T,>(url: string, body?: unknown, method?: 'POST' | 'PATCH' | 'PUT' | 'DELETE'): Promise<T> => {
-    const response = await fetch(url, { method: method ?? (body === undefined ? 'GET' : 'POST'), cache: 'no-store', credentials: 'include',
+    const mutation = method !== undefined || body !== undefined;
+    if (mutation) { writes.current += 1; setPending(true); }
+    try {
+      const response = await fetch(url, { method: method ?? (body === undefined ? 'GET' : 'POST'), cache: 'no-store', credentials: 'include',
       headers: { ...(workspaceId ? { [WORKSPACE_ID_HEADER]: workspaceId } : {}), ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
     const payload = await response.json() as { success: boolean; code?: string; data?: T };
     if (!response.ok || !payload.success || !payload.data) throw new SharedConnectionRequestError(response.status, payload.code || 'connection_unavailable');
-    return payload.data;
+      return payload.data;
+    } finally {
+      if (mutation) { writes.current -= 1; if (alive.current) setPending(writes.current > 0); }
+    }
   }, [workspaceId]);
+  const matchesOwnership = useCallback((owner: CapabilityResourceOwnerScope) => !ownership || owner.type === ownership.type
+    && (owner.type === 'organization' && ownership.type === 'organization' ? owner.organizationId === ownership.organizationId
+      : owner.type === 'team' && ownership.type === 'team' ? owner.organizationId === ownership.organizationId && owner.workspaceId === ownership.workspaceId
+        : owner.type === 'user' && ownership.type === 'user' ? owner.ownerUserId === ownership.ownerUserId : owner.type === 'system'), [ownership]);
   const load = useCallback(async () => {
     const request = ++revision.current;
     setLoading(true); setError(false);
@@ -39,11 +60,13 @@ export function SharedConnectionsSection({ workspaceId }: { workspaceId?: string
         api<{ scopes: IntegrationConnectionScopeChoice[] }>('/api/integrations/shared-connections/setup'),
       ]);
       if (!alive.current || request !== revision.current) return;
-      setConnections(list.connections); setScopes(setup.scopes);
+      setConnections(list.connections.filter(connection => matchesOwnership(connection.resource.ownership)));
+      setScopes(setup.scopes.filter(scope => matchesOwnership(scope.ownership)));
     } catch { if (alive.current && request === revision.current) { setConnections([]); setScopes([]); setError(true); } }
     finally { if (alive.current && request === revision.current) setLoading(false); }
-  }, [api]);
+  }, [api, matchesOwnership]);
   useEffect(() => { alive.current = true; return () => { alive.current = false; revision.current += 1; }; }, []);
+  useEffect(() => { if (initiallyOpen) startTransition(() => { void load(); }); }, [initiallyOpen, load]);
   const refresh = () => { setSelected(null); setCreateOpen(false); void load(); };
   const scopeLabel = (value: IntegrationConnectionDescriptor) => value.resource.ownership.type === 'organization' ? t('organization')
     : `${t('team')} · ${value.ownershipLabel || scopes.find(scope => scope.ownership.type === 'team' && value.resource.ownership.type === 'team'

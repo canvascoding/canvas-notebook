@@ -138,9 +138,12 @@ async function main() {
     const { PluginsSettingsLink } = await import('../app/components/plugins/PluginsSettingsLink');
     dom.window.localStorage.setItem('canvas.skills.panelTab', 'skills');
     dom.window.localStorage.setItem('canvas.skills.pluginStoreTab', 'advanced');
+    // This fixture preserves the legacy panel regression behind its explicit Store URL.
+    // The new workspace entry and default Installed view have their own workspace UI gates.
+    dom.window.history.replaceState(null, '', '/de/plugins?view=discover');
     let view = render(<PluginsAppClient canManageOrganizationCapabilities={false} />);
     await waitFor(() => assert.equal(view.getByRole('tab', { name: 'Plugins' }).getAttribute('aria-selected'), 'true'));
-    assert.equal(view.getByRole('tab', { name: 'Entdecken' }).getAttribute('aria-selected'), 'true', 'the app entry opens plugins despite obsolete stored tabs');
+    assert.equal(view.getByRole('tab', { name: 'Entdecken' }).getAttribute('aria-selected'), 'true', 'the explicit legacy Store URL ignores obsolete stored tabs');
     await waitFor(() => assert.ok(view.getByText(de.skills.plugins.emptyStore)));
     assert.equal(view.queryByText(de.home.apps.plugins.description), null, 'the suite already provides the app introduction');
     const scopeHelp = view.getByText(de.skills.scope.helpSummary).closest('details') as HTMLDetailsElement;
@@ -254,7 +257,7 @@ async function main() {
     locale = 'de';
 
     fetches.length = 0;
-    dom.window.history.replaceState(null, '', '/de/plugins?scope=organization');
+    dom.window.history.replaceState(null, '', '/de/plugins?scope=organization&view=discover');
     view = render(<PluginsAppClient canManageOrganizationCapabilities={false} />);
     await waitFor(() => assert.ok(view.getByText(de.skills.plugins.emptyStore)));
     assert.ok(view.getByText(de.skills.scope.organizationDenied));
@@ -421,7 +424,7 @@ async function main() {
     installedPlugins = [];
     installedMetadata = [];
     storeFixtures = [{ name: 'available-suite', displayName: 'Available suite', description: 'Available fixture', latestVersion: '1.0.0', installed: { installed: false, enabled: false, updateAvailable: false } }];
-    dom.window.history.replaceState(null, '', '/en/plugins');
+    dom.window.history.replaceState(null, '', '/en/plugins?view=discover');
     view = render(<PluginsAppClient canManageOrganizationCapabilities={false} />);
     await waitFor(() => assert.ok(view.getByText('Available suite')));
     assert.equal((view.getByText(en.skills.scope.helpSummary).closest('details') as HTMLDetailsElement).open, false);

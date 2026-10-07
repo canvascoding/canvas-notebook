@@ -10,10 +10,11 @@ import { PackageEditorSection } from './PackageEditorSection';
 import { usePluginNavigation } from './usePluginNavigation';
 
 /** Own draft metadata stays reachable independently from the visible installed catalog. */
-export function PackageDraftsWorkspace() {
+export function PackageDraftsWorkspace({ workspaceId: requestedWorkspaceId }: { workspaceId?: string | null } = {}) {
   const t = useTranslations('skills.drafts');
   const { navigation, navigate } = usePluginNavigation();
-  const workspaceId = useWorkspaceStore(state => state.activeWorkspaceId);
+  const activeWorkspaceId = useWorkspaceStore(state => state.activeWorkspaceId);
+  const workspaceId = requestedWorkspaceId ?? activeWorkspaceId;
   const open = (status: CapabilityPackageOwnedDraftStatus) => {
     navigate({ area: status.kind === 'plugin' ? 'plugins' : 'skills', view: 'drafts',
       resourceRef: status.sourceResourceRef, draftRef: status.draftRef, task: 'content' });
@@ -32,7 +33,7 @@ export function PackageDraftsWorkspace() {
       </header>
       {navigation.draftRef && navigation.resourceRef ? (
         <PackageEditorSection resourceRef={navigation.resourceRef} initialDraftRef={navigation.draftRef}
-          initiallyOpen workspaceId={workspaceId} />
+          initiallyOpen initialFile={navigation.file} workspaceId={workspaceId} />
       ) : <PackageDraftsSection workspaceId={workspaceId} onOpenDraft={open} showHeader={false} />}
     </section>
   );

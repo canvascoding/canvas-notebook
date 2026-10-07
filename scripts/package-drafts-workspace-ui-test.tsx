@@ -40,8 +40,8 @@ async function main() {
     return originalLoad(name, parent, isMain);
   };
   const { render, screen, fireEvent, cleanup, waitFor, act } = await import('@testing-library/react');
-  const { PluginsAppClient } = await import('../app/components/plugins/PluginsAppClient');
-  const { confirmPluginNavigation } = await import('../app/components/plugins/plugin-navigation-guard');
+  const { PackageDraftsWorkspace } = await import('../app/components/plugins/PackageDraftsWorkspace');
+  const { PluginNavigationGuard, confirmPluginNavigation } = await import('../app/components/plugins/plugin-navigation-guard');
   const { useWorkspaceStore } = await import('../app/store/workspace-store');
   const requests: Array<{ suffix: string; workspace: string | null; method: string; body?: Record<string, unknown> }> = [];
   const holds = new Map<string, Promise<void>>();
@@ -83,7 +83,8 @@ async function main() {
       state: null, published: null, sourceStamp: stamp, readOnly: false, defaultEnabled: true } });
   };
   const App = () => <NextIntlClientProvider locale="en" messages={messages} timeZone="UTC">
-    <PluginsAppClient canManageOrganizationCapabilities={false} />
+    <PluginNavigationGuard unsavedChangesMessage={messages.skills.drafts.unsavedNavigation} />
+    <PackageDraftsWorkspace />
   </NextIntlClientProvider>;
   try {
     useWorkspaceStore.setState({ activeWorkspaceId: 'workspace-one' }); render(<App />);
