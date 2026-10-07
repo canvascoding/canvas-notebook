@@ -8,13 +8,14 @@ import { assertMcpConnectionAccess } from '@/app/lib/mcp/access';
 import { assertMcpEncryptionReady } from '@/app/lib/mcp/encryption-readiness';
 import { isSecretReadinessError } from '@/app/lib/secrets/readiness';
 import { hashMcpAuthConfig, hashMcpLegacyConfig } from '@/app/lib/mcp/connection-identity';
-import { migrateMcpConnectionCredentials, readMcpCredentialJson, removeMcpCredentialJson, resolveMcpCredentialConnection, resolveMcpCredentialScope, writeMcpCredentialJson } from '@/app/lib/mcp/credential-storage';
+import { decodeMcpCredentialEnvelope, migrateMcpConnectionCredentials, readMcpCredentialJson, removeMcpCredentialJson, resolveMcpCredentialConnection, resolveMcpCredentialScope, writeMcpCredentialJson } from '@/app/lib/mcp/credential-storage';
 import { getUnifiedEnvFilePath } from '@/app/lib/secrets/unified-env-store';
 import { commitMcpOAuthLifecycle, fencedMcpOAuthWrite, invalidateMcpOAuthLifecycle, readMcpOAuthLifecycle, withMcpOAuthLifecycleLock } from '@/app/lib/mcp/oauth-lifecycle';
 import { withMcpStorageLock } from '@/app/lib/mcp/storage-lock';
 import { classifyMcpConnectionFailure, recordMcpConnectionObservation } from '@/app/lib/mcp/connection-health';
 import { fetchMcpHttp } from '@/app/lib/mcp/http';
 import { authorizeSharedMcpScope } from '@/app/lib/mcp/shared-access';
+import { parseSharedMcpDesktopOAuthSnapshot, sharedMcpDesktopSnapshotFingerprint, type SharedMcpDesktopInitiator, type SharedMcpDesktopOAuthSnapshot } from './shared-desktop-oauth-contract';
 import type { IntegrationConnectionRevisions, SharedIntegrationConnectionOwnership } from '@/app/lib/integration-tools/connections/contracts';
 import {
   normalizeMcpScope,
@@ -106,9 +107,11 @@ export type OAuthStateRecord = {
     revisions: IntegrationConnectionRevisions;
     authorizationRevision: string;
   };
+  /** Original human web session; this is separate from runtime PI session IDs. */
+  sharedDesktopInitiator?: SharedMcpDesktopInitiator;
 };
 
-type OAuthConnectionSnapshot = Pick<OAuthStateRecord, 'connectionId' | 'organizationId' | 'authVersion' | 'configHash' | 'lifecycleGeneration' | 'shared'>;
+type OAuthConnectionSnapshot = Pick<OAuthStateRecord, 'connectionId' | 'organizationId' | 'authVersion' | 'configHash' | 'lifecycleGeneration' | 'shared' | 'sharedDesktopInitiator'>;
 
 function sharedOAuthSnapshot(scope: McpScope): Pick<OAuthStateRecord, 'shared'> {
   return scope.shared ? { shared: { connectionRef: scope.shared.connectionRef, ownership: scope.shared.ownership,
@@ -251,9 +254,9 @@ function getOriginFromRequest(requestOrigin: string | null | undefined): string 
   return (requestOrigin || fallback || 'http://localhost:3000').replace(/\/+$/u, '');
 }
 
-function getRedirectUri(oauth: OAuthServerConfig, requestOrigin: string | null | undefined, scope?: McpScope | null): string {
+function getRedirectUri(oauth: OAuthServerConfig, requestOrigin: string | null | undefined, scope?: McpScope | null, desktop = false): string {
   const origin = getOriginFromRequest(requestOrigin);
-  if (scope?.shared) return `${origin}/api/mcp/shared-connections/oauth/callback`;
+  if (scope?.shared) return `${origin}${desktop ? '/api/mcp/oauth/callback' : '/api/mcp/shared-connections/oauth/callback'}`;
   return oauth.redirectUri || `${origin}/api/mcp/oauth/callback`;
 }
 
@@ -614,22 +617,40 @@ export async function getMcpOAuthStatus(serverName: string, requestOrigin?: stri
   }
 }
 
-export async function startMcpOAuth(serverName: string, requestOrigin?: string | null, mcpScope?: McpScope | null, options: { desktop?: boolean } = {}): Promise<McpOAuthStartResult> {
+export async function startMcpOAuth(serverName: string, requestOrigin?: string | null, mcpScope?: McpScope | null,
+  options: { desktop?: boolean; sharedDesktopInitiator?: { authSessionId: string }; assertAuthorization?: () => Promise<void> } = {}): Promise<McpOAuthStartResult> {
   const requested = requireMcpCredentialScope(mcpScope);
+  const assertAuthorization = options.assertAuthorization;
+  const desktop = options.desktop === true;
+  const suppliedInitiator = options.sharedDesktopInitiator;
+  if (suppliedInitiator !== undefined && (!desktop || !requested.shared || requested.shared.operation !== 'manage'
+    || !suppliedInitiator || Object.keys(suppliedInitiator).length !== 1
+    || typeof suppliedInitiator.authSessionId !== 'string' || !suppliedInitiator.authSessionId.trim())) {
+    throw new McpOAuthError('Shared desktop sign-in requires its original authenticated manager.', 400);
+  }
+  if (desktop && requested.shared && suppliedInitiator === undefined) {
+    throw new McpOAuthError('Shared desktop sign-in requires its original authenticated manager.', 401);
+  }
+  if (assertAuthorization) await assertAuthorization();
   const normalizedScope = requested.shared ? requireMcpCredentialScope({ ...requested, shared: { ...requested.shared, operation: 'manage' } }) : requested;
-  if (options.desktop && !normalizedScope.userId) throw new McpOAuthError('Desktop OAuth requires a signed-in connection owner.', 401);
+  if (desktop && !normalizedScope.userId && !normalizedScope.shared) throw new McpOAuthError('Desktop OAuth requires a signed-in connection owner.', 401);
+  const sharedDesktopInitiator = suppliedInitiator && normalizedScope.shared
+    ? { actor: structuredClone(normalizedScope.shared.actor), authSessionId: suppliedInitiator.authSessionId } : undefined;
   const { serverConfig, credentialScope, oauth, configHash } = await resolveServerForOAuth(serverName, normalizedScope);
   await assertMcpConnectionAccess(serverConfig.connectionId, normalizedScope);
   await assertMcpEncryptionReady(credentialScope, { provision: true });
   const lifecycle = await readMcpOAuthLifecycle(serverConfig.connectionId, credentialScope);
-  const snapshot: OAuthConnectionSnapshot = {
+  const capturedSnapshot: OAuthConnectionSnapshot = {
     connectionId: serverConfig.connectionId, authVersion: serverConfig.authVersion || 1,
     organizationId: credentialScope.organizationId || null, configHash, lifecycleGeneration: lifecycle.generation,
     ...sharedOAuthSnapshot(credentialScope),
+    ...(sharedDesktopInitiator ? { sharedDesktopInitiator } : {}),
   };
+  const snapshot = sharedDesktopInitiator ? parseSharedMcpDesktopOAuthSnapshot(capturedSnapshot) : capturedSnapshot;
   return withMcpOAuthLifecycleLock(serverConfig.connectionId, credentialScope, async () => {
     await assertCurrentOAuthState(snapshot, credentialScope);
-    const redirectUri = getRedirectUri(oauth, requestOrigin, credentialScope);
+    if (assertAuthorization) await assertAuthorization();
+    const redirectUri = getRedirectUri(oauth, requestOrigin, credentialScope, desktop);
     const endpoints = await resolveOAuthEndpoints(oauth, serverConfig, credentialScope);
     const client = await resolveClient(
       serverName,
@@ -642,7 +663,7 @@ export async function startMcpOAuth(serverName: string, requestOrigin?: string |
       credentialScope,
     );
     const pkce = createPkcePair();
-    const state = `${options.desktop ? 'desktop_' : ''}${base64Url(crypto.randomBytes(24))}`;
+    const state = `${desktop ? 'desktop_' : ''}${base64Url(crypto.randomBytes(24))}`;
     const requestedScopes = new Set(
       Array.isArray(oauth.scopes) ? oauth.scopes : endpoints.scopesSupported,
     );
@@ -674,7 +695,7 @@ export async function startMcpOAuth(serverName: string, requestOrigin?: string |
 
     await assertCurrentOAuthState(snapshot, credentialScope);
     const stateRecord = {
-      ...(options.desktop ? { desktop: true } : {}),
+      ...(desktop ? { desktop: true } : {}),
       state,
       serverName,
       connectionId: serverConfig.connectionId,
@@ -698,11 +719,22 @@ export async function startMcpOAuth(serverName: string, requestOrigin?: string |
       createdAt: new Date().toISOString(),
       expiresAt: new Date(Date.now() + 10 * 60_000).toISOString(),
       ...sharedOAuthSnapshot(credentialScope),
+      ...(snapshot.sharedDesktopInitiator ? { sharedDesktopInitiator: snapshot.sharedDesktopInitiator } : {}),
     } satisfies OAuthStateRecord;
-    await fencedMcpOAuthWrite(snapshot.connectionId, snapshot.lifecycleGeneration, credentialScope, () => writeJsonPrivate(getOAuthStateRelativePath(state), stateRecord, credentialScope));
-    if (options.desktop) {
-      const { createMcpDesktopOAuthTransaction } = await import('./desktop-oauth');
-      try { await createMcpDesktopOAuthTransaction(stateRecord, authorizationUrl.toString()); }
+    await fencedMcpOAuthWrite(snapshot.connectionId, snapshot.lifecycleGeneration, credentialScope, async () => {
+      if (assertAuthorization) await assertAuthorization();
+      await writeJsonPrivate(getOAuthStateRelativePath(state), stateRecord, credentialScope);
+    });
+    if (desktop) {
+      try {
+        if (credentialScope.shared) {
+          const { createSharedMcpDesktopOAuthTransaction } = await import('./shared-desktop-oauth');
+          await createSharedMcpDesktopOAuthTransaction(stateRecord, authorizationUrl.toString());
+        } else {
+          const { createMcpDesktopOAuthTransaction } = await import('./desktop-oauth');
+          await createMcpDesktopOAuthTransaction(stateRecord, authorizationUrl.toString());
+        }
+      }
       catch (error) { await removeMcpStoragePath(getOAuthStateRelativePath(state), credentialScope); throw error; }
     }
 
@@ -711,7 +743,7 @@ export async function startMcpOAuth(serverName: string, requestOrigin?: string |
       state,
       redirectUri,
       expiresAt: stateRecord.expiresAt,
-      ...(options.desktop ? { desktop: true } : {}),
+      ...(desktop ? { desktop: true } : {}),
     };
   });
 }
@@ -856,12 +888,58 @@ export async function collectMcpDesktopOAuthState(state: string, responseIssuer:
   return stored;
 }
 
+/** Collect only the sealed temporary shared state. Current management authority is checked by authenticated finalize. */
+export async function collectSharedMcpDesktopOAuthState(state: string, responseIssuer: string | null | undefined,
+  snapshot: SharedMcpDesktopOAuthSnapshot): Promise<OAuthStateRecord> {
+  if (!/^desktop_[A-Za-z0-9_-]{32}$/u.test(state)) throw new McpOAuthError('Invalid or expired OAuth state.', 400);
+  const captured = parseSharedMcpDesktopOAuthSnapshot(snapshot);
+  const fingerprint = sharedMcpDesktopSnapshotFingerprint(captured);
+  const scope = requireMcpCredentialScope({ shared: {
+    connectionRef: captured.shared.connectionRef, connectionId: captured.connectionId,
+    ownership: captured.shared.ownership, actor: captured.sharedDesktopInitiator.actor,
+    operation: 'manage', revisions: captured.shared.revisions,
+    authorizationRevision: captured.shared.authorizationRevision,
+  } });
+  const relativePath = getOAuthStateRelativePath(state);
+  return withMcpStorageLock(`oauth-state-${state}`, scope, async () => {
+    const { content } = await readMcpTextFileIfExists(relativePath, scope);
+    if (content === null) throw new McpOAuthError('Invalid or expired OAuth state.', 409);
+    const stored = await decodeMcpCredentialEnvelope<OAuthStateRecord>(content, relativePath, scope);
+    if (!stored || typeof stored !== 'object' || Array.isArray(stored)) throw new McpOAuthError('Invalid or expired OAuth state.', 409);
+    const expiry = Date.parse(stored.expiresAt);
+    if (stored.state !== state || stored.desktop !== true || stored.ownerUserId !== undefined
+      || typeof stored.expiresAt !== 'string' || !Number.isFinite(expiry) || expiry <= Date.now()
+      || typeof stored.issuer !== 'string' || !stored.issuer
+      || typeof stored.authorizationResponseIssParameterSupported !== 'boolean') {
+      throw new McpOAuthError('Invalid or expired OAuth state.', 409);
+    }
+    const storedSnapshot = parseSharedMcpDesktopOAuthSnapshot({
+      connectionId: stored.connectionId, organizationId: stored.organizationId,
+      authVersion: stored.authVersion, configHash: stored.configHash,
+      lifecycleGeneration: stored.lifecycleGeneration,
+      ...(stored.serverUrl === undefined ? {} : { serverUrl: stored.serverUrl }),
+      shared: stored.shared, sharedDesktopInitiator: stored.sharedDesktopInitiator,
+    });
+    if (sharedMcpDesktopSnapshotFingerprint(storedSnapshot) !== fingerprint) {
+      throw new McpOAuthError('The shared desktop sign-in binding changed.', 409);
+    }
+    if (stored.authorizationResponseIssParameterSupported && !responseIssuer) {
+      throw new McpOAuthError('OAuth authorization response is missing the required issuer parameter.', 400);
+    }
+    if (responseIssuer && responseIssuer !== stored.issuer) {
+      throw new McpOAuthError('OAuth authorization response issuer does not exactly match the expected issuer.', 400);
+    }
+    await removeMcpStoragePath(relativePath, scope);
+    return stored;
+  });
+}
+
 export async function discardMcpDesktopOAuthState(state: string, scope: McpScope): Promise<void> {
   if (!/^desktop_[A-Za-z0-9_-]{32}$/u.test(state)) throw new McpOAuthError('Invalid desktop OAuth state.', 400);
   await withMcpStorageLock(`oauth-state-${state}`, scope, () => removeMcpStoragePath(getOAuthStateRelativePath(state), scope));
 }
 
-export async function assertMcpDesktopOAuthSnapshot(snapshot: Pick<OAuthStateRecord, 'connectionId' | 'organizationId' | 'authVersion' | 'configHash' | 'lifecycleGeneration' | 'serverUrl'>, scope: McpScope): Promise<void> {
+export async function assertMcpDesktopOAuthSnapshot(snapshot: Pick<OAuthStateRecord, 'connectionId' | 'organizationId' | 'authVersion' | 'configHash' | 'lifecycleGeneration' | 'serverUrl' | 'shared' | 'sharedDesktopInitiator'>, scope: McpScope): Promise<void> {
   await assertCurrentOAuthState(snapshot, scope);
 }
 
@@ -939,10 +1017,13 @@ export async function completeMcpOAuthCallback(
   return completeStoredMcpOAuth(code, state, stored, credentialScope);
 }
 
-export async function completeStoredMcpOAuth(code: string, state: string, stored: OAuthStateRecord, credentialScope: McpScope): Promise<OAuthTokenRecord> {
+export async function completeStoredMcpOAuth(code: string, state: string, stored: OAuthStateRecord, credentialScope: McpScope,
+  options: { assertAuthorization?: () => Promise<void> } = {}): Promise<OAuthTokenRecord> {
+  const assertAuthorization = options.assertAuthorization;
   if (stored.state !== state || stored.ownerUserId && stored.ownerUserId !== credentialScope.userId
     || !Number.isFinite(Date.parse(stored.expiresAt)) || Date.parse(stored.expiresAt) <= Date.now()) throw new McpOAuthError('Invalid or expired OAuth state.', 409);
   await assertCurrentOAuthState(stored, credentialScope);
+  if (assertAuthorization) await assertAuthorization();
 
   const params = new URLSearchParams();
   params.set('grant_type', 'authorization_code');
@@ -986,6 +1067,7 @@ export async function completeStoredMcpOAuth(code: string, state: string, stored
     await withMcpOAuthLifecycleLock(stored.connectionId, credentialScope, async () => {
       await assertCurrentOAuthState(stored, credentialScope);
       await commitMcpOAuthLifecycle(stored.connectionId, stored.lifecycleGeneration, state, credentialScope, async () => {
+        if (assertAuthorization) await assertAuthorization();
         await writeJsonPrivate(callbackTokenPath, token, credentialScope);
       });
       await removeMcpCredentialJson(callbackChallengePath, credentialScope).catch(() => undefined);

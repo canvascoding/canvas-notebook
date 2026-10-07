@@ -12,6 +12,7 @@ import { withMcpStorageLock } from './storage-lock';
 import { removeMcpStoragePath } from './storage';
 import { closeMcpServer } from './manager';
 import { createSharedConnectionOAuthReturn, validateSharedConnectionOAuthReturn, type SharedConnectionOAuthReturnContext } from '@/app/lib/integration-tools/connections/oauth-return';
+import { assertSharedMcpDesktopOAuthSession } from './shared-desktop-oauth';
 
 type SharedOAuthRoute = { connectionId: string; connectionRef: string; actor: IntegrationConnectionActor;
   revisions: IntegrationConnectionRevisions; authorizationRevision: string; expiresAt: string;
@@ -26,11 +27,18 @@ function backendId(record: IntegrationConnectionRecord): string {
 }
 
 export async function startSharedMcpOAuth(actor: IntegrationConnectionActor, connectionRef: string,
-  expected: IntegrationConnectionRevisions, origin: string, options: { returnLocale?: 'de' | 'en' } = {}): Promise<Awaited<ReturnType<typeof startMcpOAuth>>> {
-  return withAuthorizedIntegrationConnection(actor, connectionRef, 'manage', structuredClone(expected), async authorization => {
+  expected: IntegrationConnectionRevisions, origin: string,
+  options: { returnLocale?: 'de' | 'en'; desktop?: { authSessionId: string } } = {}): Promise<Awaited<ReturnType<typeof startMcpOAuth>>> {
+  return withAuthorizedIntegrationConnection(actor, connectionRef, 'manage', structuredClone(expected), async (authorization, database) => {
     const returnContext = options.returnLocale === undefined ? undefined
       : createSharedConnectionOAuthReturn(authorization.resource, authorization.actor, options.returnLocale);
-    const result = await startMcpOAuth(backendId(authorization), origin, sharedMcpScope(authorization));
+    const initiator = options.desktop ? { actor: authorization.actor, authSessionId: options.desktop.authSessionId } : undefined;
+    if (initiator) await assertSharedMcpDesktopOAuthSession(database, initiator);
+    const result = await startMcpOAuth(backendId(authorization), origin, sharedMcpScope(authorization), initiator ? {
+      desktop: true, sharedDesktopInitiator: { authSessionId: initiator.authSessionId },
+      assertAuthorization: () => assertSharedMcpDesktopOAuthSession(database, initiator),
+    } : {});
+    if (initiator) return result;
     try {
       await writeMcpCredentialJson(routePath(result.state), { connectionId: backendId(authorization), connectionRef,
         actor: authorization.actor, revisions: expected, authorizationRevision: authorization.authorizationRevision,

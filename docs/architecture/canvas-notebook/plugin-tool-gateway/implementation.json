@@ -298,7 +298,11 @@
             "Actual React/BetterAuth-store RED to GREEN,14 fresh MCP status cases and callback privacy-header RED to GREEN; actual SQL/local MCP/Composio SDK/HTTP fixtures plus full UI/security/personal OAuth/shared/required Managed gates PASS; final build/post-build TypeScript/changed-source ESLint PASS",
             "Final owned production-host Playwright1/1 PASS one worker/no retries6.2sec test8.0sec total: genuine held ACK/HTTPS approval, callback303, canonical exact return/reopened editor/current Connected status, binding-only revision advance and one exchange; final verified_closed, independent all34 owned DBs/DATA/TMP absent, foreign stack preserved"
           ] },
-          { "id": "6b-d-2b", "name": "Gemeinsame MCP-Desktoptransaktionen mit Manager-Finalisierung", "status": "pending", "evidence": [] },
+          { "id": "6b-d-2b", "name": "Gemeinsame MCP-Desktoptransaktionen mit Manager-Finalisierung", "status": "in_progress", "substeps": [
+            { "id": "6b-d-2b-1", "name": "Gemeinsamer Desktop-Serververtrag und atomarer Publikationsbeleg", "status": "complete", "evidence": ["evidence/step-6b-d-2b-1-shared-desktop-server.md"] },
+            { "id": "6b-d-2b-2", "name": "Exakte Desktop-API, Client- und UI-Anbindung", "status": "pending", "evidence": [] },
+            { "id": "6b-d-2b-3", "name": "Tatsaechliche Systembrowser- und Manager-Abnahme", "status": "pending", "evidence": [] }
+          ], "evidence": [] },
           { "id": "6b-d-2c", "name": "Gemeinsame Composio-Desktop-Rueckkehr und Client-Abnahme", "status": "pending", "evidence": [] }
         ], "evidence": [] },
         { "id": "6b-d-3", "name": "Gemeinsame MCP Apps mit aktuellen Sitzungs- und Ressourcenrechten", "status": "pending", "evidence": [] }

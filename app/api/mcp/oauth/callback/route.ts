@@ -5,6 +5,7 @@ import { mcpErrorStatus } from '@/app/lib/mcp/access';
 import { completeMcpOAuthCallback, rejectMcpOAuthCallback } from '@/app/lib/mcp/oauth';
 import { requireMcpRequestActor } from '@/app/lib/mcp/request-access';
 import { isMcpDesktopOAuthState, receiveMcpDesktopOAuthCallback } from '@/app/lib/mcp/desktop-oauth';
+import { tryReceiveSharedMcpDesktopOAuthCallback } from '@/app/lib/mcp/shared-desktop-oauth';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 
 function escapeHtml(value: string): string {
@@ -43,7 +44,8 @@ export async function GET(request: NextRequest) {
     const limited = rateLimit(request, { limit: 30, windowMs: 60_000, keyPrefix: 'mcp-desktop-oauth-callback' });
     if (!limited.ok) return limited.response;
     try {
-      const result = await receiveMcpDesktopOAuthCallback({ state, code, error, issuer: responseIssuer });
+      const input = { state, code, error, issuer: responseIssuer };
+      const result = await tryReceiveSharedMcpDesktopOAuthCallback(input) ?? await receiveMcpDesktopOAuthCallback(input);
       return result.status === 'callback_received'
         ? htmlResponse('Return to Canvas Notebook', 'Sign-in was received. Return to the Canvas Notebook desktop app to finish connecting. You can close this window.')
         : htmlResponse('Sign-in cancelled', 'Return to Canvas Notebook to start sign-in again.');

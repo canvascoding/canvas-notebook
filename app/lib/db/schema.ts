@@ -1371,6 +1371,36 @@ export const integrationConnectionHistory = pgTable("integration_connection_hist
   resourceIdx: index("idx_integration_connection_history_resource").on(table.connectionRef, table.createdAt),
 }));
 
+/** Private same-flow commit evidence for shared MCP desktop OAuth. No OAuth secrets are stored here. */
+export const mcpSharedDesktopOAuthCommits = pgTable("mcp_shared_desktop_oauth_commits", {
+  stateHash: text("state_hash").primaryKey(),
+  snapshotHash: text("snapshot_hash").notNull(),
+  authSessionHash: text("auth_session_hash").notNull(),
+  actorHash: text("actor_hash").notNull(),
+  connectionRef: text("connection_ref").notNull().references(() => integrationConnectionResources.connectionRef, { onDelete: 'cascade' }),
+  backendConnectionId: text("backend_connection_id").notNull(),
+  initiatingUserId: text("initiating_user_id").notNull(),
+  preMetadataRevision: bigint("pre_metadata_revision", { mode: "number" }).notNull(),
+  preGrantsRevision: bigint("pre_grants_revision", { mode: "number" }).notNull(),
+  preBindingRevision: bigint("pre_binding_revision", { mode: "number" }).notNull(),
+  publishedBindingRevision: bigint("published_binding_revision", { mode: "number" }).notNull(),
+  preAuthorizationRevision: text("pre_authorization_revision").notNull(),
+  postAuthorizationRevision: text("post_authorization_revision").notNull(),
+  authVersion: bigint("auth_version", { mode: "number" }).notNull(),
+  configHash: text("config_hash").notNull(),
+  lifecycleGeneration: bigint("lifecycle_generation", { mode: "number" }).notNull(),
+  committedAt: pgTimestamp("committed_at").notNull(),
+}, table => ({
+  resourceIdx: index("idx_mcp_shared_desktop_commits_resource").on(table.connectionRef, table.committedAt),
+  hashesCheck: check("mcp_shared_desktop_commits_hashes_check", sql`${table.stateHash} ~ '^[a-f0-9]{64}$'
+    AND ${table.snapshotHash} ~ '^[a-f0-9]{64}$' AND ${table.authSessionHash} ~ '^[a-f0-9]{64}$'
+    AND ${table.actorHash} ~ '^[a-f0-9]{64}$' AND ${table.configHash} ~ '^[a-f0-9]{64}$'`),
+  revisionsCheck: check("mcp_shared_desktop_commits_revisions_check", sql`${table.preMetadataRevision} >= 1
+    AND ${table.preGrantsRevision} >= 1 AND ${table.preBindingRevision} >= 1
+    AND ${table.publishedBindingRevision} = ${table.preBindingRevision} + 1
+    AND ${table.authVersion} >= 1 AND ${table.lifecycleGeneration} >= 0 AND ${table.committedAt} >= 1`),
+}));
+
 export const aiProviderInstallations = pgTable("ai_provider_installations", {
   id: text("id").primaryKey(),
   organizationId: text("organization_id").notNull().references(() => canvasOrganizationSettings.organizationId, { onDelete: 'cascade' }),
