@@ -174,6 +174,16 @@ async function main() {
     assert(nav.getByText(en.emailFocus.emptyPreparing)); assert.equal(nav.container.textContent?.includes('all caught up'), false);
     cleanup();
 
+    const excluded = { ...first, classification: projectEmailClassification({ raw: null, unavailableState: 'not_selected' }) };
+    const excludedNav = render(wrap(<EmailFocusNavigation {...navProps} feed={feed([excluded])} view="all" />));
+    assert(excludedNav.getByText(en.emailFocus.reasons.not_selected));
+    assert.equal(excludedNav.getByTestId('email-focus-row').textContent?.includes(en.emailFocus.reasons.pending), false);
+    cleanup();
+    const excludedReader = render(wrap(<EmailClassificationDetails item={excluded} userId="actor" onItemChange={() => {}} onUnavailable={() => {}} />));
+    assert(excludedReader.getByText(en.emailFocus.reasons.not_selected));
+    assert.equal(excludedReader.container.textContent?.includes(en.emailFocus.reasons.ordinary), false, 'Missing assessment is not presented as no action needed.');
+    cleanup();
+
     const changed: EmailClassificationMessageDetail[] = []; const unavailable: string[] = [];
     let currentDetail = detail(second); let mutationCount = 0;
     response = async (url, init) => {

@@ -51,7 +51,7 @@
     "undoItem": "Undo done for me: {subject}",
     "donePersonalHint": "Marks this email as handled in your own Focus view.",
     "loadMore": "Load more",
-    "indexScopeHint": "Initial ratings cover up to {days} days and {maximum} messages per mailbox. Open a mailbox in Classic for other folders and full mailbox search.",
+    "indexScopeHint": "Preparation covers all unread Inbox emails plus other Inbox emails from the last {days} days. Up to {maximum} new historical assessments per scan; later scans continue the remaining work. Other folders remain available in Classic.",
     "sources": {
       "personal": "Personal",
       "work": "Work"
@@ -79,6 +79,7 @@
       "answered": "Already answered",
       "uncertain": "Assessment needs review",
       "pending": "Not yet prepared",
+      "not_selected": "Not selected for preparation",
       "failed": "Preparation failed",
       "stale": "Assessment needs updating",
       "spam": "Likely spam",
@@ -153,6 +154,7 @@
     "description": "Prepare mail by category, importance, spam likelihood and reply need.",
     "enable": "Enable for everyone",
     "scope": "Applies centrally to all users on this server, including personal and shared work mailboxes. Existing mailbox permissions and sender rules still apply.",
+    "selectionHint": "All unread Inbox emails are prepared regardless of age, plus all other Inbox emails within the configured lookback of at most 30 days.",
     "refresh": "Refresh status",
     "loading": "Loading email preparation settings…",
     "unsaved": "Changes not saved",
@@ -212,7 +214,7 @@
     "reply": "Reply likelihood",
     "unknown": "Unconfirmed",
     "advanced": "Advanced settings",
-    "limitsHint": "Limits bound background work. A mailbox fetch or reading an email never waits for a model.",
+    "limitsHint": "Unread Inbox emails have no age limit. The additional lookback is at most 30 days. Scan batches, daily budget and concurrency spread the work; further eligible messages are prepared gradually.",
     "privateNetwork": "Allow a private-network endpoint",
     "privateNetworkHint": "Use for a model hosted on your own network. An empty credential name explicitly selects an endpoint without authentication.",
     "contextAndCriteria": "Mailbox context and category criteria",
@@ -226,8 +228,8 @@
     "limits": {
       "maxEmailsPerDay": "Maximum emails per day",
       "concurrency": "Concurrent evaluations (1–8)",
-      "initialLookbackDays": "Initial lookback (days)",
-      "maxHistoricalMessages": "Maximum historical emails",
+      "initialLookbackDays": "Additional lookback for read emails (days)",
+      "maxHistoricalMessages": "New historical assessments per scan",
       "timeoutMs": "Request timeout (milliseconds)",
       "syncIntervalSeconds": "Sync interval (seconds)"
     },

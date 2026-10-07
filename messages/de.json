@@ -51,7 +51,7 @@
     "undoItem": "Erledigt zurücknehmen: {subject}",
     "donePersonalHint": "Markiert diese E-Mail nur in deiner eigenen Fokus-Ansicht als bearbeitet.",
     "loadMore": "Weitere laden",
-    "indexScopeHint": "Bewertungen zunächst für bis zu {days} Tage und {maximum} Nachrichten je Postfach. Für andere Ordner und die vollständige Postfachsuche öffne ein Postfach in Klassisch.",
+    "indexScopeHint": "Vorbereitung für alle ungelesenen Inbox-Mails sowie weitere Inbox-Mails der letzten {days} Tage. Bis zu {maximum} neue historische Bewertungen je Scan; weitere folgen in späteren Scans. Andere Ordner erreichst du in Klassisch.",
     "sources": {
       "personal": "Persönlich",
       "work": "Arbeit"
@@ -79,6 +79,7 @@
       "answered": "Bereits beantwortet",
       "uncertain": "Bewertung noch prüfen",
       "pending": "Noch nicht vorbereitet",
+      "not_selected": "Nicht zur Vorbereitung ausgewählt",
       "failed": "Vorbereitung fehlgeschlagen",
       "stale": "Bewertung muss aktualisiert werden",
       "spam": "Wahrscheinlich Spam",
@@ -153,6 +154,7 @@
     "description": "E-Mails nach Kategorie, Wichtigkeit, Spam-Wahrscheinlichkeit und Antwortbedarf vorbereiten.",
     "enable": "Für alle aktivieren",
     "scope": "Gilt zentral für alle Nutzer dieses Servers, einschließlich persönlicher und gemeinsamer Arbeitspostfächer. Bestehende Postfachrechte und Absenderregeln gelten weiterhin.",
+    "selectionHint": "Alle ungelesenen Inbox-Mails werden unabhängig vom Alter vorbereitet; zusätzlich alle weiteren Inbox-Mails im eingestellten Rückblick von höchstens 30 Tagen.",
     "refresh": "Status aktualisieren",
     "loading": "Einstellungen zur E-Mail-Vorbereitung werden geladen…",
     "unsaved": "Änderungen nicht gespeichert",
@@ -212,7 +214,7 @@
     "reply": "Antwort-Wahrscheinlichkeit",
     "unknown": "Nicht bestätigt",
     "advanced": "Erweiterte Einstellungen",
-    "limitsHint": "Die Limits begrenzen die Hintergrundarbeit. Das Laden eines Postfachs oder Lesen einer E-Mail wartet niemals auf ein Modell.",
+    "limitsHint": "Ungelesene Inbox-Mails haben keine Altersgrenze. Der zusätzliche Rückblick beträgt höchstens 30 Tage. Scan-Batches, Tagesbudget und Parallelität verteilen die Vorbereitung; weitere passende Nachrichten folgen schrittweise.",
     "privateNetwork": "Privaten Netzwerk-Endpunkt erlauben",
     "privateNetworkHint": "Für ein Modell im eigenen Netzwerk. Ein leerer Schlüsselname wählt ausdrücklich einen Endpunkt ohne Anmeldung.",
     "contextAndCriteria": "Postfachkontext und Kategorie-Kriterien",
@@ -226,8 +228,8 @@
     "limits": {
       "maxEmailsPerDay": "Maximale E-Mails pro Tag",
       "concurrency": "Gleichzeitige Bewertungen (1–8)",
-      "initialLookbackDays": "Erstmaliger Rückblick (Tage)",
-      "maxHistoricalMessages": "Maximale historische E-Mails",
+      "initialLookbackDays": "Zusätzlicher Rückblick für gelesene Mails (Tage)",
+      "maxHistoricalMessages": "Neue historische Bewertungen je Scan",
       "timeoutMs": "Zeitlimit pro Anfrage (Millisekunden)",
       "syncIntervalSeconds": "Sync-Intervall (Sekunden)"
     },

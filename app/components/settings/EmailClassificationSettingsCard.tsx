@@ -40,7 +40,7 @@ function requestFailure(response: Response, payload: { code?: string }, fallback
 type LimitKey = 'concurrency' | 'timeoutMs' | 'maxEmailsPerDay' | 'initialLookbackDays' | 'maxHistoricalMessages' | 'syncIntervalSeconds';
 const LIMITS: Array<{ key: LimitKey; min: number; max: number }> = [
   { key: 'maxEmailsPerDay', min: 1, max: 100_000 }, { key: 'concurrency', min: 1, max: 8 },
-  { key: 'initialLookbackDays', min: 1, max: 365 }, { key: 'maxHistoricalMessages', min: 1, max: 100_000 },
+  { key: 'initialLookbackDays', min: 1, max: 30 }, { key: 'maxHistoricalMessages', min: 1, max: 100_000 },
   { key: 'timeoutMs', min: 1_000, max: 120_000 }, { key: 'syncIntervalSeconds', min: 15, max: 3_600 },
 ];
 type ThresholdKey = { [K in keyof EmailClassificationPolicy]: EmailClassificationPolicy[K] extends number ? K : never }[keyof EmailClassificationPolicy];
@@ -173,8 +173,9 @@ export function EmailClassificationSettingsCard() {
           <div className="min-w-0 space-y-1">
             <Label htmlFor="email-classification-enabled" className="text-sm font-medium">{t('enable')}</Label>
             <p id="email-classification-scope" className="text-xs leading-relaxed text-muted-foreground">{t('scope')}</p>
+            <p id="email-classification-selection" className="text-xs leading-relaxed text-muted-foreground">{t('selectionHint')}</p>
           </div>
-          <Switch id="email-classification-enabled" aria-describedby="email-classification-scope" checked={draft?.enabled ?? false}
+          <Switch id="email-classification-enabled" aria-describedby="email-classification-scope email-classification-selection" checked={draft?.enabled ?? false}
             disabled={loading || !draft || busy} onCheckedChange={enabled => edit(current => ({ ...current, enabled }))} />
         </div>
         <div className="space-y-2 text-sm" role="status" aria-live="polite">
