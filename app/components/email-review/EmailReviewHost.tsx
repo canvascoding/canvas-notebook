@@ -15,7 +15,7 @@ import { cn } from '@/lib/utils';
 import { emailReviewKey, emailReviewTarget } from '@/app/lib/email/review-client';
 import {
   useEmailReviewStore, openEmailReview, closeEmailReview, selectEmailReview,
-  updateEmailReviewForm, saveActiveEmailReview, sendActiveEmailReview, rejectActiveEmailReview,
+  updateEmailReviewForm, initializeEmailReviewEditor, saveActiveEmailReview, sendActiveEmailReview, rejectActiveEmailReview,
   postponeActiveEmailReview, refreshEmailReview, setEmailReviewFilter,
   confirmDiscardEmailReviewNavigation, cancelEmailReviewNavigation,
 } from '@/app/store/email-review-store';
@@ -110,7 +110,9 @@ export function EmailReviewHost() {
                     <p className="text-xs text-muted-foreground">{t('recipientHelp')}</p>
                   </div>
                 </details>
-                <div><div className="mb-1 flex items-center justify-between gap-2"><Label htmlFor="email-review-body">{t('body')}</Label><Button data-testid="email-review-formatting" variant="ghost" size="sm" className="h-7 text-xs" aria-expanded={showFormatting} onClick={() => setShowFormatting(!showFormatting)}><Type className="size-3.5" />{t('formatting')}</Button></div><EmailHtmlEditor key={emailReviewKey(entry)} id="email-review-body" value={state.form.bodyHtml} toolbarVisible={showFormatting} disabled={disabled} onChange={({ html }) => updateEmailReviewForm({ bodyHtml: html })} /></div>
+                <div><div className="mb-1 flex items-center justify-between gap-2"><Label htmlFor="email-review-body">{t('body')}</Label><Button data-testid="email-review-formatting" variant="ghost" size="sm" className="h-7 text-xs" aria-expanded={showFormatting} onClick={() => setShowFormatting(!showFormatting)}><Type className="size-3.5" />{t('formatting')}</Button></div><EmailHtmlEditor key={`${emailReviewKey(entry)}:${entry.version}`} id="email-review-body" value={state.form.bodyHtml} toolbarVisible={showFormatting} disabled={disabled}
+                  onReady={({ sourceHtml, documentKey }) => initializeEmailReviewEditor({ reviewKey: emailReviewKey(entry), version: entry.version, sourceHtml, documentKey })}
+                  onChange={({ html, documentKey }) => updateEmailReviewForm({ bodyHtml: html }, { reviewKey: emailReviewKey(entry), version: entry.version, documentKey })} /></div>
                 {(entry.errorMessage || entry.status === 'send_uncertain') && <details className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm"><summary className="cursor-pointer font-medium text-destructive">{t('errorDetails')}</summary><p className="mt-2 break-words">{entry.errorMessage}</p><p className="mt-2 text-muted-foreground">{entry.status === 'send_uncertain' ? t('uncertainHelp') : t('retainedHelp')}</p></details>}
                 {!entry.canWrite && <p className="text-sm text-muted-foreground">{t('readOnly')}</p>}
                 {entry.status === 'sending' && <p role="status" className="text-sm text-muted-foreground">{t('sending')}</p>}

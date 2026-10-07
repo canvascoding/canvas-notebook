@@ -10,15 +10,19 @@ import {
 } from '@/app/lib/email/review-client';
 
 type Navigation = { kind: 'close' | 'refresh' | 'postpone' } | { kind: 'select' | 'open'; target?: EmailReviewTarget; filter?: EmailReviewFilter } | { kind: 'filter'; filter: EmailReviewFilter };
+export type EmailReviewEditorContext = { reviewKey: string; version: number; documentKey: string };
+type EditorDocument = EmailReviewEditorContext & { baselineKey: string };
 type State = {
   open: boolean; queue: EmailReviewEntry[]; activeEntry: EmailReviewEntry | null; form: EmailReviewForm;
   dirty: boolean; loading: boolean; busy: boolean; error: string | null; loadingWarnings: string[];
   filter: EmailReviewFilter; completed: boolean; needsReload: boolean; pendingNavigation: Navigation | null;
+  editorDocument: EditorDocument | null;
 };
 const emptyForm: EmailReviewForm = { toText: '', ccText: '', bccText: '', subject: '', bodyHtml: '' };
 export const useEmailReviewStore = create<State>(() => ({
   open: false, queue: [], activeEntry: null, form: emptyForm, dirty: false, loading: false, busy: false,
   error: null, loadingWarnings: [], filter: 'all', completed: false, needsReload: false, pendingNavigation: null,
+  editorDocument: null,
 }));
 let generation = 0;
 const message = (error: unknown) => error instanceof Error ? error.message : 'Unable to update email review.';
@@ -38,12 +42,12 @@ function guardNavigation(navigation: Navigation) {
   return true;
 }
 function setActive(entry: EmailReviewEntry | null) {
-  useEmailReviewStore.setState({ activeEntry: entry, form: entry ? formFor(entry) : emptyForm, dirty: false, loading: false, needsReload: false });
+  useEmailReviewStore.setState({ activeEntry: entry, form: entry ? formFor(entry) : emptyForm, dirty: false, loading: false, needsReload: false, editorDocument: null });
 }
 function handleAuthFailure(error: unknown) {
   if (!(error instanceof EmailReviewClientError) || error.status !== 401) return false;
   generation += 1;
-  useEmailReviewStore.setState({ queue: [], activeEntry: null, form: emptyForm, dirty: false, loading: false, busy: false, error: message(error) });
+  useEmailReviewStore.setState({ queue: [], activeEntry: null, form: emptyForm, dirty: false, loading: false, busy: false, error: message(error), editorDocument: null });
   return true;
 }
 async function loadQueue(target?: EmailReviewTarget) {
@@ -95,16 +99,36 @@ export async function selectEmailReview(target: EmailReviewTarget) {
     return false;
   }
 }
-export function updateEmailReviewForm(patch: Partial<EmailReviewForm>) {
+function matchesReviewEditor(state: State, context: EmailReviewEditorContext) {
+  return state.open && state.activeEntry?.version === context.version && emailReviewKey(state.activeEntry) === context.reviewKey;
+}
+function hasReviewFormChanges(entry: EmailReviewEntry, form: EmailReviewForm, editorDocument: EditorDocument | null) {
+  const baseline = formFor(entry);
+  const bodyChanged = editorDocument && editorDocument.reviewKey === emailReviewKey(entry) && editorDocument.version === entry.version
+    ? editorDocument.documentKey !== editorDocument.baselineKey
+    : form.bodyHtml !== baseline.bodyHtml;
+  return bodyChanged || (['toText', 'ccText', 'bccText', 'subject'] as const).some(field => form[field] !== baseline[field]);
+}
+export function initializeEmailReviewEditor(context: EmailReviewEditorContext & { sourceHtml: string }) {
+  const state = useEmailReviewStore.getState();
+  if (!matchesReviewEditor(state, context) || state.loading || !state.activeEntry || state.editorDocument) return;
+  if (sanitizeEmailEditorHtml(state.form.bodyHtml) !== context.sourceHtml || sanitizeEmailEditorHtml(formFor(state.activeEntry).bodyHtml) !== context.sourceHtml) return;
+  const editorDocument = { reviewKey: context.reviewKey, version: context.version, documentKey: context.documentKey, baselineKey: context.documentKey };
+  useEmailReviewStore.setState({ editorDocument, dirty: hasReviewFormChanges(state.activeEntry, state.form, editorDocument) });
+}
+export function updateEmailReviewForm(patch: Partial<EmailReviewForm>, context?: EmailReviewEditorContext) {
   const state = useEmailReviewStore.getState();
   if (!state.activeEntry?.canWrite || state.busy || state.loading || ['sending', 'send_uncertain'].includes(state.activeEntry.status || '')) return;
+  if (context && !matchesReviewEditor(state, context)) return;
   const form = { ...state.form, ...patch };
-  useEmailReviewStore.setState({ form, dirty: JSON.stringify(form) !== JSON.stringify(formFor(state.activeEntry)) });
+  const editorDocument = patch.bodyHtml === undefined ? state.editorDocument
+    : context && state.editorDocument ? { ...state.editorDocument, documentKey: context.documentKey } : null;
+  useEmailReviewStore.setState({ form, editorDocument, dirty: hasReviewFormChanges(state.activeEntry, form, editorDocument) });
 }
 export function closeEmailReview() {
   if (!guardNavigation({ kind: 'close' })) return false;
   generation += 1;
-  useEmailReviewStore.setState({ open: false, activeEntry: null, form: emptyForm, loading: false, dirty: false, pendingNavigation: null });
+  useEmailReviewStore.setState({ open: false, activeEntry: null, form: emptyForm, loading: false, dirty: false, pendingNavigation: null, editorDocument: null });
   return true;
 }
 export async function refreshEmailReview() {
@@ -136,7 +160,7 @@ export async function confirmDiscardEmailReviewNavigation() {
   const state = useEmailReviewStore.getState();
   if (!state.pendingNavigation || state.busy) return false;
   const pending = state.pendingNavigation;
-  useEmailReviewStore.setState({ pendingNavigation: null, dirty: false });
+  useEmailReviewStore.setState({ pendingNavigation: null, dirty: false, editorDocument: state.editorDocument ? { ...state.editorDocument, documentKey: state.editorDocument.baselineKey } : null });
   if (state.activeEntry) useEmailReviewStore.setState({ form: formFor(state.activeEntry) });
   switch (pending.kind) {
     case 'close': return closeEmailReview();
@@ -160,7 +184,7 @@ async function advanceAfterDecision(entry: EmailReviewEntry) {
   const oldIndex = state.queue.findIndex((item) => emailReviewKey(item) === emailReviewKey(entry));
   const queue = state.queue.filter((item) => emailReviewKey(item) !== emailReviewKey(entry));
   const visible = queue.filter((item) => matchesEmailReviewFilter(item, state.filter));
-  useEmailReviewStore.setState({ queue, busy: false, loading: false, needsReload: false, dirty: false, activeEntry: null, form: emptyForm, completed: !queue.length && !state.loadingWarnings.length });
+  useEmailReviewStore.setState({ queue, busy: false, loading: false, needsReload: false, dirty: false, activeEntry: null, form: emptyForm, completed: !queue.length && !state.loadingWarnings.length, editorDocument: null });
   if (visible.length) await selectEmailReview(emailReviewTarget(visible[Math.min(Math.max(oldIndex, 0), visible.length - 1)]));
 }
 export async function saveActiveEmailReview() {
@@ -199,7 +223,7 @@ export async function sendActiveEmailReview() {
     if (handleAuthFailure(error)) return false;
     if (dispatchStarted && error instanceof EmailReviewClientError && error.status === 409 && !error.code?.startsWith('SEND_')) {
       // Keep the old expectedVersion with the user's text until explicit discard/reload.
-      useEmailReviewStore.setState({ activeEntry: entry, form: state.form, dirty: true });
+      useEmailReviewStore.setState({ activeEntry: entry, form: state.form, dirty: state.dirty, needsReload: true });
     } else if (dispatchStarted) {
       // A lost HTTP response can hide a completed send. Always reconcile before retry.
       try {

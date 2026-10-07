@@ -55,7 +55,8 @@ type EmailHtmlEditorProps = {
   attachments?: EmailAttachmentDraft[];
   disabled?: boolean;
   id?: string;
-  onChange?: (value: { html: string; text: string }) => void;
+  onChange?: (value: { html: string; text: string; documentKey: string }) => void;
+  onReady?: (value: { sourceHtml: string; documentKey: string }) => void;
   onAttachmentsChange?: (attachments: EmailAttachmentDraft[]) => void;
   placeholder?: string;
   toolbarVisible?: boolean;
@@ -961,6 +962,7 @@ export function EmailHtmlEditor({
   id,
   onAttachmentsChange,
   onChange,
+  onReady,
   placeholder,
   toolbarVisible = true,
   allowInlineImages = true,
@@ -969,7 +971,9 @@ export function EmailHtmlEditor({
   const extensions = useMemo(() => createEmailEditorExtensions(allowInlineImages), [allowInlineImages]);
   const [initialValue] = useState(() => sanitizeEmailEditorHtml(value));
   const latestValueRef = useRef(initialValue);
+  const externalValueRef = useRef(initialValue);
   const applyingExternalValueRef = useRef(false);
+  const initializedEditorRef = useRef<Editor | null>(null);
   const isEmpty = !emailEditorText(value);
 
   const editor = useEditor({
@@ -996,32 +1000,45 @@ export function EmailHtmlEditor({
     },
     extensions,
     immediatelyRender: false,
-    onUpdate: ({ editor: updateEditor }) => {
-      if (disabled || applyingExternalValueRef.current) return;
+    onUpdate: ({ editor: updateEditor, transaction }) => {
+      if (disabled || applyingExternalValueRef.current || !transaction.docChanged) return;
 
       const html = sanitizeEmailEditorHtml(updateEditor.isEmpty ? '' : updateEditor.getHTML());
       if (html === latestValueRef.current) return;
       latestValueRef.current = html;
-      onChange?.({ html, text: emailEditorText(html) });
+      onChange?.({ html, text: emailEditorText(html), documentKey: JSON.stringify(updateEditor.getJSON()) });
     },
   }, [allowInlineImages]);
 
   useEffect(() => {
-    editor?.setEditable(!disabled);
+    editor?.setEditable(!disabled, false);
   }, [disabled, editor]);
 
   useEffect(() => {
     const sanitizedValue = sanitizeEmailEditorHtml(value);
-    latestValueRef.current = sanitizedValue;
     if (!editor) return;
 
+    const initializing = initializedEditorRef.current !== editor;
+    if (!initializing && externalValueRef.current === sanitizedValue) return;
+    externalValueRef.current = sanitizedValue;
     const currentValue = sanitizeEmailEditorHtml(editor.isEmpty ? '' : editor.getHTML());
-    if (currentValue === sanitizedValue) return;
+    if (!initializing && currentValue === sanitizedValue) {
+      latestValueRef.current = currentValue;
+      return;
+    }
 
     applyingExternalValueRef.current = true;
-    editor.commands.setContent(sanitizedValue || '<p></p>', { emitUpdate: false });
-    applyingExternalValueRef.current = false;
-  }, [editor, value]);
+    try {
+      editor.commands.setContent(sanitizedValue || '<p></p>', { emitUpdate: false });
+      latestValueRef.current = sanitizeEmailEditorHtml(editor.isEmpty ? '' : editor.getHTML());
+      if (initializing) {
+        initializedEditorRef.current = editor;
+        onReady?.({ sourceHtml: sanitizedValue, documentKey: JSON.stringify(editor.getJSON()) });
+      }
+    } finally {
+      applyingExternalValueRef.current = false;
+    }
+  }, [editor, onReady, value]);
 
   return (
     <div
