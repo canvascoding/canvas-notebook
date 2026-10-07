@@ -106,6 +106,48 @@ The old Expo parser ignores the additive field and needs no changes or rebuild.
 
 ## Verification
 
+### Local model preparation and Settings tests
+
+Settings offers **Download and test model** for the selected local model. It uses
+an admin-only background job, without saving the draft provider/model or enabling
+the chat microphone. `/api/admin/dictation/local-test` starts the job (POST) and
+returns persistent status (GET). `/api/admin/dictation/local-test/recording` accepts
+a bounded microphone upload and tests the draft local model through `transcribeAudio`.
+It cannot select a cloud provider. Both mutation endpoints are rate limited.
+
+Both installers publish phase, model, downloaded bytes, total bytes and update
+time atomically. The container retains pinned size/SHA-256 verification and atomic
+activation. The host downloader resolves a concrete public Faster-Whisper repository
+revision, checks every file's size and LFS SHA-256/Git blob digest and activates a
+complete directory under `DATA/dictation/models`. It uses no Hugging Face token.
+Existing host cache files are retained; the first preparation imports a verified
+model into the explicit model store. Host first-use downloads run before the local
+worker's transcription timeout, and the worker subsequently opens local files only.
+
+The progress bar represents actual bytes during download. Runtime installation,
+verification and transcription have indeterminate indicators. A single preparation
+job holds a renewable filesystem lease; duplicate requests join it, another model
+is refused, and interrupted jobs can be retried. Closing the page detaches the UI
+while the server continues. Jobs have a 20-minute preparation deadline, separately
+from the local worker's three-minute transcription deadline.
+
+After installation, a bundled public-domain English JFK recording runs through the
+shared local transcription service. Success requires recognized reference words;
+it reports transcript, model, elapsed time and timestamp. This checks execution,
+not general transcription quality. Saved success is invalidated if the model
+receipt/runtime identity changes. The additional microphone test uses the existing
+recording component with the admin local test endpoint. Changing model/language
+resets its transcript and stops an active recording.
+
+`npm run test:dictation:preparation` checks installers, job persistence, interrupted
+jobs, modified model receipts, admin gates, quotas, bounded uploads and shared
+service dispatch. `npm run test:dictation:e2e` requires the managed local server and
+bootstrap credentials; `CANVAS_MICROPHONE_TEST_ENV_FILE` selects its private env.
+The browser script uses actual local ASR and an audio-backed fake microphone on
+desktop and narrow viewports, checks page reload and model isolation, then uses
+explicit transport fixtures for deterministic failure/retry/progress rendering.
+Container acceptance requires a current rebuilt/recreated image separately.
+
 Run the service, route, and agent adapter regression scripts alongside the local
 worker and Python protocol tests. Browser acceptance covers provider/model/language
 selection, readiness while the microphone is disabled, credential errors, and

@@ -21,19 +21,23 @@ def emit(value):
 def main():
     model = None
     model_name = None
+    model_stamp = None
     emit({"type": "ready"})
     for line in sys.stdin:
         request = None
         try:
             request = json.loads(line)
             requested_model = request["model"]
-            if model is None or requested_model != model_name:
+            root = os.environ.get('CANVAS_DICTATION_MODEL_ROOT')
+            source = str(Path(root) / requested_model) if root else requested_model
+            stat = (Path(source) / 'model.bin').stat() if root else None
+            stamp = (stat.st_size, stat.st_mtime_ns, stat.st_ino) if stat else None
+            if model is None or requested_model != model_name or stamp != model_stamp:
                 # A CPU/int8 baseline works on servers without CUDA drivers.
-                root = os.environ.get('CANVAS_DICTATION_MODEL_ROOT')
-                source = str(Path(root) / requested_model) if root else requested_model
                 model = WhisperModel(source, device="cpu", compute_type="int8", cpu_threads=4, num_workers=1,
                                      **({'local_files_only': True} if root else {}))
                 model_name = requested_model
+                model_stamp = stamp
             language = request.get("language")
             segments, _ = model.transcribe(
                 request["path"],

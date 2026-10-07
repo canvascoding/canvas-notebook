@@ -45,6 +45,7 @@ async function main() {
     fs.mkdirSync(docs, { recursive: true });
     fs.mkdirSync(scripts, { recursive: true });
     fs.copyFileSync('scripts/dictation_cpp.py', path.join(scripts, 'dictation_cpp.py'));
+    fs.copyFileSync('scripts/dictation_progress.py', path.join(scripts, 'dictation_progress.py'));
     fs.writeFileSync(path.join(native, 'runtime.json'), '{}');
     assert.equal((await readLocalDictationRuntimeStatus()).state, 'failed', 'unverified runtime must remain unavailable');
 

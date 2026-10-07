@@ -46,9 +46,10 @@ class FakeChild extends EventEmitter {
 type FakeTimer = { callback: () => void; delay: number; cleared: boolean; unref: () => void };
 
 async function until(check: () => boolean): Promise<void> {
-  for (let attempt = 0; attempt < 100; attempt++) {
+  const deadline = Date.now() + 3_000;
+  while (Date.now() < deadline) {
     if (check()) return;
-    await new Promise<void>((resolve) => setImmediate(resolve));
+    await new Promise<void>((resolve) => setTimeout(resolve, 1));
   }
   assert.ok(check(), 'Expected worker activity did not occur');
 }

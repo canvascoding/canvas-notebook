@@ -684,7 +684,9 @@
     "test:files:operation-notifications:e2e": "node --import tsx scripts/run-workspace-operation-batch-e2e.mjs --attention",
     "test:files:operation-review-toggle:e2e": "node --import tsx scripts/run-workspace-operation-batch-e2e.mjs --review-toggle",
     "test:files:operation-restarts:e2e": "node --import tsx scripts/run-workspace-operation-batch-e2e.mjs --direct-restart",
-    "test:files:operation-review-toggle": "tsx --conditions react-server scripts/workspace-operation-review-availability-test.ts && tsx scripts/workspace-operation-review-gating-ui-test.tsx"
+    "test:files:operation-review-toggle": "tsx --conditions react-server scripts/workspace-operation-review-availability-test.ts && tsx scripts/workspace-operation-review-gating-ui-test.tsx",
+    "test:dictation:preparation": "python3 scripts/dictation-host-model-test.py && tsx --conditions react-server scripts/local-dictation-preparation-test.ts && tsx --conditions react-server scripts/local-dictation-route-test.ts",
+    "test:dictation:e2e": "tsx scripts/local-dictation-browser-test.ts"
   },
   "dependencies": {
     "@better-auth/expo": "1.7.1",

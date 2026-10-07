@@ -8,7 +8,9 @@ import { DICTATION_MODELS, readDictationSettings, writeDictationSettings } from 
 import { readTranscriptionAvailability } from '@/app/lib/transcription/service';
 
 function publicInstallStatus(status: LocalDictationRuntimeStatus) {
-  return { state: status.state, message: status.message, engine: status.engine, installedModels: status.installedModels };
+  return { state: status.state, message: status.message, engine: status.engine, installedModels: status.installedModels,
+    modelSizes: status.modelSizes, model: status.model, phase: status.phase,
+    downloadedBytes: status.downloadedBytes, totalBytes: status.totalBytes, updatedAt: status.updatedAt };
 }
 
 export async function GET(request: NextRequest) {

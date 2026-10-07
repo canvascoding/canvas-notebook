@@ -48,7 +48,19 @@ async function modelIdentity(model: string): Promise<string> {
 }
 
 export async function readLocalPreparation(): Promise<LocalPreparation | null> {
-  const job = await readJob();
+  const stored = await readJob();
+  const job = stored ? (({ identity: _identity, ...value }) => value)(stored) : null;
+  const runtimeProgress = await readLocalDictationRuntimeStatus();
+  // A host's first normal transcription uses the same installer and byte contract.
+  // Expose that download too, without claiming it completed a Settings self-test.
+  if ((!job || job.state !== 'running') && runtimeProgress.model && runtimeProgress.phase
+    && ['downloading', 'verifying'].includes(runtimeProgress.phase) && runtimeProgress.updatedAt
+    && Date.now() - runtimeProgress.updatedAt < LEASE_MS) {
+    return { id: `download:${runtimeProgress.model}`, model: runtimeProgress.model, engine: runtimeProgress.engine,
+      state: 'running', phase: runtimeProgress.phase as 'downloading' | 'verifying',
+      downloadedBytes: runtimeProgress.downloadedBytes, totalBytes: runtimeProgress.totalBytes,
+      startedAt: runtimeProgress.updatedAt, updatedAt: runtimeProgress.updatedAt };
+  }
   if (!job) return null;
   if (job.state === 'running' && Date.now() - job.updatedAt > LEASE_MS) {
     return { ...job, state: 'failed', phase: 'failed', message: 'Model preparation was interrupted. Please retry.' };
@@ -61,14 +73,12 @@ export async function readLocalPreparation(): Promise<LocalPreparation | null> {
   }
   if (job.state === 'succeeded') {
     try {
-      if (job.identity !== await modelIdentity(job.model)) throw new Error('Changed model');
+      if (stored?.identity !== await modelIdentity(job.model)) throw new Error('Changed model');
     } catch {
       return { ...job, state: 'failed', phase: 'failed', result: undefined, message: 'The model or runtime changed. Please test it again.' };
     }
   }
-  // Internal receipt identity is not part of the browser contract.
-  const { identity: _identity, ...publicJob } = job;
-  return publicJob;
+  return job;
 }
 
 export async function startLocalPreparation(model: string): Promise<LocalPreparation> {

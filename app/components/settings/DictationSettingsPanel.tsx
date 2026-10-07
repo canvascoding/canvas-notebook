@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Loader2, Save } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import Link from 'next/link';
@@ -10,15 +10,15 @@ import { Input } from '@/components/ui/input';
 import { InlineNotice } from '@/components/ui/inline-notice';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
+import { LocalDictationTestPanel } from './LocalDictationTestPanel';
 import { DICTATION_MODELS as models, TRANSCRIPTION_API_KEYS, type DictationProvider as Provider,
   type DictationSettings as Settings, type CloudDictationProvider } from '@/app/lib/transcription/config';
 
 type Status = { available: boolean; reason: string | null };
-type LocalInstall = { state: 'missing' | 'installing' | 'installed' | 'failed' | 'disabled'; message?: string; engine?: 'faster-whisper' | 'whisper-cpp'; installedModels?: string[] };
+type LocalInstall = { state: 'missing' | 'installing' | 'installed' | 'failed' | 'disabled'; message?: string; engine?: 'faster-whisper' | 'whisper-cpp'; installedModels?: string[]; modelSizes?: Record<string, number> };
 type CredentialStatus = { configured: boolean; source: 'integrations' | 'agents' | 'environment' | null };
 type Credentials = Record<CloudDictationProvider, CredentialStatus>;
 type ResponseData = { success: boolean; data?: { settings: Settings; status: Status; transcriptionStatus: Status; localInstall: LocalInstall; credentials: Credentials }; error?: string };
-type InstallResponse = { success: boolean; data?: { localInstall: LocalInstall }; error?: string };
 type CredentialResponse = { success: boolean; data?: { credentials: Credentials; status: Status }; error?: string };
 
 export function DictationSettingsPanel({ onboarding = false }: { onboarding?: boolean }) {
@@ -32,7 +32,6 @@ export function DictationSettingsPanel({ onboarding = false }: { onboarding?: bo
   const [credentialSaved, setCredentialSaved] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [installing, setInstalling] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
 
@@ -69,21 +68,14 @@ export function DictationSettingsPanel({ onboarding = false }: { onboarding?: bo
     return () => { active = false; window.clearInterval(interval); };
   }, [localInstall?.state, settings, t]);
 
-  async function installLocalRuntime() {
-    if (!settings) return;
-    setInstalling(true);
-    setError(null);
-    try {
-      const response = await fetch('/api/admin/dictation', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: settings.model }) });
-      const body = await response.json() as InstallResponse;
-      if (!response.ok || !body.data) throw new Error(body.error || t('installError'));
+  const refreshLocalStatus = useCallback(() => {
+    void fetch('/api/admin/dictation', { cache: 'no-store' }).then(async response => {
+      const body = await response.json() as ResponseData;
+      if (!response.ok || !body.data) throw new Error(body.error || t('loadError'));
       setLocalInstall(body.data.localInstall);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : t('installError'));
-    } finally {
-      setInstalling(false);
-    }
-  }
+      setStatus(null);
+    }).catch(cause => setError(cause instanceof Error ? cause.message : t('loadError')));
+  }, [t]);
 
   async function save() {
     if (!settings) return;
@@ -134,10 +126,9 @@ export function DictationSettingsPanel({ onboarding = false }: { onboarding?: bo
     }
   }
 
-  const modelInstalled = localInstall?.engine === 'whisper-cpp'
+  const modelInstalled = localInstall?.installedModels !== undefined
     ? Boolean(settings && localInstall.installedModels?.includes(settings.model))
     : localInstall?.state === 'installed';
-  const canInstall = localInstall?.state !== 'disabled' && localInstall?.state !== 'installing' && !modelInstalled;
 
   return (
     <section className="space-y-5 rounded-lg border border-border bg-card p-4 sm:p-6" data-testid="dictation-settings">
@@ -182,9 +173,6 @@ export function DictationSettingsPanel({ onboarding = false }: { onboarding?: bo
         {settings.provider === 'local' && localInstall?.state === 'disabled' ? <InlineNotice variant="info" size="compact">{t('localDisabled')}</InlineNotice> : settings.provider === 'local' ? <InlineNotice
           variant={modelInstalled ? 'success' : localInstall?.state === 'installing' ? 'info' : localInstall?.state === 'failed' ? 'destructive' : 'warning'}
           role="group"
-          actions={canInstall ? <Button type="button" variant="outline" size="sm" onClick={() => void installLocalRuntime()} disabled={installing || saving}>
-            {installing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}{t('installLocal')}
-          </Button> : undefined}
         >
           <p>{t(localInstall?.engine === 'whisper-cpp' ? 'containerNote' : 'localNote')}</p>
           {localInstall?.engine !== 'whisper-cpp' && <p>{t('localInstallDisclosure')} <a className="underline" href="https://ffmpeg.org/legal.html" target="_blank" rel="noopener noreferrer">{t('localLicenseLink')}</a></p>}
@@ -208,6 +196,9 @@ export function DictationSettingsPanel({ onboarding = false }: { onboarding?: bo
             {credentialSaved && <span role="status" className="text-xs text-muted-foreground">{t('credentialSaved')}</span>}
           </div>
         </div>}
+        {settings.provider === 'local' && localInstall?.state !== 'disabled' && <LocalDictationTestPanel
+          key={`${settings.model}:${settings.language}`} model={settings.model} language={settings.language} modelInstalled={modelInstalled}
+          modelBytes={localInstall?.modelSizes?.[settings.model]} disabled={saving} onReady={refreshLocalStatus} />}
         {status && <InlineNotice size="compact" variant={status.available ? 'success' : 'warning'}>{status.available ? t(settings.provider === 'local' ? 'serviceAvailable' : 'cloudConfigured') : settings.provider === 'local' ? t(localInstall?.engine === 'whisper-cpp' ? 'containerUnavailable' : 'localUnavailable') : `${t('unavailable')} ${status.reason ?? ''}`}</InlineNotice>}
         <div className="flex items-center gap-3"><Button type="button" onClick={() => void save()} disabled={saving}>{saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}{t('save')}</Button>{saved && <span role="status" className="text-sm text-muted-foreground">{t('saved')}</span>}</div>
       </>}

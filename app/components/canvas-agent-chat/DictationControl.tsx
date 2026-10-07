@@ -7,7 +7,10 @@ import { useTranslations } from 'next-intl';
 type StatusResponse = { success: boolean; data?: { available: boolean } };
 type TranscriptResponse = { success: boolean; data?: { text: string }; error?: string };
 
-export function DictationControl({ disabled, onTranscript }: { disabled: boolean; onTranscript: (text: string) => void }) {
+export function DictationControl({ disabled, onTranscript, availability, transcribeUrl = '/api/dictation/transcribe', formFields, testId = 'chat-dictation' }: {
+  disabled: boolean; onTranscript: (text: string) => void;
+  availability?: boolean; transcribeUrl?: string; formFields?: Record<string, string>; testId?: string;
+}) {
   const t = useTranslations('dictation');
   const [available, setAvailable] = useState(false);
   const [phase, setPhase] = useState<'idle' | 'requesting' | 'recording' | 'transcribing'>('idle');
@@ -19,6 +22,7 @@ export function DictationControl({ disabled, onTranscript }: { disabled: boolean
   useEffect(() => {
     mounted.current = true;
     const refresh = () => {
+      if (availability !== undefined) { setAvailable(availability); return; }
       if (document.visibilityState !== 'visible') return;
       void fetch('/api/dictation/status', { cache: 'no-store' })
         .then((response) => response.json() as Promise<StatusResponse>)
@@ -37,7 +41,7 @@ export function DictationControl({ disabled, onTranscript }: { disabled: boolean
       recorder.current?.stop();
       stream.current?.getTracks().forEach((track) => track.stop());
     };
-  }, []);
+  }, [availability]);
 
   async function transcribe(blob: Blob) {
     if (!mounted.current) return;
@@ -45,7 +49,8 @@ export function DictationControl({ disabled, onTranscript }: { disabled: boolean
     try {
       const form = new FormData();
       form.set('audio', blob, blob.type.startsWith('audio/mp4') ? 'recording.m4a' : 'recording.webm');
-      const response = await fetch('/api/dictation/transcribe', { method: 'POST', body: form });
+      for (const [key, value] of Object.entries(formFields ?? {})) form.set(key, value);
+      const response = await fetch(transcribeUrl, { method: 'POST', body: form });
       const result = await response.json() as TranscriptResponse;
       if (!response.ok || !result.success) throw new Error(result.error || t('transcriptionError'));
       if (!result.data?.text?.trim()) throw new Error(t('emptyTranscript'));
@@ -120,7 +125,7 @@ export function DictationControl({ disabled, onTranscript }: { disabled: boolean
   return <div className="flex flex-col items-center gap-1">
     <button
       type="button"
-      data-testid="chat-dictation"
+      data-testid={testId}
       aria-label={phase === 'recording' ? t('stopRecording') : phase === 'requesting' ? t('microphoneRequesting') : phase === 'transcribing' ? t('transcribing') : t('startRecording')}
       title={phase === 'recording' ? t('stopRecording') : phase === 'requesting' ? t('microphoneRequesting') : phase === 'transcribing' ? t('transcribing') : t('startRecording')}
       disabled={disabled || phase === 'requesting' || phase === 'transcribing'}

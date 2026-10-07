@@ -97,7 +97,11 @@ def install(directory, name):
                     raise RuntimeError('Invalid model integrity metadata.')
                 received = 0
                 url = 'https://huggingface.co/' + repo + '/resolve/' + revision + '/' + file['rfilename']
-                with urllib.request.urlopen(url, timeout=60) as response, (stage / file['rfilename']).open('wb') as output:
+                cache_root = directory.parent.parent / 'cache/dictation-models/hub'
+                cached = cache_root / ('models--' + repo.replace('/', '--')) / 'snapshots' / revision / file['rfilename']
+                reuse = cached.is_file() and cached.resolve().is_relative_to(cache_root.resolve())
+                stream = cached.open('rb') if reuse else urllib.request.urlopen(url, timeout=60)
+                with stream as response, (stage / file['rfilename']).open('wb') as output:
                     for chunk in iter(lambda: response.read(1024 * 1024), b''):
                         received += len(chunk)
                         if received > size:
