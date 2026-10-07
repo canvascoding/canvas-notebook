@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Check, Loader2, LockKeyhole, RefreshCw, Route } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import type { AgentWorkflowDescriptor, AgentWorkflowConnectionOption } from '@/app/lib/agents/workflow-contracts';
@@ -8,7 +8,7 @@ import { useWorkspaceStore } from '@/app/store/workspace-store';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { AgentWorkflowClientError, readAgentWorkflow, retainWorkflowDrafts, saveAgentWorkflowChoice, workflowSelectionValue } from './agent-workflow-client';
-import type { AgentWorkflowPersonalSelectionInput } from './agent-workflow-client';
+import type { AgentWorkflowChoiceContext, AgentWorkflowPersonalSelectionInput } from './agent-workflow-client';
 import { AgentWorkflowPersonalChoicePicker } from './AgentWorkflowPersonalChoicePicker';
 
 function WorkflowOptionSummary({ option }: { option?: AgentWorkflowConnectionOption }) {
@@ -20,7 +20,7 @@ function WorkflowOptionSummary({ option }: { option?: AgentWorkflowConnectionOpt
   </div>;
 }
 
-function AgentWorkflowChoices({ agentId, workspaceId }: { agentId: string; workspaceId: string | null }) {
+function AgentWorkflowChoices({ agentId, context }: { agentId: string; context: AgentWorkflowChoiceContext }) {
   const t = useTranslations('agentWorkflow');
   const [descriptor, setDescriptor] = useState<AgentWorkflowDescriptor | null>(null);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
@@ -36,7 +36,7 @@ function AgentWorkflowChoices({ agentId, workspaceId }: { agentId: string; works
     const currentController = new AbortController(), currentSequence = ++sequence.current;
     controller.current = currentController; setLoading(true); setSavedKey(null);
     try {
-      const next = await readAgentWorkflow(agentId, workspaceId, currentController.signal);
+      const next = await readAgentWorkflow(agentId, context, currentController.signal);
       if (sequence.current !== currentSequence || currentController.signal.aborted) return;
       setDescriptor(next); setDrafts(previous => retainWorkflowDrafts(preserveDrafts ? previous : {}, next)); setError(null);
     } catch (failure) {
@@ -44,7 +44,7 @@ function AgentWorkflowChoices({ agentId, workspaceId }: { agentId: string; works
       setError(failure instanceof AgentWorkflowClientError && [403, 404].includes(failure.status) ? 'denied' : 'load');
       // A failed refresh keeps the old draft, but may never make its CAS writable.
     } finally { if (sequence.current === currentSequence && !currentController.signal.aborted) setLoading(false); }
-  }, [agentId, workspaceId]);
+  }, [agentId, context]);
   useEffect(() => {
     let cancelled = false;
     queueMicrotask(() => { if (!cancelled) void load(false); });
@@ -58,7 +58,7 @@ function AgentWorkflowChoices({ agentId, workspaceId }: { agentId: string; works
     const currentSequence = sequence.current, currentController = new AbortController(); controller.current = currentController;
     setSavingKey(key); setSavedKey(null);
     try {
-      const next = await saveAgentWorkflowChoice({ agentId, workspaceId, capabilityKey: key, expectedWorkflowRevision: descriptor.workflowRevision,
+      const next = await saveAgentWorkflowChoice({ agentId, context, capabilityKey: key, expectedWorkflowRevision: descriptor.workflowRevision,
         expectedPreferenceRevision: descriptor.preferenceRevision, ...(personalSelection ? { personalSelection } : { choiceId: value === 'default' ? null : choice!.choiceId }) }, currentController.signal);
       if (sequence.current !== currentSequence || currentController.signal.aborted) return false;
       const savedCapability = next.packages.flatMap(pkg => pkg.declarations.flatMap(declaration => declaration.capabilities)).find(entry => entry.capabilityKey === key);
@@ -73,7 +73,7 @@ function AgentWorkflowChoices({ agentId, workspaceId }: { agentId: string; works
     } finally { if (sequence.current === currentSequence && !currentController.signal.aborted) setSavingKey(null); }
   };
   const slots = descriptor?.packages.flatMap(pkg => pkg.declarations.flatMap(declaration => declaration.capabilities.map(capability => ({ pkg, capability })))) ?? [];
-  return <div className="min-h-0 space-y-4" data-testid="agent-workflow-choices">
+  return <div className="min-h-0 min-w-0 space-y-4" data-testid="agent-workflow-choices">
     {error ? <div role="alert" className="space-y-2 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-sm">
       <p>{t(`errors.${error}`)}</p>
       <Button type="button" size="sm" variant="outline" disabled={loading || Boolean(savingKey)} onClick={() => void load(true)}>
@@ -123,7 +123,7 @@ function AgentWorkflowChoices({ agentId, workspaceId }: { agentId: string; works
             </Button>
           </div>
           {capability.personalChoiceAllowed ? <AgentWorkflowPersonalChoicePicker key={`${capability.capabilityKey}:${descriptor?.workflowRevision}`}
-            agentId={agentId} workspaceId={workspaceId} capabilityKey={capability.capabilityKey} workflowRevision={descriptor!.workflowRevision}
+            agentId={agentId} workspaceId={context.workspaceId} context={context} capabilityKey={capability.capabilityKey} workflowRevision={descriptor!.workflowRevision}
             disabled={loading || Boolean(savingKey) || Boolean(error) || packagesUnavailable || !descriptor?.access.canUse} onSave={selection => save(capability.capabilityKey, selection)}
             onConflict={() => setError('conflict')} /> : null}
         </>}
@@ -132,16 +132,22 @@ function AgentWorkflowChoices({ agentId, workspaceId }: { agentId: string; works
   </div>;
 }
 
-export function AgentWorkflowChoiceDialog({ open, agentId, agentName, onOpenChange, onRestoreFocus }: {
-  open: boolean; agentId: string; agentName: string; onOpenChange: (open: boolean) => void; onRestoreFocus?: () => void;
+export function AgentWorkflowChoiceDialog({ open, agentId, agentName, context, onOpenChange, onRestoreFocus }: {
+  open: boolean; agentId: string; agentName: string; context?: AgentWorkflowChoiceContext;
+  onOpenChange: (open: boolean) => void; onRestoreFocus?: () => void;
 }) {
-  const t = useTranslations('agentWorkflow'), workspaceId = useWorkspaceStore(state => state.activeWorkspaceId);
+  const t = useTranslations('agentWorkflow'), activeWorkspaceId = useWorkspaceStore(state => state.activeWorkspaceId);
+  const workspaceId = context === undefined ? activeWorkspaceId : context.workspaceId;
+  const organizationId = context?.organizationId ?? null, projectId = context?.projectId ?? null, actorId = context?.actorId ?? null;
+  const capturedContext = useMemo<AgentWorkflowChoiceContext>(() => Object.freeze({ workspaceId, organizationId, projectId, actorId }),
+    [workspaceId, organizationId, projectId, actorId]);
+  const contextKey = JSON.stringify([agentId, workspaceId, organizationId, projectId, actorId]);
   return <Dialog open={open} onOpenChange={onOpenChange}>
-    <DialogContent className="max-h-[85dvh] min-w-0 overflow-y-auto sm:max-w-xl" data-testid="agent-workflow-dialog"
+    <DialogContent className="max-h-[85dvh] min-w-0 grid-cols-1 overflow-y-auto sm:max-w-xl" data-testid="agent-workflow-dialog"
       onCloseAutoFocus={event => { if (onRestoreFocus) { event.preventDefault(); onRestoreFocus(); } }}>
       <DialogHeader className="pr-5"><DialogTitle className="flex min-w-0 items-center gap-2"><Route className="size-4 shrink-0" />{t('title')}</DialogTitle>
         <DialogDescription className="break-words">{t('description', { agent: agentName })}</DialogDescription></DialogHeader>
-      {open ? <AgentWorkflowChoices key={`${agentId}:${workspaceId || ''}`} agentId={agentId} workspaceId={workspaceId} /> : null}
+      {open ? <AgentWorkflowChoices key={contextKey} agentId={agentId} context={capturedContext} /> : null}
       <DialogFooter><Button type="button" variant="outline" onClick={() => onOpenChange(false)}>{t('close')}</Button></DialogFooter>
     </DialogContent>
   </Dialog>;

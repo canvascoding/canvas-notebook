@@ -6,9 +6,10 @@ const { spawn } = require('node:child_process');
 const dotenv = require('dotenv');
 
 const repo = path.resolve(__dirname, '..');
-if (process.argv.length !== 3 || process.argv[2] !== 'run') {
-  throw new Error('Use the fixed isolated acceptance command: node scripts/agent-settings-tools-browser-runner.cjs run');
+if (process.argv.length !== 3 || !['run', 'run-workflow'].includes(process.argv[2])) {
+  throw new Error('Choose the fixed isolated acceptance command: run or run-workflow.');
 }
+const workflow = process.argv[2] === 'run-workflow';
 const privateEnv = path.join(os.homedir(), '.local/state/canvas-local-team-seat/notebook-host-dev.env');
 const stat = fs.lstatSync(privateEnv);
 if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1 || (stat.mode & 0o077) !== 0) {
@@ -31,6 +32,14 @@ Object.assign(childEnv, {
   BOOTSTRAP_ADMIN_EMAIL: secrets.BOOTSTRAP_ADMIN_EMAIL, BOOTSTRAP_ADMIN_PASSWORD: secrets.BOOTSTRAP_ADMIN_PASSWORD,
   BOOTSTRAP_ADMIN_NAME: 'Isolated Agent Settings Owner',
 });
+if (workflow) {
+  const controlPlaneRoot = fs.realpathSync(path.resolve(repo, '../canvas-control-plane'));
+  if (!fs.statSync(path.join(controlPlaneRoot, 'apps/api/src/routes/license.ts')).isFile()) {
+    throw new Error('The existing Control Plane source is required for isolated workflow acceptance.');
+  }
+  childEnv.CANVAS_AGENT_WORKFLOW_MULTIUSER_BROWSER_RUN = '1';
+  childEnv.CANVAS_CONTROL_PLANE_TEST_ROOT = controlPlaneRoot;
+}
 const child = spawn(process.execPath, ['--conditions=react-server', '--import', 'tsx', 'scripts/helpers/agent-settings-tools-browser-fixture.ts'], {
   cwd: repo, env: childEnv, stdio: ['ignore', 'inherit', 'inherit'],
 });

@@ -1425,7 +1425,7 @@ export function AgentSettingsPanel({
         <CardContent><Button ref={workflowTriggerRef} type="button" variant="outline" onClick={() => setWorkflowDialogOpen(true)}>{tWorkflow('open')}</Button></CardContent>
       </Card> : null}
       {selectedAgent ? <AgentWorkflowChoiceDialog key={selectedAgent.agentId} open={workflowDialogOpen} agentId={selectedAgent.agentId}
-        agentName={selectedAgent.name} onOpenChange={setWorkflowDialogOpen} onRestoreFocus={() => workflowTriggerRef.current?.focus()} /> : null}
+        agentName={selectedAgent.name} context={workflowManagementContext} onOpenChange={setWorkflowDialogOpen} onRestoreFocus={() => workflowTriggerRef.current?.focus()} /> : null}
 
       {!isMainAgent && selectedAgent?.access?.canEdit ? <Card data-testid="agent-settings-workflow-management">
         <CardHeader><CardTitle className="flex items-center gap-2"><Route className="size-4" />{tWorkflowManagement('title')}</CardTitle>

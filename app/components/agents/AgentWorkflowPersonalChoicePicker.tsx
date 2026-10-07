@@ -6,10 +6,10 @@ import { Loader2, UserRound } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import type { AgentWorkflowPersonalOptions, AgentWorkflowPersonalProviderOption } from '@/app/lib/agents/workflow-personal-options';
 import { Button } from '@/components/ui/button';
-import { AgentWorkflowClientError, readAgentWorkflowPersonalOptions, type AgentWorkflowPersonalSelectionInput } from './agent-workflow-client';
+import { AgentWorkflowClientError, readAgentWorkflowPersonalOptions, type AgentWorkflowChoiceContext, type AgentWorkflowPersonalSelectionInput } from './agent-workflow-client';
 
-export function AgentWorkflowPersonalChoicePicker({ agentId, workspaceId, capabilityKey, workflowRevision, disabled, onSave, onConflict }: {
-  agentId: string; workspaceId: string | null; capabilityKey: string; workflowRevision: number; disabled: boolean;
+export function AgentWorkflowPersonalChoicePicker({ agentId, workspaceId, context, capabilityKey, workflowRevision, disabled, onSave, onConflict }: {
+  agentId: string; workspaceId: string | null; context?: AgentWorkflowChoiceContext; capabilityKey: string; workflowRevision: number; disabled: boolean;
   onSave: (selection: AgentWorkflowPersonalSelectionInput) => Promise<boolean>;
   onConflict: () => void;
 }) {
@@ -24,7 +24,7 @@ export function AgentWorkflowPersonalChoicePicker({ agentId, workspaceId, capabi
     controller.current?.abort(); const current = new AbortController(), id = ++sequence.current; controller.current = current;
     setLoading(true); setError(null); setAccountRef(''); setSelected(null);
     try {
-      const result = await readAgentWorkflowPersonalOptions({ agentId, workspaceId, capabilityKey, expectedWorkflowRevision: workflowRevision,
+      const result = await readAgentWorkflowPersonalOptions({ agentId, workspaceId, context, capabilityKey, expectedWorkflowRevision: workflowRevision,
         ...(selection ? { alternativeKey: selection.alternativeKey, providerRef: selection.provider.providerRef } : {}) }, current.signal);
       if (current.signal.aborted || id !== sequence.current) return;
       if (!selection) setOptions(result);

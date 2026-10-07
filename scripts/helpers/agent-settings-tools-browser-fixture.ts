@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { randomBytes } from 'node:crypto';
+import { createHash, createPublicKey, randomBytes } from 'node:crypto';
 import { execFile, spawn, type ChildProcess } from 'node:child_process';
 import { constants, createWriteStream } from 'node:fs';
 import fs from 'node:fs/promises';
@@ -39,9 +39,86 @@ type Receipt = {
   version: 1; nonce: string; repo: string; fixtureRoot: string; dataRoot: string; tmpRoot: string;
   ownerMarker: string; rootDevice: string; rootInode: string; databaseName: string; databaseOwner: string | null;
   directoryProofs: Record<string, { device: string; inode: string }>; listenerVerified: boolean;
-  createAcknowledged: boolean; phase: string; serverPid: number | null; actorId: string | null;
+  createAcknowledged: boolean; phase: string; serverPid: number | null; issuerPid?: number | null; actorId: string | null;
   uncertain: boolean; databaseDropped: boolean; dataRemoved: boolean;
 };
+type IssuerReady = {
+  version: 1; nonce: string; fixtureRoot: string; origin: string; certificatePath: string;
+  initialPublicKey: string; initialPublicKeyFingerprint: string; testPublicKey: string; testPublicKeyFingerprint: string;
+  licenseId: string; instanceId: string; cpOrganizationId: string; controlSecret: string;
+};
+
+async function readIssuerReady(root: string, nonce: string, instanceId: string): Promise<IssuerReady> {
+  const readyPath = path.join(root, 'issuer-ready.json'), stat = await fs.lstat(readyPath);
+  assert(stat.isFile() && !stat.isSymbolicLink() && stat.nlink === 1 && (stat.mode & 0o777) === 0o600);
+  const ready = JSON.parse(await fs.readFile(readyPath, 'utf8')) as IssuerReady;
+  assert.equal(ready.version, 1); assert.equal(ready.nonce, nonce); assert.equal(ready.fixtureRoot, root); assert.equal(ready.instanceId, instanceId);
+  const origin = new URL(ready.origin);
+  assert.equal(origin.hostname, '127.0.0.1'); assert.equal(origin.protocol, 'http:'); assert(origin.port && origin.origin === ready.origin);
+  assert.equal(path.dirname(ready.certificatePath), root); assert.equal(await fs.realpath(ready.certificatePath), ready.certificatePath);
+  const cert = await fs.lstat(ready.certificatePath); assert(cert.isFile() && !cert.isSymbolicLink() && cert.nlink === 1 && (cert.mode & 0o777) === 0o600);
+  for (const [key, fingerprint] of [[ready.initialPublicKey, ready.initialPublicKeyFingerprint], [ready.testPublicKey, ready.testPublicKeyFingerprint]]) {
+    assert.equal(createHash('sha256').update(createPublicKey(key).export({ type: 'spki', format: 'der' })).digest('hex'), fingerprint);
+  }
+  assert.notEqual(ready.initialPublicKeyFingerprint, ready.testPublicKeyFingerprint);
+  assert(ready.licenseId && ready.cpOrganizationId && ready.controlSecret.length >= 32);
+  return ready;
+}
+
+async function requestOwnIssuerControl(ready: IssuerReady, operation: 'approve-claim' | 'development-grant', body: Record<string, unknown>): Promise<void> {
+  const response = await fetch(`${ready.origin}/__owned/${operation}`, { method: 'POST',
+    headers: { Authorization: `Bearer ${ready.controlSecret}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body), signal: AbortSignal.timeout(30_000) });
+  assert.equal(response.status, 200, 'The owned issuer operation must be acknowledged.');
+  const result = await response.json() as { success?: boolean; licenseId?: string; instanceId?: string };
+  assert.equal(result.success, true); assert.equal(result.licenseId, ready.licenseId); assert.equal(result.instanceId, ready.instanceId);
+}
+
+/** Real activation/claim/grant services; no license state is manufactured in SQL. */
+async function activateWorkflowTestLicense(ready: IssuerReady, env: NodeJS.ProcessEnv): Promise<void> {
+  Object.assign(env, { CANVAS_LICENSE_CONTROL_PLANE_URL: ready.origin, CANVAS_LICENSE_PUBLIC_KEY: ready.initialPublicKey,
+    CANVAS_LICENSE_TRUSTED_PUBLIC_KEY_FINGERPRINTS: ready.initialPublicKeyFingerprint,
+    CANVAS_LICENSE_TEST_PUBLIC_KEY: ready.testPublicKey, CANVAS_LICENSE_TEST_TRUSTED_PUBLIC_KEY_FINGERPRINTS: ready.testPublicKeyFingerprint,
+    CANVAS_LICENSE_RUNTIME_ENVIRONMENT: 'production', CANVAS_LICENSE_TEST_AUDIENCE: 'canvas-notebook-test',
+    CANVAS_TEAM_SEAT_CLIENT_ENABLED: 'true', CANVAS_TEAM_SEAT_COMMUNITY_CLAIM_ENABLED: 'true',
+    CANVAS_TEAM_SEAT_MEMBERSHIP_MUTATIONS_ENABLED: 'true' });
+  Object.assign(process.env, env);
+  const { activateLicenseCert } = await import('../../app/lib/license');
+  const { verifyLicenseJwtDetailed } = await import('../../app/lib/license/jwt');
+  const { loadStoredLicenseCert } = await import('../../app/lib/license/storage');
+  const { startCommunityLicenseClaim, pollCommunityLicenseClaim, refreshCommunityLicenseCertificate } = await import('../../app/lib/license/control-plane');
+  const initialCertificate = await fs.readFile(ready.certificatePath, 'utf8');
+  const initial = await verifyLicenseJwtDetailed(initialCertificate, ready.instanceId);
+  assert(initial.ok); assert.equal(initial.payload.licenseId, ready.licenseId);
+  const activated = await activateLicenseCert(initialCertificate);
+  assert.equal(activated.licensed, true); assert.equal(activated.instanceId, ready.instanceId);
+  const claim = await startCommunityLicenseClaim();
+  assert.equal(claim.state, 'authorization_pending');
+  assert('userCode' in claim && typeof claim.userCode === 'string' && 'claimId' in claim && typeof claim.claimId === 'string');
+  await requestOwnIssuerControl(ready, 'approve-claim', { userCode: claim.userCode });
+  const deadline = Date.now() + 30_000;
+  let connected = false;
+  while (Date.now() < deadline) {
+    const polled = await pollCommunityLicenseClaim(claim.claimId);
+    if (polled.state === 'connected') { connected = true; break; }
+    await new Promise(resolve => setTimeout(resolve, 1_000));
+  }
+  assert(connected, 'The real Community claim must become connected.');
+  await requestOwnIssuerControl(ready, 'development-grant', {});
+  env.CANVAS_LICENSE_RUNTIME_ENVIRONMENT = 'development';
+  process.env.CANVAS_LICENSE_RUNTIME_ENVIRONMENT = 'development';
+  const refreshed = await refreshCommunityLicenseCertificate();
+  assert.equal(refreshed.status.licensed, true); assert.equal(refreshed.status.edition, 'team');
+  assert.equal(refreshed.status.licenseClass, 'test'); assert.equal(refreshed.status.licenseEnvironment, 'development');
+  // The grant caps four seats. Its first certificate signs the one allocated
+  // owner seat; normal membership activation allocates and signs each addition.
+  assert.equal(refreshed.status.seatLimit, 1); assert.equal(refreshed.details.id, ready.licenseId);
+  const stored = await loadStoredLicenseCert(ready.instanceId); assert(stored);
+  const verified = await verifyLicenseJwtDetailed(stored, ready.instanceId); assert(verified.ok);
+  assert.equal(verified.payload.licenseId, ready.licenseId); assert.equal(verified.payload.nonBillable, true); assert.equal(verified.payload.provider, 'test');
+  Object.assign(env, { CANVAS_DEPLOYMENT_MODE: 'team', CANVAS_TEAM_FEATURES_ENABLED: 'true' });
+  Object.assign(process.env, env);
+}
 
 async function assertPortAvailable(): Promise<void> {
   await new Promise<void>((resolve, reject) => {
@@ -61,6 +138,8 @@ async function main(): Promise<void> {
   assert.equal(maintenance.hostname, '127.0.0.1'); assert.equal(maintenance.port, '55433');
   assert.equal(maintenance.pathname, '/postgres'); assert.equal(maintenance.search, ''); assert.equal(maintenance.hash, '');
   assert(process.env.BOOTSTRAP_ADMIN_EMAIL && process.env.BOOTSTRAP_ADMIN_PASSWORD);
+  const workflow = process.env.CANVAS_AGENT_WORKFLOW_MULTIUSER_BROWSER_RUN === '1';
+  const controlPlaneRoot = workflow ? await fs.realpath(process.env.CANVAS_CONTROL_PLANE_TEST_ROOT ?? '') : null;
   const repo = await fs.realpath(process.cwd());
   await fs.access(path.join(repo, '.next/BUILD_ID'));
   await assertPortAvailable();
@@ -95,6 +174,7 @@ async function main(): Promise<void> {
   const administration = new Pool({ connectionString: maintenance.toString(), max: 1, connectionTimeoutMillis: 5_000, query_timeout: 30_000 });
   let database: Pool | undefined;
   let server: Child | undefined;
+  let issuer: Child | undefined;
   const children: Child[] = [];
   const abort = new AbortController();
   const signalChild = (child: Child, signal: NodeJS.Signals) => {
@@ -128,13 +208,19 @@ async function main(): Promise<void> {
     E2E_EXTERNAL_SERVER: '1', AGENT_SETTINGS_TOOLS_BROWSER_FIXTURE: receiptPath,
     AGENT_SETTINGS_TOOLS_BROWSER_RESULTS: results,
   };
-  const startChild = (args: string[], phase: string, nodeEnv: 'production' | 'test'): Child => {
+  if (workflow) Object.assign(env, { CANVAS_AGENT_WORKFLOW_MULTIUSER_BROWSER_RUN: '1',
+    CANVAS_POSTGRES_VECTOR_ENABLED: 'true', CANVAS_VECTOR_PROVIDER: 'pgvector',
+    MCP_ALLOW_PRIVATE_NETWORK: 'true', MCP_ALLOW_INSECURE_HTTP: 'true',
+    TEST_SECONDARY_EMAIL: `workflow-member-${nonce}@example.test`, TEST_SECONDARY_PASSWORD: randomBytes(24).toString('base64url'),
+    TEST_EDITOR_EMAIL: `workflow-editor-${nonce}@example.test`, TEST_EDITOR_PASSWORD: randomBytes(24).toString('base64url') });
+  const startChild = (args: string[], phase: string, nodeEnv: 'production' | 'test' | 'development', overrides: Record<string, string> = {}): Child => {
     abort.signal.throwIfAborted();
     const log = createWriteStream(path.join(root, `${phase}.log`), { mode: 0o600 });
-    const redact = (value: string) => [process.env.BOOTSTRAP_ADMIN_PASSWORD, env.BETTER_AUTH_SECRET, runtimeUrl.toString(), maintenance.toString()]
+    const redact = (value: string) => [process.env.BOOTSTRAP_ADMIN_PASSWORD, env.BETTER_AUTH_SECRET, env.TEST_SECONDARY_PASSWORD,
+      env.TEST_EDITOR_PASSWORD, runtimeUrl.toString(), maintenance.toString()]
       .filter((secret): secret is string => Boolean(secret)).reduce((text, secret) => text.replaceAll(secret, '[redacted]'), value)
       .replace(/postgres(?:ql)?:\/\/\S+/gu, '[redacted-postgres-url]');
-    const child = spawn(process.execPath, args, { cwd: repo, env: { ...env, NODE_ENV: nodeEnv }, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(process.execPath, args, { cwd: repo, env: { ...env, NODE_ENV: nodeEnv, ...overrides }, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
     const record: Child = { process: child, pid: child.pid ?? 0, ended: false, closed: Promise.resolve(null) };
     children.push(record);
     for (const stream of [child.stdout, child.stderr]) {
@@ -220,11 +306,41 @@ async function main(): Promise<void> {
     assert.equal((await database.query('SELECT COUNT(*)::integer AS count FROM "user"')).rows[0].count, 0);
     await administration.query(`COMMENT ON DATABASE "${receipt.databaseName}" IS '${marker}'`);
     env.CANVAS_DATABASE_MIGRATIONS_COMPLETED = 'true';
+    process.env.CANVAS_DATABASE_MIGRATIONS_COMPLETED = 'true';
     receipt.phase = 'bootstrap'; await persist();
-    const bootstrap = startChild(['scripts/bootstrap-admin.js', '--ensure'], 'bootstrap', 'production');
-    assert.equal(await waitChild(bootstrap, 60_000), 0, 'The official bootstrap CLI must succeed.');
+    if (workflow) {
+      // The normal first-owner setup also adopts the active owner membership.
+      // The legacy admin password CLI only creates an account and workspace.
+      const { createInitialOwner } = await import('../../app/lib/auth-setup');
+      const owner = await createInitialOwner({ name: env.BOOTSTRAP_ADMIN_NAME, email: env.BOOTSTRAP_ADMIN_EMAIL,
+        password: env.BOOTSTRAP_ADMIN_PASSWORD });
+      assert(owner.id, 'The actual first-owner setup must acknowledge the account.');
+    } else {
+      const bootstrap = startChild(['scripts/bootstrap-admin.js', '--ensure'], 'bootstrap', 'production');
+      assert.equal(await waitChild(bootstrap, 60_000), 0, 'The official bootstrap CLI must succeed.');
+    }
     const users = (await database.query('SELECT id,role FROM "user"')).rows;
     assert.equal(users.length, 1); assert.equal(users[0].role, 'admin'); receipt.actorId = String(users[0].id);
+    await persist();
+    if (workflow) {
+      assert(controlPlaneRoot);
+      issuer = startChild(['--import', 'tsx', 'scripts/helpers/agent-workflow-team-issuer-fixture.ts'], 'issuer', 'development', {
+        CANVAS_ISSUER_MAINTENANCE_DATABASE_URL: maintenance.toString(), CANVAS_CONTROL_PLANE_TEST_ROOT: controlPlaneRoot,
+      });
+      assert(Number.isSafeInteger(issuer.pid) && issuer.pid > 0);
+      receipt.issuerPid = issuer.pid; await persist();
+      const issuerDeadline = Date.now() + 120_000;
+      let ready: IssuerReady | null = null;
+      while (Date.now() < issuerDeadline && !issuer.ended) {
+        abort.signal.throwIfAborted();
+        try { await fs.access(path.join(root, 'issuer-ready.json')); ready = await readIssuerReady(root, nonce, env.CANVAS_INSTANCE_ID!); break; }
+        catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
+        await new Promise(resolve => setTimeout(resolve, 250));
+      }
+      assert(ready && !issuer.ended, 'The owned issuer must acknowledge readiness.');
+      await activateWorkflowTestLicense(ready, env);
+      env.INTEGRATION_GATEWAY_E2E_FIXTURE_URL = ready.origin;
+    }
     receipt.phase = 'host_starting'; await persist();
     server = startChild(['--import', 'tsx', 'server.js'], 'host', 'production');
     assert(server.pid > 0); receipt.serverPid = server.pid; await persist();
@@ -235,7 +351,8 @@ async function main(): Promise<void> {
       try {
         const response = await fetch(`${env.BASE_URL}/api/health`, { signal: AbortSignal.timeout(3_000) });
         const body = await response.json() as { deployment?: { mode?: string; teamFeaturesEnabled?: boolean } };
-        healthy = response.status === 200 && body.deployment?.mode === 'community' && body.deployment.teamFeaturesEnabled === false;
+        healthy = response.status === 200 && body.deployment?.mode === (workflow ? 'team' : 'community')
+          && body.deployment.teamFeaturesEnabled === workflow;
         if (healthy) break;
       } catch { /* Bounded readiness polling never changes another host. */ }
       await new Promise(resolve => setTimeout(resolve, 250));
@@ -244,7 +361,7 @@ async function main(): Promise<void> {
     await assertOwnedListener(); receipt.listenerVerified = true;
     receipt.phase = 'browser'; await persist();
     const browser = startChild([path.join(repo, 'node_modules/@playwright/test/cli.js'), 'test', '--config', 'playwright.agent-settings-tools-production.config.ts'], 'browser', 'test');
-    const browserCode = await waitChild(browser, 300_000);
+    const browserCode = await waitChild(browser, workflow ? 600_000 : 300_000);
     const browserReceipt = JSON.parse(await fs.readFile(path.join(root, 'browser-receipt.json'), 'utf8')) as { nonce: string; actorId: string; phase: string; outstanding: unknown };
     assert.equal(browserReceipt.nonce, nonce); assert.equal(browserReceipt.actorId, receipt.actorId);
     assert.equal(browserReceipt.phase, 'verified_closed'); assert.equal(browserReceipt.outstanding, null);
@@ -267,9 +384,34 @@ async function main(): Promise<void> {
       } else receipt.uncertain = true;
     }
     if (server && !server.ended) receipt.uncertain = true;
+    if (workflow) {
+      try { const { closeDatabaseConnections } = await import('../../app/lib/db'); await closeDatabaseConnections(); }
+      catch { receipt.uncertain = true; }
+    }
     if (database) { try { await database.end(); } catch { receipt.uncertain = true; } }
     try {
       await assertRoot();
+      if (workflow && issuer) {
+        assert(issuer.ended && issuer.process.exitCode === 0 && issuer.process.signalCode === null,
+          'The issuer must acknowledge its own completed cleanup.');
+        const issuerReceiptPath = path.join(root, 'issuer-recovery.json'), issuerStat = await fs.lstat(issuerReceiptPath);
+        assert(issuerStat.isFile() && !issuerStat.isSymbolicLink() && issuerStat.nlink === 1
+          && issuerStat.uid === rootStat.uid && (issuerStat.mode & 0o777) === 0o600 && issuerStat.size < 64 * 1024);
+        const issuerReceipt = JSON.parse(await fs.readFile(issuerReceiptPath, 'utf8')) as {
+          nonce: string; fixtureRoot: string; databaseName: string; instanceId: string; phase: string;
+          rootDevice: string; rootInode: string; databaseOwner: string; databaseDropped: boolean;
+          appClosed: boolean; poolsClosed: boolean; uncertain: boolean; requestsInFlight: number; processId: number;
+        };
+        assert.equal(issuerReceipt.nonce, nonce); assert.equal(issuerReceipt.fixtureRoot, root);
+        assert.equal(issuerReceipt.rootDevice, receipt.rootDevice); assert.equal(issuerReceipt.rootInode, receipt.rootInode);
+        assert.equal(issuerReceipt.databaseName, `canvas_workflow_issuer_${nonce}`);
+        assert.equal(issuerReceipt.instanceId, env.CANVAS_INSTANCE_ID); assert.equal(issuerReceipt.databaseOwner, receipt.databaseOwner);
+        assert.equal(issuerReceipt.processId, issuer.pid); assert.equal(receipt.issuerPid, issuer.pid);
+        assert.equal(issuerReceipt.phase, 'cleaned'); assert.equal(issuerReceipt.databaseDropped, true);
+        assert.equal(issuerReceipt.appClosed, true); assert.equal(issuerReceipt.poolsClosed, true);
+        assert.equal(issuerReceipt.uncertain, false); assert.equal(issuerReceipt.requestsInFlight, 0);
+        assert.equal((await administration.query('SELECT datname FROM pg_database WHERE datname=$1', [issuerReceipt.databaseName])).rowCount, 0);
+      }
       if (receipt.createAcknowledged && !receipt.uncertain && children.every(child => child.ended)) {
         for (const directory of [dataRoot, tmpRoot]) await assertDirectory(directory);
         const current = (await administration.query(`SELECT pg_get_userbyid(datdba) AS owner,current_user AS role,

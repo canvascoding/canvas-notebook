@@ -25,7 +25,7 @@ const snapshot = (): AgentWorkflowDescriptor => ({ agentId: 'workflow-agent', re
         personalChoiceAllowed: false, choices: [], selectedConnection: { label: 'Brand library', availability: 'available', status: 'unknown', scopeLabel: 'organization' } }] }] }] });
 
 async function main() {
-  const { render, screen, fireEvent, cleanup, waitFor } = await import('@testing-library/react');
+  const { render, screen, fireEvent, cleanup, waitFor, act } = await import('@testing-library/react');
   const { AgentWorkflowChoiceDialog } = await import('../app/components/agents/AgentWorkflowChoiceDialog');
   const { useWorkspaceStore } = await import('../app/store/workspace-store');
   useWorkspaceStore.setState({ activeWorkspaceId: 'personal-workflow' });
@@ -76,6 +76,147 @@ async function main() {
   const form = () => <NextIntlClientProvider locale="en" timeZone="UTC" messages={messages}>
     <AgentWorkflowChoiceDialog open agentId="workflow-agent" agentName="Design Agent" onOpenChange={() => {}} />
   </NextIntlClientProvider>;
+  const explicitContextCases = async () => {
+    type ExplicitContext = { workspaceId: string; organizationId: string; projectId: string; actorId: string };
+    type ExplicitDialogProps = React.ComponentProps<typeof AgentWorkflowChoiceDialog> & { context: ExplicitContext };
+    type RequestReceipt = { url: URL; method: string; body: Record<string, unknown> | null; signal: AbortSignal | null };
+    const team: ExplicitContext = { workspaceId: 'team-workflow', organizationId: 'workflow-org', projectId: 'workflow-project', actorId: 'workflow-member' };
+    const otherTeam: ExplicitContext = { ...team, workspaceId: 'other-team-workflow', projectId: 'other-workflow-project' };
+    const otherActor: ExplicitContext = { ...team, actorId: 'other-workflow-member' };
+    const receipts: RequestReceipt[] = [];
+    let activeContext = team, activeLabel = 'Team workflow connection', personalCount = 0, probeCount = 0;
+    let heldRead: { label: string; resolve: (value: Response) => void; receipt: RequestReceipt } | null = null;
+    let holdNextLabel: string | null = null;
+    const scopedSnapshot = (label: string) => {
+      const descriptor = snapshot(), capability = descriptor.packages[0].declarations[0].capabilities[0];
+      capability.personalChoiceAllowed = true;
+      capability.choices[0].label = label; capability.choices[1].label = `${label} alternative`;
+      capability.selectedConnection = { ...capability.choices[0] };
+      return descriptor;
+    };
+    let scopedCurrent = scopedSnapshot(activeLabel);
+    const scopedForm = (context: ExplicitContext) => {
+      const props: ExplicitDialogProps = { open: true, agentId: 'workflow-agent', agentName: 'Design Agent', onOpenChange: () => {}, context };
+      return <NextIntlClientProvider locale="en" timeZone="UTC" messages={messages}>
+        {React.createElement(AgentWorkflowChoiceDialog, props)}
+      </NextIntlClientProvider>;
+    };
+    const expectContext = (receipt: RequestReceipt, context: ExplicitContext) => {
+      assert.equal(receipt.url.pathname, '/api/agents/workflow');
+      assert.equal(receipt.url.searchParams.get('agentId'), 'workflow-agent');
+      assert.equal(receipt.url.searchParams.get('workspaceId'), context.workspaceId, 'Explicit chooser workspace must override the personal WorkspaceStore context.');
+      assert.equal(receipt.url.searchParams.get('organizationId'), context.organizationId);
+      assert.equal(receipt.url.searchParams.get('projectId'), context.projectId);
+      assert.equal(receipt.url.searchParams.has('actorId'), false, 'Actor identity keys must never become caller-supplied API authority.');
+      const keys = Array.from(receipt.url.searchParams.keys());
+      assert.equal(new Set(keys).size, keys.length, 'Context fields may not be duplicated in the URL.');
+    };
+    const expectChoiceBody = (receipt: RequestReceipt, personal = false) => {
+      assert(receipt.body);
+      assert.deepEqual(Object.keys(receipt.body).sort(), ['agentId', 'capabilityKey', personal ? 'personalSelection' : 'choiceId', 'expectedPreferenceRevision', 'expectedWorkflowRevision'].sort());
+      assert.equal(receipt.body.agentId, 'workflow-agent'); assert.equal(receipt.body.capabilityKey, capabilityKey);
+      for (const key of ['workspaceId', 'organizationId', 'projectId', 'actorId', 'ownerUserId']) assert.equal(key in receipt.body, false);
+    };
+    globalThis.fetch = async (input, init) => {
+      const url = new URL(String(input), 'http://localhost'), method = init?.method ?? 'GET';
+      const receipt: RequestReceipt = { url, method, body: method === 'PATCH' ? JSON.parse(String(init?.body)) as Record<string, unknown> : null, signal: init?.signal ?? null };
+      receipts.push(receipt);
+      assert.equal(url.pathname, '/api/agents/workflow'); assert.equal(init?.credentials, 'include');
+      if (method === 'PATCH') {
+        assert(receipt.body); assert.equal(receipt.body.expectedWorkflowRevision, scopedCurrent.workflowRevision);
+        assert.equal(receipt.body.expectedPreferenceRevision, scopedCurrent.preferenceRevision);
+        scopedCurrent.preferenceRevision += 1;
+        const capability = scopedCurrent.packages[0].declarations[0].capabilities[0];
+        if (receipt.body.personalSelection) {
+          capability.selectionOrigin = 'user'; capability.selectedKind = 'personal'; capability.selectedChoiceId = null;
+          capability.selectedConnection = { label: 'Team-context personal connection', availability: 'available', status: 'unknown', source: 'composio', scopeLabel: 'personal' };
+        } else {
+          capability.selectionOrigin = 'user'; capability.selectedChoiceId = String(receipt.body.choiceId);
+          capability.selectedConnection = { ...capability.choices.find(choice => choice.choiceId === capability.selectedChoiceId)! };
+        }
+        return response({ success: true, data: scopedCurrent });
+      }
+      if (url.searchParams.get('view') === 'personal-options') {
+        personalCount += 1; const providerRef = url.searchParams.get('providerRef'); if (providerRef) probeCount += 1;
+        return response({ success: true, data: { agentId: 'workflow-agent', workflowRevision: scopedCurrent.workflowRevision,
+          preferenceRevision: scopedCurrent.preferenceRevision, capabilityKey, alternatives: [{ alternativeKey: 'composio:canva', source: 'composio', providers: [
+            { providerRef: 'opaque-team-provider', label: 'Canva', profileLabel: activeContext.actorId === team.actorId ? 'Member profile' : 'Other member profile',
+              origin: 'personal', status: providerRef ? 'available' : 'unverified', ...(providerRef ? { noAuth: false, accounts: [
+                { accountSelectionRef: 'opaque-team-account', label: 'Explicit member account', status: 'ACTIVE', selectable: true },
+              ] } : {}) },
+          ] }] } });
+      }
+      if (holdNextLabel) {
+        const label = holdNextLabel; holdNextLabel = null;
+        return new Promise<Response>(resolve => { heldRead = { label, resolve, receipt }; });
+      }
+      return response({ success: true, data: scopedCurrent });
+    };
+    const view = render(scopedForm(team));
+    let selected = await screen.findByRole('combobox', { name: 'Connection for canva' }) as HTMLSelectElement;
+    await screen.findByRole('option', { name: 'Team workflow connection · Organization' });
+    assert.equal(useWorkspaceStore.getState().activeWorkspaceId, 'personal-workflow');
+    console.log(`CONTEXT_RECEIPT ${JSON.stringify({ requested: team.workspaceId, actual: Object.fromEntries(receipts[0].url.searchParams), hydrated: selected.value })}`);
+    expectContext(receipts[0], team);
+    assert.equal(personalCount, 0); assert.equal(probeCount, 0, 'Shared metadata opening must not probe personal accounts.');
+    fireEvent.change(selected, { target: { value: 'choice:b' } }); fireEvent.click(screen.getByRole('button', { name: 'Save choice' }));
+    await screen.findByRole('button', { name: 'Saved' });
+    const sharedWrite = receipts.find(receipt => receipt.method === 'PATCH'); assert(sharedWrite);
+    expectContext(sharedWrite, team); expectChoiceBody(sharedWrite); assert.equal(sharedWrite.body?.choiceId, 'b');
+    assert.equal(sharedWrite.body?.expectedWorkflowRevision, 1); assert.equal(sharedWrite.body?.expectedPreferenceRevision, 1);
+    fireEvent.click(screen.getByRole('button', { name: 'Choose a personal connection' }));
+    const provider = await screen.findByRole('combobox', { name: 'Personal connection' });
+    const metadataRead = receipts.find(receipt => receipt.url.searchParams.get('view') === 'personal-options'); assert(metadataRead);
+    expectContext(metadataRead, team); assert.equal(metadataRead.url.searchParams.has('providerRef'), false);
+    assert.equal(personalCount, 1); assert.equal(probeCount, 0);
+    fireEvent.change(provider, { target: { value: JSON.stringify(['composio:canva', 'opaque-team-provider']) } });
+    const account = await screen.findByRole('combobox', { name: 'Connected account' }) as HTMLSelectElement;
+    const accountRead = receipts.find(receipt => receipt.url.searchParams.has('providerRef')); assert(accountRead);
+    expectContext(accountRead, team); assert.equal(accountRead.url.searchParams.get('providerRef'), 'opaque-team-provider');
+    assert.equal(accountRead.url.searchParams.get('alternativeKey'), 'composio:canva'); assert.equal(account.value, ''); assert.equal(probeCount, 1);
+    fireEvent.change(account, { target: { value: 'opaque-team-account' } }); fireEvent.click(screen.getByRole('button', { name: 'Use this connection' }));
+    await screen.findByText('Team-context personal connection');
+    const personalWrite = receipts.filter(receipt => receipt.method === 'PATCH')[1]; assert(personalWrite);
+    expectContext(personalWrite, team); expectChoiceBody(personalWrite, true);
+    assert.deepEqual(personalWrite.body?.personalSelection, { alternativeKey: 'composio:canva', target: { kind: 'personal', source: 'composio', providerRef: 'opaque-team-provider', accountSelectionRef: 'opaque-team-account' } });
+    assert.equal(personalWrite.body?.expectedPreferenceRevision, 2);
+    // Hold a genuine controlled transport return for the old scope, then render the new scope.
+    holdNextLabel = 'Late previous team connection'; activeLabel = 'Old team fresh connection'; scopedCurrent = scopedSnapshot(activeLabel);
+    view.rerender(scopedForm({ ...team, projectId: 'pending-team-project' }));
+    await waitFor(() => assert.equal(Boolean(heldRead), true));
+    const oldScopeRead = heldRead as { label: string; resolve: (value: Response) => void; receipt: RequestReceipt } | null; assert(oldScopeRead);
+    activeContext = otherTeam; activeLabel = 'Current other team connection'; scopedCurrent = scopedSnapshot(activeLabel);
+    view.rerender(scopedForm(otherTeam));
+    selected = await screen.findByRole('combobox', { name: 'Connection for canva' }) as HTMLSelectElement;
+    await screen.findByRole('option', { name: 'Current other team connection · Organization' });
+    const scopeRead = receipts.at(-1); assert(scopeRead); expectContext(scopeRead, otherTeam);
+    assert.equal(oldScopeRead.receipt.signal?.aborted, true, 'A scope change must abort the previous read.');
+    await act(async () => { oldScopeRead.resolve(response({ success: true, data: scopedSnapshot(oldScopeRead.label) })); });
+    assert.equal(Boolean(screen.queryByRole('option', { name: 'Late previous team connection · Organization' })), false);
+    assert.equal(selected.value, 'default');
+    fireEvent.change(selected, { target: { value: 'choice:b' } }); fireEvent.click(screen.getByRole('button', { name: 'Save choice' }));
+    await screen.findByRole('button', { name: 'Saved' }); const scopeWrite = receipts.at(-1); assert(scopeWrite);
+    expectContext(scopeWrite, otherTeam); expectChoiceBody(scopeWrite); assert.equal(scopeWrite.body?.expectedPreferenceRevision, 1);
+    // Actor-only changes use the same URL, but must discard the previous actor's response and draft.
+    activeContext = team; holdNextLabel = 'Late previous actor connection'; scopedCurrent = scopedSnapshot('Previous actor connection');
+    heldRead = null; view.rerender(scopedForm(team));
+    await waitFor(() => assert.equal(Boolean(heldRead), true));
+    const oldActorRead = heldRead as { label: string; resolve: (value: Response) => void; receipt: RequestReceipt } | null; assert(oldActorRead);
+    activeContext = otherActor; scopedCurrent = scopedSnapshot('Current actor connection');
+    view.rerender(scopedForm(otherActor));
+    await screen.findByRole('option', { name: 'Current actor connection · Organization' });
+    const actorRead = receipts.at(-1); assert(actorRead); expectContext(actorRead, otherActor);
+    assert.equal(oldActorRead.receipt.signal?.aborted, true, 'An actor-only change must abort the previous read.');
+    await act(async () => { oldActorRead.resolve(response({ success: true, data: scopedSnapshot(oldActorRead.label) })); });
+    assert.equal(Boolean(screen.queryByRole('option', { name: 'Late previous actor connection · Organization' })), false);
+    const actorSelect = screen.getByRole('combobox', { name: 'Connection for canva' }) as HTMLSelectElement;
+    assert.equal(actorSelect.value, 'default'); fireEvent.change(actorSelect, { target: { value: 'choice:b' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save choice' })); await screen.findByRole('button', { name: 'Saved' });
+    const actorWrite = receipts.at(-1); assert(actorWrite); expectContext(actorWrite, otherActor); expectChoiceBody(actorWrite);
+    assert.equal(actorWrite.body?.expectedPreferenceRevision, 1);
+    cleanup();
+    console.log('PASS workflow-choice explicit context: shared and personal query-only scope, lazy metadata/account boundary, late scope/actor reads aborted without draft/CAS transfer.');
+  };
   try {
     render(form());
     const select = await screen.findByRole('combobox', { name: 'Connection for canva' }) as HTMLSelectElement;
@@ -155,6 +296,7 @@ async function main() {
     await waitFor(() => assert.equal(Boolean(screen.queryByRole('dialog')), false));
     await waitFor(() => assert.equal(document.activeElement === screen.getByRole('button', { name: 'Workflow trigger' }), true));
     cleanup();
+    await explicitContextCases();
     console.log(`PASS workflow-choice UI: shared/personal exact selection, lazy account probes, 409/503 draft+CAS fence, explicit null reset, stale no-fallback, unavailable-package fence and Escape/focus (${reads.length} reads/${writes.length} writes).`);
   } finally { cleanup(); globalThis.fetch = originalFetch; dom.window.close(); }
 }

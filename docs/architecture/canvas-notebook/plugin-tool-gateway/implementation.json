@@ -257,7 +257,7 @@
         "Strict exact-session STOP/idle/delete/bootstrap404 and unchanged package receipt cleanup PASS; independent own resources/drafts/versions/preferences/intake0 after both browser runs; foreign managed stack preserved, no container/push/deploy/default-off flag change",
         "Additional external-output fixture remains baseline RED before its first wrapper invocation: null-agent legacy identity denied before provider/signal dispatch, independently reproduced with Current and HEAD; no claim of subsequent output/archive cases or native/live-account acceptance"
       ] },
-      { "id": "6b-c", "name": "Zentrale Workflow-Konfiguration und sichere Agentenwechsel im UI", "status": "in_progress", "substeps": [
+      { "id": "6b-c", "name": "Zentrale Workflow-Konfiguration und sichere Agentenwechsel im UI", "status": "complete", "substeps": [
         { "id": "6b-c-1", "name": "Gebundene Tool-Snapshots und sichere Agentenwechsel", "status": "complete", "evidence": [
           "Detailed acceptance: evidence/step-6b-c-1-agent-tool-snapshots.md; actual React stale A snapshot and wrong B PATCH reproduced RED, then seven current-selection/read/save/ABA cases PASS without product-state or authority mocks",
           "Full Workflow regression, production build, sequential complete TypeScript, focused source/fixture ESLint and diff check PASS; immutable agent/revision save target and matching atomic metadata/config snapshot",
@@ -276,9 +276,14 @@
             "18 actual React cases, full Workflow/Gateway and both required standalone cross-repository Managed gates PASS; six isolated native PostgreSQL management cases PASS; production build, final TypeScript/ESLint and refreshed graph PASS",
             "Actual production-host Playwright 3/3 PASS (one worker/no retries15.4sec): real immutable publication, exact single skill root, central PATCH/fresh read/nativeTools preservation, genuine A/B race,390px/1280px QA and focus return; all18 acknowledged own DBs and browserDATA/TMP independently absent, foreign stack untouched"
           ] }
-        ], "evidence": ["6b-c-2a server projection and6b-c-2b bound central workflow editor locally accepted; actual multi-user Admin/User acceptance remains6b-c-3."] },
-        { "id": "6b-c-3", "name": "Tatsaechliche Admin-/Nutzer-Abnahme der Workflow-Einstellungen", "status": "pending", "evidence": [] }
-      ], "evidence": [] },
+        ], "evidence": ["6b-c-2a server projection and6b-c-2b bound central workflow editor locally accepted; actual multi-user Admin/User acceptance completed in6b-c-3."] },
+        { "id": "6b-c-3", "name": "Tatsaechliche Admin-/Nutzer-Abnahme der Workflow-Einstellungen", "status": "complete", "evidence": [
+          "Detailed acceptance: evidence/step-6b-c-3-admin-user-acceptance.md; actual explicit chooser context RED to GREEN, actor/scope cancellation, exact query-only selectors and safe revision ACK fences; actual390px overflow corrected",
+          "Full Workflow regression with18 management/seven Panel races/chooser context and actual local SDK/MCP gates PASS; production build, post-build whole-tree TypeScript, changed-source ESLint and fresh graph PASS",
+          "Actual isolated native PostgreSQL production-host Playwright3/3 PASS one worker/no retries56.8sec; real CP claim/non-billable Development grant/refresh and normal membership activation, three authenticated actors, exact skill/pin/native tools, central and own CAS conflicts, independent connection/package revoke,1280Light/390Dark inspected",
+          "Final verified_closed/no outstanding or forbidden writes; own issuer/host closed, independent all22 own DBs/DATA/TMP absent including separately audited preserved attempts, foreign stack unchanged; no container/push/deploy/default-off flag change"
+        ] }
+      ], "evidence": ["6b-c complete: bound native tool snapshots, central configuration and actual Admin/Member settings/Chat acceptance; OAuth return/native Mobile/final shared runtime remain6b-d/e/f."] },
       { "id": "6b-d", "name": "Gemeinsame MCP Apps und gebundene Browser-/Desktop-OAuth-Rueckkehr", "status": "pending", "evidence": [] },
       { "id": "6b-e", "name": "Versionierte native Mobile-Ressourcen-, Verbindungs- und Chat-Vertraege", "status": "pending", "evidence": [] },
       { "id": "6b-f", "name": "Gemeinsamer Workflow mit zwei Nutzern und finaler Client-Vertragsabnahme", "status": "pending", "evidence": [] }
