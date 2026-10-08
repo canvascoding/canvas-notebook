@@ -72,6 +72,41 @@ async function main() {
         await response.arrayBuffer();
       }
     }
+    const desktopFlow='A'.repeat(43);
+    const desktopCallback='/api/composio/shared/desktop/callback?'+new URLSearchParams({flow:desktopFlow,status:'success',connected_account_id:'ca_own_callback'});
+    for(const site of ['cross-site','same-site']) {
+      for(const metadata of [{},{'sec-fetch-mode':'navigate','sec-fetch-dest':'document'}]) {
+        const response=await send(base+desktopCallback,{headers:{...callbackHeaders,'sec-fetch-site':site,...metadata}});
+        assert.equal(response.status,200,'The genuine shared desktop document return with an app cookie must reach its collector');
+        assert.deepEqual(await response.json(),{cookie:'fixture',authorization:null,internal:null});
+      }
+    }
+    for(const query of [`flow=${desktopFlow}`,`flow=${desktopFlow}&status=failed`,`flow=${desktopFlow}&error=access_denied`,
+      `flow=${desktopFlow}&status=failed&error=access_denied&connected_account_id=ca_own_callback`]) {
+      const response=await send(base+'/api/composio/shared/desktop/callback?'+query,{headers:{...callbackHeaders,'sec-fetch-site':'cross-site','sec-fetch-mode':'navigate','sec-fetch-dest':'document'}});
+      assert.equal(response.status,200,'Legacy and failed shared desktop returns retain exact navigation access');await response.arrayBuffer();
+    }
+    for(const scenario of [
+      {method:'POST',path:desktopCallback,headers:{}},{method:'HEAD',path:desktopCallback,headers:{}},
+      {path:desktopCallback,headers:{'sec-fetch-mode':'cors','sec-fetch-dest':'empty'}},
+      {path:desktopCallback,headers:{'sec-fetch-mode':'navigate','sec-fetch-dest':'iframe'}},
+      {path:desktopCallback,headers:{origin:'https://'+previewHost}},{path:desktopCallback,headers:{origin:'null'}},
+      {path:'/api/composio/shared/desktop/callback/extra?flow='+desktopFlow,headers:{}},
+      {path:'/api/composio/shared/desktop/callback?flow='+desktopFlow+'&flow='+desktopFlow,headers:{}},
+      {path:'/api/composio/shared/desktop/callback?flow='+'B'.repeat(43),headers:{}},
+      {path:'/api/composio/shared/desktop/callback?flow='+desktopFlow+'&status=success',headers:{}},
+      {path:'/api/composio/shared/desktop/callback?flow='+desktopFlow+'&status=unknown',headers:{}},
+      {path:'/api/composio/shared/desktop/callback?flow='+desktopFlow+'&connected_account_id=ca_own_callback',headers:{}},
+      {path:desktopCallback+'&connected_account_id=other',headers:{}},{path:desktopCallback+'&error=access_denied',headers:{}},
+      {path:desktopCallback+'&actor=fixture',headers:{}},
+      {path:'/api/composio/shared/desktop/callback?'+new URLSearchParams({flow:desktopFlow,status:'success',connected_account_id:'ca own'}),headers:{}},
+      {path:'/api/composio/shared/desktop/callback?'+new URLSearchParams({flow:desktopFlow,status:'success',connected_account_id:'a'.repeat(257)}),headers:{}},
+    ]) {
+      const response=await send(base+scenario.path,{method:scenario.method,headers:{...callbackHeaders,'sec-fetch-site':'cross-site',...scenario.headers}});
+      assert.equal(response.status,403,'The shared desktop exception must not widen the cross-origin cookie boundary');await response.arrayBuffer();
+    }
+    const previewDesktop=await send(base+desktopCallback,{headers:{...callbackHeaders,host:previewHost,'sec-fetch-site':'cross-site','sec-fetch-mode':'navigate','sec-fetch-dest':'document'}});
+    assert.equal(previewDesktop.status,404);await previewDesktop.arrayBuffer();
     for(const scenario of [
       {method:'POST',path:callback,headers:{}},
       {method:'HEAD',path:callback,headers:{}},

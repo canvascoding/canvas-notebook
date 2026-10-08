@@ -198,9 +198,13 @@ export default async function middleware(request: NextRequest) {
     const composioReturn = request.nextUrl.searchParams;
     if (request.method === 'GET' && pathname === '/api/composio/shared/desktop/callback'
       && /^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$/u.test(composioReturn.get('flow') || '')
-      && [...composioReturn.keys()].every(key => (key === 'flow' || key === 'error') && composioReturn.getAll(key).length === 1)
+      && [...composioReturn.keys()].every(key => ['flow', 'error', 'status', 'connected_account_id'].includes(key) && composioReturn.getAll(key).length === 1)
       && (!composioReturn.has('error') || ['access_denied', 'server_error', 'temporarily_unavailable', 'invalid_request',
         'unauthorized_client', 'unsupported_response_type', 'invalid_scope'].includes(composioReturn.get('error') || ''))
+      && (!composioReturn.has('status') || ['success', 'failed'].includes(composioReturn.get('status') || ''))
+      && (!composioReturn.has('connected_account_id') || composioReturn.has('status')
+        && /^[^\s\x00-\x1f\x7f]{1,256}$/u.test(composioReturn.get('connected_account_id') || ''))
+      && (composioReturn.get('status') !== 'success' || composioReturn.has('connected_account_id') && !composioReturn.has('error'))
       && (!request.headers.get('sec-fetch-mode') || request.headers.get('sec-fetch-mode') === 'navigate')
       && (!request.headers.get('sec-fetch-dest') || request.headers.get('sec-fetch-dest') === 'document')) {
       const response = nextWithCommonHeaders();

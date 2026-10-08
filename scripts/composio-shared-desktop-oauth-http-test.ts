@@ -168,6 +168,7 @@ async function main() {
     const startRoute = await import('../app/api/composio/shared-connections/[connectionRef]/connect/route');
     const desktopRoute = await import('../app/api/composio/shared-connections/[connectionRef]/connect/desktop/route');
     const callbackRoute = await import('../app/api/composio/shared/desktop/callback/route');
+    const proxy = (await import('../proxy')).default;
     const http = await import('../app/api/composio/shared/http');
     const mcpHttp = await import('../app/api/mcp/shared-connections/http');
     const { SecretReadinessError } = await import('../app/lib/secrets/readiness');
@@ -234,22 +235,61 @@ async function main() {
       assert.equal(response.status, 400); assert.equal(response.headers.get('Cache-Control'), 'no-store');
     }
     assert.equal(provider.calls.length, callsAfterStart); assert.deepEqual(await current(ref), first);
+    const pending = provider.accounts.get(orgProfile.composioUserId)?.find(account => account.status === 'INITIATED'); assert(pending);
+    const callbackReader = await transport.openDb(); let originalCallbackRows: unknown;
+    try { originalCallbackRows = await callbackReader.all('SELECT to_jsonb(row) AS value FROM composio_shared_desktop_oauth_transactions row WHERE connection_ref=$1', [ref]); }
+    finally { await callbackReader.close(); }
+    const callbackSessionReads = fixture.sessionReads();
     for (const query of [`flow=${flow.state}&flow=${flow.state}`, `flow=${flow.state}&error=SECRET_UNSAFE_ERROR`,
-      `flow=${flow.state}&actor=http-owner`, `flow=${flow.state}&state=${flow.state}`, `flow=${flow.state.slice(0, 42)}B`]) {
+      `flow=${flow.state}&actor=http-owner`, `flow=${flow.state}&state=${flow.state}`, `flow=${flow.state.slice(0, 42)}B`,
+      new URLSearchParams({ flow: flow.state, status: 'success', connected_account_id: `${pending.id}-different` }).toString(),
+      new URLSearchParams({ flow: flow.state, status: 'failed', connected_account_id: `${pending.id}-different` }).toString(),
+      `flow=${flow.state}&status=success`, `flow=${flow.state}&status=unknown`,
+      new URLSearchParams({ flow: flow.state, connected_account_id: pending.id }).toString(),
+      new URLSearchParams({ flow: flow.state, status: 'success', connected_account_id: pending.id, error: 'access_denied' }).toString(),
+      new URLSearchParams({ flow: flow.state, status: 'success', connected_account_id: ` ${pending.id}` }).toString(),
+      new URLSearchParams({ flow: flow.state, status: 'success', connected_account_id: `${pending.id} other` }).toString(),
+      new URLSearchParams({ flow: flow.state, status: 'success', connected_account_id: 'x'.repeat(257) }).toString(),
+      `flow=${flow.state}&status=failed&status=failed`,
+      new URLSearchParams({ flow: flow.state, status: 'success', connected_account_id: pending.id }).toString() + '&connected_account_id=other']) {
       const response = await callbackRoute.GET(request(null, `/api/composio/shared/desktop/callback?${query}`));
       assert.equal(response.status, 400); assert.equal(response.headers.get('Cache-Control'), 'no-store');
-      const html = await response.text(); assert.equal(html.includes(flow.state), false); assert.equal(html.includes('SECRET_UNSAFE_ERROR'), false);
+      const html = await response.text(); assert.equal(html.includes(flow.state), false); assert.equal(html.includes('SECRET_UNSAFE_ERROR'), false); assert.equal(html.includes(pending.id), false);
     }
-    const pending = provider.accounts.get(orgProfile.composioUserId)?.find(account => account.status === 'INITIATED'); assert(pending);
+    assert.equal(provider.calls.length, callsAfterStart); assert.equal(fixture.sessionReads(), callbackSessionReads);
+    assert.deepEqual(await current(ref), first);
+    for (const query of [`flow=${flow.state}&status=unknown`, `flow=${flow.state}&status=success`,
+      `flow=${flow.state}&status=failed&status=failed`,
+      new URLSearchParams({ flow: flow.state, status: 'success', connected_account_id: `${pending.id} other` }).toString(),
+      new URLSearchParams({ flow: flow.state, status: 'success', connected_account_id: pending.id, error: 'access_denied' }).toString()]) {
+      const denied = await proxy(request(null, `/api/composio/shared/desktop/callback?${query}`));
+      assert.equal(denied.status, 401); assert.equal(denied.headers.get('x-middleware-next'), null);
+    }
+    for (const [pathname, init] of [[`${desktopPath(ref)}?state=${flow.state}`, {}],
+      ['/api/composio/shared/desktop/callback', { method: 'POST' }],
+      [`/api/composio/shared/desktop/callback/extra?flow=${flow.state}`, {}],
+      [`/api/composio/shared/desktop/callback?flow=${flow.state}`, { headers: { 'sec-fetch-mode': 'cors', 'sec-fetch-dest': 'empty' } }]] as const) {
+      assert.equal((await proxy(request(null, pathname, init))).status, 401);
+    }
+    const unchangedCallbackReader = await transport.openDb();
+    try { assert.deepEqual(await unchangedCallbackReader.all('SELECT to_jsonb(row) AS value FROM composio_shared_desktop_oauth_transactions row WHERE connection_ref=$1', [ref]), originalCallbackRows); }
+    finally { await unchangedCallbackReader.close(); }
     const callbackHref = provider.completeOAuth(pending.id); assert(callbackHref);
     const callbackUrl = new URL(callbackHref); assert.equal(callbackUrl.pathname, '/api/composio/shared/desktop/callback'); assert.equal(callbackUrl.searchParams.get('flow'), flow.state);
+    callbackUrl.searchParams.set('status', 'success'); callbackUrl.searchParams.set('connected_account_id', pending.id);
     const beforeCollect = { calls: provider.calls.length, sessions: fixture.sessionReads(), queries: fixture.queries() };
+    const anonymousCallbackProxy = await proxy(request(null, callbackUrl.pathname + callbackUrl.search,
+      { headers: { 'sec-fetch-mode': 'navigate', 'sec-fetch-dest': 'document' } }));
+    assert.equal(anonymousCallbackProxy.status, 200); assert.equal(anonymousCallbackProxy.headers.get('x-middleware-next'), '1');
+    assert.equal(anonymousCallbackProxy.headers.get('Cache-Control'), 'no-store'); assert.equal(anonymousCallbackProxy.headers.get('Referrer-Policy'), 'no-referrer');
     const callback = await callbackRoute.GET(request(null, callbackUrl.pathname + callbackUrl.search, { headers: { 'sec-fetch-mode': 'navigate', 'sec-fetch-dest': 'document' } }));
     assert.equal(callback.status, 200); assert.equal(provider.calls.length, beforeCollect.calls); assert.equal(fixture.sessionReads(), beforeCollect.sessions);
     assert(fixture.queries() > beforeCollect.queries && fixture.queries() - beforeCollect.queries <= 20, 'Public collection uses bounded SQL without authentication or SDK.');
-    const html = await callback.text(); assert.equal(html.includes(flow.state), false); assert.equal(html.includes(ref), false);
+    const html = await callback.text(); assert.equal(html.includes(flow.state), false); assert.equal(html.includes(ref), false); assert.equal(html.includes(pending.id), false);
     assert.equal(callback.headers.get('Cache-Control'), 'no-store'); assert.equal(callback.headers.get('Referrer-Policy'), 'no-referrer'); assert(callback.headers.get('Content-Security-Policy')?.includes("default-src 'none'"));
     assert.deepEqual(await current(ref), first, 'Collection cannot publish an account binding.');
+    assert.equal((await callbackRoute.GET(request(null, callbackUrl.pathname + callbackUrl.search))).status, 200);
+    assert.equal(provider.calls.length, beforeCollect.calls); assert.equal(fixture.sessionReads(), beforeCollect.sessions);
     const complete = await assertSummary(await desktopRoute.POST(request(token, `${desktopPath(ref)}?workspaceId=${manager.workspaceId}`,
       { method: 'POST', body: JSON.stringify({ state: flow.state, action: 'finalize' }) }), params(ref)), ref, flow.state);
     assert.equal(complete.status, 'completed'); const published = await current(ref); assert.equal(published.resource.bindingRevision, first.resource.bindingRevision + 1);
@@ -274,6 +314,31 @@ async function main() {
     try { assert.deepEqual(await recoveryReader.all('SELECT to_jsonb(row) AS value FROM composio_shared_desktop_oauth_commits row WHERE connection_ref=$1', [ref]), completedReceipt); }
     finally { await recoveryReader.close(); }
     console.log('PASS actual BetterAuth original session + strict desktop requests, safe DTO/HTML, collect-only SDK0 and exactly one account publication.');
+
+    for (const [status, error, includeAccount, expectedStatus] of [
+      ['failed', undefined, false, 'failed'], ['failed', 'access_denied', true, 'cancelled'],
+      [undefined, 'access_denied', false, 'cancelled'], [undefined, undefined, false, 'callback_received'],
+    ] as const) {
+      const accountIds = new Set(provider.accounts.get(orgProfile.composioUserId)?.map(account => account.id));
+      const record = await create(), failureRef = record.resource.connectionRef, failureFlow = (await start(record)).summary;
+      const capturedPending = provider.accounts.get(orgProfile.composioUserId)?.find(account => !accountIds.has(account.id)); assert(capturedPending);
+      const query = new URLSearchParams({ flow: failureFlow.state });
+      if (status !== undefined) query.set('status', status);
+      if (error !== undefined) query.set('error', error);
+      if (includeAccount) query.set('connected_account_id', capturedPending.id);
+      assert.equal((await proxy(request(null, `/api/composio/shared/desktop/callback?${query}`))).headers.get('x-middleware-next'), '1');
+      const beforeFailure = { calls: provider.calls.length, sessions: fixture.sessionReads() };
+      const callback = await callbackRoute.GET(request(null, `/api/composio/shared/desktop/callback?${query}`));
+      assert.equal(callback.status, 200); assert.equal(callback.headers.get('Cache-Control'), 'no-store');
+      const html = await callback.text(); assert.equal(html.includes(failureFlow.state), false); assert.equal(html.includes(capturedPending.id), false);
+      assert.equal(provider.calls.length, beforeFailure.calls); assert.equal(fixture.sessionReads(), beforeFailure.sessions);
+      const summary = await assertSummary(await desktopRoute.GET(request(token, `${desktopPath(failureRef)}?state=${failureFlow.state}&workspaceId=${manager.workspaceId}`), params(failureRef)), failureRef, failureFlow.state);
+      assert.equal(summary.status, expectedStatus); assert.deepEqual(await current(failureRef), record);
+      const failureReader = await transport.openDb();
+      try { assert.equal((await failureReader.get('SELECT COUNT(*)::integer AS count FROM composio_shared_desktop_oauth_commits WHERE connection_ref=$1', [failureRef]) as { count: number }).count, 0); }
+      finally { await failureReader.close(); }
+    }
+    console.log('PASS exact captured callback account, strict provider status metadata, no denied row changes, SDK0/publication0 and unchanged legacy callbacks.');
 
     const cancelledRecord = await create(true), cancelledRef = cancelledRecord.resource.connectionRef, cancelledIntent = randomBytes(32).toString('base64url');
     const beforeCancel = provider.calls.length;
@@ -302,6 +367,9 @@ async function main() {
     const recoveredStart = await assertSummary(await desktopRoute.GET(request(token, `${desktopPath(unconfirmed.resource.connectionRef)}?intent=${lostIntent}&workspaceId=${manager.workspaceId}`), params(unconfirmed.resource.connectionRef)), unconfirmed.resource.connectionRef);
     assert.equal(recoveredStart.status, 'starting'); assert.equal(recoveredStart.code, 'CONNECTION_DESKTOP_OAUTH_START_UNCONFIRMED'); assert(provider.calls.length > beforeLost);
     const callsAfterLoss = provider.calls.length; await start(unconfirmed, lostIntent); assert.equal(provider.calls.length, callsAfterLoss, 'Intent recovery never repeats the uncertain account-link request.');
+    const unknownAccountCallback = await callbackRoute.GET(request(null, `/api/composio/shared/desktop/callback?${new URLSearchParams({ flow: recoveredStart.state, status: 'success', connected_account_id: pending.id })}`));
+    assert.equal(unknownAccountCallback.status, 400); assert.equal(provider.calls.length, callsAfterLoss);
+    assert.equal((await assertSummary(await desktopRoute.GET(request(token, `${desktopPath(unconfirmed.resource.connectionRef)}?intent=${lostIntent}&workspaceId=${manager.workspaceId}`), params(unconfirmed.resource.connectionRef)), unconfirmed.resource.connectionRef)).status, 'starting');
     console.log('PASS durable early intent cancellation, no-auth separate ACK and lost-link ACK recovery without relinking.');
 
     const denied = await create(), deniedFlow = (await start(denied)).summary;

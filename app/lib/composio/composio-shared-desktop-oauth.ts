@@ -273,15 +273,30 @@ export async function startSharedComposioDesktopOAuth(input: SharedComposioDeskt
 }
 
 /** Anonymous collection performs bounded SQL only, and cannot publish or select an account. */
-export async function collectSharedComposioDesktopOAuthCallback(state: string, providerError?: string | null): Promise<void> {
+export async function collectSharedComposioDesktopOAuthCallback(state: string, providerError?: string | null,
+  providerCallback?: { status: 'success' | 'failed'; connectedAccountId?: string }): Promise<void> {
   sharedComposioDesktopStateHash(state);
+  const callback = providerCallback === undefined ? undefined : z.object({ status: z.enum(['success', 'failed']),
+    connectedAccountId: z.string().min(1).max(256).regex(/^[^\s\x00-\x1f\x7f]{1,256}$/u).optional(),
+  }).strict().safeParse(providerCallback);
+  if (callback && (!callback.success || callback.data.status === 'success' && (!callback.data.connectedAccountId || providerError))) {
+    fail('invalid_request', 'The shared app sign-in response is invalid.', 400);
+  }
   const database = await openDb();
   try {
     await database.run('BEGIN');
-    const row = await readRow(state, database, true); await expire(database, row);
+    const row = await readRow(state, database, true);
+    if (callback?.success && callback.data.connectedAccountId !== undefined) {
+      const snapshot = await openSnapshot(row);
+      if (snapshot.pendingAccountId === null || snapshot.pendingAccountId !== callback.data.connectedAccountId) {
+        fail('invalid_request', 'The shared app sign-in response does not match its captured account.', 400);
+      }
+    }
+    await expire(database, row);
     if (['starting', 'waiting'].includes(row.status)) {
-      if (providerError) await finish(database, row, providerError === 'access_denied' ? 'cancelled' : 'failed');
-      else {
+      if (providerError || callback?.success && callback.data.status === 'failed') {
+        await finish(database, row, providerError === 'access_denied' ? 'cancelled' : 'failed');
+      } else {
         const now = Date.now();
         await database.run(`UPDATE ${FLOW_TABLE} SET status='callback_received',callback_received_at=$1,updated_at=$1 WHERE state_hash=$2`, [now, row.state_hash]);
       }

@@ -8,7 +8,11 @@ const callbackSchema = z.object({
   flow: z.string().regex(/^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$/u),
   error: z.enum(['access_denied', 'server_error', 'temporarily_unavailable', 'invalid_request',
     'unauthorized_client', 'unsupported_response_type', 'invalid_scope']).optional(),
-}).strict();
+  status: z.enum(['success', 'failed']).optional(),
+  connected_account_id: z.string().min(1).max(256)
+    .regex(/^[^\s\x00-\x1f\x7f]{1,256}$/u).optional(),
+}).strict().refine(value => value.status === undefined ? value.connected_account_id === undefined
+  : value.status !== 'success' || value.connected_account_id !== undefined && value.error === undefined);
 
 function sharedComposioDesktopCallbackHtml(status: number, received = false): NextResponse {
   // All content is static: neither routing proofs nor provider error text enter the document.
@@ -37,7 +41,8 @@ export async function GET(request: NextRequest) {
       if (query.getAll(key).length !== 1) return sharedComposioDesktopCallbackHtml(400);
     }
     const input = callbackSchema.parse(Object.fromEntries(query));
-    await collectSharedComposioDesktopOAuthCallback(input.flow, input.error);
+    await collectSharedComposioDesktopOAuthCallback(input.flow, input.error, input.status === undefined ? undefined
+      : { status: input.status, ...(input.connected_account_id !== undefined ? { connectedAccountId: input.connected_account_id } : {}) });
     return sharedComposioDesktopCallbackHtml(200, true);
   } catch (error) {
     const status = error instanceof z.ZodError ? 400 : error instanceof IntegrationConnectionError
