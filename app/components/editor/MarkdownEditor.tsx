@@ -121,6 +121,7 @@ import { canRenderCollaborationDocument } from '@/app/lib/collaboration/editor-p
 import { MarkdownModeBar, MarkdownRichMigration, MarkdownSaveState, useLiveMarkdown, type MarkdownDocumentMode } from './MarkdownDocumentModes';
 import { isMarkdownSourceModeSupported } from '@/app/lib/editor/markdown-mode-availability';
 import { MarkdownTableMenu } from './MarkdownTableMenu';
+import { MarkdownInsertDialog } from './MarkdownInsertDialog';
 import { MarkdownSelectionMenu } from './MarkdownSelectionMenu';
 import { MarkdownRenderer } from '@/app/components/shared/MarkdownRenderer';
 import { ClipboardCopyButton } from '@/app/components/shared/ClipboardCopyButton';
@@ -3883,6 +3884,7 @@ function MarkdownToolbar({
   onImageDialogOpenChange,
   onOpenRichBlockDialog,
   onOpenTableDialog,
+  onOpenMarkdownDialog,
 }: {
   editor: MarkdownEditorWithMarkdown | null;
   filePath?: string;
@@ -3895,6 +3897,7 @@ function MarkdownToolbar({
   onImageDialogOpenChange: (open: boolean, range?: Range) => void;
   onOpenRichBlockDialog: (kind: RichBlockKind, range?: Range) => void;
   onOpenTableDialog: (range?: Range | null) => void;
+  onOpenMarkdownDialog?: (range?: Range) => void;
 }) {
   const t = useTranslations('notebook');
   const [linkDialogOpen, setLinkDialogOpen] = useState(false);
@@ -4200,6 +4203,10 @@ function MarkdownToolbar({
             <ToolbarDropdownItem Icon={Table2} label={labels.items.table.title} disabled={!canUseCommands} onSelect={() => onOpenTableDialog(getCurrentToolbarRange())} />
             <ToolbarDropdownItem Icon={SmilePlus} label={labels.items.emoji.title} disabled={!canUseCommands} onSelect={() => onOpenEmojiDialog(getCurrentToolbarRange())} />
             <ToolbarDropdownItem Icon={AtSign} label={labels.items.mention.title} disabled={!canUseCommands} onSelect={() => editor?.chain().focus().insertContent('@').run()} />
+            {onOpenMarkdownDialog ? <>
+              <DropdownMenuSeparator />
+              <ToolbarDropdownItem Icon={FileText} label={t('markdownInsert.title')} disabled={!canUseCommands} onSelect={() => onOpenMarkdownDialog(getCurrentToolbarRange())} />
+            </> : null}
           </DropdownMenuContent>
         </DropdownMenu>
 
@@ -4472,6 +4479,7 @@ function MobileMarkdownToolbar({
   onImageDialogOpenChange,
   onOpenEmojiDialog,
   onOpenTableDialog,
+  onOpenMarkdownDialog,
   onSourceMode,
   showSourceModeSwitch,
   visible,
@@ -4484,6 +4492,7 @@ function MobileMarkdownToolbar({
   onImageDialogOpenChange: (open: boolean, range?: Range) => void;
   onOpenEmojiDialog: (range?: Range) => void;
   onOpenTableDialog: (range?: Range | null) => void;
+  onOpenMarkdownDialog?: (range?: Range) => void;
   onSourceMode: () => void;
   showSourceModeSwitch: boolean;
   visible: boolean;
@@ -4763,6 +4772,14 @@ function MobileMarkdownToolbar({
             <Type className="h-5 w-5" />
           </MobileToolbarButton>
         ) : null}
+        {onOpenMarkdownDialog ? <MobileToolbarButton label={t('markdownInsert.title')} disabled={!canUseCommands} onClick={() => {
+          const range = restoreSavedRange();
+          if (!range) return;
+          setSheet(null);
+          onOpenMarkdownDialog(range);
+        }}>
+          <FileText className="h-5 w-5" />
+        </MobileToolbarButton> : null}
         <MobileToolbarButton
           label={t('markdownEditorMobileHideKeyboard')}
           disabled={!canUseCommands}
@@ -4841,6 +4858,7 @@ export function RichMarkdownEditor({
     setViewportElement(element);
   }, []);
   const [tableDialogOpen, setTableDialogOpen] = useState(false);
+  const [markdownDialog, setMarkdownDialog] = useState<{ target: EditorRangeTarget | null } | null>(null);
   const [tableDialogTarget, setTableDialogTarget] = useState<EditorRangeTarget | null>(null);
   const [imageDialogOpen, setImageDialogOpen] = useState(false);
   const [imageDialogSeed, setImageDialogSeed] = useState<ImageDialogSeed>({ id: 0 });
@@ -4858,6 +4876,8 @@ export function RichMarkdownEditor({
     || collaboration.status === 'degraded'
   );
   const effectiveReadOnly = readOnly || collaborationReadOnly;
+  // Legacy XML must finish the existing migration before this action is safe.
+  const markdownInsertionAvailable = !collaborationEnabled || collaboration?.session?.representation === 'tiptap_blocks';
   const labels = useMemo(() => createSlashCommandLabels(t), [t]);
   const wikiLabels = useMemo(() => ({
     empty: t('markdownEditorWikiNoMatch'),
@@ -4883,6 +4903,11 @@ export function RichMarkdownEditor({
     const target = dialogEditorRef.current ? createEditorRangeTarget(dialogEditorRef.current, range ?? undefined) : null;
     setTableDialogTarget(target);
     setTableDialogOpen(true);
+  }, []);
+  const openMarkdownDialog = useCallback((range?: Range) => {
+    const current = dialogEditorRef.current;
+    if (!current || current.isDestroyed || !current.isEditable) return;
+    setMarkdownDialog({ target: createEditorRangeTarget(current, range) });
   }, []);
   const handleTableDialogOpenChange = useCallback((open: boolean) => {
     setTableDialogOpen(open);
@@ -5512,11 +5537,14 @@ export function RichMarkdownEditor({
           showSourceModeSwitch={!collaborationEnabled && layout === 'document'}
           onImageDialogOpenChange={openImageDialogFromToolbar}
           onOpenTableDialog={openTableDialogAtRange}
+          onOpenMarkdownDialog={markdownInsertionAvailable ? openMarkdownDialog : undefined}
         />
       ) : null}
       {!effectiveReadOnly ? (
         <MarkdownTableDialog open={tableDialogOpen} onOpenChange={handleTableDialogOpenChange} onInsert={insertTable} />
       ) : null}
+      {markdownDialog ? <MarkdownInsertDialog editor={markdownEditor} target={markdownDialog.target}
+        frontmatter={frontmatter} readOnly={effectiveReadOnly} onClose={() => setMarkdownDialog(null)} /> : null}
       {!effectiveReadOnly && richBlockDialog ? (
         <MarkdownRichBlockDialog
           key={`rich-block-${richBlockDialog.id}`}
@@ -5537,7 +5565,7 @@ export function RichMarkdownEditor({
           target={emojiDialogSeed.target}
         />
       ) : null}
-      {!effectiveReadOnly ? (
+      {!effectiveReadOnly && !markdownDialog ? (
         <MobileMarkdownToolbar
           actions={slashCommandActions}
           editor={markdownEditor}
@@ -5547,6 +5575,7 @@ export function RichMarkdownEditor({
           onImageDialogOpenChange={openImageDialogFromToolbar}
           onOpenEmojiDialog={openEmojiDialogFromToolbar}
           onOpenTableDialog={openTableDialogAtRange}
+          onOpenMarkdownDialog={markdownInsertionAvailable ? openMarkdownDialog : undefined}
           onSourceMode={onSourceMode}
           showSourceModeSwitch={!collaborationEnabled && layout === 'document'}
           visible={isMobileToolbarVisible}

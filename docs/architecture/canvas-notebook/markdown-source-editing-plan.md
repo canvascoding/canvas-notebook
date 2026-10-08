@@ -1,6 +1,6 @@
 # Markdown einfügen und verfügbare Bearbeitungsmodi
 
-Stand: 2026-10-08. Entschiedener Umsetzungsvorschlag nach Codeprüfung und Plugin-Recherche; Produktcode noch unverändert.
+Stand: 2026-10-08. Umsetzung des nach Codeprüfung und Plugin-Recherche gewählten Vorschlags; Abnahme unten dokumentiert.
 Branch: `codex/markdown-source-roundtrip-plan`.
 
 ## Empfehlung
@@ -76,10 +76,32 @@ Der gelesene Skill `canvas-local-team-seat-dev` („Run local Canvas production 
 
 ## Evidenz und Grenzen dieser Planung
 
-Die Diagnose wurde am aktuellen Quellcode verifiziert. Der lokale Worktree besitzt noch keinen eigenen GitNexus-Index; der ältere Haupt-Checkout-Index wurde nur zur Navigation verwendet. Dessen frühere Impact-Analyse meldete `CRITICAL` für gemeinsam genutzten Editor und Codec. Vor der Implementierung den Branch indexieren und die tatsächlich geänderten Symbole erneut prüfen. Eine kleine Ergänzung am Editor vermeidet den deutlich größeren Umbau von Speicherpfaden und Repräsentationsmigrationen.
+Die Diagnose wurde am Quellcode des Planungsstands verifiziert; die Zeilenangaben oben beziehen sich auf diesen Stand. Für die Implementierung wurde der Branch eigens mit GitNexus indexiert und der Wirkungsbereich der geänderten Symbole geprüft. Der gemeinsam genutzte Editor-Wrapper hat sieben direkte Nutzer und 23 mittelbar betroffene Symbole (`CRITICAL`), weshalb lokale Felder und Gäste ausdrücklich mitgeprüft werden. Die eigentlichen Toolbar-Ergänzungen betreffen hauptsächlich den Haupt- und Gasteditor. Speicherpfade und Repräsentationsmigrationen bleiben unverändert.
 
 Bereits in der vorherigen Analyse bestanden 5 Source-Binding- und 22 lokale Dokument-/Owner-Tests sowie vier isolierte Source-Einfügeversuche. Diese Ergebnisse belegen den bestehenden lokalen Source-Kern.
 
 Für die vereinfachte Empfehlung zusätzlich ausgeführt: isolierter In-Memory-Test mit JSDOM und echtem Tiptap/Yjs gegen den aktuellen Quellcode. `insertContentAt` mit Markdown-Inhalt fügte Überschrift, Fettdruck, Liste und Codeblock zwischen vorhandene Blöcke ein. Bestehende Blöcke und IDs blieben unverändert, ein zweiter Yjs-Peer konvergierte, `validateRichMarkdownYDoc` bestand und Undo/Redo stellte die vollständigen Vorher-/Nachher-Dokumente wieder her. Das belegt den vorhandenen technischen Einfügepfad; der geplante Dialog und seine Fehlerfälle sind noch nicht implementiert oder abgenommen.
 
-Kein Produktcode verändert; kein Browser, laufender App-/Serverintegrationstest oder vollständiger Build ausgeführt.
+## Umsetzung und Abnahme
+
+- `00fba7674` blendet nicht unterstützten Rich-Source aus und sichert alte Modusauswahlen ab. Die gemeinsame Regel steht in `app/lib/editor/markdown-mode-availability.ts`.
+- `MarkdownInsertDialog.tsx` wird von Desktop und mobiler Werkzeugleiste verwendet. Der Dialog behält abgelehnten Text; Rechteentzug oder ein anderer Editor übernehmen keinen alten Einfügeauftrag.
+- `app/lib/editor/markdown-insertion.ts` verwendet den vorhandenen Codec und bereitet eine native Tiptap-Transaktion vor. Schema-Anpassungen dürfen keine importierten Inhalte verwerfen. Erst nach Prüfung werden die Änderung und eine eigene Undo-Einheit angewendet. Bestehende Blockidentitäten und gemeinsame Yjs-Speicherung bleiben erhalten.
+- Begrenzung für ältere `tiptap_xml`-Dokumente: Die neue Aktion ist dort verborgen und der Helper lehnt sie vor jeder Änderung ab. Ein isolierter Vergleich mit direktem nativem `insertContentAt` reproduzierte einen bereits bestehenden strukturellen Undo-Fehler (`RangeError` in der Yjs-Auswahlwiederherstellung). Der Haupteditor verwendet bereits die Migration nach `tiptap_blocks`; anschließend steht die Aktion zur Verfügung. Für alte Gast-Sitzungen wird kein neuer Migrations- oder Reparaturpfad eingeführt.
+- Reproduzierbare fokussierte Prüfungen: `npm run test:editor:markdown-insertion`, `test:editor:field`, `test:editor:local-lifecycle`, `test:editor:block-clipboard`, `test:editor:interaction` und `test:editor:local-document` sowie die Native-/Gast-Modus-Skripte.
+- Zwei vorhandene Testannahmen wurden an bereits bestehendes Verhalten angepasst: Blockmenüs liegen im Portal unter `document.body`; der Codec behandelt führende Trenner bzw. YAML-artigen Feldinhalt konservativ oder verlangt explizite Normalisierung. Der Codec wurde nicht geändert. Die Recovery-Anzeige belegt bei unterbrochener Speicherung bereits einen eigenen Layoutbereich; die Browserprüfung kontrolliert, dass sie den Inhalt nicht überdeckt.
+
+| Anspruch | Prüfung |
+| --- | --- |
+| Rich zeigt keinen gesperrten Source-Modus; Plain und lokale Felder bleiben nutzbar | Native-/Gast-Komponententests, echte Migration und lokale Moduswechsel im Browser |
+| Markdown wird formatiert eingefügt, separat rückgängig gemacht und gespeichert | Neues leeres Dokument, Zwischenablage, Überschrift/Fettdruck/Link/Liste/Tabelle/Code, Undo/Redo, Neuladen |
+| Gemeinsame Bearbeitung bleibt erhalten | Zwei getrennte Testnutzer, identische native Dokumente, unveränderte IDs außerhalb der Auswahl |
+| Ein Konflikt überschreibt keine neue Änderung | Zweiter Nutzer verändert die ausgewählte Stelle bei offenem Dialog; Fehlermeldung und unveränderter Entwurf |
+| Ungültiger Import löscht nichts | Frontmatter, nicht unterstützte Syntax, Größenbegrenzung, ungültige Einfügestelle, Rechte- und Editorwechsel |
+| Mobile und Gastzugriff verwenden dieselbe Aktion | Touch-Viewport inklusive kleiner Höhe, Gast mit Schreibrecht und Gast nur mit Leserecht |
+
+Die Browser-Abnahme verwendet den aktuellen Branch als Host-Server auf `127.0.0.1:3000` mit der expliziten privaten Host-Konfiguration des bereits laufenden verwalteten PostgreSQL-/Control-Plane-Stacks. Alle Prüfungen erstellen eigene Dokumente und verbinden sämtliche Peers derselben Prüfung mit diesem Server. Es wurde kein weiterer Test-Container gebaut. Browserfreigabe liegt für diese Umsetzung vor.
+
+Bestanden: 10 native Einfügetests, Dialog-Lifecycle-Prüfungen, 17 Clipboard- und 34 lokale Dokument-/Binding-Tests sowie die genannten Modus-/Feld-/Gast-Regressionsprüfungen. Playwright: drei neue Einfügeszenarien, ein Gastablauf, eine Source→Rich-Migration und ein lokaler Source-/Rich-/Undo-Ablauf. Nach der visuellen Kontrolle wurde die mobile Werkzeugleiste bei geöffnetem Dialog ausgeblendet; die mobile Browserprüfung wurde anschließend erneut erfolgreich ausgeführt. Desktop und Mobile wurden anhand der Screenshots geprüft. Die mobile Prüfung emuliert Touch und kleine Viewports, keine native Bildschirmtastatur/IME.
+
+`npm run build` erfolgreich (Exit 0), einschließlich Next.js-Typprüfung und Seitengenerierung. Der Build ohne Runtime-Env meldete Warnungen zur fehlenden Auth-/MCP-Basis-URL; die Browserprüfungen verwendeten die vollständige private Host-Konfiguration. Separates `tsc --noEmit --incremental`, ESLint auf den geänderten TypeScript-Dateien und `git diff --check` bestanden. GitNexus `detect_changes` bestätigte vor den Commits den erwarteten Umfang. Kein Push und kein Deployment durchgeführt.

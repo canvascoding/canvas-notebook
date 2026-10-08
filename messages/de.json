@@ -1345,6 +1345,28 @@
     "markdownEditorToolbarLists": "Listen",
     "markdownEditorToolbarBlocks": "Blöcke",
     "markdownEditorToolbarInsert": "Einfügen",
+    "markdownInsert": {
+      "title": "Markdown einfügen …",
+      "description": "Markdown hier einfügen, um es an der Cursorposition zu übernehmen oder den ausgewählten Text zu ersetzen.",
+      "label": "Markdown",
+      "cancel": "Abbrechen",
+      "insert": "Einfügen",
+      "normalization": "Abstände und Markdown-Syntax werden für die formatierte Bearbeitung vereinheitlicht. Inhalt und Formatierung bleiben erhalten.",
+      "errors": {
+        "read_only": "Dieses Dokument kann gerade nicht bearbeitet werden. Dein Markdown bleibt hier zum Kopieren erhalten.",
+        "target_changed": "Der ausgewählte Inhalt oder Editor hat sich geändert. Kopiere dein Markdown, schließe diesen Dialog und wähle die Einfügestelle erneut.",
+        "invalid_content": "Dieses Markdown kann an der ausgewählten Stelle nicht ohne Strukturänderung eingefügt werden. Dein Text wurde nicht übernommen.",
+        "frontmatter": "Dieser Text enthält YAML-Dokumenteigenschaften. Füge den Inhalt separat ein und bearbeite Eigenschaften im Dokument oder lade die vollständige .md-Datei hoch.",
+        "invalid_frontmatter": "Die YAML-Dokumenteigenschaften sind ungültig. Korrigiere sie oder füge nur den Dokumentinhalt ein.",
+        "document_too_large": "Dieser Text ist zu groß für die formatierte Bearbeitung. Füge einen kleineren Abschnitt ein oder lade die .md-Datei als Quelldokument hoch.",
+        "long_line": "Dieser Text enthält eine zu lange Zeile für die formatierte Bearbeitung. Teile den Text auf oder lade die .md-Datei als Quelldokument hoch.",
+        "unsafe_slash_run": "Dieser Text enthält eine Zeichenfolge, die nicht sicher formatiert werden kann. Lade die .md-Datei als Quelldokument hoch, um sie zu erhalten.",
+        "unsupported_marp_directive": "Präsentationsanweisungen können nicht in ein formatiertes Dokument eingefügt werden. Lade die .md-Datei hoch, um sie zu erhalten.",
+        "unsupported_obsidian_syntax": "Dieser Text enthält Markdown-Syntax, die die formatierte Bearbeitung nicht erhalten kann. Lade die .md-Datei als Quelldokument hoch.",
+        "parse_failed": "Dieses Markdown konnte nicht gelesen werden. Prüfe den Text oder lade die .md-Datei als Quelldokument hoch.",
+        "roundtrip_changed": "Die formatierte Bearbeitung würde Teile dieses Markdowns verändern. Es wurde nichts eingefügt. Lade die .md-Datei als Quelldokument hoch, um sie zu erhalten."
+      }
+    },
     "markdownEditorToolbarFormula": "Formel",
     "markdownEditorToolbarMore": "Mehr",
     "markdownEditorMobileCloseTools": "Werkzeuge schließen",

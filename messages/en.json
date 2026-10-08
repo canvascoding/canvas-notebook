@@ -1346,6 +1346,28 @@
     "markdownEditorToolbarLists": "Lists",
     "markdownEditorToolbarBlocks": "Blocks",
     "markdownEditorToolbarInsert": "Insert",
+    "markdownInsert": {
+      "title": "Insert Markdown…",
+      "description": "Paste Markdown here to insert it at the cursor or replace the selected text.",
+      "label": "Markdown",
+      "cancel": "Cancel",
+      "insert": "Insert",
+      "normalization": "Markdown spacing and syntax will be normalized for formatted editing. Its content and formatting will be preserved.",
+      "errors": {
+        "read_only": "This document cannot currently be edited. Your Markdown remains here to copy.",
+        "target_changed": "The selected content or editor has changed. Copy your Markdown, close this dialog and choose an insertion point again.",
+        "invalid_content": "This Markdown cannot be inserted at the selected position without changing its structure. Your text has not been inserted.",
+        "frontmatter": "This text includes YAML document properties. Insert the body separately and edit properties in the document, or upload the complete .md file.",
+        "invalid_frontmatter": "The YAML document properties are invalid. Correct them or insert only the document body.",
+        "document_too_large": "This text is too large for formatted editing. Insert a smaller section or upload the .md file as a source document.",
+        "long_line": "This text contains a line that is too long for formatted editing. Split the text or upload the .md file as a source document.",
+        "unsafe_slash_run": "This text contains a delimiter sequence that cannot safely be formatted. Upload the .md file as a source document to preserve it.",
+        "unsupported_marp_directive": "Presentation directives cannot be inserted into a formatted document. Upload the .md file to preserve them.",
+        "unsupported_obsidian_syntax": "This text contains Markdown syntax that formatted editing cannot preserve. Upload the .md file as a source document.",
+        "parse_failed": "This Markdown could not be read. Check the text or upload the .md file as a source document.",
+        "roundtrip_changed": "Formatted editing would change parts of this Markdown. Nothing has been inserted. Upload the .md file as a source document to preserve it."
+      }
+    },
     "markdownEditorToolbarFormula": "Formula",
     "markdownEditorToolbarMore": "More",
     "markdownEditorMobileCloseTools": "Close tools",

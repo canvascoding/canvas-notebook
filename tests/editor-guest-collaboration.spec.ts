@@ -64,7 +64,11 @@ async function verifyGuest(page: Page, invitation: Invitation, workspaceId: stri
       await route.fulfill({ status: 500, json: { success: false, error: 'Fixture email delivery failed.' } });
     }
   });
-  await page.goto(invitation.url, { waitUntil: 'domcontentloaded' });
+  const invitationUrl = new URL(invitation.url, BASE_URL);
+  const targetOrigin = new URL(BASE_URL);
+  invitationUrl.protocol = targetOrigin.protocol;
+  invitationUrl.host = targetOrigin.host;
+  await page.goto(invitationUrl.href, { waitUntil: 'domcontentloaded' });
   await page.getByRole('button', { name: 'Code per E-Mail anfordern' }).click();
   await expect(page.getByLabel('Sechsstelliger Code')).toBeVisible({ timeout: 30_000 });
   expect(Boolean(deliveredCode), 'The real service must deliver the fixture challenge.').toBe(true);
@@ -81,9 +85,13 @@ async function verifyGuest(page: Page, invitation: Invitation, workspaceId: stri
 test.describe('real file guest collaboration', () => {
   test.skip(process.env.COLLABORATION_E2E !== '1', 'Requires the managed Team fixture and isolated email transport.');
   test.setTimeout(180_000);
-  test('offers the shared editing controls, enforces read-only and revokes an already open writer', async ({ browser }, testInfo) => {
+  test('inserts guest Markdown without Source mode, enforces read-only and revokes an already open writer', async ({ browser }, testInfo) => {
     if (ownedCollaborationQaEnabled()) await requireOwnedCollaborationQaTarget();
-    else expect(new URL(BASE_URL).origin).toBe('http://127.0.0.1:3100');
+    else {
+      const allowedOrigin = process.env.CANVAS_LOCAL_TEAM_SEAT_HOST_DEV === 'true'
+        ? 'http://127.0.0.1:3000' : 'http://127.0.0.1:3100';
+      expect(new URL(BASE_URL).origin).toBe(allowedOrigin);
+    }
     const ownerContext = await fixtureContext(browser);
     const writerContext = await fixtureContext(browser);
     const readerContext = await fixtureContext(browser);
@@ -121,6 +129,8 @@ test.describe('real file guest collaboration', () => {
       await expect(ownerEditor).toHaveAttribute('contenteditable', 'true', { timeout: 30_000 });
       const guestEditor = await verifyGuest(writer, invitations[0], workspaceId, filePath, 'Fixture Guest Writer');
       await expect(guestEditor).toHaveAttribute('contenteditable', 'true');
+      await expect(writer.getByRole('group', { name: /Document view|Dokumentansicht/u })
+        .getByRole('button', { name: /^(Source|Quelltext)$/u })).toHaveCount(0);
       await expect(writer.getByTestId('markdown-save-state')).toHaveCount(0);
       const guestParagraph = guestEditor.locator('p').filter({ hasText: 'Guest paragraph' });
       await paragraphSelection(guestParagraph, true);
@@ -145,8 +155,22 @@ test.describe('real file guest collaboration', () => {
         await expect(guestMenu.getByRole('button', { name: label })).toHaveCount(1);
         await expect(ownerMenu.getByRole('button', { name: label })).toHaveCount(1);
       }
+      await paragraphSelection(guestParagraph, true);
+      await writer.getByTestId('markdown-toolbar-insert').click();
+      await writer.getByRole('menuitem', { name: /^(Insert Markdown…|Markdown einfügen …)$/u }).click();
+      const markdownDialog = writer.getByRole('dialog', { name: /^(Insert Markdown…|Markdown einfügen …)$/u });
+      await markdownDialog.getByRole('textbox', { name: 'Markdown', exact: true }).fill('## Guest Markdown heading\n\nA **formatted guest import**.');
+      await markdownDialog.getByRole('button', { name: /^(Insert|Einfügen)$/u, exact: true }).click();
+      await expect(markdownDialog).not.toBeVisible();
+      await expect(ownerEditor.getByRole('heading', { name: 'Guest Markdown heading', exact: true })).toBeVisible();
+      await expect(ownerEditor.locator('strong').filter({ hasText: 'formatted guest import' })).toBeVisible();
+      await expect.poll(() => text(guestEditor)).toBe(await text(ownerEditor));
+      await testInfo.attach('guest Markdown insertion synchronized to owner', { body: await writer.screenshot(), contentType: 'image/png' });
       const readerEditor = await verifyGuest(reader, invitations[1], workspaceId, filePath, 'Fixture Guest Reader');
       await expect(readerEditor).toHaveAttribute('contenteditable', 'false');
+      await expect(reader.getByRole('group', { name: /Document view|Dokumentansicht/u })
+        .getByRole('button', { name: /^(Source|Quelltext)$/u })).toHaveCount(0);
+      await expect(reader.getByTestId('markdown-toolbar-insert')).toHaveCount(0);
       await expect.poll(() => text(readerEditor)).toBe(await text(ownerEditor));
       await readerEditor.click();
       await reader.keyboard.type('Reader must not write');
