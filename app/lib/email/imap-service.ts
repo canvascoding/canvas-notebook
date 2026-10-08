@@ -23,6 +23,7 @@ import {
 } from '@/app/lib/email/account-store';
 import { isLikelyHtmlEmailContent, normalizeEmailHtmlContent } from '@/app/lib/email/html-content';
 import { EmailMessageNotFoundError } from '@/app/lib/email/errors';
+import { formatEmailAddress, formatEmailAddresses } from '@/app/lib/email/addresses';
 import {
   EMAIL_INBOUND_ATTACHMENT_MAX_BYTES,
   assertInboundEmailAttachmentSize,
@@ -402,10 +403,7 @@ async function withImapMessage<T>(
 }
 
 function formatAddress(address: MessageAddressObject | undefined): string {
-  if (!address?.address) return '';
-  const email = address.address.trim();
-  const name = address.name?.trim();
-  return name ? `${name} <${email}>` : email;
+  return formatEmailAddress(address);
 }
 
 function formatAddressList(addresses: MessageAddressObject[] | undefined): string[] {
@@ -849,6 +847,7 @@ async function normalizeImapDetailMessage(
     from,
     to: formatAddressList(fetched.envelope?.to),
     cc: formatAddressList(fetched.envelope?.cc),
+    replyTo: formatEmailAddresses(fetched.envelope?.replyTo?.length ? fetched.envelope.replyTo : parsed?.replyTo),
     subject: fetched.envelope?.subject || parsed?.subject || '',
     date: isoDate(fetched.envelope?.date || fetched.internalDate || parsed?.date),
     messageId: parsed?.messageId || '',

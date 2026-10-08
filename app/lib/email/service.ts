@@ -84,6 +84,7 @@ import {
 import { saveSmtpEmailAccount, testSmtpConnection, testStoredSmtpEmailAccount, type SmtpAccountInput } from '@/app/lib/email/smtp-service';
 import type { EmailClassificationEnrichedPayload } from '@/app/lib/email/classification/enrichment';
 import { captureAcceptedEmailReply, recordAcceptedEmailReply } from '@/app/lib/email/accepted-reply';
+import { formatEmailAddress, formatEmailAddresses } from '@/app/lib/email/addresses';
 
 type EmailSearchInput = {
   offset?: number;
@@ -262,7 +263,10 @@ function normalizeManagedMessage(message: unknown, folder = 'INBOX') {
     id: String(record.id || ''),
     uid: String(record.uid || record.id || ''),
     folder: typeof record.folder === 'string' ? record.folder : folder,
-    from: String(record.from || ''),
+    from: formatEmailAddress(record.from),
+    ...(record.to !== undefined ? { to: formatEmailAddresses(record.to) } : {}),
+    ...(record.cc !== undefined ? { cc: formatEmailAddresses(record.cc) } : {}),
+    ...(record.replyTo !== undefined ? { replyTo: formatEmailAddresses(record.replyTo) } : {}),
     subject: String(record.subject || ''),
     date: String(record.date || ''),
     snippet: String(record.snippet || ''),

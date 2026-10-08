@@ -24,6 +24,7 @@ import { reactivateEmailMailboxCache } from '@/app/lib/email/cache/consistency';
 import { isLikelyHtmlEmailContent, normalizeEmailHtmlContent } from '@/app/lib/email/html-content';
 import { EmailMessageNotFoundError, EmailProviderRequestError, isEmailProviderNotFoundError } from '@/app/lib/email/errors';
 import { htmlToPlainText, plainTextToEmailHtml } from '@/app/lib/email/html-conversion';
+import { formatEmailAddress, formatEmailAddresses } from '@/app/lib/email/addresses';
 import {
   assertInboundEmailAttachmentSize,
   decodeGmailAttachmentData,
@@ -1133,15 +1134,10 @@ export async function listLocalEmailMessages(userId: string, input: EmailMessage
           hasAttachments: gmailMessageAttachmentParts(payload).length > 0, snippet: emailSearchBodySnippet(expression, fields.body, String(raw.snippet || '')),
         };
       } else {
-        const from = raw.from as { emailAddress?: { address?: string; name?: string } } | undefined;
-        const addresses = (value: unknown): string[] => Array.isArray(value) ? value.map((item) => {
-          const address = item?.emailAddress;
-          return address?.name ? `${address.name} <${address.address || ''}>` : String(address?.address || '');
-        }) : [];
         message = {
           id: String(raw.id || ''), uid: String(raw.id || ''), folder: String(raw.parentFolderId || folder),
-          threadId: String(raw.conversationId || ''), from: from?.emailAddress?.address || '',
-          to: addresses(raw.toRecipients), cc: addresses(raw.ccRecipients), bcc: addresses(raw.bccRecipients),
+          threadId: String(raw.conversationId || ''), from: formatEmailAddress(raw.from),
+          to: formatEmailAddresses(raw.toRecipients), cc: formatEmailAddresses(raw.ccRecipients), bcc: formatEmailAddresses(raw.bccRecipients),
           subject: String(raw.subject || ''), date: String(raw.receivedDateTime || ''), flags: [],
           isRead: raw.isRead !== false, isAnswered: false,
           isFlagged: (raw.flag as { flagStatus?: string } | undefined)?.flagStatus === 'flagged',
@@ -1213,6 +1209,7 @@ export async function readLocalEmailMessage(userId: string, accountId: string, m
       from,
       to: gmailHeader(headers, 'To'),
       cc: gmailHeader(headers, 'Cc'),
+      replyTo: formatEmailAddresses(gmailHeader(headers, 'Reply-To')),
       subject: gmailHeader(headers, 'Subject'),
       date: gmailHeader(headers, 'Date'),
       messageId: gmailHeader(headers, 'Message-ID'),
@@ -1228,12 +1225,12 @@ export async function readLocalEmailMessage(userId: string, accountId: string, m
   } else {
     let raw: Record<string, unknown>;
     try {
-      raw = await microsoftFetch(`messages/${encodeURIComponent(messageId)}?$select=id,conversationId,internetMessageId,from,toRecipients,ccRecipients,subject,receivedDateTime,body,bodyPreview,isRead`, token);
+      raw = await microsoftFetch(`messages/${encodeURIComponent(messageId)}?$select=id,conversationId,internetMessageId,from,toRecipients,ccRecipients,replyTo,subject,receivedDateTime,body,bodyPreview,isRead`, token);
     } catch (error) {
       if (isEmailProviderNotFoundError(error)) throw new EmailMessageNotFoundError();
       throw error;
     }
-    const from = (raw.from as { emailAddress?: { address?: string } } | undefined)?.emailAddress?.address || '';
+    const from = formatEmailAddress(raw.from);
     if (enforceReadPolicy) assertSenderAllowed(account, from);
     const body = raw.body as { content?: string; contentType?: string } | undefined;
     const bodyContent = String(body?.content || '');
@@ -1248,8 +1245,9 @@ export async function readLocalEmailMessage(userId: string, accountId: string, m
       id: String(raw.id || ''),
       threadId: String(raw.conversationId || ''),
       from,
-      to: raw.toRecipients || [],
-      cc: raw.ccRecipients || [],
+      to: formatEmailAddresses(raw.toRecipients),
+      cc: formatEmailAddresses(raw.ccRecipients),
+      replyTo: formatEmailAddresses(raw.replyTo),
       subject: String(raw.subject || ''),
       date: String(raw.receivedDateTime || ''),
       messageId: String(raw.internetMessageId || ''),

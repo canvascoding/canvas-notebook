@@ -91,6 +91,7 @@ export type EmailMessageSummary = {
 export type EmailMessageDetail = EmailMessageSummary & {
   to?: string[] | string;
   cc?: string[] | string;
+  replyTo?: string[] | string;
   body?: string;
   bodyHtml?: string;
   attachments?: Array<{

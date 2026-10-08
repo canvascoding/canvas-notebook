@@ -96,6 +96,7 @@ async function main() {
   const source = Buffer.from([
     'From: Sender <sender@example.test>',
     'To: reader@example.test',
+    'Reply-To: "Support, Team" <support@example.test>',
     'Subject: Stable IMAP identity',
     'Date: Tue, 08 Sep 2026 09:00:00 +0000',
     '',
@@ -109,6 +110,7 @@ async function main() {
       date: now,
       from: [{ name: 'Sender', address: 'sender@example.test' }],
       to: [{ address: 'reader@example.test' }],
+      replyTo: [],
     },
     internalDate: now,
     bodyStructure: {
@@ -132,6 +134,7 @@ async function main() {
     envelope: {
       ...fetchedMessage.envelope,
       subject: 'Second stable IMAP identity',
+      replyTo: [{ name: 'Envelope, Support', address: 'envelope@example.test' }],
     },
   };
 
@@ -228,6 +231,7 @@ async function main() {
   assert.equal(read.message.uidValidity, '7001');
   assert.equal(lockedFolders.at(-1), 'INBOX');
   assert.equal(read.message.hasAttachments, true);
+  assert.deepEqual(read.message.replyTo, ['"Support, Team" <support@example.test>'], 'MIME Reply-To survives when the envelope omits it');
   assert.deepEqual(read.message.attachments, [{
     id: 'imap-part:2',
     filename: 'brief.pdf',
@@ -249,6 +253,7 @@ async function main() {
   assert.equal(fetchCalls, fetchCallsBeforePrefetch + 1, 'detail prefetch must use one batch fetch');
   assert.equal(fetchOneCalls, fetchOneCallsBeforePrefetch, 'detail prefetch must not open per-message fetches');
   assert.deepEqual(prefetched.messages.map((message) => message?.id), [reference, secondReference]);
+  assert.deepEqual(prefetched.messages[1]?.replyTo, ['"Envelope, Support" <envelope@example.test>']);
 
   const downloaded = await downloadImapEmailAttachment(account, reference, 'imap-part:2');
   assert.equal(downloaded.attachment.filename, 'brief.pdf');

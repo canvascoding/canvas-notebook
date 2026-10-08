@@ -3,6 +3,7 @@ import 'server-only';
 import { randomUUID } from 'node:crypto';
 
 import { parseImapMessageReference } from '@/app/lib/email/imap-service';
+import { formatEmailAddress, formatEmailAddresses } from '@/app/lib/email/addresses';
 import {
   DEFAULT_EMAIL_CACHE_FRESH_MS,
   DEFAULT_EMAIL_CACHE_RETENTION_MS,
@@ -162,13 +163,7 @@ function nullableNumber(value: unknown): number | null {
 }
 
 function stringArray(value: unknown): string[] {
-  if (!Array.isArray(value)) return typeof value === 'string' && value ? [value] : [];
-  return value.map((entry) => {
-    if (typeof entry === 'string') return entry;
-    const address = record(entry)?.emailAddress;
-    const addressRecord = record(address);
-    return stringValue(addressRecord?.address || record(entry)?.address || '');
-  }).filter(Boolean);
+  return formatEmailAddresses(value);
 }
 
 function sameFolder(left: string, right: string): boolean {
@@ -227,7 +222,7 @@ function metadataForMessage(message: JsonRecord): EmailCachedMessageMetadata {
   const parsedDate = Date.parse(date);
   const flags = Array.isArray(message.flags) ? message.flags.map(String) : [];
   return {
-    from: stringValue(message.from),
+    from: formatEmailAddress(message.from),
     subject: stringValue(message.subject),
     date,
     dateTimestamp: Number.isFinite(parsedDate) ? parsedDate : null,
@@ -275,7 +270,7 @@ function detailForMessage(message: JsonRecord): EmailCachedMessageDetail {
     to: stringArray(message.to),
     cc: stringArray(message.cc),
     ...(Array.isArray(message.bcc) ? { bcc: stringArray(message.bcc) } : {}),
-    ...(Array.isArray(message.replyTo) ? { replyTo: stringArray(message.replyTo) } : {}),
+    ...(message.replyTo !== undefined ? { replyTo: stringArray(message.replyTo) } : {}),
     ...(message.messageId !== undefined ? { messageId: stringValue(message.messageId) } : {}),
     ...(message.inReplyTo !== undefined ? { inReplyTo: stringValue(message.inReplyTo) } : {}),
     ...(Array.isArray(message.references) ? { references: message.references.map(String) } : {}),

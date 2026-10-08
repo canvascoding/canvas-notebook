@@ -5,15 +5,13 @@ import { useTranslations } from 'next-intl';
 
 import {
   composeRecipientText,
-  extractRecipientEmailsForCompose,
   forwardSubjectForCompose,
   normalizeAgentUsedContext,
   pruneUnreferencedInlineEmailAttachments,
   replySubjectForCompose,
   splitRecipientInput,
-  uniqueComposeRecipients,
 } from '@/app/apps/email/components/email-compose-utils';
-import { extractEmailAddressForCompose } from '@/app/apps/email/components/email-client-format';
+import { emailReplyRecipients } from '@/app/lib/email/addresses';
 import { isFetchNetworkError } from '@/app/apps/email/components/email-client-network';
 import type {
   EmailAccount,
@@ -178,13 +176,7 @@ export function useEmailComposeController({
   ): EmailComposeDraft => {
     const bodyValues = composeEmailEditorBodyValues(body);
     const ownAddresses = new Set(accounts.map((account) => account.emailAddress.trim().toLowerCase()).filter(Boolean));
-    const from = extractEmailAddressForCompose(message.from);
-    const originalTo = extractRecipientEmailsForCompose(message.to);
-    const originalCc = extractRecipientEmailsForCompose(message.cc);
-    const to = mode === 'forward'
-      ? []
-      : uniqueComposeRecipients([from, ...(mode === 'reply-all' ? originalTo : [])], ownAddresses);
-    const cc = mode === 'reply-all' ? uniqueComposeRecipients(originalCc, ownAddresses) : [];
+    const { to, cc } = emailReplyRecipients(message, mode === 'compose' ? 'reply' : mode, ownAddresses);
     const subject = mode === 'forward'
       ? forwardSubjectForCompose(message.subject || '')
       : replySubjectForCompose(message.subject || '');

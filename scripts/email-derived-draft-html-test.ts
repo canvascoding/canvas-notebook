@@ -56,7 +56,39 @@ async function main() {
   assert.equal(plainDraft.is_HTML, false);
   assert.match(plainDraft.body, /^Plain response\n\nsender@example\.test wrote:/u);
 
-  console.log('Email derived draft HTML test passed.');
+  const replyMessage = {
+    from: 'Automated sender <notifications@example.test>',
+    replyTo: '"Support, Team" <support@example.test> (Support inbox), backup@example.test (Backup)',
+    to: ['ME@EXAMPLE.TEST', 'support@example.test', 'colleague@example.test'],
+    cc: ['colleague@example.test', 'manager@example.test', 'backup@example.test', 'me@example.test'],
+    subject: 'Reply destination',
+    body: 'Original text',
+  };
+  const replyInput = { accountId: 'account-1', message: replyMessage, ownAddresses: new Set(['Me <ME@EXAMPLE.TEST>']) };
+  const directReply = buildEmailDerivedDraft({ ...replyInput, mode: 'reply' });
+  assert.deepEqual(directReply.to, ['support@example.test', 'backup@example.test'], 'Reply-To replaces From, including multiple addresses');
+  assert.deepEqual(directReply.cc, [], 'ordinary replies do not inherit Cc');
+
+  const replyAll = buildEmailDerivedDraft({ ...replyInput, mode: 'reply-all' });
+  assert.deepEqual(replyAll.to, ['support@example.test', 'backup@example.test', 'colleague@example.test']);
+  assert.deepEqual(replyAll.cc, ['manager@example.test'], 'own addresses and To/Cc duplicates are removed across fields');
+
+  const fallbackReply = buildEmailDerivedDraft({ ...replyInput, message: { ...replyMessage, replyTo: ['not an address'] }, mode: 'reply' });
+  assert.deepEqual(fallbackReply.to, ['notifications@example.test'], 'invalid Reply-To falls back to From');
+
+  const sentReply = buildEmailDerivedDraft({ ...replyInput, message: { ...replyMessage, from: 'Me <me@example.test>', replyTo: undefined }, mode: 'reply' });
+  assert.deepEqual(sentReply.to, ['support@example.test', 'colleague@example.test'], 'replying to a sent message addresses its original recipients');
+  assert.deepEqual(sentReply.cc, []);
+
+  const forward = buildEmailDerivedDraft({ ...replyInput, mode: 'forward' });
+  assert.deepEqual(forward.to, []);
+  assert.deepEqual(forward.cc, [], 'forwarding never inherits recipients');
+
+  const overridden = buildEmailDerivedDraft({ ...replyInput, mode: 'reply-all', to: ['Selected <selected@example.test>'], cc: [] });
+  assert.deepEqual(overridden.to, ['selected@example.test'], 'explicit human recipient overrides still win');
+  assert.deepEqual(overridden.cc, [], 'an explicit empty Cc override removes inherited Cc');
+
+  console.log('Email derived draft: safe HTML, Reply-To, sent replies, deduplicated Reply-All, forwarding and recipient overrides passed.');
 }
 
 main().catch((error) => {

@@ -71,6 +71,33 @@ async function main() {
       toText: 'recipient@example.test', aiMode: 'quick', aiPrompt: 'Improve this reply' }));
   }
   try {
+    // Reply routing is consistent with server-derived drafts and preserves explicit edits.
+    const replyMessage: EmailMessageDetail = { ...message, from: 'notifications@example.test',
+      replyTo: ['"Support, Team" <support@example.test> (Support inbox)', 'backup@example.test (Backup)'],
+      to: [a.emailAddress.toUpperCase(), b.emailAddress, 'support@example.test', 'colleague@example.test'],
+      cc: ['colleague@example.test', 'manager@example.test', 'backup@example.test', personal.emailAddress] };
+    const replyDestinations = fixture();
+    act(() => { replyDestinations.result.current.openDraft('reply', replyMessage); });
+    assert.equal(replyDestinations.result.current.draft?.toText, 'support@example.test, backup@example.test');
+    assert.equal(replyDestinations.result.current.draft?.ccText, '');
+    act(() => { replyDestinations.result.current.updateDraft({ toText: 'selected@example.test' }); });
+    assert.equal(replyDestinations.result.current.draft?.toText, 'selected@example.test');
+    act(() => { replyDestinations.result.current.close(); });
+    act(() => { replyDestinations.result.current.openDraft('reply-all', replyMessage); });
+    assert.equal(replyDestinations.result.current.draft?.toText, 'support@example.test, backup@example.test, colleague@example.test');
+    assert.equal(replyDestinations.result.current.draft?.ccText, 'manager@example.test');
+    act(() => { replyDestinations.result.current.close(); });
+    act(() => { replyDestinations.result.current.openDraft('reply', { ...replyMessage, replyTo: ['invalid'] }); });
+    assert.equal(replyDestinations.result.current.draft?.toText, 'notifications@example.test');
+    act(() => { replyDestinations.result.current.close(); });
+    act(() => { replyDestinations.result.current.openDraft('reply', { ...replyMessage, from: a.emailAddress, replyTo: undefined }); });
+    assert.equal(replyDestinations.result.current.draft?.toText, 'support@example.test, colleague@example.test');
+    act(() => { replyDestinations.result.current.close(); });
+    act(() => { replyDestinations.result.current.openDraft('forward', replyMessage); });
+    assert.equal(replyDestinations.result.current.draft?.toText, '');
+    assert.equal(replyDestinations.result.current.draft?.ccText, '');
+    replyDestinations.unmount();
+
     // Same account IDs are distinct sources. Selecting B while composing A preserves A.
     const first = fixture(); await createDraft(first);
     act(() => first.result.current.minimize());
