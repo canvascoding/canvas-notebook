@@ -39,6 +39,7 @@ import {
   collapseProgressiveToolGroups,
   getProgressiveGatewayCapabilityNames,
   isProgressiveGatewayTool,
+  replaceProgressiveToolOperations,
   withAllowedProgressiveGatewayOperations,
 } from '@/app/lib/pi/progressive-tool-gateway';
 
@@ -462,11 +463,9 @@ export async function getPiTools(
   // read-only even when the selected agent normally has broader permissions.
   if (options.workspaceEmailAutomation) {
     const boundWorkspaceEmailTools = createWorkspaceEmailAutomationTools(options.workspaceEmailAutomation);
-    const enabledNames = new Set(allTools.map((tool) => tool.name));
+    const enabledNames = new Set(getProgressiveGatewayCapabilityNames(allTools));
     const enabledBoundTools = boundWorkspaceEmailTools.filter((tool) => enabledNames.has(tool.name));
-    const boundNames = new Set(enabledBoundTools.map((tool) => tool.name));
-    allTools = allTools.filter((tool) => !boundNames.has(tool.name));
-    allTools.push(...enabledBoundTools);
+    allTools = replaceProgressiveToolOperations(allTools, enabledBoundTools);
     allTools = filterEmailEventAutomationTools(allTools);
   }
 

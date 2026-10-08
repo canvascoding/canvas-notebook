@@ -195,7 +195,7 @@ function buildGatewayTool(
     },
     progressiveGateway: {
       definition,
-      operations: sourceOperations,
+      operations,
       withAllowedOperations: (nextAllowedOperationNames) => buildGatewayTool(definition, sourceOperations, nextAllowedOperationNames),
     },
   };
@@ -247,7 +247,27 @@ export function withAllowedProgressiveGatewayOperations(
   return permitted.length > 0 ? tool.progressiveGateway.withAllowedOperations(permitted) : null;
 }
 
+/** Replace executable operations without granting capabilities removed by earlier filters. */
+export function replaceProgressiveToolOperations(tools: readonly AgentTool[], replacements: readonly AgentTool[]): AgentTool[] {
+  const byName = new Map(replacements.map((operation) => [operation.name, operation]));
+  return tools.map((tool) => {
+    if (!isProgressiveGatewayTool(tool)) return byName.get(tool.name) || tool;
+    const operations = tool.progressiveGateway.operations;
+    if (!operations.some((operation) => byName.has(operation.name))) return tool;
+    return createProgressiveGatewayTool({
+      ...tool.progressiveGateway.definition,
+      operations: operations.map((operation) => operation.name),
+    }, operations.map((operation) => byName.get(operation.name) || operation));
+  });
+}
+
 export const PROGRESSIVE_GATEWAY_DEFINITIONS: readonly ProgressiveGatewayDefinition[] = [
+  {
+    name: 'email_recipients',
+    label: 'Finding email recipients',
+    description: 'On-demand recipient lookup and current-message reply suggestions in one selected mailbox. Use search, describe, then call. Results include bounded header evidence and coverage; ambiguous or incomplete names require user selection. Drafts require human review.',
+    operations: ['email_find_recipients', 'email_suggest_reply_recipients'],
+  },
   {
     name: 'agent_manage',
     label: 'Managing agents',

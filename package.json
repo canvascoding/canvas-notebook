@@ -136,6 +136,7 @@
     "test:pi:exact-text": "tsx scripts/exact-text-patch-test.ts",
     "test:pi:effective-tools": "tsx scripts/effective-tool-manifest-test.ts",
     "test:pi:email-agent-policy": "tsx scripts/email-agent-policy-test.ts",
+    "test:pi:email-recipients": "tsx --conditions react-server scripts/email-recipient-agent-tools-test.ts && tsx --conditions react-server scripts/email-recipient-agent-profile-test.ts",
     "test:pi:workspace-policy": "tsx scripts/workspace-tool-policy-test.ts",
     "test:pi:browser-tool-refresh": "tsx scripts/pi-browser-tool-refresh-test.ts",
     "test:pi:progressive-gateway": "tsx scripts/progressive-tool-gateway-test.ts",

@@ -57,7 +57,7 @@ export const PI_TOOLSETS: Record<PiToolset, PiToolsetInfo> = {
   email: {
     name: 'email',
     label: 'Email',
-    description: 'Read, search, draft, update, and send managed email.',
+    description: 'Read and search email, find recipients, and prepare drafts for human review.',
   },
   file: {
     name: 'file',
@@ -161,6 +161,9 @@ const TOOLSET_TOOL_NAMES: Record<PiToolset, Set<string>> = {
   composio: new Set(['composio', 'composio_execute']),
   delegation: new Set(['delegate_task']),
   email: new Set([
+    'email_recipients',
+    'email_find_recipients',
+    'email_suggest_reply_recipients',
     'email_create_or_update_case',
     'email_create_outbox_draft',
     'email_list_cases',

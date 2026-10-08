@@ -21,6 +21,8 @@ export const EMAIL_AGENT_ALLOWED_TOOL_NAMES = [
   'email_create_outbox_draft',
   'email_update_outbox_draft',
   'email_list_outbox_drafts',
+  'email_find_recipients',
+  'email_suggest_reply_recipients',
   'ls',
   'read',
   'rg',
