@@ -98,7 +98,7 @@ export async function createComposioNativeConsentFixture(input: ComposioNativeCo
         if (!record || record.expiresAt <= Date.now() || record.decision || record.account.status !== 'INITIATED') throw new Error('Invalid owned consent.');
         const consent = randomBytes(32).toString('base64url'), nonce = randomBytes(24).toString('base64url');
         forms.set(consent, record); stats.consents += 1; record.evidence.consents += 1;
-        response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer',
+        response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Referrer-Policy': 'same-origin',
           'Content-Security-Policy': `default-src 'none'; form-action 'self' ${CALLBACK_ORIGIN}; frame-ancestors 'none'; base-uri 'none'; script-src 'nonce-${nonce}'` });
         response.end(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Local Composio consent</title><script nonce="${nonce}">history.replaceState(null,'',location.pathname)</script></head><body><main><h1>Connect Canvas Notebook</h1><p>Allow the local ${escapeComposioNativeConsentHtml(record.account.toolkit)} account connection.</p><form method="post" action="/consent"><input type="hidden" name="consent" value="${consent}"><button type="submit" name="decision" value="approve">Approve</button><button type="submit" name="decision" value="deny">Deny</button></form></main></body></html>`);
         return;

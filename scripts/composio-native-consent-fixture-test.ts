@@ -3,10 +3,11 @@ import { execFileSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import fs from 'node:fs/promises';
 import { request } from 'node:https';
-import type { IncomingHttpHeaders } from 'node:http';
+import { createServer, type IncomingHttpHeaders } from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { Composio } from '@composio/client';
+import { chromium } from '@playwright/test';
 import { createComposioProviderFixture } from './helpers/composio-provider-fixture';
 import { parseComposioNativeConsentOptions, validateComposioNativeCallback,
   type ComposioNativeConsentFlowEvidence, type ComposioNativeConsentStats } from './helpers/composio-native-consent-fixture';
@@ -108,13 +109,74 @@ async function main() {
     console.log('composio-native-consent: real SDK exact entities/decoy accounts, bearer/hash-only readonly control PASS');
 
     const orgPage = await requestComposioNativeConsent(org.redirect_url, tls.cert);
-    assert.equal(orgPage.status, 200); assert.equal(orgPage.headers['referrer-policy'], 'no-referrer'); assert.equal(orgPage.headers['cache-control'], 'no-store');
+    assert.equal(orgPage.status, 200); assert.equal(orgPage.headers['cache-control'], 'no-store');
     assert.match(String(orgPage.headers['content-security-policy']), /frame-ancestors 'none'/u);
     assert.match(orgPage.body, /history\.replaceState/u); assert.match(orgPage.body, />Approve</u);
     assert(!orgPage.body.includes(orgState) && !orgPage.body.includes(org.connected_account_id));
     assert.equal(native.accounts.get('own-org-entity')?.find(account => account.id === org.connected_account_id)?.status, 'INITIATED');
     const orgForm = orgPage.body.match(/name="consent" value="([A-Za-z0-9_-]{43})"/u)?.[1]; assert(orgForm);
+    // Replay the genuine fetched document and its CSP/policy on our own HTTP
+    // origin. This measures browser form headers without TLS exceptions,
+    // provider activation, Origin injection or native/system-browser claims.
+    const observed: Array<{ origin: string | undefined; site: string | undefined; mode: string | undefined; destination: string | undefined; validForm: boolean }> = [];
+    const probe = createServer(async (incoming, response) => {
+      try {
+        const address = new URL(incoming.url ?? '/', 'http://localhost');
+        if (incoming.method === 'GET' && address.pathname === '/authorize'
+          && (address.search === '' || address.search === '?policy=no-referrer')) {
+          response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store',
+            'Content-Security-Policy': String(orgPage.headers['content-security-policy']),
+            'Referrer-Policy': address.search ? 'no-referrer' : String(orgPage.headers['referrer-policy']) });
+          response.end(orgPage.body); return;
+        }
+        if (incoming.method === 'POST' && address.pathname === '/consent' && !address.search) {
+          const chunks: Buffer[] = []; let bytes = 0;
+          for await (const chunk of incoming) {
+            const value = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk); bytes += value.length;
+            if (bytes > 4096) throw new Error('Owned browser policy probe exceeded its body bound.'); chunks.push(value);
+          }
+          const values = new URLSearchParams(Buffer.concat(chunks).toString('utf8'));
+          observed.push({ origin: incoming.headers.origin, site: incoming.headers['sec-fetch-site'] as string | undefined,
+            mode: incoming.headers['sec-fetch-mode'] as string | undefined, destination: incoming.headers['sec-fetch-dest'] as string | undefined,
+            validForm: values.size === 2 && values.getAll('consent').length === 1 && values.get('consent') === orgForm
+              && values.getAll('decision').length === 1 && values.get('decision') === 'approve' });
+          response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer' });
+          response.end('<!doctype html><html><body>Owned browser policy probe received.</body></html>'); return;
+        }
+        response.writeHead(404); response.end();
+      } catch { response.writeHead(400); response.end(); }
+    });
+    await new Promise<void>(resolve => probe.listen(0, '127.0.0.1', resolve));
+    const address = probe.address(); assert(address && typeof address !== 'string');
+    const probeOrigin = `http://127.0.0.1:${address.port}`;
+    let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
+    try {
+      browser = await chromium.launch({ headless: true });
+      for (const variant of ['no-referrer', 'fixture'] as const) {
+        const context = await browser.newContext({ ignoreHTTPSErrors: false });
+        try {
+          const page = await context.newPage();
+          await page.goto(`${probeOrigin}/authorize${variant === 'no-referrer' ? '?policy=no-referrer' : ''}`, { waitUntil: 'domcontentloaded', timeout: 10_000 });
+          const acknowledgement = page.waitForResponse(value => value.url() === `${probeOrigin}/consent` && value.request().method() === 'POST', { timeout: 10_000 });
+          await page.getByRole('button', { name: 'Approve', exact: true }).click({ timeout: 10_000 });
+          assert.equal((await acknowledgement).status(), 200);
+          await page.waitForURL(`${probeOrigin}/consent`, { waitUntil: 'domcontentloaded', timeout: 10_000 });
+          const actual = observed.at(-1); assert(actual);
+          assert.deepEqual(actual, { origin: variant === 'no-referrer' ? 'null' : probeOrigin,
+            site: 'same-origin', mode: 'navigate', destination: 'document', validForm: true });
+        } finally { await context.close(); }
+      }
+      assert.equal(observed.length, 2);
+    } finally {
+      try { await browser?.close(); }
+      finally { probe.closeAllConnections(); await new Promise<void>((resolve, reject) => probe.close(error => error ? reject(error) : resolve())); }
+    }
+    assert.equal(orgPage.headers['referrer-policy'], 'same-origin');
+    assert.equal(native.accounts.get('own-org-entity')?.find(account => account.id === org.connected_account_id)?.status, 'INITIATED');
+    console.log('composio-native-consent: installed Chromium genuine form Origin null with no-referrer and exact origin with fixture same-origin; bounded HTTP causal probe only PASS');
     const form = new URLSearchParams({ consent: orgForm, decision: 'approve' }).toString();
+    assert.equal((await requestComposioNativeConsent(`${consent.origin}/consent`, tls.cert, { method: 'POST', body: form,
+      headers: { Origin: 'null', 'Content-Type': 'application/x-www-form-urlencoded' } })).status, 400);
     assert.equal((await requestComposioNativeConsent(`${consent.origin}/consent`, tls.cert, { method: 'POST', body: form,
       headers: { Origin: 'https://foreign.example', 'Content-Type': 'application/x-www-form-urlencoded' } })).status, 400);
     assert.equal(native.accounts.get('own-org-entity')?.find(account => account.id === org.connected_account_id)?.status, 'INITIATED');
