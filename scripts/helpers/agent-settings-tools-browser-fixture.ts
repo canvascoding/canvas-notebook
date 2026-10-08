@@ -48,7 +48,10 @@ type Receipt = {
   desktopProcessIds?: number[];
   desktopClosed?: boolean;
   nativeIdentityDiagnostic?: boolean;
+  nativeProvider?: 'composio';
   systemBrowserClosed?: boolean;
+  composioProviderClosed?: boolean;
+  liveProvider?: 'composio';
 };
 type IssuerReady = {
   version: 1; nonce: string; fixtureRoot: string; origin: string; certificatePath: string;
@@ -150,7 +153,28 @@ async function main(): Promise<void> {
   const oauth = process.env.CANVAS_SHARED_MCP_OAUTH_BROWSER_RUN === '1';
   const desktop = process.env.CANVAS_SHARED_MCP_DESKTOP_OAUTH_BROWSER_RUN === '1';
   const composioDesktopClient = process.env.CANVAS_SHARED_COMPOSIO_DESKTOP_CLIENT_BROWSER_RUN === '1';
-  assert(!composioDesktopClient || workflow && !oauth && !desktop, 'The controlled Composio client gate uses its own workflow command.');
+  const composioNative = process.env.CANVAS_SHARED_COMPOSIO_DESKTOP_OAUTH_BROWSER_RUN === '1';
+  const composioLive = process.env.CANVAS_COMPOSIO_LIVE_BROWSER_RUN === '1';
+  assert(!composioLive || workflow && !oauth && !desktop && !composioNative && !composioDesktopClient,
+    'The live Composio gate requires its separate fixed command.');
+  let liveKey: string | undefined;
+  const liveInputPath = composioLive ? process.env.CANVAS_COMPOSIO_LIVE_INPUT : undefined;
+  if (composioLive) {
+    assert(liveInputPath && path.isAbsolute(liveInputPath) && await fs.realpath(liveInputPath) === liveInputPath);
+    const handle = await fs.open(liveInputPath, constants.O_RDONLY | constants.O_NOFOLLOW);
+    try {
+      const inputStat = await handle.stat();
+      assert(inputStat.isFile() && inputStat.nlink === 1 && inputStat.uid === process.getuid?.()
+        && (inputStat.mode & 0o777) === 0o600 && inputStat.size > 0 && inputStat.size < 4096);
+      const input = JSON.parse(await handle.readFile('utf8')) as { composioApiKey?: unknown };
+      assert(typeof input.composioApiKey === 'string' && input.composioApiKey.length > 10 && input.composioApiKey.length < 256);
+      liveKey = input.composioApiKey;
+    } finally { await handle.close(); }
+  }
+  const nativeAny = desktop || composioNative || composioLive;
+  assert(!composioDesktopClient || workflow && !oauth && !nativeAny, 'The controlled Composio client gate uses its own workflow command.');
+  assert(!composioNative || workflow && !oauth && !desktop && !composioDesktopClient,
+    'The native Composio gate uses its own fixed workflow command.');
   const identityDiagnostic = process.env.CANVAS_SHARED_MCP_DESKTOP_IDENTITY_DIAGNOSTIC_RUN === '1';
   assert(process.env.CANVAS_SHARED_MCP_DESKTOP_IDENTITY_DIAGNOSTIC_RUN === undefined || identityDiagnostic);
   assert(!oauth || workflow, 'The OAuth browser fixture requires its owned Team issuer.');
@@ -171,12 +195,12 @@ async function main(): Promise<void> {
   for (const directory of [dataRoot, tmpRoot]) {
     const stat = await fs.lstat(directory); directoryProofs[directory] = { device: String(stat.dev), inode: String(stat.ino) };
   }
-  const desktopPaths: Receipt['desktopPaths'] = desktop ? {
+  const desktopPaths: Receipt['desktopPaths'] = nativeAny ? {
     userData: path.join(tmpRoot, 'desktop-user-data'), sessionData: path.join(tmpRoot, 'desktop-session-data'),
     temp: path.join(tmpRoot, 'desktop-temp'), logs: path.join(tmpRoot, 'desktop-logs'),
     crashDumps: path.join(tmpRoot, 'desktop-crash-dumps'),
   } : undefined;
-  const desktopDirectoryProofs: Receipt['desktopDirectoryProofs'] = desktop ? {} : undefined;
+  const desktopDirectoryProofs: Receipt['desktopDirectoryProofs'] = nativeAny ? {} : undefined;
   if (desktopPaths && desktopDirectoryProofs) {
     for (const directory of Object.values(desktopPaths)) {
       await fs.mkdir(directory, { mode: 0o700 });
@@ -195,7 +219,10 @@ async function main(): Promise<void> {
     directoryProofs, listenerVerified: false,
     databaseOwner: null, createAcknowledged: false, phase: 'before_create', serverPid: null, actorId: null,
     uncertain: false, databaseDropped: false, dataRemoved: false,
-    ...(desktop ? { desktopPaths, desktopDirectoryProofs, desktopClosed: false, nativeIdentityDiagnostic: identityDiagnostic } : {}) };
+    ...(nativeAny ? { desktopPaths, desktopDirectoryProofs, desktopClosed: false,
+      ...(composioLive ? { nativeProvider: 'composio' as const, liveProvider: 'composio' as const }
+        : composioNative ? { nativeProvider: 'composio' as const, composioProviderClosed: false }
+        : { nativeIdentityDiagnostic: identityDiagnostic }) } : {}) };
   const persist = async () => {
     const temporary = `${receiptPath}.tmp`;
     await fs.writeFile(temporary, JSON.stringify(receipt), { mode: 0o600 });
@@ -204,12 +231,14 @@ async function main(): Promise<void> {
   // The exact name is durable BEFORE CREATE. An ambiguous CREATE is preserved;
   // current role/ownership alone never turns it into an acknowledged fixture.
   await persist();
+  if (composioNative) console.log(`ISOLATED_SHARED_COMPOSIO_NATIVE_FIXTURE ${root} parentPid=${process.pid}`);
+  if (composioLive) console.log(`ISOLATED_COMPOSIO_LIVE_FIXTURE ${root} parentPid=${process.pid}`);
   const administration = new Pool({ connectionString: maintenance.toString(), max: 1, connectionTimeoutMillis: 5_000, query_timeout: 30_000 });
   let database: Pool | undefined;
   let server: Child | undefined;
   let issuer: Child | undefined;
   let composioProvider: Awaited<ReturnType<typeof createComposioProviderFixture>> | undefined;
-  let composioProviderClosed = !composioDesktopClient;
+  let composioProviderClosed = !composioDesktopClient && !composioNative;
   const children: Child[] = [];
   const abort = new AbortController();
   const signalChild = (child: Child, signal: NodeJS.Signals) => {
@@ -249,8 +278,19 @@ async function main(): Promise<void> {
     TEST_SECONDARY_EMAIL: `workflow-member-${nonce}@example.test`, TEST_SECONDARY_PASSWORD: randomBytes(24).toString('base64url'),
     TEST_EDITOR_EMAIL: `workflow-editor-${nonce}@example.test`, TEST_EDITOR_PASSWORD: randomBytes(24).toString('base64url') });
   if (oauth) env.CANVAS_SHARED_MCP_OAUTH_BROWSER_RUN = '1';
-  if (composioDesktopClient) Object.assign(env, { CANVAS_SHARED_COMPOSIO_DESKTOP_CLIENT_BROWSER_RUN: '1',
-    INTEGRATIONS_ENV_MASTER_KEY: randomBytes(32).toString('base64url') });
+  if (composioDesktopClient || composioNative || composioLive) env.INTEGRATIONS_ENV_MASTER_KEY = randomBytes(32).toString('base64url');
+  if (composioLive) {
+    Object.assign(env, { CANVAS_COMPOSIO_LIVE_BROWSER_RUN: '1', CANVAS_COMPOSIO_LIVE_INPUT: liveInputPath,
+      CANVAS_COMPOSIO_LIVE_DESKTOP_PATHS: JSON.stringify(desktopPaths) });
+    await fs.writeFile(path.join(root, 'live-runtime-input.json'), JSON.stringify({ masterKey: env.INTEGRATIONS_ENV_MASTER_KEY,
+      authSecret: env.BETTER_AUTH_SECRET, organizationId: env.CANVAS_ORGANIZATION_ID, instanceId: env.CANVAS_INSTANCE_ID,
+      databaseName: receipt.databaseName, dataRoot, tmpRoot, baseUrl: env.BASE_URL }),
+      { mode: 0o600, flag: 'wx' });
+  }
+  if (composioDesktopClient) env.CANVAS_SHARED_COMPOSIO_DESKTOP_CLIENT_BROWSER_RUN = '1';
+  if (composioNative) Object.assign(env, { CANVAS_SHARED_COMPOSIO_DESKTOP_OAUTH_BROWSER_RUN: '1',
+    CANVAS_SHARED_COMPOSIO_DESKTOP_PATHS: JSON.stringify(desktopPaths),
+    CANVAS_SHARED_COMPOSIO_DESKTOP_RECEIPT: path.join(root, 'desktop-receipt.json') });
   if (desktop) Object.assign(env, { CANVAS_SHARED_MCP_DESKTOP_OAUTH_BROWSER_RUN: '1',
     CANVAS_SHARED_MCP_DESKTOP_PATHS: JSON.stringify(desktopPaths),
     CANVAS_SHARED_MCP_DESKTOP_RECEIPT: path.join(root, 'desktop-receipt.json') });
@@ -259,10 +299,17 @@ async function main(): Promise<void> {
     abort.signal.throwIfAborted();
     const log = createWriteStream(path.join(root, `${phase}.log`), { mode: 0o600 });
     const redact = (value: string) => [process.env.BOOTSTRAP_ADMIN_PASSWORD, env.BETTER_AUTH_SECRET, env.TEST_SECONDARY_PASSWORD,
-      env.TEST_EDITOR_PASSWORD, runtimeUrl.toString(), maintenance.toString()]
+      env.TEST_EDITOR_PASSWORD, env.CANVAS_COMPOSIO_NATIVE_CONTROL_TOKEN, env.INTEGRATIONS_ENV_MASTER_KEY, liveKey,
+      runtimeUrl.toString(), maintenance.toString()]
       .filter((secret): secret is string => Boolean(secret)).reduce((text, secret) => text.replaceAll(secret, '[redacted]'), value)
       .replace(/postgres(?:ql)?:\/\/\S+/gu, '[redacted-postgres-url]');
-    const child = spawn(process.execPath, args, { cwd: repo, env: { ...env, NODE_ENV: nodeEnv, ...overrides }, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    const childEnv: NodeJS.ProcessEnv = { ...env, NODE_ENV: nodeEnv, ...overrides };
+    if (phase !== 'browser') {
+      delete childEnv.CANVAS_COMPOSIO_NATIVE_CONTROL_TOKEN;
+      delete childEnv.CANVAS_COMPOSIO_NATIVE_CONTROL_URL;
+      delete childEnv.CANVAS_COMPOSIO_LIVE_INPUT;
+    }
+    const child = spawn(process.execPath, args, { cwd: repo, env: childEnv, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
     const record: Child = { process: child, pid: child.pid ?? 0, ended: false, closed: Promise.resolve(null) };
     children.push(record);
     for (const stream of [child.stdout, child.stderr]) {
@@ -333,7 +380,7 @@ async function main(): Promise<void> {
   };
   let bodyFailure: unknown;
   try {
-    if (oauth) {
+    if (oauth || composioNative) {
       await assertRoot();
       const keyPath = path.join(root, 'tls-key.pem'), certificatePath = path.join(root, 'tls-cert.pem');
       await new Promise<void>((resolve, reject) => {
@@ -348,8 +395,10 @@ async function main(): Promise<void> {
       }
       receipt.tlsFiles = { key: { path: keyPath, device: String(key.dev), inode: String(key.ino) },
         certificate: { path: certificatePath, device: String(certificate.dev), inode: String(certificate.ino) } };
-      Object.assign(env, { CANVAS_SHARED_MCP_OAUTH_TLS_KEY: keyPath, CANVAS_SHARED_MCP_OAUTH_TLS_CERT: certificatePath,
-        NODE_EXTRA_CA_CERTS: certificatePath });
+      env.NODE_EXTRA_CA_CERTS = certificatePath;
+      if (oauth) Object.assign(env, { CANVAS_SHARED_MCP_OAUTH_TLS_KEY: keyPath, CANVAS_SHARED_MCP_OAUTH_TLS_CERT: certificatePath });
+      if (composioNative) Object.assign(env, { CANVAS_SHARED_COMPOSIO_OAUTH_TLS_KEY: keyPath,
+        CANVAS_SHARED_COMPOSIO_OAUTH_TLS_CERT: certificatePath });
       await persist();
     }
     const collisions = await administration.query('SELECT datname FROM pg_database WHERE datname=$1', [receipt.databaseName]);
@@ -402,11 +451,24 @@ async function main(): Promise<void> {
       await activateWorkflowTestLicense(ready, env);
       env.INTEGRATION_GATEWAY_E2E_FIXTURE_URL = ready.origin;
     }
-    if (composioDesktopClient) {
-      composioProvider = await createComposioProviderFixture();
+    if (composioDesktopClient || composioNative) {
+      const controlToken = composioNative ? randomBytes(32).toString('base64url') : undefined;
+      composioProvider = await createComposioProviderFixture(composioNative ? { nativeConsent: {
+        tls: { key: await fs.readFile(env.CANVAS_SHARED_COMPOSIO_OAUTH_TLS_KEY!),
+          cert: await fs.readFile(env.CANVAS_SHARED_COMPOSIO_OAUTH_TLS_CERT!) },
+        controlToken: controlToken!, allowedCallbackOrigin: 'http://127.0.0.1:3001', fixtureNonce: nonce,
+        cleanAuthorizationAddress: true,
+      } } : undefined);
       const origin = new URL(composioProvider.baseUrl);
       assert.equal(origin.hostname, '127.0.0.1'); assert.equal(origin.protocol, 'http:'); assert(origin.port);
       env.COMPOSIO_BASE_URL = origin.origin;
+      if (composioNative) {
+        assert(composioProvider.nativeConsent);
+        Object.assign(env, { CANVAS_COMPOSIO_NATIVE_CONTROL_URL: composioProvider.nativeConsent.controlUrl,
+          CANVAS_COMPOSIO_NATIVE_CONTROL_TOKEN: controlToken!,
+          CANVAS_SHARED_COMPOSIO_NATIVE_PROVIDER_ORIGIN: composioProvider.nativeConsent.origin,
+          CANVAS_SHARED_COMPOSIO_ELECTRON_PROVIDER_ORIGIN: composioProvider.nativeConsent.origin });
+      }
     }
     receipt.phase = 'host_starting'; await persist();
     server = startChild(['--import', 'tsx', 'server.js'], 'host', 'production');
@@ -427,24 +489,68 @@ async function main(): Promise<void> {
     assert(healthy && !server.ended, 'The recorded isolated production host must become ready.');
     await assertOwnedListener(); receipt.listenerVerified = true;
     receipt.phase = 'browser'; await persist();
-    const browserArgs = [path.join(repo, 'node_modules/@playwright/test/cli.js'), 'test', '--config', composioDesktopClient
+    const browserArgs = [path.join(repo, 'node_modules/@playwright/test/cli.js'), 'test', '--config', composioLive
+      ? 'playwright.composio-live-production.config.ts' : composioNative
+      ? 'playwright.shared-composio-desktop-oauth-production.config.ts' : composioDesktopClient
       ? 'playwright.shared-composio-desktop-client-production.config.ts' : desktop
       ? 'playwright.shared-mcp-desktop-oauth-production.config.ts' : oauth
         ? 'playwright.shared-mcp-oauth-production.config.ts' : 'playwright.agent-settings-tools-production.config.ts'];
     if (identityDiagnostic) browserArgs.push('--grep', 'actual Electron cookie ABA and same-origin frame changes deny a verified old launch without publishing or executing');
     const browser = startChild(browserArgs, 'browser', 'test');
-    const browserCode = await waitChild(browser, desktop ? 26 * 60_000 : workflow ? 600_000 : 300_000);
+    const browserCode = await waitChild(browser, nativeAny ? 26 * 60_000 : workflow ? 600_000 : 300_000);
     const browserReceipt = JSON.parse(await fs.readFile(path.join(root, 'browser-receipt.json'), 'utf8')) as { nonce: string; actorId: string; phase: string; outstanding: unknown };
     assert.equal(browserReceipt.nonce, nonce); assert.equal(browserReceipt.actorId, receipt.actorId);
     assert.equal(browserReceipt.phase, 'verified_closed'); assert.equal(browserReceipt.outstanding, null);
-    if (desktop) {
+    if (composioLive) {
+      const livePath = path.join(root, 'live-receipt.json');
+      const handle = await fs.open(livePath, constants.O_RDONLY | constants.O_NOFOLLOW);
+      let live: { nonce: string; actorId: string; phase: string; outstanding: unknown; electronClosed: boolean;
+        closedContexts: boolean; completedScopes: string[]; readCalls: number; systemBrowserOpenedCount: number;
+        desktopPaths: Receipt['desktopPaths']; desktopDirectoryProofs: Receipt['desktopDirectoryProofs'];
+        processes: Array<{ pid: number; processGroupId: number; closed: boolean }> };
+      try {
+        const stat = await handle.stat();
+        assert(stat.isFile() && stat.nlink === 1 && stat.uid === rootStat.uid && (stat.mode & 0o777) === 0o600
+          && stat.size > 0 && stat.size < 64 * 1024);
+        live = JSON.parse(await handle.readFile('utf8'));
+        const current = await fs.lstat(livePath);
+        assert(current.isFile() && !current.isSymbolicLink() && current.dev === stat.dev && current.ino === stat.ino);
+      } finally { await handle.close(); }
+      assert.equal(live.nonce, nonce); assert.equal(live.actorId, receipt.actorId); assert.equal(live.phase, 'verified_closed');
+      assert.equal(live.outstanding, null); assert.equal(live.electronClosed, true); assert.equal(live.closedContexts, true);
+      assert.deepEqual(live.completedScopes, ['organization', 'team']); assert.equal(live.readCalls, 2);
+      assert.deepEqual(live.desktopPaths, desktopPaths); assert.deepEqual(live.desktopDirectoryProofs, desktopDirectoryProofs);
+      assert.equal(live.processes.length, 1);
+      for (const record of live.processes) {
+        assert(Number.isSafeInteger(record.pid) && record.pid > 0 && record.closed === true && record.processGroupId === record.pid);
+        assert(!children.some(child => child.pid === record.pid) && record.pid !== process.pid);
+        assert.throws(() => process.kill(record.pid, 0), (error: unknown) => (error as NodeJS.ErrnoException).code === 'ESRCH');
+        assert.throws(() => process.kill(-record.processGroupId, 0), (error: unknown) => (error as NodeJS.ErrnoException).code === 'ESRCH');
+      }
+      assert.equal(live.systemBrowserOpenedCount, 2);
+      const closeHandle = await fs.open(path.join(root, 'system-browser-closure.json'), constants.O_RDONLY | constants.O_NOFOLLOW);
+      try {
+        const stat = await closeHandle.stat();
+        assert(stat.isFile() && stat.nlink === 1 && stat.uid === rootStat.uid && (stat.mode & 0o777) === 0o600 && stat.size < 2048);
+        assert.deepEqual(JSON.parse(await closeHandle.readFile('utf8')), { version: 1, nonce, openedCount: 2, closed: true });
+      } finally { await closeHandle.close(); }
+      for (const directory of Object.values(desktopPaths!)) {
+        const stat = await fs.lstat(directory);
+        assert(stat.isDirectory() && !stat.isSymbolicLink() && stat.uid === rootStat.uid && (stat.mode & 0o777) === 0o700);
+        assert.equal(await fs.realpath(directory), directory);
+        assert.deepEqual({ device: String(stat.dev), inode: String(stat.ino) }, desktopDirectoryProofs![directory]);
+      }
+      receipt.desktopProcessIds = live.processes.map(record => record.pid);
+      receipt.desktopClosed = true; receipt.systemBrowserClosed = true;
+    } else if (nativeAny) {
       const nativePath = path.join(root, 'desktop-receipt.json'), nativeStat = await fs.lstat(nativePath);
       assert(nativeStat.isFile() && !nativeStat.isSymbolicLink() && nativeStat.nlink === 1
         && nativeStat.uid === rootStat.uid && (nativeStat.mode & 0o777) === 0o600 && nativeStat.size > 0 && nativeStat.size < 64 * 1024);
       const handle = await fs.open(nativePath, constants.O_RDONLY | constants.O_NOFOLLOW);
       let native: { version: number; nonce: string; actorId: string; phase: string; outstanding: unknown;
         desktopPaths: Receipt['desktopPaths']; desktopDirectoryProofs: Receipt['desktopDirectoryProofs'];
-        processes: Array<{ pid: number; processGroupId: number; closed: boolean }>; electronClosed: boolean; providerClosed: boolean; closedContexts: boolean;
+        processes: Array<{ pid: number; processGroupId: number; closed: boolean }>; electronClosed: boolean;
+        providerClosed?: boolean; parentOwnedProvider?: boolean; closedContexts: boolean;
         providerOrigin: string; systemBrowserOpenedCount: number };
       try {
         const held = await handle.stat();
@@ -454,10 +560,15 @@ async function main(): Promise<void> {
       } finally { await handle.close(); }
       assert.equal(native.version, 1); assert.equal(native.nonce, nonce); assert.equal(native.actorId, receipt.actorId);
       assert.equal(native.phase, 'verified_closed'); assert.equal(native.outstanding, null);
-      assert.equal(native.electronClosed, true); assert.equal(native.providerClosed, true); assert.equal(native.closedContexts, true);
+      assert.equal(native.electronClosed, true); assert.equal(native.closedContexts, true);
+      if (composioNative) {
+        assert.equal(native.parentOwnedProvider, true);
+        assert.notEqual(native.providerClosed, true, 'The worker must not acknowledge closure of the parent-owned provider.');
+      } else assert.equal(native.providerClosed, true);
       const providerOrigin = new URL(native.providerOrigin);
       assert.equal(providerOrigin.protocol, 'https:'); assert.equal(providerOrigin.hostname, '127.0.0.1'); assert(providerOrigin.port);
       assert.equal(providerOrigin.origin, native.providerOrigin);
+      if (composioNative) assert.equal(native.providerOrigin, composioProvider!.nativeConsent!.origin);
       assert(Number.isSafeInteger(native.systemBrowserOpenedCount) && native.systemBrowserOpenedCount >= 1 && native.systemBrowserOpenedCount <= 8);
       const systemBrowserPath = path.join(root, 'system-browser-closure.json'), systemBrowserStat = await fs.lstat(systemBrowserPath);
       assert(systemBrowserStat.isFile() && !systemBrowserStat.isSymbolicLink() && systemBrowserStat.nlink === 1
@@ -495,6 +606,15 @@ async function main(): Promise<void> {
       }
       receipt.desktopProcessIds = pids; receipt.desktopClosed = true; receipt.systemBrowserClosed = true; await persist();
     }
+    if (composioNative) {
+      const stats = composioProvider!.nativeConsent!.readStats();
+      assert.equal(stats.sdkLinks, 4); assert.equal(stats.issued, 4);
+      assert.equal(stats.consents, 3); assert.equal(stats.approvals, 3); assert.equal(stats.callbackRedirects, 3);
+      assert.equal(stats.denials, 0); assert.equal(stats.businessCalls, 0);
+      assert(stats.accountReads >= 2, 'The actual finalizer must read the exact provider account.');
+      await fs.writeFile(path.join(root, 'composio-provider-proof.json'), JSON.stringify({ version: 1, nonce, stats }),
+        { mode: 0o600, flag: 'wx' });
+    }
     assert.equal((await database.query('SELECT COUNT(*)::integer AS count FROM pi_sessions')).rows[0].count, 0);
     await assertOwnedListener();
     if (browserCode !== 0) bodyFailure = new Error('The actual agent-switch browser assertion failed; see the private browser log.');
@@ -515,9 +635,10 @@ async function main(): Promise<void> {
     }
     if (server && !server.ended) receipt.uncertain = true;
     if (composioProvider) {
-      try { await composioProvider.close(); composioProviderClosed = true; }
+      try { await composioProvider.close(); composioProviderClosed = true;
+        if (composioNative) receipt.composioProviderClosed = true; }
       catch { receipt.uncertain = true; }
-    } else if (composioDesktopClient) composioProviderClosed = true;
+    } else if (composioDesktopClient || composioNative) composioProviderClosed = true;
     if (workflow) {
       try { const { closeDatabaseConnections } = await import('../../app/lib/db'); await closeDatabaseConnections(); }
       catch { receipt.uncertain = true; }
@@ -546,9 +667,14 @@ async function main(): Promise<void> {
         assert.equal(issuerReceipt.uncertain, false); assert.equal(issuerReceipt.requestsInFlight, 0);
         assert.equal((await administration.query('SELECT datname FROM pg_database WHERE datname=$1', [issuerReceipt.databaseName])).rowCount, 0);
       }
-      if (receipt.createAcknowledged && !receipt.uncertain && children.every(child => child.ended)) {
+      if (composioLive && !bodyFailure && receipt.createAcknowledged && !receipt.uncertain && children.every(child => child.ended)) {
+        // Real accounts and the configured profiles remain available for an explicit
+        // follow-up run. Preserve the owned encrypted DATA/DB, with all processes stopped.
+        assert(receipt.desktopClosed === true);
+        receipt.phase = 'live_verified_preserved';
+      } else if (!composioLive && receipt.createAcknowledged && !receipt.uncertain && children.every(child => child.ended)) {
         assert(composioProviderClosed, 'The own Composio protocol fixture must close before database cleanup.');
-        assert(!desktop || receipt.desktopClosed === true && receipt.systemBrowserClosed === true,
+        assert(!nativeAny || receipt.desktopClosed === true && receipt.systemBrowserClosed === true,
           'Native desktop and independent system-browser closure must be acknowledged before normal database cleanup.');
         if (desktopPaths && desktopDirectoryProofs) for (const directory of Object.values(desktopPaths)) {
           const current = await fs.lstat(directory);
@@ -575,6 +701,10 @@ async function main(): Promise<void> {
     } catch { receipt.uncertain = true; receipt.phase = 'preserved'; }
     await persist(); await administration.end();
     process.removeListener('SIGTERM', cancel); process.removeListener('SIGINT', cancel);
+  }
+  if (composioLive && receipt.phase === 'live_verified_preserved' && !receipt.uncertain) {
+    console.log(`ISOLATED_COMPOSIO_LIVE_PASS ${root}`);
+    return;
   }
   if (receipt.uncertain || !receipt.databaseDropped || !receipt.dataRemoved) {
     throw new Error(`The isolated fixture was preserved; private recovery receipt: ${receiptPath}`);

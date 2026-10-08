@@ -306,7 +306,7 @@
           { "id": "6b-d-2c", "name": "Gemeinsame Composio-Desktop-Rueckkehr und Client-Abnahme", "status": "in_progress", "substeps": [
             { "id": "6b-d-2c-1", "name": "Composio-Desktop-Serververtrag und atomarer Same-Flow-Beleg", "status": "complete", "evidence": ["evidence/step-6b-d-2c-1-shared-composio-desktop-server.md; final native PostgreSQL local and controlled Managed full matrices PASS, real post-allocation socket loss/COMMIT ACK loss/rollback and two migration replays each, original manager/profile/account/session fences; final production build/TypeScript/ESLint and browser/Managed regressions PASS, six acknowledged own native fixtures independently absent"] },
             { "id": "6b-d-2c-2", "name": "Exakte Desktop-API, Client- und Electron-Anbindung", "status": "complete", "evidence": ["evidence/step-6b-d-2c-2-desktop-client-qa.md; native PostgreSQL local/controlled Managed plus actual auth/SQL/SDK HTTP, Composio client/React and MCP regressions PASS;24 Electron boundaries PASS; final production build/post-build TypeScript/focused ESLint PASS", "Owned fresh production-host Playwright3/3 PASS one worker/no retries8.8sec, actual auth/profile/Common resources/editor with explicitly controlled Desktop transport; capability/noAuth/lost Start and opener ACK/explicit Cancel/status/reopen, static screenshots inspected; verified_closed,10 acknowledged own databases and all DATA/TMP/processes independently absent; foreign stack unchanged. Actual OS/Composio consent remains2c-3."] },
-            { "id": "6b-d-2c-3", "name": "Tatsaechliche Systembrowser- und Organisations-/Team-Abnahme", "status": "pending", "evidence": [] }
+            { "id": "6b-d-2c-3", "name": "Tatsaechliche Systembrowser- und Organisations-/Team-Abnahme", "status": "in_progress", "evidence": ["evidence/step-6b-d-2c-3-native-qa-inventory.md; parent-owned HTTPS provider/common native harness/three-case actual Main+preload spec implemented; protocol, ownership, existing MCP+Composio regressions, full build/post-build TypeScript/ESLint PASS. First actual OS run got shellACK1 but consent0 because the local certificate handoff awaited the human and the Mac locked; original flow cancelled/read back before confirmed native/provider close, independent commits0/sessions0/processes absent, foreign stack preserved. Notebook DB/DATA/TMP retained for diagnostics; local three-case Manage-only/Cancel/identity acceptance remains pending. Separate real provider acceptance: evidence/live-composio-canva-2026-10-08.md; fresh native production-host Playwright1/1 PASS, Org/Team actual OAuth/exact original-session publication and two successful Canva gateway reads, own processes/contexts/OS tabs closed, encrypted live setup preserved."] }
           ], "evidence": [] }
         ], "evidence": [] },
         { "id": "6b-d-3", "name": "Gemeinsame MCP Apps mit aktuellen Sitzungs- und Ressourcenrechten", "status": "pending", "evidence": [] }
@@ -324,8 +324,8 @@
     "focusedRegression": "pending",
     "playwrightDesktopAndMobile": "pending",
     "actualMcpAccount": "pending",
-    "actualComposioAccount": "pending",
-    "sharedCanvaAccount": "pending",
+    "actualComposioAccount": "verified_canva_org_team_oauth_and_gateway_read",
+    "sharedCanvaAccount": "verified_separate_org_team_profiles_same_canva_user",
     "publication": "requires_separate_authorization"
   }
 }

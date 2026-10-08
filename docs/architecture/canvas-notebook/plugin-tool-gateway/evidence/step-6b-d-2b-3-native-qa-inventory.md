@@ -1,6 +1,6 @@
 # Step 6b-d-2b-3: native acceptance inventory
 
-Status: actual native Organization/Team completion and canceled late-consent cases PASS; the native identity/frame case and complete acceptance remain open. Parent implementation: `98d2f6c1d`.
+Status: all three actual native scenarios accepted; see the final acceptance below. Parent implementation: `98d2f6c1d`; native acceptance committed in `f0b7eb102`.
 
 This acceptance uses the unchanged Electron main entry, BrowserWindow, sandboxed preload, IPC handler and shared MCP OAuth launcher. A test-only entry supplies verified private userData, sessionData, temporary, log and crash directories before importing that entry. This is an unpackaged Electron runtime against the production Notebook build; it does not establish packaged-app, signing or updater acceptance. The original shell.openExternal must actually launch the operating system's browser. A separate Playwright browser context is valid for fixture administration, but cannot establish this OS launch claim.
 

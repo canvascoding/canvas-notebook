@@ -6,12 +6,14 @@ const { spawn } = require('node:child_process');
 const dotenv = require('dotenv');
 
 const repo = path.resolve(__dirname, '..');
-if (process.argv.length !== 3 || !['run', 'run-workflow', 'run-workflow-oauth', 'run-workflow-oauth-desktop', 'run-workflow-oauth-desktop-identity-diagnostic', 'run-workflow-composio-desktop-client'].includes(process.argv[2])) {
+const composioLive = process.argv[2] === 'run-workflow-composio-live';
+if (process.argv.length !== (composioLive ? 4 : 3) || !['run', 'run-workflow', 'run-workflow-oauth', 'run-workflow-oauth-desktop', 'run-workflow-oauth-desktop-identity-diagnostic', 'run-workflow-composio-desktop-client', 'run-workflow-composio-desktop', 'run-workflow-composio-live'].includes(process.argv[2])) {
   throw new Error('Choose a fixed isolated acceptance command or the native identity diagnostic.');
 }
 const workflow = process.argv[2] !== 'run';
 const identityDiagnostic = process.argv[2] === 'run-workflow-oauth-desktop-identity-diagnostic';
 const composioDesktopClient = process.argv[2] === 'run-workflow-composio-desktop-client';
+const composioNative = process.argv[2] === 'run-workflow-composio-desktop';
 const desktop = process.argv[2] === 'run-workflow-oauth-desktop' || identityDiagnostic;
 const oauth = process.argv[2] === 'run-workflow-oauth' || desktop;
 const privateEnv = path.join(os.homedir(), '.local/state/canvas-local-team-seat/notebook-host-dev.env');
@@ -48,6 +50,17 @@ if (oauth) childEnv.CANVAS_SHARED_MCP_OAUTH_BROWSER_RUN = '1';
 if (desktop) childEnv.CANVAS_SHARED_MCP_DESKTOP_OAUTH_BROWSER_RUN = '1';
 if (identityDiagnostic) childEnv.CANVAS_SHARED_MCP_DESKTOP_IDENTITY_DIAGNOSTIC_RUN = '1';
 if (composioDesktopClient) childEnv.CANVAS_SHARED_COMPOSIO_DESKTOP_CLIENT_BROWSER_RUN = '1';
+if (composioNative) childEnv.CANVAS_SHARED_COMPOSIO_DESKTOP_OAUTH_BROWSER_RUN = '1';
+if (composioLive) {
+  const input = fs.realpathSync(process.argv[3]);
+  const inputStat = fs.lstatSync(process.argv[3]);
+  if (input !== process.argv[3] || !inputStat.isFile() || inputStat.isSymbolicLink() || inputStat.nlink !== 1
+    || inputStat.uid !== process.getuid?.() || (inputStat.mode & 0o777) !== 0o600 || inputStat.size > 4096) {
+    throw new Error('The live test input must be an owned private regular file.');
+  }
+  childEnv.CANVAS_COMPOSIO_LIVE_BROWSER_RUN = '1';
+  childEnv.CANVAS_COMPOSIO_LIVE_INPUT = input;
+}
 const child = spawn(process.execPath, ['--conditions=react-server', '--import', 'tsx', 'scripts/helpers/agent-settings-tools-browser-fixture.ts'], {
   cwd: repo, env: childEnv, stdio: ['ignore', 'inherit', 'inherit'],
 });
