@@ -298,11 +298,11 @@
             "Actual React/BetterAuth-store RED to GREEN,14 fresh MCP status cases and callback privacy-header RED to GREEN; actual SQL/local MCP/Composio SDK/HTTP fixtures plus full UI/security/personal OAuth/shared/required Managed gates PASS; final build/post-build TypeScript/changed-source ESLint PASS",
             "Final owned production-host Playwright1/1 PASS one worker/no retries6.2sec test8.0sec total: genuine held ACK/HTTPS approval, callback303, canonical exact return/reopened editor/current Connected status, binding-only revision advance and one exchange; final verified_closed, independent all34 owned DBs/DATA/TMP absent, foreign stack preserved"
           ] },
-          { "id": "6b-d-2b", "name": "Gemeinsame MCP-Desktoptransaktionen mit Manager-Finalisierung", "status": "in_progress", "substeps": [
+          { "id": "6b-d-2b", "name": "Gemeinsame MCP-Desktoptransaktionen mit Manager-Finalisierung", "status": "complete", "substeps": [
             { "id": "6b-d-2b-1", "name": "Gemeinsamer Desktop-Serververtrag und atomarer Publikationsbeleg", "status": "complete", "evidence": ["evidence/step-6b-d-2b-1-shared-desktop-server.md"] },
             { "id": "6b-d-2b-2", "name": "Exakte Desktop-API, Client- und UI-Anbindung", "status": "complete", "evidence": ["evidence/step-6b-d-2b-2-shared-desktop-client.md"] },
-            { "id": "6b-d-2b-3", "name": "Tatsaechliche Systembrowser- und Manager-Abnahme", "status": "pending", "evidence": [] }
-          ], "evidence": [] },
+            { "id": "6b-d-2b-3", "name": "Tatsaechliche Systembrowser- und Manager-Abnahme", "status": "complete", "evidence": ["evidence/step-6b-d-2b-3-native-qa-inventory.md; final normal actual Electron/system-browser Playwright3/3 PASS, fixed one-worker/no-retry runner exit0 and verified_closed; Org/Team Manage-only original-manager completion, exact original-session/actor ledger replay, genuine UI Cancel/late-consent rejection, actual cookie ABA/frame/replacement-session/different-manager/anonymous denials", "Three actual OS approvals/two exchanges/business0; root inspected all six native screenshots and closed exactly three issued callback tabs using observed state fingerprints; actual API-start Cancel/fresh terminal status and post-cancel unchanged binding/grants/ledger0 verified; own original processes/groups, both normally dropped nonce databases and DATA/TMP independently absent; unpackaged native local acceptance only, live provider/Mobile/production remain later steps"] }
+          ], "evidence": ["Server/client implementation plus final original native/system-browser three-scenario acceptance complete; no container/push/deploy/default-off rollout change."] },
           { "id": "6b-d-2c", "name": "Gemeinsame Composio-Desktop-Rueckkehr und Client-Abnahme", "status": "pending", "evidence": [] }
         ], "evidence": [] },
         { "id": "6b-d-3", "name": "Gemeinsame MCP Apps mit aktuellen Sitzungs- und Ressourcenrechten", "status": "pending", "evidence": [] }
@@ -310,7 +310,7 @@
       { "id": "6b-e", "name": "Versionierte native Mobile-Ressourcen-, Verbindungs- und Chat-Vertraege", "status": "pending", "evidence": [] },
       { "id": "6b-f", "name": "Gemeinsamer Workflow mit zwei Nutzern und finaler Client-Vertragsabnahme", "status": "pending", "evidence": [] }
     ], "openFindings": [
-      "6b-d-1 and6b-d-2a locally accepted: synchronous pending fence, bound same-browser shared MCP return/exact editor reopening, controlled Composio return and privacy headers, fresh provider status, auth-session invalidation and dirty OAuth preflight. Shared MCP Desktop manager finalization remains6b-d-2b and Composio system-browser/client return remains6b-d-2c; shared MCP Apps remain6b-d-3. Native Mobile/final shared runtime/live provider acceptance remain6b-e/f/7; gateway stays default-off."
+      "6b-d-1,6b-d-2a and6b-d-2b locally accepted: synchronous pending fence, bound same-browser shared MCP return/exact editor reopening, controlled Composio return and privacy headers, fresh provider status, auth-session invalidation, dirty OAuth preflight and actual native shared MCP manager finalization/Cancel/identity guards. Composio system-browser/client return remains6b-d-2c; shared MCP Apps remain6b-d-3. Native Mobile/final shared runtime/live provider acceptance remain6b-e/f/7; gateway stays default-off."
     ], "evidence": [] },
     { "id": "7", "name": "End-to-End-Abnahme und kontrollierter Rollout", "status": "pending", "evidence": [] }
   ],

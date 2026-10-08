@@ -74,7 +74,7 @@ function authRequestTimeout(deadline: number, phase: string): number {
   return Math.min(15_000, remainingMs);
 }
 
-async function waitForAuthRetry(response: APIResponse, deadline: number, phase: string, retries: number): Promise<void> {
+export async function waitForAuthRetry(response: APIResponse, deadline: number, phase: string, retries: number): Promise<void> {
   const retryAfter = response.headers()['x-retry-after'] || response.headers()['retry-after'];
   const seconds = Number(retryAfter);
   const requestedMs = retryAfter && Number.isFinite(seconds) && seconds >= 0

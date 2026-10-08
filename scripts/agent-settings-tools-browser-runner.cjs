@@ -6,11 +6,13 @@ const { spawn } = require('node:child_process');
 const dotenv = require('dotenv');
 
 const repo = path.resolve(__dirname, '..');
-if (process.argv.length !== 3 || !['run', 'run-workflow', 'run-workflow-oauth'].includes(process.argv[2])) {
-  throw new Error('Choose the fixed isolated acceptance command: run, run-workflow or run-workflow-oauth.');
+if (process.argv.length !== 3 || !['run', 'run-workflow', 'run-workflow-oauth', 'run-workflow-oauth-desktop', 'run-workflow-oauth-desktop-identity-diagnostic'].includes(process.argv[2])) {
+  throw new Error('Choose a fixed isolated acceptance command or the native identity diagnostic.');
 }
 const workflow = process.argv[2] !== 'run';
-const oauth = process.argv[2] === 'run-workflow-oauth';
+const identityDiagnostic = process.argv[2] === 'run-workflow-oauth-desktop-identity-diagnostic';
+const desktop = process.argv[2] === 'run-workflow-oauth-desktop' || identityDiagnostic;
+const oauth = process.argv[2] === 'run-workflow-oauth' || desktop;
 const privateEnv = path.join(os.homedir(), '.local/state/canvas-local-team-seat/notebook-host-dev.env');
 const stat = fs.lstatSync(privateEnv);
 if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1 || (stat.mode & 0o077) !== 0) {
@@ -42,6 +44,8 @@ if (workflow) {
   childEnv.CANVAS_CONTROL_PLANE_TEST_ROOT = controlPlaneRoot;
 }
 if (oauth) childEnv.CANVAS_SHARED_MCP_OAUTH_BROWSER_RUN = '1';
+if (desktop) childEnv.CANVAS_SHARED_MCP_DESKTOP_OAUTH_BROWSER_RUN = '1';
+if (identityDiagnostic) childEnv.CANVAS_SHARED_MCP_DESKTOP_IDENTITY_DIAGNOSTIC_RUN = '1';
 const child = spawn(process.execPath, ['--conditions=react-server', '--import', 'tsx', 'scripts/helpers/agent-settings-tools-browser-fixture.ts'], {
   cwd: repo, env: childEnv, stdio: ['ignore', 'inherit', 'inherit'],
 });

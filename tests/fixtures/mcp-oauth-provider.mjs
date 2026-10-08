@@ -49,6 +49,9 @@ function sameChallenge(verifier, expected) {
  */
 export async function startMcpOAuthProvider(options = {}) {
   if (options.tls && (!options.tls.key || !options.tls.cert)) throw new Error('The own HTTPS provider requires its private key and certificate.');
+  if (options.cleanAuthorizationAddress !== undefined && typeof options.cleanAuthorizationAddress !== 'boolean') {
+    throw new Error('The private native consent address option must be an explicit boolean.');
+  }
   const allowedOrigins = options.allowedRedirectOrigins
     ? new Set(options.allowedRedirectOrigins.map((entry) => new URL(entry).origin))
     : undefined;
@@ -135,15 +138,21 @@ export async function startMcpOAuthProvider(options = {}) {
           expiresAt: Date.now() + GRANT_LIFETIME_MS,
         });
         stats.consents += 1;
+        // The native UI observer must not print OAuth state from the address
+        // bar. The real request and grant stay unchanged; only this opt-in test
+        // page clears its displayed query after it has received that request.
+        const addressNonce = options.cleanAuthorizationAddress ? randomBytes(24).toString('base64url') : null;
+        const addressScript = addressNonce
+          ? `<script nonce="${addressNonce}">history.replaceState(null,'',location.pathname)</script>` : '';
         response.writeHead(200, {
           'Content-Type': 'text/html; charset=utf-8',
           'Cache-Control': 'no-store',
           'Referrer-Policy': 'no-referrer',
           // Chromium checks form-action again when following the OAuth 303.
           // Permit only the callback origin validated against the registration.
-          'Content-Security-Policy': `default-src 'none'; form-action 'self' ${new URL(redirectUri).origin}; frame-ancestors 'none'; base-uri 'none'`,
+          'Content-Security-Policy': `default-src 'none'; form-action 'self' ${new URL(redirectUri).origin}; frame-ancestors 'none'; base-uri 'none'${addressNonce ? `; script-src 'nonce-${addressNonce}'` : ''}`,
         });
-        response.end(`<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Local MCP consent</title></head><body><main><h1>Connect Canvas Notebook</h1><p>Allow the local test MCP server to provide its echo tool.</p><form method="post" action="/consent"><input type="hidden" name="consent" value="${consent}"><button type="submit" name="decision" value="approve">Approve</button><button type="submit" name="decision" value="deny">Deny</button></form></main></body></html>`);
+        response.end(`<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Local MCP consent</title>${addressScript}</head><body><main><h1>Connect Canvas Notebook</h1><p>Allow the local test MCP server to provide its echo tool.</p><form method="post" action="/consent"><input type="hidden" name="consent" value="${consent}"><button type="submit" name="decision" value="approve">Approve</button><button type="submit" name="decision" value="deny">Deny</button></form></main></body></html>`);
         return;
       }
       if (method === 'POST' && target.pathname === '/consent') {

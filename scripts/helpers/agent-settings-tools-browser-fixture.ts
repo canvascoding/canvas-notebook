@@ -42,6 +42,12 @@ type Receipt = {
   createAcknowledged: boolean; phase: string; serverPid: number | null; issuerPid?: number | null; actorId: string | null;
   uncertain: boolean; databaseDropped: boolean; dataRemoved: boolean;
   tlsFiles?: { key: { path: string; device: string; inode: string }; certificate: { path: string; device: string; inode: string } };
+  desktopPaths?: { userData: string; sessionData: string; temp: string; logs: string; crashDumps: string };
+  desktopDirectoryProofs?: Record<string, { device: string; inode: string }>;
+  desktopProcessIds?: number[];
+  desktopClosed?: boolean;
+  nativeIdentityDiagnostic?: boolean;
+  systemBrowserClosed?: boolean;
 };
 type IssuerReady = {
   version: 1; nonce: string; fixtureRoot: string; origin: string; certificatePath: string;
@@ -141,7 +147,12 @@ async function main(): Promise<void> {
   assert(process.env.BOOTSTRAP_ADMIN_EMAIL && process.env.BOOTSTRAP_ADMIN_PASSWORD);
   const workflow = process.env.CANVAS_AGENT_WORKFLOW_MULTIUSER_BROWSER_RUN === '1';
   const oauth = process.env.CANVAS_SHARED_MCP_OAUTH_BROWSER_RUN === '1';
+  const desktop = process.env.CANVAS_SHARED_MCP_DESKTOP_OAUTH_BROWSER_RUN === '1';
+  const identityDiagnostic = process.env.CANVAS_SHARED_MCP_DESKTOP_IDENTITY_DIAGNOSTIC_RUN === '1';
+  assert(process.env.CANVAS_SHARED_MCP_DESKTOP_IDENTITY_DIAGNOSTIC_RUN === undefined || identityDiagnostic);
   assert(!oauth || workflow, 'The OAuth browser fixture requires its owned Team issuer.');
+  assert(!desktop || oauth, 'The native desktop fixture requires the owned HTTPS OAuth fixture.');
+  assert(!identityDiagnostic || desktop, 'The focused native diagnostic requires the unchanged desktop fixture.');
   const controlPlaneRoot = workflow ? await fs.realpath(process.env.CANVAS_CONTROL_PLANE_TEST_ROOT ?? '') : null;
   const repo = await fs.realpath(process.cwd());
   await fs.access(path.join(repo, '.next/BUILD_ID'));
@@ -157,6 +168,21 @@ async function main(): Promise<void> {
   for (const directory of [dataRoot, tmpRoot]) {
     const stat = await fs.lstat(directory); directoryProofs[directory] = { device: String(stat.dev), inode: String(stat.ino) };
   }
+  const desktopPaths: Receipt['desktopPaths'] = desktop ? {
+    userData: path.join(tmpRoot, 'desktop-user-data'), sessionData: path.join(tmpRoot, 'desktop-session-data'),
+    temp: path.join(tmpRoot, 'desktop-temp'), logs: path.join(tmpRoot, 'desktop-logs'),
+    crashDumps: path.join(tmpRoot, 'desktop-crash-dumps'),
+  } : undefined;
+  const desktopDirectoryProofs: Receipt['desktopDirectoryProofs'] = desktop ? {} : undefined;
+  if (desktopPaths && desktopDirectoryProofs) {
+    for (const directory of Object.values(desktopPaths)) {
+      await fs.mkdir(directory, { mode: 0o700 });
+      const stat = await fs.lstat(directory);
+      assert(stat.isDirectory() && !stat.isSymbolicLink() && stat.uid === rootStat.uid && (stat.mode & 0o777) === 0o700);
+      assert.equal(await fs.realpath(directory), directory);
+      desktopDirectoryProofs[directory] = { device: String(stat.dev), inode: String(stat.ino) };
+    }
+  }
   await fs.writeFile(path.join(root, '.fixture-owner'), marker, { mode: 0o600 });
   const emptyEnv = path.join(root, 'empty.env');
   await fs.writeFile(emptyEnv, '', { mode: 0o600 });
@@ -165,7 +191,8 @@ async function main(): Promise<void> {
     rootDevice: String(rootStat.dev), rootInode: String(rootStat.ino), databaseName: `canvas_connection_test_${nonce}`,
     directoryProofs, listenerVerified: false,
     databaseOwner: null, createAcknowledged: false, phase: 'before_create', serverPid: null, actorId: null,
-    uncertain: false, databaseDropped: false, dataRemoved: false };
+    uncertain: false, databaseDropped: false, dataRemoved: false,
+    ...(desktop ? { desktopPaths, desktopDirectoryProofs, desktopClosed: false, nativeIdentityDiagnostic: identityDiagnostic } : {}) };
   const persist = async () => {
     const temporary = `${receiptPath}.tmp`;
     await fs.writeFile(temporary, JSON.stringify(receipt), { mode: 0o600 });
@@ -217,6 +244,10 @@ async function main(): Promise<void> {
     TEST_SECONDARY_EMAIL: `workflow-member-${nonce}@example.test`, TEST_SECONDARY_PASSWORD: randomBytes(24).toString('base64url'),
     TEST_EDITOR_EMAIL: `workflow-editor-${nonce}@example.test`, TEST_EDITOR_PASSWORD: randomBytes(24).toString('base64url') });
   if (oauth) env.CANVAS_SHARED_MCP_OAUTH_BROWSER_RUN = '1';
+  if (desktop) Object.assign(env, { CANVAS_SHARED_MCP_DESKTOP_OAUTH_BROWSER_RUN: '1',
+    CANVAS_SHARED_MCP_DESKTOP_PATHS: JSON.stringify(desktopPaths),
+    CANVAS_SHARED_MCP_DESKTOP_RECEIPT: path.join(root, 'desktop-receipt.json') });
+  if (identityDiagnostic) env.CANVAS_SHARED_MCP_DESKTOP_IDENTITY_DIAGNOSTIC_RUN = '1';
   const startChild = (args: string[], phase: string, nodeEnv: 'production' | 'test' | 'development', overrides: Record<string, string> = {}): Child => {
     abort.signal.throwIfAborted();
     const log = createWriteStream(path.join(root, `${phase}.log`), { mode: 0o600 });
@@ -383,12 +414,73 @@ async function main(): Promise<void> {
     assert(healthy && !server.ended, 'The recorded isolated production host must become ready.');
     await assertOwnedListener(); receipt.listenerVerified = true;
     receipt.phase = 'browser'; await persist();
-    const browser = startChild([path.join(repo, 'node_modules/@playwright/test/cli.js'), 'test', '--config', oauth
-      ? 'playwright.shared-mcp-oauth-production.config.ts' : 'playwright.agent-settings-tools-production.config.ts'], 'browser', 'test');
-    const browserCode = await waitChild(browser, workflow ? 600_000 : 300_000);
+    const browserArgs = [path.join(repo, 'node_modules/@playwright/test/cli.js'), 'test', '--config', desktop
+      ? 'playwright.shared-mcp-desktop-oauth-production.config.ts' : oauth
+        ? 'playwright.shared-mcp-oauth-production.config.ts' : 'playwright.agent-settings-tools-production.config.ts'];
+    if (identityDiagnostic) browserArgs.push('--grep', 'actual Electron cookie ABA and same-origin frame changes deny a verified old launch without publishing or executing');
+    const browser = startChild(browserArgs, 'browser', 'test');
+    const browserCode = await waitChild(browser, desktop ? 26 * 60_000 : workflow ? 600_000 : 300_000);
     const browserReceipt = JSON.parse(await fs.readFile(path.join(root, 'browser-receipt.json'), 'utf8')) as { nonce: string; actorId: string; phase: string; outstanding: unknown };
     assert.equal(browserReceipt.nonce, nonce); assert.equal(browserReceipt.actorId, receipt.actorId);
     assert.equal(browserReceipt.phase, 'verified_closed'); assert.equal(browserReceipt.outstanding, null);
+    if (desktop) {
+      const nativePath = path.join(root, 'desktop-receipt.json'), nativeStat = await fs.lstat(nativePath);
+      assert(nativeStat.isFile() && !nativeStat.isSymbolicLink() && nativeStat.nlink === 1
+        && nativeStat.uid === rootStat.uid && (nativeStat.mode & 0o777) === 0o600 && nativeStat.size > 0 && nativeStat.size < 64 * 1024);
+      const handle = await fs.open(nativePath, constants.O_RDONLY | constants.O_NOFOLLOW);
+      let native: { version: number; nonce: string; actorId: string; phase: string; outstanding: unknown;
+        desktopPaths: Receipt['desktopPaths']; desktopDirectoryProofs: Receipt['desktopDirectoryProofs'];
+        processes: Array<{ pid: number; processGroupId: number; closed: boolean }>; electronClosed: boolean; providerClosed: boolean; closedContexts: boolean;
+        providerOrigin: string; systemBrowserOpenedCount: number };
+      try {
+        const held = await handle.stat();
+        assert.equal(held.dev, nativeStat.dev); assert.equal(held.ino, nativeStat.ino); assert.equal(held.size, nativeStat.size);
+        assert(held.isFile() && held.nlink === 1 && held.uid === rootStat.uid && (held.mode & 0o777) === 0o600);
+        native = JSON.parse(await handle.readFile('utf8'));
+      } finally { await handle.close(); }
+      assert.equal(native.version, 1); assert.equal(native.nonce, nonce); assert.equal(native.actorId, receipt.actorId);
+      assert.equal(native.phase, 'verified_closed'); assert.equal(native.outstanding, null);
+      assert.equal(native.electronClosed, true); assert.equal(native.providerClosed, true); assert.equal(native.closedContexts, true);
+      const providerOrigin = new URL(native.providerOrigin);
+      assert.equal(providerOrigin.protocol, 'https:'); assert.equal(providerOrigin.hostname, '127.0.0.1'); assert(providerOrigin.port);
+      assert.equal(providerOrigin.origin, native.providerOrigin);
+      assert(Number.isSafeInteger(native.systemBrowserOpenedCount) && native.systemBrowserOpenedCount >= 1 && native.systemBrowserOpenedCount <= 8);
+      const systemBrowserPath = path.join(root, 'system-browser-closure.json'), systemBrowserStat = await fs.lstat(systemBrowserPath);
+      assert(systemBrowserStat.isFile() && !systemBrowserStat.isSymbolicLink() && systemBrowserStat.nlink === 1
+        && systemBrowserStat.uid === rootStat.uid && (systemBrowserStat.mode & 0o777) === 0o600
+        && systemBrowserStat.size > 0 && systemBrowserStat.size < 2 * 1024);
+      const systemBrowserHandle = await fs.open(systemBrowserPath, constants.O_RDONLY | constants.O_NOFOLLOW);
+      try {
+        const held = await systemBrowserHandle.stat();
+        assert.equal(held.dev, systemBrowserStat.dev); assert.equal(held.ino, systemBrowserStat.ino); assert.equal(held.size, systemBrowserStat.size);
+        assert(held.isFile() && held.nlink === 1 && held.uid === rootStat.uid && (held.mode & 0o777) === 0o600);
+        const acknowledgement = JSON.parse(await systemBrowserHandle.readFile('utf8')) as {
+          version: number; nonce: string; origin: string; openedCount: number; closed: boolean };
+        assert.equal(Object.keys(acknowledgement).sort().join(','), 'closed,nonce,openedCount,origin,version');
+        assert.equal(acknowledgement.version, 1); assert.equal(acknowledgement.nonce, nonce);
+        assert.equal(acknowledgement.origin, native.providerOrigin); assert.equal(acknowledgement.openedCount, native.systemBrowserOpenedCount);
+        assert.equal(acknowledgement.closed, true);
+      } finally { await systemBrowserHandle.close(); }
+      assert.deepEqual(native.desktopPaths, desktopPaths); assert.deepEqual(native.desktopDirectoryProofs, desktopDirectoryProofs);
+      assert(Array.isArray(native.processes) && native.processes.length >= 1 && native.processes.length <= 8);
+      const pids = native.processes.map(record => {
+        assert(Number.isSafeInteger(record.pid) && record.pid > 0 && record.closed === true);
+        assert.equal(record.processGroupId, record.pid, 'The acknowledged native process must retain its captured own process group.');
+        assert(!children.some(child => child.pid === record.pid) && record.pid !== process.pid);
+        // Read-only liveness check: never signal a PID merely reported by a receipt.
+        assert.throws(() => process.kill(record.pid, 0), (error: unknown) => (error as NodeJS.ErrnoException).code === 'ESRCH');
+        assert.throws(() => process.kill(-record.processGroupId, 0), (error: unknown) => (error as NodeJS.ErrnoException).code === 'ESRCH');
+        return record.pid;
+      });
+      assert.equal(new Set(pids).size, pids.length);
+      for (const directory of Object.values(desktopPaths!)) {
+        const current = await fs.lstat(directory);
+        assert(current.isDirectory() && !current.isSymbolicLink() && current.uid === rootStat.uid && (current.mode & 0o777) === 0o700);
+        assert.equal(await fs.realpath(directory), directory);
+        assert.deepEqual({ device: String(current.dev), inode: String(current.ino) }, desktopDirectoryProofs![directory]);
+      }
+      receipt.desktopProcessIds = pids; receipt.desktopClosed = true; receipt.systemBrowserClosed = true; await persist();
+    }
     assert.equal((await database.query('SELECT COUNT(*)::integer AS count FROM pi_sessions')).rows[0].count, 0);
     await assertOwnedListener();
     if (browserCode !== 0) bodyFailure = new Error('The actual agent-switch browser assertion failed; see the private browser log.');
@@ -437,6 +529,14 @@ async function main(): Promise<void> {
         assert.equal((await administration.query('SELECT datname FROM pg_database WHERE datname=$1', [issuerReceipt.databaseName])).rowCount, 0);
       }
       if (receipt.createAcknowledged && !receipt.uncertain && children.every(child => child.ended)) {
+        assert(!desktop || receipt.desktopClosed === true && receipt.systemBrowserClosed === true,
+          'Native desktop and independent system-browser closure must be acknowledged before normal database cleanup.');
+        if (desktopPaths && desktopDirectoryProofs) for (const directory of Object.values(desktopPaths)) {
+          const current = await fs.lstat(directory);
+          assert(current.isDirectory() && !current.isSymbolicLink() && current.uid === rootStat.uid && (current.mode & 0o777) === 0o700);
+          assert.equal(await fs.realpath(directory), directory);
+          assert.deepEqual({ device: String(current.dev), inode: String(current.ino) }, desktopDirectoryProofs[directory]);
+        }
         for (const directory of [dataRoot, tmpRoot]) await assertDirectory(directory);
         const current = (await administration.query(`SELECT pg_get_userbyid(datdba) AS owner,current_user AS role,
           shobj_description(oid,'pg_database') AS marker FROM pg_database WHERE datname=$1`, [receipt.databaseName])).rows[0];
