@@ -20,6 +20,7 @@ export async function createComposioProviderFixture() {
   let pendingSequence = 0;
   let unknownOutcome = false;
   let unknownManagement = false;
+  let loseNextLinkAcknowledgement = false;
   let failNextToolPage = false;
   let rotateOnToolRead: (() => Promise<void>) | null = null;
   let rotateOnEndpoint: { path: string; callback: () => Promise<void> } | null = null;
@@ -66,6 +67,7 @@ export async function createComposioProviderFixture() {
       const id = `fixture-initiated-${++pendingSequence}`;
       accounts.set(userId, [...(accounts.get(userId) || []), { id, toolkit: String(body.toolkit), status: 'INITIATED' }]);
       callbacks.set(id, String(body.callback_url));
+      if (loseNextLinkAcknowledgement) { loseNextLinkAcknowledgement = false; request.socket.destroy(); return; }
       return send({ connected_account_id: id, redirect_url: `https://fixture.example.test/oauth/${id}` });
     }
     const deletingAccount = url.pathname.match(/^\/api\/v3\.1\/connected_accounts\/([^/]+)$/u)?.[1];
@@ -128,6 +130,7 @@ export async function createComposioProviderFixture() {
     },
     setUnknown: (value: boolean) => { unknownOutcome = value; },
     setUnknownManagement: (value: boolean) => { unknownManagement = value; },
+    loseNextLinkAcknowledgement: () => { loseNextLinkAcknowledgement = true; },
     failPage: () => { failNextToolPage = true; },
     rotateOnRead: (callback: () => Promise<void>) => { rotateOnToolRead = callback; },
     rotateOnEndpoint: (endpoint: string, callback: () => Promise<void>) => { rotateOnEndpoint = { path: endpoint, callback }; },

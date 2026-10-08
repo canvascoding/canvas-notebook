@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { openDb } from '@/app/lib/db';
+import { openDb, type SqlConnection } from '@/app/lib/db';
 import { assertSharedIntegrationOwnershipManagement } from '@/app/lib/integration-tools/connections/ownership';
 import { IntegrationConnectionError, type AuthorizedIntegrationConnection, type IntegrationConnectionActor,
   type SharedIntegrationConnectionOwnership } from '@/app/lib/integration-tools/connections/contracts';
@@ -43,14 +43,14 @@ function sameOwnership(left: SharedIntegrationConnectionOwnership, right: Shared
     && (left.type !== 'team' || right.type === 'team' && left.workspaceId === right.workspaceId);
 }
 
-async function readSharedProfile(id: string): Promise<SharedComposioProfile> {
-  const database = await openDb();
+async function readSharedProfile(id: string, connection?: SqlConnection): Promise<SharedComposioProfile> {
+  const database = connection ?? await openDb();
   try {
     const row = await database.get(`SELECT * FROM composio_connection_profiles WHERE id = $1 AND owner_user_id IS NULL
       AND scope_type IN ('organization','workspace')`, [id]) as SharedProfileRow | undefined;
     if (!row) throw new IntegrationConnectionError('connection_not_found', 'The shared Composio profile was not found.', 404);
     return profileFromSharedRow(row);
-  } finally { await database.close(); }
+  } finally { if (!connection) await database.close(); }
 }
 
 export async function createSharedComposioProfile(input: { actor: IntegrationConnectionActor; ownership: SharedIntegrationConnectionOwnership;
@@ -92,9 +92,10 @@ export async function listSharedComposioProfiles(actor: IntegrationConnectionAct
   } finally { await database.close(); }
 }
 
-export async function readAuthorizedSharedComposioProfile(authorized: AuthorizedIntegrationConnection): Promise<SharedComposioProfile> {
+export async function readAuthorizedSharedComposioProfile(authorized: AuthorizedIntegrationConnection,
+  connection?: SqlConnection): Promise<SharedComposioProfile> {
   if (authorized.backend.source !== 'composio') throw new IntegrationConnectionError('connection_not_found', 'The Composio connection was not found.', 404);
-  const profile = await readSharedProfile(authorized.backend.profileId);
+  const profile = await readSharedProfile(authorized.backend.profileId, connection);
   if (profile.status !== 'active' || !sameOwnership(profile.ownership, authorized.resource.ownership)
     || profile.providerMode !== authorized.backend.mode) throw new IntegrationConnectionError('binding_changed', 'The shared Composio profile changed.', 409);
   return profile;

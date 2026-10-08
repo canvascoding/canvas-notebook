@@ -389,6 +389,7 @@
     "test:integrations:gateway": "npm run test:integrations:gateway:catalog && npm run test:integrations:gateway:runtime && npm run test:integrations:gateway:agent && npm run test:integrations:connections",
     "test:integrations:connections": "tsx --conditions react-server scripts/integration-connection-store-test.ts && tsx scripts/integration-tool-shared-connections-test.ts && tsx --conditions react-server scripts/composio-shared-profile-test.ts && tsx --conditions react-server scripts/composio-shared-management-test.ts && tsx --conditions react-server scripts/mcp-shared-connections-test.ts",
     "test:integrations:connections:managed": "node --experimental-test-module-mocks --conditions react-server --import tsx scripts/composio-shared-managed-management-test.ts",
+    "test:integrations:connections:desktop": "node scripts/composio-shared-desktop-oauth-native-runner.cjs run",
     "test:integrations:gateway:managed": "node --experimental-test-module-mocks --conditions react-server --import tsx scripts/integration-tool-composio-runtime-test.ts --require-managed",
     "test:auth:setup": "tsx --conditions react-server scripts/auth-setup-test.ts",
     "test:auth:seat-limit": "tsx --conditions react-server scripts/auth-seat-limit-test.ts",

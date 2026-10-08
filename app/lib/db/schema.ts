@@ -1401,6 +1401,92 @@ export const mcpSharedDesktopOAuthCommits = pgTable("mcp_shared_desktop_oauth_co
     AND ${table.authVersion} >= 1 AND ${table.lifecycleGeneration} >= 0 AND ${table.committedAt} >= 1`),
 }));
 
+/** Private shared Composio Desktop flow. Intent, state, session ID and provider URL are never plaintext SQL fields. */
+export const composioSharedDesktopOAuthTransactions = pgTable("composio_shared_desktop_oauth_transactions", {
+  stateHash: text("state_hash").primaryKey(),
+  contractVersion: bigint("contract_version", { mode: "number" }).notNull(),
+  connectionRef: text("connection_ref").notNull().references(() => integrationConnectionResources.connectionRef, { onDelete: 'cascade' }),
+  initiatingUserId: text("initiating_user_id").notNull().references(() => user.id, { onDelete: 'cascade' }),
+  ownershipType: text("ownership_type").notNull(),
+  organizationId: text("organization_id").notNull(),
+  ownerWorkspaceId: text("owner_workspace_id"),
+  actorHash: text("actor_hash").notNull(),
+  authSessionHash: text("auth_session_hash").notNull(),
+  snapshotHash: text("snapshot_hash").notNull(),
+  sealedSnapshot: text("sealed_snapshot").notNull(),
+  authorizationUrlHash: text("authorization_url_hash"),
+  status: text("status").notNull(),
+  terminalCode: text("terminal_code"),
+  createdAt: pgTimestamp("created_at").notNull(),
+  expiresAt: pgTimestamp("expires_at").notNull(),
+  updatedAt: pgTimestamp("updated_at").notNull(),
+  callbackReceivedAt: pgTimestamp("callback_received_at"),
+  terminalAt: pgTimestamp("terminal_at"),
+}, table => ({
+  ownerIdx: index("idx_composio_shared_desktop_transactions_owner").on(table.initiatingUserId, table.status, table.expiresAt),
+  resourceIdx: index("idx_composio_shared_desktop_transactions_resource").on(table.connectionRef, table.createdAt),
+  terminalIdx: index("idx_composio_shared_desktop_transactions_terminal").on(table.status, table.terminalAt),
+  hashesCheck: check("composio_shared_desktop_transactions_hashes_check", sql`${table.stateHash} ~ '^[a-f0-9]{64}$'
+    AND ${table.actorHash} ~ '^[a-f0-9]{64}$' AND ${table.authSessionHash} ~ '^[a-f0-9]{64}$'
+    AND ${table.snapshotHash} ~ '^[a-f0-9]{64}$'
+    AND (${table.authorizationUrlHash} IS NULL OR ${table.authorizationUrlHash} ~ '^[a-f0-9]{64}$')`),
+  ownershipCheck: check("composio_shared_desktop_transactions_ownership_check", sql`length(${table.organizationId}) BETWEEN 1 AND 200 AND (
+    (${table.ownershipType} = 'organization' AND ${table.ownerWorkspaceId} IS NULL)
+    OR (${table.ownershipType} = 'team' AND ${table.ownerWorkspaceId} IS NOT NULL AND length(${table.ownerWorkspaceId}) BETWEEN 1 AND 200))`),
+  statusCheck: check("composio_shared_desktop_transactions_status_check", sql`${table.contractVersion} = 1
+    AND ${table.status} IN ('starting','waiting','callback_received','completed','cancelled','expired','failed')
+    AND (${table.status} <> 'waiting' OR ${table.authorizationUrlHash} IS NOT NULL)
+    AND (${table.terminalCode} IS NULL OR
+      (${table.status} = 'cancelled' AND ${table.terminalCode} = 'CONNECTION_DESKTOP_OAUTH_CANCELLED') OR
+      (${table.status} = 'expired' AND ${table.terminalCode} = 'CONNECTION_DESKTOP_OAUTH_EXPIRED') OR
+      (${table.status} = 'failed' AND ${table.terminalCode} = 'CONNECTION_DESKTOP_OAUTH_FAILED'))`),
+  valuesCheck: check("composio_shared_desktop_transactions_values_check", sql`length(${table.sealedSnapshot}) BETWEEN 1 AND 65536
+    AND length(${table.initiatingUserId}) BETWEEN 1 AND 200 AND ${table.createdAt} >= 1
+    AND ${table.expiresAt} > ${table.createdAt} AND ${table.updatedAt} >= ${table.createdAt}
+    AND (${table.callbackReceivedAt} IS NULL OR ${table.callbackReceivedAt} >= ${table.createdAt})
+    AND (${table.terminalAt} IS NULL OR ${table.terminalAt} >= ${table.createdAt})`),
+}));
+
+/** Same-transaction publication evidence; hashes never replace current manager/session authority. */
+export const composioSharedDesktopOAuthCommits = pgTable("composio_shared_desktop_oauth_commits", {
+  stateHash: text("state_hash").primaryKey().references(() => composioSharedDesktopOAuthTransactions.stateHash, { onDelete: 'cascade' }),
+  snapshotHash: text("snapshot_hash").notNull(),
+  actorHash: text("actor_hash").notNull(),
+  authSessionHash: text("auth_session_hash").notNull(),
+  connectionRef: text("connection_ref").notNull().references(() => integrationConnectionResources.connectionRef, { onDelete: 'cascade' }),
+  initiatingUserId: text("initiating_user_id").notNull().references(() => user.id, { onDelete: 'cascade' }),
+  profileIdHash: text("profile_id_hash").notNull(),
+  composioUserIdHash: text("composio_user_id_hash").notNull(),
+  pendingAccountHash: text("pending_account_hash").notNull(),
+  authorizationUrlHash: text("authorization_url_hash").notNull(),
+  profileRevision: bigint("profile_revision", { mode: "number" }).notNull(),
+  toolkit: text("toolkit").notNull(),
+  providerMode: text("provider_mode").notNull(),
+  credentialRevision: text("credential_revision").notNull(),
+  preMetadataRevision: bigint("pre_metadata_revision", { mode: "number" }).notNull(),
+  preGrantsRevision: bigint("pre_grants_revision", { mode: "number" }).notNull(),
+  preBindingRevision: bigint("pre_binding_revision", { mode: "number" }).notNull(),
+  publishedBindingRevision: bigint("published_binding_revision", { mode: "number" }).notNull(),
+  preAuthorizationRevision: text("pre_authorization_revision").notNull(),
+  postAuthorizationRevision: text("post_authorization_revision").notNull(),
+  committedAt: pgTimestamp("committed_at").notNull(),
+}, table => ({
+  resourceIdx: index("idx_composio_shared_desktop_commits_resource").on(table.connectionRef, table.committedAt),
+  hashesCheck: check("composio_shared_desktop_commits_hashes_check", sql`${table.stateHash} ~ '^[a-f0-9]{64}$'
+    AND ${table.snapshotHash} ~ '^[a-f0-9]{64}$' AND ${table.actorHash} ~ '^[a-f0-9]{64}$'
+    AND ${table.authSessionHash} ~ '^[a-f0-9]{64}$' AND ${table.profileIdHash} ~ '^[a-f0-9]{64}$'
+    AND ${table.composioUserIdHash} ~ '^[a-f0-9]{64}$' AND ${table.pendingAccountHash} ~ '^[a-f0-9]{64}$'
+    AND ${table.authorizationUrlHash} ~ '^[a-f0-9]{64}$' AND ${table.credentialRevision} ~ '^[a-f0-9]{64}$'`),
+  bindingCheck: check("composio_shared_desktop_commits_binding_check", sql`${table.profileRevision} >= 1
+    AND ${table.preMetadataRevision} >= 1 AND ${table.preGrantsRevision} >= 1 AND ${table.preBindingRevision} >= 1
+    AND ${table.publishedBindingRevision} = ${table.preBindingRevision} + 1
+    AND ${table.preAuthorizationRevision} ~ '^[A-Za-z0-9_-]{43}$'
+    AND ${table.postAuthorizationRevision} ~ '^[A-Za-z0-9_-]{43}$'
+    AND ${table.preAuthorizationRevision} <> ${table.postAuthorizationRevision}
+    AND ${table.providerMode} IN ('local','managed') AND ${table.toolkit} ~ '^[a-z0-9][a-z0-9_-]{0,99}$'
+    AND length(${table.initiatingUserId}) BETWEEN 1 AND 200 AND ${table.committedAt} >= 1`),
+}));
+
 export const aiProviderInstallations = pgTable("ai_provider_installations", {
   id: text("id").primaryKey(),
   organizationId: text("organization_id").notNull().references(() => canvasOrganizationSettings.organizationId, { onDelete: 'cascade' }),

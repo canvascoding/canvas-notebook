@@ -1,6 +1,6 @@
 # Shared MCP Desktop OAuth server contract
 
-Implementation status:6b-d-2b-1 server contract and6b-d-2b-2 API/client/UI locally accepted; see [server evidence](evidence/step-6b-d-2b-1-shared-desktop-server.md) and [client evidence](evidence/step-6b-d-2b-2-shared-desktop-client.md). Actual Electron/system-browser acceptance remains6b-d-2b-3. The gateway remains default-off.
+Implementation status:6b-d-2b-1 server contract,6b-d-2b-2 API/client/UI and6b-d-2b-3 actual native Electron/system-browser acceptance are locally accepted; see [server evidence](evidence/step-6b-d-2b-1-shared-desktop-server.md), [client evidence](evidence/step-6b-d-2b-2-shared-desktop-client.md) and [native inventory](evidence/step-6b-d-2b-3-native-qa-inventory.md). The gateway remains default-off.
 
 ## Identity and private storage
 
@@ -44,4 +44,4 @@ Preload advertises sharedMcpOAuthVersion=1. An older bridge fails before any sta
 
 The server gate uses real isolated SQL authority and local OAuth HTTP, including wrong user/session/reference/workspace, public collection with zero SQL/exchange/publication, issuer/nonce/replay/cancel/expiry, current grants/CAS/config/generation, publication rollback, exact same-flow recovery and corrupt receipts. Startup migration is additive and must preserve its rows on repetition. Personal desktop and browser OAuth regression remains required.
 
-Controlled server, HTTP, actual React and Electron-boundary tests are locally accepted. Actual Electron/system-browser, session-change and manager-only completion acceptance follows on the final production build. Controlled SQL/protocol/IPC tests do not establish live provider, Electron OS or external browser acceptance.
+Controlled server, HTTP, actual React and Electron-boundary tests and final actual native Electron/system-browser3/3 acceptance are locally accepted. The native gate verifies session changes and manager-only Organization/Team completion on the production host build. These local tests do not establish live external-provider or production acceptance. Shared Composio desktop follows its [separate provider contract](shared-composio-desktop-oauth.md).

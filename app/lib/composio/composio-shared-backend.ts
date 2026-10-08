@@ -36,7 +36,10 @@ export async function withSharedComposioSignal<T>(mutation: boolean, callback: (
   catch (error) {
     if (isIntegrationConnectionError(error)) throw error;
     if (error instanceof ManagedComposioProtocolError) throw new IntegrationConnectionError(error.code, error.message, error.status);
-    const failure = classifyComposioFailure({ error, mutation, timeout: controller.signal.aborted });
+    // The managed transport already classified its safe protocol response. Reclassifying
+    // the Error alone discards outcomeUnknown and credential/scope metadata.
+    const failure = error instanceof ComposioProviderError && !controller.signal.aborted
+      ? error : classifyComposioFailure({ error, mutation, timeout: controller.signal.aborted });
     throw new IntegrationConnectionError(failure.code === 'COMPOSIO_OUTCOME_UNKNOWN' ? 'outcome_unknown'
       : ['COMPOSIO_AUTH_REQUIRED', 'COMPOSIO_CREDENTIALS_OR_SCOPE'].includes(failure.code) ? 'provider_denied' : 'provider_unavailable',
     failure.code === 'COMPOSIO_OUTCOME_UNKNOWN' ? 'The operation outcome is unknown. Check Composio before repeating it.'
