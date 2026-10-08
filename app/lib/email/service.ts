@@ -102,6 +102,8 @@ type EmailMessageListInput = EmailSearchInput & {
 };
 
 export type EmailReadPolicyOptions = {
+  /** Internal bounded, metadata-only address-header lookup; never supplied by clients. */
+  recipientDiscovery?: boolean;
   /** Authenticated actor for AI/files; provider ownership may differ for shared mailboxes. */
   actorUserId?: string;
   enforceReadPolicy?: boolean;
