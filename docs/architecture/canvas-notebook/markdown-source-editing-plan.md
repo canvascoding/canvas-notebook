@@ -1,125 +1,85 @@
-# Editierbarer Markdown-Quelltext für Live-Dokumente
+# Markdown einfügen und verfügbare Bearbeitungsmodi
 
-Stand: 2026-10-08. Analyse und Umsetzungsvorschlag; noch keine Änderung am Produktcode.
+Stand: 2026-10-08. Entschiedener Umsetzungsvorschlag nach Codeprüfung und Plugin-Recherche; Produktcode noch unverändert.
 Branch: `codex/markdown-source-roundtrip-plan`.
 
-## Problem und belegte Ursache
+## Empfehlung
 
-Gewünschter Ablauf: Dokument anlegen, Quelltext öffnen, vorhandenes Markdown einfügen, anschließend formatiert weiterarbeiten. Der Nutzer bestätigt, dass die Eingabe im Quelltext gesperrt ist bzw. nicht reagiert.
+Den vorhandenen Rich-Editor um die Aktion **„Markdown einfügen …“** erweitern. Bei strukturierten Live-Dokumenten den nicht bearbeitbaren **Quelltextmodus ausblenden und gegen Aufrufe absichern**. Funktionierende Quelltextbearbeitung für textbasierte Dokumente und lokale Markdown-Felder erhalten.
 
-Die Sperre ist im aktuellen Code ausdrücklich vorgesehen:
+Der gewünschte Ablauf lautet: Dokument anlegen → unter „Bearbeiten“ das vorhandene Einfügen-Menü öffnen → „Markdown einfügen …“ → Text hineinkopieren → „Einfügen“. Danach direkt im formatierten Dokument weiterarbeiten. Die Änderung verwendet dieselbe Tiptap-Instanz, dieselbe Yjs-Sitzung und die vorhandene Speicherung.
 
-- `app/components/editor/MarkdownEditor.tsx:5892` setzt `richSourceReadOnly` bei einer kollaborativen `tiptap_xml`- oder `tiptap_blocks`-Repräsentation. In Zeilen 6033–6050 wird der Quelltext schreibgeschützt und ohne schreibende Collaboration-Anbindung angezeigt.
-- `app/lib/collaboration/document-state-service.ts:38` wählt für verlustfrei darstellbares Markdown, einschließlich leerer Dokumente, die Rich-Repräsentation. `app/lib/collaboration/session-service.ts:184` verwendet bei aktuellen Clients `tiptap_blocks`.
-- `app/components/editor/MarkdownDocumentModes.tsx:26` erzeugt den angezeigten Quelltext aus der strukturierten Yjs-Quelle. Das ist eine abgeleitete Ansicht, kein zweiter gemeinsam bearbeiteter Quelltext.
-- Der schreibende Texteditor verwendet dagegen `Y.Text('content')` (`app/components/editor/CodeEditor.tsx:404`). Das ist der Speicher für `plain_text`, nicht der Inhalt eines Rich-Dokuments.
-- `tests/editor-empty-quote.spec.ts:175` erwartet nach der Rich-Migration ausdrücklich `contenteditable=false` im Quelltextmodus. `messages/de.json:936` erklärt den bisherigen Vertrag: Änderungen nur unter „Bearbeiten“.
+Die erste Version benötigt eine kleine Einfügeoberfläche, eine native Editor-Aktion und eine konsistente Regel für die angebotenen Modi. Eine zusätzliche quelltextähnliche Tiptap-Darstellung, ein kompletter Source-Entwurf mit eigener Übernahme-API, neue Repräsentationen und die Extraktion des mobilen Speicherpfads gehören nicht zu dieser Lösung.
 
-Damit erklärt die Repräsentationsentscheidung das gemeldete Symptom. Ein fehlerhafter Roundtrip beim Einfügen ist für diese Eingabesperre nicht erforderlich: Die Eingabe wird bereits vorher verhindert. Die Roundtrip-Prüfung bleibt für die spätere sichere Übernahme relevant. Auch Einzelnutzer-Dokumente verwenden diesen Collaboration-Pfad.
+## Belegte Ursache und vorhandene Bausteine
 
-## Alternative A: Tiptap behalten und die Darstellung umschalten
+- `app/components/editor/MarkdownEditor.tsx:5892` setzt `richSourceReadOnly` für kollaborative `tiptap_xml`-/`tiptap_blocks`-Dokumente. Zeilen 6033–6050 zeigen dort nur einen schreibgeschützten Export ohne schreibende Source-Bindung.
+- Leere neue Markdown-Dokumente werden als Rich-Dokument initialisiert: `app/lib/collaboration/document-state-service.ts:38` und `app/lib/collaboration/session-service.ts:184`. Das gilt auch für einen einzelnen Bearbeiter.
+- Source verwendet CodeMirror; Rich verwendet Tiptap. Schreibbares CodeMirror bearbeitet `Y.Text('content')` (`CodeEditor.tsx:404`), während Rich-Dokumente strukturierte Blöcke besitzen. Die aktuelle Sperre verhindert daher einen falschen zweiten Schreibpfad. Sie erklärt das gemeldete Verhalten bereits vor jedem Paste-Roundtrip.
+- `MarkdownDocumentModes.tsx:92` bietet den Source-Reiter dennoch immer an. Desktop- und Mobile-Toolbar verbergen ihre Source-Aktionen bei Collaboration bereits (`MarkdownEditor.tsx:5511`, `:5550`). Die Gastansicht besitzt zusätzlich eine eigene schreibgeschützte Rich-Source-Anzeige (`GuestMarkdownEditor.tsx:80`).
+- Canvas verwendet bereits `@tiptap/markdown` mit dem eigenen Parser (`app/lib/markdown/core/canvas-marked.ts`). Die installierte Version 3.31.0 unterstützt `insertContent` und `insertContentAt` mit Markdown-Inhalt. Die offiziellen [Markdown-Beispiele](https://tiptap.dev/docs/editor/markdown/examples) beschreiben auch eine eigene Paste-Extension; es ist kein zusätzlicher Dienst nötig.
+- Der bestehende URL-Paste-Dialog (`MarkdownUrlPaste.tsx:18`) und native HTML-/Block-/Bild-/Code-Eingaben haben eigene Regeln. Eine globale automatische Markdown-Erkennung würde zusätzliche Überschneidungen und Heuristiken benötigen. Die gezielte Einfügeaktion hält den ersten Umfang klar.
+- Das ältere [Community-Paket tiptap-markdown](https://github.com/aguingand/tiptap-markdown) bietet `transformPastedText`, sein Maintainer empfiehlt aber das offizielle Paket und plant keine weitere Bearbeitung bestehender Issues/PRs. Ein zusätzliches Paket bringt hier keinen belegten Vorteil.
 
-Ergänzung auf Nutzerwunsch: Zuerst prüfen, ob ein interaktiver, textorientierter Darstellungsmodus im selben Tiptap-Editor den gewünschten Ablauf besser löst. Die Entscheidung für einen separaten Quelltextentwurf ist noch nicht getroffen.
+## 1. Nicht nutzbaren Quelltextmodus ausblenden
 
-Heute wird tatsächlich der Editor gewechselt: `MarkdownEditor` rendert in Source `SourceMarkdownEditor` → `CodeEditor`/CodeMirror, in Rich dagegen `RichMarkdownEditor`/Tiptap. Die beiden bedingten React-Zweige erhalten nicht dieselbe Editor-Instanz. Der Yjs-Dokumentbesitzer ist bereits geteilt; eine gemeinsame interaktive Ansicht wäre eine Änderung der Präsentation und der Eingabeverarbeitung.
+Eine kleine gemeinsame Regel verwenden: Quelltext wird unterstützt, wenn der Editor lokal arbeitet oder die bestätigte Collaboration-Repräsentation `plain_text` ist. `tiptap_xml` und `tiptap_blocks` bieten Lesen/Bearbeiten an. Eine noch unbekannte Collaboration-Repräsentation bietet keinen Source-Wechsel an.
 
-Passende Ansatzpunkte existieren bereits: Die Mermaid-NodeView schaltet zwischen Diagramm und editierbarem Code um (`MarkdownEditor.tsx:1660`), und das Blocktree-Binding schreibt bei unverändertem Dokumentinhalt nicht nach Yjs (`block-tree-editor.ts:90`). Dagegen bietet die installierte Markdown-Extension zwar Markdown-Kommandos, aber keinen Clipboard-Handler für den Import vollständiger Markdown-Dokumente. `createCanvasMarkdownExtension` konfiguriert Parser/Serializer; der `handlePaste` in `MarkdownEditor.tsx:1078` behandelt lediglich interne Block-Drag-Daten. Der Markdown-Einfügepfad ist daher ein eigenständiger Teil der Lösung.
+| Oberfläche/Zustand | Geplantes Verhalten |
+| --- | --- |
+| Rich-Live-Dokument | Quelltext-Reiter und alle Wechselaktionen ausgeblendet |
+| Textbasiertes Live-Dokument | Quelltext bleibt verfügbar und bei Schreibrecht editierbar |
+| Lokales Markdown-Feld, zum Beispiel ein Prompt | Funktionierende lokale Quelltextbearbeitung bleibt erhalten |
+| Gastansicht | Gleiche Regel anhand der Session-Repräsentation |
+| Übergebener oder nach Migration verbliebener Source-Modus bei Rich | Unmittelbar sicher auf „Lesen“ zurückfallen und Auswahlzustand konsistent halten |
+| Fehlende Schreibrechte oder vorübergehende Synchronisationsprobleme | Vorhandene Schreibsperren bleiben wirksam; Verfügbarkeit der Darstellung und Schreibrechte getrennt behandeln |
 
-Vorgeschlagene Umsetzung für diese Alternative:
+`MarkdownModeBar` erhält die tatsächliche Source-Verfügbarkeit. Zusätzlich die Umschaltfunktion und die Auflösung des effektiven Modus absichern; einen verborgenen Modus nicht im Hintergrund über Props/Callbacks erreichbar lassen. Der Fallback auf Lesen löst keine versehentliche Rich-Migration aus. Die Verfügbarkeit nicht an `connection === 'live'` koppeln: Offline-Bearbeitung ist ein eigener bestehender Vertrag.
 
-- Tiptap und die bestehende Yjs-Anbindung über beide Darstellungen hinweg gemountet lassen. Der Wechsel ändert ausschließlich einen lokalen Präsentationszustand, nicht Dokument, Schema, Repräsentation oder Collaboration-Sitzung.
-- Über Typografie, Decorations und gezielte NodeViews eine schlichte, quelltextähnliche Ansicht anbieten: gleichmäßige Schriftgrößen, reduzierte Blockdarstellung, gegebenenfalls sichtbare Markdown-Markierungen. Bestehende strukturierte Textänderungen, Cursor und Undo bleiben an derselben Dokumentinstanz.
-- Den ursprünglichen Einfügefall direkt lösen: eine eindeutige Aktion „Als Markdown einfügen“ im aktiven Tiptap-Editor, die Markdown mit dem vorhandenen Canvas-Parser validiert und als strukturierte Transaktion an der aktuellen Auswahl einfügt. Der installierte `@tiptap/markdown`-Stand bietet dafür `insertContent`/`insertContentAt` mit `contentType: 'markdown'`. Für den vollständigen Dokumentimport Frontmatter gesondert behandeln; mitten im Dokument darf eingefügtes YAML nicht versehentlich die Dokumenteigenschaften ersetzen.
-- Clipboard-HTML, reinen Markdown-Text, normale Texte, URLs, Bilder und Einfügen innerhalb eines Codeblocks unterscheiden. Eine bloße Änderung der Schrift aktiviert noch keine Markdown-Paste-Verarbeitung. Bestehende URL-/Bild-Aktionen und Rich-HTML-Paste dürfen nicht versehentlich übernommen oder doppelt ausgeführt werden.
-- Beim Einfügen nur den eingefügten Inhalt parsen; beim Wechsel der Darstellung keine vollständige Serialisierung und erneute `setContent`-Initialisierung. Eine Paste-Aktion soll eine Undo-Einheit bilden und parallel bearbeitete Blöcke erhalten.
+Betroffene Stellen: `MarkdownDocumentModes.tsx`, `MarkdownEditor.tsx`, `GuestMarkdownEditor.tsx`. `FileEditor` speichert keinen Source-Modus; sein Markdown-/Slides-Schalter ist davon unabhängig. `MarkdownField` ist ein lokaler controlled Caller und darf seine Source-Funktion behalten.
 
-Die Grenze dieser Alternative ist konkret: Im Rich-Modell ist eine Überschrift ein Knoten mit `level`, Fettdruck eine Markierung und ein Codeblock ein Knoten mit Sprache. Die Zeichen `#`, `**` oder Codezäune werden beim Markdown-Export erzeugt. Visuell eingeblendete Zeichen haben zunächst keine eigenen editierbaren Dokumentpositionen. Sie können daher nicht allein durch CSS wie echter Quelltext markiert, gelöscht oder in ungültigen Zwischenständen bearbeitet werden. Eine solche Ansicht darf nicht ohne diesen Unterschied als exakter Quelltexteditor bezeichnet werden.
+Abnahme: Ein neues Rich-Dokument zeigt keine nutzlose Source-Schaltfläche; ein echtes Quelldokument bleibt bearbeitbar. Ein erzwungener nicht unterstützter Modus verändert weder Inhalt noch Yjs-Repräsentation.
 
-Soll auch das direkte Bearbeiten dieser Syntaxzeichen möglich sein, ist zusätzlich eine Zuordnung von Syntaxänderungen zu strukturierten Transaktionen nötig, eventuell mit kleinen Entwürfen pro Block. Das ist eine weitere technische Variante und muss insbesondere bei Tabellen, verschachtelten Listen, Frontmatter und blockübergreifenden Markierungen separat bewiesen werden. Gleiche Tiptap-Komponente mit einem neuen reinen Textschema wäre dagegen ein Wechsel des Dokumentmodells und erfüllt die gewünschte reine Darstellungsänderung nicht.
+## 2. Kleine Aktion „Markdown einfügen …“ ergänzen
 
-Grundlage: aktueller Canvas-Code und installierte Tiptap-Version 3.31.0; die offiziellen Dokumentationen bestätigen [Markdown-Einfügen](https://tiptap.dev/docs/editor/markdown/api/editor) und [eigene interaktive NodeViews](https://tiptap.dev/docs/editor/extensions/custom-extensions/node-views). Die Einschätzung zur vollständigen Quelltextbearbeitung folgt aus dem hier verwendeten Schema; ein fertiger Umschalter für diesen Anwendungsfall wurde in der eingebundenen Implementierung nicht gefunden.
+Die Aktion in das vorhandene Einfügen-Menü des Rich-Editors aufnehmen (`MarkdownEditor.tsx:4188`), in der mobilen Oberfläche entsprechend zugänglich machen. Dieselbe Komponente und Einfügelogik verwenden. Die Aktion erscheint nur bei tatsächlich bearbeitbarem Editor.
 
-## Alternative B: Exakter Quelltextentwurf mit geprüfter Übernahme
+Ein einfacher Dialog enthält ein mehrzeiliges Texteingabefeld, eine konkrete Fehlermeldung bei Bedarf sowie „Abbrechen“ und „Einfügen“. Der Nutzer fügt selbst in dieses Feld ein; ein automatischer Zugriff auf die Systemzwischenablage mit eigenen Berechtigungen ist nicht nötig. Keine zusätzliche Vorschau-Engine oder laufende Dokumentkonvertierung.
 
-Diese Variante bleibt für echte Quelltextbearbeitung einschließlich beliebiger Zwischenstände erhalten. Sie wird erst nach dem Vergleich mit Alternative A ausgewählt oder gezielt als Ergänzung verwendet.
+Technischer Ablauf:
 
-1. „Quelltext“ öffnet für Nutzer mit Schreibrecht einen editierbaren Entwurf. Einfügen und Tippen erhalten zunächst den exakten Text.
-2. Bei Änderungen erscheinen „Übernehmen“ und „Verwerfen“. „Übernehmen“ aktualisiert das vorhandene Live-Dokument; danach ist der Wechsel zu „Bearbeiten“ oder „Lesen“ möglich. Ein Moduswechsel darf einen ungeprüften Entwurf nicht unbemerkt verwerfen oder als gespeichert darstellen.
-3. Sichere Formatnormalisierungen werden vor der Übernahme ausdrücklich angeboten. Nicht verlustfrei darstellbares Markdown bleibt im Entwurf erhalten, mit konkreter Erklärung und einer Möglichkeit, eine separate Markdown-Datei mit dem exakten Inhalt anzulegen.
-4. Wenn sich das Live-Dokument zwischenzeitlich geändert hat, bleibt der Entwurf erhalten und die Übernahme meldet einen Konflikt. Ein veralteter kompletter Quelltext darf keine fremden Änderungen überschreiben.
+1. Beim Öffnen die Auswahl mit den vorhandenen Editor-Target-Helfern erfassen (`interaction-target.ts`, bestehende Dialog-Hooks). Einfügeposition nicht erst nach dem Schließen aus einem möglicherweise veränderten Fokus ableiten.
+2. Eingabe mit dem vorhandenen Canvas-Markdown-Codec prüfen und parsen. Gemeinsame Größen-/Syntaxgrenzen verwenden. Überschriften, Listen, Tabellen, Codeblöcke, Links, Bilder und unterstützte Canvas-Syntax erhalten; keine neue Parserbibliothek einführen.
+3. Exakt darstellbaren oder nach bestehenden Regeln sicher normalisierbaren Inhalt übernehmen. Falls eine sichere Normalisierung nötig ist, im Dialog kurz darauf hinweisen; „Einfügen“ bestätigt den formatierten Import. Unbekannte/verlustbehaftete Konvertierung blockieren und den gesamten Eingabetext sichtbar behalten.
+4. Auswahl/Editorlebensdauer/Schreibrecht vor Einfügen erneut prüfen. Eine parallel veränderte Ersetzungsauswahl darf nicht überschrieben werden. Bei ungültigem Ziel bleibt der Text im Dialog erhalten, mit Hinweis auf erneute Auswahl.
+5. Nur an der aufgelösten Auswahl mit einer nativen Tiptap-/ProseMirror-Transaktion einfügen. Keine Ganzdokument-Ersetzung über `setContent`, keinen zweiten Yjs-Text und keine direkte Dateischreib-API verwenden. Vorhandene Unique-ID- und Collaboration-Mechanik übernimmt die neuen Blöcke. Die gesamte Einfügung ist eine Undo-Einheit; weitere Bearbeitung läuft normal weiter.
+6. Dialog erst nach erfolgreicher Editor-Übernahme schließen. Den vorhandenen Speicherstatus nutzen; eine erfolgreiche lokale Editor-Transaktion nicht als bereits bestätigte Server-Persistenz ausgeben.
 
-Bestehende `plain_text`-Dokumente behalten ihre direkte kollaborative Textbearbeitung. Die neue Entwurfs-/Übernahmefunktion ergänzt den bislang gesperrten Rich-Fall. Schreibgeschützte Freigaben bleiben schreibgeschützt.
+Frontmatter ist eine begrenzte Ausnahme: Im Dokumentkontext erkanntes YAML-Frontmatter zunächst mit einer klaren Inline-Erklärung blockieren und die Eingabe erhalten. Dokumenteigenschaften werden separat bearbeitet; im Einfügen-Dialog darf YAML weder still entfernt noch als neue Metadaten über bestehende Eigenschaften geschrieben werden. In lokalen Feldern mit `frontmatter='content'` bleibt YAML normaler Inhalt. Ein vollständiger Dateiimport einschließlich Eigenschaften kann über den bestehenden Datei-Upload erfolgen; dafür kein neues Importsystem entwickeln.
 
-## Umsetzung in abgeschlossenen Schritten
+Für Syntax, die ausschließlich im Quelltext erhalten werden kann, benennt der Dialog den Grund und verweist auf den Import der `.md`-Datei als Quelldokument. Das bisherige Dokument bleibt unangetastet. Die Schutzprüfung für fehlende Roundtrip-Treue wird nicht gelockert.
 
-### 1. Verhalten festschreiben und Tiptap-Alternative zuerst prüfen
+Abnahme: Vorhandenes Markdown lässt sich in ein neues Dokument und an eine Auswahl einfügen, anschließend formatiert bearbeiten und mit einer Aktion rückgängig machen. Fehlversuche löschen weder den Eingabetext noch bestehende Inhalte.
 
-- Den Fall „neues leeres Markdown-Dokument → Quelltext → vollständiges Markdown einfügen“ als Regression ergänzen.
-- Bestehende Erwartungen an absichtlich schreibgeschützten Rich-Quelltext an den neuen Vertrag anpassen; echte fehlende Schreibrechte weiterhin prüfen.
-- Dokumentidentität, Lebenszyklus, Ausgangsinhalt und Revision des Entwurfs explizit modellieren.
-- Einen begrenzten Tiptap-Prototyp für Überschrift, Fettdruck, Liste und Codeblock planen: Darstellungswechsel ohne neue Editor-/Yjs-Instanz, vollständiges Markdown-Paste, Fortsetzen der Bearbeitung, gemeinsames Undo und ein parallel schreibender Client.
-- Danach die Entscheidung festhalten: Reicht die interaktive Textdarstellung plus korrektes Markdown-Paste für den gewünschten Alltag, Alternative A ausarbeiten. Werden direkt editierbare Syntaxzeichen und exakte beliebige Quelltextstände benötigt, die Grenze zeigen und Alternative B oder einen begrenzten Blockentwurf wählen. Nicht beide vollständigen Architekturen vorsorglich bauen.
+## 3. Gezielt prüfen und abschließen
 
-Abnahme: Die Regression unterscheidet die derzeitige Produktsperre von Berechtigungs-, Verbindungs- und Roundtrip-Fehlern. Für Alternative A sind gleiche Editor-/Yjs-Identität, funktionierendes Paste und Undo konkret nachgewiesen. Die Entscheidung erfolgt vor einem größeren Umbau.
-
-Die folgenden Schritte 2–4 beschreiben den bereits untersuchten Übernahmepfad für Alternative B, falls sie benötigt wird. Bei Auswahl von A wird stattdessen deren Präsentations-/Paste-Pfad oben umgesetzt und mit Schritt 5 abgenommen.
-
-### 2. Vorhandenen sicheren Übernahmepfad wiederverwenden
-
-`app/lib/mobile/notebook.ts:403` enthält mit `saveMobileCollaborativeNotebookDocument` bereits einen geeigneten Ablauf: Inhalts-Hash und Revision prüfen, den aktuellen Yjs-Zustand klonen, Änderung vorbereiten und validieren, einen wiederholbaren Änderungsauftrag speichern, den unveränderten Ausgangszustand vor der Live-Übernahme erneut prüfen und Yjs-Persistenz bestätigen.
-
-- Nur die gemeinsamen technischen Teile für Desktop und Mobile extrahieren. Authentifizierung, Workspace-/Dokumentrechte und produktspezifische Fehlerzuordnung bleiben an den jeweiligen API-Grenzen.
-- `replaceRichMarkdownInYDoc` in `app/lib/collaboration/markdown-state.ts:79` wiederverwenden: vorhandene Block-Identitäten und Textfragmente werden soweit zuordenbar erhalten; es entsteht keine konkurrierende `content`-Wahrheit.
-- Desktop-Auftrag an Workspace, Dokument-ID, Lebenszyklus, Ausgangsinhalt/-zustand und Idempotenzschlüssel binden. Netzwerk-Retries dürfen dieselbe Änderung nicht zweimal anwenden. Erfolg erst nach bestätigter dauerhafter Übernahme melden; ausstehende Datei-Projektion getrennt darstellen.
-- Vorhandene Mobile-Verträge nach der Extraktion unverändert prüfen. Die bisherige Ausnahme für einen entfernten abschließenden Zeilenumbruch (`notebook.ts:458`) nicht unbemerkt als Desktop-Vertrag übernehmen: Desktop verlangt exakte Erhaltung oder eine bestätigte Normalisierung.
-- Kein gewöhnliches Ganzdatei-Schreiben neben einer aktiven Yjs-Sitzung und keine automatische Rich→Plain-Migration.
-
-Abnahme: Übernahme, Konflikte, Wiederholungen und Fehler nach vorbereiteter Änderung sind ohne Datenverlust nachweisbar.
-
-### 3. Quelltextentwurf an die Oberfläche anbinden
-
-- Den vorhandenen lokalen Markdown-Dokumentkern für den Entwurf nutzen, vom Live-Dokument getrennt und nach Dokument/Lebenszyklus isoliert.
-- Entfernte Updates dürfen einen aktiven Entwurf nicht über `externalValueSync='always'` ersetzen. Solche Updates markieren eine veraltete Basis und bleiben für einen späteren Vergleich verfügbar.
-- Nach bestätigter Server-Übernahme Entwurf und Übernahmebeleg behalten, bis auch das lokale Yjs-Dokument die bestätigte Änderung enthält. Eigene bestätigte Updates anhand des Auftrags zuordnen; sie dürfen weder als fremder Konflikt erscheinen noch den Quelltext vorübergehend auf eine ältere Projektion zurücksetzen.
-- Entwurf beim Moduswechsel erhalten. Beim Schließen/Wechseln eine verlustfreie Wiederherstellung oder eine ausdrückliche Verwerfentscheidung gewährleisten.
-- Schreibrechte und tatsächliche Synchronisationsprobleme weiterhin berücksichtigen; ein vorübergehender Übernahmefehler darf den eingefügten Text nicht löschen.
-- „Übernehmen“, „Verwerfen“, ausstehende Übernahme und Konflikt verständlich anzeigen. Quelltext wird nicht auf jedem Tastendruck erneut in Rich-Inhalt geschrieben.
-- Undo/Redo ausdrücklich implementieren: Entwurfshistorie und übernommene Dokumentänderung unterscheiden. Server-Änderungen landen derzeit nicht automatisch in der lokalen `BlockTreeHistory`, die registrierte lokale Origins verfolgt (`block-tree-history.ts:38`). Eine übernommene Quelltextänderung muss gezielt rückgängig gemacht werden können, ohne spätere Änderungen anderer Nutzer zu überschreiben.
-
-Abnahme: Einfügen funktioniert im neuen Dokument und der Text bleibt bei Fehlern, Moduswechseln und Konflikten verfügbar.
-
-### 4. Roundtrip und nicht unterstützte Syntax behandeln
-
-- Den vorhandenen Codec und `analyzeMarkdownRichMode` benutzen, ohne seine Sicherheitsprüfungen pauschal zu lockern.
-- Exakt darstellbar: übernehmen. Sicher normalisierbar: Änderung erklären und bestätigen lassen. Verlustbehaftet/ungültig: Entwurf erhalten und Ursache benennen.
-- Für die separate Markdown-Datei den vollständigen Inhalt vor der ersten Collaboration-Sitzung speichern; damit kann die bestehende Repräsentationsauswahl verlustbehaftete Rich-Konvertierung vermeiden. Der Nutzer wählt diese Datei ausdrücklich.
-- YAML, Listen, Tabellen, Codeblöcke, Links, Bilder, Unicode, CRLF/LF, abschließende und mehrfache Leerzeilen sowie nicht unterstützte HTML-/Markdown-Syntax abdecken.
-
-Abnahme: Kein stiller Format- oder Inhaltsverlust; eine abgelehnte Rich-Übernahme lässt den Originaltext vollständig zugänglich.
-
-### 5. Integration und UI abnehmen
-
-- Fokussierte Tests für lokalen Entwurf, Codec, gemeinsame Übernahme und bestehende Mobile-Speicherung ausführen; passende Lint-/Typprüfungen und `npm run build` ergänzen.
-- Browser-Abnahme nach ausdrücklicher Freigabe gemäß `AGENTS.md`: neues Dokument anlegen, Markdown einfügen, übernehmen, Lesen/Bearbeiten/Quelltext wechseln und nach Neuladen prüfen.
-- Zusätzlich zwei Clients, Änderung der Basis während einer Übernahme, verlorene Antwort mit Wiederholung, Antwort vor/nach WebSocket-Update, ausstehende lokale Rich-Änderungen, Verbindungsabbruch, Undo/Redo sowie schreibgeschützte Freigabe prüfen. Scroll-/Cursorposition beim Moduswechsel und lokale Markdown-Felder dürfen nicht regressieren.
-- Für Alternative A zusätzlich nachweisen: Darstellungswechsel erzeugt keine Dokumentänderung und keine neue Sitzung/History; markierte Syntax besitzt verständliches Cursor-/Kopierverhalten; Markdown-Paste an Auswahl und in leeres Dokument funktioniert, während Codeblock-/URL-/HTML-/Bild-Paste unverändert sinnvoll bleibt. Originaltext bei abgelehnter Konvertierung zugänglich halten.
-- Für ein erforderliches lokales App-Setup ausschließlich den Skill `canvas-local-team-seat-dev` verwenden. Containerbau bleibt eine separate ausdrückliche Freigabe.
-- Schritte nacheinander abschließen und sinnvoll getrennt committen; vor jedem Commit GitNexus `detect_changes` und den tatsächlichen Diff prüfen.
-
-Abnahme: Der vollständige gewünschte Einfügeablauf funktioniert mit bestätigter Persistenz und ohne Überschreiben paralleler Bearbeitung.
+- Modus-/Komponententests für Rich, Plain, lokale Felder, Gäste, Rechteentzug, Loading und einen erzwungenen alten Source-Modus ergänzen.
+- Einfügeprüfungen für leeres Dokument, Ersetzung einer Auswahl, Tabellen/Listen/Code, sichere Normalisierung, unzulässige Syntax, Frontmatter und Größenlimit ergänzen.
+- Lokale und Yjs-gebundene native Editor-Transaktionen prüfen: eindeutige neue Block-IDs, Erhaltung vorhandener IDs, Undo/Redo, parallele Änderung außerhalb/am Einfügeziel, Editorwechsel während geöffnetem Dialog und Wiederöffnen des Yjs-Zustands.
+- Bestehende Clipboard-, URL-Paste-, lokale Dokument-/Binding- und relevante Editor-Lifecycle-Tests nutzen. Bestehende E2E-Erwartungen an schreibgeschützten Rich-Source durch dessen Abwesenheit ersetzen; Plain-/lokale Source-Tests erhalten. Bestehende Moduspositions- und Offline-Tests auf die tatsächlich verfügbaren Modi beziehen.
+- Passende Typ-/Lintprüfungen und `npm run build` ausführen. Browser-Abnahme nach ausdrücklicher Freigabe: neues Dokument → Markdown einfügen → formatiert bearbeiten → Undo/Redo → Neuladen sowie zwei Clients, Gastansicht und mobile Werkzeugleiste.
+- Die beiden fertigen Produktänderungen sinnvoll getrennt committen, jeweils erst nach ihren Prüfungen. Vor Symboländerungen GitNexus-Impact prüfen; vor Commits `detect_changes` und tatsächlichen Diff kontrollieren.
 
 ## Lokaler produktionsnaher Stack
 
-Der vom Nutzer erwähnte Skill ist im verfügbaren Katalog `canvas-local-team-seat-dev` („Run local Canvas production stack“); seine Anleitung wurde gelesen. Er definiert Notebook, Control Plane und PostgreSQL/pgvector als einen verwalteten Stack, einschließlich zweier Nutzer für den gemeinsamen Test-Workspace. Damit eignet er sich gerade für die Zwei-Client-Abnahme beider Alternativen.
+Der gelesene Skill `canvas-local-team-seat-dev` („Run local Canvas production stack“) definiert den passenden verwalteten Notebook-/Control-Plane-/PostgreSQL-Stack mit zwei Testnutzern. Für spätere App-Prüfungen beide Repository-Anleitungen und die Skill-Workflowreferenz lesen, vorhandene Listener/Container prüfen und nur diesen Stack verwenden. Den Branch als Notebook-Quelle vorbereiten. Container nur nach ausdrücklicher Freigabe bauen, vorher den Host-Produktionsbuild ausführen und aus aktuellem Stand neu erstellen. Login-Daten aus der privaten lokalen Konfiguration verwenden. Browserautomation bleibt laut `AGENTS.md` und Skill ausdrücklich freigabepflichtig.
 
-Vor einer späteren Ausführung: beide Repository-Anleitungen und die Skill-Workflowreferenz lesen, vorhandene Listener/Container prüfen, nur diesen einen Stack verwenden und den gewählten Branch als Notebook-Quelle vorbereiten. Der dokumentierte Notebook-Container liegt auf `127.0.0.1:3100`; dies ist eine Skill-Vorgabe, kein in dieser Analyse verifizierter Laufzustand. Bei ausdrücklich freigegebenem Containerbau zuerst den Host-Produktionsbuild ausführen und anschließend den Notebook-Container aus aktuellem Stand neu erstellen (`start-local.sh --target notebook`). Login-Daten aus der privaten lokalen Konfiguration verwenden und nicht in Artefakte schreiben. Browserautomation benötigt weiterhin die ausdrückliche Freigabe laut `AGENTS.md` und Skill.
+## Evidenz und Grenzen dieser Planung
 
-## Wirkungsbereich und Analysegrenzen
+Die Diagnose wurde am aktuellen Quellcode verifiziert. Der lokale Worktree besitzt noch keinen eigenen GitNexus-Index; der ältere Haupt-Checkout-Index wurde nur zur Navigation verwendet. Dessen frühere Impact-Analyse meldete `CRITICAL` für gemeinsam genutzten Editor und Codec. Vor der Implementierung den Branch indexieren und die tatsächlich geänderten Symbole erneut prüfen. Eine kleine Ergänzung am Editor vermeidet den deutlich größeren Umbau von Speicherpfaden und Repräsentationsmigrationen.
 
-Der aktuelle Worktree hat keinen eigenen GitNexus-Index. Zur Navigation wurde der ältere Index des Haupt-Checkouts benutzt; alle entscheidenden Aussagen wurden am aktuellen Quellcode geprüft. Vor einer Implementierung ist der Index für diesen Branch zu aktualisieren und die Impact-Analyse für die tatsächlich zu ändernden Symbole erneut durchzuführen.
+Bereits in der vorherigen Analyse bestanden 5 Source-Binding- und 22 lokale Dokument-/Owner-Tests sowie vier isolierte Source-Einfügeversuche. Diese Ergebnisse belegen den bestehenden lokalen Source-Kern.
 
-Die vorhandene Impact-Analyse meldet `CRITICAL` für den gemeinsamen Editor-Einstieg (7 direkte Aufrufer, 23 betroffene Symbole; unter anderem Datei-Editor, Markdown-Felder, öffentliche Vorschau und Einstellungen) und für `analyzeMarkdownRichMode` (15 direkte Aufrufer, 34 Symbole bei Tiefe 2; unter anderem Sitzungswahl und Migration). Diese Zahlen sind ein Hinweis auf den gemeinsamen Wirkungsbereich, keine aktuelle Vollständigkeitsgarantie. Der erste Schritt soll deshalb die kollaborative Rich-Quelltextbearbeitung gezielt ergänzen.
+Für die vereinfachte Empfehlung zusätzlich ausgeführt: isolierter In-Memory-Test mit JSDOM und echtem Tiptap/Yjs gegen den aktuellen Quellcode. `insertContentAt` mit Markdown-Inhalt fügte Überschrift, Fettdruck, Liste und Codeblock zwischen vorhandene Blöcke ein. Bestehende Blöcke und IDs blieben unverändert, ein zweiter Yjs-Peer konvergierte, `validateRichMarkdownYDoc` bestand und Undo/Redo stellte die vollständigen Vorher-/Nachher-Dokumente wieder her. Das belegt den vorhandenen technischen Einfügepfad; der geplante Dialog und seine Fehlerfälle sind noch nicht implementiert oder abgenommen.
 
-Während dieser Analyse ausgeführt: bestehende lokale Source-Binding-Tests 5/5 und Dokument-/Owner-Tests 22/22 erfolgreich. Zusätzliche isolierte Einfügeversuche in ein leeres lokales Dokument erhielten normales Markdown, normalisierbare Tabellen, nicht unterstütztes HTML und zusätzliche Leerzeilen exakt; Undo/Redo funktionierte. Ausführung gegen den aktuellen Quellcode mit vorhandenen, zur Lockdatei passenden Abhängigkeiten des Haupt-Checkouts, ohne Installation in diesem Worktree.
-
-Nicht ausgeführt: Browser-/App-E2E, vollständiger Build, laufende Server-/Yjs-Integration. Es wurde kein Container gebaut oder gestartet und kein Produktcode geändert. Die Tests belegen den lokalen Entwurfsbaustein; die Diagnose der Rich-Quelltextsperre ist durch aktuellen Code und die vorhandene E2E-Erwartung belegt.
+Kein Produktcode verändert; kein Browser, laufender App-/Serverintegrationstest oder vollständiger Build ausgeführt.
