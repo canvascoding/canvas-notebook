@@ -181,6 +181,8 @@ async function main() {
       getSharedComposioDesktopOAuthStatus: (...args: Parameters<typeof actualDesktop.getSharedComposioDesktopOAuthStatus>) => observeSharedComposioDesktopOperation(() => actualDesktop.getSharedComposioDesktopOAuthStatus(...args)),
       finalizeSharedComposioDesktopOAuth: (...args: Parameters<typeof actualDesktop.finalizeSharedComposioDesktopOAuth>) => observeSharedComposioDesktopOperation(() => actualDesktop.finalizeSharedComposioDesktopOAuth(...args)),
       cancelSharedComposioDesktopOAuth: (...args: Parameters<typeof actualDesktop.cancelSharedComposioDesktopOAuth>) => observeSharedComposioDesktopOperation(() => actualDesktop.cancelSharedComposioDesktopOAuth(...args)),
+      getSharedComposioDesktopOAuthStatusByIntent: (...args: Parameters<typeof actualDesktop.getSharedComposioDesktopOAuthStatusByIntent>) => observeSharedComposioDesktopOperation(() => actualDesktop.getSharedComposioDesktopOAuthStatusByIntent(...args)),
+      cancelSharedComposioDesktopOAuthIntent: (...args: Parameters<typeof actualDesktop.cancelSharedComposioDesktopOAuthIntent>) => observeSharedComposioDesktopOperation(() => actualDesktop.cancelSharedComposioDesktopOAuthIntent(...args)),
       collectSharedComposioDesktopOAuthCallback: (...args: Parameters<typeof actualDesktop.collectSharedComposioDesktopOAuthCallback>) => observeSharedComposioDesktopOperation(() => actualDesktop.collectSharedComposioDesktopOAuthCallback(...args)),
     };
     const profiles = await import('../app/lib/composio/composio-shared-profiles');
@@ -271,8 +273,40 @@ async function main() {
       assert.equal((await desktop.startSharedComposioDesktopOAuth(initiator, record.resource.connectionRef, { ...revisions(record), intent: flow.intent }) as DesktopSummary).state, flow.state);
       assert.equal(links(), beforeLinks); assert.deepEqual(await snapshotSharedComposioDesktopRows(sql, record.resource.connectionRef), committed);
       await assert.rejects(desktop.startSharedComposioDesktopOAuth(initiator, record.resource.connectionRef, { ...revisions(published), intent: flow.intent }), expectSharedComposioDesktopCode());
+      assert.equal((await desktop.cancelSharedComposioDesktopOAuthIntent(initiator, record.resource.connectionRef,
+        { ...revisions(record), intent: flow.intent })).status, 'completed', 'A verified completed publication wins over intent cancellation.');
     }
     console.log('PASS native PostgreSQL + actual Composio SDK: Org/Team Manage-only exact profiles/accounts, collector SDK0, original intent and commit replay.');
+
+    for (const team of [false, true]) {
+      const record = await create(team), intent = intentForSharedComposioDesktopCase();
+      const initiator = team ? { ...manager, actor: { ...manager.actor, workspaceId: teamOwnership.workspaceId } } : manager;
+      const expected = { ...revisions(record), intent }, callsBefore = provider.calls.length;
+      await assert.rejects(desktop.getSharedComposioDesktopOAuthStatusByIntent(initiator, record.resource.connectionRef, intent),
+        expectSharedComposioDesktopCode('CONNECTION_DESKTOP_OAUTH_STATE_INVALID'));
+      const cancelled = await desktop.cancelSharedComposioDesktopOAuthIntent(initiator, record.resource.connectionRef, expected);
+      assertSharedComposioDesktopSummary(cancelled, record); assert.equal(cancelled.status, 'cancelled');
+      assert.deepEqual(await desktop.getSharedComposioDesktopOAuthStatusByIntent(initiator, record.resource.connectionRef, intent), cancelled);
+      assert.deepEqual(await desktop.getSharedComposioDesktopOAuthStatus(initiator, record.resource.connectionRef, cancelled.state), cancelled);
+      assert.deepEqual(await desktop.cancelSharedComposioDesktopOAuth(initiator, record.resource.connectionRef, cancelled.state), cancelled);
+      assert.deepEqual(await desktop.finalizeSharedComposioDesktopOAuth(initiator, record.resource.connectionRef, cancelled.state), cancelled);
+      assert.deepEqual(await desktop.cancelSharedComposioDesktopOAuthIntent(initiator, record.resource.connectionRef, expected), cancelled);
+      assert.deepEqual(await desktop.startSharedComposioDesktopOAuth(initiator, record.resource.connectionRef, expected), cancelled);
+      // A terminal deadline never removes the cancellation fence for a very late queued start.
+      await sql.run('UPDATE composio_shared_desktop_oauth_cancellations SET expires_at=created_at+1 WHERE connection_ref=$1', [record.resource.connectionRef]);
+      assert.equal((await desktop.startSharedComposioDesktopOAuth(initiator, record.resource.connectionRef, expected) as DesktopSummary).status, 'cancelled');
+      await assert.rejects(desktop.startSharedComposioDesktopOAuth(initiator, record.resource.connectionRef,
+        { ...expected, bindingRevision: expected.bindingRevision + 1 }), expectSharedComposioDesktopCode('binding_changed'));
+      await assert.rejects(desktop.getSharedComposioDesktopOAuthStatusByIntent({ ...initiator, authSessionId: 'another-session' },
+        record.resource.connectionRef, intent), expectSharedComposioDesktopCode('CONNECTION_ACCESS_DENIED'));
+      assert.equal(provider.calls.length, callsBefore, 'Early cancel, late start and read-only recovery perform zero SDK requests.');
+      assert.deepEqual(await current(record.resource.connectionRef), record);
+      const stored = await sql.get('SELECT * FROM composio_shared_desktop_oauth_cancellations WHERE connection_ref=$1', [record.resource.connectionRef]);
+      assert(stored); assert.equal(JSON.stringify(stored).includes(intent), false);
+      assert.equal(JSON.stringify(stored).includes(initiator.authSessionId), false);
+      assert.equal((await snapshotSharedComposioDesktopRows(sql, record.resource.connectionRef)).transactions.length, 0);
+    }
+    console.log('PASS Org/Team durable early intent Cancel: missing GET stays unknown, cancelled late start SDK0, no fake flow, original session/revisions, completed publication wins.');
 
     const unknownRecord = await create(), unknownIntent = intentForSharedComposioDesktopCase();
     const originalAccounts = new Set(provider.accounts.get(orgProfile.composioUserId)!.map(account => account.id));
@@ -304,6 +338,12 @@ async function main() {
     assert.equal((await snapshotSharedComposioDesktopRows(sql, unknownRecord.resource.connectionRef)).commits.length, 0);
     assert.equal(links(), linksBeforeUnknown + 1); assert.equal(provider.accounts.get(orgProfile.composioUserId)!.length, originalAccounts.size + 1);
     assert.equal((await desktop.cancelSharedComposioDesktopOAuth(manager, unknownRecord.resource.connectionRef, unknownFlow.state)).status, 'cancelled');
+    // Flow retention cleanup must not allow the old cancelled intent to relink.
+    await sql.run('DELETE FROM composio_shared_desktop_oauth_transactions WHERE connection_ref=$1', [unknownRecord.resource.connectionRef]);
+    const beforeLateCancelledStart = provider.calls.length;
+    assert.equal((await desktop.startSharedComposioDesktopOAuth(manager, unknownRecord.resource.connectionRef,
+      { ...revisions(unknownRecord), intent: unknownIntent }) as DesktopSummary).status, 'cancelled');
+    assert.equal(provider.calls.length, beforeLateCancelledStart);
     console.log('PASS actual provider account allocation with lost link ACK remains sealed/unconfirmed; original intent never relinks or guesses an account.');
 
     const unencrypted = await create(), beforeUnencrypted = provider.calls.length;
@@ -442,9 +482,9 @@ async function main() {
     assert.equal((await sql.get('SELECT COUNT(*)::integer AS count FROM pi_sessions') as { count: number }).count, 0);
     console.log('PASS real SQL rollback and committed-but-lost adapter ACK recover only the same flow; no relink, business execution or PI session.');
 
-    const migrationTables = ['composio_shared_desktop_oauth_transactions', 'composio_shared_desktop_oauth_commits',
+    const migrationTables = ['composio_shared_desktop_oauth_transactions', 'composio_shared_desktop_oauth_commits', 'composio_shared_desktop_oauth_cancellations',
       'integration_connection_resources', 'integration_connection_grants'] as const;
-    // This database was acknowledged blank before seeding. All rows in these four tables belong to this fixture.
+    // This database was acknowledged blank before seeding. All rows in these tables belong to this fixture.
     // Full JSON row snapshots remain in RAM and include encrypted baselines, revisions, grants and terminal receipts.
     const migrationBaseline = await Promise.all(migrationTables.map(table => sql.all(`SELECT to_jsonb(row) AS value FROM ${table} row ORDER BY to_jsonb(row)::text`)));
     assert(migrationBaseline.every(rows => rows.length <= 100));

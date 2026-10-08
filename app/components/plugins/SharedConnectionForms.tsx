@@ -14,6 +14,10 @@ import { InlineNotice } from '@/components/ui/inline-notice';
 import { SharedConnectionRequestError, type SharedConnectionApi } from './shared-connections-client';
 import { SharedMcpAuthorizationError, startSharedMcpAuthorization, waitForSharedMcpAuthorization, cancelSharedMcpAuthorization, readSharedMcpAuthorizationStatus, finalizeSharedMcpAuthorization,
   type SharedMcpAuthorizationFlow, type SharedMcpAuthorizationOptions, type SharedMcpAuthorizationSummary } from '@/app/lib/desktop/shared-mcp-oauth-client';
+import { SharedComposioAuthorizationError, isSharedComposioAuthorizationPermanentError, startSharedComposioAuthorization,
+  waitForSharedComposioAuthorization, cancelSharedComposioAuthorization, resumeSharedComposioAuthorization,
+  type SharedComposioAuthorizationFlow, type SharedComposioAuthorizationOptions, type SharedComposioAuthorizationSummary,
+  type SharedComposioAuthorizationStartResult } from '@/app/lib/desktop/shared-composio-oauth-client';
 import { isSharedConnectionConnected } from './shared-connection-oauth-state';
 import { confirmPluginNavigation, hasPluginNavigationBlockers, usePluginEditorNavigationGuard } from './plugin-navigation-guard';
 
@@ -26,6 +30,11 @@ const choice = (scope: IntegrationConnectionScopeChoice) => scope.ownership.type
 const scopeQuery = (scope: IntegrationConnectionScopeChoice) => new URLSearchParams({ ownershipType: scope.ownership.type,
   ...(scope.ownership.type === 'team' ? { teamWorkspaceId: scope.ownership.workspaceId } : {}) });
 const selectClass = 'h-9 w-full rounded-md border bg-background px-3 text-sm';
+const composioSetupCodes = ['setup_required', 'master_key_missing', 'decryption_failed', 'invalid_secret_format', 'mcp_credential_key_missing'];
+type SharedDesktopFlow = { source: 'mcp'; flow: SharedMcpAuthorizationFlow }
+  | { source: 'composio'; flow: SharedComposioAuthorizationFlow };
+type SharedDesktopOutcome = { source: 'mcp'; result: SharedMcpAuthorizationSummary }
+  | { source: 'composio'; result: SharedComposioAuthorizationSummary };
 
 export function SharedConnectionCreateForm({ api, scopes, onSaved }: {
   api: SharedConnectionApi; scopes: IntegrationConnectionScopeChoice[]; onSaved: () => void;
@@ -119,9 +128,9 @@ export function SharedConnectionEditor({ api, initial, onSaved, returnLocale, re
   const [busy, setBusy] = useState(false), [loading, setLoading] = useState(true), [ready, setReady] = useState(false), [conflict, setConflict] = useState(false), [error, setError] = useState<string | null>(null);
   const [portal, setPortal] = useState<HTMLElement | null>(null), [accounts, setAccounts] = useState<Array<{ accountRef: string; label: string; selectable: boolean }>>([]), [accountRef, setAccountRef] = useState('');
   const [status, setStatus] = useState<string | null>(null), alive = useRef(true);
-  const desktopFlowRef = useRef<SharedMcpAuthorizationFlow | null>(null), desktopController = useRef<AbortController | null>(null);
-  const desktopOutcome = useRef<SharedMcpAuthorizationSummary | null>(null);
-  const [desktopFlow, setDesktopFlow] = useState<SharedMcpAuthorizationFlow | null>(null), [desktopCancelling, setDesktopCancelling] = useState(false);
+  const desktopFlowRef = useRef<SharedDesktopFlow | null>(null), desktopController = useRef<AbortController | null>(null);
+  const desktopOutcome = useRef<SharedDesktopOutcome | null>(null);
+  const [desktopFlow, setDesktopFlow] = useState<SharedDesktopFlow | null>(null), [desktopCancelling, setDesktopCancelling] = useState(false);
   const desktopPending = useCallback(() => desktopFlowRef.current !== null, []);
   const [repairConfiguration, setRepairConfiguration] = useState(''), [repairSecrets, setRepairSecrets] = useState('');
   const dirty = ready && (
@@ -191,15 +200,24 @@ export function SharedConnectionEditor({ api, initial, onSaved, returnLocale, re
       if (alive.current && isCurrentSession(initial.resource.connectionRef)) onSaved();
     });
   }
-  function desktopOptions(controller: AbortController): SharedMcpAuthorizationOptions {
+  function desktopOptions(controller: AbortController): SharedMcpAuthorizationOptions;
+  function desktopOptions(controller: AbortController, source: 'composio'): SharedComposioAuthorizationOptions;
+  function desktopOptions(controller: AbortController, source: 'mcp' | 'composio' = 'mcp'): SharedMcpAuthorizationOptions | SharedComposioAuthorizationOptions {
+    if (source === 'composio') return { api, signal: controller.signal,
+      isCurrent: () => alive.current && isCurrentSession(initial.resource.connectionRef),
+      onStatus: (value: SharedComposioAuthorizationSummary) => { desktopOutcome.current = { source: 'composio', result: value }; } };
     return { api, signal: controller.signal, isCurrent: () => alive.current && isCurrentSession(initial.resource.connectionRef),
       ...(workspaceId !== null && returnLocale ? { returnLocale } : {}),
-      onStatus: value => { desktopOutcome.current = value; } };
+      onStatus: (value: SharedMcpAuthorizationSummary) => { desktopOutcome.current = { source: 'mcp', result: value }; } };
   }
-  async function clearDesktopFlow(result: SharedMcpAuthorizationSummary) {
+  async function clearDesktopFlow(result: SharedMcpAuthorizationSummary | SharedComposioAuthorizationSummary
+    | Extract<SharedComposioAuthorizationStartResult, { noAuth: true }>) {
     if (!alive.current || !isCurrentSession(initial.resource.connectionRef)) return;
+    if (!('noAuth' in result) && (result.status === 'starting' || result.status === 'waiting' || result.status === 'callback_received')) {
+      setError(t('desktopUnconfirmed')); return;
+    }
     desktopController.current?.abort(); desktopController.current = null; desktopFlowRef.current = null; setDesktopFlow(null);
-    if (result.status === 'completed') await load(true);
+    if ('noAuth' in result || result.status === 'completed') await load(true);
     else setStatus(t(result.status === 'cancelled' ? 'oauthCancelled' : 'oauthFailed'));
   }
   async function cancelDesktopFlow() {
@@ -208,11 +226,17 @@ export function SharedConnectionEditor({ api, initial, onSaved, returnLocale, re
     desktopController.current?.abort();
     const controller = new AbortController(); desktopController.current = controller;
     setDesktopCancelling(true); setError(null);
-    try { await clearDesktopFlow(await cancelSharedMcpAuthorization(flow, desktopOptions(controller))); }
+    try { await clearDesktopFlow(flow.source === 'mcp'
+      ? await cancelSharedMcpAuthorization(flow.flow, desktopOptions(controller))
+      : await cancelSharedComposioAuthorization(flow.flow, desktopOptions(controller, 'composio'))); }
     catch (failure) { if (alive.current && isCurrentSession(initial.resource.connectionRef)) {
-      const denied = failure instanceof SharedMcpAuthorizationError && failure.status !== null && [400, 401, 403, 404, 409, 410].includes(failure.status);
-      if (denied) { desktopController.current?.abort(); desktopFlowRef.current = null; setDesktopFlow(null); setReady(false); setConflict(failure.status === 409); }
-      setError(t(denied ? failure.status === 409 ? 'conflict' : 'oauthFailed' : 'desktopUnconfirmed'));
+      const failureStatus = failure instanceof SharedMcpAuthorizationError || failure instanceof SharedComposioAuthorizationError ? failure.status : null;
+      const setupRequired = failure instanceof SharedComposioAuthorizationError && composioSetupCodes.includes(failure.code);
+      const denied = flow.source === 'mcp'
+        ? failure instanceof SharedMcpAuthorizationError && failure.status !== null && [400, 401, 403, 404, 409, 410].includes(failure.status)
+        : isSharedComposioAuthorizationPermanentError(failure);
+      if (denied) { desktopController.current?.abort(); desktopFlowRef.current = null; setDesktopFlow(null); setReady(false); setConflict(failureStatus === 409); }
+      setError(t(setupRequired ? 'secretsRequired' : denied ? failureStatus === 409 ? 'conflict' : 'oauthFailed' : 'desktopUnconfirmed'));
     } }
     finally { if (alive.current && isCurrentSession(initial.resource.connectionRef)) setDesktopCancelling(false); }
   }
@@ -222,39 +246,62 @@ export function SharedConnectionEditor({ api, initial, onSaved, returnLocale, re
     const controller = new AbortController(); desktopController.current?.abort(); desktopController.current = controller;
     await run(async () => {
       try {
-        let result = await readSharedMcpAuthorizationStatus(flow, desktopOptions(controller));
-        if (result.status === 'callback_received') result = await finalizeSharedMcpAuthorization(flow, desktopOptions(controller));
-        if (result.status === 'waiting' || result.status === 'callback_received') {
-          setStatus(t('desktopWaiting'));
-          result = await waitForSharedMcpAuthorization(flow, desktopOptions(controller));
+        if (flow.source === 'composio') {
+          await clearDesktopFlow(await resumeSharedComposioAuthorization(flow.flow, desktopOptions(controller, 'composio')));
+        } else {
+          let result = await readSharedMcpAuthorizationStatus(flow.flow, desktopOptions(controller));
+          if (result.status === 'callback_received') result = await finalizeSharedMcpAuthorization(flow.flow, desktopOptions(controller));
+          if (result.status === 'waiting' || result.status === 'callback_received') {
+            setStatus(t('desktopWaiting'));
+            result = await waitForSharedMcpAuthorization(flow.flow, desktopOptions(controller));
+          }
+          await clearDesktopFlow(result);
         }
-        await clearDesktopFlow(result);
       } catch (failure) {
         if (!alive.current || !isCurrentSession(initial.resource.connectionRef) || controller.signal.aborted) return;
-        const denied = failure instanceof SharedMcpAuthorizationError && failure.status !== null && [400, 401, 403, 404, 409, 410].includes(failure.status);
-        if (denied) { desktopController.current?.abort(); desktopFlowRef.current = null; setDesktopFlow(null); setReady(false); setConflict(failure.status === 409); }
-        setError(t(denied ? failure.status === 409 ? 'conflict' : 'oauthFailed' : 'desktopUnconfirmed'));
+        const failureStatus = failure instanceof SharedMcpAuthorizationError || failure instanceof SharedComposioAuthorizationError ? failure.status : null;
+        const setupRequired = failure instanceof SharedComposioAuthorizationError && composioSetupCodes.includes(failure.code);
+        const denied = flow.source === 'mcp'
+          ? failure instanceof SharedMcpAuthorizationError && failure.status !== null && [400, 401, 403, 404, 409, 410].includes(failure.status)
+          : isSharedComposioAuthorizationPermanentError(failure);
+        if (denied) { desktopController.current?.abort(); desktopFlowRef.current = null; setDesktopFlow(null); setReady(false); setConflict(failureStatus === 409); }
+        setError(t(setupRequired ? 'secretsRequired' : denied ? failureStatus === 409 ? 'conflict' : 'oauthFailed' : 'desktopUnconfirmed'));
       }
     });
   }
   async function authorize() {
     if (hasPluginNavigationBlockers()) { setError(t('saveBeforeConnect')); return; }
     await run(async () => {
-      if (connection.resource.source === 'mcp' && Reflect.get(window, 'canvasDesktop')) {
+      if (Reflect.get(window, 'canvasDesktop')) {
         const controller = new AbortController(); desktopController.current = controller; desktopOutcome.current = null;
         try {
-          const flow = await startSharedMcpAuthorization({ connectionRef: initial.resource.connectionRef, workspaceId }, revisions(connection), {
-            ...desktopOptions(controller), onStarted: value => { desktopFlowRef.current = value; setDesktopFlow(value); setStatus(t('desktopWaiting')); },
-          });
-          await clearDesktopFlow(await waitForSharedMcpAuthorization(flow, desktopOptions(controller)));
+          if (connection.resource.source === 'mcp') {
+            const flow = await startSharedMcpAuthorization({ connectionRef: initial.resource.connectionRef, workspaceId }, revisions(connection), {
+              ...desktopOptions(controller), onStarted: value => { const current: SharedDesktopFlow = { source: 'mcp', flow: value };
+                desktopFlowRef.current = current; setDesktopFlow(current); setStatus(t('desktopWaiting')); },
+            });
+            await clearDesktopFlow(await waitForSharedMcpAuthorization(flow, desktopOptions(controller)));
+          } else {
+            const flow = await startSharedComposioAuthorization({ connectionRef: initial.resource.connectionRef, workspaceId }, revisions(connection), {
+              ...desktopOptions(controller, 'composio'), onStarted: value => { const current: SharedDesktopFlow = { source: 'composio', flow: value };
+                desktopFlowRef.current = current; setDesktopFlow(current); setStatus(t('desktopWaiting')); },
+            });
+            await clearDesktopFlow('noAuth' in flow ? flow : await waitForSharedComposioAuthorization(flow, desktopOptions(controller, 'composio')));
+          }
         } catch (failure) {
           if (!alive.current || !isCurrentSession(initial.resource.connectionRef) || controller.signal.aborted) return;
-          const result = desktopOutcome.current as SharedMcpAuthorizationSummary | null;
-          if (result && result.status !== 'waiting' && result.status !== 'callback_received') { await clearDesktopFlow(result); return; }
-          const denied = failure instanceof SharedMcpAuthorizationError && failure.status !== null && [400, 401, 403, 404, 409, 410].includes(failure.status);
-          if (denied) { desktopController.current?.abort(); desktopFlowRef.current = null; setDesktopFlow(null); setReady(false); setConflict(failure.status === 409); }
-          setError(t(failure instanceof SharedMcpAuthorizationError && failure.code === 'desktop_update_required'
-            ? 'desktopUpdateRequired' : denied && failure.status === 409 ? 'conflict' : desktopFlowRef.current ? 'desktopUnconfirmed' : 'oauthFailed'));
+          const outcome = desktopOutcome.current as SharedDesktopOutcome | null;
+          if (outcome && outcome.source === connection.resource.source && ['completed', 'cancelled', 'expired', 'failed'].includes(outcome.result.status)) {
+            await clearDesktopFlow(outcome.result); return;
+          }
+          const failureStatus = failure instanceof SharedMcpAuthorizationError || failure instanceof SharedComposioAuthorizationError ? failure.status : null;
+          const setupRequired = failure instanceof SharedComposioAuthorizationError && composioSetupCodes.includes(failure.code);
+          const denied = connection.resource.source === 'mcp'
+            ? failure instanceof SharedMcpAuthorizationError && failure.status !== null && [400, 401, 403, 404, 409, 410].includes(failure.status)
+            : isSharedComposioAuthorizationPermanentError(failure);
+          if (denied) { desktopController.current?.abort(); desktopFlowRef.current = null; setDesktopFlow(null); setReady(false); setConflict(failureStatus === 409); }
+          setError(t((failure instanceof SharedMcpAuthorizationError || failure instanceof SharedComposioAuthorizationError) && failure.code === 'desktop_update_required'
+            ? 'desktopUpdateRequired' : setupRequired ? 'secretsRequired' : denied && failureStatus === 409 ? 'conflict' : desktopFlowRef.current ? 'desktopUnconfirmed' : 'oauthFailed'));
         }
         return;
       }
@@ -283,7 +330,7 @@ export function SharedConnectionEditor({ api, initial, onSaved, returnLocale, re
   return <div ref={setPortal} className="space-y-4" data-testid="shared-connection-editor">
     <p className="text-sm text-muted-foreground">{connection.resource.description || t('separateAccountHint')}</p>
     <p className="text-xs text-muted-foreground">{connection.access.canUse ? t('canUse') : t('managementOnly')}</p>
-    {error ? <InlineNotice variant="destructive" size="compact">{error}</InlineNotice> : null}
+    {error ? <InlineNotice variant="destructive" size="compact" actions={error === t('secretsRequired') ? <Link href="/settings?tab=secrets" target="_blank" rel="noopener noreferrer">{t('openSecrets')}</Link> : undefined}>{error}</InlineNotice> : null}
     <Button size="sm" variant="outline" disabled={busy} onClick={reload} data-testid="shared-connection-editor-reload">{t('reload')}</Button>
     {connection.access.canManage ? <>
       <details open={Boolean(returnStatus)} className="space-y-3 rounded-lg border p-3"><summary className="cursor-pointer text-sm font-medium">{t('accountSetup')}</summary>

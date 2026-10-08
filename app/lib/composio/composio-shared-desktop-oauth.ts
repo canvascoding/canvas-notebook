@@ -16,6 +16,7 @@ import { deriveSharedComposioDesktopOAuthState, parseSharedComposioDesktopInitia
 
 const FLOW_TABLE = 'composio_shared_desktop_oauth_transactions';
 const COMMIT_TABLE = 'composio_shared_desktop_oauth_commits';
+const CANCELLATION_TABLE = 'composio_shared_desktop_oauth_cancellations';
 const PURPOSE = 'shared-composio-desktop-snapshot-v1';
 const TTL = 15 * 60_000;
 const RETENTION = 60 * 60_000;
@@ -32,6 +33,11 @@ const rowSchema = z.object({
 }).strict().refine(row => row.expires_at > row.created_at
   && (row.ownership_type === 'team' ? row.owner_workspace_id !== null : row.owner_workspace_id === null));
 type FlowRow = z.infer<typeof rowSchema>;
+const cancellationSchema = z.object({
+  state_hash: digest, connection_ref: z.string(), initiating_user_id: z.string(), actor_hash: digest, auth_session_hash: digest,
+  metadata_revision: epoch, grants_revision: epoch, binding_revision: epoch, created_at: epoch, expires_at: epoch,
+}).strict().refine(row => row.expires_at > row.created_at);
+type CancellationRow = z.infer<typeof cancellationSchema>;
 type HeldFlow = { row: FlowRow; snapshot: SharedComposioDesktopOAuthSnapshot; authorization: AuthorizedIntegrationConnection;
   context: Awaited<ReturnType<typeof resolveAuthorizedComposioConnectionContext>>; database: SqlConnection };
 
@@ -48,7 +54,8 @@ function secretBinding(row: Pick<FlowRow, 'state_hash' | 'connection_ref' | 'own
       ? { type: 'team', organizationId: row.organization_id, workspaceId: row.owner_workspace_id! }
       : { type: 'organization', organizationId: row.organization_id } } };
 }
-function assertInitiator(row: FlowRow, initiator: SharedComposioDesktopInitiator, ref: string): void {
+function assertInitiator(row: Pick<FlowRow, 'connection_ref' | 'initiating_user_id' | 'actor_hash' | 'auth_session_hash'>,
+  initiator: SharedComposioDesktopInitiator, ref: string): void {
   if (row.connection_ref !== ref || row.initiating_user_id !== initiator.actor.userId
     || row.actor_hash !== sharedComposioDesktopActorFingerprint(initiator.actor)
     || row.auth_session_hash !== sharedComposioDesktopSessionFingerprint(initiator.authSessionId)) {
@@ -130,17 +137,24 @@ async function assertCurrent(held: HeldFlow, initiator: SharedComposioDesktopIni
   }
   await assertSession(held.database, initiator);
 }
-async function withFlow<T>(input: SharedComposioDesktopInitiator, reference: string, state: string, operation: (held: HeldFlow, initiator: SharedComposioDesktopInitiator) => Promise<T>): Promise<T> {
+async function withFlow(input: SharedComposioDesktopInitiator, reference: string, state: string,
+  operation: (held: HeldFlow, initiator: SharedComposioDesktopInitiator) => Promise<SharedComposioDesktopOAuthSummary>): Promise<SharedComposioDesktopOAuthSummary> {
   const initiator = parseSharedComposioDesktopInitiator(input), ref = validateIntegrationConnectionRef(reference);
-  const locator = await readRow(state); assertInitiator(locator, initiator, ref);
+  const stateHash = sharedComposioDesktopStateHash(state);
   return withAuthorizedIntegrationConnection(initiator.actor, ref, 'manage', undefined, async (authorization, database) => {
     await assertSession(database, initiator);
     const context = await resolveAuthorizedComposioConnectionContext(authorization, database); await lockProfile(context, database);
-    const row = await readRow(state, database, true); assertInitiator(row, initiator, ref);
-    if (row.created_at !== locator.created_at || row.expires_at !== locator.expires_at) fail('binding_changed', 'The shared app sign-in locator changed.');
+    const value = await database.get(`SELECT * FROM ${FLOW_TABLE} WHERE state_hash=$1 FOR UPDATE`, [stateHash]);
+    if (!value) {
+      const cancelled = await readCancellation(database, stateHash);
+      if (!cancelled) fail('CONNECTION_DESKTOP_OAUTH_STATE_INVALID', 'This shared app sign-in is unavailable.', 404);
+      assertInitiator(cancelled, initiator, ref); await assertSession(database, initiator); return cancellationSummary(cancelled, state);
+    }
+    const row = parseRow(value); assertInitiator(row, initiator, ref);
     const snapshot = await openSnapshot(row);
     await expire(database, row);
-    return operation({ row, snapshot, authorization, context, database }, initiator);
+    const result = await operation({ row, snapshot, authorization, context, database }, initiator);
+    await assertSession(database, initiator); return result;
   });
 }
 function callbackUrl(state: string): string {
@@ -150,14 +164,40 @@ function callbackUrl(state: string): string {
   url.searchParams.set('flow', state); return url.toString();
 }
 
+function captureExpectedIntent(expected: IntegrationConnectionRevisions & { intent: string }) {
+  const captured = z.object({ metadataRevision: epoch, grantsRevision: epoch, bindingRevision: epoch,
+    intent: z.string().regex(/^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$/u) }).strict().parse(structuredClone(expected));
+  return { intent: captured.intent, requested: { metadataRevision: captured.metadataRevision,
+    grantsRevision: captured.grantsRevision, bindingRevision: captured.bindingRevision } };
+}
+async function readCancellation(database: SqlConnection, stateHash: string): Promise<CancellationRow | undefined> {
+  const value = await database.get(`SELECT * FROM ${CANCELLATION_TABLE} WHERE state_hash=$1 FOR UPDATE`, [stateHash]);
+  if (!value) return undefined;
+  const parsed = cancellationSchema.safeParse(value);
+  if (!parsed.success) fail('CONNECTION_DESKTOP_OAUTH_STATE_INVALID', 'The shared app cancellation record is invalid.');
+  return parsed.data;
+}
+function cancellationSummary(row: CancellationRow, state: string): SharedComposioDesktopOAuthSummary {
+  return { connectionRef: row.connection_ref, state, expiresAt: new Date(row.expires_at).toISOString(), status: 'cancelled',
+    code: 'CONNECTION_DESKTOP_OAUTH_CANCELLED', error: 'Shared sign-in was cancelled.' };
+}
+async function persistCancellation(database: SqlConnection, row: CancellationRow): Promise<void> {
+  const existing = await readCancellation(database, row.state_hash);
+  if (existing) {
+    const identity = (value: CancellationRow) => ({ ...value, created_at: undefined, expires_at: undefined });
+    if (!isDeepStrictEqual(identity(existing), identity(row))) fail('binding_changed', 'The original shared app cancellation changed.');
+    return;
+  }
+  await database.run(`INSERT INTO ${CANCELLATION_TABLE} (state_hash,connection_ref,initiating_user_id,actor_hash,auth_session_hash,
+    metadata_revision,grants_revision,binding_revision,created_at,expires_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, Object.values(row));
+}
+
 /** A durable starting row is acknowledged before the single-use account-link mutation. */
 export async function startSharedComposioDesktopOAuth(input: SharedComposioDesktopInitiator, reference: string,
   expected: IntegrationConnectionRevisions & { intent: string }): Promise<SharedComposioDesktopOAuthSummary | { connectionRef: string; noAuth: true }> {
   const initiator = parseSharedComposioDesktopInitiator(input), ref = validateIntegrationConnectionRef(reference);
-  const captured = z.object({ metadataRevision: z.number().int().positive(), grantsRevision: z.number().int().positive(), bindingRevision: z.number().int().positive(),
-    intent: z.string().regex(/^[A-Za-z0-9_-]{43}$/u) }).strict().parse(structuredClone(expected));
-  const requested = { metadataRevision: captured.metadataRevision, grantsRevision: captured.grantsRevision, bindingRevision: captured.bindingRevision };
-  const state = deriveSharedComposioDesktopOAuthState(captured.intent, initiator, ref), stateHash = sharedComposioDesktopStateHash(state);
+  const { intent, requested } = captureExpectedIntent(expected);
+  const state = deriveSharedComposioDesktopOAuthState(intent, initiator, ref), stateHash = sharedComposioDesktopStateHash(state);
   let preparation: PreparedSharedComposioOAuthProviderStart | undefined;
   const first = await withAuthorizedIntegrationConnection<SharedComposioDesktopOAuthSummary | { connectionRef: string; noAuth: true }>(initiator.actor, ref, 'manage', undefined, async (authorization, database) => {
     await assertSession(database, initiator);
@@ -171,6 +211,14 @@ export async function startSharedComposioDesktopOAuth(input: SharedComposioDeskt
       if (row.status === 'completed') await verifyCommit(held, initiator);
       else if (['starting', 'waiting', 'callback_received'].includes(row.status)) await assertCurrent(held, initiator);
       return summary(row, state, snapshot);
+    }
+    const cancelled = await readCancellation(database, stateHash);
+    if (cancelled) {
+      assertInitiator(cancelled, initiator, ref);
+      if (!isDeepStrictEqual({ metadataRevision: cancelled.metadata_revision, grantsRevision: cancelled.grants_revision,
+        bindingRevision: cancelled.binding_revision }, requested)) fail('binding_changed', 'The original shared app start revisions must be retained.');
+      await assertSession(database, initiator);
+      return cancellationSummary(cancelled, state);
     }
     if (!isDeepStrictEqual(revisions(authorization), requested)) fail('CONNECTION_REVISION_CONFLICT', 'This connection changed. Reload its current binding and permissions.');
     // All creators acquire the same user lock after common/session/profile locks.
@@ -301,9 +349,74 @@ export async function finalizeSharedComposioDesktopOAuth(initiator: SharedCompos
   });
 }
 export async function cancelSharedComposioDesktopOAuth(initiator: SharedComposioDesktopInitiator, ref: string, state: string): Promise<SharedComposioDesktopOAuthSummary> {
-  return withFlow(initiator, ref, state, async (held, original) => {
-    if (held.row.status === 'completed') await verifyCommit(held, original);
-    else if (['starting', 'waiting', 'callback_received'].includes(held.row.status)) { await assertSession(held.database, original); await finish(held.database, held.row, 'cancelled'); }
-    return summary(held.row, state);
+  return withFlow(initiator, ref, state, (held, original) => cancelHeldFlow(held, original, state));
+}
+
+async function cancelHeldFlow(held: HeldFlow, original: SharedComposioDesktopInitiator, state: string): Promise<SharedComposioDesktopOAuthSummary> {
+  if (held.row.status === 'completed') await verifyCommit(held, original);
+  else {
+    await assertSession(held.database, original);
+    if (['starting', 'waiting', 'callback_received'].includes(held.row.status)) await finish(held.database, held.row, 'cancelled');
+    const row = held.row;
+    await persistCancellation(held.database, { state_hash: row.state_hash, connection_ref: row.connection_ref,
+      initiating_user_id: row.initiating_user_id, actor_hash: row.actor_hash, auth_session_hash: row.auth_session_hash,
+      metadata_revision: held.snapshot.revisions.metadataRevision, grants_revision: held.snapshot.revisions.grantsRevision,
+      binding_revision: held.snapshot.revisions.bindingRevision, created_at: row.created_at, expires_at: row.expires_at });
+  }
+  await assertSession(held.database, original);
+  return summary(held.row, state);
+}
+
+/** Intent recovery uses the same held resource/session/profile locks as start. Never relinks an account. */
+async function withIntentFlow(input: SharedComposioDesktopInitiator, reference: string, intent: string,
+  requested?: IntegrationConnectionRevisions): Promise<SharedComposioDesktopOAuthSummary> {
+  const initiator = parseSharedComposioDesktopInitiator(input), ref = validateIntegrationConnectionRef(reference);
+  const state = deriveSharedComposioDesktopOAuthState(intent, initiator, ref), stateHash = sharedComposioDesktopStateHash(state);
+  return withAuthorizedIntegrationConnection(initiator.actor, ref, 'manage', undefined, async (authorization, database) => {
+    await assertSession(database, initiator);
+    const context = await resolveAuthorizedComposioConnectionContext(authorization, database); await lockProfile(context, database);
+    const value = await database.get(`SELECT * FROM ${FLOW_TABLE} WHERE state_hash=$1 FOR UPDATE`, [stateHash]);
+    if (value) {
+      const row = parseRow(value); assertInitiator(row, initiator, ref);
+      const snapshot = await openSnapshot(row);
+      if (requested && !isDeepStrictEqual(snapshot.revisions, requested)) fail('binding_changed', 'The original shared app start revisions must be retained.');
+      await expire(database, row);
+      const held = { row, snapshot, authorization, context, database };
+      if (requested) return cancelHeldFlow(held, initiator, state);
+      if (row.status === 'completed') await verifyCommit(held, initiator);
+      else if (['starting', 'waiting', 'callback_received'].includes(row.status)) await assertCurrent(held, initiator);
+      await assertSession(database, initiator);
+      return summary(row, state, snapshot);
+    }
+    const existing = await readCancellation(database, stateHash);
+    if (existing) {
+      assertInitiator(existing, initiator, ref);
+      if (requested && !isDeepStrictEqual({ metadataRevision: existing.metadata_revision, grantsRevision: existing.grants_revision,
+        bindingRevision: existing.binding_revision }, requested)) fail('binding_changed', 'The original shared app start revisions must be retained.');
+      await assertSession(database, initiator);
+      return cancellationSummary(existing, state);
+    }
+    if (!requested) fail('CONNECTION_DESKTOP_OAUTH_STATE_INVALID', 'This shared app sign-in is unavailable.', 404);
+    if (!isDeepStrictEqual(revisions(authorization), requested)) fail('CONNECTION_REVISION_CONFLICT', 'This connection changed. Reload its current binding and permissions.');
+    const now = Date.now();
+    const cancelled: CancellationRow = { state_hash: stateHash, connection_ref: ref, initiating_user_id: initiator.actor.userId,
+      actor_hash: sharedComposioDesktopActorFingerprint(initiator.actor), auth_session_hash: sharedComposioDesktopSessionFingerprint(initiator.authSessionId),
+      metadata_revision: requested.metadataRevision, grants_revision: requested.grantsRevision, binding_revision: requested.bindingRevision,
+      created_at: now, expires_at: now + TTL };
+    await assertSession(database, initiator);
+    await persistCancellation(database, cancelled);
+    await assertSession(database, initiator);
+    // Retain the marker with its resource: even a very late queued start must stay cancelled.
+    return cancellationSummary(cancelled, state);
   });
+}
+
+export async function getSharedComposioDesktopOAuthStatusByIntent(initiator: SharedComposioDesktopInitiator, ref: string,
+  intent: string): Promise<SharedComposioDesktopOAuthSummary> {
+  return withIntentFlow(initiator, ref, intent);
+}
+export async function cancelSharedComposioDesktopOAuthIntent(initiator: SharedComposioDesktopInitiator, ref: string,
+  expected: IntegrationConnectionRevisions & { intent: string }): Promise<SharedComposioDesktopOAuthSummary> {
+  const { intent, requested } = captureExpectedIntent(expected);
+  return withIntentFlow(initiator, ref, intent, requested);
 }

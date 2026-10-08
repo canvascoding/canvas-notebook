@@ -18,7 +18,7 @@ function fixture({ serverUrl = 'https://canvas.example', response, allowLoopback
     hostOnly: true, path: '/', value: 'fixture-session-only' };
   let jar = [{ ...initialCookie }];
   cookies.get = async () => jar.map(cookie => ({ ...cookie }));
-  const webContents = {
+  const webContents = Object.assign(new EventEmitter(), {
     mainFrame: frame,
     isDestroyed: () => false,
     session: { cookies, fetch: async (url, options) => {
@@ -27,7 +27,7 @@ function fixture({ serverUrl = 'https://canvas.example', response, allowLoopback
         success: true, data: { status: 'waiting', authorizationUrl },
       });
     } },
-  };
+  });
   const browserWindow = { webContents, isDestroyed: () => false };
   const event = { sender: webContents, senderFrame: frame };
   let configuredUrl = serverUrl;

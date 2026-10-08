@@ -13,6 +13,8 @@ contextBridge.exposeInMainWorld('canvasDesktop', {
   openExternal: url => invoke('desktop:open-external', url),
   sharedMcpOAuthVersion: 1,
   openMcpOAuth: request => invoke('desktop:open-mcp-oauth', request),
+  sharedComposioOAuthVersion: 1,
+  openSharedComposioOAuth: request => invoke('desktop:open-shared-composio-oauth', request),
   getNotificationSettings: () => invoke('desktop:get-notification-settings'),
   setNotificationSettings: settings => invoke('desktop:set-notification-settings', settings),
   showChatNotification: payload => invoke('desktop:show-chat-notification', payload),

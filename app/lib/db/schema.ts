@@ -1447,6 +1447,27 @@ export const composioSharedDesktopOAuthTransactions = pgTable("composio_shared_d
     AND (${table.terminalAt} IS NULL OR ${table.terminalAt} >= ${table.createdAt})`),
 }));
 
+/** Durable cancellation before a start acknowledgement. No provider request or secret snapshot is created. */
+export const composioSharedDesktopOAuthCancellations = pgTable("composio_shared_desktop_oauth_cancellations", {
+  stateHash: text("state_hash").primaryKey(),
+  connectionRef: text("connection_ref").notNull().references(() => integrationConnectionResources.connectionRef, { onDelete: 'cascade' }),
+  initiatingUserId: text("initiating_user_id").notNull().references(() => user.id, { onDelete: 'cascade' }),
+  actorHash: text("actor_hash").notNull(),
+  authSessionHash: text("auth_session_hash").notNull(),
+  metadataRevision: bigint("metadata_revision", { mode: "number" }).notNull(),
+  grantsRevision: bigint("grants_revision", { mode: "number" }).notNull(),
+  bindingRevision: bigint("binding_revision", { mode: "number" }).notNull(),
+  createdAt: pgTimestamp("created_at").notNull(),
+  expiresAt: pgTimestamp("expires_at").notNull(),
+}, table => ({
+  resourceIdx: index("idx_composio_shared_desktop_cancellations_resource").on(table.connectionRef, table.createdAt),
+  hashesCheck: check("composio_shared_desktop_cancellations_hashes_check", sql`${table.stateHash} ~ '^[a-f0-9]{64}$'
+    AND ${table.actorHash} ~ '^[a-f0-9]{64}$' AND ${table.authSessionHash} ~ '^[a-f0-9]{64}$'`),
+  valuesCheck: check("composio_shared_desktop_cancellations_values_check", sql`${table.metadataRevision} BETWEEN 1 AND 9007199254740991
+    AND ${table.grantsRevision} BETWEEN 1 AND 9007199254740991 AND ${table.bindingRevision} BETWEEN 1 AND 9007199254740991
+    AND length(${table.initiatingUserId}) BETWEEN 1 AND 200 AND ${table.createdAt} >= 1 AND ${table.expiresAt} > ${table.createdAt}`),
+}));
+
 /** Same-transaction publication evidence; hashes never replace current manager/session authority. */
 export const composioSharedDesktopOAuthCommits = pgTable("composio_shared_desktop_oauth_commits", {
   stateHash: text("state_hash").primaryKey().references(() => composioSharedDesktopOAuthTransactions.stateHash, { onDelete: 'cascade' }),

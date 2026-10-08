@@ -193,6 +193,21 @@ export default async function middleware(request: NextRequest) {
   }
 
   if (pathname.startsWith('/api/')) {
+    // Composio completes provider OAuth itself. The public desktop return only
+    // collects a response; the original authenticated manager must publish it.
+    const composioReturn = request.nextUrl.searchParams;
+    if (request.method === 'GET' && pathname === '/api/composio/shared/desktop/callback'
+      && /^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$/u.test(composioReturn.get('flow') || '')
+      && [...composioReturn.keys()].every(key => (key === 'flow' || key === 'error') && composioReturn.getAll(key).length === 1)
+      && (!composioReturn.has('error') || ['access_denied', 'server_error', 'temporarily_unavailable', 'invalid_request',
+        'unauthorized_client', 'unsupported_response_type', 'invalid_scope'].includes(composioReturn.get('error') || ''))
+      && (!request.headers.get('sec-fetch-mode') || request.headers.get('sec-fetch-mode') === 'navigate')
+      && (!request.headers.get('sec-fetch-dest') || request.headers.get('sec-fetch-dest') === 'document')) {
+      const response = nextWithCommonHeaders();
+      response.headers.set('Cache-Control', 'no-store');
+      response.headers.set('Referrer-Policy', 'no-referrer');
+      return response;
+    }
     // Desktop OAuth uses an opaque, single-use server transaction. Its callback
     // collects a code; only the signed-in desktop owner can finalize it.
     if (request.method === 'GET' && pathname === '/api/mcp/oauth/callback'

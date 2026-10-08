@@ -7,6 +7,7 @@ import { CapabilityResourceError } from '@/app/lib/capabilities/resources/contra
 import { readOrganizationPermissionForUser } from '@/app/lib/organization/permissions';
 import { IntegrationConnectionError, isIntegrationConnectionError, type IntegrationConnectionActor, type SharedIntegrationConnectionOwnership } from '@/app/lib/integration-tools/connections/contracts';
 import { ComposioProfileError } from '@/app/lib/composio/composio-profiles';
+import { isSecretReadinessError } from '@/app/lib/secrets/readiness';
 
 export { resourceRequestActor as sharedComposioRequestActor, resourceRequestJson as sharedComposioRequestJson, resourceResponse as sharedComposioResponse };
 export const sharedComposioRevisionSchema = { expectedMetadataRevision: z.number().int().positive(), expectedGrantsRevision: z.number().int().positive(), expectedBindingRevision: z.number().int().positive() };
@@ -22,6 +23,11 @@ export async function sharedComposioRequestOwnership(actor: IntegrationConnectio
 }
 
 export function sharedComposioResponseError(error: unknown): NextResponse {
+  if (isSecretReadinessError(error)) {
+    return NextResponse.json({ success: false, code: error.code,
+      error: 'Encrypted secrets are unavailable. Check Settings > Secrets before connecting.', setupHref: '/settings?tab=secrets' },
+    { status: 503, headers: { 'Cache-Control': 'no-store' } });
+  }
   if (isIntegrationConnectionError(error) || error instanceof CapabilityResourceError || error instanceof ComposioProfileError) {
     return NextResponse.json({ success: false, code: error.code, error: error.message }, { status: error.status, headers: { 'Cache-Control': 'no-store' } });
   }

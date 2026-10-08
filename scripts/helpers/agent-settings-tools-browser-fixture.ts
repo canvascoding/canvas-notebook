@@ -7,6 +7,7 @@ import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { Pool } from 'pg';
+import { createComposioProviderFixture } from './composio-provider-fixture';
 
 type Child = { process: ChildProcess; pid: number; closed: Promise<number | null>; ended: boolean };
 
@@ -148,6 +149,8 @@ async function main(): Promise<void> {
   const workflow = process.env.CANVAS_AGENT_WORKFLOW_MULTIUSER_BROWSER_RUN === '1';
   const oauth = process.env.CANVAS_SHARED_MCP_OAUTH_BROWSER_RUN === '1';
   const desktop = process.env.CANVAS_SHARED_MCP_DESKTOP_OAUTH_BROWSER_RUN === '1';
+  const composioDesktopClient = process.env.CANVAS_SHARED_COMPOSIO_DESKTOP_CLIENT_BROWSER_RUN === '1';
+  assert(!composioDesktopClient || workflow && !oauth && !desktop, 'The controlled Composio client gate uses its own workflow command.');
   const identityDiagnostic = process.env.CANVAS_SHARED_MCP_DESKTOP_IDENTITY_DIAGNOSTIC_RUN === '1';
   assert(process.env.CANVAS_SHARED_MCP_DESKTOP_IDENTITY_DIAGNOSTIC_RUN === undefined || identityDiagnostic);
   assert(!oauth || workflow, 'The OAuth browser fixture requires its owned Team issuer.');
@@ -205,6 +208,8 @@ async function main(): Promise<void> {
   let database: Pool | undefined;
   let server: Child | undefined;
   let issuer: Child | undefined;
+  let composioProvider: Awaited<ReturnType<typeof createComposioProviderFixture>> | undefined;
+  let composioProviderClosed = !composioDesktopClient;
   const children: Child[] = [];
   const abort = new AbortController();
   const signalChild = (child: Child, signal: NodeJS.Signals) => {
@@ -244,6 +249,8 @@ async function main(): Promise<void> {
     TEST_SECONDARY_EMAIL: `workflow-member-${nonce}@example.test`, TEST_SECONDARY_PASSWORD: randomBytes(24).toString('base64url'),
     TEST_EDITOR_EMAIL: `workflow-editor-${nonce}@example.test`, TEST_EDITOR_PASSWORD: randomBytes(24).toString('base64url') });
   if (oauth) env.CANVAS_SHARED_MCP_OAUTH_BROWSER_RUN = '1';
+  if (composioDesktopClient) Object.assign(env, { CANVAS_SHARED_COMPOSIO_DESKTOP_CLIENT_BROWSER_RUN: '1',
+    INTEGRATIONS_ENV_MASTER_KEY: randomBytes(32).toString('base64url') });
   if (desktop) Object.assign(env, { CANVAS_SHARED_MCP_DESKTOP_OAUTH_BROWSER_RUN: '1',
     CANVAS_SHARED_MCP_DESKTOP_PATHS: JSON.stringify(desktopPaths),
     CANVAS_SHARED_MCP_DESKTOP_RECEIPT: path.join(root, 'desktop-receipt.json') });
@@ -395,6 +402,12 @@ async function main(): Promise<void> {
       await activateWorkflowTestLicense(ready, env);
       env.INTEGRATION_GATEWAY_E2E_FIXTURE_URL = ready.origin;
     }
+    if (composioDesktopClient) {
+      composioProvider = await createComposioProviderFixture();
+      const origin = new URL(composioProvider.baseUrl);
+      assert.equal(origin.hostname, '127.0.0.1'); assert.equal(origin.protocol, 'http:'); assert(origin.port);
+      env.COMPOSIO_BASE_URL = origin.origin;
+    }
     receipt.phase = 'host_starting'; await persist();
     server = startChild(['--import', 'tsx', 'server.js'], 'host', 'production');
     assert(server.pid > 0); receipt.serverPid = server.pid; await persist();
@@ -414,7 +427,8 @@ async function main(): Promise<void> {
     assert(healthy && !server.ended, 'The recorded isolated production host must become ready.');
     await assertOwnedListener(); receipt.listenerVerified = true;
     receipt.phase = 'browser'; await persist();
-    const browserArgs = [path.join(repo, 'node_modules/@playwright/test/cli.js'), 'test', '--config', desktop
+    const browserArgs = [path.join(repo, 'node_modules/@playwright/test/cli.js'), 'test', '--config', composioDesktopClient
+      ? 'playwright.shared-composio-desktop-client-production.config.ts' : desktop
       ? 'playwright.shared-mcp-desktop-oauth-production.config.ts' : oauth
         ? 'playwright.shared-mcp-oauth-production.config.ts' : 'playwright.agent-settings-tools-production.config.ts'];
     if (identityDiagnostic) browserArgs.push('--grep', 'actual Electron cookie ABA and same-origin frame changes deny a verified old launch without publishing or executing');
@@ -500,6 +514,10 @@ async function main(): Promise<void> {
       } else receipt.uncertain = true;
     }
     if (server && !server.ended) receipt.uncertain = true;
+    if (composioProvider) {
+      try { await composioProvider.close(); composioProviderClosed = true; }
+      catch { receipt.uncertain = true; }
+    } else if (composioDesktopClient) composioProviderClosed = true;
     if (workflow) {
       try { const { closeDatabaseConnections } = await import('../../app/lib/db'); await closeDatabaseConnections(); }
       catch { receipt.uncertain = true; }
@@ -529,6 +547,7 @@ async function main(): Promise<void> {
         assert.equal((await administration.query('SELECT datname FROM pg_database WHERE datname=$1', [issuerReceipt.databaseName])).rowCount, 0);
       }
       if (receipt.createAcknowledged && !receipt.uncertain && children.every(child => child.ended)) {
+        assert(composioProviderClosed, 'The own Composio protocol fixture must close before database cleanup.');
         assert(!desktop || receipt.desktopClosed === true && receipt.systemBrowserClosed === true,
           'Native desktop and independent system-browser closure must be acknowledged before normal database cleanup.');
         if (desktopPaths && desktopDirectoryProofs) for (const directory of Object.values(desktopPaths)) {
