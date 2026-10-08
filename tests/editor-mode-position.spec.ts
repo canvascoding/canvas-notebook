@@ -254,7 +254,7 @@ test.describe('Markdown modes preserve the visible document location', () => {
         ? { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true }
         : { viewport: { width: 1440, height: 1000 } });
 
-      test('all six directed switches keep the same landmark and live document session', async ({ page }, info) => {
+      test('repeated Read/Edit switches keep the same landmark and live document session', async ({ page }, info) => {
         page.setDefaultTimeout(10_000);
         page.setDefaultNavigationTimeout(45_000);
         const errors: string[] = [];
@@ -266,13 +266,13 @@ test.describe('Markdown modes preserve the visible document location', () => {
         try {
           await page.goto(`/notebook?path=${path}`, { waitUntil: 'domcontentloaded' });
           await selectMode(page, 'Edit');
+          await expect(page.getByRole('button', { name: 'Source', exact: true })).toHaveCount(0);
           await selectMode(page, 'Read');
           const expectedOffset = await positionLandmark(page, 'Read', 25);
           const baseline = { requests: observed.requests.length, sockets: observed.sockets.length };
-          for (const destination of ['Edit', 'Source', 'Read', 'Source', 'Edit', 'Read'] as const) {
+          for (const destination of ['Edit', 'Read', 'Edit', 'Read', 'Edit', 'Read'] as const) {
             await selectMode(page, destination);
             await expectLandmark(page, destination, 25, expectedOffset);
-            if (destination === 'Source') await expect(page.locator('.cm-content')).toHaveAttribute('contenteditable', 'false');
             await page.screenshot({ path: info.outputPath(`${device}-${destination.toLowerCase()}-position.png`) });
           }
           expect(observed.requests.slice(baseline.requests)).toEqual([]);
@@ -280,14 +280,14 @@ test.describe('Markdown modes preserve the visible document location', () => {
 
           // Exercise an interior line of a long paragraph, not only easy heading boundaries.
           const paragraphOffset = await positionWrappedParagraph(page, 'Read', 31);
-          for (const destination of ['Edit', 'Source', 'Read', 'Source', 'Edit', 'Read'] as const) {
+          for (const destination of ['Edit', 'Read', 'Edit', 'Read', 'Edit', 'Read'] as const) {
             await selectMode(page, destination);
             await expectWrappedParagraph(page, destination, 31, paragraphOffset);
           }
 
           // A rapid sequence must consume one position transfer, never a stale intermediate restore.
           await page.getByRole('group', { name: 'Document view' }).evaluate(element => {
-            for (const name of ['Edit', 'Source', 'Read', 'Source', 'Edit']) {
+            for (const name of ['Edit', 'Read', 'Edit', 'Read', 'Edit']) {
               [...element.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent?.trim() === name)?.click();
             }
           });
@@ -317,8 +317,7 @@ test.describe('Markdown modes preserve the visible document location', () => {
       await selectMode(page, 'Read');
       await jumpToEarlyHeading(page);
       const expectedOffset = await positionLandmark(page, 'Read', 29);
-      await selectMode(page, 'Source');
-      await expectLandmark(page, 'Source', 29, expectedOffset);
+      await expect(page.getByRole('button', { name: 'Source', exact: true })).toHaveCount(0);
       await selectMode(page, 'Edit');
       await expectLandmark(page, 'Edit', 29, expectedOffset);
       const paragraph = page.locator(richEditor).locator('p').filter({ hasText: /^Section 29 has a uniquely identifiable paragraph/u });
@@ -334,9 +333,7 @@ test.describe('Markdown modes preserve the visible document location', () => {
       const afterEditOffset = await positionLandmark(page, 'Edit', 29);
       await selectMode(page, 'Read');
       await expectLandmark(page, 'Read', 29, afterEditOffset);
-      await selectMode(page, 'Source');
-      await expectLandmark(page, 'Source', 29, afterEditOffset);
-      await expect(page.locator('.cm-content')).toContainText('Roundtrip edit marker.');
+      await expect(page.locator('.markdown-read-viewport')).toContainText('Roundtrip edit marker.');
       await selectMode(page, 'Edit');
       await expectLandmark(page, 'Edit', 29, afterEditOffset);
       await paragraph.click();
@@ -429,9 +426,10 @@ test.describe('Markdown modes preserve the visible document location', () => {
       expect(await viewport(page, 'Read').evaluate(element => element.scrollTop)).toBe(0);
       await selectMode(page, 'Edit');
       await expect(page.locator(richEditor).getByText('Visible at the beginning.', { exact: true })).toBeInViewport();
-      await selectMode(page, 'Source');
-      await expect(page.locator('.cm-content')).toContainText('Visible at the beginning.');
-      expect(await viewport(page, 'Source').evaluate(element => element.scrollTop)).toBe(0);
+      await expect(page.getByRole('button', { name: 'Source', exact: true })).toHaveCount(0);
+      await selectMode(page, 'Read');
+      await expect(page.locator('.markdown-read-viewport')).toContainText('Visible at the beginning.');
+      expect(await viewport(page, 'Read').evaluate(element => element.scrollTop)).toBe(0);
     } finally { await cleanup(page, [fixture, short]); }
   });
 });

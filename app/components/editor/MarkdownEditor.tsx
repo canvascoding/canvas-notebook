@@ -119,6 +119,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { SafeMarkdownImage } from '@/app/components/shared/SafeMarkdownImage';
 import { canRenderCollaborationDocument } from '@/app/lib/collaboration/editor-presentation';
 import { MarkdownModeBar, MarkdownRichMigration, MarkdownSaveState, useLiveMarkdown, type MarkdownDocumentMode } from './MarkdownDocumentModes';
+import { isMarkdownSourceModeSupported } from '@/app/lib/editor/markdown-mode-availability';
 import { MarkdownTableMenu } from './MarkdownTableMenu';
 import { MarkdownSelectionMenu } from './MarkdownSelectionMenu';
 import { MarkdownRenderer } from '@/app/components/shared/MarkdownRenderer';
@@ -5852,6 +5853,7 @@ export function MarkdownEditor({
     ? parseCanvasMarkdownDocument(displayedValue)
     : { body: displayedValue, error: null }, [displayedValue, frontmatter]);
   const authoritativeRepresentation = collaborationSession.session?.representation;
+  const sourceAvailable = isMarkdownSourceModeSupported(collaborationEnabled, authoritativeRepresentation);
   const richModeAnalysis = useMemo(() => {
     // Existing rich sessions edit their authoritative structured document, not
     // a new Markdown import. Their live projection and checkpoint still validate
@@ -5869,12 +5871,19 @@ export function MarkdownEditor({
   const [internalMode, setInternalMode] = useState<EditorMode>(() => (
     readOnly || sourceModeRequired ? 'read' : shouldDefaultToSource(readOnly, filePath) ? 'source' : 'rich'
   ));
-  const mode = controlledMode ?? internalMode;
+  const requestedMode = controlledMode ?? internalMode;
+  const mode = requestedMode === 'source' && !sourceAvailable ? 'read' : requestedMode;
+  if (internalMode === 'source' && !sourceAvailable && authoritativeRepresentation) setInternalMode('read');
   const setMode = useCallback((next: EditorMode) => {
-    viewport.prepare(next);
-    setInternalMode(next);
-    onModeChange?.(next);
-  }, [onModeChange, viewport]);
+    const supportedMode = next === 'source' && !sourceAvailable ? 'read' : next;
+    viewport.prepare(supportedMode);
+    setInternalMode(supportedMode);
+    onModeChange?.(supportedMode);
+  }, [onModeChange, sourceAvailable, viewport]);
+  useEffect(() => {
+    if (requestedMode === mode || !authoritativeRepresentation) return;
+    onModeChange?.(mode);
+  }, [authoritativeRepresentation, mode, onModeChange, requestedMode]);
   const [sourceModeRequested, setSourceModeRequested] = useState(false);
   const [migrationInProgress, setMigrationInProgress] = useState(false);
   const [wide, setWide] = useState(false);
@@ -5889,7 +5898,6 @@ export function MarkdownEditor({
   const effectiveMode: EditorMode = mode === 'read' ? 'read'
     : preparingRichMode ? 'rich'
       : mode === 'source' || (collaborationEnabled ? authoritativeRepresentation === 'plain_text' : sourceModeRequired) ? 'source' : 'rich';
-  const richSourceReadOnly = collaborationEnabled && isRichTextCollaborationRepresentation(authoritativeRepresentation);
   const projectionAvailable = liveMarkdown.available
     && ((effectiveMode === 'rich' && !preparingRichMode) || liveMarkdown.isLossless());
   const setLocalFocused = local.setFocused;
@@ -5921,9 +5929,10 @@ export function MarkdownEditor({
   }, [filePath]);
 
   const switchToSourceMode = useCallback(() => {
+    if (!sourceAvailable) return;
     setSourceModeRequested(true);
     setMode('source');
-  }, [setMode]);
+  }, [setMode, sourceAvailable]);
 
   const normalizeToRichMode = useCallback(() => {
     if (readOnly || collaborationEnabled || richModeAnalysis.mode !== 'normalizable') return;
@@ -5975,7 +5984,7 @@ export function MarkdownEditor({
     );
   }
 
-  const modeBar = <MarkdownModeBar documentControls={layout === 'document'} actions={modeBarActions} mode={effectiveMode} readOnly={effectiveReadOnly} wide={wide} onWideChange={setWide} onChange={(next) => {
+  const modeBar = <MarkdownModeBar documentControls={layout === 'document'} actions={modeBarActions} mode={effectiveMode} readOnly={effectiveReadOnly} sourceAvailable={sourceAvailable} wide={wide} onWideChange={setWide} onChange={(next) => {
     if (next === 'rich') switchToRichMode();
     else if (next === 'source') switchToSourceMode();
     else setMode('read');
@@ -6030,7 +6039,6 @@ export function MarkdownEditor({
 
   if (effectiveMode === 'source') {
     return wrap(<div className="markdown-source-shell flex h-full min-h-0 flex-col">
-      {richSourceReadOnly && <p className="border-b px-3 py-2 text-xs text-muted-foreground">{t('editorModes.liveSource')}</p>}
       <div className="markdown-source-host min-h-0 flex-1"><SourceMarkdownEditor
         viewport={viewport}
         key={JSON.stringify([activeWorkspaceId, filePath, documentKey])}
@@ -6040,14 +6048,14 @@ export function MarkdownEditor({
         richModeAvailable={!sourceModeRequired && !collaborationEnabled}
         value={displayedValue}
         onChange={onChange}
-        readOnly={effectiveReadOnly || richSourceReadOnly || migrationInProgress}
+        readOnly={effectiveReadOnly || migrationInProgress}
         filePath={filePath}
         isMobileKeyboardActive={layout === 'document' && isMobileKeyboardActive}
         onRichMode={switchToRichMode}
         markdownNavigationTarget={markdownNavigationTarget}
-        collaborationEnabled={collaborationEnabled && !richSourceReadOnly}
+        collaborationEnabled={collaborationEnabled}
         collaborationSession={collaborationSession.session}
-        collaborationDocument={richSourceReadOnly ? null : collaborationDocument}
+        collaborationDocument={collaborationDocument}
         agentTargets={agentTargets}
         sourceModeReason={richModeAnalysis.mode === 'source' ? richModeAnalysis.reason : undefined}
         normalizationAvailable={richModeAnalysis.mode === 'normalizable' && !readOnly && !collaborationEnabled}

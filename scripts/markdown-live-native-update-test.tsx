@@ -66,7 +66,8 @@ async function main() {
       useCollaborationDocument: () => collaboration,
       useTextCollaborationSession: () => ({ session, error: null, loading: false, retry() {} }),
     };
-    if (request === './CodeEditorClient') return { CodeEditor: () => <div data-testid="source-editor" /> };
+    if (request === './CodeEditorClient') return { CodeEditor: ({ value, readOnly }: { value: string; readOnly: boolean }) =>
+      <div data-testid="source-editor" data-readonly={String(readOnly)}>{value}</div> };
     if (request === '@/components/ui/mermaid-diagram') return { MermaidDiagram: () => null };
     if (request === '@/app/components/shared/MarkdownRenderer') return { MarkdownRenderer: () => <div data-testid="markdown-preview" /> };
     if (request === '@/app/components/shared/WorkspaceDocumentPreviewDialog') return { WorkspaceDocumentPreviewDialog: () => null };
@@ -81,6 +82,9 @@ async function main() {
   const { MarkdownEditor, RichMarkdownEditor } = await import('../app/components/editor/MarkdownEditor');
   const root = createRoot(document.getElementById('root')!);
   const changes: string[] = [];
+  const labels = messages.notebook.editorModes;
+  const modeButton = (label: string) => [...document.querySelectorAll('.markdown-mode-bar button')]
+    .find((button) => button.textContent === label);
   const editor = () => {
     const element = document.querySelector('.tiptap') as HTMLElement & { editor: Editor };
     assert(element?.editor); return element.editor;
@@ -95,6 +99,7 @@ async function main() {
     await act(async () => root.render(wrap(<MarkdownEditor value="Original paragraph" filePath="live.md" collaborationEnabled
       mode="rich" onChange={(value) => changes.push(value)} />)));
     const instance = editor(); const element = instance.view.dom;
+    assert.equal(modeButton(labels.source), undefined, 'structured collaboration does not offer an unwritable Source mode');
     assert.equal(instance.state.doc.textContent, 'Original paragraph', 'fixture mounts the authoritative Yjs binding');
     const originalIds = readRichDocumentJson(doc).content!.map((node) => node.attrs!.id);
     const manager = instance.storage.markdown.manager;
@@ -132,11 +137,18 @@ async function main() {
     assert.equal(validateRichMarkdownYDoc(doc).code, 'roundtrip_unstable', 'real codec reproduces lossy table code');
     const nativeBeforeModes = readRichDocumentJson(doc);
     const binaryBeforeModes = Y.encodeStateAsUpdate(doc);
-    await act(async () => root.render(wrap(<MarkdownEditor value="Original paragraph" filePath="live.md" collaborationEnabled mode="source" />)));
-    assert.equal(document.querySelector('[data-testid="source-editor"]'), null, 'lossy Markdown is never shown as source');
-    assert(document.body.textContent?.includes(messages.notebook.editorModes.sourceUnavailable));
+    const modeChanges: string[] = [];
+    await act(async () => root.render(wrap(<MarkdownEditor value="Original paragraph" filePath="live.md" collaborationEnabled mode="source"
+      onModeChange={(mode) => modeChanges.push(mode)} />)));
+    assert.equal(document.querySelector('[data-testid="source-editor"]'), null, 'an unavailable controlled Source mode never mounts a text writer');
+    assert.equal(document.querySelector('[data-editor-mode]')?.getAttribute('data-editor-mode'), 'read');
+    assert.equal(modeButton(labels.read)?.getAttribute('aria-pressed'), 'true');
+    assert.equal(modeButton(labels.source), undefined);
+    assert(modeChanges.includes('read'), 'the controlled owner is told about the safe mode fallback');
+    assert.equal(editor().isEditable, false);
+    assert.deepEqual(editor().getJSON(), nativeBeforeModes, 'fallback Read uses the intact native document');
     const parsesAfterSource = projectionParses;
-    assert(parsesAfterSource > parsesBeforeInput, 'opening source validates its serialized snapshot');
+    assert(parsesAfterSource > parsesBeforeInput, 'fallback Read validates its derived Markdown before choosing a renderer');
     await act(async () => root.render(wrap(<MarkdownEditor value="Original paragraph" filePath="live.md" collaborationEnabled mode="source" />)));
     assert.equal(projectionParses, parsesAfterSource, 're-render reuses the validation of the same snapshot');
     await act(async () => root.render(wrap(<MarkdownEditor value="Original paragraph" filePath="live.md" collaborationEnabled mode="read" />)));
@@ -154,15 +166,41 @@ async function main() {
     });
     assert.equal(validateRichMarkdownYDoc(doc).valid, true);
     await act(async () => root.render(wrap(<MarkdownEditor value="Original paragraph" filePath="live.md" collaborationEnabled mode="source" />)));
-    assert(document.querySelector('[data-testid="source-editor"]'), 'Source becomes available automatically after native correction');
+    assert.equal(document.querySelector('[data-testid="source-editor"]'), null, 'a valid projection is still not an editable Source document');
+    assert.equal(modeButton(labels.source), undefined);
+    assert.equal(document.querySelector('[data-editor-mode]')?.getAttribute('data-editor-mode'), 'read');
+    assert(document.querySelector('[data-testid="markdown-preview"]'), 'lossless fallback Read may use the Markdown preview');
     assert.deepEqual(readRichDocumentJson(peer), readRichDocumentJson(doc));
+
+    await act(async () => root.render(wrap(<MarkdownEditor value="Local source" filePath="local.md" mode="source" />)));
+    assert(modeButton(labels.source), 'local Markdown fields and documents retain Source');
+    assert.equal(document.querySelector('[data-testid="source-editor"]')?.getAttribute('data-readonly'), 'false');
+    assert.equal(document.querySelector('[data-testid="source-editor"]')?.textContent, 'Local source');
+
+    const plainDoc = new Y.Doc(); plainDoc.getText('content').insert(0, '<div>Exact source</div>\n');
+    const plainSession = { ...session, documentId: 'plain-doc', representation: 'plain_text' as const };
+    const plainCollaboration = { ...collaboration, doc: plainDoc, session: plainSession };
+    const external = { resolution: { session: plainSession, error: null, loading: false, retry() {} }, document: plainCollaboration };
+    try {
+      await act(async () => root.render(wrap(<MarkdownEditor value="stale file" filePath="plain.md" collaborationEnabled
+        externalCollaboration={external} mode="source" />)));
+      assert(modeButton(labels.source), 'source-backed collaboration retains Source');
+      assert.equal(document.querySelector('[data-testid="source-editor"]')?.textContent, '<div>Exact source</div>\n');
+      assert.equal(document.querySelector('[data-testid="source-editor"]')?.getAttribute('data-readonly'), 'false');
+      plainCollaboration.connection = 'offline';
+      await act(async () => root.render(wrap(<MarkdownEditor value="stale file" filePath="plain.md" collaborationEnabled
+        externalCollaboration={external} mode="source" readOnly />)));
+      assert(modeButton(labels.source), 'source support is independent of permissions and connectivity');
+      assert.equal(document.querySelector('[data-testid="source-editor"]')?.getAttribute('data-readonly'), 'true');
+      await act(async () => root.render(wrap(<MarkdownEditor value="Original paragraph" filePath="live.md" collaborationEnabled mode="read" />)));
+    } finally { plainDoc.destroy(); }
 
     await act(async () => root.render(wrap(<RichMarkdownEditor value="Local paragraph" filePath="local.md" readOnly={false}
       isMobileKeyboardActive={false} onSourceMode={() => {}} onChange={(value) => changes.push(value)} />)));
     const local = editor();
     await act(async () => { local.commands.insertContent('Local edit '); });
     assert(changes.at(-1)?.includes('Local edit Local paragraph'), 'non-collaborative editor still publishes its Markdown onChange');
-    console.log('Native rich editing: serializer failure cannot interrupt input or peer updates; identity and non-collaborative Markdown callbacks preserved.');
+    console.log('Native rich editing: source availability/fallback, exact plain/local source, serializer failure, peer updates and identity passed.');
   } finally {
     await act(async () => root.unmount());
     doc.off('update', relay); doc.destroy(); peer.destroy();

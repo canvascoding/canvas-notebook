@@ -126,6 +126,8 @@ test('reading observes live source without rewriting it and migration waits for 
   const uploaded = await page.request.post('/api/files/upload', { headers, multipart: { path: '.', files: { name: path, mimeType: 'text/markdown', buffer: Buffer.from(content) } } });
   expect(uploaded.ok(), await uploaded.text()).toBe(true);
   const second = await page.context().newPage();
+  const checkpointRoute = '**/api/files/collaboration/checkpoint';
+  let checkpointMocked = false;
   try {
     await page.goto(`/notebook?path=${encodeURIComponent(path)}`);
     // Establish this scenario's mode explicitly; opening defaults/preferences
@@ -169,12 +171,11 @@ test('reading observes live source without rewriting it and migration waits for 
     await page.getByRole('button', { name: 'Read', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Read', exact: true })).toHaveAttribute('aria-pressed', 'true');
     await expect(page.getByText('Live addition', { exact: true })).toBeVisible();
-    await page.getByRole('button', { name: 'Source', exact: true }).click();
-    await expect(page.locator('.cm-content')).toHaveAttribute('contenteditable', 'false');
-    await expect(page.locator('.cm-content')).toContainText('Live addition');
+    await expect(page.getByRole('button', { name: 'Source', exact: true })).toHaveCount(0);
+    await expect(page.locator('.cm-content')).toHaveCount(0);
     await expect(page.getByTestId('markdown-save-state')).toHaveCount(0);
-    await page.screenshot({ path: info.outputPath('live-source-modes.png') });
-    const checkpointRoute = '**/api/files/collaboration/checkpoint';
+    await page.screenshot({ path: info.outputPath('migrated-rich-modes.png') });
+    checkpointMocked = true;
     await page.route(checkpointRoute, (route) => route.fulfill({ status: 422,
       contentType: 'application/json', body: JSON.stringify({ success: false, code: 'COLLABORATION_ROUNDTRIP_UNSTABLE',
         error: 'Rich collaboration checkpoint validation failed (roundtrip_unstable).' }),
@@ -189,20 +190,26 @@ test('reading observes live source without rewriting it and migration waits for 
     await page.getByRole('button', { name: 'Edit', exact: true }).click();
     await expect(page.locator('.tiptap-editor-shell .ProseMirror')).toHaveAttribute('contenteditable', 'true');
     await expect(page.getByTestId('markdown-save-state')).toHaveCount(0);
-    await page.getByRole('button', { name: 'Source', exact: true }).click();
-    await expect(page.locator('.cm-content')).toContainText('Live addition');
+    await expect(page.getByRole('button', { name: 'Source', exact: true })).toHaveCount(0);
+    await page.getByRole('button', { name: 'Read', exact: true }).click();
+    await expect(page.locator('.markdown-read-viewport')).toContainText('Live addition');
     await page.unroute(checkpointRoute);
     // A real access failure requires action; an export-only error no longer
     // interrupts a healthy Yjs document. Keep this recovery case actionable.
-    const sourceBounds = await page.locator('.cm-content').boundingBox();
     await page.route(checkpointRoute, (route) => route.fulfill({ status: 403,
       contentType: 'application/json', body: JSON.stringify({ success: false, code: 'COLLABORATION_AUTHENTICATION_FAILED', error: 'Test access expired.' }),
     }));
     await page.keyboard.press('ControlOrMeta+s');
     const recovery = page.getByTestId('markdown-save-state');
     await expect(recovery.getByRole('alert')).toContainText('Your access to this document cannot currently be confirmed');
-    await expect(recovery).toHaveCSS('position', 'absolute');
-    expect((await page.locator('.cm-content').boundingBox())?.y).toBe(sourceBounds?.y);
+    await expect(recovery).toHaveCSS('position', 'relative');
+    const reader = page.locator('.markdown-read-viewport');
+    await expect(reader.getByText('Live addition', { exact: true })).toBeVisible();
+    await expect.poll(async () => {
+      const [recoveryBounds, readingBounds] = await Promise.all([recovery.boundingBox(), reader.boundingBox()]);
+      return Boolean(recoveryBounds && readingBounds && readingBounds.height > 0
+        && readingBounds.y >= recoveryBounds.y + recoveryBounds.height);
+    }, { message: 'Recovery actions stay above the readable document without covering it.' }).toBe(true);
     await expect(recovery).not.toContainText('COLLABORATION_AUTHENTICATION_FAILED');
     await expect(recovery.getByRole('button', { name: 'Open again', exact: true })).toBeVisible();
     const download = page.waitForEvent('download');
@@ -215,12 +222,24 @@ test('reading observes live source without rewriting it and migration waits for 
     await expect(page.getByRole('button', { name: 'Read', exact: true })).toHaveAttribute('aria-pressed', 'true');
     await expect(page.getByText('Live addition', { exact: true })).toBeVisible();
     await page.screenshot({ path: info.outputPath('checkpoint-recovery.png') });
+    await page.unroute(checkpointRoute);
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await expect(page.getByRole('button', { name: 'Read', exact: true })).toBeVisible({ timeout: 30_000 });
+    await page.getByRole('button', { name: 'Read', exact: true }).click();
+    await expect(page.getByText('Live addition', { exact: true })).toBeVisible();
+    await expect(page.getByTestId('markdown-save-state')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Source', exact: true })).toHaveCount(0);
+    checkpointMocked = false;
 
   } finally {
     // A timed-out test may already have closed its pages. Cleanup must not mask
     // the first failed UI assertion with a secondary navigation error.
     if (!second.isClosed()) await second.close().catch(() => undefined);
-    if (!page.isClosed()) await page.goto('about:blank', { timeout: 5_000 }).catch(() => undefined);
+    if (!page.isClosed()) {
+      await page.unroute(checkpointRoute).catch(() => undefined);
+      if (checkpointMocked) await page.reload({ waitUntil: 'domcontentloaded', timeout: 5_000 }).catch(() => undefined);
+      await page.goto('about:blank', { timeout: 5_000 }).catch(() => undefined);
+    }
     await page.request.delete('/api/files/delete', { headers, data: { path } }).catch(() => undefined);
   }
 });

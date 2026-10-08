@@ -203,8 +203,8 @@ test.describe('formatting preserves Markdown meaning', () => {
       const literal = expected.content?.find((node) => node.content?.[0].text?.startsWith('Literal:'));
       expect(literal?.content?.map((node) => node.type)).toEqual(['text', 'hardBreak', 'text']);
       await assertProjected(workspace, filePath, expected);
-      await mode(page, /^(Source|Quelle)$/u);
-      await expect(page.locator('.cm-content')).toHaveAttribute('contenteditable', 'false');
+      await expect(page.getByRole('group', { name: /Document view|Dokumentansicht/u })
+        .getByRole('button', { name: /^(Source|Quelltext)$/u })).toHaveCount(0);
       await mode(page, /^(Read|Lesen)$/u);
       await expect(page.getByRole('heading', { name: 'Heading # literal', exact: true })).toBeVisible();
       await expect(page.locator('.canvas-document-reading')).toContainText('Literal: * _ # > ` \\ |');
@@ -277,9 +277,9 @@ test.describe('formatting preserves Markdown meaning', () => {
       expect(await readFile(diskPath(workspace, filePath), 'utf8')).toBe(safeMarkdown);
       await expect(page.locator(selector)).toHaveAttribute('contenteditable', 'true');
       await expect(page.getByTestId('markdown-save-state')).toHaveCount(0);
-      await mode(page, /^(Source|Quelle)$/u);
-      await phase('source-and-read-preserve-native-state');
-      await expect(page.getByText('The text view is currently unavailable. You can still open the document in Edit.', { exact: true })).toBeVisible();
+      await phase('available-modes-preserve-native-state');
+      await expect(page.getByRole('group', { name: /Document view|Dokumentansicht/u })
+        .getByRole('button', { name: /^(Source|Quelltext)$/u })).toHaveCount(0);
       await expect(page.locator('.cm-editor')).toHaveCount(0);
       await expect.poll(() => localRichTree(page, identity)).toEqual(invalid);
       expect(await readFile(diskPath(workspace, filePath), 'utf8')).toBe(safeMarkdown);

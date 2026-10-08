@@ -81,15 +81,17 @@ export function useLiveMarkdown(collaboration: CollaborationDocument | null, fal
   return useSyncExternalStore(store.subscribe, store.snapshot, store.snapshot);
 }
 
-export function MarkdownModeBar({ mode, onChange, readOnly, wide, onWideChange, documentControls = true, actions }: {
+export function MarkdownModeBar({ mode, onChange, readOnly, sourceAvailable = true, wide, onWideChange, documentControls = true, actions }: {
   mode: MarkdownDocumentMode; onChange: (mode: MarkdownDocumentMode) => void; readOnly: boolean;
+  sourceAvailable?: boolean;
   wide: boolean; onWideChange: (wide: boolean) => void;
   documentControls?: boolean; actions?: ReactNode;
 }) {
   const t = useTranslations('notebook.editorModes');
   const focus = useContext(NotebookFocusContext);
   return <div className="markdown-mode-bar flex shrink-0 items-center gap-1 border-b bg-background px-3 py-1.5" role="group" aria-label={t('label')}>
-    {([{ mode: 'read', icon: Eye }, { mode: 'rich', icon: Pencil }, { mode: 'source', icon: Code2 }] as const).map((item) =>
+    {([{ mode: 'read', icon: Eye }, { mode: 'rich', icon: Pencil }, { mode: 'source', icon: Code2 }] as const)
+      .filter((item) => item.mode !== 'source' || sourceAvailable).map((item) =>
       <Button key={item.mode} variant={mode === item.mode ? 'secondary' : 'ghost'} size="sm"
         className="h-8 gap-1.5 px-2.5" aria-pressed={mode === item.mode}
         disabled={readOnly && item.mode === 'rich'} onClick={() => onChange(item.mode)}>

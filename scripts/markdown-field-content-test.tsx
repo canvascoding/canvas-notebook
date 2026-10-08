@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { MarkdownRenderer } from '../app/components/shared/MarkdownRenderer';
+import { LocalMarkdownDocument } from '../app/lib/editor/local-markdown-document';
 import { splitMarkdownEditorDocument } from '../app/lib/markdown/editor-document';
 import { analyzeMarkdownRichMode, serializeRichMarkdownBody } from '../app/lib/markdown/rich-markdown-codec';
 
@@ -33,11 +34,17 @@ for (const content of samples) {
 }
 
 assert.deepEqual(analyzeMarkdownRichMode(thematicBreak, 'content'), {
-  mode: 'rich', prefix: '', body: thematicBreak,
-});
-assert.deepEqual(analyzeMarkdownRichMode(yaml, 'content'), {
   mode: 'source', reason: 'roundtrip_changed',
-}, 'YAML that would serialize as a Markdown heading must stay in lossless Source mode');
+}, 'a leading --- stays in lossless Source because the shared rich serializer uses *** to avoid frontmatter ambiguity');
+assert.equal(serializeRichMarkdownBody(thematicBreak), '***\n\nA separator starts this prompt.\n');
+assert.deepEqual(analyzeMarkdownRichMode(yaml, 'content'), {
+  mode: 'normalizable', prefix: '', body: yaml,
+  normalizedBody: '***\n\n## title: PROMPT\\_YAML\\_SENTINEL&#10;tags: \\[automation\\]\n\n# Task\n',
+  normalizations: ['html_entity_escaping'],
+}, 'YAML-looking prompt content requires explicit normalization and never becomes hidden metadata');
+const yamlSnapshot = new LocalMarkdownDocument(yaml, 'content').getSnapshot();
+assert.equal(yamlSnapshot.markdown, yaml, 'opening retains the exact YAML-looking prompt source');
+assert.equal(yamlSnapshot.richDocument, null, 'rich conversion waits for explicit normalization');
 
 const promptPreview = renderToStaticMarkup(<MarkdownRenderer content={yaml} frontmatter="content" />);
 assert.match(promptPreview, /PROMPT_YAML_SENTINEL/);

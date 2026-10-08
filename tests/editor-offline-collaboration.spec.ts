@@ -133,7 +133,7 @@ test.describe('Real local Yjs recovery through browser lifecycles', () => {
   });
   test.setTimeout(120_000);
 
-  test('offline rich edits survive Read/Source, another document, reopen and reconnect', async ({ page }, info) => {
+  test('offline rich edits survive Read/Edit, another document, reopen and reconnect', async ({ page }, info) => {
     const headers = await login(page);
     const filePath = `offline-rich-${randomUUID()}.md`;
     const otherPath = `offline-other-${randomUUID()}.md`;
@@ -158,9 +158,8 @@ test.describe('Real local Yjs recovery through browser lifecycles', () => {
       expect((await sessionFor(page, headers, filePath)).stateProof).toBe(session.stateProof);
       await page.getByRole('button', { name: 'Read', exact: true }).click();
       await expect(page.getByText('Alpha paragraph. Offline suffix.', { exact: true })).toBeVisible();
-      await page.getByRole('button', { name: 'Source', exact: true }).click();
-      await expect(page.locator('.cm-content')).toContainText('Offline suffix.');
-      await expect(page.locator('.cm-content')).toHaveAttribute('contenteditable', 'false');
+      await expect(page.getByRole('button', { name: 'Source', exact: true })).toHaveCount(0);
+      await expect(page.locator('.cm-content')).toHaveCount(0);
       await page.getByRole('button', { name: 'Edit', exact: true }).click();
       await expect.poll(() => richTree(page)).toEqual(changed);
       await page.screenshot({ path: info.outputPath('offline-before-document-switch.png') });
@@ -211,8 +210,8 @@ test.describe('Real local Yjs recovery through browser lifecycles', () => {
     } finally { await cleanFiles(page.context(), headers, [filePath]); }
   });
 
-  test('diagnostic: offline document switching after Source was loaded online', async ({ page }, info) => {
-    info.annotations.push({ type: 'diagnostic', description: 'Preloads Source online to isolate document reopening from first-use chunk availability. The cold-Source acceptance case above remains separate.' });
+  test('diagnostic: offline document switching after Read was loaded online', async ({ page }, info) => {
+    info.annotations.push({ type: 'diagnostic', description: 'Preloads Read online to isolate document reopening from first-use chunk availability. The cold-Read acceptance case above remains separate.' });
     const headers = await login(page);
     const filePath = `offline-warm-rich-${randomUUID()}.md`;
     const otherPath = `offline-warm-other-${randomUUID()}.md`;
@@ -225,16 +224,17 @@ test.describe('Real local Yjs recovery through browser lifecycles', () => {
       await page.getByRole('tab', { name: filePath, exact: true }).click();
       await expect(page.getByRole('tabpanel', { name: filePath }).getByText('Alpha paragraph.', { exact: true }))
         .toBeVisible({ timeout: 30_000 });
-      await page.getByRole('button', { name: 'Source', exact: true }).click();
-      await expect(page.locator('.cm-content')).toHaveAttribute('contenteditable', 'false');
+      await page.getByRole('button', { name: 'Read', exact: true }).click();
+      await expect(page.locator('.markdown-read-viewport')).toContainText('Alpha paragraph.');
+      await expect(page.getByRole('button', { name: 'Source', exact: true })).toHaveCount(0);
       await page.getByRole('button', { name: 'Edit', exact: true }).click();
       await expect(page.locator(selector)).toHaveAttribute('contenteditable', 'true');
       await page.context().setOffline(true);
       const changed = await editRichOffline(page);
       await expect.poll(() => localSnapshot(page, session)).toEqual(changed);
       expect((await sessionFor(page, headers, filePath)).stateProof).toBe(session.stateProof);
-      await page.getByRole('button', { name: 'Source', exact: true }).click();
-      await expect(page.locator('.cm-content')).toContainText('Offline suffix.');
+      await page.getByRole('button', { name: 'Read', exact: true }).click();
+      await expect(page.locator('.markdown-read-viewport')).toContainText('Offline suffix.');
       await page.getByRole('button', { name: 'Edit', exact: true }).click();
       await expect.poll(() => richTree(page)).toEqual(changed);
       await page.getByRole('tab', { name: otherPath, exact: true }).click();
