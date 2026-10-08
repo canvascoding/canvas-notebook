@@ -9,9 +9,7 @@ import { EmailMessageBody } from '@/app/apps/email/components/EmailMessageReader
 import {
   appendComposeRecipients,
   composeRecipientText,
-  isValidComposeRecipient,
   mergeVisibleEmailAttachments,
-  normalizeComposeRecipient,
   splitRecipientInput,
   visibleEmailAttachments,
 } from '@/app/apps/email/components/email-compose-utils';
@@ -42,6 +40,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 
 import { EmailHtmlEditor } from './EmailHtmlEditor';
+import { EmailRecipientInput } from './EmailRecipientInput';
+import { EmailReplyRecipientSuggestions } from './EmailReplyRecipientSuggestions';
 
 const EMAIL_CONTEXT_FILE_EXTENSIONS = new Set(['txt', 'md', 'markdown', 'csv', 'json', 'pdf']);
 
@@ -143,123 +143,6 @@ function EmailComposeAgentProgress({
           </div>
         </div>
       ) : null}
-    </div>
-  );
-}
-
-function EmailRecipientChipInput({
-  disabled,
-  id,
-  onChange,
-  value,
-}: {
-  disabled?: boolean;
-  id: string;
-  onChange: (value: string) => void;
-  value: string;
-}) {
-  const inputRef = useRef<HTMLInputElement>(null);
-  const [draftValue, setDraftValue] = useState('');
-  const recipients = useMemo(() => splitRecipientInput(value), [value]);
-
-  const setRecipients = useCallback((nextRecipients: string[]) => {
-    onChange(composeRecipientText(nextRecipients));
-  }, [onChange]);
-
-  const commitRecipients = useCallback((rawValue = draftValue) => {
-    const additions = splitRecipientInput(rawValue);
-    if (additions.length === 0) return false;
-    setRecipients(appendComposeRecipients(recipients, additions));
-    setDraftValue('');
-    return true;
-  }, [draftValue, recipients, setRecipients]);
-
-  const handleDraftChange = useCallback((event: ChangeEvent<HTMLInputElement>) => {
-    const nextValue = event.target.value;
-    if (!/[,\n;]/u.test(nextValue)) {
-      setDraftValue(nextValue);
-      return;
-    }
-
-    const hasTrailingDelimiter = /[,\n;]\s*$/u.test(nextValue);
-    const parts = nextValue.split(/[,\n;]/u);
-    const pendingValue = hasTrailingDelimiter ? '' : parts.pop() || '';
-    const additions = parts.map(normalizeComposeRecipient).filter(Boolean);
-    if (additions.length > 0) {
-      setRecipients(appendComposeRecipients(recipients, additions));
-    }
-    setDraftValue(pendingValue);
-  }, [recipients, setRecipients]);
-
-  const handleKeyDown = useCallback((event: KeyboardEvent<HTMLInputElement>) => {
-    if (event.key === 'Enter' || event.key === 'Tab' || event.key === ',' || event.key === ';') {
-      if (draftValue.trim()) {
-        event.preventDefault();
-        commitRecipients();
-      }
-      return;
-    }
-
-    if (event.key === 'Backspace' && !draftValue && recipients.length > 0) {
-      event.preventDefault();
-      setRecipients(recipients.slice(0, -1));
-    }
-  }, [commitRecipients, draftValue, recipients, setRecipients]);
-
-  const removeRecipient = useCallback((index: number) => {
-    setRecipients(recipients.filter((_, recipientIndex) => recipientIndex !== index));
-    window.setTimeout(() => inputRef.current?.focus(), 0);
-  }, [recipients, setRecipients]);
-
-  return (
-    <div
-      className={cn(
-        'flex min-h-10 w-full flex-wrap items-center gap-1 border border-input bg-background px-2 py-1.5 text-sm focus-within:ring-1 focus-within:ring-ring',
-        disabled && 'opacity-50',
-      )}
-      onClick={() => inputRef.current?.focus()}
-    >
-      {recipients.map((recipient, index) => {
-        const isValid = isValidComposeRecipient(recipient);
-        return (
-          <span
-            key={`${recipient}:${index}`}
-            className={cn(
-              'inline-flex max-w-full items-center gap-1 border bg-muted/40 px-2 py-1 text-xs',
-              isValid ? 'border-border text-foreground' : 'border-destructive/60 bg-destructive/10 text-destructive',
-            )}
-            aria-invalid={!isValid}
-            title={recipient}
-          >
-            <span className="min-w-0 truncate">{recipient}</span>
-            <button
-              type="button"
-              className="shrink-0 text-muted-foreground hover:text-foreground disabled:pointer-events-none"
-              aria-label={`Remove ${recipient}`}
-              onClick={(event) => {
-                event.stopPropagation();
-                removeRecipient(index);
-              }}
-              disabled={disabled}
-            >
-              <X className="h-3 w-3" />
-            </button>
-          </span>
-        );
-      })}
-      <input
-        id={id}
-        ref={inputRef}
-        value={draftValue}
-        onBlur={() => {
-          if (draftValue.trim()) commitRecipients();
-        }}
-        onChange={handleDraftChange}
-        onKeyDown={handleKeyDown}
-        placeholder={recipients.length === 0 ? 'email@example.com' : ''}
-        disabled={disabled}
-        className="min-w-[11rem] flex-1 bg-transparent py-1 text-sm outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed"
-      />
     </div>
   );
 }
@@ -489,12 +372,19 @@ export function EmailComposeDialog({
                 <section className="min-w-0 space-y-3">
                   <div className="space-y-1.5">
                     <label className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground" htmlFor="email-compose-to">{labels.to}</label>
-                    <EmailRecipientChipInput id="email-compose-to" value={draft.toText} onChange={(value) => onUpdate({ toText: value })} disabled={isSubmitting} />
+                    <EmailRecipientInput key={`${accountId}:${mailboxWorkspaceId}:${draft.mode}:${draft.message?.id || 'new'}:to`} id="email-compose-to" value={draft.toText} accountId={accountId} mailboxWorkspaceId={mailboxWorkspaceId} exclude={splitRecipientInput(draft.ccText)} onChange={(value) => onUpdate({ toText: value })} disabled={isSubmitting || submitDisabled} />
                   </div>
                   <div className="space-y-1.5">
                     <label className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground" htmlFor="email-compose-cc">{labels.cc}</label>
-                    <EmailRecipientChipInput id="email-compose-cc" value={draft.ccText} onChange={(value) => onUpdate({ ccText: value })} disabled={isSubmitting} />
+                    <EmailRecipientInput key={`${accountId}:${mailboxWorkspaceId}:${draft.mode}:${draft.message?.id || 'new'}:cc`} id="email-compose-cc" value={draft.ccText} accountId={accountId} mailboxWorkspaceId={mailboxWorkspaceId} exclude={splitRecipientInput(draft.toText)} onChange={(value) => onUpdate({ ccText: value })} disabled={isSubmitting || submitDisabled} />
                   </div>
+                  {draft.message && (draft.mode === 'reply' || draft.mode === 'reply-all') ? <EmailReplyRecipientSuggestions
+                    key={`${accountId}:${mailboxWorkspaceId}:${draft.message.id}:${draft.folder}:${draft.mode}`}
+                    accountId={accountId} mailboxWorkspaceId={mailboxWorkspaceId} messageId={draft.message.id} folder={draft.folder}
+                    exclude={[...splitRecipientInput(draft.toText), ...splitRecipientInput(draft.ccText)]} disabled={isSubmitting || submitDisabled}
+                    onAdd={(address, field) => onUpdate(field === 'to'
+                      ? { toText: composeRecipientText(appendComposeRecipients(splitRecipientInput(draft.toText), [address])) }
+                      : { ccText: composeRecipientText(appendComposeRecipients(splitRecipientInput(draft.ccText), [address])) })} /> : null}
                   <div className="space-y-1.5">
                     <label className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground" htmlFor="email-compose-subject">{labels.subject}</label>
                     <Input id="email-compose-subject" value={draft.subject} onChange={(event) => onUpdate({ subject: event.target.value })} disabled={isSubmitting} />

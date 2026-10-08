@@ -1,4 +1,34 @@
 {
+  "EmailRecipients": {
+    "placeholder": "Name or email address",
+    "remove": "Remove {address}",
+    "loading": "Looking up addresses…",
+    "choose": "Select an address from this mailbox.",
+    "noResults": "No address found in the checked messages. Enter an address directly or refine the name.",
+    "incomplete": "Only part of this mailbox was checked. Select a suggestion or refine the name.",
+    "unavailable": "Address lookup is unavailable. You can enter an address directly.",
+    "invalidRecipient": "A recipient still needs a complete email address. Remove the incomplete entry and select a suggestion or enter the address.",
+    "suggestions": "Recipient suggestions",
+    "narrowQuery": "More matches exist. Refine the name or address.",
+    "sourceDate": "Source dated {date}",
+    "sourceDetails": "Show source",
+    "sourceFolder": "Folder: {folder}",
+    "sourceDateTime": "Source dated {date}",
+    "roles": {
+      "from": "Observed sender",
+      "to": "Observed To recipient",
+      "cc": "Observed Cc recipient",
+      "reply-to": "Reply-To in the source message"
+    },
+    "moreParticipants": "More participants",
+    "currentMessageOnly": "Other participants in the original message. Add only those who should receive this reply.",
+    "noAdditionalParticipants": "No additional participants in the original message.",
+    "addTo": "Add to To",
+    "addCc": "Add to Cc",
+    "addToAddress": "Add {address} to To",
+    "addCcAddress": "Add {address} to Cc",
+    "additionalOmitted": "Further participants were omitted from this compact list."
+  },
   "emailFocus": {
     "scopeLabel": "Mailbox scope",
     "scopes": {

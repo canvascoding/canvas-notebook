@@ -23,3 +23,14 @@ The agent resolves a named recipient from observed mailbox headers and prepares 
 ## Acceptance
 
 Cover same names, private/business addresses, missing names, quoted commas, Reply-To, own addresses, cross-field duplicates, Bcc, no-reply, blocked sender policies, shared/personal mailbox boundaries, provider partial coverage, output bounds, custom capabilities and automation bindings. Browser use needs explicit user authorization; containers require separate authorization.
+
+## Implemented decisions
+
+- `email_recipients` exposes `search -> describe -> call`; the new operations do not add their full schemas to the initial tool list. Existing direct email tools remain compatible. Capability guidance adds roughly 500 characters and only when recipient discovery is enabled.
+- Prior default Email profiles migrate to include both operations. Customized or disabled capability selections remain unchanged. Automation mailbox binding applies to gateway operations and cannot restore an unavailable capability.
+- Authorization resolves the actor's mailbox catalogue before and after provider I/O. Human lookup requires read access; agent lookup additionally requires agent access and follows sender restrictions. Access or connection revisions changing during lookup invalidate the result.
+- Compose and Review share the picker and structural address tokenizer. Form recipient lists retain all entered addresses; provider metadata parsing and network exclusions have separate bounds. Complete manual addresses bypass lookup, and unresolved names remain visible as invalid entries.
+- Self-address filtering includes the selected sender and personal aliases. Other accessible shared mailboxes remain valid reply participants. Reply-To and deduplication use the same derivation on the server and in Compose.
+- Optional reply participants are drawn from the selected message only and added individually to To or Cc. Source labels describe an observed header and its date, without claiming verified delivery or a complete conversation.
+
+Focused validation entry points are `test:email:addresses`, `test:email:recipients`, `test:pi:email-recipients`, `test:email:recipients:ui`, the compose source/dialog tests, the Review store test and the existing provider/cache suites. Browser acceptance and real-provider acceptance are separate from these local tests.

@@ -212,7 +212,14 @@ async function main() {
   assert.equal(store.useEmailReviewStore.getState().form.subject, '');
 
   assert.deepEqual(client.parseEmailReviewRecipients('Person <TO@example.test>, hidden@example.test'), ['to@example.test', 'hidden@example.test']);
+  assert.deepEqual(client.parseEmailReviewRecipients('"Doe, Anna" <Anna@Example.Test>, other@example.test (Other, Team)'), ['anna@example.test', 'other@example.test'], 'Quoted names and comment commas do not split a mailbox');
+  assert.deepEqual(client.parseEmailReviewRecipients('Anna <ANNA@example.test>; anna@example.test\n"Doe, Anna" <Anna@Example.Test>'), ['anna@example.test'], 'Case and display-name duplicates normalize to one address');
+  const manyRecipients = Array.from({ length: 120 }, (_, index) => `recipient${index}@example.test`);
+  assert.deepEqual(client.parseEmailReviewRecipients(manyRecipients.join(', ')), manyRecipients, 'Form parsing preserves every entered recipient beyond metadata parser limits');
   assert.throws(() => client.parseEmailReviewRecipients('To <to@example.test> injected@example.test'), /valid/u);
+  for (const malformed of ['one@example.test two@example.test', 'Name <one@example.test> <two@example.test>', 'valid@example.test, Invalid Name', 'valid@example.test, incomplete@']) {
+    assert.throws(() => client.parseEmailReviewRecipients(malformed), /valid/u, 'Malformed values never silently omit or replace an intended recipient');
+  }
   reset(); await store.openEmailReview(target('first'));
   store.updateEmailReviewForm({ subject: 'Unsaved closing' });
   assert.equal(store.closeEmailReview(), false);

@@ -9,6 +9,13 @@ assert.deepEqual(parseEmailAddresses(header), [
 assert.deepEqual(parseEmailAddresses(formatEmailAddresses(parseEmailAddresses(header))), parseEmailAddresses(header));
 assert.deepEqual(parseEmailAddresses({ emailAddress: { address: 'A@example.test', name: 'Anna' } }), [{ address: 'a@example.test', name: 'Anna' }]);
 assert.deepEqual(parseEmailAddresses('invented person'), []);
+assert.deepEqual(parseEmailAddresses('"My Team": Anna <anna@example.test>, bob@example.test;'), [
+  { address: 'anna@example.test', name: 'Anna' }, { address: 'bob@example.test' },
+]);
+assert.deepEqual(parseEmailAddresses('"My Team": anna@example.test;'), [{ address: 'anna@example.test' }]);
+assert.deepEqual(parseEmailAddresses('"Support: Team" <support@example.test>'), [{ address: 'support@example.test', name: 'Support: Team' }]);
+assert.deepEqual(parseEmailAddresses('Name <one@example.test> <two@example.test>'), []);
+assert.deepEqual(parseEmailAddresses('"Name <team>" <team@example.test>'), [{ address: 'team@example.test', name: 'Name <team>' }]);
 assert.deepEqual(parseEmailAddresses('Anna <anna@example.test> (team, sales), bob@example.test (Bob)'), [
   { address: 'anna@example.test', name: 'Anna' }, { address: 'bob@example.test', name: 'Bob' },
 ]);

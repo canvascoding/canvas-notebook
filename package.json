@@ -392,6 +392,7 @@
     "test:email:derived-draft": "tsx scripts/email-derived-draft-html-test.ts",
     "test:email:addresses": "tsx scripts/email-addresses-test.ts",
     "test:email:recipients": "tsx --conditions react-server scripts/email-recipient-discovery-test.ts && tsx --conditions react-server scripts/email-recipient-route-test.ts",
+    "test:email:recipients:ui": "tsx scripts/email-recipient-input-test.tsx",
     "test:email:mime": "tsx scripts/email-mime-header-test.ts",
     "test:email:attachments": "tsx scripts/email-attachments-test.ts",
     "test:email:attachment-preview": "tsx scripts/email-attachment-preview-test.ts",

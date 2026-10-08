@@ -15,6 +15,8 @@ import { cn } from '@/lib/utils';
 import { emailReviewKey, emailReviewTarget } from '@/app/lib/email/review-client';
 import { draftEmailAttachmentPreviewItems } from '@/app/lib/email/attachment-preview';
 import { useEmailAttachmentPreview } from '@/app/apps/email/components/useEmailAttachmentPreview';
+import { EmailRecipientInput } from '@/app/apps/email/components/EmailRecipientInput';
+import { splitRecipientInput } from '@/app/apps/email/components/email-compose-utils';
 import {
   useEmailReviewStore, openEmailReview, closeEmailReview, selectEmailReview,
   updateEmailReviewForm, initializeEmailReviewEditor, saveActiveEmailReview, sendActiveEmailReview, rejectActiveEmailReview,
@@ -109,7 +111,7 @@ export function EmailReviewHost() {
                     <p className="break-all text-xs text-muted-foreground">{t('sendingFrom')}: {entry.senderAddress || t('unknownSender')}</p>
                     {(['toText', 'ccText', 'bccText'] as const).map((field) => {
                       const name = field.replace('Text', '') as 'to' | 'cc' | 'bcc';
-                      return <div key={field} className="grid grid-cols-[2rem_minmax(0,1fr)] items-center gap-2"><Label htmlFor={`email-review-${name}`}>{t(name)}</Label><Input id={`email-review-${name}`} data-testid={`email-review-${name}`} value={state.form![field]} disabled={disabled} onChange={(event) => updateEmailReviewForm({ [field]: event.target.value })} /></div>;
+                      return <div key={field} className="grid grid-cols-[2rem_minmax(0,1fr)] items-center gap-2"><Label htmlFor={`email-review-${name}`}>{t(name)}</Label><EmailRecipientInput key={`${emailReviewKey(entry)}:${entry.version}:${field}`} id={`email-review-${name}`} testId={`email-review-${name}`} value={state.form![field]} accountId={entry.accountId} mailboxWorkspaceId={entry.scope === 'workspace' ? entry.workspaceId : null} exclude={[...splitRecipientInput(state.form!.toText), ...splitRecipientInput(state.form!.ccText), ...splitRecipientInput(state.form!.bccText)]} disabled={disabled} onChange={(value) => updateEmailReviewForm({ [field]: value }, { reviewKey: emailReviewKey(entry), version: entry.version, documentKey: '' })} /></div>;
                     })}
                     <p className="text-xs text-muted-foreground">{t('recipientHelp')}</p>
                   </div>

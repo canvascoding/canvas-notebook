@@ -1,4 +1,34 @@
 {
+  "EmailRecipients": {
+    "placeholder": "Name oder E-Mail-Adresse",
+    "remove": "{address} entfernen",
+    "loading": "Adressen werden gesucht…",
+    "choose": "Wähle eine Adresse aus diesem Postfach.",
+    "noResults": "In den geprüften Nachrichten wurde keine Adresse gefunden. Gib eine Adresse direkt ein oder präzisiere den Namen.",
+    "incomplete": "Es wurde nur ein Teil dieses Postfachs geprüft. Wähle einen Vorschlag oder präzisiere den Namen.",
+    "unavailable": "Die Adresssuche ist nicht verfügbar. Du kannst eine Adresse direkt eingeben.",
+    "invalidRecipient": "Für einen Empfänger fehlt noch die vollständige E-Mail-Adresse. Entferne den unvollständigen Eintrag und wähle einen Vorschlag oder gib die Adresse ein.",
+    "suggestions": "Empfängervorschläge",
+    "narrowQuery": "Es gibt weitere Treffer. Präzisiere den Namen oder die Adresse.",
+    "sourceDate": "Quelle vom {date}",
+    "sourceDetails": "Quelle anzeigen",
+    "sourceFolder": "Ordner: {folder}",
+    "sourceDateTime": "Quelle vom {date}",
+    "roles": {
+      "from": "Beobachteter Absender",
+      "to": "Beobachteter An-Empfänger",
+      "cc": "Beobachteter Cc-Empfänger",
+      "reply-to": "Reply-To der Quellnachricht"
+    },
+    "moreParticipants": "Weitere Teilnehmer",
+    "currentMessageOnly": "Weitere Teilnehmer der ursprünglichen Nachricht. Nimm nur diejenigen auf, die diese Antwort erhalten sollen.",
+    "noAdditionalParticipants": "Keine weiteren Teilnehmer in der ursprünglichen Nachricht.",
+    "addTo": "In An aufnehmen",
+    "addCc": "In Cc aufnehmen",
+    "addToAddress": "{address} in An aufnehmen",
+    "addCcAddress": "{address} in Cc aufnehmen",
+    "additionalOmitted": "Weitere Teilnehmer wurden in dieser kompakten Liste ausgelassen."
+  },
   "emailFocus": {
     "scopeLabel": "Postfachbereich",
     "scopes": {

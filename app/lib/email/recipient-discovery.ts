@@ -80,7 +80,7 @@ async function authorize(input: NormalizedBase, dependencies: EmailRecipientDisc
   if (!mailbox?.active || !mailbox.capabilities.canRead || input.purpose === 'agent' && !mailbox.capabilities.canRunAgent) {
     throw new EmailRecipientDiscoveryError('MAILBOX_ACCESS_UNAVAILABLE', 'This mailbox is unavailable for recipient discovery.', 403);
   }
-  const ownAddresses = new Set([mailbox, ...mailboxes.filter(value => value.ownerUserId === input.actorUserId)]
+  const ownAddresses = new Set([mailbox, ...mailboxes.filter(value => value.ownerUserId === input.actorUserId && !value.workspaceId)]
     .flatMap(value => parseEmailAddresses(value.emailAddress).map(address => address.address)));
   return { mailbox: structuredClone(mailbox), ownAddresses };
 }

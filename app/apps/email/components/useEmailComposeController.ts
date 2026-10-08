@@ -175,7 +175,11 @@ export function useEmailComposeController({
     aiGenerated = false,
   ): EmailComposeDraft => {
     const bodyValues = composeEmailEditorBodyValues(body);
-    const ownAddresses = new Set(accounts.map((account) => account.emailAddress.trim().toLowerCase()).filter(Boolean));
+    const senderAddress = sourceRef.current?.account.emailAddress || activeAccount?.emailAddress;
+    const ownAddresses = new Set([
+      senderAddress || '',
+      ...accounts.filter(account => accountScope(account) === 'personal').map(account => account.emailAddress),
+    ].map(address => address.trim().toLowerCase()).filter(Boolean));
     const { to, cc } = emailReplyRecipients(message, mode === 'compose' ? 'reply' : mode, ownAddresses);
     const subject = mode === 'forward'
       ? forwardSubjectForCompose(message.subject || '')
@@ -197,7 +201,7 @@ export function useEmailComposeController({
       toText: composeRecipientText(to),
       usedContext: [],
     };
-  }, [accounts, activeFolder]);
+  }, [accounts, activeAccount, activeFolder]);
 
   const openDraft = useCallback((
     mode: EmailComposeMode,

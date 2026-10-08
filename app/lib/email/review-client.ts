@@ -1,5 +1,6 @@
 'use client';
 
+import { parseEmailAddresses, splitEmailAddressText } from '@/app/lib/email/addresses';
 import type { EmailOutboxDraft } from '@/app/apps/email/components/email-client-types';
 import { sanitizeEmailEditorHtml } from '@/app/lib/email/html-editor-content';
 
@@ -81,14 +82,14 @@ export async function loadEmailReview(target: EmailReviewTarget, context?: Email
 }
 
 export function parseEmailReviewRecipients(value: string): string[] {
-  return value.split(/[,;\n]/u).map((item) => item.trim()).filter(Boolean).map((item) => {
-    const display = item.match(/^[^<>]*<([^<>]+)>$/u);
-    const address = (display?.[1] || item).trim().toLowerCase();
-    if (/[\r\n,;]/u.test(item) || !/^[^\s@<>"(),;:]+@[^\s@<>"(),;:]+\.[^\s@<>"(),;:]+$/u.test(address)) {
+  const addresses = splitEmailAddressText(value).map(item => item.trim()).filter(Boolean).map((item) => {
+    const parsed = parseEmailAddresses(item);
+    if (parsed.length !== 1) {
       throw new Error('Use one valid email address per recipient. Separate recipients with commas or new lines.');
     }
-    return address;
+    return parsed[0].address;
   });
+  return [...new Set(addresses)];
 }
 export async function saveEmailReview(entry: EmailReviewEntry, form: EmailReviewForm) {
   const { data } = await request<{ data: EmailOutboxDraft }>(endpoint(emailReviewTarget(entry)), {

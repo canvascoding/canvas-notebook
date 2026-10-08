@@ -84,14 +84,14 @@ async function main() {
     assert.equal(replyDestinations.result.current.draft?.toText, 'selected@example.test');
     act(() => { replyDestinations.result.current.close(); });
     act(() => { replyDestinations.result.current.openDraft('reply-all', replyMessage); });
-    assert.equal(replyDestinations.result.current.draft?.toText, 'support@example.test, backup@example.test, colleague@example.test');
+    assert.equal(replyDestinations.result.current.draft?.toText, 'support@example.test, backup@example.test, workspace-b@example.test, colleague@example.test', 'a different readable shared mailbox remains a participant while selected sender and personal aliases are excluded');
     assert.equal(replyDestinations.result.current.draft?.ccText, 'manager@example.test');
     act(() => { replyDestinations.result.current.close(); });
     act(() => { replyDestinations.result.current.openDraft('reply', { ...replyMessage, replyTo: ['invalid'] }); });
     assert.equal(replyDestinations.result.current.draft?.toText, 'notifications@example.test');
     act(() => { replyDestinations.result.current.close(); });
     act(() => { replyDestinations.result.current.openDraft('reply', { ...replyMessage, from: a.emailAddress, replyTo: undefined }); });
-    assert.equal(replyDestinations.result.current.draft?.toText, 'support@example.test, colleague@example.test');
+    assert.equal(replyDestinations.result.current.draft?.toText, 'workspace-b@example.test, support@example.test, colleague@example.test');
     act(() => { replyDestinations.result.current.close(); });
     act(() => { replyDestinations.result.current.openDraft('forward', replyMessage); });
     assert.equal(replyDestinations.result.current.draft?.toText, '');

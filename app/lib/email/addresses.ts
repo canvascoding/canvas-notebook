@@ -2,13 +2,18 @@
 export type EmailAddress = { address: string; name?: string };
 
 function mailboxParts(value: string): string[] {
+  return splitEmailAddressText(value.slice(0, 16_384)).slice(0, 100);
+}
+
+/** Form tokenization preserves every entered recipient; metadata parsing applies its own limits. */
+export function splitEmailAddressText(value: string): string[] {
   const parts: string[] = [];
   let part = '';
   let quoted = false;
   let escaped = false;
   let angle = false;
   let commentDepth = 0;
-  for (const char of value.slice(0, 16_384)) {
+  for (const char of value) {
     if (escaped) { part += char; escaped = false; continue; }
     if (char === '\\' && (quoted || commentDepth)) { part += char; escaped = true; continue; }
     if (!quoted && char === '(') commentDepth++;
@@ -16,12 +21,11 @@ function mailboxParts(value: string): string[] {
     if (char === '"' && !commentDepth) quoted = !quoted;
     if (!quoted && !commentDepth && char === '<') angle = true;
     if (!quoted && !commentDepth && char === '>') angle = false;
-    if (!quoted && !angle && !commentDepth && char === ':' && !part.includes('@')) { part = ''; continue; }
     if (!quoted && !angle && !commentDepth && /[,;\n]/u.test(char)) { parts.push(part); part = ''; }
     else part += char;
   }
   parts.push(part);
-  return parts.slice(0, 100);
+  return parts;
 }
 
 function uncommentMailbox(value: string): { text: string; comment: string } {
@@ -52,6 +56,33 @@ function addressEntry(address: unknown, name?: unknown): EmailAddress | null {
   return { address: normalized, ...(displayName ? { name: displayName } : {}) };
 }
 
+function stripMailboxGroupLabel(value: string): string {
+  let quoted = false;
+  let escaped = false;
+  for (let index = 0; index < value.length; index++) {
+    const char = value[index];
+    if (escaped) { escaped = false; continue; }
+    if (char === '\\' && quoted) { escaped = true; continue; }
+    if (char === '"') quoted = !quoted;
+    if (quoted) continue;
+    if (char === '<' || char === '@') break;
+    if (char === ':') return value.slice(index + 1).trim();
+  }
+  return value;
+}
+
+function invalidMailboxDisplayName(value: string): boolean {
+  let quoted = false;
+  let escaped = false;
+  for (const char of value) {
+    if (escaped) { escaped = false; continue; }
+    if (char === '\\' && quoted) { escaped = true; continue; }
+    if (char === '"') quoted = !quoted;
+    if (!quoted && (char === '<' || char === '>')) return true;
+  }
+  return quoted || escaped;
+}
+
 export function parseEmailAddresses(value: unknown): EmailAddress[] {
   const entries: EmailAddress[] = [];
   if (Array.isArray(value)) {
@@ -66,7 +97,10 @@ export function parseEmailAddresses(value: unknown): EmailAddress[] {
     if (/[\u0000-\u001f\u007f]/u.test(value)) return [];
     for (const part of mailboxParts(value)) {
       const cleaned = uncommentMailbox(part);
+      // RFC address groups have a display label before the first mailbox.
+      cleaned.text = stripMailboxGroupLabel(cleaned.text);
       const bracketed = cleaned.text.match(/^\s*(.*?)\s*<([^<>]+)>\s*$/u);
+      if (bracketed && invalidMailboxDisplayName(bracketed[1])) continue;
       let name = bracketed?.[1]?.trim() || cleaned.comment;
       if (name?.startsWith('"') && name.endsWith('"')) name = name.slice(1, -1).replace(/\\(["\\])/gu, '$1');
       const entry = addressEntry(bracketed?.[2] || cleaned.text, name);

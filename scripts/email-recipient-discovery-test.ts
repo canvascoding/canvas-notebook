@@ -98,6 +98,13 @@ async function main() {
   sharedOwn.state.detail = { message: message('one', { to: ['Private Me <private@example.test>', 'Anna <anna@example.test>'] }) };
   const sharedOwnResult = await suggestEmailReplyRecipients({ ...base, mailboxWorkspaceId: 'workspace', messageId: 'one' }, sharedOwn.dependencies);
   assert.deepEqual(sharedOwnResult.optionalAdditionalRecipients.map(value => value.address), ['anna@example.test']);
+  const sharedOther = harness();
+  sharedOther.state.mailboxes = [mailbox({ workspaceId: 'workspace', mailboxId: 'shared', ownerUserId: 'owner' }),
+    mailbox({ accountId: 'shared-other', workspaceId: 'workspace-other', mailboxId: 'shared-other', emailAddress: 'other-team@example.test' }),
+    mailbox({ accountId: 'private', emailAddress: 'private@example.test' })];
+  sharedOther.state.detail = { message: message('one', { to: ['Private Me <private@example.test>', 'Other Team <other-team@example.test>'] }) };
+  const sharedOtherResult = await suggestEmailReplyRecipients({ ...base, mailboxWorkspaceId: 'workspace', messageId: 'one', mode: 'reply-all' }, sharedOther.dependencies);
+  assert.deepEqual(sharedOtherResult.replyRecipients.to.map(value => value.address), ['allowed@example.test', 'other-team@example.test'], 'another readable shared mailbox is a participant, including when connected by the actor');
   const denied = harness();
   denied.state.mailboxes[0].capabilities.canRunAgent = false;
   await assert.rejects(() => findEmailRecipients({ ...base, query: 'Anna' }, denied.dependencies), error => error instanceof EmailRecipientDiscoveryError && error.status === 403);
