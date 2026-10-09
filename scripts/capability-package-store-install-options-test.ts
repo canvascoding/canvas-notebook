@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { NextRequest } from 'next/server';
 import type { CapabilityResourceActor } from '../app/lib/capabilities/resources/contracts';
 import { createCapabilityPackageStoreApplicationFixture } from './helpers/capability-package-store-application-fixture';
 
@@ -58,9 +59,14 @@ async function main() {
       try { return await operation(); }
       finally {
         fixture.setBeforeRead(undefined); fixture.setAfterQuery(undefined);
-        assert(writes.every(query => /^(?:BEGIN|COMMIT|ROLLBACK)\b/iu.test(query.trim())), 'Options use transaction/locks, never a SQL data mutation.');
+        assert(writes.every(query => /^(?:BEGIN|COMMIT|ROLLBACK)\b/iu.test(query.trim())), `Options use transaction/locks, never a SQL data mutation: ${writes.filter(query => !/^(?:BEGIN|COMMIT|ROLLBACK)\b/iu.test(query.trim())).map(query => query.trim().slice(0,180)).join('; ')}`);
       }
     };
+    const nativeGuard = await import('../app/lib/mobile/scoped-route-v2');
+    // The real native guard initializes license/organization state independently of the package read action.
+    await nativeGuard.requireMobileScopedContext(new NextRequest('http://localhost/api/mobile/v1/capabilities/resources', {
+      headers: fixture.headers('owner'),
+    }));
     const initial = await snapshot();
     for (const kind of ['plugin', 'skill'] as const) {
       const personal = await observed(() => inspect(owner, { ...selection({ type: 'user' }), source: { ...source, kind } }));
@@ -128,8 +134,17 @@ async function main() {
     assert.equal((await observed(() => route.POST(request('owner', { ...selection({ type: 'user' }), actorUserId: 'foreign' }), context))).status, 400);
     assert.equal((await observed(() => route.POST(new Request('http://localhost/api/capabilities/packages/store/install-options', { method: 'POST', body: '{}' }), context))).status, 401);
     const mobile = await import('../app/api/mobile/v1/extensions/packages/store/install-options/route');
-    const mobileResult = await observed(() => mobile.POST(request('owner', selection({ type: 'organization' })), context));
-    assert.equal(mobileResult.status, 200); assert.deepEqual(await mobileResult.json(), publicBody);
+    const mobileRequest = (userId: string, body: unknown) => new NextRequest('http://localhost/api/mobile/v1/extensions/packages/store/install-options',
+      { method: 'POST', headers: fixture.headers(userId), body: JSON.stringify(body) });
+    // Original-context validation normalizes existing organization/workspace state. The unchanged package action
+    // still has the strict SQL-write observer above; native HTTP additionally preserves all package/filesystem facts below.
+    const mobileResult = await mobile.POST(mobileRequest('owner', { contractVersion: 2, ...selection({ type: 'organization' }) }), context);
+    assert.equal(mobileResult.status, 200);
+    const mobileBody = await mobileResult.json() as { success: boolean; contractVersion: number; workspaceId: string; data: unknown };
+    assert.equal(mobileBody.success, true); assert.equal(mobileBody.contractVersion, 2);
+    assert.equal(mobileBody.workspaceId, 'personal-owner'); assert.deepEqual(mobileBody.data, publicBody.data);
+    assert.match(mobileResult.headers.get('Vary') ?? '', /Authorization/u);
+    assert.equal((await mobile.POST(mobileRequest('owner', { contractVersion: 1, ...selection({ type: 'organization' }) }), context)).status, 400);
     assert.deepEqual(await snapshot(), initial);
 
     const agents = await import('../app/lib/agents/registry'), { piSessions } = await import('../app/lib/db/schema');
@@ -173,7 +188,7 @@ async function main() {
     await observed(() => assert.rejects(() => inspect(standaloneActor, selection({ type: 'organization' })), { status: 403 }));
     assert.deepEqual(await snapshot(), standaloneBefore);
     assert.equal(registry.count('registry:application'), 0); assert.equal(registry.count('archive'), 0); assert.equal(fixture.providerRequests(), 0);
-    console.log('capability-package-store-install-options-test: PASS (real PGlite/held authority/BetterAuth HTTP, no source/proxy HTTP, no SQL/package/draft/preference/pointer mutations)');
+    console.log('capability-package-store-install-options-test: PASS (real PGlite/held authority/BetterAuth HTTP, no source/proxy HTTP or package/draft/preference/pointer mutations; package action SQL read-only, native guard organization/license normalization separate)');
   } finally { await fixture.close(); }
 }
 

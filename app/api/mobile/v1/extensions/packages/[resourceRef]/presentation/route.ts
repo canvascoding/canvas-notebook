@@ -1,2 +1,4 @@
 export const dynamic = 'force-dynamic';
-export { GET } from '@/app/api/capabilities/packages/[resourceRef]/presentation/route';
+import { inspectCapabilityPackagePresentationAction } from '@/app/lib/capabilities/packages/presentation-actions';
+import { mobileCapabilityPackageRoute } from '@/app/lib/mobile/capability-package-route-v2';
+export const GET = mobileCapabilityPackageRoute(async (_request, actor, params) => ({ presentation: await inspectCapabilityPackagePresentationAction(actor, params.resourceRef) }));

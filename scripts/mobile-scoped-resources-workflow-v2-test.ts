@@ -37,6 +37,7 @@ async function runMobileScopedResourcesWorkflowV2Test(): Promise<void> {
   const loader = Module as typeof Module & { _load: (name: string, parent: NodeModule | null, main: boolean) => unknown };
   const original = loader._load, modules = new Map<string, unknown>();
   let afterResourceList: (() => Promise<void>) | undefined;
+  let afterSharedProfileList: (() => Promise<void>) | undefined;
   const wrappers = new WeakMap<object, object>();
   loader._load = (name, parent, isMain) => {
     if (name === 'server-only') return {};
@@ -49,6 +50,20 @@ async function runMobileScopedResourcesWorkflowV2Test(): Promise<void> {
         session: { id: `auth-${id}`, userId: id, expiresAt: new Date(Date.now() + 3600_000) } };
     } } } };
     if (modules.has(name)) return modules.get(name);
+    if (name === '@/app/lib/composio/composio-shared-profiles') {
+      const actual = original(name, parent, isMain) as typeof import('../app/lib/composio/composio-shared-profiles');
+      let wrapped = wrappers.get(actual);
+      if (!wrapped) {
+        wrapped = new Proxy(actual, { get(target, key, receiver) {
+          if (key !== 'listSharedComposioProfiles') return Reflect.get(target, key, receiver);
+          return async (...args: Parameters<typeof actual.listSharedComposioProfiles>) => {
+            const result = await actual.listSharedComposioProfiles(...args), hook = afterSharedProfileList; afterSharedProfileList = undefined;
+            await hook?.(); return result;
+          };
+        } }); wrappers.set(actual, wrapped);
+      }
+      return wrapped;
+    }
     if (name === '@/app/lib/capabilities/resources/actions') {
       const actual = original(name, parent, isMain) as typeof import('../app/lib/capabilities/resources/actions');
       let wrapped = wrappers.get(actual);
@@ -86,6 +101,9 @@ async function runMobileScopedResourcesWorkflowV2Test(): Promise<void> {
     const connection = await import('../app/api/mobile/v1/integrations/shared-connections/[connectionRef]/route');
     const connectionTargets = await import('../app/api/mobile/v1/integrations/shared-connections/[connectionRef]/targets/route');
     const setup = await import('../app/api/mobile/v1/integrations/shared-connections/setup/route');
+    const sharedProfiles = await import('../app/api/mobile/v1/integrations/shared-connections/profiles/route');
+    const packagePresentation = await import('../app/api/mobile/v1/extensions/packages/[resourceRef]/presentation/route');
+    const packageInstallOptions = await import('../app/api/mobile/v1/extensions/packages/store/install-options/route');
     const workflowRoute = await import('../app/api/mobile/v1/agents/[agentId]/workflow/route');
     const sources = await import('../app/api/mobile/v1/agents/[agentId]/configuration-sources/route');
     const guard = await import('../app/lib/mobile/scoped-route-v2');
@@ -258,6 +276,60 @@ async function runMobileScopedResourcesWorkflowV2Test(): Promise<void> {
     });
     await denied(await connection.GET(request('manager', 'integrations/shared-connections/ref'), connParams(teamConnection.resource.connectionRef)), 404);
     console.log('PASS native connections: actual provider setup/storage actions, exact same-name Org/Team identities, managed-only rights, CAS and revocation.');
+
+    const profileIds: string[] = [];
+    for (const ownership of [{ type: 'organization' }, { type: 'team', workspaceId: 'native-team' }]) {
+      const created = await sharedProfiles.POST(request('owner', 'integrations/shared-connections/profiles', {
+        contractVersion: 2, name: 'Same native profile', ownership, providerMode: 'local',
+      }, 'POST'));
+      assert.equal(created.status, 201);
+      const value = await created.json() as { success: boolean; contractVersion: number; workspaceId: string;
+        data: { profile: { id: string; name: string; ownership: { type: string }; canManage: boolean } } };
+      assert.equal(value.success, true); assert.equal(value.contractVersion, 2); assert.equal(value.workspaceId, 'native-team');
+      assert.equal(value.data.profile.name, 'Same native profile'); assert.equal(value.data.profile.ownership.type, ownership.type);
+      assert.equal(value.data.profile.canManage, true); profileIds.push(value.data.profile.id);
+      assert.doesNotMatch(JSON.stringify(value), /composioUserId|credential|connectedAccountId|ownerUserId|authSessionId/u);
+      const suffix = ownership.type === 'team' ? 'ownershipType=team&teamWorkspaceId=native-team' : 'ownershipType=organization';
+      const listed = await success<{ profiles: Array<{ id: string }> }>(await sharedProfiles.GET(request('owner', `integrations/shared-connections/profiles?${suffix}`)));
+      assert.deepEqual(listed.profiles.map(profile => profile.id), [value.data.profile.id]);
+      await denied(await sharedProfiles.GET(request('member', `integrations/shared-connections/profiles?${suffix}`)), 403);
+    }
+    assert.notEqual(profileIds[0], profileIds[1]);
+    await raw.run('UPDATE canvas_workspace_members SET can_manage=1 WHERE workspace_id=\'native-team\' AND user_id=\'manager\'');
+    await success(await sharedProfiles.GET(request('manager', 'integrations/shared-connections/profiles?ownershipType=team&teamWorkspaceId=native-team')));
+    afterSharedProfileList = async () => {
+      await raw.run('UPDATE canvas_workspace_members SET can_manage=0 WHERE workspace_id=\'native-team\' AND user_id=\'manager\'');
+    };
+    await denied(await sharedProfiles.GET(request('manager', 'integrations/shared-connections/profiles?ownershipType=team&teamWorkspaceId=native-team')), 403);
+    await denied(await sharedProfiles.GET(request('owner', 'integrations/shared-connections/profiles?ownershipType=organization&teamWorkspaceId=native-team')), 400);
+    await denied(await sharedProfiles.POST(request('owner', 'integrations/shared-connections/profiles', {
+      contractVersion: 2, name: 'Forged profile', ownership: { type: 'organization', organizationId: 'forged' }, providerMode: 'local',
+    }, 'POST')), 400);
+    console.log('PASS native shared profiles: real Org/Team profile creation and exact scoped lists, same-name separation, management denial and safe central projection.');
+
+    const presentation = await success<{ presentation: { schemaVersion: number; readOnly: boolean; resourceRef: string } }>(await packagePresentation.GET(
+      request('owner', 'extensions/packages/ref/presentation'), refParams(canonical)));
+    assert.equal(presentation.presentation.schemaVersion, 1); assert.equal(presentation.presentation.readOnly, false);
+    assert.equal(presentation.presentation.resourceRef, canonical);
+    await denied(await packagePresentation.GET(request('outsider', 'extensions/packages/ref/presentation'), refParams(canonical)), 404);
+    await denied(await packagePresentation.GET(request('owner', 'extensions/packages/ref/presentation?unknown=1'), refParams(canonical)), 400);
+    const browserPackage = request('owner', 'extensions/packages/store/install-options', { contractVersion: 2 }, 'POST');
+    browserPackage.headers.set('Sec-Fetch-Mode', 'cors');
+    await denied(await packageInstallOptions.POST(browserPackage), 403);
+    await denied(await packageInstallOptions.POST(request('owner', 'extensions/packages/store/install-options', { contractVersion: 1 }, 'POST')), 400);
+    await denied(await packageInstallOptions.POST(request('owner', 'extensions/packages/store/install-options', { contractVersion: 2 }, 'POST')), 400);
+    const noPackageWorkspace = request('owner', 'extensions/packages/ref/presentation'); noPackageWorkspace.headers.delete('X-Canvas-Workspace-Id');
+    await denied(await packagePresentation.GET(noPackageWorkspace, refParams(canonical)), 400);
+    const nativePackageFacade = await import('../app/lib/mobile/capability-package-route-v2');
+    const packagePresentationAction = await import('../app/lib/capabilities/packages/presentation-actions');
+    const delayedNativePackage = nativePackageFacade.mobileCapabilityPackageRoute(async (_request, actor) => {
+      const result = await packagePresentationAction.inspectCapabilityPackagePresentationAction(actor, canonical);
+      await raw.run('UPDATE "session" SET expires_at=1 WHERE id=\'auth-owner\'');
+      return { presentation: result };
+    });
+    await denied(await delayedNativePackage(request('owner', 'extensions/packages/ref/presentation')), 401);
+    await raw.run('UPDATE "session" SET expires_at=$1 WHERE id=\'auth-owner\'', [Date.now() + 3600_000]);
+    console.log('PASS native package facade: actual installed presentation, read/management denial, bounded V2 envelope, original workspace and browser-marked mutation guard.');
 
     const context = await guard.requireMobileScopedContext(request('member', 'capabilities/resources'));
     await assert.rejects(() => guard.revalidateMobileScopedContext({ ...context }), { code: 'UNAUTHORIZED' });

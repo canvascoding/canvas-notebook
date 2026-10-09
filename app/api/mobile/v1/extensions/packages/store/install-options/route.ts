@@ -1,2 +1,4 @@
 export const dynamic = 'force-dynamic';
-export { POST } from '@/app/api/capabilities/packages/store/install-options/route';
+import { inspectCapabilityPackageStoreInstallOptionsAction } from '@/app/lib/capabilities/packages/store-install-options';
+import { mobileCapabilityPackageRoute } from '@/app/lib/mobile/capability-package-route-v2';
+export const POST = mobileCapabilityPackageRoute((_request, actor, _params, body) => inspectCapabilityPackageStoreInstallOptionsAction(actor, body));

@@ -23,10 +23,13 @@ All paths below start at `/api/mobile/v1/`.
 | `integrations/shared-connections/:connectionRef` | Inspect or update the exact shared connection with current metadata, grants and binding revisions. |
 | `integrations/shared-connections/:connectionRef/targets` | Read independent management targets. |
 | `integrations/shared-connections/setup` | Read permitted ownership scopes or the targets for one explicit scope. |
+| `integrations/shared-connections/profiles` | List profiles for one explicit Org/Team ownership or create a managed profile through the existing Composio profile service. |
 | `agents/:agentId/workflow` | Inspect the effective workflow, list permitted user choices, choose an exact personal alternative or update the full configuration with agent/workflow CAS revisions. |
 | `agents/:agentId/configuration-sources` | Discover packages, immutable revisions and exact connection alternatives under current agent editing authority. |
 
 Configured resources use `canvas-resource:UUID`; unadopted installed artifacts retain their exact domain-issued `canvas-capability:v1:…` identity until adoption. Connections use `canvas-connection:UUID`. Names never select a resource or suppress another scope's result. Package rights remain independently readable, usable, editable and manageable. The connection domain retains inspect/use/manage; its normalized `canEdit` is explicitly an alias of management authority, not another grant.
+
+The client integration in `6b-e-3` adds the shared profile list/create facade and applies the same scoped V2 envelope to the existing native `extensions/packages/store`, `store/preview`, `store/install-options`, `store/install` and `extensions/packages/:resourceRef/{presentation,store-update/review,store-update}` facades. Their domain data and strict schemas remain unchanged; POST adds only `contractVersion:2`. Store provenance stays private. Original session/seat/workspace is checked before and after actions. Shared profile lists require `ownershipType=organization|team` (plus `teamWorkspaceId` only for Team); creation requires explicit ownership, name and `providerMode=local|managed`. Public profile metadata uses the existing safe projection and contains no Composio user, account or credential identity. Personal V1 plugin-store and profile endpoints remain unchanged.
 
 ## Shared App rendering and decisions
 
