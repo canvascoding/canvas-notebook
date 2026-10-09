@@ -15,7 +15,7 @@ import { parseComposioNativeConsentOptions, validateComposioNativeCallback,
 type Control = { version: 1; nonce: string; origin: string; stats: ComposioNativeConsentStats; issued: ComposioNativeConsentFlowEvidence[] };
 
 async function requestComposioNativeConsent(address: string, certificate: Buffer,
-  init: { method?: 'GET' | 'POST'; body?: string; headers?: Record<string, string> } = {}): Promise<{ status: number; headers: IncomingHttpHeaders; body: string }> {
+  init: { method?: 'GET' | 'POST' | 'HEAD'; body?: string; headers?: Record<string, string> } = {}): Promise<{ status: number; headers: IncomingHttpHeaders; body: string }> {
   const url = new URL(address);
   assert.equal(url.protocol, 'https:'); assert.equal(url.hostname, '127.0.0.1'); assert(url.port);
   return new Promise((resolve, reject) => {
@@ -74,6 +74,24 @@ async function main() {
     console.log('composio-native-consent: default SDK fixture and programmatic completion semantics unchanged PASS');
 
     native = await createComposioProviderFixture({ nativeConsent: options }); const consent = native.nativeConsent; assert(consent);
+    const readinessStats = consent.readStats(), readinessFlows = consent.readFlow(), readinessAccounts = [...native.accounts.entries()];
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const ready = await requestComposioNativeConsent(`${consent.origin}/native-test-ready`, tls.cert);
+      assert.equal(ready.status, 200); assert.equal(ready.headers['content-type'], 'text/html; charset=utf-8');
+      assert.equal(ready.headers['cache-control'], 'no-store'); assert.equal(ready.headers['referrer-policy'], 'no-referrer');
+      assert.equal(ready.headers['set-cookie'], undefined); assert.equal(ready.headers.location, undefined);
+      assert.equal(ready.headers['content-security-policy'], "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'");
+      assert.match(ready.body, /<title>Local Composio test ready<\/title>/u); assert.match(ready.body, /<h1>Local Composio test ready<\/h1>/u);
+      assert.match(ready.body, /HTTPS has been accepted in this browser\. Return to Codex/u);
+      assert.doesNotMatch(ready.body, /<(?:script|form|input)\b/iu);
+    }
+    assert.equal((await requestComposioNativeConsent(`${consent.origin}/native-test-ready?unknown=true`, tls.cert)).status, 404);
+    for (const method of ['HEAD', 'POST'] as const) {
+      assert.equal((await requestComposioNativeConsent(`${consent.origin}/native-test-ready`, tls.cert, { method })).status, 404);
+    }
+    assert.deepEqual(consent.readStats(), readinessStats); assert.deepEqual(consent.readFlow(), readinessFlows);
+    assert.deepEqual([...native.accounts.entries()], readinessAccounts);
+    console.log('composio-native-consent: exact static HTTPS readiness, no query/method fallback or state mutation PASS');
     const client = new Composio({ apiKey: 'own-native-protocol-key', baseURL: native.baseUrl, maxRetries: 0, timeout: 10_000 });
     const orgSession = await client.toolRouter.session.create({ user_id: 'own-org-entity' }, { maxRetries: 0 });
     const orgCallback = `http://127.0.0.1:3001/api/composio/shared/desktop/callback?flow=${orgState}`;

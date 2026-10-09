@@ -32,7 +32,7 @@ type Receipt = { version: 1; nonce: string; actorId: string; managerActorId: str
   providerOrigin: string; systemBrowserOpenedCount: number; desktopPaths: DesktopPaths; desktopDirectoryProofs: Record<string, DirectoryProof>;
   connections: Array<{ connectionRef: string; workspaceId: string; metadataRevision: number; grantsRevision: number; bindingRevision: number }>;
   membershipIds: string[]; workspaceIds: string[]; profileIds: string[]; forbiddenRequests: string[]; unexpectedDialogs: string[];
-  providerCounters?: Record<string, number>; visualInventory: string[]; apiFlowCancelled?: true;
+  providerCounters?: Record<string, number>; visualInventory: string[]; apiFlowCancelled?: true; providerBrowserReady?: true;
   challenge?: { nonce: string; origin: string; scope: string; action: 'approve' | 'cancel'; sequence: number };
   ledgerProofs: Array<{ connectionRef: string; rows: number; stateHash?: string; authSessionHash?: string; actorHash?: string; pendingAccountHash?: string }>;
   failure?: { name: string; site?: string; stage?: string; boundary?: 'cookie-aba' | 'frame'; replacementStatus?: number } };
@@ -109,6 +109,36 @@ async function persistSharedComposioDesktopReceipt(): Promise<void> {
       const temporary = `${file}.tmp`; await fs.writeFile(temporary, value, { mode: 0o600 }); await fs.rename(temporary, file);
     }
   }); await receiptWrite;
+}
+
+/** Human TLS readiness precedes OAuth issuance; this private acknowledgement never approves an account. */
+async function waitForOwnedSharedComposioProviderBrowserReady(): Promise<void> {
+  if (!harness) throw new Error('The issued native app is required before browser readiness.');
+  const readyPath = path.join(fixture.fixtureRoot, 'provider-browser-ready.json');
+  try { await fs.lstat(readyPath); throw new Error('A pre-existing browser readiness acknowledgement cannot be adopted.'); }
+  catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
+  const assertNotStarted = async () => {
+    const provider = await readOwnedSharedComposioDesktopProviderProof(), main = await readOwnedSharedComposioElectronReceipt(harness!);
+    expect(provider.issued).toEqual([]);
+    expect([provider.stats.sdkLinks, provider.stats.consents, provider.stats.approvals, provider.stats.callbackRedirects, provider.stats.businessCalls]).toEqual([0, 0, 0, 0, 0]);
+    expect([main.shellAttempts, main.shellAcknowledged, main.shellFailures, main.blockedShellRequests]).toEqual([0, 0, 0, 0]);
+  };
+  await assertNotStarted();
+  receipt.phase = 'awaiting_provider_browser_ready'; receipt.outstanding = null; await persistSharedComposioDesktopReceipt();
+  await expect.poll(async () => { try { return (await fs.lstat(readyPath)).isFile(); } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; return false;
+  } }, { timeout: 10 * 60_000, intervals: [1000, 2000], message: 'Root must observe and close the exact OS-browser TLS readiness document before any OAuth Start.' }).toBe(true);
+  const root = await fs.lstat(fixture.fixtureRoot), stat = await fs.lstat(readyPath);
+  expect(root.isDirectory() && !root.isSymbolicLink() && root.uid === process.getuid?.() && (root.mode & 0o777) === 0o700).toBe(true);
+  expect(await fs.realpath(fixture.fixtureRoot)).toBe(fixture.fixtureRoot);
+  expect(String(root.dev)).toBe(fixture.rootDevice); expect(String(root.ino)).toBe(fixture.rootInode);
+  expect(stat.isFile() && !stat.isSymbolicLink() && stat.nlink === 1 && stat.uid === root.uid && stat.size > 1 && stat.size < 2048 && (stat.mode & 0o777) === 0o600).toBe(true);
+  const handle = await fs.open(readyPath, constants.O_RDONLY | constants.O_NOFOLLOW);
+  try {
+    const held = await handle.stat(); expect(held.ino === stat.ino && held.dev === stat.dev && held.size === stat.size && held.mode === stat.mode && held.uid === stat.uid && held.nlink === 1).toBe(true);
+    expect(JSON.parse(await handle.readFile('utf8'))).toEqual({ version: 1, nonce: fixture.nonce, origin: providerOrigin, ready: true, tabClosed: true });
+  } finally { await handle.close(); }
+  await assertNotStarted(); receipt.providerBrowserReady = true; receipt.phase = 'setup'; await persistSharedComposioDesktopReceipt();
 }
 
 async function readExactSharedComposioDesktopConnection(owned: OwnedConnection): Promise<IntegrationConnectionDescriptor> {
@@ -531,7 +561,10 @@ test.beforeAll(async ({ browser }) => {
   if (nativeIdentity.user?.id !== managerId || typeof nativeIdentity.session?.id !== 'string') throw new Error('The real native manager session was not acknowledged.');
   nativeAuthSessionHash = sharedComposioDesktopSessionFingerprint(nativeIdentity.session.id);
   expect(await harness.page.evaluate(() => Reflect.get(window, 'canvasDesktop')?.sharedComposioOAuthVersion)).toBe(1);
-  manualDeadline = Date.now() + 20 * 60_000; receipt.outstanding = null; receipt.phase = 'native_original_manager_ready'; await persistSharedComposioDesktopReceipt();
+  // Keep the original total manual budget inside the parent's 26-minute lifetime, including TLS readiness.
+  const acceptanceDeadline = Date.now() + 20 * 60_000;
+  await waitForOwnedSharedComposioProviderBrowserReady();
+  manualDeadline = acceptanceDeadline; receipt.outstanding = null; receipt.phase = 'native_original_manager_ready'; await persistSharedComposioDesktopReceipt();
 });
 
 test('Org and Team Manage-only users complete genuine system-browser Composio consent once in their original Electron session', async () => {

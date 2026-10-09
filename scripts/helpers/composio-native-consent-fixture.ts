@@ -89,6 +89,15 @@ export async function createComposioNativeConsentFixture(input: ComposioNativeCo
     try {
       const url = new URL(request.url || '/', origin), method = request.method || 'GET';
       if (url.origin !== origin || request.headers.host !== new URL(origin).host) throw new Error('Invalid owned consent origin.');
+      if (url.pathname === '/native-test-ready') {
+        if (method !== 'GET' || url.search || request.url !== '/native-test-ready') {
+          writeComposioNativeConsentJson(response, 404, { error: 'not_found' }); return;
+        }
+        response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer',
+          'Content-Security-Policy': "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'" });
+        response.end('<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Local Composio test ready</title></head><body><main><h1>Local Composio test ready</h1><p>If you can read this page, HTTPS has been accepted in this browser. Return to Codex to continue.</p></main></body></html>');
+        return;
+      }
       if (method === 'GET' && url.pathname === '/favicon.ico' && !url.search) {
         response.writeHead(204, { 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer' }); response.end(); return;
       }
