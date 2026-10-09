@@ -52,9 +52,17 @@ export async function startMcpOAuthProvider(options = {}) {
   if (options.cleanAuthorizationAddress !== undefined && typeof options.cleanAuthorizationAddress !== 'boolean') {
     throw new Error('The private native consent address option must be an explicit boolean.');
   }
+  if (options.nativeReturnScheme !== undefined && (options.nativeReturnScheme !== 'canvasnotebook-dev'
+    || !Array.isArray(options.allowedRedirectOrigins) || options.allowedRedirectOrigins.length !== 1)) {
+    throw new Error('The owned native fixture requires its exact development return scheme and callback origin.');
+  }
   const allowedOrigins = options.allowedRedirectOrigins
     ? new Set(options.allowedRedirectOrigins.map((entry) => new URL(entry).origin))
     : undefined;
+  if (options.nativeReturnScheme !== undefined
+    && [...allowedOrigins].some(entry => !['http:', 'https:'].includes(new URL(entry).protocol) || new URL(entry).hostname !== '127.0.0.1')) {
+    throw new Error('The owned native callback origin must be loopback HTTP(S).');
+  }
   const clients = new Map();
   const consents = new Map();
   const codes = new Map();
@@ -144,13 +152,19 @@ export async function startMcpOAuthProvider(options = {}) {
         const addressNonce = options.cleanAuthorizationAddress ? randomBytes(24).toString('base64url') : null;
         const addressScript = addressNonce
           ? `<script nonce="${addressNonce}">history.replaceState(null,'',location.pathname)</script>` : '';
+        const registeredCallback = new URL(redirectUri);
+        const nativeReturnSource = options.nativeReturnScheme === 'canvasnotebook-dev'
+          && allowedOrigins.has(registeredCallback.origin)
+          && registeredCallback.pathname === '/api/mcp/oauth/callback' && registeredCallback.search === ''
+          && /^desktop_[A-Za-z0-9_-]{32}$/u.test(state) ? ' canvasnotebook-dev:' : '';
         response.writeHead(200, {
           'Content-Type': 'text/html; charset=utf-8',
           'Cache-Control': 'no-store',
           'Referrer-Policy': 'no-referrer',
           // Chromium checks form-action again when following the OAuth 303.
-          // Permit only the callback origin validated against the registration.
-          'Content-Security-Policy': `default-src 'none'; form-action 'self' ${new URL(redirectUri).origin}; frame-ancestors 'none'; base-uri 'none'${addressNonce ? `; script-src 'nonce-${addressNonce}'` : ''}`,
+          // The explicit native fixture's exact registered callback adds a
+          // final custom-scheme 302. Ordinary browser fixtures keep HTTP only.
+          'Content-Security-Policy': `default-src 'none'; form-action 'self' ${registeredCallback.origin}${nativeReturnSource}; frame-ancestors 'none'; base-uri 'none'${addressNonce ? `; script-src 'nonce-${addressNonce}'` : ''}`,
         });
         response.end(`<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Local MCP consent</title>${addressScript}</head><body><main><h1>Connect Canvas Notebook</h1><p>Allow the local test MCP server to provide its echo tool.</p><form method="post" action="/consent"><input type="hidden" name="consent" value="${consent}"><button type="submit" name="decision" value="approve">Approve</button><button type="submit" name="decision" value="deny">Deny</button></form></main></body></html>`);
         return;
