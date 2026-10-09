@@ -13,6 +13,51 @@ import {
 } from '../app/lib/markdown/workspace-link-index-client';
 import { getWorkspaceDocumentRelations } from '../app/lib/markdown/workspace-document-relations';
 import { selectObsidianEmbedContent } from '../app/lib/markdown/obsidian-embed';
+import { parseWorkspaceLocalLinks } from '../app/lib/markdown/workspace-local-link-parser';
+
+for (const html of [
+  '<img src="https://example.com/fixture.svg" alt="Extern" width="320" height="160">',
+  '<IMG SRC=HTTPS://example.com/fixture.svg>',
+  "<a href='https://example.com/?a=1&amp;b=2'>Extern</a>",
+  '<img src="//example.com/fixture.svg">',
+  '<img src="data:image/svg+xml;base64,PHN2Zy8+">',
+  '<a href="mailto:team@example.com">Mail</a>',
+  '<a href="#section">Section</a>',
+  '<div title=\'src="Notes/local.svg"\'>Text</div>',
+  '<!-- <img src="Notes/local.svg"> -->',
+]) {
+  assert.deepEqual(parseWorkspaceLocalLinks(html, 'Other.md').unevaluated, [],
+    `External URLs and literal HTML text must not block workspace operations: ${html}`);
+}
+
+for (const html of [
+  '<a href="Notes/plan.md">Plan</a>',
+  '<a href="Notes/plan.md"><img src="https://example.com/fixture.svg"></a>',
+  '<img src="https://example.com/fixture.svg" data-src="Notes/local.svg">',
+  '<img src="https://example.com/fixture.svg" foo.src="Notes/local.svg">',
+  '<div>\n<img src="https://example.com/fixture.svg" @src="Notes/local.svg">\n</div>',
+  '<object codebase="Notes/" data="https://example.com/fixture.svg"></object>',
+  '<svg><use xlink:href="Notes/local.svg#part"></use></svg>',
+  '<img src="https://example.com/fixture.svg" srcset="Notes/local.svg 2x">',
+  '<video poster="Notes/local.svg"></video>',
+  '<a href="custom:Notes/plan.md">Unknown</a>',
+  '<a href="https://canvas.example/en/notebook?path=Notes%2Fplan.md&amp;view=read">Plan</a>',
+  '<a href="//canvas.example/en/notebook?path=Notes%2Fplan.md">Plan</a>',
+  '<a href="/en/notebook?path=Notes%2Fplan.md">Plan</a>',
+  '<img src="https://example.com/fixture.svg" src="Notes/local.svg">',
+  '<select><img src="Notes/local.svg"></select>',
+  '<template><img src="Notes/local.svg"></template>',
+  '<noscript><img src="Notes/local.svg"></noscript>',
+  '<img src="">',
+  '<img src>',
+  '<a ping="Notes/plan.md" href="https://example.com">Link</a>',
+  '<iframe srcdoc="<a href=\'Notes/plan.md\'>Plan</a>"></iframe>',
+  '<img src="https://example.com/fixture.svg" style="background:url(Notes/local.svg)">',
+  '<img src="https://example.com/fixture.svg" onload="this.src=\'Notes/local.svg\'">',
+]) {
+  assert.equal(parseWorkspaceLocalLinks(html, 'Other.md').unevaluated.length > 0, true,
+    `Local, mixed, unsupported and ambiguous HTML must stay blocked: ${html}`);
+}
 
 const overview = `---
 title: Project overview

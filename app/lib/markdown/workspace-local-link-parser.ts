@@ -4,6 +4,7 @@ import type { Nodes } from 'mdast';
 import { createObsidianSyntaxMask, parseObsidianWikiLinks } from './obsidian-flavored-markdown';
 import { getCanvasNotebookMarkdownLinkTarget } from './obsidian-link-resolver';
 import { parseCanvasMarkdownDocument } from './obsidian-metadata';
+import { hasUnevaluatedWorkspaceHtmlLinks } from './workspace-html-link-safety';
 import type { WorkspaceLinkSyntaxV1, WorkspaceLinkResolveStatusV1 } from './workspace-link-contract-v1';
 
 export type ParsedWorkspaceLocalLink = {
@@ -219,8 +220,9 @@ export function parseWorkspaceLocalLinks(markdown: string, sourcePath: string): 
       ['html', 'link', 'image', 'linkReference', 'imageReference', 'text'].includes(node.type)
       && mask.slice(start, start + 1) !== markdown.slice(start, start + 1)
     ) return;
-    if (node.type === 'html' && /\b(?:href|src)\s*=/iu.test(markdown.slice(start, end))) {
-      unevaluated.push({ sourcePath, raw: markdown.slice(start, end), reason: 'html', start });
+    if (node.type === 'html') {
+      const raw = markdown.slice(start, end);
+      if (hasUnevaluatedWorkspaceHtmlLinks(raw)) unevaluated.push({ sourcePath, raw, reason: 'html', start });
       return;
     }
     if (node.type === 'link' || node.type === 'image') {

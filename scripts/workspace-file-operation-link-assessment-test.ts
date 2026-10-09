@@ -92,6 +92,16 @@ assert.equal(html.readiness, 'blocked', 'Unevaluated HTML cannot be declared una
 assert.equal(html.linkAssessment?.complete, false);
 assert.equal(html.linkAssessment?.blockers[0]?.reason, 'unevaluated-link');
 
+for (const kind of ['move', 'rename', 'copy'] as const) {
+  const externalHtml = plan(kind, [directory('Notes'), file('Notes/plan.md', '# Plan'),
+    file('Unrelated.md', '<img src="https://example.com/fixture.svg" alt="Extern" width="320" height="160">')]);
+  assert.equal(externalHtml.readiness, 'ready', `${kind}: an external HTML image in another document must not block`);
+  assert.equal(externalHtml.linkAssessment?.complete, true);
+  assert.deepEqual(externalHtml.linkAssessment?.blockers, []);
+  assert.equal(externalHtml.previewContents.some((entry) => entry.path === 'Unrelated.md'), false,
+    'External HTML must not be rewritten');
+}
+
 const crossRequest: WorkspaceFileOperationPlanRequest = {
   kind: 'copy', sourceWorkspaceId: 'w1', destinationWorkspaceId: 'w2',
   selections: [{ sourcePath: 'Notes', destinationPath: 'Channels/Notes' }],
