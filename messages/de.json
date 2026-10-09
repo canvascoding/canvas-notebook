@@ -3792,6 +3792,8 @@
     }
   },
   "workspacePathOperationStatus": {
+    "openFile": "Betroffene Datei öffnen",
+    "recheck": "Erneut prüfen",
     "openStatus": "Aktionsstatus ansehen",
     "reviewPausedTitle": "Reviews pausiert",
     "reviewPausedGuidance": "Das optionale Review Center ist ausgeschaltet oder nicht verfügbar. Bestehende Vorschläge bleiben erhalten und werden nicht automatisch angewendet. Ein Administrator kann das Review Center aktivieren, um sie zu prüfen.",

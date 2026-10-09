@@ -3793,6 +3793,8 @@
     }
   },
   "workspacePathOperationStatus": {
+    "openFile": "Open affected file",
+    "recheck": "Check again",
     "openStatus": "View action status",
     "reviewPausedTitle": "Reviews paused",
     "reviewPausedGuidance": "The optional Review Center is disabled or unavailable. Existing proposals are retained and will not be applied automatically. An administrator can enable the Review Center to review them.",

@@ -70,6 +70,9 @@ import { useShallow } from 'zustand/react/shallow';
 import { useTrashUndo } from './useTrashUndo';
 import { FileInfoDialog } from './FileInfoDialog';
 import { FileVersionMenuItem, type FileVersionMenuSource } from './FileVersionMenuItem';
+import { WorkspacePathOperationClientError } from '@/app/lib/files/workspace-path-operation-client';
+import type { WorkspacePathOperationPublic } from '@/app/lib/files/workspace-path-operation-public';
+import { workspacePathOperationIssueKeys } from '@/app/lib/files/workspace-path-operation-issue-messages';
 
 type DropdownMenuContentProps = ComponentProps<typeof DropdownMenuContent>;
 
@@ -167,18 +170,25 @@ export function FileActionsDropdown({
   const t = useTranslations('notebook');
   const linkWarningDescription = (status: 'partial' | 'incomplete') => t(status === 'partial'
     ? 'fileOperationLinksPartial' : 'fileOperationLinksUnverified');
-  const fileOperationErrorMessage = (error: unknown, fallbackKey: 'renameFailed' | 'copyToWorkspaceFailed') => {
-    const code = error && typeof error === 'object' && 'code' in error ? error.code : null;
+  const tStatus = useTranslations('workspacePathOperationStatus');
+  const fileOperationErrorMessage = (error: unknown, fallbackKey: 'renameFailed' | 'copyToWorkspaceFailed' | 'moveFailed') => {
+    const code = error && typeof error === 'object' && 'code' in error ? error.code
+      : error instanceof WorkspacePathOperationClientError ? error.operation.errorCode : null;
     if (code === 'PREVIEW_STALE') return t('fileOperationPreviewStale');
     if (code === 'PREVIEW_BLOCKED') return t('fileOperationPreviewBlockedApply');
     return error instanceof Error ? error.message : t(fallbackKey);
   };
   const locale = useLocale();
   const [moveOpen, setMoveOpen] = useState(false);
+  const [moveContext, setMoveContext] = useState<{ workspaceId: string | null; path: string } | null>(null);
   const [moveTarget, setMoveTarget] = useState('.');
   const [moveName, setMoveName] = useState('');
   const [moveExpandedDirs, setMoveExpandedDirs] = useState(new Set<string>());
   const [moveError, setMoveError] = useState('');
+  const [moveOperation, setMoveOperation] = useState<WorkspacePathOperationPublic | null>(null);
+  const [movePreview, setMovePreview] = useState<WorkspaceFileOperationDryRun | null>(null);
+  const [isPreviewingMove, setIsPreviewingMove] = useState(false);
+  const moveRequestId = useRef(0);
   const [isMoving, setIsMoving] = useState(false);
   const [renameOpen, setRenameOpen] = useState(false);
   const [newName, setNewName] = useState('');
@@ -214,6 +224,7 @@ export function FileActionsDropdown({
     clipboardMode,
     setBulkMoveOpen,
     refreshDirectory,
+    revealAndLoadFile,
   } = useFileStore(useShallow((state) => ({
     renamePath: state.renamePath,
     downloadFile: state.downloadFile,
@@ -227,6 +238,7 @@ export function FileActionsDropdown({
     clipboardMode: state.clipboardMode,
     setBulkMoveOpen: state.setBulkMoveOpen,
     refreshDirectory: state.refreshDirectory,
+    revealAndLoadFile: state.revealAndLoadFile,
   })));
   const deleteWithUndo = useTrashUndo();
 
@@ -240,6 +252,19 @@ export function FileActionsDropdown({
 
   const isProtectedOutputFolder = isProtectedDirectoryNode(node);
   const nodePath = node?.path ?? null;
+
+  useEffect(() => {
+    moveRequestId.current += 1;
+    return () => { moveRequestId.current += 1; };
+  }, [activeWorkspace?.id, nodePath]);
+
+  const invalidateMovePreview = () => {
+    moveRequestId.current += 1;
+    setMoveOperation(null);
+    setMovePreview(null);
+    setMoveError('');
+    setIsPreviewingMove(false);
+  };
 
   const isMarkdown = node
     ? node.type === 'file' && /\.(md|mdx|markdown)$/i.test(node.name)
@@ -408,8 +433,9 @@ export function FileActionsDropdown({
 
     if (node) setMoveName(node.name);
     if (node) setMoveTarget(getParentDirectory(node.path));
+    if (node) setMoveContext({ workspaceId: activeWorkspace?.id ?? null, path: node.path });
     setMoveExpandedDirs(new Set());
-    setMoveError('');
+    invalidateMovePreview();
     setIsMoving(false);
     setMoveOpen(true);
     closeMenu();
@@ -675,8 +701,14 @@ export function FileActionsDropdown({
     }
     setIsMoving(true);
     setMoveError('');
+    setMoveOperation(null);
+    const workspaceId = activeWorkspace?.id ?? null;
+    const requestId = ++moveRequestId.current;
+    const current = () => requestId === moveRequestId.current
+      && useWorkspaceStore.getState().activeWorkspaceId === workspaceId;
     try {
-      const result = await renamePath(node.path, destination);
+      const result = await renamePath(node.path, destination, false, true, workspaceId, movePreview?.plan.planId);
+      if (!current() || !result) return;
       if (result && result.linkStatus && result.linkStatus !== 'complete') {
         toast.warning(t('fileOperationLinksIncomplete'), {
           description: linkWarningDescription(result.linkStatus),
@@ -685,11 +717,44 @@ export function FileActionsDropdown({
       onAfterMove?.(node.path, destination, node);
       setMoveOpen(false);
     } catch (moveOperationError) {
-      setMoveError(moveOperationError instanceof Error ? moveOperationError.message : t('moveFailed'));
+      if (!current()) return;
+      setMoveError(fileOperationErrorMessage(moveOperationError, 'moveFailed'));
+      if (moveOperationError instanceof WorkspacePathOperationClientError
+        && moveOperationError.operation.workspaceId === workspaceId) setMoveOperation(moveOperationError.operation);
     } finally {
-      setIsMoving(false);
+      if (current()) setIsMoving(false);
     }
   };
+
+  const handlePreviewMove = async () => {
+    if (!node || !moveName.trim()) return;
+    const workspaceId = activeWorkspace?.id ?? null;
+    const requestId = ++moveRequestId.current;
+    const current = () => requestId === moveRequestId.current
+      && useWorkspaceStore.getState().activeWorkspaceId === workspaceId;
+    setIsPreviewingMove(true);
+    setMovePreview(null);
+    setMoveError('');
+    try {
+      const preview = await previewWorkspaceRename(node.path, resolveMoveDestination(moveTarget, moveName.trim()), workspaceId);
+      if (!current()) return;
+      setMovePreview(preview);
+      setMoveOperation((previous) => previous?.planId === preview.plan.planId ? previous : null);
+    } catch (error) {
+      if (current()) setMoveError(fileOperationErrorMessage(error, 'moveFailed'));
+    } finally { if (current()) setIsPreviewingMove(false); }
+  };
+
+  const openMoveIssueFile = async (path: string) => {
+    if (!moveOperation || useWorkspaceStore.getState().activeWorkspaceId !== moveOperation.workspaceId) return;
+    const requestId = moveRequestId.current;
+    const result = await revealAndLoadFile(path, { workspaceId: moveOperation.workspaceId,
+      isCurrent: () => requestId === moveRequestId.current });
+    if (requestId !== moveRequestId.current) return;
+    if (result.status === 'opened') { setMoveOpen(false); invalidateMovePreview(); }
+    else if (result.status === 'failed') toast.error(t('moveFailed'));
+  };
+  const movePending = Boolean(moveOperation && ['queued', 'applying'].includes(moveOperation.status));
 
   return (
     <>
@@ -905,12 +970,15 @@ export function FileActionsDropdown({
       </Dialog>
 
       <Dialog
-        open={moveOpen}
+        open={moveOpen && moveContext?.workspaceId === (activeWorkspace?.id ?? null) && moveContext?.path === nodePath}
         onOpenChange={(nextOpen) => {
-          if (!isMoving || nextOpen) setMoveOpen(nextOpen);
+          if (!isMoving || nextOpen) {
+            setMoveOpen(nextOpen);
+            if (!nextOpen) invalidateMovePreview();
+          }
         }}
       >
-        <DialogContent className="max-w-xl">
+        <DialogContent className="max-w-xl max-h-[calc(100dvh-3rem)] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{node ? t('moveTitle', { name: node.name }) : ''}</DialogTitle>
             <DialogDescription>{t('moveDescription')}</DialogDescription>
@@ -923,10 +991,10 @@ export function FileActionsDropdown({
                 value={moveTarget}
                 onChange={(event) => {
                   setMoveTarget(event.target.value);
-                  if (moveError) setMoveError('');
+                  invalidateMovePreview();
                 }}
                 className="mt-1"
-                disabled={isMoving}
+                disabled={isMoving || movePending}
               />
             </div>
             <div>
@@ -936,31 +1004,54 @@ export function FileActionsDropdown({
                 value={moveName}
                 onChange={(event) => {
                   setMoveName(event.target.value);
-                  if (moveError) setMoveError('');
+                  invalidateMovePreview();
                 }}
                 className="mt-1"
-                disabled={isMoving}
+                disabled={isMoving || movePending}
               />
             </div>
-            <div className={isMoving ? 'pointer-events-none opacity-60' : undefined}>
+            <div inert={isMoving || movePending} className={isMoving || movePending ? 'pointer-events-none opacity-60' : undefined}>
               <DirectoryBrowser
                 tree={fileTree}
                 selectedPath={moveTarget}
                 onSelect={(path) => {
                   setMoveTarget(path);
-                  if (moveError) setMoveError('');
+                  invalidateMovePreview();
                 }}
                 expandedDirs={moveExpandedDirs}
                 onToggleDir={toggleMoveDir}
               />
             </div>
             {moveError && <p className="text-sm text-destructive" role="alert">{moveError}</p>}
+            {moveOperation && moveOperation.workspaceId === activeWorkspace?.id && moveOperation.issues?.length ?
+              <section aria-label={tStatus('blockers')} data-testid="workspace-move-operation-issues" className="space-y-2 text-sm">
+                <h3 className="font-medium">{tStatus('blockers')}</h3>
+                <ul className="max-h-40 space-y-3 overflow-y-auto">
+                  {moveOperation.issues.map((issue, index) => <li key={`${issue.code}:${issue.path}:${index}`} className="space-y-1 [overflow-wrap:anywhere]">
+                    <p>{tStatus(`issue.${Object.hasOwn(workspacePathOperationIssueKeys, issue.code)
+                      ? workspacePathOperationIssueKeys[issue.code] : 'unknown'}`)}</p>
+                    {issue.path && issue.path !== '.' ? <>
+                      <p className="font-mono text-xs">{issue.path}</p>
+                      {/\.(?:md|markdown|mdx)$/iu.test(issue.path) ? <Button variant="outline" size="sm"
+                        onClick={() => void openMoveIssueFile(issue.path)}>{tStatus('openFile')}</Button> : null}
+                    </> : null}
+                    <p className="text-xs text-muted-foreground">{issue.code}</p>
+                  </li>)}
+                </ul>
+              </section> : null}
+            {movePreview ? <p role="status" data-testid="workspace-move-preview" className="text-sm">
+              {t('fileOperationPreviewReadiness', { readiness: t(movePreview.plan.readiness === 'ready'
+                ? 'fileOperationPreviewReady' : 'fileOperationPreviewBlocked') })}
+            </p> : null}
           </div>
           <DialogFooter className="gap-2">
-            <Button variant="ghost" onClick={() => setMoveOpen(false)} disabled={isMoving}>
+            <Button variant="ghost" onClick={() => { setMoveOpen(false); invalidateMovePreview(); }} disabled={isMoving}>
               {t('cancel')}
             </Button>
-            <Button variant="secondary" onClick={() => void handleConfirmMove()} disabled={isMoving}>
+            <Button variant="outline" onClick={() => void handlePreviewMove()} disabled={isMoving || isPreviewingMove || movePending || !moveName.trim()}>
+              {isPreviewingMove && <Loader2 className="h-4 w-4 animate-spin" />}{tStatus('recheck')}
+            </Button>
+            <Button variant="secondary" onClick={() => void handleConfirmMove()} disabled={isMoving || isPreviewingMove || movePending}>
               {isMoving && <Loader2 className="h-4 w-4 animate-spin" />}
               {t('move')}
             </Button>

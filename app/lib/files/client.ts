@@ -3,7 +3,8 @@ import type { WorkspacePathRenameMutation } from './file-events';
 import type { WorkspaceFileOperationPreview } from '@/app/lib/markdown/workspace-file-operation-planner';
 import type { WorkspaceUploadCommit } from './upload-result';
 import type { WorkspacePathOperationPublic } from './workspace-path-operation-public';
-import { waitForWorkspacePathOperationResult } from './workspace-path-operation-client';
+import { waitForWorkspacePathOperationResult, WorkspacePathOperationClientError } from './workspace-path-operation-client';
+import { readWorkspacePathOperation } from './workspace-path-operation-parser';
 import { joinWorkspacePath } from './path-utils';
 import { WORKSPACE_ID_HEADER } from '@/app/lib/workspaces/constants';
 import { fetchLiveDocument } from '@/app/lib/collaboration/opened-document-registry';
@@ -563,11 +564,15 @@ export async function renameWorkspacePath(
       type?: string;
       sourcePath?: string;
       destPath?: string;
+      operation?: unknown;
     }>(response, 'Failed to rename path');
     const message = typeof error.error === 'string' && error.error.trim()
       ? error.error
       : 'Failed to rename path';
-    const err = new Error(message) as WorkspacePathConflictError;
+    const err = (error.operation
+      ? new WorkspacePathOperationClientError(readWorkspacePathOperation(error.operation,
+        { workspaceId: requestedWorkspaceId, planId }), message)
+      : new Error(message)) as WorkspacePathConflictError;
     err.code = error.code;
     err.type = error.type;
     err.sourcePath = error.sourcePath;

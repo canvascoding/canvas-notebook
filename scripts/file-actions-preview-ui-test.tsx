@@ -10,7 +10,9 @@ import ts from 'typescript';
 
 import messages from '../messages/en.json';
 import type * as Ui from '../app/components/file-browser/FileActionsDropdown';
-import type { WorkspaceFileOperationDryRun } from '../app/lib/files/client';
+import type { WorkspaceFileOperationDryRun, WorkspaceRenameResult } from '../app/lib/files/client';
+import { WorkspacePathOperationClientError } from '../app/lib/files/workspace-path-operation-client';
+import type { WorkspacePathOperationPublic } from '../app/lib/files/workspace-path-operation-public';
 
 const workspaceId = 'workspace-one';
 const file = { name: 'report.txt', path: 'Docs/report.txt', type: 'file' as const };
@@ -60,8 +62,9 @@ function preview(kind: 'rename' | 'copy', readiness: 'ready' | 'blocked'): Works
   };
 }
 
-function translate(key: string, values?: Record<string, string | number>): string {
-  const message = (messages.notebook as Record<string, unknown>)[key];
+function translate(key: string, values?: Record<string, string | number>, namespace = 'notebook'): string {
+  const message = key.split('.').reduce<unknown>((value, part) => value && typeof value === 'object'
+    ? (value as Record<string, unknown>)[part] : null, (messages as Record<string, unknown>)[namespace]);
   const template = typeof message === 'string' ? message : key;
   return template.replace(/\{(\w+)\}/gu, (_, name: string) => String(values?.[name] ?? `{${name}}`));
 }
@@ -75,6 +78,9 @@ async function compileUi(controls: {
   mutations: string[];
   renameApplyCalls: unknown[][];
   copyApplyCalls: Array<Record<string, unknown>>;
+  renameApply?: () => Promise<WorkspaceRenameResult>;
+  openedFiles?: Array<{ path: string; workspaceId?: string | null }>;
+  activeWorkspaceId?: string;
 }) {
   const filename = path.resolve('app/components/file-browser/FileActionsDropdown.tsx');
   const load = createRequire(filename);
@@ -88,12 +94,17 @@ async function compileUi(controls: {
   }).outputText;
   const exports = {} as typeof Ui;
   const workspace = { id: workspaceId, permissions: { canWrite: true } };
-  const workspaceState = { activeWorkspaceId: workspaceId, activeWorkspace: workspace };
+  const workspaceState = () => ({ activeWorkspaceId: controls.activeWorkspaceId ?? workspaceId,
+    activeWorkspace: { ...workspace, id: controls.activeWorkspaceId ?? workspaceId } });
   const fileState = {
     renamePath: async (...args: unknown[]) => {
       controls.renameApplyCalls.push(args);
       controls.mutations.push('rename');
-      return { linkStatus: 'complete' };
+      return controls.renameApply ? controls.renameApply() : { linkStatus: 'complete' };
+    },
+    revealAndLoadFile: async (path: string, options?: { workspaceId?: string | null }) => {
+      controls.openedFiles?.push({ path, workspaceId: options?.workspaceId });
+      return { status: 'opened' as const, path };
     },
     downloadFile: async () => undefined,
     fileTree: [],
@@ -107,10 +118,11 @@ async function compileUi(controls: {
     setBulkMoveOpen: () => undefined,
     refreshDirectory: async () => undefined,
   };
-  const useFileStore = (selector: (state: typeof fileState) => unknown) => selector(fileState);
+  const useFileStore = Object.assign((selector: (state: typeof fileState) => unknown) => selector(fileState),
+    { getState: () => fileState });
   const useWorkspaceStore = Object.assign(
-    (selector: (state: typeof workspaceState) => unknown) => selector(workspaceState),
-    { getState: () => workspaceState },
+    (selector: (state: ReturnType<typeof workspaceState>) => unknown) => selector(workspaceState()),
+    { getState: workspaceState },
   );
   const icon = () => null;
   const passthrough = ({ children }: React.PropsWithChildren) => <>{children}</>;
@@ -120,7 +132,8 @@ async function compileUi(controls: {
   }>) => <button type="button" role="menuitem" onClick={onSelect} disabled={disabled}>{children}</button>;
   const mocks: Record<string, unknown> = {
     'lucide-react': new Proxy({}, { get: () => icon }),
-    'next-intl': { useTranslations: () => translate, useLocale: () => 'en' },
+    'next-intl': { useTranslations: (namespace = 'notebook') => (key: string, values?: Record<string, string | number>) =>
+      translate(key, values, namespace), useLocale: () => 'en' },
     'sonner': { toast: { error: (message: string) => controls.errors.push(message), warning: () => undefined, success: () => undefined } },
     '@/components/ui/dialog': {
       Dialog: ({ open, children }: React.PropsWithChildren<{ open?: boolean }>) => open ? <>{children}</> : null,
@@ -169,17 +182,21 @@ async function compileUi(controls: {
       joinWorkspacePath: (dir: string, name: string) => dir === '.' ? name : `${dir}/${name}`,
     },
     '@/app/lib/files/workspace-image-share': { isWorkspaceImageFileName: () => false, shareWorkspaceImageFile: async () => 'cancelled' },
+    '@/app/lib/files/workspace-path-operation-client': load('../../lib/files/workspace-path-operation-client'),
+    '@/app/lib/files/workspace-path-operation-public': load('../../lib/files/workspace-path-operation-public'),
+    '@/app/lib/files/workspace-path-operation-issue-messages': load('../../lib/files/workspace-path-operation-issue-messages'),
     '@/app/lib/files/operation-flows': {
       compactWorkspaceSelection: (paths: Iterable<string>) => [...paths],
       isMoveIntoSelf: () => false,
       isProtectedDirectoryNode: () => false,
-      resolveMoveDestination: () => '',
+      resolveMoveDestination: (dir: string, name: string) => dir === '.' ? name : `${dir}/${name}`,
       splitProtectedWorkspacePaths: () => ({ hasProtected: false }),
       summarizeWorkspaceBatchResult: () => ({}),
     },
     './CreateItemDialog': { CreateItemDialog: () => null },
     './DeleteConfirmDialog': { DeleteConfirmDialog: () => null },
-    './DirectoryBrowser': { DirectoryBrowser: () => null },
+    './DirectoryBrowser': { DirectoryBrowser: ({ onSelect }: { onSelect: (dir: string) => void }) =>
+      <button type="button" onClick={() => onSelect('Archive')}>Choose Archive folder</button> },
     './PublicShareDialog': { PublicShareDialog: () => null },
     './MarpExportDialog': { MarpExportDialog: () => null },
     './useCreateItemDialog': { useCreateItemDialog: () => ({ createDialogProps: {}, openCreateDialog: () => undefined }) },
@@ -188,7 +205,7 @@ async function compileUi(controls: {
         <button type="button" onClick={() => onDirChange('Archive')}>Choose Archive</button>
       ),
     },
-    '@/app/store/workspace-store': { selectActiveWorkspace: (state: typeof workspaceState) => state.activeWorkspace, useWorkspaceStore },
+    '@/app/store/workspace-store': { selectActiveWorkspace: (state: ReturnType<typeof workspaceState>) => state.activeWorkspace, useWorkspaceStore },
     'zustand/react/shallow': { useShallow: (selector: unknown) => selector },
     './useTrashUndo': { useTrashUndo: () => async () => undefined },
     './FileInfoDialog': { FileInfoDialog: () => null },
@@ -318,6 +335,152 @@ test('mounted file actions show rename and copy plans, warnings, and clear a sta
     await act(async () => dialogButton(translate('rename'))?.click());
     assert.equal(renameApplyCalls[0]?.at(-1), 'rename-preview');
     assert.deepEqual(mutations, ['copy', 'rename']);
+  } finally {
+    await act(async () => root.unmount());
+    dom.window.close();
+    globalNames.forEach((name, index) => {
+      const descriptor = prior[index];
+      if (descriptor) Object.defineProperty(globalThis, name, descriptor);
+      else Reflect.deleteProperty(globalThis, name);
+    });
+  }
+});
+
+test('mounted move errors retain issue paths, recheck without applying, and open the affected workspace file', async () => {
+  const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', { url: 'https://canvas.test' });
+  const globalNames = ['window', 'document', 'HTMLElement', 'IS_REACT_ACT_ENVIRONMENT'] as const;
+  const prior = globalNames.map((name) => Object.getOwnPropertyDescriptor(globalThis, name));
+  Object.defineProperty(globalThis, 'window', { configurable: true, value: dom.window });
+  Object.defineProperty(globalThis, 'document', { configurable: true, value: dom.window.document });
+  Object.defineProperty(globalThis, 'HTMLElement', { configurable: true, value: dom.window.HTMLElement });
+  Object.defineProperty(globalThis, 'IS_REACT_ACT_ENVIRONMENT', { configurable: true, writable: true, value: true });
+  const operation: WorkspacePathOperationPublic = {
+    batchId: 'move-ui-batch-1234567890', planId: 'a'.repeat(64), workspaceId,
+    kind: 'move', status: 'blocked', errorCode: 'PREVIEW_BLOCKED', phase: 'preparing',
+    completedActions: 0, totalActions: 2,
+    selections: [{ sourcePath: file.path, destinationPath: 'Archive/report.txt' }],
+    issues: [{ code: 'unevaluated-link', path: 'Other/local-links.md' }],
+  };
+  let resolveApply = async (): Promise<WorkspaceRenameResult> => {
+    throw new WorkspacePathOperationClientError(operation, 'Immediate action could not finish safely');
+  };
+  let resolvePreview = async () => {
+    const ready = preview('rename', 'ready');
+    ready.plan.planId = 'b'.repeat(64);
+    ready.plan.issues = [];
+    ready.plan.linkAssessment = { version: 1, complete: true, blockers: [], warnings: [] };
+    ready.plan.coverage = { complete: true, omittedSources: [], unresolvedLinks: [] };
+    return ready;
+  };
+  const controls = {
+    renameCalls: [] as Array<[string, string, string | null]>, copyCalls: [] as Array<Record<string, unknown>>,
+    errors: [] as string[], mutations: [] as string[], renameApplyCalls: [] as unknown[][],
+    copyApplyCalls: [] as Array<Record<string, unknown>>, openedFiles: [] as Array<{ path: string; workspaceId?: string | null }>,
+    activeWorkspaceId: workspaceId,
+    renamePreview: () => resolvePreview(), copyPreview: async () => preview('copy', 'ready'),
+    renameApply: () => resolveApply(),
+  };
+  const ui = await compileUi(controls);
+  const { createRoot } = await import('react-dom/client');
+  const root = createRoot(document.getElementById('root')!);
+  const { fireEvent } = await import('@testing-library/react');
+  const render = () => root.render(<ui.FileActionsDropdown node={file} open showCreateActions={false}>
+    <button type="button">File actions</button>
+  </ui.FileActionsDropdown>);
+  const button = (name: string, selector = '[role="dialog"] button') => {
+    const found = [...document.querySelectorAll<HTMLButtonElement>(selector)]
+      .find((item) => item.textContent?.trim() === name);
+    assert.ok(found, `Missing mounted action: ${name}`);
+    return found;
+  };
+  const issues = () => document.querySelector('[data-testid="workspace-move-operation-issues"]');
+  const movePreview = () => document.querySelector('[data-testid="workspace-move-preview"]');
+  const openMove = async () => {
+    await act(async () => button(translate('move'), '[role="menuitem"]').click());
+    await act(async () => fireEvent.change(document.querySelector('#moveTarget')!, { target: { value: 'Archive' } }));
+  };
+
+  try {
+    await act(async () => render());
+    await openMove();
+    await act(async () => button(translate('move')).click());
+    assert.ok(issues());
+    assert.match(issues()?.textContent ?? '', /Other\/local-links\.md/u);
+    assert.ok(issues()?.textContent?.includes(messages.workspacePathOperationStatus.issue.unsupportedLink),
+      'immediate conflict uses the same localized guidance as the durable status dialog');
+    assert.equal(controls.renameApplyCalls.length, 1);
+    assert.equal(controls.renameApplyCalls[0]?.[4], workspaceId, 'Move captures its explicit workspace');
+
+    await act(async () => button('Check again').click());
+    assert.deepEqual(controls.renameCalls, [[file.path, 'Archive/report.txt', workspaceId]]);
+    assert.equal(controls.renameApplyCalls.length, 1, 'rechecking only reads a dry-run preview');
+    assert.match(movePreview()?.textContent ?? '', /ready/iu);
+    assert.ok(!document.body.textContent?.includes('workspacePathOperationStatus.'), 'issue and action copy is translated');
+    resolveApply = async () => ({ linkStatus: 'complete' });
+    await act(async () => button(translate('move')).click());
+    assert.equal(controls.renameApplyCalls.at(-1)?.[5], 'b'.repeat(64), 'explicit Move uses the freshly checked plan');
+    assert.equal(document.querySelector('[role="dialog"]'), null);
+
+    resolveApply = async () => {
+      await Promise.resolve();
+      throw new WorkspacePathOperationClientError(operation, 'Polled action could not finish safely');
+    };
+    await openMove();
+    await act(async () => button(translate('move')).click());
+    assert.match(issues()?.textContent ?? '', /Other\/local-links\.md/u);
+    assert.ok(issues()?.textContent?.includes(messages.workspacePathOperationStatus.issue.unsupportedLink),
+      'later durable failure shows the same issue path and corrective guidance');
+    await act(async () => button('Open affected file').click());
+    assert.deepEqual(controls.openedFiles, [{ path: 'Other/local-links.md', workspaceId }]);
+    assert.equal(document.querySelector('[role="dialog"]'), null, 'successful file opening frees the editor from the modal');
+
+    await openMove();
+    await act(async () => button(translate('move')).click());
+    assert.ok(issues());
+    await act(async () => button('Choose Archive folder').click());
+    assert.equal(issues(), null, 'choosing a destination invalidates old blocker details');
+    assert.equal(movePreview(), null);
+    await act(async () => button(translate('move')).click());
+    assert.ok(issues());
+    await act(async () => fireEvent.change(document.querySelector('#moveName')!, { target: { value: 'renamed.txt' } }));
+    assert.equal(issues(), null, 'changing the name invalidates old blocker details');
+    await act(async () => button('Check again').click());
+    assert.ok(movePreview());
+    await act(async () => fireEvent.change(document.querySelector('#moveTarget')!, { target: { value: 'Other' } }));
+    assert.equal(movePreview(), null, 'changing the target invalidates the previously checked plan');
+
+    resolveApply = async () => {
+      throw new WorkspacePathOperationClientError({ ...operation, status: 'queued', errorCode: null, issues: [] },
+        'The file action is still running.');
+    };
+    await act(async () => button(translate('move')).click());
+    assert.equal(button(translate('move')).disabled, true, 'a durable pending action cannot be submitted again');
+    assert.equal(button('Check again').disabled, true, 'a pending action cannot obtain a competing plan');
+    assert.equal(document.querySelector<HTMLInputElement>('#moveName')?.disabled, true,
+      'changing the name cannot clear the pending operation guard');
+    assert.equal(document.querySelector<HTMLInputElement>('#moveTarget')?.disabled, true,
+      'changing the destination cannot clear the pending operation guard');
+    const pendingPicker = button('Choose Archive folder').parentElement;
+    assert.equal(pendingPicker?.hasAttribute('inert'), true, 'pending work also disables keyboard interaction with the directory picker');
+    assert.equal(pendingPicker?.classList.contains('pointer-events-none'), true,
+      'the directory picker cannot reset pending work through pointer interaction');
+    const pendingApplyCount = controls.renameApplyCalls.length;
+    const pendingPreviewCount = controls.renameCalls.length;
+    await act(async () => { button(translate('move')).click(); button('Check again').click(); });
+    assert.equal(controls.renameApplyCalls.length, pendingApplyCount);
+    assert.equal(controls.renameCalls.length, pendingPreviewCount);
+    await act(async () => button(translate('cancel')).click());
+    await openMove();
+
+    let rejectLate!: (error: Error) => void;
+    resolveApply = () => new Promise((_resolve, reject) => { rejectLate = reject; });
+    await act(async () => button(translate('move')).click());
+    controls.activeWorkspaceId = 'workspace-two';
+    await act(async () => render());
+    await act(async () => rejectLate(new WorkspacePathOperationClientError(operation, 'Old workspace conflict')));
+    assert.equal(issues(), null, 'a late failure from another workspace is never displayed');
+    assert.ok(!document.body.textContent?.includes('Old workspace conflict'));
+    assert.equal(controls.openedFiles.length, 1, 'the late error never navigates into a different workspace');
   } finally {
     await act(async () => root.unmount());
     dom.window.close();

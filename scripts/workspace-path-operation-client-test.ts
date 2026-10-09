@@ -5,8 +5,8 @@ import type { WorkspacePathOperationPublic, WorkspacePathOperationResponse } fro
 
 const operation = (status: WorkspacePathOperationPublic['status']): WorkspacePathOperationPublic => ({
   batchId: 'direct-client-batch-1234567890', planId: 'a'.repeat(64), workspaceId: 'workspace-client',
-  status, completedActions: status === 'applied' ? 2 : 0, totalActions: 2,
-  phase: status === 'applied' ? 'complete' : 'preparing', errorCode: null,
+  status, completedActions: ['applied', 'undone'].includes(status) ? 2 : 0, totalActions: 2,
+  phase: ['applied', 'undone'].includes(status) ? 'complete' : 'preparing', errorCode: null,
   kind: 'move', selections: [{ sourcePath: 'old.md', destinationPath: 'new.md' }],
 });
 
@@ -30,8 +30,13 @@ async function main() {
     const applied: WorkspacePathOperationResponse = { operation: operation('applied'), linkStatus: 'complete',
       mutation: { type: 'rename', operationId: 'actual-filesystem-mutation', workspaceId: 'workspace-client',
         oldPath: 'old.md', newPath: 'new.md' } };
-    assert.equal(await poll(applied), applied);
+    assert.deepEqual(await poll(applied), applied);
     assert.equal(requests.length, 0, 'settled success does not poll');
+    const privateApplied = { ...applied, operation: { ...applied.operation,
+      privatePlan: { documentText: 'private' }, errorCode: 'Private document contents https://private.test',
+      selections: [{ ...applied.operation.selections[0], absolutePath: '/private/old.md' }],
+    } };
+    assert.deepEqual(await poll(privateApplied), applied, 'settled success validates and projects the operation before returning it');
 
     replies = [{ body: { operation: operation('applying') } }, { body: applied }];
     assert.deepEqual(await poll({ operation: operation('queued') }), applied);
@@ -52,11 +57,13 @@ async function main() {
         return true;
       });
     }
-    replies = [{ body: { operation: { ...operation('failed'), errorCode: 'CURRENT_CONTENT_CHANGED' } } }];
+    const failedOperation = { ...operation('failed'), errorCode: 'CURRENT_CONTENT_CHANGED',
+      issues: [{ code: 'source-unreadable', path: 'Notizen.md' }] };
+    replies = [{ body: { operation: { ...failedOperation, privatePlan: { documentText: 'private' },
+      issues: [{ ...failedOperation.issues[0], absolutePath: '/private/Notizen.md', diagnostic: 'private detail' }] } } }];
     await assert.rejects(poll({ operation: operation('queued') }), (error: unknown) => {
       assert.ok(error instanceof WorkspacePathOperationClientError);
-      assert.equal(error.operation.status, 'failed');
-      assert.equal(error.operation.errorCode, 'CURRENT_CONTENT_CHANGED');
+      assert.deepEqual(error.operation, failedOperation, 'terminal polling keeps safe issues and removes private diagnostics');
       return true;
     });
 
@@ -68,11 +75,55 @@ async function main() {
     }
     await assert.rejects(poll({ operation: { ...operation('queued'), workspaceId: 'workspace-foreign' } }),
       /Invalid file action status response/u);
-    for (const invalid of [null, {}, { ...operation('applied'), batchId: '../foreign' },
-      { ...operation('applied'), planId: 'invalid' }, { ...operation('applied'), status: 'invented' }]) {
+    const invalidOperations = [null, {}, { ...operation('applied'), batchId: '../foreign' },
+      { ...operation('applied'), planId: 'invalid' }, { ...operation('applied'), status: 'invented' },
+      { ...operation('applied'), phase: 'preparing' }, { ...operation('applied'), completedActions: 1 },
+      { ...operation('applying'), completedActions: -1 }, { ...operation('applying'), completedActions: 3 },
+      { ...operation('applying'), completedActions: 0.5 }, { ...operation('applying'), totalActions: 1.5 },
+      { ...operation('applying'), totalActions: Number.MAX_SAFE_INTEGER + 1 },
+      { ...operation('applying'), phase: 'invented' }, { ...operation('applying'), kind: 'invented' },
+      { ...operation('applying'), selections: [{ sourcePath: '../foreign.md' }] },
+      { ...operation('applying'), selections: [{ sourcePath: 'old.md', destinationPath: '/private/new.md' }] },
+      { ...operation('applying'), issues: [{ code: 'PRIVATE_DETAILS', path: 'Notizen.md' }] },
+      ...['../private.md', '/private/data.md', 'folder\\private.md', 'https://private.test/file', 'private\u0000.md'].map((path) =>
+        ({ ...operation('applying'), issues: [{ code: 'source-unreadable', path }] })),
+    ];
+    for (const invalid of invalidOperations) {
       replies = [{ body: { operation: invalid } }];
       await assert.rejects(poll({ operation: operation('queued') }), /Invalid file action status response/u);
     }
+
+    const blockedOperation = { ...operation('blocked'), errorCode: 'PREVIEW_BLOCKED',
+      issues: [{ code: 'unevaluated-link', path: 'HTML.md' }] };
+    replies = [{ status: 409, body: { error: 'Links could not be checked', operation: { ...blockedOperation,
+      privatePlan: { content: 'private' }, issues: [{ ...blockedOperation.issues[0], rawHtml: '<private>' }] } } }];
+    await assert.rejects(poll({ operation: operation('queued') }), (error: unknown) => {
+      assert.ok(error instanceof WorkspacePathOperationClientError);
+      assert.deepEqual(error.operation, blockedOperation, 'a rejected poll retains a validated current operation and safe cause');
+      assert.equal(error.message, 'Links could not be checked');
+      return true;
+    });
+    for (const invalid of [...invalidOperations,
+      { ...blockedOperation, workspaceId: 'foreign-workspace' },
+      { ...blockedOperation, batchId: 'other-client-batch-1234567890' },
+      { ...blockedOperation, planId: 'b'.repeat(64) },
+    ]) {
+      replies = [{ status: 409, body: { error: 'Rejected status response', operation: invalid } }];
+      await assert.rejects(poll({ operation: operation('queued') }), (error: unknown) => {
+        assert.ok(error instanceof WorkspacePathOperationClientError);
+        assert.deepEqual(error.operation, operation('queued'), 'rejected foreign or malformed polling payloads keep the known identity');
+        assert.equal(error.message, 'Rejected status response');
+        return true;
+      });
+    }
+    const progressing = { ...operation('applying'), completedActions: 1 };
+    replies = [{ body: { operation: progressing } },
+      { status: 403, body: { error: 'Workspace access has changed', operation: { ...progressing, workspaceId: 'foreign-workspace' } } }];
+    await assert.rejects(poll({ operation: operation('queued') }), (error: unknown) => {
+      assert.ok(error instanceof WorkspacePathOperationClientError);
+      assert.deepEqual(error.operation, progressing, 'rejected polling retains the most recent validated progress');
+      return true;
+    });
 
     replies = [{ status: 403, body: { error: 'Workspace access has changed' } }];
     await assert.rejects(poll({ operation: operation('queued') }), (error: unknown) => {
@@ -94,7 +145,7 @@ async function main() {
     });
     assert.equal(requests.length, callsBeforeTimeout);
 
-    const undone = { operation: { ...operation('undone'), completedActions: 2, phase: 'complete' as const } };
+    const undone = { operation: operation('undone') };
     assert.deepEqual(await waitForWorkspacePathOperationResult(undone, 'workspace-client', { expectedOutcome: 'undone' }), undone);
     await assert.rejects(waitForWorkspacePathOperationResult(applied, 'workspace-client', { expectedOutcome: 'undone' }),
       WorkspacePathOperationClientError, 'an unchanged forward operation does not imply successful Undo');
@@ -118,6 +169,29 @@ async function main() {
       assert.equal(error.message, 'Current document has changed');
       return true;
     });
+    const undoBlocked = { ...operation('blocked'), errorCode: 'UNDO_CURRENT_CONTENT_CHANGED',
+      issues: [{ code: 'content-changed', path: 'new.md' }] };
+    replies = [{ status: 409, body: { error: 'Current document has changed', operation: { ...undoBlocked,
+      privatePlan: { content: 'private' }, issues: [{ ...undoBlocked.issues[0], currentText: 'private document text' }] } } }];
+    await assert.rejects(undoWorkspacePathOperation(applied.operation), (error: unknown) => {
+      assert.ok(error instanceof WorkspacePathOperationClientError);
+      assert.deepEqual(error.operation, undoBlocked, 'Undo rejection retains the current safe cause for the same durable operation');
+      assert.equal(error.message, 'Current document has changed');
+      return true;
+    });
+    for (const invalid of [...invalidOperations,
+      { ...undoBlocked, workspaceId: 'foreign-workspace' },
+      { ...undoBlocked, batchId: 'other-client-batch-1234567890' },
+      { ...undoBlocked, planId: 'b'.repeat(64) },
+    ]) {
+      replies = [{ status: 409, body: { error: 'Rejected Undo response', operation: invalid } }];
+      await assert.rejects(undoWorkspacePathOperation(applied.operation), (error: unknown) => {
+        assert.ok(error instanceof WorkspacePathOperationClientError);
+        assert.deepEqual(error.operation, applied.operation, 'foreign or malformed Undo rejections cannot replace the known operation');
+        assert.equal(error.message, 'Rejected Undo response');
+        return true;
+      });
+    }
     for (const body of [
       {}, { operation: { ...undone.operation, batchId: 'other-client-batch-1234567890' } },
       { operation: { ...undone.operation, planId: 'b'.repeat(64) } },
@@ -127,6 +201,11 @@ async function main() {
       await assert.rejects(undoWorkspacePathOperation(applied.operation),
         /Invalid file action status response|identity changed/u, 'Undo cannot acknowledge a missing or unrelated result');
     }
+    replies = [];
+    const beforeInvalidUndo = requests.length;
+    await assert.rejects(undoWorkspacePathOperation({ ...applied.operation, batchId: '../private/batch' }),
+      /Invalid file action status response/u, 'an invalid input operation never constructs an Undo request');
+    assert.equal(requests.length, beforeInvalidUndo);
     console.log('workspace path client: scoped polling, settled success, durable failures, identity protection and timeout passed');
   } finally {
     globalThis.fetch = originalFetch;
