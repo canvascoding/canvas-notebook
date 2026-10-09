@@ -143,6 +143,21 @@ async function main() {
     assert(remaining.items.some(item=>item.messageRef===excluded),'Unselected messages remain reachable in All/Other views.');
     assert.ok(pendingView.coverage.some(source=>source.failed>0 && source.pending>0),'Failed/pending coverage remains honest while the start list stays focused');
 
+    const pendingMetadata = (await store.readMessages([pending]))[0];
+    const pendingJob = await store.enqueueClassification({ messageRef: pending, configurationRevision: settings.revision, fingerprint: pendingMetadata.fingerprint, now });
+    assert.ok(pendingJob);
+    const beforeModelFailure = await readEmailClassificationFeed({ userId: 'owner', scope: { kind: 'all' }, view: 'all', limit: 2 }, dependencies);
+    const [modelClaim] = await store.claimJobs({ limit: 1, leaseMs: 1_000, now });
+    assert.equal(modelClaim.id, pendingJob.id);
+    await store.retryJob({ jobId: modelClaim.id, claimToken: modelClaim.claimToken!, errorCode: 'invalid_response', nextAttemptAt: now + 2_000, terminal: true, now });
+    const afterModelFailure = await readEmailClassificationFeed({ userId: 'owner', scope: { kind: 'all' }, view: 'all', limit: 2, cursor: beforeModelFailure.nextCursor! }, dependencies);
+    assert.equal(afterModelFailure.hasUpdates, true, 'A pending-to-failed model job offers an update without changing message metadata or raw ratings');
+    assert.equal(afterModelFailure.coverage.find(source => source.mailboxRef === work.mailboxRef)!.failed, beforeModelFailure.coverage.find(source => source.mailboxRef === work.mailboxRef)!.failed + 1);
+    assert.equal(afterModelFailure.coverage.find(source => source.mailboxRef === work.mailboxRef)?.errorCode, null, 'A failed model job cannot fabricate an ingestion error');
+    assert.equal((await store.readMessages([pending]))[0].indexRevision, pendingMetadata.indexRevision);
+    assert.deepEqual(await store.readResultsBatch([pending]), []);
+    await postgres.query('DELETE FROM email_classification_jobs WHERE id=$1', [pendingJob.id]);
+
     const stable=await readEmailClassificationFeed({userId:'owner',scope:{kind:'all'},view:'all',limit:2},dependencies);
     const frozen=await postgres.query<{message_ref:string;classification_json:EmailClassification}>('SELECT message_ref,classification_json FROM email_classification_feed_rows WHERE snapshot_id=$1 ORDER BY ordinal',[stable.snapshot.id]);
     await postgres.query(`UPDATE email_classification_results SET raw_json=jsonb_set(raw_json,'{replyProbability}','0.9'::jsonb),version=version+1 WHERE raw_json IS NOT NULL`);
@@ -191,6 +206,44 @@ async function main() {
     const ownMailbox=await readEmailClassificationFeed({userId:'owner',scope:{kind:'mailbox',mailboxRef:work.mailboxRef},view:'all'},dependencies);
     assert.ok(ownMailbox.items.every(item=>item.origin.mailboxRef===work.mailboxRef));
     const snapshots=await postgres.query<{count:string}>('SELECT count(*)::text AS count FROM email_classification_feed_snapshots WHERE user_id=\'owner\'');assert.ok(Number(snapshots.rows[0].count)<=3);
+
+    // Failed sources need labels even when they contributed no indexed messages.
+    const empty = { ...makeMailbox('empty', null), displayName: 'x'.repeat(499) + '😀tail\u0000', workspaceName: 'team\uD800' };
+    authorized = [personal, work, empty];
+    await store.upsertMailbox(empty, now);
+    await store.recordMailboxSync({ mailboxRef: empty.mailboxRef, bindingRevision: empty.bindingRevision, policyRevision: empty.policyRevision, coverage: 'complete', cursor: null, now: now - 10 });
+    await store.recordMailboxSync({ mailboxRef: empty.mailboxRef, bindingRevision: empty.bindingRevision, policyRevision: empty.policyRevision, coverage: 'failed', errorCode: 'timeout', cursor: null, now });
+    const sourceFailure = await readEmailClassificationFeed({ userId: 'owner', scope: { kind: 'all' }, view: 'all', limit: 2 }, dependencies);
+    const emptyCoverage = sourceFailure.coverage.find(source => source.mailboxRef === empty.mailboxRef)!;
+    assert.equal(emptyCoverage.state, 'failed'); assert.equal(emptyCoverage.errorCode, 'timeout'); assert.equal(emptyCoverage.indexed, 0);
+    assert.equal(emptyCoverage.lastSyncAt, now - 10); assert.equal(emptyCoverage.failed, 0, 'Ingestion failures do not fabricate failed model evaluations');
+    assert.deepEqual(emptyCoverage.source, { emailAddress: 'empty@example.test', displayName: 'x'.repeat(499), workspaceName: 'team\uFFFD' });
+    assert.ok(!sourceFailure.items.some(item => item.origin.mailboxRef === empty.mailboxRef));
+    assert.equal(sourceFailure.hasUpdates, false);
+    // Keep state, cursor and last successful time fixed: only the safe reason changes.
+    await store.recordMailboxSync({ mailboxRef: empty.mailboxRef, bindingRevision: empty.bindingRevision, policyRevision: empty.policyRevision, coverage: 'failed', errorCode: 'provider_unavailable', cursor: null, now });
+    const changedReason = await readEmailClassificationFeed({ userId: 'owner', scope: { kind: 'all' }, view: 'all', limit: 2, cursor: sourceFailure.nextCursor! }, dependencies);
+    assert.equal(changedReason.hasUpdates, true, 'An ingestion reason change offers an update even when the state remains failed');
+    assert.equal(changedReason.coverage.find(source => source.mailboxRef === empty.mailboxRef)?.errorCode, 'provider_unavailable');
+    const memberDiagnostic = await readEmailClassificationFeed({ userId: 'member', scope: { kind: 'all' }, view: 'all' }, dependencies);
+    assert.ok(memberDiagnostic.coverage.every(source => source.mailboxRef === work.mailboxRef));
+    assert.equal(JSON.stringify(memberDiagnostic.coverage).includes('empty@example.test'), false, 'Private diagnostic labels cannot be read by a workspace member');
+    authorized = [personal, work];
+    await assert.rejects(readEmailClassificationFeed({ userId: 'owner', scope: { kind: 'all' }, view: 'all', cursor: sourceFailure.nextCursor! }, dependencies), /changed/u);
+    assert.equal(JSON.stringify((await readEmailClassificationFeed({ userId: 'owner', scope: { kind: 'all' }, view: 'all' }, dependencies)).coverage).includes('empty@example.test'), false, 'Revoked source metadata does not survive a new feed');
+    await store.recordMailboxSync({ mailboxRef: work.mailboxRef, bindingRevision: work.bindingRevision, policyRevision: work.policyRevision, coverage: 'failed', errorCode: 'auth_required', cursor: null, now });
+    const inFlightRevocation: EmailClassificationFeedDependencies = { ...dependencies,
+      transaction: operation => dependencies.transaction(async connection => {
+        await connection.query('UPDATE email_classification_mailboxes SET policy_revision=$2 WHERE mailbox_ref=$1', [work.mailboxRef, 'revoked-during-request']);
+        return operation(connection);
+      }) };
+    const revokedDiagnostic = await readEmailClassificationFeed({ userId: 'member', scope: { kind: 'work' }, view: 'all' }, inFlightRevocation);
+    assert.deepEqual(revokedDiagnostic.coverage, [], 'An in-flight policy change fences old diagnostic labels, reason and time');
+    assert.deepEqual(revokedDiagnostic.items, []);
+    assert.equal(JSON.stringify(revokedDiagnostic).includes(work.emailAddress), false);
+    await store.upsertMailbox(work, now);
+    await store.recordMailboxSync({ mailboxRef: work.mailboxRef, bindingRevision: work.bindingRevision, policyRevision: work.policyRevision, coverage: 'partial', cursor: null, now });
+
     now+=10*60_000+1;
     await assert.rejects(readEmailClassificationFeed({userId:'owner',scope:{kind:'personal'},view:'all',cursor:personalOnly.nextCursor??Buffer.from(JSON.stringify({v:1,id:personalOnly.snapshot.id,after:0})).toString('base64url')},dependencies),/changed/u);
     const latestSettings=await store.readSettings();

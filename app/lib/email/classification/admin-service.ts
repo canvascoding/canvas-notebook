@@ -26,6 +26,8 @@ export type EmailClassificationAvailabilityReason = 'disabled' | 'missing_config
 export interface EmailClassificationAvailability {
   enabled: boolean;
   available: boolean;
+  /** Public route computes this for the current session; absent on older servers. */
+  canConfigure?: boolean;
   revision: number;
   defaultMode: 'focus' | 'classic';
   reason: EmailClassificationAvailabilityReason;

@@ -18,7 +18,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 
-type FailureKey = 'load' | 'save' | 'test' | 'conflict' | 'access' | 'invalid' | 'credentialMissing' | 'credentialUnavailable' | 'authentication' | 'timeout' | 'rateLimited' | 'endpoint' | 'invalidResponse' | 'refused' | 'unavailable' | 'managedConnection' | 'managedAccess' | 'managedModel' | 'managedBudget' | 'managedReview';
+type FailureKey = 'load' | 'save' | 'test' | 'conflict' | 'access' | 'invalid' | 'credentialMissing' | 'credentialUnavailable' | 'authentication' | 'timeout' | 'rateLimited' | 'endpoint' | 'invalidResponse' | 'refused' | 'unavailable' | 'managedConnection' | 'managedAccess' | 'managedModel' | 'managedCredentials' | 'managedPricing' | 'managedBudget' | 'managedReview';
 class RequestFailure extends Error {
   constructor(readonly key: FailureKey) { super(key); }
 }
@@ -36,8 +36,8 @@ function requestFailure(response: Response, payload: { code?: string }, fallback
     EMAIL_CLASSIFICATION_MANAGED_MISSING_CONNECTION: 'managedConnection', EMAIL_CLASSIFICATION_MANAGED_AUTHENTICATION_FAILED: 'managedConnection',
     EMAIL_CLASSIFICATION_MANAGED_SCOPE_DENIED: 'managedAccess', EMAIL_CLASSIFICATION_MANAGED_ENTITLEMENT_DENIED: 'managedAccess',
     EMAIL_CLASSIFICATION_MANAGED_BUDGET_EXHAUSTED: 'managedBudget', EMAIL_CLASSIFICATION_MANAGED_MODEL_CHANGED: 'managedModel',
-    EMAIL_CLASSIFICATION_MANAGED_MISSING_CONFIGURATION: 'managedModel', EMAIL_CLASSIFICATION_MANAGED_MISSING_CREDENTIALS: 'managedModel',
-    EMAIL_CLASSIFICATION_MANAGED_MISSING_PRICING: 'managedModel', EMAIL_CLASSIFICATION_MANAGED_CONFIGURATION_UNAVAILABLE: 'managedModel',
+    EMAIL_CLASSIFICATION_MANAGED_MISSING_CONFIGURATION: 'managedModel', EMAIL_CLASSIFICATION_MANAGED_MISSING_CREDENTIALS: 'managedCredentials',
+    EMAIL_CLASSIFICATION_MANAGED_MISSING_PRICING: 'managedPricing', EMAIL_CLASSIFICATION_MANAGED_CONFIGURATION_UNAVAILABLE: 'managedModel',
     EMAIL_CLASSIFICATION_MANAGED_OUTCOME_UNKNOWN: 'managedReview', EMAIL_CLASSIFICATION_MANAGED_PROVIDER_UNAVAILABLE: 'unavailable',
     EMAIL_CLASSIFICATION_MANAGED_RATE_LIMITED: 'rateLimited', EMAIL_CLASSIFICATION_MANAGED_IN_PROGRESS: 'rateLimited',
     EMAIL_CLASSIFICATION_MANAGED_INVALID_RESPONSE: 'invalidResponse', EMAIL_CLASSIFICATION_MANAGED_REFUSED: 'refused',
@@ -71,6 +71,7 @@ export function EmailClassificationSettingsCard() {
   const [probe, setProbe] = useState<EmailClassificationProviderTestResult | null>(null);
   const draftRef = useRef(draft);
   const readGeneration = useRef(0);
+  const probeGeneration = useRef(0);
   const mounted = useRef(true);
   const dirty = draft !== null && JSON.stringify(draft) !== JSON.stringify(snapshot?.settings.configuration);
   const serverChanged = baseRevision !== null && snapshot !== null && baseRevision !== snapshot.settings.revision;
@@ -106,7 +107,7 @@ export function EmailClassificationSettingsCard() {
     let active = true;
     queueMicrotask(() => { if (active) void refresh(); });
     // A Secrets edit refreshes safe status without replacing an unsaved configuration.
-    const onSecretsChanged = () => { void refresh(); };
+    const onSecretsChanged = () => { probeGeneration.current++; setProbe(null); void refresh(); };
     window.addEventListener('canvas_secrets_updated', onSecretsChanged);
     return () => { active = false; mounted.current = false; invalidateReads(); window.removeEventListener('canvas_secrets_updated', onSecretsChanged); };
   }, [refresh, invalidateReads]);
@@ -141,6 +142,7 @@ export function EmailClassificationSettingsCard() {
 
   async function test() {
     if (!draft || action) return;
+    const generation = probeGeneration.current;
     setAction('test'); setError(null); setProbe(null);
     try {
       const response = await fetch('/api/admin/email-classification/test', { method: 'POST', credentials: 'include',
@@ -148,8 +150,8 @@ export function EmailClassificationSettingsCard() {
       const payload = await response.json();
       if (!response.ok || !payload.success) throw requestFailure(response, payload, 'test');
       if (payload.data?.success !== true) throw new RequestFailure('invalidResponse');
-      if (mounted.current) setProbe(payload.data as EmailClassificationProviderTestResult);
-    } catch (failure) { if (mounted.current) setError(failure instanceof RequestFailure ? failure.key : 'test'); }
+      if (mounted.current && generation === probeGeneration.current) setProbe(payload.data as EmailClassificationProviderTestResult);
+    } catch (failure) { if (mounted.current && generation === probeGeneration.current) setError(failure instanceof RequestFailure ? failure.key : 'test'); }
     finally { if (mounted.current) setAction(null); }
   }
 
@@ -165,8 +167,22 @@ export function EmailClassificationSettingsCard() {
   const managedRef = draft?.managedModelRef ?? managedCatalog?.catalog?.defaultModelRef;
   const managedModel = managedModels.find(model => model.ref === managedRef);
   const managedReason = managedCatalog?.status !== 'ready' ? managedCatalog?.code ?? 'provider_unavailable'
-    : managedModel?.available ? snapshot?.execution?.mode === 'managed' ? snapshot.execution.reason : null : managedModel?.status ?? 'missing_configuration';
-  const reasonKeys: Record<string, string> = { missing_connection: 'connection', authentication_failed: 'connection', scope_denied: 'access', entitlement_denied: 'access', budget_exhausted: 'budget', missing_configuration: 'model', missing_credentials: 'model', missing_pricing: 'pricing', configuration_unavailable: 'model', model_changed: 'changed', unsupported_capability: 'version', invalid_response: 'version', in_progress: 'waiting', rate_limited: 'waiting' };
+    : managedModel?.available ? !providerDraftChanged && snapshot?.execution?.mode === 'managed' ? snapshot.execution.reason : null : managedModel?.status ?? 'missing_configuration';
+  const reasonKeys: Record<string, string> = { missing_connection: 'connection', authentication_failed: 'connection', scope_denied: 'access', entitlement_denied: 'access', budget_exhausted: 'budget', missing_configuration: 'model', missing_credentials: 'model', missing_pricing: 'pricing', configuration_unavailable: 'unavailable', model_changed: 'changed', unsupported_capability: 'version', invalid_response: 'version', in_progress: 'waiting', rate_limited: 'waiting' };
+  const nextStepKeys: Record<string, string> = { ...reasonKeys, missing_credentials: 'credentials' };
+  const managedNextStep = error === 'managedBudget' ? 'budget' : error === 'managedConnection' ? 'connection' : error === 'managedAccess' ? 'access'
+    : error === 'managedCredentials' ? 'credentials' : error === 'managedPricing' ? 'pricing'
+    : error === 'managedModel' ? managedReason ? nextStepKeys[managedReason] ?? 'model' : 'model' : error === 'managedReview' ? 'review'
+    : snapshot?.availability.reason === 'budget_exhausted' && !managedReason ? 'dailyBudget'
+    : managedReason ? nextStepKeys[managedReason] ?? 'unavailable' : providerDraftChanged ? 'draft' : 'ready';
+  const anonymousDraft = draft?.providerId === 'systemone' && draft.allowPrivateNetwork && draft.credentialKey === null;
+  const requiredCredentialKey = draft?.credentialKey || provider?.credentialKeyDefault;
+  const savedManaged = snapshot?.execution?.mode === 'managed';
+  const savedReason = snapshot?.execution?.reason;
+  const blocked = snapshot?.health.state === 'paused' || snapshot?.health.state === 'unavailable' || Boolean(savedReason)
+    || Boolean(snapshot?.availability.reason && snapshot.availability.reason !== 'disabled');
+  const readiness = !snapshot || loadError ? 'unknown' : !snapshot.availability.enabled ? 'inactive'
+    : !blocked && snapshot.availability.available ? 'ready' : 'paused';
   const errorActions = error === 'conflict' || serverChanged
     ? <Button type="button" variant="outline" size="sm" disabled={busy || refreshing} onClick={() => void refresh(true)}>{t('reloadDraft')}</Button>
     : error === 'credentialMissing' || error === 'credentialUnavailable' || error === 'authentication'
@@ -186,22 +202,14 @@ export function EmailClassificationSettingsCard() {
         </div>
       </CardHeader>
       <CardContent className="space-y-4 px-4 pb-5 sm:px-6">
-        <div className="flex items-start justify-between gap-4 rounded-md border bg-muted/20 p-4">
-          <div className="min-w-0 space-y-1">
-            <Label htmlFor="email-classification-enabled" className="text-sm font-medium">{t('enable')}</Label>
-            <p id="email-classification-scope" className="text-xs leading-relaxed text-muted-foreground">{t('scope')}</p>
-            <p id="email-classification-selection" className="text-xs leading-relaxed text-muted-foreground">{t('selectionHint')}</p>
-          </div>
-          <Switch id="email-classification-enabled" aria-describedby="email-classification-scope email-classification-selection" checked={draft?.enabled ?? false}
-            disabled={loading || !draft || busy} onCheckedChange={enabled => edit(current => ({ ...current, enabled }))} />
-        </div>
         <div className="space-y-2 text-sm" role="status" aria-live="polite">
-          <div className="flex flex-wrap items-center gap-2"><Badge variant="outline">{t(`status.${status}`)}</Badge>
+          <div className="flex flex-wrap items-center gap-2"><Badge variant="outline">{t('setup.savedActivation')}: <span>{t(`status.${status}`)}</span></Badge>
             {dirty && <span className="text-xs text-muted-foreground">{t('unsaved')}</span>}
           </div>
+          <p data-testid="email-classification-readiness">{t('setup.processingReadiness')}: {t(`setup.readiness.${readiness}`)}</p>
           {loading ? <p className="text-muted-foreground">{t('loading')}</p> : snapshot && !loadError && (
             <>
-              <p className="text-muted-foreground">{managed ? managedReason ? t(`managed.reasons.${reasonKeys[managedReason] ?? 'unavailable'}`) : t(`processing.${snapshot.execution?.mode === 'managed' ? snapshot.health.state : 'idle'}`) : snapshot.availability.reason && snapshot.availability.reason !== 'disabled'
+              <p className="text-muted-foreground">{savedManaged && savedReason ? t(`managed.reasons.${reasonKeys[savedReason] ?? 'unavailable'}`) : snapshot.availability.reason && snapshot.availability.reason !== 'disabled'
                 ? t(`availability.${snapshot.availability.reason}`) : t(`processing.${snapshot.health.state}`)}</p>
               {snapshot.health.counts && snapshot.availability.enabled && <p className="text-xs text-muted-foreground">{t('progress', snapshot.health.counts)}</p>}
             </>
@@ -213,31 +221,32 @@ export function EmailClassificationSettingsCard() {
         </InlineNotice>}
         {saved && <InlineNotice variant="success">{t('saved')}</InlineNotice>}
 
-        {draft && managed && <div className="space-y-3 rounded-md border p-4" data-testid="email-classification-managed">
-          <div className="space-y-1"><p className="text-sm font-medium">{t('managed.title')}</p><p className="text-xs text-muted-foreground">{t('managed.hint')}</p></div>
-          <div className="space-y-2"><Label htmlFor="email-classification-managed-model">{t('managed.model')}</Label>
-            <select id="email-classification-managed-model" className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-xs focus-visible:outline-ring disabled:opacity-50" value={draft.managedModelRef ?? ''} disabled={busy || managedCatalog?.status !== 'ready'}
-              onChange={event => edit(current => ({ ...current, managedModelRef: event.target.value || null, managedModel: null }))}>
-              <option value="">{managedCatalog?.catalog?.defaultModelRef ? t('managed.default', { model: managedModels.find(model => model.ref === managedCatalog.catalog?.defaultModelRef)?.name ?? managedCatalog.catalog.defaultModelRef }) : t('managed.noDefault')}</option>
-              {managedModels.map(model => <option key={model.ref} value={model.ref} disabled={!model.available}>{model.name}{model.available ? '' : ` · ${t('managed.notReady')}`}</option>)}
-              {draft.managedModelRef && !managedModels.some(model => model.ref === draft.managedModelRef) && <option value={draft.managedModelRef}>{draft.managedModel?.model ?? draft.managedModelRef} · {t('managed.notReady')}</option>}
-            </select>
-          </div>
-        </div>}
-
-        {draft && snapshot && <Collapsible open={open} onOpenChange={setOpen}>
-          <CollapsibleTrigger asChild>
-            <Button type="button" variant="ghost" className="h-auto min-h-10 w-full justify-between px-0 text-left" aria-label={t('configuration')}>
-              <span>{t('configuration')}</span><ChevronDown className={`h-4 w-4 transition-transform ${open ? 'rotate-180' : ''}`} aria-hidden="true" />
-            </Button>
-          </CollapsibleTrigger>
-          <CollapsibleContent className="space-y-5 pt-2">
+        {draft && snapshot && <ol className="space-y-4" aria-label={t('setup.title')} data-testid="email-classification-setup">
+          <li className="min-w-0 space-y-3 rounded-md border p-4" data-testid="email-classification-step-1">
+            <h3 className="text-sm font-semibold">1. {t('setup.delivery')}</h3>
+            <p className="text-xs leading-relaxed text-muted-foreground">{t('setup.serviceHint')}</p>
             <div className="space-y-2"><Label htmlFor="email-classification-execution-mode">{t('deliveryMode')}</Label>
               <select id="email-classification-execution-mode" className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-xs focus-visible:outline-ring disabled:opacity-50" value={draft.executionMode} disabled={busy}
                 onChange={event => edit(current => ({ ...current, executionMode: event.target.value as 'direct' | 'managed' }))}>
                 <option value="managed">{t('managed.title')}</option><option value="direct">{t('directMode')}</option>
               </select>
             </div>
+          </li>
+          <li className="min-w-0 space-y-3 rounded-md border p-4" data-testid="email-classification-step-2">
+            <h3 className="text-sm font-semibold">2. {t('setup.access')}</h3>
+            {providerDraftChanged && <p className="text-xs text-muted-foreground" data-testid="email-classification-draft-status">{t('setup.draftStatus')}</p>}
+            {managed && <div className="space-y-3 rounded-md border p-4" data-testid="email-classification-managed">
+              <div className="space-y-1"><p className="text-sm font-medium">{t('managed.title')}</p><p className="text-xs text-muted-foreground">{t('managed.hint')}</p></div>
+              <div className="space-y-2"><Label htmlFor="email-classification-managed-model">{t('managed.model')}</Label>
+                <select id="email-classification-managed-model" className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-xs focus-visible:outline-ring disabled:opacity-50" value={draft.managedModelRef ?? ''} disabled={busy || managedCatalog?.status !== 'ready'}
+                  onChange={event => edit(current => ({ ...current, managedModelRef: event.target.value || null, managedModel: null }))}>
+                  <option value="">{managedCatalog?.catalog?.defaultModelRef ? t('managed.default', { model: managedModels.find(model => model.ref === managedCatalog.catalog?.defaultModelRef)?.name ?? managedCatalog.catalog.defaultModelRef }) : t('managed.noDefault')}</option>
+                  {managedModels.map(model => <option key={model.ref} value={model.ref} disabled={!model.available}>{model.name}{model.available ? '' : ` · ${t('managed.notReady')}`}</option>)}
+                  {draft.managedModelRef && !managedModels.some(model => model.ref === draft.managedModelRef) && <option value={draft.managedModelRef}>{draft.managedModel?.model ?? draft.managedModelRef} · {t('managed.notReady')}</option>}
+                </select>
+              </div>
+            </div>}
+
             {managed ? <dl className="grid gap-3 rounded-md border p-4 text-sm sm:grid-cols-2">
               <div><dt className="text-xs text-muted-foreground">{t('provider')}</dt><dd>{managedModel?.providerId ?? draft.managedModel?.providerId ?? t('unknown')}</dd></div>
               <div><dt className="text-xs text-muted-foreground">{t('model')}</dt><dd className="break-all">{managedModel?.model ?? draft.managedModel?.model ?? t('unknown')}</dd></div>
@@ -261,6 +270,17 @@ export function EmailClassificationSettingsCard() {
                 <div className="flex flex-wrap items-center gap-3 text-xs"><span>{t(`credentials.${credentials}`)}</span><Link href="/settings?tab=secrets" className="font-medium text-primary underline underline-offset-4">{t('secretsLink')}</Link></div>
               </div>
             </div>}
+            {managed ? <div className="space-y-2 text-xs leading-relaxed [overflow-wrap:anywhere]">
+              <p>{t('setup.managedCredentials')}</p>
+              <p data-testid="email-classification-next-step">{t(`setup.next.${managedNextStep}`)}</p>
+              <Link href="/settings?tab=license" className="inline-flex min-h-11 items-center font-medium text-primary underline underline-offset-4">{t('setup.connectionLink')}</Link>
+            </div> : <div className="space-y-1 text-xs leading-relaxed [overflow-wrap:anywhere]">
+              <p data-testid="email-classification-required-key">{anonymousDraft ? t('setup.anonymous') : requiredCredentialKey ? t('setup.systemKey', { key: requiredCredentialKey }) : t('setup.missingKeyName')}</p>
+              {snapshot.availability.reason === 'budget_exhausted' && <p>{t('setup.dailyBudget')}</p>}
+            </div>}
+          </li>
+          <li className="min-w-0 space-y-3 rounded-md border p-4" data-testid="email-classification-step-3">
+            <h3 className="text-sm font-semibold">3. {t('setup.sample')}</h3>
             <div className="space-y-3 rounded-md border p-4">
               <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
                 <div className="space-y-1"><p className="text-sm font-medium">{t('testTitle')}</p><p className="text-xs leading-relaxed text-muted-foreground">{t('testHint')}</p></div>
@@ -269,6 +289,7 @@ export function EmailClassificationSettingsCard() {
                 </Button>
               </div>
               {probe && <InlineNotice variant="success" title={t('testPassed', { latency: probe.latencyMs })}>
+                <p className="mb-2 leading-relaxed">{t('setup.testPassedMeaning')}</p>
                 <dl className="grid grid-cols-2 gap-x-5 gap-y-2 text-xs sm:grid-cols-4">
                   <div><dt className="text-muted-foreground">{t('category')}</dt><dd>{probe.classification.category ? t(`categories.${probe.classification.category}`) : t('unknown')}</dd></div>
                   <div><dt className="text-muted-foreground">{t('priority')}</dt><dd>{probe.classification.priority ? t(`priorities.${probe.classification.priority}`) : t('unknown')}</dd></div>
@@ -277,6 +298,35 @@ export function EmailClassificationSettingsCard() {
                 </dl>
               </InlineNotice>}
             </div>
+          </li>
+          <li className="min-w-0 space-y-3 rounded-md border p-4" data-testid="email-classification-step-4">
+            <h3 className="text-sm font-semibold">4. {t('setup.activate')}</h3>
+            <p className="text-xs leading-relaxed text-muted-foreground">{t('setup.activationHint')}</p>
+            <div className="flex items-start justify-between gap-4 rounded-md border bg-muted/20 p-4">
+              <div className="min-w-0 space-y-1">
+                <Label htmlFor="email-classification-enabled" className="text-sm font-medium">{t('enable')}</Label>
+                <p id="email-classification-scope" className="text-xs leading-relaxed text-muted-foreground">{t('scope')}</p>
+                <p id="email-classification-selection" className="text-xs leading-relaxed text-muted-foreground">{t('selectionHint')}</p>
+              </div>
+              <Switch id="email-classification-enabled" aria-describedby="email-classification-scope email-classification-selection" checked={draft?.enabled ?? false}
+                disabled={loading || !draft || busy} onCheckedChange={enabled => edit(current => ({ ...current, enabled }))} />
+            </div>
+            <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-4">
+              <p className="text-xs text-muted-foreground">{dirty ? t('saveHint') : t('savedScope')}</p>
+              <Button type="button" disabled={!dirty || busy || serverChanged || baseRevision === null} onClick={() => void save()}>
+                {action === 'save' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}{t('save')}
+              </Button>
+            </div>
+          </li>
+        </ol>}
+
+        {draft && snapshot && <Collapsible open={open} onOpenChange={setOpen}>
+          <CollapsibleTrigger asChild>
+            <Button type="button" variant="ghost" className="h-auto min-h-10 w-full justify-between px-0 text-left" aria-label={t('configuration')}>
+              <span>{t('configuration')}</span><ChevronDown className={`h-4 w-4 transition-transform ${open ? 'rotate-180' : ''}`} aria-hidden="true" />
+            </Button>
+          </CollapsibleTrigger>
+          <CollapsibleContent className="space-y-5 pt-2">
             <details className="rounded-md border" data-testid="email-classification-advanced">
               <summary className="cursor-pointer px-4 py-3 text-sm font-medium focus-visible:outline-ring">{t('advanced')}</summary>
               <div className="space-y-5 px-4 pb-4">
@@ -319,12 +369,6 @@ export function EmailClassificationSettingsCard() {
             </details>
           </CollapsibleContent>
         </Collapsible>}
-        {draft && <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-4">
-          <p className="text-xs text-muted-foreground">{dirty ? t('saveHint') : t('savedScope')}</p>
-          <Button type="button" disabled={!dirty || busy || serverChanged || baseRevision === null} onClick={() => void save()}>
-            {action === 'save' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}{t('save')}
-          </Button>
-        </div>}
       </CardContent>
     </Card>
   );

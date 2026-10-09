@@ -17,6 +17,7 @@ import { normalizeEmailClassificationResult } from './normalize';
 import { buildEmailClassificationQuestions, buildEmailDecisionState, EMAIL_CLASSIFICATION_SCHEMA_VERSION } from './schema';
 import { emailClassificationEvaluationFingerprint } from './settings-evaluation';
 import { isEmailSelectedForClassification } from './selection';
+import { EmailMailboxSyncError, emailMailboxSyncErrorCode } from './sync-errors';
 import type { EmailClassificationConfiguration } from './settings-types';
 import { getRuntimeEmailClassificationStore, type PostgresEmailClassificationStore } from './store';
 import type { StoredEmailClassificationJob, StoredEmailClassificationMailbox, StoredEmailClassificationMetadata } from './store-types';
@@ -211,15 +212,18 @@ export function createEmailClassificationWorker(dependencies: EmailClassificatio
     if (!syncClaim) return;
     const controller = new AbortController();
     activeSync.add(controller);
-    const rawTimer = setTimeout(() => controller.abort(new Error('Email metadata request timed out.')), dependencies.rawTimeoutMs ?? 60_000);
+    const rawTimer = setTimeout(() => controller.abort(new EmailMailboxSyncError('timeout')), dependencies.rawTimeoutMs ?? 60_000);
     const limit = source.mailbox.accountSource === 'managed' ? 25 : 50;
     let pages = 0;
     let coverage: StoredEmailClassificationMailbox['coverage'] = cursor.complete ? 'complete' : 'partial';
+    let stage: 'provider' | 'content' | 'storage' = 'storage';
     try {
       source = await freshSource(source);
       if (source.mailbox.bindingRevision !== stored.bindingRevision || source.mailbox.policyRevision !== stored.policyRevision) throw new WorkerCancelled('source_changed');
       const loadPage = async (offset: number, head: boolean) => {
+        stage = 'provider';
         const page = await withAbort((dependencies.listMessages ?? defaultList)({ ...source, offset, limit, signal: controller.signal }), controller.signal);
+        stage = 'storage';
         pages++;
         const messages = page.messages.map(message => normalizedInboxMessage(message, page, source.mailbox));
         const refs = messages.flatMap(message => { const ref = messageRef(message, source.mailbox); return ref ? [ref] : []; });
@@ -228,7 +232,9 @@ export function createEmailClassificationWorker(dependencies: EmailClassificatio
         let invalidIdentity = false;
         for (const message of messages) {
           controller.signal.throwIfAborted();
+          stage = 'content';
           const metadata = await ingest({ mailbox: source.mailbox, message, enqueue: false, inInbox: true, inboxSeenAt: now(), settings, provenance: source.mailbox.provider === 'imap' ? 'imap' : 'provider', now: now() });
+          stage = 'storage';
           if (!metadata) { invalidIdentity = true; continue; }
           result.indexed++;
           const latest = await store.readSettings();
@@ -288,8 +294,9 @@ export function createEmailClassificationWorker(dependencies: EmailClassificatio
     } catch (error) {
       const attempts = (failure?.attempts ?? 0) + 1;
       syncFailures.set(source.mailbox.mailboxRef, { attempts, until: now() + emailClassificationRetryDelay(attempts, dependencies.random) });
-      if (!(error instanceof WorkerCancelled)) await store.recordMailboxSync({ mailboxRef: source.mailbox.mailboxRef, bindingRevision: stored.bindingRevision,
-        policyRevision: stored.policyRevision, claimToken: syncClaim, cursor: stored.syncCursor, coverage: 'failed', now: now() });
+      const failureReason = controller.signal.aborted ? controller.signal.reason : error;
+      if (!(failureReason instanceof WorkerCancelled)) await store.recordMailboxSync({ mailboxRef: source.mailbox.mailboxRef, bindingRevision: stored.bindingRevision,
+        policyRevision: stored.policyRevision, claimToken: syncClaim, cursor: stored.syncCursor, coverage: 'failed', errorCode: emailMailboxSyncErrorCode(failureReason, stage), now: now() });
     } finally { clearTimeout(rawTimer); activeSync.delete(controller); await store.releaseMailboxSync({ mailboxRef: source.mailbox.mailboxRef, claimToken: syncClaim }); }
   }
 
