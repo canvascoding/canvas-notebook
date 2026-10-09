@@ -1,10 +1,11 @@
 import type { CallToolResult } from '@modelcontextprotocol/client';
 import { CallToolResultSchema } from '@modelcontextprotocol/core';
 import { McpAccessError } from '@/app/lib/mcp/access';
-import type { PersonalMcpAppDescriptor } from '@/app/lib/mcp/apps-types';
+import type { McpAppDescriptor } from '@/app/lib/mcp/apps-types';
+import { readMcpAppDescriptor } from '@/app/lib/mcp/apps-contracts';
 
-/** Native protocol v1 supports personal descriptors only; shared v2 is a later contract. */
-export type MobileMcpApp = PersonalMcpAppDescriptor;
+/** The transport stays v1; each exact descriptor declares personal v1 or shared v2. */
+export type MobileMcpApp = McpAppDescriptor;
 export const MOBILE_MCP_ARGUMENT_BYTES = 32 * 1024;
 export const MOBILE_MCP_RESULT_BYTES = 2 * 1024 * 1024;
 export const MOBILE_MCP_REQUEST_BYTES = 64 * 1024;
@@ -45,6 +46,12 @@ export function mobileMcpCanonicalJson(value: unknown, depth = 0): string {
   return mcpInvalidRequest();
 }
 export function readMobileMcpApp(value: unknown): MobileMcpApp {
+  if (isMobileMcpRecord(value) && value.version === 2) {
+    const app = readMcpAppDescriptor(value);
+    if (!app || app.version !== 2 || /[\u0000-\u001f\u007f-\u009f]/u.test(app.toolName)
+      || /[\u0000-\u001f\u007f-\u009f]/u.test(app.resourceUri)) return mcpInvalidRequest();
+    return app;
+  }
   if (!isMobileMcpRecord(value) || Object.keys(value).some(key => !['version','connectionId','toolName','resourceUri'].includes(key))
     || value.version !== 1 || typeof value.connectionId !== 'string' || !MOBILE_MCP_UUID.test(value.connectionId)
     || typeof value.toolName !== 'string' || !value.toolName || value.toolName.length > 256 || /[\u0000-\u001f\u007f]/u.test(value.toolName)
@@ -52,8 +59,11 @@ export function readMobileMcpApp(value: unknown): MobileMcpApp {
   return { version: 1, connectionId: value.connectionId, toolName: value.toolName, resourceUri: value.resourceUri };
 }
 export function readMobileMcpSource(body: Record<string, unknown>): MobileMcpSource {
-  if (body.contractVersion !== 1 || typeof body.toolCallId !== 'string' || !body.toolCallId || body.toolCallId.length > 200 || /[\u0000-\u001f\u007f]/u.test(body.toolCallId)) return mcpInvalidRequest();
-  return { toolCallId: body.toolCallId, app: readMobileMcpApp(body.app) };
+  const app = readMobileMcpApp(body.app);
+  if (body.contractVersion !== 1 || typeof body.toolCallId !== 'string' || !body.toolCallId
+    || body.toolCallId.length > (app.version === 2 ? 256 : 200) || /[\u0000-\u001f\u007f-\u009f]/u.test(body.toolCallId)
+    || app.version === 2 && body.toolCallId !== app.toolCallId) return mcpInvalidRequest();
+  return { toolCallId: body.toolCallId, app };
 }
 export function readMobileMcpRender(body: Record<string, unknown>): MobileMcpSource {
   if (Object.keys(body).some(key => !['contractVersion','toolCallId','app'].includes(key))) return mcpInvalidRequest();

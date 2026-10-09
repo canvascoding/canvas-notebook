@@ -47,6 +47,9 @@ async function main() {
   const body = await response.json();
   assert.ok(body.mobileApi.capabilities.includes('chat.mcp_apps.v1'));
   assert.ok(body.mobileApi.capabilities.includes('integrations.mcp_mobile.v1'));
+  for (const capability of ['chat.mcp_apps.v2', 'extensions.resources.v2', 'integrations.shared_connections.v2', 'integrations.shared_oauth.v2', 'agents.workflow.v2']) {
+    assert.ok(body.mobileApi.capabilities.includes(capability));
+  }
   assert.deepEqual(body.workspace.items, []);
   assert.equal(JSON.stringify(body).includes('private-fixture-instance'), false);
   console.log('mobile-bootstrap-route-test: auth, seat/workspace guards, personal MCP capabilities and private instance isolation passed');

@@ -84,7 +84,10 @@ async function main() {
     const sourceDigest = 'a'.repeat(64); let sourceValid = true, authVersion = 1, hostValid = true;
     const source = async (current: MobileMcpActor) => {
       if (!sourceValid || current.authSessionId !== actor.authSessionId || current.userId !== actor.userId) throw new Error('Current source authorization denied.');
-      return { piSessionDbId: 7, sourceReceiptDigest: sourceDigest, input: {}, result: { content: [] }, authVersion };
+      const selected = await (await import('../app/lib/mcp/access')).assertMcpConnectionAccess(app.connectionId, { userId: current.userId });
+      const environment = await (await import('../app/lib/mcp/env-runtime')).readMcpAvailableEnvSnapshot({ userId: current.userId });
+      return { piSessionDbId: 7, sourceReceiptDigest: sourceDigest, input: {}, result: { content: [] }, authVersion,
+        connectionId: app.connectionId, scope: { userId: current.userId }, configHash: manager.hashMcpServerConfig(selected.connection), environmentRevision: environment.revision };
     };
     const auth = await load<typeof import('../app/lib/mobile/mcp-apps-access')>('app/lib/mobile/mcp-apps-access.ts', {
       '@/app/lib/db': {}, '@/app/lib/mcp/apps-host': {}, './tool-apps-route': {},
@@ -103,7 +106,9 @@ async function main() {
       './mobile-app-tickets': { requireMobileMcpAppChannel: async (current: MobileMcpActor) => {
         await source(current); if (!hostValid) throw new Error('Expired host.');
         const selected = await (await import('../app/lib/mcp/access')).assertMcpConnectionAccess(app.connectionId, { userId: actor.userId });
-        return { authVersion, sourceReceiptDigest: sourceDigest, expiresAt: Date.now() + 60_000, configHash: manager.hashMcpServerConfig(selected.connection) };
+        const environment = await (await import('../app/lib/mcp/env-runtime')).readMcpAvailableEnvSnapshot({ userId: current.userId });
+        return { authVersion, connectionId: app.connectionId, environmentRevision: environment.revision,
+          sourceReceiptDigest: sourceDigest, expiresAt: Date.now() + 60_000, configHash: manager.hashMcpServerConfig(selected.connection) };
       } }, '@/app/lib/mobile/mcp-apps-access': { ...auth, readAuthorizedMobileMcpSource: source },
     });
     const prepare = (value = 'approved'): MobileMcpPrepare => ({ toolCallId: 'source-call', app, hostChannelId: randomUUID(), requestId: randomUUID(), tool: 'action', arguments: { value } });

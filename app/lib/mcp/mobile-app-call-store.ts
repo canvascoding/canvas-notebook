@@ -10,14 +10,14 @@ import { MOBILE_MCP_EXECUTION_TTL, readMobileMcpResult,
 export type MobileMcpCallRecord = Omit<MobileMcpCall, 'status'> & {
   status: Exclude<MobileMcpCall['status'], 'expired'>; actor: MobileMcpActor; piSessionDbId: number;
   sourceReceiptDigest: string; request: MobileMcpPrepare & { metadataDigest: string; environmentRevision: string };
-  executionId: string | null;
+  executionId: string | null; connectionId: string;
 };
 type Row = Record<string, unknown>;
 function decode(row: unknown): MobileMcpCallRecord | null {
   if (!row) return null;
   const r = row as Row, request = JSON.parse(String(r.request_json)) as MobileMcpCallRecord['request'];
   return { callId: String(r.call_id), requestId: String(r.request_id), toolCallId: String(r.source_tool_call_id),
-    app: request.app, tool: request.tool, requestDigest: String(r.request_digest), authVersion: Number(r.auth_version),
+    app: request.app, tool: request.tool, requestDigest: String(r.request_digest), authVersion: Number(r.auth_version), connectionId: String(r.connection_id),
     status: r.status as MobileMcpCallRecord['status'], createdAt: Number(r.created_at), updatedAt: Number(r.updated_at),
     approvalExpiresAt: Number(r.approval_expires_at), executionDeadlineAt: r.execution_deadline_at === null ? null : Number(r.execution_deadline_at),
     executionId: r.execution_id === null ? null : String(r.execution_id),
@@ -49,7 +49,7 @@ export class MobileMcpAppCallStore {
           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'prepared',$15,$15,$16)
           ON CONFLICT (actor_user_id,request_id) DO NOTHING`, [record.callId, record.actor.userId, record.actor.authSessionId,
           record.actor.workspaceId, record.piSessionDbId, record.actor.sessionId, record.actor.agentId, record.toolCallId,
-          record.sourceReceiptDigest, record.app.connectionId, record.authVersion, record.requestId, record.requestDigest,
+          record.sourceReceiptDigest, record.connectionId, record.authVersion, record.requestId, record.requestDigest,
           JSON.stringify(record.request), record.createdAt, record.approvalExpiresAt]);
         const current = decode(await database.get('SELECT * FROM mobile_mcp_app_calls WHERE actor_user_id=$1 AND request_id=$2 FOR UPDATE',
           [record.actor.userId, record.requestId]));

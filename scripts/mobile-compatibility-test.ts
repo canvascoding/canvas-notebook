@@ -113,6 +113,11 @@ assert.deepEqual(compatibility, {
       'integrations.composio_catalog',
       'integrations.composio_mobile_auth',
       'integrations.mcp_mobile.v1',
+      'chat.mcp_apps.v2',
+      'extensions.resources.v2',
+      'integrations.shared_connections.v2',
+      'integrations.shared_oauth.v2',
+      'agents.workflow.v2',
     ],
   },
   auth: {

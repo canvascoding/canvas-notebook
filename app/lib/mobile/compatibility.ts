@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 
 import { MOBILE_INBOX_FILE_CHANGES_CAPABILITY } from './inbox-capabilities';
 import { MOBILE_EMAIL_REVIEW_CAPABILITY } from './email-capabilities';
+import { MOBILE_PLUGIN_GATEWAY_CAPABILITIES } from './plugin-gateway-capabilities';
 
 export const MOBILE_API_VERSION = 'v1' as const;
 export const MINIMUM_MOBILE_CLIENT_VERSION = '0.1.0' as const;
@@ -102,6 +103,7 @@ export type MobileCompatibility = {
       'integrations.composio_catalog',
       'integrations.composio_mobile_auth',
       'integrations.mcp_mobile.v1',
+      ...typeof MOBILE_PLUGIN_GATEWAY_CAPABILITIES,
     ];
   };
   auth: {
@@ -222,6 +224,7 @@ export function createMobileCompatibility(input: {
         'integrations.composio_catalog',
         'integrations.composio_mobile_auth',
         'integrations.mcp_mobile.v1',
+        ...MOBILE_PLUGIN_GATEWAY_CAPABILITIES,
       ],
     },
     auth: {

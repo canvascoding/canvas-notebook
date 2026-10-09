@@ -1,6 +1,6 @@
 # Native Mobile MCP foundation
 
-This document describes the personal version-1 server foundation integrated in step `6b-e-1`. Shared connection references, version-2 app descriptors, central workflows and the Expo client are subsequent steps. These capabilities do not advertise shared Mobile support.
+This document describes the personal version-1 server foundation integrated in step `6b-e-1`. The additive shared descriptors, scoped management and native OAuth contracts are described in [native-shared-contracts.md](native-shared-contracts.md) for step `6b-e-2`. The Expo client and simulator/emulator acceptance remain subsequent steps.
 
 ## Versioned HTTP contract
 

@@ -412,6 +412,7 @@
     "test:mobile:agents": "tsx --conditions react-server scripts/mobile-agents-extensions-test.ts",
     "test:mobile:plugin-resources": "tsx --conditions react-server scripts/mobile-plugin-resource-read-test.ts",
     "test:mobile:mcp": "tsx --conditions react-server scripts/mobile-mcp-app-call-test.ts && tsx --conditions react-server scripts/mobile-mcp-apps-contract-test.ts && tsx --conditions react-server scripts/mobile-mcp-host-test.ts && tsx --conditions react-server scripts/mobile-mcp-oauth-test.ts && tsx --conditions react-server scripts/html-preview-proxy-test.ts && tsx --conditions react-server scripts/mobile-mcp-config-test.ts && tsx --conditions react-server scripts/mobile-bearer-proxy-test.ts",
+    "test:mobile:plugin-gateway": "tsx --conditions react-server scripts/mobile-shared-mcp-apps-test.ts && tsx --conditions react-server scripts/mobile-scoped-resources-workflow-v2-test.ts && tsx --conditions react-server scripts/mobile-shared-connection-oauth-test.ts",
     "test:account:credentials": "tsx --conditions react-server scripts/account-credentials-route-test.ts",
     "test:organization:permissions": "tsx --conditions react-server scripts/organization-permission-guards-test.ts",
     "test:organization:offboarding": "tsx --conditions react-server scripts/organization-offboarding-test.ts",

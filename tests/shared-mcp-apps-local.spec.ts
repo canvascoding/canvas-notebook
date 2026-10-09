@@ -1,10 +1,10 @@
 import { constants } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { spawn, execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { expect, test, request, type APIResponse, type Browser, type BrowserContext, type Frame, type Page } from '@playwright/test';
+import { expect, test, request, type APIRequestContext, type APIResponse, type Browser, type BrowserContext, type Frame, type Page } from '@playwright/test';
 import { createAuthenticatedContext, requestManagedTestSession, runManagedTestPreflight, waitForAuthRetry } from './helpers/managed-test-context';
 import { createSharedIntegrationProviderRef } from '../app/lib/integration-tools/connections/provider-authorization';
 import type { IntegrationConnectionDescriptor, IntegrationConnectionMutation } from '../app/lib/integration-tools/connections/contracts';
@@ -23,6 +23,11 @@ type ProviderState = { requests: string[]; calls: Array<{ name: string }>; resou
 type Member = { context: BrowserContext; userId: string; email: string; password: string };
 type OwnedSession = { sessionId: string; actorUserId: string; context: BrowserContext; deleted: boolean };
 type Invocation = { descriptor: SharedMcpAppDescriptor; input: Record<string, unknown>; result: unknown; messageId: number; sequence: number };
+type NativeHost = { url: string; origin: string; frameOrigin: string; channelId: string; nonce: string; expiresAt: number };
+type NativeRender = { success: true; contractVersion: 1; sessionId: string; workspaceId: string; toolCallId: string; checkedAt: number; host: NativeHost };
+type NativeCall = { success: true; contractVersion: 1; call: null | { callId: string; status: string; app: SharedMcpAppDescriptor; result?: unknown };
+  approval: null | { token: string; tool: string; arguments: Record<string, unknown> } };
+type NativeHandle = { api: APIRequestContext; userId: string; authSessionId: string; session: OwnedSession; invocation: Invocation; render: NativeRender };
 type Receipt = { version: 1; nonce: string; actorId: string; phase: string; outstanding: string | null; closedContexts: boolean;
   membershipIds: string[]; actorIds: string[]; workspaceIds: string[]; agentId?: string;
   connections: Array<{ connectionRef: string; ownership: 'organization' | 'team'; archived: boolean }>;
@@ -30,7 +35,8 @@ type Receipt = { version: 1; nonce: string; actorId: string; phase: string; outs
   processes: Array<{ pid: number; processGroupId: number; closed: boolean }>;
   invocations: Array<{ sessionId: string; toolCallId: string; connectionRef: string }>;
   visualInventory: string[]; forbiddenRequests: string[]; unexpectedDialogs: string[];
-  verifiedCases: number; providerFinal?: ProviderState; failure?: { name: string; site?: string } };
+  verifiedCases: number; nativeProtocolCases?: string[]; nativeBridgeTransportSeam?: true; nativeDevice?: false;
+  providerFinal?: ProviderState; failure?: { name: string; site?: string } };
 const baseUrl = 'http://127.0.0.1:3001';
 const tools = ['app_view', 'app_action', 'model_only'];
 let fixture: Fixture, receipt: Receipt, admin: BrowserContext, control: Awaited<ReturnType<typeof request.newContext>>;
@@ -40,6 +46,7 @@ let agent: AgentProfile, originalBradley: unknown, originalCatalog: AiAppRuntime
 let receiptWrite = Promise.resolve();
 const connections: IntegrationConnectionDescriptor[] = [], sessions: OwnedSession[] = [], pages: Page[] = [];
 const invocations: Invocation[] = [], frameTickets: string[] = [];
+const nativeApiContexts: APIRequestContext[] = [], nativeBrowserContexts: BrowserContext[] = [], nativeHandles: NativeHandle[] = [];
 test.describe.configure({ mode: 'serial' });
 test.use({ trace: 'off', video: 'off' });
 
@@ -49,6 +56,35 @@ async function readOwnedSharedMcpAppsData<T>(response: APIResponse, status = 200
   expect(payload.success).toBe(true);
   if (!payload.data || typeof payload.data !== 'object') throw new Error('An acknowledged object DTO is required.');
   return payload.data;
+}
+
+/** Native authentication is issued by Better Auth and carried only by a cookie-free API client. */
+async function createOwnedSharedMcpAppsBearer(email: string, password: string): Promise<{ api: APIRequestContext; userId: string; authSessionId: string }> {
+  const signIn = await request.newContext({ baseURL: baseUrl, timeout: 15_000, extraHTTPHeaders: { Origin: baseUrl } });
+  nativeApiContexts.push(signIn);
+  const deadline = Date.now() + 45_000;
+  let token = '';
+  for (let attempt = 0; ; attempt++) {
+    const response = await signIn.post('/api/auth/sign-in/email', { data: { email, password } });
+    if (response.status() === 429 && attempt < 2) { await waitForAuthRetry(response, deadline, 'Owned shared native sign-in', attempt + 1); continue; }
+    expect(response.status()).toBe(200); token = response.headers()['set-auth-token'] ?? '';
+    if (!token || token.length > 4096 || /[\s\u0000-\u001f\u007f]/u.test(token)) throw new Error('The native sign-in requires its actual bounded bearer.');
+    break;
+  }
+  const api = await request.newContext({ baseURL: baseUrl, timeout: 15_000, storageState: { cookies: [], origins: [] },
+    extraHTTPHeaders: { Authorization: `Bearer ${token}` } });
+  token = ''; nativeApiContexts.push(api);
+  const response = await api.get('/api/auth/get-session'); expect(response.status()).toBe(200);
+  const identity = await response.json() as { user: { id: string; email: string }; session: { id: string } };
+  expect(identity.user.email.toLowerCase()).toBe(email.toLowerCase()); expect(identity.user.id).toMatch(/^[A-Za-z0-9_-]{1,128}$/u);
+  expect(identity.session.id).toMatch(/^[A-Za-z0-9_-]{1,128}$/u); expect((await api.storageState()).cookies).toEqual([]);
+  return { api, userId: identity.user.id, authSessionId: identity.session.id };
+}
+
+async function readOwnedSharedNativeData<T>(response: APIResponse): Promise<T> {
+  expect(response.status()).toBe(200); const payload = await response.json() as { success: boolean; contractVersion: number; workspaceId: string; data: T };
+  expect(payload).toMatchObject({ success: true, contractVersion: 2, workspaceId: teamId });
+  expect(response.headers()['cache-control']).toContain('no-store'); expect(response.headers().vary).toContain('Authorization'); return payload.data;
 }
 
 async function persistOwnedSharedMcpAppsReceipt(): Promise<void> {
@@ -267,7 +303,7 @@ async function cleanupOwnedSharedMcpAppsFixture(): Promise<void> {
   if (!receipt) return;
   let verified = false;
   try {
-    expect(receipt.verifiedCases).toBe(3); expect(receipt.outstanding).toBeNull(); expect(receipt.forbiddenRequests).toEqual([]); expect(receipt.unexpectedDialogs).toEqual([]);
+    expect(receipt.verifiedCases).toBe(4); expect(receipt.nativeProtocolCases).toHaveLength(7); expect(receipt.outstanding).toBeNull(); expect(receipt.forbiddenRequests).toEqual([]); expect(receipt.unexpectedDialogs).toEqual([]);
     for (const page of pages) if (!page.isClosed()) await page.close();
     for (const owned of sessions) {
       receipt.outstanding = `cleanup:session:${owned.sessionId}`; await persistOwnedSharedMcpAppsReceipt();
@@ -311,7 +347,7 @@ async function cleanupOwnedSharedMcpAppsFixture(): Promise<void> {
     expect(listing.workspaces.some(value => value.id === teamId)).toBe(false);
     expect(receipt.processes.length).toBe(3); expect(receipt.processes.every(value => value.closed && value.processGroupId === value.pid)).toBe(true);
     const finalState = await requestOwnedSharedMcpAppsProviderState(); expect(finalState.verificationProbes).toBe(1);
-    expect(finalState.calls.filter(value => value.name === 'app_view')).toHaveLength(3); expect(finalState.calls.filter(value => value.name === 'app_action')).toHaveLength(1);
+    expect(finalState.calls.filter(value => value.name === 'app_view')).toHaveLength(3); expect(finalState.calls.filter(value => value.name === 'app_action')).toHaveLength(2);
     expect(finalState.calls.filter(value => value.name === 'model_only')).toHaveLength(0); receipt.providerFinal = finalState;
     receipt.outstanding = null; verified = true;
   } catch (error) {
@@ -322,6 +358,8 @@ async function cleanupOwnedSharedMcpAppsFixture(): Promise<void> {
     for (const page of pages) if (!page.isClosed()) await page.close().catch(() => undefined);
     let closed = true;
     for (const context of [...members.map(value => value.context), admin]) if (context) { try { await context.close(); } catch { closed = false; } }
+    for (const context of nativeBrowserContexts) { try { await context.close(); } catch { closed = false; } }
+    for (const api of nativeApiContexts) { try { await api.dispose(); } catch { closed = false; } }
     if (control) { try { await control.dispose(); } catch { closed = false; } }
     receipt.closedContexts = closed;
     if (verified && closed) receipt.phase = 'verified_closed'; else receipt.phase = 'preserved';
@@ -447,6 +485,92 @@ test('two users open the same team instance; cross-session and model-only calls 
   await openedA.page.close(); await openedB.page.close(); receipt.verifiedCases++; await persistOwnedSharedMcpAppsReceipt();
 });
 
+test('native bearer contracts retain both exact scopes and shared saved authority through one-shot AppBridge calls', async ({ browser }) => {
+  const headers = { 'X-Canvas-Workspace-Id': teamId };
+  receipt.nativeProtocolCases = []; receipt.nativeBridgeTransportSeam = true; receipt.nativeDevice = false;
+  const unauthenticated = await control.get(`${baseUrl}/api/mobile/v1/integrations/shared-connections`, { headers });
+  expect(unauthenticated.status()).toBe(401);
+  for (const [index, member] of members.entries()) {
+    const identity = await createOwnedSharedMcpAppsBearer(member.email, member.password); expect(identity.userId).toBe(member.userId);
+    const bootstrapResponse = await identity.api.get('/api/mobile/v1/bootstrap'); expect(bootstrapResponse.status()).toBe(200);
+    const bootstrap = await bootstrapResponse.json() as { mobileApi: { capabilities: string[] } };
+    expect(bootstrap.mobileApi.capabilities).toEqual(expect.arrayContaining(['chat.mcp_apps.v1', 'chat.mcp_apps.v2', 'extensions.resources.v2', 'integrations.shared_connections.v2', 'agents.workflow.v2']));
+    const listed = await readOwnedSharedNativeData<{ connections: IntegrationConnectionDescriptor[] }>(await identity.api.get('/api/mobile/v1/integrations/shared-connections', { headers }));
+    expect(listed.connections).toHaveLength(2); expect(new Set(listed.connections.map(value => value.resource.displayName)).size).toBe(1);
+    expect(new Set(listed.connections.map(value => value.resource.connectionRef))).toEqual(new Set(connections.map(value => value.resource.connectionRef)));
+    for (const expected of connections) {
+      const detail = await readOwnedSharedNativeData<{ connection: IntegrationConnectionDescriptor }>(await identity.api.get(`/api/mobile/v1/integrations/shared-connections/${encodeURIComponent(expected.resource.connectionRef)}`, { headers }));
+      expect(detail.connection.resource.connectionRef).toBe(expected.resource.connectionRef); expect(detail.connection.resource.ownership).toEqual(expected.resource.ownership);
+      expect(detail.connection.access).toMatchObject({ canRead: true, canUse: true, canManage: false }); expect(detail.connection.grants).toBeUndefined();
+      for (const key of ['backend', 'config', 'secrets', 'connectedAccountId', 'profileId', 'connectionId']) expect(Object.hasOwn(detail.connection, key)).toBe(false);
+    }
+    const resources = await readOwnedSharedNativeData<{ resources: unknown[] }>(await identity.api.get('/api/mobile/v1/capabilities/resources', { headers })); expect(Array.isArray(resources.resources)).toBe(true);
+    const workflow = await readOwnedSharedNativeData<{ workflow: { access: { canUse: boolean; canEdit: boolean; canManage: boolean } } }>(await identity.api.get(`/api/mobile/v1/agents/${agent.agentId}/workflow`, { headers }));
+    expect(workflow.workflow.access).toEqual({ canUse: true, canEdit: false, canManage: false });
+    expect((await identity.api.get(`/api/mobile/v1/agents/${agent.agentId}/configuration-sources`, { headers })).status()).toBe(403);
+    expect((await identity.api.get('/api/mobile/v1/integrations/shared-connections?unknown=value', { headers })).status()).toBe(400);
+    const session = sessions[index + 1], invocation = invocations[index + 1]; expect(session.actorUserId).toBe(identity.userId);
+    const response = await identity.api.post(`/api/mobile/v1/sessions/${session.sessionId}/mcp-apps/render`, { headers,
+      data: { contractVersion: 1, toolCallId: invocation.descriptor.toolCallId, app: invocation.descriptor } });
+    expect(response.status()).toBe(200); const render = await response.json() as NativeRender;
+    expect(render).toMatchObject({ success: true, contractVersion: 1, sessionId: session.sessionId, workspaceId: teamId, toolCallId: invocation.descriptor.toolCallId });
+    expect(new URL(render.host.url).pathname).toMatch(/^\/__preview\/[A-Za-z0-9_-]{43}\/mobile-mcp\/host$/u);
+    expect(render.host.channelId).toMatch(/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/u); expect(render.host.nonce).toMatch(/^[A-Za-z0-9_-]{43}$/u);
+    nativeHandles.push({ ...identity, session, invocation, render }); expect((await identity.api.storageState()).cookies).toEqual([]);
+  }
+  receipt.nativeProtocolCases.push('real-bearer-and-no-auth-denial', 'same-name-exact-org-team-reader-dtos', 'use-only-workflow-management-denied');
+  const handle = nativeHandles[0], other = nativeHandles[1], source = { toolCallId: handle.invocation.descriptor.toolCallId, app: handle.invocation.descriptor };
+  const base = `/api/mobile/v1/sessions/${handle.session.sessionId}/mcp-apps`;
+  expect((await other.api.post(`${base}/render`, { headers, data: { contractVersion: 1, ...source } })).status()).toBe(404);
+  const forged = await handle.api.post(`${base}/render`, { headers, data: { contractVersion: 1, ...source,
+    app: { ...source.app, connectionRef: connections[0].resource.connectionRef } } }); expect([403, 409]).toContain(forged.status());
+  const context = await browser.newContext({ baseURL: baseUrl, storageState: { cookies: [], origins: [] }, viewport: { width: 390, height: 844 } });
+  nativeBrowserContexts.push(context); const page = await context.newPage(); pages.push(page);
+  page.on('dialog', dialog => { receipt.unexpectedDialogs.push(dialog.type()); void dialog.dismiss(); });
+  page.on('request', incoming => {
+    if (incoming.headers().authorization || incoming.headers().cookie || incoming.method() !== 'GET'
+      || !['127.0.0.1', 'localhost', '[::1]'].includes(new URL(incoming.url()).hostname)) receipt.forbiddenRequests.push(`${incoming.method()} ${new URL(incoming.url()).pathname}`);
+  });
+  await page.addInitScript(hostUrl => {
+    if (window !== window.top || location.href !== hostUrl) return;
+    const native = window as unknown as { __nativeMessages: string[]; ReactNativeWebView: { postMessage(message: string): void } };
+    native.__nativeMessages = []; native.ReactNativeWebView = { postMessage(raw) { if (typeof raw === 'string' && new TextEncoder().encode(raw).byteLength <= 65536) native.__nativeMessages.push(raw); } };
+  }, handle.render.host.url);
+  expect((await page.goto(handle.render.host.url, { waitUntil: 'domcontentloaded' }))?.status()).toBe(200);
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __nativeMessages: string[] }).__nativeMessages.some(raw => JSON.parse(raw).type === 'host_ready'))).toBe(true);
+  const send = async (type: string, payload: Record<string, unknown>) => page.evaluate(raw => window.dispatchEvent(new MessageEvent('message', { data: raw, origin: location.origin, source: window })),
+    JSON.stringify({ version: 1, channelId: handle.render.host.channelId, nonce: handle.render.host.nonce, type, payload }));
+  await send('host_context', { context: { theme: 'dark', locale: 'de', containerDimensions: { width: 390, maxHeight: 640 } } });
+  await expect.poll(() => page.frames().some(frame => new URL(frame.url() || baseUrl).pathname.endsWith('/mobile-mcp/document'))).toBe(true);
+  const document = page.frames().find(frame => new URL(frame.url() || baseUrl).pathname.endsWith('/mobile-mcp/document'))!;
+  await expect(document.locator('#status')).toHaveText('Ready'); await expect(document.locator('#context')).toHaveText('{"theme":"dark","locale":"de"}');
+  await expect(document.locator('#result')).toHaveText(JSON.stringify((handle.invocation.result as { structuredContent: unknown }).structuredContent));
+  await document.locator('#isolation').click(); await expect(document.locator('#sandbox')).toHaveText('{"parentBlocked":true,"storageBlocked":true,"networkBlocked":true}');
+  expect(await document.evaluate(() => typeof (window as unknown as { ReactNativeWebView?: unknown }).ReactNativeWebView)).toBe('undefined');
+  const before = await requestOwnedSharedMcpAppsProviderState();
+  await document.locator('#action').click();
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __nativeMessages: string[] }).__nativeMessages.some(raw => JSON.parse(raw).type === 'tool_call'))).toBe(true);
+  const event = await page.evaluate(() => (window as unknown as { __nativeMessages: string[] }).__nativeMessages.map(raw => JSON.parse(raw)).find(value => value.type === 'tool_call')) as { channelId: string; nonce: string; payload: { requestId: string; tool: string; arguments: Record<string, unknown> } };
+  expect(event).toMatchObject({ channelId: handle.render.host.channelId, nonce: handle.render.host.nonce, payload: { tool: 'app_action', arguments: { value: 'from-widget' } } });
+  const prepare = { contractVersion: 1, ...source, hostChannelId: handle.render.host.channelId, ...event.payload };
+  const modelOnly = await handle.api.post(`${base}/calls`, { headers, data: { ...prepare, requestId: randomUUID(), tool: 'model_only' } }); expect([403, 409]).toContain(modelOnly.status());
+  const preparedResponse = await handle.api.post(`${base}/calls`, { headers, data: prepare }); expect(preparedResponse.status()).toBe(200); const prepared = await preparedResponse.json() as NativeCall;
+  expect(prepared.call).toMatchObject({ status: 'prepared', app: source.app }); expect(prepared.approval).toMatchObject({ tool: 'app_action', arguments: { value: 'from-widget' } });
+  expect((await requestOwnedSharedMcpAppsProviderState()).calls).toEqual(before.calls);
+  const decide = { contractVersion: 1, decision: 'approve', approvalToken: prepared.approval!.token };
+  const approvedResponse = await handle.api.post(`${base}/calls/${prepared.call!.callId}`, { headers, data: decide }); expect(approvedResponse.status()).toBe(200); const approved = await approvedResponse.json() as NativeCall;
+  expect(approved.call?.status).toBe('completed');
+  await send('tool_result', { requestId: event.payload.requestId, result: approved.call!.result }); await expect(document.locator('#status')).toHaveText('Approved');
+  const repeatResponse = await handle.api.post(`${base}/calls/${prepared.call!.callId}`, { headers, data: decide }); expect(repeatResponse.status()).toBe(200); expect((await repeatResponse.json() as NativeCall).call?.status).toBe('completed');
+  const recovered = await handle.api.get(`${base}/calls/${prepared.call!.callId}`, { headers }); expect(recovered.status()).toBe(200); expect((await recovered.json() as NativeCall).call?.status).toBe('completed');
+  expect((await requestOwnedSharedMcpAppsProviderState()).calls.filter(value => value.name === 'app_action')).toHaveLength(2);
+  const screenshot = 'mcp-apps-native-shared-390-dark.png'; await page.screenshot({ path: path.join(fixture.fixtureRoot, screenshot), scale: 'css' }); receipt.visualInventory.push(screenshot);
+  await send('teardown', {}); await expect(page.locator('iframe')).toHaveCount(0);
+  expect((await context.cookies()).length).toBe(0); await page.close();
+  receipt.nativeProtocolCases.push('saved-shared-v2-two-actors-and-no-fallback', 'native-host-sdk-opaque-provider', 'native-prepare-approval-and-no-replay');
+  receipt.verifiedCases++; await persistOwnedSharedMcpAppsReceipt();
+});
+
 test('a replacement auth session invalidates its ticket; Manage-only and revoked Use cannot render, call or deliver an old document', async () => {
   const session = sessions[2], app = invocations[2]; expect(session.actorUserId).toBe(members[1].userId);
   const ticket = frameTickets[2], before = await requestOwnedSharedMcpAppsProviderState();
@@ -476,6 +600,14 @@ test('a replacement auth session invalidates its ticket; Manage-only and revoked
   const managerDescriptor = (await readOwnedSharedMcpAppsData<{ connection: IntegrationConnectionDescriptor }>(await members[1].context.request.get(`/api/integrations/shared-connections/${encodeURIComponent(connections[1].resource.connectionRef)}?workspaceId=${encodeURIComponent(teamId)}`))).connection;
   expect(managerDescriptor.access).toEqual({ canRead: true, canUse: false, canManage: true });
   const beforeManage = await requestOwnedSharedMcpAppsProviderState();
+  const native = nativeHandles[1], nativeHeaders = { 'X-Canvas-Workspace-Id': teamId };
+  expect(native.userId).toBe(members[1].userId);
+  const nativeManager = await readOwnedSharedNativeData<{ connection: IntegrationConnectionDescriptor }>(await native.api.get(`/api/mobile/v1/integrations/shared-connections/${encodeURIComponent(connections[1].resource.connectionRef)}`, { headers: nativeHeaders }));
+  expect(nativeManager.connection.access).toMatchObject({ canRead: true, canUse: false, canManage: true });
+  const nativeDenied = await native.api.post(`/api/mobile/v1/sessions/${native.session.sessionId}/mcp-apps/render`, { headers: nativeHeaders,
+    data: { contractVersion: 1, toolCallId: native.invocation.descriptor.toolCallId, app: native.invocation.descriptor } });
+  expect([403, 404, 409]).toContain(nativeDenied.status());
+  expect((await control.get(native.render.host.url)).status()).toBe(404);
   const manageOnly = await members[1].context.request.post('/api/mcp/apps', { data: { action: 'render', app: app.descriptor, sessionId: session.sessionId, agentId: agent.agentId } });
   expect([403, 404]).toContain(manageOnly.status()); const afterManage = await requestOwnedSharedMcpAppsProviderState();
   expect(afterManage.requests).toEqual(beforeManage.requests); expect(afterManage.resourceReads).toEqual(beforeManage.resourceReads);
@@ -488,6 +620,11 @@ test('a replacement auth session invalidates its ticket; Manage-only and revoked
   const document = await members[1].context.request.get(`${baseUrl}/__preview/${freshTicket}/mcp-app/document`); expect(document.status()).toBe(404);
   expect(await document.text()).toBe('');
   const after = await requestOwnedSharedMcpAppsProviderState(); expect(after.calls).toEqual(before.calls); expect(after.resourceReads).toEqual(afterManage.resourceReads);
+  expect((await native.api.get(`/api/mobile/v1/integrations/shared-connections/${encodeURIComponent(connections[1].resource.connectionRef)}`, { headers: nativeHeaders })).status()).toBe(404);
+  const remainingNativeOrg = await readOwnedSharedNativeData<{ connection: IntegrationConnectionDescriptor }>(await native.api.get(`/api/mobile/v1/integrations/shared-connections/${encodeURIComponent(connections[0].resource.connectionRef)}`, { headers: nativeHeaders }));
+  expect(remainingNativeOrg.connection.resource.connectionRef).toBe(connections[0].resource.connectionRef);
+  for (const handle of nativeHandles) expect((await handle.api.storageState()).cookies).toEqual([]);
+  receipt.nativeProtocolCases!.push('native-manage-only-and-revocation-no-same-name-fallback');
   // Same display names in Org and Team never become a fallback for the revoked exact resourceRef.
   const readableOrg = await members[1].context.request.get(`/api/integrations/shared-connections/${encodeURIComponent(connections[0].resource.connectionRef)}?workspaceId=${encodeURIComponent(teamId)}`); expect(readableOrg.status()).toBe(200);
   receipt.verifiedCases++; await persistOwnedSharedMcpAppsReceipt();

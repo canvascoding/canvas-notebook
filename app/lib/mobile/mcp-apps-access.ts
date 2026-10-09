@@ -5,6 +5,9 @@ import type { NextRequest } from 'next/server';
 import { db } from '@/app/lib/db';
 import { piMessages, piSessions, session as authSessions } from '@/app/lib/db/schema';
 import { McpAccessError, assertMcpConnectionAccess } from '@/app/lib/mcp/access';
+import { readMcpAvailableEnvSnapshot } from '@/app/lib/mcp/env-runtime';
+import { hashMcpServerConfig } from '@/app/lib/mcp/manager';
+import type { McpScope } from '@/app/lib/mcp/scope';
 import { requireMcpAppChatAccess, type McpAppChat } from '@/app/lib/mcp/apps-host';
 import { readToolAppInvocation } from '@/app/lib/tool-apps/types';
 import { requireMobileToolAppChat } from './tool-apps-route';
@@ -15,6 +18,7 @@ export type MobileMcpActor = McpAppChat & { workspaceId: string; authSessionId: 
 export type AuthorizedMobileMcpSource = {
   piSessionDbId: number; sourceReceiptDigest: string; input: Record<string, unknown>;
   result: ReturnType<typeof readMobileMcpResult>; authVersion: number;
+  connectionId: string; scope: McpScope; configHash: string; environmentRevision: string;
 };
 export function mobileMcpDigest(value: unknown): string {
   return createHash('sha256').update(mobileMcpCanonicalJson(value)).digest('hex');
@@ -25,8 +29,10 @@ export async function requireMobileMcpActor(request: NextRequest, sessionId: str
   if (!authSession.id || !Number.isFinite(expiry) || expiry <= Date.now()) throw new McpAccessError('Sign in again.', 401, 'UNAUTHORIZED');
   return { ...chat, workspaceId, authSessionId: authSession.id, authSessionExpiresAt: expiry };
 }
-export async function readAuthorizedMobileMcpSource(actor: MobileMcpActor, source: MobileMcpSource): Promise<AuthorizedMobileMcpSource> {
+export async function readAuthorizedMobileMcpSource(actor: MobileMcpActor, source: MobileMcpSource,
+  options: { targetToolName?: string } = {}): Promise<AuthorizedMobileMcpSource> {
   actor = { ...actor };
+  options = { ...options };
   source = { toolCallId: source.toolCallId, app: readMobileMcpApp(source.app) };
   const authSession = await db.query.session.findFirst({ where: and(eq(authSessions.id, actor.authSessionId),
     eq(authSessions.userId, actor.userId), gt(authSessions.expiresAt, new Date())) });
@@ -56,9 +62,29 @@ export async function readAuthorizedMobileMcpSource(actor: MobileMcpActor, sourc
     throw new McpAccessError('The saved tool result cannot host this app.', 403, 'MCP_SOURCE_INVALID');
   }
   if (new Date(authSession.expiresAt).getTime() <= Date.now()) throw new McpAccessError('Sign in again.', 401, 'UNAUTHORIZED');
-  const { connection } = await assertMcpConnectionAccess(source.app.connectionId, { userId: actor.userId });
+  let connectionId: string, scope: McpScope, environmentRevision: string;
+  if (source.app.version === 2) {
+    if (source.toolCallId !== source.app.toolCallId) throw new McpAccessError('The app source does not match.', 403, 'MCP_SOURCE_INVALID');
+    const { requireSharedMcpAppAccess } = await import('@/app/lib/mcp/apps-shared-access');
+    const shared = await requireSharedMcpAppAccess(actor, source.app, options.targetToolName);
+    if (shared.workspaceId !== actor.workspaceId) throw new McpAccessError('The chat workspace changed.', 403, 'MCP_ACCESS_DENIED');
+    connectionId = shared.connectionId; scope = shared.scope; environmentRevision = shared.environmentRevision;
+  } else {
+    connectionId = source.app.connectionId; scope = { userId: actor.userId };
+    environmentRevision = '';
+  }
+  const { connection } = await assertMcpConnectionAccess(connectionId, scope);
+  const environment = await readMcpAvailableEnvSnapshot(scope);
+  if (source.app.version === 2 && environment.revision !== environmentRevision) {
+    throw new McpAccessError('The connection changed.', 409, 'MCP_CONNECTION_CHANGED');
+  }
+  environmentRevision = environment.revision;
   const authVersion = connection.authVersion ?? 1;
   if (!Number.isSafeInteger(authVersion) || authVersion < 1) throw new McpAccessError('The connection changed.', 409, 'MCP_CONNECTION_CHANGED');
-  if (new Date(authSession.expiresAt).getTime() <= Date.now()) throw new McpAccessError('Sign in again.', 401, 'UNAUTHORIZED');
-  return { piSessionDbId: session.id, sourceReceiptDigest: mobileMcpDigest({ app: source.app, input, result }), input, result, authVersion };
+  const currentAuth = await db.query.session.findFirst({ where: and(eq(authSessions.id, actor.authSessionId),
+    eq(authSessions.userId, actor.userId), gt(authSessions.expiresAt, new Date())) });
+  if (!currentAuth || !Number.isFinite(new Date(currentAuth.expiresAt).getTime())
+    || new Date(currentAuth.expiresAt).getTime() <= Date.now()) throw new McpAccessError('Sign in again.', 401, 'UNAUTHORIZED');
+  return { piSessionDbId: session.id, sourceReceiptDigest: mobileMcpDigest({ app: source.app, input, result }), input, result, authVersion,
+    connectionId, scope, configHash: hashMcpServerConfig(connection), environmentRevision };
 }

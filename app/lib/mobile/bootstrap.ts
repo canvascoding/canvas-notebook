@@ -2,6 +2,7 @@ import 'server-only';
 
 import { MOBILE_INBOX_FILE_CHANGES_CAPABILITY } from './inbox-capabilities';
 import { MOBILE_EMAIL_REVIEW_CAPABILITY } from './email-capabilities';
+import { MOBILE_PLUGIN_GATEWAY_CAPABILITIES } from './plugin-gateway-capabilities';
 
 import type { MobileCompatibility } from './compatibility';
 import type { MobileUserProfile } from './user-profile';
@@ -184,6 +185,7 @@ export function createMobileBootstrap(input: {
     'integrations.composio_catalog',
     'integrations.composio_mobile_auth',
     'integrations.mcp_mobile.v1',
+    ...MOBILE_PLUGIN_GATEWAY_CAPABILITIES,
   ];
   if (normalizeRole(input.user.role) !== 'external') capabilities.push('workspace.create.personal');
   if (input.listing.canCreateSharedWorkspaces) {

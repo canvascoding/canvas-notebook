@@ -45,6 +45,10 @@ async function main() {
     '@/app/lib/db': { db }, '@/app/lib/mcp/access': { McpAccessError: AccessError,
       assertMcpConnectionAccess: async () => { connectionReads++; return { connection: { authVersion: currentVersion, configRevision } }; } },
     '@/app/lib/mcp/apps-host': { requireMcpAppChatAccess: async () => workspace },
+    '@/app/lib/mcp/manager': { hashMcpServerConfig: (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex') },
+    '@/app/lib/mcp/env-runtime': { readMcpAvailableEnvSnapshot: async () => {
+      await environmentReadDelay?.(); return { values: {}, revision: `fixture-env:${environmentRevision}` };
+    } },
     './mcp-apps-contracts': contracts,
     './tool-apps-route': { requireMobileToolAppChat: async () => ({ chat: actor, workspaceId: workspace,
       authSession: { id: actor.authSessionId, expiresAt: new Date(actor.authSessionExpiresAt) } }) },
@@ -83,9 +87,6 @@ async function main() {
       isMcpAppFrameHost: (host: string) => host === 'preview.example' },
     './apps-host': actualSandbox, './manager': { hashMcpServerConfig: (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex'),
       readMcpAppResource: async () => ({ contents: [{ uri: app.resourceUri, mimeType: 'text/html;profile=mcp-app', text: '<!doctype html><button>provider</button>' }] }) },
-    './env-runtime': { readMcpAvailableEnvSnapshot: async () => {
-      await environmentReadDelay?.(); return { values: {}, revision: `fixture-env:${environmentRevision}` };
-    } },
     '@/app/lib/mobile/mcp-apps-access': access, '@/app/lib/mobile/mcp-apps-contracts': contracts,
   });
   const render = await tickets.issueMobileMcpAppTicket(actor, source), token = render.host.url.split('/')[4];
@@ -127,11 +128,15 @@ async function main() {
   request.method = 'POST'; assert.equal(handleHtmlPreviewBoundary(request,response), true); assert.equal(status,404);
   assert.throws(() => contracts.readMobileMcpRender({ contractVersion: 1, ...source, html: '<script>bad</script>' }));
   assert.throws(() => contracts.readMobileMcpApp({ ...app, token: 'private' }));
-  assert.throws(() => contracts.readMobileMcpRender({ contractVersion: 1, toolCallId: source.toolCallId,
-    app: { version: 2, connectionRef: `canvas-connection:${app.connectionId}`, toolCallId: source.toolCallId,
-      toolName: app.toolName, resourceUri: app.resourceUri, bindingRevision: 'a'.repeat(64) } }), { status: 400 });
+  const shared = { version: 2, connectionRef: `canvas-connection:${app.connectionId}`, toolCallId: source.toolCallId,
+    toolName: app.toolName, resourceUri: app.resourceUri, bindingRevision: 'a'.repeat(64) };
+  assert.deepEqual(contracts.readMobileMcpRender({ contractVersion: 1, toolCallId: source.toolCallId, app: shared }).app, shared);
+  for (const invalid of [{ ...shared, token: 'private' }, { ...shared, connectionId: app.connectionId },
+    { ...shared, toolCallId: 'different' }, { ...shared, bindingRevision: '1' }, { ...shared, toolName: 'bad\nname' }]) {
+    assert.throws(() => contracts.readMobileMcpRender({ contractVersion: 1, toolCallId: source.toolCallId, app: invalid }), { status: 400 });
+  }
   assert.throws(() => contracts.readMobileMcpResult({ content: Array.from({ length: 1001 }, () => ({ type: 'text', text: '' })) }), { code: 'MCP_SOURCE_INVALID' });
   assert.throws(() => contracts.readMobileMcpApp({ ...app, toolName: 'bad\nname' }));
-  console.log('Mobile MCP contracts: actual parser/saved-receipt logic with controlled Auth/source seams, personal-v1-only, fresh expiry, cloned tickets, bounded host/origin/CSP and revocation passed; no native/Bearer acceptance claim.');
+  console.log('Mobile MCP contracts: actual v1/v2 parser/saved-receipt logic with controlled Auth/source seams, strict shared identity, fresh expiry, cloned tickets, bounded host/origin/CSP and revocation passed; no native/Bearer acceptance claim.');
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });

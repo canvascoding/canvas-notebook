@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { IntegrationConnectionError } from '@/app/lib/integration-tools/connections/contracts';
 import { collectSharedComposioDesktopOAuthCallback } from '@/app/lib/composio/composio-shared-desktop-oauth';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
+import { mobileSharedOAuthReturn } from '@/app/lib/mobile/shared-connection-oauth';
 
 const callbackSchema = z.object({
   flow: z.string().regex(/^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$/u),
@@ -43,6 +44,11 @@ export async function GET(request: NextRequest) {
     const input = callbackSchema.parse(Object.fromEntries(query));
     await collectSharedComposioDesktopOAuthCallback(input.flow, input.error, input.status === undefined ? undefined
       : { status: input.status, ...(input.connected_account_id !== undefined ? { connectedAccountId: input.connected_account_id } : {}) });
+    const mobileReturn = await mobileSharedOAuthReturn('composio', input.flow);
+    if (mobileReturn) return new NextResponse(null, { status: 302, headers: {
+      Location: mobileReturn, 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer',
+      'Content-Security-Policy': "default-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'",
+    } });
     return sharedComposioDesktopCallbackHtml(200, true);
   } catch (error) {
     const status = error instanceof z.ZodError ? 400 : error instanceof IntegrationConnectionError
