@@ -13,12 +13,13 @@ const operation = (status: WorkspacePathOperationPublic['status']): WorkspacePat
 async function main() {
   const originalFetch = globalThis.fetch;
   const requests: Array<{ url: string; init?: RequestInit }> = [];
-  let replies: Array<{ status?: number; body: unknown }> = [];
+  let replies: Array<{ status?: number; body: unknown } | { status?: number; rawBody: string } | { failure: Error }> = [];
   globalThis.fetch = (async (url, init) => {
     requests.push({ url: String(url), init });
     const reply = replies.shift();
     assert.ok(reply, 'unexpected extra status poll');
-    return new Response(JSON.stringify(reply.body), {
+    if ('failure' in reply) throw reply.failure;
+    return new Response('rawBody' in reply ? reply.rawBody : JSON.stringify(reply.body), {
       status: reply.status ?? 200, headers: { 'Content-Type': 'application/json' },
     });
   }) as typeof fetch;
@@ -71,7 +72,12 @@ async function main() {
       { workspaceId: 'workspace-foreign' }, { batchId: 'other-client-batch-1234567890' }, { planId: 'b'.repeat(64) },
     ]) {
       replies = [{ body: { operation: { ...operation('applied'), ...mismatch } } }];
-      await assert.rejects(poll({ operation: operation('queued') }), /Invalid file action status response|identity changed/u);
+      await assert.rejects(poll({ operation: operation('queued') }), (error: unknown) => {
+        assert.ok(error instanceof WorkspacePathOperationClientError);
+        assert.deepEqual(error.operation, operation('queued'), 'foreign successful poll payloads retain the known operation');
+        assert.match(error.message, /Invalid file action status response|identity changed/u);
+        return true;
+      });
     }
     await assert.rejects(poll({ operation: { ...operation('queued'), workspaceId: 'workspace-foreign' } }),
       /Invalid file action status response/u);
@@ -90,7 +96,12 @@ async function main() {
     ];
     for (const invalid of invalidOperations) {
       replies = [{ body: { operation: invalid } }];
-      await assert.rejects(poll({ operation: operation('queued') }), /Invalid file action status response/u);
+      await assert.rejects(poll({ operation: operation('queued') }), (error: unknown) => {
+        assert.ok(error instanceof WorkspacePathOperationClientError);
+        assert.deepEqual(error.operation, operation('queued'), 'malformed successful poll payloads retain the known operation');
+        assert.match(error.message, /Invalid file action status response/u);
+        return true;
+      });
     }
 
     const blockedOperation = { ...operation('blocked'), errorCode: 'PREVIEW_BLOCKED',
@@ -134,8 +145,44 @@ async function main() {
       return true;
     });
 
+    replies = [{ failure: new Error('Network failure at https://private.test/?token=private-token') }];
+    const beforeDisconnectedPoll: number = requests.length;
+    await assert.rejects(poll({ operation: operation('queued') }), (error: unknown) => {
+      assert.ok(error instanceof WorkspacePathOperationClientError);
+      assert.deepEqual(error.operation, operation('queued'), 'transport failure does not discard an already queued operation');
+      assert.match(error.message, /file action status|Notification Center/u);
+      assert.doesNotMatch(error.message, /private|token=/u, 'raw transport diagnostics do not reach the UI');
+      return true;
+    });
+    assert.equal(requests.length, beforeDisconnectedPoll + 1, 'polling transport failure does not retry the mutation');
+
+    for (const malformedReply of [
+      { failure: new Error('Private transport failure token=private-token') },
+      ...[200, 503].flatMap((status) => [
+        { status, rawBody: '{"private": <invalid-json>' },
+        ...[null, [], 'private response body', 42, false].map((body) => ({ status, body })),
+      ]),
+      { body: { operation: { ...progressing, completedActions: 3 } } },
+    ]) {
+      replies = [{ body: { operation: progressing } }, malformedReply];
+      const beforeMalformedPoll: number = requests.length;
+      await assert.rejects(poll({ operation: operation('queued') }), (error: unknown) => {
+        assert.ok(error instanceof WorkspacePathOperationClientError);
+        assert.deepEqual(error.operation, progressing, 'transport and parsing failures preserve the latest validated progress');
+        assert.match(error.message, /file action status|Notification Center/u);
+        assert.doesNotMatch(error.message, /private|token=|invalid-json/u, 'untrusted transport and response contents stay private');
+        return true;
+      });
+      assert.equal(requests.length, beforeMalformedPoll + 2, 'a status failure only reads the existing operation');
+      for (const statusRequest of requests.slice(beforeMalformedPoll)) {
+        assert.equal(statusRequest.url, '/api/files/operations/batches/direct-client-batch-1234567890');
+        assert.equal(statusRequest.init?.method ?? 'GET', 'GET');
+        assert.equal(statusRequest.init?.body, undefined, 'failed status reads never submit a new mutation');
+      }
+    }
+
     replies = [];
-    const callsBeforeTimeout = requests.length;
+    const callsBeforeTimeout: number = requests.length;
     const durable = operation('applying');
     await assert.rejects(poll({ operation: durable }, 0), (error: unknown) => {
       assert.ok(error instanceof WorkspacePathOperationClientError);
@@ -202,7 +249,7 @@ async function main() {
         /Invalid file action status response|identity changed/u, 'Undo cannot acknowledge a missing or unrelated result');
     }
     replies = [];
-    const beforeInvalidUndo = requests.length;
+    const beforeInvalidUndo: number = requests.length;
     await assert.rejects(undoWorkspacePathOperation({ ...applied.operation, batchId: '../private/batch' }),
       /Invalid file action status response/u, 'an invalid input operation never constructs an Undo request');
     assert.equal(requests.length, beforeInvalidUndo);

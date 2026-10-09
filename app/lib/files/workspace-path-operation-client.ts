@@ -24,18 +24,27 @@ export async function waitForWorkspacePathOperationResult<T extends { operation?
   if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('notification_summary_updated'));
   while (pending(result.operation!) && Date.now() < deadline) {
     await new Promise((resolve) => setTimeout(resolve, options.intervalMs ?? 500));
-    const response = await fetch(`/api/files/operations/batches/${encodeURIComponent(identity.batchId)}`, {
-      credentials: 'include', headers: { [WORKSPACE_ID_HEADER]: identity.workspaceId }, cache: 'no-store',
-    });
-    const payload = await response.json() as T & { error?: unknown };
+    let response: Response;
+    let payload: T & { error?: unknown };
+    try {
+      response = await fetch(`/api/files/operations/batches/${encodeURIComponent(identity.batchId)}`, {
+        credentials: 'include', headers: { [WORKSPACE_ID_HEADER]: identity.workspaceId }, cache: 'no-store',
+      });
+      payload = await response.json();
+      if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw new Error('Invalid status payload');
+    } catch {
+      throw new WorkspacePathOperationClientError(result.operation,
+        'Could not read the file action status. Check Notification Center before requesting another action.');
+    }
     if (!response.ok) {
       let failed = result.operation;
       try { if (payload.operation) failed = readWorkspacePathOperation(payload.operation, identity); } catch { /* Keep the known identity. */ }
       throw new WorkspacePathOperationClientError(failed,
         typeof payload.error === 'string' ? payload.error : 'Could not read the file action status.');
     }
-    const operation = payload.operation ? readWorkspacePathOperation(payload.operation, identity) : null;
-    if (!operation) throw new Error('Invalid file action status response');
+    let operation: WorkspacePathOperationPublic;
+    try { operation = readWorkspacePathOperation(payload.operation, identity); }
+    catch { throw new WorkspacePathOperationClientError(result.operation, 'Invalid file action status response'); }
     result = { ...payload, operation };
   }
   const operation = result.operation!;
