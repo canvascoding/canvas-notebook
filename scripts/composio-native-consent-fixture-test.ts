@@ -54,11 +54,27 @@ async function main() {
       { ...options, allowedCallbackOrigin: 'https://foreign.example' }, { ...options, unknown: true }]) {
       assert.throws(() => parseComposioNativeConsentOptions(value));
     }
+    for (const nativeReturnScheme of [null, 'https', 'javascript', 'canvasnotebook', 'canvasnotebook-preview', 'canvasnotebook-dev:',
+      'canvasnotebook-dev ', 'CANVASNOTEBOOK-DEV', 'foreign-app']) {
+      assert.throws(() => parseComposioNativeConsentOptions({ ...options, nativeReturnScheme }));
+    }
+    console.log('composio-native-consent: exact native scheme opt-in schema BEGIN');
+    const nativeOptions = { ...options, nativeReturnScheme: 'canvasnotebook-dev' as const };
+    assert.equal(parseComposioNativeConsentOptions(nativeOptions).nativeReturnScheme, 'canvasnotebook-dev');
+    assert.equal(Object.hasOwn(parseComposioNativeConsentOptions(options), 'nativeReturnScheme'), false,
+      'desktop/default options must not acquire native return permissions');
+    for (const allowedCallbackOrigin of ['http://localhost:3001', 'http://127.0.0.1:3002', 'https://127.0.0.1:3001', 'https://foreign.example']) {
+      assert.throws(() => parseComposioNativeConsentOptions({ ...nativeOptions, allowedCallbackOrigin }));
+    }
     const orgState = randomBytes(32).toString('base64url'), teamState = randomBytes(32).toString('base64url');
     for (const address of ['http://127.0.0.1:3001/api/composio/shared/desktop/callback',
       `http://127.0.0.1:3001/api/composio/shared/desktop/callback?flow=${orgState}&flow=${orgState}`,
       `http://127.0.0.1:3001/api/composio/shared/callback?flow=${orgState}`,
       `http://127.0.0.1:3001/api/composio/shared/desktop/callback?flow=${orgState}&returnPath=/settings`,
+      `http://127.0.0.1:3001/api/composio/shared/desktop/callback?flow=${orgState}&status=success`,
+      `http://127.0.0.1:3001/api/composio/shared/desktop/callback?flow=${orgState}#fragment`,
+      `http://user:password@127.0.0.1:3001/api/composio/shared/desktop/callback?flow=${orgState}`,
+      'canvasnotebook-dev://integration-return',
       `https://foreign.example/api/composio/shared/desktop/callback?flow=${orgState}`]) {
       assert.throws(() => validateComposioNativeCallback(address));
     }
@@ -128,6 +144,8 @@ async function main() {
 
     const orgPage = await requestComposioNativeConsent(org.redirect_url, tls.cert);
     assert.equal(orgPage.status, 200); assert.equal(orgPage.headers['cache-control'], 'no-store');
+    assert.equal(String(orgPage.headers['content-security-policy']).split(';')[1], " form-action 'self' http://127.0.0.1:3001",
+      'the default desktop consent permits only the exact HTTP callback, without a native scheme');
     assert.match(String(orgPage.headers['content-security-policy']), /frame-ancestors 'none'/u);
     assert.match(orgPage.body, /history\.replaceState/u); assert.match(orgPage.body, />Approve</u);
     assert(!orgPage.body.includes(orgState) && !orgPage.body.includes(org.connected_account_id));
@@ -219,6 +237,43 @@ async function main() {
     assert.equal(after.stats.callbackRedirects, 2); assert.equal(after.stats.businessCalls, 0);
     assert.equal(after.issued.find(value => value.flowHash === flowHash)?.approvals, 1);
     console.log('composio-native-consent: actual strict-CA HTTPS GET/Approve/deny/303, single-use form and ACTIVE exact account PASS');
+    await native.close(); native = undefined;
+    native = await createComposioProviderFixture({ nativeConsent: nativeOptions });
+    const nativeReturnConsent = native.nativeConsent; assert(nativeReturnConsent);
+    const nativeReturnClient = new Composio({ apiKey: 'own-native-return-protocol-key', baseURL: native.baseUrl, maxRetries: 0, timeout: 10_000 });
+    const nativeReturnSession = await nativeReturnClient.toolRouter.session.create({ user_id: 'own-native-return-entity' }, { maxRetries: 0 });
+    const nativeReturnState = randomBytes(32).toString('base64url');
+    const nativeReturnCallback = `http://127.0.0.1:3001/api/composio/shared/desktop/callback?flow=${nativeReturnState}`;
+    const nativeReturnLink = await nativeReturnClient.toolRouter.session.link(nativeReturnSession.session_id,
+      { toolkit: 'canva', callback_url: nativeReturnCallback }, { maxRetries: 0 });
+    const nativeReturnPage = await requestComposioNativeConsent(nativeReturnLink.redirect_url, tls.cert);
+    assert.equal(nativeReturnPage.status, 200);
+    assert.equal(String(nativeReturnPage.headers['content-security-policy']).split(';')[1],
+      " form-action 'self' http://127.0.0.1:3001 canvasnotebook-dev:",
+      'only the explicit native fixture and exact registered callback permit the final custom-scheme hop');
+    assert.equal(String(nativeReturnPage.headers['content-security-policy']).split(';').slice(2).join(';').replace(/nonce-[^']+/u, 'nonce-bounded'),
+      String(orgPage.headers['content-security-policy']).split(';').slice(2).join(';').replace(/nonce-[^']+/u, 'nonce-bounded'),
+      'other consent CSP directives remain unchanged');
+    assert.equal(nativeReturnPage.headers['referrer-policy'], 'same-origin');
+    const nativeReturnForm = nativeReturnPage.body.match(/name="consent" value="([A-Za-z0-9_-]{43})"/u)?.[1]; assert(nativeReturnForm);
+    for (const Origin of ['null', 'https://foreign.example']) {
+      assert.equal((await requestComposioNativeConsent(`${nativeReturnConsent.origin}/consent`, tls.cert, { method: 'POST',
+        body: new URLSearchParams({ consent: nativeReturnForm, decision: 'approve' }).toString(),
+        headers: { Origin, 'Content-Type': 'application/x-www-form-urlencoded' } })).status, 400);
+    }
+    assert.equal(native.accounts.get('own-native-return-entity')?.find(account => account.id === nativeReturnLink.connected_account_id)?.status, 'INITIATED');
+    const nativeReturnApproval = await requestComposioNativeConsent(`${nativeReturnConsent.origin}/consent`, tls.cert, { method: 'POST',
+      body: new URLSearchParams({ consent: nativeReturnForm, decision: 'approve' }).toString(),
+      headers: { Origin: nativeReturnConsent.origin, 'Content-Type': 'application/x-www-form-urlencoded' } });
+    assert.equal(nativeReturnApproval.status, 303); assert.equal(nativeReturnApproval.headers.location, nativeReturnCallback);
+    assert.equal(nativeReturnApproval.headers['referrer-policy'], 'no-referrer');
+    assert.equal(native.accounts.get('own-native-return-entity')?.find(account => account.id === nativeReturnLink.connected_account_id)?.status, 'ACTIVE');
+    assert.equal((await requestComposioNativeConsent(`${nativeReturnConsent.origin}/consent`, tls.cert, { method: 'POST',
+      body: new URLSearchParams({ consent: nativeReturnForm, decision: 'approve' }).toString(),
+      headers: { Origin: nativeReturnConsent.origin, 'Content-Type': 'application/x-www-form-urlencoded' } })).status, 400);
+    assert.equal(nativeReturnConsent.readStats().issued, 1); assert.equal(nativeReturnConsent.readStats().approvals, 1);
+    assert.equal(nativeReturnConsent.readStats().callbackRedirects, 1); assert.equal(nativeReturnConsent.readStats().businessCalls, 0);
+    console.log('composio-native-consent: opt-in exact native CSP, strict callback/origin/one-use/303 privacy PASS; no automatic native return claim');
     await native.close(); native = undefined; closed = true;
   } finally {
     if (legacy) await legacy.close(); if (native) await native.close();

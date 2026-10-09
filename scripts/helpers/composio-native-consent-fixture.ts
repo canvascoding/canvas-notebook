@@ -13,6 +13,7 @@ export type ComposioNativeConsentOptions = Readonly<{
   allowedCallbackOrigin: typeof CALLBACK_ORIGIN;
   fixtureNonce: string;
   cleanAuthorizationAddress: true;
+  nativeReturnScheme?: 'canvasnotebook-dev';
 }>;
 export type ComposioNativeConsentStats = {
   sdkRequests: number; sessions: number; sdkLinks: number; accountReads: number; businessCalls: number;
@@ -35,8 +36,9 @@ type ConsentRecord = {
 export function parseComposioNativeConsentOptions(value: unknown): ComposioNativeConsentOptions {
   const options = value as Partial<ComposioNativeConsentOptions> | null;
   if (!options || typeof options !== 'object' || Array.isArray(options)
-    || Object.keys(options).some(key => !['tls', 'controlToken', 'allowedCallbackOrigin', 'fixtureNonce', 'cleanAuthorizationAddress'].includes(key))
+    || Object.keys(options).some(key => !['tls', 'controlToken', 'allowedCallbackOrigin', 'fixtureNonce', 'cleanAuthorizationAddress', 'nativeReturnScheme'].includes(key))
     || options.allowedCallbackOrigin !== CALLBACK_ORIGIN || options.cleanAuthorizationAddress !== true
+    || options.nativeReturnScheme !== undefined && options.nativeReturnScheme !== 'canvasnotebook-dev'
     || typeof options.fixtureNonce !== 'string' || !/^[a-f0-9]{32}$/u.test(options.fixtureNonce)
     || typeof options.controlToken !== 'string' || !CANONICAL_STATE.test(options.controlToken)
     || !options.tls || typeof options.tls !== 'object' || Array.isArray(options.tls)
@@ -45,7 +47,8 @@ export function parseComposioNativeConsentOptions(value: unknown): ComposioNativ
     throw new Error('The owned native Composio consent options are invalid.');
   }
   return Object.freeze({ tls: Object.freeze({ ...options.tls }), controlToken: options.controlToken,
-    allowedCallbackOrigin: CALLBACK_ORIGIN, fixtureNonce: options.fixtureNonce, cleanAuthorizationAddress: true });
+    allowedCallbackOrigin: CALLBACK_ORIGIN, fixtureNonce: options.fixtureNonce, cleanAuthorizationAddress: true,
+    ...(options.nativeReturnScheme !== undefined ? { nativeReturnScheme: options.nativeReturnScheme } : {}) });
 }
 
 export function validateComposioNativeCallback(raw: unknown): { href: string; flowHash: string } {
@@ -107,8 +110,11 @@ export async function createComposioNativeConsentFixture(input: ComposioNativeCo
         if (!record || record.expiresAt <= Date.now() || record.decision || record.account.status !== 'INITIATED') throw new Error('Invalid owned consent.');
         const consent = randomBytes(32).toString('base64url'), nonce = randomBytes(24).toString('base64url');
         forms.set(consent, record); stats.consents += 1; record.evidence.consents += 1;
+        // Only the fixed native fixture's exact registered HTTP callback may lead into the app scheme.
+        const nativeReturnSource = options.nativeReturnScheme === 'canvasnotebook-dev'
+          && validateComposioNativeCallback(record.callback).href === record.callback ? ' canvasnotebook-dev:' : '';
         response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Referrer-Policy': 'same-origin',
-          'Content-Security-Policy': `default-src 'none'; form-action 'self' ${CALLBACK_ORIGIN}; frame-ancestors 'none'; base-uri 'none'; script-src 'nonce-${nonce}'` });
+          'Content-Security-Policy': `default-src 'none'; form-action 'self' ${CALLBACK_ORIGIN}${nativeReturnSource}; frame-ancestors 'none'; base-uri 'none'; script-src 'nonce-${nonce}'` });
         response.end(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Local Composio consent</title><script nonce="${nonce}">history.replaceState(null,'',location.pathname)</script></head><body><main><h1>Connect Canvas Notebook</h1><p>Allow the local ${escapeComposioNativeConsentHtml(record.account.toolkit)} account connection.</p><form method="post" action="/consent"><input type="hidden" name="consent" value="${consent}"><button type="submit" name="decision" value="approve">Approve</button><button type="submit" name="decision" value="deny">Deny</button></form></main></body></html>`);
         return;
       }
