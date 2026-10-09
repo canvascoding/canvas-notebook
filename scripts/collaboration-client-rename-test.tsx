@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import path from 'node:path';
-import { act } from 'react';
+import { act, useLayoutEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import { JSDOM } from 'jsdom';
 import ts from 'typescript';
@@ -11,7 +11,7 @@ import * as Y from 'yjs';
 import type * as Client from '../app/lib/collaboration/client';
 import type { CollaborationSessionResponse } from '../app/lib/collaboration/types';
 import { collaborationStateProof } from '../app/lib/collaboration/state-proof';
-import { findOpenedLiveDocument, observeOpenedDocumentAuth } from '../app/lib/collaboration/opened-document-registry';
+import { findOpenedLiveDocument, invalidateOpenedDocumentAuth, observeOpenedDocumentAuth } from '../app/lib/collaboration/opened-document-registry';
 import { COLLABORATION_CHECKPOINT_ERROR_CODES } from '../app/lib/collaboration/checkpoint-errors';
 
 type ProviderOptions = {
@@ -20,6 +20,7 @@ type ProviderOptions = {
   onSynced: () => void;
   onUnsyncedChanges: (value: { number: number }) => void;
   onStateless: (value: { payload: string }) => void;
+  onAuthenticationFailed: (value: { reason: string }) => void;
 };
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -83,10 +84,26 @@ async function main() {
   const { EditorView } = load('@codemirror/view') as typeof import('@codemirror/view');
   const { createTextEditorCollaboration } = load('./text-editor-history') as typeof import('../app/lib/collaboration/text-editor-history');
   let current: Client.CollaborationDocument | null = null;
+  let beforeLocationAdoption: (() => void) | undefined;
+  let useRawLocationSession = false;
+  const rawSessionCopies = new WeakMap<CollaborationSessionResponse, CollaborationSessionResponse>();
   function Probe({ filePath, owner = 'open-document' }: { filePath: string; owner?: string }) {
     const resolution = exported.useTextCollaborationSession({ enabled: true, workspaceId: 'workspace', path: filePath });
+    let adoptedSession = resolution.session;
+    if (adoptedSession && useRawLocationSession) {
+      // Identical public metadata cannot substitute for the registered HTTP receipt.
+      const rawSession = rawSessionCopies.get(adoptedSession) ?? { ...adoptedSession };
+      rawSessionCopies.set(adoptedSession, rawSession);
+      adoptedSession = rawSession;
+    }
     current = exported.useCollaborationDocument({ enabled: true, workspaceId: 'workspace', path: filePath,
-      documentKey: owner, waitForSession: true, representation: 'plain_text', session: resolution.session });
+      documentKey: owner, waitForSession: true, representation: 'plain_text', session: adoptedSession });
+    useLayoutEffect(() => {
+      if (!resolution.session || !beforeLocationAdoption) return;
+      const beforeAdoption = beforeLocationAdoption;
+      beforeLocationAdoption = undefined;
+      beforeAdoption();
+    }, [resolution.session]);
     return <output>{current?.durability}</output>;
   }
   const get = () => { assert(current); return current as Client.CollaborationDocument; };
@@ -194,8 +211,9 @@ async function main() {
     assert.equal(await providers[3].options.token(), 'refreshed-after-token');
 
     const authorizationFailures: unknown[] = [];
-    const scenarios: Array<{ name: string; timing: 'before' | 'during'; permission: 'write' | 'read';
-      guard?: 'proof' | 'unknown' | 'schema'; retryRace?: 'write' | 'read' | 'unknown' }> = [
+    const scenarios: Array<{ name: string; timing: 'before' | 'during' | 'target-rejected' | 'receipt-revoked'; permission: 'write' | 'read';
+      guard?: 'proof' | 'unknown' | 'schema'; retryRace?: 'write' | 'read' | 'unknown';
+      receiptOutcome?: 'automatic' | 'refresh-rejected'; untrustedReceipt?: 'raw' | 'epoch' }> = [
       { name: 'before', timing: 'before', permission: 'write' },
       { name: 'during', timing: 'during', permission: 'write' },
       { name: 'read', timing: 'before', permission: 'read' },
@@ -205,6 +223,15 @@ async function main() {
       { name: 'retry-race-write', timing: 'before', permission: 'write', retryRace: 'write' },
       { name: 'retry-race-read', timing: 'before', permission: 'write', retryRace: 'read' },
       { name: 'retry-race-unknown', timing: 'before', permission: 'write', retryRace: 'unknown' },
+      { name: 'target-ticket-rejected', timing: 'target-rejected', permission: 'write' },
+      { name: 'receipt-revoked-before-adoption', timing: 'receipt-revoked', permission: 'write' },
+      { name: 'receipt-revoked-auto-write', timing: 'receipt-revoked', permission: 'write', receiptOutcome: 'automatic' },
+      { name: 'receipt-revoked-auto-read', timing: 'receipt-revoked', permission: 'read', receiptOutcome: 'automatic' },
+      { name: 'receipt-revoked-refresh-rejected', timing: 'receipt-revoked', permission: 'write', receiptOutcome: 'refresh-rejected' },
+      { name: 'receipt-revoked-prior-unknown', timing: 'receipt-revoked', permission: 'write', guard: 'unknown' },
+      { name: 'receipt-revoked-prior-schema', timing: 'receipt-revoked', permission: 'write', guard: 'schema' },
+      { name: 'receipt-revoked-raw-session', timing: 'receipt-revoked', permission: 'write', untrustedReceipt: 'raw' },
+      { name: 'receipt-revoked-stale-auth-epoch', timing: 'receipt-revoked', permission: 'write', untrustedReceipt: 'epoch' },
     ];
     for (const scenario of scenarios) {
       await act(async () => root.render(null));
@@ -290,17 +317,72 @@ async function main() {
         await render(targetPath, owner);
         await until(() => requests.includes(targetPath));
         if (scenario.timing === 'during') await act(async () => revoke());
-        assert.equal(oldProvider.disconnected, true, 'the revoked provider cannot continue using old write rights');
+        if (scenario.timing === 'before' || scenario.timing === 'during') assert.equal(oldProvider.disconnected, true,
+          'the revoked provider cannot continue using old write rights');
+        if (scenario.timing === 'receipt-revoked') {
+          useRawLocationSession = scenario.untrustedReceipt === 'raw';
+          beforeLocationAdoption = () => {
+            if (scenario.untrustedReceipt === 'epoch') invalidateOpenedDocumentAuth();
+            revoke();
+          };
+        }
         await act(async () => { destinationReleased = true; destinationGate.resolve(Response.json(destinationSession)); });
         await until(() => providers.length === providerStart + 2);
-        const provider: FakeProvider = providers[providerStart + 1];
+        let provider: FakeProvider = providers[providerStart + 1];
+        let rejectedTicketRetry: Promise<void> | undefined;
         assert.equal(get().doc, retained);
         assert.equal(persistences.length, persistenceStart + 1, 'location reauthorization retains the existing IndexedDB adapter');
         assert.equal(retainedPersistence.destroyed, false);
         assert.equal(oldProvider.destroyed, true);
         assert.equal(get().ready, false, 'fresh HTTP write authorization alone is insufficient');
-        assert.equal(get().durability, 'degraded');
-        assert.equal(await provider.options.token(), destinationSession.token, 'the new provider may synchronize existing updates while UI editing remains paused');
+        if (scenario.timing !== 'target-rejected') assert.equal(get().durability, 'degraded');
+        const beforeTokenRequests: number = requests.length;
+        if (scenario.receiptOutcome === 'refresh-rejected') {
+          destinationFailure = Response.json({ success: false, error: 'Fresh destination authorization denied.' }, { status: 403 });
+          await act(async () => { await assert.rejects(provider.options.token(), /Fresh destination authorization denied/u); });
+        } else if (!scenario.untrustedReceipt) {
+          await act(async () => {
+            assert.equal(await provider.options.token(), destinationSession.token,
+              'the new provider may synchronize existing updates while UI editing remains paused');
+          });
+        }
+        if (scenario.timing === 'receipt-revoked' && !scenario.untrustedReceipt) {
+          assert.equal(requests.length, beforeTokenRequests + 1, 'a receipt revoked before adoption requires fresh HTTP before returning any provider token');
+          assert.equal(requests.at(-1), targetPath);
+          assert.equal(get().clientState.remoteSynced, false, 'fresh HTTP replacement cannot authenticate the new provider');
+          assert.equal(get().durability, 'degraded', 'fresh HTTP replacement cannot release the exact-proof pause');
+        }
+        const rejectedTicket = scenario.timing === 'target-rejected' || (scenario.timing === 'receipt-revoked'
+          && !scenario.receiptOutcome && !scenario.guard && !scenario.untrustedReceipt);
+        if (rejectedTicket || scenario.receiptOutcome === 'refresh-rejected' || scenario.untrustedReceipt) {
+          await act(async () => {
+            provider.options.onUnsyncedChanges({ number: 1 });
+            provider.options.onAuthenticationFailed({ reason: 'The new destination ticket was rejected by the server.' });
+          });
+          assert.equal(get().connection, 'denied');
+          assert.equal(get().clientState.remoteSynced, false);
+          assert.equal(get().clientState.unsyncedChanges, 1);
+          assert.equal(get().clientState.failure?.kind, 'authentication');
+          if (scenario.untrustedReceipt) {
+            assert.equal(get().canRevalidateLocation, false, 'raw metadata and an older auth epoch cannot create a historical location candidate');
+            const beforeUntrustedRetry: number = requests.length;
+            await assert.rejects(get().requestLocationRevalidation!(), /cannot be revalidated/u);
+            assert.equal(requests.length, beforeUntrustedRetry, 'untrusted adoption never authorizes a recovery HTTP request');
+          } else {
+            assert.equal(get().canRevalidateLocation, true,
+              'a rejected fresh ticket after a confirmed location adoption retains the targeted retry capability before its first sync');
+            const rejectedProvider = provider;
+            destinationSession = { ...destinationSession, token: 'replacement-destination-ticket' };
+            await act(async () => { rejectedTicketRetry = get().requestLocationRevalidation!();
+              void rejectedTicketRetry.catch(() => undefined); });
+            await until(() => providers.length === providerStart + 3);
+            provider = providers[providerStart + 2];
+            assert.equal(rejectedProvider.destroyed, true);
+            assert.equal(get().doc, retained);
+            assert.equal(persistences.length, persistenceStart + 1);
+            assert.equal(await provider.options.token(), 'replacement-destination-ticket');
+          }
+        }
         if (scenario.timing === 'during') assert.ok(requests.filter((requested) => requested === targetPath).length >= 2,
           'the stale in-flight HTTP receipt is replaced by a fresh authorization response');
         await act(async () => {
@@ -308,7 +390,8 @@ async function main() {
           oldProvider.options.onSynced();
           oldProvider.options.onStateless({ payload: JSON.stringify({ ...authoritative(replica), documentSequence: 99, checkpointSequence: 99 }) });
         });
-        assert.equal(get().ready, false, 'late old provider callbacks cannot release the location pause');
+        assert.equal(get().clientState.remoteSynced, false, 'late old provider callbacks cannot authenticate the adopted location');
+        assert.equal(get().durability, 'degraded', 'late old provider callbacks cannot release the exact-proof pause');
         assert.equal(get().clientState.documentSequence, sequence);
         await act(async () => { provider.options.onStatus({ status: 'connected' }); provider.options.onSynced(); });
         const canEdit = () => get().ready && get().session?.permission === 'write' && get().connection === 'live'
@@ -350,6 +433,7 @@ async function main() {
         });
         assert.equal(canEdit(), false, 'unsynchronized local updates cannot be acknowledged by a location change');
         await act(async () => provider.options.onUnsyncedChanges({ number: 0 }));
+        if (rejectedTicketRetry) await act(async () => rejectedTicketRetry);
         assert.equal(get().doc, retained);
         assert.equal(get().clientState.documentSequence, sequence, 'a pure move must not manufacture a newer content sequence');
         if (scenario.retryRace) {
@@ -381,7 +465,7 @@ async function main() {
           }
           assert.equal(get().revalidatingLocation, false);
         }
-        if (scenario.permission === 'read' || scenario.guard || scenario.retryRace === 'read' || scenario.retryRace === 'unknown') {
+        if (scenario.permission === 'read' || scenario.guard || scenario.untrustedReceipt || scenario.retryRace === 'read' || scenario.retryRace === 'unknown') {
           assert.equal(canEdit(), false, `${scenario.name} does not authorize write recovery`);
           if (scenario.permission === 'read') assert.equal(get().connection, 'read_only');
           if (scenario.guard === 'unknown' || scenario.guard === 'schema' || scenario.retryRace === 'unknown') {
@@ -503,8 +587,14 @@ async function main() {
           })));
           assert.equal(retainedText.toString(), 'Peer AAA', 'the second Undo removes the earlier local insertion while preserving the peer edit');
         }
-      } catch (error) { authorizationFailures.push(error); }
+      } catch (error) { authorizationFailures.push(new Error(`Move authorization scenario ${scenario.name} failed.`, { cause: error })); }
       finally {
+        beforeLocationAdoption = undefined;
+        useRawLocationSession = false;
+        if (scenario.untrustedReceipt === 'epoch') {
+          observeOpenedDocumentAuth(null);
+          observeOpenedDocumentAuth({ data: { user: { id: 'user' }, session: { id: 'session' } } });
+        }
         view?.destroy(); view = undefined;
         replica.destroy(); withoutDeletion.destroy();
       }

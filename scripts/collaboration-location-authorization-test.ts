@@ -7,6 +7,7 @@ import { COLLABORATION_CHECKPOINT_ERROR_CODES } from '../app/lib/collaboration/c
 import { createInitialTextCollaborationClientState, reduceTextCollaborationClientState as reduce,
   type TextCollaborationClientEvent } from '../app/lib/collaboration/client-state';
 import { findOpenedLiveDocument, hasCurrentOpenedDocumentSessionAuthorization as authorized,
+  hasOpenedDocumentLocationSessionReceipt as historical,
   invalidateOpenedLiveDocument, localOpenedDocumentSession, observeOpenedDocumentAuth, openedDocumentAuthScope,
   openedDocumentRequestRevision, rememberOpenedLiveDocument, validateOpenedLiveDocumentSession as validate,
 } from '../app/lib/collaboration/opened-document-registry';
@@ -24,8 +25,13 @@ const observe = (id = 'login') => observeOpenedDocumentAuth({ data: { user: { id
 try {
   observe();
   assert.equal(authorized('workspace', file.path, session), false);
+  assert.equal(historical('workspace', file.path, session), false, 'raw data has no historical HTTP provenance');
   assert.equal(validate('workspace', file.path, session), true);
   assert.equal(authorized('workspace', file.path, session), true);
+  assert.equal(historical('workspace', file.path, session), true);
+  assert.equal(historical('other-workspace', file.path, session), false);
+  assert.equal(historical('workspace', 'old.txt', session), false);
+  assert.equal(historical('workspace', file.path, { ...session }), false);
   assert.equal(authorized('other-workspace', file.path, session), false);
   assert.equal(authorized('workspace', 'old.txt', session), false);
   assert.equal(authorized('workspace', file.path, { ...session }), false, 'copied data has no HTTP authorization receipt');
@@ -34,15 +40,18 @@ try {
   const cached = findOpenedLiveDocument('workspace', file.path, session.documentId)!;
   assert(cached);
   assert.equal(authorized('workspace', file.path, localOpenedDocumentSession(cached)), false);
+  assert.equal(historical('workspace', file.path, localOpenedDocumentSession(cached)), false);
   const obsoleteRevision = openedDocumentRequestRevision();
   invalidateOpenedLiveDocument('workspace', { documentId: session.documentId });
   assert.equal(authorized('workspace', file.path, session), false);
+  assert.equal(historical('workspace', file.path, session), true, 'a retired receipt can only request fresh authorization');
   assert.equal(validate('workspace', file.path, { ...session }, openedDocumentAuthScope(), obsoleteRevision), false);
   const read = { ...session, permission: 'read' as const };
   assert.equal(validate('workspace', file.path, read), true);
   assert.equal(authorized('workspace', file.path, read), true, 'fresh read authorization never implies write permission');
   observe('another-login');
   assert.equal(authorized('workspace', file.path, read), false, 'same user in a new auth epoch cannot reuse old receipts');
+  assert.equal(historical('workspace', file.path, read), false, 'historical provenance cannot cross an auth epoch');
 
   const acknowledgement: Extract<TextCollaborationClientEvent, { type: 'authoritative_snapshot' }> = {
     type: 'authoritative_snapshot', documentSequence: 2, checkpointSequence: 2,

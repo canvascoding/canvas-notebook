@@ -125,6 +125,15 @@ export function validateOpenedLiveDocumentSession(workspaceId: string, path: str
   return true;
 }
 
+/** Historical HTTP provenance permits a fresh location check, never access. */
+export function hasOpenedDocumentLocationSessionReceipt(workspaceId: string, path: string,
+  session: CollaborationSessionResponse, scope = authScope): boolean {
+  const authorization = authorizations.get(session);
+  return isOpenedDocumentAuthCurrent(scope) && !localSessions.has(session)
+    && session.user.id === scope!.userId && authorization?.scope === scope
+    && authorization.workspaceId === workspaceId && authorization.path === path;
+}
+
 /** A cached local document cannot authorize a new connection lifetime. */
 export function hasCurrentOpenedDocumentSessionAuthorization(workspaceId: string, path: string,
   session: CollaborationSessionResponse, scope = authScope): boolean {
