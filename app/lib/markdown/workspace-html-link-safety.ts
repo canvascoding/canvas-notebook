@@ -16,7 +16,7 @@ export function hasUnevaluatedWorkspaceHtmlLinks(html: string): boolean {
         const value = attribute.value.trim();
         if (UNSUPPORTED_URL_ATTRIBUTE.test(name)
           || /^on[a-z]/u.test(name)
-          || name === 'style' && /url\s*\(|@import/iu.test(value)) {
+          || name === 'style' && (/url\s*\(|@import/iu.test(value) || value.includes('\\'))) {
           unevaluated = true;
           continue;
         }

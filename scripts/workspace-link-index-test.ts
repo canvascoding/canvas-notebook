@@ -25,6 +25,7 @@ for (const html of [
   '<a href="#section">Section</a>',
   '<div title=\'src="Notes/local.svg"\'>Text</div>',
   '<!-- <img src="Notes/local.svg"> -->',
+  '<img src="https://example.com/fixture.svg" style="width:320px;height:160px">',
 ]) {
   assert.deepEqual(parseWorkspaceLocalLinks(html, 'Other.md').unevaluated, [],
     `External URLs and literal HTML text must not block workspace operations: ${html}`);
@@ -53,6 +54,7 @@ for (const html of [
   '<a ping="Notes/plan.md" href="https://example.com">Link</a>',
   '<iframe srcdoc="<a href=\'Notes/plan.md\'>Plan</a>"></iframe>',
   '<img src="https://example.com/fixture.svg" style="background:url(Notes/local.svg)">',
+  '<img src="https://example.com/fixture.svg" style="background:u\\72l(Notes/local.svg)">',
   '<img src="https://example.com/fixture.svg" onload="this.src=\'Notes/local.svg\'">',
 ]) {
   assert.equal(parseWorkspaceLocalLinks(html, 'Other.md').unevaluated.length > 0, true,
