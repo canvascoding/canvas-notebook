@@ -51,6 +51,8 @@ export function startMobileMcpHost(host: NativeWindow = window as NativeWindow):
   let active = true, bridge: AppBridge | null = null;
   let pending: { requestId: string; resolve: (result: CallToolResult) => void } | null = null;
   let startupTimer: number | undefined;
+  let readinessTimer: number | undefined, readinessAttempts = 0, waitingForContext = true;
+  const readinessDeadline = host.performance.now() + 20_000;
   const post = (type: string, payload: unknown) => {
     if (!active) return;
     const json = JSON.stringify({ version: 1, channelId: config.channelId, nonce: config.nonce, type, payload });
@@ -58,11 +60,17 @@ export function startMobileMcpHost(host: NativeWindow = window as NativeWindow):
   };
   const close = () => {
     if (!active) return;
-    active = false; host.clearTimeout(startupTimer);
+    active = false; waitingForContext = false; host.clearTimeout(startupTimer); host.clearTimeout(readinessTimer); readinessTimer = undefined;
     host.removeEventListener('message', receive); host.document.removeEventListener('message', receive as EventListener);
     pending?.resolve(failed('MCP_HOST_CLOSED')); pending = null;
     void bridge?.close().catch(() => undefined); bridge = null; frame.remove();
     config.nonce = ''; config.input = {}; config.result = { content: [] };
+  };
+  const announceReady = () => {
+    readinessTimer = undefined;
+    if (!active || !waitingForContext || readinessAttempts >= 80 || host.performance.now() >= readinessDeadline) return;
+    readinessAttempts++; post('host_ready', {});
+    if (active && waitingForContext && readinessAttempts < 80) readinessTimer = host.setTimeout(announceReady, 250);
   };
   const open = async (context: McpUiHostContext) => {
     if (bridge) { bridge.setHostContext(context); return; }
@@ -112,7 +120,10 @@ export function startMobileMcpHost(host: NativeWindow = window as NativeWindow):
     if (envelope.type === 'host_context') {
       if (utf8Bytes(event.data) > 65536) return;
       const context = readMobileMcpHostContext(envelope.payload.context);
-      if (context) void open(context);
+      if (context) {
+        waitingForContext = false; host.clearTimeout(readinessTimer); readinessTimer = undefined;
+        void open(context);
+      }
     } else if (envelope.type === 'tool_result' && pending && envelope.payload.requestId === pending.requestId) {
       const parsed = CallToolResultSchema.safeParse(envelope.payload.result);
       if (!parsed.success || utf8Bytes(JSON.stringify(parsed.data)) > 2 * 1024 * 1024) return;
@@ -120,7 +131,9 @@ export function startMobileMcpHost(host: NativeWindow = window as NativeWindow):
     }
   }
   host.addEventListener('message', receive); host.document.addEventListener('message', receive as EventListener);
-  post('host_ready', {});
+  // Android can deliver the first message before its native listener/navigation proof is ready.
+  // Only repeat this idempotent handshake; provider input, result and tool actions are never replayed.
+  announceReady();
   return close;
 }
 if (typeof window !== 'undefined' && (window as NativeWindow).__CANVAS_MOBILE_MCP_HOST__) startMobileMcpHost();
