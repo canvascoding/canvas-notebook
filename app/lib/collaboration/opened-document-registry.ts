@@ -125,6 +125,17 @@ export function validateOpenedLiveDocumentSession(workspaceId: string, path: str
   return true;
 }
 
+/** A cached local document cannot authorize a new connection lifetime. */
+export function hasCurrentOpenedDocumentSessionAuthorization(workspaceId: string, path: string,
+  session: CollaborationSessionResponse, scope = authScope): boolean {
+  const authorization = authorizations.get(session);
+  return isOpenedDocumentAuthCurrent(scope) && !localSessions.has(session)
+    && session.user.id === scope!.userId && authorization?.scope === scope
+    && authorization.workspaceId === workspaceId && authorization.path === path
+    && authorization.revision >= (revokedAt.get(keyFor(workspaceId, path)) ?? 0)
+    && authorization.revision >= (revokedAt.get(documentKeyFor(workspaceId, session.documentId)) ?? 0);
+}
+
 /** An authoritative move/restore invalidates the old receipt before another request can fail offline. */
 export function validateOpenedLiveDocumentLocation(workspaceId: string, documentId: string,
   location: { path: string; lifecycleGeneration: number | null; representation: string | null }, scope = authScope): void {

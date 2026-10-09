@@ -24,6 +24,7 @@ export type TextCollaborationClientState = {
   error: string | null;
   failure: CollaborationFailure | null;
   quarantineSequence?: number;
+  authorizationRecoveryEligible?: boolean;
 };
 
 export type TextCollaborationClientEvent =
@@ -44,6 +45,8 @@ export type TextCollaborationClientEvent =
       projectionError?: { code: string; sequence: number; permanent: boolean };
       projectionFinalized?: boolean;
       schemaValidated?: boolean;
+      /** Set only by the registry after fresh, scoped location authorization. */
+      authorizationRevalidated?: boolean;
     }
   | { type: 'checkpoint_requested' }
   | { type: 'checkpointed'; sequence: number; stateVector: string; stateProof: string; matchesCurrentDocument: boolean }
@@ -84,6 +87,7 @@ export function createInitialTextCollaborationClientState(input: {
     projectionError: input.projectionError && !input.projectionError.permanent ? input.projectionError : null,
     error: quarantined ? 'The saved document is quarantined. Recovery is required.' : null,
     failure: quarantined ? collaborationFailure(input.projectionError?.code ?? COLLABORATION_CHECKPOINT_ERROR_CODES.quarantined) : null,
+    authorizationRecoveryEligible: false,
     ...(quarantined && documentSequence !== null ? { quarantineSequence: documentSequence } : {}),
   };
 }
@@ -135,11 +139,10 @@ export function reduceTextCollaborationClientState(
         ...state,
         remoteSynced: true,
         connection: event.permission === 'read' ? 'read_only' : 'live',
-        error: state.failure?.kind !== 'authentication' && state.durability === 'degraded' ? state.error : null,
+        error: state.durability === 'degraded' ? state.error : null,
         // A successful authenticated sync permits revalidation, not an automatic
         // release of a previously paused Markdown checkpoint.
-        failure: state.durability === 'degraded'
-          ? state.failure?.kind === 'authentication' ? collaborationFailure(undefined) : state.failure : null,
+        failure: state.durability === 'degraded' ? state.failure : null,
       });
     case 'document_changed':
       return {
@@ -182,9 +185,15 @@ export function reduceTextCollaborationClientState(
         || isCollaborationProjectionErrorCode(state.failure?.code);
       const validatedRecovery = event.schemaValidated === true && event.projectionFinalized === true
         && event.documentSequence > (state.quarantineSequence ?? state.documentSequence ?? Infinity);
+      const authorizationRecovery = event.authorizationRevalidated === true
+        && state.authorizationRecoveryEligible === true && state.remoteSynced
+        && (state.connection === 'live' || state.connection === 'read_only')
+        && event.degraded !== true && !event.projectionError?.permanent;
+      const recoveryAllowed = state.failure?.kind === 'authentication'
+        ? authorizationRecovery : validatedRecovery || binaryRecoveryAllowed;
       const stillDegraded = event.degraded === true || state.connection === 'denied' || (state.durability === 'degraded'
         && (state.failure?.kind === 'lifecycle'
-          || !(exactPersistedDocument && (validatedRecovery || binaryRecoveryAllowed))));
+          || !(exactPersistedDocument && recoveryAllowed)));
       const persistedProjectionError = event.projectionError && !event.projectionError.permanent
         ? { code: event.projectionError.code, sequence: event.projectionError.sequence } : null;
       return {
@@ -207,6 +216,8 @@ export function reduceTextCollaborationClientState(
           : state.connection === 'denied' || stillDegraded ? state.error : null,
         failure: event.degraded ? collaborationFailure(event.projectionError?.code ?? COLLABORATION_CHECKPOINT_ERROR_CODES.quarantined)
           : state.connection === 'denied' || stillDegraded ? state.failure : null,
+        authorizationRecoveryEligible: stillDegraded && event.degraded !== true && !event.projectionError?.permanent
+          ? state.authorizationRecoveryEligible : false,
         ...(event.degraded ? { quarantineSequence: event.documentSequence } : {}),
       };
     }
@@ -266,6 +277,7 @@ export function reduceTextCollaborationClientState(
         ...state,
         durability: 'degraded',
         quarantineSequence: event.sequence ?? state.documentSequence ?? undefined,
+        authorizationRecoveryEligible: false,
         error: event.message,
         failure: collaborationFailure(event.code),
       };
@@ -276,6 +288,9 @@ export function reduceTextCollaborationClientState(
         durability: 'degraded',
         error: event.message,
         failure: collaborationFailure(COLLABORATION_FAILURE_CODES.authenticationFailed),
+        // An access failure must not erase an earlier schema/unknown quarantine.
+        authorizationRecoveryEligible: state.failure?.kind === 'authentication'
+          ? state.authorizationRecoveryEligible === true : state.durability !== 'degraded' && state.failure === null,
       });
   }
 }

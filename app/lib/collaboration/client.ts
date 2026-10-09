@@ -14,7 +14,7 @@ import { installCodeMarkConflictPolicy } from './code-mark-policy';
 import { fetchLiveDocument, findOpenedLiveDocument, invalidateOpenedLiveDocument, isLocalOpenedDocumentSession,
   isOpenedDocumentAuthCurrent, LiveDocumentNetworkError, localOpenedDocumentReceipt, localOpenedDocumentSession,
   openedDocumentAuthScope, openedDocumentRequestRevision, rememberOpenedLiveDocument, sameOpenedDocumentSession, subscribeOpenedDocumentAuthInvalidation,
-  validateOpenedLiveDocumentSession, type OpenedDocumentAuthScope } from './opened-document-registry';
+  validateOpenedLiveDocumentSession, hasCurrentOpenedDocumentSessionAuthorization, type OpenedDocumentAuthScope } from './opened-document-registry';
 import { createDocumentAwarenessLease } from './document-awareness';
 import { workspaceHeaders } from '@/app/lib/files/client';
 import { fileGuestApi } from '@/app/lib/file-guests/types';
@@ -81,6 +81,8 @@ type RegistryEntry = {
   startProvider?: () => void;
   checkpointPromise?: Promise<void>;
   pendingAuthoritativeSnapshot?: CollaborationDurabilitySnapshot;
+  locationAuthorization?: { scope: AbortController; session: CollaborationSessionResponse; path: string;
+    authScope: OpenedDocumentAuthScope | null };
   setComposition: SetCollaborationComposition;
   requestCheckpoint: () => Promise<void>;
 };
@@ -101,6 +103,10 @@ export type CollaborationDocument = {
 };
 
 const registry = new Map<string, RegistryEntry>();
+const guestSessionAuthorizations = new WeakMap<CollaborationSessionResponse,
+  { workspaceId: string; path: string; invitationId: string; revision: number }>();
+const guestAuthorizationRevisions = new Map<string, number>();
+const guestAuthorizationKey = (workspaceId: string, invitationId: string) => JSON.stringify([workspaceId, invitationId]);
 const reviewReadinessListeners = new Set<() => void>();
 
 /** Observe an existing local session only; this never creates or joins a document. */
@@ -347,6 +353,8 @@ async function requestSession(
   signal?.throwIfAborted();
   const authScope = guestInvitationId ? null : openedDocumentAuthScope();
   const authorizationRevision = openedDocumentRequestRevision();
+  const guestKey = guestInvitationId ? guestAuthorizationKey(workspaceId, guestInvitationId) : null;
+  const guestRevision = guestKey ? guestAuthorizationRevisions.get(guestKey) ?? 0 : 0;
   const response = await fetchLiveDocument(guestInvitationId ? `${fileGuestApi(guestInvitationId)}/session` : '/api/files/collaboration/session', {
     signal,
     method: 'POST',
@@ -368,6 +376,12 @@ async function requestSession(
     if (retryAuthorizationChange) return requestSession(path, representation, workspaceId, signal, guestInvitationId, false);
     throw new Error('The document access changed while loading.');
   }
+  if (guestKey && guestRevision !== (guestAuthorizationRevisions.get(guestKey) ?? 0)) {
+    if (retryAuthorizationChange) return requestSession(path, representation, workspaceId, signal, guestInvitationId, false);
+    throw new Error('The guest document access changed while loading.');
+  }
+  if (guestInvitationId) guestSessionAuthorizations.set(payload as CollaborationSessionResponse,
+    { workspaceId, path, invitationId: guestInvitationId, revision: guestRevision });
   return payload as CollaborationSessionResponse;
 }
 
@@ -420,12 +434,28 @@ async function refreshEntrySession(entry: RegistryEntry, scope: AbortController)
   transition(entry, { type: 'provider_status', status: 'connecting', permission: refreshed.permission });
 }
 
+function hasFreshLocationSession(entry: RegistryEntry, path: string, session: CollaborationSessionResponse): boolean {
+  const workspaceId = entry.key.split('\0')[0];
+  if (!session.guestAccess) return hasCurrentOpenedDocumentSessionAuthorization(workspaceId, path, session, entry.authScope);
+  const authorization = guestSessionAuthorizations.get(session);
+  return Boolean(authorization && authorization.workspaceId === workspaceId && authorization.path === path
+    && authorization.invitationId === session.guestAccess.invitationId && session.guestAccess.workspaceId === workspaceId
+    && authorization.revision === (guestAuthorizationRevisions.get(guestAuthorizationKey(workspaceId, authorization.invitationId)) ?? 0));
+}
+
+function hasCurrentLocationAuthorization(entry: RegistryEntry): boolean {
+  const authorization = entry.locationAuthorization;
+  return Boolean(authorization && authorization.scope === entry.requests && !authorization.scope.signal.aborted
+    && authorization.path === entry.path && authorization.authScope === entry.authScope && entry.session
+    && sameOpenedDocumentSession(authorization.session, entry.session)
+    && hasFreshLocationSession(entry, entry.path, entry.session));
+}
+
 /** A validated session may move the open document, never replace its Yjs state. */
 function adoptEntryLocation(entry: RegistryEntry, path: string, session: CollaborationSessionResponse): void {
   const previous = entry.session;
   requireTextSession(session, previous?.representation as TextCollaborationRepresentation | undefined);
-  if (!previous || session.documentId !== previous.documentId || session.lifecycleGeneration !== previous.lifecycleGeneration
-    || session.documentName !== previous.documentName) throw new Error('Collaboration document identity changed.');
+  if (!previous || !sameOpenedDocumentSession(session, previous)) throw new Error('Collaboration document identity changed.');
   if (session.degraded || session.projectionError?.permanent) transition(entry, { type: 'degraded',
     code: session.projectionError?.code ?? COLLABORATION_CHECKPOINT_ERROR_CODES.quarantined,
     sequence: session.documentSequence, message: 'The saved document is quarantined. Recovery is required.' });
@@ -439,6 +469,9 @@ function adoptEntryLocation(entry: RegistryEntry, path: string, session: Collabo
   entry.provider = null;
   entry.path = path;
   entry.session = session;
+  entry.locationAuthorization = hasFreshLocationSession(entry, path, session)
+    ? { scope: entry.requests, session, path, authScope: entry.authScope } : undefined;
+  entry.requiresFreshSession = isLocalOpenedDocumentSession(session);
   entry.pendingAuthoritativeSnapshot = durabilitySnapshot(session) ?? undefined;
   const locationRecovered = entry.clientState.failure?.kind === 'lifecycle';
   entry.clientState = { ...entry.clientState, remoteSynced: false, ready: false,
@@ -578,6 +611,7 @@ function createEntry(
           projectionError: snapshot.projectionError,
           projectionFinalized: snapshot.projectionFinalized,
           schemaValidated: snapshot.schemaValidated,
+          authorizationRevalidated: hasCurrentLocationAuthorization(entry),
         });
         const confirmed = entry.clientState;
         if (confirmed.ready && confirmed.unsyncedChanges === 0
@@ -611,6 +645,10 @@ function createEntry(
       const denyAccess = (message: string) => {
         if (!guestInvitationId) invalidateOpenedLiveDocument(workspaceId,
           { path: entry.path, documentId: entry.session?.documentId }, entry.authScope);
+        else {
+          const key = guestAuthorizationKey(workspaceId, guestInvitationId);
+          guestAuthorizationRevisions.set(key, (guestAuthorizationRevisions.get(key) ?? 0) + 1);
+        }
         if (entry.session) entry.session = { ...entry.session, permission: 'read' };
         entry.provider?.disconnect();
         transition(entry, { type: 'authentication_failed', message });

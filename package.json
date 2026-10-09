@@ -319,7 +319,7 @@
     "test:collaboration:block-tree": "tsx --conditions react-server scripts/collaboration-block-tree-test.ts",
     "test:collaboration:block-binding": "tsx --conditions react-server scripts/collaboration-block-anchors-test.ts && tsx --conditions react-server scripts/collaboration-block-editor-test.ts",
     "test:collaboration:text-history": "tsx --test scripts/collaboration-text-history-test.ts && tsx scripts/collaborative-source-lifecycle-test.tsx",
-    "test:collaboration:rename": "tsx scripts/collaboration-document-awareness-test.ts && tsx scripts/collaboration-client-rename-test.tsx",
+    "test:collaboration:rename": "tsx scripts/collaboration-document-awareness-test.ts && tsx scripts/collaboration-client-rename-test.tsx && tsx scripts/collaboration-location-authorization-test.ts",
     "test:collaboration:location-client": "tsx scripts/collaboration-location-client-test.tsx",
     "test:collaboration:location-adoption": "tsx scripts/collaboration-location-adoption-test.ts",
     "test:notebook:open-identity": "tsx scripts/notebook-document-open-identity-test.ts",
