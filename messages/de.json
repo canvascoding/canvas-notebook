@@ -69,6 +69,35 @@
     "applyUpdates": "Aktualisierungen übernehmen",
     "coveragePartial": "Einige Postfächer oder Nachrichten sind noch nicht vollständig vorbereitet. Prüfe die Prüf- und Vorbereitungsgruppen oder öffne Alle E-Mails.",
     "coverageFailed": "Mindestens ein Postfach konnte nicht vollständig vorbereitet werden. Fehlende Nachrichten erscheinen möglicherweise nicht hier; aktualisiere die Ansicht oder öffne das Postfach in Klassisch.",
+    "diagnostics": {
+      "summary": "{count, plural, one {# Postfach benötigt Aufmerksamkeit} other {# Postfächer benötigen Aufmerksamkeit}}",
+      "listLabel": "Postfacherfassung und KI-Bewertung",
+      "unknownMailbox": "Postfach",
+      "lastConfirmed": "Zuletzt erfolgreich erfasst",
+      "neverConfirmed": "Bisher keine erfolgreiche Erfassung bestätigt.",
+      "states": {
+        "pending": "Die Inbox-Erfassung wurde noch nicht bestätigt.",
+        "partial": "Die Inbox ist teilweise erfasst. Weitere Nachrichten können fehlen.",
+        "failed": "Die Inbox-Erfassung ist fehlgeschlagen. Hier können Nachrichten fehlen.",
+        "complete": "Die Inbox-Erfassung ist bestätigt."
+      },
+      "errors": {
+        "auth_required": "Der Zugang zum E-Mail-Dienst konnte nicht bestätigt werden.",
+        "rate_limited": "Der E-Mail-Dienst begrenzt die Anfragen. Die Erfassung wird automatisch fortgesetzt.",
+        "timeout": "Der E-Mail-Dienst hat nicht rechtzeitig geantwortet. Die Erfassung wird automatisch erneut versucht.",
+        "provider_unavailable": "Der E-Mail-Dienst ist vorübergehend nicht erreichbar. Die Erfassung wird automatisch erneut versucht.",
+        "content_invalid": "Eine Nachricht konnte wegen nicht verarbeitbarer Daten nicht erfasst werden.",
+        "sync_failed": "Die Erfassung konnte nicht abgeschlossen werden. Prüfe das Postfach in Klassisch."
+      },
+      "aiPending": "KI-Bewertung ausstehend: {count}",
+      "aiFailed": "KI-Bewertung fehlgeschlagen: {count}",
+      "aiStale": "KI-Bewertung zu aktualisieren: {count}",
+      "openClassic": "Postfach in Klassisch öffnen",
+      "checkConnection": "Verbindung prüfen",
+      "contactManager": "Bitte die Postfachverwaltung oder einen Admin, den Zugang zu prüfen.",
+      "reload": "Stand neu laden",
+      "reloadHint": "Neuladen zeigt den zuletzt erfassten Stand. Es startet keine neue Postfacherfassung."
+    },
     "loading": "E-Mails werden geladen…",
     "emptyPreparing": "Diese Ansicht ist noch nicht vollständig vorbereitet",
     "emptyFocus": "Gerade keine wichtigen E-Mails in dieser Ansicht",

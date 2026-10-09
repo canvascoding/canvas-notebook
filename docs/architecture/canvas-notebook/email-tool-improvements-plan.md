@@ -9,7 +9,7 @@ Produktionsabnahme ist davon getrennt.
 | Inaktive Focus-Auswahl ausblenden | Implementiert und lokal geprüft |
 | 1. Unicode-Erfassung | Implementiert; PGlite, PostgreSQL 18 und Worker-Wiederaufnahme geprüft |
 | 2. Getrennte Fehlerdiagnose | Implementiert; Migration, Rechte, Wiederaufnahme und Aktualisierung geprüft |
-| 3. Konkrete Postfachwarnungen | Geplant |
+| 3. Konkrete Postfachwarnungen | Implementiert; Rechte, Quellenwechsel und Browsergeometrie geprüft |
 | 4. Verständliche Einrichtung | Geplant |
 | 5. Zahlen und Suchumfang | Geplant |
 | 6. Gesamtprüfung und Rollout | Ausstehend |

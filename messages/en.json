@@ -69,6 +69,35 @@
     "applyUpdates": "Apply updates",
     "coveragePartial": "Some mailboxes or messages are not fully prepared yet. Check the review and preparation groups or open All emails.",
     "coverageFailed": "At least one mailbox could not be fully prepared. Its missing messages may not appear here; refresh or open that mailbox in Classic.",
+    "diagnostics": {
+      "summary": "{count, plural, one {# mailbox needs attention} other {# mailboxes need attention}}",
+      "listLabel": "Mailbox capture and AI assessment status",
+      "unknownMailbox": "Mailbox",
+      "lastConfirmed": "Last successful capture",
+      "neverConfirmed": "No successful capture confirmed yet.",
+      "states": {
+        "pending": "Inbox capture has not been confirmed yet.",
+        "partial": "The Inbox is partly captured. More messages may be missing.",
+        "failed": "Inbox capture failed. Messages may be missing here.",
+        "complete": "Inbox capture is confirmed."
+      },
+      "errors": {
+        "auth_required": "Access to the email service could not be confirmed.",
+        "rate_limited": "The email service is limiting requests. Capture will resume automatically.",
+        "timeout": "The email service did not respond in time. Capture will be attempted again automatically.",
+        "provider_unavailable": "The email service is temporarily unavailable. Capture will be attempted again automatically.",
+        "content_invalid": "A message could not be captured because its data could not be processed.",
+        "sync_failed": "Capture could not be completed. Check the mailbox in Classic."
+      },
+      "aiPending": "AI assessment pending: {count}",
+      "aiFailed": "AI assessment failed: {count}",
+      "aiStale": "AI assessment needs updating: {count}",
+      "openClassic": "Open mailbox in Classic",
+      "checkConnection": "Check connection",
+      "contactManager": "Ask the mailbox manager or an administrator to check access.",
+      "reload": "Reload view",
+      "reloadHint": "Reloading shows the latest captured state. It does not start a new mailbox scan."
+    },
     "loading": "Loading mail…",
     "emptyPreparing": "This view is not fully prepared yet",
     "emptyFocus": "No important mail in this view right now",

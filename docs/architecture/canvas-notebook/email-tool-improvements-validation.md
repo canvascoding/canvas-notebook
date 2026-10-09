@@ -55,3 +55,33 @@ Feed-Prüfung deckt leere fehlerhafte Quellen, Berechtigungsentzug während eine
 Requests und Aktualisierungshinweise bei geändertem Erfassungsgrund sowie
 `pending` -> `failed` eines aktuellen KI-Jobs ab. Snapshot-Reihenfolge bleibt bis
 zum bewussten Neuladen stabil. Frische unabhängige Quellprüfung ohne Blocker.
+
+## Schritt 3: Postfachbezogene Warnungen und Aktionen
+
+Eine aufklappbare Zusammenfassung nennt betroffene Postfächer, ihren sicheren
+Erfassungsgrund und letzte bestätigte Erfassung. Ausstehende, fehlgeschlagene und
+veraltete KI-Bewertungen stehen getrennt daneben. Die aktuelle Quellenliste
+entfernt Angaben zu entzogenen Postfächern und begrenzt Verwaltungsaktionen.
+
+Klassisch öffnet das ausgewählte persönliche oder Arbeitspostfach in INBOX;
+alte Suche, Filter und Seiten werden zurückgesetzt, laufende Requests beendet
+und ein vorhandener Entwurf minimiert. Quellen ohne aktuellen Kontoeintrag
+führen zur erneuten Zugriffsprüfung. Neuladen lädt ausschließlich die Ansicht.
+
+Focus-UI-/Experience-Suites, Gesamt-TypeScript und fokussiertes ESLint bestanden.
+Frische unabhängige Prüfung ohne verbleibenden Funktions-/Zugriffsbefund.
+GitNexus meldet HIGH für Navigation/Client wegen der Einbindung in E-Mail-Seite
+und DashboardShell; diese Reichweite wurde vor der Änderung angekündigt.
+
+Browser-Komponentenabnahme: 40 Zustandsfälle in EN/DE, Desktop 1280/Mobil 390,
+hell/dunkel bestanden. Ein echter Schnitt bei 400 Pixeln Pane-Höhe wurde behoben;
+drei gezielte Nachprüfungen mit neuem Bundle/CSS sind bestanden. Neuladen ist
+innerhalb der Pane erreichbar; die verbleibende Nachrichtenfläche ist 58 Pixel
+hoch und eine Zeile wurde mit normalem Mausklick geöffnet. Der Browser wurde
+geschlossen. Tatsächliche Komponenten, NextIntl und App-CSS mit isolierten
+synthetischen Daten; Aktionen führen zu Fixture-Callbacks. Das belegt keine
+Voll-App-, Login-, Provider- oder Produktionsjourney.
+
+- [Persönlich/Arbeit, DE/Mobil/dunkel](email-tool-improvements/evidence/postfix-de-mobile-dark-auth-personal-work.png)
+- [Erfassung bestätigt, KI fehlgeschlagen](email-tool-improvements/evidence/postfix-de-desktop-light-complete-failed-ai.png)
+- [Kurze Pane nach Layoutkorrektur](email-tool-improvements/evidence/postfix-en-mobile-light-short-pane-400.png)

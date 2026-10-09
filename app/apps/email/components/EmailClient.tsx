@@ -619,6 +619,22 @@ export function EmailClient({
     setMessagePage(0);
   };
 
+  const openFocusMailbox = (mailboxRef: string, manageConnection = false) => {
+    const source = focusSources.find(candidate => candidate.mailboxRef === mailboxRef);
+    if (!source?.capabilities.canRead || manageConnection && !source.capabilities.canManage) return;
+    const account = accounts.find(candidate => candidate.id === source.accountId
+      && (candidate.workspaceId || null) === source.workspaceId && candidate.capabilities?.canRead !== false);
+    if (!account) { setError(tf('selectionError')); void loadAccounts(); void loadFocusConfiguration(); return; }
+    changeFocusScope({ kind: 'mailbox', mailboxRef });
+    selectAccount(emailAccountSelectionKey(account));
+    setQuery(''); setSubmittedQuery(''); setMessageFilter('all'); setSearchNotice(null);
+    setSearchRevision(current => current + 1);
+    // Select the source explicitly before switching: the mode callback still has
+    // the previous aggregate scope until React renders again.
+    void changeExperienceMode('classic', true);
+    if (manageConnection) setAccountsOpen(true);
+  };
+
   const selectFolder = (folder: string) => {
     consumeExternalFeedIntent();
     if (folder === activeFolder) return;
@@ -1762,7 +1778,8 @@ export function EmailClient({
               onCategoryChange={category => { consumeExternalFeedIntent(); setFocusCategory(category); }} onOpen={(item, dialog) => { consumeExternalFeedIntent(); openFeedMessage(item, dialog); }} onDone={(item, done) => void markPersonalFocus(item, done)}
               selectionKey={selectedFeedItem?.selectionKey || ''} loading={focusFeed.loading} loadingMore={focusFeed.loadingMore}
               error={focusFeed.error} hasUpdates={focusFeed.hasUpdates} hasMore={focusFeed.hasMore} onReload={focusFeed.reload}
-              onLoadMore={focusFeed.loadMore} aggregate={focusScope.kind !== 'mailbox'} />
+              onLoadMore={focusFeed.loadMore} aggregate={focusScope.kind !== 'mailbox'}
+              mailboxes={focusSources} onOpenMailbox={openFocusMailbox} />
             {layoutMode === 'wide' && <EmailPaneResizeHandle label={t('resizeMessageList')} width={effectiveListWidth} onWidthChange={setListWidth} />}
           </> : <EmailMailboxNavigation
             activeFolder={activeFolder}

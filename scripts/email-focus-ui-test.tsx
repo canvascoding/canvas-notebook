@@ -184,6 +184,85 @@ async function main() {
     assert(nav.getByText(en.emailFocus.emptyPreparing)); assert.equal(nav.container.textContent?.includes('all caught up'), false);
     cleanup();
 
+    const emptyMailbox = { ...first.origin, mailboxRef: `emb:${'d'.repeat(64)}`, accountId: 'empty', emailAddress: 'empty@example.test',
+      displayName: 'Long mailbox name '.repeat(12), workspaceName: 'International support team '.repeat(8) };
+    const diagnosticFeed: EmailClassificationFeed = { ...feed([first]), nextCursor: null,
+      coverage: [feed().coverage[0],
+        { mailboxRef: second.origin.mailboxRef, state: 'failed', lastSyncAt: Date.parse('2026-10-09T10:15:00Z'), indexed: 2, pending: 3, failed: 1, stale: 2,
+          errorCode: 'auth_required', source: { emailAddress: second.origin.emailAddress, displayName: 'Customer support', workspaceName: 'Support' } },
+        { mailboxRef: emptyMailbox.mailboxRef, state: 'failed', lastSyncAt: null, indexed: 0, pending: 0, failed: 0, stale: 0,
+          errorCode: 'auth_required', source: { emailAddress: emptyMailbox.emailAddress, displayName: emptyMailbox.displayName, workspaceName: emptyMailbox.workspaceName } }] };
+    for (const locale of ['en', 'de'] as const) {
+      const messages = locale === 'en' ? en.emailFocus : de.emailFocus;
+      const mailboxActions: Array<[string, boolean | undefined]> = []; let reloads = 0;
+      const diagnosticProps = { ...navProps, feed: diagnosticFeed, mailboxes: [first.origin, second.origin, emptyMailbox],
+        onOpenMailbox: (mailboxRef: string, manageConnection?: boolean) => mailboxActions.push([mailboxRef, manageConnection]), onReload: () => { reloads++; } };
+      const diagnostics = render(wrap(<EmailFocusNavigation {...diagnosticProps} />, locale));
+      const panel = diagnostics.getByTestId('email-source-diagnostics') as HTMLDetailsElement;
+      assert(diagnostics.getByTestId('email-source-diagnostics-scroll').classList.contains('max-h-64'), 'Expanded source details preserve a bounded message area');
+      assert.equal(panel.open, false, 'Mailbox diagnostics start as a short collapsed summary');
+      assert.match(panel.querySelector('summary')!.textContent!, /2/);
+      fireEvent.click(panel.querySelector('summary')!);
+      assert.equal(panel.open, true, 'Native summary opens mailbox details');
+      const sources = diagnostics.getAllByTestId('email-source-diagnostic');
+      assert.equal(sources.length, 2, 'Only sources needing capture or assessment attention appear');
+      const readonly = within(sources[0]); const emptySource = within(sources[1]);
+      assert(readonly.getByText('Customer support')); assert(readonly.getByText(second.origin.emailAddress));
+      assert(readonly.getByText(messages.diagnostics.contactManager));
+      assert.equal(readonly.queryByRole('button', { name: messages.diagnostics.checkConnection }), null, 'Read-only mailbox users cannot manage provider access');
+      assert(readonly.getByText(messages.diagnostics.aiPending.replace('{count}', '3')));
+      assert(readonly.getByText(messages.diagnostics.aiFailed.replace('{count}', '1')));
+      assert(readonly.getByText(messages.diagnostics.aiStale.replace('{count}', '2')));
+      assert.equal(sources[0].querySelector('time')!.getAttribute('datetime'), '2026-10-09T10:15:00.000Z');
+      assert.match(sources[0].querySelector('time')!.textContent!, /2026/);
+      assert.match(sources[0].querySelector('time')!.textContent!, /\d{1,2}:\d{2}/);
+      assert(emptySource.getByText(messages.diagnostics.neverConfirmed));
+      assert(emptySource.getByText(emptyMailbox.displayName.trim())); assert(emptySource.getByText(emptyMailbox.workspaceName.trim()));
+      assert.equal(sources[1].querySelector('[class*="overflow-wrap:anywhere"]') !== null, true, 'Long names and addresses can wrap on narrow layouts');
+      fireEvent.click(readonly.getByRole('button', { name: messages.diagnostics.openClassic }));
+      fireEvent.click(emptySource.getByRole('button', { name: messages.diagnostics.checkConnection }));
+      assert.deepEqual(mailboxActions, [[second.origin.mailboxRef, undefined], [emptyMailbox.mailboxRef, true]], 'Source actions preserve the mailbox reference and management intent');
+      fireEvent.click(diagnostics.getByRole('button', { name: messages.diagnostics.reload }));
+      assert.equal(reloads, 1); assert(diagnostics.getByText(messages.diagnostics.reloadHint));
+      assert.equal(diagnostics.getAllByTestId('email-focus-row').length, 1, 'A working mailbox remains usable alongside an empty failed source');
+      diagnostics.rerender(wrap(<EmailFocusNavigation {...diagnosticProps} feed={{ ...diagnosticFeed, mode: 'classic', requestedMode: 'classic' }} />, locale));
+      assert.equal(diagnostics.queryByTestId('email-source-assessments'), null, 'Classic capture diagnostics do not show AI preparation counts');
+      diagnostics.rerender(wrap(<EmailFocusNavigation {...diagnosticProps} mailboxes={[]} />, locale));
+      assert.equal(diagnostics.queryByRole('button', { name: messages.diagnostics.openClassic }), null, 'Unconfirmed source capabilities cannot offer mailbox actions');
+      assert.equal(diagnostics.queryByRole('button', { name: messages.diagnostics.checkConnection }), null);
+      assert.equal(diagnostics.queryByTestId('email-source-diagnostics'), null, 'An empty current catalog removes stale feed diagnostic metadata');
+      assert.equal(diagnostics.container.textContent?.includes('Customer support'), false);
+      diagnostics.rerender(wrap(<EmailFocusNavigation {...diagnosticProps} mailboxes={[first.origin, { ...second.origin, capabilities: { ...second.origin.capabilities, canRead: false } }, emptyMailbox]} />, locale));
+      assert.equal(diagnostics.queryByText('Customer support'), null, 'Revoked canRead removes a cached source name and timestamp');
+      assert.equal(diagnostics.getAllByTestId('email-source-diagnostic').length, 1);
+      assert.equal(diagnostics.container.querySelector('time[datetime="2026-10-09T10:15:00.000Z"]'), null);
+      cleanup();
+
+      for (const errorCode of ['auth_required', 'rate_limited', 'timeout', 'provider_unavailable', 'content_invalid', 'sync_failed', 'unsafe-provider-secret'] as const) {
+        const expected = errorCode === 'unsafe-provider-secret' ? 'sync_failed' : errorCode;
+        const reasonFeed: EmailClassificationFeed = { ...feed([]), coverage: [{ ...diagnosticFeed.coverage[2], lastSyncAt: Number.MAX_VALUE, errorCode: errorCode as never, source: undefined }] };
+        const reasons = render(wrap(<EmailFocusNavigation {...navProps} feed={reasonFeed} mailboxes={[emptyMailbox]} />, locale));
+        const reasonPanel = reasons.getByTestId('email-source-diagnostics') as HTMLDetailsElement;
+        fireEvent.click(reasonPanel.querySelector('summary')!);
+        assert(reasons.getByText(messages.diagnostics.errors[expected]));
+        assert(reasons.getByText(messages.diagnostics.neverConfirmed), 'Out-of-range timestamps cannot fabricate a confirmed capture or crash the view');
+        assert(reasons.getByText(emptyMailbox.emailAddress), 'Authorized catalog labels support older feed payloads');
+        assert.equal(reasons.container.textContent?.includes('unsafe-provider-secret'), false, 'Unknown errors never expose provider content');
+        assert(reasons.getByText(messages.emptyPreparing), 'An empty unconfirmed source never becomes a fully captured empty mailbox');
+        cleanup();
+      }
+      const assessedFeed: EmailClassificationFeed = { ...feed([]), coverage: [{ ...feed().coverage[0], pending: 2, failed: 1, stale: 1 }] };
+      const assessmentOnly = render(wrap(<EmailFocusNavigation {...navProps} feed={assessedFeed} />, locale));
+      const assessmentPanel = assessmentOnly.getByTestId('email-source-diagnostics') as HTMLDetailsElement;
+      fireEvent.click(assessmentPanel.querySelector('summary')!);
+      assert(assessmentOnly.getByText(messages.diagnostics.states.complete));
+      assert(assessmentOnly.getByText(messages.diagnostics.aiFailed.replace('{count}', '1')));
+      assert.equal(assessmentOnly.queryByText(messages.diagnostics.states.failed), null, 'A failed assessment cannot be described as failed Inbox capture');
+      assessmentOnly.rerender(wrap(<EmailFocusNavigation {...navProps} feed={{ ...assessedFeed, mode: 'classic' }} />, locale));
+      assert.equal(assessmentOnly.queryByTestId('email-source-diagnostics'), null, 'Complete capture has no warning in Classic when only AI work remains');
+      cleanup();
+    }
+
     const excluded = { ...first, classification: projectEmailClassification({ raw: null, unavailableState: 'not_selected' }) };
     const excludedNav = render(wrap(<EmailFocusNavigation {...navProps} feed={feed([excluded])} view="all" />));
     assert(excludedNav.getByText(en.emailFocus.reasons.not_selected));
