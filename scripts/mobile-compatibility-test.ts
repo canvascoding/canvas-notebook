@@ -42,6 +42,7 @@ assert.deepEqual(compatibility, {
       'license.register',
       'license.activate',
       'chat.sessions',
+      'chat.mcp_apps.v1',
       'chat.realtime_ticket',
       'chat.session_manage',
       'chat.attachments',
@@ -111,6 +112,7 @@ assert.deepEqual(compatibility, {
       'extensions.marketplace_v2',
       'integrations.composio_catalog',
       'integrations.composio_mobile_auth',
+      'integrations.mcp_mobile.v1',
     ],
   },
   auth: {

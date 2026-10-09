@@ -767,7 +767,42 @@ function assertCurrentMcpAppSourceTool(
   return sourceTool;
 }
 
-type McpAppDispatchOptions = { beforeDispatch?: () => Promise<void>; expectedEnvironmentRevision?: string };
+export type McpAppCallMetadata = {
+  authVersion: number; configHash: string; environmentRevision: string; sourceTool: Tool; targetTool: Tool;
+};
+export type McpAppDispatchGuard = {
+  beforeDispatch: (metadata: McpAppCallMetadata) => Promise<void | false>;
+  onDispatch: () => void;
+};
+type McpAppDispatchOptions = {
+  beforeDispatch?: () => Promise<void>; expectedEnvironmentRevision?: string; approval?: McpAppDispatchGuard;
+};
+
+function readMcpAppCallMetadataFromTools(entry: ManagedConnection, tools: readonly Tool[], sourceToolName: string,
+  resourceUri: string, targetToolName: string, environmentRevision: string): McpAppCallMetadata {
+  const sourceTool = assertCurrentMcpAppSourceTool(tools, sourceToolName, resourceUri);
+  const targetTool = tools.find(tool => tool.name === targetToolName);
+  if (!targetTool || !isMcpAppToolVisibleToApp(targetTool)) {
+    throw new McpAccessError(`MCP App tool "${targetToolName}" is not visible to the selected app.`, 403);
+  }
+  return { authVersion: entry.config.authVersion ?? 1, configHash: entry.configHash, environmentRevision, sourceTool, targetTool };
+}
+
+/** Approval metadata retains independent source and target Use checks and cannot dispatch an action. */
+export async function readMcpAppCallMetadata(connectionId: string, sourceToolName: string, resourceUri: string,
+  targetToolName: string, scope?: McpScope | null): Promise<McpAppCallMetadata> {
+  requireMcpAppsEnabled();
+  if (scope?.shared) {
+    const sourceScope = normalizeMcpScope({ ...scope, shared: { ...scope.shared, operation: 'use', toolName: sourceToolName } })!;
+    await authorizeSharedMcpScope(sourceScope, 'use', sourceToolName);
+    scope = normalizeMcpScope({ ...sourceScope, shared: { ...sourceScope.shared!, toolName: targetToolName } });
+  }
+  return mcpInvocationBindings.run(null, () => withManagedConnection(connectionId, async (entry, client) => {
+    const tools = await withTimeout(client.listTools(), getTimeoutMs(entry.config));
+    const environment = await readMcpAvailableEnvSnapshot(currentManagedScope(entry));
+    return readMcpAppCallMetadataFromTools(entry, tools.tools, sourceToolName, resourceUri, targetToolName, environment.revision);
+  }, undefined, scope));
+}
 
 /** Reuse the business transport's credential-generation fence for shared UI dispatch. */
 async function dispatchMcpAppInvocation<T>(entry: ManagedConnection, client: Client, options: McpAppDispatchOptions,
@@ -830,17 +865,18 @@ export async function callMcpAppTool(
   }
   return mcpInvocationBindings.run(null, () => withManagedConnection(connectionId, async (entry, client) => {
     const tools = await withTimeout(client.listTools(), getTimeoutMs(entry.config), signal);
-    assertCurrentMcpAppSourceTool(tools.tools, sourceToolName, resourceUri);
-    const targetTool = tools.tools.find((tool) => tool.name === targetToolName);
-    if (!targetTool || !isMcpAppToolVisibleToApp(targetTool)) {
-      throw new McpAccessError(`MCP App tool "${targetToolName}" is not visible to the selected app.`, 403);
-    }
-    await validateIntegrationArguments(targetTool.inputSchema, args);
-    return dispatchMcpAppInvocation(entry, client, options, () => withTimeout(
-      client.callTool({ name: targetToolName, arguments: args }),
-      getTimeoutMs(entry.config),
-      signal,
-    ) as Promise<CallToolResult>, signal);
+    const environment = await readMcpAvailableEnvSnapshot(currentManagedScope(entry));
+    const metadata = readMcpAppCallMetadataFromTools(entry, tools.tools, sourceToolName, resourceUri, targetToolName, environment.revision);
+    await validateIntegrationArguments(metadata.targetTool.inputSchema, args);
+    return dispatchMcpAppInvocation(entry, client, options, async () => {
+      if (options.approval) {
+        if (await options.approval.beforeDispatch(metadata) === false) return { content: [], isError: true };
+        signal?.throwIfAborted();
+        options.approval.onDispatch();
+      }
+      return withTimeout(client.callTool({ name: targetToolName, arguments: args }),
+        getTimeoutMs(entry.config), signal) as Promise<CallToolResult>;
+    }, signal);
   }, signal, scope));
 }
 

@@ -31,6 +31,7 @@ export type MobileCompatibility = {
       'license.register',
       'license.activate',
       'chat.sessions',
+      'chat.mcp_apps.v1',
       'chat.realtime_ticket',
       'chat.session_manage',
       'chat.attachments',
@@ -100,6 +101,7 @@ export type MobileCompatibility = {
       'extensions.marketplace_v2',
       'integrations.composio_catalog',
       'integrations.composio_mobile_auth',
+      'integrations.mcp_mobile.v1',
     ];
   };
   auth: {
@@ -149,6 +151,7 @@ export function createMobileCompatibility(input: {
         'license.register',
         'license.activate',
         'chat.sessions',
+        'chat.mcp_apps.v1',
         'chat.realtime_ticket',
         'chat.session_manage',
         'chat.attachments',
@@ -218,6 +221,7 @@ export function createMobileCompatibility(input: {
         'extensions.marketplace_v2',
         'integrations.composio_catalog',
         'integrations.composio_mobile_auth',
+        'integrations.mcp_mobile.v1',
       ],
     },
     auth: {

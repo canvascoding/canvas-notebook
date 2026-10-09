@@ -2,11 +2,21 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { htmlPreviewOrigins, isHtmlPreviewHost } from '../app/lib/html-preview-origin';
 
 const mcpAppPath = /^\/__preview\/[A-Za-z0-9_-]{43}\/mcp-app\/(?:frame|document)$/u;
+const mobileMcpPath = /^\/__preview\/[A-Za-z0-9_-]{43}\/mobile-mcp\/(?:host|frame|document)$/u;
 const sameOriginPreviewPath = /^\/__document-preview\/[A-Za-z0-9_-]{43}\//u;
 
 /** Preview vhosts never expose the app router or receive its credentials. */
 export function handleHtmlPreviewBoundary(request: IncomingMessage, response: ServerResponse): boolean {
   const pathname=new URL(request.url || '/', 'http://localhost').pathname;
+  if (mobileMcpPath.test(pathname)) {
+    if (!['GET','HEAD'].includes(request.method || '')) {
+      response.writeHead(404,{'Cache-Control':'no-store'});response.end();return true;
+    }
+    for (const name of Object.keys(request.headers)) {
+      if (['cookie','authorization','proxy-authorization'].includes(name) || name.startsWith('x-canvas-')) delete request.headers[name];
+    }
+    return false;
+  }
   if(isHtmlPreviewHost(request.headers.host)) {
     for(const name of Object.keys(request.headers)) {
       if(['cookie','authorization','proxy-authorization'].includes(name) || name.startsWith('x-canvas-')) delete request.headers[name];

@@ -40,6 +40,7 @@ const PUBLIC_SHARE_PREFIX_ROUTES = [
   '/public/marp-preview/',
 ];
 const MCP_APP_TICKET_ROUTE = /^\/__preview\/[A-Za-z0-9_-]{43}\/mcp-app\/(?:frame|document)$/u;
+const MOBILE_MCP_TICKET_ROUTE = /^\/__preview\/[A-Za-z0-9_-]{43}\/mobile-mcp\/(?:host|frame|document)$/u;
 const SAME_ORIGIN_HTML_PREVIEW_ROUTE = /^\/__document-preview\/[A-Za-z0-9_-]{43}\//u;
 
 function isWebSocketRoute(pathname: string) {
@@ -160,7 +161,7 @@ export default async function middleware(request: NextRequest) {
     if (['GET','HEAD'].includes(request.method)) return NextResponse.next();
     return new NextResponse(null,{status:404,headers:{'Cache-Control':'no-store'}});
   }
-  if (['GET','HEAD'].includes(request.method) && MCP_APP_TICKET_ROUTE.test(pathname)) return NextResponse.next();
+  if (['GET','HEAD'].includes(request.method) && (MCP_APP_TICKET_ROUTE.test(pathname) || MOBILE_MCP_TICKET_ROUTE.test(pathname))) return NextResponse.next();
   if (pathname.startsWith('/__preview/')) return new NextResponse(null,{status:404,headers:{'Cache-Control':'no-store'}});
 
   // Canvas Notebook handles mutations through API routes. A next-action POST here
@@ -228,12 +229,16 @@ export default async function middleware(request: NextRequest) {
     }
 
     const sessionCookie = getCanvasSessionCookie(request);
+    // The versioned native handlers validate this credential with Better Auth.
+    // Presence here only delegates authentication; it grants no session rights.
+    const mobileBearerCandidate = pathname.startsWith('/api/mobile/v1/')
+      && /^Bearer [^\s\x00-\x1f\x7f]{1,4096}$/u.test(request.headers.get('authorization') || '');
     const logMissingSession = process.env.NODE_ENV !== 'production' || process.env.AUTH_DEBUG === 'true';
-    if (!sessionCookie && logMissingSession) {
-      console.log(`[Middleware] No session cookie for ${pathname}. Denying API request.`);
+    if (!sessionCookie && !mobileBearerCandidate && logMissingSession) {
+      console.log(`[Middleware] No session credential for ${pathname}. Denying API request.`);
     }
 
-    if (!sessionCookie) {
+    if (!sessionCookie && !mobileBearerCandidate) {
       const errorResponse = NextResponse.json(
         { success: false, error: 'Unauthorized' },
         { status: 401 }

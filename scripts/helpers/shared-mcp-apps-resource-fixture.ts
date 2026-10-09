@@ -18,7 +18,8 @@ export async function createSharedMcpAppsResourceHtml(): Promise<string> {
         const image=result.content?.find(block=>block.type==='image');
         if(image){const img=document.createElement('img');img.alt='Shared result image';img.src='data:'+image.mimeType+';base64,'+image.data;document.getElementById('image').replaceChildren(img);}
       };
-      app.onhostcontextchanged=updateContext;
+      // Notifications contain changed fields; the SDK already merges them.
+      app.onhostcontextchanged=()=>updateContext(app.getHostContext());
       document.getElementById('action').onclick=async()=>{
         status.textContent='Waiting for approval';
         try{const result=await app.callServerTool({name:'app_action',arguments:{value:'from-widget'}});status.textContent=result.isError?'Rejected':'Approved';}

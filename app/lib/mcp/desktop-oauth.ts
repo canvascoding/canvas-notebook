@@ -231,9 +231,11 @@ export async function cancelMcpDesktopOAuth(state: string, userId: string): Prom
   });
 }
 
-export async function finalizeMcpDesktopOAuth(state: string, userId: string): Promise<McpDesktopOAuthSummary> {
+export async function finalizeMcpDesktopOAuth(state: string, userId: string,
+  options: { assertAuthorization?: () => Promise<void> } = {}): Promise<McpDesktopOAuthSummary> {
   return withTransaction(state, async transaction => {
     assertOwner(transaction, userId);
+    await options.assertAuthorization?.();
     if (await expireTransaction(transaction)) return summary(transaction);
     if (transaction.status === 'completed') return summary(transaction);
     if (transaction.status !== 'callback_received' || !transaction.response) return summary(transaction);
@@ -243,8 +245,9 @@ export async function finalizeMcpDesktopOAuth(state: string, userId: string): Pr
       // is completed. Recover only the exact, still-bound authorization state.
       const oauth = await getMcpOAuthStatus(transaction.connectionId, null, ownerScope(transaction));
       if (!oauth.authorized || oauth.lastCompletedState !== transaction.state) {
-        await completeStoredMcpOAuth(transaction.response.code, transaction.state, transaction.response.stored, ownerScope(transaction));
+        await completeStoredMcpOAuth(transaction.response.code, transaction.state, transaction.response.stored, ownerScope(transaction), options);
       }
+      await options.assertAuthorization?.();
       await finishTransaction(transaction, 'completed');
       const { closeMcpServer } = await import('./manager');
       await closeMcpServer(transaction.connectionId, ownerScope(transaction)).catch(() => undefined);

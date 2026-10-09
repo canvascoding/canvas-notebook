@@ -159,8 +159,10 @@ async function main(): Promise<void> {
   const composioNative = process.env.CANVAS_SHARED_COMPOSIO_DESKTOP_OAUTH_BROWSER_RUN === '1';
   const composioLive = process.env.CANVAS_COMPOSIO_LIVE_BROWSER_RUN === '1';
   const mcpApps = process.env.CANVAS_SHARED_MCP_APPS_BROWSER_RUN === '1';
-  assert(!mcpApps || workflow && !oauth && !desktop && !composioNative && !composioDesktopClient && !composioLive,
-    'Shared MCP Apps require their own fixed workflow command.');
+  const mobileMcpApps = process.env.CANVAS_MOBILE_MCP_APPS_BROWSER_RUN === '1';
+  const anyMcpApps = mcpApps || mobileMcpApps;
+  assert(!(mcpApps && mobileMcpApps) && (!anyMcpApps || workflow && !oauth && !desktop && !composioNative && !composioDesktopClient && !composioLive),
+    'MCP Apps require one separate fixed workflow command.');
   assert(!composioLive || workflow && !oauth && !desktop && !composioNative && !composioDesktopClient,
     'The live Composio gate requires its separate fixed command.');
   let liveKey: string | undefined;
@@ -246,7 +248,7 @@ async function main(): Promise<void> {
   let composioProvider: Awaited<ReturnType<typeof createComposioProviderFixture>> | undefined;
   let composioProviderClosed = !composioDesktopClient && !composioNative;
   let mcpAppProvider: Awaited<ReturnType<typeof createSharedMcpAppsProviderFixture>> | undefined;
-  let mcpAppProviderClosed = !mcpApps;
+  let mcpAppProviderClosed = !anyMcpApps;
   const children: Child[] = [];
   const abort = new AbortController();
   const signalChild = (child: Child, signal: NodeJS.Signals) => {
@@ -286,8 +288,10 @@ async function main(): Promise<void> {
     TEST_SECONDARY_EMAIL: `workflow-member-${nonce}@example.test`, TEST_SECONDARY_PASSWORD: randomBytes(24).toString('base64url'),
     TEST_EDITOR_EMAIL: `workflow-editor-${nonce}@example.test`, TEST_EDITOR_PASSWORD: randomBytes(24).toString('base64url') });
   if (oauth) env.CANVAS_SHARED_MCP_OAUTH_BROWSER_RUN = '1';
-  if (mcpApps) Object.assign(env, { CANVAS_SHARED_MCP_APPS_BROWSER_RUN: '1', CANVAS_MCP_APPS_ENABLED: 'true',
+  if (anyMcpApps) Object.assign(env, { CANVAS_MCP_APPS_ENABLED: 'true',
     INTEGRATIONS_ENV_MASTER_KEY: randomBytes(32).toString('base64url') });
+  if (mcpApps) env.CANVAS_SHARED_MCP_APPS_BROWSER_RUN = '1';
+  if (mobileMcpApps) env.CANVAS_MOBILE_MCP_APPS_BROWSER_RUN = '1';
   if (composioDesktopClient || composioNative || composioLive) env.INTEGRATIONS_ENV_MASTER_KEY = randomBytes(32).toString('base64url');
   if (composioLive) {
     Object.assign(env, { CANVAS_COMPOSIO_LIVE_BROWSER_RUN: '1', CANVAS_COMPOSIO_LIVE_INPUT: liveInputPath,
@@ -480,7 +484,7 @@ async function main(): Promise<void> {
           CANVAS_SHARED_COMPOSIO_ELECTRON_PROVIDER_ORIGIN: composioProvider.nativeConsent.origin });
       }
     }
-    if (mcpApps) {
+    if (anyMcpApps) {
       const controlToken = randomBytes(32).toString('base64url');
       mcpAppProvider = await createSharedMcpAppsProviderFixture({ html: await createSharedMcpAppsResourceHtml(), controlToken, allowModelVerification: true });
       Object.assign(env, { CANVAS_SHARED_MCP_APPS_URL: mcpAppProvider.url, CANVAS_SHARED_MCP_APPS_CONTROL_TOKEN: controlToken });
@@ -506,7 +510,8 @@ async function main(): Promise<void> {
     await assertOwnedListener(); receipt.listenerVerified = true;
     receipt.phase = 'browser'; await persist();
     const browserArgs = [path.join(repo, 'node_modules/@playwright/test/cli.js'), 'test', '--config', mcpApps
-      ? 'playwright.shared-mcp-apps-production.config.ts' : composioLive
+      ? 'playwright.shared-mcp-apps-production.config.ts' : mobileMcpApps
+      ? 'playwright.mobile-mcp-apps-production.config.ts' : composioLive
       ? 'playwright.composio-live-production.config.ts' : composioNative
       ? 'playwright.shared-composio-desktop-oauth-production.config.ts' : composioDesktopClient
       ? 'playwright.shared-composio-desktop-client-production.config.ts' : desktop

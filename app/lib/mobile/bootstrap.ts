@@ -111,6 +111,7 @@ export function createMobileBootstrap(input: {
     'license.activate',
     'chat.agents',
     'chat.sessions',
+    'chat.mcp_apps.v1',
     'chat.messages',
     'chat.realtime',
     'chat.session_manage',
@@ -182,6 +183,7 @@ export function createMobileBootstrap(input: {
     'extensions.marketplace_v2',
     'integrations.composio_catalog',
     'integrations.composio_mobile_auth',
+    'integrations.mcp_mobile.v1',
   ];
   if (normalizeRole(input.user.role) !== 'external') capabilities.push('workspace.create.personal');
   if (input.listing.canCreateSharedWorkspaces) {
