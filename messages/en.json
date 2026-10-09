@@ -1784,6 +1784,7 @@
       "fileChangePage": "{page}/{pages}"
     },
     "mcpApp": {
+      "waitingForSave": "The tool result is still being saved. Reload the card after the run finishes.",
       "loading": "Loading interactive MCP app…",
       "unavailable": "This interactive MCP app is unavailable.",
       "reload": "Reload widget",

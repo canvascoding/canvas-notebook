@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { expandMcpEnvValue, mcpConfigUsesChangedEnv } from '@/app/lib/mcp/env-references';
-import { assertMcpConnectionAccess, requireMcpUserAccess } from './access';
+import { assertMcpConnectionAccess, requireMcpUserAccess, McpAccessError } from './access';
 import { resolveMcpCredentialScope } from './credential-storage';
 import { fetchMcpHttp } from '@/app/lib/mcp/http';
 import { hashMcpAuthConfig } from '@/app/lib/mcp/connection-identity';
@@ -17,6 +17,8 @@ import {
 } from '@/app/lib/mcp/apps-metadata';
 import { isMcpAppsEnabled } from '@/app/lib/mcp/apps-config';
 import { integrationMetadataCache } from '@/app/lib/integration-tools/metadata-cache';
+import { validateIntegrationArguments } from '@/app/lib/integration-tools/schema';
+import { authorizeSharedMcpScope } from './shared-access';
 
 import {
   Client,
@@ -683,6 +685,11 @@ export async function listMcpTools(serverName: string, options: { preferCache?: 
   }, options.signal, scope);
 }
 
+/** Readiness metadata retains resource access guards but cannot inherit a pending business-call guard. */
+export async function listMcpToolsForReadiness(serverName: string, options: { signal?: AbortSignal; scope?: McpScope | null } = {}): Promise<Tool[]> {
+  return mcpInvocationBindings.run(null, () => listMcpTools(serverName, options));
+}
+
 export async function callMcpTool(
   serverName: string,
   toolName: string,
@@ -760,24 +767,44 @@ function assertCurrentMcpAppSourceTool(
   return sourceTool;
 }
 
+type McpAppDispatchOptions = { beforeDispatch?: () => Promise<void>; expectedEnvironmentRevision?: string };
+
+/** Reuse the business transport's credential-generation fence for shared UI dispatch. */
+async function dispatchMcpAppInvocation<T>(entry: ManagedConnection, client: Client, options: McpAppDispatchOptions,
+  dispatch: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+  const invocation = options.expectedEnvironmentRevision ? { entry, client,
+    environmentRevision: options.expectedEnvironmentRevision, beforeDispatch: options.beforeDispatch } : null;
+  if (invocation) {
+    assertInvocationClient(entry, invocation);
+    if ((await readMcpAvailableEnvSnapshot(currentManagedScope(entry))).revision !== invocation.environmentRevision) throw changedInvocationEnvironment();
+  }
+  await options.beforeDispatch?.();
+  if (invocation) assertInvocationClient(entry, invocation);
+  signal?.throwIfAborted();
+  return mcpInvocationBindings.run(invocation, dispatch);
+}
+
 /** Reads only the UI resource currently bound to an app-visible source tool. */
 export async function readMcpAppResource(
   connectionId: string,
   sourceToolName: string,
   resourceUri: string,
   scope?: McpScope | null,
+  options: McpAppDispatchOptions & { signal?: AbortSignal } = {},
 ): Promise<ReadResourceResult> {
   requireMcpAppsEnabled();
-  return withManagedConnection(connectionId, async (entry, client) => {
-    const tools = await withTimeout(client.listTools(), getTimeoutMs(entry.config));
+  if (scope?.shared) scope = normalizeMcpScope({ ...scope, shared: { ...scope.shared, operation: 'use', toolName: sourceToolName } });
+  return mcpInvocationBindings.run(null, () => withManagedConnection(connectionId, async (entry, client) => {
+    const tools = await withTimeout(client.listTools(), getTimeoutMs(entry.config), options.signal);
     assertCurrentMcpAppSourceTool(tools.tools, sourceToolName, resourceUri);
-    const result = await withTimeout(client.readResource({ uri: resourceUri }), getTimeoutMs(entry.config));
+    const result = await dispatchMcpAppInvocation(entry, client, options,
+      () => withTimeout(client.readResource({ uri: resourceUri }), getTimeoutMs(entry.config), options.signal), options.signal);
     const contents = Array.isArray(result.contents) ? result.contents : [];
     if (!contents.some((content) => content.uri === resourceUri && isMcpAppResourceMimeType(content.mimeType))) {
       throw new Error('The MCP server did not return the requested MCP App HTML resource.');
     }
     return result;
-  }, undefined, scope);
+  }, options.signal, scope));
 }
 
 /**
@@ -793,21 +820,28 @@ export async function callMcpAppTool(
   args: Record<string, unknown>,
   signal?: AbortSignal,
   scope?: McpScope | null,
+  options: McpAppDispatchOptions = {},
 ): Promise<CallToolResult> {
   requireMcpAppsEnabled();
-  return withManagedConnection(connectionId, async (entry, client) => {
+  if (scope?.shared) {
+    const sourceScope = normalizeMcpScope({ ...scope, shared: { ...scope.shared, operation: 'use', toolName: sourceToolName } })!;
+    await authorizeSharedMcpScope(sourceScope, 'use', sourceToolName);
+    scope = normalizeMcpScope({ ...sourceScope, shared: { ...sourceScope.shared!, toolName: targetToolName } });
+  }
+  return mcpInvocationBindings.run(null, () => withManagedConnection(connectionId, async (entry, client) => {
     const tools = await withTimeout(client.listTools(), getTimeoutMs(entry.config), signal);
     assertCurrentMcpAppSourceTool(tools.tools, sourceToolName, resourceUri);
     const targetTool = tools.tools.find((tool) => tool.name === targetToolName);
     if (!targetTool || !isMcpAppToolVisibleToApp(targetTool)) {
-      throw new Error(`MCP App tool "${targetToolName}" is not visible to the selected app.`);
+      throw new McpAccessError(`MCP App tool "${targetToolName}" is not visible to the selected app.`, 403);
     }
-    return withTimeout(
+    await validateIntegrationArguments(targetTool.inputSchema, args);
+    return dispatchMcpAppInvocation(entry, client, options, () => withTimeout(
       client.callTool({ name: targetToolName, arguments: args }),
       getTimeoutMs(entry.config),
       signal,
-    ) as Promise<CallToolResult>;
-  }, signal, scope);
+    ) as Promise<CallToolResult>, signal);
+  }, signal, scope));
 }
 
 /** Legacy ping or stateless discovery; never executes a business tool. */

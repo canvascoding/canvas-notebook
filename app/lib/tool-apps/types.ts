@@ -1,4 +1,5 @@
 import type { McpAppInvocationDetails } from '@/app/lib/mcp/apps-types';
+import { readMcpAppDescriptor } from '@/app/lib/mcp/apps-contracts';
 import { parseFileChangeGroupV1, type FileChangeGroupV1 } from '@/app/lib/file-version-center/contracts/v1';
 
 export const AUTOMATION_APP_URI = 'ui://canvas/automation-job/v1';
@@ -138,10 +139,8 @@ export function readToolAppInvocation(message: unknown): ToolAppInvocation | nul
   const builtin = readBuiltinToolAppMessage(message);
   if (builtin) return { kind: 'builtin', descriptor: builtin };
   const { mcpApp, mcpToolInput, result } = message.details;
-  if (!isToolAppRecord(mcpApp) || mcpApp.version !== 1
-    || typeof mcpApp.connectionId !== 'string' || !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/iu.test(mcpApp.connectionId)
-    || typeof mcpApp.toolName !== 'string' || !mcpApp.toolName || mcpApp.toolName.length > 256
-    || typeof mcpApp.resourceUri !== 'string' || !/^ui:\/\/[^\s]+$/u.test(mcpApp.resourceUri) || mcpApp.resourceUri.length > 4096) return null;
-  return { kind: 'mcp', descriptor: { version: 1, connectionId: mcpApp.connectionId,
-    toolName: mcpApp.toolName, resourceUri: mcpApp.resourceUri }, input: mcpToolInput, result };
+  const descriptor = readMcpAppDescriptor(mcpApp);
+  if (!descriptor || descriptor.version === 2 && (message.role !== 'toolResult' || message.isError || message.details.error
+    || message.toolCallId !== descriptor.toolCallId)) return null;
+  return { kind: 'mcp', descriptor, input: mcpToolInput, result };
 }

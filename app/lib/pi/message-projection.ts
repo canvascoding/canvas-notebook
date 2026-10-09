@@ -3,6 +3,7 @@ import type { AgentMessage } from '@earendil-works/pi-agent-core';
 import { resizeTextReadResult } from './text-read-result';
 import { parseFileChangeGroupV1 } from '@/app/lib/file-version-center/contracts/v1';
 import { AUTOMATION_APP_URI, FILE_CHANGE_APP_URI, PUBLIC_SHARE_APP_URI, readBuiltinToolAppMessages } from '@/app/lib/tool-apps/types';
+import { readMcpAppDescriptor, stripMcpAppAuthority } from '@/app/lib/mcp/apps-contracts';
 
 export type PiMessageProjectionMode = 'raw' | 'context' | 'display';
 
@@ -93,6 +94,7 @@ function isMcpToolResultDetails(value: unknown, toolName: unknown): value is Rec
 
 function compactMcpAppDescriptor(value: unknown): Record<string, unknown> | undefined {
   if (!isRecord(value)) return undefined;
+  if (value.version === 2) return readMcpAppDescriptor(value) ?? undefined;
   const descriptor: Record<string, unknown> = {};
   for (const [key, entry] of Object.entries(value)) {
     if (!MCP_APP_DESCRIPTOR_KEYS.has(key)) continue;
@@ -110,7 +112,7 @@ export function stripMcpModelMetadata(value: unknown): unknown {
 
   const result: Record<string, unknown> = {};
   for (const [key, entry] of Object.entries(value)) {
-    if (key === '_meta' || key === 'internalWidgetDescriptor') {
+    if (key === '_meta' || key === 'internalWidgetDescriptor' || key === 'mcpAppAuthority') {
       continue;
     }
     result[key] = stripMcpModelMetadata(entry);
@@ -329,6 +331,7 @@ export function projectAgentMessageForLoadedContext(
   rawContentLength = JSON.stringify(message).length,
 ): AgentMessage {
   if (mode === 'raw') return message;
+  message = stripMcpAppAuthority(message) as AgentMessage;
   if (message.role === 'toolResult') {
     const ranged = resizeTextReadResult(message, getTextLimit(mode)) ?? message;
     let projected = compactToolResultMessage(ranged, mode, rawContentLength);

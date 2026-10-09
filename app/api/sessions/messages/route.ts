@@ -10,6 +10,7 @@ import { requireAgentAccess } from '@/app/lib/agents/access';
 import { InvalidMessagePaginationError, parseMessagePagination, readPiSessionMessages, readLegacySessionMessages } from '@/app/lib/chat/session-message-read';
 import { resolveAgentSessionWorkspaceForUser } from '@/app/lib/pi/session-workspace-context';
 import { authorizePiDelegationInspection } from '@/app/lib/pi/delegation-progress';
+import { stripMcpAppAuthority } from '@/app/lib/mcp/apps-contracts';
 
 function normalizeSessionAgentId(value: string | null): string {
   try {
@@ -103,7 +104,7 @@ export async function GET(request: NextRequest) {
         }
       }
 
-      return NextResponse.json(await readPiSessionMessages(db, piSession.id, pagination));
+      return NextResponse.json(stripMcpAppAuthority(await readPiSessionMessages(db, piSession.id, pagination)));
     }
 
     if (agentId !== DEFAULT_AGENT_ID) {

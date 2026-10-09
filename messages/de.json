@@ -1783,6 +1783,7 @@
       "fileChangePage": "{page}/{pages}"
     },
     "mcpApp": {
+      "waitingForSave": "Das Tool-Ergebnis wird noch gespeichert. Lade die Karte nach Abschluss des Laufs neu.",
       "loading": "Interaktive MCP-App wird geladen …",
       "unavailable": "Diese interaktive MCP-App ist nicht verfügbar.",
       "reload": "Widget neu laden",

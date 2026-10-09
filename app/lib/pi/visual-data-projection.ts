@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { parseChatFileReferences } from '@/app/lib/chat/tool-file-references';
 import type { AgentMessage } from '@earendil-works/pi-agent-core';
+import { readMcpAppDescriptor, stripMcpAppAuthority } from '@/app/lib/mcp/apps-contracts';
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -79,6 +80,10 @@ function projectVisualValue(value: unknown, purpose: 'persistence' | 'external-e
 
   const projected: UnknownRecord = {};
   for (const [key, entry] of Object.entries(value)) {
+    if (key === 'mcpAppAuthority') {
+      if (purpose === 'persistence') projected[key] = entry;
+      continue;
+    }
     if (key === 'chatFileReferences') {
       const references = parseChatFileReferences(entry);
       if (references) projected[key] = references;
@@ -98,12 +103,13 @@ function projectVisualValue(value: unknown, purpose: 'persistence' | 'external-e
   return projected;
 }
 
-function boundedMcpDetails(value: unknown): unknown {
+function boundedMcpDetails(value: unknown, purpose: 'persistence' | 'external-event' = 'external-event'): unknown {
+  if (purpose === 'external-event') value = stripMcpAppAuthority(value);
   if (!isRecord(value) || !isRecord(value.mcpApp)) return value;
   if (JSON.stringify(value).length <= MCP_PERSISTED_DETAILS_LIMIT) return value;
 
-  const mcpApp: UnknownRecord = {};
-  for (const [key, entry] of Object.entries(value.mcpApp)) {
+  const mcpApp: UnknownRecord = value.mcpApp.version === 2 ? readMcpAppDescriptor(value.mcpApp) ?? {} : {};
+  for (const [key, entry] of value.mcpApp.version === 2 ? [] : Object.entries(value.mcpApp)) {
     if (!MCP_APP_DESCRIPTOR_KEYS.has(key)) continue;
     if (key === 'version' && entry === 1) mcpApp[key] = entry;
     if (key === 'connectionId' && typeof entry === 'string' && entry.length <= 64) mcpApp[key] = entry;
@@ -112,6 +118,7 @@ function boundedMcpDetails(value: unknown): unknown {
   }
   return {
     ...(Object.keys(mcpApp).length > 0 ? { mcpApp } : {}),
+    ...(purpose === 'persistence' && Object.hasOwn(value, 'mcpAppAuthority') ? { mcpAppAuthority: value.mcpAppAuthority } : {}),
     result: {
       content: [{
         type: 'text',
@@ -125,15 +132,15 @@ function preservesMcpDetails(value: unknown): value is UnknownRecord & { details
   return isRecord(value) && isRecord(value.details) && isRecord(value.details.mcpApp);
 }
 
-function restoreBoundedMcpDetails(original: UnknownRecord, projected: UnknownRecord): UnknownRecord {
+function restoreBoundedMcpDetails(original: UnknownRecord, projected: UnknownRecord, purpose: 'persistence' | 'external-event' = 'external-event'): UnknownRecord {
   const restored = { ...projected };
   for (const key of ['details', 'result', 'message'] as const) {
     const source = original[key];
     const target = projected[key];
     if (key === 'details' && isRecord(source) && isRecord(source.mcpApp)) {
-      restored.details = boundedMcpDetails(source);
+      restored.details = boundedMcpDetails(source, purpose);
     } else if (preservesMcpDetails(source) && isRecord(target)) {
-      restored[key] = { ...target, details: boundedMcpDetails(source.details) };
+      restored[key] = { ...target, details: boundedMcpDetails(source.details, purpose) };
     }
   }
   return restored;
@@ -163,7 +170,7 @@ export function projectAgentMessageForPersistence(message: AgentMessage): AgentM
   const original = message as unknown as UnknownRecord;
   const projected = projectVisualValue(message, 'persistence') as UnknownRecord;
   restoreAssistantSignatures(original, projected);
-  return restoreBoundedMcpDetails(original, projected) as unknown as AgentMessage;
+  return restoreBoundedMcpDetails(original, projected, 'persistence') as unknown as AgentMessage;
 }
 
 /** Removes binary image payloads and server-only resolved paths before client/log transport. */

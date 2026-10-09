@@ -167,6 +167,11 @@ export async function assertAgentWorkflowRuntimeReady(input: { context: Integrat
       : (await import('@/app/lib/integration-tools/adapters/composio-runtime')).composioIntegrationToolAdapter;
     const provider = await adapter.resolveProvider(input.context, requirement.providerRef);
     if (!provider.provider.canExecute || !isIntegrationProviderVisible(input.context, input.policy, provider.provider)) return deny();
+    if (requirement.source === 'mcp') {
+      const { verifyMcpIntegrationToolsReady } = await import('@/app/lib/integration-tools/adapters/mcp-runtime');
+      if (!await verifyMcpIntegrationToolsReady(input.context, provider, requirement.names, input.signal)) return deny();
+      continue;
+    }
     const found = new Set<string>(); let cursor: string | undefined;
     const cursors = new Set<string>();
     for (let pageNumber = 0; pageNumber < 20; pageNumber += 1) {

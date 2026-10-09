@@ -7,7 +7,7 @@ const dotenv = require('dotenv');
 
 const repo = path.resolve(__dirname, '..');
 const composioLive = process.argv[2] === 'run-workflow-composio-live';
-if (process.argv.length !== (composioLive ? 4 : 3) || !['run', 'run-workflow', 'run-workflow-oauth', 'run-workflow-oauth-desktop', 'run-workflow-oauth-desktop-identity-diagnostic', 'run-workflow-composio-desktop-client', 'run-workflow-composio-desktop', 'run-workflow-composio-live'].includes(process.argv[2])) {
+if (process.argv.length !== (composioLive ? 4 : 3) || !['run', 'run-workflow', 'run-workflow-mcp-apps', 'run-workflow-oauth', 'run-workflow-oauth-desktop', 'run-workflow-oauth-desktop-identity-diagnostic', 'run-workflow-composio-desktop-client', 'run-workflow-composio-desktop', 'run-workflow-composio-live'].includes(process.argv[2])) {
   throw new Error('Choose a fixed isolated acceptance command or the native identity diagnostic.');
 }
 const workflow = process.argv[2] !== 'run';
@@ -47,6 +47,7 @@ if (workflow) {
   childEnv.CANVAS_CONTROL_PLANE_TEST_ROOT = controlPlaneRoot;
 }
 if (oauth) childEnv.CANVAS_SHARED_MCP_OAUTH_BROWSER_RUN = '1';
+if (process.argv[2] === 'run-workflow-mcp-apps') childEnv.CANVAS_SHARED_MCP_APPS_BROWSER_RUN = '1';
 if (desktop) childEnv.CANVAS_SHARED_MCP_DESKTOP_OAUTH_BROWSER_RUN = '1';
 if (identityDiagnostic) childEnv.CANVAS_SHARED_MCP_DESKTOP_IDENTITY_DIAGNOSTIC_RUN = '1';
 if (composioDesktopClient) childEnv.CANVAS_SHARED_COMPOSIO_DESKTOP_CLIENT_BROWSER_RUN = '1';

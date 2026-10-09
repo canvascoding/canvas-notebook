@@ -4,6 +4,7 @@ import type {
   IntegrationProviderDescriptor,
   IntegrationProviderError,
   IntegrationSource,
+  IntegrationPolicy,
 } from './contracts';
 
 /** Private adapter data must never be serialized into model/UI descriptors. */
@@ -47,6 +48,8 @@ export type IntegrationToolAdapter = {
   callTool(context: IntegrationExecutionContext, provider: IntegrationResolvedProvider, tool: IntegrationAdapterToolSchema,
     args: Record<string, unknown>, input: {
       toolCallId: string;
+      /** Effective server-resolved ceiling captured by the dispatcher, never a tool argument. */
+      policy?: IntegrationPolicy;
       signal?: AbortSignal;
       /** Trusted runtime authority check after adapter metadata reads, immediately before business dispatch. */
       beforeDispatch?: () => Promise<void>;

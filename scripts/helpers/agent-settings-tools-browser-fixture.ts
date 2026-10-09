@@ -8,6 +8,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { Pool } from 'pg';
 import { createComposioProviderFixture } from './composio-provider-fixture';
+import { createSharedMcpAppsProviderFixture } from './shared-mcp-apps-provider-fixture';
+import { createSharedMcpAppsResourceHtml } from './shared-mcp-apps-resource-fixture';
 
 type Child = { process: ChildProcess; pid: number; closed: Promise<number | null>; ended: boolean };
 
@@ -52,6 +54,7 @@ type Receipt = {
   systemBrowserClosed?: boolean;
   composioProviderClosed?: boolean;
   liveProvider?: 'composio';
+  mcpAppProviderClosed?: boolean;
 };
 type IssuerReady = {
   version: 1; nonce: string; fixtureRoot: string; origin: string; certificatePath: string;
@@ -155,6 +158,9 @@ async function main(): Promise<void> {
   const composioDesktopClient = process.env.CANVAS_SHARED_COMPOSIO_DESKTOP_CLIENT_BROWSER_RUN === '1';
   const composioNative = process.env.CANVAS_SHARED_COMPOSIO_DESKTOP_OAUTH_BROWSER_RUN === '1';
   const composioLive = process.env.CANVAS_COMPOSIO_LIVE_BROWSER_RUN === '1';
+  const mcpApps = process.env.CANVAS_SHARED_MCP_APPS_BROWSER_RUN === '1';
+  assert(!mcpApps || workflow && !oauth && !desktop && !composioNative && !composioDesktopClient && !composioLive,
+    'Shared MCP Apps require their own fixed workflow command.');
   assert(!composioLive || workflow && !oauth && !desktop && !composioNative && !composioDesktopClient,
     'The live Composio gate requires its separate fixed command.');
   let liveKey: string | undefined;
@@ -239,6 +245,8 @@ async function main(): Promise<void> {
   let issuer: Child | undefined;
   let composioProvider: Awaited<ReturnType<typeof createComposioProviderFixture>> | undefined;
   let composioProviderClosed = !composioDesktopClient && !composioNative;
+  let mcpAppProvider: Awaited<ReturnType<typeof createSharedMcpAppsProviderFixture>> | undefined;
+  let mcpAppProviderClosed = !mcpApps;
   const children: Child[] = [];
   const abort = new AbortController();
   const signalChild = (child: Child, signal: NodeJS.Signals) => {
@@ -278,6 +286,8 @@ async function main(): Promise<void> {
     TEST_SECONDARY_EMAIL: `workflow-member-${nonce}@example.test`, TEST_SECONDARY_PASSWORD: randomBytes(24).toString('base64url'),
     TEST_EDITOR_EMAIL: `workflow-editor-${nonce}@example.test`, TEST_EDITOR_PASSWORD: randomBytes(24).toString('base64url') });
   if (oauth) env.CANVAS_SHARED_MCP_OAUTH_BROWSER_RUN = '1';
+  if (mcpApps) Object.assign(env, { CANVAS_SHARED_MCP_APPS_BROWSER_RUN: '1', CANVAS_MCP_APPS_ENABLED: 'true',
+    INTEGRATIONS_ENV_MASTER_KEY: randomBytes(32).toString('base64url') });
   if (composioDesktopClient || composioNative || composioLive) env.INTEGRATIONS_ENV_MASTER_KEY = randomBytes(32).toString('base64url');
   if (composioLive) {
     Object.assign(env, { CANVAS_COMPOSIO_LIVE_BROWSER_RUN: '1', CANVAS_COMPOSIO_LIVE_INPUT: liveInputPath,
@@ -470,6 +480,12 @@ async function main(): Promise<void> {
           CANVAS_SHARED_COMPOSIO_ELECTRON_PROVIDER_ORIGIN: composioProvider.nativeConsent.origin });
       }
     }
+    if (mcpApps) {
+      const controlToken = randomBytes(32).toString('base64url');
+      mcpAppProvider = await createSharedMcpAppsProviderFixture({ html: await createSharedMcpAppsResourceHtml(), controlToken, allowModelVerification: true });
+      Object.assign(env, { CANVAS_SHARED_MCP_APPS_URL: mcpAppProvider.url, CANVAS_SHARED_MCP_APPS_CONTROL_TOKEN: controlToken });
+      receipt.mcpAppProviderClosed = false;
+    }
     receipt.phase = 'host_starting'; await persist();
     server = startChild(['--import', 'tsx', 'server.js'], 'host', 'production');
     assert(server.pid > 0); receipt.serverPid = server.pid; await persist();
@@ -489,7 +505,8 @@ async function main(): Promise<void> {
     assert(healthy && !server.ended, 'The recorded isolated production host must become ready.');
     await assertOwnedListener(); receipt.listenerVerified = true;
     receipt.phase = 'browser'; await persist();
-    const browserArgs = [path.join(repo, 'node_modules/@playwright/test/cli.js'), 'test', '--config', composioLive
+    const browserArgs = [path.join(repo, 'node_modules/@playwright/test/cli.js'), 'test', '--config', mcpApps
+      ? 'playwright.shared-mcp-apps-production.config.ts' : composioLive
       ? 'playwright.composio-live-production.config.ts' : composioNative
       ? 'playwright.shared-composio-desktop-oauth-production.config.ts' : composioDesktopClient
       ? 'playwright.shared-composio-desktop-client-production.config.ts' : desktop
@@ -639,6 +656,15 @@ async function main(): Promise<void> {
         if (composioNative) receipt.composioProviderClosed = true; }
       catch { receipt.uncertain = true; }
     } else if (composioDesktopClient || composioNative) composioProviderClosed = true;
+    if (mcpAppProvider) {
+      try {
+        await fs.writeFile(path.join(root, 'mcp-app-provider-proof.json'), JSON.stringify({ version: 1, nonce,
+          requests: mcpAppProvider.requests, calls: mcpAppProvider.calls.map(call => ({ name: call.name })),
+          resourceReads: mcpAppProvider.resourceReads, verificationProbes: mcpAppProvider.verificationProbes() }),
+        { mode: 0o600, flag: 'wx' });
+        await mcpAppProvider.close(); mcpAppProviderClosed = true; receipt.mcpAppProviderClosed = true;
+      } catch { receipt.uncertain = true; }
+    }
     if (workflow) {
       try { const { closeDatabaseConnections } = await import('../../app/lib/db'); await closeDatabaseConnections(); }
       catch { receipt.uncertain = true; }
@@ -674,6 +700,7 @@ async function main(): Promise<void> {
         receipt.phase = 'live_verified_preserved';
       } else if (!composioLive && receipt.createAcknowledged && !receipt.uncertain && children.every(child => child.ended)) {
         assert(composioProviderClosed, 'The own Composio protocol fixture must close before database cleanup.');
+        assert(mcpAppProviderClosed, 'The own MCP App provider must close before database cleanup.');
         assert(!nativeAny || receipt.desktopClosed === true && receipt.systemBrowserClosed === true,
           'Native desktop and independent system-browser closure must be acknowledged before normal database cleanup.');
         if (desktopPaths && desktopDirectoryProofs) for (const directory of Object.values(desktopPaths)) {

@@ -414,7 +414,7 @@ export class IntegrationDispatcher {
     };
     await beforeDispatch();
     signal?.throwIfAborted();
-    const result = await adapter.callTool(context, resolved, current, args, { toolCallId, signal, beforeDispatch });
+    const result = await adapter.callTool(context, resolved, current, args, { toolCallId, signal, beforeDispatch, policy });
     return {
       version: INTEGRATION_CONTRACT_VERSION, target: 'result', toolRef: request.toolRef,
       providerRef: route.providerRef, source: route.source, displayName: resolved.provider.displayName, result,

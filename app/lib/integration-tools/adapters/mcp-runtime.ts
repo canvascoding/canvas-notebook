@@ -3,13 +3,14 @@ import 'server-only';
 import type { Tool } from '@modelcontextprotocol/client';
 
 import { assertMcpConnectionAccess } from '@/app/lib/mcp/access';
-import { filterMcpToolsForModel } from '@/app/lib/mcp/apps-metadata';
+import { filterMcpToolsForModel, isMcpAppToolVisibleToApp, isMcpAppToolVisibleToModel } from '@/app/lib/mcp/apps-metadata';
 import { hashMcpAuthConfig } from '@/app/lib/mcp/connection-identity';
-import { listMcpTools, callMcpToolWithCurrentMetadata, hashMcpServerConfig } from '@/app/lib/mcp/manager';
+import { listMcpTools, listMcpToolsForReadiness, callMcpToolWithCurrentMetadata, hashMcpServerConfig } from '@/app/lib/mcp/manager';
 import { readMcpOAuthLifecycle } from '@/app/lib/mcp/oauth-lifecycle';
 import { listMcpServerDefinitions } from '@/app/lib/mcp/server-definitions';
 import type { McpScope } from '@/app/lib/mcp/scope';
 import { prepareMcpToolInvocation } from '@/app/lib/mcp/tool-result';
+import { sharedMcpAppBindingRevision } from '@/app/lib/mcp/apps-shared-binding';
 import { assertUnifiedEnvReadable, readUnifiedEnvState } from '@/app/lib/secrets/unified-env-store';
 import { IntegrationContractError, INTEGRATION_MAX_PAGE_SIZE, type IntegrationExecutionContext } from '../contracts';
 import { readIntegrationContractErrorCode } from '../agent-errors';
@@ -158,6 +159,21 @@ async function currentTools(context: IntegrationExecutionContext, previous: Inte
   return { provider, binding, tools };
 }
 
+/** Private readiness only: explicitly required UI tools are never published to the model catalogue. */
+export async function verifyMcpIntegrationToolsReady(context: IntegrationExecutionContext, previous: IntegrationResolvedProvider,
+  names: readonly string[], signal?: AbortSignal): Promise<boolean> {
+  signal?.throwIfAborted();
+  for (const name of names) await revalidateIntegrationProviderAuthorization(context, previous.provider, 'use', name);
+  const provider = await freshProvider(context, previous);
+  const binding = provider.binding as McpRuntimeBinding;
+  const tools = await listMcpToolsForReadiness(binding.connectionId, { scope: binding.scope, signal });
+  await freshProvider(context, provider);
+  for (const name of names) await revalidateIntegrationProviderAuthorization(context, provider.provider, 'use', name);
+  signal?.throwIfAborted();
+  return names.every(name => tools.some(tool => tool.name === name
+    && (isMcpAppToolVisibleToModel(tool) || isMcpAppToolVisibleToApp(tool))));
+}
+
 export const mcpIntegrationToolAdapter: IntegrationToolAdapter = {
   source: 'mcp',
   resolveProvider,
@@ -238,7 +254,9 @@ export const mcpIntegrationToolAdapter: IntegrationToolAdapter = {
           invocationStarted = true;
         },
       });
-      return await prepareMcpToolInvocation(binding.serverName, expectedTool.name, invocation, args, input.toolCallId);
+      return await prepareMcpToolInvocation(binding.serverName, expectedTool.name, invocation, args, input.toolCallId,
+        invocation.sharedConnectionRef && input.policy ? { version: 1, context, policy: input.policy, providerRef: provider.provider.providerRef,
+          bindingRevision: sharedMcpAppBindingRevision(provider.bindingRevision) } : undefined);
     } catch (error) {
       if (readIntegrationContractErrorCode(error)) throw error;
       if ((error as { code?: unknown } | null)?.code === 'mcp_environment_binding_changed') {
