@@ -1701,7 +1701,9 @@ export function EmailClient({
           onSearchChange={value => { consumeExternalFeedIntent(); setFocusSearch(value); }} onCompose={openFocusCompose} onRefresh={() => { focusFeed.reload(); void loadFocusConfiguration(); }}
           loading={focusFeed.loading || focusFeed.loadingMore} canCompose={accounts.some(account => account.capabilities?.canWrite !== false)}
           mailboxesLoading={!focusSourcesReady && !focusSourcesError} mailboxesError={focusSourcesError} controlsOnly={!usesIndexedFeed}
-          focused={focused} onDistractionFree={toggleFocus} />}
+          focused={focused} onDistractionFree={toggleFocus}
+          canConfigureClassification={classificationAvailability?.canConfigure === true}
+          processingReason={classificationAvailability?.reason} />}
         {!usesIndexedFeed && <EmailMailboxHeader
           accounts={accounts}
           activeAccount={activeAccount}

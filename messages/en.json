@@ -30,6 +30,15 @@
     "additionalOmitted": "Further participants were omitted from this compact list."
   },
   "emailFocus": {
+    "menu": "Email options",
+    "configureClassification": "Set up email categorization",
+    "classificationAdminHint": "Ask an instance admin to check categorization.",
+    "processingReasons": {
+      "missing_configuration": "AI assessment still needs a setup step.",
+      "configuration_unavailable": "AI assessment setup could not be checked at this time.",
+      "budget_exhausted": "The AI assessment budget is exhausted.",
+      "provider_unavailable": "AI assessment is temporarily unavailable. Existing assessments remain usable."
+    },
     "scopeLabel": "Mailbox scope",
     "scopes": {
       "all": "All mailboxes",
@@ -210,6 +219,47 @@
   },
   "emailClassificationSettings": {
     "title": "Email preparation",
+    "setup": {
+      "title": "Set up email categorization",
+      "delivery": "Choose delivery",
+      "access": "Check model and access",
+      "sample": "Test the current draft",
+      "activate": "Activate centrally and save",
+      "serviceHint": "Jev is an existing API assessment service for email categorization. Configure its access here; no installation in the chat model list is required.",
+      "savedActivation": "Saved activation",
+      "processingReadiness": "Processing with saved settings",
+      "readiness": {
+        "unknown": "Status unconfirmed",
+        "inactive": "Centrally disabled",
+        "ready": "Ready",
+        "paused": "Paused; existing assessments remain available"
+      },
+      "systemKey": "Enter {key} as the credential name and store its value in Secrets using the System scope.",
+      "missingKeyName": "Choose a credential name and store its value in System Secrets.",
+      "anonymous": "This draft explicitly uses a private endpoint without authentication. No API key is required for this choice.",
+      "managedCredentials": "Canvas-managed models use credentials in the Control Plane. No local system API key is required.",
+      "draftStatus": "Model and access status describe this unsaved draft; saved processing readiness remains separate.",
+      "connectionLink": "Open connection settings",
+      "activationHint": "The switch changes this draft. Saving applies activation and configuration to all users. Changing settings never starts a sample test automatically.",
+      "testPassedMeaning": "Connection and response contract passed for the synthetic sample. This does not establish sorting accuracy or validate spam hiding.",
+      "dailyBudget": "The Notebook daily limit is reached. Wait for its reset or review the maximum emails per day in advanced settings.",
+      "next": {
+        "draft": "The approved model belongs to an unsaved draft. Explicitly test its current model and access before saving.",
+        "ready": "Choose an approved model and explicitly test this draft before activating it.",
+        "connection": "Check the Notebook connection below. A Control Plane administrator must also confirm the instance token and managed decision service.",
+        "access": "Ask a Control Plane administrator to grant managed decision access for this instance and organization.",
+        "model": "Ask a Control Plane administrator to approve the selected decision model and confirm its central configuration.",
+        "credentials": "Ask a Control Plane administrator to configure the selected model's central provider credentials.",
+        "pricing": "Ask a Control Plane administrator to configure pricing for the selected decision model.",
+        "budget": "Check usage credits and the managed decision budget in the Control Plane.",
+        "dailyBudget": "The Notebook daily limit is reached. Wait for reset or review the advanced request limit.",
+        "changed": "Reload the catalog, review the changed decision model and explicitly test the new draft.",
+        "version": "Ask a Control Plane administrator to verify the decision API version and required model capabilities.",
+        "waiting": "The managed service is temporarily limiting requests. Keep the saved settings and retry the test later.",
+        "review": "Ask a Control Plane administrator to review the uncertain operation before requesting another evaluation.",
+        "unavailable": "Managed processing cannot currently be confirmed. Refresh status or ask a Control Plane administrator to check the service."
+      }
+    },
     "description": "Prepare mail by category, importance, spam likelihood and reply need.",
     "enable": "Enable for everyone",
     "scope": "Applies centrally to all users on this server, including personal and shared work mailboxes. Existing mailbox permissions and sender rules still apply.",
@@ -218,7 +268,7 @@
     "loading": "Loading email preparation settings…",
     "unsaved": "Changes not saved",
     "saved": "Settings saved.",
-    "configuration": "Provider and configuration",
+    "configuration": "Limits and advanced configuration",
     "provider": "Provider",
     "model": "Model",
     "endpoint": "Provider endpoint",
@@ -336,6 +386,8 @@
       "managedConnection": "Check the managed connection and instance token in the Control Plane. A license connection alone is insufficient.",
       "managedAccess": "Enable decision model access for this instance and organization in the Control Plane.",
       "managedModel": "Check the selected model, its central credentials and pricing in the Control Plane.",
+      "managedCredentials": "The selected model's central provider credentials need attention in the Control Plane.",
+      "managedPricing": "Pricing for the selected decision model must be configured in the Control Plane.",
       "managedBudget": "Managed usage credits are insufficient for this evaluation.",
       "managedReview": "This evaluation outcome is uncertain. A Control Plane administrator must review the operation before it is started again."
     },

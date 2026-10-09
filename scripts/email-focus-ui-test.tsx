@@ -168,6 +168,24 @@ async function main() {
     assert.equal(header.queryByRole('button', { name: 'Focus' }), null, 'Central deactivation removes the switch after activation');
     cleanup();
 
+    for (const locale of ['en', 'de'] as const) {
+      const messages = locale === 'en' ? en.emailFocus : de.emailFocus;
+      const setupHeader = render(wrap(<EmailFocusHeader {...headerProps} classificationEnabled canConfigureClassification processingReason="budget_exhausted" />, locale));
+      assert.equal(setupHeader.getByRole('link', { name: messages.configureClassification }).getAttribute('href'), '/settings?tab=system-email');
+      assert(setupHeader.getByText(messages.processingReasons.budget_exhausted, { exact: false }));
+      assert(setupHeader.getByRole('button', { name: messages.focus }));
+      setupHeader.rerender(wrap(<EmailFocusHeader {...headerProps} classificationEnabled processingReason="provider_unavailable" />, locale));
+      assert.equal(setupHeader.queryByRole('link', { name: messages.configureClassification }), null);
+      assert.equal(setupHeader.queryByRole('button', { name: messages.menu }), null);
+      assert(setupHeader.getByText(messages.processingReasons.provider_unavailable, { exact: false }));
+      assert(setupHeader.getByText(messages.classificationAdminHint, { exact: false }));
+      setupHeader.rerender(wrap(<EmailFocusHeader {...headerProps} controlsOnly canConfigureClassification processingReason="missing_configuration" />, locale));
+      assert(setupHeader.getByRole('button', { name: messages.menu }), 'Admins can reach setup from inactive single-mailbox Classic');
+      assert.equal(setupHeader.queryByRole('button', { name: messages.focus }), null);
+      assert.equal(setupHeader.queryByText(messages.classificationAdminHint, { exact: false }), null, 'Central inactivity stays quiet');
+      cleanup();
+    }
+
     const opened: EmailClassificationFeedItem[] = []; const doneCalls: unknown[] = []; const views: string[] = [];
     const navProps = { feed: feed(), view: 'focus' as const, category: null, onViewChange: (view: string) => views.push(view), onCategoryChange: () => {},
       onOpen: (value: EmailClassificationFeedItem) => opened.push(value), onDone: (value: EmailClassificationFeedItem, done: boolean) => doneCalls.push([value.messageRef, done]),

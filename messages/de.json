@@ -30,6 +30,15 @@
     "additionalOmitted": "Weitere Teilnehmer wurden in dieser kompakten Liste ausgelassen."
   },
   "emailFocus": {
+    "menu": "E-Mail-Optionen",
+    "configureClassification": "E-Mail-Kategorisierung einrichten",
+    "classificationAdminHint": "Bitte einen Instanzadmin, die Kategorisierung zu prüfen.",
+    "processingReasons": {
+      "missing_configuration": "Für die KI-Bewertung fehlt noch ein Einrichtungsschritt.",
+      "configuration_unavailable": "Die Einrichtung der KI-Bewertung konnte aktuell nicht geprüft werden.",
+      "budget_exhausted": "Das Budget für KI-Bewertungen ist ausgeschöpft.",
+      "provider_unavailable": "Die KI-Bewertung ist vorübergehend nicht verfügbar. Vorhandene Bewertungen bleiben nutzbar."
+    },
     "scopeLabel": "Postfachbereich",
     "scopes": {
       "all": "Alle Postfächer",
@@ -210,6 +219,47 @@
   },
   "emailClassificationSettings": {
     "title": "E-Mails vorbereiten",
+    "setup": {
+      "title": "E-Mail-Kategorisierung einrichten",
+      "delivery": "Bereitstellung wählen",
+      "access": "Modell und Zugang prüfen",
+      "sample": "Aktuellen Entwurf testen",
+      "activate": "Zentral aktivieren und speichern",
+      "serviceHint": "Jev ist ein vorhandener API-Bewertungsdienst für die E-Mail-Kategorisierung. Hier wird sein Zugang eingerichtet; eine Installation in der Chat-Modellliste ist nicht nötig.",
+      "savedActivation": "Gespeicherte Aktivierung",
+      "processingReadiness": "Verarbeitung mit gespeicherten Einstellungen",
+      "readiness": {
+        "unknown": "Stand nicht bestätigt",
+        "inactive": "Zentral deaktiviert",
+        "ready": "Bereit",
+        "paused": "Pausiert; vorhandene Bewertungen bleiben verfügbar"
+      },
+      "systemKey": "Trage {key} als Schlüsselnamen ein und speichere den Wert in Secrets im Bereich System.",
+      "missingKeyName": "Wähle einen Schlüsselnamen und speichere den Wert in System-Secrets.",
+      "anonymous": "Dieser Entwurf verwendet ausdrücklich einen privaten Endpunkt ohne Anmeldung. Dafür wird kein API-Schlüssel benötigt.",
+      "managedCredentials": "Canvas-verwaltete Modelle verwenden Zugangsdaten in der Control Plane. Ein lokaler System-API-Schlüssel ist nicht erforderlich.",
+      "draftStatus": "Modell- und Zugangsstand beschreiben diesen ungespeicherten Entwurf; die gespeicherte Verarbeitungsbereitschaft bleibt davon getrennt.",
+      "connectionLink": "Verbindungseinstellungen öffnen",
+      "activationHint": "Der Schalter ändert diesen Entwurf. Speichern übernimmt Aktivierung und Konfiguration für alle Nutzer. Eine Einstellungsänderung startet nie automatisch einen Beispieltest.",
+      "testPassedMeaning": "Verbindung und Antwortvertrag für das synthetische Beispiel sind geprüft. Das belegt keine Sortiergenauigkeit und gibt keine Spam-Ausblendung frei.",
+      "dailyBudget": "Das Notebook-Tageslimit ist erreicht. Warte auf die Rücksetzung oder prüfe die maximale E-Mail-Zahl pro Tag in den erweiterten Einstellungen.",
+      "next": {
+        "draft": "Das freigegebene Modell gehört zu einem ungespeicherten Entwurf. Teste sein aktuelles Modell und den Zugang ausdrücklich vor dem Speichern.",
+        "ready": "Wähle ein freigegebenes Modell und teste diesen Entwurf ausdrücklich vor der Aktivierung.",
+        "connection": "Prüfe unten die Notebook-Verbindung. Ein Control-Plane-Admin muss zusätzlich Instanz-Token und verwalteten Bewertungsdienst bestätigen.",
+        "access": "Bitte einen Control-Plane-Admin, den Bewertungszugriff für diese Instanz und Organisation freizugeben.",
+        "model": "Bitte einen Control-Plane-Admin, das gewählte Entscheidungsmodell freizugeben und seine zentrale Konfiguration zu prüfen.",
+        "credentials": "Bitte einen Control-Plane-Admin, die zentralen Provider-Zugangsdaten des gewählten Modells einzurichten.",
+        "pricing": "Bitte einen Control-Plane-Admin, den Preis des gewählten Entscheidungsmodells einzurichten.",
+        "budget": "Prüfe Guthaben und das verwaltete Bewertungsbudget in der Control Plane.",
+        "dailyBudget": "Das Notebook-Tageslimit ist erreicht. Warte auf die Rücksetzung oder prüfe das erweiterte Anfragelimit.",
+        "changed": "Lade den Katalog neu, prüfe das geänderte Entscheidungsmodell und teste den neuen Entwurf ausdrücklich.",
+        "version": "Bitte einen Control-Plane-Admin, die Version der Bewertungs-API und die benötigten Modellfähigkeiten zu prüfen.",
+        "waiting": "Der verwaltete Dienst begrenzt die Anfragen vorübergehend. Behalte die gespeicherten Einstellungen und versuche den Test später erneut.",
+        "review": "Bitte einen Control-Plane-Admin, den unklaren Vorgang vor einer weiteren Bewertung zu prüfen.",
+        "unavailable": "Die verwaltete Verarbeitung lässt sich derzeit nicht bestätigen. Lade den Stand neu oder bitte einen Control-Plane-Admin, den Dienst zu prüfen."
+      }
+    },
     "description": "E-Mails nach Kategorie, Wichtigkeit, Spam-Wahrscheinlichkeit und Antwortbedarf vorbereiten.",
     "enable": "Für alle aktivieren",
     "scope": "Gilt zentral für alle Nutzer dieses Servers, einschließlich persönlicher und gemeinsamer Arbeitspostfächer. Bestehende Postfachrechte und Absenderregeln gelten weiterhin.",
@@ -218,7 +268,7 @@
     "loading": "Einstellungen zur E-Mail-Vorbereitung werden geladen…",
     "unsaved": "Änderungen nicht gespeichert",
     "saved": "Einstellungen gespeichert.",
-    "configuration": "Anbieter und Konfiguration",
+    "configuration": "Grenzwerte und erweiterte Konfiguration",
     "provider": "Anbieter",
     "model": "Modell",
     "endpoint": "Anbieter-Endpunkt",
@@ -336,6 +386,8 @@
       "managedConnection": "Prüfe die Managed-Verbindung und den Instanz-Token in der Control Plane. Ein Lizenzzugang allein genügt nicht.",
       "managedAccess": "Aktiviere den Zugriff auf Bewertungsmodelle für diese Instanz und Organisation in der Control Plane.",
       "managedModel": "Prüfe das ausgewählte Modell, seine zentralen Zugangsdaten und seinen Tarif in der Control Plane.",
+      "managedCredentials": "Die zentralen Provider-Zugangsdaten des gewählten Modells müssen in der Control Plane geprüft werden.",
+      "managedPricing": "Der Preis des gewählten Entscheidungsmodells muss in der Control Plane eingerichtet werden.",
       "managedBudget": "Das Managed-Guthaben reicht für diese Bewertung nicht aus.",
       "managedReview": "Der Ausgang dieser Bewertung ist unklar. Ein Control-Plane-Administrator muss den Vorgang prüfen, bevor er erneut gestartet wird."
     },

@@ -85,3 +85,42 @@ Voll-App-, Login-, Provider- oder Produktionsjourney.
 - [Persönlich/Arbeit, DE/Mobil/dunkel](email-tool-improvements/evidence/postfix-de-mobile-dark-auth-personal-work.png)
 - [Erfassung bestätigt, KI fehlgeschlagen](email-tool-improvements/evidence/postfix-de-desktop-light-complete-failed-ai.png)
 - [Kurze Pane nach Layoutkorrektur](email-tool-improvements/evidence/postfix-en-mobile-light-short-pane-400.png)
+
+## Schritt 4: Einrichtung und Aktivierung
+
+Die Admin-Karte zeigt vier sichtbare Schritte: Bereitstellung, Modell/Zugang,
+ausdrücklicher synthetischer Test, Aktivierung/Speichern. Direktbetrieb nennt den
+tatsächlichen Schlüsselnamen und System-Secrets; verwalteter Betrieb verweist für
+Zugang, Modellfreigabe, zentrale Credentials, Preise und Budget auf den Control
+Plane. Jev wird als bestehender API-Bewertungsdienst erklärt. Ein bestandener
+Beispieltest bestätigt Verbindung/Antwortvertrag, keine Sortierqualität.
+
+Gespeicherte Aktivierung, ungeprüfter Entwurf und Verarbeitungsbereitschaft sind
+getrennt. Budgetpause bleibt eine Pause, obwohl Focus mit vorhandenen Ergebnissen
+verfügbar ist. Ein neuer Modellentwurf erbt keine Störung des alten Modells.
+Secrets-Änderung entfernt einen alten Testbeleg; späte Antworten eines zuvor
+gestarteten Tests können ihn nicht wiederherstellen. Konfigurationsänderung und
+Speichern starten keinen Beispieltest.
+
+Die öffentliche Availability-Route liefert `canConfigure` nach derselben
+serverseitigen Adminprüfung wie Settings, einschließlich Bootstrap-Admins.
+Organisationsbesitz oder Query-Hinweise verleihen keine Instanzrechte.
+Der Einrichtungslink ist auch bei deaktiviertem Focus erreichbar. Normale Nutzer
+erhalten bei relevanter Verarbeitungsstörung einen Adminhinweis.
+
+Bestanden: Routes-/Focus-UI-/Admin-Service-Suites, Gesamt-TypeScript und
+fokussiertes ESLint für die Root-Änderungen. Die Admin-Service-Suite prüft weiterhin
+System-Credentials, CAS und synthetische Tests ohne Mailzugriff.
+
+Settings-UI-Suite und ESLint des Einrichtungspatches bestanden; unabhängige
+Quellprüfung ohne offene Befunde. Browser-Komponentenabnahme: 21 Fallgruppen in
+DE 390 hell/dunkel und EN 1280 hell, sechs visuell geprüfte Screenshots, keine
+Layout-/Runtimefehler. Je Viewport exakt zwei GETs, zwei Saves und ein ausdrücklich
+angestoßener synthetischer Probe-POST, keine unerwarteten Requests. Budgetpause
+trotz `available=true` und Secrets-Ereignis ohne Ersatztest zusätzlich geprüft.
+Browser geschlossen; reine synthetische Fixture, keine echten Provideraufrufe,
+keine Voll-App-/Produktionsabnahme.
+
+- [Normalnutzer bei Bewertungsstörung](email-tool-improvements/evidence/de-390-dark-member-outage.png)
+- [Zentrale Managed-Zugangsdaten](email-tool-improvements/evidence/de-390-light-managed-credentials.png)
+- [Aussage des synthetischen Tests](email-tool-improvements/evidence/en-1280-light-explicit-synthetic-probe.png)

@@ -1,8 +1,10 @@
 'use client';
 
 import { useTranslations } from 'next-intl';
+import Link from 'next/link';
 import { Maximize2, Minimize2, MoreHorizontal, Plus, RefreshCw, Search } from 'lucide-react';
 import type { EmailFeedMode } from '@/app/lib/email/classification/feed-types';
+import type { EmailClassificationAvailability } from '@/app/lib/email/classification/admin-service';
 import type { EmailMailboxScope } from '@/app/lib/email/classification/mailbox-types';
 import { Button } from '@/components/ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
@@ -18,11 +20,13 @@ export interface EmailFocusHeaderProps {
   onSearchChange(search: string): void; onCompose(): void; onRefresh(): void;
   loading?: boolean; canCompose?: boolean; mailboxesLoading?: boolean; mailboxesError?: boolean;
   controlsOnly?: boolean; focused?: boolean; onDistractionFree?(): void;
+  canConfigureClassification?: boolean; processingReason?: EmailClassificationAvailability['reason'];
 }
 
 export function EmailFocusHeader({ scope, mode, classificationEnabled, mailboxes, search, onScopeChange, onModeChange,
   onSearchChange, onCompose, onRefresh, loading = false, canCompose = true, mailboxesLoading = false,
-  mailboxesError = false, controlsOnly = false, focused = false, onDistractionFree }: EmailFocusHeaderProps) {
+  mailboxesError = false, controlsOnly = false, focused = false, onDistractionFree,
+  canConfigureClassification = false, processingReason = null }: EmailFocusHeaderProps) {
   const t = useTranslations('emailFocus');
   return (
     <div className="space-y-3 border-b px-3 py-3 sm:px-4" data-testid="email-focus-header">
@@ -47,11 +51,19 @@ export function EmailFocusHeader({ scope, mode, classificationEnabled, mailboxes
         {!controlsOnly && <>
           <Button type="button" size="sm" disabled={!canCompose} onClick={onCompose}><Plus className="mr-1.5 h-4 w-4" />{t('compose')}</Button>
           <Button type="button" variant="ghost" size="icon" aria-label={t('refresh')} disabled={loading} onClick={onRefresh}><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /></Button>
-          {onDistractionFree && <DropdownMenu><DropdownMenuTrigger asChild><Button type="button" variant="ghost" size="icon" aria-label={t('appearance')}><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
-            <DropdownMenuContent align="end"><DropdownMenuItem onClick={onDistractionFree}>{focused ? <Minimize2 className="mr-2 h-4 w-4" /> : <Maximize2 className="mr-2 h-4 w-4" />}{t(focused ? 'exitDistractionFree' : 'distractionFree')}</DropdownMenuItem></DropdownMenuContent>
-          </DropdownMenu>}
         </>}
+        {(canConfigureClassification || !controlsOnly && onDistractionFree) && <DropdownMenu><DropdownMenuTrigger asChild><Button type="button" variant="ghost" size="icon" aria-label={t(canConfigureClassification ? 'menu' : 'appearance')}><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            {!controlsOnly && onDistractionFree && <DropdownMenuItem onClick={onDistractionFree}>{focused ? <Minimize2 className="mr-2 h-4 w-4" /> : <Maximize2 className="mr-2 h-4 w-4" />}{t(focused ? 'exitDistractionFree' : 'distractionFree')}</DropdownMenuItem>}
+            {canConfigureClassification && <DropdownMenuItem asChild><Link href="/settings?tab=system-email">{t('configureClassification')}</Link></DropdownMenuItem>}
+          </DropdownMenuContent>
+        </DropdownMenu>}
       </div>
+      {classificationEnabled && processingReason && processingReason !== 'disabled' && <p className="text-xs leading-relaxed text-muted-foreground" role="status">
+        {t(`processingReasons.${processingReason}`)}{' '}{canConfigureClassification
+          ? <Link href="/settings?tab=system-email" className="font-medium text-primary underline underline-offset-4">{t('configureClassification')}</Link>
+          : t('classificationAdminHint')}
+      </p>}
       {mailboxesError && <p className="text-xs text-destructive" role="status">{t('sourceCatalogError')}</p>}
       {!controlsOnly && <div className="space-y-1.5">
         <Label htmlFor="email-focus-search" className="sr-only">{t('searchLabel')}</Label>
