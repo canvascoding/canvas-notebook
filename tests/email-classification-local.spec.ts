@@ -31,7 +31,7 @@ type Message = { id: string; folder: string; uid?: number; subject: string; body
 const fixtureFile = process.env.CANVAS_EMAIL_CLASSIFICATION_FIXTURE_FILE;
 const fixture: Fixture | undefined = fixtureFile ? JSON.parse(readFileSync(fixtureFile, 'utf8')) : undefined;
 const modeName = { focus: /^Fokus$|^Focus$/i, classic: /^Klassisch$|^Classic$/i };
-const allView = /^Alle E-Mails:|^All emails:/i;
+const allView = /^Erfasste Inbox-Mails:|^Captured inbox mail:/i;
 const mutationHeaders = () => ({ Origin: fixture!.baseUrl, 'Sec-Fetch-Site': 'same-origin' });
 type BrowserDiagnostic = { kind: 'pageerror' | 'http'; name?: string; messageHash?: string; pathname?: string; status?: number };
 const browserDiagnostics = new WeakMap<BrowserContext, BrowserDiagnostic[]>();
@@ -286,8 +286,9 @@ test.describe('Actual local classified email experience', () => {
       await enabled(context.request, false);
       await page.reload({ waitUntil: 'domcontentloaded' });
       await emailReady(page);
-      await expect(header.getByRole('button', { name: modeName.focus })).toBeDisabled();
-      await expect(header.getByText(/zentral deaktiviert|disabled centrally/i)).toBeVisible();
+      await expect(header.getByRole('button', { name: modeName.focus })).toHaveCount(0);
+      await expect(header.getByRole('button', { name: modeName.classic })).toHaveCount(0);
+      await expect(header.getByText(/zentral deaktiviert|disabled centrally/i)).toHaveCount(0);
       const disabled = await feed(context.request, 'scope=all&mode=classic&view=all');
       expect(disabled.items.length).toBeGreaterThanOrEqual(owned.length);
       expect(disabled.items.every(row => row.classification === null)).toBe(true);

@@ -157,3 +157,43 @@ Keine Appserver-, Container- oder Provideraufrufe; keine Voll-App-Abnahme.
 - [2283 als erfasster Bestand](email-tool-improvements/evidence/en-1280-light-captured-inbox-2283.png)
 - [Postfachwahl mit langen Bezeichnungen](email-tool-improvements/evidence/de-390-dark-long-mailbox-chooser.png)
 - [Kurze Ansicht mit offenem Bewertungsumfang](email-tool-improvements/evidence/de-390-light-short-pane-400-capture-incomplete.png)
+
+## Schritt 6: Abschließende Regressionen und Freigabegrenzen
+
+Am finalen Implementierungsstand `aa4e074bb` sind bestanden:
+
+- `npm run build`, einschließlich Prebuild-Gates und TypeScript.
+- Native PostgreSQL-18-Suite mit temporärem Schema und anschließendem Entfernen:
+  Unicode-Speicherung, additive Diagnosespalte, Wiederaufnahme, Tagesgrenzen,
+  konkurrierende Zugriffe, Leases und veraltete Aktivierungszustände.
+- Acht Backend-Suites: Store, Worker, Feed, Routes, Admin, Managed, Index und
+  Lifecycle. Diese nutzen isolierte lokale Daten beziehungsweise Provider-Mocks.
+- Settings-UI und Focus-UI in DE/EN sowie Gesamt-TypeScript und fokussiertes
+  ESLint. Die Browser-Komponentenprüfungen stehen mit ihrem jeweiligen Umfang
+  in den Abschnitten oben.
+- Frische unabhängige Quellprüfung der gesamten Änderung gegenüber dem
+  gemeinsamen Ausgangsstand und dem aktuellen `origin/main`: kein neuer
+  konkreter Fehler gefunden.
+
+Die drei bestehenden Voll-App-E2E-Tests wurden an ausgeblendete Modusbuttons und
+die neue Bestandsbeschriftung angepasst. ESLint und Playwright-Testauflistung
+sind bestanden; die Auflistung ist keine ausgeführte E2E-Abnahme.
+
+Für vollständige Login-/Admin-/Member-Journeys muss ausschließlich der bestehende
+Notebook-Testcontainer auf Port 3100 aus diesem Checkout neu gebaut und ersetzt
+werden. Der Produktionsbuild als Voraussetzung ist erfüllt. Die ausdrückliche
+Containerfreigabe aus `AGENTS.md` steht noch aus; der ältere laufende Container
+wird nicht als Nachweis des neuen Quellstands verwendet. PostgreSQL und Control
+Plane sollen dabei erhalten bleiben. Ausschließlich eigene synthetische Mails
+und ein lokaler Modellstub sind für diese Abnahme vorgesehen.
+
+Produktionsveröffentlichung, Rollout des gemergten Control-Plane-Codes, echte
+Providerkonfiguration und tatsächliche zentrale Aktivierung sind nicht erfolgt.
+Die produktiv beobachtete Erfassungsstörung bleibt bis zum dortigen erfolgreichen
+Wiederholungslauf offen.
+
+Separater bestehender Befund: Scheitert eine Scan-Seite nach bereits gespeicherten
+Bewertungsjobs, kann `historicalQueued` beim Wiederholungslauf zu niedrig bleiben.
+Dieses Verhalten ist gegenüber dem Ausgangsstand unverändert. Die atomar
+gespeicherte Tagesgrenze gilt weiterhin; eine strenge Garantie für den historischen
+Batchzähler benötigt eine eigene Korrektur und Abnahme.
