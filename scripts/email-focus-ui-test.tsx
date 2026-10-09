@@ -149,13 +149,23 @@ async function main() {
       mailboxes: [first.origin, second.origin], search: '', onScopeChange: (scope: unknown) => scopes.push(scope), onModeChange: (mode: unknown) => modes.push(mode),
       onSearchChange: () => {}, onCompose: () => { compose++; }, onRefresh: () => {} };
     const header = render(wrap(<EmailFocusHeader {...headerProps} />));
-    assert.equal((header.getByRole('button', { name: 'Focus' }) as HTMLButtonElement).disabled, true);
+    assert.equal(header.queryByRole('button', { name: 'Focus' }), null);
+    assert.equal(header.queryByRole('button', { name: 'Classic' }), null);
+    assert.equal(header.queryByText(en.emailFocus.classificationDisabled), null);
     fireEvent.change(header.getByLabelText('Mailbox scope'), { target: { value: `mailbox:${second.origin.mailboxRef}` } });
     assert.deepEqual(scopes, [{ kind: 'mailbox', mailboxRef: second.origin.mailboxRef }]);
-    fireEvent.click(header.getByRole('button', { name: 'Classic' })); assert.deepEqual(modes, ['classic']);
     fireEvent.click(header.getByRole('button', { name: 'New email' })); assert.equal(compose, 1, 'Aggregate compose delegates to the caller’s sender picker');
     header.rerender(wrap(<EmailFocusHeader {...headerProps} controlsOnly />));
+    assert.equal(header.queryByRole('button', { name: 'Focus' }), null);
     assert.equal(header.queryByRole('button', { name: 'New email' }), null); assert.equal(header.queryByRole('searchbox'), null, 'Classic single-mailbox controls do not duplicate legacy search/compose');
+    header.rerender(wrap(<EmailFocusHeader {...headerProps} classificationEnabled />));
+    fireEvent.click(header.getByRole('button', { name: 'Focus' }));
+    fireEvent.click(header.getByRole('button', { name: 'Classic' }));
+    assert.deepEqual(modes, ['focus', 'classic'], 'An activated preparation retains both mode choices');
+    header.rerender(wrap(<EmailFocusHeader {...headerProps} classificationEnabled mode="focus" />));
+    assert.equal(header.getByRole('button', { name: 'Focus' }).getAttribute('aria-pressed'), 'true');
+    header.rerender(wrap(<EmailFocusHeader {...headerProps} />));
+    assert.equal(header.queryByRole('button', { name: 'Focus' }), null, 'Central deactivation removes the switch after activation');
     cleanup();
 
     const opened: EmailClassificationFeedItem[] = []; const doneCalls: unknown[] = []; const views: string[] = [];

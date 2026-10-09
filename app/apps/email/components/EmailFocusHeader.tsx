@@ -40,10 +40,10 @@ export function EmailFocusHeader({ scope, mode, classificationEnabled, mailboxes
             </optgroup>)}
           </select>
         </div>
-        <div className="flex shrink-0 items-center rounded-md border p-0.5" role="group" aria-label={t('modeLabel')}>
-          <Button type="button" size="sm" variant={mode === 'focus' ? 'secondary' : 'ghost'} aria-pressed={mode === 'focus'} disabled={!classificationEnabled} onClick={() => onModeChange('focus')}>{t('focus')}</Button>
+        {classificationEnabled && <div className="flex shrink-0 items-center rounded-md border p-0.5" role="group" aria-label={t('modeLabel')}>
+          <Button type="button" size="sm" variant={mode === 'focus' ? 'secondary' : 'ghost'} aria-pressed={mode === 'focus'} onClick={() => onModeChange('focus')}>{t('focus')}</Button>
           <Button type="button" size="sm" variant={mode === 'classic' ? 'secondary' : 'ghost'} aria-pressed={mode === 'classic'} onClick={() => onModeChange('classic')}>{t('classic')}</Button>
-        </div>
+        </div>}
         {!controlsOnly && <>
           <Button type="button" size="sm" disabled={!canCompose} onClick={onCompose}><Plus className="mr-1.5 h-4 w-4" />{t('compose')}</Button>
           <Button type="button" variant="ghost" size="icon" aria-label={t('refresh')} disabled={loading} onClick={onRefresh}><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /></Button>
@@ -53,7 +53,6 @@ export function EmailFocusHeader({ scope, mode, classificationEnabled, mailboxes
         </>}
       </div>
       {mailboxesError && <p className="text-xs text-destructive" role="status">{t('sourceCatalogError')}</p>}
-      {!classificationEnabled && <p className="text-xs text-muted-foreground">{t('classificationDisabled')}</p>}
       {!controlsOnly && <div className="space-y-1.5">
         <Label htmlFor="email-focus-search" className="sr-only">{t('searchLabel')}</Label>
         <div className="relative"><Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" aria-hidden="true" />
