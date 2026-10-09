@@ -137,9 +137,13 @@ test.describe('Global email review', () => {
         await page.keyboard.press('ControlOrMeta+z');
         await expect(dialog.getByTestId('email-review-save')).toBeDisabled();
         await dialog.getByTestId('email-review-recipient-details').click();
+        await dialog.getByRole('button', { name: /^(?:Remove blind@example\.test|blind@example\.test entfernen)$/i }).click();
         await dialog.getByTestId('email-review-bcc').fill('changed@example.test');
+        await dialog.getByTestId('email-review-bcc').press('Enter');
         await expect(dialog.getByTestId('email-review-save')).toBeEnabled();
+        await dialog.getByRole('button', { name: /^(?:Remove changed@example\.test|changed@example\.test entfernen)$/i }).click();
         await dialog.getByTestId('email-review-bcc').fill('blind@example.test');
+        await dialog.getByTestId('email-review-bcc').press('Enter');
         await expect(dialog.getByTestId('email-review-save')).toBeDisabled();
         await dialog.getByTestId('email-review-subject').fill('Real subject edit');
         await dialog.getByTestId('email-review-save').click();
@@ -166,7 +170,8 @@ test.describe('Global email review', () => {
       await expect(dialog.getByTestId('email-review-summary').getByText('sender@example.test', { exact: true })).toBeVisible();
       await expect(dialog.locator('.ProseMirror strong')).toHaveText('formatted recipient');
       await dialog.getByTestId('email-review-recipient-details').click();
-      await expect(dialog.getByTestId('email-review-bcc')).toHaveValue('blind@example.test');
+      await expect(dialog.getByRole('button', { name: /^(?:Remove blind@example\.test|blind@example\.test entfernen)$/i })).toBeVisible();
+      await expect(dialog.getByTestId('email-review-bcc')).toHaveValue('');
       await dialog.getByTestId('email-review-subject').fill('Updated proposal');
       await dialog.getByTestId('email-review-draft-review-next').click();
       const unsaved = page.getByTestId('email-review-unsaved-dialog');
@@ -197,9 +202,13 @@ test.describe('Global email review', () => {
       await expect(dialog.getByTestId('email-review-policy-error')).toBeVisible();
       await expect(dialog.locator('a[href*="settings"]')).toBeVisible();
       await dialog.getByTestId('email-review-recipient-details').click();
+      await dialog.getByRole('button', { name: /^(?:Remove blocked@outside\.test|blocked@outside\.test entfernen)$/i }).click();
       await dialog.getByTestId('email-review-to').fill('fixed@example.test');
+      await dialog.getByTestId('email-review-to').press('Enter');
+      await expect(dialog.getByRole('button', { name: /^(?:Remove fixed@example\.test|fixed@example\.test entfernen)$/i })).toBeVisible();
       await dialog.getByTestId('email-review-send').click();
       await expect.poll(() => fixture.drafts.get('policy')?.status).toBe('sent');
+      expect(fixture.drafts.get('policy')?.to).toEqual(['fixed@example.test']);
       expect(fixture.writes.filter((write) => write.action === 'send')).toHaveLength(2);
       expect(fixture.unexpected).toEqual([]);
     } finally { await context.close(); }

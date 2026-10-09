@@ -34,3 +34,16 @@ Cover same names, private/business addresses, missing names, quoted commas, Repl
 - Optional reply participants are drawn from the selected message only and added individually to To or Cc. Source labels describe an observed header and its date, without claiming verified delivery or a complete conversation.
 
 Focused validation entry points are `test:email:addresses`, `test:email:recipients`, `test:pi:email-recipients`, `test:email:recipients:ui`, the compose source/dialog tests, the Review store test and the existing provider/cache suites. Browser acceptance and real-provider acceptance are separate from these local tests.
+
+## Browser acceptance, 2026-10-09
+
+- Fresh host development runtime from this worktree, with the existing managed PostgreSQL/Control Plane stack. Bootstrap credentials were loaded privately from the managed host environment.
+- `tests/email-recipient-discovery.spec.ts`: all seven cases passed. Covers on-demand/debounced lookup, direct-address bypass, five-candidate bounds, collapsed sources, explicit mouse/keyboard choices, malformed intent, Reply-To, optional To/Cc additions, Review saves, stale scope/draft responses and 1440/390/320-pixel layouts.
+- `tests/email-review-center.spec.ts`: all ten regression cases passed. Chip interactions preserve Bcc, dirty-state/version protection, policy-error recovery and shared-mailbox routes, including German mobile layouts and uncertain-delivery restrictions.
+- `tests/email-recipient-route-live.spec.ts`: authenticated live route checks passed for input validation, unavailable mailbox scopes (including requests with client-supplied actor/purpose fields) and private/no-store responses. Anonymous requests are rejected by the outer app middleware.
+- Existing search/focus coverage passed in seven distinct cases; the initially slow-loading 1024-pixel case passed on a focused repeat after readiness. The first invocation before server readiness failed at authentication and was superseded by ready-server runs.
+- Visual inspection found a Review field label centered beside the whole suggestion list. Labels now align with the input, with a browser assertion that they remain visible while suggestions are open.
+- Production build, TypeScript/license gates, targeted ESLint, the recipient component suite and staged scope checks passed after the label correction.
+- UI mailboxes and provider responses use controlled browser fixtures; real authentication, workspace discovery and route authorization use the local server. These checks establish local UI and access behavior rather than external SMTP/IMAP/OAuth provider acceptance.
+
+Run the browser files against a ready managed host server with `E2E_EXTERNAL_SERVER=1`, the correct `BASE_URL`, and privately loaded bootstrap credentials; use `--workers=1` for the focused acceptance run.
