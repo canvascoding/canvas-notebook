@@ -11,7 +11,7 @@ Produktionsabnahme ist davon getrennt.
 | 2. Getrennte Fehlerdiagnose | Implementiert; Migration, Rechte, Wiederaufnahme und Aktualisierung geprüft |
 | 3. Konkrete Postfachwarnungen | Implementiert; Rechte, Quellenwechsel und Browsergeometrie geprüft |
 | 4. Verständliche Einrichtung | Implementiert; Rollen, Einrichtung, Testaufrufe und Browserlayout geprüft |
-| 5. Zahlen und Suchumfang | Geplant |
+| 5. Zahlen und Suchumfang | Implementiert; vollständiger Suchweg, ehrliche Abdeckung und kurze Browseransichten geprüft |
 | 6. Gesamtprüfung und Rollout | Ausstehend |
 
 Prüfbelege: [Implementierungsvalidierung](email-tool-improvements-validation.md).

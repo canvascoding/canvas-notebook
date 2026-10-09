@@ -1,9 +1,10 @@
 'use client';
 
+import { useId } from 'react';
 import { Check, ChevronDown, Loader2 } from 'lucide-react';
 import { useLocale, useTranslations } from 'next-intl';
 import type { EmailClassificationFeed, EmailClassificationFeedItem, EmailFeedView } from '@/app/lib/email/classification/feed-types';
-import type { EmailMailboxSourceOption } from '@/app/lib/email/classification/mailbox-types';
+import { matchesEmailMailboxScope, type EmailMailboxSourceOption } from '@/app/lib/email/classification/mailbox-types';
 import { isEmailMailboxSyncErrorCode } from '@/app/lib/email/classification/sync-errors';
 import { EMAIL_CATEGORY_IDS, type EmailCategory } from '@/app/lib/email/classification/types';
 import { Badge } from '@/components/ui/badge';
@@ -40,24 +41,30 @@ export function EmailFocusNavigation({ feed, view, category, onViewChange, onCat
   selectionKey, loading, loadingMore = false, error, hasUpdates, hasMore, onReload, onLoadMore, aggregate, mailboxes, onOpenMailbox }: EmailFocusNavigationProps) {
   const t = useTranslations('emailFocus');
   const locale = useLocale();
+  const countDescriptionId = useId();
   const categorized = feed?.mode !== 'classic';
   const counts = feed?.counts;
+  const currentCoverage = feed?.coverage.filter(source => mailboxes === undefined || mailboxes.some(mailbox => mailbox.mailboxRef === source.mailboxRef && mailbox.capabilities.canRead)) ?? [];
+  const scopedMailboxes = feed && mailboxes?.filter(mailbox => mailbox.capabilities.canRead && matchesEmailMailboxScope(mailbox, feed.scope));
+  const coverageMissing = scopedMailboxes?.some(mailbox => !currentCoverage.some(source => source.mailboxRef === mailbox.mailboxRef)) ?? false;
+  const captureIncomplete = coverageMissing || currentCoverage.some(source => source.state !== 'complete');
+  const countsConfirmed = Boolean(feed && !error && !coverageMissing && currentCoverage.length === feed.coverage.length);
   const uncertainSources = feed?.coverage.filter(source => source.state !== 'complete' || categorized && (source.pending || source.failed || source.stale)) ?? [];
   const diagnosticSources = uncertainSources.filter(source => mailboxes === undefined || mailboxes.some(mailbox => mailbox.mailboxRef === source.mailboxRef && mailbox.capabilities.canRead));
-  const incomplete = uncertainSources.length > 0;
-  const rows = feed?.items ?? [];
+  const incomplete = !countsConfirmed || uncertainSources.length > 0;
+  const rows = feed?.items.filter(item => mailboxes === undefined || mailboxes.some(mailbox => mailbox.mailboxRef === item.origin.mailboxRef && mailbox.capabilities.canRead)) ?? [];
   const sections = categorized && view === 'focus'
     ? (['important', 'reply'] as const).map(group => ({ id: group, title: t(`views.${group}`), items: rows.filter(item => item.classification?.group === group) }))
     : [{ id: view, title: category ? t(`categories.${category}`) : t(`views.${view}`), items: rows }];
   const visibleRows = sections.reduce((total, section) => total + section.items.length, 0);
   const chooseView = (next: EmailFeedView) => { onCategoryChange(null); onViewChange(next); };
-  const count = (next: EmailFeedView) => next === 'all' ? counts?.total ?? 0 : next === 'focus'
+  const count = (next: EmailFeedView) => !countsConfirmed ? '—' : next === 'all' ? counts?.total ?? 0 : next === 'focus'
     ? (counts?.groups.important ?? 0) + (counts?.groups.reply ?? 0) : counts?.groups[next] ?? 0;
   const viewButton = (next: EmailFeedView, prominent = false) => (
     <Button key={next} type="button" variant={view === next && !category ? 'secondary' : 'ghost'} size="sm"
-      className={cn('min-w-0 justify-between gap-2', prominent && 'h-auto min-h-11 flex-1 border px-3 py-2')}
-      aria-label={`${t(`views.${next}`)}: ${count(next)}`} aria-pressed={view === next && !category} onClick={() => chooseView(next)}>
-      <span className={prominent ? 'min-w-0 whitespace-normal text-left leading-snug' : 'truncate'}>{t(`views.${next}`)}</span><span className="shrink-0 tabular-nums text-muted-foreground">{count(next)}</span>
+      className={cn('min-w-0 justify-between gap-2', next === 'all' && 'h-auto min-h-9 max-w-full py-1.5', prominent && 'h-auto min-h-11 flex-1 border px-3 py-2')}
+      aria-label={`${t(`views.${next}`)}: ${count(next)}`} aria-describedby={next === 'all' ? countDescriptionId : undefined} aria-pressed={view === next && !category} onClick={() => chooseView(next)}>
+      <span className={prominent || next === 'all' ? 'min-w-0 whitespace-normal break-words text-left leading-snug' : 'truncate'}>{t(`views.${next}`)}</span><span className="shrink-0 tabular-nums text-muted-foreground">{count(next)}</span>
     </Button>
   );
   const date = (value: string) => {
@@ -66,9 +73,13 @@ export function EmailFocusNavigation({ feed, view, category, onViewChange, onCat
   };
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-testid="email-focus-navigation">
-      <div className="max-h-[65%] shrink-0 space-y-3 overflow-y-auto border-b px-3 py-3 sm:px-4">
+      <div className="min-h-0 max-h-[65%] shrink space-y-3 overflow-y-auto border-b px-3 py-3 sm:px-4">
         <div className="flex flex-wrap gap-1" role="group" aria-label={t('viewLabel')}>
           {categorized && viewButton('focus')}{viewButton('all')}
+        </div>
+        <div id={countDescriptionId} className="flex flex-wrap gap-x-2 gap-y-1 text-[10px] leading-relaxed text-muted-foreground" data-testid="email-captured-count-hint">
+          <span>{t(countsConfirmed ? 'counts.hint' : 'counts.unconfirmed')}</span>
+          {captureIncomplete && <span className="font-medium text-amber-700 dark:text-amber-400" data-testid="email-capture-incomplete">{t('counts.incomplete')}</span>}
         </div>
         {categorized && <>
           <div className="flex gap-2" aria-label={t('unresolvedLabel')}>
@@ -82,7 +93,7 @@ export function EmailFocusNavigation({ feed, view, category, onViewChange, onCat
               <div className="flex flex-wrap gap-1">{viewButton('important')}{viewButton('reply')}{viewButton('other')}{viewButton('spam')}{viewButton('done')}</div>
               <div className="grid grid-cols-2 gap-1" role="group" aria-label={t('categoryLabel')}>
                 {EMAIL_CATEGORY_IDS.map(id => <Button key={id} type="button" variant={category === id ? 'secondary' : 'ghost'} size="sm" className="min-w-0 justify-between gap-2"
-                  aria-label={`${t(`categories.${id}`)}: ${counts?.categories[id] ?? 0}`} aria-pressed={category === id} onClick={() => { onViewChange('all'); onCategoryChange(id); }}><span className="truncate">{t(`categories.${id}`)}</span><span className="tabular-nums text-muted-foreground">{counts?.categories[id] ?? 0}</span></Button>)}
+                  aria-label={`${t(`categories.${id}`)}: ${countsConfirmed ? counts?.categories[id] ?? 0 : '—'}`} aria-pressed={category === id} onClick={() => { onViewChange('all'); onCategoryChange(id); }}><span className="truncate">{t(`categories.${id}`)}</span><span className="tabular-nums text-muted-foreground">{countsConfirmed ? counts?.categories[id] ?? 0 : '—'}</span></Button>)}
               </div>
             </div>
           </details>
@@ -134,7 +145,7 @@ export function EmailFocusNavigation({ feed, view, category, onViewChange, onCat
           </div>
         </details>}
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div className="min-h-24 flex-1 overflow-y-auto">
         {loading && !feed ? <div className="flex items-center justify-center gap-2 px-4 py-10 text-sm text-muted-foreground" role="status"><Loader2 className="h-4 w-4 animate-spin" />{t('loading')}</div>
           : !visibleRows && !error ? <div className="space-y-2 px-5 py-10 text-center"><p className="text-sm font-medium">{t(incomplete ? 'emptyPreparing' : view === 'focus' ? 'emptyFocus' : 'emptyView')}</p>
             <p className="text-xs leading-relaxed text-muted-foreground">{t(view === 'focus' ? 'emptyFocusHint' : 'emptyViewHint')}</p>
@@ -163,7 +174,12 @@ export function EmailFocusNavigation({ feed, view, category, onViewChange, onCat
           </section>)}
         {hasMore && !error && <div className="p-3"><Button type="button" variant="outline" className="w-full" disabled={loadingMore || loading} onClick={onLoadMore}>{loadingMore && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}{t('loadMore')}</Button></div>}
       </div>
-      {feed && <p className="border-t px-4 py-2 text-[10px] leading-relaxed text-muted-foreground">{t('indexScopeHint', { days: feed.limits.initialLookbackDays, maximum: feed.limits.maxHistoricalMessages })}</p>}
+      {feed && categorized && <details className="group/scope shrink-0 border-t text-[10px]" data-testid="email-assessment-scope">
+        <summary className="flex min-h-8 cursor-pointer list-none items-center justify-between gap-2 px-4 py-2 font-medium focus-visible:outline-ring">
+          {t('assessmentScope')}<ChevronDown className="h-3.5 w-3.5 shrink-0 transition-transform group-open/scope:rotate-180" aria-hidden="true" />
+        </summary>
+        <p className="max-h-24 overflow-y-auto px-4 pb-3 leading-relaxed text-muted-foreground">{t('assessmentScopeHint', { days: feed.limits.initialLookbackDays })}</p>
+      </details>}
     </div>
   );
 }

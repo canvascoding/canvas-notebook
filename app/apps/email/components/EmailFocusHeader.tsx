@@ -13,6 +13,7 @@ import { Label } from '@/components/ui/label';
 
 export interface EmailFocusMailboxOption {
   mailboxRef: string; emailAddress: string; displayName: string | null; workspaceId: string | null; workspaceName: string | null;
+  capabilities?: { canRead: boolean };
 }
 export interface EmailFocusHeaderProps {
   scope: EmailMailboxScope; mode: EmailFeedMode; classificationEnabled: boolean; mailboxes: EmailFocusMailboxOption[];
@@ -21,13 +22,17 @@ export interface EmailFocusHeaderProps {
   loading?: boolean; canCompose?: boolean; mailboxesLoading?: boolean; mailboxesError?: boolean;
   controlsOnly?: boolean; focused?: boolean; onDistractionFree?(): void;
   canConfigureClassification?: boolean; processingReason?: EmailClassificationAvailability['reason'];
+  onOpenMailbox?(mailboxRef: string): void;
 }
 
 export function EmailFocusHeader({ scope, mode, classificationEnabled, mailboxes, search, onScopeChange, onModeChange,
   onSearchChange, onCompose, onRefresh, loading = false, canCompose = true, mailboxesLoading = false,
   mailboxesError = false, controlsOnly = false, focused = false, onDistractionFree,
-  canConfigureClassification = false, processingReason = null }: EmailFocusHeaderProps) {
+  canConfigureClassification = false, processingReason = null, onOpenMailbox }: EmailFocusHeaderProps) {
   const t = useTranslations('emailFocus');
+  const readableMailboxes = mailboxes.filter(mailbox => mailbox.capabilities?.canRead !== false);
+  const selectedMailbox = scope.kind === 'mailbox' ? readableMailboxes.find(mailbox => mailbox.mailboxRef === scope.mailboxRef) : null;
+  const fullMailboxUnavailable = mailboxesLoading || mailboxesError || !readableMailboxes.length;
   return (
     <div className="space-y-3 border-b px-3 py-3 sm:px-4" data-testid="email-focus-header">
       <div className="flex flex-wrap items-center gap-2">
@@ -70,6 +75,18 @@ export function EmailFocusHeader({ scope, mode, classificationEnabled, mailboxes
         <div className="relative"><Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" aria-hidden="true" />
           <Input id="email-focus-search" type="search" className="pl-9" value={search} maxLength={300} placeholder={t('searchPlaceholder')} onChange={event => onSearchChange(event.target.value)} />
         </div><p className="text-[11px] leading-relaxed text-muted-foreground">{t('searchHint')}</p>
+        {onOpenMailbox && <div className="pt-1">
+          {selectedMailbox ? <Button type="button" variant="outline" size="sm" className="h-auto min-h-10 max-w-full whitespace-normal py-2" disabled={fullMailboxUnavailable} onClick={() => onOpenMailbox(selectedMailbox.mailboxRef)}>{t('fullMailbox')}</Button>
+            : <DropdownMenu><DropdownMenuTrigger asChild><Button type="button" variant="outline" size="sm" className="h-auto min-h-10 max-w-full whitespace-normal py-2" disabled={fullMailboxUnavailable}>{t('fullMailbox')}</Button></DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="max-w-[calc(100vw-2rem)]">
+                {readableMailboxes.map(mailbox => <DropdownMenuItem key={mailbox.mailboxRef} className="block min-h-11 whitespace-normal [overflow-wrap:anywhere]" onClick={() => onOpenMailbox(mailbox.mailboxRef)}>
+                  <span className="block">{mailbox.displayName ? `${mailbox.displayName} · ` : ''}{mailbox.emailAddress}</span>
+                  {mailbox.workspaceName && <span className="block text-xs text-muted-foreground">{mailbox.workspaceName}</span>}
+                </DropdownMenuItem>)}
+              </DropdownMenuContent>
+            </DropdownMenu>}
+          <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">{t('fullMailboxHint')}</p>
+        </div>}
       </div>}
     </div>
   );

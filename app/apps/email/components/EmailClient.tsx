@@ -1703,7 +1703,7 @@ export function EmailClient({
           mailboxesLoading={!focusSourcesReady && !focusSourcesError} mailboxesError={focusSourcesError} controlsOnly={!usesIndexedFeed}
           focused={focused} onDistractionFree={toggleFocus}
           canConfigureClassification={classificationAvailability?.canConfigure === true}
-          processingReason={classificationAvailability?.reason} />}
+          processingReason={classificationAvailability?.reason} onOpenMailbox={openFocusMailbox} />}
         {!usesIndexedFeed && <EmailMailboxHeader
           accounts={accounts}
           activeAccount={activeAccount}

@@ -124,3 +124,36 @@ keine Voll-App-/Produktionsabnahme.
 - [Normalnutzer bei Bewertungsstörung](email-tool-improvements/evidence/de-390-dark-member-outage.png)
 - [Zentrale Managed-Zugangsdaten](email-tool-improvements/evidence/de-390-light-managed-credentials.png)
 - [Aussage des synthetischen Tests](email-tool-improvements/evidence/en-1280-light-explicit-synthetic-probe.png)
+
+## Schritt 5: Zahlen, Suchbestand und vollständige Postfächer
+
+Die Zahl heißt „Erfasste Inbox-Mails“ und nennt gewählten Bereich sowie aktive
+Such-/Kategoriefilter. Erfassung und KI-Bewertung bleiben getrennt: ausstehende
+Bewertungen allein markieren die Erfassung nicht als unvollständig. Ohne
+bestätigte scoped Quellenabdeckung erscheint „—“; das gilt auch für Kategorien.
+Eine tatsächlich leere berechtigte Quelle darf null zeigen. Entzogene Quellen
+verlieren ihre Nachrichtenzeilen, verbleibende Quellen bleiben bedienbar.
+
+Suche benennt den erfassten Inbox-Bestand. „Vollständiges Postfach öffnen“ wählt
+in der aggregierten Ansicht ausdrücklich ein lesbares persönliches oder
+Arbeitspostfach und öffnet dessen Klassisch-Ansicht mit Ordnern/Anbietersuche.
+Der aktuell ausgewählte lesbare Ref lässt sich direkt öffnen. Fehlender oder
+unbestätigter Katalog deaktiviert die Aktion; ein entfallener ausgewählter Ref
+darf ausschließlich zur Auswahl anderer bestätigter Quellen führen.
+
+Bewertungsauswahl wird getrennt und standardmäßig eingeklappt erklärt: ungelesene
+Inbox-Mails unabhängig vom Alter sowie weitere Inbox-Mails im konfigurierten
+Rückblick kommen infrage. Es gibt keine Zusage unbegrenzter späterer Verarbeitung.
+Klassisch zeigt diese KI-Erklärung nicht.
+
+Bestanden: DE/EN Focus-UI-Suite, Gesamt-TypeScript, fokussiertes ESLint und
+unabhängige Quellprüfung. Browser-Komponentenprüfung in vier EN/DE-/Viewport-/
+Theme-Kombinationen, plus 320px Pane in DE hell/dunkel. Ein Layoutblocker bei
+geöffnetem Bewertungsumfang wurde korrigiert: Nachrichten behalten mindestens
+96px; normale Sender- und Row-Center-Mausklicks funktionieren bei gleichzeitig
+geöffneten Details. Vier finale Screenshots visuell geprüft, Browser geschlossen.
+Keine Appserver-, Container- oder Provideraufrufe; keine Voll-App-Abnahme.
+
+- [2283 als erfasster Bestand](email-tool-improvements/evidence/en-1280-light-captured-inbox-2283.png)
+- [Postfachwahl mit langen Bezeichnungen](email-tool-improvements/evidence/de-390-dark-long-mailbox-chooser.png)
+- [Kurze Ansicht mit offenem Bewertungsumfang](email-tool-improvements/evidence/de-390-light-short-pane-400-capture-incomplete.png)
