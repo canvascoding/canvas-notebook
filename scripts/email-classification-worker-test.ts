@@ -36,6 +36,21 @@ async function main() {
   const { createEmailClassificationWorker, emailClassificationRetryDelay } = await import('../app/lib/email/classification/worker');
   const { initializeEmailClassificationRuntime, notifyEmailClassificationSettingsChanged } = await import('../app/lib/email/classification/runtime');
   const { DecisionModelError } = await import('../app/lib/decision-models/errors');
+  const { EmailMailboxSyncError, emailMailboxSyncErrorCode } = await import('../app/lib/email/classification/sync-errors');
+
+  for (const [error, expected] of [
+    [{ status: 401 }, 'auth_required'], [{ status: 403 }, 'auth_required'], [{ authenticationFailed: true }, 'auth_required'],
+    [{ status: 429 }, 'rate_limited'], [{ code: 'ETHROTTLE' }, 'rate_limited'],
+    [{ status: 504 }, 'timeout'], [{ code: 'GREETING_TIMEOUT' }, 'timeout'], [{ cause: { code: 'ETIMEDOUT' } }, 'timeout'],
+    [{ status: 503 }, 'provider_unavailable'], [{ cause: { code: 'ECONNRESET' } }, 'provider_unavailable'],
+    [new Error('401 auth expired ' + SECRET_MARKER + BODY_MARKER), 'sync_failed'],
+    [{ code: '22P02' }, 'sync_failed'],
+  ] as const) assert.equal(emailMailboxSyncErrorCode(error, 'provider'), expected);
+  assert.equal(emailMailboxSyncErrorCode({ code: '22P02' }, 'content'), 'content_invalid');
+  assert.equal(emailMailboxSyncErrorCode({ code: '22P02' }, 'storage'), 'sync_failed', 'Only metadata write errors may identify content');
+  const cyclicCause: { cause?: unknown } = {}; cyclicCause.cause = cyclicCause;
+  assert.equal(emailMailboxSyncErrorCode(cyclicCause, 'provider'), 'sync_failed', 'Cyclic provider causes remain bounded');
+  assert.equal(emailMailboxSyncErrorCode(new EmailMailboxSyncError('timeout'), 'storage'), 'timeout');
 
   assert.equal(emailClassificationRetryDelay(1, () => 0.5), 2_000);
   assert.equal(emailClassificationRetryDelay(100, () => 0.5), 3_600_000);
@@ -107,6 +122,31 @@ async function main() {
     assert.equal(activated.claimed, 2, 'Activation revisits already indexed messages, including behind the head page.');
   } finally { await off.close(); }
 
+  const ingestionErrors = await fixture({ enabled: false });
+  try {
+    for (const [error, expected] of [
+      [Object.assign(new Error(SECRET_MARKER + BODY_MARKER), { status: 401 }), 'auth_required'],
+      [Object.assign(new Error(SECRET_MARKER), { status: 429 }), 'rate_limited'],
+      [Object.assign(new Error(BODY_MARKER), { code: 'ECONNRESET' }), 'provider_unavailable'],
+      [new Error('password token auth 401 ' + SECRET_MARKER + BODY_MARKER), 'sync_failed'],
+    ] as const) {
+      const worker = createEmailClassificationWorker({ ...ingestionErrors.dependencies, listMessages: async () => { throw error; } });
+      assert.equal((await worker.runCycle()).synced, 0);
+      const source = (await ingestionErrors.store.readMailbox(ingestionErrors.mailbox().mailboxRef))!;
+      assert.equal(source.coverage, 'failed'); assert.equal(source.lastSyncErrorCode, expected);
+      assert.equal(JSON.stringify(source).includes(SECRET_MARKER), false); assert.equal(JSON.stringify(source).includes(BODY_MARKER), false);
+      ingestionErrors.tick(2_000);
+    }
+    const timeoutWorker = createEmailClassificationWorker({ ...ingestionErrors.dependencies, rawTimeoutMs: 5, listMessages: () => new Promise(() => {}) });
+    await timeoutWorker.runCycle();
+    assert.equal((await ingestionErrors.store.readMailbox(ingestionErrors.mailbox().mailboxRef))?.lastSyncErrorCode, 'timeout', 'The metadata timer has an explicit safe diagnostic');
+    ingestionErrors.tick(2_000);
+    const recovered = createEmailClassificationWorker(ingestionErrors.dependencies);
+    await recovered.runCycle();
+    assert.equal((await ingestionErrors.store.readMailbox(ingestionErrors.mailbox().mailboxRef))?.lastSyncErrorCode, null);
+    assert.equal(ingestionErrors.calls.model, 0); assert.equal(ingestionErrors.calls.credential, 0);
+  } finally { await ingestionErrors.close(); }
+
   const active = await fixture({ count: 3 });
   try {
     const [first, same] = await Promise.all([active.worker.runCycle(), active.worker.runCycle()]);
@@ -173,6 +213,7 @@ async function main() {
     const failed = (await unicodeRecovery.store.readMailbox(unicodeRecovery.mailbox().mailboxRef))!;
     assert.equal(oldBoundaryFailure, false, 'The old truncation boundary was exercised.');
     assert.equal(failed.coverage, 'failed');
+    assert.equal(failed.lastSyncErrorCode, 'content_invalid', 'Known JSONB metadata rejection is distinct from a model failure');
     assert.equal(failed.syncCursor, before.syncCursor, 'A failed page preserves the previously committed cursor.');
     assert.equal(failed.lastSyncAt, before.lastSyncAt, 'Failure preserves the last successful scan time.');
     assert.equal((await unicodeRecovery.store.readMessages([unicodeRecovery.ref(unicodeRecovery.messages()[59])])).length, 1, 'Writes before the failing message remain durable.');
@@ -188,6 +229,7 @@ async function main() {
     assert.equal(messages.length, 125);
     assert.equal(new Set(messages.map(message => message.messageRef)).size, 125, 'Page recovery neither loses nor duplicates message identities.');
     assert.equal((await unicodeRecovery.store.readMailbox(unicodeRecovery.mailbox().mailboxRef))?.coverage, 'complete');
+    assert.equal((await unicodeRecovery.store.readMailbox(unicodeRecovery.mailbox().mailboxRef))?.lastSyncErrorCode, null);
     assert.deepEqual(problematic, original, 'The original provider metadata is unchanged.');
     assert.equal(unicodeRecovery.calls.read, 0); assert.equal(unicodeRecovery.calls.model, 0); assert.equal(unicodeRecovery.calls.credential, 0);
   } finally { await unicodeRecovery.close(); }

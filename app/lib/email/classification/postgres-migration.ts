@@ -1,4 +1,5 @@
 import { EMAIL_CLASSIFICATION_FEED_STORAGE_UP_SQL } from './feed-postgres-migration';
+import { EMAIL_MAILBOX_SYNC_ERROR_CODES } from './sync-errors';
 import { emailClassificationSelectionSql, MAX_EMAIL_CLASSIFICATION_LOOKBACK_DAYS } from './selection';
 
 type EmailClassificationMigrationQueryable = {
@@ -43,6 +44,13 @@ export const EMAIL_CLASSIFICATION_STORAGE_UP_SQL = `
   ALTER TABLE email_classification_mailboxes ADD COLUMN IF NOT EXISTS connection_revision text NOT NULL DEFAULT '';
   UPDATE email_classification_mailboxes SET connection_revision = binding_revision WHERE connection_revision = '';
   ALTER TABLE email_classification_mailboxes ADD COLUMN IF NOT EXISTS last_claimed_at bigint NOT NULL DEFAULT 0;
+  ALTER TABLE email_classification_mailboxes ADD COLUMN IF NOT EXISTS last_sync_error_code text;
+  DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'email_classification_mailboxes'::regclass AND conname = 'email_classification_mailbox_sync_error_code') THEN
+      ALTER TABLE email_classification_mailboxes ADD CONSTRAINT email_classification_mailbox_sync_error_code
+        CHECK (last_sync_error_code IS NULL OR last_sync_error_code IN (${EMAIL_MAILBOX_SYNC_ERROR_CODES.map(code => `'${code}'`).join(', ')}));
+    END IF;
+  END $$;
   CREATE INDEX IF NOT EXISTS idx_email_classification_mailbox_owner
     ON email_classification_mailboxes(owner_user_id, active);
   CREATE INDEX IF NOT EXISTS idx_email_classification_mailbox_source

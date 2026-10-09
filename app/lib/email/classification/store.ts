@@ -10,6 +10,7 @@ import { resetChangedEmailSpamValidation, validateEmailClassificationConfigurati
 import { emailClassificationEvaluationFingerprint } from './settings-evaluation';
 import { emailClassificationSelectionSql, isEmailSelectedForClassification } from './selection';
 import { EMAIL_CATEGORY_IDS, EMAIL_PRIORITIES, type EmailClassificationRaw, type EmailClassificationOverride } from './types';
+import { isEmailMailboxSyncErrorCode, type EmailMailboxSyncErrorCode } from './sync-errors';
 import {
   EmailClassificationStoreStateError, EmailClassificationVersionConflictError,
   type EmailClassificationQueryable, type EmailClassificationTransaction,
@@ -61,6 +62,7 @@ function mailboxFromRow(row: Row): StoredEmailClassificationMailbox {
     bindingRevision: String(row.binding_revision), policyRevision: String(row.policy_revision), connectionRevision: String(row.connection_revision),
     active: row.active === true, readFrom: object<string[]>(row.read_from_json), indexRevision: integer(row.index_revision, 'mailbox index revision', 1),
     lastSyncAt: row.last_sync_at === null ? null : integer(row.last_sync_at, 'sync time'), syncCursor: row.sync_cursor as string | null,
+    lastSyncErrorCode: isEmailMailboxSyncErrorCode(row.last_sync_error_code) ? row.last_sync_error_code : null,
     coverage: row.coverage as StoredEmailClassificationMailbox['coverage'], createdAt: integer(row.created_at, 'mailbox created time'), updatedAt: integer(row.updated_at, 'mailbox updated time'),
   };
 }
@@ -211,6 +213,7 @@ export class PostgresEmailClassificationStore {
           coverage = CASE WHEN $13 = 1 THEN 'pending' ELSE email_classification_mailboxes.coverage END,
           sync_cursor = CASE WHEN $13 = 1 THEN NULL ELSE email_classification_mailboxes.sync_cursor END,
           last_sync_at = CASE WHEN $13 = 1 THEN NULL ELSE email_classification_mailboxes.last_sync_at END,
+          last_sync_error_code = CASE WHEN $13 = 1 THEN NULL ELSE email_classification_mailboxes.last_sync_error_code END,
           updated_at = EXCLUDED.updated_at
         WHERE email_classification_mailboxes.owner_user_id = EXCLUDED.owner_user_id AND email_classification_mailboxes.account_source = EXCLUDED.account_source
           AND email_classification_mailboxes.account_id = EXCLUDED.account_id AND email_classification_mailboxes.workspace_id IS NOT DISTINCT FROM EXCLUDED.workspace_id
@@ -238,19 +241,21 @@ export class PostgresEmailClassificationStore {
     text(mailboxRef, 'mailbox reference'); integer(now, 'time');
     await this.transaction(async connection => {
       await this.lockSettings(connection);
-      await connection.query('UPDATE email_classification_mailboxes SET active = false, index_revision = index_revision + 1, updated_at = $2 WHERE mailbox_ref = $1 AND active', [mailboxRef, now]);
+      await connection.query('UPDATE email_classification_mailboxes SET active = false, last_sync_error_code = NULL, index_revision = index_revision + 1, updated_at = $2 WHERE mailbox_ref = $1 AND active', [mailboxRef, now]);
       await connection.query(`UPDATE email_classification_jobs SET status = 'canceled', lease_until = NULL, claim_token = NULL, error_code = 'mailbox_inactive', updated_at = $2
         WHERE mailbox_ref = $1 AND status IN ('pending','processing','retry')`, [mailboxRef, now]);
     });
   }
 
-  async recordMailboxSync(input: { mailboxRef: string; bindingRevision: string; policyRevision: string; cursor: string | null; coverage: StoredEmailClassificationMailbox['coverage']; claimToken?: string; now?: number }): Promise<boolean> {
+  async recordMailboxSync(input: { mailboxRef: string; bindingRevision: string; policyRevision: string; cursor: string | null; coverage: StoredEmailClassificationMailbox['coverage']; errorCode?: EmailMailboxSyncErrorCode | null; claimToken?: string; now?: number }): Promise<boolean> {
     if (!['pending', 'partial', 'complete', 'failed'].includes(input.coverage)) throw new Error('Invalid mailbox coverage.');
-    const updated = await this.postgres.query(`UPDATE email_classification_mailboxes SET last_sync_at = CASE WHEN $4 = 'failed' THEN last_sync_at ELSE $2 END, sync_cursor = $3, coverage = $4, updated_at = $2
+    if (input.errorCode != null && !isEmailMailboxSyncErrorCode(input.errorCode)) throw new Error('Invalid mailbox sync error code.');
+    const errorCode = input.coverage === 'failed' ? input.errorCode ?? 'sync_failed' : null;
+    const updated = await this.postgres.query(`UPDATE email_classification_mailboxes SET last_sync_at = CASE WHEN $4 = 'failed' THEN last_sync_at ELSE $2 END, sync_cursor = $3, coverage = $4, last_sync_error_code = $8, updated_at = $2
       WHERE mailbox_ref = $1 AND active AND binding_revision = $5 AND policy_revision = $6
         AND ($7::text IS NULL OR EXISTS(SELECT 1 FROM email_classification_mailbox_sync_leases lease WHERE lease.mailbox_ref = email_classification_mailboxes.mailbox_ref AND lease.claim_token = $7 AND lease.lease_until > $2)) RETURNING mailbox_ref`,
     [text(input.mailboxRef, 'mailbox reference'), integer(input.now ?? Date.now(), 'time'), input.cursor === null ? null : text(input.cursor, 'sync cursor', 10_000), input.coverage,
-      text(input.bindingRevision, 'binding revision'), text(input.policyRevision, 'policy revision'), input.claimToken ?? null]);
+      text(input.bindingRevision, 'binding revision'), text(input.policyRevision, 'policy revision'), input.claimToken ?? null, errorCode]);
     return updated.rows.length > 0;
   }
 
@@ -309,7 +314,7 @@ export class PostgresEmailClassificationStore {
     const now = integer(input.now ?? Date.now(), 'time');
     await this.transaction(async connection => {
       await this.lockSettings(connection);
-      const sources = await connection.query(`UPDATE email_classification_mailboxes SET active = false, coverage = 'pending', sync_cursor = NULL, index_revision = index_revision + 1, updated_at = $4
+      const sources = await connection.query(`UPDATE email_classification_mailboxes SET active = false, coverage = 'pending', sync_cursor = NULL, last_sync_error_code = NULL, index_revision = index_revision + 1, updated_at = $4
         WHERE owner_user_id = $1 AND account_id = $2 AND account_source = $3 AND active RETURNING mailbox_ref`,
       [text(input.ownerUserId, 'owner'), text(input.accountId, 'account'), input.accountSource, now]);
       const refs = sources.rows.map(row => String(row.mailbox_ref));

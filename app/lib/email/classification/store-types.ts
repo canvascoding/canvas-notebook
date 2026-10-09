@@ -1,4 +1,5 @@
 import type { EmailClassificationOverride, EmailClassificationRaw, EmailReplyStatus } from './types';
+import type { EmailMailboxSyncErrorCode } from './sync-errors';
 
 export interface EmailClassificationQueryable {
   query<Row extends Record<string, unknown> = Record<string, unknown>>(sql: string, params?: unknown[]): Promise<{ rows: Row[] }>;
@@ -28,6 +29,7 @@ export interface StoredEmailClassificationMailbox extends EmailClassificationMai
   connectionRevision: string;
   indexRevision: number;
   lastSyncAt: number | null;
+  lastSyncErrorCode: EmailMailboxSyncErrorCode | null;
   syncCursor: string | null;
   coverage: 'pending' | 'partial' | 'complete' | 'failed';
   createdAt: number;

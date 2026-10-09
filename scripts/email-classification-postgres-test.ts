@@ -59,6 +59,29 @@ async function main() {
     const mailbox = { mailboxRef: 'native-mailbox', ownerUserId: 'owner', accountSource: 'managed' as const, accountId: 'opaque', provider: 'google', workspaceId: null, mailboxId: null, bindingRevision: 'binding1', policyRevision: 'policy1', active: true, readFrom: [] };
     await first.upsertMailbox(mailbox);
     const now = Date.now();
+    const syncInput = { mailboxRef: mailbox.mailboxRef, bindingRevision: mailbox.bindingRevision, policyRevision: mailbox.policyRevision, cursor: 'native-page' };
+    assert.equal(await first.recordMailboxSync({ ...syncInput, coverage: 'partial', now }), true);
+    for (const errorCode of ['auth_required', 'rate_limited', 'timeout', 'provider_unavailable', 'content_invalid', 'sync_failed'] as const) {
+      assert.equal(await first.recordMailboxSync({ ...syncInput, coverage: 'failed', errorCode, now: now + 1 }), true);
+      const failed = (await first.readMailbox(mailbox.mailboxRef))!;
+      assert.equal(failed.lastSyncErrorCode, errorCode);
+      assert.equal(failed.lastSyncAt, now, 'Failure preserves the last successful capture.');
+      assert.equal(failed.syncCursor, syncInput.cursor);
+    }
+    assert.equal(await first.recordMailboxSync({ ...syncInput, bindingRevision: 'obsolete', coverage: 'failed', errorCode: 'timeout', now: now + 2 }), false);
+    const diagnosticClaim = await first.claimMailboxSync({ mailboxRef: mailbox.mailboxRef, leaseMs: 10_000, now: now + 2 });
+    assert(diagnosticClaim);
+    assert.equal(await second.recordMailboxSync({ ...syncInput, claimToken: 'foreign-claim', coverage: 'failed', errorCode: 'timeout', now: now + 3 }), false);
+    assert.equal((await first.readMailbox(mailbox.mailboxRef))!.lastSyncErrorCode, 'sync_failed');
+    assert.equal(await first.recordMailboxSync({ ...syncInput, claimToken: diagnosticClaim, coverage: 'failed', errorCode: 'provider_unavailable', now: now + 3 }), true);
+    await first.releaseMailboxSync({ mailboxRef: mailbox.mailboxRef, claimToken: diagnosticClaim });
+    assert.equal(await first.recordMailboxSync({ ...syncInput, coverage: 'complete', now: now + 4 }), true);
+    assert.equal((await first.readMailbox(mailbox.mailboxRef))!.lastSyncErrorCode, null, 'Success clears the previous failure reason.');
+    await assert.rejects(pool.query('UPDATE email_classification_mailboxes SET last_sync_error_code = $1 WHERE mailbox_ref = $2', ['raw-private-provider-content', mailbox.mailboxRef]), 'The database accepts only public allowlisted reasons.');
+    await pool.query('ALTER TABLE email_classification_mailboxes DROP COLUMN last_sync_error_code');
+    await runEmailClassificationPostgresMigration(pool);
+    await runEmailClassificationPostgresMigration(pool);
+    assert.equal((await first.readMailbox(mailbox.mailboxRef))!.lastSyncErrorCode, null, 'An existing mailbox schema is upgraded idempotently.');
     await verifyEmailClassificationUnicodePersistence({ store: first, postgres: pool, mailboxRef: mailbox.mailboxRef, now });
     for (const id of ['one','two','three']) {
       await first.upsertMessageMetadata({ messageRef: id, mailboxRef: mailbox.mailboxRef, canonicalId: id, folder: 'INBOX', dateTimestamp: now, replyStatus: 'unknown', fingerprint: id, list: { from: 'sender@example.test', subject: id, date: new Date(now).toISOString(), snippet: id } });
