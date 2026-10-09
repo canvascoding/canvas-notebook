@@ -973,6 +973,9 @@
       "reopen": "Erneut öffnen",
       "sourceUnavailable": "Die Textansicht ist gerade nicht verfügbar. Du kannst das Dokument unter Bearbeiten weiter öffnen.",
       "retryFailed": "Das hat noch nicht funktioniert. Bitte versuche es erneut oder lade eine Kopie herunter.",
+      "revalidateLocation": "Dokument erneut verbinden",
+      "revalidatingLocation": "Dokument wird erneut verbunden…",
+      "locationRevalidationFailed": "Die Dokumentverbindung konnte noch nicht bestätigt werden. Versuche es erneut oder lade eine Kopie herunter.",
       "recoveryFailed": "Die Kopie konnte nicht erstellt werden. Lade den Dokumentstand herunter, bevor du das Dokument schließt."
     },
     "badge": "Notebook",

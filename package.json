@@ -296,7 +296,7 @@
     "test:files:metadata": "tsx scripts/file-metadata-format-test.ts",
     "test:files:drag": "tsx scripts/file-drag-move-test.ts && tsx scripts/desktop-file-drag-client-test.ts && npm run test:electron",
     "test:editor:recovery-copy": "tsx scripts/collaboration-recovery-copy-test.tsx && tsx scripts/collaboration-local-recovery-test.ts",
-    "test:editor:revalidation": "tsx scripts/collaboration-revalidation-test.tsx",
+    "test:editor:revalidation": "tsx scripts/collaboration-revalidation-test.tsx && tsx scripts/markdown-location-revalidation-ui-test.tsx",
     "test:collaboration:failures": "tsx scripts/collaboration-failure-test.ts && npm run test:editor:revalidation",
     "test:editor:structure-recovery": "tsx scripts/markdown-structure-recovery-test.tsx",
     "test:editor:startup-recovery": "tsx scripts/markdown-startup-recovery-test.tsx",

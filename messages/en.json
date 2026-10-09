@@ -974,6 +974,9 @@
       "reopen": "Open again",
       "sourceUnavailable": "The text view is currently unavailable. You can still open the document in Edit.",
       "retryFailed": "That did not work yet. Please try again or download a copy.",
+      "revalidateLocation": "Reconnect document",
+      "revalidatingLocation": "Reconnecting document…",
+      "locationRevalidationFailed": "The document connection could not be confirmed yet. Try again or download a copy.",
       "recoveryFailed": "The copy could not be created. Download the document state before closing it."
     },
     "badge": "Notebook",
