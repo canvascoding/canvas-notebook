@@ -91,11 +91,55 @@ export async function readInstalledStoreResources(actor: CapabilityResourceActor
   const ordered = [...descriptors];
   if (!options.preserveInputOrder) ordered.sort((a, b) => a.metadata.resourceRef.localeCompare(b.metadata.resourceRef));
   const selected = ordered.slice(0, 32);
+  // This snapshot belongs only to this batch and never authorizes package-byte comparisons.
+  let candidateCatalog: ReturnType<typeof import('@/app/lib/capabilities/resources/read').loadCapabilityCandidatesForResourceActor> | undefined;
   let cursor = 0;
   await Promise.all(Array.from({ length: 2 }, async () => {
     while (cursor < selected.length) {
       const descriptor = selected[cursor++];
-      try { results.set(descriptor.metadata.resourceRef, await readInstalledStoreResource(actor, descriptor)); }
+      try {
+        let preflightUnknown = false;
+        const artifact = descriptor.artifact;
+        if (descriptor.access.canRead && artifact.resourceType === 'skill' && artifact.sourceType === 'standalone'
+          && (artifact.scopeType === 'user' || artifact.scopeType === 'organization')) {
+          const { loadCapabilityCandidatesForResourceActor, assertReadableCapabilityCandidate } =
+            await import('@/app/lib/capabilities/resources/read');
+          const candidates = await (candidateCatalog ??= loadCapabilityCandidatesForResourceActor(actor));
+          const matching = candidates.filter(candidate => candidate.resourceAccess?.canRead === true
+            && candidate.resourceMetadata?.resourceRef === descriptor.metadata.resourceRef
+            && JSON.stringify(candidate.resourceMetadata.ownership) === JSON.stringify(descriptor.metadata.ownership)
+            && candidate.ref.resourceId === artifact.resourceId && candidate.ref.resourceType === 'skill'
+            && candidate.ref.sourceType === 'standalone' && candidate.ref.scopeType === artifact.scopeType
+            && candidate.ref.name === artifact.name && candidate.ref.version === artifact.version
+            && candidate.ref.revision === artifact.revision && candidate.ref.checksum === artifact.checksum
+            && candidate.ref.sourcePluginId === artifact.sourcePluginId);
+          if (matching.length === 1) {
+            const candidate = matching[0];
+            await assertReadableCapabilityCandidate(actor, candidate, candidates);
+            const scope = candidate.ref.scopeType === 'organization' && candidate.ref.organizationId
+              ? { scopeType: 'organization' as const, organizationId: candidate.ref.organizationId }
+              : candidate.ref.scopeType === 'user' && candidate.ref.ownerUserId
+                ? { scopeType: 'user' as const, userId: candidate.ref.ownerUserId } : null;
+            if (scope) {
+              const { readCanvasSkillRegistry } = await import('@/app/lib/skills/canvas-skill-store');
+              const record = (await readCanvasSkillRegistry(scope)).skills[candidate.ref.name];
+              if (!record || record.resourceId === candidate.ref.resourceId && record.name === candidate.ref.name
+                && record.scopeType === candidate.ref.scopeType && record.sourceType !== 'plugin'
+                && (record.ownerUserId ?? null) === candidate.ref.ownerUserId
+                && (record.organizationId ?? null) === candidate.ref.organizationId
+                && record.version === candidate.ref.version && (record.revision || 1) === candidate.ref.revision
+                && record.checksum === candidate.ref.checksum
+                && normalizeCapabilityStoreOrigin(record.storeOrigin, candidate.ref.resourceId) === null) {
+                await assertReadableCapabilityCandidate(actor, candidate, candidates);
+                preflightUnknown = true;
+              }
+            }
+          }
+        }
+        results.set(descriptor.metadata.resourceRef, preflightUnknown
+          ? { resourceRef: descriptor.metadata.resourceRef, origin: null, checksum: null }
+          : await readInstalledStoreResource(actor, descriptor));
+      }
       catch { results.set(descriptor.metadata.resourceRef, { resourceRef: descriptor.metadata.resourceRef, origin: null, checksum: null }); }
     }
   }));
