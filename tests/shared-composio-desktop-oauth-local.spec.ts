@@ -343,19 +343,21 @@ async function waitForOriginalSharedComposioDesktopCompletion(owned: OwnedConnec
   expect(owned.startWrites).toBe(1); expect(owned.finalizeWrites).toBe(1); expect(owned.cancelWrites).toBe(0);
   const proof = await readOwnedSharedComposioDesktopProviderProof(); expect(proof.stats.businessCalls).toBe(0);
   const main = await readOwnedSharedComposioElectronReceipt(harness);
-  expect(main.shellAcknowledged).toBe(sequence); expect(main.shellFailures).toBe(0); expect(main.uncertain).toBe(false);
+  expect(main.shellAcknowledged).toBe(sequence); expect(main.shellFailures).toBe(0); expect(main.blockedShellRequests).toBe(0); expect(main.uncertain).toBe(false);
   owned.current = current; receipt.connections = receipt.connections.map(value => value.connectionRef === ref ? { ...value, bindingRevision: current.resource.bindingRevision } : value);
   receipt.systemBrowserOpenedCount = main.shellAcknowledged; receipt.outstanding = null; delete receipt.challenge;
   receipt.phase = 'original_manager_completed'; await persistSharedComposioDesktopReceipt();
 }
 
-async function assertNoSharedComposioDesktopMutationAfterIdentityChange(owned: OwnedConnection, before: { links: number; openings: number; attempts: number; blockedRequests: number }): Promise<void> {
+async function assertNoSharedComposioDesktopMutationAfterIdentityChange(owned: OwnedConnection, before: { links: number; openings: number; attempts: number; blockedRequests: number; blockedShellRequests: number }): Promise<void> {
   if (!harness) throw new Error('The issued native app is required.');
   const current = await readExactSharedComposioDesktopConnection(owned);
   expect(current.resource.bindingRevision).toBe(owned.initial.resource.bindingRevision); expect(current.grants).toEqual(owned.current.grants);
   const proof = await readOwnedSharedComposioDesktopProviderProof(); expect(proof.stats.sdkLinks).toBe(before.links); expect(proof.stats.businessCalls).toBe(0);
   const main = await readOwnedSharedComposioElectronReceipt(harness);
-  expect(main.shellAcknowledged).toBe(before.openings); expect(main.shellAttempts).toBe(before.attempts); expect(main.blockedRequests).toBe(before.blockedRequests);
+  expect(main.shellAcknowledged).toBe(before.openings); expect(main.shellAttempts).toBe(before.attempts);
+  // Background requests may be denied after a frame change; a rejected shell target must never be hidden by that counter.
+  expect(main.blockedRequests).toBeGreaterThanOrEqual(before.blockedRequests); expect(main.blockedShellRequests).toBe(before.blockedShellRequests);
   expect(main.shellFailures).toBe(0); expect(main.uncertain).toBe(false);
   await readOwnedSharedComposioDesktopLedger(owned, 0);
 }
@@ -369,8 +371,10 @@ async function closeOwnedSharedComposioDesktopContexts(): Promise<void> {
       if (main.shellFailures !== 0 || main.uncertain) problem = true;
       const editor = currentHarness.page.getByTestId('shared-connection-edit-dialog');
       const apiFlow = connections[3]?.startIntent === 'native-api' ? connections[3] : null;
-      if (apiFlow && await editor.count() !== 1) throw new Error('The owned API-start teardown has no exact native editor.');
+      teardownStage = 'current_editor';
+      if (apiFlow) await expect(editor).toHaveCount(1, { timeout: 15_000 });
       if (await editor.count()) {
+        teardownStage = 'current_scope';
         await expect(editor).toBeVisible(); const currentUrl = new URL(currentHarness.page.url());
         const owned = connections.find(value => currentUrl.origin === baseUrl && currentUrl.pathname === `/${value.scope === 'team' ? 'de' : 'en'}/plugins`
           && currentUrl.searchParams.get('connectionRef') === value.initial.resource.connectionRef && currentUrl.searchParams.get('workspaceId') === value.workspaceId
@@ -378,7 +382,7 @@ async function closeOwnedSharedComposioDesktopContexts(): Promise<void> {
         if (!owned || apiFlow && (apiFlow.scope !== 'team' || apiFlow.workspaceId !== teamId || apiFlow.startWrites !== 1
           || apiFlow.states.length !== 1 || owned !== apiFlow && owned !== connections[1])) throw new Error('The native teardown target is ambiguous.');
         const flow = apiFlow ?? owned, labels = owned.scope === 'team' ? de.sharedConnections : en.sharedConnections;
-        await expect(editor.locator('#shared-edit-name')).toHaveValue(owned.current.resource.displayName);
+        teardownStage = 'current_label'; await expect(editor.locator('#shared-edit-name')).toHaveValue(owned.current.resource.displayName);
         const cancel = editor.getByTestId('shared-desktop-cancel'), checkStatus = editor.getByRole('button', { name: labels.checkStatus, exact: true });
         if (!apiFlow && owned.startWrites > 0) {
           teardownStage = 'start_settlement';
@@ -649,7 +653,8 @@ test('actual native cookie ABA, frame changes and replacement sessions cannot op
     expect(originalCookies.length).toBe(1); expect(originalCookies[0].value === replacementCookies[0].value).toBe(false);
     const mainBefore = await readOwnedSharedComposioElectronReceipt(currentHarness);
     const before = { links: (await readOwnedSharedComposioDesktopProviderProof()).stats.sdkLinks, openings: mainBefore.shellAcknowledged,
-      attempts: mainBefore.shellAttempts, blockedRequests: mainBefore.blockedRequests }; expect(before.links).toBe(4); expect(before.openings).toBe(3);
+      attempts: mainBefore.shellAttempts, blockedRequests: mainBefore.blockedRequests, blockedShellRequests: mainBefore.blockedShellRequests };
+    expect(before.links).toBe(4); expect(before.openings).toBe(3); expect(before.blockedShellRequests).toBe(0);
     const invocation = { state: started.state, authorizationUrl: started.authorizationUrl, expiresAt: started.expiresAt,
       target: { kind: 'shared' as const, connectionRef: started.connectionRef, workspaceId: owned.workspaceId } };
     for (const currentBoundary of ['cookie-aba', 'frame'] as const) {

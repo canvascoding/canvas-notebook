@@ -12,7 +12,7 @@ export type OwnedSharedOAuthElectronReceipt = {
   nativeProvider?: 'composio';
   phase: 'initializing' | 'ready' | 'awaiting_os_consent' | 'finishing' | 'closed' | 'preserved';
   providerOrigin: string; shellAttempts: number; shellAcknowledged: number; shellFailures: number;
-  blockedRequests: number; statusRequests: number; uncertain: boolean;
+  blockedRequests: number; blockedShellRequests: number; statusRequests: number; uncertain: boolean;
   openings: Array<{ origin: string; urlHash: string; stateHash: string }>;
   barrier: { armed: boolean; held: boolean; refHash?: string; stateHash?: string; workspaceHash?: string | null };
   barrierHistory: Array<{ sequence: number; held: boolean; release: 'pending' | 'entered' | 'acknowledged' | 'failed';
@@ -174,10 +174,11 @@ export async function readOwnedSharedOAuthElectronReceipt(harness: OwnedSharedOA
   assert.equal(value.nativeProvider, receipt.nativeProvider === 'composio' ? 'composio' : undefined);
   assert(['initializing', 'ready', 'awaiting_os_consent', 'finishing', 'closed', 'preserved'].includes(value.phase));
   assert.equal(value.providerOrigin, receipt.providerOrigin); assert.equal(typeof value.uncertain, 'boolean');
-  for (const count of [value.shellAttempts, value.shellAcknowledged, value.shellFailures, value.blockedRequests, value.statusRequests]) {
+  for (const count of [value.shellAttempts, value.shellAcknowledged, value.shellFailures, value.blockedRequests, value.blockedShellRequests, value.statusRequests]) {
     assert(Number.isSafeInteger(count) && count >= 0 && count <= 5000);
   }
   assert(value.shellAttempts <= 8 && value.shellAcknowledged + value.shellFailures <= value.shellAttempts);
+  assert(value.blockedShellRequests <= value.blockedRequests);
   assert(Array.isArray(value.openings) && value.openings.length === value.shellAttempts);
   for (const opening of value.openings) {
     assert.deepEqual(Object.keys(opening).sort(), ['origin', 'stateHash', 'urlHash']); assert.equal(opening.origin, receipt.providerOrigin);
@@ -205,7 +206,7 @@ export async function readOwnedSharedOAuthElectronReceipt(harness: OwnedSharedOA
   return { version: 1, nonce: value.nonce, actorId: value.actorId, processId: value.processId, phase: value.phase,
     ...(receipt.nativeProvider === 'composio' ? { nativeProvider: 'composio' as const } : {}),
     providerOrigin: value.providerOrigin, shellAttempts: value.shellAttempts, shellAcknowledged: value.shellAcknowledged,
-    shellFailures: value.shellFailures, blockedRequests: value.blockedRequests, statusRequests: value.statusRequests,
+    shellFailures: value.shellFailures, blockedRequests: value.blockedRequests, blockedShellRequests: value.blockedShellRequests, statusRequests: value.statusRequests,
     uncertain: value.uncertain, openings: value.openings, barrier: value.barrier, barrierHistory: value.barrierHistory,
     desktopPaths: value.desktopPaths, desktopDirectoryProofs: value.desktopDirectoryProofs };
 }
@@ -238,5 +239,6 @@ export async function closeOwnedSharedOAuthElectron(harness: OwnedSharedOAuthEle
   assert.equal(proof.phase, 'closed'); assert.equal(proof.uncertain, false);
   assert.equal(proof.barrier.armed, false); assert.equal(proof.barrier.held, false);
   assert.equal(proof.shellAttempts, proof.shellAcknowledged + proof.shellFailures);
+  assert.equal(proof.blockedShellRequests, 0, 'The production launcher attempted a shell target rejected by the test boundary.');
   return { processId: harness.processId, processGroupId: receipt.processGroupId, closed: true };
 }

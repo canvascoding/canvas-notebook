@@ -91,7 +91,7 @@ export async function runOwnedSharedOAuthElectronMain(nativeProvider) {
   const proof = { version: 1, nonce: owned.fixture.nonce, actorId: owned.fixture.actorId, processId: process.pid,
     ...(nativeProvider === 'composio' ? { nativeProvider: 'composio' } : {}),
     phase: 'initializing', providerOrigin: owned.providerOrigin, shellAttempts: 0, shellAcknowledged: 0, shellFailures: 0,
-    blockedRequests: 0, statusRequests: 0, uncertain: false, openings: [], barrier: { armed: false, held: false }, barrierHistory: [],
+    blockedRequests: 0, blockedShellRequests: 0, statusRequests: 0, uncertain: false, openings: [], barrier: { armed: false, held: false }, barrierHistory: [],
     desktopPaths: owned.paths, desktopDirectoryProofs: owned.fixture.desktopDirectoryProofs };
   let proofIdentity = null, originalShell = null, closing = false, barrier = null;
   const sessions = new Set();
@@ -186,7 +186,10 @@ export async function runOwnedSharedOAuthElectronMain(nativeProvider) {
     originalShell = shell.openExternal.bind(shell);
     shell.openExternal = async value => {
       let url;
-      try { url = new URL(value); } catch { throw new Error('The owned system-browser target is invalid.'); }
+      try { url = new URL(value); } catch {
+        proof.blockedRequests += 1; proof.blockedShellRequests += 1; persistOwnedElectronProof();
+        throw new Error('The owned system-browser target is invalid.');
+      }
       const urlHash = createHash('sha256').update(value).digest('hex');
       const target = shellTargets.get(urlHash);
       const exactProviderSelection = nativeProvider === 'mcp'
@@ -195,7 +198,8 @@ export async function runOwnedSharedOAuthElectronMain(nativeProvider) {
           && /^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$/u.test(url.searchParams.get('ticket') ?? '') && !url.hash && target !== undefined;
       if (closing || proof.shellAttempts >= 8 || url.origin !== owned.providerOrigin || url.pathname !== '/authorize'
         || !exactProviderSelection || url.username || url.password) {
-        proof.blockedRequests += 1; persistOwnedElectronProof(); throw new Error('The system-browser target is outside this fixture.');
+        proof.blockedRequests += 1; proof.blockedShellRequests += 1; persistOwnedElectronProof();
+        throw new Error('The system-browser target is outside this fixture.');
       }
       proof.shellAttempts += 1;
       if (nativeProvider === 'composio') shellTargets.delete(urlHash);
