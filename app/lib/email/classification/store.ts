@@ -117,7 +117,13 @@ function normalizeMailbox(input: EmailClassificationMailboxInput): EmailClassifi
 }
 
 function normalizeList(list: EmailIndexedMessageList): EmailIndexedMessageList {
-  const header = (value: unknown, limit: number) => typeof value === 'string' ? value.replace(/\u0000/gu, '').slice(0, limit) : '';
+  const header = (value: unknown, limit: number) => {
+    if (typeof value !== 'string') return '';
+    // PostgreSQL JSONB rejects NUL and lone surrogates. Repair provider text
+    // before applying the existing UTF-16 limit, then retain complete pairs.
+    const bounded = value.replace(/\u0000/gu, '').toWellFormed().slice(0, limit);
+    return /[\uD800-\uDBFF]$/u.test(bounded) ? bounded.slice(0, -1) : bounded;
+  };
   const addresses = (values: string[] | undefined) => values === undefined ? undefined : Array.isArray(values)
     ? values.slice(0, 100).map(value => header(value, 500)) : undefined;
   const normalized: EmailIndexedMessageList = { from: header(list.from, 1_000), subject: header(list.subject, 2_000), date: header(list.date, 200), snippet: header(list.snippet, 2_000) };

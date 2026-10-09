@@ -149,6 +149,49 @@ async function main() {
     assert.equal((await paging.store.readMailbox(paging.mailbox().mailboxRef))?.coverage, 'complete');
   } finally { await paging.close(); }
 
+  const unicodeRecovery = await fixture({ enabled: false, count: 125 });
+  try {
+    const problematic: Record<string, unknown> = { ...unicodeRecovery.messages()[60], subject: 'a'.repeat(1_999) + '😀tail' };
+    unicodeRecovery.setMessages(unicodeRecovery.messages().map((message, index) => index === 60 ? problematic : message));
+    const original = structuredClone(problematic);
+    let oldBoundaryFailure = true;
+    const worker = createEmailClassificationWorker({ ...unicodeRecovery.dependencies, maxPagesPerMailbox: 1,
+      ingestMetadata: async input => {
+        if (oldBoundaryFailure && input.message.id === problematic.id) {
+          // Reproduce the previous UTF-16 JSONB error after earlier page writes.
+          oldBoundaryFailure = false;
+          await unicodeRecovery.postgres.query('SELECT $1::jsonb', [JSON.stringify({ subject: String(input.message.subject).slice(0, 2_000) })]);
+        }
+        return ingestEmailClassificationMetadata(input, { store: unicodeRecovery.store });
+      },
+    });
+    await worker.runCycle();
+    const before = (await unicodeRecovery.store.readMailbox(unicodeRecovery.mailbox().mailboxRef))!;
+    assert.equal(JSON.parse(before.syncCursor!).offset, 50, 'A confirmed first page persists a nonzero continuation.');
+    unicodeRecovery.tick(1);
+    assert.equal((await worker.runCycle()).synced, 0);
+    const failed = (await unicodeRecovery.store.readMailbox(unicodeRecovery.mailbox().mailboxRef))!;
+    assert.equal(oldBoundaryFailure, false, 'The old truncation boundary was exercised.');
+    assert.equal(failed.coverage, 'failed');
+    assert.equal(failed.syncCursor, before.syncCursor, 'A failed page preserves the previously committed cursor.');
+    assert.equal(failed.lastSyncAt, before.lastSyncAt, 'Failure preserves the last successful scan time.');
+    assert.equal((await unicodeRecovery.store.readMessages([unicodeRecovery.ref(unicodeRecovery.messages()[59])])).length, 1, 'Writes before the failing message remain durable.');
+    assert.equal((await unicodeRecovery.store.readMessages([unicodeRecovery.ref(problematic)])).length, 0);
+    await worker.runCycle();
+    assert.deepEqual(unicodeRecovery.calls.list, [0, 40], 'Retry respects the existing metadata cooldown.');
+    unicodeRecovery.tick(2_000);
+    await worker.runCycle();
+    assert.deepEqual(unicodeRecovery.calls.list, [0, 40, 40], 'Recovery rereads the failed page from the cached continuation with overlap.');
+    assert.equal((await unicodeRecovery.store.readMessages([unicodeRecovery.ref(problematic)]))[0].list.subject, 'a'.repeat(1_999));
+    await worker.runCycle();
+    const messages = await unicodeRecovery.store.readMessages(unicodeRecovery.messages().map(message => unicodeRecovery.ref(message)));
+    assert.equal(messages.length, 125);
+    assert.equal(new Set(messages.map(message => message.messageRef)).size, 125, 'Page recovery neither loses nor duplicates message identities.');
+    assert.equal((await unicodeRecovery.store.readMailbox(unicodeRecovery.mailbox().mailboxRef))?.coverage, 'complete');
+    assert.deepEqual(problematic, original, 'The original provider metadata is unchanged.');
+    assert.equal(unicodeRecovery.calls.read, 0); assert.equal(unicodeRecovery.calls.model, 0); assert.equal(unicodeRecovery.calls.credential, 0);
+  } finally { await unicodeRecovery.close(); }
+
   const bounded = await fixture({ enabled: false, managed: true });
   try {
     const page: EmailClassificationWorkerPage = { messages: bounded.messages(), total: null, hasMore: false, nextOffset: null, confirmed: false };

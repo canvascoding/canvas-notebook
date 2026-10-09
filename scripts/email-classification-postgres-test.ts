@@ -8,6 +8,7 @@ import { createEmailClassificationStore } from '../app/lib/email/classification/
 import { DEFAULT_EMAIL_CLASSIFICATION_CONFIGURATION } from '../app/lib/email/classification/settings-types';
 import { EmailClassificationVersionConflictError, type EmailClassificationTransaction } from '../app/lib/email/classification/store-types';
 import type { EmailClassificationRaw } from '../app/lib/email/classification/types';
+import { verifyEmailClassificationUnicodePersistence } from './email-classification-unicode-regression';
 
 /** Actual concurrent PostgreSQL sessions in an owned temporary schema of the managed local stack. */
 async function main() {
@@ -58,6 +59,7 @@ async function main() {
     const mailbox = { mailboxRef: 'native-mailbox', ownerUserId: 'owner', accountSource: 'managed' as const, accountId: 'opaque', provider: 'google', workspaceId: null, mailboxId: null, bindingRevision: 'binding1', policyRevision: 'policy1', active: true, readFrom: [] };
     await first.upsertMailbox(mailbox);
     const now = Date.now();
+    await verifyEmailClassificationUnicodePersistence({ store: first, postgres: pool, mailboxRef: mailbox.mailboxRef, now });
     for (const id of ['one','two','three']) {
       await first.upsertMessageMetadata({ messageRef: id, mailboxRef: mailbox.mailboxRef, canonicalId: id, folder: 'INBOX', dateTimestamp: now, replyStatus: 'unknown', fingerprint: id, list: { from: 'sender@example.test', subject: id, date: new Date(now).toISOString(), snippet: id } });
       await first.enqueueClassification({ messageRef: id, configurationRevision: settings.revision, fingerprint: id, now });

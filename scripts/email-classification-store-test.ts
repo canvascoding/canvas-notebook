@@ -10,6 +10,7 @@ import { DEFAULT_EMAIL_CLASSIFICATION_CONFIGURATION } from '../app/lib/email/cla
 import { emailClassificationEvaluationFingerprint } from '../app/lib/email/classification/settings-evaluation';
 import { EMAIL_CLASSIFICATION_SCHEMA_VERSION } from '../app/lib/email/classification/schema';
 import type { EmailClassificationRaw } from '../app/lib/email/classification/types';
+import { verifyEmailClassificationUnicodePersistence } from './email-classification-unicode-regression';
 
 const raw: EmailClassificationRaw = {
   category: 'support', categoryProbabilities: { support: 0.9, other: 0.1 }, categoryConfidence: 0.9,
@@ -110,6 +111,7 @@ async function main() {
     assert.equal(refreshed.indexRevision, 2);
     assert.equal(refreshed.fingerprint, firstMessage.fingerprint, 'Read flags do not create a new content fingerprint');
     assert.equal('body' in refreshed.list, false); assert.equal('attachments' in refreshed.list, false);
+    await verifyEmailClassificationUnicodePersistence({ store, postgres: postgres as unknown as EmailClassificationQueryable, mailboxRef: mailbox.mailboxRef, now: 103 });
     await assert.rejects(store.upsertMessageMetadata(message('message-1', { canonicalId: 'different-provider-mail' }), 103), EmailClassificationStoreStateError);
     await assert.rejects(store.upsertMessageMetadata(message('message-alias', { canonicalId: 'provider-message-1' }), 103));
     assert.equal(await store.recordMailboxSync({ mailboxRef: mailbox.mailboxRef, bindingRevision: 'binding-1', policyRevision: 'policy-1', cursor: 'opaque-provider-cursor', coverage: 'partial', now: 104 }), true);

@@ -1,8 +1,20 @@
 # Verbesserungsplan für das E-Mail-Tool
 
-Stand: 9. Oktober 2026. Die folgenden Verbesserungen sind geplant; umgesetzt ist
-bislang das Ausblenden der inaktiven Focus-Auswahl. Die Schritte werden einzeln
-abgeschlossen und geprüft, bevor der nächste beginnt.
+Stand: 9. Oktober 2026. Die Schritte werden einzeln abgeschlossen und geprüft,
+bevor der nächste beginnt. Der lokale Umsetzungsstand wird hier fortgeschrieben;
+Produktionsabnahme ist davon getrennt.
+
+| Schritt | Stand |
+| --- | --- |
+| Inaktive Focus-Auswahl ausblenden | Implementiert und lokal geprüft |
+| 1. Unicode-Erfassung | Implementiert; PGlite, PostgreSQL 18 und Worker-Wiederaufnahme geprüft |
+| 2. Getrennte Fehlerdiagnose | Geplant |
+| 3. Konkrete Postfachwarnungen | Geplant |
+| 4. Verständliche Einrichtung | Geplant |
+| 5. Zahlen und Suchumfang | Geplant |
+| 6. Gesamtprüfung und Rollout | Ausstehend |
+
+Prüfbelege: [Implementierungsvalidierung](email-tool-improvements-validation.md).
 
 ## Ausgangslage und bereits abgeschlossener Auftrag
 
@@ -47,8 +59,9 @@ allen Feldgrenzen, alleinstehende hohe/niedrige Surrogate, Nullzeichen und lange
 gemischte Texte speichern. Ein Scan mit der problematischen Nachricht setzt
 seine Erfassung fort; die Unicode-Fehler treten dabei nicht erneut auf.
 
-**Abhängigkeit:** Keine weitere Produktänderung nötig. Das ist der nächste
-Implementierungsschritt; die Browseränderung allein repariert die Erfassung nicht.
+**Abhängigkeit:** Keine weitere Produktänderung nötig. Lokal abgeschlossen;
+die Wirkung auf die zuvor betroffenen Produktionspostfächer wird nach dem
+separat freigegebenen Rollout geprüft.
 
 ## 2. Erfassung und KI-Bewertung getrennt diagnostizieren
 
