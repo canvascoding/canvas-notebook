@@ -200,14 +200,15 @@ async function observeSharedComposioDesktopRequests(page: Page): Promise<void> {
       if (['GET', 'HEAD', 'OPTIONS'].includes(method)) {
         if (url.pathname.startsWith('/api/composio/shared-connections/')) {
           const owned = connections.find(value => ['/status', '/connect/desktop'].some(suffix => url.pathname === `/api/composio/shared-connections/${encodeURIComponent(value.initial.resource.connectionRef)}${suffix}`));
-          expect(owned).toBeDefined(); expect(url.searchParams.get('workspaceId')).toBe(owned!.workspaceId);
-          expect(url.searchParams.getAll('workspaceId').length).toBe(1);
-          expect([...url.searchParams.keys()].every(key => ['workspaceId', 'state', 'intent'].includes(key))).toBe(true);
+          expect(owned).toBeDefined(); expect(request.headers()['x-canvas-workspace-id']).toBe(owned!.workspaceId);
           if (url.pathname.endsWith('/connect/desktop')) {
+            expect(url.searchParams.get('workspaceId')).toBe(owned!.workspaceId);
+            expect(url.searchParams.getAll('workspaceId').length).toBe(1);
+            expect([...url.searchParams.keys()].every(key => ['workspaceId', 'state', 'intent'].includes(key))).toBe(true);
             expect(url.searchParams.has('state') !== url.searchParams.has('intent')).toBe(true);
             if (url.searchParams.has('state')) expect(owned!.states.includes(url.searchParams.get('state')!)).toBe(true);
             else expect(owned!.intents.includes(url.searchParams.get('intent')!)).toBe(true);
-          }
+          } else expect(url.search).toBe('');
         }
         await route.continue(); return;
       }
