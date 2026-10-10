@@ -49,6 +49,30 @@ async function ownWorkspace(api: APIRequestContext, workspaceId: string): Promis
   return payload.workspaces.find((workspace) => workspace.id === workspaceId);
 }
 
+async function captureSharedFixtureFailure(contexts: BrowserContext[], workspaceId: string): Promise<void> {
+  const info = test.info();
+  for (const [index, context] of contexts.entries()) {
+    const page = context.pages()[0];
+    if (!page || page.isClosed()) continue;
+    const url = new URL(page.url());
+    // Capture only the exact owned Notebook page, never authentication screens or transport bodies.
+    if (!/^\/(?:en\/)?notebook$/u.test(url.pathname) || url.searchParams.get('workspaceId') !== workspaceId) continue;
+    const actor = index === 0 ? 'admin' : 'peer';
+    try {
+      await page.screenshot({ path: info.outputPath(`${actor}-before-cleanup-failure.png`), animations: 'disabled', timeout: 5_000 });
+      const domText = (await page.locator('body').innerText({ timeout: 5_000 })).slice(0, 12_000);
+      const accessibility = (await page.locator('body').ariaSnapshot({ timeout: 5_000 })).slice(0, 16_000);
+      await info.attach(`${actor}-before-cleanup-ui`, { contentType: 'application/json', body: Buffer.from(JSON.stringify({
+        url: { origin: url.origin, pathname: url.pathname, workspaceId, path: url.searchParams.get('path') },
+        viewport: page.viewportSize(), domText, accessibility,
+      }, null, 2)) });
+    } catch (error) {
+      await info.attach(`${actor}-failure-capture-status`, { contentType: 'application/json',
+        body: Buffer.from(JSON.stringify({ errorType: error instanceof Error ? error.name : 'unknown' })) });
+    }
+  }
+}
+
 /** Every case owns a separate team workspace; cleanup remains independent of open editor sessions. */
 async function withSharedFixture(browser: Browser, work: (fixture: SharedFixture) => Promise<void>): Promise<void> {
   expect(process.env.E2E_EXTERNAL_SERVER, 'Use the single externally managed Notebook stack.').toBe('1');
@@ -115,6 +139,7 @@ async function withSharedFixture(browser: Browser, work: (fixture: SharedFixture
       upload: (filePath, content) => uploadWorkspaceTextFile({ request: admin.request, workspaceId: id, filePath, content }) });
   } catch (error) {
     failed = true; primaryError = error;
+    if (workspaceId) await captureSharedFixtureFailure(contexts, workspaceId);
   } finally {
     // Close both editors before deleting the exact workspace through its public API.
     for (const context of [...contexts].reverse()) {
@@ -475,10 +500,15 @@ test.describe('shared workspace HTML move safety', () => {
       await fixture.upload(localHtmlPath, localHtmlContent);
       await uploadLocalImage(fixture);
       await openOriginal(fixture.adminPage, fixture.workspaceId, source);
+      expect(fixture.peerPage.viewportSize(), 'The independent peer context keeps its explicit desktop viewport')
+        .toEqual({ width: 1440, height: 1000 });
       await fixture.peerPage.goto(`/en/notebook?workspaceId=${encodeURIComponent(fixture.workspaceId)}&path=${encodeURIComponent(localHtmlPath)}`,
         { waitUntil: 'domcontentloaded' });
-      await fixture.peerPage.getByRole('group', { name: 'Document view', exact: true })
-        .getByRole('button', { name: 'Source', exact: true }).click();
+      const sourceButton = fixture.peerPage.getByRole('group', { name: 'Document view', exact: true })
+        .getByRole('button', { name: 'Source', exact: true });
+      await expect(sourceButton).toBeVisible({ timeout: 45_000 });
+      await expect(sourceButton).toBeEnabled({ timeout: 45_000 });
+      await sourceButton.click({ timeout: 45_000 });
       const sourceEditor = fixture.peerPage.locator('.cm-content');
       await expect(sourceEditor).toHaveAttribute('contenteditable', 'true', { timeout: 30_000 });
       await expect(sourceEditor).toContainText(localImagePath);
