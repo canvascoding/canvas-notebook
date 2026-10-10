@@ -548,24 +548,9 @@ export function getDirectMcpWorkspaceToolDescriptor(tool: WorkspaceToolName): Di
           data_base64: { type: 'string', maxLength: DIRECT_MCP_UPLOAD_MAX_BASE64_CHARACTERS, description: `For chunk, canonical standard Base64 encoding of 1 to ${DIRECT_MCP_UPLOAD_MAX_CHUNK_BYTES} bytes.` },
         },
         required: ['operation', 'workspace_id'],
-        oneOf: [
-          {
-            properties: { operation: { const: 'begin' } },
-            required: ['path', 'size', 'sha256'],
-          },
-          {
-            properties: { operation: { const: 'chunk' } },
-            required: ['upload_id', 'offset', 'data_base64'],
-          },
-          {
-            properties: { operation: { const: 'complete' } },
-            required: ['upload_id'],
-          },
-          {
-            properties: { operation: { const: 'abort' } },
-            required: ['upload_id'],
-          },
-        ],
+        // Keep every argument at the top level. Some hosts project oneOf
+        // branches without their parent properties and lose the file inputs.
+        // executeUploadKnowledgeAsset validates each operation's requirements.
         additionalProperties: false,
       },
       outputSchema: {
