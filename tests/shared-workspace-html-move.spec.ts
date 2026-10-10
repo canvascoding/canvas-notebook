@@ -12,6 +12,10 @@ import {
 const WORKSPACE_ID_HEADER = 'x-canvas-workspace-id';
 const originalContent = '# Wärmepumpe – Testprotokoll\n\nOriginaler Inhalt: Größe, Wärme und Rücklauf bleiben erhalten.\n\nZweiter Absatz mit Unicode: äöü ß → 22 °C.\n';
 const originalHash = createHash('sha256').update(originalContent).digest('hex');
+const localImagePath = 'canvas-holdings-screenshot.png';
+const localHtmlPath = 'test_core_bearbeitungsfeatures.md';
+const localHtmlContent = '# Bearbeitungsfeatures – synthetisches Testdokument\n\n## HTML-Bild\n\n'
+  + `<img src="${localImagePath}" alt="Canvas Holdings Screenshot" width="800" style="max-width:100%; height:auto;">\n`;
 
 type WorkspaceSummary = { id: string; name: string; type: string; status: string;
   permissions: { canRead: boolean; canWrite: boolean; canDelete: boolean; canManageWorkspace: boolean } };
@@ -20,6 +24,15 @@ type SharedFixture = { workspaceId: string; admin: BrowserContext; peer: Browser
   peerUserId: string;
   headers: Record<string, string>; upload: (path: string, content: string) => Promise<void>;
   read: (api: APIRequestContext, path: string) => Promise<FileEvidence> };
+
+async function uploadLocalImage(fixture: SharedFixture): Promise<void> {
+  const response = await fixture.admin.request.post('/api/files/upload', {
+    headers: fixture.headers,
+    multipart: { path: '.', files: { name: localImagePath, mimeType: 'image/png',
+      buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4//8/AAX+Av4N70a4AAAAAElFTkSuQmCC', 'base64') } },
+  });
+  expect(response.status(), 'Upload the owned local HTML image fixture').toBe(200);
+}
 
 async function authenticatedUserId(context: BrowserContext): Promise<string> {
   const response = await requestManagedTestSession(context.request, { phase: 'Managed fixture identity' });
@@ -334,6 +347,184 @@ async function waitDurableContent(fixture: SharedFixture, filePath: string, mark
 test.describe('shared workspace HTML move safety', () => {
   test.setTimeout(240_000);
 
+  for (const viewport of ['desktop', 'iphone'] as const) {
+    test(`unrelated local HTML permits the reported nested move and Undo on ${viewport}`, async ({ browser }, info) => {
+      await withSharedFixture(browser, async (fixture) => {
+        const source = 'ek-fuchs-transkript.md';
+        const destinationFolder = 'Koenenstrasse_8/WEG/Waermepumpe/Notizen';
+        const destination = `${destinationFolder}/${source}`;
+        const backlinks = `[Transkript](${source})\n`;
+        const directory = await fixture.admin.request.post('/api/files/create', { headers: fixture.headers,
+          data: { path: destinationFolder, type: 'directory' } });
+        expect(directory.status(), 'Create the exact reported nested destination').toBe(200);
+        await fixture.upload(source, originalContent);
+        await fixture.upload('Verweise.md', backlinks);
+        await fixture.upload(localHtmlPath, localHtmlContent);
+        await uploadLocalImage(fixture);
+        if (viewport === 'iphone') await fixture.adminPage.setViewportSize({ width: 390, height: 844 });
+        await openOriginal(fixture.adminPage, fixture.workspaceId, source);
+        await openOriginal(fixture.peerPage, fixture.workspaceId, source);
+        const before = await documentEvidence(fixture, fixture.admin, source);
+        for (const page of [fixture.adminPage, fixture.peerPage]) await assertHealthyClient(page, before);
+        const origins = await Promise.all([fixture.adminPage, fixture.peerPage].map((page) => page.evaluate(() => performance.timeOrigin)));
+        const dialog = await moveDialog(fixture.adminPage, source, destinationFolder);
+        const [preview] = await Promise.all([
+          fixture.adminPage.waitForResponse((candidate) => new URL(candidate.url()).pathname === '/api/files/rename'
+            && candidate.request().method() === 'POST' && candidate.request().postDataJSON().dryRun === true),
+          dialog.getByRole('button', { name: 'Check again', exact: true }).click(),
+        ]);
+        expect(preview.status(), 'The unrelated local HTML reference does not block the actual UI preview').toBe(200);
+        const previewBody = await preview.json();
+        expect(previewBody).toMatchObject({ dryRun: true, requiresRevalidation: true, plan: { readiness: 'ready' } });
+        await expect(dialog.getByTestId('workspace-move-preview')).toContainText('ready');
+        await expect(dialog.getByTestId('workspace-move-operation-issues')).toHaveCount(0);
+        const moveButton = dialog.getByRole('button', { name: 'Move', exact: true });
+        await expect(moveButton).toBeEnabled();
+        await moveButton.scrollIntoViewIfNeeded();
+        if (viewport === 'iphone') {
+          const bounds = await dialog.boundingBox();
+          expect(bounds!.x).toBeGreaterThanOrEqual(0);
+          expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(391);
+          await expect(moveButton).toBeInViewport();
+        }
+        await fixture.adminPage.screenshot({ path: info.outputPath(`unrelated-local-html-ready-${viewport}.png`), animations: 'disabled' });
+        const [response] = await Promise.all([
+          fixture.adminPage.waitForResponse((candidate) => new URL(candidate.url()).pathname === '/api/files/rename'
+            && candidate.request().method() === 'POST' && candidate.request().postDataJSON().dryRun !== true),
+          moveButton.click(),
+        ]);
+        expect(response.ok(), 'The reported move succeeds while the HTML source remains unchanged').toBe(true);
+        expect(response.request().postDataJSON()).toMatchObject({ oldPath: source, newPath: destination,
+          planId: previewBody.plan.planId });
+        const result = await response.json() as WorkspacePathOperationResponse;
+        expect(result.operation).toMatchObject({ workspaceId: fixture.workspaceId, kind: 'rename' });
+        await waitApplied(fixture, result.operation);
+        await expect(dialog).toBeHidden({ timeout: 90_000 });
+        await assertAbsent(fixture, source);
+        await assertOriginal(fixture, destination);
+        for (const context of [fixture.admin, fixture.peer]) {
+          expect((await fixture.read(context.request, 'Verweise.md')).content).toBe(`[Transkript](${destination})\n`);
+          const html = await fixture.read(context.request, localHtmlPath);
+          expect(html.content).toBe(localHtmlContent);
+          expect(html.stats.sha256).toBe(createHash('sha256').update(localHtmlContent).digest('hex'));
+        }
+        const after = await assertSameOpenDocuments(fixture, destination, before, origins);
+        await fixture.adminPage.screenshot({ path: info.outputPath(`unrelated-local-html-moved-${viewport}.png`), animations: 'disabled' });
+        const undo = await fixture.admin.request.post(`/api/files/operations/batches/${encodeURIComponent(result.operation.batchId)}`,
+          { headers: fixture.headers, data: { action: 'undo', planId: result.operation.planId } });
+        expect(undo.status(), 'Undo the exact reported move through the public operation API').toBe(202);
+        const undone = (await undo.json() as WorkspacePathOperationResponse).operation;
+        expect(undone).toMatchObject({ batchId: result.operation.batchId, planId: result.operation.planId,
+          workspaceId: fixture.workspaceId });
+        await waitApplied(fixture, undone, 'undone');
+        await assertAbsent(fixture, destination);
+        await assertOriginal(fixture, source);
+        await assertSameOpenDocuments(fixture, source, before, origins);
+        for (const context of [fixture.admin, fixture.peer]) {
+          expect((await fixture.read(context.request, 'Verweise.md')).content).toBe(backlinks);
+          expect((await fixture.read(context.request, localHtmlPath)).content).toBe(localHtmlContent);
+        }
+        await info.attach(`unrelated-local-html-${viewport}-evidence`, { contentType: 'application/json',
+          body: Buffer.from(JSON.stringify({ before, after, source, destination, batchId: result.operation.batchId,
+            sha256: originalHash, htmlSha256: createHash('sha256').update(localHtmlContent).digest('hex'),
+            viewport, undo: 'undone', reloaded: false }, null, 2)) });
+      });
+    });
+  }
+
+  test('moving a local HTML image or its referring document stays blocked with a precise diagnostic', async ({ browser }, info) => {
+    await withSharedFixture(browser, async (fixture) => {
+      await fixture.upload('unbeteiligt.md', originalContent);
+      await fixture.upload(localHtmlPath, localHtmlContent);
+      await uploadLocalImage(fixture);
+      await openOriginal(fixture.adminPage, fixture.workspaceId, 'unbeteiligt.md');
+      for (const source of [localImagePath, localHtmlPath]) {
+        const dialog = await moveDialog(fixture.adminPage, source);
+        const [response] = await Promise.all([
+          fixture.adminPage.waitForResponse((candidate) => new URL(candidate.url()).pathname === '/api/files/rename'
+            && candidate.request().method() === 'POST' && candidate.request().postDataJSON().dryRun !== true),
+          dialog.getByRole('button', { name: 'Move', exact: true }).click(),
+        ]);
+        expect(response.status(), `Moving ${source} changes the HTML link and remains protected`).toBe(409);
+        expect(await response.json()).toMatchObject({ code: 'PREVIEW_BLOCKED', operation: { workspaceId: fixture.workspaceId,
+          status: 'blocked', completedActions: 0, issues: expect.arrayContaining([expect.objectContaining({
+            code: 'affected-html-link', path: localHtmlPath, targetLiteral: localImagePath, line: 5,
+          })]) } });
+        const issues = dialog.getByTestId('workspace-move-operation-issues');
+        await expect(issues).toContainText('This action affects a local HTML link.');
+        await expect(issues).toContainText('Its file path cannot be updated safely yet.');
+        await expect(issues).toContainText(`${localHtmlPath}:5`);
+        await expect(issues).toContainText(localImagePath);
+        await expect(issues.getByRole('button', { name: 'Open affected file', exact: true })).toBeVisible();
+        await assertAbsent(fixture, `Ziel/${source}`);
+        expect((await fixture.read(fixture.admin.request, localHtmlPath)).content).toBe(localHtmlContent);
+        await fixture.adminPage.screenshot({ path: info.outputPath(`affected-html-${source.endsWith('.png') ? 'image' : 'source'}-blocked.png`),
+          animations: 'disabled' });
+        await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+        await expect(dialog).toBeHidden();
+      }
+    });
+  });
+
+  test('a peer changing an unrelated HTML target invalidates the checked move before apply', async ({ browser }, info) => {
+    await withSharedFixture(browser, async (fixture) => {
+      const source = 'ek-fuchs-transkript.md';
+      await fixture.upload(source, originalContent);
+      await fixture.upload(localHtmlPath, localHtmlContent);
+      await uploadLocalImage(fixture);
+      await openOriginal(fixture.adminPage, fixture.workspaceId, source);
+      await fixture.peerPage.goto(`/en/notebook?workspaceId=${encodeURIComponent(fixture.workspaceId)}&path=${encodeURIComponent(localHtmlPath)}`,
+        { waitUntil: 'domcontentloaded' });
+      await fixture.peerPage.getByRole('group', { name: 'Document view', exact: true })
+        .getByRole('button', { name: 'Source', exact: true }).click();
+      const sourceEditor = fixture.peerPage.locator('.cm-content');
+      await expect(sourceEditor).toHaveAttribute('contenteditable', 'true', { timeout: 30_000 });
+      await expect(sourceEditor).toContainText(localImagePath);
+      const dialog = await moveDialog(fixture.adminPage, source);
+      const [preview] = await Promise.all([
+        fixture.adminPage.waitForResponse((candidate) => new URL(candidate.url()).pathname === '/api/files/rename'
+          && candidate.request().method() === 'POST' && candidate.request().postDataJSON().dryRun === true),
+        dialog.getByRole('button', { name: 'Check again', exact: true }).click(),
+      ]);
+      expect(preview.status()).toBe(200);
+      const checked = await preview.json();
+      expect(checked).toMatchObject({ dryRun: true, plan: { readiness: 'ready' } });
+      await expect(dialog.getByTestId('workspace-move-preview')).toContainText('ready');
+      const changedHtml = localHtmlContent.replace(`src="${localImagePath}"`, `src="${source}"`);
+      await sourceEditor.click();
+      await fixture.peerPage.keyboard.press('ControlOrMeta+A');
+      await fixture.peerPage.keyboard.insertText(changedHtml);
+      await expect(sourceEditor).toContainText(`src="${source}"`);
+      await expect.poll(async () => (await fixture.read(fixture.peer.request, localHtmlPath)).content,
+        { timeout: 45_000, intervals: [500, 1000] }).toBe(changedHtml);
+      const [rejected] = await Promise.all([
+        fixture.adminPage.waitForResponse((candidate) => new URL(candidate.url()).pathname === '/api/files/rename'
+          && candidate.request().method() === 'POST' && candidate.request().postDataJSON().dryRun !== true),
+        dialog.getByRole('button', { name: 'Move', exact: true }).click(),
+      ]);
+      expect(rejected.request().postDataJSON()).toMatchObject({ oldPath: source, newPath: `Ziel/${source}`, planId: checked.plan.planId });
+      expect(rejected.status(), 'The stale ready preview cannot approve the newly affected HTML target').toBe(409);
+      expect(await rejected.json()).toMatchObject({ code: 'PREVIEW_STALE' });
+      await expect(dialog.getByRole('alert')).toHaveText('Files changed since the preview. Check the links again.');
+      await assertOriginal(fixture, source);
+      await assertAbsent(fixture, `Ziel/${source}`);
+      expect((await fixture.read(fixture.admin.request, localHtmlPath)).content).toBe(changedHtml);
+      const [freshPreview] = await Promise.all([
+        fixture.adminPage.waitForResponse((candidate) => new URL(candidate.url()).pathname === '/api/files/rename'
+          && candidate.request().method() === 'POST' && candidate.request().postDataJSON().dryRun === true),
+        dialog.getByRole('button', { name: 'Check again', exact: true }).click(),
+      ]);
+      expect(freshPreview.status()).toBe(200);
+      const fresh = await freshPreview.json();
+      expect(fresh.plan.planId).not.toBe(checked.plan.planId);
+      expect(fresh.plan.readiness).toBe('blocked');
+      await expect(dialog.getByTestId('workspace-move-preview')).toContainText('blocked');
+      await assertOriginal(fixture, source);
+      await assertAbsent(fixture, `Ziel/${source}`);
+      await fixture.adminPage.screenshot({ path: info.outputPath('peer-html-target-stale-preview.png'), animations: 'disabled' });
+    });
+  });
+
   test('external HTML permits a move, updates Markdown backlinks and preserves both users documents', async ({ browser }, info) => {
     await withSharedFixture(browser, async (fixture) => {
       await fixture.upload('transkript.md', originalContent);
@@ -571,11 +762,13 @@ test.describe('shared workspace HTML move safety', () => {
         const failure = await blocked.json();
         expect(failure).toMatchObject({ code: 'PREVIEW_BLOCKED', operation: { workspaceId: fixture.workspaceId,
           status: 'blocked', errorCode: 'PREVIEW_BLOCKED', completedActions: 0,
-          issues: expect.arrayContaining([{ code: 'unevaluated-link', path: issueFile }]) } });
+          issues: expect.arrayContaining([expect.objectContaining({ code: 'affected-html-link', path: issueFile,
+            targetLiteral: source })]) } });
         const issues = dialog.getByTestId('workspace-move-operation-issues');
         await expect(issues).toBeVisible();
         await expect(issues).toContainText(issueFile);
-        await expect(issues).toContainText('unevaluated-link');
+        await expect(issues).toContainText('affected-html-link');
+        await expect(issues).toContainText(source);
         await expect(issues.getByRole('button', { name: 'Open affected file', exact: true })).toBeVisible();
         await assertOriginal(fixture, source);
         await assertAbsent(fixture, `Ziel/${source}`);
