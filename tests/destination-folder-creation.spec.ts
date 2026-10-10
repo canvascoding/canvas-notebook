@@ -192,6 +192,13 @@ for (const profile of profiles) {
         await createDestinationFolder(fixture, dialog, 'Nested', 'HomeFolder/Nested');
         await dialog.getByRole('button', { name: 'New folder', exact: true }).click();
         const cancelledInput = dialog.getByLabel('New folder name', { exact: true });
+        await cancelledInput.fill('KeyboardCancelledFolder');
+        const inlineCancel = cancelledInput.locator('..').getByRole('button', { name: 'Cancel', exact: true });
+        await inlineCancel.focus();
+        await inlineCancel.press('Enter');
+        await expect(cancelledInput).toBeHidden();
+        await expect(dialog).toBeVisible();
+        await dialog.getByRole('button', { name: 'New folder', exact: true }).click();
         await cancelledInput.fill('CancelledFolder');
         await cancelledInput.press('Escape');
         await expect(cancelledInput).toBeHidden();
@@ -210,6 +217,7 @@ for (const profile of profiles) {
         expect(parent.status()).toBe(200);
         const children = (await parent.json()).data as Array<{ path: string }>;
         expect(children.some((entry) => entry.path === 'HomeFolder/Nested/CancelledFolder')).toBe(false);
+        expect(children.some((entry) => entry.path === 'HomeFolder/Nested/KeyboardCancelledFolder')).toBe(false);
       });
     });
 

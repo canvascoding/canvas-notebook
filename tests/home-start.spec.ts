@@ -162,7 +162,11 @@ for (const width of [390, 1440]) {
         await expect(files.getByText('Keine passenden Dateien')).toHaveCount(0);
         const importPath = `${prefix}-import.txt`;
         paths.push(importPath);
-        await files.locator('input[type=file]').setInputFiles({ name: importPath, mimeType: 'text/plain', buffer: Buffer.from('Playwright homepage import fixture') });
+        await files.getByRole('button', { name: 'Dateien importieren', exact: true }).click();
+        const uploadDialog = page.getByRole('dialog', { name: 'Dateien hochladen', exact: true });
+        await expect(uploadDialog).toBeVisible();
+        await uploadDialog.locator('input[type=file]:not([webkitdirectory])').setInputFiles({ name: importPath, mimeType: 'text/plain', buffer: Buffer.from('Playwright homepage import fixture') });
+        await expect(uploadDialog).toBeHidden();
         await expect(files.getByRole('button', { name: 'Dateien importieren', exact: true })).toBeEnabled();
         await search.fill(importPath);
         await expect(files.locator(`ul a[href*="${importPath}"]`)).toBeVisible();

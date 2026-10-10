@@ -109,9 +109,11 @@ export function FolderCreationControl({ parentPath, disabled = false, onCreateDi
       {editing ? (
         <div className="mt-2 space-y-2" onKeyDown={(event) => {
           if (event.key === 'Enter') {
-            event.preventDefault();
             event.stopPropagation();
-            void create();
+            if (event.target === inputRef.current) {
+              event.preventDefault();
+              void create();
+            }
           } else if (event.key === 'Escape') {
             event.preventDefault();
             event.stopPropagation();

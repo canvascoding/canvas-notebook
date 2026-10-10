@@ -212,6 +212,15 @@ test('folder creation validates one name, preserves conflicts, and keeps Enter a
     assert.equal(document.querySelector('input'), null);
     assert.equal(document.activeElement, button('newDestinationFolder'), 'success returns focus to the creation trigger');
     await act(async () => button('newDestinationFolder').click());
+    await act(async () => {
+      fireEvent.change(input(), { target: { value: 'MustNotBeCreated' } });
+      assert.equal(fireEvent.keyDown(button('cancel'), { key: 'Enter' }), true, 'Enter on Cancel retains native button activation');
+    });
+    assert.equal(requests.length, 2, 'Enter on Cancel never creates a directory');
+    assert.equal(submissions, 0, 'button keyboard interaction stays within the folder control');
+    await act(async () => button('cancel').click());
+    assert.equal(document.querySelector('input'), null, 'native Cancel activation discards the folder draft');
+    await act(async () => button('newDestinationFolder').click());
     await act(async () => fireEvent.keyDown(input(), { key: 'Escape' }));
     assert.equal(document.querySelector('input'), null, 'Escape cancels just the folder draft');
     assert.equal(escapedDialog, 0);
