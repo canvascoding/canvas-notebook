@@ -517,3 +517,10 @@ Schritt 4b ergänzt ausdrücklich neu eingerichtete Organisations-/Team-Verbindu
 Schritt 5a ergänzt vollständige private Plugin-/Skill-Entwürfe einschließlich Scripts, Konfiguration, Seed-Abhängigkeiten und Binärassets, gemeinsame Bearbeitung mit aktuellen Rechten sowie ausdrückliche eingeschränkte Varianten im gewählten Zielbereich. Veröffentlichte Snapshots und laufende Agenten verwenden eindeutige unveränderliche Revisionen; eine neue Version verändert keinen bereits begonnenen Lauf. UI und Agent verwenden dieselben Actions für Dateibearbeitung, Validierung, Veröffentlichung, Metadaten und Standardaktivierung. Bei Rechteentzug bleibt ausschließlich die eigene sichere Entwurfsstatus-/Verwerfungsfunktion verfügbar. Die [lokale Abnahme](evidence/step-5a-versioned-packages.md) umfasst native PostgreSQL-Parallelität und vier Browserfälle am endgültigen Produktionsbuild. Das globale Entwurfsmanagement und die Vereinheitlichung der alten Aktivierungssteuerung bleiben Schritt 6a; neue begrenzte Script-Ausführung ist Schritt 5b.
 
 Nächster Umsetzungsschritt: **Schritt 5b — Skill-Code-Laufzeit und begrenzte Tool-Brücke**.
+
+
+### Run9-Teilnachweis vom 10. Oktober 2026
+
+Run9 preserves useful simulator/emulator partial results but fails its original native deadline before a complete sixteen-case acknowledgement. Continue only6b-e-4 after diagnosing the reproduced iOS shared-App render timeout; iOS Use-only/identity/shared-App checks and both platforms' native OAuth/return/cancel groups remain unresolved in this run. Retain every original failed attempt and distinguish Android immutable Store history from a live before-update read. Do not reopen or extend the expired fixture, substitute historical cases for a fresh full seal, or start6b-f/Plan7. Strict Mobileaudit remainsRED23HIGH0CRITICAL.
+
+Details: [step-6b-e-4-run9-partial.md](evidence/step-6b-e-4-run9-partial.md). Die Phase bleibt `in_progress`; die vorhandenen Fehlversuche und die unveränderte Audit-Sperre bleiben erhalten.
