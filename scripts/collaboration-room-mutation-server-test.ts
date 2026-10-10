@@ -734,9 +734,20 @@ async function main() {
       await assert.rejects(documentReader('doc', workspace.workspaceId, () => assert.fail('Invalid live scope exposed'),
         async () => invalid));
     }
-    const fallbackState = { ...states.get('other')!, documentId: 'reader-only', path: 'reader-only.txt' };
+    const readerOnlySeed = new Y.Doc();
+    readerOnlySeed.getText('content').insert(0, 'reader-only persisted:');
+    seedDocuments.set('reader-only', readerOnlySeed);
+    const fallbackState: PersistedCollaborationState = {
+      documentId: 'reader-only', workspaceId: workspace.workspaceId, organizationId: null, path: 'reader-only.txt',
+      lifecycleGeneration: 1, representation: 'plain_text', documentSequence: 1, checkpointSequence: 1,
+      stateVector: Y.encodeStateVector(readerOnlySeed), yjsState: Y.encodeStateAsUpdate(readerOnlySeed),
+      status: 'active', schemaVersion: 1, persistedAt: 1, checkpointedAt: 1, canonicalHash: null, serializedHash: null,
+      newlineStyle: 'lf', hasBom: false, degraded: false,
+    };
     assert.equal(await documentReader('reader-only', workspace.workspaceId, (doc) => doc.getText('content').toString(),
-      async () => fallbackState), 'other:', 'a roomless read uses the supplied persisted snapshot, not another live room');
+      async () => fallbackState), 'reader-only persisted:',
+    'a roomless read uses the supplied persisted snapshot, not another live room');
+    assert.equal(otherRoom.getText('content').toString(), 'other:W', 'the unrelated live room retains its own content');
     assert.equal(ordinaryStateReads, readsBeforeScoped, 'scoped server readers never borrow the default state connection');
     assert.equal(await documentReader('doc', workspace.workspaceId, (doc) => doc.getText('content').toString()),
       room.getText('content').toString());
