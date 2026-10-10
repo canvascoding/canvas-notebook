@@ -48,7 +48,7 @@ import { useFileStore } from '@/app/store/file-store';
 import { copyWorkspacePaths, previewWorkspaceCopy, previewWorkspaceRename, workspaceHeaders, type WorkspaceFileOperationDryRun } from '@/app/lib/files/client';
 import type { WorkspacePlannerIssue } from '@/app/lib/markdown/workspace-file-operation-planner';
 import type { FileNode } from '@/app/lib/files/types';
-import { getParentDirectory, joinWorkspacePath } from '@/app/lib/files/path-utils';
+import { getParentDirectory, isSameOrDescendantPath, joinWorkspacePath } from '@/app/lib/files/path-utils';
 import { isWorkspaceImageFileName, shareWorkspaceImageFile } from '@/app/lib/files/workspace-image-share';
 import {
   compactWorkspaceSelection,
@@ -60,7 +60,7 @@ import {
 } from '@/app/lib/files/operation-flows';
 import { CreateItemDialog } from './CreateItemDialog';
 import { DeleteConfirmDialog } from './DeleteConfirmDialog';
-import { DirectoryBrowser } from './DirectoryBrowser';
+import { DirectoryDestinationPicker } from './DirectoryDestinationPicker';
 import { PublicShareDialog } from './PublicShareDialog';
 import { MarpExportDialog } from './MarpExportDialog';
 import { useCreateItemDialog } from './useCreateItemDialog';
@@ -190,6 +190,7 @@ export function FileActionsDropdown({
   const [isPreviewingMove, setIsPreviewingMove] = useState(false);
   const moveRequestId = useRef(0);
   const [isMoving, setIsMoving] = useState(false);
+  const [creatingMoveDirectory, setCreatingMoveDirectory] = useState(false);
   const [renameOpen, setRenameOpen] = useState(false);
   const [newName, setNewName] = useState('');
   const [renameError, setRenameError] = useState('');
@@ -202,9 +203,14 @@ export function FileActionsDropdown({
   const [marpDetection, setMarpDetection] = useState<{ path: string; isMarp: boolean } | null>(null);
   const [publicShareOpen, setPublicShareOpen] = useState(false);
   const [copyToWorkspaceOpen, setCopyToWorkspaceOpen] = useState(false);
+  const [copyContext, setCopyContext] = useState<{
+    workspaceId: string; paths: string[]; clearSelection: boolean;
+  } | null>(null);
+  const copyRequestId = useRef(0);
   const [copyTargetWorkspaceId, setCopyTargetWorkspaceId] = useState<string | null>(null);
   const [copyTargetDir, setCopyTargetDir] = useState('.');
   const [isCopyingToWorkspace, setIsCopyingToWorkspace] = useState(false);
+  const [creatingCopyDirectory, setCreatingCopyDirectory] = useState(false);
   const [isPreviewingCopy, setIsPreviewingCopy] = useState(false);
   const [copyPreview, setCopyPreview] = useState<WorkspaceFileOperationDryRun | null>(null);
   const copyPreviewRequestId = useRef(0);
@@ -283,6 +289,24 @@ export function FileActionsDropdown({
     if (showMultiSelectOptions) return compactWorkspaceSelection(multiSelectPaths);
     return node ? compactWorkspaceSelection([node.path]) : [];
   }, [multiSelectPaths, node, showMultiSelectOptions]);
+  const copySourceKey = JSON.stringify(selectedCopyPaths);
+
+  useEffect(() => {
+    copyRequestId.current += 1;
+    copyPreviewRequestId.current += 1;
+    // A source switch must retire the dialog so returning to that workspace cannot revive it.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setCopyToWorkspaceOpen(false);
+    setCopyContext(null);
+    setCopyPreview(null);
+    setIsPreviewingCopy(false);
+    setIsCopyingToWorkspace(false);
+    setCreatingCopyDirectory(false);
+    return () => {
+      copyRequestId.current += 1;
+      copyPreviewRequestId.current += 1;
+    };
+  }, [activeWorkspace?.id, nodePath, copySourceKey]);
 
   useEffect(() => {
     if (!nodePath || !isMarkdown || hasMarpName) {
@@ -519,7 +543,7 @@ export function FileActionsDropdown({
   };
 
   const handleCopyToWorkspace = () => {
-    if (selectedCopyPaths.length === 0) return;
+    if (selectedCopyPaths.length === 0 || !activeWorkspace?.id) return;
 
     const selectedProtection = splitProtectedWorkspacePaths(selectedCopyPaths);
     if (selectedProtection.hasProtected) {
@@ -527,7 +551,9 @@ export function FileActionsDropdown({
       return;
     }
 
-    setCopyTargetWorkspaceId(activeWorkspace?.id ?? null);
+    copyRequestId.current += 1;
+    setCopyContext({ workspaceId: activeWorkspace.id, paths: [...selectedCopyPaths], clearSelection: showMultiSelectOptions });
+    setCopyTargetWorkspaceId(activeWorkspace.id);
     setCopyTargetDir('.');
     copyPreviewRequestId.current += 1;
     setCopyPreview(null);
@@ -536,25 +562,32 @@ export function FileActionsDropdown({
   };
 
   const handleConfirmCopyToWorkspace = async () => {
-    if (selectedCopyPaths.length === 0 || !activeWorkspace?.id || !copyTargetWorkspaceId) return;
+    if (isCopyingToWorkspace || creatingCopyDirectory || !copyContext || !copyTargetWorkspaceId
+      || useWorkspaceStore.getState().activeWorkspaceId !== copyContext.workspaceId) return;
+    const context = copyContext;
+    const requestId = ++copyRequestId.current;
+    const isCurrent = () => requestId === copyRequestId.current
+      && useWorkspaceStore.getState().activeWorkspaceId === context.workspaceId;
     setIsCopyingToWorkspace(true);
 
     try {
       const result = await copyWorkspacePaths({
-        sources: selectedCopyPaths,
+        sources: context.paths,
         destDir: copyTargetDir,
         overwrite: false,
         renameOnCollision: true,
-        sourceWorkspaceId: activeWorkspace.id,
+        sourceWorkspaceId: context.workspaceId,
         targetWorkspaceId: copyTargetWorkspaceId,
         planId: copyPreview?.plan.planId,
       }, t('copyToWorkspaceFailed'));
 
-      if (copyTargetWorkspaceId === activeWorkspace.id) {
-        await refreshDirectory(copyTargetDir, true);
+      if (!isCurrent()) return;
+      if (copyTargetWorkspaceId === context.workspaceId) {
+        await refreshDirectory(copyTargetDir, true, copyTargetWorkspaceId);
       }
 
-      if (showMultiSelectOptions) {
+      if (!isCurrent()) return;
+      if (context.clearSelection) {
         clearMultiSelect();
       }
 
@@ -582,21 +615,22 @@ export function FileActionsDropdown({
       }
       setCopyToWorkspaceOpen(false);
     } catch (error) {
-      toast.error(fileOperationErrorMessage(error, 'copyToWorkspaceFailed'));
+      if (isCurrent()) toast.error(fileOperationErrorMessage(error, 'copyToWorkspaceFailed'));
     } finally {
-      setIsCopyingToWorkspace(false);
+      if (isCurrent()) setIsCopyingToWorkspace(false);
     }
   };
 
   const handlePreviewCopyToWorkspace = async () => {
-    if (selectedCopyPaths.length === 0 || !activeWorkspace?.id || !copyTargetWorkspaceId) return;
+    if (isCopyingToWorkspace || creatingCopyDirectory || !copyContext || !copyTargetWorkspaceId
+      || useWorkspaceStore.getState().activeWorkspaceId !== copyContext.workspaceId) return;
     setIsPreviewingCopy(true);
     setCopyPreview(null);
     const requestId = ++copyPreviewRequestId.current;
-    const sourceWorkspaceId = activeWorkspace.id;
+    const sourceWorkspaceId = copyContext.workspaceId;
     try {
       const preview = await previewWorkspaceCopy({
-        sources: selectedCopyPaths,
+        sources: copyContext.paths,
         destDir: copyTargetDir,
         renameOnCollision: true,
         sourceWorkspaceId,
@@ -684,7 +718,7 @@ export function FileActionsDropdown({
   };
 
   const handleConfirmMove = async () => {
-    if (!node) return;
+    if (!node || isMoving || creatingMoveDirectory) return;
     const trimmedName = moveName.trim();
     if (!trimmedName) {
       setMoveError(t('pleaseEnterName'));
@@ -727,7 +761,7 @@ export function FileActionsDropdown({
   };
 
   const handlePreviewMove = async () => {
-    if (!node || !moveName.trim()) return;
+    if (!node || isMoving || creatingMoveDirectory || !moveName.trim()) return;
     const workspaceId = activeWorkspace?.id ?? null;
     const requestId = ++moveRequestId.current;
     const current = () => requestId === moveRequestId.current
@@ -972,7 +1006,7 @@ export function FileActionsDropdown({
       <Dialog
         open={moveOpen && moveContext?.workspaceId === (activeWorkspace?.id ?? null) && moveContext?.path === nodePath}
         onOpenChange={(nextOpen) => {
-          if (!isMoving || nextOpen) {
+          if ((!isMoving && !creatingMoveDirectory) || nextOpen) {
             setMoveOpen(nextOpen);
             if (!nextOpen) invalidateMovePreview();
           }
@@ -994,7 +1028,7 @@ export function FileActionsDropdown({
                   invalidateMovePreview();
                 }}
                 className="mt-1"
-                disabled={isMoving || movePending}
+                disabled={isMoving || movePending || creatingMoveDirectory}
               />
             </div>
             <div>
@@ -1007,11 +1041,11 @@ export function FileActionsDropdown({
                   invalidateMovePreview();
                 }}
                 className="mt-1"
-                disabled={isMoving || movePending}
+                disabled={isMoving || movePending || creatingMoveDirectory}
               />
             </div>
-            <div inert={isMoving || movePending} className={isMoving || movePending ? 'pointer-events-none opacity-60' : undefined}>
-              <DirectoryBrowser
+            <div>
+              {moveOpen && <DirectoryDestinationPicker
                 tree={fileTree}
                 selectedPath={moveTarget}
                 onSelect={(path) => {
@@ -1020,7 +1054,10 @@ export function FileActionsDropdown({
                 }}
                 expandedDirs={moveExpandedDirs}
                 onToggleDir={toggleMoveDir}
-              />
+                disabled={isMoving || movePending}
+                onCreatingDirectoryChange={setCreatingMoveDirectory}
+                isDirectoryDisabled={(path) => node?.type === 'directory' && isSameOrDescendantPath(path, node.path)}
+              />}
             </div>
             {moveError && <p className="text-sm text-destructive" role="alert">{moveError}</p>}
             {moveOperation && moveOperation.workspaceId === activeWorkspace?.id && moveOperation.issues?.length ?
@@ -1046,13 +1083,13 @@ export function FileActionsDropdown({
             </p> : null}
           </div>
           <DialogFooter className="gap-2">
-            <Button variant="ghost" onClick={() => { setMoveOpen(false); invalidateMovePreview(); }} disabled={isMoving}>
+            <Button variant="ghost" onClick={() => { setMoveOpen(false); invalidateMovePreview(); }} disabled={isMoving || creatingMoveDirectory}>
               {t('cancel')}
             </Button>
-            <Button variant="outline" onClick={() => void handlePreviewMove()} disabled={isMoving || isPreviewingMove || movePending || !moveName.trim()}>
+            <Button variant="outline" onClick={() => void handlePreviewMove()} disabled={isMoving || creatingMoveDirectory || isPreviewingMove || movePending || !moveName.trim()}>
               {isPreviewingMove && <Loader2 className="h-4 w-4 animate-spin" />}{tStatus('recheck')}
             </Button>
-            <Button variant="secondary" onClick={() => void handleConfirmMove()} disabled={isMoving || isPreviewingMove || movePending}>
+            <Button variant="secondary" onClick={() => void handleConfirmMove()} disabled={isMoving || creatingMoveDirectory || isPreviewingMove || movePending}>
               {isMoving && <Loader2 className="h-4 w-4 animate-spin" />}
               {t('move')}
             </Button>
@@ -1060,8 +1097,10 @@ export function FileActionsDropdown({
         </DialogContent>
       </Dialog>
 
-      <Dialog open={copyToWorkspaceOpen} onOpenChange={setCopyToWorkspaceOpen}>
-        <DialogContent className="max-w-xl overflow-hidden">
+      <Dialog open={copyToWorkspaceOpen} onOpenChange={(open) => {
+        if (open || (!isCopyingToWorkspace && !creatingCopyDirectory)) setCopyToWorkspaceOpen(open);
+      }}>
+        <DialogContent className="max-w-xl max-h-[calc(100dvh-3rem)] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{t('copyToWorkspaceTitle')}</DialogTitle>
             <DialogDescription>{t('copyToWorkspaceDescription', { count: selectedCopyPaths.length })}</DialogDescription>
@@ -1071,6 +1110,8 @@ export function FileActionsDropdown({
             selectedDir={copyTargetDir}
             onWorkspaceChange={(workspaceId) => { copyPreviewRequestId.current += 1; setIsPreviewingCopy(false); setCopyTargetWorkspaceId(workspaceId); setCopyPreview(null); }}
             onDirChange={(dir) => { copyPreviewRequestId.current += 1; setIsPreviewingCopy(false); setCopyTargetDir(dir); setCopyPreview(null); }}
+            disabled={isCopyingToWorkspace}
+            onCreatingDirectoryChange={setCreatingCopyDirectory}
           />
           {copyPreview && (
             <div className="max-h-48 overflow-auto rounded-md border p-3 text-xs" role="status">
@@ -1099,18 +1140,18 @@ export function FileActionsDropdown({
             </div>
           )}
           <DialogFooter className="gap-2">
-            <Button variant="ghost" onClick={() => setCopyToWorkspaceOpen(false)}>
+            <Button variant="ghost" onClick={() => setCopyToWorkspaceOpen(false)} disabled={isCopyingToWorkspace || creatingCopyDirectory}>
               {t('cancel')}
             </Button>
             <Button variant="outline" onClick={() => void handlePreviewCopyToWorkspace()}
-              disabled={isCopyingToWorkspace || isPreviewingCopy || !copyTargetWorkspaceId || selectedCopyPaths.length === 0}>
+              disabled={isCopyingToWorkspace || creatingCopyDirectory || isPreviewingCopy || !copyTargetWorkspaceId || selectedCopyPaths.length === 0}>
               {isPreviewingCopy && <Loader2 className="h-4 w-4 animate-spin" />}
               {t('fileOperationPreview')}
             </Button>
             <Button
               variant="secondary"
               onClick={() => void handleConfirmCopyToWorkspace()}
-              disabled={isCopyingToWorkspace || !copyTargetWorkspaceId || selectedCopyPaths.length === 0}
+              disabled={isCopyingToWorkspace || creatingCopyDirectory || !copyTargetWorkspaceId || selectedCopyPaths.length === 0}
             >
               {isCopyingToWorkspace ? <Loader2 className="h-4 w-4 animate-spin" /> : <FolderInput className="h-4 w-4" />}
               {t('copyToWorkspaceConfirm')}

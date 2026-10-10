@@ -19,7 +19,7 @@ import { remapPath } from '@/app/lib/files/path-mutation-state';
 import { prunePathSet, remapPathSet } from '@/app/lib/files/path-state-collections';
 import { WORKSPACE_PATH_RENAMED_EVENT, WORKSPACE_PATHS_DELETED_EVENT, type WorkspacePathRenamedDetail, type WorkspacePathsDeletedDetail } from '@/app/lib/files/workspace-file-events';
 import { compactWorkspaceSelection, getWorkspacePathName } from '@/app/lib/files/operation-flows';
-import { DirectoryBrowser } from './DirectoryBrowser';
+import { DirectoryDestinationPicker } from './DirectoryDestinationPicker';
 import { useShallow } from 'zustand/react/shallow';
 import type { WorkspaceMoveController, WorkspaceMoveResolution } from './useWorkspaceMove';
 
@@ -31,6 +31,7 @@ export function BulkMoveDialog({ controller }: BulkMoveDialogProps) {
   const t = useTranslations('notebook');
   const [moveTarget, setMoveTarget] = useState('.');
   const [moveExpandedDirs, setMoveExpandedDirs] = useState(new Set<string>());
+  const [creatingDirectory, setCreatingDirectory] = useState(false);
   const {
     fileTree,
     multiSelectPaths,
@@ -102,6 +103,7 @@ export function BulkMoveDialog({ controller }: BulkMoveDialogProps) {
   };
 
   const handleConfirmMove = async () => {
+    if (isMoving || creatingDirectory) return;
     const result = await startMove(selectedMovePaths, moveTarget);
     if (result === 'completed') closeDialog();
   };
@@ -112,7 +114,7 @@ export function BulkMoveDialog({ controller }: BulkMoveDialogProps) {
   };
 
   const handleCancel = () => {
-    if (isMoving) return; // Prevent closing while moving
+    if (isMoving || creatingDirectory) return;
     closeDialog();
   };
 
@@ -127,7 +129,7 @@ export function BulkMoveDialog({ controller }: BulkMoveDialogProps) {
           }
         }}
       >
-        <DialogContent className="max-w-xl">
+        <DialogContent className="max-w-xl max-h-[calc(100dvh-3rem)] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{t('moveMultiple', { count: selectedMovePaths.length })}</DialogTitle>
             <DialogDescription>
@@ -137,23 +139,26 @@ export function BulkMoveDialog({ controller }: BulkMoveDialogProps) {
           <div className="space-y-4">
             <div>
               <label className="text-xs text-muted-foreground">{t('destinationFolder')}</label>
-              <DirectoryBrowser
+              {bulkMoveOpen && <DirectoryDestinationPicker
                 tree={fileTree}
                 selectedPath={moveTarget}
                 onSelect={setMoveTarget}
                 expandedDirs={moveExpandedDirs}
                 onToggleDir={toggleMoveDir}
-              />
+                disabled={isMoving}
+                onCreatingDirectoryChange={setCreatingDirectory}
+                isDirectoryDisabled={(path) => selectedMovePaths.some((source) => isSameOrDescendantPath(path, source))}
+              />}
             </div>
           </div>
           <DialogFooter className="gap-2">
-            <Button variant="ghost" onClick={handleCancel} disabled={isMoving}>
+            <Button variant="ghost" onClick={handleCancel} disabled={isMoving || creatingDirectory}>
               {t('cancel')}
             </Button>
             <Button
               variant="secondary"
               onClick={handleConfirmMove}
-              disabled={isMoving || selectedMovePaths.length === 0}
+              disabled={isMoving || creatingDirectory || selectedMovePaths.length === 0}
             >
               {isMoving ? t('moving') : t('move')}
             </Button>

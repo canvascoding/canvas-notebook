@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { expect, test, type APIResponse, type Browser, type Locator, type Page, type TestInfo } from '@playwright/test';
-import { createAuthenticatedContext } from './helpers/managed-test-context';
+import { createAuthenticatedContext, uploadWorkspaceTextFile } from './helpers/managed-test-context';
 
 const profiles = [
   { name: 'desktop', viewport: { width: 1440, height: 960 }, mobile: false },
@@ -122,6 +122,56 @@ async function captureDialog(page: Page, dialog: Locator, profile: Profile,
   await page.screenshot({ path: info.outputPath(`${profile.name}-${name}.png`), animations: 'disabled' });
 }
 
+async function openPathActions(page: Page, path: string): Promise<void> {
+  const row = page.locator(`[data-file-path="${path}"]`).first();
+  await expect(row).toBeVisible();
+  await row.hover();
+  await row.getByRole('button', { name: /^More actions for /u }).click();
+  await expect(page.getByRole('menuitem', { name: 'Move', exact: true })).toBeVisible();
+}
+
+function waitForRename(fixture: WorkspaceFixture, oldPath: string, newPath: string): Promise<APIResponse> {
+  return fixture.page.waitForResponse((response) => {
+    const request = response.request();
+    if (new URL(response.url()).pathname !== '/api/files/rename' || request.method() !== 'POST') return false;
+    const body = request.postDataJSON() as { oldPath?: string; newPath?: string; dryRun?: boolean };
+    return body.dryRun !== true && body.oldPath === oldPath && body.newPath === newPath
+      && request.headers()['x-canvas-workspace-id'] === fixture.workspaceId;
+  }, { timeout: 60_000 });
+}
+
+async function assertRenameApplied(fixture: WorkspaceFixture, response: APIResponse): Promise<void> {
+  expect(response.ok(), 'The real move request succeeded.').toBe(true);
+  const receipt = (await response.json()).operation as { batchId: string; planId: string; workspaceId: string };
+  expect(receipt).toBeTruthy();
+  expect(receipt.workspaceId).toBe(fixture.workspaceId);
+  expect(receipt.batchId).toBeTruthy();
+  expect(receipt.planId).toBeTruthy();
+  await expect.poll(async () => {
+    const polled = await fixture.page.request.get(`/api/files/operations/batches/${encodeURIComponent(receipt.batchId)}`, {
+      headers: fixture.headers,
+    });
+    expect(polled.status(), 'Read the exact tracked move.').toBe(200);
+    const operation = (await polled.json()).operation as { batchId: string; planId: string; workspaceId: string;
+      status: string; phase: string; completedActions: number; totalActions: number };
+    expect(operation.batchId).toBe(receipt.batchId);
+    expect(operation.planId).toBe(receipt.planId);
+    expect(operation.workspaceId).toBe(fixture.workspaceId);
+    if (operation.status === 'applied') {
+      expect(operation.phase).toBe('complete');
+      expect(operation.completedActions).toBe(operation.totalActions);
+    }
+    return operation.status;
+  }, { timeout: 60_000 }).toBe('applied');
+}
+
+async function assertSourceAbsent(fixture: WorkspaceFixture, path: string): Promise<void> {
+  const response = await fixture.page.request.get(`/api/files/read?path=${encodeURIComponent(path)}`, {
+    headers: fixture.headers,
+  });
+  expect(response.status(), `The original path ${path} is absent after moving.`).toBe(404);
+}
+
 for (const profile of profiles) {
   test.describe(`${profile.name} destination folder creation`, () => {
     test.setTimeout(150_000);
@@ -236,3 +286,194 @@ for (const profile of profiles) {
     });
   });
 }
+
+for (const profile of profiles) {
+  test.describe(`${profile.name} move and copy destination folders`, () => {
+    test.setTimeout(180_000);
+
+    test('single move preserves a changed file name while creating nested folders', async ({ browser }, info) => {
+      await withWorkspace(browser, profile, async (fixture) => {
+        const { page } = fixture;
+        const source = 'single-source.txt';
+        const content = 'Single move keeps these bytes: äöü ß → 22 °C.\n';
+        await uploadWorkspaceTextFile({ request: page.request, workspaceId: fixture.workspaceId,
+          filePath: source, content, mimeType: 'text/plain' });
+        await page.goto(`/en/files?workspaceId=${fixture.workspaceId}`);
+        await openPathActions(page, source);
+        await page.getByRole('menuitem', { name: 'Move', exact: true }).click();
+        const dialog = page.getByRole('dialog', { name: `Move "${source}"`, exact: true });
+        const changedName = 'renamed-before-folder-creation.txt';
+        await dialog.getByLabel('Name', { exact: true }).fill(changedName);
+        await createDestinationFolder(fixture, dialog, 'MoveTarget', 'MoveTarget');
+        await expect(dialog.getByLabel('Name', { exact: true })).toHaveValue(changedName);
+        await createDestinationFolder(fixture, dialog, 'Nested', 'MoveTarget/Nested');
+        await expect(dialog.getByLabel('Name', { exact: true })).toHaveValue(changedName);
+        await expect(dialog.getByLabel('Destination folder', { exact: true })).toHaveValue('MoveTarget/Nested');
+        await captureDialog(page, dialog, profile, info, 'single-move-nested');
+        const destination = `MoveTarget/Nested/${changedName}`;
+        const moved = waitForRename(fixture, source, destination);
+        await dialog.getByRole('button', { name: 'Move', exact: true }).click();
+        await assertRenameApplied(fixture, await moved);
+        await expect(dialog).toBeHidden({ timeout: 60_000 });
+        expect(await fixture.read(destination)).toBe(content);
+        await assertSourceAbsent(fixture, source);
+      });
+    });
+
+    test('bulk move keeps both selected files while creating nested folders', async ({ browser }, info) => {
+      await withWorkspace(browser, profile, async (fixture) => {
+        const { page } = fixture;
+        const sources = [
+          { path: 'bulk-first.txt', content: 'First selected file: αβγ.\n' },
+          { path: 'bulk-second.txt', content: 'Second selected file: äöü.\n' },
+        ];
+        for (const source of sources) {
+          await uploadWorkspaceTextFile({ request: page.request, workspaceId: fixture.workspaceId,
+            filePath: source.path, content: source.content, mimeType: 'text/plain' });
+        }
+        await page.goto(`/en/files?workspaceId=${fixture.workspaceId}`);
+        for (const source of sources) {
+          await expect(page.locator(`[data-file-path="${source.path}"]`).first()).toBeVisible();
+        }
+        await page.getByRole('button', { name: 'Toggle select mode', exact: true }).click();
+        for (const source of sources) {
+          await page.getByRole('button', { name: `Select ${source.path}`, exact: true }).filter({ visible: true }).first().click();
+          await expect(page.getByRole('button', { name: `Deselect ${source.path}`, exact: true }).filter({ visible: true }).first())
+            .toHaveAttribute('aria-pressed', 'true');
+        }
+        await expect(page.getByText('2 selected', { exact: true })).toBeVisible();
+        await page.getByRole('button', { name: 'Move', exact: true }).click();
+        const dialog = page.getByRole('dialog', { name: 'Move 2', exact: true });
+        await createDestinationFolder(fixture, dialog, 'BulkTarget', 'BulkTarget');
+        await expect(dialog).toBeVisible();
+        await expect(dialog).toHaveAccessibleName('Move 2');
+        await createDestinationFolder(fixture, dialog, 'Nested', 'BulkTarget/Nested');
+        await expect(dialog).toHaveAccessibleName('Move 2');
+        await captureDialog(page, dialog, profile, info, 'bulk-move-nested');
+        const moved = sources.map((source) => waitForRename(fixture, source.path, `BulkTarget/Nested/${source.path}`));
+        await dialog.getByRole('button', { name: 'Move', exact: true }).click();
+        for (const response of moved) await assertRenameApplied(fixture, await response);
+        await expect(dialog).toBeHidden({ timeout: 60_000 });
+        for (const source of sources) {
+          expect(await fixture.read(`BulkTarget/Nested/${source.path}`)).toBe(source.content);
+          await assertSourceAbsent(fixture, source.path);
+        }
+      });
+    });
+
+    test('copy to another workspace creates folders in the chosen target and preserves source bytes', async ({ browser }, info) => {
+      await withWorkspace(browser, profile, async (fixture) => {
+        const { page } = fixture;
+        const targetName = `E2E copy destination ${profile.name} ${randomUUID()}`;
+        let targetId: string | undefined;
+        let failed = false;
+        let primaryError: unknown;
+        const cleanupErrors: unknown[] = [];
+        try {
+          const created = await page.request.post('/api/workspaces', { data: { type: 'personal', name: targetName } });
+          const receipt = (await created.json()).workspace as { id: string; name: string; type: string;
+            permissions: { canWrite: boolean; canManageWorkspace: boolean } } | undefined;
+          if (receipt?.id) targetId = receipt.id;
+          expect(created.status(), 'Create the separate owned destination workspace.').toBe(201);
+          expect(receipt).toMatchObject({ id: targetId, name: targetName, type: 'personal',
+            permissions: { canWrite: true, canManageWorkspace: true } });
+          if (!targetId) throw new Error('The copy destination workspace has no ID.');
+          const destinationWorkspaceId = targetId;
+          const source = 'copy-source.txt';
+          const content = 'Cross-workspace copy keeps exact bytes: λ → äöü ß.\n';
+          await uploadWorkspaceTextFile({ request: page.request, workspaceId: fixture.workspaceId,
+            filePath: source, content, mimeType: 'text/plain' });
+          await page.goto(`/en/files?workspaceId=${fixture.workspaceId}`);
+          await openPathActions(page, source);
+          await page.getByRole('menuitem', { name: 'Copy to workspace', exact: true }).click();
+          const dialog = page.getByRole('dialog', { name: 'Copy to workspace', exact: true });
+          await dialog.getByRole('combobox', { name: 'Target workspace', exact: true }).selectOption(destinationWorkspaceId);
+          await expect(dialog.getByRole('combobox', { name: 'Target workspace', exact: true })).toHaveValue(destinationWorkspaceId);
+          const targetFixture = { ...fixture, workspaceId: destinationWorkspaceId };
+          await createDestinationFolder(targetFixture, dialog, 'CopyTarget', 'CopyTarget');
+          await createDestinationFolder(targetFixture, dialog, 'Nested', 'CopyTarget/Nested');
+          const sourceTree = await page.request.get('/api/files/tree?path=.&noCache=1', { headers: fixture.headers });
+          expect(sourceTree.status()).toBe(200);
+          const sourceChildren = (await sourceTree.json()).data as Array<{ path: string }>;
+          expect(sourceChildren.some((entry) => entry.path === 'CopyTarget'),
+            'Target folders must not be created in the active source workspace.').toBe(false);
+          await captureDialog(page, dialog, profile, info, 'foreign-workspace-copy-nested');
+          const copied = page.waitForResponse((response) => {
+            const request = response.request();
+            if (new URL(response.url()).pathname !== '/api/files/copy' || request.method() !== 'POST') return false;
+            const body = request.postDataJSON() as { dryRun?: boolean; sourceWorkspaceId?: string;
+              targetWorkspaceId?: string; destDir?: string; sources?: string[] };
+            return body.dryRun !== true && body.sourceWorkspaceId === fixture.workspaceId
+              && body.targetWorkspaceId === destinationWorkspaceId && body.destDir === 'CopyTarget/Nested'
+              && body.sources?.includes(source) === true
+              && request.headers()['x-canvas-workspace-id'] === fixture.workspaceId;
+          }, { timeout: 60_000 });
+          await dialog.getByRole('button', { name: 'Copy', exact: true }).click();
+          expect((await copied).ok(), 'The real copy uses explicit source and target workspaces.').toBe(true);
+          await expect(dialog).toBeHidden({ timeout: 60_000 });
+          const targetFile = await page.request.get(`/api/files/read?path=${encodeURIComponent(`CopyTarget/Nested/${source}`)}`, {
+            headers: { 'x-canvas-workspace-id': destinationWorkspaceId },
+          });
+          expect(targetFile.status()).toBe(200);
+          const targetEvidence = (await targetFile.json()).data as { path: string; content: string };
+          expect(targetEvidence.path).toBe(`CopyTarget/Nested/${source}`);
+          expect(targetEvidence.content).toBe(content);
+          expect(await fixture.read(source)).toBe(content);
+          expect((await page.request.get(`/api/files/read?path=${encodeURIComponent(`CopyTarget/Nested/${source}`)}`, {
+            headers: fixture.headers,
+          })).status()).toBe(404);
+        } catch (error) {
+          failed = true;
+          primaryError = error;
+        } finally {
+          if (targetId) {
+            try {
+              const listed = await page.request.get('/api/workspaces');
+              expect(listed.status(), 'Verify the owned copy destination before cleanup.').toBe(200);
+              const payload = await listed.json() as { workspaces: Array<{ id: string; name: string; type: string;
+                permissions: { canManageWorkspace: boolean } }> };
+              expect(payload.workspaces.find((workspace) => workspace.id === targetId)).toMatchObject({
+                id: targetId, name: targetName, type: 'personal', permissions: { canManageWorkspace: true },
+              });
+              expect((await page.request.delete(`/api/workspaces/${targetId}`)).status(),
+                'Delete the exact owned copy destination.').toBe(200);
+            } catch (error) { cleanupErrors.push(error); }
+          }
+        }
+        if (cleanupErrors.length) throw new AggregateError(failed ? [primaryError, ...cleanupErrors] : cleanupErrors,
+          'Copy destination cleanup failed.');
+        if (failed) throw primaryError;
+      });
+    });
+  });
+}
+
+test('desktop drag moves into a folder created inline after cancelling the move dialog', async ({ browser }, info) => {
+  test.setTimeout(180_000);
+  const profile = profiles[0];
+  await withWorkspace(browser, profile, async (fixture) => {
+    const { page } = fixture;
+    const source = 'drag-source.txt';
+    const content = 'A created destination is also available for drag and drop.\n';
+    await uploadWorkspaceTextFile({ request: page.request, workspaceId: fixture.workspaceId,
+      filePath: source, content, mimeType: 'text/plain' });
+    await page.goto(`/en/files?workspaceId=${fixture.workspaceId}`);
+    await openPathActions(page, source);
+    await page.getByRole('menuitem', { name: 'Move', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: `Move "${source}"`, exact: true });
+    await createDestinationFolder(fixture, dialog, 'DragTarget', 'DragTarget');
+    await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await expect(dialog).toBeHidden();
+    expect(await fixture.read(source)).toBe(content);
+    const sourceRow = page.locator(`[data-file-path="${source}"]`).first();
+    const targetRow = page.locator('[data-file-drop-path="DragTarget"]').first();
+    await expect(sourceRow).toBeVisible();
+    await expect(targetRow).toBeVisible();
+    const moved = waitForRename(fixture, source, `DragTarget/${source}`);
+    await sourceRow.dragTo(targetRow);
+    await assertRenameApplied(fixture, await moved);
+    expect(await fixture.read(`DragTarget/${source}`)).toBe(content);
+    await assertSourceAbsent(fixture, source);
+    await page.screenshot({ path: info.outputPath('desktop-created-folder-drag-complete.png'), animations: 'disabled' });
+  });
+});
