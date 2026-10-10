@@ -1,7 +1,7 @@
 'use client';
 
-import { useRef, useState } from 'react';
-import { FolderOpen, Loader2, Plus, Upload } from 'lucide-react';
+import { useState } from 'react';
+import { FolderOpen, Plus, Upload } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { Link } from '@/i18n/navigation';
 import { Button } from '@/components/ui/button';
@@ -10,25 +10,21 @@ import type { ClientWorkspaceSummary } from '@/app/lib/workspaces/client-types';
 import { HomeSkeleton } from './HomeSkeletons';
 import { HomeNewNoteDialog } from './HomeNewNoteDialog';
 import { HomeContinueList } from './HomeContinueList';
+import { UploadDialog } from '@/app/components/file-browser/UploadDialog';
+import { useWorkspaceStore } from '@/app/store/workspace-store';
 
 export function HomeFilesPanel({ workspace, workspaceError }: { workspace?: ClientWorkspaceSummary; workspaceError?: string | null }) {
   const t = useTranslations('home.start');
   const [revision, setRevision] = useState(0);
   const [creating, setCreating] = useState(false);
-  const [uploading, setUploading] = useState(false);
-  const [uploadError, setUploadError] = useState<string | null>(null);
-  const uploadRef = useRef<HTMLInputElement>(null);
+  const [uploadOpen, setUploadOpen] = useState(false);
 
-  const importFiles = async (files: File[]) => {
-    if (files.length === 0 || uploading) return;
-    setUploading(true);
-    setUploadError(null);
-    try {
-      await uploadWorkspaceFiles({ files, targetDir: '.' });
-    } catch (cause) {
-      setUploadError(cause instanceof Error ? cause.message : t('uploadFailed'));
-    } finally {
-      setUploading(false);
+  const importFiles = async (files: File[], targetDir: string) => {
+    if (!workspace || useWorkspaceStore.getState().activeWorkspaceId !== workspace.id) {
+      throw new Error(t('workspaceChanged'));
+    }
+    await uploadWorkspaceFiles({ files, targetDir, workspaceId: workspace.id });
+    if (useWorkspaceStore.getState().activeWorkspaceId === workspace.id) {
       setRevision(value => value + 1);
     }
   };
@@ -42,15 +38,15 @@ export function HomeFilesPanel({ workspace, workspaceError }: { workspace?: Clie
           <Button asChild variant="outline" size="sm"><Link href={`/notebook?${new URLSearchParams({ workspaceId: workspace.id })}`} aria-label={t('openNotebook')}><FolderOpen className="h-4 w-4" /><span className="sr-only min-[360px]:not-sr-only">{t('openNotebook')}</span></Link></Button>
           {workspace?.permissions.canWrite ? <Button size="sm" onClick={() => setCreating(true)}><Plus className="h-4 w-4" />{t('newNote')}</Button> : null}
           {workspace.permissions.canWrite ? <>
-            <input ref={uploadRef} type="file" multiple className="hidden" aria-label={t('importFiles')} onChange={(event) => { void importFiles(Array.from(event.target.files ?? [])); event.target.value = ''; }} />
-            <Button variant="ghost" size="icon" className="h-8 w-8" disabled={uploading} aria-label={uploading ? t('uploading') : t('importFiles')} title={t('importFiles')} onClick={() => uploadRef.current?.click()}>{uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}</Button>
+            <Button variant="ghost" size="icon" className="h-8 w-8" aria-label={t('importFiles')} title={t('importFiles')} onClick={() => setUploadOpen(true)}><Upload className="h-4 w-4" /></Button>
           </> : null}
           </>}
         </div>
       </div>
       <HomeContinueList key={workspace?.id ?? 'loading'} workspace={workspace} workspaceError={workspaceError} revision={revision} />
-      {uploadError ? <p role="alert" className="mt-2 text-sm text-destructive">{uploadError}</p> : null}
-      {creating && workspace ? <HomeNewNoteDialog workspaceId={workspace.id} onClose={() => setCreating(false)} /> : null}
+      {creating && workspace ? <HomeNewNoteDialog key={`note:${workspace.id}`} workspaceId={workspace.id} onClose={() => setCreating(false)} /> : null}
+      {workspace ? <UploadDialog key={`upload:${workspace.id}`} open={uploadOpen} onOpenChange={setUploadOpen} defaultPath="."
+        workspaceId={workspace.id} onUpload={importFiles} /> : null}
     </section>
   );
 }

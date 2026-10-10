@@ -14,7 +14,7 @@ import {
   DialogDescription,
 } from '@/components/ui/dialog';
 import { useFileStore } from '@/app/store/file-store';
-import { DirectoryBrowser } from './DirectoryBrowser';
+import { DirectoryDestinationPicker } from './DirectoryDestinationPicker';
 
 export type CreateItemType = 'file' | 'directory' | 'excalidraw';
 
@@ -45,6 +45,7 @@ export function CreateItemDialog({ open, onOpenChange, type, defaultPath, onCrea
   const [expandedDirs, setExpandedDirs] = useState(new Set<string>());
   const [error, setError] = useState('');
   const [isCreating, setIsCreating] = useState(false);
+  const [creatingDirectory, setCreatingDirectory] = useState(false);
 
   useEffect(() => {
     if (open) {
@@ -78,6 +79,7 @@ export function CreateItemDialog({ open, onOpenChange, type, defaultPath, onCrea
   };
 
   const handleCreate = async () => {
+    if (isCreating || creatingDirectory) return;
     const validationError = validate();
     if (validationError) {
       setError(validationError);
@@ -103,7 +105,7 @@ export function CreateItemDialog({ open, onOpenChange, type, defaultPath, onCrea
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !isCreating) {
+    if (e.key === 'Enter' && !isCreating && !creatingDirectory) {
       e.preventDefault();
       void handleCreate();
     }
@@ -134,10 +136,10 @@ export function CreateItemDialog({ open, onOpenChange, type, defaultPath, onCrea
     <Dialog
       open={open}
       onOpenChange={(nextOpen) => {
-        if (!isCreating || nextOpen) onOpenChange(nextOpen);
+        if ((!isCreating && !creatingDirectory) || nextOpen) onOpenChange(nextOpen);
       }}
     >
-      <DialogContent className="max-w-xl">
+      <DialogContent className="max-w-xl max-h-[calc(100dvh-3rem)] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>
             {type === 'excalidraw'
@@ -173,7 +175,7 @@ export function CreateItemDialog({ open, onOpenChange, type, defaultPath, onCrea
                     : t('folderNamePlaceholder')
               }
               autoFocus
-              disabled={isCreating}
+              disabled={isCreating || creatingDirectory}
             />
             {error && (
               <p className="mt-1.5 text-xs text-destructive" role="alert">{error}</p>
@@ -191,24 +193,26 @@ export function CreateItemDialog({ open, onOpenChange, type, defaultPath, onCrea
               value={targetDir}
               onChange={(e) => setTargetDir(e.target.value)}
               className="mt-1"
-              disabled={isCreating}
+              disabled={isCreating || creatingDirectory}
             />
           </div>
-          <div className={isCreating ? 'pointer-events-none opacity-60' : undefined}>
-            <DirectoryBrowser
+          <div>
+            {open && <DirectoryDestinationPicker
               tree={fileTree}
               selectedPath={targetDir}
               onSelect={setTargetDir}
               expandedDirs={expandedDirs}
               onToggleDir={toggleDir}
-            />
+              disabled={isCreating}
+              onCreatingDirectoryChange={setCreatingDirectory}
+            />}
           </div>
         </div>
         <DialogFooter className="gap-2">
-          <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={isCreating}>
+          <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={isCreating || creatingDirectory}>
             {t('cancel')}
           </Button>
-          <Button variant="secondary" onClick={() => void handleCreate()} disabled={isCreating}>
+          <Button variant="secondary" onClick={() => void handleCreate()} disabled={isCreating || creatingDirectory}>
             {isCreating && <Loader2 className="h-4 w-4 animate-spin" />}
             {type === 'excalidraw'
               ? t('createExcalidraw')

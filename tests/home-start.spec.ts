@@ -85,11 +85,12 @@ for (const width of [390, 1440]) {
         await page.goto('/de');
         await page.getByTestId('home-files').getByRole('button', { name: 'Neue Notiz' }).click();
         await expect(page.getByRole('dialog')).toBeVisible();
-        await expect(page.getByLabel('Anderen Ordner wählen')).toBeHidden();
+        const folderAction = page.getByRole('dialog').getByRole('button', { name: 'Neuer Ordner', exact: true });
+        await expect(folderAction).toBeHidden();
         await page.getByText('Anderen Ordner wählen', { exact: true }).first().click();
-        await expect(page.getByLabel('Anderen Ordner wählen')).toBeVisible();
+        await expect(folderAction).toBeVisible();
         await page.getByText('Anderen Ordner wählen', { exact: true }).first().click();
-        await expect(page.getByLabel('Anderen Ordner wählen')).toBeHidden();
+        await expect(folderAction).toBeHidden();
         await page.getByLabel('Name der Notiz').fill(name);
         const response = page.waitForResponse((item) => item.url().endsWith('/api/files/create') && item.request().method() === 'POST');
         await page.getByRole('button', { name: 'Erstellen und öffnen' }).click();
