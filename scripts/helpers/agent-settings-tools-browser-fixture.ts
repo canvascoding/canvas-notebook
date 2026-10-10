@@ -61,6 +61,9 @@ type Receipt = {
   mobileNativeClosed?: boolean;
   mcpOAuthProviderClosed?: boolean;
   mobilePackageProviderClosed?: boolean;
+  mobileRenderRepro?: true;
+  mobileRenderReproDeadline?: number;
+  mobileRenderReproClosed?: boolean;
 };
 type IssuerReady = {
   version: 1; nonce: string; fixtureRoot: string; origin: string; certificatePath: string;
@@ -167,6 +170,10 @@ async function main(): Promise<void> {
   const mcpApps = process.env.CANVAS_SHARED_MCP_APPS_BROWSER_RUN === '1';
   const mobileMcpApps = process.env.CANVAS_MOBILE_MCP_APPS_BROWSER_RUN === '1';
   const mobileNative = process.env.CANVAS_MOBILE_PLUGIN_NATIVE_RUN === '1';
+  const mobileRenderRepro = process.env.CANVAS_MOBILE_MCP_RENDER_REPRO_RUN === '1';
+  assert(process.env.CANVAS_MOBILE_MCP_RENDER_REPRO_RUN === undefined || mobileRenderRepro);
+  assert(!mobileRenderRepro || workflow && mcpApps && !mobileMcpApps && !mobileNative && !oauth && !desktop
+    && !composioNative && !composioDesktopClient && !composioLive, 'Render diagnosis requires its separate fixed API-only command.');
   assert(process.env.CANVAS_MOBILE_PLUGIN_NATIVE_RUN === undefined || mobileNative);
   assert(!mobileNative || workflow && !mcpApps && !mobileMcpApps && !oauth && !desktop && !composioNative && !composioDesktopClient && !composioLive,
     'Native Mobile acceptance requires its own fixed workflow command.');
@@ -240,6 +247,8 @@ async function main(): Promise<void> {
     directoryProofs, listenerVerified: false,
     databaseOwner: null, createAcknowledged: false, phase: 'before_create', serverPid: null, actorId: null,
     uncertain: false, databaseDropped: false, dataRemoved: false,
+    ...(mobileRenderRepro ? { mobileRenderRepro: true as const, mobileRenderReproDeadline: Date.now() + 30 * 60_000,
+      mobileRenderReproClosed: false } : {}),
     ...(mobileNative ? { mobileNative: true as const, mobileNativeClosed: false, mcpOAuthProviderClosed: false } : {}),
     ...(nativeAny ? { desktopPaths, desktopDirectoryProofs, desktopClosed: false,
       ...(composioLive ? { nativeProvider: 'composio' as const, liveProvider: 'composio' as const }
@@ -307,6 +316,7 @@ async function main(): Promise<void> {
   if (anyMcpApps) Object.assign(env, { CANVAS_MCP_APPS_ENABLED: 'true',
     INTEGRATIONS_ENV_MASTER_KEY: randomBytes(32).toString('base64url') });
   if (mcpApps) env.CANVAS_SHARED_MCP_APPS_BROWSER_RUN = '1';
+  if (mobileRenderRepro) env.CANVAS_MOBILE_MCP_RENDER_REPRO_RUN = '1';
   if (mobileMcpApps) env.CANVAS_MOBILE_MCP_APPS_BROWSER_RUN = '1';
   if (mobileNative) env.CANVAS_MOBILE_PLUGIN_NATIVE_RUN = '1';
   if (composioDesktopClient || composioNative || composioLive || mobileNative) env.INTEGRATIONS_ENV_MASTER_KEY = randomBytes(32).toString('base64url');
@@ -550,7 +560,29 @@ async function main(): Promise<void> {
     assert(healthy && !server.ended, 'The recorded isolated production host must become ready.');
     await assertOwnedListener(); receipt.listenerVerified = true;
     receipt.phase = 'browser'; await persist();
-    if (mobileNative) {
+    if (mobileRenderRepro) {
+      console.log(`ISOLATED_MOBILE_RENDER_REPRO_FIXTURE ${root} parentPid=${process.pid}`);
+      const remaining = receipt.mobileRenderReproDeadline! - Date.now(); assert(remaining > 0);
+      const worker = startChild(['--conditions=react-server', '--import', 'tsx', 'scripts/helpers/mobile-mcp-render-repro-fixture.ts'], 'render-repro', 'test');
+      const workerCode = await waitChild(worker, remaining);
+      const handle = await fs.open(path.join(root, 'render-repro-receipt.json'), constants.O_RDONLY | constants.O_NOFOLLOW);
+      try {
+        const stat = await handle.stat();
+        assert(stat.isFile() && stat.nlink === 1 && stat.uid === rootStat.uid && (stat.mode & 0o777) === 0o600 && stat.size < 128 * 1024);
+        const result = JSON.parse(await handle.readFile('utf8')) as { version: number; nonce: string; actorId: string; deadline: number;
+          phase: string; acceptance: boolean; diagnosticPassed: boolean; closedContexts: boolean; authClosed: boolean;
+          seedersClosed: boolean; ownedDatabasePools: number; domainCleanup: string };
+        assert.equal(result.version, 1); assert.equal(result.nonce, nonce); assert.equal(result.actorId, receipt.actorId);
+        assert.equal(result.deadline, receipt.mobileRenderReproDeadline); assert.equal(result.acceptance, false);
+        assert.equal(result.closedContexts, true); assert.equal(result.authClosed, true); assert.equal(result.seedersClosed, true);
+        assert.equal(result.ownedDatabasePools, 0); assert.equal(workerCode, 0);
+        receipt.mobileRenderReproClosed = true;
+        if (!result.diagnosticPassed || result.phase !== 'diagnosed_closed' || result.domainCleanup !== 'verified') {
+          throw new Error('The isolated render diagnosis failed; its original source data is preserved.');
+        }
+      } finally { await handle.close(); }
+      receipt.phase = 'render_repro_complete'; await persist();
+    } else if (mobileNative) {
       // This compatibility phase belongs only to the saved-invocation guard.
       // Native evidence is separate; this branch never launches a browser.
       console.log(`ISOLATED_MOBILE_NATIVE_FIXTURE ${root} parentPid=${process.pid}`);
@@ -804,6 +836,7 @@ async function main(): Promise<void> {
       } else if (!composioLive && receipt.createAcknowledged && !receipt.uncertain && children.every(child => child.ended)) {
         assert(composioProviderClosed, 'The own Composio protocol fixture must close before database cleanup.');
         assert(mcpAppProviderClosed, 'The own MCP App provider must close before database cleanup.');
+        assert(!mobileRenderRepro || receipt.mobileRenderReproClosed === true, 'The own API render diagnostic must acknowledge normal closure.');
         assert(!mobileNative || receipt.mobileNativeClosed === true && receipt.mcpOAuthProviderClosed === true && receipt.mobilePackageProviderClosed === true,
           'Native Mobile and the own OAuth provider must acknowledge closure before database cleanup.');
         assert(!nativeAny || receipt.desktopClosed === true && receipt.systemBrowserClosed === true,

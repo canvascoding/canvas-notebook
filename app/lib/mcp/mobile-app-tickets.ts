@@ -9,6 +9,7 @@ import { isMcpAppResourceMimeType } from './apps-metadata';
 import { readMcpAppResource } from './manager';
 import { readAuthorizedMobileMcpSource, type MobileMcpActor } from '@/app/lib/mobile/mcp-apps-access';
 import { MOBILE_MCP_RESULT_BYTES, readMobileMcpApp, type MobileMcpSource } from '@/app/lib/mobile/mcp-apps-contracts';
+import { startMobileRenderReproTrace } from './mobile-render-repro-trace';
 
 type MobileMcpTicket = {
   actor: MobileMcpActor; source: MobileMcpSource; sourceReceiptDigest: string; authVersion: number; connectionId: string; configHash: string; environmentRevision: string;
@@ -43,19 +44,23 @@ export async function requireMobileMcpAppChannel(actor: MobileMcpActor, source: 
     input: JSON.parse(JSON.stringify(record.input)), result: JSON.parse(JSON.stringify(record.result)) };
 }
 export async function issueMobileMcpAppTicket(actor: MobileMcpActor, source: MobileMcpSource) {
+  const trace = await startMobileRenderReproTrace();
+  const run = <T>(phase: 'initial-source' | 'resource-read' | 'host-bundle' | 'final-source', operation: () => Promise<T>) =>
+    trace ? trace.run(phase, operation) : operation();
+  try {
   actor = { ...actor };
   source = { toolCallId: source.toolCallId, app: readMobileMcpApp(source.app) };
-  const receipt = await readAuthorizedMobileMcpSource(actor, source);
-  const resource = await readMcpAppResource(receipt.connectionId, source.app.toolName, source.app.resourceUri, receipt.scope, {
+  const receipt = await run('initial-source', () => readAuthorizedMobileMcpSource(actor, source));
+  const resource = await run('resource-read', () => readMcpAppResource(receipt.connectionId, source.app.toolName, source.app.resourceUri, receipt.scope, {
     expectedEnvironmentRevision: receipt.environmentRevision,
     beforeDispatch: async () => { await readAuthorizedMobileMcpSource(actor, source); },
-  });
+  }));
   const content = resource.contents.find(item => item.uri === source.app.resourceUri && isMcpAppResourceMimeType(item.mimeType));
   if (!content || !('text' in content) || typeof content.text !== 'string' || Buffer.byteLength(content.text, 'utf8') > MOBILE_MCP_RESULT_BYTES) {
     throw new McpAccessError('The MCP app does not provide supported HTML.', 422, 'MCP_SOURCE_UNAVAILABLE');
   }
-  await hostBundle();
-  const current = await readAuthorizedMobileMcpSource(actor, source);
+  await run('host-bundle', hostBundle);
+  const current = await run('final-source', () => readAuthorizedMobileMcpSource(actor, source));
   if (receipt.sourceReceiptDigest !== current.sourceReceiptDigest || receipt.authVersion !== current.authVersion
     || current.connectionId !== receipt.connectionId || current.configHash !== receipt.configHash || current.environmentRevision !== receipt.environmentRevision) {
     throw new McpAccessError('The connection changed.', 409, 'MCP_CONNECTION_CHANGED');
@@ -71,8 +76,10 @@ export async function issueMobileMcpAppTicket(actor: MobileMcpActor, source: Mob
     connectionId: receipt.connectionId, configHash: receipt.configHash, environmentRevision: receipt.environmentRevision,
     channelId, nonce, expiresAt, html: content.text, input: receipt.input, result: receipt.result });
   const { appOrigin, frameOrigin } = mcpAppOrigins();
+  await trace?.finish();
   return { checkedAt, authVersion: receipt.authVersion,
     host: { url: `${appOrigin}/__preview/${ticket}/mobile-mcp/host`, origin: appOrigin, frameOrigin, channelId, nonce, expiresAt } };
+  } catch (error) { await trace?.finish(error); throw error; }
 }
 const privateHeaders = {
   'Cache-Control': 'private, no-store, max-age=0', 'Referrer-Policy': 'no-referrer', 'X-Content-Type-Options': 'nosniff',

@@ -7,6 +7,7 @@ import { piMessages, piSessions, session as authSessions } from '@/app/lib/db/sc
 import { McpAccessError, assertMcpConnectionAccess } from '@/app/lib/mcp/access';
 import { readMcpAvailableEnvSnapshot } from '@/app/lib/mcp/env-runtime';
 import { hashMcpServerConfig } from '@/app/lib/mcp/manager';
+import { runMobileRenderReproSubphase } from '@/app/lib/mcp/mobile-render-repro-trace';
 import type { McpScope } from '@/app/lib/mcp/scope';
 import { requireMcpAppChatAccess, type McpAppChat } from '@/app/lib/mcp/apps-host';
 import { readToolAppInvocation } from '@/app/lib/tool-apps/types';
@@ -34,18 +35,18 @@ export async function readAuthorizedMobileMcpSource(actor: MobileMcpActor, sourc
   actor = { ...actor };
   options = { ...options };
   source = { toolCallId: source.toolCallId, app: readMobileMcpApp(source.app) };
-  const authSession = await db.query.session.findFirst({ where: and(eq(authSessions.id, actor.authSessionId),
-    eq(authSessions.userId, actor.userId), gt(authSessions.expiresAt, new Date())) });
+  const authSession = await runMobileRenderReproSubphase('source-auth', () => db.query.session.findFirst({ where: and(eq(authSessions.id, actor.authSessionId),
+    eq(authSessions.userId, actor.userId), gt(authSessions.expiresAt, new Date())) }));
   if (!authSession || !Number.isFinite(new Date(authSession.expiresAt).getTime())
     || new Date(authSession.expiresAt).getTime() <= Date.now()) throw new McpAccessError('Sign in again.', 401, 'UNAUTHORIZED');
-  if (await requireMcpAppChatAccess(actor) !== actor.workspaceId) throw new McpAccessError('The chat workspace changed.', 403, 'MCP_ACCESS_DENIED');
-  const session = await db.query.piSessions.findFirst({ where: and(eq(piSessions.sessionId, actor.sessionId),
-    eq(piSessions.userId, actor.userId), eq(piSessions.agentId, actor.agentId), eq(piSessions.workspaceId, actor.workspaceId)) });
+  if (await runMobileRenderReproSubphase('source-current-chat', () => requireMcpAppChatAccess(actor)) !== actor.workspaceId) throw new McpAccessError('The chat workspace changed.', 403, 'MCP_ACCESS_DENIED');
+  const session = await runMobileRenderReproSubphase('source-pi-session', () => db.query.piSessions.findFirst({ where: and(eq(piSessions.sessionId, actor.sessionId),
+    eq(piSessions.userId, actor.userId), eq(piSessions.agentId, actor.agentId), eq(piSessions.workspaceId, actor.workspaceId)) }));
   if (!session) throw new McpAccessError('Chat is unavailable.', 403, 'MCP_ACCESS_DENIED');
-  const rows = await db.select({ content: piMessages.content }).from(piMessages).where(and(
+  const rows = await runMobileRenderReproSubphase('source-saved-receipt', () => db.select({ content: piMessages.content }).from(piMessages).where(and(
     eq(piMessages.piSessionDbId, session.id), eq(piMessages.role, 'toolResult'),
     sql`${piMessages.content}::jsonb ->> 'toolCallId' = ${source.toolCallId}`,
-  )).orderBy(desc(piMessages.id)).limit(1);
+  )).orderBy(desc(piMessages.id)).limit(1));
   if (!rows[0]) throw new McpAccessError('The tool result is not saved yet.', 425, 'MCP_SOURCE_NOT_SAVED');
   let input: Record<string, unknown>, result: ReturnType<typeof readMobileMcpResult>;
   try {
@@ -65,24 +66,27 @@ export async function readAuthorizedMobileMcpSource(actor: MobileMcpActor, sourc
   let connectionId: string, scope: McpScope, environmentRevision: string;
   if (source.app.version === 2) {
     if (source.toolCallId !== source.app.toolCallId) throw new McpAccessError('The app source does not match.', 403, 'MCP_SOURCE_INVALID');
-    const { requireSharedMcpAppAccess } = await import('@/app/lib/mcp/apps-shared-access');
-    const shared = await requireSharedMcpAppAccess(actor, source.app, options.targetToolName);
+    const sharedApp = source.app;
+    const shared = await runMobileRenderReproSubphase('source-shared-access', async () => {
+      const { requireSharedMcpAppAccess } = await import('@/app/lib/mcp/apps-shared-access');
+      return requireSharedMcpAppAccess(actor, sharedApp, options.targetToolName);
+    });
     if (shared.workspaceId !== actor.workspaceId) throw new McpAccessError('The chat workspace changed.', 403, 'MCP_ACCESS_DENIED');
     connectionId = shared.connectionId; scope = shared.scope; environmentRevision = shared.environmentRevision;
   } else {
     connectionId = source.app.connectionId; scope = { userId: actor.userId };
     environmentRevision = '';
   }
-  const { connection } = await assertMcpConnectionAccess(connectionId, scope);
-  const environment = await readMcpAvailableEnvSnapshot(scope);
+  const { connection } = await runMobileRenderReproSubphase('source-mcp-access', () => assertMcpConnectionAccess(connectionId, scope));
+  const environment = await runMobileRenderReproSubphase('source-environment', () => readMcpAvailableEnvSnapshot(scope));
   if (source.app.version === 2 && environment.revision !== environmentRevision) {
     throw new McpAccessError('The connection changed.', 409, 'MCP_CONNECTION_CHANGED');
   }
   environmentRevision = environment.revision;
   const authVersion = connection.authVersion ?? 1;
   if (!Number.isSafeInteger(authVersion) || authVersion < 1) throw new McpAccessError('The connection changed.', 409, 'MCP_CONNECTION_CHANGED');
-  const currentAuth = await db.query.session.findFirst({ where: and(eq(authSessions.id, actor.authSessionId),
-    eq(authSessions.userId, actor.userId), gt(authSessions.expiresAt, new Date())) });
+  const currentAuth = await runMobileRenderReproSubphase('source-final-auth', () => db.query.session.findFirst({ where: and(eq(authSessions.id, actor.authSessionId),
+    eq(authSessions.userId, actor.userId), gt(authSessions.expiresAt, new Date())) }));
   if (!currentAuth || !Number.isFinite(new Date(currentAuth.expiresAt).getTime())
     || new Date(currentAuth.expiresAt).getTime() <= Date.now()) throw new McpAccessError('Sign in again.', 401, 'UNAUTHORIZED');
   return { piSessionDbId: session.id, sourceReceiptDigest: mobileMcpDigest({ app: source.app, input, result }), input, result, authVersion,

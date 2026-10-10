@@ -8,7 +8,8 @@ const dotenv = require('dotenv');
 const repo = path.resolve(__dirname, '..');
 const composioLive = process.argv[2] === 'run-workflow-composio-live';
 const mobileNative = process.argv[2] === 'run-workflow-mobile-native';
-if (!(composioLive ? process.argv.length === 4 : mobileNative ? [3, 4].includes(process.argv.length) : process.argv.length === 3) || !['run', 'run-workflow', 'run-workflow-mcp-apps', 'run-workflow-mobile-mcp-apps', 'run-workflow-mobile-native', 'run-workflow-oauth', 'run-workflow-oauth-desktop', 'run-workflow-oauth-desktop-identity-diagnostic', 'run-workflow-composio-desktop-client', 'run-workflow-composio-desktop', 'run-workflow-composio-live'].includes(process.argv[2])) {
+const mobileRenderRepro = process.argv[2] === 'run-workflow-mobile-render-repro';
+if (!(composioLive ? process.argv.length === 4 : mobileNative ? [3, 4].includes(process.argv.length) : process.argv.length === 3) || !['run', 'run-workflow', 'run-workflow-mcp-apps', 'run-workflow-mobile-mcp-apps', 'run-workflow-mobile-native', 'run-workflow-mobile-render-repro', 'run-workflow-oauth', 'run-workflow-oauth-desktop', 'run-workflow-oauth-desktop-identity-diagnostic', 'run-workflow-composio-desktop-client', 'run-workflow-composio-desktop', 'run-workflow-composio-live'].includes(process.argv[2])) {
   throw new Error('Choose a fixed isolated acceptance command or the native identity diagnostic.');
 }
 let tlsReuseInputPath;
@@ -75,7 +76,8 @@ if (workflow) {
   childEnv.CANVAS_CONTROL_PLANE_TEST_ROOT = controlPlaneRoot;
 }
 if (oauth) childEnv.CANVAS_SHARED_MCP_OAUTH_BROWSER_RUN = '1';
-if (process.argv[2] === 'run-workflow-mcp-apps') childEnv.CANVAS_SHARED_MCP_APPS_BROWSER_RUN = '1';
+if (process.argv[2] === 'run-workflow-mcp-apps' || mobileRenderRepro) childEnv.CANVAS_SHARED_MCP_APPS_BROWSER_RUN = '1';
+if (mobileRenderRepro) childEnv.CANVAS_MOBILE_MCP_RENDER_REPRO_RUN = '1';
 if (process.argv[2] === 'run-workflow-mobile-mcp-apps') childEnv.CANVAS_MOBILE_MCP_APPS_BROWSER_RUN = '1';
 if (mobileNative) childEnv.CANVAS_MOBILE_PLUGIN_NATIVE_RUN = '1';
 if (tlsReuseInputPath) childEnv.CANVAS_MOBILE_PLUGIN_NATIVE_TLS_REUSE_INPUT = tlsReuseInputPath;

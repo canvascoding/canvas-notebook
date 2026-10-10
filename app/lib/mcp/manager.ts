@@ -19,6 +19,7 @@ import { isMcpAppsEnabled } from '@/app/lib/mcp/apps-config';
 import { integrationMetadataCache } from '@/app/lib/integration-tools/metadata-cache';
 import { validateIntegrationArguments } from '@/app/lib/integration-tools/schema';
 import { authorizeSharedMcpScope } from './shared-access';
+import { runMobileRenderReproSubphase } from './mobile-render-repro-trace';
 
 import {
   Client,
@@ -566,16 +567,16 @@ async function withManagedConnection<T>(
   scope?: McpScope | null,
 ): Promise<T> {
   return sharedMcpInvocationScopes.run(scope?.shared ? normalizeMcpScope(scope) : null, async () => {
-  const entry = await getManagedConnection(serverName, signal, scope);
+  const entry = await runMobileRenderReproSubphase('managed-acquire', () => getManagedConnection(serverName, signal, scope));
   if (!entry.client) throw new Error(`MCP server "${serverName}" is not connected.`);
 
   entry.activeCalls += 1;
   entry.lastUsedAt = Date.now();
   try {
-    await readCurrentMcpConnection(entry);
+    await runMobileRenderReproSubphase('managed-current', () => readCurrentMcpConnection(entry));
     const result = await fn(entry, entry.client);
     entry.lastError = undefined;
-    await observeManagedConnection(entry, { kind: 'success' });
+    await runMobileRenderReproSubphase('managed-health', () => observeManagedConnection(entry, { kind: 'success' }));
     return result;
   } catch (error) {
     const hasOAuthConfig = entry.config.auth === 'oauth'
@@ -588,21 +589,21 @@ async function withManagedConnection<T>(
         error.resourceMetadataUrl?.toString(),
         currentManagedScope(entry),
       );
-      await closeManagedEntries([[entry.key, entry]]);
+      await runMobileRenderReproSubphase('managed-close', () => closeManagedEntries([[entry.key, entry]]));
       const scopeText = challengedScopes.length ? ` Required scopes: ${challengedScopes.join(' ')}.` : '';
       const stepUpError = new Error(
         `MCP server "${serverName}" requires additional OAuth authorization.${scopeText} Use mcp auth_start to continue.`,
       );
       Object.assign(stepUpError, { code: 'insufficient_scope', status: 403 });
-      await observeManagedFailure(entry, stepUpError);
+      await runMobileRenderReproSubphase('managed-failure-health', () => observeManagedFailure(entry, stepUpError));
       entry.lastError = stepUpError.message;
       throw stepUpError;
     }
     const enhanced = enhanceMcpError(error);
     entry.lastError = enhanced.message;
-    await observeManagedFailure(entry, enhanced);
+    await runMobileRenderReproSubphase('managed-failure-health', () => observeManagedFailure(entry, enhanced));
     // Transport/auth failures must not leave a stale session available for reuse.
-    await closeManagedEntries([[entry.key, entry]]);
+    await runMobileRenderReproSubphase('managed-close', () => closeManagedEntries([[entry.key, entry]]));
     throw enhanced;
   } finally {
     entry.activeCalls = Math.max(0, entry.activeCalls - 1);
@@ -829,11 +830,13 @@ export async function readMcpAppResource(
 ): Promise<ReadResourceResult> {
   requireMcpAppsEnabled();
   if (scope?.shared) scope = normalizeMcpScope({ ...scope, shared: { ...scope.shared, operation: 'use', toolName: sourceToolName } });
+  const beforeDispatch = options.beforeDispatch;
+  const tracedOptions = beforeDispatch ? { ...options, beforeDispatch: () => runMobileRenderReproSubphase('dispatch-guard', beforeDispatch) } : options;
   return mcpInvocationBindings.run(null, () => withManagedConnection(connectionId, async (entry, client) => {
-    const tools = await withTimeout(client.listTools(), getTimeoutMs(entry.config), options.signal);
+    const tools = await runMobileRenderReproSubphase('tools-list', () => withTimeout(client.listTools(), getTimeoutMs(entry.config), options.signal));
     assertCurrentMcpAppSourceTool(tools.tools, sourceToolName, resourceUri);
-    const result = await dispatchMcpAppInvocation(entry, client, options,
-      () => withTimeout(client.readResource({ uri: resourceUri }), getTimeoutMs(entry.config), options.signal), options.signal);
+    const result = await dispatchMcpAppInvocation(entry, client, tracedOptions,
+      () => runMobileRenderReproSubphase('resource-rpc', () => withTimeout(client.readResource({ uri: resourceUri }), getTimeoutMs(entry.config), options.signal)), options.signal);
     const contents = Array.isArray(result.contents) ? result.contents : [];
     if (!contents.some((content) => content.uri === resourceUri && isMcpAppResourceMimeType(content.mimeType))) {
       throw new Error('The MCP server did not return the requested MCP App HTML resource.');
