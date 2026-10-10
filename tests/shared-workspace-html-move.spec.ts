@@ -158,6 +158,8 @@ async function openOriginal(page: Page, workspaceId: string, filePath: string): 
 }
 
 async function moveDialog(page: Page, filePath: string, destination = 'Ziel') {
+  const mobileExplorer = page.getByRole('button', { name: 'Open file explorer', exact: true });
+  if (await mobileExplorer.isVisible()) await mobileExplorer.click();
   const row = page.locator(`[data-file-path="${filePath}"]`).first();
   await expect(row).toBeVisible({ timeout: 30_000 });
   await row.hover();
