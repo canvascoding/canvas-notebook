@@ -185,7 +185,7 @@ test('Studio output save waits for folder creation and preserves output IDs, nes
     assert.equal(button('submit').disabled, true);
     assert.equal(button('cancel').disabled, true);
     await act(async () => { button('submit').click(); button('cancel').click(); button('Dismiss dialog').click(); });
-    assert.deepEqual(ui.controls.requests, []);
+    assert.equal(ui.controls.requests.length, 0);
     assert.deepEqual(closed, [], 'closing is blocked while the selected folder is being created');
     await act(async () => ui.controls.picker!.onCreatingDirectoryChange?.(false));
     await act(async () => button('submit').click());
@@ -216,7 +216,7 @@ test('aspect ratio copy waits for folder creation and preserves its filename, pr
     assert.equal(button('cancel').disabled, true);
     assert.equal(document.querySelector<HTMLInputElement>('input')?.disabled, true);
     await act(async () => { button('copy').click(); button('cancel').click(); button('Dismiss dialog').click(); });
-    assert.deepEqual(ui.controls.requests, []);
+    assert.equal(ui.controls.requests.length, 0);
     assert.deepEqual(closed, []);
     await act(async () => ui.controls.picker!.onCreatingDirectoryChange?.(false));
     await act(async () => button('copy').click());
@@ -243,7 +243,7 @@ test('email attachment save waits for folder creation and preserves mailbox sour
     assert.equal(button('Save attachments').disabled, true);
     assert.equal(button('Cancel').disabled, true);
     await act(async () => { button('Save attachments').click(); button('Cancel').click(); button('Dismiss dialog').click(); });
-    assert.deepEqual(ui.controls.requests, []);
+    assert.equal(ui.controls.requests.length, 0);
     assert.ok(document.querySelector('[role="dialog"]'), 'creating a folder keeps the attachment save dialog open');
     await act(async () => ui.controls.picker!.onCreatingDirectoryChange?.(false));
     await act(async () => button('Save attachments').click());

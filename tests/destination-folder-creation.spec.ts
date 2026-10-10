@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
-import { expect, test, type APIResponse, type Browser, type Locator, type Page, type TestInfo } from '@playwright/test';
+import { expect, test, type Browser, type Locator, type Page, type Response as BrowserResponse, type TestInfo } from '@playwright/test';
 import { createAuthenticatedContext, uploadWorkspaceTextFile } from './helpers/managed-test-context';
+import { waitForFileCreateBudget } from './helpers/create-request-budget';
 
 const profiles = [
   { name: 'desktop', viewport: { width: 1440, height: 960 }, mobile: false },
@@ -83,7 +84,7 @@ async function withWorkspace(browser: Browser, profile: Profile,
 }
 
 function waitForCreation(page: Page, workspaceId: string, path: string,
-  type: 'file' | 'directory'): Promise<APIResponse> {
+  type: 'file' | 'directory'): Promise<BrowserResponse> {
   return page.waitForResponse((response) => {
     const request = response.request();
     if (new URL(response.url()).pathname !== '/api/files/create' || request.method() !== 'POST') return false;
@@ -96,6 +97,7 @@ async function createDestinationFolder(fixture: WorkspaceFixture, dialog: Locato
   name: string, expectedPath: string): Promise<void> {
   await dialog.getByRole('button', { name: 'New folder', exact: true }).click();
   await dialog.getByLabel('New folder name', { exact: true }).fill(name);
+  await waitForFileCreateBudget();
   const created = waitForCreation(fixture.page, fixture.workspaceId, expectedPath, 'directory');
   await dialog.getByRole('button', { name: 'Create folder', exact: true }).click();
   expect((await created).status(), `Create destination ${expectedPath} in the explicit workspace.`).toBe(200);
@@ -130,7 +132,7 @@ async function openPathActions(page: Page, path: string): Promise<void> {
   await expect(page.getByRole('menuitem', { name: 'Move', exact: true })).toBeVisible();
 }
 
-function waitForRename(fixture: WorkspaceFixture, oldPath: string, newPath: string): Promise<APIResponse> {
+function waitForRename(fixture: WorkspaceFixture, oldPath: string, newPath: string): Promise<BrowserResponse> {
   return fixture.page.waitForResponse((response) => {
     const request = response.request();
     if (new URL(response.url()).pathname !== '/api/files/rename' || request.method() !== 'POST') return false;
@@ -140,7 +142,7 @@ function waitForRename(fixture: WorkspaceFixture, oldPath: string, newPath: stri
   }, { timeout: 60_000 });
 }
 
-async function assertRenameApplied(fixture: WorkspaceFixture, response: APIResponse): Promise<void> {
+async function assertRenameApplied(fixture: WorkspaceFixture, response: BrowserResponse): Promise<void> {
   expect(response.ok(), 'The real move request succeeded.').toBe(true);
   const receipt = (await response.json()).operation as { batchId: string; planId: string; workspaceId: string };
   expect(receipt).toBeTruthy();
@@ -207,6 +209,7 @@ for (const profile of profiles) {
         await expect(dialog.getByRole('button', { name: 'Nested', exact: true })).toHaveAttribute('aria-pressed', 'true');
         await captureDialog(page, dialog, profile, info, 'home-note-nested');
         const path = `HomeFolder/Nested/${noteName}.md`;
+        await waitForFileCreateBudget();
         const created = waitForCreation(page, fixture.workspaceId, path, 'file');
         await dialog.getByRole('button', { name: 'Create and open', exact: true }).click();
         expect((await created).status()).toBe(200);
@@ -224,6 +227,7 @@ for (const profile of profiles) {
     test('file creation preserves its name through invalid folders, collisions and nested folder creation', async ({ browser }, info) => {
       await withWorkspace(browser, profile, async (fixture) => {
         const { page } = fixture;
+        await waitForFileCreateBudget();
         const seeded = await page.request.post('/api/files/create', {
           headers: fixture.headers, data: { path: 'Taken', type: 'directory' },
         });
@@ -242,6 +246,7 @@ for (const profile of profiles) {
         await expect(folderName).toHaveValue('invalid/name');
         await expect(dialog.getByLabel('File name', { exact: true })).toHaveValue(filename);
         await folderName.fill('Taken');
+        await waitForFileCreateBudget();
         const conflict = waitForCreation(page, fixture.workspaceId, 'Taken', 'directory');
         await dialog.getByRole('button', { name: 'Create folder', exact: true }).click();
         expect((await conflict).status()).toBe(409);
@@ -249,6 +254,7 @@ for (const profile of profiles) {
         await expect(dialog.getByLabel('File name', { exact: true })).toHaveValue(filename);
         await captureDialog(page, dialog, profile, info, 'folder-conflict-retry');
         await folderName.fill('Documents');
+        await waitForFileCreateBudget();
         const retry = waitForCreation(page, fixture.workspaceId, 'Documents', 'directory');
         await dialog.getByRole('button', { name: 'Create folder', exact: true }).click();
         expect((await retry).status()).toBe(200);
@@ -258,6 +264,7 @@ for (const profile of profiles) {
         await expect(dialog.getByLabel('File name', { exact: true })).toHaveValue(filename);
         await captureDialog(page, dialog, profile, info, 'file-create-nested');
         const path = `Documents/Nested/${filename}`;
+        await waitForFileCreateBudget();
         const created = waitForCreation(page, fixture.workspaceId, path, 'file');
         await dialog.getByRole('button', { name: 'Create file', exact: true }).click();
         expect((await created).status()).toBe(200);

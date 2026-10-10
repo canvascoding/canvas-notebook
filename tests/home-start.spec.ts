@@ -1,6 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
 import { authenticateManagedTestPage } from './helpers/managed-test-context';
+import { waitForFileCreateBudget } from './helpers/create-request-budget';
 
 async function prepare(page: Page) {
   await authenticateManagedTestPage(page);
@@ -19,6 +20,7 @@ for (const width of [390, 768, 1440]) {
       const workspaceId = await prepare(page);
       const path = `home-layout-${randomUUID()}.md`;
       const headers = { 'x-canvas-workspace-id': workspaceId };
+      await waitForFileCreateBudget();
       expect((await page.request.post('/api/files/create', { headers, data: { path, type: 'file' } })).ok()).toBeTruthy();
       try {
         expect((await page.request.post('/api/files/quick-access', { headers, data: { path } })).ok()).toBeTruthy();
@@ -92,6 +94,7 @@ for (const width of [390, 1440]) {
         await page.getByText('Anderen Ordner wählen', { exact: true }).first().click();
         await expect(folderAction).toBeHidden();
         await page.getByLabel('Name der Notiz').fill(name);
+        await waitForFileCreateBudget();
         const response = page.waitForResponse((item) => item.url().endsWith('/api/files/create') && item.request().method() === 'POST');
         await page.getByRole('button', { name: 'Erstellen und öffnen' }).click();
         expect((await response).ok()).toBeTruthy();
@@ -132,6 +135,7 @@ for (const width of [390, 1440]) {
       try {
         for (let i = 0; i < 7; i++) {
           const path = `${prefix}-${i}.md`;
+          await waitForFileCreateBudget();
           expect((await page.request.post('/api/files/create', { headers, data: { path, type: 'file' } })).ok()).toBeTruthy();
           paths.push(path);
           expect((await page.request.post('/api/files/quick-access', { headers, data: { path } })).ok()).toBeTruthy();
