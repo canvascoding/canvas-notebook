@@ -364,7 +364,7 @@ test('mounted move errors retain issue paths, recheck without applying, and open
   let resolveApply = async (): Promise<WorkspaceRenameResult> => {
     throw new WorkspacePathOperationClientError(operation, 'Immediate action could not finish safely');
   };
-  let resolvePreview = async () => {
+  const resolvePreview = async () => {
     const ready = preview('rename', 'ready');
     ready.plan.planId = 'b'.repeat(64);
     ready.plan.issues = [];
