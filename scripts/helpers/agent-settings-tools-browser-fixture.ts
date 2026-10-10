@@ -10,6 +10,7 @@ import { Pool } from 'pg';
 import { createComposioProviderFixture } from './composio-provider-fixture';
 import { createSharedMcpAppsProviderFixture } from './shared-mcp-apps-provider-fixture';
 import { createSharedMcpAppsResourceHtml } from './shared-mcp-apps-resource-fixture';
+import { readMobileNativeTlsReuseInput, reuseOwnedMobileNativeTls, type MobileNativeTlsReuseProof } from './mobile-native-tls-reuse';
 
 type Child = { process: ChildProcess; pid: number; closed: Promise<number | null>; ended: boolean };
 
@@ -45,6 +46,7 @@ type Receipt = {
   createAcknowledged: boolean; phase: string; serverPid: number | null; issuerPid?: number | null; actorId: string | null;
   uncertain: boolean; databaseDropped: boolean; dataRemoved: boolean;
   tlsFiles?: { key: { path: string; device: string; inode: string }; certificate: { path: string; device: string; inode: string } };
+  tlsReuse?: MobileNativeTlsReuseProof;
   desktopPaths?: { userData: string; sessionData: string; temp: string; logs: string; crashDumps: string };
   desktopDirectoryProofs?: Record<string, { device: string; inode: string }>;
   desktopProcessIds?: number[];
@@ -55,6 +57,10 @@ type Receipt = {
   composioProviderClosed?: boolean;
   liveProvider?: 'composio';
   mcpAppProviderClosed?: boolean;
+  mobileNative?: true;
+  mobileNativeClosed?: boolean;
+  mcpOAuthProviderClosed?: boolean;
+  mobilePackageProviderClosed?: boolean;
 };
 type IssuerReady = {
   version: 1; nonce: string; fixtureRoot: string; origin: string; certificatePath: string;
@@ -160,7 +166,14 @@ async function main(): Promise<void> {
   const composioLive = process.env.CANVAS_COMPOSIO_LIVE_BROWSER_RUN === '1';
   const mcpApps = process.env.CANVAS_SHARED_MCP_APPS_BROWSER_RUN === '1';
   const mobileMcpApps = process.env.CANVAS_MOBILE_MCP_APPS_BROWSER_RUN === '1';
-  const anyMcpApps = mcpApps || mobileMcpApps;
+  const mobileNative = process.env.CANVAS_MOBILE_PLUGIN_NATIVE_RUN === '1';
+  assert(process.env.CANVAS_MOBILE_PLUGIN_NATIVE_RUN === undefined || mobileNative);
+  assert(!mobileNative || workflow && !mcpApps && !mobileMcpApps && !oauth && !desktop && !composioNative && !composioDesktopClient && !composioLive,
+    'Native Mobile acceptance requires its own fixed workflow command.');
+  const tlsReuseInputPath = process.env.CANVAS_MOBILE_PLUGIN_NATIVE_TLS_REUSE_INPUT;
+  assert(tlsReuseInputPath === undefined || mobileNative, 'TLS reuse requires the fixed Mobile Native command.');
+  const tlsReuseInput = tlsReuseInputPath === undefined ? undefined : await readMobileNativeTlsReuseInput(tlsReuseInputPath);
+  const anyMcpApps = mcpApps || mobileMcpApps || mobileNative;
   assert(!(mcpApps && mobileMcpApps) && (!anyMcpApps || workflow && !oauth && !desktop && !composioNative && !composioDesktopClient && !composioLive),
     'MCP Apps require one separate fixed workflow command.');
   assert(!composioLive || workflow && !oauth && !desktop && !composioNative && !composioDesktopClient,
@@ -227,6 +240,7 @@ async function main(): Promise<void> {
     directoryProofs, listenerVerified: false,
     databaseOwner: null, createAcknowledged: false, phase: 'before_create', serverPid: null, actorId: null,
     uncertain: false, databaseDropped: false, dataRemoved: false,
+    ...(mobileNative ? { mobileNative: true as const, mobileNativeClosed: false, mcpOAuthProviderClosed: false } : {}),
     ...(nativeAny ? { desktopPaths, desktopDirectoryProofs, desktopClosed: false,
       ...(composioLive ? { nativeProvider: 'composio' as const, liveProvider: 'composio' as const }
         : composioNative ? { nativeProvider: 'composio' as const, composioProviderClosed: false }
@@ -248,6 +262,8 @@ async function main(): Promise<void> {
   let composioProvider: Awaited<ReturnType<typeof createComposioProviderFixture>> | undefined;
   let composioProviderClosed = !composioDesktopClient && !composioNative;
   let mcpAppProvider: Awaited<ReturnType<typeof createSharedMcpAppsProviderFixture>> | undefined;
+  let mcpOAuthProvider: Awaited<ReturnType<typeof import('../../tests/fixtures/mcp-oauth-provider.mjs')['startMcpOAuthProvider']>> | undefined;
+  let nativePackageProvider: Awaited<ReturnType<typeof import('./mobile-plugin-native-setup-fixture')['createOwnedMobileNativePackageProvider']>> | undefined;
   let mcpAppProviderClosed = !anyMcpApps;
   const children: Child[] = [];
   const abort = new AbortController();
@@ -292,7 +308,8 @@ async function main(): Promise<void> {
     INTEGRATIONS_ENV_MASTER_KEY: randomBytes(32).toString('base64url') });
   if (mcpApps) env.CANVAS_SHARED_MCP_APPS_BROWSER_RUN = '1';
   if (mobileMcpApps) env.CANVAS_MOBILE_MCP_APPS_BROWSER_RUN = '1';
-  if (composioDesktopClient || composioNative || composioLive) env.INTEGRATIONS_ENV_MASTER_KEY = randomBytes(32).toString('base64url');
+  if (mobileNative) env.CANVAS_MOBILE_PLUGIN_NATIVE_RUN = '1';
+  if (composioDesktopClient || composioNative || composioLive || mobileNative) env.INTEGRATIONS_ENV_MASTER_KEY = randomBytes(32).toString('base64url');
   if (composioLive) {
     Object.assign(env, { CANVAS_COMPOSIO_LIVE_BROWSER_RUN: '1', CANVAS_COMPOSIO_LIVE_INPUT: liveInputPath,
       CANVAS_COMPOSIO_LIVE_DESKTOP_PATHS: JSON.stringify(desktopPaths) });
@@ -318,7 +335,7 @@ async function main(): Promise<void> {
       .filter((secret): secret is string => Boolean(secret)).reduce((text, secret) => text.replaceAll(secret, '[redacted]'), value)
       .replace(/postgres(?:ql)?:\/\/\S+/gu, '[redacted-postgres-url]');
     const childEnv: NodeJS.ProcessEnv = { ...env, NODE_ENV: nodeEnv, ...overrides };
-    if (phase !== 'browser') {
+    if (phase !== 'browser' && !(mobileNative && phase === 'native-setup')) {
       delete childEnv.CANVAS_COMPOSIO_NATIVE_CONTROL_TOKEN;
       delete childEnv.CANVAS_COMPOSIO_NATIVE_CONTROL_URL;
       delete childEnv.CANVAS_COMPOSIO_LIVE_INPUT;
@@ -393,15 +410,19 @@ async function main(): Promise<void> {
     assert.equal(directories.length, 1); assert.equal(await fs.realpath(directories[0]), repo);
   };
   let bodyFailure: unknown;
+  let nativeCompletedApps: number | undefined, nativeCompletedMcpOAuth: number | undefined;
   try {
-    if (oauth || composioNative) {
+    if (oauth || composioNative || mobileNative) {
       await assertRoot();
       const keyPath = path.join(root, 'tls-key.pem'), certificatePath = path.join(root, 'tls-cert.pem');
-      await new Promise<void>((resolve, reject) => {
-        execFile('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1', '-subj', '/CN=localhost',
-          '-addext', 'subjectAltName=DNS:localhost,IP:127.0.0.1', '-keyout', keyPath, '-out', certificatePath],
-        { timeout: 15_000, maxBuffer: 64 * 1024 }, error => error ? reject(new Error('The private OAuth TLS fixture could not be created.')) : resolve());
-      });
+      if (tlsReuseInput) receipt.tlsReuse = await reuseOwnedMobileNativeTls(tlsReuseInput, root, repo);
+      else {
+        await new Promise<void>((resolve, reject) => {
+          execFile('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1', '-subj', '/CN=localhost',
+            '-addext', 'subjectAltName=DNS:localhost,IP:127.0.0.1', '-keyout', keyPath, '-out', certificatePath],
+          { timeout: 15_000, maxBuffer: 64 * 1024 }, error => error ? reject(new Error('The private OAuth TLS fixture could not be created.')) : resolve());
+        });
+      }
       for (const file of [keyPath, certificatePath]) await fs.chmod(file, 0o600);
       const key = await fs.lstat(keyPath), certificate = await fs.lstat(certificatePath);
       for (const entry of [key, certificate]) {
@@ -413,6 +434,7 @@ async function main(): Promise<void> {
       if (oauth) Object.assign(env, { CANVAS_SHARED_MCP_OAUTH_TLS_KEY: keyPath, CANVAS_SHARED_MCP_OAUTH_TLS_CERT: certificatePath });
       if (composioNative) Object.assign(env, { CANVAS_SHARED_COMPOSIO_OAUTH_TLS_KEY: keyPath,
         CANVAS_SHARED_COMPOSIO_OAUTH_TLS_CERT: certificatePath });
+      if (mobileNative) Object.assign(env, { CANVAS_MOBILE_PLUGIN_NATIVE_TLS_KEY: keyPath, CANVAS_MOBILE_PLUGIN_NATIVE_TLS_CERT: certificatePath });
       await persist();
     }
     const collisions = await administration.query('SELECT datname FROM pg_database WHERE datname=$1', [receipt.databaseName]);
@@ -465,18 +487,19 @@ async function main(): Promise<void> {
       await activateWorkflowTestLicense(ready, env);
       env.INTEGRATION_GATEWAY_E2E_FIXTURE_URL = ready.origin;
     }
-    if (composioDesktopClient || composioNative) {
-      const controlToken = composioNative ? randomBytes(32).toString('base64url') : undefined;
-      composioProvider = await createComposioProviderFixture(composioNative ? { nativeConsent: {
-        tls: { key: await fs.readFile(env.CANVAS_SHARED_COMPOSIO_OAUTH_TLS_KEY!),
-          cert: await fs.readFile(env.CANVAS_SHARED_COMPOSIO_OAUTH_TLS_CERT!) },
+    if (composioDesktopClient || composioNative || mobileNative) {
+      const controlToken = composioNative || mobileNative ? randomBytes(32).toString('base64url') : undefined;
+      composioProvider = await createComposioProviderFixture(composioNative || mobileNative ? { nativeConsent: {
+        tls: { key: await fs.readFile((mobileNative ? env.CANVAS_MOBILE_PLUGIN_NATIVE_TLS_KEY : env.CANVAS_SHARED_COMPOSIO_OAUTH_TLS_KEY)!),
+          cert: await fs.readFile((mobileNative ? env.CANVAS_MOBILE_PLUGIN_NATIVE_TLS_CERT : env.CANVAS_SHARED_COMPOSIO_OAUTH_TLS_CERT)!) },
         controlToken: controlToken!, allowedCallbackOrigin: 'http://127.0.0.1:3001', fixtureNonce: nonce,
         cleanAuthorizationAddress: true,
+        ...(mobileNative ? { nativeReturnScheme: 'canvasnotebook-dev' as const } : {}),
       } } : undefined);
       const origin = new URL(composioProvider.baseUrl);
       assert.equal(origin.hostname, '127.0.0.1'); assert.equal(origin.protocol, 'http:'); assert(origin.port);
       env.COMPOSIO_BASE_URL = origin.origin;
-      if (composioNative) {
+      if (composioNative || mobileNative) {
         assert(composioProvider.nativeConsent);
         Object.assign(env, { CANVAS_COMPOSIO_NATIVE_CONTROL_URL: composioProvider.nativeConsent.controlUrl,
           CANVAS_COMPOSIO_NATIVE_CONTROL_TOKEN: controlToken!,
@@ -489,6 +512,24 @@ async function main(): Promise<void> {
       mcpAppProvider = await createSharedMcpAppsProviderFixture({ html: await createSharedMcpAppsResourceHtml(), controlToken, allowModelVerification: true });
       Object.assign(env, { CANVAS_SHARED_MCP_APPS_URL: mcpAppProvider.url, CANVAS_SHARED_MCP_APPS_CONTROL_TOKEN: controlToken });
       receipt.mcpAppProviderClosed = false;
+    }
+    if (mobileNative) {
+      const { startMcpOAuthProvider } = await import('../../tests/fixtures/mcp-oauth-provider.mjs');
+      mcpOAuthProvider = await startMcpOAuthProvider({ allowedRedirectOrigins: [env.BASE_URL], cleanAuthorizationAddress: true,
+        nativeReturnScheme: 'canvasnotebook-dev',
+        tls: { key: await fs.readFile(env.CANVAS_MOBILE_PLUGIN_NATIVE_TLS_KEY!), cert: await fs.readFile(env.CANVAS_MOBILE_PLUGIN_NATIVE_TLS_CERT!) } });
+      Object.assign(env, { CANVAS_MOBILE_PLUGIN_NATIVE_MCP_OAUTH_URL: mcpOAuthProvider.url,
+        CANVAS_MOBILE_PLUGIN_NATIVE_MCP_OAUTH_ORIGIN: mcpOAuthProvider.origin,
+        CANVAS_SHARED_MCP_APPS_BROWSER_RUN: '1' });
+      const { createOwnedMobileNativePackageProvider } = await import('./mobile-plugin-native-setup-fixture');
+      nativePackageProvider = await createOwnedMobileNativePackageProvider({ root, nonce, intake: env.CANVAS_PLUGIN_LOCAL_SOURCE_ROOT!,
+        keyPath: env.CANVAS_MOBILE_PLUGIN_NATIVE_TLS_KEY!, certificatePath: env.CANVAS_MOBILE_PLUGIN_NATIVE_TLS_CERT! });
+      receipt.mobilePackageProviderClosed = false;
+      Object.assign(env, { CANVAS_PLUGIN_STORE_REGISTRY_URL: nativePackageProvider.registryUrl,
+        CANVAS_MOBILE_PLUGIN_NATIVE_PACKAGE_SOURCE: JSON.stringify(nativePackageProvider.sources.filter(source => source.version === '1.0.0'
+          && source.entryKey.startsWith('native-contexts-'))),
+        CANVAS_MOBILE_PLUGIN_NATIVE_PACKAGE_VERSIONS: JSON.stringify(nativePackageProvider.sources.filter(source => source.entryKey.startsWith('native-contexts-'))),
+        CANVAS_MOBILE_PLUGIN_NATIVE_STORE_INSTALL_CANDIDATES: JSON.stringify(nativePackageProvider.storeInstallCandidates) });
     }
     receipt.phase = 'host_starting'; await persist();
     server = startChild(['--import', 'tsx', 'server.js'], 'host', 'production');
@@ -509,6 +550,32 @@ async function main(): Promise<void> {
     assert(healthy && !server.ended, 'The recorded isolated production host must become ready.');
     await assertOwnedListener(); receipt.listenerVerified = true;
     receipt.phase = 'browser'; await persist();
+    if (mobileNative) {
+      // This compatibility phase belongs only to the saved-invocation guard.
+      // Native evidence is separate; this branch never launches a browser.
+      console.log(`ISOLATED_MOBILE_NATIVE_FIXTURE ${root} parentPid=${process.pid}`);
+      const nativeWorker = startChild(['--conditions=react-server', '--import', 'tsx', 'scripts/helpers/mobile-plugin-native-setup-fixture.ts'], 'native-setup', 'test');
+      // Native-only: three-hour handoff plus ten minutes shared by setup/close.
+      assert.equal(await waitChild(nativeWorker, 190 * 60_000), 0, 'The native worker must acknowledge its completed closure.');
+      const handle = await fs.open(path.join(root, 'native-receipt.json'), constants.O_RDONLY | constants.O_NOFOLLOW);
+      try {
+        const stat = await handle.stat();
+        assert(stat.isFile() && stat.nlink === 1 && stat.uid === rootStat.uid && (stat.mode & 0o777) === 0o600 && stat.size < 64 * 1024);
+        const nativeReceipt = JSON.parse(await handle.readFile('utf8')) as { version?: unknown; nonce?: unknown; actorId?: unknown;
+          phase?: unknown; outstanding?: unknown; closedContexts?: unknown; poolsClosed?: unknown; seedersClosed?: unknown; nativeAppClosed?: unknown;
+          checks?: { appCases?: Array<{ status: string }>; oauthCases?: Array<{ source: string; terminalStatus: string }> } };
+        assert.equal(nativeReceipt.version, 1); assert.equal(nativeReceipt.nonce, nonce); assert.equal(nativeReceipt.actorId, receipt.actorId);
+        assert.equal(nativeReceipt.phase, 'native_verified_closed'); assert.equal(nativeReceipt.outstanding, null);
+        assert.equal(nativeReceipt.closedContexts, true); assert.equal(nativeReceipt.poolsClosed, true);
+        assert.equal(nativeReceipt.seedersClosed, true); assert.equal(nativeReceipt.nativeAppClosed, true);
+        assert(nativeReceipt.checks && Array.isArray(nativeReceipt.checks.appCases) && Array.isArray(nativeReceipt.checks.oauthCases));
+        assert(nativeReceipt.checks.appCases.length <= 32 && nativeReceipt.checks.oauthCases.length <= 32);
+        nativeCompletedApps = nativeReceipt.checks.appCases.filter(value => value.status === 'completed').length;
+        nativeCompletedMcpOAuth = nativeReceipt.checks.oauthCases.filter(value => value.source === 'mcp' && value.terminalStatus === 'completed').length;
+        assert(nativeCompletedApps > 0 && nativeCompletedMcpOAuth >= 2);
+      } finally { await handle.close(); }
+      receipt.mobileNativeClosed = true; receipt.phase = 'native_complete'; await persist();
+    } else {
     const browserArgs = [path.join(repo, 'node_modules/@playwright/test/cli.js'), 'test', '--config', mcpApps
       ? 'playwright.shared-mcp-apps-production.config.ts' : mobileMcpApps
       ? 'playwright.mobile-mcp-apps-production.config.ts' : composioLive
@@ -641,6 +708,7 @@ async function main(): Promise<void> {
     await assertOwnedListener();
     if (browserCode !== 0) bodyFailure = new Error('The actual agent-switch browser assertion failed; see the private browser log.');
     receipt.phase = 'browser_complete'; await persist();
+    }
   } catch (error) {
     bodyFailure = error;
     // Missing acknowledgements, transport failures, cancellation and interrupted
@@ -657,17 +725,47 @@ async function main(): Promise<void> {
     }
     if (server && !server.ended) receipt.uncertain = true;
     if (composioProvider) {
+      if (mobileNative && composioProvider.nativeConsent) {
+        try {
+          await fs.writeFile(path.join(root, 'native-composio-provider-proof.json'), JSON.stringify({ version: 1, nonce,
+            stats: composioProvider.nativeConsent.readStats(), issued: composioProvider.nativeConsent.readFlow() }), { mode: 0o600, flag: 'wx' });
+        } catch { receipt.uncertain = true; }
+      }
       try { await composioProvider.close(); composioProviderClosed = true;
-        if (composioNative) receipt.composioProviderClosed = true; }
+        if (composioNative) receipt.composioProviderClosed = true;
+        if (mobileNative && receipt.mobileNativeClosed) assert.equal(composioProvider.nativeConsent!.readStats().businessCalls, 0); }
       catch { receipt.uncertain = true; }
     } else if (composioDesktopClient || composioNative) composioProviderClosed = true;
+    if (mcpOAuthProvider) {
+      try {
+        await mcpOAuthProvider.close(); receipt.mcpOAuthProviderClosed = true;
+        await fs.writeFile(path.join(root, 'native-mcp-oauth-provider-proof.json'), JSON.stringify({ version: 1, nonce, ...mcpOAuthProvider.stats }), { mode: 0o600, flag: 'wx' });
+        if (receipt.mobileNativeClosed) {
+          assert.equal(mcpOAuthProvider.stats.approvals, nativeCompletedMcpOAuth);
+          assert.equal(mcpOAuthProvider.stats.tokenExchanges, nativeCompletedMcpOAuth);
+          assert.equal(mcpOAuthProvider.stats.failedTokenExchanges, 0); assert.equal(mcpOAuthProvider.stats.toolCalls, 0);
+        }
+      } catch { receipt.uncertain = true; }
+    }
+    if (nativePackageProvider) {
+      try {
+        await nativePackageProvider.close(); receipt.mobilePackageProviderClosed = true;
+        await fs.writeFile(path.join(root, 'native-package-provider-proof.json'), JSON.stringify({ version: 1, nonce,
+          ...nativePackageProvider.counters }), { mode: 0o600, flag: 'wx' });
+      } catch { receipt.uncertain = true; }
+    }
     if (mcpAppProvider) {
       try {
+        if (mobileNative) { await mcpAppProvider.close(); mcpAppProviderClosed = true; receipt.mcpAppProviderClosed = true; }
         await fs.writeFile(path.join(root, 'mcp-app-provider-proof.json'), JSON.stringify({ version: 1, nonce,
           requests: mcpAppProvider.requests, calls: mcpAppProvider.calls.map(call => ({ name: call.name })),
           resourceReads: mcpAppProvider.resourceReads, verificationProbes: mcpAppProvider.verificationProbes() }),
         { mode: 0o600, flag: 'wx' });
-        await mcpAppProvider.close(); mcpAppProviderClosed = true; receipt.mcpAppProviderClosed = true;
+        if (!mobileNative) { await mcpAppProvider.close(); mcpAppProviderClosed = true; receipt.mcpAppProviderClosed = true; }
+        if (mobileNative && receipt.mobileNativeClosed) {
+          assert.equal(mcpAppProvider.calls.filter(call => call.name === 'app_action').length, nativeCompletedApps);
+          assert.equal(mcpAppProvider.calls.filter(call => call.name === 'model_only').length, 0);
+        }
       } catch { receipt.uncertain = true; }
     }
     if (workflow) {
@@ -706,6 +804,8 @@ async function main(): Promise<void> {
       } else if (!composioLive && receipt.createAcknowledged && !receipt.uncertain && children.every(child => child.ended)) {
         assert(composioProviderClosed, 'The own Composio protocol fixture must close before database cleanup.');
         assert(mcpAppProviderClosed, 'The own MCP App provider must close before database cleanup.');
+        assert(!mobileNative || receipt.mobileNativeClosed === true && receipt.mcpOAuthProviderClosed === true && receipt.mobilePackageProviderClosed === true,
+          'Native Mobile and the own OAuth provider must acknowledge closure before database cleanup.');
         assert(!nativeAny || receipt.desktopClosed === true && receipt.systemBrowserClosed === true,
           'Native desktop and independent system-browser closure must be acknowledged before normal database cleanup.');
         if (desktopPaths && desktopDirectoryProofs) for (const directory of Object.values(desktopPaths)) {

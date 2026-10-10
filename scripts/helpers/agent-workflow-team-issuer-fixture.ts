@@ -11,7 +11,7 @@ import { Pool } from 'pg';
 type Json = Record<string, unknown>;
 type ParentReceipt = {
   version: number; nonce: string; fixtureRoot: string; repo: string; ownerMarker: string;
-  rootDevice: string; rootInode: string; createAcknowledged: boolean; phase: string; actorId: string | null; uncertain: boolean;
+  rootDevice: string; rootInode: string; createAcknowledged: boolean; phase: string; actorId: string | null; uncertain: boolean; mobileNative?: true;
 };
 type IssuerReceipt = {
   version: 1; nonce: string; fixtureRoot: string; controlPlaneRoot: string; databaseName: string; processId: number;
@@ -48,7 +48,7 @@ type IssuerState = {
 const protocolVersion = 'canvas-team-seat-protocol-v1';
 const uuid = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/u;
 
-async function assertIssuerInput(): Promise<IssuerInput> {
+export async function assertIssuerInput(): Promise<IssuerInput> {
   assert.equal(process.env.CANVAS_AGENT_WORKFLOW_MULTIUSER_BROWSER_RUN, '1');
   assert.equal(process.env.NODE_ENV, 'development');
   assert.equal(process.argv.length, 2, 'The owned issuer does not accept additional CLI arguments.');
@@ -64,6 +64,8 @@ async function assertIssuerInput(): Promise<IssuerInput> {
   assert.equal(parent.version, 1); assert.match(parent.nonce, /^[a-f0-9]{32}$/u);
   assert.equal(parent.fixtureRoot, root); assert.equal(parent.rootDevice, String(stat.dev)); assert.equal(parent.rootInode, String(stat.ino));
   assert.equal(parent.phase, 'bootstrap'); assert.equal(parent.createAcknowledged, true); assert.equal(parent.uncertain, false);
+  assert.equal(process.env.CANVAS_MOBILE_PLUGIN_NATIVE_RUN, parent.mobileNative === true ? '1' : undefined,
+    'Only the owned native fixture may request its bounded longer certificate.');
   assert(typeof parent.actorId === 'string' && parent.actorId.length > 0);
   const marker = await fs.lstat(path.join(root, '.fixture-owner'));
   assert(marker.isFile() && !marker.isSymbolicLink() && marker.nlink === 1 && (marker.mode & 0o777) === 0o600);
@@ -105,7 +107,7 @@ function issuerFingerprint(pem: string): string {
   return createHash('sha256').update(createPublicKey(pem).export({ type: 'spki', format: 'der' })).digest('hex');
 }
 
-function configureIssuerEnvironment(input: IssuerInput, origin: string, runtimeUrl: URL, keys: { initial: string; test: string }): void {
+export function configureIssuerEnvironment(input: IssuerInput, origin: string, runtimeUrl: URL, keys: { initial: string; test: string }): void {
   const allowed = ['PATH', 'HOME', 'LANG', 'LC_ALL', 'TZ'];
   const inherited = Object.fromEntries(allowed.flatMap(key => process.env[key] ? [[key, process.env[key]]] : []));
   // This is an isolated child. Clearing its environment cannot affect Notebook,
@@ -120,7 +122,7 @@ function configureIssuerEnvironment(input: IssuerInput, origin: string, runtimeU
     LICENSE_CLAIM_CODE_SECRET: randomBytes(48).toString('base64url'), LICENSE_COMMUNITY_EXPIRY_DAYS: '1',
     TEAM_SEAT_CONTROL_PLANE_ENVIRONMENT: 'production', TEAM_SEAT_TEST_GRANTS_ENABLED: 'true',
     TEAM_SEAT_TEST_ALLOWED_ENVIRONMENTS: 'development', TEAM_SEAT_TEST_MAX_TTL_HOURS: '24', TEAM_SEAT_TEST_MAX_SEATS: '4',
-    TEAM_SEAT_GRANT_CERTIFICATE_TTL_SECONDS: '3600', TEAM_SEAT_COMMUNITY_CLAIM_ENABLED: 'true',
+    TEAM_SEAT_GRANT_CERTIFICATE_TTL_SECONDS: input.parent.mobileNative === true ? '12600' : '3600', TEAM_SEAT_COMMUNITY_CLAIM_ENABLED: 'true',
     TEAM_SEAT_CLOUD_COMMERCIAL_ENABLED: 'false', TEAM_SEAT_COMMUNITY_COMMERCIAL_ENABLED: 'false', TEAM_SEAT_STRIPE_MUTATIONS_ENABLED: 'false',
     LOG_DIR: path.join(input.root, 'issuer-logs'), TMPDIR: path.join(input.root, 'tmp'), __NEXT_PROCESSED_ENV: 'true',
   });
@@ -509,6 +511,7 @@ async function main(): Promise<void> {
   } finally { process.removeListener('SIGTERM', stop); process.removeListener('SIGINT', stop); }
 }
 
-// This helper is launched only in its own recorded child process. No parent
-// imports it; all CP module globals and environment changes stay in this child.
-void main().catch(() => { process.exitCode = 1; });
+// CLI launches stay in the recorded child; contract-test imports start no issuer.
+if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve('scripts/helpers/agent-workflow-team-issuer-fixture.ts')) {
+  void main().catch(() => { process.exitCode = 1; });
+}

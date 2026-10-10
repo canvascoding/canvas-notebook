@@ -7,8 +7,36 @@ const dotenv = require('dotenv');
 
 const repo = path.resolve(__dirname, '..');
 const composioLive = process.argv[2] === 'run-workflow-composio-live';
-if (process.argv.length !== (composioLive ? 4 : 3) || !['run', 'run-workflow', 'run-workflow-mcp-apps', 'run-workflow-mobile-mcp-apps', 'run-workflow-oauth', 'run-workflow-oauth-desktop', 'run-workflow-oauth-desktop-identity-diagnostic', 'run-workflow-composio-desktop-client', 'run-workflow-composio-desktop', 'run-workflow-composio-live'].includes(process.argv[2])) {
+const mobileNative = process.argv[2] === 'run-workflow-mobile-native';
+if (!(composioLive ? process.argv.length === 4 : mobileNative ? [3, 4].includes(process.argv.length) : process.argv.length === 3) || !['run', 'run-workflow', 'run-workflow-mcp-apps', 'run-workflow-mobile-mcp-apps', 'run-workflow-mobile-native', 'run-workflow-oauth', 'run-workflow-oauth-desktop', 'run-workflow-oauth-desktop-identity-diagnostic', 'run-workflow-composio-desktop-client', 'run-workflow-composio-desktop', 'run-workflow-composio-live'].includes(process.argv[2])) {
   throw new Error('Choose a fixed isolated acceptance command or the native identity diagnostic.');
+}
+let tlsReuseInputPath;
+if (mobileNative && process.argv.length === 4) {
+  try {
+    const input = process.argv[3], before = fs.lstatSync(input);
+    if (!path.isAbsolute(input) || fs.realpathSync(input) !== input || !before.isFile() || before.isSymbolicLink()
+      || before.nlink !== 1 || before.uid !== process.getuid?.() || (before.mode & 0o777) !== 0o600
+      || before.size < 1 || before.size > 4096) throw new Error();
+    const fd = fs.openSync(input, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+    try {
+      const buffer = Buffer.alloc(4097); let length = 0;
+      while (length <= 4096) {
+        const count = fs.readSync(fd, buffer, length, buffer.length - length, length);
+        if (!count) break;
+        length += count;
+      }
+      const held = fs.fstatSync(fd), current = fs.lstatSync(input);
+      if (length !== before.size || length > 4096 || fs.realpathSync(input) !== input
+        || ['dev', 'ino', 'uid', 'mode', 'nlink', 'size', 'mtimeMs', 'ctimeMs'].some(key => held[key] !== before[key] || current[key] !== before[key])) throw new Error();
+      const value = JSON.parse(buffer.subarray(0, length).toString('utf8'));
+      if (!value || Array.isArray(value) || typeof value !== 'object'
+        || Object.keys(value).sort().join(',') !== 'expectedFingerprint256,sourceRoot'
+        || typeof value.sourceRoot !== 'string' || !path.isAbsolute(value.sourceRoot) || value.sourceRoot.length > 1024
+        || typeof value.expectedFingerprint256 !== 'string' || !/^(?:[A-F0-9]{2}:){31}[A-F0-9]{2}$/u.test(value.expectedFingerprint256)) throw new Error();
+      tlsReuseInputPath = input;
+    } finally { fs.closeSync(fd); }
+  } catch { throw new Error('The owned Mobile Native TLS reuse input could not be verified.'); }
 }
 const workflow = process.argv[2] !== 'run';
 const identityDiagnostic = process.argv[2] === 'run-workflow-oauth-desktop-identity-diagnostic';
@@ -49,6 +77,8 @@ if (workflow) {
 if (oauth) childEnv.CANVAS_SHARED_MCP_OAUTH_BROWSER_RUN = '1';
 if (process.argv[2] === 'run-workflow-mcp-apps') childEnv.CANVAS_SHARED_MCP_APPS_BROWSER_RUN = '1';
 if (process.argv[2] === 'run-workflow-mobile-mcp-apps') childEnv.CANVAS_MOBILE_MCP_APPS_BROWSER_RUN = '1';
+if (mobileNative) childEnv.CANVAS_MOBILE_PLUGIN_NATIVE_RUN = '1';
+if (tlsReuseInputPath) childEnv.CANVAS_MOBILE_PLUGIN_NATIVE_TLS_REUSE_INPUT = tlsReuseInputPath;
 if (desktop) childEnv.CANVAS_SHARED_MCP_DESKTOP_OAUTH_BROWSER_RUN = '1';
 if (identityDiagnostic) childEnv.CANVAS_SHARED_MCP_DESKTOP_IDENTITY_DIAGNOSTIC_RUN = '1';
 if (composioDesktopClient) childEnv.CANVAS_SHARED_COMPOSIO_DESKTOP_CLIENT_BROWSER_RUN = '1';
