@@ -7,6 +7,7 @@ import type { WorkspaceFileOperationOptions } from '@/app/lib/filesystem/workspa
 import { buildWorkspacePlannerSnapshot, WorkspacePreviewUnavailableError } from './workspace-file-operation-preview';
 import type { WorkspacePlannerEntry, WorkspacePlannerSnapshot } from './workspace-file-operation-planner';
 import { MAX_INDEXED_MARKDOWN_BYTES } from './workspace-link-limits';
+import { parseWorkspaceLocalLinks } from './workspace-local-link-parser';
 
 type Dependencies = {
   buildDiskSnapshot?: typeof buildWorkspacePlannerSnapshot;
@@ -30,7 +31,7 @@ function omit(entry: WorkspacePlannerEntry, reason: 'source-unreadable' | 'sourc
   entry.omissionReason = reason;
 }
 
-/** Overlay durable Yjs truth on the immutable disk catalogue without initializing or projecting documents. */
+/** Overlay durable HTML-link truth; ordinary Markdown keeps the existing move/preflight byte semantics. */
 export async function buildWorkspaceAuthoritativePlannerSnapshot(
   workspaceId: string,
   options: WorkspaceFileOperationOptions,
@@ -87,6 +88,9 @@ export async function buildWorkspaceAuthoritativePlannerSnapshot(
         const bytes = Buffer.from(content, 'utf8');
         if (bytes.byteLength > MAX_INDEXED_MARKDOWN_BYTES) { omit(entry, 'source-too-large'); continue; }
         if (new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes) !== content) { omit(entry, 'source-unreadable'); continue; }
+        const hasHtml = (markdownContent: string) => parseWorkspaceLocalLinks(markdownContent, entry.path)
+          .unevaluated.some((link) => link.reason === 'html');
+        if (!hasHtml(entry.markdownContent ?? '') && !hasHtml(content)) continue;
         entry.markdownContent = content;
         delete entry.contentHash;
         delete entry.omissionReason;

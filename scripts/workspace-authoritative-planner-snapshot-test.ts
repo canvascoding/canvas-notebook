@@ -7,6 +7,7 @@ import * as Y from 'yjs';
 
 import type { SqlConnection } from '../app/lib/db';
 import { serializeCanonicalText } from '../app/lib/collaboration/persistence';
+import { createRichMarkdownYDoc } from '../app/lib/collaboration/markdown-state';
 import { buildWorkspaceAuthoritativePlannerSnapshot } from '../app/lib/markdown/workspace-authoritative-planner-snapshot';
 import { buildWorkspacePlannerSnapshot } from '../app/lib/markdown/workspace-file-operation-preview';
 import { createWorkspaceFileOperationPlan } from '../app/lib/markdown/workspace-file-operation-planner';
@@ -44,7 +45,7 @@ async function main(): Promise<void> {
       await pg.query(`INSERT INTO collaboration_yjs_states VALUES
         ('document','workspace',NULL,'test.md','plain_text',1,1,$1,$2,2,2,NULL,0,NULL,NULL,$3,$4,FALSE,'active')
         ON CONFLICT(document_id) DO UPDATE SET workspace_id='workspace',organization_id=NULL,path='test.md',
-          yjs_state=$1,state_vector=$2,newline_style=$3,has_bom=$4,degraded=FALSE,status='active'`,
+          representation='plain_text',schema_version=1,yjs_state=$1,state_vector=$2,newline_style=$3,has_bom=$4,degraded=FALSE,status='active'`,
       [Y.encodeStateAsUpdate(doc), Y.encodeStateVector(doc), newlineStyle, hasBom]);
     } finally { doc.destroy(); }
   };
@@ -89,6 +90,42 @@ async function main(): Promise<void> {
       await persist(canonical, profile.newlineStyle, profile.hasBom);
       assert.equal(source(await snapshot()).markdownContent, serializeCanonicalText(canonical, profile), 'Preserve authoritative UTF-8/BOM/newline byte profile');
     }
+    await fs.writeFile(path.join(root, 'test.md'), '# Plain disk content\n');
+    await persist(changedHtml);
+    assert.equal(source(await snapshot()).markdownContent, changedHtml, 'New HTML present only in Yjs must enter the fresh link graph');
+    assert.equal((await plan()).readiness, 'blocked');
+    const opaqueHtml = '<img src="canvas-holdings-screenshot.png" style="background-image:image-set(\'ek-fuchs-transkript.md\' 1x)">';
+    await persist(opaqueHtml);
+    assert.equal(source(await snapshot()).markdownContent, opaqueHtml, 'The selection includes HTML without certified targets');
+    assert.equal((await plan()).linkAssessment?.blockers[0]?.reason, 'unevaluated-link');
+    await fs.writeFile(path.join(root, 'test.md'), oldHtml);
+    await persist('# HTML removed\n');
+    assert.equal(source(await snapshot()).markdownContent, '# HTML removed\n', 'Removing old HTML also requires current canonical truth');
+    assert.equal((await plan()).readiness, 'ready');
+    assert.notEqual((await plan()).planId, original.planId);
+
+    await fs.writeFile(path.join(root, 'test.md'), '# Plain disk content\n');
+    const textDisk = await buildWorkspacePlannerSnapshot(workspace.workspaceId, options);
+    const textPlan = (snapshot: typeof textDisk) => createWorkspaceFileOperationPlan({ kind: 'move',
+      sourceWorkspaceId: workspace.workspaceId, destinationWorkspaceId: workspace.workspaceId,
+      selections: [{ sourcePath: 'test.md', destinationPath: 'Notizen/test.md' }], snapshots: [snapshot] });
+    for (const canonical of ['# Authored text edit\n', '<img src="https://example.com/image.png">',
+      '```html\n<img src="ek-fuchs-transkript.md">\n```', '`<img src="ek-fuchs-transkript.md">`',
+      '---\nexample: <img src="ek-fuchs-transkript.md">\n---\n# Text']) {
+      await persist(canonical);
+      const untouched = await snapshot();
+      assert.deepEqual(untouched.entries, textDisk.entries, 'HTML-free graph leaves all existing disk entry fences intact');
+      assert.equal(textPlan(untouched).planId, textPlan(textDisk).planId, 'Ordinary authored changes retain the existing worker preflight plan semantics');
+    }
+    const rich = createRichMarkdownYDoc('# Authored rich edit\n\nAccepted paragraph\n', 'tiptap_blocks');
+    try {
+      await pg.query(`UPDATE collaboration_yjs_states SET representation='tiptap_blocks',schema_version=3,
+        yjs_state=$1,state_vector=$2 WHERE document_id='document'`, [Y.encodeStateAsUpdate(rich), Y.encodeStateVector(rich)]);
+    } finally { rich.destroy(); }
+    const unchangedRichPlan = await snapshot();
+    assert.deepEqual(unchangedRichPlan.entries, textDisk.entries, 'Validated ordinary rich edits retain existing physical checkpoint semantics');
+    assert.equal(textPlan(unchangedRichPlan).planId, textPlan(textDisk).planId);
+    await fs.writeFile(path.join(root, 'test.md'), oldHtml);
     for (const modification of ["status='archived'", 'degraded=TRUE', "workspace_id='other-workspace'",
       "organization_id='other-organization'", "path='other.md'", "state_vector='\\x00'::bytea"]) {
       await persist(oldHtml);
