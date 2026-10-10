@@ -11,12 +11,15 @@ import { parse } from 'dotenv';
 import { Client } from 'pg';
 import { chromium, expect } from '@playwright/test';
 import {
-  authorizeIngestE2EMcp, inspectIngestE2EEditor, openIngestE2EEditor,
+  authorizeIngestE2EMcp, inspectIngestE2EEditor, inspectIngestE2ESource, openIngestE2EEditor,
   requireIngestE2EFailure, requireIngestE2EJson, requireIngestE2ESuccess,
 } from './mcp-file-ingest-e2e-helpers.ts';
 
 const exec = promisify(execFile);
 const cwd = process.cwd();
+await fs.access(path.join(cwd, '.next/BUILD_ID')).catch(() => {
+  throw new Error('Run npm run build before E2E: the current checkout has no production .next/BUILD_ID.');
+});
 const runId = randomUUID();
 const envFile = process.env.CANVAS_ENV_FILE || path.join(os.homedir(), '.local/state/canvas-local-team-seat/notebook-host-dev.env');
 const localEnv = parse(await fs.readFile(envFile));
@@ -54,8 +57,8 @@ await fs.chmod(isolatedData, 0o700);
 await fs.mkdir(artifactDirectory, { recursive: true, mode: 0o700 });
 const databaseURL = new URL(managedURL);
 databaseURL.pathname = `/${isolatedDatabase}`;
-const env = { ...process.env, ...localEnv, NODE_ENV: 'development', PORT: String(port), HOSTNAME: '127.0.0.1',
-  CANVAS_ENV_FILE: envFile, CANVAS_APP_ROOT: cwd, CANVAS_DEV_BUNDLER: 'webpack',
+const env = { ...process.env, ...localEnv, NODE_ENV: 'production', PORT: String(port), HOSTNAME: '127.0.0.1',
+  CANVAS_ENV_FILE: envFile, CANVAS_APP_ROOT: cwd,
   BASE_URL: baseURL, BETTER_AUTH_BASE_URL: baseURL, DATABASE_URL: databaseURL.href,
   DATA: isolatedData, CANVAS_DATA_ROOT: isolatedData, CANVAS_DATABASE_MIGRATIONS_COMPLETED: 'false',
   CANVAS_DEPLOYMENT_MODE: 'community', CANVAS_TEAM_FEATURES_ENABLED: 'false',
@@ -86,10 +89,10 @@ const steps = [];
 const receipts = [];
 const startedAt = new Date().toISOString();
 const report = { runId, startedAt, passed: false, evidence: {
-  runtime: 'current checkout, owned webpack host, disposable database on existing managed PostgreSQL',
+  runtime: 'current checkout production build, owned host, disposable database on existing managed PostgreSQL',
   oauth: 'real Better Auth login, public registration, browser consent, authorization code and PKCE',
   hostAttachment: 'real HTTPS import adapter using immutable primary public fixture; actual ChatGPT file-reference mediation is outside this test',
-  originalByteCases: 'BOM/CRLF/source-only original cases are covered by the focused validation/storage tests',
+  originalByteCases: 'source-only original Markdown is checked in the real editor; BOM/CRLF originals are covered by focused validation/storage tests',
   containersBuilt: false, traceRecorded: false, videoRecorded: false,
 }, steps, receipts };
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -100,7 +103,7 @@ async function step(name, work) {
     const detail = await work();
     steps.push({ name, passed: true, durationMs: Date.now() - started, ...(detail ? { detail } : {}) });
   } catch (error) {
-    steps.push({ name, passed: false, durationMs: Date.now() - started, error: safeDiagnostic(error.message) });
+    steps.push({ name, passed: false, durationMs: Date.now() - started, error: safeDiagnostic(error.message), stack: safeDiagnostic(error.stack || '') });
     throw error;
   }
 }
@@ -274,10 +277,24 @@ try {
     assert.ok(allowed.workspaces.some(item => item.workspace_id === workspace.id || item.id === workspace.id));
     assert.ok(!allowed.workspaces.some(item => item.workspace_id === deniedWorkspace.id || item.id === deniedWorkspace.id));
   });
+  await step('run existing Office path, lease, create/write/upload and workspace binding regression against real PostgreSQL', async () => {
+    const artifact = path.join(artifactDirectory, 'office-path-alias-regression.log');
+    try {
+      const result = await exec(process.execPath, ['--conditions=react-server', '--import', 'tsx',
+        'scripts/office-path-alias-test.ts'], { cwd, env: { ...env, BASE_URL: 'http://localhost:3000' },
+        timeout: 90_000, maxBuffer: 4 * 1024 * 1024 });
+      await fs.writeFile(artifact, safeDiagnostic(`${result.stdout}\n${result.stderr}`), { mode: 0o600 });
+      assert.ok(result.stdout.includes('PASS personal:') && result.stdout.includes('PASS organization:'),
+        'Existing Office regression must complete both workspace types without changing its assertions.');
+    } catch (error) {
+      await fs.writeFile(artifact, safeDiagnostic(`${error.stdout || ''}\n${error.stderr || ''}\n${error.message}`), { mode: 0o600 });
+      throw new Error('Existing Office regression failed against the isolated PostgreSQL runtime; inspect its redacted artifact log.');
+    }
+  });
   const markdown = ['---', 'title: MCP acceptance document', 'tags:', '  - type/report', '  - topic/mcp', '---', '',
     '# MCP acceptance document', '', 'A **bold** paragraph with [a link](https://example.com).', '',
-    '- First item', '- Second item', '', '- [ ] Unfinished task', '- [x] Finished task', '',
-    '| Name | Value |', '| --- | --- |', '| Canvas | Notebook |', '',
+    '- First item', '- Second item', '', '- [ ] Unfinished task', '- [x] Finished task', '', '',
+    '| Name   | Value    |', '| ------ | -------- |', '| Canvas | Notebook |', '', '',
     '```typescript', 'const title = "Canvas";', '```', '',
     '> [!note] Original callout', '> Original content is preserved.', '',
     'Inline math: $E = mc^2$.', '', '$$', '\\int_0^1 x^2 \\, dx = \\frac{1}{3}', '$$', '',].join('\n');
@@ -286,7 +303,7 @@ try {
   let created;
   await step('create complete complex Markdown and verify bytes, hash, durable receipt and history', async () => {
     created = requireIngestE2ESuccess(await mcp.call('create_knowledge_source', createdArgs), 'Create Markdown');
-    assert.notEqual(created.markdown?.mode, 'source', 'The supplied normal Markdown must support the rich editor.');
+    assert.equal(created.markdown?.mode, 'rich', 'Canonical Markdown must open in rich mode without normalization.');
     await verifyReceipt(created, Buffer.from(markdown));
     const journal = path.join(isolatedData, 'system/mcp-file-ingest', `${created.operation_id}.json`);
     assert.equal((await fs.stat(journal)).mode & 0o777, 0o600);
@@ -331,12 +348,15 @@ try {
       assert.deepEqual(reopened.json, parsed.json);
       await page.screenshot({ path: path.join(artifactDirectory, 'created-markdown-reloaded.png'), animations: 'disabled' });
       await fs.writeFile(path.join(artifactDirectory, 'created-editor-tree.json'), JSON.stringify(parsed.json, null, 2), { mode: 0o600 });
+      assert.deepEqual(await fs.readFile(physical(createdArgs.path)), Buffer.from(markdown));
     } finally { await page.close(); }
   });
   const remoteUrl = 'https://raw.githubusercontent.com/modelcontextprotocol/modelcontextprotocol/c518f7a927cff918bce35d3522fcdb046d264d7c/README.md';
   let importedArgs;
   let imported;
   let originalBytes;
+  let importedImageArgs;
+  let importedImage;
   await step('import original Markdown through real public HTTPS and verify original bytes', async () => {
     const response = await fetch(remoteUrl, { signal: AbortSignal.timeout(30_000) });
     assert.ok(response.ok, `Immutable primary fixture: HTTP ${response.status}`);
@@ -358,17 +378,107 @@ try {
   await step('open imported original Markdown in the real editor and preserve reload content', async () => {
     const page = await owner.newPage();
     try {
-      const editor = await openIngestE2EEditor(page, workspace.id, importedArgs.path);
-      await expect(editor).toContainText('Model Context Protocol (MCP)');
-      const parsed = await inspectIngestE2EEditor(page);
-      assert.ok(parsed.nodeTypes.includes('heading'));
-      assert.ok(parsed.nodeTypes.includes('bulletList'));
+      assert.deepEqual(await fs.readFile(physical(importedArgs.path)), originalBytes);
+      const sourceMode = imported.markdown?.mode !== 'rich';
+      const editor = await openIngestE2EEditor(page, workspace.id, importedArgs.path, sourceMode ? 'source' : 'rich');
+      let parsed;
+      if (sourceMode) {
+        if (imported.markdown.mode === 'source') {
+          assert.ok(imported.warnings.some(warning => warning.code === imported.markdown.reason),
+            'Preservation mode must explain the parser compatibility warning.');
+          await expect(page.getByTestId('markdown-source-preservation-warning')).toBeVisible();
+        } else {
+          await expect(page.getByTestId('markdown-safe-normalization-notice')).toBeVisible();
+        }
+        await expect(editor).toContainText('# Model Context Protocol (MCP)');
+        await expect(editor).toContainText('_Just heard of MCP');
+        await expect(editor).toContainText('- MCP specification');
+        assert.equal(await inspectIngestE2ESource(page), originalBytes.toString('utf8'));
+      } else {
+        await expect(editor).toContainText('Model Context Protocol (MCP)');
+        parsed = await inspectIngestE2EEditor(page);
+        assert.ok(parsed.nodeTypes.includes('heading'));
+        assert.ok(parsed.nodeTypes.includes('bulletList'));
+      }
       await page.screenshot({ path: path.join(artifactDirectory, 'imported-original-editor.png'), animations: 'disabled' });
       await page.reload({ waitUntil: 'domcontentloaded', timeout: 180_000 });
-      await expect(page.locator('.tiptap-editor-shell .ProseMirror')).toBeVisible({ timeout: 90_000 });
-      assert.deepEqual((await inspectIngestE2EEditor(page)).json, parsed.json);
+      if (sourceMode) {
+        const reopenedSource = page.locator('.markdown-source-shell .cm-content');
+        if (!(await reopenedSource.isVisible())) await page.getByRole('group', { name: 'Document view' })
+          .getByRole('button', { name: 'Source', exact: true }).click({ timeout: 90_000 });
+        await expect(reopenedSource).toBeVisible({ timeout: 90_000 });
+        assert.equal(await inspectIngestE2ESource(page), originalBytes.toString('utf8'));
+      } else {
+        await expect(page.locator('.tiptap-editor-shell .ProseMirror')).toBeVisible({ timeout: 90_000 });
+        assert.deepEqual((await inspectIngestE2EEditor(page)).json, parsed.json);
+      }
       assert.deepEqual(await fs.readFile(physical(importedArgs.path)), originalBytes);
+      await page.screenshot({ path: path.join(artifactDirectory, 'imported-original-reloaded.png'), animations: 'disabled' });
+      return { editorMode: sourceMode ? 'source' : 'rich', parserMode: imported.markdown.mode,
+        ...(imported.markdown.reason ? { preservationReason: imported.markdown.reason } : {}), originalBytesPreserved: true };
     } finally { await page.close(); }
+  });
+  await step('import a host-referenced PNG over real HTTPS and render the original in Notebook', async () => {
+    const imageUrl = 'https://raw.githubusercontent.com/python-pillow/Pillow/c15d19b957327d8e00b1e60084fb1c70573ba63e/Tests/images/7x13.png';
+    const response = await fetch(imageUrl, { signal: AbortSignal.timeout(30_000) });
+    assert.ok(response.ok, `Immutable primary PNG fixture: HTTP ${response.status}`);
+    const bytes = Buffer.from(await response.arrayBuffer());
+    assert.equal(bytes.length, 204);
+    assert.equal(hash(bytes), '2c707e7f1e2c85a08408f2c629ff93f186021f6edae4b3da3a76e7572c239e4c');
+    importedImageArgs = { workspace_id: workspace.id, path: 'assets/imported-original.png',
+      file: { download_url: imageUrl, file_id: 'primary-pillow-7x13-c15d19b9', file_name: '7x13.png', mime_type: 'image/png' },
+      idempotency_key: `image-import-${runId}` };
+    importedImage = requireIngestE2ESuccess(await mcp.call('import_knowledge_file', importedImageArgs), 'Import complete original image');
+    assert.equal(importedImage.status, 'created');
+    assert.equal(importedImage.sha256, hash(bytes));
+    assert.equal(importedImage.size, bytes.length);
+    assert.equal(importedImage.mime_type, 'image/png');
+    assert.equal(importedImage.markdown, null);
+    assert.deepEqual(await fs.readFile(physical(importedImageArgs.path)), bytes);
+    const assetResult = await mcp.call('read_knowledge_asset', { workspace_id: workspace.id, path: importedImageArgs.path });
+    const asset = requireIngestE2ESuccess(assetResult, 'Read the HTTPS-imported image over MCP');
+    assert.equal(asset.sha256, hash(bytes));
+    assert.equal(asset.mime_type, 'image/png');
+    assert.ok(assetResult.content.some(item => item.type === 'image'), 'Imported image context must be delivered over MCP.');
+    const timeline = await history(importedImageArgs.path);
+    assert.equal(timeline.capabilities.history, false);
+    assert.equal(timeline.capabilities.reason, 'unsupported_type');
+    assert.deepEqual(timeline.entries, []);
+    const imageVersions = await fixtureDatabase.query(`SELECT revisions.id, revisions.content_hash,
+      revisions.size_bytes, revisions.created_by_actor_type, lineage.status
+      FROM file_revisions revisions JOIN file_collaboration_lineages lineage
+        ON lineage.id=revisions.lineage_id AND lineage.workspace_id=revisions.workspace_id
+      WHERE revisions.workspace_id=$1 AND revisions.path=$2 AND revisions.history_only=false`,
+    [workspace.id, importedImage.path]);
+    assert.equal(imageVersions.rows.length, 1, 'The image must have exactly one actual metadata revision.');
+    assert.equal(imageVersions.rows[0].id, importedImage.revision_id);
+    assert.equal(imageVersions.rows[0].content_hash, hash(bytes));
+    assert.equal(Number(imageVersions.rows[0].size_bytes), bytes.length);
+    assert.equal(imageVersions.rows[0].created_by_actor_type, 'agent');
+    assert.equal(imageVersions.rows[0].status, 'active');
+    const page = await owner.newPage();
+    try {
+      await page.addInitScript(({ id, origin }) => {
+        if (location.origin !== origin) return;
+        localStorage.setItem('canvas.activeWorkspaceId', id);
+        localStorage.setItem('canvas.notebook.chatVisible', 'false');
+      }, { id: workspace.id, origin: baseURL });
+      await page.goto(`/en/notebook?workspaceId=${encodeURIComponent(workspace.id)}&path=${encodeURIComponent(importedImageArgs.path)}`,
+        { waitUntil: 'domcontentloaded', timeout: 180_000 });
+      const image = page.getByTestId('notebook-desktop-document')
+        .getByRole('img', { name: 'imported-original.png', exact: true });
+      await expect(image).toBeVisible({ timeout: 90_000 });
+      await expect.poll(() => image.evaluate(element => ({ loaded: element.complete,
+        width: element.naturalWidth, height: element.naturalHeight })), { timeout: 90_000 })
+        .toEqual({ loaded: true, width: 7, height: 13 });
+      await page.screenshot({ path: path.join(artifactDirectory, 'imported-original-image.png'), animations: 'disabled' });
+    } finally { await page.close(); }
+    assert.deepEqual(await fs.readFile(physical(importedImageArgs.path)), bytes);
+    receipts.push({ path: importedImage.path, sha256: importedImage.sha256, size: importedImage.size,
+      revision_id: importedImage.revision_id, operation_id: importedImage.operation_id,
+      binary: true, hostFileImport: true, historyAvailability: 'unsupported_type', revisionStorage: 'metadata_only' });
+    return { source: 'immutable Pillow primary PNG fixture', sha256: hash(bytes), size: bytes.length,
+      historyAvailability: 'unsupported_type', revisionStorage: 'metadata_only' };
   });
   await step('reject HTTP and private-network file references without publishing', async () => {
     for (const [name, url] of [['http', 'http://example.com/file.md'], ['private', 'https://127.0.0.1:1/private.md']]) {
@@ -427,11 +537,26 @@ try {
       file: { ...importedArgs.file, download_url: 'https://127.0.0.1:1/expired-after-restart' } }), 'Retry original import after real restart');
     assert.equal(retryImported.status, 'already_created');
     assert.equal(retryImported.revision_id, imported.revision_id);
+    const retryImage = requireIngestE2ESuccess(await mcp.call('import_knowledge_file', { ...importedImageArgs,
+      file: { ...importedImageArgs.file, download_url: 'https://127.0.0.1:1/expired-image-after-restart' } }), 'Retry image import after real restart');
+    assert.equal(retryImage.status, 'already_created');
+    assert.equal(retryImage.revision_id, importedImage.revision_id);
+    assert.equal(retryImage.operation_id, importedImage.operation_id);
     for (const receipt of [created, imported]) {
-      const count = await fixtureDatabase.query(`SELECT count(*)::int AS count FROM file_revision_contents
-        WHERE workspace_id=$1 AND revision_id=$2 AND source='external_import'`, [workspace.id, receipt.revision_id]);
+      const count = await fixtureDatabase.query(`SELECT count(*)::int AS count FROM file_revision_contents contents
+        JOIN file_revisions revisions ON revisions.id=contents.revision_id
+        WHERE revisions.workspace_id=$1 AND revisions.path=$2 AND contents.source='external_import'`,
+      [workspace.id, receipt.path]);
       assert.equal(count.rows[0].count, 1);
     }
+    const imageVersions = await fixtureDatabase.query(`SELECT id, content_hash, size_bytes, created_by_actor_type
+      FROM file_revisions WHERE workspace_id=$1 AND path=$2`, [workspace.id, importedImage.path]);
+    assert.equal(imageVersions.rows.length, 1, 'A durable image retry must not create another metadata revision.');
+    assert.equal(imageVersions.rows[0].id, importedImage.revision_id);
+    assert.equal(imageVersions.rows[0].content_hash, importedImage.sha256);
+    assert.equal(Number(imageVersions.rows[0].size_bytes), importedImage.size);
+    assert.equal(imageVersions.rows[0].created_by_actor_type, 'agent');
+    assert.equal(hash(await fs.readFile(physical(importedImage.path))), importedImage.sha256);
     assert.deepEqual(await fs.readFile(physical(importedArgs.path)), originalBytes);
   });
   await step('revoked OAuth connection cannot publish a new document', async () => {
@@ -440,6 +565,8 @@ try {
     const rejected = await mcp.call('create_knowledge_source', { workspace_id: workspace.id, path: filePath,
       content: '# Revoked grant\n', idempotency_key: `revoked-${runId}` });
     requireIngestE2EFailure(rejected);
+    assert.equal(rejected.structuredContent.http_status, 401);
+    assert.match(rejected.structuredContent.authentication_challenge, /invalid_token/u);
     await noFile(filePath);
   });
   report.passed = true;
@@ -448,14 +575,16 @@ try {
   console.error(`[mcp-file-e2e] Failed: ${report.error}`);
   process.exitCode = 1;
 } finally {
-  try { await cleanup(); }
+  let cleanupCompleted = false;
+  try { await cleanup(); cleanupCompleted = true; }
   catch (error) {
     report.cleanupError = safeDiagnostic(error.message);
     report.passed = false;
     process.exitCode = 1;
   }
   report.finishedAt = new Date().toISOString();
-  report.cleanup = { ownedHostStopped: !server, disposableDatabaseDropped: !databaseCreated, disposableDataRemoved: true };
+  report.cleanup = { ownedHostStopped: cleanupCompleted && !server,
+    disposableDatabaseDropped: cleanupCompleted && !databaseCreated, disposableDataRemoved: cleanupCompleted };
   await fs.writeFile(path.join(artifactDirectory, 'report.json'), JSON.stringify(report, null, 2), { mode: 0o600 });
   console.log(`[mcp-file-e2e] ${report.passed ? 'Passed' : 'Failed'} ${steps.filter(item => item.passed).length}/${steps.length} steps; report: ${path.relative(cwd, artifactDirectory)}/report.json`);
 }

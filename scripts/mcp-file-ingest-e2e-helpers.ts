@@ -90,9 +90,10 @@ export async function authorizeIngestE2EMcp(owner: BrowserContext, baseURL: stri
     // Return protocol errors as tool failures so negative paths can be asserted
     // without logging submitted arguments, OAuth credentials or signed URLs.
     const payload = await response.json() as { result?: JsonRecord; error?: { code: number; message: string } };
-    if (payload.error) return { isError: true, structuredContent: { rpc_error: payload.error.code },
+    const rejection = { http_status: response.status, authentication_challenge: response.headers.get('www-authenticate') };
+    if (payload.error) return { isError: true, structuredContent: { rpc_error: payload.error.code, ...rejection },
       content: [{ type: 'text', text: payload.error.message }] };
-    if (!response.ok) return { isError: true, structuredContent: { http_status: response.status },
+    if (!response.ok) return { isError: true, structuredContent: rejection,
       content: [{ type: 'text', text: `MCP request rejected with HTTP ${response.status}` }] };
     assert.ok(payload.result, `MCP ${method} must return a result.`);
     return payload.result;
@@ -121,7 +122,7 @@ export function requireIngestE2EFailure(result: IngestE2EToolResult, code?: stri
   if (code) assert.equal(result.structuredContent?.code, code);
 }
 
-export async function openIngestE2EEditor(page: Page, workspaceId: string, filePath: string) {
+export async function openIngestE2EEditor(page: Page, workspaceId: string, filePath: string, mode: 'rich' | 'source' = 'rich') {
   await page.addInitScript(({ id, origin }) => {
     if (location.origin !== origin) return;
     localStorage.setItem('canvas.activeWorkspaceId', id);
@@ -129,13 +130,26 @@ export async function openIngestE2EEditor(page: Page, workspaceId: string, fileP
   }, { id: workspaceId, origin: process.env.BASE_URL! });
   await page.goto(`/en/notebook?workspaceId=${encodeURIComponent(workspaceId)}&path=${encodeURIComponent(filePath)}`,
     { waitUntil: 'domcontentloaded', timeout: 180_000 });
-  const editor = page.locator('.tiptap-editor-shell .ProseMirror');
+  const editor = page.locator(mode === 'source' ? '.markdown-source-shell .cm-content' : '.tiptap-editor-shell .ProseMirror');
   if (!(await editor.isVisible())) {
-    await page.getByRole('group', { name: 'Document view' }).getByRole('button', { name: 'Edit', exact: true })
+    await page.getByRole('group', { name: 'Document view' }).getByRole('button', { name: mode === 'source' ? 'Source' : 'Edit', exact: true })
       .click({ timeout: 90_000 });
   }
   await expect(editor).toHaveAttribute('contenteditable', 'true', { timeout: 90_000 });
   return editor;
+}
+
+export async function inspectIngestE2ESource(page: Page): Promise<string> {
+  return page.locator('.markdown-source-shell .cm-content').evaluate(element => {
+    // Same DOM-to-view association used by this installed CodeMirror's
+    // EditorView.findFromDOM(). Read the actual full document, including lines
+    // outside its virtualized viewport, without altering the user's source.
+    const tile = (element as HTMLElement & { cmTile?: { root?: {
+      view?: { state: { doc: { toString(): string } } };
+    } } }).cmTile;
+    if (!tile?.root?.view) throw new Error('The real CodeMirror source document is unavailable.');
+    return tile.root.view.state.doc.toString();
+  });
 }
 
 export async function inspectIngestE2EEditor(page: Page) {

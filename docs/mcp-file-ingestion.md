@@ -8,7 +8,7 @@ Canvas bietet drei getrennte Eingabewege mit `knowledge:write`:
 | `import_knowledge_file` | Host-Dateireferenz | Originaldatei oder Foto über eine temporäre HTTPS-Referenz übernehmen |
 | `upload_knowledge_asset` | begin / Base64-chunk / complete | Binärdatei mit jedem MCP-Client übertragen, ohne Download-URL |
 
-`create_knowledge_source` und `import_knowledge_file` müssen unter **Settings → MCP Server** ausdrücklich ausgewählt werden. Upgrades und die allgemeine Serveraktivierung schalten sie nicht automatisch ein. Zusätzlich sind Workspace-Opt-in, Freigabe für die konkrete OAuth-Verbindung und aktuelle Schreib-/Agentrechte erforderlich. Die Rechte werden unmittelbar vor der Veröffentlichung erneut geprüft.
+`create_knowledge_source` und `import_knowledge_file` müssen unter **Settings → MCP Server** oder in der umgebungsverwalteten Tool-Liste `CANVAS_MCP_DIRECT_TOOLS` ausdrücklich ausgewählt werden. Upgrades und die allgemeine Serveraktivierung schalten sie nicht automatisch ein. Zusätzlich sind Workspace-Opt-in, Freigabe für die konkrete OAuth-Verbindung und aktuelle Schreib-/Agentrechte erforderlich. Die Rechte werden unmittelbar vor der Veröffentlichung erneut geprüft.
 
 ## Host-Dateien
 
@@ -22,7 +22,11 @@ Ohne diese Host-Erweiterung kann ein Client Text direkt übergeben oder Binärby
 
 Beide neuen Tools verlangen `workspace_id`, `path` und einen stabilen `idempotency_key` (8–128 sichere Zeichen). Sie legen ausschließlich neue Dateien an. Zum Ändern bestehender Dokumente bleibt `edit_knowledge_source` mit seinen Revisions- und Review-Regeln zuständig.
 
+Für `create_knowledge_source` sind die Textendungen `.csv`, `.html`, `.json`, `.markdown`, `.md`, `.mdx`, `.rst`, `.svg`, `.text`, `.toml`, `.tsv`, `.txt`, `.xml`, `.yaml` und `.yml` erlaubt. Andere Dateitypen können als Originaldatei importiert werden.
+
 Eine erfolgreiche Antwort enthält Pfad, Bytezahl, SHA-256, Revision, Operation und Editor-Link. Vor der Antwort wird die physische Datei geprüft. Private, atomar gespeicherte Importbelege überstehen einen Serverneustart. Ein identischer Retry liefert `already_created`, ohne die Datei erneut zu laden oder zu schreiben. Derselbe Schlüssel mit anderen Eingaben ist ein Konflikt. Bei Host-Dateien kann derselbe `file_id` mit einer erneuerten Download-URL wiederholt werden. Eine nachträglich geänderte oder entfernte Zieldatei wird nicht wiederhergestellt oder überschrieben.
+
+Die vorhandene Versionshistorie speichert für unterstützte Dokumentformate Inhaltssnapshots. Bilder erhalten derzeit Revisionsmetadaten mit Hash und Größe; der Bildinhalt selbst liegt vollständig im Workspace. Die Versionsoberfläche bietet für Bilder noch keine Historie an. Der Import führt keine neue allgemeine Binärversionshistorie ein.
 
 Wenn ein Prozess zwischen Datei-Veröffentlichung und Speicherung des fertigen Belegs abstürzt, meldet ein Retry `MCP_INGEST_RECOVERY_REQUIRED`. Die Datei bleibt erhalten; vor weiteren Aktionen müssen Datei und Historie geprüft werden. Dies vermeidet eine falsche Erfolgsmeldung oder ein Überschreiben nach einem unklaren Ausgang.
 
@@ -38,4 +42,4 @@ Wenn ein Prozess zwischen Datei-Veröffentlichung und Speicherung des fertigen B
 
 `npm run test:mcp:file-ingest` führt gezielte Prüfungen für Schema, Berechtigungen, Downloads, Markdown, Speicherbelege und Opt-in durch. Teile davon ersetzen gezielt Netzwerk-/Datenbankgrenzen; sie beweisen keinen vollständigen Host-Upload.
 
-`npm run test:mcp:file-ingest:e2e` verwendet den verwalteten lokalen PostgreSQL-Server, eine kurzlebige separate Datenbank und einen eigenen Notebook-Prozess. Der Test meldet echte OAuth-/MCP-, Dateisystem-, Editor- und Neustart-Ergebnisse getrennt. Eine reale ChatGPT-/Codex-Umwandlung lokaler Anhänge muss zusätzlich mit dem veröffentlichten bzw. verbundenen Tool geprüft werden.
+Vor dem End-to-End-Lauf `npm run build` ausführen. `npm run test:mcp:file-ingest:e2e` verwendet diesen Produktionsbuild, den verwalteten lokalen PostgreSQL-Server, eine kurzlebige separate Datenbank und einen eigenen Notebook-Prozess. Der Test meldet echte OAuth-/MCP-, Dateisystem-, Editor- und Neustart-Ergebnisse getrennt. Eine reale ChatGPT-/Codex-Umwandlung lokaler Anhänge muss zusätzlich mit dem veröffentlichten bzw. verbundenen Tool geprüft werden.
