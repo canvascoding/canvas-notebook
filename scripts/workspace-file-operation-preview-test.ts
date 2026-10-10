@@ -3,10 +3,13 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import { assertFreshWorkspaceFileOperationPlan, buildWorkspaceFileOperationPreview, WorkspacePreviewBlockedError, WorkspacePreviewStaleError } from '../app/lib/markdown/workspace-file-operation-preview';
+import { assertFreshWorkspaceFileOperationPlan, buildWorkspaceFileOperationPreview as buildFilePreview, buildWorkspacePlannerSnapshot, WorkspacePreviewBlockedError, WorkspacePreviewStaleError } from '../app/lib/markdown/workspace-file-operation-preview';
 import { assessWorkspaceRenameLinks } from '../app/lib/markdown/workspace-file-operation-status';
 import { buildWorkspaceLinkIndexFromDocuments } from '../app/lib/markdown/workspace-link-index-core';
 import type { WorkspaceContext } from '../app/lib/workspaces/types';
+
+const buildWorkspaceFileOperationPreview = (input: Parameters<typeof buildFilePreview>[0]) =>
+  buildFilePreview(input, { buildSnapshot: buildWorkspacePlannerSnapshot });
 
 async function main() {
   const root = await mkdtemp(path.join(os.tmpdir(), 'canvas-file-operation-preview-'));

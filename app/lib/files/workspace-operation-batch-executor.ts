@@ -21,6 +21,8 @@ import { authoritativeCollaborationSnapshot, materializeCollaborationCheckpoint 
 import { loadCollaborationState, serializeCanonicalText } from '@/app/lib/collaboration/persistence';
 import { computeWorkspaceFileOperationPlanId } from '@/app/lib/markdown/workspace-file-operation-planner';
 import { buildWorkspacePlannerSnapshot } from '@/app/lib/markdown/workspace-file-operation-preview';
+import { buildWorkspaceAuthoritativePlannerSnapshot } from '@/app/lib/markdown/workspace-authoritative-planner-snapshot';
+import { assertWorkspaceHtmlLinkEvidenceCurrent } from './workspace-html-link-evidence-fence';
 import { buildWorkspaceLinkIndexFromDocuments } from '@/app/lib/markdown/workspace-link-index-core';
 import { parseWorkspaceMarkdownHref } from '@/app/lib/markdown/workspace-local-link-parser';
 import { assessWorkspaceHtmlLink } from '@/app/lib/markdown/workspace-html-link-assessment';
@@ -59,6 +61,8 @@ type UndoInput = Omit<ExecuteInput, 'plan'>;
 type Dependencies = {
   storageRoot?: string;
   rebuild?: typeof buildWorkspaceOperationBatchPlan;
+  snapshot?: typeof buildWorkspacePlannerSnapshot;
+  htmlEvidenceCurrent?: typeof assertWorkspaceHtmlLinkEvidenceCurrent;
   rename?: typeof renameWorkspacePath;
   trash?: typeof trashWorkspacePaths;
   listTrash?: typeof listWorkspaceTrashEntries;
@@ -146,6 +150,8 @@ async function privateDirectory(directory: string): Promise<void> {
 export function createWorkspaceOperationBatchExecutor(dependencies: Dependencies = {}) {
   const storage = dependencies.storageRoot ?? path.join(resolveCanvasDataRoot(), 'workspace-operation-batches');
   const rebuild = dependencies.rebuild ?? buildWorkspaceOperationBatchPlan;
+  const snapshotFor = dependencies.snapshot ?? buildWorkspaceAuthoritativePlannerSnapshot;
+  const htmlEvidenceCurrent = dependencies.htmlEvidenceCurrent ?? assertWorkspaceHtmlLinkEvidenceCurrent;
   const rename = dependencies.rename ?? renameWorkspacePath;
   const trash = dependencies.trash ?? trashWorkspacePaths;
   const listTrash = dependencies.listTrash ?? listWorkspaceTrashEntries;
@@ -328,7 +334,7 @@ export function createWorkspaceOperationBatchExecutor(dependencies: Dependencies
     }
     // Prove the complete inverse resolution graph, including backlinks created after apply
     // and aliases introduced when deleted Markdown is restored. No user document is rewritten here.
-    const snapshot = await buildWorkspacePlannerSnapshot(manifest.workspaceId, input.scope.fileOptions);
+    const snapshot = await snapshotFor(manifest.workspaceId, input.scope.fileOptions);
     if (snapshot.entries.some((entry) => entry.omissionReason)) conflict('BATCH_UNDO_INDEX_INCOMPLETE');
     for (const repaired of manifest.plan.linkAssessment.restoredLinks ?? []) {
       const currentPath = repaired.sourcePathAfter ?? repaired.sourcePath;
@@ -440,6 +446,7 @@ export function createWorkspaceOperationBatchExecutor(dependencies: Dependencies
         if (observed !== 'before') throw new Error('BATCH_UNPROVEN_PATH_INTENT');
         await progress(input, manifest, 'paths');
         if (!durable) { durable = { key, state: 'intent', receipt: null }; manifest.steps.push(durable); await save(manifest); }
+        await htmlEvidenceCurrent(manifest.plan, input.scope);
         if (step.kind === 'delete') {
           const trashed = await trash({ workspace: input.scope.workspace, paths: [step.sourcePath], deletedByUserId: input.actorUserId });
           if (trashed.failed.length || trashed.trashed.length !== 1) throw new Error('BATCH_TRASH_FAILED');

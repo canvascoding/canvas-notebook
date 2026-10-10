@@ -5,6 +5,7 @@ import { promises as fs } from 'node:fs';
 import { resolveExistingWorkspacePath } from '@/app/lib/filesystem/workspace-files';
 import { withWorkspaceMutationLock } from './workspace-mutation-lock';
 import { buildWorkspaceOperationBatchPlan } from './workspace-operation-batch-plan';
+import { assertWorkspaceHtmlLinkEvidenceCurrent } from './workspace-html-link-evidence-fence';
 import { WorkspaceOperationBatchError, WorkspaceOperationBatchStore,
   type WorkspaceOperationBatchRecord } from './workspace-operation-batch-store';
 import type { WorkspaceOperationBatchAction, WorkspaceOperationBatchScope,
@@ -70,7 +71,8 @@ dependencies: PlanDependencies = {}) {
 
 /** The request is authorized once; the durable worker rechecks authority before every mutation. */
 export async function submitDirectWorkspacePathOperation(input: WorkspacePathOperationInput,
-  dependencies: PlanDependencies & { store?: WorkspaceOperationBatchStore; lock?: typeof withWorkspaceMutationLock } = {},
+  dependencies: PlanDependencies & { store?: WorkspaceOperationBatchStore; lock?: typeof withWorkspaceMutationLock;
+    htmlEvidenceCurrent?: typeof assertWorkspaceHtmlLinkEvidenceCurrent } = {},
 ): Promise<WorkspaceOperationBatchRecord> {
   const workspace = input.scope.workspace;
   if (!workspace.permissions.canRead || !workspace.permissions.canWrite || !workspace.permissions.canDelete
@@ -101,6 +103,7 @@ export async function submitDirectWorkspacePathOperation(input: WorkspacePathOpe
     if (input.expectedPlanId && input.expectedPlanId !== plan.planId) {
       throw new WorkspaceOperationBatchError('PREVIEW_STALE', 409, 'The file action preview changed.');
     }
+    if (plan.readiness === 'ready') await (dependencies.htmlEvidenceCurrent ?? assertWorkspaceHtmlLinkEvidenceCurrent)(plan, input.scope);
     return store.createDirect({ batchId, plan, authorization });
   });
 }

@@ -3,6 +3,7 @@ import { fromMarkdown } from 'mdast-util-from-markdown';
 import type { Nodes } from 'mdast';
 
 import { buildWorkspacePlannerSnapshot } from '@/app/lib/markdown/workspace-file-operation-preview';
+import { buildWorkspaceAuthoritativePlannerSnapshot } from '@/app/lib/markdown/workspace-authoritative-planner-snapshot';
 import { createWorkspaceFileOperationPlan, computeWorkspaceFileOperationPlanId,
   type WorkspacePlannerSnapshot } from '@/app/lib/markdown/workspace-file-operation-planner';
 import { buildWorkspaceLinkIndexFromDocuments, type WorkspaceLinkEdge } from '@/app/lib/markdown/workspace-link-index-core';
@@ -288,9 +289,10 @@ export function createWorkspaceOperationBatchPlan(input: {
 
 export async function buildWorkspaceOperationBatchPlan(input: {
   scope: WorkspaceOperationBatchScope; actions: WorkspaceOperationBatchAction[];
-}): Promise<WorkspaceOperationBatchPlan> {
+}, dependencies: { buildSnapshot?: typeof buildWorkspacePlannerSnapshot } = {}): Promise<WorkspaceOperationBatchPlan> {
   if (!input.scope.workspace.permissions.canRead) throw Object.assign(new Error('Workspace read permission is required.'), { status: 403 });
-  const snapshot = await buildWorkspacePlannerSnapshot(input.scope.workspace.workspaceId, input.scope.fileOptions);
+  const snapshot = await (dependencies.buildSnapshot ?? buildWorkspaceAuthoritativePlannerSnapshot)(
+    input.scope.workspace.workspaceId, input.scope.fileOptions);
   return createWorkspaceOperationBatchPlan({ snapshot, actions: input.actions });
 }
 

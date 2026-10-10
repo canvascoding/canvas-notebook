@@ -11,9 +11,12 @@ import { captureWorkspaceOperationBackup } from '../app/lib/files/workspace-oper
 import { operationLinkStepKey } from '../app/lib/files/workspace-operation-undo';
 import type { WorkspaceOperationWithSteps } from '../app/lib/files/workspace-operation-journal';
 import type * as UndoService from '../app/lib/files/workspace-operation-undo-service';
-import { assertFreshWorkspaceFileOperationPlan, buildWorkspaceFileOperationPreview } from '../app/lib/markdown/workspace-file-operation-preview';
+import { assertFreshWorkspaceFileOperationPlan, buildWorkspaceFileOperationPreview as buildFilePreview, buildWorkspacePlannerSnapshot } from '../app/lib/markdown/workspace-file-operation-preview';
 import { groupWorkspaceLinkWrites } from '../app/lib/markdown/workspace-link-write-groups';
 import type { WorkspaceContext } from '../app/lib/workspaces/types';
+
+const buildWorkspaceFileOperationPreview = (input: Parameters<typeof buildFilePreview>[0]) =>
+  buildFilePreview(input, { buildSnapshot: buildWorkspacePlannerSnapshot });
 
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
 const originalOperationId = 'assessment_undo_original';
@@ -85,6 +88,7 @@ async function main(): Promise<void> {
     const service = { exports: {} as typeof UndoService };
     new Function('require', 'module', 'exports', source)((name: string) => {
       if (name === 'server-only') return {};
+      if (name === '@/app/lib/markdown/workspace-file-operation-preview') return { ...load(name), buildWorkspaceFileOperationPreview };
       if (name === './workspace-operation-journal') return { WorkspaceOperationJournal: class {
         async get(operationId: string) { return rows.get(operationId) ?? null; }
       } };

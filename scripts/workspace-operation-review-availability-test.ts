@@ -7,7 +7,8 @@ import ts from 'typescript';
 import { PGlite } from '@electric-sql/pglite';
 import { WORKSPACE_OPERATION_REVIEW_STATEMENTS } from '../app/lib/db/workspace-operation-review-migration';
 import type { SqlConnection } from '../app/lib/db';
-import { buildWorkspaceOperationBatchPlan } from '../app/lib/files/workspace-operation-batch-plan';
+import { buildWorkspaceOperationBatchPlan as buildBatchPlan } from '../app/lib/files/workspace-operation-batch-plan';
+import * as fileOperationPreview from '../app/lib/markdown/workspace-file-operation-preview';
 import { WorkspaceOperationBatchStore } from '../app/lib/files/workspace-operation-batch-store';
 import { WorkspaceOperationCheckStore } from '../app/lib/files/workspace-operation-check-store';
 import { createWorkspaceOperationBatchWorker } from '../app/lib/files/workspace-operation-batch-worker';
@@ -16,6 +17,12 @@ import type * as ReviewService from '../app/lib/files/workspace-operation-review
 import type * as BatchService from '../app/lib/files/workspace-operation-batch-service';
 import type * as DeleteService from '../app/lib/files/workspace-operation-delete-review';
 import type * as CheckService from '../app/lib/files/workspace-operation-check-service';
+
+const buildWorkspaceOperationBatchPlan = (input: Parameters<typeof buildBatchPlan>[0]) =>
+  buildBatchPlan(input, { buildSnapshot: fileOperationPreview.buildWorkspacePlannerSnapshot });
+const filePreviewModule = { ...fileOperationPreview,
+  buildWorkspaceFileOperationPreview: (input: Parameters<typeof fileOperationPreview.buildWorkspaceFileOperationPreview>[0]) =>
+    fileOperationPreview.buildWorkspaceFileOperationPreview(input, { buildSnapshot: fileOperationPreview.buildWorkspacePlannerSnapshot }) };
 
 async function load<T extends object>(filename: string, mocks: Record<string, unknown>): Promise<T> {
   const absolute = path.resolve(filename);
@@ -60,6 +67,7 @@ async function main() {
   }, workspaceOperationBatchPublicPreview: (await import('../app/lib/files/workspace-operation-batch-plan')).workspaceOperationBatchPublicPreview };
   const mocks: Record<string, unknown> = {
     'server-only': {}, '@/app/lib/db': { openDb: connect },
+    '@/app/lib/markdown/workspace-file-operation-preview': filePreviewModule,
     '@/app/lib/document-review-availability': { readDocumentReviewAvailability: () => ({ documentReviewEnabled: enabled, updatedAt: null }) },
     '@/app/lib/files/workspace-mutation-lock': { withWorkspaceMutationLock: lock }, './workspace-mutation-lock': { withWorkspaceMutationLock: lock },
     './workspace-operation-batch-plan': planModule,

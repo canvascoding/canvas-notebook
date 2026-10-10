@@ -143,12 +143,14 @@ export async function buildWorkspaceFileOperationPreview(input: {
   destinationOptions: WorkspaceFileOperationOptions;
   selections: WorkspaceFileOperationPlanRequest['selections'];
   renameOnCollision?: boolean;
-}): Promise<WorkspaceFileOperationPreview> {
-  const source = await buildWorkspacePlannerSnapshot(input.sourceWorkspaceId, input.sourceOptions);
+}, dependencies: { buildSnapshot?: typeof buildWorkspacePlannerSnapshot } = {}): Promise<WorkspaceFileOperationPreview> {
+  const buildSnapshot = dependencies.buildSnapshot
+    ?? (await import('./workspace-authoritative-planner-snapshot')).buildWorkspaceAuthoritativePlannerSnapshot;
+  const source = await buildSnapshot(input.sourceWorkspaceId, input.sourceOptions);
   const sourceRootVersion = await workspaceRootVersion(input.sourceOptions);
   const destination = input.sourceWorkspaceId === input.destinationWorkspaceId
     ? source
-    : await buildWorkspacePlannerSnapshot(input.destinationWorkspaceId, input.destinationOptions);
+    : await buildSnapshot(input.destinationWorkspaceId, input.destinationOptions);
   if (source !== destination) {
     await assertSnapshotVersions(source.entries, input.sourceOptions);
     if (await workspaceRootVersion(input.sourceOptions) !== sourceRootVersion) throw new WorkspacePreviewStaleError();

@@ -350,7 +350,7 @@
     "test:markdown:links": "tsx scripts/workspace-link-index-test.ts",
     "test:agent:link-diagnostics": "tsx scripts/workspace-link-diagnostics-test.ts && tsx --conditions react-server scripts/agent-file-link-diagnostics-test.ts",
     "test:markdown:link-contract": "tsx scripts/workspace-link-contract-v1-test.ts",
-    "test:files:html-link-safety": "tsx scripts/workspace-html-link-safety-test.ts && tsx --conditions react-server scripts/workspace-html-link-assessment-test.ts",
+    "test:files:html-link-safety": "tsx scripts/workspace-html-link-safety-test.ts && tsx --conditions react-server scripts/workspace-html-link-assessment-test.ts && tsx --conditions react-server scripts/workspace-authoritative-planner-snapshot-test.ts",
     "test:files:html-link-safety:e2e": "E2E_EXTERNAL_SERVER=1 playwright test tests/shared-workspace-html-move.spec.ts --workers=1",
     "test:markdown:file-operation-planner": "tsx scripts/workspace-file-operation-planner-test.ts",
     "test:knowledge-graph": "tsx scripts/knowledge-graph-model-test.ts",
