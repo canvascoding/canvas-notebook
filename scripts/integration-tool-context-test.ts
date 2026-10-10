@@ -18,12 +18,17 @@ async function main() {
   const internals = Module as typeof Module & { _load: (name: string, parent: NodeModule | null, main: boolean) => unknown };
   const originalLoad = internals._load;
   let duringResolution: (() => Promise<void>) | undefined;
+  const promptReadRoot = path.join(root, 'prompt-capture-sentinel');
+  let promptCaptureCount = 0;
   internals._load = (name, parent, isMain) => {
     if (name === 'server-only') return {};
     if (name === '@/app/lib/db' || /\/app\/lib\/db(?:\/index)?(?:\.ts)?$/u.test(name)) return database;
-    // Unrelated prompt packaging is excluded; session, workspace and agent authorization remain real.
-    if (name === '@/app/lib/skills/effective-skill-read-roots') return {
-      resolveEffectiveSkillReadRoots: async () => [], resolvePersonalSkillReadRoots: async () => [],
+    // Only prompt package capture is isolated. Session, workspace and agent authorization remain real.
+    if (name === '@/app/lib/capabilities/packages/runtime-bindings') return {
+      captureCapabilityPackageRuntimeBindings: async () => {
+        promptCaptureCount++;
+        return { skillReadRoots: [promptReadRoot], skillPackageBindings: [] };
+      },
     };
     if (name === '@/app/lib/agents/workspace-brand-context') return { getWorkspaceBrandPromptBlock: async () => {
       const pending = duringResolution;
@@ -62,42 +67,68 @@ async function main() {
       { sessionId: 'alice-inaccessible', userId: 'alice', agentId: 'design-agent', workspaceId: 'team-b', workspaceType: 'team',
         organizationId: 'integration-context-org', provider: 'fixture', model: 'fixture', createdAt: now, updatedAt: now },
     ]);
-    const { resolveIntegrationExecutionContext } = await import('../app/lib/integration-tools/context');
+    const { resolveIntegrationExecutionContext, resolveIntegrationAuthorizationContext } = await import('../app/lib/integration-tools/context');
     const input = { actorUserId: 'alice', sessionId: 'alice-team', policyRevision: 'policy-1' };
-    const resolved = await resolveIntegrationExecutionContext(input);
-    assert.deepEqual(resolved.integrationContext, {
-      actorUserId: 'alice', organizationId: 'integration-context-org', workspaceId: 'team-a', agentId: 'design-agent', policyRevision: 'policy-1',
-    });
-    assert.equal(resolved.executionContext.canWrite, false, 'Read/run access is sufficient, no synthetic write grant.');
-    assert.equal(resolved.executionContext.sessionId, 'alice-team');
-    const mutable = { ...input };
-    const pending = resolveIntegrationExecutionContext(mutable);
-    Object.assign(mutable, { actorUserId: 'bob', sessionId: 'bob-team', policyRevision: 'forged' });
-    assert.deepEqual((await pending).integrationContext, resolved.integrationContext, 'Authority is captured before the first await.');
-    for (const changed of [
-      { ...input, sessionId: 'missing' }, { ...input, sessionId: 'bob-team' },
-      { ...input, sessionId: 'alice-archived' }, { ...input, actorUserId: 'bob' },
-      { ...input, agentId: 'bradley' },
-    ]) await assert.rejects(resolveIntegrationExecutionContext(changed), { code: 'provider_denied' });
-    for (const changed of [{ ...input, policyRevision: ' ' }, { ...input, actorUserId: '' }, { ...input, sessionId: '' }]) {
-      await assert.rejects(resolveIntegrationExecutionContext(changed), { code: 'invalid_request' });
+    let fullAuthority: unknown;
+    for (const [mode, resolve] of [
+      ['full', resolveIntegrationExecutionContext], ['authorization', resolveIntegrationAuthorizationContext],
+    ] as const) {
+      await raw.run("UPDATE \"user\" SET banned=0 WHERE id='alice'");
+      await raw.run("UPDATE pi_sessions SET archived_at=NULL,agent_id='design-agent',workspace_id='team-a' WHERE session_id='alice-team'");
+      await raw.run("UPDATE agent_grants SET can_use=1 WHERE agent_id='design-agent'");
+      await raw.run("UPDATE canvas_workspace_members SET status='active' WHERE user_id='alice' AND workspace_id='team-a'");
+      duringResolution = undefined;
+      const captureBefore = promptCaptureCount;
+      const resolved = await resolve(input);
+      assert.deepEqual(resolved.integrationContext, {
+        actorUserId: 'alice', organizationId: 'integration-context-org', workspaceId: 'team-a', agentId: 'design-agent', policyRevision: 'policy-1',
+      });
+      assert.equal(resolved.executionContext.canWrite, false, 'Read/run access is sufficient, no synthetic write grant.');
+      assert.equal(resolved.executionContext.sessionId, 'alice-team');
+      const { skillReadRoots, skillPackageBindings, ...authority } = resolved.executionContext;
+      assert.deepEqual(skillReadRoots, mode === 'full' ? [promptReadRoot] : []);
+      assert.deepEqual(skillPackageBindings, []);
+      assert.equal(promptCaptureCount - captureBefore, mode === 'full' ? 1 : 0,
+        'Only the full context captures prompt packages.');
+      if (mode === 'full') fullAuthority = authority;
+      else assert.deepEqual(authority, fullAuthority, 'Authorization changes only prompt roots and held package receipts.');
+      const mutable = { ...input };
+      const pending = resolve(mutable);
+      Object.assign(mutable, { actorUserId: 'bob', sessionId: 'bob-team', policyRevision: 'forged' });
+      assert.deepEqual((await pending).integrationContext, resolved.integrationContext, 'Authority is captured before the first await.');
+      for (const changed of [
+        { ...input, sessionId: 'missing' }, { ...input, sessionId: 'bob-team' },
+        { ...input, sessionId: 'alice-archived' }, { ...input, actorUserId: 'bob' },
+        { ...input, agentId: 'bradley' },
+      ]) await assert.rejects(resolve(changed), { code: 'provider_denied' });
+      for (const changed of [{ ...input, policyRevision: ' ' }, { ...input, actorUserId: '' }, { ...input, sessionId: '' }]) {
+        await assert.rejects(resolve(changed), { code: 'invalid_request' });
+      }
+      await assert.rejects(resolve({ ...input, sessionId: 'alice-inaccessible' }), /inaccessible/u);
+      await raw.run("UPDATE agent_grants SET can_use=0 WHERE agent_id='design-agent'");
+      await assert.rejects(resolve(input), { code: 'AGENT_ACCESS_DENIED' });
+      await raw.run("UPDATE agent_grants SET can_use=1 WHERE agent_id='design-agent'");
+      await raw.run("UPDATE canvas_workspace_members SET status='disabled' WHERE user_id='alice' AND workspace_id='team-a'");
+      await assert.rejects(resolve(input), /inaccessible/u);
+      await raw.run("UPDATE canvas_workspace_members SET status='active' WHERE user_id='alice' AND workspace_id='team-a'");
+      duringResolution = async () => { await raw.run("UPDATE pi_sessions SET archived_at=1 WHERE session_id='alice-team'"); };
+      await assert.rejects(resolve(input), { code: 'provider_denied' }, 'Archiving during resolution invalidates the context.');
+      await raw.run("UPDATE pi_sessions SET archived_at=NULL WHERE session_id='alice-team'");
+      duringResolution = async () => { await raw.run("UPDATE pi_sessions SET agent_id='bradley' WHERE session_id='alice-team'"); };
+      await assert.rejects(resolve(input), { code: 'provider_denied' }, 'Changing the agent during resolution invalidates the context.');
+      await raw.run("UPDATE pi_sessions SET agent_id='design-agent' WHERE session_id='alice-team'");
+      duringResolution = async () => { await raw.run("UPDATE pi_sessions SET workspace_id='team-b' WHERE session_id='alice-team'"); };
+      await assert.rejects(resolve(input), { code: 'provider_denied' }, 'Changing the persisted workspace during resolution invalidates the context.');
+      await raw.run("UPDATE pi_sessions SET workspace_id='team-a' WHERE session_id='alice-team'");
+      duringResolution = async () => { await raw.run("UPDATE \"user\" SET banned=1 WHERE id='alice'"); };
+      await assert.rejects(resolve(input), { name: 'AgentAccessError', code: 'AGENT_ACCESS_DENIED', status: 403 },
+        'Fresh AgentUse observes a ban during resolution before the final persisted-session check.');
+      await assert.rejects(resolve(input), { code: 'provider_denied' });
+      await raw.run("UPDATE \"user\" SET banned=0 WHERE id='alice'");
+      if (mode === 'authorization') assert.equal(promptCaptureCount, captureBefore,
+        'The entire authorization identity/revocation/race matrix performs zero prompt package capture.');
+      console.log(`PASS ${mode} real PostgreSQL session context: actor/session/agent binding, immutable input, archived and missing sessions, workspace and agent revocation, banned actor and late session/actor changes.`);
     }
-    await assert.rejects(resolveIntegrationExecutionContext({ ...input, sessionId: 'alice-inaccessible' }), /inaccessible/u);
-    await raw.run("UPDATE agent_grants SET can_use=0 WHERE agent_id='design-agent'");
-    await assert.rejects(resolveIntegrationExecutionContext(input), { code: 'AGENT_ACCESS_DENIED' });
-    await raw.run("UPDATE agent_grants SET can_use=1 WHERE agent_id='design-agent'");
-    await raw.run("UPDATE canvas_workspace_members SET status='disabled' WHERE user_id='alice' AND workspace_id='team-a'");
-    await assert.rejects(resolveIntegrationExecutionContext(input), /inaccessible/u);
-    await raw.run("UPDATE canvas_workspace_members SET status='active' WHERE user_id='alice' AND workspace_id='team-a'");
-    duringResolution = async () => { await raw.run("UPDATE pi_sessions SET archived_at=1 WHERE session_id='alice-team'"); };
-    await assert.rejects(resolveIntegrationExecutionContext(input), { code: 'provider_denied' }, 'Archiving during resolution invalidates the context.');
-    await raw.run("UPDATE pi_sessions SET archived_at=NULL WHERE session_id='alice-team'");
-    duringResolution = async () => { await raw.run("UPDATE pi_sessions SET agent_id='bradley' WHERE session_id='alice-team'"); };
-    await assert.rejects(resolveIntegrationExecutionContext(input), { code: 'provider_denied' }, 'Changing the agent during resolution invalidates the context.');
-    await raw.run("UPDATE pi_sessions SET agent_id='design-agent' WHERE session_id='alice-team'");
-    await raw.run("UPDATE \"user\" SET banned=1 WHERE id='alice'");
-    await assert.rejects(resolveIntegrationExecutionContext(input), { code: 'provider_denied' });
-    console.log('PASS real PostgreSQL session context: actor/session/agent binding, archived and missing sessions, workspace and agent revocation, banned actor.');
   } finally {
     internals._load = originalLoad;
     await database.close();

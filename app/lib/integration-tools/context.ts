@@ -4,7 +4,7 @@ import { and, eq, isNull, or } from 'drizzle-orm';
 import { db } from '@/app/lib/db';
 import { piSessions, user } from '@/app/lib/db/schema';
 import type { AgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
-import { resolveAgentExecutionContextForSession } from '@/app/lib/pi/session-workspace-context';
+import { resolveAgentAuthorizationContextForSession, resolveAgentExecutionContextForSession } from '@/app/lib/pi/session-workspace-context';
 import { IntegrationContractError, type IntegrationExecutionContext } from './contracts';
 
 export type ResolvedIntegrationExecutionContext = {
@@ -13,12 +13,12 @@ export type ResolvedIntegrationExecutionContext = {
 };
 
 /** Only called with authenticated server actor/session identity and a server policy revision. */
-export async function resolveIntegrationExecutionContext(input: {
+async function resolveIntegrationContextWithSessionResolver(input: {
   actorUserId: string;
   sessionId: string;
   agentId?: string | null;
   policyRevision: string;
-}): Promise<ResolvedIntegrationExecutionContext> {
+}, resolveSessionContext: typeof resolveAgentExecutionContextForSession): Promise<ResolvedIntegrationExecutionContext> {
   // Capture authority before the first await; caller mutation cannot change the actor or binding.
   const { actorUserId, sessionId, agentId, policyRevision } = input;
   if (!actorUserId.trim() || !sessionId.trim() || !policyRevision.trim()
@@ -37,7 +37,7 @@ export async function resolveIntegrationExecutionContext(input: {
 
   // The existing runtime helper checks fresh workspace read/run and agent-use permissions.
   // Our persisted-session check prevents its bootstrap fallback from accepting a foreign session.
-  const executionContext = await resolveAgentExecutionContextForSession({
+  const executionContext = await resolveSessionContext({
     userId: actorUserId, sessionId, agentId: storedSession.agentId,
   });
   if (executionContext.userId !== actorUserId || executionContext.sessionId !== sessionId
@@ -57,6 +57,26 @@ export async function resolveIntegrationExecutionContext(input: {
     },
     executionContext,
   };
+}
+
+/** Default runtime callers continue to capture their full skill/package execution context. */
+export async function resolveIntegrationExecutionContext(input: {
+  actorUserId: string;
+  sessionId: string;
+  agentId?: string | null;
+  policyRevision: string;
+}): Promise<ResolvedIntegrationExecutionContext> {
+  return resolveIntegrationContextWithSessionResolver(input, resolveAgentExecutionContextForSession);
+}
+
+/** Explicit server-only widget preflight; identical authority checks without runtime skill-file capture. */
+export async function resolveIntegrationAuthorizationContext(input: {
+  actorUserId: string;
+  sessionId: string;
+  agentId?: string | null;
+  policyRevision: string;
+}): Promise<ResolvedIntegrationExecutionContext> {
+  return resolveIntegrationContextWithSessionResolver(input, resolveAgentAuthorizationContextForSession);
 }
 
 /** Resolve lazily when a tool runs: delegated and automation sessions are persisted before model execution. */

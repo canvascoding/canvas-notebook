@@ -96,7 +96,7 @@ async function main() {
       task('managed-task', 'managed', 'managed', 'parent', 'parent-agent'),
       task('ephemeral-task', 'ephemeral', 'ephemeral', 'normal', 'design-agent'),
     ]);
-    const { resolveIntegrationExecutionContext, resolveRuntimeIntegrationExecutionContext } = await import('../app/lib/integration-tools/context');
+    const { resolveIntegrationExecutionContext, resolveIntegrationAuthorizationContext, resolveRuntimeIntegrationExecutionContext } = await import('../app/lib/integration-tools/context');
     const { resolveIntegrationRuntimePolicy } = await import('../app/lib/integration-tools/runtime-policy');
     const initial = await resolveIntegrationExecutionContext({ actorUserId: 'alice', sessionId: 'normal', policyRevision: 'initial' });
     const context = { ...initial.executionContext, agentTurnId: 'server-issued-turn' };
@@ -105,6 +105,11 @@ async function main() {
     assert.deepEqual(baseline.policy.allowedSources, ['mcp', 'composio']);
     assert.equal(isIntegrationOperationAllowed(baseline.policy, 'mcp', 'call'), true, 'Read/run workspace permission preserves existing external-tool access.');
     assert.equal((await callPolicy()).policyRevision, baseline.policyRevision, 'Unchanged authority has a stable revision.');
+    const authorization = await resolveIntegrationAuthorizationContext({ actorUserId: 'alice', sessionId: 'normal', policyRevision: 'initial' });
+    assert.deepEqual(authorization.executionContext.skillReadRoots, []);
+    assert.deepEqual(authorization.executionContext.skillPackageBindings, []);
+    assert.deepEqual(await callPolicy(authorization.executionContext), baseline,
+      'Prompt-file capture does not change the current legacy policy, provenance or fingerprint.');
     const runtimeContext = await resolveRuntimeIntegrationExecutionContext({ executionContext: context, policyRevision: baseline.policyRevision });
     assert.equal(runtimeContext.executionContext.canWrite, false);
     assert.equal(runtimeContext.executionContext.agentTurnId, context.agentTurnId);
@@ -131,6 +136,8 @@ async function main() {
     assert.deepEqual((await callPolicy()).policy.allowedOperations, ['composio.describe']);
     const heldMcpCeiling = await resolveIntegrationRuntimePolicy({ executionContext: context, ceiling: mcpOnly.policy });
     assert.deepEqual(heldMcpCeiling.policy.allowedSources, [], 'New preferences cannot replace the registered source ceiling.');
+    assert.deepEqual(await resolveIntegrationRuntimePolicy({ executionContext: authorization.executionContext, ceiling: mcpOnly.policy }), heldMcpCeiling,
+      'Authorization-only contexts retain current agent settings and the saved monotone ceiling.');
     await setEnabled(['__none__']);
     assert.deepEqual((await callPolicy()).policy.allowedSources, []);
     await setEnabled([' __none__ ', 'mcp']);
@@ -144,6 +151,11 @@ async function main() {
     for (const sessionId of ['managed', 'ephemeral', 'automation-run']) {
       const resolved = await resolveIntegrationExecutionContext({ actorUserId: 'alice', sessionId, policyRevision: 'test' });
       const effective = await callPolicy(resolved.executionContext);
+      const authorization = await resolveIntegrationAuthorizationContext({ actorUserId: 'alice', sessionId, policyRevision: 'test' });
+      assert.deepEqual(authorization.executionContext.skillReadRoots, []);
+      assert.deepEqual(authorization.executionContext.skillPackageBindings, []);
+      assert.deepEqual(await callPolicy(authorization.executionContext), effective,
+        'Managed/ephemeral/automation authority and policy revisions remain equal without prompt-file capture.');
       if (sessionId === 'automation-run') assert.deepEqual(effective.policy.allowedSources, ['mcp', 'composio']);
       else {
         assert.equal(isIntegrationOperationAllowed(effective.policy, 'mcp', 'call'), true);
@@ -154,7 +166,11 @@ async function main() {
     const ephemeral = (await resolveIntegrationExecutionContext({ actorUserId: 'alice', sessionId: 'ephemeral', policyRevision: 'test' })).executionContext;
     const ephemeralPolicy = await callPolicy(ephemeral);
     await raw.run("UPDATE pi_delegations SET status='cancelled' WHERE id='ephemeral-task'");
-    assert.deepEqual((await callPolicy(ephemeral)).policy.allowedSources, []);
+    const cancelledPolicy = await callPolicy(ephemeral);
+    assert.deepEqual(cancelledPolicy.policy.allowedSources, []);
+    const cancelledAuthorization = await resolveIntegrationAuthorizationContext({ actorUserId: 'alice', sessionId: 'ephemeral', policyRevision: 'test' });
+    assert.deepEqual(await callPolicy(cancelledAuthorization.executionContext), cancelledPolicy,
+      'A new authorization context cannot revive a cancelled delegated task.');
     await raw.run("UPDATE pi_delegations SET status='running',cancel_requested_at=1 WHERE id='ephemeral-task'");
     assert.deepEqual((await callPolicy(ephemeral)).policy.allowedSources, []);
     await raw.run("UPDATE pi_delegations SET cancel_requested_at=NULL,source_session_id='foreign-parent' WHERE id='ephemeral-task'");

@@ -284,7 +284,7 @@ export async function ensurePiSessionWorkspaceSnapshot(input: {
   return brandContext ? { ...workspace, brandContext } : workspace;
 }
 
-export async function resolveAgentExecutionContextForSession(input: {
+async function resolveAgentContextBeforeSkillCaptureForSession(input: {
   sessionId: string;
   userId: string;
   agentId?: string | null;
@@ -302,12 +302,31 @@ export async function resolveAgentExecutionContextForSession(input: {
     projectId: workspace.projectId,
   });
 
-  return addEffectiveSkillReadRoots(workspaceToAgentExecutionContext({
+  return workspaceToAgentExecutionContext({
     workspace,
     userId: input.userId,
     sessionId: input.sessionId,
     agentId: input.agentId ?? null,
-  }));
+  });
+}
+
+export async function resolveAgentExecutionContextForSession(input: {
+  sessionId: string;
+  userId: string;
+  agentId?: string | null;
+  permissions?: WorkspacePermissionRequirement[];
+}): Promise<AgentExecutionContext> {
+  return addEffectiveSkillReadRoots(await resolveAgentContextBeforeSkillCaptureForSession(input));
+}
+
+/** Widget authorization keeps current workspace/brand and agent-use checks, without capturing runtime skill files. */
+export async function resolveAgentAuthorizationContextForSession(input: {
+  sessionId: string;
+  userId: string;
+  agentId?: string | null;
+  permissions?: WorkspacePermissionRequirement[];
+}): Promise<AgentExecutionContext> {
+  return { ...await resolveAgentContextBeforeSkillCaptureForSession(input), skillReadRoots: [], skillPackageBindings: [] };
 }
 
 /**

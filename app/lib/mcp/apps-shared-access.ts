@@ -3,7 +3,7 @@ import 'server-only';
 import { and, desc, eq, isNull, sql } from 'drizzle-orm';
 import { db } from '@/app/lib/db';
 import { piMessages, piSessions } from '@/app/lib/db/schema';
-import { resolveIntegrationExecutionContext } from '@/app/lib/integration-tools/context';
+import { resolveIntegrationAuthorizationContext } from '@/app/lib/integration-tools/context';
 import type { IntegrationExecutionContext, IntegrationPolicy } from '@/app/lib/integration-tools/contracts';
 import { mcpIntegrationToolAdapter } from '@/app/lib/integration-tools/adapters/mcp-runtime';
 import { findSharedIntegrationConnectionAuthorization, getIntegrationProviderAuthorization,
@@ -76,7 +76,7 @@ export async function requireSharedMcpAppAccess(chat: McpAppChat, app: SharedMcp
     || authority.context.agentId !== chat.agentId || authority.context.workspaceId !== session.workspaceId
     || authority.bindingRevision !== app.bindingRevision) throw new McpAccessError('App does not belong to this tool result.', 403);
   try {
-    const resolved = await resolveIntegrationExecutionContext({ actorUserId: chat.userId, sessionId: chat.sessionId,
+    const resolved = await resolveIntegrationAuthorizationContext({ actorUserId: chat.userId, sessionId: chat.sessionId,
       agentId: chat.agentId, policyRevision: 'mcp-app-preflight' });
     const runtime = await resolveIntegrationRuntimePolicy({ executionContext: resolved.executionContext, ceiling: authority.policy });
     const context = { ...resolved.integrationContext, sessionId: chat.sessionId, policyRevision: runtime.policyRevision };
@@ -107,7 +107,7 @@ export async function requireSharedMcpAppAccess(chat: McpAppChat, app: SharedMcp
     if (sharedMcpAppBindingRevision(currentProvider.bindingRevision) !== app.bindingRevision || !currentProvider.provider.canExecute) {
       throw new McpAccessError('The shared connection changed. Run the tool again.', 409);
     }
-    const current = await resolveIntegrationExecutionContext({ actorUserId: chat.userId, sessionId: chat.sessionId,
+    const current = await resolveIntegrationAuthorizationContext({ actorUserId: chat.userId, sessionId: chat.sessionId,
       agentId: chat.agentId, policyRevision: 'mcp-app-final-preflight' });
     const finalRuntime = await resolveIntegrationRuntimePolicy({ executionContext: current.executionContext, ceiling: authority.policy });
     if (schemaFingerprint({ ...current.integrationContext, sessionId: chat.sessionId, policyRevision: finalRuntime.policyRevision })

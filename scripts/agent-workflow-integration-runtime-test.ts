@@ -177,11 +177,23 @@ async function main() {
     const { getProgressiveGatewayCapabilityNames } = await import('../app/lib/pi/progressive-tool-gateway');
     const { runWithAgentExecutionContext } = await import('../app/lib/pi/agent-execution-context');
     const { resolveIntegrationRuntimePolicy } = await import('../app/lib/integration-tools/runtime-policy');
+    const { resolveIntegrationAuthorizationContext } = await import('../app/lib/integration-tools/context');
+    const { attachAgentWorkflowRuntimeProjection, assertAgentWorkflowRuntimeReady } = await import('../app/lib/agents/workflow-runtime');
     const { UNRESTRICTED_INTEGRATION_POLICY } = await import('../app/lib/integration-tools/policy');
     const counts = () => [composio.calls.length, mcp.calls().requests, composio.calls.filter(call => call.path.includes('/tools/execute/')).length, mcp.calls().executions.length];
     const beforeContext = counts();
     const initialContext = await fresh();
     assert.equal(initialContext.skillPackageBindings?.[0].publishedRevisionRef, v1.published.revisionRef);
+    const initialAuthorization = await resolveIntegrationAuthorizationContext({ actorUserId: 'alice', sessionId: 'workflow-main-session',
+      agentId: 'workflow-main', policyRevision: 'workflow-authorization-fixture' });
+    assert.deepEqual(initialAuthorization.executionContext.skillReadRoots, []);
+    assert.deepEqual(initialAuthorization.executionContext.skillPackageBindings, []);
+    const initialAuthorizationPolicy = await resolveIntegrationRuntimePolicy({ executionContext: initialAuthorization.executionContext, ceiling: UNRESTRICTED_INTEGRATION_POLICY });
+    const initialFullPolicy = await resolveIntegrationRuntimePolicy({ executionContext: initialContext, ceiling: UNRESTRICTED_INTEGRATION_POLICY });
+    assert(initialAuthorizationPolicy.workflowProjection);
+    assert.deepEqual(initialAuthorizationPolicy.policy, initialFullPolicy.policy);
+    assert.equal(initialAuthorizationPolicy.policyRevision, initialFullPolicy.policyRevision,
+      'Empty prompt roots retain the fresh WF1 package, connection and preference fingerprint.');
     for (const options of [{ planningMode: true }, { workspaceEmailAutomation: { userId: 'alice', workspaceId: 'personal-alice', agentId: 'workflow-main',
       eventId: 'fixture-event', mailboxId: 'fixture-mailbox', providerMessageId: 'fixture-message', providerThreadId: null, folder: 'INBOX', automationJobId: 'fixture-job', automationRunId: 'fixture-run' } }]) {
       await getPiTools('alice', 'workflow-main', 'workflow-main-session', { executionContext: initialContext, strictAuthorization: true, ...options });
@@ -267,6 +279,15 @@ async function main() {
       path: `${childRoot}/agents/canvas.yaml`, encoding: 'base64', content: Buffer.from(YAML.stringify({ workflow: missingWorkflow })).toString('base64') })).draft;
     const v2 = await packages.publishCapabilityPackageDraftAction(owner, publish(v2Draft, currentPackage));
     assert.equal((await fresh()).skillPackageBindings?.[0].publishedRevisionRef, v1.published.revisionRef, 'A new package HEAD preserves the explicitly selected immutable v1.');
+    const pinnedAuthorization = await resolveIntegrationAuthorizationContext({ actorUserId: 'alice', sessionId: 'workflow-main-session',
+      agentId: 'workflow-main', policyRevision: 'workflow-authorization-fixture' });
+    assert.deepEqual(pinnedAuthorization.executionContext.skillReadRoots, []);
+    assert.deepEqual(pinnedAuthorization.executionContext.skillPackageBindings, []);
+    const pinnedAuthorizationPolicy = await resolveIntegrationRuntimePolicy({ executionContext: pinnedAuthorization.executionContext, ceiling: UNRESTRICTED_INTEGRATION_POLICY });
+    const pinnedFullPolicy = await resolveIntegrationRuntimePolicy({ executionContext: await fresh(), ceiling: UNRESTRICTED_INTEGRATION_POLICY });
+    assert.deepEqual(pinnedAuthorizationPolicy.policy, pinnedFullPolicy.policy);
+    assert.equal(pinnedAuthorizationPolicy.policyRevision, pinnedFullPolicy.policyRevision,
+      'Authorization still resolves the explicit immutable V1 package after a different V2 becomes HEAD.');
     details(await invoke({ action: 'call', toolRef: selectedSchema.toolRef, schemaRef: selectedSchema.schemaRef, arguments: { folder_id: 'Pinned v1' } }));
     const missingPackage = structuredClone(basePackage); missingPackage.publishedRevisionRef = v2.published.revisionRef; missingPackage.checksum = v2.published.checksum;
     const missingSelection = missingPackage.declarations[1].capabilities[0].selection; assert(missingSelection.mode === 'selectable');
@@ -280,6 +301,20 @@ async function main() {
     const missingMcp = missingPage.providers.find(provider => provider.source === 'mcp')!;
     const missingMcpTools = details<IntegrationToolPage>(await invoke({ action: 'list', target: 'tools', providerRef: missingMcp.providerRef }, missingGateway, 'workflow-missing'));
     const missingSchema = details<IntegrationToolSchema>(await invoke({ action: 'describe', toolRef: missingMcpTools.tools[0].toolRef }, missingGateway, 'workflow-missing'));
+    const missingAuthorization = await resolveIntegrationAuthorizationContext({ actorUserId: 'alice', sessionId: 'workflow-missing-session',
+      agentId: 'workflow-missing', policyRevision: 'workflow-authorization-fixture' });
+    assert.deepEqual(missingAuthorization.executionContext.skillReadRoots, []);
+    assert.deepEqual(missingAuthorization.executionContext.skillPackageBindings, []);
+    const missingAuthorizationPolicy = await resolveIntegrationRuntimePolicy({ executionContext: missingAuthorization.executionContext, ceiling: UNRESTRICTED_INTEGRATION_POLICY });
+    assert(missingAuthorizationPolicy.workflowProjection);
+    const missingAuthorizationIntegration = { ...missingAuthorization.integrationContext, sessionId: missingAuthorization.executionContext.sessionId,
+      policyRevision: missingAuthorizationPolicy.policyRevision };
+    attachAgentWorkflowRuntimeProjection(missingAuthorizationIntegration, missingAuthorizationPolicy.workflowProjection);
+    const beforeAuthorizationMissing = counts().slice(2);
+    await assert.rejects(assertAgentWorkflowRuntimeReady({ context: missingAuthorizationIntegration, policy: missingAuthorizationPolicy.policy,
+      projection: missingAuthorizationPolicy.workflowProjection }), { code: 'provider_denied' });
+    assert.deepEqual(counts().slice(2), beforeAuthorizationMissing,
+      'Empty roots cannot bypass a required missing tool or dispatch any business call.');
     const beforeMissing = counts().slice(2);
     const missingCall = (await invoke({ action: 'call', toolRef: missingSchema.toolRef, schemaRef: missingSchema.schemaRef, arguments: { design_query: 'Missing other required capability' } }, missingGateway, 'workflow-missing')).details as { integrationError: { code: string } };
     assert(missingCall.integrationError); assert.deepEqual(counts().slice(2), beforeMissing, 'A missing required tool on Canva closes the unrelated MCP business call too.');
@@ -309,6 +344,18 @@ async function main() {
     const connectionRecord = (await connections.getIntegrationConnectionRecord(slack.resource.connectionRef))!;
     await connections.mutateSharedIntegrationConnection(owner, slack.resource.connectionRef, { expectedMetadataRevision: connectionRecord.resource.metadataRevision,
       expectedGrantsRevision: connectionRecord.resource.grantsRevision, expectedBindingRevision: connectionRecord.resource.bindingRevision, grants: grants.filter(grant => grant.targetId !== 'alice') });
+    const revokedAuthorization = await resolveIntegrationAuthorizationContext({ actorUserId: 'alice', sessionId: 'workflow-main-session',
+      agentId: 'workflow-main', policyRevision: 'workflow-authorization-fixture' });
+    const revokedAuthorizationPolicy = await resolveIntegrationRuntimePolicy({ executionContext: revokedAuthorization.executionContext, ceiling: UNRESTRICTED_INTEGRATION_POLICY });
+    assert(revokedAuthorizationPolicy.workflowProjection);
+    const revokedAuthorizationIntegration = { ...revokedAuthorization.integrationContext, sessionId: revokedAuthorization.executionContext.sessionId,
+      policyRevision: revokedAuthorizationPolicy.policyRevision };
+    attachAgentWorkflowRuntimeProjection(revokedAuthorizationIntegration, revokedAuthorizationPolicy.workflowProjection);
+    const beforeAuthorizationRevoke = counts().slice(2);
+    await assert.rejects(assertAgentWorkflowRuntimeReady({ context: revokedAuthorizationIntegration, policy: revokedAuthorizationPolicy.policy,
+      projection: revokedAuthorizationPolicy.workflowProjection }), { code: 'provider_denied' });
+    assert.deepEqual(counts().slice(2), beforeAuthorizationRevoke,
+      'Authorization-only readiness retains the current required second-connection revoke with zero business calls.');
     const beforeRevoke = counts().slice(2);
     const revoked = (await invoke({ action: 'call', toolRef: selectedSchema.toolRef, schemaRef: selectedSchema.schemaRef, arguments: { folder_id: 'Revoked required Slack' } })).details as { integrationError: { code: string } };
     assert(revoked.integrationError); assert.deepEqual(counts().slice(2), beforeRevoke, 'Revoke of a required second capability blocks business dispatch on the first.');
