@@ -9,7 +9,7 @@
  * Usage: npm run setup
  */
 
-import { execFileSync, execSync, spawn } from 'child_process';
+import { execFileSync, execSync, spawn, spawnSync } from 'child_process';
 import { existsSync, mkdirSync, copyFileSync, readFileSync } from 'fs';
 import { basename, join } from 'path';
 import { fileURLToPath } from 'url';
@@ -474,6 +474,31 @@ function openBrowser(url) {
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 async function main() {
+  const setupArguments = process.argv.slice(2);
+  if (setupArguments.includes('--managed')) {
+    let managedSeen = false;
+    let stateDirectory;
+    for (let index = 0; index < setupArguments.length; index += 1) {
+      const argument = setupArguments[index];
+      if (argument === '--managed' && !managedSeen) {
+        managedSeen = true;
+      } else if (argument === '--state-dir' && stateDirectory === undefined) {
+        stateDirectory = setupArguments[++index];
+        if (!stateDirectory?.trim() || stateDirectory.startsWith('--') || /[\0\r\n]/u.test(stateDirectory)) {
+          throw new Error('--state-dir requires a directory path.');
+        }
+      } else {
+        throw new Error(`Unsupported managed setup argument: ${argument}`);
+      }
+    }
+    const result = spawnSync('npm', ['run', 'testenv:update:notebook',
+      ...(stateDirectory === undefined ? [] : ['--', '--state-dir', stateDirectory])],
+    { cwd: rootDir, env: process.env, stdio: 'inherit' });
+    if (result.error) throw result.error;
+    process.exitCode = result.status ?? 1;
+    return;
+  }
+
   console.clear();
   log('╔══════════════════════════════════════════╗', 'blue');
   log('║      Canvas Notebook  —  Setup           ║', 'blue');
