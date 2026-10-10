@@ -376,7 +376,7 @@ export function createWorkspaceFileOperationPlan(request: WorkspaceFileOperation
     const source = contents.get(key);
     expectedPathState.set(key, {
       workspaceId, path: pathValue, identity: entry?.identity ?? null,
-      contentHash: source?.hash ?? entry?.contentHash ?? null,
+      contentHash: source?.hash ?? (entry?.markdownContent === undefined ? entry?.contentHash ?? null : hash(entry.markdownContent)),
     });
   };
   for (const mapping of pathMappings) {
@@ -385,6 +385,10 @@ export function createWorkspaceFileOperationPlan(request: WorkspaceFileOperation
   }
   for (const edit of linkEdits) expect(edit.sourceWorkspaceId, edit.sourcePathBefore);
   for (const restored of linkAssessment.restoredLinks ?? []) expect(restored.workspaceId ?? request.sourceWorkspaceId, restored.sourcePath);
+  // The HTML no-change proof depends on these exact source bytes as well.
+  for (const warning of linkAssessment.warnings.filter((entry) => entry.reason === 'unaffected-explicit-html-link')) {
+    expect(warning.workspaceId ?? request.sourceWorkspaceId, warning.sourcePath);
+  }
   const basePlan = {
     contractVersion: WORKSPACE_LINK_CONTRACT_VERSION_V1,
     kind: request.kind,

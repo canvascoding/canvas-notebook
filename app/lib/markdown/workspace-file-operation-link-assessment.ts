@@ -10,6 +10,7 @@ import {
   type WorkspaceLinkIndex,
 } from './workspace-link-index-core';
 import { MAX_INDEXED_MARKDOWN_BYTES } from './workspace-link-limits';
+import { assessWorkspaceHtmlLink } from './workspace-html-link-assessment';
 import { getWorkspaceLinkLogicalTarget, mapWorkspaceLinkLogicalTarget, workspaceLinkLogicalTargetMatchesPath } from './workspace-file-operation-link-semantics';
 import type { WorkspaceFileOperationPlanRequest } from './workspace-file-operation-planner';
 
@@ -118,9 +119,26 @@ export function assessWorkspaceFileOperationLinks({
       block({ workspaceId, sourcePath: omitted.path, targetLiteral: '', status: 'omitted', reason: 'uninspected-source' });
     }
     for (const unevaluated of index.unevaluatedLinks) {
+      const sourceSelections = workspaceId === request.sourceWorkspaceId ? request.selections : [];
+      const destinationSelections = workspaceId === request.destinationWorkspaceId ? request.selections : [];
+      const html = assessWorkspaceHtmlLink(unevaluated, {
+        beforePaths: new Set(index.targetPaths), afterPaths: pathsAfter.get(workspaceId)!,
+        sourceScopes: [...sourceSelections.map((selection) => selection.sourcePath),
+          ...destinationSelections.map((selection) => selection.destinationPath)],
+        targetScopes: [...(request.kind === 'copy' ? [] : sourceSelections.map((selection) => selection.sourcePath)),
+          ...destinationSelections.map((selection) => selection.destinationPath)],
+      });
+      if (html?.unaffected) {
+        assessment.warnings.push({ workspaceId, sourcePath: unevaluated.sourcePath, targetLiteral: unevaluated.raw,
+          status: 'not-evaluated', reason: 'unaffected-explicit-html-link', htmlTargets: html.targets });
+        continue;
+      }
+      const content = entriesByWorkspace.get(workspaceId)?.get(unevaluated.sourcePath)?.markdownContent;
       assessment.complete = false;
       block({ workspaceId, sourcePath: unevaluated.sourcePath, targetLiteral: unevaluated.raw,
-        status: 'not-evaluated', reason: 'unevaluated-link' });
+        status: 'not-evaluated', reason: html ? 'affected-html-link' : 'unevaluated-link',
+        ...(html ? { htmlTargets: html.targets } : {}),
+        ...(content !== undefined ? { line: content.slice(0, unevaluated.start).split('\n').length } : {}) });
     }
     for (const [sourcePath, edges] of sourceEdges(index)) {
       const mapping = workspaceId === request.sourceWorkspaceId ? sourceMappings.get(sourcePath) : undefined;

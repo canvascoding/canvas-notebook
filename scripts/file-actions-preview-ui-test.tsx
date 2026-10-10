@@ -359,7 +359,7 @@ test('mounted move errors retain issue paths, recheck without applying, and open
     kind: 'move', status: 'blocked', errorCode: 'PREVIEW_BLOCKED', phase: 'preparing',
     completedActions: 0, totalActions: 2,
     selections: [{ sourcePath: file.path, destinationPath: 'Archive/report.txt' }],
-    issues: [{ code: 'unevaluated-link', path: 'Other/local-links.md' }],
+    issues: [{ code: 'affected-html-link', path: 'Other/local-links.md', targetLiteral: 'Assets/image.png', line: 7 }],
   };
   let resolveApply = async (): Promise<WorkspaceRenameResult> => {
     throw new WorkspacePathOperationClientError(operation, 'Immediate action could not finish safely');
@@ -406,7 +406,9 @@ test('mounted move errors retain issue paths, recheck without applying, and open
     await act(async () => button(translate('move')).click());
     assert.ok(issues());
     assert.match(issues()?.textContent ?? '', /Other\/local-links\.md/u);
-    assert.ok(issues()?.textContent?.includes(messages.workspacePathOperationStatus.issue.unsupportedLink),
+    assert.match(issues()?.textContent ?? '', /Other\/local-links\.md:7/u);
+    assert.match(issues()?.textContent ?? '', /Assets\/image\.png/u);
+    assert.ok(issues()?.textContent?.includes(messages.workspacePathOperationStatus.issue.affectedHtmlLink),
       'immediate conflict uses the same localized guidance as the durable status dialog');
     assert.equal(controls.renameApplyCalls.length, 1);
     assert.equal(controls.renameApplyCalls[0]?.[4], workspaceId, 'Move captures its explicit workspace');
@@ -428,7 +430,7 @@ test('mounted move errors retain issue paths, recheck without applying, and open
     await openMove();
     await act(async () => button(translate('move')).click());
     assert.match(issues()?.textContent ?? '', /Other\/local-links\.md/u);
-    assert.ok(issues()?.textContent?.includes(messages.workspacePathOperationStatus.issue.unsupportedLink),
+    assert.ok(issues()?.textContent?.includes(messages.workspacePathOperationStatus.issue.affectedHtmlLink),
       'later durable failure shows the same issue path and corrective guidance');
     await act(async () => button('Open affected file').click());
     assert.deepEqual(controls.openedFiles, [{ path: 'Other/local-links.md', workspaceId }]);

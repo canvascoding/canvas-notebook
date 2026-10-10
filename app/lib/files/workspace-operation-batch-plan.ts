@@ -8,6 +8,7 @@ import { createWorkspaceFileOperationPlan, computeWorkspaceFileOperationPlanId,
 import { buildWorkspaceLinkIndexFromDocuments, type WorkspaceLinkEdge } from '@/app/lib/markdown/workspace-link-index-core';
 import { parseCanvasMarkdownDocument } from '@/app/lib/markdown/obsidian-metadata';
 import { getWorkspaceLinkLogicalTarget } from '@/app/lib/markdown/workspace-file-operation-link-semantics';
+import { assessWorkspaceHtmlLink } from '@/app/lib/markdown/workspace-html-link-assessment';
 import { isProtectedAppOutputFolder } from '@/app/lib/filesystem/app-output-folders';
 import type { WorkspaceOperationBatchAction, WorkspaceOperationBatchPlan, WorkspaceOperationBatchScope } from './workspace-operation-batch-contract';
 
@@ -237,6 +238,29 @@ export function createWorkspaceOperationBatchPlan(input: {
   const linkAssessment = { ...movePlan.linkAssessment!,
     complete: movePlan.linkAssessment!.complete && omitted.length === 0,
     warnings: [...movePlan.linkAssessment!.warnings], blockers: [...movePlan.linkAssessment!.blockers] };
+  // Evaluate surviving HTML against the original snapshot. The move-only plan
+  // has already removed delete targets and cannot prove their original identity.
+  const finalTargets = new Set(beforeIndex.targetPaths.filter((target) => !deleted(target))
+    .map((target) => moveBySource.get(target)?.destinationPath ?? target));
+  for (const link of beforeIndex.unevaluatedLinks.filter((entry) => !deleted(entry.sourcePath))) {
+    const html = assessWorkspaceHtmlLink(link, {
+      beforePaths: new Set(beforeIndex.targetPaths), afterPaths: finalTargets,
+      sourceScopes: moveRoots.flatMap((root) => [root.sourcePath, root.destinationPath!]),
+      targetScopes: [...deleteRoots.map((root) => root.sourcePath),
+        ...moveRoots.flatMap((root) => [root.sourcePath, root.destinationPath!])],
+    });
+    if (!html || html.unaffected) continue;
+    const blocker = { workspaceId: snapshot.workspaceId, sourcePath: link.sourcePath,
+      targetLiteral: link.raw, status: 'not-evaluated' as const, reason: 'affected-html-link' as const,
+      htmlTargets: html.targets,
+      line: snapshot.entries.find((entry) => entry.path === link.sourcePath)!.markdownContent!.slice(0, link.start).split('\n').length };
+    if (!linkAssessment.blockers.some((entry) => entry.sourcePath === link.sourcePath && entry.targetLiteral === link.raw)) {
+      linkAssessment.blockers.push(blocker);
+      issue('incomplete-index', link.sourcePath, `affected-html-link: ${html.targets.join(', ')} (not-evaluated).`);
+    }
+    linkAssessment.complete = false;
+    linkAssessment.warnings = linkAssessment.warnings.filter((warning) => warning.sourcePath !== link.sourcePath || warning.targetLiteral !== link.raw);
+  }
   for (const edge of beforeIndex.edges.filter((candidate) => !deleted(candidate.sourcePath)
     && candidate.status !== 'resolved' && candidate.candidates.some(deleted))) {
     linkAssessment.blockers.push({ workspaceId: snapshot.workspaceId, sourcePath: edge.sourcePath,
@@ -257,7 +281,7 @@ export function createWorkspaceOperationBatchPlan(input: {
   }));
   const rawLinkPlan = { ...movePlan, pathMappings: writeMappings, linkEdits: linkEdits.map(({ changeKind: _kind, snippet: _snippet, ...edit }) => edit),
     expectedPathState: body.expectedPathState, previewContents, issues: [], readiness: body.readiness,
-    coverage: movePlan.coverage, linkAssessment: movePlan.linkAssessment };
+    coverage: movePlan.coverage, linkAssessment };
   const linkPlan = { ...rawLinkPlan, planId: computeWorkspaceFileOperationPlanId(rawLinkPlan) };
   return { ...body, planId, linkPlan };
 }

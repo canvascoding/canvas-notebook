@@ -5,7 +5,7 @@ export const workspacePathOperationIssueKeys: Record<string, string> = {
   'incomplete-index': 'incompleteIndex', 'stale-content': 'staleContent',
   'unsupported-target-format': 'unsupportedLink', 'unsupported-delete-link': 'unsupportedLink',
   'affected-unresolved-link': 'unresolvedLink', 'uninspected-source': 'uninspectedSource',
-  'unevaluated-link': 'unsupportedLink', 'resolution-changed': 'resolutionChanged',
+  'unevaluated-link': 'unevaluatedLink', 'affected-html-link': 'affectedHtmlLink', 'resolution-changed': 'resolutionChanged',
   'action-limit': 'limit', 'path-limit': 'limit', 'missing-selection': 'missingSelection',
   'duplicate-review': 'invalidAction', 'invalid-action': 'invalidAction',
   'unsupported-action': 'unsupportedAction', 'unsupported-operation': 'unsupportedAction',

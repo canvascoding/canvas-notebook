@@ -492,7 +492,71 @@ async function main() {
     assert.equal(await fs.readFile(absolute('reborn-missing.md'), 'utf8'), '# Newly created after the original delete');
     assert.notEqual((await buildWorkspaceOperationBatchPlan({ scope, actions: [absentAction] })).planId, absentPlan.planId,
       'A newly created source changes a not-yet-started no-op plan and cannot be deleted by stale acceptance');
-    console.log('workspace-operation-batch-executor-test: backups, checkpoint, safe recovery/Undo, actor attribution and durable absent-path no-op passed');
+
+    const htmlSource = '# HTML fixture\n\n<img src="html-roundtrip-image.png" alt="Fixture" style="display:block;max-width:100%;height:auto;margin-left:auto;margin-right:auto">\n';
+    const htmlImage = 'Image bytes must remain untouched';
+    const htmlMovedContent = 'Independent document bytes';
+    await write('html-roundtrip.md', htmlSource);
+    await write('html-roundtrip-image.png', htmlImage);
+    await write('html-roundtrip-source.txt', htmlMovedContent);
+    const htmlActions: WorkspaceOperationBatchAction[] = [{ reviewId: 'html-independent-move', kind: 'move',
+      selections: [{ sourcePath: 'html-roundtrip-source.txt', destinationPath: 'html-roundtrip-moved.txt' }] }];
+    const htmlPlan = await buildWorkspaceOperationBatchPlan({ scope, actions: htmlActions });
+    assert.equal(htmlPlan.readiness, 'ready', JSON.stringify(htmlPlan.issues));
+    assert.ok(htmlPlan.linkAssessment.warnings.some((warning) => warning.sourcePath === 'html-roundtrip.md'
+      && warning.reason === 'unaffected-explicit-html-link'));
+    assert.equal(htmlPlan.expectedPathState.find((entry) => entry.path === 'html-roundtrip.md')?.contentHash, sha(htmlSource));
+    const htmlId = randomUUID();
+    const htmlMoved = await makeExecutor().execute({ batchId: htmlId, plan: htmlPlan, scope, actorUserId: 'tester', actorDisplayName: 'Tester' });
+    assert.equal(htmlMoved.status, 'applied', htmlMoved.errorCode ?? '');
+    assert.equal(await fs.readFile(absolute('html-roundtrip.md'), 'utf8'), htmlSource);
+    await makeExecutor().assertUndoAvailable({ batchId: htmlId, scope });
+    const htmlUndone = await makeExecutor().undo({ batchId: htmlId, scope, actorUserId: 'tester', actorDisplayName: 'Tester' });
+    assert.equal(htmlUndone.status, 'applied', htmlUndone.errorCode ?? '');
+    assert.equal(await fs.readFile(absolute('html-roundtrip-source.txt'), 'utf8'), htmlMovedContent);
+    await assert.rejects(fs.stat(absolute('html-roundtrip-moved.txt')), { code: 'ENOENT' });
+    assert.equal(await fs.readFile(absolute('html-roundtrip.md'), 'utf8'), htmlSource, 'Undo preserves HTML and its formatting byte for byte');
+    assert.equal(await fs.readFile(absolute('html-roundtrip-image.png'), 'utf8'), htmlImage);
+
+    const htmlAgain = await buildWorkspaceOperationBatchPlan({ scope, actions: htmlActions });
+    const htmlAgainId = randomUUID();
+    const htmlAgainMoved = await makeExecutor().execute({ batchId: htmlAgainId, plan: htmlAgain, scope, actorUserId: 'tester', actorDisplayName: 'Tester' });
+    assert.equal(htmlAgainMoved.status, 'applied', htmlAgainMoved.errorCode ?? '');
+    const htmlAppliedEventCount = events.length;
+    const newHtmlBacklink = '<a href="html-roundtrip-moved.txt">Created after the move</a>';
+    await write('html-undo-backlink.md', newHtmlBacklink);
+    await assert.rejects(makeExecutor().assertUndoAvailable({ batchId: htmlAgainId, scope }), { code: 'BATCH_UNDO_INDEX_INCOMPLETE' });
+    const affectedHtmlUndo = await makeExecutor().undo({ batchId: htmlAgainId, scope, actorUserId: 'tester', actorDisplayName: 'Tester' });
+    assert.equal(affectedHtmlUndo.status, 'failed');
+    assert.equal(affectedHtmlUndo.errorCode, 'BATCH_UNDO_INDEX_INCOMPLETE');
+    assert.equal(events.length, htmlAppliedEventCount, 'Affected HTML refuses Undo before any mutation');
+    assert.equal(await fs.readFile(absolute('html-undo-backlink.md'), 'utf8'), newHtmlBacklink);
+    assert.equal(await fs.readFile(absolute('html-roundtrip-moved.txt'), 'utf8'), htmlMovedContent);
+    await assert.rejects(fs.stat(absolute('html-roundtrip-source.txt')), { code: 'ENOENT' });
+    await fs.unlink(absolute('html-undo-backlink.md'));
+
+    const opaqueHtml = '<img src="html-roundtrip-image.png" srcset="html-roundtrip-image.png 1x">';
+    await write('html-opaque.md', opaqueHtml);
+    const opaqueForward = await buildWorkspaceOperationBatchPlan({ scope, actions: [{ reviewId: 'opaque-forward', kind: 'move',
+      selections: [{ sourcePath: 'html-roundtrip-moved.txt', destinationPath: 'html-roundtrip-another.txt' }] }] });
+    assert.equal(opaqueForward.readiness, 'blocked', 'An opaque HTML node cannot acquire an unaffected certification');
+    await assert.rejects(makeExecutor().assertUndoAvailable({ batchId: htmlAgainId, scope }), { code: 'BATCH_UNDO_INDEX_INCOMPLETE' });
+    const opaqueHtmlUndo = await makeExecutor().undo({ batchId: htmlAgainId, scope, actorUserId: 'tester', actorDisplayName: 'Tester' });
+    assert.equal(opaqueHtmlUndo.status, 'failed');
+    assert.equal(opaqueHtmlUndo.errorCode, 'BATCH_UNDO_INDEX_INCOMPLETE');
+    assert.equal(events.length, htmlAppliedEventCount, 'Opaque HTML refuses Undo before any mutation');
+    assert.equal(await fs.readFile(absolute('html-opaque.md'), 'utf8'), opaqueHtml);
+    assert.equal(await fs.readFile(absolute('html-roundtrip-moved.txt'), 'utf8'), htmlMovedContent);
+    await assert.rejects(fs.stat(absolute('html-roundtrip-source.txt')), { code: 'ENOENT' });
+    await fs.unlink(absolute('html-opaque.md'));
+    await makeExecutor().assertUndoAvailable({ batchId: htmlAgainId, scope });
+    const htmlRecoveredUndo = await makeExecutor().undo({ batchId: htmlAgainId, scope, actorUserId: 'tester', actorDisplayName: 'Tester' });
+    assert.equal(htmlRecoveredUndo.status, 'applied', htmlRecoveredUndo.errorCode ?? '');
+    assert.equal(await fs.readFile(absolute('html-roundtrip-source.txt'), 'utf8'), htmlMovedContent);
+    await assert.rejects(fs.stat(absolute('html-roundtrip-moved.txt')), { code: 'ENOENT' });
+    assert.equal(await fs.readFile(absolute('html-roundtrip.md'), 'utf8'), htmlSource);
+    assert.equal(await fs.readFile(absolute('html-roundtrip-image.png'), 'utf8'), htmlImage);
+    console.log('workspace-operation-batch-executor-test: backups, checkpoint, safe recovery/Undo, HTML roundtrip and inverse guards, actor attribution and durable absent-path no-op passed');
   } finally {
     if (previousData === undefined) delete process.env.DATA; else process.env.DATA = previousData;
     if (previousRoot === undefined) delete process.env.CANVAS_DATA_ROOT; else process.env.CANVAS_DATA_ROOT = previousRoot;

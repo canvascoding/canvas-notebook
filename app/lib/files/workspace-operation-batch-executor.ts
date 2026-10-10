@@ -23,6 +23,7 @@ import { computeWorkspaceFileOperationPlanId } from '@/app/lib/markdown/workspac
 import { buildWorkspacePlannerSnapshot } from '@/app/lib/markdown/workspace-file-operation-preview';
 import { buildWorkspaceLinkIndexFromDocuments } from '@/app/lib/markdown/workspace-link-index-core';
 import { parseWorkspaceMarkdownHref } from '@/app/lib/markdown/workspace-local-link-parser';
+import { assessWorkspaceHtmlLink } from '@/app/lib/markdown/workspace-html-link-assessment';
 import { buildWorkspaceOperationBatchPlan, computeWorkspaceOperationBatchPlanId } from './workspace-operation-batch-plan';
 import { workspaceOperationBatchErrorCode, workspaceOperationBatchFailureStatus,
   type WorkspaceOperationBatchMutationEvidence } from './workspace-operation-batch-failure';
@@ -345,7 +346,6 @@ export function createWorkspaceOperationBatchExecutor(dependencies: Dependencies
       .map((entry) => ({ path: entry.path, content: entry.markdownContent! }));
     const currentPaths = snapshot.entries.filter((entry) => entry.kind === 'file').map((entry) => entry.path);
     const currentIndex = buildWorkspaceLinkIndexFromDocuments(currentSources, new Date(0), currentPaths);
-    if (currentIndex.unevaluatedLinks.length) conflict('BATCH_UNDO_INDEX_INCOMPLETE');
     const inversePaths = new Map(manifest.plan.pathMappings.map((mapping) => [mapping.destinationPath, mapping.sourcePath]));
     const editedPaths = new Map(manifest.plan.originalDocuments.map((document) => [
       manifest.plan.pathMappings.find((mapping) => mapping.sourcePath === document.path)?.destinationPath ?? document.path,
@@ -356,6 +356,16 @@ export function createWorkspaceOperationBatchExecutor(dependencies: Dependencies
     restoredSources.push(...(manifest.plan.deletedDocuments ?? []));
     const restoredPaths = [...currentPaths.map((current) => inversePaths.get(current) ?? current),
       ...manifest.plan.deletedPaths.filter((entry) => entry.kind === 'file').map((entry) => entry.path)];
+    for (const link of currentIndex.unevaluatedLinks) {
+      const html = assessWorkspaceHtmlLink(link, {
+        beforePaths: new Set(currentPaths), afterPaths: new Set(restoredPaths),
+        sourceScopes: manifest.plan.pathSteps.filter((step) => step.kind !== 'delete')
+          .flatMap((step) => [step.destinationPath!, step.sourcePath]),
+        targetScopes: manifest.plan.pathSteps.flatMap((step) => step.kind === 'delete'
+          ? [step.sourcePath] : [step.destinationPath!, step.sourcePath]),
+      });
+      if (!html?.unaffected) conflict('BATCH_UNDO_INDEX_INCOMPLETE');
+    }
     const restoredIndex = buildWorkspaceLinkIndexFromDocuments(restoredSources, new Date(0), restoredPaths);
     for (const repaired of manifest.plan.linkAssessment.restoredLinks ?? []) {
       const originalEdges = restoredIndex.edges.filter((edge) => edge.sourcePath === repaired.sourcePath

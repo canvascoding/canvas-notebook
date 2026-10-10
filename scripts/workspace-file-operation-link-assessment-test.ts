@@ -90,7 +90,7 @@ const html = plan('move', [directory('Notes'), file('Notes/plan.md', '# Plan'),
   file('Unrelated.md', '<a href="Notes/plan.md">Plan</a>')]);
 assert.equal(html.readiness, 'blocked', 'Unevaluated HTML cannot be declared unaffected');
 assert.equal(html.linkAssessment?.complete, false);
-assert.equal(html.linkAssessment?.blockers[0]?.reason, 'unevaluated-link');
+assert.equal(html.linkAssessment?.blockers[0]?.reason, 'affected-html-link');
 
 for (const kind of ['move', 'rename', 'copy'] as const) {
   const externalHtml = plan(kind, [directory('Notes'), file('Notes/plan.md', '# Plan'),

@@ -4,7 +4,7 @@ import type { Nodes } from 'mdast';
 import { createObsidianSyntaxMask, parseObsidianWikiLinks } from './obsidian-flavored-markdown';
 import { getCanvasNotebookMarkdownLinkTarget } from './obsidian-link-resolver';
 import { parseCanvasMarkdownDocument } from './obsidian-metadata';
-import { hasUnevaluatedWorkspaceHtmlLinks } from './workspace-html-link-safety';
+import { evaluateWorkspaceHtmlLinks } from './workspace-html-link-safety';
 import type { WorkspaceLinkSyntaxV1, WorkspaceLinkResolveStatusV1 } from './workspace-link-contract-v1';
 
 export type ParsedWorkspaceLocalLink = {
@@ -29,6 +29,8 @@ export type WorkspaceLinkUnevaluated = {
   raw: string;
   reason: 'html' | 'unsupported-scheme' | 'query' | 'unparsed-target';
   start: number;
+  /** Fully inspected HTML file paths, entity/percent decoded once and without fragments. */
+  htmlTargets?: string[];
 };
 
 export type WorkspaceExactResolution = {
@@ -222,7 +224,9 @@ export function parseWorkspaceLocalLinks(markdown: string, sourcePath: string): 
     ) return;
     if (node.type === 'html') {
       const raw = markdown.slice(start, end);
-      if (hasUnevaluatedWorkspaceHtmlLinks(raw)) unevaluated.push({ sourcePath, raw, reason: 'html', start });
+      const evaluation = evaluateWorkspaceHtmlLinks(raw);
+      if (evaluation.unevaluated) unevaluated.push({ sourcePath, raw, reason: 'html', start,
+        ...(evaluation.explicitLocalTargets ? { htmlTargets: evaluation.explicitLocalTargets } : {}) });
       return;
     }
     if (node.type === 'link' || node.type === 'image') {

@@ -1031,10 +1031,11 @@ export function FileActionsDropdown({
                     <p>{tStatus(`issue.${Object.hasOwn(workspacePathOperationIssueKeys, issue.code)
                       ? workspacePathOperationIssueKeys[issue.code] : 'unknown'}`)}</p>
                     {issue.path && issue.path !== '.' ? <>
-                      <p className="font-mono text-xs">{issue.path}</p>
+                      <p className="font-mono text-xs">{issue.path}{issue.line ? `:${issue.line}` : ''}</p>
                       {/\.(?:md|markdown|mdx)$/iu.test(issue.path) ? <Button variant="outline" size="sm"
                         onClick={() => void openMoveIssueFile(issue.path)}>{tStatus('openFile')}</Button> : null}
                     </> : null}
+                    {issue.targetLiteral ? <p className="font-mono text-xs">{issue.targetLiteral}</p> : null}
                     <p className="text-xs text-muted-foreground">{issue.code}</p>
                   </li>)}
                 </ul>
