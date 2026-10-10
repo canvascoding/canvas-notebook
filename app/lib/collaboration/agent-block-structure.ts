@@ -18,6 +18,8 @@ export type AgentBlockStructure = {
   text: string;
   subtreeHash: string;
   placementHash: string;
+  /** Table commands guard the whole table, while text edits may target this cell. */
+  tableOperationTarget?: { cellId: string; subtreeHash: string };
 };
 
 /** Stable JSON fingerprints preserve array order and all authored IDs/attrs. */
@@ -83,20 +85,24 @@ export function readAgentBlockStructure(doc: Y.Doc): AgentBlockStructure[] {
     }
   }
   const result: AgentBlockStructure[] = [];
-  const visit = (parent: ProseMirrorNode) => {
+  const visit = (parent: ProseMirrorNode, tableHash?: string) => {
     parent.forEach((node) => {
       const id = node.attrs.id as string;
       if (!projection.parents.has(id) || projection.deleted.has(id)) return;
+      const subtreeHash = hashAgentBlockJson(node.toJSON());
+      const containingTableHash = node.type.name === 'table' ? subtreeHash : tableHash;
       result.push({
         id, type: node.type.name, parentId: projection.parents.get(id) ?? null,
         beforeId: nextSiblings.get(id) ?? null,
         attrs: structuredClone(node.attrs), text: node.textContent,
-        subtreeHash: hashAgentBlockJson(node.toJSON()),
+        subtreeHash,
         placementHash: hashAgentBlockJson({
           initial: tree.records.get(id)!.get('initial'), operations: placements.get(id) ?? [],
         }),
+        ...((node.type.name === 'tableCell' || node.type.name === 'tableHeader') && containingTableHash
+          ? { tableOperationTarget: { cellId: id, subtreeHash: containingTableHash } } : {}),
       });
-      if (!node.inlineContent && !node.isLeaf) visit(node);
+      if (!node.inlineContent && !node.isLeaf) visit(node, containingTableHash);
     });
   };
   visit(current);
