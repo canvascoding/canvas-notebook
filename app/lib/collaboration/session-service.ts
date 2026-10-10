@@ -108,7 +108,7 @@ export function parseCollaborationSessionRequest(input: {
   if (input.migrationAction !== undefined && (input.migrationAction !== 'cancel' || input.migration === undefined)) return null;
   const ext = extension(path);
   const migration = input.migration === undefined ? undefined : parseRichMigrationRequest(input.migration);
-  if (input.migration !== undefined && (!migration || !['md', 'markdown'].includes(ext)
+  if (input.migration !== undefined && (!migration || !['md', 'markdown', 'txt'].includes(ext)
     || input.representation !== 'auto' || !supportsBlockTreeCollaboration(input))) return null;
   if (ext === 'excalidraw') {
     return input.representation === 'excalidraw_scene'
@@ -118,7 +118,15 @@ export function parseCollaborationSessionRequest(input: {
   }
   if (input.provider !== undefined && input.provider !== 'yjs') return null;
   if (ext === 'txt' && (input.representation === 'plain_text' || input.representation === 'auto')) {
-    return { path, representation: input.representation, provider: 'yjs' };
+    // A completed operation can be recovered after the same document was renamed
+    // to .txt. The coordinator still rejects any new rich transition for .txt.
+    return { path, representation: input.representation, provider: 'yjs',
+      ...(migration ? { migration,
+        richTextSchemaVersion: Number(input.richTextSchemaVersion),
+        blockTreeFormatVersion: Number(input.blockTreeFormatVersion),
+        ...(input.migrationAction === 'cancel' ? { migrationAction: 'cancel' as const } : {}),
+      } : {}),
+    };
   }
   if (
     (ext === 'md' || ext === 'markdown')
