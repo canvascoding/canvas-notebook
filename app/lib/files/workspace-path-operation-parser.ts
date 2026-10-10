@@ -21,7 +21,11 @@ export function readWorkspacePathOperation(value: unknown,
       || selection.destinationPath !== undefined && !validPath(selection.destinationPath))
     || operation.issues !== undefined && (!Array.isArray(operation.issues) || operation.issues.length > 1000
       || operation.issues.some((issue) => !issue || typeof issue.code !== 'string'
-        || !/^[a-z][a-z0-9-]{0,99}$/u.test(issue.code) || issue.path !== '' && !validPath(issue.path)))
+        || !/^[a-z][a-z0-9-]{0,99}$/u.test(issue.code) || issue.path !== '' && !validPath(issue.path)
+        || issue.targetLiteral !== undefined && (typeof issue.targetLiteral !== 'string'
+          || !issue.targetLiteral.trim() || issue.targetLiteral.length > 32 * 4096 + 31 * 2
+          || /[\p{Cc}\p{Cf}]/u.test(issue.targetLiteral))
+        || issue.line !== undefined && (!Number.isSafeInteger(issue.line) || issue.line <= 0)))
     || !['preview', 'blocked', 'queued', 'applying', 'applied', 'needs_review', 'needs_recovery', 'failed', 'undone'].includes(operation.status)
     || !['preparing', 'paths', 'links', 'complete', 'recovery'].includes(operation.phase)
     || !Number.isSafeInteger(operation.completedActions) || !Number.isSafeInteger(operation.totalActions)
@@ -37,5 +41,6 @@ export function readWorkspacePathOperation(value: unknown,
       ? operation.errorCode : null,
     selections: operation.selections.map(({ sourcePath, destinationPath }) => ({ sourcePath,
       ...(destinationPath ? { destinationPath } : {}) })),
-    ...(operation.issues ? { issues: operation.issues.map(({ code, path }) => ({ code, path })) } : {}) };
+    ...(operation.issues ? { issues: operation.issues.map(({ code, path, targetLiteral, line }) => ({ code, path,
+      ...(targetLiteral !== undefined ? { targetLiteral } : {}), ...(line !== undefined ? { line } : {}) })) } : {}) };
 }

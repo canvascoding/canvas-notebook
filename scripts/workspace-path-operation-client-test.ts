@@ -59,7 +59,7 @@ async function main() {
       });
     }
     const failedOperation = { ...operation('failed'), errorCode: 'CURRENT_CONTENT_CHANGED',
-      issues: [{ code: 'source-unreadable', path: 'Notizen.md' }] };
+      issues: [{ code: 'affected-html-link', path: 'Notizen.md', targetLiteral: 'Assets/image, final.png, other.png', line: 5 }] };
     replies = [{ body: { operation: { ...failedOperation, privatePlan: { documentText: 'private' },
       issues: [{ ...failedOperation.issues[0], absolutePath: '/private/Notizen.md', diagnostic: 'private detail' }] } } }];
     await assert.rejects(poll({ operation: operation('queued') }), (error: unknown) => {
@@ -93,6 +93,10 @@ async function main() {
       { ...operation('applying'), issues: [{ code: 'PRIVATE_DETAILS', path: 'Notizen.md' }] },
       ...['../private.md', '/private/data.md', 'folder\\private.md', 'https://private.test/file', 'private\u0000.md'].map((path) =>
         ({ ...operation('applying'), issues: [{ code: 'source-unreadable', path }] })),
+      ...[null, 42, '', ' ', 'image\u0000.png', 'image\u200b.png', 'a'.repeat(32 * 4096 + 31 * 2 + 1)].map((targetLiteral) =>
+        ({ ...operation('applying'), issues: [{ code: 'affected-html-link', path: 'HTML.md', targetLiteral }] })),
+      ...[null, '5', 0, -1, 0.5, Number.MAX_SAFE_INTEGER + 1].map((line) =>
+        ({ ...operation('applying'), issues: [{ code: 'affected-html-link', path: 'HTML.md', line }] })),
     ];
     for (const invalid of invalidOperations) {
       replies = [{ body: { operation: invalid } }];
@@ -105,7 +109,7 @@ async function main() {
     }
 
     const blockedOperation = { ...operation('blocked'), errorCode: 'PREVIEW_BLOCKED',
-      issues: [{ code: 'unevaluated-link', path: 'HTML.md' }] };
+      issues: [{ code: 'affected-html-link', path: 'HTML.md', targetLiteral: 'canvas-holdings-screenshot.png', line: 5 }] };
     replies = [{ status: 409, body: { error: 'Links could not be checked', operation: { ...blockedOperation,
       privatePlan: { content: 'private' }, issues: [{ ...blockedOperation.issues[0], rawHtml: '<private>' }] } } }];
     await assert.rejects(poll({ operation: operation('queued') }), (error: unknown) => {
