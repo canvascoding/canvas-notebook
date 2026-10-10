@@ -128,7 +128,7 @@ const MAX_READ_CHARACTERS = 24_000;
 const MAX_EDIT_TEXT_LENGTH = 256 * 1024;
 const MAX_EDIT_OCCURRENCES = 10_000;
 const TEXT_FILE_EXTENSIONS = new Set([
-  '.csv', '.html', '.json', '.md', '.mdx', '.rst', '.text', '.toml', '.tsv', '.txt', '.xml', '.yaml', '.yml',
+  '.csv', '.html', '.json', '.markdown', '.md', '.mdx', '.rst', '.text', '.toml', '.tsv', '.txt', '.xml', '.yaml', '.yml',
 ]);
 const BINARY_FILE_EXTENSIONS = new Set([
   '.7z', '.avi', '.bmp', '.doc', '.docx', '.gif', '.gz', '.heic', '.ico', '.jpeg', '.jpg', '.mov', '.mp3',

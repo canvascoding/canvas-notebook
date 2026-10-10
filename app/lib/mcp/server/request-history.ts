@@ -37,6 +37,8 @@ const TOOL_NAMES = new Set([
   'edit_knowledge_source',
   'read_knowledge_asset',
   'upload_knowledge_asset',
+  'create_knowledge_source',
+  'import_knowledge_file',
 ]);
 
 export type DirectMcpRequestHistoryInput = {

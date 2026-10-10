@@ -338,10 +338,11 @@ export async function setDirectMcpServerPreferences(
   const file = await readServerSettingsFile();
   const now = new Date().toISOString();
   // A server activation should be immediately useful. Preserve intentional
-  // capability changes while it remains active, but enable every available
-  // tool when the server is turned on from an inactive state.
+  // capability changes while it remains active. The original capabilities
+  // retain their activation behavior; newly introduced ingestion requires
+  // an explicit capability selection, including on reactivation.
   const enabledTools = input.enabled && !file.settings.directMcp?.enabled
-    ? [...DIRECT_MCP_TOOL_IDS]
+    ? DIRECT_MCP_TOOL_IDS.filter(tool => !['create_knowledge_source', 'import_knowledge_file'].includes(tool) || tools.includes(tool))
     : tools;
   const directMcp: DirectMcpServerPreferences = {
     enabled: input.enabled,

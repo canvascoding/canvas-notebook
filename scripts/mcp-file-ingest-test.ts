@@ -35,8 +35,16 @@ test('private MCP ingest journal protects create-only publication and durable re
     issuedAt: 1, expiresAt: Number.MAX_SAFE_INTEGER, payload: {},
   };
   let writes = 0;
+  const activeRevisions = new Map<string, string>();
   const writerInputs: WriteWorkspaceFileContentInput[] = [];
   let afterPublication: (() => Promise<void>) | undefined;
+  mock.module('@/app/lib/files/collaboration-policy', { exports: {
+    readFileCollaborationState: async (input: { workspace: WorkspaceContext; path: string }) => {
+      assert.equal(input.workspace.workspaceId, workspace.workspaceId);
+      const id = activeRevisions.get(input.path);
+      return { latestRevision: id ? { id } : null };
+    },
+  } });
   mock.module('@/app/lib/files/write-service', { exports: {
     // Keep all filesystem resolution, revision hashes, journals and kernel
     // locks real. Only the database/version publication service is replaced.
@@ -48,6 +56,7 @@ test('private MCP ingest journal protects create-only publication and durable re
       assert.equal(input.createOnly, true);
       await fs.writeFile(path.join(input.workspace.rootPath, input.path), input.content, { flag: 'wx', mode: 0o600 });
       writes += 1;
+      activeRevisions.set(input.path, `revision-${writes}`);
       await afterPublication?.();
       return { revision: { id: `revision-${writes}` } };
     },
@@ -60,7 +69,7 @@ test('private MCP ingest journal protects create-only publication and durable re
     const destination = (filePath: string) => path.join(workspace.rootPath, filePath);
     const recordPath = (key: string, identity = principal) => path.join(dataRoot, 'system', 'mcp-file-ingest',
       `${directMcpIngestFingerprint([identity.clientId, identity.userId, workspace.workspaceId, key])}.json`);
-    const request = (filePath: string, content: string, key = randomUUID(), source: 'generated' | 'uploaded' = 'generated') => {
+    const request = (filePath: string, content: string, key: string = randomUUID(), source: 'generated' | 'uploaded' = 'generated') => {
       let loads = 0;
       let checks = 0;
       const input = {
@@ -146,6 +155,39 @@ test('private MCP ingest journal protects create-only publication and durable re
       assert.equal(writes, writesBefore);
     });
 
+    await suite.test('identical bytes in a recreated file lineage cannot adopt a completed receipt', async () => {
+      const original = '# Identical bytes\n';
+      const item = request('lineage-recreated.md', original, 'lineage-recreated-request');
+      const receipt = await createDirectMcpWorkspaceFile(item.input);
+      const writesBefore = writes;
+      await fs.unlink(destination(item.input.path));
+      activeRevisions.delete(item.input.path);
+      await fs.writeFile(destination(item.input.path), original, { flag: 'wx' });
+      activeRevisions.set(item.input.path, 'new-lineage-initial-revision');
+      assert.equal(sha256(await fs.readFile(destination(item.input.path))), receipt.sha256);
+      await assert.rejects(createDirectMcpWorkspaceFile(item.input), hasCode('MCP_INGEST_DESTINATION_CHANGED'));
+      assert.equal(item.loads(), 1, 'a completed retry must not download or reload the original');
+      assert.equal(writes, writesBefore);
+      assert.equal(await fs.readFile(destination(item.input.path), 'utf8'), original);
+    });
+
+    await suite.test('an edited file restored to original bytes still rejects an obsolete receipt', async () => {
+      const original = '# Restored original\n';
+      const item = request('revision-restored.md', original, 'revision-restored-request');
+      const receipt = await createDirectMcpWorkspaceFile(item.input);
+      const writesBefore = writes;
+      await fs.writeFile(destination(item.input.path), '# Human change\n');
+      activeRevisions.set(item.input.path, 'human-change-revision');
+      await fs.writeFile(destination(item.input.path), original);
+      activeRevisions.set(item.input.path, 'human-restored-revision');
+      assert.equal(sha256(await fs.readFile(destination(item.input.path))), receipt.sha256);
+      await assert.rejects(createDirectMcpWorkspaceFile(item.input), hasCode('MCP_INGEST_DESTINATION_CHANGED'));
+      assert.equal(item.loads(), 1);
+      assert.equal(writes, writesBefore);
+      assert.equal(activeRevisions.get(item.input.path), 'human-restored-revision');
+      assert.equal(await fs.readFile(destination(item.input.path), 'utf8'), original);
+    });
+
     await suite.test('an occupied destination is preserved before loading or creating a journal', async () => {
       const item = request('occupied.md', '# Imported\n');
       await fs.writeFile(destination(item.input.path), '# Existing\n');
@@ -158,7 +200,7 @@ test('private MCP ingest journal protects create-only publication and durable re
     });
 
     await suite.test('hidden, traversal and absolute destinations are blocked before reading input', async () => {
-      for (const invalid of ['.env', 'notes/.private/file.md', '../outside.md', 'notes/../outside.md',
+      for (const invalid of ['.env', ' .env', ' .private/note.md', 'notes/.private/file.md', '../outside.md', 'notes/../outside.md',
         '/absolute.md', 'notes//empty.md', 'notes\\..\\outside.md', 'C:\\outside.md', '.']) {
         assert.throws(() => normalizeDirectMcpIngestPath(invalid));
         const item = request(invalid, '# Invalid\n');

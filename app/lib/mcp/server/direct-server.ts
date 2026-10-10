@@ -28,11 +28,12 @@ import {
 } from '@/app/lib/mcp/server/workspace-tools';
 import type { DirectMcpToolDescriptor } from '@/app/lib/mcp/server/tool-descriptor';
 import { DIRECT_MCP_SERVER_VERSION } from '@/app/lib/mcp/server/version';
+import { getDirectMcpIngestToolDefinitions } from './ingest-tools';
 
 type DirectMcpToolHandler = {
   id: DirectMcpToolId;
   descriptor: DirectMcpToolDescriptor;
-  execute: (args: unknown, authInfo?: AuthInfo) => Promise<CallToolResult>;
+  execute: (args: unknown, authInfo?: AuthInfo, signal?: AbortSignal) => Promise<CallToolResult>;
 };
 
 export function createDirectMcpServer(
@@ -47,7 +48,7 @@ export function createDirectMcpServer(
       execute: runDirectMcpAuthProbe,
     });
   }
-  for (const tool of getDirectMcpWorkspaceToolDefinitions()) {
+  for (const tool of [...getDirectMcpWorkspaceToolDefinitions(), ...getDirectMcpIngestToolDefinitions()]) {
     if (!enabledTools.has(tool.id)) continue;
     tools.push({
       id: tool.id,
@@ -57,7 +58,8 @@ export function createDirectMcpServer(
   }
   const toolsById = new Map(tools.map((tool) => [tool.id, tool]));
   const hasWriteTool = enabledTools.has('edit_knowledge_source')
-    || enabledTools.has('upload_knowledge_asset');
+    || enabledTools.has('upload_knowledge_asset')
+    || enabledTools.has('create_knowledge_source') || enabledTools.has('import_knowledge_file');
   const instructions = tools.length === 0
     ? 'No MCP tools are currently enabled for this Canvas Notebook instance.'
     : hasWriteTool
@@ -97,7 +99,7 @@ export function createDirectMcpServer(
     }
     recordDirectMcpRequestOperation('tools/call', tool.id);
     try {
-      const result = await tool.execute(request.params.arguments, context.http?.authInfo);
+      const result = await tool.execute(request.params.arguments, context.http?.authInfo, context.mcpReq.signal);
       if (result.isError) recordDirectMcpToolFailure();
       else await recordDirectMcpSuccessfulOperation();
       return result;

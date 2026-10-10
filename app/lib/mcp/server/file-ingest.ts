@@ -6,6 +6,7 @@ import path from 'node:path';
 
 import { createDirectory } from '@/app/lib/filesystem/workspace-files';
 import { getWorkspaceFileRevision } from '@/app/lib/files/revision-guard';
+import { readFileCollaborationState } from '@/app/lib/files/collaboration-policy';
 import { withWorkspaceMutationLock } from '@/app/lib/files/workspace-mutation-lock';
 import { writeWorkspaceFileContent } from '@/app/lib/files/write-service';
 import { assertWorkspacePathHasNoAliases, normalizeWorkspaceRelativePath } from '@/app/lib/workspaces/path-guard';
@@ -46,7 +47,9 @@ export function normalizeDirectMcpIngestPath(value: string): string {
     throw new DirectMcpFileIngestError('MCP_INGEST_INVALID_PATH', 'Use a visible workspace-relative file path without hidden or traversal segments.');
   }
   const normalized = normalizeWorkspaceRelativePath(value);
-  if (normalized === '.') throw new DirectMcpFileIngestError('MCP_INGEST_INVALID_PATH', 'A file destination is required.');
+  if (normalized === '.' || normalized.split('/').some(part => part.startsWith('.'))) {
+    throw new DirectMcpFileIngestError('MCP_INGEST_INVALID_PATH', 'Use a visible workspace-relative file destination.');
+  }
   return normalized;
 }
 
@@ -96,7 +99,9 @@ export async function createDirectMcpWorkspaceFile(input: {
     input.principal.clientId, input.principal.userId, input.workspace.workspaceId, input.idempotencyKey,
   ]);
   const recordPath = path.join(resolveCanvasDataRoot(), 'system', 'mcp-file-ingest', `${operationId}.json`);
+  input.signal?.throwIfAborted();
   return withWorkspaceMutationLock(input.workspace.workspaceId, async () => {
+    input.signal?.throwIfAborted();
     await input.verifyAuthority();
     await assertWorkspacePathHasNoAliases(input.workspace, target);
     const previous = await readRecord(recordPath);
@@ -108,6 +113,11 @@ export async function createDirectMcpWorkspaceFile(input: {
       if (!existing || existing.sha256 !== previous.sha256) {
         throw new DirectMcpFileIngestError('MCP_INGEST_DESTINATION_CHANGED', 'The previously imported file has changed or moved. Read its current state before retrying.');
       }
+      const state = await readFileCollaborationState({ workspace: input.workspace, path: target });
+      if (state.latestRevision?.id !== previous.receipt!.revision_id) {
+        throw new DirectMcpFileIngestError('MCP_INGEST_DESTINATION_CHANGED', 'The imported document has a different active revision. Read its current state before retrying.');
+      }
+      input.signal?.throwIfAborted();
       return { ...previous.receipt!, status: 'already_created' };
     }
     if (existing) {
@@ -116,6 +126,7 @@ export async function createDirectMcpWorkspaceFile(input: {
           : 'A file already exists at this path. Choose a new path or edit the existing document.');
     }
     const { content, validation } = await input.loadContent();
+    input.signal?.throwIfAborted();
     const sha256 = createHash('sha256').update(content).digest('hex');
     if (previous && previous.sha256 !== sha256) {
       throw new DirectMcpFileIngestError('MCP_INGEST_IDEMPOTENCY_CONFLICT', 'The file bytes changed since the previous import attempt.');

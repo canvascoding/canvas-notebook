@@ -5710,6 +5710,14 @@
           "upload_knowledge_asset": {
             "title": "Binärdateien hochladen",
             "description": "Erlaubt größenbegrenzte und per Hash geprüfte Uploads in sichtbare Workspace-Pfade nach einer ausdrücklichen Freigabe durch die Administration."
+          },
+          "create_knowledge_source": {
+            "title": "Neue Textdokumente erstellen",
+            "description": "Speichert vollständige Text- und Markdown-Dokumente an freien Workspace-Pfaden. Erzeugtes Markdown wird auf Editor-Kompatibilität geprüft."
+          },
+          "import_knowledge_file": {
+            "title": "Vollständige Dateien importieren",
+            "description": "Übernimmt Dateien und Fotos über temporäre HTTPS-Dateireferenzen. Originale bleiben unverändert; bestehende Dateien werden nicht überschrieben."
           }
         }
       },

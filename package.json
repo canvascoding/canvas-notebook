@@ -231,6 +231,8 @@
     "test:mcp:server-request-history": "tsx --conditions react-server scripts/mcp-server-request-history-test.ts",
     "test:mcp:server-settings": "node scripts/mcp-server-runtime-bootstrap-test.mjs && tsx --conditions react-server scripts/mcp-server-settings-test.ts",
     "test:mcp:server-settings-ui": "tsx scripts/mcp-server-settings-ui-test.tsx",
+    "test:mcp:file-ingest": "node --conditions=react-server --import tsx scripts/mcp-upload-schema-test.ts && node --import tsx scripts/mcp-ingest-validation-test.ts && node --import tsx scripts/mcp-ingest-download-test.ts && node --experimental-test-module-mocks --conditions=react-server --import tsx --test scripts/mcp-file-ingest-test.ts scripts/mcp-ingest-tools-test.ts && node --conditions=react-server --import tsx scripts/mcp-server-settings-test.ts && node --import tsx scripts/mcp-ingest-settings-ui-test.tsx",
+    "test:mcp:file-ingest:e2e": "node --import tsx scripts/run-mcp-file-ingest-e2e.mjs",
     "test:mcp:server-connection-usage": "tsx --conditions react-server scripts/mcp-server-connection-usage-test.ts",
     "test:mcp:server-connection-usability": "tsx --conditions react-server scripts/mcp-server-connection-usability-test.ts",
     "test:mcp:server-connection-management": "tsx --conditions react-server scripts/mcp-server-connection-management-postgres-test.ts",

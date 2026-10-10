@@ -51,8 +51,8 @@ test('new Markdown rejects broken metadata while original imports preserve it wi
 test('UTF-8, NUL, surrogate and byte limits prevent silent text corruption', async () => {
   await assert.rejects(validateDirectMcpIngestContent({ path: 'note.md', content: Buffer.from([0xc3, 0x28]), source: 'uploaded' }), hasCode('invalid_utf8'));
   await assert.rejects(validate('A\u0000B'), hasCode('invalid_text'));
-  assert.throws(() => encodeDirectMcpTextContent('Before\ud800After'), hasCode('invalid_utf8'));
-  assert.throws(() => encodeDirectMcpTextContent('\udc00'), hasCode('invalid_utf8'));
+  assert.throws(() => encodeDirectMcpTextContent(`Before${String.fromCharCode(0xd800)}After`), hasCode('invalid_utf8'));
+  assert.throws(() => encodeDirectMcpTextContent(String.fromCharCode(0xdc00)), hasCode('invalid_utf8'));
   assert.equal(encodeDirectMcpTextContent('Valid emoji: 📝').toString('utf8'), 'Valid emoji: 📝');
   await assert.rejects(validateDirectMcpIngestContent({ path: 'note.txt', content: Buffer.alloc(DIRECT_MCP_INGEST_MAX_TEXT_BYTES + 1, 65), source: 'uploaded' }), hasCode('content_too_large'));
   assert.throws(() => encodeDirectMcpTextContent('ä'.repeat(DIRECT_MCP_INGEST_MAX_TEXT_BYTES)), hasCode('content_too_large'));

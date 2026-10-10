@@ -5711,6 +5711,14 @@
           "upload_knowledge_asset": {
             "title": "Upload binary files",
             "description": "Allows size-limited, hash-verified uploads to visible workspace paths after an explicit administrator enablement."
+          },
+          "create_knowledge_source": {
+            "title": "Create new text documents",
+            "description": "Saves complete text and Markdown documents at unused workspace paths. Generated Markdown is checked for editor compatibility."
+          },
+          "import_knowledge_file": {
+            "title": "Import complete files",
+            "description": "Imports files and photos through temporary HTTPS file references. Originals are preserved; existing files are never overwritten."
           }
         }
       },
