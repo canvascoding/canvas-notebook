@@ -18,6 +18,9 @@ async function harness() {
     coverageComplete: true, collision: false, status: 'complete',
     throwExecution: false, known: null as Record<string, unknown> | null,
     metrics: [] as Array<Record<string, unknown>>,
+    lifecycleBusy: false, lifecycleDepth: 0, mutationDepth: 0,
+    copyCalls: 0, metadataCalls: 0, applyCopy: false,
+    lifecycleScopes: [] as Array<{ workspaceId: string; paths: readonly string[] }>,
   };
   class WorkspacePreviewBlockedError extends Error {}
   class WorkspacePreviewStaleError extends Error {}
@@ -25,9 +28,25 @@ async function harness() {
   const load = createRequire(file);
   new Function('require', 'module', 'exports', source)((name: string) => {
     if (name === 'server-only') return {};
+    if (name === './workspace-file-lifecycle-guard') return {
+      withWorkspaceFileLifecycleGuards: async (scopes: typeof controls.lifecycleScopes, run: () => Promise<unknown>) => {
+        assert.equal(controls.mutationDepth, 0, 'admission precedes local mutation locks');
+        controls.lifecycleScopes = scopes;
+        if (controls.lifecycleBusy) throw Object.assign(new Error('busy'), { status: 409, code: 'COLLABORATION_FILE_LIFECYCLE_BUSY' });
+        controls.lifecycleDepth += 1;
+        try { return await run(); } finally { controls.lifecycleDepth -= 1; }
+      },
+    };
     if (name === '@/app/lib/filesystem/workspace-files') return {
-      withWorkspaceCopyMutationLocks: (_source: unknown, _destination: unknown, run: () => Promise<unknown>) => run(),
-      readFile: async () => Buffer.from(''), copyFileBetweenWorkspaces: async () => ({}),
+      withWorkspaceCopyMutationLocks: async (_source: unknown, _destination: unknown, run: () => Promise<unknown>) => {
+        controls.mutationDepth += 1;
+        try { return await run(); } finally { controls.mutationDepth -= 1; }
+      },
+      readFile: async () => Buffer.from(''), copyFileBetweenWorkspaces: async () => {
+        assert.equal(controls.lifecycleDepth, 1);
+        controls.copyCalls += 1;
+        return { copied: 'b.md', skipped: false, collaborationInitialized: false };
+      },
     };
     if (name === '@/app/lib/markdown/workspace-file-operation-preview') return {
       WorkspacePreviewBlockedError, WorkspacePreviewStaleError,
@@ -52,14 +71,20 @@ async function harness() {
       probeWorkspaceLinkWriteGroup: async () => undefined,
       applyWorkspaceLinkWriteGroup: async () => undefined,
     };
-    if (name === './collaboration-policy') return { initializeCopiedFileCollaborationPaths: async () => undefined };
+    if (name === './collaboration-policy') return { initializeCopiedFileCollaborationPaths: async () => {
+      assert.equal(controls.lifecycleDepth, 1);
+      controls.metadataCalls += 1;
+    } };
     if (name === './workspace-operation-observability') return {
       observeWorkspaceOperation: (input: Record<string, unknown>) => { controls.metrics.push(input); },
     };
     if (name === './workspace-file-operation-executor') return {
-      createWorkspaceFileOperationExecutor: () => ({
+      createWorkspaceFileOperationExecutor: (options: { adapters: { path: {
+        applySelection: (stage: unknown, selection: { sourcePath: string; destinationPath: string }) => Promise<unknown>,
+      } } }) => ({
         execute: async () => {
           if (controls.throwExecution) throw new Error('executor failed');
+          if (controls.applyCopy) await options.adapters.path.applySelection(undefined, { sourcePath: 'a.md', destinationPath: 'b.md' });
           return { status: controls.status };
         },
         recover: async () => ({ status: controls.status }),
@@ -81,8 +106,8 @@ async function harness() {
     canRead: true, canWrite: true, canDelete: true,
   } };
   const scope = { workspace, fileOptions: { workspace } } as Parameters<typeof service.exports.executeWorkspaceFileOperationService>[0]['source'];
-  const execute = () => service.exports.executeWorkspaceFileOperationService({
-    kind: 'move', source: scope, destination: scope,
+  const execute = (kind: 'move' | 'copy' = 'move') => service.exports.executeWorkspaceFileOperationService({
+    kind, source: scope, destination: scope,
     selections: [{ sourcePath: 'a.md', destinationPath: 'b.md' }],
     actorUserId: 'user-one', actorId: 'user-one', actorDisplayName: 'User',
   });
@@ -111,4 +136,22 @@ test('direct operation records unexpected executor failure without swallowing it
   const h = await harness(); h.controls.throwExecution = true;
   await assert.rejects(h.execute(), /executor failed/u);
   assert.deepEqual(h.controls.metrics, [{ scope: 'executor', kind: 'move', phase: 'apply', outcome: 'failed' }]);
+});
+
+test('selection copy rejects busy admission before filesystem work and retains the guard through metadata', async () => {
+  const h = await harness(); h.controls.applyCopy = true; h.controls.lifecycleBusy = true;
+  await assert.rejects(h.execute('copy'), { code: 'COLLABORATION_FILE_LIFECYCLE_BUSY' });
+  assert.equal(h.controls.copyCalls, 0);
+  assert.equal(h.controls.metadataCalls, 0);
+  h.controls.lifecycleBusy = false;
+  const result = await h.execute('copy');
+  assert.equal(result.execution.status, 'complete');
+  assert.equal(h.controls.copyCalls, 1);
+  assert.equal(h.controls.metadataCalls, 1);
+  assert.deepEqual(h.controls.lifecycleScopes, [
+    { workspaceId: 'workspace-one', paths: ['a.md'] },
+    { workspaceId: 'workspace-one', paths: ['b.md'] },
+  ]);
+  assert.equal(h.controls.lifecycleDepth, 0);
+  assert.equal(h.controls.mutationDepth, 0);
 });

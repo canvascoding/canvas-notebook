@@ -498,6 +498,11 @@ async function main() {
     if (name.endsWith('/health')) return { setCollaborationRuntimeHealth() {} };
     if (name.endsWith('/presence')) return { replaceDocumentPresence() {} };
     if (name.endsWith('/diagnostics')) return { logCollaborationDiagnostic() {} };
+    if (name.endsWith('/representation-migration-runtime')) return load(name);
+    if (name.endsWith('/representation-drain-refusal')) return { readRepresentationDrainRequest: async () => null };
+    if (name.endsWith('/room-admission')) return load(name);
+    if (name === '@/app/lib/db') return { openDb: async () => ({ run: async () => {},
+      all: async (sql: string) => sql.includes('pg_try_advisory_xact_lock') ? [{ locked: true }] : [], close: async () => {} }) };
     if (name.startsWith('@/')) return {};
     return load(name);
   }, { exports: exported }, exported);

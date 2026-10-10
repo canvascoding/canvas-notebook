@@ -3,9 +3,10 @@ import 'server-only';
 import { createHash, randomUUID } from 'node:crypto';
 import type { Client } from 'pg';
 import type { SqlConnection } from '@/app/lib/db';
+import { withWorkspaceMutationLock } from '@/app/lib/files/workspace-mutation-lock';
 import type { TextCollaborationRepresentation } from './types';
 import { CollaborationAdmissionError } from './room-admission-contract';
-import { assertCollaborationAdmissionOpen, lockCollaborationAdmissionWorkspace } from './room-admission';
+import { assertCollaborationAdmissionOpen, tryLockCollaborationAdmissionWorkspace } from './room-admission';
 import {
   acknowledgeCollaborationAdmissionDrain,
   lockCollaborationAdmissionDrain,
@@ -184,7 +185,7 @@ export async function createCollaborationRoomOwnerSession(
       || !Number.isSafeInteger(scope.schemaVersion) || scope.schemaVersion < 1) {
       return Promise.reject(new CollaborationRoomOwnerError('ROOM_OWNER_SCOPE_CHANGED'));
     }
-    return enqueue(async () => {
+    return enqueue(() => withWorkspaceMutationLock(scope.workspaceId, async () => {
       const lock = lockIdentity(scope.documentId);
       // Also reject a same-session hash collision: PG session locks reenter.
       if (lockKeys.size >= MAX_ROOMS || rooms.has(scope.documentId) || lockKeys.has(lock.key)) {
@@ -193,7 +194,7 @@ export async function createCollaborationRoomOwnerSession(
       await query('BEGIN');
       try {
         const admissionQuery = async (sql: string, values?: unknown[]) => (await query(sql, values)).rows;
-        await lockCollaborationAdmissionWorkspace(admissionQuery, scope.workspaceId);
+        await tryLockCollaborationAdmissionWorkspace(admissionQuery, scope.workspaceId);
         await assertCollaborationAdmissionOpen(admissionQuery, scope);
       } catch (error) {
         if (!(error instanceof CollaborationAdmissionError)) throw error;
@@ -222,7 +223,13 @@ export async function createCollaborationRoomOwnerSession(
       rooms.set(scope.documentId, fence);
       lockKeys.add(lock.key);
       return fence;
-    });
+    }).catch(error => {
+      const code = (error as { code?: string })?.code;
+      if (code === 'FILE_MUTATION_LOCK_TIMEOUT' || code === 'FILE_MUTATION_LOCK_BUSY') {
+        throw new CollaborationRoomOwnerError('ROOM_OWNER_BUSY');
+      }
+      throw error;
+    }));
   };
   const release = (fence: CollaborationRoomOwnerFence, input?: CollaborationRoomReleaseSnapshot): Promise<void> => {
     try { assertActive(fence); } catch (error) { return Promise.reject(error); }

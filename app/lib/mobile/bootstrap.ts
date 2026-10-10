@@ -1,3 +1,4 @@
+import { richMigrationRuntimeAvailable } from '@/app/lib/collaboration/representation-migration-runtime';
 import 'server-only';
 
 import { MOBILE_INBOX_FILE_CHANGES_CAPABILITY } from './inbox-capabilities';
@@ -185,6 +186,7 @@ export function createMobileBootstrap(input: {
     'integrations.composio_catalog',
     'integrations.composio_mobile_auth',
   ];
+  if (richMigrationRuntimeAvailable()) capabilities.push('notebook.collaboration.rich_migration.v1', 'notebook.collaboration.checkpoint.v1');
   if (normalizeRole(input.user.role) !== 'external') capabilities.push('workspace.create.personal');
   if (input.listing.canCreateSharedWorkspaces) {
     capabilities.push('workspace.create', 'workspace.create.team');

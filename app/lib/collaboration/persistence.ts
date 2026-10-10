@@ -35,6 +35,8 @@ import { executeLifecycleTransaction } from './lifecycle-transaction';
 import { claimCollaborationAdmissionMutation, requireCollaborationAdmissionMutationRequest,
   withCollaborationAdmissionMutation } from './room-admission-handoff';
 import { captureCollaborationCompactionRequest } from './compaction-contract';
+import { captureRepresentationAdmissionRequest } from './representation-admission-contract';
+import { collaborationUpdateStateProof } from './state-proof';
 import { captureCollaborationAdmissionWriterScope, CollaborationAdmissionError, type CollaborationAdmissionRequest } from './room-admission-contract';
 import { assertCollaborationAdmissionOpen, lockCollaborationAdmissionWorkspace } from './room-admission';
 import { CollaborationCheckpointQuarantinedError, CollaborationCheckpointRequestError, COLLABORATION_CHECKPOINT_ERROR_CODES } from './checkpoint-errors';
@@ -933,7 +935,7 @@ async function recoverLifecycleMutation(input: {
 async function lockUnchangedLifecycleSnapshot(
   database: SqlConnection,
   expected: PersistedCollaborationState,
-  admissionAction?: 'compact',
+  admissionAction?: 'compact' | 'representation_change',
 ): Promise<PersistedCollaborationState> {
   const row = await database.get(
     'SELECT * FROM collaboration_yjs_states WHERE document_id = $1 FOR UPDATE',
@@ -1127,6 +1129,59 @@ export async function compactCollaborationState(input: {
 }
 
 /** Quiescent server-side representation migration; never a local editor toggle. */
+function prepareRepresentationDocument(state: PersistedCollaborationState, representation: TextCollaborationRepresentation, normalizeSafeMarkdown = false) {
+  const currentCanonicalContent = canonicalContentFromState(state);
+  let canonicalContent = currentCanonicalContent;
+  if (normalizeSafeMarkdown) {
+    if (!isRichTextCollaborationRepresentation(representation)) {
+      throw new CollaborationRepresentationMigrationError(
+        'Safe Markdown normalization is only available for rich-text migration.',
+        'content_unsupported',
+      );
+    }
+    const analysis = analyzeMarkdownRichMode(currentCanonicalContent);
+    if (analysis.mode === 'normalizable') {
+      canonicalContent = composeCanvasMarkdownDocument(
+        analysis.prefix,
+        analysis.normalizedBody,
+      );
+    } else if (analysis.mode !== 'rich') {
+      throw new CollaborationRepresentationMigrationError(
+        'The collaboration content cannot be normalized safely for rich text.',
+        'content_unsupported',
+      );
+    }
+  }
+  canonicalContent = encodingProfile(canonicalContent).canonical;
+  const checkpointRequired = canonicalContent !== currentCanonicalContent;
+  let fresh: YTypes.Doc;
+  try {
+    if (!checkpointRequired && isRichTextCollaborationRepresentation(state.representation)
+      && isRichTextCollaborationRepresentation(representation)) {
+      const source = new Y.Doc();
+      try {
+        Y.applyUpdate(source, state.yjsState);
+        const validation = validateRichMarkdownYDoc(source);
+        if (!validation.valid || validation.markdown !== canonicalContent) throw new Error('The existing rich checkpoint is invalid.');
+        fresh = convertRichMarkdownYDoc(source, representation);
+        const converted = validateRichMarkdownYDoc(fresh);
+        if (!converted.valid || converted.markdown !== canonicalContent) {
+          fresh.destroy();
+          throw new Error('The converted rich checkpoint is invalid.');
+        }
+      } finally { source.destroy(); }
+    } else {
+      fresh = createValidatedFreshDocument(representation, canonicalContent);
+    }
+  } catch (error) {
+    throw new CollaborationRepresentationMigrationError(
+      error instanceof Error ? error.message : 'The collaboration content cannot use the requested representation.',
+      'content_unsupported',
+    );
+  }
+  return { canonicalContent, checkpointRequired, fresh };
+}
+
 async function changeCollaborationRepresentationWhileLocked(input: {
   documentId: string;
   expectedLifecycleGeneration: number;
@@ -1158,55 +1213,7 @@ async function changeCollaborationRepresentationWhileLocked(input: {
       'checkpoint_stale',
     );
   }
-  const currentCanonicalContent = canonicalContentFromState(state);
-  let canonicalContent = currentCanonicalContent;
-  if (input.normalizeSafeMarkdown) {
-    if (!isRichTextCollaborationRepresentation(input.representation)) {
-      throw new CollaborationRepresentationMigrationError(
-        'Safe Markdown normalization is only available for rich-text migration.',
-        'content_unsupported',
-      );
-    }
-    const analysis = analyzeMarkdownRichMode(currentCanonicalContent);
-    if (analysis.mode === 'normalizable') {
-      canonicalContent = composeCanvasMarkdownDocument(
-        analysis.prefix,
-        analysis.normalizedBody,
-      );
-    } else if (analysis.mode !== 'rich') {
-      throw new CollaborationRepresentationMigrationError(
-        'The collaboration content cannot be normalized safely for rich text.',
-        'content_unsupported',
-      );
-    }
-  }
-  canonicalContent = encodingProfile(canonicalContent).canonical;
-  const checkpointRequired = canonicalContent !== currentCanonicalContent;
-  let fresh: YTypes.Doc;
-  try {
-    if (!checkpointRequired && isRichTextCollaborationRepresentation(state.representation)
-      && isRichTextCollaborationRepresentation(input.representation)) {
-      const source = new Y.Doc();
-      try {
-        Y.applyUpdate(source, state.yjsState);
-        const validation = validateRichMarkdownYDoc(source);
-        if (!validation.valid || validation.markdown !== canonicalContent) throw new Error('The existing rich checkpoint is invalid.');
-        fresh = convertRichMarkdownYDoc(source, input.representation);
-        const converted = validateRichMarkdownYDoc(fresh);
-        if (!converted.valid || converted.markdown !== canonicalContent) {
-          fresh.destroy();
-          throw new Error('The converted rich checkpoint is invalid.');
-        }
-      } finally { source.destroy(); }
-    } else {
-      fresh = createValidatedFreshDocument(input.representation, canonicalContent);
-    }
-  } catch (error) {
-    throw new CollaborationRepresentationMigrationError(
-      error instanceof Error ? error.message : 'The collaboration content cannot use the requested representation.',
-      'content_unsupported',
-    );
-  }
+  const { canonicalContent, checkpointRequired, fresh } = prepareRepresentationDocument(state, input.representation, input.normalizeSafeMarkdown);
   const update = Y.encodeStateAsUpdate(fresh);
   const vector = Y.encodeStateVector(fresh);
   const now = Date.now();
@@ -1289,6 +1296,67 @@ async function changeCollaborationRepresentationWhileLocked(input: {
     }
   }
   return { canonicalContent: canonicalContentFromState(migratedState), checkpointRequired, state: migratedState };
+}
+
+export async function prepareCollaborationRepresentationAdmission(database: SqlConnection, input: CollaborationAdmissionRequest): Promise<void> {
+  const { document } = captureRepresentationAdmissionRequest(input);
+  await lockFileCollaborationPaths(database, document.workspaceId, [document.path]);
+  const operations = await database.all('SELECT status FROM collaboration_agent_operations WHERE document_id = $1 ORDER BY operation_id FOR UPDATE',
+    [document.documentId]) as Array<{ status: string }>;
+  if (operations.some(operation => !(TERMINAL_AGENT_OPERATION_STATUSES as readonly string[]).includes(operation.status))) {
+    throw new CollaborationRepresentationMigrationError('Pending agent operations must finish before representation migration.', 'agent_operation_pending');
+  }
+}
+
+/** Only the verified admission transaction may mutate an owner-era document. */
+export async function changeCollaborationRepresentationInAdmissionHandoff(database: SqlConnection): Promise<{
+  state: PersistedCollaborationState; backupId: string; checkpointRequired: boolean;
+}> {
+  return withCollaborationAdmissionMutation(database, 'representation_change', async assertActive => {
+    const { document, migration } = captureRepresentationAdmissionRequest(requireCollaborationAdmissionMutationRequest(database, 'representation_change'));
+    const row = await database.get('SELECT * FROM collaboration_yjs_states WHERE document_id = $1 FOR UPDATE', [document.documentId]) as StateRow | undefined;
+    assertActive();
+    if (!row) throw new CollaborationRepresentationMigrationError('The document disappeared before migration.', 'lifecycle_stale');
+    const state = mapState(row);
+    if (state.status !== 'active' || state.lifecycleGeneration !== document.lifecycleGeneration
+      || state.documentSequence !== migration.documentSequence || collaborationUpdateStateProof(state.yjsState, Y) !== migration.stateProof) {
+      throw new CollaborationRepresentationMigrationError('The prepared document changed before migration.', 'state_changed');
+    }
+    if (state.degraded || state.checkpointSequence !== state.documentSequence) {
+      throw new CollaborationRepresentationMigrationError('A healthy confirmed checkpoint is required.', 'checkpoint_stale');
+    }
+    if (state.checkpointSequence > 0) {
+      const receipt = await database.get(`SELECT document_id FROM collaboration_file_projections WHERE document_id = $1
+        AND lifecycle_generation = $2 AND projected_sequence = $3 AND canonical_hash = $4 AND serialized_hash = $5
+        AND revision_id IS NOT NULL AND finalized = 1`, [state.documentId, state.lifecycleGeneration, state.documentSequence,
+        state.canonicalHash, state.serializedHash]);
+      assertActive();
+      if (!receipt) throw new CollaborationRepresentationMigrationError('The old checkpoint is not finalized.', 'checkpoint_stale');
+    }
+    if (state.documentSequence >= Number.MAX_SAFE_INTEGER || state.lifecycleGeneration >= Number.MAX_SAFE_INTEGER) {
+      throw new CollaborationRepresentationMigrationError('Collaboration counters cannot advance safely.', 'state_changed');
+    }
+    const { canonicalContent, fresh } = prepareRepresentationDocument(state, 'tiptap_blocks', state.representation === 'plain_text');
+    const backupId = crypto.randomUUID(), now = Date.now();
+    try {
+      const locked = await lockUnchangedLifecycleSnapshot(database, state, 'representation_change');
+      assertActive();
+      await writeStateBackup({ database, backupId, state: locked, reason: 'representation_change', now });
+      assertActive();
+      // The new lifecycle ALWAYS needs its own projection receipt, even if the bytes are unchanged.
+      const migrated = await database.get(`UPDATE collaboration_yjs_states SET representation = 'tiptap_blocks',
+        schema_version = $1, yjs_state = $2, state_vector = $3, lifecycle_generation = lifecycle_generation + 1,
+        document_sequence = document_sequence + 1, persisted_at = $4, compacted_at = $4
+        WHERE document_id = $5 AND status = 'active' AND lifecycle_generation = $6 AND document_sequence = $7
+        AND degraded = 0 RETURNING *`, [document.schemaVersion, Buffer.from(Y.encodeStateAsUpdate(fresh)),
+        Buffer.from(Y.encodeStateVector(fresh)), now, state.documentId, state.lifecycleGeneration, state.documentSequence]) as StateRow | undefined;
+      assertActive();
+      if (!migrated) throw new CollaborationRepresentationMigrationError('The document changed during migration.', 'state_changed');
+      // canonicalContent is validated above; checkpoint metadata is intentionally owned by the projection journal.
+      if (canonicalContentFromState(mapState(migrated)) !== canonicalContent) throw new CollaborationRepresentationMigrationError('Converted content differs.', 'content_unsupported');
+      return { state: mapState(migrated), backupId, checkpointRequired: true };
+    } finally { fresh.destroy(); }
+  });
 }
 
 export async function changeCollaborationRepresentation(input: {

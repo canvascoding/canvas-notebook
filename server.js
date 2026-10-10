@@ -830,7 +830,9 @@ async function startServer() {
     // entry so the long-lived Node process has exactly one constructor set.
     const collaborationModule = require('./server/collaboration-server.ts');
     const collaborationOwnerTestModule = require('./app/lib/collaboration/room-owner-local-test.ts');
-    const roomOwner = collaborationOwnerTestModule.resolveLocalCollaborationRoomOwnerOptions();
+    const collaborationOwnerModule = require('./app/lib/collaboration/room-owner-options.ts');
+    const roomOwner = collaborationOwnerTestModule.resolveLocalCollaborationRoomOwnerOptions()
+      || collaborationOwnerModule.createCollaborationRoomOwnerOptions();
     collaborationModule.createCollaborationServer(server, roomOwner ? { roomOwner } : {});
     flushCollaborationDocuments = collaborationModule.flushCollaborationDocuments;
     const fileActionWorkerModule = require('./app/lib/files/workspace-operation-batch-worker.ts');

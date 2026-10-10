@@ -15,6 +15,7 @@ export type CollaborationRoomAdmissionWorkerOptions = Readonly<{
   drain: (ticket: CollaborationAdmissionDrainTicket) => Promise<void>;
   pollMs?: number;
   onError?: (error: unknown) => void;
+  onPollSuccess?: () => void;
 }>;
 
 /** Durable polling is authoritative; wake() only coalesces optional hints. */
@@ -58,11 +59,16 @@ export function createCollaborationRoomAdmissionWorker(options: CollaborationRoo
         const ticket = captureCollaborationAdmissionDrainTicket(input);
         if (!tickets.some((other) => sameCollaborationAdmissionDrainTicket(ticket, other))) tickets.push(ticket);
       }
+      let healthy = true;
       for (const ticket of tickets) {
         if (disposed) break;
         try { await options.drain(ticket); }
-        catch (error) { report(error); }
+        catch (error) {
+          if (!(error && typeof error === 'object' && 'code' in error && error.code === 'ROOM_OWNER_BUSY')) healthy = false;
+          report(error);
+        }
       }
+      if (healthy) options.onPollSuccess?.();
     } catch (error) { report(error); }
     finally {
       running = false;

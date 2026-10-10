@@ -3,8 +3,8 @@ import { createHash, randomBytes } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import Module from 'node:module';
 
-import { batchCopyBetweenWorkspaces } from '../app/lib/filesystem/workspace-files';
 import { restoreWorkspaceOperationBackup } from '../app/lib/files/workspace-operation-backup';
 import type { WorkspaceContext } from '../app/lib/workspaces/types';
 
@@ -14,7 +14,25 @@ async function main(): Promise<void> {
   const dataRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-overwrite-backup-'));
   const previousData = process.env.DATA;
   process.env.DATA = dataRoot;
+  const internals = Module as typeof Module & { _load: (request: string, parent: NodeModule | null, isMain: boolean) => unknown };
+  const originalLoad = internals._load;
+  let guardDepth = 0;
+  internals._load = (request, parent, isMain) => {
+    if (request === '@/app/lib/files/workspace-file-lifecycle-guard') return {
+      withWorkspaceFileLifecycleGuards: async (_scopes: unknown, work: () => Promise<unknown>) => {
+        guardDepth += 1;
+        try { return await work(); } finally { guardDepth -= 1; }
+      },
+    };
+    if (request === '@/app/lib/files/collaboration-policy' || request === path.resolve('app/lib/files/collaboration-policy.ts')) return {
+      // This fixture contains binary files only; live/Office ownership is tested separately against PostgreSQL.
+      detectFileCollaborationStrategy: () => 'none',
+      initializeCopiedFileCollaborationPaths: async () => { assert.equal(guardDepth, 1); },
+    };
+    return originalLoad(request, parent, isMain);
+  };
   try {
+    const { batchCopyBetweenWorkspaces } = await import('../app/lib/filesystem/workspace-files');
     const rootPath = path.join(dataRoot, 'workspaces', 'overwrite-test', 'files');
     await fs.mkdir(path.join(rootPath, 'source'), { recursive: true });
     await fs.mkdir(path.join(rootPath, 'destination'), { recursive: true });
@@ -55,6 +73,7 @@ async function main(): Promise<void> {
     assert.equal(sha256(await fs.readFile(path.join(rootPath, 'recovered-after-failure.bin'))), sha256(previous));
     console.log('workspace overwrite backup: large binary and recovery after copy failure OK');
   } finally {
+    internals._load = originalLoad;
     if (previousData === undefined) delete process.env.DATA;
     else process.env.DATA = previousData;
     await fs.rm(dataRoot, { recursive: true, force: true });

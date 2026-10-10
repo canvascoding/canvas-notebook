@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { expect, test } from '@playwright/test';
 import { build } from 'esbuild';
+import type { RichMigrationRequest } from '../app/lib/collaboration/representation-migration-contract';
 import { COLLABORATION_CLIENT_CAPABILITIES } from '../app/lib/collaboration/types';
 
 const migrationResponse = { success: true, representation: 'tiptap_blocks', ...COLLABORATION_CLIENT_CAPABILITIES };
@@ -37,7 +38,7 @@ test('Edit prepares normalizable Markdown and opens the actual rich editor with 
   const requests: unknown[] = [];
   await page.route('**/api/files/collaboration/session', async (route) => {
     requests.push(route.request().postDataJSON());
-    return route.fulfill({ json: migrationResponse });
+    return route.fulfill({ json: { ...migrationResponse, migration: { requestId: route.request().postDataJSON().migration.requestId, status: 'migrated', documentId: 'migration-copy', lifecycleGeneration: 2 } } });
   });
   await page.goto('http://localhost:43122/');
   await page.addScriptTag({ content: bundle });
@@ -46,19 +47,19 @@ test('Edit prepares normalizable Markdown and opens the actual rich editor with 
   await page.getByRole('button', { name: 'Edit', exact: true }).click();
   await expect(page.locator('.tiptap[contenteditable="true"]')).toBeVisible();
   await expect(page.locator('.tiptap li')).toHaveCount(2);
-  expect(requests).toEqual([{ path: 'copy.md', representation: 'auto', allowRichMigration: true,
-    ...COLLABORATION_CLIENT_CAPABILITIES, expectedLifecycleGeneration: 1 }]);
+  expect(requests).toEqual([{ path: 'copy.md', representation: 'auto', ...COLLABORATION_CLIENT_CAPABILITIES,
+    migration: { requestId: expect.any(String), expectedDocumentId: 'migration-copy', expectedLifecycleGeneration: 1, documentSequence: 1, stateProof: expect.stringMatching(/^yjs-snapshot-sha256-v1:/) } }]);
   await expect(page.locator('body')).toHaveAttribute('data-checkpoints', '1');
   await page.screenshot({ path: testInfo.outputPath('edit-prepared.png') });
 });
 
 for (const chosenMode of ['Source', 'Read']) {
-  test(`keeps ${chosenMode} selected when preparation completes`, async ({ page }) => {
+  test(`preserves ${chosenMode} intent when preparation completes`, async ({ page }) => {
     let finish!: () => void;
     const response = new Promise<void>((resolve) => { finish = resolve; });
     await page.route('**/api/files/collaboration/session', async (route) => {
       await response;
-      return route.fulfill({ json: migrationResponse });
+      return route.fulfill({ json: { ...migrationResponse, migration: { requestId: route.request().postDataJSON().migration.requestId, status: 'migrated', documentId: 'migration-copy', lifecycleGeneration: 2 } } });
     });
     await page.goto('http://localhost:43122/');
     await page.addScriptTag({ content: bundle });
@@ -69,7 +70,8 @@ for (const chosenMode of ['Source', 'Read']) {
     if (chosenMode === 'Source') await expect(page.getByRole('textbox', { name: 'Markdown source' })).not.toBeEditable();
     finish();
     await expect(page.locator('body')).toHaveAttribute('data-refreshed', 'true');
-    await expect(page.getByRole('button', { name: chosenMode, exact: true })).toHaveAttribute('aria-pressed', 'true');
+    if (chosenMode === 'Source') await expect(page.getByRole('button', { name: 'Source', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Read', exact: true })).toHaveAttribute('aria-pressed', 'true');
     await expect(page.locator('.tiptap[contenteditable="true"]')).toHaveCount(0);
   });
 }
@@ -81,7 +83,7 @@ test('returning to Edit during preparation does not start a second migration', a
   await page.route('**/api/files/collaboration/session', async (route) => {
     requests += 1;
     await response;
-    return route.fulfill({ json: migrationResponse });
+    return route.fulfill({ json: { ...migrationResponse, migration: { requestId: route.request().postDataJSON().migration.requestId, status: 'migrated', documentId: 'migration-copy', lifecycleGeneration: 2 } } });
   });
   await page.goto('http://localhost:43122/');
   await page.addScriptTag({ content: bundle });
@@ -100,7 +102,7 @@ test('a blocked preparation leaves source usable and retries only when requested
   let requests = 0;
   await page.route('**/api/files/collaboration/session', (route) => {
     requests += 1;
-    return route.fulfill({ status: 409, json: { success: false, error: 'active_editors' } });
+    return route.fulfill({ json: { success: true, migration: { requestId: route.request().postDataJSON().migration.requestId, status: 'blocked', reason: 'room_active', documentId: 'migration-copy', lifecycleGeneration: 1 } } });
   });
   await page.goto('http://localhost:43122/');
   await page.addScriptTag({ content: bundle });
@@ -108,22 +110,22 @@ test('a blocked preparation leaves source usable and retries only when requested
   await expect(page.getByRole('status').filter({ hasText: 'Other editors or pending changes' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Preparing…', exact: true })).toHaveCount(0);
   await expect(page.locator('body')).toHaveAttribute('data-disconnected', 'false');
-  expect(requests).toBe(3);
+  expect(requests).toBe(1);
   await page.getByRole('button', { name: 'Source', exact: true }).click();
   await expect(page.getByRole('textbox', { name: 'Markdown source' })).toBeEditable();
   await page.getByRole('button', { name: 'Edit', exact: true }).click();
   await expect(page.getByRole('status').filter({ hasText: 'Other editors or pending changes' })).toBeVisible();
-  expect(requests).toBe(3);
+  expect(requests).toBe(1);
   await page.getByRole('button', { name: 'Prepare formatted editing', exact: true }).click();
   await expect(page.locator('body')).toHaveAttribute('data-checkpoints', '2');
-  await expect.poll(() => requests).toBe(6);
+  await expect.poll(() => requests).toBe(2);
 });
 
 test('Source alone does not migrate and manual preparation opens Edit', async ({ page }) => {
   let requests = 0;
   await page.route('**/api/files/collaboration/session', (route) => {
     requests += 1;
-    return route.fulfill({ json: migrationResponse });
+    return route.fulfill({ json: { ...migrationResponse, migration: { requestId: route.request().postDataJSON().migration.requestId, status: 'migrated', documentId: 'migration-copy', lifecycleGeneration: 2 } } });
   });
   await page.goto('http://localhost:43122/');
   await page.addScriptTag({ content: bundle });
@@ -168,4 +170,26 @@ test('read-only and unsupported documents keep the existing content protection',
   await expect(page.locator('#saved-value')).toHaveJSProperty('textContent', original);
   await expect(page.getByRole('button', { name: 'Prepare formatted editing', exact: true })).toHaveCount(0);
   expect(requests).toBe(0);
+});
+
+
+test('an unknown response keeps the old provider paused and cancellation uses the same request', async ({ page }) => {
+  const requests: Array<{ migration: RichMigrationRequest; migrationAction?: 'cancel' }> = [];
+  await page.route('**/api/files/collaboration/session', route => {
+    const body = route.request().postDataJSON();
+    requests.push(body);
+    if (body.migrationAction === 'cancel') return route.fulfill({ json: { success: true, migration: {
+      requestId: body.migration.requestId, status: 'blocked', reason: 'cancelled', documentId: 'migration-copy', lifecycleGeneration: 1 } } });
+    return route.fulfill({ status: 503, json: { success: false } });
+  });
+  await page.goto('http://localhost:43122/');
+  await page.addScriptTag({ content: bundle });
+  await page.getByRole('button', { name: 'Edit', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Cancel', exact: true })).toBeVisible();
+  await expect(page.locator('body')).toHaveAttribute('data-disconnected', 'true');
+  expect(requests).toHaveLength(3);
+  expect(new Set(requests.map(body => body.migration.requestId)).size).toBe(1);
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(page.locator('body')).toHaveAttribute('data-disconnected', 'false');
+  expect(requests[3].migration).toEqual(requests[0].migration);
 });

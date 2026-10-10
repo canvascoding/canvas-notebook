@@ -1,3 +1,4 @@
+import { richMigrationRuntimeAvailable } from '@/app/lib/collaboration/representation-migration-runtime';
 import 'server-only';
 
 import { createHash } from 'node:crypto';
@@ -102,6 +103,7 @@ export type MobileCompatibility = {
       'extensions.marketplace_v2',
       'integrations.composio_catalog',
       'integrations.composio_mobile_auth',
+      ...string[],
     ];
   };
   auth: {
@@ -221,6 +223,7 @@ export function createMobileCompatibility(input: {
         'extensions.marketplace_v2',
         'integrations.composio_catalog',
         'integrations.composio_mobile_auth',
+        ...(richMigrationRuntimeAvailable() ? ['notebook.collaboration.rich_migration.v1', 'notebook.collaboration.checkpoint.v1'] : []),
       ],
     },
     auth: {

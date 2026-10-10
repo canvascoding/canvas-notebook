@@ -12,6 +12,7 @@ import { resolveWorkspaceDataRoot } from '@/app/lib/workspaces/context';
 import { ensureWorkspaceRoot, resolveExistingWorkspacePath, resolveWorkspacePath } from '@/app/lib/workspaces/path-guard';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 import { withWorkspaceMutationLock } from '@/app/lib/files/workspace-mutation-lock';
+import { withWorkspaceFileLifecycleGuard } from '@/app/lib/files/workspace-file-lifecycle-guard';
 import { assertNoActiveOfficeLeases } from '@/app/lib/files/collaboration-policy';
 
 export const DEFAULT_WORKSPACE_TRASH_RETENTION_DAYS = 30;
@@ -260,14 +261,16 @@ export async function trashWorkspacePaths(params: {
   deletedByUserId: string;
   now?: Date;
 }): Promise<TrashWorkspacePathsResult> {
-  return withWorkspaceMutationLock(params.workspace.workspaceId, async () => {
+  const { selected: candidates, failed: invalidPaths } = dedupeNestedPaths(params.workspace, params.paths);
+  if (!candidates.length) return { trashed: [], failed: invalidPaths };
+  return withWorkspaceFileLifecycleGuard({ workspaceId: params.workspace.workspaceId,
+    paths: candidates.map(candidate => candidate.originalPath) }, async () => {
     await ensureWorkspaceRoot(params.workspace);
     const now = params.now ?? new Date();
     const days = retentionDays();
     const expiresAt = expiresAtFrom(now, days);
     const result: TrashWorkspacePathsResult = { trashed: [], failed: [] };
 
-    const { selected: candidates, failed: invalidPaths } = dedupeNestedPaths(params.workspace, params.paths);
     result.failed.push(...invalidPaths);
 
     for (const candidate of candidates) {
@@ -359,8 +362,15 @@ export async function restoreWorkspaceTrashEntry(params: {
   restoredByUserId: string;
   overwrite?: boolean;
   now?: Date;
+  /** Finalize collaboration metadata while the destination admission fence is retained. */
+  finalize?: (entry: WorkspaceTrashEntry) => Promise<void>;
 }): Promise<WorkspaceTrashEntry> {
-  return withWorkspaceMutationLock(params.workspace.workspaceId, async () => {
+  const initial = await db.query.workspaceTrashEntries.findFirst({ where: and(
+    eq(workspaceTrashEntries.id, params.entryId), eq(workspaceTrashEntries.workspaceId, params.workspace.workspaceId),
+    eq(workspaceTrashEntries.status, 'trashed'),
+  ) });
+  if (!initial) throw new Error('Trash entry not found.');
+  return withWorkspaceFileLifecycleGuard({ workspaceId: params.workspace.workspaceId, paths: [initial.originalPath] }, async () => {
     const row = await db.query.workspaceTrashEntries.findFirst({
       where: and(
         eq(workspaceTrashEntries.id, params.entryId),
@@ -369,6 +379,7 @@ export async function restoreWorkspaceTrashEntry(params: {
       ),
   });
   if (!row) throw new Error('Trash entry not found.');
+  if (row.originalPath !== initial.originalPath) throw new Error('Trash entry changed before restoration.');
   await assertNoActiveOfficeLeases(params.workspace, [row.originalPath]);
 
   const trashPath = absoluteDataPath(row.trashRelativePath);
@@ -440,6 +451,7 @@ export async function restoreWorkspaceTrashEntry(params: {
     await fs.rm(overwrittenPath, { recursive: true, force: true }).catch(() => undefined);
   }
   if (!restoredEntry) throw new Error('Trash entry was not marked restored.');
+  await params.finalize?.(restoredEntry);
   return restoredEntry;
   });
 }

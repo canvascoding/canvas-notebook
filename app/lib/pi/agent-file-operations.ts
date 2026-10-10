@@ -5,6 +5,7 @@ import path from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 
 import { recordAuditEvent } from '@/app/lib/audit/audit-service';
+import { withWorkspaceFileLifecycleGuard } from '@/app/lib/files/workspace-file-lifecycle-guard';
 import { DEFAULT_MANAGED_AGENT_ID } from '@/app/lib/agents/storage';
 import { logger } from '@/app/lib/logging';
 import {
@@ -1402,6 +1403,21 @@ async function withAgentWorkspaceMutationLocks<T>(
   if (workspacePaths.length === 0) return operation();
 
   return withWorkspaceFileMutationLocks(workspacePaths, { workspace }, operation);
+}
+
+/** Path actions keep admission fenced until their filesystem and metadata work finish. */
+async function withAgentWorkspacePathLifecycleGuard<T>(
+  fullPaths: readonly string[],
+  operation: () => Promise<T>,
+): Promise<T> {
+  const workspace = getAgentWorkspaceContext();
+  const workspacePaths = workspace ? fullPaths
+    .filter((fullPath) => isPathWithin(fullPath, workspace.rootPath))
+    .map((fullPath) => workspaceRelativeAgentPath(workspace, fullPath)) : [];
+  if (!workspace || workspacePaths.length === 0) return withAgentWorkspaceMutationLocks(fullPaths, operation);
+  return withWorkspaceFileLifecycleGuard({ workspaceId: workspace.workspaceId,
+    paths: workspacePaths.map((entry) => entry === '.' ? '' : entry) },
+  () => withAgentWorkspaceMutationLocks(fullPaths, operation));
 }
 
 async function assertAgentFileUnchangedBeforeReplace(params: {
@@ -3646,7 +3662,7 @@ export async function copyAgentPaths(params: {
     idempotencyKey: params.idempotencyKey,
   });
   if (review) return review;
-  return withAgentWorkspaceMutationLocks(
+  return withAgentWorkspacePathLifecycleGuard(
     mutationStates.map((state) => state.fullPath),
     async () => {
       await assertAgentPathMutationStatesUnchanged(mutationStates, 'copy_path');
@@ -3810,7 +3826,7 @@ export async function moveAgentPaths(params: {
       idempotencyKey: params.idempotencyKey,
     });
     if (review) return review;
-    return withAgentWorkspaceMutationLocks(
+    return withAgentWorkspacePathLifecycleGuard(
       mutationStates.map((state) => state.fullPath),
       async () => {
         await assertAgentPathMutationStatesUnchanged(mutationStates, 'move_path');
@@ -3996,7 +4012,7 @@ export async function deleteAgentPaths(params: {
       ignoreMissing: params.ignoreMissing, recursive: params.recursive, idempotencyKey: params.idempotencyKey,
     });
     if (review) return review;
-    return withAgentWorkspaceMutationLocks(
+    return withAgentWorkspacePathLifecycleGuard(
       mutationStates.map((state) => state.fullPath),
       async () => {
         await assertAgentPathMutationStatesUnchanged(mutationStates, 'delete_path');

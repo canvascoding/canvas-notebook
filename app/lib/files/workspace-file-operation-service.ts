@@ -13,6 +13,8 @@ import { groupWorkspaceLinkWrites } from '@/app/lib/markdown/workspace-link-writ
 import { applyWorkspaceLinkWriteGroup, preflightWorkspaceLinkWrites,
   probeWorkspaceLinkWriteGroup, type WorkspaceLinkWriteExecutorInput } from '@/app/lib/markdown/workspace-link-write-executor';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
+import { normalizeWorkspaceRelativePath } from '@/app/lib/workspaces/path-guard';
+import { withWorkspaceFileLifecycleGuards } from './workspace-file-lifecycle-guard';
 import { initializeCopiedFileCollaborationPaths } from './collaboration-policy';
 import { observeWorkspaceOperation, type WorkspaceOperationMetricPhase } from './workspace-operation-observability';
 import { captureWorkspaceOperationBackup } from './workspace-operation-backup';
@@ -127,7 +129,11 @@ export async function executeWorkspaceFileOperationService(
   const sourceWorkspaceId = input.source.workspace.workspaceId;
   const destinationWorkspaceId = input.destination.workspace.workspaceId;
   try {
-    return await withWorkspaceCopyMutationLocks(input.source.fileOptions, input.destination.fileOptions, async () => {
+    const destinationPaths = input.selections.map((selection) => normalizeWorkspaceRelativePath(selection.destinationPath));
+    return await withWorkspaceFileLifecycleGuards([
+      { workspaceId: sourceWorkspaceId, paths: input.selections.map((selection) => normalizeWorkspaceRelativePath(selection.sourcePath)) },
+      { workspaceId: destinationWorkspaceId, paths: destinationPaths },
+    ], () => withWorkspaceCopyMutationLocks(input.source.fileOptions, input.destination.fileOptions, async () => {
     const journal = new WorkspaceOperationJournal();
     const staging = new WorkspaceOperationStaging();
     let rename: WorkspacePathRenameResult | null = null;
@@ -255,7 +261,7 @@ export async function executeWorkspaceFileOperationService(
     });
     observeExecutionStatus(input.kind, execution.status, 'apply');
     return { execution, plan: preview, rename, copied, alreadyKnown: false };
-    });
+    }));
   } catch (error) {
     if (error instanceof WorkspacePreviewStaleError || (error as { status?: unknown })?.status === 409) {
       observeWorkspaceOperation({ scope: 'executor', kind: input.kind, phase: 'apply', outcome: 'conflict' });

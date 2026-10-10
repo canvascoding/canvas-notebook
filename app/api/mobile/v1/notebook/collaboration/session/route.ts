@@ -37,7 +37,11 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const body = await readJsonBody<{ path?: unknown; richTextSchemaVersion?: unknown; blockTreeFormatVersion?: unknown }>(request);
+  const body = await readJsonBody<{ path?: unknown; richTextSchemaVersion?: unknown; blockTreeFormatVersion?: unknown; migration?: unknown; migrationAction?: unknown }>(request).catch(() => null);
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return NextResponse.json({ success: false, error: 'A supported document request is required.' }, { status: 400 });
+  if (body.migration !== undefined && !workspaceResult.workspace.permissions.canWrite) {
+    return NextResponse.json({ success: false, code: 'migration_permission_denied', error: 'Write access is required to prepare formatted editing.' }, { status: 403 });
+  }
   const fileOptions = workspaceFileOptions(workspaceResult.workspace);
   const collaborationRequest = parseCollaborationSessionRequest({
     path: body.path,
@@ -45,6 +49,8 @@ export async function POST(request: NextRequest) {
     representation: 'auto',
     richTextSchemaVersion: body.richTextSchemaVersion,
     blockTreeFormatVersion: body.blockTreeFormatVersion,
+    migration: body.migration,
+    migrationAction: body.migrationAction,
   });
   if (!collaborationRequest) {
     return NextResponse.json(
@@ -59,6 +65,11 @@ export async function POST(request: NextRequest) {
       fileOptions,
       request: collaborationRequest,
     });
+    if (grant.migration?.status === 'pending' && grant.migration.reason === 'outcome_unconfirmed') {
+      return NextResponse.json({ success: false, migration: grant.migration,
+        error: 'The current document session could not be confirmed. Poll the same migration request.' },
+      { status: 503, headers: { 'Cache-Control': 'no-store, private' } });
+    }
     const projectionStatus = mobileCollaborationProjectionStatus(grant);
     const sessionId = String((workspaceResult.session.session as { id?: string }).id || '');
     if (!sessionId) throw new Error('Authenticated session has no stable identifier.');
@@ -102,6 +113,7 @@ export async function POST(request: NextRequest) {
       stateVector: grant.stateVector,
       stateProof: grant.stateProof,
       ...projectionStatus,
+      ...(grant.migration ? { migration: grant.migration } : {}),
       token: ticket.token,
       expiresAt: ticket.expiresAt,
       websocketUrl: '/ws/collaboration',

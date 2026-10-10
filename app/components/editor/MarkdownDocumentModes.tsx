@@ -9,6 +9,7 @@ import * as Y from 'yjs';
 import { getSchema } from '@tiptap/core';
 import { Button } from '@/components/ui/button';
 import type { CollaborationDocument } from '@/app/lib/collaboration/client';
+import type { RichMigrationRequest } from '@/app/lib/collaboration/representation-migration-contract';
 import { useFileStore } from '@/app/store/file-store';
 import { useWorkspaceStore } from '@/app/store/workspace-store';
 import { workspaceHeaders } from '@/app/lib/files/client';
@@ -120,43 +121,62 @@ export function MarkdownRichMigration({ collaboration, filePath, onReady, onStar
   onStart?: () => void; onBusyChange?: (busy: boolean) => void; autoStart?: boolean;
 }) {
   const t = useTranslations('notebook.editorModes');
+  const common = useTranslations('common');
   const [busy, setBusy] = useState(false);
   const [blocked, setBlocked] = useState(false);
+  const [pending, setPending] = useState(false);
+  const migration = useRef<RichMigrationRequest | null>(null);
   const running = useRef(false);
   const autoAttempted = useRef(false);
   const mounted = useRef(true);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
-  const canStart = collaboration.connection === 'live' && collaboration.durability !== 'degraded';
-  const migrate = useCallback(async () => {
+  const canStart = pending || (collaboration.connection === 'live' && collaboration.durability !== 'degraded');
+  const migrate = useCallback(async (cancel = false) => {
     if (running.current || !canStart) return;
     running.current = true;
     setBusy(true); setBlocked(false);
     onBusyChange?.(true);
     let migrated = false;
+    let safeToResume = !migration.current;
     try {
-      await collaboration.requestCheckpoint();
-      collaboration.provider?.disconnect();
+      if (!migration.current) {
+        await collaboration.requestCheckpoint();
+        if (!collaboration.getMigrationCheckpoint) throw new Error('The exact checkpoint receipt is unavailable.');
+        migration.current = { requestId: crypto.randomUUID(), ...collaboration.getMigrationCheckpoint() };
+        collaboration.provider?.disconnect();
+        safeToResume = false;
+      }
       for (let attempt = 0; attempt < 3 && !migrated; attempt += 1) {
         if (attempt) await new Promise((resolve) => setTimeout(resolve, 350));
         const response = await fetch('/api/files/collaboration/session', {
           method: 'POST', headers: { 'Content-Type': 'application/json', ...workspaceHeaders(collaboration.registryKey.split('\0')[0]) },
-          body: JSON.stringify({ path: filePath, representation: 'auto', allowRichMigration: true,
-            ...COLLABORATION_CLIENT_CAPABILITIES,
-            expectedLifecycleGeneration: collaboration.session?.lifecycleGeneration }),
+          body: JSON.stringify({ path: filePath, representation: 'auto', ...COLLABORATION_CLIENT_CAPABILITIES,
+            migration: migration.current, ...(cancel ? { migrationAction: 'cancel' } : {}) }),
         });
         const result = await response.json();
-        migrated = response.ok && result.success === true && result.representation === 'tiptap_blocks'
+        const outcome = result.migration;
+        const sameRequest = outcome?.requestId === migration.current.requestId;
+        migrated = response.ok && result.success === true && sameRequest
+          && ['migrated', 'already_rich'].includes(outcome.status) && result.representation === 'tiptap_blocks'
           && supportsBlockTreeCollaboration(result);
+        if (response.ok && result.success === true && sameRequest && ['blocked', 'unsupported'].includes(outcome.status)
+          && outcome.documentId === migration.current.expectedDocumentId
+          && outcome.lifecycleGeneration === migration.current.expectedLifecycleGeneration) {
+          safeToResume = true;
+          migration.current = null;
+          break;
+        }
       }
       // Refresh the authoritative session even if the user switched back to Read.
       // The chosen mode belongs to the parent and must not be reset by this request.
       if (migrated) onReady(); else if (mounted.current) setBlocked(true);
     } catch { if (mounted.current) setBlocked(true); }
     finally {
-      if (!migrated) collaboration.provider?.connect();
+      if (!migrated && safeToResume) collaboration.provider?.connect();
       running.current = false;
-      onBusyChange?.(false);
-      if (mounted.current) setBusy(false);
+      const unresolved = !migrated && !safeToResume;
+      onBusyChange?.(unresolved);
+      if (mounted.current) { setBusy(false); setPending(unresolved); }
     }
   }, [canStart, collaboration, filePath, onReady, onBusyChange]);
   useEffect(() => {
@@ -170,7 +190,8 @@ export function MarkdownRichMigration({ collaboration, filePath, onReady, onStar
       onStart?.();
       void migrate();
     }}>{t(busy ? 'migrationBusy' : 'migration')}</Button>
-    {blocked && <span role="status">{t('migrationBlocked')}</span>}
+    {pending && <Button variant="ghost" size="sm" disabled={busy} onClick={() => void migrate(true)}>{common('cancel')}</Button>}
+    {blocked && <span role="status">{t(pending ? 'migrationBusy' : 'migrationBlocked')}</span>}
   </div>;
 }
 

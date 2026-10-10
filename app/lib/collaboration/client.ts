@@ -7,6 +7,7 @@ import type { IndexeddbPersistence } from 'y-indexeddb';
 import * as Y from 'yjs';
 
 import { collaborationStateProof, isCollaborationStateProof } from './state-proof';
+import type { RichMigrationRequest } from './representation-migration-contract';
 import { captureAgentStateSnapshot, persistedUpdateIncludesAgentSnapshot } from './agent-durability';
 import type { CurrentFile } from '../files/types';
 import { hasStoredLocalDocument } from './local-document';
@@ -106,6 +107,7 @@ export type CollaborationDocument = {
   error: string | null;
   setComposition: SetCollaborationComposition;
   requestCheckpoint: () => Promise<void>;
+  getMigrationCheckpoint?: () => Omit<RichMigrationRequest, 'requestId'>;
   requestLocationRevalidation?: () => Promise<void>;
   canRevalidateLocation?: boolean;
   revalidatingLocation?: boolean;
@@ -1048,6 +1050,16 @@ function snapshot(entry: RegistryEntry): CollaborationDocument {
     error: entry.clientState.error,
     setComposition: entry.setComposition,
     requestCheckpoint: entry.requestCheckpoint,
+    getMigrationCheckpoint: () => {
+      assertRequestActive(entry, requestScope);
+      const proof = collaborationStateProof(entry.doc, Y);
+      const state = entry.clientState;
+      if (!entry.session || !state.ready || state.unsyncedChanges !== 0 || state.durability !== 'checkpointed_file'
+        || state.documentSequence === null || state.documentSequence !== state.checkpointSequence
+        || !proof || proof !== state.checkpointStateProof) throw new Error('The exact document checkpoint is not finalized.');
+      return { expectedDocumentId: entry.session.documentId, expectedLifecycleGeneration: entry.session.lifecycleGeneration,
+        documentSequence: state.documentSequence, stateProof: proof };
+    },
     requestLocationRevalidation: () => revalidateEntryLocation(entry, requestScope),
     canRevalidateLocation: canRevalidateEntryLocation(entry),
     revalidatingLocation: Boolean(entry.locationRevalidationPromise),

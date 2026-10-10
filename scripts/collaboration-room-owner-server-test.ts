@@ -152,7 +152,7 @@ function makeState(documentId: string, text: string): PersistedCollaborationStat
 
 async function main(mode: 'direct-store-failure' | 'queued-peer-loss'
   | 'terminal-success' | 'terminal-store-failure' | 'terminal-lost-ack'
-  | 'admission-terminal' | 'admission-unproven-release' | 'normal-unload') {
+  | 'admission-terminal' | 'admission-unproven-release' | 'normal-unload' | 'admission-writer-gate') {
   const workspace = {
     workspaceId: 'owner-workspace',
     organizationId: null,
@@ -198,6 +198,9 @@ async function main(mode: 'direct-store-failure' | 'queued-peer-loss'
   let semanticConflictDetections = 0;
   const persistCalls: Array<{ documentId: string; fence: CollaborationRoomOwnerFence | undefined }> = [];
   let controlledPersist: PersistedCollaborationState | null = null;
+  let admissionBlocked = false;
+  let admissionChecks = 0;
+  let blockOnAdmissionCheck = 0;
   let persistFailure: Error | null = null;
   let persistBarrier: {
     documentId: string;
@@ -471,6 +474,18 @@ async function main(mode: 'direct-store-failure' | 'queued-peer-loss'
     if (name.endsWith('/diagnostics')) return { logCollaborationDiagnostic() {} };
     if (name.endsWith('/server-runtime')) return { Y };
     if (name.endsWith('/state-proof') || name.endsWith('/failure')) return load(name);
+    if (name.endsWith('/representation-migration-runtime')) return load(name);
+    if (name.endsWith('/representation-drain-refusal')) return { readRepresentationDrainRequest: async () => null };
+    if (name.endsWith('/room-admission')) return load(name);
+    if (name === '@/app/lib/db') return { openDb: async () => ({ run: async () => {},
+      all: async (sql: string) => {
+        if (sql.includes('pg_try_advisory_xact_lock')) return [{ locked: true }];
+        if (sql.includes('FROM collaboration_admission_scopes')) {
+          admissionChecks++;
+          return admissionBlocked || admissionChecks === blockOnAdmissionCheck ? [{ request_id: 'pending-representation' }] : [];
+        }
+        return [];
+      }, close: async () => {} }) };
     if (name.startsWith('@/')) return {};
     return load(name);
   }, { exports: server }, server);
@@ -598,6 +613,35 @@ async function main(mode: 'direct-store-failure' | 'queued-peer-loss'
     instance.documents.clear();
     await turn();
   };
+
+  if (mode === 'admission-writer-gate') {
+    const document = await instance.createDocument('doc', request, 'existing-owner', {
+      isAuthenticated: true, readOnly: false,
+    }, contextFor('doc'));
+    socket(document, 'retained-peer');
+    const before = document.getText('content').toString();
+    const fence = ownerRuntime.fence(document);
+    const input = { documentId: 'doc', documentPath: 'doc.txt', documentRepresentation: 'plain_text' as const,
+      documentLifecycleGeneration: 1, documentSchemaVersion: 1, requiresFileCheckpointIdentity: false,
+      workspace, actorType: 'user' as const, actorId: 'user', actorDisplayName: 'User', initiatedByUserId: 'user',
+      operationId: 'pending-direct' };
+    let mutations = 0;
+    const apply = () => { mutations++; };
+    admissionBlocked = true;
+    await assert.rejects(direct(input, apply), { code: 'ADMISSION_CONFLICT' });
+    assert.equal(mutations, 0, 'A retained owned room cannot bypass reservation admission.');
+    admissionBlocked = false;
+    admissionChecks = 0;
+    blockOnAdmissionCheck = 2;
+    await assert.rejects(direct(input, apply), { code: 'ADMISSION_CONFLICT' });
+    assert.equal(admissionChecks, 2, 'Admission is rechecked after opening the direct connection.');
+    assert.equal(mutations, 0, 'A reservation accepted between open and transact cannot receive a new writer.');
+    assert.equal(document.getText('content').toString(), before);
+    assert.equal(ownerRuntime.fence(document), fence);
+    assert.equal(sessionActive, true, 'Admission busy does not quarantine unrelated owner authority.');
+    console.log('PASS pending admission fences retained Direct open and final transact without changing bytes or owner');
+    return;
+  }
 
   if (mode === 'admission-terminal') {
     const documentId = 'admission-terminal';
@@ -1399,6 +1443,7 @@ async function main(mode: 'direct-store-failure' | 'queued-peer-loss'
 
 async function run() {
   const modes = [
+    'admission-writer-gate',
     'normal-unload',
     'admission-terminal',
     'admission-unproven-release',

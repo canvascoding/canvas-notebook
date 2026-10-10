@@ -5,6 +5,8 @@ import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { applyRateLimit, invalidateWorkspaceFileViews, jsonError, jsonServerError, jsonSuccess } from '@/app/lib/api/route-helpers';
 import { initializeCopiedFileCollaborationPaths } from '@/app/lib/files/collaboration-policy';
 import { withWorkspaceMutationLock } from '@/app/lib/files/workspace-mutation-lock';
+import { withWorkspaceFileLifecycleGuard } from '@/app/lib/files/workspace-file-lifecycle-guard';
+import { normalizeWorkspaceRelativePath } from '@/app/lib/workspaces/path-guard';
 import { getWorkspaceOperationBackup, restoreWorkspaceOperationBackup } from '@/app/lib/files/workspace-operation-backup';
 import { getParentDirectory } from '@/app/lib/files/path-utils';
 import { requireRequestWorkspace, workspaceFileOptions } from '@/app/lib/workspaces/request';
@@ -54,8 +56,11 @@ export async function POST(request: NextRequest, context: RouteContext) {
       return jsonError('targetPath must be a nonempty path', 400);
     }
     targetPath = body.targetPath as string | undefined;
-    const restored = await withWorkspaceMutationLock(workspaceResult.workspace.workspaceId, async () => {
-      const backup = await getWorkspaceOperationBackup({ workspace: workspaceResult.workspace, backupId });
+    const backup = await getWorkspaceOperationBackup({ workspace: workspaceResult.workspace, backupId });
+    const restoredPath = normalizeWorkspaceRelativePath(targetPath ?? backup.originalPath);
+    const restored = await withWorkspaceFileLifecycleGuard({
+      workspaceId: workspaceResult.workspace.workspaceId, paths: [restoredPath === '.' ? '' : restoredPath],
+    }, () => withWorkspaceMutationLock(workspaceResult.workspace.workspaceId, async () => {
       if (backup.entries.some((entry) => entry.type === 'file'
         && (entry.path === '.' ? backup.originalPath : entry.path).toLowerCase().endsWith('.docx'))) {
         throw Object.assign(new Error('Word documents require the Office restore workflow.'),
@@ -68,7 +73,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
         workspace: workspaceResult.workspace, paths: [result.restoredPath],
       });
       return result;
-    });
+    }));
     invalidateWorkspaceFileViews({ fileOptions: workspaceFileOptions(workspaceResult.workspace),
       subtreeDirs: [getParentDirectory(restored.restoredPath)],
       mutations: [{ path: restored.restoredPath, type: 'add' }] });

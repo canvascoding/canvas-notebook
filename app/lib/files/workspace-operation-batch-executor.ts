@@ -14,6 +14,7 @@ import { syncPublicSharesAfterDelete } from '@/app/lib/public-sharing/public-fil
 import { renameWorkspacePath } from './rename-service';
 import { captureWorkspaceOperationBackup } from './workspace-operation-backup';
 import { withWorkspaceMutationLock } from './workspace-mutation-lock';
+import { withWorkspaceFileLifecycleGuard } from './workspace-file-lifecycle-guard';
 import { preflightWorkspaceLinkWrites, applyWorkspaceLinkWriteGroup, probeWorkspaceLinkWriteGroup,
   type WorkspaceLinkWriteExecutorInput, type WorkspaceLinkWritePreflight } from '@/app/lib/markdown/workspace-link-write-executor';
 import { groupWorkspaceLinkWrites, type WorkspaceLinkWriteGroup } from '@/app/lib/markdown/workspace-link-write-groups';
@@ -317,6 +318,12 @@ export function createWorkspaceOperationBatchExecutor(dependencies: Dependencies
   };
   const withLock = <T>(scope: WorkspaceOperationBatchScope, operation: () => Promise<T>) => withWorkspaceMutationLock(scope.workspace.workspaceId,
     () => withWorkspaceCopyMutationLocks(scope.fileOptions, scope.fileOptions, operation));
+  const withPathLifecycle = <T>(scope: WorkspaceOperationBatchScope, plan: WorkspaceOperationBatchPlan,
+    operation: () => Promise<T>) => {
+    const paths = plan.pathSteps.flatMap(step => [step.sourcePath, ...(step.destinationPath ? [step.destinationPath] : [])]);
+    return paths.length ? withWorkspaceFileLifecycleGuard({ workspaceId: scope.workspace.workspaceId, paths },
+      () => withLock(scope, operation)) : withLock(scope, operation);
+  };
   const assertUndoAvailable = async (input: { batchId: string; scope: WorkspaceOperationBatchScope }): Promise<void> => withLock(input.scope, async () => {
     const manifest = await load(input.batchId);
     const conflict = (code: string): never => { throw Object.assign(new Error(code), { status: 409, code }); };
@@ -395,7 +402,7 @@ export function createWorkspaceOperationBatchExecutor(dependencies: Dependencies
     }
   });
 
-  const execute = async (input: ExecuteInput): Promise<WorkspaceOperationBatchExecutionResult> => withLock(input.scope, async () => {
+  const execute = async (input: ExecuteInput): Promise<WorkspaceOperationBatchExecutionResult> => withPathLifecycle(input.scope, input.plan, async () => {
     assertAccess(input);
     let manifest = await load(input.batchId);
     if (manifest && (manifest.workspaceId !== input.scope.workspace.workspaceId || manifest.actorUserId !== input.actorUserId
@@ -565,7 +572,11 @@ export function createWorkspaceOperationBatchExecutor(dependencies: Dependencies
     }
   });
 
-  const undo = async (input: UndoInput): Promise<WorkspaceOperationBatchExecutionResult> => withLock(input.scope, async () => {
+  const undo = async (input: UndoInput): Promise<WorkspaceOperationBatchExecutionResult> => {
+    assertAccess(input);
+    const initial = await load(input.batchId);
+    if (!initial || initial.workspaceId !== input.scope.workspace.workspaceId) throw new Error('BATCH_ID_CONFLICT');
+    return withPathLifecycle(input.scope, initial.plan, async () => {
     assertAccess(input);
     const manifest = await load(input.batchId);
     if (!manifest || manifest.workspaceId !== input.scope.workspace.workspaceId) throw new Error('BATCH_ID_CONFLICT');
@@ -676,7 +687,8 @@ export function createWorkspaceOperationBatchExecutor(dependencies: Dependencies
       await save(manifest);
       return { ...result(manifest), status: manifest.undoSteps.length || !forwardComplete ? 'needs_recovery' : 'failed' };
     }
-  });
+    });
+  };
 
   return { execute, undo, assertUndoAvailable,
     async publicExecution(input: WorkspaceOperationBatchExecutionPublicInput & { batchId: string; scope: WorkspaceOperationBatchScope }) {

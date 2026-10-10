@@ -17,6 +17,8 @@ import {
 } from '@/app/lib/api/route-helpers';
 import { requireRequestWorkspace, workspaceFileOptions } from '@/app/lib/workspaces/request';
 import { withWorkspaceMutationLock } from '@/app/lib/files/workspace-mutation-lock';
+import { withWorkspaceFileLifecycleGuard, WorkspaceFileLifecycleBusyError } from '@/app/lib/files/workspace-file-lifecycle-guard';
+import { normalizeWorkspaceRelativePath } from '@/app/lib/workspaces/path-guard';
 
 interface ExtractZipRequestBody {
   path?: string;
@@ -41,15 +43,18 @@ export async function POST(request: NextRequest) {
       return jsonError('path and targetDir are required', 400);
     }
 
-    const result = await withWorkspaceMutationLock(workspaceResult.workspace.workspaceId, async () => {
+    const guardedPaths = [path, targetDir].map((entry) => normalizeWorkspaceRelativePath(entry)).map((entry) => entry === '.' ? '' : entry);
+    const result = await withWorkspaceFileLifecycleGuard({
+      workspaceId: workspaceResult.workspace.workspaceId, paths: guardedPaths,
+    }, () => withWorkspaceMutationLock(workspaceResult.workspace.workspaceId, async () => {
       const extracted = await extractWorkspaceZip(path, targetDir, fileOptions);
       const initialized = new Set(extracted.collaborationInitializedPaths);
       await initializeCopiedFileCollaborationPaths({
         workspace: workspaceResult.workspace, paths: extracted.files.filter((entry) => !initialized.has(entry)),
       });
+      await syncPublicSharesAfterWrite(extracted.files, workspaceResult.workspace);
       return extracted;
-    });
-    await syncPublicSharesAfterWrite(result.files, workspaceResult.workspace);
+    }));
     invalidateWorkspaceFileViews({
       fileOptions,
       subtreeDirs: [result.targetDir],
@@ -81,6 +86,9 @@ export async function POST(request: NextRequest) {
       directories: result.directories,
     });
   } catch (error) {
+    if (error instanceof WorkspaceFileLifecycleBusyError) {
+      return jsonError(error.message, error.status, { code: error.code });
+    }
     if (error instanceof ZipExtractionError) {
       return jsonError(error.message, error.status);
     }

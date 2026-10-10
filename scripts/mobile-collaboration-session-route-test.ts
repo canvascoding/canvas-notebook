@@ -24,6 +24,7 @@ async function main() {
   let workspaceResponse: Response | undefined;
   const claims: Record<string, unknown>[] = [];
   const authorization: unknown[] = [];
+  const sessionRequests: Record<string, unknown>[] = [];
   const filename = path.resolve('app/api/mobile/v1/notebook/collaboration/session/route.ts');
   const runtimeRequire = createRequire(filename);
   class SessionError extends Error {}
@@ -33,7 +34,7 @@ async function main() {
     '@/app/lib/collaboration/session-service': {
       CollaborationSessionError: SessionError,
       parseCollaborationSessionRequest: (request: unknown) => request,
-      createCollaborationSessionGrant: async () => grant,
+      createCollaborationSessionGrant: async (input: { request: Record<string, unknown> }) => { sessionRequests.push(input.request); return grant; },
     },
     '@/app/lib/collaboration/types': { COLLABORATION_SCHEMA_VERSION: 1, RICH_MARKDOWN_SCHEMA_VERSION: 3, RICH_BLOCK_TREE_FORMAT_VERSION: 1 },
     '@/app/lib/collaboration/runtime-policy': { liveCollaborationRuntimeAvailable: () => true },
@@ -59,8 +60,8 @@ async function main() {
   new Function('require', 'module', 'exports', compiled.outputText)(
     (name: string) => mocks[name] ?? runtimeRequire(name), { exports: exported }, exported,
   );
-  const request = () => exported.POST(new NextRequest('https://canvas.test/api/mobile/v1/notebook/collaboration/session', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: base.path }),
+  const request = (extra: Record<string, unknown> = {}) => exported.POST(new NextRequest('https://canvas.test/api/mobile/v1/notebook/collaboration/session', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: base.path, ...extra }),
   }));
   const stateFrom = (wire: Record<string, unknown>) => {
     let state = createInitialTextCollaborationClientState(wire as Parameters<typeof createInitialTextCollaborationClientState>[0]);
@@ -95,6 +96,24 @@ async function main() {
     assert.equal(stateFrom(wire).durability, 'checkpointed_file');
     assert.equal(wire.degraded, false);
     assert.equal(Object.hasOwn(wire, 'projectionError'), false);
+
+    const migration = { requestId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', expectedDocumentId: base.documentId,
+      expectedLifecycleGeneration: 2, documentSequence: 7, stateProof };
+    grant = { ...base, migration: { requestId: migration.requestId, status: 'pending', phase: 'quiescence',
+      documentId: base.documentId, lifecycleGeneration: 2 } };
+    wire = await (await request({ migration, migrationAction: 'cancel' })).json() as Record<string, unknown>;
+    assert.deepEqual(wire.migration, grant.migration, 'pending/cancel outcomes remain readable without obscuring the stable operation');
+    assert.deepEqual(sessionRequests.at(-1)?.migration, migration);
+    assert.equal(sessionRequests.at(-1)?.migrationAction, 'cancel');
+    grant = { ...base, migration: { requestId: migration.requestId, status: 'pending', phase: 'handoff',
+      reason: 'outcome_unconfirmed', documentId: base.documentId, lifecycleGeneration: 2 } };
+    const issuedBeforeUnknown = claims.length;
+    response = await request({ migration });
+    assert.equal(response.status, 503);
+    wire = await response.json() as Record<string, unknown>;
+    assert.deepEqual(wire.migration, grant.migration);
+    assert.equal(Object.hasOwn(wire, 'token'), false, 'unknown canonical postcommit state must not produce an old-generation ticket');
+    assert.equal(claims.length, issuedBeforeUnknown);
 
     grant = { ...base };
     wire = await (await request()).json() as Record<string, unknown>;

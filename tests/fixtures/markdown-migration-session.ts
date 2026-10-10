@@ -8,6 +8,7 @@ import type { CollaborationDocument } from '../../app/lib/collaboration/client';
 import type { CollaborationSessionResponse } from '../../app/lib/collaboration/types';
 import { COLLABORATION_CLIENT_CAPABILITIES } from '../../app/lib/collaboration/types';
 import { BLOCK_TREE_KEY, CollaborationBlockTree } from '../../app/lib/collaboration/block-tree';
+import { collaborationStateProof } from '../../app/lib/collaboration/state-proof';
 
 export const initialMarkdown = location.search.includes('unsupported')
   ? '# Raw HTML\n\n<div>Keep exactly</div>\n' : '1. First item\n\n2. Second item\n';
@@ -28,6 +29,8 @@ const collaboration = {
   clientState: { documentSequence: 1, checkpointSequence: 1, unsyncedChanges: 0 },
   setComposition() {},
   async requestCheckpoint() { document.body.dataset.checkpoints = String(++checkpoints); },
+  getMigrationCheckpoint() { return { expectedDocumentId: session.documentId, expectedLifecycleGeneration: 1,
+    documentSequence: 1, stateProof: collaborationStateProof(doc, Y)! }; },
 } as unknown as CollaborationDocument;
 
 export function useTextCollaborationSession() {

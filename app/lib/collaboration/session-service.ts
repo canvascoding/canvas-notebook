@@ -1,5 +1,8 @@
 import 'server-only';
 
+import { advanceRichRepresentationMigration } from './representation-migration';
+import { parseRichMigrationRequest, type RichMigrationRequest, type RichMigrationResult } from './representation-migration-contract';
+
 import { Y } from '@/app/lib/collaboration/server-runtime';
 import { collaborationUpdateStateProof } from '@/app/lib/collaboration/state-proof';
 import { readFile, type WorkspaceFileOperationOptions } from '@/app/lib/filesystem/workspace-files';
@@ -59,6 +62,8 @@ export type CollaborationSessionRequest = {
   provider: 'yjs';
   allowRichMigration?: boolean;
   expectedLifecycleGeneration?: number;
+  migration?: RichMigrationRequest;
+  migrationAction?: 'cancel';
   richTextSchemaVersion?: number;
   blockTreeFormatVersion?: number;
 };
@@ -78,6 +83,7 @@ export type CollaborationSessionGrant = {
   degraded?: boolean;
   projectionError?: CollaborationProjectionStatus['projectionError'];
   projectionFinalized?: boolean;
+  migration?: RichMigrationResult;
 };
 
 function extension(path: string): string {
@@ -90,13 +96,20 @@ export function parseCollaborationSessionRequest(input: {
   provider?: unknown;
   allowRichMigration?: unknown;
   expectedLifecycleGeneration?: unknown;
+  migration?: unknown;
+  migrationAction?: unknown;
   richTextSchemaVersion?: unknown;
   blockTreeFormatVersion?: unknown;
 }): CollaborationSessionRequest | null {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return null;
   const path = typeof input.path === 'string' ? input.path.trim() : '';
   if (!path) return null;
 
+  if (input.migrationAction !== undefined && (input.migrationAction !== 'cancel' || input.migration === undefined)) return null;
   const ext = extension(path);
+  const migration = input.migration === undefined ? undefined : parseRichMigrationRequest(input.migration);
+  if (input.migration !== undefined && (!migration || !['md', 'markdown'].includes(ext)
+    || input.representation !== 'auto' || !supportsBlockTreeCollaboration(input))) return null;
   if (ext === 'excalidraw') {
     return input.representation === 'excalidraw_scene'
       && (input.provider === undefined || input.provider === 'excalidraw')
@@ -122,6 +135,7 @@ export function parseCollaborationSessionRequest(input: {
     return { path, representation: input.representation, provider: 'yjs',
       ...(typeof input.richTextSchemaVersion === 'number' ? { richTextSchemaVersion: input.richTextSchemaVersion } : {}),
       ...(typeof input.blockTreeFormatVersion === 'number' ? { blockTreeFormatVersion: input.blockTreeFormatVersion } : {}),
+      ...(migration ? { migration, ...(input.migrationAction === 'cancel' ? { migrationAction: 'cancel' as const } : {}) } : {}),
       ...(input.allowRichMigration === true ? { allowRichMigration: true,
         expectedLifecycleGeneration: Number(input.expectedLifecycleGeneration) } : {}),
     };
@@ -206,6 +220,7 @@ export async function createCollaborationSessionGrant(input: {
       ? selectedInitialRepresentation
       : request.representation;
     let resolved: Awaited<ReturnType<typeof resolveTextCollaborationState>>;
+    let migrationResult: RichMigrationResult | undefined;
     try {
       resolved = await resolveTextCollaborationState({
         document: collaboration.document,
@@ -214,7 +229,11 @@ export async function createCollaborationSessionGrant(input: {
         initialRepresentation,
         initialContent,
       });
-      if (
+      if (request.migration) {
+        const migrated = await advanceRichRepresentationMigration({ workspace, path: request.path, state: resolved.state, migration: request.migration, cancel: request.migrationAction === 'cancel' });
+        resolved = { state: migrated.state, initialized: resolved.initialized };
+        migrationResult = migrated.migration;
+      } else if (
         request.representation === 'auto'
         && request.allowRichMigration === true
         && workspace.permissions.canWrite
@@ -308,6 +327,7 @@ export async function createCollaborationSessionGrant(input: {
       stateVector: Buffer.from(state.stateVector).toString('base64'),
       stateProof: collaborationUpdateStateProof(state.yjsState, Y),
       ...await loadCollaborationProjectionStatus(state),
+      ...(migrationResult ? { migration: migrationResult } : {}),
     };
   }
 

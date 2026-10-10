@@ -43,7 +43,18 @@ async function main() {
   const directCalls: WorkspacePathOperationInput[] = [];
   const reviewCalls: Array<{ kind: string }> = [];
   let directService: typeof import('../app/lib/files/workspace-path-operation-service');
+  let lifecycleBusy = false;
   moduleInternals._load = (request, parent, isMain) => {
+    if (request === '@/app/lib/files/workspace-file-lifecycle-guard') return {
+      withWorkspaceFileLifecycleGuards: (_scopes: unknown, work: () => Promise<unknown>) => {
+        if (lifecycleBusy) throw Object.assign(new Error('busy'), { status: 409, code: 'COLLABORATION_FILE_LIFECYCLE_BUSY' });
+        return work();
+      },
+      withWorkspaceFileLifecycleGuard: (_scope: unknown, work: () => Promise<unknown>) => {
+        if (lifecycleBusy) throw Object.assign(new Error('busy'), { status: 409, code: 'COLLABORATION_FILE_LIFECYCLE_BUSY' });
+        return work();
+      },
+    };
     if (request === '@/app/lib/document-review-availability') return {
       readDocumentReviewAvailability: () => ({ documentReviewEnabled: false, updatedAt: null }),
     };
@@ -93,6 +104,7 @@ async function main() {
       },
     };
     const { copyAgentPaths, moveAgentPaths, getAgentWorkspaceContext } = await import('../app/lib/pi/agent-file-operations');
+    const { resolveAgentRuntimeTempDir } = await import('../app/lib/pi/agent-runtime-temp');
     const { runWithAgentExecutionContext } = await import('../app/lib/pi/agent-execution-context');
     const { getFileCollaborationState } = await import('../app/lib/files/collaboration-policy');
     const { getWorkspaceOperationBackup, restoreWorkspaceOperationBackup } = await import('../app/lib/files/workspace-operation-backup');
@@ -109,6 +121,23 @@ async function main() {
       workspaceRoot, workspaceRootRelativePath: null, canWrite: true, canDelete: true, canShare: false, legacy: false,
     }, async () => {
       const workspace = getAgentWorkspaceContext()!;
+      await fs.writeFile(path.join(workspaceRoot, 'busy-source.bin'), 'source untouched');
+      await fs.writeFile(path.join(workspaceRoot, 'busy-target.bin'), 'target untouched');
+      const tempRoot = resolveAgentRuntimeTempDir({ userId: 'test', sessionId: 'test', agentId: 'canvas-agent', organizationId: null });
+      await fs.mkdir(tempRoot, { recursive: true });
+      const tempSource = path.join(tempRoot, 'busy-import.bin');
+      await fs.writeFile(tempSource, 'temp untouched');
+      lifecycleBusy = true;
+      try {
+        await assert.rejects(() => copyAgentPaths({ sourcePaths: ['busy-source.bin'],
+          destinationPath: 'busy-target.bin', overwrite: true }), { code: 'COLLABORATION_FILE_LIFECYCLE_BUSY' });
+        assert.equal(await fs.readFile(path.join(workspaceRoot, 'busy-source.bin'), 'utf8'), 'source untouched');
+        assert.equal(await fs.readFile(path.join(workspaceRoot, 'busy-target.bin'), 'utf8'), 'target untouched');
+        await assert.rejects(() => moveAgentPaths({ sourcePaths: [tempSource],
+          destinationPath: 'busy-import.bin' }), { code: 'COLLABORATION_FILE_LIFECYCLE_BUSY' });
+        assert.equal(await fs.readFile(tempSource, 'utf8'), 'temp untouched');
+        await assert.rejects(fs.stat(path.join(workspaceRoot, 'busy-import.bin')), { code: 'ENOENT' });
+      } finally { lifecycleBusy = false; }
       await fs.mkdir(path.join(workspaceRoot, 'blocked'));
       await fs.writeFile(path.join(workspaceRoot, 'blocked', 'missing.md'), '[Missing](./absent.md)');
       const blocked = await moveAgentPaths({ sourcePaths: ['notes'], destinationPath: 'archive' });

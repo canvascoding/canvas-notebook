@@ -1,3 +1,6 @@
+import { assertCollaborationAdmissionOpen, tryLockCollaborationAdmissionWorkspace } from '@/app/lib/collaboration/room-admission';
+import { readRepresentationDrainRequest, refuseRepresentationAdmissionDrain } from '@/app/lib/collaboration/representation-drain-refusal';
+import { installRichMigrationRuntime, noteRichMigrationWorkerSuccess, noteRichMigrationWorkerFailure } from '@/app/lib/collaboration/representation-migration-runtime';
 import type http from 'node:http';
 import type net from 'node:net';
 import { randomUUID } from 'node:crypto';
@@ -337,6 +340,20 @@ async function assertDirectConnectionDocument(input: AgentDirectConnectionInput,
   return state;
 }
 
+/** Caller retains the workspace kernel fence through local admission or mutation. */
+async function assertCurrentCollaborationAdmissionOpen(scope: Pick<CollaborationRoomOwnerScope, 'workspaceId' | 'path' | 'documentId'>): Promise<void> {
+  const database = await openDb();
+  try {
+    await database.run('BEGIN');
+    await database.run("SET LOCAL statement_timeout = '5s'");
+    await database.run("SET LOCAL lock_timeout = '4s'");
+    const query = async (sql: string, values?: unknown[]) => await database.all(sql, values) as Array<Record<string, unknown>>;
+    await tryLockCollaborationAdmissionWorkspace(query, scope.workspaceId);
+    await assertCollaborationAdmissionOpen(query, scope);
+    await database.run('COMMIT');
+  } finally { await database.close(new Error('Discarding admission join check session.')); }
+}
+
 export function createCollaborationServer(server: http.Server, options: {
   // Deliberately opt-in at construction, not an environment rollout switch.
   // Lifecycle writers and mixed-version servers must be fenced before the
@@ -349,6 +366,7 @@ export function createCollaborationServer(server: http.Server, options: {
       readDrain: (ticket: CollaborationAdmissionDrainTicket) => Promise<Readonly<{
         ticket: CollaborationAdmissionDrainTicket;
         status: 'draining' | 'released';
+        blockActiveClients?: boolean;
       }>>;
       pollMs?: number;
     };
@@ -370,6 +388,7 @@ export function createCollaborationServer(server: http.Server, options: {
     },
     onLost(document) {
       const room = document as Document;
+      noteRichMigrationWorkerFailure(true);
       // Do not discard unacknowledged data or write it under a fresh token.
       // beforeUnloadDocument quarantines this exact room until recovery.
       for (const connection of room.getConnections()) connection.readOnly = true;
@@ -580,10 +599,11 @@ export function createCollaborationServer(server: http.Server, options: {
         const access = await resolveCollaborationSessionAccess(claims);
         const workspace = access.workspace;
         authenticatedUser = { ...access.user, name: access.user.name || access.user.email || 'User' };
-        releaseRoomAdmission = await withCollaborationRoomLifecycleLock(
-          claims.documentId,
+        releaseRoomAdmission = await withWorkspaceMutationLock(
+          claims.workspaceId,
           async () => {
             const state = await assertCollaborationDocumentAccess(claims, workspace);
+            await assertCurrentCollaborationAdmissionOpen(claims);
             if (isCollaborationStateQuarantined(state)) connectionConfig.readOnly = true;
             const room = hocuspocus.documents.get(claims.documentId);
             if (room) assertRoomIdentity(room, claims);
@@ -1240,6 +1260,19 @@ export function createCollaborationServer(server: http.Server, options: {
           if (verified.status === 'released') return;
           throw new CollaborationRoomOwnerError('ROOM_OWNER_LOST');
         }
+        // Classify the immutable intent centrally, including local acceptance hooks.
+        const representationRequest = await readRepresentationDrainRequest(ticket);
+        if (representationRequest && !retained) {
+          const refused = await withCollaborationRoomLifecycleLock(ticket.fence.scope.documentId, async () => {
+            const document = hocuspocus.documents.get(ticket.fence.scope.documentId);
+            if (!document?.getConnectionsCount()) return false;
+            assertRoomIdentity(document, ticket.fence.scope);
+            if (roomOwners.resumeTerminalDrain(ticket)) throw new CollaborationRoomOwnerError('ROOM_OWNER_BUSY');
+            await refuseRepresentationAdmissionDrain(representationRequest, ticket);
+            return true;
+          });
+          if (refused) return;
+        }
         await drainOwnedRoom(ticket.fence.scope, ticket, verified.status);
       }).finally(() => { ticketDrains.delete(ticket.releaseId); });
       ticketDrains.set(ticket.releaseId, { ticket, promise });
@@ -1254,13 +1287,18 @@ export function createCollaborationServer(server: http.Server, options: {
       pendingDrains: roomAdmission.pendingDrains,
       drain: drainTicket,
       ...(roomAdmission.pollMs === undefined ? {} : { pollMs: roomAdmission.pollMs }),
+      onPollSuccess: noteRichMigrationWorkerSuccess,
       onError(error) {
         if (error instanceof CollaborationRoomOwnerError && error.code === 'ROOM_OWNER_BUSY') return;
+        const code = error && typeof error === 'object' && 'code' in error ? String(error.code) : '';
+        noteRichMigrationWorkerFailure(['ROOM_OWNER_LOST', 'ADMISSION_INVALID_REQUEST', 'ADMISSION_REQUEST_CHANGED',
+          'ADMISSION_RECOVERY_REQUIRED', '42P01', '42703', '42883', '0A000'].includes(code));
         console.warn('[Collaboration] Durable room drain attempt failed.', error);
       },
     });
     server.once('close', uninstallDrainer);
     server.once('close', () => admissionWorker?.dispose());
+    if (admissionWorker) server.once('close', installRichMigrationRuntime(documentId => hocuspocus.documents.get(documentId)?.getConnectionsCount() ?? 0));
   }
   collaborationInstance = hocuspocus;
   installCollaborationRoomInspector((documentId) => {
@@ -1298,10 +1336,11 @@ export function createCollaborationServer(server: http.Server, options: {
   installCollaborationDirectConnection((input, apply, onApplied) => withRoomActivity(input.documentId, async () => {
     const actorType = input.actorType ?? 'agent';
     let workspace = await resolveDirectConnectionWorkspace(input);
-    const { state, releaseRoomAdmission } = await withCollaborationRoomLifecycleLock(
-      input.documentId,
+    const { state, releaseRoomAdmission } = await withWorkspaceMutationLock(
+      workspace.workspaceId,
       async () => {
         const state = await assertDirectConnectionDocument(input, workspace);
+        await assertCurrentCollaborationAdmissionOpen(state);
         return {
           state,
           releaseRoomAdmission: reserveCollaborationRoomAdmission(input.documentId),
@@ -1362,6 +1401,7 @@ export function createCollaborationServer(server: http.Server, options: {
           await assertDirectConnectionDocument(input, workspace);
           workspace = await resolveDirectConnectionWorkspace(input);
           context.workspace = workspace;
+          await assertCurrentCollaborationAdmissionOpen(context.claims);
           if (onApplied && await standaloneOperationHistoryOwned(input)) {
             context.operationHistoryOwnership = new Promise<boolean>(resolve => { settleHistoryOwnership = resolve; });
           }

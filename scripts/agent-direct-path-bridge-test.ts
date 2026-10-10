@@ -51,6 +51,10 @@ async function main(): Promise<void> {
   const originalLoad = internals._load;
   internals._load = (request, parent, isMain) => {
     if (request === 'server-only') return {};
+    if (request === '@/app/lib/files/workspace-file-lifecycle-guard') return {
+      withWorkspaceFileLifecycleGuards: (_scopes: unknown, work: () => Promise<unknown>) => work(),
+      withWorkspaceFileLifecycleGuard: (_scope: unknown, work: () => Promise<unknown>) => work(),
+    };
     if (request === '@/app/lib/document-review-availability') return {
       readDocumentReviewAvailability: () => ({ documentReviewEnabled: reviewEnabled, updatedAt: null }),
     };

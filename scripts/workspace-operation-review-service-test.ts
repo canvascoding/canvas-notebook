@@ -25,6 +25,8 @@ async function harness() {
   const rows = new Map<string, Row>();
   const audits = new Set<string>();
   const controls = { planId: PLAN_A, blocked: false, coverageComplete: true, executionCount: 0,
+    lifecycleBusy: false,
+    lifecycleScopes: [] as Array<readonly { workspaceId: string; paths: readonly string[] }[]>,
     pathValidationCount: 0,
     reviewEnabled: true, disableDuringPreview: false,
     concurrentInsertStatus: null as string | null,
@@ -102,6 +104,13 @@ async function harness() {
     if (name === '@/app/lib/db') return { openDb: async () => connection };
     if (name === '@/app/lib/files/collaboration-policy') return { archiveFileCollaborationPaths: async () => undefined };
     if (name === '@/app/lib/files/workspace-mutation-lock') return { withWorkspaceMutationLock: (key: string, op: () => Promise<unknown>) => lock(key, op) };
+    if (name === '@/app/lib/files/workspace-file-lifecycle-guard') return {
+      withWorkspaceFileLifecycleGuards: async (scopes: readonly { workspaceId: string; paths: readonly string[] }[], op: () => Promise<unknown>) => {
+        controls.lifecycleScopes.push(scopes);
+        if (controls.lifecycleBusy) throw Object.assign(new Error('Still open.'), { code: 'COLLABORATION_FILE_LIFECYCLE_BUSY', status: 409 });
+        return op();
+      },
+    };
     if (name === '@/app/lib/filesystem/workspace-files') return {
       withWorkspaceCopyMutationLocks: (_a: unknown, _b: unknown, op: () => Promise<unknown>) => lock('workspace-one', op) };
     if (name === '@/app/lib/filesystem/app-output-folders') return { isProtectedAppOutputFolder: () => false };
@@ -372,6 +381,22 @@ test('two concurrent accepts execute one operation with one audit receipt', asyn
   assert.equal(h.controls.lastExecutionInput?.actorSessionId, undefined);
   assert.equal(h.controls.auditWrites, 1);
   assert.equal((await h.service.getWorkspaceOperationReview(submitted.reviewId))?.status, 'applied');
+});
+
+test('an owned lifecycle scope blocks review before applying or touching files', async () => {
+  const h = await harness();
+  const submitted = await h.submit();
+  assert.equal(submitted.mode, 'needs_review');
+  if (submitted.mode !== 'needs_review') return;
+  h.controls.lifecycleBusy = true;
+  await assert.rejects(h.accept(submitted.reviewId, submitted.planId), { code: 'COLLABORATION_FILE_LIFECYCLE_BUSY' });
+  assert.equal(h.controls.executionCount, 0);
+  assert.equal(h.controls.auditWrites, 0);
+  assert.equal((await h.service.getWorkspaceOperationReview(submitted.reviewId))?.status, 'pending');
+  assert.deepEqual(h.controls.lifecycleScopes, [[
+    { workspaceId: 'workspace-one', paths: ['target.md'] },
+    { workspaceId: 'workspace-one', paths: ['moved.md'] },
+  ]]);
 });
 
 test('interrupted applying state reconciles from journal without replay', async () => {

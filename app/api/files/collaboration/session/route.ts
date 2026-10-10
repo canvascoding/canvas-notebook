@@ -49,6 +49,11 @@ export async function POST(request: NextRequest) {
       fileOptions: workspaceFileOptions(workspaceResult.workspace),
       request: requested,
     });
+    if (grant.migration?.status === 'pending' && grant.migration.reason === 'outcome_unconfirmed') {
+      return NextResponse.json({ success: false, migration: grant.migration,
+        error: 'The current document session could not be confirmed. Poll the same migration request.' },
+      { status: 503, headers: { 'Cache-Control': 'no-store' } });
+    }
     const sessionId = String((workspaceResult.session.session as { id?: string }).id || '');
     if (!sessionId) throw new Error('Authenticated session has no stable identifier.');
     const issued = issueCollaborationTicket({
@@ -79,6 +84,9 @@ export async function POST(request: NextRequest) {
       checkpointSequence: grant.checkpointSequence,
       stateVector: grant.stateVector,
       stateProof: grant.stateProof,
+      degraded: grant.degraded,
+      projectionFinalized: grant.projectionFinalized,
+      ...(grant.migration ? { migration: grant.migration } : {}),
       token: issued.token,
       expiresAt: new Date(issued.claims.expiresAt).toISOString(),
       websocketUrl: grant.provider === 'excalidraw' ? '/ws/collaboration/excalidraw' : '/ws/collaboration',
