@@ -35,6 +35,9 @@ async function main() {
       lastCreation = JSON.parse(String(init?.body));
       return Response.json({ success: true });
     }
+    if (url.pathname === '/api/files/tree') {
+      return Response.json({ success: true, data: [] });
+    }
     if (url.pathname === '/api/files/quick-access') {
       if (fail) return Response.json({ success: false }, { status: 503 });
       const view = url.searchParams.get('view');
@@ -51,7 +54,7 @@ async function main() {
     }
     throw new Error(`Unexpected fetch ${url.pathname}`);
   };
-  useWorkspaceStore.setState({ activeWorkspaceId: 'one', workspaces: [workspace] });
+  useWorkspaceStore.setState({ activeWorkspaceId: 'one', workspaces: [workspace], initialized: true });
   const settle = async (delay = 30) => act(async () => { await new Promise((resolve) => setTimeout(resolve, delay)); });
 
   let screen = render(wrap(<HomeFilesPanel />));
@@ -173,6 +176,7 @@ async function main() {
     'the mobile notification sheet closes before the global version center opens');
   cleanup();
   assert.ok(fetches.length > 0);
+  (await import('../app/lib/queries/client')).getNotebookQueryClient().clear();
   console.log('Home components: direct file access, disclosure, search, errors, empty/read-only states, note creation and notification disclosure passed');
 }
 void main().catch((error) => { console.error(error); process.exitCode = 1; });

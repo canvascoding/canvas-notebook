@@ -10,7 +10,7 @@ import ts from 'typescript';
 
 import messages from '../messages/en.json';
 import type * as Ui from '../app/components/file-browser/FileActionsDropdown';
-import type { WorkspaceFileOperationDryRun, WorkspaceRenameResult } from '../app/lib/files/client';
+import type { CopyWorkspacePathsResult, WorkspaceFileOperationDryRun, WorkspaceRenameResult } from '../app/lib/files/client';
 import { WorkspacePathOperationClientError } from '../app/lib/files/workspace-path-operation-client';
 import type { WorkspacePathOperationPublic } from '../app/lib/files/workspace-path-operation-public';
 
@@ -78,9 +78,13 @@ async function compileUi(controls: {
   mutations: string[];
   renameApplyCalls: unknown[][];
   copyApplyCalls: Array<Record<string, unknown>>;
+  copyApply?: () => Promise<CopyWorkspacePathsResult>;
   renameApply?: () => Promise<WorkspaceRenameResult>;
   openedFiles?: Array<{ path: string; workspaceId?: string | null }>;
   activeWorkspaceId?: string;
+  multiSelectPaths?: Set<string>;
+  clearSelectionCalls?: string[];
+  refreshCalls?: unknown[][];
 }) {
   const filename = path.resolve('app/components/file-browser/FileActionsDropdown.tsx');
   const load = createRequire(filename);
@@ -108,15 +112,18 @@ async function compileUi(controls: {
     },
     downloadFile: async () => undefined,
     fileTree: [],
-    multiSelectPaths: new Set<string>(),
-    clearMultiSelect: () => undefined,
+    get multiSelectPaths() { return controls.multiSelectPaths ?? new Set<string>(); },
+    clearMultiSelect: () => {
+      controls.clearSelectionCalls?.push(controls.activeWorkspaceId ?? workspaceId);
+      controls.multiSelectPaths?.clear();
+    },
     copyPaths: () => undefined,
     pastePaths: async () => undefined,
     duplicatePath: async () => undefined,
     clipboardPaths: new Set<string>(),
     clipboardMode: null,
     setBulkMoveOpen: () => undefined,
-    refreshDirectory: async () => undefined,
+    refreshDirectory: async (...args: unknown[]) => { controls.refreshCalls?.push(args); },
   };
   const useFileStore = Object.assign((selector: (state: typeof fileState) => unknown) => selector(fileState),
     { getState: () => fileState });
@@ -173,6 +180,7 @@ async function compileUi(controls: {
       copyWorkspacePaths: async (params: Record<string, unknown>) => {
         controls.copyApplyCalls.push(params);
         controls.mutations.push('copy');
+        if (controls.copyApply) return controls.copyApply();
         return { copied: [], failed: [], skipped: [], linkStatus: 'complete' };
       },
       workspaceHeaders: () => ({}),
@@ -180,6 +188,7 @@ async function compileUi(controls: {
     '@/app/lib/files/path-utils': {
       getParentDirectory: (filePath: string) => filePath.split('/').slice(0, -1).join('/') || '.',
       joinWorkspacePath: (dir: string, name: string) => dir === '.' ? name : `${dir}/${name}`,
+      isSameOrDescendantPath: (candidate: string, parent: string) => candidate === parent || candidate.startsWith(`${parent}/`),
     },
     '@/app/lib/files/workspace-image-share': { isWorkspaceImageFileName: () => false, shareWorkspaceImageFile: async () => 'cancelled' },
     '@/app/lib/files/workspace-path-operation-client': load('../../lib/files/workspace-path-operation-client'),
@@ -195,14 +204,19 @@ async function compileUi(controls: {
     },
     './CreateItemDialog': { CreateItemDialog: () => null },
     './DeleteConfirmDialog': { DeleteConfirmDialog: () => null },
-    './DirectoryBrowser': { DirectoryBrowser: ({ onSelect }: { onSelect: (dir: string) => void }) =>
-      <button type="button" onClick={() => onSelect('Archive')}>Choose Archive folder</button> },
+    './DirectoryDestinationPicker': { DirectoryDestinationPicker: ({ onSelect, disabled }: {
+      onSelect: (dir: string) => void; disabled?: boolean;
+    }) => <button type="button" disabled={disabled} onClick={() => onSelect('Archive')}>Choose Archive folder</button> },
     './PublicShareDialog': { PublicShareDialog: () => null },
     './MarpExportDialog': { MarpExportDialog: () => null },
     './useCreateItemDialog': { useCreateItemDialog: () => ({ createDialogProps: {}, openCreateDialog: () => undefined }) },
     '@/app/components/workspaces/WorkspaceDestinationPicker': {
-      WorkspaceDestinationPicker: ({ onDirChange }: { onDirChange: (dir: string) => void }) => (
-        <button type="button" onClick={() => onDirChange('Archive')}>Choose Archive</button>
+      WorkspaceDestinationPicker: ({ onDirChange, selectedWorkspaceId, selectedDir, disabled }: {
+        onDirChange: (dir: string) => void; selectedWorkspaceId: string | null; selectedDir: string; disabled?: boolean;
+      }) => (
+        <div data-testid="mock-copy-destination" data-workspace-id={selectedWorkspaceId} data-dir={selectedDir}>
+          <button type="button" disabled={disabled} onClick={() => onDirChange('Archive')}>Choose Archive</button>
+        </div>
       ),
     },
     '@/app/store/workspace-store': { selectActiveWorkspace: (state: ReturnType<typeof workspaceState>) => state.activeWorkspace, useWorkspaceStore },
@@ -462,10 +476,11 @@ test('mounted move errors retain issue paths, recheck without applying, and open
       'changing the name cannot clear the pending operation guard');
     assert.equal(document.querySelector<HTMLInputElement>('#moveTarget')?.disabled, true,
       'changing the destination cannot clear the pending operation guard');
-    const pendingPicker = button('Choose Archive folder').parentElement;
-    assert.equal(pendingPicker?.hasAttribute('inert'), true, 'pending work also disables keyboard interaction with the directory picker');
-    assert.equal(pendingPicker?.classList.contains('pointer-events-none'), true,
-      'the directory picker cannot reset pending work through pointer interaction');
+    const pendingPicker = button('Choose Archive folder');
+    assert.equal(pendingPicker.disabled, true, 'pending work disables keyboard and pointer interaction with the directory picker');
+    await act(async () => pendingPicker.click());
+    assert.equal(document.querySelector<HTMLInputElement>('#moveTarget')?.value, 'Other',
+      'a disabled picker cannot reset the destination or clear the pending operation guard');
     const pendingApplyCount = controls.renameApplyCalls.length;
     const pendingPreviewCount = controls.renameCalls.length;
     await act(async () => { button(translate('move')).click(); button('Check again').click(); });
@@ -485,6 +500,110 @@ test('mounted move errors retain issue paths, recheck without applying, and open
     assert.equal(controls.openedFiles.length, 1, 'the late error never navigates into a different workspace');
   } finally {
     await act(async () => root.unmount());
+    dom.window.close();
+    globalNames.forEach((name, index) => {
+      const descriptor = prior[index];
+      if (descriptor) Object.defineProperty(globalThis, name, descriptor);
+      else Reflect.deleteProperty(globalThis, name);
+    });
+  }
+});
+
+test('a late copy completion after a source workspace switch leaves the new selection and copy dialog intact', async () => {
+  const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', { url: 'https://canvas.test' });
+  const globalNames = ['window', 'document', 'HTMLElement', 'IS_REACT_ACT_ENVIRONMENT'] as const;
+  const prior = globalNames.map((name) => Object.getOwnPropertyDescriptor(globalThis, name));
+  Object.defineProperty(globalThis, 'window', { configurable: true, value: dom.window });
+  Object.defineProperty(globalThis, 'document', { configurable: true, value: dom.window.document });
+  Object.defineProperty(globalThis, 'HTMLElement', { configurable: true, value: dom.window.HTMLElement });
+  Object.defineProperty(globalThis, 'IS_REACT_ACT_ENVIRONMENT', { configurable: true, writable: true, value: true });
+
+  const initialPaths = [file.path, 'Docs/appendix.txt'];
+  const nextWorkspaceId = 'workspace-two';
+  const nextFile = { name: 'new.txt', path: 'New/new.txt', type: 'file' as const };
+  const nextPaths = [nextFile.path, 'New/second.txt'];
+  const oldResult: CopyWorkspacePathsResult = {
+    copied: ['Archive/report.txt', 'Archive/appendix.txt'], failed: [], skipped: [], linkStatus: 'complete',
+  };
+  let finishOldCopy!: (result: CopyWorkspacePathsResult) => void;
+  const deferredCopy = new Promise<CopyWorkspacePathsResult>((resolve) => { finishOldCopy = resolve; });
+  let applyCopy = () => deferredCopy;
+  const controls = {
+    renameCalls: [] as Array<[string, string, string | null]>, copyCalls: [] as Array<Record<string, unknown>>,
+    errors: [] as string[], mutations: [] as string[], renameApplyCalls: [] as unknown[][],
+    copyApplyCalls: [] as Array<Record<string, unknown>>, refreshCalls: [] as unknown[][],
+    clearSelectionCalls: [] as string[], activeWorkspaceId: workspaceId,
+    multiSelectPaths: new Set(initialPaths),
+    renamePreview: async () => preview('rename', 'ready'), copyPreview: async () => preview('copy', 'ready'),
+    copyApply: () => applyCopy(),
+  };
+  const ui = await compileUi(controls);
+  const { createRoot } = await import('react-dom/client');
+  const root = createRoot(document.getElementById('root')!);
+  let selectedFile = file;
+  const render = () => root.render(<ui.FileActionsDropdown node={selectedFile} open showCreateActions={false}>
+    <button type="button">File actions</button>
+  </ui.FileActionsDropdown>);
+  const button = (name: string, selector = '[role="dialog"] button') => {
+    const found = [...document.querySelectorAll<HTMLButtonElement>(selector)]
+      .find((item) => item.textContent?.trim() === name);
+    assert.ok(found, `Missing mounted copy action: ${name}`);
+    return found;
+  };
+  const destination = () => document.querySelector<HTMLElement>('[data-testid="mock-copy-destination"]');
+
+  try {
+    await act(async () => render());
+    await act(async () => button(translate('copyToWorkspace'), '[role="menuitem"]').click());
+    await act(async () => button('Choose Archive').click());
+    assert.equal(destination()?.dataset.workspaceId, workspaceId);
+    assert.equal(destination()?.dataset.dir, 'Archive');
+    await act(async () => button(translate('copyToWorkspaceConfirm')).click());
+    assert.equal(button(translate('copyToWorkspaceConfirm')).disabled, true);
+    assert.deepEqual(controls.copyApplyCalls, [{
+      sources: initialPaths, destDir: 'Archive', overwrite: false, renameOnCollision: true,
+      sourceWorkspaceId: workspaceId, targetWorkspaceId: workspaceId, planId: undefined,
+    }], 'the pending request captures its source workspace, target workspace and selected paths');
+
+    controls.activeWorkspaceId = nextWorkspaceId;
+    controls.multiSelectPaths = new Set(nextPaths);
+    selectedFile = nextFile;
+    await act(async () => render());
+    assert.equal(document.querySelector('[role="dialog"]'), null, 'changing the source context closes its old copy dialog');
+    await act(async () => button(translate('copyToWorkspace'), '[role="menuitem"]').click());
+    await act(async () => button('Choose Archive').click());
+    const newDialog = document.querySelector('[role="dialog"]');
+    assert.ok(newDialog);
+    assert.equal(destination()?.dataset.workspaceId, nextWorkspaceId);
+    assert.equal(destination()?.dataset.dir, 'Archive');
+    assert.equal(button(translate('copyToWorkspaceConfirm')).disabled, false,
+      'the new source context can start its own copy while the old request finishes');
+
+    await act(async () => finishOldCopy(oldResult));
+    assert.deepEqual(controls.clearSelectionCalls, [], 'late copy completion cannot clear the new workspace selection');
+    assert.deepEqual([...controls.multiSelectPaths], nextPaths);
+    assert.deepEqual(controls.refreshCalls, [], 'late copy completion cannot refresh the current workspace using an old target');
+    assert.equal(document.querySelector('[role="dialog"]'), newDialog, 'late completion must not close a newly opened copy dialog');
+    assert.equal(destination()?.dataset.workspaceId, nextWorkspaceId);
+    assert.equal(destination()?.dataset.dir, 'Archive');
+    assert.deepEqual(controls.errors, []);
+    assert.equal(controls.copyApplyCalls.length, 1, 'switching context never replays the old mutation');
+    assert.deepEqual(controls.copyApplyCalls[0]?.sources, initialPaths,
+      'the old request does not absorb selected paths from the new workspace');
+
+    applyCopy = async () => ({ copied: ['Archive/new.txt', 'Archive/second.txt'],
+      failed: [], skipped: [], linkStatus: 'complete' });
+    await act(async () => button(translate('copyToWorkspaceConfirm')).click());
+    assert.deepEqual(controls.copyApplyCalls[1], {
+      sources: nextPaths, destDir: 'Archive', overwrite: false, renameOnCollision: true,
+      sourceWorkspaceId: nextWorkspaceId, targetWorkspaceId: nextWorkspaceId, planId: undefined,
+    });
+    assert.deepEqual(controls.refreshCalls, [['Archive', true, nextWorkspaceId]],
+      'a current same-workspace copy refreshes its explicit destination scope');
+    assert.deepEqual(controls.clearSelectionCalls, [nextWorkspaceId]);
+    assert.equal(document.querySelector('[role="dialog"]'), null, 'the new copy closes only after its own result');
+  } finally {
+    await act(async () => { finishOldCopy(oldResult); root.unmount(); });
     dom.window.close();
     globalNames.forEach((name, index) => {
       const descriptor = prior[index];

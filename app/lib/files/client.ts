@@ -425,17 +425,18 @@ export async function writeWorkspaceFile(
 export async function createWorkspacePath(
   path: string,
   type: 'file' | 'directory',
-  options: { template?: 'excalidraw' } = {}
+  options: { template?: 'excalidraw'; workspaceId?: string | null } = {}
 ): Promise<void> {
+  const { workspaceId, ...creationOptions } = options;
   const response = await fetch('/api/files/create', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...workspaceHeaders() },
+    headers: { 'Content-Type': 'application/json', ...workspaceHeaders(workspaceId) },
     credentials: 'include',
-    body: JSON.stringify({ path, type, ...options }),
+    body: JSON.stringify({ path, type, ...creationOptions }),
   });
 
   if (!response.ok) {
-    throw new Error(await readApiError(response, 'Failed to create path'));
+    throw await readWorkspaceFileApiError(response, 'Failed to create path');
   }
 }
 

@@ -297,6 +297,8 @@
     "test:files:sort": "tsx scripts/file-sort-test.ts",
     "test:files:metadata": "tsx scripts/file-metadata-format-test.ts",
     "test:files:drag": "tsx scripts/file-drag-move-test.ts && tsx scripts/desktop-file-drag-client-test.ts && npm run test:electron",
+    "test:files:destination-folders": "tsx scripts/workspace-path-create-client-test.ts && tsx scripts/directory-destination-picker-test.tsx && tsx scripts/workspace-save-destination-adapters-test.tsx && tsx scripts/file-actions-preview-ui-test.tsx && tsx scripts/home-start-component-test.tsx",
+    "test:files:destination-folders:e2e": "E2E_EXTERNAL_SERVER=1 playwright test tests/destination-folder-creation.spec.ts --workers=1",
     "test:editor:recovery-copy": "tsx scripts/collaboration-recovery-copy-test.tsx && tsx scripts/collaboration-local-recovery-test.ts",
     "test:editor:revalidation": "tsx scripts/collaboration-revalidation-test.tsx && tsx scripts/markdown-location-revalidation-ui-test.tsx",
     "test:collaboration:failures": "tsx scripts/collaboration-failure-test.ts && npm run test:editor:revalidation",
