@@ -122,6 +122,7 @@ async function captureDialog(page: Page, dialog: Locator, profile: Profile,
   info: TestInfo, name: string): Promise<void> {
   await assertDialogBounds(page, dialog, profile);
   await page.screenshot({ path: info.outputPath(`${profile.name}-${name}.png`), animations: 'disabled' });
+  await dialog.screenshot({ path: info.outputPath(`${profile.name}-${name}-dialog.png`), animations: 'disabled' });
 }
 
 async function openPathActions(page: Page, path: string): Promise<void> {
