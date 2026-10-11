@@ -1,12 +1,16 @@
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import fs from 'node:fs/promises';
+import { mock } from 'node:test';
 import os from 'node:os';
 import path from 'node:path';
 
-import { assertFreshWorkspaceFileOperationPlan, buildWorkspaceFileOperationPreview as buildFilePreview, buildWorkspacePlannerSnapshot, WorkspacePreviewBlockedError, WorkspacePreviewStaleError } from '../app/lib/markdown/workspace-file-operation-preview';
+import { assertFreshWorkspaceFileOperationPlan, buildWorkspaceFileOperationPreview as buildFilePreview, buildWorkspacePlannerSnapshot, WorkspacePreviewBlockedError, WorkspacePreviewStaleError, WorkspacePreviewUnavailableError } from '../app/lib/markdown/workspace-file-operation-preview';
 import { assessWorkspaceRenameLinks } from '../app/lib/markdown/workspace-file-operation-status';
 import { buildWorkspaceLinkIndexFromDocuments } from '../app/lib/markdown/workspace-link-index-core';
 import type { WorkspaceContext } from '../app/lib/workspaces/types';
+import { listDirectory } from '../app/lib/filesystem/workspace-files';
+import { getCachedFileReferenceEntries, invalidateFileReferenceCache } from '../app/lib/filesystem/file-reference-cache';
 
 const buildWorkspaceFileOperationPreview = (input: Parameters<typeof buildFilePreview>[0]) =>
   buildFilePreview(input, { buildSnapshot: buildWorkspacePlannerSnapshot });
@@ -92,6 +96,66 @@ async function main() {
       result: { updatedFiles: ['Notes/start.md'], updatedLinks: 1, warnings: [] } });
     assert.equal(updatedWiki.status, 'incomplete', 'writer counts do not prove semantic link validity');
     assert.match(updatedWiki.warnings.join(' '), /not reparsed/u);
+
+    const sourceContent = '[[B]]\n[link](B.md)\n';
+    await writeFile(path.join(workspaceRoot, 'A.md'), sourceContent);
+    await writeFile(path.join(workspaceRoot, 'B.md'), '# B\n');
+    await mkdir(path.join(workspaceRoot, 'Restricted', 'deep'), { recursive: true });
+    await writeFile(path.join(workspaceRoot, 'Restricted', 'deep', 'incoming.md'), '[[B]]');
+    const faultRoot = await fs.realpath(workspaceRoot);
+    const syntheticRename = { ...request, kind: 'rename' as const,
+      selections: [{ sourcePath: 'B.md', destinationPath: 'C.md' }] };
+
+    for (const code of ['EACCES', 'EPERM', 'ENOENT']) {
+      const scanError = Object.assign(new Error(`synthetic ${code}`), { code });
+      const failureType = code === 'ENOENT' ? WorkspacePreviewStaleError : WorkspacePreviewUnavailableError;
+      const originalReaddir = fs.readdir;
+      const fault = mock.method(fs, 'readdir', (directory: unknown, ...args: unknown[]) => {
+        if (String(directory) === path.join(faultRoot, 'Restricted', 'deep')) throw scanError;
+        return Reflect.apply(originalReaddir, fs, [directory, ...args]);
+      });
+      try {
+        await assert.rejects(buildWorkspacePlannerSnapshot(workspace.workspaceId, { workspace }), failureType);
+        await assert.rejects(buildWorkspaceFileOperationPreview(syntheticRename), failureType,
+          'an unreadable subtree must never produce a ready rename preview');
+        await assert.rejects(getCachedFileReferenceEntries(true, { workspace }), (error) => error === scanError);
+      } finally { fault.mock.restore(); invalidateFileReferenceCache({ workspace }); }
+      assert.equal(await readFile(path.join(workspaceRoot, 'A.md'), 'utf8'), sourceContent);
+      assert.equal(await readFile(path.join(workspaceRoot, 'B.md'), 'utf8'), '# B\n');
+
+      const originalStat = fs.stat;
+      const metadataFault = mock.method(fs, 'stat', (filePath: unknown, ...args: unknown[]) => {
+        if (String(filePath) === path.join(faultRoot, 'A.md')) throw scanError;
+        return Reflect.apply(originalStat, fs, [filePath, ...args]);
+      });
+      try {
+        assert.equal((await listDirectory('.', { workspace })).some((entry) => entry.path === 'A.md'), false,
+          'ordinary browser listings retain their existing best-effort metadata behavior');
+        await assert.rejects(listDirectory('.', { workspace, strictMetadata: true }), (error) => error === scanError);
+        await assert.rejects(getCachedFileReferenceEntries(true, { workspace }), (error) => error === scanError,
+          'the link catalogue must not silently lose a child whose stat fails');
+        await assert.rejects(buildWorkspaceFileOperationPreview(syntheticRename), failureType);
+      } finally { metadataFault.mock.restore(); invalidateFileReferenceCache({ workspace }); }
+    }
+
+    const originalReadFile = fs.readFile;
+    const sourceFault = mock.method(fs, 'readFile', (filePath: unknown, ...args: unknown[]) => {
+      if (String(filePath) === path.join(faultRoot, 'A.md')) {
+        throw Object.assign(new Error('synthetic unreadable source'), { code: 'EACCES' });
+      }
+      return Reflect.apply(originalReadFile, fs, [filePath, ...args]);
+    });
+    try {
+      const unreadableSource = await buildWorkspaceFileOperationPreview(syntheticRename);
+      assert.equal(unreadableSource.readiness, 'blocked');
+      assert.equal(unreadableSource.coverage.complete, false);
+      assert.deepEqual(unreadableSource.coverage.omittedSources, [{ path: 'A.md', reason: 'source-unreadable' }]);
+      assert.throws(() => assertFreshWorkspaceFileOperationPlan(unreadableSource, unreadableSource.planId), WorkspacePreviewBlockedError);
+    } finally { sourceFault.mock.restore(); }
+    assert.equal(await readFile(path.join(workspaceRoot, 'A.md'), 'utf8'), sourceContent);
+    assert.equal(await readFile(path.join(workspaceRoot, 'B.md'), 'utf8'), '# B\n');
+    assert.equal((await buildWorkspaceFileOperationPreview(syntheticRename)).readiness, 'ready',
+      'a reliable retry can certify the rename after transient read failures recover');
     console.log('workspace-file-operation-preview-test: ok');
   } finally {
     if (previousDataRoot === undefined) delete process.env.CANVAS_DATA_ROOT;
