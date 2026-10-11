@@ -24,8 +24,8 @@ async function openSource(page: Page, workspaceId: string) {
   return links;
 }
 
-test('emoji YAML links navigate before and after a managed UI rename with persistent repairs', async ({ browser }, info) => {
-  test.setTimeout(240_000);
+test('rich emoji YAML Wiki and Markdown links navigate after managed UI rename and batch Undo', async ({ browser }, info) => {
+  test.setTimeout(300_000);
   expect(process.env.E2E_EXTERNAL_SERVER, 'Use the existing managed host server.').toBe('1');
   const context = await createAuthenticatedContext(browser, { viewport: { width: 1440, height: 1000 } });
   let workspaceId: string | undefined;
@@ -51,6 +51,14 @@ test('emoji YAML links navigate before and after a managed UI rename with persis
     }, id);
     page = await context.newPage();
     page.setDefaultTimeout(30_000);
+    let sourceRepresentation: string | undefined;
+    page.on('response', response => {
+      if (new URL(response.url()).pathname !== '/api/files/collaboration/session'
+        || response.request().method() !== 'POST' || response.request().postDataJSON()?.path !== 'A.md') return;
+      void response.json().then(session => {
+        if (session.success === true) sourceRepresentation = session.representation;
+      }).catch(() => undefined);
+    });
     const read = async (path: string) => {
       const response = await context.request.get(`/api/files/read?path=${encodeURIComponent(path)}`, { headers });
       expect(response.status(), `Read owned ${path}`).toBe(200);
@@ -86,6 +94,8 @@ test('emoji YAML links navigate before and after a managed UI rename with persis
     expect(await read('A.md')).toBe(before);
     await openSource(page, id);
     await waitSavedEditor();
+    await expect.poll(() => sourceRepresentation, { timeout: 30_000 })
+      .toMatch(/^tiptap_(?:xml|blocks)$/u);
     await page.getByTestId('notebook-documents-menu').click();
     await page.getByTestId('notebook-close-all-documents').click();
     await expect(page.getByRole('tabpanel')).toHaveCount(0);
@@ -136,11 +146,19 @@ test('emoji YAML links navigate before and after a managed UI rename with persis
     }
     expect(renamed.ok(), JSON.stringify({ status: renamed.status(), code: result.code, operation: result.operation })).toBeTruthy();
     expect(result.operation?.batchId).toBeTruthy();
-    await expect.poll(async () => {
-      const response = await context.request.get(`/api/files/operations/batches/${result.operation.batchId}`, { headers });
+    const batchId = result.operation.batchId;
+    const originalPlanId = result.operation.planId;
+    expect(originalPlanId, 'Bind Undo to the exact reviewed and applied forward plan').toBe(stablePlanId);
+    const operation = async () => {
+      const response = await context.request.get(`/api/files/operations/batches/${batchId}`, { headers });
       expect(response.ok()).toBeTruthy();
-      return (await response.json()).operation.status as string;
-    }, { timeout: 90_000 }).toBe('applied');
+      const current = (await response.json()).operation as WorkspacePathOperationResponse['operation'];
+      expect(current.batchId).toBe(batchId);
+      expect(current.planId).toBe(originalPlanId);
+      expect(current.workspaceId).toBe(id);
+      return current;
+    };
+    await expect.poll(async () => (await operation()).status, { timeout: 90_000 }).toBe('applied');
     await expect(renameDialog).toBeHidden();
     await expect.poll(() => read('A.md'), { timeout: 30_000 }).toBe(after);
     expect(await read('C.md')).toBe(target);
@@ -153,12 +171,76 @@ test('emoji YAML links navigate before and after a managed UI rename with persis
       .map((edge: { kind: string; status: string; targetPath: string }) => [edge.kind, edge.status, edge.targetPath]))
       .toEqual([['wiki', 'resolved', 'C.md'], ['markdown', 'resolved', 'C.md']]);
     await navigateBoth('C.md');
+    await waitSavedEditor();
+    expect(await read('C.md')).toBe(target);
     expect(await read('A.md')).toBe(after);
     await openSource(page, id);
+    await waitSavedEditor();
+    await openSource(page, id);
     await page.screenshot({ path: info.outputPath('emoji-links-renamed.png'), animations: 'disabled' });
+    await page.getByTestId('notebook-documents-menu').click();
+    await page.getByTestId('notebook-close-all-documents').click();
+    await expect(page.getByRole('tabpanel')).toHaveCount(0);
+
+    // A stable inverse preview synchronizes normal saved-room drain; only the original forward batch is undone.
+    let inverseSnapshotId: string | undefined;
+    let inverseStableSince = 0;
+    await expect(async () => {
+      const preview = await context.request.post('/api/files/rename', {
+        headers, data: { oldPath: 'C.md', newPath: 'B.md', dryRun: true },
+      });
+      expect(preview.status()).toBe(200);
+      const { plan } = await preview.json();
+      expect(plan.readiness).toBe('ready');
+      expect(plan.coverage.complete).toBe(true);
+      expect(plan.linkEdits).toHaveLength(2);
+      expect(plan.linkEdits.map((edit: { nextTargetLiteral: string }) => edit.nextTargetLiteral)).toEqual(['B', 'B.md']);
+      if (inverseSnapshotId !== plan.planId) {
+        inverseSnapshotId = plan.planId;
+        inverseStableSince = Date.now();
+      }
+      expect(Date.now() - inverseStableSince, 'Wait for a stable saved inverse snapshot after closing editors').toBeGreaterThanOrEqual(5_000);
+    }).toPass({ timeout: 45_000, intervals: [1_000, 2_000, 5_000] });
+    expect(await read('A.md')).toBe(after);
+    expect(await read('C.md')).toBe(target);
+    const undo = await context.request.post(`/api/files/operation-reviews/batches/${batchId}`, {
+      headers, data: { action: 'undo', planId: originalPlanId }, timeout: 90_000,
+    });
+    const undoPayload = await undo.json();
+    if (!undo.ok()) await info.attach('undo-refusal-evidence', {
+      contentType: 'application/json', body: Buffer.from(JSON.stringify({
+        workspaceId: id, batchId, planId: originalPlanId, status: undo.status(), code: undoPayload.code,
+        operation: await operation(),
+      }, null, 2)),
+    });
+    expect(undo.status(), 'Undo the original applied batch through its authorized API').toBe(202);
+    const undoReceipt = undoPayload.batch;
+    expect(undoReceipt.batchId).toBe(batchId);
+    expect(undoReceipt.planId).toBe(originalPlanId);
+    await expect.poll(async () => (await operation()).status, { timeout: 90_000 }).toBe('undone');
+    const undone = await operation();
+    expect(undone.phase).toBe('complete');
+    expect(undone.completedActions).toBe(undone.totalActions);
+    expect(undone.errorCode).toBeNull();
+    expect(await read('A.md')).toBe(before);
+    expect(await read('B.md')).toBe(target);
+    expect((await context.request.get('/api/files/read?path=C.md', { headers })).status()).toBe(404);
+    const restoredIndex = await context.request.get('/api/markdown/link-index', { headers });
+    expect(restoredIndex.ok()).toBeTruthy();
+    const restored = (await restoredIndex.json()).index;
+    expect(restored.coverage.complete).toBe(true);
+    expect(restored.edges.filter((edge: { sourcePath: string }) => edge.sourcePath === 'A.md')
+      .map((edge: { kind: string; status: string; targetPath: string }) => [edge.kind, edge.status, edge.targetPath]))
+      .toEqual([['wiki', 'resolved', 'B.md'], ['markdown', 'resolved', 'B.md']]);
+    await navigateBoth('B.md');
+    expect(await read('A.md')).toBe(before);
+    expect(await read('B.md')).toBe(target);
+    await openSource(page, id);
+    await page.screenshot({ path: info.outputPath('emoji-links-undone.png'), animations: 'disabled' });
     await info.attach('emoji-rename-evidence', { contentType: 'application/json', body: Buffer.from(JSON.stringify({
-      workspaceId: id, batchId: result.operation.batchId, before, after, target,
-      navigatedBefore: ['wiki', 'markdown'], navigatedAfter: ['wiki', 'markdown'], coverageComplete: true,
+      workspaceId: id, batchId, planId: originalPlanId, sourceRepresentation, before, after, target,
+      navigatedBefore: ['wiki', 'markdown'], navigatedAfter: ['wiki', 'markdown'],
+      navigatedAfterUndo: ['wiki', 'markdown'], persistedUndo: true, undoStatus: undone.status, coverageComplete: true,
     }, null, 2)) });
   } catch (error) {
     if (page && !page.isClosed()) await page.screenshot({ path: info.outputPath('emoji-links-failure.png'), animations: 'disabled' });

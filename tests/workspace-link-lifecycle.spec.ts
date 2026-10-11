@@ -35,6 +35,7 @@ for (const scenario of [
     expect(process.env.E2E_EXTERNAL_SERVER, 'Use the fresh managed container.').toBe('1');
     const context = await createAuthenticatedContext(browser, { viewport: { width: 1440, height: 1000 } });
     let workspaceId: string | undefined;
+    let batchId: string | undefined;
     let page: Page | undefined;
     try {
       const created = await context.request.post('/api/workspaces', {
@@ -68,7 +69,8 @@ for (const scenario of [
       });
       const applied = await apply.json();
       expect(apply.ok(), JSON.stringify({ status: apply.status(), code: applied.code, operation: applied.operation })).toBeTruthy();
-      const batchId = applied.operation.batchId as string;
+      batchId = applied.operation.batchId as string;
+      expect(batchId).toBeTruthy();
       const status = async () => {
         const response = await context.request.get(`/api/files/operations/batches/${batchId}`, { headers });
         expect(response.ok()).toBeTruthy();
@@ -108,6 +110,23 @@ for (const scenario of [
         immediateUndo: true, persistedUndo: true, navigatedAfterUndo: ['first', 'second'], coverageComplete: true,
       }, null, 2)) });
     } catch (error) {
+      if (workspaceId) {
+        const headers = { 'x-canvas-workspace-id': workspaceId };
+        const response = batchId ? await context.request.get(`/api/files/operations/batches/${batchId}`, {
+          headers, timeout: 10_000,
+        }).catch(() => undefined) : undefined;
+        const operation = response?.ok() ? (await response.json()).operation : undefined;
+        const files = await Promise.all(['A.md', 'B.md', 'C.md', 'nested/A.md'].map(async (path) => {
+          const file = await context.request.get(`/api/files/read?path=${encodeURIComponent(path)}`, {
+            headers, timeout: 10_000,
+          }).catch(() => undefined);
+          return { path, status: file?.status() ?? null,
+            ...(file?.ok() ? { content: (await file.json()).data.content } : {}) };
+        }));
+        await info.attach('lifecycle-refusal-evidence', { contentType: 'application/json', body: Buffer.from(JSON.stringify({
+          scenario: scenario.name, workspaceId, batchId, operation, files,
+        }, null, 2)) });
+      }
       if (page && !page.isClosed()) await page.screenshot({ path: info.outputPath('lifecycle-links-failure.png'), animations: 'disabled' });
       throw error;
     } finally {
