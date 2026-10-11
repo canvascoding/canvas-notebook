@@ -11,6 +11,8 @@ import { createComposioProviderFixture } from './composio-provider-fixture';
 import { createSharedMcpAppsProviderFixture } from './shared-mcp-apps-provider-fixture';
 import { createSharedMcpAppsResourceHtml } from './shared-mcp-apps-resource-fixture';
 import { readMobileNativeTlsReuseInput, reuseOwnedMobileNativeTls, type MobileNativeTlsReuseProof } from './mobile-native-tls-reuse';
+import { startIntegrationToolBrowserProvider } from '../fixtures/integration-tool-browser-provider';
+import { assertNaturalWorkflowParentProof } from './natural-workflow-parent-proof';
 
 type Child = { process: ChildProcess; pid: number; closed: Promise<number | null>; ended: boolean };
 
@@ -64,6 +66,11 @@ type Receipt = {
   mobileRenderRepro?: true;
   mobileRenderReproDeadline?: number;
   mobileRenderReproClosed?: boolean;
+  naturalModel?: true;
+  naturalProviderClosed?: boolean;
+  naturalParentPid?: number;
+  naturalBrowserPid?: number;
+  naturalProviderOrigin?: string;
 };
 type IssuerReady = {
   version: 1; nonce: string; fixtureRoot: string; origin: string; certificatePath: string;
@@ -171,6 +178,23 @@ async function main(): Promise<void> {
   const mobileMcpApps = process.env.CANVAS_MOBILE_MCP_APPS_BROWSER_RUN === '1';
   const mobileNative = process.env.CANVAS_MOBILE_PLUGIN_NATIVE_RUN === '1';
   const mobileRenderRepro = process.env.CANVAS_MOBILE_MCP_RENDER_REPRO_RUN === '1';
+  const naturalModel = process.env.CANVAS_AGENT_WORKFLOW_NATURAL_MODEL_RUN === '1';
+  const naturalModelInput = process.env.CANVAS_NATURAL_MODEL_INPUT;
+  assert(process.env.CANVAS_AGENT_WORKFLOW_NATURAL_MODEL_RUN === undefined || naturalModel);
+  assert(!naturalModel || workflow && !oauth && !desktop && !composioDesktopClient && !composioNative && !composioLive
+    && !mcpApps && !mobileMcpApps && !mobileNative && !mobileRenderRepro,
+  'Natural model acceptance requires its separate fixed workflow command.');
+  assert(naturalModelInput === undefined || naturalModel);
+  if (naturalModel) {
+    assert(naturalModelInput && path.isAbsolute(naturalModelInput) && await fs.realpath(naturalModelInput) === naturalModelInput);
+    const handle = await fs.open(naturalModelInput, constants.O_RDONLY | constants.O_NOFOLLOW);
+    try {
+      const stat = await handle.stat(), current = await fs.lstat(naturalModelInput);
+      assert(stat.isFile() && stat.nlink === 1 && stat.uid === process.getuid?.() && (stat.mode & 0o777) === 0o600
+        && stat.size > 0 && stat.size <= 4096 && current.isFile() && !current.isSymbolicLink()
+        && current.dev === stat.dev && current.ino === stat.ino);
+    } finally { await handle.close(); }
+  }
   assert(process.env.CANVAS_MOBILE_MCP_RENDER_REPRO_RUN === undefined || mobileRenderRepro);
   assert(!mobileRenderRepro || workflow && mcpApps && !mobileMcpApps && !mobileNative && !oauth && !desktop
     && !composioNative && !composioDesktopClient && !composioLive, 'Render diagnosis requires its separate fixed API-only command.');
@@ -247,6 +271,7 @@ async function main(): Promise<void> {
     directoryProofs, listenerVerified: false,
     databaseOwner: null, createAcknowledged: false, phase: 'before_create', serverPid: null, actorId: null,
     uncertain: false, databaseDropped: false, dataRemoved: false,
+    ...(naturalModel ? { naturalModel: true as const, naturalProviderClosed: false, naturalParentPid: process.pid } : {}),
     ...(mobileRenderRepro ? { mobileRenderRepro: true as const, mobileRenderReproDeadline: Date.now() + 30 * 60_000,
       mobileRenderReproClosed: false } : {}),
     ...(mobileNative ? { mobileNative: true as const, mobileNativeClosed: false, mcpOAuthProviderClosed: false } : {}),
@@ -264,6 +289,7 @@ async function main(): Promise<void> {
   await persist();
   if (composioNative) console.log(`ISOLATED_SHARED_COMPOSIO_NATIVE_FIXTURE ${root} parentPid=${process.pid}`);
   if (composioLive) console.log(`ISOLATED_COMPOSIO_LIVE_FIXTURE ${root} parentPid=${process.pid}`);
+  if (naturalModel) console.log(`ISOLATED_NATURAL_WORKFLOW_FIXTURE ${root} parentPid=${process.pid}`);
   const administration = new Pool({ connectionString: maintenance.toString(), max: 1, connectionTimeoutMillis: 5_000, query_timeout: 30_000 });
   let database: Pool | undefined;
   let server: Child | undefined;
@@ -274,6 +300,8 @@ async function main(): Promise<void> {
   let mcpOAuthProvider: Awaited<ReturnType<typeof import('../../tests/fixtures/mcp-oauth-provider.mjs')['startMcpOAuthProvider']>> | undefined;
   let nativePackageProvider: Awaited<ReturnType<typeof import('./mobile-plugin-native-setup-fixture')['createOwnedMobileNativePackageProvider']>> | undefined;
   let mcpAppProviderClosed = !anyMcpApps;
+  let naturalProvider: Awaited<ReturnType<typeof startIntegrationToolBrowserProvider>> | undefined;
+  let naturalProviderClosed = !naturalModel;
   const children: Child[] = [];
   const abort = new AbortController();
   const signalChild = (child: Child, signal: NodeJS.Signals) => {
@@ -312,6 +340,8 @@ async function main(): Promise<void> {
     MCP_ALLOW_PRIVATE_NETWORK: 'true', MCP_ALLOW_INSECURE_HTTP: 'true',
     TEST_SECONDARY_EMAIL: `workflow-member-${nonce}@example.test`, TEST_SECONDARY_PASSWORD: randomBytes(24).toString('base64url'),
     TEST_EDITOR_EMAIL: `workflow-editor-${nonce}@example.test`, TEST_EDITOR_PASSWORD: randomBytes(24).toString('base64url') });
+  if (naturalModel) Object.assign(env, { CANVAS_AGENT_WORKFLOW_NATURAL_MODEL_RUN: '1', CANVAS_NATURAL_MODEL_INPUT: naturalModelInput,
+    INTEGRATIONS_ENV_MASTER_KEY: randomBytes(32).toString('base64url') });
   if (oauth) env.CANVAS_SHARED_MCP_OAUTH_BROWSER_RUN = '1';
   if (anyMcpApps) Object.assign(env, { CANVAS_MCP_APPS_ENABLED: 'true',
     INTEGRATIONS_ENV_MASTER_KEY: randomBytes(32).toString('base64url') });
@@ -349,6 +379,7 @@ async function main(): Promise<void> {
       delete childEnv.CANVAS_COMPOSIO_NATIVE_CONTROL_TOKEN;
       delete childEnv.CANVAS_COMPOSIO_NATIVE_CONTROL_URL;
       delete childEnv.CANVAS_COMPOSIO_LIVE_INPUT;
+      delete childEnv.CANVAS_NATURAL_MODEL_INPUT;
     }
     const child = spawn(process.execPath, args, { cwd: repo, env: childEnv, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
     const record: Child = { process: child, pid: child.pid ?? 0, ended: false, closed: Promise.resolve(null) };
@@ -517,6 +548,13 @@ async function main(): Promise<void> {
           CANVAS_SHARED_COMPOSIO_ELECTRON_PROVIDER_ORIGIN: composioProvider.nativeConsent.origin });
       }
     }
+    if (naturalModel) {
+      naturalProvider = await startIntegrationToolBrowserProvider();
+      const origin = new URL(naturalProvider.baseUrl);
+      assert.equal(origin.hostname, '127.0.0.1'); assert.equal(origin.protocol, 'http:'); assert(origin.port);
+      Object.assign(env, { COMPOSIO_BASE_URL: origin.origin, INTEGRATION_BROWSER_FIXTURE_URL: origin.origin });
+      receipt.naturalProviderOrigin = origin.origin; await persist();
+    }
     if (anyMcpApps) {
       const controlToken = randomBytes(32).toString('base64url');
       mcpAppProvider = await createSharedMcpAppsProviderFixture({ html: await createSharedMcpAppsResourceHtml(), controlToken, allowModelVerification: true });
@@ -608,7 +646,8 @@ async function main(): Promise<void> {
       } finally { await handle.close(); }
       receipt.mobileNativeClosed = true; receipt.phase = 'native_complete'; await persist();
     } else {
-    const browserArgs = [path.join(repo, 'node_modules/@playwright/test/cli.js'), 'test', '--config', mcpApps
+    const browserArgs = [path.join(repo, 'node_modules/@playwright/test/cli.js'), 'test', '--config', naturalModel
+      ? 'playwright.agent-workflow-natural-model-production.config.ts' : mcpApps
       ? 'playwright.shared-mcp-apps-production.config.ts' : mobileMcpApps
       ? 'playwright.mobile-mcp-apps-production.config.ts' : composioLive
       ? 'playwright.composio-live-production.config.ts' : composioNative
@@ -618,10 +657,16 @@ async function main(): Promise<void> {
         ? 'playwright.shared-mcp-oauth-production.config.ts' : 'playwright.agent-settings-tools-production.config.ts'];
     if (identityDiagnostic) browserArgs.push('--grep', 'actual Electron cookie ABA and same-origin frame changes deny a verified old launch without publishing or executing');
     const browser = startChild(browserArgs, 'browser', 'test');
-    const browserCode = await waitChild(browser, nativeAny ? 26 * 60_000 : workflow ? 600_000 : 300_000);
+    if (naturalModel) { receipt.naturalBrowserPid = browser.pid; await persist(); }
+    const browserCode = await waitChild(browser, naturalModel ? 25 * 60_000 : nativeAny ? 26 * 60_000 : workflow ? 600_000 : 300_000);
     const browserReceipt = JSON.parse(await fs.readFile(path.join(root, 'browser-receipt.json'), 'utf8')) as { nonce: string; actorId: string; phase: string; outstanding: unknown };
     assert.equal(browserReceipt.nonce, nonce); assert.equal(browserReceipt.actorId, receipt.actorId);
     assert.equal(browserReceipt.phase, 'verified_closed'); assert.equal(browserReceipt.outstanding, null);
+    if (naturalModel) {
+      assert.equal(browserCode, 0); assert(naturalProvider && receipt.actorId);
+      await assertNaturalWorkflowParentProof({ database, databaseName: receipt.databaseName, root, nonce,
+        actorId: receipt.actorId, provider: naturalProvider.calls() });
+    }
     if (composioLive) {
       const livePath = path.join(root, 'live-receipt.json');
       const handle = await fs.open(livePath, constants.O_RDONLY | constants.O_NOFOLLOW);
@@ -800,6 +845,13 @@ async function main(): Promise<void> {
         }
       } catch { receipt.uncertain = true; }
     }
+    if (naturalProvider) {
+      try {
+        await naturalProvider.close(); naturalProviderClosed = true; receipt.naturalProviderClosed = true;
+        await fs.writeFile(path.join(root, 'natural-provider-proof.json'), JSON.stringify({ version: 1, nonce,
+          closed: true, ...naturalProvider.calls() }), { mode: 0o600, flag: 'wx' });
+      } catch { receipt.uncertain = true; }
+    }
     if (workflow) {
       try { const { closeDatabaseConnections } = await import('../../app/lib/db'); await closeDatabaseConnections(); }
       catch { receipt.uncertain = true; }
@@ -836,6 +888,7 @@ async function main(): Promise<void> {
       } else if (!composioLive && receipt.createAcknowledged && !receipt.uncertain && children.every(child => child.ended)) {
         assert(composioProviderClosed, 'The own Composio protocol fixture must close before database cleanup.');
         assert(mcpAppProviderClosed, 'The own MCP App provider must close before database cleanup.');
+        assert(naturalProviderClosed, 'The own natural-workflow tool provider must close before database cleanup.');
         assert(!mobileRenderRepro || receipt.mobileRenderReproClosed === true, 'The own API render diagnostic must acknowledge normal closure.');
         assert(!mobileNative || receipt.mobileNativeClosed === true && receipt.mcpOAuthProviderClosed === true && receipt.mobilePackageProviderClosed === true,
           'Native Mobile and the own OAuth provider must acknowledge closure before database cleanup.');

@@ -7,9 +7,10 @@ const dotenv = require('dotenv');
 
 const repo = path.resolve(__dirname, '..');
 const composioLive = process.argv[2] === 'run-workflow-composio-live';
+const naturalModel = process.argv[2] === 'run-workflow-natural-model';
 const mobileNative = process.argv[2] === 'run-workflow-mobile-native';
 const mobileRenderRepro = process.argv[2] === 'run-workflow-mobile-render-repro';
-if (!(composioLive ? process.argv.length === 4 : mobileNative ? [3, 4].includes(process.argv.length) : process.argv.length === 3) || !['run', 'run-workflow', 'run-workflow-mcp-apps', 'run-workflow-mobile-mcp-apps', 'run-workflow-mobile-native', 'run-workflow-mobile-render-repro', 'run-workflow-oauth', 'run-workflow-oauth-desktop', 'run-workflow-oauth-desktop-identity-diagnostic', 'run-workflow-composio-desktop-client', 'run-workflow-composio-desktop', 'run-workflow-composio-live'].includes(process.argv[2])) {
+if (!(composioLive || naturalModel ? process.argv.length === 4 : mobileNative ? [3, 4].includes(process.argv.length) : process.argv.length === 3) || !['run', 'run-workflow', 'run-workflow-natural-model', 'run-workflow-mcp-apps', 'run-workflow-mobile-mcp-apps', 'run-workflow-mobile-native', 'run-workflow-mobile-render-repro', 'run-workflow-oauth', 'run-workflow-oauth-desktop', 'run-workflow-oauth-desktop-identity-diagnostic', 'run-workflow-composio-desktop-client', 'run-workflow-composio-desktop', 'run-workflow-composio-live'].includes(process.argv[2])) {
   throw new Error('Choose a fixed isolated acceptance command or the native identity diagnostic.');
 }
 let tlsReuseInputPath;
@@ -94,6 +95,22 @@ if (composioLive) {
   }
   childEnv.CANVAS_COMPOSIO_LIVE_BROWSER_RUN = '1';
   childEnv.CANVAS_COMPOSIO_LIVE_INPUT = input;
+}
+if (naturalModel) {
+  try {
+    const input = process.argv[3], before = fs.lstatSync(input);
+    if (!path.isAbsolute(input) || fs.realpathSync(input) !== input || !before.isFile() || before.isSymbolicLink()
+      || before.nlink !== 1 || before.uid !== process.getuid?.() || (before.mode & 0o777) !== 0o600
+      || before.size < 1 || before.size > 4096) throw new Error();
+    const fd = fs.openSync(input, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+    try {
+      const held = fs.fstatSync(fd), current = fs.lstatSync(input);
+      if (fs.realpathSync(input) !== input || ['dev', 'ino', 'uid', 'mode', 'nlink', 'size', 'mtimeMs', 'ctimeMs']
+        .some(key => held[key] !== before[key] || current[key] !== before[key])) throw new Error();
+    } finally { fs.closeSync(fd); }
+    childEnv.CANVAS_AGENT_WORKFLOW_NATURAL_MODEL_RUN = '1';
+    childEnv.CANVAS_NATURAL_MODEL_INPUT = input;
+  } catch { throw new Error('The owned private natural-model input could not be verified.'); }
 }
 const child = spawn(process.execPath, ['--conditions=react-server', '--import', 'tsx', 'scripts/helpers/agent-settings-tools-browser-fixture.ts'], {
   cwd: repo, env: childEnv, stdio: ['ignore', 'inherit', 'inherit'],
