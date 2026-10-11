@@ -119,11 +119,11 @@ export function ProfileAppearanceEditor({
 
   return (
     <section
-      className={cn('overflow-hidden rounded-2xl border border-border/70 bg-card shadow-sm', className)}
+      className={cn('min-w-0 overflow-hidden rounded-2xl border border-border/70 bg-card shadow-sm', className)}
       aria-labelledby="profile-appearance-title"
     >
-      <div className="grid md:grid-cols-[minmax(220px,0.8fr)_minmax(300px,1.2fr)]">
-        <div className="relative flex min-h-52 flex-col justify-between overflow-hidden border-b bg-muted/25 p-6 md:border-r md:border-b-0">
+      <div className="grid min-w-0 grid-cols-1 md:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
+        <div className="relative flex min-h-52 min-w-0 flex-col justify-between overflow-hidden border-b bg-muted/25 p-4 sm:p-6 md:border-r md:border-b-0">
           <div className="pointer-events-none absolute -top-16 -right-16 size-48 rounded-full bg-primary/10 blur-3xl" />
           <div className="relative">
             <p className="mb-4 text-xs font-semibold tracking-[0.14em] text-muted-foreground uppercase">
@@ -137,7 +137,7 @@ export function ProfileAppearanceEditor({
           </div>
         </div>
 
-        <div className="space-y-7 p-6">
+        <div className="@container min-w-0 space-y-7 p-4 sm:p-6">
           <header>
             <h2 id="profile-appearance-title" className="text-base font-semibold">{t('title')}</h2>
             <p className="mt-1 text-sm leading-6 text-muted-foreground">{t('description')}</p>
@@ -150,7 +150,7 @@ export function ProfileAppearanceEditor({
             </div>
             <div
               className={cn(
-                'flex min-h-24 items-center justify-between gap-4 rounded-xl border border-dashed p-4 transition-colors',
+                'flex min-h-24 min-w-0 flex-col items-stretch gap-3 rounded-xl border border-dashed p-4 transition-colors sm:flex-row sm:flex-wrap sm:items-center sm:justify-between',
                 isDragging ? 'border-primary bg-primary/5' : 'border-border bg-muted/15 hover:bg-muted/30',
               )}
               onDragEnter={(event) => {
@@ -161,16 +161,17 @@ export function ProfileAppearanceEditor({
               onDragLeave={() => setIsDragging(false)}
               onDrop={handleDrop}
             >
-              <div className="flex min-w-0 items-center gap-3">
+              <div className="flex min-w-0 items-center gap-3 sm:basis-40 sm:flex-1">
                 <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-background shadow-sm ring-1 ring-border">
                   <ImagePlus aria-hidden="true" className="size-5 text-muted-foreground" />
                 </span>
-                <p className="text-sm text-muted-foreground">{t('dropImage')}</p>
+                <p className="min-w-0 text-sm text-muted-foreground">{t('dropImage')}</p>
               </div>
               <Button
                 type="button"
                 variant="outline"
                 size="sm"
+                className="w-full sm:w-auto"
                 disabled={isBusy}
                 onClick={() => fileInputRef.current?.click()}
               >
@@ -192,7 +193,7 @@ export function ProfileAppearanceEditor({
               <h3 className="text-sm font-medium">{t('iconsTitle')}</h3>
               <p className="mt-0.5 text-xs leading-5 text-muted-foreground">{t('iconsDescription')}</p>
             </div>
-            <div className="grid grid-cols-4 gap-2 sm:grid-cols-6" role="group" aria-label={t('iconsTitle')}>
+            <div className="grid grid-cols-2 gap-2 @[12rem]:grid-cols-3 @[16rem]:grid-cols-4 @[20rem]:grid-cols-5 @[24rem]:grid-cols-6" role="group" aria-label={t('iconsTitle')}>
               {USER_AVATAR_ICON_IDS.map((iconId) => {
                 const isSelected = profile.avatarKind === 'icon' && profile.iconId === iconId;
                 return (
@@ -203,7 +204,7 @@ export function ProfileAppearanceEditor({
                     aria-label={t(`icons.${iconId}`)}
                     aria-pressed={isSelected}
                     className={cn(
-                      'group relative flex aspect-square items-center justify-center rounded-xl border outline-none transition-all',
+                      'group relative flex aspect-square min-w-0 items-center justify-center rounded-xl border outline-none transition-all',
                       'hover:-translate-y-0.5 hover:border-primary/50 hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring',
                       'disabled:pointer-events-none disabled:opacity-50',
                       isSelected ? 'border-primary bg-primary/8 shadow-sm' : 'border-border bg-background',
@@ -230,7 +231,7 @@ export function ProfileAppearanceEditor({
               <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-background ring-1 ring-border">
                 <Type aria-hidden="true" className="size-4 text-muted-foreground" />
               </span>
-              <div>
+              <div className="min-w-0">
                 <p className="text-sm font-medium">{t('initialsTitle')}</p>
                 <p className="text-xs leading-5 text-muted-foreground">{t('initialsDescription')}</p>
               </div>

@@ -79,9 +79,26 @@ Die aufgezeichneten Requests stammen vom tatsächlichen UI, nicht von den separa
 Nachweise: [Production-Prüfungen](invitation-refresh-production-ui-checks.json), [automatisierte Validierung](invitation-refresh-automated-checks.json), [frischer Dialog](19-invite-dialog-reset-after-done.png), [Karte nach Aktivierung](20-license-card-after-user-activation.png), [Karte nach automatischer Freigabe](21-license-card-after-automatic-seat-release.png).
 
 
+## 3. Mobiles Profilformular
+
+Status: abgeschlossen. Der gemeinsame Profil-Editor wurde im Onboarding und im Einstellungsdialog mit Playwright gegen einen frisch gebauten Production-Container geprüft.
+
+Vor dem Fix maß das Formular bei 390 px Sichtbreite 308 px, seine Icon-Galerie reichte jedoch rechts über den Formularrand. Rocket, Camera und Leaf waren abgeschnitten. Der Uploadtext wurde daneben stark zusammengedrückt. Nachweis: [Layout vor dem Fix](profile-layout-before-fix.json), [Screenshot vor dem Fix](22-mobile-profile-before-fix.png).
+
+Die Grid-Spalten und das Optionspanel können jetzt schrumpfen. Mobile Flächen verwenden weniger Padding und stapeln den Uploadtext über der Schaltfläche. Die Galerie wählt ihre zwei bis sechs Spalten nach der tatsächlichen Breite des Optionscontainers. Avatar-Auswahl, Upload, Speicherung und Formularhandler sind unverändert. GitNexus: LOW, zwei direkte Nutzer des gemeinsamen Editors, betroffen sind Onboarding und Profileinstellungen.
+
+Production-Image: `sha256:cb35b1bf70565212ef519c1a91326376aa6109610a731f32972c8efdf3c40fc5`. Acht Layoutprüfungen bestanden: Onboarding und Einstellungsdialog jeweils bei 360, 390, 820 und 1440 px Sichtbreite. Dokument und Formular hatten keinen horizontalen Überlauf; alle zwölf Icon-Schaltflächen lagen innerhalb des Formulars und waren mindestens 59 px breit. Auch Upload und Initialen-Zeile waren vollständig bedienbar. Visuelle Nachweise: [mobiler Einstellungsdialog](28-profile-settings-mobile-360.png), [schmaler Desktopdialog](29-profile-settings-narrow-desktop.png), [Desktopdialog](30-profile-settings-desktop.png). Dies sind Chromium-Viewportprüfungen, keine Tests auf physischen Mobilgeräten.
+
+Die Bildauswahl wurde über die sichtbare Schaltfläche geöffnet. Die Icon-Auswahl im mobilen Onboarding und die Rückkehr zu Initialen im Einstellungsdialog antworteten jeweils mit HTTP 200 und blieben nach Reload erhalten. Der persönliche Einrichtungsablauf wurde abgeschlossen; die optionalen Bradley-Präferenzen wurden über die UI übersprungen, die Tour ist installationsseitig deaktiviert.
+
+Das isolierte Testkonto wurde über die normale UI offboarded und seine Session entfernt. Binnen 29,411 Sekunden war der bereinigte Zustand verifiziert: lokaler und bestätigter Control-Plane-Bestand sowie signiertes Zertifikat zwei; Revision 5765 und Hash bestätigt, Drift und Reconciliation `in_sync`.
+
+Fokussiertes ESLint, bestehender UI-Vertrag mit zwölf Icons sowie Host- und Container-Build einschließlich vollständiger TypeScript-Prüfung bestanden. Unabhängige Diff-Prüfung ohne Blocker. Maschinenlesbarer Nachweis: [Production-Layoutprüfungen](profile-layout-production-ui-checks.json), [automatisierte Prüfungen](profile-layout-automated-checks.json).
+
+Keine JavaScript-Pageerrors. Separat protokolliert wurden vier HTTP-404-Antworten für das nicht konfigurierte öffentliche Markenlogo, sechs HTTP-403-Antworten auf Human Activity, ein HTTP 400 beim optionalen Bradley-Session-Bootstrap sowie eine Notification-HTTP-401 nach Offboarding. Die optionalen Bradley-Präferenzen gelten nicht als abgenommen; diese Beobachtungen werden im abschließenden Gesamtdurchlauf eingeordnet.
+
 ## Noch folgende Planpunkte
 
-3. Mobiles Profilformular ohne abgeschnittene Felder.
 4. Automatische Einladungs-E-Mail über System-SMTP, Versandstatus, kontrollierter erneuter Versand und klare Passworttexte.
 5. Vollständiger Production-Playwright-/Mailpit-Durchlauf für beide Rollen, wiederholte Einladungen und negative Fälle.
 

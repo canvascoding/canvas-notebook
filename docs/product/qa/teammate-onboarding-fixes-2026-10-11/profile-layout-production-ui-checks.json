@@ -1,0 +1,1513 @@
+{
+  "runId": "profile-mobile-mv4gl5a8",
+  "image": "sha256:cb35b1bf70565212ef519c1a91326376aa6109610a731f32972c8efdf3c40fc5",
+  "viewportEvidence": "Playwright Chromium, not physical devices",
+  "actor": {
+    "email": "profile-mobile-mv4gl5a8@example.test",
+    "isAdmin": false,
+    "createStatus": 200,
+    "loginStatus": 200
+  },
+  "beforeFix": {
+    "viewport": 390,
+    "documentWidth": 390,
+    "editor": {
+      "x": 41,
+      "right": 349,
+      "width": 308,
+      "height": 1191.328125,
+      "clientWidth": 306,
+      "scrollWidth": 336
+    },
+    "options": {
+      "x": 42,
+      "right": 378.421875,
+      "width": 336.421875,
+      "height": 932.328125,
+      "clientWidth": 336,
+      "scrollWidth": 336
+    },
+    "gallery": {
+      "x": 66,
+      "right": 354.421875,
+      "width": 288.421875,
+      "height": 214.328125,
+      "clientWidth": 288,
+      "scrollWidth": 288
+    },
+    "columns": "66.0938px 66.1094px 66.1094px 66.1094px",
+    "icons": [
+      {
+        "label": "Person",
+        "x": 66,
+        "right": 132.09375,
+        "width": 66.09375,
+        "height": 66.09375,
+        "clientWidth": 64,
+        "scrollWidth": 64
+      },
+      {
+        "label": "Smile",
+        "x": 140.09375,
+        "right": 206.203125,
+        "width": 66.109375,
+        "height": 66.109375,
+        "clientWidth": 64,
+        "scrollWidth": 64
+      },
+      {
+        "label": "Sparkles",
+        "x": 214.203125,
+        "right": 280.3125,
+        "width": 66.109375,
+        "height": 66.109375,
+        "clientWidth": 64,
+        "scrollWidth": 64
+      },
+      {
+        "label": "Rocket",
+        "x": 288.3125,
+        "right": 354.421875,
+        "width": 66.109375,
+        "height": 66.109375,
+        "clientWidth": 64,
+        "scrollWidth": 64
+      },
+      {
+        "label": "Palette",
+        "x": 66,
+        "right": 132.09375,
+        "width": 66.09375,
+        "height": 66.09375,
+        "clientWidth": 64,
+        "scrollWidth": 64
+      },
+      {
+        "label": "Code",
+        "x": 140.09375,
+        "right": 206.203125,
+        "width": 66.109375,
+        "height": 66.109375,
+        "clientWidth": 64,
+        "scrollWidth": 64
+      },
+      {
+        "label": "Open book",
+        "x": 214.203125,
+        "right": 280.3125,
+        "width": 66.109375,
+        "height": 66.109375,
+        "clientWidth": 64,
+        "scrollWidth": 64
+      },
+      {
+        "label": "Camera",
+        "x": 288.3125,
+        "right": 354.421875,
+        "width": 66.109375,
+        "height": 66.109375,
+        "clientWidth": 64,
+        "scrollWidth": 64
+      },
+      {
+        "label": "Music",
+        "x": 66,
+        "right": 132.09375,
+        "width": 66.09375,
+        "height": 66.09375,
+        "clientWidth": 64,
+        "scrollWidth": 64
+      },
+      {
+        "label": "Coffee",
+        "x": 140.09375,
+        "right": 206.203125,
+        "width": 66.109375,
+        "height": 66.109375,
+        "clientWidth": 64,
+        "scrollWidth": 64
+      },
+      {
+        "label": "Mountain",
+        "x": 214.203125,
+        "right": 280.3125,
+        "width": 66.109375,
+        "height": 66.109375,
+        "clientWidth": 64,
+        "scrollWidth": 64
+      },
+      {
+        "label": "Leaf",
+        "x": 288.3125,
+        "right": 354.421875,
+        "width": 66.109375,
+        "height": 66.109375,
+        "clientWidth": 64,
+        "scrollWidth": 64
+      }
+    ],
+    "upload": {
+      "x": 198.515625,
+      "right": 337.421875,
+      "width": 138.90625,
+      "height": 32,
+      "clientWidth": 137,
+      "scrollWidth": 137
+    },
+    "controlsOutsideEditor": [
+      "Rocket",
+      "Camera",
+      "Leaf"
+    ]
+  },
+  "cases": [
+    {
+      "scope": "onboarding",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "layout": {
+        "viewport": 390,
+        "documentWidth": 390,
+        "editor": {
+          "x": 41,
+          "right": 349,
+          "width": 308,
+          "height": 1112.5,
+          "clientWidth": 306,
+          "scrollWidth": 306
+        },
+        "options": {
+          "x": 42,
+          "right": 348,
+          "width": 306,
+          "height": 869.5,
+          "clientWidth": 306,
+          "scrollWidth": 306
+        },
+        "gallery": {
+          "x": 58,
+          "right": 332,
+          "width": 274,
+          "height": 203.5,
+          "clientWidth": 274,
+          "scrollWidth": 274
+        },
+        "columns": "62.5px 62.5px 62.5px 62.5px",
+        "icons": [
+          {
+            "label": "Person",
+            "x": 58,
+            "right": 120.5,
+            "width": 62.5,
+            "height": 62.5,
+            "clientWidth": 61,
+            "scrollWidth": 61
+          },
+          {
+            "label": "Smile",
+            "x": 128.5,
+            "right": 191,
+            "width": 62.5,
+            "height": 62.5,
+            "clientWidth": 61,
+            "scrollWidth": 61
+          },
+          {
+            "label": "Sparkles",
+            "x": 199,
+            "right": 261.5,
+            "width": 62.5,
+            "height": 62.5,
+            "clientWidth": 61,
+            "scrollWidth": 61
+          },
+          {
+            "label": "Rocket",
+            "x": 269.5,
+            "right": 332,
+            "width": 62.5,
+            "height": 62.5,
+            "clientWidth": 61,
+            "scrollWidth": 61
+          },
+          {
+            "label": "Palette",
+            "x": 58,
+            "right": 120.5,
+            "width": 62.5,
+            "height": 62.5,
+            "clientWidth": 61,
+            "scrollWidth": 61
+          },
+          {
+            "label": "Code",
+            "x": 128.5,
+            "right": 191,
+            "width": 62.5,
+            "height": 62.5,
+            "clientWidth": 61,
+            "scrollWidth": 61
+          },
+          {
+            "label": "Open book",
+            "x": 199,
+            "right": 261.5,
+            "width": 62.5,
+            "height": 62.5,
+            "clientWidth": 61,
+            "scrollWidth": 61
+          },
+          {
+            "label": "Camera",
+            "x": 269.5,
+            "right": 332,
+            "width": 62.5,
+            "height": 62.5,
+            "clientWidth": 61,
+            "scrollWidth": 61
+          },
+          {
+            "label": "Music",
+            "x": 58,
+            "right": 120.5,
+            "width": 62.5,
+            "height": 62.5,
+            "clientWidth": 61,
+            "scrollWidth": 61
+          },
+          {
+            "label": "Coffee",
+            "x": 128.5,
+            "right": 191,
+            "width": 62.5,
+            "height": 62.5,
+            "clientWidth": 61,
+            "scrollWidth": 61
+          },
+          {
+            "label": "Mountain",
+            "x": 199,
+            "right": 261.5,
+            "width": 62.5,
+            "height": 62.5,
+            "clientWidth": 61,
+            "scrollWidth": 61
+          },
+          {
+            "label": "Leaf",
+            "x": 269.5,
+            "right": 332,
+            "width": 62.5,
+            "height": 62.5,
+            "clientWidth": 61,
+            "scrollWidth": 61
+          }
+        ],
+        "upload": {
+          "x": 75,
+          "right": 315,
+          "width": 240,
+          "height": 32,
+          "clientWidth": 238,
+          "scrollWidth": 238
+        },
+        "controlsOutsideEditor": []
+      },
+      "screenshot": "23-profile-onboarding-mobile-390.png",
+      "passed": true
+    },
+    {
+      "scope": "onboarding",
+      "viewport": {
+        "width": 360,
+        "height": 800
+      },
+      "layout": {
+        "viewport": 360,
+        "documentWidth": 360,
+        "editor": {
+          "x": 41,
+          "right": 319,
+          "width": 278,
+          "height": 1257,
+          "clientWidth": 276,
+          "scrollWidth": 276
+        },
+        "options": {
+          "x": 42,
+          "right": 318,
+          "width": 276,
+          "height": 1014,
+          "clientWidth": 276,
+          "scrollWidth": 276
+        },
+        "gallery": {
+          "x": 58,
+          "right": 302,
+          "width": 244,
+          "height": 328,
+          "clientWidth": 244,
+          "scrollWidth": 244
+        },
+        "columns": "76px 76px 76px",
+        "icons": [
+          {
+            "label": "Person",
+            "x": 58,
+            "right": 134,
+            "width": 76,
+            "height": 76,
+            "clientWidth": 74,
+            "scrollWidth": 74
+          },
+          {
+            "label": "Smile",
+            "x": 142,
+            "right": 218,
+            "width": 76,
+            "height": 76,
+            "clientWidth": 74,
+            "scrollWidth": 74
+          },
+          {
+            "label": "Sparkles",
+            "x": 226,
+            "right": 302,
+            "width": 76,
+            "height": 76,
+            "clientWidth": 74,
+            "scrollWidth": 74
+          },
+          {
+            "label": "Rocket",
+            "x": 58,
+            "right": 134,
+            "width": 76,
+            "height": 76,
+            "clientWidth": 74,
+            "scrollWidth": 74
+          },
+          {
+            "label": "Palette",
+            "x": 142,
+            "right": 218,
+            "width": 76,
+            "height": 76,
+            "clientWidth": 74,
+            "scrollWidth": 74
+          },
+          {
+            "label": "Code",
+            "x": 226,
+            "right": 302,
+            "width": 76,
+            "height": 76,
+            "clientWidth": 74,
+            "scrollWidth": 74
+          },
+          {
+            "label": "Open book",
+            "x": 58,
+            "right": 134,
+            "width": 76,
+            "height": 76,
+            "clientWidth": 74,
+            "scrollWidth": 74
+          },
+          {
+            "label": "Camera",
+            "x": 142,
+            "right": 218,
+            "width": 76,
+            "height": 76,
+            "clientWidth": 74,
+            "scrollWidth": 74
+          },
+          {
+            "label": "Music",
+            "x": 226,
+            "right": 302,
+            "width": 76,
+            "height": 76,
+            "clientWidth": 74,
+            "scrollWidth": 74
+          },
+          {
+            "label": "Coffee",
+            "x": 58,
+            "right": 134,
+            "width": 76,
+            "height": 76,
+            "clientWidth": 74,
+            "scrollWidth": 74
+          },
+          {
+            "label": "Mountain",
+            "x": 142,
+            "right": 218,
+            "width": 76,
+            "height": 76,
+            "clientWidth": 74,
+            "scrollWidth": 74
+          },
+          {
+            "label": "Leaf",
+            "x": 226,
+            "right": 302,
+            "width": 76,
+            "height": 76,
+            "clientWidth": 74,
+            "scrollWidth": 74
+          }
+        ],
+        "upload": {
+          "x": 75,
+          "right": 285,
+          "width": 210,
+          "height": 32,
+          "clientWidth": 208,
+          "scrollWidth": 208
+        },
+        "controlsOutsideEditor": []
+      },
+      "screenshot": "24-profile-onboarding-mobile-360.png",
+      "passed": true
+    },
+    {
+      "scope": "onboarding",
+      "viewport": {
+        "width": 820,
+        "height": 1000
+      },
+      "layout": {
+        "viewport": 820,
+        "documentWidth": 820,
+        "editor": {
+          "x": 57,
+          "right": 763,
+          "width": 706,
+          "height": 775.453125,
+          "clientWidth": 704,
+          "scrollWidth": 704
+        },
+        "options": {
+          "x": 339.59375,
+          "right": 762,
+          "width": 422.40625,
+          "height": 773.453125,
+          "clientWidth": 422,
+          "scrollWidth": 422
+        },
+        "gallery": {
+          "x": 363.59375,
+          "right": 738,
+          "width": 374.40625,
+          "height": 221.453125,
+          "clientWidth": 374,
+          "scrollWidth": 374
+        },
+        "columns": "68.4688px 68.4844px 68.4844px 68.4844px 68.4688px",
+        "icons": [
+          {
+            "label": "Person",
+            "x": 363.59375,
+            "right": 432.0625,
+            "width": 68.46875,
+            "height": 68.46875,
+            "clientWidth": 66,
+            "scrollWidth": 66
+          },
+          {
+            "label": "Smile",
+            "x": 440.0625,
+            "right": 508.546875,
+            "width": 68.484375,
+            "height": 68.484375,
+            "clientWidth": 66,
+            "scrollWidth": 66
+          },
+          {
+            "label": "Sparkles",
+            "x": 516.546875,
+            "right": 585.03125,
+            "width": 68.484375,
+            "height": 68.484375,
+            "clientWidth": 66,
+            "scrollWidth": 66
+          },
+          {
+            "label": "Rocket",
+            "x": 593.03125,
+            "right": 661.515625,
+            "width": 68.484375,
+            "height": 68.484375,
+            "clientWidth": 66,
+            "scrollWidth": 66
+          },
+          {
+            "label": "Palette",
+            "x": 669.515625,
+            "right": 737.984375,
+            "width": 68.46875,
+            "height": 68.46875,
+            "clientWidth": 66,
+            "scrollWidth": 66
+          },
+          {
+            "label": "Code",
+            "x": 363.59375,
+            "right": 432.0625,
+            "width": 68.46875,
+            "height": 68.46875,
+            "clientWidth": 66,
+            "scrollWidth": 66
+          },
+          {
+            "label": "Open book",
+            "x": 440.0625,
+            "right": 508.546875,
+            "width": 68.484375,
+            "height": 68.484375,
+            "clientWidth": 66,
+            "scrollWidth": 66
+          },
+          {
+            "label": "Camera",
+            "x": 516.546875,
+            "right": 585.03125,
+            "width": 68.484375,
+            "height": 68.484375,
+            "clientWidth": 66,
+            "scrollWidth": 66
+          },
+          {
+            "label": "Music",
+            "x": 593.03125,
+            "right": 661.515625,
+            "width": 68.484375,
+            "height": 68.484375,
+            "clientWidth": 66,
+            "scrollWidth": 66
+          },
+          {
+            "label": "Coffee",
+            "x": 669.515625,
+            "right": 737.984375,
+            "width": 68.46875,
+            "height": 68.46875,
+            "clientWidth": 66,
+            "scrollWidth": 66
+          },
+          {
+            "label": "Mountain",
+            "x": 363.59375,
+            "right": 432.0625,
+            "width": 68.46875,
+            "height": 68.46875,
+            "clientWidth": 66,
+            "scrollWidth": 66
+          },
+          {
+            "label": "Leaf",
+            "x": 440.0625,
+            "right": 508.546875,
+            "width": 68.484375,
+            "height": 68.484375,
+            "clientWidth": 66,
+            "scrollWidth": 66
+          }
+        ],
+        "upload": {
+          "x": 582.09375,
+          "right": 721,
+          "width": 138.90625,
+          "height": 32,
+          "clientWidth": 137,
+          "scrollWidth": 137
+        },
+        "controlsOutsideEditor": []
+      },
+      "screenshot": "25-profile-onboarding-narrow-desktop.png",
+      "passed": true
+    },
+    {
+      "scope": "onboarding",
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "layout": {
+        "viewport": 1440,
+        "documentWidth": 1440,
+        "editor": {
+          "x": 241,
+          "right": 1199,
+          "width": 958,
+          "height": 703.875,
+          "clientWidth": 956,
+          "scrollWidth": 956
+        },
+        "options": {
+          "x": 624.390625,
+          "right": 1198,
+          "width": 573.609375,
+          "height": 701.875,
+          "clientWidth": 574,
+          "scrollWidth": 574
+        },
+        "gallery": {
+          "x": 648.390625,
+          "right": 1174,
+          "width": 525.609375,
+          "height": 169.875,
+          "clientWidth": 526,
+          "scrollWidth": 526
+        },
+        "columns": "80.9219px 80.9375px 80.9375px 80.9375px 80.9375px 80.9375px",
+        "icons": [
+          {
+            "label": "Person",
+            "x": 648.390625,
+            "right": 729.3125,
+            "width": 80.921875,
+            "height": 80.921875,
+            "clientWidth": 79,
+            "scrollWidth": 79
+          },
+          {
+            "label": "Smile",
+            "x": 737.3125,
+            "right": 818.25,
+            "width": 80.9375,
+            "height": 80.9375,
+            "clientWidth": 79,
+            "scrollWidth": 79
+          },
+          {
+            "label": "Sparkles",
+            "x": 826.25,
+            "right": 907.1875,
+            "width": 80.9375,
+            "height": 80.9375,
+            "clientWidth": 79,
+            "scrollWidth": 79
+          },
+          {
+            "label": "Rocket",
+            "x": 915.1875,
+            "right": 996.125,
+            "width": 80.9375,
+            "height": 80.9375,
+            "clientWidth": 79,
+            "scrollWidth": 79
+          },
+          {
+            "label": "Palette",
+            "x": 1004.125,
+            "right": 1085.0625,
+            "width": 80.9375,
+            "height": 80.9375,
+            "clientWidth": 79,
+            "scrollWidth": 79
+          },
+          {
+            "label": "Code",
+            "x": 1093.0625,
+            "right": 1174,
+            "width": 80.9375,
+            "height": 80.9375,
+            "clientWidth": 79,
+            "scrollWidth": 79
+          },
+          {
+            "label": "Open book",
+            "x": 648.390625,
+            "right": 729.3125,
+            "width": 80.921875,
+            "height": 80.921875,
+            "clientWidth": 79,
+            "scrollWidth": 79
+          },
+          {
+            "label": "Camera",
+            "x": 737.3125,
+            "right": 818.25,
+            "width": 80.9375,
+            "height": 80.9375,
+            "clientWidth": 79,
+            "scrollWidth": 79
+          },
+          {
+            "label": "Music",
+            "x": 826.25,
+            "right": 907.1875,
+            "width": 80.9375,
+            "height": 80.9375,
+            "clientWidth": 79,
+            "scrollWidth": 79
+          },
+          {
+            "label": "Coffee",
+            "x": 915.1875,
+            "right": 996.125,
+            "width": 80.9375,
+            "height": 80.9375,
+            "clientWidth": 79,
+            "scrollWidth": 79
+          },
+          {
+            "label": "Mountain",
+            "x": 1004.125,
+            "right": 1085.0625,
+            "width": 80.9375,
+            "height": 80.9375,
+            "clientWidth": 79,
+            "scrollWidth": 79
+          },
+          {
+            "label": "Leaf",
+            "x": 1093.0625,
+            "right": 1174,
+            "width": 80.9375,
+            "height": 80.9375,
+            "clientWidth": 79,
+            "scrollWidth": 79
+          }
+        ],
+        "upload": {
+          "x": 1018.09375,
+          "right": 1157,
+          "width": 138.90625,
+          "height": 32,
+          "clientWidth": 137,
+          "scrollWidth": 137
+        },
+        "controlsOutsideEditor": []
+      },
+      "screenshot": "26-profile-onboarding-desktop.png",
+      "passed": true
+    },
+    {
+      "scope": "settings",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "layout": {
+        "viewport": 390,
+        "documentWidth": 390,
+        "editor": {
+          "x": 29,
+          "right": 361,
+          "width": 332,
+          "height": 1130.5,
+          "clientWidth": 330,
+          "scrollWidth": 330
+        },
+        "options": {
+          "x": 30,
+          "right": 360,
+          "width": 330,
+          "height": 887.5,
+          "clientWidth": 330,
+          "scrollWidth": 330
+        },
+        "gallery": {
+          "x": 46,
+          "right": 344,
+          "width": 298,
+          "height": 221.5,
+          "clientWidth": 298,
+          "scrollWidth": 298
+        },
+        "columns": "68.5px 68.5px 68.5px 68.5px",
+        "icons": [
+          {
+            "label": "Person",
+            "x": 46,
+            "right": 114.5,
+            "width": 68.5,
+            "height": 68.5,
+            "clientWidth": 67,
+            "scrollWidth": 67
+          },
+          {
+            "label": "Smile",
+            "x": 122.5,
+            "right": 191,
+            "width": 68.5,
+            "height": 68.5,
+            "clientWidth": 67,
+            "scrollWidth": 67
+          },
+          {
+            "label": "Sparkles",
+            "x": 199,
+            "right": 267.5,
+            "width": 68.5,
+            "height": 68.5,
+            "clientWidth": 67,
+            "scrollWidth": 67
+          },
+          {
+            "label": "Rocket",
+            "x": 275.5,
+            "right": 344,
+            "width": 68.5,
+            "height": 68.5,
+            "clientWidth": 67,
+            "scrollWidth": 67
+          },
+          {
+            "label": "Palette",
+            "x": 46,
+            "right": 114.5,
+            "width": 68.5,
+            "height": 68.5,
+            "clientWidth": 67,
+            "scrollWidth": 67
+          },
+          {
+            "label": "Code",
+            "x": 122.5,
+            "right": 191,
+            "width": 68.5,
+            "height": 68.5,
+            "clientWidth": 67,
+            "scrollWidth": 67
+          },
+          {
+            "label": "Open book",
+            "x": 199,
+            "right": 267.5,
+            "width": 68.5,
+            "height": 68.5,
+            "clientWidth": 67,
+            "scrollWidth": 67
+          },
+          {
+            "label": "Camera",
+            "x": 275.5,
+            "right": 344,
+            "width": 68.5,
+            "height": 68.5,
+            "clientWidth": 67,
+            "scrollWidth": 67
+          },
+          {
+            "label": "Music",
+            "x": 46,
+            "right": 114.5,
+            "width": 68.5,
+            "height": 68.5,
+            "clientWidth": 67,
+            "scrollWidth": 67
+          },
+          {
+            "label": "Coffee",
+            "x": 122.5,
+            "right": 191,
+            "width": 68.5,
+            "height": 68.5,
+            "clientWidth": 67,
+            "scrollWidth": 67
+          },
+          {
+            "label": "Mountain",
+            "x": 199,
+            "right": 267.5,
+            "width": 68.5,
+            "height": 68.5,
+            "clientWidth": 67,
+            "scrollWidth": 67
+          },
+          {
+            "label": "Leaf",
+            "x": 275.5,
+            "right": 344,
+            "width": 68.5,
+            "height": 68.5,
+            "clientWidth": 67,
+            "scrollWidth": 67
+          }
+        ],
+        "upload": {
+          "x": 63,
+          "right": 327,
+          "width": 264,
+          "height": 32,
+          "clientWidth": 262,
+          "scrollWidth": 262
+        },
+        "controlsOutsideEditor": []
+      },
+      "screenshot": "27-profile-settings-mobile-390.png",
+      "passed": true
+    },
+    {
+      "scope": "settings",
+      "viewport": {
+        "width": 360,
+        "height": 800
+      },
+      "layout": {
+        "viewport": 360,
+        "documentWidth": 360,
+        "editor": {
+          "x": 29,
+          "right": 331,
+          "width": 302,
+          "height": 1108,
+          "clientWidth": 300,
+          "scrollWidth": 300
+        },
+        "options": {
+          "x": 30,
+          "right": 330,
+          "width": 300,
+          "height": 865,
+          "clientWidth": 300,
+          "scrollWidth": 300
+        },
+        "gallery": {
+          "x": 46,
+          "right": 314,
+          "width": 268,
+          "height": 199,
+          "clientWidth": 268,
+          "scrollWidth": 268
+        },
+        "columns": "61px 61px 61px 61px",
+        "icons": [
+          {
+            "label": "Person",
+            "x": 46,
+            "right": 107,
+            "width": 61,
+            "height": 61,
+            "clientWidth": 59,
+            "scrollWidth": 59
+          },
+          {
+            "label": "Smile",
+            "x": 115,
+            "right": 176,
+            "width": 61,
+            "height": 61,
+            "clientWidth": 59,
+            "scrollWidth": 59
+          },
+          {
+            "label": "Sparkles",
+            "x": 184,
+            "right": 245,
+            "width": 61,
+            "height": 61,
+            "clientWidth": 59,
+            "scrollWidth": 59
+          },
+          {
+            "label": "Rocket",
+            "x": 253,
+            "right": 314,
+            "width": 61,
+            "height": 61,
+            "clientWidth": 59,
+            "scrollWidth": 59
+          },
+          {
+            "label": "Palette",
+            "x": 46,
+            "right": 107,
+            "width": 61,
+            "height": 61,
+            "clientWidth": 59,
+            "scrollWidth": 59
+          },
+          {
+            "label": "Code",
+            "x": 115,
+            "right": 176,
+            "width": 61,
+            "height": 61,
+            "clientWidth": 59,
+            "scrollWidth": 59
+          },
+          {
+            "label": "Open book",
+            "x": 184,
+            "right": 245,
+            "width": 61,
+            "height": 61,
+            "clientWidth": 59,
+            "scrollWidth": 59
+          },
+          {
+            "label": "Camera",
+            "x": 253,
+            "right": 314,
+            "width": 61,
+            "height": 61,
+            "clientWidth": 59,
+            "scrollWidth": 59
+          },
+          {
+            "label": "Music",
+            "x": 46,
+            "right": 107,
+            "width": 61,
+            "height": 61,
+            "clientWidth": 59,
+            "scrollWidth": 59
+          },
+          {
+            "label": "Coffee",
+            "x": 115,
+            "right": 176,
+            "width": 61,
+            "height": 61,
+            "clientWidth": 59,
+            "scrollWidth": 59
+          },
+          {
+            "label": "Mountain",
+            "x": 184,
+            "right": 245,
+            "width": 61,
+            "height": 61,
+            "clientWidth": 59,
+            "scrollWidth": 59
+          },
+          {
+            "label": "Leaf",
+            "x": 253,
+            "right": 314,
+            "width": 61,
+            "height": 61,
+            "clientWidth": 59,
+            "scrollWidth": 59
+          }
+        ],
+        "upload": {
+          "x": 63,
+          "right": 297,
+          "width": 234,
+          "height": 32,
+          "clientWidth": 232,
+          "scrollWidth": 232
+        },
+        "controlsOutsideEditor": []
+      },
+      "screenshot": "28-profile-settings-mobile-360.png",
+      "passed": true
+    },
+    {
+      "scope": "settings",
+      "viewport": {
+        "width": 820,
+        "height": 1000
+      },
+      "layout": {
+        "viewport": 820,
+        "documentWidth": 820,
+        "editor": {
+          "x": 21,
+          "right": 799,
+          "width": 778,
+          "height": 687.875,
+          "clientWidth": 776,
+          "scrollWidth": 776
+        },
+        "options": {
+          "x": 332.390625,
+          "right": 798,
+          "width": 465.609375,
+          "height": 685.875,
+          "clientWidth": 466,
+          "scrollWidth": 466
+        },
+        "gallery": {
+          "x": 356.390625,
+          "right": 774,
+          "width": 417.609375,
+          "height": 133.875,
+          "clientWidth": 418,
+          "scrollWidth": 418
+        },
+        "columns": "62.9219px 62.9375px 62.9375px 62.9375px 62.9375px 62.9219px",
+        "icons": [
+          {
+            "label": "Person",
+            "x": 356.390625,
+            "right": 419.3125,
+            "width": 62.921875,
+            "height": 62.921875,
+            "clientWidth": 61,
+            "scrollWidth": 61
+          },
+          {
+            "label": "Smile",
+            "x": 427.3125,
+            "right": 490.25,
+            "width": 62.9375,
+            "height": 62.9375,
+            "clientWidth": 61,
+            "scrollWidth": 61
+          },
+          {
+            "label": "Sparkles",
+            "x": 498.25,
+            "right": 561.1875,
+            "width": 62.9375,
+            "height": 62.9375,
+            "clientWidth": 61,
+            "scrollWidth": 61
+          },
+          {
+            "label": "Rocket",
+            "x": 569.1875,
+            "right": 632.125,
+            "width": 62.9375,
+            "height": 62.9375,
+            "clientWidth": 61,
+            "scrollWidth": 61
+          },
+          {
+            "label": "Palette",
+            "x": 640.125,
+            "right": 703.0625,
+            "width": 62.9375,
+            "height": 62.9375,
+            "clientWidth": 61,
+            "scrollWidth": 61
+          },
+          {
+            "label": "Code",
+            "x": 711.0625,
+            "right": 773.984375,
+            "width": 62.921875,
+            "height": 62.921875,
+            "clientWidth": 61,
+            "scrollWidth": 61
+          },
+          {
+            "label": "Open book",
+            "x": 356.390625,
+            "right": 419.3125,
+            "width": 62.921875,
+            "height": 62.921875,
+            "clientWidth": 61,
+            "scrollWidth": 61
+          },
+          {
+            "label": "Camera",
+            "x": 427.3125,
+            "right": 490.25,
+            "width": 62.9375,
+            "height": 62.9375,
+            "clientWidth": 61,
+            "scrollWidth": 61
+          },
+          {
+            "label": "Music",
+            "x": 498.25,
+            "right": 561.1875,
+            "width": 62.9375,
+            "height": 62.9375,
+            "clientWidth": 61,
+            "scrollWidth": 61
+          },
+          {
+            "label": "Coffee",
+            "x": 569.1875,
+            "right": 632.125,
+            "width": 62.9375,
+            "height": 62.9375,
+            "clientWidth": 61,
+            "scrollWidth": 61
+          },
+          {
+            "label": "Mountain",
+            "x": 640.125,
+            "right": 703.0625,
+            "width": 62.9375,
+            "height": 62.9375,
+            "clientWidth": 61,
+            "scrollWidth": 61
+          },
+          {
+            "label": "Leaf",
+            "x": 711.0625,
+            "right": 773.984375,
+            "width": 62.921875,
+            "height": 62.921875,
+            "clientWidth": 61,
+            "scrollWidth": 61
+          }
+        ],
+        "upload": {
+          "x": 618.09375,
+          "right": 757,
+          "width": 138.90625,
+          "height": 32,
+          "clientWidth": 137,
+          "scrollWidth": 137
+        },
+        "controlsOutsideEditor": []
+      },
+      "screenshot": "29-profile-settings-narrow-desktop.png",
+      "passed": true
+    },
+    {
+      "scope": "settings",
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "layout": {
+        "viewport": 1440,
+        "documentWidth": 1440,
+        "editor": {
+          "x": 293,
+          "right": 1147,
+          "width": 854,
+          "height": 703.0625,
+          "clientWidth": 852,
+          "scrollWidth": 852
+        },
+        "options": {
+          "x": 634.796875,
+          "right": 1146,
+          "width": 511.203125,
+          "height": 701.0625,
+          "clientWidth": 511,
+          "scrollWidth": 511
+        },
+        "gallery": {
+          "x": 658.796875,
+          "right": 1122,
+          "width": 463.203125,
+          "height": 149.0625,
+          "clientWidth": 463,
+          "scrollWidth": 463
+        },
+        "columns": "70.5312px 70.5312px 70.5312px 70.5312px 70.5312px 70.5312px",
+        "icons": [
+          {
+            "label": "Person",
+            "x": 658.796875,
+            "right": 729.328125,
+            "width": 70.53125,
+            "height": 70.53125,
+            "clientWidth": 69,
+            "scrollWidth": 69
+          },
+          {
+            "label": "Smile",
+            "x": 737.328125,
+            "right": 807.859375,
+            "width": 70.53125,
+            "height": 70.53125,
+            "clientWidth": 69,
+            "scrollWidth": 69
+          },
+          {
+            "label": "Sparkles",
+            "x": 815.859375,
+            "right": 886.390625,
+            "width": 70.53125,
+            "height": 70.53125,
+            "clientWidth": 69,
+            "scrollWidth": 69
+          },
+          {
+            "label": "Rocket",
+            "x": 894.390625,
+            "right": 964.921875,
+            "width": 70.53125,
+            "height": 70.53125,
+            "clientWidth": 69,
+            "scrollWidth": 69
+          },
+          {
+            "label": "Palette",
+            "x": 972.921875,
+            "right": 1043.453125,
+            "width": 70.53125,
+            "height": 70.53125,
+            "clientWidth": 69,
+            "scrollWidth": 69
+          },
+          {
+            "label": "Code",
+            "x": 1051.453125,
+            "right": 1121.984375,
+            "width": 70.53125,
+            "height": 70.53125,
+            "clientWidth": 69,
+            "scrollWidth": 69
+          },
+          {
+            "label": "Open book",
+            "x": 658.796875,
+            "right": 729.328125,
+            "width": 70.53125,
+            "height": 70.53125,
+            "clientWidth": 69,
+            "scrollWidth": 69
+          },
+          {
+            "label": "Camera",
+            "x": 737.328125,
+            "right": 807.859375,
+            "width": 70.53125,
+            "height": 70.53125,
+            "clientWidth": 69,
+            "scrollWidth": 69
+          },
+          {
+            "label": "Music",
+            "x": 815.859375,
+            "right": 886.390625,
+            "width": 70.53125,
+            "height": 70.53125,
+            "clientWidth": 69,
+            "scrollWidth": 69
+          },
+          {
+            "label": "Coffee",
+            "x": 894.390625,
+            "right": 964.921875,
+            "width": 70.53125,
+            "height": 70.53125,
+            "clientWidth": 69,
+            "scrollWidth": 69
+          },
+          {
+            "label": "Mountain",
+            "x": 972.921875,
+            "right": 1043.453125,
+            "width": 70.53125,
+            "height": 70.53125,
+            "clientWidth": 69,
+            "scrollWidth": 69
+          },
+          {
+            "label": "Leaf",
+            "x": 1051.453125,
+            "right": 1121.984375,
+            "width": 70.53125,
+            "height": 70.53125,
+            "clientWidth": 69,
+            "scrollWidth": 69
+          }
+        ],
+        "upload": {
+          "x": 966.09375,
+          "right": 1105,
+          "width": 138.90625,
+          "height": 32,
+          "clientWidth": 137,
+          "scrollWidth": 137
+        },
+        "controlsOutsideEditor": []
+      },
+      "screenshot": "30-profile-settings-desktop.png",
+      "passed": true
+    }
+  ],
+  "uploadPickerOpened": true,
+  "profileMutations": {
+    "iconStatus": 200,
+    "iconPersistedAfterReload": true,
+    "initialsStatus": 200,
+    "initialsPersistedAfterReload": true
+  },
+  "personalOnboarding": {
+    "completed": true,
+    "optionalBradleyPreferences": "skipped via UI",
+    "skipStatus": 200,
+    "tour": "disabled by installation"
+  },
+  "cleanup": {
+    "offboardingStatus": 200,
+    "sessionRemoved": true,
+    "seatProjection": {
+      "currentRevision": 5765,
+      "acknowledgedRevision": 5765,
+      "hashesMatch": true,
+      "localObserved": 2,
+      "controlPlaneObserved": 2,
+      "licensed": 2,
+      "approved": 4,
+      "billed": 0,
+      "drift": "in_sync",
+      "reconciliation": "in_sync"
+    },
+    "cleanupVerifiedMs": 29411
+  },
+  "errors": [
+    {
+      "type": "http",
+      "status": 404,
+      "path": "/api/public/brand/logo"
+    },
+    {
+      "type": "http",
+      "status": 404,
+      "path": "/api/public/brand/logo"
+    },
+    {
+      "type": "http",
+      "status": 403,
+      "path": "/api/instance/human-activity"
+    },
+    {
+      "type": "http",
+      "status": 404,
+      "path": "/api/public/brand/logo"
+    },
+    {
+      "type": "http",
+      "status": 404,
+      "path": "/api/public/brand/logo"
+    },
+    {
+      "type": "http",
+      "status": 403,
+      "path": "/api/instance/human-activity"
+    },
+    {
+      "type": "http",
+      "status": 400,
+      "path": "/api/sessions/onboarding-profile-c63433bd5b0790ff354a7892/bootstrap"
+    },
+    {
+      "type": "http",
+      "status": 403,
+      "path": "/api/instance/human-activity"
+    },
+    {
+      "type": "http",
+      "status": 403,
+      "path": "/api/instance/human-activity"
+    },
+    {
+      "type": "http",
+      "status": 403,
+      "path": "/api/instance/human-activity"
+    },
+    {
+      "type": "http",
+      "status": 403,
+      "path": "/api/instance/human-activity"
+    },
+    {
+      "type": "http",
+      "status": 401,
+      "path": "/api/notifications/summary"
+    }
+  ]
+}
