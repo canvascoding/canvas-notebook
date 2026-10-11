@@ -232,7 +232,8 @@ async function main() {
       buildReferencedPluginRuntimeContext,
     } = await import('../app/lib/plugins/plugin-reference-context');
     const { loadSkillsFromDisk } = await import('../app/lib/skills/skill-loader');
-    const { removeCanvasSkillRegistryRecord } = await import('../app/lib/skills/canvas-skill-store');
+    const { readCanvasSkillRegistry, removeCanvasSkillRegistryRecord } = await import('../app/lib/skills/canvas-skill-store');
+    const { capabilityStoreRegistryIdentity, normalizeCapabilityStoreOrigin } = await import('../app/lib/capabilities/packages/store-origin');
 
     const install = await installCanvasPluginFromPath(pluginRoot, { enable: true });
     assert.equal(install.success, true, install.error || JSON.stringify(install.validation));
@@ -357,22 +358,51 @@ This skill lives in the legacy global skills directory.
     assert.equal(storeInstall.plugin?.skills[0].materialized, true);
     assert.equal(storeInstall.plugin?.skills[0].preexistingStandalone, false);
 
+    const legacyStoredPlugin = (await listCanvasPlugins()).find((plugin) => plugin.name === 'test-plugin');
+    assert(legacyStoredPlugin);
+    assert.equal(legacyStoredPlugin.scopeType, 'legacy');
+    assert.equal(legacyStoredPlugin.version, '1.0.0');
+    const legacyStoreOrigin = normalizeCapabilityStoreOrigin(legacyStoredPlugin.storeOrigin, legacyStoredPlugin.resourceId);
+    assert(legacyStoreOrigin, 'the actual unscoped Store install retains its original verified import');
+    assert.equal(legacyStoreOrigin.relation, 'installed');
+    assert.equal(legacyStoreOrigin.upstreamChecksum, checksum);
+    assert.equal(legacyStoreOrigin.baselineChecksum, legacyStoredPlugin.checksum);
+    assert.equal((await readCanvasSkillRegistry()).skills['test-plugin-skill'].sourcePluginName, 'test-plugin');
+    assert.equal(await fs.stat(path.join(dataRoot, 'skills', 'test-plugin-skill', 'SKILL.md')).then((stat) => stat.isFile()), true);
+    const installedPreflight = await preflightCanvasPluginFromStore('test-plugin', undefined, 'test-user');
+    assert.equal(installedPreflight.version, '1.0.0');
+    assert.equal(installedPreflight.skillSummary.total, 1);
+    assert.equal(installedPreflight.skillSummary.installed, 1);
+    assert.equal(installedPreflight.skillSummary.repairable, 0);
+
+    // Legacy import IDs are not actor-scoped provenance. Safe Store DTOs omit materialization details.
+    const emptyStoreSkillSummary = { total: 0, installed: 0, missing: 0, updateAvailable: 0, modified: 0, repairable: 0 };
     store = await listCanvasPluginStore({ actor: { userId: 'test-user' } });
-    assert.equal(store.plugins[0].installed.installed, true);
-    assert.equal(store.plugins[0].installed.version, '1.0.0');
-    assert.equal(store.plugins[0].installed.skillSummary.total, 1);
-    assert.equal(store.plugins[0].installed.skillSummary.repairable, 0);
+    assert.equal(store.plugins[0].installed.installed, false);
+    assert.equal(store.plugins[0].installed.version, undefined);
+    assert.deepEqual(store.plugins[0].installed.resources, []);
+    assert.deepEqual(store.plugins[0].installed.skills, []);
+    assert.deepEqual(store.plugins[0].installed.skillSummary, emptyStoreSkillSummary);
+    const legacyActorResource = store.installedResources?.find((resource) => resource.artifact.name === 'test-plugin');
+    assert(legacyActorResource, 'readable legacy metadata survives an unknown Store comparison');
+    assert.equal(legacyActorResource.access.canRead, true);
+    assert.notEqual(legacyActorResource.artifact.resourceId, legacyStoredPlugin.resourceId);
+    assert.deepEqual(legacyActorResource.storeState, { origin: 'unknown', localChanges: 'unknown', upstream: 'unknown' });
 
     await fs.rm(path.join(dataRoot, 'skills', 'test-plugin-skill'), { recursive: true, force: true });
     await removeCanvasSkillRegistryRecord('test-plugin-skill');
+    assert.equal((await readCanvasSkillRegistry()).skills['test-plugin-skill'], undefined);
+    await assert.rejects(fs.stat(path.join(dataRoot, 'skills', 'test-plugin-skill', 'SKILL.md')), { code: 'ENOENT' });
 
     store = await listCanvasPluginStore({ actor: { userId: 'test-user' } });
-    assert.equal(store.plugins[0].installed.skillSummary.missing, 1);
-    assert.equal(store.plugins[0].installed.skillSummary.repairable, 1);
+    assert.equal(store.plugins[0].installed.installed, false);
+    assert.deepEqual(store.plugins[0].installed.skillSummary, emptyStoreSkillSummary);
 
     const skillRepairPreflight = await preflightCanvasPluginFromStore('test-plugin', undefined, 'test-user');
     assert.equal(skillRepairPreflight.hasSkillIssues, true);
+    assert.equal(skillRepairPreflight.skillSummary.total, 1);
     assert.equal(skillRepairPreflight.skillSummary.missing, 1);
+    assert.equal(skillRepairPreflight.skillSummary.repairable, 1);
     assert.equal(skillRepairPreflight.skills[0].status, 'missing');
 
     const repairInstall = await installCanvasPluginFromStore('test-plugin', undefined, { enable: true });
@@ -381,10 +411,58 @@ This skill lives in the legacy global skills directory.
       await fs.stat(path.join(dataRoot, 'skills', 'test-plugin-skill', 'SKILL.md')).then((stat) => stat.isFile()),
       true,
     );
+    assert.equal((await readCanvasSkillRegistry()).skills['test-plugin-skill'].sourcePluginName, 'test-plugin');
+    const repairedPreflight = await preflightCanvasPluginFromStore('test-plugin', undefined, 'test-user');
+    assert.equal(repairedPreflight.hasSkillIssues, false);
+    assert.equal(repairedPreflight.skillSummary.total, 1);
+    assert.equal(repairedPreflight.skillSummary.installed, 1);
+    assert.equal(repairedPreflight.skillSummary.missing, 0);
+    assert.equal(repairedPreflight.skillSummary.repairable, 0);
 
     store = await listCanvasPluginStore({ actor: { userId: 'test-user' } });
-    assert.equal(store.plugins[0].installed.skillSummary.missing, 0);
-    assert.equal(store.plugins[0].installed.skillSummary.repairable, 0);
+    assert.equal(store.plugins[0].installed.installed, false);
+    assert.deepEqual(store.plugins[0].installed.skillSummary, emptyStoreSkillSummary);
+
+    // A real explicit personal Store install binds the issued origin to the exact actor resource.
+    const storeUserScope = { scopeType: 'user' as const, userId: 'test-user' };
+    const legacyBeforeScopedInstall = await listCanvasPlugins();
+    const userStoreInstall = await installCanvasPluginFromStore('test-plugin', undefined, { enable: true, scope: storeUserScope });
+    assert.equal(userStoreInstall.success, true, userStoreInstall.error || JSON.stringify(userStoreInstall.validation));
+    const userStoredPlugin = (await listCanvasPlugins(storeUserScope)).find((plugin) => plugin.name === 'test-plugin');
+    assert(userStoredPlugin);
+    assert.equal(userStoredPlugin.scopeType, 'user');
+    assert.equal(userStoredPlugin.ownerUserId, 'test-user');
+    assert(userStoredPlugin.resourceId);
+    assert.notEqual(userStoredPlugin.resourceId, legacyStoredPlugin.resourceId);
+    const userStoreOrigin = normalizeCapabilityStoreOrigin(userStoredPlugin.storeOrigin, userStoredPlugin.resourceId);
+    assert(userStoreOrigin);
+    assert.equal(userStoreOrigin.relation, 'installed');
+    assert.equal(userStoreOrigin.kind, 'plugin');
+    assert.equal(userStoreOrigin.entryKey, 'test-plugin');
+    assert.equal(userStoreOrigin.registryId, 'test-store');
+    assert.equal(userStoreOrigin.registryIdentity, capabilityStoreRegistryIdentity(pathToFileURL(registryPath).toString()));
+    assert.equal(userStoreOrigin.version, '1.0.0');
+    assert.equal(userStoreOrigin.upstreamChecksum, checksum);
+    assert.equal(userStoreOrigin.baselineChecksum, await computeCanvasPluginChecksum(userStoredPlugin.installDir));
+    const userStore = await listCanvasPluginStore({ actor: { userId: 'test-user' } });
+    assert.equal(userStore.plugins[0].installed.installed, true);
+    assert.equal(userStore.plugins[0].installed.version, '1.0.0');
+    assert.equal(userStore.plugins[0].installed.updateAvailable, false);
+    assert.deepEqual(userStore.plugins[0].installed.skills, []);
+    assert.deepEqual(userStore.plugins[0].installed.skillSummary, emptyStoreSkillSummary);
+    assert.equal(userStore.plugins[0].installed.resources?.length, 1);
+    const userActorResource = userStore.plugins[0].installed.resources?.[0];
+    assert(userActorResource);
+    assert.equal(userActorResource.artifact.resourceId, userStoredPlugin.resourceId);
+    assert.equal(userActorResource.metadata.legacyResourceId, userStoredPlugin.resourceId);
+    assert.equal(userActorResource.artifact.scopeType, 'user');
+    assert.deepEqual(userActorResource.metadata.ownership, { type: 'user', ownerUserId: 'test-user', organizationId: null });
+    assert.equal(userActorResource.access.canRead, true);
+    assert.deepEqual(userActorResource.storeState, { origin: 'verified', localChanges: 'unchanged', upstream: 'current',
+      source: { registryId: 'test-store', entryKey: 'test-plugin', version: '1.0.0' } });
+    assert.equal(Object.hasOwn(userActorResource, 'storeOrigin'), false);
+    assert.equal(Object.hasOwn(userActorResource.artifact, 'checksum'), false);
+    assert.deepEqual(await listCanvasPlugins(), legacyBeforeScopedInstall, 'personal install leaves the original legacy record unchanged');
 
     const originalInstaller = 'first-installer@example.com';
     await writeFile(path.join(dataRoot, 'users', 'known-owner', 'plugins', 'registry.json'), JSON.stringify({ version: 1, updatedAt: new Date().toISOString(), plugins: {} }));
