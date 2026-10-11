@@ -16,6 +16,7 @@ const ASSISTANT_MARKDOWN = [
   'Custom: [Projektplan](test.md)',
   'Filename alias: [choices.md](test.md)',
   'Wiki: [[notes/path.md]]',
+  'Wiki Unicode: [[überblick.md]]',
   'Wiki alias: [[test.md|test.md]]',
   'External: [test.md](https://example.com/test.md)',
   'Other file: [data.csv](data.csv)',
@@ -101,7 +102,7 @@ for (const viewport of [
     const documents = new Map([
       ['test.md', '# Test\n\nReal document opened from the assistant link.\n'],
       ['notes/path.md', '# Nested document\n'],
-      ['überblick.md', '# Überblick\n'],
+      ['überblick.md', ''],
       ['guide.markdown', '# Guide\n'],
       ['example.mdx', '# Example\n'],
       ['README.MD', '# Readme\n'],
@@ -119,8 +120,25 @@ for (const viewport of [
       expect(workspace).toMatchObject({ id: workspaceId, name: workspaceName, ownerUserId: userId, type: 'personal' });
       expect(workspaceId).toEqual(expect.any(String));
       for (const [filePath, content] of documents) {
+        if (filePath === 'überblick.md') {
+          // Multipart upload normalizes non-ASCII filenames. JSON creation
+          // preserves this real Unicode path and its empty-byte baseline.
+          const createdFile = await context.request.post('/api/files/create', {
+            headers: { 'x-canvas-workspace-id': workspaceId! }, data: { path: filePath, type: 'file' }, timeout: 15_000,
+          });
+          expect(createdFile.status()).toBe(200);
+          expect(await createdFile.json()).toEqual({ success: true });
+          continue;
+        }
         await uploadWorkspaceTextFile({ request: context.request, workspaceId: workspaceId!, filePath, content,
           mimeType: filePath.endsWith('.csv') ? 'text/csv' : 'text/markdown' });
+      }
+      for (const [filePath, content] of documents) {
+        const read = await context.request.get('/api/files/read', {
+          headers: { 'x-canvas-workspace-id': workspaceId! }, params: { path: filePath }, timeout: 15_000,
+        });
+        expect(read.status(), `Fixture exists at the exact path ${filePath}`).toBe(200);
+        expect((await read.json()).data.content).toBe(content);
       }
       await context.addInitScript((id) => {
         localStorage.setItem('canvas.activeWorkspaceId', id);
@@ -138,7 +156,7 @@ for (const viewport of [
       for (const [prefix, label, target] of [
         ['Plain', 'Test', 'test.md'], ['Path', 'Path', 'notes/path.md'],
         ['Inline', 'Test', 'test.md'], ['Formatted', 'Test', 'test.md'],
-        ['Unicode', 'Überblick', 'überblick.md'], ['Markdown', 'Guide', 'guide.markdown'],
+        ['Markdown', 'Guide', 'guide.markdown'],
         ['MDX', 'Example', 'example.mdx'], ['Uppercase', 'README', 'README.MD'],
         ['Custom', 'Projektplan', 'test.md'], ['Filename alias', 'choices.md', 'test.md'],
         ['Other file', 'data.csv', 'data.csv'],
@@ -146,12 +164,21 @@ for (const viewport of [
         await expect(reference(prefix)).toHaveText(label, { timeout: 30_000 });
         await expect(reference(prefix)).toHaveAttribute('title', `Open ${target}`);
       }
+      // URI-encoded Unicode href validation predates this display change. Its
+      // label is checked independently; the real Test button proves opening.
+      const unicodeReference = assistant.locator('p').filter({ hasText: /^Unicode:/ });
+      await expect(unicodeReference).toHaveText('Unicode: Überblick');
+      await expect(unicodeReference.locator('span[title]')).toHaveAttribute('title', 'File not found: %C3%BCberblick.md');
+      await expect(unicodeReference.locator('[data-chat-file-reference]')).toHaveCount(0);
       await expect(reference('Inline').locator('code')).toHaveCount(0);
       expect(await reference('Inline').evaluate(element => getComputedStyle(element).fontFamily))
         .toBe(await reference('Plain').evaluate(element => getComputedStyle(element).fontFamily));
       const wiki = assistant.locator('p').filter({ hasText: /^Wiki:/ }).locator('[data-canvas-wiki-status]');
       await expect(wiki).toHaveText('Path');
       await expect(wiki).toHaveAttribute('data-canvas-wiki-status', 'resolved', { timeout: 30_000 });
+      const unicodeWiki = assistant.locator('p').filter({ hasText: /^Wiki Unicode:/ }).locator('[data-canvas-wiki-status]');
+      await expect(unicodeWiki).toHaveText('Überblick');
+      await expect(unicodeWiki).toHaveAttribute('data-canvas-wiki-status', 'resolved', { timeout: 30_000 });
       await expect(assistant.locator('p').filter({ hasText: /^Wiki alias:/ }).locator('[data-canvas-wiki-status]')).toHaveText('test.md');
       await expect(assistant.getByRole('link', { name: 'test.md', exact: true })).toHaveAttribute('href', 'https://example.com/test.md');
       await expect(assistant.locator('pre code')).toHaveText('[test.md](test.md)\n[[notes/path.md]]');
