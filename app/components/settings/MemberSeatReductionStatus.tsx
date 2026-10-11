@@ -1,11 +1,17 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import type { MemberSeatReductionStatus } from '@/app/lib/organization/member-seat-reduction-status';
 
-export function useMemberSeatReductionStatuses(userIds: string[], enabled: boolean, refreshKey: unknown) {
+export function useMemberSeatReductionStatuses(
+  userIds: string[], enabled: boolean, refreshKey: unknown, onSettled?: () => void,
+) {
   const selection = [...new Set(userIds)].sort().join('\n');
+  const settlementCallback = useRef(onSettled);
+  useEffect(() => {
+    settlementCallback.current = onSettled;
+  }, [onSettled]);
   const [snapshot, setSnapshot] = useState<{
     refreshKey: unknown;
     statuses: Record<string, MemberSeatReductionStatus>;
@@ -17,6 +23,7 @@ export function useMemberSeatReductionStatuses(userIds: string[], enabled: boole
     let timer: ReturnType<typeof setTimeout> | undefined;
     let disposed = false;
     const selected = selection.split('\n');
+    const previousStates = new Map<string, MemberSeatReductionStatus['state']>();
     const query = new URLSearchParams();
     for (const userId of selected) query.append('userId', userId);
     const load = async () => {
@@ -37,6 +44,10 @@ export function useMemberSeatReductionStatuses(userIds: string[], enabled: boole
           statuses: Object.fromEntries(reductions.map((status) => [status.userId, status])),
           unavailable: false,
         });
+        const settled = reductions.some((status) => status.state !== 'pending'
+          && previousStates.get(status.userId) !== status.state);
+        for (const status of reductions) previousStates.set(status.userId, status.state);
+        if (settled) settlementCallback.current?.();
         if (reductions.some((status) => status.state === 'pending')) timer = setTimeout(load, 4_000);
       } catch {
         if (disposed) return;

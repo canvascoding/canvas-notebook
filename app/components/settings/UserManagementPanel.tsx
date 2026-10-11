@@ -248,14 +248,11 @@ export function UserManagementPanel({
   const locale = useLocale();
   const [users, setUsers] = useState<ManagedUser[]>([]);
   const [teamLicenseState, setTeamLicenseState] = useState<TeamLicenseState>('checking');
-  const seatReductions = useMemberSeatReductionStatuses(
-    users.filter((user) => user.banned).map((user) => user.id),
-    isAdmin && teamLicenseState === 'active',
-    users,
-  );
   const [teamSeatHealth, setTeamSeatHealth] = useState<TeamSeatHealth | null | undefined>(undefined);
   const [teamHealthApplicable, setTeamHealthApplicable] = useState(false);
   const licenseRequest = useRef(0);
+  const licenseAbort = useRef<AbortController | null>(null);
+  const licenseMounted = useRef(true);
   const [total, setTotal] = useState(0);
   const [offset, setOffset] = useState(0);
   const [searchDraft, setSearchDraft] = useState('');
@@ -343,13 +340,18 @@ export function UserManagementPanel({
   }, [isAdmin, offset, searchValue, t, teamLicenseState]);
 
   const loadLicenseStatus = useCallback(async () => {
+    if (!licenseMounted.current) return;
     const requestId = ++licenseRequest.current;
+    licenseAbort.current?.abort();
+    const controller = new AbortController();
+    licenseAbort.current = controller;
+    const timeout = window.setTimeout(() => controller.abort(), 15_000);
     if (canViewTeamSeatHealth) setTeamSeatHealth(undefined);
     try {
       const response = await fetch('/api/license/status', {
         cache: 'no-store',
         credentials: 'include',
-        signal: AbortSignal.timeout(15000),
+        signal: controller.signal,
       });
       const payload = await response.json().catch(() => ({})) as LicenseStatusResponse;
       if (!response.ok || !isLicenseUiStatus(payload)) {
@@ -368,14 +370,35 @@ export function UserManagementPanel({
       if (requestId !== licenseRequest.current) return;
       setTeamLicenseState('unavailable');
       if (canViewTeamSeatHealth) setTeamSeatHealth(null);
+    } finally {
+      window.clearTimeout(timeout);
+      if (licenseAbort.current === controller) licenseAbort.current = null;
     }
   }, [canViewTeamSeatHealth]);
 
+  const reloadManagement = useCallback(async () => {
+    await Promise.all([loadUsers(), loadLicenseStatus()]);
+  }, [loadUsers, loadLicenseStatus]);
+
+  const seatReductions = useMemberSeatReductionStatuses(
+    users.filter((user) => user.banned).map((user) => user.id),
+    isAdmin && teamLicenseState === 'active',
+    users,
+    loadLicenseStatus,
+  );
+
   useEffect(() => {
+    licenseMounted.current = true;
     const timeout = window.setTimeout(() => {
       void loadLicenseStatus();
     }, 0);
-    return () => window.clearTimeout(timeout);
+    return () => {
+      window.clearTimeout(timeout);
+      licenseMounted.current = false;
+      licenseRequest.current += 1;
+      licenseAbort.current?.abort();
+      licenseAbort.current = null;
+    };
   }, [loadLicenseStatus]);
 
   useEffect(() => {
@@ -397,13 +420,20 @@ export function UserManagementPanel({
     setMessage(null);
   };
 
+  const changeInvitationDialog = (open: boolean) => {
+    setInviteDraft(createEmptyDraft());
+    setCreatedInviteLink(null);
+    setInviteOpen(open);
+    if (open) resetTransientState();
+  };
+
   const runAction = async (actionKey: string, action: () => Promise<void>, successMessage: string | (() => string)) => {
     setActiveAction(actionKey);
     resetTransientState();
     try {
       await action();
       setMessage(typeof successMessage === 'function' ? successMessage() : successMessage);
-      await loadUsers();
+      await reloadManagement();
     } catch (actionError) {
       setError(actionError instanceof Error ? actionError.message : t('errors.action'));
     } finally {
@@ -476,7 +506,6 @@ export function UserManagementPanel({
       setCreateOpen(false);
       setManagedPendingKey(null);
       setActivationPassword('');
-      await loadUsers();
     }, t('messages.managedPending', { email: createDraft.email.trim().toLowerCase() }));
   };
 
@@ -1096,11 +1125,11 @@ export function UserManagementPanel({
               <CardDescription>{t('description')}</CardDescription>
             </div>
             <div className="flex shrink-0 flex-wrap gap-2">
-              <Button type="button" variant="outline" onClick={() => void loadUsers()} disabled={isLoading || activeAction !== null}>
+              <Button type="button" variant="outline" onClick={() => void reloadManagement()} disabled={isLoading || activeAction !== null}>
                 {isLoading ? <Loader2 data-icon="inline-start" className="animate-spin" /> : <RefreshCw data-icon="inline-start" />}
                 {t('reload')}
               </Button>
-              <Button type="button" variant="outline" onClick={() => setInviteOpen(true)} disabled={activeAction !== null}>
+              <Button type="button" variant="outline" onClick={() => changeInvitationDialog(true)} disabled={activeAction !== null}>
                 <MailPlus data-icon="inline-start" />
                 {t('inviteUser')}
               </Button>
@@ -1328,7 +1357,7 @@ export function UserManagementPanel({
           if (permissionsTarget) {
             setMessage(t('messages.permissionsUpdated', { email: permissionsTarget.email }));
           }
-          await loadUsers();
+          await reloadManagement();
         }}
       />
 
@@ -1620,13 +1649,7 @@ export function UserManagementPanel({
 
       <Dialog
         open={inviteOpen}
-        onOpenChange={(open) => {
-          setInviteOpen(open);
-          if (!open) {
-            setInviteDraft(createEmptyDraft());
-            setCreatedInviteLink(null);
-          }
-        }}
+        onOpenChange={changeInvitationDialog}
       >
         <DialogContent className="max-h-[85dvh] overflow-y-auto">
           <DialogHeader>
@@ -1692,7 +1715,7 @@ export function UserManagementPanel({
             <Button
               type="button"
               variant="outline"
-              onClick={() => setInviteOpen(false)}
+              onClick={() => changeInvitationDialog(false)}
               disabled={activeAction === 'invite:create'}
             >
               {createdInviteLink ? t('invitationDialog.done') : t('cancel')}

@@ -1,0 +1,36 @@
+{
+  "scope": "Second plan item UI source and production build validation",
+  "sourceImage": "sha256:8d113491f9632d1eb17166862eec052cc0734d8871ad511954be9624a10fdd2e",
+  "checks": [
+    {
+      "name": "Focused ESLint of both changed TSX files",
+      "result": "passed"
+    },
+    {
+      "name": "Focused TypeScript compiler diagnostics for both changed TSX files",
+      "result": "passed",
+      "diagnosticCount": 0
+    },
+    {
+      "name": "Independent read-only callback and cleanup review",
+      "result": "passed",
+      "blockers": 0
+    },
+    {
+      "name": "Host production build, including full TypeScript validation",
+      "result": "passed",
+      "command": "npm run build"
+    },
+    {
+      "name": "Container production build and managed fixtures",
+      "result": "passed",
+      "target": "notebook",
+      "onlyNotebookRecreated": true
+    },
+    {
+      "name": "Production Playwright acceptance",
+      "result": "passed",
+      "evidence": "invitation-refresh-production-ui-checks.json"
+    }
+  ]
+}

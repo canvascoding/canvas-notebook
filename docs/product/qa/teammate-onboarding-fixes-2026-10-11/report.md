@@ -60,9 +60,27 @@ Screenshots: [ursprünglicher Fehler](04-offboarding-current-status.png), [Statu
 
 Das verwaltete lokale Startskript wurde wegen eines belegten `pipefail`/SIGPIPE-Fehlers in der Portprüfung als private, ansonsten identische Kopie ausgeführt. Diese konsumiert die gesamte `docker ps`-Ausgabe. Die Prüfung eines einzigen verwalteten Stacks, der Host-Build vor dem Container-Build und das gezielte Recreate nur von Notebook bleiben enthalten.
 
+## 2. Einladungsdialog und Lizenzanzeige
+
+Status: abgeschlossen. Fokussiertes ESLint und TypeScript, Host- und Container-Build sowie Production-Playwright-Abnahme bestanden.
+
+Im aktuellen Production-Container reproduziert: Einladung erstellt (HTTP 201), Done, erneut Invite. Der alte Link blieb sichtbar und das neue Namensfeld fehlte. Die isolierte Einladung wurde danach über die UI widerrufen (HTTP 200). Ein normaler Reload löste keinen Request zu `/api/license/status` aus. Nachweis: [invitation-refresh-before-fix.json](invitation-refresh-before-fix.json), [Dialog vor dem Fix](18-invite-dialog-reset-before-fix.png), mit maskiertem Link.
+
+Öffnen, Done und Schließen verwenden nun denselben Dialog-Reset. Der gemeinsame Aktualisierungsablauf lädt Nutzer und Lizenzstatus nach erfolgreichen Aktionen, Reload und Berechtigungsänderungen. Der vorhandene Status-Poll löst zusätzlich einen Lizenzabruf aus, wenn erstmals oder neu ein terminales Resultat sichtbar wird; unveränderte historische Resultate lösen keine weiteren Abrufe bei späteren Polls aus. Callback-Ref und Zustandsvergleich verhindern einen erneuten Start des Pollings. Lizenzrequests besitzen einen Latest-request-Schutz sowie Abort, Timeout und Unmount-Cleanup.
+
+GitNexus-Auswirkungsanalyse: der gemeinsame Aktionshelfer hat zwölf Consumer im Nutzerverwaltungs-Panel (MEDIUM); die übrigen geänderten Abläufe sind LOW. Keine zusätzlichen App-Prozesse wurden als betroffen ausgewiesen. Kein zweites Pollintervall.
+
+Production-Image: `sha256:8d113491f9632d1eb17166862eec052cc0734d8871ad511954be9624a10fdd2e`. Zwei unmittelbar aufeinanderfolgende Einladungen erhielten verschiedene Links und die erwarteten Rollen (admin/member). Nach Done, Cancel und Escape waren Name und E-Mail leer, die Administrator-Auswahl ausgeschaltet und der alte Link entfernt. Beide Einladungen wurden anschließend widerrufen; der gespeicherte Status ist jeweils `revoked`.
+
+Nach der tatsächlichen Nutzeraktivierung zeigte die Karte ohne Seitenreload `3 / 3`. Der Reload-Button erzeugte zwei erfolgreiche Lizenzabrufe statt zuvor null. Nach Offboarding zeigte der automatische Refresh zunächst `2 / 3`; mit dem abgeschlossenen Execute wechselte die Karte nach 21,407 Sekunden ohne erneuten Reload auf `2 / 2`. Das Testkonto ist archiviert und seine Session gesperrt. Abschließend: lokaler Bestand, bestätigter Control-Plane-Bestand und Zertifikat zwei; Revision/Hash bestätigt, Drift und Reconciliation `in_sync`.
+
+Die aufgezeichneten Requests stammen vom tatsächlichen UI, nicht von den separaten lesenden API-Checks. Während der laufenden Freigabe erzeugten unveränderte historische Abschlusszustände keine weiteren Lizenzabrufe. Keine JavaScript-Pageerrors; die drei erneut beobachteten HTTP-403-Antworten sind im maschinenlesbaren Nachweis separat enthalten.
+
+Nachweise: [Production-Prüfungen](invitation-refresh-production-ui-checks.json), [automatisierte Validierung](invitation-refresh-automated-checks.json), [frischer Dialog](19-invite-dialog-reset-after-done.png), [Karte nach Aktivierung](20-license-card-after-user-activation.png), [Karte nach automatischer Freigabe](21-license-card-after-automatic-seat-release.png).
+
+
 ## Noch folgende Planpunkte
 
-2. Einladungsdialog nach Done zurücksetzen und Lizenzanzeige nach Mutationen/Reload aktualisieren.
 3. Mobiles Profilformular ohne abgeschnittene Felder.
 4. Automatische Einladungs-E-Mail über System-SMTP, Versandstatus, kontrollierter erneuter Versand und klare Passworttexte.
 5. Vollständiger Production-Playwright-/Mailpit-Durchlauf für beide Rollen, wiederholte Einladungen und negative Fälle.
