@@ -38,7 +38,8 @@ import { captureCollaborationCompactionRequest } from './compaction-contract';
 import { captureRepresentationAdmissionRequest } from './representation-admission-contract';
 import { collaborationUpdateStateProof } from './state-proof';
 import { captureCollaborationAdmissionWriterScope, CollaborationAdmissionError, type CollaborationAdmissionRequest } from './room-admission-contract';
-import { assertCollaborationAdmissionOpen, lockCollaborationAdmissionWorkspace } from './room-admission';
+import { assertCollaborationAdmissionOpen } from './room-admission';
+import { lockFileLifecycleCollaborationWriterAdmission } from './file-lifecycle-writer-admission';
 import { CollaborationCheckpointQuarantinedError, CollaborationCheckpointRequestError, COLLABORATION_CHECKPOINT_ERROR_CODES } from './checkpoint-errors';
 import { COLLABORATION_FAILURE_CODES, isCollaborationStateQuarantined } from './failure';
 import type { CollaborationProjectionStatus } from './types';
@@ -251,7 +252,7 @@ export async function ensureCollaborationState(input: {
         await database.run("SET LOCAL lock_timeout = '4s'");
         const query = async (sql: string, values?: unknown[]) =>
           await database.all(sql, values) as Array<Record<string, unknown>>;
-        await lockCollaborationAdmissionWorkspace(query, input.workspaceId);
+        await lockFileLifecycleCollaborationWriterAdmission(query, { ...input, lifecycleGeneration: 1, schemaVersion: 1 });
         const current = await database.get('SELECT * FROM collaboration_yjs_states WHERE document_id = $1',
           [input.documentId]) as StateRow | undefined;
         if (current) return validate(mapState(current));

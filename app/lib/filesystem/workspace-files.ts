@@ -33,6 +33,8 @@ export type { FileNode } from '@/app/lib/files/types';
 export interface WorkspaceFileOperationOptions {
   workspace?: WorkspaceContext;
   includeMetadata?: boolean;
+  /** Fail the listing if any visible child's metadata cannot be inspected. */
+  strictMetadata?: boolean;
   includeSymlinks?: boolean;
   mutationActorUserId?: string;
 }
@@ -205,7 +207,7 @@ export async function listDirectory(
     async (entry) => {
     const node = toNode(entry);
     const entryPath = path.join(fullPath, entry.name);
-    const stats = await safeStat(entryPath);
+    const stats = options?.strictMetadata ? await fs.stat(entryPath) : await safeStat(entryPath);
     if (!stats) return null;
 
     return {

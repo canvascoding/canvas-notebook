@@ -1,17 +1,12 @@
 import 'server-only';
 
-import { AsyncLocalStorage } from 'node:async_hooks';
 import { openDb, type SqlConnection } from '@/app/lib/db';
 import { collaborationAdmissionLockKey, isCanonicalAdmissionPath } from '@/app/lib/collaboration/room-admission-contract';
+import { getWorkspaceFileLifecycleLeases, withWorkspaceFileLifecycleLeases,
+  type WorkspaceFileLifecycleLease } from '@/app/lib/collaboration/file-lifecycle-admission-context';
 import { lockIdentity } from '@/app/lib/collaboration/room-owner';
 import { getCollaborationRoomConnectionCount } from '@/app/lib/collaboration/runtime-state';
 import { withWorkspaceMutationLock } from './workspace-mutation-lock';
-
-type GuardLease = { active: boolean; verify: () => Promise<boolean> };
-const shared = globalThis as typeof globalThis & {
-  __canvasWorkspaceFileLifecycleGuardV1?: AsyncLocalStorage<ReadonlyMap<string, GuardLease>>;
-};
-const context = shared.__canvasWorkspaceFileLifecycleGuardV1 ??= new AsyncLocalStorage<ReadonlyMap<string, GuardLease>>();
 
 export class WorkspaceFileLifecycleBusyError extends Error {
   readonly code = 'COLLABORATION_FILE_LIFECYCLE_BUSY';
@@ -33,7 +28,7 @@ function capturePaths(workspaceId: string, paths: readonly string[]): string[] {
 export async function assertWorkspaceFileLifecycleSqlAvailable(database: SqlConnection,
   workspaceId: string, inputPaths: readonly string[]): Promise<void> {
   const paths = capturePaths(workspaceId, inputPaths);
-  const lease = context.getStore()?.get(workspaceId);
+  const lease = getWorkspaceFileLifecycleLeases()?.get(workspaceId);
   if (!lease || !await lease.verify()) {
     const acquired = await database.get('SELECT pg_try_advisory_xact_lock($1::bigint) AS locked', [collaborationAdmissionLockKey(workspaceId)]) as { locked?: boolean } | undefined;
     if (acquired?.locked !== true) throw new WorkspaceFileLifecycleBusyError();
@@ -70,14 +65,14 @@ export async function withWorkspaceFileLifecycleGuard<T>(input: { workspaceId: s
   operation: () => Promise<T>, openConnection: () => Promise<SqlConnection> = openDb): Promise<T> {
   const paths = capturePaths(input.workspaceId, input.paths);
   return withWorkspaceMutationLock(input.workspaceId, async () => {
-    const inheritedLease = context.getStore()?.get(input.workspaceId);
+    const inheritedLease = getWorkspaceFileLifecycleLeases()?.get(input.workspaceId);
     const alreadyHeld = inheritedLease?.active === true && await inheritedLease.verify();
     const database = await openConnection();
     let acquired = false;
     let closed = false;
     const key = collaborationAdmissionLockKey(input.workspaceId);
     const unsigned = BigInt.asUintN(64, BigInt(key));
-    const lease: GuardLease = alreadyHeld ? inheritedLease! : {
+    const lease: WorkspaceFileLifecycleLease = alreadyHeld ? inheritedLease! : {
       active: true,
       verify: async () => {
         if (!lease.active || closed) return false;
@@ -87,7 +82,7 @@ export async function withWorkspaceFileLifecycleGuard<T>(input: { workspaceId: s
               AND database = (SELECT oid FROM pg_database WHERE datname = current_database())
               AND classid::bigint = $1 AND objid::bigint = $2 AND objsubid = 1) AS held`,
           [Number(unsigned >> BigInt(32)), Number(unsigned & BigInt('0xffffffff'))]) as { held?: boolean } | undefined;
-          if (held?.held === true) return true;
+          if (held?.held === true && lease.active && !closed) return true;
         } catch { /* A lost dedicated session cannot authorize a new SQL writer. */ }
         lease.active = false;
         return false;
@@ -107,9 +102,9 @@ export async function withWorkspaceFileLifecycleGuard<T>(input: { workspaceId: s
         if (result?.locked !== true) throw new WorkspaceFileLifecycleBusyError();
         acquired = true;
       }
-      const held = new Map(context.getStore());
+      const held = new Map(getWorkspaceFileLifecycleLeases());
       held.set(input.workspaceId, lease);
-      return await context.run(held, async () => {
+      return await withWorkspaceFileLifecycleLeases(held, async () => {
         await database.run('BEGIN');
         try {
           await assertWorkspaceFileLifecycleSqlAvailable(database, input.workspaceId, paths);
