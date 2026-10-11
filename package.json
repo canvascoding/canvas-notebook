@@ -725,6 +725,7 @@
     "test:plugins:connections:native-harness": "tsx scripts/shared-mcp-oauth-electron-harness-ownership-test.ts && tsx scripts/shared-composio-oauth-electron-harness-ownership-test.ts",
     "test:plugins:connections:composio-desktop:production": "node scripts/agent-settings-tools-browser-runner.cjs run-workflow-composio-desktop",
     "test:plugins:connections:composio-live:production": "node scripts/agent-settings-tools-browser-runner.cjs run-workflow-composio-live",
+    "test:plugins:connections:composio-live-model:production": "node --conditions=react-server --import tsx scripts/helpers/composio-live-model-replay-fixture.ts",
     "test:capabilities:packages:native": "tsx --conditions react-server scripts/capability-package-native-test.ts",
     "test:capabilities:preferences:lock": "tsx --conditions react-server scripts/capability-preference-lock-test.ts",
     "test:skills:scripts": "tsx --conditions react-server scripts/skill-script-manifest-test.ts && tsx --conditions react-server scripts/skill-script-authorization-test.ts && tsx --conditions react-server scripts/skill-script-tool-bridge-test.ts && tsx --conditions react-server scripts/skill-script-actions-test.ts",
