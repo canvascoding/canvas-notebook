@@ -109,6 +109,7 @@ async function main() {
           await fs.writeFile(absolute(group.path), group.afterContent); authoritative.delete(group.path); events.push(`checkpoint:${group.path}`);
         });
       },
+      releaseLinkRoom: async (input, group) => { events.push(`release:${group.path}:${input.operationId}`); },
       ...overrides,
     });
     const actions: WorkspaceOperationBatchAction[] = [
@@ -162,8 +163,30 @@ async function main() {
     assert.equal(events.length, eventCount, 'Occupied original slot blocks before backlink mutation');
     await fs.unlink(absolute('notes/a.md'));
     await makeExecutor().assertUndoAvailable({ batchId, scope });
+    const beforeRefusedRelease = events.length;
+    const releaseRefused = await makeExecutor({ releaseLinkRoom: async (input, group) => {
+      if (input.operationId.endsWith('-undo')) {
+        events.push(`release-refused:${group.path}`);
+        throw Object.assign(new Error('Internal owner release is unproven.'), { code: 'ROOM_OWNER_BUSY' });
+      }
+    } }).undo({ batchId, scope, actorUserId: 'tester', actorDisplayName: 'Tester' });
+    assert.equal(releaseRefused.status, 'needs_recovery');
+    assert.equal(releaseRefused.errorCode, 'ROOM_OWNER_BUSY');
+    await assert.rejects(fs.stat(absolute('notes/a.md')), { code: 'ENOENT' });
+    assert.ok(await fs.stat(absolute('channels/a.md')));
+    assert.ok(!events.slice(beforeRefusedRelease).some(event => event.startsWith('move:') || event.startsWith('restore:')),
+      'An unproven owner release never starts inverse physical paths');
+    const refusedEvents = events.slice(beforeRefusedRelease);
+    const checkpointIndex = refusedEvents.indexOf('checkpoint:channels/a.md');
+    assert.ok(checkpointIndex >= 0 && refusedEvents.indexOf('release-refused:channels/a.md') > checkpointIndex,
+      'Inverse content is durably checkpointed before its exact owner release is requested');
+    const beforeReleaseRecovery = events.length;
     const undone = await makeExecutor().undo({ batchId, scope, actorUserId: 'tester', actorDisplayName: 'Tester' });
     assert.equal(undone.status, 'applied', undone.errorCode ?? '');
+    const inverseEvents = events.slice(beforeReleaseRecovery);
+    const releaseIndex = inverseEvents.indexOf(`release:channels/a.md:${batchId}-undo`);
+    const reversePathIndex = inverseEvents.indexOf('move:channels/a.md');
+    assert.ok(releaseIndex >= 0 && reversePathIndex > releaseIndex, 'Durable owner release precedes the inverse path mutation on recovery');
     await Promise.all(queuedProjections.splice(0));
     for (const [filename, content] of Object.entries(baseline)) assert.equal(await fs.readFile(absolute(filename), 'utf8'), content);
     await assert.rejects(fs.stat(absolute('channels/a.md')), { code: 'ENOENT' });

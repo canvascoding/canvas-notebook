@@ -19,6 +19,7 @@ import { preflightWorkspaceLinkWrites, applyWorkspaceLinkWriteGroup, probeWorksp
   type WorkspaceLinkWriteExecutorInput, type WorkspaceLinkWritePreflight } from '@/app/lib/markdown/workspace-link-write-executor';
 import { groupWorkspaceLinkWrites, type WorkspaceLinkWriteGroup } from '@/app/lib/markdown/workspace-link-write-groups';
 import { authoritativeCollaborationSnapshot, materializeCollaborationCheckpoint } from '@/app/lib/collaboration/checkpoint';
+import { ensureCollaborationDocumentIdleReleased } from '@/app/lib/collaboration/document-idle-release';
 import { loadCollaborationState, serializeCanonicalText } from '@/app/lib/collaboration/persistence';
 import { computeWorkspaceFileOperationPlanId } from '@/app/lib/markdown/workspace-file-operation-planner';
 import { buildWorkspacePlannerSnapshot } from '@/app/lib/markdown/workspace-file-operation-preview';
@@ -76,6 +77,7 @@ type Dependencies = {
   applyLink?: typeof applyWorkspaceLinkWriteGroup;
   probeLink?: typeof probeWorkspaceLinkWriteGroup;
   checkpointLink?: (input: WorkspaceLinkWriteExecutorInput, group: WorkspaceLinkWriteGroup, documentId: string | null) => Promise<void>;
+  releaseLinkRoom?: (input: WorkspaceLinkWriteExecutorInput, group: WorkspaceLinkWriteGroup, documentId: string | null) => Promise<void>;
   documentProof?: (scope: WorkspaceOperationBatchScope, filePath: string) => Promise<{ documentId: string; lifecycleGeneration: number } | null>;
 };
 
@@ -103,6 +105,22 @@ async function checkpointBatchLink(input: WorkspaceLinkWriteExecutorInput, group
     await materializeCollaborationCheckpoint({ state, workspace: input.destination.workspace,
       actorUserId: input.actorUserId, actorType: input.actorType ?? 'user', sourceSessionId: input.actorSessionId });
   }
+}
+
+/** Only inverse path mutations need a positive release of their own internal link writer. */
+async function releaseBatchLinkRoom(input: WorkspaceLinkWriteExecutorInput, group: WorkspaceLinkWriteGroup, documentId: string | null): Promise<void> {
+  if (!documentId) return;
+  const state = await loadCollaborationState(documentId);
+  if (!state || state.status !== 'active' || state.degraded || state.workspaceId !== group.workspaceId
+    || state.path !== group.path || state.organizationId !== (input.destination.workspace.organizationId ?? null)
+    || digest(serializeCanonicalText(authoritativeCollaborationSnapshot(state).canonicalContent, state)) !== group.afterSha256) {
+    throw new Error('BATCH_UNDO_RELEASE_STATE_CHANGED');
+  }
+  await ensureCollaborationDocumentIdleReleased({ operationId: input.operationId, scope: {
+    workspaceId: state.workspaceId, organizationId: state.organizationId, documentId: state.documentId,
+    path: state.path, representation: state.representation,
+    lifecycleGeneration: state.lifecycleGeneration, schemaVersion: state.schemaVersion,
+  } });
 }
 
 async function treeAt(root: string): Promise<TreeEntry[]> {
@@ -165,6 +183,7 @@ export function createWorkspaceOperationBatchExecutor(dependencies: Dependencies
   const applyLink = dependencies.applyLink ?? applyWorkspaceLinkWriteGroup;
   const probeLink = dependencies.probeLink ?? probeWorkspaceLinkWriteGroup;
   const checkpointLink = dependencies.checkpointLink ?? checkpointBatchLink;
+  const releaseLinkRoom = dependencies.releaseLinkRoom ?? releaseBatchLinkRoom;
   const documentProof = dependencies.documentProof ?? batchDocumentProof;
   const filename = (batchId: string) => {
     if (!idPattern.test(batchId)) throw new Error('BATCH_INVALID_ID');
@@ -576,7 +595,30 @@ export function createWorkspaceOperationBatchExecutor(dependencies: Dependencies
     assertAccess(input);
     const initial = await load(input.batchId);
     if (!initial || initial.workspaceId !== input.scope.workspace.workspaceId) throw new Error('BATCH_ID_CONFLICT');
-    return withPathLifecycle(input.scope, initial.plan, async () => {
+    return withLock(input.scope, async () => {
+    assertAccess(input);
+    const preparing = await load(input.batchId);
+    if (!preparing || preparing.workspaceId !== input.scope.workspace.workspaceId) throw new Error('BATCH_ID_CONFLICT');
+    // A just-completed forward writer may still await its idle unload. Release
+    // only this batch's exact moved-source writer before the path guard checks
+    // for live owners. The kernel lock remains held through the later guard.
+    try {
+      const recovering = preparing.status === 'undoing' && preparing.undoPlan !== null;
+      const release = recovering ? recoveredUndoLinks(input, preparing) : {
+        input: linkInput(input, preparing), groups: groupWorkspaceLinkWrites(preparing.plan.linkPlan), preflight: preparing.linkPreflight,
+      };
+      if (preparing.status === 'applied' || recovering) for (const group of release.groups) {
+        if (!preparing.plan.pathSteps.some(step => step.kind !== 'delete' && samePath(group.path, step.destinationPath!))) continue;
+        if (recovering && await probeLink(release.input, group, { preflight: release.preflight ?? undefined }) !== 'after') continue;
+        const documentId = release.preflight?.sources.find(source => source.sourcePathBefore === group.sourcePathBefore)?.documentId ?? null;
+        await releaseLinkRoom(release.input, group, documentId);
+      }
+    } catch (error) {
+      preparing.errorCode = workspaceOperationBatchErrorCode(error, 'BATCH_UNDO_RELEASE_FAILED');
+      await save(preparing);
+      return { ...result(preparing), status: preparing.status === 'undoing' ? 'needs_recovery' : 'failed' };
+    }
+    return withPathLifecycle(input.scope, preparing.plan, async () => {
     assertAccess(input);
     const manifest = await load(input.batchId);
     if (!manifest || manifest.workspaceId !== input.scope.workspace.workspaceId) throw new Error('BATCH_ID_CONFLICT');
@@ -643,6 +685,15 @@ export function createWorkspaceOperationBatchExecutor(dependencies: Dependencies
         if (Date.now() >= undoCheckpointDeadline) throw new Error('BATCH_UNDO_CHECKPOINT_PENDING');
         await progress(input, manifest, 'recovery'); await new Promise((resolve) => setTimeout(resolve, 200));
       }
+      // Inverse writes precede inverse path work. Direct disconnect may defer
+      // its idle unload; prove the exact writer's durable release before any
+      // nested path guard is asked to move that Markdown file or its directory.
+      const releaseRecovered = recoveredUndoLinks(input, manifest);
+      for (const group of releaseRecovered.groups) {
+        if (!manifest.plan.pathSteps.some(step => step.kind !== 'delete' && samePath(group.path, step.destinationPath!))) continue;
+        const documentId = releaseRecovered.preflight?.sources.find(source => source.sourcePathBefore === group.sourcePathBefore)?.documentId ?? null;
+        await releaseLinkRoom(releaseRecovered.input, group, documentId);
+      }
       for (const [index, step] of [...manifest.plan.pathSteps.entries()].reverse()) {
         const key = `path:${index}`;
         const applied = manifest.steps.find((candidate) => candidate.key === key)!;
@@ -687,6 +738,7 @@ export function createWorkspaceOperationBatchExecutor(dependencies: Dependencies
       await save(manifest);
       return { ...result(manifest), status: manifest.undoSteps.length || !forwardComplete ? 'needs_recovery' : 'failed' };
     }
+    });
     });
   };
 

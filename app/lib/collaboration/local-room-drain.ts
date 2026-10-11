@@ -9,6 +9,11 @@ import { CollaborationRoomOwnerError, type CollaborationRoomOwnerScope } from '.
 type LocalRoomDrainer = Readonly<{
   drain: (ticket: CollaborationAdmissionDrainTicket) => Promise<void>;
   drainLegacy?: (scope: CollaborationRoomOwnerScope) => Promise<void>;
+  releaseIdle?: (input: CollaborationDocumentIdleReleaseInput) => Promise<void>;
+}>;
+export type CollaborationDocumentIdleReleaseInput = Readonly<{
+  scope: CollaborationRoomOwnerScope;
+  operationId: string;
 }>;
 const registry = globalThis as typeof globalThis & { __canvasLocalRoomDrainer?: LocalRoomDrainer };
 
@@ -35,4 +40,12 @@ export async function drainLocalCollaborationRoomLegacy(scope: CollaborationRoom
   const drainer = registry.__canvasLocalRoomDrainer;
   if (!drainer?.drainLegacy) throw new CollaborationRoomOwnerError('ROOM_OWNER_UNAVAILABLE');
   await drainer.drainLegacy(Object.freeze({ ...scope }));
+}
+
+/** Private batch boundary: never closes peer connections or grants a lifecycle write. */
+export async function ensureCollaborationDocumentIdleReleased(input: CollaborationDocumentIdleReleaseInput): Promise<void> {
+  const drainer = registry.__canvasLocalRoomDrainer;
+  if (!drainer?.releaseIdle) throw new CollaborationRoomOwnerError('ROOM_OWNER_UNAVAILABLE');
+  if (!input.operationId.trim()) throw new CollaborationRoomOwnerError('ROOM_OWNER_SCOPE_CHANGED');
+  await drainer.releaseIdle(Object.freeze({ operationId: input.operationId, scope: Object.freeze({ ...input.scope }) }));
 }

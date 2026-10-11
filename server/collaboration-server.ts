@@ -1,4 +1,5 @@
 import { assertCollaborationAdmissionOpen, tryLockCollaborationAdmissionWorkspace } from '@/app/lib/collaboration/room-admission';
+import { tryLockFileLifecycleCollaborationWriterAdmission } from '@/app/lib/collaboration/file-lifecycle-writer-admission';
 import { readRepresentationDrainRequest, refuseRepresentationAdmissionDrain } from '@/app/lib/collaboration/representation-drain-refusal';
 import { installRichMigrationRuntime, noteRichMigrationWorkerSuccess, noteRichMigrationWorkerFailure } from '@/app/lib/collaboration/representation-migration-runtime';
 import type http from 'node:http';
@@ -68,6 +69,7 @@ import {
 } from '@/app/lib/collaboration/room-owner';
 import { createCollaborationRoomOwnerRuntime, type CollaborationRoomOwnerRuntimeOptions } from '@/app/lib/collaboration/room-owner-runtime';
 import { createOwnedRoomUnloadCoordinator } from '@/app/lib/collaboration/owned-room-unload';
+import { assertCollaborationDocumentIdleReleaseProof } from '@/app/lib/collaboration/document-idle-release';
 import type { CollaborationRoomReleaseSnapshot } from '@/app/lib/collaboration/room-owner-release';
 import {
   matchesCollaborationAdmissionDrainFence,
@@ -341,14 +343,16 @@ async function assertDirectConnectionDocument(input: AgentDirectConnectionInput,
 }
 
 /** Caller retains the workspace kernel fence through local admission or mutation. */
-async function assertCurrentCollaborationAdmissionOpen(scope: Pick<CollaborationRoomOwnerScope, 'workspaceId' | 'path' | 'documentId'>): Promise<void> {
+async function assertCurrentCollaborationAdmissionOpen(scope: CollaborationRoomOwnerScope | Pick<CollaborationTicketClaims,
+  'documentId' | 'workspaceId' | 'organizationId' | 'path' | 'representation' | 'lifecycleGeneration' | 'schemaVersion'>): Promise<void> {
   const database = await openDb();
   try {
     await database.run('BEGIN');
     await database.run("SET LOCAL statement_timeout = '5s'");
     await database.run("SET LOCAL lock_timeout = '4s'");
     const query = async (sql: string, values?: unknown[]) => await database.all(sql, values) as Array<Record<string, unknown>>;
-    await tryLockCollaborationAdmissionWorkspace(query, scope.workspaceId);
+    if (scope.representation === 'excalidraw_scene') await tryLockCollaborationAdmissionWorkspace(query, scope.workspaceId);
+    else await tryLockFileLifecycleCollaborationWriterAdmission(query, { ...scope, representation: scope.representation });
     await assertCollaborationAdmissionOpen(query, scope);
     await database.run('COMMIT');
   } finally { await database.close(new Error('Discarding admission join check session.')); }
@@ -408,6 +412,8 @@ export function createCollaborationServer(server: http.Server, options: {
   const pendingStartups = new WeakMap<Request, Map<string, Set<ReturnType<typeof createCollaborationRoomStartupActivity>>>>();
   const startupPhases = new WeakMap<ReturnType<typeof createCollaborationRoomStartupActivity>, 'auth' | 'authenticated' | 'loading' | 'loaded'>();
   const admittedDirectCreates = new WeakSet<CollaborationContext>();
+  // Only exact rooms born from Direct work may be synchronously released by that operation.
+  const directOwnedRooms = new WeakMap<Document, { operationId: string; fence: CollaborationRoomOwnerFence }>();
   const lastRoomContexts = new WeakMap<Document, { context: CollaborationContext; origin: unknown }>();
   // Hocuspocus caches by document ID, while restore/migration reuse that ID
   // with a new generation. The room keeps the identity of the bytes it loaded.
@@ -1281,6 +1287,33 @@ export function createCollaborationServer(server: http.Server, options: {
     const uninstallDrainer = installLocalCollaborationRoomDrainer({
       drain: drainTicket,
       drainLegacy: (scope) => drainOwnedRoom(scope),
+      releaseIdle: ({ scope, operationId }) => withWorkspaceMutationLock(scope.workspaceId, async () => {
+        roomOwners.assertAvailable();
+        const document = hocuspocus.documents.get(scope.documentId);
+        let fence: CollaborationRoomOwnerFence | undefined;
+        if (document) {
+          const owned = directOwnedRooms.get(document);
+          if (!owned || owned.operationId !== operationId || document.isLoading || document.getConnectionsCount() !== 0) {
+            throw new CollaborationRoomOwnerError('ROOM_OWNER_BUSY');
+          }
+          assertRoomIdentity(document, scope);
+          fence = owned.fence;
+          // Outside Direct activity and its concrete room mutex: normal unload
+          // can now persist its frozen bytes and await the durable exact-owner release.
+          await runOwnedRoomUnload(document);
+          if (!document.isDestroyed || hocuspocus.documents.has(scope.documentId)) {
+            throw new CollaborationRoomOwnerError('ROOM_OWNER_BUSY');
+          }
+        }
+        const database = await openDb();
+        try {
+          await database.run('BEGIN');
+          await database.run("SET LOCAL statement_timeout = '5s'");
+          await database.run("SET LOCAL lock_timeout = '4s'");
+          await assertCollaborationDocumentIdleReleaseProof(database, scope, fence);
+          await database.run('COMMIT');
+        } finally { await database.close(new Error('Discarding idle room release proof session.')); }
+      }),
     });
     const admissionWorker = roomAdmission && createCollaborationRoomAdmissionWorker({
       getOwnedFences: roomOwners.listOwnedFences,
@@ -1377,6 +1410,7 @@ export function createCollaborationServer(server: http.Server, options: {
       releaseRoomAdmission,
     };
     admittedDirectCreates.add(context);
+    const inheritedRoom = hocuspocus.documents.has(input.documentId) || hocuspocus.loadingDocuments.has(input.documentId);
     const connection = await hocuspocus.openDirectConnection(input.documentId, context).then(
       (openedConnection) => {
         context.releaseRoomAdmission?.();
@@ -1392,6 +1426,10 @@ export function createCollaborationServer(server: http.Server, options: {
     let result: unknown;
     let settleHistoryOwnership: ((owned: boolean) => void) | undefined;
     try {
+      const directRoom = connection.document;
+      if (roomOwners && directRoom && (!inheritedRoom || directOwnedRooms.has(directRoom))) {
+        directOwnedRooms.set(directRoom, { operationId: input.operationId, fence: roomOwners.fence(directRoom) });
+      }
       await withWorkspaceMutationLock(workspace.workspaceId, async () => {
         const document = connection.document;
         if (!document) throw new Error('The direct collaboration connection is closed.');

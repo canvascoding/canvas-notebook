@@ -5,6 +5,7 @@ import { createHash } from 'node:crypto';
 import { isLiveCollaborationDocumentReaderAvailable } from '@/app/lib/collaboration/document-access';
 import { isCollaborationDirectConnectionAvailable } from '@/app/lib/collaboration/direct-connection';
 import { resolveTextCollaborationState } from '@/app/lib/collaboration/document-state-service';
+import { withWorkspaceFileLifecycleCollaborationWrite } from '@/app/lib/collaboration/file-lifecycle-admission-context';
 import { loadCollaborationStateIncludingArchived } from '@/app/lib/collaboration/persistence';
 import { getFileCollaborationState, readFileCollaborationState } from '@/app/lib/files/collaboration-policy';
 import { getFileStats, readFile, type WorkspaceFileOperationOptions } from '@/app/lib/filesystem/workspace-files';
@@ -298,16 +299,25 @@ export function createWorkspaceLinkWriteExecutor(dependencies: Dependencies = {}
             throw new WorkspaceLinkWriteExecutorError('LINK_WRITE_STALE_DOCUMENT',
               'Copied collaboration identity changed before Yjs initialization.');
           }
+          const copiedDocument = metadata.document;
           const initialContent = currentBytes.toString('utf8');
           if (initialContent.charCodeAt(0) === 0xfeff || /\r/u.test(initialContent)) {
             throw new WorkspaceLinkWriteExecutorError('LINK_WRITE_UNSUPPORTED',
               'Exact Yjs link edits require Markdown with LF and no BOM.');
           }
-          const resolved = await resolveTextState({
-            document: metadata.document, workspace: input.destination.workspace,
+          const resolved = await withWorkspaceFileLifecycleCollaborationWrite({
+            workspaceId: input.destination.workspace.workspaceId,
+            organizationId: input.destination.workspace.organizationId ?? null,
+            documentId,
+            path: planned.path,
+            representation: 'plain_text',
+            lifecycleGeneration: 1,
+            schemaVersion: 1,
+          }, () => resolveTextState({
+            document: copiedDocument, workspace: input.destination.workspace,
             path: planned.path, initialRepresentation: 'plain_text', initialContent,
             requireRepresentationMatch: true,
-          });
+          }));
           if (resolved.state.documentId !== documentId
             || resolved.state.workspaceId !== planned.workspaceId || resolved.state.path !== planned.path
             || resolved.state.representation !== 'plain_text' || resolved.state.status !== 'active'
@@ -428,11 +438,19 @@ export function createWorkspaceLinkWriteExecutor(dependencies: Dependencies = {}
           }
           const persisted = await loadPersistedState(documentId);
           const initialRepresentation = persisted?.representation ?? 'plain_text';
-          const resolved = await resolveTextState({
+          const resolved = await withWorkspaceFileLifecycleCollaborationWrite({
+            workspaceId: input.source.workspace.workspaceId,
+            organizationId: input.source.workspace.organizationId ?? null,
+            documentId,
+            path: group.sourcePathBefore,
+            representation: initialRepresentation,
+            lifecycleGeneration: persisted?.lifecycleGeneration ?? 1,
+            schemaVersion: persisted?.schemaVersion ?? 1,
+          }, () => resolveTextState({
             document: metadata.document!, workspace: input.source.workspace,
             path: group.sourcePathBefore, initialRepresentation,
             initialContent, requireRepresentationMatch: true,
-          });
+          }));
           if (resolved.state.documentId !== documentId
             || resolved.state.workspaceId !== group.sourceWorkspaceId
             || resolved.state.path !== group.sourcePathBefore
