@@ -899,6 +899,7 @@
   },
   "devDependencies": {
     "@electric-sql/pglite": "0.5.4",
+    "@electric-sql/pglite-pgvector": "0.0.5",
     "@playwright/test": "^1.61.1",
     "@swc/helpers": "^0.5.23",
     "@tailwindcss/postcss": "^4",

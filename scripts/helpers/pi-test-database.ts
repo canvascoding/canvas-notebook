@@ -1,4 +1,5 @@
 import { PGlite } from '@electric-sql/pglite';
+import { vector } from '@electric-sql/pglite-pgvector';
 import { drizzle } from 'drizzle-orm/pglite';
 
 import { runPostgresMigrations } from '../../app/lib/db/postgres';
@@ -7,7 +8,8 @@ import * as schema from '../../app/lib/db/schema';
 // Each test gets a new, in-memory PostgreSQL
 // database with the real Canvas schema; no configured DATABASE_URL is opened.
 export async function createPiTestDatabase() {
-  const postgres = new PGlite();
+  // Register the real extension so vector-enabled production migrations also run in the fixture.
+  const postgres = new PGlite({ extensions: { vector } });
   try {
     await runPostgresMigrations(postgres as unknown as Parameters<typeof runPostgresMigrations>[0]);
   } catch (error) {
