@@ -12,6 +12,7 @@ import { TeamSeatHealthPanel } from '@/app/components/license/TeamSeatHealthPane
 import { isLicenseUiStatus, isTeamLicenseApplicable } from '@/app/lib/license/ui-policy';
 import { UserPermissionsDialog } from './UserPermissionsDialog';
 import { SettingsAccordionCard } from './SettingsAccordionCard';
+import { MemberSeatReductionStatusLabel, useMemberSeatReductionStatuses } from './MemberSeatReductionStatus';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import {
   AlertDialog,
@@ -247,6 +248,11 @@ export function UserManagementPanel({
   const locale = useLocale();
   const [users, setUsers] = useState<ManagedUser[]>([]);
   const [teamLicenseState, setTeamLicenseState] = useState<TeamLicenseState>('checking');
+  const seatReductions = useMemberSeatReductionStatuses(
+    users.filter((user) => user.banned).map((user) => user.id),
+    isAdmin && teamLicenseState === 'active',
+    users,
+  );
   const [teamSeatHealth, setTeamSeatHealth] = useState<TeamSeatHealth | null | undefined>(undefined);
   const [teamHealthApplicable, setTeamHealthApplicable] = useState(false);
   const licenseRequest = useRef(0);
@@ -1197,6 +1203,9 @@ export function UserManagementPanel({
                           {isBanned && user.banReason && (
                             <span className="max-w-44 truncate">{user.banReason}</span>
                           )}
+                          {isBanned && (
+                            <MemberSeatReductionStatusLabel status={seatReductions.statuses[user.id]} unavailable={seatReductions.unavailable} />
+                          )}
                         </div>
                       </div>
                       <div className="flex items-center justify-between gap-3">
@@ -1269,6 +1278,9 @@ export function UserManagementPanel({
                             </Badge>
                             {isBanned && user.banReason && (
                               <span className="max-w-56 truncate text-xs text-muted-foreground">{user.banReason}</span>
+                            )}
+                            {isBanned && (
+                              <MemberSeatReductionStatusLabel status={seatReductions.statuses[user.id]} unavailable={seatReductions.unavailable} />
                             )}
                           </div>
                         </TableCell>

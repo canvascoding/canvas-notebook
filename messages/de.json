@@ -4971,6 +4971,12 @@
         "active": "Aktiv",
         "banned": "Gesperrt"
       },
+      "seatReduction": {
+        "pending": "Lizenzplatz wird freigegeben",
+        "completed": "Lizenzplatz freigegeben",
+        "failed": "Freigabe des Lizenzplatzes fehlgeschlagen",
+        "unavailable": "Status der Lizenzplatz-Freigabe nicht verfügbar"
+      },
       "actions": {
         "makeAdmin": "Admin",
         "makeUser": "User",

@@ -239,6 +239,19 @@ async function rollbackQuietly(database: Pick<SqlConnection, 'run'>): Promise<vo
   }
 }
 
+/** Serialize active membership projections within the caller's transaction. */
+export async function lockTeamMembershipProjection(
+  database: Pick<SqlConnection, 'get'>,
+  organizationId: string,
+): Promise<void> {
+  // NO KEY UPDATE remains compatible with foreign-key KEY SHARE locks held by
+  // identity/permission inserts that precede membership activation.
+  await database.get(`
+    SELECT organization_id FROM canvas_organization_settings
+    WHERE organization_id = $1 FOR NO KEY UPDATE
+  `, [organizationId]);
+}
+
 async function withMembershipTransaction<T>(
   database: Pick<SqlConnection, 'run'>,
   operation: () => Promise<T>,
@@ -428,6 +441,7 @@ export async function adoptActiveTeamMembership(
   const candidateEmail = normalizeTeamMembershipCandidateEmail(user.email);
   const id = `team-membership-${randomUUID()}`;
   const adopt = async () => {
+    await lockTeamMembershipProjection(database, input.organizationId);
     await database.run(`
       INSERT INTO team_memberships (
         id,
@@ -520,6 +534,12 @@ export async function transitionTeamMembership(
   const now = input.now ?? Date.now();
 
   const transition = async () => {
+    if (input.expectedStatus === 'active' || input.toStatus === 'active') {
+      // Hold the organization lock through the enclosing transaction. Concurrent
+      // removals must observe the preceding committed membership count before
+      // persisting their snapshot and Seat reduction target.
+      await lockTeamMembershipProjection(database, input.organizationId);
+    }
     const membership = await readMembership(database, input.organizationId, input.membershipId);
     if (!membership) {
       throw new TeamMembershipError('MEMBERSHIP_NOT_FOUND', 'Team membership not found.', 404);
@@ -809,6 +829,7 @@ export async function updateTeamMembershipRole(
 ): Promise<TeamMembership> {
   const now = input.now ?? Date.now();
   const update = async () => {
+    await lockTeamMembershipProjection(database, input.organizationId);
     const membership = await getTeamMembershipByUserId(
       database,
       input.organizationId,

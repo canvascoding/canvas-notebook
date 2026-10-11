@@ -840,6 +840,97 @@ export async function claimTeamSeatOutboxOperation(
   };
 }
 
+async function claimDueTeamSeatRemovalOperations(
+  database: Pick<SqlConnection, 'all' | 'get' | 'run'>,
+  input: { now: number; leaseMs: number; pendingDelayMs: number; limit: number },
+): Promise<TeamSeatOutboxOperation[]> {
+  const organizations = await database.all(`
+    SELECT candidate.organization_id, candidate.created_at AS oldest_created_at
+    FROM (
+      SELECT organization_id, operation_kind, status, created_at,
+        next_attempt_at, last_attempt_at,
+        ROW_NUMBER() OVER (
+          PARTITION BY organization_id
+          ORDER BY CASE WHEN operation_kind = 'seat_execute' THEN 0 ELSE 1 END,
+            membership_revision ASC NULLS LAST, created_at ASC, id ASC
+        ) AS position
+      FROM team_seat_outbox
+      WHERE operation_type = 'member_remove'
+        AND operation_kind IN ('seat_prepare', 'seat_execute')
+        AND status IN ('pending', 'processing', 'retry_wait')
+    ) candidate
+    WHERE candidate.position = 1
+      AND (
+        (candidate.status = 'pending' AND candidate.created_at <= $2)
+        OR (candidate.status = 'retry_wait' AND (candidate.next_attempt_at IS NULL OR candidate.next_attempt_at <= $3))
+        OR (candidate.status = 'processing' AND (candidate.last_attempt_at IS NULL OR candidate.last_attempt_at <= $4))
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM team_seat_outbox processing
+        WHERE processing.organization_id = candidate.organization_id
+          AND processing.operation_type = 'member_remove'
+          AND processing.operation_kind IN ('seat_prepare', 'seat_execute')
+          AND processing.status = 'processing' AND processing.last_attempt_at > $4
+      )
+    ORDER BY oldest_created_at ASC, candidate.organization_id ASC
+    LIMIT $1
+  `, [input.limit, input.now - input.pendingDelayMs, input.now,
+    input.now - input.leaseMs,
+  ]) as Array<{ organization_id: string }>;
+  const claimed: TeamSeatOutboxOperation[] = [];
+  for (const organization of organizations) {
+    const operation = await withTransaction(database, async () => {
+      // Every membership belongs to an organization. Its short-lived row lock
+      // serializes claims across workers without holding a lock over HTTP.
+      const locked = await database.get(`
+        SELECT organization_id FROM canvas_organization_settings
+        WHERE organization_id = $1
+        FOR NO KEY UPDATE SKIP LOCKED
+      `, [organization.organization_id]);
+      if (!locked) return null;
+      const processing = await database.get(`
+        SELECT operation_id FROM team_seat_outbox
+        WHERE organization_id = $1 AND operation_type = 'member_remove'
+          AND operation_kind IN ('seat_prepare', 'seat_execute')
+          AND status = 'processing' AND last_attempt_at > $2
+        LIMIT 1
+      `, [organization.organization_id, input.now - input.leaseMs]);
+      if (processing) return null;
+      // Choose the unfinished head before checking whether it is due. Both a
+      // waiting execution and an earlier preparation must block later removals.
+      // Revisions reflect committed membership changes; request timestamps can
+      // arrive in the opposite order when offboardings overlap.
+      const candidate = await database.get(`
+        SELECT operation_id FROM team_seat_outbox
+        WHERE organization_id = $1 AND operation_type = 'member_remove'
+          AND operation_kind IN ('seat_prepare', 'seat_execute')
+          AND status IN ('pending', 'processing', 'retry_wait')
+        ORDER BY CASE WHEN operation_kind = 'seat_execute' THEN 0 ELSE 1 END,
+          membership_revision ASC NULLS LAST, created_at ASC, id ASC
+        LIMIT 1
+      `, [organization.organization_id]) as { operation_id: string } | undefined;
+      if (!candidate) return null;
+      const result = await database.run(`
+        UPDATE team_seat_outbox SET status = 'processing', last_attempt_at = $1, updated_at = $1
+        WHERE operation_id = $2 AND operation_type = 'member_remove'
+          AND operation_kind IN ('seat_prepare', 'seat_execute')
+          AND (
+            (status = 'pending' AND created_at <= $3)
+            OR (status = 'retry_wait' AND (next_attempt_at IS NULL OR next_attempt_at <= $1))
+            OR (status = 'processing' AND (last_attempt_at IS NULL OR last_attempt_at <= $4))
+          )
+      `, [input.now, candidate.operation_id, input.now - input.pendingDelayMs,
+        input.now - input.leaseMs,
+      ]);
+      return changesFromRunResult(result) === 1
+        ? getTeamSeatOutboxOperation(database, candidate.operation_id)
+        : null;
+    });
+    if (operation) claimed.push(operation);
+  }
+  return claimed;
+}
+
 export async function claimDueTeamSeatWorkOperations(
   database: Pick<SqlConnection, 'all' | 'get' | 'run'>,
   input: {
@@ -853,9 +944,14 @@ export async function claimDueTeamSeatWorkOperations(
   const leaseMs = Math.max(1_000, input.leaseMs ?? 60_000);
   const pendingDelayMs = Math.max(0, input.pendingDelayMs ?? 1_000);
   const limit = Math.max(1, Math.min(100, input.limit ?? 20));
+  const claimed = await claimDueTeamSeatRemovalOperations(database, {
+    now, leaseMs, pendingDelayMs, limit,
+  });
+  if (claimed.length === limit) return claimed;
   const candidates = await database.all(`
     ${OUTBOX_SELECT}
     WHERE operation_kind IN ('seat_prepare', 'seat_execute', 'license_refresh')
+      AND (operation_type IS NULL OR operation_type <> 'member_remove')
       AND (
         (
           status = 'pending'
@@ -873,8 +969,7 @@ export async function claimDueTeamSeatWorkOperations(
       )
     ORDER BY created_at ASC, id ASC
     LIMIT $4
-  `, [now - pendingDelayMs, now, now - leaseMs, limit]) as OutboxRow[];
-  const claimed: TeamSeatOutboxOperation[] = [];
+  `, [now - pendingDelayMs, now, now - leaseMs, limit - claimed.length]) as OutboxRow[];
   for (const candidate of candidates) {
     const result = await database.run(`
       UPDATE team_seat_outbox
@@ -884,6 +979,7 @@ export async function claimDueTeamSeatWorkOperations(
         updated_at = $2
       WHERE operation_id = $3
         AND operation_kind IN ('seat_prepare', 'seat_execute', 'license_refresh')
+        AND (operation_type IS NULL OR operation_type <> 'member_remove')
         AND (
           (
             status = 'pending'

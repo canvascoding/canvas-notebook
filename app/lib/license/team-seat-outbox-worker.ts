@@ -25,7 +25,9 @@ import {
 import {
   registerTeamSeatOutboxWorkerSignal,
 } from './team-seat-outbox-worker-signal';
+import { assertMemberSeatRemovalSnapshotReady } from './team-seat-removal-snapshot';
 import {
+  assertMemberSeatReductionReadyForExecution,
   getMembershipSeatExecuteRequest,
   getMembershipSeatPrepareRequest,
   recordDirectMembershipSeatExecutionApplied,
@@ -95,6 +97,9 @@ async function dispatchTeamSeatOutboxOperation(
         'A Seat preparation requires a persisted membership reference.',
       );
     }
+    if (operation.operationType === 'member_remove') {
+      await assertMemberSeatRemovalSnapshotReady(database, operation, now);
+    }
     const response = await prepareCommunityTeamSeatChange(
       getMembershipSeatPrepareRequest(operation),
       { operationId: operation.operationId, now: new Date(now) },
@@ -117,6 +122,9 @@ async function dispatchTeamSeatOutboxOperation(
         'TEAM_SEAT_OUTBOX_CONFLICT',
         'A Seat execution requires a persisted membership reference.',
       );
+    }
+    if (operation.operationType === 'member_remove') {
+      await assertMemberSeatReductionReadyForExecution(database, operation);
     }
     const response = await executeCommunityTeamSeatChange(
       getMembershipSeatExecuteRequest(operation),

@@ -1,0 +1,106 @@
+{
+  "scope": "Final offboarding source: automated validation; production browser acceptance recorded separately",
+  "checks": [
+    {
+      "name": "Removal regression scenarios",
+      "result": "passed",
+      "scenarios": 11,
+      "command": "npm run test:team-seat-removal"
+    },
+    {
+      "name": "Current user reduction status and isolation",
+      "result": "passed",
+      "command": "npm run test:member-seat-reduction-status"
+    },
+    {
+      "name": "Overlapping PostgreSQL removals, foreign-key locks and concurrent worker claims",
+      "result": "passed",
+      "command": "npm run test:team-seat-removal:postgres",
+      "isolatedDatabaseRemoved": true,
+      "persistedTargets": [
+        3,
+        2
+      ],
+      "snapshotQuantities": [
+        3,
+        2
+      ],
+      "remainingTestSessions": 0,
+      "requestTimestampsReversed": true,
+      "earlierDeferredPreparationBlocksLaterDuePreparation": true,
+      "oldClaimOrderFailedBeforePatch": true
+    },
+    {
+      "name": "Existing membership orchestrator",
+      "result": "passed",
+      "command": "npm run test:membership-orchestrator"
+    },
+    {
+      "name": "Existing outbox persistence",
+      "result": "passed",
+      "command": "npm run test:team-seat-outbox"
+    },
+    {
+      "name": "Existing outbox worker",
+      "result": "passed",
+      "command": "npm run test:team-seat-outbox-worker"
+    },
+    {
+      "name": "Existing membership suspension",
+      "result": "passed",
+      "command": "npm run test:membership-suspension"
+    },
+    {
+      "name": "Existing invitation replay and expiry",
+      "result": "passed",
+      "command": "npm run test:team-invitations"
+    },
+    {
+      "name": "Signed non-billable license regression suite",
+      "result": "passed",
+      "command": "npm run test:team-seat:no-stripe-license"
+    },
+    {
+      "name": "Focused ESLint",
+      "result": "passed"
+    },
+    {
+      "name": "Host production build",
+      "result": "passed",
+      "command": "npm run build"
+    },
+    {
+      "name": "Current snapshot acknowledgement barrier and bounded retry",
+      "result": "passed",
+      "command": "npm run test:team-seat-removal:snapshot"
+    },
+    {
+      "name": "Membership projection model",
+      "result": "passed",
+      "command": "npm run test:team-membership-model"
+    },
+    {
+      "name": "Existing membership snapshot sync",
+      "result": "passed",
+      "command": "npm run test:team-membership-sync"
+    },
+    {
+      "name": "Full TypeScript validation",
+      "result": "passed",
+      "command": "tsc --noEmit --pretty false"
+    },
+    {
+      "name": "Container production build",
+      "result": "passed",
+      "command": "managed local stack --target notebook"
+    }
+  ],
+  "baselineToolingLimitation": "test:organization:offboarding references missing scripts/organization-offboarding-test.ts",
+  "sourceImage": "sha256:a918078d83f82ac670e74694389eb7afd186b0e7e69546538bd165d6d71c5869",
+  "managedStack": {
+    "longRunningServicesHealthy": 4,
+    "separateMailpitHealthy": true,
+    "onlyNotebookRecreated": true,
+    "hostBuildBeforeContainerBuild": true
+  }
+}

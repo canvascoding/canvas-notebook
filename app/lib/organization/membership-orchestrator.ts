@@ -22,6 +22,7 @@ import {
   enqueueTeamSeatOutboxOperation,
   getTeamMembershipSyncState,
   getTeamSeatOutboxOperation,
+  recordTeamMembershipProjectionChange,
   recordTeamSeatOutboxOperationPending,
   recordTeamSeatOutboxOperationSuccess,
   type TeamSeatOutboxOperation,
@@ -32,6 +33,7 @@ import {
   getTeamMembershipByCandidateEmail,
   getTeamMembershipById,
   linkTeamMembershipControlPlaneOperation,
+  lockTeamMembershipProjection,
   normalizeTeamMembershipCandidateEmail,
   transitionTeamMembership,
   type TeamMembership,
@@ -233,12 +235,16 @@ function assertPreparedResponse(
   prepared: TeamSeatPrepareResponse,
 ): ReturnType<typeof parsePrepareRequest> {
   const request = parsePrepareRequest(operation);
+  const observedQuantityMatches = operation.operationType === 'member_remove'
+    ? prepared.quote.quantityAfter < prepared.quote.quantityBefore
+      && prepared.snapshot.observedQuantity <= prepared.quote.quantityAfter
+    : prepared.snapshot.observedQuantity === prepared.quote.quantityBefore;
   if (
     prepared.quote.quantityAfter !== request.desiredQuantity
     || prepared.authorization.quantityAfter !== request.desiredQuantity
     || prepared.quote.quantityBefore !== prepared.authorization.quantityBefore
     || prepared.quote.quoteHash !== prepared.authorization.quoteHash
-    || prepared.snapshot.observedQuantity !== prepared.quote.quantityBefore
+    || !observedQuantityMatches
     || prepared.snapshot.licensedQuantity !== prepared.quote.quantityBefore
     || (prepared.requiresBillingApproval && prepared.authorization.status !== 'pending')
     || (!prepared.requiresBillingApproval && prepared.authorization.status !== 'approved')
@@ -250,6 +256,58 @@ function assertPreparedResponse(
     );
   }
   return request;
+}
+
+async function correspondingMembershipPrepareOperation(
+  database: Pick<SqlConnection, 'all' | 'get'>,
+  operation: TeamSeatOutboxOperation,
+): Promise<TeamSeatOutboxOperation | null> {
+  const request = parseExecuteRequest(operation);
+  const rows = await database.all(`
+    SELECT operation_id, control_plane_operation_id, response_json
+    FROM team_seat_outbox
+    WHERE organization_id = $1 AND membership_id = $2
+      AND operation_kind = 'seat_prepare' AND operation_type = $3
+    ORDER BY created_at DESC, id DESC
+  `, [operation.organizationId, operation.membershipId, operation.operationType]) as Array<{
+    operation_id: string; control_plane_operation_id: string | null; response_json: string | null;
+  }>;
+  for (const row of rows) {
+    let matches = row.control_plane_operation_id === request.authorizationId;
+    if (!matches && row.response_json) {
+      try {
+        const response = JSON.parse(row.response_json) as { authorization?: { authorizationId?: unknown } };
+        matches = response?.authorization?.authorizationId === request.authorizationId;
+      } catch {
+        // Corrupt or unrelated historical responses cannot match this execution.
+      }
+    }
+    if (matches) return getTeamSeatOutboxOperation(database, row.operation_id);
+  }
+  return null;
+}
+
+export async function assertMemberSeatReductionReadyForExecution(
+  database: MembershipOrchestratorDatabase,
+  operation: TeamSeatOutboxOperation,
+): Promise<void> {
+  if (operation.operationType !== 'member_remove' || !operation.membershipId) {
+    throw new MembershipOrchestratorError('MEMBERSHIP_OPERATION_CONFLICT', 'A removal membership reference is required.');
+  }
+  const [membership, preparation, projection] = await Promise.all([
+    getTeamMembershipById(database, operation.organizationId, operation.membershipId),
+    correspondingMembershipPrepareOperation(database, operation),
+    getActiveTeamMembershipProjection(database, operation.organizationId),
+  ]);
+  if (!membership || !preparation || !preparation.responseJson
+    || !['removed', 'suspended'].includes(membership.status)
+    || preparation.membershipRevision !== operation.membershipRevision) {
+    throw new MembershipOrchestratorError('MEMBERSHIP_OPERATION_CONFLICT', 'The removal execution does not match the current membership lifecycle.');
+  }
+  const request = assertPreparedResponse(preparation, parseTeamSeatPrepareResponse(JSON.parse(preparation.responseJson)));
+  if (request.desiredQuantity < projection.observedQuantity) {
+    throw new MembershipOrchestratorError('MEMBERSHIP_OPERATION_CONFLICT', 'A Seat reduction must not fall below the current active membership count.');
+  }
 }
 
 function assertQuoteStatusMatchesPreparation(
@@ -959,11 +1017,7 @@ export async function recordDirectMembershipSeatExecutionPending(input: {
     });
     const request = parseExecuteRequest(operation);
     const execution = parseTeamSeatExecuteResponse(input.response);
-    const prepareOperation = await latestMembershipPrepareOperation(
-      database,
-      input.organizationId,
-      input.membershipId,
-    );
+    const prepareOperation = await correspondingMembershipPrepareOperation(database, operation);
     if (!prepareOperation) {
       throw new MembershipOrchestratorError(
         'MEMBERSHIP_OPERATION_NOT_FOUND',
@@ -1131,11 +1185,7 @@ async function persistAppliedTeamSeatExecution(
     );
   }
 
-  const prepareOperation = await latestMembershipPrepareOperation(
-    database,
-    input.organizationId,
-    input.membershipId,
-  );
+  const prepareOperation = await correspondingMembershipPrepareOperation(database, operation);
   if (!prepareOperation) {
     throw new MembershipOrchestratorError(
       'MEMBERSHIP_OPERATION_NOT_FOUND',
@@ -1156,18 +1206,40 @@ async function persistAppliedTeamSeatExecution(
     desiredQuantity,
   );
   if (operation.status !== 'succeeded') {
-    await recordTeamSeatOutboxOperationSuccess(database, {
+    const licenseDetails = executed.license.details;
+    const completeExecution = () => recordTeamSeatOutboxOperationSuccess(database, {
       operationId: operation.operationId,
       response: {
         ...executed,
         license: {
-          details: executed.license.details,
+          details: licenseDetails,
           certificatePersisted: true,
         },
       },
       controlPlaneOperationId: executed.operation.operationId,
       now: input.now,
     });
+    if (request.operationType === 'member_remove') {
+      await withActivationTransaction(database, async () => {
+        await lockTeamMembershipProjection(database, input.organizationId);
+        const current = await getTeamSeatOutboxOperation(database, operation.operationId);
+        if (current?.status === 'succeeded') return;
+        const projection = await getActiveTeamMembershipProjection(database, input.organizationId);
+        // Persist the follow-up snapshot before releasing the execution barrier.
+        // The next removal must await its acknowledgement, and the Control Plane
+        // must observe the new licensed quantity before a subsequent addition.
+        await recordTeamMembershipProjectionChange(database, {
+          organizationId: input.organizationId,
+          membershipId: input.membershipId,
+          operationType: 'reconcile',
+          projection,
+          now: input.now,
+        });
+        await completeExecution();
+      });
+    } else {
+      await completeExecution();
+    }
   }
   return {
     operation,

@@ -4972,6 +4972,12 @@
         "active": "Active",
         "banned": "Banned"
       },
+      "seatReduction": {
+        "pending": "License seat is being released",
+        "completed": "License seat released",
+        "failed": "License seat release failed",
+        "unavailable": "License seat release status unavailable"
+      },
       "actions": {
         "makeAdmin": "Admin",
         "makeUser": "User",
