@@ -30,6 +30,20 @@ Dieses Vorhaben erweitert den bestehenden [File Version & Review Center](./file-
 4. Der Index umfasst alle adressierbaren lokalen Dateien als *Ziele*, auch Bilder und Anhänge. Nur Markdown-Dateien werden als *Quellinhalt* gelesen. Für fehlende, mehrdeutige, unlesbare oder wegen Größe ausgelassene Quellen/Ziele meldet die Vorschau getrennte Zähler und Pfade. Ein unvollständiger Index darf nicht als vollständige Reparatur bestätigt werden.
 5. Fragmente (`#heading`, `#^block`) bleiben erhalten. Eine Änderung des Pfads darf Fragment und Kodierungsstil nicht beschädigen. Neue Zieladressen werden in der ursprünglichen Syntax gültig escaped/kodiert. Referenzdefinitionen werden genau einmal am Ziel geändert, auch wenn mehrere Verwendungen dieselbe Definition nutzen.
 
+### Begrenzte Parser-/Coverage-Korrektur aus dem KB-Audit (2026-10-11)
+
+Quellranges verwenden die UTF-16-Codeeinheiten des unveränderten JavaScript-Strings; Byte-Ranges beziehen sich auf dessen UTF-8-Kodierung. Frontmattermaskierung ersetzt jede UTF-16-Codeeinheit außer CR/LF durch genau ein Leerzeichen. Emoji und weitere Nicht-BMP-Zeichen dürfen nachfolgende Wiki-/Markdown-Ziele nicht verschieben. Rename-Reparaturen ändern ausschließlich die Zielspannen und erhalten YAML sowie LF/CRLF.
+
+Ein fehlgeschlagener Katalogscan, auch in einem Unterordner oder beim Lesen von Metadaten, liefert keinen vermeintlich vollständigen Index und wird nicht als vollständiger Katalog gecacht. Die bestehende Diagnostik meldet den Index dann als nicht verfügbar. Der unabhängige verwaltete Operationsscan weist unlesbare Markdownquellen als ausgelassen aus und lehnt einen nicht zuverlässig lesbaren Verzeichnisbaum ab; daraus darf keine sichere Rename-/Move-Freigabe entstehen. Absichtlich ausgeschlossene technische Pfade folgen weiterhin dem bestehenden Workspace-Sichtbarkeitsvertrag.
+
+Dieses Paket ändert weder die Markdown-/Yjs-Inhaltsautorität noch Revisionen, ACLs, Undo oder Restore. Ankerprüfung, neue Suchindizes und die spätere Inhaltsmigration bleiben außerhalb dieses Pakets.
+
+Validierung: Die LF-/CRLF-Matrix in `scripts/workspace-link-frontmatter-test.ts` prüft beide Linkarten über Parser, Index, Diagnose und Rename-Plan einschließlich UTF-16-/UTF-8-Spannen und unverändertem YAML. Katalog-/Previewtests injizieren EACCES, EPERM und ENOENT in tiefe Verzeichnisse sowie Metadaten- und Quellenfehler; der verbundene Scan-Test prüft die Weitergabe bis zur Agentdiagnose und einen erfolgreichen neuen Scan. Die betroffenen Modulprüfungen, TypeScript, ESLint und `npm run build` bestanden lokal.
+
+Der reale Browserfall `npm run test:markdown:links:e2e` verwendet ausschließlich einen eigenen synthetischen Team-Workspace und räumt ihn wieder auf. Beide Links navigieren vor der Änderung zu B.md; die echte Rename-Vorschau meldet zwei Reparaturen und vollständige Coverage. Der Apply-Nachweis ist derzeit **blockiert**: Ein einzelner aktueller Host-Worker führt B.md → C.md aus, die nachfolgende Yjs-Linkreparatur endet mit `ADMISSION_CONFLICT` und `needs_recovery` (1/2 Aktionen). Der Batch hält über `withPathLifecycle` den Workspace-Admission-Session-Lock, während die Direct-Connection-Prüfung ihn über eine andere SQL-Verbindung nochmals zu erwerben versucht. Der Test verlangt weiterhin vollständig gespeicherte Reparaturen und Navigation zu C.md; der Fehler wird nicht als Erfolg akzeptiert. Die Guard-Integration benötigt eine gesonderte Korrektur. CRLF ist hier Modul-/Planner-Evidenz; der Browserfall verwendet LF.
+
+Für Host-E2E darf kein weiterer Notebook-Batch-Worker dieselbe Datenbank bedienen: Der bestehende Notebook-Container und der Dev-Host teilen im lokalen Skill Datenbank und Dateien. Der Browsernachweis wurde am aktuellen Worktree-Host mit gestopptem Notebook-Container durchgeführt; PostgreSQL und Control Plane liefen weiter. Es wurde kein Container gebaut und keine Produktions- oder Remote-CI-Validierung durchgeführt.
+
 ### Semantik der Dateioperationen
 
 | Operation | Verpflichtendes Ergebnis |
