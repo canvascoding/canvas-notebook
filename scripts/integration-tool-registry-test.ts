@@ -227,6 +227,41 @@ async function main() {
     const restoredLegacy = await buildPiToolRegistryAsync('registry-user');
     const restoredSchemas = JSON.parse(JSON.stringify(restoredLegacy.map(tool => ({ name: tool.name, schema: tool.parameters }))));
     assert.deepEqual(restoredSchemas, legacySchemas, 'flag rollback restores the exact previous complete wire schemas');
+
+    // Org-scoped installations cannot rely on a System/local key to keep their
+    // editable Composio capabilities in metadata. Exercise the real config gate.
+    const previousComposioApiKey = process.env.COMPOSIO_API_KEY;
+    const previousManagedServices = process.env.CANVAS_MANAGED_SERVICES_ENABLED;
+    try {
+      delete process.env.COMPOSIO_API_KEY;
+      process.env.CANVAS_MANAGED_SERVICES_ENABLED = 'false';
+      await patchUnifiedEnvEntries([{ key: 'COMPOSIO_API_KEY', value: null }], { secretScope: 'system' });
+      const { isComposioConfigured } = await import('../app/lib/composio/composio-client');
+      assert.equal(await isComposioConfigured(), false, 'the real System/local credential gate is unconfigured');
+      assert.equal(await isComposioConfigured({ userId: 'registry-user' }), false, 'this actor has no personal credential fallback');
+      const stdioStartsBeforeMetadata = await fs.readFile(startsFile, 'utf8');
+      const unconfiguredMetadata = await getPiToolMetadata();
+      for (const name of ['COMPOSIO_SEARCH_TOOLS', 'COMPOSIO_GET_TOOL_SCHEMAS', 'composio_execute', 'COMPOSIO_MANAGE_CONNECTIONS']) {
+        assert(unconfiguredMetadata.some(tool => tool.name === name), `management retains ${name} without a System key`);
+      }
+      // Cache-only applies solely to the existing explicit MCP schemas. It does
+      // not change the ordinary flag-off Composio eligibility or permission path.
+      const unconfiguredLegacy = await buildPiToolRegistryAsync('registry-user', undefined, undefined, { metadataOnlyExternal: true });
+      assert(unconfiguredLegacy.some(tool => tool.name === 'mcp'), 'ordinary legacy tools remain available');
+      assert(!unconfiguredLegacy.some(tool => tool.name === 'composio' || tool.name.startsWith('COMPOSIO_')
+        || tool.name === 'composio_execute' || tool.name === 'integrations'), 'metadata cannot add unconfigured runtime Composio executables');
+      await configure(['composio_execute']);
+      assert.deepEqual((await getPiTools('registry-user', undefined, undefined, { metadataOnlyExternal: true })).map(tool => tool.name), [],
+        'an editable Composio preference does not grant execution when the actual credential gate is disabled');
+      assert.equal(await fs.readFile(startsFile, 'utf8'), stdioStartsBeforeMetadata, 'the new metadata and runtime checks perform no MCP provider I/O');
+    } finally {
+      if (previousComposioApiKey === undefined) delete process.env.COMPOSIO_API_KEY;
+      else process.env.COMPOSIO_API_KEY = previousComposioApiKey;
+      if (previousManagedServices === undefined) delete process.env.CANVAS_MANAGED_SERVICES_ENABLED;
+      else process.env.CANVAS_MANAGED_SERVICES_ENABLED = previousManagedServices;
+      await patchUnifiedEnvEntries([{ key: 'COMPOSIO_API_KEY', value: 'isolated-registry-fixture-key' }], { secretScope: 'system' });
+      await configure([]);
+    }
     console.log('integration-tool-registry-test: ok');
   } finally {
     await closeConnections?.().catch(() => undefined);

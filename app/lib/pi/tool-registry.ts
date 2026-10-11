@@ -320,7 +320,8 @@ export async function buildPiToolRegistryAsync(
     : null;
   const composioStorageScope = composioContext?.storageScope ?? (userId ? { userId } : undefined);
   const composioConfigured = allowExternalIntegrations && !useIntegrationGateway && await isComposioConfigured(composioStorageScope);
-  const composioTools = composioConfigured ? createComposioTools(composioContext) : [];
+  const composioTools = allowExternalIntegrations && (composioConfigured || options.legacyIntegrationMetadata === true)
+    ? createComposioTools(composioContext) : [];
   const directMcpTools = allowExternalIntegrations && userId && !workflowConfigured
     ? await buildDirectMcpTools({ userId }, useIntegrationGateway || options.metadataOnlyExternal ? { cacheOnly: true } : {})
       .then((result) => result.tools)
