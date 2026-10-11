@@ -12,6 +12,7 @@ import * as Y from 'yjs';
 
 import type * as Direct from '../app/lib/collaboration/direct-connection';
 import type { PersistedCollaborationState } from '../app/lib/collaboration/persistence';
+import { withWorkspaceFileLifecycleLeases, type WorkspaceFileLifecycleLease } from '../app/lib/collaboration/file-lifecycle-admission-context';
 import type {
   CollaborationRoomOwnerFence,
   CollaborationRoomOwnerScope,
@@ -88,7 +89,8 @@ type OwnerRuntime = ReturnType<
   typeof import('../app/lib/collaboration/room-owner-runtime').createCollaborationRoomOwnerRuntime
 >;
 
-type Reader = <T>(documentId: string, workspaceId: string, read: (document: Y.Doc) => T) => Promise<T>;
+type Reader = <T>(documentId: string, workspaceId: string, read: (document: Y.Doc) => T,
+  loadState?: typeof import('../app/lib/collaboration/persistence').loadCollaborationState) => Promise<T>;
 
 class CollaborationRoomOwnerError extends Error {
   constructor(readonly code: 'ROOM_OWNER_BUSY' | 'ROOM_OWNER_LOST' | 'ROOM_OWNER_SCOPE_CHANGED' | 'ROOM_OWNER_UNAVAILABLE') {
@@ -152,7 +154,8 @@ function makeState(documentId: string, text: string): PersistedCollaborationStat
 
 async function main(mode: 'direct-store-failure' | 'queued-peer-loss'
   | 'terminal-success' | 'terminal-store-failure' | 'terminal-lost-ack'
-  | 'admission-terminal' | 'admission-unproven-release' | 'normal-unload' | 'admission-writer-gate' | 'batch-idle-release') {
+  | 'admission-terminal' | 'admission-unproven-release' | 'normal-unload' | 'admission-writer-gate' | 'batch-idle-release'
+  | 'reader-normal-unload') {
   const workspace = {
     workspaceId: 'owner-workspace',
     organizationId: null,
@@ -375,6 +378,7 @@ async function main(mode: 'direct-store-failure' | 'queued-peer-loss'
     };
     if (name.endsWith('/room-admission-worker')) return { createCollaborationRoomAdmissionWorker };
     if (name.endsWith('/room-startup-activity')) return RoomStartup;
+    if (name.endsWith('/file-lifecycle-admission-context')) return load(name);
     if (name.endsWith('/local-room-drain')) return {
       installLocalCollaborationRoomDrainer: (
         drainer: {
@@ -646,6 +650,119 @@ async function main(mode: 'direct-store-failure' | 'queued-peer-loss'
     await turn();
   };
 
+  if (mode === 'reader-normal-unload') {
+    const leaseFor = (): WorkspaceFileLifecycleLease => ({ active: true, verify: async () => true });
+    const withinLease = <T>(lease: WorkspaceFileLifecycleLease, action: () => Promise<T>) =>
+      withWorkspaceFileLifecycleLeases(new Map([[workspace.workspaceId, lease]]), action);
+    const room = async (id: string) => {
+      states.set(id, makeState(id, 'original+latest'));
+      const document = await instance.createDocument(id, request, 'reader-loader',
+        { isAuthenticated: true, readOnly: false }, contextFor(id));
+      // Model a live room newer than its persisted snapshot without spawning
+      // a separate unscoped debounce store in the Hocuspocus fixture.
+      states.set(id, makeState(id, 'original'));
+      return document;
+    };
+    const busy = (error: unknown) => error instanceof CollaborationRoomOwnerError && error.code === 'ROOM_OWNER_BUSY';
+    const own = leaseFor();
+    const id = 'reader-own-normal';
+    const document = await room(id);
+    const storing = { documentId: id, entered: gate(), release: gate() };
+    persistBarrier = storing;
+    const unloading = withinLease(own, () => instance.unloadDocument(document));
+    await bounded(storing.entered.promise, 'reader-owned final store');
+    let customLoaded = false;
+    await bounded(withinLease(own, () => assert.rejects(documentReader(id, workspace.workspaceId, () => undefined,
+      async key => { customLoaded = true; return states.get(key) ?? null; }), busy)), 'custom transaction loader refuses without waiting');
+    assert.equal(customLoaded, false);
+    await bounded(withinLease(leaseFor(), () => assert.rejects(documentReader(id, workspace.workspaceId, () => undefined), busy)),
+      'foreign lifecycle lease refuses without waiting');
+    await bounded(assert.rejects(documentReader(id, workspace.workspaceId, () => undefined), busy),
+      'unleased reader refuses without waiting');
+    const readsBefore = events.filter(event => event === `load:${id}`).length;
+    let readCompleted = false;
+    const reading = withinLease(own, () => documentReader(id, workspace.workspaceId,
+      current => current.getText('content').toString())).then(value => { readCompleted = true; return value; });
+    await turn();
+    assert.equal(readCompleted, false, 'the matching reader waits instead of becoming a new activity in the drain');
+    assert.equal(events.filter(event => event === `load:${id}`).length, readsBefore, 'state is loaded only after the final store');
+    storing.release.resolve();
+    await bounded(unloading, 'reader-owned unload completion');
+    assert.equal(await bounded(reading, 'reader after proven normal unload'), 'original+latest');
+    assert.equal(document.isDestroyed, true);
+    let admittedSynchronously = false;
+    activityAdmissionObserver = current => { if (current === id) admittedSynchronously = true; };
+    const ordinaryRead = documentReader(id, workspace.workspaceId, current => current.getText('content').toString());
+    assert.equal(admittedSynchronously, true, 'no-pending read admission does not yield');
+    activityAdmissionObserver = null;
+    assert.equal(await ordinaryRead, 'original+latest');
+
+    for (const invalidation of ['inactive', 'verification', 'verification-after-wait'] as const) {
+      const invalid = leaseFor();
+      let verified = true;
+      invalid.verify = async () => verified;
+      const staleId = `reader-${invalidation}`;
+      const stale = await room(staleId);
+      const blocked = { documentId: staleId, entered: gate(), release: gate() };
+      persistBarrier = blocked;
+      const pending = withinLease(invalid, () => instance.unloadDocument(stale));
+      await bounded(blocked.entered.promise, 'stale lease final store');
+      if (invalidation === 'inactive') invalid.active = false;
+      if (invalidation === 'verification') verified = false;
+      const refused = withinLease(invalid, () => assert.rejects(documentReader(staleId, workspace.workspaceId, () => undefined), busy));
+      if (invalidation === 'verification-after-wait') { await turn(); verified = false; blocked.release.resolve(); }
+      await bounded(refused, `refuse ${invalidation} lease`);
+      blocked.release.resolve();
+      await bounded(pending, 'stale originating unload completion');
+    }
+
+    const terminalLease = leaseFor();
+    const terminalId = 'reader-terminal-raw';
+    const terminal = await room(terminalId);
+    const terminalFence = ownerRuntime.fence(terminal);
+    const raw = { documentId: terminalId, entered: gate(), release: gate() };
+    unloadBarrier = raw;
+    const terminalDrain = withinLease(terminalLease, () => localRoomDrainer!(terminalFence.scope));
+    await bounded(raw.entered.promise, 'terminal raw unload');
+    assert.equal(instance.unloadingDocuments.has(terminalId), true);
+    await bounded(withinLease(terminalLease, () => assert.rejects(documentReader(terminalId, workspace.workspaceId, () => undefined), busy)),
+      'terminal raw unload is not a normal reader handoff');
+    raw.release.resolve();
+    await bounded(terminalDrain, 'terminal drain completion');
+
+    const failedLease = leaseFor();
+    const failedId = 'reader-local-store-failure';
+    const failed = await room(failedId);
+    const failedStore = { documentId: failedId, entered: gate(), release: gate() };
+    persistBarrier = failedStore;
+    afterStoreFailureDocumentId = failedId;
+    const failedUnload = withinLease(failedLease, () => instance.unloadDocument(failed));
+    await bounded(failedStore.entered.promise, 'retained gated final store');
+    const failedRead = withinLease(failedLease, () => assert.rejects(documentReader(failedId, workspace.workspaceId, () => undefined), busy));
+    failedStore.release.resolve();
+    await bounded(failedUnload, 'known failed normal unload');
+    await bounded(failedRead, 'failed gate is never accepted as a snapshot');
+    assert.equal(failed.isDestroyed, false);
+    assert.equal(failed.getText('content').toString(), 'original+latest');
+
+    const lostLease = leaseFor();
+    const lostId = 'reader-lost-store';
+    const lost = await room(lostId);
+    const lostStore = { documentId: lostId, entered: gate(), release: gate() };
+    persistBarrier = lostStore;
+    persistFailure = new Error('injected reader final store owner loss');
+    const lostUnload = withinLease(lostLease, () => instance.unloadDocument(lost));
+    await bounded(lostStore.entered.promise, 'owner-loss final store');
+    const lostRead = withinLease(lostLease, () => assert.rejects(documentReader(lostId, workspace.workspaceId, () => undefined),
+      (error: unknown) => error instanceof CollaborationRoomOwnerError && error.code === 'ROOM_OWNER_LOST'));
+    lostStore.release.resolve();
+    await bounded(lostUnload, 'owner-loss unload settles');
+    await bounded(lostRead, 'owner loss never falls back to persisted state');
+    assert.equal(lost.isDestroyed, false);
+    assert.equal(lost.getText('content').toString(), 'original+latest');
+    console.log('PASS reader waits only for its exact verified normal lifecycle unload; custom/foreign/expired/terminal/failure paths remain strict');
+    return;
+  }
   if (mode === 'batch-idle-release') {
     const inputFor = (documentId: string) => ({
       documentId, documentPath: `${documentId}.txt`, documentRepresentation: 'plain_text' as const,
@@ -1578,6 +1695,7 @@ async function run() {
   const modes = [
     'admission-writer-gate',
     'batch-idle-release',
+    'reader-normal-unload',
     'normal-unload',
     'admission-terminal',
     'admission-unproven-release',

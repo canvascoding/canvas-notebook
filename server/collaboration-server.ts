@@ -34,6 +34,7 @@ import {
   workspaceFromAgentExecutionContext,
 } from '@/app/lib/pi/session-workspace-context';
 import { installCollaborationDocumentReader } from '@/app/lib/collaboration/document-access';
+import { getWorkspaceFileLifecycleLeases, type WorkspaceFileLifecycleLease } from '@/app/lib/collaboration/file-lifecycle-admission-context';
 import { setCollaborationRuntimeHealth } from '@/app/lib/collaboration/health';
 import { collaborationUserColors } from '@/app/lib/collaboration/identity';
 import {
@@ -418,6 +419,9 @@ export function createCollaborationServer(server: http.Server, options: {
   // Hocuspocus caches by document ID, while restore/migration reuse that ID
   // with a new generation. The room keeps the identity of the bytes it loaded.
   const roomIdentities = new WeakMap<YDoc, RoomIdentity>();
+  const normalOwnedUnloads = new WeakMap<Promise<void>, {
+    document: Document; identity: RoomIdentity; lease: WorkspaceFileLifecycleLease;
+  }>();
   // Hocuspocus serializes each socket, not all sockets of a room. For mutating
   // sync frames hold the lease beyond beforeSync, through MessageReceiver.apply.
   const messageMutationLeases = new WeakMap<Connection<CollaborationContext>, () => void>();
@@ -1118,6 +1122,9 @@ export function createCollaborationServer(server: http.Server, options: {
         }
         if (!normalUnload.isGated(document)) retryAttempts.delete(document);
       });
+      const identity = roomIdentities.get(document);
+      const lease = identity && getWorkspaceFileLifecycleLeases()?.get(identity.workspaceId);
+      if (identity && lease?.active) normalOwnedUnloads.set(tracked, { document, identity, lease });
       hocuspocus.unloadingDocuments.set(document.name, tracked);
       return tracked;
     }
@@ -1340,25 +1347,45 @@ export function createCollaborationServer(server: http.Server, options: {
     // until it is gone, or a new client can receive its previous representation.
     return room ? Math.max(1, room.getConnectionsCount()) : 0;
   });
-  installCollaborationDocumentReader((documentId, workspaceId, read, loadState = loadCollaborationState) => withRoomActivity(documentId, async () => {
-    const state = await loadState(documentId);
-    if (!state || state.documentId !== documentId || state.status !== 'active' || state.workspaceId !== workspaceId) {
-      throw new Error('Collaboration document is unavailable or stale.');
+  installCollaborationDocumentReader(async (documentId, workspaceId, read, loadState = loadCollaborationState) => {
+    const pending = hocuspocus.unloadingDocuments.get(documentId);
+    const handoff = pending && normalOwnedUnloads.get(pending);
+    const lease = getWorkspaceFileLifecycleLeases()?.get(workspaceId);
+    // Only this still-live lifecycle callback can await its own normal unload:
+    // foreign jobs may need our kernel lock, and transaction readers may hold
+    // a state-row lock needed by the final store. They keep strict Busy behavior.
+    if (loadState === loadCollaborationState && pending && handoff && lease?.active && handoff.lease === lease
+      && handoff.identity.workspaceId === workspaceId && roomIdentities.get(handoff.document) === handoff.identity
+      && hocuspocus.documents.get(documentId) === handoff.document) {
+      if (!await lease.verify() || !lease.active || getWorkspaceFileLifecycleLeases()?.get(workspaceId) !== lease) {
+        throw new CollaborationRoomOwnerError('ROOM_OWNER_BUSY');
+      }
+      await pending;
+      if (!lease.active || getWorkspaceFileLifecycleLeases()?.get(workspaceId) !== lease
+        || !await lease.verify() || !lease.active || getWorkspaceFileLifecycleLeases()?.get(workspaceId) !== lease) {
+        throw new CollaborationRoomOwnerError('ROOM_OWNER_BUSY');
+      }
     }
-    const activeDocument = hocuspocus.documents.get(documentId);
-    if (activeDocument) {
-      assertRoomIdentity(activeDocument, state);
-      return read(activeDocument);
-    }
+    return withRoomActivity(documentId, async () => {
+      const state = await loadState(documentId);
+      if (!state || state.documentId !== documentId || state.status !== 'active' || state.workspaceId !== workspaceId) {
+        throw new Error('Collaboration document is unavailable or stale.');
+      }
+      const activeDocument = hocuspocus.documents.get(documentId);
+      if (activeDocument) {
+        assertRoomIdentity(activeDocument, state);
+        return read(activeDocument);
+      }
 
-    const doc = new Y.Doc({ gc: true });
-    try {
-      Y.applyUpdate(doc, state.yjsState);
-      return read(doc);
-    } finally {
-      doc.destroy();
-    }
-  }));
+      const doc = new Y.Doc({ gc: true });
+      try {
+        Y.applyUpdate(doc, state.yjsState);
+        return read(doc);
+      } finally {
+        doc.destroy();
+      }
+    });
+  });
   void recoverCollaborationAgentOperations().then(() => agentTurnHistoryService.recoverExpired()).catch((error) => {
     console.error('[Collaboration] Agent operation recovery failed:', error);
   });
