@@ -587,8 +587,8 @@ async function main(): Promise<void> {
       // Native evidence is separate; this branch never launches a browser.
       console.log(`ISOLATED_MOBILE_NATIVE_FIXTURE ${root} parentPid=${process.pid}`);
       const nativeWorker = startChild(['--conditions=react-server', '--import', 'tsx', 'scripts/helpers/mobile-plugin-native-setup-fixture.ts'], 'native-setup', 'test');
-      // Native-only: three-hour handoff plus ten minutes shared by setup/close.
-      assert.equal(await waitChild(nativeWorker, 190 * 60_000), 0, 'The native worker must acknowledge its completed closure.');
+      // Native-only: four-hour handoff plus ten minutes shared by setup/close.
+      assert.equal(await waitChild(nativeWorker, 250 * 60_000), 0, 'The native worker must acknowledge its completed closure.');
       const handle = await fs.open(path.join(root, 'native-receipt.json'), constants.O_RDONLY | constants.O_NOFOLLOW);
       try {
         const stat = await handle.stat();

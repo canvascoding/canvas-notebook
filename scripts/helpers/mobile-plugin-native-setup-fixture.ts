@@ -648,7 +648,7 @@ async function waitOwnedMobileNativeAcceptance(fixture: Fixture): Promise<void> 
   const observations = new Map<string, OAuthObservation>(); let apps: AppObservation[] = [], previous = '';
   let completion: OwnedMobileNativeCompletion | undefined;
   // Capture once for this native handoff; OAuth and license expiries stay real.
-  const deadline = Date.now() + 180 * 60_000;
+  const deadline = Date.now() + 240 * 60_000;
   let accepted = false;
   while (Date.now() < deadline) {
     fixture.abort.signal.throwIfAborted();
