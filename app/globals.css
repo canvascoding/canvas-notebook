@@ -610,6 +610,10 @@ li.task-list-item > p {
 }
 
 /* tiptap markdown editor */
+.markdown-editor-pane {
+  padding-bottom: var(--canvas-editor-keyboard-inset, 0px);
+}
+
 .tiptap-editor-shell {
   background: #fff;
   min-height: max(100%, 32rem);
