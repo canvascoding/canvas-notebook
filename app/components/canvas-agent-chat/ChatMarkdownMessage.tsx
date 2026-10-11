@@ -11,6 +11,7 @@ import {
 } from '@/app/lib/markdown/canvas-markdown';
 import { isFilePath, normalizeChatFilePath } from '@/app/lib/chat/extract-file-paths';
 import { stripInternalProjectionNotices } from '@/app/lib/chat/display-text';
+import { getChatDocumentLinkLabel, isChatMarkdownDocumentPath } from '@/app/lib/chat/document-link-label';
 import { extractStudioImageMediaUrls } from '@/app/lib/chat/studio-image-markdown';
 import type { ChatMessage } from '@/app/lib/chat/types';
 import { getFileDisplayPath } from '@/app/lib/files/display-name';
@@ -28,6 +29,7 @@ import { ObsidianWikiLink } from '@/app/components/shared/ObsidianWikiLink';
 import { WorkspaceMarkdownEmbed } from '@/app/components/shared/WorkspaceMarkdownEmbed';
 import { isUnmodifiedPrimaryClick, todoIdFromHref } from '@/app/lib/todos/navigation';
 import { openTodoDetail } from '@/app/store/todo-detail-store';
+import { parseObsidianWikiTarget } from '@/app/lib/markdown/obsidian-flavored-markdown';
 import {
   ObsidianCallout,
   ObsidianInlineFootnote,
@@ -207,7 +209,29 @@ function MarkdownCodeBlock({
   );
 }
 
-function getFileReferenceLabel(href: string, children: React.ReactNode): React.ReactNode {
+function getFormattedFileReferenceText(children: React.ReactNode): string | null {
+  let text = '';
+  for (const child of React.Children.toArray(children)) {
+    if (typeof child === 'string' || typeof child === 'number') {
+      text += String(child);
+      continue;
+    }
+    if (!React.isValidElement<{ children?: React.ReactNode }>(child)
+      || !(child.type === MarkdownCode || typeof child.type === 'string'
+        && ['code', 'strong', 'em', 'del'].includes(child.type))) return null;
+    const nestedText = getFormattedFileReferenceText(child.props.children);
+    if (nestedText === null) return null;
+    text += nestedText;
+  }
+  return text || null;
+}
+
+function getFileReferenceLabel(href: string, children: React.ReactNode,
+  friendlyDocumentLabels = false): React.ReactNode {
+  if (friendlyDocumentLabels && isChatMarkdownDocumentPath(href)) {
+    const text = getFormattedFileReferenceText(children);
+    return text ? getChatDocumentLinkLabel(href, text) ?? children : children;
+  }
   const label = getPlainText(children)?.trim();
   if (!label) {
     return children;
@@ -243,7 +267,9 @@ export function getRecentStudioImageMediaUrls(messages: ChatMessage[], messageIn
   return urls;
 }
 
-function FileLink({ href, children, showIcon = false }: { href: string; children: React.ReactNode; showIcon?: boolean }) {
+function FileLink({ href, children, showIcon = false, friendlyDocumentLabels = false }: {
+  href: string; children: React.ReactNode; showIcon?: boolean; friendlyDocumentLabels?: boolean;
+}) {
   const openFileReference = useOpenChatFileReference();
   const normalizedPath = React.useMemo(() => normalizeChatFilePath(href), [href]);
   const { results } = useChatFileReferenceValidation(normalizedPath);
@@ -258,7 +284,7 @@ function FileLink({ href, children, showIcon = false }: { href: string; children
     void openFileReference(normalizedPath);
   };
 
-  const displayChildren = getFileReferenceLabel(href, children);
+  const displayChildren = getFileReferenceLabel(href, children, friendlyDocumentLabels);
   const activeValidation = results.get(normalizedPath) ?? null;
   const isFile = activeValidation?.type === 'file';
   const isDirectory = activeValidation?.type === 'directory';
@@ -371,6 +397,7 @@ export const MarkdownMessage = React.memo(function MarkdownMessage({
 }) {
   const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
   const openFileReference = useOpenChatFileReference();
+  const friendlyDocumentLabels = variant === 'assistant' && !sourcePath;
   const ancestorPaths = embedAncestorPaths ?? (sourcePath ? [sourcePath] : []);
   const sharedClasses =
     'min-w-0 max-w-full break-words text-sm leading-relaxed [&_p]:my-0 [&_p+p]:mt-3 [&_ul]:my-3 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:my-3 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:mt-1 [&_blockquote]:my-3 [&_blockquote]:border-l-2 [&_blockquote]:pl-3 [&_hr]:my-4 [&_hr]:border-border/60 [&_pre]:my-3 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:border [&_pre]:p-3 [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_code]:rounded-sm [&_code]:px-1.5 [&_code]:py-0.5 [&_a]:underline [&_a]:underline-offset-2 [&_strong]:font-semibold [&_.katex-display]:my-3 [&_.katex-display]:overflow-x-auto [&_.katex-display]:overflow-y-hidden';
@@ -412,6 +439,7 @@ export const MarkdownMessage = React.memo(function MarkdownMessage({
       href?: string;
       children?: React.ReactNode;
       'data-canvas-wiki-embed'?: string;
+      'data-canvas-wiki-alias'?: string;
       'data-canvas-wiki-target'?: string;
       'data-canvas-wiki-transclude'?: string;
     }) => {
@@ -438,6 +466,12 @@ export const MarkdownMessage = React.memo(function MarkdownMessage({
             />
           );
         }
+        const parsedTarget = friendlyDocumentLabels ? parseObsidianWikiTarget(wikiTarget) : null;
+        const text = parsedTarget && !props['data-canvas-wiki-alias']
+          ? getFormattedFileReferenceText(children) : null;
+        const displayLabel = text && parsedTarget?.path
+          ? getChatDocumentLinkLabel(parsedTarget.path, text, { allowExtensionless: true })
+          : null;
         return (
           <ObsidianWikiLink
             target={wikiTarget}
@@ -445,12 +479,12 @@ export const MarkdownMessage = React.memo(function MarkdownMessage({
             embed={props['data-canvas-wiki-embed'] === 'true'}
             onOpenFile={openFileReference}
           >
-            {children}
+            {displayLabel ?? children}
           </ObsidianWikiLink>
         );
       }
       if (href && isFilePath(href)) {
-        return <FileLink href={href}>{children}</FileLink>;
+        return <FileLink href={href} friendlyDocumentLabels={friendlyDocumentLabels}>{children}</FileLink>;
       }
       return (
         <a
