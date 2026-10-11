@@ -1,0 +1,149 @@
+{
+  "query_window_start": "2026-10-11T17:15:00Z",
+  "operations": [
+    {
+      "operation_kind": "membership_snapshot",
+      "operation_type": "reconcile",
+      "status": "succeeded",
+      "last_error_code": null,
+      "created_at": "2026-10-11T17:16:08.152+00:00",
+      "updated_at": "2026-10-11T17:16:08.152+00:00"
+    },
+    {
+      "operation_kind": "seat_prepare",
+      "operation_type": "invitation_accept",
+      "status": "succeeded",
+      "last_error_code": null,
+      "created_at": "2026-10-11T17:20:42.145+00:00",
+      "updated_at": "2026-10-11T17:20:42.225+00:00"
+    },
+    {
+      "operation_kind": "seat_execute",
+      "operation_type": "invitation_accept",
+      "status": "succeeded",
+      "last_error_code": null,
+      "created_at": "2026-10-11T17:20:42.225+00:00",
+      "updated_at": "2026-10-11T17:21:07.145+00:00"
+    },
+    {
+      "operation_kind": "membership_snapshot",
+      "operation_type": "invitation_accept",
+      "status": "succeeded",
+      "last_error_code": null,
+      "created_at": "2026-10-11T17:21:07.145+00:00",
+      "updated_at": "2026-10-11T17:21:07.536+00:00"
+    },
+    {
+      "operation_kind": "membership_snapshot",
+      "operation_type": "reconcile",
+      "status": "succeeded",
+      "last_error_code": null,
+      "created_at": "2026-10-11T17:26:07.667+00:00",
+      "updated_at": "2026-10-11T17:26:07.667+00:00"
+    },
+    {
+      "operation_kind": "seat_prepare",
+      "operation_type": "member_create",
+      "status": "succeeded",
+      "last_error_code": null,
+      "created_at": "2026-10-11T17:27:00.436+00:00",
+      "updated_at": "2026-10-11T17:27:00.673+00:00"
+    },
+    {
+      "operation_kind": "seat_execute",
+      "operation_type": "member_create",
+      "status": "succeeded",
+      "last_error_code": null,
+      "created_at": "2026-10-11T17:27:00.673+00:00",
+      "updated_at": "2026-10-11T17:27:01.009+00:00"
+    },
+    {
+      "operation_kind": "membership_snapshot",
+      "operation_type": "member_create",
+      "status": "succeeded",
+      "last_error_code": null,
+      "created_at": "2026-10-11T17:27:01.009+00:00",
+      "updated_at": "2026-10-11T17:27:01.25+00:00"
+    },
+    {
+      "operation_kind": "seat_prepare",
+      "operation_type": "invitation_accept",
+      "status": "failed",
+      "last_error_code": "TEAM_SEAT_LIMIT_EXCEEDED",
+      "created_at": "2026-10-11T17:31:11.247+00:00",
+      "updated_at": "2026-10-11T17:32:17.756+00:00"
+    },
+    {
+      "operation_kind": "membership_snapshot",
+      "operation_type": "reconcile",
+      "status": "succeeded",
+      "last_error_code": null,
+      "created_at": "2026-10-11T17:32:01.494+00:00",
+      "updated_at": "2026-10-11T17:32:01.494+00:00"
+    },
+    {
+      "operation_kind": "membership_snapshot",
+      "operation_type": "member_remove",
+      "status": "succeeded",
+      "last_error_code": null,
+      "created_at": "2026-10-11T17:35:18.291+00:00",
+      "updated_at": "2026-10-11T17:35:18.46+00:00"
+    },
+    {
+      "operation_kind": "seat_prepare",
+      "operation_type": "member_remove",
+      "status": "failed",
+      "last_error_code": "MEMBERSHIP_SEAT_RESPONSE_INVALID",
+      "created_at": "2026-10-11T17:35:18.291+00:00",
+      "updated_at": "2026-10-11T17:35:20.565+00:00"
+    },
+    {
+      "operation_kind": "membership_snapshot",
+      "operation_type": "member_remove",
+      "status": "succeeded",
+      "last_error_code": null,
+      "created_at": "2026-10-11T17:35:19.281+00:00",
+      "updated_at": "2026-10-11T17:35:19.423+00:00"
+    },
+    {
+      "operation_kind": "seat_prepare",
+      "operation_type": "member_remove",
+      "status": "failed",
+      "last_error_code": "MEMBERSHIP_SEAT_RESPONSE_INVALID",
+      "created_at": "2026-10-11T17:35:19.281+00:00",
+      "updated_at": "2026-10-11T17:35:20.565+00:00"
+    },
+    {
+      "operation_kind": "membership_snapshot",
+      "operation_type": "reconcile",
+      "status": "succeeded",
+      "last_error_code": null,
+      "created_at": "2026-10-11T17:40:19.812+00:00",
+      "updated_at": "2026-10-11T17:40:19.812+00:00"
+    },
+    {
+      "operation_kind": "membership_snapshot",
+      "operation_type": "reconcile",
+      "status": "succeeded",
+      "last_error_code": null,
+      "created_at": "2026-10-11T17:41:12.261+00:00",
+      "updated_at": "2026-10-11T17:41:12.261+00:00"
+    },
+    {
+      "operation_kind": "membership_snapshot",
+      "operation_type": "reconcile",
+      "status": "succeeded",
+      "last_error_code": null,
+      "created_at": "2026-10-11T17:44:51.176+00:00",
+      "updated_at": "2026-10-11T17:44:51.176+00:00"
+    },
+    {
+      "operation_kind": "membership_snapshot",
+      "operation_type": "reconcile",
+      "status": "succeeded",
+      "last_error_code": null,
+      "created_at": "2026-10-11T17:49:53.453+00:00",
+      "updated_at": "2026-10-11T17:49:53.453+00:00"
+    }
+  ]
+}

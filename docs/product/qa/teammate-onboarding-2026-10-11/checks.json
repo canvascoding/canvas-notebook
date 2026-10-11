@@ -1,0 +1,235 @@
+{
+  "date": "2026-10-11",
+  "baseline": "64d837734b067661be761cff3512692743cb59ad",
+  "checks": [
+    {
+      "name": "Admin bootstrap browser login",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "Authenticated STARTTLS test email reaches Mailpit",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "Invitation link created",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "Automatic invitation email exists",
+      "ok": false,
+      "detail": "Current product creates a link only"
+    },
+    {
+      "name": "Invitation accepted with non-billable approved Seat quote",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "Accepted invitation resumes after reload",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "Invitee activates own password and signed Seat",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "First employee login enters personal onboarding",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "Onboarding workspace step persists after reload",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "Employee completes onboarding and reaches app",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "Member cannot access instance-admin API",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "New employee creates, writes and reopens a personal note",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "Fresh employee login preserves completed onboarding",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "Member settings hide user management",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "Admin directly creates and activates an administrator",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "Directly created administrator completes personal onboarding",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "New administrator can manage users and admin API",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "Two new users have distinct personal workspaces",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "Invite dialog resets after Done and reopen",
+      "ok": false,
+      "detail": "Reopened dialog retains previously activated link"
+    },
+    {
+      "name": "Duplicate active email is rejected",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "Admin Seat summary refreshes after activation",
+      "ok": false,
+      "detail": "API licensedQuantity4 and fresh new-admin list has4active users; original admin card stays2/2"
+    },
+    {
+      "name": "Fifth Seat above Development grant is rejected",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "Revoked link is rejected without login",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "Invalid invitation token is rejected",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "Administrator cannot read another personal workspace without a grant",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "Copy invitation link writes correct clipboard URL",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "Unused test invitation cleanly revoked",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "Direct user creation sends no password or invitation email",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "Test users archived with sessions revoked",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "Original system SMTP state restored",
+      "ok": true,
+      "detail": "Unconfigured local delivery restored"
+    },
+    {
+      "name": "Offboarding also releases signed Seats",
+      "ok": false,
+      "detail": "Two member_remove preparations failed MEMBERSHIP_SEAT_RESPONSE_INVALID; observed2 licensed4"
+    },
+    {
+      "name": "Mobile profile editor fits its card",
+      "ok": false,
+      "detail": "Upload right border and fourth icon column clipped at390px; Continue reachable"
+    }
+  ],
+  "pageErrors": [],
+  "mailpitMessages": 5,
+  "seatState": {
+    "before": {
+      "state": "attention",
+      "blocker": null,
+      "observedQuantity": 2,
+      "approvedQuantity": 4,
+      "billedQuantity": 0,
+      "licensedQuantity": 2,
+      "lastSyncAt": "2026-10-11T17:16:08.152Z",
+      "nextReportAt": "2026-10-11T17:21:10.049Z",
+      "staleAfterAt": "2026-10-11T17:22:10.049Z",
+      "driftStatus": "in_sync",
+      "reconciliationStatus": "in_sync",
+      "reconciliationAction": "none",
+      "reconciliationReason": "quantities_in_sync",
+      "reconciliationSeatLimit": null,
+      "supportRequired": false,
+      "pendingOperations": 1,
+      "failedOperations": 60,
+      "oldestPendingAt": "2026-10-10T15:43:36.681Z"
+    },
+    "afterActivation": {
+      "state": "attention",
+      "blocker": null,
+      "observedQuantity": 4,
+      "approvedQuantity": 4,
+      "billedQuantity": 0,
+      "licensedQuantity": 4,
+      "lastSyncAt": "2026-10-11T17:27:01.250Z",
+      "nextReportAt": "2026-10-11T17:32:01.357Z",
+      "staleAfterAt": "2026-10-11T17:33:01.357Z",
+      "driftStatus": "in_sync",
+      "reconciliationStatus": "in_sync",
+      "reconciliationAction": "none",
+      "reconciliationReason": "quantities_in_sync",
+      "reconciliationSeatLimit": null,
+      "supportRequired": false,
+      "pendingOperations": 1,
+      "failedOperations": 60,
+      "oldestPendingAt": "2026-10-10T15:43:36.681Z"
+    },
+    "afterOffboarding": {
+      "state": "attention",
+      "blocker": null,
+      "observedQuantity": 2,
+      "approvedQuantity": 4,
+      "billedQuantity": 0,
+      "licensedQuantity": 4,
+      "lastSyncAt": "2026-10-11T17:41:12.261Z",
+      "nextReportAt": "2026-10-11T17:46:12.637Z",
+      "staleAfterAt": "2026-10-11T17:47:12.637Z",
+      "driftStatus": "observed_below_approved",
+      "reconciliationStatus": "support_required",
+      "reconciliationAction": "contact_support",
+      "reconciliationReason": "observed_below_licensed",
+      "reconciliationSeatLimit": null,
+      "supportRequired": true,
+      "pendingOperations": 1,
+      "failedOperations": 63,
+      "oldestPendingAt": "2026-10-10T15:43:36.681Z"
+    }
+  },
+  "summary": {
+    "passed": 27,
+    "failed_or_gap": 5,
+    "total": 32
+  }
+}
