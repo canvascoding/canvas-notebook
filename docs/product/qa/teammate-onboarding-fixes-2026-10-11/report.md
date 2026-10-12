@@ -1,6 +1,6 @@
 # Teammate-Onboarding: Fix-Validierung
 
-Begonnen am 11. Oktober 2026; abschließende Offboarding-Prüfung am 12. Oktober 2026 (Europe/Berlin). Lokale Produktionstestumgebung, keine Veröffentlichung.
+Begonnen am 11. Oktober 2026; vollständiger abschließender QA-Durchlauf am 12. Oktober 2026 (Europe/Berlin). Lokale Produktionstestumgebung, keine Veröffentlichung.
 
 ## 1. Offboarding und Lizenzplätze
 
@@ -124,8 +124,61 @@ Wenn nach SMTP-Annahme das Speichern des Resultats scheitert, wird kein automati
 
 Alle vier Testeinladungen sind widerrufen. Bestätigter Abschluss: zwei lokale und Control-Plane-Mitglieder, zwei lizenzierte Plätze, Revision 5774 und Hash bestätigt, Drift/Reconciliation `in_sync`. Keine JavaScript-Pageerrors; drei Human-Activity-HTTP-403 wurden separat für den Gesamtdurchlauf erfasst. Der lokale SMTP-Testzustand und die eigenen Mailpit-Nachrichten bleiben ausschließlich für Planpunkt 5 bestehen und werden dort bereinigt. Die ursprünglichen fünf Mailpit-Nachrichten bleiben erhalten.
 
-## Noch folgender Planpunkt
+## 5. Vollständiger Production- und Mailpit-Durchlauf
 
-5. Vollständiger Production-Playwright-/Mailpit-Durchlauf für beide Rollen, wiederholte Einladungen und negative Fälle.
+Status: QA abgeschlossen, vier neue Produktbefunde offen. Die vier implementierten Planpunkte sind validiert; der Gesamtworkflow ist wegen des reproduzierten Seat-Aktivierungsblockers noch nicht durchgehend fehlerfrei.
+
+Notebook wurde nach einem erfolgreichen Host-Production-Build erneut mit dem finalen Stand gebaut und frisch recreated. Source-Commit: `5f152bc7a`; Image: `sha256:6dd0fa03fb13c5d826ca4cfe1bcec2fbe42f0479cafff67c38b37fecefbc8345`; Containerstart: `2026-10-12T00:44:40.660578689Z`. Der Imagecache ist bei unverändertem finalem Quellstand erwartbar; der Notebook-Container wurde tatsächlich ersetzt. Es lief genau ein verwalteter Stack. PostgreSQL und Control Plane wurden weder neu gebaut noch recreated.
+
+Der Durchlauf verwendet echte UI-Aktionen mit Playwright/Chromium und isolierte Browserkontexte. SMTP-Annahme und tatsächlicher Eingang der Einladungen sind getrennt belegt: Jede erfolgreiche Einladung antwortete `201 / sent`; Mailpit enthielt genau eine Nachricht an den jeweiligen synthetischen Empfänger. Der Link entsprach dem Admin-Link und führte zur lokalen öffentlichen Einladung. Die Mails enthielten weder Bootstrap- noch Initialpasswörter. Die lokale Lizenzquote verwendete ausschließlich `test`, `nonBillable=true` und null Kosten.
+
+### Erfolgreiche Abläufe
+
+| Anlage | Rolle | Aktivierung und persönliches Onboarding | App-Nutzung |
+| --- | --- | --- | --- |
+| E-Mail-Einladung, frischer Mitarbeiter | member | E-Mail-Link, eigenes Passwort, Aktivierung `200`, Sprache, Avatar, persönlicher Workspace, Bradley übersprungen, Abschluss | Notiz erstellen und bearbeiten; Autosave, Reload und neue Anmeldung erhalten Inhalt und Onboarding-Abschluss |
+| E-Mail-Einladung | admin | E-Mail-Link, eigenes Passwort, Aktivierung `200`, Sprache, Avatar, persönlicher Workspace, Bradley übersprungen, Abschluss | Derselbe Notizablauf; Nutzerverwaltung sichtbar und Admin-API `200` |
+| Direkte Nutzeranlage | member | Initialpasswort im Admin-Dialog, keine Einladungsmail; Anmeldung `200`, vollständige persönliche Einrichtung | Home bedienbar, Admin-API `403` |
+| Direkte Nutzeranlage | admin | Initialpasswort im Admin-Dialog, keine Einladungsmail; Anmeldung `200`, vollständige persönliche Einrichtung | Home bedienbar, Admin-API `200` |
+
+Alle vier persönlichen Onboardings erreichten den gespeicherten Schritt `complete`. Die Tour ist installationsseitig deaktiviert. Der Workspace-Schritt blieb bei eingeladenem und direkt angelegtem Mitarbeiter nach Reload erhalten. Die Avatare blieben gespeichert. Eine erneute Anmeldung der beiden eingeladenen Nutzer startete keinen zweiten Onboarding-Assistenten und stellte die jeweilige Notiz wieder her.
+
+Die vier erfolgreichen Konten sind von dem unten beschriebenen fehlgeschlagenen Mitarbeiter-Kandidaten getrennt. Dessen Versuch wurde nicht durch einen funktionierenden Recovery-Ablauf erfolgreich; für den normalen Erfolgsfall wurde eine neue synthetische Einladung mit eigener E-Mail-Adresse verwendet.
+
+Rollen und Isolation: Der Mitarbeiter konnte die Nutzerverwaltung nicht öffnen; der erzwungene Settings-Link fiel auf die allgemeinen Einstellungen zurück. Die Admin-API antwortete für member mit `403` und für admin mit `200`. Beide hatten verschiedene persönliche Workspaces. Weder Mitarbeiter noch Administrator konnten die private Notiz des anderen lesen (`404`); der fremde persönliche Workspace erschien auch nicht in ihrer Liste.
+
+Weitere Negativfälle: Ein zu kurzes Passwort wurde vor dem Aktivierungsrequest im UI abgelehnt. Einladungsanlage für die bereits aktive Testadresse antwortete `409 / INVITATION_ALREADY_USED`, ohne zusätzliche Mail. Ein syntaktisch ungültiger Token antwortete `400 / INVITATION_INVALID`, ein unbekannter gültig formatierter Token `404 / INVITATION_NOT_FOUND`. Eine weitere per Mail zugestellte Einladung wurde über die UI widerrufen; die öffentliche Vorschau antwortete danach `410 / INVITATION_REVOKED`. Die Resend-, Replay-, Cooldown- und Origin-Fälle stehen mit eigener Production-Abnahme in Planpunkt 4.
+
+Screenshots: [Passwortvalidierung](42-final-short-password-rejected.png), [Admin aktiviert](44-final-admin-activated.png), [mobile Mitarbeiter-Home](49-final-member-home-mobile.png), [Admin-Notiz nach Reload](51-final-admin-note-after-reload.png), [Mitarbeiter-Notiz nach Reload](53-final-member-note-after-reload.png), [Mitarbeiter ohne Admin-Einstellungen](54-final-member-settings-no-admin.png), [neuer Administrator](55-final-new-admin-user-management.png), [vier bestätigte Plätze](56-final-four-confirmed-seats.png), [Notiz nach neuer Anmeldung](57-final-member-note-after-fresh-login.png), [direkt angelegter Admin nach Onboarding](60-final-direct-admin-onboarding-complete.png).
+
+Maschinenlesbare Beobachtungen: [full-workflow-production-ui-checks.json](full-workflow-production-ui-checks.json). Die 26 Einträge unterscheiden bestandene Positiv- und Negativprüfungen, reproduzierte Produktfehler und rein technische Testdatenbereinigung. Keine JavaScript-Pageerrors.
+
+### Offene Produktbefunde und nächste Arbeiten
+
+**QA5-1 / P1: Veraltetes Seat-Angebot blockiert Aktivierung und Wiederherstellung.** Der erste Mitarbeiter nahm seine Einladung an (`202`); die Quote war freigegeben und noch nicht abgelaufen. Aktivierung antwortete dennoch `409 / TEAM_SEAT_QUOTE_STALE` mit „Membership snapshot changed after Seat authorization“. Zu diesem Zeitpunkt waren lokaler Bestand, Control-Plane-Bestand und Lizenz weiterhin zwei; es war keine Nutzeridentität angelegt. Ein aktueller Snapshot hatte bereits eine neuere Revision. Vor Ablauf bot die UI keinen neuen Quote-Request an. Nach Ablauf erschien „Neues Angebot laden“, doch der Request antwortete `202` mit derselben bereits abgelaufenen Quote und dem festhängenden Aktivierungsstand. Auch „Decline activation“ antwortete `409 / INVITATION_CONFLICT`, weil Seat-Execute bereits begonnen hatte.
+
+Die Source erklärt den Konflikt: Der periodische Notebook-Snapshot erhöht die Revision auch bei unverändertem aktivem Bestand und identischem Hash. Die Control Plane vergleicht bei Execute die Quote-Revision strikt mit der neuesten Snapshot-Revision. Der Notebook-Refresh gibt eine vorhandene freigegebene oder konsumierte Quote zurück; die UI behandelt den Stale-Code nur als Fehlermeldung. Das ist ein Zusammenspiel beider Dienste. Die Kontrolle verhindert einen überholten Execute, aber der Benutzer kann danach weder sicher ein neues Angebot laden noch den nicht aktivierten Kandidaten über die UI abschließen.
+
+Nächste Arbeit: serverseitig einen neuen, konsistenten Quote-/Authorization-Ablauf für terminal fehlgeschlagene Aktivierung ermöglichen und in der UI bei `TEAM_SEAT_QUOTE_STALE` direkt anbieten. Die Wiederholung muss dieselbe Mitgliedschaft verwenden, alte Ausführungs- und Freigabehistorie erhalten und darf keine automatische kostenpflichtige Wiederholung auslösen. Auch der sichere Abbruch eines Kandidaten ohne Identität und ohne erfolgreichen Execute benötigt einen regulären Produktpfad. Nachweis: [festhängender Refresh](45-final-stale-seat-offer-refresh.png).
+
+**QA5-2 / P2: Human Activity lehnt legitime Browserrequests ab.** Authentifizierte Requests antworteten wiederholt `403 / Forbidden`, obwohl sichtbare Browser-Origin und Host beide `http://127.0.0.1:3100` waren. Forwarded-Host und Forwarded-Proto fehlten. Der Handler vergleicht unmittelbar mit `request.nextUrl.origin`, statt die vorhandene gemeinsame Mutation-Origin-Prüfung zu verwenden. Eine abweichende interne/proxybedingte Origin ist eine aus dem Source abgeleitete Erklärung; der serverseitige Origin-Wert wurde nicht direkt gemessen. Nächste Arbeit: Origin-Behandlung vereinheitlichen und legitime lokale Production-Requests sowie fremde Origins regressionsprüfen. Anmeldung, Einladung und Notizspeicherung waren davon nicht blockiert.
+
+**QA5-3 / P2: Optionales Bradley-Onboarding erhält keinen Workspace-Kontext.** Beim Profil-Session-Bootstrap antwortete `/api/sessions/[sessionId]/bootstrap` mit `400 / Session ID and workspaceId required`; der tatsächliche Request enthielt kein `workspaceId`. Der Workspace-Schritt lädt seinen Kontext lokal, während der gemeinsame Workspace-Provider das Onboarding ausschließt. Die Bradley-Ansicht bekommt die Session-ID, der Chat-Bootstrap verwendet dagegen den noch leeren aktiven Workspace. Nächste Arbeit: den persönlichen Workspace ausdrücklich bis zur Chat-Session weiterreichen oder vor deren Mount laden. „Set preferences later“ funktionierte bei allen vier Konten. Der Bradley-Präferenzdialog und eine echte AI-Konversation sind damit ausdrücklich nicht abgenommen. [Bradley-Ansicht](46-final-bradley-context.png) zeigt die frühe Vorbereitung; der HTTP-Fehler ist im JSON belegt.
+
+**QA5-4 / P2: Nach Session-Widerruf bleiben Home und Notification-Polling aktiv.** Offboarding löschte die Sessions korrekt; geschützte Requests antworteten `401`. In den bereits offenen Browsern blieben jedoch die Home-Seite und alte Übersichten sichtbar. Über 122 Sekunden wurden 16 weitere Notification-Summary-401-Antworten im 30-Sekunden-Takt erfasst, ohne automatische Login-Navigation. Erst manuelle Navigation zur Login-Seite beendete die Poller; der Zähler blieb anschließend unverändert. Nächste Arbeit: bei `401` die angezeigten geschützten Daten und Caches leeren, Poller stoppen und zum Login navigieren. Die serverseitige Zugangsrevokation funktioniert; die verbleibende UI-Reaktion ist der Fehler.
+
+### Bereinigung und Gültigkeit der Abnahme
+
+Beide eigenen Notizen wurden über den normalen UI-Papierkorb gelöscht (`200`), danach antwortete Lesen jeweils `404`. Während ein Editor bzw. seine Kollaborationsverbindung die Datei noch belegte, wurde Löschen mit `409 / COLLABORATION_FILE_LIFECYCLE_BUSY` abgewiesen. Nach Schließen der offenen Editoren und Freigabe der Verbindung gelang der normale UI-Retry. Keine Dateisperre wurde umgangen. Ein verständlicher Hinweis zum Schließen des Editors wäre eine mögliche UX-Verbesserung.
+
+Die festhängende Stale-Quote-Einladung benötigte dagegen technische Testdatenbereinigung. Der private Harness prüfte vor einer atomaren lokalen Änderung: keine Nutzeridentität, kein aktiver Seat, alle Executes terminal fehlgeschlagen, Testprovider, null Kosten und keine konsumierte Authorization. Er markierte nur diesen Kandidaten als entfernt und dessen Einladung als widerrufen. Acceptance-, Outbox- und Versandhistorie blieben erhalten; aktive Projektion, Sync-/Lizenzzustand und Control Plane wurden nicht verändert. Diese Bereinigung ist kein Nachweis einer funktionierenden UI-Recovery und keine Behebung von QA5-1.
+
+Alle vier tatsächlich angelegten Konten wurden über die normale Offboarding-UI archiviert. Die Datenbankprüfung bestätigt für alle vier `archived`, Membership `removed` und null Sessions; Better Auth antwortet in allen vier Browserkontexten mit Session `null`. Beide unaktivierten Kandidaten sind ebenfalls `removed`. Abschließend liegen lokaler Bestand, bestätigter Control-Plane-Bestand und signierte Lizenz wieder bei `2 / 2 / 2`; beim letzten lesenden Audit waren Revision und Ack `5794`, der Hash bestätigt und Drift/Reconciliation `in_sync`. Die Lizenzkarte aktualisierte sich automatisch. Nachweis: [bereinigte Zwei-Platz-Baseline](61-final-clean-two-seat-baseline.png).
+
+Die zentrale SMTP-Konfiguration wurde über ihre Admin-API auf den ursprünglichen Zustand zurückgesetzt: `configured=false`, kein gespeichertes Passwort und Delivery-Mode `local`. Zehn eigene Testmails und zwei während der QA-Konfiguration erzeugte Systemmeldungen wurden anhand ihrer einzelnen IDs aus Mailpit entfernt. Die fünf ursprünglichen Nachrichten sind vollständig erhalten; „Delete all“ wurde nicht verwendet. Alle sechs verbleibenden Browserkontexte und der QA-Browserprozess wurden geschlossen.
+
+Historische fehlgeschlagene und offene Lizenzaufträge bleiben erhalten. Der Sync-Gesamtstatus zeigt deshalb weiterhin `attention` mit 65 fehlgeschlagenen und einem alten offenen Auftrag, obwohl die aktuellen Mengen synchron sind. Darin enthalten ist der im fünften Durchlauf neu reproduzierte Stale-Execute. Der bereinigte Mengenbestand bedeutet nicht, dass historische Fehler verschwunden sind.
+
+Gültigkeitsgrenze: lokale Chromium-Production-Abnahme mit Mailpit und Non-Billable-Testprovider; keine Stripe-Abnahme, kein externer SMTP-Provider, keine AI-Präferenzkonversation und kein physisches Mobilgerät. Die vorhandene Instanz-, Lizenz- und Erstadministrator-Konfiguration wurde beibehalten; geprüft ist auch das persönliche Onboarding eines neu angelegten Administrators. Keine Veröffentlichung, kein Push und keine Control-Plane-Codeänderung.
 
 Der ursprüngliche Befundbericht bleibt unter [teammate-onboarding-local-production-2026-10-11.md](../teammate-onboarding-local-production-2026-10-11.md) erhalten.
