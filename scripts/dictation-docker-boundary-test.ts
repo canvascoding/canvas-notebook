@@ -35,7 +35,7 @@ async function main() {
     assert.match(availability.reason ?? '', /unavailable in this Docker release/u);
     await assert.rejects(
       transcribeDictationFile(new File([new Uint8Array([1])], 'sample.wav', { type: 'audio/wav' }), localSettings),
-      /not installed on this server/u,
+      /unavailable in this Docker release/u,
     );
 
     const native = path.join(temporary, 'native/dictation');
@@ -45,6 +45,7 @@ async function main() {
     fs.mkdirSync(docs, { recursive: true });
     fs.mkdirSync(scripts, { recursive: true });
     fs.copyFileSync('scripts/dictation_cpp.py', path.join(scripts, 'dictation_cpp.py'));
+    fs.copyFileSync('scripts/dictation_progress.py', path.join(scripts, 'dictation_progress.py'));
     fs.writeFileSync(path.join(native, 'runtime.json'), '{}');
     assert.equal((await readLocalDictationRuntimeStatus()).state, 'failed', 'unverified runtime must remain unavailable');
 

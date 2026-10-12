@@ -14,6 +14,7 @@ import styles from './PdfViewer.module.css';
 interface PdfViewerProps {
   path: string;
   sourceUrl?: string;
+  sourceData?: ArrayBuffer;
 }
 
 interface PdfPageCanvasProps {
@@ -343,7 +344,7 @@ function PdfPageCanvas({
   );
 }
 
-export function PdfViewer({ path, sourceUrl }: PdfViewerProps) {
+export function PdfViewer({ path, sourceUrl, sourceData }: PdfViewerProps) {
   const t = useTranslations('notebook');
   const workspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
   const src = sourceUrl ?? toMediaUrl(path, { workspaceId });
@@ -451,10 +452,10 @@ export function PdfViewer({ path, sourceUrl }: PdfViewerProps) {
         const { pdfjs, viewer } = await loadPdfJs();
         if (cancelled) return;
 
-        loadingTask = pdfjs.getDocument({
-          url: src,
-          withCredentials: true,
-        });
+        // PDF.js transfers its data to a worker. Preserve the caller's snapshot.
+        loadingTask = pdfjs.getDocument(sourceData
+          ? { data: new Uint8Array(sourceData.slice(0)) }
+          : { url: src, withCredentials: true });
         loadingTask.onProgress = ({ loaded, total }: OnProgressParameters) => {
           if (!cancelled && total > 0) {
             setProgress(Math.round((loaded / total) * 100));
@@ -499,7 +500,7 @@ export function PdfViewer({ path, sourceUrl }: PdfViewerProps) {
       loadedLinkService?.setDocument(null);
       destroyLoadingTask();
     };
-  }, [scrollToPage, src, t]);
+  }, [scrollToPage, src, sourceData, t]);
 
   useEffect(() => {
     if (!pdf || isLoading || restorePageRef.current === null) return;

@@ -26,6 +26,8 @@ import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { cn } from '@/lib/utils';
+import { composeEmailAttachmentPreviewItems } from '@/app/lib/email/attachment-preview';
+import { useEmailAttachmentPreview } from './useEmailAttachmentPreview';
 
 type WorkspaceAttachmentFile = FilePickerFile & {
   size?: number;
@@ -68,6 +70,8 @@ type EmailAttachmentPanelProps = {
   disabled?: boolean;
   labels: EmailAttachmentPanelLabels;
   onChange: (attachments: EmailAttachmentDraft[]) => void;
+  workspaceId?: string | null;
+  previewContextKey?: string;
 };
 
 type UploadResponse = {
@@ -165,14 +169,20 @@ function AttachmentRow({
   attachment,
   isSelected,
   onClick,
+  onPreview,
+  previewLabel,
+  previewDisabled,
 }: {
   attachment: EmailAttachmentDraft;
   isSelected?: boolean;
   onClick?: () => void;
+  onPreview?: () => void;
+  previewLabel?: string;
+  previewDisabled?: boolean;
 }) {
   const rowClassName = cn(
     'flex w-full min-w-0 items-center gap-2 border border-border bg-background px-2 py-1.5 text-left text-xs',
-    onClick ? 'transition hover:border-primary/50 hover:bg-muted/60' : null,
+    onClick || onPreview ? 'transition hover:border-primary/50 hover:bg-muted/60' : null,
     isSelected ? 'border-primary bg-primary/5 text-primary' : null,
   );
   const displayName = getFileDisplayName({ name: attachment.name, type: 'file' });
@@ -188,9 +198,11 @@ function AttachmentRow({
     </>
   );
 
-  if (onClick) {
+  if (onClick || onPreview) {
     return (
-      <button type="button" onClick={onClick} className={rowClassName} title={attachment.path || attachment.name}>
+      <button type="button" onClick={onClick || onPreview} className={rowClassName} title={attachment.path || attachment.name}
+        aria-label={onPreview ? previewLabel : undefined} disabled={onPreview ? previewDisabled : undefined}
+        data-testid={onPreview ? 'email-attachment-preview-trigger' : undefined} data-attachment-id={onPreview ? attachment.id : undefined}>
         {rowContent}
       </button>
     );
@@ -203,8 +215,11 @@ function AttachmentRow({
   );
 }
 
-export function EmailAttachmentPanel({ attachments, disabled = false, labels, onChange }: EmailAttachmentPanelProps) {
+export function EmailAttachmentPanel({ attachments, disabled = false, labels, onChange, workspaceId, previewContextKey = 'compose' }: EmailAttachmentPanelProps) {
   const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
+  const previewWorkspaceId = workspaceId === undefined ? activeWorkspaceId : workspaceId;
+  const previewItems = useMemo(() => composeEmailAttachmentPreviewItems(attachments, previewWorkspaceId), [attachments, previewWorkspaceId]);
+  const preview = useEmailAttachmentPreview(previewItems, JSON.stringify([previewContextKey, previewWorkspaceId]));
   const fileInputRef = useRef<HTMLInputElement>(null);
   const requestIdRef = useRef(0);
   const attachmentsRef = useRef(attachments);
@@ -260,8 +275,8 @@ export function EmailAttachmentPanel({ attachments, disabled = false, labels, on
     setIsWorkspaceLoading(true);
     setError(null);
     try {
-      if (!activeWorkspaceId) throw new Error('Workspace context is not ready');
-      const files = await listWorkspaceFileReferences({ query, limit: 500, sort, workspaceId: activeWorkspaceId });
+      if (!previewWorkspaceId) throw new Error('Workspace context is not ready');
+      const files = await listWorkspaceFileReferences({ query, limit: 500, sort, workspaceId: previewWorkspaceId });
       if (requestId !== requestIdRef.current) return;
       setWorkspaceFiles(files.filter((file) => file.type === 'file').map((file) => makeWorkspaceAttachment(file as WorkspaceAttachmentFile)));
     } catch (err) {
@@ -271,7 +286,7 @@ export function EmailAttachmentPanel({ attachments, disabled = false, labels, on
     } finally {
       if (requestId === requestIdRef.current) setIsWorkspaceLoading(false);
     }
-  }, [activeWorkspaceId, search, workspaceSort]);
+  }, [previewWorkspaceId, search, workspaceSort]);
 
   const openAttachmentDialog = useCallback(() => {
     setSelected([]);
@@ -384,7 +399,8 @@ export function EmailAttachmentPanel({ attachments, disabled = false, labels, on
         <div className="max-h-36 space-y-1 overflow-y-auto pr-1">
           {attachments.map((attachment) => (
             <div key={attachmentKey(attachment)} className="flex min-w-0 items-center gap-1">
-              <AttachmentRow attachment={attachment} />
+              <AttachmentRow attachment={attachment} onPreview={() => preview.openAttachment(attachment.id)}
+                previewLabel={preview.openLabel(attachment.name)} previewDisabled={!preview.canOpen} />
               {isWorkspaceMarkdownAttachment(attachment) ? (
                 <div
                   className="flex h-7 shrink-0 items-center gap-1.5 border border-border bg-background px-2 text-[11px] text-muted-foreground"
@@ -415,6 +431,7 @@ export function EmailAttachmentPanel({ attachments, disabled = false, labels, on
         </div>
       ) : null}
 
+      {preview.dialog}
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="flex max-h-[85vh] flex-col overflow-hidden sm:max-w-3xl">
           <DialogHeader>

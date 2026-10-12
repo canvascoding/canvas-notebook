@@ -16,6 +16,7 @@ import { getAgentAccess } from '@/app/lib/agents/access';
 function jsonWithRequestId(requestId: string, body: Record<string, unknown>, init: ResponseInit = {}) {
   const headers = new Headers(init.headers);
   headers.set('X-Request-Id', requestId);
+  headers.set('Cache-Control', 'private, no-store');
   return NextResponse.json(body, { ...init, headers });
 }
 
@@ -69,6 +70,13 @@ export async function PATCH(request: NextRequest) {
     console.log('[user-preferences] PATCH received', { requestId, ...logUser, payloadKeys });
 
     const updates: UserPreferences = {};
+
+    if (payload && typeof payload === 'object' && !Array.isArray(payload) && 'emailExperienceMode' in payload) {
+      if (payload.emailExperienceMode !== null && payload.emailExperienceMode !== 'focus' && payload.emailExperienceMode !== 'classic') {
+        return jsonWithRequestId(requestId, { success: false, error: 'Unsupported email experience mode.', requestId }, { status: 400 });
+      }
+      updates.emailExperienceMode = payload.emailExperienceMode === null ? undefined : payload.emailExperienceMode;
+    }
 
     if (payload && typeof payload === 'object' && !Array.isArray(payload) && 'developerMode' in payload) {
       if (typeof payload.developerMode !== 'boolean') {

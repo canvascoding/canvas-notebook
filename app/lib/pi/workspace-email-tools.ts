@@ -12,6 +12,7 @@ import type { EmailAgentUiIntent, EmailAgentUiView } from '@/app/lib/email/agent
 import { downloadEmailAttachmentBatch } from '@/app/lib/email/attachment-batch';
 import { saveDownloadedEmailAttachmentsToWorkspace } from '@/app/lib/email/attachment-workspace-save';
 import { readEmailMessage, searchEmail } from '@/app/lib/email/service';
+import { findEmailRecipients, suggestEmailReplyRecipients } from '@/app/lib/email/recipient-discovery';
 import {
   createPersonalInboxCase,
   createPersonalOutboxDraft,
@@ -217,6 +218,12 @@ function messagesFromResponse(value: unknown): Array<Record<string, unknown>> {
     : [];
 }
 
+function recipientDiscoveryResult(data: unknown) {
+  const text = `${UNTRUSTED_EMAIL_NOTICE}\n\n${JSON.stringify(data)}`;
+  if (text.length >= 8_000) throw new Error('Recipient lookup returned too much data. Narrow the query and try again.');
+  return { content: [{ type: 'text' as const, text }], details: data };
+}
+
 /**
  * The single agent-facing email tool family. Workspace and personal mailboxes
  * have identical capabilities; the resolved mailbox carries the ownership and
@@ -238,6 +245,53 @@ export function createEmailAgentTools(context: EmailAgentToolsContext = {}): Age
     });
 
   return [
+    {
+      name: 'email_find_recipients', label: 'Find email recipients',
+      description: 'Looks up a name or address in observed From/To/Cc headers of one selected mailbox. Each call searches one page of at most 25 messages and returns at most five candidates with source references. Check status and coverage: ambiguous results require a user choice; incomplete results cannot establish a unique identity. Never infer an address or include optional recipients automatically. It never sends email.',
+      parameters: Type.Object({
+        ...mailboxParameter,
+        query: Type.String({ minLength: 2, maxLength: 120, description: 'Literal name or address to look up; no search operators.' }),
+        folder: Type.Optional(Type.String({ minLength: 1, maxLength: 240, description: 'Folder path or all. Defaults to all, or the triggering automation folder.' })),
+        offset: Type.Optional(Type.Integer({ minimum: 0, maximum: 10_000, description: 'Explicit continuation offset. Do not automatically scan further pages.' })),
+        exclude: Type.Optional(Type.Array(Type.String({ minLength: 1, maxLength: 400 }), { maxItems: 50, description: 'Addresses already selected in the draft.' })),
+      }),
+      execute: async (_toolCallId, params) => {
+        try {
+          const value = params as { mailboxWorkspaceId?: string; mailboxId?: string; query: string; folder?: string; offset?: number; exclude?: string[] };
+          const mailbox = await requireMailbox(context, value.mailboxId, value.mailboxWorkspaceId);
+          return recipientDiscoveryResult(await findEmailRecipients({
+            actorUserId: requireUser(context), accountId: mailbox.accountId, mailboxWorkspaceId: mailbox.workspaceId,
+            purpose: 'agent', query: value.query, folder: value.folder || bound?.folder,
+            offset: value.offset, exclude: value.exclude,
+          }));
+        } catch (error) { return toolError(error); }
+      },
+    },
+    {
+      name: 'email_suggest_reply_recipients', label: 'Suggest reply recipients',
+      description: 'Suggests reply or reply-all recipients and optional additional To/Cc participants from one explicitly selected message. Uses Reply-To and excludes own or already-selected addresses. The basis is current_message, never a complete thread. Show optional participants for user selection; do not add them automatically. It never sends email.',
+      parameters: Type.Object({
+        ...mailboxParameter,
+        messageId: bound
+          ? Type.Optional(Type.String({ minLength: 1, maxLength: 1_024, description: 'Defaults to the triggering message.' }))
+          : Type.String({ minLength: 1, maxLength: 1_024, description: 'Exact provider message ID from email_read_message or email_search_messages.' }),
+        folder: Type.Optional(Type.String({ minLength: 1, maxLength: 240 })),
+        mode: Type.Optional(Type.Union([Type.Literal('reply'), Type.Literal('reply-all')])),
+        exclude: Type.Optional(Type.Array(Type.String({ minLength: 1, maxLength: 400 }), { maxItems: 50, description: 'Addresses already selected in the draft.' })),
+      }),
+      execute: async (_toolCallId, params) => {
+        try {
+          const value = params as { mailboxWorkspaceId?: string; mailboxId?: string; messageId?: string; folder?: string; mode?: 'reply' | 'reply-all'; exclude?: string[] };
+          const mailbox = await requireMailbox(context, value.mailboxId, value.mailboxWorkspaceId);
+          const messageId = value.messageId || bound?.providerMessageId;
+          if (!messageId) throw new Error('messageId is required.');
+          return recipientDiscoveryResult(await suggestEmailReplyRecipients({
+            actorUserId: requireUser(context), accountId: mailbox.accountId, mailboxWorkspaceId: mailbox.workspaceId,
+            purpose: 'agent', messageId, folder: value.folder || bound?.folder, mode: value.mode, exclude: value.exclude,
+          }));
+        } catch (error) { return toolError(error); }
+      },
+    },
     {
       name: 'email_list_mailboxes', label: 'List email mailboxes',
       description: 'Lists personal mailboxes and mailboxes available in the active workspace. An email automation sees only its triggering mailbox.', parameters: Type.Object({ mailboxWorkspaceId: mailboxWorkspaceParameter }),

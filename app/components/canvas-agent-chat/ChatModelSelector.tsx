@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { startTransition, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import {
   AlertTriangle,
@@ -44,6 +44,7 @@ import type {
   AiRuntimeSelectionSource,
 } from '@/app/lib/agent-runtime-policy/types';
 import { enableInteractiveUserCredentialGrant } from '@/app/lib/agent-runtime-policy/user-credential-grants-client';
+import { verifyPersonalProviderConnection } from '@/app/lib/agent-runtime-policy/personal-provider-client';
 import { patchChatSessions } from '@/app/lib/chat/session-api';
 import { PiOAuthButton } from '@/app/components/settings/PiOAuthButton';
 import type { PiThinkingLevel } from '@/app/lib/pi/config';
@@ -76,6 +77,7 @@ type SelectorFeedback = {
 type RuntimeSelectorView = 'overview' | 'models' | 'intelligence';
 
 type PersonalProviderActivation = {
+  contextKey: string;
   providerInstallationId: string;
   connected: boolean;
   consentGranted: boolean;
@@ -159,7 +161,7 @@ export function ChatModelSelector({
 }: ChatModelSelectorProps) {
   const t = useTranslations('chat');
   const isMobile = useIsMobile();
-  const contextKey = `${agentId}\0${sessionId ?? '__new__'}`;
+  const contextKey = `${resolution?.context.workspaceId ?? ''}\0${resolution?.context.userId ?? ''}\0${agentId}\0${sessionId ?? '__new__'}`;
   const latestContextKeyRef = useRef(contextKey);
   useLayoutEffect(() => {
     latestContextKeyRef.current = contextKey;
@@ -177,6 +179,9 @@ export function ChatModelSelector({
   const [personalActivation, setPersonalActivation] = useState<PersonalProviderActivation | null>(null);
   const [personalGrantPending, setPersonalGrantPending] = useState(false);
   const [personalGrantError, setPersonalGrantError] = useState<string | null>(null);
+  const [personalVerificationPending, setPersonalVerificationPending] = useState(false);
+  const [personalVerificationError, setPersonalVerificationError] = useState<string | null>(null);
+  const personalVerificationAbortRef = useRef<AbortController | null>(null);
   const personalActivationRef = useRef<PersonalProviderActivation | null>(null);
   const currentFeedback = feedback.contextKey === contextKey
     ? feedback
@@ -192,12 +197,23 @@ export function ChatModelSelector({
   );
   const validSelection = selectionIsValid(selectedProvider, selectedModel, selection);
   const providers = resolution?.providers ?? [];
-  const personalProvider = personalActivation
+  const personalProvider = personalActivation?.contextKey === contextKey
     ? providers.find((provider) => provider.installationId === personalActivation.providerInstallationId) ?? null
     : null;
   const models = selectedProvider?.models ?? [];
   const thinkingLevels = selectedModel?.thinkingLevels ?? [];
   const canChange = Boolean(resolution || runtimeError) && !disabled && !currentFeedback.pending;
+  useEffect(() => {
+    personalVerificationAbortRef.current?.abort();
+    personalActivationRef.current = null;
+    startTransition(() => {
+      setPersonalActivation(null);
+      setPersonalVerificationPending(false);
+      setPersonalVerificationError(null);
+      setPersonalGrantError(null);
+    });
+    return () => { personalVerificationAbortRef.current?.abort(); };
+  }, [contextKey]);
   const issue = !hasLocalSelection ? resolution?.issues[0] : null;
 
   const issueMessage = issue ? ({
@@ -352,6 +368,7 @@ export function ChatModelSelector({
     if (!provider.selectable) {
       if (supportsPersonalProviderActivation(provider)) {
         const nextActivation = {
+          contextKey,
           providerInstallationId: provider.installationId,
           connected: provider.userCredentialEligibility?.connected ?? false,
           consentGranted: provider.userCredentialEligibility?.consentGranted ?? false,
@@ -359,6 +376,7 @@ export function ChatModelSelector({
         personalActivationRef.current = nextActivation;
         setPersonalActivation(nextActivation);
         setPersonalGrantError(null);
+        setPersonalVerificationError(null);
       }
       return;
     }
@@ -370,6 +388,7 @@ export function ChatModelSelector({
     if (!workspaceId || personalGrantPending) return;
     setPersonalGrantPending(true);
     setPersonalGrantError(null);
+    const targetContextKey = contextKey;
     try {
       await enableInteractiveUserCredentialGrant({
         workspaceId,
@@ -377,8 +396,10 @@ export function ChatModelSelector({
         providerInstallationId: provider.installationId,
         fallbackError: t('runtimePersonalGrantFailed'),
       });
+      if (latestContextKeyRef.current !== targetContextKey) return;
       const current = personalActivationRef.current;
       const nextActivation = {
+        contextKey,
         providerInstallationId: provider.installationId,
         connected: current?.providerInstallationId === provider.installationId
           ? current.connected
@@ -389,14 +410,14 @@ export function ChatModelSelector({
       setPersonalActivation(nextActivation);
       await onResolutionRefresh?.();
       if (nextActivation.connected) {
-        setPersonalActivation(null);
-        personalActivationRef.current = null;
-        applyProviderSelection(provider);
+        await verifyPersonalProvider(provider);
       }
     } catch (error) {
-      setPersonalGrantError(error instanceof Error ? error.message : t('runtimePersonalGrantFailed'));
+      if (latestContextKeyRef.current === targetContextKey) {
+        setPersonalGrantError(error instanceof Error ? error.message : t('runtimePersonalGrantFailed'));
+      }
     } finally {
-      setPersonalGrantPending(false);
+      if (latestContextKeyRef.current === targetContextKey) setPersonalGrantPending(false);
     }
   }
 
@@ -407,6 +428,7 @@ export function ChatModelSelector({
     if (status.provider !== provider.providerId) return;
     const current = personalActivationRef.current;
     const nextActivation = {
+      contextKey,
       providerInstallationId: provider.installationId,
       connected: status.connected,
       consentGranted: current?.providerInstallationId === provider.installationId
@@ -417,9 +439,50 @@ export function ChatModelSelector({
     setPersonalActivation(nextActivation);
     await onResolutionRefresh?.();
     if (status.connected && nextActivation.consentGranted) {
+      await verifyPersonalProvider(provider);
+    }
+  }
+
+  function personalVerificationFailure(code: string): string {
+    if (code === 'CREDENTIAL_LOOKUP_FAILED') return t('runtimePersonalVerifyCredentialFailed');
+    if (code === 'PROVIDER_AUTH_REJECTED' || code === 'CREDENTIAL_NOT_AVAILABLE') return t('runtimePersonalVerifyAuthFailed');
+    if (code === 'PROVIDER_RATE_LIMITED' || code === 'RATE_LIMITED') return t('runtimePersonalVerifyRateLimited');
+    if (code === 'MODEL_TEST_TIMEOUT') return t('runtimePersonalVerifyTimeout');
+    if (code === 'MODEL_TEST_UNEXPECTED_RESPONSE') return t('runtimePersonalVerifyUnexpectedResponse');
+    if (code === 'PERSONAL_PROVIDER_APPROVAL_REQUIRED' || code === 'PERSONAL_PROVIDER_NOT_ALLOWED') return t('runtimePersonalVerifyNotAllowed');
+    if (code === 'PROVIDER_VERIFICATION_CONFLICT' || code === 'PROVIDER_VERIFICATION_TARGET_CHANGED') return t('runtimePersonalVerifyChanged');
+    return t('runtimePersonalVerifyFailed');
+  }
+
+  async function verifyPersonalProvider(provider: AiEffectiveCatalogProvider) {
+    const workspaceId = resolution?.context.workspaceId;
+    if (!workspaceId || personalVerificationAbortRef.current) return;
+    const controller = new AbortController();
+    personalVerificationAbortRef.current = controller;
+    const targetContextKey = contextKey;
+    setPersonalVerificationPending(true);
+    setPersonalVerificationError(null);
+    try {
+      const modelId = (provider.models.find(model => model.isProviderDefault) ?? provider.models[0])?.id;
+      if (!modelId) throw new Error('No allowed model to verify.');
+      const result = await verifyPersonalProviderConnection({ workspaceId, agentId, providerInstallationId: provider.installationId, modelId, signal: controller.signal });
+      if (controller.signal.aborted || latestContextKeyRef.current !== targetContextKey
+        || personalActivationRef.current?.providerInstallationId !== provider.installationId) return;
+      if (result.resolution) onResolutionChange?.(result.resolution);
+      const verified = result.resolution?.providers.find(candidate => candidate.installationId === provider.installationId);
+      if (!result.success || !verified?.selectable) {
+        setPersonalVerificationError(personalVerificationFailure(result.code));
+        return;
+      }
       setPersonalActivation(null);
       personalActivationRef.current = null;
-      applyProviderSelection(provider);
+      applyProviderSelection(verified);
+      await onRuntimeStatusRefresh?.();
+    } catch {
+      if (!controller.signal.aborted && latestContextKeyRef.current === targetContextKey) setPersonalVerificationError(t('runtimePersonalVerifyFailed'));
+    } finally {
+      if (personalVerificationAbortRef.current === controller) personalVerificationAbortRef.current = null;
+      if (latestContextKeyRef.current === targetContextKey) setPersonalVerificationPending(false);
     }
   }
 
@@ -812,6 +875,10 @@ export function ChatModelSelector({
           setPersonalActivation(null);
           personalActivationRef.current = null;
           setPersonalGrantError(null);
+          personalVerificationAbortRef.current?.abort();
+          personalVerificationAbortRef.current = null;
+          setPersonalVerificationPending(false);
+          setPersonalVerificationError(null);
         }}
       >
         <DialogContent className="max-h-[min(46rem,90dvh)] overflow-y-auto sm:max-w-xl" data-testid="chat-personal-provider-dialog">
@@ -852,6 +919,24 @@ export function ChatModelSelector({
                   {t('runtimePersonalGrantAction', { provider: personalProvider.name })}
                 </Button>
               )}
+
+              <div className="rounded-md border border-border bg-muted/30 p-3 text-sm leading-5" data-testid="chat-personal-provider-verification">
+                <p className="font-medium">{t('runtimePersonalVerifyTitle')}</p>
+                <p className="mt-1 text-xs text-muted-foreground">{t('runtimePersonalVerifyDescription')}</p>
+                {personalVerificationError || personalProvider.userCredentialEligibility?.verification?.failureCode ? (
+                  <p className="mt-2 text-sm text-destructive" role="alert">
+                    {personalVerificationError || personalVerificationFailure(personalProvider.userCredentialEligibility!.verification!.failureCode!)}
+                  </p>
+                ) : null}
+                <Button
+                  type="button" className="mt-3" data-testid="chat-personal-provider-verify"
+                  disabled={!personalActivation?.connected || !personalActivation?.consentGranted || personalVerificationPending || personalGrantPending}
+                  onClick={() => void verifyPersonalProvider(personalProvider)}
+                >
+                  {personalVerificationPending ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : null}
+                  {personalVerificationPending ? t('runtimePersonalVerifying') : t('runtimePersonalVerifyAction')}
+                </Button>
+              </div>
 
               {personalGrantError ? (
                 <div className="rounded-md border border-destructive/25 bg-destructive/5 px-3 py-2 text-sm text-destructive" role="alert">

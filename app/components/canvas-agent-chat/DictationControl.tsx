@@ -7,10 +7,13 @@ import { useTranslations } from 'next-intl';
 type StatusResponse = { success: boolean; data?: { available: boolean } };
 type TranscriptResponse = { success: boolean; data?: { text: string }; error?: string };
 
-export function DictationControl({ disabled, onTranscript }: { disabled: boolean; onTranscript: (text: string) => void }) {
+export function DictationControl({ disabled, onTranscript, availability, transcribeUrl = '/api/dictation/transcribe', formFields, testId = 'chat-dictation' }: {
+  disabled: boolean; onTranscript: (text: string) => void;
+  availability?: boolean; transcribeUrl?: string; formFields?: Record<string, string>; testId?: string;
+}) {
   const t = useTranslations('dictation');
   const [available, setAvailable] = useState(false);
-  const [phase, setPhase] = useState<'idle' | 'recording' | 'transcribing'>('idle');
+  const [phase, setPhase] = useState<'idle' | 'requesting' | 'recording' | 'transcribing'>('idle');
   const [error, setError] = useState<string | null>(null);
   const recorder = useRef<MediaRecorder | null>(null);
   const stream = useRef<MediaStream | null>(null);
@@ -19,6 +22,7 @@ export function DictationControl({ disabled, onTranscript }: { disabled: boolean
   useEffect(() => {
     mounted.current = true;
     const refresh = () => {
+      if (availability !== undefined) { setAvailable(availability); return; }
       if (document.visibilityState !== 'visible') return;
       void fetch('/api/dictation/status', { cache: 'no-store' })
         .then((response) => response.json() as Promise<StatusResponse>)
@@ -37,7 +41,7 @@ export function DictationControl({ disabled, onTranscript }: { disabled: boolean
       recorder.current?.stop();
       stream.current?.getTracks().forEach((track) => track.stop());
     };
-  }, []);
+  }, [availability]);
 
   async function transcribe(blob: Blob) {
     if (!mounted.current) return;
@@ -45,7 +49,8 @@ export function DictationControl({ disabled, onTranscript }: { disabled: boolean
     try {
       const form = new FormData();
       form.set('audio', blob, blob.type.startsWith('audio/mp4') ? 'recording.m4a' : 'recording.webm');
-      const response = await fetch('/api/dictation/transcribe', { method: 'POST', body: form });
+      for (const [key, value] of Object.entries(formFields ?? {})) form.set(key, value);
+      const response = await fetch(transcribeUrl, { method: 'POST', body: form });
       const result = await response.json() as TranscriptResponse;
       if (!response.ok || !result.success) throw new Error(result.error || t('transcriptionError'));
       if (!result.data?.text?.trim()) throw new Error(t('emptyTranscript'));
@@ -58,13 +63,30 @@ export function DictationControl({ disabled, onTranscript }: { disabled: boolean
   }
 
   async function start() {
+    if (phase !== 'idle') return;
     setError(null);
+    if (window.isSecureContext === false) {
+      setError(t('microphoneInsecure'));
+      return;
+    }
     if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
       setError(t('unsupportedBrowser'));
       return;
     }
+    const policyDocument = document as Document & {
+      permissionsPolicy?: { allowsFeature: (feature: string) => boolean };
+      featurePolicy?: { allowsFeature: (feature: string) => boolean };
+    };
+    const policy = policyDocument.permissionsPolicy ?? policyDocument.featurePolicy;
+    if (policy && !policy.allowsFeature('microphone')) {
+      setError(t('microphonePolicyBlocked'));
+      return;
+    }
+    setPhase('requesting');
+    let microphoneGranted = false;
     try {
       const audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      microphoneGranted = true;
       if (!mounted.current) { audioStream.getTracks().forEach((track) => track.stop()); return; }
       stream.current = audioStream;
       const mimeType = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4'].find((type) => MediaRecorder.isTypeSupported(type));
@@ -83,10 +105,19 @@ export function DictationControl({ disabled, onTranscript }: { disabled: boolean
       };
       active.start();
       setPhase('recording');
-    } catch {
+    } catch (cause) {
       stream.current?.getTracks().forEach((track) => track.stop());
       stream.current = null;
-      setError(t('microphoneError'));
+      recorder.current = null;
+      if (!mounted.current) return;
+      const name = cause instanceof DOMException ? cause.name : '';
+      const errorKey = microphoneGranted ? 'recordingError'
+        : name === 'NotAllowedError' || name === 'SecurityError' ? 'microphonePermissionDenied'
+        : name === 'NotFoundError' ? 'microphoneNotFound'
+        : name === 'NotReadableError' || name === 'AbortError' ? 'microphoneBusy'
+        : 'microphoneError';
+      setError(t(errorKey));
+      setPhase('idle');
     }
   }
 
@@ -94,14 +125,14 @@ export function DictationControl({ disabled, onTranscript }: { disabled: boolean
   return <div className="flex flex-col items-center gap-1">
     <button
       type="button"
-      data-testid="chat-dictation"
-      aria-label={phase === 'recording' ? t('stopRecording') : phase === 'transcribing' ? t('transcribing') : t('startRecording')}
-      title={phase === 'recording' ? t('stopRecording') : phase === 'transcribing' ? t('transcribing') : t('startRecording')}
-      disabled={disabled || phase === 'transcribing'}
+      data-testid={testId}
+      aria-label={phase === 'recording' ? t('stopRecording') : phase === 'requesting' ? t('microphoneRequesting') : phase === 'transcribing' ? t('transcribing') : t('startRecording')}
+      title={phase === 'recording' ? t('stopRecording') : phase === 'requesting' ? t('microphoneRequesting') : phase === 'transcribing' ? t('transcribing') : t('startRecording')}
+      disabled={disabled || phase === 'requesting' || phase === 'transcribing'}
       onClick={() => { if (phase === 'recording') recorder.current?.stop(); else void start(); }}
       className="border border-transparent p-2.5 text-muted-foreground transition-colors hover:border-border hover:bg-accent disabled:opacity-50"
     >
-      {phase === 'recording' ? <Square className="h-5 w-5 fill-red-500 text-red-500" /> : phase === 'transcribing' ? <Loader2 className="h-5 w-5 animate-spin" /> : <Mic className="h-5 w-5" />}
+      {phase === 'recording' ? <Square className="h-5 w-5 fill-red-500 text-red-500" /> : phase === 'requesting' || phase === 'transcribing' ? <Loader2 className="h-5 w-5 animate-spin" /> : <Mic className="h-5 w-5" />}
     </button>
     {error && <span role="alert" className="max-w-32 text-center text-[10px] text-destructive">{error}</span>}
   </div>;

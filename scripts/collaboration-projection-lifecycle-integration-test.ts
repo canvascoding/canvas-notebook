@@ -14,7 +14,7 @@ import { installCollaborationRoomInspector } from '../app/lib/collaboration/runt
 import { hasPendingCollaborationProjection, listPendingCollaborationProjections } from '../app/lib/collaboration/projection-repository';
 import { archiveFileCollaborationPaths, restoreFileCollaborationPath } from '../app/lib/files/collaboration-policy';
 import { renameWorkspacePath } from '../app/lib/files/rename-service';
-import { withWorkspaceMutationLock } from '../app/lib/files/workspace-mutation-lock';
+import { withWorkspaceFileLifecycleGuard } from '../app/lib/files/workspace-file-lifecycle-guard';
 import { trashWorkspacePaths, restoreWorkspaceTrashEntry } from '../app/lib/filesystem/workspace-trash';
 import * as WorkspaceFiles from '../app/lib/filesystem/workspace-files';
 import { resolveAgentExecutionContextForStoredSession } from '../app/lib/pi/session-workspace-context';
@@ -65,16 +65,15 @@ async function main() {
     const live = new Y.Doc(); Y.applyUpdate(live, state.yjsState); allDocs.push(live); rooms.set(state.documentId, live);
     return { state, live, id: state.documentId };
   };
-  const trash = (name: string) => withWorkspaceMutationLock(workspace.workspaceId, async () => {
+  const trash = (name: string) => withWorkspaceFileLifecycleGuard({ workspaceId: workspace.workspaceId, paths: [name] }, async () => {
     const result = await trashWorkspacePaths({ workspace, paths: [name], deletedByUserId: userId });
     assert.deepEqual(result.failed, []); assert.equal(result.trashed.length, 1);
     await archiveFileCollaborationPaths({ workspace,
       paths: result.trashed.map((entry) => ({ path: entry.originalPath, trashEntryId: entry.id })) });
     return result.trashed[0];
   });
-  const restore = (entryId: string) => withWorkspaceMutationLock(workspace.workspaceId, async () => {
-    const entry = await restoreWorkspaceTrashEntry({ workspace, entryId, restoredByUserId: userId });
-    await restoreFileCollaborationPath({ workspace, path: entry.originalPath, trashEntryId: entry.id });
+  const restore = (entryId: string) => restoreWorkspaceTrashEntry({ workspace, entryId, restoredByUserId: userId,
+    finalize: async entry => { await restoreFileCollaborationPath({ workspace, path: entry.originalPath, trashEntryId: entry.id }); },
   });
   let cases = 0;
   try {
@@ -92,6 +91,11 @@ async function main() {
     } finally { await database.close(); }
 
     const source = await create('rename.md', 'Alpha\n\nBeta');
+    await assert.rejects(renameWorkspacePath({ workspace, oldPath: 'rename.md', newPath: 'renamed.md',
+      overwrite: false, fileOptions: { workspace } }), { code: 'COLLABORATION_FILE_LIFECYCLE_BUSY' });
+    assert.equal(await file('rename.md'), 'Alpha\n\nBeta', 'busy rename leaves physical bytes unchanged');
+    assert.equal((await current(source.id)).path, 'rename.md', 'busy rename leaves canonical identity unchanged');
+    rooms.delete(source.id);
     source.live.getText('content').insert(0, 'Human ');
     const pending = await persistCollaborationYDoc(source.id, source.state.lifecycleGeneration, source.live);
     const entered = gate(); const release = gate();
@@ -130,6 +134,7 @@ async function main() {
     const latest = await current(source.id);
     const migrate = () => changeCollaborationRepresentation({ documentId: source.id,
       expectedLifecycleGeneration: latest.lifecycleGeneration, representation: 'tiptap_blocks', schemaVersion: 1 });
+    rooms.set(source.id, source.live);
     await assert.rejects(migrate(), { code: 'room_active' });
     rooms.delete(source.id);
     const migrated = await migrate();
@@ -146,6 +151,10 @@ async function main() {
     cases++;
 
     const original = await create('trash.txt', 'Original');
+    await assert.rejects(trash('trash.txt'), { code: 'COLLABORATION_FILE_LIFECYCLE_BUSY' });
+    assert.equal(await file('trash.txt'), 'Original', 'busy trash leaves physical bytes unchanged');
+    assert.equal((await current(original.id)).status, 'active', 'busy trash leaves canonical state active');
+    rooms.delete(original.id);
     original.live.getText('content').insert(8, ' projected');
     const beforeTrash = await persistCollaborationYDoc(original.id, original.state.lifecycleGeneration, original.live);
     const trashEntered = gate(); const trashRelease = gate();
@@ -170,6 +179,7 @@ async function main() {
     const reused = await create('trash.txt', 'Replacement survives');
     await assert.rejects(checkpoint.materializeCollaborationCheckpoint({ state: latestBeforeTrash, workspace }), checkpoint.CollaborationCheckpointSupersededError);
     assert.equal(await file('trash.txt'), 'Replacement survives');
+    rooms.delete(reused.id);
     const replacementEntry = await trash('trash.txt'); assert.notEqual(replacementEntry.id, entry.id);
     await restore(entry.id);
     const restored = await current(original.id);

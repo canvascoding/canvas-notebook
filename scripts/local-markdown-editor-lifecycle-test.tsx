@@ -218,7 +218,7 @@ async function main() {
         return element;
       };
       await act(async () => handle().click());
-      assert.equal(container.querySelector('.tiptap-slash-menu'), null, 'an atom/code grip does not invent a text-format target');
+      assert.equal(document.body.querySelector('.tiptap-slash-menu'), null, 'an atom/code grip does not invent a text-format target');
       assert.deepEqual(editor.state.selection.toJSON(), beforeSelection);
       const transfer = createTransfer();
       await act(async () => { assert.equal(drag(handle(), 'dragstart', transfer).defaultPrevented, false); });
@@ -255,7 +255,7 @@ async function main() {
       assert.equal(editor.state.doc.child(2).type.name, 'paragraph');
       assert.equal(editor.state.doc.child(2).textContent, '');
       assert.equal(editor.state.selection.$from.parent.attrs.id, editor.state.doc.child(2).attrs.id);
-      assert(container.querySelector('.tiptap-slash-menu'), 'the insertion menu targets the new paragraph');
+      assert(document.body.querySelector('.tiptap-slash-menu'), 'the portaled insertion menu targets the new paragraph');
       await act(async () => {
         window.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
         assert(editor.commands.undo());

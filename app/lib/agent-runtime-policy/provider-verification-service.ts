@@ -26,7 +26,8 @@ const INSTALLATION_ID_PATTERN = /^aip_[a-f0-9]{24}$/u;
 const VERIFICATION_AGENT_ID = 'provider-verification';
 const PROVIDER_PROBE_TIMEOUT_MS = 30_000;
 
-type ProbeFailureCode = AgentModelTestCode | 'PROVIDER_MODEL_UNAVAILABLE' | 'CREDENTIAL_LOOKUP_FAILED';
+type ProbeFailureCode = AgentModelTestCode | 'PROVIDER_MODEL_UNAVAILABLE' | 'CREDENTIAL_LOOKUP_FAILED'
+  | 'PROVIDER_AUTH_REJECTED' | 'PROVIDER_RATE_LIMITED';
 type VerificationStatus = Extract<AiProviderStatus, 'ready' | 'degraded' | 'unverified'>;
 
 type ProviderVerificationResultBase = {
@@ -60,6 +61,26 @@ function previousVerificationTimestamp(provider: AiProviderInstallation): number
   if (!provider.verifiedAt) return null;
   const value = Date.parse(provider.verifiedAt);
   return Number.isFinite(value) ? value : null;
+}
+
+function classifyProviderProbeFailure(error: unknown, fallback: ProbeFailureCode): ProbeFailureCode {
+  const messages: string[] = [];
+  const seen = new Set<unknown>();
+  let current = error;
+  // Pi wraps refresh errors in ModelsError. Inspect bounded causes without returning provider text to clients.
+  for (let depth = 0; depth < 5 && current && !seen.has(current); depth++) {
+    seen.add(current);
+    if (typeof current === 'string') { messages.push(current); break; }
+    if (typeof current !== 'object') break;
+    const record = current as { message?: unknown; status?: unknown; cause?: unknown };
+    if (typeof record.message === 'string') messages.push(record.message);
+    if (typeof record.status === 'number') messages.push(String(record.status));
+    current = record.cause;
+  }
+  const text = messages.join(' ');
+  if (/\b429\b|rate.?limit|quota|usage.?limit/iu.test(text)) return 'PROVIDER_RATE_LIMITED';
+  if (/\b(401|403)\b|unauthori[sz]ed|invalid.*token|token.*expired/iu.test(text)) return 'PROVIDER_AUTH_REJECTED';
+  return fallback;
 }
 
 function failedStatus(provider: AiProviderInstallation): Exclude<VerificationStatus, 'ready'> {
@@ -186,6 +207,9 @@ export async function verifyProviderInstallation(input: {
   providerInstallationId: string;
   modelId?: string;
   signal?: AbortSignal;
+  /** Personal callers persist only their own result, never the shared catalog status. */
+  probeOnly?: boolean;
+  authorize?: (provider: AiProviderInstallation, model: AiCatalogModel) => Promise<void>;
 }): Promise<ProviderVerificationResult> {
   const installationId = input.providerInstallationId.trim();
   if (!INSTALLATION_ID_PATTERN.test(installationId)) {
@@ -271,6 +295,7 @@ export async function verifyProviderInstallation(input: {
             ...targetInput,
             signal: options?.signal,
           });
+          await input.authorize?.(beforeAuth.provider, beforeAuth.targetModel);
           stage = 'credential';
           const auth = await raceWithProbeSignal(
             resolveProviderInstallationRuntimeAuth({
@@ -292,6 +317,7 @@ export async function verifyProviderInstallation(input: {
             ...targetInput,
             signal: options?.signal,
           });
+          await input.authorize?.(ready.provider, ready.targetModel);
           assertProbeActive(options?.signal);
           const authenticatedModel = auth.baseUrl
             ? { ...ready.model, baseUrl: auth.baseUrl }
@@ -319,12 +345,15 @@ export async function verifyProviderInstallation(input: {
         && !(preflightFailure.error instanceof ProviderVerificationError)
         && !(preflightFailure.error instanceof AiRuntimeExecutionError)
       ) {
-        failureCode = 'CREDENTIAL_LOOKUP_FAILED';
+        failureCode = classifyProviderProbeFailure(preflightFailure.error, 'CREDENTIAL_LOOKUP_FAILED');
       } else {
         throw preflightFailure.error;
       }
     } else {
       failureCode = probe.code ?? 'MODEL_TEST_FAILED';
+      if (failureCode === 'MODEL_TEST_FAILED' && probe.error) {
+        failureCode = classifyProviderProbeFailure(probe.error, 'MODEL_TEST_FAILED');
+      }
       if (
         failureCode === 'MODEL_TEST_ABORTED'
         && !input.signal?.aborted
@@ -364,7 +393,9 @@ export async function verifyProviderInstallation(input: {
   const status: VerificationStatus = success ? 'ready' : failedStatus(provider);
   const verifiedAt = success ? updatedAt : priorVerifiedAt;
   const verifiedByUserId = success ? input.actorUserId : provider.verifiedByUserId;
-  const stored = await updateProviderVerificationStore({
+  const stored = input.probeOnly ? {
+    status, verifiedAt, catalogRevision: catalog.revision, providerRevision: provider.revision,
+  } : await updateProviderVerificationStore({
     organizationId: input.organizationId,
     providerInstallationId: installationId,
     actorUserId: input.actorUserId,

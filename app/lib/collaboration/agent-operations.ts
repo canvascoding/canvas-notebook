@@ -64,7 +64,7 @@ import { withAgentDirectEditGrant, AgentDirectEditGrantUnavailableError,
   type AgentDirectEditGrantScope } from './agent-direct-edit-grants';
 import { AgentBlockEditError, applyAgentBlockEdit, previewAgentBlockEdit, type PreparedAgentBlockEdit } from './agent-block-edits';
 import type { AgentProposalPreviewMetadata } from './agent-proposal-preview';
-import { validateAgentBlockDocument } from './agent-block-structure';
+import { readAgentBlockStructure, validateAgentBlockDocument } from './agent-block-structure';
 import {
   createRichMarkdownYDoc,
   replaceRichMarkdownInYDoc,
@@ -592,8 +592,20 @@ export function createRichAgentTextTargets(input: {
   }
   const textTypes: YTypes.Text[] = [];
   if (richDocumentFormat(input.doc) === 'tiptap_blocks') {
+    const allowedBlockIds = new Set(input.blockId === undefined ? [] : [input.blockId]);
+    if (input.blockId !== undefined) {
+      const blocks = readAgentBlockStructure(input.doc);
+      const target = blocks.find((block) => block.id === input.blockId);
+      if (target?.type === 'tableCell' || target?.type === 'tableHeader') {
+        // A cell exposes its descendant text in reads, but RelativePositions
+        // must remain anchored to one actual text block within that cell.
+        for (const block of blocks) {
+          if (block.parentId !== null && allowedBlockIds.has(block.parentId)) allowedBlockIds.add(block.id);
+        }
+      }
+    }
     for (const [text, blockId] of blockTreeTextScopes(input.doc)) {
-      if (input.blockId === undefined || input.blockId === blockId) textTypes.push(text);
+      if (input.blockId === undefined || (blockId !== null && allowedBlockIds.has(blockId))) textTypes.push(text);
     }
   } else {
     if (input.blockId !== undefined) throw new Error('Block-scoped text edits require a block collaboration document.');

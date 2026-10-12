@@ -2,22 +2,8 @@ import 'server-only';
 
 import { localDictationRuntimeSupported } from '@/app/lib/dictation/runtime-install';
 import { readSettingsTextFileIfExists, writeSettingsJsonFileAtomic } from '@/app/lib/settings-storage';
-
-export const DICTATION_PROVIDERS = ['local', 'openai', 'groq'] as const;
-export type DictationProvider = typeof DICTATION_PROVIDERS[number];
-
-export const DICTATION_MODELS: Record<DictationProvider, readonly string[]> = {
-  local: ['tiny', 'base', 'small', 'medium', 'large-v3'],
-  openai: ['gpt-4o-mini-transcribe', 'gpt-4o-transcribe', 'whisper-1'],
-  groq: ['whisper-large-v3-turbo', 'whisper-large-v3'],
-};
-
-export type DictationSettings = {
-  enabled: boolean;
-  provider: DictationProvider;
-  model: string;
-  language: string;
-};
+import { DICTATION_PROVIDERS, DICTATION_MODELS, type DictationProvider, type DictationSettings } from '../transcription/config';
+export { DICTATION_PROVIDERS, DICTATION_MODELS, type DictationProvider, type DictationSettings } from '../transcription/config';
 
 const SETTINGS_PATH = 'dictation/settings.json';
 const DEFAULT_SETTINGS: DictationSettings = {
@@ -53,7 +39,11 @@ export function validateDictationSettings(value: unknown): DictationSettings {
   if (language !== 'auto' && !/^[a-z]{2}$/u.test(language)) {
     throw new Error('Dictation language must be auto or a two-letter language code.');
   }
-  return { enabled: record.enabled, provider, model: record.model, language };
+  if (record.mode !== undefined && record.mode !== 'smart' && record.mode !== 'verbatim') {
+    throw new Error('Choose smart or verbatim transcription mode.');
+  }
+  return { enabled: record.enabled, provider, model: record.model, language,
+    ...(record.mode !== undefined ? { mode: record.mode } : {}) };
 }
 
 export async function readDictationSettings(): Promise<DictationSettings> {

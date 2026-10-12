@@ -1,5 +1,5 @@
 import 'server-only';
-import { parseEmailSearchQuery, compileGmailEmailSearch, compileMicrosoftEmailSearch, matchesEmailSearch, emailSearchBodySnippet, EmailSearchQueryError } from '@/app/lib/email/search-query';
+import { parseEmailSearchQuery, compileGmailEmailSearch, compileMicrosoftEmailSearch, matchesEmailSearch, emailSearchBodySnippet, EmailSearchQueryError, isEmailAddressHeaderSearch } from '@/app/lib/email/search-query';
 
 import crypto from 'crypto';
 import path from 'path';
@@ -24,6 +24,7 @@ import { reactivateEmailMailboxCache } from '@/app/lib/email/cache/consistency';
 import { isLikelyHtmlEmailContent, normalizeEmailHtmlContent } from '@/app/lib/email/html-content';
 import { EmailMessageNotFoundError, EmailProviderRequestError, isEmailProviderNotFoundError } from '@/app/lib/email/errors';
 import { htmlToPlainText, plainTextToEmailHtml } from '@/app/lib/email/html-conversion';
+import { formatEmailAddress, formatEmailAddresses } from '@/app/lib/email/addresses';
 import {
   assertInboundEmailAttachmentSize,
   decodeGmailAttachmentData,
@@ -165,6 +166,7 @@ type EmailMessageListInput = {
 };
 
 type EmailReadPolicyOptions = {
+  recipientDiscovery?: boolean;
   /** Authenticated actor for AI/files; provider ownership may differ for shared mailboxes. */
   actorUserId?: string;
   enforceReadPolicy?: boolean;
@@ -1058,9 +1060,11 @@ async function loadGmailSearchBody(messageId: string, payload: Record<string, un
 
 export async function listLocalEmailMessages(userId: string, input: EmailMessageListInput, options?: EmailReadPolicyOptions) {
   const expression = parseEmailSearchQuery(input.query);
+  const recipientDiscovery = options?.recipientDiscovery === true;
+  if (recipientDiscovery && !isEmailAddressHeaderSearch(expression)) throw new EmailSearchQueryError('Recipient lookup requires an address-header search.');
   const account = await findLocalEmailAccount(userId, input.accountId);
   const enforceReadPolicy = options?.enforceReadPolicy !== false;
-  if (account.authType === 'smtp_imap') return listImapEmailMessages(account, input, { enforceReadPolicy });
+  if (account.authType === 'smtp_imap') return listImapEmailMessages(account, input, { enforceReadPolicy, recipientDiscovery });
   const token = await validAccessToken(account);
   const limit = Math.min(Math.max((Number.isFinite(input.limit) ? Math.trunc(Number(input.limit)) : 10), 1), 50);
   const offset = Math.min(Math.max((Number.isFinite(input.offset) ? Math.trunc(Number(input.offset)) : 0), 0), 10_000);
@@ -1076,7 +1080,8 @@ export async function listLocalEmailMessages(userId: string, input: EmailMessage
   let cursor = '';
   let pages = 0;
   const seenCursors = new Set<string>();
-  const scanLimit = expression && account.provider === 'microsoft' ? 1000 : Math.min(Math.max(offset + limit + 1, 1000), 10_000);
+  const normalScanLimit = expression && account.provider === 'microsoft' ? 1000 : Math.min(Math.max(offset + limit + 1, 1000), 10_000);
+  const scanLimit = recipientDiscovery ? Math.min(normalScanLimit, Math.max(offset + limit + 1, 100)) : normalScanLimit;
   while (hasProviderPage && selected.length < offset + limit + 1 && scanned < scanLimit && pages < 100) {
     pages++;
     let loaded: Array<Record<string, unknown>>;
@@ -1090,14 +1095,20 @@ export async function listLocalEmailMessages(userId: string, input: EmailMessage
       const ids = Array.isArray(page.messages) ? page.messages as Array<{ id?: string }> : [];
       loaded = [];
       // Keep detail fan-out bounded. Full MIME is needed for body-only and free-field verification.
-      for (let start = 0; start < ids.length; start += 10) {
-        loaded.push(...await Promise.all(ids.slice(start, start + 10).map((item) => gmailFetch(`messages/${encodeURIComponent(String(item.id))}?${expression || filter === 'attachments' ? 'format=full' : 'format=metadata&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Cc&metadataHeaders=Bcc&metadataHeaders=Subject&metadataHeaders=Date'}`, token))));
+      const detailFormat = !recipientDiscovery && (expression || filter === 'attachments')
+        ? 'format=full'
+        : `format=metadata&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Cc&metadataHeaders=Date${recipientDiscovery ? '' : '&metadataHeaders=Bcc&metadataHeaders=Subject'}`;
+      const selectedIds = recipientDiscovery ? ids.slice(0, scanLimit - scanned) : ids;
+      for (let start = 0; start < selectedIds.length; start += 10) {
+        loaded.push(...await Promise.all(selectedIds.slice(start, start + 10).map((item) => gmailFetch(`messages/${encodeURIComponent(String(item.id))}?${detailFormat}`, token))));
       }
       cursor = typeof page.nextPageToken === 'string' ? page.nextPageToken : '';
     } else {
       const params = new URLSearchParams({
         '$top': String(Math.min(100, scanLimit - scanned)),
-        '$select': 'id,parentFolderId,conversationId,from,toRecipients,ccRecipients,bccRecipients,subject,receivedDateTime,bodyPreview,isRead,hasAttachments,flag',
+        '$select': recipientDiscovery
+          ? 'id,parentFolderId,conversationId,from,toRecipients,ccRecipients,receivedDateTime,isRead,hasAttachments,flag'
+          : 'id,parentFolderId,conversationId,from,toRecipients,ccRecipients,bccRecipients,subject,receivedDateTime,bodyPreview,isRead,hasAttachments,flag',
       });
       if (expression) params.set('$search', JSON.stringify(compileMicrosoftEmailSearch(expression)));
       else params.set('$orderby', 'receivedDateTime desc');
@@ -1116,13 +1127,13 @@ export async function listLocalEmailMessages(userId: string, input: EmailMessage
       let message: Record<string, unknown>;
       if (account.provider === 'google') {
         const payload = raw.payload as Record<string, unknown> | undefined;
-        if (expression) await loadGmailSearchBody(String(raw.id || ''), payload, token);
+        if (expression && !recipientDiscovery) await loadGmailSearchBody(String(raw.id || ''), payload, token);
         const headers = payload?.headers as Array<{ name?: string; value?: string }> | undefined;
         const labels = Array.isArray(raw.labelIds) ? raw.labelIds.map(String) : [];
         const fields = {
           from: gmailHeader(headers, 'From'), to: gmailHeader(headers, 'To'),
           cc: gmailHeader(headers, 'Cc'), bcc: gmailHeader(headers, 'Bcc'), subject: gmailHeader(headers, 'Subject'),
-          body: gmailSearchBodyText(payload),
+          body: recipientDiscovery ? '' : gmailSearchBodyText(payload),
         };
         if (!matchesEmailSearch(expression, fields)) continue;
         message = {
@@ -1133,21 +1144,17 @@ export async function listLocalEmailMessages(userId: string, input: EmailMessage
           hasAttachments: gmailMessageAttachmentParts(payload).length > 0, snippet: emailSearchBodySnippet(expression, fields.body, String(raw.snippet || '')),
         };
       } else {
-        const from = raw.from as { emailAddress?: { address?: string; name?: string } } | undefined;
-        const addresses = (value: unknown): string[] => Array.isArray(value) ? value.map((item) => {
-          const address = item?.emailAddress;
-          return address?.name ? `${address.name} <${address.address || ''}>` : String(address?.address || '');
-        }) : [];
         message = {
           id: String(raw.id || ''), uid: String(raw.id || ''), folder: String(raw.parentFolderId || folder),
-          threadId: String(raw.conversationId || ''), from: from?.emailAddress?.address || '',
-          to: addresses(raw.toRecipients), cc: addresses(raw.ccRecipients), bcc: addresses(raw.bccRecipients),
+          threadId: String(raw.conversationId || ''), from: formatEmailAddress(raw.from),
+          to: formatEmailAddresses(raw.toRecipients), cc: formatEmailAddresses(raw.ccRecipients), bcc: formatEmailAddresses(raw.bccRecipients),
           subject: String(raw.subject || ''), date: String(raw.receivedDateTime || ''), flags: [],
           isRead: raw.isRead !== false, isAnswered: false,
           isFlagged: (raw.flag as { flagStatus?: string } | undefined)?.flagStatus === 'flagged',
           hasAttachments: raw.hasAttachments === true, snippet: String(raw.bodyPreview || ''),
         };
       }
+      if (recipientDiscovery) { message.snippet = ''; delete message.bcc; }
       if (enforceReadPolicy && !isEmailAddressAllowed(String(message.from || ''), policy.readFrom)) continue;
       if (input.from && !String(message.from || '').toLowerCase().includes(input.from.toLowerCase())) continue;
       if (filter === 'unread' && message.isRead) continue;
@@ -1213,6 +1220,7 @@ export async function readLocalEmailMessage(userId: string, accountId: string, m
       from,
       to: gmailHeader(headers, 'To'),
       cc: gmailHeader(headers, 'Cc'),
+      replyTo: formatEmailAddresses(gmailHeader(headers, 'Reply-To')),
       subject: gmailHeader(headers, 'Subject'),
       date: gmailHeader(headers, 'Date'),
       messageId: gmailHeader(headers, 'Message-ID'),
@@ -1228,12 +1236,12 @@ export async function readLocalEmailMessage(userId: string, accountId: string, m
   } else {
     let raw: Record<string, unknown>;
     try {
-      raw = await microsoftFetch(`messages/${encodeURIComponent(messageId)}?$select=id,conversationId,internetMessageId,from,toRecipients,ccRecipients,subject,receivedDateTime,body,bodyPreview,isRead`, token);
+      raw = await microsoftFetch(`messages/${encodeURIComponent(messageId)}?$select=id,conversationId,internetMessageId,from,toRecipients,ccRecipients,replyTo,subject,receivedDateTime,body,bodyPreview,isRead`, token);
     } catch (error) {
       if (isEmailProviderNotFoundError(error)) throw new EmailMessageNotFoundError();
       throw error;
     }
-    const from = (raw.from as { emailAddress?: { address?: string } } | undefined)?.emailAddress?.address || '';
+    const from = formatEmailAddress(raw.from);
     if (enforceReadPolicy) assertSenderAllowed(account, from);
     const body = raw.body as { content?: string; contentType?: string } | undefined;
     const bodyContent = String(body?.content || '');
@@ -1248,8 +1256,9 @@ export async function readLocalEmailMessage(userId: string, accountId: string, m
       id: String(raw.id || ''),
       threadId: String(raw.conversationId || ''),
       from,
-      to: raw.toRecipients || [],
-      cc: raw.ccRecipients || [],
+      to: formatEmailAddresses(raw.toRecipients),
+      cc: formatEmailAddresses(raw.ccRecipients),
+      replyTo: formatEmailAddresses(raw.replyTo),
       subject: String(raw.subject || ''),
       date: String(raw.receivedDateTime || ''),
       messageId: String(raw.internetMessageId || ''),

@@ -5,6 +5,7 @@ import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 import { ensureActiveFileLineage } from './lineage-revision-repository';
 import type { FileCollaborationTransaction } from './types';
 import { revokeFileGuestPathScope } from '@/app/lib/file-guests/lifecycle';
+import { assertWorkspaceFileLifecycleSqlAvailable } from '../workspace-file-lifecycle-guard';
 
 type ArchivedLineageRow = {
   id: string;
@@ -84,6 +85,8 @@ export async function archivePersistedCollaborationStatePathScopes(
     nowMs: number;
   },
 ): Promise<void> {
+  if (!params.paths.length) return;
+  await assertWorkspaceFileLifecycleSqlAvailable(transaction, params.workspaceId, params.paths);
   for (const filePath of params.paths) {
     await transaction.run(`
       UPDATE collaboration_agent_operations
@@ -152,6 +155,7 @@ export async function movePersistedCollaborationStatePathScope(
     newPath: string;
   },
 ): Promise<void> {
+  await assertWorkspaceFileLifecycleSqlAvailable(transaction, params.workspaceId, [params.oldPath, params.newPath]);
   await remapActivePathScope(transaction, 'collaboration_yjs_states', params);
   await moveExcalidrawCollaborationStatePathScope(transaction, params);
 }
@@ -174,6 +178,7 @@ export async function reactivatePersistedCollaborationStatePathScope(
     path: string;
   },
 ): Promise<void> {
+  await assertWorkspaceFileLifecycleSqlAvailable(transaction, params.workspaceId, [params.path]);
   await transaction.run(`
     UPDATE collaboration_yjs_states
     SET status = 'active', lifecycle_generation = lifecycle_generation + 1, degraded = 0
@@ -199,6 +204,8 @@ export async function archiveFileCollaborationPathScopes(
     createLineageId: () => string;
   },
 ): Promise<void> {
+  if (!params.entries.length) return;
+  await assertWorkspaceFileLifecycleSqlAvailable(transaction, params.workspace.workspaceId, params.entries.map(entry => entry.path));
   for (const entry of params.entries) {
     await materializeLegacyLineagesInPathScope(transaction, {
       workspace: params.workspace,
@@ -224,6 +231,7 @@ export async function restoreFileCollaborationPathScope(
     nowMs: number;
   },
 ): Promise<boolean> {
+  await assertWorkspaceFileLifecycleSqlAvailable(transaction, params.workspaceId, [params.path]);
   const archived = await transaction.all(`
     SELECT id
     FROM file_collaboration_lineages
@@ -295,6 +303,8 @@ export async function initializeCopiedFileCollaborationPathScopes(
     createLineageId: () => string;
   },
 ): Promise<void> {
+  if (!params.paths.length) return;
+  await assertWorkspaceFileLifecycleSqlAvailable(transaction, params.workspace.workspaceId, params.paths);
   for (const filePath of params.paths) {
     await materializeLegacyLineagesInPathScope(transaction, {
       workspace: params.workspace,
@@ -326,6 +336,7 @@ export async function moveFileCollaborationPathScope(
     createLineageId: () => string;
   },
 ): Promise<void> {
+  await assertWorkspaceFileLifecycleSqlAvailable(transaction, params.workspace.workspaceId, [params.oldPath, params.newPath]);
   await revokeFileGuestPathScope(transaction, { workspaceId: params.workspace.workspaceId, path: params.oldPath, nowMs: params.nowMs });
   await materializeLegacyLineagesInPathScope(transaction, {
     workspace: params.workspace,

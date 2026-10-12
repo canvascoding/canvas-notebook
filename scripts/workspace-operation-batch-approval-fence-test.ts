@@ -10,8 +10,13 @@ import type { SqlConnection } from '../app/lib/db';
 import { authoritativeCollaborationSnapshot } from '../app/lib/collaboration/checkpoint';
 import { loadCollaborationStateOnConnection, serializeCanonicalText } from '../app/lib/collaboration/persistence';
 import type * as Fence from '../app/lib/files/workspace-operation-batch-approval-fence';
-import { buildWorkspaceOperationBatchPlan } from '../app/lib/files/workspace-operation-batch-plan';
+import { assertWorkspaceHtmlLinkEvidenceCurrent } from '../app/lib/files/workspace-html-link-evidence-fence';
+import { buildWorkspaceOperationBatchPlan as buildBatchPlan } from '../app/lib/files/workspace-operation-batch-plan';
+import { buildWorkspacePlannerSnapshot } from '../app/lib/markdown/workspace-file-operation-preview';
 import type { WorkspaceOperationBatchScope } from '../app/lib/files/workspace-operation-batch-contract';
+
+const buildWorkspaceOperationBatchPlan = (input: Parameters<typeof buildBatchPlan>[0]) =>
+  buildBatchPlan(input, { buildSnapshot: buildWorkspacePlannerSnapshot });
 
 async function main(): Promise<void> {
   const pg = new PGlite();
@@ -118,7 +123,41 @@ async function main(): Promise<void> {
     const beforeCollision = await build();
     await fs.writeFile(path.join(root, 'moved.md'), '# Occupied\n');
     await assert.rejects(fence.exports.assertWorkspaceOperationBatchApprovalCurrent(beforeCollision, scope), { code: 'PREVIEW_STALE', status: 409 });
-    console.log('batch approval fence: pristine registered uploads, actual persisted Yjs, archived/missing/history safeguards, BOM/CRLF serialization, targeted path/byte checks and full graph deferred to worker OK');
+
+    const htmlContent = '# HTML source\n\n<img src="image.png" alt="Fixture">\n';
+    await fs.writeFile(path.join(root, 'source.md'), htmlContent);
+    await fs.writeFile(path.join(root, 'image.png'), 'Unchanged image bytes');
+    await fs.writeFile(path.join(root, 'other.md'), '# Independent document\n');
+    await persistSource(htmlContent);
+    const htmlPlan = await buildWorkspaceOperationBatchPlan({ scope, actions: [{ reviewId: 'html_review_1234567890', kind: 'move',
+      selections: [{ sourcePath: 'other.md', destinationPath: 'other-moved.md' }] }] });
+    assert.equal(htmlPlan.readiness, 'ready', JSON.stringify(htmlPlan.issues));
+    assert.ok(htmlPlan.linkAssessment.warnings.some((warning) => warning.sourcePath === 'source.md'
+      && warning.reason === 'unaffected-explicit-html-link'));
+    const beforeHtmlFence = reads.length;
+    await assertWorkspaceHtmlLinkEvidenceCurrent(htmlPlan, scope, fence.exports.assertWorkspaceOperationBatchApprovalCurrent);
+    assert.deepEqual(reads.slice(beforeHtmlFence), ['source.md'], 'The HTML-only fence queries only its unchanged source');
+
+    const withoutHtmlWarnings = { ...htmlPlan, linkAssessment: { ...htmlPlan.linkAssessment,
+      warnings: htmlPlan.linkAssessment.warnings.filter((warning) => warning.reason !== 'unaffected-explicit-html-link') } };
+    const beforeNoHtmlFence = reads.length;
+    await assertWorkspaceHtmlLinkEvidenceCurrent(withoutHtmlWarnings, scope, fence.exports.assertWorkspaceOperationBatchApprovalCurrent);
+    assert.equal(reads.length, beforeNoHtmlFence, 'A plan without HTML evidence performs no collaboration guard queries');
+    const withoutHtmlSourceProof = { ...htmlPlan, expectedPathState: htmlPlan.expectedPathState.filter((entry) => entry.path !== 'source.md') };
+    await assert.rejects(assertWorkspaceHtmlLinkEvidenceCurrent(withoutHtmlSourceProof, scope,
+      fence.exports.assertWorkspaceOperationBatchApprovalCurrent), { code: 'PREVIEW_STALE', status: 409 },
+    'An HTML warning without its pinned source proof cannot authorize a path mutation');
+    assert.equal(reads.length, beforeNoHtmlFence, 'Missing HTML source evidence fails before querying collaboration');
+
+    await persistSource(htmlContent.replace('src="image.png"', 'src="other.md"'));
+    assert.equal(await fs.readFile(path.join(root, 'source.md'), 'utf8'), htmlContent, 'The peer edit has not reached disk');
+    await assert.rejects(assertWorkspaceHtmlLinkEvidenceCurrent(htmlPlan, scope,
+      fence.exports.assertWorkspaceOperationBatchApprovalCurrent), { code: 'PREVIEW_STALE', status: 409 },
+    'The durable Yjs target change rejects the old unaffected HTML proof despite unchanged disk bytes');
+    assert.equal(await fs.readFile(path.join(root, 'source.md'), 'utf8'), htmlContent, 'The guard never rewrites the HTML source');
+    assert.equal(await fs.readFile(path.join(root, 'other.md'), 'utf8'), '# Independent document\n');
+    await assert.rejects(fs.stat(path.join(root, 'other-moved.md')), { code: 'ENOENT' });
+    console.log('batch approval fence: pristine registered uploads, actual persisted Yjs, archived/missing/history safeguards, BOM/CRLF serialization, targeted path/byte checks, unchanged HTML live-source evidence and full graph deferred to worker OK');
   } finally { await pg.close(); await fs.rm(root, { recursive: true, force: true }); }
 }
 void main().catch((error: unknown) => { console.error(error); process.exitCode = 1; });

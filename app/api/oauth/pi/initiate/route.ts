@@ -5,6 +5,7 @@ import {
   isOAuthProvider,
   PI_OAUTH_PROVIDERS,
   PROVIDER_DISPLAY_NAMES,
+  getOrCreatePiOAuthDeviceId,
 } from '@/app/lib/pi/oauth';
 import { randomUUID } from 'node:crypto';
 import { spawn } from 'child_process';
@@ -130,7 +131,8 @@ export async function POST(request: NextRequest) {
     }));
 
     // Create the Node.js script that will run the PI OAuth flow
-    const scriptContent = generateOAuthScript(provider, flowId, stateFile, tempAuthPath);
+    const deviceId = provider === 'openai' ? await getOrCreatePiOAuthDeviceId() : undefined;
+    const scriptContent = generateOAuthScript(provider, flowId, stateFile, tempAuthPath, deviceId);
     await writeFile(tempScriptPath, scriptContent);
 
     // Spawn the OAuth process in the temp script directory (where node_modules symlink exists).
@@ -209,7 +211,7 @@ export async function POST(request: NextRequest) {
  * Providers with callback servers also get explicit manual callback input so Docker/container
  * deployments do not stall waiting for an unreachable localhost callback.
  */
-function generateOAuthScript(provider: string, flowId: string, stateFile: string, tempAuthPath: string): string {
+function generateOAuthScript(provider: string, flowId: string, stateFile: string, tempAuthPath: string, deviceId?: string): string {
   const providerLiteral = JSON.stringify(provider);
   const stateFileLiteral = JSON.stringify(stateFile);
   const tempAuthPathLiteral = JSON.stringify(tempAuthPath);
@@ -223,6 +225,7 @@ import fs from 'fs';
 import { builtinModels } from '@earendil-works/pi-ai/providers/all';
 
 const providerId = ${providerLiteral};
+const deviceId = ${JSON.stringify(deviceId) ?? 'undefined'};
 const models = builtinModels();
 const oauthProvider = models.getProvider(providerId)?.auth.oauth;
 
@@ -326,7 +329,8 @@ async function run() {
             fs.unlinkSync(codeFile); // Clean up
             
             // Extract code from URL if needed
-            const code = extractCode(rawInput);
+            // Manual callbacks carry state and the issued client ID. Let the SDK validate them.
+            const code = promptObject.type === 'manual_code' ? rawInput : extractCode(rawInput);
             console.log('CODE_RECEIVED');
             return code;
           }
@@ -376,7 +380,7 @@ async function run() {
           handleProgress(event.message);
         }
       }
-    });
+    }, { getDeviceId: () => deviceId });
     clearTimeout(loginTimeout);
 
     // Save credentials

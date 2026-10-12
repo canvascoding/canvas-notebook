@@ -11,6 +11,51 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.10.10.1] - 2026-10-10
+
+### Added
+
+- Added bounded email recipient discovery with on-demand suggestions in email editors and agent tools.
+- Added safer shared-workspace HTML move handling, actionable blocker details, and regression coverage for live collaboration after authorized moves.
+
+### Changed
+
+- Revalidated collaboration move sessions before adopting documents and restored scoped reconnection after file moves.
+
+### Fixed
+
+- Preserved email recipient names and consistently honored Reply-To headers.
+- Kept external HTML links from blocking file moves while preserving link safety and file-action identity during status transport failures.
+
+### Verification
+
+- `npm run verify:release`
+
+## [2026.10.9.1] - 2026-10-09
+
+### Added
+
+- Added background email classification, resumable inbox preparation, a cross-mailbox focus feed, and focused email on Home.
+- Added centrally configured local and managed decision models for email preparation, with provider checks and classification details.
+- Added Gemini and Wispr transcription providers, shared transcription across web, agent and mobile, and local speech-model download progress and recognition self-tests.
+- Added OpenAI ChatGPT OAuth support with the updated Pi SDK.
+- Added safe native Markdown insertion for text, links and images.
+
+### Changed
+
+- Simplified system email settings for managed and local installations and opened email attachment previews in a shared dialog.
+- Made workspace widget titles and icons actionable and hid unavailable Markdown source editing.
+
+### Fixed
+
+- Fixed microphone permission policy and feedback, personal provider verification and recovery, and false unsaved changes in email review.
+- Exposed actionable reasons for blocked file operations and ignored client-aborted RSC stream errors.
+- Hardened managed decision model validation, request retry identity, and settings change detection.
+
+### Verification
+
+- `npm run verify:release`
+
 ## [2026.10.4.1] - 2026-10-04
 
 ### Added

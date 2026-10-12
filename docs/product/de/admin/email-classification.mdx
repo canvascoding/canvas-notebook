@@ -1,0 +1,47 @@
+---
+title: E-Mail-Vorbereitung administrieren
+description: Die E-Mail-Vorbereitung zentral aktivieren, Anbieter wählen, System-Secrets verwalten und pausierte oder unvollständige Verarbeitung erkennen.
+section: Administration und Sicherheit
+sectionOrder: 10
+order: 17
+locale: de
+translationKey: admin.email-classification
+updatedAt: 2026-10-07
+---
+
+# E-Mail-Vorbereitung administrieren
+
+Ein Instanzadministrator verwaltet die E-Mail-Vorbereitung unter Einstellungen → System-E-Mail. Sie ist standardmäßig deaktiviert und gilt zentral für alle Nutzer des Servers, einschließlich persönlicher und gemeinsamer Arbeitspostfächer. Postfachberechtigungen und Absenderregeln gelten weiterhin. Der SMTP-Absender für Systembenachrichtigungen ist separat konfiguriert.
+
+## Vor der Aktivierung konfigurieren
+
+1. Bei Canvas verwaltet wähle ein freigegebenes Bewertungsmodell. Die Control Plane verwaltet Anbieter, Zugangsdaten und Preise zentral. In diesem Modus wird kein lokaler Anbieterschlüssel benötigt. Bestehende eigene Anbieterkonfigurationen bleiben erhalten; unter Anbieter und Konfiguration kannst du die Bereitstellung wechseln.
+2. Für einen eigenen Anbieter wähle dort TypeSafe Jev, OpenAI Decisions oder einen System-One-kompatiblen Dienst und dessen Modell. Bei einem kompatiblen Dienst trage auch den Endpoint ein. Speichere den Anbieterschlüssel unter [Einstellungen → Secrets](/settings?tab=secrets) im Bereich System. Die Vorbereitungskarte benötigt ausschließlich den Schlüsselnamen, beispielsweise `TYPESAFE_API_KEY`, keinen Schlüsselwert. Persönliche oder Organisationsschlüssel konfigurieren diese Serverfunktion nicht.
+3. Wähle Entwurf testen. Der Test bewertet eine feste synthetische E-Mail und funktioniert auch bei deaktivierter Vorbereitung und ungespeicherten Einstellungen. Er liest kein echtes Postfach.
+4. Aktiviere Für alle aktivieren und wähle Einstellungen speichern. Prüfe danach den gespeicherten Aktivierungs- und Verarbeitungsstatus.
+
+OpenAI Decisions verwendet `gpt-6-luna`, den festen OpenAI-Endpoint und standardmäßig das System-Secret `OPENAI_API_KEY`. Der native Decisions-Dienst befindet sich in der öffentlichen Beta. Eine abgelehnte Bewertung wird als eigener Fehler angezeigt; prüfe dann die Kriterien oder wähle einen anderen Anbieter.
+
+Ein ausdrücklich erlaubter kompatibler Endpoint im privaten Netz kann durch einen leeren Schlüsselnamen ohne Authentifizierung konfiguriert werden. Ein fehlender benannter Schlüssel bleibt ein Konfigurationsfehler.
+
+Nach der Aktivierung wird Fokus zur Standardansicht; eine gespeicherte Wahl für Klassisch bleibt bestehen. Der Ansichtswechsel deaktiviert die Hintergrundvorbereitung nicht. Zentrales Abschalten führt zur klassischen Ansicht und pausiert neue Modellbewertungen. Gespeicherte Bewertungen bleiben für eine spätere Verwendung erhalten.
+
+## Details bei Bedarf anpassen
+
+Die Vorbereitung wählt je Postfach alle ungelesenen Inbox-Mails ohne Altersgrenze und zusätzlich weitere Inbox-Mails im Rückblick aus. Erweiterte Einstellungen enthält das Tagesbudget für Bewertungsversuche, Parallelität, Timeout und Synchronisationsintervall. Der zusätzliche Rückblick für gelesene Mails beträgt höchstens 30 Tage. Die historische Batchgröße begrenzt neue Bewertungen pro Scan; weitere Scans setzen den übrigen passenden Bestand fort. Bereits vorhandene Bewertungen bleiben nach dem Lesen erhalten. Postfachkontext und Kategorienkriterien beschreiben die Bewertung persönlicher und gemeinsamer Arbeitspostfächer. Entscheidungsschwellen lassen mittlere Werte zur Prüfung sichtbar.
+
+Ein erfolgreicher Beispieltest prüft Verbindung und Antwortkompatibilität. Er belegt keine Genauigkeit und kalibriert keine Wahrscheinlichkeiten. Automatische Spamzuordnung benötigt ein separat geprüftes Anbieter-/Modell-/Schemaprofil. Die Karte bietet keinen Schalter, der eine solche Prüfung einfach als erledigt erklärt.
+
+## Status prüfen und Störungen beheben
+
+Aktivierung und Verarbeitungsstatus sind getrennt. Ein Anbieter- oder Schlüsselproblem sowie das ausgeschöpfte Tagesbudget können neue Vorbereitung pausieren, während gespeicherte Bewertungen nutzbar bleiben. Auch die Erfassung kann unvollständig oder fehlgeschlagen sein. Verarbeitungsdetails zeigt erfasste, vorbereitete, wartende und fehlgeschlagene Nachrichten sowie das verbleibende Tagesbudget. Das sind Betriebszahlen und kein Genauigkeitsbericht.
+
+Im verwalteten Modus prüfe bei einer Störung die Instanzverbindung, freigegebene Modelle, Organisationsberechtigung und das Guthaben in der Control Plane. Bei einem vorübergehenden Ausfall bleiben gespeicherte Bewertungen sichtbar; neue Vorbereitung wartet. Preisänderungen erzeugen keine neuen Bewertungen. Ein tatsächlicher Modellwechsel bewertet nur den ausgewählten Bestand erneut und setzt eine bisherige Spamfreigabe zurück.
+
+Prüfe bei fehlenden oder unlesbaren Zugangsdaten eines eigenen Anbieters die System-Secrets und teste den Entwurf erneut. Repariere bei einem E-Mail-Verbindungsproblem das betroffene Postfach. Nutzer können es währenddessen einzeln in Klassisch öffnen. Aktualisiere einen unbekannten Status, bevor du ihn als leeren Arbeitsbestand interpretierst.
+
+Speichert eine andere Administration zuerst, bleiben deine Eingaben erhalten und das Speichern wird gesperrt. Gespeicherte Konfiguration neu laden ersetzt deinen Entwurf bewusst durch die aktuellen Einstellungen. Eine Secrets-Änderung aktualisiert den Zugangsstatus, ohne ungespeicherte Konfigurationseingaben zu ersetzen.
+
+## Weitere Anleitungen
+
+- [Mit E-Mail-Fokus arbeiten](/docs/email/focus)

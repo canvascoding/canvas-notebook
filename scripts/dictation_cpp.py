@@ -10,6 +10,7 @@ import sys
 import tempfile
 import urllib.request
 from pathlib import Path
+from dictation_progress import ModelProgress
 
 
 def sha256(file):
@@ -84,7 +85,9 @@ def read_status(directory, policy):
     models = installed_models(directory, policy)
     state = read_json(directory / 'installation.json')
     result = {'engine': 'whisper-cpp', 'installedModels': models,
-              'state': 'installed' if models else 'missing'}
+              'state': 'installed' if models else 'missing',
+              'modelSizes': {name: model['size'] for name, model in policy['models'].items()}}
+    result.update({key: state[key] for key in ['model', 'phase', 'downloadedBytes', 'totalBytes', 'updatedAt'] if key in state})
     if models:
         result['path'] = str(directory)
     if state.get('state') == 'installing':
@@ -114,6 +117,7 @@ def install(directory, policy, native, name):
             return
         write_json(state, {'state': 'installing', 'model': name})
         temporary = None
+        progress = ModelProgress(state, name, policy['models'][name]['size'])
         try:
             model = policy['models'][name]
             if shutil.disk_usage(directory).free < model['size'] + 64 * 1024 * 1024:
@@ -131,17 +135,20 @@ def install(directory, policy, native, name):
                             raise RuntimeError('The model download exceeds its reviewed size.')
                         digest.update(chunk)
                         output.write(chunk)
+                        progress.downloaded = downloaded
+                        progress.publish('downloading')
                 output.flush()
                 os.fsync(output.fileno())
+            progress.publish('verifying', force=True)
             if downloaded != model['size'] or digest.hexdigest() != model['sha256']:
                 raise RuntimeError('The downloaded model does not match its reviewed SHA-256.')
             shutil.copy2(native / 'MODEL-LICENSE.txt', directory / 'MODEL-LICENSE.txt')
             target = model_path(directory, model)
             os.replace(temporary, target)
             write_json(target.with_suffix('.json'), {'sha256': model['sha256'], 'fingerprint': fingerprint(target)})
-            write_json(state, {'state': 'installed'})
+            progress.publish('ready', force=True)
         except (OSError, ValueError, RuntimeError) as error:
-            write_json(state, {'state': 'failed', 'message': str(error)[:300]})
+            progress.publish('failed', force=True, message=str(error)[:300])
         finally:
             if temporary and temporary.exists():
                 temporary.unlink()

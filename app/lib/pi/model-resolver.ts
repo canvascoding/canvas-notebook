@@ -239,7 +239,10 @@ export function isCanvasControlPlaneManagedAvailable(): boolean {
 }
 
 export function getPiProviders(): string[] {
-  const providers: string[] = [...getProviders()];
+  // Keep Canvas catalog/session IDs stable after Pi 1.0.3 renamed Azure.
+  const providers: string[] = getProviders()
+    .filter((provider) => getModels(provider).length > 0)
+    .map((provider) => provider === 'azure' ? 'azure-openai-responses' : provider);
   // Add Ollama and OpenAI-Compatible if not already present (they are not built-in PI-AI providers)
   if (!(providers as string[]).includes(OLLAMA_PROVIDER_ID)) {
     (providers as string[]).push(OLLAMA_PROVIDER_ID);
@@ -319,7 +322,10 @@ export function getPiModels(provider: string, customModel?: string): ResolvedPiM
   }
   
   try {
-    return getModels(provider as BuiltinProvider).map(withResolvedModelInput);
+    const sdkProvider = provider === 'azure-openai-responses' ? 'azure' : provider;
+    return getModels(sdkProvider as BuiltinProvider).map((model) => withResolvedModelInput(
+      sdkProvider === provider ? model : { ...model, provider },
+    ));
   } catch {
     return [];
   }

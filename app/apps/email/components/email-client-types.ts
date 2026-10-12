@@ -1,4 +1,6 @@
 import type { EmailAttachmentDraft } from '@/app/lib/email/attachment-types';
+import type { EmailClassification } from '@/app/lib/email/classification/types';
+import type { EmailMessageOrigin } from '@/app/lib/email/classification/mailbox-types';
 
 export type EmailAccount = {
   id: string;
@@ -66,6 +68,11 @@ export type EmailFolder = {
 
 export type EmailMessageSummary = {
   id: string;
+  messageRef?: string;
+  selectionKey?: string;
+  origin?: EmailMessageOrigin;
+  classification?: EmailClassification | null;
+  personalFocus?: { done: boolean; version: number };
   to?: string[] | string;
   cc?: string[] | string;
   bcc?: string[] | string;
@@ -84,6 +91,7 @@ export type EmailMessageSummary = {
 export type EmailMessageDetail = EmailMessageSummary & {
   to?: string[] | string;
   cc?: string[] | string;
+  replyTo?: string[] | string;
   body?: string;
   bodyHtml?: string;
   attachments?: Array<{

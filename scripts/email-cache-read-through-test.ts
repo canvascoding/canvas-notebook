@@ -9,6 +9,7 @@ import {
 import {
   normalizeEmailMessageRef,
   type EmailCachedMessageDetail,
+  type EmailCachedMessage,
   type EmailCachedMessageMetadata,
   type EmailCacheReadResult,
   type EmailCacheStore,
@@ -319,6 +320,30 @@ async function main() {
   assert.equal(detailHit.cache.source, 'cache');
   assert.equal((detailHit.message as { body: string }).body, 'Cached body');
 
+  let cachedAddressMessage: EmailCachedMessage | null = null;
+  const addressStore = fakeStore({
+    async getMessage() { return readResult(cachedAddressMessage); },
+    async putMessage(input) {
+      cachedAddressMessage = { ref: normalizedGoogleRef, metadata: input.metadata || null, detail: input.detail || null };
+      return { enabled: true, stored: true, reason: 'stored' };
+    },
+  });
+  const addressLoad = {
+    runtime: { store: addressStore }, mailbox: localMailbox, messageId: 'g-1', folder: 'INBOX',
+    load: async () => ({ message: { id: 'g-1', folder: 'INBOX',
+      from: { emailAddress: { name: 'Sender, Team', address: 'sender@example.test' } },
+      to: [{ emailAddress: { name: 'Recipient', address: 'recipient@example.test' } }],
+      cc: 'Copy <copy@example.test>', replyTo: '"Support, Team" <support@example.test>', body: 'Body' } }),
+    fromCache: (message: Record<string, unknown>) => ({ message }),
+  };
+  await readThroughEmailDetail(addressLoad);
+  const addressHit = await readThroughEmailDetail(addressLoad);
+  assert.equal(addressHit.cache.source, 'cache');
+  assert.equal(addressHit.message.from, '"Sender, Team" <sender@example.test>');
+  assert.deepEqual(addressHit.message.to, ['Recipient <recipient@example.test>']);
+  assert.deepEqual(addressHit.message.cc, ['Copy <copy@example.test>']);
+  assert.deepEqual(addressHit.message.replyTo, ['"Support, Team" <support@example.test>']);
+
   const prefetchedKeys: string[] = [];
   const releasedKeys: string[] = [];
   const prefetchStore = fakeStore({
@@ -438,7 +463,7 @@ async function main() {
   const routeSource = await readFile(new URL('../app/api/email/messages/list/route.ts', import.meta.url), 'utf8');
   const detailRouteSource = await readFile(new URL('../app/api/email/accounts/[accountId]/messages/[messageId]/route.ts', import.meta.url), 'utf8');
   for (const source of [routeSource, detailRouteSource]) {
-    assert.match(source, /cacheMode: 'swr'/u);
+    assert.match(source, /\.\.\.access\.readOptions/u);
     assert.match(source, /scheduleBackgroundTask: after/u);
   }
   assert.match(routeSource, /prefetchDetails: true/u);

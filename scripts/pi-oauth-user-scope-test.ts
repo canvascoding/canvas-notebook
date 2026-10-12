@@ -117,6 +117,7 @@ async function main() {
     const { readUnifiedSecretValue } = await import('../app/lib/integrations/env-config');
     assert.deepEqual(JSON.parse(readUnifiedSecretValue('CANVAS_CREDENTIAL_PI_OAUTH', userA)!)[provider], {
       type: 'oauth', access: 'user-a-token', refresh: 'refresh-a', expires,
+      canvasConnectionId: oauth.getProviderConnectionId(provider, userA),
     });
     assert.equal(oauth.getAuthFilePath(userA), path.join(dataRoot, 'users', 'oauth_user_a', 'secrets', 'Canvas-Secrets.env'));
     assert.equal(await fs.stat(path.join(dataRoot, 'users', 'oauth_user_a', 'settings', 'auth.json')).catch(() => null), null);

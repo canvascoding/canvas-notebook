@@ -5,6 +5,7 @@ import { readAppRuntimeCatalog } from '@/app/lib/agent-runtime-policy/catalog-st
 import { isProviderInstallationCredentialAvailable } from '@/app/lib/agent-runtime-policy/installation-credentials';
 import { resolveProviderAuthMethod } from '@/app/lib/agent-runtime-policy/provider-auth-policy';
 import { workspaceAllowsInteractiveUserCredentials } from '@/app/lib/agent-runtime-policy/user-credential-policy';
+import { isPersonalOAuthProvider, personalProviderConnectionId, readPersonalProviderVerification } from '@/app/lib/agent-runtime-policy/personal-provider-store';
 import {
   readPiSessionRuntimeSnapshot,
   readUserWorkspaceProviderGrant,
@@ -84,6 +85,10 @@ export function buildEffectiveCatalogProviders(input: {
     ));
     if (models.length === 0) return [];
     const credentialAvailable = input.credentialAvailability?.get(provider.installationId) ?? true;
+    const eligibility = input.userCredentialEligibility?.get(provider.installationId);
+    const status = provider.status === 'disabled' ? 'disabled' : isPersonalOAuthProvider(provider)
+      ? eligibility?.verification?.status ?? 'unverified'
+      : provider.status;
     return [{
       installationId: provider.installationId,
       providerId: provider.providerId,
@@ -95,8 +100,8 @@ export function buildEffectiveCatalogProviders(input: {
       ...(input.userCredentialEligibility?.get(provider.installationId)
         ? { userCredentialEligibility: input.userCredentialEligibility.get(provider.installationId) }
         : {}),
-      selectable: provider.status === 'ready' && credentialAvailable,
-      status: provider.status,
+      selectable: status === 'ready' && credentialAvailable,
+      status,
       models,
     }];
   });
@@ -391,7 +396,9 @@ export async function resolveEffectiveAgentRuntime(
         userCredentialEligibility: undefined,
       };
     }
-    const credentialConnected = await isProviderInstallationCredentialAvailable({
+    const credentialConnected = isPersonalOAuthProvider(provider)
+      ? Boolean(personalProviderConnectionId(provider, principal.type === 'user' ? principal.credentialSubjectUserId : context.userId))
+      : await isProviderInstallationCredentialAvailable({
       provider,
       organizationId: context.organizationId,
       userId: principal.type === 'user' ? principal.credentialSubjectUserId : context.userId,
@@ -418,6 +425,9 @@ export async function resolveEffectiveAgentRuntime(
       && grant.status === 'active'
       && grant.allowedExecutionModes.includes(context.executionMode),
     );
+    const verification = isPersonalOAuthProvider(provider)
+      ? await readPersonalProviderVerification({ provider, organizationId: context.organizationId, userId: principal.type === 'user' ? principal.credentialSubjectUserId : context.userId })
+      : undefined;
     return {
       installationId: provider.installationId,
       credentialAvailable: credentialConnected && consentGranted,
@@ -428,6 +438,7 @@ export async function resolveEffectiveAgentRuntime(
         connected: credentialConnected,
         consentGranted,
         grantRevision: grant?.revision ?? null,
+        ...(verification ? { verification } : {}),
       },
     };
   }));

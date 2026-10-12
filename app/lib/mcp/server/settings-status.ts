@@ -57,6 +57,8 @@ const DIRECT_MCP_CAPABILITIES: ReadonlyArray<Omit<DirectMcpCapabilityStatus, 'en
   { id: 'edit_knowledge_source', available: true, scopes: ['knowledge:write'] },
   { id: 'read_knowledge_asset', available: true, scopes: ['knowledge:assets'] },
   { id: 'upload_knowledge_asset', available: true, scopes: ['knowledge:write'] },
+  { id: 'create_knowledge_source', available: true, scopes: ['knowledge:write'] },
+  { id: 'import_knowledge_file', available: true, scopes: ['knowledge:write'] },
 ];
 
 function settingsSource(

@@ -1,8 +1,10 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronDown, Download, FolderInput, Loader2, Paperclip } from 'lucide-react';
 import { toast } from 'sonner';
+import { inboundEmailAttachmentPreviewItems } from '@/app/lib/email/attachment-preview';
+import { useEmailAttachmentPreview } from './useEmailAttachmentPreview';
 
 import { WorkspaceDestinationPicker } from '@/app/components/workspaces/WorkspaceDestinationPicker';
 import { useFileStore } from '@/app/store/file-store';
@@ -91,6 +93,8 @@ export function EmailAttachmentActions({
   messageId: string;
 }) {
   const activeWorkspace = useWorkspaceStore(selectActiveWorkspace);
+  const previewItems = useMemo(() => inboundEmailAttachmentPreviewItems({ accountId, messageId, folder, workspaceId: mailboxWorkspaceId, attachments }), [accountId, messageId, folder, mailboxWorkspaceId, attachments]);
+  const preview = useEmailAttachmentPreview(previewItems, JSON.stringify([accountId, mailboxWorkspaceId, messageId, folder]), onMailboxAccessChanged);
   const refreshDirectory = useFileStore((state) => state.refreshDirectory);
   const downloadableAttachments = useMemo(
     () => attachments.filter((attachment) => attachment.downloadable !== false && Boolean(attachment.id)),
@@ -101,8 +105,28 @@ export function EmailAttachmentActions({
   const [selectedDir, setSelectedDir] = useState('.');
   const [targetWorkspaceId, setTargetWorkspaceId] = useState<string | null>(activeWorkspace?.id ?? null);
   const [isSaving, setIsSaving] = useState(false);
+  const [creatingDirectory, setCreatingDirectory] = useState(false);
+  const saveRequestId = useRef(0);
+  const sourceContext = JSON.stringify([activeWorkspace?.id ?? null, accountId, mailboxWorkspaceId, messageId, folder]);
+  const previousSourceContext = useRef(sourceContext);
+
+  useEffect(() => {
+    if (previousSourceContext.current === sourceContext) return;
+    previousSourceContext.current = sourceContext;
+    // Attachment IDs belong to the message that opened the save dialog.
+    setSaveOpen(false);
+    setSelectedAttachmentIds([]);
+  }, [sourceContext]);
+
+  useEffect(() => {
+    saveRequestId.current += 1;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setIsSaving(false);
+    return () => { saveRequestId.current += 1; };
+  }, [saveOpen, sourceContext]);
 
   const openWorkspaceSave = (attachmentIds: string[]) => {
+    if (isSaving || creatingDirectory) return;
     setSelectedAttachmentIds(attachmentIds);
     setSelectedDir('.');
     setTargetWorkspaceId(activeWorkspace?.id ?? null);
@@ -110,7 +134,15 @@ export function EmailAttachmentActions({
   };
 
   const saveToWorkspace = async () => {
-    if (!accountId || !targetWorkspaceId || selectedAttachmentIds.length === 0) return;
+    if (!saveOpen || !accountId || !targetWorkspaceId || isSaving || creatingDirectory || selectedAttachmentIds.length === 0) return;
+    const sourceWorkspaceId = activeWorkspace?.id ?? null;
+    if (useWorkspaceStore.getState().activeWorkspaceId !== sourceWorkspaceId) return;
+    const requestId = ++saveRequestId.current;
+    const targetId = targetWorkspaceId;
+    const targetDirectory = selectedDir;
+    const attachmentIds = [...selectedAttachmentIds];
+    const current = () => requestId === saveRequestId.current
+      && useWorkspaceStore.getState().activeWorkspaceId === sourceWorkspaceId;
     setIsSaving(true);
     try {
       const response = await fetch(attachmentEndpoint(accountId, messageId), {
@@ -119,23 +151,25 @@ export function EmailAttachmentActions({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           mailboxWorkspaceId,
-          attachmentIds: selectedAttachmentIds,
+          attachmentIds,
           folder,
-          targetPath: selectedDir,
-          targetWorkspaceId,
+          targetPath: targetDirectory,
+          targetWorkspaceId: targetId,
         }),
       });
-      if (response.status === 403 || response.status === 409) onMailboxAccessChanged?.();
+      if (current() && (response.status === 403 || response.status === 409)) onMailboxAccessChanged?.();
       const payload = await response.json() as { error?: string; savedCount?: number; success?: boolean };
+      if (!current()) return;
       if (!response.ok || !payload.success) throw new Error(payload.error || labels.attachmentsSaveFailed);
-      const savedCount = typeof payload.savedCount === 'number' ? payload.savedCount : selectedAttachmentIds.length;
-      if (targetWorkspaceId === activeWorkspace?.id) await refreshDirectory(selectedDir, true);
+      const savedCount = typeof payload.savedCount === 'number' ? payload.savedCount : attachmentIds.length;
+      if (targetId === sourceWorkspaceId) await refreshDirectory(targetDirectory, true, targetId);
+      if (!current()) return;
       toast.success(labels.attachmentsSaved.replace('{count}', String(savedCount)));
       setSaveOpen(false);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : labels.attachmentsSaveFailed);
+      if (current()) toast.error(error instanceof Error ? error.message : labels.attachmentsSaveFailed);
     } finally {
-      setIsSaving(false);
+      if (current()) setIsSaving(false);
     }
   };
 
@@ -176,7 +210,7 @@ export function EmailAttachmentActions({
       </div>
 
       <div className="mt-2 flex flex-col gap-2">
-        {attachments.map((attachment) => {
+        {attachments.map((attachment, index) => {
           const canDownload = attachment.downloadable !== false && Boolean(accountId && attachment.id);
           const downloadUrl = canDownload
             ? attachmentDownloadUrl(accountId!, messageId, attachment.id, folder, mailboxWorkspaceId)
@@ -185,7 +219,10 @@ export function EmailAttachmentActions({
           return (
             <div key={attachment.id || attachment.filename} className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border bg-card px-3 py-2 text-sm">
               <div className="min-w-0 flex-1">
-                <div className="truncate font-medium">{attachment.filename}</div>
+                <button type="button" data-testid="email-attachment-preview-trigger" data-attachment-id={previewItems[index].id}
+                  aria-label={preview.openLabel(attachment.filename)} disabled={!preview.canOpen}
+                  className="block max-w-full truncate text-left font-medium hover:underline focus-visible:outline-2 focus-visible:outline-ring"
+                  onClick={() => preview.openAttachment(previewItems[index].id)}>{attachment.filename}</button>
                 <div className="text-xs text-muted-foreground">
                   {[attachment.contentType || labels.unknownAttachmentType, sizeLabel].filter(Boolean).join(' · ')}
                 </div>
@@ -223,10 +260,10 @@ export function EmailAttachmentActions({
       <Dialog
         open={saveOpen}
         onOpenChange={(nextOpen) => {
-          if (!isSaving || nextOpen) setSaveOpen(nextOpen);
+          if ((!isSaving && !creatingDirectory) || nextOpen) setSaveOpen(nextOpen);
         }}
       >
-        <DialogContent className="max-w-xl overflow-hidden">
+        <DialogContent className="max-w-xl max-h-[calc(100dvh-3rem)] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{labels.saveAttachmentsTitle}</DialogTitle>
             <DialogDescription>
@@ -234,19 +271,22 @@ export function EmailAttachmentActions({
             </DialogDescription>
           </DialogHeader>
           <WorkspaceDestinationPicker
+            key={sourceContext}
             selectedWorkspaceId={targetWorkspaceId}
             selectedDir={selectedDir}
             onWorkspaceChange={setTargetWorkspaceId}
             onDirChange={setSelectedDir}
+            disabled={isSaving}
+            onCreatingDirectoryChange={setCreatingDirectory}
           />
           <DialogFooter className="gap-2">
-            <Button type="button" variant="ghost" disabled={isSaving} onClick={() => setSaveOpen(false)}>
+            <Button type="button" variant="ghost" disabled={isSaving || creatingDirectory} onClick={() => setSaveOpen(false)}>
               {labels.cancel}
             </Button>
             <Button
               type="button"
               variant="secondary"
-              disabled={isSaving || !targetWorkspaceId || selectedAttachmentIds.length === 0}
+              disabled={isSaving || creatingDirectory || !targetWorkspaceId || selectedAttachmentIds.length === 0}
               onClick={() => void saveToWorkspace()}
             >
               {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <FolderInput className="h-4 w-4" />}
@@ -255,6 +295,7 @@ export function EmailAttachmentActions({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {preview.dialog}
     </div>
   );
 }

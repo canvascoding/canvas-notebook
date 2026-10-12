@@ -1,4 +1,4 @@
-import { parseEmailSearchQuery, compileImapEmailSearch, andImapEmailSearch, EmailSearchQueryError } from '@/app/lib/email/search-query';
+import { parseEmailSearchQuery, compileImapEmailSearch, andImapEmailSearch, EmailSearchQueryError, isEmailAddressHeaderSearch } from '@/app/lib/email/search-query';
 import 'server-only';
 
 import type { Readable } from 'node:stream';
@@ -23,6 +23,7 @@ import {
 } from '@/app/lib/email/account-store';
 import { isLikelyHtmlEmailContent, normalizeEmailHtmlContent } from '@/app/lib/email/html-content';
 import { EmailMessageNotFoundError } from '@/app/lib/email/errors';
+import { formatEmailAddress, formatEmailAddresses } from '@/app/lib/email/addresses';
 import {
   EMAIL_INBOUND_ATTACHMENT_MAX_BYTES,
   assertInboundEmailAttachmentSize,
@@ -132,6 +133,7 @@ type ImapEmailListInput = {
 };
 
 type ImapReadPolicyOptions = {
+  recipientDiscovery?: boolean;
   /** Internal all-folder merge requires date sorting before per-folder pagination. */
   sortByDate?: boolean;
   searchCandidateLimit?: number;
@@ -402,10 +404,7 @@ async function withImapMessage<T>(
 }
 
 function formatAddress(address: MessageAddressObject | undefined): string {
-  if (!address?.address) return '';
-  const email = address.address.trim();
-  const name = address.name?.trim();
-  return name ? `${name} <${email}>` : email;
+  return formatEmailAddress(address);
 }
 
 function formatAddressList(addresses: MessageAddressObject[] | undefined): string[] {
@@ -613,8 +612,9 @@ async function updateImapMessageFlag(
   flag: string,
   enabled: boolean,
   action: string,
+  frozenSecret?: EmailAccountSmtpSecret,
 ) {
-  const secret = await readStoredEmailAccountSecret(account);
+  const secret = frozenSecret ?? await readStoredEmailAccountSecret(account);
   if (secret.authType !== 'smtp_imap') throw new Error('Email account is not an SMTP/IMAP account.');
   requireImapSecret(secret);
   const result = await withImapMessage(secret, messageId, folder, async (client, reference, folderPath) => {
@@ -720,6 +720,8 @@ type ImapListResult = {
 
 export async function listImapEmailMessages(account: StoredEmailAccount, input: ImapEmailListInput, options?: ImapReadPolicyOptions): Promise<ImapListResult> {
   const query = normalizeSearchQuery(input.query);
+  const recipientDiscovery = options?.recipientDiscovery === true;
+  if (recipientDiscovery && !isEmailAddressHeaderSearch(parseEmailSearchQuery(query))) throw new EmailSearchQueryError('Recipient lookup requires an address-header search.');
   const limit = options?.sortByDate ? Math.min(Math.max(Number.isFinite(input.limit) ? Math.trunc(Number(input.limit)) : 10, 1), 1000) : normalizeLimit(input.limit);
   const offset = normalizeOffset(input.offset);
   if (input.folder === 'all') {
@@ -730,14 +732,15 @@ export async function listImapEmailMessages(account: StoredEmailAccount, input: 
     let complete = true;
     let total = 0;
     let scannedCount = 0;
+    const maxCandidates = recipientDiscovery ? Math.min(2000, Math.max(offset + limit + 1, 100)) : 2000;
     for (const folder of folders) {
-      if (scannedCount >= 2000) {
+      if (scannedCount >= maxCandidates) {
         complete = false;
-        notices.add('All-folder search reached its 2000-candidate limit before checking every folder. Select a folder or narrow the query.');
+        notices.add(`All-folder search reached its ${maxCandidates}-candidate limit before checking every folder. Select a folder or narrow the query.`);
         break;
       }
       const page = await listImapEmailMessages(account, { ...input, folder: folder.path, offset: 0, limit: Math.min(1000, offset + limit + 1) },
-        { ...options, sortByDate: true, searchCandidateLimit: Math.min(1000, 2000 - scannedCount) });
+        { ...options, sortByDate: true, searchCandidateLimit: Math.min(1000, maxCandidates - scannedCount) });
       messages.push(...page.messages);
       scannedCount += page.scannedCount || 0;
       if (page.searchNotice) notices.add(page.searchNotice);
@@ -762,14 +765,15 @@ export async function listImapEmailMessages(account: StoredEmailAccount, input: 
     const found = await client.search(searchObjectForInput({ ...input, query }), { uid: true });
     const ordered = (found || []).slice().reverse();
     const normalized: ImapListMessage[] = [];
-    const scanLimit = Math.min(ordered.length, options?.sortByDate ? (options.searchCandidateLimit || 1000) : Math.max(offset + limit + 1, 1000));
+    const requestedScanLimit = options?.sortByDate ? (options.searchCandidateLimit || 1000) : Math.max(offset + limit + 1, recipientDiscovery ? 100 : 1000);
+    const scanLimit = Math.min(ordered.length, requestedScanLimit);
     let scanned = 0;
     while (scanned < scanLimit && (options?.sortByDate || normalized.length < offset + limit + 1)) {
       const uids = ordered.slice(scanned, Math.min(scanned + 100, scanLimit));
       const loaded: FetchMessageObject[] = [];
       for await (const message of client.fetch(uids, {
         uid: true, flags: true, envelope: true, internalDate: true, size: true,
-        bodyStructure: true, source: { maxLength: SEARCH_SOURCE_MAX_BYTES }, threadId: true,
+        ...(recipientDiscovery ? {} : { bodyStructure: true, source: { maxLength: SEARCH_SOURCE_MAX_BYTES } }), threadId: true,
       }, { uid: true })) loaded.push(message);
       scanned += uids.length;
       const order = new Map(uids.map((uid, index) => [uid, index]));
@@ -787,7 +791,7 @@ export async function listImapEmailMessages(account: StoredEmailAccount, input: 
           subject: message.envelope?.subject || '', date: isoDate(message.envelope?.date || message.internalDate),
           size: message.size || null, flags, isRead: hasFlag(flags, '\\Seen'),
           isAnswered: hasFlag(flags, '\\Answered'), isFlagged: hasFlag(flags, '\\Flagged'), hasAttachments,
-          snippet: await snippetFromSource(message.source),
+          snippet: recipientDiscovery ? '' : await snippetFromSource(message.source),
         });
       }
     }
@@ -848,6 +852,7 @@ async function normalizeImapDetailMessage(
     from,
     to: formatAddressList(fetched.envelope?.to),
     cc: formatAddressList(fetched.envelope?.cc),
+    replyTo: formatEmailAddresses(fetched.envelope?.replyTo?.length ? fetched.envelope.replyTo : parsed?.replyTo),
     subject: fetched.envelope?.subject || parsed?.subject || '',
     date: isoDate(fetched.envelope?.date || fetched.internalDate || parsed?.date),
     messageId: parsed?.messageId || '',
@@ -992,8 +997,10 @@ export async function setImapEmailMessageAnswered(
   messageId: string,
   folder: string | undefined,
   answered: boolean,
+  /** Server-internal accepted-reply bookkeeping pins the original authorized connection. */
+  frozenSecret?: EmailAccountSmtpSecret,
 ) {
-  return updateImapMessageFlag(account, messageId, folder, '\\Answered', answered, answered ? 'mark-answered' : 'clear-answered');
+  return updateImapMessageFlag(account, messageId, folder, '\\Answered', answered, answered ? 'mark-answered' : 'clear-answered', frozenSecret);
 }
 
 export async function moveImapEmailMessage(

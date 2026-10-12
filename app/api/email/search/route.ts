@@ -1,9 +1,10 @@
 import { EmailMailboxAccessError, resolveEmailMailboxAccess } from '@/app/lib/email/mailbox-access';
 import { EmailSearchQueryError } from '@/app/lib/email/search-query';
-import { NextRequest, NextResponse } from 'next/server';
+import { after, NextRequest, NextResponse } from 'next/server';
 
 import { auth } from '@/app/lib/auth';
 import { searchEmail } from '@/app/lib/email/service';
+import { isEmailClassificationAccessUnavailableError } from '@/app/lib/email/classification/enrichment';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 
 async function requireSession(request: NextRequest) {
@@ -20,9 +21,15 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json().catch(() => ({}));
     const access = await resolveEmailMailboxAccess({ userId: session.user.id, accountId: body.accountId, mailboxWorkspaceId: body.mailboxWorkspaceId, operation: 'read' });
-    const data = await searchEmail(access.accountOwnerId, { ...body, accountId: access.accountId }, access.readOptions);
+    const data = await searchEmail(access.accountOwnerId, { ...body, accountId: access.accountId }, {
+      ...access.readOptions,
+      actorUserId: session.user.id,
+      workspaceId: access.workspaceId,
+      scheduleBackgroundTask: after,
+    });
     return NextResponse.json({ success: true, data });
   } catch (error) {
+    if (isEmailClassificationAccessUnavailableError(error)) return NextResponse.json({ success: false, code: error.code, error: error.message }, { status: error.status });
     if (error instanceof EmailMailboxAccessError) {
       return NextResponse.json({ success: false, error: error.message }, { status: error.status });
     }

@@ -1,3 +1,4 @@
+import { richMigrationRuntimeAvailable } from '@/app/lib/collaboration/representation-migration-runtime';
 import 'server-only';
 
 import { createHash } from 'node:crypto';
@@ -5,6 +6,7 @@ import { createHash } from 'node:crypto';
 import { MOBILE_INBOX_FILE_CHANGES_CAPABILITY } from './inbox-capabilities';
 import { MOBILE_EMAIL_REVIEW_CAPABILITY } from './email-capabilities';
 import { MOBILE_PLUGIN_GATEWAY_CAPABILITIES } from './plugin-gateway-capabilities';
+import { MOBILE_DICTATION_CAPABILITY } from './dictation-capabilities';
 
 export const MOBILE_API_VERSION = 'v1' as const;
 export const MINIMUM_MOBILE_CLIENT_VERSION = '0.1.0' as const;
@@ -39,6 +41,7 @@ export type MobileCompatibility = {
       'chat.runtime_control',
       'chat.compaction',
       'chat.runtime_selection',
+      typeof MOBILE_DICTATION_CAPABILITY,
       'browser.live_view',
       'agents.manage',
       'push.devices',
@@ -104,6 +107,7 @@ export type MobileCompatibility = {
       'integrations.composio_mobile_auth',
       'integrations.mcp_mobile.v1',
       ...typeof MOBILE_PLUGIN_GATEWAY_CAPABILITIES,
+      ...string[],
     ];
   };
   auth: {
@@ -160,6 +164,7 @@ export function createMobileCompatibility(input: {
         'chat.runtime_control',
         'chat.compaction',
         'chat.runtime_selection',
+        MOBILE_DICTATION_CAPABILITY,
         'browser.live_view',
         'agents.manage',
         'push.devices',
@@ -225,6 +230,7 @@ export function createMobileCompatibility(input: {
         'integrations.composio_mobile_auth',
         'integrations.mcp_mobile.v1',
         ...MOBILE_PLUGIN_GATEWAY_CAPABILITIES,
+        ...(richMigrationRuntimeAvailable() ? ['notebook.collaboration.rich_migration.v1', 'notebook.collaboration.checkpoint.v1'] : []),
       ],
     },
     auth: {

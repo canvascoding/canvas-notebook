@@ -44,10 +44,12 @@ async function main() {
     assert.equal(await openWorkspacePathOperationStatus({ workspaceId: 'missing-workspace', batchId }), false);
     assert.equal(requests.length, 0, 'invalid/unavailable navigation cannot fetch operation details');
     await open();
-    reply = async () => Response.json({ operation: { ...operation(), actorUserId: 'private-user', sessionId: 'private-session' },
+    reply = async () => Response.json({ operation: { ...operation(), actorUserId: 'private-user', sessionId: 'private-session',
+      issues: [{ code: 'missing-source', path: 'Docs/target.md', detail: 'private diagnostic', reviewId: 'private-review' }] },
       recovery: { canUndo: false, canResume: false }, manifest: { content: 'private-document' }, rawError: 'private-path' });
     await reloadWorkspacePathOperationStatus();
     assert.equal(useWorkspacePathOperationStore.getState().response?.operation.status, 'blocked');
+    assert.deepEqual(useWorkspacePathOperationStore.getState().response?.operation.issues, [{ code: 'missing-source', path: 'Docs/target.md' }]);
     assert.deepEqual(Object.keys(useWorkspacePathOperationStore.getState().response!).sort(), ['operation', 'recovery']);
     assert.equal(JSON.stringify(useWorkspacePathOperationStore.getState()).includes('private-'), false, 'private server fields are never retained');
     const first = requests.at(-1)!;
@@ -62,7 +64,11 @@ async function main() {
 
     for (const mismatch of [{ workspaceId: 'foreign-workspace' }, { batchId: 'foreign-batch-1234567' }, { planId: 'b'.repeat(64) },
       { selections: [{ sourcePath: '/data/private.md' }] }, { status: 'applied', phase: 'paths', completedActions: 2 },
-      { status: 'applied', phase: 'complete', completedActions: 1 }]) {
+      { status: 'applied', phase: 'complete', completedActions: 1 },
+      { issues: [{ code: 'missing-source', path: '/private/secret.md' }] },
+      { issues: [{ code: 'missing-source', path: '../secret.md' }] },
+      { issues: [{ code: 'private diagnostic', path: 'Notes/link.md' }] },
+      { issues: null }]) {
       reply = async () => Response.json({ operation: { ...operation(), ...mismatch } });
       await reloadWorkspacePathOperationStatus();
       assert.equal(useWorkspacePathOperationStore.getState().error, 'identity');

@@ -1,12 +1,18 @@
 import { extractEmailAddressForCompose } from '@/app/apps/email/components/email-client-format';
 import type { EmailComposeAgentUsedContext } from '@/app/apps/email/components/email-client-types';
 import type { EmailAttachmentDraft } from '@/app/lib/email/attachment-types';
+import { parseEmailAddresses, splitEmailAddressText } from '@/app/lib/email/addresses';
 
 export function splitRecipientInput(value: string): string[] {
-  return value
-    .split(/[,\n;]/u)
-    .map((entry) => extractEmailAddressForCompose(entry) || entry.trim())
-    .filter(Boolean);
+  return splitEmailAddressText(value).flatMap(part => {
+    const addresses = parseEmailAddresses(part);
+    return addresses.length ? addresses.map(item => item.address) : part.trim() ? [part.trim()] : [];
+  });
+}
+
+/** Form exclusions cover every selected address; only the network request has a compact cap. */
+export function composeRecipientExclusions(values: string[]): string[] {
+  return [...new Set(values.flatMap(splitRecipientInput).flatMap(value => parseEmailAddresses(value)).map(item => item.address))];
 }
 
 export function isValidComposeRecipient(value: string): boolean {
@@ -14,7 +20,8 @@ export function isValidComposeRecipient(value: string): boolean {
 }
 
 export function normalizeComposeRecipient(value: string): string {
-  return extractEmailAddressForCompose(value) || value.trim();
+  const addresses = parseEmailAddresses(value);
+  return addresses.length === 1 ? addresses[0].address : value.trim();
 }
 
 export function visibleEmailAttachments(attachments: EmailAttachmentDraft[]): EmailAttachmentDraft[] {

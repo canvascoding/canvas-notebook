@@ -7,6 +7,7 @@ import type { IndexeddbPersistence } from 'y-indexeddb';
 import * as Y from 'yjs';
 
 import { collaborationStateProof, isCollaborationStateProof } from './state-proof';
+import type { RichMigrationRequest } from './representation-migration-contract';
 import { captureAgentStateSnapshot, persistedUpdateIncludesAgentSnapshot } from './agent-durability';
 import type { CurrentFile } from '../files/types';
 import { hasStoredLocalDocument } from './local-document';
@@ -14,7 +15,8 @@ import { installCodeMarkConflictPolicy } from './code-mark-policy';
 import { fetchLiveDocument, findOpenedLiveDocument, invalidateOpenedLiveDocument, isLocalOpenedDocumentSession,
   isOpenedDocumentAuthCurrent, LiveDocumentNetworkError, localOpenedDocumentReceipt, localOpenedDocumentSession,
   openedDocumentAuthScope, openedDocumentRequestRevision, rememberOpenedLiveDocument, sameOpenedDocumentSession, subscribeOpenedDocumentAuthInvalidation,
-  validateOpenedLiveDocumentSession, type OpenedDocumentAuthScope } from './opened-document-registry';
+  validateOpenedLiveDocumentSession, hasCurrentOpenedDocumentSessionAuthorization, hasOpenedDocumentLocationSessionReceipt,
+  type OpenedDocumentAuthScope } from './opened-document-registry';
 import { createDocumentAwarenessLease } from './document-awareness';
 import { workspaceHeaders } from '@/app/lib/files/client';
 import { fileGuestApi } from '@/app/lib/file-guests/types';
@@ -59,6 +61,9 @@ type CollaborationDurabilitySnapshot = {
   schemaValidated?: boolean;
 };
 
+type LocationAuthorization = { scope: AbortController; session: CollaborationSessionResponse; path: string;
+  authScope: OpenedDocumentAuthScope | null };
+
 type RegistryEntry = {
   key: string;
   path: string;
@@ -80,7 +85,11 @@ type RegistryEntry = {
   startPromise: Promise<void>;
   startProvider?: () => void;
   checkpointPromise?: Promise<void>;
+  locationRevalidationPromise?: Promise<void>;
   pendingAuthoritativeSnapshot?: CollaborationDurabilitySnapshot;
+  locationAuthorization?: LocationAuthorization;
+  /** Retired HTTP provenance can request authorization, never confirm persistence. */
+  locationRevalidationCandidate?: LocationAuthorization;
   setComposition: SetCollaborationComposition;
   requestCheckpoint: () => Promise<void>;
 };
@@ -98,9 +107,17 @@ export type CollaborationDocument = {
   error: string | null;
   setComposition: SetCollaborationComposition;
   requestCheckpoint: () => Promise<void>;
+  getMigrationCheckpoint?: () => Omit<RichMigrationRequest, 'requestId'>;
+  requestLocationRevalidation?: () => Promise<void>;
+  canRevalidateLocation?: boolean;
+  revalidatingLocation?: boolean;
 };
 
 const registry = new Map<string, RegistryEntry>();
+const guestSessionAuthorizations = new WeakMap<CollaborationSessionResponse,
+  { workspaceId: string; path: string; invitationId: string; revision: number }>();
+const guestAuthorizationRevisions = new Map<string, number>();
+const guestAuthorizationKey = (workspaceId: string, invitationId: string) => JSON.stringify([workspaceId, invitationId]);
 const reviewReadinessListeners = new Set<() => void>();
 
 /** Observe an existing local session only; this never creates or joins a document. */
@@ -347,6 +364,8 @@ async function requestSession(
   signal?.throwIfAborted();
   const authScope = guestInvitationId ? null : openedDocumentAuthScope();
   const authorizationRevision = openedDocumentRequestRevision();
+  const guestKey = guestInvitationId ? guestAuthorizationKey(workspaceId, guestInvitationId) : null;
+  const guestRevision = guestKey ? guestAuthorizationRevisions.get(guestKey) ?? 0 : 0;
   const response = await fetchLiveDocument(guestInvitationId ? `${fileGuestApi(guestInvitationId)}/session` : '/api/files/collaboration/session', {
     signal,
     method: 'POST',
@@ -368,6 +387,12 @@ async function requestSession(
     if (retryAuthorizationChange) return requestSession(path, representation, workspaceId, signal, guestInvitationId, false);
     throw new Error('The document access changed while loading.');
   }
+  if (guestKey && guestRevision !== (guestAuthorizationRevisions.get(guestKey) ?? 0)) {
+    if (retryAuthorizationChange) return requestSession(path, representation, workspaceId, signal, guestInvitationId, false);
+    throw new Error('The guest document access changed while loading.');
+  }
+  if (guestInvitationId) guestSessionAuthorizations.set(payload as CollaborationSessionResponse,
+    { workspaceId, path, invitationId: guestInvitationId, revision: guestRevision });
   return payload as CollaborationSessionResponse;
 }
 
@@ -412,6 +437,12 @@ async function refreshEntrySession(entry: RegistryEntry, scope: AbortController)
   }
   entry.session = refreshed;
   entry.authScope = refreshed.guestAccess ? null : openedDocumentAuthScope();
+  const candidate = entry.locationRevalidationCandidate;
+  if (candidate && candidate.scope === scope && candidate.path === entry.path && candidate.authScope === entry.authScope
+    && sameOpenedDocumentSession(candidate.session, refreshed) && hasFreshLocationSession(entry, entry.path, refreshed)) {
+    entry.locationAuthorization = { ...candidate, session: refreshed };
+    entry.locationRevalidationCandidate = undefined;
+  }
   entry.requiresFreshSession = false;
   if (refreshed.degraded || refreshed.projectionError?.permanent) transition(entry, { type: 'degraded',
     code: refreshed.projectionError?.code ?? COLLABORATION_CHECKPOINT_ERROR_CODES.quarantined,
@@ -420,18 +451,47 @@ async function refreshEntrySession(entry: RegistryEntry, scope: AbortController)
   transition(entry, { type: 'provider_status', status: 'connecting', permission: refreshed.permission });
 }
 
+function hasFreshLocationSession(entry: RegistryEntry, path: string, session: CollaborationSessionResponse): boolean {
+  const workspaceId = entry.key.split('\0')[0];
+  if (!session.guestAccess) return hasCurrentOpenedDocumentSessionAuthorization(workspaceId, path, session, entry.authScope);
+  const authorization = guestSessionAuthorizations.get(session);
+  return Boolean(authorization && authorization.workspaceId === workspaceId && authorization.path === path
+    && authorization.invitationId === session.guestAccess.invitationId && session.guestAccess.workspaceId === workspaceId
+    && authorization.revision === (guestAuthorizationRevisions.get(guestAuthorizationKey(workspaceId, authorization.invitationId)) ?? 0));
+}
+
+function hasHistoricalLocationSession(entry: RegistryEntry, path: string, session: CollaborationSessionResponse): boolean {
+  const workspaceId = entry.key.split('\0')[0];
+  if (!session.guestAccess) return hasOpenedDocumentLocationSessionReceipt(workspaceId, path, session, entry.authScope);
+  const authorization = guestSessionAuthorizations.get(session);
+  return Boolean(authorization && authorization.workspaceId === workspaceId && authorization.path === path
+    && authorization.invitationId === session.guestAccess.invitationId && session.guestAccess.workspaceId === workspaceId);
+}
+
+function hasCurrentLocationAuthorization(entry: RegistryEntry): boolean {
+  const authorization = entry.locationAuthorization;
+  return Boolean(authorization && authorization.scope === entry.requests && !authorization.scope.signal.aborted
+    && authorization.path === entry.path && authorization.authScope === entry.authScope && entry.session
+    && sameOpenedDocumentSession(authorization.session, entry.session)
+    && hasFreshLocationSession(entry, entry.path, entry.session));
+}
+
 /** A validated session may move the open document, never replace its Yjs state. */
-function adoptEntryLocation(entry: RegistryEntry, path: string, session: CollaborationSessionResponse): void {
+function adoptEntryLocation(entry: RegistryEntry, path: string, session: CollaborationSessionResponse, revalidate = false): void {
   const previous = entry.session;
   requireTextSession(session, previous?.representation as TextCollaborationRepresentation | undefined);
-  if (!previous || session.documentId !== previous.documentId || session.lifecycleGeneration !== previous.lifecycleGeneration
-    || session.documentName !== previous.documentName) throw new Error('Collaboration document identity changed.');
+  if (!previous || !sameOpenedDocumentSession(session, previous)) throw new Error('Collaboration document identity changed.');
+  if (revalidate && (!canRevalidateEntryLocation(entry) || !hasFreshLocationSession(entry, path, session))) {
+    throw new Error('The current document location could not be revalidated.');
+  }
   if (session.degraded || session.projectionError?.permanent) transition(entry, { type: 'degraded',
     code: session.projectionError?.code ?? COLLABORATION_CHECKPOINT_ERROR_CODES.quarantined,
     sequence: session.documentSequence, message: 'The saved document is quarantined. Recovery is required.' });
   // Reusing the same open path must still observe a server permission downgrade.
   // An old view snapshot can never restore write access after a denial.
-  if (entry.path === path && !(previous.permission === 'write' && session.permission === 'read')) return;
+  if (!revalidate && entry.path === path && !(previous.permission === 'write' && session.permission === 'read')) return;
+  const fresh = hasFreshLocationSession(entry, path, session);
+  const candidate = entry.path !== path && !fresh && hasHistoricalLocationSession(entry, path, session);
   entry.requests.abort();
   entry.requests = new AbortController();
   entry.checkpointPromise = undefined;
@@ -439,6 +499,11 @@ function adoptEntryLocation(entry: RegistryEntry, path: string, session: Collabo
   entry.provider = null;
   entry.path = path;
   entry.session = session;
+  entry.locationAuthorization = fresh
+    ? { scope: entry.requests, session, path, authScope: entry.authScope } : undefined;
+  entry.locationRevalidationCandidate = candidate
+    ? { scope: entry.requests, session, path, authScope: entry.authScope } : undefined;
+  entry.requiresFreshSession = !fresh;
   entry.pendingAuthoritativeSnapshot = durabilitySnapshot(session) ?? undefined;
   const locationRecovered = entry.clientState.failure?.kind === 'lifecycle';
   entry.clientState = { ...entry.clientState, remoteSynced: false, ready: false,
@@ -450,6 +515,80 @@ function adoptEntryLocation(entry: RegistryEntry, path: string, session: Collabo
       : entry.clientState.unsyncedChanges > 0 ? 'local_pending' : 'server_received' };
   entry.startProvider?.();
   emit(entry);
+}
+
+function canRevalidateEntryLocation(entry: RegistryEntry): boolean {
+  const authorization = entry.locationAuthorization ?? entry.locationRevalidationCandidate;
+  return Boolean(!entry.lifecycle.signal.aborted && registry.get(entry.key) === entry && entry.refs > 0
+    && entry.clientState.failure?.kind === 'authentication' && entry.clientState.authorizationRecoveryEligible === true
+    && authorization && authorization.scope === entry.requests && !authorization.scope.signal.aborted
+    && authorization.path === entry.path && authorization.authScope === entry.authScope
+    && (entry.session?.guestAccess || isOpenedDocumentAuthCurrent(entry.authScope))
+    && entry.session && sameOpenedDocumentSession(authorization.session, entry.session));
+}
+
+function hasRevalidatedLocationState(entry: RegistryEntry): boolean {
+  return entry.clientState.remoteSynced && hasCurrentLocationAuthorization(entry) && hasCurrentPersistedSnapshot(entry)
+    && (entry.clientState.connection === 'live' || entry.clientState.connection === 'read_only');
+}
+
+/** Retry the authorized moved location while retaining the document and local history. */
+function revalidateEntryLocation(entry: RegistryEntry, scope: AbortController): Promise<void> {
+  if (scope !== entry.requests || scope.signal.aborted) return Promise.reject(new Error('Collaboration location changed.'));
+  if (entry.locationRevalidationPromise) return entry.locationRevalidationPromise;
+  if (!canRevalidateEntryLocation(entry)) {
+    return Promise.reject(new Error('This document location cannot be revalidated.'));
+  }
+  const path = entry.path;
+  const previous = entry.session!;
+  const authScope = entry.authScope;
+  const authorization = entry.locationAuthorization ?? entry.locationRevalidationCandidate;
+  const promise = Promise.resolve().then(async () => {
+    assertRequestActive(entry, scope);
+    const session = requireTextSession(await requestSession(path, 'auto', entry.key.split('\0')[0],
+      scope.signal, previous.guestAccess?.invitationId), previous.representation as TextCollaborationRepresentation);
+    assertRequestActive(entry, scope);
+    if (entry.path !== path || entry.authScope !== authScope || !sameOpenedDocumentSession(session, previous)
+      || !hasFreshLocationSession(entry, path, session)) {
+      throw new Error('The document changed while its location was being revalidated.');
+    }
+    if (session.degraded || session.projectionError?.permanent) {
+      transition(entry, { type: 'degraded', code: session.projectionError?.code ?? COLLABORATION_CHECKPOINT_ERROR_CODES.quarantined,
+        sequence: session.documentSequence, message: 'The saved document is quarantined. Recovery is required.' });
+      throw new Error('The saved document is quarantined. Recovery is required.');
+    }
+    const stillPaused = canRevalidateEntryLocation(entry);
+    // Validating a read downgrade retires remembered write receipts. Keep the
+    // successful proof observed during this same location lifetime usable for
+    // that downgrade; the fresh HTTP receipt itself remains mandatory above.
+    const currentAuthorization = entry.locationAuthorization ?? entry.locationRevalidationCandidate;
+    const sameLocationLifetime = authorization && currentAuthorization
+      && currentAuthorization.scope === authorization.scope && currentAuthorization.path === authorization.path
+      && currentAuthorization.authScope === authorization.authScope
+      && sameOpenedDocumentSession(currentAuthorization.session, authorization.session);
+    const completedWhilePending = sameLocationLifetime && entry.clientState.remoteSynced
+      && entry.clientState.failure === null && hasCurrentPersistedSnapshot(entry)
+      && (entry.clientState.connection === 'live' || entry.clientState.connection === 'read_only');
+    if (!stillPaused && !completedWhilePending) {
+      throw new Error('The current document could not be revalidated.');
+    }
+    // Automatic proof confirmation may finish while HTTP is pending. Its
+    // success is current, but a fresh permission downgrade must still apply.
+    if (!stillPaused && !(entry.session?.permission === 'write' && session.permission === 'read')) return;
+    adoptEntryLocation(entry, path, session, stillPaused);
+    const adoptedScope = entry.requests;
+    await waitForEntryState(entry, () => hasRevalidatedLocationState(entry),
+      10_000, adoptedScope.signal);
+    assertRequestActive(entry, adoptedScope);
+  }).finally(() => {
+    if (entry.locationRevalidationPromise === promise) {
+      entry.locationRevalidationPromise = undefined;
+      if (!entry.lifecycle.signal.aborted) emit(entry);
+    }
+  });
+  entry.locationRevalidationPromise = promise;
+  emit(entry);
+  return promise;
 }
 
 function createEntry(
@@ -578,6 +717,7 @@ function createEntry(
           projectionError: snapshot.projectionError,
           projectionFinalized: snapshot.projectionFinalized,
           schemaValidated: snapshot.schemaValidated,
+          authorizationRevalidated: hasCurrentLocationAuthorization(entry),
         });
         const confirmed = entry.clientState;
         if (confirmed.ready && confirmed.unsyncedChanges === 0
@@ -611,6 +751,10 @@ function createEntry(
       const denyAccess = (message: string) => {
         if (!guestInvitationId) invalidateOpenedLiveDocument(workspaceId,
           { path: entry.path, documentId: entry.session?.documentId }, entry.authScope);
+        else {
+          const key = guestAuthorizationKey(workspaceId, guestInvitationId);
+          guestAuthorizationRevisions.set(key, (guestAuthorizationRevisions.get(key) ?? 0) + 1);
+        }
         if (entry.session) entry.session = { ...entry.session, permission: 'read' };
         entry.provider?.disconnect();
         transition(entry, { type: 'authentication_failed', message });
@@ -892,6 +1036,7 @@ function createEntry(
 
 function snapshot(entry: RegistryEntry): CollaborationDocument {
   if (!entry.doc) throw new Error('Collaboration document is not initialized.');
+  const requestScope = entry.requests;
   return {
     registryKey: entry.key,
     doc: entry.doc,
@@ -905,6 +1050,19 @@ function snapshot(entry: RegistryEntry): CollaborationDocument {
     error: entry.clientState.error,
     setComposition: entry.setComposition,
     requestCheckpoint: entry.requestCheckpoint,
+    getMigrationCheckpoint: () => {
+      assertRequestActive(entry, requestScope);
+      const proof = collaborationStateProof(entry.doc, Y);
+      const state = entry.clientState;
+      if (!entry.session || !state.ready || state.unsyncedChanges !== 0 || state.durability !== 'checkpointed_file'
+        || state.documentSequence === null || state.documentSequence !== state.checkpointSequence
+        || !proof || proof !== state.checkpointStateProof) throw new Error('The exact document checkpoint is not finalized.');
+      return { expectedDocumentId: entry.session.documentId, expectedLifecycleGeneration: entry.session.lifecycleGeneration,
+        documentSequence: state.documentSequence, stateProof: proof };
+    },
+    requestLocationRevalidation: () => revalidateEntryLocation(entry, requestScope),
+    canRevalidateLocation: canRevalidateEntryLocation(entry),
+    revalidatingLocation: Boolean(entry.locationRevalidationPromise),
   };
 }
 

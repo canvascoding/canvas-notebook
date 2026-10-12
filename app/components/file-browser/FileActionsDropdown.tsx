@@ -48,7 +48,7 @@ import { useFileStore } from '@/app/store/file-store';
 import { copyWorkspacePaths, previewWorkspaceCopy, previewWorkspaceRename, workspaceHeaders, type WorkspaceFileOperationDryRun } from '@/app/lib/files/client';
 import type { WorkspacePlannerIssue } from '@/app/lib/markdown/workspace-file-operation-planner';
 import type { FileNode } from '@/app/lib/files/types';
-import { getParentDirectory, joinWorkspacePath } from '@/app/lib/files/path-utils';
+import { getParentDirectory, isSameOrDescendantPath, joinWorkspacePath } from '@/app/lib/files/path-utils';
 import { isWorkspaceImageFileName, shareWorkspaceImageFile } from '@/app/lib/files/workspace-image-share';
 import {
   compactWorkspaceSelection,
@@ -60,7 +60,7 @@ import {
 } from '@/app/lib/files/operation-flows';
 import { CreateItemDialog } from './CreateItemDialog';
 import { DeleteConfirmDialog } from './DeleteConfirmDialog';
-import { DirectoryBrowser } from './DirectoryBrowser';
+import { DirectoryDestinationPicker } from './DirectoryDestinationPicker';
 import { PublicShareDialog } from './PublicShareDialog';
 import { MarpExportDialog } from './MarpExportDialog';
 import { useCreateItemDialog } from './useCreateItemDialog';
@@ -70,6 +70,9 @@ import { useShallow } from 'zustand/react/shallow';
 import { useTrashUndo } from './useTrashUndo';
 import { FileInfoDialog } from './FileInfoDialog';
 import { FileVersionMenuItem, type FileVersionMenuSource } from './FileVersionMenuItem';
+import { WorkspacePathOperationClientError } from '@/app/lib/files/workspace-path-operation-client';
+import type { WorkspacePathOperationPublic } from '@/app/lib/files/workspace-path-operation-public';
+import { workspacePathOperationIssueKeys } from '@/app/lib/files/workspace-path-operation-issue-messages';
 
 type DropdownMenuContentProps = ComponentProps<typeof DropdownMenuContent>;
 
@@ -167,19 +170,27 @@ export function FileActionsDropdown({
   const t = useTranslations('notebook');
   const linkWarningDescription = (status: 'partial' | 'incomplete') => t(status === 'partial'
     ? 'fileOperationLinksPartial' : 'fileOperationLinksUnverified');
-  const fileOperationErrorMessage = (error: unknown, fallbackKey: 'renameFailed' | 'copyToWorkspaceFailed') => {
-    const code = error && typeof error === 'object' && 'code' in error ? error.code : null;
+  const tStatus = useTranslations('workspacePathOperationStatus');
+  const fileOperationErrorMessage = (error: unknown, fallbackKey: 'renameFailed' | 'copyToWorkspaceFailed' | 'moveFailed') => {
+    const code = error && typeof error === 'object' && 'code' in error ? error.code
+      : error instanceof WorkspacePathOperationClientError ? error.operation.errorCode : null;
     if (code === 'PREVIEW_STALE') return t('fileOperationPreviewStale');
     if (code === 'PREVIEW_BLOCKED') return t('fileOperationPreviewBlockedApply');
     return error instanceof Error ? error.message : t(fallbackKey);
   };
   const locale = useLocale();
   const [moveOpen, setMoveOpen] = useState(false);
+  const [moveContext, setMoveContext] = useState<{ workspaceId: string | null; path: string } | null>(null);
   const [moveTarget, setMoveTarget] = useState('.');
   const [moveName, setMoveName] = useState('');
   const [moveExpandedDirs, setMoveExpandedDirs] = useState(new Set<string>());
   const [moveError, setMoveError] = useState('');
+  const [moveOperation, setMoveOperation] = useState<WorkspacePathOperationPublic | null>(null);
+  const [movePreview, setMovePreview] = useState<WorkspaceFileOperationDryRun | null>(null);
+  const [isPreviewingMove, setIsPreviewingMove] = useState(false);
+  const moveRequestId = useRef(0);
   const [isMoving, setIsMoving] = useState(false);
+  const [creatingMoveDirectory, setCreatingMoveDirectory] = useState(false);
   const [renameOpen, setRenameOpen] = useState(false);
   const [newName, setNewName] = useState('');
   const [renameError, setRenameError] = useState('');
@@ -192,9 +203,14 @@ export function FileActionsDropdown({
   const [marpDetection, setMarpDetection] = useState<{ path: string; isMarp: boolean } | null>(null);
   const [publicShareOpen, setPublicShareOpen] = useState(false);
   const [copyToWorkspaceOpen, setCopyToWorkspaceOpen] = useState(false);
+  const [copyContext, setCopyContext] = useState<{
+    workspaceId: string; paths: string[]; clearSelection: boolean;
+  } | null>(null);
+  const copyRequestId = useRef(0);
   const [copyTargetWorkspaceId, setCopyTargetWorkspaceId] = useState<string | null>(null);
   const [copyTargetDir, setCopyTargetDir] = useState('.');
   const [isCopyingToWorkspace, setIsCopyingToWorkspace] = useState(false);
+  const [creatingCopyDirectory, setCreatingCopyDirectory] = useState(false);
   const [isPreviewingCopy, setIsPreviewingCopy] = useState(false);
   const [copyPreview, setCopyPreview] = useState<WorkspaceFileOperationDryRun | null>(null);
   const copyPreviewRequestId = useRef(0);
@@ -214,6 +230,7 @@ export function FileActionsDropdown({
     clipboardMode,
     setBulkMoveOpen,
     refreshDirectory,
+    revealAndLoadFile,
   } = useFileStore(useShallow((state) => ({
     renamePath: state.renamePath,
     downloadFile: state.downloadFile,
@@ -227,6 +244,7 @@ export function FileActionsDropdown({
     clipboardMode: state.clipboardMode,
     setBulkMoveOpen: state.setBulkMoveOpen,
     refreshDirectory: state.refreshDirectory,
+    revealAndLoadFile: state.revealAndLoadFile,
   })));
   const deleteWithUndo = useTrashUndo();
 
@@ -240,6 +258,19 @@ export function FileActionsDropdown({
 
   const isProtectedOutputFolder = isProtectedDirectoryNode(node);
   const nodePath = node?.path ?? null;
+
+  useEffect(() => {
+    moveRequestId.current += 1;
+    return () => { moveRequestId.current += 1; };
+  }, [activeWorkspace?.id, nodePath]);
+
+  const invalidateMovePreview = () => {
+    moveRequestId.current += 1;
+    setMoveOperation(null);
+    setMovePreview(null);
+    setMoveError('');
+    setIsPreviewingMove(false);
+  };
 
   const isMarkdown = node
     ? node.type === 'file' && /\.(md|mdx|markdown)$/i.test(node.name)
@@ -258,6 +289,24 @@ export function FileActionsDropdown({
     if (showMultiSelectOptions) return compactWorkspaceSelection(multiSelectPaths);
     return node ? compactWorkspaceSelection([node.path]) : [];
   }, [multiSelectPaths, node, showMultiSelectOptions]);
+  const copySourceKey = JSON.stringify(selectedCopyPaths);
+
+  useEffect(() => {
+    copyRequestId.current += 1;
+    copyPreviewRequestId.current += 1;
+    // A source switch must retire the dialog so returning to that workspace cannot revive it.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setCopyToWorkspaceOpen(false);
+    setCopyContext(null);
+    setCopyPreview(null);
+    setIsPreviewingCopy(false);
+    setIsCopyingToWorkspace(false);
+    setCreatingCopyDirectory(false);
+    return () => {
+      copyRequestId.current += 1;
+      copyPreviewRequestId.current += 1;
+    };
+  }, [activeWorkspace?.id, nodePath, copySourceKey]);
 
   useEffect(() => {
     if (!nodePath || !isMarkdown || hasMarpName) {
@@ -408,8 +457,9 @@ export function FileActionsDropdown({
 
     if (node) setMoveName(node.name);
     if (node) setMoveTarget(getParentDirectory(node.path));
+    if (node) setMoveContext({ workspaceId: activeWorkspace?.id ?? null, path: node.path });
     setMoveExpandedDirs(new Set());
-    setMoveError('');
+    invalidateMovePreview();
     setIsMoving(false);
     setMoveOpen(true);
     closeMenu();
@@ -493,7 +543,7 @@ export function FileActionsDropdown({
   };
 
   const handleCopyToWorkspace = () => {
-    if (selectedCopyPaths.length === 0) return;
+    if (selectedCopyPaths.length === 0 || !activeWorkspace?.id) return;
 
     const selectedProtection = splitProtectedWorkspacePaths(selectedCopyPaths);
     if (selectedProtection.hasProtected) {
@@ -501,7 +551,9 @@ export function FileActionsDropdown({
       return;
     }
 
-    setCopyTargetWorkspaceId(activeWorkspace?.id ?? null);
+    copyRequestId.current += 1;
+    setCopyContext({ workspaceId: activeWorkspace.id, paths: [...selectedCopyPaths], clearSelection: showMultiSelectOptions });
+    setCopyTargetWorkspaceId(activeWorkspace.id);
     setCopyTargetDir('.');
     copyPreviewRequestId.current += 1;
     setCopyPreview(null);
@@ -510,25 +562,32 @@ export function FileActionsDropdown({
   };
 
   const handleConfirmCopyToWorkspace = async () => {
-    if (selectedCopyPaths.length === 0 || !activeWorkspace?.id || !copyTargetWorkspaceId) return;
+    if (isCopyingToWorkspace || creatingCopyDirectory || !copyContext || !copyTargetWorkspaceId
+      || useWorkspaceStore.getState().activeWorkspaceId !== copyContext.workspaceId) return;
+    const context = copyContext;
+    const requestId = ++copyRequestId.current;
+    const isCurrent = () => requestId === copyRequestId.current
+      && useWorkspaceStore.getState().activeWorkspaceId === context.workspaceId;
     setIsCopyingToWorkspace(true);
 
     try {
       const result = await copyWorkspacePaths({
-        sources: selectedCopyPaths,
+        sources: context.paths,
         destDir: copyTargetDir,
         overwrite: false,
         renameOnCollision: true,
-        sourceWorkspaceId: activeWorkspace.id,
+        sourceWorkspaceId: context.workspaceId,
         targetWorkspaceId: copyTargetWorkspaceId,
         planId: copyPreview?.plan.planId,
       }, t('copyToWorkspaceFailed'));
 
-      if (copyTargetWorkspaceId === activeWorkspace.id) {
-        await refreshDirectory(copyTargetDir, true);
+      if (!isCurrent()) return;
+      if (copyTargetWorkspaceId === context.workspaceId) {
+        await refreshDirectory(copyTargetDir, true, copyTargetWorkspaceId);
       }
 
-      if (showMultiSelectOptions) {
+      if (!isCurrent()) return;
+      if (context.clearSelection) {
         clearMultiSelect();
       }
 
@@ -556,21 +615,22 @@ export function FileActionsDropdown({
       }
       setCopyToWorkspaceOpen(false);
     } catch (error) {
-      toast.error(fileOperationErrorMessage(error, 'copyToWorkspaceFailed'));
+      if (isCurrent()) toast.error(fileOperationErrorMessage(error, 'copyToWorkspaceFailed'));
     } finally {
-      setIsCopyingToWorkspace(false);
+      if (isCurrent()) setIsCopyingToWorkspace(false);
     }
   };
 
   const handlePreviewCopyToWorkspace = async () => {
-    if (selectedCopyPaths.length === 0 || !activeWorkspace?.id || !copyTargetWorkspaceId) return;
+    if (isCopyingToWorkspace || creatingCopyDirectory || !copyContext || !copyTargetWorkspaceId
+      || useWorkspaceStore.getState().activeWorkspaceId !== copyContext.workspaceId) return;
     setIsPreviewingCopy(true);
     setCopyPreview(null);
     const requestId = ++copyPreviewRequestId.current;
-    const sourceWorkspaceId = activeWorkspace.id;
+    const sourceWorkspaceId = copyContext.workspaceId;
     try {
       const preview = await previewWorkspaceCopy({
-        sources: selectedCopyPaths,
+        sources: copyContext.paths,
         destDir: copyTargetDir,
         renameOnCollision: true,
         sourceWorkspaceId,
@@ -658,7 +718,7 @@ export function FileActionsDropdown({
   };
 
   const handleConfirmMove = async () => {
-    if (!node) return;
+    if (!node || isMoving || creatingMoveDirectory) return;
     const trimmedName = moveName.trim();
     if (!trimmedName) {
       setMoveError(t('pleaseEnterName'));
@@ -675,8 +735,14 @@ export function FileActionsDropdown({
     }
     setIsMoving(true);
     setMoveError('');
+    setMoveOperation(null);
+    const workspaceId = activeWorkspace?.id ?? null;
+    const requestId = ++moveRequestId.current;
+    const current = () => requestId === moveRequestId.current
+      && useWorkspaceStore.getState().activeWorkspaceId === workspaceId;
     try {
-      const result = await renamePath(node.path, destination);
+      const result = await renamePath(node.path, destination, false, true, workspaceId, movePreview?.plan.planId);
+      if (!current() || !result) return;
       if (result && result.linkStatus && result.linkStatus !== 'complete') {
         toast.warning(t('fileOperationLinksIncomplete'), {
           description: linkWarningDescription(result.linkStatus),
@@ -685,11 +751,44 @@ export function FileActionsDropdown({
       onAfterMove?.(node.path, destination, node);
       setMoveOpen(false);
     } catch (moveOperationError) {
-      setMoveError(moveOperationError instanceof Error ? moveOperationError.message : t('moveFailed'));
+      if (!current()) return;
+      setMoveError(fileOperationErrorMessage(moveOperationError, 'moveFailed'));
+      if (moveOperationError instanceof WorkspacePathOperationClientError
+        && moveOperationError.operation.workspaceId === workspaceId) setMoveOperation(moveOperationError.operation);
     } finally {
-      setIsMoving(false);
+      if (current()) setIsMoving(false);
     }
   };
+
+  const handlePreviewMove = async () => {
+    if (!node || isMoving || creatingMoveDirectory || !moveName.trim()) return;
+    const workspaceId = activeWorkspace?.id ?? null;
+    const requestId = ++moveRequestId.current;
+    const current = () => requestId === moveRequestId.current
+      && useWorkspaceStore.getState().activeWorkspaceId === workspaceId;
+    setIsPreviewingMove(true);
+    setMovePreview(null);
+    setMoveError('');
+    try {
+      const preview = await previewWorkspaceRename(node.path, resolveMoveDestination(moveTarget, moveName.trim()), workspaceId);
+      if (!current()) return;
+      setMovePreview(preview);
+      setMoveOperation((previous) => previous?.planId === preview.plan.planId ? previous : null);
+    } catch (error) {
+      if (current()) setMoveError(fileOperationErrorMessage(error, 'moveFailed'));
+    } finally { if (current()) setIsPreviewingMove(false); }
+  };
+
+  const openMoveIssueFile = async (path: string) => {
+    if (!moveOperation || useWorkspaceStore.getState().activeWorkspaceId !== moveOperation.workspaceId) return;
+    const requestId = moveRequestId.current;
+    const result = await revealAndLoadFile(path, { workspaceId: moveOperation.workspaceId,
+      isCurrent: () => requestId === moveRequestId.current });
+    if (requestId !== moveRequestId.current) return;
+    if (result.status === 'opened') { setMoveOpen(false); invalidateMovePreview(); }
+    else if (result.status === 'failed') toast.error(t('moveFailed'));
+  };
+  const movePending = Boolean(moveOperation && ['queued', 'applying'].includes(moveOperation.status));
 
   return (
     <>
@@ -905,12 +1004,15 @@ export function FileActionsDropdown({
       </Dialog>
 
       <Dialog
-        open={moveOpen}
+        open={moveOpen && moveContext?.workspaceId === (activeWorkspace?.id ?? null) && moveContext?.path === nodePath}
         onOpenChange={(nextOpen) => {
-          if (!isMoving || nextOpen) setMoveOpen(nextOpen);
+          if ((!isMoving && !creatingMoveDirectory) || nextOpen) {
+            setMoveOpen(nextOpen);
+            if (!nextOpen) invalidateMovePreview();
+          }
         }}
       >
-        <DialogContent className="max-w-xl">
+        <DialogContent className="max-w-xl max-h-[calc(100dvh-3rem)] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{node ? t('moveTitle', { name: node.name }) : ''}</DialogTitle>
             <DialogDescription>{t('moveDescription')}</DialogDescription>
@@ -923,10 +1025,10 @@ export function FileActionsDropdown({
                 value={moveTarget}
                 onChange={(event) => {
                   setMoveTarget(event.target.value);
-                  if (moveError) setMoveError('');
+                  invalidateMovePreview();
                 }}
                 className="mt-1"
-                disabled={isMoving}
+                disabled={isMoving || movePending || creatingMoveDirectory}
               />
             </div>
             <div>
@@ -936,31 +1038,58 @@ export function FileActionsDropdown({
                 value={moveName}
                 onChange={(event) => {
                   setMoveName(event.target.value);
-                  if (moveError) setMoveError('');
+                  invalidateMovePreview();
                 }}
                 className="mt-1"
-                disabled={isMoving}
+                disabled={isMoving || movePending || creatingMoveDirectory}
               />
             </div>
-            <div className={isMoving ? 'pointer-events-none opacity-60' : undefined}>
-              <DirectoryBrowser
+            <div>
+              {moveOpen && <DirectoryDestinationPicker
                 tree={fileTree}
                 selectedPath={moveTarget}
                 onSelect={(path) => {
                   setMoveTarget(path);
-                  if (moveError) setMoveError('');
+                  invalidateMovePreview();
                 }}
                 expandedDirs={moveExpandedDirs}
                 onToggleDir={toggleMoveDir}
-              />
+                disabled={isMoving || movePending}
+                onCreatingDirectoryChange={setCreatingMoveDirectory}
+                isDirectoryDisabled={(path) => node?.type === 'directory' && isSameOrDescendantPath(path, node.path)}
+              />}
             </div>
             {moveError && <p className="text-sm text-destructive" role="alert">{moveError}</p>}
+            {moveOperation && moveOperation.workspaceId === activeWorkspace?.id && moveOperation.issues?.length ?
+              <section aria-label={tStatus('blockers')} data-testid="workspace-move-operation-issues" className="space-y-2 text-sm">
+                <h3 className="font-medium">{tStatus('blockers')}</h3>
+                <ul className="max-h-40 space-y-3 overflow-y-auto">
+                  {moveOperation.issues.map((issue, index) => <li key={`${issue.code}:${issue.path}:${index}`} className="space-y-1 [overflow-wrap:anywhere]">
+                    <p>{tStatus(`issue.${Object.hasOwn(workspacePathOperationIssueKeys, issue.code)
+                      ? workspacePathOperationIssueKeys[issue.code] : 'unknown'}`)}</p>
+                    {issue.path && issue.path !== '.' ? <>
+                      <p className="font-mono text-xs">{issue.path}{issue.line ? `:${issue.line}` : ''}</p>
+                      {/\.(?:md|markdown|mdx)$/iu.test(issue.path) ? <Button variant="outline" size="sm"
+                        onClick={() => void openMoveIssueFile(issue.path)}>{tStatus('openFile')}</Button> : null}
+                    </> : null}
+                    {issue.targetLiteral ? <p className="font-mono text-xs">{issue.targetLiteral}</p> : null}
+                    <p className="text-xs text-muted-foreground">{issue.code}</p>
+                  </li>)}
+                </ul>
+              </section> : null}
+            {movePreview ? <p role="status" data-testid="workspace-move-preview" className="text-sm">
+              {t('fileOperationPreviewReadiness', { readiness: t(movePreview.plan.readiness === 'ready'
+                ? 'fileOperationPreviewReady' : 'fileOperationPreviewBlocked') })}
+            </p> : null}
           </div>
           <DialogFooter className="gap-2">
-            <Button variant="ghost" onClick={() => setMoveOpen(false)} disabled={isMoving}>
+            <Button variant="ghost" onClick={() => { setMoveOpen(false); invalidateMovePreview(); }} disabled={isMoving || creatingMoveDirectory}>
               {t('cancel')}
             </Button>
-            <Button variant="secondary" onClick={() => void handleConfirmMove()} disabled={isMoving}>
+            <Button variant="outline" onClick={() => void handlePreviewMove()} disabled={isMoving || creatingMoveDirectory || isPreviewingMove || movePending || !moveName.trim()}>
+              {isPreviewingMove && <Loader2 className="h-4 w-4 animate-spin" />}{tStatus('recheck')}
+            </Button>
+            <Button variant="secondary" onClick={() => void handleConfirmMove()} disabled={isMoving || creatingMoveDirectory || isPreviewingMove || movePending}>
               {isMoving && <Loader2 className="h-4 w-4 animate-spin" />}
               {t('move')}
             </Button>
@@ -968,8 +1097,10 @@ export function FileActionsDropdown({
         </DialogContent>
       </Dialog>
 
-      <Dialog open={copyToWorkspaceOpen} onOpenChange={setCopyToWorkspaceOpen}>
-        <DialogContent className="max-w-xl overflow-hidden">
+      <Dialog open={copyToWorkspaceOpen} onOpenChange={(open) => {
+        if (open || (!isCopyingToWorkspace && !creatingCopyDirectory)) setCopyToWorkspaceOpen(open);
+      }}>
+        <DialogContent className="max-w-xl max-h-[calc(100dvh-3rem)] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{t('copyToWorkspaceTitle')}</DialogTitle>
             <DialogDescription>{t('copyToWorkspaceDescription', { count: selectedCopyPaths.length })}</DialogDescription>
@@ -979,6 +1110,8 @@ export function FileActionsDropdown({
             selectedDir={copyTargetDir}
             onWorkspaceChange={(workspaceId) => { copyPreviewRequestId.current += 1; setIsPreviewingCopy(false); setCopyTargetWorkspaceId(workspaceId); setCopyPreview(null); }}
             onDirChange={(dir) => { copyPreviewRequestId.current += 1; setIsPreviewingCopy(false); setCopyTargetDir(dir); setCopyPreview(null); }}
+            disabled={isCopyingToWorkspace}
+            onCreatingDirectoryChange={setCreatingCopyDirectory}
           />
           {copyPreview && (
             <div className="max-h-48 overflow-auto rounded-md border p-3 text-xs" role="status">
@@ -1007,18 +1140,18 @@ export function FileActionsDropdown({
             </div>
           )}
           <DialogFooter className="gap-2">
-            <Button variant="ghost" onClick={() => setCopyToWorkspaceOpen(false)}>
+            <Button variant="ghost" onClick={() => setCopyToWorkspaceOpen(false)} disabled={isCopyingToWorkspace || creatingCopyDirectory}>
               {t('cancel')}
             </Button>
             <Button variant="outline" onClick={() => void handlePreviewCopyToWorkspace()}
-              disabled={isCopyingToWorkspace || isPreviewingCopy || !copyTargetWorkspaceId || selectedCopyPaths.length === 0}>
+              disabled={isCopyingToWorkspace || creatingCopyDirectory || isPreviewingCopy || !copyTargetWorkspaceId || selectedCopyPaths.length === 0}>
               {isPreviewingCopy && <Loader2 className="h-4 w-4 animate-spin" />}
               {t('fileOperationPreview')}
             </Button>
             <Button
               variant="secondary"
               onClick={() => void handleConfirmCopyToWorkspace()}
-              disabled={isCopyingToWorkspace || !copyTargetWorkspaceId || selectedCopyPaths.length === 0}
+              disabled={isCopyingToWorkspace || creatingCopyDirectory || !copyTargetWorkspaceId || selectedCopyPaths.length === 0}
             >
               {isCopyingToWorkspace ? <Loader2 className="h-4 w-4 animate-spin" /> : <FolderInput className="h-4 w-4" />}
               {t('copyToWorkspaceConfirm')}

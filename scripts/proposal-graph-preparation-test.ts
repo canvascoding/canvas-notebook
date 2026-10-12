@@ -38,7 +38,7 @@ const sourceRoot = process.env.PROPOSAL_PREPARATION_SOURCE_ROOT || process.cwd()
 const filename = path.resolve(sourceRoot, 'app/lib/collaboration/agent-file-edits.ts');
 const sourcePromise = readFile(filename, 'utf8');
 
-async function harness(live: Y.Doc, representation: State['representation']) {
+async function harness(live: Y.Doc, representation: State['representation'], reviewEnabled = false) {
   let reads = 0; let loads = 0;
   const state = { documentId: 'document', workspaceId: workspace.workspaceId, path: 'notes.md', status: 'active',
     representation, lifecycleGeneration: 2, schemaVersion: 1, documentSequence: 5, checkpointSequence: 3 };
@@ -51,6 +51,9 @@ async function harness(live: Y.Doc, representation: State['representation']) {
     if (name === 'server-only') return {};
     if (name === './server-runtime') return { Y };
     if (name === './agent-operations') return agentOperations;
+    if (name === '@/app/lib/document-review-availability') return {
+      readDocumentReviewAvailability: () => ({ documentReviewEnabled: reviewEnabled, updatedAt: null }),
+    };
     if (name === './persistence') return { loadCollaborationState: async () => { loads++; return state; } };
     if (name === './document-access') return { readCurrentCollaborationDocument: async (input: {
       documentId: string; workspaceId: string; read: (doc: Y.Doc) => unknown;
@@ -186,11 +189,100 @@ test('legacy XML Markdown stays review-only and metadata-changing block edits re
     assert.equal(wrapped.requestedMode, 'review'); assert.equal(wrapped.targets[0].kind, 'rich_markdown_patch');
     assert.deepEqual(Y.encodeStateAsUpdate(doc), before); assert.deepEqual((wrapped as Prepared).sourceUpdate, before);
   } finally { doc.destroy(); }
-  const block = createRichMarkdownYDoc('Body', 'tiptap_blocks'); const b = await harness(block, 'tiptap_blocks');
+  const block = createRichMarkdownYDoc('Body', 'tiptap_blocks'); const b = await harness(block, 'tiptap_blocks', true);
   try {
     assert.throws(() => b.api.prepareCollaborationContentEditInDocument({ ...b.common, state: b.state, doc: block,
       plan: () => ({ edits: [], proposedContent: '---\ntitle: changed\n---\n\nBody', richMode: 'markdown_structure' }) }), /metadata or final line endings/u);
   } finally { block.destroy(); }
+});
+
+test('table status edits normalize column layout and persist the canonical content hash', async () => {
+  for (const richMode of ['exact_text', 'markdown_structure'] as const) {
+    for (const status of ['🗑️ Archiviert', 'Alt']) {
+      const doc = createRichMarkdownYDoc('Before\n\n| Artikel | Status |\n| --- | --- |\n| Target | ✅ Online |\n| Other | Entwurf |\n\nAfter', 'tiptap_blocks');
+      const h = await harness(doc, 'tiptap_blocks'); const before = Y.encodeStateAsUpdate(doc);
+      const unrelated = readAgentBlockStructure(doc).filter((entry) => ['Before', 'After', 'Entwurf'].includes(entry.text));
+      const requested = richMarkdownFromYDoc(doc).replace('✅ Online', status);
+      const proposed = createRichMarkdownYDoc(requested, 'tiptap_blocks');
+      try {
+        const canonical = richMarkdownFromYDoc(proposed);
+        assert.notEqual(requested, canonical, 'fixture must change the serialized table padding');
+        const prepared = h.api.prepareCollaborationContentEditInDocument({ ...h.common, state: h.state, doc,
+          plan: () => ({ edits: [{ oldText: '✅ Online', newText: status }], proposedContent: requested, richMode }) });
+        assert.equal(prepared.proposedContent, canonical); assert.equal(prepared.proposedSha256, hash(canonical));
+        assert.equal(prepared.requestedMode, 'direct_apply'); assert.deepEqual(Y.encodeStateAsUpdate(doc), before);
+        const applied = clone(doc);
+        try {
+          if (prepared.targets[0].kind === 'block_edit') applyAgentBlockEdit(applied, prepared.targets[0].blockEdit!, origin);
+          else assert.equal(agentOperations.applyAgentTextTargets({ doc: applied, targets: prepared.targets, origin }).status, 'applied_to_ydoc');
+          assert.equal(richMarkdownFromYDoc(applied), canonical);
+          for (const block of unrelated) assert.equal(readAgentBlockStructure(applied).find((entry) => entry.id === block.id)?.text, block.text);
+          const restored = clone(applied);
+          try { assert.equal(richMarkdownFromYDoc(restored), canonical); } finally { restored.destroy(); }
+        } finally { applied.destroy(); }
+      } finally { doc.destroy(); proposed.destroy(); }
+    }
+  }
+});
+
+test('exact Markdown row deletion safely recomputes the remaining table width', async () => {
+  const doc = createRichMarkdownYDoc('| Artikel | Status |\n| --- | --- |\n| Target | 🗑️ Archiviert |\n| Keep | Alt |', 'tiptap_blocks');
+  const h = await harness(doc, 'tiptap_blocks'); const content = richMarkdownFromYDoc(doc);
+  const row = content.split('\n').find((line) => line.includes('Target'))!;
+  const edits = [{ oldText: row + '\n', newText: '' }];
+  const raw = applyExactTextEdits(content, edits, 'notes.md'); const expected = createRichMarkdownYDoc(raw, 'tiptap_blocks');
+  try {
+    const prepared = h.api.prepareCollaborationContentEditInDocument({ ...h.common, state: h.state, doc, plan: exactPlan(edits) });
+    assert.equal(prepared.targets[0].kind, 'block_edit'); assert.equal(prepared.proposedContent, richMarkdownFromYDoc(expected));
+    const applied = clone(doc);
+    try {
+      applyAgentBlockEdit(applied, prepared.targets[0].blockEdit!, origin);
+      assert.equal(richMarkdownFromYDoc(applied), prepared.proposedContent);
+      assert.equal(readAgentBlockStructure(applied).filter((entry) => entry.type === 'tableRow').length, 2);
+      assert.ok(!prepared.proposedContent.includes('Target'));
+    } finally { applied.destroy(); }
+  } finally { doc.destroy(); expected.destroy(); }
+});
+
+test('table normalization preserves meaningful code spaces and rejects lossy source changes', async () => {
+  const doc = createRichMarkdownYDoc('| Status | Notiz |\n| --- | --- |\n| ✅ Online | `a  b` |', 'tiptap_blocks');
+  const h = await harness(doc, 'tiptap_blocks');
+  try {
+    const prepared = h.api.prepareCollaborationContentEditInDocument({ ...h.common, state: h.state, doc,
+      plan: exactPlan([{ oldText: '✅ Online', newText: '🗑️ Archiviert' }]) });
+    assert.ok(prepared.proposedContent.includes('`a  b`'));
+    const before = Y.encodeStateAsUpdate(doc);
+    assert.throws(() => h.api.prepareCollaborationContentEditInDocument({ ...h.common, state: h.state, doc,
+      plan: (content) => ({ edits: [], proposedContent: content.replace('✅ Online', '🗑️ Archiviert') + '\n\n<!-- keep this source -->', richMode: 'markdown_structure' }) }),
+    (error: unknown) => error instanceof agentOperations.AgentFileReviewDisabledConflictError);
+    assert.deepEqual(Y.encodeStateAsUpdate(doc), before);
+  } finally { doc.destroy(); }
+});
+
+test('table normalization never drops a surplus cell from an exact replacement', async () => {
+  const doc = createRichMarkdownYDoc('| Artikel | Status |\n| --- | --- |\n| Target | ✅ Online |', 'tiptap_blocks');
+  const h = await harness(doc, 'tiptap_blocks'); const before = Y.encodeStateAsUpdate(doc);
+  try {
+    for (const newText of ['Archiviert | MUST_KEEP', 'Archiviert | \\*', 'Archiviert | \\|']) {
+      assert.throws(() => h.api.prepareCollaborationContentEditInDocument({ ...h.common, state: h.state, doc,
+        plan: (content) => ({ edits: [], proposedContent: content.replace('✅ Online', newText).replace(/ \|$/u, ''), richMode: 'markdown_structure' }) }),
+      (error: unknown) => error instanceof agentOperations.AgentFileReviewDisabledConflictError);
+    }
+    assert.throws(() => h.api.prepareCollaborationContentEditInDocument({ ...h.common, state: h.state, doc,
+      plan: exactPlan([{ oldText: '✅ Online', newText: 'Archiviert | MUST_KEEP' }]) }),
+    (error: unknown) => error instanceof agentOperations.AgentFileReviewDisabledConflictError);
+    assert.deepEqual(Y.encodeStateAsUpdate(doc), before);
+    const prepared = h.api.prepareCollaborationContentEditInDocument({ ...h.common, state: h.state, doc,
+      plan: exactPlan([{ oldText: '✅ Online', newText: 'Archiviert \\| MUST_KEEP' }]) });
+    assert.ok(prepared.proposedContent.includes('MUST\\_KEEP'));
+    const applied = clone(doc);
+    try {
+      applyAgentBlockEdit(applied, prepared.targets[0].blockEdit!, origin);
+      assert.equal(readAgentBlockStructure(applied).find((entry) => entry.type === 'tableCell' && entry.text.includes('Archiviert'))?.text,
+        'Archiviert | MUST_KEEP');
+      assert.equal(richMarkdownFromYDoc(applied), prepared.proposedContent);
+    } finally { applied.destroy(); }
+  } finally { doc.destroy(); }
 });
 
 test('public live text and structure snapshots never expose internal sourceUpdate bytes', async () => {

@@ -54,7 +54,6 @@ const esmOnlyPackageAliases = new Map();
 addEsmOnlyPackageAliases('@earendil-works/pi-ai', esmOnlyPackageAliases);
 addEsmOnlyPackageAliases('@earendil-works/pi-agent-core', esmOnlyPackageAliases);
 addEsmOnlyPackageAliases('@earendil-works/pi-telemetry', esmOnlyPackageAliases);
-addEsmOnlyPackageAliases('@earendil-works/chord', esmOnlyPackageAliases);
 
 function resolveEsmOnlyPackageAlias(request, aliases) {
   const exact = aliases.get(request);
@@ -573,6 +572,17 @@ function scheduleBackgroundMaintenance() {
       .catch((err) => {
         console.warn('[Startup] Memory review worker could not be initialized:', err.message);
       });
+    import('./app/lib/email/classification/runtime.ts')
+      .then((classificationModule) => {
+        resolveImportedServerModule(
+          classificationModule,
+          ['initializeEmailClassificationRuntime'],
+          'Email classification',
+        ).initializeEmailClassificationRuntime();
+      })
+      .catch(() => {
+        console.warn('[Startup] Email classification runtime could not be initialized.');
+      });
   }, 1500);
   timer.unref?.();
   console.log('[Startup] Background maintenance scheduled');
@@ -820,7 +830,9 @@ async function startServer() {
     // entry so the long-lived Node process has exactly one constructor set.
     const collaborationModule = require('./server/collaboration-server.ts');
     const collaborationOwnerTestModule = require('./app/lib/collaboration/room-owner-local-test.ts');
-    const roomOwner = collaborationOwnerTestModule.resolveLocalCollaborationRoomOwnerOptions();
+    const collaborationOwnerModule = require('./app/lib/collaboration/room-owner-options.ts');
+    const roomOwner = collaborationOwnerTestModule.resolveLocalCollaborationRoomOwnerOptions()
+      || collaborationOwnerModule.createCollaborationRoomOwnerOptions();
     collaborationModule.createCollaborationServer(server, roomOwner ? { roomOwner } : {});
     flushCollaborationDocuments = collaborationModule.flushCollaborationDocuments;
     const fileActionWorkerModule = require('./app/lib/files/workspace-operation-batch-worker.ts');

@@ -12,6 +12,7 @@ import { createAssistantMessageEventStream, streamSimple } from '@earendil-works
 
 import { readAppRuntimeCatalog } from '@/app/lib/agent-runtime-policy/catalog-store';
 import { omitUnsupportedTemperature } from '@/app/lib/agent-runtime-policy/request-options';
+import { isPersonalOAuthProvider, readPersonalProviderVerification } from '@/app/lib/agent-runtime-policy/personal-provider-store';
 import {
   resolveProviderInstallationRuntimeAuth,
   type ProviderInstallationRuntimeAuth,
@@ -552,11 +553,19 @@ async function materializeResolution(
       candidate.installationId === providerInstallation.installationId
     ));
     const latestModel = latestProvider?.models.find((candidate) => candidate.id === catalogModel.id);
+    const personallyReady = latestProvider && isPersonalOAuthProvider(latestProvider)
+      && resolution.context.principal.type === 'user'
+      ? (await readPersonalProviderVerification({
+          provider: latestProvider, organizationId: resolution.context.organizationId,
+          userId: resolution.context.principal.credentialSubjectUserId,
+        })).status === 'ready'
+      : latestProvider?.status === 'ready';
     if (
       !latestProvider
       || !latestModel
       || !latestProvider.enabled
-      || latestProvider.status !== 'ready'
+      || latestProvider.status === 'disabled'
+      || !personallyReady
       || !latestModel.enabled
       || !sameExecutableProviderConfig(latestProvider, providerInstallation)
       || !sameExecutableModel(latestModel, catalogModel)

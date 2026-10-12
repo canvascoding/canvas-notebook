@@ -23,6 +23,7 @@ import { compactWorkspaceSelection } from '@/app/lib/files/operation-flows';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 import { AsyncSemaphore } from '@/app/lib/utils/async-semaphore';
 import { withWorkspaceMutationLock } from '@/app/lib/files/workspace-mutation-lock';
+import { withWorkspaceFileLifecycleGuards } from '@/app/lib/files/workspace-file-lifecycle-guard';
 import { assertOfficePublicationAllowed } from '@/app/lib/office/publication-context';
 import { filesystemFileVersion } from './file-version';
 import { isInternalWorkspaceStagingPath } from '@/app/lib/files/internal-staging-path';
@@ -32,6 +33,8 @@ export type { FileNode } from '@/app/lib/files/types';
 export interface WorkspaceFileOperationOptions {
   workspace?: WorkspaceContext;
   includeMetadata?: boolean;
+  /** Fail the listing if any visible child's metadata cannot be inspected. */
+  strictMetadata?: boolean;
   includeSymlinks?: boolean;
   mutationActorUserId?: string;
 }
@@ -204,7 +207,7 @@ export async function listDirectory(
     async (entry) => {
     const node = toNode(entry);
     const entryPath = path.join(fullPath, entry.name);
-    const stats = await safeStat(entryPath);
+    const stats = options?.strictMetadata ? await fs.stat(entryPath) : await safeStat(entryPath);
     if (!stats) return null;
 
     return {
@@ -961,6 +964,10 @@ export async function copyFileBetweenWorkspaces(
     const fullDest = path.join(fullDestDir, destFileName);
     const destRelative = destDir === '.' ? destFileName : `${destDir}/${destFileName}`;
     await assertCopyDestinationIsSafe(fullSource, fullDestDir, fullDest);
+    return withWorkspaceFileLifecycleGuards([
+      { workspaceId: getWorkspace(options.source).workspaceId, paths: [sourcePath === '.' ? '' : sourcePath] },
+      { workspaceId: getWorkspace(options.target).workspaceId, paths: [destRelative] },
+    ], async () => {
     await assertWorkspaceOfficePathMutationAllowed([destRelative], options.target);
     const officeSources = destRelative.toLowerCase().endsWith('.docx') && (await fs.stat(fullSource)).isFile()
       ? [sourcePath]
@@ -1006,12 +1013,15 @@ export async function copyFileBetweenWorkspaces(
       } else {
         if (destExists) await fs.rm(fullDest, { recursive: true, force: true });
         await fs.cp(fullSource, fullDest, {recursive: true});
+        const { initializeCopiedFileCollaborationPaths } = await import('@/app/lib/files/collaboration-policy');
+        await initializeCopiedFileCollaborationPaths({ workspace: getWorkspace(options.target), paths: [destRelative] });
       }
-      return {copied: destRelative, skipped: false, collaborationInitialized: includesOffice, backup};
+      return {copied: destRelative, skipped: false, collaborationInitialized: true, backup};
     } catch (error) {
       if (backup && error && typeof error === 'object') Object.assign(error, { backup });
       throw error;
     }
+    });
   });
 }
 

@@ -18,6 +18,7 @@ async function main() {
   let shuffledDates = false;
   let manyAllowed = false;
   let fetchCalls = 0;
+  const fetches: Array<{ uids: number[]; query: Record<string, unknown> }> = [];
   setImapClientFactoryForTests(() => {
     let folder = 'INBOX';
     return {
@@ -28,8 +29,9 @@ async function main() {
         searches.push({ folder, query });
         return manyAllowed ? Array.from({ length: 120 }, (_, i) => i + 1) : large ? Array.from({ length: 1200 }, (_, i) => i + 1) : folder === 'INBOX' ? [1, 2, 3] : [4, 5];
       },
-      fetch: async function* (uids: number[]) {
+      fetch: async function* (uids: number[], query: Record<string, unknown>) {
         fetchCalls++;
+        fetches.push({ uids: [...uids], query });
         for (const uid of uids) yield {
           uid, flags: new Set(), source: Buffer.from('Subject: Example\r\n\r\nneedle'),
           envelope: {
@@ -44,6 +46,7 @@ async function main() {
   try {
     const page = await listImapEmailMessages(account, { query: 'to:recipient AND body:needle', limit: 1 });
     assert.deepEqual(page.messages.map((message) => message.uid), ['2']);
+    assert.ok(fetches[0].query.source && fetches[0].query.bodyStructure, 'normal message search still fetches source and MIME metadata');
     assert.equal(page.hasMore, true); assert.equal(page.nextOffset, 1);
     const second = await listImapEmailMessages(account, { query: 'to:recipient AND body:needle', limit: 1, offset: 1 });
     assert.deepEqual(second.messages.map((message) => message.uid), ['1']); assert.equal(second.hasMore, false);
@@ -65,7 +68,43 @@ async function main() {
     large = true;
     const bounded = await listImapEmailMessages(account, { query: 'needle', limit: 2 });
     assert.equal(bounded.messages.length, 0); assert.equal(bounded.total, null); assert.match(bounded.searchNotice || '', /1000 candidates/);
-    console.log('IMAP search: compiled fields, policy-aware pages, all-folder merge/references and explicit scan limit passed.');
+
+    fetches.length = 0;
+    const discoveryBounded = await listImapEmailMessages(account, { query: 'to:recipient', limit: 2 }, { recipientDiscovery: true });
+    assert.equal(discoveryBounded.messages.length, 0, 'read policy is applied before returning recipient metadata');
+    assert.equal(discoveryBounded.total, null); assert.match(discoveryBounded.searchNotice || '', /100 candidates/u);
+    assert.equal(fetches.reduce((sum, fetch) => sum + fetch.uids.length, 0), 100, 'initial recipient scan is capped at 100 candidates');
+    assert.ok(fetches.every(fetch => !Object.hasOwn(fetch.query, 'source') && !Object.hasOwn(fetch.query, 'bodyStructure')));
+
+    fetches.length = 0; searches.length = 0;
+    const allDiscoveryBounded = await listImapEmailMessages(account, { folder: 'all', query: 'to:recipient', limit: 2 }, { recipientDiscovery: true });
+    assert.equal(allDiscoveryBounded.messages.length, 0); assert.equal(allDiscoveryBounded.total, null);
+    assert.match(allDiscoveryBounded.searchNotice || '', /100-candidate limit/u);
+    assert.equal(fetches.reduce((sum, fetch) => sum + fetch.uids.length, 0), 100, 'all-folder discovery shares one initial scan budget');
+    assert.deepEqual(searches.map(search => search.folder), ['INBOX'], 'the response states incomplete coverage rather than scanning every folder eagerly');
+
+    large = false; manyAllowed = true; fetches.length = 0;
+    const discovery = await listImapEmailMessages(account, { query: 'from:allowed OR to:recipient OR cc:copy', limit: 2 }, { recipientDiscovery: true });
+    assert.deepEqual(discovery.messages.map(message => message.uid), ['120', '119']);
+    assert.equal(discovery.messages[0].snippet, '', 'recipient metadata omits source-derived snippets');
+    assert.deepEqual(discovery.messages[0].to, ['recipient@example.test']);
+    assert.equal(discovery.hasMore, true); assert.equal(discovery.nextOffset, 2);
+    assert.ok(fetches.every(fetch => !Object.hasOwn(fetch.query, 'source') && !Object.hasOwn(fetch.query, 'bodyStructure')));
+
+    fetches.length = 0;
+    const discoveryLater = await listImapEmailMessages(account, { query: 'to:recipient', limit: 5, offset: 110 }, { recipientDiscovery: true });
+    assert.deepEqual(discoveryLater.messages.map(message => message.uid), ['10', '9', '8', '7', '6']);
+    assert.equal(discoveryLater.hasMore, true); assert.equal(discoveryLater.nextOffset, 115);
+    assert.equal(fetches.reduce((sum, fetch) => sum + fetch.uids.length, 0), 116, 'explicit pagination expands only the requested metadata scan window');
+
+    const beforeInvalidSearches = searches.length;
+    const beforeInvalidFetches = fetches.length;
+    for (const query of ['body:needle', 'needle', 'to:recipient OR body:needle', 'subject:recipient', 'bcc:recipient', '']) {
+      await assert.rejects(listImapEmailMessages(account, { query }, { recipientDiscovery: true }), /address-header search/u);
+    }
+    assert.equal(searches.length, beforeInvalidSearches);
+    assert.equal(fetches.length, beforeInvalidFetches, 'invalid recipient queries never open a provider search or body fetch');
+    console.log('IMAP search: normal source/MIME search, metadata-only recipient lookup, policy, all-folder scan budgets, explicit paging and query guards passed.');
   } finally { setImapClientFactoryForTests(null); internals._load = originalLoad; }
 }
 main().catch((error) => { console.error(error); process.exitCode = 1; });

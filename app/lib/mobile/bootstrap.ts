@@ -1,8 +1,10 @@
+import { richMigrationRuntimeAvailable } from '@/app/lib/collaboration/representation-migration-runtime';
 import 'server-only';
 
 import { MOBILE_INBOX_FILE_CHANGES_CAPABILITY } from './inbox-capabilities';
 import { MOBILE_EMAIL_REVIEW_CAPABILITY } from './email-capabilities';
 import { MOBILE_PLUGIN_GATEWAY_CAPABILITIES } from './plugin-gateway-capabilities';
+import { MOBILE_DICTATION_CAPABILITY } from './dictation-capabilities';
 
 import type { MobileCompatibility } from './compatibility';
 import type { MobileUserProfile } from './user-profile';
@@ -120,6 +122,7 @@ export function createMobileBootstrap(input: {
     'chat.runtime_control',
     'chat.compaction',
     'chat.runtime_selection',
+    MOBILE_DICTATION_CAPABILITY,
     'browser.live_view',
     'agents.manage',
     'push.devices',
@@ -187,6 +190,7 @@ export function createMobileBootstrap(input: {
     'integrations.mcp_mobile.v1',
     ...MOBILE_PLUGIN_GATEWAY_CAPABILITIES,
   ];
+  if (richMigrationRuntimeAvailable()) capabilities.push('notebook.collaboration.rich_migration.v1', 'notebook.collaboration.checkpoint.v1');
   if (normalizeRole(input.user.role) !== 'external') capabilities.push('workspace.create.personal');
   if (input.listing.canCreateSharedWorkspaces) {
     capabilities.push('workspace.create', 'workspace.create.team');

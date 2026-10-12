@@ -27,6 +27,7 @@ async function main() {
   const { createRichMarkdownYDoc, convertRichMarkdownYDoc } = await import('../app/lib/collaboration/markdown-state');
   const legacy = createRichMarkdownYDoc('Shared draft');
   const doc = convertRichMarkdownYDoc(legacy, 'tiptap_blocks'); legacy.destroy();
+  const plainDoc = new Y.Doc(); plainDoc.getText('content').insert(0, '<div>Shared source</div>\n');
   const session: CollaborationSessionResponse = {
     success: true, documentId: 'guest-doc', documentName: 'guest-doc', provider: 'yjs', representation: 'tiptap_blocks',
     lifecycleGeneration: 1, schemaVersion: 1, richTextSchemaVersion: 3, blockTreeFormatVersion: 1, permission: 'write',
@@ -64,6 +65,9 @@ async function main() {
       RichMarkdownEditor: ({ readOnly }: { readOnly: boolean }) => <div data-testid="native-editor" data-readonly={String(readOnly)} />,
       useMobileKeyboardActive: () => false, useVisualViewportBottomOffset() {},
     };
+    if (request === '@uiw/react-codemirror') return { __esModule: true,
+      default: ({ value, editable }: { value: string; editable: boolean }) =>
+        <div data-testid="source-editor" data-editable={String(editable)}>{value}</div> };
     if (request === '@/app/store/workspace-store') return { useWorkspaceStore: Object.assign(
       (selector: (value: typeof workspace) => unknown) => selector(workspace), { getState: () => workspace }) };
     if (request === '@/app/store/file-store') return { useFileStore: Object.assign(
@@ -107,6 +111,7 @@ async function main() {
     assert.equal(shell.children.length, 3, 'only fixed mode bar, document and access footer occupy layout');
     assert(button(labels.guestDownloadCopy)?.closest('.markdown-mode-bar'));
     assert.equal(native()?.getAttribute('data-readonly'), 'false');
+    assert.equal(button(labels.source), undefined, 'rich guest collaboration never offers an unwritable Source view');
     for (const durability of ['local_pending', 'server_received', 'persisted_yjs', 'checkpoint_pending', 'checkpointed_file'] as const) {
       await update({ durability }, { durability });
       assert.equal(panel(), null, durability);
@@ -127,8 +132,9 @@ async function main() {
     assert(native(), 'native Yjs editor survives a failed Markdown projection');
     assert.equal(panel(), null, 'healthy native document does not become an error');
     assert.equal(button(labels.guestDownloadCopy)?.disabled, true);
-    await act(async () => button(labels.source)!.click());
-    assert(text().includes(labels.sourceUnavailable)); assert.equal(native(), null);
+    assert.equal(button(labels.source), undefined, 'failed projection does not introduce a Source mode');
+    await act(async () => button(labels.read)!.click());
+    assert(native(), 'Read retains the native document when Markdown projection fails');
     await act(async () => button(labels.rich)!.click()); assert(native());
 
     await update({ connection: 'denied', durability: 'degraded', error: 'Secret transport detail' }, {
@@ -154,15 +160,42 @@ async function main() {
     await render('read');
     assert.equal(panel(), null); assert.equal(native()?.getAttribute('data-readonly'), 'true');
     assert.equal(button(labels.rich)?.disabled, true); assert.equal(button(labels.guestDownloadCopy)?.disabled, false);
+    assert.equal(button(labels.source), undefined, 'read permission does not expose derived Rich source');
     assert.equal(checkpoints, 0);
-    console.log('Guest shell: silent sync/projection states, stable exception overlay, scoped rights, native editing without Markdown and exact Yjs backup passed.');
+
+    session.permission = 'write'; session.representation = 'plain_text';
+    current = { ...current, doc: plainDoc, connection: 'live', ready: true,
+      clientState: { ...current.clientState, connection: 'live', ready: true } };
+    await render();
+    assert(button(labels.source), 'source-backed guest documents retain Source');
+    await act(async () => button(labels.source)!.click());
+    assert.equal(document.querySelector('[data-testid="source-editor"]')?.textContent, '<div>Shared source</div>\n');
+    assert.equal(document.querySelector('[data-testid="source-editor"]')?.getAttribute('data-editable'), 'true');
+    await update({ connection: 'offline' }, { connection: 'offline' });
+    assert(button(labels.source));
+    assert.equal(document.querySelector('[data-testid="source-editor"]')?.getAttribute('data-editable'), 'true');
+
+    session.representation = 'tiptap_blocks';
+    await update({ doc, connection: 'live' }, { connection: 'live' });
+    assert.equal(button(labels.source), undefined);
+    assert.equal(document.querySelector('section')?.getAttribute('data-editor-mode'), 'read', 'a stale Source selection falls back to Read');
+    assert.equal(native()?.getAttribute('data-readonly'), 'true');
+    session.representation = 'plain_text'; session.permission = 'read';
+    await update({ doc: plainDoc });
+    assert.equal(button(labels.read)?.getAttribute('aria-pressed'), 'true', 'the discarded Source selection does not return with another representation');
+    await act(async () => button(labels.source)!.click());
+    assert.equal(document.querySelector('[data-testid="source-editor"]')?.getAttribute('data-editable'), 'false');
+    await update({ ready: false }, { ready: false });
+    assert(button(labels.source), 'loading does not change source support');
+    assert.equal(document.querySelector('[data-testid="source-editor"]'), null, 'loading never mounts a source writer');
+    console.log('Guest shell: source capabilities/fallback, rights, silent sync, native projection fallback and exact Yjs backup passed.');
   } finally {
     await act(async () => root.unmount());
     await new Promise((resolve) => setTimeout(resolve, 1_050));
     internals._load = originalLoad; globalThis.fetch = originalFetch;
     URL.createObjectURL = originalCreate; URL.revokeObjectURL = originalRevoke;
     dom.window.HTMLAnchorElement.prototype.click = originalClick;
-    doc.destroy(); dom.window.close();
+    doc.destroy(); plainDoc.destroy(); dom.window.close();
   }
 }
 void main().catch((error) => { console.error(error); process.exitCode = 1; });

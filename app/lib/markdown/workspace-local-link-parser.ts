@@ -4,6 +4,7 @@ import type { Nodes } from 'mdast';
 import { createObsidianSyntaxMask, parseObsidianWikiLinks } from './obsidian-flavored-markdown';
 import { getCanvasNotebookMarkdownLinkTarget } from './obsidian-link-resolver';
 import { parseCanvasMarkdownDocument } from './obsidian-metadata';
+import { evaluateWorkspaceHtmlLinks } from './workspace-html-link-safety';
 import type { WorkspaceLinkSyntaxV1, WorkspaceLinkResolveStatusV1 } from './workspace-link-contract-v1';
 
 export type ParsedWorkspaceLocalLink = {
@@ -28,6 +29,8 @@ export type WorkspaceLinkUnevaluated = {
   raw: string;
   reason: 'html' | 'unsupported-scheme' | 'query' | 'unparsed-target';
   start: number;
+  /** Fully inspected HTML file paths, entity/percent decoded once and without fragments. */
+  htmlTargets?: string[];
 };
 
 export type WorkspaceExactResolution = {
@@ -159,7 +162,8 @@ export function parseWorkspaceLocalLinks(markdown: string, sourcePath: string): 
   const unevaluated: WorkspaceLinkUnevaluated[] = [];
   const document = parseCanvasMarkdownDocument(markdown);
   const visibleMarkdown = document.frontmatter
-    ? document.frontmatterPrefix.replace(/[^\r\n]/gu, ' ') + document.body
+    // AST offsets and source splices use UTF-16 units, including surrogate pairs.
+    ? document.frontmatterPrefix.replace(/[^\r\n]/g, ' ') + document.body
     : markdown;
   const mask = createObsidianSyntaxMask(visibleMarkdown);
   const definitions = new Map<string, { node: Nodes; uses: Array<'link' | 'image'> }>();
@@ -219,8 +223,11 @@ export function parseWorkspaceLocalLinks(markdown: string, sourcePath: string): 
       ['html', 'link', 'image', 'linkReference', 'imageReference', 'text'].includes(node.type)
       && mask.slice(start, start + 1) !== markdown.slice(start, start + 1)
     ) return;
-    if (node.type === 'html' && /\b(?:href|src)\s*=/iu.test(markdown.slice(start, end))) {
-      unevaluated.push({ sourcePath, raw: markdown.slice(start, end), reason: 'html', start });
+    if (node.type === 'html') {
+      const raw = markdown.slice(start, end);
+      const evaluation = evaluateWorkspaceHtmlLinks(raw);
+      if (evaluation.unevaluated) unevaluated.push({ sourcePath, raw, reason: 'html', start,
+        ...(evaluation.explicitLocalTargets ? { htmlTargets: evaluation.explicitLocalTargets } : {}) });
       return;
     }
     if (node.type === 'link' || node.type === 'image') {

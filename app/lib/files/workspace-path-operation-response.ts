@@ -4,13 +4,15 @@ import { listWorkspaceTrashEntries } from '@/app/lib/filesystem/workspace-trash'
 import { getWorkspaceOperationBatchExecution, getWorkspaceOperationBatchExecutionPublic } from './workspace-operation-batch-executor';
 import { WorkspaceOperationBatchError, type WorkspaceOperationBatchRecord } from './workspace-operation-batch-store';
 import type { WorkspaceOperationBatchScope } from './workspace-operation-batch-contract';
-import type { WorkspacePathOperationPublic, WorkspacePathOperationResponse } from './workspace-path-operation-public';
+import { workspacePathOperationPublicIssues, type WorkspacePathOperationPublic, type WorkspacePathOperationResponse } from './workspace-path-operation-public';
 
 export function workspacePathOperationMetadata(batch: WorkspaceOperationBatchRecord): WorkspacePathOperationPublic {
   const action = batch.plan.actions.at(-1)!;
+  const issues = workspacePathOperationPublicIssues(batch.plan);
   return { batchId: batch.batchId, planId: batch.planId, workspaceId: batch.workspaceId, status: batch.status,
     completedActions: batch.completedActions, totalActions: batch.totalActions, phase: batch.phase,
-    errorCode: batch.errorCode, kind: action.kind, selections: action.selections };
+    errorCode: batch.errorCode, kind: action.kind, selections: action.selections,
+    ...(issues.length ? { issues } : {}) };
 }
 
 /** A success response is a projection of completed receipts, never an optimistic filesystem guess. */

@@ -1,6 +1,7 @@
 import 'server-only';
 
 import type { EmailAttachmentInput } from '@/app/lib/email/attachment-types';
+import { emailReplyRecipients, parseEmailAddresses } from '@/app/lib/email/addresses';
 import { escapeEmailHtml, htmlToPlainText, plainTextToEmailHtml } from '@/app/lib/email/html-conversion';
 
 export type EmailDerivedDraftMode = 'forward' | 'reply' | 'reply-all';
@@ -57,31 +58,11 @@ function forwardSubject(subject: string): string {
 }
 
 function extractEmailAddress(value: unknown): string {
-  if (!value) return '';
-  if (typeof value === 'string') {
-    const match = value.match(/<([^<>@\s]+@[^<>@\s]+)>/u) || value.match(/([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})/iu);
-    return (match?.[1] || '').trim().toLowerCase();
-  }
-  if (typeof value === 'object') {
-    const record = value as {
-      address?: unknown;
-      email?: unknown;
-      emailAddress?: { address?: unknown };
-    };
-    return extractEmailAddress(record.emailAddress?.address || record.address || record.email);
-  }
-  return '';
+  return parseEmailAddresses(value)[0]?.address || '';
 }
 
 function extractEmailAddresses(value: unknown): string[] {
-  if (!value) return [];
-  if (Array.isArray(value)) {
-    return value.flatMap(extractEmailAddresses);
-  }
-  if (typeof value === 'string') {
-    return value.split(',').map(extractEmailAddress).filter(Boolean);
-  }
-  return [extractEmailAddress(value)].filter(Boolean);
+  return parseEmailAddresses(value).map(item => item.address);
 }
 
 function uniqueAddresses(values: string[], ownAddresses: Set<string>): string[] {
@@ -153,13 +134,9 @@ function forwardedBodyHtml(message: Record<string, unknown>): string {
 export function buildEmailDerivedDraft(input: BuildEmailDerivedDraftInput): EmailDraftInput {
   const subject = subjectFromMessage(input.message);
   const isForward = input.mode === 'forward';
-  const from = extractEmailAddress(input.message.from);
-  const originalTo = extractEmailAddresses(input.message.to);
-  const originalCc = extractEmailAddresses(input.message.cc);
-  const defaultTo = isForward
-    ? []
-    : uniqueAddresses([from, ...(input.mode === 'reply-all' ? originalTo : [])], input.ownAddresses);
-  const defaultCc = input.mode === 'reply-all' ? uniqueAddresses(originalCc, input.ownAddresses) : [];
+  const defaults = emailReplyRecipients(input.message, input.mode, input.ownAddresses);
+  const defaultTo = defaults.to;
+  const defaultCc = uniqueAddresses(defaults.cc, new Set(defaultTo));
   const to = overrideAddresses(input.to) ?? defaultTo;
   const cc = overrideAddresses(input.cc) ?? defaultCc;
   const intro = input.bodyOverride?.trim() || '';

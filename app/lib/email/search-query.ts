@@ -8,6 +8,13 @@ export type EmailSearchExpression =
   | { type: 'and'; left: EmailSearchExpression; right: EmailSearchExpression }
   | { type: 'or'; left: EmailSearchExpression; right: EmailSearchExpression };
 
+/** Internal recipient lookup may fetch headers only; never apply that shortcut to body searches. */
+export function isEmailAddressHeaderSearch(expression: EmailSearchExpression | null): boolean {
+  if (!expression) return false;
+  if (expression.type === 'term') return expression.field === 'from' || expression.field === 'to' || expression.field === 'cc';
+  return isEmailAddressHeaderSearch(expression.left) && isEmailAddressHeaderSearch(expression.right);
+}
+
 export class EmailSearchQueryError extends Error {
   readonly code = 'INVALID_EMAIL_SEARCH_QUERY';
   constructor(message: string) {

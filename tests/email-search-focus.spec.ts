@@ -11,6 +11,11 @@ async function installSearchFixture(context: BrowserContext) {
     const request = route.request();
     const path = new URL(request.url()).pathname;
     if (path.startsWith('/api/user-hints')) return route.fulfill({ json: { page: 'emails', version: 1, completed: true, currentHintKey: null, hints: [] } });
+    // These cases exercise the legacy provider search and distraction-free
+    // layout. Keep that fixture independent of the external server's AI setup.
+    if (path === '/api/email/classification/availability' || path === '/api/email/classification/mailboxes') {
+      return route.fulfill({ status: 404, json: { success: false, code: 'CLASSIFICATION_UNAVAILABLE' } });
+    }
     if ((path === '/api/email/accounts' || path === '/api/email/mailboxes')) return route.fulfill({ json: { success: true, data: { mode: 'local', accounts: [account] } } });
     if (path === '/api/email/folders') return route.fulfill({ json: { success: true, data: { folders: [
       { id: 'INBOX', path: 'INBOX', name: 'Inbox', role: 'inbox', messageCount: 2, unseenCount: 0 },

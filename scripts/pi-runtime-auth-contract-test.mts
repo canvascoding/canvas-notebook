@@ -31,6 +31,10 @@ const originalLoad = moduleInternals._load;
 moduleInternals._load = function load(request, parent, isMain) {
   if (request === 'server-only') return {};
   if (request.endsWith('/catalog-store')) return { readAppRuntimeCatalog: async () => ({ revision: 1, providers: [structuredClone(provider)] }) };
+  if (request.endsWith('/personal-provider-store')) return {
+    isPersonalOAuthProvider: () => true,
+    readPersonalProviderVerification: async () => ({ status: 'ready' }),
+  };
   if (request.endsWith('/runtime-store')) return { readWorkspaceModelPolicy: async () => null };
   if (request.endsWith('/runtime-resolver')) return {
     resolveEffectiveAgentRuntime: async () => resolution,

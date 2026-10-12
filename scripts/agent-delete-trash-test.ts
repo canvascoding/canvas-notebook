@@ -46,6 +46,10 @@ async function main() {
   const directScopes = new Map<string, WorkspaceOperationBatchScope>();
   const directCalls: WorkspacePathOperationInput[] = [];
   moduleInternals._load = (request, parent, isMain) => {
+    if (request === '@/app/lib/files/workspace-file-lifecycle-guard') return {
+      withWorkspaceFileLifecycleGuards: (_scopes: unknown, work: () => Promise<unknown>) => work(),
+      withWorkspaceFileLifecycleGuard: (_scope: unknown, work: () => Promise<unknown>) => work(),
+    };
     if (request === '@/app/lib/db' || /\/app\/lib\/db(?:\/index)?(?:\.ts)?$/u.test(request) || /^(?:\.\.\/)+db$/u.test(request)) return testDatabase;
     if (request === 'server-only') return {};
     if (request === '@/app/lib/document-review-availability') return {

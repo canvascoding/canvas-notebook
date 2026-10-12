@@ -14,9 +14,16 @@ import type * as ManualDelete from '../app/lib/files/workspace-operation-delete-
 import type * as BatchService from '../app/lib/files/workspace-operation-batch-service';
 import { WorkspaceOperationBatchStore } from '../app/lib/files/workspace-operation-batch-store';
 import type { WorkspaceContext } from '../app/lib/workspaces/types';
-import { buildWorkspaceOperationBatchPlan } from '../app/lib/files/workspace-operation-batch-plan';
+import { buildWorkspaceOperationBatchPlan as buildBatchPlan } from '../app/lib/files/workspace-operation-batch-plan';
+import * as fileOperationPreview from '../app/lib/markdown/workspace-file-operation-preview';
 import { createWorkspaceOperationBatchExecutor } from '../app/lib/files/workspace-operation-batch-executor';
 import { groupWorkspaceLinkWrites } from '../app/lib/markdown/workspace-link-write-groups';
+
+const buildWorkspaceOperationBatchPlan = (input: Parameters<typeof buildBatchPlan>[0]) =>
+  buildBatchPlan(input, { buildSnapshot: fileOperationPreview.buildWorkspacePlannerSnapshot });
+const filePreviewModule = { ...fileOperationPreview,
+  buildWorkspaceFileOperationPreview: (input: Parameters<typeof fileOperationPreview.buildWorkspaceFileOperationPreview>[0]) =>
+    fileOperationPreview.buildWorkspaceFileOperationPreview(input, { buildSnapshot: fileOperationPreview.buildWorkspacePlannerSnapshot }) };
 
 async function main(): Promise<void> {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-review-refresh-'));
@@ -51,6 +58,7 @@ async function main(): Promise<void> {
     const service = { exports: {} as typeof Service };
     new Function('require', 'module', 'exports', source)((name: string) => {
       if (name === 'server-only') return {};
+      if (name === '@/app/lib/markdown/workspace-file-operation-preview') return filePreviewModule;
       if (name === '@/app/lib/document-review-availability') return { readDocumentReviewAvailability: () => ({ documentReviewEnabled: true, updatedAt: null }) };
       if (name === '@/app/lib/db') return { openDb: connect };
       if (name === '@/app/lib/files/collaboration-policy') return { ...load(name),
@@ -69,6 +77,7 @@ async function main(): Promise<void> {
     const batchService = { exports: {} as typeof BatchService };
     new Function('require', 'module', 'exports', batchSource)((name: string) => {
       if (name === 'server-only') return {};
+      if (name === './workspace-operation-batch-plan') return { ...batchLoad(name), buildWorkspaceOperationBatchPlan };
       if (name === '@/app/lib/document-review-availability') return { readDocumentReviewAvailability: () => ({ documentReviewEnabled: true, updatedAt: null }) };
       if (name === '@/app/lib/db') return { openDb: connect };
       if (name === './workspace-operation-review-service') return service.exports;
@@ -84,6 +93,7 @@ async function main(): Promise<void> {
     const manual = { exports: {} as typeof ManualDelete };
     new Function('require', 'module', 'exports', manualSource)((name: string) => {
       if (name === 'server-only') return {};
+      if (name === './workspace-operation-batch-plan') return { ...manualLoad(name), buildWorkspaceOperationBatchPlan };
       if (name === '@/app/lib/document-review-availability') return { readDocumentReviewAvailability: () => ({ documentReviewEnabled: true, updatedAt: null }) };
       if (name === '@/app/lib/db') return { openDb: connect };
       return manualLoad(name);
@@ -198,6 +208,8 @@ async function main(): Promise<void> {
     assert.equal(await fs.readFile(path.join(workspace.rootPath, 'index.md'), 'utf8'), '[Target](Archive/Docs/target.md)\n',
       'saving a cleanup review leaves both target and inbound link intact until explicit approval');
     const atomicExecutor = createWorkspaceOperationBatchExecutor({
+      rebuild: buildWorkspaceOperationBatchPlan,
+      snapshot: fileOperationPreview.buildWorkspacePlannerSnapshot,
       documentProof: async (_scope, filePath) => documentStates.get(filePath) ?? null,
       rename: async (params) => {
         await fs.mkdir(path.dirname(path.join(workspace.rootPath, params.newPath)), { recursive: true });

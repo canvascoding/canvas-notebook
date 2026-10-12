@@ -1,3 +1,4 @@
+import type { RichMigrationResult } from './representation-migration-contract';
 import type { ResolvedUserProfile } from '@/app/lib/user-profile/types';
 
 export const COLLABORATION_SCHEMA_VERSION = 1;
@@ -86,6 +87,7 @@ export interface CollaborationSessionResponse {
   representation: CollaborationRepresentation;
   lifecycleGeneration: number;
   schemaVersion: number;
+  migration?: RichMigrationResult;
   richTextSchemaVersion: number;
   blockTreeFormatVersion?: number;
   permission: CollaborationPermission;

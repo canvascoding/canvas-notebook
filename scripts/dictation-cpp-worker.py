@@ -69,13 +69,21 @@ def main():
                 with wave.open(wav) as audio:
                     if audio.getnframes() > 600 * audio.getframerate():
                         raise ValueError('Audio recording exceeds the ten-minute dictation limit.')
-                run([str(native / 'whisper-cli'), '-m', str(model), '-f', wav,
-                     '-l', language, '-t', '4', '-ng', '-nt', '-np', '-otxt', '-of', output], 150)
+                command = [str(native / 'whisper-cli'), '-m', str(model), '-f', wav,
+                           '-l', language, '-t', '4', '-ng', '-nt', '-np', '-otxt', '-of', output]
+                prompt = request.get('prompt')
+                if prompt:
+                    # Supported by the pinned whisper.cpp v1.9.4 CLI.
+                    command.extend(['--prompt', prompt])
+                run(command, 150)
                 text = Path(output + '.txt').read_text().strip()
             print(json.dumps({'id': request['id'], 'text': text}), flush=True)
         except Exception as error:
-            print(json.dumps({'id': request.get('id') if isinstance(request, dict) else None,
-                              'error': str(error)[:400]}), flush=True)
+            response = {'id': request.get('id') if isinstance(request, dict) else None,
+                        'error': str(error)[:400]}
+            if isinstance(error, subprocess.TimeoutExpired):
+                response['code'] = 'TRANSCRIPTION_TIMEOUT'
+            print(json.dumps(response), flush=True)
 
 
 if __name__ == '__main__':

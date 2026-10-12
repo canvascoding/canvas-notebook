@@ -104,6 +104,7 @@ assert.deepEqual(bootstrap.mobileApi.capabilities, [
   'chat.runtime_control',
   'chat.compaction',
   'chat.runtime_selection',
+  'chat.dictation.v1',
   'browser.live_view',
   'agents.manage',
   'push.devices',

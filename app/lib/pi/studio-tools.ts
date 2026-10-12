@@ -20,7 +20,8 @@ import { ensureStudioWorkspaceFilesMigrated } from '@/app/lib/integrations/studi
 import {
   MAX_AUDIO_TRANSCRIPTION_BYTES,
   transcribeAudio,
-} from '@/app/lib/integrations/audio-transcription-service';
+  TranscriptionServiceError,
+} from '@/app/lib/transcription/service';
 import {
   assertAgentPathAllowed,
   audioMimeTypeForPath,
@@ -296,12 +297,12 @@ export function createTranscribeAudioTool(): AgentTool {
     name: 'transcribe_audio',
     label: 'Transcribing audio',
     description:
-      'Transcribes a local audio file to text using the configured voice transcription service. ' +
-      'Use for voice notes, meeting recordings, Telegram audio uploads, and speech-to-text workflows. ' +
+      'Transcribes a local audio file using the same instance service, model, and default language configured in Settings → Dictation. ' +
+      'Use for voice notes, meeting recordings, and speech-to-text workflows. The chat microphone switch does not disable this tool. ' +
       'Accepts absolute paths such as /data/user-uploads/audio/file.ogg or workspace-relative paths.',
     parameters: Type.Object({
       file_path: Type.String({ description: 'Absolute path or workspace-relative path to an audio file.' }),
-      language: Type.Optional(Type.String({ description: 'Optional ISO-639-1 language code such as de or en.' })),
+      language: Type.Optional(Type.String({ description: 'Optional auto or ISO-639-1 language code such as de or en. Defaults to the configured service language.' })),
       prompt: Type.Optional(Type.String({ description: 'Optional context or vocabulary hint for transcription.' })),
     }),
     execute: async (_toolCallId, params, signal) => {
@@ -328,7 +329,6 @@ export function createTranscribeAudioTool(): AgentTool {
         }
 
         const buffer = await fsPromises.readFile(fullPath);
-        const executionContext = getAgentExecutionContext();
         const result = await transcribeAudio({
           buffer,
           filename: path.basename(fullPath),
@@ -336,7 +336,6 @@ export function createTranscribeAudioTool(): AgentTool {
           language: input.language,
           prompt: input.prompt,
           signal,
-          storageScope: executionContext ? { userId: executionContext.userId } : undefined,
         });
 
         const text = [
@@ -360,7 +359,8 @@ export function createTranscribeAudioTool(): AgentTool {
         const message = getErrorMessage(error);
         return {
           content: [{ type: 'text', text: `Error: ${message}` }],
-          details: { error: message },
+          details: { error: message, ...(error instanceof TranscriptionServiceError
+            ? { code: error.code, status: error.status } : {}) },
         };
       }
     },

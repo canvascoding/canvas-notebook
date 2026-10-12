@@ -125,7 +125,7 @@ async function main() {
       '@/app/lib/integrations/studio-bulk-service': service, '@/app/lib/integrations/studio-preset-service': {},
       '@/app/lib/integrations/studio-scope': { createPersistedStudioScope: () => scope },
       '@/app/lib/integrations/studio-workspace-file-migration': { ensureStudioWorkspaceFilesMigrated: async () => {} },
-      '@/app/lib/integrations/audio-transcription-service': {}, '@/app/lib/pi/tool-runtime-helpers': {},
+      '@/app/lib/transcription/service': {}, '@/app/lib/pi/tool-runtime-helpers': {},
       '@/app/lib/pi/agent-execution-context': { getAgentExecutionContext: () => ({
         userId: 'admin', organizationId: 'organization', workspaceId: 'workspace',
       }) },

@@ -88,7 +88,7 @@ assert.equal(project([user('1'), boundOne]).get('a')?.changeApps.length, 1, 'int
 assert.equal(project([user('1'), boundOne, { ...boundOne, id: 'saved' }, answer()]).get('answer')?.changeApps.length, 1);
 assert.equal(project([user('1'), changeReceipt('d', 'foreign.md', { workspaceId: 'foreign' }), answer()]).size, 0);
 const forgedBinding = structuredClone(boundOne);
-(forgedBinding.piMessage as { details: { toolApp: { toolCallId: string } } }).details.toolApp.toolCallId = 'forged';
+(forgedBinding.piMessage as unknown as { details: { toolApp: { toolCallId: string } } }).details.toolApp.toolCallId = 'forged';
 assert.equal(project([user('1'), forgedBinding, answer()]).size, 0);
 const reviewThenApplied = project([user('1'), tool('review', ['docs/one.md'], 'review_required'), boundAgain, answer()]).get('answer')!;
 assert.equal(reviewThenApplied.references[0].kind, 'review_required', 'later writes cannot hide unresolved legacy reviews');

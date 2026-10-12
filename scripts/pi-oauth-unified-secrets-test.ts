@@ -147,11 +147,14 @@ async function main() {
     delete process.env.CANVAS_SECRETS_MASTER_KEY;
     const parallel = { userId: 'parallel' };
     await oauth.saveProviderCredentials(provider, credentials('parallel-codex', 1), parallel);
+    const connectionBeforeRefresh = oauth.getProviderConnectionId(provider, parallel);
     await oauth.saveProviderCredentials('openrouter', credentials('parallel-router', 1), parallel);
     await Promise.all([runChild(provider), runChild('openrouter')]);
+    assert.equal(oauth.getProviderConnectionId(provider, parallel), connectionBeforeRefresh, 'token rotation preserves the tested account connection');
     assert.equal(oauth.getProviderCredentials(provider, parallel)?.access, 'parallel-codex:refreshed');
     assert.equal(oauth.getProviderCredentials('openrouter', parallel)?.access, 'parallel-router:refreshed', 'different-provider refreshes cannot lose each other');
     await oauth.saveProviderCredentials(provider, credentials('same-provider', 1), parallel);
+    assert.notEqual(oauth.getProviderConnectionId(provider, parallel), connectionBeforeRefresh, 'reconnect invalidates the old model check');
     await Promise.all([runChild(provider), runChild(provider)]);
     assert.equal(oauth.getProviderCredentials(provider, parallel)?.access, 'same-provider:refreshed', 'second process sees the first refresh and does not rotate twice');
     assert.equal((await fs.stat(oauth.getAuthFilePath(parallel))).mode & 0o777, 0o600);

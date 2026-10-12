@@ -34,46 +34,42 @@ async function collectFilesRecursive(
   dirPath: string,
   options: WorkspaceFileOperationOptions | undefined,
   semaphore: AsyncSemaphore,
-  isRoot = false,
 ): Promise<FileReferenceEntry[]> {
-  try {
-    const entries = await semaphore.run(() => listDirectory(dirPath, {
-      ...options,
-      includeMetadata: true,
-    }));
-    const files: FileReferenceEntry[] = [];
-    const directories = [];
+  // An unknown subtree or child is not an empty catalogue. Consumers must
+  // receive a failed scan rather than certify incomplete links as complete.
+  const entries = await semaphore.run(() => listDirectory(dirPath, {
+    ...options,
+    includeMetadata: true,
+    strictMetadata: true,
+  }));
+  const files: FileReferenceEntry[] = [];
+  const directories = [];
 
-    for (const entry of entries) {
-      if (entry.type === 'directory') {
-        directories.push(entry.path);
-        continue;
-      }
-
-      const extension = entry.path.split('.').pop()?.toLowerCase();
-      files.push({
-        name: entry.name,
-        path: entry.path,
-        type: 'file',
-        extension,
-        isImage: extension ? IMAGE_EXTENSIONS.has(extension) : false,
-        size: entry.size,
-        created: entry.created,
-        modified: entry.modified,
-      });
+  for (const entry of entries) {
+    if (entry.type === 'directory') {
+      directories.push(entry.path);
+      continue;
     }
 
-    const nestedFiles = await Promise.all(
-      directories.map((path) => collectFilesRecursive(path, options, semaphore)),
-    );
-    for (const entries of nestedFiles) files.push(...entries);
-
-    return files;
-  } catch (error) {
-    if (isRoot) throw error;
-    console.warn(`[FileReferenceCache] Skipping unreadable directory: ${dirPath}`, error);
-    return [];
+    const extension = entry.path.split('.').pop()?.toLowerCase();
+    files.push({
+      name: entry.name,
+      path: entry.path,
+      type: 'file',
+      extension,
+      isImage: extension ? IMAGE_EXTENSIONS.has(extension) : false,
+      size: entry.size,
+      created: entry.created,
+      modified: entry.modified,
+    });
   }
+
+  const nestedFiles = await Promise.all(
+    directories.map((path) => collectFilesRecursive(path, options, semaphore)),
+  );
+  for (const entries of nestedFiles) files.push(...entries);
+
+  return files;
 }
 
 export function invalidateFileReferenceCache(options?: WorkspaceFileOperationOptions): void {
@@ -108,7 +104,6 @@ export async function getCachedFileReferenceEntries(
     '.',
     options,
     new AsyncSemaphore(FILE_REFERENCE_DIRECTORY_CONCURRENCY),
-    true,
   )
     .then((entries) => {
       // Invalidation detaches this promise. Its existing readers may finish, but

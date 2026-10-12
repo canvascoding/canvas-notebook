@@ -17,6 +17,7 @@ interface SpreadsheetEditorProps {
   onChange?: () => void;
   readOnly?: boolean;
   sourceUrl?: string;
+  sourceData?: ArrayBuffer;
 }
 
 interface SheetData {
@@ -63,7 +64,7 @@ function normalizeProcessedValue(value: unknown): string | number | boolean | un
 }
 
 export const SpreadsheetEditor = forwardRef<SpreadsheetEditorRef, SpreadsheetEditorProps>(
-  function SpreadsheetEditor({ path, onChange, readOnly = false, sourceUrl }, ref) {
+  function SpreadsheetEditor({ path, onChange, readOnly = false, sourceUrl, sourceData }, ref) {
     const containerRef = useRef<HTMLDivElement>(null);
     const jspreadsheetInstanceRef = useRef<ReturnType<typeof jspreadsheet> | null>(null);
     const [isLoading, setIsLoading] = useState(true);
@@ -144,26 +145,15 @@ export const SpreadsheetEditor = forwardRef<SpreadsheetEditorRef, SpreadsheetEdi
           
           console.log('[SpreadsheetEditor] Loading file:', path);
           
-          // Fetch file content
-          const fetchOptions: RequestInit = { credentials: 'include', signal: abortController.signal };
-          if (!sourceUrl) {
-            fetchOptions.headers = workspaceHeaders();
-          }
-
-          const response = await fetch(sourceUrl ?? workspaceDownloadUrl(path), fetchOptions);
-          if (!active) return;
-          
-          console.log('[SpreadsheetEditor] Response status:', response.status, response.statusText);
-          console.log('[SpreadsheetEditor] Content-Type:', response.headers.get('content-type'));
-          
-          if (!response.ok) {
-            const errorText = await response.text();
+          let arrayBuffer = sourceData?.slice(0);
+          if (!arrayBuffer) {
+            const fetchOptions: RequestInit = { credentials: 'include', signal: abortController.signal };
+            if (!sourceUrl) fetchOptions.headers = workspaceHeaders();
+            const response = await fetch(sourceUrl ?? workspaceDownloadUrl(path), fetchOptions);
             if (!active) return;
-            console.error('[SpreadsheetEditor] API Error response:', errorText);
-            throw new Error(`Failed to load file: ${response.status} ${response.statusText}`);
+            if (!response.ok) throw new Error(`Failed to load file: ${response.status} ${response.statusText}`);
+            arrayBuffer = await response.arrayBuffer();
           }
-
-          const arrayBuffer = await response.arrayBuffer();
           if (!active) return;
           
           console.log('[SpreadsheetEditor] ArrayBuffer size:', arrayBuffer.byteLength);
@@ -284,7 +274,7 @@ export const SpreadsheetEditor = forwardRef<SpreadsheetEditorRef, SpreadsheetEdi
           jspreadsheetInstanceRef.current = null;
         }
       };
-    }, [path, readOnly, sourceUrl]);
+    }, [path, readOnly, sourceUrl, sourceData]);
 
     const convertToBase64 = useCallback((extension: string): string => {
       if (extension === 'csv') {

@@ -12,11 +12,22 @@ import { EmailComposeDialog } from '@/app/apps/email/components/EmailComposeDial
 import { EmailSetupGuide, type EmailMailboxSetup } from '@/app/apps/email/components/EmailSetupGuide';
 import { EmailMailboxHeader } from '@/app/apps/email/components/EmailMailboxHeader';
 import { EmailMailboxNavigation } from '@/app/apps/email/components/EmailMailboxNavigation';
+import { EmailFocusHeader } from '@/app/apps/email/components/EmailFocusHeader';
+import { EmailFocusNavigation } from '@/app/apps/email/components/EmailFocusNavigation';
+import { EmailClassificationDetails } from '@/app/apps/email/components/EmailClassificationDetails';
+import { useEmailFocusFeed } from '@/app/apps/email/components/useEmailFocusFeed';
+import type { EmailClassificationAvailability } from '@/app/lib/email/classification/admin-service';
+import type { EmailClassificationFeedItem, EmailFeedMode, EmailFeedView } from '@/app/lib/email/classification/feed-types';
+import type { EmailMailboxScope, EmailMailboxSourceOption } from '@/app/lib/email/classification/mailbox-types';
+import type { EmailCategory } from '@/app/lib/email/classification/types';
 import { EmailMessageViewer } from '@/app/apps/email/components/EmailMessageReader';
 import { EmailReviewCenter } from '@/app/apps/email/components/EmailReviewCenter';
-import { useEmailWorkspaceLayout } from '@/app/apps/email/components/EmailWorkspaceLayout';
+import { EmailPaneResizeHandle, useEmailWorkspaceLayout } from '@/app/apps/email/components/EmailWorkspaceLayout';
 import { extractEmailAddressForCompose } from '@/app/apps/email/components/email-client-format';
 import { isFetchNetworkError } from '@/app/apps/email/components/email-client-network';
+import { emailAccountSelectionKey, emailAccountContextKey, emailFeedMessageSummary, sameEmailSelection } from './email-focus-integration';
+import { setEmailPersonalFocusDone } from './email-classification-client';
+import { emailFocusIntentKey, resolvedEmailFocusMessage } from './email-focus-deep-link';
 import type {
   EmailAccount,
   EmailComposeDialogLabels,
@@ -66,6 +77,7 @@ export function EmailClient({
   const t = useTranslations('emails');
   const locale = useLocale();
   const tm = useTranslations('emailMailboxes');
+  const tf = useTranslations('emailFocus');
   const { data: session, isPending: isSessionPending, refetch: refetchSession } = authClient.useSession();
   const selectionStorageKey = session?.user.id ? `emails.mailbox:${session.user.id}` : null;
   const setEmailChatContext = useSetEmailChatContext();
@@ -82,10 +94,51 @@ export function EmailClient({
   useLayoutEffect(() => { currentUserRef.current = selectionStorageKey; }, [selectionStorageKey]);
   const [emailAllowRemoteImages, setEmailAllowRemoteImages] = useState(false);
   const [emailRemoteImageAllowedSenders, setEmailRemoteImageAllowedSenders] = useState<string[]>([]);
+  const [classificationAvailability, setClassificationAvailability] = useState<EmailClassificationAvailability | null>(null);
+  const [experienceChoice, setExperienceChoice] = useState<EmailFeedMode | null>(null);
+  const [intentExperience, setIntentExperience] = useState<{ key: string; mode: EmailFeedMode } | null>(null);
+  const feedIntentKey = emailFocusIntentKey(contextIntent);
+  const feedIntentIdentity = feedIntentKey ? JSON.stringify([selectionStorageKey, session?.session.id, feedIntentKey]) : null;
+  const currentFeedIntentRef = useRef(feedIntentIdentity);
+  const configuredFeedIntentRef = useRef<string | null>(null);
+  const appliedFeedIntentRef = useRef<string | null>(null);
+  const feedIntentNavigationEpochRef = useRef(0);
+  const cancelFeedIntentRequestRef = useRef<(() => void) | null>(null);
+  const consumeExternalFeedIntent = useCallback(() => {
+    feedIntentNavigationEpochRef.current++;
+    if (currentFeedIntentRef.current) appliedFeedIntentRef.current = currentFeedIntentRef.current;
+    cancelFeedIntentRequestRef.current?.();
+  }, []);
+  useLayoutEffect(() => {
+    currentFeedIntentRef.current = feedIntentIdentity;
+    if (!feedIntentIdentity) { configuredFeedIntentRef.current = null; appliedFeedIntentRef.current = null; }
+  }, [feedIntentIdentity]);
+  const [emailPreferencesReady, setEmailPreferencesReady] = useState(false);
+  const [emailPreferencesUser, setEmailPreferencesUser] = useState<string | null>(null);
+  const [focusConfigurationUser, setFocusConfigurationUser] = useState<string | null>(null);
+  const [focusSources, setFocusSources] = useState<EmailMailboxSourceOption[]>([]);
+  const [focusSourcesReady, setFocusSourcesReady] = useState(false);
+  const [focusSourcesError, setFocusSourcesError] = useState(false);
+  const [focusScope, setFocusScope] = useState<EmailMailboxScope>({ kind: 'all' });
+  const [focusView, setFocusView] = useState<EmailFeedView>('focus');
+  const [focusCategory, setFocusCategory] = useState<EmailCategory | null>(null);
+  const [focusSearch, setFocusSearch] = useState('');
+  const [selectedFeedItem, setSelectedFeedItem] = useState<EmailClassificationFeedItem | null>(null);
+  const [composeSenderOpen, setComposeSenderOpen] = useState(false);
+  const [composeSenderKey, setComposeSenderKey] = useState('');
+  const pendingFeedOpenRef = useRef<{ item: EmailClassificationFeedItem; accountKey: string; openDialog: boolean; epoch: number } | null>(null);
+  const feedSelectionEpochRef = useRef(0);
+  const pendingComposeAccountRef = useRef<string | null>(null);
+  const experienceOwnerRef = useRef<string | null>(null);
+  const modeWriteEpochRef = useRef(0);
+  const modeWriteChainRef = useRef<Promise<void>>(Promise.resolve());
+  const sourceRequestRef = useRef<AbortController | null>(null);
+  const previousSourceAccountsRef = useRef<{ owner: string; keys: Set<string> } | null>(null);
   const [deniedMailboxKey, setDeniedMailboxKey] = useState<string | null>(null);
   const [activeAccountId, setActiveAccountId] = useState('');
   const [folders, setFolders] = useState<EmailFolder[]>([]);
   const [foldersAccountId, setFoldersAccountId] = useState('');
+  const [foldersMailboxKey, setFoldersMailboxKey] = useState('');
   const [activeFolder, setActiveFolder] = useState('INBOX');
   const [messages, setMessages] = useState<EmailMessageSummary[]>([]);
   const [messageTotal, setMessageTotal] = useState<number | null>(null);
@@ -176,6 +229,7 @@ export function EmailClient({
   const activeAccountRef = useRef<string>('');
   const activeFolderRef = useRef('INBOX');
   const composeDraftRef = useRef(false);
+  const minimizeComposeRef = useRef<() => void>(() => undefined);
   const appliedContextIntentRef = useRef<string | null>(null);
   const appliedSearchToolCallRef = useRef<string | null>(null);
 
@@ -188,15 +242,23 @@ export function EmailClient({
     [activeFolder, folders, tSearch],
   );
   const mailboxWorkspaceId = activeAccount?.workspaceId || null;
+  const activeReadAccountId = activeAccount?.id;
   const mailboxScopeKey = activeAccount ? `${activeAccount.id}:${mailboxWorkspaceId || 'personal'}` : '';
   const mailboxScopeRef = useRef(mailboxScopeKey);
   useLayoutEffect(() => { mailboxScopeRef.current = mailboxScopeKey; }, [mailboxScopeKey]);
   const canReadActiveAccount = Boolean(deniedMailboxKey !== mailboxScopeKey && activeAccount && (activeAccount.capabilities?.canRead ?? (activeAccount.authType !== 'smtp_imap' || activeAccount.imapHost)));
   const canWriteActiveAccount = Boolean(deniedMailboxKey !== mailboxScopeKey && activeAccount && (activeAccount.capabilities?.canWrite ?? true));
   const canRunAgent = canWriteActiveAccount && (activeAccount?.capabilities?.canRunAgent ?? true);
+  const effectiveExperience = intentExperience?.key === feedIntentIdentity ? intentExperience.mode : experienceChoice;
+  const experienceMode: EmailFeedMode = classificationAvailability?.enabled && effectiveExperience !== 'classic' ? 'focus' : 'classic';
+  const focusControlsReady = Boolean(selectionStorageKey && accountsUser === selectionStorageKey && focusConfigurationUser === selectionStorageKey
+    && emailPreferencesUser === selectionStorageKey && classificationAvailability && emailPreferencesReady);
+  const usesIndexedFeed = focusControlsReady && (experienceMode === 'focus' || focusScope.kind !== 'mailbox');
+  const focusFeed = useEmailFocusFeed({ userId: session?.user.id || '', enabled: usesIndexedFeed, scope: focusScope,
+    mode: experienceMode, view: experienceMode === 'classic' || focusSearch ? 'all' : focusView, category: focusSearch ? null : focusCategory, search: focusSearch });
   const isStreamingSelectedMessageSummary = Boolean(selectedMessage && streamingSummaryMessageId === selectedMessage.id);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     activeAccountRef.current = mailboxScopeKey;
     activeFolderRef.current = activeFolder;
     hasMessagesRef.current = messages.length > 0;
@@ -278,12 +340,15 @@ export function EmailClient({
     }, EMAIL_CACHE_FOLLOW_UP_DELAY_MS);
   }, [cancelDetailFollowUp]);
 
-  const clearReader = useCallback(() => {
+  const clearReader = useCallback((options?: { preserveQueuedOpen?: boolean }) => {
+    if (!options?.preserveQueuedOpen) { pendingFeedOpenRef.current = null; feedSelectionEpochRef.current++; }
     cancelDetailFollowUp();
     detailRequestEpochRef.current += 1;
     detailRequestRef.current?.abort();
     detailRefreshRequestRef.current?.abort();
+    selectedMessageRef.current = null;
     setSelectedMessage(null);
+    setSelectedFeedItem(null);
     setSelectedMessageId('');
     setPendingMessageUpdate(null);
     setMessageUnavailable(null);
@@ -343,6 +408,7 @@ export function EmailClient({
       accountsUserRef.current = selectionStorageKey;
       setAccountsUser(selectionStorageKey);
       const nextAccounts = (payload.data?.accounts || []) as EmailAccount[];
+      if (activeAccountRef.current && !nextAccounts.some(account => emailAccountContextKey(account) === activeAccountRef.current)) clearReader();
       setAccounts(nextAccounts);
       setMailboxSetup({ canManageBusiness: payload.data?.setup?.canManageBusiness === true, manageableWorkspaces: Array.isArray(payload.data?.setup?.manageableWorkspaces) ? payload.data.setup.manageableWorkspaces : [] });
       setActiveAccountId((current) => {
@@ -361,6 +427,115 @@ export function EmailClient({
       if (!controller.signal.aborted && currentUserRef.current === selectionStorageKey) setIsLoadingAccounts(false);
     }
   }, [t, selectionStorageKey, clearReader]);
+
+  const loadFocusConfiguration = useCallback(async () => {
+    if (!selectionStorageKey) return;
+    sourceRequestRef.current?.abort();
+    const controller = new AbortController(); sourceRequestRef.current = controller;
+    const responses = await Promise.allSettled([
+      fetch('/api/email/classification/availability', { credentials: 'include', cache: 'no-store', signal: controller.signal }).then(async response => ({ response, payload: await response.json() })),
+      fetch('/api/email/classification/mailboxes', { credentials: 'include', cache: 'no-store', signal: controller.signal }).then(async response => ({ response, payload: await response.json() })),
+    ]);
+    if (controller.signal.aborted || currentUserRef.current !== selectionStorageKey) return;
+    const availability = responses[0]; const catalogue = responses[1];
+    if (availability.status === 'fulfilled' && availability.value.response.ok && typeof availability.value.payload.data?.enabled === 'boolean') {
+      setClassificationAvailability(availability.value.payload.data);
+      setFocusConfigurationUser(selectionStorageKey);
+    }
+    if (catalogue.status === 'fulfilled' && catalogue.value.response.ok && Array.isArray(catalogue.value.payload.data?.mailboxes)) {
+      const sources = catalogue.value.payload.data.mailboxes as EmailMailboxSourceOption[];
+      const nextSourceKeys = new Set(sources.map(source => `${source.accountId}:${source.workspaceId || 'personal'}`));
+      const previousSourceKeys = previousSourceAccountsRef.current?.owner === selectionStorageKey ? previousSourceAccountsRef.current.keys : new Set<string>();
+      const removedKeys = new Set([...previousSourceKeys].filter(key => !nextSourceKeys.has(key)));
+      previousSourceAccountsRef.current = { owner: selectionStorageKey, keys: nextSourceKeys };
+      setFocusSources(sources); setFocusSourcesReady(true); setFocusSourcesError(false);
+      setAccounts(current => current.map(account => {
+        const source = sources.find(candidate => candidate.accountId === account.id && candidate.workspaceId === (account.workspaceId || null));
+        if (source) return { ...account, capabilities: source.capabilities };
+        return removedKeys.has(emailAccountContextKey(account)) ? { ...account, capabilities: {
+          canRead: false, canWrite: false, canManage: false, canDelete: false, canRunAgent: false,
+        } } : account;
+      }));
+      if (removedKeys.size) {
+        if (removedKeys.has(activeAccountRef.current)) clearReader();
+        void loadAccounts();
+      }
+      if (experienceOwnerRef.current !== selectionStorageKey) {
+        experienceOwnerRef.current = selectionStorageKey;
+        let scope: EmailMailboxScope = { kind: 'all' };
+        try {
+          const stored = JSON.parse(window.localStorage.getItem(`emails.feedScope:${selectionStorageKey}`) || 'null');
+          if (stored && ['all', 'personal', 'work'].includes(stored.kind)) scope = { kind: stored.kind };
+          else if (stored?.kind === 'mailbox' && sources.some(source => source.mailboxRef === stored.mailboxRef)) scope = { kind: 'mailbox', mailboxRef: stored.mailboxRef };
+        } catch { /* Optional local presentation preference. */ }
+        setFocusScope(scope);
+        if (scope.kind === 'mailbox') {
+          const source = sources.find(source => source.mailboxRef === scope.mailboxRef);
+          if (source) {
+            if (`${source.accountId}:${source.workspaceId || 'personal'}` !== activeAccountRef.current) clearReader();
+            setActiveAccountId(source.workspaceId ? `${source.accountId}:${source.workspaceId}` : source.accountId);
+          }
+        }
+      }
+    } else {
+      setFocusSourcesError(true);
+      if (catalogue.status === 'fulfilled' && [401, 403].includes(catalogue.value.response.status)) {
+        setFocusSources([]); setFocusSourcesReady(false);
+        if (catalogue.value.response.status === 401 || selectedMessageRef.current?.origin) clearReader();
+      }
+    }
+  }, [selectionStorageKey, clearReader, loadAccounts]);
+
+  useEffect(() => {
+    if (!selectionStorageKey) return;
+    const timer = window.setTimeout(() => { void loadFocusConfiguration(); }, 0);
+    const onChanged = () => { void loadFocusConfiguration(); };
+    const interval = window.setInterval(() => { if (document.visibilityState === 'visible') onChanged(); }, 30_000);
+    window.addEventListener('canvas-email-classification-settings-updated', onChanged);
+    window.addEventListener('online', onChanged);
+    window.addEventListener('focus', onChanged);
+    return () => { window.clearTimeout(timer); window.clearInterval(interval); sourceRequestRef.current?.abort();
+      window.removeEventListener('canvas-email-classification-settings-updated', onChanged); window.removeEventListener('online', onChanged); window.removeEventListener('focus', onChanged); };
+  }, [selectionStorageKey, loadFocusConfiguration]);
+
+  const changeExperienceMode = useCallback(async (mode: EmailFeedMode, preserveCurrentMailboxAndFolder = false) => {
+    if (!selectionStorageKey || mode === 'focus' && !classificationAvailability?.enabled) return;
+    consumeExternalFeedIntent();
+    const epoch = ++modeWriteEpochRef.current; const previous = experienceChoice; const previousIntent = intentExperience;
+    setIntentExperience(null);
+    setExperienceChoice(mode);
+    if (!preserveCurrentMailboxAndFolder && mode === 'classic' && focusScope.kind === 'mailbox') {
+      const source = focusSources.find(source => source.mailboxRef === focusScope.mailboxRef);
+      if (source) {
+        if (`${source.accountId}:${source.workspaceId || 'personal'}` !== mailboxScopeKey || activeFolder !== 'INBOX') clearReader();
+        setActiveAccountId(source.workspaceId ? `${source.accountId}:${source.workspaceId}` : source.accountId); setActiveFolder('INBOX');
+      }
+    }
+    try {
+      const write = modeWriteChainRef.current.catch(() => undefined).then(async () => {
+        if (currentUserRef.current !== selectionStorageKey) return;
+        const response = await fetch('/api/user-preferences', { method: 'PATCH', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ emailExperienceMode: mode }) });
+        if (!response.ok) throw new Error('Mode preference was not saved.');
+      });
+      modeWriteChainRef.current = write;
+      await write;
+    } catch {
+      if (currentUserRef.current === selectionStorageKey && epoch === modeWriteEpochRef.current) { setExperienceChoice(previous); setIntentExperience(previousIntent); setError(tf('modeSaveError')); }
+    }
+  }, [selectionStorageKey, classificationAvailability?.enabled, experienceChoice, intentExperience, focusScope, focusSources, mailboxScopeKey, activeFolder, clearReader, tf, consumeExternalFeedIntent]);
+
+  const changeFocusScope = (scope: EmailMailboxScope) => {
+    consumeExternalFeedIntent();
+    setFocusScope(scope); setFocusSearch('');
+    try { window.localStorage.setItem(`emails.feedScope:${selectionStorageKey}`, JSON.stringify(scope)); } catch { /* Optional presentation preference. */ }
+    if (scope.kind === 'mailbox' && experienceMode === 'classic') {
+      const source = focusSources.find(source => source.mailboxRef === scope.mailboxRef);
+      if (source) {
+        if (`${source.accountId}:${source.workspaceId || 'personal'}` !== mailboxScopeKey || activeFolder !== 'INBOX') clearReader();
+        setActiveAccountId(source.workspaceId ? `${source.accountId}:${source.workspaceId}` : source.accountId); setActiveFolder('INBOX');
+      }
+    }
+  };
 
   const mailboxFetch = useCallback(async (input: string, init: RequestInit = {}) => {
     const scope = mailboxScopeKey;
@@ -387,10 +562,15 @@ export function EmailClient({
   }, [selectionStorageKey, activeAccountId]);
 
   const loadEmailPreferences = useCallback(async () => {
+    if (!selectionStorageKey) return;
     try {
       const response = await fetch('/api/user-preferences', { credentials: 'include', cache: 'no-store' });
       const payload = await response.json();
       if (!response.ok || !payload.success) throw new Error(payload.error || t('errors.loadPreferences'));
+      if (currentUserRef.current !== selectionStorageKey) return;
+      setExperienceChoice(payload.data?.emailExperienceMode === 'focus' || payload.data?.emailExperienceMode === 'classic' ? payload.data.emailExperienceMode : null);
+      setEmailPreferencesReady(true);
+      setEmailPreferencesUser(selectionStorageKey);
       setEmailAllowRemoteImages(Boolean(payload.data?.emailAllowRemoteImages));
       setEmailRemoteImageAllowedSenders(Array.isArray(payload.data?.emailRemoteImageAllowedSenders)
         ? payload.data.emailRemoteImageAllowedSenders.filter((entry: unknown): entry is string => typeof entry === 'string')
@@ -398,7 +578,7 @@ export function EmailClient({
     } catch (preferencesError) {
       setError(preferencesError instanceof Error ? preferencesError.message : t('errors.loadPreferences'));
     }
-  }, [t]);
+  }, [t, selectionStorageKey]);
 
   const allowRemoteImagesForSender = useCallback((sender: string) => {
     const normalizedSender = extractEmailAddressForCompose(sender);
@@ -424,10 +604,10 @@ export function EmailClient({
   }, [emailRemoteImageAllowedSenders, t]);
 
   const selectAccount = (accountId: string) => {
-    if (composeController.draft) {
-      if (composeController.isSubmitting || composeController.isGeneratingAi || !window.confirm(tm('discardDraft'))) return;
-      composeController.close();
-    }
+    consumeExternalFeedIntent();
+    if (composeDraftRef.current) minimizeComposeRef.current();
+    const source = focusSources.find(source => (source.workspaceId ? `${source.accountId}:${source.workspaceId}` : source.accountId) === accountId);
+    if (source && focusControlsReady) setFocusScope({ kind: 'mailbox', mailboxRef: source.mailboxRef });
     setDeniedMailboxKey(null);
     listRequestRef.current?.abort();
     folderRequestRef.current?.abort();
@@ -440,6 +620,7 @@ export function EmailClient({
   };
 
   const selectFolder = (folder: string) => {
+    consumeExternalFeedIntent();
     if (folder === activeFolder) return;
     listRequestRef.current?.abort();
     clearReader();
@@ -449,7 +630,7 @@ export function EmailClient({
   };
 
   const loadFolders = useCallback(async (accountId: string) => {
-    if (!accountId) return;
+    if (!accountId || mailboxScopeRef.current !== mailboxScopeKey) return;
     folderRequestRef.current?.abort();
     const controller = new AbortController();
     folderRequestRef.current = controller;
@@ -467,6 +648,7 @@ export function EmailClient({
       const nextFolders = (payload.data?.folders || []) as EmailFolder[];
       setFolders(nextFolders);
       setFoldersAccountId(accountId);
+      setFoldersMailboxKey(mailboxScopeKey);
       setActiveFolder((current) => {
         if (current === 'all' || (current && nextFolders.some((folder) => folder.path === current))) return current;
         return nextFolders.find((folder) => folder.role === 'inbox')?.path || nextFolders[0]?.path || 'INBOX';
@@ -522,7 +704,8 @@ export function EmailClient({
       scheduleDetailFollowUp(emailMessageDetailScopeKey({ accountId, folder, messageId: current.id }), payload.data?.cache, requestEpoch);
       const nextRevision = emailMessageContentRevision(nextMessage);
       if (nextRevision !== emailMessageContentRevision(current) && dismissedMessageRevisionRef.current !== nextRevision) {
-        setPendingMessageUpdate(nextMessage);
+        setPendingMessageUpdate({ ...nextMessage, id: current.id, folder, messageRef: current.messageRef, selectionKey: current.selectionKey,
+          origin: current.origin, personalFocus: current.personalFocus });
       }
     } catch (refreshError) {
       if (controller.signal.aborted || detailRefreshRequestRef.current !== controller) return;
@@ -531,7 +714,7 @@ export function EmailClient({
   }, [mailboxFetch, mailboxScopeKey, activeAccount, activeFolder, cancelDetailFollowUp, scheduleDetailFollowUp, t]);
 
   const loadMessages = useCallback(async (options?: { background?: boolean; swrFollowUp?: boolean }) => {
-    if (!activeAccount || !canReadActiveAccount || foldersAccountId !== activeAccount?.id) return;
+    if (usesIndexedFeed || !activeAccount || !canReadActiveAccount || foldersAccountId !== activeAccount?.id || foldersMailboxKey !== mailboxScopeKey) return;
     const scopeKey = emailMessageListScopeKey({
       accountId: activeAccount.id,
       filter: messageFilter,
@@ -604,18 +787,19 @@ export function EmailClient({
         setIsRefreshingMessages(false);
       }
     }
-  }, [mailboxFetch, mailboxScopeKey, activeAccount, activeFolder, canReadActiveAccount, cancelListFollowUp, foldersAccountId, messageFilter, messagePage, refreshSelectedMessage, scheduleListFollowUp, submittedQuery, t]);
+  }, [usesIndexedFeed, mailboxFetch, mailboxScopeKey, activeAccount, activeFolder, canReadActiveAccount, cancelListFollowUp, foldersAccountId, foldersMailboxKey, messageFilter, messagePage, refreshSelectedMessage, scheduleListFollowUp, submittedQuery, t]);
 
-  const updateMessageReadState = useCallback((messageId: string, isRead: boolean) => {
-    setMessages((current) => current.map((message) => message.id === messageId ? { ...message, isRead } : message));
-    setSelectedMessage((current) => current?.id === messageId ? { ...current, isRead } : current);
+  const updateMessageReadState = useCallback((target: EmailMessageSummary, isRead: boolean, expectedScope: string) => {
+    if (mailboxScopeRef.current !== expectedScope) return;
+    setMessages((current) => current.map((message) => sameEmailSelection(message, target) ? { ...message, isRead } : message));
+    setSelectedMessage((current) => sameEmailSelection(current, target) ? { ...current!, isRead } : current);
   }, []);
 
   const markMessageReadOnOpen = useCallback(async (message: EmailMessageSummary | EmailMessageDetail) => {
     if (!activeAccount || !canWriteActiveAccount || message.isRead) return;
     const folder = message.folder || activeFolder;
     const finishMutation = beginMessageMutation();
-    updateMessageReadState(message.id, true);
+    updateMessageReadState(message, true, mailboxScopeKey);
 
     try {
       const response = await mailboxFetch(`/api/email/accounts/${encodeURIComponent(activeAccount.id)}/messages/actions`, {
@@ -626,19 +810,18 @@ export function EmailClient({
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok || !payload.success) throw new Error(payload.error || t('errors.updateMessage'));
-      void loadFolders(activeAccount.id);
+      if (mailboxScopeRef.current === mailboxScopeKey) void loadFolders(activeAccount.id);
     } catch {
-      updateMessageReadState(message.id, false);
+      updateMessageReadState(message, false, mailboxScopeKey);
     } finally {
       finishMutation();
     }
-  }, [mailboxFetch, canWriteActiveAccount, activeAccount, activeFolder, beginMessageMutation, loadFolders, t, updateMessageReadState]);
+  }, [mailboxFetch, mailboxScopeKey, canWriteActiveAccount, activeAccount, activeFolder, beginMessageMutation, loadFolders, t, updateMessageReadState]);
 
   const loadMessage = useCallback(async (message: EmailMessageSummary, options?: { openDialog?: boolean }) => {
     if (!activeAccount) return;
     cancelDetailFollowUp();
     const requestEpoch = ++detailRequestEpochRef.current;
-    const mutationRevision = messageMutationRevisionRef.current;
     detailRequestRef.current?.abort();
     detailRefreshRequestRef.current?.abort();
     const controller = new AbortController();
@@ -646,6 +829,15 @@ export function EmailClient({
     const accountId = activeAccount.id;
     const folder = message.folder || activeFolder;
     setSelectedMessageId(message.id);
+    selectedMessageRef.current = null;
+    setSelectedMessage(null);
+    if (message.messageRef && message.origin && message.selectionKey) {
+      setSelectedFeedItem({ messageRef: message.messageRef, selectionKey: message.selectionKey, origin: message.origin,
+        message: { from: message.from, subject: message.subject, date: message.date, snippet: message.snippet,
+          isRead: message.isRead, isFlagged: message.isFlagged, hasAttachments: message.hasAttachments,
+          ...(Array.isArray(message.to) ? { to: message.to } : {}), ...(Array.isArray(message.cc) ? { cc: message.cc } : {}) },
+        classification: message.classification ?? null, personalFocus: message.personalFocus ?? { done: false, version: 0 } });
+    }
     setPendingMessageUpdate(null);
     setMessageUnavailable(null);
     dismissedMessageRevisionRef.current = null;
@@ -666,13 +858,7 @@ export function EmailClient({
         detailRequestRef.current !== controller
         || activeAccountRef.current !== mailboxScopeKey
         || activeFolderRef.current !== activeFolder
-        || !shouldApplyEmailRefresh({
-          requestEpoch,
-          currentEpoch: detailRequestEpochRef.current,
-          mutationRevision,
-          currentMutationRevision: messageMutationRevisionRef.current,
-          mutationInFlight: activeMessageMutationsRef.current > 0,
-        })
+        || requestEpoch !== detailRequestEpochRef.current
       ) return;
       if (response.status === 404 && payload.code === 'EMAIL_MESSAGE_NOT_FOUND') {
         setSelectedMessage(null);
@@ -682,9 +868,12 @@ export function EmailClient({
       if (!response.ok || !payload.success) throw new Error(payload.error || t('errors.loadMessage'));
       const nextMessage = payload.data?.message as EmailMessageDetail | undefined;
       if (!nextMessage) throw new Error(t('errors.loadMessage'));
-      setSelectedMessage({ ...nextMessage, folder: nextMessage.folder || folder });
+      const resolvedMessage = { ...nextMessage, id: message.id, folder: nextMessage.folder || folder, messageRef: message.messageRef ?? nextMessage.messageRef,
+        selectionKey: message.selectionKey ?? nextMessage.selectionKey, origin: message.origin ?? nextMessage.origin,
+        classification: nextMessage.classification ?? message.classification, personalFocus: message.personalFocus ?? nextMessage.personalFocus };
+      setSelectedMessage(resolvedMessage);
       scheduleDetailFollowUp(emailMessageDetailScopeKey({ accountId, folder, messageId: message.id }), payload.data?.cache, requestEpoch);
-      void markMessageReadOnOpen(nextMessage);
+      void markMessageReadOnOpen(resolvedMessage);
     } catch (loadError) {
       if (controller.signal.aborted || detailRequestRef.current !== controller) return;
       setError(loadError instanceof Error ? loadError.message : t('errors.loadMessage'));
@@ -692,6 +881,48 @@ export function EmailClient({
       if (detailRequestRef.current === controller) setIsLoadingMessage(false);
     }
   }, [mailboxFetch, mailboxScopeKey, activeAccount, activeFolder, cancelDetailFollowUp, clearMessageSummary, layoutMode, markMessageReadOnOpen, scheduleDetailFollowUp, t]);
+
+  const openFeedMessage = (item: EmailClassificationFeedItem, openDialog = false) => {
+    if (composeDraftRef.current) minimizeComposeRef.current();
+    const account = accounts.find(candidate => candidate.id === item.origin.accountId && (candidate.workspaceId || null) === item.origin.workspaceId);
+    const source = focusSources.find(candidate => candidate.mailboxRef === item.origin.mailboxRef && candidate.accountSource === item.origin.accountSource);
+    if (!account || !source || !source.capabilities.canRead) { setError(tf('selectionError')); void loadFocusConfiguration(); return; }
+    const accountKey = emailAccountContextKey(account);
+    if (accountKey === mailboxScopeKey && foldersMailboxKey === accountKey && activeFolder === item.origin.folder) {
+      ++feedSelectionEpochRef.current;
+      pendingFeedOpenRef.current = null;
+      void loadMessage(emailFeedMessageSummary(item), { openDialog });
+      return;
+    }
+    clearReader();
+    const epoch = ++feedSelectionEpochRef.current;
+    pendingFeedOpenRef.current = { item, accountKey, openDialog, epoch };
+    setDeniedMailboxKey(null);
+    setActiveAccountId(emailAccountSelectionKey(account)); setActiveFolder(item.origin.folder);
+  };
+  const openFeedMessageRef = useRef(openFeedMessage);
+  useLayoutEffect(() => { openFeedMessageRef.current = openFeedMessage; });
+
+  useEffect(() => {
+    const queued = pendingFeedOpenRef.current;
+    if (!queued || queued.epoch !== feedSelectionEpochRef.current || queued.accountKey !== mailboxScopeKey
+      || foldersMailboxKey !== queued.accountKey || isLoadingFolders || activeFolder !== queued.item.origin.folder || !canReadActiveAccount) return;
+    const timer = window.setTimeout(() => {
+      if (pendingFeedOpenRef.current !== queued || queued.epoch !== feedSelectionEpochRef.current) return;
+      pendingFeedOpenRef.current = null;
+      void loadMessage(emailFeedMessageSummary(queued.item), { openDialog: queued.openDialog });
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [mailboxScopeKey, foldersMailboxKey, isLoadingFolders, activeFolder, canReadActiveAccount, loadMessage]);
+
+  useEffect(() => {
+    if (!selectedFeedItem) return;
+    const invalid = focusFeed.error && [401, 403, 404, 409, 503].includes(focusFeed.error.status);
+    const source = focusSources.find(candidate => candidate.mailboxRef === selectedFeedItem.origin.mailboxRef);
+    if (invalid || focusSourcesReady && (!source || !source.capabilities.canRead)) {
+      const timer = window.setTimeout(() => clearReader(), 0); return () => window.clearTimeout(timer);
+    }
+  }, [selectedFeedItem, focusFeed.error, focusSources, focusSourcesReady, clearReader]);
 
   useEffect(() => {
     listFollowUpRunnerRef.current = () => {
@@ -722,6 +953,7 @@ export function EmailClient({
   }, [cancelDetailFollowUp, cancelListFollowUp]);
 
   useEffect(() => {
+    if (feedIntentKey) return;
     if (!contextIntent) {
       appliedContextIntentRef.current = null;
       appliedSearchToolCallRef.current = null;
@@ -795,6 +1027,11 @@ export function EmailClient({
         if (contextIntent.toolCallId && appliedSearchToolCallRef.current === contextIntent.toolCallId) return;
         appliedSearchToolCallRef.current = contextIntent.toolCallId;
         clearReader();
+        const source = focusSources.find(source => source.accountId === activeAccount?.id && source.workspaceId === (activeAccount?.workspaceId || null));
+        if (source) {
+          setFocusScope({ kind: 'mailbox', mailboxRef: source.mailboxRef });
+          void changeExperienceMode('classic', true);
+        }
         setQuery(contextIntent.query);
         setSubmittedQuery(contextIntent.query);
         setMessagePage(0);
@@ -822,7 +1059,10 @@ export function EmailClient({
     activeAccountId,
     activeFolder,
     clearReader,
+    changeExperienceMode,
     contextIntent,
+    feedIntentKey,
+    focusSources,
     foldersAccountId,
     isLoadingAccounts,
     loadMessage,
@@ -856,15 +1096,16 @@ export function EmailClient({
       folderRequestRef.current?.abort();
       setFolders([]);
       setFoldersAccountId('');
+      setFoldersMailboxKey('');
       setMessages([]);
       setMessageTotal(null);
-      clearReader();
-      if (!activeAccount) return;
+      clearReader({ preserveQueuedOpen: true });
+      if (!activeReadAccountId) return;
       if (!canReadActiveAccount) return;
-      void loadFolders(activeAccount.id);
+      void loadFolders(activeReadAccountId);
     }, 0);
     return () => window.clearTimeout(timeout);
-  }, [mailboxFetch, activeAccount, canReadActiveAccount, clearReader, loadFolders]);
+  }, [mailboxFetch, mailboxScopeKey, activeReadAccountId, canReadActiveAccount, clearReader, loadFolders]);
 
   useEffect(() => {
     const timeout = window.setTimeout(() => {
@@ -943,7 +1184,109 @@ export function EmailClient({
     submit: submitComposeDraft,
     updateDraft: updateComposeDraft,
   } = composeController;
-  useLayoutEffect(() => { composeDraftRef.current = Boolean(composeDraft); }, [composeDraft]);
+  const minimizeCompose = composeController.minimize;
+  useLayoutEffect(() => { composeDraftRef.current = Boolean(composeDraft); minimizeComposeRef.current = minimizeCompose; }, [composeDraft, minimizeCompose]);
+
+  useEffect(() => {
+    if (!feedIntentIdentity || !contextIntent || !focusControlsReady || !focusSourcesReady
+      || appliedFeedIntentRef.current === feedIntentIdentity) return;
+    const controller = new AbortController();
+    let deadline: number | null = null;
+    const timer = window.setTimeout(() => {
+      if (currentFeedIntentRef.current !== feedIntentIdentity || controller.signal.aborted) return;
+      if (configuredFeedIntentRef.current !== feedIntentIdentity) {
+        configuredFeedIntentRef.current = feedIntentIdentity;
+        modeWriteEpochRef.current++;
+        if (composeDraftRef.current) minimizeComposeRef.current();
+        clearReader();
+        setIntentExperience({ key: feedIntentIdentity, mode: contextIntent.experienceMode ?? 'focus' });
+        setFocusScope({ kind: contextIntent.feedScope ?? 'all' });
+        setFocusView(contextIntent.feedView ?? 'focus');
+        setFocusCategory(null); setFocusSearch(''); setError(null);
+      }
+      const epoch = feedSelectionEpochRef.current;
+      const navigationEpoch = feedIntentNavigationEpochRef.current;
+      const current = () => !controller.signal.aborted && currentFeedIntentRef.current === feedIntentIdentity
+        && currentUserRef.current === selectionStorageKey && feedSelectionEpochRef.current === epoch
+        && feedIntentNavigationEpochRef.current === navigationEpoch;
+      if (contextIntent.messageRef === undefined) { appliedFeedIntentRef.current = feedIntentIdentity; return; }
+      const messageRef = contextIntent.messageRef;
+      if (!/^emm:[a-f0-9]{64}$/u.test(messageRef)) {
+        appliedFeedIntentRef.current = feedIntentIdentity; setError(tf('selectionError')); return;
+      }
+      deadline = window.setTimeout(() => {
+        const ownsSelection = current();
+        controller.abort();
+        if (ownsSelection) { appliedFeedIntentRef.current = feedIntentIdentity; clearReader(); setError(tf('selectionError')); }
+      }, 30_000);
+      void (async () => {
+        try {
+          const response = await fetch(`/api/email/classification/message?${new URLSearchParams({ messageRef })}`, {
+            credentials: 'include', cache: 'no-store', signal: controller.signal,
+          });
+          if (!current()) return;
+          const payload: unknown = await response.json();
+          if (!current()) return;
+          const item = response.ok && payload && typeof payload === 'object' && 'success' in payload && payload.success === true
+            && 'data' in payload ? resolvedEmailFocusMessage(payload.data, messageRef) : null;
+          appliedFeedIntentRef.current = feedIntentIdentity;
+          if (!item) { clearReader(); setError(tf('selectionError')); return; }
+          openFeedMessageRef.current(item);
+        } catch {
+          if (current()) { appliedFeedIntentRef.current = feedIntentIdentity; clearReader(); setError(tf('selectionError')); }
+        } finally { if (deadline !== null) window.clearTimeout(deadline); }
+      })();
+    }, 0);
+    const cancel = () => { window.clearTimeout(timer); if (deadline !== null) window.clearTimeout(deadline); controller.abort(); };
+    cancelFeedIntentRequestRef.current = cancel;
+    return () => { cancel(); if (cancelFeedIntentRequestRef.current === cancel) cancelFeedIntentRequestRef.current = null; };
+  }, [feedIntentIdentity, contextIntent, focusControlsReady, focusSourcesReady, selectionStorageKey, clearReader, tf]);
+
+  const openFocusCompose = () => {
+    if (composeController.draft) { composeController.resume(); return; }
+    const writable = accounts.filter(account => account.capabilities?.canWrite !== false);
+    if (!writable.length) return;
+    if (focusScope.kind === 'mailbox') {
+      const source = focusSources.find(source => source.mailboxRef === focusScope.mailboxRef);
+      const account = writable.find(candidate => candidate.id === source?.accountId && (candidate.workspaceId || null) === source?.workspaceId);
+      if (account) {
+        if (emailAccountContextKey(account) === mailboxScopeKey) { openNewComposeDraft(); return; }
+        pendingComposeAccountRef.current = emailAccountContextKey(account);
+        clearReader();
+        setActiveAccountId(emailAccountSelectionKey(account));
+        return;
+      }
+    }
+    setComposeSenderKey(emailAccountSelectionKey(writable.find(account => emailAccountContextKey(account) === mailboxScopeKey) || writable[0]));
+    setComposeSenderOpen(true);
+  };
+
+  useEffect(() => {
+    if (!activeAccount || pendingComposeAccountRef.current !== mailboxScopeKey) return;
+    const timer = window.setTimeout(() => {
+      if (pendingComposeAccountRef.current !== mailboxScopeRef.current) return;
+      pendingComposeAccountRef.current = null; openNewComposeDraft();
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [activeAccount, mailboxScopeKey, openNewComposeDraft]);
+
+  const applyClassificationItem = (item: EmailClassificationFeedItem) => {
+    focusFeed.updateItem(item);
+    setSelectedFeedItem(current => current?.messageRef === item.messageRef ? item : current);
+    setSelectedMessage(current => current?.messageRef === item.messageRef ? { ...current, classification: item.classification,
+      personalFocus: item.personalFocus, origin: item.origin } : current);
+  };
+
+  const markPersonalFocus = async (item: EmailClassificationFeedItem, done: boolean) => {
+    try { applyClassificationItem(await setEmailPersonalFocusDone(item, done)); }
+    catch { setError(tf('focusStateSaveError')); }
+  };
+
+  const currentAssessmentItem = useMemo(() => {
+    if (!selectedFeedItem) return null;
+    const source = focusSources.find(candidate => candidate.mailboxRef === selectedFeedItem.origin.mailboxRef);
+    return source ? { ...selectedFeedItem, origin: { ...selectedFeedItem.origin, capabilities: source.capabilities } } : selectedFeedItem;
+  }, [selectedFeedItem, focusSources]);
 
   const handleMessageAction = useCallback(async (action: EmailMessageActionName, destination?: string) => {
     if (!activeAccount || !selectedMessage) return;
@@ -1028,10 +1371,12 @@ export function EmailClient({
       const payload = await response.json().catch(() => ({}));
       if (!response.ok || !payload.success) throw new Error(payload.error || t('errors.updateMessage'));
 
+      if (mailboxScopeRef.current !== mailboxScopeKey || !sameEmailSelection(selectedMessageRef.current, selectedMessage)) return;
+
       if (action === 'mark-read' || action === 'mark-unread') {
         const isRead = action === 'mark-read';
         setMessages((current) => current.map((message) => message.id === selectedMessage.id ? { ...message, isRead } : message));
-        setSelectedMessage((current) => current ? { ...current, isRead } : current);
+        setSelectedMessage((current) => sameEmailSelection(current, selectedMessage) ? { ...current!, isRead } : current);
         setMessageActionNotice(t('messageUpdated'));
         return;
       }
@@ -1039,7 +1384,7 @@ export function EmailClient({
       if (action === 'mark-answered' || action === 'clear-answered') {
         const isAnswered = action === 'mark-answered';
         setMessages((current) => current.map((message) => message.id === selectedMessage.id ? { ...message, isAnswered } : message));
-        setSelectedMessage((current) => current ? { ...current, isAnswered } : current);
+        setSelectedMessage((current) => sameEmailSelection(current, selectedMessage) ? { ...current!, isAnswered } : current);
         setMessageActionNotice(t('messageUpdated'));
         return;
       }
@@ -1049,6 +1394,7 @@ export function EmailClient({
       setMessageActionNotice(t('messageMoved'));
       void loadFolders(activeAccount.id);
     } catch (actionError) {
+      if (mailboxScopeRef.current !== mailboxScopeKey) return;
       if (action === 'summary' && actionError instanceof DOMException && actionError.name === 'AbortError') return;
       setError(isFetchNetworkError(actionError)
         ? t('errors.actionRequest')
@@ -1057,7 +1403,7 @@ export function EmailClient({
       finishMutation?.();
       setActiveMessageAction(null);
     }
-  }, [mailboxFetch, canRunAgent, canWriteActiveAccount, activeAccount, activeFolder, activeWorkspaceId, beginMessageMutation, clearReader, generateAiReplyPreview, loadFolders, openComposeDraft, selectedMessage, summaryAiStageLabel, t]);
+  }, [mailboxFetch, mailboxScopeKey, canRunAgent, canWriteActiveAccount, activeAccount, activeFolder, activeWorkspaceId, beginMessageMutation, clearReader, generateAiReplyPreview, loadFolders, openComposeDraft, selectedMessage, summaryAiStageLabel, t]);
 
   const handleMessageListAction = useCallback(async (message: EmailMessageSummary, action: EmailMessageListActionName, destination?: string) => {
     if (!activeAccount) return;
@@ -1081,22 +1427,24 @@ export function EmailClient({
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok || !payload.success) throw new Error(payload.error || t('errors.updateMessage'));
+      if (mailboxScopeRef.current !== mailboxScopeKey) return;
 
       if (action === 'mark-read' || action === 'mark-unread') {
         const isRead = action === 'mark-read';
         setMessages((current) => current.map((currentMessage) => currentMessage.id === message.id ? { ...currentMessage, isRead } : currentMessage));
-        setSelectedMessage((current) => current?.id === message.id ? { ...current, isRead } : current);
+        setSelectedMessage((current) => sameEmailSelection(current, message) ? { ...current!, isRead } : current);
         setMessageActionNotice(t('messageUpdated'));
         return;
       }
 
       setMessages((current) => current.filter((currentMessage) => currentMessage.id !== message.id));
-      if (selectedMessageId === message.id) {
+      if (sameEmailSelection(selectedMessageRef.current, message)) {
         clearReader();
       }
       setMessageActionNotice(t('messageMoved'));
       void loadFolders(activeAccount.id);
     } catch (actionError) {
+      if (mailboxScopeRef.current !== mailboxScopeKey) return;
       setError(isFetchNetworkError(actionError)
         ? t('errors.actionRequest')
         : actionError instanceof Error ? actionError.message : t('errors.updateMessage'));
@@ -1104,7 +1452,7 @@ export function EmailClient({
       finishMutation();
       setActiveMessageListAction(null);
     }
-  }, [mailboxFetch, canWriteActiveAccount, activeAccount, activeFolder, beginMessageMutation, clearReader, loadFolders, selectedMessageId, t]);
+  }, [mailboxFetch, mailboxScopeKey, canWriteActiveAccount, activeAccount, activeFolder, beginMessageMutation, clearReader, loadFolders, t]);
 
   const messageOffset = messagePage * MESSAGE_PAGE_SIZE;
   const messageStart = messages.length > 0 ? messageOffset + 1 : 0;
@@ -1295,7 +1643,7 @@ export function EmailClient({
     </section>;
   }
 
-  if (accounts.length === 0) {
+  if (accounts.length === 0 && !composeDraft) {
     return (
       <div className="mx-auto flex h-full w-full max-w-4xl flex-col gap-4 overflow-y-auto px-3 py-6 sm:px-6 sm:py-10">
         {reviewCenter}
@@ -1332,7 +1680,13 @@ export function EmailClient({
         'shrink-0 flex flex-col gap-2 border border-border bg-card px-3 py-2 sm:px-4',
         embedded && 'border-x-0 border-t-0',
       )}>
-        <EmailMailboxHeader
+        {focusControlsReady && <EmailFocusHeader scope={focusScope} mode={experienceMode} classificationEnabled={classificationAvailability?.enabled ?? false}
+          mailboxes={focusSources} search={focusSearch} onScopeChange={changeFocusScope} onModeChange={mode => void changeExperienceMode(mode)}
+          onSearchChange={value => { consumeExternalFeedIntent(); setFocusSearch(value); }} onCompose={openFocusCompose} onRefresh={() => { focusFeed.reload(); void loadFocusConfiguration(); }}
+          loading={focusFeed.loading || focusFeed.loadingMore} canCompose={accounts.some(account => account.capabilities?.canWrite !== false)}
+          mailboxesLoading={!focusSourcesReady && !focusSourcesError} mailboxesError={focusSourcesError} controlsOnly={!usesIndexedFeed}
+          focused={focused} onDistractionFree={toggleFocus} />}
+        {!usesIndexedFeed && <EmailMailboxHeader
           accounts={accounts}
           activeAccount={activeAccount}
           canRead={canReadActiveAccount}
@@ -1362,10 +1716,15 @@ export function EmailClient({
           onScopeChange={(scope) => selectFolder(scope === 'all' ? 'all' : (folders.find(folder => folder.path === previousFolder.current)?.path || folders.find(folder => folder.role === 'inbox')?.path || 'INBOX'))}
           focused={focused}
           onFocus={toggleFocus}
-        />
+        />}
       </section>
 
       {reviewCenter}
+
+      {composeDraft && composeController.composeMinimized && <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 rounded-md border bg-card px-3 py-2 text-sm">
+        <span className="min-w-0 truncate">{composeController.draftSenderAddress} · {composeDraft.subject || t('noSubject')}</span>
+        <Button type="button" size="sm" variant="outline" onClick={composeController.resume}>{tf('resumeDraft')}</Button>
+      </div>}
 
       {error && (
         <div className="border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
@@ -1379,7 +1738,7 @@ export function EmailClient({
         </div>
       )}
 
-      {!canReadActiveAccount ? (
+      {!usesIndexedFeed && !canReadActiveAccount ? (
         <div className="min-h-0 flex-1 overflow-y-auto">
           {activeAccount ? <div className="p-3 sm:p-5"><EmailSetupGuide setup={mailboxSetup} account={activeAccount} denied={deniedMailboxKey === mailboxScopeKey} onPersonalSetup={() => setAccountsOpen(true)} onCompose={openNewComposeDraft} /></div> : <section className="space-y-3 p-6 text-center"><h3 className="font-semibold">{tm('selectMailbox')}</h3><p className="text-sm text-muted-foreground">{tm('selectionRemoved')}</p></section>}
         </div>
@@ -1391,13 +1750,21 @@ export function EmailClient({
           )}
           style={layoutMode === 'wide'
             ? {
-              gridTemplateColumns: isFolderSidebarOpen
+              gridTemplateColumns: usesIndexedFeed ? `minmax(280px, ${effectiveListWidth}px) 8px minmax(0, 1fr)` : isFolderSidebarOpen
                 ? `220px minmax(280px, ${effectiveListWidth}px) 8px minmax(0, 1fr)`
                 : `minmax(280px, ${effectiveListWidth}px) 8px minmax(0, 1fr)`,
             }
             : undefined}
         >
-          <EmailMailboxNavigation
+          {usesIndexedFeed ? <>
+            <EmailFocusNavigation feed={focusFeed.feed} view={focusSearch || experienceMode === 'classic' ? 'all' : focusView}
+              category={focusSearch ? null : focusCategory} onViewChange={view => { consumeExternalFeedIntent(); setFocusView(view); setFocusSearch(''); }}
+              onCategoryChange={category => { consumeExternalFeedIntent(); setFocusCategory(category); }} onOpen={(item, dialog) => { consumeExternalFeedIntent(); openFeedMessage(item, dialog); }} onDone={(item, done) => void markPersonalFocus(item, done)}
+              selectionKey={selectedFeedItem?.selectionKey || ''} loading={focusFeed.loading} loadingMore={focusFeed.loadingMore}
+              error={focusFeed.error} hasUpdates={focusFeed.hasUpdates} hasMore={focusFeed.hasMore} onReload={focusFeed.reload}
+              onLoadMore={focusFeed.loadMore} aggregate={focusScope.kind !== 'mailbox'} />
+            {layoutMode === 'wide' && <EmailPaneResizeHandle label={t('resizeMessageList')} width={effectiveListWidth} onWidthChange={setListWidth} />}
+          </> : <EmailMailboxNavigation
             activeFolder={activeFolder}
             activeFolderName={activeFolderName}
             activeMessageListAction={activeMessageListAction}
@@ -1447,11 +1814,15 @@ export function EmailClient({
             selectedMessageId={selectedMessageId}
             viewerLabels={messageViewerLabels}
             searchQuery={submittedQuery}
-          />
+          />}
 
           {layoutMode === 'wide' && <section className="flex min-h-0 flex-col overflow-hidden border border-border bg-card">
+            {experienceMode === 'focus' && currentAssessmentItem && <div className="max-h-[min(40dvh,50%)] shrink-0 overflow-y-auto" data-testid="email-assessment-scroll">
+              <EmailClassificationDetails item={currentAssessmentItem} userId={session?.user.id || ''}
+                onItemChange={applyClassificationItem} onUnavailable={() => clearReader()} />
+            </div>}
             <EmailMessageViewer
-              key={`email-message-viewer:${activeAccount?.id || ''}:${selectedMessage?.folder || activeFolder}:${selectedMessage?.id || 'empty'}:${readerRevision}`}
+              key={`email-message-viewer:${mailboxScopeKey}:${selectedMessage?.selectionKey || selectedMessage?.id || 'empty'}:${readerRevision}`}
               actions={selectedMessage ? { canWrite: canWriteActiveAccount, canRunAgent, activeAction: activeMessageAction, folders, onAction: handleMessageAction } : undefined}
               accountId={activeAccount?.id}
               mailboxWorkspaceId={mailboxWorkspaceId}
@@ -1485,8 +1856,12 @@ export function EmailClient({
                 {selectedMessage ? `${t('from')}: ${selectedMessage.from}` : t('loadingMessage')}
               </DialogDescription>
             </DialogHeader>
+            {experienceMode === 'focus' && currentAssessmentItem && <div className="max-h-[min(40dvh,50%)] shrink-0 overflow-y-auto [&>section]:pr-12" data-testid="email-assessment-scroll">
+              <EmailClassificationDetails item={currentAssessmentItem} userId={session?.user.id || ''}
+                onItemChange={applyClassificationItem} onUnavailable={() => clearReader()} />
+            </div>}
             <EmailMessageViewer
-              key={`email-message-dialog-viewer:${activeAccount?.id || ''}:${selectedMessage?.folder || activeFolder}:${selectedMessage?.id || 'empty'}:${readerRevision}`}
+              key={`email-message-dialog-viewer:${mailboxScopeKey}:${selectedMessage?.selectionKey || selectedMessage?.id || 'empty'}:${readerRevision}`}
               actions={selectedMessage ? { canWrite: canWriteActiveAccount, canRunAgent, activeAction: activeMessageAction, folders, onAction: handleMessageAction } : undefined}
               accountId={activeAccount?.id}
               mailboxWorkspaceId={mailboxWorkspaceId}
@@ -1521,12 +1896,16 @@ export function EmailClient({
         error={composeError}
         isGeneratingAi={isGeneratingComposeAi}
         isSubmitting={isSubmittingCompose}
-        canGenerateAi={canRunAgent}
-        submitDisabled={!canWriteActiveAccount || composeController.sendUncertain}
+        canGenerateAi={composeController.draftCanGenerateAi}
+        submitDisabled={!composeController.draftCanWrite || composeController.sendUncertain}
         onOpenOutbox={composeController.sendUncertain ? composeController.openOutbox : undefined}
-        accountId={activeAccount?.id}
-        mailboxWorkspaceId={mailboxWorkspaceId}
-        senderAddress={activeAccount?.emailAddress || ''}
+        accountId={composeController.draftAccount?.id}
+        mailboxWorkspaceId={composeController.draftMailboxWorkspaceId}
+        senderAddress={composeController.draftSenderAddress}
+        attachmentWorkspaceId={composeController.draftAttachmentWorkspaceId}
+        composeMinimized={composeController.composeMinimized}
+        onMinimize={composeController.minimize}
+        minimizeLabel={tf('minimizeDraft')}
         labels={composeDialogLabels}
         locale={locale}
         onAllowRemoteResourcesForSender={allowRemoteImagesForSender}
@@ -1535,6 +1914,26 @@ export function EmailClient({
         onSubmit={() => void submitComposeDraft()}
         onUpdate={updateComposeDraft}
       />
+
+      <Dialog open={composeSenderOpen} onOpenChange={setComposeSenderOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader><DialogTitle>{tf('sourceComposeTitle')}</DialogTitle><DialogDescription>{tf('selectSender')}</DialogDescription></DialogHeader>
+          <select className="h-10 w-full min-w-0 rounded-md border border-input bg-background px-3 text-sm" aria-label={tf('selectSender')}
+            value={composeSenderKey} onChange={event => setComposeSenderKey(event.target.value)}>
+            {accounts.filter(account => account.capabilities?.canWrite !== false).map(account => <option key={emailAccountSelectionKey(account)} value={emailAccountSelectionKey(account)}>
+              {account.emailAddress}{account.workspaceName ? ` · ${account.workspaceName}` : ''}
+            </option>)}
+          </select>
+          <Button type="button" disabled={!accounts.some(account => emailAccountSelectionKey(account) === composeSenderKey && account.capabilities?.canWrite !== false)}
+            onClick={() => {
+              const account = accounts.find(candidate => emailAccountSelectionKey(candidate) === composeSenderKey && candidate.capabilities?.canWrite !== false);
+              if (!account) return;
+              setComposeSenderOpen(false);
+              if (emailAccountContextKey(account) === mailboxScopeKey) openNewComposeDraft();
+              else { pendingComposeAccountRef.current = emailAccountContextKey(account); clearReader(); setActiveAccountId(emailAccountSelectionKey(account)); }
+            }}>{tf('composeWithSender')}</Button>
+        </DialogContent>
+      </Dialog>
 
       {accounts.length > 0 && (
         <Dialog open={accountsOpen} onOpenChange={setAccountsOpen}>

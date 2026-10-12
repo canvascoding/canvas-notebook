@@ -28,7 +28,7 @@ test('edit tool advertises review-aware receipts and stable retries', async () =
     required: string[];
   };
 
-  assert.equal(DIRECT_MCP_TOOL_CONFIGURATION_VERSION, 5);
+  assert.equal(DIRECT_MCP_TOOL_CONFIGURATION_VERSION, 6);
   assert.ok(input.properties.idempotency_key);
   for (const field of [
     'status',

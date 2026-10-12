@@ -46,6 +46,7 @@ function wikiLinkNode(rawTarget: string, embed: boolean): PhrasingContent | null
     data: {
       hProperties: {
         className: embed ? ['canvas-wiki-embed'] : ['canvas-wiki-link'],
+        'data-canvas-wiki-alias': target.alias || undefined,
         'data-canvas-wiki-block': target.blockId || undefined,
         'data-canvas-wiki-embed': embed ? 'true' : undefined,
         'data-canvas-wiki-heading': target.heading || undefined,

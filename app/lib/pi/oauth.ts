@@ -5,6 +5,7 @@
 
 import { readFileSync } from 'fs';
 import { join } from 'path';
+import { createHash, randomUUID } from 'node:crypto';
 import type {
   AuthEvent,
   AuthPrompt,
@@ -32,6 +33,7 @@ export type OAuthCredentials = PiOAuthCredentials;
 
 export const PI_OAUTH_PROVIDERS = [
   'anthropic',
+  'openai',
   'openai-codex',
   'github-copilot',
   'kimi-coding',
@@ -45,10 +47,13 @@ export type OAuthProviderId = (typeof PI_OAUTH_PROVIDERS)[number];
 export type { OAuthPrompt };
 
 const PI_OAUTH_SECRET_KEY = 'CANVAS_CREDENTIAL_PI_OAUTH';
+const PI_OAUTH_DEVICE_ID_KEY = 'CANVAS_PI_OAUTH_DEVICE_ID';
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export type OAuthStorageScope = UserScopedDataStorageScope;
 
 export const PI_VISIBLE_OAUTH_PROVIDERS: OAuthProviderId[] = [
+  'openai',
   'openai-codex',
   'openrouter',
   'kimi-coding',
@@ -60,7 +65,8 @@ export const PI_VISIBLE_OAUTH_PROVIDERS: OAuthProviderId[] = [
 // Provider display names – dynamic lookup for providers registered at runtime
 export const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
   'anthropic': 'Anthropic (Claude legacy OAuth)',
-  'openai-codex': 'OpenAI Codex (ChatGPT Login)',
+  'openai': 'OpenAI (ChatGPT Login)',
+  'openai-codex': 'OpenAI Codex (Legacy ChatGPT Login)',
   'github-copilot': 'GitHub Copilot',
   'kimi-coding': 'Kimi Code',
   'meta': 'Meta AI',
@@ -105,6 +111,19 @@ function hasUserScope(scope?: OAuthStorageScope | null): boolean {
 
 function oauthSecretScope(scope?: OAuthStorageScope | null): EnvStorageScope {
   return hasUserScope(scope) ? { userId: scope!.userId } : { secretScope: 'system' };
+}
+
+/** One stable installation identity, independent of account, reconnect and token refresh. */
+export async function getOrCreatePiOAuthDeviceId(): Promise<string> {
+  let deviceId = '';
+  await mutateUnifiedSecretValue(PI_OAUTH_DEVICE_ID_KEY, async current => {
+    if (current !== null && !UUID_PATTERN.test(current)) {
+      throw new Error('Invalid Canvas Pi OAuth device ID in system Secrets.');
+    }
+    deviceId = current ?? randomUUID();
+    return deviceId;
+  }, { secretScope: 'system' });
+  return deviceId;
 }
 
 /** Canonical durable storage path; auth.json paths are read-only migration sources. */
@@ -182,7 +201,7 @@ async function mutateAuthFile<T>(scope: OAuthStorageScope | null | undefined, op
   return result;
 }
 
-function credentialStoreForScope(scope?: OAuthStorageScope | null): CredentialStore {
+function credentialStoreForScope(scope?: OAuthStorageScope | null, newConnection = false): CredentialStore {
   return {
     read: async (providerId, options) => mutateAuthFile(scope, async auth => {
       options?.signal?.throwIfAborted();
@@ -199,7 +218,12 @@ function credentialStoreForScope(scope?: OAuthStorageScope | null): CredentialSt
       if (next) {
         const normalized = normalizeOAuthCredential(next);
         if (!normalized || ['__proto__', 'constructor', 'prototype'].includes(providerId)) throw new Error('Invalid PI OAuth provider credential.');
-        auth[providerId] = normalized;
+        const previous = auth[providerId];
+        auth[providerId] = {
+          ...normalized,
+          canvasConnectionId: newConnection ? randomUUID() : connectionId(normalized) ?? connectionId(previous)
+            ?? (previous ? legacyConnectionId(previous) : randomUUID()),
+        } as OAuthCredential;
       }
       return auth[providerId];
     }),
@@ -210,9 +234,24 @@ function credentialStoreForScope(scope?: OAuthStorageScope | null): CredentialSt
   };
 }
 
-async function modelsForScope(scope?: OAuthStorageScope | null) {
+async function modelsForScope(scope?: OAuthStorageScope | null, newConnection = false) {
   const { builtinModels } = await import('@earendil-works/pi-ai/providers/all');
-  return builtinModels({ credentials: credentialStoreForScope(scope) });
+  return builtinModels({ credentials: credentialStoreForScope(scope, newConnection) });
+}
+
+function connectionId(credential?: OAuthCredential): string | null {
+  const value = (credential as OAuthCredential & { canvasConnectionId?: unknown } | undefined)?.canvasConnectionId;
+  return typeof value === 'string' && value ? value : null;
+}
+
+function legacyConnectionId(credential: OAuthCredential): string {
+  return createHash('sha256').update(credential.refresh).digest('hex');
+}
+
+/** Opaque owner-scoped connection identity. Refresh preserves it; reconnect replaces it. */
+export function getProviderConnectionId(provider: OAuthProviderId, scope: OAuthStorageScope): string | null {
+  const credential = getProviderCredentials(provider, scope);
+  return credential?.refresh ? connectionId(credential) ?? legacyConnectionId(credential) : null;
 }
 
 /**
@@ -242,7 +281,7 @@ export async function saveProviderCredentials(
 ): Promise<void> {
   const normalized = normalizeOAuthCredential(credentials);
   if (!normalized) throw new Error(`Invalid OAuth credentials for ${provider}.`);
-  await credentialStoreForScope(scope).modify(provider, async () => normalized);
+  await credentialStoreForScope(scope, true).modify(provider, async () => normalized);
 }
 
 /**
@@ -280,7 +319,8 @@ export async function initiateOAuthLogin(
   onProgress?: ProgressCallback,
   scope?: OAuthStorageScope | null,
 ): Promise<OAuthCredentials> {
-  const models = await modelsForScope(scope);
+  const models = await modelsForScope(scope, true);
+  const deviceId = provider === 'openai' ? await getOrCreatePiOAuthDeviceId() : undefined;
   const credential = await models.login(provider, 'oauth', {
     prompt: async (prompt: AuthPrompt) => {
       prompt.signal?.throwIfAborted();
@@ -305,7 +345,7 @@ export async function initiateOAuthLogin(
         onProgress?.(event.message);
       }
     },
-  });
+  }, deviceId ? { getDeviceId: () => deviceId } : undefined);
   if (credential.type !== 'oauth') throw new Error(`Provider ${provider} did not return OAuth credentials.`);
   return credential;
 }

@@ -26,7 +26,10 @@ export type OrdinaryAgentDocument = {
 export async function withOrdinaryAgentDocument(browser: Browser, initialContent: string,
   run: (fixture: OrdinaryAgentDocument) => Promise<void>,
   options: { workspaceKind?: 'personal' | 'team'; identity?: AuthenticatedContextIdentity;
+    workspaceId?: string;
     cleanupIdentity?: AuthenticatedContextIdentity; initialReviewRequired?: boolean;
+    navigationTimeoutMs?: number;
+    retryStaleCleanup?: boolean;
     bindToolSessionToFixture?: boolean;
     expectedReviewServerErrors?: ReadonlyArray<ProposalReviewServerErrorExpectation> } = {}): Promise<void> {
   const workspaceKind = options.workspaceKind ?? 'personal';
@@ -49,6 +52,7 @@ export async function withOrdinaryAgentDocument(browser: Browser, initialContent
     expect(workspacesResponse.ok()).toBeTruthy();
     const workspace = ((await workspacesResponse.json()).workspaces as Workspace[]).find(item =>
       (workspaceKind === 'personal' ? item.type === 'personal' : ['team', 'organization'].includes(item.type))
+      && (!options.workspaceId || item.id === options.workspaceId)
       && !item.legacy && item.permissions.canWrite && item.permissions.canRunAgent);
     expect(workspace, `A writable ${workspaceKind} workspace is required.`).toBeTruthy();
     expect(Boolean(workspace!.permissions.canDelete || options.cleanupIdentity),
@@ -61,12 +65,19 @@ export async function withOrdinaryAgentDocument(browser: Browser, initialContent
       localStorage.setItem('canvas.activeWorkspaceId', id);
       localStorage.setItem('canvas.notebook.chatVisible', 'false');
     }, workspaceId);
-    await page.goto(`/en/notebook?path=${encodeURIComponent(filePath)}`);
+    await page.goto(`/en/notebook?path=${encodeURIComponent(filePath)}`, { timeout: options.navigationTimeoutMs });
     const policy = page.getByRole('switch', {
       name: /Require review for agent changes|Edit directly when safe|Review für Agentenänderungen erforderlich|Direkt bearbeiten, wenn sicher/u,
     });
-    await expect(policy).not.toBeChecked({ timeout: 30_000 });
-    if (options.initialReviewRequired !== false) {
+    if (options.initialReviewRequired === false) {
+      const availability = await context.request.get('/api/document-review/availability');
+      expect(availability.ok()).toBeTruthy();
+      const { data } = await availability.json() as { data: { documentReviewEnabled: boolean } };
+      expect(typeof data.documentReviewEnabled).toBe('boolean');
+      if (data.documentReviewEnabled) await expect(policy).not.toBeChecked({ timeout: 30_000 });
+      else await expect(policy).toHaveCount(0);
+    } else {
+      await expect(policy).not.toBeChecked({ timeout: 30_000 });
       await policy.click();
       await expect(policy).toBeChecked();
     }
@@ -119,10 +130,32 @@ export async function withOrdinaryAgentDocument(browser: Browser, initialContent
       if (uploaded && workspaceId) {
         const cleanup = options.cleanupIdentity
           ? (cleanupContext = await createAuthenticatedContext(browser, {}, options.cleanupIdentity)) : context;
-        const response = await cleanup.request.delete('/api/files/delete', {
-          headers: { 'x-canvas-workspace-id': workspaceId }, data: { path: filePath },
-        });
-        expect(response.ok(), `Remove only the scoped synthetic Markdown document (${response.status()}).`).toBeTruthy();
+        for (let attempt = 0; attempt < (options.retryStaleCleanup ? 3 : 1); attempt++) {
+          const response = await cleanup.request.delete('/api/files/delete', {
+            headers: { 'x-canvas-workspace-id': workspaceId }, data: { path: filePath },
+            timeout: options.retryStaleCleanup ? 15_000 : undefined,
+          });
+          if (response.ok()) return;
+          const payload = await response.json() as { code?: string };
+          if (options.retryStaleCleanup && response.status() === 409 && payload.code === 'PREVIEW_STALE' && attempt < 2) {
+            // Adopt the exact current proof before replanning the same owned deletion.
+            const current = await cleanup.request.post('/api/files/collaboration/session', {
+              headers: { 'x-canvas-workspace-id': workspaceId },
+              data: { path: filePath, representation: 'auto', ...COLLABORATION_CLIENT_CAPABILITIES }, timeout: 15_000,
+            });
+            expect(current.ok(), 'Read the owned document proof for stale cleanup.').toBeTruthy();
+            const proof = await current.json() as { token: string; stateVector: string; stateProof: string };
+            const checkpoint = await cleanup.request.post('/api/files/collaboration/checkpoint', {
+              headers: { 'x-canvas-workspace-id': workspaceId },
+              data: { token: proof.token, stateVector: proof.stateVector, stateProof: proof.stateProof }, timeout: 15_000,
+            });
+            expect(checkpoint.ok(), 'Checkpoint the exact owned document proof before cleanup retry.').toBeTruthy();
+            await new Promise(resolve => setTimeout(resolve, 500));
+            continue;
+          }
+          expect(response.ok(), `Remove only the scoped synthetic Markdown document (${response.status()}, ${payload.code ?? 'unknown'}).`)
+            .toBeTruthy();
+        }
       }
     } },
     { label: 'cleanup identity context', run: async () => { await cleanupContext?.close(); } },

@@ -6,6 +6,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { resolveFreshAgentSkillReadRoots } from '@/app/lib/skills/fresh-agent-skill-read-roots';
 
 import { recordAuditEvent } from '@/app/lib/audit/audit-service';
+import { withWorkspaceFileLifecycleGuard } from '@/app/lib/files/workspace-file-lifecycle-guard';
 import { DEFAULT_MANAGED_AGENT_ID } from '@/app/lib/agents/storage';
 import { logger } from '@/app/lib/logging';
 import {
@@ -97,6 +98,7 @@ import { getExistingDirectWorkspacePathOperation, submitDirectWorkspacePathOpera
 import { getWorkspaceOperationBatchExecutionPublic } from '@/app/lib/files/workspace-operation-batch-executor';
 import type { WorkspaceOperationBatchRecord } from '@/app/lib/files/workspace-operation-batch-store';
 import type { WorkspaceOperationBatchPublic } from '@/app/lib/files/workspace-operation-batch-public';
+import { workspacePathOperationPublicIssues, type WorkspacePathOperationIssue } from '@/app/lib/files/workspace-path-operation-public';
 import { captureWorkspaceOperationBackup } from '@/app/lib/files/workspace-operation-backup';
 import {
   parseOptionalProposalToolEditV1, parseProposalToolReadRequestV1,
@@ -162,7 +164,7 @@ export type AgentFileChangeResult = {
 
 export type AgentWorkspaceFileOperation = Pick<WorkspaceOperationBatchPublic,
   'batchId' | 'planId' | 'workspaceId' | 'status' | 'completedActions' | 'totalActions' | 'phase' | 'errorCode'>
-  & { kind?: 'move' | 'rename' | 'delete' };
+  & { kind?: 'move' | 'rename' | 'delete'; issues?: WorkspacePathOperationIssue[] };
 
 /** An existing operation must be inspected instead of silently applying a new edit. */
 export class AgentFileOperationOutcomeUnavailableError extends Error {
@@ -1409,6 +1411,21 @@ async function withAgentWorkspaceMutationLocks<T>(
   if (workspacePaths.length === 0) return operation();
 
   return withWorkspaceFileMutationLocks(workspacePaths, { workspace }, operation);
+}
+
+/** Path actions keep admission fenced until their filesystem and metadata work finish. */
+async function withAgentWorkspacePathLifecycleGuard<T>(
+  fullPaths: readonly string[],
+  operation: () => Promise<T>,
+): Promise<T> {
+  const workspace = getAgentWorkspaceContext();
+  const workspacePaths = workspace ? fullPaths
+    .filter((fullPath) => isPathWithin(fullPath, workspace.rootPath))
+    .map((fullPath) => workspaceRelativeAgentPath(workspace, fullPath)) : [];
+  if (!workspace || workspacePaths.length === 0) return withAgentWorkspaceMutationLocks(fullPaths, operation);
+  return withWorkspaceFileLifecycleGuard({ workspaceId: workspace.workspaceId,
+    paths: workspacePaths.map((entry) => entry === '.' ? '' : entry) },
+  () => withAgentWorkspaceMutationLocks(fullPaths, operation));
 }
 
 async function assertAgentFileUnchangedBeforeReplace(params: {
@@ -3235,9 +3252,11 @@ async function agentDirectWorkspacePathResult(input: AgentWorkspacePathRequest,
   result.changed = paths.length > 0;
   result.verified = complete;
   result.operationIds = [batch.batchId];
+  const issues = workspacePathOperationPublicIssues(batch.plan);
   result.fileOperation = { batchId: batch.batchId, planId: batch.planId, workspaceId: batch.workspaceId,
     status: batch.status, completedActions: batch.completedActions, totalActions: batch.totalActions,
-    phase: batch.phase, errorCode: batch.errorCode, kind: batch.plan.actions.at(-1)?.kind };
+    phase: batch.phase, errorCode: batch.errorCode, kind: batch.plan.actions.at(-1)?.kind,
+    ...(issues.length ? { issues } : {}) };
   result.linkStatus = complete ? 'complete' : paths.length ? 'partial' : 'incomplete';
   result.linkWarnings = complete ? [] : [
     ['queued', 'applying'].includes(batch.status)
@@ -3651,7 +3670,7 @@ export async function copyAgentPaths(params: {
     idempotencyKey: params.idempotencyKey,
   });
   if (review) return review;
-  return withAgentWorkspaceMutationLocks(
+  return withAgentWorkspacePathLifecycleGuard(
     mutationStates.map((state) => state.fullPath),
     async () => {
       await assertAgentPathMutationStatesUnchanged(mutationStates, 'copy_path');
@@ -3815,7 +3834,7 @@ export async function moveAgentPaths(params: {
       idempotencyKey: params.idempotencyKey,
     });
     if (review) return review;
-    return withAgentWorkspaceMutationLocks(
+    return withAgentWorkspacePathLifecycleGuard(
       mutationStates.map((state) => state.fullPath),
       async () => {
         await assertAgentPathMutationStatesUnchanged(mutationStates, 'move_path');
@@ -4001,7 +4020,7 @@ export async function deleteAgentPaths(params: {
       ignoreMissing: params.ignoreMissing, recursive: params.recursive, idempotencyKey: params.idempotencyKey,
     });
     if (review) return review;
-    return withAgentWorkspaceMutationLocks(
+    return withAgentWorkspacePathLifecycleGuard(
       mutationStates.map((state) => state.fullPath),
       async () => {
         await assertAgentPathMutationStatesUnchanged(mutationStates, 'delete_path');
