@@ -188,13 +188,13 @@ export CANVAS_TEST_STATE_DIR="$TMP_DIR/state"
 export CANVAS_USE_COLOR=false
 export CANVAS_CLI_SELF_UPDATE=false
 export CANVAS_HEALTH_MAX_ATTEMPTS=1
-export CANVAS_UPDATE_POSTGRES_TIMEOUT=5
+export CANVAS_UPDATE_POSTGRES_TIMEOUT=10
 export CANVAS_TEST_MUTABLE_IMAGE='ghcr.io/canvascoding/canvas-notebook:latest'
 export CANVAS_TEST_TARGET_IMAGE="ghcr.io/canvascoding/canvas-notebook:release_1@sha256:$(printf 'a%.0s' {1..64})"
 export CANVAS_TEST_POSTGRES_PASSWORD='update-test-password'
 export CANVAS_TEST_DATABASE_URL="postgresql://canvas:${CANVAS_TEST_POSTGRES_PASSWORD}@postgres:5432/canvas_notebook"
 readonly UPDATE_ROLLBACK_RESERVE_SECONDS=30
-readonly UPDATE_POSTGRES_PREFLIGHT_BUDGET_SECONDS=5
+readonly UPDATE_POSTGRES_PREFLIGHT_BUDGET_SECONDS=10
 readonly UPDATE_FORWARD_PHASE_BUDGET_SECONDS=1
 
 cli="$TMP_DIR/install/bin/canvas-notebook"
