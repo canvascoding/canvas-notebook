@@ -11,7 +11,7 @@ import {
 import type { MarkdownFrontmatterMode } from '@/app/lib/markdown/editor-document';
 import { SafeMarkdownImage } from '@/app/components/shared/SafeMarkdownImage';
 import { ClipboardCopyButton } from '@/app/components/shared/ClipboardCopyButton';
-import { plainTextToClipboardHtml } from '@/app/lib/clipboard/browser';
+import { codeBlockClipboardContent } from '@/app/lib/clipboard/browser';
 import { ObsidianWikiLink } from '@/app/components/shared/ObsidianWikiLink';
 import { WorkspaceMarkdownEmbed } from '@/app/components/shared/WorkspaceMarkdownEmbed';
 import {
@@ -333,7 +333,7 @@ export function MarkdownRenderer({
         <div className="markdown-document-code-block group relative my-3 max-w-full">
           <div className="absolute right-1 top-1 z-10">
             <ClipboardCopyButton
-              content={{ plainText: code, html: plainTextToClipboardHtml(code) }}
+              content={codeBlockClipboardContent(code)}
               menuSide="bottom"
               testId="markdown-code-block-copy"
               buttonClassName="sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100"

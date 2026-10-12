@@ -20,7 +20,7 @@ import { toMediaUrl, toWorkspaceMediaUrl } from '@/app/lib/utils/media-url';
 import { useWorkspaceStore } from '@/app/store/workspace-store';
 import { SafeMarkdownImage } from '@/app/components/shared/SafeMarkdownImage';
 import { ClipboardCopyButton } from '@/app/components/shared/ClipboardCopyButton';
-import { plainTextToClipboardHtml } from '@/app/lib/clipboard/browser';
+import { codeBlockClipboardContent } from '@/app/lib/clipboard/browser';
 import { resolvePreviewSrcFromMediaUrl } from '@/app/lib/chat/attachment-preview';
 import { cn } from '@/lib/utils';
 import { useOpenChatFileReference } from '@/app/components/canvas-agent-chat/useOpenChatFileReference';
@@ -188,7 +188,7 @@ function MarkdownCodeBlock({
           {language || 'code'}
         </span>
         <ClipboardCopyButton
-          content={{ plainText: code, html: plainTextToClipboardHtml(code) }}
+          content={codeBlockClipboardContent(code)}
           menuSide="top"
           testId="chat-code-block-copy"
           buttonClassName="sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100"

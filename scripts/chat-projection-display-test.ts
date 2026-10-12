@@ -21,6 +21,17 @@ assert.equal(stripInternalProjectionNotices(imageNotice), '');
 assert.equal(stripInternalProjectionNotices('[image/png image omitted from loaded chat context (9999999 inline characters); raw image remains in database]'), '');
 const ordinary = 'The report omitted a section. [Keep this reference] [An unrelated image omitted from history]';
 assert.equal(stripInternalProjectionNotices(ordinary), ordinary);
+
+for (const literal of [
+  'First paragraph\n\n\n\nSecond paragraph',
+  '```text\nFirst\n\n\n\n  Last\n```',
+  '~~~text\nFirst\n \n\t\n  Last\n~~~',
+]) {
+  assert.equal(stripInternalProjectionNotices(literal), literal,
+    'internal notice filtering must preserve authored blank lines and code whitespace');
+  assert.equal(stripInternalProjectionNotices(`${pathNotice}\n\n${literal}`), `\n\n${literal}`,
+    'removing a transport notice must not normalize the remaining user content');
+}
 assert.equal(extractPiMessageText({ role: 'user', content: `Why does ${imageNotice} appear?`, timestamp: 1 } as AgentMessage), `Why does ${imageNotice} appear?`);
 assert.equal(extractPiMessageText({ role: 'assistant', content: [{ type: 'text', text: `Done.\n${imageNotice}` }] } as AgentMessage), 'Done.');
 assert.equal(extractPiMessageText({ role: 'assistant', content: [{ type: 'text', text: '<think>Private reasoning</think>Done.</think>' }] } as AgentMessage), 'Done.');

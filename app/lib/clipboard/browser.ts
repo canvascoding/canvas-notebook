@@ -48,6 +48,57 @@ export function plainTextToClipboardHtml(value: string): string {
     .join("");
 }
 
+/**
+ * Code blocks contain literal text, not Markdown paragraphs or lists. Explicit
+ * breaks survive paste targets that discard whitespace styles; inherited font
+ * settings avoid importing the editor's small monospace presentation.
+ */
+export function codeBlockToClipboardHtml(value: string): string {
+  if (!value) return "";
+  const normalized = value.replace(/\r\n?/g, "\n");
+  return `<div style="white-space: pre-wrap; font-family: inherit; font-size: inherit; line-height: inherit;">${escapeHtml(normalized).replace(/\n/g, "<br>")}</div>`;
+}
+
+export function codeBlockClipboardContent(plainText: string): ClipboardContent {
+  return { plainText, html: codeBlockToClipboardHtml(plainText) };
+}
+
+/** Copy message content without its controls or code-block presentation. */
+export function richContentToClipboardHtml(contentElement: HTMLElement): string {
+  const copy = contentElement.cloneNode(true) as HTMLElement;
+  const ownerDocument = contentElement.ownerDocument;
+  const codeBlocks = Array.from(copy.querySelectorAll("pre"), (pre) => ({
+    element: pre.closest(".markdown-code-block") ?? pre,
+    // ReactMarkdown adds one fence-ending newline, as in the code-block button.
+    text: (pre.querySelector("code")?.textContent ?? pre.textContent ?? "")
+      .replace(/\n$/, ""),
+  }));
+
+  copy.querySelectorAll("button").forEach((button) => {
+    const text = button.textContent?.trim();
+    if (!text) {
+      button.remove();
+      return;
+    }
+    const replacement = ownerDocument.createElement("span");
+    replacement.textContent = text;
+    button.replaceWith(replacement);
+  });
+  copy.querySelectorAll("svg").forEach((icon) => icon.remove());
+  copy.querySelectorAll<HTMLElement>("*").forEach((element) => {
+    element.removeAttribute("class");
+    element.removeAttribute("style");
+  });
+
+  for (const { element, text } of codeBlocks) {
+    const template = ownerDocument.createElement("template");
+    template.innerHTML = codeBlockToClipboardHtml(text);
+    element.replaceWith(template.content);
+  }
+
+  return copy.innerHTML;
+}
+
 export async function writePlainTextToClipboard(text: string): Promise<void> {
   if (navigator.clipboard?.writeText) {
     await navigator.clipboard.writeText(text);

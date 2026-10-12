@@ -45,6 +45,7 @@ import {
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Link } from '@/i18n/navigation';
 import { cn } from '@/lib/utils';
+import { richContentToClipboardHtml } from '@/app/lib/clipboard/browser';
 
 function hasEarlierVisibleAssistantInRun(
   messages: ChatMessage[],
@@ -165,30 +166,8 @@ async function writeMessageTextToClipboard(text: string): Promise<void> {
   }
 }
 
-function getRichClipboardHtml(contentElement: HTMLElement): string {
-  const copy = contentElement.cloneNode(true) as HTMLElement;
-
-  copy.querySelectorAll('button').forEach((button) => {
-    const text = button.textContent?.trim();
-    if (!text) {
-      button.remove();
-      return;
-    }
-    const replacement = document.createElement('span');
-    replacement.textContent = text;
-    button.replaceWith(replacement);
-  });
-  copy.querySelectorAll('svg').forEach((icon) => icon.remove());
-  copy.querySelectorAll<HTMLElement>('*').forEach((element) => {
-    element.removeAttribute('class');
-    element.removeAttribute('style');
-  });
-
-  return copy.innerHTML;
-}
-
 async function writeRichMessageToClipboard(text: string, contentElement: HTMLElement | null): Promise<void> {
-  const html = contentElement ? getRichClipboardHtml(contentElement) : '';
+  const html = contentElement ? richContentToClipboardHtml(contentElement) : '';
 
   if (html && navigator.clipboard?.write && typeof ClipboardItem !== 'undefined') {
     try {

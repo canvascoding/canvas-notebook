@@ -7,6 +7,5 @@ export function stripInternalProjectionNotices(text: string): string {
   return text
     .replace(/\[absolute server path omitted from (?:persisted chat history|live event)\]/g, '')
     .replace(/\[(?:image|[\w.+-]+\/[\w.+-]+) image omitted from (?:persisted chat history|live event); reopen or read the authorized source to analyze it\.\]/g, '')
-    .replace(/\[(?:image|[\w.+-]+\/[\w.+-]+) image omitted from loaded chat context \(\d+ inline characters\); raw image remains in database\]/g, '')
-    .replace(/\n[ \t]*\n(?:[ \t]*\n)+/g, '\n\n');
+    .replace(/\[(?:image|[\w.+-]+\/[\w.+-]+) image omitted from loaded chat context \(\d+ inline characters\); raw image remains in database\]/g, '');
 }

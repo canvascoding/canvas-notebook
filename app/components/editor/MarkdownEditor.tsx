@@ -126,7 +126,7 @@ import { MarkdownInsertDialog } from './MarkdownInsertDialog';
 import { MarkdownSelectionMenu } from './MarkdownSelectionMenu';
 import { MarkdownRenderer } from '@/app/components/shared/MarkdownRenderer';
 import { ClipboardCopyButton } from '@/app/components/shared/ClipboardCopyButton';
-import { plainTextToClipboardHtml } from '@/app/lib/clipboard/browser';
+import { codeBlockClipboardContent } from '@/app/lib/clipboard/browser';
 import {
   clampEditorRangeToDoc,
   getSlashCommandDeletionRange,
@@ -1671,7 +1671,7 @@ function MermaidCodeBlockNodeView({ node }: NodeViewProps) {
       <NodeViewWrapper as="div" className="tiptap-code-block group relative">
         <div className="absolute right-2 top-2 z-10" contentEditable={false}>
           <ClipboardCopyButton
-            content={{ plainText: node.textContent, html: plainTextToClipboardHtml(node.textContent) }}
+            content={codeBlockClipboardContent(node.textContent)}
             menuSide="bottom"
             testId="markdown-editor-code-block-copy"
             buttonClassName="sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100"
