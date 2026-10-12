@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/app/lib/auth';
+import { isAdminUser } from '@/app/lib/admin-auth';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 import { readEmailClassificationAvailability } from '@/app/lib/email/classification/admin-service';
 
@@ -15,7 +16,7 @@ export async function GET(request: NextRequest) {
     const availability = await readEmailClassificationAvailability();
     return NextResponse.json({ success: true, data: {
       enabled: availability.enabled, available: availability.available, revision: availability.revision,
-      defaultMode: availability.defaultMode, reason: availability.reason,
+      defaultMode: availability.defaultMode, reason: availability.reason, canConfigure: isAdminUser(session.user),
     } }, { headers });
   } catch {
     return NextResponse.json({ success: false, code: 'CLASSIFICATION_STATUS_UNAVAILABLE', error: 'Email classification status is unavailable.' }, { status: 503, headers });

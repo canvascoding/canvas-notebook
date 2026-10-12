@@ -1,6 +1,7 @@
 import type { EmailMailboxScope, EmailMessageOrigin } from './mailbox-types';
 import type { EmailIndexedMessageList } from './store-types';
 import type { EmailCategory, EmailClassification, EmailFocusGroup } from './types';
+import type { EmailMailboxSyncErrorCode } from './sync-errors';
 
 export type EmailFeedMode = 'focus' | 'classic';
 export type EmailFeedView = 'focus' | 'all' | EmailFocusGroup;
@@ -17,6 +18,9 @@ export interface EmailClassificationFeedItem {
 export interface EmailClassificationFeedCoverage {
   mailboxRef: string; state: 'pending' | 'partial' | 'complete' | 'failed';
   lastSyncAt: number | null; indexed: number; pending: number; failed: number; stale: number;
+  /** Optional for older servers during rollout; current feeds always include these fields. */
+  errorCode?: EmailMailboxSyncErrorCode | null;
+  source?: Pick<EmailMessageOrigin, 'emailAddress' | 'displayName' | 'workspaceName'>;
 }
 export interface EmailClassificationFeed {
   scope: EmailMailboxScope; requestedMode: EmailFeedMode; mode: EmailFeedMode; view: EmailFeedView;

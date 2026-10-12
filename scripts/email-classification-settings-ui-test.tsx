@@ -45,12 +45,17 @@ async function main() {
   let failProbe = false;
   let refuseProbe = false;
   let managedBudget = false;
+  let probeErrorCode: string | null = null;
+  let deferProbe = false;
+  const pendingProbes: Array<(response: Response) => void> = [];
   const privateMessage = 'PRIVATE_PROVIDER_OR_SECRET_VALUE_MUST_NEVER_RENDER';
   globalThis.fetch = async (input, init) => {
     const url = new URL(String(input), 'http://localhost');
     assert.equal(init?.credentials, 'include');
     if (url.pathname === '/api/admin/email-classification/test') {
       probes.push(JSON.parse(String(init?.body)));
+      if (deferProbe) { deferProbe = false; return new Promise<Response>(resolve => pendingProbes.push(resolve)); }
+      if (probeErrorCode) return Response.json({ success: false, code: probeErrorCode, error: privateMessage }, { status: 503 });
       if (managedBudget) return Response.json({ success: false, code: 'EMAIL_CLASSIFICATION_MANAGED_BUDGET_EXHAUSTED', error: privateMessage }, { status: 402 });
       if (refuseProbe) return Response.json({ success: false, code: 'EMAIL_CLASSIFICATION_REFUSED', error: privateMessage }, { status: 502 });
       if (failProbe) return Response.json({ success: false, code: 'EMAIL_CLASSIFICATION_INVALID_RESPONSE', error: privateMessage }, { status: 502 });
@@ -77,24 +82,50 @@ async function main() {
     assert.equal(enable.getAttribute('aria-checked'), 'false');
     assert(view.getByText(en.emailClassificationSettings.selectionHint));
     assert.equal(enable.closest('[data-slot="collapsible-content"]'), null, 'Central activation stays outside the collapsed configuration');
-    assert.equal(view.queryByLabelText('Model'), null, 'Provider details start hidden');
-    fireEvent.click(view.getByRole('button', { name: 'Provider and configuration' }));
+    assert(view.getByLabelText('Model'), 'Primary model and access fields are visible without opening advanced configuration');
+    assert.equal(view.getByTestId('email-classification-setup').querySelectorAll(':scope > li').length, 4);
+    for (let step = 1; step <= 4; step++) assert.equal(view.getByTestId(`email-classification-step-${step}`).closest('[data-slot="collapsible-content"]'), null, 'The setup sequence remains visible outside advanced disclosure');
+    assert(view.getByText(en.emailClassificationSettings.setup.serviceHint));
+    assert.equal(view.getByTestId('email-classification-required-key').textContent, en.emailClassificationSettings.setup.systemKey.replace('{key}', 'TYPESAFE_API_KEY'));
+    assert.equal(probes.length, 0, 'Loading the guide never contacts a model');
+    fireEvent.click(view.getByRole('button', { name: en.emailClassificationSettings.configuration }));
     const model = view.getByLabelText('Model') as HTMLInputElement;
     assert.equal(view.getByLabelText(en.emailClassificationSettings.limits.initialLookbackDays).getAttribute('max'), '30');
     fireEvent.change(model, { target: { value: 'jev-draft' } });
+    assert.equal(probes.length, 0, 'Editing the model never starts a paid probe');
+    assert(view.getByTestId('email-classification-draft-status'));
+    assert.match(view.getByTestId('email-classification-readiness').textContent!, /Centrally disabled/);
     await act(async () => { fireEvent.click(view.getByRole('button', { name: 'Test draft' })); });
     assert.equal(probes[0].configuration.enabled, false); assert.equal(probes[0].configuration.model, 'jev-draft');
     assert.equal(writes.length, 0, 'Testing a disabled unsaved draft never saves or activates it');
+    assert(view.getByText(en.emailClassificationSettings.setup.testPassedMeaning));
     assert.equal(view.getAllByText('Unconfirmed').length, 2, 'Unknown category/priority are not fabricated as other/normal');
+    const probesBeforeSecrets: number = probes.length;
+    await act(async () => { window.dispatchEvent(new CustomEvent('canvas_secrets_updated')); });
+    assert.equal(view.queryByText('Sample evaluated in 42 ms'), null, 'A secret edit invalidates the earlier sample proof');
+    assert.equal(model.value, 'jev-draft', 'Secret edits preserve the unsaved model');
+    assert.equal(probes.length, probesBeforeSecrets, 'Secret edits never start a replacement sample automatically');
+    deferProbe = true;
+    await act(async () => { fireEvent.click(view.getByRole('button', { name: en.emailClassificationSettings.testAction })); });
+    await act(async () => { window.dispatchEvent(new CustomEvent('canvas_secrets_updated')); });
+    await act(async () => { pendingProbes.pop()!(Response.json({ success: true, data: { success: true, providerId: 'typesafe', model: 'jev-draft', latencyMs: 42,
+      classification: projectEmailClassification({ raw: null }), ratings: { spamProbability: 0.02, replyProbability: 0.9 } } })); });
+    assert.equal(view.queryByText('Sample evaluated in 42 ms'), null, 'A late test response cannot restore proof from before a secret edit');
     assert.equal(view.getByRole('link', { name: 'Manage system Secrets' }).getAttribute('href'), '/settings?tab=secrets');
     assert.equal(view.container.querySelector('input[type="password"]'), null, 'Only a credential name is editable here');
 
     const provider = view.getByLabelText('Provider');
     fireEvent.change(provider, { target: { value: 'systemone' } });
     fireEvent.change(view.getByLabelText(en.emailClassificationSettings.endpoint), { target: { value: 'http://127.0.0.1:11434/v1/systemone' } });
+    const advanced = view.getByTestId('email-classification-advanced') as HTMLDetailsElement;
+    fireEvent.click(advanced.querySelector('summary')!);
+    fireEvent.click(view.getByRole('switch', { name: en.emailClassificationSettings.privateNetwork }));
+    fireEvent.change(view.getByLabelText(en.emailClassificationSettings.credential), { target: { value: '' } });
+    assert.equal(view.getByTestId('email-classification-required-key').textContent, en.emailClassificationSettings.setup.anonymous, 'An explicitly anonymous private endpoint does not claim to need a key');
     fireEvent.change(provider, { target: { value: 'openai-decisions' } });
     assert.equal(model.value, 'gpt-6-luna');
     assert.equal((view.getByLabelText('System credential name') as HTMLInputElement).value, 'OPENAI_API_KEY');
+    assert.equal(view.getByTestId('email-classification-required-key').textContent, en.emailClassificationSettings.setup.systemKey.replace('{key}', 'OPENAI_API_KEY'));
     assert.equal(view.queryByLabelText(en.emailClassificationSettings.endpoint), null, 'OpenAI uses its fixed native Decisions endpoint');
     await act(async () => { fireEvent.click(view.getByRole('button', { name: 'Test draft' })); });
     assert.equal(probes.at(-1)!.configuration.providerId, 'openai-decisions');
@@ -147,7 +178,7 @@ async function main() {
     denyRead = true;
     const denied = render(wrap('de')); await tick();
     assert(denied.getByText('Nur Serveradministratoren können die E-Mail-Vorbereitung verwalten.'));
-    assert.equal((denied.getByRole('switch', { name: 'Für alle aktivieren' }) as HTMLButtonElement).disabled, true);
+    assert.equal(denied.queryByRole('switch', { name: 'Für alle aktivieren' }), null, 'Denied administrators receive no active setup controls');
     assert.equal(denied.container.textContent?.includes(privateMessage), false, 'Denied API details are never rendered');
     assert.equal(denied.queryByLabelText('Modell'), null);
     cleanup(); denyRead = false;
@@ -159,9 +190,12 @@ async function main() {
     server.credentials = { ...server.credentials, status: 'missing', configured: false };
     server.execution = { mode: 'managed', reason: null, managed: { status: 'ready', code: null, catalog: { contractVersion: 1, catalogRevision: profile.inferenceRevision, defaultModelRef: profile.ref, models: [profile, { ...profile, ref: 'central-second', name: 'Second decision model' }] } } };
     const managed = render(wrap('de')); await tick();
-    assert(managed.getByText(de.emailClassificationSettings.managed.title));
+    assert(managed.getAllByText(de.emailClassificationSettings.managed.title).length > 0);
     assert(managed.getByLabelText(de.emailClassificationSettings.managed.model));
     assert.equal(managed.queryByLabelText(de.emailClassificationSettings.credential), null);
+    assert(managed.getByText(de.emailClassificationSettings.setup.managedCredentials));
+    assert.equal(managed.getByRole('link', { name: de.emailClassificationSettings.setup.connectionLink }).getAttribute('href'), '/settings?tab=license');
+    assert.equal(managed.queryByRole('link', { name: de.emailClassificationSettings.secretsLink }), null, 'Managed access never points to local System Secrets');
     assert.equal(managed.queryByText(de.emailClassificationSettings.availability.missing_configuration), null, 'Managed readiness never demands a local system key.');
     fireEvent.click(managed.getByRole('button', { name: de.emailClassificationSettings.configuration }));
     assert.equal(managed.queryByLabelText(de.emailClassificationSettings.credential), null, 'Even expanded managed details contain no local key form.');
@@ -172,11 +206,63 @@ async function main() {
     assert.equal(probes.at(-1)!.configuration.managedModelRef, 'central-second');
     assert.equal(probes.at(-1)!.configuration.enabled, false);
     assert(managed.getByText(de.emailClassificationSettings.errors.managedBudget));
+    assert.equal(managed.getByTestId('email-classification-next-step').textContent, de.emailClassificationSettings.setup.next.budget);
     assert.equal(managed.container.textContent?.includes(privateMessage), false);
     fireEvent.change(managed.getByLabelText(de.emailClassificationSettings.deliveryMode), { target: { value: 'direct' } });
     assert(managed.getByLabelText(de.emailClassificationSettings.credential));
     fireEvent.change(managed.getByLabelText(de.emailClassificationSettings.deliveryMode), { target: { value: 'managed' } });
     assert.equal(managed.queryByLabelText(de.emailClassificationSettings.credential), null);
+    managedBudget = false;
+    for (const [code, key] of [['EMAIL_CLASSIFICATION_MANAGED_MISSING_CREDENTIALS', 'managedCredentials'], ['EMAIL_CLASSIFICATION_MANAGED_MISSING_PRICING', 'managedPricing']] as const) {
+      probeErrorCode = code;
+      await act(async () => { fireEvent.click(managed.getByRole('button', { name: de.emailClassificationSettings.testAction })); });
+      assert(managed.getByText(de.emailClassificationSettings.errors[key]));
+      assert.equal(managed.getByTestId('email-classification-next-step').textContent, de.emailClassificationSettings.setup.next[key === 'managedCredentials' ? 'credentials' : 'pricing']);
+      assert.equal(managed.container.textContent?.includes(privateMessage), false);
+      assert.equal(managed.queryByRole('link', { name: de.emailClassificationSettings.secretsLink }), null);
+    }
+    probeErrorCode = null;
+    cleanup();
+
+    server.settings.configuration.enabled = true;
+    server.availability = { ...server.availability, enabled: true, available: true, reason: 'budget_exhausted' };
+    server.health.state = 'paused'; server.execution.reason = 'budget_exhausted';
+    const savedManagedServer = structuredClone(server);
+    for (const locale of ['en', 'de'] as const) {
+      const messages = locale === 'en' ? en.emailClassificationSettings : de.emailClassificationSettings;
+      server = structuredClone(savedManagedServer);
+      const paused = render(wrap(locale)); await tick();
+      assert(paused.getByText(messages.status.enabled));
+      assert(paused.getByTestId('email-classification-readiness').textContent?.includes(messages.setup.readiness.paused), 'Focus availability never claims that paused processing is ready');
+      assert.equal(paused.getByTestId('email-classification-next-step').textContent, messages.setup.next.budget);
+      const probesBeforeDraft: number = probes.length;
+      fireEvent.change(paused.getByLabelText(messages.managed.model), { target: { value: 'central-second' } });
+      assert.equal(paused.getByTestId('email-classification-next-step').textContent, messages.setup.next.dailyBudget, 'Notebook budget status remains separate from a model-specific saved reason');
+      assert(paused.getByTestId('email-classification-draft-status'));
+      assert.equal(probes.length, probesBeforeDraft);
+      cleanup();
+      server = structuredClone(savedManagedServer); server.availability.reason = null; server.health.state = 'idle'; server.execution.reason = null;
+      const ready = render(wrap(locale)); await tick();
+      assert(ready.getByTestId('email-classification-readiness').textContent?.includes(messages.setup.readiness.ready));
+      cleanup();
+      for (const [reason, next] of [['missing_connection', 'connection'], ['scope_denied', 'access'], ['missing_configuration', 'model'], ['missing_credentials', 'credentials'], ['missing_pricing', 'pricing'], ['configuration_unavailable', 'unavailable']] as const) {
+        server = structuredClone(savedManagedServer); server.availability.reason = null; server.execution.reason = reason;
+        if (reason === 'missing_connection' || reason === 'scope_denied') server.execution.managed = { status: 'unavailable', code: reason, catalog: null };
+        else if (reason === 'missing_configuration') server.settings.configuration.managedModelRef = 'unavailable-model';
+        else server.execution.managed!.catalog!.models[0] = { ...profile, available: false, status: reason };
+        const unavailable = render(wrap(locale)); await tick();
+        assert.equal(unavailable.getByTestId('email-classification-next-step').textContent, messages.setup.next[next]);
+        assert.equal(unavailable.queryByRole('link', { name: messages.secretsLink }), null);
+        if (reason === 'missing_credentials') {
+          const probeCount: number = probes.length;
+          fireEvent.change(unavailable.getByLabelText(messages.managed.model), { target: { value: 'central-second' } });
+          assert.equal(unavailable.getByTestId('email-classification-next-step').textContent, messages.setup.next.draft, 'A ready draft model does not inherit the saved model’s missing credentials');
+          assert(unavailable.getByTestId('email-classification-readiness').textContent?.includes(messages.setup.readiness.paused));
+          assert.equal(probes.length, probeCount);
+        }
+        cleanup();
+      }
+    }
     console.log('Email classification settings UI passed: central switch, progressive disclosure, disabled OpenAI/Jev draft probes, fixed OpenAI endpoint/model/System Secret defaults, safe refusal, Secrets race protection, CAS preservation/reload and localized failures.');
   } finally {
     cleanup(); globalThis.fetch = originalFetch; window.removeEventListener('canvas-email-classification-settings-updated', onSaved); dom.window.close();

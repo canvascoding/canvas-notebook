@@ -1,8 +1,10 @@
 'use client';
 
 import { useTranslations } from 'next-intl';
+import Link from 'next/link';
 import { Maximize2, Minimize2, MoreHorizontal, Plus, RefreshCw, Search } from 'lucide-react';
 import type { EmailFeedMode } from '@/app/lib/email/classification/feed-types';
+import type { EmailClassificationAvailability } from '@/app/lib/email/classification/admin-service';
 import type { EmailMailboxScope } from '@/app/lib/email/classification/mailbox-types';
 import { Button } from '@/components/ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
@@ -11,6 +13,7 @@ import { Label } from '@/components/ui/label';
 
 export interface EmailFocusMailboxOption {
   mailboxRef: string; emailAddress: string; displayName: string | null; workspaceId: string | null; workspaceName: string | null;
+  capabilities?: { canRead: boolean };
 }
 export interface EmailFocusHeaderProps {
   scope: EmailMailboxScope; mode: EmailFeedMode; classificationEnabled: boolean; mailboxes: EmailFocusMailboxOption[];
@@ -18,12 +21,18 @@ export interface EmailFocusHeaderProps {
   onSearchChange(search: string): void; onCompose(): void; onRefresh(): void;
   loading?: boolean; canCompose?: boolean; mailboxesLoading?: boolean; mailboxesError?: boolean;
   controlsOnly?: boolean; focused?: boolean; onDistractionFree?(): void;
+  canConfigureClassification?: boolean; processingReason?: EmailClassificationAvailability['reason'];
+  onOpenMailbox?(mailboxRef: string): void;
 }
 
 export function EmailFocusHeader({ scope, mode, classificationEnabled, mailboxes, search, onScopeChange, onModeChange,
   onSearchChange, onCompose, onRefresh, loading = false, canCompose = true, mailboxesLoading = false,
-  mailboxesError = false, controlsOnly = false, focused = false, onDistractionFree }: EmailFocusHeaderProps) {
+  mailboxesError = false, controlsOnly = false, focused = false, onDistractionFree,
+  canConfigureClassification = false, processingReason = null, onOpenMailbox }: EmailFocusHeaderProps) {
   const t = useTranslations('emailFocus');
+  const readableMailboxes = mailboxes.filter(mailbox => mailbox.capabilities?.canRead !== false);
+  const selectedMailbox = scope.kind === 'mailbox' ? readableMailboxes.find(mailbox => mailbox.mailboxRef === scope.mailboxRef) : null;
+  const fullMailboxUnavailable = mailboxesLoading || mailboxesError || !readableMailboxes.length;
   return (
     <div className="space-y-3 border-b px-3 py-3 sm:px-4" data-testid="email-focus-header">
       <div className="flex flex-wrap items-center gap-2">
@@ -40,25 +49,44 @@ export function EmailFocusHeader({ scope, mode, classificationEnabled, mailboxes
             </optgroup>)}
           </select>
         </div>
-        <div className="flex shrink-0 items-center rounded-md border p-0.5" role="group" aria-label={t('modeLabel')}>
-          <Button type="button" size="sm" variant={mode === 'focus' ? 'secondary' : 'ghost'} aria-pressed={mode === 'focus'} disabled={!classificationEnabled} onClick={() => onModeChange('focus')}>{t('focus')}</Button>
+        {classificationEnabled && <div className="flex shrink-0 items-center rounded-md border p-0.5" role="group" aria-label={t('modeLabel')}>
+          <Button type="button" size="sm" variant={mode === 'focus' ? 'secondary' : 'ghost'} aria-pressed={mode === 'focus'} onClick={() => onModeChange('focus')}>{t('focus')}</Button>
           <Button type="button" size="sm" variant={mode === 'classic' ? 'secondary' : 'ghost'} aria-pressed={mode === 'classic'} onClick={() => onModeChange('classic')}>{t('classic')}</Button>
-        </div>
+        </div>}
         {!controlsOnly && <>
           <Button type="button" size="sm" disabled={!canCompose} onClick={onCompose}><Plus className="mr-1.5 h-4 w-4" />{t('compose')}</Button>
           <Button type="button" variant="ghost" size="icon" aria-label={t('refresh')} disabled={loading} onClick={onRefresh}><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /></Button>
-          {onDistractionFree && <DropdownMenu><DropdownMenuTrigger asChild><Button type="button" variant="ghost" size="icon" aria-label={t('appearance')}><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
-            <DropdownMenuContent align="end"><DropdownMenuItem onClick={onDistractionFree}>{focused ? <Minimize2 className="mr-2 h-4 w-4" /> : <Maximize2 className="mr-2 h-4 w-4" />}{t(focused ? 'exitDistractionFree' : 'distractionFree')}</DropdownMenuItem></DropdownMenuContent>
-          </DropdownMenu>}
         </>}
+        {(canConfigureClassification || !controlsOnly && onDistractionFree) && <DropdownMenu><DropdownMenuTrigger asChild><Button type="button" variant="ghost" size="icon" aria-label={t(canConfigureClassification ? 'menu' : 'appearance')}><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            {!controlsOnly && onDistractionFree && <DropdownMenuItem onClick={onDistractionFree}>{focused ? <Minimize2 className="mr-2 h-4 w-4" /> : <Maximize2 className="mr-2 h-4 w-4" />}{t(focused ? 'exitDistractionFree' : 'distractionFree')}</DropdownMenuItem>}
+            {canConfigureClassification && <DropdownMenuItem asChild><Link href="/settings?tab=system-email">{t('configureClassification')}</Link></DropdownMenuItem>}
+          </DropdownMenuContent>
+        </DropdownMenu>}
       </div>
+      {classificationEnabled && processingReason && processingReason !== 'disabled' && <p className="text-xs leading-relaxed text-muted-foreground" role="status">
+        {t(`processingReasons.${processingReason}`)}{' '}{canConfigureClassification
+          ? <Link href="/settings?tab=system-email" className="font-medium text-primary underline underline-offset-4">{t('configureClassification')}</Link>
+          : t('classificationAdminHint')}
+      </p>}
       {mailboxesError && <p className="text-xs text-destructive" role="status">{t('sourceCatalogError')}</p>}
-      {!classificationEnabled && <p className="text-xs text-muted-foreground">{t('classificationDisabled')}</p>}
       {!controlsOnly && <div className="space-y-1.5">
         <Label htmlFor="email-focus-search" className="sr-only">{t('searchLabel')}</Label>
         <div className="relative"><Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" aria-hidden="true" />
           <Input id="email-focus-search" type="search" className="pl-9" value={search} maxLength={300} placeholder={t('searchPlaceholder')} onChange={event => onSearchChange(event.target.value)} />
         </div><p className="text-[11px] leading-relaxed text-muted-foreground">{t('searchHint')}</p>
+        {onOpenMailbox && <div className="pt-1">
+          {selectedMailbox ? <Button type="button" variant="outline" size="sm" className="h-auto min-h-10 max-w-full whitespace-normal py-2" disabled={fullMailboxUnavailable} onClick={() => onOpenMailbox(selectedMailbox.mailboxRef)}>{t('fullMailbox')}</Button>
+            : <DropdownMenu><DropdownMenuTrigger asChild><Button type="button" variant="outline" size="sm" className="h-auto min-h-10 max-w-full whitespace-normal py-2" disabled={fullMailboxUnavailable}>{t('fullMailbox')}</Button></DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="max-w-[calc(100vw-2rem)]">
+                {readableMailboxes.map(mailbox => <DropdownMenuItem key={mailbox.mailboxRef} className="block min-h-11 whitespace-normal [overflow-wrap:anywhere]" onClick={() => onOpenMailbox(mailbox.mailboxRef)}>
+                  <span className="block">{mailbox.displayName ? `${mailbox.displayName} · ` : ''}{mailbox.emailAddress}</span>
+                  {mailbox.workspaceName && <span className="block text-xs text-muted-foreground">{mailbox.workspaceName}</span>}
+                </DropdownMenuItem>)}
+              </DropdownMenuContent>
+            </DropdownMenu>}
+          <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">{t('fullMailboxHint')}</p>
+        </div>}
       </div>}
     </div>
   );

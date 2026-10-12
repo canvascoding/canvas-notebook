@@ -101,7 +101,9 @@ async function main() {
     assert.equal(calls.read + calls.update.length + calls.test.length, 0, 'Organization owner is not an instance administrator');
     const memberAvailability = await availabilityRoute.GET(request(availabilityPath)); privateResponse(memberAvailability, 200);
     const publicData = (await memberAvailability.json()).data;
-    assert.deepEqual(Object.keys(publicData).sort(), ['available', 'defaultMode', 'enabled', 'reason', 'revision']);
+    assert.deepEqual(Object.keys(publicData).sort(), ['available', 'canConfigure', 'defaultMode', 'enabled', 'reason', 'revision']);
+    assert.equal(publicData.canConfigure, false, 'An organization owner cannot configure instance classification');
+    assert.equal((await (await availabilityRoute.GET(request(availabilityPath + '?role=admin&email=bootstrap@example.test'))).json()).data.canConfigure, false, 'Query hints cannot grant configuration access');
     assert.equal(JSON.stringify(publicData).includes('EXAMPLE_PRIVATE_KEY'), false);
     assert.equal(JSON.stringify(publicData).includes('internal.example.test'), false);
     assert.equal(publicData.reason, 'disabled');
@@ -109,7 +111,9 @@ async function main() {
 
     session = { user: { id: 'bootstrap-admin', role: 'member', email: 'bootstrap@example.test' } };
     privateResponse(await settingsRoute.GET(request(settingsPath)), 200);
+    assert.equal((await (await availabilityRoute.GET(request(availabilityPath))).json()).data.canConfigure, true, 'Bootstrap admins use the same server policy as Settings');
     session = { user: { id: 'verified-admin', role: 'admin', email: 'admin@example.test' } };
+    assert.equal((await (await availabilityRoute.GET(request(availabilityPath))).json()).data.canConfigure, true);
     const adminGet = await settingsRoute.GET(request(settingsPath)); privateResponse(adminGet, 200);
     assert.equal((await adminGet.json()).data.settings.revision, 7);
     assert.equal(rateCalls.at(-1)?.verifiedUserId, 'verified-admin');
@@ -195,7 +199,7 @@ async function main() {
     failure = null;
     availability = { ...availability, enabled: true, available: true, defaultMode: 'focus', reason: 'budget_exhausted' };
     const exhausted = await availabilityRoute.GET(request(availabilityPath)); privateResponse(exhausted, 200);
-    assert.deepEqual((await exhausted.json()).data, { enabled: true, available: true, revision: 7, defaultMode: 'focus', reason: 'budget_exhausted' }, 'Budget exhaustion keeps already prepared focus results available');
+    assert.deepEqual((await exhausted.json()).data, { enabled: true, available: true, canConfigure: true, revision: 7, defaultMode: 'focus', reason: 'budget_exhausted' }, 'Budget exhaustion keeps already prepared focus results available');
     console.log('email-classification-routes-test: ok');
   } finally { internals._load = originalLoad; }
 }

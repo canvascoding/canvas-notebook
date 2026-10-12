@@ -9,6 +9,7 @@ import { emailClassificationEvaluationFingerprint } from './settings-evaluation'
 import { EMAIL_CATEGORY_IDS, type EmailClassification, type EmailFocusGroup } from './types';
 import { EmailClassificationFeedError, type EmailClassificationFeed, type EmailClassificationFeedInput, type EmailClassificationFeedItem, type EmailClassificationFeedCoverage } from './feed-types';
 import { EMAIL_CLASSIFICATION_PROJECTED_SQL, EMAIL_CLASSIFICATION_AUTHORIZED_SQL, EMAIL_CLASSIFICATION_SENDER_SQL } from './feed-sql';
+import { isEmailMailboxSyncErrorCode } from './sync-errors';
 
 export interface EmailClassificationFeedDependencies {
   postgres: EmailClassificationQueryable; transaction: EmailClassificationTransaction; store: PostgresEmailClassificationStore;
@@ -68,12 +69,22 @@ function validateInput(input: EmailClassificationFeedInput) {
   return { mode, view, search: input.search?.trim().toLowerCase() ?? '', limit: input.limit ?? 50 };
 }
 async function indexSignature(connection: EmailClassificationQueryable, mailboxes: AuthorizedEmailClassificationMailbox[], userId:string): Promise<string> {
-  const { rows } = await connection.query(`WITH ${EMAIL_CLASSIFICATION_AUTHORIZED_SQL}, totals AS (
-    SELECT mailbox_ref,count(*) AS message_count,sum(index_revision) AS message_versions,sum(coalesce(version,0)) AS result_versions,
-      sum(focus_version) AS focus_versions FROM candidates GROUP BY mailbox_ref
-  ) SELECT b.mailbox_ref,b.binding_revision,b.policy_revision,b.active,b.coverage,b.last_sync_at,
-    t.message_count,t.message_versions,t.result_versions,t.focus_versions FROM authorized a
-    LEFT JOIN email_classification_mailboxes b ON b.mailbox_ref=a.mailbox_ref LEFT JOIN totals t ON t.mailbox_ref=a.mailbox_ref ORDER BY a.mailbox_ref`,
+  const { rows } = await connection.query(`WITH ${EMAIL_CLASSIFICATION_AUTHORIZED_SQL}, latest_jobs AS (
+    SELECT DISTINCT ON (j.message_ref) j.message_ref,j.id,j.status FROM email_classification_jobs j
+    JOIN candidates c ON c.message_ref=j.message_ref
+    WHERE j.configuration_revision=(SELECT revision FROM email_classification_settings WHERE id='instance')
+      AND j.fingerprint=c.fingerprint AND j.binding_revision=c.binding_revision AND j.policy_revision=c.policy_revision
+    ORDER BY j.message_ref,j.updated_at DESC,j.id DESC
+  ), totals AS (
+    SELECT c.mailbox_ref,count(*) AS message_count,sum(c.index_revision) AS message_versions,sum(coalesce(c.version,0)) AS result_versions,
+      sum(c.focus_version) AS focus_versions,
+      md5(coalesce(string_agg(c.message_ref || ':' || j.status,'|' ORDER BY c.message_ref) FILTER(WHERE j.id IS NOT NULL),'')) AS job_status_signature
+    FROM candidates c LEFT JOIN latest_jobs j ON j.message_ref=c.message_ref GROUP BY c.mailbox_ref
+  ) SELECT b.mailbox_ref,b.binding_revision,b.policy_revision,b.active,b.coverage,b.last_sync_at,b.last_sync_error_code,
+    t.message_count,t.message_versions,t.result_versions,t.focus_versions,t.job_status_signature FROM authorized a
+    LEFT JOIN email_classification_mailboxes b ON b.mailbox_ref=a.mailbox_ref AND b.active
+      AND b.binding_revision=a.binding_revision AND b.policy_revision=a.policy_revision
+    LEFT JOIN totals t ON t.mailbox_ref=a.mailbox_ref ORDER BY a.mailbox_ref`,
   [userId,emailFeedAuthorizedParameter(mailboxes)]);
   return emailClassificationFingerprint(rows);
 }
@@ -84,6 +95,17 @@ interface SnapshotRow extends Record<string, unknown> {
 interface PageRow extends Record<string, unknown> {
   ordinal: string | number; message_ref: string; mailbox_ref: string; canonical_id: string; folder: string;
   list_json: EmailIndexedMessageList; classification_json: EmailClassification; focus_version: string | number;
+}
+
+function safeSourceLabel(value: string, maximum: number): string {
+  const bounded = value.replace(/\u0000/gu, '').toWellFormed().slice(0, maximum);
+  return /[\uD800-\uDBFF]$/u.test(bounded) ? bounded.slice(0, -1) : bounded;
+}
+
+function feedCoverageSource(mailbox: AuthorizedEmailClassificationMailbox): NonNullable<EmailClassificationFeedCoverage['source']> {
+  return { emailAddress: safeSourceLabel(mailbox.emailAddress, 500),
+    displayName: mailbox.displayName === null ? null : safeSourceLabel(mailbox.displayName, 500),
+    workspaceName: mailbox.workspaceName === null ? null : safeSourceLabel(mailbox.workspaceName, 500) };
 }
 
 /** All ranking, filtering and counts execute in PostgreSQL over the complete authorized index. */
@@ -144,11 +166,18 @@ export async function readEmailClassificationFeed(input: EmailClassificationFeed
       SELECT mailbox_ref,count(*)::text AS indexed,count(*) FILTER(WHERE decision_status='pending')::text AS pending,
       count(*) FILTER(WHERE decision_status='failed')::text AS failed,count(*) FILTER(WHERE decision_status='stale')::text AS stale FROM grouped GROUP BY mailbox_ref`,
     [input.userId,authorization,JSON.stringify(settings.configuration.policy),emailClassificationEvaluationFingerprint(settings.configuration),settings.revision,category,validated.search,now,settings.configuration.initialLookbackDays]);
-    const sourceRows=await connection.query<{mailbox_ref:string;coverage:EmailClassificationFeedCoverage['state'];last_sync_at:string|null}>(`SELECT mailbox_ref,coverage,last_sync_at FROM email_classification_mailboxes WHERE mailbox_ref=ANY($1::text[])`,[mailboxes.map(mailbox=>mailbox.mailboxRef)]);
-    const coverage=mailboxes.map(mailbox=> {
-      const source=sourceRows.rows.find(row=>row.mailbox_ref===mailbox.mailboxRef); const count=coverageRows.rows.find(row=>row.mailbox_ref===mailbox.mailboxRef);
-      return {mailboxRef:mailbox.mailboxRef,state:source?.coverage ?? 'pending',lastSyncAt:source?.last_sync_at == null?null:Number(source.last_sync_at),indexed:Number(count?.indexed ?? 0),
-        pending:settings.configuration.enabled?Number(count?.pending ?? 0):0,failed:settings.configuration.enabled?Number(count?.failed ?? 0):0,stale:settings.configuration.enabled?Number(count?.stale ?? 0):0};
+    const sourceRows=await connection.query<{mailbox_ref:string;coverage:EmailClassificationFeedCoverage['state'];last_sync_at:string|null;last_sync_error_code:unknown}>(`WITH ${EMAIL_CLASSIFICATION_AUTHORIZED_SQL}
+      SELECT b.mailbox_ref,b.coverage,b.last_sync_at,b.last_sync_error_code FROM authorized a
+      JOIN email_classification_mailboxes b ON b.mailbox_ref=a.mailbox_ref AND b.active
+        AND b.binding_revision=a.binding_revision AND b.policy_revision=a.policy_revision`,[input.userId,authorization]);
+    const coverage:EmailClassificationFeedCoverage[]=mailboxes.flatMap(mailbox=> {
+      const source=sourceRows.rows.find(row=>row.mailbox_ref===mailbox.mailboxRef);
+      // A source revoked after resolution must not expose its old diagnostic or labels.
+      if (!source) return [];
+      const count=coverageRows.rows.find(row=>row.mailbox_ref===mailbox.mailboxRef);
+      return [{mailboxRef:mailbox.mailboxRef,state:source.coverage,lastSyncAt:source.last_sync_at == null?null:Number(source.last_sync_at),indexed:Number(count?.indexed ?? 0),
+        errorCode:source.coverage==='failed' && isEmailMailboxSyncErrorCode(source.last_sync_error_code)?source.last_sync_error_code:null,source:feedCoverageSource(mailbox),
+        pending:settings.configuration.enabled?Number(count?.pending ?? 0):0,failed:settings.configuration.enabled?Number(count?.failed ?? 0):0,stale:settings.configuration.enabled?Number(count?.stale ?? 0):0}];
     });
     const rows=page.rows.slice(0,validated.limit);
     const items: EmailClassificationFeedItem[]=rows.map(row=> {

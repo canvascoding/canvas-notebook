@@ -10,6 +10,7 @@ import { DEFAULT_EMAIL_CLASSIFICATION_CONFIGURATION } from '../app/lib/email/cla
 import { emailClassificationEvaluationFingerprint } from '../app/lib/email/classification/settings-evaluation';
 import { EMAIL_CLASSIFICATION_SCHEMA_VERSION } from '../app/lib/email/classification/schema';
 import type { EmailClassificationRaw } from '../app/lib/email/classification/types';
+import { verifyEmailClassificationUnicodePersistence } from './email-classification-unicode-regression';
 
 const raw: EmailClassificationRaw = {
   category: 'support', categoryProbabilities: { support: 0.9, other: 0.1 }, categoryConfidence: 0.9,
@@ -82,6 +83,7 @@ async function main() {
     assert.equal(new Set(schema.rows.map(row => row.table_name)).size, 11);
     assert.ok(schema.rows.some(row => row.table_name === 'email_classification_messages' && row.column_name === 'list_json' && row.data_type === 'jsonb'));
     assert.ok(schema.rows.some(row => row.table_name === 'email_classification_results' && row.column_name === 'evaluation_fingerprint' && row.data_type === 'text'));
+    assert.ok(schema.rows.some(row => row.table_name === 'email_classification_mailboxes' && row.column_name === 'last_sync_error_code' && row.data_type === 'text'));
     await postgres.exec('ALTER TABLE email_classification_results DROP COLUMN evaluation_fingerprint');
     await runEmailClassificationPostgresMigration(postgres);
     assert.equal((await postgres.query("SELECT column_name FROM information_schema.columns WHERE table_name = 'email_classification_results' AND column_name = 'evaluation_fingerprint'")).rows.length, 1, 'Repeated migration upgrades an already installed result table');
@@ -99,6 +101,12 @@ async function main() {
     const firstMailbox = await store.upsertMailbox(mailbox, 100);
     assert.equal(firstMailbox.accountSource, 'managed', 'Managed account does not require a local account row');
     assert.equal(firstMailbox.coverage, 'pending');
+    assert.equal(firstMailbox.lastSyncErrorCode, null);
+    await postgres.exec('ALTER TABLE email_classification_mailboxes DROP COLUMN last_sync_error_code');
+    await runEmailClassificationPostgresMigration(postgres);
+    await runEmailClassificationPostgresMigration(postgres);
+    assert.equal((await store.readMailbox(mailbox.mailboxRef))?.lastSyncErrorCode, null, 'Additive repeat migration upgrades an existing mailbox without fabricating a diagnostic');
+    await assert.rejects(postgres.query('UPDATE email_classification_mailboxes SET last_sync_error_code = $2 WHERE mailbox_ref = $1', [mailbox.mailboxRef, 'secret-provider-detail']), /check constraint/u);
     await assert.rejects(store.upsertMailbox({ ...mailbox, ownerUserId: 'member' }, 100), EmailClassificationStoreStateError);
     await assert.rejects(store.upsertMailbox({ ...mailbox, mailboxRef: 'missing-owner', ownerUserId: 'missing' }, 100));
     await assert.rejects(store.upsertMailbox({ ...mailbox, mailboxRef: 'invalid-scope', workspaceId: 'workspace-1' }, 100));
@@ -110,10 +118,27 @@ async function main() {
     assert.equal(refreshed.indexRevision, 2);
     assert.equal(refreshed.fingerprint, firstMessage.fingerprint, 'Read flags do not create a new content fingerprint');
     assert.equal('body' in refreshed.list, false); assert.equal('attachments' in refreshed.list, false);
+    await verifyEmailClassificationUnicodePersistence({ store, postgres: postgres as unknown as EmailClassificationQueryable, mailboxRef: mailbox.mailboxRef, now: 103 });
     await assert.rejects(store.upsertMessageMetadata(message('message-1', { canonicalId: 'different-provider-mail' }), 103), EmailClassificationStoreStateError);
     await assert.rejects(store.upsertMessageMetadata(message('message-alias', { canonicalId: 'provider-message-1' }), 103));
     assert.equal(await store.recordMailboxSync({ mailboxRef: mailbox.mailboxRef, bindingRevision: 'binding-1', policyRevision: 'policy-1', cursor: 'opaque-provider-cursor', coverage: 'partial', now: 104 }), true);
     assert.equal((await store.readMailbox(mailbox.mailboxRef))?.coverage, 'partial');
+    const syncClaim = await store.claimMailboxSync({ mailboxRef: mailbox.mailboxRef, leaseMs: 20, now: 104 });
+    assert.ok(syncClaim);
+    assert.equal(await store.recordMailboxSync({ mailboxRef: mailbox.mailboxRef, bindingRevision: 'binding-1', policyRevision: 'policy-1', cursor: 'opaque-provider-cursor', coverage: 'failed', errorCode: 'timeout', claimToken: syncClaim, now: 105 }), true);
+    const syncFailed = (await store.readMailbox(mailbox.mailboxRef))!;
+    assert.equal(syncFailed.lastSyncErrorCode, 'timeout'); assert.equal(syncFailed.lastSyncAt, 104);
+    assert.equal(await store.recordMailboxSync({ mailboxRef: mailbox.mailboxRef, bindingRevision: 'binding-1', policyRevision: 'policy-1', cursor: null, coverage: 'failed', errorCode: 'auth_required', claimToken: 'wrong', now: 106 }), false);
+    assert.equal((await store.readMailbox(mailbox.mailboxRef))?.lastSyncErrorCode, 'timeout', 'Rejected claims cannot overwrite an ingestion diagnostic');
+    const replacementSyncClaim = await store.claimMailboxSync({ mailboxRef: mailbox.mailboxRef, leaseMs: 20, now: 125 });
+    assert.ok(replacementSyncClaim); assert.notEqual(replacementSyncClaim, syncClaim);
+    assert.equal(await store.recordMailboxSync({ mailboxRef: mailbox.mailboxRef, bindingRevision: 'binding-1', policyRevision: 'policy-1', cursor: null, coverage: 'complete', claimToken: syncClaim, now: 126 }), false);
+    assert.equal((await store.readMailbox(mailbox.mailboxRef))?.lastSyncErrorCode, 'timeout', 'Expired claims cannot clear a newer diagnostic');
+    assert.equal(await store.recordMailboxSync({ mailboxRef: mailbox.mailboxRef, bindingRevision: 'binding-1', policyRevision: 'policy-1', cursor: 'opaque-provider-cursor', coverage: 'partial', claimToken: replacementSyncClaim, now: 127 }), true);
+    assert.equal((await store.readMailbox(mailbox.mailboxRef))?.lastSyncErrorCode, null, 'A successful partial scan clears the old error');
+    assert.equal((await store.readMailbox(mailbox.mailboxRef))?.lastSyncAt, 127);
+    await store.releaseMailboxSync({ mailboxRef: mailbox.mailboxRef, claimToken: replacementSyncClaim });
+    await assert.rejects(store.recordMailboxSync({ mailboxRef: mailbox.mailboxRef, bindingRevision: 'binding-1', policyRevision: 'policy-1', cursor: null, coverage: 'failed', errorCode: 'unsafe-provider-secret' as never, now: 128 }), /Invalid mailbox sync error code/u);
     assert.equal(await store.enqueueClassification({ messageRef: 'message-1', configurationRevision: 1, fingerprint: firstMessage.fingerprint, now: 110 }), null);
     assert.deepEqual(await store.claimJobs({ limit: 2, leaseMs: 100, now: 110 }), []);
 
@@ -199,9 +224,11 @@ async function main() {
     assert.equal(await store.retryJob({ jobId: reclaimed.id, claimToken: reclaimed.claimToken!, errorCode: 'rate_limit', nextAttemptAt: 300, now: 285 }), true);
     assert.deepEqual(await store.claimJobs({ limit: 1, leaseMs: 100, now: 299 }), []);
     const retry = (await store.claimJobs({ limit: 1, leaseMs: 100, now: 300 }))[0];
+    await store.recordMailboxSync({ mailboxRef: mailbox.mailboxRef, bindingRevision: 'binding-1', policyRevision: 'policy-1', cursor: null, coverage: 'failed', errorCode: 'auth_required', now: 300 });
     await store.upsertMailbox({ ...mailbox, policyRevision: 'policy-2', readFrom: ['allowed@example.test'] }, 301);
     assert.equal((await store.readMailbox(mailbox.mailboxRef))?.coverage, 'pending', 'Changed rights invalidate the old sync coverage');
     assert.equal((await store.readMailbox(mailbox.mailboxRef))?.syncCursor, null);
+    assert.equal((await store.readMailbox(mailbox.mailboxRef))?.lastSyncErrorCode, null, 'Policy changes clear diagnostics from the old authorized source');
     assert.equal(await store.recordMailboxSync({ mailboxRef: mailbox.mailboxRef, bindingRevision: 'binding-1', policyRevision: 'policy-1', cursor: 'stale-policy-cursor', coverage: 'complete', now: 301 }), false, 'Old policy sync cannot publish its stale cursor');
     assert.equal((await store.readMailbox(mailbox.mailboxRef))?.coverage, 'pending');
     assert.equal((await store.readMailbox(mailbox.mailboxRef))?.syncCursor, null);
@@ -209,7 +236,10 @@ async function main() {
     const policyJob = await store.enqueueClassification({ messageRef: 'message-2', configurationRevision: settings.revision, fingerprint: message('message-2').fingerprint, now: 303 });
     assert.equal(policyJob?.policyRevision, 'policy-2'); assert.equal(policyJob?.status, 'pending', 'Same key can be reevaluated after binding/policy invalidation');
     const bindingClaim = (await store.claimJobs({ limit: 1, leaseMs: 100, now: 304 }))[0];
+    await store.recordMailboxSync({ mailboxRef: mailbox.mailboxRef, bindingRevision: 'binding-1', policyRevision: 'policy-2', cursor: null, coverage: 'failed', errorCode: 'provider_unavailable', now: 304 });
     await store.upsertMailbox({ ...mailbox, bindingRevision: 'binding-2', policyRevision: 'policy-2', readFrom: ['allowed@example.test'] }, 305);
+    assert.equal((await store.readMailbox(mailbox.mailboxRef))?.lastSyncErrorCode, null, 'Binding changes clear diagnostics');
+    assert.equal(await store.recordMailboxSync({ mailboxRef: mailbox.mailboxRef, bindingRevision: 'binding-1', policyRevision: 'policy-2', cursor: null, coverage: 'failed', errorCode: 'content_invalid', now: 305 }), false, 'Stale binding errors cannot repopulate a new binding');
     assert.equal(await store.recordMailboxSync({ mailboxRef: mailbox.mailboxRef, bindingRevision: 'binding-1', policyRevision: 'policy-2', cursor: 'stale-binding-cursor', coverage: 'complete', now: 305 }), false, 'Old binding sync cannot replace new binding coverage');
     assert.equal(await store.completeJob({ jobId: bindingClaim.id, claimToken: bindingClaim.claimToken!, raw, now: 306 }), false, 'Changed mailbox binding rejects stale publication');
 
