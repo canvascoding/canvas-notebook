@@ -1,0 +1,30 @@
+{
+  "image": "sha256:2f436e8af125101112f6a1a301e8fb5081e6f3f8334bf475e9ac24055e2fd964",
+  "checks": [
+    {
+      "check": "trusted browser input -> public Origin accepted",
+      "passed": true
+    },
+    {
+      "check": "browser timestamp recorded",
+      "passed": true
+    },
+    {
+      "check": "immediate UI click and keypress client throttled",
+      "passed": true
+    },
+    {
+      "check": "foreign Origin still rejected",
+      "passed": true
+    },
+    {
+      "check": "unauthenticated public Origin rejected",
+      "passed": true
+    }
+  ],
+  "responseCollection": "A clone of the original browser response was consumed to let Playwright observe the completed body.",
+  "origin": "http://127.0.0.1:3100",
+  "recordedAt": "2026-10-12T09:57:09.952Z",
+  "pageErrors": [],
+  "throttleWindowObservedMs": 818
+}

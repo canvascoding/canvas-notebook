@@ -98,6 +98,7 @@ interface CanvasAgentChatProps {
   chatContainerWidth?: number;
   isSurfaceVisible?: boolean;
   forcedSessionId?: string | null;
+  forcedWorkspaceId?: string | null;
   requestContext?: ChatRequestContext;
   onRuntimeStatusChange?: (status: RuntimeStatus | null) => void;
   onSessionContextChange?: (
@@ -150,6 +151,7 @@ export default function CanvasAgentChat({
   chatContainerWidth,
   isSurfaceVisible = true,
   forcedSessionId,
+  forcedWorkspaceId,
   requestContext,
   onRuntimeStatusChange,
   onSessionContextChange,
@@ -162,7 +164,7 @@ export default function CanvasAgentChat({
   const router = useRouter();
   const searchParams = useSearchParams();
   const requestedSessionId = searchParams.get('session');
-  const requestedWorkspaceId = searchParams.get('workspaceId')?.trim() || null;
+  const requestedWorkspaceId = forcedWorkspaceId ?? (searchParams.get('workspaceId')?.trim() || null);
   const pathname = useLocalePathname();
   const isMobile = useIsMobile();
   const currentFile = useFileStore((s) => s.currentFile);

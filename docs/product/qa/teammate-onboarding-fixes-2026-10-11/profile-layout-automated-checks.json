@@ -1,0 +1,14 @@
+{
+  "sourceScope": ["app/components/user-profile/ProfileAppearanceEditor.tsx"],
+  "impact": {"risk": "LOW", "directConsumers": 2, "flows": ["Onboarding", "Settings"]},
+  "checks": [
+    {"command": "eslint app/components/user-profile/ProfileAppearanceEditor.tsx", "exitCode": 0},
+    {"command": "tsx scripts/user-profile-ui-test.ts", "exitCode": 0, "curatedIcons": 12},
+    {"command": "npm run build", "environment": "host", "passed": true, "fullTypeScript": true},
+    {"command": "managed Notebook image build and recreate", "passed": true, "fullTypeScript": true},
+    {"command": "git diff --check", "exitCode": 0}
+  ],
+  "readOnlyReview": {"blockingFindings": 0},
+  "preservedBehavior": ["avatar mutation handlers", "upload validation and handlers", "pending and disabled state", "ARIA selection state"],
+  "productionImage": "sha256:cb35b1bf70565212ef519c1a91326376aa6109610a731f32972c8efdf3c40fc5"
+}

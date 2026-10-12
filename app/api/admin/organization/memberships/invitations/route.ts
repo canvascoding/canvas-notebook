@@ -11,6 +11,11 @@ import {
   TeamInvitationError,
 } from '@/app/lib/organization/team-invitations';
 import {
+  listTeamInvitationEmailDeliveries,
+  sendCreatedTeamInvitationEmail,
+  TeamInvitationEmailError,
+} from '@/app/lib/organization/team-invitation-email';
+import {
   isOrganizationAdminLike,
   readOrganizationPermissionForUser,
 } from '@/app/lib/organization/permissions';
@@ -43,12 +48,13 @@ async function organizationAdmin(request: NextRequest) {
 }
 
 function errorResponse(error: unknown) {
-  if (error instanceof TeamInvitationError) {
+  if (error instanceof TeamInvitationError || error instanceof TeamInvitationEmailError) {
     return NextResponse.json({
       success: false,
       code: error.code,
       error: error.message,
-    }, { status: error.status });
+    }, { status: error.status, headers: error instanceof TeamInvitationEmailError && error.retryAfterSeconds !== null
+      ? { 'Retry-After': String(error.retryAfterSeconds) } : undefined });
   }
   console.error('[admin/organization/memberships/invitations] Request failed:', error);
   return NextResponse.json({
@@ -69,7 +75,10 @@ export async function GET(request: NextRequest) {
     const invitations = await listTeamMembershipInvitations({
       organizationId: guard.organizationId,
     });
-    return NextResponse.json({ success: true, data: { invitations } });
+    const emailDeliveries = await listTeamInvitationEmailDeliveries({ organizationId: guard.organizationId });
+    return NextResponse.json({ success: true, data: {
+      invitations: invitations.map(invitation => ({ ...invitation, emailDelivery: emailDeliveries[invitation.id] })),
+    } }, { headers: { 'Cache-Control': 'private, no-store' } });
   } catch (error) {
     return errorResponse(error);
   }
@@ -100,6 +109,7 @@ export async function POST(request: NextRequest) {
       email?: unknown;
       role?: unknown;
       expiresInDays?: unknown;
+      locale?: unknown;
     };
     const name = typeof body.name === 'string' ? body.name.trim() : '';
     const email = typeof body.email === 'string' ? body.email.trim() : '';
@@ -131,14 +141,19 @@ export async function POST(request: NextRequest) {
       role,
       ttlMs: expiresInDays * 24 * 60 * 60 * 1000,
     });
+    const emailDelivery = await sendCreatedTeamInvitationEmail({
+      invitation: created.invitation, token: created.token, actorUserId: guard.session.user.id,
+      locale: body.locale === 'de' ? 'de' : 'en',
+    });
     return NextResponse.json({
       success: true,
       data: {
         invitation: created.invitation,
         token: created.token,
         acceptancePath: `/invite/team?token=${encodeURIComponent(created.token)}`,
+        emailDelivery,
       },
-    }, { status: 201 });
+    }, { status: 201, headers: { 'Cache-Control': 'private, no-store' } });
   } catch (error) {
     return errorResponse(error);
   }

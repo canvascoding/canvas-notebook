@@ -45,6 +45,8 @@ import { EmailReviewNotificationActions } from '@/app/components/email-review/Em
 import { openMemoryReview } from '@/app/store/memory-review-store';
 import { openTodoDetail } from '@/app/store/todo-detail-store';
 import { useDocumentReviewAvailability } from '@/app/components/file-version-center/DocumentReviewAvailabilityProvider';
+import { useAuthenticatedRequestScope } from '@/app/components/auth/AuthenticatedSessionBoundary';
+import { isOpenedDocumentAuthCurrent, type OpenedDocumentAuthScope } from '@/app/lib/collaboration/opened-document-registry';
 import {
   readNotificationSummary,
   type NotificationItem,
@@ -79,6 +81,15 @@ function isDismissible(item: NotificationItem) {
 }
 
 export function NotificationBell() {
+  const { scope, active } = useAuthenticatedRequestScope();
+  if (!active || !scope) return null;
+  return <AuthenticatedNotificationBell
+    key={JSON.stringify([scope.userId, scope.sessionId, scope.epoch])}
+    authScope={scope}
+  />;
+}
+
+function AuthenticatedNotificationBell({ authScope }: { authScope: OpenedDocumentAuthScope }) {
   const reviewAvailability = useDocumentReviewAvailability();
   const reviewCenterEnabled = reviewAvailability.ready && reviewAvailability.documentReviewEnabled;
   const t = useTranslations('notifications');
@@ -89,6 +100,9 @@ export function NotificationBell() {
   const [activeChatSessionId, setActiveChatSessionId] = useState<string | null>(null);
   const activeChatSessionIdRef = useRef<string | null>(null);
   const refreshGenerationRef = useRef(0);
+  const refreshControllerRef = useRef<AbortController | null>(null);
+  const mountedRef = useRef(true);
+  const isCurrentScope = useCallback(() => mountedRef.current && isOpenedDocumentAuthCurrent(authScope), [authScope]);
   const [isLoading, setIsLoading] = useState(false);
   const [isMutating, setIsMutating] = useState(false);
   const [memoryDecisions, setMemoryDecisions] = useState<Record<string, 'approve' | 'reject' | null>>({});
@@ -116,19 +130,31 @@ export function NotificationBell() {
   const badgeLabel = useMemo(() => formatBadgeCount(unreadCount), [unreadCount]);
 
   const refresh = useCallback(async () => {
+    if (!isCurrentScope()) return;
+    refreshControllerRef.current?.abort();
+    const controller = new AbortController();
+    refreshControllerRef.current = controller;
     const generation = ++refreshGenerationRef.current;
     setIsLoading(true);
     try {
-      const nextSummary = await readNotificationSummary({ activeChatSessionId: activeChatSessionIdRef.current });
-      if (generation === refreshGenerationRef.current) setSummary(nextSummary);
+      const nextSummary = await readNotificationSummary({
+        activeChatSessionId: activeChatSessionIdRef.current,
+        signal: controller.signal,
+        authScope,
+      });
+      if (isCurrentScope() && !controller.signal.aborted && generation === refreshGenerationRef.current) setSummary(nextSummary);
     } catch {
-      if (generation === refreshGenerationRef.current) setSummary(null);
+      if (isCurrentScope() && !controller.signal.aborted && generation === refreshGenerationRef.current) setSummary(null);
     } finally {
-      if (generation === refreshGenerationRef.current) setIsLoading(false);
+      if (isCurrentScope() && !controller.signal.aborted && generation === refreshGenerationRef.current) {
+        refreshControllerRef.current = null;
+        setIsLoading(false);
+      }
     }
-  }, []);
+  }, [authScope, isCurrentScope]);
 
   useEffect(() => {
+    mountedRef.current = true;
     let updateRefresh: number | null = null;
     const initialRefresh = window.setTimeout(() => {
       void refresh();
@@ -159,6 +185,9 @@ export function NotificationBell() {
     window.addEventListener('todo_updated', handleUpdate);
     window.addEventListener('notification_summary_updated', handleUpdate);
     return () => {
+      mountedRef.current = false;
+      refreshControllerRef.current?.abort();
+      refreshControllerRef.current = null;
       window.clearTimeout(initialRefresh);
       window.clearInterval(interval);
       if (updateRefresh !== null) window.clearTimeout(updateRefresh);
@@ -171,15 +200,21 @@ export function NotificationBell() {
   }, [refresh]);
 
   const handleOpenChange = useCallback((nextOpen: boolean) => {
+    if (!isCurrentScope()) return;
     setOpen(nextOpen);
     if (nextOpen) {
       void refresh();
     }
-  }, [refresh]);
+  }, [isCurrentScope, refresh]);
 
   const mutateInbox = useCallback(async (payload: NotificationMutation) => {
-    await updateNotification(payload);
-  }, []);
+    if (!isCurrentScope()) return;
+    try {
+      await updateNotification(payload, { authScope });
+    } catch (error) {
+      if (isCurrentScope()) throw error;
+    }
+  }, [authScope, isCurrentScope]);
 
   const markAllRead = useCallback(async () => {
     setIsMutating(true);
@@ -230,6 +265,7 @@ export function NotificationBell() {
   const emailItems = visibleSummary?.sections.emailAttention ?? visibleSummary?.items.filter((item) => item.target.kind === 'email') ?? [];
 
   const openItem = useCallback(async (item: NotificationItem) => {
+    if (!isCurrentScope()) return;
     setOpen(false);
     if (item.target.kind === 'todo') {
       openTodoDetail(item.target.todoId);
@@ -272,6 +308,7 @@ export function NotificationBell() {
         // the stale entry; navigation still gives the user a route to the related area.
       }
     }
+    if (!isCurrentScope()) return;
 
     if (item.target.kind !== 'chat') {
       window.location.assign(notificationHref(item));
@@ -289,7 +326,7 @@ export function NotificationBell() {
     }
     if (dispatchOpenChatSession(item.target.sessionId, 'notification', item.workspaceId)) return;
     window.location.assign(notificationHref(item));
-  }, [markItemRead, notificationItems, reviewCenterEnabled, t]);
+  }, [isCurrentScope, markItemRead, notificationItems, reviewCenterEnabled, t]);
 
   const decideMemoryItem = useCallback(async (item: NotificationItem, decision: 'approve' | 'reject') => {
     if (item.target.kind !== 'memory') return;

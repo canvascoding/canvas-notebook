@@ -1,0 +1,68 @@
+{
+  "image": "sha256:00eff7b02488d20a80420dc41c6b3ed3ff60332c216c5629f299018ade12900a",
+  "checks": [
+    {
+      "check": "mailpit delivery",
+      "passed": true
+    },
+    {
+      "check": "direct member activation",
+      "passed": true
+    },
+    {
+      "check": "stale invitation rejected",
+      "passed": true
+    },
+    {
+      "check": "expired quote refresh to 3 -> 4",
+      "passed": true
+    },
+    {
+      "check": "refresh same invitation membership",
+      "passed": true
+    },
+    {
+      "check": "renewed quote activation",
+      "passed": true
+    },
+    {
+      "check": "same identity reactivation",
+      "passed": true
+    },
+    {
+      "check": "unexpired stale rejected",
+      "passed": true
+    },
+    {
+      "check": "immediate refresh before lease expiry",
+      "passed": true
+    },
+    {
+      "check": "new quote same membership and request",
+      "passed": true
+    },
+    {
+      "check": "accepted stale invitation cancellation",
+      "passed": true
+    },
+    {
+      "check": "owned test accounts offboarded",
+      "passed": true
+    }
+  ],
+  "immediateRefreshMs": 164,
+  "pageErrors": [],
+  "expectedHttpErrors": {
+    "401 /api/public/brand/logo": 1,
+    "401 /api/instance/human-activity": 9,
+    "403 /api/instance/human-activity": 15,
+    "401 /api/workspaces": 5,
+    "409 /api/organization/invitations/activate": 2,
+    "410 /api/organization/invitations/preview": 1
+  },
+  "seatCounts": {
+    "observed": 2,
+    "licensed": 2,
+    "reconciliation": "in_sync"
+  }
+}

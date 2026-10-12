@@ -1236,6 +1236,30 @@ export async function getCommunityTeamSeatQuoteStatus(
   }
 }
 
+export async function retireCommunityTeamSeatQuote(
+  quoteId: string,
+  request: { authorizationId: string; quoteHash: string; reason: 'activation_refresh' | 'activation_cancel' },
+  options?: { fetchImpl?: typeof fetch; now?: Date; operationId?: string },
+): Promise<TeamSeatQuoteStatusResponse> {
+  requireTeamSeatClientRollout();
+  const { instanceId, token } = await requireCommunitySeatToken('seat:execute', options?.now);
+  const { response, payload } = await postLicenseControlPlane(
+    `${COMMUNITY_SEAT_QUOTE_PATH}/${encodeURIComponent(quoteId)}/retire`,
+    { protocolVersion: 'canvas-team-seat-protocol-v1', ...request },
+    {
+      fetchImpl: options?.fetchImpl, unreachableCode: TEAM_SEAT_ERROR_CODES.temporaryUnavailable,
+      authorization: { tokenType: token.tokenType, token: token.instanceToken },
+      operationId: options?.operationId ?? request.authorizationId, maxAttempts: 3,
+    },
+  );
+  if (!response.ok) {
+    const error = claimErrorFromResponse(response, payload);
+    await recordRejectedCommunityToken(error, { instanceId, instanceToken: token.instanceToken });
+    throw error;
+  }
+  try { return parseTeamSeatQuoteStatusResponse(payload); } catch (error) { throw contractResponseError(error); }
+}
+
 export async function executeCommunityTeamSeatChange(
   request: TeamSeatExecuteRequest,
   options?: CommunitySeatRequestOptions,

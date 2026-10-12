@@ -1,0 +1,76 @@
+{
+  "scope": "Intermediate production browser evidence before final revision-order correction",
+  "sourceImage": "sha256:8d885599ad12e07803941b263c1a754bb957c8638b95684c0c329a7263cedb17",
+  "users": [
+    {
+      "id": "4TFhBh2yTeIRiklY0smQrmxfYVIVUGwB",
+      "email": "seat-fixed-mv4dnpvb-employee@example.test",
+      "role": "user",
+      "membershipId": "team-membership-951d303a-5afb-43af-bbb7-2ef48455d8f8"
+    },
+    {
+      "id": "bFZI5sG6nY4pDSaK0mD8z2yMOHUW48p8",
+      "email": "seat-fixed-mv4dnpvb-admin@example.test",
+      "role": "admin",
+      "membershipId": "team-membership-39f2c52a-8939-44b2-ac6b-525576946382"
+    }
+  ],
+  "created": [
+    {
+      "email": "seat-fixed-mv4dnpvb-employee@example.test",
+      "isAdmin": false,
+      "responseStatus": 200,
+      "membershipId": "team-membership-951d303a-5afb-43af-bbb7-2ef48455d8f8"
+    },
+    {
+      "email": "seat-fixed-mv4dnpvb-admin@example.test",
+      "isAdmin": true,
+      "responseStatus": 200,
+      "membershipId": "team-membership-39f2c52a-8939-44b2-ac6b-525576946382"
+    }
+  ],
+  "responseGapMs": 99,
+  "revokedSessionStatuses": [
+    401,
+    401
+  ],
+  "seatBaseline": {
+    "currentRevision": 5734,
+    "acknowledgedRevision": 5734,
+    "hashesMatch": true,
+    "localObserved": 2,
+    "controlPlaneObserved": 2,
+    "licensed": 2,
+    "approved": 4,
+    "billed": 0,
+    "drift": "in_sync",
+    "reconciliation": "in_sync"
+  },
+  "seatFinal": {
+    "currentRevision": 5740,
+    "acknowledgedRevision": 5740,
+    "hashesMatch": true,
+    "localObserved": 2,
+    "controlPlaneObserved": 2,
+    "licensed": 2,
+    "approved": 4,
+    "billed": 0,
+    "drift": "in_sync",
+    "reconciliation": "in_sync"
+  },
+  "statuses": [
+    {
+      "userId": "4TFhBh2yTeIRiklY0smQrmxfYVIVUGwB",
+      "state": "completed",
+      "phase": "execute",
+      "errorCode": null
+    },
+    {
+      "userId": "bFZI5sG6nY4pDSaK0mD8z2yMOHUW48p8",
+      "state": "completed",
+      "phase": "execute",
+      "errorCode": null
+    }
+  ],
+  "convergenceElapsedMs": 47588
+}

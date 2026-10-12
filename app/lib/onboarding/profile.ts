@@ -161,7 +161,7 @@ async function onboardingSessionHasMessages(sessionDbId: number): Promise<boolea
 export async function ensureOnboardingProfileSession(params: {
   userId: string;
   locale?: string | null;
-}): Promise<{ sessionId: string }> {
+}): Promise<{ sessionId: string; workspaceId: string }> {
   if (!(await isProfilePending(params.userId))) {
     throw new OnboardingProfileError('Your onboarding profile is already complete.', 'PROFILE_ALREADY_COMPLETE', 409);
   }
@@ -169,6 +169,9 @@ export async function ensureOnboardingProfileSession(params: {
 
   const sessionId = buildOnboardingProfileSessionId(params.userId);
   return withPiSessionOperationLock(sessionId, params.userId, async () => {
+    if (!(await isProfilePending(params.userId))) {
+      throw new OnboardingProfileError('Your onboarding profile is already complete.', 'PROFILE_ALREADY_COMPLETE', 409);
+    }
     const promptSnapshot = await createPiSystemPromptSnapshot(DEFAULT_AGENT_ID, { userId: params.userId });
 
     for (let attempt = 0; attempt < 2; attempt += 1) {
@@ -180,16 +183,16 @@ export async function ensureOnboardingProfileSession(params: {
         ),
       });
 
-      if (existing && await onboardingSessionHasMessages(existing.id)) {
-        return { sessionId };
-      }
-
       try {
         let workspace = await resolveAgentSessionWorkspaceForUser({
           userId: params.userId,
           workspaceId: existing?.workspaceId ?? null,
         });
-        if (workspace.workspaceType !== 'personal' || !workspace.organizationId) {
+        if (
+          workspace.workspaceType !== 'personal'
+          || workspace.ownerUserId !== params.userId
+          || !workspace.organizationId
+        ) {
           throw new OnboardingProfileError(
             'The onboarding profile session requires your personal workspace and completed app setup.',
             'ONBOARDING_PERSONAL_WORKSPACE_REQUIRED',
@@ -197,6 +200,21 @@ export async function ensureOnboardingProfileSession(params: {
           );
         }
         const organizationId = workspace.organizationId;
+
+        if (existing && await onboardingSessionHasMessages(existing.id)) {
+          if (
+            existing.workspaceId !== workspace.workspaceId
+            || existing.workspaceType !== workspace.workspaceType
+            || existing.organizationId !== organizationId
+          ) {
+            throw new OnboardingProfileError(
+              'The onboarding session no longer belongs to your personal workspace.',
+              'ONBOARDING_WORKSPACE_CHANGED',
+              409,
+            );
+          }
+          return { sessionId, workspaceId: workspace.workspaceId };
+        }
 
         const storedSnapshot = existing
           ? await readPiSessionRuntimeSnapshot({
@@ -223,6 +241,7 @@ export async function ensureOnboardingProfileSession(params: {
         });
         if (
           refreshedWorkspace.workspaceType !== 'personal'
+          || refreshedWorkspace.ownerUserId !== params.userId
           || refreshedWorkspace.workspaceId !== workspace.workspaceId
           || refreshedWorkspace.organizationId !== organizationId
         ) {
@@ -266,6 +285,7 @@ export async function ensureOnboardingProfileSession(params: {
         });
         if (
           finalWorkspace.workspaceType !== 'personal'
+          || finalWorkspace.ownerUserId !== params.userId
           || finalWorkspace.workspaceId !== workspace.workspaceId
           || finalWorkspace.organizationId !== organizationId
         ) {
@@ -305,7 +325,7 @@ export async function ensureOnboardingProfileSession(params: {
           },
         );
 
-        return { sessionId };
+        return { sessionId, workspaceId: finalWorkspace.workspaceId };
       } catch (error) {
         if (
           attempt === 0
@@ -361,12 +381,14 @@ export async function completeOnboardingProfile(params: {
 export async function skipOnboardingProfile(params: {
   userId: string;
 }): Promise<{ success: true; deletedBootstrap: boolean; instanceCompleted: boolean; alreadyComplete: boolean }> {
-  if (!(await isProfilePending(params.userId))) {
-    return { success: true, deletedBootstrap: false, instanceCompleted: false, alreadyComplete: true };
-  }
+  return withPiSessionOperationLock(buildOnboardingProfileSessionId(params.userId), params.userId, async () => {
+    if (!(await isProfilePending(params.userId))) {
+      return { success: true, deletedBootstrap: false, instanceCompleted: false, alreadyComplete: true };
+    }
 
-  await updateUserOnboardingState(params.userId, { profile: 'skipped', step: 'tour' });
-  return { success: true, deletedBootstrap: false, instanceCompleted: false, alreadyComplete: false };
+    await updateUserOnboardingState(params.userId, { profile: 'skipped', step: 'tour' });
+    return { success: true, deletedBootstrap: false, instanceCompleted: false, alreadyComplete: false };
+  });
 }
 
 export async function isOnboardingProfileToolAvailable(params: {

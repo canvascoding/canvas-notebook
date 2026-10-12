@@ -1021,6 +1021,28 @@ export const teamMembershipInvitations = pgTable("team_membership_invitations", 
   acceptedCheck: check("team_membership_invitations_accepted_check", sql`${table.status} != 'accepted' OR (${table.acceptedRequestId} IS NOT NULL AND ${table.acceptedAt} IS NOT NULL)`),
 }));
 
+export const teamMembershipInvitationEmailAttempts = pgTable("team_membership_invitation_email_attempts", {
+  id: text("id").primaryKey(),
+  organizationId: text("organization_id").notNull().references(() => canvasOrganizationSettings.organizationId, { onDelete: 'cascade' }),
+  invitationId: text("invitation_id").notNull().references(() => teamMembershipInvitations.id, { onDelete: 'cascade' }),
+  attemptNumber: bigint("attempt_number", { mode: "number" }).notNull(),
+  tokenHash: text("token_hash").notNull(),
+  actorUserId: text("actor_user_id").references(() => user.id, { onDelete: 'set null' }),
+  status: text("status").notNull(),
+  errorCode: text("error_code"),
+  deliveryUnknown: pgBoolean("delivery_unknown").notNull().default(false),
+  messageId: text("message_id"),
+  leaseUntil: pgTimestamp("lease_until"),
+  sentAt: pgTimestamp("sent_at"),
+  createdAt: pgTimestamp("created_at").notNull(),
+  updatedAt: pgTimestamp("updated_at").notNull(),
+}, (table) => ({
+  invitationAttemptIdx: uniqueIndex("idx_team_invitation_email_attempt_number").on(table.organizationId, table.invitationId, table.attemptNumber),
+  invitationTokenIdx: index("idx_team_invitation_email_token").on(table.organizationId, table.invitationId, table.tokenHash, table.attemptNumber),
+  statusCheck: check("team_invitation_email_status_check", sql`${table.status} IN ('unconfigured', 'sending', 'sent', 'failed')`),
+  attemptCheck: check("team_invitation_email_attempt_check", sql`${table.attemptNumber} > 0`),
+}));
+
 export const teamMembershipTransitions = pgTable("team_membership_transitions", {
   id: text("id").primaryKey(),
   membershipId: text("membership_id").notNull().references(() => teamMemberships.id, { onDelete: 'cascade' }),

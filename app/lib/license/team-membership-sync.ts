@@ -35,6 +35,7 @@ import {
 } from './team-seat-reconciliation';
 import {
   getActiveTeamMembershipProjection,
+  lockTeamMembershipProjection,
 } from '@/app/lib/organization/team-membership';
 import { getLicenseStatus } from './index';
 import {
@@ -166,6 +167,7 @@ async function ensureSnapshotOperation(
   },
 ): Promise<'unchanged' | 'generated'> {
   return withSyncTransaction(database, async () => {
+    await lockTeamMembershipProjection(database, input.organizationId);
     const projection = await getActiveTeamMembershipProjection(
       database,
       input.organizationId,

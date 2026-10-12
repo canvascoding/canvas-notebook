@@ -30,10 +30,18 @@ Object.defineProperty(dom.window.HTMLElement.prototype, 'releasePointerCapture',
 async function main() {
   const { fireEvent, render } = await import('@testing-library/react');
   const { NotificationBell } = await import('../app/components/notifications/NotificationBell');
+  const { authClient } = await import('../app/lib/auth-client');
+  const now = new Date();
+  const authSession = { user: { id: 'bell-test-user', name: 'Bell test', email: 'bell-test@example.test',
+    emailVerified: true, createdAt: now, updatedAt: now },
+  session: { id: 'bell-test-session', userId: 'bell-test-user', token: 'synthetic-browser-session',
+    createdAt: now, updatedAt: now, expiresAt: new Date('2099-01-01T00:00:00.000Z') } } as
+    NonNullable<ReturnType<typeof authClient.$store.atoms.session.get>['data']>;
   let summaryReads = 0;
   let preferenceRequests = 0;
   globalThis.fetch = async (input) => {
     const url = new URL(String(input), window.location.origin);
+    if (url.pathname === '/api/auth/get-session') return Response.json(authSession);
     if (url.pathname === '/api/notifications/summary') {
       summaryReads++;
       return Response.json({ success: true, data: {
@@ -47,6 +55,8 @@ async function main() {
     if (url.pathname === '/api/user-preferences') preferenceRequests++;
     throw new Error(`Unexpected fetch: ${url.pathname}`);
   };
+  authClient.$store.atoms.session.set({ ...authClient.$store.atoms.session.get(), data: authSession,
+    error: null, isPending: false, isRefetching: false });
   const router = { push() {}, replace() {}, prefetch() {}, refresh() {}, back() {}, forward() {},
     hmrRefresh() {}, bfcacheId: 'test-router' };
   const screen = render(

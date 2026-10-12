@@ -24,6 +24,7 @@ import {
   isOrganizationBillingApprover,
   readOrganizationPermissionForUser,
 } from '@/app/lib/organization/permissions';
+import { membershipSeatQuoteNeedsRefresh } from '@/app/lib/organization/membership-seat-recovery';
 import { TeamMembershipError } from '@/app/lib/organization/team-membership';
 import { requireTrustedMutationOrigin } from '@/app/lib/security/mutation-origin';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
@@ -150,7 +151,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
       response: currentResponse,
       actorUserId: access.admin.session.user.id,
     });
-    if (current.preparation.authorization.status === 'approved') {
+    if (!membershipSeatQuoteNeedsRefresh(current)) {
       return NextResponse.json({
         success: true,
         data: membershipSeatQuotePayload(

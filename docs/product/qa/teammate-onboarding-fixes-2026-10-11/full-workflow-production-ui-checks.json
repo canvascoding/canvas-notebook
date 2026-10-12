@@ -1,0 +1,1199 @@
+{
+  "schemaVersion": 1,
+  "completedAt": "2026-10-12T01:27:30.808Z",
+  "scope": "local_production_chromium_playwright_mailpit",
+  "overallOutcome": "qa_completed_with_open_findings",
+  "environment": {
+    "worktree": "/Users/frankalexanderweber/.codex/worktrees/teammate-onboarding-e2e/canvasstudios-notebook",
+    "sourceCommit": "5f152bc7a",
+    "image": "sha256:6dd0fa03fb13c5d826ca4cfe1bcec2fbe42f0479cafff67c38b37fecefbc8345",
+    "notebookRecreatedAt": "2026-10-12T00:44:40.660578689Z",
+    "notebookOrigin": "http://127.0.0.1:3100",
+    "mailpitOrigin": "http://127.0.0.1:8025",
+    "billingProvider": "test",
+    "nonBillable": true,
+    "externalSmtpUsed": false,
+    "postgresRecreated": false,
+    "controlPlaneSourceChanged": false,
+    "controlPlaneServicesRecreated": false
+  },
+  "successfulOnboardings": {
+    "invitedMember": 1,
+    "invitedAdmin": 1,
+    "directMember": 1,
+    "directAdmin": 1,
+    "optionalBradleyProfile": "skipped_via_ui",
+    "tour": "disabled_by_instance",
+    "aiPreferenceConversationTested": false
+  },
+  "checks": [
+    {
+      "case": "fresh-bootstrap-admin-login",
+      "status": 200,
+      "seats": {
+        "currentRevision": 5776,
+        "acknowledgedRevision": 5776,
+        "hashesMatch": true,
+        "localObserved": 2,
+        "controlPlaneObserved": 2,
+        "licensed": 2,
+        "approved": 4,
+        "billed": 0,
+        "drift": "in_sync",
+        "reconciliation": "in_sync"
+      },
+      "outcome": "passed"
+    },
+    {
+      "case": "invite-member-email",
+      "email": "full-onboarding-mv4j3gc5-member@example.test",
+      "isAdmin": false,
+      "responseStatus": 201,
+      "invitationId": "team-invitation-3eeb3ecc-9e1c-4848-8b02-14b4fbdde4c5",
+      "membershipId": "team-membership-67ad4b55-8531-45d2-adb4-2eb417cee06b",
+      "role": "member",
+      "expiresAt": 1792370882198,
+      "emailDelivery": {
+        "status": "sent",
+        "errorCode": null,
+        "deliveryUnknown": false,
+        "lastAttemptAt": 1791766082219,
+        "sentAt": 1791766082736,
+        "resendAfter": 1791766142219,
+        "canResend": false
+      },
+      "linkHash": "35dcf2222489865e7ccde9ee40e5b5f4b7c891e6e33bab1eab2354460213a99c",
+      "mail": {
+        "email": "full-onboarding-mv4j3gc5-member@example.test",
+        "capturedCount": 1,
+        "readStatus": 200,
+        "subject": "Your invitation to Canvas Notebook",
+        "publicOrigin": "http://127.0.0.1:3100",
+        "oneInvitationLink": true,
+        "credentialsAbsent": true,
+        "linkHash": "35dcf2222489865e7ccde9ee40e5b5f4b7c891e6e33bab1eab2354460213a99c"
+      },
+      "outcome": "passed"
+    },
+    {
+      "case": "invite-admin-email",
+      "email": "full-onboarding-mv4j3gc5-admin@example.test",
+      "isAdmin": true,
+      "responseStatus": 201,
+      "invitationId": "team-invitation-d68a4211-3b96-4b2c-a374-fe8e5e87bd97",
+      "membershipId": "team-membership-cb2526fc-7250-4938-a565-4a3e78a49c46",
+      "role": "admin",
+      "expiresAt": 1792370883497,
+      "emailDelivery": {
+        "status": "sent",
+        "errorCode": null,
+        "deliveryUnknown": false,
+        "lastAttemptAt": 1791766083519,
+        "sentAt": 1791766083631,
+        "resendAfter": 1791766143519,
+        "canResend": false
+      },
+      "linkHash": "677bcc942ab1792aa743e022adf06b777a6f2eed631ff1298726c05e10e5d102",
+      "mail": {
+        "email": "full-onboarding-mv4j3gc5-admin@example.test",
+        "capturedCount": 1,
+        "readStatus": 200,
+        "subject": "Your invitation to Canvas Notebook",
+        "publicOrigin": "http://127.0.0.1:3100",
+        "oneInvitationLink": true,
+        "credentialsAbsent": true,
+        "linkHash": "677bcc942ab1792aa743e022adf06b777a6f2eed631ff1298726c05e10e5d102"
+      },
+      "outcome": "passed"
+    },
+    {
+      "case": "admin-invitation-accept-activate",
+      "accepted": 202,
+      "provider": "test",
+      "nonBillable": true,
+      "recurringAmountCents": 0,
+      "approvalRequired": false,
+      "activated": 200,
+      "stage": "active",
+      "outcome": "passed"
+    },
+    {
+      "case": "stale-quote-recovery-failure",
+      "quoteExpiresAt": "2026-10-12T00:53:20.466Z",
+      "approvalStatus": "approved",
+      "activationStatus": 409,
+      "code": "TEAM_SEAT_QUOTE_STALE",
+      "refreshOfferedBeforeExpiry": false,
+      "refreshStatus": 202,
+      "refreshCode": null,
+      "sameQuoteReturned": true,
+      "originalQuoteExpiresAt": "2026-10-12T00:53:20.466Z",
+      "returnedQuoteExpiresAt": "2026-10-12T00:53:20.466Z",
+      "outcome": "product_failure_reproduced"
+    },
+    {
+      "case": "invited-admin-personal-onboarding",
+      "profileReadStatus": 200,
+      "avatar": "rocket",
+      "languageProgress": 200,
+      "bradleySkipped": 200,
+      "tourContinue": 200,
+      "complete": true,
+      "userOnboarding": {
+        "version": 4,
+        "step": "complete",
+        "runtime": "skipped",
+        "profile": "skipped",
+        "tour": "skipped",
+        "updatedAt": "2026-10-12T00:55:55.241Z"
+      },
+      "outcome": "passed"
+    },
+    {
+      "case": "stale-invitation-decline-blocked",
+      "status": 409,
+      "code": "INVITATION_CONFLICT",
+      "error": "An invitation with started Seat execution can no longer be declined.",
+      "accountCreated": false,
+      "outcome": "product_failure_reproduced"
+    },
+    {
+      "case": "fresh-member-invitation-success",
+      "acceptStatus": 202,
+      "activationStatus": 200,
+      "stage": "active",
+      "mail": {
+        "email": "full-onboarding-mv4j3gc5-member-fresh@example.test",
+        "capturedCount": 1,
+        "readStatus": 200,
+        "subject": "Your invitation to Canvas Notebook",
+        "publicOrigin": "http://127.0.0.1:3100",
+        "oneInvitationLink": true,
+        "credentialsAbsent": true,
+        "linkHash": "564a74799914d6cd7098ed6767b7d0ff86998f8d79ccffe5985bce05bbc1875e"
+      },
+      "quantityBefore": 3,
+      "quantityAfter": 4,
+      "provider": "test",
+      "nonBillable": true,
+      "cost": 0,
+      "outcome": "passed"
+    },
+    {
+      "case": "invited-member-personal-onboarding",
+      "status": 200,
+      "workspaceStepSurvivedReload": true,
+      "avatar": "smile",
+      "complete": true,
+      "userOnboarding": {
+        "version": 4,
+        "step": "complete",
+        "runtime": "skipped",
+        "profile": "skipped",
+        "tour": "skipped",
+        "updatedAt": "2026-10-12T01:01:08.903Z"
+      },
+      "outcome": "passed"
+    },
+    {
+      "case": "invited-admin-note-autosave-reload",
+      "readStatus": 200,
+      "textPersisted": true,
+      "workspaceId": "ws_59800419-39c7-4eae-973e-5acb2ffb148f",
+      "fileName": "full-onboarding-mv4j3gc5-admin-note.md",
+      "outcome": "passed"
+    },
+    {
+      "case": "invited-member-note-autosave-reload",
+      "readStatus": 200,
+      "textPersisted": true,
+      "workspaceId": "ws_ee84b5b0-df83-43ec-83db-e1a9e18ad8ca",
+      "fileName": "full-onboarding-mv4j3gc5-member-note.md",
+      "outcome": "passed"
+    },
+    {
+      "case": "role-and-personal-workspace-isolation",
+      "memberAdminApi": 403,
+      "adminAdminApi": 200,
+      "adminReadingMemberPrivateNote": 404,
+      "memberReadingAdminPrivateNote": 404,
+      "differentPersonalWorkspaces": true,
+      "foreignPersonalWorkspaceAbsentInLists": true,
+      "outcome": "passed"
+    },
+    {
+      "case": "duplicate-active-email",
+      "status": 409,
+      "code": "INVITATION_ALREADY_USED",
+      "mail": {
+        "email": "full-onboarding-mv4j3gc5-admin@example.test",
+        "capturedCount": 1,
+        "readStatus": 200,
+        "subject": "Your invitation to Canvas Notebook",
+        "publicOrigin": "http://127.0.0.1:3100",
+        "oneInvitationLink": true,
+        "credentialsAbsent": true,
+        "linkHash": "677bcc942ab1792aa743e022adf06b777a6f2eed631ff1298726c05e10e5d102"
+      },
+      "outcome": "passed"
+    },
+    {
+      "case": "malformed-token",
+      "status": 400,
+      "code": "INVITATION_INVALID",
+      "outcome": "passed"
+    },
+    {
+      "case": "unknown-valid-format-token",
+      "status": 404,
+      "code": "INVITATION_NOT_FOUND",
+      "outcome": "passed"
+    },
+    {
+      "case": "fresh-login-onboarding-persistence",
+      "memberLogin": 200,
+      "adminLogin": 200,
+      "memberOnboardingNotRepeated": true,
+      "adminOnboardingNotRepeated": true,
+      "memberUserId": "NonPFyoztNt8TL8w3AvTAuOQ5sh9C3vP",
+      "adminUserId": "LLAvSZZHUqHrm78npqzY1jV1V96oo21i",
+      "outcome": "passed"
+    },
+    {
+      "case": "emailed-invitation-revoked",
+      "revokeStatus": 200,
+      "previewStatus": 410,
+      "code": "INVITATION_REVOKED",
+      "mail": {
+        "email": "full-onboarding-mv4j3gc5-revoked@example.test",
+        "capturedCount": 1,
+        "readStatus": 200,
+        "subject": "Your invitation to Canvas Notebook",
+        "publicOrigin": "http://127.0.0.1:3100",
+        "oneInvitationLink": true,
+        "credentialsAbsent": true,
+        "linkHash": "b475ceda1aa551f8f067dce9d627c28338ba77911b7bf93685c6c5e4ff7ed64d"
+      },
+      "outcome": "passed"
+    },
+    {
+      "case": "private-notes-after-fresh-login",
+      "memberNoteRestored": true,
+      "adminNoteRestored": true,
+      "outcome": "passed"
+    },
+    {
+      "case": "stale-invitation-technical-fixture-cleanup",
+      "fixture": {
+        "organizationId": "org_6b7b019c-7978-40f9-b8aa-2db59553092e",
+        "invitationId": "team-invitation-3eeb3ecc-9e1c-4848-8b02-14b4fbdde4c5",
+        "membershipId": "team-membership-67ad4b55-8531-45d2-adb4-2eb417cee06b",
+        "email": "full-onboarding-mv4j3gc5-member@example.test"
+      },
+      "classification": "technical_fixture_cleanup_not_ui_recovery",
+      "mode": "apply",
+      "invitationStatus": "revoked",
+      "membershipStatus": "removed",
+      "hasUserIdentity": false,
+      "outbox": [
+        {
+          "kind": "seat_execute",
+          "state": "failed",
+          "errorCode": "TEAM_SEAT_QUOTE_STALE"
+        },
+        {
+          "kind": "seat_prepare",
+          "state": "succeeded",
+          "errorCode": null
+        }
+      ],
+      "proof": {
+        "identityAbsent": true,
+        "nonactive": true,
+        "allExecutesTerminalFailed": true,
+        "executeCount": 1,
+        "provider": "test",
+        "environment": "development",
+        "nonBillable": true,
+        "immediateAmountCents": 0,
+        "recurringAmountCents": 0,
+        "currency": "eur",
+        "activeSeatCount": 4
+      },
+      "outcome": "technical_cleanup_only",
+      "acceptedHistoryPreserved": true,
+      "outboxHistoryPreserved": true,
+      "seatAndLicenseStateUnchanged": true,
+      "cpMutation": false
+    },
+    {
+      "case": "private-test-note-cleanup",
+      "memberDeleteStatus": 200,
+      "adminDeleteStatus": 200,
+      "memberReadAfterTrash": 404,
+      "adminReadAfterTrash": 404,
+      "editorReleaseRetryUsed": true,
+      "outcome": "passed"
+    },
+    {
+      "case": "invited-users-offboarding-and-seat-release",
+      "offboardingStatus": 200,
+      "memberProtectedStatus": 401,
+      "adminProtectedStatus": 401,
+      "seatState": {
+        "currentRevision": 5787,
+        "acknowledgedRevision": 5787,
+        "hashesMatch": true,
+        "localObserved": 2,
+        "controlPlaneObserved": 2,
+        "licensed": 2,
+        "approved": 4,
+        "billed": 0,
+        "drift": "in_sync",
+        "reconciliation": "in_sync"
+      },
+      "notificationObservation": {
+        "observedSeconds": 122,
+        "events": [
+          {
+            "actor": "admin",
+            "path": "/api/notifications/summary",
+            "secondsAfterOffboard": 15
+          },
+          {
+            "actor": "admin",
+            "path": "/api/notifications/summary",
+            "secondsAfterOffboard": 15
+          },
+          {
+            "actor": "member",
+            "path": "/api/notifications/summary",
+            "secondsAfterOffboard": 30
+          },
+          {
+            "actor": "member",
+            "path": "/api/notifications/summary",
+            "secondsAfterOffboard": 30
+          },
+          {
+            "actor": "admin",
+            "path": "/api/notifications/summary",
+            "secondsAfterOffboard": 45
+          },
+          {
+            "actor": "admin",
+            "path": "/api/notifications/summary",
+            "secondsAfterOffboard": 45
+          },
+          {
+            "actor": "member",
+            "path": "/api/notifications/summary",
+            "secondsAfterOffboard": 60
+          },
+          {
+            "actor": "member",
+            "path": "/api/notifications/summary",
+            "secondsAfterOffboard": 60
+          },
+          {
+            "actor": "admin",
+            "path": "/api/notifications/summary",
+            "secondsAfterOffboard": 75
+          },
+          {
+            "actor": "admin",
+            "path": "/api/notifications/summary",
+            "secondsAfterOffboard": 75
+          },
+          {
+            "actor": "member",
+            "path": "/api/notifications/summary",
+            "secondsAfterOffboard": 90
+          },
+          {
+            "actor": "member",
+            "path": "/api/notifications/summary",
+            "secondsAfterOffboard": 90
+          },
+          {
+            "actor": "admin",
+            "path": "/api/notifications/summary",
+            "secondsAfterOffboard": 105
+          },
+          {
+            "actor": "admin",
+            "path": "/api/notifications/summary",
+            "secondsAfterOffboard": 105
+          },
+          {
+            "actor": "member",
+            "path": "/api/notifications/summary",
+            "secondsAfterOffboard": 120
+          },
+          {
+            "actor": "member",
+            "path": "/api/notifications/summary",
+            "secondsAfterOffboard": 120
+          }
+        ],
+        "memberPath": "/en",
+        "adminPath": "/en"
+      },
+      "outcome": "passed"
+    },
+    {
+      "case": "direct-user-creation-both-roles",
+      "member": {
+        "email": "full-onboarding-mv4j3gc5-direct-member@example.test",
+        "isAdmin": false,
+        "responseStatus": 200,
+        "membershipId": "team-membership-0377daa7-a18e-400e-82fa-2e090dc37098"
+      },
+      "admin": {
+        "email": "full-onboarding-mv4j3gc5-direct-admin@example.test",
+        "isAdmin": true,
+        "responseStatus": 200,
+        "membershipId": "team-membership-95b9ea2e-255e-4e0b-8007-6be6e89a340f"
+      },
+      "invitationEmails": 0,
+      "initialPasswordHandedPersonally": true,
+      "outcome": "passed"
+    },
+    {
+      "case": "direct-member-personal-onboarding",
+      "status": 200,
+      "workspaceStepSurvivedReload": true,
+      "avatar": "coffee",
+      "complete": true,
+      "userOnboarding": {
+        "version": 4,
+        "step": "complete",
+        "runtime": "skipped",
+        "profile": "skipped",
+        "tour": "skipped",
+        "updatedAt": "2026-10-12T01:17:27.847Z"
+      },
+      "outcome": "passed"
+    },
+    {
+      "case": "direct-admin-personal-onboarding",
+      "status": 200,
+      "avatar": "leaf",
+      "complete": true,
+      "userOnboarding": {
+        "version": 4,
+        "step": "complete",
+        "runtime": "skipped",
+        "profile": "skipped",
+        "tour": "skipped",
+        "updatedAt": "2026-10-12T01:17:30.432Z"
+      },
+      "outcome": "passed",
+      "workspaceStepReloadCheck": "not_exercised"
+    },
+    {
+      "case": "direct-role-permissions-and-app-ready",
+      "memberAdminApi": 403,
+      "adminAdminApi": 200,
+      "memberUserId": "5d5miR8L2Ke7eIE8avzShZdAIPbKBPpL",
+      "adminUserId": "WPveOyF2cJB8kyUD7cuD4NiBywEQuFbH",
+      "homeReady": true,
+      "oldNotificationPollsStoppedAfterLogin": true,
+      "outcome": "passed"
+    },
+    {
+      "case": "direct-users-offboarding-and-seat-release",
+      "offboardingStatus": 200,
+      "memberProtectedStatus": 401,
+      "adminProtectedStatus": 401,
+      "seatState": {
+        "currentRevision": 5793,
+        "acknowledgedRevision": 5793,
+        "hashesMatch": true,
+        "localObserved": 2,
+        "controlPlaneObserved": 2,
+        "licensed": 2,
+        "approved": 4,
+        "billed": 0,
+        "drift": "in_sync",
+        "reconciliation": "in_sync"
+      },
+      "outcome": "passed"
+    }
+  ],
+  "openFindings": [
+    {
+      "id": "QA5-1",
+      "priority": "P1",
+      "area": "seat_activation",
+      "code": "TEAM_SEAT_QUOTE_STALE",
+      "recoveryBroken": true,
+      "refreshReturnsSameExpiredQuote": true,
+      "uiDeclineBlocked": true,
+      "technicalCleanupIsNotUiRecovery": true
+    },
+    {
+      "id": "QA5-2",
+      "priority": "P2",
+      "area": "human_activity_origin",
+      "status": 403,
+      "browserOriginMatchesHost": true,
+      "serverNextUrlOriginObserved": false,
+      "proxyOriginCause": "source_based_inference"
+    },
+    {
+      "id": "QA5-3",
+      "priority": "P2",
+      "area": "optional_bradley_workspace_context",
+      "status": 400,
+      "hasWorkspaceId": false,
+      "error": "Session ID and workspaceId required",
+      "skipWorks": true
+    },
+    {
+      "id": "QA5-4",
+      "priority": "P2",
+      "area": "session_revocation_ui",
+      "observation": {
+        "observedSeconds": 122,
+        "events": [
+          {
+            "actor": "admin",
+            "path": "/api/notifications/summary",
+            "secondsAfterOffboard": 15
+          },
+          {
+            "actor": "admin",
+            "path": "/api/notifications/summary",
+            "secondsAfterOffboard": 15
+          },
+          {
+            "actor": "member",
+            "path": "/api/notifications/summary",
+            "secondsAfterOffboard": 30
+          },
+          {
+            "actor": "member",
+            "path": "/api/notifications/summary",
+            "secondsAfterOffboard": 30
+          },
+          {
+            "actor": "admin",
+            "path": "/api/notifications/summary",
+            "secondsAfterOffboard": 45
+          },
+          {
+            "actor": "admin",
+            "path": "/api/notifications/summary",
+            "secondsAfterOffboard": 45
+          },
+          {
+            "actor": "member",
+            "path": "/api/notifications/summary",
+            "secondsAfterOffboard": 60
+          },
+          {
+            "actor": "member",
+            "path": "/api/notifications/summary",
+            "secondsAfterOffboard": 60
+          },
+          {
+            "actor": "admin",
+            "path": "/api/notifications/summary",
+            "secondsAfterOffboard": 75
+          },
+          {
+            "actor": "admin",
+            "path": "/api/notifications/summary",
+            "secondsAfterOffboard": 75
+          },
+          {
+            "actor": "member",
+            "path": "/api/notifications/summary",
+            "secondsAfterOffboard": 90
+          },
+          {
+            "actor": "member",
+            "path": "/api/notifications/summary",
+            "secondsAfterOffboard": 90
+          },
+          {
+            "actor": "admin",
+            "path": "/api/notifications/summary",
+            "secondsAfterOffboard": 105
+          },
+          {
+            "actor": "admin",
+            "path": "/api/notifications/summary",
+            "secondsAfterOffboard": 105
+          },
+          {
+            "actor": "member",
+            "path": "/api/notifications/summary",
+            "secondsAfterOffboard": 120
+          },
+          {
+            "actor": "member",
+            "path": "/api/notifications/summary",
+            "secondsAfterOffboard": 120
+          }
+        ],
+        "memberPath": "/en",
+        "adminPath": "/en"
+      },
+      "pollingStoppedAfterManualLoginNavigation": true
+    }
+  ],
+  "diagnostics": [
+    {
+      "path": "/api/instance/human-activity",
+      "status": 401,
+      "code": null,
+      "error": "Unauthorized"
+    },
+    {
+      "path": "/api/instance/human-activity",
+      "status": 403,
+      "browserOrigin": "http://127.0.0.1:3100",
+      "host": "127.0.0.1:3100",
+      "forwardedHost": null,
+      "forwardedProto": null
+    },
+    {
+      "path": "/api/instance/human-activity",
+      "status": 403,
+      "code": null,
+      "error": "Forbidden"
+    },
+    {
+      "path": "/api/instance/human-activity",
+      "status": 401,
+      "code": null,
+      "error": "Unauthorized"
+    },
+    {
+      "path": "/api/instance/human-activity",
+      "status": 401,
+      "code": null,
+      "error": "Unauthorized"
+    },
+    {
+      "path": "/api/instance/human-activity",
+      "status": 401,
+      "code": null,
+      "error": "Unauthorized"
+    },
+    {
+      "path": "/api/instance/human-activity",
+      "status": 401,
+      "code": null,
+      "error": "Unauthorized"
+    },
+    {
+      "path": "/api/instance/human-activity",
+      "status": 403,
+      "browserOrigin": "http://127.0.0.1:3100",
+      "host": "127.0.0.1:3100",
+      "forwardedHost": null,
+      "forwardedProto": null
+    },
+    {
+      "path": "/api/instance/human-activity",
+      "status": 403,
+      "code": null,
+      "error": "Forbidden"
+    },
+    {
+      "path": "/api/instance/human-activity",
+      "status": 401,
+      "code": null,
+      "error": "Unauthorized"
+    },
+    {
+      "path": "/api/instance/human-activity",
+      "status": 403,
+      "browserOrigin": "http://127.0.0.1:3100",
+      "host": "127.0.0.1:3100",
+      "forwardedHost": null,
+      "forwardedProto": null
+    },
+    {
+      "path": "/api/instance/human-activity",
+      "status": 403,
+      "code": null,
+      "error": "Forbidden"
+    },
+    {
+      "path": "/api/sessions/[sessionId]/bootstrap",
+      "status": 400,
+      "hasWorkspaceId": false,
+      "code": null,
+      "error": "Session ID and workspaceId required"
+    },
+    {
+      "path": "/api/instance/human-activity",
+      "status": 403,
+      "browserOrigin": "http://127.0.0.1:3100",
+      "host": "127.0.0.1:3100",
+      "forwardedHost": null,
+      "forwardedProto": null
+    },
+    {
+      "path": "/api/instance/human-activity",
+      "status": 403,
+      "code": null,
+      "error": "Forbidden"
+    },
+    {
+      "path": "/api/instance/human-activity",
+      "status": 403,
+      "browserOrigin": "http://127.0.0.1:3100",
+      "host": "127.0.0.1:3100",
+      "forwardedHost": null,
+      "forwardedProto": null
+    },
+    {
+      "path": "/api/instance/human-activity",
+      "status": 403,
+      "code": null,
+      "error": "Forbidden"
+    },
+    {
+      "path": "/api/instance/human-activity",
+      "status": 403,
+      "browserOrigin": "http://127.0.0.1:3100",
+      "host": "127.0.0.1:3100",
+      "forwardedHost": null,
+      "forwardedProto": null
+    },
+    {
+      "path": "/api/instance/human-activity",
+      "status": 403,
+      "code": null,
+      "error": "Forbidden"
+    },
+    {
+      "path": "/api/instance/human-activity",
+      "status": 401,
+      "code": null,
+      "error": "Unauthorized"
+    },
+    {
+      "path": "/api/instance/human-activity",
+      "status": 401,
+      "code": null,
+      "error": "Unauthorized"
+    },
+    {
+      "path": "/api/instance/human-activity",
+      "status": 403,
+      "browserOrigin": "http://127.0.0.1:3100",
+      "host": "127.0.0.1:3100",
+      "forwardedHost": null,
+      "forwardedProto": null
+    },
+    {
+      "path": "/api/instance/human-activity",
+      "status": 403,
+      "code": null,
+      "error": "Forbidden"
+    },
+    {
+      "path": "/api/instance/human-activity",
+      "status": 403,
+      "browserOrigin": "http://127.0.0.1:3100",
+      "host": "127.0.0.1:3100",
+      "forwardedHost": null,
+      "forwardedProto": null
+    },
+    {
+      "path": "/api/instance/human-activity",
+      "status": 403,
+      "code": null,
+      "error": "Forbidden"
+    },
+    {
+      "path": "/api/sessions/[sessionId]/bootstrap",
+      "status": 400,
+      "hasWorkspaceId": false,
+      "code": null,
+      "error": "Session ID and workspaceId required"
+    },
+    {
+      "path": "/api/instance/human-activity",
+      "status": 403,
+      "browserOrigin": "http://127.0.0.1:3100",
+      "host": "127.0.0.1:3100",
+      "forwardedHost": null,
+      "forwardedProto": null
+    },
+    {
+      "path": "/api/instance/human-activity",
+      "status": 403,
+      "code": null,
+      "error": "Forbidden"
+    },
+    {
+      "path": "/api/instance/human-activity",
+      "status": 403,
+      "browserOrigin": "http://127.0.0.1:3100",
+      "host": "127.0.0.1:3100",
+      "forwardedHost": null,
+      "forwardedProto": null
+    },
+    {
+      "path": "/api/instance/human-activity",
+      "status": 403,
+      "code": null,
+      "error": "Forbidden"
+    },
+    {
+      "path": "/api/instance/human-activity",
+      "status": 403,
+      "browserOrigin": "http://127.0.0.1:3100",
+      "host": "127.0.0.1:3100",
+      "forwardedHost": null,
+      "forwardedProto": null
+    },
+    {
+      "path": "/api/instance/human-activity",
+      "status": 403,
+      "code": null,
+      "error": "Forbidden"
+    },
+    {
+      "path": "/api/instance/human-activity",
+      "status": 403,
+      "browserOrigin": "http://127.0.0.1:3100",
+      "host": "127.0.0.1:3100",
+      "forwardedHost": null,
+      "forwardedProto": null
+    },
+    {
+      "path": "/api/instance/human-activity",
+      "status": 403,
+      "code": null,
+      "error": "Forbidden"
+    },
+    {
+      "path": "/api/instance/human-activity",
+      "status": 403,
+      "browserOrigin": "http://127.0.0.1:3100",
+      "host": "127.0.0.1:3100",
+      "forwardedHost": null,
+      "forwardedProto": null
+    },
+    {
+      "path": "/api/instance/human-activity",
+      "status": 403,
+      "code": null,
+      "error": "Forbidden"
+    },
+    {
+      "path": "/api/instance/human-activity",
+      "status": 401,
+      "code": null,
+      "error": "Unauthorized"
+    },
+    {
+      "path": "/api/instance/human-activity",
+      "status": 401,
+      "code": null,
+      "error": "Unauthorized"
+    },
+    {
+      "path": "/api/instance/human-activity",
+      "status": 403,
+      "browserOrigin": "http://127.0.0.1:3100",
+      "host": "127.0.0.1:3100",
+      "forwardedHost": null,
+      "forwardedProto": null
+    },
+    {
+      "path": "/api/instance/human-activity",
+      "status": 403,
+      "code": null,
+      "error": "Forbidden"
+    },
+    {
+      "path": "/api/instance/human-activity",
+      "status": 403,
+      "code": null,
+      "error": "Forbidden"
+    },
+    {
+      "path": "/api/instance/human-activity",
+      "status": 403,
+      "code": null,
+      "error": "Forbidden"
+    },
+    {
+      "path": "/api/instance/human-activity",
+      "status": 403,
+      "code": null,
+      "error": "Forbidden"
+    },
+    {
+      "path": "/api/instance/human-activity",
+      "status": 403,
+      "code": null,
+      "error": "Forbidden"
+    },
+    {
+      "path": "/api/instance/human-activity",
+      "status": 403,
+      "code": null,
+      "error": "Forbidden"
+    },
+    {
+      "path": "/api/instance/human-activity",
+      "status": 403,
+      "code": null,
+      "error": "Forbidden"
+    },
+    {
+      "path": "/api/instance/human-activity",
+      "status": 403,
+      "browserOrigin": "http://127.0.0.1:3100",
+      "host": "127.0.0.1:3100",
+      "forwardedHost": null,
+      "forwardedProto": null
+    },
+    {
+      "path": "/api/instance/human-activity",
+      "status": 403,
+      "code": null,
+      "error": "Forbidden"
+    },
+    {
+      "path": "/api/instance/human-activity",
+      "status": 403,
+      "browserOrigin": "http://127.0.0.1:3100",
+      "host": "127.0.0.1:3100",
+      "forwardedHost": null,
+      "forwardedProto": null
+    },
+    {
+      "path": "/api/instance/human-activity",
+      "status": 403,
+      "code": null,
+      "error": "Forbidden"
+    },
+    {
+      "path": "/api/instance/human-activity",
+      "status": 401,
+      "code": null,
+      "error": "Unauthorized"
+    },
+    {
+      "path": "/api/instance/human-activity",
+      "status": 403,
+      "browserOrigin": "http://127.0.0.1:3100",
+      "host": "127.0.0.1:3100",
+      "forwardedHost": null,
+      "forwardedProto": null
+    },
+    {
+      "path": "/api/instance/human-activity",
+      "status": 403,
+      "code": null,
+      "error": "Forbidden"
+    },
+    {
+      "path": "/api/instance/human-activity",
+      "status": 403,
+      "browserOrigin": "http://127.0.0.1:3100",
+      "host": "127.0.0.1:3100",
+      "forwardedHost": null,
+      "forwardedProto": null
+    },
+    {
+      "path": "/api/instance/human-activity",
+      "status": 403,
+      "code": null,
+      "error": "Forbidden"
+    },
+    {
+      "path": "/api/sessions/[sessionId]/bootstrap",
+      "status": 400,
+      "hasWorkspaceId": false,
+      "code": null,
+      "error": "Session ID and workspaceId required"
+    },
+    {
+      "path": "/api/instance/human-activity",
+      "status": 401,
+      "code": null,
+      "error": "Unauthorized"
+    },
+    {
+      "path": "/api/instance/human-activity",
+      "status": 403,
+      "code": null,
+      "error": "Forbidden"
+    },
+    {
+      "path": "/api/sessions/[sessionId]/bootstrap",
+      "status": 400,
+      "hasWorkspaceId": false,
+      "code": null,
+      "error": "Session ID and workspaceId required"
+    },
+    {
+      "path": "/api/instance/human-activity",
+      "status": 403,
+      "browserOrigin": "http://127.0.0.1:3100",
+      "host": "127.0.0.1:3100",
+      "forwardedHost": null,
+      "forwardedProto": null
+    },
+    {
+      "path": "/api/instance/human-activity",
+      "status": 403,
+      "code": null,
+      "error": "Forbidden"
+    }
+  ],
+  "pageerrors": [],
+  "cleanup": {
+    "members": [
+      {
+        "email": "full-onboarding-mv4j3gc5-admin@example.test",
+        "role": "admin",
+        "status": "removed",
+        "has_user": true,
+        "permission_status": "archived",
+        "archived": true,
+        "sessions": 0
+      },
+      {
+        "email": "full-onboarding-mv4j3gc5-direct-admin@example.test",
+        "role": "admin",
+        "status": "removed",
+        "has_user": true,
+        "permission_status": "archived",
+        "archived": true,
+        "sessions": 0
+      },
+      {
+        "email": "full-onboarding-mv4j3gc5-direct-member@example.test",
+        "role": "member",
+        "status": "removed",
+        "has_user": true,
+        "permission_status": "archived",
+        "archived": true,
+        "sessions": 0
+      },
+      {
+        "email": "full-onboarding-mv4j3gc5-member@example.test",
+        "role": "member",
+        "status": "removed",
+        "has_user": false,
+        "permission_status": null,
+        "archived": false,
+        "sessions": 0
+      },
+      {
+        "email": "full-onboarding-mv4j3gc5-member-fresh@example.test",
+        "role": "member",
+        "status": "removed",
+        "has_user": true,
+        "permission_status": "archived",
+        "archived": true,
+        "sessions": 0
+      },
+      {
+        "email": "full-onboarding-mv4j3gc5-revoked@example.test",
+        "role": "member",
+        "status": "removed",
+        "has_user": false,
+        "permission_status": null,
+        "archived": false,
+        "sessions": 0
+      }
+    ],
+    "sessions": [
+      {
+        "path": "/en/login",
+        "status": 200,
+        "sessionIsNull": true
+      },
+      {
+        "path": "/en/login",
+        "status": 200,
+        "sessionIsNull": true
+      },
+      {
+        "path": "/en/login",
+        "status": 200,
+        "sessionIsNull": true
+      },
+      {
+        "path": "/en/login",
+        "status": 200,
+        "sessionIsNull": true
+      }
+    ],
+    "seatState": {
+      "currentRevision": 5794,
+      "acknowledgedRevision": 5794,
+      "hashesMatch": true,
+      "localObserved": 2,
+      "controlPlaneObserved": 2,
+      "licensed": 2,
+      "approved": 4,
+      "billed": 0,
+      "drift": "in_sync",
+      "reconciliation": "in_sync"
+    },
+    "syncHealth": {
+      "state": "attention",
+      "pendingOperations": 1,
+      "failedOperations": 65,
+      "oldestPendingAt": "2026-10-10T15:43:36.681Z",
+      "historyPreserved": true
+    },
+    "smtp": {
+      "deleteStatus": 200,
+      "patchStatus": 200,
+      "getStatus": 200,
+      "data": {
+        "configured": false,
+        "complete": false,
+        "passwordConfigured": false,
+        "host": null,
+        "port": null,
+        "secure": null,
+        "tlsMode": null,
+        "username": null,
+        "fromAddress": null,
+        "fromName": null,
+        "replyTo": null,
+        "configurationError": null,
+        "deliveryMode": "local",
+        "managedAvailable": false
+      }
+    },
+    "mailpit": {
+      "deleteStatus": 200,
+      "deletedOwnMessages": 10,
+      "deletedOwnBackgroundNotifications": 2,
+      "originalMessagesPreserved": 5,
+      "remainingMessages": 5,
+      "deleteAllUsed": false
+    },
+    "oldNotificationCount": 16,
+    "oldNotificationCountUnchangedAfterManualLogin": true,
+    "browser": {
+      "contextsClosed": 6,
+      "processClosed": true
+    }
+  },
+  "limitations": [
+    "Local non-billable test provider; no Stripe acceptance",
+    "Chromium viewport checks; no physical-device or other-browser acceptance",
+    "Bradley preferences skipped; no AI provider conversation acceptance",
+    "Existing instance/license administrator setup retained; new administrator personal onboarding tested",
+    "Open findings remain; overall workflow is not universally green"
+  ]
+}

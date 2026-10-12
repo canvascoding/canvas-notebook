@@ -1,0 +1,40 @@
+{
+  "total": 5,
+  "messages": [
+    {
+      "subject": "Canvas Notebook: Your team access is paused",
+      "recipients": [
+        "mobile-promo@example.test"
+      ],
+      "created": "2026-10-11T17:24:08.507Z"
+    },
+    {
+      "subject": "Canvas Notebook: Your team access is paused",
+      "recipients": [
+        "mobile-promo-concurrent-opt-out@example.test"
+      ],
+      "created": "2026-10-11T17:24:08.452Z"
+    },
+    {
+      "subject": "Canvas Notebook: Your team access is paused",
+      "recipients": [
+        "mobile-promo-concurrent-dismiss@example.test"
+      ],
+      "created": "2026-10-11T17:24:08.395Z"
+    },
+    {
+      "subject": "Canvas Notebook: Your team access is paused",
+      "recipients": [
+        "mobile-promo-concurrent-shown@example.test"
+      ],
+      "created": "2026-10-11T17:24:08.367Z"
+    },
+    {
+      "subject": "Canvas Notebook system email test",
+      "recipients": [
+        "info@canvasstudios.store"
+      ],
+      "created": "2026-10-11T17:19:45.855Z"
+    }
+  ]
+}

@@ -1,0 +1,91 @@
+{
+  "recovery": "official Community seat clients; manual nonbillable test cleanup",
+  "sourceImage": "sha256:8be193f99d3b9a0f8ad29b69a16a2edb48cb542f47ad0928b3011ffea1e0ad2c",
+  "quote": {
+    "provider": "test",
+    "environment": "development",
+    "nonBillable": true,
+    "quantityBefore": 4,
+    "quantityAfter": 2,
+    "requiresBillingApproval": false,
+    "authorizationStatus": "approved",
+    "observedQuantity": 2,
+    "licensedQuantity": 4
+  },
+  "execution": {
+    "status": "applied",
+    "effectiveQuantity": 2,
+    "certificateReissueStatus": "issued"
+  },
+  "sync": {
+    "organizations": 1,
+    "generated": 1,
+    "requeued": 0,
+    "attempted": 1,
+    "acknowledged": 1,
+    "reconciled": 1,
+    "reconciliationFailed": 0,
+    "deferred": 0,
+    "failed": 0
+  },
+  "final": {
+    "observedQuantity": 2,
+    "licensedQuantity": 2,
+    "approvedQuantity": 4,
+    "billedQuantity": 0,
+    "reconciliationStatus": "in_sync",
+    "reconciliationAction": "none",
+    "signedSeatLimit": 2
+  },
+  "originalFailuresPreserved": true,
+  "appFixApplied": false,
+  "verification": {
+    "licensed": true,
+    "signedSeatLimit": 2,
+    "licenseClass": "test",
+    "licenseEnvironment": "development",
+    "diagnostics": {
+      "state": {
+        "organizationId": "org_6b7b019c-7978-40f9-b8aa-2db59553092e",
+        "currentRevision": 5673,
+        "currentObservedQuantity": 2,
+        "latestSnapshotHash": "1a62b148803748a197b2d5a5fd9f548a00f7882160cea8fd3dc00ed6e9892f36",
+        "latestSnapshotGeneratedAt": 1791741594864,
+        "lastLocalChangeAt": 1791741594864,
+        "acknowledgedRevision": 5673,
+        "acknowledgedSnapshotId": "7863fe53-4251-455d-ae1b-fb41ed6787b1",
+        "acknowledgedSnapshotHash": "1a62b148803748a197b2d5a5fd9f548a00f7882160cea8fd3dc00ed6e9892f36",
+        "acknowledgedAt": 1791741594864,
+        "controlPlaneProtocolVersion": "canvas-team-seat-protocol-v1",
+        "controlPlaneObservedQuantity": 2,
+        "approvedQuantity": 4,
+        "billedQuantity": 0,
+        "licensedQuantity": 2,
+        "expectedLicensedQuantity": 2,
+        "entitlementsVersion": null,
+        "billingStatus": "active",
+        "driftStatus": "in_sync",
+        "reconciliationStatus": "in_sync",
+        "reconciliationAction": "none",
+        "reconciliationReason": "quantities_in_sync",
+        "reconciliationSeatLimit": null,
+        "reconciliationSupportRequired": false,
+        "reconciledAt": 1791741594864,
+        "nextReportAt": 1791741894913,
+        "lastSyncErrorCode": null,
+        "lastSyncError": null,
+        "lastSyncAt": 1791741594864,
+        "createdAt": 1788345444537,
+        "updatedAt": 1791741594864
+      },
+      "outbox": {
+        "pending": 1,
+        "processing": 0,
+        "retryWait": 0,
+        "failed": 63,
+        "oldestPendingAt": 1791647016681
+      }
+    }
+  },
+  "confirmed": true
+}

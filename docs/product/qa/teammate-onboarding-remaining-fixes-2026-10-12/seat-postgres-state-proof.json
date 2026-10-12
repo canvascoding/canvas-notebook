@@ -1,0 +1,199 @@
+{
+  "capturedAt": "2026-10-12T09:25:14.822Z",
+  "method": "Native PostgreSQL; BEGIN READ ONLY, SELECT, ROLLBACK only",
+  "qaId": "recovery-20261012-mv4x5l3u",
+  "checks": {
+    "notebookReadOnlyTransaction": true,
+    "allOwnedMembershipsPresent": true,
+    "ownedMembershipScopeMatches": true,
+    "freshMembershipRemovedWithoutIdentity": true,
+    "invitedAndDirectOffboarded": true,
+    "freshInvitationRevokedWithOriginalAcceptanceAndTokenHash": true,
+    "freshNoUserOrAuthAccount": true,
+    "ownedOutboxRequestHashesIntact": true,
+    "freshOriginalStaleExecuteRetainedTerminal": true,
+    "freshUntouchedSupersededExecuteRetained": true,
+    "freshUntouchedCancelledExecuteRetained": true,
+    "freshSucceededPrepareHistoryRetained": true,
+    "directCreationReactivationAndRemovalHistoryPresent": true,
+    "invitedActivationAndRemovalHistoryPresent": true,
+    "freshCpReferencesMatchOwnedInvitation": true,
+    "controlPlaneReadOnlyTransaction": true,
+    "freshCpNonEmptyExactQuoteAndAuthorizationMapping": true,
+    "freshCpAllQuotesAndAuthorizationsRevokedWithoutConsumption": true,
+    "freshCpZeroBillingOperations": true,
+    "freshCpRetirementGroupsVersionOneAndBound": true,
+    "freshCpSingleLicenseScope": true,
+    "currentSeatsTwoAndInSync": true
+  },
+  "notebook": {
+    "freshMembership": {
+      "status": "removed",
+      "userIdNull": true,
+      "activatedAtNull": true
+    },
+    "freshInvitation": {
+      "status": "revoked",
+      "revoked_at_present": true,
+      "accepted_at_present": true,
+      "accepted_request_retained": true,
+      "token_hash_retained": true
+    },
+    "freshIdentityCounts": {
+      "users": 0,
+      "accounts": 0
+    },
+    "freshExecutions": [
+      {
+        "ordinal": 1,
+        "status": "failed",
+        "code": "TEAM_SEAT_QUOTE_SUPERSEDED",
+        "attempts": 0,
+        "neverAttempted": true,
+        "completed": true,
+        "noRetry": true,
+        "noResponse": true,
+        "noCpOperation": true
+      },
+      {
+        "ordinal": 2,
+        "status": "failed",
+        "code": "TEAM_SEAT_QUOTE_STALE",
+        "attempts": 1,
+        "neverAttempted": false,
+        "completed": true,
+        "noRetry": true,
+        "noResponse": true,
+        "noCpOperation": true
+      },
+      {
+        "ordinal": 3,
+        "status": "failed",
+        "code": "TEAM_SEAT_ACTIVATION_CANCELLED",
+        "attempts": 0,
+        "neverAttempted": true,
+        "completed": true,
+        "noRetry": true,
+        "noResponse": true,
+        "noCpOperation": true
+      }
+    ],
+    "freshPrepareCount": 3,
+    "histories": {
+      "invited": {
+        "outboxRows": 9,
+        "successfulActivationExecutions": 1,
+        "removalExecutions": [
+          "succeeded"
+        ],
+        "transitions": [
+          {
+            "from": null,
+            "to": "invited"
+          },
+          {
+            "from": "invited",
+            "to": "approval_required"
+          },
+          {
+            "from": "approval_required",
+            "to": "billing_pending"
+          },
+          {
+            "from": "billing_pending",
+            "to": "approval_required"
+          },
+          {
+            "from": "approval_required",
+            "to": "billing_pending"
+          },
+          {
+            "from": "billing_pending",
+            "to": "active"
+          },
+          {
+            "from": "active",
+            "to": "removed"
+          }
+        ]
+      },
+      "direct": {
+        "outboxRows": 24,
+        "successfulActivationExecutions": 2,
+        "removalExecutions": [
+          "succeeded",
+          "succeeded"
+        ],
+        "transitions": [
+          {
+            "from": null,
+            "to": "approval_required"
+          },
+          {
+            "from": "approval_required",
+            "to": "billing_pending"
+          },
+          {
+            "from": "billing_pending",
+            "to": "active"
+          },
+          {
+            "from": "active",
+            "to": "suspended"
+          },
+          {
+            "from": "suspended",
+            "to": "active"
+          },
+          {
+            "from": "active",
+            "to": "removed"
+          }
+        ]
+      }
+    },
+    "activeMembershipCount": 2
+  },
+  "controlPlane": {
+    "ownedFreshQuoteCount": 3,
+    "ownedFreshAuthorizationCount": 3,
+    "revokedWithoutConsumption": [
+      {
+        "ordinal": 1,
+        "quoteStatus": "revoked",
+        "authorizationStatus": "revoked",
+        "neverConsumed": true,
+        "noBillingOperations": true,
+        "groupVersionOne": true,
+        "groupScopeMatches": true
+      },
+      {
+        "ordinal": 2,
+        "quoteStatus": "revoked",
+        "authorizationStatus": "revoked",
+        "neverConsumed": true,
+        "noBillingOperations": true,
+        "groupVersionOne": true,
+        "groupScopeMatches": true
+      },
+      {
+        "ordinal": 3,
+        "quoteStatus": "revoked",
+        "authorizationStatus": "revoked",
+        "neverConsumed": true,
+        "noBillingOperations": true,
+        "groupVersionOne": true,
+        "groupScopeMatches": true
+      }
+    ],
+    "currentSeats": [
+      {
+        "observed": 2,
+        "licensed": 2,
+        "approved": 4,
+        "reconciliationStatus": "in_sync"
+      }
+    ]
+  },
+  "passed": true
+}

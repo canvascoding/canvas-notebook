@@ -1,0 +1,216 @@
+{
+  "scope": "Final first-task local production Playwright acceptance",
+  "sourceImage": "sha256:a918078d83f82ac670e74694389eb7afd186b0e7e69546538bd165d6d71c5869",
+  "runId": "seat-final-mv4ff8bq",
+  "quoteGuards": {
+    "provider": "test",
+    "nonBillable": true,
+    "recurringAmountCents": 0,
+    "billingApprovalRequired": false
+  },
+  "users": [
+    {
+      "id": "vRVsmgrZoK76JkQlrk9rcYidIDRivPJJ",
+      "email": "seat-final-mv4ff8bq-employee@example.test",
+      "isAdmin": false,
+      "loginStatus": 200,
+      "sessionConfirmed": true
+    },
+    {
+      "id": "E5zyLnhbP3lhUtGrSMuYhNDn9gJnMOkS",
+      "email": "seat-final-mv4ff8bq-admin@example.test",
+      "isAdmin": true,
+      "loginStatus": 200,
+      "sessionConfirmed": true
+    }
+  ],
+  "created": [
+    {
+      "email": "seat-final-mv4ff8bq-employee@example.test",
+      "isAdmin": false,
+      "responseStatus": 200,
+      "membershipId": "team-membership-43d2ce56-4da4-44a4-9738-b1ba90a67a3c"
+    },
+    {
+      "email": "seat-final-mv4ff8bq-admin@example.test",
+      "isAdmin": true,
+      "responseStatus": 200,
+      "membershipId": "team-membership-86f49d5f-40d4-4048-8be2-4dab9b78f841"
+    }
+  ],
+  "baseline": {
+    "currentRevision": 5743,
+    "acknowledgedRevision": 5743,
+    "hashesMatch": true,
+    "localObserved": 2,
+    "controlPlaneObserved": 2,
+    "licensed": 2,
+    "approved": 4,
+    "billed": 0,
+    "drift": "in_sync",
+    "reconciliation": "in_sync"
+  },
+  "fourActive": {
+    "currentRevision": 5745,
+    "acknowledgedRevision": 5745,
+    "hashesMatch": true,
+    "localObserved": 4,
+    "controlPlaneObserved": 4,
+    "licensed": 4,
+    "approved": 4,
+    "billed": 0,
+    "drift": "in_sync",
+    "reconciliation": "in_sync"
+  },
+  "offboarding": [
+    {
+      "role": "employee",
+      "status": 200,
+      "success": true
+    },
+    {
+      "role": "administrator",
+      "status": 200,
+      "success": true
+    }
+  ],
+  "responseGapMs": 12,
+  "immediateStatuses": [
+    {
+      "userId": "vRVsmgrZoK76JkQlrk9rcYidIDRivPJJ",
+      "state": "pending",
+      "phase": "prepare",
+      "errorCode": null
+    },
+    {
+      "userId": "E5zyLnhbP3lhUtGrSMuYhNDn9gJnMOkS",
+      "state": "pending",
+      "phase": "prepare",
+      "errorCode": null
+    }
+  ],
+  "sessionRevocation": [
+    {
+      "sessionMissing": true,
+      "protectedStatus": 401
+    },
+    {
+      "sessionMissing": true,
+      "protectedStatus": 401
+    }
+  ],
+  "completedStatuses": [
+    {
+      "userId": "vRVsmgrZoK76JkQlrk9rcYidIDRivPJJ",
+      "state": "completed",
+      "phase": "execute",
+      "errorCode": null
+    },
+    {
+      "userId": "E5zyLnhbP3lhUtGrSMuYhNDn9gJnMOkS",
+      "state": "completed",
+      "phase": "execute",
+      "errorCode": null
+    }
+  ],
+  "converged": {
+    "currentRevision": 5749,
+    "acknowledgedRevision": 5749,
+    "hashesMatch": true,
+    "localObserved": 2,
+    "controlPlaneObserved": 2,
+    "licensed": 2,
+    "approved": 4,
+    "billed": 0,
+    "drift": "in_sync",
+    "reconciliation": "in_sync"
+  },
+  "convergenceElapsedMs": 48096,
+  "nextUserCreation": {
+    "email": "seat-final-mv4ff8bq-next@example.test",
+    "isAdmin": false,
+    "responseStatus": 200,
+    "membershipId": "team-membership-5ebc720d-ad91-47a5-9e4f-1d5e3ab2cd69"
+  },
+  "nextUserLogin": {
+    "id": "p75zZYtkNqiZukHgZjL2QEIjydiAtvHN",
+    "email": "seat-final-mv4ff8bq-next@example.test",
+    "isAdmin": false,
+    "loginStatus": 200,
+    "sessionConfirmed": true
+  },
+  "nextUserActiveSeatState": {
+    "currentRevision": 5750,
+    "acknowledgedRevision": 5750,
+    "hashesMatch": true,
+    "localObserved": 3,
+    "controlPlaneObserved": 3,
+    "licensed": 3,
+    "approved": 4,
+    "billed": 0,
+    "drift": "in_sync",
+    "reconciliation": "in_sync"
+  },
+  "nextUserCleanup": {
+    "status": 200,
+    "at": 1791759899052
+  },
+  "nextUserCleanupReduction": {
+    "userId": "p75zZYtkNqiZukHgZjL2QEIjydiAtvHN",
+    "state": "completed",
+    "phase": "execute",
+    "errorCode": null
+  },
+  "nextUserSessionRevoked": true,
+  "restoredBaseline": {
+    "currentRevision": 5752,
+    "acknowledgedRevision": 5752,
+    "hashesMatch": true,
+    "localObserved": 2,
+    "controlPlaneObserved": 2,
+    "licensed": 2,
+    "approved": 4,
+    "billed": 0,
+    "drift": "in_sync",
+    "reconciliation": "in_sync"
+  },
+  "mobile": {
+    "viewport": {
+      "width": 390,
+      "height": 844
+    },
+    "dimensions": {
+      "clientWidth": 390,
+      "scrollWidth": 390
+    },
+    "labels": [
+      "License seat released",
+      "License seat released",
+      "License seat released"
+    ]
+  },
+  "pageErrors": [],
+  "httpErrors": [
+    {
+      "type": "http",
+      "status": 403,
+      "path": "/api/instance/human-activity"
+    },
+    {
+      "type": "http",
+      "status": 403,
+      "path": "/api/instance/human-activity"
+    },
+    {
+      "type": "http",
+      "status": 403,
+      "path": "/api/instance/human-activity"
+    },
+    {
+      "type": "http",
+      "status": 403,
+      "path": "/api/instance/human-activity"
+    }
+  ],
+  "harnessCorrection": "Read-only QA helper GET corrected from /offboard (404) to actual /offboarding before mutations"
+}

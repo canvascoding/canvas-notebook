@@ -15,11 +15,11 @@ async function main() {
     'utf8',
   );
 
-  assert.match(source, /profileSessionRequestInFlightRef/u);
-  assert.match(source, /setProfileSessionError\(message\)/u);
-  assert.match(source, /step === 'profile' && !profileSessionId/u);
+  assert.match(source, /useOnboardingProfileSession/u);
+  assert.match(source, /step === 'profile'/u);
   assert.match(source, /<ProfileSessionRecovery/u);
-  assert.match(source, /onRetry=\{\(\) => void openProfileSession\(\)\.catch/u);
+  assert.match(source, /onRetry=\{\(\) => void profileSession\.retry\(\)\}/u);
+  assert.match(source, /showWorkspaceSwitcher=\{false\}/u);
   assert.match(source, /fetch\('\/api\/onboarding\/profile-skip'/u);
   assert.match(source, /profileSessionRetry/u);
   assert.match(source, /function skipLicenseActivation\(\)/u);
@@ -30,12 +30,11 @@ async function main() {
     path.join(process.cwd(), 'app', 'components', 'settings', 'UserManagementPanel.tsx'),
     'utf8',
   );
-  assert.match(userManagementSource, /pendingCreatedUser/u);
-  assert.match(userManagementSource, /if \(pendingCreatedUser\)/u);
-  assert.match(userManagementSource, /await initializeCreatedUser\(pendingUser\.id\)/u);
-  assert.match(userManagementSource, /setPendingCreatedUser\(\{ id: created\.user\.id, email: created\.user\.email \}\)/u);
-  assert.match(userManagementSource, /createDialog\.recoveryDescription/u);
-  assert.match(userManagementSource, /createDialog\.retrySetup/u);
+  assert.match(userManagementSource, /managedPendingKey/u);
+  assert.match(userManagementSource, /managedPendingKey \? \(/u);
+  assert.match(userManagementSource, /encodeURIComponent\(managedPendingKey\).*\/activate/u);
+  assert.match(userManagementSource, /membershipSeatQuote \? \(/u);
+  assert.match(userManagementSource, /membershipSeatQuote\.refreshRequired/u);
   assert.match(userManagementSource, /includesTeamRuntimeLicense/u);
   assert.match(userManagementSource, /teamLicenseRequiredTitle/u);
   assert.match(userManagementSource, /href="\/settings\?tab=license"/u);
@@ -82,7 +81,7 @@ async function main() {
     path.join(process.cwd(), 'app', 'components', 'AppLauncher.tsx'),
     'utf8',
   );
-  assert.match(appLauncherSource, /<HelpDropdown \/>/u);
+  assert.match(appLauncherSource, /id: 'help', href: '\/help'/u);
 
   const gettingStartedSource = await readFile(
     path.join(process.cwd(), 'app', 'components', 'onboarding', 'GettingStartedCard.tsx'),

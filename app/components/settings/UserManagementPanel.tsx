@@ -12,6 +12,7 @@ import { TeamSeatHealthPanel } from '@/app/components/license/TeamSeatHealthPane
 import { isLicenseUiStatus, isTeamLicenseApplicable } from '@/app/lib/license/ui-policy';
 import { UserPermissionsDialog } from './UserPermissionsDialog';
 import { SettingsAccordionCard } from './SettingsAccordionCard';
+import { MemberSeatReductionStatusLabel, useMemberSeatReductionStatuses } from './MemberSeatReductionStatus';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import {
   AlertDialog,
@@ -75,6 +76,16 @@ type CreateUserDraft = {
 
 type TeamLicenseState = 'checking' | 'active' | 'required' | 'unavailable';
 
+type TeamInvitationEmailDelivery = {
+  status: 'not_sent' | 'unconfigured' | 'sending' | 'sent' | 'failed';
+  errorCode: string | null;
+  deliveryUnknown: boolean;
+  lastAttemptAt: number | null;
+  sentAt: number | null;
+  resendAfter: number | null;
+  canResend: boolean;
+};
+
 type TeamInvitation = {
   id: string;
   membershipId: string;
@@ -82,11 +93,13 @@ type TeamInvitation = {
   role: 'admin' | 'member' | 'external';
   status: 'pending' | 'accepted' | 'revoked' | 'expired';
   expiresAt: number;
+  emailDelivery: TeamInvitationEmailDelivery;
 };
 
 type MembershipSeatQuote = {
   stage: 'seat_prepare_pending' | 'approval_required' | 'seat_execute_pending' | 'billing_pending' | 'active';
   membershipId: string;
+  refreshRequired?: boolean;
   prepareOperationId: string;
   desiredQuantity: number;
   observedQuantity: number;
@@ -250,6 +263,8 @@ export function UserManagementPanel({
   const [teamSeatHealth, setTeamSeatHealth] = useState<TeamSeatHealth | null | undefined>(undefined);
   const [teamHealthApplicable, setTeamHealthApplicable] = useState(false);
   const licenseRequest = useRef(0);
+  const licenseAbort = useRef<AbortController | null>(null);
+  const licenseMounted = useRef(true);
   const [total, setTotal] = useState(0);
   const [offset, setOffset] = useState(0);
   const [searchDraft, setSearchDraft] = useState('');
@@ -268,6 +283,13 @@ export function UserManagementPanel({
   const [inviteOpen, setInviteOpen] = useState(false);
   const [inviteDraft, setInviteDraft] = useState<CreateUserDraft>(() => createEmptyDraft());
   const [createdInviteLink, setCreatedInviteLink] = useState<string | null>(null);
+  const [createdInvitation, setCreatedInvitation] = useState<TeamInvitation | null>(null);
+  const [createdInviteReplayed, setCreatedInviteReplayed] = useState(false);
+  const [pendingInvitationResendIds, setPendingInvitationResendIds] = useState<string[]>([]);
+  const [resendConfirmationTarget, setResendConfirmationTarget] = useState<TeamInvitation | null>(null);
+  const inviteDialogEpoch = useRef(0);
+  const invitationResendRequests = useRef(new Map<string, { requestId: string; confirmDeliveryUnknown: boolean }>());
+  const invitationResendInFlight = useRef(false);
   const [invitations, setInvitations] = useState<TeamInvitation[]>([]);
   const [invitationHistoryOpen, setInvitationHistoryOpen] = useState(false);
   const [invitationSeatQuotes, setInvitationSeatQuotes] = useState<Record<string, MembershipSeatQuote>>({});
@@ -337,13 +359,18 @@ export function UserManagementPanel({
   }, [isAdmin, offset, searchValue, t, teamLicenseState]);
 
   const loadLicenseStatus = useCallback(async () => {
+    if (!licenseMounted.current) return;
     const requestId = ++licenseRequest.current;
+    licenseAbort.current?.abort();
+    const controller = new AbortController();
+    licenseAbort.current = controller;
+    const timeout = window.setTimeout(() => controller.abort(), 15_000);
     if (canViewTeamSeatHealth) setTeamSeatHealth(undefined);
     try {
       const response = await fetch('/api/license/status', {
         cache: 'no-store',
         credentials: 'include',
-        signal: AbortSignal.timeout(15000),
+        signal: controller.signal,
       });
       const payload = await response.json().catch(() => ({})) as LicenseStatusResponse;
       if (!response.ok || !isLicenseUiStatus(payload)) {
@@ -362,14 +389,51 @@ export function UserManagementPanel({
       if (requestId !== licenseRequest.current) return;
       setTeamLicenseState('unavailable');
       if (canViewTeamSeatHealth) setTeamSeatHealth(null);
+    } finally {
+      window.clearTimeout(timeout);
+      if (licenseAbort.current === controller) licenseAbort.current = null;
     }
   }, [canViewTeamSeatHealth]);
 
+  const reloadManagement = useCallback(async () => {
+    await Promise.all([loadUsers(), loadLicenseStatus()]);
+  }, [loadUsers, loadLicenseStatus]);
+
   useEffect(() => {
+    const now = Date.now();
+    const nextResendAfter = Math.min(...invitations
+      .filter((invitation) => invitation.status === 'pending')
+      .map((invitation) => invitation.emailDelivery?.resendAfter ?? 0)
+      .filter((resendAfter) => resendAfter > now));
+    if (!Number.isFinite(nextResendAfter)) return;
+    const timeout = window.setTimeout(() => {
+      setCurrentTime(Date.now());
+      void reloadManagement();
+    }, nextResendAfter - now + 100);
+    return () => window.clearTimeout(timeout);
+  }, [invitations, reloadManagement]);
+
+  useEffect(() => () => { inviteDialogEpoch.current += 1; }, []);
+
+  const seatReductions = useMemberSeatReductionStatuses(
+    users.filter((user) => user.banned).map((user) => user.id),
+    isAdmin && teamLicenseState === 'active',
+    users,
+    loadLicenseStatus,
+  );
+
+  useEffect(() => {
+    licenseMounted.current = true;
     const timeout = window.setTimeout(() => {
       void loadLicenseStatus();
     }, 0);
-    return () => window.clearTimeout(timeout);
+    return () => {
+      window.clearTimeout(timeout);
+      licenseMounted.current = false;
+      licenseRequest.current += 1;
+      licenseAbort.current?.abort();
+      licenseAbort.current = null;
+    };
   }, [loadLicenseStatus]);
 
   useEffect(() => {
@@ -391,13 +455,24 @@ export function UserManagementPanel({
     setMessage(null);
   };
 
+  const changeInvitationDialog = (open: boolean) => {
+    inviteDialogEpoch.current += 1;
+    setInviteDraft(createEmptyDraft());
+    setCreatedInviteLink(null);
+    setCreatedInvitation(null);
+    setCreatedInviteReplayed(false);
+    setResendConfirmationTarget(null);
+    setInviteOpen(open);
+    if (open) resetTransientState();
+  };
+
   const runAction = async (actionKey: string, action: () => Promise<void>, successMessage: string | (() => string)) => {
     setActiveAction(actionKey);
     resetTransientState();
     try {
       await action();
       setMessage(typeof successMessage === 'function' ? successMessage() : successMessage);
-      await loadUsers();
+      await reloadManagement();
     } catch (actionError) {
       setError(actionError instanceof Error ? actionError.message : t('errors.action'));
     } finally {
@@ -470,7 +545,6 @@ export function UserManagementPanel({
       setCreateOpen(false);
       setManagedPendingKey(null);
       setActivationPassword('');
-      await loadUsers();
     }, t('messages.managedPending', { email: createDraft.email.trim().toLowerCase() }));
   };
 
@@ -532,8 +606,12 @@ export function UserManagementPanel({
           success?: boolean;
           data?: MembershipSeatQuote;
           error?: string;
+          code?: string;
         };
         if (!response.ok || payload.success !== true || !payload.data) {
+          if (['TEAM_SEAT_QUOTE_STALE', 'TEAM_SEAT_AUTHORIZATION_EXPIRED', 'MEMBERSHIP_SEAT_QUOTE_REFRESH_REQUIRED'].includes(payload.code || '')) {
+            setMembershipSeatQuote((current) => current ? { ...current, refreshRequired: true } : current);
+          }
           throw new Error(payload.error || t('errors.activation'));
         }
         if (payload.data.stage === 'active') {
@@ -551,6 +629,7 @@ export function UserManagementPanel({
   };
 
   const createInvitation = async () => {
+    const dialogEpoch = inviteDialogEpoch.current;
     const name = inviteDraft.name.trim();
     const email = inviteDraft.email.trim().toLowerCase();
     if (!name || !email) {
@@ -568,20 +647,138 @@ export function UserManagementPanel({
             name,
             email,
             role: inviteDraft.isAdmin ? 'admin' : 'member',
+            locale: locale.startsWith('de') ? 'de' : 'en',
           }),
         });
         const payload = await response.json().catch(() => ({})) as {
           success?: boolean;
-          data?: { acceptancePath?: string };
+          data?: { invitation?: TeamInvitation; acceptancePath?: string; emailDelivery?: TeamInvitationEmailDelivery };
           error?: string;
         };
-        if (!response.ok || payload.success !== true || !payload.data?.acceptancePath) {
+        if (!response.ok || payload.success !== true || !payload.data?.acceptancePath
+          || !payload.data.invitation || !payload.data.emailDelivery) {
           throw new Error(payload.error || t('errors.invitationCreate'));
         }
+        if (dialogEpoch !== inviteDialogEpoch.current) return;
+        setCreatedInvitation({ ...payload.data.invitation, emailDelivery: payload.data.emailDelivery });
         setCreatedInviteLink(new URL(payload.data.acceptancePath, window.location.origin).toString());
       },
       t('messages.invitationCreated', { email }),
     );
+  };
+
+  const canResendInvitation = (invitation: TeamInvitation) => (
+    (pendingInvitationResendIds.includes(invitation.id) && invitation.emailDelivery?.status !== 'sending')
+    || (invitation.status === 'pending'
+      && invitation.expiresAt > currentTime
+      && invitation.emailDelivery?.canResend === true)
+  );
+
+  const forgetInvitationResendRequest = (invitationId: string) => {
+    invitationResendRequests.current.delete(invitationId);
+    if (licenseMounted.current) {
+      setPendingInvitationResendIds((current) => current.filter((id) => id !== invitationId));
+    }
+  };
+
+  const resendInvitation = async (invitation: TeamInvitation, confirmDeliveryUnknown = false) => {
+    if (invitationResendInFlight.current || activeAction !== null || !canResendInvitation(invitation)) return;
+    invitationResendInFlight.current = true;
+    const attempt = invitationResendRequests.current.get(invitation.id) ?? {
+      requestId: crypto.randomUUID(),
+      confirmDeliveryUnknown,
+    };
+    invitationResendRequests.current.set(invitation.id, attempt);
+    setPendingInvitationResendIds((current) => current.includes(invitation.id) ? current : [...current, invitation.id]);
+    if (!inviteOpen) changeInvitationDialog(true);
+    const dialogEpoch = inviteDialogEpoch.current;
+    setResendConfirmationTarget(null);
+    setCreatedInvitation(invitation);
+    setCreatedInviteLink(null);
+    setCreatedInviteReplayed(false);
+    try {
+      await runAction(
+        `invite:resend:${invitation.id}`,
+        async () => {
+          let response: Response;
+          try {
+            response = await fetch(
+              `/api/admin/organization/memberships/invitations/${encodeURIComponent(invitation.id)}/resend`,
+              {
+                method: 'POST',
+                credentials: 'include',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  requestId: attempt.requestId,
+                  locale: locale.startsWith('de') ? 'de' : 'en',
+                  ...(attempt.confirmDeliveryUnknown ? { confirmDeliveryUnknown: true } : {}),
+                }),
+              },
+            );
+          } catch {
+            throw new Error(t('errors.invitationResponseUnknown'));
+          }
+          const payload = await response.json().catch(() => ({})) as {
+            success?: boolean;
+            code?: string;
+            data?: {
+              invitation?: TeamInvitation;
+              acceptancePath?: string | null;
+              emailDelivery?: TeamInvitationEmailDelivery;
+              replayed?: boolean;
+            };
+          };
+          if (!response.ok || payload.success !== true) {
+            const definitiveGuard = response.status < 500 && payload.success === false && [
+              'INVITATION_EMAIL_SENDING',
+              'INVITATION_EMAIL_COOLDOWN',
+              'INVITATION_EMAIL_UNKNOWN_CONFIRMATION_REQUIRED',
+              'INVITATION_INVALID',
+              'INVITATION_CONFLICT',
+              'INVITATION_NOT_FOUND',
+              'INVITATION_ALREADY_USED',
+              'INVITATION_REVOKED',
+              'INVITATION_EXPIRED',
+            ].includes(payload.code ?? '');
+            if (definitiveGuard) {
+              forgetInvitationResendRequest(invitation.id);
+              await reloadManagement();
+            }
+            const errorKey = payload.code === 'INVITATION_EMAIL_COOLDOWN'
+              ? 'invitationCooldown'
+              : payload.code === 'INVITATION_EMAIL_SENDING'
+                ? 'invitationSending'
+                : payload.code === 'INVITATION_EMAIL_UNKNOWN_CONFIRMATION_REQUIRED'
+                  ? 'invitationUnknownConfirmation'
+                  : definitiveGuard ? 'invitationResend' : 'invitationResponseUnknown';
+            throw new Error(t(`errors.${errorKey}`));
+          }
+          if (!payload.data?.invitation || !payload.data.emailDelivery
+            || (payload.data.acceptancePath !== null && typeof payload.data.acceptancePath !== 'string')) {
+            throw new Error(t('errors.invitationResponseUnknown'));
+          }
+          if (payload.data.emailDelivery.status !== 'sending') forgetInvitationResendRequest(invitation.id);
+          if (dialogEpoch !== inviteDialogEpoch.current) return;
+          setCreatedInvitation({ ...payload.data.invitation, emailDelivery: payload.data.emailDelivery });
+          setCreatedInviteLink(payload.data.acceptancePath
+            ? new URL(payload.data.acceptancePath, window.location.origin).toString()
+            : null);
+          setCreatedInviteReplayed(payload.data.replayed === true);
+        },
+        t('messages.invitationDeliveryUpdated', { email: invitation.email }),
+      );
+    } finally {
+      invitationResendInFlight.current = false;
+    }
+  };
+
+  const requestInvitationResend = (invitation: TeamInvitation) => {
+    if (!canResendInvitation(invitation) || activeAction !== null) return;
+    if (invitation.emailDelivery?.deliveryUnknown && !invitationResendRequests.current.has(invitation.id)) {
+      setResendConfirmationTarget(invitation);
+      return;
+    }
+    void resendInvitation(invitation);
   };
 
   const revokeInvitation = async (invitation: TeamInvitation) => {
@@ -841,7 +1038,8 @@ export function UserManagementPanel({
   );
   const membershipQuoteIsStale = Boolean(
     membershipSeatQuote && (
-      ['expired', 'revoked'].includes(membershipSeatQuote.quote.status)
+      membershipSeatQuote.refreshRequired
+      || ['expired', 'revoked'].includes(membershipSeatQuote.quote.status)
       || ['expired', 'revoked'].includes(membershipSeatQuote.approval.status)
       || Date.parse(membershipSeatQuote.quote.expiresAt) <= currentTime
     ),
@@ -941,6 +1139,68 @@ export function UserManagementPanel({
 
   const currentInvitations = invitations.filter((invitation) => invitation.status === 'pending' || invitation.status === 'accepted');
   const archivedInvitations = invitations.filter((invitation) => invitation.status !== 'pending' && invitation.status !== 'accepted');
+  const invitationResult = createdInvitation
+    ? invitations.find((invitation) => invitation.id === createdInvitation.id
+      && (invitation.emailDelivery?.lastAttemptAt ?? 0) >= (createdInvitation.emailDelivery.lastAttemptAt ?? 0))
+      ?? createdInvitation
+    : null;
+  const visibleInviteLink = createdInviteLink && invitationResult && createdInvitation
+    && (invitationResult.status === 'pending' || invitationResult.status === 'accepted')
+    && (invitationResult.emailDelivery?.lastAttemptAt ?? 0) === (createdInvitation.emailDelivery.lastAttemptAt ?? 0)
+    ? createdInviteLink : null;
+
+  const renderInvitationDelivery = (invitation: TeamInvitation) => {
+    const delivery = invitation.emailDelivery;
+    const isSending = activeAction === `invite:resend:${invitation.id}` || delivery?.status === 'sending';
+    const status = isSending ? 'sending'
+      : delivery?.deliveryUnknown ? 'unknown'
+        : delivery?.errorCode === 'INVITATION_EMAIL_DISABLED' ? 'disabled'
+          : delivery?.status ?? 'not_sent';
+    return (
+      <div className="mt-2 space-y-1 text-xs text-muted-foreground" role="status" aria-live="polite">
+        <p className={status === 'sent' ? 'text-foreground' : undefined}>
+          {t(`invitationDelivery.status.${status}`)}
+        </p>
+        {status === 'sent' && <p>{t('invitationDelivery.sentHint')}</p>}
+        {status === 'unknown' && invitation.status === 'pending' && <p>{t('invitationDelivery.unknownHint')}</p>}
+        {(status === 'disabled' || status === 'unconfigured') && (
+          <>
+            {invitation.status === 'pending' && <p>{delivery?.errorCode === 'INVITATION_EMAIL_URL_UNCONFIGURED'
+              ? t('invitationDelivery.urlHint') : t('invitationDelivery.configurationHint')}</p>}
+            <Link href="/settings?tab=email" className="inline-block underline underline-offset-2">
+              {t('invitationDelivery.settingsLink')}
+            </Link>
+          </>
+        )}
+        {status === 'failed' && invitation.status === 'pending' && invitation.expiresAt > currentTime
+          && <p>{t('invitationDelivery.failedHint')}</p>}
+        {invitation.status === 'pending' && delivery?.resendAfter && delivery.resendAfter > currentTime ? (
+          <p>{t('invitationDelivery.cooldown', {
+            time: new Date(delivery.resendAfter).toLocaleTimeString(locale),
+          })}</p>
+        ) : null}
+      </div>
+    );
+  };
+
+  const renderInvitationResend = (invitation: TeamInvitation) => (
+    invitation.status === 'pending' || pendingInvitationResendIds.includes(invitation.id) ? (
+      <Button
+        type="button"
+        size="sm"
+        variant="outline"
+        disabled={activeAction !== null || !canResendInvitation(invitation)}
+        onClick={() => requestInvitationResend(invitation)}
+      >
+        {activeAction === `invite:resend:${invitation.id}`
+          ? <Loader2 data-icon="inline-start" className="animate-spin" />
+          : <MailPlus data-icon="inline-start" />}
+        {pendingInvitationResendIds.includes(invitation.id)
+          ? t('invitations.retryResponse') : t('invitations.resend')}
+      </Button>
+    ) : null
+  );
+
   const renderInvitations = (items: TeamInvitation[]) => (
     <div className="rounded-md border">
       <div className="border-b px-3 py-2">
@@ -955,6 +1215,7 @@ export function UserManagementPanel({
               <p className="text-xs text-muted-foreground">
                 {t(`roles.${invitation.role}`)} · {t(`invitations.status.${invitation.status}`)} · {formatDate(invitation.expiresAt, locale)}
               </p>
+              {renderInvitationDelivery(invitation)}
               {invitationSeatQuotes[invitation.id] && (
                 <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                   <span>
@@ -988,6 +1249,7 @@ export function UserManagementPanel({
               )}
             </div>
             <div className="flex flex-wrap gap-2">
+              {renderInvitationResend(invitation)}
               {invitation.status === 'accepted' && (
                 <Button
                   type="button"
@@ -1090,11 +1352,11 @@ export function UserManagementPanel({
               <CardDescription>{t('description')}</CardDescription>
             </div>
             <div className="flex shrink-0 flex-wrap gap-2">
-              <Button type="button" variant="outline" onClick={() => void loadUsers()} disabled={isLoading || activeAction !== null}>
+              <Button type="button" variant="outline" onClick={() => void reloadManagement()} disabled={isLoading || activeAction !== null}>
                 {isLoading ? <Loader2 data-icon="inline-start" className="animate-spin" /> : <RefreshCw data-icon="inline-start" />}
                 {t('reload')}
               </Button>
-              <Button type="button" variant="outline" onClick={() => setInviteOpen(true)} disabled={activeAction !== null}>
+              <Button type="button" variant="outline" onClick={() => changeInvitationDialog(true)} disabled={activeAction !== null}>
                 <MailPlus data-icon="inline-start" />
                 {t('inviteUser')}
               </Button>
@@ -1197,6 +1459,9 @@ export function UserManagementPanel({
                           {isBanned && user.banReason && (
                             <span className="max-w-44 truncate">{user.banReason}</span>
                           )}
+                          {isBanned && (
+                            <MemberSeatReductionStatusLabel status={seatReductions.statuses[user.id]} unavailable={seatReductions.unavailable} />
+                          )}
                         </div>
                       </div>
                       <div className="flex items-center justify-between gap-3">
@@ -1270,6 +1535,9 @@ export function UserManagementPanel({
                             {isBanned && user.banReason && (
                               <span className="max-w-56 truncate text-xs text-muted-foreground">{user.banReason}</span>
                             )}
+                            {isBanned && (
+                              <MemberSeatReductionStatusLabel status={seatReductions.statuses[user.id]} unavailable={seatReductions.unavailable} />
+                            )}
                           </div>
                         </TableCell>
                         <TableCell className="text-muted-foreground">
@@ -1316,7 +1584,7 @@ export function UserManagementPanel({
           if (permissionsTarget) {
             setMessage(t('messages.permissionsUpdated', { email: permissionsTarget.email }));
           }
-          await loadUsers();
+          await reloadManagement();
         }}
       />
 
@@ -1608,13 +1876,7 @@ export function UserManagementPanel({
 
       <Dialog
         open={inviteOpen}
-        onOpenChange={(open) => {
-          setInviteOpen(open);
-          if (!open) {
-            setInviteDraft(createEmptyDraft());
-            setCreatedInviteLink(null);
-          }
-        }}
+        onOpenChange={changeInvitationDialog}
       >
         <DialogContent className="max-h-[85dvh] overflow-y-auto">
           <DialogHeader>
@@ -1622,24 +1884,39 @@ export function UserManagementPanel({
             <DialogDescription>{t('invitationDialog.description')}</DialogDescription>
           </DialogHeader>
           <div className="rounded-md border bg-muted/40 p-3 text-sm">
-            <p className="font-medium text-foreground">{t('provisioningNoteTitle')}</p>
-            <p className="mt-1 text-muted-foreground">{t('provisioningNoteDescription')}</p>
+            <p className="font-medium text-foreground">{t('invitationDialog.emailNoteTitle')}</p>
+            <p className="mt-1 text-muted-foreground">{t('invitationDialog.emailNoteDescription')}</p>
           </div>
-          {createdInviteLink ? (
+          {error && <p className="text-sm text-destructive" role="alert">{error}</p>}
+          {invitationResult ? (
             <div className="flex flex-col gap-3">
-              <Label htmlFor="team-invitation-link">{t('invitationDialog.linkLabel')}</Label>
-              <div className="flex gap-2">
-                <Input id="team-invitation-link" readOnly value={createdInviteLink} />
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => void navigator.clipboard.writeText(createdInviteLink)}
-                >
-                  <Copy data-icon="inline-start" />
-                  {t('invitationDialog.copy')}
-                </Button>
-              </div>
-              <p className="text-xs text-muted-foreground">{t('invitationDialog.linkHint')}</p>
+              <p className="text-sm font-medium">{invitationResult.email}</p>
+              {renderInvitationDelivery(invitationResult)}
+              {visibleInviteLink ? (
+                <>
+                  <Label htmlFor="team-invitation-link">{t('invitationDialog.linkLabel')}</Label>
+                  <div className="flex gap-2">
+                    <Input id="team-invitation-link" readOnly value={visibleInviteLink} />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => void navigator.clipboard.writeText(visibleInviteLink)}
+                    >
+                      <Copy data-icon="inline-start" />
+                      {t('invitationDialog.copy')}
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">{t('invitationDialog.linkHint', {
+                    date: formatDate(invitationResult.expiresAt, locale),
+                  })}</p>
+                </>
+              ) : createdInviteLink ? (
+                <p className="text-xs text-muted-foreground">{t('invitationDialog.linkUnavailableHint')}</p>
+              ) : createdInviteReplayed && invitationResult.emailDelivery?.status !== 'sending' ? (
+                <p className="text-xs text-muted-foreground">{t('invitationDialog.replayedHint')}</p>
+              ) : null}
+              <p className="text-xs text-muted-foreground">{t('invitationDialog.resendHint')}</p>
+              <div>{renderInvitationResend(invitationResult)}</div>
             </div>
           ) : (
             <div className="flex flex-col gap-4">
@@ -1680,12 +1957,12 @@ export function UserManagementPanel({
             <Button
               type="button"
               variant="outline"
-              onClick={() => setInviteOpen(false)}
-              disabled={activeAction === 'invite:create'}
+              onClick={() => changeInvitationDialog(false)}
+              disabled={activeAction === 'invite:create' || activeAction?.startsWith('invite:resend:')}
             >
-              {createdInviteLink ? t('invitationDialog.done') : t('cancel')}
+              {invitationResult ? t('invitationDialog.done') : t('cancel')}
             </Button>
-            {!createdInviteLink && (
+            {!invitationResult && (
               <Button
                 type="button"
                 onClick={() => void createInvitation()}
@@ -1700,6 +1977,26 @@ export function UserManagementPanel({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog
+        open={Boolean(resendConfirmationTarget)}
+        onOpenChange={(open) => !open && setResendConfirmationTarget(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('invitationDelivery.confirmUnknownTitle')}</AlertDialogTitle>
+            <AlertDialogDescription>{t('invitationDelivery.confirmUnknownDescription', {
+              email: resendConfirmationTarget?.email ?? '',
+            })}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('cancel')}</AlertDialogCancel>
+            <AlertDialogAction onClick={() => {
+              if (resendConfirmationTarget) void resendInvitation(resendConfirmationTarget, true);
+            }}>{t('invitationDelivery.confirmUnknown')}</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog open={Boolean(roleTarget)} onOpenChange={(open) => !open && setRoleTarget(null)}>
         <AlertDialogContent>

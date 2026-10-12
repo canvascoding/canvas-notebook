@@ -1,0 +1,11 @@
+{
+  "sourceImage": "sha256:a918078d83f82ac670e74694389eb7afd186b0e7e69546538bd165d6d71c5869",
+  "dialog": {
+    "email": "dialog-reset-mv4frbo3@example.test",
+    "createStatus": 201,
+    "afterDoneOldLinkVisible": true,
+    "nameInputCount": 0
+  },
+  "revocationStatus": 200,
+  "reloadLicenseRequestCount": 0
+}

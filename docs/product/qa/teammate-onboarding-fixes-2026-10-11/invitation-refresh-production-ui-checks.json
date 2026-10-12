@@ -1,0 +1,193 @@
+{
+  "scope": "Second plan item: local production Playwright acceptance",
+  "sourceImage": "sha256:8d113491f9632d1eb17166862eec052cc0734d8871ad511954be9624a10fdd2e",
+  "runId": "ui-refresh-mv4fzt58",
+  "dialogResets": {
+    "afterFirstDone": {
+      "nameEmpty": true,
+      "emailEmpty": true,
+      "adminSelected": false,
+      "linkPresent": false
+    },
+    "afterSecondDone": {
+      "nameEmpty": true,
+      "emailEmpty": true,
+      "adminSelected": false,
+      "linkPresent": false
+    },
+    "afterCancel": {
+      "nameEmpty": true,
+      "emailEmpty": true,
+      "adminSelected": false,
+      "linkPresent": false
+    },
+    "afterEscape": {
+      "nameEmpty": true,
+      "emailEmpty": true,
+      "adminSelected": false,
+      "linkPresent": false
+    }
+  },
+  "consecutiveInvitations": [
+    {
+      "id": "team-invitation-ed5bf2e6-c3ee-4c7c-b608-2b019ef50db4",
+      "email": "ui-refresh-mv4fzt58-invite-member@example.test",
+      "role": "member",
+      "status": "pending"
+    },
+    {
+      "id": "team-invitation-c03826e7-563f-4ac2-b008-e7959f299ecf",
+      "email": "ui-refresh-mv4fzt58-invite-admin@example.test",
+      "role": "admin",
+      "status": "pending"
+    }
+  ],
+  "differentAcceptanceLinks": true,
+  "invitationCleanup": [
+    {
+      "id": "team-invitation-ed5bf2e6-c3ee-4c7c-b608-2b019ef50db4",
+      "email": "ui-refresh-mv4fzt58-invite-member@example.test",
+      "role": "member",
+      "status": "revoked"
+    },
+    {
+      "id": "team-invitation-c03826e7-563f-4ac2-b008-e7959f299ecf",
+      "email": "ui-refresh-mv4fzt58-invite-admin@example.test",
+      "role": "admin",
+      "status": "revoked"
+    }
+  ],
+  "creation": {
+    "email": "ui-refresh-mv4fzt58-seat@example.test",
+    "isAdmin": false,
+    "responseStatus": 200,
+    "membershipId": "team-membership-97346816-b099-4308-bdaf-448187741680"
+  },
+  "createdUser": {
+    "id": "axzfLkFaUMqU2lafshR3YSMCwr4K8nq4",
+    "email": "ui-refresh-mv4fzt58-seat@example.test",
+    "isAdmin": false,
+    "loginStatus": 200,
+    "sessionConfirmed": true
+  },
+  "cardAfterActivation": "3 / 3 Team seats used",
+  "reloadLicenseFetchCount": 2,
+  "offboarding": {
+    "status": 200,
+    "at": 1791761343116
+  },
+  "cardAfterAutomaticRelease": "2 / 2 Team seats used",
+  "cardUpdatedWithoutReload": true,
+  "automaticCardUpdateElapsedMs": 21407,
+  "licenseRequestsFromActualUI": [
+    {
+      "at": 1791761222478,
+      "status": 200,
+      "observed": 2,
+      "licensed": 2
+    },
+    {
+      "at": 1791761222526,
+      "status": 200,
+      "observed": 2,
+      "licensed": 2
+    },
+    {
+      "at": 1791761222865,
+      "status": 200,
+      "observed": 3,
+      "licensed": 3
+    },
+    {
+      "at": 1791761222922,
+      "status": 200,
+      "observed": 3,
+      "licensed": 3
+    },
+    {
+      "at": 1791761341905,
+      "status": 200,
+      "observed": 3,
+      "licensed": 3
+    },
+    {
+      "at": 1791761341953,
+      "status": 200,
+      "observed": 3,
+      "licensed": 3
+    },
+    {
+      "at": 1791761342884,
+      "status": 200,
+      "observed": 2,
+      "licensed": 3
+    },
+    {
+      "at": 1791761342928,
+      "status": 200,
+      "observed": 2,
+      "licensed": 3
+    },
+    {
+      "at": 1791761363155,
+      "status": 200,
+      "observed": 2,
+      "licensed": 2
+    }
+  ],
+  "rawBaseline": {
+    "currentRevision": 5756,
+    "acknowledgedRevision": 5756,
+    "hashesMatch": true,
+    "localObserved": 2,
+    "controlPlaneObserved": 2,
+    "licensed": 2,
+    "approved": 4,
+    "billed": 0,
+    "drift": "in_sync",
+    "reconciliation": "in_sync"
+  },
+  "rawThree": {
+    "currentRevision": 5757,
+    "acknowledgedRevision": 5757,
+    "hashesMatch": true,
+    "localObserved": 3,
+    "controlPlaneObserved": 3,
+    "licensed": 3,
+    "approved": 4,
+    "billed": 0,
+    "drift": "in_sync",
+    "reconciliation": "in_sync"
+  },
+  "rawRestored": {
+    "currentRevision": 5759,
+    "acknowledgedRevision": 5759,
+    "hashesMatch": true,
+    "localObserved": 2,
+    "controlPlaneObserved": 2,
+    "licensed": 2,
+    "approved": 4,
+    "billed": 0,
+    "drift": "in_sync",
+    "reconciliation": "in_sync"
+  },
+  "sessionRevoked": true,
+  "pageErrors": [],
+  "httpErrors": [
+    {
+      "type": "http",
+      "status": 403,
+      "path": "/api/instance/human-activity"
+    },
+    {
+      "type": "http",
+      "status": 403,
+      "path": "/api/instance/human-activity"
+    },
+    {
+      "type": "http",
+      "status": 403,
+      "path": "/api/instance/human-activity"
+    }
+  ]
+}

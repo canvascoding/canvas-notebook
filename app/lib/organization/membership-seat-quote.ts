@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { openDb } from '@/app/lib/db';
+import { openDb, type SqlConnection } from '@/app/lib/db';
 import {
   getCommunityTeamSeatQuoteStatus,
   prepareCommunityTeamSeatChange,
@@ -9,9 +9,12 @@ import { getCommunityTeamSeatApprovalUrl } from '@/app/lib/license/instance';
 import { parseTeamSeatPrepareResponse } from '@/app/lib/license/team-seat-contract';
 import {
   claimTeamSeatOutboxOperation,
+  getTeamSeatOutboxOperation,
   TeamSeatOutboxError,
   type TeamSeatOutboxOperation,
 } from '@/app/lib/license/team-seat-outbox';
+import { lockMembershipSeatLifecycle, membershipSeatQuoteNeedsRefresh } from './membership-seat-recovery';
+import { getTeamMembershipById } from './team-membership';
 import {
   getDirectMembershipSeatQuote,
   getMembershipSeatPrepareRequest,
@@ -23,24 +26,42 @@ import {
 
 async function claimSeatPreparation(
   operation: TeamSeatOutboxOperation,
+  providedDatabase?: Pick<SqlConnection, 'get' | 'all' | 'run' | 'close'>,
 ): Promise<TeamSeatOutboxOperation> {
-  const database = await openDb();
+  const database = providedDatabase ?? await openDb();
   try {
-    const claimed = await claimTeamSeatOutboxOperation(database, {
-      operationId: operation.operationId,
-      allowPending: true,
-      allowFailed: true,
-    });
-    if (claimed.claimed || claimed.operation.status === 'succeeded') {
-      return claimed.operation;
+    await database.run('BEGIN');
+    if (!operation.membershipId) throw new TeamSeatOutboxError('TEAM_SEAT_OUTBOX_CONFLICT', 'Seat preparation requires a membership.', 409);
+    await lockMembershipSeatLifecycle(database, operation.organizationId, operation.membershipId);
+    const membership = await getTeamMembershipById(database, operation.organizationId, operation.membershipId);
+    const current = await getTeamSeatOutboxOperation(database, operation.operationId);
+    const latest = await database.get(`
+      SELECT operation_id FROM team_seat_outbox WHERE organization_id = $1 AND membership_id = $2 AND operation_kind = 'seat_prepare'
+      ORDER BY created_at DESC, id DESC LIMIT 1
+    `, [operation.organizationId, operation.membershipId]) as { operation_id: string } | undefined;
+    const validLifecycle = membership && (operation.operationType === 'member_remove'
+      ? ['removed', 'suspended'].includes(membership.status)
+      : (['approval_required', 'billing_pending'].includes(membership.status) && membership.userId === null)
+        || (membership.status === 'suspended' && membership.userId !== null && operation.dedupeKey.includes(':reactivation:')));
+    if (!current || !validLifecycle || (operation.operationType !== 'member_remove' && latest?.operation_id !== operation.operationId)
+      || ['TEAM_SEAT_QUOTE_SUPERSEDED', 'TEAM_SEAT_ACTIVATION_CANCELLED'].includes(current.lastErrorCode || '')) {
+      throw new TeamSeatOutboxError('TEAM_SEAT_OUTBOX_CONFLICT', 'Seat preparation was cancelled, superseded, or belongs to an earlier membership lifecycle.', 409);
     }
-    throw new TeamSeatOutboxError(
-      'TEAM_SEAT_OUTBOX_CONFLICT',
-      `Seat preparation is already ${claimed.operation.status}.`,
-      409,
-    );
+    if (current.status === 'succeeded') {
+      await database.run('COMMIT');
+      return current;
+    }
+    const claimed = await claimTeamSeatOutboxOperation(database, {
+      operationId: operation.operationId, allowPending: true, allowFailed: true,
+    });
+    if (!claimed.claimed) throw new TeamSeatOutboxError('TEAM_SEAT_OUTBOX_CONFLICT', `Seat preparation is already ${claimed.operation.status}.`, 409);
+    await database.run('COMMIT');
+    return claimed.operation;
+  } catch (error) {
+    await database.run('ROLLBACK');
+    throw error;
   } finally {
-    await database.close();
+    if (!providedDatabase) await database.close();
   }
 }
 
@@ -51,6 +72,7 @@ export type MembershipSeatQuotePayload = {
   desiredQuantity: number;
   observedQuantity: number;
   replayed: boolean;
+  refreshRequired: boolean;
   quote: {
     id: string;
     quantityBefore: number;
@@ -77,19 +99,20 @@ export type MembershipSeatQuotePayload = {
 export async function dispatchDirectMembershipSeatPreparation(input: {
   activation: MembershipActivation;
   actorUserId?: string | null;
+  database?: Pick<SqlConnection, 'get' | 'all' | 'run' | 'close'>;
+  prepareSeatChange?: typeof prepareCommunityTeamSeatChange;
 }): Promise<DirectMembershipSeatQuote> {
-  const prepareOperation = input.activation.prepareOperation.responseJson
-    ? input.activation.prepareOperation
-    : await claimSeatPreparation(input.activation.prepareOperation);
+  const prepareOperation = await claimSeatPreparation(input.activation.prepareOperation, input.database);
   const response = prepareOperation.responseJson
     ? parseTeamSeatPrepareResponse(
       JSON.parse(prepareOperation.responseJson),
     )
-    : await prepareCommunityTeamSeatChange(
+    : await (input.prepareSeatChange ?? prepareCommunityTeamSeatChange)(
       getMembershipSeatPrepareRequest(prepareOperation),
       { operationId: prepareOperation.operationId },
     );
   const activation = await recordDirectMembershipSeatPreparation({
+    database: input.database,
     organizationId: input.activation.membership.organizationId,
     membershipId: input.activation.membership.id,
     prepareOperationId: prepareOperation.operationId,
@@ -137,6 +160,7 @@ export function membershipSeatQuotePayload(
     desiredQuantity: value.activation.desiredQuantity,
     observedQuantity: value.activation.observedQuantity,
     replayed: value.activation.replayed,
+    refreshRequired: membershipSeatQuoteNeedsRefresh(value),
     quote: {
       id: quote.quoteId,
       quantityBefore: quote.quantityBefore,

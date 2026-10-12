@@ -49,7 +49,7 @@ interface WorkspaceStoreState {
   error: string | null;
   lastUpdatedAt: number | null;
   hydrateWorkspaces: (options?: { force?: boolean }) => Promise<void>;
-  setActiveWorkspace: (workspaceId: string, source?: WorkspaceSwitchSource) => Promise<boolean>;
+  setActiveWorkspace: (workspaceId: string, source?: WorkspaceSwitchSource, options?: { signal?: AbortSignal }) => Promise<boolean>;
   refreshWorkspaces: () => Promise<void>;
 }
 
@@ -275,7 +275,8 @@ export const useWorkspaceStore = create<WorkspaceStoreState>((set, get) => ({
     }
   },
 
-  setActiveWorkspace: async (workspaceId, source = 'system') => {
+  setActiveWorkspace: async (workspaceId, source = 'system', options = {}) => {
+    if (options.signal?.aborted) return false;
     const requestId = ++workspaceSwitchRequestId;
     const workspace = get().workspaces.find((candidate) => candidate.id === workspaceId);
     if (!workspace || workspace.status !== 'active' || !workspace.permissions.canRead) return false;
@@ -287,11 +288,11 @@ export const useWorkspaceStore = create<WorkspaceStoreState>((set, get) => ({
     try {
       const { useFileStore } = await import('@/app/store/file-store');
       resetWorkspaceView = useFileStore.getState().resetWorkspaceView;
-      if (requestId !== workspaceSwitchRequestId || get().activeWorkspaceId !== previousWorkspaceId) return false;
+      if (options.signal?.aborted || requestId !== workspaceSwitchRequestId || get().activeWorkspaceId !== previousWorkspaceId) return false;
       await useFileStore.getState().prepareCurrentFileForTransition();
-      if (requestId !== workspaceSwitchRequestId || get().activeWorkspaceId !== previousWorkspaceId) return false;
+      if (options.signal?.aborted || requestId !== workspaceSwitchRequestId || get().activeWorkspaceId !== previousWorkspaceId) return false;
     } catch (error) {
-      if (requestId === workspaceSwitchRequestId) set({
+      if (!options.signal?.aborted && requestId === workspaceSwitchRequestId) set({
         error: error instanceof Error ? error.message : 'Could not save the current document.',
       });
       return false;
