@@ -451,6 +451,8 @@
     "test:team-invitations:email:postgres": "tsx --conditions react-server scripts/team-invitation-email-postgres-test.ts",
     "test:team-seat-outbox": "tsx --conditions react-server scripts/team-seat-outbox-test.ts",
     "test:team-seat-outbox-worker": "tsx --conditions react-server scripts/team-seat-outbox-worker-test.ts",
+    "test:team-seat:membership-recovery": "tsx --conditions react-server scripts/membership-seat-recovery-test.ts",
+    "test:team-seat:membership-recovery:postgres": "tsx --conditions react-server scripts/membership-seat-recovery-postgres-test.ts",
     "test:team-seat-removal": "tsx --conditions react-server scripts/team-seat-removal-regression-test.ts",
     "test:team-seat-removal:postgres": "tsx --conditions react-server scripts/team-seat-removal-postgres-claim-test.ts",
     "test:team-seat-removal:snapshot": "tsx --conditions react-server scripts/team-seat-removal-snapshot-test.ts",

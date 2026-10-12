@@ -5,6 +5,16 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import type { SqlConnection } from '@/app/lib/db';
 import { openDb } from '@/app/lib/db';
 import {
+  lockMembershipSeatLifecycle,
+  MembershipSeatRecoveryConflict,
+  readMembershipSeatRecoveryProof,
+  revokeMembershipSeatAuthorizations,
+  retireUnconsumedMembershipSeatWork,
+  validateMembershipSeatRecoveryWork,
+  type SeatQuoteStatusReader,
+  type SeatQuoteRevoker,
+} from './membership-seat-recovery';
+import {
   createTeamMembershipCandidate,
   getTeamMembershipByCandidateEmail,
   getTeamMembershipById,
@@ -457,6 +467,8 @@ export async function revokeTeamMembershipInvitation(input: {
   invitationId: string;
   actorUserId: string;
   database?: InvitationDatabase;
+  readQuoteStatus?: SeatQuoteStatusReader;
+  revokeQuote?: SeatQuoteRevoker;
   now?: number;
 }): Promise<TeamMembershipInvitation> {
   const database = input.database ?? await openDb();
@@ -468,56 +480,56 @@ export async function revokeTeamMembershipInvitation(input: {
       throw new TeamInvitationError('INVITATION_NOT_FOUND', 'Invitation not found.', 404);
     }
     if (current.status === 'accepted') {
-      const membership = await getTeamMembershipById(
-        database,
-        input.organizationId,
-        current.membershipId,
-      );
-      const executeOperation = await database.get(`
-        SELECT operation_id
-        FROM team_seat_outbox
-        WHERE organization_id = $1
-          AND membership_id = $2
-          AND operation_kind = 'seat_execute'
-        LIMIT 1
-      `, [input.organizationId, current.membershipId]) as { operation_id: string } | undefined;
-      if (
-        !membership
-        || membership.status !== 'approval_required'
-        || membership.userId !== null
-        || executeOperation
-      ) {
-        throw new TeamInvitationError(
-          'INVITATION_CONFLICT',
-          'An invitation with started Seat execution can no longer be declined.',
-        );
+      const candidate = await getTeamMembershipById(database, input.organizationId, current.membershipId);
+      if (!candidate || !['approval_required', 'billing_pending'].includes(candidate.status)
+        || candidate.userId !== null || candidate.activatedAt !== null
+        || await database.get('SELECT id FROM "user" WHERE lower(email) = $1 LIMIT 1', [candidate.candidateEmail])) {
+        throw new TeamInvitationError('INVITATION_CONFLICT', 'Only an unactivated invitation without a user identity can be declined.');
       }
-      await transitionTeamMembership(database, {
-        organizationId: input.organizationId,
-        membershipId: membership.id,
-        expectedStatus: 'approval_required',
-        toStatus: 'removed',
-        actorUserId: input.actorUserId,
-        source: 'invitation',
-        reason: 'team_invitation_revoked',
-        externalInvitationId: current.id,
-        metadata: {
-          billableOperation: false,
-          declinedBeforeSeatExecution: true,
-        },
-        now,
-
-      });
-      await database.run(`
-        UPDATE team_membership_invitations
-        SET status = 'revoked', revoked_at = $1, updated_at = $2
-        WHERE organization_id = $3 AND id = $4 AND status = 'accepted'
-      `, [now, now, input.organizationId, input.invitationId]);
-      return (await readInvitationById(
-        database,
-        input.organizationId,
-        input.invitationId,
-      ))!;
+      const originalProof = await readMembershipSeatRecoveryProof(database, input.organizationId, current.membershipId, input.readQuoteStatus);
+      await database.run('BEGIN');
+      try {
+        await lockMembershipSeatLifecycle(database, input.organizationId, current.membershipId);
+        const locked = await readInvitationById(database, input.organizationId, input.invitationId);
+        if (!locked || locked.status !== 'accepted' || locked.membershipId !== current.membershipId) throw new MembershipSeatRecoveryConflict();
+        await validateMembershipSeatRecoveryWork(database, { organizationId: input.organizationId, membershipId: current.membershipId, proof: originalProof });
+        await database.run('COMMIT');
+      } catch (error) {
+        await database.run('ROLLBACK');
+        throw error;
+      }
+      const proof = await revokeMembershipSeatAuthorizations(originalProof, 'activation_cancel', input.revokeQuote);
+      await database.run('BEGIN');
+      try {
+        await lockMembershipSeatLifecycle(database, input.organizationId, current.membershipId);
+        const locked = await readInvitationById(database, input.organizationId, input.invitationId);
+        const membership = await getTeamMembershipById(database, input.organizationId, current.membershipId);
+        const identity = membership ? await database.get('SELECT id FROM "user" WHERE lower(email) = $1 LIMIT 1', [membership.candidateEmail]) : null;
+        if (!locked || locked.status !== 'accepted' || locked.membershipId !== current.membershipId
+          || !membership || !['approval_required', 'billing_pending'].includes(membership.status)
+          || membership.userId !== null || identity) throw new MembershipSeatRecoveryConflict();
+        await retireUnconsumedMembershipSeatWork(database, {
+          organizationId: input.organizationId, membershipId: membership.id, proof, reason: 'cancelled', now,
+        });
+        await transitionTeamMembership(database, {
+          organizationId: input.organizationId, membershipId: membership.id,
+          expectedStatus: membership.status, toStatus: 'removed', actorUserId: input.actorUserId,
+          source: 'invitation', reason: 'team_invitation_revoked', externalInvitationId: current.id,
+          metadata: { billableOperation: false, declinedBeforeSuccessfulSeatExecution: true },
+          transactionMode: 'existing', enqueueSeatReduction: false, now,
+        });
+        await database.run(`
+          UPDATE team_membership_invitations SET status = 'revoked', revoked_at = $1, updated_at = $1
+          WHERE organization_id = $2 AND id = $3 AND status = 'accepted'
+        `, [now, input.organizationId, input.invitationId]);
+        const revoked = (await readInvitationById(database, input.organizationId, input.invitationId))!;
+        await database.run('COMMIT');
+        return revoked;
+      } catch (error) {
+        await database.run('ROLLBACK');
+        if (error instanceof MembershipSeatRecoveryConflict) throw new TeamInvitationError('INVITATION_CONFLICT', error.message);
+        throw error;
+      }
     }
     if (current.status === 'pending') {
       await database.run(`
@@ -539,6 +551,9 @@ export async function revokeTeamMembershipInvitation(input: {
 
     });
     return revoked;
+  } catch (error) {
+    if (error instanceof MembershipSeatRecoveryConflict) throw new TeamInvitationError('INVITATION_CONFLICT', error.message);
+    throw error;
   } finally {
     if (closeDatabase) await database.close();
   }

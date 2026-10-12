@@ -32,6 +32,7 @@ type InvitationPreview = {
 type InvitationSeatQuote = {
   stage: 'seat_prepare_pending' | 'approval_required' | 'seat_execute_pending' | 'billing_pending' | 'active';
   membershipId: string;
+  refreshRequired?: boolean;
   quote: {
     quantityBefore: number;
     quantityAfter: number;
@@ -83,6 +84,7 @@ export function TeamInvitationAcceptancePanel({
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState<'preview' | 'accept' | 'refresh' | 'activate' | null>('preview');
   const [error, setError] = useState<string | null>(null);
+  const [activationNeedsRefresh, setActivationNeedsRefresh] = useState(false);
   const [currentTime, setCurrentTime] = useState(() => Date.now());
 
   useEffect(() => {
@@ -170,6 +172,7 @@ export function TeamInvitationAcceptancePanel({
         setManagedAccepted(true);
       } else if (payload.data.quote) {
         setQuote(payload.data.quote);
+        setActivationNeedsRefresh(false);
       } else {
         throw new Error(t('errors.accept'));
       }
@@ -200,8 +203,10 @@ export function TeamInvitationAcceptancePanel({
         success?: boolean;
         data?: InvitationSeatQuote | { status: 'pending'; localIdentityKey: string };
         error?: string;
+        code?: string;
       };
       if (!response.ok || payload.success !== true || !payload.data) {
+        if (['TEAM_SEAT_QUOTE_STALE', 'TEAM_SEAT_AUTHORIZATION_EXPIRED', 'MEMBERSHIP_SEAT_QUOTE_REFRESH_REQUIRED'].includes(payload.code || '')) setActivationNeedsRefresh(true);
         throw new Error(payload.error || t('errors.activate'));
       }
       if ('status' in payload.data && payload.data.status === 'pending') {
@@ -220,7 +225,8 @@ export function TeamInvitationAcceptancePanel({
 
   const quoteExpired = Boolean(
     quote && (
-      ['expired', 'revoked'].includes(quote.quote.status)
+      quote.refreshRequired || activationNeedsRefresh
+      || ['expired', 'revoked'].includes(quote.quote.status)
       || ['expired', 'revoked'].includes(quote.approval.status)
       || Date.parse(quote.quote.expiresAt) <= currentTime
     ),

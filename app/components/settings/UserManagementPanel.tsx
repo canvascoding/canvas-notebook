@@ -99,6 +99,7 @@ type TeamInvitation = {
 type MembershipSeatQuote = {
   stage: 'seat_prepare_pending' | 'approval_required' | 'seat_execute_pending' | 'billing_pending' | 'active';
   membershipId: string;
+  refreshRequired?: boolean;
   prepareOperationId: string;
   desiredQuantity: number;
   observedQuantity: number;
@@ -605,8 +606,12 @@ export function UserManagementPanel({
           success?: boolean;
           data?: MembershipSeatQuote;
           error?: string;
+          code?: string;
         };
         if (!response.ok || payload.success !== true || !payload.data) {
+          if (['TEAM_SEAT_QUOTE_STALE', 'TEAM_SEAT_AUTHORIZATION_EXPIRED', 'MEMBERSHIP_SEAT_QUOTE_REFRESH_REQUIRED'].includes(payload.code || '')) {
+            setMembershipSeatQuote((current) => current ? { ...current, refreshRequired: true } : current);
+          }
           throw new Error(payload.error || t('errors.activation'));
         }
         if (payload.data.stage === 'active') {
@@ -1033,7 +1038,8 @@ export function UserManagementPanel({
   );
   const membershipQuoteIsStale = Boolean(
     membershipSeatQuote && (
-      ['expired', 'revoked'].includes(membershipSeatQuote.quote.status)
+      membershipSeatQuote.refreshRequired
+      || ['expired', 'revoked'].includes(membershipSeatQuote.quote.status)
       || ['expired', 'revoked'].includes(membershipSeatQuote.approval.status)
       || Date.parse(membershipSeatQuote.quote.expiresAt) <= currentTime
     ),

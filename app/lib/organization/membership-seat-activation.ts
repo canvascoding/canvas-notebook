@@ -20,14 +20,17 @@ import {
 import {
   completeDirectMembershipActivation,
   getMembershipSeatExecuteRequest,
+  getDirectMembershipSeatQuote,
   MembershipOrchestratorError,
   recordDirectMembershipSeatExecutionPending,
   type DirectMembershipSeatQuote,
 } from './membership-orchestrator';
 
+import { lockMembershipSeatLifecycle, membershipSeatQuoteNeedsRefresh, recordMembershipSeatExecutionRejection } from './membership-seat-recovery';
+
 export class MembershipSeatActivationError extends Error {
   constructor(
-    public readonly code: 'MEMBERSHIP_PASSWORD_INVALID',
+    public readonly code: 'MEMBERSHIP_PASSWORD_INVALID' | 'MEMBERSHIP_SEAT_QUOTE_REFRESH_REQUIRED',
     message: string,
     public readonly status = 400,
   ) {
@@ -63,6 +66,10 @@ export async function executeDirectMembershipActivation(input: {
     );
   }
 
+  if (membershipSeatQuoteNeedsRefresh(approved)) {
+    throw new MembershipSeatActivationError('MEMBERSHIP_SEAT_QUOTE_REFRESH_REQUIRED', 'Load a new Seat quote before activating this membership.', 409);
+  }
+
   const membership = approved.activation.membership;
   const reactivation = approved.activation.prepareOperation.dedupeKey.includes(':reactivation:');
   if (!reactivation && (!input.password || input.password.length < 8 || input.password.length > 128)) {
@@ -87,6 +94,18 @@ export async function executeDirectMembershipActivation(input: {
   if (executeOperation.status !== 'succeeded') {
     const database = await openDb();
     try {
+      await database.run('BEGIN');
+      await lockMembershipSeatLifecycle(database, input.organizationId, input.membershipId);
+      const current = await getDirectMembershipSeatQuote({ organizationId: input.organizationId, membershipId: input.membershipId, database });
+      if (current.activation.prepareOperation.operationId !== approved.activation.prepareOperation.operationId
+        || current.activation.executeOperation?.operationId !== executeOperation.operationId
+        || current.activation.membership.status !== membership.status
+        || current.activation.membership.userId !== membership.userId) {
+        throw new MembershipOrchestratorError('MEMBERSHIP_OPERATION_CONFLICT', 'The membership activation changed before Seat execution.');
+      }
+      if (membershipSeatQuoteNeedsRefresh({ activation: current.activation, preparation: approved.preparation })) {
+        throw new MembershipSeatActivationError('MEMBERSHIP_SEAT_QUOTE_REFRESH_REQUIRED', 'Load a new Seat quote before activating this membership.', 409);
+      }
       const claimed = await claimTeamSeatOutboxOperation(database, {
         operationId: executeOperation.operationId,
         allowPending: true,
@@ -100,6 +119,10 @@ export async function executeDirectMembershipActivation(input: {
         );
       }
       executeOperation = claimed.operation;
+      await database.run('COMMIT');
+    } catch (error) {
+      await database.run('ROLLBACK');
+      throw error;
     } finally {
       await database.close();
     }
@@ -107,7 +130,10 @@ export async function executeDirectMembershipActivation(input: {
   const execution = await executeCommunityTeamSeatChange(
     getMembershipSeatExecuteRequest(executeOperation),
     { operationId: executeOperation.operationId },
-  );
+  ).catch(async (error: unknown) => {
+    await recordMembershipSeatExecutionRejection({ operation: executeOperation, error });
+    throw error;
+  });
   if (
     execution.operation.status !== 'applied'
     || execution.operation.effectiveQuantity !== execution.operation.requestedQuantity

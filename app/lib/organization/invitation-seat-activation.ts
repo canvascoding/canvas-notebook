@@ -17,6 +17,7 @@ import {
   recordDirectMembershipSeatAuthorizationStatus,
   type DirectMembershipSeatQuote,
 } from './membership-orchestrator';
+import { membershipSeatQuoteNeedsRefresh } from './membership-seat-recovery';
 import {
   acceptTeamMembershipInvitation,
   type TeamMembershipInvitation,
@@ -74,7 +75,7 @@ export async function prepareAcceptedInvitationSeat(input: {
       response: currentResponse,
       actorUserId: null,
     });
-    if (['approved', 'consumed'].includes(current.preparation.authorization.status)) {
+    if (!membershipSeatQuoteNeedsRefresh(current)) {
       quote = current;
     } else {
       const requote = await beginDirectMembershipSeatRequote({

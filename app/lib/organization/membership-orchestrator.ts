@@ -42,6 +42,17 @@ import {
 import {
   ensureOrganizationPermissionRow,
 } from './permission-provisioning';
+import {
+  lockMembershipSeatLifecycle,
+  membershipSeatQuoteNeedsRefresh,
+  MembershipSeatRecoveryConflict,
+  readMembershipSeatRecoveryProof,
+  revokeMembershipSeatAuthorizations,
+  retireUnconsumedMembershipSeatWork,
+  validateMembershipSeatRecoveryWork,
+  type SeatQuoteStatusReader,
+  type SeatQuoteRevoker,
+} from './membership-seat-recovery';
 
 type MembershipOrchestratorDatabase = Pick<SqlConnection, 'get' | 'run' | 'all' | 'close'>;
 
@@ -651,85 +662,99 @@ export async function recordDirectMembershipSeatPreparation(input: {
   const closeDatabase = input.database === undefined;
   const now = input.now ?? Date.now();
   try {
-    const operation = await requireMembershipOperation(database, {
-      organizationId: input.organizationId,
-      membershipId: input.membershipId,
-      operationId: input.prepareOperationId,
-      kind: 'seat_prepare',
-    });
-    const prepared = parseTeamSeatPrepareResponse(input.response);
-    const request = assertPreparedResponse(operation, prepared);
-    let membership = await linkTeamMembershipControlPlaneOperation(database, {
-      organizationId: input.organizationId,
-      membershipId: input.membershipId,
-      controlPlaneOperationId: prepared.authorization.authorizationId,
-      now,
-    });
-
-    if (prepared.authorization.status === 'approved') {
-      if (membership.status === 'approval_required') {
-        membership = await transitionTeamMembership(database, {
-          organizationId: input.organizationId,
-          membershipId: input.membershipId,
-          expectedStatus: 'approval_required',
-          toStatus: 'billing_pending',
-          actorUserId: input.actorUserId,
-          source: 'control_plane',
-          reason: 'team_seat_authorization_approved',
-          controlPlaneOperationId: prepared.authorization.authorizationId,
-          metadata: {
-            quoteId: prepared.quote.quoteId,
-            quoteHash: prepared.quote.quoteHash,
-          },
-          now,
-
-        });
-      } else if (
-        membership.status !== 'billing_pending'
-        && !(
-          membership.status === 'suspended'
-          && membership.userId !== null
-          && operation.operationType === 'member_create'
-        )
-        && !(
-          operation.operationType === 'member_remove'
-          && (membership.status === 'suspended' || membership.status === 'removed')
-        )
-      ) {
-        throw new MembershipOrchestratorError(
-          'MEMBERSHIP_OPERATION_CONFLICT',
-          `Membership cannot execute a Seat change from status ${membership.status}.`,
-        );
-      }
-    }
-    const executeOperation = prepared.authorization.status === 'approved'
-      ? await enqueueMembershipSeatExecution(database, {
+    return await withActivationTransaction(database, async () => {
+      await lockMembershipSeatLifecycle(database, input.organizationId, input.membershipId);
+      const operation = await requireMembershipOperation(database, {
         organizationId: input.organizationId,
-        membership,
-        prepareOperation: operation,
-        authorizationId: prepared.authorization.authorizationId,
+        membershipId: input.membershipId,
+        operationId: input.prepareOperationId,
+        kind: 'seat_prepare',
+      });
+      const currentMembership = await getTeamMembershipById(database, input.organizationId, input.membershipId);
+      const latest = await latestMembershipPrepareOperation(database, input.organizationId, input.membershipId);
+      const validLifecycle = currentMembership && (operation.operationType === 'member_remove'
+        ? ['removed', 'suspended'].includes(currentMembership.status)
+        : (['approval_required', 'billing_pending'].includes(currentMembership.status) && currentMembership.userId === null)
+          || (currentMembership.status === 'suspended' && currentMembership.userId !== null && operation.dedupeKey.includes(':reactivation:')));
+      if (!validLifecycle || (operation.operationType !== 'member_remove' && latest?.operationId !== operation.operationId)
+        || ['TEAM_SEAT_QUOTE_SUPERSEDED', 'TEAM_SEAT_ACTIVATION_CANCELLED'].includes(operation.lastErrorCode || '')) {
+        throw new MembershipOrchestratorError('MEMBERSHIP_OPERATION_CONFLICT', 'Seat preparation was cancelled, superseded, or belongs to an earlier membership lifecycle.');
+      }
+      const prepared = parseTeamSeatPrepareResponse(input.response);
+      const request = assertPreparedResponse(operation, prepared);
+      let membership = await linkTeamMembershipControlPlaneOperation(database, {
+        organizationId: input.organizationId,
+        membershipId: input.membershipId,
+        controlPlaneOperationId: prepared.authorization.authorizationId,
         now,
-      })
-      : null;
-    await recordTeamSeatOutboxOperationSuccess(database, {
-      operationId: operation.operationId,
-      response: prepared,
-      controlPlaneOperationId: prepared.authorization.authorizationId,
-      now,
-    });
+      });
 
-    return {
-      stage: prepared.authorization.status === 'approved'
-        ? 'seat_execute_pending'
-        : 'approval_required',
-      membership,
-      desiredQuantity: request.desiredQuantity,
-      observedQuantity: prepared.snapshot.observedQuantity,
-      prepareOperation: (await getTeamSeatOutboxOperation(database, operation.operationId))!,
-      executeOperation,
-      requiresBillingApproval: prepared.requiresBillingApproval,
-      replayed: operation.status === 'succeeded',
-    };
+      if (prepared.authorization.status === 'approved') {
+        if (membership.status === 'approval_required') {
+          membership = await transitionTeamMembership(database, {
+            organizationId: input.organizationId,
+            membershipId: input.membershipId,
+            expectedStatus: 'approval_required',
+            toStatus: 'billing_pending',
+            actorUserId: input.actorUserId,
+            source: 'control_plane',
+            reason: 'team_seat_authorization_approved',
+            transactionMode: 'existing',
+            controlPlaneOperationId: prepared.authorization.authorizationId,
+            metadata: {
+              quoteId: prepared.quote.quoteId,
+              quoteHash: prepared.quote.quoteHash,
+            },
+            now,
+
+          });
+        } else if (
+          membership.status !== 'billing_pending'
+          && !(
+            membership.status === 'suspended'
+            && membership.userId !== null
+            && operation.operationType === 'member_create'
+          )
+          && !(
+            operation.operationType === 'member_remove'
+            && (membership.status === 'suspended' || membership.status === 'removed')
+          )
+        ) {
+          throw new MembershipOrchestratorError(
+            'MEMBERSHIP_OPERATION_CONFLICT',
+            `Membership cannot execute a Seat change from status ${membership.status}.`,
+          );
+        }
+      }
+      const executeOperation = prepared.authorization.status === 'approved'
+        ? await enqueueMembershipSeatExecution(database, {
+          organizationId: input.organizationId,
+          membership,
+          prepareOperation: operation,
+          authorizationId: prepared.authorization.authorizationId,
+          now,
+        })
+        : null;
+      await recordTeamSeatOutboxOperationSuccess(database, {
+        operationId: operation.operationId,
+        response: prepared,
+        controlPlaneOperationId: prepared.authorization.authorizationId,
+        now,
+      });
+
+      return {
+        stage: prepared.authorization.status === 'approved'
+          ? 'seat_execute_pending'
+          : 'approval_required',
+        membership,
+        desiredQuantity: request.desiredQuantity,
+        observedQuantity: prepared.snapshot.observedQuantity,
+        prepareOperation: (await getTeamSeatOutboxOperation(database, operation.operationId))!,
+        executeOperation,
+        requiresBillingApproval: prepared.requiresBillingApproval,
+        replayed: operation.status === 'succeeded',
+      };
+    });
   } finally {
     if (closeDatabase) await database.close();
   }
@@ -820,78 +845,86 @@ export async function recordDirectMembershipSeatAuthorizationStatus(input: {
   const closeDatabase = input.database === undefined;
   const now = input.now ?? Date.now();
   try {
-    const stored = await getDirectMembershipSeatQuote({
-      organizationId: input.organizationId,
-      membershipId: input.membershipId,
-      database,
-    });
-    const current = parseTeamSeatQuoteStatusResponse(input.response);
-    assertQuoteStatusMatchesPreparation(stored.preparation, current);
-    let membership = stored.activation.membership;
-    if (
-      current.authorization.status === 'approved'
-      && membership.status === 'approval_required'
-    ) {
-      membership = await transitionTeamMembership(database, {
+    return await withActivationTransaction(database, async () => {
+      await lockMembershipSeatLifecycle(database, input.organizationId, input.membershipId);
+      const stored = await getDirectMembershipSeatQuote({
         organizationId: input.organizationId,
         membershipId: input.membershipId,
-        expectedStatus: 'approval_required',
-        toStatus: 'billing_pending',
-        actorUserId: input.actorUserId,
-        source: 'control_plane',
-        reason: 'team_seat_authorization_approved',
-        controlPlaneOperationId: current.authorization.authorizationId,
-        metadata: {
-          quoteId: current.quote.quoteId,
-          quoteHash: current.quote.quoteHash,
-        },
-        now,
-
+        database,
       });
-    }
-    if (
-      current.authorization.status === 'approved'
-      && membership.status !== 'billing_pending'
-      && membership.status !== 'active'
-      && !(
-        membership.status === 'suspended'
-        && membership.userId !== null
-        && stored.activation.prepareOperation.operationType === 'member_create'
-      )
-    ) {
-      throw new MembershipOrchestratorError(
-        'MEMBERSHIP_OPERATION_CONFLICT',
-        `Membership cannot execute an approved Seat change from status ${membership.status}.`,
-      );
-    }
-    const executeOperation = current.authorization.status === 'approved'
-      ? await enqueueMembershipSeatExecution(database, {
-        organizationId: input.organizationId,
-        membership,
-        prepareOperation: stored.activation.prepareOperation,
-        authorizationId: current.authorization.authorizationId,
-        now,
-      })
-      : stored.activation.executeOperation;
-    return {
-      activation: {
-        ...stored.activation,
-        membership,
-        executeOperation,
-        stage: membership.status === 'active'
-          ? 'active'
-          : current.authorization.status === 'approved'
-            ? 'seat_execute_pending'
-            : membership.status === 'billing_pending'
-              ? 'billing_pending'
-              : 'approval_required',
-      },
-      preparation: {
-        ...stored.preparation,
-        quote: current.quote,
-        authorization: current.authorization,
-      },
-    };
+      if (['TEAM_SEAT_QUOTE_SUPERSEDED', 'TEAM_SEAT_ACTIVATION_CANCELLED'].includes(stored.activation.prepareOperation.lastErrorCode || '')
+        || (stored.activation.membership.status === 'removed' && stored.activation.prepareOperation.operationType !== 'member_remove')) {
+        throw new MembershipOrchestratorError('MEMBERSHIP_OPERATION_CONFLICT', 'The membership Seat quote is no longer current.');
+      }
+      const current = parseTeamSeatQuoteStatusResponse(input.response);
+      assertQuoteStatusMatchesPreparation(stored.preparation, current);
+      let membership = stored.activation.membership;
+      if (
+        current.authorization.status === 'approved'
+        && membership.status === 'approval_required'
+      ) {
+        membership = await transitionTeamMembership(database, {
+          organizationId: input.organizationId,
+          membershipId: input.membershipId,
+          expectedStatus: 'approval_required',
+          toStatus: 'billing_pending',
+          actorUserId: input.actorUserId,
+          source: 'control_plane',
+          reason: 'team_seat_authorization_approved',
+          transactionMode: 'existing',
+          controlPlaneOperationId: current.authorization.authorizationId,
+          metadata: {
+            quoteId: current.quote.quoteId,
+            quoteHash: current.quote.quoteHash,
+          },
+          now,
+
+        });
+      }
+      if (
+        current.authorization.status === 'approved'
+        && membership.status !== 'billing_pending'
+        && membership.status !== 'active'
+        && !(
+          membership.status === 'suspended'
+          && membership.userId !== null
+          && stored.activation.prepareOperation.operationType === 'member_create'
+        )
+      ) {
+        throw new MembershipOrchestratorError(
+          'MEMBERSHIP_OPERATION_CONFLICT',
+          `Membership cannot execute an approved Seat change from status ${membership.status}.`,
+        );
+      }
+      const executeOperation = current.authorization.status === 'approved'
+        ? await enqueueMembershipSeatExecution(database, {
+          organizationId: input.organizationId,
+          membership,
+          prepareOperation: stored.activation.prepareOperation,
+          authorizationId: current.authorization.authorizationId,
+          now,
+        })
+        : stored.activation.executeOperation;
+      return {
+        activation: {
+          ...stored.activation,
+          membership,
+          executeOperation,
+          stage: membership.status === 'active'
+            ? 'active'
+            : current.authorization.status === 'approved'
+              ? 'seat_execute_pending'
+              : membership.status === 'billing_pending'
+                ? 'billing_pending'
+                : 'approval_required',
+        },
+        preparation: {
+          ...stored.preparation,
+          quote: current.quote,
+          authorization: current.authorization,
+        },
+      };
+    });
   } finally {
     if (closeDatabase) await database.close();
   }
@@ -904,89 +937,89 @@ export async function beginDirectMembershipSeatRequote(input: {
   currentResponse?: unknown;
   actorUserId?: string | null;
   database?: MembershipOrchestratorDatabase;
+  readQuoteStatus?: SeatQuoteStatusReader;
+  revokeQuote?: SeatQuoteRevoker;
   now?: number;
 }): Promise<MembershipActivation> {
   const database = input.database ?? await openDb();
   const closeDatabase = input.database === undefined;
   const now = input.now ?? Date.now();
   try {
-    const stored = await getDirectMembershipSeatQuote({
-      organizationId: input.organizationId,
-      membershipId: input.membershipId,
-      database,
+    const original = await getDirectMembershipSeatQuote({ organizationId: input.organizationId, membershipId: input.membershipId, database });
+    const originalProof = await readMembershipSeatRecoveryProof(database, input.organizationId, input.membershipId, input.readQuoteStatus);
+    const latest = originalProof.find((item) => item.operationId === original.activation.prepareOperation.operationId
+      && item.responseJson === original.activation.prepareOperation.responseJson);
+    if (!latest || original.preparation.quote.quoteId !== input.staleQuoteId) throw new MembershipSeatRecoveryConflict();
+    assertQuoteStatusMatchesPreparation(original.preparation, latest.current);
+    if (!membershipSeatQuoteNeedsRefresh({ activation: original.activation, preparation: { ...original.preparation, ...latest.current } }, now)) {
+      throw new MembershipOrchestratorError('MEMBERSHIP_QUOTE_STILL_ACTIVE', 'The current Seat quote is still active and must not be replaced.');
+    }
+    await withActivationTransaction(database, async () => {
+      await lockMembershipSeatLifecycle(database, input.organizationId, input.membershipId);
+      const locked = await getDirectMembershipSeatQuote({ organizationId: input.organizationId, membershipId: input.membershipId, database });
+      if (locked.activation.prepareOperation.operationId !== original.activation.prepareOperation.operationId
+        || locked.activation.prepareOperation.responseJson !== original.activation.prepareOperation.responseJson) throw new MembershipSeatRecoveryConflict();
+      await validateMembershipSeatRecoveryWork(database, { organizationId: input.organizationId, membershipId: input.membershipId, proof: originalProof });
     });
-    const current = input.currentResponse
-      ? parseTeamSeatQuoteStatusResponse(input.currentResponse)
-      : {
-        quote: stored.preparation.quote,
-        authorization: stored.preparation.authorization,
+    const proof = await revokeMembershipSeatAuthorizations(originalProof, 'activation_refresh', input.revokeQuote);
+    return await withActivationTransaction(database, async () => {
+      await lockMembershipSeatLifecycle(database, input.organizationId, input.membershipId);
+      const stored = await getDirectMembershipSeatQuote({
+        organizationId: input.organizationId, membershipId: input.membershipId, database,
+      });
+      const verified = proof.find((item) => item.operationId === stored.activation.prepareOperation.operationId
+        && item.responseJson === stored.activation.prepareOperation.responseJson);
+      if (!verified) throw new MembershipSeatRecoveryConflict();
+      const current = verified.current;
+      assertQuoteStatusMatchesPreparation(stored.preparation, current);
+      if (input.currentResponse) assertQuoteStatusMatchesPreparation(stored.preparation, parseTeamSeatQuoteStatusResponse(input.currentResponse));
+      const membership = stored.activation.membership;
+      const candidate = ['approval_required', 'billing_pending'].includes(membership.status) && membership.userId === null;
+      const reactivation = membership.status === 'suspended' && membership.userId !== null
+        && stored.activation.prepareOperation.operationType === 'member_create';
+      if ((!candidate && !reactivation) || stored.preparation.quote.quoteId !== input.staleQuoteId) {
+        throw new MembershipOrchestratorError('MEMBERSHIP_OPERATION_CONFLICT', 'The Seat quote cannot be refreshed for this membership lifecycle.');
+      }
+      if (!membershipSeatQuoteNeedsRefresh({ activation: stored.activation, preparation: { ...stored.preparation, ...current } }, now)) {
+        throw new MembershipOrchestratorError('MEMBERSHIP_QUOTE_STILL_ACTIVE', 'The current Seat quote is still active and must not be replaced.');
+      }
+      await retireUnconsumedMembershipSeatWork(database, {
+        organizationId: input.organizationId, membershipId: input.membershipId, proof, reason: 'superseded', now,
+      });
+      const reset = candidate && membership.status === 'billing_pending'
+        ? await transitionTeamMembership(database, {
+          organizationId: input.organizationId, membershipId: input.membershipId,
+          expectedStatus: 'billing_pending', toStatus: 'approval_required', actorUserId: input.actorUserId,
+          source: 'local_admin', reason: 'team_seat_quote_refresh_requested', transactionMode: 'existing', now,
+        }) : membership;
+      const projection = await getActiveTeamMembershipProjection(database, input.organizationId);
+      const syncState = await getTeamMembershipSyncState(database, input.organizationId);
+      const previousRequest = parsePrepareRequest(stored.activation.prepareOperation);
+      const operationType = stored.activation.prepareOperation.operationType!;
+      const count = await database.get(`
+        SELECT COUNT(*) AS count FROM team_seat_outbox
+        WHERE organization_id = $1 AND membership_id = $2 AND operation_kind = 'seat_prepare'
+      `, [input.organizationId, input.membershipId]) as { count: number } | undefined;
+      const request = createTeamSeatPrepareRequest({
+        desiredQuantity: projection.observedQuantity + 1, triggerType: operationType, externalReference: previousRequest.externalReference,
+      });
+      const enqueued = await enqueueTeamSeatOutboxOperation(database, {
+        organizationId: input.organizationId,
+        dedupeKey: `${operationType}:${input.membershipId}:${reactivation ? 'reactivation:' : ''}seat-prepare:${Number(count?.count || 0) + 1}`,
+        operationKind: 'seat_prepare', operationType, membershipId: input.membershipId,
+        membershipRevision: syncState?.currentRevision ?? 0, request, now, nextAttemptAt: now,
+      });
+      return {
+        stage: 'seat_prepare_pending', membership: reset, desiredQuantity: projection.observedQuantity + 1,
+        observedQuantity: projection.observedQuantity, prepareOperation: enqueued.operation, executeOperation: null,
+        requiresBillingApproval: null, replayed: enqueued.replayed,
       };
-    assertQuoteStatusMatchesPreparation(stored.preparation, current);
-    const pendingMembership = stored.activation.membership;
-    const refreshableCandidate = pendingMembership.status === 'approval_required'
-      && pendingMembership.userId === null;
-    const refreshableReactivation = pendingMembership.status === 'suspended'
-      && pendingMembership.userId !== null
-      && stored.activation.prepareOperation.operationType === 'member_create';
-    if (
-      (!refreshableCandidate && !refreshableReactivation)
-      || stored.preparation.quote.quoteId !== input.staleQuoteId
-    ) {
-      throw new MembershipOrchestratorError(
-        'MEMBERSHIP_OPERATION_CONFLICT',
-        'The Seat quote cannot be refreshed for this membership lifecycle.',
-      );
-    }
-    if (
-      current.quote.status !== 'expired'
-      && current.quote.status !== 'revoked'
-      && current.authorization.status !== 'expired'
-      && current.authorization.status !== 'revoked'
-      && Date.parse(current.authorization.expiresAt) > now
-    ) {
-      throw new MembershipOrchestratorError(
-        'MEMBERSHIP_QUOTE_STILL_ACTIVE',
-        'The current Seat quote is still active and must not be replaced.',
-      );
-    }
-    const projection = await getActiveTeamMembershipProjection(database, input.organizationId);
-    const desiredQuantity = projection.observedQuantity + 1;
-    const syncState = await getTeamMembershipSyncState(database, input.organizationId);
-    const previousRequest = parsePrepareRequest(stored.activation.prepareOperation);
-    const operationType = stored.activation.prepareOperation.operationType!;
-    const count = await database.get(`
-      SELECT COUNT(*) AS count
-      FROM team_seat_outbox
-      WHERE organization_id = $1
-        AND membership_id = $2
-        AND operation_kind = 'seat_prepare'
-    `, [input.organizationId, input.membershipId]) as { count: number } | undefined;
-    const request = createTeamSeatPrepareRequest({
-      desiredQuantity,
-      triggerType: operationType,
-      externalReference: previousRequest.externalReference,
     });
-    const enqueued = await enqueueTeamSeatOutboxOperation(database, {
-      organizationId: input.organizationId,
-      dedupeKey: `${operationType}:${input.membershipId}:seat-prepare:${Number(count?.count || 0) + 1}`,
-      operationKind: 'seat_prepare',
-      operationType,
-      membershipId: input.membershipId,
-      membershipRevision: syncState?.currentRevision ?? 0,
-      request,
-      now,
-      nextAttemptAt: now,
-    });
-    return {
-      stage: 'seat_prepare_pending',
-      membership: stored.activation.membership,
-      desiredQuantity,
-      observedQuantity: projection.observedQuantity,
-      prepareOperation: enqueued.operation,
-      executeOperation: null,
-      requiresBillingApproval: null,
-      replayed: enqueued.replayed,
-    };
+  } catch (error) {
+    if (error instanceof MembershipSeatRecoveryConflict) {
+      throw new MembershipOrchestratorError('MEMBERSHIP_OPERATION_CONFLICT', error.message);
+    }
+    throw error;
   } finally {
     if (closeDatabase) await database.close();
   }
