@@ -32,4 +32,12 @@ Automatisierte Prüfung: **46/46** isolierte Notebook-Recovery-Szenarien, vier e
 
 Zusätzliche Setup-Beobachtung: Der erste Admin-Bootstrap unmittelbar nach dem Recreate traf einen PostgreSQL-Deadlock beim Schreiben von Organisationseinstellungen. Der gezielte erneute Bootstrap, Login-Check und Fixture-Check waren erfolgreich. Ein begrenzter Retry im Setup-Helfer wäre eine weitere Verbesserung.
 
-QA5-1 ist lokal abgenommen. QA5-2, QA5-3 und QA5-4 sind weiterhin offen. Die vollständige Abnahme aller vier Befunde steht noch aus.
+## QA5-2: öffentliche Origin für Nutzeraktivität
+
+Die Route verwendet den bestehenden Check für konfigurierte vertrauenswürdige Origins nach der Sitzungsprüfung. Die öffentliche Adresse `127.0.0.1:3100` muss dadurch nicht mit dem internen Next-Request-Host `0.0.0.0:3000` übereinstimmen. Forwarded-Header erweitern die erlaubten Origins nicht.
+
+Route-Regression bestanden: öffentliche Origin über internen Host, bestehende Localhost-Origin, 401, Drosselung und Neustart-Persistenz. Sechs Negativfälle liefern jeweils vor und nach gespeichertem Zeitstempel 403 ohne Änderung: fehlende/fremde/interne unkonfigurierte Origin, gefälschte Forwarded-Header und Cross-Site-Markierung. Der Test verwendet eigene temporäre Datei-Persistenz und eine gemockte Sitzung. ESLint, vollständiger Typecheck sowie Host- und Container-Build bestanden.
+
+Im frisch recreateten Notebook-Image `2f436e8af125101112f6a1a301e8fb5081e6f3f8334bf475e9ac24055e2fd964` bestehen **5/5** [Browserkontrollen](activity-browser-checks.json): echte vertrauenswürdige Eingabe mit öffentlicher Origin liefert 200 und schreibt den Zeitstempel, unmittelbare weitere Eingaben innerhalb 818 ms erzeugen keinen weiteren POST, fremde Origin bleibt 403 und fehlende Sitzung bleibt 401. Für die Beobachtung des Response-Bodys wurde im Browser eine Kopie der unveränderten Antwort gelesen. Keine JavaScript-Seitenfehler.
+
+QA5-1 und QA5-2 sind lokal abgenommen. QA5-3 und QA5-4 sind weiterhin offen. Die vollständige Abnahme aller vier Befunde steht noch aus.
