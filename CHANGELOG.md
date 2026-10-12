@@ -11,7 +11,7 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
-## [2026.10.12.9] - 2026-10-12
+## [2026.10.12.10] - 2026-10-12
 
 ### Added
 
@@ -31,6 +31,7 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 - Fixed collaborative document and file workflows around destination creation, link validation, and live session recovery.
 - Fixed release CI typecheck heap exhaustion by running TypeScript validation in a dedicated job with a larger Node.js heap.
 - Fixed release image builds exhausting memory by reusing the separately verified typecheck and limiting Next.js build workers.
+- Fixed a flaky PostgreSQL reconcile release gate by allowing slower CI runners more time to complete the test setup.
 
 ### Verification
 
