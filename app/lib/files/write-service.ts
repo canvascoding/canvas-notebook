@@ -55,6 +55,8 @@ export type WriteWorkspaceFileContentInput = {
   encoded?: boolean;
   ensureCollaborationDocument?: boolean;
   versionSource?: Extract<FileVersionContentSource, 'initial' | 'manual' | 'agent_apply' | 'restore' | 'external_import'>;
+  /** Revalidate external authority under the publication fence. */
+  beforePublish?: () => Promise<void>;
 };
 
 
@@ -139,6 +141,7 @@ async function writeWorkspaceFileContentUnlocked(input: WriteWorkspaceFileConten
   }
   const beforePublish = async () => {
     input.signal?.throwIfAborted();
+    await input.beforePublish?.();
     await assertWorkspaceFileRevisionUnchanged({ path: input.path, expectedRevision: beforeRevision, options: input.fileOptions });
     const state = await assertLease();
     if (office && state.activeLock && state.activeLock.expiresAt <= Date.now()) {

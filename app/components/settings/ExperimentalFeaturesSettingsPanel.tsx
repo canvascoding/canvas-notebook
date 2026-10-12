@@ -7,6 +7,7 @@ import { useTranslations } from 'next-intl';
 import { useDocumentReviewAvailability } from '@/app/components/file-version-center/DocumentReviewAvailabilityProvider';
 import { TerminalSettingsCard } from '@/app/components/settings/TerminalSettingsCard';
 import { StudioBulkSettingsCard } from '@/app/components/settings/StudioBulkSettingsCard';
+import { IntegrationToolGatewaySettingsCard } from '@/app/components/settings/IntegrationToolGatewaySettingsCard';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
 
@@ -39,6 +40,7 @@ export function ExperimentalFeaturesSettingsPanel() {
   return <div className="space-y-6">
     <TerminalSettingsCard />
     <StudioBulkSettingsCard />
+    <IntegrationToolGatewaySettingsCard />
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-base">

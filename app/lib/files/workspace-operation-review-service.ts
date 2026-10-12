@@ -10,6 +10,7 @@ import { executeLifecycleTransaction } from '@/app/lib/collaboration/lifecycle-t
 import { archiveFileCollaborationPaths, readFileCollaborationState } from '@/app/lib/files/collaboration-policy';
 import { loadCollaborationState } from '@/app/lib/collaboration/persistence';
 import { withWorkspaceMutationLock } from '@/app/lib/files/workspace-mutation-lock';
+import { withWorkspaceFileLifecycleGuards } from '@/app/lib/files/workspace-file-lifecycle-guard';
 import { withWorkspaceCopyMutationLocks, type WorkspaceFileOperationOptions } from '@/app/lib/filesystem/workspace-files';
 import { isProtectedAppOutputFolder } from '@/app/lib/filesystem/app-output-folders';
 import { trashWorkspacePaths } from '@/app/lib/filesystem/workspace-trash';
@@ -485,7 +486,13 @@ export async function acceptWorkspaceOperationReview(input: {
   const lock = review.kind === 'copy'
     ? <T>(operation: () => Promise<T>) => withWorkspaceCopyMutationLocks(input.source.fileOptions, input.destination.fileOptions, operation)
     : <T>(operation: () => Promise<T>) => withWorkspaceMutationLock(review.sourceWorkspaceId, operation);
-  return lock(async () => {
+  return withWorkspaceFileLifecycleGuards([
+    { workspaceId: review.sourceWorkspaceId,
+      paths: review.selections.map(selection => resolveWorkspacePath(input.source.workspace, selection.sourcePath).relativePath) },
+    { workspaceId: review.destinationWorkspaceId,
+      paths: review.selections.flatMap(selection => selection.destinationPath
+        ? [resolveWorkspacePath(input.destination.workspace, selection.destinationPath).relativePath] : []) },
+  ], () => lock(async () => {
     assertDocumentReviewEnabled();
     const fresh = await input.refreshAccess();
     assertDocumentReviewEnabled();
@@ -505,6 +512,9 @@ export async function acceptWorkspaceOperationReview(input: {
     const stored = await one('SELECT * FROM workspace_file_operation_reviews WHERE review_id = $1', [input.reviewId]);
     if (!stored) fail('REVIEW_NOT_FOUND', 404, 'File operation review not found.');
     const request = JSON.parse(String(stored.request_json)) as StoredRequest;
+    if (JSON.stringify(request.selections) !== JSON.stringify(review.selections)) {
+      fail('PREVIEW_STALE', 409, 'The reviewed file scopes changed before acceptance.');
+    }
     if (request.kind !== 'copy' && request.selections.length > 1) {
       fail('BATCH_REVIEW_REQUIRED', 409,
         'Multiple selected paths require a fresh combined preview before approval.');
@@ -582,7 +592,7 @@ export async function acceptWorkspaceOperationReview(input: {
         { operationId, errorCode: error instanceof Error ? error.name.slice(0, 128) : 'UNKNOWN' }).catch(() => null);
       throw error;
     }
-  });
+  }));
 }
 
 /** Preserve the accepted review's immutable bytes and make dependent open previews visibly stale. */

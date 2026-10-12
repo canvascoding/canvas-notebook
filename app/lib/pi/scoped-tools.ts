@@ -1,5 +1,17 @@
 import { type AgentTool } from '@earendil-works/pi-agent-core';
 import { Type } from 'typebox';
+import { z } from 'zod';
+import { CapabilityResourceError, type CapabilityResourceActor } from '@/app/lib/capabilities/resources/contracts';
+import { CapabilityPackageError, isCapabilityPackageError } from '@/app/lib/capabilities/packages/contracts';
+import { toPublicCapabilityPackageMetadata } from '@/app/lib/capabilities/packages/public-metadata';
+import { capabilityPackageReferenceSchema, capabilityPackageDraftReferenceSchema, capabilityPackageDraftCreationSchema,
+  capabilityPackagePublishSchema, capabilityPackageFileWriteSchema, capabilityPackageFileDeleteSchema,
+  capabilityPackageFileReadSchema, capabilityPackageDiscardSchema, capabilityPackagePublishedTreeSchema,
+  capabilityPackagePublishedFileSchema, capabilityPackageActivationSchema } from '@/app/lib/capabilities/packages/schemas';
+import { capabilityPackageStoreListSchema, capabilityPackageStoreInstallSchema,
+  capabilityPackageStoreUpdateReviewSchema, capabilityPackageStoreUpdateSchema } from '@/app/lib/capabilities/packages/store-contracts';
+import { capabilityPackageStoreOfferingPresentationSchema } from '@/app/lib/capabilities/packages/presentation-contracts';
+import { capabilityPackageStoreInstallOptionsSchema } from '@/app/lib/capabilities/packages/store-install-options-contracts';
 import {
   addMemory,
   deleteMemory,
@@ -791,6 +803,10 @@ function formatAgentSkillUpdate(result: AgentSkillUpdateFromWorkspaceResult): st
   ].filter(Boolean).join('\n');
 }
 
+function extensionFailureDetails(error: unknown, message: string) {
+  return { error: message, ...(isCapabilityPackageError(error) ? { code: error.code, status: error.status } : {}) };
+}
+
 function createAgentSkillTools(userId?: string): AgentTool[] {
   return [
     {
@@ -837,7 +853,7 @@ function createAgentSkillTools(userId?: string): AgentTool[] {
         } catch (error: unknown) {
           const message = getErrorMessage(error);
           await recordAgentSkillToolAudit({ action: 'skill.inspect', status: 'failure', skillName: p.skillName, error: message });
-          return { content: [{ type: 'text', text: `Error: ${message}` }], details: { error: message } };
+          return { content: [{ type: 'text', text: `Error: ${message}` }], details: extensionFailureDetails(error, message) };
         }
       },
     },
@@ -916,7 +932,7 @@ function createAgentSkillTools(userId?: string): AgentTool[] {
             },
             error: message,
           });
-          return { content: [{ type: 'text', text: `Error: ${message}` }], details: { error: message } };
+          return { content: [{ type: 'text', text: `Error: ${message}` }], details: extensionFailureDetails(error, message) };
         }
       },
     },
@@ -967,7 +983,7 @@ function createAgentSkillTools(userId?: string): AgentTool[] {
             draftPath: p.draftPath,
             error: message,
           });
-          return { content: [{ type: 'text', text: `Error: ${message}` }], details: { error: message } };
+          return { content: [{ type: 'text', text: `Error: ${message}` }], details: extensionFailureDetails(error, message) };
         }
       },
     },
@@ -1034,7 +1050,7 @@ function createAgentSkillTools(userId?: string): AgentTool[] {
             draftPath: p.draftPath,
             error: message,
           });
-          return { content: [{ type: 'text', text: `Error: ${message}` }], details: { error: message } };
+          return { content: [{ type: 'text', text: `Error: ${message}` }], details: extensionFailureDetails(error, message) };
         }
       },
     },
@@ -1076,7 +1092,7 @@ function createAgentSkillTools(userId?: string): AgentTool[] {
             draftPath: p.draftPath,
             error: message,
           });
-          return { content: [{ type: 'text', text: `Error: ${message}` }], details: { error: message } };
+          return { content: [{ type: 'text', text: `Error: ${message}` }], details: extensionFailureDetails(error, message) };
         }
       },
     },
@@ -1196,7 +1212,7 @@ function createAgentPluginTools(userId?: string): AgentTool[] {
         } catch (error: unknown) {
           const message = getErrorMessage(error);
           await recordAgentPluginToolAudit({ action: 'plugin.create_draft', status: 'failure', pluginName: p.pluginName, error: message });
-          return { content: [{ type: 'text', text: `Error: ${message}` }], details: { error: message } };
+          return { content: [{ type: 'text', text: `Error: ${message}` }], details: extensionFailureDetails(error, message) };
         }
       },
     },
@@ -1216,7 +1232,7 @@ function createAgentPluginTools(userId?: string): AgentTool[] {
         } catch (error: unknown) {
           const message = getErrorMessage(error);
           await recordAgentPluginToolAudit({ action: 'plugin.inspect', status: 'failure', pluginName: p.pluginName, error: message });
-          return { content: [{ type: 'text', text: `Error: ${message}` }], details: { error: message } };
+          return { content: [{ type: 'text', text: `Error: ${message}` }], details: extensionFailureDetails(error, message) };
         }
       },
     },
@@ -1241,7 +1257,7 @@ function createAgentPluginTools(userId?: string): AgentTool[] {
         } catch (error: unknown) {
           const message = getErrorMessage(error);
           await recordAgentPluginToolAudit({ action: 'plugin.install_from_workspace', status: 'failure', workspacePath: p.workspacePath, error: message });
-          return { content: [{ type: 'text', text: `Error: ${message}` }], details: { error: message } };
+          return { content: [{ type: 'text', text: `Error: ${message}` }], details: extensionFailureDetails(error, message) };
         }
       },
     },
@@ -1269,7 +1285,7 @@ function createAgentPluginTools(userId?: string): AgentTool[] {
         } catch (error: unknown) {
           const message = getErrorMessage(error);
           await recordAgentPluginToolAudit({ action: 'plugin.update_from_workspace', status: 'failure', pluginName: p.pluginName, workspacePath: p.workspacePath, error: message });
-          return { content: [{ type: 'text', text: `Error: ${message}` }], details: { error: message } };
+          return { content: [{ type: 'text', text: `Error: ${message}` }], details: extensionFailureDetails(error, message) };
         }
       },
     },
@@ -1289,7 +1305,7 @@ function createAgentPluginTools(userId?: string): AgentTool[] {
         } catch (error: unknown) {
           const message = getErrorMessage(error);
           await recordAgentPluginToolAudit({ action: 'plugin.set_enabled', status: 'failure', pluginName: p.pluginName, error: message });
-          return { content: [{ type: 'text', text: `Error: ${message}` }], details: { error: message } };
+          return { content: [{ type: 'text', text: `Error: ${message}` }], details: extensionFailureDetails(error, message) };
         }
       },
     },
@@ -1309,10 +1325,96 @@ function createAgentPluginTools(userId?: string): AgentTool[] {
         } catch (error: unknown) {
           const message = getErrorMessage(error);
           await recordAgentPluginToolAudit({ action: 'plugin.remove', status: 'failure', pluginName: p.pluginName, error: message });
-          return { content: [{ type: 'text', text: `Error: ${message}` }], details: { error: message } };
+          return { content: [{ type: 'text', text: `Error: ${message}` }], details: extensionFailureDetails(error, message) };
         }
       },
     },
+  ];
+}
+
+export const CAPABILITY_PACKAGE_TOOL_NAMES = [
+  'list_canvas_package_store', 'inspect_canvas_package_store_update', 'install_canvas_package_from_store', 'update_canvas_package_from_store',
+  'inspect_canvas_package_presentation', 'inspect_canvas_package_store_offering', 'inspect_canvas_package_store_install_options',
+  'inspect_canvas_package', 'list_canvas_package_scopes', 'create_canvas_package_draft', 'inspect_canvas_package_draft',
+  'list_canvas_package_draft_files', 'read_canvas_package_draft_file', 'write_canvas_package_draft_file',
+  'delete_canvas_package_draft_file', 'validate_canvas_package_draft', 'publish_canvas_package_draft',
+  'discard_canvas_package_draft', 'list_canvas_package_files', 'read_canvas_package_file', 'set_canvas_package_activation',
+] as const;
+
+export function createCapabilityPackageTools(userId?: string, agentId?: string | null, sessionId?: string | null): AgentTool[] {
+  const reference = z.object({ resourceRef: capabilityPackageReferenceSchema }).strict();
+  const draft = z.object({ draftRef: capabilityPackageDraftReferenceSchema }).strict();
+  const actor = (): CapabilityResourceActor => {
+    const context = getAgentExecutionContext();
+    if (!userId || context?.userId !== userId || !context.sessionId || !context.workspaceId
+      || agentId && context.agentId !== agentId || sessionId && context.sessionId !== sessionId) {
+      throw new CapabilityPackageError('PACKAGE_ACCESS_DENIED', 'An authenticated matching agent session is required.', 403);
+    }
+    return { userId: context.userId, workspaceId: context.workspaceId };
+  };
+  type PackageActions = typeof import('@/app/lib/capabilities/packages/actions');
+  const tool = (name: typeof CAPABILITY_PACKAGE_TOOL_NAMES[number], description: string, schema: z.ZodType,
+    operation: (actions: PackageActions, actor: CapabilityResourceActor, params: Record<string, unknown>) => Promise<unknown>): AgentTool => ({
+    name, label: 'Managing Canvas package', description,
+    parameters: Type.Unsafe(z.toJSONSchema(schema, { target: 'draft-7' })),
+    execute: async (_toolCallId, value) => {
+      try {
+        const current = actor();
+        const params = schema.parse(value) as Record<string, unknown>;
+        const result = toPublicCapabilityPackageMetadata(await operation(await import('@/app/lib/capabilities/packages/actions'), current, params));
+        return { content: [{ type: 'text', text: JSON.stringify(result) }], details: { capabilityPackage: { operation: name, result } } };
+      } catch (error) {
+        const known = isCapabilityPackageError(error) || error instanceof CapabilityResourceError, invalid = error instanceof z.ZodError;
+        const message = known ? error.message : invalid ? 'Invalid package tool arguments.' : 'Package management is currently unavailable.';
+        return { content: [{ type: 'text', text: `Error: ${message}` }], details: { error: message,
+          code: known ? error.code : invalid ? 'PACKAGE_REQUEST_INVALID' : 'PACKAGE_SNAPSHOT_UNAVAILABLE' } };
+      }
+    },
+  });
+  const without = (params: Record<string, unknown>, key: string) => Object.fromEntries(Object.entries(params).filter(([name]) => name !== key));
+  return [
+    tool('list_canvas_package_store', 'Lists configured Canvas Store plugin and skill offerings and currently readable exact installed variants in the selected scope. Personal own/shared, explicit teamId and organization selection use current Read rights; team discovery never falls back to personal. Use kind, q and separate offering/installed pagination to narrow discovery. Preserve exact resourceRef for subsequent operations. Scope counts and bounded comparison coverage remain explicit, including unknown and partial results. Store offerings are not permission to use a connection; no archives are downloaded.', capabilityPackageStoreListSchema,
+      async (_actions, actor, params) => (await import('@/app/lib/capabilities/packages/store-actions')).listCapabilityPackageStoreAction(actor, params)),
+    tool('inspect_canvas_package_presentation', 'Reads safe metadata for one exact readable installed plugin or skill: declared requirements, workflow alternatives, child skills, script descriptions and configuration key names. Discover resourceRef first. Declarations do not grant access, select an account or prove connection readiness. Returns no credentials, configuration values, source paths or executable content; never executes scripts or contacts providers.', reference,
+      async (_actions, actor, params) => (await import('@/app/lib/capabilities/packages/presentation-actions')).inspectCapabilityPackagePresentationAction(actor, params.resourceRef as string)),
+    tool('inspect_canvas_package_store_offering', 'Previews the complete declarations of an explicitly selected configured Store kind, registry, entry, version and checksum. Downloads and validates the selected archive before returning safe metadata; never installs, publishes, executes code or connects an account. Use its requirements to explain an installation before requesting an explicit target.', capabilityPackageStoreOfferingPresentationSchema,
+      async (_actions, actor, params) => (await import('@/app/lib/capabilities/packages/presentation-actions')).inspectCapabilityPackageStoreOfferingAction(actor, params)),
+    tool('inspect_canvas_package_store_install_options', 'Lists current bounded responsible-person and grant targets for an explicitly chosen personal, organization or team installation scope. Requires fresh target Manage authority before reading the directory. The exact Store source remains a selection and is verified during installation. This read does not create a package, download an archive, change grants or share an account. Use list_canvas_package_scopes to discover permitted creation scopes first.', capabilityPackageStoreInstallOptionsSchema,
+      async (_actions, actor, params) => (await import('@/app/lib/capabilities/packages/store-install-options')).inspectCapabilityPackageStoreInstallOptionsAction(actor, params)),
+    tool('inspect_canvas_package_store_update', 'Reviews one exact readable resourceRef against an explicitly selected configured Store source, version and checksum. Returns current metadata, grants, content head and local checksum for a subsequent explicit update. This inspection never installs or downloads archives.', capabilityPackageStoreUpdateReviewSchema.extend(reference.shape).strict(),
+      async (_actions, actor, params) => (await import('@/app/lib/capabilities/packages/store-actions')).inspectCapabilityPackageStoreUpdateAction(actor, params.resourceRef as string, without(params, 'resourceRef'))),
+    tool('install_canvas_package_from_store', 'Installs a verified exact Store plugin or skill version as a new immutable managed package in an explicitly chosen personal, organization or team scope. Starts disabled and restricted with only explicitly validated initial grants and responsible person. Requires current target management and explicit user installation intent. Rejects namespace collisions; never replaces a same-name resource.', capabilityPackageStoreInstallSchema,
+      async (_actions, actor, params) => (await import('@/app/lib/capabilities/packages/store-actions')).installCapabilityPackageFromStoreAction(actor, params)),
+    tool('update_canvas_package_from_store', 'Publishes a verified selected Store version to one exact resourceRef under fresh manage AND edit rights. Requires all review metadata, grant, package-head and local-checksum revisions, plus explicit replaceLocalChanges choice. Use only when the user requested this reviewed update. Preserves ownership, grants, responsible person, activation, previous versions and workflow pins; source conflicts never silently overwrite.', capabilityPackageStoreUpdateSchema.extend(reference.shape).strict(),
+      async (_actions, actor, params) => (await import('@/app/lib/capabilities/packages/store-actions')).updateCapabilityPackageFromStoreAction(actor, params.resourceRef as string, without(params, 'resourceRef'))),
+    tool('inspect_canvas_package', 'Inspects one readable installed full package and returns current content, metadata and grant revisions. Discover resourceRef with inspect_canvas_resource; inspect before drafting or publishing. Core and plugin-contained skills require a distinct fork or editing the containing plugin.', reference,
+      (actions, actor, params) => actions.inspectCapabilityPackage(actor, params.resourceRef as string)),
+    tool('list_canvas_package_scopes', 'Lists personal, organization and actual team targets this actor may create a new package in. This cannot grant access or change ownership of an existing package.', z.object({}).strict(),
+      (actions, actor) => actions.listCapabilityPackageCreationScopes(actor)),
+    tool('create_canvas_package_draft', 'Creates an actor-private complete package draft. Editing requires current canEdit and inspected metadata/grants/content revisions. Forking or promoting creates a distinct named resource in an authorized target scope; preserves source, copies no grants or credentials, and starts disabled. No workspace paths are accepted.', capabilityPackageDraftCreationSchema,
+      (actions, actor, params) => actions.createCapabilityPackageDraftAction(actor, params)),
+    tool('inspect_canvas_package_draft', 'Inspects this actor’s private draft and its current revision and target metadata/grant revisions. The reference grants no authority without current source and target rights.', draft,
+      (actions, actor, params) => actions.readCapabilityPackageDraftAction(actor, params.draftRef as string)),
+    tool('list_canvas_package_draft_files', 'Lists all bounded relative draft paths, including scripts and assets, under current rights. No absolute filesystem paths are returned.', draft,
+      (actions, actor, params) => actions.listCapabilityPackageDraftFilesAction(actor, params.draftRef as string)),
+    tool('read_canvas_package_draft_file', 'Reads a bounded range of one private draft file as base64; default maxBytes is 64 KiB. Request explicit chunks for large assets. Use the draft file operations for package edits rather than generic workspace tools.', capabilityPackageFileReadSchema.extend(draft.shape).strict(),
+      (actions, actor, params) => actions.readCapabilityPackageDraftFileAction(actor, params.draftRef as string, { ...without(params, 'draftRef'), maxBytes: params.maxBytes ?? 64 * 1024 })),
+    tool('write_canvas_package_draft_file', 'Creates or replaces a relative draft file with base64 bytes and expectedDraftRevision. Includes scripts, assets and manifests; rejects secrets and traversal. Returns the next draft revision.', capabilityPackageFileWriteSchema.extend(draft.shape).strict(),
+      (actions, actor, params) => actions.writeCapabilityPackageDraftFileAction(actor, params.draftRef as string, without(params, 'draftRef'))),
+    tool('delete_canvas_package_draft_file', 'Deletes one relative draft file with expectedDraftRevision. This changes only the actor-private draft and returns its next revision.', capabilityPackageFileDeleteSchema.extend(draft.shape).strict(),
+      (actions, actor, params) => actions.deleteCapabilityPackageDraftFileAction(actor, params.draftRef as string, without(params, 'draftRef'))),
+    tool('validate_canvas_package_draft', 'Validates the complete draft, including manifests, child skills, scripts, assets and checksum. Validation never publishes and does not waive fresh permission or revision checks.', draft,
+      (actions, actor, params) => actions.validateCapabilityPackageDraftAction(actor, params.draftRef as string)),
+    tool('publish_canvas_package_draft', 'Publishes a validated immutable full package revision under fresh edit/target authority and all inspected draft/content/metadata/grant revisions. Previous published versions remain intact. Use only when the user requested publication; fork targets have separate identity and no inherited grants.', capabilityPackagePublishSchema,
+      (actions, actor, params) => actions.publishCapabilityPackageDraftAction(actor, params)),
+    tool('discard_canvas_package_draft', 'Discards only the actual actor’s private draft with expectedDraftRevision, including after edit access was revoked. Published packages and source resources remain unchanged.', capabilityPackageDiscardSchema.extend(draft.shape).strict(),
+      (actions, actor, params) => actions.discardCapabilityPackageDraftAction(actor, params.draftRef as string, without(params, 'draftRef'))),
+    tool('list_canvas_package_files', 'Lists one readable installed package or an explicitly selected immutable revision. Current resource ACL applies even to older published versions.', capabilityPackagePublishedTreeSchema.extend(reference.shape).strict(),
+      (actions, actor, params) => actions.listCapabilityPackageFilesAction(actor, params.resourceRef as string, without(params, 'resourceRef'))),
+    tool('read_canvas_package_file', 'Reads one relative package file as base64 from the current or explicitly selected immutable version; default maxBytes is 64 KiB. Request explicit chunks for large assets. Use current resourceRef and an issued revisionRef; never accepts a storage path.', capabilityPackagePublishedFileSchema.extend(reference.shape).strict(),
+      (actions, actor, params) => actions.readCapabilityPackageFileAction(actor, params.resourceRef as string, { ...without(params, 'resourceRef'), maxBytes: params.maxBytes ?? 64 * 1024 })),
+    tool('set_canvas_package_activation', 'Changes the default activation of one managed published package under current canManage permission and inspected content, metadata, grant and default revisions. It does not change package bytes or grant use or edit access. Requires explicit user intent.', capabilityPackageActivationSchema.extend(reference.shape).strict(),
+      async (_actions, actor, params) => (await import('@/app/lib/capabilities/packages/activation')).setCapabilityPackageDefaultActivationAction(actor, params.resourceRef as string, without(params, 'resourceRef'))),
   ];
 }
 
@@ -1332,6 +1434,7 @@ export function createUserScopedTools(
     createBrowserGatewayTool({ userId, agentId: sourceAgentId, sessionId }),
     ...createAgentSkillTools(userId),
     ...createAgentPluginTools(userId),
+    ...createCapabilityPackageTools(userId, agentId, sessionId),
   ];
 
   if (sourceAgentId === DEFAULT_AGENT_ID) {

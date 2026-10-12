@@ -1,15 +1,15 @@
 {
   "schemaVersion": 1,
   "generator": "scripts/generate-third-party-notices.ts",
-  "packageVersion": "2026.10.9.1",
-  "lockfileSha256": "1b563d7e05744f5be7f8e1ad82d86887d2e4ccf831b9f216beee2e2d951b13fe",
+  "packageVersion": "2026.10.10.1",
+  "lockfileSha256": "8a0b4b2a85ebd8d30c79a0b61df2236835c1a4e564053e5ca0baa50404b9c05c",
   "summary": {
-    "totalComponents": 1964,
-    "npmComponents": 1938,
+    "totalComponents": 1965,
+    "npmComponents": 1939,
     "nonNpmComponents": 26,
     "runtimeComponents": 1444,
-    "developmentOnlyComponents": 520,
-    "allowed": 1928,
+    "developmentOnlyComponents": 521,
+    "allowed": 1929,
     "reviewRequired": 36,
     "blocked": 0,
     "distributedReviewRequired": 0,
@@ -278,6 +278,26 @@
       "licenseTextSha256": "48da2f39e100d4085767e94966b43f4fa95ff6a0698fba57ed460914e35f94a0",
       "copyrightNotices": [
         "Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (sindresorhus.com)"
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
+      "name": "@electric-sql/pglite-pgvector",
+      "versionOrCommit": "0.0.5",
+      "sourceUrl": "https://github.com/electric-sql/pglite",
+      "packagePathOrArtifact": "node_modules/@electric-sql/pglite-pgvector",
+      "usage": "development-only",
+      "distributedIn": [
+        "source-development-install"
+      ],
+      "declaredLicense": "Apache-2.0",
+      "verifiedLicense": "Apache-2.0",
+      "licenseTextRef": "node_modules/@electric-sql/pglite-pgvector/LICENSE",
+      "licenseTextSha256": "a6cba85bc92e0cff7a450b1d873c0eaa2e9fc96bf472df0247a26bec77bf3ff9",
+      "copyrightNotices": [
+        "(c) You must retain, in the Source form of any Derivative Works",
+        "that You distribute, all copyright, patent, trademark, and"
       ],
       "modified": false,
       "policyDecision": "allowed"

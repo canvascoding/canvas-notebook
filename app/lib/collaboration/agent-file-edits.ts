@@ -11,6 +11,8 @@ import {
 import { WorkspaceFileRevisionError } from '@/app/lib/files/revision-guard';
 import { readDocumentReviewAvailability } from '@/app/lib/document-review-availability';
 import { applyAgentMarkdownEdit, type AgentMarkdownEdit } from '@/app/lib/markdown/agent-markdown-edit';
+import { equivalentMarkdownNormalization } from '@/app/lib/markdown/core/equivalence';
+import { createCanvasMarkedInstance } from '@/app/lib/markdown/canvas-marked';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 import type { DirectMcpEditAuthority } from '@/app/lib/mcp/server/direct-edit-authority';
 import {
@@ -160,12 +162,29 @@ function createRichTargets(input: {
   ));
 }
 
+function isSafeTableMarkdownNormalization(requested: string, canonical: string): boolean {
+  const normalizations = equivalentMarkdownNormalization(requested, canonical);
+  if (!normalizations?.length || !normalizations.every((kind) => kind === 'table_formatting')) return false;
+  const parser = createCanvasMarkedInstance();
+  let lossless = true;
+  parser.walkTokens(parser.lexer(requested), (token) => {
+    if (token.type !== 'table' || !Array.isArray(token.header)) return;
+    for (const line of token.raw.trimEnd().split(/\r?\n/u).slice(2)) {
+      // Preserve occupied cells when masking escapes: an escaped-only final cell
+      // must not turn its interior separator into an optional outer boundary.
+      const cells = line.replace(/\\./gu, 'x').trim().replace(/^\|/u, '').replace(/\|$/u, '').split('|').length;
+      if (cells > token.header.length) lossless = false;
+    }
+  });
+  return lossless;
+}
+
 function directTargetsProduceProposedContent(input: {
   doc: InstanceType<typeof Y.Doc>;
   representation: CollaborationTextSnapshot['representation'];
   targets: AgentTextTarget[];
   proposedContent: string;
-}): boolean {
+}): string | null {
   const clone = new Y.Doc({ gc: true });
   try {
     Y.applyUpdate(clone, Y.encodeStateAsUpdate(input.doc));
@@ -182,8 +201,12 @@ function directTargetsProduceProposedContent(input: {
         operationId: 'preview',
       },
     });
-    return preview.status === 'applied_to_ydoc'
-      && canonicalContent(input.representation, clone) === input.proposedContent;
+    if (preview.status !== 'applied_to_ydoc') return null;
+    const content = canonicalContent(input.representation, clone);
+    return content === input.proposedContent
+      || (isRichTextCollaborationRepresentation(input.representation)
+        && isSafeTableMarkdownNormalization(input.proposedContent, content))
+      ? content : null;
   } finally {
     clone.destroy();
   }
@@ -365,7 +388,8 @@ export function prepareCollaborationContentEditInDocument(input: Parameters<type
     });
   }
   const plan = input.plan(content);
-  const { edits, proposedContent } = plan;
+  const { edits } = plan;
+  let proposedContent = plan.proposedContent;
   let targets: AgentTextTarget[] = [];
   let requestedMode: PreparedCollaborationTextEdit['requestedMode'] = 'direct_apply';
   try {
@@ -380,14 +404,16 @@ export function prepareCollaborationContentEditInDocument(input: Parameters<type
       : plan.richMode === 'exact_text'
         ? createRichTargets({ doc, edits, groupId: input.groupId })
         : (() => { throw new Error('Markdown-aware edits require structural block integration.'); })();
-    if (!directTargetsProduceProposedContent({
+    const directContent = directTargetsProduceProposedContent({
       doc,
       representation: state.representation,
       targets,
       proposedContent,
-    })) {
+    });
+    if (directContent === null) {
       throw new Error('The exact edits require a structural collaboration review.');
     }
+    proposedContent = directContent;
   } catch (error) {
     if (!isRichTextCollaborationRepresentation(state.representation)) throw error;
     try {
@@ -398,6 +424,11 @@ export function prepareCollaborationContentEditInDocument(input: Parameters<type
           // changes to them through an unanchored whole-document fallback.
           if (['frontmatter', 'bodyFinalLineEnding'].some((name) => proposed.getText(name).toString() !== doc.getText(name).toString())) {
             throw new Error('This source edit changes document metadata or final line endings. Use a dedicated source edit instead of a live block proposal.');
+          }
+          const canonicalProposal = richMarkdownFromYDoc(proposed);
+          if (canonicalProposal !== proposedContent && validateRichMarkdownYDoc(proposed).valid
+            && isSafeTableMarkdownNormalization(proposedContent, canonicalProposal)) {
+            proposedContent = canonicalProposal;
           }
           const blockEdit = prepareAgentBlockDocumentChange(doc, readRichDocumentJson(proposed));
           const preview = previewAgentBlockEdit(doc, blockEdit);

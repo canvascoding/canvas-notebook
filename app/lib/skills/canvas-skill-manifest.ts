@@ -1,6 +1,9 @@
-import { promises as fs } from 'fs';
+import { constants, promises as fs } from 'fs';
 import path from 'path';
 import YAML from 'yaml';
+import type { CapabilityResourceAccess, CapabilityResourceMetadata } from '@/app/lib/capabilities/resources/contracts';
+import { CAPABILITY_WORKFLOW_LIMITS, isWorkflowManifestError, parseWorkflowManifest, WorkflowManifestError,
+  validateWorkflowReferences, type SkillWorkflowManifestV1 } from '@/app/lib/capabilities/workflow-contracts';
 
 import {
   resolveScopedSkillsDataDir,
@@ -45,6 +48,8 @@ export interface CanvasSkill {
   core?: boolean;
   isCustom?: boolean;
   resourceId?: string;
+  resourceMetadata?: CapabilityResourceMetadata;
+  resourceAccess?: CapabilityResourceAccess;
   scopeType?: 'system' | 'organization' | 'user';
   sourceType?: 'core' | 'standalone' | 'plugin';
   revision?: number;
@@ -54,6 +59,7 @@ export interface CanvasSkill {
   blockedReason?: string | null;
   conflictResourceIds?: string[];
   interface?: CanvasSkillInterface;
+  workflow?: SkillWorkflowManifestV1;
   plugin?: {
     name: string;
     version: string;
@@ -311,6 +317,69 @@ export async function loadCanvasSkillInterface(skillDir: string): Promise<Canvas
   }
 }
 
+/** Reads only the optional new block; legacy interface metadata remains independent. */
+export async function loadCanvasSkillWorkflow(skillDir: string): Promise<SkillWorkflowManifestV1 | undefined> {
+  const interfacePath = requirePathInside(skillDir, CANVAS_SKILL_INTERFACE_PATH);
+  let handle: Awaited<ReturnType<typeof fs.open>>;
+  try { handle = await fs.open(interfacePath, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK); }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
+    throw new WorkflowManifestError(['workflow: The Canvas workflow document could not be read.']);
+  }
+  let raw: string;
+  try {
+    const stat = await handle.stat();
+    if (!stat.isFile() || stat.nlink !== 1 || stat.size > CAPABILITY_WORKFLOW_LIMITS.documentBytes) {
+      throw new WorkflowManifestError(['workflow: A bounded regular Canvas workflow document is required.']);
+    }
+    const bytes = Buffer.alloc(stat.size);
+    let offset = 0;
+    while (offset < bytes.length) {
+      const read = await handle.read(bytes, offset, bytes.length - offset, offset);
+      if (!read.bytesRead) throw new WorkflowManifestError(['workflow: The Canvas workflow document changed during reading.']);
+      offset += read.bytesRead;
+    }
+    const after = await handle.stat();
+    if (after.size !== stat.size || after.mtimeMs !== stat.mtimeMs || after.ctimeMs !== stat.ctimeMs
+      || (await handle.read(Buffer.alloc(1), 0, 1, offset)).bytesRead) {
+      throw new WorkflowManifestError(['workflow: The Canvas workflow document changed during reading.']);
+    }
+    try { raw = new TextDecoder('utf-8', { fatal: true }).decode(bytes); }
+    catch { throw new WorkflowManifestError(['workflow: The Canvas workflow document must use UTF-8.']); }
+  } finally { await handle.close(); }
+  try {
+    const document = YAML.parseDocument(raw);
+    const hasWorkflowKey = YAML.isMap(document.contents) && document.has('workflow');
+    if (document.errors.length && (hasWorkflowKey || /(?:^|[\r\n{,])\s*['"]?workflow['"]?\s*:/u.test(raw))) {
+      throw new WorkflowManifestError(['workflow: The Canvas workflow document must be valid YAML.']);
+    }
+    // Invalid legacy UI-only YAML keeps the existing nullable interface behavior.
+    if (!hasWorkflowKey) return undefined;
+    if (document.errors.length) throw new WorkflowManifestError(['workflow: The Canvas workflow document must be valid YAML.']);
+    const parsed = document.toJS({ maxAliasCount: 100 }) as Record<string, unknown>;
+    return parseWorkflowManifest(parsed.workflow, { allowMcpConnectors: true });
+  } catch (error) {
+    if (isWorkflowManifestError(error)) throw error;
+    throw new WorkflowManifestError(['workflow: The Canvas workflow document must be valid YAML.']);
+  }
+}
+
+/** Installation/publication of a standalone package has only its own skill and connectors. */
+export async function validateStandaloneSkillWorkflow(skill: Pick<CanvasSkill, 'name' | 'directory' | 'workflow'>): Promise<void> {
+  if (!skill.workflow) return;
+  validateWorkflowReferences(skill.workflow, { mcpConnectors: skill.workflow.mcpConnectors ?? [],
+    skillNames: [skill.name], allowMcpConnectors: true });
+  for (const connector of skill.workflow.mcpConnectors ?? []) {
+    if (!connector.configPath) continue;
+    try {
+      const stat = await fs.lstat(requirePathInside(skill.directory, connector.configPath));
+      if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1) throw new Error('Invalid file.');
+    } catch {
+      throw new WorkflowManifestError(['workflow.mcpConnectors.configPath: A regular file inside the skill package is required.']);
+    }
+  }
+}
+
 export async function parseSkillFile(
   skillPath: string,
   options: ParseSkillFileOptions = { validateDirectoryName: true },
@@ -340,6 +409,7 @@ export async function parseSkillFile(
     const skillName = manifest.name;
     const directory = path.dirname(skillPath);
     const iface = await loadCanvasSkillInterface(directory);
+    const workflow = await loadCanvasSkillWorkflow(directory);
     const frontmatterVersion = manifest.metadata?.version;
     const canvasVersion = iface?.version;
 
@@ -366,11 +436,13 @@ export async function parseSkillFile(
       enabled: true,
       isCustom: true,
       interface: iface,
+      ...(workflow ? { workflow } : {}),
     };
   } catch (error) {
     console.error('[CanvasSkillParser] Error parsing skill.', { path: skillPath, error });
     const code = isRecord(error) && typeof error.code === 'string' ? error.code : undefined;
-    report(code === 'ENOENT'
+    if (isWorkflowManifestError(error)) error.errors.forEach(report);
+    else report(code === 'ENOENT'
       ? 'SKILL.md could not be found.'
       : code === 'EACCES' || code === 'EPERM'
         ? 'SKILL.md could not be read because access was denied.'

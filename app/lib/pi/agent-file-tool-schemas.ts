@@ -74,7 +74,7 @@ const structuredOperation = Type.Union([
       Type.Literal('alignRight'), Type.Literal('alignNone'), Type.Literal('moveRowUp'),
       Type.Literal('moveRowDown'), Type.Literal('moveColumnLeft'), Type.Literal('moveColumnRight'),
     ]),
-  }, { additionalProperties: false, description: 'Apply an editor table command at cellId; use the containing table block\'s subtreeHash.' }),
+  }, { additionalProperties: false, description: 'Apply an editor table command. Copy cellId and subtreeHash from the cell\'s tableOperationTarget returned by read(source: "blocks"). This subtreeHash belongs to the containing table; the cell\'s own subtreeHash is invalid for table commands.' }),
 ]);
 
 // Keep an object at the schema root for tool providers and parameter discovery.
@@ -92,7 +92,7 @@ export const agentEditFileParameters = Type.Object({
   expectedOccurrences: Type.Optional(Type.Integer({ minimum: 1, description: 'Exact number of expected oldText matches. Defaults to 1.' })),
   replaceAll: Type.Optional(Type.Boolean({ description: 'Replace every matching non-overlapping occurrence. Cannot be true with expectedOccurrences.' })),
   expectedSha256: Type.Optional(Type.String({ description: 'Required for ordinary exact edits of shared files. Optional additional whole-document guard for structured or block-targeted edits; their local guards allow unrelated user edits.' })),
-  blockId: Type.Optional(blockId),
+  blockId: Type.Optional(Type.String({ minLength: 1, description: 'Stable text block ID, tableCell ID, or tableHeader ID from read(source: "blocks"). Cell targets search only within descendant text blocks, preserve their native anchors, and refuse matches spanning separate text blocks.' })),
   document: Type.Optional(documentReference),
   operations: Type.Optional(Type.Array(structuredOperation, { minItems: 1, maxItems: 32,
     description: 'Structured block edits for a tiptap_blocks live document. Use instead of oldText/newText and include document from a structure read.' })),

@@ -104,14 +104,18 @@ export type WorkspaceFileOperationLinkAssessmentV1 = {
     sourcePath: string;
     targetLiteral: string;
     status: Exclude<WorkspaceLinkResolveStatusV1, 'resolved'>;
-    reason: 'unaffected-existing-link';
+    reason: 'unaffected-existing-link' | 'unaffected-explicit-html-link';
+    /** Exact, workspace-relative targets certified for an unchanged HTML node. */
+    htmlTargets?: string[];
   }>;
   blockers: Array<{
     workspaceId?: string;
     sourcePath: string;
     targetLiteral: string;
     status: WorkspaceLinkResolveStatusV1;
-    reason: 'affected-unresolved-link' | 'uninspected-source' | 'unevaluated-link' | 'resolution-changed';
+    reason: 'affected-unresolved-link' | 'uninspected-source' | 'unevaluated-link' | 'affected-html-link' | 'resolution-changed';
+    htmlTargets?: string[];
+    line?: number;
   }>;
 };
 

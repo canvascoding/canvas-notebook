@@ -6,6 +6,7 @@ import { LocalMarkdownCodeMirror } from './LocalMarkdownCodeMirror';
 import { MarkdownSaveState } from './MarkdownDocumentModes';
 import type { LocalMarkdownDocument } from '@/app/lib/editor/local-markdown-document';
 import { createSourceViewportAdapter, markdownViewportSourceExtensions, useMarkdownViewportAdapter, type MarkdownModeViewport } from '@/app/lib/editor/markdown-mode-viewport';
+import { mobileMarkdownSourceViewport } from '@/app/lib/editor/mobile-source-viewport';
 import { javascript } from '@codemirror/lang-javascript';
 import { python } from '@codemirror/lang-python';
 import { html } from '@codemirror/lang-html';
@@ -472,7 +473,7 @@ export function CodeEditor({
 
   const extensions = useMemo(() => {
     const nextExtensions: CodeMirrorExtension[] = [codeMirrorAgentTargetDecorations];
-    if (markdownViewport) nextExtensions.push(...markdownViewportSourceExtensions);
+    if (markdownViewport) nextExtensions.push(...markdownViewportSourceExtensions, ...mobileMarkdownSourceViewport);
     if (languagePath && !performanceProfile.disableLanguageExtension) {
       nextExtensions.push(getLanguageExtension(languagePath));
     }

@@ -9,6 +9,9 @@ import * as Y from 'yjs';
 import { getSchema } from '@tiptap/core';
 import { Button } from '@/components/ui/button';
 import type { CollaborationDocument } from '@/app/lib/collaboration/client';
+import type { RichMigrationRequest } from '@/app/lib/collaboration/representation-migration-contract';
+import { useFileStore } from '@/app/store/file-store';
+import { useWorkspaceStore } from '@/app/store/workspace-store';
 import { workspaceHeaders } from '@/app/lib/files/client';
 import { recordExportedCollaborationRecovery } from '@/app/lib/collaboration/local-recovery';
 import { useMarkdownRecoveryCopy } from '@/app/lib/collaboration/markdown-recovery-client';
@@ -118,43 +121,62 @@ export function MarkdownRichMigration({ collaboration, filePath, onReady, onStar
   onStart?: () => void; onBusyChange?: (busy: boolean) => void; autoStart?: boolean;
 }) {
   const t = useTranslations('notebook.editorModes');
+  const common = useTranslations('common');
   const [busy, setBusy] = useState(false);
   const [blocked, setBlocked] = useState(false);
+  const [pending, setPending] = useState(false);
+  const migration = useRef<RichMigrationRequest | null>(null);
   const running = useRef(false);
   const autoAttempted = useRef(false);
   const mounted = useRef(true);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
-  const canStart = collaboration.connection === 'live' && collaboration.durability !== 'degraded';
-  const migrate = useCallback(async () => {
+  const canStart = pending || (collaboration.connection === 'live' && collaboration.durability !== 'degraded');
+  const migrate = useCallback(async (cancel = false) => {
     if (running.current || !canStart) return;
     running.current = true;
     setBusy(true); setBlocked(false);
     onBusyChange?.(true);
     let migrated = false;
+    let safeToResume = !migration.current;
     try {
-      await collaboration.requestCheckpoint();
-      collaboration.provider?.disconnect();
+      if (!migration.current) {
+        await collaboration.requestCheckpoint();
+        if (!collaboration.getMigrationCheckpoint) throw new Error('The exact checkpoint receipt is unavailable.');
+        migration.current = { requestId: crypto.randomUUID(), ...collaboration.getMigrationCheckpoint() };
+        collaboration.provider?.disconnect();
+        safeToResume = false;
+      }
       for (let attempt = 0; attempt < 3 && !migrated; attempt += 1) {
         if (attempt) await new Promise((resolve) => setTimeout(resolve, 350));
         const response = await fetch('/api/files/collaboration/session', {
           method: 'POST', headers: { 'Content-Type': 'application/json', ...workspaceHeaders(collaboration.registryKey.split('\0')[0]) },
-          body: JSON.stringify({ path: filePath, representation: 'auto', allowRichMigration: true,
-            ...COLLABORATION_CLIENT_CAPABILITIES,
-            expectedLifecycleGeneration: collaboration.session?.lifecycleGeneration }),
+          body: JSON.stringify({ path: filePath, representation: 'auto', ...COLLABORATION_CLIENT_CAPABILITIES,
+            migration: migration.current, ...(cancel ? { migrationAction: 'cancel' } : {}) }),
         });
         const result = await response.json();
-        migrated = response.ok && result.success === true && result.representation === 'tiptap_blocks'
+        const outcome = result.migration;
+        const sameRequest = outcome?.requestId === migration.current.requestId;
+        migrated = response.ok && result.success === true && sameRequest
+          && ['migrated', 'already_rich'].includes(outcome.status) && result.representation === 'tiptap_blocks'
           && supportsBlockTreeCollaboration(result);
+        if (response.ok && result.success === true && sameRequest && ['blocked', 'unsupported'].includes(outcome.status)
+          && outcome.documentId === migration.current.expectedDocumentId
+          && outcome.lifecycleGeneration === migration.current.expectedLifecycleGeneration) {
+          safeToResume = true;
+          migration.current = null;
+          break;
+        }
       }
       // Refresh the authoritative session even if the user switched back to Read.
       // The chosen mode belongs to the parent and must not be reset by this request.
       if (migrated) onReady(); else if (mounted.current) setBlocked(true);
     } catch { if (mounted.current) setBlocked(true); }
     finally {
-      if (!migrated) collaboration.provider?.connect();
+      if (!migrated && safeToResume) collaboration.provider?.connect();
       running.current = false;
-      onBusyChange?.(false);
-      if (mounted.current) setBusy(false);
+      const unresolved = !migrated && !safeToResume;
+      onBusyChange?.(unresolved);
+      if (mounted.current) { setBusy(false); setPending(unresolved); }
     }
   }, [canStart, collaboration, filePath, onReady, onBusyChange]);
   useEffect(() => {
@@ -168,7 +190,8 @@ export function MarkdownRichMigration({ collaboration, filePath, onReady, onStar
       onStart?.();
       void migrate();
     }}>{t(busy ? 'migrationBusy' : 'migration')}</Button>
-    {blocked && <span role="status">{t('migrationBlocked')}</span>}
+    {pending && <Button variant="ghost" size="sm" disabled={busy} onClick={() => void migrate(true)}>{common('cancel')}</Button>}
+    {blocked && <span role="status">{t(pending ? 'migrationBusy' : 'migrationBlocked')}</span>}
   </div>;
 }
 
@@ -197,8 +220,68 @@ export function MarkdownSaveState({ collaboration, content, available, isSourceL
       generation: collaboration?.session?.lifecycleGeneration, kind: issue, code: collaboration?.clientState.failure?.code ?? null });
   }, [diagnosticScope, issue, collaboration?.session?.documentId, collaboration?.session?.lifecycleGeneration, collaboration?.clientState.failure?.code]);
   const failureKind = collaboration?.clientState.failure?.kind;
+  const locationRequest = collaboration?.requestLocationRevalidation;
+  const locationAvailable = Boolean(locationRequest && (collaboration?.canRevalidateLocation || collaboration?.revalidatingLocation));
+  const locationFile = useFileStore((state) => state.currentFile);
+  const locationFileWorkspace = useFileStore((state) => state.currentFileWorkspaceId);
+  const locationTreeGeneration = useFileStore((state) => state.treeGeneration);
+  const locationWorkspace = useWorkspaceStore((state) => state.activeWorkspaceId);
+  const locationSession = collaboration?.session;
+  const locationWorkspaceOwner = locationSession?.guestAccess ? null : locationWorkspace;
+  const locationFileOwner = locationSession?.guestAccess ? null : locationFile;
+  const locationFileWorkspaceOwner = locationSession?.guestAccess ? null : locationFileWorkspace;
+  const locationTreeOwner = locationSession?.guestAccess ? null : locationTreeGeneration;
+  // Provider/session refreshes may change the callback, permission and denied
+  // state while one reconnect is pending. Only the open document owns its result.
+  const locationScope = useMemo(() => ({ doc: collaboration?.doc, registryKey: collaboration?.registryKey,
+    documentId: locationSession?.documentId, documentName: locationSession?.documentName,
+    generation: locationSession?.lifecycleGeneration, representation: locationSession?.representation,
+    schemaVersion: locationSession?.schemaVersion, richTextSchemaVersion: locationSession?.richTextSchemaVersion,
+    blockTreeFormatVersion: locationSession?.blockTreeFormatVersion, userId: locationSession?.user.id,
+    guestId: locationSession?.guestAccess?.invitationId, guestWorkspace: locationSession?.guestAccess?.workspaceId,
+    workspaceId: locationWorkspaceOwner, fileWorkspaceId: locationFileWorkspaceOwner, treeGeneration: locationTreeOwner,
+    editorIdentity: locationFileOwner?.editorIdentity, openedPath: locationFileOwner?.path, filePath,
+  }), [collaboration?.doc, collaboration?.registryKey, locationSession?.documentId, locationSession?.documentName,
+    locationSession?.lifecycleGeneration, locationSession?.representation, locationSession?.schemaVersion,
+    locationSession?.richTextSchemaVersion, locationSession?.blockTreeFormatVersion, locationSession?.user.id,
+    locationSession?.guestAccess?.invitationId, locationSession?.guestAccess?.workspaceId,
+    locationWorkspaceOwner, locationFileWorkspaceOwner, locationTreeOwner, locationFileOwner?.editorIdentity, locationFileOwner?.path, filePath]);
+  const activeLocationRequest = useRef<{ scope: typeof locationScope; running: boolean; allowed: boolean;
+    request: typeof locationRequest } | null>(null);
+  const [locationState, setLocationState] = useState<{ scope: typeof locationScope; busy: boolean; error: boolean } | null>(null);
+  const locationRecovered = !collaboration?.clientState.failure
+    && (collaboration?.durability === 'checkpointed_file' || collaboration?.durability === 'persisted_yjs');
+  if (locationState && locationState.scope !== locationScope) setLocationState(null);
+  else if (locationRecovered && locationState?.error) setLocationState({ ...locationState, error: false });
+  useLayoutEffect(() => {
+    activeLocationRequest.current = { scope: locationScope, running: false, allowed: false, request: undefined };
+    return () => { if (activeLocationRequest.current?.scope === locationScope) activeLocationRequest.current = null; };
+  }, [locationScope]);
+  useLayoutEffect(() => {
+    if (activeLocationRequest.current?.scope !== locationScope) return;
+    activeLocationRequest.current.request = locationRequest;
+    activeLocationRequest.current.allowed =
+      collaboration?.canRevalidateLocation === true && !collaboration.revalidatingLocation && !recovery.busy;
+  }, [locationScope, locationRequest, collaboration?.canRevalidateLocation, collaboration?.revalidatingLocation, recovery.busy]);
+  const isLocationCurrent = () => {
+    if (activeLocationRequest.current?.scope !== locationScope || !locationScope.doc || locationScope.doc.isDestroyed
+      || !filePath || !locationScope.documentId) return false;
+    if (locationScope.guestId) return Boolean(locationScope.guestWorkspace
+      && locationScope.registryKey?.startsWith(`${locationScope.guestWorkspace}\0`));
+    const current = useFileStore.getState();
+    return Boolean(locationScope.workspaceId && locationScope.fileWorkspaceId === locationScope.workspaceId
+      && locationScope.registryKey?.startsWith(`${locationScope.workspaceId}\0`)
+      && useWorkspaceStore.getState().activeWorkspaceId === locationScope.workspaceId
+      && current.currentFileWorkspaceId === locationScope.workspaceId && current.treeGeneration === locationScope.treeGeneration
+      && current.currentFile?.path === filePath && current.currentFile.editorIdentity === locationScope.editorIdentity
+      && !current.currentFile.unavailable && current.currentFile.collaboration?.crdtCapable
+      && (!current.currentFile.collaboration.document?.id || current.currentFile.collaboration.document.id === locationScope.documentId));
+  };
+  const locationBusy = Boolean(collaboration?.revalidatingLocation || locationState?.scope === locationScope && locationState.busy);
+  const locationError = !locationRecovered && locationState?.scope === locationScope && locationState.error;
+  const showLocationAction = Boolean(locationRequest && (locationAvailable || locationBusy));
   const canRetry = collaboration?.connection === 'live' && collaboration.ready && recovery.canCreate
-    && failureKind !== 'lifecycle' && failureKind !== 'authentication' && failureKind !== 'startup';
+    && !showLocationAction && failureKind !== 'lifecycle' && failureKind !== 'authentication' && failureKind !== 'startup';
   const retryScope = useMemo(() => ({ document: recovery.actionScope, canRetry }), [recovery.actionScope, canRetry]);
   const activeRetry = useRef<{ scope: typeof retryScope; running: boolean } | null>(null);
   const [retryState, setRetryState] = useState<{ scope: typeof retryScope; busy: boolean; error: string | null } | null>(null);
@@ -227,33 +310,51 @@ export function MarkdownSaveState({ collaboration, content, available, isSourceL
   if (!collaboration) return null;
   const { connection, durability, clientState, session } = collaboration;
   const hydrated = clientState.indexedDbHydrated;
-  const error = collaboration.error || retryError || recovery.error;
+  const error = collaboration.error || retryError || recovery.error || (locationError ? t('editorModes.locationRevalidationFailed') : null);
   const blocked = durability === 'degraded' || connection === 'denied';
-  if (!issue && !retryError && !recovery.error && !diagnostics) return null;
+  if (!issue && !retryError && !recovery.error && !diagnostics && !showLocationAction && !locationError) return null;
   const canExportMarkdown = hydrated && available && (isSourceLossless?.() ?? true);
   const diagnostic = JSON.stringify({ documentId: session?.documentId, generation: session?.lifecycleGeneration,
     connection, durability, documentSequence: clientState.documentSequence,
     checkpointSequence: clientState.checkpointSequence, unsyncedChanges: clientState.unsyncedChanges,
     indexedDbHydrated: hydrated, remoteSynced: clientState.remoteSynced,
     failure: clientState.failure, projectionError: clientState.projectionError, error,
-    retryError, recoveryError: recovery.error }, null, 2);
+    retryError, recoveryError: recovery.error, revalidatingLocation: locationBusy, locationRevalidationFailed: Boolean(locationError) }, null, 2);
   return <aside className={`${placement === 'inline'
     ? 'relative mx-3 my-3 max-h-[40%] w-auto shrink-0'
     : 'absolute right-3 top-14 z-30 max-h-[calc(100%-4rem)] w-[min(28rem,calc(100%-1.5rem))]'} overflow-auto rounded-lg border bg-background p-3 text-xs shadow-lg`} data-testid="markdown-save-state" aria-label={t(diagnostics ? 'editorModes.diagnostics' : 'editorModes.attention')}>
-    {(issue || retryError || recovery.error) && <div className="space-y-2">
-      <p role="alert" className="text-sm font-medium">{t(issue === 'unavailable' ? 'editorModes.unavailable' : `editorModes.failure.${issue ?? 'unknown'}`)}</p>
+    {(issue || retryError || recovery.error || showLocationAction || locationError) && <div className="space-y-2">
+      {(issue || retryError || recovery.error || locationError) && <p role="alert" className="text-sm font-medium">{t(issue === 'unavailable' ? 'editorModes.unavailable' : `editorModes.failure.${issue ?? 'unknown'}`)}</p>}
       {!hydrated ? <p>{t('editorModes.recoveryNotLoaded')}</p>
         : !collaboration.ready ? <p>{t('editorModes.recoveryLocalOnly')}</p>
           : issue === 'validation' || issue === 'unavailable' ? <p>{t('editorModes.recovery')}</p> : null}
       <div className="flex flex-wrap gap-2">
-        {onReload && (issue === 'authentication' || issue === 'lifecycle' || issue === 'startup') && <Button variant="outline" size="sm" onClick={onReload}>{t('editorModes.reopen')}</Button>}
-        {canCorrectStructure && <Button variant="outline" size="sm" disabled={retrying || recovery.busy} onClick={() => {
+        {showLocationAction && <Button variant="outline" size="sm" data-testid="markdown-location-revalidation"
+          disabled={locationBusy || recovery.busy || collaboration.canRevalidateLocation !== true} onClick={async () => {
+            const active = activeLocationRequest.current;
+            if (!isLocationCurrent() || active?.scope !== locationScope || active.running || !active.allowed || !active.request) return;
+            active.running = true;
+            setLocationState({ scope: locationScope, busy: true, error: false });
+            try { await active.request(); }
+            catch {
+              if (isLocationCurrent()) {
+                setLocationState({ scope: locationScope, busy: true, error: true });
+              }
+            } finally {
+              if (activeLocationRequest.current?.scope === locationScope) {
+                activeLocationRequest.current.running = false;
+                setLocationState((previous) => previous?.scope === locationScope ? { ...previous, busy: false } : previous);
+              }
+            }
+          }}>{t(locationBusy ? 'editorModes.revalidatingLocation' : 'editorModes.revalidateLocation')}</Button>}
+        {onReload && !showLocationAction && (issue === 'authentication' || issue === 'lifecycle' || issue === 'startup') && <Button variant="outline" size="sm" onClick={onReload}>{t('editorModes.reopen')}</Button>}
+        {canCorrectStructure && <Button variant="outline" size="sm" disabled={retrying || recovery.busy || locationBusy} onClick={() => {
           if (!recovery.isCurrent() || activeCorrection.current !== correctionScope
             || activeRetry.current?.scope !== retryScope || activeRetry.current.running || recovery.busy) return;
           blockHistory?.undoLastLocalChange();
         }}>{t('editorModes.undoRecovery')}</Button>}
         {blocked && canExportMarkdown && recovery.canCreate && <Button
-          variant="outline" size="sm" disabled={recovery.busy || retrying} onClick={() => void recovery.createCopy()}>
+          variant="outline" size="sm" disabled={recovery.busy || retrying || locationBusy} onClick={() => void recovery.createCopy()}>
           {t(recovery.busy ? 'editorModes.recoveringCopy' : 'editorModes.recoverCopy')}</Button>}
         {canExportMarkdown && <Button variant="outline" size="sm" onClick={() => download(content, filePath?.split('/').pop() || 'document.md', 'text/markdown;charset=utf-8')}>
           <Download className="size-3.5" />{t('editorModes.backup')}
@@ -282,6 +383,7 @@ export function MarkdownSaveState({ collaboration, content, available, isSourceL
         }}>{t('editorModes.retry')}</Button>}
       </div>
       {retryError && <p role="alert">{t('editorModes.retryFailed')}</p>}
+      {locationError && <p role="alert" data-testid="markdown-location-revalidation-error">{t('editorModes.locationRevalidationFailed')}</p>}
       {recovery.error && <p role="alert">{t('editorModes.recoveryFailed')}</p>}
       {recovery.copyPath && <p role="status">{t('editorModes.recoveryCopyChanged', { path: recovery.copyPath })}</p>}
     </div>}

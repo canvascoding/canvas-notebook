@@ -1,0 +1,48 @@
+# Schritt 5c-b: Workflow-Bindings — lokale Abnahme
+
+**Stand: 2026-10-07.** Implementierung, fokussierte Regressionen, finaler Produktionsbuild und drei Browserfälle sind lokal erfolgreich geprüft. Schritt 5c-b ist abgeschlossen; Veröffentlichung und Live-Canva-Abnahme sind davon getrennt.
+
+## Implementierter Vertrag
+
+- Optionaler portabler `workflow.version: 1`-Block mit Integration-Capabilities, OR-Alternativen und AND-Pflichtfähigkeiten. Strikte begrenzte Referenz-/Duplikatvalidierung im vollständigen Paket; Eltern- und Kind-Deklarationen bleiben getrennt. Legacy-Connectoren werden nicht neu interpretiert. Das Paket enthält keine installationsbezogenen Accounts oder Credentials.
+- Agent-Zuordnungen halten kanonische Paketreferenz, genaue veröffentlichte Revision, vollständige Checksumme und `skillSelection`. Private `selectedSkills` stammen aus dem tatsächlichen Inventar. Neuer Head oder entfernte neue Head-Kinder ersetzen den fest zugewiesenen alten Snapshot nicht. Prompt, Readroots und Scripts verwenden dieselben privaten Belege und aktuellen Use-/Namespace-/Block-Grenzen. Die Agent-Pflichtaktivierung erweitert keine Grants und schreibt keine persönlichen Aktivierungspräferenzen.
+- Gemeinsame feste und erlaubte wählbare Verbindungen sind getrennt. Persönliche Auswahl bindet eigene Quelle, Profil, Toolkit, Modus und Account exakt; MCP verwendet ausdrücklich erlaubte Definitionszuordnungen. Eigene Auswahl hat eine eigene CAS-Revision, verändert keine zentrale Agent-Konfiguration und fällt bei veralteter Workflow-Revision geschlossen aus. UI-API und Agent-Tools verwenden dieselben atomaren Actions und aktuellen Rechte.
+- Provider-Matrix aus Quelle, Provider, Tools und Operationen: monotone Schnittmenge mit aktuellen Grants und vorhandenen Tool-/Workspace-/Delegationsgrenzen. `requiredTools` ist Bereitschaft, kein Grant. Referenz-/Schema-/Matrixrechte werden vor einer Bereitschaftsprobe geprüft; späte Dispatch-Grenzen prüfen erneut. Keine Account-/Provider-Fallbacks und keine automatische Wiederholung bei unbekanntem Ergebnis.
+- Normale Reader-DTOs und Fehler enthalten keine private Backend-/Account-/Credential-Konfiguration. Persönliche Optionen werden ausdrücklich geöffnet: lokale Liste ohne Provider-I/O; Account-Metadaten erst nach Auswahl eines tatsächlich erlaubten eigenen Providers. Das Discovery-Tool ist im normalen Modus verfügbar und nicht für Planning freigegeben.
+- Initiales Planning, Bootstrap/Paket-Capture und Prewarm starten keine versteckte Provider-Discovery. E-Mail-Automation erhält keine externen Integrationen; native Canvas-E-Mail-Tools und deren Review-Regeln bleiben erhalten. Der unterstützte Delegationsparent bleibt Bradley; verwaltete Ziele verwenden eigene zentrale Pins, ephemere Belege bleiben eine Schnittmenge.
+
+Genaue Felder und Grenzen: [workflow-contract.md](../workflow-contract.md).
+
+## Vorliegende Prüfungen
+
+| Prüfung | Ergebnis / belegter Umfang | Lokales Protokoll |
+| --- | --- | --- |
+| `npm run test:agents:workflow` | Vorliegender Suite-Lauf exit 0: portable Manifest-/Install-/Uploadvalidierung, atomare Konfiguration und Rollback, Provider-Matrix, persönliche Bindungen/Options, sichere Fehler, exakte Paket-Pins, Initial-Planning und tatsächliche zentrale Integration. | `/tmp/canvas-workflow-root-workflow-final-suite.log` |
+| Native Workflow-Konfiguration | PASS: produktive PostgreSQL-Strecke mit acht Clients, aktueller Connection-before-Agent-Widerruf, Paket-/Kind-Auswahl, atomare Modell-/Binding-Änderung, Own-Choice-CAS und geschlossenes stale Verhalten. | `/tmp/canvas-workflow-root-native-final-all.log` |
+| `test:integrations:gateway:agent` | PASS: aktuelle Runtime-Policy, dauerhafte Unsicherheit, sichere Audits/Fehler, immutable Payloads/Ceilings, tatsächlicher execute-only-Handoff, Registry/Settings/Receipts und Automationssperre. | `/tmp/canvas-workflow-root-gateway-agent-final.log` |
+| `test:integrations:connections` | PASS: tatsächliche PostgreSQL-Autorität und MCP-/Composio-SDK/HTTP-Protokolle, genaue Accounts/Secrets, aktuelle begrenzte Freigaben, CAS, spätes Revoke, kein persönlicher Fallback. | `/tmp/canvas-workflow-root-connections-final.log` |
+| `test:capabilities:packages` | PASS: vollständige Paketbytes, private Drafts, immutable History/CAS, tatsächliche Actions/HTTP/Agent-Grenzen, alte held Revisionen und Bereinigungs-Locks. | `/tmp/canvas-workflow-root-packages-final.log` |
+| `test:skills:scripts` | PASS: Manifest-/Paket-/Session-Autorität, tatsächliche native/MCP-/Composio-Brücke und eingeschränkte Node-/Python-Actions mit Widerruf. | `/tmp/canvas-workflow-root-scripts-final.log` |
+| `test:pi:tools` | `pi-tool-registry-test: ok`: bestehende Registry-/Legacy-Grenzen erhalten. | `/tmp/canvas-workflow-root-registry-sanitize.log` |
+| Abschließender `npm run build` | PASS, exit 0: finaler Produktionsbuild einschließlich TypeScript nach dem Secrets-Link. Nicht blockierende lokale Node-localStorage- und dynamische Dateitracing-Warnungen bleiben im Buildlog. | `/tmp/canvas-workflow-root-build-secrets-final.log` |
+| `test:agents:workflow:ui` und ESLint | PASS: tatsächlicher React-/Radix-Chooser mit Shared/Personal-Auswahl, exaktem Account, 409/503-Draft-/CAS-Sperre, Default-Reset, Rechte-/Package-Widerruf und Escape/Focus. Expliziter fehlgeschlagener Account-Probe zeigt `/settings?tab=secrets`, ohne impliziten Retry/Write. Alle 70 geänderten Source-/Fixture-Dateien und die letzten UI-/Browser-Anpassungen separat gelintet. | `/tmp/canvas-workflow-choice-ui-secrets-link-test.log`, `/tmp/canvas-workflow-choice-ui-secrets-link-lint.log`, `/tmp/canvas-workflow-root-all-eslint.log` |
+| Playwright `agent-workflow-configuration-local.spec.ts` | PASS, drei Fälle / ein Chromium-Worker / keine Retries / 1.1 min: echte Admin-/Member-Sessions, Package-v1-Pin, feste/wählbare Verbindungen, zentrale 403/Legacy-409, eigene CAS/Reload/Default-Reset, persönliche Options-Metadaten ohne Provider-Requests, Widerruf und 1280/390 hell/dunkel mit Escape/Focus. | `/tmp/canvas-workflow-5cb-browser-accepted.log` |
+
+Die Workflow-SDK-Fixture verwendet tatsächliche Seats/Team-Lizenz, PostgreSQL-Engine, Registry, Gateway und MCP-/Composio-Protokolle. Sie belegt die zero-SDK-Grenze für Planning/E-Mail und die gewählte Quelle/Account/Version; die gesonderte Initial-Planning-Fixture prüft das Plumbing und verwendet an Modell-/Provider-/Autoritätsgrenzen Fixtures. Keine dieser Prüfungen ist ein Live-Drittanbieter-Account-Nachweis.
+
+Die Protokolle enthalten absichtliche negative Parser-/Autoritätsfälle sowie OAuth-/CJS-Testkontextwarnungen. Das Registry-/Gateway-Gesamtergebnis allein ersetzt keinen Paket-/Readroot-Nachweis; diese Grenzen werden zusätzlich durch die tatsächlichen Paket-/Workflow-/Script-Fixtures geprüft.
+
+## Isolation und Bereinigung
+
+- Native Prüfungen nutzen eigens erzeugte Nonce-Datenbanken und DATA-Verzeichnisse; diese wurden bereinigt. Sie schreiben keine Fixtures in die gemeinsam verwendete Stack-Datenbank. PGlite-Gates haben eine eigene PostgreSQL-Engine; API-/SDK-/Runtime-Autorität wird nicht durch erfundene Admin-Kontexte ersetzt.
+- Bereits erfolgte Browser-Bereinigungen prüften genaue Creator-/Scope-/Revisions-/Grant-Snapshots, leere Agent-Sessions und Delete-Preview. Eigene Agenten und Paket-/Draft-/Version-/Intake-Ressourcen wurden entfernt; eigene Preferences sind nach Agent-Deletion öffentlich nicht mehr erreichbar. Ein fehlgeschlagener Guard bewahrt Ressourcen und den privaten Recovery-Beleg.
+- Geheimnisfreie eigene MCP-Verbindungen werden ausschließlich per öffentlicher API und exaktem Snapshot archiviert. Audit-, Archiv- und physische Backend-Zeilen bleiben bewusst erhalten; es wird keine vollständige Connection-DB-/Filesystem-Löschung behauptet. Keine globalen Secrets, Profile oder Defaults werden umgeschrieben.
+- Keine Stack-Container wurden gebaut, gestartet, gestoppt oder verändert. Der fremde parallele Worktree/Stack bleibt außerhalb dieser Abnahme. Der finale Lauf einschließlich Cleanup ist erfolgreich. Unabhängige read-only SQL-Abnahme: eigene Agenten 0, Package-Ressourcen 0, genau zwei eigene MCP-Ressourcen archiviert. Eigener Host3001 und Provider wurden nach PID-/CWD-/Command-Prüfung gestoppt; der fremde Stack3100 und gemeinsame PostgreSQL-/Control-Plane-Dienste bleiben erhalten.
+
+## Verbleibende Grenzen
+
+Der allgemeine Integrations-Gateway-Flag bleibt standardmäßig ausgeschaltet. Version-1-Agenten registrieren den begrenzten Gateway und erhalten keine Legacy-Wrapper; externe Ausführung bleibt zusätzlich an den bestehenden Gateway-Flag gebunden. Legacy-NULL-Konfiguration bleibt kompatibel, ungültige Versionen und widersprüchliche gespeicherte Bindings erhalten keinen Legacy-Fallback.
+
+Schritt **6a** umfasst weiterhin vollständiges Plugin-/Store-/Updates-Redesign und globale private Draft-Navigation. Schritt **6b** umfasst die weitergehende zentrale Agent-Konfigurations-UX, OAuth-Rückkehr/Invalidierung, Mobile-Vertrag sowie noch nicht abgenommene MCP-Apps-/Desktop-OAuth-Wege. Schritt **7** enthält natürliche vollständige Workflow-/Delegationsabnahme, echte Provider-/OAuth-Accounts einschließlich gemeinsamem Canva-Account und kontrollierten Rollout. Es wurde kein Push, Release oder Deployment ausgeführt.
+
+Vier finale Screenshots wurden visuell geprüft: Settings/Desktop/hell, Chat/Desktop/dunkel, Settings/390/hell und Chat/390/dunkel. Labels, Scope, feste versus eigene Auswahl sowie Save/Close sind lesbar und im Viewport; die Browserassertions prüfen alle acht Kombinationen und Fokus-Rückkehr. Der vorzeitige erste Start des finalen Browsers scheiterte ausschließlich vor HTTP-Authentifizierung; nach bestätigter Server-Readiness bestand der vollständige Lauf.

@@ -5,7 +5,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { AsyncResource } from 'node:async_hooks';
 
-import { buildWorkspaceOperationBatchPlan } from '../app/lib/files/workspace-operation-batch-plan';
+import { buildWorkspaceOperationBatchPlan as buildBatchPlan } from '../app/lib/files/workspace-operation-batch-plan';
+import { buildWorkspacePlannerSnapshot } from '../app/lib/markdown/workspace-file-operation-preview';
 import { createWorkspaceOperationBatchExecutor } from '../app/lib/files/workspace-operation-batch-executor';
 import { groupWorkspaceLinkWrites } from '../app/lib/markdown/workspace-link-write-groups';
 import { withWorkspaceMutationLock } from '../app/lib/files/workspace-mutation-lock';
@@ -14,6 +15,8 @@ import type { WorkspaceTrashEntry } from '../app/lib/filesystem/workspace-trash'
 import type { WorkspaceContext } from '../app/lib/workspaces/types';
 
 const sha = (text: string | Buffer) => createHash('sha256').update(text).digest('hex');
+const buildWorkspaceOperationBatchPlan = (input: Parameters<typeof buildBatchPlan>[0]) =>
+  buildBatchPlan(input, { buildSnapshot: buildWorkspacePlannerSnapshot });
 
 async function main() {
   const dataRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-batch-executor-'));
@@ -39,6 +42,9 @@ async function main() {
       await fs.mkdir(path.dirname(absolute(relative)), { recursive: true }); await fs.writeFile(absolute(relative), content);
     };
     const makeExecutor = (overrides: Parameters<typeof createWorkspaceOperationBatchExecutor>[0] = {}) => createWorkspaceOperationBatchExecutor({
+      rebuild: buildWorkspaceOperationBatchPlan,
+      snapshot: buildWorkspacePlannerSnapshot,
+      htmlEvidenceCurrent: async () => {},
       documentProof: async () => null,
       storageRoot: path.join(dataRoot, 'manifests'),
       rename: async (params) => {
@@ -103,6 +109,7 @@ async function main() {
           await fs.writeFile(absolute(group.path), group.afterContent); authoritative.delete(group.path); events.push(`checkpoint:${group.path}`);
         });
       },
+      releaseLinkRoom: async (input, group) => { events.push(`release:${group.path}:${input.operationId}`); },
       ...overrides,
     });
     const actions: WorkspaceOperationBatchAction[] = [
@@ -156,8 +163,30 @@ async function main() {
     assert.equal(events.length, eventCount, 'Occupied original slot blocks before backlink mutation');
     await fs.unlink(absolute('notes/a.md'));
     await makeExecutor().assertUndoAvailable({ batchId, scope });
+    const beforeRefusedRelease = events.length;
+    const releaseRefused = await makeExecutor({ releaseLinkRoom: async (input, group) => {
+      if (input.operationId.endsWith('-undo')) {
+        events.push(`release-refused:${group.path}`);
+        throw Object.assign(new Error('Internal owner release is unproven.'), { code: 'ROOM_OWNER_BUSY' });
+      }
+    } }).undo({ batchId, scope, actorUserId: 'tester', actorDisplayName: 'Tester' });
+    assert.equal(releaseRefused.status, 'needs_recovery');
+    assert.equal(releaseRefused.errorCode, 'ROOM_OWNER_BUSY');
+    await assert.rejects(fs.stat(absolute('notes/a.md')), { code: 'ENOENT' });
+    assert.ok(await fs.stat(absolute('channels/a.md')));
+    assert.ok(!events.slice(beforeRefusedRelease).some(event => event.startsWith('move:') || event.startsWith('restore:')),
+      'An unproven owner release never starts inverse physical paths');
+    const refusedEvents = events.slice(beforeRefusedRelease);
+    const checkpointIndex = refusedEvents.indexOf('checkpoint:channels/a.md');
+    assert.ok(checkpointIndex >= 0 && refusedEvents.indexOf('release-refused:channels/a.md') > checkpointIndex,
+      'Inverse content is durably checkpointed before its exact owner release is requested');
+    const beforeReleaseRecovery = events.length;
     const undone = await makeExecutor().undo({ batchId, scope, actorUserId: 'tester', actorDisplayName: 'Tester' });
     assert.equal(undone.status, 'applied', undone.errorCode ?? '');
+    const inverseEvents = events.slice(beforeReleaseRecovery);
+    const releaseIndex = inverseEvents.indexOf(`release:channels/a.md:${batchId}-undo`);
+    const reversePathIndex = inverseEvents.indexOf('move:channels/a.md');
+    assert.ok(releaseIndex >= 0 && reversePathIndex > releaseIndex, 'Durable owner release precedes the inverse path mutation on recovery');
     await Promise.all(queuedProjections.splice(0));
     for (const [filename, content] of Object.entries(baseline)) assert.equal(await fs.readFile(absolute(filename), 'utf8'), content);
     await assert.rejects(fs.stat(absolute('channels/a.md')), { code: 'ENOENT' });
@@ -492,7 +521,103 @@ async function main() {
     assert.equal(await fs.readFile(absolute('reborn-missing.md'), 'utf8'), '# Newly created after the original delete');
     assert.notEqual((await buildWorkspaceOperationBatchPlan({ scope, actions: [absentAction] })).planId, absentPlan.planId,
       'A newly created source changes a not-yet-started no-op plan and cannot be deleted by stale acceptance');
-    console.log('workspace-operation-batch-executor-test: backups, checkpoint, safe recovery/Undo, actor attribution and durable absent-path no-op passed');
+
+    const htmlSource = '# HTML fixture\n\n<img src="html-roundtrip-image.png" alt="Fixture" style="display:block;max-width:100%;height:auto;margin-left:auto;margin-right:auto">\n';
+    const htmlImage = 'Image bytes must remain untouched';
+    const htmlMovedContent = 'Independent document bytes';
+    await write('html-roundtrip.md', htmlSource);
+    await write('html-roundtrip-image.png', htmlImage);
+    await write('html-roundtrip-source.txt', htmlMovedContent);
+    const htmlActions: WorkspaceOperationBatchAction[] = [{ reviewId: 'html-independent-move', kind: 'move',
+      selections: [{ sourcePath: 'html-roundtrip-source.txt', destinationPath: 'html-roundtrip-moved.txt' }] }];
+    const htmlPlan = await buildWorkspaceOperationBatchPlan({ scope, actions: htmlActions });
+    assert.equal(htmlPlan.readiness, 'ready', JSON.stringify(htmlPlan.issues));
+    assert.ok(htmlPlan.linkAssessment.warnings.some((warning) => warning.sourcePath === 'html-roundtrip.md'
+      && warning.reason === 'unaffected-explicit-html-link'));
+    assert.equal(htmlPlan.expectedPathState.find((entry) => entry.path === 'html-roundtrip.md')?.contentHash, sha(htmlSource));
+    const htmlId = randomUUID();
+    const htmlMoved = await makeExecutor().execute({ batchId: htmlId, plan: htmlPlan, scope, actorUserId: 'tester', actorDisplayName: 'Tester' });
+    assert.equal(htmlMoved.status, 'applied', htmlMoved.errorCode ?? '');
+    assert.equal(await fs.readFile(absolute('html-roundtrip.md'), 'utf8'), htmlSource);
+    await makeExecutor().assertUndoAvailable({ batchId: htmlId, scope });
+    const htmlUndone = await makeExecutor().undo({ batchId: htmlId, scope, actorUserId: 'tester', actorDisplayName: 'Tester' });
+    assert.equal(htmlUndone.status, 'applied', htmlUndone.errorCode ?? '');
+    assert.equal(await fs.readFile(absolute('html-roundtrip-source.txt'), 'utf8'), htmlMovedContent);
+    await assert.rejects(fs.stat(absolute('html-roundtrip-moved.txt')), { code: 'ENOENT' });
+    assert.equal(await fs.readFile(absolute('html-roundtrip.md'), 'utf8'), htmlSource, 'Undo preserves HTML and its formatting byte for byte');
+    assert.equal(await fs.readFile(absolute('html-roundtrip-image.png'), 'utf8'), htmlImage);
+
+    const htmlAgain = await buildWorkspaceOperationBatchPlan({ scope, actions: htmlActions });
+    const htmlAgainId = randomUUID();
+    const htmlAgainMoved = await makeExecutor().execute({ batchId: htmlAgainId, plan: htmlAgain, scope, actorUserId: 'tester', actorDisplayName: 'Tester' });
+    assert.equal(htmlAgainMoved.status, 'applied', htmlAgainMoved.errorCode ?? '');
+    const htmlAppliedEventCount = events.length;
+    const newHtmlBacklink = '<a href="html-roundtrip-moved.txt">Created after the move</a>';
+    await write('html-undo-backlink.md', newHtmlBacklink);
+    await assert.rejects(makeExecutor().assertUndoAvailable({ batchId: htmlAgainId, scope }), { code: 'BATCH_UNDO_INDEX_INCOMPLETE' });
+    const affectedHtmlUndo = await makeExecutor().undo({ batchId: htmlAgainId, scope, actorUserId: 'tester', actorDisplayName: 'Tester' });
+    assert.equal(affectedHtmlUndo.status, 'failed');
+    assert.equal(affectedHtmlUndo.errorCode, 'BATCH_UNDO_INDEX_INCOMPLETE');
+    assert.equal(events.length, htmlAppliedEventCount, 'Affected HTML refuses Undo before any mutation');
+    assert.equal(await fs.readFile(absolute('html-undo-backlink.md'), 'utf8'), newHtmlBacklink);
+    assert.equal(await fs.readFile(absolute('html-roundtrip-moved.txt'), 'utf8'), htmlMovedContent);
+    await assert.rejects(fs.stat(absolute('html-roundtrip-source.txt')), { code: 'ENOENT' });
+    await fs.unlink(absolute('html-undo-backlink.md'));
+
+    const opaqueHtml = '<img src="html-roundtrip-image.png" srcset="html-roundtrip-image.png 1x">';
+    await write('html-opaque.md', opaqueHtml);
+    const opaqueForward = await buildWorkspaceOperationBatchPlan({ scope, actions: [{ reviewId: 'opaque-forward', kind: 'move',
+      selections: [{ sourcePath: 'html-roundtrip-moved.txt', destinationPath: 'html-roundtrip-another.txt' }] }] });
+    assert.equal(opaqueForward.readiness, 'blocked', 'An opaque HTML node cannot acquire an unaffected certification');
+    await assert.rejects(makeExecutor().assertUndoAvailable({ batchId: htmlAgainId, scope }), { code: 'BATCH_UNDO_INDEX_INCOMPLETE' });
+    const opaqueHtmlUndo = await makeExecutor().undo({ batchId: htmlAgainId, scope, actorUserId: 'tester', actorDisplayName: 'Tester' });
+    assert.equal(opaqueHtmlUndo.status, 'failed');
+    assert.equal(opaqueHtmlUndo.errorCode, 'BATCH_UNDO_INDEX_INCOMPLETE');
+    assert.equal(events.length, htmlAppliedEventCount, 'Opaque HTML refuses Undo before any mutation');
+    assert.equal(await fs.readFile(absolute('html-opaque.md'), 'utf8'), opaqueHtml);
+    assert.equal(await fs.readFile(absolute('html-roundtrip-moved.txt'), 'utf8'), htmlMovedContent);
+    await assert.rejects(fs.stat(absolute('html-roundtrip-source.txt')), { code: 'ENOENT' });
+    await fs.unlink(absolute('html-opaque.md'));
+    await makeExecutor().assertUndoAvailable({ batchId: htmlAgainId, scope });
+    const htmlRecoveredUndo = await makeExecutor().undo({ batchId: htmlAgainId, scope, actorUserId: 'tester', actorDisplayName: 'Tester' });
+    assert.equal(htmlRecoveredUndo.status, 'applied', htmlRecoveredUndo.errorCode ?? '');
+    assert.equal(await fs.readFile(absolute('html-roundtrip-source.txt'), 'utf8'), htmlMovedContent);
+    await assert.rejects(fs.stat(absolute('html-roundtrip-moved.txt')), { code: 'ENOENT' });
+    assert.equal(await fs.readFile(absolute('html-roundtrip.md'), 'utf8'), htmlSource);
+    assert.equal(await fs.readFile(absolute('html-roundtrip-image.png'), 'utf8'), htmlImage);
+
+    const htmlLatePlan = await buildWorkspaceOperationBatchPlan({ scope, actions: htmlActions });
+    assert.equal(htmlLatePlan.readiness, 'ready', JSON.stringify(htmlLatePlan.issues));
+    assert.ok(htmlLatePlan.linkAssessment.warnings.some((warning) => warning.sourcePath === 'html-roundtrip.md'
+      && warning.reason === 'unaffected-explicit-html-link'));
+    const lateHtmlPeerEdit = htmlSource.replace('src="html-roundtrip-image.png"', 'src="html-roundtrip-source.txt"');
+    const htmlLateEventCount = events.length;
+    let htmlChangedDuringProgress = false;
+    let htmlLateGuardCalls = 0;
+    const htmlLateOutcome = await makeExecutor({ htmlEvidenceCurrent: async (guardedPlan) => {
+      htmlLateGuardCalls += 1;
+      assert.equal(htmlChangedDuringProgress, true, 'HTML evidence is checked after the awaited paths progress callback');
+      const expected = guardedPlan.expectedPathState.find((entry) => entry.path === 'html-roundtrip.md');
+      assert.equal(expected?.contentHash, sha(htmlSource));
+      if (sha(await fs.readFile(absolute('html-roundtrip.md'))) !== expected?.contentHash) {
+        throw Object.assign(new Error('PREVIEW_STALE'), { code: 'PREVIEW_STALE', status: 409 });
+      }
+    } }).execute({ batchId: randomUUID(), plan: htmlLatePlan, scope, actorUserId: 'tester', actorDisplayName: 'Tester',
+      onProgress: async (progress) => {
+        if (progress.phase !== 'paths') return;
+        await write('html-roundtrip.md', lateHtmlPeerEdit);
+        htmlChangedDuringProgress = true;
+      } });
+    assert.equal(htmlLateGuardCalls, 1);
+    assert.equal(htmlLateOutcome.status, 'needs_recovery', 'The saved intent remains recoverable without applying its path mutation');
+    assert.equal(htmlLateOutcome.errorCode, 'PREVIEW_STALE');
+    assert.equal(htmlLateOutcome.completedActions, 0);
+    assert.equal(events.length, htmlLateEventCount, 'A late HTML peer edit is rejected before any path mutation');
+    assert.equal(await fs.readFile(absolute('html-roundtrip-source.txt'), 'utf8'), htmlMovedContent);
+    await assert.rejects(fs.stat(absolute('html-roundtrip-moved.txt')), { code: 'ENOENT' });
+    assert.equal(await fs.readFile(absolute('html-roundtrip.md'), 'utf8'), lateHtmlPeerEdit, 'The peer edit survives stale-plan rejection');
+    assert.equal(await fs.readFile(absolute('html-roundtrip-image.png'), 'utf8'), htmlImage);
+    console.log('workspace-operation-batch-executor-test: backups, checkpoint, safe recovery/Undo, HTML roundtrip, inverse and late peer guards, actor attribution and durable absent-path no-op passed');
   } finally {
     if (previousData === undefined) delete process.env.DATA; else process.env.DATA = previousData;
     if (previousRoot === undefined) delete process.env.CANVAS_DATA_ROOT; else process.env.CANVAS_DATA_ROOT = previousRoot;

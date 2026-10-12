@@ -11,6 +11,26 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.10.10.1] - 2026-10-10
+
+### Added
+
+- Added bounded email recipient discovery with on-demand suggestions in email editors and agent tools.
+- Added safer shared-workspace HTML move handling, actionable blocker details, and regression coverage for live collaboration after authorized moves.
+
+### Changed
+
+- Revalidated collaboration move sessions before adopting documents and restored scoped reconnection after file moves.
+
+### Fixed
+
+- Preserved email recipient names and consistently honored Reply-To headers.
+- Kept external HTML links from blocking file moves while preserving link safety and file-action identity during status transport failures.
+
+### Verification
+
+- `npm run verify:release`
+
 ## [2026.10.9.1] - 2026-10-09
 
 ### Added

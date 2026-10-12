@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useImperativeHandle, useLayoutEffect, us
 import { useLocalMarkdownDocument } from '@/app/hooks/use-local-markdown-document';
 import type { LocalMarkdownDocument } from '@/app/lib/editor/local-markdown-document';
 import { MarkdownModeViewport, createReadingViewportAdapter, createRichViewportAdapter, useMarkdownViewportAdapter } from '@/app/lib/editor/markdown-mode-viewport';
+import { createMobileEditorViewport, type MobileEditorViewport } from '@/app/lib/editor/mobile-editor-viewport';
 import { readRichDocumentJson } from '@/app/lib/collaboration/rich-document';
 import { createLocalMarkdownRichExtension, LOCAL_MARKDOWN_PROJECTION, updateLocalMarkdownMetadata } from '@/app/lib/editor/local-markdown-rich-binding';
 import { createPortal } from 'react-dom';
@@ -4853,6 +4854,8 @@ export function RichMarkdownEditor({
   const appliedNavigationRequestRef = useRef<string | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [viewportElement, setViewportElement] = useState<HTMLDivElement | null>(null);
+  const mobileViewportRef = useRef<MobileEditorViewport | null>(null);
+  const handleMobileScrollToSelection = useCallback(() => mobileViewportRef.current?.scrollToCaret() ?? false, []);
   const attachScrollContainer = useCallback((element: HTMLDivElement | null) => {
     scrollContainerRef.current = element;
     setViewportElement(element);
@@ -5080,6 +5083,7 @@ export function RichMarkdownEditor({
     // Tiptap's createView reads editorProps synchronously; passing an explicit
     // undefined during the pre-session render overrides its default object.
     editorProps: collaboration ? {
+      handleScrollToSelection: handleMobileScrollToSelection,
       handleDOMEvents: {
         compositionstart: (view) => {
           const selection = view.state.selection;
@@ -5099,7 +5103,7 @@ export function RichMarkdownEditor({
           return false;
         },
       },
-    } : {},
+    } : { handleScrollToSelection: handleMobileScrollToSelection },
     onUpdate: ({ editor: updateEditor }) => {
       if (localDocument) { latestValueRef.current = localDocument.getSnapshot().markdown; return; }
       // The collaboration binding commits native changes to Yjs. Its observers
@@ -5123,6 +5127,19 @@ export function RichMarkdownEditor({
 
   useMarkdownViewportAdapter(viewport, editor && viewportElement
     ? createRichViewportAdapter(editor, viewportElement, viewportMarkdown ?? value, frontmatter) : null);
+
+  useLayoutEffect(() => {
+    const pane = viewportElement?.closest<HTMLElement>('.markdown-editor-pane');
+    if (!editor || !viewportElement || !pane) return;
+    const mobileViewport = createMobileEditorViewport({ pane, scroller: viewportElement, content: editor.view.dom,
+      readCaret: () => editor.isDestroyed ? null : editor.view.coordsAtPos(editor.state.selection.head),
+      isComposing: () => !editor.isDestroyed && editor.view.composing });
+    mobileViewportRef.current = mobileViewport;
+    return () => {
+      mobileViewportRef.current = null;
+      mobileViewport.destroy();
+    };
+  }, [editor, viewportElement]);
 
   useEffect(() => {
     dialogEditorRef.current = editor;

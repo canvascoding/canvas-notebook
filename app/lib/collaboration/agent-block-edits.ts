@@ -413,6 +413,9 @@ export function prepareAgentBlockEdit(doc: Y.Doc, requests: AgentBlockEditReques
           formattedTextIds.add(request.blockId); affected.add(request.blockId);
         } else if (request.kind === 'table_operation') {
           const table = containingTable(initial, request.cellId);
+          if (request.subtreeHash !== table.subtreeHash) {
+            fail('target_changed', 'table_operation.subtreeHash must match the containing table. Read source: "blocks" again and copy the cell\'s tableOperationTarget; the cell\'s own subtreeHash is not a table guard.');
+          }
           conditions.push({ id: table.id, subtreeHash: request.subtreeHash }); tableIds.add(table.id); affected.add(table.id);
         } else fail('schema_invalid');
       }

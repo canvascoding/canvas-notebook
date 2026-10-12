@@ -9,9 +9,13 @@ import { WorkspaceOperationCheckStore } from '../app/lib/files/workspace-operati
 import { createWorkspaceOperationCheckWorker } from '../app/lib/files/workspace-operation-check-worker';
 import { createWorkspaceOperationBatchWorker } from '../app/lib/files/workspace-operation-batch-worker';
 import { WorkspaceOperationBatchStore, WorkspaceOperationBatchError } from '../app/lib/files/workspace-operation-batch-store';
-import { buildWorkspaceOperationBatchPlan } from '../app/lib/files/workspace-operation-batch-plan';
+import { buildWorkspaceOperationBatchPlan as buildBatchPlan } from '../app/lib/files/workspace-operation-batch-plan';
+import { buildWorkspacePlannerSnapshot } from '../app/lib/markdown/workspace-file-operation-preview';
 import { workspaceOperationBatchPublic } from '../app/lib/files/workspace-operation-batch-service';
 import type { WorkspaceOperationBatchScope } from '../app/lib/files/workspace-operation-batch-contract';
+
+const buildWorkspaceOperationBatchPlan = (input: Parameters<typeof buildBatchPlan>[0]) =>
+  buildBatchPlan(input, { buildSnapshot: buildWorkspacePlannerSnapshot });
 
 async function main(): Promise<void> {
   const pg = new PGlite();

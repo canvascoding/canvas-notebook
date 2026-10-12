@@ -37,6 +37,7 @@ function compact(value: string | undefined, maxLength = 280): string {
 }
 
 function toolGroup(name: string): string {
+  if (name === 'integrations') return 'Integrations';
   if (name === 'browser') return 'Browser';
   if (name === 'mcp' || name.startsWith('mcp_')) return 'MCP';
   if (name === 'composio' || name === 'composio_execute' || name.startsWith('COMPOSIO_')) return 'Composio';
@@ -178,6 +179,11 @@ export function buildEffectiveToolCapabilitiesPrompt(manifest: EffectiveToolMani
   }
   if (effectiveToolManifestHas(manifest, 'composio')) {
     lines.push('', '### Connected-app gateway', '', 'Use `composio` only for permitted connected-app operations. Discover the operation and schema before execution.');
+  }
+  if (effectiveToolManifestHas(manifest, 'integrations')) {
+    lines.push('', '### External integrations', '',
+      'Use `integrations` to find a permitted MCP connection or Composio app with action search and target providers. Choose one returned providerRef, search its tools with target tools, then describe the returned toolRef to receive its exact schema and schemaRef. Call that same toolRef with schemaRef and schema-valid arguments. Read relevant skill context when supplied. References belong to the current account and policy; never construct them or substitute another account.',
+      'A configured provider does not prove live reachability. Report the returned status and setup actions. A changed binding or schema requires fresh discovery; an outcome_unknown result must not be repeated automatically. Use the listed native Canvas email tools for email workflows.');
   }
 
   return lines.join('\n');

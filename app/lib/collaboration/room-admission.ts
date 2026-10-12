@@ -2,6 +2,7 @@ import 'server-only';
 
 import { createHash } from 'node:crypto';
 import type { SqlConnection } from '@/app/lib/db';
+import { withWorkspaceMutationLock } from '@/app/lib/files/workspace-mutation-lock';
 import type { CollaborationRoomOwnerFence, CollaborationRoomOwnerScope } from './room-owner';
 import { executeLifecycleTransaction } from './lifecycle-transaction';
 import { collaborationRoomReleaseDigest } from './room-owner-release';
@@ -52,6 +53,12 @@ const matchesPath = `(s.path = $2 OR (s.kind = 'subtree'
 /** Caller owns a short transaction. Never wait for a room owner while holding this guard. */
 export async function lockCollaborationAdmissionWorkspace(query: Query, workspaceId: string): Promise<void> {
   await query('SELECT pg_advisory_xact_lock($1::bigint)', [collaborationAdmissionLockKey(workspaceId)]);
+}
+
+/** Kernel-fenced acquisition must never wait on an older PG-first caller. */
+export async function tryLockCollaborationAdmissionWorkspace(query: Query, workspaceId: string): Promise<void> {
+  const rows = await query('SELECT pg_try_advisory_xact_lock($1::bigint) AS locked', [collaborationAdmissionLockKey(workspaceId)]);
+  if (rows[0]?.locked !== true) throw new CollaborationAdmissionError('ADMISSION_CONFLICT');
 }
 
 /** Under the workspace admission guard, before a NONBLOCKING room-owner try-lock. */
@@ -158,12 +165,14 @@ async function readRequest(database: SqlConnection, captured: CapturedRequest): 
     status: header.status as CollaborationAdmissionStatus, revision: safeNumber(header.revision, 1), targets: Object.freeze(targets) });
 }
 
-async function lockRequest(database: SqlConnection, captured: CapturedRequest): Promise<void> {
+async function lockRequest(database: SqlConnection, captured: CapturedRequest, tryWorkspace = false): Promise<void> {
   const key = BigInt.asIntN(64, BigInt(`0x${createHash('sha256')
     .update(`canvas.collaboration.admission-request-lock.v1\0${captured.request.requestId}`).digest('hex').slice(0, 16)}`)).toString();
   await database.run('SELECT pg_advisory_xact_lock($1::bigint)', [key]);
   for (const workspaceId of captured.workspaceIds) {
-    await database.run('SELECT pg_advisory_xact_lock($1::bigint)', [collaborationAdmissionLockKey(workspaceId)]);
+    if (tryWorkspace) {
+      await tryLockCollaborationAdmissionWorkspace(async (sql, values) => database.all(sql, values) as Promise<Array<Record<string, unknown>>>, workspaceId);
+    } else await database.run('SELECT pg_advisory_xact_lock($1::bigint)', [collaborationAdmissionLockKey(workspaceId)]);
   }
 }
 
@@ -311,8 +320,11 @@ export function createCollaborationAdmissionService(options: { openConnection: (
     },
     reserve(input: CollaborationAdmissionRequest): Promise<CollaborationAdmissionResult> {
       const captured = captureCollaborationAdmissionRequest(input);
-      return transaction(async (database) => {
-        await lockRequest(database, captured);
+      const workspaceIds = [...new Set(captured.request.scopes.map(scope => scope.workspaceId))].sort();
+      const enter = (index: number): Promise<CollaborationAdmissionResult> => index < workspaceIds.length
+        ? withWorkspaceMutationLock(workspaceIds[index], () => enter(index + 1))
+        : transaction(async (database) => {
+        await lockRequest(database, captured, true);
         const existing = await readRequest(database, captured);
         if (existing) return existing;
         for (const scope of captured.request.scopes) await assertNoOverlap(database, scope);
@@ -336,6 +348,7 @@ export function createCollaborationAdmissionService(options: { openConnection: (
         if (!found) throw new CollaborationAdmissionError('ADMISSION_RECOVERY_REQUIRED');
         return found;
       });
+      return enter(0);
     },
     /** Only an unstarted request may cancel. Drain/mutation phases require their own outcome proof. */
     cancel(input: CollaborationAdmissionRequest, expectedRevision: number): Promise<CollaborationAdmissionResult> {

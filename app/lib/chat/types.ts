@@ -308,6 +308,8 @@ export type AgentProfile = {
   enabledTools?: string[] | null;
   relevantSkills?: string[] | null;
   relevantConnections?: string[] | null;
+  workflowVersion?: number | null;
+  workflowRevision?: number;
   access?: {
     canUse: boolean;
     canEdit: boolean;

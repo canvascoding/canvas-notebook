@@ -1,6 +1,7 @@
 import 'server-only';
 
 import type { EnvStorageScope } from '@/app/lib/integrations/env-config';
+import type { AuthorizedIntegrationConnection, SharedIntegrationConnectionOwnership } from '@/app/lib/integration-tools/connections/contracts';
 import {
   resolveOwnedComposioProfileBinding,
   resolveEffectiveComposioProfile,
@@ -14,10 +15,16 @@ export interface ResolvedComposioContext {
   readonly workspaceId: string;
   readonly profileId: string;
   readonly profileName: string;
-  readonly profileSource: 'default' | 'workspace_override';
+  readonly profileSource: 'default' | 'workspace_override' | 'connection_binding';
   readonly composioUserId: string;
   readonly cacheRevision: string;
   readonly storageScope: EnvStorageScope;
+  readonly providerMode?: 'local' | 'managed';
+  readonly profileOwnership?: SharedIntegrationConnectionOwnership;
+  readonly sharedBinding?: {
+    readonly authorization: AuthorizedIntegrationConnection;
+    readonly profileRevision: number;
+  };
 }
 
 export interface PublicComposioProfile {
@@ -90,6 +97,13 @@ export async function resolveBoundComposioContext(input: {
 }
 
 export function composioContextCacheKey(context: ResolvedComposioContext): string {
+  if (context.sharedBinding) {
+    const authorized = context.sharedBinding.authorization;
+    return `${context.profileId}:${context.composioUserId}:${context.cacheRevision}:shared:${JSON.stringify([
+      authorized.actor.userId, authorized.actor.organizationId, authorized.actor.workspaceId, authorized.actor.agentId,
+      authorized.actor.sessionId, authorized.actor.policyRevision, authorized.authorizationRevision, context.providerMode,
+    ])}`;
+  }
   return `${context.profileId}:${context.composioUserId}:${context.cacheRevision}`;
 }
 

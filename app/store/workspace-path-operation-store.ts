@@ -5,6 +5,7 @@ import { beginExternalWorkspaceNavigation } from '@/app/lib/workspaces/navigatio
 import { openedDocumentAuthScope, type OpenedDocumentAuthScope } from '@/app/lib/collaboration/opened-document-registry';
 import { WORKSPACE_ID_HEADER } from '@/app/lib/workspaces/constants';
 import type { WorkspacePathOperationResponse } from '@/app/lib/files/workspace-path-operation-public';
+import { readWorkspacePathOperation } from '@/app/lib/files/workspace-path-operation-parser';
 import type { WorkspacePathOperationProblem } from '@/app/lib/files/workspace-path-operation-problems';
 import { useWorkspaceStore } from './workspace-store';
 
@@ -61,28 +62,18 @@ function validSelections(value: unknown): boolean {
 
 function readOperation(payload: unknown, request: WorkspacePathOperationStatusRequest, planId?: string): WorkspacePathOperationStatusResponse {
   const value = payload as WorkspacePathOperationStatusResponse | null;
-  const operation = value?.operation;
   const expectedPlan = planId ?? pinnedPlans.get(request);
-  if (!operation || operation.batchId !== batchFor(request) || operation.workspaceId !== request.workspaceId
-    || typeof operation.planId !== 'string' || !/^[a-f0-9]{64}$/u.test(operation.planId) || expectedPlan && operation.planId !== expectedPlan
-    || !['move', 'rename', 'delete'].includes(operation.kind) || !validSelections(operation.selections)
-    || operation.issues !== undefined && (!Array.isArray(operation.issues) || operation.issues.some((issue) => !issue
-      || typeof issue.code !== 'string' || !/^[a-z][a-z0-9-]{0,99}$/u.test(issue.code)
-      || issue.path !== '' && !validPath(issue.path)))
-    || !['preview', 'blocked', 'queued', 'applying', 'applied', 'needs_review', 'needs_recovery', 'failed', 'undone'].includes(operation.status)
-    || !['preparing', 'paths', 'links', 'complete', 'recovery'].includes(operation.phase)
-    || !Number.isSafeInteger(operation.completedActions) || !Number.isSafeInteger(operation.totalActions)
-    || operation.completedActions < 0 || operation.totalActions < operation.completedActions
-    || ['applied', 'undone'].includes(operation.status) && (operation.phase !== 'complete' || operation.completedActions !== operation.totalActions)
-    || value.recovery && (typeof value.recovery.canResume !== 'boolean' || typeof value.recovery.canUndo !== 'boolean')) {
+  let operation;
+  try {
+    if (!batchFor(request)) throw new Error('identity');
+    operation = readWorkspacePathOperation(value?.operation,
+      { batchId: batchFor(request), workspaceId: request.workspaceId, planId: expectedPlan });
+  } catch { throw new Error('identity'); }
+  if (!value || value.recovery && (typeof value.recovery.canResume !== 'boolean' || typeof value.recovery.canUndo !== 'boolean')) {
     throw new Error('identity');
   }
   pinnedPlans.set(request, operation.planId);
-  return { operation: { batchId: operation.batchId, planId: operation.planId, workspaceId: operation.workspaceId,
-    status: operation.status, completedActions: operation.completedActions, totalActions: operation.totalActions,
-    phase: operation.phase, errorCode: safeCode(operation.errorCode), kind: operation.kind,
-    selections: operation.selections.map(({ sourcePath, destinationPath }) => ({ sourcePath, ...(destinationPath ? { destinationPath } : {}) })),
-    ...(operation.issues ? { issues: operation.issues.map(({ code, path }) => ({ code, path })) } : {}) },
+  return { operation,
   ...(value.recovery ? { recovery: { canResume: value.recovery.canResume, canUndo: value.recovery.canUndo } } : {}) };
 }
 

@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef, startTransition, useDeferredValue } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
+import { confirmPluginNavigation } from './plugin-navigation-guard';
 import { useSearchParams } from 'next/navigation';
 import { Link, useRouter } from '@/i18n/navigation';
 import {
@@ -35,6 +36,10 @@ import {
   type PolicyTargetOption,
 } from '@/app/components/organization/SearchablePolicyTargetPicker';
 import { SkillDetailDialog } from '@/app/components/skills/SkillDetailDialog';
+import { ResourceManagementSection } from '@/app/components/plugins/ResourceManagementSection';
+import { PackageEditorSection } from '@/app/components/plugins/PackageEditorSection';
+import { SharedConnectionsSection } from '@/app/components/plugins/SharedConnectionsSection';
+import type { CapabilityResourceAccess, CapabilityResourceMetadata } from '@/app/lib/capabilities/resources/contracts';
 import { SkillUploadDialog } from '@/app/components/skills/SkillUploadDialog';
 import {
   McpServerDialog,
@@ -177,6 +182,8 @@ type CanvasPluginMcpConnector = {
 
 type CanvasPluginSettingsRecord = {
   resourceId?: string;
+  resourceMetadata?: CapabilityResourceMetadata;
+  resourceAccess?: CapabilityResourceAccess;
   installedBy?: string;
   ownerUserId?: string | null;
   scopeType?: 'system' | 'organization' | 'user' | 'legacy';
@@ -270,6 +277,7 @@ type CanvasPluginStoreEntry = {
     version?: string;
     updateAvailable: boolean;
     installedPlugin?: CanvasPluginSettingsRecord;
+    resources?: unknown[];
     skills?: PluginSkillState[];
     skillSummary?: PluginSkillSummary;
   };
@@ -329,6 +337,8 @@ type CanvasSkillStoreEntry = {
     modified: boolean;
     restoreAvailable: boolean;
     managedByOrganization?: boolean;
+    comparison?: 'known' | 'partial' | 'unknown';
+    resources?: unknown[];
   };
 };
 
@@ -699,6 +709,7 @@ function CanvasPluginsSection({
       if (!response.ok || !data.success) throw new Error(data.error || t('errors.storeLoad'));
       setStorePlugins(Array.isArray(data.plugins) ? data.plugins : []);
       setInstalledStorePlugins(Array.isArray(data.installedPlugins) ? data.installedPlugins : []);
+      if (data.availability === 'unavailable') setStoreError(t('errors.storeLoad'));
       setStoreFacets(data.facets || EMPTY_STORE_FACETS);
       setStoreMetadata(data.registry || null);
       setStorePagination(data.pagination || EMPTY_STORE_PAGINATION);
@@ -942,6 +953,10 @@ function CanvasPluginsSection({
     const storePlugin = storePlugins.find((plugin) => plugin.name === pluginName)
       || installedStorePlugins.find((plugin) => plugin.name === pluginName)
       || (detailStorePlugin?.name === pluginName ? detailStorePlugin : undefined);
+    if (storePlugin?.installed.resources && storePlugin.installed.installed) {
+      setError(t('details.versionedUpdateRequired'));
+      return;
+    }
     if (isStorePackageManagedElsewhere(storePlugin)) {
       setError(t('permissions.organizationPackage'));
       return;
@@ -971,7 +986,7 @@ function CanvasPluginsSection({
           name: pluginName,
           version,
           enable: storePlugin?.installed.installed ? storePlugin.installed.enabled : true,
-          replace: true,
+          replace: storePlugin?.installed.resources === undefined,
           scope: managementScope,
         }),
       });
@@ -1868,11 +1883,12 @@ function CanvasPluginsSection({
     const storePlugin = storeByName.get(selectedPluginDetail.name);
     const installedPlugin = selectedPluginDetail.source === 'installed' ? selectedInstalledPlugin : storePlugin?.installed.installedPlugin;
     const isInstalledDetail = selectedPluginDetail.source === 'installed';
+    const ownershipType = installedPlugin?.resourceMetadata?.ownership.type || installedPlugin?.scopeType;
     const displayName = isInstalledDetail
-      ? installedPlugin?.interface?.displayName || installedPlugin?.name || selectedPluginDetail.name
+      ? installedPlugin?.resourceMetadata?.displayName || installedPlugin?.interface?.displayName || installedPlugin?.name || selectedPluginDetail.name
       : storePlugin?.displayName || selectedPluginDetail.name;
     const description = (isInstalledDetail
-      ? installedPlugin?.interface?.shortDescription || installedPlugin?.description
+      ? installedPlugin?.resourceMetadata?.description ?? installedPlugin?.interface?.shortDescription ?? installedPlugin?.description
       : storePlugin?.description) || t('details.descriptionFallback');
     const category = isInstalledDetail ? installedPlugin?.interface?.category : storePlugin?.category;
     const publisherName = storePlugin?.publisher?.name || storeMetadata?.name || t('officialStore');
@@ -1900,7 +1916,8 @@ function CanvasPluginsSection({
     const skillSummary = installedMetadataMatches ? preflight?.result?.skillSummary || storePlugin?.installed.skillSummary : undefined;
     const skillStates = installedMetadataMatches ? preflight?.result?.skills || storePlugin?.installed.skills || [] : [];
     const skillRepairAvailable = Boolean(isInstalled && skillSummary && skillSummary.repairable > 0);
-    const canInstallFromStore = Boolean(storePlugin && !pluginMissing && (!isInstalled || updateAvailable || skillRepairAvailable));
+    const canInstallFromStore = Boolean(storePlugin && !pluginMissing && (!isInstalled || updateAvailable || skillRepairAvailable)
+      && !(storePlugin.installed.resources && isInstalled));
     const storeActionLabel = updateAvailable
       ? t('update')
       : skillRepairAvailable
@@ -1948,6 +1965,7 @@ function CanvasPluginsSection({
               {detailStoreError ? <InlineNotice variant="destructive" size="compact">{detailStoreError}</InlineNotice> : null}
               {pluginMissing ? <InlineNotice size="compact">{t('details.notFound')}</InlineNotice> : null}
               {installedPlugin?.connectionReadiness?.ready === false ? <InlineNotice size="compact">{t('details.installedNeedsSetup')}</InlineNotice> : null}
+              {storePlugin?.installed.resources && storePlugin.installed.installed && updateAvailable ? <InlineNotice size="compact">{t('details.versionedUpdateRequired')}</InlineNotice> : null}
               <section className="space-y-2">
                 <h3 className="text-sm font-semibold">{t('details.description')}</h3>
                 <p className="text-sm leading-6 text-muted-foreground">{description}</p>
@@ -1978,7 +1996,7 @@ function CanvasPluginsSection({
                   <>
                     <div>
                       <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{t('details.ownership')}</div>
-                      <div className="mt-1">{installedPlugin.scopeType === 'organization' ? t('organizationScope') : installedPlugin.scopeType === 'user' ? t('personalScope') : installedPlugin.scopeType === 'system' ? t('permissions.systemScope') : t('permissions.unknownScope')}</div>
+                      <div className="mt-1">{ownershipType === 'team' ? t('teamScope') : ownershipType === 'organization' ? t('organizationScope') : ownershipType === 'user' ? t('personalScope') : ownershipType === 'system' ? t('permissions.systemScope') : t('permissions.unknownScope')}</div>
                     </div>
                     <div>
                       <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{t('details.installedBy')}</div>
@@ -2042,6 +2060,10 @@ function CanvasPluginsSection({
                   {renderPluginSkillCheck(skillStates, skillSummary)}
                 </section>
               ) : null}
+              {installedPlugin?.resourceId ? <ResourceManagementSection resourceRef={installedPlugin.resourceId}
+                workspaceId={activeWorkspaceId} onUpdated={() => { void loadPluginData(); }} /> : null}
+              {installedPlugin?.resourceId ? <PackageEditorSection resourceRef={installedPlugin.resourceId}
+                workspaceId={activeWorkspaceId} onUpdated={() => { void loadPluginData(); }} /> : null}
             </div>
           </div>
 
@@ -2212,7 +2234,7 @@ function CanvasPluginsSection({
           <Button
             variant={updateAvailable || !isInstalled || skillRepairAvailable ? 'default' : 'outline'}
             size="sm"
-            disabled={managedElsewhere || !canManagePackages || isPending || isChecking || preflightBlocksPluginWrite(preflightState) || Boolean(activeConnectorAction) || (isInstalled && !updateAvailable && !skillRepairAvailable)}
+            disabled={managedElsewhere || !canManagePackages || isPending || isChecking || preflightBlocksPluginWrite(preflightState) || Boolean(activeConnectorAction) || (isInstalled && (plugin.installed.resources !== undefined || !updateAvailable && !skillRepairAvailable))}
             onClick={(event) => {
               event.stopPropagation();
               if (needsPreflight) {
@@ -2234,8 +2256,8 @@ function CanvasPluginsSection({
   }
 
   function renderInstalledPluginCard(plugin: CanvasPluginSettingsRecord) {
-    const displayName = plugin.interface?.displayName || plugin.name;
-    const description = plugin.interface?.shortDescription || plugin.description;
+    const displayName = plugin.resourceMetadata?.displayName || plugin.interface?.displayName || plugin.name;
+    const description = plugin.resourceMetadata?.description ?? plugin.interface?.shortDescription ?? plugin.description;
     const isPending = pendingPluginName === plugin.name || pendingPluginName === `store:${plugin.name}`;
     const storePlugin = storeByName.get(plugin.name);
     const installedMetadataMatches = storeMatchesInstalledPlugin(storePlugin, plugin);
@@ -2994,6 +3016,7 @@ export function SkillsPanel({ canManageOrganizationCapabilities: initialCanManag
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [skillStoreSkills, setSkillStoreSkills] = useState<CanvasSkillStoreEntry[]>([]);
   const [skillStoreMetadata, setSkillStoreMetadata] = useState<CanvasSkillStoreMetadata | null>(null);
+  const [skillStoreComparison, setSkillStoreComparison] = useState<'known' | 'partial' | 'unknown' | null>(null);
   const [skillStorePagination, setSkillStorePagination] = useState<CanvasSkillStorePagination>(EMPTY_SKILL_STORE_PAGINATION);
   const [skillStoreStats, setSkillStoreStats] = useState<CanvasSkillStoreStats>(EMPTY_SKILL_STORE_STATS);
   const [skillStorePage, setSkillStorePage] = useState(1);
@@ -3009,6 +3032,7 @@ export function SkillsPanel({ canManageOrganizationCapabilities: initialCanManag
 
   const changeManagementScope = useCallback((scope: CapabilityManagementScope) => {
     if (scope === managementScope) return;
+    if (!navigate({ scope })) return;
     skillsRequestRef.current += 1;
     skillTreeRequestRef.current += 1;
     setSkillTree([]);
@@ -3016,7 +3040,6 @@ export function SkillsPanel({ canManageOrganizationCapabilities: initialCanManag
     setSelectedSkill(null);
     setSelectedPath(null);
     setRightView('info');
-    navigate({ scope });
   }, [managementScope, navigate]);
 
   async function loadSkills() {
@@ -3097,7 +3120,7 @@ export function SkillsPanel({ canManageOrganizationCapabilities: initialCanManag
       state: storeState,
       scope: managementScope,
     });
-
+    if (activeWorkspaceId) params.set('workspaceId', activeWorkspaceId);
     setSkillStoreLoading(true);
     setSkillStoreError(null);
     try {
@@ -3112,19 +3135,22 @@ export function SkillsPanel({ canManageOrganizationCapabilities: initialCanManag
       }
       setSkillStoreSkills(Array.isArray(data.skills) ? data.skills : []);
       setSkillStoreMetadata(data.registry || null);
+      setSkillStoreComparison(['known', 'partial', 'unknown'].includes(data.comparison) ? data.comparison : null);
+      if (data.availability === 'unavailable') setSkillStoreError(t('skillLibrary.errors.storeLoad'));
       setSkillStorePagination(data.pagination || EMPTY_SKILL_STORE_PAGINATION);
       setSkillStoreStats(data.stats || EMPTY_SKILL_STORE_STATS);
     } catch (error) {
       if (requestId !== skillStoreRequestRef.current) return;
       setSkillStoreSkills([]);
       setSkillStoreMetadata(null);
+      setSkillStoreComparison(null);
       setSkillStorePagination(EMPTY_SKILL_STORE_PAGINATION);
       setSkillStoreStats(EMPTY_SKILL_STORE_STATS);
       setSkillStoreError(error instanceof Error ? error.message : t('skillLibrary.errors.storeLoad'));
     } finally {
       if (requestId === skillStoreRequestRef.current) setSkillStoreLoading(false);
     }
-  }, [deferredSkillStoreQuery, managementScope, skillLibraryTab, skillStorePage, t]);
+  }, [activeWorkspaceId, deferredSkillStoreQuery, managementScope, skillLibraryTab, skillStorePage, t]);
 
   useEffect(() => {
     if (panelTab !== 'skills') return;
@@ -3172,6 +3198,7 @@ export function SkillsPanel({ canManageOrganizationCapabilities: initialCanManag
       || namedSkills.find((entry) => entry.scopeType !== 'organization')
       || namedSkills[0];
     if (skill) {
+      if (!confirmPluginNavigation()) return;
       setSelectedSkill(skill);
       setRightView('info');
       setSelectedPath(node.path);
@@ -3179,6 +3206,7 @@ export function SkillsPanel({ canManageOrganizationCapabilities: initialCanManag
   }, [skills]);
 
   const handleFileClick = useCallback(async (node: SkillFileNode) => {
+    if (!confirmPluginNavigation()) return;
     setSelectedPath(node.path);
     setRightView('preview');
     setPreviewLoading(true);
@@ -3265,6 +3293,11 @@ export function SkillsPanel({ canManageOrganizationCapabilities: initialCanManag
   }
 
   async function installStoreSkill(skillName: string, version?: string) {
+    const offering = skillStoreSkills.find(skill => skill.name === skillName);
+    if (offering?.installed.resources && offering.installed.installed) {
+      setSkillActionError(t('skillLibrary.versionedUpdateRequired'));
+      return;
+    }
     if (isSkillPackageManagedElsewhere(skillName)) {
       setSkillActionError(t('plugins.permissions.organizationPackage'));
       return;
@@ -3275,7 +3308,7 @@ export function SkillsPanel({ canManageOrganizationCapabilities: initialCanManag
       const response = await fetch('/api/skills/store/install', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: skillName, version, enable: true, replace: true, scope: managementScope }),
+        body: JSON.stringify({ name: skillName, version, enable: true, replace: offering?.installed.resources === undefined, scope: managementScope }),
       });
       const data = await response.json();
       if (!data.success) {
@@ -3514,7 +3547,7 @@ export function SkillsPanel({ canManageOrganizationCapabilities: initialCanManag
     const isInstalling = pendingSkillAction === `install:${skill.name}`;
     const isRestoring = pendingSkillAction === `restore:${skill.name}`;
     const managedElsewhere = isSkillPackageManagedElsewhere(skill.name);
-    const canInstall = !managedElsewhere && (!isInstalled || updateAvailable);
+    const canInstall = !managedElsewhere && (!isInstalled || updateAvailable) && !(skill.installed.resources && isInstalled);
     const installLabel = updateAvailable
       ? t('skillLibrary.update')
       : isInstalled
@@ -3582,6 +3615,8 @@ export function SkillsPanel({ canManageOrganizationCapabilities: initialCanManag
             </Button>
           </div>
         </div>
+        {isInstalled && skill.installed.comparison && skill.installed.comparison !== 'known' ? <p className="mt-2 text-xs text-muted-foreground">{t('skillLibrary.comparisonUnknown')}</p> : null}
+        {isInstalled && updateAvailable && skill.installed.resources ? <p className="mt-2 text-xs text-muted-foreground">{t('skillLibrary.versionedUpdateRequired')}</p> : null}
         {managedElsewhere ? <p className="mt-2 text-xs text-muted-foreground">{t('plugins.permissions.organizationPackage')}</p> : null}
       </div>
     );
@@ -3683,6 +3718,7 @@ export function SkillsPanel({ canManageOrganizationCapabilities: initialCanManag
       {navigation.scope === 'organization' && !canManageOrganizationCapabilities ? (
         <InlineNotice variant="warning" size="compact" className="mb-4">{t('scope.organizationDenied')}</InlineNotice>
       ) : null}
+      <SharedConnectionsSection key={activeWorkspaceId || 'no-workspace'} workspaceId={activeWorkspaceId} />
       {managementScope === 'organization' ? (
         <div className="mb-4">
           <OrganizationCapabilityPolicyPanel />
@@ -3868,7 +3904,7 @@ export function SkillsPanel({ canManageOrganizationCapabilities: initialCanManag
                           <div className="flex min-w-0 flex-1 items-start gap-3">
                             <CanvasSkillIcon skill={selectedSkillData} className="h-12 w-12 text-sm" />
                             <div className="min-w-0">
-                              <h2 className="text-xl font-bold">{selectedSkillData.title}</h2>
+                              <h2 className="text-xl font-bold">{selectedSkillData.resourceMetadata?.displayName || selectedSkillData.title}</h2>
                               <div className="mt-1 flex flex-wrap items-center gap-2">
                                 <span className="text-sm font-mono text-muted-foreground">{selectedSkillData.name}</span>
                                 <Badge variant={selectedSkillData.enabled ? 'default' : 'secondary'} className="text-xs">
@@ -3917,7 +3953,7 @@ export function SkillsPanel({ canManageOrganizationCapabilities: initialCanManag
 
                         <div className="bg-muted/30 rounded-lg p-4">
                           <p className="text-sm text-muted-foreground whitespace-pre-wrap leading-relaxed">
-                            {selectedSkillData.description}
+                            {selectedSkillData.resourceMetadata?.description ?? selectedSkillData.description}
                           </p>
                         </div>
 
@@ -3926,6 +3962,10 @@ export function SkillsPanel({ canManageOrganizationCapabilities: initialCanManag
                             {selectedSkillData.blockedReason}
                           </InlineNotice>
                         ) : null}
+                        {selectedSkillData.resourceId ? <ResourceManagementSection resourceRef={selectedSkillData.resourceId}
+                          workspaceId={activeWorkspaceId} onUpdated={() => { void loadSkills(); }} /> : null}
+                        {selectedSkillData.resourceId ? <PackageEditorSection resourceRef={selectedSkillData.resourceId}
+                          workspaceId={activeWorkspaceId} onUpdated={() => { void loadSkills(); }} /> : null}
 
                         {(selectedSkillData.compatibility || selectedSkillData.license) && (
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
@@ -4165,7 +4205,7 @@ export function SkillsPanel({ canManageOrganizationCapabilities: initialCanManag
                 </div>
               ) : skillStoreError ? null : skillStoreSkills.length === 0 ? (
                 <div className="rounded-lg border border-dashed px-4 py-6 text-sm text-muted-foreground">
-                  {t('skillLibrary.noUpdates')}
+                  {t(skillStoreComparison && skillStoreComparison !== 'known' ? 'skillLibrary.comparisonUnknown' : 'skillLibrary.noUpdates')}
                 </div>
               ) : (
                 <>

@@ -53,6 +53,7 @@ async function compileUi(controls: Controls, locale: 'en' | 'de') {
     'next-intl': { useTranslations: () => translate },
     'lucide-react': new Proxy({}, { get: () => () => null }),
     'sonner': { toast: { error: () => {} } },
+    '@/app/lib/files/workspace-path-operation-issue-messages': load('../../lib/files/workspace-path-operation-issue-messages'),
     '@/app/lib/auth-client': { authClient: { $store: { atoms: { session: { listen: subscribe } } } } },
     '@/app/lib/collaboration/opened-document-registry': { openedDocumentAuthScope: () => controls.auth, subscribeOpenedDocumentAuthInvalidation: subscribe },
     '@/app/store/workspace-store': { useWorkspaceStore: (selector: (state: {activeWorkspaceId: string}) => string) =>

@@ -2,7 +2,7 @@ import 'server-only';
 
 import { randomUUID } from 'node:crypto';
 
-import { openDb } from '@/app/lib/db';
+import { openDb, type SqlConnection } from '@/app/lib/db';
 import type { AgentAccess } from '@/app/lib/agents/access';
 import {
   listOrganizationPolicyTargets,
@@ -93,6 +93,7 @@ async function assertTargetBelongsToOrganization(
   organizationId: string,
   targetType: AgentGrantTargetType,
   targetId: string,
+  connection?: SqlConnection,
 ): Promise<void> {
   if (targetType === 'organization') {
     if (targetId !== organizationId) {
@@ -107,23 +108,24 @@ async function assertTargetBelongsToOrganization(
     return;
   }
 
-  const database = await openDb();
+  const database = connection ?? await openDb();
   try {
     let row: unknown;
     if (targetType === 'user') {
       row = await database.get(
-        `SELECT user_id FROM organization_user_permissions
-         WHERE organization_id = $1 AND user_id = $2 AND status = 'active' LIMIT 1`,
+        `SELECT p.user_id FROM organization_user_permissions p JOIN "user" u ON u.id = p.user_id
+         WHERE p.organization_id = $1 AND p.user_id = $2 AND p.status = 'active'
+           AND COALESCE(u.banned, 0) = 0 FOR SHARE OF p, u`,
         [organizationId, targetId],
       );
     } else if (targetType === 'workspace') {
       row = await database.get(
-        `SELECT id FROM canvas_workspaces WHERE organization_id = $1 AND id = $2 LIMIT 1`,
+        `SELECT id FROM canvas_workspaces WHERE organization_id = $1 AND id = $2 AND status = 'active' FOR SHARE`,
         [organizationId, targetId],
       );
     } else {
       row = await database.get(
-        `SELECT id FROM canvas_projects WHERE organization_id = $1 AND id = $2 LIMIT 1`,
+        `SELECT id FROM canvas_projects WHERE organization_id = $1 AND id = $2 AND status = 'active' FOR SHARE`,
         [organizationId, targetId],
       );
     }
@@ -131,12 +133,12 @@ async function assertTargetBelongsToOrganization(
       throw new AgentGrantError('AGENT_GRANT_TARGET_INVALID', 'Grant target is outside the agent organization or unavailable.');
     }
   } finally {
-    await database.close();
+    if (!connection) await database.close();
   }
 }
 
-export async function listAgentGrants(agentId: string): Promise<AgentGrantRecord[]> {
-  const database = await openDb();
+export async function listAgentGrants(agentId: string, connection?: SqlConnection): Promise<AgentGrantRecord[]> {
+  const database = connection ?? await openDb();
   try {
     const rows = await database.all(
       `SELECT * FROM agent_grants WHERE agent_id = $1 ORDER BY target_type ASC, target_id ASC`,
@@ -144,7 +146,7 @@ export async function listAgentGrants(agentId: string): Promise<AgentGrantRecord
     ) as GrantRow[];
     return rows.map(mapGrant);
   } finally {
-    await database.close();
+    if (!connection) await database.close();
   }
 }
 
@@ -159,16 +161,16 @@ export async function upsertAgentGrant(input: {
   canEdit?: boolean;
   canManage?: boolean;
   actorUserId: string;
-}): Promise<AgentGrantRecord> {
+}, connection?: SqlConnection): Promise<AgentGrantRecord> {
   const targetType = normalizeTargetType(input.targetType);
   const targetId = typeof input.targetId === 'string' ? input.targetId.trim() : '';
   if (!targetId) throw new AgentGrantError('AGENT_GRANT_TARGET_REQUIRED', 'Grant targetId is required.');
-  await assertTargetBelongsToOrganization(input.organizationId, targetType, targetId);
   const access = normalizeAccess(input);
-  const database = await openDb();
+  const database = connection ?? await openDb();
   try {
+    await assertTargetBelongsToOrganization(input.organizationId, targetType, targetId, database);
     const now = Date.now();
-    await database.run(
+    const row = await database.get(
       `INSERT INTO agent_grants (
         id, agent_id, organization_id, target_type, target_id,
         can_use, can_edit, can_manage, revision,
@@ -180,7 +182,8 @@ export async function upsertAgentGrant(input: {
         can_manage = excluded.can_manage,
         revision = agent_grants.revision + 1,
         updated_by_user_id = excluded.updated_by_user_id,
-        updated_at = excluded.updated_at`,
+        updated_at = excluded.updated_at
+      RETURNING *`,
       [
         `agent-grant-${randomUUID()}`,
         input.agentId,
@@ -195,15 +198,11 @@ export async function upsertAgentGrant(input: {
         now,
         now,
       ],
-    );
-    const row = await database.get(
-      `SELECT * FROM agent_grants WHERE agent_id = $1 AND target_type = $2 AND target_id = $3 LIMIT 1`,
-      [input.agentId, targetType, targetId],
     ) as GrantRow | undefined;
     if (!row) throw new AgentGrantError('AGENT_GRANT_WRITE_FAILED', 'Agent grant could not be stored.', 500);
     return mapGrant(row);
   } finally {
-    await database.close();
+    if (!connection) await database.close();
   }
 }
 
@@ -211,17 +210,17 @@ export async function removeAgentGrant(input: {
   agentId: string;
   targetType: unknown;
   targetId: unknown;
-}): Promise<void> {
+}, connection?: SqlConnection): Promise<void> {
   const targetType = normalizeTargetType(input.targetType);
   const targetId = typeof input.targetId === 'string' ? input.targetId.trim() : '';
   if (!targetId) throw new AgentGrantError('AGENT_GRANT_TARGET_REQUIRED', 'Grant targetId is required.');
-  const database = await openDb();
+  const database = connection ?? await openDb();
   try {
     await database.run(
       `DELETE FROM agent_grants WHERE agent_id = $1 AND target_type = $2 AND target_id = $3`,
       [input.agentId, targetType, targetId],
     );
   } finally {
-    await database.close();
+    if (!connection) await database.close();
   }
 }

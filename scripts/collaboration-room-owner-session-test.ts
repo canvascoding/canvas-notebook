@@ -73,6 +73,7 @@ class FakePgClient extends EventEmitter {
     if (sql.includes('FROM pg_stat_activity WHERE pid = pg_backend_pid()')) {
       return { rows: [{ pid: 4567, started: '1727370000.12345' }] };
     }
+    if (sql.includes('pg_try_advisory_xact_lock')) return { rows: [{ locked: true }] };
     if (sql.includes('pg_advisory_xact_lock')) return { rows: [] };
     if (sql.includes('FROM collaboration_admission_scopes')
       && sql.includes('JOIN collaboration_admission_requests')) return { rows: [] };

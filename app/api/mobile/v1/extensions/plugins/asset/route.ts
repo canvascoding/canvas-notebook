@@ -4,10 +4,10 @@ import { headers } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
 
 import { auth } from '@/app/lib/auth';
-import { resolveCapabilityStorageScope } from '@/app/lib/capabilities/request-scope';
-import { readOrganizationPermissionForUser } from '@/app/lib/organization/permissions';
-import { getCanvasPlugin } from '@/app/lib/plugins/canvas-plugin-registry';
+import { CapabilityResourceError } from '@/app/lib/capabilities/resources/contracts';
+import { assertReadableCapabilityCandidate, readReadableCapabilityPlugin } from '@/app/lib/capabilities/resources/read';
 import { isPathInside, isValidCanvasPluginName } from '@/app/lib/plugins/canvas-plugin-manifest';
+import { WORKSPACE_ID_HEADER } from '@/app/lib/workspaces/constants';
 
 const IMAGE_CONTENT_TYPES: Record<string, string> = {
   '.gif': 'image/gif',
@@ -18,13 +18,12 @@ const IMAGE_CONTENT_TYPES: Record<string, string> = {
   '.webp': 'image/webp',
 };
 
-function sanitizeAssetPath(filePath: string): string {
-  return filePath
-    .replace(/\0/g, '')
-    .replace(/\.\./g, '')
-    .replace(/\\/g, '/')
+function sanitizeAssetPath(filePath: string): string | null {
+  const normalized = filePath.replace(/\\/g, '/').replace(/^\.\//, '');
+  if (normalized.includes('\0') || normalized.startsWith('/') || /^[a-z]:/iu.test(normalized)
+    || normalized.split('/').includes('..')) return null;
+  return normalized
     .replace(/\/+/g, '/')
-    .replace(/^\//, '')
     .replace(/\/$/, '');
 }
 
@@ -40,28 +39,35 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ success: false, error: 'Valid plugin and path are required' }, { status: 400 });
   }
 
-  const scope = resolveCapabilityStorageScope({
-    requestedScope: request.nextUrl.searchParams.get('scope'),
-    userId: session.user.id,
-    organizationState: await readOrganizationPermissionForUser(session.user.id),
-  });
-  const plugin = await getCanvasPlugin(pluginName, scope);
-  if (!plugin) {
-    return NextResponse.json({ success: false, error: 'Plugin not found' }, { status: 404 });
-  }
-
   const sanitizedPath = sanitizeAssetPath(requestedPath);
+  if (!sanitizedPath) {
+    return NextResponse.json({ success: false, error: 'Invalid path' }, { status: 400 });
+  }
   const contentType = IMAGE_CONTENT_TYPES[path.extname(sanitizedPath).toLowerCase()];
   if (!contentType) {
     return NextResponse.json({ success: false, error: 'Only image assets are supported' }, { status: 400 });
   }
 
-  const fullPath = path.join(plugin.installDir, sanitizedPath);
-  if (!isPathInside(plugin.installDir, fullPath)) {
-    return NextResponse.json({ success: false, error: 'Invalid path' }, { status: 400 });
+  const query = request.nextUrl.searchParams;
+  const resourceId = query.get('resourceId')?.trim() || undefined;
+  const workspaceId = query.get('workspaceId')?.trim() || request.headers.get(WORKSPACE_ID_HEADER)?.trim() || null;
+  if (query.has('resourceId') && (!resourceId || resourceId.length > 512) || workspaceId && workspaceId.length > 256) {
+    return NextResponse.json({ success: false, error: 'Invalid plugin selection' }, { status: 400 });
   }
+  const scope = query.get('scope') === 'organization' ? 'organization' : 'user';
+  const actor = { userId: session.user.id, workspaceId };
 
   try {
+    const selected = await readReadableCapabilityPlugin(actor, { name: pluginName, resourceId, scope });
+    if (selected.candidate.ref.scopeType === 'organization' && scope !== 'organization') {
+      return NextResponse.json({ success: false, error: 'Plugin not found' }, { status: 404 });
+    }
+    const plugin = selected.plugin;
+    const fullPath = path.join(plugin.installDir, sanitizedPath);
+    if (!isPathInside(plugin.installDir, fullPath)) {
+      return NextResponse.json({ success: false, error: 'Invalid path' }, { status: 400 });
+    }
+    await assertReadableCapabilityCandidate(actor, selected.candidate, selected.candidates);
     const stat = await fs.lstat(fullPath);
     if (!stat.isFile() || stat.isSymbolicLink()) {
       return NextResponse.json({ success: false, error: 'Asset is not a regular file' }, { status: 400 });
@@ -74,16 +80,22 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'Invalid path' }, { status: 400 });
     }
 
+    await assertReadableCapabilityCandidate(actor, selected.candidate, selected.candidates);
     const bytes = await fs.readFile(realFilePath);
+    await assertReadableCapabilityCandidate(actor, selected.candidate, selected.candidates);
     return new NextResponse(new Uint8Array(bytes), {
       headers: {
-        'Cache-Control': 'private, max-age=3600',
+        'Cache-Control': 'private, no-store',
         'Content-Type': contentType,
         'X-Content-Type-Options': 'nosniff',
         Vary: 'Cookie, Authorization',
       },
     });
   } catch (error) {
+    if (error instanceof CapabilityResourceError) {
+      const status = [403, 404].includes(error.status) ? 404 : 500;
+      return NextResponse.json({ success: false, error: status === 404 ? 'Plugin not found' : 'Plugin unavailable' }, { status });
+    }
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
       return NextResponse.json({ success: false, error: 'Asset not found' }, { status: 404 });
     }

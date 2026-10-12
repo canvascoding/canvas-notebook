@@ -21,6 +21,8 @@ import { runEmailCachePostgresMigration } from '@/app/lib/email/cache/postgres-m
 import { runEmailClassificationPostgresMigration } from '@/app/lib/email/classification/postgres-migration';
 import { resolvePostgresRuntimeOptions } from './postgres-runtime-options';
 import { postgresFailureCode } from './postgres-diagnostics';
+import { migrateSharedComposioProfiles } from './composio-shared-profile-migration';
+import { MOBILE_MCP_APP_CALL_STATEMENTS } from './mobile-mcp-app-call-migration';
 
 const LEGACY_EPOCH_TIMESTAMP_MIGRATION_KEY = 'epoch-seconds-to-milliseconds-v2';
 const LEGACY_EPOCH_TIMESTAMP_UNIT_ENV = 'CANVAS_LEGACY_EPOCH_TIMESTAMP_UNIT';
@@ -1601,6 +1603,7 @@ export async function runPostgresMigrations(pool: PgQueryable): Promise<void> {
       await pool.query(createColumnAddSql(table, column));
     }
   }
+  await migrateSharedComposioProfiles(pool);
 
   await pool.query('ALTER TABLE memory_user_settings ALTER COLUMN automatic_memory_enabled SET DEFAULT 0');
   for (const statement of PUBLIC_SHARE_UNIQUENESS_STATEMENTS) await pool.query(statement);
@@ -1621,6 +1624,7 @@ export async function runPostgresMigrations(pool: PgQueryable): Promise<void> {
   await runProposalGraphStorageMigration(pool);
   for (const statement of WORKSPACE_OPERATION_JOURNAL_STATEMENTS) await pool.query(statement);
   for (const statement of WORKSPACE_OPERATION_REVIEW_STATEMENTS) await pool.query(statement);
+  for (const statement of MOBILE_MCP_APP_CALL_STATEMENTS) await pool.query(statement);
 
   await ensurePostgresCompactionAttemptTelemetry(pool);
   await ensurePostgresCompactionAttemptIndexes(pool);

@@ -34,6 +34,9 @@ async function main() {
   const originalFetch = globalThis.fetch;
   let locale: 'de' | 'en' = 'de';
   const fetches: string[] = [];
+  const authFetches: string[] = [];
+  const uiSession={user:{id:'fixture-user',name:'Fixture User',email:'user@fixture.invalid',emailVerified:true,createdAt:new Date(0),updatedAt:new Date(0),role:'member',banned:false},
+    session:{id:'fixture-plugins-ui-session',token:'CONTROLLED_UI_IDENTITY_ONLY',userId:'fixture-user',expiresAt:new Date('2099-01-01'),createdAt:new Date(0),updatedAt:new Date(0)}};
   const preferenceWrites: Array<{ resourceId: string; enabled: boolean }> = [];
   let Panel: React.ComponentType<{ canManageOrganizationCapabilities?: boolean }>;
   let installedPlugins: Record<string, unknown>[] = [];
@@ -45,6 +48,8 @@ async function main() {
   let storeUnavailable = false;
   let skillsUnavailable = false;
   let skillStoreUnavailable = false;
+  let skillStoreComparisonUnknown = false;
+  let actorSkillStoreResponse: Record<string, unknown> | undefined;
   let organizationAllowed = false;
   let scopeFixtures = false;
   let studioBulkEnabled = false;
@@ -85,6 +90,7 @@ async function main() {
   };
   globalThis.fetch = async (input, init) => {
     const url = new URL(String(input), dom.window.location.origin);
+    if(url.pathname==='/api/auth/get-session'){assert.equal(init?.method??'GET','GET');authFetches.push(url.pathname);return Response.json(uiSession);}
     fetches.push(url.pathname + url.search);
     if (url.pathname === '/api/skills') return skillsUnavailable
       ? Response.json({ success: false, error: 'Skill service unavailable' }, { status: 503 })
@@ -122,11 +128,15 @@ async function main() {
     }
     if (url.pathname === '/api/skills/store') return skillStoreUnavailable
       ? Response.json({ success: false, error: 'Skill catalog unavailable' }, { status: 503 })
-      : Response.json({ success: true, skills: [], stats: { updates: 0 } });
+      : Response.json({ success: true, skills: [], stats: { updates: 0 }, ...(skillStoreComparisonUnknown ? { comparison: 'unknown' } : {}), ...actorSkillStoreResponse });
     if (url.pathname === '/api/skills/effective') return Response.json({ success: true, snapshot: { organizationId: 'organization-test', capabilities: [] } });
     if (url.pathname === '/api/skills/policies') return Response.json({ success: true, policies: [] });
     throw new Error(`Unexpected fetch: ${url.pathname}`);
   };
+  // Seed only real UI identity; current resource-rights DTO assertions remain independent.
+  const {authClient}=await import('../app/lib/auth-client');
+  const sessionAtom=authClient.$store.atoms.session,originalSession=sessionAtom.get();
+  sessionAtom.set({...sessionAtom.get(),data:uiSession,error:null,isPending:false,isRefetching:false});
   try {
     const { render, fireEvent, waitFor, cleanup, within } = await import('@testing-library/react');
     const { SkillsPanel } = await import('../app/components/plugins/PluginsPanel');
@@ -136,9 +146,12 @@ async function main() {
     const { PluginsSettingsLink } = await import('../app/components/plugins/PluginsSettingsLink');
     dom.window.localStorage.setItem('canvas.skills.panelTab', 'skills');
     dom.window.localStorage.setItem('canvas.skills.pluginStoreTab', 'advanced');
+    // This fixture preserves the legacy panel regression behind its explicit Store URL.
+    // The new workspace entry and default Installed view have their own workspace UI gates.
+    dom.window.history.replaceState(null, '', '/de/plugins?view=discover');
     let view = render(<PluginsAppClient canManageOrganizationCapabilities={false} />);
     await waitFor(() => assert.equal(view.getByRole('tab', { name: 'Plugins' }).getAttribute('aria-selected'), 'true'));
-    assert.equal(view.getByRole('tab', { name: 'Entdecken' }).getAttribute('aria-selected'), 'true', 'the app entry opens plugins despite obsolete stored tabs');
+    assert.equal(view.getByRole('tab', { name: 'Entdecken' }).getAttribute('aria-selected'), 'true', 'the explicit legacy Store URL ignores obsolete stored tabs');
     await waitFor(() => assert.ok(view.getByText(de.skills.plugins.emptyStore)));
     assert.equal(view.queryByText(de.home.apps.plugins.description), null, 'the suite already provides the app introduction');
     const scopeHelp = view.getByText(de.skills.scope.helpSummary).closest('details') as HTMLDetailsElement;
@@ -210,8 +223,49 @@ async function main() {
     cleanup();
     skillStoreUnavailable = false;
 
+    skillStoreComparisonUnknown = true;
+    for (const language of ['de', 'en'] as const) {
+      locale = language;
+      dom.window.history.replaceState(null, '', `/${language}/plugins?area=skills&view=updates`);
+      view = render(<PluginsAppClient canManageOrganizationCapabilities={false} />);
+      const messages = language === 'de' ? de : en;
+      await waitFor(() => assert.ok(view.getByText(messages.skills.skillLibrary.comparisonUnknown)));
+      assert.equal(view.queryByText(messages.skills.skillLibrary.noUpdates), null, 'unknown store comparison cannot claim there are no updates');
+      assert.ok(fetches.some(url => url.startsWith('/api/skills/store?') && new URL(url, dom.window.location.origin).searchParams.get('workspaceId') === 'workspace-one'), 'store requests retain the current workspace authority context');
+      cleanup();
+    }
+    skillStoreComparisonUnknown = false;
+    for (const comparison of ['partial', 'unknown'] as const) {
+      actorSkillStoreResponse = { comparison, availability: 'available' };
+      dom.window.history.replaceState(null, '', '/en/plugins?area=skills&view=updates');
+      view = render(<PluginsAppClient canManageOrganizationCapabilities />);
+      await waitFor(() => assert.ok(view.getByText(en.skills.skillLibrary.comparisonUnknown)));
+      assert.equal(view.queryByText(en.skills.skillLibrary.noUpdates), null);
+      cleanup();
+    }
+    actorSkillStoreResponse = { comparison: 'known', availability: 'available', stats: { updates: 1 }, skills: [{
+      name: 'verified-skill', displayName: 'Verified skill', description: 'Exact upstream baseline', latestVersion: '2.0.0',
+      installed: { installed: true, enabled: true, version: '99.0.0', updateAvailable: true, modified: true,
+        restoreAvailable: false, comparison: 'known', resources: [{ metadata: { resourceRef: 'exact-instance' } }] },
+    }] };
+    dom.window.history.replaceState(null, '', '/en/plugins?area=skills&view=updates');
+    view = render(<PluginsAppClient canManageOrganizationCapabilities />);
+    await waitFor(() => assert.ok(view.getByText('Verified skill')));
+    assert.equal((view.getByRole('button', { name: en.skills.skillLibrary.update }) as HTMLButtonElement).disabled, true,
+      'A verified update cannot invoke the legacy replacement route without an exact installation review.');
+    assert.ok(view.getByText(en.skills.skillLibrary.versionedUpdateRequired));
+    cleanup();
+    actorSkillStoreResponse = { comparison: 'unknown', availability: 'unavailable' };
+    dom.window.history.replaceState(null, '', '/en/plugins?area=skills&view=library');
+    view = render(<PluginsAppClient canManageOrganizationCapabilities />);
+    await waitFor(() => assert.ok(view.getByText(en.skills.skillLibrary.errors.storeLoad)));
+    assert.equal(view.queryByText(en.skills.skillLibrary.noUpdates), null);
+    cleanup();
+    actorSkillStoreResponse = undefined;
+    locale = 'de';
+
     fetches.length = 0;
-    dom.window.history.replaceState(null, '', '/de/plugins?scope=organization');
+    dom.window.history.replaceState(null, '', '/de/plugins?scope=organization&view=discover');
     view = render(<PluginsAppClient canManageOrganizationCapabilities={false} />);
     await waitFor(() => assert.ok(view.getByText(de.skills.plugins.emptyStore)));
     assert.ok(view.getByText(de.skills.scope.organizationDenied));
@@ -378,7 +432,7 @@ async function main() {
     installedPlugins = [];
     installedMetadata = [];
     storeFixtures = [{ name: 'available-suite', displayName: 'Available suite', description: 'Available fixture', latestVersion: '1.0.0', installed: { installed: false, enabled: false, updateAvailable: false } }];
-    dom.window.history.replaceState(null, '', '/en/plugins');
+    dom.window.history.replaceState(null, '', '/en/plugins?view=discover');
     view = render(<PluginsAppClient canManageOrganizationCapabilities={false} />);
     await waitFor(() => assert.ok(view.getByText('Available suite')));
     assert.equal((view.getByText(en.skills.scope.helpSummary).closest('details') as HTMLDetailsElement).open, false);
@@ -414,8 +468,10 @@ async function main() {
         cleanup();
       }
     }
+    assert(authFetches.every(path=>path==='/api/auth/get-session'));
     console.log('Plugins UI: launcher in both locales, direct views and history, lazy skill loading, delayed/failed catalog, readable connection status, skill retry and organization scope boundaries passed');
   } finally {
+    sessionAtom.set(originalSession);
     internals._load = originalLoad;
     globalThis.fetch = originalFetch;
     dom.window.close();

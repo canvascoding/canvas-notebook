@@ -1,9 +1,11 @@
+import { richMigrationRuntimeAvailable } from '@/app/lib/collaboration/representation-migration-runtime';
 import 'server-only';
 
 import { createHash } from 'node:crypto';
 
 import { MOBILE_INBOX_FILE_CHANGES_CAPABILITY } from './inbox-capabilities';
 import { MOBILE_EMAIL_REVIEW_CAPABILITY } from './email-capabilities';
+import { MOBILE_PLUGIN_GATEWAY_CAPABILITIES } from './plugin-gateway-capabilities';
 import { MOBILE_DICTATION_CAPABILITY } from './dictation-capabilities';
 
 export const MOBILE_API_VERSION = 'v1' as const;
@@ -32,6 +34,7 @@ export type MobileCompatibility = {
       'license.register',
       'license.activate',
       'chat.sessions',
+      'chat.mcp_apps.v1',
       'chat.realtime_ticket',
       'chat.session_manage',
       'chat.attachments',
@@ -102,6 +105,9 @@ export type MobileCompatibility = {
       'extensions.marketplace_v2',
       'integrations.composio_catalog',
       'integrations.composio_mobile_auth',
+      'integrations.mcp_mobile.v1',
+      ...typeof MOBILE_PLUGIN_GATEWAY_CAPABILITIES,
+      ...string[],
     ];
   };
   auth: {
@@ -151,6 +157,7 @@ export function createMobileCompatibility(input: {
         'license.register',
         'license.activate',
         'chat.sessions',
+        'chat.mcp_apps.v1',
         'chat.realtime_ticket',
         'chat.session_manage',
         'chat.attachments',
@@ -221,6 +228,9 @@ export function createMobileCompatibility(input: {
         'extensions.marketplace_v2',
         'integrations.composio_catalog',
         'integrations.composio_mobile_auth',
+        'integrations.mcp_mobile.v1',
+        ...MOBILE_PLUGIN_GATEWAY_CAPABILITIES,
+        ...(richMigrationRuntimeAvailable() ? ['notebook.collaboration.rich_migration.v1', 'notebook.collaboration.checkpoint.v1'] : []),
       ],
     },
     auth: {

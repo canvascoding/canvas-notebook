@@ -14,15 +14,20 @@ import { syncPublicSharesAfterDelete } from '@/app/lib/public-sharing/public-fil
 import { renameWorkspacePath } from './rename-service';
 import { captureWorkspaceOperationBackup } from './workspace-operation-backup';
 import { withWorkspaceMutationLock } from './workspace-mutation-lock';
+import { withWorkspaceFileLifecycleGuard } from './workspace-file-lifecycle-guard';
 import { preflightWorkspaceLinkWrites, applyWorkspaceLinkWriteGroup, probeWorkspaceLinkWriteGroup,
   type WorkspaceLinkWriteExecutorInput, type WorkspaceLinkWritePreflight } from '@/app/lib/markdown/workspace-link-write-executor';
 import { groupWorkspaceLinkWrites, type WorkspaceLinkWriteGroup } from '@/app/lib/markdown/workspace-link-write-groups';
 import { authoritativeCollaborationSnapshot, materializeCollaborationCheckpoint } from '@/app/lib/collaboration/checkpoint';
+import { ensureCollaborationDocumentIdleReleased } from '@/app/lib/collaboration/document-idle-release';
 import { loadCollaborationState, serializeCanonicalText } from '@/app/lib/collaboration/persistence';
 import { computeWorkspaceFileOperationPlanId } from '@/app/lib/markdown/workspace-file-operation-planner';
 import { buildWorkspacePlannerSnapshot } from '@/app/lib/markdown/workspace-file-operation-preview';
+import { buildWorkspaceAuthoritativePlannerSnapshot } from '@/app/lib/markdown/workspace-authoritative-planner-snapshot';
+import { assertWorkspaceHtmlLinkEvidenceCurrent } from './workspace-html-link-evidence-fence';
 import { buildWorkspaceLinkIndexFromDocuments } from '@/app/lib/markdown/workspace-link-index-core';
 import { parseWorkspaceMarkdownHref } from '@/app/lib/markdown/workspace-local-link-parser';
+import { assessWorkspaceHtmlLink } from '@/app/lib/markdown/workspace-html-link-assessment';
 import { buildWorkspaceOperationBatchPlan, computeWorkspaceOperationBatchPlanId } from './workspace-operation-batch-plan';
 import { workspaceOperationBatchErrorCode, workspaceOperationBatchFailureStatus,
   type WorkspaceOperationBatchMutationEvidence } from './workspace-operation-batch-failure';
@@ -58,6 +63,8 @@ type UndoInput = Omit<ExecuteInput, 'plan'>;
 type Dependencies = {
   storageRoot?: string;
   rebuild?: typeof buildWorkspaceOperationBatchPlan;
+  snapshot?: typeof buildWorkspacePlannerSnapshot;
+  htmlEvidenceCurrent?: typeof assertWorkspaceHtmlLinkEvidenceCurrent;
   rename?: typeof renameWorkspacePath;
   trash?: typeof trashWorkspacePaths;
   listTrash?: typeof listWorkspaceTrashEntries;
@@ -70,6 +77,7 @@ type Dependencies = {
   applyLink?: typeof applyWorkspaceLinkWriteGroup;
   probeLink?: typeof probeWorkspaceLinkWriteGroup;
   checkpointLink?: (input: WorkspaceLinkWriteExecutorInput, group: WorkspaceLinkWriteGroup, documentId: string | null) => Promise<void>;
+  releaseLinkRoom?: (input: WorkspaceLinkWriteExecutorInput, group: WorkspaceLinkWriteGroup, documentId: string | null) => Promise<void>;
   documentProof?: (scope: WorkspaceOperationBatchScope, filePath: string) => Promise<{ documentId: string; lifecycleGeneration: number } | null>;
 };
 
@@ -97,6 +105,22 @@ async function checkpointBatchLink(input: WorkspaceLinkWriteExecutorInput, group
     await materializeCollaborationCheckpoint({ state, workspace: input.destination.workspace,
       actorUserId: input.actorUserId, actorType: input.actorType ?? 'user', sourceSessionId: input.actorSessionId });
   }
+}
+
+/** Only inverse path mutations need a positive release of their own internal link writer. */
+async function releaseBatchLinkRoom(input: WorkspaceLinkWriteExecutorInput, group: WorkspaceLinkWriteGroup, documentId: string | null): Promise<void> {
+  if (!documentId) return;
+  const state = await loadCollaborationState(documentId);
+  if (!state || state.status !== 'active' || state.degraded || state.workspaceId !== group.workspaceId
+    || state.path !== group.path || state.organizationId !== (input.destination.workspace.organizationId ?? null)
+    || digest(serializeCanonicalText(authoritativeCollaborationSnapshot(state).canonicalContent, state)) !== group.afterSha256) {
+    throw new Error('BATCH_UNDO_RELEASE_STATE_CHANGED');
+  }
+  await ensureCollaborationDocumentIdleReleased({ operationId: input.operationId, scope: {
+    workspaceId: state.workspaceId, organizationId: state.organizationId, documentId: state.documentId,
+    path: state.path, representation: state.representation,
+    lifecycleGeneration: state.lifecycleGeneration, schemaVersion: state.schemaVersion,
+  } });
 }
 
 async function treeAt(root: string): Promise<TreeEntry[]> {
@@ -145,6 +169,8 @@ async function privateDirectory(directory: string): Promise<void> {
 export function createWorkspaceOperationBatchExecutor(dependencies: Dependencies = {}) {
   const storage = dependencies.storageRoot ?? path.join(resolveCanvasDataRoot(), 'workspace-operation-batches');
   const rebuild = dependencies.rebuild ?? buildWorkspaceOperationBatchPlan;
+  const snapshotFor = dependencies.snapshot ?? buildWorkspaceAuthoritativePlannerSnapshot;
+  const htmlEvidenceCurrent = dependencies.htmlEvidenceCurrent ?? assertWorkspaceHtmlLinkEvidenceCurrent;
   const rename = dependencies.rename ?? renameWorkspacePath;
   const trash = dependencies.trash ?? trashWorkspacePaths;
   const listTrash = dependencies.listTrash ?? listWorkspaceTrashEntries;
@@ -157,6 +183,7 @@ export function createWorkspaceOperationBatchExecutor(dependencies: Dependencies
   const applyLink = dependencies.applyLink ?? applyWorkspaceLinkWriteGroup;
   const probeLink = dependencies.probeLink ?? probeWorkspaceLinkWriteGroup;
   const checkpointLink = dependencies.checkpointLink ?? checkpointBatchLink;
+  const releaseLinkRoom = dependencies.releaseLinkRoom ?? releaseBatchLinkRoom;
   const documentProof = dependencies.documentProof ?? batchDocumentProof;
   const filename = (batchId: string) => {
     if (!idPattern.test(batchId)) throw new Error('BATCH_INVALID_ID');
@@ -310,6 +337,12 @@ export function createWorkspaceOperationBatchExecutor(dependencies: Dependencies
   };
   const withLock = <T>(scope: WorkspaceOperationBatchScope, operation: () => Promise<T>) => withWorkspaceMutationLock(scope.workspace.workspaceId,
     () => withWorkspaceCopyMutationLocks(scope.fileOptions, scope.fileOptions, operation));
+  const withPathLifecycle = <T>(scope: WorkspaceOperationBatchScope, plan: WorkspaceOperationBatchPlan,
+    operation: () => Promise<T>) => {
+    const paths = plan.pathSteps.flatMap(step => [step.sourcePath, ...(step.destinationPath ? [step.destinationPath] : [])]);
+    return paths.length ? withWorkspaceFileLifecycleGuard({ workspaceId: scope.workspace.workspaceId, paths },
+      () => withLock(scope, operation)) : withLock(scope, operation);
+  };
   const assertUndoAvailable = async (input: { batchId: string; scope: WorkspaceOperationBatchScope }): Promise<void> => withLock(input.scope, async () => {
     const manifest = await load(input.batchId);
     const conflict = (code: string): never => { throw Object.assign(new Error(code), { status: 409, code }); };
@@ -327,7 +360,7 @@ export function createWorkspaceOperationBatchExecutor(dependencies: Dependencies
     }
     // Prove the complete inverse resolution graph, including backlinks created after apply
     // and aliases introduced when deleted Markdown is restored. No user document is rewritten here.
-    const snapshot = await buildWorkspacePlannerSnapshot(manifest.workspaceId, input.scope.fileOptions);
+    const snapshot = await snapshotFor(manifest.workspaceId, input.scope.fileOptions);
     if (snapshot.entries.some((entry) => entry.omissionReason)) conflict('BATCH_UNDO_INDEX_INCOMPLETE');
     for (const repaired of manifest.plan.linkAssessment.restoredLinks ?? []) {
       const currentPath = repaired.sourcePathAfter ?? repaired.sourcePath;
@@ -345,7 +378,6 @@ export function createWorkspaceOperationBatchExecutor(dependencies: Dependencies
       .map((entry) => ({ path: entry.path, content: entry.markdownContent! }));
     const currentPaths = snapshot.entries.filter((entry) => entry.kind === 'file').map((entry) => entry.path);
     const currentIndex = buildWorkspaceLinkIndexFromDocuments(currentSources, new Date(0), currentPaths);
-    if (currentIndex.unevaluatedLinks.length) conflict('BATCH_UNDO_INDEX_INCOMPLETE');
     const inversePaths = new Map(manifest.plan.pathMappings.map((mapping) => [mapping.destinationPath, mapping.sourcePath]));
     const editedPaths = new Map(manifest.plan.originalDocuments.map((document) => [
       manifest.plan.pathMappings.find((mapping) => mapping.sourcePath === document.path)?.destinationPath ?? document.path,
@@ -356,6 +388,16 @@ export function createWorkspaceOperationBatchExecutor(dependencies: Dependencies
     restoredSources.push(...(manifest.plan.deletedDocuments ?? []));
     const restoredPaths = [...currentPaths.map((current) => inversePaths.get(current) ?? current),
       ...manifest.plan.deletedPaths.filter((entry) => entry.kind === 'file').map((entry) => entry.path)];
+    for (const link of currentIndex.unevaluatedLinks) {
+      const html = assessWorkspaceHtmlLink(link, {
+        beforePaths: new Set(currentPaths), afterPaths: new Set(restoredPaths),
+        sourceScopes: manifest.plan.pathSteps.filter((step) => step.kind !== 'delete')
+          .flatMap((step) => [step.destinationPath!, step.sourcePath]),
+        targetScopes: manifest.plan.pathSteps.flatMap((step) => step.kind === 'delete'
+          ? [step.sourcePath] : [step.destinationPath!, step.sourcePath]),
+      });
+      if (!html?.unaffected) conflict('BATCH_UNDO_INDEX_INCOMPLETE');
+    }
     const restoredIndex = buildWorkspaceLinkIndexFromDocuments(restoredSources, new Date(0), restoredPaths);
     for (const repaired of manifest.plan.linkAssessment.restoredLinks ?? []) {
       const originalEdges = restoredIndex.edges.filter((edge) => edge.sourcePath === repaired.sourcePath
@@ -379,7 +421,7 @@ export function createWorkspaceOperationBatchExecutor(dependencies: Dependencies
     }
   });
 
-  const execute = async (input: ExecuteInput): Promise<WorkspaceOperationBatchExecutionResult> => withLock(input.scope, async () => {
+  const execute = async (input: ExecuteInput): Promise<WorkspaceOperationBatchExecutionResult> => withPathLifecycle(input.scope, input.plan, async () => {
     assertAccess(input);
     let manifest = await load(input.batchId);
     if (manifest && (manifest.workspaceId !== input.scope.workspace.workspaceId || manifest.actorUserId !== input.actorUserId
@@ -430,6 +472,7 @@ export function createWorkspaceOperationBatchExecutor(dependencies: Dependencies
         if (observed !== 'before') throw new Error('BATCH_UNPROVEN_PATH_INTENT');
         await progress(input, manifest, 'paths');
         if (!durable) { durable = { key, state: 'intent', receipt: null }; manifest.steps.push(durable); await save(manifest); }
+        await htmlEvidenceCurrent(manifest.plan, input.scope);
         if (step.kind === 'delete') {
           const trashed = await trash({ workspace: input.scope.workspace, paths: [step.sourcePath], deletedByUserId: input.actorUserId });
           if (trashed.failed.length || trashed.trashed.length !== 1) throw new Error('BATCH_TRASH_FAILED');
@@ -548,7 +591,34 @@ export function createWorkspaceOperationBatchExecutor(dependencies: Dependencies
     }
   });
 
-  const undo = async (input: UndoInput): Promise<WorkspaceOperationBatchExecutionResult> => withLock(input.scope, async () => {
+  const undo = async (input: UndoInput): Promise<WorkspaceOperationBatchExecutionResult> => {
+    assertAccess(input);
+    const initial = await load(input.batchId);
+    if (!initial || initial.workspaceId !== input.scope.workspace.workspaceId) throw new Error('BATCH_ID_CONFLICT');
+    return withLock(input.scope, async () => {
+    assertAccess(input);
+    const preparing = await load(input.batchId);
+    if (!preparing || preparing.workspaceId !== input.scope.workspace.workspaceId) throw new Error('BATCH_ID_CONFLICT');
+    // A just-completed forward writer may still await its idle unload. Release
+    // only this batch's exact moved-source writer before the path guard checks
+    // for live owners. The kernel lock remains held through the later guard.
+    try {
+      const recovering = preparing.status === 'undoing' && preparing.undoPlan !== null;
+      const release = recovering ? recoveredUndoLinks(input, preparing) : {
+        input: linkInput(input, preparing), groups: groupWorkspaceLinkWrites(preparing.plan.linkPlan), preflight: preparing.linkPreflight,
+      };
+      if (preparing.status === 'applied' || recovering) for (const group of release.groups) {
+        if (!preparing.plan.pathSteps.some(step => step.kind !== 'delete' && samePath(group.path, step.destinationPath!))) continue;
+        if (recovering && await probeLink(release.input, group, { preflight: release.preflight ?? undefined }) !== 'after') continue;
+        const documentId = release.preflight?.sources.find(source => source.sourcePathBefore === group.sourcePathBefore)?.documentId ?? null;
+        await releaseLinkRoom(release.input, group, documentId);
+      }
+    } catch (error) {
+      preparing.errorCode = workspaceOperationBatchErrorCode(error, 'BATCH_UNDO_RELEASE_FAILED');
+      await save(preparing);
+      return { ...result(preparing), status: preparing.status === 'undoing' ? 'needs_recovery' : 'failed' };
+    }
+    return withPathLifecycle(input.scope, preparing.plan, async () => {
     assertAccess(input);
     const manifest = await load(input.batchId);
     if (!manifest || manifest.workspaceId !== input.scope.workspace.workspaceId) throw new Error('BATCH_ID_CONFLICT');
@@ -615,6 +685,15 @@ export function createWorkspaceOperationBatchExecutor(dependencies: Dependencies
         if (Date.now() >= undoCheckpointDeadline) throw new Error('BATCH_UNDO_CHECKPOINT_PENDING');
         await progress(input, manifest, 'recovery'); await new Promise((resolve) => setTimeout(resolve, 200));
       }
+      // Inverse writes precede inverse path work. Direct disconnect may defer
+      // its idle unload; prove the exact writer's durable release before any
+      // nested path guard is asked to move that Markdown file or its directory.
+      const releaseRecovered = recoveredUndoLinks(input, manifest);
+      for (const group of releaseRecovered.groups) {
+        if (!manifest.plan.pathSteps.some(step => step.kind !== 'delete' && samePath(group.path, step.destinationPath!))) continue;
+        const documentId = releaseRecovered.preflight?.sources.find(source => source.sourcePathBefore === group.sourcePathBefore)?.documentId ?? null;
+        await releaseLinkRoom(releaseRecovered.input, group, documentId);
+      }
       for (const [index, step] of [...manifest.plan.pathSteps.entries()].reverse()) {
         const key = `path:${index}`;
         const applied = manifest.steps.find((candidate) => candidate.key === key)!;
@@ -659,7 +738,9 @@ export function createWorkspaceOperationBatchExecutor(dependencies: Dependencies
       await save(manifest);
       return { ...result(manifest), status: manifest.undoSteps.length || !forwardComplete ? 'needs_recovery' : 'failed' };
     }
-  });
+    });
+    });
+  };
 
   return { execute, undo, assertUndoAvailable,
     async publicExecution(input: WorkspaceOperationBatchExecutionPublicInput & { batchId: string; scope: WorkspaceOperationBatchScope }) {

@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState, startTransition } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, startTransition } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useTranslations } from 'next-intl';
@@ -20,6 +20,13 @@ import { AgentManagedFilesCard, type ManagedFileName, type ResetTarget } from '.
 import { AgentToolsCard, type ToolMetadata } from './AgentToolsCard';
 import { AgentConnectionsPicker, AgentRelevantSkillsPicker } from './AgentCapabilityPickers';
 import { AgentGrantsEditor } from '@/app/components/agents/AgentGrantsEditor';
+import { AgentWorkflowChoiceDialog } from '@/app/components/agents/AgentWorkflowChoiceDialog';
+import { AgentWorkflowManagementDialog } from '@/app/components/agents/AgentWorkflowManagementDialog';
+import { saveAgentWorkflowManagement, type AgentWorkflowManagementContext,
+  type AgentWorkflowManagementSaveInput } from '@/app/components/agents/agent-workflow-management-client';
+import { AgentWorkflowClientError } from '@/app/components/agents/agent-workflow-client';
+import { Route } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { AgentSelectorCard, type AgentProfileItem } from './AgentSelectorCard';
 import { AgentSettingsAccordionCard } from './AgentSettingsAccordionCard';
 import { AgentRuntimePreferenceCard } from './AgentRuntimePreferenceCard';
@@ -33,10 +40,22 @@ function buildAgentQuery(agentId: string): string {
 }
 
 type SessionItem = AgentSessionItem;
+type WorkflowAgentProfileItem = AgentProfileItem & { workflowVersion?: number | null; workflowRevision?: number };
 
 type AgentToolsConfigData = {
   agentId: string;
   enabledTools: string[];
+};
+
+type AgentToolsMutationTicket = {
+  agentId: string;
+  selectionEpoch: number;
+  expectedRevision: number | undefined;
+};
+
+type AgentToolsSaveToken = AgentToolsMutationTicket & {
+  settled: Promise<void>;
+  settle: () => void;
 };
 
 type AgentSettingsSectionId = 'runtime' | 'tools' | 'connections' | 'skills' | 'files' | 'sessions' | 'doctor';
@@ -268,17 +287,29 @@ function normalizeDeliveryChannels(channels: unknown[], telegramStatus: Record<s
 
 export function AgentSettingsPanel({
   canManageAgentDefaults = false,
+  currentUserId = '',
 }: {
   canManageAgentDefaults?: boolean;
+  currentUserId?: string;
 }) {
   const t = useTranslations('settings');
+  const tWorkflow = useTranslations('agentWorkflow');
+  const tWorkflowManagement = useTranslations('agentWorkflowManagement');
   const searchParams = useSearchParams();
   const requestedPanel = searchParams.get('panel')
     ?? (searchParams.get('tab') === 'my-agent-runtime' ? 'runtime' : null);
   const shouldOpenCreateAgentDialog = searchParams.get('createAgent') === '1';
   const [agentSectionOpenById, setAgentSectionOpenById] = useState<AgentSettingsSectionOpenState>(() => getFallbackAgentSectionOpenState(requestedPanel));
 
-  const [agents, setAgents] = useState<AgentProfileItem[]>([]);
+  const [agents, setAgents] = useState<WorkflowAgentProfileItem[]>([]);
+  const agentsRequestSeqRef = useRef(0);
+  const [workflowDialogOpen, setWorkflowDialogOpen] = useState(false);
+  const workflowTriggerRef = useRef<HTMLButtonElement>(null);
+  const [workflowManagementOpen, setWorkflowManagementOpen] = useState(false);
+  const [workflowManagementSelectionEpoch, setWorkflowManagementSelectionEpoch] = useState(0);
+  const [workflowManagementSaving, setWorkflowManagementSaving] = useState(false);
+  const workflowManagementTriggerRef = useRef<HTMLButtonElement>(null);
+  const workflowSaveTokenRef = useRef<(AgentToolsSaveToken & { contextKey: string }) | null>(null);
   const [agentsLoading, setAgentsLoading] = useState(true);
   const [agentsError, setAgentsError] = useState<string | null>(null);
   const [selectedAgentId, setSelectedAgentId] = useState(DEFAULT_AGENT_ID);
@@ -321,6 +352,20 @@ export function AgentSettingsPanel({
   const [toolsSaving, setToolsSaving] = useState(false);
   const [toolsError, setToolsError] = useState<string | null>(null);
   const [toolsConfig, setToolsConfig] = useState<AgentToolsConfigData | null>(null);
+  const selectedAgentIdRef = useRef(DEFAULT_AGENT_ID);
+  const toolsSelectionEpochRef = useRef(0);
+  const toolsRequestSeqRef = useRef(0);
+  const toolsSnapshotRef = useRef<{ selectionEpoch: number; config: AgentToolsConfigData } | null>(null);
+  const toolsSaveTokenRef = useRef<AgentToolsSaveToken | null>(null);
+  const toolsMountedRef = useRef(true);
+  const workspaceId = searchParams.get('workspaceId');
+  const organizationId = searchParams.get('organizationId');
+  const projectId = searchParams.get('projectId');
+  const workflowContextKey = JSON.stringify([currentUserId, workspaceId, organizationId, projectId]);
+  const workflowContextKeyRef = useRef(workflowContextKey);
+  const workflowManagementContext = useMemo<AgentWorkflowManagementContext>(() => ({ agentId: selectedAgentId,
+    workspaceId, organizationId, projectId, actorId: currentUserId || null }),
+  [currentUserId, organizationId, projectId, selectedAgentId, workspaceId]);
   const [toolSearchQuery, setToolSearchQuery] = useState('');
   const [activeToolGroups, setActiveToolGroups] = useState<Set<string>>(new Set());
   const [capabilitiesSaving, setCapabilitiesSaving] = useState(false);
@@ -331,6 +376,19 @@ export function AgentSettingsPanel({
   const [modelOverrideSaving, setModelOverrideSaving] = useState(false);
   const [modelOverrideError, setModelOverrideError] = useState<string | null>(null);
 
+  const isCurrentToolsSelection = useCallback((agentId: string, selectionEpoch: number) => (
+    toolsMountedRef.current && selectedAgentIdRef.current === agentId && toolsSelectionEpochRef.current === selectionEpoch
+  ), []);
+
+  useEffect(() => {
+    toolsMountedRef.current = true;
+    return () => {
+      toolsMountedRef.current = false;
+      toolsSelectionEpochRef.current += 1;
+      toolsRequestSeqRef.current += 1;
+      toolsSnapshotRef.current = null;
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -345,7 +403,13 @@ export function AgentSettingsPanel({
   }, [requestedPanel]);
 
   const resetAgentScopedState = useCallback(() => {
+    setWorkflowDialogOpen(false);
+    setWorkflowManagementOpen(false);
     sessionsRequestSeqRef.current += 1;
+    toolsSelectionEpochRef.current += 1;
+    setWorkflowManagementSelectionEpoch(toolsSelectionEpochRef.current);
+    toolsRequestSeqRef.current += 1;
+    toolsSnapshotRef.current = null;
     setDoctorResult(null);
     setDoctorError(null);
     setFiles(null);
@@ -359,7 +423,10 @@ export function AgentSettingsPanel({
     setCreateTitle('');
     setSessionPendingId(null);
     setRenameDrafts({});
+    setAvailableTools([]);
     setToolsConfig(null);
+    setToolsLoading(true);
+    setToolsError(null);
     setOpenToolRows({});
     setActiveToolGroups(new Set());
     setCapabilitiesError(null);
@@ -367,8 +434,24 @@ export function AgentSettingsPanel({
     setModelOverrideError(null);
   }, []);
 
+  useLayoutEffect(() => {
+    if (workflowContextKeyRef.current === workflowContextKey) return;
+    workflowContextKeyRef.current = workflowContextKey;
+    agentsRequestSeqRef.current += 1;
+    resetAgentScopedState();
+  }, [resetAgentScopedState, workflowContextKey]);
+
+  const waitForPendingWorkflowSave = useCallback(async (agentId: string) => {
+    while (true) {
+      const tickets = [toolsSaveTokenRef.current, workflowSaveTokenRef.current].filter(ticket => ticket?.agentId === agentId);
+      if (!tickets.length) return;
+      await Promise.all(tickets.map(ticket => ticket!.settled));
+    }
+  }, []);
+
   const selectAgent = useCallback((agentId: string) => {
-    if (agentId === selectedAgentId) return;
+    if (agentId === selectedAgentIdRef.current) return;
+    selectedAgentIdRef.current = agentId;
     resetAgentScopedState();
     setSelectedAgentId(agentId);
     if (agentId !== DEFAULT_AGENT_ID) {
@@ -378,16 +461,22 @@ export function AgentSettingsPanel({
         return nextState;
       });
     }
-  }, [resetAgentScopedState, selectedAgentId]);
+  }, [resetAgentScopedState]);
 
   const selectedAgent = useMemo(
     () => agents.find((agent) => agent.agentId === selectedAgentId) || null,
     [agents, selectedAgentId],
   );
   const mergeAgent = useCallback((agent: AgentProfileItem) => {
-    setAgents((current) => current.map((entry) => entry.agentId === agent.agentId ? { ...entry, ...agent } : entry));
-  }, []);
+    if (!toolsMountedRef.current || workflowContextKeyRef.current !== workflowContextKey) return;
+    agentsRequestSeqRef.current += 1;
+    setAgentsLoading(false);
+    setAgents((current) => current.map((entry) => entry.agentId === agent.agentId && entry.revision <= agent.revision
+      ? { ...entry, ...agent } : entry));
+  }, [workflowContextKey]);
   const isMainAgent = selectedAgentId === DEFAULT_AGENT_ID || selectedAgent?.type === 'main';
+  const hasWorkflowConfiguration = selectedAgent?.workflowVersion != null;
+  const isWorkflowUseOnly = selectedAgent?.workflowVersion === 1 && selectedAgent.access?.canEdit === false;
   const toolsOverrideEnabled = isMainAgent || Array.isArray(selectedAgent?.enabledTools);
   const skillsOverrideEnabled = !isMainAgent && Array.isArray(selectedAgent?.relevantSkills);
   const connectionsOverrideEnabled = !isMainAgent && Array.isArray(selectedAgent?.relevantConnections);
@@ -421,27 +510,33 @@ export function AgentSettingsPanel({
   }, [hasStoredModelOverride, selectedAgent?.agentId]);
 
   const loadAgents = useCallback(async () => {
+    const contextKey = workflowContextKey, requestSeq = ++agentsRequestSeqRef.current;
+    const isCurrentRequest = () => toolsMountedRef.current && workflowContextKeyRef.current === contextKey
+      && agentsRequestSeqRef.current === requestSeq;
     setAgentsLoading(true);
     setAgentsError(null);
 
     try {
-      const payload = await fetchJson<{ agents: AgentProfileItem[] }>('/api/agents');
-      const nextAgents = (payload.agents || []).filter((agent) => agent.access?.canEdit !== false);
+      const query = new URLSearchParams({ purpose: 'configure' });
+      for (const [name, value] of [['workspaceId', workspaceId], ['organizationId', organizationId], ['projectId', projectId]] as const) {
+        if (value) query.set(name, value);
+      }
+      const payload = await fetchJson<{ agents: WorkflowAgentProfileItem[] }>(`/api/agents?${query}`);
+      if (!isCurrentRequest()) return;
+      const nextAgents = (payload.agents || []).filter((agent) => agent.access?.canEdit !== false || agent.workflowVersion === 1 && agent.access.canUse);
       setAgents(nextAgents);
-      setSelectedAgentId((current) => {
-        if (nextAgents.some((agent) => agent.agentId === current)) {
-          return current;
-        }
-        return nextAgents.find((agent) => agent.agentId === DEFAULT_AGENT_ID)?.agentId
+      if (!nextAgents.some((agent) => agent.agentId === selectedAgentIdRef.current)) {
+        const nextAgentId = nextAgents.find((agent) => agent.agentId === DEFAULT_AGENT_ID)?.agentId
           || nextAgents[0]?.agentId
           || DEFAULT_AGENT_ID;
-      });
+        selectAgent(nextAgentId);
+      }
     } catch (error) {
-      setAgentsError(error instanceof Error ? error.message : t('agentPanel.selector.errors.load'));
+      if (isCurrentRequest()) setAgentsError(error instanceof Error ? error.message : t('agentPanel.selector.errors.load'));
     } finally {
-      setAgentsLoading(false);
+      if (isCurrentRequest()) setAgentsLoading(false);
     }
-  }, [t]);
+  }, [organizationId, projectId, selectAgent, t, workflowContextKey, workspaceId]);
 
   const loadFiles = useCallback(async () => {
     setFilesLoading(true);
@@ -532,10 +627,7 @@ export function AgentSettingsPanel({
       if (!response.ok || !body.success) {
         throw new Error(body.error || t('agentPanel.selector.errors.delete'));
       }
-      if (selectedAgentId === agentId) {
-        resetAgentScopedState();
-        setSelectedAgentId(DEFAULT_AGENT_ID);
-      }
+      if (selectedAgentIdRef.current === agentId) selectAgent(DEFAULT_AGENT_ID);
       await loadAgents();
     } catch (error) {
       setAgentsError(error instanceof Error ? error.message : t('agentPanel.selector.errors.delete'));
@@ -585,27 +677,72 @@ export function AgentSettingsPanel({
   }, [selectedAgentId, t]);
 
   const loadTools = useCallback(async () => {
+    const agentId = selectedAgentId;
+    const contextKey = workflowContextKey;
+    const selectionEpoch = toolsSelectionEpochRef.current;
+    if (!isCurrentToolsSelection(agentId, selectionEpoch)) return;
+    const requestSeq = ++toolsRequestSeqRef.current;
+    const isCurrentRequest = () => isCurrentToolsSelection(agentId, selectionEpoch) && toolsRequestSeqRef.current === requestSeq
+      && workflowContextKeyRef.current === contextKey;
+    toolsSnapshotRef.current = null;
     setToolsLoading(true);
     setToolsError(null);
 
     try {
-      const payload = await fetchJson<{ tools: ToolMetadata[] }>(`/api/agents/tools?${buildAgentQuery(selectedAgentId)}`);
+      await waitForPendingWorkflowSave(agentId);
+      if (!isCurrentRequest()) return;
+      const payload = await fetchJson<{ tools: ToolMetadata[]; config: AgentToolsConfigData }>(`/api/agents/tools?${buildAgentQuery(agentId)}`);
+      if (!isCurrentRequest()) return;
+      if (!Array.isArray(payload.tools) || payload.config?.agentId !== agentId || !Array.isArray(payload.config.enabledTools)
+        || payload.config.enabledTools.some(name => typeof name !== 'string')) throw new Error(t('agentPanel.tools.saveError'));
+      toolsSnapshotRef.current = { selectionEpoch, config: payload.config };
       setAvailableTools(payload.tools);
-    } catch (error) {
-      setToolsError(error instanceof Error ? error.message : t('agentPanel.tools.loading'));
-    } finally {
-      setToolsLoading(false);
-    }
-  }, [selectedAgentId, t]);
-
-  const loadToolsConfig = useCallback(async () => {
-    try {
-      const payload = await fetchJson<{ config: AgentToolsConfigData }>(`/api/agents/tools?${buildAgentQuery(selectedAgentId)}`);
       setToolsConfig(payload.config);
     } catch (error) {
-      setToolsError(error instanceof Error ? error.message : t('agentPanel.tools.saveError'));
+      if (!isCurrentRequest()) return;
+      toolsSnapshotRef.current = null;
+      setAvailableTools([]);
+      setToolsConfig(null);
+      setToolsError(error instanceof Error ? error.message : t('agentPanel.tools.loading'));
+    } finally {
+      if (isCurrentRequest()) setToolsLoading(false);
     }
-  }, [selectedAgentId, t]);
+  }, [isCurrentToolsSelection, selectedAgentId, t, waitForPendingWorkflowSave, workflowContextKey]);
+
+  const loadToolsConfig = useCallback(async () => {
+    await loadTools();
+  }, [loadTools]);
+
+  const commitWorkflowManagement = useCallback(async (input: AgentWorkflowManagementSaveInput,
+    captured: { context: AgentWorkflowManagementContext; selectionEpoch: number }) => {
+    const capturedContextKey = JSON.stringify([captured.context.actorId ?? '', captured.context.workspaceId,
+      captured.context.organizationId ?? null, captured.context.projectId ?? null]);
+    if (input.agentId !== captured.context.agentId || !isCurrentToolsSelection(input.agentId, captured.selectionEpoch)
+      || capturedContextKey !== workflowContextKeyRef.current || toolsSaveTokenRef.current || workflowSaveTokenRef.current) {
+      throw new AgentWorkflowClientError(409, 'AGENT_WORKFLOW_REVISION_CONFLICT');
+    }
+    let settle!: () => void;
+    const ticket = { agentId: input.agentId, selectionEpoch: captured.selectionEpoch, expectedRevision: input.expectedRevision,
+      contextKey: capturedContextKey, settled: new Promise<void>(resolve => { settle = resolve; }), settle: () => settle() };
+    workflowSaveTokenRef.current = ticket;
+    setWorkflowManagementSaving(true);
+    try {
+      const result = await saveAgentWorkflowManagement(captured.context, input);
+      if (toolsMountedRef.current && workflowContextKeyRef.current === ticket.contextKey) {
+        mergeAgent(result.agent);
+      }
+      return result;
+    } finally {
+      if (workflowSaveTokenRef.current === ticket) {
+        workflowSaveTokenRef.current = null;
+        if (toolsMountedRef.current) setWorkflowManagementSaving(false);
+      }
+      ticket.settle();
+      if (isCurrentToolsSelection(ticket.agentId, ticket.selectionEpoch) && workflowContextKeyRef.current === ticket.contextKey) {
+        void loadToolsConfig();
+      }
+    }
+  }, [isCurrentToolsSelection, loadToolsConfig, mergeAgent]);
 
   /* Retired legacy heartbeat settings.
   const loadHeartbeatConfig = useCallback(async () => {
@@ -649,21 +786,25 @@ export function AgentSettingsPanel({
   }, []);
   */
 
-  const patchSelectedAgent = useCallback(async (payload: Record<string, unknown>) => {
+  const patchSelectedAgent = useCallback(async (payload: Record<string, unknown>, ticket?: AgentToolsMutationTicket) => {
     if (isMainAgent || !selectedAgent) return;
+    const target = ticket ?? { agentId: selectedAgentId, selectionEpoch: toolsSelectionEpochRef.current, expectedRevision: selectedAgent.revision };
+    if (selectedAgent.agentId !== target.agentId || !isCurrentToolsSelection(target.agentId, target.selectionEpoch)) return;
     const result = await fetchJson<{ agent: AgentProfileItem }>('/api/agents', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        agentId: selectedAgentId,
-        expectedRevision: selectedAgent.revision,
         ...payload,
+        agentId: target.agentId,
+        expectedRevision: target.expectedRevision,
       }),
     });
+    if (!isCurrentToolsSelection(target.agentId, target.selectionEpoch)) return;
+    if (result.agent.agentId !== target.agentId) throw new Error(t('agentPanel.tools.saveError'));
     mergeAgent(result.agent);
     await loadAgents();
-    await loadToolsConfig();
-  }, [isMainAgent, loadAgents, loadToolsConfig, mergeAgent, selectedAgent, selectedAgentId]);
+    if (!ticket && isCurrentToolsSelection(target.agentId, target.selectionEpoch)) await loadToolsConfig();
+  }, [isCurrentToolsSelection, isMainAgent, loadAgents, loadToolsConfig, mergeAgent, selectedAgent, selectedAgentId, t]);
 
   const setAgentSectionOpen = useCallback((sectionId: AgentSettingsSectionId, isOpen: boolean) => {
     setAgentSectionOpenById((current) => {
@@ -702,13 +843,13 @@ export function AgentSettingsPanel({
   }, [loadAgents]);
 
   useEffect(() => {
+    if (isWorkflowUseOnly) return;
     startTransition(() => {
       void loadFiles();
       void loadSessions();
       void loadTools();
-      void loadToolsConfig();
     });
-  }, [loadFiles, loadSessions, loadTools, loadToolsConfig]);
+  }, [isWorkflowUseOnly, loadFiles, loadSessions, loadTools]);
 
   useEffect(() => {
     if (SHOW_AGENT_DOCTOR_SECTION && searchParams.get('panel') === 'doctor' && !doctorResult && !doctorRunning) {
@@ -1010,7 +1151,7 @@ export function AgentSettingsPanel({
   };
 
   const getActiveEnabledTools = (): string[] => {
-    return toolsConfig?.enabledTools ?? [];
+    return toolsConfig?.agentId === selectedAgentId && !toolsLoading ? toolsConfig.enabledTools : [];
   };
 
   const isToolEnabled = (toolName: string): boolean => {
@@ -1027,28 +1168,51 @@ export function AgentSettingsPanel({
     return enabledSet.has(toolName);
   };
 
-  const saveToolsConfig = async (newEnabledTools: string[]) => {
-    if (!toolsConfig) return;
+  const saveToolsSelection = async (newEnabledTools: string[] | null, fallback: string) => {
+    const snapshot = toolsSnapshotRef.current;
+    if (!snapshot || toolsConfig !== snapshot.config || toolsLoading || toolsSaveTokenRef.current || workflowSaveTokenRef.current
+      || snapshot.config.agentId !== selectedAgentId || !isCurrentToolsSelection(selectedAgentId, snapshot.selectionEpoch)
+      || !isMainAgent && selectedAgent?.agentId !== selectedAgentId || isMainAgent && newEnabledTools === null) return;
+    let settle!: () => void;
+    const settled = new Promise<void>(resolve => { settle = resolve; });
+    const ticket: AgentToolsSaveToken = { agentId: selectedAgentId, selectionEpoch: snapshot.selectionEpoch,
+      expectedRevision: selectedAgent?.revision, settled, settle };
+    toolsSaveTokenRef.current = ticket;
+    toolsRequestSeqRef.current += 1;
     setToolsSaving(true);
     setToolsError(null);
+    let saved = false;
 
     try {
       if (!isMainAgent) {
-        await patchSelectedAgent({ enabledTools: newEnabledTools });
-        return;
+        await patchSelectedAgent({ enabledTools: newEnabledTools === null ? null : [...newEnabledTools] }, ticket);
+      } else {
+        const payload = await fetchJson<{ config: AgentToolsConfigData }>('/api/agents/tools', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ agentId: ticket.agentId, enabledTools: newEnabledTools === null ? null : [...newEnabledTools] }),
+        });
+        if (payload.config?.agentId !== ticket.agentId || !Array.isArray(payload.config.enabledTools)) throw new Error(fallback);
+        if (isCurrentToolsSelection(ticket.agentId, ticket.selectionEpoch)) {
+          toolsSnapshotRef.current = { selectionEpoch: ticket.selectionEpoch, config: payload.config };
+          setToolsConfig(payload.config);
+        }
       }
-
-      const payload = await fetchJson<{ config: AgentToolsConfigData }>('/api/agents/tools', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ agentId: selectedAgentId, enabledTools: newEnabledTools }),
-      });
-      setToolsConfig(payload.config);
+      saved = true;
     } catch (error) {
-      setToolsError(error instanceof Error ? error.message : t('agentPanel.tools.saveError'));
+      if (isCurrentToolsSelection(ticket.agentId, ticket.selectionEpoch)) setToolsError(error instanceof Error ? error.message : fallback);
     } finally {
-      setToolsSaving(false);
+      if (toolsSaveTokenRef.current === ticket) {
+        toolsSaveTokenRef.current = null;
+        if (toolsMountedRef.current) setToolsSaving(false);
+      }
+      ticket.settle();
     }
+    if (saved && isCurrentToolsSelection(ticket.agentId, ticket.selectionEpoch)) await loadToolsConfig();
+  };
+
+  const saveToolsConfig = async (newEnabledTools: string[]) => {
+    await saveToolsSelection(newEnabledTools, t('agentPanel.tools.saveError'));
   };
 
   const handleToolToggle = (toolName: string, enabled: boolean) => {
@@ -1082,15 +1246,7 @@ export function AgentSettingsPanel({
 
   const setToolsOverrideEnabled = async (enabled: boolean) => {
     if (isMainAgent) return;
-    setToolsSaving(true);
-    setToolsError(null);
-    try {
-      await patchSelectedAgent({ enabledTools: enabled ? getActiveEnabledTools() : null });
-    } catch (error) {
-      setToolsError(error instanceof Error ? error.message : t('agentPanel.inheritance.errors.save'));
-    } finally {
-      setToolsSaving(false);
-    }
+    await saveToolsSelection(enabled ? getActiveEnabledTools() : null, t('agentPanel.inheritance.errors.save'));
   };
 
   const setAgentModelOverrideEnabled = async (enabled: boolean) => {
@@ -1263,6 +1419,40 @@ export function AgentSettingsPanel({
         onReload={() => void loadAgents()}
       />
 
+      {selectedAgent?.workflowVersion === 1 && selectedAgent.access?.canUse ? <Card data-testid="agent-settings-workflow">
+        <CardHeader><CardTitle className="flex items-center gap-2"><Route className="size-4" />{tWorkflow('title')}</CardTitle>
+          <CardDescription>{tWorkflow('settingsDescription')}</CardDescription></CardHeader>
+        <CardContent><Button ref={workflowTriggerRef} type="button" variant="outline" onClick={() => setWorkflowDialogOpen(true)}>{tWorkflow('open')}</Button></CardContent>
+      </Card> : null}
+      {selectedAgent ? <AgentWorkflowChoiceDialog key={selectedAgent.agentId} open={workflowDialogOpen} agentId={selectedAgent.agentId}
+        agentName={selectedAgent.name} context={workflowManagementContext} onOpenChange={setWorkflowDialogOpen} onRestoreFocus={() => workflowTriggerRef.current?.focus()} /> : null}
+
+      {!isMainAgent && selectedAgent?.access?.canEdit ? <Card data-testid="agent-settings-workflow-management">
+        <CardHeader><CardTitle className="flex items-center gap-2"><Route className="size-4" />{tWorkflowManagement('title')}</CardTitle>
+          <CardDescription>{tWorkflowManagement('settingsDescription')}</CardDescription></CardHeader>
+        <CardContent><Button ref={workflowManagementTriggerRef} data-testid="agent-settings-workflow-management-open" type="button" variant="outline"
+          onClick={() => setWorkflowManagementOpen(true)}>{tWorkflowManagement('open')}</Button></CardContent>
+      </Card> : null}
+      {!isMainAgent && selectedAgent?.access?.canEdit ? <AgentWorkflowManagementDialog
+        key={`${selectedAgent.agentId}:${workflowContextKey}:${workflowManagementSelectionEpoch}`} open={workflowManagementOpen}
+        agentId={selectedAgent.agentId} agentName={selectedAgent.name} ownerUserId={currentUserId || null}
+        context={workflowManagementContext} selectionEpoch={workflowManagementSelectionEpoch}
+        saveBlocked={toolsSaving || workflowManagementSaving}
+        onOpenChange={setWorkflowManagementOpen} waitForPendingSave={waitForPendingWorkflowSave} commit={commitWorkflowManagement}
+        onOpenNativeTools={() => {
+          setAgentSectionOpen('tools', true);
+          window.requestAnimationFrame(() => {
+            const card = document.getElementById('onboarding-settings-tools');
+            const control = card?.querySelector<HTMLElement>('button') ?? [...document.querySelectorAll<HTMLElement>('[role="switch"]')]
+              .find(element => element.getAttribute('aria-label') === t('agentPanel.inheritance.toolsOverride'));
+            (card ?? control)?.scrollIntoView({ block: 'center' });
+            control?.focus();
+          });
+        }}
+        onRestoreFocus={() => workflowManagementTriggerRef.current?.focus()} /> : null}
+
+      {!isWorkflowUseOnly ? <>
+
       {selectedAgent?.scopeType === 'organization' && selectedAgent.access?.canManage ? (
         <Card>
           <CardContent className="pt-6">
@@ -1311,11 +1501,11 @@ export function AgentSettingsPanel({
               <Switch
                 checked={toolsOverrideEnabled}
                 onCheckedChange={(checked) => void setToolsOverrideEnabled(checked)}
-                disabled={toolsSaving || toolsLoading}
+                disabled={toolsSaving || workflowManagementSaving || toolsLoading}
                 aria-label={t('agentPanel.inheritance.toolsOverride')}
               />
             </div>
-            <div className="flex items-center justify-between gap-4 rounded-md border bg-muted/20 p-3">
+            {!hasWorkflowConfiguration ? <><div className="flex items-center justify-between gap-4 rounded-md border bg-muted/20 p-3">
               <div className="min-w-0">
                 <p className="text-sm font-medium">{t('agentPanel.capabilities.skillsToggle')}</p>
                 <p className="truncate text-xs text-muted-foreground">
@@ -1347,6 +1537,7 @@ export function AgentSettingsPanel({
                 aria-label={t('agentPanel.capabilities.connectionsToggle')}
               />
             </div>
+            </> : null}
             {modelOverrideError && <p className="text-sm text-destructive md:col-span-2">{modelOverrideError}</p>}
             {capabilitiesError && <p className="text-sm text-destructive md:col-span-2">{capabilitiesError}</p>}
           </CardContent>
@@ -1386,7 +1577,7 @@ export function AgentSettingsPanel({
           activeToolGroups={activeToolGroups}
           openToolRows={openToolRows}
           toolsLoading={toolsLoading}
-          toolsSaving={toolsSaving}
+          toolsSaving={toolsSaving || workflowManagementSaving}
           toolsError={toolsError}
           isOpen={agentSectionOpenById.tools}
           onOpenChange={(isOpen) => setAgentSectionOpen('tools', isOpen)}
@@ -1402,7 +1593,7 @@ export function AgentSettingsPanel({
         />
       )}
 
-      {!isMainAgent && connectionsOverrideEnabled && (
+      {!hasWorkflowConfiguration && !isMainAgent && connectionsOverrideEnabled && (
         <AgentSettingsAccordionCard
           title={t('agentPanel.capabilities.connectionsTitle')}
           description={t('agentPanel.capabilities.connectionsDescription')}
@@ -1419,7 +1610,7 @@ export function AgentSettingsPanel({
         </AgentSettingsAccordionCard>
       )}
 
-      {!isMainAgent && skillsOverrideEnabled && (
+      {!hasWorkflowConfiguration && !isMainAgent && skillsOverrideEnabled && (
         <AgentSettingsAccordionCard
           title={t('agentPanel.capabilities.skillsTitle')}
           description={t('agentPanel.capabilities.skillsDescription')}
@@ -1513,6 +1704,7 @@ export function AgentSettingsPanel({
           onRunDoctor={() => void runDoctor()}
         />
       )}
+      </> : null}
     </div>
   );
 }

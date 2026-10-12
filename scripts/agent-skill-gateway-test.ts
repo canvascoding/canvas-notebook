@@ -33,7 +33,6 @@ async function main(): Promise<void> {
   };
   const originalLoad = internals._load;
   const refreshes: string[] = [];
-  let permissionAllowed = true;
   internals._load = (request, parent, isMain) => {
     if (request === 'server-only' || request === '@earendil-works/pi-agent-core' || request === '@earendil-works/pi-ai/oauth') return {};
     if (request === '@/app/lib/db' || /\/app\/lib\/db(?:\/index)?(?:\.ts)?$/u.test(request) || /^(?:\.\.\/)+db$/u.test(request)) return database;
@@ -42,13 +41,6 @@ async function main(): Promise<void> {
         getModels: () => [], getProviders: () => [], registerBuiltInApiProviders: () => undefined,
         isContextOverflow: () => false,
         completeSimple: async () => { throw new Error('No model calls are permitted in this test.'); },
-      };
-    }
-    if (request === '@/app/lib/organization/permissions') {
-      return {
-        assertUserOrganizationPermission: async () => {
-          if (!permissionAllowed) throw new Error('Plugin and skill sharing permission required.');
-        },
       };
     }
     if (request === '@/app/lib/pi/live-runtime' || request.endsWith('/pi/live-runtime.ts')) {
@@ -71,6 +63,9 @@ async function main(): Promise<void> {
         systemPromptSnapshotHash: 'original hash', systemPromptSnapshotCreatedAt: now,
       });
     }
+    const raw = await database.openDb();
+    await raw.run("INSERT INTO canvas_organization_settings (organization_id,owner_user_id,deployment_mode,team_features_enabled,created_at,updated_at) VALUES ('skill-gateway-org',$1,'team',1,1000,1000)", [otherUserId]);
+    for (const id of [userId, otherUserId]) await raw.run("INSERT INTO organization_user_permissions (organization_id,user_id,role,status,can_share_plugins_and_skills,created_at,updated_at) VALUES ('skill-gateway-org',$1,$2,'active',1,1000,1000)", [id, id === otherUserId ? 'owner' : 'member']);
     const { runWithAgentExecutionContext } = await import('../app/lib/pi/agent-execution-context');
     const { createUserScopedTools } = await import('../app/lib/pi/scoped-tools');
     const { createProgressiveGatewayTool, PROGRESSIVE_GATEWAY_DEFINITIONS } = await import('../app/lib/pi/progressive-tool-gateway');
@@ -149,12 +144,12 @@ async function main(): Promise<void> {
     const fork = await call('create_canvas_skill_draft', { skillName: 'gateway-fork', sourceSkillName: 'gateway-skill' });
     assert.match(text(fork), /Next:.*install_canvas_skill_from_workspace/);
     const forkDraft = details<AgentSkillDraftResult>(fork);
-    permissionAllowed = false;
+    await raw.run('UPDATE organization_user_permissions SET can_share_plugins_and_skills=0 WHERE organization_id=\'skill-gateway-org\' AND user_id=$1', [userId]);
     const denied = await call('install_canvas_skill_from_workspace', { draftPath: forkDraft.packagePath });
     assert.match(text(denied), /permission required/);
     assert.ok(await fs.stat(path.join(workspaceRoot, forkDraft.packagePath)));
     assert.deepEqual(refreshes, [userId, userId]);
-    permissionAllowed = true;
+    await raw.run('UPDATE organization_user_permissions SET can_share_plugins_and_skills=1 WHERE organization_id=\'skill-gateway-org\' AND user_id=$1', [userId]);
     details(await call('discard_canvas_skill_draft', { draftPath: forkDraft.packagePath }));
     assert.deepEqual(refreshes, [userId, userId]);
     console.log('agent skill gateway test passed');

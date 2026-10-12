@@ -13,6 +13,8 @@ async function main() {
   let directCalls = 0;
   let auditCalls = 0;
   let lockDepth = 0;
+  let lifecycleBusy = false;
+  let lifecycleDepth = 0;
   let receiptUnavailable = false;
   let auditUnavailable = false;
   let recorderUnavailable = false;
@@ -35,6 +37,20 @@ async function main() {
   class WorkspacePreviewStaleError extends Error {}
   class WorkspacePreviewUnavailableError extends Error {}
   class WorkspacePreviewBlockedError extends Error {}
+  class WorkspaceFileLifecycleBusyError extends Error {
+    readonly status = 409;
+    readonly code = 'COLLABORATION_FILE_LIFECYCLE_BUSY';
+  }
+
+  mock.module('@/app/lib/files/workspace-file-lifecycle-guard', { exports: {
+    WorkspaceFileLifecycleBusyError,
+    withWorkspaceFileLifecycleGuards: async (_scopes: unknown, work: () => Promise<unknown>) => {
+      assert.equal(lockDepth, 1, 'sorted cross-workspace locks are acquired before source-only admission');
+      if (lifecycleBusy) throw new WorkspaceFileLifecycleBusyError('busy');
+      lifecycleDepth += 1;
+      try { return await work(); } finally { lifecycleDepth -= 1; }
+    },
+  } });
 
   mock.module('@/app/lib/auth', { exports: { auth: { api: { getSession: async () =>
     authenticated ? { user: { id: 'user' } } : null } } } });
@@ -70,6 +86,7 @@ async function main() {
       try { return await work(); } finally { lockDepth -= 1; }
     },
     batchCopyBetweenWorkspaces: async () => {
+      assert.equal(lifecycleDepth, 1, 'physical copy runs inside the lifecycle guard');
       copyCalls += 1;
       return { copied: ['Archive/chart.png'], failed: [], skipped: [], collaborationInitializedPaths: [] };
     },
@@ -80,7 +97,9 @@ async function main() {
       try { return await work(); } finally { lockDepth -= 1; }
     },
   } });
-  mock.module('@/app/lib/files/collaboration-policy', { exports: { initializeCopiedFileCollaborationPaths: async () => {} } });
+  mock.module('@/app/lib/files/collaboration-policy', { exports: { initializeCopiedFileCollaborationPaths: async () => {
+    assert.equal(lifecycleDepth, 1, 'metadata initialization finishes before lifecycle guard release');
+  } } });
   const preview = () => {
     previewCalls += 1;
     if (previewError) throw previewError;
@@ -263,6 +282,20 @@ async function main() {
     assert.equal((await copy.json()).linkStatus, 'complete');
     assert.equal(copyCalls, 0);
     assert.equal(safeCopyCalls, 2);
+    lifecycleBusy = true;
+    const busyCopy = await copyRoute.POST(request('copy', {
+      sources: ['Notes/chart.png'], destDir: 'Archive', overwrite: true,
+    }));
+    assert.equal(busyCopy.status, 409);
+    assert.equal((await busyCopy.json()).code, 'COLLABORATION_FILE_LIFECYCLE_BUSY');
+    assert.equal(copyCalls, 0, 'busy admission rejects overwrite before physical copy');
+    lifecycleBusy = false;
+    const releasedCopy = await copyRoute.POST(request('copy', {
+      sources: ['Notes/chart.png'], destDir: 'Archive', overwrite: true,
+    }));
+    assert.equal(releasedCopy.status, 200);
+    assert.equal(copyCalls, 1, 'closed ordinary copy resumes once lifecycle admission is released');
+    assert.equal(lifecycleDepth, 0);
     console.log('file operation routes: durable rename regardless updateLinks/overwrite, stable private preview, truthful pending/failure receipts, lock release, permission recheck, applied audit and unchanged copy contract OK');
   } finally { mock.reset(); }
 }

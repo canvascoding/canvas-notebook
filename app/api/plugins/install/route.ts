@@ -1,4 +1,6 @@
+import { isCapabilityPackageError } from '@/app/lib/capabilities/packages/contracts';
 import { NextResponse } from 'next/server';
+import { toPublicCapabilityPackageMetadata } from '@/app/lib/capabilities/packages/public-metadata';
 
 import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { refreshCapabilityRuntimeForScope } from '@/app/lib/capabilities/activation-actions';
@@ -42,7 +44,7 @@ export async function POST(request: Request) {
     });
 
     if (!result.success) {
-      return NextResponse.json(result, { status: result.status || (result.validation?.valid === false ? 400 : 409) });
+      return NextResponse.json(toPublicCapabilityPackageMetadata(result), { status: result.status || (result.validation?.valid === false ? 400 : 409) });
     }
     await recordAuditEvent({
       organizationId: pluginPermission.state.organizationId,
@@ -73,8 +75,9 @@ export async function POST(request: Request) {
       actorUserId: pluginPermission.session.user.id,
     });
 
-    return NextResponse.json(result);
+    return NextResponse.json(toPublicCapabilityPackageMetadata(result));
   } catch (error) {
+    if (isCapabilityPackageError(error)) return NextResponse.json({ success: false, error: error.message, code: error.code }, { status: error.status });
     console.error('[Plugins Install API] Error:', error);
     return NextResponse.json(
       { success: false, error: 'Failed to install plugin' },

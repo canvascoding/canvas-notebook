@@ -4,7 +4,6 @@ import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { restoreWorkspaceTrashEntry } from '@/app/lib/filesystem/workspace-trash';
 import { getParentDirectory } from '@/app/lib/files/path-utils';
 import { restoreFileCollaborationPath } from '@/app/lib/files/collaboration-policy';
-import { withWorkspaceMutationLock } from '@/app/lib/files/workspace-mutation-lock';
 import {
   applyRateLimit,
   invalidateWorkspaceFileViews,
@@ -34,12 +33,11 @@ export async function POST(
   if (!entryId.trim()) return jsonError('Trash entry ID is required', 400);
 
   try {
-    const restored = await withWorkspaceMutationLock(workspaceResult.workspace.workspaceId, async () => {
-      const entry = await restoreWorkspaceTrashEntry({
-        workspace: workspaceResult.workspace, entryId, restoredByUserId: workspaceResult.session.user.id,
-      });
-      await restoreFileCollaborationPath({ workspace: workspaceResult.workspace, path: entry.originalPath, trashEntryId: entry.id });
-      return entry;
+    const restored = await restoreWorkspaceTrashEntry({
+      workspace: workspaceResult.workspace, entryId, restoredByUserId: workspaceResult.session.user.id,
+      finalize: async entry => { await restoreFileCollaborationPath({
+        workspace: workspaceResult.workspace, path: entry.originalPath, trashEntryId: entry.id,
+      }); },
     });
     const fileOptions = workspaceFileOptions(workspaceResult.workspace);
     invalidateWorkspaceFileViews({
@@ -75,6 +73,10 @@ export async function POST(
       },
     });
   } catch (error) {
+    if ((error as { code?: string })?.code === 'COLLABORATION_FILE_LIFECYCLE_BUSY') {
+      return jsonError(error instanceof Error ? error.message : 'The document is still open.', 409,
+        { code: 'COLLABORATION_FILE_LIFECYCLE_BUSY' });
+    }
     const message = error instanceof Error ? error.message : 'Failed to restore trashed item';
     if (/not found/i.test(message)) return jsonError(message, 404);
     if (/already exists/i.test(message)) return jsonError(message, 409);

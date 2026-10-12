@@ -5,6 +5,7 @@ import type * as YTypes from 'yjs';
 
 import { readCurrentCollaborationDocument } from '@/app/lib/collaboration/document-access';
 import { runCollaborationDirectConnection } from '@/app/lib/collaboration/direct-connection';
+import { withWorkspaceFileLifecycleCollaborationWrite } from '@/app/lib/collaboration/file-lifecycle-admission-context';
 import { loadCollaborationState, type PersistedCollaborationState } from '@/app/lib/collaboration/persistence';
 import { replaceRichMarkdownInYDoc, richMarkdownFromYDoc, validateRichMarkdownYDoc } from '@/app/lib/collaboration/markdown-state';
 import { richDocumentFormat } from '@/app/lib/collaboration/rich-document';
@@ -269,7 +270,15 @@ export function createActiveWorkspaceLinkEditService(dependencies: Dependencies 
     },
     async apply(input: ActiveWorkspaceLinkEditsInput): Promise<ActiveWorkspaceLinkEditsResult> {
       const { edits, state } = await prepare(input, 'apply');
-      return directConnection({
+      return withWorkspaceFileLifecycleCollaborationWrite({
+        workspaceId: state.workspaceId,
+        organizationId: input.workspace.organizationId ?? null,
+        documentId: state.documentId,
+        path: state.path,
+        representation: state.representation,
+        lifecycleGeneration: state.lifecycleGeneration,
+        schemaVersion: state.schemaVersion,
+      }, () => directConnection({
         documentId: state.documentId,
         documentPath: state.path,
         documentRepresentation: state.representation,
@@ -298,7 +307,7 @@ export function createActiveWorkspaceLinkEditService(dependencies: Dependencies 
           throw new WorkspaceLinkYjsEditError('LINK_WRITE_STALE', 'The live document changed while link edits were applied.');
         }
         return { ...result, status: 'applied' as const };
-      });
+      }));
     },
   };
 }

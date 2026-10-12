@@ -37,7 +37,8 @@ export function findCapabilitySkillCandidate(
 ): CapabilityCandidate | null {
   return candidates.find((candidate) => (
     candidate.ref.resourceType === 'skill'
-    && candidate.ref.resourceId === reference.resourceId
+    && (candidate.ref.resourceId === reference.resourceId || candidate.resourceMetadata?.resourceRef === reference.resourceId)
+    && candidate.resourceAccess?.canRead !== false
     && (!reference.name || candidate.ref.name === reference.name)
     && Boolean(candidate.runtimePath)
   )) || null;
@@ -49,10 +50,10 @@ export function selectBrowsableSkillCandidates(
 ): CapabilityCandidate[] {
   const scoped = candidates.filter((candidate) => (
     candidate.ref.resourceType === 'skill'
-    && Boolean(candidate.runtimePath)
     && (managementScope !== 'organization' || candidate.ref.scopeType === 'organization')
   ));
-  return managementScope === 'organization' ? scoped : selectVisibleCapabilities(scoped);
+  return (managementScope === 'organization' ? scoped : selectVisibleCapabilities(scoped))
+    .filter(candidate => Boolean(candidate.runtimePath) && candidate.resourceAccess?.canRead !== false);
 }
 
 function toBrowserPath(value: string): string {

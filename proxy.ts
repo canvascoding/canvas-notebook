@@ -40,6 +40,7 @@ const PUBLIC_SHARE_PREFIX_ROUTES = [
   '/public/marp-preview/',
 ];
 const MCP_APP_TICKET_ROUTE = /^\/__preview\/[A-Za-z0-9_-]{43}\/mcp-app\/(?:frame|document)$/u;
+const MOBILE_MCP_TICKET_ROUTE = /^\/__preview\/[A-Za-z0-9_-]{43}\/mobile-mcp\/(?:host|frame|document)$/u;
 const SAME_ORIGIN_HTML_PREVIEW_ROUTE = /^\/__document-preview\/[A-Za-z0-9_-]{43}\//u;
 
 function isWebSocketRoute(pathname: string) {
@@ -160,7 +161,7 @@ export default async function middleware(request: NextRequest) {
     if (['GET','HEAD'].includes(request.method)) return NextResponse.next();
     return new NextResponse(null,{status:404,headers:{'Cache-Control':'no-store'}});
   }
-  if (['GET','HEAD'].includes(request.method) && MCP_APP_TICKET_ROUTE.test(pathname)) return NextResponse.next();
+  if (['GET','HEAD'].includes(request.method) && (MCP_APP_TICKET_ROUTE.test(pathname) || MOBILE_MCP_TICKET_ROUTE.test(pathname))) return NextResponse.next();
   if (pathname.startsWith('/__preview/')) return new NextResponse(null,{status:404,headers:{'Cache-Control':'no-store'}});
 
   // Canvas Notebook handles mutations through API routes. A next-action POST here
@@ -193,6 +194,25 @@ export default async function middleware(request: NextRequest) {
   }
 
   if (pathname.startsWith('/api/')) {
+    // Composio completes provider OAuth itself. The public desktop return only
+    // collects a response; the original authenticated manager must publish it.
+    const composioReturn = request.nextUrl.searchParams;
+    if (request.method === 'GET' && pathname === '/api/composio/shared/desktop/callback'
+      && /^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$/u.test(composioReturn.get('flow') || '')
+      && [...composioReturn.keys()].every(key => ['flow', 'error', 'status', 'connected_account_id'].includes(key) && composioReturn.getAll(key).length === 1)
+      && (!composioReturn.has('error') || ['access_denied', 'server_error', 'temporarily_unavailable', 'invalid_request',
+        'unauthorized_client', 'unsupported_response_type', 'invalid_scope'].includes(composioReturn.get('error') || ''))
+      && (!composioReturn.has('status') || ['success', 'failed'].includes(composioReturn.get('status') || ''))
+      && (!composioReturn.has('connected_account_id') || composioReturn.has('status')
+        && /^[^\s\x00-\x1f\x7f]{1,256}$/u.test(composioReturn.get('connected_account_id') || ''))
+      && (composioReturn.get('status') !== 'success' || composioReturn.has('connected_account_id') && !composioReturn.has('error'))
+      && (!request.headers.get('sec-fetch-mode') || request.headers.get('sec-fetch-mode') === 'navigate')
+      && (!request.headers.get('sec-fetch-dest') || request.headers.get('sec-fetch-dest') === 'document')) {
+      const response = nextWithCommonHeaders();
+      response.headers.set('Cache-Control', 'no-store');
+      response.headers.set('Referrer-Policy', 'no-referrer');
+      return response;
+    }
     // Desktop OAuth uses an opaque, single-use server transaction. Its callback
     // collects a code; only the signed-in desktop owner can finalize it.
     if (request.method === 'GET' && pathname === '/api/mcp/oauth/callback'
@@ -209,12 +229,16 @@ export default async function middleware(request: NextRequest) {
     }
 
     const sessionCookie = getCanvasSessionCookie(request);
+    // The versioned native handlers validate this credential with Better Auth.
+    // Presence here only delegates authentication; it grants no session rights.
+    const mobileBearerCandidate = pathname.startsWith('/api/mobile/v1/')
+      && /^Bearer [^\s\x00-\x1f\x7f]{1,4096}$/u.test(request.headers.get('authorization') || '');
     const logMissingSession = process.env.NODE_ENV !== 'production' || process.env.AUTH_DEBUG === 'true';
-    if (!sessionCookie && logMissingSession) {
-      console.log(`[Middleware] No session cookie for ${pathname}. Denying API request.`);
+    if (!sessionCookie && !mobileBearerCandidate && logMissingSession) {
+      console.log(`[Middleware] No session credential for ${pathname}. Denying API request.`);
     }
 
-    if (!sessionCookie) {
+    if (!sessionCookie && !mobileBearerCandidate) {
       const errorResponse = NextResponse.json(
         { success: false, error: 'Unauthorized' },
         { status: 401 }

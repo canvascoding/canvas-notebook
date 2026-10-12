@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useRef, useState } from 'react';
-import { CheckCircle2, ChevronDown, Pencil, Plus } from 'lucide-react';
+import { CheckCircle2, ChevronDown, Pencil, Plus, Route } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
 import {
@@ -9,6 +9,7 @@ import {
   AgentIdentityIcon,
 } from '@/app/components/agents/AgentIdentityVisual';
 import { EditAgentProfileDialog } from '@/app/components/agents/EditAgentProfileDialog';
+import { AgentWorkflowChoiceDialog } from '@/app/components/agents/AgentWorkflowChoiceDialog';
 import { authClient } from '@/app/lib/auth-client';
 import type { AgentProfile } from '@/app/lib/chat/types';
 import { CreateAgentDialog, type CreateAgentInput, type CreatedAgent } from '@/app/components/settings/CreateAgentDialog';
@@ -42,15 +43,18 @@ export function ChatAgentSelector({
   adaptiveMobileLabel?: boolean;
 }) {
   const t = useTranslations('chat');
+  const tWorkflow = useTranslations('agentWorkflow');
   const compact = variant === 'mobile' || variant === 'compact';
   const [popoverOpen, setPopoverOpen] = useState(false);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [editTarget, setEditTarget] = useState<AgentProfile | null>(null);
+  const [workflowTarget, setWorkflowTarget] = useState<AgentProfile | null>(null);
   const [agentsLoading, setAgentsLoading] = useState(false);
   const [agentsLoadError, setAgentsLoadError] = useState<string | null>(null);
   const agentsLoadSequenceRef = useRef(0);
+  const selectorTriggerRef = useRef<HTMLButtonElement>(null);
   const { data: session } = authClient.useSession();
   const canManageAgentDefaults = session?.user?.role === 'admin';
 
@@ -137,6 +141,7 @@ export function ChatAgentSelector({
     <Popover open={popoverOpen} onOpenChange={handlePopoverOpenChange}>
       <PopoverTrigger asChild>
         <button
+          ref={selectorTriggerRef}
           type="button"
           data-testid={testId}
           aria-label={`${t('agentSelectTitle')}: ${activeAgentName}`}
@@ -245,7 +250,16 @@ export function ChatAgentSelector({
                 </span>
                 {selected ? <CheckCircle2 className="h-4 w-4 shrink-0" /> : null}
               </button>
-              {agent.removable && agent.access?.canEdit ? (
+              {agent.workflowVersion === 1 && agent.access?.canUse ? <button
+                type="button"
+                data-testid={`chat-agent-workflow-${agent.agentId}`}
+                onClick={() => { setPopoverOpen(false); setWorkflowTarget(agent); }}
+                title={tWorkflow('openFor', { agent: agent.name })}
+                aria-label={tWorkflow('openFor', { agent: agent.name })}
+                className="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                <Route className="size-3.5" />
+              </button> : null}
+              {agent.removable && agent.access?.canEdit && agent.workflowVersion == null ? (
                 <button
                   type="button"
                   onClick={() => {
@@ -293,6 +307,9 @@ export function ChatAgentSelector({
       onChanged={handleAgentChanged}
       onDeleted={handleAgentDeleted}
     />
+    {workflowTarget ? <AgentWorkflowChoiceDialog open agentId={workflowTarget.agentId} agentName={workflowTarget.name}
+      onRestoreFocus={() => selectorTriggerRef.current?.focus()}
+      onOpenChange={(open) => { if (!open) setWorkflowTarget(null); }} /> : null}
     </>
   );
 }

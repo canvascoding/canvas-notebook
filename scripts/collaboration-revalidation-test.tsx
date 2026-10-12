@@ -110,7 +110,8 @@ async function main() {
   const respond = (body: unknown, status = 200) => act(async () => requests.at(-1)!.resolve(Response.json(body, { status })));
   const checkpoint = (doc: Y.Doc, sequence: number) => ({ success: true, documentId: session.documentId,
     lifecycleGeneration: session.lifecycleGeneration, documentSequence: sequence, checkpointSequence: sequence,
-    stateVector: Buffer.from(Y.encodeStateVector(doc)).toString('base64'), stateProof: collaborationStateProof(doc, Y) });
+    stateVector: Buffer.from(Y.encodeStateVector(doc)).toString('base64'), stateProof: collaborationStateProof(doc, Y),
+    projectionFinalized: true, schemaValidated: true });
   try {
     await fixture();
     assert.equal(get().clientState.failure?.kind, 'validation');
@@ -134,7 +135,8 @@ async function main() {
     assert.deepEqual(Y.encodeStateVector(get().doc), vector);
     await respond(old);
     assert.equal(get().durability, 'degraded', 'a successful old checkpoint cannot validate a newer delete set');
-    await send({ type: 'durability_snapshot', ...checkpoint(get().doc, 3), checkpointSequence: 2 });
+    await send({ type: 'durability_snapshot', ...checkpoint(get().doc, 3), checkpointSequence: 2,
+      projectionFinalized: false, schemaValidated: false });
     assert.equal(get().durability, 'degraded', 'binary persistence alone cannot clear the paused Markdown checkpoint');
     const before = Y.encodeStateAsUpdate(get().doc);
     await click();
@@ -166,7 +168,8 @@ async function main() {
     await send({ type: 'degraded', code: COLLABORATION_FAILURE_CODES.persistenceFailed, message: 'Binary persistence interrupted' });
     await click(); await respond({ error: 'Retry before binary recovery' }, 503);
     assert(document.body.textContent!.includes(messages.notebook.editorModes.retryFailed));
-    await send({ type: 'durability_snapshot', ...checkpoint(get().doc, 505), checkpointSequence: 504 });
+    await send({ type: 'durability_snapshot', ...checkpoint(get().doc, 505), checkpointSequence: 504,
+      projectionFinalized: false, schemaValidated: false });
     assert.equal(get().durability, 'persisted_yjs');
     assert.equal(button(), undefined, 'confirmed binary recovery removes the retry action without waiting for Markdown');
     assert(!document.body.textContent!.includes(messages.notebook.editorModes.retryFailed));

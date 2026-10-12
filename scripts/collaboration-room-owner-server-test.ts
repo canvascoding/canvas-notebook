@@ -12,6 +12,7 @@ import * as Y from 'yjs';
 
 import type * as Direct from '../app/lib/collaboration/direct-connection';
 import type { PersistedCollaborationState } from '../app/lib/collaboration/persistence';
+import { withWorkspaceFileLifecycleLeases, type WorkspaceFileLifecycleLease } from '../app/lib/collaboration/file-lifecycle-admission-context';
 import type {
   CollaborationRoomOwnerFence,
   CollaborationRoomOwnerScope,
@@ -88,7 +89,8 @@ type OwnerRuntime = ReturnType<
   typeof import('../app/lib/collaboration/room-owner-runtime').createCollaborationRoomOwnerRuntime
 >;
 
-type Reader = <T>(documentId: string, workspaceId: string, read: (document: Y.Doc) => T) => Promise<T>;
+type Reader = <T>(documentId: string, workspaceId: string, read: (document: Y.Doc) => T,
+  loadState?: typeof import('../app/lib/collaboration/persistence').loadCollaborationState) => Promise<T>;
 
 class CollaborationRoomOwnerError extends Error {
   constructor(readonly code: 'ROOM_OWNER_BUSY' | 'ROOM_OWNER_LOST' | 'ROOM_OWNER_SCOPE_CHANGED' | 'ROOM_OWNER_UNAVAILABLE') {
@@ -152,7 +154,8 @@ function makeState(documentId: string, text: string): PersistedCollaborationStat
 
 async function main(mode: 'direct-store-failure' | 'queued-peer-loss'
   | 'terminal-success' | 'terminal-store-failure' | 'terminal-lost-ack'
-  | 'admission-terminal' | 'admission-unproven-release' | 'normal-unload') {
+  | 'admission-terminal' | 'admission-unproven-release' | 'normal-unload' | 'admission-writer-gate' | 'batch-idle-release'
+  | 'reader-normal-unload') {
   const workspace = {
     workspaceId: 'owner-workspace',
     organizationId: null,
@@ -167,6 +170,7 @@ async function main(mode: 'direct-store-failure' | 'queued-peer-loss'
   const events: string[] = [];
   const fences = new Map<string, CollaborationRoomOwnerFence>();
   const released: CollaborationRoomOwnerFence[] = [];
+  const durablyReleased = new Set<CollaborationRoomOwnerFence>();
   const releaseSnapshots: Array<CollaborationRoomReleaseSnapshot | undefined> = [];
   const recoveredReleases: Array<{
     fence: CollaborationRoomOwnerFence;
@@ -185,6 +189,7 @@ async function main(mode: 'direct-store-failure' | 'queued-peer-loss'
   let documentReader!: Reader;
   let localRoomDrainer: ((scope: CollaborationRoomOwnerScope) => Promise<void>) | undefined;
   let localTicketDrainer: ((ticket: CollaborationAdmissionDrainTicket) => Promise<void>) | undefined;
+  let localIdleRelease: ((input: { scope: CollaborationRoomOwnerScope; operationId: string }) => Promise<void>) | undefined;
   let localRoomDrainerUninstalls = 0;
   const drainStatuses = new Map<string, 'draining' | 'released'>();
   let readDrainFailure: Error | null = null;
@@ -192,12 +197,16 @@ async function main(mode: 'direct-store-failure' | 'queued-peer-loss'
   let afterStoreFailureDocumentId: string | null = null;
   let afterUnloadFailureDocumentId: string | null = null;
   let unloadBarrier: { documentId: string; entered: ReturnType<typeof gate>; release: ReturnType<typeof gate> } | null = null;
+  let loadBarrier: { documentId: string; entered: ReturnType<typeof gate>; release: ReturnType<typeof gate> } | null = null;
   let accessBarrier: { check: number; entered: ReturnType<typeof gate>; release: ReturnType<typeof gate> } | null = null;
   let accessChecks = 0;
   let markDegradedCalls = 0;
   let semanticConflictDetections = 0;
   const persistCalls: Array<{ documentId: string; fence: CollaborationRoomOwnerFence | undefined }> = [];
   let controlledPersist: PersistedCollaborationState | null = null;
+  let admissionBlocked = false;
+  let admissionChecks = 0;
+  let blockOnAdmissionCheck = 0;
   let persistFailure: Error | null = null;
   let persistBarrier: {
     documentId: string;
@@ -240,6 +249,7 @@ async function main(mode: 'direct-store-failure' | 'queued-peer-loss'
       if (snapshot?.admission) drainStatuses.set(snapshot.admission.releaseId, 'released');
       fences.delete(fence.scope.documentId);
       released.push(fence);
+      if (snapshot) durablyReleased.add(fence);
     },
     assertActive(fence) {
       events.push(`active:${fence.scope.documentId}`);
@@ -262,6 +272,15 @@ async function main(mode: 'direct-store-failure' | 'queued-peer-loss'
     constructor(options: ConstructorParameters<typeof Hocuspocus<TestContext>>[0]) {
       super({
         ...options,
+        async onLoadDocument(payload) {
+          const barrier = loadBarrier;
+          if (barrier?.documentId === payload.documentName) {
+            loadBarrier = null;
+            barrier.entered.resolve();
+            await barrier.release.promise;
+          }
+          return options?.onLoadDocument?.(payload);
+        },
         async beforeUnloadDocument(payload) {
           await options?.beforeUnloadDocument?.(payload);
           const barrier = unloadBarrier;
@@ -340,6 +359,17 @@ async function main(mode: 'direct-store-failure' | 'queued-peer-loss'
     if (name === 'ws') return { WebSocketServer: class extends EventEmitter {} };
     if (name.endsWith('/room-owner-runtime')) return runtimeForServer;
     if (name.endsWith('/owned-room-unload')) return unloadCoordinator;
+    if (name.endsWith('/document-idle-release')) return {
+      assertCollaborationDocumentIdleReleaseProof: async (_database: unknown, scope: CollaborationRoomOwnerScope,
+        fence?: CollaborationRoomOwnerFence) => {
+        const proof = fence ?? released.findLast(candidate => candidate.scope.documentId === scope.documentId);
+        assert(proof && durablyReleased.has(proof), 'a direct disconnect or owner absence alone is not a release proof');
+        assert.equal(fences.has(scope.documentId), false);
+        assert.equal(instance.documents.has(scope.documentId), false);
+        assert.equal(proof.scope.path, scope.path);
+        events.push(`idle-proof:${scope.documentId}`);
+      },
+    };
     if (name.endsWith('/room-owner')) return { CollaborationRoomOwnerError };
     if (name.endsWith('/room-admission-drain')) return {
       admissionDrainTicketForTarget,
@@ -348,18 +378,22 @@ async function main(mode: 'direct-store-failure' | 'queued-peer-loss'
     };
     if (name.endsWith('/room-admission-worker')) return { createCollaborationRoomAdmissionWorker };
     if (name.endsWith('/room-startup-activity')) return RoomStartup;
+    if (name.endsWith('/file-lifecycle-admission-context')) return load(name);
     if (name.endsWith('/local-room-drain')) return {
       installLocalCollaborationRoomDrainer: (
         drainer: {
           drain: (ticket: CollaborationAdmissionDrainTicket) => Promise<void>;
           drainLegacy?: (scope: CollaborationRoomOwnerScope) => Promise<void>;
+          releaseIdle?: typeof localIdleRelease;
         },
       ) => {
         localTicketDrainer = drainer.drain;
         localRoomDrainer = drainer.drainLegacy;
+        localIdleRelease = drainer.releaseIdle;
         return () => {
           if (localTicketDrainer === drainer.drain) localTicketDrainer = undefined;
           if (localRoomDrainer === drainer.drainLegacy) localRoomDrainer = undefined;
+          if (localIdleRelease === drainer.releaseIdle) localIdleRelease = undefined;
           localRoomDrainerUninstalls += 1;
         };
       },
@@ -471,6 +505,22 @@ async function main(mode: 'direct-store-failure' | 'queued-peer-loss'
     if (name.endsWith('/diagnostics')) return { logCollaborationDiagnostic() {} };
     if (name.endsWith('/server-runtime')) return { Y };
     if (name.endsWith('/state-proof') || name.endsWith('/failure')) return load(name);
+    if (name.endsWith('/representation-migration-runtime')) return load(name);
+    if (name.endsWith('/representation-drain-refusal')) return { readRepresentationDrainRequest: async () => null };
+    if (name.endsWith('/room-admission')) return load(name);
+    if (name.endsWith('/file-lifecycle-writer-admission')) return {
+      tryLockFileLifecycleCollaborationWriterAdmission: async (query: Parameters<typeof import('../app/lib/collaboration/room-admission').tryLockCollaborationAdmissionWorkspace>[0], scope: CollaborationRoomOwnerScope) =>
+        load('@/app/lib/collaboration/room-admission').tryLockCollaborationAdmissionWorkspace(query, scope.workspaceId),
+    };
+    if (name === '@/app/lib/db') return { openDb: async () => ({ run: async () => {},
+      all: async (sql: string) => {
+        if (sql.includes('pg_try_advisory_xact_lock')) return [{ locked: true }];
+        if (sql.includes('FROM collaboration_admission_scopes')) {
+          admissionChecks++;
+          return admissionBlocked || admissionChecks === blockOnAdmissionCheck ? [{ request_id: 'pending-representation' }] : [];
+        }
+        return [];
+      }, close: async () => {} }) };
     if (name.startsWith('@/')) return {};
     return load(name);
   }, { exports: server }, server);
@@ -534,6 +584,7 @@ async function main(mode: 'direct-store-failure' | 'queued-peer-loss'
       lifecycleGeneration: 1,
     };
   };
+
   const contextFor = (documentId: string): TestContext => ({
     claims: claimsFor(documentId),
     workspace,
@@ -598,6 +649,249 @@ async function main(mode: 'direct-store-failure' | 'queued-peer-loss'
     instance.documents.clear();
     await turn();
   };
+
+  if (mode === 'reader-normal-unload') {
+    const leaseFor = (): WorkspaceFileLifecycleLease => ({ active: true, verify: async () => true });
+    const withinLease = <T>(lease: WorkspaceFileLifecycleLease, action: () => Promise<T>) =>
+      withWorkspaceFileLifecycleLeases(new Map([[workspace.workspaceId, lease]]), action);
+    const room = async (id: string) => {
+      states.set(id, makeState(id, 'original+latest'));
+      const document = await instance.createDocument(id, request, 'reader-loader',
+        { isAuthenticated: true, readOnly: false }, contextFor(id));
+      // Model a live room newer than its persisted snapshot without spawning
+      // a separate unscoped debounce store in the Hocuspocus fixture.
+      states.set(id, makeState(id, 'original'));
+      return document;
+    };
+    const busy = (error: unknown) => error instanceof CollaborationRoomOwnerError && error.code === 'ROOM_OWNER_BUSY';
+    const own = leaseFor();
+    const id = 'reader-own-normal';
+    const document = await room(id);
+    const storing = { documentId: id, entered: gate(), release: gate() };
+    persistBarrier = storing;
+    const unloading = withinLease(own, () => instance.unloadDocument(document));
+    await bounded(storing.entered.promise, 'reader-owned final store');
+    let customLoaded = false;
+    await bounded(withinLease(own, () => assert.rejects(documentReader(id, workspace.workspaceId, () => undefined,
+      async key => { customLoaded = true; return states.get(key) ?? null; }), busy)), 'custom transaction loader refuses without waiting');
+    assert.equal(customLoaded, false);
+    await bounded(withinLease(leaseFor(), () => assert.rejects(documentReader(id, workspace.workspaceId, () => undefined), busy)),
+      'foreign lifecycle lease refuses without waiting');
+    await bounded(assert.rejects(documentReader(id, workspace.workspaceId, () => undefined), busy),
+      'unleased reader refuses without waiting');
+    const readsBefore = events.filter(event => event === `load:${id}`).length;
+    let readCompleted = false;
+    const reading = withinLease(own, () => documentReader(id, workspace.workspaceId,
+      current => current.getText('content').toString())).then(value => { readCompleted = true; return value; });
+    await turn();
+    assert.equal(readCompleted, false, 'the matching reader waits instead of becoming a new activity in the drain');
+    assert.equal(events.filter(event => event === `load:${id}`).length, readsBefore, 'state is loaded only after the final store');
+    storing.release.resolve();
+    await bounded(unloading, 'reader-owned unload completion');
+    assert.equal(await bounded(reading, 'reader after proven normal unload'), 'original+latest');
+    assert.equal(document.isDestroyed, true);
+    let admittedSynchronously = false;
+    activityAdmissionObserver = current => { if (current === id) admittedSynchronously = true; };
+    const ordinaryRead = documentReader(id, workspace.workspaceId, current => current.getText('content').toString());
+    assert.equal(admittedSynchronously, true, 'no-pending read admission does not yield');
+    activityAdmissionObserver = null;
+    assert.equal(await ordinaryRead, 'original+latest');
+
+    for (const invalidation of ['inactive', 'verification', 'verification-after-wait'] as const) {
+      const invalid = leaseFor();
+      let verified = true;
+      invalid.verify = async () => verified;
+      const staleId = `reader-${invalidation}`;
+      const stale = await room(staleId);
+      const blocked = { documentId: staleId, entered: gate(), release: gate() };
+      persistBarrier = blocked;
+      const pending = withinLease(invalid, () => instance.unloadDocument(stale));
+      await bounded(blocked.entered.promise, 'stale lease final store');
+      if (invalidation === 'inactive') invalid.active = false;
+      if (invalidation === 'verification') verified = false;
+      const refused = withinLease(invalid, () => assert.rejects(documentReader(staleId, workspace.workspaceId, () => undefined), busy));
+      if (invalidation === 'verification-after-wait') { await turn(); verified = false; blocked.release.resolve(); }
+      await bounded(refused, `refuse ${invalidation} lease`);
+      blocked.release.resolve();
+      await bounded(pending, 'stale originating unload completion');
+    }
+
+    const terminalLease = leaseFor();
+    const terminalId = 'reader-terminal-raw';
+    const terminal = await room(terminalId);
+    const terminalFence = ownerRuntime.fence(terminal);
+    const raw = { documentId: terminalId, entered: gate(), release: gate() };
+    unloadBarrier = raw;
+    const terminalDrain = withinLease(terminalLease, () => localRoomDrainer!(terminalFence.scope));
+    await bounded(raw.entered.promise, 'terminal raw unload');
+    assert.equal(instance.unloadingDocuments.has(terminalId), true);
+    await bounded(withinLease(terminalLease, () => assert.rejects(documentReader(terminalId, workspace.workspaceId, () => undefined), busy)),
+      'terminal raw unload is not a normal reader handoff');
+    raw.release.resolve();
+    await bounded(terminalDrain, 'terminal drain completion');
+
+    const failedLease = leaseFor();
+    const failedId = 'reader-local-store-failure';
+    const failed = await room(failedId);
+    const failedStore = { documentId: failedId, entered: gate(), release: gate() };
+    persistBarrier = failedStore;
+    afterStoreFailureDocumentId = failedId;
+    const failedUnload = withinLease(failedLease, () => instance.unloadDocument(failed));
+    await bounded(failedStore.entered.promise, 'retained gated final store');
+    const failedRead = withinLease(failedLease, () => assert.rejects(documentReader(failedId, workspace.workspaceId, () => undefined), busy));
+    failedStore.release.resolve();
+    await bounded(failedUnload, 'known failed normal unload');
+    await bounded(failedRead, 'failed gate is never accepted as a snapshot');
+    assert.equal(failed.isDestroyed, false);
+    assert.equal(failed.getText('content').toString(), 'original+latest');
+
+    const lostLease = leaseFor();
+    const lostId = 'reader-lost-store';
+    const lost = await room(lostId);
+    const lostStore = { documentId: lostId, entered: gate(), release: gate() };
+    persistBarrier = lostStore;
+    persistFailure = new Error('injected reader final store owner loss');
+    const lostUnload = withinLease(lostLease, () => instance.unloadDocument(lost));
+    await bounded(lostStore.entered.promise, 'owner-loss final store');
+    const lostRead = withinLease(lostLease, () => assert.rejects(documentReader(lostId, workspace.workspaceId, () => undefined),
+      (error: unknown) => error instanceof CollaborationRoomOwnerError && error.code === 'ROOM_OWNER_LOST'));
+    lostStore.release.resolve();
+    await bounded(lostUnload, 'owner-loss unload settles');
+    await bounded(lostRead, 'owner loss never falls back to persisted state');
+    assert.equal(lost.isDestroyed, false);
+    assert.equal(lost.getText('content').toString(), 'original+latest');
+    console.log('PASS reader waits only for its exact verified normal lifecycle unload; custom/foreign/expired/terminal/failure paths remain strict');
+    return;
+  }
+  if (mode === 'batch-idle-release') {
+    const inputFor = (documentId: string) => ({
+      documentId, documentPath: `${documentId}.txt`, documentRepresentation: 'plain_text' as const,
+      documentLifecycleGeneration: 1, documentSchemaVersion: 1, requiresFileCheckpointIdentity: false,
+      workspace, actorId: 'user', actorDisplayName: 'User', initiatedByUserId: 'user',
+      operationId: 'owned-batch-undo', actorType: 'user' as const,
+    });
+    const scopeFor = (documentId: string): CollaborationRoomOwnerScope => ({
+      documentId, workspaceId: workspace.workspaceId, organizationId: null, path: `${documentId}.txt`,
+      representation: 'plain_text', lifecycleGeneration: 1, schemaVersion: 1,
+    });
+    const id = 'batch-owned-idle';
+    states.set(id, makeState(id, 'original'));
+    await direct(inputFor(id), document => { document.getText('content').insert(0, 'inverse '); });
+    const document = instance.documents.get(id)!;
+    assert(document && !document.isDestroyed, 'Direct return precedes the deferred idle unload');
+    const fence = ownerRuntime.fence(document);
+    assert.equal(durablyReleased.has(fence), false);
+    const activity = ownerRuntime.admitActivity(id);
+    await assert.rejects(localIdleRelease!({ scope: scopeFor(id), operationId: 'other-operation' }),
+      (error: unknown) => error instanceof CollaborationRoomOwnerError && error.code === 'ROOM_OWNER_BUSY');
+    await assert.rejects(localIdleRelease!({ scope: scopeFor(id), operationId: 'owned-batch-undo' }),
+      (error: unknown) => error instanceof CollaborationRoomOwnerError && error.code === 'ROOM_OWNER_BUSY');
+    assert.equal(document.isDestroyed, false, 'even an owned peerless room must wait for its active operation');
+    assert.equal(durablyReleased.has(fence), false);
+    activity.release();
+    unloadBarrier = { documentId: id, entered: gate(), release: gate() };
+    const barrier = unloadBarrier;
+    let finished = false;
+    const releasing = localIdleRelease!({ scope: scopeFor(id), operationId: 'owned-batch-undo' }).then(() => { finished = true; });
+    await bounded(barrier.entered.promise, 'owned idle unload boundary');
+    assert.equal(finished, false, 'inverse path work must wait for durable release');
+    assert.equal(document.isDestroyed, false);
+    barrier.release.resolve();
+    await bounded(releasing, 'owned idle release proof');
+    assert.equal(document.isDestroyed, true);
+    assert(durablyReleased.has(fence));
+    assert(events.includes(`idle-proof:${id}`));
+    const persisted = new Y.Doc();
+    Y.applyUpdate(persisted, states.get(id)!.yjsState);
+    assert.equal(persisted.getText('content').toString(), 'inverse original'); persisted.destroy();
+
+    const peerId = 'batch-owned-peer';
+    states.set(peerId, makeState(peerId, 'peer bytes'));
+    await direct(inputFor(peerId), () => {});
+    const peerDocument = instance.documents.get(peerId)!;
+    const peer = socket(peerDocument, 'still-active-peer');
+    await assert.rejects(localIdleRelease!({ scope: scopeFor(peerId), operationId: 'owned-batch-undo' }),
+      (error: unknown) => error instanceof CollaborationRoomOwnerError && error.code === 'ROOM_OWNER_BUSY');
+    assert.equal(peerDocument.getConnectionsCount(), 1, 'the barrier never force-closes a peer');
+    assert.equal(peerDocument.isDestroyed, false); peer.connection.close();
+
+    const foreignId = 'batch-foreign-idle';
+    states.set(foreignId, makeState(foreignId, 'foreign bytes'));
+    const foreign = await instance.createDocument(foreignId, request, 'foreign-loader',
+      { isAuthenticated: true, readOnly: false }, contextFor(foreignId));
+    await assert.rejects(localIdleRelease!({ scope: scopeFor(foreignId), operationId: 'owned-batch-undo' }),
+      (error: unknown) => error instanceof CollaborationRoomOwnerError && error.code === 'ROOM_OWNER_BUSY');
+    assert.equal(foreign.isDestroyed, false, 'a pre-existing room is never treated as Direct-created ownership');
+
+    const loadingId = 'batch-foreign-loading';
+    states.set(loadingId, makeState(loadingId, 'loading foreign bytes'));
+    const loading = { documentId: loadingId, entered: gate(), release: gate() };
+    loadBarrier = loading;
+    pendingGateReleases.push(loading.release.resolve);
+    const loadingRoom = instance.createDocument(loadingId, request, 'foreign-loader',
+      { isAuthenticated: true, readOnly: false }, contextFor(loadingId));
+    await bounded(loading.entered.promise, 'foreign room loading');
+    const joinedLoading = gate();
+    const originalGet = instance.loadingDocuments.get.bind(instance.loadingDocuments);
+    instance.loadingDocuments.get = key => {
+      if (key === loadingId) joinedLoading.resolve();
+      return originalGet(key);
+    };
+    const joinedDirect = direct(inputFor(loadingId), () => {});
+    await bounded(joinedLoading.promise, 'Direct joins foreign loading room');
+    loading.release.resolve();
+    const foreignLoading = await loadingRoom;
+    await joinedDirect;
+    instance.loadingDocuments.get = originalGet;
+    await assert.rejects(localIdleRelease!({ scope: scopeFor(loadingId), operationId: 'owned-batch-undo' }),
+      (error: unknown) => error instanceof CollaborationRoomOwnerError && error.code === 'ROOM_OWNER_BUSY');
+    assert.equal(foreignLoading.isDestroyed, false, 'joining a foreign startup never upgrades its ownership');
+
+    const failedId = 'batch-owned-store-failure';
+    states.set(failedId, makeState(failedId, 'preserved bytes'));
+    await direct(inputFor(failedId), document => { document.getText('content').insert(0, 'inverse '); });
+    const failedDocument = instance.documents.get(failedId)!;
+    const failedFence = ownerRuntime.fence(failedDocument);
+    persistFailure = new Error('injected batch idle final-store failure');
+    await assert.rejects(localIdleRelease!({ scope: scopeFor(failedId), operationId: 'owned-batch-undo' }),
+      (error: unknown) => error instanceof CollaborationRoomOwnerError && error.code === 'ROOM_OWNER_BUSY');
+    assert.equal(failedDocument.isDestroyed, false, 'failed durable store retains the exact live document');
+    assert.equal(failedDocument.getText('content').toString(), 'inverse preserved bytes');
+    assert.equal(durablyReleased.has(failedFence), false);
+    assert.equal(events.includes(`idle-proof:${failedId}`), false, 'failed store never reaches successful vacancy proof');
+    await assert.rejects(localIdleRelease!({ scope: scopeFor(failedId), operationId: 'owned-batch-undo' }),
+      (error: unknown) => error instanceof CollaborationRoomOwnerError && error.code === 'ROOM_OWNER_LOST');
+    console.log('PASS batch idle barrier waits for durable exact-owner release and preserves active activity/peer/foreign rooms and failed-store bytes');
+    return;
+  }
+  if (mode === 'admission-writer-gate') {
+    const document = await instance.createDocument('doc', request, 'existing-owner', {
+      isAuthenticated: true, readOnly: false,
+    }, contextFor('doc'));
+    socket(document, 'retained-peer');
+    const before = document.getText('content').toString();
+    const fence = ownerRuntime.fence(document);
+    const input = { documentId: 'doc', documentPath: 'doc.txt', documentRepresentation: 'plain_text' as const,
+      documentLifecycleGeneration: 1, documentSchemaVersion: 1, requiresFileCheckpointIdentity: false,
+      workspace, actorType: 'user' as const, actorId: 'user', actorDisplayName: 'User', initiatedByUserId: 'user',
+      operationId: 'pending-direct' };
+    let mutations = 0;
+    const apply = () => { mutations++; };
+    admissionBlocked = true;
+    await assert.rejects(direct(input, apply), { code: 'ADMISSION_CONFLICT' });
+    assert.equal(mutations, 0, 'A retained owned room cannot bypass reservation admission.');
+    admissionBlocked = false;
+    admissionChecks = 0;
+    blockOnAdmissionCheck = 2;
+    await assert.rejects(direct(input, apply), { code: 'ADMISSION_CONFLICT' });
+    assert.equal(admissionChecks, 2, 'Admission is rechecked after opening the direct connection.');
+    assert.equal(mutations, 0, 'A reservation accepted between open and transact cannot receive a new writer.');
+    assert.equal(document.getText('content').toString(), before);
+    assert.equal(ownerRuntime.fence(document), fence);
+    assert.equal(sessionActive, true, 'Admission busy does not quarantine unrelated owner authority.');
+    console.log('PASS pending admission fences retained Direct open and final transact without changing bytes or owner');
+    return;
+  }
 
   if (mode === 'admission-terminal') {
     const documentId = 'admission-terminal';
@@ -1399,6 +1693,9 @@ async function main(mode: 'direct-store-failure' | 'queued-peer-loss'
 
 async function run() {
   const modes = [
+    'admission-writer-gate',
+    'batch-idle-release',
+    'reader-normal-unload',
     'normal-unload',
     'admission-terminal',
     'admission-unproven-release',

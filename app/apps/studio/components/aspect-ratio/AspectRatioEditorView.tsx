@@ -457,6 +457,17 @@ function WorkspaceCopyDialog({
   const [targetWorkspaceId, setTargetWorkspaceId] = useState<string | null>(activeWorkspace?.id ?? null);
   const [fileName, setFileName] = useState(buildDefaultFileName(preview));
   const [isSaving, setIsSaving] = useState(false);
+  const [creatingDirectory, setCreatingDirectory] = useState(false);
+  const saveRequestId = useRef(0);
+  const previewPath = preview?.path ?? null;
+  const sourceContext = JSON.stringify([activeWorkspace?.id ?? null, previewPath]);
+
+  useEffect(() => {
+    saveRequestId.current += 1;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setIsSaving(false);
+    return () => { saveRequestId.current += 1; };
+  }, [open, sourceContext]);
 
   useEffect(() => {
     if (!open) return;
@@ -467,7 +478,16 @@ function WorkspaceCopyDialog({
   }, [activeWorkspace?.id, open, preview]);
 
   const handleSave = async () => {
-    if (!preview || !targetWorkspaceId) return;
+    if (!open || !preview || !targetWorkspaceId || isSaving || creatingDirectory) return;
+    const sourceWorkspaceId = activeWorkspace?.id ?? null;
+    if (useWorkspaceStore.getState().activeWorkspaceId !== sourceWorkspaceId) return;
+    const requestId = ++saveRequestId.current;
+    const targetId = targetWorkspaceId;
+    const targetDirectory = selectedDir;
+    const requestPreviewPath = preview.path;
+    const requestFileName = fileName;
+    const current = () => requestId === saveRequestId.current
+      && useWorkspaceStore.getState().activeWorkspaceId === sourceWorkspaceId;
     setIsSaving(true);
     try {
       const response = await studioApiFetch('/api/studio/aspect-ratio/save', {
@@ -476,29 +496,33 @@ function WorkspaceCopyDialog({
         credentials: 'include',
         body: JSON.stringify({
           action: 'copy_workspace',
-          previewPath: preview.path,
-          targetDirectory: selectedDir,
-          targetWorkspaceId,
-          fileName,
+          previewPath: requestPreviewPath,
+          targetDirectory,
+          targetWorkspaceId: targetId,
+          fileName: requestFileName,
         }),
-      });
+      }, sourceWorkspaceId);
       const payload = await response.json();
+      if (!current()) return;
       if (!response.ok || !payload.success) throw new Error(payload.error || t('errors.copyFailed'));
-      if (targetWorkspaceId === activeWorkspace?.id) {
-        await refreshDirectory(selectedDir, true);
+      if (targetId === sourceWorkspaceId) {
+        await refreshDirectory(targetDirectory, true, targetId);
       }
+      if (!current()) return;
       onCopied(payload.path);
       onOpenChange(false);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : t('errors.copyFailed'));
+      if (current()) toast.error(error instanceof Error ? error.message : t('errors.copyFailed'));
     } finally {
-      setIsSaving(false);
+      if (current()) setIsSaving(false);
     }
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg overflow-hidden">
+    <Dialog open={open} onOpenChange={(nextOpen) => {
+      if (nextOpen || (!isSaving && !creatingDirectory)) onOpenChange(nextOpen);
+    }}>
+      <DialogContent className="max-w-lg max-h-[calc(100dvh-3rem)] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{t('workspaceDialog.title')}</DialogTitle>
           <DialogDescription>{t('workspaceDialog.description')}</DialogDescription>
@@ -506,18 +530,21 @@ function WorkspaceCopyDialog({
         <div className="min-w-0 space-y-4 py-2">
           <label className="flex min-w-0 flex-col gap-1 text-sm">
             <span className="text-xs font-medium text-muted-foreground">{t('workspaceDialog.fileName')}</span>
-            <Input value={fileName} onChange={(event) => setFileName(event.target.value)} />
+            <Input value={fileName} onChange={(event) => setFileName(event.target.value)} disabled={isSaving || creatingDirectory} />
           </label>
           <WorkspaceDestinationPicker
+            key={sourceContext}
             selectedWorkspaceId={targetWorkspaceId}
             selectedDir={selectedDir}
             onWorkspaceChange={setTargetWorkspaceId}
             onDirChange={setSelectedDir}
+            disabled={isSaving}
+            onCreatingDirectoryChange={setCreatingDirectory}
           />
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>{t('cancel')}</Button>
-          <Button onClick={handleSave} disabled={!preview || isSaving || !fileName.trim() || !targetWorkspaceId}>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isSaving || creatingDirectory}>{t('cancel')}</Button>
+          <Button onClick={handleSave} disabled={!preview || isSaving || creatingDirectory || !fileName.trim() || !targetWorkspaceId}>
             {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <FolderInput className="h-4 w-4" />}
             {t('copy')}
           </Button>

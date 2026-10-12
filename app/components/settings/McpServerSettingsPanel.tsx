@@ -543,7 +543,10 @@ export function McpServerSettingsPanel({ isAdmin }: { isAdmin: boolean }) {
                     ...current,
                     enabled,
                     tools: enabled && !current.enabled
-                      ? availableCapabilities.map((capability) => capability.id)
+                      ? availableCapabilities
+                        .filter((capability) => !['create_knowledge_source', 'import_knowledge_file'].includes(capability.id)
+                          || current.tools.includes(capability.id))
+                        .map((capability) => capability.id)
                       : current.tools,
                   };
                 });

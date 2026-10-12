@@ -22,7 +22,7 @@ import {
 } from '@/app/lib/filesystem/workspace-files';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 import { captureWorkspaceOperationBackup, type WorkspaceOperationBackup } from './workspace-operation-backup';
-import { withWorkspaceMutationLock } from '@/app/lib/files/workspace-mutation-lock';
+import { withWorkspaceFileLifecycleGuard } from '@/app/lib/files/workspace-file-lifecycle-guard';
 import { normalizeWorkspaceRelativePath } from '@/app/lib/workspaces/path-guard';
 import type { WorkspacePathRenameMutation } from './file-events';
 import { withWorkspacePathRenameEvent } from '@/app/lib/filesystem/file-watcher';
@@ -153,7 +153,7 @@ export async function renameWorkspacePath(
     ...params, oldPath: normalizeWorkspaceRelativePath(params.oldPath), newPath: normalizeWorkspaceRelativePath(params.newPath),
     fileOptions: { ...params.fileOptions, workspace: params.workspace },
   };
-  return withWorkspaceMutationLock(params.workspace.workspaceId, async () => {
+  return withWorkspaceFileLifecycleGuard({ workspaceId: params.workspace.workspaceId, paths: [params.oldPath, params.newPath] }, async () => {
     await assertWorkspaceOfficePathMutationAllowed([params.oldPath, params.newPath], params.fileOptions);
     const mutation: WorkspacePathRenameMutation = {
       type: 'rename', operationId: randomUUID(), workspaceId: params.workspace.workspaceId,

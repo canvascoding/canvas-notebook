@@ -34,13 +34,13 @@ export async function DELETE(
     const result = await deleteSkillDirectory(name, scope);
 
     if (!result.success) {
-      const status = result.error?.includes('not found')
+      const status = result.status ?? (result.error?.includes('not found')
         ? 404
         : result.error?.includes('managed by a plugin')
           ? 409
-          : 500;
+          : 500);
       return NextResponse.json(
-        { success: false, error: result.error },
+        { success: false, error: result.error, ...(result.code ? { code: result.code } : {}) },
         { status }
       );
     }

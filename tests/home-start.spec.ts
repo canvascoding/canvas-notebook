@@ -1,15 +1,54 @@
 import { test, expect, type Page } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
-import { authenticateManagedTestPage } from './helpers/managed-test-context';
+import { authenticateManagedTestPage, createAuthenticatedContext } from './helpers/managed-test-context';
+import { waitForFileCreateBudget } from './helpers/create-request-budget';
+
+const ownedWorkspaces = new WeakMap<Page, { id: string; name: string }>();
 
 async function prepare(page: Page) {
   await authenticateManagedTestPage(page);
-  const workspaces = await (await page.request.get('/api/workspaces')).json();
-  const workspace = workspaces.workspaces.find((item: { type: string; permissions: { canWrite: boolean } }) => item.type === 'personal' && item.permissions.canWrite);
-  expect(workspace).toBeTruthy();
+  const name = `E2E home start ${randomUUID()}`;
+  const created = await page.request.post('/api/workspaces', { data: { type: 'personal', name } });
+  const workspace = (await created.json()).workspace as { id: string; name: string; type: string;
+    permissions: { canWrite: boolean; canManageWorkspace: boolean } } | undefined;
+  // Save the exact receipt before assertions so afterEach also cleans a failed setup.
+  if (workspace?.id) ownedWorkspaces.set(page, { id: workspace.id, name });
+  expect(created.status(), 'Create an isolated home test workspace.').toBe(201);
+  expect(workspace).toMatchObject({ name, type: 'personal', permissions: { canWrite: true, canManageWorkspace: true } });
+  if (!workspace?.id) throw new Error('The owned home test workspace has no ID.');
   await page.addInitScript((id) => localStorage.setItem('canvas.activeWorkspaceId', id), workspace.id);
-  return workspace.id as string;
+  return workspace.id;
 }
+
+test.afterEach(async ({ page, browser }) => {
+  const owned = ownedWorkspaces.get(page);
+  if (!owned) return;
+  ownedWorkspaces.delete(page);
+  // The account-menu test revokes its page session; use a fresh checked identity for cleanup.
+  const context = await createAuthenticatedContext(browser);
+  const cleanupErrors: unknown[] = [];
+  try {
+    const listed = await context.request.get('/api/workspaces');
+    expect(listed.status(), 'Verify the exact owned home workspace before cleanup.').toBe(200);
+    const payload = await listed.json() as { workspaces: Array<{ id: string; name: string; type: string;
+      permissions: { canManageWorkspace: boolean } }> };
+    expect(payload.workspaces.find((workspace) => workspace.id === owned.id)).toMatchObject({
+      id: owned.id, name: owned.name, type: 'personal', permissions: { canManageWorkspace: true },
+    });
+    const deleted = await context.request.delete(`/api/workspaces/${owned.id}`);
+    expect(deleted.status(), 'Delete the exact owned home test workspace.').toBe(200);
+    const remaining = await context.request.get('/api/workspaces');
+    expect(remaining.status()).toBe(200);
+    const after = await remaining.json() as { workspaces: Array<{ id: string }> };
+    expect(after.workspaces.some((workspace) => workspace.id === owned.id), 'Owned home workspace is absent after cleanup.').toBe(false);
+  } catch (error) {
+    cleanupErrors.push(error);
+  } finally {
+    try { await context.close(); } catch (error) { cleanupErrors.push(error); }
+  }
+  // Playwright keeps primary test failures alongside afterEach errors; cleanup never replaces them in a finally block.
+  if (cleanupErrors.length) throw new AggregateError(cleanupErrors, 'Owned home workspace cleanup failed.');
+});
 
 for (const width of [390, 768, 1440]) {
   test.describe(`${width}px`, () => {
@@ -19,55 +58,52 @@ for (const width of [390, 768, 1440]) {
       const workspaceId = await prepare(page);
       const path = `home-layout-${randomUUID()}.md`;
       const headers = { 'x-canvas-workspace-id': workspaceId };
+      await waitForFileCreateBudget();
       expect((await page.request.post('/api/files/create', { headers, data: { path, type: 'file' } })).ok()).toBeTruthy();
-      try {
-        expect((await page.request.post('/api/files/quick-access', { headers, data: { path } })).ok()).toBeTruthy();
-        await page.goto('/de');
-        const files = page.getByTestId('home-files');
-        await expect(files.getByRole('heading', { name: 'Weiterarbeiten' })).toBeVisible();
-        const newNote = files.getByRole('button', { name: 'Neue Notiz' });
-        await expect(newNote).toBeInViewport();
-        await expect(files.locator(`a[href*="${path}"]`).first()).toBeInViewport();
-        await expect(page.getByTestId('home-agent-id')).toBeHidden();
-        await expect(page.locator('[data-prompt-hero-textarea]')).not.toBeFocused();
-        await page.screenshot({ path: info.outputPath(`home-${width}-initial.png`) });
-        await expect(page.locator('#home-suggestions')).toHaveCount(0);
-        await page.getByRole('button', { name: 'Ideen und Beispiele' }).click();
-        await expect(page.locator('#home-suggestions')).toBeVisible();
-        await page.getByRole('button', { name: 'Ideen und Beispiele' }).click();
-        await expect(page.locator('#home-suggestions')).toHaveCount(0);
-        await page.locator('[data-prompt-hero-textarea]').focus();
-        await expect(page.getByTestId('home-agent-id')).toBeVisible();
-        const modeTabs = page.getByRole('tablist', { name: 'Arbeitsmodus' });
-        await modeTabs.getByRole('tab', { name: 'Studio', exact: true }).click();
-        await expect(modeTabs.getByRole('tab', { name: 'Studio', exact: true })).toHaveAttribute('aria-selected', 'true');
-        await modeTabs.getByRole('tab', { name: 'Notebook', exact: true }).click();
-        await expect(page.getByTestId('home-agent-id')).toBeVisible();
-        if (width < 1024) {
-          await expect(page.locator('#home-attention-items')).toBeHidden();
-          await page.getByRole('button', { name: 'Benachrichtigungen anzeigen' }).click();
-          await expect(page.getByRole('dialog', { name: 'Benachrichtigungen' })).toBeVisible();
-          await page.keyboard.press('Escape');
-        }
-        await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-        await page.screenshot({ path: info.outputPath(`home-${width}.png`), fullPage: true });
-        const searched = page.waitForResponse(response => {
-          const url = new URL(response.url());
-          return url.pathname === '/api/files/quick-access' && url.searchParams.get('q') === path
-            && response.request().headers()['x-canvas-workspace-id'] === workspaceId;
-        });
-        await files.getByRole('textbox', { name: 'Dateien und Chats suchen …' }).fill(path);
-        const searchResponse = await searched;
-        expect(searchResponse.status()).toBe(200);
-        const searchPayload = await searchResponse.json();
-        expect(searchPayload.data.files.some((file: { path: string }) => file.path === path)).toBe(true);
-        await expect(files.locator('[aria-busy]')).toHaveAttribute('aria-busy', 'false');
-        await expect(files.getByRole('link', { name: new RegExp(path.replace('.md', '')) })).toHaveCount(1);
-        await files.getByRole('link', { name: new RegExp(path.replace('.md', '')) }).click();
-        await expect(page).toHaveURL(new RegExp(`/notebook\\?.*path=${path}`));
-      } finally {
-        expect((await page.request.delete('/api/files/delete', { headers, data: { path } })).ok()).toBeTruthy();
+      expect((await page.request.post('/api/files/quick-access', { headers, data: { path } })).ok()).toBeTruthy();
+      await page.goto('/de');
+      const files = page.getByTestId('home-files');
+      await expect(files.getByRole('heading', { name: 'Weiterarbeiten' })).toBeVisible();
+      const newNote = files.getByRole('button', { name: 'Neue Notiz' });
+      await expect(newNote).toBeInViewport();
+      await expect(files.locator(`a[href*="${path}"]`).first()).toBeInViewport();
+      await expect(page.getByTestId('home-agent-id')).toBeHidden();
+      await expect(page.locator('[data-prompt-hero-textarea]')).not.toBeFocused();
+      await page.screenshot({ path: info.outputPath(`home-${width}-initial.png`) });
+      await expect(page.locator('#home-suggestions')).toHaveCount(0);
+      await page.getByRole('button', { name: 'Ideen und Beispiele' }).click();
+      await expect(page.locator('#home-suggestions')).toBeVisible();
+      await page.getByRole('button', { name: 'Ideen und Beispiele' }).click();
+      await expect(page.locator('#home-suggestions')).toHaveCount(0);
+      await page.locator('[data-prompt-hero-textarea]').focus();
+      await expect(page.getByTestId('home-agent-id')).toBeVisible();
+      const modeTabs = page.getByRole('tablist', { name: 'Arbeitsmodus' });
+      await modeTabs.getByRole('tab', { name: 'Studio', exact: true }).click();
+      await expect(modeTabs.getByRole('tab', { name: 'Studio', exact: true })).toHaveAttribute('aria-selected', 'true');
+      await modeTabs.getByRole('tab', { name: 'Notebook', exact: true }).click();
+      await expect(page.getByTestId('home-agent-id')).toBeVisible();
+      if (width < 1024) {
+        await expect(page.locator('#home-attention-items')).toBeHidden();
+        await page.getByRole('button', { name: 'Benachrichtigungen anzeigen' }).click();
+        await expect(page.getByRole('dialog', { name: 'Benachrichtigungen' })).toBeVisible();
+        await page.keyboard.press('Escape');
       }
+      await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      await page.screenshot({ path: info.outputPath(`home-${width}.png`), fullPage: true });
+      const searched = page.waitForResponse(response => {
+        const url = new URL(response.url());
+        return url.pathname === '/api/files/quick-access' && url.searchParams.get('q') === path
+          && response.request().headers()['x-canvas-workspace-id'] === workspaceId;
+      });
+      await files.getByRole('textbox', { name: 'Dateien und Chats suchen …' }).fill(path);
+      const searchResponse = await searched;
+      expect(searchResponse.status()).toBe(200);
+      const searchPayload = await searchResponse.json();
+      expect(searchPayload.data.files.some((file: { path: string }) => file.path === path)).toBe(true);
+      await expect(files.locator('[aria-busy]')).toHaveAttribute('aria-busy', 'false');
+      await expect(files.getByRole('link', { name: new RegExp(path.replace('.md', '')) })).toHaveCount(1);
+      await files.getByRole('link', { name: new RegExp(path.replace('.md', '')) }).click();
+      await expect(page).toHaveURL(new RegExp(`/notebook\\?.*path=${path}`));
     });
   });
 }
@@ -80,41 +116,37 @@ for (const width of [390, 1440]) {
       const name = `Home note ${randomUUID()}`;
       const path = `${name}.md`;
       const headers = { 'x-canvas-workspace-id': workspaceId };
-      let created = false;
-      try {
-        await page.goto('/de');
-        await page.getByTestId('home-files').getByRole('button', { name: 'Neue Notiz' }).click();
-        await expect(page.getByRole('dialog')).toBeVisible();
-        await expect(page.getByLabel('Anderen Ordner wählen')).toBeHidden();
-        await page.getByText('Anderen Ordner wählen', { exact: true }).first().click();
-        await expect(page.getByLabel('Anderen Ordner wählen')).toBeVisible();
-        await page.getByText('Anderen Ordner wählen', { exact: true }).first().click();
-        await expect(page.getByLabel('Anderen Ordner wählen')).toBeHidden();
-        await page.getByLabel('Name der Notiz').fill(name);
-        const response = page.waitForResponse((item) => item.url().endsWith('/api/files/create') && item.request().method() === 'POST');
-        await page.getByRole('button', { name: 'Erstellen und öffnen' }).click();
-        expect((await response).ok()).toBeTruthy();
-        created = true;
-        await expect(page).toHaveURL(/\/notebook\?/);
-        await expect.poll(async () => {
-          const result = await (await page.request.get('/api/files/quick-access?view=recent', { headers })).json();
-          return result.data.files.some((file: { path: string; openedAt: number | null }) => file.path === path && file.openedAt !== null);
-        }).toBe(true);
-        const listed = page.waitForResponse(response => {
-          const url = new URL(response.url());
-          return url.pathname === '/api/files/quick-access' && url.searchParams.get('view') === 'recent'
-            && response.request().headers()['x-canvas-workspace-id'] === workspaceId;
-        });
-        await page.goto('/de');
-        const listResponse = await listed;
-        expect(listResponse.status()).toBe(200);
-        const listPayload = await listResponse.json();
-        expect(listPayload.data.files.some((file: { path: string }) => file.path === path)).toBe(true);
-        await expect(page.getByTestId('home-files').locator('[aria-busy]')).toHaveAttribute('aria-busy', 'false');
-        await expect(page.getByTestId('home-files').getByRole('link', { name: new RegExp(name) })).toBeVisible();
-      } finally {
-        if (created) expect((await page.request.delete('/api/files/delete', { headers, data: { path } })).ok()).toBeTruthy();
-      }
+      await page.goto('/de');
+      await page.getByTestId('home-files').getByRole('button', { name: 'Neue Notiz' }).click();
+      await expect(page.getByRole('dialog')).toBeVisible();
+      const folderAction = page.getByRole('dialog').getByRole('button', { name: 'Neuer Ordner', exact: true });
+      await expect(folderAction).toBeHidden();
+      await page.getByText('Anderen Ordner wählen', { exact: true }).first().click();
+      await expect(folderAction).toBeVisible();
+      await page.getByText('Anderen Ordner wählen', { exact: true }).first().click();
+      await expect(folderAction).toBeHidden();
+      await page.getByLabel('Name der Notiz').fill(name);
+      await waitForFileCreateBudget();
+      const response = page.waitForResponse((item) => item.url().endsWith('/api/files/create') && item.request().method() === 'POST');
+      await page.getByRole('button', { name: 'Erstellen und öffnen' }).click();
+      expect((await response).ok()).toBeTruthy();
+      await expect(page).toHaveURL(/\/notebook\?/);
+      await expect.poll(async () => {
+        const result = await (await page.request.get('/api/files/quick-access?view=recent', { headers })).json();
+        return result.data.files.some((file: { path: string; openedAt: number | null }) => file.path === path && file.openedAt !== null);
+      }).toBe(true);
+      const listed = page.waitForResponse(response => {
+        const url = new URL(response.url());
+        return url.pathname === '/api/files/quick-access' && url.searchParams.get('view') === 'recent'
+          && response.request().headers()['x-canvas-workspace-id'] === workspaceId;
+      });
+      await page.goto('/de');
+      const listResponse = await listed;
+      expect(listResponse.status()).toBe(200);
+      const listPayload = await listResponse.json();
+      expect(listPayload.data.files.some((file: { path: string }) => file.path === path)).toBe(true);
+      await expect(page.getByTestId('home-files').locator('[aria-busy]')).toHaveAttribute('aria-busy', 'false');
+      await expect(page.getByTestId('home-files').getByRole('link', { name: new RegExp(name) })).toBeVisible();
     });
 
   });
@@ -128,57 +160,58 @@ for (const width of [390, 1440]) {
       const headers = { 'x-canvas-workspace-id': workspaceId };
       const prefix = `home-qa-${randomUUID()}`;
       const paths: string[] = [];
-      try {
-        for (let i = 0; i < 7; i++) {
-          const path = `${prefix}-${i}.md`;
-          expect((await page.request.post('/api/files/create', { headers, data: { path, type: 'file' } })).ok()).toBeTruthy();
-          paths.push(path);
-          expect((await page.request.post('/api/files/quick-access', { headers, data: { path } })).ok()).toBeTruthy();
-        }
-        expect((await page.request.patch('/api/files/metadata', { headers, data: { path: paths[6], isFavorite: true, pinned: true } })).ok()).toBeTruthy();
-        await page.goto('/de');
-        const files = page.getByTestId('home-files');
-        const rows = files.locator('ul > li');
-        await expect(rows).toHaveCount(3);
-        await files.getByRole('button', { name: 'Dateien', exact: true }).click();
-        await expect(rows).toHaveCount(3);
-        await files.getByRole('button', { name: 'Weitere anzeigen' }).click();
-        await expect(rows.filter({ hasText: prefix })).toHaveCount(7);
-        await files.getByRole('button', { name: 'Weniger anzeigen' }).click();
-        await expect(rows).toHaveCount(3);
-        await files.getByRole('combobox', { name: 'Dateiansicht' }).selectOption('favorites');
-        await expect(files.locator(`ul a[href*="${paths[6]}"]`)).toBeVisible();
-        await files.getByRole('combobox', { name: 'Dateiansicht' }).selectOption('favorites');
-        await expect(files.locator(`ul a[href*="${paths[6]}"]`)).toBeVisible();
-        await files.getByRole('combobox', { name: 'Dateiansicht' }).selectOption('frequent');
-        await files.getByRole('button', { name: 'Weitere anzeigen' }).click();
-        await expect(rows.filter({ hasText: prefix })).toHaveCount(7);
-        await files.getByRole('combobox', { name: 'Dateiansicht' }).selectOption('all');
-        const search = files.getByRole('textbox', { name: 'Dateien suchen …' });
-        await search.fill(`${prefix}-missing`);
-        await expect(files.getByText('Keine passenden Dateien')).toBeVisible();
-        await files.getByRole('button', { name: 'Suche löschen' }).click();
-        await expect(files.getByText('Keine passenden Dateien')).toHaveCount(0);
-        const importPath = `${prefix}-import.txt`;
-        paths.push(importPath);
-        await files.locator('input[type=file]').setInputFiles({ name: importPath, mimeType: 'text/plain', buffer: Buffer.from('Playwright homepage import fixture') });
-        await expect(files.getByRole('button', { name: 'Dateien importieren', exact: true })).toBeEnabled();
-        await search.fill(importPath);
-        await expect(files.locator(`ul a[href*="${importPath}"]`)).toBeVisible();
-        await page.screenshot({ path: info.outputPath(`home-${width}-search.png`) });
-        await page.route('**/api/files/quick-access?**', route => route.fulfill({ status: 503, json: { success: false } }));
-        await files.getByRole('button', { name: 'Suche löschen' }).click();
-        await expect(files.getByRole('status')).toContainText('Dateien konnten nicht geladen werden.');
-        await page.unroute('**/api/files/quick-access?**');
-        await files.getByRole('button', { name: 'Erneut versuchen' }).click();
-        await expect(files.getByRole('alert')).toHaveCount(0);
-        await search.fill(importPath);
-        await files.locator(`ul a[href*="${importPath}"]`).click();
-        await expect(page).toHaveURL(/\/notebook\?/);
-        await expect(page.getByText('Playwright homepage import fixture', { exact: false }).first()).toBeVisible({ timeout: 15000 });
-      } finally {
-        if (paths.length) expect((await page.request.delete('/api/files/delete', { headers, data: { path: paths } })).ok()).toBeTruthy();
+      for (let i = 0; i < 7; i++) {
+        const path = `${prefix}-${i}.md`;
+        await waitForFileCreateBudget();
+        expect((await page.request.post('/api/files/create', { headers, data: { path, type: 'file' } })).ok()).toBeTruthy();
+        paths.push(path);
+        expect((await page.request.post('/api/files/quick-access', { headers, data: { path } })).ok()).toBeTruthy();
       }
+      expect((await page.request.patch('/api/files/metadata', { headers, data: { path: paths[6], isFavorite: true, pinned: true } })).ok()).toBeTruthy();
+      await page.goto('/de');
+      const files = page.getByTestId('home-files');
+      const rows = files.locator('ul > li');
+      await expect(rows).toHaveCount(3);
+      await files.getByRole('button', { name: 'Dateien', exact: true }).click();
+      await expect(rows).toHaveCount(3);
+      await files.getByRole('button', { name: 'Weitere anzeigen' }).click();
+      await expect(rows.filter({ hasText: prefix })).toHaveCount(7);
+      await files.getByRole('button', { name: 'Weniger anzeigen' }).click();
+      await expect(rows).toHaveCount(3);
+      await files.getByRole('combobox', { name: 'Dateiansicht' }).selectOption('favorites');
+      await expect(files.locator(`ul a[href*="${paths[6]}"]`)).toBeVisible();
+      await files.getByRole('combobox', { name: 'Dateiansicht' }).selectOption('favorites');
+      await expect(files.locator(`ul a[href*="${paths[6]}"]`)).toBeVisible();
+      await files.getByRole('combobox', { name: 'Dateiansicht' }).selectOption('frequent');
+      await files.getByRole('button', { name: 'Weitere anzeigen' }).click();
+      await expect(rows.filter({ hasText: prefix })).toHaveCount(7);
+      await files.getByRole('combobox', { name: 'Dateiansicht' }).selectOption('all');
+      const search = files.getByRole('textbox', { name: 'Dateien suchen …' });
+      await search.fill(`${prefix}-missing`);
+      await expect(files.getByText('Keine passenden Dateien')).toBeVisible();
+      await files.getByRole('button', { name: 'Suche löschen' }).click();
+      await expect(files.getByText('Keine passenden Dateien')).toHaveCount(0);
+      const importPath = `${prefix}-import.txt`;
+      paths.push(importPath);
+      await files.getByRole('button', { name: 'Dateien importieren', exact: true }).click();
+      const uploadDialog = page.getByRole('dialog', { name: 'Dateien hochladen', exact: true });
+      await expect(uploadDialog).toBeVisible();
+      await uploadDialog.locator('input[type=file]:not([webkitdirectory])').setInputFiles({ name: importPath, mimeType: 'text/plain', buffer: Buffer.from('Playwright homepage import fixture') });
+      await expect(uploadDialog).toBeHidden();
+      await expect(files.getByRole('button', { name: 'Dateien importieren', exact: true })).toBeEnabled();
+      await search.fill(importPath);
+      await expect(files.locator(`ul a[href*="${importPath}"]`)).toBeVisible();
+      await page.screenshot({ path: info.outputPath(`home-${width}-search.png`) });
+      await page.route('**/api/files/quick-access?**', route => route.fulfill({ status: 503, json: { success: false } }));
+      await files.getByRole('button', { name: 'Suche löschen' }).click();
+      await expect(files.getByRole('status')).toContainText('Dateien konnten nicht geladen werden.');
+      await page.unroute('**/api/files/quick-access?**');
+      await files.getByRole('button', { name: 'Erneut versuchen' }).click();
+      await expect(files.getByRole('alert')).toHaveCount(0);
+      await search.fill(importPath);
+      await files.locator(`ul a[href*="${importPath}"]`).click();
+      await expect(page).toHaveURL(/\/notebook\?/);
+      await expect(page.getByText('Playwright homepage import fixture', { exact: false }).first()).toBeVisible({ timeout: 15000 });
     });
 
     test('notification actions and disclosure with controlled fixtures', async ({ page }, info) => {

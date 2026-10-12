@@ -13,11 +13,13 @@ import { groupWorkspaceLinkWrites } from '@/app/lib/markdown/workspace-link-writ
 import { applyWorkspaceLinkWriteGroup, preflightWorkspaceLinkWrites,
   probeWorkspaceLinkWriteGroup, type WorkspaceLinkWriteExecutorInput } from '@/app/lib/markdown/workspace-link-write-executor';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
+import { normalizeWorkspaceRelativePath } from '@/app/lib/workspaces/path-guard';
+import { withWorkspaceFileLifecycleGuards } from './workspace-file-lifecycle-guard';
 import { initializeCopiedFileCollaborationPaths } from './collaboration-policy';
 import { observeWorkspaceOperation, type WorkspaceOperationMetricPhase } from './workspace-operation-observability';
 import { captureWorkspaceOperationBackup } from './workspace-operation-backup';
 import { createWorkspaceFileOperationExecutor, type WorkspaceOperationExecutionResult } from './workspace-file-operation-executor';
-import { WorkspaceOperationJournal, type WorkspaceOperationRequest } from './workspace-operation-journal';
+import { WorkspaceOperationJournal, type WorkspaceOperationRecord, type WorkspaceOperationRequest } from './workspace-operation-journal';
 import { probeWorkspacePathOperation, probeWorkspacePathSelectionOperation } from './workspace-operation-path-probe';
 import { WorkspaceOperationStaging, type WorkspaceOperationStage } from './workspace-operation-staging';
 import { renameWorkspacePath, type WorkspacePathRenameResult } from './rename-service';
@@ -127,23 +129,46 @@ export async function executeWorkspaceFileOperationService(
   const sourceWorkspaceId = input.source.workspace.workspaceId;
   const destinationWorkspaceId = input.destination.workspace.workspaceId;
   try {
-    return await withWorkspaceCopyMutationLocks(input.source.fileOptions, input.destination.fileOptions, async () => {
     const journal = new WorkspaceOperationJournal();
+    const savedRequest = (record: WorkspaceOperationRecord | null): WorkspaceOperationRequest | null => {
+      if (!record) return null;
+      if (record.actor.id !== input.actorUserId || record.planId !== input.expectedPlanId
+        || record.sourceWorkspaceId !== sourceWorkspaceId || record.destinationWorkspaceId !== destinationWorkspaceId) {
+        throw Object.assign(new Error('Operation ID belongs to another workspace request.'), { status: 409 });
+      }
+      const request = JSON.parse(record.requestJson) as WorkspaceOperationRequest;
+      if (!sameRequestedSelections(input, request)) {
+        throw Object.assign(new Error('Operation parameters differ from the reviewed plan.'), { status: 409 });
+      }
+      return request;
+    };
+    // Resolve collision names before admission, so an unrelated owner of the
+    // original destination cannot block a copy to a different final path.
+    // Recovery uses its immutable stored target rather than choosing a new one.
+    const priorRequest = savedRequest(await journal.get(operationId));
+    let guardedSelections = priorRequest?.selections ?? input.selections;
+    if (!priorRequest && input.kind === 'copy' && input.renameOnCollision) {
+      const preliminary = await buildWorkspaceFileOperationPreview({
+        kind: input.kind, sourceWorkspaceId, destinationWorkspaceId,
+        sourceOptions: input.source.fileOptions, destinationOptions: input.destination.fileOptions,
+        selections: input.selections, renameOnCollision: true,
+      });
+      guardedSelections = selectedFinalPaths(preliminary, input.selections);
+    }
+    const destinationPaths = guardedSelections.map((selection) => normalizeWorkspaceRelativePath(selection.destinationPath));
+    return await withWorkspaceFileLifecycleGuards([
+      { workspaceId: sourceWorkspaceId, paths: input.selections.map((selection) => normalizeWorkspaceRelativePath(selection.sourcePath)) },
+      { workspaceId: destinationWorkspaceId, paths: destinationPaths },
+    ], () => withWorkspaceCopyMutationLocks(input.source.fileOptions, input.destination.fileOptions, async () => {
     const staging = new WorkspaceOperationStaging();
     let rename: WorkspacePathRenameResult | null = null;
     const copied: string[] = [];
     const known = await journal.get(operationId);
-    if (known && (known.actor.id !== input.actorUserId || known.planId !== input.expectedPlanId
-      || known.sourceWorkspaceId !== sourceWorkspaceId || known.destinationWorkspaceId !== destinationWorkspaceId)) {
-      throw Object.assign(new Error('Operation ID belongs to another workspace request.'), { status: 409 });
-    }
+    const recoveredRequest = savedRequest(known);
     let request: WorkspaceOperationRequest;
     let plan: WorkspaceFileOperationPreview | null = null;
-    if (known) {
-      request = JSON.parse(known.requestJson) as WorkspaceOperationRequest;
-      if (!sameRequestedSelections(input, request)) {
-        throw Object.assign(new Error('Operation parameters differ from the reviewed plan.'), { status: 409 });
-      }
+    if (recoveredRequest) {
+      request = recoveredRequest;
     } else {
       plan = await buildWorkspaceFileOperationPreview({
         kind: input.kind, sourceWorkspaceId, destinationWorkspaceId,
@@ -161,6 +186,12 @@ export async function executeWorkspaceFileOperationService(
         throw new WorkspacePreviewBlockedError();
       }
       request = { kind: input.kind, selections: selectedFinalPaths(plan, input.selections) };
+    }
+    // Replanning and rereading the journal happen under both canonical
+    // workspace guards. Never apply a target that changed during acquisition.
+    if (request.selections.length !== destinationPaths.length || request.selections.some((selection, index) =>
+      normalizeWorkspaceRelativePath(selection.destinationPath) !== destinationPaths[index])) {
+      throw new WorkspacePreviewStaleError();
     }
 
     const executor = createWorkspaceFileOperationExecutor({
@@ -255,7 +286,7 @@ export async function executeWorkspaceFileOperationService(
     });
     observeExecutionStatus(input.kind, execution.status, 'apply');
     return { execution, plan: preview, rename, copied, alreadyKnown: false };
-    });
+    }));
   } catch (error) {
     if (error instanceof WorkspacePreviewStaleError || (error as { status?: unknown })?.status === 409) {
       observeWorkspaceOperation({ scope: 'executor', kind: input.kind, phase: 'apply', outcome: 'conflict' });

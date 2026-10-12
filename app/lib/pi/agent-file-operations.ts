@@ -3,8 +3,10 @@ import { existsSync, promises as fs, realpathSync } from 'node:fs';
 import type { Stats } from 'node:fs';
 import path from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
+import { resolveFreshAgentSkillReadRoots } from '@/app/lib/skills/fresh-agent-skill-read-roots';
 
 import { recordAuditEvent } from '@/app/lib/audit/audit-service';
+import { withWorkspaceFileLifecycleGuard } from '@/app/lib/files/workspace-file-lifecycle-guard';
 import { DEFAULT_MANAGED_AGENT_ID } from '@/app/lib/agents/storage';
 import { logger } from '@/app/lib/logging';
 import {
@@ -379,8 +381,7 @@ async function assertAgentRuntimeTempWriteQuota(params: {
   });
 }
 
-function assertContextWorkspaceReadAllowed(candidatePath: string): void {
-  const executionContext = getAgentExecutionContext();
+function assertContextWorkspaceReadAllowed(candidatePath: string, executionContext = getAgentExecutionContext()): void {
   if (!executionContext) return;
 
   const resolvedPath = path.resolve(candidatePath);
@@ -482,7 +483,12 @@ export function isProtectedAgentPath(candidatePath: string): boolean {
 }
 
 export async function assertAgentPathAllowed(candidatePath: string): Promise<void> {
-  assertContextWorkspaceReadAllowed(candidatePath);
+  const captured = getAgentExecutionContext();
+  let checkedContext = captured;
+  if (captured && isPathWithinAnyRootVariant(candidatePath, [...(captured.skillReadRoots ?? [])])) {
+    checkedContext = { ...captured, skillReadRoots: await resolveFreshAgentSkillReadRoots(captured) };
+  }
+  assertContextWorkspaceReadAllowed(candidatePath, checkedContext);
 
   if (isProtectedAgentPath(candidatePath)) {
     throw new Error('Access to this path is restricted for security reasons.');
@@ -490,7 +496,10 @@ export async function assertAgentPathAllowed(candidatePath: string): Promise<voi
 
   try {
     const realPath = await fs.realpath(candidatePath);
-    assertContextWorkspaceReadAllowed(realPath);
+    if (captured && isPathWithinAnyRootVariant(realPath, [...(captured.skillReadRoots ?? [])])) {
+      checkedContext = { ...captured, skillReadRoots: await resolveFreshAgentSkillReadRoots(captured) };
+    }
+    assertContextWorkspaceReadAllowed(realPath, checkedContext);
     if (isProtectedAgentPath(realPath)) {
       throw new Error('Access to this path is restricted for security reasons.');
     }
@@ -1402,6 +1411,21 @@ async function withAgentWorkspaceMutationLocks<T>(
   if (workspacePaths.length === 0) return operation();
 
   return withWorkspaceFileMutationLocks(workspacePaths, { workspace }, operation);
+}
+
+/** Path actions keep admission fenced until their filesystem and metadata work finish. */
+async function withAgentWorkspacePathLifecycleGuard<T>(
+  fullPaths: readonly string[],
+  operation: () => Promise<T>,
+): Promise<T> {
+  const workspace = getAgentWorkspaceContext();
+  const workspacePaths = workspace ? fullPaths
+    .filter((fullPath) => isPathWithin(fullPath, workspace.rootPath))
+    .map((fullPath) => workspaceRelativeAgentPath(workspace, fullPath)) : [];
+  if (!workspace || workspacePaths.length === 0) return withAgentWorkspaceMutationLocks(fullPaths, operation);
+  return withWorkspaceFileLifecycleGuard({ workspaceId: workspace.workspaceId,
+    paths: workspacePaths.map((entry) => entry === '.' ? '' : entry) },
+  () => withAgentWorkspaceMutationLocks(fullPaths, operation));
 }
 
 async function assertAgentFileUnchangedBeforeReplace(params: {
@@ -3646,7 +3670,7 @@ export async function copyAgentPaths(params: {
     idempotencyKey: params.idempotencyKey,
   });
   if (review) return review;
-  return withAgentWorkspaceMutationLocks(
+  return withAgentWorkspacePathLifecycleGuard(
     mutationStates.map((state) => state.fullPath),
     async () => {
       await assertAgentPathMutationStatesUnchanged(mutationStates, 'copy_path');
@@ -3810,7 +3834,7 @@ export async function moveAgentPaths(params: {
       idempotencyKey: params.idempotencyKey,
     });
     if (review) return review;
-    return withAgentWorkspaceMutationLocks(
+    return withAgentWorkspacePathLifecycleGuard(
       mutationStates.map((state) => state.fullPath),
       async () => {
         await assertAgentPathMutationStatesUnchanged(mutationStates, 'move_path');
@@ -3996,7 +4020,7 @@ export async function deleteAgentPaths(params: {
       ignoreMissing: params.ignoreMissing, recursive: params.recursive, idempotencyKey: params.idempotencyKey,
     });
     if (review) return review;
-    return withAgentWorkspaceMutationLocks(
+    return withAgentWorkspacePathLifecycleGuard(
       mutationStates.map((state) => state.fullPath),
       async () => {
         await assertAgentPathMutationStatesUnchanged(mutationStates, 'delete_path');

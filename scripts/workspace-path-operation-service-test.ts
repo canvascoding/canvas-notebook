@@ -263,6 +263,20 @@ async function main(): Promise<void> {
     hasCode('PREVIEW_STALE', 409));
   assert.equal(stale.builds.length, 1);
   assert.equal(stale.creates.length, 0, 'a stale expected plan never queues a job');
+  const changedHtml = harness();
+  let htmlChecks = 0;
+  await assert.rejects(submitDirectWorkspacePathOperation(request({ expectedPlanId: planId }), {
+    ...changedHtml.dependencies,
+    htmlEvidenceCurrent: async (plan, scope) => {
+      htmlChecks += 1;
+      assert.equal(plan.planId, planId);
+      assert.equal(scope.workspace.workspaceId, 'workspace');
+      assert.equal(changedHtml.events.at(-1), 'plan', 'the live evidence check follows the fresh plan under the lock');
+      throw new WorkspaceOperationBatchError('PREVIEW_STALE', 409, 'The peer changed the HTML proof.');
+    },
+  }), hasCode('PREVIEW_STALE', 409));
+  assert.equal(htmlChecks, 1);
+  assert.equal(changedHtml.creates.length, 0, 'a changed live HTML proof never queues a path mutation');
   const invalid = harness();
   for (const input of [request({ selections: [] }), request({ idempotencyKey: '' }),
     request({ kind: 'delete', overwrite: true, selections: [{ sourcePath: 'source.md' }] })]) {

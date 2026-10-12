@@ -59,8 +59,8 @@ async function main(): Promise<void> {
       tools: ['auth_probe'],
     });
     assert.equal(preferences.enabled, true);
-    assert.deepEqual(preferences.tools, DIRECT_MCP_TOOL_IDS);
-    assert.equal(preferences.toolsVersion, 5);
+    assert.deepEqual(preferences.tools, DIRECT_MCP_TOOL_IDS.filter(tool => !['create_knowledge_source', 'import_knowledge_file'].includes(tool)));
+    assert.equal(preferences.toolsVersion, 6);
     assert.equal(typeof preferences.updatedAt, 'string');
     assert.equal(preferences.updatedBy, 'admin-1');
 
@@ -88,7 +88,7 @@ async function main(): Promise<void> {
     assert.deepEqual(await getDirectMcpServerPreferences(), {
       enabled: true,
       tools: ['auth_probe'],
-      toolsVersion: 5,
+      toolsVersion: 6,
     });
 
     await writeFile(settingsPath, JSON.stringify({
@@ -159,6 +159,8 @@ async function main(): Promise<void> {
         { id: 'edit_knowledge_source', available: true, enabled: true, scopes: ['knowledge:write'] },
         { id: 'read_knowledge_asset', available: true, enabled: true, scopes: ['knowledge:assets'] },
         { id: 'upload_knowledge_asset', available: true, enabled: true, scopes: ['knowledge:write'] },
+        { id: 'create_knowledge_source', available: true, enabled: false, scopes: ['knowledge:write'] },
+        { id: 'import_knowledge_file', available: true, enabled: false, scopes: ['knowledge:write'] },
       ],
     );
     assert.equal(

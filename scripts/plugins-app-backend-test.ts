@@ -10,6 +10,7 @@ import ts from 'typescript';
 import { NextRequest } from 'next/server';
 import { emailOAuthFeedbackKey } from '../app/lib/email/oauth-feedback';
 import { readPluginNavigation } from '../app/lib/plugins/plugin-navigation';
+import { unmanagedCapabilityResourceStoreFixture } from './helpers/unmanaged-capability-resource-store-fixture';
 
 type LoadFn = (request: string, parent: NodeModule | null, isMain: boolean) => unknown;
 const internals = Module as typeof Module & { _load: LoadFn };
@@ -22,6 +23,7 @@ let emailFails = false;
 let callbackConsumed = false;
 const readinessCalls: Array<Record<string, unknown>> = [];
 const context = { userId: 'owner', workspaceId: 'verified-workspace', profileId: 'profile', composioUserId: 'entity', storageScope: { userId: 'owner' } };
+const unmanagedResources = unmanagedCapabilityResourceStoreFixture(() => 'org');
 const database = { openDb: async () => ({
   run: async (sql: string, values: unknown[]) => { if (sql.includes('INSERT INTO composio_oauth_flow_states')) inserts.push(values); },
   close: async () => undefined,
@@ -33,6 +35,7 @@ let registryDeduplicator: (plugins: typeof personal[], preferredScope: string) =
 
 internals._load = (request, parent, isMain) => {
   const file = parent?.filename || '';
+  if (request === './store' && file.includes('/capabilities/resources/')) return unmanagedResources;
   if (request === 'server-only') return {};
   if (file.endsWith('/composio-oauth-state.ts')) {
     if (request === '@/app/lib/db') return database;
@@ -73,15 +76,15 @@ internals._load = (request, parent, isMain) => {
       },
     };
     if (request === '@/app/lib/pi/session-workspace-context') return { resolveAgentSessionWorkspaceForUser: async () => { throw new Error('Workspace should resolve once'); } };
-    if (request === '@/app/lib/plugins/canvas-plugin-registry') return { listCanvasPlugins: async (scope: { scopeType: string }) => [scope.scopeType === 'organization' ? organization : personal], deduplicateCanvasPluginInstallRecords: (plugins: typeof personal[], preferredScope: string) => registryDeduplicator(plugins, preferredScope) };
+    if (request === '@/app/lib/plugins/installed-plugin-read') return { readExactInstalledPlugin: async ({ resourceId }: { resourceId: string }) => resourceId === 'assigned' ? organization : personal };
     if (request === '@/app/lib/plugins/plugin-connection-readiness') return { resolvePluginConnectionReadiness: async (input: Record<string, unknown>) => {
       readinessCalls.push(input);
       const required = (input.connectors as typeof personal.connectors).email[0].required;
       return { ready: !required, items: [{ type: 'email', key: required ? 'assigned' : 'personal', required, ready: false, action: 'configure-email' }], summary: { total: 1, ready: 0, requiredMissing: required ? 1 : 0, recommendedMissing: required ? 0 : 1 } };
     } };
     if (request === '@/app/lib/capabilities/catalog') return { resolveEffectiveCapabilitySnapshot: async () => {
-      assert.equal(readinessCalls.length % 2, 0, 'both exact manifests are checked before snapshot resolution');
-      return { capabilities: (repeatAssignedResource ? [personal, organization, organization] : [personal, organization]).map(plugin => ({ ref: { ...plugin, resourceType: 'plugin' }, effectiveEnabled: plugin.scopeType === 'organization', readiness: plugin.scopeType === 'organization' ? 'personal-connection-required' : 'conflict' })) };
+      return { capabilities: (repeatAssignedResource ? [personal, organization, organization] : [personal, organization]).map(plugin => ({ ref: { ...plugin, resourceType: 'plugin', sourceType: 'standalone', sourcePluginId: null,
+        organizationId: plugin.scopeType === 'organization' ? 'org' : null, ownerUserId: plugin.scopeType === 'user' ? 'owner' : null }, effectiveEnabled: plugin.scopeType === 'organization', readiness: plugin.scopeType === 'organization' ? 'personal-connection-required' : 'conflict' })) };
     } };
   }
   if (file.endsWith('/api/email/oauth/callback/route.ts')) {
@@ -181,6 +184,8 @@ async function main() {
     const orgDetail = readPluginNavigation(new URL('https://canvas.example.test/en/plugins?view=installed&plugin=same-name&source=installed&resourceId=assigned&workspaceId=verified-workspace').searchParams);
     assert.equal(installed.find((plugin: { resourceId: string }) => plugin.resourceId === orgDetail.resourceId)?.scopeType, 'organization', 'an exact organization detail URL resolves the real API response instead of falling back to the same-name personal record');
     assert.ok(readinessCalls.every(call => call.fresh === true && call.workspaceId === 'verified-workspace' && call.userId === 'owner'));
+    assert.ok(readinessCalls.every(call => (call.connectors as typeof personal.connectors).email[0].required),
+      'Only the visible authorized package reaches connection discovery.');
     repeatAssignedResource = true;
     const repeated = await pluginsGet(new NextRequest('https://canvas.example.test/api/plugins?identity=resource&fresh=1', { headers: { 'x-canvas-workspace-id': 'requested-workspace' } }));
     const repeatedBody = await repeated.json();
@@ -188,7 +193,7 @@ async function main() {
     assert.deepEqual(repeatedBody.stats, installedBody.stats);
     repeatAssignedResource = false;
     await pluginsGet(new NextRequest('https://canvas.example.test/api/plugins?identity=resource&workspaceId=requested-workspace'));
-    assert.ok(readinessCalls.slice(-2).every(call => call.fresh === false));
+    assert.ok(readinessCalls.slice(-1).every(call => call.fresh === false));
 
     const { GET: emailGet } = await import('../app/api/email/oauth/callback/route');
     for (const [query, expected] of [

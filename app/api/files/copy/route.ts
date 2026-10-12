@@ -7,6 +7,8 @@ import { compactWorkspaceSelection, getWorkspacePathName, resolveMoveDestination
 import { assertFreshWorkspaceFileOperationPlan, buildWorkspaceFileOperationPreview, WorkspacePreviewBlockedError, WorkspacePreviewStaleError, WorkspacePreviewUnavailableError } from '@/app/lib/markdown/workspace-file-operation-preview';
 import { initializeCopiedFileCollaborationPaths } from '@/app/lib/files/collaboration-policy';
 import { executeWorkspaceFileOperationService } from '@/app/lib/files/workspace-file-operation-service';
+import { withWorkspaceFileLifecycleGuards } from '@/app/lib/files/workspace-file-lifecycle-guard';
+import { normalizeWorkspaceRelativePath } from '@/app/lib/workspaces/path-guard';
 import {
   applyRateLimit,
   invalidateWorkspaceFileViews,
@@ -194,7 +196,11 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    const result = await withWorkspaceCopyMutationLocks(sourceFileOptions, targetFileOptions, async () => {
+    const result = await withWorkspaceCopyMutationLocks(sourceFileOptions, targetFileOptions,
+    () => withWorkspaceFileLifecycleGuards([
+      { workspaceId: sourceWorkspaceResult.workspace.workspaceId,
+        paths: copySources.map(normalizeWorkspaceRelativePath).map((entry) => entry === '.' ? '' : entry) },
+    ], async () => {
       if (planId) {
         const currentPlan = await buildWorkspaceFileOperationPreview({
           kind: 'copy',
@@ -218,7 +224,7 @@ export async function POST(request: NextRequest) {
         workspace: targetWorkspaceResult.workspace, paths: copied.copied.filter((entry) => !initialized.has(entry)),
       });
       return copied;
-    });
+    }));
 
     invalidateWorkspaceFileViews({
       fileOptions: targetFileOptions,

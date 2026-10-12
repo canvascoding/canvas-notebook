@@ -1,0 +1,42 @@
+# Step 6a-c-2 — plugin workspace UI
+
+This step implements the workspace UI against the read and atomic publication contracts accepted in 6a-c-1 and earlier steps. Final production build, focused checks and read-only production-browser acceptance passed.
+
+## Implemented contract
+
+- `PluginWorkspace` provides Installed, Store, Updates and My drafts. Personal Own/Shared, explicitly readable Team, Organization and secondary All/System selections retain the actual ownership and exact resource references. Organization browsing does not depend on the old global Manage flag. The team picker uses current server-supplied readable choices; browse scope does not grant installation or management rights.
+- URL `workspaceId` takes precedence over the active workspace and is forwarded to catalog, details, update wizard and drafts. URL references are selections, not Read authority. `usePluginWorkspaceData` and the shared request helper bind each load to the current workspace/scope/audience/team/kind/query/page and discard obsolete responses. A Store failure preserves successfully loaded installed metadata; unknown or partial comparisons do not imply current versions or a zero-update result.
+- Old Installed links resolve through the current scoped catalog. One complete, exact matching instance supplies its reference to Detail; ambiguous names require an explicit variant selection; no match opens no unchecked detail. An old response cannot replace a newer scope selection.
+- `PackageDetailWorkspace` progressively loads safe metadata and presentation; Content and Versions are separate lazy operations. Contained skills keep their exact child reference and parent context. Use, Edit and Manage remain independent. Resource metadata, responsible-person and sharing controls reuse the existing server actions, without granting account access through package sharing.
+- A selected Store source retains its exact kind/registry/entry/version/checksum in the URL and wizard. The versions picker and release notes are available only when that full tuple matches the current offering. A same-name different registry or changed digest cannot supply a replacement checksum. Installed legacy aliases pass the canonical reference from the inspected descriptor to the update wizard.
+- `StorePackageWizard` previews safe declarations, contained skills, script requirements and configuration key names. Installation requires explicit confirmation of a currently offered target scope and independent initial grants/responsibility. Declared connection requirements do not select or share a provider account. Updates show the safe declaration differences, retain the reviewed metadata/grants/head/local-checksum CAS vector and require confirmation before replacing local changes. A 409 stops submission and requires a fresh manual review; there is no automatic overwrite or retry.
+- The existing package editor accepts only bounded relative file deep links, opens files present in the currently authorized tree and retains its draft CAS and dirty-text safeguards. Header Reload, task/scope changes, Back and browser history use the shared dirty/pending guard. Private creator draft navigation remains reachable when the source catalog or Read permission is unavailable; blocked resume exposes safe own status/discard without source Tree/File requests. All new workspace text uses the real DE/EN message namespaces.
+
+## Focused verification
+
+| Gate | Recorded result and boundary |
+| --- | --- |
+| `npm run test:plugins:workspace-ui` | Passed: shared request helper, actual React data hook/lists, wizard, lazy detail and shell. Includes exact same-name instances, stale workspace/scope responses, outage preservation, explicit target/grant inputs, update CAS/409 review, legacy-link resolution, dirty/pending Header/History fences and private draft recovery. |
+| Additional shell source-binding cases | Passed: different registry and old digest retain the selected tuple without picker/notes; legitimate tuple remains version-selectable; alias update receives the inspected canonical reference. |
+| Existing package editor/drafts UI | Passed: lazy resume, source/status matching, creator denial, revoke/discard, draft CAS and workspace/reference races. |
+| Existing searchable target picker | Passed. |
+| `npm run test:plugins:app` | All twelve existing plugin/navigation/backend/UI regression scripts passed. |
+| Focused ESLint | Passed for the new modules and fixtures at the recorded checkpoints. |
+| Whole-tree TypeScript | Final verification after the last source and browser-fixture additions passed. |
+
+The React/JSDOM gates control SafeDTO HTTP transport and, where needed, narrow lazy component boundaries. They exercise actual UI, navigation and request lifecycles; they do **not** prove current server ACLs, real provider behavior, production authentication or responsive browser layout.
+
+Local logs: `/tmp/canvas-plugin-ui-6ac2-workspace-final.log`, `-editor-regression-final.log`, `-picker-regression.log`, `-legacy-final.log`, `-final-tsc.log` and focused lint logs share the `/tmp/canvas-plugin-ui-6ac2` prefix. The last added shell cases are recorded separately in `/tmp/canvas-plugin-workspace-shell-ui.log` and `-lint.log`.
+
+## Final acceptance
+
+- Final `npm run build`, whole-tree TypeScript and changed-source/fixture ESLint passed against the frozen product sources. Two unfinished builds were deliberately stopped after concrete source-binding and canonical-reference review corrections; neither is counted as a successful build.
+- Actual production-host Playwright: **3/3 passed**, one Chromium worker, no retries, 37.4 seconds. Existing bootstrap login, real scoped catalog and verified owned HTTPS Store archive were used; no route mocks. Own/Shared/Organization, explicit missing-team behavior, Updates, private Drafts, Advanced, offering click/Back, exact preview, explicit target options and unreadable exact-resource errors passed. No readable team existed in the current directory; actual selection of an available team remains covered by the controlled UI gates, not claimed as browser acceptance.
+- Eighteen private PNGs under `/tmp/canvas-plugin-ui-6ac2-browser` cover EN Installed and DE Store lists, EN/DE preview at 1280/390 widths in light/dark, and the two error states. Viewport fit and visible target controls were checked; representative list, preview and denied-resource captures were visually inspected. These are narrow web viewports, not native iOS/Android acceptance. Production keyboard/focus and full mutating click acceptance remain the subsequent 6a-c-3 gate.
+- The first browser attempt began before the host was ready. Later fixture-only failures identified a legitimate finished `role=status` team notice and ambiguous global Back selectors. The final fixture targets the actual loading status and wizard controls, preserves the finished team notice check and waits for settled shell metadata before screenshots; final three-case acceptance passed.
+- Final full GitNexus index passed (65.0 seconds; 62,705 nodes, 169,547 edges, 300 flows). Staged review covers 294 symbols in 31 files, **MEDIUM**, with the expected legacy Settings navigation flow. Cumulative comparison against `main` covers 4,446 symbols in 437 files and the sixteen earlier workflow/MCP/settings flows, **CRITICAL**; this breadth was explicitly reported. New previously unindexed UI symbols were reviewed against their actual callers before edits. Only automatic graph documentation blocks were restored.
+- Independent actual SQL/filesystem readback for owned nonce `3454322acc`: resources, drafts, versions, preferences and intake all **zero**. The browser performed no package/connection/workspace mutations beyond semantic read-only preview/options POSTs. The exact owned Notebook host on 3001 was stopped with PID/command/CWD checks; the foreign managed stack on 3100 and its shared PostgreSQL/Control Plane were preserved. The owned HTTPS catalog fixture remains available for subsequent QA.
+
+Final logs: `/tmp/canvas-plugin-ui-6ac2-final-build.log`, `-final-tsc.log`, `-focused-lint.log`, `-source-corrections-lint.log`, `-browser-final-lint.log`, `-browser-final.log`, `-final-index.log` and `-readback.log`.
+
+Effective progressive Planning, native/Mobile clients and OAuth return behavior remain step 6b. Live external-account acceptance and rollout remain step 7. The integration gateway flag remains default off. This evidence does not claim live Canva execution, deployment, container work or completion of later steps.

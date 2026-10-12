@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { toPublicCapabilityPackageMetadata } from '@/app/lib/capabilities/packages/public-metadata';
 
 import { requireOrganizationPermission } from '@/app/lib/organization/permissions';
 import { restoreCanvasSkill } from '@/app/lib/skills/canvas-skill-store';
@@ -29,10 +30,10 @@ export async function POST(
     });
 
     if (!result.success) {
-      return NextResponse.json(result, { status: result.statusCode || 400 });
+      return NextResponse.json(toPublicCapabilityPackageMetadata(result), { status: result.statusCode || 400 });
     }
 
-    return NextResponse.json(result);
+    return NextResponse.json(toPublicCapabilityPackageMetadata(result));
   } catch (error) {
     console.error('[Skills Restore API] Error:', error);
     return NextResponse.json(
