@@ -131,7 +131,11 @@ RUN npm install -g npm@${NPM_VERSION}
 
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-ENV NODE_OPTIONS=--max-old-space-size=6144
+ARG CANVAS_RELEASE_BUILD_SKIP_TYPECHECK=0
+ARG CANVAS_RELEASE_BUILD_LOW_MEMORY=0
+ENV NODE_OPTIONS=--max-old-space-size=6144 \
+    CANVAS_RELEASE_BUILD_SKIP_TYPECHECK=${CANVAS_RELEASE_BUILD_SKIP_TYPECHECK} \
+    CANVAS_RELEASE_BUILD_LOW_MEMORY=${CANVAS_RELEASE_BUILD_LOW_MEMORY}
 RUN npm run build
 
 # Keep the already locked production tsx dependency; a second npm install
