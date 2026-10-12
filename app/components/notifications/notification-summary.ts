@@ -1,5 +1,7 @@
 'use client';
 
+import { openedDocumentAuthScope, type OpenedDocumentAuthScope } from '@/app/lib/collaboration/opened-document-registry';
+import { assertSessionRequestCurrent, assertSessionResponseCurrent } from '@/app/lib/auth/session-expiry';
 import type { FileChangeReviewNotificationReason, FileChangeReviewNotificationTarget } from '@/app/lib/file-version-center/notification-contract';
 import type { WorkspaceOperationNotificationTarget, WorkspacePathOperationNotificationTarget } from '@/app/lib/files/workspace-operation-notification-contract';
 
@@ -59,14 +61,23 @@ type ApiResponse<T> = {
   error?: string;
 };
 
-export async function readNotificationSummary(options: { activeChatSessionId?: string | null } = {}): Promise<NotificationSummary> {
+export async function readNotificationSummary(options: {
+  activeChatSessionId?: string | null;
+  signal?: AbortSignal;
+  authScope?: OpenedDocumentAuthScope | null;
+} = {}): Promise<NotificationSummary> {
+  const scope = options.authScope === undefined ? openedDocumentAuthScope() : options.authScope;
+  assertSessionRequestCurrent(scope, options.signal);
   const params = new URLSearchParams({ todoMode: 'lifecycle' });
   if (options.activeChatSessionId) params.set('activeChatSessionId', options.activeChatSessionId);
   const response = await fetch(`/api/notifications/summary${params.size ? `?${params}` : ''}`, {
     credentials: 'include',
     cache: 'no-store',
+    signal: options.signal,
   });
+  assertSessionResponseCurrent(response, scope, options.signal);
   const payload = await response.json().catch(() => null) as ApiResponse<NotificationSummary> | null;
+  assertSessionRequestCurrent(scope, options.signal);
   if (!response.ok || !payload?.success || !payload.data) {
     throw new Error(payload?.error || 'Failed to load notifications.');
   }

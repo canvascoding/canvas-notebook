@@ -1,11 +1,11 @@
 'use client';
 
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { useTranslations } from 'next-intl';
 import { ChevronDown, Sparkles } from 'lucide-react';
 import { useWorkspaceStore } from '@/app/store/workspace-store';
 
-import { readNotificationSummary, type NotificationSummary } from '@/app/components/notifications/notification-summary';
+import { useHomeNotificationSummary } from './useHomeNotificationSummary';
 import { PromptHero, type HomePromptMode } from './PromptHero';
 import { CategoryPills, type CategoryId } from './CategoryPills';
 import { InspirationPanel } from './InspirationPanel';
@@ -26,38 +26,7 @@ export function HomeWorkspaceView({
   const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
   const workspace = useWorkspaceStore((state) => state.workspaces.find((item) => item.id === state.activeWorkspaceId));
   const workspaceError = useWorkspaceStore((state) => state.error);
-  const [summary, setSummary] = useState<NotificationSummary | null>(null);
-  const [isLoadingSummary, setIsLoadingSummary] = useState(true);
-  const refreshSummary = useCallback(async () => {
-    try {
-      setSummary(await readNotificationSummary());
-    } catch {
-      // Keep the last successful summary during a failed background refresh.
-    } finally {
-      setIsLoadingSummary(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    const initialRefresh = window.setTimeout(() => {
-      void refreshSummary();
-    }, 0);
-    const interval = window.setInterval(() => {
-      if (document.visibilityState === 'visible') void refreshSummary();
-    }, 30_000);
-    const refreshAfterUpdate = () => window.setTimeout(() => void refreshSummary(), 100);
-    window.addEventListener('session_updated', refreshAfterUpdate);
-    window.addEventListener('todo_updated', refreshAfterUpdate);
-    window.addEventListener('notification_summary_updated', refreshAfterUpdate);
-
-    return () => {
-      window.clearTimeout(initialRefresh);
-      window.clearInterval(interval);
-      window.removeEventListener('session_updated', refreshAfterUpdate);
-      window.removeEventListener('todo_updated', refreshAfterUpdate);
-      window.removeEventListener('notification_summary_updated', refreshAfterUpdate);
-    };
-  }, [refreshSummary]);
+  const { active, summary, isLoadingSummary } = useHomeNotificationSummary();
 
   const handleCategoryClick = (id: CategoryId) => {
     setActiveCategory((previous) => (previous === id ? null : id));
@@ -75,6 +44,8 @@ export function HomeWorkspaceView({
     textarea.focus();
     textarea.setSelectionRange(prompt.length, prompt.length);
   };
+
+  if (!active) return null;
 
   return (
     <HomePages work={<>

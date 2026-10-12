@@ -16,7 +16,8 @@ import { WORKSPACE_OPERATION_NOTIFICATION_PREFIX, workspaceOperationReviewHref,
 import { openWorkspaceOperationReview } from '@/app/store/workspace-operation-review-store';
 import { openWorkspacePathOperationStatus } from '@/app/store/workspace-path-operation-store';
 import { buildTodoPopupHref } from '@/app/lib/todos/navigation';
-import { openedDocumentAuthScope } from '@/app/lib/collaboration/opened-document-registry';
+import { openedDocumentAuthScope, type OpenedDocumentAuthScope } from '@/app/lib/collaboration/opened-document-registry';
+import { assertSessionRequestCurrent, assertSessionResponseCurrent } from '@/app/lib/auth/session-expiry';
 
 export type NotificationMutation = {
   action: 'mark_all_read' | 'mark_item_read' | 'set_item_read_state' | 'dismiss_item';
@@ -160,14 +161,22 @@ export async function openWorkspaceOperationNotificationTarget(
   }
 }
 
-export async function updateNotification(payload: NotificationMutation): Promise<void> {
+export async function updateNotification(payload: NotificationMutation, options: {
+  signal?: AbortSignal;
+  authScope?: OpenedDocumentAuthScope | null;
+} = {}): Promise<void> {
+  const scope = options.authScope === undefined ? openedDocumentAuthScope() : options.authScope;
+  assertSessionRequestCurrent(scope, options.signal);
   const response = await fetch('/api/notifications/summary?todoMode=lifecycle', {
     method: 'PATCH',
     credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
+    signal: options.signal,
   });
+  assertSessionResponseCurrent(response, scope, options.signal);
   const body = await response.json().catch(() => null) as { success?: boolean; error?: string } | null;
+  assertSessionRequestCurrent(scope, options.signal);
   if (!response.ok || !body?.success) {
     throw new Error(body?.error || 'Failed to update notifications.');
   }

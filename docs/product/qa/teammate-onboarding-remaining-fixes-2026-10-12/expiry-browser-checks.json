@@ -1,0 +1,48 @@
+{
+  "stack": "single managed local production stack; genuine offboarding; delayed delivery of genuine login document only",
+  "completedAt": "2026-10-12T11:43:18.452Z",
+  "passed": 11,
+  "total": 11,
+  "checks": {
+    "member:real_offboarding_200": true,
+    "member:private_hidden_before_login_document": true,
+    "member:actual_auth_expiry_observed": true,
+    "member:automatic_localized_login": true,
+    "member:no_private_poll_or_activity_after_65_seconds": true,
+    "admin:real_offboarding_200": true,
+    "admin:private_hidden_before_login_document": true,
+    "admin:actual_auth_expiry_observed": true,
+    "admin:automatic_localized_login": true,
+    "admin:no_private_poll_or_activity_after_65_seconds": true,
+    "no_javascript_page_errors": true
+  },
+  "observations": {
+    "member": {
+      "locale": "de",
+      "current401Observed": true,
+      "authSettledAnonymous": true,
+      "quietDurationMs": 387720,
+      "postLoginPrivateRequests": 0,
+      "loginDocumentStatus": 200
+    },
+    "admin": {
+      "locale": "en",
+      "current401Observed": true,
+      "authSettledAnonymous": true,
+      "quietDurationMs": 188110,
+      "postLoginPrivateRequests": 0,
+      "loginDocumentStatus": 200
+    }
+  },
+  "pageErrors": [],
+  "correctedHarnessErrors": [
+    {
+      "actor": "member",
+      "message": "Cannot destructure property 'sessionId' of 'e.detail' as it is undefined."
+    },
+    {
+      "actor": "admin",
+      "message": "Cannot destructure property 'sessionId' of 'e.detail' as it is undefined."
+    }
+  ]
+}

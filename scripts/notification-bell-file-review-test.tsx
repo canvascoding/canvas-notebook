@@ -32,6 +32,13 @@ Object.defineProperty(dom.window.HTMLElement.prototype, 'releasePointerCapture',
 async function main() {
   const { fireEvent, render } = await import('@testing-library/react');
   const { NotificationBell } = await import('../app/components/notifications/NotificationBell');
+  const { authClient } = await import('../app/lib/auth-client');
+  const now = new Date();
+  const authSession = { user: { id: 'bell-review-user', name: 'Bell review', email: 'bell-review@example.test',
+    emailVerified: true, createdAt: now, updatedAt: now },
+  session: { id: 'bell-review-session', userId: 'bell-review-user', token: 'synthetic-browser-session',
+    createdAt: now, updatedAt: now, expiresAt: new Date('2099-01-01T00:00:00.000Z') } } as
+    NonNullable<ReturnType<typeof authClient.$store.atoms.session.get>['data']>;
   const { useFileVersionCenterStore, closeVersionCenter } = await import('../app/store/file-version-center-store');
   const { useWorkspaceStore } = await import('../app/store/workspace-store');
   const { useWorkspaceOperationReviewStore } = await import('../app/store/workspace-operation-review-store');
@@ -68,6 +75,7 @@ async function main() {
   const mutations: unknown[] = [];
   globalThis.fetch = async (input, init) => {
     const url = new URL(String(input), window.location.origin);
+    if (url.pathname === '/api/auth/get-session') return Response.json(authSession);
     if (url.pathname !== '/api/notifications/summary') throw new Error(`Unexpected fetch: ${url.pathname}`);
     if (init?.method === 'PATCH') {
       mutations.push(JSON.parse(String(init.body)));
@@ -75,6 +83,8 @@ async function main() {
     }
     return Response.json({ success: true, data: summary });
   };
+  authClient.$store.atoms.session.set({ ...authClient.$store.atoms.session.get(), data: authSession,
+    error: null, isPending: false, isRefetching: false });
   useWorkspaceStore.setState({
     activeWorkspaceId: 'workspace-one',
     initialized: true,
