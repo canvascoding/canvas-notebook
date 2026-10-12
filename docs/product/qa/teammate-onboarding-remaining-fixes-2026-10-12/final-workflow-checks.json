@@ -1,0 +1,106 @@
+{
+  "completedAt": "2026-10-12T12:09:26.997Z",
+  "passed": 57,
+  "total": 57,
+  "actors": [
+    {
+      "mode": "invite",
+      "role": "admin",
+      "locale": "de",
+      "checks": {
+        "prepared_through_admin_ui": true,
+        "actual_mailpit_arrival_and_link": true,
+        "account_activated": true,
+        "login_and_expected_role": true,
+        "profile_binds_own_personal_workspace": true,
+        "bradley_welcome_visible": true,
+        "full_onboarding_reaches_app": true,
+        "completed_onboarding_survives_reload": true,
+        "app_protected_summary_usable": true,
+        "admin_user_management_access": true,
+        "expected_email_behavior": true,
+        "no_javascript_page_errors": true,
+        "no_horizontal_overflow": true,
+        "own_account_offboarded": true
+      },
+      "cleanupRetries": 0,
+      "observedCleanupErrors": []
+    },
+    {
+      "mode": "direct",
+      "role": "member",
+      "locale": "en",
+      "checks": {
+        "prepared_through_admin_ui": true,
+        "seat_quote_approved": true,
+        "account_activated": true,
+        "login_and_expected_role": true,
+        "profile_binds_own_personal_workspace": true,
+        "bradley_welcome_visible": true,
+        "full_onboarding_reaches_app": true,
+        "completed_onboarding_survives_reload": true,
+        "app_protected_summary_usable": true,
+        "member_has_no_admin_access": true,
+        "expected_email_behavior": true,
+        "no_javascript_page_errors": true,
+        "no_horizontal_overflow": true,
+        "member_creates_edits_and_reloads_own_note": true,
+        "own_account_offboarded": true
+      },
+      "cleanupRetries": 1,
+      "observedCleanupErrors": [
+        {
+          "status": 500,
+          "message": "First normal offboarding attempt returned 500; account remained active; same UI retry returned 200."
+        }
+      ]
+    },
+    {
+      "mode": "invite",
+      "role": "member",
+      "locale": "de",
+      "checks": {
+        "prepared_through_admin_ui": true,
+        "actual_mailpit_arrival_and_link": true,
+        "account_activated": true,
+        "login_and_expected_role": true,
+        "profile_binds_own_personal_workspace": true,
+        "bradley_welcome_visible": true,
+        "full_onboarding_reaches_app": true,
+        "completed_onboarding_survives_reload": true,
+        "app_protected_summary_usable": true,
+        "member_has_no_admin_access": true,
+        "expected_email_behavior": true,
+        "no_javascript_page_errors": true,
+        "no_horizontal_overflow": true,
+        "own_account_offboarded": true
+      },
+      "cleanupRetries": 0,
+      "observedCleanupErrors": []
+    },
+    {
+      "mode": "direct",
+      "role": "admin",
+      "locale": "en",
+      "checks": {
+        "prepared_through_admin_ui": true,
+        "seat_quote_approved": true,
+        "account_activated": true,
+        "login_and_expected_role": true,
+        "profile_binds_own_personal_workspace": true,
+        "bradley_welcome_visible": true,
+        "full_onboarding_reaches_app": true,
+        "completed_onboarding_survives_reload": true,
+        "app_protected_summary_usable": true,
+        "admin_user_management_access": true,
+        "expected_email_behavior": true,
+        "no_javascript_page_errors": true,
+        "no_horizontal_overflow": true,
+        "own_account_offboarded": true
+      },
+      "cleanupRetries": 0,
+      "observedCleanupErrors": []
+    }
+  ],
+  "boundary": "Local production builds, real PostgreSQL, Playwright, Mailpit SMTP, no AI-provider prompt, no external SMTP/Stripe/remote CI."
+}

@@ -1,0 +1,30 @@
+{
+  "completedAt": "2026-10-12T12:11:12.533Z",
+  "passed": 8,
+  "total": 8,
+  "checks": {
+    "all_owned_accounts_banned": true,
+    "cancelled_invitation_created_no_account": true,
+    "all_four_final_accounts_offboarded": true,
+    "seats_restored_2_of_2_in_sync": true,
+    "original_mailpit_messages_preserved": true,
+    "no_foreign_mailpit_message_removed": true,
+    "owned_mailpit_messages_removed": true,
+    "smtp_baseline_restored": true
+  },
+  "observations": {
+    "ownedBannedAccounts": 8,
+    "originalMailpitMessages": 5,
+    "removedOwnMailpitMessages": 5,
+    "remainingMailpitMessages": 5,
+    "deletionStatus": 200,
+    "smtpConfigured": false,
+    "smtpDeliveryMode": "local",
+    "observedSeats": 2,
+    "licensedSeats": 2,
+    "reconciliation": "in_sync",
+    "aggregateFailedOperations": 70,
+    "aggregatePendingOperations": 1
+  },
+  "scope": "Normal account archiving preserves history and locks personal workspaces. Only exact owned Mailpit IDs and our central SMTP fixture changed. Existing historical operations and unrelated containers preserved."
+}

@@ -78,4 +78,32 @@ Im Browser liefern beide normalen Offboarding-Aktionen 200 und die betroffenen S
 
 Die [abschließende Browserprüfung](expiry-browser-checks.json) besteht **11/11** Kontrollen. Nach dem Login wurden beide Seiten länger als 65 Sekunden beobachtet; auch neue vertrauenswürdige Eingaben und gültige Refresh-Events erzeugen keinen privaten Summary-Request oder Activity-POST. Keine JavaScript-Seitenfehler im korrigierten Lauf. Zwei vom Test selbst mit einem ungültigen `session_updated`-Event ohne `detail` ausgelöste Fehler sind im JSON gesondert erhalten; der Lauf mit dem tatsächlichen CustomEvent-Vertrag besteht.
 
-Die beiden eigenen Profil-Testkonten sind archiviert. Der Lizenzabgleich bestätigt wieder **2 beobachtete / 2 lizenzierte Seats, in sync**. Damit sind alle vier Korrekturen lokal abgenommen. Die Gesamtprüfung und SMTP-/Mailpit-Bereinigung stehen noch aus.
+Die beiden eigenen Profil-Testkonten sind archiviert. Der Lizenzabgleich bestätigt wieder **2 beobachtete / 2 lizenzierte Seats, in sync**. Damit sind alle vier Korrekturen lokal abgenommen.
+
+## Abschließender vollständiger Workflow
+
+Alle vier Wege laufen auf demselben frisch gebauten finalen Image mit unveränderten Produktdateien. Die [Zustandsprüfungen](final-workflow-checks.json) bestehen **57/57**; der zusätzliche Fehler des ersten Cleanup-Versuchs ist im selben JSON ausdrücklich erhalten.
+
+| Einstieg | Rolle | Login und Onboarding | Rechte und App-Nutzung | Bereinigung |
+| --- | --- | --- | --- | --- |
+| Einladung, tatsächlicher Mailpit-Link | Administrator | Deutsch, persönlicher Bradley-Workspace, Skip, Abschluss, Reload | Nutzerverwaltung zugänglich | Offboarding 200 |
+| Direkte Kontoanlage mit Initialpasswort | Mitglied | Englisch, persönlicher Bradley-Workspace, Skip, Abschluss, Reload | Nutzerverwaltung 403; eigene Notiz erstellt, bearbeitet und nach Reload gelesen | Erster Versuch 500, erneuter UI-Versuch 200 |
+| Einladung, tatsächlicher Mailpit-Link | Mitglied | Deutsch, persönlicher Bradley-Workspace, Skip, Abschluss, Reload | Geschützte App-Abfragen 200, Nutzerverwaltung 403 | Offboarding 200 |
+| Direkte Kontoanlage mit Initialpasswort | Administrator | Englisch, persönlicher Bradley-Workspace, Skip, Abschluss, Reload | Nutzerverwaltung zugänglich | Offboarding 200 |
+
+Beide Einladungen kommen tatsächlich in Mailpit an; beide direkt angelegten Nutzer erhalten keine automatische Einladungsmail. Alle Konten erreichen die App, behalten den abgeschlossenen persönlichen Onboarding-Status nach Reload und haben die passende Rolle. Keine JavaScript-Seitenfehler bei diesen vier Wegen. Chromium bei 390 bzw. 1440 px; keine reale Mobilgerät-Prüfung.
+
+Nachweise: [eingeladener Administrator](11-final-invite-admin-bradley.png), [direkt angelegtes Mitglied](11-final-direct-member-bradley.png), [eingeladenes Mitglied auf Mobilbreite](11-final-invite-member-bradley.png), [direkt angelegter Administrator](11-final-direct-admin-bradley.png), [bearbeitete persönliche Notiz](12-member-created-edited-note.png).
+
+Die [Bereinigung](cleanup-checks.json) besteht **8/8** Kontrollen. Alle acht in diesem Durchlauf tatsächlich angelegten eigenen Konten sind gesperrt/archiviert; die abgebrochene Einladung hat weiterhin kein Nutzerkonto. Kontohistorie und persönliche Workspaces bleiben nach normalem Offboarding für Recovery erhalten. Fünf eigene Mailpit-Nachrichten wurden über ihre exakten IDs entfernt, die ursprünglichen fünf vollständig erhalten. Die zentrale SMTP-Testkonfiguration ist entfernt, die ursprüngliche Einstellung `configured=false`, `deliveryMode=local` wiederhergestellt. PostgreSQL, Control Plane und Notebook sind gesund; andere Container wurden nicht verändert.
+
+Der aktuelle Seat-Abgleich ist **2/2, in sync**. Die aggregierte Historie zeigt weiterhin 70 fehlgeschlagene und einen ausstehenden Vorgang; sie wurde nicht pauschal gelöscht oder als fehlerfreie Gesamtqueue dargestellt.
+
+## Weitere Befunde und Grenzen
+
+- **Offboarding nach Dokumentnutzung:** Beim direkt angelegten Mitglied lieferte die normale Offboarding-Aktion einmal 500 trotz erfolgreicher Vorprüfung. Das Konto blieb aktiv. Der erneute identische UI-Versuch lieferte 200, entfernte den Zugriff und gab den Seat frei. Die Ursache ist nicht eingegrenzt; dieser zusätzliche Befund bleibt offen und gehört nicht zu den vier bereits implementierten Korrekturen.
+- **Home-Einstieg:** Ein neues Mitglied sah zahlreiche ältere Hinweise aus dem lesbaren Shared Test Workspace. Eine klarere Behandlung von bereits vorhandenen Team-Hinweisen beim ersten Login könnte den Einstieg ruhiger machen. Zeitweise zeigte die E-Mail-Karte einen Fehlerhinweis; eine spätere echte Widget-Abfrage lieferte 200 mit `ready`. Ursache und Darstellung sollten getrennt weiter geprüft werden.
+- **Profil-UX:** Die allgemeine Chat-Werkzeugleiste und Subagenten bleiben im Profil sichtbar; nach Skip bleibt die Bradley-Onboarding-Sitzung im Notebook auswählbar. Ein kompakterer Profil-Einstieg und ein klarer Übergang zum normalen Arbeiten wären weitere Verbesserungen.
+- **Prüfgrenze:** Die Browserfälle verwenden den Profil-Skip. Kein KI-Profilgespräch oder externer SMTP-/Stripe-/Remote-CI-Nachweis. Profil-Completion und Memory-Persistenz sind im isolierten Service-Test geprüft. Die bereits oben beschriebene Rotation der ausgegebenen MCP-/HF-Tokens bleibt offen.
+
+Die vier Korrekturen sind lokal umgesetzt, einzeln committed und abgenommen. Vollständige Rollenprüfung, eigene Testdaten-Bereinigung und Abschlussdokumentation sind fertig; zusätzliche Befunde bleiben ausdrücklich dokumentiert.
