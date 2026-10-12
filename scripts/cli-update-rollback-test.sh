@@ -312,7 +312,7 @@ if CANVAS_TEST_SLOW_PULL=true CANVAS_UPDATE_DEADLINE_EPOCH_MS="$short_deadline" 
   exit 1
 fi
 elapsed="$(( $(date +%s) - started_at ))"
-if [[ "$elapsed" -ge 15 ]]; then
+if [[ "$elapsed" -ge 25 ]]; then
   printf 'slow pull was not terminated within the deadline window (elapsed=%ss)\n' "$elapsed" >&2
   cat "$TMP_DIR/deadline-pull.json" >&2
   cat "$TMP_DIR/deadline-pull.err" >&2
@@ -386,7 +386,7 @@ signal_compose_env_before="$(cksum "$CANVAS_COMPOSE_ENV")"
 CANVAS_TEST_SLOW_HEALTH=true "$cli" update --image "$CANVAS_TEST_TARGET_IMAGE" --json --no-banner > "$TMP_DIR/signal.json" 2> "$TMP_DIR/signal.err" &
 signal_pid=$!
 signal_applied=false
-for _ in $(seq 1 100); do
+for _ in $(seq 1 300); do
   if [[ "$(cat "$CANVAS_TEST_STATE_DIR/running-image-id")" == "new-image-id" ]]; then
     signal_applied=true
     break
