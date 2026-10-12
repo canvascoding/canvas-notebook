@@ -11,6 +11,29 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.10.12.1] - 2026-10-12
+
+### Added
+
+- Added scoped integration catalogs and schema-bound tool dispatch for MCP and Composio, including shared connections and native OAuth flows.
+- Added destination-folder creation to file creation, import, move, and save dialogs.
+- Added secure MCP file ingestion and Markdown checks, plus persisted MCP Apps in mobile chat history.
+- Added email capture diagnostics, setup guidance, and clearer mailbox categorization and inbox status.
+
+### Changed
+
+- Expanded agent tool access to support scoped shared integrations and authorized workflows.
+- Improved mobile and desktop handling of shared plugin connections and file destinations.
+
+### Fixed
+
+- Improved email capture reliability and preserved email categorization and reply details.
+- Fixed collaborative document and file workflows around destination creation, link validation, and live session recovery.
+
+### Verification
+
+- `npm run verify:release`
+
 ## [2026.10.10.1] - 2026-10-10
 
 ### Added
