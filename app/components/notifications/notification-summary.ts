@@ -12,6 +12,7 @@ export type NotificationItem = {
   detail: string | null;
   occurredAt: string;
   unread: boolean;
+  notificationRevision?: string;
   priority: 'normal' | 'high';
   deepLink?: string;
   fileChangeReason?: FileChangeReviewNotificationReason;

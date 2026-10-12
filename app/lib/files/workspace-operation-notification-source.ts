@@ -18,6 +18,7 @@ export type WorkspaceOperationNotificationItem = {
   deepLink: string;
   occurredAt: string;
   unread: boolean;
+  notificationRevision: string;
   priority: 'normal' | 'high';
   workspaceId: string;
   workspaceName: string | null;
@@ -25,6 +26,7 @@ export type WorkspaceOperationNotificationItem = {
 };
 
 type Scope = { userId: string; workspace: WorkspaceContext };
+type DismissInput = Scope & { itemId: string; expectedRevision: string };
 type Row = { review_id: string; batch_id: string | null; operation_kind: WorkspaceOperationReviewKind;
   status: WorkspaceOperationAttentionStatus; source_path: string; updated_at: string | number; unread: boolean };
 const ACTIONABLE = `review.source_workspace_id = $1 AND review.destination_workspace_id = $1
@@ -34,6 +36,25 @@ const ACTIONABLE = `review.source_workspace_id = $1 AND review.destination_works
 function canRead(input: Scope): boolean {
   return Boolean(input.userId && input.workspace.workspaceId && input.workspace.permissions.canRead
     && (input.workspace.status ?? 'active') === 'active');
+}
+
+// A versioned state key keeps a late dismissal from hiding a newer failure. No action state is changed.
+async function dismissNotificationVersion(database: FileVersionCenterDatabase, now: () => number,
+  input: DismissInput, query: { cte?: string; select: string }): Promise<{ updated: number }> {
+  if (!canRead(input) || typeof input.itemId !== 'string' || typeof input.expectedRevision !== 'string'
+    || !/^(0|[1-9][0-9]{0,15})$/u.test(input.expectedRevision)) return { updated: 0 };
+  return database.transaction(async (transaction) => {
+    const result = await transaction.query<{ item_key: string }>(`${query.cte ?? ''}
+      INSERT INTO mobile_inbox_read_states (user_id,workspace_id,item_key,read_at,dismissed_at,created_at,updated_at)
+      SELECT $2,$1,action.item_key || ':dismissed:' || action.updated_at::text,action.updated_at,$3,$3,$3
+      FROM (${query.select}) action
+      WHERE action.item_key = $4 AND action.updated_at::text = $5
+        AND action.status IN ('blocked','stale','failed','needs_recovery')
+      ON CONFLICT (user_id,workspace_id,item_key) DO UPDATE SET
+        dismissed_at = EXCLUDED.dismissed_at,updated_at = EXCLUDED.updated_at
+      RETURNING item_key`, [input.workspace.workspaceId, input.userId, now(), input.itemId, input.expectedRevision]);
+    return { updated: result.rows.length };
+  });
 }
 
 export function createWorkspaceOperationNotificationSource(options: {
@@ -48,7 +69,10 @@ export function createWorkspaceOperationNotificationSource(options: {
       const from = `FROM workspace_file_operation_reviews review
         LEFT JOIN mobile_inbox_read_states state ON state.user_id = $2 AND state.workspace_id = $1
           AND state.item_key = '${WORKSPACE_OPERATION_NOTIFICATION_PREFIX}' || review.review_id
-        WHERE ${ACTIONABLE}`;
+        LEFT JOIN mobile_inbox_read_states dismissed ON dismissed.user_id = $2 AND dismissed.workspace_id = $1
+          AND dismissed.item_key = '${WORKSPACE_OPERATION_NOTIFICATION_PREFIX}' || review.review_id
+            || ':dismissed:' || review.updated_at::text
+        WHERE ${ACTIONABLE} AND dismissed.dismissed_at IS NULL`;
       const params = [input.workspace.workspaceId, input.userId];
       const counts = await transaction.query<{ total: string | number }>(
         `SELECT COUNT(*) FILTER (WHERE COALESCE(state.read_at, 0) < review.updated_at) AS total ${from}`, params);
@@ -69,7 +93,8 @@ export function createWorkspaceOperationNotificationSource(options: {
           type: 'file.operation_review_required', title: row.status === 'queued' ? 'File action queued'
             : row.status === 'applying' ? 'File action running' : 'File action needs attention', detail: row.source_path ?? '',
           previewUrl: null, deepLink: workspaceOperationReviewHref(target), occurredAt: new Date(timestamp).toISOString(),
-          unread: row.unread, priority: ['pending', 'queued', 'applying'].includes(row.status) ? 'normal' : 'high', target,
+          unread: row.unread, notificationRevision: String(timestamp),
+          priority: ['pending', 'queued', 'applying'].includes(row.status) ? 'normal' : 'high', target,
           workspaceId: input.workspace.workspaceId, workspaceName: input.workspace.displayName ?? null }];
       });
       return { items, unreadCount: Number(counts.rows[0]?.total ?? 0) };
@@ -85,7 +110,7 @@ export function createWorkspaceOperationNotificationSource(options: {
     return database.transaction(async (transaction) => {
       const result = await transaction.query<{ item_key: string }>(`INSERT INTO mobile_inbox_read_states
         (user_id, workspace_id, item_key, read_at, dismissed_at, created_at, updated_at)
-        SELECT $2, $1, '${WORKSPACE_OPERATION_NOTIFICATION_PREFIX}' || review.review_id, $3, NULL, $3, $3
+        SELECT $2, $1, '${WORKSPACE_OPERATION_NOTIFICATION_PREFIX}' || review.review_id, review.updated_at, NULL, $3, $3
         FROM workspace_file_operation_reviews review WHERE ${ACTIONABLE}
           ${reviewId === undefined ? '' : 'AND review.review_id = $4'}
         ON CONFLICT (user_id, workspace_id, item_key) DO UPDATE SET
@@ -96,7 +121,12 @@ export function createWorkspaceOperationNotificationSource(options: {
     });
   };
 
-  return { list, markRead };
+  const dismiss = (input: DismissInput) => dismissNotificationVersion(database, now, input, {
+    select: `SELECT '${WORKSPACE_OPERATION_NOTIFICATION_PREFIX}' || review.review_id AS item_key,
+      review.updated_at,review.status FROM workspace_file_operation_reviews review WHERE ${ACTIONABLE}`,
+  });
+
+  return { list, markRead, dismiss };
 }
 
 export const workspaceOperationNotificationSource = createWorkspaceOperationNotificationSource();
@@ -130,6 +160,9 @@ const PATH_OPERATION_ATTENTION = `WITH actions AS (
   SELECT actions.*, COALESCE(state.read_at, 0) < actions.updated_at AS unread FROM actions
   LEFT JOIN mobile_inbox_read_states state ON state.user_id = $2 AND state.workspace_id = $1
     AND state.item_key = actions.item_key
+  LEFT JOIN mobile_inbox_read_states dismissed ON dismissed.user_id = $2 AND dismissed.workspace_id = $1
+    AND dismissed.item_key = actions.item_key || ':dismissed:' || actions.updated_at::text
+  WHERE dismissed.dismissed_at IS NULL
 )`;
 
 export function createWorkspacePathOperationNotificationSource(options: {
@@ -164,7 +197,8 @@ export function createWorkspacePathOperationNotificationSource(options: {
             : row.status === 'applying' ? 'File action running' : 'File action needs attention',
           detail: [sourcePath, errorCode].filter(Boolean).join(' · '),
           previewUrl: null, deepLink: workspacePathOperationHref(target), occurredAt: new Date(timestamp).toISOString(),
-          unread: row.unread, priority: ['queued', 'applying'].includes(row.status) ? 'normal' : 'high', target,
+          unread: row.unread, notificationRevision: String(timestamp),
+          priority: ['queued', 'applying'].includes(row.status) ? 'normal' : 'high', target,
           workspaceId: input.workspace.workspaceId, workspaceName: input.workspace.displayName ?? null }];
       });
       return { items, unreadCount: Number(counts.rows[0]?.total ?? 0) };
@@ -190,7 +224,12 @@ export function createWorkspacePathOperationNotificationSource(options: {
     });
   };
 
-  return { list, markRead };
+  const dismiss = (input: DismissInput) => dismissNotificationVersion(database, now, input, {
+    cte: PATH_OPERATION_ATTENTION,
+    select: 'SELECT item_key,updated_at,status FROM actions',
+  });
+
+  return { list, markRead, dismiss };
 }
 
 export const workspacePathOperationNotificationSource = createWorkspacePathOperationNotificationSource();

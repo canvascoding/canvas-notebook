@@ -10,15 +10,16 @@ async function main() {
       canManageWorkspace: true, canRunAgent: true } };
   const problemId = 'a'.repeat(64);
   const batchId = 'batch-abcdefghijklmnop';
-  const calls: Array<{ lane: string; itemId?: string; workspaceId: string }> = [];
+  const calls: Array<{ lane: string; itemId?: string; workspaceId: string; expectedRevision?: string }> = [];
   let authenticated = true;
   let legacyAvailable = false;
   let directAvailable = true;
   let updateFound = true;
+  let dismissFailed = false;
   const directItems = [{ id: `file-path-problem:${problemId}`, type: 'file.operation_attention',
     title: 'File action needs attention', detail: 'EACCES', previewUrl: null,
     deepLink: `/notebook?workspaceId=workspace-a&workspacePathProblem=${problemId}`, occurredAt: new Date(100).toISOString(),
-    unread: true, priority: 'high', workspaceId: workspace.workspaceId, workspaceName: workspace.displayName,
+    unread: true, notificationRevision: '100', priority: 'high', workspaceId: workspace.workspaceId, workspaceName: workspace.displayName,
     target: { kind: 'file_path_operation', workspaceId: workspace.workspaceId, operationKind: 'delete', status: 'failed', problemId } }];
   const internals = Module as typeof Module & { _load: (request: string, parent: NodeModule | null, isMain: boolean) => unknown };
   const originalLoad = internals._load;
@@ -58,11 +59,20 @@ async function main() {
         markRead: async ({ workspace: selected, itemId }: { workspace: WorkspaceContext; itemId?: string }) => {
           calls.push({ lane: 'review', itemId, workspaceId: selected.workspaceId }); return { updated: 1 };
         },
+        dismiss: async ({ workspace: selected, itemId, expectedRevision }: { workspace: WorkspaceContext; itemId: string; expectedRevision: string }) => {
+          calls.push({ lane: 'review-dismiss', itemId, expectedRevision, workspaceId: selected.workspaceId });
+          return { updated: updateFound ? 1 : 0 };
+        },
       },
       workspacePathOperationNotificationSource: {
         list: async () => { if (!directAvailable) throw new Error('/private/direct-source-failure'); return { items: directItems, unreadCount: 3 }; },
         markRead: async ({ workspace: selected, itemId }: { workspace: WorkspaceContext; itemId?: string }) => {
           calls.push({ lane: 'path', itemId, workspaceId: selected.workspaceId }); return { updated: updateFound ? 1 : 0 };
+        },
+        dismiss: async ({ workspace: selected, itemId, expectedRevision }: { workspace: WorkspaceContext; itemId: string; expectedRevision: string }) => {
+          if (dismissFailed) throw new Error('/private/storage-failure');
+          calls.push({ lane: 'path-dismiss', itemId, expectedRevision, workspaceId: selected.workspaceId });
+          return { updated: updateFound ? 1 : 0 };
         },
       },
     };
@@ -98,12 +108,27 @@ async function main() {
       const count = calls.length;
       for (const action of ['dismiss_item', 'set_item_read_state']) {
         response = await patch({ action, itemId, workspaceId: workspace.workspaceId, read: true });
-        assert.equal(response.status, 400, 'reading cannot dismiss or resolve a durable operation problem');
+        assert.equal(response.status, 400, 'dismissal requires the displayed version; arbitrary read-state changes stay unsupported');
       }
       assert.equal(calls.length, count);
+      response = await patch({ action: 'dismiss_item', itemId, workspaceId: workspace.workspaceId, expectedRevision: '100' });
+      assert.equal(response.status, 200);
+      assert.deepEqual(calls.at(-1), { lane: 'path-dismiss', itemId, workspaceId: workspace.workspaceId, expectedRevision: '100' });
+      updateFound = false;
+      response = await patch({ action: 'dismiss_item', itemId, workspaceId: workspace.workspaceId, expectedRevision: '100' });
+      assert.equal(response.status, 409, 'stale dismissals ask the user to refresh');
+      updateFound = true;
+      const afterDismiss = calls.length;
+      response = await patch({ action: 'dismiss_item', itemId, workspaceId: 'foreign-workspace', expectedRevision: '100' });
+      assert.equal(response.status, 404);
+      for (const expectedRevision of [5, 'invalid', '100.5']) {
+        response = await patch({ action: 'dismiss_item', itemId, workspaceId: workspace.workspaceId, expectedRevision });
+        assert.equal(response.status, 400);
+      }
+      assert.equal(calls.length, afterDismiss, 'invalid dismissals never reach storage');
       response = await patch({ action: 'mark_item_read', itemId, workspaceId: 'foreign-workspace' });
       assert.equal(response.status, 404);
-      assert.equal(calls.length, count, 'foreign workspace requests never reach storage');
+      assert.equal(calls.length, afterDismiss, 'foreign workspace requests never reach storage');
       updateFound = false;
       response = await patch({ action: 'mark_item_read', itemId, workspaceId: workspace.workspaceId });
       assert.equal(response.status, 404);
@@ -117,6 +142,13 @@ async function main() {
     response = await patch({ action: 'mark_item_read', itemId: 'file-operation:old-review', workspaceId: workspace.workspaceId });
     assert.equal(response.status, 200);
     assert.equal(calls.at(-1)?.lane, 'review', 'existing real review notifications keep their route');
+    response = await patch({ action: 'dismiss_item', itemId: 'file-operation:old-review', workspaceId: workspace.workspaceId, expectedRevision: '100' });
+    assert.equal(response.status, 200);
+    assert.equal(calls.at(-1)?.lane, 'review-dismiss');
+    dismissFailed = true;
+    response = await patch({ action: 'dismiss_item', itemId: directItems[0].id, workspaceId: workspace.workspaceId, expectedRevision: '100' });
+    assert.equal(response.status, 500, 'failed storage must not report dismissal success');
+    assert.equal(JSON.stringify(await response.json()).includes('/private/'), false);
     authenticated = false;
     const count = calls.length;
     assert.equal((await get()).status, 401);

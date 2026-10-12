@@ -3,6 +3,11 @@ import type { WorkspaceOperationReviewKind } from './workspace-operation-review-
 export const WORKSPACE_OPERATION_NOTIFICATION_PREFIX = 'file-operation:';
 export const WORKSPACE_OPERATION_ATTENTION_STATUSES = ['pending', 'queued', 'applying', 'blocked', 'stale', 'failed', 'needs_recovery'] as const;
 export type WorkspaceOperationAttentionStatus = typeof WORKSPACE_OPERATION_ATTENTION_STATUSES[number];
+
+export function isWorkspaceOperationNotificationDismissible(status: WorkspaceOperationAttentionStatus): boolean {
+  return status === 'blocked' || status === 'stale' || status === 'failed' || status === 'needs_recovery';
+}
+
 export type WorkspaceOperationNotificationTarget = {
   kind: 'file_operation';
   workspaceId: string;

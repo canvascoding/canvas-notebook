@@ -129,26 +129,28 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ success: true, data });
     }
 
-    if (payload.itemId?.startsWith(WORKSPACE_PATH_OPERATION_NOTIFICATION_PREFIX)
-      || payload.itemId?.startsWith(WORKSPACE_PATH_PROBLEM_NOTIFICATION_PREFIX)) {
-      if (payload.action !== 'mark_item_read') {
-        return NextResponse.json({ success: false, error: 'Inspect the file action to resolve the underlying problem.' }, { status: 400 });
+    const fileActionSource = typeof payload.itemId === 'string'
+      ? payload.itemId.startsWith(WORKSPACE_OPERATION_NOTIFICATION_PREFIX) ? workspaceOperationNotificationSource
+        : payload.itemId.startsWith(WORKSPACE_PATH_OPERATION_NOTIFICATION_PREFIX)
+          || payload.itemId.startsWith(WORKSPACE_PATH_PROBLEM_NOTIFICATION_PREFIX) ? workspacePathOperationNotificationSource : null
+      : null;
+    if (fileActionSource && payload.itemId) {
+      if (payload.action !== 'mark_item_read' && payload.action !== 'dismiss_item') {
+        return NextResponse.json({ success: false, error: 'Invalid file action notification update.' }, { status: 400 });
       }
       const workspace = scope.includedWorkspaces.find((item) => item.workspaceId === payload.workspaceId);
       if (!workspace) return NextResponse.json({ success: false, error: 'File action notification not found.' }, { status: 404 });
-      const data = await workspacePathOperationNotificationSource.markRead({ userId: session.user.id, workspace, itemId: payload.itemId });
-      if (!data.updated) return NextResponse.json({ success: false, error: 'File action notification not found.' }, { status: 404 });
-      return NextResponse.json({ success: true, data });
-    }
-
-    if (payload.itemId?.startsWith(WORKSPACE_OPERATION_NOTIFICATION_PREFIX)) {
-      if (payload.action !== 'mark_item_read') {
-        return NextResponse.json({ success: false, error: 'File action reviews must be resolved in the review dialog.' }, { status: 400 });
+      if (payload.action === 'dismiss_item'
+        && (typeof payload.expectedRevision !== 'string' || !/^(0|[1-9][0-9]{0,15})$/u.test(payload.expectedRevision))) {
+        return NextResponse.json({ success: false, error: 'The displayed notification version is required.' }, { status: 400 });
       }
-      const workspace = scope.includedWorkspaces.find((item) => item.workspaceId === payload.workspaceId);
-      if (!workspace) return NextResponse.json({ success: false, error: 'File action notification not found.' }, { status: 404 });
-      const data = await workspaceOperationNotificationSource.markRead({ userId: session.user.id, workspace, itemId: payload.itemId });
-      if (!data.updated) return NextResponse.json({ success: false, error: 'File action notification not found.' }, { status: 404 });
+      const input = { userId: session.user.id, workspace, itemId: payload.itemId };
+      const data = payload.action === 'dismiss_item'
+        ? await fileActionSource.dismiss({ ...input, expectedRevision: payload.expectedRevision! })
+        : await fileActionSource.markRead(input);
+      if (!data.updated) return NextResponse.json({ success: false,
+        error: payload.action === 'dismiss_item' ? 'The notification changed. Refresh and try again.' : 'File action notification not found.',
+      }, { status: payload.action === 'dismiss_item' ? 409 : 404 });
       return NextResponse.json({ success: true, data });
     }
 
