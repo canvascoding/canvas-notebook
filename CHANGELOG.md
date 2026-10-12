@@ -11,7 +11,7 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
-## [2026.10.12.5] - 2026-10-12
+## [2026.10.12.6] - 2026-10-12
 
 ### Added
 
@@ -33,7 +33,7 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 ### Verification
 
-- `npx next typegen && NODE_OPTIONS=--max-old-space-size=6144 npx tsc --noEmit --incremental false`
+- `npm run build:decision-models && npx next typegen && NODE_OPTIONS=--max-old-space-size=6144 npx tsc --project tsconfig.release.json --noEmit --incremental false`
 - `NODE_OPTIONS=--max-old-space-size=6144 npm run verify:release`
 
 ## [2026.10.10.1] - 2026-10-10
