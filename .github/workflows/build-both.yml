@@ -128,7 +128,35 @@ jobs:
         run: npm ci
 
       - name: Verify production build and collaboration modules
+        env:
+          CANVAS_RELEASE_BUILD_SKIP_TYPECHECK: "1"
         run: npm run build && npm run test:collaboration:production-modules
+
+  release-typecheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    needs: source
+    steps:
+      - name: Checkout immutable release source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ needs.source.outputs.commit_sha }}
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: 26
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate route types and verify TypeScript
+        env:
+          NODE_OPTIONS: --max-old-space-size=6144
+        run: npx next typegen && npx tsc --noEmit
 
   release-cli-safety:
     runs-on: ubuntu-latest
@@ -159,7 +187,7 @@ jobs:
     permissions:
       contents: read
       packages: write
-    needs: [source, safety-tests, release-quality, release-build, release-cli-safety]
+    needs: [source, safety-tests, release-quality, release-build, release-typecheck, release-cli-safety]
     outputs:
       digest: ${{ steps.publish.outputs.digest }}
       hub_digest: ${{ steps.publish.outputs.hub_digest }}
@@ -292,7 +320,7 @@ jobs:
     permissions:
       contents: read
       packages: write
-    needs: [source, safety-tests, release-quality, release-build, release-cli-safety]
+    needs: [source, safety-tests, release-quality, release-build, release-typecheck, release-cli-safety]
     outputs:
       digest: ${{ steps.publish.outputs.digest }}
       hub_digest: ${{ steps.publish.outputs.hub_digest }}
@@ -425,7 +453,7 @@ jobs:
     permissions:
       contents: read
       packages: write
-    needs: [source, safety-tests, release-quality, release-build, release-cli-safety, build-amd64, build-arm64]
+    needs: [source, safety-tests, release-quality, release-build, release-typecheck, release-cli-safety, build-amd64, build-arm64]
     steps:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0

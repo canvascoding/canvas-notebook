@@ -35,13 +35,20 @@ const multiprocessTestPort = process.env.CANVAS_COLLABORATION_MULTIPROCESS_TEST 
   && ['3101', '3102'].includes(process.env.PORT || '')
   ? process.env.PORT
   : null;
+const skipBuildTypecheck = process.env.CANVAS_RELEASE_BUILD_SKIP_TYPECHECK === '1';
 
 const nextConfig: NextConfig = {
   deploymentId,
 
   ...(multiprocessTestPort ? {
     distDir: `.next/multiprocess-${multiprocessTestPort}`,
-    typescript: { tsconfigPath: `tsconfig.multiprocess-${multiprocessTestPort}.json` },
+  } : {}),
+  ...(multiprocessTestPort || skipBuildTypecheck ? {
+    typescript: {
+      ...(multiprocessTestPort ? { tsconfigPath: `tsconfig.multiprocess-${multiprocessTestPort}.json` } : {}),
+      // The release workflow runs this typecheck in its own memory-bounded job.
+      ...(skipBuildTypecheck ? { ignoreBuildErrors: true } : {}),
+    },
   } : {}),
 
   ...(allowedDevOrigins.length > 0 ? { allowedDevOrigins } : {}),
