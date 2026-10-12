@@ -6,7 +6,7 @@ import { useTranslations } from 'next-intl';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetTrigger } from '@/components/ui/sheet';
 import type { NotificationItem, NotificationSummary } from '@/app/components/notifications/notification-summary';
-import { decideMemoryNotification, homeNotificationItems, memoryReviewTargetFromNotification, updateNotification } from '@/app/components/notifications/notification-actions';
+import { decideMemoryNotification, homeNotificationItems, memoryReviewTargetFromNotification, notificationMutationRevision, updateNotification } from '@/app/components/notifications/notification-actions';
 import { HomeNotificationRowsSkeleton } from './HomeSkeletons';
 import { HomeNotificationItem } from './HomeNotificationItem';
 
@@ -16,6 +16,7 @@ export function HomeAttentionPanel({ summary, isLoading }: { summary: Notificati
   const [pending, setPending] = useState<string | null>(null);
   const [memoryDecision, setMemoryDecision] = useState<Record<string, 'approve' | 'reject' | null>>({});
   const [error, setError] = useState(false);
+  const [failedAction, setFailedAction] = useState<{ item: NotificationItem; dismiss: boolean } | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
   const items = homeNotificationItems(summary);
   const memoryTargets = items.map(memoryReviewTargetFromNotification).filter((target): target is NonNullable<typeof target> => Boolean(target));
@@ -24,19 +25,22 @@ export function HomeAttentionPanel({ summary, isLoading }: { summary: Notificati
   const act = async (item: NotificationItem, dismiss = false) => {
     setPending(`${item.workspaceId}:${item.id}`);
     setError(false);
+    setFailedAction(null);
     try {
       await updateNotification({ action: dismiss ? 'dismiss_item' : 'mark_item_read',
         itemId: item.id, workspaceId: item.workspaceId,
-        ...(item.target.kind === 'file_change' && item.target.branch ? { expectedRevision: item.target.branch.revision } : {}),
+        expectedRevision: notificationMutationRevision(item),
       });
     } catch {
       setError(true);
+      setFailedAction({ item, dismiss });
     } finally {
       setPending(null);
     }
   };
 
   const decideMemory = async (item: NotificationItem, decision: 'approve' | 'reject') => {
+    setFailedAction(null);
     const key = `${item.workspaceId}:${item.id}`;
     setMemoryDecision((current) => ({ ...current, [key]: decision }));
     try {
@@ -47,6 +51,12 @@ export function HomeAttentionPanel({ summary, isLoading }: { summary: Notificati
       setMemoryDecision((current) => ({ ...current, [key]: null }));
     }
   };
+
+  const actionError = error ? <div role="alert" className="shrink-0 border-t border-border p-4 text-xs text-destructive">
+    <p>{t('notificationActionFailed')}</p>
+    {failedAction ? <Button variant="ghost" size="sm" className="mt-2" disabled={pending !== null}
+      onClick={() => void act(failedAction.item, failedAction.dismiss)}>{t('retry')}</Button> : null}
+  </div> : null;
 
   const content = (all: boolean) => {
     if (isLoading) return <HomeNotificationRowsSkeleton />;
@@ -82,6 +92,7 @@ export function HomeAttentionPanel({ summary, isLoading }: { summary: Notificati
         </div>
         <div className="hidden lg:block">
           <div id="home-attention-items" className="h-84 border-t border-border" aria-busy={isLoading}>{content(false)}</div>
+          {actionError}
           <div className="border-t border-border p-2">
             <SheetTrigger asChild><Button variant="ghost" size="sm" className="h-9 w-full justify-between text-xs">{t('allNotifications')}<ChevronRight className="h-3.5 w-3.5" /></Button></SheetTrigger>
           </div>
@@ -95,7 +106,7 @@ export function HomeAttentionPanel({ summary, isLoading }: { summary: Notificati
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain" aria-busy={isLoading}>
           {content(true)}
         </div>
-        {error ? <p role="alert" className="shrink-0 border-t border-border p-4 text-xs text-destructive">{t('notificationActionFailed')}</p> : null}
+        {actionError}
       </SheetContent>
     </Sheet>
   );

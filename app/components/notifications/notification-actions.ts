@@ -12,6 +12,7 @@ import type { MemoryReviewDecision, MemoryReviewTarget } from '@/app/lib/memory/
 import type { NotificationItem, NotificationSummary } from './notification-summary';
 import { WORKSPACE_OPERATION_NOTIFICATION_PREFIX, workspaceOperationReviewHref,
   WORKSPACE_PATH_OPERATION_NOTIFICATION_PREFIX, WORKSPACE_PATH_PROBLEM_NOTIFICATION_PREFIX, workspacePathOperationHref,
+  isWorkspaceOperationNotificationDismissible,
   type WorkspaceOperationNotificationTarget, type WorkspacePathOperationNotificationTarget } from '@/app/lib/files/workspace-operation-notification-contract';
 import { openWorkspaceOperationReview } from '@/app/store/workspace-operation-review-store';
 import { openWorkspacePathOperationStatus } from '@/app/store/workspace-path-operation-store';
@@ -26,6 +27,17 @@ export type NotificationMutation = {
   read?: boolean;
   expectedRevision?: string;
 };
+
+export function isNotificationDismissible(item: NotificationItem): boolean {
+  if (item.target.kind === 'studio' || item.target.kind === 'automation') return true;
+  return (item.target.kind === 'file_operation' || item.target.kind === 'file_path_operation')
+    && Boolean(item.notificationRevision) && isWorkspaceOperationNotificationDismissible(item.target.status);
+}
+
+export function notificationMutationRevision(item: NotificationItem): string | undefined {
+  return item.target.kind === 'file_change' && item.target.branch
+    ? item.target.branch.revision : item.notificationRevision;
+}
 
 let fileChangeOpenGeneration = 0;
 

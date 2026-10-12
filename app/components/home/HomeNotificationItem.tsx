@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import type { NotificationItem } from '@/app/components/notifications/notification-summary';
 import {
   notificationHref,
+  isNotificationDismissible,
   emailReviewTargetFromNotification,
   openFileChangeReviewNotification,
   openWorkspaceOperationNotificationTarget,
@@ -62,7 +63,7 @@ export function HomeNotificationItem({
   const reviewAvailability = useDocumentReviewAvailability();
   const reviewCenterEnabled = reviewAvailability.ready && reviewAvailability.documentReviewEnabled;
   const Icon = ICONS[item.target.kind];
-  const dismissible = item.target.kind === 'studio' || item.target.kind === 'automation';
+  const dismissible = isNotificationDismissible(item);
   const title = item.target.kind === 'file_change'
     ? t(`fileChanges.${item.fileChangeReason ?? 'needs_review'}.title`)
     : item.target.kind === 'file_operation'
@@ -80,7 +81,7 @@ export function HomeNotificationItem({
   const emailTarget = emailReviewTargetFromNotification(item);
   const isMemory = item.target.kind === 'memory';
   return (
-    <li className="border-b border-border/60 last:border-0">
+    <li data-notification-id={item.id} className="relative border-b border-border/60 last:border-0">
       <Link href={notificationHref(item)} data-testid={emailTarget ? `home-email-open-${emailTarget.draftId}` : undefined} onClick={(event) => {
         if (item.target.kind === 'todo') {
           if (!isUnmodifiedPrimaryClick(event)) return;
@@ -124,7 +125,7 @@ export function HomeNotificationItem({
           return;
         }
         if (item.unread && shouldMarkNotificationReadOnOpen(item)) onRead();
-      }} className="flex min-h-[111px] items-start gap-2.5 rounded-lg px-2 py-5 hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+      }} className={`flex min-h-[111px] items-start gap-2.5 rounded-lg px-2 py-5 hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${!showActions && dismissible ? 'pr-12' : ''}`}>
         <Icon className={`mt-0.5 h-4 w-4 shrink-0 ${item.priority === 'high' ? 'text-destructive' : 'text-muted-foreground'}`} />
         <span className="min-w-0 flex-1">
           <span className={`${showActions ? '' : 'line-clamp-2'} text-sm font-medium`}>{title}</span>
@@ -133,6 +134,8 @@ export function HomeNotificationItem({
         </span>
         {item.priority === 'high' ? <CircleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0 text-destructive" aria-label={t('highPriority')} /> : null}
       </Link>
+      {!showActions && dismissible ? <Button variant="ghost" size="icon" className="absolute right-1 top-3" disabled={pending}
+        onClick={onDismiss} aria-label={t('dismiss')} title={t('dismiss')}><X className="h-4 w-4" /></Button> : null}
       {emailTarget && <div className="flex justify-end px-2 pb-3"><EmailReviewNotificationActions item={item} surface="home" /></div>}
       {showActions && ((item.unread && item.target.kind !== 'todo') || dismissible || isMemory) ? <div className="flex flex-wrap justify-end gap-1 px-2 pb-3">
         {isMemory ? <>

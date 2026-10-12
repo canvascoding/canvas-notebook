@@ -3781,6 +3781,7 @@
     "unread": "Ungelesen",
     "highPriority": "Hohe Priorität",
     "dismiss": "Aus Benachrichtigungen entfernen",
+    "dismissFailed": "Die Benachrichtigung konnte nicht ausgeblendet werden. Bitte versuche es erneut.",
     "memoryApprove": "Memory speichern",
     "memoryReject": "Memory nicht speichern",
     "memoryDecisionFailed": "Die Memory-Entscheidung konnte nicht gespeichert werden.",

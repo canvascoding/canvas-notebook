@@ -3782,6 +3782,7 @@
     "unread": "Unread",
     "highPriority": "High priority",
     "dismiss": "Remove from notifications",
+    "dismissFailed": "The notification could not be dismissed. Please try again.",
     "memoryApprove": "Save memory",
     "memoryReject": "Don't save memory",
     "memoryDecisionFailed": "The memory decision could not be saved.",

@@ -29,6 +29,8 @@ import { cn } from '@/lib/utils';
 import { buildChatSessionHref } from '@/app/lib/chat/chat-navigation-intent';
 import {
   notificationHref,
+  isNotificationDismissible,
+  notificationMutationRevision,
   emailReviewTargetFromNotification,
   decideMemoryNotification,
   memoryReviewTargetFromNotification,
@@ -74,10 +76,6 @@ function notificationIcon(item: NotificationItem) {
   if (item.target.kind === 'license') return KeyRound;
   if (item.target.kind === 'file_change' || item.target.kind === 'file_operation' || item.target.kind === 'file_path_operation') return FileClock;
   return Workflow;
-}
-
-function isDismissible(item: NotificationItem) {
-  return item.target.kind === 'studio' || item.target.kind === 'automation';
 }
 
 export function NotificationBell() {
@@ -249,13 +247,15 @@ function AuthenticatedNotificationBell({ authScope }: { authScope: OpenedDocumen
         action: 'dismiss_item',
         itemId: item.id,
         workspaceId: item.workspaceId,
-        ...(item.target.kind === 'file_change' && item.target.branch ? { expectedRevision: item.target.branch.revision } : {}),
+        expectedRevision: notificationMutationRevision(item),
       });
+    } catch {
+      if (isCurrentScope()) toast.error(t('dismissFailed'));
     } finally {
       setIsMutating(false);
       await refresh();
     }
-  }, [mutateInbox, refresh]);
+  }, [mutateInbox, refresh, isCurrentScope, t]);
 
   const notificationItems = useMemo(
     () => visibleSummary?.sections.notifications ?? visibleSummary?.items.filter((item) => item.target.kind !== 'todo') ?? [],
@@ -401,11 +401,11 @@ function AuthenticatedNotificationBell({ authScope }: { authScope: OpenedDocumen
             </Button>
           </span>
         ) : null}
-        {isDismissible(item) ? (
+        {isNotificationDismissible(item) ? (
           <Button
             variant="ghost"
             size="icon-xs"
-            className="shrink-0 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
+            className="shrink-0"
             onClick={() => void dismissItem(item)}
             disabled={isMutating}
             aria-label={t('dismiss')}
