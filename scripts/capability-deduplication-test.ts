@@ -10,6 +10,7 @@ import { selectVisibleCapabilities } from '../app/lib/capabilities/visible-capab
 import type { CapabilityCandidate, CapabilityPolicy, CapabilityPolicyEffect, CapabilityScopeType } from '../app/lib/capabilities/types';
 import type { CanvasPluginInstallRecord } from '../app/lib/plugins/canvas-plugin-registry';
 import type { CanvasSkillInstallRecord } from '../app/lib/skills/canvas-skill-store';
+import { unmanagedCapabilityResourceStoreFixture } from './helpers/unmanaged-capability-resource-store-fixture';
 
 const context = { organizationId: 'qa-org', userId: 'qa-owner', role: 'member', workspaceId: 'qa-workspace-a' };
 const timestamp = '2026-10-03T00:00:00.000Z';
@@ -93,11 +94,14 @@ let policies: CapabilityPolicy[] = [];
 let activeOrganizationId: string | null = context.organizationId;
 const organizationPermissionSequence: Array<string | null> = [];
 const verifiedWorkspaceRequests: string[] = [];
+const unmanagedResources = unmanagedCapabilityResourceStoreFixture(() => activeOrganizationId);
 
 // The test retains real registry/file reads, catalog construction, policy mapping,
 // effective resolution, namespace projection and API handlers. Only external
 // authentication, organization/workspace permissions and SQL transport are fixtures.
 internals._load = (request, parent, isMain) => {
+  if ((request === './resources/store' && parent?.filename.endsWith('/capabilities/catalog.ts'))
+    || (request === './store' && parent?.filename.includes('/capabilities/resources/'))) return unmanagedResources;
   if (request === 'server-only') return {};
   if (request === 'next/headers') return { headers: async () => new Headers() };
   if (request === '@/app/lib/auth') return { auth: { api: { getSession: async () => ({ user: { id: context.userId } }) } } };
@@ -197,7 +201,7 @@ async function main() {
     const { GET: skillsGet } = await import('../app/api/skills/route');
     const { GET: treeGet } = await import('../app/api/skills/tree/route');
     const { buildReferencedPluginRuntimeContext } = await import('../app/lib/plugins/plugin-reference-context');
-    assert.match((await buildReferencedPluginRuntimeContext('/qa-shadow-package', orgScope)) || '', /organization fixture/, 'explicit organization management keeps its scoped reference context');
+    assert.match((await buildReferencedPluginRuntimeContext('/qa-shadow-package', orgScope, { actor: { userId: context.userId } })) || '', /organization fixture/, 'explicit organization management uses its authenticated actor');
     const initial = await loadCapabilityCandidates(context, { resolveConnections: false });
     const child = initial.find(entry => entry.ref.scopeType === 'organization' && entry.ref.name === 'qa-shared-child')!;
     assert.ok(child, 'the real organization package skill is parsed from disk');

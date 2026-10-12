@@ -6,7 +6,8 @@ import type { SqlConnection } from '@/app/lib/db';
 import { withWorkspaceMutationLock } from '@/app/lib/files/workspace-mutation-lock';
 import type { TextCollaborationRepresentation } from './types';
 import { CollaborationAdmissionError } from './room-admission-contract';
-import { assertCollaborationAdmissionOpen, tryLockCollaborationAdmissionWorkspace } from './room-admission';
+import { assertCollaborationAdmissionOpen } from './room-admission';
+import { tryLockFileLifecycleCollaborationWriterAdmission } from './file-lifecycle-writer-admission';
 import {
   acknowledgeCollaborationAdmissionDrain,
   lockCollaborationAdmissionDrain,
@@ -194,7 +195,7 @@ export async function createCollaborationRoomOwnerSession(
       await query('BEGIN');
       try {
         const admissionQuery = async (sql: string, values?: unknown[]) => (await query(sql, values)).rows;
-        await tryLockCollaborationAdmissionWorkspace(admissionQuery, scope.workspaceId);
+        await tryLockFileLifecycleCollaborationWriterAdmission(admissionQuery, scope);
         await assertCollaborationAdmissionOpen(admissionQuery, scope);
       } catch (error) {
         if (!(error instanceof CollaborationAdmissionError)) throw error;

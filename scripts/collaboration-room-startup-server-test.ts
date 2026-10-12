@@ -501,6 +501,11 @@ async function main() {
     if (name.endsWith('/representation-migration-runtime')) return load(name);
     if (name.endsWith('/representation-drain-refusal')) return { readRepresentationDrainRequest: async () => null };
     if (name.endsWith('/room-admission')) return load(name);
+    if (name.endsWith('/file-lifecycle-admission-context')) return load(name);
+    if (name.endsWith('/file-lifecycle-writer-admission')) return {
+      tryLockFileLifecycleCollaborationWriterAdmission: (query: Parameters<typeof import('../app/lib/collaboration/room-admission').tryLockCollaborationAdmissionWorkspace>[0],
+        scope: { workspaceId: string }) => load('@/app/lib/collaboration/room-admission').tryLockCollaborationAdmissionWorkspace(query, scope.workspaceId),
+    };
     if (name === '@/app/lib/db') return { openDb: async () => ({ run: async () => {},
       all: async (sql: string) => sql.includes('pg_try_advisory_xact_lock') ? [{ locked: true }] : [], close: async () => {} }) };
     if (name.startsWith('@/')) return {};

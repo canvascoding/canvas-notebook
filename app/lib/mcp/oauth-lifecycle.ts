@@ -1,6 +1,7 @@
 import { requireMcpCredentialScope, type McpScope } from '@/app/lib/mcp/scope';
 import { readMcpTextFileIfExists, writeMcpTextFileAtomic } from '@/app/lib/mcp/storage';
 import { withMcpStorageLock } from '@/app/lib/mcp/storage-lock';
+import { withSharedMcpAuthority } from './shared-access';
 
 export type McpOAuthLifecycle = {
   connectionId: string;
@@ -33,12 +34,16 @@ async function writeLifecycleFile(value: McpOAuthLifecycle, scope?: McpScope | n
 
 export async function withMcpOAuthLifecycleLock<T>(connectionId: string, scope: McpScope | null | undefined, task: () => Promise<T>): Promise<T> {
   validateConnectionId(connectionId);
-  return withMcpStorageLock(`oauth-${connectionId}`, requireMcpCredentialScope(scope), task);
+  const owned = requireMcpCredentialScope(scope);
+  const locked = () => withMcpStorageLock(`oauth-${connectionId}`, owned, task);
+  return owned.shared ? withSharedMcpAuthority(owned, owned.shared.operation, locked) : locked();
 }
 
 export async function withMcpOAuthGenerationLock<T>(connectionId: string, scope: McpScope | null | undefined, task: () => Promise<T>): Promise<T> {
   validateConnectionId(connectionId);
-  return withMcpStorageLock(`oauth-generation-${connectionId}`, requireMcpCredentialScope(scope), task);
+  const owned = requireMcpCredentialScope(scope);
+  const locked = () => withMcpStorageLock(`oauth-generation-${connectionId}`, owned, task);
+  return owned.shared ? withSharedMcpAuthority(owned, owned.shared.operation, locked) : locked();
 }
 
 export async function readMcpOAuthLifecycle(connectionId: string, scope?: McpScope | null): Promise<McpOAuthLifecycle> {

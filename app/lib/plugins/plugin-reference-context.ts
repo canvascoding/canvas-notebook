@@ -4,6 +4,9 @@ import { resolveCapabilityExecutionContextForUser } from '@/app/lib/capabilities
 import { resolveDataStorageScope } from '@/app/lib/runtime-data-paths';
 import { listVisibleInstalledCanvasPlugins } from '@/app/lib/plugins/visible-installed-plugins';
 import { resolveActivePluginOrganizationScope } from '@/app/lib/plugins/plugin-scope-protection';
+import type { CapabilityResourceActor } from '@/app/lib/capabilities/resources/contracts';
+import { loadCapabilityCandidatesForResourceActor } from '@/app/lib/capabilities/resources/read';
+import { assertCapabilityCandidateAccess } from '@/app/lib/capabilities/resources/catalog-access';
 
 import {
   type CanvasPluginInstallRecord,
@@ -130,18 +133,19 @@ function formatPluginContext(plugin: CanvasPluginInstallRecord): string {
 export async function buildReferencedPluginRuntimeContext(
   content: string,
   scope?: CanvasPluginStorageScope | null,
-  options: { workspaceId?: string | null } = {},
+  options: { workspaceId?: string | null; actor?: CapabilityResourceActor } = {},
 ): Promise<string | null> {
   const referenceNames = extractSlashReferenceNames(content);
   if (referenceNames.length === 0) {
     return null;
   }
 
-  let plugins = await listVisibleInstalledCanvasPlugins(scope);
+  const actor = options.actor ?? (scope?.userId ? { userId: scope.userId, workspaceId: options.workspaceId } : undefined);
+  let plugins = await listVisibleInstalledCanvasPlugins(scope, actor);
   const organizationScope = await resolveActivePluginOrganizationScope(scope);
-  if (organizationScope && scope?.userId) {
+  if (organizationScope && actor) {
     const context = await resolveCapabilityExecutionContextForUser({
-      userId: scope.userId, organizationId: organizationScope.organizationId,
+      userId: actor.userId, organizationId: organizationScope.organizationId,
       requestedWorkspaceId: options.workspaceId,
     });
     const snapshot = await resolveEffectiveCapabilitySnapshot(context);
@@ -169,6 +173,13 @@ export async function buildReferencedPluginRuntimeContext(
   if (referencedPlugins.length === 0) {
     return null;
   }
+  if (!actor) return null;
+  const current = await loadCapabilityCandidatesForResourceActor(actor);
+  await Promise.all(referencedPlugins.map(async plugin => {
+    const candidate = current.find(entry => entry.ref.resourceType === 'plugin' && entry.ref.resourceId === plugin.resourceId);
+    if (!candidate) throw new Error('Referenced plugin is unavailable.');
+    await assertCapabilityCandidateAccess(actor, candidate, 'canUse');
+  }));
 
   return [
     '## Referenced Canvas Plugins',

@@ -3,16 +3,17 @@ import { auth } from '@/app/lib/auth';
 import { promises as fs } from 'fs';
 import path from 'path';
 import { headers } from 'next/headers';
-import { loadCapabilityCandidates } from '@/app/lib/capabilities/catalog';
+import { assertReadableCapabilityCandidate, resolveReadableCapabilityCandidate } from '@/app/lib/capabilities/resources/read';
+import { CapabilityResourceError } from '@/app/lib/capabilities/resources/contracts';
 import {
-  readOrganizationPermissionForUser,
   requireOrganizationPermission,
 } from '@/app/lib/organization/permissions';
-import { getSkillsDir, isValidAgentSkillName, type CanvasSkill } from '@/app/lib/skills/canvas-skill-manifest';
+import { getSkillsDir, isValidAgentSkillName } from '@/app/lib/skills/canvas-skill-manifest';
 import { coreSkillInstallError, isCoreSkillName } from '@/app/lib/skills/core-skills';
 import { adoptLegacyStandaloneSkillsForScope } from '@/app/lib/skills/legacy-skill-adoption';
-import { loadCapabilitySkillByReference } from '@/app/lib/skills/skill-documentation';
-import { loadSkillByName } from '@/app/lib/skills/skill-loader';
+import { readCanvasSkillRegistry } from '@/app/lib/skills/canvas-skill-store';
+import { assertLegacyCapabilityPackageMutationAllowed, withCapabilityPackageRegistryLock } from '@/app/lib/capabilities/packages/artifacts';
+import { isCapabilityPackageError } from '@/app/lib/capabilities/packages/contracts';
 
 export async function GET(
   request: Request,
@@ -26,41 +27,18 @@ export async function GET(
 
     const { name } = await params;
     const resourceId = new URL(request.url).searchParams.get('resourceId')?.trim();
-    let skill: CanvasSkill | null = null;
-
-    if (resourceId) {
-      const organizationState = await readOrganizationPermissionForUser(session.user.id);
-      if (
-        organizationState.organizationId
-        && organizationState.permission?.status === 'active'
-      ) {
-        const candidates = await loadCapabilityCandidates({
-          organizationId: organizationState.organizationId,
-          userId: session.user.id,
-          role: organizationState.permission.role,
-        }, { resolveConnections: false });
-        skill = await loadCapabilitySkillByReference(candidates, { name, resourceId });
-      }
-    } else {
-      skill = await loadSkillByName(name, { userId: session.user.id });
-    }
-
-    if (!skill) {
-      return NextResponse.json(
-        { success: false, error: 'Skill not found' },
-        { status: 404 },
-      );
-    }
-    const skillMdPath = skill.path;
-    
-    // Read SKILL.md file
-    const content = await fs.readFile(skillMdPath, 'utf-8');
+    const actor = { userId: session.user.id, workspaceId: new URL(request.url).searchParams.get('workspaceId') };
+    const selected = await resolveReadableCapabilityCandidate(actor, { resourceType: 'skill', name, resourceId });
+    if (!selected.candidate.runtimePath) throw new CapabilityResourceError('CAPABILITY_RESOURCE_NOT_FOUND', 'Skill not found.', 404);
+    const content = await fs.readFile(selected.candidate.runtimePath, 'utf-8');
+    await assertReadableCapabilityCandidate(actor, selected.candidate, selected.candidates);
     
     return NextResponse.json({
       success: true,
       content,
     });
   } catch (error) {
+    if (error instanceof CapabilityResourceError) return NextResponse.json({ success: false, error: error.message }, { status: error.status });
     console.error(`[Skills API] Error reading SKILL.md for skill:`, error);
     return NextResponse.json(
       { success: false, error: 'Failed to read SKILL.md' },
@@ -119,13 +97,18 @@ export async function PUT(
     }
 
     // Write updated content to SKILL.md
-    await fs.writeFile(skillMdPath, content, 'utf-8');
+    await withCapabilityPackageRegistryLock('skill', scope, async () => {
+      const current = (await readCanvasSkillRegistry(scope)).skills[name];
+      await assertLegacyCapabilityPackageMutationAllowed('skill', name, scope, current);
+      await fs.writeFile(skillMdPath, content, 'utf-8');
+    });
 
     return NextResponse.json({
       success: true,
       message: 'Skill updated successfully',
     });
   } catch (error) {
+    if (isCapabilityPackageError(error)) return NextResponse.json({ success: false, error: error.message, code: error.code }, { status: error.status });
     console.error(`[Skills API] Error saving SKILL.md for skill:`, error);
     return NextResponse.json(
       { success: false, error: 'Failed to save SKILL.md' },

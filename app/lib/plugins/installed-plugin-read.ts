@@ -19,11 +19,16 @@ export async function readExactInstalledPlugin(input: {
   if (!plugin || plugin.name !== input.name) return null;
 
   if (input.scope.scopeType === 'organization') {
-    return plugin.scopeType === 'organization'
+    const matching = plugin.scopeType === 'organization'
       && plugin.organizationId === input.scope.organizationId
       && Boolean(input.resourceId)
-      && plugin.resourceId === input.resourceId
-      ? plugin : null;
+      && plugin.resourceId === input.resourceId;
+    if (!matching) return null;
+    if (plugin.packageManaged || plugin.packageResourceRef || plugin.publishedRevisionRef) {
+      const { assertCapabilityPackageRegistryPointerCurrent } = await import('@/app/lib/capabilities/packages/artifacts');
+      await assertCapabilityPackageRegistryPointerCurrent('plugin', plugin, input.scope);
+    }
+    return plugin;
   }
 
   if (plugin.scopeType === 'organization'
@@ -35,5 +40,10 @@ export async function readExactInstalledPlugin(input: {
     sourceType: 'standalone',
     name: plugin.name,
   });
-  return !input.resourceId || input.resourceId === resourceId ? plugin : null;
+  if (input.resourceId && input.resourceId !== resourceId) return null;
+  if (plugin.packageManaged || plugin.packageResourceRef || plugin.publishedRevisionRef) {
+    const { assertCapabilityPackageRegistryPointerCurrent } = await import('@/app/lib/capabilities/packages/artifacts');
+    await assertCapabilityPackageRegistryPointerCurrent('plugin', plugin, input.scope);
+  }
+  return plugin;
 }

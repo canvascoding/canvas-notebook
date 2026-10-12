@@ -2,6 +2,7 @@ import 'server-only';
 
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
+import { withFileMutationLock } from '@/app/lib/secrets/file-mutation-lock';
 
 import {
   createAtomicTempPath,
@@ -34,7 +35,11 @@ const preferenceMutationTails = new Map<string, Promise<void>>();
 
 async function withPreferenceMutation<T>(userId: string, mutation: () => Promise<T>): Promise<T> {
   const previous = preferenceMutationTails.get(userId) || Promise.resolve();
-  const operation = previous.catch(() => undefined).then(mutation);
+  const operation = previous.catch(() => undefined).then(async () => {
+    const targetPath = preferencePath(userId);
+    await fs.mkdir(path.dirname(targetPath), { recursive: true });
+    return withFileMutationLock(targetPath, mutation);
+  });
   const tail = operation.then(() => undefined, () => undefined);
   preferenceMutationTails.set(userId, tail);
   try {

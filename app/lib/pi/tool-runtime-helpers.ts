@@ -50,6 +50,7 @@ import { resolveToolOutputReference } from '@/app/lib/pi/tool-output-store';
 import { maybeCleanupToolOutputOrphans } from '@/app/lib/pi/tool-output-maintenance';
 import { prepareToolOutput } from '@/app/lib/pi/tool-output-preparation';
 import { attachChatFileReferences } from '@/app/lib/pi/chat-file-references';
+import type { ProgressiveGatewayTool } from './progressive-tool-gateway';
 
 export const execAsync = promisify(exec);
 
@@ -86,8 +87,16 @@ export function wrapToolWithExecutionContext(
       }, { mode: options.browserMode })
     : tool;
   const execute = scopedTool.execute;
+  const progressiveGateway = 'progressiveGateway' in scopedTool
+    ? (scopedTool as ProgressiveGatewayTool).progressiveGateway : undefined;
   return {
     ...scopedTool,
+    ...(progressiveGateway ? { progressiveGateway: {
+      ...progressiveGateway,
+      withAllowedOperations: (allowedNames: Iterable<string>) => wrapToolWithExecutionContext(
+        progressiveGateway.withAllowedOperations(allowedNames), context, options,
+      ) as ProgressiveGatewayTool,
+    } } : {}),
     execute: (toolCallId, params, signal, onUpdate) => {
       // The runtime rotates agentTurnId between user messages. An in-flight tool
       // must retain the turn that started it, including across its awaits.

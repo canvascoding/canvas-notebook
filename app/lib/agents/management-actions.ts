@@ -2,15 +2,24 @@ import 'server-only';
 
 import { hashAuditValue, recordAuditEvent } from '@/app/lib/audit/audit-service';
 import {
+  AgentDefaultPolicyError,
   parseAgentDefaultCatalogRevision,
   parseAgentDefaultFields,
   writeAgentDefaultWithCatalogValidation,
 } from '@/app/lib/agent-runtime-policy/agent-default-service';
+import { AiRuntimeInputError } from '@/app/lib/agent-runtime-policy/runtime-service';
+import { isAgentWorkflowError } from './workflow-contracts';
+import { isCapabilityPackageError } from '@/app/lib/capabilities/packages/contracts';
+import { CapabilityResourceError } from '@/app/lib/capabilities/resources/contracts';
+import { isIntegrationConnectionError } from '@/app/lib/integration-tools/connections/contracts';
+import { INTEGRATION_GATEWAY_ERROR_MESSAGES, readIntegrationContractErrorCode } from '@/app/lib/integration-tools/agent-errors';
 import {
   createAgentManagerMembership,
   getAgentAccess,
+  getAgentAccessOnConnection,
   listAgentAccessForUser,
   requireAgentAccess,
+  AgentAccessError,
   type AgentAccess,
   type AgentAccessContext,
 } from '@/app/lib/agents/access';
@@ -39,12 +48,12 @@ import {
   listAgentProfiles,
   normalizeManagedAgentId,
   updateAgentProfile,
+  readAgentProfileOnConnection,
   type AgentProfile,
 } from '@/app/lib/agents/registry';
 import {
   AGENT_MANAGED_FILE_NAMES,
   DEFAULT_MANAGED_AGENT_ID,
-  EMAIL_MANAGED_AGENT_ID,
   deleteManagedAgentDefinitionStorage,
   isManagedAgentFileName,
   isWritableManagedAgentFileName,
@@ -57,7 +66,8 @@ import {
 } from '@/app/lib/agents/storage';
 import { resolveEffectiveCapabilitySnapshot } from '@/app/lib/capabilities/catalog';
 import type { EffectiveCapabilitySnapshot } from '@/app/lib/capabilities/types';
-import { openDb } from '@/app/lib/db';
+import { openDb, type SqlConnection } from '@/app/lib/db';
+import { isAgentActorContextError, resolveVerifiedAgentActorContextOnConnection } from '@/app/lib/agents/actor-context';
 import { isOrganizationAdminLike, readOrganizationPermissionForUser } from '@/app/lib/organization/permissions';
 import { assertBrowserToolCanBeEnabled } from '@/app/lib/pi/browser/settings-service';
 
@@ -180,6 +190,7 @@ async function requireProfile(
   agentIdInput: string,
   permission: keyof AgentAccess,
 ): Promise<AgentProfile> {
+  actor = await verifiedManagementActor(actor);
   const agentId = normalizeManagedAgentId(agentIdInput);
   const profile = await getAgentProfile(agentId);
   if (!profile) throw new AgentManagementError('AGENT_NOT_FOUND', 'Agent not found.', 404);
@@ -187,7 +198,67 @@ async function requireProfile(
   return profile;
 }
 
-async function auditAgentAction(input: {
+async function verifiedManagementActor(actor: AgentManagementActor, database?: SqlConnection): Promise<AgentManagementActor> {
+  const captured = structuredClone(actor);
+  const connection = database ?? await openDb();
+  try {
+    const verified = await resolveVerifiedAgentActorContextOnConnection(captured, connection, { lock: Boolean(database) });
+    const rest = { ...captured };
+    delete rest.organizationId;
+    delete rest.workspaceId;
+    delete rest.projectId;
+    return { ...rest, userId: verified.userId, ...verified.context };
+  } finally {
+    if (!database) await connection.close();
+  }
+}
+
+/** Profile CAS and dependent SQL mutations commit together under current actor and agent authority. */
+async function withAgentManagementWrite<T>(input: {
+  actor: AgentManagementActor;
+  agentId: string;
+  expectedRevision: number;
+  permission: 'canEdit' | 'canManage';
+}, operation: (profile: AgentProfile, actor: AgentManagementActor, database: SqlConnection) => Promise<T>): Promise<T> {
+  const captured = structuredClone(input);
+  const database = await openDb();
+  try {
+    await database.run('BEGIN');
+    const actor = await verifiedManagementActor(captured.actor, database);
+    const profile = await readAgentProfileOnConnection(database, captured.agentId, true);
+    if (!profile) throw new AgentManagementError('AGENT_NOT_FOUND', 'Agent not found.', 404);
+    const grants = await database.all('SELECT id, target_type, target_id FROM agent_grants WHERE agent_id = $1 ORDER BY id FOR SHARE',
+      [profile.agentId]) as Array<{ target_type: string; target_id: string }>;
+    await database.all('SELECT user_id FROM agent_members WHERE agent_id = $1 ORDER BY user_id FOR SHARE', [profile.agentId]);
+    if (!actor.workspaceId && profile.organizationId) {
+      // Global management can be granted through any reachable scope. Hold the
+      // actual matching scope authority as well as the agent/grant rows.
+      const targets = grants.filter((grant) => grant.target_type === 'workspace' || grant.target_type === 'project')
+        .sort((left, right) => `${left.target_type}:${left.target_id}`.localeCompare(`${right.target_type}:${right.target_id}`));
+      for (const target of targets) {
+        try {
+          await resolveVerifiedAgentActorContextOnConnection({ userId: actor.userId, organizationId: profile.organizationId,
+            ...(target.target_type === 'workspace' ? { workspaceId: target.target_id } : { projectId: target.target_id }) }, database, { lock: true });
+        } catch (error) {
+          if (!isAgentActorContextError(error)) throw error;
+        }
+      }
+    }
+    const access = await getAgentAccessOnConnection(database, actor.userId, profile.agentId, accessContext(actor));
+    if (!access[captured.permission]) throw new AgentManagementError('AGENT_ACCESS_DENIED', 'Agent access denied.', 403);
+    ensureExpectedRevision(profile, captured.expectedRevision);
+    const result = await operation(profile, actor, database);
+    await database.run('COMMIT');
+    return result;
+  } catch (error) {
+    try { await database.run('ROLLBACK'); } catch { /* Preserve the original failure. */ }
+    throw error;
+  } finally {
+    await database.close();
+  }
+}
+
+export async function auditAgentAction(input: {
   actor: AgentManagementActor;
   profile?: AgentProfile | null;
   agentId: string;
@@ -229,7 +300,7 @@ async function capabilitySnapshotForActor(actor: AgentManagementActor): Promise<
   });
 }
 
-async function resolveCapabilityBindings(input: {
+export async function resolveCapabilityBindings(input: {
   actor: AgentManagementActor;
   scopeType: 'user' | 'organization';
   capabilities?: AgentCapabilitySelection[] | null;
@@ -311,7 +382,7 @@ async function resolveCapabilityBindings(input: {
   return { bindings, snapshot };
 }
 
-async function validateSpecialAgentTools(enabledTools: string[] | null | undefined): Promise<void> {
+export async function validateSpecialAgentTools(enabledTools: string[] | null | undefined): Promise<void> {
   if (!enabledTools) return;
   const protectedAgentTools = new Set([
     'agent_manage',
@@ -321,6 +392,11 @@ async function validateSpecialAgentTools(enabledTools: string[] | null | undefin
     'update_agent_profile',
     'update_agent_runtime',
     'update_agent_capabilities',
+    'update_agent_configuration',
+    'inspect_agent_workflow',
+    'list_agent_workflow_options',
+    'list_agent_workflow_personal_options',
+    'set_agent_workflow_choice',
     'update_agent_file',
     'set_agent_grant',
     'remove_agent_grant',
@@ -399,15 +475,23 @@ async function writeInitialFiles(
   }
 }
 
-export async function listManagedAgents(actor: AgentManagementActor): Promise<Array<AgentProfile & { access: AgentAccess }>> {
-  const context = accessContext(actor);
+export async function listManagedAgents(actor: AgentManagementActor,
+  options: { purpose?: 'use' | 'configure' } = {}): Promise<Array<AgentProfile & { access: AgentAccess }>> {
+  const purpose = options.purpose ?? 'use';
+  if (purpose !== 'use' && purpose !== 'configure') throw new AgentManagementError('AGENT_REQUEST_INVALID', 'The agent list purpose is invalid.');
+  const currentActor = purpose === 'configure' ? await verifiedManagementActor(actor) : actor;
+  const context = accessContext(currentActor);
   const [profiles, accessMap] = await Promise.all([
     listAgentProfiles(),
-    listAgentAccessForUser(actor.userId, context),
+    purpose === 'configure' ? Promise.resolve(null) : listAgentAccessForUser(currentActor.userId, context),
   ]);
+  // Runtime discovery intentionally filters to Use. Settings also need independent Edit,
+  // so resolve those current rights without changing the shared runtime access map.
+  const currentAccessMap = accessMap ?? new Map(await Promise.all(profiles.map(async profile =>
+    [profile.agentId, await getAgentAccess(currentActor.userId, profile.agentId, context)] as const)));
   return profiles.flatMap((profile) => {
-    const access = accessMap.get(profile.agentId);
-    return access?.canUse ? [{ ...profile, access }] : [];
+    const access = currentAccessMap.get(profile.agentId);
+    return access && (access.canUse || purpose === 'configure' && access.canEdit) ? [{ ...profile, access }] : [];
   });
 }
 
@@ -439,6 +523,7 @@ export async function inspectManagedAgent(
 }
 
 export async function createManagedAgent(actor: AgentManagementActor, input: CreateManagedAgentInput) {
+  actor = await verifiedManagementActor(actor);
   const scopeType = input.scopeType === 'organization' ? 'organization' : 'user';
   const { organizationId: actorOrganizationId } = await actorOrganization(actor);
   const organizationId = scopeType === 'organization'
@@ -547,17 +632,8 @@ export async function updateManagedAgentProfile(input: {
   name?: string | null;
   iconId?: AgentIconId | string | null;
 }) {
-  const existing = await requireProfile(input.actor, input.agentId, 'canEdit');
-  if (existing.type === 'main') throw new AgentManagementError('AGENT_MAIN_PROTECTED', 'Bradley\'s profile is protected.', 403);
-  ensureExpectedRevision(existing, input.expectedRevision);
-  const agent = await updateAgentProfile({
-    agentId: existing.agentId,
-    expectedRevision: input.expectedRevision,
-    name: input.name,
-    iconId: input.iconId === undefined ? undefined : normalizeAgentIconId(input.iconId),
-  });
-  await auditAgentAction({ actor: input.actor, profile: agent, agentId: agent.agentId, action: 'agent.update_profile', input, output: { revision: agent.revision } });
-  return agent;
+  const { updateManagedAgentConfiguration } = await import('./workflow-configuration');
+  return (await updateManagedAgentConfiguration(input, { auditAction: 'agent.update_profile' })).agent;
 }
 
 export async function updateManagedAgentRuntime(input: {
@@ -571,52 +647,8 @@ export async function updateManagedAgentRuntime(input: {
   defaultThinking?: unknown;
   expectedCatalogRevision?: unknown;
 }) {
-  const existing = await requireProfile(input.actor, input.agentId, 'canEdit');
-  if (existing.type === 'main') throw new AgentManagementError('AGENT_MAIN_PROTECTED', 'Bradley\'s runtime is configured in app settings.', 403);
-  ensureExpectedRevision(existing, input.expectedRevision);
-  const nextEnabledTools = input.enabledTools === undefined ? existing.enabledTools : input.enabledTools;
-  if (input.enabledTools !== undefined) {
-    if (existing.agentId === EMAIL_MANAGED_AGENT_ID) {
-      await requireOrganizationAdmin(input.actor);
-    }
-    await validateSpecialAgentTools(input.enabledTools);
-  }
-  await assertBrowserToolCanBeEnabled({ previousEnabledTools: existing.enabledTools, nextEnabledTools });
-  const changesDefault = [
-    input.defaultProviderInstallationId,
-    input.defaultProvider,
-    input.defaultModel,
-    input.defaultThinking,
-  ].some((value) => value !== undefined);
-  if (changesDefault) {
-    const organizationId = await requireOrganizationAdmin(input.actor);
-    if (existing.organizationId && existing.organizationId !== organizationId) {
-      throw new AgentManagementError('AGENT_ORGANIZATION_MISMATCH', 'Agent belongs to another organization.', 403);
-    }
-    const selection = parseAgentDefaultFields({
-      providerInstallationId: input.defaultProviderInstallationId === undefined
-        ? existing.defaultProviderInstallationId
-        : input.defaultProviderInstallationId,
-      providerId: input.defaultProvider === undefined ? existing.defaultProvider : input.defaultProvider,
-      modelId: input.defaultModel === undefined ? existing.defaultModel : input.defaultModel,
-      thinkingLevel: input.defaultThinking === undefined ? existing.defaultThinking : input.defaultThinking,
-    });
-    await writeAgentDefaultWithCatalogValidation({
-      organizationId,
-      agentId: existing.agentId,
-      selection,
-      expectedCatalogRevision: selection
-        ? parseAgentDefaultCatalogRevision(input.expectedCatalogRevision, true)
-        : undefined,
-    });
-  }
-  const agent = await updateAgentProfile({
-    agentId: existing.agentId,
-    expectedRevision: input.expectedRevision,
-    enabledTools: input.enabledTools,
-  });
-  await auditAgentAction({ actor: input.actor, profile: agent, agentId: agent.agentId, action: 'agent.update_runtime', input, output: { revision: agent.revision } });
-  return agent;
+  const { updateManagedAgentConfiguration } = await import('./workflow-configuration');
+  return (await updateManagedAgentConfiguration(input, { auditAction: 'agent.update_runtime' })).agent;
 }
 
 export async function updateManagedAgentCapabilities(input: {
@@ -627,62 +659,49 @@ export async function updateManagedAgentCapabilities(input: {
   relevantSkills?: string[] | null;
   relevantConnections?: string[] | null;
 }) {
-  const existing = await requireProfile(input.actor, input.agentId, 'canEdit');
-  if (existing.type === 'main') throw new AgentManagementError('AGENT_MAIN_PROTECTED', 'Bradley\'s capabilities are managed by organization policy.', 403);
-  ensureExpectedRevision(existing, input.expectedRevision);
-  const previous = await listAgentCapabilityBindings(existing.agentId);
-  const relevantSkills = input.relevantSkills === undefined
-    ? existing.relevantSkills
-    : input.relevantSkills;
-  const relevantConnections = input.relevantConnections === undefined
-    ? existing.relevantConnections
-    : input.relevantConnections;
-  const capabilities = input.capabilities === undefined
-    ? previous
-      .filter((binding) => binding.resourceType === 'plugin')
-      .map((binding) => ({
-        resourceType: 'plugin' as const,
-        resourceId: binding.resourceId,
-        name: binding.name,
-        requirement: binding.requirement,
-      }))
-    : input.capabilities;
-  const resolved = await resolveCapabilityBindings({
-    actor: input.actor,
-    scopeType: existing.scopeType === 'organization' ? 'organization' : 'user',
-    capabilities,
-    relevantSkills,
-    relevantConnections,
-  });
-  await replaceAgentCapabilityBindings(existing.agentId, resolved.bindings);
+  const captured = structuredClone(input);
+  const actor = await verifiedManagementActor(captured.actor);
+  const preflight = await openDb();
+  let preparedProfile: AgentProfile;
+  let previous: AgentCapabilityBinding[];
   try {
+    const profile = await readAgentProfileOnConnection(preflight, captured.agentId);
+    if (!profile) throw new AgentManagementError('AGENT_NOT_FOUND', 'Agent not found.', 404);
+    if (profile.workflowVersion != null) throw new AgentManagementError('AGENT_WORKFLOW_UPDATE_REQUIRED', 'Update the explicit workflow configuration to change its package bindings.', 409);
+    if (profile.type === 'main') throw new AgentManagementError('AGENT_MAIN_PROTECTED', 'Bradley\'s capabilities are managed by organization policy.', 403);
+    const access = await getAgentAccessOnConnection(preflight, actor.userId, profile.agentId, accessContext(actor));
+    if (!access.canEdit) throw new AgentManagementError('AGENT_ACCESS_DENIED', 'Agent access denied.', 403);
+    ensureExpectedRevision(profile, captured.expectedRevision);
+    preparedProfile = profile;
+    previous = await listAgentCapabilityBindings(profile.agentId, preflight);
+  } finally {
+    await preflight.close();
+  }
+  const relevantSkills = captured.relevantSkills === undefined ? preparedProfile.relevantSkills : captured.relevantSkills;
+  const relevantConnections = captured.relevantConnections === undefined ? preparedProfile.relevantConnections : captured.relevantConnections;
+  const capabilities = captured.capabilities === undefined
+    ? previous.filter((binding) => binding.resourceType === 'plugin').map((binding) => ({
+      resourceType: 'plugin' as const, resourceId: binding.resourceId, name: binding.name, requirement: binding.requirement,
+    }))
+    : captured.capabilities;
+  // Catalogue readers borrow their own connections. Complete them before holding
+  // a write lease; the transaction then rechecks actor/agent rights and profile CAS.
+  const resolved = await resolveCapabilityBindings({ actor,
+    scopeType: preparedProfile.scopeType === 'organization' ? 'organization' : 'user', capabilities, relevantSkills, relevantConnections });
+  const committed = await withAgentManagementWrite({ ...captured, actor, permission: 'canEdit' }, async (existing, currentActor, database) => {
     const agent = await updateAgentProfile({
       agentId: existing.agentId,
-      expectedRevision: input.expectedRevision,
+      expectedRevision: captured.expectedRevision,
       relevantSkills,
       relevantConnections,
-    });
-    const bindings = await listAgentCapabilityBindings(existing.agentId);
-    await auditAgentAction({
-      actor: input.actor,
-      profile: agent,
-      agentId: agent.agentId,
-      action: 'agent.update_capabilities',
-      input: { resourceIds: resolved.bindings.map((binding) => binding.resourceId) },
-      output: { revision: agent.revision },
-    });
-    return { agent, bindings, readiness: readinessForBindings(bindings, resolved.snapshot) };
-  } catch (error) {
-    await replaceAgentCapabilityBindings(existing.agentId, previous.map((binding) => ({
-      resourceType: binding.resourceType,
-      scopeType: binding.scopeType,
-      resourceId: binding.resourceId,
-      name: binding.name,
-      version: binding.version,
-      requirement: binding.requirement,
-    })));
-    throw error;
-  }
+    }, database);
+    const bindings = await replaceAgentCapabilityBindings(existing.agentId, resolved.bindings, database);
+    return { actor: currentActor, result: { agent, bindings, readiness: readinessForBindings(bindings, resolved.snapshot) } };
+  });
+  const { agent, bindings } = committed.result;
+  await auditAgentAction({ actor: committed.actor, profile: agent, agentId: agent.agentId, action: 'agent.update_capabilities',
+    input: { resourceIds: bindings.map((binding) => binding.resourceId) }, output: { revision: agent.revision } });
+  return committed.result;
 }
 
 export async function updateManagedAgentFile(input: {
@@ -772,31 +791,19 @@ export async function setManagedAgentGrant(input: {
   canEdit?: boolean;
   canManage?: boolean;
 }) {
-  const existing = await requireProfile(input.actor, input.agentId, 'canManage');
-  if (existing.scopeType !== 'organization' || !existing.organizationId) {
-    throw new AgentManagementError('AGENT_PERSONAL_GRANTS_UNSUPPORTED', 'Personal agents cannot be shared.');
-  }
-  ensureExpectedRevision(existing, input.expectedRevision);
-  const previous = (await listAgentGrants(existing.agentId)).find((grant) => (
-    grant.targetType === input.targetType && grant.targetId === input.targetId
-  ));
-  const grant = await upsertAgentGrant({
-    ...input,
-    organizationId: existing.organizationId,
-    actorUserId: input.actor.userId,
-  });
-  try {
-    const agent = await updateAgentProfile({ agentId: existing.agentId, expectedRevision: input.expectedRevision });
-    await auditAgentAction({ actor: input.actor, profile: agent, agentId: agent.agentId, action: 'agent.set_grant', input, output: { revision: agent.revision } });
-    return { agent, grant };
-  } catch (error) {
-    if (previous) {
-      await upsertAgentGrant({ ...previous, actorUserId: previous.updatedByUserId });
-    } else {
-      await removeAgentGrant(input);
+  const captured = structuredClone(input);
+  const committed = await withAgentManagementWrite({ ...captured, permission: 'canManage' }, async (existing, actor, database) => {
+    if (existing.scopeType !== 'organization' || !existing.organizationId) {
+      throw new AgentManagementError('AGENT_PERSONAL_GRANTS_UNSUPPORTED', 'Personal agents cannot be shared.');
     }
-    throw error;
-  }
+    const grant = await upsertAgentGrant({ ...captured, organizationId: existing.organizationId, actorUserId: actor.userId }, database);
+    const agent = await updateAgentProfile({ agentId: existing.agentId, expectedRevision: captured.expectedRevision }, database);
+    return { actor, result: { agent, grant } };
+  });
+  const { agent } = committed.result;
+  await auditAgentAction({ actor: committed.actor, profile: agent, agentId: agent.agentId, action: 'agent.set_grant',
+    input: captured, output: { revision: agent.revision } });
+  return committed.result;
 }
 
 export async function removeManagedAgentGrant(input: {
@@ -806,23 +813,21 @@ export async function removeManagedAgentGrant(input: {
   targetType: AgentGrantTargetType;
   targetId: string;
 }) {
-  const existing = await requireProfile(input.actor, input.agentId, 'canManage');
-  if (existing.scopeType !== 'organization') {
-    throw new AgentManagementError('AGENT_PERSONAL_GRANTS_UNSUPPORTED', 'Personal agents cannot be shared.');
-  }
-  ensureExpectedRevision(existing, input.expectedRevision);
-  const previous = (await listAgentGrants(existing.agentId)).find((grant) => (
-    grant.targetType === input.targetType && grant.targetId === input.targetId
-  ));
-  await removeAgentGrant(input);
-  try {
-    const agent = await updateAgentProfile({ agentId: existing.agentId, expectedRevision: input.expectedRevision });
-    await auditAgentAction({ actor: input.actor, profile: agent, agentId: agent.agentId, action: 'agent.remove_grant', input, output: { revision: agent.revision } });
-    return { agent, removed: Boolean(previous) };
-  } catch (error) {
-    if (previous) await upsertAgentGrant({ ...previous, actorUserId: previous.updatedByUserId });
-    throw error;
-  }
+  const captured = structuredClone(input);
+  const committed = await withAgentManagementWrite({ ...captured, permission: 'canManage' }, async (existing, actor, database) => {
+    if (existing.scopeType !== 'organization') {
+      throw new AgentManagementError('AGENT_PERSONAL_GRANTS_UNSUPPORTED', 'Personal agents cannot be shared.');
+    }
+    const previous = (await listAgentGrants(existing.agentId, database)).find((grant) => (
+      grant.targetType === captured.targetType && grant.targetId === captured.targetId));
+    await removeAgentGrant(captured, database);
+    const agent = await updateAgentProfile({ agentId: existing.agentId, expectedRevision: captured.expectedRevision }, database);
+    return { actor, result: { agent, removed: Boolean(previous) } };
+  });
+  const { agent } = committed.result;
+  await auditAgentAction({ actor: committed.actor, profile: agent, agentId: agent.agentId, action: 'agent.remove_grant',
+    input: captured, output: { revision: agent.revision } });
+  return committed.result;
 }
 
 export async function previewManagedAgentDeletion(actor: AgentManagementActor, agentId: string) {
@@ -898,13 +903,20 @@ export function managementErrorDetails(error: unknown): { code: string; message:
   if (error instanceof AgentRevisionConflictError) {
     return { code: error.code, message: error.message, status: 409, details: { currentRevision: error.currentRevision } };
   }
-  const candidate = error as { code?: unknown; status?: unknown; message?: unknown; currentCatalogRevision?: unknown };
-  return {
-    code: typeof candidate?.code === 'string' ? candidate.code : 'AGENT_MANAGEMENT_FAILED',
-    message: typeof candidate?.message === 'string' ? candidate.message : 'Agent management failed.',
-    status: typeof candidate?.status === 'number' ? candidate.status : 400,
-    details: typeof candidate?.currentCatalogRevision === 'number'
-      ? { currentCatalogRevision: candidate.currentCatalogRevision }
-      : undefined,
-  };
+  const integrationCode = readIntegrationContractErrorCode(error);
+  if (integrationCode) {
+    const status = integrationCode === 'provider_denied' || integrationCode === 'tool_denied' ? 403
+      : integrationCode === 'binding_changed' || integrationCode === 'schema_changed' || integrationCode === 'outcome_unknown' ? 409
+        : integrationCode === 'tool_not_found' ? 404 : integrationCode === 'provider_unavailable' ? 503 : 400;
+    return { code: integrationCode, message: INTEGRATION_GATEWAY_ERROR_MESSAGES[integrationCode], status };
+  }
+  if (error instanceof AgentAccessError || error instanceof AgentDefaultPolicyError || error instanceof AiRuntimeInputError
+    || isAgentActorContextError(error) || isAgentWorkflowError(error)
+    || isCapabilityPackageError(error) || error instanceof CapabilityResourceError || isIntegrationConnectionError(error)) {
+    return { code: error.code, message: error.message, status: error.status,
+      ...(error instanceof AgentDefaultPolicyError && typeof error.currentCatalogRevision === 'number'
+        ? { details: { currentCatalogRevision: error.currentCatalogRevision } } : {}) };
+  }
+  // SQL/provider errors can contain private query parameters and account bindings.
+  return { code: 'AGENT_MANAGEMENT_FAILED', message: 'Agent management failed. Reload and try again.', status: 500 };
 }

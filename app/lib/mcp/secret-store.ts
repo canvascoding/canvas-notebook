@@ -4,6 +4,7 @@ import crypto from 'node:crypto';
 
 import { readScopedEnvState, type EnvStorageScope } from '@/app/lib/integrations/env-config';
 import { SecretReadinessError } from '@/app/lib/secrets/readiness';
+import type { SharedIntegrationConnectionOwnership } from '@/app/lib/integration-tools/connections/contracts';
 
 const ENVELOPE_VERSION = 1;
 const KEY_ENTRY = 'MCP_CREDENTIAL_KEY';
@@ -15,6 +16,7 @@ export type McpSecretBinding = {
   organizationId?: string | null;
   connectionId: string;
   purpose: string;
+  shared?: { connectionRef: string; ownership: SharedIntegrationConnectionOwnership };
 };
 
 type McpSecretEnvelope = {
@@ -43,6 +45,14 @@ function requireBindingPart(value: string, label: string): string {
 }
 
 function additionalAuthenticatedData(binding: McpSecretBinding): Buffer {
+  if (binding.shared) return Buffer.from(JSON.stringify({
+    schema: 'canvas-mcp-secret-aad', version: 2,
+    connectionRef: requireBindingPart(binding.shared.connectionRef, 'connectionRef'),
+    ownershipType: binding.shared.ownership.type,
+    organizationId: requireBindingPart(binding.shared.ownership.organizationId, 'organizationId'),
+    workspaceId: binding.shared.ownership.type === 'team' ? requireBindingPart(binding.shared.ownership.workspaceId, 'workspaceId') : null,
+    connectionId: requireBindingPart(binding.connectionId, 'connectionId'), purpose: requireBindingPart(binding.purpose, 'purpose'),
+  }), 'utf8');
   return Buffer.from(JSON.stringify({
     schema: 'canvas-mcp-secret-aad',
     version: ENVELOPE_VERSION,

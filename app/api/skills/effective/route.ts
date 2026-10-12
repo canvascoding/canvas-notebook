@@ -25,7 +25,12 @@ export async function GET(request: NextRequest) {
       requestedWorkspaceId,
     });
     const snapshot = await resolveEffectiveCapabilitySnapshot(context);
-    return NextResponse.json({ success: true, snapshot });
+    const readable = new Set(snapshot.capabilities.filter(entry => entry.resourceAccess?.canRead !== false).map(entry => entry.ref.resourceId));
+    return NextResponse.json({ success: true, snapshot: { ...snapshot,
+      capabilities: snapshot.capabilities.filter(entry => readable.has(entry.ref.resourceId)).map(entry => ({ ...entry,
+        runtimePath: entry.ref.scopeType === 'user' && entry.ref.ownerUserId !== session.user.id ? null : entry.runtimePath })),
+      conflicts: snapshot.conflicts.filter(conflict => conflict.resourceIds.every(id => readable.has(id))),
+    } });
   } catch (error) {
     return NextResponse.json(
       { success: false, error: error instanceof Error ? error.message : 'Failed to resolve effective capabilities' },

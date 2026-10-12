@@ -37,6 +37,9 @@ export type ServerSettings = {
   studioBulkEnabled?: boolean;
   studioBulkUpdatedAt?: string;
   studioBulkUpdatedBy?: string;
+  integrationToolGatewayEnabled?: boolean;
+  integrationToolGatewayUpdatedAt?: string;
+  integrationToolGatewayUpdatedBy?: string;
   timeZone?: string;
   updatedAt?: string;
   updatedBy?: string;
@@ -151,6 +154,9 @@ function normalizeServerSettings(value: unknown): ServerSettings {
     studioBulkEnabled?: unknown;
     studioBulkUpdatedAt?: unknown;
     studioBulkUpdatedBy?: unknown;
+    integrationToolGatewayEnabled?: unknown;
+    integrationToolGatewayUpdatedAt?: unknown;
+    integrationToolGatewayUpdatedBy?: unknown;
     timeZone?: unknown;
     updatedAt?: unknown;
     updatedBy?: unknown;
@@ -168,6 +174,8 @@ function normalizeServerSettings(value: unknown): ServerSettings {
   const directMcp = normalizeDirectMcpPreferences(record.directMcp);
   const studioBulkUpdatedAt = typeof record.studioBulkUpdatedAt === 'string'
     && Number.isFinite(Date.parse(record.studioBulkUpdatedAt)) ? record.studioBulkUpdatedAt : null;
+  const integrationToolGatewayUpdatedAt = typeof record.integrationToolGatewayUpdatedAt === 'string'
+    && Number.isFinite(Date.parse(record.integrationToolGatewayUpdatedAt)) ? record.integrationToolGatewayUpdatedAt : null;
   return {
     terminalEnabled: record.terminalEnabled === true,
     ...(typeof record.terminalRevocationId === 'string' ? { terminalRevocationId: record.terminalRevocationId } : {}),
@@ -180,6 +188,10 @@ function normalizeServerSettings(value: unknown): ServerSettings {
       && (record.studioBulkUpdatedAt === undefined || studioBulkUpdatedAt !== null),
     ...(studioBulkUpdatedAt !== null ? { studioBulkUpdatedAt } : {}),
     ...(typeof record.studioBulkUpdatedBy === 'string' ? { studioBulkUpdatedBy: record.studioBulkUpdatedBy } : {}),
+    integrationToolGatewayEnabled: record.integrationToolGatewayEnabled === true
+      && (record.integrationToolGatewayUpdatedAt === undefined || integrationToolGatewayUpdatedAt !== null),
+    ...(integrationToolGatewayUpdatedAt !== null ? { integrationToolGatewayUpdatedAt } : {}),
+    ...(typeof record.integrationToolGatewayUpdatedBy === 'string' ? { integrationToolGatewayUpdatedBy: record.integrationToolGatewayUpdatedBy } : {}),
     ...(timeZone ? { timeZone } : {}),
     ...(typeof record.updatedAt === 'string' ? { updatedAt: record.updatedAt } : {}),
     ...(typeof record.updatedBy === 'string' ? { updatedBy: record.updatedBy } : {}),
@@ -269,6 +281,7 @@ export async function setDocumentReviewEnabled(userId: string, enabled: boolean)
 export type ExperimentalFeaturesUpdate = {
   documentReviewEnabled?: boolean;
   studioBulkEnabled?: boolean;
+  integrationToolGatewayEnabled?: boolean;
 };
 
 function nextExperimentalUpdatedAt(previous: string | undefined, now: number): string {
@@ -282,7 +295,7 @@ export async function setExperimentalFeatures(
   input: ExperimentalFeaturesUpdate,
 ): Promise<ServerSettings> {
   const keys = Object.keys(input);
-  if (!keys.length || keys.some(key => !['documentReviewEnabled', 'studioBulkEnabled'].includes(key)
+  if (!keys.length || keys.some(key => !['documentReviewEnabled', 'studioBulkEnabled', 'integrationToolGatewayEnabled'].includes(key)
     || typeof input[key as keyof ExperimentalFeaturesUpdate] !== 'boolean')) {
     throw new Error('Experimental settings must contain supported boolean values.');
   }
@@ -304,6 +317,11 @@ export async function setExperimentalFeatures(
         studioBulkEnabled: patch.studioBulkEnabled,
         studioBulkUpdatedAt: nextExperimentalUpdatedAt(file.settings.studioBulkUpdatedAt, now),
         studioBulkUpdatedBy: userId,
+      } : {}),
+      ...(patch.integrationToolGatewayEnabled !== undefined ? {
+        integrationToolGatewayEnabled: patch.integrationToolGatewayEnabled,
+        integrationToolGatewayUpdatedAt: nextExperimentalUpdatedAt(file.settings.integrationToolGatewayUpdatedAt, now),
+        integrationToolGatewayUpdatedBy: userId,
       } : {}),
     };
     await writeServerSettingsFileAtomic({ version: 1, settings });

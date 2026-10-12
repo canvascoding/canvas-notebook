@@ -46,7 +46,7 @@ async function readHealthFile(connection: Connection, generation: number, scope:
 
 export async function readMcpConnectionHealth(connection: Connection, scope: McpScope): Promise<McpConnectionHealth> {
   const ownedScope = resolveMcpCredentialScope(connection, scope);
-  if (!ownedScope.userId) throw new Error('A personal MCP connection is required.');
+  if (!ownedScope.userId && !ownedScope.shared) throw new Error('A personal MCP connection is required.');
   return readHealthFile(connection, (await readMcpOAuthLifecycle(connection.connectionId, ownedScope)).generation, ownedScope);
 }
 
@@ -127,7 +127,7 @@ export async function recordMcpConnectionObservation(
   connection: McpServerConfig, scope: McpScope | null | undefined, observation: McpConnectionObservation,
   options: { now?: number; generation?: number } = {},
 ): Promise<void> {
-  if (!scope?.userId || !connection.connectionId) return;
+  if ((!scope?.userId && !scope?.shared) || !connection.connectionId) return;
   const ownedScope = resolveMcpCredentialScope({ ...connection, connectionId: connection.connectionId }, scope);
   await withMcpStorageLock(`health-${connection.connectionId}`, ownedScope, async () => {
     const current = Object.values((await readMcpConfig(ownedScope)).mcpServers).find((item) => item.connectionId === connection.connectionId);

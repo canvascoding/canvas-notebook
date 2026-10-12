@@ -6,7 +6,8 @@ import { resolveEffectiveCapabilitySnapshot } from '@/app/lib/capabilities/catal
 import { resolveCapabilityExecutionContextForUser } from '@/app/lib/capabilities/request-scope';
 import { readOrganizationPermissionForUser } from '@/app/lib/organization/permissions';
 import type { CanvasPluginInstallRecord } from '@/app/lib/plugins/canvas-plugin-registry';
-import { readExactInstalledPlugin } from '@/app/lib/plugins/installed-plugin-read';
+import { readReadableCapabilityPlugin, assertReadableCapabilityCandidate } from '@/app/lib/capabilities/resources/read';
+import { CapabilityResourceError } from '@/app/lib/capabilities/resources/contracts';
 import {
   isValidCanvasPluginName,
   isValidCanvasPluginVersion,
@@ -103,16 +104,13 @@ export async function POST(request: Request) {
         return NextResponse.json({ success: false, error: 'Assigned plugin is unavailable in this workspace' }, { status: 403 });
       }
     }
-    const plugin = await readExactInstalledPlugin({
-      name: pluginName,
-      resourceId,
-      scope: body.scope === 'organization'
-        ? { scopeType: 'organization', organizationId: organizationState.organizationId! }
-        : { scopeType: 'user', userId: session.user.id },
-    });
-    if (!plugin) {
+    const actor = { userId: session.user.id, workspaceId: stringValue(body.workspaceId) || request.headers.get(WORKSPACE_ID_HEADER) };
+    const selected = await readReadableCapabilityPlugin(actor, { name: pluginName, resourceId,
+      scope: body.scope === 'organization' ? 'organization' : 'user' });
+    if (selected.candidate.ref.scopeType === 'organization' && body.scope !== 'organization') {
       return NextResponse.json({ success: false, error: 'Plugin not found' }, { status: 404 });
     }
+    const plugin = selected.plugin;
 
     const connector = normalizeInstalledMcpConnectors(plugin.connectors).find((entry) => entry.name === connectorName);
     if (!connector) {
@@ -134,6 +132,7 @@ export async function POST(request: Request) {
       rootDir: plugin.installDir,
       configPath: connector.configPath,
     });
+    await assertReadableCapabilityCandidate(actor, selected.candidate, selected.candidates);
     return NextResponse.json({
       success: true,
       template: {
@@ -145,6 +144,7 @@ export async function POST(request: Request) {
       },
     });
   } catch (error) {
+    if (error instanceof CapabilityResourceError) return NextResponse.json({ success: false, error: error.message }, { status: error.status });
     console.error('[Plugins MCP Template API] Error:', error);
     const message = error instanceof Error ? error.message : 'Failed to load MCP template';
     return NextResponse.json(

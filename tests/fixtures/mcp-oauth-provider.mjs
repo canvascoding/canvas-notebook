@@ -1,5 +1,6 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { createServer } from 'node:http';
+import { createServer as createHttpsServer } from 'node:https';
 
 const MAX_BODY_BYTES = 1024 * 1024;
 const GRANT_LIFETIME_MS = 10 * 60 * 1000;
@@ -42,14 +43,26 @@ function sameChallenge(verifier, expected) {
 }
 
 /**
- * A real, loopback-only HTTP MCP and OAuth provider for browser/Electron E2E.
+ * A real, loopback-only HTTP(S) MCP and OAuth provider for browser/Electron E2E.
  * The returned stats contain counters only; authorization codes and tokens stay
  * in memory and are never logged or exposed through a diagnostics endpoint.
  */
 export async function startMcpOAuthProvider(options = {}) {
+  if (options.tls && (!options.tls.key || !options.tls.cert)) throw new Error('The own HTTPS provider requires its private key and certificate.');
+  if (options.cleanAuthorizationAddress !== undefined && typeof options.cleanAuthorizationAddress !== 'boolean') {
+    throw new Error('The private native consent address option must be an explicit boolean.');
+  }
+  if (options.nativeReturnScheme !== undefined && (options.nativeReturnScheme !== 'canvasnotebook-dev'
+    || !Array.isArray(options.allowedRedirectOrigins) || options.allowedRedirectOrigins.length !== 1)) {
+    throw new Error('The owned native fixture requires its exact development return scheme and callback origin.');
+  }
   const allowedOrigins = options.allowedRedirectOrigins
     ? new Set(options.allowedRedirectOrigins.map((entry) => new URL(entry).origin))
     : undefined;
+  if (options.nativeReturnScheme !== undefined
+    && [...allowedOrigins].some(entry => !['http:', 'https:'].includes(new URL(entry).protocol) || new URL(entry).hostname !== '127.0.0.1')) {
+    throw new Error('The owned native callback origin must be loopback HTTP(S).');
+  }
   const clients = new Map();
   const consents = new Map();
   const codes = new Map();
@@ -71,7 +84,10 @@ export async function startMcpOAuthProvider(options = {}) {
   };
   let origin;
 
-  const server = createServer(async (request, response) => {
+  // The existing personal fixture retains HTTP by default. TLS is selected
+  // explicitly by its owned production-host acceptance caller.
+  const server = options.tls ? createHttpsServer(options.tls) : createServer();
+  server.on('request', async (request, response) => {
     stats.requests += 1;
     try {
       const target = new URL(request.url || '/', origin);
@@ -130,15 +146,27 @@ export async function startMcpOAuthProvider(options = {}) {
           expiresAt: Date.now() + GRANT_LIFETIME_MS,
         });
         stats.consents += 1;
+        // The native UI observer must not print OAuth state from the address
+        // bar. The real request and grant stay unchanged; only this opt-in test
+        // page clears its displayed query after it has received that request.
+        const addressNonce = options.cleanAuthorizationAddress ? randomBytes(24).toString('base64url') : null;
+        const addressScript = addressNonce
+          ? `<script nonce="${addressNonce}">history.replaceState(null,'',location.pathname)</script>` : '';
+        const registeredCallback = new URL(redirectUri);
+        const nativeReturnSource = options.nativeReturnScheme === 'canvasnotebook-dev'
+          && allowedOrigins.has(registeredCallback.origin)
+          && registeredCallback.pathname === '/api/mcp/oauth/callback' && registeredCallback.search === ''
+          && /^desktop_[A-Za-z0-9_-]{32}$/u.test(state) ? ' canvasnotebook-dev:' : '';
         response.writeHead(200, {
           'Content-Type': 'text/html; charset=utf-8',
           'Cache-Control': 'no-store',
           'Referrer-Policy': 'no-referrer',
           // Chromium checks form-action again when following the OAuth 303.
-          // Permit only the callback origin validated against the registration.
-          'Content-Security-Policy': `default-src 'none'; form-action 'self' ${new URL(redirectUri).origin}; frame-ancestors 'none'; base-uri 'none'`,
+          // The explicit native fixture's exact registered callback adds a
+          // final custom-scheme 302. Ordinary browser fixtures keep HTTP only.
+          'Content-Security-Policy': `default-src 'none'; form-action 'self' ${registeredCallback.origin}${nativeReturnSource}; frame-ancestors 'none'; base-uri 'none'${addressNonce ? `; script-src 'nonce-${addressNonce}'` : ''}`,
         });
-        response.end(`<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Local MCP consent</title></head><body><main><h1>Connect Canvas Notebook</h1><p>Allow the local test MCP server to provide its echo tool.</p><form method="post" action="/consent"><input type="hidden" name="consent" value="${consent}"><button type="submit" name="decision" value="approve">Approve</button><button type="submit" name="decision" value="deny">Deny</button></form></main></body></html>`);
+        response.end(`<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Local MCP consent</title>${addressScript}</head><body><main><h1>Connect Canvas Notebook</h1><p>Allow the local test MCP server to provide its echo tool.</p><form method="post" action="/consent"><input type="hidden" name="consent" value="${consent}"><button type="submit" name="decision" value="approve">Approve</button><button type="submit" name="decision" value="deny">Deny</button></form></main></body></html>`);
         return;
       }
       if (method === 'POST' && target.pathname === '/consent') {
@@ -261,7 +289,7 @@ export async function startMcpOAuthProvider(options = {}) {
     server.listen(0, '127.0.0.1', resolve);
   });
   const address = server.address();
-  origin = `http://127.0.0.1:${address.port}`;
+  origin = `${options.tls ? 'https' : 'http'}://127.0.0.1:${address.port}`;
   let closing;
   return {
     origin,

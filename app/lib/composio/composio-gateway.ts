@@ -20,6 +20,7 @@ import { executeManagedComposioTool } from './managed-composio-execution';
 import { encryptWebhookSecret, previewWebhookSecret } from './composio-webhook-secret';
 import { db } from '../db';
 import { composioWebhookSubscriptions } from '../db/schema';
+import { assertLegacyIntegrationEntryPointAllowed } from '../integration-tools/legacy-gate';
 
 const HIDDEN_TOOLKIT_SLUGS = new Set([
   'gemini',
@@ -518,12 +519,16 @@ export async function getGatewayToolSchemas(tools: string[], context: ResolvedCo
 }
 
 export async function executeGatewayTool(action: string, params: Record<string, unknown>, context: ResolvedComposioContext) {
+  await assertLegacyIntegrationEntryPointAllowed();
   const mode = await getComposioMode(context.storageScope);
   if (mode === 'disabled') throw new Error('Composio is not configured. Add COMPOSIO_API_KEY in Settings → Integrations or enable managed Composio.');
   if (mode === 'managed') {
     const toolkit = action.split('_')[0]?.trim().toLowerCase() || 'unknown';
     return executeManagedComposioTool({
-      execute: () => managedRequest<Record<string, unknown>>('/execute', { method: 'POST', body: { action, params } }, context),
+      execute: async () => {
+        await assertLegacyIntegrationEntryPointAllowed();
+        return managedRequest<Record<string, unknown>>('/execute', { method: 'POST', body: { action, params } }, context);
+      },
       createOAuthFlow: () => createComposioOAuthFlowState({ context, toolkitSlug: toolkit }),
       connect: (returnUrl) => managedRequest<Record<string, unknown>>(`/connect/${encodeURIComponent(toolkit)}`, {
         method: 'POST', body: { returnUrl },
@@ -546,13 +551,19 @@ export async function executeGatewayTool(action: string, params: Record<string, 
       retryable: false,
     });
   }
+  let preDispatchDenial: unknown;
   try {
     return await withComposioSignal(120_000, (signal) => composio.tools.execute(action, {
       userId: context.composioUserId,
       arguments: params,
       version,
-    }, { signal }), true);
+    }, { signal, beforeExecute: async ({ params: capturedParams }) => {
+      try { await assertLegacyIntegrationEntryPointAllowed(); }
+      catch (error) { preDispatchDenial = error; throw error; }
+      return capturedParams;
+    } }), true);
   } catch (error) {
+    if (preDispatchDenial) throw preDispatchDenial;
     if (error instanceof ComposioProviderError) throw error;
     throw classifyComposioFailure({ error, mutation: true, timeout: error instanceof Error && error.name === 'AbortError' });
   }

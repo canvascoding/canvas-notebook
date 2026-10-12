@@ -16,6 +16,7 @@ import { showChatNotification } from './notifications.mjs';
 import { createDesktopUpdater } from './updater.mjs';
 import { createDesktopFileDragCache } from './file-drag.mjs';
 import { createMcpOAuthLauncher } from './mcp-oauth.mjs';
+import { createSharedComposioOAuthLauncher } from './composio-oauth.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ICON_PATH = path.join(__dirname, '../assets/icon.png');
@@ -273,6 +274,12 @@ function createMainWindow() {
 
 function registerIpcHandlers() {
   ipcMain.handle('desktop:open-mcp-oauth', createMcpOAuthLauncher({
+    getMainWindow,
+    getConfiguredServerUrl,
+    openExternal: url => shell.openExternal(url),
+    allowLoopbackHttp: !app.isPackaged,
+  }));
+  ipcMain.handle('desktop:open-shared-composio-oauth', createSharedComposioOAuthLauncher({
     getMainWindow,
     getConfiguredServerUrl,
     openExternal: url => shell.openExternal(url),

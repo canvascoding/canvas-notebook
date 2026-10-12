@@ -1,7 +1,7 @@
 import 'server-only';
 
 import { createHash, randomBytes } from 'node:crypto';
-import { and, eq, gt } from 'drizzle-orm';
+import { and, eq, gt, isNull } from 'drizzle-orm';
 import { db } from '@/app/lib/db';
 import { piSessions, session as authSessions } from '@/app/lib/db/schema';
 import { requireAgentAccess } from '@/app/lib/agents/access';
@@ -14,6 +14,9 @@ import type { McpAppInvocationDetails } from '@/app/lib/mcp/apps-types';
 import type { BuiltinToolAppDescriptor } from '@/app/lib/tool-apps/types';
 import { requireBuiltinToolAppAccess } from '@/app/lib/tool-apps/builtin-access';
 import { readBuiltinToolAppResource } from '@/app/lib/tool-apps/registry';
+import { readMcpAppDescriptor } from './apps-contracts';
+import type { SharedMcpAppDescriptor } from './apps-types';
+import { schemaFingerprint } from '@/app/lib/integration-tools/schema';
 
 type AppDescriptor = McpAppInvocationDetails['mcpApp'];
 export type McpAppChat = { userId: string; sessionId: string; agentId: string };
@@ -35,14 +38,9 @@ function tickets() { return runtime.__canvasMcpAppTickets ??= new Map(); }
 function ticketHash(value: string) { return createHash('sha256').update(value).digest('hex'); }
 
 export function parseMcpAppDescriptor(value: unknown): AppDescriptor {
-  const app = value as Partial<AppDescriptor> | null;
-  if (!app || app.version !== 1 || typeof app.connectionId !== 'string'
-    || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu.test(app.connectionId)
-    || typeof app.toolName !== 'string' || !app.toolName || app.toolName.length > 256
-    || typeof app.resourceUri !== 'string' || !/^ui:\/\/[^\s]+$/u.test(app.resourceUri) || app.resourceUri.length > 4096) {
-    throw new McpAccessError('Invalid MCP app reference.', 400);
-  }
-  return { version: 1, connectionId: app.connectionId, toolName: app.toolName, resourceUri: app.resourceUri };
+  const app = readMcpAppDescriptor(value);
+  if (!app) throw new McpAccessError('Invalid MCP app reference.', 400);
+  return app;
 }
 
 export async function requireMcpAppChatAccess(input: McpAppChat): Promise<string> {
@@ -51,12 +49,15 @@ export async function requireMcpAppChatAccess(input: McpAppChat): Promise<string
   }
   const session = await db.query.piSessions.findFirst({ where: and(
     eq(piSessions.sessionId, input.sessionId), eq(piSessions.userId, input.userId), eq(piSessions.agentId, input.agentId),
+    isNull(piSessions.archivedAt),
   ) });
   if (!session) throw new McpAccessError('Chat is unavailable.', 403);
   try {
-    await requireAgentAccess(input.userId, input.agentId, 'canUse');
     const workspace = await resolveAgentSessionWorkspaceForUser({
       userId: input.userId, workspaceId: session.workspaceId, permissions: ['canRead', 'canRunAgent'],
+    });
+    await requireAgentAccess(input.userId, input.agentId, 'canUse', {
+      workspaceId: workspace.workspaceId, organizationId: workspace.organizationId, projectId: workspace.projectId,
     });
     return workspace.workspaceId;
   } catch {
@@ -65,9 +66,27 @@ export async function requireMcpAppChatAccess(input: McpAppChat): Promise<string
 }
 
 export async function issueMcpAppTicket(input: McpAppChat & {
-  authSessionId: string; authSessionExpiresAt: Date | string; app: AppDescriptor;
+  authSessionId: string; authSessionExpiresAt: Date | string; app: AppDescriptor; signal?: AbortSignal;
 }) {
   if (!isMcpAppsEnabled()) throw new McpAccessError('MCP apps are disabled.', 404);
+  if (input.app.version === 2) {
+    const { requireSharedMcpAppAccess } = await import('./apps-shared-access');
+    const app = input.app;
+    await requireMcpAppAuthSession(input);
+    const access = await requireSharedMcpAppAccess(input, app, undefined, input.signal);
+    const beforeDispatch = async () => {
+      await requireMcpAppAuthSession(input);
+      await requireSharedMcpAppAccess(input, app, undefined, input.signal);
+    };
+    const resource = await readMcpAppResource(access.connectionId, app.toolName, app.resourceUri, access.scope,
+      { beforeDispatch, expectedEnvironmentRevision: access.environmentRevision, signal: input.signal });
+    const content = resource.contents.find(item => item.uri === app.resourceUri && isMcpAppResourceMimeType(item.mimeType));
+    if (!content || !('text' in content) || typeof content.text !== 'string' || Buffer.byteLength(content.text) > MAX_HTML_BYTES) {
+      throw new McpAccessError('The app does not provide a supported, bounded HTML resource.', 422);
+    }
+    await beforeDispatch();
+    return storeAppTicket({ ...input, workspaceId: access.workspaceId, html: content.text });
+  }
   const workspaceId = await requireMcpAppChatAccess(input);
   const scope = { userId: input.userId };
   const { connection } = await assertMcpConnectionAccess(input.app.connectionId, scope);
@@ -102,7 +121,7 @@ function storeAppTicket(input: Omit<AppTicket, 'expiresAt'> & { authSessionExpir
   const ticket = randomBytes(32).toString('base64url');
   tickets().set(ticketHash(ticket), {
     userId: input.userId, sessionId: input.sessionId, agentId: input.agentId,
-    authSessionId: input.authSessionId, app: input.app, workspaceId: input.workspaceId,
+    authSessionId: input.authSessionId, app: structuredClone(input.app), workspaceId: input.workspaceId,
     authVersion: input.authVersion, html: input.html, expiresAt,
   });
   const { frameOrigin } = mcpAppOrigins();
@@ -116,18 +135,51 @@ async function resolveMcpAppTicket(ticket: string): Promise<AppTicket | null> {
     tickets().delete(ticketHash(ticket));
     return null;
   }
-  const session = await db.query.session.findFirst({ where: and(
-    eq(authSessions.id, record.authSessionId), eq(authSessions.userId, record.userId), gt(authSessions.expiresAt, new Date()),
-  ) });
-  if (!session) return null;
+  await requireMcpAppAuthSession(record);
   if (await requireMcpAppChatAccess(record) !== record.workspaceId) return null;
   if ('kind' in record.app) {
     await requireBuiltinToolAppAccess(record, record.app);
+  } else if (record.app.version === 2) {
+    const { requireSharedMcpAppAccess } = await import('./apps-shared-access');
+    if ((await requireSharedMcpAppAccess(record, record.app)).workspaceId !== record.workspaceId) return null;
   } else {
     const { connection } = await assertMcpConnectionAccess(record.app.connectionId, { userId: record.userId });
     if (connection.authVersion !== record.authVersion) return null;
   }
+  if (record.expiresAt <= Date.now()) return null;
+  await requireMcpAppAuthSession(record);
+  if (record.expiresAt <= Date.now()) return null;
   return record;
+}
+
+async function requireMcpAppAuthSession(input: { userId: string; authSessionId: string }): Promise<void> {
+  const session = await db.query.session.findFirst({ where: and(eq(authSessions.id, input.authSessionId),
+    eq(authSessions.userId, input.userId), gt(authSessions.expiresAt, new Date())) });
+  if (!session || new Date(session.expiresAt).getTime() <= Date.now()
+    || !Number.isFinite(new Date(session.expiresAt).getTime())) throw new McpAccessError('Sign in again.', 401);
+}
+
+/** A shared app action belongs to the exact issued frame and original authenticated session. */
+export async function requireSharedMcpAppCallTicket(input: McpAppChat & {
+  authSessionId: string; app: SharedMcpAppDescriptor; ticket: unknown;
+}, targetToolName: string, signal?: AbortSignal) {
+  signal?.throwIfAborted();
+  if (typeof input.ticket !== 'string' || !/^[A-Za-z0-9_-]{43}$/u.test(input.ticket)) throw new McpAccessError('Reload the app before using it.', 403);
+  const issued = tickets().get(ticketHash(input.ticket));
+  // Check the current HTTP actor/session before resolving another actor's
+  // ticket, including any workflow readiness provider metadata it may require.
+  if (!issued || issued.userId !== input.userId || issued.sessionId !== input.sessionId || issued.agentId !== input.agentId
+    || issued.authSessionId !== input.authSessionId || schemaFingerprint(issued.app) !== schemaFingerprint(input.app)) {
+    throw new McpAccessError('This app frame is no longer available in the current session.', 403);
+  }
+  const record = await resolveMcpAppTicket(input.ticket);
+  if (!record || record !== issued) throw new McpAccessError('This app frame is no longer available in the current session.', 403);
+  const { requireSharedMcpAppAccess } = await import('./apps-shared-access');
+  const access = await requireSharedMcpAppAccess(input, input.app, targetToolName, signal);
+  await requireMcpAppAuthSession(input);
+  signal?.throwIfAborted();
+  if (record.expiresAt <= Date.now()) throw new McpAccessError('Reload the app before using it.', 403);
+  return access;
 }
 
 const privateHeaders = {

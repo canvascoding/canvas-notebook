@@ -2,7 +2,8 @@ import 'server-only';
 
 import { randomUUID } from 'node:crypto';
 
-import { openDb } from '@/app/lib/db';
+import { openDb, type SqlConnection } from '@/app/lib/db';
+import { AgentWorkflowError, parseStoredAgentWorkflowPackage, type StoredAgentWorkflowPackage, type AgentWorkflowStoredBinding } from './workflow-contracts';
 export type AgentCapabilityBindingInput = {
   resourceType: 'skill' | 'plugin' | 'connection';
   scopeType: 'system' | 'organization' | 'user';
@@ -10,6 +11,8 @@ export type AgentCapabilityBindingInput = {
   name: string;
   version?: string;
   requirement?: 'optional' | 'required';
+  /** Private server-only configuration, intentionally absent from public binding DTOs. */
+  configuration?: StoredAgentWorkflowPackage | null;
 };
 
 export type AgentCapabilityBinding = {
@@ -34,6 +37,7 @@ type BindingRow = {
   version: string;
   requirement: AgentCapabilityBinding['requirement'];
   revision: number | string;
+  configuration_json?: string | null;
 };
 
 function mapBinding(row: BindingRow): AgentCapabilityBinding {
@@ -71,8 +75,8 @@ function normalizeBinding(input: AgentCapabilityBindingInput): Omit<AgentCapabil
   };
 }
 
-export async function listAgentCapabilityBindings(agentId: string): Promise<AgentCapabilityBinding[]> {
-  const database = await openDb();
+export async function listAgentCapabilityBindings(agentId: string, connection?: SqlConnection): Promise<AgentCapabilityBinding[]> {
+  const database = connection ?? await openDb();
   try {
     const rows = await database.all(
       `SELECT id, agent_id, resource_type, scope_type, resource_id, name, version, requirement, revision
@@ -83,13 +87,15 @@ export async function listAgentCapabilityBindings(agentId: string): Promise<Agen
     ) as BindingRow[];
     return rows.map(mapBinding);
   } finally {
-    await database.close();
+    if (!connection) await database.close();
   }
 }
 
 export async function replaceAgentCapabilityBindings(
   agentId: string,
   inputs: AgentCapabilityBindingInput[],
+  connection?: SqlConnection,
+  options: { workflowMutation?: boolean } = {},
 ): Promise<AgentCapabilityBinding[]> {
   const normalized = inputs.map(normalizeBinding);
   const keys = new Set<string>();
@@ -99,17 +105,26 @@ export async function replaceAgentCapabilityBindings(
     keys.add(key);
   }
 
-  const database = await openDb();
+  const database = connection ?? await openDb();
   try {
-    await database.run('BEGIN');
+    if (!connection) await database.run('BEGIN');
+    const header = await database.get('SELECT workflow_version FROM agents WHERE agent_id=$1', [agentId]) as { workflow_version?: unknown } | undefined;
+    if (header?.workflow_version != null && options.workflowMutation !== true) {
+      throw new AgentWorkflowError('AGENT_WORKFLOW_UPDATE_REQUIRED', 'Update the explicit workflow configuration to change its package bindings.', 409);
+    }
+    if (options.workflowMutation !== true && await database.get('SELECT id FROM agent_capability_bindings WHERE agent_id=$1 AND configuration_json IS NOT NULL LIMIT 1', [agentId])) {
+      throw new AgentWorkflowError('AGENT_WORKFLOW_UPDATE_REQUIRED', 'The stored workflow must be explicitly reviewed before changing its package bindings.', 409);
+    }
     await database.run(`DELETE FROM agent_capability_bindings WHERE agent_id = $1`, [agentId]);
     const now = Date.now();
-    for (const binding of normalized) {
+    for (let index = 0; index < normalized.length; index++) {
+      const binding = normalized[index];
+      const configuration = inputs[index].configuration == null ? null : parseStoredAgentWorkflowPackage(inputs[index].configuration);
       await database.run(
         `INSERT INTO agent_capability_bindings (
           id, agent_id, resource_type, scope_type, resource_id, name,
-          version, requirement, revision, created_at, updated_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 1, $9, $10)`,
+          version, requirement, revision, created_at, updated_at, configuration_json
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 1, $9, $10, $11)`,
         [
           `agent-binding-${randomUUID()}`,
           agentId,
@@ -121,19 +136,39 @@ export async function replaceAgentCapabilityBindings(
           binding.requirement,
           now,
           now,
+          configuration ? JSON.stringify(configuration) : null,
         ],
       );
     }
-    await database.run('COMMIT');
+    const bindings = await listAgentCapabilityBindings(agentId, database);
+    if (!connection) await database.run('COMMIT');
+    return bindings;
   } catch (error) {
-    try {
-      await database.run('ROLLBACK');
-    } catch {
-      // Preserve the original write error.
+    if (!connection) {
+      try {
+        await database.run('ROLLBACK');
+      } catch {
+        // Preserve the original write error.
+      }
     }
     throw error;
   } finally {
-    await database.close();
+    if (!connection) await database.close();
   }
-  return listAgentCapabilityBindings(agentId);
+}
+
+/** Internal only: normal list/inspect DTOs do not receive private connection bindings. */
+export async function listRawAgentCapabilityBindings(agentId: string, connection?: SqlConnection): Promise<AgentWorkflowStoredBinding[]> {
+  const database = connection ?? await openDb();
+  try {
+    const rows = await database.all(`SELECT * FROM agent_capability_bindings WHERE agent_id=$1 ORDER BY resource_type,name,resource_id`, [agentId]) as BindingRow[];
+    return rows.map(row => {
+      let configuration: StoredAgentWorkflowPackage | null = null;
+      if (row.configuration_json != null) {
+        try { configuration = parseStoredAgentWorkflowPackage(JSON.parse(row.configuration_json)); }
+        catch { throw new AgentWorkflowError('AGENT_WORKFLOW_CORRUPT', 'The stored workflow cannot be verified.', 409); }
+      }
+      return { ...mapBinding(row), configuration };
+    });
+  } finally { if (!connection) await database.close(); }
 }

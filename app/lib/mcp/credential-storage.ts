@@ -8,12 +8,18 @@ import { requireMcpCredentialScope, resolveMcpSecretEnvScope, type McpScope } fr
 import { mutateUnifiedSecretValue, readUnifiedSecretValue, withUnifiedEnvLock } from '@/app/lib/secrets/unified-env-store';
 import { readMcpTextFileIfExists, removeMcpStoragePath, writeMcpTextFileAtomic } from '@/app/lib/mcp/storage';
 import { withMcpStorageLock } from '@/app/lib/mcp/storage-lock';
+import { authorizeSharedMcpScope, withSharedMcpAuthority } from './shared-access';
 
 export function resolveMcpCredentialScope(
   connection: Pick<McpServerConfig, 'ownerUserId' | 'organizationId'> & { connectionId: string },
   scope?: McpScope | null,
 ): McpScope {
   const requested = requireMcpCredentialScope(scope);
+  if (requested.shared) {
+    if (connection.connectionId !== requested.shared.connectionId
+      || connection.organizationId !== requested.shared.ownership.organizationId || connection.ownerUserId) throw new Error('Shared MCP credential binding does not match.');
+    return requested;
+  }
   if (!requested.userId) return requested;
   if (connection.ownerUserId !== requested.userId) throw new Error('MCP connection belongs to another user.');
   const organizationId = connection.organizationId || null;
@@ -42,7 +48,9 @@ function bindingFor(relativePath: string, scope: McpScope, connectionId?: string
   const parts = relativePath.split('/');
   const id = parts[0] === 'connections' ? parts[1] : connectionId;
   if (!id) throw new Error('MCP credential connection binding is missing.');
-  return { ownerUserId: scope.userId || 'system', organizationId: scope.organizationId || null, connectionId: id, purpose: relativePath };
+  if (scope.shared && id !== scope.shared.connectionId) throw new Error('Shared MCP credential connection binding does not match.');
+  return { ownerUserId: scope.userId || 'system', organizationId: scope.organizationId || null, connectionId: id, purpose: relativePath,
+    ...(scope.shared ? { shared: { connectionRef: scope.shared.connectionRef, ownership: scope.shared.ownership } } : {}) };
 }
 
 function envelopeOrganizationId(payload: unknown, scope: McpScope): string | null {
@@ -55,21 +63,25 @@ function envelopeOrganizationId(payload: unknown, scope: McpScope): string | nul
 
 export async function writeMcpCredentialJson(relativePath: string, payload: unknown, scope?: McpScope | null): Promise<void> {
   const ownedScope = requireMcpCredentialScope(scope);
+  if (ownedScope.shared?.operation === 'inspect') throw new Error('Reading a shared MCP connection does not allow credential changes.');
   const connectionId = (payload as { connectionId?: string })?.connectionId;
   const organizationId = envelopeOrganizationId(payload, ownedScope);
   const binding = bindingFor(relativePath, { ...ownedScope, organizationId }, connectionId);
   const sealed = await sealMcpSecret(payload, binding);
   // Clear routing fields are bound into the secret's AAD and cannot change its authority.
   const content = JSON.stringify({ connectionId: binding.connectionId, organizationId, sealed });
-  if (relativePath.startsWith('connections/')) {
-    await mutateUnifiedSecretValue(credentialEnvKey(relativePath), async () => content, resolveMcpSecretEnvScope(ownedScope));
-  } else {
-    // PKCE state is short-lived and remains in the existing sealed state store.
-    await writeMcpTextFileAtomic(relativePath, content, ownedScope);
-  }
+  const publish = async () => {
+    if (relativePath.startsWith('connections/')) {
+      await mutateUnifiedSecretValue(credentialEnvKey(relativePath), async () => content, resolveMcpSecretEnvScope(ownedScope));
+    } else {
+      // PKCE state is short-lived and remains in the existing sealed state store.
+      await writeMcpTextFileAtomic(relativePath, content, ownedScope);
+    }
+  };
+  if (ownedScope.shared) await withSharedMcpAuthority(ownedScope, ownedScope.shared.operation, publish); else await publish();
 }
 
-function credentialEnvKey(relativePath: string): string {
+export function credentialEnvKey(relativePath: string): string {
   if (!/^connections\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\.json$/.test(relativePath)
     || ['.', '..'].includes(relativePath.split('/')[1])) throw new Error('Invalid persistent MCP credential path.');
   return `CANVAS_CREDENTIAL_MCP_${crypto.createHash('sha256').update(relativePath).digest('hex')}`;
@@ -91,8 +103,14 @@ async function decodeCredential<T>(content: string, relativePath: string, ownedS
   return openMcpSecret<T>(envelope.sealed, binding);
 }
 
+/** Internal immutable ENV snapshots use the same authenticated envelope contract. */
+export async function decodeMcpCredentialEnvelope<T>(content: string, relativePath: string, scope: McpScope): Promise<T> {
+  return decodeCredential<T>(content, relativePath, requireMcpCredentialScope(scope));
+}
+
 export async function readMcpCredentialJson<T>(relativePath: string, scope?: McpScope | null): Promise<T | null> {
   const ownedScope = requireMcpCredentialScope(scope);
+  if (ownedScope.shared) await authorizeSharedMcpScope(ownedScope);
   if (!relativePath.startsWith('connections/')) {
     const { content } = await readMcpTextFileIfExists(relativePath, ownedScope);
     return content === null ? null : decodeCredential<T>(content, relativePath, ownedScope);
@@ -113,11 +131,16 @@ export async function readMcpCredentialJson<T>(relativePath: string, scope?: Mcp
 
 export async function removeMcpCredentialJson(relativePath: string, scope?: McpScope | null): Promise<void> {
   const ownedScope = requireMcpCredentialScope(scope);
-  if (relativePath.startsWith('connections/')) {
-    await mutateUnifiedSecretValue(credentialEnvKey(relativePath), async () => null, resolveMcpSecretEnvScope(ownedScope));
-  } else {
-    await removeMcpStoragePath(relativePath, ownedScope);
-  }
+  const remove = async () => {
+    if (relativePath.startsWith('connections/')) {
+      if (ownedScope.shared && relativePath.split('/')[1] !== ownedScope.shared.connectionId) throw new Error('Shared MCP credential binding does not match.');
+      await mutateUnifiedSecretValue(credentialEnvKey(relativePath), async () => null, resolveMcpSecretEnvScope(ownedScope));
+    } else await removeMcpStoragePath(relativePath, ownedScope);
+  };
+  if (ownedScope.shared) {
+    if (ownedScope.shared.operation === 'inspect') throw new Error('Reading a shared MCP connection does not allow credential changes.');
+    await withSharedMcpAuthority(ownedScope, ownedScope.shared.operation, remove);
+  } else await remove();
 }
 
 /** Copy only unambiguous, config-bound legacy credentials; resume safely after interruption. */

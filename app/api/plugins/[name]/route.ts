@@ -1,11 +1,14 @@
+import { isCapabilityPackageError } from '@/app/lib/capabilities/packages/contracts';
 import { NextResponse } from 'next/server';
 import { headers } from 'next/headers';
+import { toPublicCapabilityPackageMetadata } from '@/app/lib/capabilities/packages/public-metadata';
 
 import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { refreshCapabilityRuntimeForScope } from '@/app/lib/capabilities/activation-actions';
 import { auth } from '@/app/lib/auth';
+import { readReadableCapabilityPlugin } from '@/app/lib/capabilities/resources/read';
+import { CapabilityResourceError } from '@/app/lib/capabilities/resources/contracts';
 import { resolveCapabilityStorageScope } from '@/app/lib/capabilities/request-scope';
-import { readOrganizationPermissionForUser } from '@/app/lib/organization/permissions';
 import { requireOrganizationPermission } from '@/app/lib/organization/permissions';
 import { deleteCanvasPlugin, getCanvasPlugin } from '@/app/lib/plugins/canvas-plugin-registry';
 import { isValidCanvasPluginName } from '@/app/lib/plugins/canvas-plugin-manifest';
@@ -24,18 +27,24 @@ export async function GET(
     return NextResponse.json({ success: false, error: 'Invalid plugin name' }, { status: 400 });
   }
 
-  const organizationState = await readOrganizationPermissionForUser(session.user.id);
-  const capabilityScope = resolveCapabilityStorageScope({
-    requestedScope: new URL(request.url).searchParams.get('scope'),
-    userId: session.user.id,
-    organizationState,
-  });
-  const plugin = await getCanvasPlugin(name, capabilityScope);
-  if (!plugin) {
-    return NextResponse.json({ success: false, error: 'Plugin not found' }, { status: 404 });
+  try {
+    const query = new URL(request.url).searchParams;
+    const selected = await readReadableCapabilityPlugin({ userId: session.user.id, workspaceId: query.get('workspaceId') }, {
+      name, resourceId: query.get('resourceId') || undefined, scope: query.get('scope') === 'organization' ? 'organization' : 'user',
+    });
+    if (selected.candidate.ref.scopeType === 'organization' && query.get('scope') !== 'organization') {
+      throw new CapabilityResourceError('CAPABILITY_RESOURCE_NOT_FOUND', 'Plugin not found.', 404);
+    }
+    const foreignPersonal = selected.candidate.ref.scopeType === 'user' && selected.candidate.ref.ownerUserId !== session.user.id;
+    return NextResponse.json(toPublicCapabilityPackageMetadata({ success: true, plugin: { ...selected.plugin,
+      ...(foreignPersonal ? { installDir: '', manifestPath: '', skillsDir: undefined, sourcePath: undefined,
+        skills: selected.plugin.skills.map(skill => ({ ...skill, path: '', directory: '', standaloneDir: undefined })) } : {}),
+      resourceMetadata: selected.candidate.resourceMetadata, resourceAccess: selected.candidate.resourceAccess,
+    } }));
+  } catch (error) {
+    if (error instanceof CapabilityResourceError) return NextResponse.json({ success: false, error: error.message }, { status: error.status });
+    return NextResponse.json({ success: false, error: 'Plugin unavailable' }, { status: 500 });
   }
-
-  return NextResponse.json({ success: true, plugin });
 }
 
 export async function DELETE(
@@ -54,11 +63,17 @@ export async function DELETE(
     organizationState: pluginPermission.state,
   });
   const existingPlugin = await getCanvasPlugin(name, capabilityScope);
-  const result = await deleteCanvasPlugin(
-    name,
-    capabilityScope,
-    pluginPermission.session.user.email || pluginPermission.session.user.id,
-  );
+  let result;
+  try {
+    result = await deleteCanvasPlugin(
+      name,
+      capabilityScope,
+      pluginPermission.session.user.email || pluginPermission.session.user.id,
+    );
+  } catch (error) {
+    if (isCapabilityPackageError(error)) return NextResponse.json({ success: false, error: error.message, code: error.code }, { status: error.status });
+    throw error;
+  }
   if (!result.success) {
     return NextResponse.json(
       { success: false, error: result.error },

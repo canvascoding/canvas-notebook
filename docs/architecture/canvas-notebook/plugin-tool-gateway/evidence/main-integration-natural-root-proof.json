@@ -1,0 +1,50 @@
+{
+  "version": 1,
+  "checkedAt": "2026-10-12T06:40:51.678Z",
+  "nonce": "5f091a7eaa8b650243824cd168d5acb5",
+  "sourceTree": "39c83ac2b5007a8c7cfc705b570c4887b0888bb7",
+  "sdkVersion": "1.0.4",
+  "actualModel": "ollama/kimi-k2.6:cloud",
+  "modelInjected": false,
+  "controlledProviders": true,
+  "externalProviderRepeat": false,
+  "originalLauncherExit": 0,
+  "originalPids": [
+    67680,
+    73825,
+    71686,
+    78613
+  ],
+  "originalPidsAbsent": true,
+  "originalDetachedGroupsAbsent": true,
+  "ownedDatabasesAbsent": true,
+  "ownedDatabaseSessionsAbsent": true,
+  "ownedDataTmpAbsent": true,
+  "parentPhase": "cleaned",
+  "workerPhase": "verified_closed",
+  "authClosed": true,
+  "closedContexts": true,
+  "providerClosed": true,
+  "effects": 4,
+  "auditKeys": [
+    "version",
+    "nonce",
+    "readOnly",
+    "transactionCommitted",
+    "clientReleased",
+    "auditCalls",
+    "actors",
+    "rows",
+    "nativeSkillReads",
+    "schemaRefObservedInCallAudit",
+    "schemaBindingEvidence"
+  ],
+  "evidenceHashes": {
+    "recovery.json": "f0d9a7b5af8e7fdea3144b09eb6a88d935eb6212c182f92baa2a3ef4355bd479",
+    "browser-receipt.json": "ca0de5ee9a4bd714e562f9637ca89d08edbb577e3fe14a36e39707cafbb47ef6",
+    "natural-audit-proof.json": "f8a404f51c0c153f6fd73a9efd8f57fbf35a242330a767770d72f999e70c110b",
+    "natural-provider-proof.json": "356b64544a93072fc6991a4a6b3e3678a9addd5c3034486b2f61ef4ae172802b",
+    "natural-workflow-evidence/user-1-natural-result.png": "b432ba7be2f4297bb8e5e454dee0aca1feeae98896d73597c2b0b2df60889fd6",
+    "natural-workflow-evidence/user-2-natural-result.png": "9fd2e6b505b4318a0e9dae1751a5c4af0c4a5126265bcad51ff46a931ea80949"
+  }
+}

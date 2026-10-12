@@ -1,18 +1,18 @@
 import assert from 'node:assert/strict';
 import { legacyPluginSettingsHref, readPluginNavigation, updatePluginNavigation } from '../app/lib/plugins/plugin-navigation';
 
-assert.deepEqual(readPluginNavigation(new URLSearchParams()), { area: 'plugins', view: 'discover', scope: 'user' });
+assert.deepEqual(readPluginNavigation(new URLSearchParams()), { area: 'plugins', view: 'installed', scope: 'user' });
 assert.deepEqual(readPluginNavigation(new URLSearchParams('area=skills&view=library&scope=organization')), { area: 'skills', view: 'library', scope: 'organization' });
 assert.equal(readPluginNavigation(new URLSearchParams('area=skills&view=advanced')).view, 'installed');
-assert.equal(readPluginNavigation(new URLSearchParams('view=library&scope=system')).view, 'discover');
-assert.equal(readPluginNavigation(new URLSearchParams('scope=system')).scope, 'user');
+assert.equal(readPluginNavigation(new URLSearchParams('view=library&scope=system')).view, 'installed');
+assert.equal(readPluginNavigation(new URLSearchParams('scope=system')).scope, 'system');
 assert.equal(updatePluginNavigation('view=advanced&q=mail', { area: 'skills' }), '/plugins?q=mail&area=skills&view=installed');
-assert.equal(updatePluginNavigation('area=skills&view=library&scope=organization', { area: 'plugins' }), '/plugins?scope=organization&view=discover');
+assert.equal(updatePluginNavigation('area=skills&view=library&scope=organization', { area: 'plugins' }), '/plugins?scope=organization&view=installed');
 assert.equal(updatePluginNavigation('view=updates&scope=organization', { scope: 'user' }), '/plugins?view=updates');
-assert.equal(legacyPluginSettingsHref({ tab: 'plugins' }), '/plugins?view=discover');
+assert.equal(legacyPluginSettingsHref({ tab: 'plugins' }), '/plugins?view=installed');
 assert.equal(legacyPluginSettingsHref({ tab: ['skills'], view: 'library', scope: 'organization' }), '/plugins?view=library&scope=organization&area=skills');
 assert.equal(legacyPluginSettingsHref({ tab: 'general' }), null);
-assert.equal(legacyPluginSettingsHref({ tab: 'plugins', q: 'mail & calendar' }), '/plugins?q=mail+%26+calendar&view=discover');
+assert.equal(legacyPluginSettingsHref({ tab: 'plugins', q: 'mail & calendar' }), '/plugins?q=mail+%26+calendar&view=installed');
 const filtered = readPluginNavigation(new URLSearchParams('view=discover&q=team&page=3&category=Work&connection=mcp'));
 assert.equal(filtered.q, 'team');
 assert.equal(filtered.page, 3);
@@ -32,4 +32,70 @@ for (const key of ['page', 'category', 'connection']) assert.equal(installedView
 const detailHref = new URL(updatePluginNavigation('view=discover&q=team&page=3&category=Work&connection=mcp', { plugin: 'team-plugin', source: 'store' }), 'https://canvas.test');
 assert.equal(detailHref.searchParams.get('page'), '3', 'opening a detail preserves list position');
 assert.equal(detailHref.searchParams.get('connection'), 'mcp');
+const resourceRef = 'canvas-resource:11111111-1111-4111-8111-111111111111';
+const draftRef = 'canvas-package-draft:22222222-2222-4222-8222-222222222222';
+const draft = readPluginNavigation(new URLSearchParams({ area: 'skills', view: 'drafts', resourceRef, draftRef,
+  task: 'content', file: 'scripts/run.py', scope: 'team', teamId: 'accessible-workspace' }));
+assert.deepEqual(draft, { area: 'skills', view: 'drafts', scope: 'team', teamId: 'accessible-workspace',
+  resourceRef, draftRef, task: 'content', file: 'scripts/run.py' });
+assert.equal(readPluginNavigation(new URLSearchParams('scope=team')).scope, 'team', 'an unselected team never becomes a personal selection');
+assert.equal(readPluginNavigation(new URLSearchParams('scope=organization&audience=shared&teamId=old')).audience, undefined);
+assert.equal(readPluginNavigation(new URLSearchParams('scope=organization&teamId=old')).teamId, undefined);
+const legacySource = 'canvas-capability:v1:skill:system:core:design-context';
+assert.equal(readPluginNavigation(new URLSearchParams({ view: 'drafts', draftRef, resourceRef: legacySource })).resourceRef,
+  legacySource, 'creator recovery can select an existing system source without adopting it');
+assert.equal(readPluginNavigation(new URLSearchParams({ area: 'skills', skill: 'übersicht',
+  resourceRef: 'canvas-capability:v1:skill:system:core:%C3%BCbersicht' })).skill, 'übersicht');
+assert.equal(readPluginNavigation(new URLSearchParams({ resourceRef: 'canvas-capability:v1:skill:system:core:%C3%BCbersicht' })).resourceRef,
+  'canvas-capability:v1:skill:system:core:%C3%BCbersicht', 'encoded Unicode source identity stays exact');
+for (const invalid of ['https://outside.invalid/source', '/data/private', 'canvas-capability:v1:skill:system:core:bad%xx']) {
+  assert.equal(readPluginNavigation(new URLSearchParams({ resourceRef: invalid })).resourceRef, undefined);
+}
+for (const file of ['/private/key', '../secrets.env', 'scripts/../../secrets.env', 'C:\\secret', 'scripts//run.py']) {
+  assert.equal(readPluginNavigation(new URLSearchParams({ resourceRef, task: 'content', file })).file, undefined);
+}
+assert.equal(readPluginNavigation(new URLSearchParams({ resourceRef, task: 'sharing', file: 'scripts/run.py' })).file, undefined);
+assert.equal(readPluginNavigation(new URLSearchParams({ view: 'installed', draftRef })).draftRef, undefined);
+const teamChange = new URL(updatePluginNavigation(new URLSearchParams({ scope: 'team', teamId: 'first', view: 'drafts',
+  draftRef, resourceRef, task: 'content', file: 'scripts/run.py' }).toString(), { teamId: 'second' }), 'https://canvas.test');
+assert.equal(teamChange.searchParams.get('teamId'), 'second');
+for (const key of ['draftRef', 'resourceRef', 'task', 'file']) assert.equal(teamChange.searchParams.has(key), false);
+const ownChange = new URL(updatePluginNavigation(new URLSearchParams({ scope: 'user', audience: 'own', view: 'installed',
+  resourceRef, task: 'sharing' }).toString(), { audience: 'shared' }), 'https://canvas.test');
+assert.equal(ownChange.searchParams.get('audience'), 'shared');
+assert.equal(ownChange.searchParams.has('resourceRef'), false);
+const resume = new URL(updatePluginNavigation('view=installed&q=design&page=3', { area: 'skills', view: 'drafts',
+  resourceRef: legacySource, draftRef, task: 'content' }), 'https://canvas.test');
+assert.equal(resume.searchParams.get('view'), 'drafts');
+assert.equal(resume.searchParams.get('resourceRef'), legacySource);
+assert.equal(resume.searchParams.get('draftRef'), draftRef);
+assert.equal(resume.searchParams.has('page'), false);
+const closeDraft = new URL(updatePluginNavigation(resume.search.slice(1), { resourceRef: undefined, draftRef: undefined }), 'https://canvas.test');
+assert.equal(closeDraft.searchParams.get('view'), 'drafts', 'closing a draft preserves its list');
+assert.equal(closeDraft.searchParams.has('task'), false);
+const legacyDraftHref = new URL(legacyPluginSettingsHref({ tab: 'skills', view: 'drafts', draftRef,
+  resourceRef: legacySource, task: 'content' })!, 'https://canvas.test');
+assert.equal(legacyDraftHref.searchParams.get('draftRef'), draftRef);
+assert.equal(legacyDraftHref.searchParams.get('resourceRef'), legacySource);
+const checksum = 'a'.repeat(64);
+const exactStore = readPluginNavigation(new URLSearchParams({ area: 'skills', skill: 'design-context', source: 'store',
+  scope: 'all', kind: 'all', storeRegistryId: 'verified-registry', storeVersion: '1.2.3', storeChecksum: checksum }));
+assert.equal(exactStore.view, 'library', 'legacy skill Store detail keeps its Store view');
+assert.equal(exactStore.source, 'store');
+assert.equal(exactStore.scope, 'all');
+assert.equal(exactStore.kind, 'all');
+assert.equal(exactStore.storeRegistryId, 'verified-registry');
+assert.equal(exactStore.storeVersion, '1.2.3');
+assert.equal(exactStore.storeChecksum, checksum);
+assert.equal(readPluginNavigation(new URLSearchParams('plugin=design-bundle')).view, 'discover', 'legacy named plugin Store links remain usable');
+assert.equal(readPluginNavigation(new URLSearchParams('plugin=design-bundle&source=installed')).view, 'installed');
+assert.equal(readPluginNavigation(new URLSearchParams({ area: 'skills', skill: 'design-context', source: 'store', storeChecksum: 'bad' })).storeChecksum, undefined);
+assert.equal(readPluginNavigation(new URLSearchParams({ plugin: 'design-bundle', source: 'installed', storeRegistryId: 'ignored', storeVersion: '2', storeChecksum: checksum })).storeRegistryId, undefined);
+const changedKind = new URL(updatePluginNavigation(new URLSearchParams({ view: 'discover', kind: 'all', plugin: 'design-bundle', source: 'store',
+  storeRegistryId: 'verified-registry', storeVersion: '1.2.3', storeChecksum: checksum, page: '3' }).toString(), { kind: 'skill' }), 'https://canvas.test');
+for (const key of ['plugin', 'source', 'storeRegistryId', 'storeVersion', 'storeChecksum', 'page']) assert.equal(changedKind.searchParams.has(key), false);
+const skillStoreRedirect = new URL(legacyPluginSettingsHref({ tab: 'skills', skill: 'design-context', source: 'store',
+  storeRegistryId: 'verified-registry', storeVersion: '1.2.3', storeChecksum: checksum })!, 'https://canvas.test');
+assert.equal(skillStoreRedirect.searchParams.get('source'), 'store');
+assert.equal(skillStoreRedirect.searchParams.get('storeChecksum'), checksum);
 console.log('Plugin navigation: explicit views, area defaults, legacy links, scope validation and query preservation passed');

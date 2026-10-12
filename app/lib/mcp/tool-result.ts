@@ -4,6 +4,8 @@ import { prepareToolOutput } from '@/app/lib/pi/tool-output-preparation';
 import { stripMcpModelMetadata } from '@/app/lib/pi/message-projection';
 import { readMcpAppToolMetadata } from './apps-metadata';
 import type { callMcpToolWithCurrentMetadata } from './manager';
+import type { SharedMcpAppAuthority } from './apps-shared-access';
+import { readMcpAppDescriptor } from './apps-contracts';
 
 /** One normalization contract for direct MCP tools and the MCP gateway. */
 export function normalizeMcpToolResult(server: string, tool: string, result: CallToolResult) {
@@ -38,13 +40,21 @@ export async function prepareMcpToolResult(server: string, tool: string, result:
  * separately capped widget payload for display; final LLM normalization removes
  * these details, while its text continues through the common output budget. */
 export async function prepareMcpToolInvocation(server: string, tool: string,
-  invocation: Awaited<ReturnType<typeof callMcpToolWithCurrentMetadata>>, input: Record<string, unknown>, toolCallId: string) {
+  invocation: Awaited<ReturnType<typeof callMcpToolWithCurrentMetadata>>, input: Record<string, unknown>, toolCallId: string,
+  sharedAuthority?: SharedMcpAppAuthority) {
   const prepared = await prepareMcpToolResult(server, tool, invocation.result, toolCallId);
   const app = invocation.connectionId ? readMcpAppToolMetadata(invocation.tool) : null;
   if (!app || !invocation.connectionId) return prepared;
+  const sharedApp = invocation.sharedConnectionRef && sharedAuthority && invocation.result.isError !== true
+    ? readMcpAppDescriptor({ version: 2, connectionRef: invocation.sharedConnectionRef, toolCallId,
+      toolName: invocation.tool.name, resourceUri: app.resourceUri, bindingRevision: sharedAuthority.bindingRevision }) : null;
+  if (invocation.sharedConnectionRef && !sharedApp) return { ...prepared, details: { ...(prepared.details as Record<string, unknown>),
+    mcpAppUnavailable: { code: 'MCP_SHARED_APP_UNAVAILABLE', reason: 'The interactive preview requires a current agent tool invocation. The tool result is available.' },
+  } };
   const fitsWidget = JSON.stringify({ input, result: invocation.result }).length <= 2 * 1024 * 1024;
   return { ...prepared, details: { ...(prepared.details as Record<string, unknown>),
-    mcpApp: { version: 1 as const, connectionId: invocation.connectionId, toolName: invocation.tool.name, resourceUri: app.resourceUri },
+    mcpApp: sharedApp ?? { version: 1 as const, connectionId: invocation.connectionId, toolName: invocation.tool.name, resourceUri: app.resourceUri },
+    ...(sharedApp ? { mcpAppAuthority: structuredClone(sharedAuthority) } : {}),
     // Oversized widget data follows the existing unavailable-widget behavior;
     // the ordinary output preview still exposes any successfully stored original.
     mcpToolInput: fitsWidget ? input : undefined,

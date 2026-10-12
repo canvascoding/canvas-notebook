@@ -408,7 +408,9 @@ export async function prepareRuntimePrompt(
   const timing = createOperationTiming();
   const context = await normalizeContext(resolveChatRequestContext(payload), userId, sessionId);
   timing.mark('normalizeContext');
-  const { runtime: runtimeInstance, created: runtimeCreated } = await getOrCreatePiRuntimeWithState(sessionId, userId);
+  const { runtime: runtimeInstance, created: runtimeCreated } = await getOrCreatePiRuntimeWithState(sessionId, userId, {
+    initialPlanningMode: context.planningMode === true,
+  });
   timing.mark('getOrCreateRuntime');
   const promptMessage = await injectStudioImage(resolvePromptMessage(payload), context, userId);
   timing.mark('injectStudioImage');
@@ -490,7 +492,7 @@ export async function prewarmSessionRuntime(
 ): Promise<PiRuntimeStatus> {
   return withPiSessionOperationLock(sessionId, userId, async () => {
     const timing = createOperationTiming();
-    const { runtime, created } = await getOrCreatePiRuntimeWithState(sessionId, userId);
+    const { runtime, created } = await getOrCreatePiRuntimeWithState(sessionId, userId, { metadataOnlyExternal: true });
     timing.mark('getOrCreateRuntime');
     const status = runtime.getStatus();
 

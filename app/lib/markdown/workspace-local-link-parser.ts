@@ -162,7 +162,8 @@ export function parseWorkspaceLocalLinks(markdown: string, sourcePath: string): 
   const unevaluated: WorkspaceLinkUnevaluated[] = [];
   const document = parseCanvasMarkdownDocument(markdown);
   const visibleMarkdown = document.frontmatter
-    ? document.frontmatterPrefix.replace(/[^\r\n]/gu, ' ') + document.body
+    // AST offsets and source splices use UTF-16 units, including surrogate pairs.
+    ? document.frontmatterPrefix.replace(/[^\r\n]/g, ' ') + document.body
     : markdown;
   const mask = createObsidianSyntaxMask(visibleMarkdown);
   const definitions = new Map<string, { node: Nodes; uses: Array<'link' | 'image'> }>();

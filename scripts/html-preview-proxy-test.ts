@@ -27,6 +27,26 @@ async function main(): Promise<void> {
     assert.equal(response.status, 404, `${method} ${pathname} must remain blocked on the app origin`);
   }
 
+  for (const mode of ['host', 'frame', 'document']) {
+    for (const method of ['GET', 'HEAD']) {
+      const response = await middleware(new NextRequest(`https://app.example.test/__preview/${ticket}/mobile-mcp/${mode}`, {
+        method, headers: { host: 'app.example.test' },
+      }));
+      assert.equal(response.headers.get('x-middleware-next'), '1');
+      assert.equal(response.headers.has('content-security-policy'), false, 'The native ticket route owns its CSP.');
+    }
+  }
+  for (const [method, pathname] of [
+    ['POST', `/__preview/${ticket}/mobile-mcp/host`],
+    ['GET', `/__preview/${ticket}/mobile-mcp/other`],
+    ['GET', `/__preview/${ticket}/mobile-mcp/host/extra`],
+    ['GET', `/__preview/${ticket.slice(1)}/mobile-mcp/host`],
+  ]) {
+    assert.equal((await middleware(new NextRequest(`https://app.example.test${pathname}`, {
+      method, headers: { host: 'app.example.test' },
+    }))).status, 404);
+  }
+
   const isolatedPreview = await middleware(new NextRequest(
     `https://preview.app.example.test/__preview/${ticket}/index.html`,
     { headers: { host: 'preview.app.example.test' } },

@@ -1,3 +1,5 @@
+import type { CapabilityResourceAccess, CapabilityResourceMetadata } from './resources/contracts';
+
 export type CapabilityResourceType = 'skill' | 'plugin';
 
 export type CapabilityScopeType = 'system' | 'organization' | 'user';
@@ -61,6 +63,8 @@ export type CapabilityCandidate = {
   pluginResourceId?: string | null;
   connectionRequirementCount?: number;
   connectionReady?: boolean;
+  resourceAccess?: CapabilityResourceAccess;
+  resourceMetadata?: CapabilityResourceMetadata;
 };
 
 export type EffectiveCapability = CapabilityCandidate & {

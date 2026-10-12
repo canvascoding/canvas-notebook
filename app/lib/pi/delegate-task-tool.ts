@@ -4,6 +4,9 @@ import { estimatePiToolSchemaTokens, getPiRequestOutputTokenCap, withPiRequestOu
 import type { AgentContext, AgentLoopConfig, AgentMessage, AgentTool, ThinkingLevel } from '@earendil-works/pi-agent-core';
 import { createInitialSystemMessage, toToolDeclaration } from '@earendil-works/pi-ai';
 import { replaceNextTurnContext } from '@/app/lib/pi/next-turn-context';
+import { getIntegrationGatewayErrorOverride, readIntegrationGatewayErrorCode, INTEGRATION_GATEWAY_ERROR_MESSAGES } from '@/app/lib/integration-tools/agent-errors';
+import { parseIntegrationBindingSelections, MAX_DELEGATED_INTEGRATION_BINDINGS, type IntegrationBindingSelection } from '@/app/lib/integration-tools/delegation-contracts';
+import type { IntegrationToolSchema } from '@/app/lib/integration-tools/contracts';
 import { Type } from 'typebox';
 import { and, eq } from 'drizzle-orm';
 
@@ -30,7 +33,8 @@ import {
   buildPiSystemPromptSnapshotFromText,
   createPiSystemPromptSnapshot,
 } from '@/app/lib/pi/system-prompt-snapshot';
-import type { AgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
+import { getAgentExecutionContext, type AgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
+import { reissueCapabilityPackageRuntimeBindings, requiresCapabilityPackageBoundPrompt } from '@/app/lib/capabilities/packages/runtime-bindings';
 import { buildActiveWorkspacePromptBlock } from '@/app/lib/pi/runtime-prompt-context';
 import {
   buildWorkspaceFileTreePrompt,
@@ -68,6 +72,7 @@ type DelegateTaskArgs = {
   session_id?: string;
   role?: string;
   toolsets?: string[];
+  integration_bindings?: IntegrationBindingSelection[];
   wait_for_result?: boolean;
   timeout_seconds?: number;
 };
@@ -84,6 +89,9 @@ export type DelegateTaskRequest = {
   sessionId?: string;
   workerRole?: string;
   toolsets: string[];
+  integrationBindings?: readonly IntegrationBindingSelection[];
+  /** Server dispatcher marker; approved metadata itself is loaded from the owned active task. */
+  hasIntegrationBindings?: boolean;
   waitForResult: boolean;
   timeoutSeconds: number;
   workerSessionId?: string;
@@ -330,7 +338,7 @@ function normalizeWorkerRole(value: unknown): string | undefined {
   return normalized ? truncate(normalized, 80) : undefined;
 }
 
-function buildDelegationPrompt(request: DelegateTaskRequest): Extract<AgentMessage, { role: 'user' }> {
+function buildDelegationPrompt(request: DelegateTaskRequest, integrationBindings: readonly IntegrationToolSchema[] = []): Extract<AgentMessage, { role: 'user' }> {
   const lines = [
     `Delegated task from agent "${request.sourceAgentId}".`,
     request.delegationId ? `Delegation task ID: ${request.delegationId}` : null,
@@ -343,6 +351,9 @@ function buildDelegationPrompt(request: DelegateTaskRequest): Extract<AgentMessa
   if (request.context?.trim()) {
     lines.push('', 'Context:', request.context.trim());
   }
+  if (integrationBindings.length) lines.push('',
+    'The following exact Composio operations were selected and described by the delegating agent. Use integrations.call with these toolRef/schemaRef pairs and schema-valid arguments. These bindings grant no list, search or describe operation. If a binding changes, ask the delegating agent to refresh it.',
+    JSON.stringify(integrationBindings));
 
   lines.push(
     '',
@@ -438,6 +449,13 @@ function hasUnresolvedEphemeralTools(messages: AgentMessage[], pendingCalls: Set
     }
   }
   return [...calls.values()].some(count => count > 0);
+}
+
+/** An uncertain external write cannot become a successful delegated result via a provisional assistant reply. */
+export function delegatedIntegrationOutcomeError(messages: readonly AgentMessage[], fromIndex = 0): string | undefined {
+  return messages.slice(fromIndex).some(message => message.role === 'toolResult'
+    && readIntegrationGatewayErrorCode(message.toolName, message.details) === 'outcome_unknown')
+    ? INTEGRATION_GATEWAY_ERROR_MESSAGES.outcome_unknown : undefined;
 }
 
 export async function runEphemeralWorker(params: {
@@ -739,6 +757,7 @@ export async function runEphemeralWorker(params: {
         });
       },
       sessionId: params.sessionId,
+      afterToolCall: async (context) => getIntegrationGatewayErrorOverride(context),
     } satisfies AgentLoopConfig;
 
     finalMessages = await runAgentLoop(
@@ -811,6 +830,8 @@ export async function runEphemeralWorker(params: {
     if (hasUnresolvedEphemeralTools(finalMessages, pendingToolCalls)) {
       throw new Error('Delegated worker ended with incomplete tool results.');
     }
+    const integrationOutcomeError = delegatedIntegrationOutcomeError(finalMessages);
+    if (integrationOutcomeError) throw new Error(integrationOutcomeError);
     await agentTurn.finish('completed');
 
     return {
@@ -904,6 +925,11 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, onTimeout: () =>
 }
 
 async function startEphemeralDelegatedRun(request: DelegateTaskRequest): Promise<DelegateTaskResult> {
+  const ambientParent = getAgentExecutionContext();
+  const capturedParent = ambientParent && ambientParent.userId === request.userId
+    && ambientParent.sessionId === request.sourceSessionId && ambientParent.agentId === request.sourceAgentId
+    ? { ...ambientParent, skillReadRoots: [...(ambientParent.skillReadRoots ?? [])],
+      skillPackageBindings: [...(ambientParent.skillPackageBindings ?? [])] } : null;
   if (request.sessionId) {
     throw new Error('session_id is only supported when target_agent_id is set.');
   }
@@ -912,7 +938,7 @@ async function startEphemeralDelegatedRun(request: DelegateTaskRequest): Promise
   const execution = createLinkedExecutionController(request.abortSignal);
   const sessionId = request.workerSessionId?.trim() || buildDelegatedSessionId();
   const agentTurnId = randomUUID();
-  const promptMessage = buildDelegationPrompt(request);
+  let promptMessage = buildDelegationPrompt(request);
   let runPromise: Promise<DelegateTaskResult> | null = null;
   let agentTurn: EphemeralAgentTurn | undefined;
   let workerStarted = false;
@@ -975,9 +1001,17 @@ async function startEphemeralDelegatedRun(request: DelegateTaskRequest): Promise
             agentTurnId,
           };
         }
+        const packageSource = capturedParent ?? finalScope.executionContext;
+        childExecutionContext = await reissueCapabilityPackageRuntimeBindings(packageSource, childExecutionContext);
+        const useBoundPackagePrompt = requiresCapabilityPackageBoundPrompt(packageSource)
+          || requiresCapabilityPackageBoundPrompt(childExecutionContext);
         const { systemPrompt: managedSystemPrompt } = await loadManagedAgentSystemPrompt(request.sourceAgentId, {
           userId: request.userId,
-        });
+          ...(useBoundPackagePrompt ? {
+            workspaceId: childExecutionContext.workspaceId, organizationId: childExecutionContext.organizationId,
+            customerId: childExecutionContext.customerId, projectId: childExecutionContext.projectId,
+          } : {}),
+        }, useBoundPackagePrompt ? { executionContext: childExecutionContext } : undefined);
         const workspacePromptBlock = buildActiveWorkspacePromptBlock({
           workspaceId: childExecutionContext.workspaceId,
           workspaceType: childExecutionContext.workspaceType,
@@ -1096,6 +1130,13 @@ async function startEphemeralDelegatedRun(request: DelegateTaskRequest): Promise
           },
         });
         throwIfDelegationAborted(execution.controller.signal);
+        if (request.hasIntegrationBindings || request.integrationBindings?.length) {
+          const { prepareIntegrationBindingsForDelegatedRuntime } = await import('@/app/lib/integration-tools/delegation');
+          const integrationBindings = await prepareIntegrationBindingsForDelegatedRuntime({
+            executionContext: childExecutionContext, signal: execution.controller.signal });
+          if (!integrationBindings.length) throw new Error('The approved integration handoff was not found for this active task.');
+          promptMessage = buildDelegationPrompt(request, integrationBindings);
+        }
         const provider = runtime.selection.selection.providerId;
         await savePiSession(
           sessionId,
@@ -1458,7 +1499,13 @@ async function startManagedDelegatedRun(request: DelegateTaskRequest): Promise<D
     }
 
     const baselineMessageCount = runtime.agent.state.messages.length;
-    const promptMessage = buildDelegationPrompt(request);
+    const integrationBindings = request.hasIntegrationBindings || request.integrationBindings?.length
+      ? await (await import('@/app/lib/integration-tools/delegation')).prepareIntegrationBindingsForDelegatedRuntime({
+        executionContext: startTargetContext, signal: request.abortSignal }) : [];
+    if ((request.hasIntegrationBindings || request.integrationBindings?.length) && !integrationBindings.length) {
+      throw new Error('The approved integration handoff was not found for this active task.');
+    }
+    const promptMessage = buildDelegationPrompt(request, integrationBindings);
     const waitHandle = request.onCompletion
       ? waitForRuntimeIdle(runtime, null)
       : request.waitForResult && request.timeoutSeconds > 0
@@ -1490,7 +1537,9 @@ async function startManagedDelegatedRun(request: DelegateTaskRequest): Promise<D
     void started.completionPromise.then(async (completion) => {
       await started.releaseProgress();
       try { await started.releaseSteering(); } catch { /* Completion must still be reported. */ }
-      const result: DelegateTaskResult = completion.status === 'ok'
+      const integrationOutcomeError = delegatedIntegrationOutcomeError(started.runtime.agent.state.messages, started.baselineMessageCount);
+      const effectiveCompletion = integrationOutcomeError ? { status: 'error' as const, error: integrationOutcomeError } : completion;
+      const result: DelegateTaskResult = effectiveCompletion.status === 'ok'
         ? {
           delegation_id: request.delegationId,
           status: 'ok',
@@ -1505,7 +1554,7 @@ async function startManagedDelegatedRun(request: DelegateTaskRequest): Promise<D
         }
         : {
           delegation_id: request.delegationId,
-          status: completion.status,
+          status: effectiveCompletion.status,
           worker_type: 'managed',
           source_agent_id: request.sourceAgentId,
           target_agent_id: request.targetAgentId,
@@ -1513,7 +1562,7 @@ async function startManagedDelegatedRun(request: DelegateTaskRequest): Promise<D
           role: request.workerRole,
           wait_for_result: false,
           timeout_seconds: request.timeoutSeconds,
-          error: completion.error || 'Delegated task failed before producing a result.',
+          error: effectiveCompletion.error || 'Delegated task failed before producing a result.',
         };
       return notifyCompletion(result);
     }).catch((error) => {
@@ -1535,7 +1584,9 @@ async function startManagedDelegatedRun(request: DelegateTaskRequest): Promise<D
     };
   }
 
-  const completion = await started.completionPromise;
+  const observedCompletion = await started.completionPromise;
+  const integrationOutcomeError = delegatedIntegrationOutcomeError(started.runtime.agent.state.messages, started.baselineMessageCount);
+  const completion = integrationOutcomeError ? { status: 'error' as const, error: integrationOutcomeError } : observedCompletion;
   await started.releaseProgress();
   try { await started.releaseSteering(); } catch { /* The result still belongs to this run. */ }
   if (completion.status === 'ok') {
@@ -1611,7 +1662,8 @@ export function createDelegateTaskTool(deps: {
     description:
       'Spawn a background subagent, list your tasks, steer one active task, or stop one task. ' +
       'Spawn returns a persistent task handle and later delivers the result. ' +
-      'A managed agent can reuse an authorized session_id for a new follow-up task.',
+      'A managed agent can reuse an authorized session_id for a new follow-up task. ' +
+      'For Composio execution-only workers, first discover and describe each operation yourself, then supply its returned toolRef/schemaRef in integration_bindings. The worker receives only those approved operations.',
     parameters: Type.Object({
       action: Type.Optional(Type.Union([
         Type.Literal('spawn'), Type.Literal('list'), Type.Literal('steer'), Type.Literal('stop'),
@@ -1624,6 +1676,10 @@ export function createDelegateTaskTool(deps: {
       context: Type.Optional(Type.String({ description: 'Relevant context to pass to the worker. The parent chat history is not included automatically.' })),
       role: Type.Optional(Type.String({ description: 'Short worker role hint, e.g. researcher, coder, reviewer, planner. Ephemeral workers only.' })),
       toolsets: Type.Optional(Type.Array(Type.String(), { description: `Ephemeral worker toolsets. Defaults to ${DEFAULT_EPHEMERAL_TOOLSETS.join(', ')}.` })),
+      integration_bindings: Type.Optional(Type.Array(Type.Object({
+        toolRef: Type.String(), schemaRef: Type.String(),
+      }, { additionalProperties: false }), { maxItems: MAX_DELEGATED_INTEGRATION_BINDINGS,
+        description: 'Composio toolRef/schemaRef pairs already described in this parent session. Never supply raw schemas, tool slugs or account identities.' })),
       session_id: Type.Optional(Type.String({ description: 'Optional existing session ID. Only supported together with target_agent_id.' })),
       wait_for_result: Type.Optional(Type.Boolean({ description: 'Deprecated compatibility field. Top-level delegation always runs in the background.' })),
       timeout_seconds: Type.Optional(Type.Number({ description: 'Deprecated compatibility field. Background delegation does not block this tool call.' })),
@@ -1746,6 +1802,7 @@ export function createDelegateTaskTool(deps: {
           sessionId: args.session_id?.trim() || undefined,
           workerRole: normalizeWorkerRole(args.role),
           toolsets: normalizeToolsets(args.toolsets),
+          integrationBindings: parseIntegrationBindingSelections(args.integration_bindings),
           waitForResult: false,
           timeoutSeconds: 0,
         };

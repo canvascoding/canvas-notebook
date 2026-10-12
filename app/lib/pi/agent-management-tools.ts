@@ -2,8 +2,16 @@ import 'server-only';
 
 import { type AgentTool, type AgentToolResult } from '@earendil-works/pi-agent-core';
 import { Type } from 'typebox';
+import { z } from 'zod';
+import { updateManagedAgentConfiguration, inspectManagedAgentWorkflow, listManagedAgentWorkflowOptions,
+  setManagedAgentWorkflowChoice } from '@/app/lib/agents/workflow-configuration';
+import { agentWorkflowPersonalOptionsSchema, bindOwnAgentWorkflowChoiceInput, updateAgentConfigurationSchema, updateAgentWorkflowChoiceSchema } from '@/app/lib/agents/workflow-api-contracts';
+import { agentWorkflowManagementPersonalConnectionsRequestSchema, agentWorkflowManagementRequestSchema } from '@/app/lib/agents/workflow-management-contracts';
+import { listAgentWorkflowManagementOptions } from '@/app/lib/agents/workflow-management';
 
 import {
+  AgentManagementError,
+  managementErrorDetails,
   createManagedAgent,
   deleteManagedAgent,
   inspectManagedAgent,
@@ -21,6 +29,21 @@ import { DEFAULT_MANAGED_AGENT_ID, type AgentManagedFileName } from '@/app/lib/a
 import { getAgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
 
 const nullableString = Type.Union([Type.String(), Type.Null()]);
+// The Planning-whitelisted operation always remains local metadata. Explicit
+// account discovery belongs to the existing non-whitelisted personal tool.
+const [firstManagementMetadataSchema, ...remainingManagementMetadataSchemas] = agentWorkflowManagementRequestSchema.options
+  .map(schema => schema.shape.view.value === 'personal-connections'
+    ? agentWorkflowManagementPersonalConnectionsRequestSchema.omit({ providerRef: true }) : schema);
+const agentWorkflowManagementMetadataToolSchema = z.discriminatedUnion('view',
+  [firstManagementMetadataSchema, ...remainingManagementMetadataSchemas]);
+const agentWorkflowOptionsToolSchema = z.union([
+  z.object({ agentId: z.string().min(1).max(256), view: z.literal('options').optional() }).strict(),
+  agentWorkflowManagementMetadataToolSchema,
+]);
+const agentWorkflowPersonalToolSchema = z.union([
+  agentWorkflowPersonalOptionsSchema,
+  agentWorkflowManagementPersonalConnectionsRequestSchema.required({ providerRef: true }),
+]);
 const capabilitySelectionSchema = Type.Object({
   resourceType: Type.Union([Type.Literal('skill'), Type.Literal('plugin')]),
   resourceId: Type.Optional(Type.String({ description: 'Stable capability resource ID from inspect/search results.' })),
@@ -44,6 +67,18 @@ const grantSchema = Type.Object({
 
 function result(text: string, details: Record<string, unknown>): AgentToolResult<unknown> {
   return { content: [{ type: 'text', text }], details };
+}
+
+/** Direct read-only calls and grouped mutations share the public error boundary. */
+function protectWorkflowTool(tool: AgentTool): AgentTool {
+  return { ...tool, execute: async (...args) => {
+    try { return await tool.execute(...args); }
+    catch (error) {
+      if (error instanceof z.ZodError) throw new AgentManagementError('AGENT_WORKFLOW_INVALID', 'The workflow request contains invalid or unsupported fields.', 400);
+      const publicError = managementErrorDetails(error);
+      throw new AgentManagementError(publicError.code, publicError.message, publicError.status, publicError.details);
+    }
+  } };
 }
 
 function actor(userId: string, sessionId?: string | null): AgentManagementActor {
@@ -73,6 +108,8 @@ export const AGENT_MANAGEMENT_OPERATION_NAMES = [
   'update_agent_profile',
   'update_agent_runtime',
   'update_agent_capabilities',
+  'update_agent_configuration',
+  'set_agent_workflow_choice',
   'update_agent_file',
   'set_agent_grant',
   'remove_agent_grant',
@@ -158,6 +195,22 @@ export function createAgentManagementTools(
     },
   };
 
+  const personalWorkflowOptions: AgentTool = {
+    name: 'list_agent_workflow_personal_options', label: 'Find own workflow connections',
+    description: 'Explicit discovery for a centrally allowed personal workflow choice. Start with agentId/capabilityKey to list your permitted providers without external requests, then select a returned alternativeKey/providerRef for its exact account chooser. Central editors may instead use view=personal-connections with the exact published declaration, agent/workflow revisions and a providerRef returned by list_agent_workflow_options. Return only server-issued references. This can query external account metadata and is unavailable in planning mode; it never changes a binding.',
+    parameters: Type.Unsafe(z.toJSONSchema(agentWorkflowPersonalToolSchema, { target: 'draft-7', io: 'input' })),
+    execute: async (_toolCallId, params) => {
+      const input = agentWorkflowPersonalToolSchema.parse(params);
+      if ('view' in input) {
+        const data = await listAgentWorkflowManagementOptions(actor(userId, sessionId), input);
+        return result('Your exact personal account options for central configuration.', { management: data });
+      }
+      const { listAgentWorkflowPersonalOptions } = await import('@/app/lib/agents/workflow-personal-options');
+      const data = await listAgentWorkflowPersonalOptions(actor(userId, sessionId), input);
+      return result('Your permitted personal workflow connections.', { options: data });
+    },
+  };
+
   const updateProfile: AgentTool = {
     name: 'update_agent_profile',
     label: 'Update agent profile',
@@ -235,6 +288,50 @@ export function createAgentManagementTools(
     },
   };
 
+  const inspectWorkflow: AgentTool = {
+    name: 'inspect_agent_workflow', label: 'Inspect agent workflow',
+    description: 'Returns safe workflow version pins, required capabilities, fixed/selectable modes, current choices and access. Account IDs, credentials and private routing data are never returned.',
+    parameters: Type.Object({ agentId: Type.String() }, { additionalProperties: false }),
+    execute: async (_toolCallId, params) => {
+      const data = await inspectManagedAgentWorkflow(actor(userId, sessionId), (params as { agentId: string }).agentId);
+      return result(`Workflow for ${data.agentId}, revision ${data.workflowRevision}.`, { workflow: data });
+    },
+  };
+  const workflowOptions: AgentTool = {
+    name: 'list_agent_workflow_options', label: 'List agent workflow choices',
+    description: 'Lists this actor’s allowed choices for the current centrally configured workflow by default. A fixed connection cannot be changed; selectable choices require the returned workflow and preference revisions. Central editors with canEdit may start with view=management, then request packages, package-version, connections, personal-connections or personal-mcp-definitions using the returned exact agent and workflow revisions. This operation reads metadata only. To inspect accounts, pass a returned personal providerRef and the exact declaration to list_agent_workflow_personal_options outside planning mode. Management results never expose private account IDs, credentials or fingerprints.',
+    parameters: Type.Unsafe(z.toJSONSchema(agentWorkflowOptionsToolSchema, { target: 'draft-7', io: 'input' })),
+    execute: async (_toolCallId, params) => {
+      const input = agentWorkflowOptionsToolSchema.parse(params);
+      if (input.view && input.view !== 'options') {
+        const data = await listAgentWorkflowManagementOptions(actor(userId, sessionId), input);
+        return result(`Workflow configuration options for ${input.agentId}.`, { management: data });
+      }
+      const data = await listManagedAgentWorkflowOptions(actor(userId, sessionId), input.agentId);
+      return result(`Allowed workflow choices for ${data.agentId}.`, { workflow: data });
+    },
+  };
+  const updateConfiguration: AgentTool = {
+    name: 'update_agent_configuration', label: 'Update agent configuration',
+    description: 'Atomically saves profile, enabled native tools, validated model defaults and exact published plugin/skill workflow bindings. Required package capabilities cannot be downgraded. Supply expectedWorkflowRevision when changing workflow; only explicit workflow:null clears it. Portable manifests contain declarations; instance account choices and permissions belong here.',
+    parameters: Type.Unsafe(z.toJSONSchema(updateAgentConfigurationSchema, { target: 'draft-7' })),
+    execute: async (_toolCallId, params) => {
+      const input = updateAgentConfigurationSchema.parse(params);
+      const data = await updateManagedAgentConfiguration({ ...input, actor: actor(userId, sessionId) });
+      return result(`Updated ${data.agent.agentId} to revision ${data.agent.revision}.`, data);
+    },
+  };
+  const selectWorkflowChoice: AgentTool = {
+    name: 'set_agent_workflow_choice', label: 'Select own workflow connection',
+    description: 'Saves only the current user’s choice within the administrator’s allowlist or explicit personal policy. Never changes central configuration, fixed bindings, grants, or tool caps. Use returned capabilityKey and both current revisions; personal accountSelectionRef must come from the current account chooser.',
+    parameters: Type.Unsafe(z.toJSONSchema(updateAgentWorkflowChoiceSchema, { target: 'draft-7' })),
+    execute: async (_toolCallId, params) => {
+      const input = updateAgentWorkflowChoiceSchema.parse(params);
+      const data = await setManagedAgentWorkflowChoice({ ...bindOwnAgentWorkflowChoiceInput(input, userId), actor: actor(userId, sessionId) });
+      return result(`Saved your connection choice for ${data.agentId}.`, { workflow: data });
+    },
+  };
+
   const setGrant: AgentTool = {
     name: 'set_agent_grant',
     label: 'Set agent grant',
@@ -297,10 +394,15 @@ export function createAgentManagementTools(
   return [
     listAgents,
     inspectAgent,
+    protectWorkflowTool(inspectWorkflow),
+    protectWorkflowTool(workflowOptions),
+    protectWorkflowTool(personalWorkflowOptions),
     createAgent,
     updateProfile,
     updateRuntime,
     updateCapabilities,
+    protectWorkflowTool(updateConfiguration),
+    protectWorkflowTool(selectWorkflowChoice),
     updateFile,
     setGrant,
     removeGrant,

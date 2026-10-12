@@ -181,3 +181,35 @@ test('an obsolete failed build cannot erase a fresh pending read in another bund
     await flush(); fixture.a.references.invalidateFileReferenceCache(options);
   }
 });
+
+for (const code of ['EACCES', 'EPERM', 'ENOENT']) {
+  test(`a nested ${code} scan rejects the catalogue and permits a fresh retry`, async () => {
+    const scope = workspace(); const options = { workspace: scope };
+    const scanError = Object.assign(new Error('synthetic nested scan failed'), { code });
+    let blocked = true;
+    let rootReads = 0;
+    const references = await compile<ReferenceModule>('app/lib/filesystem/file-reference-cache.ts', {
+      './workspace-files': { listDirectory: async (directory: string, readOptions: {
+        includeMetadata?: boolean; strictMetadata?: boolean;
+      }) => {
+        assert.equal(readOptions.includeMetadata, true);
+        assert.equal(readOptions.strictMetadata, true, 'metadata failures must not silently drop visible children');
+        if (directory === '.') {
+          rootReads++;
+          return [node('B.md'), { name: 'nested', path: 'nested', type: 'directory' }];
+        }
+        if (blocked) throw scanError;
+        return [{ ...node('A.md'), path: 'nested/A.md' }];
+      } },
+    });
+    try {
+      await assert.rejects(references.getCachedFileReferenceEntries(false, options), (error) => error === scanError);
+      blocked = false;
+      const recovered = await references.getCachedFileReferenceEntries(false, options);
+      assert.deepEqual(recovered.map((entry) => entry.path), ['B.md', 'nested/A.md']);
+      assert.equal(rootReads, 2, 'the failed partial result must not be cached');
+      assert.equal(await references.getCachedFileReferenceEntries(false, options), recovered,
+        'the legacy array API still caches a complete successful scan');
+    } finally { references.invalidateFileReferenceCache(options); }
+  });
+}

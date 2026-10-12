@@ -3,14 +3,12 @@ import 'server-only';
 import path from 'node:path';
 
 import { getAgentProfile, normalizeManagedAgentId } from '@/app/lib/agents/registry';
-import { resolveEffectiveCapabilitySnapshot } from '@/app/lib/capabilities/catalog';
+import { loadCapabilityCandidates, resolveEffectiveCapabilitySnapshot } from '@/app/lib/capabilities/catalog';
 import type {
   CapabilityResolutionContext,
   EffectiveCapabilitySnapshot,
 } from '@/app/lib/capabilities/types';
 import { selectPromptSkillsForAgent } from '@/app/lib/skills/agent-skill-selection';
-import { loadSkillsFromDisk } from '@/app/lib/skills/skill-loader';
-import { readEnabledSkillsForScope } from '@/app/lib/skills/skill-settings';
 
 type EffectiveRuntimeSkill = {
   name: string;
@@ -29,6 +27,7 @@ export function getEffectiveSkillReadRoots(input: {
     .filter((entry) => (
       entry.ref.resourceType === 'skill'
       && entry.effectiveEnabled
+      && entry.resourceAccess?.canUse !== false
       && entry.readiness === 'available'
       && Boolean(entry.runtimePath)
     ))
@@ -84,12 +83,14 @@ export async function resolvePersonalSkillReadRoots(input: {
   agentId?: string | null;
 }): Promise<string[]> {
   const normalizedAgentId = normalizeManagedAgentId(input.agentId);
-  const scope = { scopeType: 'user' as const, userId: input.userId };
-  const enabledSkills = await readEnabledSkillsForScope(scope);
-  const [skills, agentProfile] = await Promise.all([
-    loadSkillsFromDisk(enabledSkills, scope),
+  const [candidates, agentProfile] = await Promise.all([
+    loadCapabilityCandidates({ userId: input.userId, organizationId: '' }, { resolveConnections: false }),
     getAgentProfile(normalizedAgentId),
   ]);
+  const skills = candidates.filter(candidate => candidate.ref.resourceType === 'skill' && candidate.enabled
+    && candidate.runtimePath && candidate.resourceAccess?.canUse !== false).map(candidate => ({
+    name: candidate.ref.name, enabled: true as const, core: candidate.ref.sourceType === 'core', path: candidate.runtimePath!,
+  }));
   const selectedSkills = selectPromptSkillsForAgent(
     normalizedAgentId,
     skills,

@@ -24,7 +24,8 @@ export async function GET(
       userId: session.user.id,
       organizationState,
     });
-    const result = await getCanvasPluginStorePlugin(decodeURIComponent(name), scope);
+    const result = await getCanvasPluginStorePlugin(decodeURIComponent(name), scope,
+      { userId: session.user.id, workspaceId: request.nextUrl.searchParams.get('workspaceId') });
     if (!result) {
       return NextResponse.json({ success: false, error: 'Plugin not found' }, { status: 404 });
     }

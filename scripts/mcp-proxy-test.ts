@@ -125,7 +125,7 @@ async function main() {
     server: 'fake',
   });
   assert.match(getText(missingEnv), /^Error: Missing MCP environment variable/);
-  assert.match(getText(missingEnv), /settings\?tab=integrations/);
+  assert.match(getText(missingEnv), /settings\?tab=secrets/);
 
   await closeAllMcpServers();
   console.log('mcp-proxy-test: ok');

@@ -1,6 +1,6 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 
-import { and, asc, desc, eq, gt, inArray, lte, ne, notInArray, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, lte, ne, notInArray, or, sql } from 'drizzle-orm';
 
 import { db } from '@/app/lib/db';
 import { auditEvents, automationJobs, automationJobState, automationJobStateMutations, automationRuns, automationWebhookEvents, automationWebhookTriggers, composioWebhookEvents, piSessions } from '@/app/lib/db/schema';
@@ -13,6 +13,7 @@ import { validatePath } from '@/app/lib/filesystem/workspace-files';
 import { getServerPreferredTimeZone } from '@/app/lib/server-settings';
 import { resolveAgentSessionWorkspaceForUser } from '@/app/lib/pi/session-workspace-context';
 import { requireActiveWorkspaceMailboxForAutomation } from '@/app/lib/email/account-store';
+import type { IntegrationUncertainTurnContext } from '@/app/lib/integration-tools/uncertain-turns';
 
 import { assertAutomationChatTarget, AutomationChatTargetError } from './chat-targets';
 import { inlineLegacyAutomationPaths } from './legacy-paths';
@@ -2655,6 +2656,49 @@ export async function markAutomationRunRetryScheduled(
     });
 }
 
+/** Server-issued run provenance remains available to a worker after its parent run completes. */
+export function automationRunIntegrationTurnId(runId: string): string {
+  return `automation-run:${runId}`;
+}
+
+async function pauseAutomationJobForUncertainOutcome(tx: AutomationStoreTransaction, jobId: string, now: Date): Promise<void> {
+  await tx.update(automationJobs).set({
+    status: 'paused', nextRunAt: null, updatedAt: now,
+    revision: sql`CASE WHEN ${automationJobs.status} = 'paused' THEN ${automationJobs.revision} ELSE ${automationJobs.revision} + 1 END`,
+  }).where(eq(automationJobs.id, jobId));
+  await tx.update(automationRuns).set({
+    status: 'failed', finishedAt: now,
+    errorMessage: 'Automation was paused because an external action outcome requires review.',
+  }).where(and(eq(automationRuns.jobId, jobId), inArray(automationRuns.status, ['pending', 'retry_scheduled'])));
+}
+
+/** A historical session match alone grants no authority: only a trusted exact automation-run turn can pause its job. */
+export async function pauseAutomationForUncertainIntegrationTurn(
+  tx: AutomationStoreTransaction,
+  context: IntegrationUncertainTurnContext,
+): Promise<void> {
+  const identity = { ...context };
+  const prefix = 'automation-run:';
+  if (!identity.agentId || !identity.agentTurnId?.startsWith(prefix)) return;
+  const runId = identity.agentTurnId.slice(prefix.length);
+  if (!runId) return;
+  const matches = await tx.select({ jobId: automationJobs.id }).from(automationRuns)
+    .innerJoin(automationJobs, eq(automationJobs.id, automationRuns.jobId))
+    .innerJoin(piSessions, and(eq(piSessions.sessionId, automationRuns.piSessionId), eq(piSessions.userId, identity.userId)))
+    .where(and(
+      eq(automationRuns.id, runId), eq(automationRuns.piSessionId, identity.sessionId), isNotNull(automationRuns.startedAt),
+      eq(piSessions.agentId, identity.agentId), eq(piSessions.workspaceId, identity.workspaceId),
+      eq(piSessions.sessionKind, 'conversation'), isNull(piSessions.archivedAt),
+      eq(automationJobs.agentId, identity.agentId), eq(automationJobs.workspaceId, identity.workspaceId), isNull(automationJobs.deletedAt),
+      eq(automationRuns.workspaceId, identity.workspaceId),
+      sql`COALESCE(${automationJobs.responsibleUserId}, ${automationJobs.ownerUserId}, ${automationJobs.createdByUserId}) = ${identity.userId}`,
+      sql`${automationJobs.organizationId} IS NOT DISTINCT FROM ${piSessions.organizationId}`,
+      sql`${automationRuns.organizationId} IS NOT DISTINCT FROM ${piSessions.organizationId}`,
+    )).limit(2).for('update', { of: automationJobs });
+  if (matches.length !== 1) return;
+  await pauseAutomationJobForUncertainOutcome(tx, matches[0].jobId, new Date());
+}
+
 export async function markAutomationRunFinished(
   runId: string,
   values: {
@@ -2665,8 +2709,12 @@ export async function markAutomationRunFinished(
     eventsLog: string[];
     metadataJson: Record<string, unknown>;
     expectation: AutomationRunTransitionExpectation;
+    pauseJobForUnknownOutcome?: boolean;
   },
 ): Promise<AutomationRunRecord | null> {
+  if (values.pauseJobForUnknownOutcome && values.status !== 'failed') {
+    throw new Error('An uncertain external action must finish as failed.');
+  }
   const finish = (current: AutomationRunRow, updated: AutomationRunRow | undefined) => {
     if (!updated) {
       console.warn(`[Automationen] Run ${runId} finish transition lost its status/attempt CAS; leaving the current state unchanged`);
@@ -2710,6 +2758,9 @@ export async function markAutomationRunFinished(
             updatedAt: now,
           })
           .where(eq(automationJobs.id, current.jobId));
+        if (values.pauseJobForUnknownOutcome) {
+          await pauseAutomationJobForUncertainOutcome(tx, current.jobId, now);
+        }
       }
 
       return finish(current, updated);

@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 
 import { Type } from 'typebox';
+import { buildEffectiveToolManifest } from '../app/lib/pi/effective-tool-manifest';
+import { filterToolsForWorkspacePermissions } from '../app/lib/pi/workspace-tool-policy';
 
 import {
   PROGRESSIVE_GATEWAY_DEFINITIONS,
@@ -78,6 +80,70 @@ async function main() {
   assert.deepEqual(calls, [{ name: 'example_read', params: { id: 'record-1' } }]);
   assert.deepEqual((called.details as { gateway: string; operation: string }).gateway, 'example_gateway');
   assert.deepEqual((called.details as { gateway: string; operation: string }).operation, 'example_read');
+
+  const unmatched = await restricted.execute('unmatched', { action: 'search', query: 'unknown app' });
+  assert.match(getText(unmatched), /example_read/);
+  assert.doesNotMatch(getText(unmatched), /example_delete/);
+  assert.equal((unmatched.details as { fallback: boolean }).fallback, true);
+  assert.deepEqual(getProgressiveGatewayCapabilityNames([restricted]), ['example_read']);
+  assert.deepEqual(buildEffectiveToolManifest([restricted]).gateways[0]?.allowedOperationNames, ['example_read']);
+
+  // A later workspace filter must not restore operations disabled in agent settings.
+  const filteredAgain = filterToolsForWorkspacePermissions([restricted], { canWrite: false, canDelete: false, canShare: false });
+  assert.equal(filteredAgain.length, 1);
+  assert.match(getText(await filteredAgain[0].execute('still-denied', { action: 'call', operation: 'example_delete', arguments: { id: 'record-1', confirm: true } })), /not available/);
+  assert.deepEqual(getProgressiveGatewayCapabilityNames(filteredAgain), ['example_read']);
+  const widened = withAllowedProgressiveGatewayOperations(restricted, ['example_read', 'example_delete']);
+  assert.ok(widened);
+  assert.deepEqual(getProgressiveGatewayCapabilityNames([widened]), ['example_read']);
+
+  const composioDefinition = PROGRESSIVE_GATEWAY_DEFINITIONS.find((definition) => definition.name === 'composio');
+  assert.ok(composioDefinition);
+  const externalCalls: Array<{ name: string; params: unknown }> = [];
+  const composio = createProgressiveGatewayTool(composioDefinition, composioDefinition.operations.map((name) => ({
+    name,
+    label: name,
+    // App names live in the provider catalog, not these generic operation descriptions.
+    description: name === 'COMPOSIO_SEARCH_TOOLS' ? 'Discover external app tools.' : 'Work with external apps.',
+    parameters: name === 'COMPOSIO_SEARCH_TOOLS'
+      ? Type.Object({ query: Type.Optional(Type.String()), toolkits: Type.Optional(Type.Array(Type.String())) })
+      : Type.Object({}),
+    execute: async (_toolCallId: string, params: unknown) => {
+      externalCalls.push({ name, params });
+      return { content: [{ type: 'text' as const, text: JSON.stringify({ tools: [{ slug: 'CANVA_LIST_DESIGNS', toolkit: 'canva' }] }) }], details: {} };
+    },
+  })));
+
+  for (const query of ['Canva', 'Canva Designs suchen', 'Figma', 'Instagram']) {
+    const discovery = await composio.execute('app-search', { action: 'search', query });
+    assert.match(getText(discovery), /COMPOSIO_SEARCH_TOOLS/);
+    assert.match(getText(discovery), /toolkits/);
+    assert.match(getText(discovery), /connection status/);
+    assert.doesNotMatch(getText(discovery), /No permitted operations/);
+    assert.equal((discovery.details as { fallback: boolean }).fallback, true);
+  }
+  assert.equal(externalCalls.length, 0);
+  const appSchema = await composio.execute('app-schema', { action: 'describe', operation: 'COMPOSIO_SEARCH_TOOLS' });
+  assert.match(getText(appSchema), /"toolkits"/);
+  assert.match(composio.description, /never gateway operation names/);
+  assert.match(composio.description, /operation COMPOSIO_GET_TOOL_SCHEMAS with arguments.tools/);
+  assert.match(composio.description, /operation composio_execute with arguments.action/);
+  const appTools = await composio.execute('app-tools', { action: 'call', operation: 'COMPOSIO_SEARCH_TOOLS', arguments: { toolkits: ['canva'] } });
+  assert.match(getText(appTools), /CANVA_LIST_DESIGNS/);
+  assert.deepEqual(externalCalls, [{ name: 'COMPOSIO_SEARCH_TOOLS', params: { toolkits: ['canva'] } }]);
+
+  const statusOnly = withAllowedProgressiveGatewayOperations(composio, ['COMPOSIO_MANAGE_CONNECTIONS']);
+  assert.ok(statusOnly);
+  assert.doesNotMatch(statusOnly.description, /COMPOSIO_SEARCH_TOOLS|composio_execute/);
+  assert.deepEqual(buildEffectiveToolManifest([statusOnly]).gateways[0]?.allowedOperationNames, ['COMPOSIO_MANAGE_CONNECTIONS']);
+  const statusSearch = await statusOnly.execute('status-search', { action: 'search', query: 'Canva' });
+  assert.match(getText(statusSearch), /COMPOSIO_MANAGE_CONNECTIONS/);
+  assert.doesNotMatch(getText(statusSearch), /COMPOSIO_SEARCH_TOOLS|composio_execute/);
+  assert.equal(withAllowedProgressiveGatewayOperations(composio, []), null);
+  const searchOnly = withAllowedProgressiveGatewayOperations(composio, ['COMPOSIO_SEARCH_TOOLS']);
+  assert.ok(searchOnly);
+  assert.match(searchOnly.description, /never gateway operation names/);
+  assert.doesNotMatch(searchOnly.description, /COMPOSIO_GET_TOOL_SCHEMAS|composio_execute/);
 
   console.log('progressive-tool-gateway-test: ok');
 }

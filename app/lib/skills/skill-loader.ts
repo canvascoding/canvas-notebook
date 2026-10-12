@@ -17,7 +17,9 @@ import { resolveReadableScopedSkillsDataDir } from '@/app/lib/runtime-data-paths
 import {
   getAllKnownSkillNames,
   loadEnabledPluginSkills,
+  listCanvasPlugins,
 } from '@/app/lib/plugins/canvas-plugin-registry';
+import { readCanvasSkillRegistry } from './canvas-skill-store';
 import { adoptLegacyStandaloneSkillsForScope } from '@/app/lib/skills/legacy-skill-adoption';
 import { readEnabledSkillsForScope, writeEnabledSkillsForScope } from './skill-settings';
 import { assertPersonalSkillActivationAllowed, PersonalSkillActivationError } from './personal-skill-activation';
@@ -32,6 +34,39 @@ export {
 } from './canvas-skill-manifest';
 export { getSkillsContext } from './skill-context';
 
+type ManagedPackagePointer = { packageManaged?: boolean; packageResourceRef?: string; publishedRevisionRef?: string;
+  resourceId?: string; installDir: string; checksum: string; version: string; name: string };
+
+function isManagedPackagePointer(pointer: Pick<ManagedPackagePointer, 'packageManaged' | 'packageResourceRef' | 'publishedRevisionRef'>): boolean {
+  return Boolean(pointer.packageManaged || pointer.packageResourceRef || pointer.publishedRevisionRef);
+}
+
+/** Exact registered pointers are read under fresh resource authority, never by broad DATA access. */
+async function readManagedPackagePointer<T>(pointer: ManagedPackagePointer, scope: CanvasSkillStorageScope | null | undefined,
+  read: () => Promise<T>): Promise<T | null> {
+  const { getAgentExecutionContext } = await import('@/app/lib/pi/agent-execution-context');
+  const ambient = getAgentExecutionContext();
+  const userId = ambient?.userId || scope?.userId;
+  if (!userId || !pointer.packageResourceRef || !pointer.publishedRevisionRef || !pointer.resourceId) return null;
+  const { findCapabilityResourceRecord, withAuthorizedCapabilityPackageResource } = await import('@/app/lib/capabilities/resources/store');
+  const { getCapabilityPackageState, getCapabilityPackagePublishedRevision } = await import('@/app/lib/capabilities/packages/store');
+  const { resolveOwnerScopedPackageVersionPath, verifyCapabilityPackageSnapshot } = await import('@/app/lib/capabilities/packages/io');
+  const record = await findCapabilityResourceRecord(pointer.packageResourceRef);
+  if (!record || record.storage.resourceId !== pointer.resourceId) return null;
+  return withAuthorizedCapabilityPackageResource({ userId, workspaceId: ambient?.workspaceId }, record.storage, 'read', undefined,
+    async (authorization, database) => {
+      const state = await getCapabilityPackageState(pointer.packageResourceRef!, database);
+      const published = state && state.currentPublishedRevisionRef === pointer.publishedRevisionRef
+        ? await getCapabilityPackagePublishedRevision(state.resourceRef, pointer.publishedRevisionRef, database) : null;
+      if (!published || published.checksum !== pointer.checksum || published.name !== pointer.name || published.version !== pointer.version) return null;
+      const location = { ...published, owner: authorization.record.metadata.ownership,
+        rootPath: resolveOwnerScopedPackageVersionPath({ ...published, owner: authorization.record.metadata.ownership }) };
+      if (path.resolve(pointer.installDir) !== path.resolve(location.rootPath)) return null;
+      await verifyCapabilityPackageSnapshot(location);
+      return read();
+    }).catch(() => null);
+}
+
 /**
  * Load all skills from the skills directory
  * Only supports Canvas SKILL.md format
@@ -44,6 +79,10 @@ export async function loadSkillsFromDisk(
   const skills: CanvasSkill[] = await loadCoreSkills();
   const coreSkillNames = new Set(skills.map((skill) => skill.name));
   const skillsDir = await resolveReadableScopedSkillsDataDir(scope);
+  const [skillRegistry, pluginRecords] = await Promise.all([readCanvasSkillRegistry(scope), listCanvasPlugins(scope)]);
+  const managedPlugins = new Map(pluginRecords.filter(isManagedPackagePointer).map(plugin => [plugin.name, plugin]));
+  const staleMaterializedNames = new Set(Object.values(skillRegistry.skills).filter(record => record.sourceType === 'plugin'
+    && record.sourcePluginName && managedPlugins.has(record.sourcePluginName)).map(record => record.name));
   
   try {
     // Check if skills directory exists
@@ -60,6 +99,9 @@ export async function loadSkillsFromDisk(
       
       for (const entry of entries) {
         if (entry.isDirectory()) {
+          // A published parent owns its immutable children. Retained legacy
+          // materializations must never shadow those current child bytes.
+          if (staleMaterializedNames.has(entry.name) || isManagedPackagePointer(skillRegistry.skills[entry.name] ?? {})) continue;
           if (coreSkillNames.has(entry.name)) {
             if (process.env.DEBUG === 'true') {
               console.log(`[SkillLoader] Ignoring standalone copy of core skill: ${entry.name}`);
@@ -108,11 +150,41 @@ export async function loadSkillsFromDisk(
     console.error('[SkillLoader] Error loading skills:', error);
   }
 
+  for (const record of Object.values(skillRegistry.skills)) {
+    if (record.sourceType === 'plugin' || !isManagedPackagePointer(record) || coreSkillNames.has(record.name)) continue;
+    const skill = await readManagedPackagePointer(record, scope, async () => {
+      if (path.resolve(record.skillPath) !== path.join(path.resolve(record.installDir), 'SKILL.md')) return null;
+      return parseSkillFile(record.skillPath);
+    });
+    if (skill) {
+      skill.enabled = (!enabledSkills || enabledSkills.length === 0 ? record.packageDefaultEnabled !== false : enabledSkills.includes(skill.name));
+      skills.push(skill);
+    }
+  }
+
   const standaloneSkillNames = new Set(skills.map((skill) => skill.name));
-  const pluginSkills = await loadEnabledPluginSkills(enabledSkills, scope).catch((error) => {
+  const pluginSkills: CanvasSkill[] = await loadEnabledPluginSkills(enabledSkills, scope, { excludePackageManaged: true }).catch((error) => {
     console.warn('[SkillLoader] Error loading plugin skills:', error);
     return [];
   });
+  for (const plugin of managedPlugins.values()) {
+    if (!plugin.enabled) continue;
+    const exactSkills = await readManagedPackagePointer(plugin, scope, async () => {
+      const parsed: CanvasSkill[] = [];
+      for (const record of plugin.skills) {
+        const skillPath = path.resolve(record.path || path.join(record.directory, 'SKILL.md'));
+        if (!skillPath.startsWith(`${path.resolve(plugin.installDir)}${path.sep}`)) continue;
+        const skill = await parseSkillFile(skillPath);
+        if (!skill || skill.name !== record.name) continue;
+        skill.plugin = { name: plugin.name, version: plugin.version, displayName: plugin.interface?.displayName,
+          skillAssetPath: path.relative(plugin.installDir, skill.directory) };
+        skill.enabled = !enabledSkills || enabledSkills.length === 0 || enabledSkills.includes(skill.name);
+        parsed.push(skill);
+      }
+      return parsed;
+    });
+    if (exactSkills) pluginSkills.push(...exactSkills);
+  }
 
   for (const pluginSkill of pluginSkills) {
     if (standaloneSkillNames.has(pluginSkill.name)) {
@@ -334,52 +406,59 @@ ${skill.content}
 export async function deleteSkillDirectory(
   name: string,
   scope?: CanvasSkillStorageScope | null,
-): Promise<{ success: boolean; error?: string }> {
-  try {
-    if (!isValidAgentSkillName(name)) {
-      return { success: false, error: 'Invalid skill name' };
-    }
-    if (isCoreSkillName(name)) {
-      return { success: false, error: coreSkillInstallError(name) };
-    }
-
-    await adoptLegacyStandaloneSkillsForScope(scope);
-
-    const skillsDir = getSkillsDir(scope);
-    const skillPath = path.join(skillsDir, name);
-    const skillMdPath = path.join(skillPath, 'SKILL.md');
-    const hasStandaloneSkill = await fs.access(skillMdPath).then(() => true).catch(() => false);
-
-    if (!hasStandaloneSkill) {
-      if (await skillExists(name, scope, { legacyFallback: false })) {
-        return { success: false, error: `Skill "${name}" is managed by a plugin. Disable or remove the plugin instead.` };
-      }
-      return { success: false, error: `Skill "${name}" not found` };
-    }
-
-    const resolvedSkillPath = path.resolve(/*turbopackIgnore: true*/ skillPath);
-    const resolvedSkillsDir = path.resolve(/*turbopackIgnore: true*/ skillsDir);
-    if (!resolvedSkillPath.startsWith(`${resolvedSkillsDir}${path.sep}`)) {
-      return { success: false, error: 'Invalid skill name: path traversal detected' };
-    }
-
-    await fs.rm(skillPath, { recursive: true, force: true });
-
+): Promise<{ success: boolean; error?: string; code?: string; status?: number }> {
+  const { withCapabilityPackageRegistryLock, assertLegacyCapabilityPackageMutationAllowed } = await import('@/app/lib/capabilities/packages/artifacts');
+  return withCapabilityPackageRegistryLock('skill', scope, async () => {
     try {
-      const enabledSkills = await readEnabledSkillsForScope(scope);
-      const allSkillNames = await getSkillNames(scope);
-      const nextEnabledSkills = disableSkillInConfig(name, enabledSkills, allSkillNames);
-      await writeEnabledSkillsForScope(nextEnabledSkills, { scope });
-      console.log(`[SkillLoader] Removed skill "${name}" from enabled-skills config`);
-    } catch (cfgError) {
-      console.warn(`[SkillLoader] Could not remove skill "${name}" from config:`, cfgError);
-    }
+      if (!isValidAgentSkillName(name)) {
+        return { success: false, error: 'Invalid skill name' };
+      }
+      if (isCoreSkillName(name)) {
+        return { success: false, error: coreSkillInstallError(name) };
+      }
 
-    console.log(`[SkillLoader] Deleted skill: ${skillPath}`);
-    return { success: true };
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    console.error(`[SkillLoader] Error deleting skill ${name}:`, error);
-    return { success: false, error: errorMessage };
-  }
+      await adoptLegacyStandaloneSkillsForScope(scope);
+      const { readCanvasSkillRegistry } = await import('@/app/lib/skills/canvas-skill-store');
+      await assertLegacyCapabilityPackageMutationAllowed('skill', name, scope, (await readCanvasSkillRegistry(scope)).skills[name]);
+
+      const skillsDir = getSkillsDir(scope);
+      const skillPath = path.join(skillsDir, name);
+      const skillMdPath = path.join(skillPath, 'SKILL.md');
+      const hasStandaloneSkill = await fs.access(skillMdPath).then(() => true).catch(() => false);
+
+      if (!hasStandaloneSkill) {
+        if (await skillExists(name, scope, { legacyFallback: false })) {
+          return { success: false, error: `Skill "${name}" is managed by a plugin. Disable or remove the plugin instead.` };
+        }
+        return { success: false, error: `Skill "${name}" not found` };
+      }
+
+      const resolvedSkillPath = path.resolve(/*turbopackIgnore: true*/ skillPath);
+      const resolvedSkillsDir = path.resolve(/*turbopackIgnore: true*/ skillsDir);
+      if (!resolvedSkillPath.startsWith(`${resolvedSkillsDir}${path.sep}`)) {
+        return { success: false, error: 'Invalid skill name: path traversal detected' };
+      }
+
+      await fs.rm(skillPath, { recursive: true, force: true });
+
+      try {
+        const enabledSkills = await readEnabledSkillsForScope(scope);
+        const allSkillNames = await getSkillNames(scope);
+        const nextEnabledSkills = disableSkillInConfig(name, enabledSkills, allSkillNames);
+        await writeEnabledSkillsForScope(nextEnabledSkills, { scope });
+        console.log(`[SkillLoader] Removed skill "${name}" from enabled-skills config`);
+      } catch (cfgError) {
+        console.warn(`[SkillLoader] Could not remove skill "${name}" from config:`, cfgError);
+      }
+
+      console.log(`[SkillLoader] Deleted skill: ${skillPath}`);
+      return { success: true };
+    } catch (error) {
+      const { isCapabilityPackageError } = await import('@/app/lib/capabilities/packages/contracts');
+      if (isCapabilityPackageError(error)) return { success: false, error: error.message, code: error.code, status: error.status };
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      console.error(`[SkillLoader] Error deleting skill ${name}:`, error);
+      return { success: false, error: errorMessage };
+    }
+  });
 }

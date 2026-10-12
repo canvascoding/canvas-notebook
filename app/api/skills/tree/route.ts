@@ -1,18 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { promises as fs } from 'fs';
-import path from 'path';
 import { auth } from '@/app/lib/auth';
-import { loadCapabilityCandidates } from '@/app/lib/capabilities/catalog';
+import { loadCapabilityCandidatesForResourceActor, assertReadableCapabilityCandidate } from '@/app/lib/capabilities/resources/read';
+import { CapabilityResourceError } from '@/app/lib/capabilities/resources/contracts';
 import { parseCapabilityManagementScope } from '@/app/lib/capabilities/request-scope';
-import { readOrganizationPermissionForUser } from '@/app/lib/organization/permissions';
-import { resolveReadableScopedSkillsDataDir } from '@/app/lib/runtime-data-paths';
 import {
   buildCapabilitySkillTree,
   selectBrowsableSkillCandidates,
 } from '@/app/lib/skills/capability-skill-browser';
-import { buildSkillTree, type SkillFileNode } from '@/app/lib/skills/skill-tree';
-import { CORE_SKILL_NAMES } from '@/app/lib/skills/core-skills';
-import { CORE_SKILLS_DIR } from '@/app/lib/skills/core-skill-loader';
 
 export async function GET(request: NextRequest) {
   const session = await auth.api.getSession({ headers: request.headers });
@@ -25,48 +19,14 @@ export async function GET(request: NextRequest) {
     const parsedDepth = Number.parseInt(searchParams.get('depth') || '4', 10);
     const depth = Number.isFinite(parsedDepth) ? Math.min(8, Math.max(1, parsedDepth)) : 4;
     const managementScope = parseCapabilityManagementScope(searchParams.get('scope'));
-    const organizationState = await readOrganizationPermissionForUser(session.user.id);
-
-    if (organizationState.organizationId && organizationState.permission?.status === 'active') {
-      const candidates = await loadCapabilityCandidates({
-        organizationId: organizationState.organizationId,
-        userId: session.user.id,
-        role: organizationState.permission.role,
-      }, { resolveConnections: false });
-      const tree = await buildCapabilitySkillTree(
-        selectBrowsableSkillCandidates(candidates, managementScope),
-        { maxDepth: depth },
-      );
-      return NextResponse.json({ success: true, data: tree });
-    }
-
-    if (managementScope === 'organization') {
-      return NextResponse.json(
-        { success: false, error: 'Active organization membership required' },
-        { status: 403 },
-      );
-    }
-
-    const resolvedSkillsDir = path.resolve(await resolveReadableScopedSkillsDataDir({ userId: session.user.id }));
-
-    const coreTree = await buildSkillTree(CORE_SKILLS_DIR, {
-      maxDepth: depth,
-      includeRootNames: CORE_SKILL_NAMES,
-    });
-    const coreSkillNames = new Set(coreTree.map((node) => node.name));
-    let userTree: SkillFileNode[] = [];
-    try {
-      await fs.access(resolvedSkillsDir);
-      userTree = (await buildSkillTree(resolvedSkillsDir, { maxDepth: depth }))
-        .filter((node) => !coreSkillNames.has(node.name));
-    } catch {
-      userTree = [];
-    }
-
-    const tree = [...coreTree, ...userTree];
-
+    const actor = { userId: session.user.id, workspaceId: searchParams.get('workspaceId') };
+    const candidates = await loadCapabilityCandidatesForResourceActor(actor);
+    const selected = selectBrowsableSkillCandidates(candidates, managementScope);
+    const tree = await buildCapabilitySkillTree(selected, { maxDepth: depth });
+    for (const candidate of selected) await assertReadableCapabilityCandidate(actor, candidate, candidates);
     return NextResponse.json({ success: true, data: tree });
   } catch (error) {
+    if (error instanceof CapabilityResourceError) return NextResponse.json({ success: false, error: error.message }, { status: error.status });
     console.error('[Skills Tree API] Error:', error);
     return NextResponse.json(
       { success: false, error: 'Failed to load skill tree' },
