@@ -11,7 +11,7 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
-## [2026.10.12.1] - 2026-10-12
+## [2026.10.12.2] - 2026-10-12
 
 ### Added
 
@@ -32,6 +32,7 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 ### Verification
 
+- `npm run test:server:shutdown`
 - `npm run verify:release`
 
 ## [2026.10.10.1] - 2026-10-10
