@@ -558,6 +558,7 @@
     "test:onboarding:tour-safety": "tsx --conditions react-server scripts/onboarding-tour-safety-test.ts",
     "test:onboarding:license-url": "tsx scripts/onboarding-license-url-test.ts",
     "test:onboarding:ui": "tsx scripts/onboarding-wizard-ui-test.ts",
+    "test:onboarding:profile-workspace-ui": "tsx scripts/onboarding-profile-workspace-ui-test.tsx",
     "test:workspace:foundation": "tsx --conditions react-server scripts/workspace-context-foundation-test.ts",
     "test:workspace:switcher-ui": "tsx scripts/workspace-switcher-ui-test.ts",
     "test:workspace:appearance": "tsx scripts/workspace-appearance-theme-test.ts && tsx scripts/workspace-accent-ui-test.ts",

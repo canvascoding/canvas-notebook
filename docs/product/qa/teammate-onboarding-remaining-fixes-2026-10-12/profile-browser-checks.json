@@ -1,0 +1,78 @@
+{
+  "environment": "local production development license",
+  "image": "431884ad50d2199a1ef8591a3b907bfbac2130d7741cd97d4b3a9ac19bee59bd",
+  "checks": [
+    {
+      "id": "mailpit_invitation_arrived",
+      "passed": true
+    },
+    {
+      "id": "member_activation",
+      "passed": true
+    },
+    {
+      "id": "profile_workspace_is_personal_owner",
+      "passed": true
+    },
+    {
+      "id": "ui_bootstrap_exact_workspace",
+      "passed": true
+    },
+    {
+      "id": "reload_same_session_and_workspace",
+      "passed": true
+    },
+    {
+      "id": "stored_session_exact_workspace",
+      "passed": true
+    },
+    {
+      "id": "one_saved_welcome_after_reload",
+      "passed": true
+    },
+    {
+      "id": "member_skip_and_complete",
+      "passed": true
+    },
+    {
+      "id": "direct_admin_activation_and_role",
+      "passed": true
+    },
+    {
+      "id": "delayed_original_profile_response_valid",
+      "passed": true
+    },
+    {
+      "id": "skip_before_profile_reply",
+      "passed": true
+    },
+    {
+      "id": "admin_skip_persisted_and_home",
+      "passed": true
+    },
+    {
+      "id": "direct_admin_has_no_invitation_email",
+      "passed": true
+    },
+    {
+      "id": "original_mailpit_messages_preserved",
+      "passed": true
+    },
+    {
+      "id": "no_javascript_page_errors",
+      "passed": true
+    }
+  ],
+  "mobile": {
+    "viewport": 390,
+    "documentWidth": 390,
+    "scrollRootWidth": 390
+  },
+  "notes": [
+    "The server-returned personal workspace overrides cached and URL organization workspace selections.",
+    "The administrator test delays an actual successful HTTP profile response; it does not replace server data.",
+    "Skip advances to Tour; releasing the old response does not mount a chat or produce a chat bootstrap.",
+    "No AI provider prompt was sent. Profile completion/memory is covered by the isolated service regression.",
+    "The two own active accounts are reserved for the next session-revocation test and will be offboarded at final cleanup."
+  ]
+}

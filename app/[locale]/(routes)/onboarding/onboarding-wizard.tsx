@@ -13,6 +13,7 @@ import {
 } from '@/app/components/license/useLicenseEmailActivation';
 
 import CanvasAgentChat from '@/app/components/canvas-agent-chat/CanvasAgentChat';
+import { useOnboardingProfileSession } from '@/app/components/onboarding/useOnboardingProfileSession';
 import { AiProvidersModelsPanel } from '@/app/components/settings/AiProvidersModelsPanel';
 import { DictationSettingsPanel } from '@/app/components/settings/DictationSettingsPanel';
 import { PublicBrandLogo } from '@/app/components/branding/PublicBrandLogo';
@@ -250,10 +251,6 @@ export default function OnboardingWizard({
   const [modelTestError, setModelTestError] = useState<string | null>(null);
   const [providerReady, setProviderReady] = useState(false);
   const [providerVerifiedInSession, setProviderVerifiedInSession] = useState(false);
-  const [profileSessionId, setProfileSessionId] = useState<string | null>(null);
-  const [profileSessionLoading, setProfileSessionLoading] = useState(false);
-  const [profileSessionError, setProfileSessionError] = useState<string | null>(null);
-  const profileSessionRequestInFlightRef = useRef(false);
   const isInstanceOnboarding = mode === 'instance';
   const steps = isInstanceOnboarding ? INSTANCE_STEPS : USER_STEPS;
   const currentStepIndex = Math.max(steps.indexOf(step), 0);
@@ -301,59 +298,6 @@ export default function OnboardingWizard({
       toast.error(error instanceof Error ? error.message : t('unexpectedError'));
     }
   }, [isInstanceOnboarding, t]);
-
-  const openProfileSession = useCallback(async () => {
-    if (profileSessionRequestInFlightRef.current) return;
-    profileSessionRequestInFlightRef.current = true;
-    setProfileSessionLoading(true);
-    setProfileSessionError(null);
-    try {
-      const response = await fetch('/api/onboarding/profile-session', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ locale: currentLocale }),
-      });
-      const data = (await response.json().catch(() => ({}))) as {
-        success?: boolean;
-        complete?: boolean;
-        sessionId?: string;
-        error?: string;
-      };
-
-      if (!response.ok || !data.success) {
-        throw new Error(data.error || t('profileSessionError'));
-      }
-
-      if (data.complete) {
-        await advanceTo('tour');
-        return;
-      }
-
-      if (!data.sessionId) {
-        throw new Error(t('profileSessionError'));
-      }
-
-      setProfileSessionId(data.sessionId);
-      await advanceTo('profile');
-    } catch (error) {
-      const message = error instanceof Error ? error.message : t('profileSessionError');
-      setProfileSessionError(message);
-      throw error;
-    } finally {
-      profileSessionRequestInFlightRef.current = false;
-      setProfileSessionLoading(false);
-    }
-  }, [advanceTo, currentLocale, t]);
-
-  useEffect(() => {
-    if (step !== 'profile' || profileSessionId) return;
-    const timer = window.setTimeout(() => {
-      void openProfileSession().catch((error) => {
-        toast.error(error instanceof Error ? error.message : t('profileSessionError'));
-      });
-    }, 0);
-    return () => window.clearTimeout(timer);
-  }, [openProfileSession, profileSessionId, step, t]);
 
   const verifyProviderForOnboarding = useCallback(async () => {
     setModelTestLoading(true);
@@ -532,19 +476,9 @@ export default function OnboardingWizard({
                 <InstanceReviewStep onComplete={beginPersonalOnboarding} />
               )}
 
-              {step === 'profile' && profileSessionId && (
+              {step === 'profile' && (
                 <AgentProfileStep
-                  sessionId={profileSessionId}
                   onComplete={() => void advanceTo('tour')}
-                />
-              )}
-
-              {step === 'profile' && !profileSessionId && (
-                <ProfileSessionRecovery
-                  loading={profileSessionLoading}
-                  error={profileSessionError}
-                  onRetry={() => void openProfileSession().catch(() => undefined)}
-                  onSkipComplete={() => void advanceTo('tour')}
                 />
               )}
 
@@ -589,39 +523,16 @@ function ProfileSessionRecovery({
   loading,
   error,
   onRetry,
-  onSkipComplete,
+  onSkip,
+  skipping,
 }: {
   loading: boolean;
   error: string | null;
   onRetry: () => void;
-  onSkipComplete: () => void;
+  onSkip: () => void;
+  skipping: boolean;
 }) {
   const t = useTranslations('onboarding');
-  const [skipping, setSkipping] = useState(false);
-
-  async function handleSkip() {
-    if (skipping) return;
-    setSkipping(true);
-    try {
-      const response = await fetch('/api/onboarding/profile-skip', {
-        method: 'POST',
-      });
-      const data = (await response.json().catch(() => ({}))) as {
-        success?: boolean;
-        error?: string;
-        code?: string;
-      };
-      if (!response.ok || !data.success) {
-        throw new Error(data.code ? `${data.error || t('profileSkipError')} (${data.code})` : data.error || t('profileSkipError'));
-      }
-      toast.success(t('profileSkipped'));
-      onSkipComplete();
-    } catch (skipError) {
-      toast.error(skipError instanceof Error ? skipError.message : t('profileSkipError'));
-    } finally {
-      setSkipping(false);
-    }
-  }
 
   return (
     <div className="space-y-6">
@@ -647,7 +558,7 @@ function ProfileSessionRecovery({
       </div>
 
       <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-        <Button variant="outline" onClick={() => void handleSkip()} disabled={skipping} className="gap-2">
+        <Button variant="outline" onClick={onSkip} disabled={skipping} className="gap-2">
           {skipping && <Loader2 className="h-4 w-4 animate-spin" />}
           {skipping ? t('profileSkipping') : t('profileSkip')}
         </Button>
@@ -661,41 +572,65 @@ function ProfileSessionRecovery({
 }
 
 function AgentProfileStep({
-  sessionId,
   onComplete,
 }: {
-  sessionId: string;
   onComplete: () => void;
 }) {
   const t = useTranslations('onboarding');
+  const locale = useLocale();
   const [skipping, setSkipping] = useState(false);
   const [profileCompleteDetected, setProfileCompleteDetected] = useState(false);
   const [runtimePhase, setRuntimePhase] = useState<OnboardingRuntimePhase>('idle');
   const completedRef = useRef(false);
   const skipRequestInFlightRef = useRef(false);
+  const skipControllerRef = useRef<AbortController | null>(null);
+  const mountedRef = useRef(true);
+  const profileSession = useOnboardingProfileSession({
+    locale,
+    errorMessage: t('profileSessionError'),
+    onAlreadyComplete: () => {
+      if (completedRef.current) return;
+      completedRef.current = true;
+      onComplete();
+    },
+  });
 
   useEffect(() => {
-    if (!profileCompleteDetected || runtimePhase !== 'idle' || completedRef.current) {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      skipControllerRef.current?.abort();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!profileCompleteDetected || runtimePhase !== 'idle' || completedRef.current || skipping) {
       return;
     }
 
     completedRef.current = true;
     toast.success(t('profileCompleteDetected'));
     onComplete();
-  }, [onComplete, profileCompleteDetected, runtimePhase, t]);
+  }, [onComplete, profileCompleteDetected, runtimePhase, skipping, t]);
 
   useEffect(() => {
     let cancelled = false;
+    const controller = new AbortController();
+    let inFlight = false;
 
     async function checkStatus() {
+      if (inFlight || cancelled) return;
+      inFlight = true;
       try {
-        const response = await fetch('/api/onboarding/status', { cache: 'no-store' });
+        const response = await fetch('/api/onboarding/status', { cache: 'no-store', signal: controller.signal });
         const data = (await response.json().catch(() => ({}))) as { profileComplete?: boolean };
-        if (!cancelled && data.profileComplete) {
+        if (!cancelled && !skipRequestInFlightRef.current && response.ok && data.profileComplete) {
           setProfileCompleteDetected(true);
         }
       } catch {
         // Polling is best-effort; the user can still continue after a successful skip.
+      } finally {
+        inFlight = false;
       }
     }
 
@@ -703,9 +638,10 @@ function AgentProfileStep({
     const timer = window.setInterval(() => void checkStatus(), 2500);
     return () => {
       cancelled = true;
+      controller.abort();
       window.clearInterval(timer);
     };
-  }, [onComplete, t]);
+  }, []);
 
   async function handleSkip() {
     if (skipRequestInFlightRef.current) {
@@ -713,23 +649,42 @@ function AgentProfileStep({
     }
 
     skipRequestInFlightRef.current = true;
+    const controller = new AbortController();
+    skipControllerRef.current = controller;
+    profileSession.cancel();
     setSkipping(true);
     try {
       const response = await fetch('/api/onboarding/profile-skip', {
         method: 'POST',
+        signal: controller.signal,
       });
       const data = (await response.json().catch(() => ({}))) as { success?: boolean; error?: string; code?: string };
+      if (!mountedRef.current || controller.signal.aborted) return;
       if (!response.ok || !data.success) {
         throw new Error(data.code ? `${data.error || t('profileSkipError')} (${data.code})` : data.error || t('profileSkipError'));
       }
       toast.success(t('profileSkipped'));
+      completedRef.current = true;
       onComplete();
     } catch (error) {
+      if (!mountedRef.current || controller.signal.aborted) return;
       toast.error(error instanceof Error ? error.message : t('profileSkipError'));
     } finally {
       skipRequestInFlightRef.current = false;
-      setSkipping(false);
+      if (mountedRef.current) setSkipping(false);
     }
+  }
+
+  if (!profileSession.ready || !profileSession.sessionId) {
+    return (
+      <ProfileSessionRecovery
+        loading={profileSession.loading}
+        error={profileSession.error}
+        onRetry={() => void profileSession.retry()}
+        onSkip={() => void handleSkip()}
+        skipping={skipping}
+      />
+    );
   }
 
   return (
@@ -739,7 +694,9 @@ function AgentProfileStep({
       <div className="h-[68vh] min-h-[460px] max-h-[720px] overflow-hidden border border-border bg-background">
         <CanvasAgentChat
           hideNavHeader
-          forcedSessionId={sessionId}
+          showWorkspaceSwitcher={false}
+          forcedSessionId={profileSession.sessionId}
+          forcedWorkspaceId={profileSession.workspaceId}
           isSurfaceVisible
           requestContext={{ currentPage: 'onboarding' }}
           onRuntimeStatusChange={(status) => setRuntimePhase((status?.phase || 'idle') as OnboardingRuntimePhase)}

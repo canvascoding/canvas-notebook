@@ -41,8 +41,27 @@ function assistantText(text: string): AssistantMessage {
 
 async function main() {
   const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-onboarding-profile-'));
+  const environmentKeys = ['CANVAS_DATA_ROOT', 'DATA', 'CANVAS_DATABASE_PROVIDER', 'CANVAS_DEPLOYMENT_MODE', 'DATABASE_URL', 'POSTGRES_URL', 'BASE_URL', 'BETTER_AUTH_BASE_URL', 'CANVAS_MCP_DIRECT_ENABLED'] as const;
+  const previousEnvironment = new Map(environmentKeys.map(key => [key, process.env[key]]));
   process.env.CANVAS_DATA_ROOT = dataDir;
   process.env.DATA = dataDir;
+  process.env.CANVAS_DATABASE_PROVIDER = 'postgres';
+  process.env.CANVAS_DEPLOYMENT_MODE = 'community';
+  delete process.env.DATABASE_URL;
+  delete process.env.POSTGRES_URL;
+  process.env.BASE_URL = 'http://127.0.0.1:3100';
+  process.env.BETTER_AUTH_BASE_URL = process.env.BASE_URL;
+  process.env.CANVAS_MCP_DIRECT_ENABLED = 'false';
+
+  let database: Awaited<ReturnType<typeof import('./helpers/pi-test-database').createPiTestDatabase>> | undefined;
+  let beforeRuntimeResolution: (() => Promise<void>) | null = null;
+  let sessionLockObserver: ((userId: string) => void) | null = null;
+  const originalFetch = globalThis.fetch;
+  let unexpectedHttpCalls = 0;
+  globalThis.fetch = async () => {
+    unexpectedHttpCalls += 1;
+    throw new Error('Unexpected HTTP request in isolated onboarding profile test.');
+  };
 
   const moduleInternals = Module as typeof Module & {
     _load: (request: string, parent: NodeModule | null, isMain: boolean) => unknown;
@@ -50,6 +69,50 @@ async function main() {
   const originalLoad = moduleInternals._load;
   moduleInternals._load = (request, parent, isMain) => {
     if (request === 'server-only') return {};
+    if (
+      request === '@/app/lib/db'
+      || /\/app\/lib\/db(?:\/index)?(?:\.ts)?$/u.test(request)
+      || /^(?:\.\.\/)+db$/u.test(request)
+    ) {
+      assert.ok(database, 'PGlite must be initialized before the production database module is imported.');
+      const fixture = database;
+      return {
+        ...fixture,
+        openDb: async () => {
+          const connection = await fixture.openDb();
+          const normalize = (sql: string) => {
+            let parameter = 0;
+            return sql.replaceAll('?', () => `$${++parameter}`);
+          };
+          return {
+            get: (sql: string, params?: unknown[]) => connection.get(normalize(sql), params),
+            all: (sql: string, params?: unknown[]) => connection.all(normalize(sql), params),
+            run: (sql: string, params?: unknown[]) => connection.run(normalize(sql), params),
+            close: connection.close,
+          };
+        },
+      };
+    }
+    if (request === '@/app/lib/agent-runtime-policy/provider-runtime') {
+      const runtime = originalLoad(request, parent, isMain) as typeof import('../app/lib/agent-runtime-policy/provider-runtime');
+      return {
+        ...runtime,
+        resolveExecutableAgentRuntime: async (...args: Parameters<typeof runtime.resolveExecutableAgentRuntime>) => {
+          await beforeRuntimeResolution?.();
+          return runtime.resolveExecutableAgentRuntime(...args);
+        },
+      };
+    }
+    if (request === '@/app/lib/pi/session-operation-lock') {
+      const locks = originalLoad(request, parent, isMain) as typeof import('../app/lib/pi/session-operation-lock');
+      return {
+        ...locks,
+        withPiSessionOperationLock: <T>(sessionId: string, userId: string, operation: () => Promise<T>) => {
+          sessionLockObserver?.(userId);
+          return locks.withPiSessionOperationLock(sessionId, userId, operation);
+        },
+      };
+    }
     if (request === '@earendil-works/pi-ai' || request === '@earendil-works/pi-ai/compat') {
       return {
         completeSimple: async () => assistantText('OK'),
@@ -65,12 +128,15 @@ async function main() {
   };
 
   try {
+    const { createPiTestDatabase } = await import('./helpers/pi-test-database');
+    database = await createPiTestDatabase();
     const bootstrapSeed = await fs.readFile(path.join(process.cwd(), 'seed_sys_prompts', 'BOOTSTRAP.md'), 'utf8');
     assert.match(bootstrapSeed, /with the `memories`\s+and `soulMd` parameters/);
     assert.doesNotMatch(bootstrapSeed, /`userMd`/);
     const { db } = await import('../app/lib/db');
     const {
       aiProviderInstallations,
+      canvasWorkspaces,
       user,
       onboardingLog,
       piMessages,
@@ -92,6 +158,7 @@ async function main() {
       getOnboardingProfileWelcomeMessage,
       getOnboardingBootstrapPath,
       ONBOARDING_PROFILE_SESSION_TITLE,
+      OnboardingProfileError,
       readOnboardingBootstrapPrompt,
       skipOnboardingProfile,
     } = await import('../app/lib/onboarding/profile');
@@ -204,6 +271,7 @@ async function main() {
     assert.match(getOnboardingProfileWelcomeMessage('en'), /name and role stay fixed/);
     const profileSession = await ensureOnboardingProfileSession({ userId, locale: 'de' });
     assert.equal(profileSession.sessionId, buildOnboardingProfileSessionId(userId));
+    assert.equal(profileSession.workspaceId, personalWorkspace.workspaceId);
 
     const dbSession = await db.query.piSessions.findFirst({
       where: eq(piSessions.sessionId, profileSession.sessionId),
@@ -241,6 +309,24 @@ async function main() {
     const welcomeText = welcome.content.map((part) => part.type === 'text' ? part.text : '').join('\n');
     assert.match(welcomeText, /Bradley/);
     assert.match(welcomeText, /Wie heißt du/);
+
+    const beforeReuse = await db.select().from(piMessages).where(eq(piMessages.piSessionDbId, dbSession.id));
+    const reusedSession = await ensureOnboardingProfileSession({ userId, locale: 'en' });
+    assert.deepEqual(reusedSession, profileSession, 'Reload returns the same authoritative session/workspace pair.');
+    assert.deepEqual(await db.query.piSessions.findFirst({ where: eq(piSessions.id, dbSession.id) }), dbSession);
+    assert.deepEqual(await db.select().from(piMessages).where(eq(piMessages.piSessionDbId, dbSession.id)), beforeReuse,
+      'Reusing a populated session preserves the welcome and conversation history.');
+
+    await db.update(piSessions).set({ workspaceType: 'organization' }).where(eq(piSessions.id, dbSession.id));
+    await assert.rejects(() => ensureOnboardingProfileSession({ userId }),
+      error => error instanceof OnboardingProfileError && error.code === 'ONBOARDING_WORKSPACE_CHANGED');
+    await db.update(piSessions).set({ workspaceType: 'personal' }).where(eq(piSessions.id, dbSession.id));
+
+    await db.update(canvasWorkspaces).set({ status: 'disabled' }).where(eq(canvasWorkspaces.id, personalWorkspace.workspaceId));
+    await assert.rejects(() => ensureOnboardingProfileSession({ userId }), /Workspace not found or inaccessible/);
+    await db.update(canvasWorkspaces).set({ status: 'active' }).where(eq(canvasWorkspaces.id, personalWorkspace.workspaceId));
+    assert.deepEqual(await db.select().from(piMessages).where(eq(piMessages.piSessionDbId, dbSession.id)), beforeReuse,
+      'Failed workspace checks never rewrite existing messages.');
 
     await assert.rejects(
       () => completeOnboardingProfile({
@@ -357,6 +443,14 @@ async function main() {
     await updateUserOnboardingState(secondaryUserId, { step: 'profile' });
     const secondarySession = await ensureOnboardingProfileSession({ userId: secondaryUserId, locale: 'en' });
     assert.equal(secondarySession.sessionId, buildOnboardingProfileSessionId(secondaryUserId));
+    assert.notEqual(secondarySession.workspaceId, profileSession.workspaceId);
+    await updateUserOnboardingState(userId, { step: 'profile', profile: 'pending' });
+    await db.update(piSessions).set({ workspaceId: secondarySession.workspaceId }).where(eq(piSessions.id, dbSession.id));
+    await assert.rejects(() => ensureOnboardingProfileSession({ userId }), /Workspace not found or inaccessible/);
+    await db.update(piSessions).set({ workspaceId: personalWorkspace.workspaceId }).where(eq(piSessions.id, dbSession.id));
+    assert.deepEqual(await db.select().from(piMessages).where(eq(piMessages.piSessionDbId, dbSession.id)), beforeReuse,
+      'A foreign personal workspace is rejected even for the organization owner.');
+    await updateUserOnboardingState(userId, { step: 'tour', profile: 'skipped' });
     const secondaryCompleted = await completeOnboardingProfile({
       userId: secondaryUserId,
       sessionId: secondarySession.sessionId,
@@ -371,10 +465,76 @@ async function main() {
       ['The user\'s name is Secondary.'],
     );
 
-    console.log('onboarding-profile-test: ok');
+    const concurrentUserId = 'user-concurrent-bootstrap';
+    await db.insert(user).values({ id: concurrentUserId, name: 'Concurrent User', email: 'concurrent@example.test',
+      emailVerified: true, role: 'user', createdAt: now, updatedAt: now });
+    await initializeUserOnboarding(concurrentUserId);
+    await updateUserOnboardingState(concurrentUserId, { step: 'workspace' });
+    await updateUserOnboardingState(concurrentUserId, { step: 'profile' });
+    let runtimeEntered!: () => void;
+    let releaseRuntime!: () => void;
+    const runtimeReached = new Promise<void>(resolve => { runtimeEntered = resolve; });
+    const runtimeReleased = new Promise<void>(resolve => { releaseRuntime = resolve; });
+    beforeRuntimeResolution = async () => { runtimeEntered(); await runtimeReleased; };
+    const pendingBootstrap = ensureOnboardingProfileSession({ userId: concurrentUserId });
+    await runtimeReached;
+    let skipSettled = false;
+    const pendingSkip = skipOnboardingProfile({ userId: concurrentUserId }).then(result => { skipSettled = true; return result; });
+    await new Promise<void>(resolve => setImmediate(resolve));
+    assert.equal(skipSettled, false, 'Skip waits for an in-flight bootstrap before confirming completion.');
+    releaseRuntime();
+    const [concurrentSession, concurrentSkip] = await Promise.all([pendingBootstrap, pendingSkip]);
+    beforeRuntimeResolution = null;
+    assert.equal(concurrentSkip.alreadyComplete, false);
+    assert.ok(concurrentSession.workspaceId);
+    const messagesAfterSkip = await db.select().from(piMessages);
+    await assert.rejects(() => ensureOnboardingProfileSession({ userId: concurrentUserId }),
+      error => error instanceof OnboardingProfileError && error.code === 'PROFILE_ALREADY_COMPLETE');
+    assert.deepEqual(await db.select().from(piMessages), messagesAfterSkip, 'No bootstrap work persists after successful Skip.');
+
+    const queuedUserId = 'user-queued-skip';
+    await db.insert(user).values({ id: queuedUserId, name: 'Queued User', email: 'queued@example.test',
+      emailVerified: true, role: 'user', createdAt: now, updatedAt: now });
+    await initializeUserOnboarding(queuedUserId);
+    await updateUserOnboardingState(queuedUserId, { step: 'workspace' });
+    await updateUserOnboardingState(queuedUserId, { step: 'profile' });
+    const { withPiSessionOperationLock } = await import('../app/lib/pi/session-operation-lock');
+    let lockHeld!: () => void;
+    let releaseLock!: () => void;
+    const held = new Promise<void>(resolve => { lockHeld = resolve; });
+    const released = new Promise<void>(resolve => { releaseLock = resolve; });
+    const blocker = withPiSessionOperationLock(buildOnboardingProfileSessionId(queuedUserId), queuedUserId,
+      async () => { lockHeld(); await released; });
+    await held;
+    let bothQueued!: () => void;
+    const queued = new Promise<void>(resolve => { bothQueued = resolve; });
+    let queuedCalls = 0;
+    sessionLockObserver = id => { if (id === queuedUserId && ++queuedCalls === 2) bothQueued(); };
+    const queuedSkip = skipOnboardingProfile({ userId: queuedUserId });
+    const queuedBootstrap = ensureOnboardingProfileSession({ userId: queuedUserId });
+    const rejectedBootstrap = assert.rejects(queuedBootstrap,
+      error => error instanceof OnboardingProfileError && error.code === 'PROFILE_ALREADY_COMPLETE');
+    await queued;
+    releaseLock();
+    await Promise.all([blocker, queuedSkip, rejectedBootstrap]);
+    sessionLockObserver = null;
+    assert.equal(await db.query.piSessions.findFirst({ where: eq(piSessions.userId, queuedUserId) }), undefined,
+      'Bootstrap rechecks pending status after waiting for a prior Skip under the session lock.');
+
+    console.log('onboarding-profile-test: ok (isolated PGlite; new/reused workspace pair, ownership/access, idempotence, Skip concurrency)');
   } finally {
     moduleInternals._load = originalLoad;
-    await fs.rm(dataDir, { recursive: true, force: true });
+    globalThis.fetch = originalFetch;
+    try {
+      await database?.close();
+    } finally {
+      for (const [key, value] of previousEnvironment) {
+        if (value === undefined) delete process.env[key];
+        else Reflect.set(process.env, key, value);
+      }
+      await fs.rm(dataDir, { recursive: true, force: true });
+    }
+    assert.equal(unexpectedHttpCalls, 0, 'No HTTP/AI provider requests may escape the isolated fixture.');
   }
 }
 
