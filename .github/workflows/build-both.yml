@@ -130,6 +130,7 @@ jobs:
       - name: Verify production build and collaboration modules
         env:
           CANVAS_RELEASE_BUILD_SKIP_TYPECHECK: "1"
+          CANVAS_RELEASE_BUILD_LOW_MEMORY: "1"
         run: npm run build && npm run test:collaboration:production-modules
 
   release-typecheck:
@@ -156,7 +157,7 @@ jobs:
       - name: Generate route types and verify TypeScript
         env:
           NODE_OPTIONS: --max-old-space-size=6144
-        run: npx next typegen && npx tsc --noEmit
+        run: npm run build:decision-models && npx next typegen && npx tsc --project tsconfig.release.json --noEmit --incremental false
 
   release-cli-safety:
     runs-on: ubuntu-latest

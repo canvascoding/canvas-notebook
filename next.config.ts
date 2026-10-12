@@ -36,6 +36,7 @@ const multiprocessTestPort = process.env.CANVAS_COLLABORATION_MULTIPROCESS_TEST 
   ? process.env.PORT
   : null;
 const skipBuildTypecheck = process.env.CANVAS_RELEASE_BUILD_SKIP_TYPECHECK === '1';
+const lowMemoryReleaseBuild = process.env.CANVAS_RELEASE_BUILD_LOW_MEMORY === '1';
 
 const nextConfig: NextConfig = {
   deploymentId,
@@ -145,6 +146,7 @@ const nextConfig: NextConfig = {
 
   // Experimental features
   experimental: {
+    ...(lowMemoryReleaseBuild ? { cpus: 1 } : {}),
     serverActions: {
       bodySizeLimit: '10mb', // Für File Uploads
     },
