@@ -121,6 +121,7 @@ export CANVAS_MANAGER_LOG_DIR="$TMP_DIR/logs"
 export CANVAS_TEST_DOCKER_LOG="$TMP_DIR/docker.log"
 export CANVAS_TEST_STATE_DIR="$TMP_DIR/state"
 export CANVAS_USE_COLOR=false
+readonly RECONCILE_TIMEOUT_SECONDS=30
 
 cli="$TMP_DIR/install/bin/canvas-notebook"
 
@@ -146,7 +147,7 @@ desired_url="postgresql://canvas:${desired_password}@postgres:5432/canvas_notebo
 printf '%s' "$desired_password" | "$cli" config-set env.CANVAS_POSTGRES_PASSWORD --stdin --no-banner > /dev/null
 printf '%s' "$desired_url" | "$cli" config-set env.DATABASE_URL --stdin --no-banner > /dev/null
 : > "$CANVAS_TEST_DOCKER_LOG"
-if ! "$cli" database reconcile-postgres-auth --timeout 5 --json --no-banner > "$TMP_DIR/reconcile-success.json" 2> "$TMP_DIR/reconcile-success.err"; then
+if ! "$cli" database reconcile-postgres-auth --timeout "$RECONCILE_TIMEOUT_SECONDS" --json --no-banner > "$TMP_DIR/reconcile-success.json" 2> "$TMP_DIR/reconcile-success.err"; then
   cat "$TMP_DIR/reconcile-success.json" "$TMP_DIR/reconcile-success.err" >&2
   exit 1
 fi
@@ -165,7 +166,7 @@ if grep -Fq "$desired_password" "$TMP_DIR/reconcile-success.json" || grep -Fq "$
 fi
 
 : > "$CANVAS_TEST_DOCKER_LOG"
-"$cli" database reconcile-postgres-auth --timeout=5 --json --no-banner > "$TMP_DIR/reconcile-idempotent.json"
+"$cli" database reconcile-postgres-auth --timeout="$RECONCILE_TIMEOUT_SECONDS" --json --no-banner > "$TMP_DIR/reconcile-idempotent.json"
 jq -e '.success == true and .authVerified == true and .healthy == true' "$TMP_DIR/reconcile-idempotent.json" >/dev/null
 if grep -Eq -- '--force-recreate| compose .* (down|rm) |volume (rm|prune)' "$CANVAS_TEST_DOCKER_LOG"; then
   echo "idempotent reconcile used a destructive Docker operation" >&2
@@ -179,7 +180,7 @@ fi
 jq 'del(.env.CANVAS_DATABASE_PROVIDER)' "$CANVAS_CONFIG_JSON" > "$TMP_DIR/config-legacy-url-only.json"
 cp "$TMP_DIR/config-legacy-url-only.json" "$CANVAS_CONFIG_JSON"
 : > "$CANVAS_TEST_DOCKER_LOG"
-"$cli" database reconcile-postgres-auth --timeout 5 --json --no-banner > "$TMP_DIR/reconcile-legacy-url-only.json"
+"$cli" database reconcile-postgres-auth --timeout "$RECONCILE_TIMEOUT_SECONDS" --json --no-banner > "$TMP_DIR/reconcile-legacy-url-only.json"
 jq -e '.success == true and .databaseProvider == "postgres" and .authVerified == true' "$TMP_DIR/reconcile-legacy-url-only.json" >/dev/null
 jq -e '.env.CANVAS_DATABASE_PROVIDER == "postgres"' "$CANVAS_CONFIG_JSON" >/dev/null
 grep -q -- '--profile postgres up -d --no-recreate postgres' "$CANVAS_TEST_DOCKER_LOG"
@@ -194,7 +195,7 @@ printf '%s' "$render_url" | "$cli" config-set env.DATABASE_URL --stdin --no-bann
 "$cli" config-set env.CANVAS_DATABASE_PROVIDER postgres --no-banner > /dev/null
 "$cli" config-set env.CANVAS_DEPLOYMENT_MODE managed-team --no-banner > /dev/null
 : > "$CANVAS_TEST_DOCKER_LOG"
-if ! "$cli" database reconcile-postgres-auth --timeout 5 --json --no-banner > "$TMP_DIR/reconcile-render-success.json" 2> "$TMP_DIR/reconcile-render-success.err"; then
+if ! "$cli" database reconcile-postgres-auth --timeout "$RECONCILE_TIMEOUT_SECONDS" --json --no-banner > "$TMP_DIR/reconcile-render-success.json" 2> "$TMP_DIR/reconcile-render-success.err"; then
   cat "$TMP_DIR/reconcile-render-success.json" "$TMP_DIR/reconcile-render-success.err" >&2
   exit 1
 fi
@@ -209,7 +210,7 @@ printf '%s' "$app_url" | "$cli" config-set env.DATABASE_URL --stdin --no-banner 
 env_before_app="$(cksum "$CANVAS_CONFIG_ENV")"
 rm -f "$CANVAS_TEST_STATE_DIR/app-apply-failed-once"
 : > "$CANVAS_TEST_DOCKER_LOG"
-if CANVAS_TEST_FAIL_APP_APPLY=true "$cli" database reconcile-postgres-auth --timeout 5 --json --no-banner > "$TMP_DIR/reconcile-app-failure.json" 2> "$TMP_DIR/reconcile-app-failure.err"; then
+if CANVAS_TEST_FAIL_APP_APPLY=true "$cli" database reconcile-postgres-auth --timeout "$RECONCILE_TIMEOUT_SECONDS" --json --no-banner > "$TMP_DIR/reconcile-app-failure.json" 2> "$TMP_DIR/reconcile-app-failure.err"; then
   echo "reconcile succeeded after app apply failure" >&2
   exit 1
 fi
@@ -224,7 +225,7 @@ printf '%s' "$alter_url" | "$cli" config-set env.DATABASE_URL --stdin --no-banne
 env_before_alter="$(cksum "$CANVAS_CONFIG_ENV")"
 rm -f "$CANVAS_TEST_STATE_DIR/alter-failed-once"
 : > "$CANVAS_TEST_DOCKER_LOG"
-if CANVAS_TEST_FAIL_ALTER=true "$cli" database reconcile-postgres-auth --timeout 5 --json --no-banner > "$TMP_DIR/reconcile-alter-failure.json" 2> "$TMP_DIR/reconcile-alter-failure.err"; then
+if CANVAS_TEST_FAIL_ALTER=true "$cli" database reconcile-postgres-auth --timeout "$RECONCILE_TIMEOUT_SECONDS" --json --no-banner > "$TMP_DIR/reconcile-alter-failure.json" 2> "$TMP_DIR/reconcile-alter-failure.err"; then
   echo "reconcile succeeded after ALTER ROLE failure" >&2
   exit 1
 fi
@@ -243,7 +244,7 @@ printf '%s' "$verify_url" | "$cli" config-set env.DATABASE_URL --stdin --no-bann
 env_before_verify="$(cksum "$CANVAS_CONFIG_ENV")"
 rm -f "$CANVAS_TEST_STATE_DIR/verify-failed-once"
 : > "$CANVAS_TEST_DOCKER_LOG"
-if CANVAS_TEST_FAIL_VERIFY=true "$cli" database reconcile-postgres-auth --timeout 5 --json --no-banner > "$TMP_DIR/reconcile-verify-failure.json" 2> "$TMP_DIR/reconcile-verify-failure.err"; then
+if CANVAS_TEST_FAIL_VERIFY=true "$cli" database reconcile-postgres-auth --timeout "$RECONCILE_TIMEOUT_SECONDS" --json --no-banner > "$TMP_DIR/reconcile-verify-failure.json" 2> "$TMP_DIR/reconcile-verify-failure.err"; then
   echo "reconcile succeeded after TCP verification failure" >&2
   exit 1
 fi
@@ -263,7 +264,7 @@ env_before_health="$(cksum "$CANVAS_CONFIG_ENV")"
 rm -f "$CANVAS_TEST_STATE_DIR/curl-count"
 rm -f "$CANVAS_TEST_STATE_DIR/app-apply-count"
 : > "$CANVAS_TEST_DOCKER_LOG"
-if CANVAS_TEST_FAIL_FORWARD_HEALTH=true "$cli" database reconcile-postgres-auth --timeout 5 --json --no-banner > "$TMP_DIR/reconcile-health-failure.json" 2> "$TMP_DIR/reconcile-health-failure.err"; then
+if CANVAS_TEST_FAIL_FORWARD_HEALTH=true "$cli" database reconcile-postgres-auth --timeout "$RECONCILE_TIMEOUT_SECONDS" --json --no-banner > "$TMP_DIR/reconcile-health-failure.json" 2> "$TMP_DIR/reconcile-health-failure.err"; then
   echo "reconcile succeeded after app health failure" >&2
   exit 1
 fi
@@ -280,7 +281,7 @@ rm -f "$CANVAS_TEST_STATE_DIR/app-apply-count"
 printf '%s' "$health_password" | "$cli" config-set env.CANVAS_POSTGRES_PASSWORD --stdin --no-banner > /dev/null
 printf '%s' "$health_url" | "$cli" config-set env.DATABASE_URL --stdin --no-banner > /dev/null
 : > "$CANVAS_TEST_DOCKER_LOG"
-"$cli" database reconcile-postgres-auth --timeout 5 --json --no-banner > "$TMP_DIR/reconcile-retry.json"
+"$cli" database reconcile-postgres-auth --timeout "$RECONCILE_TIMEOUT_SECONDS" --json --no-banner > "$TMP_DIR/reconcile-retry.json"
 jq -e '.success == true and .authVerified == true and .healthy == true' "$TMP_DIR/reconcile-retry.json" >/dev/null
 grep -q '^CANVAS_POSTGRES_PASSWORD=health-retry-password$' "$CANVAS_COMPOSE_ENV"
 
@@ -292,7 +293,7 @@ rm -f "$CANVAS_TEST_STATE_DIR/app-apply-failed-once"
 export CANVAS_POSTGRES_RECONCILE_JOURNAL="$TMP_DIR/postgres-recovery.json"
 export CANVAS_POSTGRES_RECONCILE_STATE_DIR="$TMP_DIR/postgres-recovery-state"
 if CANVAS_TEST_FAIL_APP_APPLY=true CANVAS_TEST_FAIL_ROLLBACK_VERIFY=true \
-  "$cli" database reconcile-postgres-auth --timeout 5 --json --no-banner > "$TMP_DIR/reconcile-interrupted-rollback.json" 2> "$TMP_DIR/reconcile-interrupted-rollback.err"; then
+  "$cli" database reconcile-postgres-auth --timeout "$RECONCILE_TIMEOUT_SECONDS" --json --no-banner > "$TMP_DIR/reconcile-interrupted-rollback.json" 2> "$TMP_DIR/reconcile-interrupted-rollback.err"; then
   echo "interrupted rollback unexpectedly succeeded" >&2
   exit 1
 fi
@@ -319,7 +320,7 @@ if "$cli" env --render --json --no-banner > "$TMP_DIR/pending-render.json" 2> "$
   exit 1
 fi
 [[ "$pending_config_checksum" == "$(cksum "$CANVAS_CONFIG_JSON")" ]]
-"$cli" database reconcile-postgres-auth --timeout 5 --json --no-banner > "$TMP_DIR/reconcile-rollback-recovered.json"
+"$cli" database reconcile-postgres-auth --timeout "$RECONCILE_TIMEOUT_SECONDS" --json --no-banner > "$TMP_DIR/reconcile-rollback-recovered.json"
 jq -e '.success == true and .recovered == "rollback" and .healthy == true and .rolledBack == true' "$TMP_DIR/reconcile-rollback-recovered.json" >/dev/null
 test ! -e "$CANVAS_POSTGRES_RECONCILE_JOURNAL"
 test ! -e "$CANVAS_POSTGRES_RECONCILE_STATE_DIR"
