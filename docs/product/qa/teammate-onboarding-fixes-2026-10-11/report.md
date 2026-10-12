@@ -97,9 +97,35 @@ Fokussiertes ESLint, bestehender UI-Vertrag mit zwölf Icons sowie Host- und Con
 
 Keine JavaScript-Pageerrors. Separat protokolliert wurden vier HTTP-404-Antworten für das nicht konfigurierte öffentliche Markenlogo, sechs HTTP-403-Antworten auf Human Activity, ein HTTP 400 beim optionalen Bradley-Session-Bootstrap sowie eine Notification-HTTP-401 nach Offboarding. Die optionalen Bradley-Präferenzen gelten nicht als abgenommen; diese Beobachtungen werden im abschließenden Gesamtdurchlauf eingeordnet.
 
-## Noch folgende Planpunkte
+## 4. Automatische Einladungs-E-Mail
 
-4. Automatische Einladungs-E-Mail über System-SMTP, Versandstatus, kontrollierter erneuter Versand und klare Passworttexte.
+Status: abgeschlossen. Die Einladung verwendet den zentralen System-E-Mail-Dienst und enthält den öffentlichen Einladungslink sowie den Hinweis, ein eigenes Passwort zu setzen. Der Versandstatus ist pro Einladung gespeichert und in Liste und Dialog sichtbar. `sent` bedeutet Annahme durch den Mailserver; der tatsächliche Eingang wurde separat in Mailpit nachgewiesen. Direkte Nutzeranlage beschreibt weiterhin die persönliche Übergabe des Initialpassworts.
+
+Einladungs- und Versandversuche werden in PostgreSQL getrennt gespeichert. Der Versand erfolgt außerhalb der kurzen Datenbanktransaktion. Gespeichert werden ausschließlich Token-Hash und sichere Fehlercodes. Ein erneuter Versand verwendet eine Request-UUID, rotiert den Link und behält Mitgliedschaft, Rolle und Ablaufdatum. Derselbe Request wird ohne weiteren Versand und ohne erneute Anzeige des Tokens wiedergegeben. Eine Minute Cooldown und ein begrenzter Versand-Lease verhindern konkurrierende Sends. Eine ungewisse Zustellung erfordert eine ausdrückliche Bestätigung für einen neuen Versand. Die vorbereitende Provider-/Konfigurationsprüfung und der Versand selbst sind zeitlich begrenzt.
+
+Die UI behält die Request-ID bei einer verlorenen Antwort und bietet einen Ergebnisabruf an. Alte Links verschwinden vor einem neuen Versand sowie nach einer neueren serverseitigen Einladung. Done, Cancel und Escape setzen den Dialog zurück; verspätete Antworten dürfen ihn nicht wieder befüllen. Die Cooldown-Freigabe wird ohne manuellen Reload aktualisiert. Die Konfigurationshilfe führt zur vorhandenen System-E-Mail-Seite.
+
+### Nachweise
+
+Production-Image: `sha256:6dd0fa03fb13c5d826ca4cfe1bcec2fbe42f0479cafff67c38b37fecefbc8345`. Host- und Container-Build einschließlich TypeScript bestanden; ausschließlich Notebook wurde recreated. Mailpit verwendet authentifiziertes STARTTLS mit lokal vertrauenswürdigem Testzertifikat. Es wurde kein externer SMTP-Server angesprochen.
+
+- Deaktivierter Versand: Create `201`, Status `unconfigured / INVITATION_EMAIL_DISABLED`, gültiger manueller Link und keine Mail. Nach Wiederherstellung der Konfiguration erzeugt der UI-Resend genau eine Mail; alter Link `404`, neuer Link `200`, Mitgliedschaft und Ablauf unverändert.
+- SMTP-Verbindungsfehler am absichtlich unbenutzten lokalen Port: Create `201`, `failed / deliveryUnknown=true`, gültiger manueller Link und keine Mail. Cancel der Resend-Bestätigung erzeugt null Requests. Confirm erzeugt einen Request und genau eine Mail.
+- Automatische Administrator-Einladung: Create `201`, `sent`, genau eine Mail an den vorgesehenen Testempfänger. Mailpit-Link und Admin-Link stimmen überein; private Zugangsdaten sind nicht enthalten.
+- Verlorene Resend-Antwort: der echte Serverrequest sendet einmal erfolgreich, anschließend wurde nur seine Browserantwort abgebrochen. Der Ergebnisabruf verwendet dieselbe UUID, antwortet `200 / replayed=true` mit Token und Link `null` und erzeugt keine weitere Mail. Der alte Link bleibt verborgen; nur der neue Link ist gültig.
+- Cooldown antwortet `409` mit `Retry-After`, ohne zusätzliche Mail. Anonymer Resend `401`, fremde Origin `403`, ungültige UUID `400`.
+- Create-Antwort nach Escape: echte Einladung und Mail wurden erzeugt, die Antwort anschließend freigegeben. Der geschlossene Dialog blieb geschlossen; ein neu geöffneter Dialog war leer.
+
+Maschinenlesbarer Nachweis: [Production- und Mailpit-Prüfungen](invitation-email-production-ui-checks.json). Screenshots: [deaktiviert](31-invitation-email-disabled.png), [ungewiss](32-invitation-email-uncertain.png), [angenommen](33-invitation-email-sent.png), [Mailpit-E-Mail](34-mailpit-automatic-invitation.png), [erneuter Versand](35-invitation-email-resend-recovered.png), [Bestätigung](36-invitation-email-confirm-uncertain.png), [verlorene Antwort](37-invitation-email-lost-response.png), [idempotenter Ergebnisabruf](38-invitation-email-replayed-no-extra-send.png), [frischer Dialog nach verspäteter Antwort](39-invitation-email-late-response-dialog-reset.png).
+
+Automatisierte Einladungstests, 13 PGlite-Versandgruppen und zwei API-Guard-Gruppen bestanden. Der echte PostgreSQL-Test verwendet zwei unabhängige Verbindungen mit überlappenden Resends: ein Claim und ein Send, zweite Verbindung `409`, Replay ohne Send sowie Cooldown. Die temporäre Datenbank und Sessions wurden entfernt. Bestehende Invitation-/Managed-Accept- und elf Seat-Removal-Regressionsfälle bestanden. Fokussiertes ESLint, JSON-Sprachschlüssel-Parität und unabhängige Backend-/UI-Reviews bestanden. GitNexus bewertete die geänderten Abläufe als LOW bzw. den API-Consumer als MEDIUM; der zentrale Migration-Runner wurde nicht verändert.
+
+Wenn nach SMTP-Annahme das Speichern des Resultats scheitert, wird kein automatischer neuer Versand ausgelöst. Die Einladung bleibt sichtbar; nach Ablauf des Lease kann ein ausdrücklich bestätigter neuer Versand wiederherstellen. Dieser Fehlerpfad ist automatisiert geprüft, nicht durch Beschädigung der laufenden Testdatenbank.
+
+Alle vier Testeinladungen sind widerrufen. Bestätigter Abschluss: zwei lokale und Control-Plane-Mitglieder, zwei lizenzierte Plätze, Revision 5774 und Hash bestätigt, Drift/Reconciliation `in_sync`. Keine JavaScript-Pageerrors; drei Human-Activity-HTTP-403 wurden separat für den Gesamtdurchlauf erfasst. Der lokale SMTP-Testzustand und die eigenen Mailpit-Nachrichten bleiben ausschließlich für Planpunkt 5 bestehen und werden dort bereinigt. Die ursprünglichen fünf Mailpit-Nachrichten bleiben erhalten.
+
+## Noch folgender Planpunkt
+
 5. Vollständiger Production-Playwright-/Mailpit-Durchlauf für beide Rollen, wiederholte Einladungen und negative Fälle.
 
 Der ursprüngliche Befundbericht bleibt unter [teammate-onboarding-local-production-2026-10-11.md](../teammate-onboarding-local-production-2026-10-11.md) erhalten.

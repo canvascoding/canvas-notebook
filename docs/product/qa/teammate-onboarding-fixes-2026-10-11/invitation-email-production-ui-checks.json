@@ -1,0 +1,260 @@
+{
+  "date": "2026-10-12T00:39:01.774Z",
+  "productionImage": "sha256:6dd0fa03fb13c5d826ca4cfe1bcec2fbe42f0479cafff67c38b37fecefbc8345",
+  "browser": "Playwright Chromium",
+  "smtp": "Local central System SMTP with authenticated STARTTLS and Mailpit",
+  "checks": [
+    {
+      "case": "disabled-create",
+      "email": "invitation-mail-mv4hk6mp-disabled@example.test",
+      "isAdmin": false,
+      "responseStatus": 201,
+      "invitationId": "team-invitation-e1d4c983-3795-44de-8d25-3d4eafbbf9fa",
+      "membershipId": "team-membership-732203f9-ee94-4d1d-a335-c0114494aa05",
+      "role": "member",
+      "expiresAt": 1792370153957,
+      "emailDelivery": {
+        "status": "unconfigured",
+        "errorCode": "INVITATION_EMAIL_DISABLED",
+        "deliveryUnknown": false,
+        "lastAttemptAt": 1791765353969,
+        "sentAt": null,
+        "resendAfter": 1791765413969,
+        "canResend": false
+      },
+      "linkHash": "485e20d75659430556c441ef963565aba820fc4a8b64a27ad5b02d6348fc8ae1",
+      "mail": {
+        "email": "invitation-mail-mv4hk6mp-disabled@example.test",
+        "capturedCount": 0
+      }
+    },
+    {
+      "case": "smtp-connection-unknown",
+      "email": "invitation-mail-mv4hk6mp-unknown@example.test",
+      "isAdmin": false,
+      "responseStatus": 201,
+      "invitationId": "team-invitation-02571a7f-4057-4f27-bd2e-68964961041c",
+      "membershipId": "team-membership-2dca1621-ca10-481a-a935-6744744edb1d",
+      "role": "member",
+      "expiresAt": 1792370169375,
+      "emailDelivery": {
+        "status": "failed",
+        "errorCode": "INVITATION_EMAIL_DELIVERY_UNKNOWN",
+        "deliveryUnknown": true,
+        "lastAttemptAt": 1791765369384,
+        "sentAt": null,
+        "resendAfter": 1791765429384,
+        "canResend": false
+      },
+      "linkHash": "de7f965f3ef093fba8688e433ebbb94575664fe25b461adbf64ac0ee1c26c75b",
+      "mail": {
+        "email": "invitation-mail-mv4hk6mp-unknown@example.test",
+        "capturedCount": 0
+      }
+    },
+    {
+      "case": "automatic-mailpit-invitation",
+      "email": "invitation-mail-mv4hk6mp-normal@example.test",
+      "isAdmin": true,
+      "responseStatus": 201,
+      "invitationId": "team-invitation-3ad49036-1f9e-4515-9df9-c8aee5118749",
+      "membershipId": "team-membership-296f4b3c-47c4-4f74-9982-8faedd77ac95",
+      "role": "admin",
+      "expiresAt": 1792370170331,
+      "emailDelivery": {
+        "status": "sent",
+        "errorCode": null,
+        "deliveryUnknown": false,
+        "lastAttemptAt": 1791765370340,
+        "sentAt": 1791765370421,
+        "resendAfter": 1791765430340,
+        "canResend": false
+      },
+      "linkHash": "aa399f124a9fc10a7309381c2f0cb2f2665930fd8f8a854393f3fa652ff03f8c",
+      "mail": {
+        "email": "invitation-mail-mv4hk6mp-normal@example.test",
+        "capturedCount": 1,
+        "readStatus": 200,
+        "subject": "Your invitation to Canvas Notebook",
+        "publicOrigin": "http://127.0.0.1:3100",
+        "oneInvitationLink": true,
+        "credentialsAbsent": true,
+        "linkHash": "aa399f124a9fc10a7309381c2f0cb2f2665930fd8f8a854393f3fa652ff03f8c"
+      }
+    },
+    {
+      "case": "resend-cooldown",
+      "status": 409,
+      "code": "INVITATION_EMAIL_COOLDOWN",
+      "retryAfter": "35",
+      "mail": {
+        "email": "invitation-mail-mv4hk6mp-normal@example.test",
+        "capturedCount": 1,
+        "readStatus": 200,
+        "subject": "Your invitation to Canvas Notebook",
+        "publicOrigin": "http://127.0.0.1:3100",
+        "oneInvitationLink": true,
+        "credentialsAbsent": true,
+        "linkHash": "aa399f124a9fc10a7309381c2f0cb2f2665930fd8f8a854393f3fa652ff03f8c"
+      }
+    },
+    {
+      "case": "resend-api-guards",
+      "anonymous": 401,
+      "untrustedOrigin": 403,
+      "invalidRequestId": 400
+    },
+    {
+      "case": "disabled-recovered-resend",
+      "status": 200,
+      "replayed": false,
+      "emailDelivery": {
+        "status": "sent",
+        "errorCode": null,
+        "deliveryUnknown": false,
+        "lastAttemptAt": 1791765425587,
+        "sentAt": 1791765425692,
+        "resendAfter": 1791765485587,
+        "canResend": false
+      },
+      "mail": {
+        "email": "invitation-mail-mv4hk6mp-disabled@example.test",
+        "capturedCount": 1,
+        "readStatus": 200,
+        "subject": "Your invitation to Canvas Notebook",
+        "publicOrigin": "http://127.0.0.1:3100",
+        "oneInvitationLink": true,
+        "credentialsAbsent": true,
+        "linkHash": "ea90aad98677c48c906cfb5aee67916f22e6e09c7188a03c384a7fde21028973"
+      },
+      "oldPreviewStatus": 404,
+      "newPreviewStatus": 200,
+      "membershipPreserved": true,
+      "expiryPreserved": true
+    },
+    {
+      "case": "uncertain-delivery-confirmation",
+      "cancelRequests": 0,
+      "confirmedRequests": 1,
+      "status": 200,
+      "emailDelivery": {
+        "status": "sent",
+        "errorCode": null,
+        "deliveryUnknown": false,
+        "lastAttemptAt": 1791765440685,
+        "sentAt": 1791765440889,
+        "resendAfter": 1791765500685,
+        "canResend": false
+      },
+      "mail": {
+        "email": "invitation-mail-mv4hk6mp-unknown@example.test",
+        "capturedCount": 1,
+        "readStatus": 200,
+        "subject": "Your invitation to Canvas Notebook",
+        "publicOrigin": "http://127.0.0.1:3100",
+        "oneInvitationLink": true,
+        "credentialsAbsent": true,
+        "linkHash": "d760aa5fa207e9e5cfbd4999680911c1ef96a88bc67cb604d25160741254e9a1"
+      },
+      "oldPreviewStatus": 404
+    },
+    {
+      "case": "lost-browser-response-idempotent-replay",
+      "serverSendStatus": 200,
+      "browserResponseAborted": true,
+      "sameRequestId": true,
+      "replayStatus": 200,
+      "replayed": true,
+      "tokenReturned": false,
+      "linkReturned": false,
+      "staleLinkHidden": true,
+      "emailDelivery": {
+        "status": "sent",
+        "errorCode": null,
+        "deliveryUnknown": false,
+        "lastAttemptAt": 1791765476950,
+        "sentAt": 1791765477045,
+        "resendAfter": 1791765536950,
+        "canResend": false
+      },
+      "mail": {
+        "email": "invitation-mail-mv4hk6mp-normal@example.test",
+        "capturedCount": 2,
+        "readStatus": 200,
+        "subject": "Your invitation to Canvas Notebook",
+        "publicOrigin": "http://127.0.0.1:3100",
+        "oneInvitationLink": true,
+        "credentialsAbsent": true,
+        "linkHash": "5b6847238a757add07ad14e473f8c9454150f71d36d5fe5e940667ea4d474213"
+      },
+      "oldPreviewStatus": 404,
+      "newPreviewStatus": 200
+    },
+    {
+      "case": "late-create-response-after-escape",
+      "status": 201,
+      "closedDialogNotRepopulated": true,
+      "newDialogEmpty": true,
+      "mail": {
+        "email": "invitation-mail-mv4hk6mp-closed-dialog@example.test",
+        "capturedCount": 1,
+        "readStatus": 200,
+        "subject": "Your invitation to Canvas Notebook",
+        "publicOrigin": "http://127.0.0.1:3100",
+        "oneInvitationLink": true,
+        "credentialsAbsent": true,
+        "linkHash": "895bbf2f81d2696f06069272762a8a6eb21525e21f9b408c60a86888528e4417"
+      }
+    },
+    {
+      "case": "pending-invitations-cleanup",
+      "revoked": 4,
+      "seatState": {
+        "currentRevision": 5774,
+        "acknowledgedRevision": 5774,
+        "hashesMatch": true,
+        "localObserved": 2,
+        "controlPlaneObserved": 2,
+        "licensed": 2,
+        "approved": 4,
+        "billed": 0,
+        "drift": "in_sync",
+        "reconciliation": "in_sync"
+      }
+    }
+  ],
+  "browserErrors": [
+    {
+      "type": "http",
+      "status": 403,
+      "path": "/api/instance/human-activity"
+    },
+    {
+      "type": "http",
+      "status": 403,
+      "path": "/api/instance/human-activity"
+    },
+    {
+      "type": "http",
+      "status": 403,
+      "path": "/api/instance/human-activity"
+    }
+  ],
+  "mailpitOriginalMessagesPreserved": true,
+  "cleanup": {
+    "pendingInvitationsRevoked": 4,
+    "seatState": {
+      "currentRevision": 5774,
+      "acknowledgedRevision": 5774,
+      "hashesMatch": true,
+      "localObserved": 2,
+      "controlPlaneObserved": 2,
+      "licensed": 2,
+      "approved": 4,
+      "billed": 0,
+      "drift": "in_sync",
+      "reconciliation": "in_sync"
+    },
+    "systemSmtpKeptForFinalQa": true
+  }
+}

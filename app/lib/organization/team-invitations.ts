@@ -634,8 +634,8 @@ export async function acceptTeamMembershipInvitation(input: {
           accepted_request_id = $1,
           accepted_at = $2,
           updated_at = $3
-        WHERE id = $4 AND status = 'pending' AND expires_at > $5
-      `, [input.requestId, now, now, invitation.id, now]);
+        WHERE id = $4 AND status = 'pending' AND expires_at > $5 AND token_hash = $6
+      `, [input.requestId, now, now, invitation.id, now, invitationTokenHash(input.token)]);
       if (changesFromRunResult(accepted) !== 1) {
         const concurrent = await readInvitationByToken(database, input.token);
         if (

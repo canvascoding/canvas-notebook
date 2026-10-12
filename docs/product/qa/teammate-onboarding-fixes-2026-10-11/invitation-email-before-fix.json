@@ -1,0 +1,11 @@
+{
+  "runId": "invitation-mail-mv4hk6mp",
+  "productionImage": "sha256:cb35b1bf70565212ef519c1a91326376aa6109610a731f32972c8efdf3c40fc5",
+  "smtpConfigured": true,
+  "smtpTestAccepted": true,
+  "mailpitBefore": 6,
+  "invitationCreateStatus": 201,
+  "mailpitAfterInvitation": 6,
+  "invitationEmailSent": false,
+  "cleanupRevokeStatus": 200
+}
