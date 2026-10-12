@@ -11,7 +11,7 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
-## [2026.10.12.4] - 2026-10-12
+## [2026.10.12.5] - 2026-10-12
 
 ### Added
 
@@ -29,11 +29,12 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Improved email capture reliability and preserved email categorization and reply details.
 - Fixed collaborative document and file workflows around destination creation, link validation, and live session recovery.
+- Fixed release CI typecheck heap exhaustion by running TypeScript validation in a dedicated job with a larger Node.js heap.
 
 ### Verification
 
-- `npm run test:server:shutdown`
-- `npm run verify:release`
+- `npx next typegen && NODE_OPTIONS=--max-old-space-size=6144 npx tsc --noEmit --incremental false`
+- `NODE_OPTIONS=--max-old-space-size=6144 npm run verify:release`
 
 ## [2026.10.10.1] - 2026-10-10
 
