@@ -146,7 +146,7 @@ const nextConfig: NextConfig = {
 
   // Experimental features
   experimental: {
-    ...(lowMemoryReleaseBuild ? { cpus: 1 } : {}),
+    ...(lowMemoryReleaseBuild ? { cpus: 2, memoryBasedWorkersCount: true } : {}),
     serverActions: {
       bodySizeLimit: '10mb', // Für File Uploads
     },
