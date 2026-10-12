@@ -82,15 +82,84 @@ jobs:
       - name: Verify owned review fixture cooldown contracts
         run: node --import tsx --conditions react-server scripts/owned-review-cooldown-contract-test.ts
 
-      - name: Verify release source and CLI safety gates
-        run: npm run verify:release
+  release-quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    needs: source
+    steps:
+      - name: Checkout immutable release source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ needs.source.outputs.commit_sha }}
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: 26
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify release licenses, database SQL, and lint
+        run: npm run test:licenses:release && npm run test:db:postgres-sql-compatibility && npm run lint
+
+  release-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    needs: source
+    steps:
+      - name: Checkout immutable release source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ needs.source.outputs.commit_sha }}
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: 26
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify production build and collaboration modules
+        run: npm run build && npm run test:collaboration:production-modules
+
+  release-cli-safety:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    needs: source
+    steps:
+      - name: Checkout immutable release source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ needs.source.outputs.commit_sha }}
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: 26
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify CLI and release safety gates
+        run: npm run verify:release:safety
 
   build-amd64:
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
-    needs: [source, safety-tests]
+    needs: [source, safety-tests, release-quality, release-build, release-cli-safety]
     outputs:
       digest: ${{ steps.publish.outputs.digest }}
       hub_digest: ${{ steps.publish.outputs.hub_digest }}
@@ -223,7 +292,7 @@ jobs:
     permissions:
       contents: read
       packages: write
-    needs: [source, safety-tests]
+    needs: [source, safety-tests, release-quality, release-build, release-cli-safety]
     outputs:
       digest: ${{ steps.publish.outputs.digest }}
       hub_digest: ${{ steps.publish.outputs.hub_digest }}
@@ -356,7 +425,7 @@ jobs:
     permissions:
       contents: read
       packages: write
-    needs: [source, safety-tests, build-amd64, build-arm64]
+    needs: [source, safety-tests, release-quality, release-build, release-cli-safety, build-amd64, build-arm64]
     steps:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
