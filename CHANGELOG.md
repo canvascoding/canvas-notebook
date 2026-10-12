@@ -11,7 +11,7 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
-## [2026.10.12.11] - 2026-10-12
+## [2026.10.12.12] - 2026-10-12
 
 ### Added
 
@@ -30,14 +30,18 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 - Improved email capture reliability and preserved email categorization and reply details.
 - Fixed collaborative document and file workflows around destination creation, link validation, and live session recovery.
 - Fixed release CI typecheck heap exhaustion by running TypeScript validation in a dedicated job with a larger Node.js heap.
-- Fixed release image builds exhausting memory by reusing the separately verified typecheck and limiting Next.js build workers.
+- Fixed release image memory exhaustion by reusing the verified application build across both architectures, with exact source and build identity checks.
 - Fixed a flaky PostgreSQL reconcile release gate by allowing slower CI runners more time to complete the test setup.
-- Fixed release image memory exhaustion during static page generation by limiting the Docker build to one Next.js worker.
+- Fixed production build typechecking to use the application release profile.
+- Reduced Docker build context by excluding generated development artifacts.
+- Preserved code-block spacing when copying and allowed persistent dismissal of file-action errors.
 
 ### Verification
 
 - `npm run build:decision-models && npx next typegen && NODE_OPTIONS=--max-old-space-size=6144 npx tsc --project tsconfig.release.json --noEmit --incremental false`
 - `NODE_OPTIONS=--max-old-space-size=6144 npm run verify:release`
+
+- Local arm64 Docker build with a 6 GiB builder limit, followed by health, login, provider, smoke and personal-workspace file integration checks for both users.
 
 ## [2026.10.10.1] - 2026-10-10
 
