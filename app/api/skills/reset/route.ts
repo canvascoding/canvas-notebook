@@ -1,3 +1,4 @@
+import { isCapabilityPackageError } from '@/app/lib/capabilities/packages/contracts';
 import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
 
@@ -31,6 +32,7 @@ export async function POST(request: NextRequest) {
     );
     return NextResponse.json(result);
   } catch (error) {
+    if (isCapabilityPackageError(error)) return NextResponse.json({ success: false, error: error.message, code: error.code }, { status: error.status });
     console.error('[Skills API] Error resetting skills directory:', error);
     return NextResponse.json(
       { success: false, error: error instanceof Error ? error.message : 'Failed to reset skills directory' },

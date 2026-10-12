@@ -11,7 +11,8 @@ export async function loadCapabilitySkillByReference(
 ): Promise<CanvasSkill | null> {
   const candidate = candidates.find((entry) => (
     entry.ref.resourceType === 'skill'
-    && entry.ref.resourceId === reference.resourceId
+    && (entry.ref.resourceId === reference.resourceId || entry.resourceMetadata?.resourceRef === reference.resourceId)
+    && entry.resourceAccess?.canRead !== false
     && entry.ref.name === reference.name
     && Boolean(entry.runtimePath)
   ));

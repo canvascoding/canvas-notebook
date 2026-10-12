@@ -291,6 +291,7 @@ type StudioMediaCredentialsPanelProps = {
 };
 type AgentSettingsPanelProps = {
   canManageAgentDefaults?: boolean;
+  currentUserId?: string;
 };
 type UserManagementPanelProps = {
   currentUserId: string;
@@ -2836,7 +2837,7 @@ export function IntegrationsSettingsClient({
           )}
 
           {renderLazyTabContent('agent-settings', (
-            <AgentSettingsPanel canManageAgentDefaults={canManageAgentDefaults} />
+            <AgentSettingsPanel canManageAgentDefaults={canManageAgentDefaults} currentUserId={currentUserId} />
           ))}
 
           {renderLazyTabContent('browser', <BrowserSettingsPanel isAdmin={isAdmin} />)}

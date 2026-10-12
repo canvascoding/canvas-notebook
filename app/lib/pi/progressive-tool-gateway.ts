@@ -16,6 +16,7 @@ export type ProgressiveGatewayDefinition = {
   label: string;
   description: string;
   operations: readonly string[];
+  errorBoundary?: 'agent_management';
 };
 
 export type ProgressiveGatewayMetadata = {
@@ -97,7 +98,18 @@ function buildGatewayTool(
   const tool: ProgressiveGatewayTool = {
     name: definition.name,
     label: definition.label,
-    description: definition.description,
+    description: definition.name === 'composio' && !findOperation(operations, 'COMPOSIO_SEARCH_TOOLS')
+      ? 'On-demand gateway for permitted Composio-connected external-app operations. Use search without a query to list permitted operations, describe to load a schema, then call.'
+      : [
+          definition.description,
+          ...(definition.name === 'composio' && findOperation(operations, 'COMPOSIO_SEARCH_TOOLS') ? [
+            'App tool slugs returned by COMPOSIO_SEARCH_TOOLS are provider actions, never gateway operation names.',
+            ...(findOperation(operations, 'COMPOSIO_GET_TOOL_SCHEMAS')
+              ? ['Fetch their schemas by calling operation COMPOSIO_GET_TOOL_SCHEMAS with arguments.tools containing the discovered slugs.'] : []),
+            ...(findOperation(operations, 'composio_execute')
+              ? ['Execute by calling operation composio_execute with arguments.action set to the discovered app tool slug and arguments.params matching its schema.'] : []),
+          ] : []),
+        ].join(' '),
     executionMode: 'sequential',
     parameters: Type.Object({
       action: Type.Union([
@@ -111,28 +123,36 @@ function buildGatewayTool(
     }),
     execute: async (toolCallId, rawParams, signal) => {
       const params = (rawParams || {}) as GatewayParams;
+      let operationStarted = false;
       try {
         if (params.action === 'search') {
-          const matches = searchOperations(operations, params.query);
+          const queryMatches = searchOperations(operations, params.query);
+          const fallback = queryMatches.length === 0 && operations.length > 0;
+          const matches = fallback ? operations.slice(0, MAX_SEARCH_RESULTS) : queryMatches;
           const lines = matches.length === 0
-            ? ['No permitted operations matched this query.']
+            ? ['No operations are permitted for this agent.']
             : [
+                ...(fallback ? ['No operation names matched this query. The permitted gateway operations are listed below.'] : []),
                 `Available ${definition.label} operations:`,
                 ...matches.map((operation) => `- \`${operation.name}\`: ${summarizeDescription(operation.description)}`),
                 '',
                 'Next step: use describe with one exact operation name to load its input schema.',
               ];
+          if (definition.name === 'composio' && findOperation(operations, 'COMPOSIO_SEARCH_TOOLS')) {
+            lines.push('', 'This gateway search lists agent operations; it does not query external-app tools or check connection status. For a named app, describe COMPOSIO_SEARCH_TOOLS, then call it with arguments containing its exact toolkit slug in toolkits. Omit the inner query to list the app catalog. Do not infer that an app is disconnected or Composio is unconfigured from a gateway search result.');
+          }
           return textResult(lines.join('\n'), {
             gateway: definition.name,
             action: 'search',
             query: params.query || null,
+            fallback,
             operations: matches.map((operation) => ({ name: operation.name, label: operation.label, description: summarizeDescription(operation.description) })),
           });
         }
 
         const operation = findOperation(operations, params.operation);
         if (!operation) {
-          throw new Error('This operation is not available to the active agent. Use search to see permitted operations.');
+          throw new Error('This operation is not available to the active agent. Use search without a query to see permitted operations.');
         }
 
         if (params.action === 'describe') {
@@ -163,6 +183,7 @@ function buildGatewayTool(
           if (!Value.Check(operation.parameters, args)) {
             throw new Error(`Invalid arguments for ${operation.name}: ${formatSchemaErrors(operation.parameters, args)}`);
           }
+          operationStarted = true;
           const result = await operation.execute(toolCallId, args, signal);
           return {
             ...result,
@@ -184,19 +205,22 @@ function buildGatewayTool(
 
         throw new Error('action must be search, describe, or call.');
       } catch (error) {
-        const message = getErrorMessage(error);
+        const publicError = operationStarted && definition.errorBoundary === 'agent_management'
+          ? (await import('@/app/lib/agents/management-actions')).managementErrorDetails(error) : null;
+        const message = publicError?.message ?? getErrorMessage(error);
         return textResult(`Error: ${message}`, {
           gateway: definition.name,
           action: params.action || null,
           operation: params.operation || null,
           error: message,
+          ...(publicError ? { code: publicError.code, ...(publicError.details ?? {}) } : {}),
         });
       }
     },
     progressiveGateway: {
       definition,
       operations,
-      withAllowedOperations: (nextAllowedOperationNames) => buildGatewayTool(definition, sourceOperations, nextAllowedOperationNames),
+      withAllowedOperations: (nextAllowedOperationNames) => buildGatewayTool(definition, operations, nextAllowedOperationNames),
     },
   };
 
@@ -270,6 +294,7 @@ export const PROGRESSIVE_GATEWAY_DEFINITIONS: readonly ProgressiveGatewayDefinit
   },
   {
     name: 'agent_manage',
+    errorBoundary: 'agent_management',
     label: 'Managing agents',
     description: 'On-demand gateway for creating and changing complete personal or organization agents. Use search, describe, then call. Mutations require explicit user intent and enforce the same scope, permission, policy, revision, storage, confirmation, and audit rules as the UI/API.',
     operations: [
@@ -277,6 +302,8 @@ export const PROGRESSIVE_GATEWAY_DEFINITIONS: readonly ProgressiveGatewayDefinit
       'update_agent_profile',
       'update_agent_runtime',
       'update_agent_capabilities',
+      'update_agent_configuration',
+      'set_agent_workflow_choice',
       'update_agent_file',
       'set_agent_grant',
       'remove_agent_grant',
@@ -287,8 +314,29 @@ export const PROGRESSIVE_GATEWAY_DEFINITIONS: readonly ProgressiveGatewayDefinit
   {
     name: 'canvas_extensions',
     label: 'Managing Canvas extensions',
-    description: 'On-demand gateway for personal Canvas plugins and skills. Use search to discover permitted operations, describe to load exactly one input schema, then call to execute it. Plugin and skill permissions are enforced for every operation.',
+    description: 'On-demand gateway for Canvas plugins and complete skill packages. Use search, describe, then call. Existing personal workspace drafts remain available. Managed packages use private full-package drafts and immutable publication with current resource edit rights, independent grants and revisions; distinct forks require target-scope authority.',
     operations: [
+      'list_canvas_package_store',
+      'inspect_canvas_package_presentation',
+      'inspect_canvas_package_store_offering',
+      'inspect_canvas_package_store_install_options',
+      'inspect_canvas_package_store_update',
+      'install_canvas_package_from_store',
+      'update_canvas_package_from_store',
+      'inspect_canvas_package',
+      'list_canvas_package_scopes',
+      'create_canvas_package_draft',
+      'inspect_canvas_package_draft',
+      'list_canvas_package_draft_files',
+      'read_canvas_package_draft_file',
+      'write_canvas_package_draft_file',
+      'delete_canvas_package_draft_file',
+      'validate_canvas_package_draft',
+      'publish_canvas_package_draft',
+      'discard_canvas_package_draft',
+      'list_canvas_package_files',
+      'read_canvas_package_file',
+      'set_canvas_package_activation',
       'create_canvas_plugin_draft',
       'inspect_canvas_plugin',
       'install_canvas_plugin_from_workspace',
@@ -340,7 +388,7 @@ export const PROGRESSIVE_GATEWAY_DEFINITIONS: readonly ProgressiveGatewayDefinit
   {
     name: 'composio',
     label: 'Using connected apps',
-    description: 'On-demand gateway for Composio-connected external apps. Use search, describe, then call. Connection management and external-tool schemas are disclosed only when needed.',
+    description: 'For named apps, describe COMPOSIO_SEARCH_TOOLS, then call it with toolkits containing the exact app slug. Gateway search lists agent operations; it does not check app connections. Discover app tools and schemas before executing.',
     operations: [
       'COMPOSIO_SEARCH_TOOLS',
       'COMPOSIO_GET_TOOL_SCHEMAS',

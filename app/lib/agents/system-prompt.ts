@@ -28,6 +28,8 @@ import {
 import { readOnboardingBootstrapPrompt } from '../onboarding/profile';
 import { isOnboardingComplete } from '../onboarding/status';
 import { ensureLegacyMemoryMigrated } from '../memory/legacy-migration';
+import type { AgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
+import { loadCapabilityPackageRuntimeSkills } from '@/app/lib/capabilities/packages/runtime-bindings';
 
 export {
   composeManagedAgentSystemPrompt,
@@ -135,6 +137,7 @@ async function buildOnboardingBootstrapContext(normalizedAgentId: string): Promi
 export async function loadManagedAgentSystemPrompt(
   agentId?: string | null,
   scope?: AgentStorageScope | null,
+  options?: { executionContext?: AgentExecutionContext },
 ): Promise<ManagedSystemPromptResult> {
   const normalizedAgentId = agentId?.trim().toLowerCase() || DEFAULT_MANAGED_AGENT_ID;
   try {
@@ -150,7 +153,12 @@ export async function loadManagedAgentSystemPrompt(
     
     // Resolve the complete organization/user capability cascade when workspace
     // context is available. Legacy callers keep the existing user-only loader.
-    const capabilitySnapshot = scope?.organizationId && scope.userId
+    const boundContext = options?.executionContext;
+    if (boundContext && (scope?.userId && scope.userId !== boundContext.userId
+      || (boundContext.agentId?.trim().toLowerCase() || DEFAULT_MANAGED_AGENT_ID) !== normalizedAgentId)) {
+      throw new Error('The skill package context does not match this agent prompt.');
+    }
+    const capabilitySnapshot = !boundContext && scope?.organizationId && scope.userId
       ? await resolveEffectiveCapabilitySnapshot({
         organizationId: scope.organizationId,
         userId: scope.userId,
@@ -159,7 +167,9 @@ export async function loadManagedAgentSystemPrompt(
         projectId: scope.projectId,
       })
       : null;
-    const skills = capabilitySnapshot
+    const skills = boundContext
+      ? await loadCapabilityPackageRuntimeSkills(boundContext)
+      : capabilitySnapshot
       ? await loadEffectiveSkills(capabilitySnapshot)
       : await loadSkillsFromDisk(await readEnabledSkillsForScope(scope), scope);
     const requiredSkillNames = capabilitySnapshot?.capabilities
@@ -173,7 +183,7 @@ export async function loadManagedAgentSystemPrompt(
 
     // Bradley receives all effectively enabled skills. Specialized
     // agents receive their selected subset after organization policy resolution.
-    const promptSkills = selectPromptSkillsForAgent(
+    const promptSkills = boundContext ? skills : selectPromptSkillsForAgent(
       normalizedAgentId,
       skills,
       agentProfile?.relevantSkills,

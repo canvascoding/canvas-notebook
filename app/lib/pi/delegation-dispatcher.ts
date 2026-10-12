@@ -1,4 +1,8 @@
 import 'server-only';
+import { parseIntegrationBindingSelections } from '@/app/lib/integration-tools/delegation-contracts';
+import { getAgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
+import { requireDelegationSource } from '@/app/lib/pi/delegation-policy';
+import { normalizeMainAgentIdAlias } from '@/app/lib/agents/main-agent';
 
 import { randomUUID } from 'node:crypto';
 import type { AgentMessage } from '@earendil-works/pi-agent-core';
@@ -225,6 +229,15 @@ export class PiDelegationDispatcher {
   }
 
   async enqueue(request: DelegateTaskRequest): Promise<DelegateTaskResult> {
+    const integrationSelection = { actorUserId: request.userId, sourceSessionId: request.sourceSessionId,
+      sourceAgentId: request.sourceAgentId, selections: parseIntegrationBindingSelections(request.integrationBindings), signal: request.abortSignal };
+    const ambient = getAgentExecutionContext();
+    const sourceContext = ambient ? { ...ambient } : null;
+    if (sourceContext && (sourceContext.userId !== integrationSelection.actorUserId
+      || sourceContext.sessionId !== integrationSelection.sourceSessionId
+      || sourceContext.agentId !== normalizeMainAgentIdAlias(integrationSelection.sourceAgentId))) {
+      throw new Error('The delegated turn belongs to a different source session.');
+    }
     if (request.abortSignal?.aborted) {
       throw request.abortSignal.reason instanceof Error
         ? request.abortSignal.reason
@@ -245,11 +258,22 @@ export class PiDelegationDispatcher {
       || request.workerSessionId?.trim()
       || buildWorkerSessionId();
     const workerType = request.targetAgentId ? 'managed' : 'ephemeral';
+    const integrationBindingSnapshot = integrationSelection.selections.length
+      ? await (await import('@/app/lib/integration-tools/delegation')).captureDelegatedIntegrationBindings(integrationSelection) : null;
+    if (sourceContext) {
+      const source = await requireDelegationSource({ userId: integrationSelection.actorUserId,
+        sourceSessionId: integrationSelection.sourceSessionId, sourceAgentId: integrationSelection.sourceAgentId });
+      if (source.workspaceId !== sourceContext.workspaceId || source.organizationId !== sourceContext.organizationId
+        || integrationBindingSnapshot && integrationBindingSnapshot.parent.agentTurnId !== (sourceContext.agentTurnId ?? null)) {
+        throw new Error('The delegated turn workspace or approved binding changed.');
+      }
+    }
     const record = await createPiDelegation({
       id: delegationId,
       userId: request.userId,
       sourceSessionId: request.sourceSessionId,
       sourceAgentId: request.sourceAgentId,
+      sourceAgentTurnId: sourceContext?.agentTurnId ?? null,
       workerSessionId,
       requestedSessionId: request.sessionId,
       targetAgentId: request.targetAgentId,
@@ -258,6 +282,7 @@ export class PiDelegationDispatcher {
       context: request.context,
       workerRole: request.workerRole,
       toolsets: request.toolsets,
+      integrationBindingSnapshot,
     });
     await persistLifecycleProgress({ delegationId: record.id, userId: record.userId, kind: 'queued', eventKey: 'queued' });
     this.schedulePump();
@@ -461,6 +486,7 @@ export class PiDelegationDispatcher {
         workerSessionId: record.workerSessionId,
         workerRole: record.workerRole ?? undefined,
         toolsets: piDelegationToolsets(record),
+        hasIntegrationBindings: record.integrationBindingsJson !== null,
         waitForResult: false,
         timeoutSeconds: 0,
         onCompletion: reportCompletion,

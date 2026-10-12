@@ -3,6 +3,7 @@ import 'server-only';
 
 import { MOBILE_INBOX_FILE_CHANGES_CAPABILITY } from './inbox-capabilities';
 import { MOBILE_EMAIL_REVIEW_CAPABILITY } from './email-capabilities';
+import { MOBILE_PLUGIN_GATEWAY_CAPABILITIES } from './plugin-gateway-capabilities';
 import { MOBILE_DICTATION_CAPABILITY } from './dictation-capabilities';
 
 import type { MobileCompatibility } from './compatibility';
@@ -113,6 +114,7 @@ export function createMobileBootstrap(input: {
     'license.activate',
     'chat.agents',
     'chat.sessions',
+    'chat.mcp_apps.v1',
     'chat.messages',
     'chat.realtime',
     'chat.session_manage',
@@ -185,6 +187,8 @@ export function createMobileBootstrap(input: {
     'extensions.marketplace_v2',
     'integrations.composio_catalog',
     'integrations.composio_mobile_auth',
+    'integrations.mcp_mobile.v1',
+    ...MOBILE_PLUGIN_GATEWAY_CAPABILITIES,
   ];
   if (richMigrationRuntimeAvailable()) capabilities.push('notebook.collaboration.rich_migration.v1', 'notebook.collaboration.checkpoint.v1');
   if (normalizeRole(input.user.role) !== 'external') capabilities.push('workspace.create.personal');

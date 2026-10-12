@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
 import { AppBridge } from '@modelcontextprotocol/ext-apps/app-bridge';
 import { CallToolResultSchema } from '@modelcontextprotocol/core';
@@ -9,6 +9,9 @@ import { McpAppFrameTransport } from '@/app/lib/mcp/apps-browser-transport';
 import { readMcpReconnectHint, type McpReconnectHint } from '@/app/lib/mcp/connection-health-types';
 import { readToolAppHostContext } from '@/app/lib/tool-apps/host-context';
 import type { ToolAppInvocation } from '@/app/lib/tool-apps/types';
+import { authClient } from '@/app/lib/auth-client';
+import { isOpenedDocumentAuthCurrent, openedDocumentAuthScope, subscribeOpenedDocumentAuthInvalidation,
+  type OpenedDocumentAuthScope } from '@/app/lib/collaboration/opened-document-registry';
 import { McpReconnectNotice } from './McpReconnectNotice';
 import { Button } from '@/components/ui/button';
 
@@ -21,6 +24,8 @@ type Props = {
 };
 const failedResult = (message: string): CallToolResult => ({ content: [{ type: 'text', text: message }], isError: true });
 const DEFAULT_RESERVED_HEIGHT = 240;
+const FRAME_PATH = /^\/__preview\/([A-Za-z0-9_-]{43})\/mcp-app\/frame$/u;
+const emptyAuthScope = () => null;
 
 export function ToolAppLoadingSkeleton({ label, animated = true, className = '' }: {
   label: string;
@@ -52,7 +57,20 @@ export function ToolAppLoadingSkeleton({ label, animated = true, className = '' 
 }
 
 /** One bridge lifecycle for Canvas resources and external MCP Apps. */
-export function ToolAppWidget({ invocation, sessionId, agentId, actions, reservedHeight = DEFAULT_RESERVED_HEIGHT }: Props) {
+export function ToolAppWidget(props: Props) {
+  const auth = authClient.useSession();
+  const scope = useSyncExternalStore(subscribeOpenedDocumentAuthInvalidation, openedDocumentAuthScope, emptyAuthScope);
+  const userId = auth.data?.user.id;
+  const authSessionId = auth.data?.session.id;
+  const owner = !auth.isPending && scope && scope.userId === userId && scope.sessionId === authSessionId ? scope : null;
+  // A new owner mounts a fresh lifecycle: no previous iframe or approval is rendered even for one paint.
+  const key = JSON.stringify([props.invocation.kind, props.invocation.descriptor, props.sessionId, props.agentId,
+    userId, authSessionId, scope?.epoch, Boolean(owner)]);
+  return <ToolAppOwnedWidget key={key} {...props} owner={owner} />;
+}
+
+function ToolAppOwnedWidget({ invocation, sessionId, agentId, actions, owner,
+  reservedHeight = DEFAULT_RESERVED_HEIGHT }: Props & { owner: OpenedDocumentAuthScope | null }) {
   const t = useTranslations(invocation.kind === 'builtin' ? 'chat.toolApp' : 'chat.mcpApp');
   const locale = useLocale();
   const frameRef = useRef<HTMLIFrameElement>(null);
@@ -70,6 +88,7 @@ export function ToolAppWidget({ invocation, sessionId, agentId, actions, reserve
   const [reconnect, setReconnect] = useState<McpReconnectHint | null>(null);
   const [reload, setReload] = useState(0);
   const builtin = invocation.kind === 'builtin';
+  const shared = invocation.kind === 'mcp' && invocation.descriptor.version === 2;
   const descriptorJson = JSON.stringify(invocation.descriptor);
   const input = invocation.kind === 'mcp' ? invocation.input : undefined;
   const operation = invocation.kind === 'builtin' ? invocation.descriptor.operation : undefined;
@@ -87,37 +106,38 @@ export function ToolAppWidget({ invocation, sessionId, agentId, actions, reserve
   const payloadUnavailable = !payload && (!builtin || Boolean(frame));
 
   useEffect(() => {
-    if (payloadUnavailable) return;
+    if (payloadUnavailable || !owner || !isOpenedDocumentAuthCurrent(owner)) return;
     const abort = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
     const load = async (attempt = 0): Promise<void> => {
+      if (abort.signal.aborted || !isOpenedDocumentAuthCurrent(owner)) return;
       try {
         const response = await fetch(builtin ? '/api/chat/tool-apps' : '/api/mcp/apps', {
           method: 'POST', headers: { 'content-type': 'application/json' }, credentials: 'include', signal: abort.signal,
           body: JSON.stringify({ action: 'render', app: JSON.parse(descriptorJson), sessionId, agentId }),
         });
         const body = await response.json();
-        if (abort.signal.aborted) return;
+        if (abort.signal.aborted || !isOpenedDocumentAuthCurrent(owner)) return;
         // Retry only the read-only, not-yet-persisted binding. Never replay an action.
-        if (builtin && response.status === 425 && attempt < 8) {
+        if ((builtin || shared) && response.status === 425 && attempt < 8) {
           timer = setTimeout(() => { void load(attempt + 1); }, Math.min(8000, 500 * 2 ** attempt)); return;
         }
         if (!response.ok || !body.success) {
           setReconnect(readMcpReconnectHint(body));
           setError(body.code === 'TOOL_APPS_DISABLED' || (!builtin && response.status === 404) ? 'disabled'
-            : builtin && response.status === 425 ? 'waitingForSave' : 'unavailable'); return;
+            : (builtin || shared) && response.status === 425 ? 'waitingForSave' : 'unavailable'); return;
         }
         const url = new URL(body.data.frameUrl);
         if (url.origin !== body.data.frameOrigin || !['http:', 'https:'].includes(url.protocol)
           || (window.location.protocol === 'https:' && url.protocol !== 'https:')
-          || !/^\/__preview\/[A-Za-z0-9_-]{43}\/mcp-app\/frame$/u.test(url.pathname)
+          || !FRAME_PATH.test(url.pathname)
           || url.search || url.hash || url.username || url.password) throw new Error();
         setFrame({ url: url.href, origin: url.origin, result: builtin ? body.data.result : undefined });
-      } catch { if (!abort.signal.aborted) setError('unavailable'); }
+      } catch { if (!abort.signal.aborted && isOpenedDocumentAuthCurrent(owner)) setError('unavailable'); }
     };
     void load();
     return () => { abort.abort(); clearTimeout(timer); };
-  }, [agentId, builtin, descriptorJson, reload, sessionId, payloadUnavailable]);
+  }, [agentId, builtin, shared, descriptorJson, reload, sessionId, payloadUnavailable, owner]);
 
   const frameUrl = frame?.url;
   const frameOrigin = frame?.origin;
@@ -125,7 +145,7 @@ export function ToolAppWidget({ invocation, sessionId, agentId, actions, reserve
   useEffect(() => { localeRef.current = locale; bridgeRef.current?.setHostContext(readToolAppHostContext(locale)); }, [locale]);
   useEffect(() => {
     const iframe = frameRef.current;
-    if (!frameUrl || !frameOrigin || !iframe?.contentWindow || error) return;
+    if (!frameUrl || !frameOrigin || !iframe?.contentWindow || error || !owner || !isOpenedDocumentAuthCurrent(owner)) return;
     let active = true;
     let initialized = false;
     let sizeFallbackTimer: number | undefined;
@@ -133,10 +153,10 @@ export function ToolAppWidget({ invocation, sessionId, agentId, actions, reserve
       hostContext: readToolAppHostContext(localeRef.current),
     });
     bridgeRef.current = bridge;
-    const timer = window.setTimeout(() => { if (active && !initialized) setError('unavailable'); }, 20_000);
-    bridge.onerror = () => { if (active) setError('unavailable'); };
+    const timer = window.setTimeout(() => { if (active && !initialized && isOpenedDocumentAuthCurrent(owner)) setError('unavailable'); }, 20_000);
+    bridge.onerror = () => { if (active && isOpenedDocumentAuthCurrent(owner)) setError('unavailable'); };
     bridge.onsizechange = ({ height: next }) => {
-      if (active && typeof next === 'number' && Number.isFinite(next)) {
+      if (active && isOpenedDocumentAuthCurrent(owner) && typeof next === 'number' && Number.isFinite(next)) {
         window.clearTimeout(sizeFallbackTimer);
         sizeFallbackTimer = undefined;
         const measuredHeight = Math.max(120, Math.min(900, Math.ceil(next)));
@@ -145,7 +165,8 @@ export function ToolAppWidget({ invocation, sessionId, agentId, actions, reserve
       }
     };
     if (!builtin) bridge.oncalltool = async (params) => {
-      if (!active || approvalRef.current || activeCallRef.current) return failedResult('Another approval or tool call is in progress.');
+      if (!active || !isOpenedDocumentAuthCurrent(owner)) return failedResult('The widget was closed.');
+      if (approvalRef.current || activeCallRef.current) return failedResult('Another approval or tool call is in progress.');
       if (JSON.stringify(params).length > 32_768) return failedResult('Request too large.');
       return new Promise<CallToolResult>((resolve) => {
         const request = { tool: params.name, arguments: params.arguments ?? {}, resolve };
@@ -153,18 +174,19 @@ export function ToolAppWidget({ invocation, sessionId, agentId, actions, reserve
       });
     };
     bridge.oninitialized = () => {
-      if (!active) return;
+      if (!active || !isOpenedDocumentAuthCurrent(owner)) return;
       initialized = true;
       window.clearTimeout(timer);
       setReady(true);
       sizeFallbackTimer = window.setTimeout(() => {
-        if (active) setHasMeasuredHeight(true);
+        if (active && isOpenedDocumentAuthCurrent(owner)) setHasMeasuredHeight(true);
       }, 250);
     };
-    const observer = new MutationObserver(() => { if (active) bridge.setHostContext(readToolAppHostContext(localeRef.current)); });
+    const observer = new MutationObserver(() => { if (active && isOpenedDocumentAuthCurrent(owner)) bridge.setHostContext(readToolAppHostContext(localeRef.current)); });
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'style'] });
     void bridge.connect(new McpAppFrameTransport(iframe.contentWindow, frameOrigin))
-      .then(() => { if (active) iframe.src = frameUrl; }).catch(() => { if (active) setError('unavailable'); });
+      .then(() => { if (active && isOpenedDocumentAuthCurrent(owner)) iframe.src = frameUrl; })
+      .catch(() => { if (active && isOpenedDocumentAuthCurrent(owner)) setError('unavailable'); });
     return () => {
       active = false; window.clearTimeout(timer); window.clearTimeout(sizeFallbackTimer); observer.disconnect();
       bridgeRef.current = null; setReady(false);
@@ -172,36 +194,41 @@ export function ToolAppWidget({ invocation, sessionId, agentId, actions, reserve
       activeCallRef.current?.abort(); activeCallRef.current = null; setBusy(false);
       void bridge.teardownResource({}, { timeout: 300 }).catch(() => undefined).finally(() => { void bridge.close().catch(() => undefined); });
     };
-  }, [frameUrl, frameOrigin, builtin, error]);
+  }, [frameUrl, frameOrigin, builtin, error, owner]);
 
   useEffect(() => {
     const bridge = bridgeRef.current;
-    if (!ready || !bridge || !payload) return;
+    if (!ready || !bridge || !payload || !owner || !isOpenedDocumentAuthCurrent(owner)) return;
     let active = true;
     void Promise.resolve(bridge.sendToolInput({ arguments: payload.input })).then(() => {
-      if (active) return bridge.sendToolResult(payload.result);
-    }).catch(() => { if (active) setError('unavailable'); });
+      if (active && isOpenedDocumentAuthCurrent(owner)) return bridge.sendToolResult(payload.result);
+    }).catch(() => { if (active && isOpenedDocumentAuthCurrent(owner)) setError('unavailable'); });
     return () => { active = false; };
-  }, [payload, ready]);
+  }, [payload, ready, owner]);
 
   const decide = async (allow: boolean) => {
     const request = approvalRef.current;
     if (!request || builtin) return;
     approvalRef.current = null; setApproval(null);
+    if (!owner || !isOpenedDocumentAuthCurrent(owner)) { request.resolve(failedResult('The widget was closed.')); return; }
     if (!allow) { request.resolve(failedResult('The user rejected this tool call.')); return; }
+    const ticket = shared && frame ? new URL(frame.url).pathname.match(FRAME_PATH)?.[1] : undefined;
+    if (shared && !ticket) { request.resolve(failedResult('The widget was closed.')); return; }
     const abort = new AbortController(); activeCallRef.current = abort; setBusy(true); setCallFailed(false);
     try {
       const response = await fetch('/api/mcp/apps', {
         method: 'POST', headers: { 'content-type': 'application/json' }, credentials: 'include', signal: abort.signal,
-        body: JSON.stringify({ action: 'call', app: JSON.parse(descriptorJson), sessionId, agentId, tool: request.tool, arguments: request.arguments }),
+        body: JSON.stringify({ action: 'call', app: JSON.parse(descriptorJson), sessionId, agentId,
+          ...(shared ? { ticket } : {}), tool: request.tool, arguments: request.arguments }),
       });
       const body = await response.json();
+      if (abort.signal.aborted || !isOpenedDocumentAuthCurrent(owner)) { request.resolve(failedResult('The widget was closed.')); return; }
       const parsed = response.ok && body.success ? CallToolResultSchema.safeParse(body.data) : null;
       if (!parsed?.success) {
-        if (!abort.signal.aborted) { setReconnect(readMcpReconnectHint(body)); setCallFailed(true); }
+        setReconnect(readMcpReconnectHint(body)); setCallFailed(true);
         request.resolve(failedResult('Tool call failed. Reconnect or retry manually.'));
       } else request.resolve(parsed.data);
-    } catch { request.resolve(failedResult('Tool call failed.')); if (!abort.signal.aborted) setCallFailed(true); }
+    } catch { request.resolve(failedResult('Tool call failed.')); if (!abort.signal.aborted && isOpenedDocumentAuthCurrent(owner)) setCallFailed(true); }
     finally { if (activeCallRef.current === abort) { activeCallRef.current = null; setBusy(false); } }
   };
   const data = builtin ? payload?.result.structuredContent : null;

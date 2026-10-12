@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { toPublicCapabilityPackageMetadata } from '@/app/lib/capabilities/packages/public-metadata';
 
 import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { refreshCapabilityRuntimeForScope } from '@/app/lib/capabilities/activation-actions';
@@ -63,5 +64,5 @@ export async function POST(
     actorUserId: pluginPermission.session.user.id,
   });
 
-  return NextResponse.json({ success: true, plugin: result.plugin });
+  return NextResponse.json(toPublicCapabilityPackageMetadata({ success: true, plugin: result.plugin }));
 }

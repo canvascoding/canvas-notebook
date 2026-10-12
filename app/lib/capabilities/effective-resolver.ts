@@ -139,7 +139,8 @@ export function resolveEffectiveCapabilities(input: {
     const policy = effectivePolicyForCandidate(candidate, input.policies, input.context);
     const conflict = conflictResolution.blockedByConflict.get(candidate.ref.resourceId);
     const blockedByPolicy = policy.effect === 'blocked';
-    const effectiveEnabled = !conflict && !blockedByPolicy && (
+    const deniedUse = candidate.resourceAccess?.canUse === false;
+    const effectiveEnabled = !conflict && !blockedByPolicy && !deniedUse && (
       candidate.ref.scopeType === 'system'
       || policy.effect === 'required'
       || (candidate.ref.scopeType === 'organization'
@@ -160,14 +161,14 @@ export function resolveEffectiveCapabilities(input: {
       effectiveEnabled,
       readiness: conflict
         ? 'conflict'
-        : blockedByPolicy
+        : blockedByPolicy || deniedUse
           ? 'blocked'
           : !effectiveEnabled
             ? 'disabled'
             : needsConnection
               ? 'personal-connection-required'
               : 'available',
-      blockedReason: conflict?.reason || (blockedByPolicy ? 'Blocked by organization policy.' : null),
+      blockedReason: conflict?.reason || (blockedByPolicy ? 'Blocked by organization policy.' : deniedUse ? 'Resource usage is not permitted.' : null),
       conflictResourceIds: conflict?.resourceIds || [],
     };
   });
@@ -192,6 +193,7 @@ export function resolveEffectiveCapabilities(input: {
       }
       if (
         entry.ref.scopeType === 'organization'
+        && entry.resourceAccess?.canUse !== false
         && entry.matchedPolicies.length === 0
         && entry.userPreference !== 'disabled'
       ) {

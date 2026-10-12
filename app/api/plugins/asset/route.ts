@@ -7,7 +7,8 @@ import { auth } from '@/app/lib/auth';
 import { resolveEffectiveCapabilitySnapshot } from '@/app/lib/capabilities/catalog';
 import { resolveCapabilityExecutionContextForUser } from '@/app/lib/capabilities/request-scope';
 import { readOrganizationPermissionForUser } from '@/app/lib/organization/permissions';
-import { readExactInstalledPlugin } from '@/app/lib/plugins/installed-plugin-read';
+import { readReadableCapabilityPlugin, assertReadableCapabilityCandidate } from '@/app/lib/capabilities/resources/read';
+import { CapabilityResourceError } from '@/app/lib/capabilities/resources/contracts';
 import { isPathInside, isValidCanvasPluginName } from '@/app/lib/plugins/canvas-plugin-manifest';
 import { WORKSPACE_ID_HEADER } from '@/app/lib/workspaces/constants';
 
@@ -81,16 +82,17 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'Assigned plugin is unavailable in this workspace' }, { status: 403 });
     }
   }
-  const plugin = await readExactInstalledPlugin({
-    name: pluginName,
-    resourceId,
-    scope: scopeType === 'organization'
-      ? { scopeType: 'organization', organizationId: organizationId! }
-      : { scopeType: 'user', userId: session.user.id },
-  });
-  if (!plugin) {
-    return NextResponse.json({ success: false, error: 'Plugin not found' }, { status: 404 });
+  let selected: Awaited<ReturnType<typeof readReadableCapabilityPlugin>>;
+  const actor = { userId: session.user.id, workspaceId: request.nextUrl.searchParams.get('workspaceId') || request.headers.get(WORKSPACE_ID_HEADER) };
+  try {
+    selected = await readReadableCapabilityPlugin(actor, { name: pluginName, resourceId, scope: scopeType });
+    if (selected.candidate.ref.scopeType === 'organization' && scopeType !== 'organization') {
+      return NextResponse.json({ success: false, error: 'Plugin not found' }, { status: 404 });
+    }
+  } catch (error) {
+    return NextResponse.json({ success: false, error: 'Plugin not found' }, { status: error instanceof CapabilityResourceError ? error.status : 404 });
   }
+  const plugin = selected.plugin;
 
   const sanitizedPath = sanitizeAssetPath(requestedPath);
   if (!sanitizedPath) {
@@ -125,13 +127,15 @@ export async function GET(request: NextRequest) {
     }
 
     const bytes = await fs.readFile(realFilePath);
+    await assertReadableCapabilityCandidate(actor, selected.candidate, selected.candidates);
     return new NextResponse(new Uint8Array(bytes), {
       headers: {
-        'Cache-Control': 'private, max-age=3600',
+        'Cache-Control': 'private, no-store',
         'Content-Type': contentType,
       },
     });
   } catch (error) {
+    if (error instanceof CapabilityResourceError) return NextResponse.json({ success: false, error: error.message }, { status: error.status });
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
       return NextResponse.json({ success: false, error: 'Asset not found' }, { status: 404 });
     }

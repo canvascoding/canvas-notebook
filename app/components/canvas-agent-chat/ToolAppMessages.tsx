@@ -39,7 +39,10 @@ function invocationKey(invocation: ToolAppInvocation): string {
   if (invocation.kind === 'builtin') {
     return `${invocation.descriptor.resourceUri}:${invocation.descriptor.entityId}`;
   }
-  return `${invocation.descriptor.connectionId}:${invocation.descriptor.toolName}:${invocation.descriptor.resourceUri}`;
+  const descriptor = invocation.descriptor;
+  return descriptor.version === 2
+    ? `${descriptor.connectionRef}:${descriptor.toolCallId}:${descriptor.bindingRevision}:${descriptor.toolName}:${descriptor.resourceUri}`
+    : `${descriptor.connectionId}:${descriptor.toolName}:${descriptor.resourceUri}`;
 }
 
 function ToolAppSlot(props: { invocation: ToolAppInvocation; sessionId: string; agentId: string; instanceKey: string }) {

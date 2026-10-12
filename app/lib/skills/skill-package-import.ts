@@ -8,6 +8,7 @@ import JSZip from 'jszip';
 
 import { computeCanvasPluginChecksum } from '@/app/lib/plugins/canvas-plugin-registry';
 import { createAtomicTempPath } from '@/app/lib/runtime-data-paths';
+import { withCapabilityPackageRegistryLock } from '@/app/lib/capabilities/packages/artifacts';
 import { requirePathInside } from '@/app/lib/security/safe-paths';
 import { adoptLegacyStandaloneSkillsForScope } from '@/app/lib/skills/legacy-skill-adoption';
 import {
@@ -15,6 +16,7 @@ import {
   loadCanvasSkillInterface,
   parseFrontmatter,
   parseSkillFile,
+  validateStandaloneSkillWorkflow,
   validateFrontmatter,
   type CanvasSkillStorageScope,
   type ValidationResult,
@@ -29,6 +31,7 @@ import { enableSkillInConfig } from '@/app/lib/skills/enabled-skills';
 import { getSkillNames, loadSkillByName } from '@/app/lib/skills/skill-loader';
 import { readEnabledSkillsForScope, writeEnabledSkillsForScope } from '@/app/lib/skills/skill-settings';
 import { assertPersonalSkillActivationAllowed, PersonalSkillActivationError } from '@/app/lib/skills/personal-skill-activation';
+import { normalizeCapabilityStoreOrigin } from '@/app/lib/capabilities/packages/store-origin';
 
 const MAX_SKILL_ARCHIVE_BYTES = 100 * 1024 * 1024;
 const MAX_SKILL_EXTRACTED_BYTES = 250 * 1024 * 1024;
@@ -291,6 +294,7 @@ async function validateUploadedPackage(
   if (!parsed) {
     throw new SkillPackageImportError('Skill package contains an invalid SKILL.md.', 400, validation);
   }
+  await validateStandaloneSkillWorkflow(parsed);
 
   return { skillName: parsed.name, validation };
 }
@@ -361,6 +365,14 @@ async function writeLocalSkillRegistryRecord(params: {
   const registry = await readCanvasSkillRegistry(params.scope);
   const existing = registry.skills[params.skillName];
   const record: CanvasSkillInstallRecord = {
+    resourceId: existing?.resourceId,
+    scopeType: existing?.scopeType,
+    organizationId: existing?.organizationId,
+    ownerUserId: existing?.ownerUserId,
+    revision: (existing?.revision || 0) + 1,
+    storeOrigin: normalizeCapabilityStoreOrigin(existing?.storeOrigin, existing?.resourceId) ?? undefined,
+    sourceRegistryId: existing?.sourceRegistryId,
+    sourceRegistryUrl: existing?.sourceRegistryUrl,
     name: skill.name,
     version: skill.version || 'local',
     description: skill.description,
@@ -420,7 +432,11 @@ export async function importSkillPackage(
     if (options.enable !== false) {
       await assertPersonalSkillActivationAllowed(skillName, options.scope);
     }
+    return await withCapabilityPackageRegistryLock('skill', options.scope, async () => {
     await adoptLegacyStandaloneSkillsForScope(options.scope);
+    const existing = (await readCanvasSkillRegistry(options.scope)).skills[skillName];
+    const { assertLegacyCapabilityPackageMutationAllowed } = await import('@/app/lib/capabilities/packages/artifacts');
+    await assertLegacyCapabilityPackageMutationAllowed('skill', skillName, options.scope, existing);
     await ensureSkillCanBeInstalled(skillName, options.scope);
     const registryBeforeInstall = await readCanvasSkillRegistry(options.scope);
     const installDir = await copySkillPackage(packageRoot, skillName, options.scope);
@@ -452,6 +468,7 @@ export async function importSkillPackage(
       importedFiles: created.importedFiles,
       sourceKind: source.kind,
     };
+    });
   } finally {
     if (tempRoot) {
       await fs.rm(tempRoot, { recursive: true, force: true }).catch(() => undefined);

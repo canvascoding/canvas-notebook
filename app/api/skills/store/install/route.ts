@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { toPublicCapabilityPackageMetadata } from '@/app/lib/capabilities/packages/public-metadata';
 
 import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { refreshCapabilityRuntimeForScope } from '@/app/lib/capabilities/activation-actions';
@@ -45,7 +46,7 @@ export async function POST(request: Request) {
     );
 
     if (!result.success) {
-      return NextResponse.json(result, { status: result.statusCode || 400 });
+      return NextResponse.json(toPublicCapabilityPackageMetadata(result), { status: result.statusCode || 400 });
     }
     await recordAuditEvent({
       organizationId: skillPermission.state.organizationId,
@@ -76,7 +77,7 @@ export async function POST(request: Request) {
       actorUserId: skillPermission.session.user.id,
     });
 
-    return NextResponse.json(result);
+    return NextResponse.json(toPublicCapabilityPackageMetadata(result));
   } catch (error) {
     console.error('[Skills Store Install API] Error:', error);
     return NextResponse.json(

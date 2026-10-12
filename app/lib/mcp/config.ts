@@ -201,6 +201,9 @@ function parseMcpConfig(rawContent: string, migrating: boolean): McpConfig {
 /** Called only while holding the MCP config lock; the lock order is always config -> ENV. */
 async function centralizeMcpLiterals(config: McpConfig, scope: McpScope | null | undefined, mode: 'migration' | 'write', changedKeys?: Set<string>): Promise<McpConfig> {
   const normalizedScope = normalizeMcpScope(scope) || MCP_SYSTEM_SCOPE;
+  // Shared configuration is prepared with resource-owned slots by its provider
+  // service. Never import literals into unrelated organization ENV names.
+  if (normalizedScope.shared) return config;
   const pending: Array<{ key: string; value: string }> = [];
   const mcpServers: Record<string, McpServerConfig> = {};
   for (const [name, server] of Object.entries(config.mcpServers)) {
@@ -294,6 +297,10 @@ export async function readMcpConfig(scope?: McpScope | null): Promise<McpConfig>
 }
 
 export async function writeMcpConfigRaw(rawContent: string, scope?: McpScope | null, options: { expectedRaw?: string } = {}): Promise<McpConfigState> {
+  if (scope?.shared) {
+    const { authorizeSharedMcpScope } = await import('./shared-access');
+    await authorizeSharedMcpScope(scope, 'manage');
+  }
   const incoming = parseAndValidateMcpConfig(rawContent);
   const changed: Array<{ connection: McpServerConfig & { connectionId: string }; clearAuth: boolean; invalidatedGeneration?: number }> = [];
   const state = await withMcpStorageLock('config', scope, async () => {

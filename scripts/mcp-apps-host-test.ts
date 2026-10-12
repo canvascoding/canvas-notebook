@@ -22,7 +22,7 @@ class FixtureAccessError extends Error {
 const db = {
   query: {
     piSessions: { findFirst: async () => chatOwned ? { workspaceId: 'workspace-1' } : null },
-    session: { findFirst: async () => authSessionActive ? { id: 'auth-1' } : null },
+    session: { findFirst: async () => authSessionActive ? { id: 'auth-1', expiresAt: new Date(Date.now() + 60_000) } : null },
   },
 };
 

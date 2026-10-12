@@ -7,6 +7,8 @@ import { assertUserOrganizationAdmin, readOrganizationPermissionForUser } from '
 import { readMcpConfig, type McpServerConfig } from './config';
 import { requireMcpCredentialScope, type McpScope } from './scope';
 import { listMcpServerDefinitions, matchesMcpServerDefinition } from './server-definitions';
+import { authorizeSharedMcpScope } from './shared-access';
+import { assertSharedMcpBindingPublished } from './shared-publication';
 
 export type McpActor = { userId: string; organizationId: string | null; canManageDefinitions: boolean };
 
@@ -42,6 +44,23 @@ export async function assertMcpConnectionAccess(
   serverNameOrId: string, scope?: McpScope | null,
   options: { allowDisabled?: boolean; management?: boolean; actor?: McpActor | null } = {},
 ): Promise<{ serverName: string; connection: McpServerConfig; actor: McpActor | null }> {
+  if (scope?.shared) {
+    const normalized = requireMcpCredentialScope(scope);
+    const authorization = await authorizeSharedMcpScope(normalized, options.management ? 'manage' : undefined);
+    await assertSharedMcpBindingPublished(authorization);
+    const config = await readMcpConfig(normalized);
+    const matches = Object.entries(config.mcpServers).filter(([name, item]) => (name === serverNameOrId || item.connectionId === serverNameOrId)
+      && item.connectionId === normalized.shared!.connectionId);
+    if (matches.length !== 1 || Object.keys(config.mcpServers).length !== 1) throw new McpAccessError('Shared MCP connection not found.', 404, 'MCP_CONNECTION_NOT_FOUND');
+    const [serverName, connection] = matches[0];
+    if (connection.ownerUserId || connection.organizationId !== authorization.resource.ownership.organizationId) throw new McpAccessError('Shared MCP backend ownership does not match.');
+    if (!options.allowDisabled && connection.enabled === false) throw new McpAccessError('MCP connection is disabled.', 409, 'MCP_CONNECTION_DISABLED');
+    if (connection.serverDefinitionId) {
+      const definition = (await listMcpServerDefinitions(connection.organizationId!)).find(item => item.id === connection.serverDefinitionId);
+      if (!definition?.enabled || !matchesMcpServerDefinition(connection, definition)) throw new McpAccessError('The approved shared MCP definition changed.');
+    }
+    return { serverName, connection, actor: null };
+  }
   const actor = options.actor === undefined ? await requireMcpUserAccess(scope) : options.actor;
   const normalized = requireMcpCredentialScope(scope);
   if (normalized.userId && (!actor || actor.userId !== normalized.userId)) throw new McpAccessError('MCP actor does not match the connection owner.');

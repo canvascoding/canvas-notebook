@@ -12,7 +12,7 @@ import {
   CommandItem,
   CommandList,
 } from '@/components/ui/command';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Popover, PopoverContent, PopoverTrigger, ScopedPopover, ScopedPopoverContent, ScopedPopoverTrigger } from '@/components/ui/popover';
 import { cn } from '@/lib/utils';
 
 export type PolicyTargetOption = {
@@ -30,6 +30,7 @@ type SearchablePolicyTargetPickerProps = {
   searchPlaceholder: string;
   emptyLabel: string;
   disabled?: boolean;
+  portalContainer?: HTMLElement | null;
   testId: string;
   onValueChange: (value: string) => void;
 };
@@ -43,6 +44,7 @@ export function SearchablePolicyTargetPicker({
   searchPlaceholder,
   emptyLabel,
   disabled = false,
+  portalContainer,
   testId,
   onValueChange,
 }: SearchablePolicyTargetPickerProps) {
@@ -51,12 +53,15 @@ export function SearchablePolicyTargetPicker({
     () => options.find((option) => option.id === value) || null,
     [options, value],
   );
+  const PickerPopover = portalContainer ? ScopedPopover : Popover;
+  const PickerTrigger = portalContainer ? ScopedPopoverTrigger : PopoverTrigger;
+  const PickerContent = portalContainer ? ScopedPopoverContent : PopoverContent;
 
   return (
-    <Popover open={disabled ? false : open} onOpenChange={(nextOpen) => {
+    <PickerPopover open={disabled ? false : open} onOpenChange={(nextOpen) => {
       if (!disabled) setOpen(nextOpen);
     }}>
-      <PopoverTrigger asChild>
+      <PickerTrigger asChild>
         <Button
           id={id}
           type="button"
@@ -73,12 +78,13 @@ export function SearchablePolicyTargetPicker({
           </span>
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 text-muted-foreground" />
         </Button>
-      </PopoverTrigger>
-      <PopoverContent
+      </PickerTrigger>
+      <PickerContent
+        portalContainer={portalContainer}
         align="start"
         className="w-[var(--radix-popover-trigger-width)] min-w-[18rem] p-0"
       >
-        <Command>
+        <Command label={searchPlaceholder}>
           <CommandInput aria-label={searchPlaceholder} placeholder={searchPlaceholder} />
           <CommandList>
             <CommandEmpty>{emptyLabel}</CommandEmpty>
@@ -107,7 +113,7 @@ export function SearchablePolicyTargetPicker({
             </CommandGroup>
           </CommandList>
         </Command>
-      </PopoverContent>
-    </Popover>
+      </PickerContent>
+    </PickerPopover>
   );
 }

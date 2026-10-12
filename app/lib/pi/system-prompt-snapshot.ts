@@ -13,6 +13,7 @@ import {
 import { db } from '@/app/lib/db';
 import { piSessions } from '@/app/lib/db/schema';
 import { ensureCanvasMarkdownAgentGuidance } from '@/app/lib/markdown/canvas-markdown-agent-guidance';
+import type { AgentExecutionContext } from './agent-execution-context';
 
 type PiSessionPromptSnapshotRow = Pick<
   typeof piSessions.$inferSelect,
@@ -51,8 +52,9 @@ export function buildPiSystemPromptSnapshotFromText(
 export async function createPiSystemPromptSnapshot(
   agentId?: string | null,
   scope?: AgentStorageScope | null,
+  options?: { executionContext?: AgentExecutionContext },
 ): Promise<PiSystemPromptSnapshot> {
-  const { systemPrompt } = await loadManagedAgentSystemPrompt(agentId, scope);
+  const { systemPrompt } = await loadManagedAgentSystemPrompt(agentId, scope, options);
   return buildPiSystemPromptSnapshotFromText(systemPrompt);
 }
 

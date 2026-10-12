@@ -25,8 +25,9 @@ function getText(result: unknown): string {
   return content?.find((item) => item.type === 'text')?.text || '';
 }
 
-async function startAppServer(): Promise<{ url: string; calls: string[]; advertisedMimeTypes: string[]; close(): Promise<void> }> {
+async function startAppServer(): Promise<{ url: string; calls: string[]; resourceReads: string[]; advertisedMimeTypes: string[]; close(): Promise<void> }> {
   const calls: string[] = [];
+  const resourceReads: string[] = [];
   const advertisedMimeTypes: string[] = [];
   const server = http.createServer(async (request, response) => {
     const mcp = new McpServer({ name: 'canvas-mcp-app-test', version: '1.0.0' });
@@ -69,9 +70,10 @@ async function startAppServer(): Promise<{ url: string; calls: string[]; adverti
       inputSchema: z.object({}),
       _meta: { ui: { visibility: ['app'] } },
     }, async () => ({ content: [{ type: 'text', text: 'app-only-action' }] }));
-    mcp.registerResource('app-html', RESOURCE_URI, { mimeType: 'text/html;profile=mcp-app' }, async () => ({
-      contents: [{ uri: RESOURCE_URI, mimeType: 'text/html;profile=mcp-app', text: '<!doctype html><title>Canvas test</title>' }],
-    }));
+    mcp.registerResource('app-html', RESOURCE_URI, { mimeType: 'text/html;profile=mcp-app' }, async () => {
+      resourceReads.push(RESOURCE_URI);
+      return { contents: [{ uri: RESOURCE_URI, mimeType: 'text/html;profile=mcp-app', text: '<!doctype html><title>Canvas test</title>' }] };
+    });
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
     response.on('close', () => { void transport.close(); void mcp.close(); });
     try {
@@ -92,7 +94,7 @@ async function startAppServer(): Promise<{ url: string; calls: string[]; adverti
   const address = server.address();
   assert.equal(typeof address, 'object');
   const port = address && typeof address === 'object' ? address.port : 0;
-  return { url: `http://127.0.0.1:${port}/mcp`, calls, advertisedMimeTypes, close: () => new Promise((resolve) => server.close(() => resolve())) };
+  return { url: `http://127.0.0.1:${port}/mcp`, calls, resourceReads, advertisedMimeTypes, close: () => new Promise((resolve) => server.close(() => resolve())) };
 }
 
 async function main(): Promise<void> {
@@ -175,6 +177,31 @@ async function main(): Promise<void> {
     assert.deepEqual(appServer.calls, ['approved', 'approved-model-source']);
     await assert.rejects(() => callMcpAppTool(CONNECTION_ID, 'app-source', RESOURCE_URI, 'model-only', {}, undefined, MCP_SYSTEM_SCOPE), /not visible to the selected app/i);
     await assert.rejects(() => readMcpAppResource(CONNECTION_ID, 'app-source', 'ui://other/app.html', MCP_SYSTEM_SCOPE), /not currently bound/i);
+
+    const readsBeforeGuard = appServer.resourceReads.length, callsBeforeGuard = [...appServer.calls];
+    let resourceGuards = 0, toolGuards = 0;
+    await assert.rejects(() => readMcpAppResource(CONNECTION_ID, 'app-source', RESOURCE_URI, MCP_SYSTEM_SCOPE, {
+      beforeDispatch: async () => { resourceGuards += 1; throw new Error('resource_guard_denied'); },
+    }), /resource_guard_denied/u);
+    assert.equal(resourceGuards, 1); assert.equal(appServer.resourceReads.length, readsBeforeGuard);
+    await assert.rejects(() => callMcpAppTool(CONNECTION_ID, 'app-source', RESOURCE_URI, 'app-action', { value: 'guarded' }, undefined, MCP_SYSTEM_SCOPE, {
+      beforeDispatch: async () => { toolGuards += 1; throw new Error('tool_guard_denied'); },
+    }), /tool_guard_denied/u);
+    assert.equal(toolGuards, 1); assert.deepEqual(appServer.calls, callsBeforeGuard);
+    await assert.rejects(() => callMcpAppTool(CONNECTION_ID, 'app-source', RESOURCE_URI, 'app-action', { value: 1 }, undefined, MCP_SYSTEM_SCOPE, {
+      beforeDispatch: async () => { toolGuards += 1; },
+    }), (error: unknown) => (error as { code?: unknown }).code === 'invalid_arguments');
+    assert.equal(toolGuards, 1); assert.deepEqual(appServer.calls, callsBeforeGuard);
+    const abort = new AbortController();
+    await assert.rejects(() => callMcpAppTool(CONNECTION_ID, 'app-source', RESOURCE_URI, 'app-action', { value: 'aborted' }, abort.signal, MCP_SYSTEM_SCOPE, {
+      beforeDispatch: async () => { toolGuards += 1; abort.abort(); },
+    }), (error: unknown) => (error as { name?: unknown }).name === 'AbortError');
+    assert.equal(toolGuards, 2); assert.deepEqual(appServer.calls, callsBeforeGuard);
+    const guarded = await callMcpAppTool(CONNECTION_ID, 'app-source', RESOURCE_URI, 'app-action', { value: 'one-guarded-call' }, undefined, MCP_SYSTEM_SCOPE, {
+      beforeDispatch: async () => { toolGuards += 1; },
+    });
+    assert.equal(getText(guarded), 'app:one-guarded-call'); assert.equal(toolGuards, 3);
+    assert.deepEqual(appServer.calls, [...callsBeforeGuard, 'one-guarded-call']);
 
     process.env.CANVAS_MCP_APPS_ENABLED = 'false';
     await assert.rejects(() => readMcpAppResource(CONNECTION_ID, 'app-source', RESOURCE_URI, MCP_SYSTEM_SCOPE), /disabled by instance policy/i);

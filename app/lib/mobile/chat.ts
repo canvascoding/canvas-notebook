@@ -30,6 +30,7 @@ import {
 } from '@/app/lib/chat/message-content';
 import { mobileToolCallId } from '@/app/lib/mobile/tool-call-id';
 import { projectMobileEmailAction, type MobileEmailAction } from '@/app/lib/mobile/email-action';
+import { projectMobileChatDisplay, type MobileChatDisplay } from '@/app/lib/mobile/chat-display';
 import { formatMobileToolInput } from '@/app/lib/mobile/tool-input';
 import { projectMobileCompactBreakMetadata, type MobileCompactBreakMetadata } from '@/app/lib/mobile/compact-break';
 import {
@@ -86,6 +87,7 @@ export type MobileChatMessage = {
   text: string;
   compactMeta?: MobileCompactBreakMetadata;
   emailAction?: MobileEmailAction;
+  display?: MobileChatDisplay;
   clientMessageId?: string;
   toolCallId: string | null;
   toolName: string | null;
@@ -269,6 +271,7 @@ export function serializeMobileChatMessage(input: {
   const visibleText = extractPiMessageText(piMessage, { hideAttachmentMetadata: true })
     || stripAttachmentBlocks(contentToString(parsed.content));
   const toolCallId = mobileToolCallId(parsed);
+  const display = projectMobileChatDisplay(original, toolCallId);
   const clientMessageId = typeof parsed.clientMessageId === 'string'
     && parsed.clientMessageId.trim().length <= 256
     ? parsed.clientMessageId.trim()
@@ -281,6 +284,7 @@ export function serializeMobileChatMessage(input: {
     text: visibleText,
     ...(clientMessageId ? { clientMessageId } : {}),
     ...(emailAction ? { emailAction } : {}),
+    ...(display ? { display } : {}),
     toolCallId,
     toolName: messageToolName(parsed),
     toolInput: toolCallId ? toolInputsById.get(toolCallId) || null : null,

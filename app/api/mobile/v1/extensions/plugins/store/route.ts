@@ -44,6 +44,7 @@ export async function GET(request: NextRequest) {
       connection: parseCanvasPluginStoreConnectionType(request.nextUrl.searchParams.get('connection')),
       state: parseState(request.nextUrl.searchParams.get('state')),
       scope,
+      actor: { userId: session.user.id, workspaceId: request.nextUrl.searchParams.get('workspaceId') },
     });
 
     return NextResponse.json({

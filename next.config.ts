@@ -64,6 +64,8 @@ const nextConfig: NextConfig = {
   serverExternalPackages: externalPackages,
   outputFileTracingIncludes: {
     '/api/chat/tool-apps': ['./public/_canvas-tool-apps/*.html'],
+    '/api/mobile/v1/sessions/*/mcp-apps/render': ['./public/_canvas-tool-apps/mobile-mcp-host-v1.js'],
+    '/__preview/*/mobile-mcp/*': ['./public/_canvas-tool-apps/mobile-mcp-host-v1.js'],
   },
   outputFileTracingExcludes: {
     '/*': ['./data/**/*'],
@@ -108,6 +110,18 @@ const nextConfig: NextConfig = {
             value: 'strict-origin-when-cross-origin',
           },
         ],
+      },
+      {
+        source: '/__preview/:ticket([A-Za-z0-9_-]{43})/mobile-mcp/:mode(host|frame|document)',
+        headers: [{ key: 'Referrer-Policy', value: 'no-referrer' }],
+      },
+      {
+        source: '/__preview/:ticket([A-Za-z0-9_-]{43})/mobile-mcp/host',
+        headers: [{ key: 'X-Frame-Options', value: 'DENY' }],
+      },
+      {
+        source: '/__preview/:ticket([A-Za-z0-9_-]{43})/mobile-mcp/:mode(frame|document)',
+        headers: [{ key: 'X-Frame-Options', value: '' }],
       },
     ];
   },

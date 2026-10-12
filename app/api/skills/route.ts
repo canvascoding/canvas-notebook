@@ -4,14 +4,14 @@ import { headers } from 'next/headers';
 import { auth } from '@/app/lib/auth';
 import { loadCapabilityCandidates, resolveEffectiveCapabilitySnapshot } from '@/app/lib/capabilities/catalog';
 import { selectVisibleCapabilities } from '@/app/lib/capabilities/visible-capabilities';
+import { assertReadableCapabilityCandidate } from '@/app/lib/capabilities/resources/read';
 import {
   resolveCapabilityExecutionContextForUser,
   resolveCapabilityStorageScope,
 } from '@/app/lib/capabilities/request-scope';
 import { readOrganizationPermissionForUser } from '@/app/lib/organization/permissions';
 import { parseSkillFile } from '@/app/lib/skills/canvas-skill-manifest';
-import { loadSkillSummaries, matchesSkillSummaryQuery, type SkillSummary } from '@/app/lib/skills/skill-summaries';
-import { readEnabledSkillsForScope } from '@/app/lib/skills/skill-settings';
+import { matchesSkillSummaryQuery, type SkillSummary } from '@/app/lib/skills/skill-summaries';
 import { paginateItems, parsePositiveInteger } from '@/app/lib/utils/pagination';
 
 const DEFAULT_SUMMARY_LIMIT = 50;
@@ -25,13 +25,15 @@ export async function GET(request: NextRequest) {
 
   try {
     const organizationState = await readOrganizationPermissionForUser(session.user.id);
+    if (organizationState.configured && organizationState.permission?.status !== 'active') {
+      return NextResponse.json({ success: false, error: 'Active organization membership required' }, { status: 403 });
+    }
     const scope = resolveCapabilityStorageScope({
       requestedScope: request.nextUrl.searchParams.get('scope'),
       userId: session.user.id,
       organizationState,
     });
     const summaryOnly = request.nextUrl.searchParams.get('summary') === '1';
-    const enabledSkills = await readEnabledSkillsForScope(scope);
     let skills;
     if (scope.scopeType === 'organization') {
       const candidates = await loadCapabilityCandidates({
@@ -43,10 +45,11 @@ export async function GET(request: NextRequest) {
         .filter((candidate) => candidate.ref.resourceType === 'plugin')
         .map((candidate) => [candidate.ref.resourceId, candidate.ref]));
       skills = (await Promise.all(candidates
-        .filter((candidate) => candidate.ref.resourceType === 'skill' && candidate.ref.scopeType === 'organization' && candidate.runtimePath)
+        .filter((candidate) => candidate.ref.resourceType === 'skill' && candidate.ref.scopeType === 'organization' && candidate.runtimePath && candidate.resourceAccess?.canRead !== false)
         .map(async (candidate) => {
           const skill = await parseSkillFile(candidate.runtimePath!);
           if (!skill) return null;
+          await assertReadableCapabilityCandidate({ userId: session.user.id }, candidate, candidates);
           const plugin = candidate.pluginResourceId ? pluginNames.get(candidate.pluginResourceId) : null;
           return {
             ...skill,
@@ -56,6 +59,9 @@ export async function GET(request: NextRequest) {
             sourceType: candidate.ref.sourceType,
             revision: candidate.ref.revision,
             checksum: candidate.ref.checksum,
+            resourceMetadata: candidate.resourceMetadata,
+            resourceAccess: candidate.resourceAccess,
+            description: candidate.resourceMetadata?.description ?? skill.description,
             plugin: plugin ? {
               name: plugin.name,
               version: plugin.version,
@@ -74,10 +80,11 @@ export async function GET(request: NextRequest) {
         .filter((entry) => entry.ref.resourceType === 'plugin')
         .map((entry) => [entry.ref.resourceId, entry.ref]));
       skills = (await Promise.all(selectVisibleCapabilities(snapshot.capabilities)
-        .filter((entry) => entry.ref.resourceType === 'skill' && entry.runtimePath)
+        .filter((entry) => entry.ref.resourceType === 'skill' && entry.runtimePath && entry.resourceAccess?.canRead !== false)
         .map(async (entry) => {
           const skill = await parseSkillFile(entry.runtimePath!);
           if (!skill) return null;
+          await assertReadableCapabilityCandidate({ userId: session.user.id, workspaceId: capabilityContext.workspaceId }, entry, snapshot.capabilities);
           const plugin = entry.pluginResourceId ? pluginNames.get(entry.pluginResourceId) : null;
           return {
             ...skill,
@@ -87,6 +94,10 @@ export async function GET(request: NextRequest) {
             sourceType: entry.ref.sourceType,
             revision: entry.ref.revision,
             checksum: entry.ref.checksum,
+            resourceMetadata: entry.resourceMetadata,
+            resourceAccess: entry.resourceAccess,
+            description: entry.resourceMetadata?.description ?? skill.description,
+            ...(entry.ref.scopeType === 'user' && entry.ref.ownerUserId !== session.user.id ? { path: '', directory: '' } : {}),
             readiness: entry.readiness,
             effectivePolicy: entry.effectivePolicy,
             blockedReason: entry.blockedReason,
@@ -98,9 +109,18 @@ export async function GET(request: NextRequest) {
           };
         }))).filter((skill): skill is NonNullable<typeof skill> => Boolean(skill));
     } else {
-      skills = summaryOnly
-        ? await loadSkillSummaries(enabledSkills, scope)
-        : await (await import('@/app/lib/skills/skill-loader')).loadSkillsFromDisk(enabledSkills, scope);
+      const candidates = await loadCapabilityCandidates({ userId: session.user.id, organizationId: '' }, { resolveConnections: false });
+      skills = (await Promise.all(selectVisibleCapabilities(candidates)
+        .filter(entry => entry.ref.resourceType === 'skill' && entry.runtimePath && entry.resourceAccess?.canRead !== false)
+        .map(async entry => {
+          const skill = await parseSkillFile(entry.runtimePath!);
+          if (!skill) return null;
+          await assertReadableCapabilityCandidate({ userId: session.user.id }, entry, candidates);
+          return { ...skill, enabled: entry.enabled, resourceId: entry.ref.resourceId,
+            scopeType: entry.ref.scopeType, sourceType: entry.ref.sourceType, revision: entry.ref.revision,
+            checksum: entry.ref.checksum, resourceMetadata: entry.resourceMetadata, resourceAccess: entry.resourceAccess,
+            description: entry.resourceMetadata?.description ?? skill.description };
+        }))).filter((skill): skill is NonNullable<typeof skill> => Boolean(skill));
     }
     const query = request.nextUrl.searchParams.get('query')?.trim().toLowerCase() || '';
     const enabledOnly = request.nextUrl.searchParams.get('enabledOnly') === '1';

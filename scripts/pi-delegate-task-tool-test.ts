@@ -65,7 +65,8 @@ async function main() {
     const { db } = testDatabase;
     const { user } = await import('../app/lib/db/schema');
     const { createAgentProfile } = await import('../app/lib/agents/registry');
-    const { createDelegateTaskTool } = await import('../app/lib/pi/delegate-task-tool');
+    const { createDelegateTaskTool, delegatedIntegrationOutcomeError } = await import('../app/lib/pi/delegate-task-tool');
+    const { INTEGRATION_GATEWAY_ERROR_MESSAGES } = await import('../app/lib/integration-tools/agent-errors');
     const { buildPiToolRegistry, getPiTools } = await import('../app/lib/pi/tool-registry');
 
     const now = new Date('2026-05-28T10:00:00.000Z');
@@ -208,6 +209,16 @@ async function main() {
     assert.equal(mainRegistryTools.some((mainTool) => mainTool.name === 'delegate_task'), true);
     assert.equal(childTools.some((childTool) => childTool.name === 'delegate_task'), false);
     assert.equal(childTools.some((childTool) => childTool.name === 'session_search'), true);
+
+    const uncertain = { role: 'toolResult', toolName: 'integrations', toolCallId: 'uncertain', content: [], timestamp: Date.now(),
+      details: { integrationError: { version: 1, error: { code: 'outcome_unknown', message: INTEGRATION_GATEWAY_ERROR_MESSAGES.outcome_unknown } } } };
+    assert.equal(delegatedIntegrationOutcomeError([uncertain as never]), INTEGRATION_GATEWAY_ERROR_MESSAGES.outcome_unknown);
+    assert.equal(delegatedIntegrationOutcomeError([uncertain as never], 1), undefined,
+      'Managed worker history from a previous task cannot fail a newly admitted task.');
+    assert.equal(delegatedIntegrationOutcomeError([{ ...uncertain, toolName: 'native_fixture' } as never]), undefined,
+      'A native provider result cannot impersonate the integration gateway.');
+    assert.equal(delegatedIntegrationOutcomeError([{ ...uncertain, details: { integrationError: {
+      version: 1, error: { code: 'outcome_unknown', message: 'SECRET provider text' } } } } as never]), undefined);
 
     console.log('pi-delegate-task-tool-test: ok');
   } finally {

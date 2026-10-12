@@ -94,3 +94,28 @@ export async function isComposioConfigured(storageScope?: EnvStorageScope | null
 export function resetComposioInstance(): void {
   composioInstances.clear();
 }
+
+export async function getLocalComposioApiKeyForContext(context: ResolvedComposioContext): Promise<string | null> {
+  if (!context.profileOwnership) return getLocalComposioApiKey(context.storageScope);
+  if (context.providerMode !== 'local') return null;
+  if (context.storageScope.secretScope !== 'organization' || !context.storageScope.organizationId) return null;
+  const state = await readScopedEnvState('integrations', context.storageScope);
+  return state.entries.find(entry => entry.key === 'COMPOSIO_API_KEY')?.value.trim() || null;
+}
+
+export async function getComposioModeForContext(context: ResolvedComposioContext): Promise<ComposioMode> {
+  if (!context.profileOwnership) return getComposioMode(context.storageScope);
+  return context.providerMode === 'local' ? await getLocalComposioApiKeyForContext(context) ? 'local' : 'disabled'
+    : context.providerMode === 'managed' && isManagedComposioAvailable() ? 'managed' : 'disabled';
+}
+
+export async function getComposioForContext(context: ResolvedComposioContext): Promise<Composio | null> {
+  if (!context.profileOwnership) return getComposio(context.storageScope);
+  const apiKey = await getLocalComposioApiKeyForContext(context);
+  if (!apiKey) return null;
+  const cached = composioInstances.get(apiKey);
+  if (cached) return cached;
+  const client = new Composio({ apiKey });
+  composioInstances.set(apiKey, client);
+  return client;
+}

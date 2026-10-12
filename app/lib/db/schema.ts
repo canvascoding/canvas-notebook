@@ -647,7 +647,14 @@ export const canvasWorkspaceMembers = pgTable("canvas_workspace_members", {
 
 export const composioConnectionProfiles = pgTable("composio_connection_profiles", {
   id: text("id").primaryKey(),
-  ownerUserId: text("owner_user_id").notNull().references(() => user.id, { onDelete: 'cascade' }),
+  ownerUserId: text("owner_user_id").references(() => user.id, { onDelete: 'cascade' }),
+  scopeType: text("scope_type").notNull().default("user"),
+  organizationId: text("organization_id").references(() => canvasOrganizationSettings.organizationId, { onDelete: 'cascade' }),
+  workspaceId: text("workspace_id").references(() => canvasWorkspaces.id, { onDelete: 'restrict' }),
+  createdByUserId: text("created_by_user_id").references(() => user.id, { onDelete: 'set null' }),
+  updatedByUserId: text("updated_by_user_id").references(() => user.id, { onDelete: 'set null' }),
+  providerMode: text("provider_mode"),
+  profileRevision: bigint("profile_revision", { mode: "number" }).notNull().default(1),
   name: text("name").notNull(),
   composioUserId: text("composio_user_id").notNull(),
   isDefault: pgBoolean("is_default").notNull().default(false),
@@ -658,6 +665,13 @@ export const composioConnectionProfiles = pgTable("composio_connection_profiles"
   ownerStatusIdx: index("idx_composio_profiles_owner_status").on(table.ownerUserId, table.status, table.createdAt),
   ownerDefaultIdx: uniqueIndex("idx_composio_profiles_owner_default").on(table.ownerUserId).where(sql`${table.isDefault} = 1 AND ${table.status} = 'active'`),
   externalUserIdx: uniqueIndex("idx_composio_profiles_external_user").on(table.composioUserId),
+  scopeIdx: index("idx_composio_profiles_scope").on(table.scopeType, table.organizationId, table.workspaceId, table.status),
+  ownershipCheck: check("composio_profiles_ownership_check", sql`
+    (${table.scopeType} = 'user' AND ${table.ownerUserId} IS NOT NULL AND ${table.organizationId} IS NULL AND ${table.workspaceId} IS NULL AND ${table.providerMode} IS NULL)
+    OR (${table.scopeType} = 'organization' AND ${table.ownerUserId} IS NULL AND ${table.organizationId} IS NOT NULL AND ${table.workspaceId} IS NULL AND ${table.isDefault} = 0 AND ${table.providerMode} IS NOT NULL AND ${table.providerMode} IN ('local', 'managed'))
+    OR (${table.scopeType} = 'workspace' AND ${table.ownerUserId} IS NULL AND ${table.organizationId} IS NOT NULL AND ${table.workspaceId} IS NOT NULL AND ${table.isDefault} = 0 AND ${table.providerMode} IS NOT NULL AND ${table.providerMode} IN ('local', 'managed'))
+  `),
+  revisionCheck: check("composio_profiles_revision_check", sql`${table.profileRevision} >= 1`),
 }));
 
 export const composioWorkspaceProfileOverrides = pgTable("composio_workspace_profile_overrides", {
@@ -674,17 +688,31 @@ export const composioWorkspaceProfileOverrides = pgTable("composio_workspace_pro
 export const composioOauthFlowStates = pgTable("composio_oauth_flow_states", {
   stateHash: text("state_hash").primaryKey(),
   userId: text("user_id").notNull().references(() => user.id, { onDelete: 'cascade' }),
-  workspaceId: text("workspace_id").notNull().references(() => canvasWorkspaces.id, { onDelete: 'cascade' }),
+  workspaceId: text("workspace_id").references(() => canvasWorkspaces.id, { onDelete: 'cascade' }),
   profileId: text("profile_id").notNull().references(() => composioConnectionProfiles.id, { onDelete: 'cascade' }),
   composioUserId: text("composio_user_id").notNull(),
   toolkitSlug: text("toolkit_slug").notNull(),
   returnPath: text("return_path").notNull(),
   expiresAt: pgTimestamp("expires_at").notNull(),
   consumedAt: pgTimestamp("consumed_at"),
+  connectionRef: text("connection_ref"),
+  scopeType: text("scope_type"),
+  organizationId: text("organization_id"),
+  ownerWorkspaceId: text("owner_workspace_id"),
+  profileRevision: bigint("profile_revision", { mode: "number" }),
+  metadataRevision: bigint("metadata_revision", { mode: "number" }),
+  grantsRevision: bigint("grants_revision", { mode: "number" }),
+  bindingRevision: bigint("binding_revision", { mode: "number" }),
+  authorizationRevision: text("authorization_revision"),
+  providerMode: text("provider_mode"),
+  credentialRevision: text("credential_revision"),
+  pendingAccountId: text("pending_account_id"),
+  actorContext: text("actor_context"),
   createdAt: pgTimestamp("created_at").notNull(),
 }, (table) => ({
   expiryIdx: index("idx_composio_oauth_states_expiry").on(table.expiresAt, table.consumedAt),
   userProfileIdx: index("idx_composio_oauth_states_user_profile").on(table.userId, table.profileId, table.createdAt),
+  workspaceCheck: check("composio_oauth_workspace_check", sql`${table.connectionRef} IS NOT NULL OR ${table.workspaceId} IS NOT NULL`),
 }));
 
 export const workspaceTrashEntries = pgTable("workspace_trash_entries", {
@@ -1139,6 +1167,369 @@ export const capabilityPolicies = pgTable("capability_policies", {
   effectCheck: check("capability_policies_effect_check", sql`${table.effect} IN ('optional', 'default-enabled', 'required', 'blocked')`),
 }));
 
+// Resource ownership is independent of creator/editor identity and of runtime grants.
+export const capabilityResources = pgTable("capability_resources", {
+  resourceRef: text("resource_ref").primaryKey(),
+  storageBindingKey: text("storage_binding_key").notNull().unique(),
+  legacyResourceId: text("legacy_resource_id").notNull().unique(),
+  resourceType: text("resource_type").notNull(),
+  sourceType: text("source_type").notNull(),
+  sourcePluginId: text("source_plugin_id"),
+  artifactName: text("artifact_name").notNull(),
+  storageScopeType: text("storage_scope_type").notNull(),
+  storageOrganizationId: text("storage_organization_id").references(() => canvasOrganizationSettings.organizationId, { onDelete: 'cascade' }),
+  storageOwnerUserId: text("storage_owner_user_id").references(() => user.id, { onDelete: 'cascade' }),
+  ownershipType: text("ownership_type").notNull(),
+  organizationId: text("organization_id").references(() => canvasOrganizationSettings.organizationId, { onDelete: 'cascade' }),
+  ownerUserId: text("owner_user_id").references(() => user.id, { onDelete: 'cascade' }),
+  teamWorkspaceId: text("team_workspace_id").references(() => canvasWorkspaces.id, { onDelete: 'cascade' }),
+  displayName: text("display_name"),
+  description: text("description"),
+  responsibleUserId: text("responsible_user_id").references(() => user.id, { onDelete: 'set null' }),
+  createdByUserId: text("created_by_user_id").references(() => user.id, { onDelete: 'set null' }),
+  updatedByUserId: text("updated_by_user_id").references(() => user.id, { onDelete: 'set null' }),
+  metadataRevision: bigint("metadata_revision", { mode: "number" }).notNull().default(1),
+  grantsRevision: bigint("grants_revision", { mode: "number" }).notNull().default(1),
+  accessMode: text("access_mode").notNull().default('inherit'),
+  status: text("status").notNull().default('active'),
+  createdAt: pgTimestamp("created_at").notNull(),
+  updatedAt: pgTimestamp("updated_at").notNull(),
+}, (table) => ({
+  organizationIdx: index("idx_capability_resources_organization").on(table.organizationId, table.ownershipType, table.status),
+  ownerIdx: index("idx_capability_resources_owner").on(table.ownerUserId, table.status),
+  teamIdx: index("idx_capability_resources_team").on(table.teamWorkspaceId, table.status),
+  resourceTypeCheck: check("capability_resources_type_check", sql`${table.resourceType} IN ('skill', 'plugin')`),
+  sourceTypeCheck: check("capability_resources_source_check", sql`${table.sourceType} IN ('core', 'standalone', 'plugin')`),
+  revisionsCheck: check("capability_resources_revisions_check", sql`${table.metadataRevision} >= 1 AND ${table.grantsRevision} >= 1`),
+  accessModeCheck: check("capability_resources_access_check", sql`${table.accessMode} IN ('inherit', 'restricted')`),
+  statusCheck: check("capability_resources_status_check", sql`${table.status} IN ('active', 'archived')`),
+  ownershipCheck: check("capability_resources_ownership_check", sql`
+    (${table.ownershipType} = 'user' AND ${table.ownerUserId} IS NOT NULL AND ${table.teamWorkspaceId} IS NULL
+      AND ${table.storageScopeType} = 'user' AND ${table.storageOwnerUserId} = ${table.ownerUserId} AND ${table.storageOrganizationId} IS NULL)
+    OR (${table.ownershipType} = 'organization' AND ${table.organizationId} IS NOT NULL AND ${table.ownerUserId} IS NULL AND ${table.teamWorkspaceId} IS NULL
+      AND ${table.storageScopeType} = 'organization' AND ${table.storageOrganizationId} = ${table.organizationId} AND ${table.storageOwnerUserId} IS NULL)
+    OR (${table.ownershipType} = 'team' AND ${table.organizationId} IS NOT NULL AND ${table.ownerUserId} IS NULL AND ${table.teamWorkspaceId} IS NOT NULL
+      AND ${table.storageScopeType} = 'organization' AND ${table.storageOrganizationId} = ${table.organizationId} AND ${table.storageOwnerUserId} IS NULL)
+    OR (${table.ownershipType} = 'system' AND ${table.organizationId} IS NULL AND ${table.ownerUserId} IS NULL AND ${table.teamWorkspaceId} IS NULL
+      AND ${table.storageScopeType} = 'system' AND ${table.storageOrganizationId} IS NULL AND ${table.storageOwnerUserId} IS NULL)
+  `),
+}));
+
+export const capabilityResourceGrants = pgTable("capability_resource_grants", {
+  id: text("id").primaryKey(),
+  resourceRef: text("resource_ref").notNull().references(() => capabilityResources.resourceRef, { onDelete: 'cascade' }),
+  targetType: text("target_type").notNull(),
+  targetId: text("target_id").notNull(),
+  targetUserId: text("target_user_id").references(() => user.id, { onDelete: 'cascade' }),
+  targetWorkspaceId: text("target_workspace_id").references(() => canvasWorkspaces.id, { onDelete: 'cascade' }),
+  targetProjectId: text("target_project_id").references(() => canvasProjects.id, { onDelete: 'cascade' }),
+  canUse: pgBoolean("can_use").notNull().default(false),
+  canEdit: pgBoolean("can_edit").notNull().default(false),
+  canManage: pgBoolean("can_manage").notNull().default(false),
+  createdByUserId: text("created_by_user_id").references(() => user.id, { onDelete: 'set null' }),
+  updatedByUserId: text("updated_by_user_id").references(() => user.id, { onDelete: 'set null' }),
+  createdAt: pgTimestamp("created_at").notNull(),
+  updatedAt: pgTimestamp("updated_at").notNull(),
+}, (table) => ({
+  bindingIdx: uniqueIndex("idx_capability_resource_grants_binding").on(table.resourceRef, table.targetType, table.targetId),
+  targetIdx: index("idx_capability_resource_grants_target").on(table.targetType, table.targetId, table.resourceRef),
+  flagsCheck: check("capability_resource_grants_flags_check", sql`${table.canUse} IN (0, 1) AND ${table.canEdit} IN (0, 1) AND ${table.canManage} IN (0, 1)`),
+  targetCheck: check("capability_resource_grants_target_check", sql`
+    (${table.targetType} IN ('organization', 'role') AND ${table.targetUserId} IS NULL AND ${table.targetWorkspaceId} IS NULL AND ${table.targetProjectId} IS NULL)
+    OR (${table.targetType} = 'user' AND ${table.targetUserId} IS NOT NULL AND ${table.targetUserId} = ${table.targetId} AND ${table.targetWorkspaceId} IS NULL AND ${table.targetProjectId} IS NULL)
+    OR (${table.targetType} = 'workspace' AND ${table.targetWorkspaceId} IS NOT NULL AND ${table.targetWorkspaceId} = ${table.targetId} AND ${table.targetUserId} IS NULL AND ${table.targetProjectId} IS NULL)
+    OR (${table.targetType} = 'project' AND ${table.targetProjectId} IS NOT NULL AND ${table.targetProjectId} = ${table.targetId} AND ${table.targetUserId} IS NULL AND ${table.targetWorkspaceId} IS NULL)
+  `),
+}));
+
+// Audit history contains revisions and actor identity only, never artifact bodies or credentials.
+export const capabilityResourceHistory = pgTable("capability_resource_history", {
+  id: text("id").primaryKey(),
+  resourceRef: text("resource_ref").notNull().references(() => capabilityResources.resourceRef, { onDelete: 'cascade' }),
+  actorUserId: text("actor_user_id").references(() => user.id, { onDelete: 'set null' }),
+  action: text("action").notNull(),
+  metadataRevision: bigint("metadata_revision", { mode: "number" }).notNull(),
+  grantsRevision: bigint("grants_revision", { mode: "number" }).notNull(),
+  createdAt: pgTimestamp("created_at").notNull(),
+}, (table) => ({
+  resourceIdx: index("idx_capability_resource_history_resource").on(table.resourceRef, table.createdAt),
+  actionCheck: check("capability_resource_history_action_check", sql`${table.action} IN ('adopt', 'mutate')`),
+}));
+
+// Package bytes have an independent immutable history; resource grants remain authoritative.
+export const capabilityPackageStates = pgTable('capability_package_states', {
+  resourceRef: text('resource_ref').primaryKey().references(() => capabilityResources.resourceRef, { onDelete: 'cascade' }),
+  kind: text('kind').notNull(),
+  name: text('name').notNull(),
+  packageRevision: bigint('package_revision', { mode: 'number' }).notNull(),
+  currentPublishedRevisionRef: text('current_published_revision_ref').notNull(),
+  currentSourceStamp: text('current_source_stamp').notNull(),
+  updatedByUserId: text('updated_by_user_id').references(() => user.id, { onDelete: 'set null' }),
+  updatedAt: pgTimestamp('updated_at').notNull(),
+}, table => ({
+  kindCheck: check('capability_package_states_kind_check', sql`${table.kind} IN ('skill','plugin')`),
+  revisionCheck: check('capability_package_states_revision_check', sql`${table.packageRevision} >= 1`),
+}));
+
+export const capabilityPackageVersions = pgTable('capability_package_versions', {
+  revisionRef: text('revision_ref').primaryKey(),
+  resourceRef: text('resource_ref').notNull().references(() => capabilityResources.resourceRef, { onDelete: 'cascade' }),
+  kind: text('kind').notNull(), name: text('name').notNull(), version: text('version').notNull(), checksum: text('checksum').notNull(),
+  files: text('files').notNull(), totalBytes: bigint('total_bytes', { mode: 'number' }).notNull(),
+  publishedByUserId: text('published_by_user_id').references(() => user.id, { onDelete: 'set null' }),
+  publishedAt: pgTimestamp('published_at').notNull(), baseRevisionRef: text('base_revision_ref'),
+  sourceResourceRef: text('source_resource_ref').notNull(), sourceRevisionRef: text('source_revision_ref'), sourceChecksum: text('source_checksum').notNull(),
+  sourceStamp: text('source_stamp').notNull(),
+}, table => ({
+  resourceIdx: index('idx_capability_package_versions_resource').on(table.resourceRef, table.publishedAt),
+  kindCheck: check('capability_package_versions_kind_check', sql`${table.kind} IN ('skill','plugin')`),
+  sizeCheck: check('capability_package_versions_size_check', sql`${table.totalBytes} >= 0 AND ${table.totalBytes} <= 262144000`),
+}));
+
+// A fork target is reserved privately and is created only in the successful publication transaction.
+export const capabilityPackageDrafts = pgTable('capability_package_drafts', {
+  draftRef: text('draft_ref').primaryKey(), resourceRef: text('resource_ref').notNull(),
+  actorUserId: text('actor_user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  kind: text('kind').notNull(), name: text('name').notNull(), operation: text('operation').notNull(),
+  draftRevision: bigint('draft_revision', { mode: 'number' }).notNull().default(1),
+  basePackageRevision: bigint('base_package_revision', { mode: 'number' }).notNull(), basePublishedRevisionRef: text('base_published_revision_ref'),
+  baseSourceStamp: text('base_source_stamp').notNull(), sourceResourceRef: text('source_resource_ref').notNull(),
+  sourceMetadataRevision: bigint('source_metadata_revision', { mode: 'number' }).notNull(),
+  sourceGrantsRevision: bigint('source_grants_revision', { mode: 'number' }).notNull(),
+  sourcePackageRevision: bigint('source_package_revision', { mode: 'number' }).notNull(), sourcePublishedRevisionRef: text('source_published_revision_ref'),
+  sourceStorage: text('source_storage').notNull(), sourceParentStorage: text('source_parent_storage'),
+  targetStorage: text('target_storage').notNull(), targetOwnership: text('target_ownership').notNull(),
+  createdAt: pgTimestamp('created_at').notNull(), updatedAt: pgTimestamp('updated_at').notNull(),
+}, table => ({
+  actorIdx: index('idx_capability_package_drafts_actor').on(table.actorUserId, table.createdAt),
+  kindCheck: check('capability_package_drafts_kind_check', sql`${table.kind} IN ('skill','plugin')`),
+  operationCheck: check('capability_package_drafts_operation_check', sql`${table.operation} IN ('edit','fork')`),
+  revisionCheck: check('capability_package_drafts_revision_check', sql`${table.draftRevision} >= 1 AND ${table.basePackageRevision} >= 0`),
+}));
+
+// Shared provider bindings have their own lifecycle; package grants do not grant accounts.
+export const integrationConnectionResources = pgTable("integration_connection_resources", {
+  connectionRef: text("connection_ref").primaryKey(),
+  source: text("source").notNull(),
+  ownershipType: text("ownership_type").notNull(),
+  organizationId: text("organization_id").notNull().references(() => canvasOrganizationSettings.organizationId, { onDelete: 'cascade' }),
+  teamWorkspaceId: text("team_workspace_id").references(() => canvasWorkspaces.id, { onDelete: 'restrict' }),
+  displayName: text("display_name").notNull(),
+  description: text("description"),
+  responsibleUserId: text("responsible_user_id").references(() => user.id, { onDelete: 'set null' }),
+  createdByUserId: text("created_by_user_id").references(() => user.id, { onDelete: 'set null' }),
+  updatedByUserId: text("updated_by_user_id").references(() => user.id, { onDelete: 'set null' }),
+  metadataRevision: bigint("metadata_revision", { mode: "number" }).notNull().default(1),
+  grantsRevision: bigint("grants_revision", { mode: "number" }).notNull().default(1),
+  bindingRevision: bigint("binding_revision", { mode: "number" }).notNull().default(1),
+  allowedToolNamesJson: text("allowed_tool_names_json"),
+  accessMode: text("access_mode").notNull().default('restricted'),
+  status: text("status").notNull().default('active'),
+  backendConnectionId: text("backend_connection_id"),
+  backendProfileId: text("backend_profile_id").references(() => composioConnectionProfiles.id, { onDelete: 'restrict' }),
+  backendToolkit: text("backend_toolkit"),
+  backendMode: text("backend_mode"),
+  accountBinding: text("account_binding"),
+  backendAccountId: text("backend_account_id"),
+  createdAt: pgTimestamp("created_at").notNull(),
+  updatedAt: pgTimestamp("updated_at").notNull(),
+}, (table) => ({
+  ownerIdx: index("idx_integration_connections_owner").on(table.organizationId, table.ownershipType, table.teamWorkspaceId, table.status),
+  mcpBindingIdx: uniqueIndex("idx_integration_connections_mcp_binding").on(table.backendConnectionId).where(sql`${table.source} = 'mcp'`),
+  profileIdx: index("idx_integration_connections_profile").on(table.backendProfileId, table.status),
+  ownerCheck: check("integration_connections_owner_check", sql`
+    (${table.ownershipType} = 'organization' AND ${table.teamWorkspaceId} IS NULL)
+    OR (${table.ownershipType} = 'team' AND ${table.teamWorkspaceId} IS NOT NULL)`),
+  revisionsCheck: check("integration_connections_revisions_check", sql`${table.metadataRevision} >= 1 AND ${table.grantsRevision} >= 1 AND ${table.bindingRevision} >= 1`),
+  accessCheck: check("integration_connections_access_check", sql`${table.accessMode} IN ('restricted', 'inherit') AND ${table.status} IN ('active', 'archived')`),
+  backendCheck: check("integration_connections_backend_check", sql`
+    (${table.source} = 'mcp' AND ${table.backendConnectionId} IS NOT NULL AND ${table.backendProfileId} IS NULL
+      AND ${table.backendToolkit} IS NULL AND ${table.backendMode} IS NULL AND ${table.accountBinding} IS NULL AND ${table.backendAccountId} IS NULL)
+    OR (${table.source} = 'composio' AND ${table.backendConnectionId} IS NULL AND ${table.backendProfileId} IS NOT NULL
+      AND ${table.backendToolkit} IS NOT NULL AND ${table.backendMode} IS NOT NULL AND ${table.backendMode} IN ('local', 'managed')
+      AND ${table.accountBinding} IS NOT NULL
+      AND ((${table.accountBinding} IN ('pending', 'no_auth') AND ${table.backendAccountId} IS NULL)
+        OR (${table.accountBinding} = 'account' AND ${table.backendAccountId} IS NOT NULL)))`),
+}));
+
+export const integrationConnectionGrants = pgTable("integration_connection_grants", {
+  id: text("id").primaryKey(),
+  connectionRef: text("connection_ref").notNull().references(() => integrationConnectionResources.connectionRef, { onDelete: 'cascade' }),
+  targetType: text("target_type").notNull(),
+  targetId: text("target_id").notNull(),
+  targetUserId: text("target_user_id").references(() => user.id, { onDelete: 'cascade' }),
+  targetWorkspaceId: text("target_workspace_id").references(() => canvasWorkspaces.id, { onDelete: 'cascade' }),
+  targetProjectId: text("target_project_id").references(() => canvasProjects.id, { onDelete: 'cascade' }),
+  targetAgentId: text("target_agent_id").references(() => agents.agentId, { onDelete: 'cascade' }),
+  canUse: pgBoolean("can_use").notNull().default(false),
+  canManage: pgBoolean("can_manage").notNull().default(false),
+  allowedToolNamesJson: text("allowed_tool_names_json"),
+  createdByUserId: text("created_by_user_id").references(() => user.id, { onDelete: 'set null' }),
+  updatedByUserId: text("updated_by_user_id").references(() => user.id, { onDelete: 'set null' }),
+  createdAt: pgTimestamp("created_at").notNull(),
+  updatedAt: pgTimestamp("updated_at").notNull(),
+}, (table) => ({
+  bindingIdx: uniqueIndex("idx_integration_connection_grants_binding").on(table.connectionRef, table.targetType, table.targetId),
+  targetIdx: index("idx_integration_connection_grants_target").on(table.targetType, table.targetId, table.connectionRef),
+  flagsCheck: check("integration_connection_grants_flags_check", sql`${table.canUse} IN (0, 1) AND ${table.canManage} IN (0, 1)`),
+  targetCheck: check("integration_connection_grants_target_check", sql`
+    (${table.targetType} IN ('organization', 'role') AND ${table.targetUserId} IS NULL AND ${table.targetWorkspaceId} IS NULL AND ${table.targetProjectId} IS NULL AND ${table.targetAgentId} IS NULL)
+    OR (${table.targetType} = 'user' AND ${table.targetUserId} = ${table.targetId} AND ${table.targetUserId} IS NOT NULL AND ${table.targetWorkspaceId} IS NULL AND ${table.targetProjectId} IS NULL AND ${table.targetAgentId} IS NULL)
+    OR (${table.targetType} = 'workspace' AND ${table.targetWorkspaceId} = ${table.targetId} AND ${table.targetWorkspaceId} IS NOT NULL AND ${table.targetUserId} IS NULL AND ${table.targetProjectId} IS NULL AND ${table.targetAgentId} IS NULL)
+    OR (${table.targetType} = 'project' AND ${table.targetProjectId} = ${table.targetId} AND ${table.targetProjectId} IS NOT NULL AND ${table.targetUserId} IS NULL AND ${table.targetWorkspaceId} IS NULL AND ${table.targetAgentId} IS NULL)
+    OR (${table.targetType} = 'agent' AND ${table.targetAgentId} = ${table.targetId} AND ${table.targetAgentId} IS NOT NULL AND ${table.targetUserId} IS NULL AND ${table.targetWorkspaceId} IS NULL AND ${table.targetProjectId} IS NULL)`),
+}));
+
+export const integrationConnectionHistory = pgTable("integration_connection_history", {
+  id: text("id").primaryKey(),
+  connectionRef: text("connection_ref").notNull().references(() => integrationConnectionResources.connectionRef, { onDelete: 'cascade' }),
+  actorUserId: text("actor_user_id").references(() => user.id, { onDelete: 'set null' }),
+  action: text("action").notNull(),
+  metadataRevision: bigint("metadata_revision", { mode: "number" }).notNull(),
+  grantsRevision: bigint("grants_revision", { mode: "number" }).notNull(),
+  bindingRevision: bigint("binding_revision", { mode: "number" }).notNull(),
+  createdAt: pgTimestamp("created_at").notNull(),
+}, (table) => ({
+  resourceIdx: index("idx_integration_connection_history_resource").on(table.connectionRef, table.createdAt),
+}));
+
+/** Private same-flow commit evidence for shared MCP desktop OAuth. No OAuth secrets are stored here. */
+export const mcpSharedDesktopOAuthCommits = pgTable("mcp_shared_desktop_oauth_commits", {
+  stateHash: text("state_hash").primaryKey(),
+  snapshotHash: text("snapshot_hash").notNull(),
+  authSessionHash: text("auth_session_hash").notNull(),
+  actorHash: text("actor_hash").notNull(),
+  connectionRef: text("connection_ref").notNull().references(() => integrationConnectionResources.connectionRef, { onDelete: 'cascade' }),
+  backendConnectionId: text("backend_connection_id").notNull(),
+  initiatingUserId: text("initiating_user_id").notNull(),
+  preMetadataRevision: bigint("pre_metadata_revision", { mode: "number" }).notNull(),
+  preGrantsRevision: bigint("pre_grants_revision", { mode: "number" }).notNull(),
+  preBindingRevision: bigint("pre_binding_revision", { mode: "number" }).notNull(),
+  publishedBindingRevision: bigint("published_binding_revision", { mode: "number" }).notNull(),
+  preAuthorizationRevision: text("pre_authorization_revision").notNull(),
+  postAuthorizationRevision: text("post_authorization_revision").notNull(),
+  authVersion: bigint("auth_version", { mode: "number" }).notNull(),
+  configHash: text("config_hash").notNull(),
+  lifecycleGeneration: bigint("lifecycle_generation", { mode: "number" }).notNull(),
+  committedAt: pgTimestamp("committed_at").notNull(),
+}, table => ({
+  resourceIdx: index("idx_mcp_shared_desktop_commits_resource").on(table.connectionRef, table.committedAt),
+  hashesCheck: check("mcp_shared_desktop_commits_hashes_check", sql`${table.stateHash} ~ '^[a-f0-9]{64}$'
+    AND ${table.snapshotHash} ~ '^[a-f0-9]{64}$' AND ${table.authSessionHash} ~ '^[a-f0-9]{64}$'
+    AND ${table.actorHash} ~ '^[a-f0-9]{64}$' AND ${table.configHash} ~ '^[a-f0-9]{64}$'`),
+  revisionsCheck: check("mcp_shared_desktop_commits_revisions_check", sql`${table.preMetadataRevision} >= 1
+    AND ${table.preGrantsRevision} >= 1 AND ${table.preBindingRevision} >= 1
+    AND ${table.publishedBindingRevision} = ${table.preBindingRevision} + 1
+    AND ${table.authVersion} >= 1 AND ${table.lifecycleGeneration} >= 0 AND ${table.committedAt} >= 1`),
+}));
+
+/** Private shared Composio Desktop flow. Intent, state, session ID and provider URL are never plaintext SQL fields. */
+export const composioSharedDesktopOAuthTransactions = pgTable("composio_shared_desktop_oauth_transactions", {
+  stateHash: text("state_hash").primaryKey(),
+  contractVersion: bigint("contract_version", { mode: "number" }).notNull(),
+  connectionRef: text("connection_ref").notNull().references(() => integrationConnectionResources.connectionRef, { onDelete: 'cascade' }),
+  initiatingUserId: text("initiating_user_id").notNull().references(() => user.id, { onDelete: 'cascade' }),
+  ownershipType: text("ownership_type").notNull(),
+  organizationId: text("organization_id").notNull(),
+  ownerWorkspaceId: text("owner_workspace_id"),
+  actorHash: text("actor_hash").notNull(),
+  authSessionHash: text("auth_session_hash").notNull(),
+  snapshotHash: text("snapshot_hash").notNull(),
+  sealedSnapshot: text("sealed_snapshot").notNull(),
+  authorizationUrlHash: text("authorization_url_hash"),
+  status: text("status").notNull(),
+  terminalCode: text("terminal_code"),
+  createdAt: pgTimestamp("created_at").notNull(),
+  expiresAt: pgTimestamp("expires_at").notNull(),
+  updatedAt: pgTimestamp("updated_at").notNull(),
+  callbackReceivedAt: pgTimestamp("callback_received_at"),
+  terminalAt: pgTimestamp("terminal_at"),
+}, table => ({
+  ownerIdx: index("idx_composio_shared_desktop_transactions_owner").on(table.initiatingUserId, table.status, table.expiresAt),
+  resourceIdx: index("idx_composio_shared_desktop_transactions_resource").on(table.connectionRef, table.createdAt),
+  terminalIdx: index("idx_composio_shared_desktop_transactions_terminal").on(table.status, table.terminalAt),
+  hashesCheck: check("composio_shared_desktop_transactions_hashes_check", sql`${table.stateHash} ~ '^[a-f0-9]{64}$'
+    AND ${table.actorHash} ~ '^[a-f0-9]{64}$' AND ${table.authSessionHash} ~ '^[a-f0-9]{64}$'
+    AND ${table.snapshotHash} ~ '^[a-f0-9]{64}$'
+    AND (${table.authorizationUrlHash} IS NULL OR ${table.authorizationUrlHash} ~ '^[a-f0-9]{64}$')`),
+  ownershipCheck: check("composio_shared_desktop_transactions_ownership_check", sql`length(${table.organizationId}) BETWEEN 1 AND 200 AND (
+    (${table.ownershipType} = 'organization' AND ${table.ownerWorkspaceId} IS NULL)
+    OR (${table.ownershipType} = 'team' AND ${table.ownerWorkspaceId} IS NOT NULL AND length(${table.ownerWorkspaceId}) BETWEEN 1 AND 200))`),
+  statusCheck: check("composio_shared_desktop_transactions_status_check", sql`${table.contractVersion} = 1
+    AND ${table.status} IN ('starting','waiting','callback_received','completed','cancelled','expired','failed')
+    AND (${table.status} <> 'waiting' OR ${table.authorizationUrlHash} IS NOT NULL)
+    AND (${table.terminalCode} IS NULL OR
+      (${table.status} = 'cancelled' AND ${table.terminalCode} = 'CONNECTION_DESKTOP_OAUTH_CANCELLED') OR
+      (${table.status} = 'expired' AND ${table.terminalCode} = 'CONNECTION_DESKTOP_OAUTH_EXPIRED') OR
+      (${table.status} = 'failed' AND ${table.terminalCode} = 'CONNECTION_DESKTOP_OAUTH_FAILED'))`),
+  valuesCheck: check("composio_shared_desktop_transactions_values_check", sql`length(${table.sealedSnapshot}) BETWEEN 1 AND 65536
+    AND length(${table.initiatingUserId}) BETWEEN 1 AND 200 AND ${table.createdAt} >= 1
+    AND ${table.expiresAt} > ${table.createdAt} AND ${table.updatedAt} >= ${table.createdAt}
+    AND (${table.callbackReceivedAt} IS NULL OR ${table.callbackReceivedAt} >= ${table.createdAt})
+    AND (${table.terminalAt} IS NULL OR ${table.terminalAt} >= ${table.createdAt})`),
+}));
+
+/** Durable cancellation before a start acknowledgement. No provider request or secret snapshot is created. */
+export const composioSharedDesktopOAuthCancellations = pgTable("composio_shared_desktop_oauth_cancellations", {
+  stateHash: text("state_hash").primaryKey(),
+  connectionRef: text("connection_ref").notNull().references(() => integrationConnectionResources.connectionRef, { onDelete: 'cascade' }),
+  initiatingUserId: text("initiating_user_id").notNull().references(() => user.id, { onDelete: 'cascade' }),
+  actorHash: text("actor_hash").notNull(),
+  authSessionHash: text("auth_session_hash").notNull(),
+  metadataRevision: bigint("metadata_revision", { mode: "number" }).notNull(),
+  grantsRevision: bigint("grants_revision", { mode: "number" }).notNull(),
+  bindingRevision: bigint("binding_revision", { mode: "number" }).notNull(),
+  createdAt: pgTimestamp("created_at").notNull(),
+  expiresAt: pgTimestamp("expires_at").notNull(),
+}, table => ({
+  resourceIdx: index("idx_composio_shared_desktop_cancellations_resource").on(table.connectionRef, table.createdAt),
+  hashesCheck: check("composio_shared_desktop_cancellations_hashes_check", sql`${table.stateHash} ~ '^[a-f0-9]{64}$'
+    AND ${table.actorHash} ~ '^[a-f0-9]{64}$' AND ${table.authSessionHash} ~ '^[a-f0-9]{64}$'`),
+  valuesCheck: check("composio_shared_desktop_cancellations_values_check", sql`${table.metadataRevision} BETWEEN 1 AND 9007199254740991
+    AND ${table.grantsRevision} BETWEEN 1 AND 9007199254740991 AND ${table.bindingRevision} BETWEEN 1 AND 9007199254740991
+    AND length(${table.initiatingUserId}) BETWEEN 1 AND 200 AND ${table.createdAt} >= 1 AND ${table.expiresAt} > ${table.createdAt}`),
+}));
+
+/** Same-transaction publication evidence; hashes never replace current manager/session authority. */
+export const composioSharedDesktopOAuthCommits = pgTable("composio_shared_desktop_oauth_commits", {
+  stateHash: text("state_hash").primaryKey().references(() => composioSharedDesktopOAuthTransactions.stateHash, { onDelete: 'cascade' }),
+  snapshotHash: text("snapshot_hash").notNull(),
+  actorHash: text("actor_hash").notNull(),
+  authSessionHash: text("auth_session_hash").notNull(),
+  connectionRef: text("connection_ref").notNull().references(() => integrationConnectionResources.connectionRef, { onDelete: 'cascade' }),
+  initiatingUserId: text("initiating_user_id").notNull().references(() => user.id, { onDelete: 'cascade' }),
+  profileIdHash: text("profile_id_hash").notNull(),
+  composioUserIdHash: text("composio_user_id_hash").notNull(),
+  pendingAccountHash: text("pending_account_hash").notNull(),
+  authorizationUrlHash: text("authorization_url_hash").notNull(),
+  profileRevision: bigint("profile_revision", { mode: "number" }).notNull(),
+  toolkit: text("toolkit").notNull(),
+  providerMode: text("provider_mode").notNull(),
+  credentialRevision: text("credential_revision").notNull(),
+  preMetadataRevision: bigint("pre_metadata_revision", { mode: "number" }).notNull(),
+  preGrantsRevision: bigint("pre_grants_revision", { mode: "number" }).notNull(),
+  preBindingRevision: bigint("pre_binding_revision", { mode: "number" }).notNull(),
+  publishedBindingRevision: bigint("published_binding_revision", { mode: "number" }).notNull(),
+  preAuthorizationRevision: text("pre_authorization_revision").notNull(),
+  postAuthorizationRevision: text("post_authorization_revision").notNull(),
+  committedAt: pgTimestamp("committed_at").notNull(),
+}, table => ({
+  resourceIdx: index("idx_composio_shared_desktop_commits_resource").on(table.connectionRef, table.committedAt),
+  hashesCheck: check("composio_shared_desktop_commits_hashes_check", sql`${table.stateHash} ~ '^[a-f0-9]{64}$'
+    AND ${table.snapshotHash} ~ '^[a-f0-9]{64}$' AND ${table.actorHash} ~ '^[a-f0-9]{64}$'
+    AND ${table.authSessionHash} ~ '^[a-f0-9]{64}$' AND ${table.profileIdHash} ~ '^[a-f0-9]{64}$'
+    AND ${table.composioUserIdHash} ~ '^[a-f0-9]{64}$' AND ${table.pendingAccountHash} ~ '^[a-f0-9]{64}$'
+    AND ${table.authorizationUrlHash} ~ '^[a-f0-9]{64}$' AND ${table.credentialRevision} ~ '^[a-f0-9]{64}$'`),
+  bindingCheck: check("composio_shared_desktop_commits_binding_check", sql`${table.profileRevision} >= 1
+    AND ${table.preMetadataRevision} >= 1 AND ${table.preGrantsRevision} >= 1 AND ${table.preBindingRevision} >= 1
+    AND ${table.publishedBindingRevision} = ${table.preBindingRevision} + 1
+    AND ${table.preAuthorizationRevision} ~ '^[A-Za-z0-9_-]{43}$'
+    AND ${table.postAuthorizationRevision} ~ '^[A-Za-z0-9_-]{43}$'
+    AND ${table.preAuthorizationRevision} <> ${table.postAuthorizationRevision}
+    AND ${table.providerMode} IN ('local','managed') AND ${table.toolkit} ~ '^[a-z0-9][a-z0-9_-]{0,99}$'
+    AND length(${table.initiatingUserId}) BETWEEN 1 AND 200 AND ${table.committedAt} >= 1`),
+}));
+
 export const aiProviderInstallations = pgTable("ai_provider_installations", {
   id: text("id").primaryKey(),
   organizationId: text("organization_id").notNull().references(() => canvasOrganizationSettings.organizationId, { onDelete: 'cascade' }),
@@ -1441,11 +1832,29 @@ export const piSessionCompactionAttempts = pgTable("pi_session_compaction_attemp
   stateCheck: check("pi_compaction_attempts_state_check", sql`${table.state} IN ('running', 'succeeded', 'no_op', 'deferred', 'failed', 'aborted', 'stale', 'timed_out')`),
 }));
 
+// Append-only uncertainty prevents old queued integration bindings from retrying
+// after process restart or expiry of the bounded in-memory turn cache.
+export const integrationTurnOutcomes = pgTable("integration_turn_outcomes", {
+  bindingKey: text("binding_key").primaryKey(),
+  actorUserId: text("actor_user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  sessionId: text("session_id").notNull(),
+  // Historical issued identity must not be rewritten by generic agent-ID alias migrations.
+  agentId: text("agent_identity"),
+  workspaceId: text("workspace_id").notNull(),
+  agentTurnId: text("agent_turn_id"),
+  outcome: text("outcome").notNull().default("outcome_unknown"),
+  createdAt: pgTimestamp("created_at").notNull(),
+}, (table) => ({
+  outcomeCheck: check("integration_turn_outcomes_outcome_check", sql`${table.outcome} = 'outcome_unknown'`),
+}));
+
 export const piDelegations = pgTable("pi_delegations", {
   id: text("id").primaryKey(),
   userId: text("user_id").notNull().references(() => user.id, { onDelete: 'cascade' }),
   sourceSessionId: text("source_session_id").notNull(),
   sourceAgentId: text("source_agent_id").notNull(),
+  // Immutable server-issued turn; the SQL name excludes generic agent-ID backfills.
+  sourceAgentTurnId: text("source_agent_turn_identity"),
   workerSessionId: text("worker_session_id").notNull(),
   requestedSessionId: text("requested_session_id"),
   targetAgentId: text("target_agent_id"),
@@ -1454,6 +1863,8 @@ export const piDelegations = pgTable("pi_delegations", {
   context: text("context"),
   workerRole: text("worker_role"),
   toolsetsJson: text("toolsets_json").notNull().default("[]"),
+  // Server-validated metadata for explicitly handed-off Composio operations; never credentials.
+  integrationBindingsJson: text("integration_bindings_json"),
   status: text("status").notNull().default("queued"),
   resultStatus: text("result_status"),
   resultText: text("result_text"),
@@ -1538,6 +1949,8 @@ export const agents = pgTable("agents", {
   enabledToolsJson: text("enabled_tools_json"),
   relevantSkillsJson: text("relevant_skills_json"),
   relevantConnectionsJson: text("relevant_connections_json"),
+  workflowVersion: bigint("workflow_version", { mode: "number" }),
+  workflowRevision: bigint("workflow_revision", { mode: "number" }).notNull().default(0),
   accessPolicy: text("access_policy").notNull().default("legacy"),
   scopeType: text("scope_type").notNull().default("user"),
   organizationId: text("organization_id").references(() => canvasOrganizationSettings.organizationId, { onDelete: 'cascade' }),
@@ -1599,6 +2012,7 @@ export const agentCapabilityBindings = pgTable("agent_capability_bindings", {
   resourceId: text("resource_id").notNull(),
   name: text("name").notNull(),
   version: text("version"),
+  configurationJson: text("configuration_json"),
   requirement: text("requirement").notNull().default("optional"),
   revision: bigint("revision", { mode: "number" }).notNull().default(1),
   createdAt: pgTimestamp("created_at").notNull(),

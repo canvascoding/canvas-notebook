@@ -9,6 +9,7 @@ import { filterMcpToolsForModel } from '@/app/lib/mcp/apps-metadata';
 import { mcpReconnectDetails } from '@/app/lib/mcp/connection-health';
 import { isMcpServerEnabled, readMcpConfig, type McpServerConfig } from '@/app/lib/mcp/config';
 import type { McpScope } from '@/app/lib/mcp/scope';
+import { assertLegacyIntegrationEntryPointAllowed } from '@/app/lib/integration-tools/legacy-gate';
 
 export type DirectMcpToolWarning = {
   server: string;
@@ -46,7 +47,9 @@ function makeDirectTool(serverName: string, tool: Tool, directName: string, scop
     executionMode: 'sequential',
     execute: async (_toolCallId, params, signal): Promise<AgentToolResult<unknown>> => {
       try {
-        const invocation = await callMcpToolWithCurrentMetadata(identity, tool.name, params as Record<string, unknown>, signal, scope);
+        await assertLegacyIntegrationEntryPointAllowed();
+        const invocation = await callMcpToolWithCurrentMetadata(identity, tool.name, params as Record<string, unknown>, signal, scope,
+          { beforeDispatch: assertLegacyIntegrationEntryPointAllowed });
         return await prepareMcpToolInvocation(serverName, tool.name, invocation, params as Record<string, unknown>, _toolCallId);
       } catch (error) {
         const message = getErrorMessage(error);

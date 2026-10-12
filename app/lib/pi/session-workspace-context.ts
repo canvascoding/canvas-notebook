@@ -7,10 +7,7 @@ import { getAgentAccessOnConnection, requireAgentAccess } from '@/app/lib/agents
 import { DEFAULT_MANAGED_AGENT_ID } from '@/app/lib/agents/storage';
 import { db, openDb, type SqlConnection } from '@/app/lib/db';
 import { piSessions } from '@/app/lib/db/schema';
-import {
-  resolveEffectiveSkillReadRoots,
-  resolvePersonalSkillReadRoots,
-} from '@/app/lib/skills/effective-skill-read-roots';
+import { captureCapabilityPackageRuntimeBindings } from '@/app/lib/capabilities/packages/runtime-bindings';
 import {
   LEGACY_PERSONAL_WORKSPACE_ID,
   resolveWorkspaceActor,
@@ -175,31 +172,11 @@ export function workspaceFromAgentExecutionContext(executionContext: AgentExecut
 export async function addEffectiveSkillReadRoots(
   executionContext: AgentExecutionContext,
 ): Promise<AgentExecutionContext> {
-  if (!executionContext.organizationId) {
-    try {
-      const skillReadRoots = await resolvePersonalSkillReadRoots({
-        userId: executionContext.userId,
-        agentId: executionContext.agentId,
-      });
-      return { ...executionContext, skillReadRoots };
-    } catch (error) {
-      console.warn('[AgentExecutionContext] Failed to resolve personal skill read roots:', error);
-      return { ...executionContext, skillReadRoots: [] };
-    }
-  }
-
   try {
-    const skillReadRoots = await resolveEffectiveSkillReadRoots({
-      organizationId: executionContext.organizationId,
-      userId: executionContext.userId,
-      workspaceId: executionContext.workspaceId,
-      projectId: executionContext.projectId,
-      agentId: executionContext.agentId,
-    });
-    return { ...executionContext, skillReadRoots };
+    return { ...executionContext, ...await captureCapabilityPackageRuntimeBindings(executionContext) };
   } catch (error) {
     console.warn('[AgentExecutionContext] Failed to resolve effective skill read roots:', error);
-    return { ...executionContext, skillReadRoots: [] };
+    return { ...executionContext, skillReadRoots: [], skillPackageBindings: [] };
   }
 }
 
@@ -307,7 +284,7 @@ export async function ensurePiSessionWorkspaceSnapshot(input: {
   return brandContext ? { ...workspace, brandContext } : workspace;
 }
 
-export async function resolveAgentExecutionContextForSession(input: {
+async function resolveAgentContextBeforeSkillCaptureForSession(input: {
   sessionId: string;
   userId: string;
   agentId?: string | null;
@@ -325,12 +302,31 @@ export async function resolveAgentExecutionContextForSession(input: {
     projectId: workspace.projectId,
   });
 
-  return addEffectiveSkillReadRoots(workspaceToAgentExecutionContext({
+  return workspaceToAgentExecutionContext({
     workspace,
     userId: input.userId,
     sessionId: input.sessionId,
     agentId: input.agentId ?? null,
-  }));
+  });
+}
+
+export async function resolveAgentExecutionContextForSession(input: {
+  sessionId: string;
+  userId: string;
+  agentId?: string | null;
+  permissions?: WorkspacePermissionRequirement[];
+}): Promise<AgentExecutionContext> {
+  return addEffectiveSkillReadRoots(await resolveAgentContextBeforeSkillCaptureForSession(input));
+}
+
+/** Widget authorization keeps current workspace/brand and agent-use checks, without capturing runtime skill files. */
+export async function resolveAgentAuthorizationContextForSession(input: {
+  sessionId: string;
+  userId: string;
+  agentId?: string | null;
+  permissions?: WorkspacePermissionRequirement[];
+}): Promise<AgentExecutionContext> {
+  return { ...await resolveAgentContextBeforeSkillCaptureForSession(input), skillReadRoots: [], skillPackageBindings: [] };
 }
 
 /**

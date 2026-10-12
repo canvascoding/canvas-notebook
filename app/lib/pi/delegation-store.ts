@@ -4,6 +4,7 @@ import { and, asc, desc, eq, inArray, isNotNull, isNull, or, sql } from 'drizzle
 
 import { db } from '@/app/lib/db';
 import { piDelegations } from '@/app/lib/db/schema';
+import { serializeDelegatedIntegrationSnapshot, type PrivateDelegatedIntegrationSnapshot } from '@/app/lib/integration-tools/delegation-contracts';
 
 export type PiDelegationWorkerType = 'ephemeral' | 'managed';
 export type PiDelegationStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
@@ -22,6 +23,7 @@ export type CreatePiDelegationInput = {
   userId: string;
   sourceSessionId: string;
   sourceAgentId: string;
+  sourceAgentTurnId?: string | null;
   workerSessionId: string;
   requestedSessionId?: string;
   targetAgentId?: string;
@@ -30,6 +32,7 @@ export type CreatePiDelegationInput = {
   context?: string;
   workerRole?: string;
   toolsets: string[];
+  integrationBindingSnapshot?: PrivateDelegatedIntegrationSnapshot | null;
 };
 
 export class ManagedWorkerBusyError extends Error {
@@ -66,6 +69,12 @@ export function piDelegationToolsets(record: Pick<PiDelegationRecord, 'toolsetsJ
 }
 
 export async function createPiDelegation(input: CreatePiDelegationInput): Promise<PiDelegationRecord> {
+  const integrationBindingsJson = input.integrationBindingSnapshot ? serializeDelegatedIntegrationSnapshot(input.integrationBindingSnapshot) : null;
+  if (input.integrationBindingSnapshot && (input.integrationBindingSnapshot.parent.actorUserId !== input.userId
+    || input.integrationBindingSnapshot.parent.sessionId !== input.sourceSessionId
+    || input.integrationBindingSnapshot.parent.agentId !== input.sourceAgentId)) {
+    throw new Error('Approved integration binding does not belong to the delegating session.');
+  }
   const now = new Date();
   let created: PiDelegationRecord | undefined;
   try {
@@ -74,6 +83,7 @@ export async function createPiDelegation(input: CreatePiDelegationInput): Promis
       userId: input.userId,
       sourceSessionId: input.sourceSessionId,
       sourceAgentId: input.sourceAgentId,
+      sourceAgentTurnId: input.sourceAgentTurnId ?? null,
       workerSessionId: input.workerSessionId,
       requestedSessionId: input.requestedSessionId ?? null,
       targetAgentId: input.targetAgentId ?? null,
@@ -82,6 +92,7 @@ export async function createPiDelegation(input: CreatePiDelegationInput): Promis
       context: input.context ?? null,
       workerRole: input.workerRole ?? null,
       toolsetsJson: JSON.stringify(input.toolsets),
+      integrationBindingsJson,
       status: 'queued',
       deliveryStatus: 'pending',
       attemptCount: 0,
