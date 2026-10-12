@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "generator": "scripts/generate-third-party-notices.ts",
-  "packageVersion": "2026.10.12.10",
-  "lockfileSha256": "62fcc5ee29f54ba8f5a5bd672f95eacbb121aa3c8f15663764a46e0d42697535",
+  "packageVersion": "2026.10.12.11",
+  "lockfileSha256": "1ef0f3f860f3b51e635052e79dc4cc456ad40b551943e5a71f8dd29bf69a7ddf",
   "summary": {
     "totalComponents": 1965,
     "npmComponents": 1939,
