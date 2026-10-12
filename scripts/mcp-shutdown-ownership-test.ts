@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { readFileSync } from 'node:fs';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import path from 'node:path';
 import { test } from 'node:test';
 import ts from 'typescript';
@@ -26,8 +27,9 @@ export function loadMcpManager(options: LoaderOptions = {}): ManagerModule {
     module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true,
   }, fileName: filename }).outputText;
   const exports = {};
+  const mockRequire = (specifier: string) => specifier === 'node:async_hooks' ? { AsyncLocalStorage } : {};
   new Function('require', 'module', 'exports', 'globalThis', 'process', 'setInterval', 'console', compiled)(
-    () => ({}), { exports }, exports, options.global ?? globalThis,
+    mockRequire, { exports }, exports, options.global ?? globalThis,
     options.process ?? process, options.setInterval ?? setInterval, options.console ?? console,
   );
   return exports as ManagerModule;
