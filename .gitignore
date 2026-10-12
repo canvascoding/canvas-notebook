@@ -108,3 +108,4 @@ docs/*
 /public/_canvas-tool-apps/
 
 /packages/decision-models/dist/
+/release-app-build/

@@ -133,10 +133,27 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 ARG CANVAS_RELEASE_BUILD_SKIP_TYPECHECK=0
 ARG CANVAS_RELEASE_BUILD_LOW_MEMORY=0
+ARG CANVAS_RELEASE_USE_PREBUILT_APP=0
+ARG CANVAS_RELEASE_SOURCE_SHA
+ARG CANVAS_RELEASE_BUILD_RUN_ID
 ENV NODE_OPTIONS=--max-old-space-size=6144 \
     CANVAS_RELEASE_BUILD_SKIP_TYPECHECK=${CANVAS_RELEASE_BUILD_SKIP_TYPECHECK} \
     CANVAS_RELEASE_BUILD_LOW_MEMORY=${CANVAS_RELEASE_BUILD_LOW_MEMORY}
-RUN npm run build
+RUN npm run prebuild
+RUN if [ "$CANVAS_RELEASE_BUILD_SKIP_TYPECHECK" != "1" ]; then \
+      node ./node_modules/next/dist/bin/next typegen \
+      && node ./node_modules/typescript/bin/tsc --project tsconfig.release.json --noEmit --incremental false; \
+    fi
+RUN if [ "$CANVAS_RELEASE_USE_PREBUILT_APP" = "1" ]; then \
+      CANVAS_RELEASE_SOURCE_SHA="$CANVAS_RELEASE_SOURCE_SHA" CANVAS_RELEASE_BUILD_RUN_ID="$CANVAS_RELEASE_BUILD_RUN_ID" node scripts/release-app-build.mjs verify; \
+    else \
+      CANVAS_RELEASE_BUILD_SKIP_TYPECHECK=1 node --disable-warning=DEP0205 ./node_modules/next/dist/bin/next build --experimental-build-mode compile; \
+    fi
+RUN if [ "$CANVAS_RELEASE_USE_PREBUILT_APP" != "1" ]; then \
+      CANVAS_RELEASE_BUILD_SKIP_TYPECHECK=1 node --disable-warning=DEP0205 ./node_modules/next/dist/bin/next build --experimental-build-mode generate \
+      && bash scripts/inject-cli-version.sh; \
+    fi \
+    && node scripts/collaboration-production-module-test.mjs
 
 # Keep the already locked production tsx dependency; a second npm install
 # would re-resolve versions after the verified build. Do not rerun native

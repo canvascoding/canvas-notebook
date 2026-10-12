@@ -142,6 +142,20 @@ jobs:
           CANVAS_RELEASE_BUILD_LOW_MEMORY: "1"
         run: node ./node_modules/next/dist/bin/next build --experimental-build-mode generate && bash scripts/inject-cli-version.sh && npm run test:collaboration:production-modules
 
+      - name: Package verified application build
+        env:
+          CANVAS_RELEASE_SOURCE_SHA: ${{ needs.source.outputs.commit_sha }}
+          CANVAS_RELEASE_BUILD_RUN_ID: ${{ github.run_id }}
+        run: node scripts/release-app-build.mjs pack
+
+      - name: Upload verified application build
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-app-build-${{ needs.source.outputs.commit_sha }}
+          path: release-app-build/
+          if-no-files-found: error
+          compression-level: 0
+
   release-typecheck:
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -207,6 +221,12 @@ jobs:
         with:
           ref: ${{ needs.source.outputs.commit_sha }}
 
+      - name: Download verified application build
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-app-build-${{ needs.source.outputs.commit_sha }}
+          path: release-app-build/
+
       - name: Set up Node.js for amd64 Linux CLI
         if: startsWith(github.ref, 'refs/tags/v')
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
@@ -262,6 +282,9 @@ jobs:
           build-args: |
             CANVAS_RELEASE_BUILD_SKIP_TYPECHECK=1
             CANVAS_RELEASE_BUILD_LOW_MEMORY=1
+            CANVAS_RELEASE_USE_PREBUILT_APP=1
+            CANVAS_RELEASE_SOURCE_SHA=${{ needs.source.outputs.commit_sha }}
+            CANVAS_RELEASE_BUILD_RUN_ID=${{ github.run_id }}
           platforms: linux/amd64
           tags: |
             ${{ env.GHCR_IMAGE }}:build-${{ github.run_id }}-${{ github.run_attempt }}-${{ needs.source.outputs.commit_sha }}-amd64
@@ -343,6 +366,12 @@ jobs:
         with:
           ref: ${{ needs.source.outputs.commit_sha }}
 
+      - name: Download verified application build
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-app-build-${{ needs.source.outputs.commit_sha }}
+          path: release-app-build/
+
       - name: Set up Node.js for arm64 Linux CLI
         if: startsWith(github.ref, 'refs/tags/v')
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
@@ -398,6 +427,9 @@ jobs:
           build-args: |
             CANVAS_RELEASE_BUILD_SKIP_TYPECHECK=1
             CANVAS_RELEASE_BUILD_LOW_MEMORY=1
+            CANVAS_RELEASE_USE_PREBUILT_APP=1
+            CANVAS_RELEASE_SOURCE_SHA=${{ needs.source.outputs.commit_sha }}
+            CANVAS_RELEASE_BUILD_RUN_ID=${{ github.run_id }}
           platforms: linux/arm64
           tags: |
             ${{ env.GHCR_IMAGE }}:build-${{ github.run_id }}-${{ github.run_attempt }}-${{ needs.source.outputs.commit_sha }}-arm64

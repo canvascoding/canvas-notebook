@@ -44,13 +44,13 @@ const nextConfig: NextConfig = {
   ...(multiprocessTestPort ? {
     distDir: `.next/multiprocess-${multiprocessTestPort}`,
   } : {}),
-  ...(multiprocessTestPort || skipBuildTypecheck ? {
-    typescript: {
-      ...(multiprocessTestPort ? { tsconfigPath: `tsconfig.multiprocess-${multiprocessTestPort}.json` } : {}),
-      // The release workflow runs this typecheck in its own memory-bounded job.
-      ...(skipBuildTypecheck ? { ignoreBuildErrors: true } : {}),
-    },
-  } : {}),
+  typescript: {
+    tsconfigPath: multiprocessTestPort
+      ? `tsconfig.multiprocess-${multiprocessTestPort}.json`
+      : 'tsconfig.release.json',
+    // The release workflow runs this typecheck in its own memory-bounded job.
+    ...(skipBuildTypecheck ? { ignoreBuildErrors: true } : {}),
+  },
 
   ...(allowedDevOrigins.length > 0 ? { allowedDevOrigins } : {}),
 
@@ -146,7 +146,10 @@ const nextConfig: NextConfig = {
 
   // Experimental features
   experimental: {
-    ...(lowMemoryReleaseBuild ? { cpus: 1, memoryBasedWorkersCount: true } : {}),
+    ...(lowMemoryReleaseBuild ? {
+      cpus: 1,
+      memoryBasedWorkersCount: true,
+    } : {}),
     serverActions: {
       bodySizeLimit: '10mb', // Für File Uploads
     },
