@@ -644,6 +644,7 @@
     "test:collaboration:native-recovery": "tsx --conditions react-server scripts/collaboration-native-recovery-test.ts",
     "test:collaboration:native-schema": "tsx --conditions react-server scripts/collaboration-native-schema-test.ts",
     "test:files:native-mixed-batch": "tsx --conditions react-server scripts/workspace-native-mixed-batch-test.ts",
+    "test:files:native-link-persistence:postgres": "NODE_ENV=test tsx --conditions react-server scripts/native-link-mutation-postgres-test.ts",
     "test:collaboration:native-copy": "tsx --conditions react-server scripts/collaboration-native-copy-postgres-test.ts",
     "test:files:native-links": "tsx --conditions react-server scripts/workspace-native-links-test.ts && tsx --conditions react-server scripts/workspace-native-link-mutations-test.ts",
     "test:collaboration:markdown-projection": "tsx --conditions react-server scripts/markdown-codec-projection-diagnosis-test.ts && tsx --conditions react-server scripts/markdown-control-character-roundtrip-test.ts",
