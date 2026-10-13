@@ -643,6 +643,7 @@
     "test:collaboration:text-snapshot": "tsx --conditions react-server scripts/collaboration-text-snapshot-read-test.ts",
     "test:collaboration:native-file-read": "tsx --conditions react-server scripts/workspace-native-file-read-test.ts && tsx --conditions react-server scripts/collaborative-file-read-test.ts && tsx --conditions react-server scripts/file-collaboration-read-test.ts",
     "test:files:native-read-stats": "NODE_ENV=test tsx --test scripts/native-file-read-stats-dialog-test.tsx",
+    "test:files:native-info": "NODE_ENV=test CANVAS_MCP_DIRECT_ENABLED=false BETTER_AUTH_BASE_URL=https://canvas.test tsx --conditions react-server --test scripts/native-file-info-route-test.ts",
     "test:collaboration:native-file-read:postgres": "NODE_ENV=test CANVAS_DATABASE_PROVIDER=postgres CANVAS_MCP_DIRECT_ENABLED=false tsx --conditions react-server scripts/workspace-native-file-read-postgres-test.ts",
     "test:files:native-download": "tsx --conditions react-server scripts/native-file-download-route-test.ts && tsx --conditions react-server scripts/native-workspace-download-archive-test.ts",
     "test:collaboration:native-recovery": "tsx --conditions react-server scripts/collaboration-native-recovery-test.ts",

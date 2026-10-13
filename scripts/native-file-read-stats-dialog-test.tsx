@@ -20,6 +20,7 @@ const priorGlobals = new Map<string, PropertyDescriptor | undefined>();
 const originalFetch = globalThis.fetch;
 const originalTimezone = process.env.TZ;
 const fetched: string[] = [];
+let informationResponse: FileNode | undefined;
 
 // Compile the actual application component, keeping its real formatter,
 // NextIntl hooks, icons, Radix Dialog and UI components. Only the HTTP header
@@ -64,8 +65,8 @@ before(async () => {
   globalThis.fetch = async input => {
     const url = String(input); fetched.push(url);
     assert.equal(url, '/api/files/info?path=note.md');
-    // No replacement metadata: the real component displays its supplied node.
-    return new Response(JSON.stringify({ success: true }), { headers: { 'Content-Type': 'application/json' } });
+    // Transport-only fixtures also exercise the actual metadata replacement.
+    return new Response(JSON.stringify({ success: true, data: informationResponse }), { headers: { 'Content-Type': 'application/json' } });
   };
   FileInfoDialog = await loadActualDialog();
 });
@@ -97,7 +98,8 @@ test('the real closed dialog accepts epoch seconds and genuine absent native met
   assert.equal(fetched.length, requests);
 });
 
-async function inspectOpenDialog(node: FileNode, check: (fields: Map<string, string>) => void): Promise<void> {
+async function inspectOpenDialog(node: FileNode, check: (fields: Map<string, string>) => void, replacement?: FileNode): Promise<void> {
+  informationResponse = replacement;
   const container = document.createElement('div'); document.body.append(container);
   const root: Root = createRoot(container); const requests = fetched.length;
   try {
@@ -114,6 +116,7 @@ async function inspectOpenDialog(node: FileNode, check: (fields: Map<string, str
     // before restoring JSDOM globals, rather than replacing the focus behavior.
     await act(async () => { root.unmount(); await new Promise(resolve => setTimeout(resolve, 0)); });
     container.remove();
+    informationResponse = undefined;
     assert.equal(document.querySelector('[role="dialog"]'), null);
   }
 }
@@ -135,4 +138,22 @@ test('an actual open dialog shows unavailable for unknown native size and dates,
     assert.equal(fields.get('File size'), '0B (0 bytes)');
     assert.equal(fields.get('Last modified'), 'Not available');
   });
+});
+
+test('the actual info response replaces stale physical size and creation time with native metadata', async () => {
+  const checkpoint = nativeNode({ size: 0, modified: Date.UTC(2026, 9, 12, 12) / 1000,
+    created: Date.UTC(2026, 9, 11, 12) / 1000, permissions: '100644' });
+  const native = nativeNode({ modified: Date.UTC(2026, 9, 13, 12) / 1000, title: 'Authoritative title' });
+  await inspectOpenDialog(checkpoint, fields => {
+    assert.equal(fields.get('Last modified'), 'Oct 13, 2026, 12:00 PM');
+    assert.equal(fields.get('Created'), 'Not available');
+    assert.equal(fields.get('File size'), 'Not available');
+    assert.equal(fields.get('Title'), 'Authoritative title');
+  }, native);
+});
+
+test('the actual pending-live response clears cached dates and bytes instead of retaining the old checkpoint', async () => {
+  await inspectOpenDialog(nativeNode({ size: 42, modified: Date.UTC(2026, 9, 12, 12) / 1000 }), fields => {
+    for (const label of ['Last modified', 'Created', 'File size']) assert.equal(fields.get(label), 'Not available');
+  }, nativeNode());
 });
