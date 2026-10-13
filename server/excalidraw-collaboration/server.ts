@@ -24,10 +24,10 @@ import {
   applyExcalidrawScenePatch,
   ExcalidrawSceneResyncError,
   loadExcalidrawScene,
-  markExcalidrawSceneDegraded,
   type PersistedExcalidrawScene,
 } from '@/app/lib/excalidraw-collaboration/repository';
-import { installExcalidrawCollaborationRuntime } from '@/app/lib/excalidraw-collaboration/runtime';
+import { installExcalidrawCollaborationRuntime, installExcalidrawSceneNotificationListener } from '@/app/lib/excalidraw-collaboration/runtime';
+import { flushPendingExcalidrawCheckpoints, startExcalidrawCheckpointWorker } from '@/app/lib/excalidraw-collaboration/checkpoint-worker';
 import { liveCollaborationRuntimeAvailable } from '@/app/lib/collaboration/runtime-policy';
 import { getFileCollaborationState } from '@/app/lib/files/collaboration-policy';
 import { isConfiguredTrustedOrigin } from '@/app/lib/security/trusted-origins';
@@ -36,6 +36,7 @@ import type { ResolvedUserProfile } from '@/app/lib/user-profile/types';
 import { resolveWorkspaceActor } from '@/app/lib/workspaces/context';
 import { resolvePostgresWorkspaceForActor } from '@/app/lib/workspaces/postgres-runtime';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
+import { prepareExcalidrawAppliedDelivery } from './applied-delivery';
 
 const AUTHENTICATION_TIMEOUT_MS = 7_500;
 const HEARTBEAT_INTERVAL_MS = 25_000;
@@ -65,6 +66,9 @@ type Room = {
   connections: Set<ConnectionContext>;
   checkpointTimer: ReturnType<typeof setTimeout> | null;
   checkpointPromise: Promise<void> | null;
+  broadcastSequence: number;
+  broadcastState: PersistedExcalidrawScene | null;
+  lifecycleGeneration: number;
   lastActor: {
     userId: string | null;
     sessionId: string | null;
@@ -149,7 +153,7 @@ function projectRoomPresence(room: Room): void {
   );
 }
 
-function roomFor(context: ConnectionContext): Room {
+function roomFor(context: ConnectionContext, initialState?: PersistedExcalidrawScene): Room {
   let room = rooms.get(context.claims.documentId);
   if (!room) {
     room = {
@@ -158,6 +162,9 @@ function roomFor(context: ConnectionContext): Room {
       connections: new Set(),
       checkpointTimer: null,
       checkpointPromise: null,
+      broadcastSequence: context.acknowledgedSequence,
+      broadcastState: initialState ?? null,
+      lifecycleGeneration: context.claims.lifecycleGeneration,
       lastActor: { userId: null, sessionId: null, actorType: 'user', initiatedByUserId: null },
     };
     rooms.set(context.claims.documentId, room);
@@ -317,9 +324,11 @@ async function runCheckpoint(room: Room): Promise<void> {
   if (room.checkpointPromise) return room.checkpointPromise;
   room.checkpointPromise = (async () => {
     const state = await loadExcalidrawScene(room.documentId);
-    if (!state || state.status !== 'active' || state.checkpointSequence >= state.sceneSequence) return;
+    if (!state || state.status !== 'active') return;
     try {
-      await materializeExcalidrawCheckpoint({
+      const checkpoint = state.checkpointSequence >= state.sceneSequence && state.checkpointRevisionId && !state.degradedReason
+        ? { sceneSequence: state.sceneSequence }
+        : await materializeExcalidrawCheckpoint({
         state,
         workspace: room.workspace,
         actorUserId: room.lastActor.userId,
@@ -331,11 +340,10 @@ async function runCheckpoint(room: Room): Promise<void> {
         type: 'scene:status',
         messageId: messageId(),
         status: 'saved',
-        sceneSequence: state.sceneSequence,
+        sceneSequence: checkpoint.sceneSequence,
       });
     } catch (error) {
       const reason = error instanceof Error ? error.message : 'Excalidraw checkpoint failed.';
-      await markExcalidrawSceneDegraded(room.documentId, reason).catch(() => undefined);
       broadcast(room, {
         schemaVersion: 1,
         type: 'scene:status',
@@ -430,22 +438,15 @@ async function handleAuthenticatedMessage(context: ConnectionContext, value: unk
     actorType: 'user',
     actorId: context.user.id,
   });
-  const applied: ExcalidrawServerMessage = {
-    schemaVersion: 1,
-    type: 'scene:applied',
-    messageId: messageId(),
-    replyTo: value.messageId,
-    elements: result.acceptedElements,
-    appState: result.acceptedAppState,
-    assets: result.state.assets,
-    sceneSequence: result.state.sceneSequence,
-    canonicalHash: result.state.canonicalHash,
-    persisted: true,
-    checkpointed: result.state.checkpointSequence >= result.state.sceneSequence,
-  };
-  if (result.duplicate) send(context.socket, applied);
-  else broadcast(room, applied);
-  context.acknowledgedSequence = result.state.sceneSequence;
+  const delivery = prepareExcalidrawAppliedDelivery({ result, broadcastSequence: room.broadcastSequence,
+    broadcastState: room.broadcastState, replyTo: value.messageId, messageId: messageId() });
+  if (delivery.broadcast) {
+    broadcast(room, delivery.message);
+    room.broadcastSequence = delivery.state.sceneSequence;
+    room.broadcastState = delivery.state;
+  } else send(context.socket, delivery.message);
+  context.acknowledgedSequence = Math.max(context.acknowledgedSequence, delivery.state.sceneSequence);
+  if (result.state.sceneSequence < room.broadcastSequence) return;
   room.workspace = context.workspace;
   room.lastActor = {
     userId: context.user.id,
@@ -501,7 +502,7 @@ export function createExcalidrawCollaborationServer(server: http.Server): WebSoc
           const authenticated = await authenticateConnection(socket, headers, value);
           clearTimeout(authenticationTimer);
           peer.canvasContext = authenticated.context;
-          const room = roomFor(authenticated.context);
+          const room = roomFor(authenticated.context, authenticated.state);
           room.connections.add(authenticated.context);
           send(socket, snapshotMessage(authenticated.state, authenticated.context.claims.permission));
           for (const other of room.connections) {
@@ -566,32 +567,61 @@ export function createExcalidrawCollaborationServer(server: http.Server): WebSoc
     scenePersistenceReady: true,
     assetStoreReady: true,
   });
-  installExcalidrawCollaborationRuntime({
+  const uninstallRuntime = installExcalidrawCollaborationRuntime({
     connectionCount: (documentId) => rooms.get(documentId)?.connections.size ?? 0,
     publishApplied: (documentId, operationId, result, attribution) => {
       const room = rooms.get(documentId);
       if (!room) return;
-      broadcast(room, {
-        schemaVersion: 1,
-        type: 'scene:applied',
-        messageId: messageId(),
-        replyTo: operationId,
-        elements: result.acceptedElements,
-        appState: result.acceptedAppState,
-        assets: result.state.assets,
-        sceneSequence: result.state.sceneSequence,
-        canonicalHash: result.state.canonicalHash,
-        persisted: true,
-        checkpointed: result.state.checkpointSequence >= result.state.sceneSequence,
-      });
+      if (result.state.lifecycleGeneration !== room.lifecycleGeneration) return;
+      const delivery = prepareExcalidrawAppliedDelivery({ result, broadcastSequence: room.broadcastSequence,
+        broadcastState: room.broadcastState, replyTo: operationId, messageId: messageId() });
+      if (!delivery.broadcast) return;
+      broadcast(room, delivery.message);
       room.lastActor = {
         userId: attribution.actorId,
         sessionId: operationId,
         actorType: 'agent',
         initiatedByUserId: attribution.initiatedByUserId,
       };
+      room.broadcastSequence = delivery.state.sceneSequence;
+      room.broadcastState = delivery.state;
       scheduleCheckpoint(room);
     },
+  });
+  const reportBackgroundError = (error: unknown) => {
+    console.warn('[Excalidraw collaboration] Background persistence needs retry.',
+      error instanceof Error ? error.message : 'Unknown persistence error.');
+  };
+  const checkpointWorker = startExcalidrawCheckpointWorker({ onError: reportBackgroundError });
+  const notifications = installExcalidrawSceneNotificationListener({
+    documentIds: () => rooms.keys(),
+    onReconnect: checkpointWorker.recover,
+    onError: reportBackgroundError,
+    onScene: (state, operationId) => {
+      const room = rooms.get(state.documentId);
+      if (!room) return;
+      if (state.status !== 'active' || state.lifecycleGeneration !== room.lifecycleGeneration
+        || state.workspaceId !== room.workspace.workspaceId) {
+        for (const context of room.connections) context.socket.close(4409, 'Excalidraw document lifecycle changed.');
+        return;
+      }
+      if (state.sceneSequence <= room.broadcastSequence) return;
+      // Full durable state closes notification gaps without trusting message content.
+      broadcast(room, {
+        schemaVersion: 1, type: 'scene:applied', messageId: messageId(), replyTo: operationId ?? messageId(),
+        elements: state.elements, appState: state.appState, assets: state.assets,
+        sceneSequence: state.sceneSequence, canonicalHash: state.canonicalHash,
+        persisted: true, checkpointed: state.checkpointSequence >= state.sceneSequence,
+      });
+      room.broadcastSequence = state.sceneSequence;
+      room.broadcastState = state;
+      scheduleCheckpoint(room);
+    },
+  });
+  wss.on('close', () => {
+    uninstallRuntime();
+    void notifications.stop();
+    void checkpointWorker.stop();
   });
   return wss;
 }
@@ -606,4 +636,5 @@ export async function flushExcalidrawCollaborationDocuments(): Promise<void> {
     pending.push(runCheckpoint(room));
   }
   await Promise.all(pending);
+  await flushPendingExcalidrawCheckpoints({ throwOnFailure: false });
 }

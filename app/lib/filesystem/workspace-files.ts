@@ -268,11 +268,12 @@ export async function writeFile(
   content: Buffer | string,
   options?: WorkspaceFileOperationOptions,
   onBeforeReplace?: () => Promise<void>,
+  onStaged?: (identity: { dev: string; ino: string }) => Promise<void>,
 ): Promise<void> {
   return withWorkspaceFileMutationLock(
     filePath,
     options,
-    () => writeFileUnlocked(filePath, content, options, onBeforeReplace),
+    () => writeFileUnlocked(filePath, content, options, onBeforeReplace, onStaged),
   );
 }
 
@@ -281,6 +282,7 @@ async function writeFileUnlocked(
   content: Buffer | string,
   options?: WorkspaceFileOperationOptions,
   onBeforeReplace?: () => Promise<void>,
+  onStaged?: (identity: { dev: string; ino: string }) => Promise<void>,
 ): Promise<void> {
   assertOfficePublicationAllowed(getWorkspace(options).workspaceId, filePath);
   const fullPath = await resolveWritableWorkspacePath(filePath, options);
@@ -300,6 +302,10 @@ async function writeFileUnlocked(
     handle = await fs.open(stagingPath, 'wx', mode);
     await handle.writeFile(buffer);
     await handle.sync();
+    if (onStaged) {
+      const identity = await handle.stat({ bigint: true });
+      await onStaged({ dev: String(identity.dev), ino: String(identity.ino) });
+    }
     await handle.close();
     handle = null;
     await onBeforeReplace?.();
@@ -383,6 +389,7 @@ export async function writeFileIfAbsent(
   content: Buffer | string,
   options?: WorkspaceFileOperationOptions,
   onBeforeReplace?: () => Promise<void>,
+  onStaged?: (identity: { dev: string; ino: string }) => Promise<void>,
 ): Promise<void> {
   return withWorkspaceFileMutationLock(filePath, options, async () => {
     assertOfficePublicationAllowed(getWorkspace(options).workspaceId, filePath);
@@ -393,6 +400,10 @@ export async function writeFileIfAbsent(
       handle = await fs.open(stagingPath, 'wx', 0o666);
       await handle.writeFile(content);
       await handle.sync();
+      if (onStaged) {
+        const identity = await handle.stat({ bigint: true });
+        await onStaged({ dev: String(identity.dev), ino: String(identity.ino) });
+      }
       await handle.close();
       handle = null;
       await onBeforeReplace?.();
