@@ -17,17 +17,22 @@ const canonicalToolkit = (value: unknown): string => typeof value === 'string' &
 const record = (value: unknown): Record<string, unknown> => value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
 const own = (actor: CapabilityResourceActor): CapabilityResourceOwnerScope => ({ type: 'user', ownerUserId: actor.userId, organizationId: null });
 const access = { canRead: true, canUse: true, canManage: true };
-const personalComposioObservations = new WeakMap<PluginExtensionConnection, { profileRevision: string; userId: string; mode: 'local' | 'managed' }>();
+const personalComposioObservations = new WeakMap<PluginExtensionConnection, {
+  profileRevision: string; userId: string; mode: 'local' | 'managed'; context: 'effective' | 'bound';
+}>();
 
 /** Private provenance stays outside serializable DTOs and is refreshed after catalogue IO. */
 export async function revalidatePersonalComposioExtensionConnection(actor: CapabilityResourceActor, connection: PluginExtensionConnection): Promise<boolean> {
   const observed = personalComposioObservations.get(connection);
   if (!observed || !connection.profileId) return false;
   try {
-    const [{ resolveBoundComposioContext }, { getComposioMode }] = await Promise.all([
+    const [{ resolveBoundComposioContext, resolveComposioContext }, { getComposioMode }] = await Promise.all([
       import('@/app/lib/composio/composio-context'), import('@/app/lib/composio/composio-client')]);
-    const current = await resolveBoundComposioContext({ userId: actor.userId, workspaceId: actor.workspaceId, profileId: connection.profileId });
-    return current.cacheRevision === observed.profileRevision && current.composioUserId === observed.userId
+    const current = observed.context === 'effective'
+      ? await resolveComposioContext({userId: actor.userId, workspaceId: actor.workspaceId})
+      : await resolveBoundComposioContext({ userId: actor.userId, workspaceId: actor.workspaceId, profileId: connection.profileId });
+    return current.userId === actor.userId && current.profileId === connection.profileId
+      && current.cacheRevision === observed.profileRevision && current.composioUserId === observed.userId
       && await getComposioMode(current.storageScope) === observed.mode;
   } catch { return false; }
 }
@@ -122,7 +127,8 @@ export async function readComposioExtensions(actor: CapabilityResourceActor, sig
             authorization: !profile.complete ? 'unknown' : active ? 'authorized' : 'required',
             // Account status proves authorization, never the business API's reachability.
             health: 'unknown', enabled: profile.configured, profileId: profile.context.profileId, accountId: id };
-          personalComposioObservations.set(summary, { profileRevision: profile.context.cacheRevision, userId: profile.context.composioUserId, mode: mode === 'local' ? 'local' : 'managed' });
+          personalComposioObservations.set(summary, { profileRevision: profile.context.cacheRevision, userId: profile.context.composioUserId,
+            mode: mode === 'local' ? 'local' : 'managed', context: profile.context.profileId === effective.profileId ? 'effective' : 'bound' });
           item.connections.push(summary);
         }
       }
