@@ -257,7 +257,31 @@ async function consent(action: () => Promise<void>, decision: 'approve' | 'deny'
       const url = new URL(response.url()); return url.origin === fixture.baseURL && /\/api\/(?:composio|mcp)\//u.test(url.pathname) && /callback$/u.test(url.pathname);
     });
     await consentPage.getByRole('button', { name: decision === 'approve' ? 'Approve' : 'Deny', exact: true }).click();
-    const callback = await returned; expect(callback.status()).toBeGreaterThanOrEqual(200); expect(callback.status()).toBeLessThan(400);
+    const callback = await returned, callbackURL = new URL(callback.url());
+    if (decision === 'deny' && target.origin === mcpOrigin && callbackURL.pathname === '/api/mcp/oauth/callback') {
+      // A validated personal denial consumes its pending state and intentionally renders HTTP 400.
+      // No other provider failure or callback may satisfy this exception.
+      const state = target.searchParams.get('state'), redirect = new URL(target.searchParams.get('redirect_uri') || 'https://invalid.test');
+      expect(target.pathname).toBe('/authorize');
+      expect(target.searchParams.getAll('state')).toHaveLength(1);
+      expect(target.searchParams.getAll('redirect_uri')).toHaveLength(1);
+      expect(Boolean(state && /^[A-Za-z0-9_-]{32}$/u.test(state)), 'The owned personal flow has a valid pending state.').toBe(true);
+      expect(redirect.origin === fixture.baseURL && redirect.pathname === '/api/mcp/oauth/callback' && !redirect.search && !redirect.hash,
+        'The registered redirect is the exact personal MCP callback.').toBe(true);
+      expect(['state', 'iss', 'error'].every(key => callbackURL.searchParams.getAll(key).length === 1)
+        && callbackURL.searchParams.get('state') === state && callbackURL.searchParams.get('iss') === mcpOrigin
+        && callbackURL.searchParams.get('error') === 'access_denied' && !callbackURL.searchParams.has('code'),
+      'The denial returns the exact owned state/issuer and access_denied without an authorization code.').toBe(true);
+      expect(callback.status()).toBe(400);
+      const headers = callback.headers();
+      expect(headers['content-type']).toBe('text/html; charset=utf-8');
+      expect(headers['cache-control']).toBe('no-store'); expect(headers['referrer-policy']).toBe('no-referrer');
+      expect(headers['content-security-policy']).toBe("default-src 'none'; base-uri 'none'; frame-ancestors 'none'");
+      const safeHTML = '<!doctype html><html><head><meta charset="utf-8"><title>MCP OAuth failed</title></head><body><h1>MCP OAuth failed</h1><p>Provider returned: access_denied</p></body></html>';
+      expect((await callback.text()) === safeHTML, 'The validated denial renders only the exact public access_denied page.').toBe(true);
+    } else {
+      expect(callback.status()).toBeGreaterThanOrEqual(200); expect(callback.status()).toBeLessThan(400);
+    }
     // The ordinary web callback may leave a tab with the returned exact Plugin entry.
     // Read-back on the original tab is authoritative, independently of popup closure.
     if (consentPage !== page && !consentPage.isClosed()) await consentPage.close();
