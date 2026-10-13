@@ -1,0 +1,649 @@
+# Plan: Yjs-Dokumentautorität und sichere Dateiaktionen konsolidieren
+
+**Status:** Entwurf zur gemeinsamen Prüfung; keine Umsetzungsfreigabe.
+
+**Stand:** 13. Oktober 2026.
+
+**Quellcode-Basis:** `84f12e4ea7b541fc53d535fb0e0f857597c02e23`.
+
+**Ziel:** Verwaltete Dokumente bleiben unabhängig von ihrer Markdown-Dateiprojektion korrekt lesbar, bearbeitbar, verlinkbar und wiederherstellbar. Berechtigte Nutzer bearbeiten den sichtbaren Editorinhalt unmittelbar, ohne Read/Edit-Auswahl.
+
+Dieser Plan ergänzt den [Live-Dokument- und Agentenplan](live-document-agent-editing-plan.md), den [Dateilink- und Dateioperationsplan](architecture/canvas-notebook/workspace-file-links-and-operations-plan.md) und die [Collaboration-Policy](architecture/canvas-notebook/team-workspace/18-collaboration-and-file-conflict-policy.md). Deren bereits implementierte Grundlagen werden weiterverwendet. Neue Vertragsnamen, Statusfelder und Aufgaben in diesem Dokument sind Vorschläge, bis wir sie gemeinsam festgelegt haben.
+
+Die Konsolidierung betrifft vor allem die verbliebenen Übergänge zwischen Dokumentzustand, Linkplanung, Pfadoperationen, Sicherung und Dateiausgabe. Hinzu kommt die ausdrücklich gewünschte Vereinfachung der Editoroberfläche: Read/Edit-Auswahl entfernen, direktes Bearbeiten als Standard und verbleibende Ansichtssteuerung platzsparend anordnen. Die vorhandenen Editoren und der Collaboration-Server werden weiterverwendet. Öffentliche REST-API und Python-SDK folgen erst nach der internen Stabilisierung.
+
+## 1. Ausgangspunkt und überprüfter Fehlerfall
+
+### 1.1 Was in dieser Untersuchung bestätigt wurde
+
+Am 13. Oktober 2026 wurde die Blockade von Verschieben/Löschen an `test_core_bearbeitungsfeatures.md` untersucht. Die Dateiaktion meldete `PREVIEW_BLOCKED` mit `uninspected-source` für `ek-fuchs-transkript.md`.
+
+Die Produktionslogs und anschließend die angemeldete Browserprüfung bestätigten:
+
+- Die wiederholt fehlschlagende Dokument-ID gehört zu `ek-fuchs-transkript.md`.
+- Im Rich-Editor sind ungefähr 21.800 Zeichen vorhanden; die Dateiinformation meldet für die physische `.md`-Datei 0 Bytes.
+- Die autorisierte Lese-API liefert `COLLABORATION_ROUNDTRIP_UNSTABLE` und `validationCode: roundtrip_unstable`.
+- Die Repräsentation ist `tiptap_blocks`.
+- Der angehängte Inhalt des Testdokuments lässt sich lokal in beiden Rich-Repräsentationen stabil umwandeln. Daraus folgt keine Aussage über den vollständigen gespeicherten Yjs-Zustand des Transkripts.
+- Es wurden keine Produktionsinhalte repariert, gelöscht oder überschrieben.
+
+Die konkrete Struktur, die den Roundtrip des Transkripts scheitern lässt, wurde noch nicht aus einem vollständigen Yjs-Snapshot isoliert. Sie ist eine offene Diagnoseaufgabe. Insbesondere ist weder ein Größenproblem noch ein bestimmter Mark-Konflikt belegt.
+
+### 1.2 Was dieser Fall architektonisch zeigt
+
+Ein Dokument kann im nativen Yjs-Editor verfügbar sein, während seine Markdown-Projektion fehlt oder unzulässig wäre. Der heutige Linkplaner braucht für diesen Zustand trotzdem eine erfolgreich validierte Markdown-Serialisierung. Scheitert diese, wird die Quelle als ungeprüft behandelt; die strikte Linkprüfung blockiert weitere Dateiaktionen.
+
+Zwei Probleme sind deshalb getrennt zu bearbeiten:
+
+1. **Konkreter Codec-/Exportfehler:** Den verlustfreien Export des Transkripts untersuchen und gegebenenfalls korrigieren.
+2. **Abhängigkeit der Dateiaktionen:** Verhindern, dass ein reiner Exportfehler die Prüfung eines strukturell gültigen, dauerhaft gesicherten Dokumentzustands unnötig unmöglich macht.
+
+Die zweite Aufgabe darf die erste nicht durch eine verlustbehaftete Umwandlung verdecken. Eine tatsächlich unlesbare, unvollständig untersuchte oder strukturell ungültige Quelle bleibt ein Sicherheitsproblem.
+
+## 2. Zielbild und verbindliche Invarianten
+
+Für ein initialisiertes verwaltetes Dokument ist Yjs die führende Inhaltsquelle. PostgreSQL bestätigt die Dauerhaftigkeit dieses Zustands. Die Workspace-Datei ist eine nachgelagerte, interoperable Projektion. Ein geschlossener Browser oder entladener Raum ändert die Autorität nicht.
+
+| Dimension | Maßgeblicher Nachweis | Darf nicht daraus abgeleitet werden |
+| --- | --- | --- |
+| Aktuell sichtbarer Dokumentzustand | Zuständiger Yjs-Raum mit gültiger Ownership und Identität | Bereits dauerhafte Sicherung allein wegen Sichtbarkeit |
+| Dauerhafter Dokumentzustand | Persistierter Yjs-Snapshot und passender Zustands-/Operationsbeleg | Aktuelle Markdown-Datei allein wegen erfolgreicher Persistenz |
+| Vollständig geprüfte Links | Vollständige Prüfung der maßgeblichen Dokumentrepräsentation und des Zielkatalogs | Vollständigkeit aus leeren oder ausgelassenen Quellen |
+| Pfadmutation | Lifecycle-, Dateisystem- und Journalschritt-Belege | Inhaltsänderung allein wegen erfolgreichem Rename |
+| Dateiprojektion | Passende Generation, Sequenz, Identität und bestätigter Export | Dokumentautorität aus Dateigröße, mtime oder einem alten Hash |
+| Wiederherstellbarkeit | Verifizierte Sicherung des maßgeblichen Inhalts und der Pfad-/Lifecycle-Zuordnung | Wiederherstellbarer Editorinhalt aus einer reinen `.md`-Sicherung |
+
+Folgende Regeln sollen durch alle Phasen erhalten bleiben:
+
+1. Initialisierte Dokumente werden nicht aus älteren Datei-Bytes neu aufgebaut. Fehlende Yjs-Daten sind ein Fehler, kein Anlass für stillen Import.
+2. Inhaltsmutationen erfolgen im zuständigen Collaboration-Raum über die bestehenden Autorisierungs-, Ownership- und Admission-Verfahren.
+3. Pfadoperationen behalten ihre Workspace-Sperren, Lifecycle-Prüfungen, Backups, Journale und Wiederanlaufgrenzen.
+4. Erfolgreiche Yjs-Persistenz wird durch einen späteren Exportfehler nicht zurückgenommen oder erneut ausgeführt.
+5. Markdown-Export bleibt streng auf Verlustfreiheit geprüft. Strukturlesen und gezielte Linkoperationen erhalten einen eigenen, ebenfalls vollständigen Prüfvertrag.
+6. StateVector allein reicht bei Löschungen nicht aus. Belege müssen auch DeleteSet/Inklusion und die passende Dokumentgeneration berücksichtigen.
+7. Gleichnamige Pfade, Dokumentkopien und wiederangelegte Dateien übernehmen keine fremde Dokumentidentität oder Operationsbelege.
+8. Unabhängige Nutzeränderungen bleiben erhalten. Ein Undo stellt nicht pauschal ein altes Gesamtdokument wieder her.
+9. Fehlende Rechte, Ownership-Verlust, unbekannter Zustand, unvollständige Linkabdeckung und unbewiesene Teilergebnisse bleiben sichtbar und blockieren die betroffene Ausführung.
+10. Ein abgeschlossener Inhaltsschritt, eine abgeschlossene Pfadoperation und ein noch ausstehender Export werden getrennt dargestellt.
+
+## 3. Bestandsaufnahme: vorhandene Grundlagen und Lücken
+
+Die Quellen in dieser Tabelle beziehen sich auf die oben genannte Basis. Zeilennummern sind Rechercheanker, keine dauerhaft stabilen API-Verträge.
+
+| Bereich | Heutiger Stand | Geplanter Anschluss |
+| --- | --- | --- |
+| Dokumentlesen | [document-access.ts](../app/lib/collaboration/document-access.ts) liest den zuständigen Raum oder persistiertes Yjs. Die bestehende Reader-Brücke berücksichtigt die Raum-Ownership. | Einheitlicher Read-Vertrag mit explizitem Zweck und Frischenachweis; keine parallele Reader-Infrastruktur. |
+| Dokumentmutation | [direct-connection.ts](../app/lib/collaboration/direct-connection.ts), [agent-operations.ts](../app/lib/collaboration/agent-operations.ts) und [agent-file-edits.ts](../app/lib/collaboration/agent-file-edits.ts) besitzen bestehende autorisierte Edit-Wege. | Link-Worker und weitere Writer auf diese Mechanik führen; Domain-Policy bleibt beim aufrufenden Workflow. |
+| Dauerhaftigkeit/Export | [projection-runtime.ts](../app/lib/collaboration/projection-runtime.ts), [persistence.ts](../app/lib/collaboration/persistence.ts), [failure.ts](../app/lib/collaboration/failure.ts) und [checkpoint.ts](../app/lib/collaboration/checkpoint.ts) trennen Yjs-Persistenz und Projektionsfehler bereits. | Bestehende Trennung bis in Dateioperationsbelege, Recovery und öffentliche Statusprojektionen durchziehen. |
+| Rich-Validierung | [markdown-state.ts](../app/lib/collaboration/markdown-state.ts), insbesondere `validateRichMarkdownYDoc`, verbindet Strukturgültigkeit und Markdown-Roundtrip-Prüfung. | Vorhandene Strukturvalidierung für native Operationen nutzen/ergänzen; Exportvalidierung unverändert streng halten. |
+| Autoritativer Link-Snapshot | [workspace-authoritative-planner-snapshot.ts](../app/lib/markdown/workspace-authoritative-planner-snapshot.ts), Zeilen 34–108, liest persistiertes Yjs, ersetzt Dateiinhalt aber nur bei relevanten HTML-Fällen. | Alle initialisierten Dokumente aus ihrer maßgeblichen Repräsentation prüfen; auch ordinary Markdown-, Wiki- und Bildlinks. |
+| Linkabdeckung | [workspace-file-operation-link-assessment.ts](../app/lib/markdown/workspace-file-operation-link-assessment.ts), Zeilen 116–120, blockiert ausgelassene Quellen ausdrücklich. | Diese Ehrlichkeit behalten; Exportfehler, Strukturfehler und fehlende Linkabdeckung auseinanderhalten. |
+| Linkmutation | [workspace-link-yjs-edits.ts](../app/lib/markdown/workspace-link-yjs-edits.ts), Zeilen 181–230 und 298–306, prüft den Gesamthash und ersetzt bei Rich den Markdown-Inhalt im Y.Doc. | Zielstellen und betroffene Attribute/Shared-Text-Spannen direkt verändern; unabhängige Absätze behalten. |
+| Link-Executor | [workspace-link-write-executor.ts](../app/lib/markdown/workspace-link-write-executor.ts) kennt `active-yjs`/`plain-file` und prüft weiterhin physische Quellbytes. | Initialisierung von laufender Mutation trennen; kein Datei-Fallback für initialisierte Ziele. |
+| Batch-Abschluss | [workspace-operation-batch-executor.ts](../app/lib/files/workspace-operation-batch-executor.ts), Zeilen 93–107 und 511–579, materialisiert Checkpoints, wartet auf Dateihashes und prüft einen abschließenden Dateilinkindex. | Gesamten Abschlussnachweis ersetzen, nicht lediglich die Zehn-Sekunden-Wartezeit entfernen. |
+| Sicherung/Copy | [workspace-operation-backup.ts](../app/lib/files/workspace-operation-backup.ts) sichert physische Bäume; [workspace-files.ts](../app/lib/filesystem/workspace-files.ts) besitzt physische Copy-Wege. | Binären Yjs-Inhalt zusätzlich sichern; verwaltete Dokumentkopien aus dem autoritativen Zustand initialisieren. |
+| Lifecycle | [lifecycle-repository.ts](../app/lib/files/collaboration-repository/lifecycle-repository.ts) führt Move, Archivierung und Restore mit Identität/Generation. | Mechanik beibehalten und an neue Inhalts-/Projektionsbelege anbinden. |
+| Undo | [workspace-operation-batch-executor.ts](../app/lib/files/workspace-operation-batch-executor.ts), unter anderem Zeilen 638–648 und 677–685, baut inverse Markdown-Gesamtergebnisse und benötigt Checkpoints. | Bedingte inverse Zieloperationen plus eigenständige Lifecycle-/Pfadbelege. |
+| Web-Lesen | [files/read](../app/api/files/read/route.ts) nutzt [collaborative-read-snapshot.ts](../app/lib/files/collaborative-read-snapshot.ts); Textausgabe verlangt einen sicheren Export, Bootstrap kann unprojektierbare Metadaten liefern. | Native Struktur-/Metadatenansicht und Text-/Exportansicht explizit unterscheiden. |
+| Mobile | [notebook.ts](../app/lib/mobile/notebook.ts) enthält Datei-Reads und dateibasierte Revisionserfassung vor optionaler Yjs-Ausgabe. | Repräsentation und Revision aus autoritativer Identität wählen; Altclients separat berücksichtigen. |
+| MCP/Agent | [workspace-tools.ts](../app/lib/mcp/server/workspace-tools.ts) nutzt für direkte Text-Reads/Edits schon den Live-Pfad, besitzt aber vorgeschaltete Datei-Reads/Revisionseffekte; Suche liest Dateiinhalt. | Vorhandene Live-Reads erhalten, Such-/Metadaten-/Revisionsecken vervollständigen. |
+| Exporte | [download](../app/api/files/download/route.ts), Markdown-/PDF-/Share-Wege und ZIP-Ausgabe haben unterschiedliche Frischemechanismen. | Jeder Export benennt Snapshot und Frische; leere/veraltete Markdown-Dateien dürfen nicht als aktueller Inhalt ausgeliefert werden. |
+| Shell | [agent-shell-sandbox.ts](../app/lib/pi/agent-shell-sandbox.ts) beschränkt Schreibzugriffe bereits auf Scratch und verweigert einen unsandboxed Fallback. | Bestehenden Schutz nachweisen; noch mögliche rohe Lesewege und andere Prozess-/Mount-Grenzen inventarisieren. |
+
+### 3.1 Vorläufige Auswirkungsanalyse
+
+GitNexus meldet für `buildWorkspaceAuthoritativePlannerSnapshot` und `authoritativeCollaborationSnapshot` **CRITICAL**. Der kanonische Index nennt beim zweiten Symbol 14 direkte Abhängigkeiten und 18 betroffene Prozesse; die transitive Ausgabe ist teilweise begrenzt. Die direkte Snapshot-Abhängigkeit wird im Graph unvollständig erfasst, unter anderem wegen indirekter Default-/Dependency-Verwendung.
+
+Der aktuelle Worktree besitzt keinen eigenen Index; die abgefragte kanonische Checkout-Basis ist außerdem nicht exakt dieselbe Commit-Basis. Diese Zahlen sind deshalb eine Warnung vor breiter Wirkung, keine abgeschlossene Auswirkungsanalyse. Direkte lokale Quellen zeigen betroffene Bereiche in Files, Collaboration, Editor, Agent/MCP und Mobile.
+
+Vor jeder späteren Symboländerung: Index für den tatsächlich bearbeiteten Checkout prüfen/aktualisieren, upstream impact ausführen, direkte Aufrufer verifizieren und HIGH/CRITICAL vor der Änderung berichten. Vor jedem Implementierungscommit folgt `detect_changes()`; bei Integration zusätzlich Vergleich gegen `main`.
+
+## 4. Geltungsbereich und Abgrenzung
+
+### 4.1 Bestandteil der Konsolidierung
+
+- `.md` und `.markdown` in verwalteten Workspaces; initialisierte `plain_text`, `tiptap_blocks` und kompatible Legacy-Repräsentationen.
+- Initialer Import, Create/Upload/Overwrite und vorhandene Agenten-/MCP-Ingest-Wege.
+- Linkindex, Backlinks, Graph, Diagnostics, Preview, Rename, Move, Delete, Copy und vorhandene Undo-/Restore-Wege.
+- Autoritative Reads, gezielte Writer, Revisionen, Cache-Invalidierung und Such-/Knowledge-Zulieferung.
+- Web, Mobile-Serververträge, Agenten, Automation, MCP, Public Shares und Exporte an den jeweiligen Anschlussstellen.
+- Betriebszustände, Backups, Neustart, Wiederanlauf und kompatible historische Operationsjournale.
+- Direkte Bearbeitung ohne Read/Edit-Auswahl; kompakte Dokumentkopfzeile für Dokumentbreite und Vollbild/Fokus. Gemeinsame Markdown-Formularfelder und Gasteditoren werden mitgeprüft.
+
+### 4.2 Eigenständige Verträge, die erhalten bleiben
+
+Binärdateien verwenden weiterhin den File Service. Office-Dokumente und Excalidraw behalten ihre eigenen Dokument- und Lifecycle-Regeln. Der neue Markdown-Pfad darf sie nicht unbeabsichtigt verändern. Verwaltete Textdateien werden bei gemeinsamen Read-/Write-Gates berücksichtigt; ein neuer Linkvertrag für beliebige Textdateien gehört nicht automatisch zu diesem Vorhaben.
+
+`.mdx`, Plugins mit eigenen Dateien, spezielle Studio-Artefakte und externe Mounts werden im Inventar erfasst. Ihre Aufnahme in den neuen Linkvertrag wird ausdrücklich entschieden; eine bislang nicht unterstützte Syntax wird nicht still als vollständig geprüft behandelt.
+
+### 4.3 Nicht Bestandteil der ersten Umsetzung
+
+- Öffentliche neue REST-API, Python-SDK oder frei eingebbare Yjs-Updates durch externe Clients.
+- Neubau des Collaboration-Servers, Editors oder Version-/Review-Centers.
+- Automatische Reparatur historischer Dokumentzustände, fehlender Yjs-Daten oder unbekannter Mark-Konflikte.
+- Freigabe neuer Cross-Workspace-Move- oder Undo-Varianten, die heute bewusst nicht unterstützt werden.
+- Produktionseingriffe, Releases, Push auf `main` oder Deployments ohne eigenen Auftrag.
+
+## 5. Gemeinsame interne Document-Service-Fähigkeiten
+
+Der Service ist eine interne Fassade über vorhandene Mechanik, kein zweiter Raum und keine eigene CRDT-Persistenz. Kleine Fähigkeiten werden von den bestehenden Datei-, Agenten- und Review-Flows orchestriert.
+
+```mermaid
+flowchart TD
+    UI[Web / Mobile] --> DS[Interne Dokumentfähigkeiten]
+    AG[Agent / Automation / MCP] --> DS
+    FP[Dateiaktions-Koordinator] --> DS
+    DS --> RD[Ownership- und Admission-geprüfter Yjs-Raum]
+    RD --> PG[PostgreSQL: Yjs + Operationsbelege]
+    PG --> PR[Asynchroner Markdown-Projector]
+    PR --> FS[Workspace-Dateiprojektion]
+    FP --> LJ[Pfad- / Lifecycle-Journal]
+    LJ --> FS
+    DS --> LG[Autoritativer strukturierter Linkgraph]
+    LG --> FP
+```
+
+### 5.1 Vorgeschlagene Fähigkeiten
+
+| Fähigkeit; Namen zunächst Arbeitstitel | Aufgabe | Voraussetzung/Ergebnis |
+| --- | --- | --- |
+| `resolveDocumentAuthority` | Identität, Repräsentation und Autoritätsklasse bestimmen | Rechte, Workspace/Organisation, Pfad/Generation, Initialisierungsstatus |
+| `readDocumentSnapshot` | Einen konsistenten Snapshot für den gewünschten Zweck lesen | Versionierter Snapshot mit Dokumentnachweis, kein unmarkierter Dateifallback |
+| `inspectDocumentLinks` | Struktur/Text vollständig auf vertraglich unterstützte Verweise prüfen | Linkinventar, stabile Referenzen und explizite Coverage |
+| `prepareDocumentMutation` | Zielstellen, Policy und Vorschlagsbindung vorbereiten | Geprüfte lokale Vorbedingungen, kein clientseitiger Binärpatch |
+| `applyDocumentMutation` | Synchron im autorisierten Raum mutieren | Operations-ID, eindeutiger Teilzustand, dauerhafte Bestätigung separat |
+| `confirmDocumentDurability` | Genau diesen Mutationsbeleg im gesicherten Zustand nachweisen | Inklusion samt DeleteSet, Identität und Generation |
+| `captureDocumentRecovery` | Autoritativen Inhalt und seine Wiederherstellung sichern | Verifizierbarer binärer Snapshot und Scope-Metadaten |
+| `requestDocumentProjection` | Passenden Export nachführen oder dessen Status lesen | Eigene Projektionsquittung; kein erneutes Anwenden der Mutation |
+| `importDocument` / `cloneDocument` | Einmalige Aufnahme oder neue Kopie erzeugen | Neue/zulässige Identität; erster Yjs-Stand atomar gesichert |
+
+Zugriff, Actor-Provenienz, Review-Policy und Workspace-Grenzen bleiben bei den bestehenden autorisierten Einstiegspunkten und werden vor Apply erneut geprüft. Der Service darf diese Regeln nicht über interne Default-Actors umgehen. Mechanik erhält explizite Eingaben und strukturierte Ergebnisse; ein universeller `doEverything`-Service ist nicht vorgesehen.
+
+### 5.2 Snapshot- und Frischevertrag
+
+Ein Snapshot muss mindestens Workspace/Organisation, Dokument-ID, aktuellen Pfad, Lifecycle-Generation, Repräsentation, Schema-/Codec-Version sowie Version und Zustandsbeleg der tatsächlich gelesenen Fassung tragen. Beobachteter Live-Stand und zuletzt bestätigter dauerhafter Stand erhalten getrennte Sequenz-/Proof-Felder. Eine persistierte Sequenz darf neuere Raum-Inhalte nicht scheinbar als dauerhaft bestätigen. Für native Rich-Inhalte kommt die geprüfte Struktur hinzu; für `plain_text` der autoritative Shared-Text-Inhalt. Dateimetadaten werden getrennt geführt.
+
+Der Read-Zweck ist ausdrücklich wählbar:
+
+- **Native Struktur:** Ohne Pflicht zum Markdown-Roundtrip, aber mit vollständiger Struktur-, Identitäts- und Zustandsprüfung.
+- **Dauerhafte Planbasis:** Konsistenter persistierter Stand nach dem geeigneten Raum-/Store-Barrier-Verfahren; ein noch nicht gesicherter Live-Stand darf nicht als dauerhaft gelten.
+- **Text/Markdown:** Nur sichere, als solche validierte Serialisierung. Bei Exportfehler kein leerer Ersatztext.
+- **Export:** Ein bestimmter geprüfter Snapshot oder bestätigte Projektion dieses Stands; Frische und Fehler bleiben sichtbar.
+
+Im offenen Raum muss eine geeignete Barrier den Reader mit laufenden Stores/Edits koordinieren. Außerhalb des Raums wird der persistierte Snapshot geladen. Eine bloße Datenbanktransaktion macht mehrere gleichzeitig bearbeitete Räume nicht automatisch zu einem gemeinsamen aktuellen Workspace-Snapshot.
+
+Kein neuer Weg darf laufende Reader-Handoffs, Owner-Leases oder Repeatable-Read-Loader umgehen. Mutationen aus separaten Workern werden zum zuständigen Raum geleitet. Ist dieser Zugang nicht verfügbar, lautet das Ergebnis unavailable/retry/review gemäß bestehender Policy; direkte Datenbank- oder Dateiänderung ist kein Ersatz.
+
+Paginierte Struktur-, Such- und spätere API-Reads binden jede Folgeseite an denselben unveränderlichen Snapshot-Token. Truncation, noch fehlende Seiten und abgelaufene Tokens werden ausdrücklich ausgewiesen. Ein Wechsel auf einen neueren Stand darf nicht unbemerkt zwischen Seiten erfolgen.
+
+Das Dokumentinventar vereinigt den autoritativen Registry-/Lifecycle-Katalog mit dem physischen Pfadkatalog. Initialisierte Dokumente ohne vorhandenen `.md`-Eintrag bleiben im Inventar und werden geprüft. Fehlende Projektion und fehlendes Dokument sind verschiedene Zustände. Doppelte aktive Zuordnungen, verwaiste Identitäten und ungeklärte Abweichungen bleiben Konflikte; daraus folgt keine automatische Dateiwiederanlage.
+
+### 5.3 Autoritätsklassen und Initialisierung
+
+| Zustand | Erlaubtes Verhalten |
+| --- | --- |
+| Neue, nachweislich noch nie initialisierte Datei | Einmaliger kontrollierter Import aus exakt geprüften Bytes unter Initialisierungs-/Lifecycle-Admission |
+| Registriert, nachweislich pristine/uninitialized | Bestehenden expliziten Initialisierungsvertrag anwenden; kein Schluss allein aus `state_version === 0` |
+| Initialisiert, Raum offen | Zuständigen Raum verwenden; aktuellen Stand für die jeweilige Operation passend sichern/nachweisen |
+| Initialisiert, Raum geschlossen | Persistiertes Yjs laden bzw. vorhandenen Raum-on-demand-Weg verwenden |
+| Initialisiert, Projektion ausstehend/fehlerhaft | Native Struktur und Yjs-Dauerhaftigkeit beurteilen; Exportstatus separat melden |
+| Yjs fehlt, obwohl Initialisierung/Historie bekannt ist | Blockieren und Recovery anbieten; keine Wiederaufnahme aus der Datei |
+| Legacy-Status unklar | Als unklar behandeln; kontrollierte Diagnose/Migration erforderlich |
+| Archiviert, Generation gewechselt, Rechte verloren oder quarantiniert | Entsprechenden Lifecycle-/Recovery-Vertrag anwenden; kein Disk-Fallback |
+
+Registry, Initialisierungshistorie, persistierter State, Archiv-/Trash-Lineage und Operationshistorie sind zusammen zu betrachten. Der neue Vertrag darf vorhandene strengere Lifecycle-Informationen nicht auf eine schwächere Versionszahl reduzieren.
+
+Bestehendes `degraded` wird zusammen mit dem konkreten Fehler und dessen Generation bewertet. Projektionsbezogene Ausgabeprobleme unterscheiden sich von beschädigtem oder unbewiesenem Yjs. Das Flag wird weder pauschal ignoriert noch beim Restore zurückgesetzt, um natives Lesen freizuschalten; Struktur, Persistenz und Ownership müssen jeweils bewiesen sein.
+
+## 6. Linkprüfung ohne Pflicht zur Markdown-Projektion
+
+### 6.1 Repräsentationsspezifische Prüfung
+
+Für `plain_text` bleibt der bewährte Markdown-/Wiki-Parser Grundlage, liest aber den maßgeblichen Y.Text-Stand. UTF-16- und UTF-8-Spannen müssen weiterhin exakt stimmen.
+
+Für `tiptap_blocks` entsteht ein strukturierter Walker über die validierte Rich-Struktur. Er erfasst mindestens Linkmarks, Wiki-Links/Embeds, Bilder/Assets, Referenzformen soweit in der Repräsentation vorhanden, Frontmatter-Aliase/Titel sowie eingebettete HTML-Knoten und deren geprüfte lokale Ziele. Tabellen, Listen, Callouts und verschachtelte Blöcke dürfen nicht ausgelassen werden.
+
+Unbekannte Knoten/Attribute oder nicht vollständig bewertbare HTML-/CSS-Ziele erzeugen Coverage-Lücken. Aus fehlendem Markdown-Export darf weder ein leerer Linkgraph noch ein pauschal vollständiger Rich-Linkgraph entstehen. Alle vom vorhandenen Codec erhaltenen Verweisformen müssen vor Freigabe entweder unterstützt oder ausdrücklich als ungeprüft klassifiziert sein.
+
+Legacy-`tiptap_xml` erhält nur dann native Linkmutationen, wenn der bestehende Adapter die gleiche Sicherheit nachweist. Andernfalls bleibt eine konkrete Einschränkung bestehen; keine stille Repräsentationsmigration.
+
+### 6.2 Link-Referenzen und Vorbedingungen
+
+Die Link-ID benennt Dokument, Generation und die tatsächlich betroffene Zielstelle: stabiler Block-/Node-Identifier, Mark/Attribut oder relative Yjs-Textanker. Sie bindet alten Zielwert, Zielsyntax, Auflösung und gegebenenfalls Definition-/Alias-Bezug.
+
+Vor Apply werden diese Stellen erneut geprüft. Eine Änderung im anderen Absatz ist kein pauschaler Gesamtdokumentkonflikt. Eine Änderung am Linkziel, an seiner Bedeutung, am Alias-Katalog oder an der Pfadidentität verlangt einen neuen Plan oder einen gezielten Konflikt.
+
+Auflösung bleibt identitäts- und katalogbasiert. Basename-Kollisionen, Aliase, Titeländerungen und eine neu entstandene Datei können unveränderte Linkliterale anders auflösen. Deshalb genügt die Prüfung eines einzigen Textspans nicht als Workspace-Sicherheitsnachweis.
+
+### 6.3 Vollständigkeit und betroffene Quellen
+
+Coverage wird mindestens in Dokumentinventar, Strukturprüfung, Linkextraktion und Zielauflösung getrennt ausgewiesen. Exportfähigkeit ist ein eigenes Merkmal.
+
+Eine Quelle darf nur als nachweislich unbetroffen behandelt werden, wenn ihr maßgeblicher Inhalt vollständig geprüft und die Auflösung im geplanten Endzustand bewertet wurde. Der Dateiname, ein alter Index, eine leere Projektion oder eine scheinbar fehlende eingehende Referenz reichen nicht.
+
+Tatsächlich unlesbare oder übersprungene Quellen können unbekannte Links und Wiki-Aliase enthalten und bleiben blockierend, solange ihre Unbetroffenheit nicht bewiesen ist. Bestehende Grenzen für Größe, HTML und mehrdeutige Ziele bleiben ehrliche unavailable/incomplete-Ergebnisse. Eine Erhöhung der bisherigen 4-MiB-Grenze ist kein automatischer Bestandteil der Reparatur; benötigte Binär-/Struktur-/Scan-Budgets werden gesondert festgelegt.
+
+### 6.4 Gezielte Mutation
+
+- Rename/Move verändert nur betroffene Zielattribute oder genau adressierte Shared-Text-Zielspannen.
+- Beim Move einer Quelle werden deren relative ausgehende Ziele semantisch erhalten.
+- Beim Delete gilt der bestehende Vertrag zum Entfernen betroffener Linksyntax und Erhalten von Label/Alias/Alttext; Rich-Strukturoperationen müssen diesen Vertrag ausdrücklich abbilden.
+- Referenzdefinitionen und ihre Verwendungen werden als zusammengehörige Gruppe behandelt.
+- Ganze Rich-Dokumente werden nicht für gewöhnliche Linkkorrekturen als Markdown neu geparst/ersetzt.
+- Eine synchrone Yjs-Transaktion bildet die atomare Gruppe innerhalb eines Dokuments. Mehrere Dokumente bilden weiterhin eine koordinierte Operation mit sichtbaren Teilergebnissen, keine behauptete gemeinsame CRDT-Transaktion.
+
+## 7. Dateiaktions-Koordinator: sicherer Zielablauf
+
+### 7.1 Planen
+
+1. Session/Actor, Workspace-Grenzen und Rechte prüfen; Operation, Auswahl und Zielkanonisierung validieren.
+2. Namespace-/Pfadkatalog und maßgebliche Dokumentidentitäten aus Registry und physischem Baum gemeinsam erfassen, einschließlich fehlender Projektionen.
+3. Autoritative Linkinventare und ihre Coverage lesen; Exportfähigkeit separat vermerken.
+4. Virtuellen Endzustand mit Pfadabbildung, Alias-/Zielauflösung, Kollisionen und gezielten Inhaltsoperationen berechnen.
+5. Wiederherstellungsbedarf, erforderliche Dokumentfähigkeiten und bekannte Einschränkungen prüfen.
+6. Unveränderlichen versionierten Plan, Vorbedingungen, Umfang und Review-/Direktmodus speichern.
+
+Reine Planung initialisiert nicht heimlich neue Dokumente und erzeugt keine historischen Revisionen aus alten Dateiprojektionen. Ein notwendiger Import ist als eigener, nachvollziehbarer Ausführungsschritt im Plan enthalten.
+
+### 7.2 Ausführen und bestätigen
+
+1. Operation und Actor erneut autorisieren; benötigte Workspace-/Lifecycle-/Raum-Admissions in festgelegter Ordnung erhalten.
+2. Aktuelle Pfadidentitäten, Dokumentgenerationen, Zielstellen und relevante Katalogänderungen mit dem freigegebenen Plan vergleichen.
+3. Verifizierte Sicherungen und Schritt-Intents dauerhaft ablegen, bevor destruktive Schritte beginnen.
+4. Bestehende Pfad-/Lifecycle-Mutation durchführen; Dokumentidentität und Ort passend aktualisieren und quittieren.
+5. Betroffene Linkoperationen im weiterhin zuständigen Raum synchron und mit aktuellen lokalen Vorbedingungen anwenden.
+6. Genau diese Operationen in persistiertem Yjs nachweisen und ihre dauerhaften Receipts im Journal sichern.
+7. Autoritativen Endzustand der Linkauflösung und die finalen Pfad-/Lifecycle-Belege prüfen.
+8. Koordinator abschließen und Sperren/Admissions ordnungsgemäß freigeben.
+9. Projektionsauftrag bzw. aktuelles Projektionsergebnis getrennt weiterführen.
+
+Die Reihenfolge wird gegen vorhandene Lifecycle-Admission und Lock-Ordnung implementierbar geprüft. Lange Datenbanktransaktionen dürfen nicht beim Warten auf Raum-RPC, Dateisystemaktionen oder den unabhängigen Projector offen bleiben. Der heutige reentrante Checkpoint im Batch existiert gerade wegen dessen Workspace-Sperre; sein Ersatz braucht einen nachgewiesenen Ablauf ohne Deadlock.
+
+### 7.3 Abschlussvertrag
+
+Ein neuer Dateiaktions-Abschluss gilt erst dann als erfolgreich, wenn alle geplanten Pfad-/Lifecycle-Schritte, alle verpflichtenden Linkmutationen, ihre Yjs-Dauerhaftigkeit und der autoritative Endzustand bewiesen sind. Eine nur ausgeführte Mutation oder ein unvollständiger finaler Index genügt nicht.
+
+Ein noch ausstehender oder fehlerhafter Markdown-Export darf dann separat ausgewiesen werden. Das ist kein Grund, den gesicherten Inhalt erneut anzuwenden. Explizite Download-/Exportanforderungen können trotzdem weiterhin wegen fehlender verlustfreier Ausgabe scheitern.
+
+Für jede Dokumentmutation braucht der Receipt mindestens Operations-/Teiloperations-ID, Actor-/Freigabebindung, Dokument-ID, Workspace/Organisation, Generation, Repräsentation/Schema, Zielreferenzen, gesicherte Sequenz und den passenden Inklusionsbeleg. Vorher-/Nachher-Dateihashes sind für neue native Mutationen kein alleiniger Wiederanlaufnachweis.
+
+### 7.4 Retry, Konflikte und unklarer Ausgang
+
+| Situation | Verhalten |
+| --- | --- |
+| Gleicher Job nach bestätigter Mutation | Receipt verifizieren; Mutation nicht erneut anwenden |
+| Absturz nach Yjs-Persistenz, vor Journal-Receipt | Gesicherten operationsgebundenen Beleg suchen/verifizieren; fehlender Beweis bleibt unklar |
+| Pfadmutation erfolgt, Quittung fehlt | Bestehende Pfad-/Lifecycle-Beweise prüfen; kein blindes `rename`, `cp` oder Delete-Replay |
+| Unabhängiger neuer Absatz | Zieloperation gegen aktuellen Stand neu prüfen; keine alte Gesamtausgabe schreiben |
+| Linkziel/Katalog/Generation verändert | Gezielter Konflikt oder neuer prüfbarer Plan; ursprüngliche Freigabe nicht still erweitern |
+| Rechte entzogen/Owner verloren | Vor weiterer Mutation stoppen; bereits gesicherte Schritte und Recovery sichtbar lassen |
+| Projector verspätet | Eigenen Exportstatus aktualisieren; abgeschlossene Mutation nicht zurücksetzen |
+| Tatsächlicher Persistenzfehler | Kein dauerhafter Erfolg; vorhandenen Storage-/Recovery-Vertrag erhalten |
+
+Die Idempotenzschlüssel werden an Workspace, Actor, Planversion und Teiloperation gebunden. Zwei verschiedene Operationen mit zufällig identischem Ergebnisinhalt dürfen nicht allein wegen eines gleichen Hashes als dasselbe Ergebnis gelten.
+
+## 8. Backup, Copy, Delete, Undo und Restore
+
+### 8.1 Autoritative Recovery-Artefakte als P0-Voraussetzung
+
+Vor der Entkopplung des Batch-Abschlusses muss jede destruktive Aktion sowohl die benötigten physischen Dateien als auch den maßgeblichen Dokumentinhalt wiederherstellbar sichern.
+
+Für initialisierte Dokumente enthält eine verifizierbare Sicherung zusätzlich:
+
+- Originale binäre Yjs-Daten, StateVector und geeigneten vollständigen Zustandsbeleg einschließlich DeleteSet.
+- Dokument-ID, Workspace/Organisation, Pfad, Generation, Status, Repräsentation, Schema- und Vertragsversion.
+- Frontmatter, BOM-/Newline-Profil und alle weiteren separat gespeicherten Dokumentmetadaten.
+- Bezug zu Operation, Teiloperation, Actor, Snapshot-Stand und gegebenenfalls Trash-/Lineage-Eintrag.
+- Integritäts- und Ladeprüfung sowie Nachweis, welche Restore-Variante daraus tatsächlich möglich ist.
+
+Die physische Dateisicherung bleibt für Binärdateien, Verzeichnisbäume, Pfadwiederherstellung und alte Journale nötig. Sie wird durch die Yjs-Sicherung ergänzt. Rohzustände und private Recovery-Daten sind nicht Teil öffentlicher API-/Logantworten.
+
+### 8.2 Copy und initialer Import
+
+Eine Kopie eines initialisierten Dokuments übernimmt den geprüften autoritativen Inhalt und erhält eine neue Dokument-/Lineage-Identität. `fs.cp` einer möglicherweise leeren Markdown-Projektion genügt nicht als Inhaltsquelle.
+
+Die Entscheidung über neue Yjs-Client-IDs und stabile Block-IDs der Kopie wird explizit dokumentiert; die Kopie darf keine späteren Updates oder Operationsbelege des Originals übernehmen. Interne kopierte Ziele werden passend umgebogen. Bestehende Quellen bleiben unverändert. Cross-Workspace-Copy benötigt Rechte in beiden Scopes und behält die bestehenden Grenzen bei nicht mitkopierten Zielen.
+
+Ein initialer Upload/Import wird nur einmal aufgenommen. Wiederholte Requests müssen denselben geprüften Import bestätigen oder einen klaren Konflikt liefern. Overwrite eines bereits verwalteten Ziels ist eine Dokument-/Lifecycle-Operation mit Sicherung und Policy, kein erneuter Rohimport.
+
+### 8.3 Delete und Papierkorb
+
+Delete sichert und archiviert die maßgebliche Dokumentgeneration samt zugehöriger Lineage. Die bestehende 30-Tage-Papierkorbsemantik und laufende Restore-Grenzen bleiben erhalten. Überlebende Quellen erhalten gezielte Linkbereinigungen aus ihrem aktuellen Zustand.
+
+Ein Projector darf nach Delete weder den alten Pfad wieder anlegen noch ein später dort neu erstelltes Dokument überschreiben. Archivierung, Generation und Pfadbelegung müssen vor Schreiben und Quittierung erneut überprüft werden.
+
+### 8.4 Undo und Restore
+
+Undo ist eine neue auditierte Operation mit aktuellem Actor, aktuellen Rechten und neuen Receipts. Inhalts-Undo wendet bedingte inverse Zieloperationen an; Pfad-Undo benutzt die bestehenden Identitäts-/Namespace-Belege. Unabhängige spätere Nutzeränderungen bleiben bestehen.
+
+Veränderte Linkziele, entfernte Blöcke, neue Backlinks, Pfadkollisionen, alte oder fehlende Belege können Undo blockieren. Eine komplette historische Markdown-Fassung darf nicht als bequemer Ersatz über einen aktuellen Rich-Zustand geschrieben werden.
+
+Restore an den ursprünglichen oder einen freien neuen Pfad wird nach bestehender Produktsemantik gewählt und erzeugt eine passende aktive Generation. Alte Räume/Tickets und verspätete Projectors dürfen diese neue Generation nicht verändern. Ein historisches Backup ohne ausreichenden Yjs-/Operationsbeleg erhält eingeschränkte, ausdrücklich sichtbare Restore-Fähigkeiten.
+
+## 9. Writer, Reader und abgeleitete Verbraucher vereinheitlichen
+
+| Oberfläche/Workflow | Geforderter Vertrag | Besonderer Abnahmepunkt |
+| --- | --- | --- |
+| Web Rich/Source und tatsächliche Leserechte | Native Struktur und sichere Textansicht getrennt; berechtigte Nutzer bearbeiten direkt ohne Read/Edit-Auswahl | Wiederöffnung und zulässiger Darstellungswechsel ohne Überschreiben bei Exportfehler; Rechte bleiben wirksam |
+| Mobile/Widget/Automation | Gleiche Identitäts-, Repräsentations-, Read- und Mutationsregeln | Altclient-Kompatibilität und tatsächliche native Abnahme separat |
+| Agenten-Read/Edit/Patch | Bestehende gezielte Tools und `persisted_yjs`-Ergebnisse wiederverwenden | Closed-document und unabhängig weiterbearbeiteter Absatz |
+| Link-Worker | Vollständiger autoritativer Graph, gezielte Mutation, dauerhafter Teilreceipt | Kein Datei-Fallback, kein blindes Replay |
+| MCP direkte Reads/Edits | Bereits vorhandenen Live-Weg erhalten; vorgeschaltete alte Disk-Revisionen entfernen | Genau eine passende Version pro bestätigter Operation |
+| MCP-/Workspace-Suche, RAG/Knowledge | Autoritative Extraktion oder explizit versionierter/frisch geprüfter abgeleiteter Index | Veraltete Projektion wird nicht als aktueller Treffer ausgegeben |
+| Download/ZIP/Markdown/PDF | Aktuellen geprüften Snapshot exportieren oder Exportfehler ehrlich melden | Kein stiller 0-Byte-Download eines vorhandenen Rich-Inhalts |
+| Public Share/Studio/Attachments | Scope und konsistenten Snapshot beibehalten; Exportfehler separat | Keine neue Veröffentlichung älterer oder fremder Inhalte |
+| Dateimetadaten/Revisionen | Physische Größe und Dokumentinhalt unterscheiden; Reads schreiben keine alte Historie | Keine new→old-Revision durch verspätete Dateiprojektion |
+| Create/Upload/Ingest | Kontrollierter Import und dokumentierte Initialisierung | Retry und vorhandenes verwaltetes Ziel |
+| Shell/Skill/Scratch | Bestehende OS-Schreibbegrenzung erhalten; Dokumentzugriff über Tools | Child-Prozess, Symlink, direkter Pfad und fehlende Sandbox |
+| Restore/Recovery/Operator | Verifizierte autoritative Sicherung und ausdrücklicher Reparaturumfang | Keine Startup-/Routine-Reparatur historischer Zustände |
+
+File-Watcher dürfen externe Dateidrift melden und Projektionen invalidieren; sie dürfen ältere Workspace-Dateien nicht automatisch zurück in initialisierte Yjs-Dokumente importieren. Admin-/Host-Dateischreiber, Sidecars und lokale Prozesse außerhalb der Agent-Sandbox werden ebenfalls inventarisiert. Eine REST-Fassade allein verhindert deren direkte Writes nicht.
+
+Die bereits vorhandene Agent-Sandbox ist kein Netzwerk- oder externer MCP-Schutz. Zusätzliche Mount-/Berechtigungsänderungen erfolgen erst nach einer konkreten Lückenanalyse, damit Projector, binäre Workflows und kontrollierte Importe weiterhin funktionieren.
+
+## 10. UI, Fehlerverträge und Observability
+
+### 10.1 Nutzerverständliche Zustände
+
+Die Dokumentoberfläche unterscheidet einen verfügbaren und gesicherten Editorinhalt von dessen Dateiausgabe. Dateiinformationen dürfen die physische Größe zeigen, müssen eine ausstehende/fehlerhafte Projektion aber erklären können. 0 Bytes auf der Festplatte sind kein Nachweis für ein leeres Dokument.
+
+Die bestehende Entscheidung für einen ruhigen Editor bleibt erhalten: keine routinemäßige Save-/Projektionsanzeige, Statuszeile oder Toast. Projektionsdetails gehören in Dateiaktionsdetails oder bewusst geöffnete Diagnostics/Dateiinformationen. Eine Meldung im normalen Editor erscheint nur bei einem tatsächlichen Problem, das eine Nutzerhandlung erfordert.
+
+Dateiaktionen zeigen die tatsächlich abgeschlossenen Schritte. Ein künftiger vollständig bestätigter Batch kann als angewendet erscheinen und zusätzlich „Dateiausgabe ausstehend“ melden. Ein teilweise ausgeführter oder unbewiesener Batch bleibt `needs_recovery`/Konflikt gemäß Vertrag.
+
+Die heutige pauschale Meldung „Datei lesbar oder kleiner machen“ wird für bekannte Exportfehler präzisiert. Der Nutzer erhält die betroffene Datei und eine verständliche Ursache. Interne Zustandsbelege, private Texte und ungeprüfte technische Detailfelder werden nicht öffentlich durchgereicht.
+
+Ein zuvor blockierter Auftrag wird nach einer Reparatur weiterhin nicht automatisch ausgeführt. Ein neuer Request oder ausdrücklich freigegebener neuer Plan bleibt erforderlich.
+
+### 10.2 Direkt editierbarer Inhalt als Standard
+
+**Bestätigte Produktvorgabe vom 13. Oktober:** Die wählbaren Funktionen „Read“ und „Edit“ entfallen. Wer Schreibrechte und eine nutzbare Sitzung besitzt, kann das sichtbare Dokument unmittelbar bearbeiten. Dafür wird keine zusätzliche Modusleiste, Schaltfläche zum Aktivieren oder neue Systemeinstellung eingeführt.
+
+Die Quellenprüfung zeigt, dass diese Änderung mehr als das Ausblenden zweier Buttons umfasst:
+
+| Quelle | Aktueller Zusammenhang | Geplante Änderung |
+| --- | --- | --- |
+| [MarkdownDocumentModes.tsx](../app/components/editor/MarkdownDocumentModes.tsx), Zeilen 87–116 | Gemeinsame eigene Zeile mit Read/Edit/Source, Breite und Fokus | Wählbaren Read-Zustand entfernen; verbleibende Fähigkeiten an kompakte Kopfzeilen anbinden. |
+| [MarkdownEditor.tsx](../app/components/editor/MarkdownEditor.tsx), Zeilen 5893–5948 und 6033–6122 | Startmodus, Fallbacks, statischer Reading-Renderer, Migration und Editable-Status hängen am Modus | Autoritative Repräsentation und echte Nutzbarkeit bestimmen den Editor; alter Read-Modus darf keinen berechtigten Nutzer im statischen Renderer halten. |
+| [MarkdownField.tsx](../app/components/editor/MarkdownField.tsx), Zeilen 21–44 | Bereits gefüllte Formularfelder starten heute in Read; Leerfelder in Rich | Gefüllte und leere schreibbare Felder direkt bearbeiten; Expand-Aktion unabhängig von einer Modusleiste erhalten. |
+| [GuestMarkdownEditor.tsx](../app/components/file-guests/GuestMarkdownEditor.tsx), Zeilen 58–106 | Eigener Requested-Mode und gemeinsame Modusleiste; tatsächliche Gastrechte separat geprüft | Gast mit Schreibrecht direkt bearbeiten; Gast mit Leserecht weiterhin geschützt anzeigen; Download-/Asset-Scope erhalten. |
+| [markdown-mode-availability.ts](../app/lib/editor/markdown-mode-availability.ts) | Kollaborativer Rich-Quelltext ist kein schreibbares `Y.Text('content')`; Source nur für zulässige Repräsentationen | Keine Rich-Projektion durch Entfernen eines `readOnly`-Flags scheinbar editierbar machen. |
+
+**Native Mobile ist ein eigener Repository-Anschluss:** Im separat geprüften Checkout `canvas-notebook-mobile` bei `3ba1eb92dee91c198265403d09395bd1e3a8fff8` besitzt `src/features/notebook/notebook-document-screen.tsx`, Zeilen 2895–2902, ebenfalls eine Preview/Edit-Auswahl. Schreibfähigkeit/Admission werden bereits getrennt geprüft; Rich-Live-Source bleibt dort eine lesende Projektion. Die gleiche Produktvorgabe wird für die native Dokumentfläche aufgenommen, mit eigener Implementierung und Geräteabnahme. Web-Viewport-Tests ersetzen diese Abnahme nicht. Bestehende keyboardabhängige Kopfzeilen dürfen beim direkten Editieren keine ungefragte Tastaturöffnung oder verlorene Auswahl verursachen.
+
+Verhaltensvertrag:
+
+1. `tiptap_blocks` und zulässige Rich-Dokumente öffnen in ihrem nativen bearbeitbaren Rich-Editor. Reiner Exportfehler führt nicht zu einer künstlichen statischen Leseansicht, sofern Struktur und Sitzung Bearbeitung erlauben.
+2. `plain_text` und Dokumente mit ausschließlich sicherem Quelltextvertrag öffnen direkt im bearbeitbaren Source-Editor. Der unterstützte Inhalt bleibt erhalten; kein automatisches Normalisieren oder Migrieren nur für eine einheitliche Darstellung.
+3. „Source“ bleibt eine besondere Darstellung/Fähigkeit, soweit sie sicher unterstützt wird. Empfehlung: Zugang im bestehenden Mehr-Menü, Rückkehr zum formatierten Dokument im selben Kontext; keine neue permanente Read/Edit/Source-Zeile. Native Markdown-Einfügung und bestehende gezielte Edit-Wege bleiben nutzbar.
+4. Tatsächliche Leserechte, entzogene Rechte, fehlende Bereitschaft, Admission-/Strukturprobleme und migrationsbedingte Sperren bestimmen die reale Editierbarkeit. Berechtigung und Schutzstatus werden vom ehemaligen Präsentationsmodus getrennt. Ein bekannter Exportfehler wird gemäß dem gemeinsamen Fehlervertrag klassifiziert; dauerhafte Quarantäne wird nicht zum Ermöglichen der Eingabe aufgehoben.
+5. Reines Öffnen, Fokussieren, Wechseln der Breite oder Vollbild erzeugt keine Inhaltsmutation, Revision, Normalisierung oder Migration. Ein fertig nutzbarer Editor setzt beim Öffnen nicht automatisch den Cursor und öffnet mobil nicht ungefragt die Tastatur.
+6. Links, Wiki-Verweise, Bilder, Tabellen, Callouts, Checkboxen, aufklappbare Details, Codeblock-Kopieren, Metadaten, Inhaltsverzeichnis, Backlinks und Navigation funktionieren in der standardmäßigen Editieransicht. Bisher nur im Reading-Renderer vorhandene Darstellung oder Navigation wird ausdrücklich inventarisiert und sinnvoll in den direkten Editor übernommen. Geschützte Nodeviews und Medien-Atome werden dafür nicht pauschal `contenteditable=true`. Breite Tabellen bleiben innerhalb des Dokuments mit Tastatur/Touch scrollbar.
+7. Ein Dokument behält beim Wechsel der Darstellung, Breite oder Fokussierung seine Sitzung, Identität, Auswahl, Scrollposition und Undo-Historie. Inline-/Expanded-Formularfeld besitzt weiterhin genau einen aktiven Draft-Owner.
+8. Wirklich lesende Oberflächen wie Public Shares, Revision-/Review-Vorschauen und Binärvorschauen behalten ihren fachlichen Zweck. Die Entfernung des Read/Edit-Wahlschalters vergibt keine neuen Rechte und entfernt keine fachlich eigenständige HTML-/Folienvorschau.
+
+### 10.3 Platzierung von Dokumentbreite und Vollbild/Fokus
+
+**Begriffsklärung aus dem aktuellen Code:** Der horizontale Pfeil `MoveHorizontal` schaltet zwischen begrenzter Seitenbreite und voller Dokumentbreite um. Er verändert keine horizontale/vertikale Panelanordnung. Die Vollbild-Schaltfläche aktiviert heute den Dokumentfokus über [NotebookFocusContext.tsx](../app/components/notebook/NotebookFocusContext.tsx) und [DashboardShell.tsx](../app/components/DashboardShell.tsx), Zeilen 457–490; Explorer, Chat und Terminal werden temporär ausgeblendet. Sie verwendet keine Browser-Fullscreen-API. Dieser Plan optimiert diese vorhandenen beiden Funktionen.
+
+**Empfohlener Platz:** Die beiden Ansichtsaktionen rechts in die bestehende Dokumentkopfzeile von [FileEditor.tsx](../app/components/editor/FileEditor.tsx), Zeilen 1072–1265, integrieren. Links bleiben Dokumentname/Pfad; rechts folgt eine kompakte zusammenhängende Gruppe für Breite und Fokus neben den vorhandenen Dateiaktionen. Damit entfällt die gesamte zusätzliche Moduszeile, statt sie durch eine leere oder anders beschriftete Leiste zu ersetzen.
+
+Schematischer Zielzustand für die normale Desktop-Dokumentansicht; konkrete Abstände und Overflow werden anhand der realen Kopfzeile abgenommen:
+
+```text
+Datei / Ordner / Dokument.md          [Breite] [Fokus] [Dateiaktionen …]
+───────────────────────────────────────────────────────────────────
+Direkt bearbeitbarer Dokumentinhalt
+```
+
+Die Skizze lässt bestehende Freigabe-, Versions- und Review-Aktionen zur Übersicht aus. Sie bleiben erreichbar; das Layout darf die schon vorhandene Aktionsgruppe nicht einfach unbeschränkt verbreitern.
+
+| Oberfläche/Zustand | Vorgeschlagene Platzierung | Platz- und Bedienungsregel |
+| --- | --- | --- |
+| Desktop mit ausreichender Breite | Dokumentbreite und Fokus als Icon-Gruppe rechts in der vorhandenen Dateikopfzeile | Tooltip plus eindeutiger zugänglicher Name und gedrückter Zustand; keine doppelte Aktion in der Formatierungsleiste. |
+| Schmaler Desktop, angedockter Chat/Explorer oder hoher Zoom | Eine kompakte Ansichtsaktion öffnet Breite/Fokus im Menü der Kopfzeile, sobald direkte Icons den Dokumentnamen oder wichtige Aktionen verdrängen | Nach tatsächlich verfügbarem Platz reagieren; Dateiname bleibt erkennbar, keine abgeschnittenen Buttons oder zweite Zeile. Bestehende Rechte-/Fehlerhinweise bleiben sichtbar. |
+| Dokumentfokus aktiv | Fokus-Icon wechselt zur sichtbaren Aktion „Fokus verlassen“ an derselben Stelle | Kopfzeile bleibt erreichbar; Escape schließt zuerst das aktive Menü/den Dialog, danach den Fokus; IME-Komposition beendet den Fokus nicht. Vorherige Panels, Größen, Terminalinstanz und ungesendeter Chatentwurf bleiben erhalten. |
+| Mobile Dokumentansicht | Breite nur anbieten, wenn beide Einstellungen sichtbar verschiedene und sinnvolle Ergebnisse liefern; dann im Kopfzeilenmenü | Kein Desktop-Fokus-Button ohne nutzbare Funktion. Die bestehende mobile Vollflächenansicht erhält bei Bedarf eine klare Rückkehraktion; keine zusätzliche Leiste über der Tastatur. |
+| Inline-Markdown-Formularfeld | Expand-Icon in der vorhandenen Feldkopfzeile oder am oberen rechten Rand innerhalb des Feldcontainers | Keine Notebook-Breite-/Fokusaktionen. Touch-/Fokusziel darf Text und Auswahl nicht überdecken. |
+| Erweitertes Formularfeld | Bereits vorhandene Dialogtitelzeile trägt Schließen/Verkleinern | Keine zweite Modus-/Vollbildleiste; Entwurf, Auswahl und Fokus-Rückgabe bleiben korrekt. |
+| Gasteditor | Dokumenttitel/Download-Zeile erhält gegebenenfalls Breitenaktion | Notebook-Fokus nur bei tatsächlich vorhandenem Host-Vertrag; kein funktionsloses Vollbild-Icon für eine eigenständige Gastseite. |
+| Source-Editor | Nutzt bereits die verfügbare Breite; Breitenaktion wird nicht angeboten, wenn sie dort wirkungslos ist | Unterstützter Darstellungswechsel im Mehr-Menü; Fokus betrifft weiterhin nur das Layout. |
+
+Breiten-/Fokuszustand erhält einen klaren Owner und wird als reine Präsentation an den Editor weitergereicht. Das Entfernen der Modusleiste darf den bisherigen lokalen `wide`-State nicht versehentlich zurücksetzen oder die Collaboration-Sitzung neu montieren. Eine Darstellungseinstellung wird nicht in Yjs-Dokumentinhalt oder Dokumentrevisionen gespeichert. Keine neue persistente Präferenz wird ohne bewusste Produktentscheidung eingeführt.
+
+Die standardmäßige Editieransicht soll dieselbe angenehme Lesbarkeit bieten: passende Textbreite, gleichwertige Blockdarstellung und Formatierungswerkzeuge nur im bestehenden Kontext. Keine zusätzliche dauerhafte Formatierungsleiste als Ersatz für die entfernte Zeile. Tastaturbedienung, deutsche/englische zugängliche Namen, Tooltip-/Menü-Fokus, ausreichend große Touch-Ziele, Browserzoom, lange Dateinamen und mobile Safe Areas gehören zur Abnahme. Ein zusätzlich gewünschter Wechsel zwischen nebeneinander/untereinander angeordneten Panels wäre ein eigener Layoutauftrag und würde getrennt von der Dokumentbreite spezifiziert.
+
+### 10.4 Fachliche Fehlerklassen
+
+Mindestens getrennt behandeln: fehlende Autorität/Initialisierung unklar, ungültige Struktur, unvollständige Linkprüfung, geänderter Link/Katalog, Lifecycle-/Pfadkonflikt, fehlende Berechtigung/Ownership, Persistenzfehler, unklarer Mutationsausgang, ausstehende Projektion und fehlgeschlagener verlustfreier Export.
+
+Neue Fehlercodes/Statusfelder werden versioniert. Alte Clients dürfen einen neuen Dauerhaftigkeitsstatus nicht als alten Dateicheckpoint interpretieren. Der öffentliche Receipt-Parser, Recovery-Consumer, Agentenresultat und Mobile-Parser werden zusammen angepasst.
+
+### 10.5 Messbarkeit
+
+Vorgeschlagene Messgrößen: Projektionsrückstand/-alter, Codec-Fehler nach begrenztem Fehlercode, strukturelle Coverage-Lücken, Retry/Deduplizierung, Recovery-Rückstand, Read-/Planlatenz und Größe der autoritativen Sicherungen. Metriklabels enthalten keine Dateipfade, Dokumenttexte, Tokens oder unbeschränkte Actor-/Operations-IDs.
+
+Private Audit-/Diagnosebelege binden Operation und Scope mit kontrollierter Retention. Wiederholte Exportfehler werden dedupliziert sichtbar; unbegrenztes Routine-Logging ersetzt keine Fehlerklassifikation. Bereits gesicherte Mutationen dürfen durch Monitoring/Projektionsretry nicht nochmals angewendet werden.
+
+## 11. Leistungs- und Konsistenzoptimierung
+
+Zuerst Korrektheit und Nachweise, anschließend Messung und Optimierung:
+
+- Workspace-Katalog und Autoritätsmetadaten gebündelt lesen; unnötige pro-Datei-DB-Abfragen vermeiden.
+- Unveränderte Linkinventare mit Dokument-ID, Generation, Repräsentation, Schema-/Parser-Version und gesichertem Snapshot-Beleg cachen.
+- Pfad-, Alias-/Titel-, Lifecycle- und Dokumentupdates invalidieren die jeweils betroffenen Inventare und Auflösungen.
+- Coalescing des Projectors beibehalten; spätere sichere Sequenzen können ältere Projektionsziele enthalten, müssen deren korrekte Generation/Identität nachweisen.
+- Räume nur für benötigte Operationen öffnen; vorhandene Ownership-/Idle-Release-Regeln verwenden.
+- Speicher, CPU, Scan-Dauer, Binärsnapshotgröße und Retention begrenzen. Größere Dokumente erhalten explizite Budgets; Pagination darf keine erfolgreiche vollständige Abdeckung vortäuschen.
+- Shadow-Vergleiche beziehen sich auf denselben nachgewiesenen Stand. Ein alter Disk-Graph gegen einen neuen Yjs-Graph ist erwartete Drift, kein automatischer Parserfehler.
+
+Zielwerte für p95-Planlatenz, maximalen Projektionsrückstand und Scan-/Backup-Budgets werden nach einer Baseline-Messung festgelegt. Vor dieser Messung werden keine erfundenen Leistungszusagen in das Produkt aufgenommen.
+
+## 12. Sequenzielle Umsetzung mit Abschluss-Gates
+
+Jeder Schritt wird fertiggestellt, geprüft und separat committed, bevor der nächste Implementierungsschritt beginnt. Vorarbeiten zur gemeinsamen Planprüfung sind noch keine begonnenen Implementierungs-To-dos. Alle folgenden Aufgaben sind offen.
+
+| ID | Priorität | Arbeitspaket | Abgeschlossen, wenn … |
+| --- | --- | --- | --- |
+| YD-00 | P0 | Entscheidungen, Inventar und Regression festlegen | Autoritäts-/Erfolg-/Coverage-/Recovery-Verträge beschlossen; alle Eintrittspunkte und bestehende Einschränkungen dokumentiert; synthetischer Fehlerfall definiert. |
+| YD-01 | P0 | Konkreten Roundtrip-Fehler isolieren | Privater vollständiger Snapshot geprüft, minimaler anonymisierter Reproducer erstellt, Ursache belegt; notwendige Codec-Korrektur validiert oder sichere Einschränkung beschrieben. Keine automatische Produktionsreparatur. |
+| YD-02 | P0 | Gemeinsame Snapshot-/Autoritätsfähigkeiten | Initialisierte und pristine/legacy Zustände sicher getrennt; Live-/Persisted-Read mit vollständigen Identitäts-/Frischebelegen; Exportfehler verhindert zulässiges natives Strukturlesen nicht. |
+| YD-03 | P0 | Autoritative Recovery-/Clone-/Import-Verträge | Binäre Sicherung plus Pfadartefakte tatsächlich wiederherstellbar; Copy verliert keine Inhalte bei leerer Projektion; Import/Retry/Generation und Manifestversion getestet. |
+| YD-04 | P0 | Strukturierter Linkgraph und autoritative Planung | Alle vertraglichen Linkformen aus Yjs oder kontrolliertem pristine Text erfasst; vollständige Coverage und virtuelle Auflösung; Roundtrip-unabhängiger synthetischer Fall korrekt behandelt. |
+| YD-05 | P0 | Gezielte Linkmutationen und dauerhafte Receipts | Native Zieloperationen statt gewöhnlicher Rich-Gesamtersetzung; unabhängige Edits erhalten; StateProof/DeleteSet, Rechte und Retry/Deduplizierung nachgewiesen. |
+| YD-06 | P0 | Dateiaktions-Abschluss entkoppeln | Pfad-/Lifecycle-, Link- und Persistenzbelege ersetzen alle bisherigen diskabhängigen Abschlussannahmen; finale Graphprüfung autoritativ; Projector läuft außerhalb der Batch-Sperre sicher weiter. |
+| YD-07 | P0 | Undo/Restore und historische Journale | Sichere inverse Zieloperationen, kompatible alte Manifeste, wiederangelegte Pfade und späte Projektionen; kein Whole-document-Overwrite aktueller Nutzeränderungen. |
+| YD-08 | P0 | Alle verbleibenden Writer anschließen | File-/MCP-/Agent-/Upload-/Overwrite-/Restore-Wege können initialisierte Dokumente nicht roh ersetzen; Sandbox-/Host-Ausnahmen konkret erfasst; keine Policy-/Actor-Umgehung. |
+| YD-09 | P1 | Reader, Suche, Revisionen und Exporte vervollständigen | Web/Mobile/MCP/Knowledge/ZIP/Share-Verträge frisch und ehrlich; alte Dateiprojektionen erzeugen keine aktuelle Ausgabe oder falsche Revision. |
+| YD-10 | P1 | UI, direktes Editieren, öffentliche Verträge und Betrieb | Read/Edit-Auswahl entfernt; Rich/zulässiges Source unmittelbar editierbar; kompakte Breiten-/Fokusaktionen ohne zusätzliche Zeile; echte Rechte und Sitzungsschutz erhalten. Status-/Fehlerdarstellung sowie Recovery/Notification/Agent/Mobile kompatibel. |
+| YD-11 | P1 | Integrierte Konkurrenz-/Crash-/Browser-Abnahme | Verpflichtende Matrix bestanden, Build/Checks dokumentiert, Ebenen der Evidenz getrennt; keine offenen Datenverlust-/Scope-/Wiederanlaufbefunde. |
+| YD-12 | P1 | Gemessene Optimierung und kontrollierter Rollout | Baseline/Shadow-Vergleich, Lastgrenzen, historische Rückstände, Aktivierungs-/Stop-/Rollback-Regeln nachgewiesen; Rollout separat beauftragt. |
+| YD-13 | P2 | Öffentliche API/Python-SDK planen | Interner Vertrag stabil und versioniert; Auth/Scopes, Idempotenz, Lesepagination, strukturierte Edits und Exportstatus können darauf aufgebaut werden. |
+
+### 12.1 Checkliste für die gemeinsame Fortschreibung
+
+- [ ] YD-00: Planentscheidungen und Inventar akzeptiert.
+- [ ] YD-01: Roundtrip-Ursache und Reproducer belegt.
+- [ ] YD-02: Snapshot-/Autoritätsvertrag umgesetzt und geprüft.
+- [ ] YD-03: Autoritative Sicherung, Clone und Import geprüft.
+- [ ] YD-04: Linkinventar und Planer vollständig autoritativ.
+- [ ] YD-05: Gezielte Linkmutation dauerhaft und idempotent.
+- [ ] YD-06: Batch-Abschluss mit unabhängiger Projektion.
+- [ ] YD-07: Undo/Restore und Altjournal-Kompatibilität.
+- [ ] YD-08: Writer-Inventar abgeschlossen und zentrale Gates nachgewiesen.
+- [ ] YD-09: Reader-/Export-/Such-/Revisionsecken abgeschlossen.
+- [ ] YD-10: Direktes Editieren, kompakte Ansichtsaktionen, öffentliche Verträge und UI/Betrieb geprüft.
+- [ ] YD-11: Integrierte Abnahme abgeschlossen.
+- [ ] YD-12: Optimierung und separat freigegebener Rollout abgeschlossen.
+- [ ] YD-13: Separater API-/SDK-Plan akzeptiert.
+
+Zu jedem Haken gehören Commit, betroffene Verträge, konkrete Tests/Evidenz, verbleibende Grenzen und gegebenenfalls ein neuer Entscheidungseintrag. Ein bestandener Unit-Test allein schließt kein integriertes Arbeitspaket ab.
+
+**Aktivierungsgate:** YD-06 wird zunächst hinter einem deaktivierten, versionierten Vertrag integriert. Der neue Erfolgspfad wird erst aktiviert, nachdem YD-07 und YD-10 sowie die integrierte Abnahme YD-11 abgeschlossen sind. Bis dahin dürfen keine neuen Receipts mit altem Undo/Recovery oder alten öffentlichen Parsern kombiniert werden. Ein Produktionsrollout ist zusätzlich an YD-12 und einen eigenen Auftrag gebunden.
+
+### 12.2 Konkrete UI-Liefergegenstände innerhalb YD-10
+
+Diese Teilschritte werden nacheinander abgeschlossen und fokussiert committet. Die Entfernung der Read/Edit-Auswahl ist bereits als Produktanforderung gesetzt; ihre Umsetzung beginnt nach gemeinsamer Prüfung des Plans.
+
+1. **Modell und Oberflächeninventar:** Präsentationsmodus von Berechtigung/Schutzstatus trennen; alle Aufrufer, Default-/Fallback-Zustände, Rich-/Source-Fähigkeiten und Reading-only-Funktionen erfassen. Keine editierbare Disk-/Projektionskopie als Abkürzung.
+2. **Direktes Editieren:** Haupteditor, Markdown-Felder und Gasteditoren auf direkte native Bearbeitung für Berechtigte umstellen; Native-Mobile-Anschluss im eigenen Repository nach derselben Produktvorgabe führen. Öffnen ohne Mutation/ungefragten Autofokus, Rechtewechsel, Migration, lokale Entwürfe und unterstützten Source-Pfad prüfen.
+3. **Kompakte Steuerung:** Read/Edit-Leiste vollständig entfernen; Breite/Fokus in die bestehende Kopfzeile integrieren, Feld-Expand und Gast-Download korrekt anbinden. Overflow, Fokus-Rückkehr, State-Owner und mobile Darstellung fertigstellen.
+4. **UI-Abnahme und Vertragsanschluss:** Tatsächliche Eingabe/Formatierung/Undo, Navigation/Links/Backlinks, Zwei-Nutzer-Änderungen, schmale Ansichten, Tastatur/Touch und Fehler-/Rechtestatus nachweisen. Veraltete Tests für Read/Edit-Auswahl gezielt auf die neue Produktvorgabe umstellen; verbleibende Source-/Berechtigungsprüfungen erhalten.
+
+## 13. Verpflichtende Abnahmematrix
+
+Die Produktionsdatei wird nicht als öffentliche Testfixture kopiert. Ein privater Snapshot dient der Diagnose; eine minimale synthetische Struktur reproduziert die relevante Eigenschaft ohne persönliche Inhalte.
+
+| Fall | Erwartetes Ergebnis | Erforderliche Evidenz |
+| --- | --- | --- |
+| Gültiges Rich-Yjs, physische `.md` leer, verlustfreier Export scheitert | Native Linkprüfung kann vollständig sein; Operation nur bei sicherem strukturellem Nachweis; Exportfehler bleibt sichtbar | Struktur-/Linktests, persistierte Operation, Browser |
+| Derselbe Zustand enthält tatsächlich ungeprüfte Struktur/HTML | Konkrete Coverage-Blockade; keine Mutation und kein behaupteter vollständiger Graph | Negativtest plus UI/Agentenresultat |
+| Schema-/Stable-ID-/Identitätsfehler oder historische Quarantäne | Reconnect, neuer Binärstore und alter Checkpoint-Ack heben die Sperre nicht auf; bekannter nichtpermanenter Exportfehler bleibt getrennt | Quarantäne-/Admission-/Recovery-Negativtests |
+| Initialisiertes Dokument ohne physische Datei oder doppelte aktive Zuordnung | Dokument bleibt im vollständigen Inventar; fehlende Projektion wird geprüft, Identitätskonflikt blockiert ohne Reinitialisierung | Registry-/Snapshot-/Coverage-Negativtests |
+| Nutzer editiert Quelle, Dateiprojektion laggt; verlinktes Ziel wird umbenannt | Richtiger Link aktualisiert; Nutzertext bleibt; dauerhafte Bestätigung unabhängig vom Export | Zwei Sessions, echte PostgreSQL-Persistenz, Browser |
+| Dokument geschlossen/Raum entladen | Gleiches Ergebnis aus persisted Yjs; keine Disk-Reinitialisierung | Raum-on-demand-/Reader- und Integrationstest |
+| Änderung in anderem Absatz nach Planung | Lokale Linkvorbedingungen erneut geprüft; unabhängige Änderung erhalten | Konkurrenztest mit block-/ankerbezogenen Assertions |
+| Zielspan, Alias oder neuer gleichnamiger Kandidat ändert sich | Neuer Plan/gezielter Konflikt; kein alter globaler Hash-Overwrite | Parser-/Resolver-/Apply-Negativtests |
+| Mehrere Linkstellen/Referenzdefinitionen in einem Dokument | Genau die gebundene Gruppe wird atomar verändert; Labels/Fragmente erhalten | Struktur- und Mutationsvergleich |
+| Tabelle/Callout/Liste/HTML/Frontmatter, Emoji und CRLF/BOM | Vollständige Prüfung und exakte Ziel-/Encoding-Semantik | Syntaxmatrix, UTF-16-/UTF-8- und Schema-/Codec-Tests |
+| Neustart nach Mutation vor Persistenz | Kein vorgetäuschter dauerhafter Erfolg; definierter Retry-/Recovery-Ausgang | Prozess-/Storage-Fault-Test |
+| Neustart nach Persistenz vor Receipt | Genaues gesichertes Ergebnis wird erkannt; kein zweites Anwenden | PostgreSQL-/Journal-Crash-Test mit DeleteSet |
+| Tatsächlicher Serverneustart nach Persistenz vor Projektion; frischer Browser ohne IndexedDB | Vollständiger Inhalt aus Serverpersistenz, exakter ursprünglicher Receipt, kein Replay, später passende Projektion | Prozessneustart und frischer Browserkontext; kein Cache-Nachweis als Ersatz |
+| Absturz nach Pfadmutation vor Quittung | Belegbarer Wiederanlauf oder `needs_recovery`; kein blindes Replay | Lifecycle-/Filesystem-Fault-Test |
+| Pfad-/Lifecycle- und Yjs-Linkschritte bestätigt, finaler autoritativer Graph vollständig; Projector fehlerhaft/verzögert | Neue Operation fachlich vollständig, Export separat pending/failed; Retry dedupliziert | Batch-/öffentlicher Status-/Browser-Test |
+| Später Export nach Move/Delete/Restore oder Neuerstellung am alten Pfad | Nur aktuelle Identität/Generation wird geschrieben; kein wiederbelebter Pfad | Projektions-/Lifecycle-/Crash-Tests |
+| Copy bei leerer Projektion, auch mit internen Links | Vollständiger Rich-Inhalt in neuer Identität; Original unverändert | Binär-/Strukturvergleich und Copy-/Browser-Test |
+| Delete/Trash/Restore bei fehlender Projektion | Maßgeblicher Inhalt tatsächlich wiederherstellbar; neue aktive Generation korrekt | Lade-/Restore-Probe, aktueller Snapshotvergleich |
+| Undo nach erfolgreicher Linkänderung und späterem unabhängigem Edit | Inverse Linkwirkung, Nutzeredit bleibt; Kollisionen blockieren sicher | Zieloperations-/Lifecycle-/Browser-Test |
+| Offline-Peer liefert später Edit oder Löschung | CRDT-Update erhalten; bewiesener Receipt korrekt eingeordnet; fachlicher Konflikt sichtbar | Zwei Peers, IndexedDB-/Reconnect- und DeleteSet-Test |
+| Rechte entzogen, Workspace gewechselt, Owner-Lease verloren | Keine weitere unautorisierte Mutation; sichere Teilstatus-/Recovery-Anzeige | Auth-/Admission-/UI-Negativtests |
+| Wiederholter Job, Cancel/Timeout, konkurrierender Worker | Eine bestätigte Mutation; alte/unklare Belege nicht übernommen | Deduplizierungs-/Lease-/Crash-Test |
+| Unreadable/too-large/Legacy-unknown Quelle oder DB-Ausfall | Honest unavailable/incomplete; keine falsche `coverage.complete` | Parser-/Snapshot-/Plan-/Status-Negativtests |
+| Search/Read/ZIP/Public Share/Mobile bei alter Datei | Aktueller definierter Snapshot oder ausdrücklicher Frische-/Exportfehler; keine falsche Revision | Consumer-/Route-/Browser-/native Tests nach Scope |
+| Historischer Batch ohne neue Belege | Alte Semantik kompatibel; keine automatische Hochstufung auf neuen Erfolg | Versionierte Manifest-/Replay-Fixtures |
+| Binär-/Office-/Excalidraw-Aktion | Bestehender eigener Vertrag unverändert korrekt | Gezielt gewählte Nicht-Markdown-Regressionen |
+| Schreibbares gefülltes/leeres Rich-Dokument und Markdown-Formularfeld | Inhalt unmittelbar editierbar; keine Read/Edit-Wahl; Öffnen verändert keinen Inhalt und öffnet mobil keine Tastatur | Realer Editor-/Formulartest plus Desktop-/Mobile-Browser; Native-Mobile-Abnahme separat |
+| Nur sicherer Source-Vertrag oder Rich-Exportfehler | Native zulässige Bearbeitung ohne Normalisierung/Dateifallback; Rich-Source nicht scheinbar freigeschaltet | Repräsentations-/Codec-Negativtest und echte Eingabe |
+| Gast mit Read/Write, laufender Rechteentzug, Migration oder Quarantäne | Nur Berechtigte bearbeiten; Schutzsperre bleibt wirksam und verständlich; Download/Assets behalten ihren Scope | Gast-/Admission-/UI-Negativtest, zwei Sessions |
+| Breite/Fokus wechseln, Dokument schließen/öffnen, Formular expandieren | Eine aktive Editor-/Draft-Sitzung; Inhalt, Auswahl, Scrollanker und Undo erhalten; Fokus stellt vorheriges Layout wieder her | Komponententest plus reale Browserinteraktion |
+| Schmale Kopfzeile, lange Pfade, Browserzoom, Mobile/Softkeyboard | Keine zusätzliche Moduszeile, verdeckten Aktionen oder Textüberlagerung; sinnvolle Breitenaktion und zugängliche Rückkehr | Screenshots und Tastatur-/Touch-Abnahme über Viewports |
+| Links, Tabellen, Metadaten, Inhaltsverzeichnis und Backlinks in direkter Editieransicht | Navigation und Inhalte behalten die benötigte Qualität; kein künstlicher Read-Modus als Voraussetzung | Gezielte Navigations-/Darstellungs-/Formatierungs-E2E |
+
+### 13.1 Bestehende Testgrundlagen
+
+Diese Befehle existieren in der Quellcode-Basis und werden je Arbeitspaket gezielt erweitert. Die Aufzählung behauptet nicht, dass sie für diesen Plan neu ausgeführt wurden.
+
+```sh
+npm run test:files:html-link-safety
+npm run test:markdown:links
+npm run test:markdown:link-contract
+npm run test:markdown:file-operation-planner
+npm run test:files:operation-preview
+npm run test:files:operation-executor
+npm run test:files:operation-batches
+npm run test:files:operation-backup
+npm run test:files:operation-undo
+npm run test:files:lifecycle:postgres
+npm run test:files:lifecycle:writer:postgres
+npm run test:collaboration:durability
+npm run test:collaboration:persistence
+npm run test:collaboration:projection
+npm run test:collaboration:admission:postgres
+npm run test:collaboration:location-integration
+npm run test:mcp:server-document-edits
+npm run test:mobile:notebook
+npm run test:editor:field
+npm run test:editor:mode-position
+npm run test:editor:mode-position:e2e
+npm run test:editor:mobile-viewport
+npm run test:editor:mobile-viewport:e2e
+npm run test:editor:presentation
+npm run test:markdown:navigation-client
+npm run test:file-guests
+```
+
+Besonders relevante vorhandene Fixtures: [autoritativer Planner](../scripts/workspace-authoritative-planner-snapshot-test.ts), [Batch-Executor](../scripts/workspace-operation-batch-executor-test.ts), [Link-Yjs-Edits](../scripts/workspace-link-yjs-edits-test.ts), [Link-Write-Executor](../scripts/workspace-link-write-executor-test.ts), [StateProof](../scripts/collaboration-state-proof-test.ts), [Projection-Runtime](../scripts/collaboration-projection-runtime-test.ts), [Agent-Block-Admission](../scripts/collaboration-agent-block-admission-test.ts), [Read-Snapshot](../scripts/collaborative-file-read-test.ts) und [Undo](../scripts/workspace-operation-undo-test.ts).
+
+Die vorhandene Batch-Regression für alle angewandten Linkschritte bei anschließend ausstehendem Checkpoint muss als alte Vertragsevidenz erhalten bleiben und für den neuen versionsgebundenen Abschluss gezielt weiterentwickelt werden. Die bisherigen HTML-Snapshot-Tests erwarten teilweise unveränderte Disk-Semantik; das ist eine bewusst zu ändernde Vertragsannahme, kein beliebig anzupassender Testfehler.
+
+Für die Editorvereinfachung besonders relevant: [Markdown-Feld-UI](../scripts/markdown-field-ui-test.tsx), [Feldinhalt](../scripts/markdown-field-content-test.tsx), [Fokus/Breite](../tests/editor-focus-width.spec.ts), [lokale Positions-/Modus-E2E](../tests/editor-mode-position-local.spec.ts), [kollaborative Positions-/Modus-E2E](../tests/editor-mode-position.spec.ts), [Offline-Kollaboration](../tests/editor-offline-collaboration.spec.ts), [Gast-Kollaboration](../tests/editor-guest-collaboration.spec.ts), [mobile Viewports](../tests/editor-mobile-viewport.spec.ts) und [Workspace-Navigation](../scripts/workspace-markdown-navigation-client-test.ts). Bestehende Read/Edit-Button-Assertions beschreiben den bisherigen Vertrag und werden durch direkte Eingabe ersetzt; Positions-/Undo-, Source- und Berechtigungsnachweise werden weiterhin benötigt.
+
+### 13.2 Integrierte Prüfungen und Umgebungsregeln
+
+- Unit-/Komponententests beweisen keine Prozess-, PostgreSQL-, Browser- oder Produktionssicherheit.
+- Die Pflichtfälle für Admission, Ownership, parallele Stores und Crash-Recovery verwenden echte getrennte Prozesse/Sessions und PostgreSQL.
+- UI/E2E prüfen Dateibrowser, Drag/Move/Delete, Review an/aus, Notifications, Wiederherstellung, direktes Rich-/Source-Editieren, echte Leserechte, kompakte Breiten-/Fokusaktionen, mobile Viewports und die betroffenen Cross-Workspace-Oberflächen.
+- Die vorhandenen `test:files:operation-batches:e2e`, `test:files:operation-direct:e2e`, `test:files:operation-notifications:e2e`, `test:files:operation-review-toggle:e2e` und HTML-Link-E2E sind Anschlussstellen; konkrete Auswahl hängt vom fertigen Änderungsumfang ab.
+- Für das lokale Dev-Setup gilt der Skill `canvas-local-team-seat-dev`; keine parallelen Test-Stacks. Ein neuer Containerlauf verwendet den aktuellen Stand per Recreate/Rebuild.
+- Containerbau erfolgt nur nach ausdrücklichem Auftrag und vorher bestandenem `npm run build`. Die aktuelle Browserfreigabe betraf die lesende Produktionsdiagnose und ist kein Auftrag zu Produktionsmutationen.
+- Vor Integrationsabschluss: relevante Tests, Typecheck/Lint, `npm run build`, Diff-/GitNexus-Scopeprüfung und passende UI-Abnahme. Vor Produktionsdeployment zusätzlich die Repository-Vorgabe `npm run test:all`.
+- Native iOS-/Android-Akzeptanz, Remote-CI und Produktionsnachweis werden getrennt vom lokalen Browsernachweis dokumentiert.
+
+## 14. Migration, Rückstände und Rollout
+
+### 14.1 Additive Verträge zuerst
+
+Neue Snapshot-/Receipt-/Recovery-/Manifestfelder erhalten eine explizite Version. Alte und neue Operationsjournale bleiben lesbar, ohne alten Dateihash-Belegen neue Yjs-Garantien zuzuschreiben. Schemaänderungen sind zunächst additiv; alte Worker dürfen neue Manifeste nicht versehentlich bearbeiten.
+
+Die Aktivierung wird pro gemeinsamem Vertrag vorgenommen. Planer v2 mit Executor v1, neuer Erfolgsstatus mit altem Recovery-Parser oder neue Kopien mit altem Backupformat dürfen nicht als kompatible Kombination angenommen werden. Laufende Batches werden vor einem Wechsel entweder unter ihrem ursprünglichen Vertrag beendet oder ausdrücklich übernommen.
+
+### 14.2 Vor dem Rollout lesen und messen
+
+Inventar erfassen: initialisierte/uninitialisierte/unklare Dokumente, aktive Räume, pending/failed Projectors, fehlende Zustände, leere/alte Projektionen, offene Dateioperationen und verfügbare Backups. Das Inventar ist eine Diagnose, keine automatische Reparaturliste.
+
+Optionaler Shadow-Modus vergleicht alte und neue Planung ohne Writes und bindet beide Ergebnisse an denselben Snapshot. Dokumenttexte und private Yjs-Daten bleiben außerhalb öffentlicher Logs.
+
+### 14.3 Kontrollierte Aktivierung
+
+Zuerst Tests und privater Klon, dann eine separat freigegebene kleine reale Scope-Aktivierung. Nachweisbar geprüft werden persistierte Inhalte, Operationsreceipts, Pfad-/Lifecycle-Zuordnung, Wiederherstellung und Projektionsrückstand. Ein grüner Health-Endpoint allein reicht nicht.
+
+Stop-Kriterien: unbewiesener Mutationserfolg, Inhalte-/Scope-Verlust, doppelte Anwendung, fehlerhafte Restore-Probe, nicht begrenzter Export-/Recovery-Rückstand oder inkompatible Client-/Worker-Verträge.
+
+### 14.4 Rollback ohne zweite Wahrheit
+
+Ein Feature-Schalter oder Code-Rollback darf nicht auf rohe Datei-Writes für initialisierte Dokumente zurückfallen. Falls die alte Version neue Belege nicht sicher versteht, werden betroffene Mutationen gestoppt; Reads und Recovery bleiben kontrolliert verfügbar. Ein Forward-Fix kann sicherer sein als ein Downgrade.
+
+Bestätigte Yjs-Inhalte werden bei Rollback nicht aus alten `.md`-Dateien überschrieben. Neue Journale und binäre Recovery-Artefakte werden aufbewahrt. Kompatible Rollback-Version, Worker-Drain und Wiederanlaufverfahren sind vor Aktivierung festzulegen.
+
+## 15. Separate Behandlung des aktuellen Transkripts
+
+Die Produktionsreparatur von `ek-fuchs-transkript.md` ist ein eigenes, später ausdrücklich beauftragtes Vorgehen:
+
+1. Vollständigen aktuellen Yjs-/Identitäts-/Projektionsstand privat und lesend sichern; keine Diagnose allein aus Editor-Text oder leerer Datei.
+2. Aktuellen verifizierten Backup-/Restore-Nachweis und vorhandenen [Recovery-Operator-Vertrag](architecture/canvas-notebook/collaboration-recovery-2026-10.md) prüfen.
+3. Fehler im isolierten Klon reproduzieren und anonymisierten Minimalfall erstellen.
+4. Codec-Korrektur von einer gegebenenfalls notwendigen Zustandsreparatur unterscheiden. Eine Zustandsnormalisierung benötigt einen konkreten verlustfreien Vergleich und behält Originalbytes.
+5. Nach freigegebenem Fix/gegebenenfalls Reparatur den aktuellen Zustand erneut prüfen; keine alte Diagnose oder alte Plan-ID als Apply-Beleg verwenden.
+6. Neuer Dateiaktions-Request nach vollständigem aktuellen Linknachweis. Die bereits blockierte Anfrage läuft nicht automatisch an.
+
+Die bestehende historische `bold`/`code`-Reparatur ist kein Beleg dafür, dass dieser Fall denselben Fehler hat, und wird nicht automatisch angewendet. Schließen des Editors, Neueinlesen der 0-Byte-Datei oder Abschalten der Roundtrip-Prüfung sind keine sichere Reparatur.
+
+## 16. Offene Entscheidungen für unsere gemeinsame Prüfung
+
+| ID | Entscheidung | Empfehlung | Folge/noch benötigte Klärung |
+| --- | --- | --- | --- |
+| D-01 | Ist der maßgebliche Planstand live oder gesichert? | Gesicherter Yjs-Stand mit geeignetem Raum-/Store-Barrier; Apply revalidiert aktuelle Ziele. | Snapshot-Frische und Namespace-Konsistenz über mehrere Dokumente präzisieren. |
+| D-02 | Strukturierter Linkgraph sofort oder Export-Fix allein? | Strukturgraph und gezielte Rich-Linkmutation als P0; konkreten Codecfehler zusätzlich beheben. | Sonst bleibt Exportfähigkeit eine globale Voraussetzung für Dateiaktionen. |
+| D-03 | Was heißt „Dateiaktion erfolgreich“? | Pfad/Lifecycle + verpflichtende Yjs-Mutationen + dauerhafte Receipts + autoritativer Endzustand; Export separat. | Öffentliche API/UI und Altclients versioniert anschließen. |
+| D-04 | Neue interne Service-Fassade? | Kleine Fähigkeiten über vorhandene Reader/Writer/Admission; keine neue Persistenz. | Modulgrenzen, Loader und Cross-Process-Aufruf genau bestimmen. |
+| D-05 | Legacy-`tiptap_xml`, `.mdx` und große Dokumente? | Nur nach vollständig geprüftem Adapter/Vertrag freigeben; sonst konkrete Einschränkung. | Syntaxinventar, Ressourcenbudgets und Migrationspfad entscheiden. |
+| D-06 | Copy-Identitäten und Block-IDs? | Neue Dokumentidentität und isolierte CRDT-Lineage; keine Belegübernahme. | Clone-/Importformat und Umgang mit stabilen Block-IDs definieren. |
+| D-07 | Undo bei unabhängigen späteren Änderungen? | Gezielte bedingte Inverse; keine alte Gesamtausgabe. | Welche Ziel-/Namespace-Konflikte blockieren, welche lokal neu geprüft werden können? |
+| D-08 | Umfang der Backups und Retention? | Yjs + physische Artefakte + Lineage/Receipts; tatsächliche Restore-Probe. | Speicherbudgets, Trash-/Operations-Retention und GC-Abhängigkeiten festlegen. |
+| D-09 | Search/Export bei fehlender Projektion? | Autoritative native Extraktion für Suche; Export nur verlustfrei, Frische ausdrücklich. | Altclient-/RAG-/ZIP-/Public-Share-Verträge und Produkttexte abstimmen. |
+| D-10 | Automatische Neuplanung bei unabhängigen Edits? | Nur innerhalb unveränderter autorisierter Zielwirkung; sonst neuer Plan. | Bindung an Review-Version/Plan-ID und sichtbares Ergebnis festlegen. |
+| D-11 | Reader- und Mutations-Reihenfolge unter Locks? | Bestehende Admission-/Ownership-Mechanik; kein Warten auf Projector unter Batch-Sperre. | Konkrete Lock-Ordnung, Drain, Lease-Verlust und Timeout-Ausgänge beweisen. |
+| D-12 | Einführung/Abschaltung des neuen Vertrags? | Additive Versionen, geordneter Worker-Drain, keine unsichere Disk-Rückfalloption. | Kompatibler Rollback/Forward-Fix und Betriebs-Stop-Kriterien entscheiden. |
+| D-13 | Wo liegt der verbleibende zulässige Source-Zugang? | Im bestehenden Mehr-Menü; direktes Source bei source-only Dokumenten. Die Read/Edit-Auswahl entfällt gemäß Nutzerauftrag. | Rückkehr zum formatierten Dokument, Auffindbarkeit und Formular-/Gast-Kontext konkret abnehmen. |
+| D-14 | Welche Ansichtsaktionen bleiben bei engem Platz sichtbar? | Breite/Fokus auf Desktop direkt in der Dokumentkopfzeile; bei Platzmangel im Kopfzeilenmenü; mobil nur sinnvolle Funktionen. | Breakpoints anhand verfügbarer Breite und realer Aktionen festlegen; Dokumentfokus von Browser-Vollbild und Panelorientierung unterscheiden. |
+
+Diese Entscheidungen werden vor Beginn der jeweils abhängigen Implementierung geschlossen. Der Plan kann um weitere Nutzungsfälle erweitert werden, ohne seine bisherigen offenen Aufgaben als erledigt zu markieren.
+
+## 17. Änderungs- und Nachweisprotokoll
+
+| Datum | Änderung | Nachweis/Status |
+| --- | --- | --- |
+| 2026-10-13 | Erstentwurf aus Architekturvorschlag, bestätigter Transkript-Diagnose und aktuellem Quelleninventar. Strukturierter Linkgraph, autoritative Backups/Copy/Undo und versionierte Batch-Belege als zusätzliche P0-Abhängigkeiten aufgenommen. | Plan erstellt; keine Anwendungscode- oder Produktionsänderung. |
+| 2026-10-13 | Nutzerergänzung: Read/Edit-Auswahl entfernen und sichtbaren Inhalt direkt editierbar machen. Platzierung von Dokumentbreite und Vollbild/Fokus, gemeinsame Formular-/Gastflächen, Source-/Rechtegrenzen und konkrete UI-Abnahme ergänzt. | Aktuelle UI-Quellen gelesen; konkrete Platzierung vorgeschlagen. UI-Implementierung und visuelle Browserabnahme stehen noch aus. |
+
+Für spätere Einträge: Entscheidung/Arbeitspaket, relevante Commit-Basis, Begründung, geprüfte Ebenen, Ergebnis und bekannte Grenzen aufnehmen. Historische Aussagen in den bisherigen Plänen werden nicht rückwirkend als neue Produktionsabnahme interpretiert.
