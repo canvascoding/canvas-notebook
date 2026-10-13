@@ -10,7 +10,7 @@ Nach der gespeicherten Planprüfung wurde das aktive Ziel „setz den plan um un
 
 | Schritt | Stand | Erforderlicher Nachweis |
 | --- | --- | --- |
-| 1. Gemeinsamer Referenzvertrag und Autorität | In Arbeit: strikte gemeinsame Identitäten, langlebige Bindungen und V1-Kompatibilität | Eindeutige Pakete/Kinder/Accounts; bestehende V1-Pins und Vererbung bleiben erhalten; aktuelle Rechte begrenzen Auflösung |
+| 1. Gemeinsamer Referenzvertrag und Autorität | Abgeschlossen als Grundlage: genaue öffentliche Referenzen, private Paket-/Standalone-Formate und geprüfte Verbindungsaufnahme; Runtime-Anschluss folgt in Schritt 2 | Vertragsmatrix, V1-Erhaltung und tatsächliche Actor-/Connection-Aufnahme geprüft; keine fertige UI oder vollständige neue Runtime behauptet |
 | 2. Gemeinsamer Kontextcompiler | Offen | Prompt, Skill-Readroots und Toolhinweise aus demselben geprüften Selektionsstand; frische Ausführungsprüfungen |
 | 3. Agent-Tool und Oberfläche | Offen | Atomare Erstellung/Bearbeitung, exakte Standalone-Verbindungen und Tool↔UI-Roundtrip mit Revisionsprüfung |
 | 4. Chat-Picker und Transport | Offen | Alle vier Typen, Recents, Suche/Filter, genaue Accountwahl, Chips, Drafts, Queue, Steer, Retry und Handoff |
@@ -86,6 +86,17 @@ Der gezielte Nachweis `scripts/extension-standalone-preparation-native-test.ts` 
 Ein zunächst akzeptierter widersprüchlicher Shared-Projektkontext wurde durch kanonische SQL-Actorprüfung vor Aufnahme, nach I/O und bei Revalidierung korrigiert und mit demselben tatsächlichen Testfall erneut geprüft. Zusätzlich wird geteilte Revalidierung mit einer angegebenen SQL-Schreibverbindung explizit abgewiesen: der außerhalb dieser Transaktion gelesene Beleg ist keine Commit-Autorität. Spätere Schreibvorgänge müssen Connection-Locks und aktuelle Autorisierung für den tatsächlichen Zielagenten innerhalb der Transaktion verwenden. Persönliche Revalidierung mit gehaltener SQL-Verbindung wurde separat geprüft.
 
 Diese Fixture verwendet eigene synthetische Lizenz-/Authdaten. Der Nachweis ist keine Control-Plane-Lizenzabnahme, keine externe Providerabnahme, kein Modelllauf und keine Browser-/Native-Geräteprüfung. Der Name „native“ bezeichnet hier tatsächliches PostgreSQL statt eines Speicheradapters. Der Einstieg `npm run test:extensions:preparation:native` setzt eine privat übergebene verwaltete `DATABASE_URL` voraus; Zugangsdaten werden nicht protokolliert.
+
+## Geprüfter gemeinsamer Speichervertrag und V1-Adapter
+
+Ein neuer Paketwrapper hält die unveränderte private Workflow-V1-Konfiguration und ergänzt die genaue Plugin-/Kindauswahl. Auch eine leere Plugin-Teilmenge entfernt dabei keine gespeicherten Elternanforderungen. Die gemeinsame Formatprüfung unterscheidet SQL-`NULL`-Vererbung, V1-Pakete und die neue ausdrückliche Gesamtkonfiguration mit V2-Paketwrappern sowie Standalone-Verbindungen. Eine leere V2-Auswahl ist ausdrücklich keine Vererbung. Connection-Slots erhalten die vom Konfigurationsslot abgeleitete Identität; gleiche Paketressourcen und doppelte Slots werden abgewiesen.
+
+- Der Paketwrapper-Test besteht für gehaltene Pins, all/subset, zusätzlich ausgewählte Kinder, Root-Skill, Herkunft, Kindmarker und unveränderte V1-Deklarationen.
+- Die ergänzte Dispatcher-Matrix weist 93 beschädigte/mehrdeutige Protokollfälle ab, einschließlich ansonsten feldgültiger, insgesamt zu großer Daten. Ein kleiner Kontrollfall wird akzeptiert.
+- `npm run test:extensions:contracts` mit allen sechs Vertragsskripten, fokussierter Typecheck mit den tatsächlichen App-Abhängigkeiten und ESLint bestehen am aktuellen Stand.
+- Der neue Runtime-Discovery-Vertrag legt die lokale read-only Operation `search_canvas_extensions` unter dem vorhandenen `canvas_extensions`-Gateway fest. Sie sucht zulässige installierte Plugin-/Skill-Metadaten; externe Verbindungs-/Tooldiscovery bleibt im bestehenden Integrationsgateway. Registrierung, autorisierte Projektion und Promptanleitung werden im nächsten Schritt angeschlossen.
+
+Die neuen Formate wurden noch nicht an produktive Leser oder Mutationspfade angeschlossen. Schritt 2 muss Leser, Auswahlprojektion, Prompt, Readroots und Tool-Registrierung gemeinsam erweitern, bevor ein öffentlicher Create-/Update-Pfad V2 schreibt. Rechteprüfungen bleiben auch danach frisch; die Codec-Matrix ist kein Ausführungsnachweis.
 
 ## Wirkungsanalyse und Veröffentlichung
 

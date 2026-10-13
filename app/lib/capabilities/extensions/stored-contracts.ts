@@ -196,6 +196,9 @@ function freeze<T>(value: T): T {
   return value;
 }
 
+/** Shared private-codec mechanics; neither function proves resource or actor authority. */
+export { copyBoundedJson, freeze };
+
 /** Syntax and internal consistency only. Fresh actor, source, rights and revisions are checked by actions. */
 export const storedStandaloneExtensionBindingSchema = z.preprocess((value, context) => {
   try {
