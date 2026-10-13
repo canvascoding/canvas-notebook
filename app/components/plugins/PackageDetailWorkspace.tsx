@@ -29,6 +29,8 @@ export type PackageDetailWorkspaceProps = {
   /** The shell owns the existing navigation guard, including Back and task changes. */
   onNavigate: (patch: Partial<PluginNavigation>) => void;
   onUpdated: () => void;
+  /** Connection metadata changes do not replace this package's local setup state. */
+  onConnectionsUpdated?: () => void;
   onClose: () => void;
   onStoreUpdate: (source: CapabilityPackageStoreSelection, resourceRef: string) => void;
 };
@@ -56,7 +58,7 @@ function exactStoreUpdate(resource: CapabilityResourceDescriptor, presentation: 
   return sources.length === 1 ? sources[0] : null;
 }
 
-function PackageDetailSession({ resourceRef, workspaceId, task, file, store, onNavigate, onUpdated, onClose, onStoreUpdate }: PackageDetailWorkspaceProps) {
+function PackageDetailSession({ resourceRef, workspaceId, task, file, store, onNavigate, onUpdated, onConnectionsUpdated, onClose, onStoreUpdate }: PackageDetailWorkspaceProps) {
   const t = useTranslations('skills.workspace.detail'), locale = useLocale();
   const [resource, setResource] = useState<CapabilityResourceDescriptor | null>(null);
   const [presentation, setPresentation] = useState<CapabilityPackagePresentation | null>(null);
@@ -185,7 +187,7 @@ function PackageDetailSession({ resourceRef, workspaceId, task, file, store, onN
               <InlineNotice size="compact">{t('accountRightsHint')}</InlineNotice>
               {presentation ? <PackageRequirementsSetup presentation={presentation} workspaceId={workspaceId}
                 returnPath={typeof window !== 'undefined' ? window.location.pathname + window.location.search : `/${locale}/plugins?view=browse&resourceRef=${encodeURIComponent(resource.metadata.resourceRef)}&task=connections`}
-                onUpdated={onUpdated} /> : null}
+                onUpdated={onConnectionsUpdated ?? (() => undefined)} /> : null}
               {presentation ? <details><summary className="cursor-pointer text-sm font-medium">{t('advancedTitle')}</summary><div className="mt-4"><PackageDetailPresentation presentation={presentation}
                 identity={JSON.stringify([resource.metadata.resourceRef, workspaceId, resource.artifact.revision])} /></div></details> : null}
             </TabsContent> : null}

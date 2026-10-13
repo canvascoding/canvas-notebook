@@ -164,7 +164,11 @@ function IntegrationDetailSession({item: initial, workspaceId, onUpdated, onClos
       if (isCurrent()) setTools(Array.isArray(value.tools) ? value.tools : []);
     } catch { if (isCurrent()) setToolsError(true); } finally { if (isCurrent()) setToolsLoading(false); }
   }
-  const afterSharedCreated = (value: IntegrationConnectionDescriptor) => { setCreateShared(false); setConnectionRef(value.resource.connectionRef); setSharedConnection(value); onUpdated(); void load(); };
+  const afterSharedCreated = (value: IntegrationConnectionDescriptor) => {
+    if (!isCurrent()) return;
+    selectedRef.current = value.resource.connectionRef;
+    setCreateShared(false); setConnectionRef(value.resource.connectionRef); setSharedConnection(value); onUpdated(); void load();
+  };
   const statusLabel = (value: PluginExtensionConnection) => t(value.authorization === 'authorized' ? 'connected' : value.authorization === 'required' ? 'authRequired' : value.authorization === 'not_required' ? 'noAuth' : 'authorizationUnknown');
   const returned = new URL(returnPath, 'https://canvas.invalid'), packageRef = returned.searchParams.get('resourceRef');
   const exactReturn = item ? pluginCatalogReturnPath(returnPath, locale, profiles?.workspace.id || workspaceId, packageRef ? {resourceRef: packageRef} : {extensionId: item.id}) : returnPath;

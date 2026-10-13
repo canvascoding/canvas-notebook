@@ -35,6 +35,7 @@ export function PluginExtensionWorkspace({ workspaceId }: { workspaceId: string 
   const [epoch, setEpoch] = useState(0), [filtersOpen, setFiltersOpen] = useState(false);
   const [update, setUpdate] = useState<{ selection: string; source: CapabilityPackageStoreSelection; resourceRef: string } | null>(null);
   const data = usePluginExtensionSearch({ navigation, workspaceId, epoch });
+  const retryCatalog = data.retry;
   const packageData = usePluginWorkspaceData({ navigation, workspaceId, epoch });
   const detailOpen = Boolean(navigation.resourceRef || navigation.source === 'store' || navigation.extensionId || navigation.setup);
   const listContext = JSON.stringify([workspaceId, navigation.q ?? '', navigation.kind ?? 'all', navigation.scope,
@@ -45,7 +46,8 @@ export function PluginExtensionWorkspace({ workspaceId }: { workspaceId: string 
   const wasDetail = useRef({ open: detailOpen, context: listContext });
   const selectionKey = JSON.stringify([workspaceId, navigation.scope, navigation.teamId, navigation.audience, navigation.resourceRef, navigation.extensionId]);
   const selection = useRef(selectionKey);
-  useLayoutEffect(() => { selection.current = selectionKey; return () => { selection.current = ''; }; }, [selectionKey]);
+  const pendingConnectionRefresh = useRef(false);
+  useLayoutEffect(() => { selection.current = selectionKey; pendingConnectionRefresh.current = false; return () => { selection.current = ''; }; }, [selectionKey]);
   useEffect(() => {
     const returning = wasDetail.current.open && !detailOpen && wasDetail.current.context === listContext;
     wasDetail.current = { open: detailOpen, context: listContext };
@@ -65,7 +67,14 @@ export function PluginExtensionWorkspace({ workspaceId }: { workspaceId: string 
     if (navigation.extensionCursor ? !navigate({ extensionCursor: undefined }) : !confirmPluginNavigation()) return;
     setEpoch(value => value + 1);
   }, [navigate, navigation.extensionCursor, selectionKey]);
-  const close = () => { if (selection.current === selectionKey && navigate(clearDetail)) setUpdate(null); };
+  const connectionsUpdated = useCallback(() => { if (selection.current === selectionKey) retryCatalog(); }, [retryCatalog, selectionKey]);
+  const standaloneConnectionsUpdated = useCallback(() => { if (selection.current === selectionKey) pendingConnectionRefresh.current = true; }, [selectionKey]);
+  const close = () => {
+    const reloadConnections = pendingConnectionRefresh.current;
+    if (selection.current !== selectionKey || !navigate({ ...clearDetail, ...(reloadConnections ? { extensionCursor: undefined } : {}) })) return;
+    setUpdate(null);
+    if (reloadConnections) { pendingConnectionRefresh.current = false; setEpoch(value => value + 1); }
+  };
   const search = useCallback((q: string) => navigate({ ...clearDetail, q: q || undefined, extensionCursor: undefined }, { replace: true }), [navigate]);
   const open = (item: PluginExtensionItem, _button: HTMLButtonElement) => {
     const current = { id: item.id, scrollY: window.scrollY, context: listContext };
@@ -149,13 +158,13 @@ export function PluginExtensionWorkspace({ workspaceId }: { workspaceId: string 
       resourceRef={activeUpdate.resourceRef} onInstalled={installed} onUpdated={() => { if (selection.current === selectionKey) { setUpdate(null); refresh(); navigate({ task: 'versions' }); } }}
       onClose={() => { if (confirmPluginNavigation()) setUpdate(null); }} />
       : navigation.resourceRef ? <PackageDetailWorkspace key={JSON.stringify([workspaceId, navigation.resourceRef, epoch])} resourceRef={navigation.resourceRef}
-        workspaceId={workspaceId} task={navigation.task ?? 'overview'} file={navigation.file} store={packageData.store} onNavigate={navigate} onUpdated={refresh} onClose={close}
+        workspaceId={workspaceId} task={navigation.task ?? 'overview'} file={navigation.file} store={packageData.store} onNavigate={navigate} onUpdated={refresh} onConnectionsUpdated={connectionsUpdated} onClose={close}
         onStoreUpdate={(value, resourceRef) => { if (selection.current === selectionKey && confirmPluginNavigation()) setUpdate({ selection: selectionKey, source: value, resourceRef }); }} />
         : source ? <StorePackageWizard source={source} workspaceId={workspaceId} initialOwnership={initialOwnership}
           releaseNotes={offering?.versions.find(value => value.version === source.version && value.checksum === source.checksum)?.notes}
           onInstalled={installed} onUpdated={() => { refresh(); close(); }} onClose={close} />
           : navigation.extensionId ? selectedItem && (selectedItem.kind === 'integration' || selectedItem.kind === 'mcp')
-            ? <PluginIntegrationDetail key={JSON.stringify([workspaceId, selectedItem.id])} item={selectedItem} workspaceId={workspaceId} onUpdated={refresh} onClose={close} returnPath={returnPath} />
+            ? <PluginIntegrationDetail key={JSON.stringify([workspaceId, selectedItem.id])} item={selectedItem} workspaceId={workspaceId} onUpdated={standaloneConnectionsUpdated} onClose={close} returnPath={returnPath} />
             : <InlineNotice size="compact">{data.status === 'loading' || data.updating ? <span className="flex items-center gap-2"><Loader2 className="size-4 animate-spin" aria-hidden="true" />{t('loading')}</span> : shell('accessError')}</InlineNotice>
             : <PluginExtensionSearchResults data={data} workspaceId={workspaceId} onOpen={open} onMore={extensionCursor => {
               if (extensionCursor === navigation.extensionCursor) { if (confirmPluginNavigation()) data.retry(); }

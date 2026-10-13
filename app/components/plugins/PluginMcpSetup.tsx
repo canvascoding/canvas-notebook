@@ -98,6 +98,10 @@ function PluginMcpSetupSession({workspaceId, item, template, onCreated, onClose,
     finally { if (isCurrent()) setPending(false); }
   }
   const chosen = scopes.find(value => scopeKey(value) === scope);
+  // Reuse the personal draft's existing manifest/config OAuth interpretation;
+  // only the public endpoint and auth mode enter the compact shared form.
+  const sharedTemplateConfig = template ? { url: template.config?.url,
+    ...(createMcpServerDraftFromConnector(template.connector, template.config).auth === 'oauth' ? { auth: 'oauth' } : {}) } : undefined;
   const sharedCreated = (connection: IntegrationConnectionDescriptor) => setCompleted({kind: 'mcp', id: connection.resource.connectionRef, connectionRef: connection.resource.connectionRef});
   return <section className="min-w-0 space-y-5" data-testid="plugin-mcp-setup">
     <header><Button variant="ghost" onClick={onClose}>{t('back')}</Button><div className="mt-3 flex min-w-0 items-start gap-3">
@@ -115,7 +119,7 @@ function PluginMcpSetupSession({workspaceId, item, template, onCreated, onClose,
           <Label htmlFor="plugin-mcp-name">{t('name')}</Label><Input id="plugin-mcp-name" value={name} maxLength={120} disabled={pending} onChange={event => setName(event.target.value)} />
           <Button disabled={pending || !definitionId || !name.trim()} onClick={() => void connectDefinition()} data-testid="plugin-mcp-definition-connect">{t('connect')}</Button></div> : null}
       </div> : chosen ? <SharedConnectionCreateForm key={scope} api={api} scopes={[chosen]} initialSource="mcp" lockSource compact initialName={template?.connector.label || template?.connector.name}
-        initialConfig={template?.config} onSaved={() => undefined} onCreated={sharedCreated} /> : null}
+        initialConfig={sharedTemplateConfig} onSaved={() => undefined} onCreated={sharedCreated} /> : null}
     </>}
     <McpServerDialog open={dialog} onOpenChange={setDialog} draft={draft} onDraftChange={patch => setDraft(value => ({...value, ...patch}))}
       onSave={() => void save()} editingServerName={item?.mcp.serverId ? draft.originalServerName : undefined} isSaving={pending} error={error} developerMode />

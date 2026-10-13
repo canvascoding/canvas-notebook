@@ -64,6 +64,27 @@ function RequirementsSession({presentation, workspaceId, returnPath, onUpdated, 
     return Boolean(expected && source.resourceRef === expected.resourceRef && source.checksum === expected.checksum && source.artifactRevision === expected.artifactRevision);
   }, [presentation.resourceRef, presentation.sourceStamp]);
   const exactReturn = presentation.resourceRef ? pluginCatalogReturnPath(returnPath, locale, workspaceId, {resourceRef: presentation.resourceRef}) : returnPath;
+  const callbackRef = useMemo(() => {
+    try {
+      const url = new URL(returnPath, 'https://canvas.invalid'), ref = url.searchParams.get('connectionRef');
+      return url.origin === 'https://canvas.invalid' && url.pathname === `/${locale}/plugins`
+        && ['resourceRef', 'workspaceId', 'connectionRef', 'sharedOAuth'].every(key => url.searchParams.getAll(key).length === 1)
+        && url.searchParams.get('resourceRef') === presentation.resourceRef && url.searchParams.get('workspaceId') === workspaceId
+        && ['connected', 'cancelled', 'failed'].includes(url.searchParams.get('sharedOAuth') || '')
+        && ref && /^canvas-connection:[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/u.test(ref) ? ref : null;
+    } catch { return null; }
+  }, [returnPath, locale, presentation.resourceRef, workspaceId]);
+  const observeSharedCandidate = useCallback(async (candidate: Candidate, attempt: number) => {
+    if (!isCurrent() || candidate.connection.ownership.type === 'user') return;
+    const reference = candidate.connection.connectionRef;
+    sharedReads.current.get(reference)?.abort(); const controller = new AbortController(); sharedReads.current.set(reference, controller);
+    setSharedObservations(value => ({...value, [reference]: {connection: {...candidate.connection, authorization: 'unknown'}, loading: true, error: false}}));
+    try {
+      const connection = await inspectSharedPluginConnection(candidate.connection, candidate.item.kind === 'mcp' ? 'mcp' : 'composio', workspaceId,
+        {signal: controller.signal, noAuth: candidate.item.kind === 'integration' && candidate.item.toolkit.noAuth, isCurrent});
+      if (isCurrent() && !controller.signal.aborted && generation.current === attempt) setSharedObservations(value => ({...value, [reference]: {connection, loading: false, error: false}}));
+    } catch { if (isCurrent() && !controller.signal.aborted && generation.current === attempt) setSharedObservations(value => ({...value, [reference]: {connection: {...candidate.connection, authorization: 'unknown'}, loading: false, error: true}})); }
+  }, [isCurrent, workspaceId]);
   const load = useCallback(async () => {
     if (!isCurrent()) return;
     read.current?.abort(); const controller = new AbortController(), attempt = ++generation.current; read.current = controller;
@@ -100,10 +121,20 @@ function RequirementsSession({presentation, workspaceId, returnPath, onUpdated, 
         next[row.id] = {candidates: [...candidates.values()], integrations, unavailable: sourcesForRow.some(value => !value || value.unavailable)};
       }
       setObservations(next);
-      setChosen(previous => Object.fromEntries(Object.entries(previous).filter(([id, ref]) => next[id]?.candidates.some(value => value.connection.connectionRef === ref))));
+      setChosen(previous => {
+        const current = Object.fromEntries(Object.entries(previous).filter(([id, ref]) => next[id]?.candidates.some(value => value.connection.connectionRef === ref)));
+        if (callbackRef) for (const [id, observation] of Object.entries(next)) {
+          if (!current[id] && observation.candidates.some(value => value.connection.connectionRef === callbackRef)) current[id] = callbackRef;
+        }
+        return current;
+      });
+      if (callbackRef) {
+        const candidate = Object.values(next).flatMap(value => value.candidates).find(value => value.connection.connectionRef === callbackRef);
+        if (candidate) void observeSharedCandidate(candidate, attempt);
+      }
     } catch { if (isCurrent() && !controller.signal.aborted && attempt === generation.current) setError(true); }
     finally { if (isCurrent() && attempt === generation.current) setLoading(false); }
-  }, [isCurrent, rows, workspaceId, presentation.resourceRef, expectedChecksum, sourceMatches]);
+  }, [isCurrent, rows, workspaceId, presentation.resourceRef, expectedChecksum, sourceMatches, callbackRef, observeSharedCandidate]);
   useEffect(() => { alive.current = true; const pendingReads = sharedReads.current; queueMicrotask(() => void load()); return () => { alive.current = false; generation.current += 1; read.current?.abort(); for (const pending of pendingReads.values()) pending.abort(); pendingReads.clear(); }; }, [load]);
   const refresh = () => { void load(); onUpdated(); };
   const closeSetup = () => { if (confirmPluginNavigation()) setSetup(null); };
@@ -126,14 +157,7 @@ function RequirementsSession({presentation, workspaceId, returnPath, onUpdated, 
     if (!isCurrent()) return;
     setChosen(value => ({...value, [row.id]: reference}));
     const candidate = observations[row.id]?.candidates.find(value => value.connection.connectionRef === reference);
-    if (!candidate || candidate.connection.ownership.type === 'user') return;
-    sharedReads.current.get(reference)?.abort(); const controller = new AbortController(), attempt = generation.current; sharedReads.current.set(reference, controller);
-    setSharedObservations(value => ({...value, [reference]: {connection: {...candidate.connection, authorization: 'unknown'}, loading: true, error: false}}));
-    try {
-      const connection = await inspectSharedPluginConnection(candidate.connection, candidate.item.kind === 'mcp' ? 'mcp' : 'composio', workspaceId,
-        {signal: controller.signal, noAuth: candidate.item.kind === 'integration' && candidate.item.toolkit.noAuth, isCurrent});
-      if (isCurrent() && !controller.signal.aborted && generation.current === attempt) setSharedObservations(value => ({...value, [reference]: {connection, loading: false, error: false}}));
-    } catch { if (isCurrent() && !controller.signal.aborted && generation.current === attempt) setSharedObservations(value => ({...value, [reference]: {connection: {...candidate.connection, authorization: 'unknown'}, loading: false, error: true}})); }
+    if (candidate) await observeSharedCandidate(candidate, generation.current);
   }
   const currentConnection = (value: Candidate) => sharedObservations[value.connection.connectionRef]?.connection || value.connection;
   const missing = rows.filter(row => row.required && !observations[row.id]?.candidates.some(value => value.connection.connectionRef === chosen[row.id] && usable(currentConnection(value)))).length;
