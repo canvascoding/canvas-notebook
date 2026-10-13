@@ -920,11 +920,20 @@ test('English and German desktop/mobile light/dark catalogue keeps one query and
     await expectLoadedPackageIcon(exactRow('plugin', fixture.packageName).getByTestId('plugin-extension-avatar'), packageRef);
     await expectLoadedPackageIcon(exactRow('skill', fixture.skillName).getByTestId('plugin-extension-avatar'), skillRef);
     await expect(exactRow('integration', 'Canva').getByTestId('plugin-extension-avatar-initials')).toHaveText('CA');
+    await screenshot(`${locale}-${width}-${theme}-catalogue-all-types`);
+    const filteredResponse = searchResponse(page, {q: 'canva', types: 'integration'});
     await page.getByTestId('plugin-extension-kind-integration').focus(); await page.keyboard.press('Enter');
+    const filtered = await data<PluginExtensionSearchResponse>(await filteredResponse, 'Actual settled locale/viewport integration filter');
+    expect(filtered.items.some(item => item.kind === 'integration' && item.toolkit.slug === 'canva')).toBe(true);
+    expect(filtered.items.every(item => item.kind === 'integration')).toBe(true); await ready();
     await expect(page.getByTestId('plugin-extension-kind-integration')).toHaveAttribute('aria-pressed', 'true');
     await expect(page.getByTestId('plugin-extension-search-input')).toHaveValue('canva');
     await page.getByTestId('plugin-extension-filter-toggle').click(); await expect(page.getByTestId('plugin-extension-filter-toggle')).toHaveAttribute('aria-expanded', 'true');
     await expect(page.getByTestId('plugin-extension-stock-filter')).toBeVisible(); await expect(page.getByTestId('plugin-extension-source-filter')).toBeVisible();
+    await expect(exactRow('integration', 'Canva')).toHaveCount(1); await expect(exactRow('integration', 'Canva')).toBeVisible();
+    await expect(page.locator('[data-testid="plugin-extension-row"]:not([data-kind="integration"])')).toHaveCount(0);
+    await expect(exactRow('integration', 'Canva').getByTestId('plugin-extension-avatar-initials')).toHaveText('CA');
+    await expect(exactRow('integration', 'Canva').getByTestId('plugin-extension-avatar-image')).toHaveCount(0);
     await screenshot(`${locale}-${width}-${theme}-catalogue`);
     const source = locales[locale].skills.workspace.shell.title; expect(source).toBeTruthy();
     if (width === 390) {
@@ -937,4 +946,98 @@ test('English and German desktop/mobile light/dark catalogue keeps one query and
     }
   }
   await page.setViewportSize({ width: 1280, height: 900 });
+});
+
+test('Settings creates and applies a personal profile, opens the common integration catalogue in that workspace, and restores the exact original profile', async () => {
+  type EffectiveProfile = {id: string; name: string; source: 'default' | 'workspace_override'; workspaceId: string; isDefault: boolean};
+  type Profiles = {success: boolean; profiles: Array<{id: string; name: string; isDefault: boolean; status: string}>;
+    effectiveProfile: EffectiveProfile; workspace: {id: string}};
+  type Status = {configured: boolean; effectiveProfile: EffectiveProfile; workspace: {id: string}; connectedAccounts: Array<{id: string}>};
+  const headers = {'x-canvas-workspace-id': personalId};
+  const initial = await json<Profiles>(await admin.request.get('/api/composio/profiles', {headers}), 'Original actual personal profile context');
+  expect(initial.success).toBe(true); expect(initial.workspace.id).toBe(personalId);
+  const original = initial.profiles.find(profile => profile.id === initial.effectiveProfile.id);
+  expect(original?.status).toBe('active');
+  const initialStatus = await json<Status>(await admin.request.get('/api/composio/status', {headers}), 'Original actual runtime Composio context');
+  expect(initialStatus.effectiveProfile.id).toBe(initial.effectiveProfile.id); expect(initialStatus.workspace.id).toBe(personalId);
+  const initialCanva = (await catalogue(admin, {q: 'canva', types: 'integration'})).find(item => item.kind === 'integration' && item.toolkit.slug === 'canva');
+  if (!initialCanva || initialCanva.kind !== 'integration') throw new Error('The actual Canva offering is required for Settings acceptance.');
+  const personalAccounts = initialCanva.connections.filter(connection => connection.ownership.type === 'user');
+  expect(personalAccounts.some(connection => connection.profileId === original!.id && connection.authorization === 'authorized')).toBe(true);
+  const settingsURL = `/en/settings?${new URLSearchParams({tab: 'integrations', section: 'composio', workspaceId: personalId})}`;
+  const statusResponse = () => page.waitForResponse(response => new URL(response.url()).pathname === '/api/composio/status'
+    && response.request().method() === 'GET' && response.request().headers()['x-canvas-workspace-id'] === personalId);
+  await page.setViewportSize({width: 1280, height: 900}); await page.evaluate(() => localStorage.setItem('theme', 'light'));
+  const settingsStatus = statusResponse(); await page.goto(settingsURL, {waitUntil: 'domcontentloaded'});
+  expect((await json<Status>(await settingsStatus, 'Real Settings Composio card context')).effectiveProfile.id).toBe(original!.id);
+  const profileContext = page.getByTestId('composio-profile-context');
+  await expect(profileContext.getByRole('heading', {name: original!.name, exact: true})).toBeVisible();
+  await expect(page.getByTestId('composio-open-catalog')).toBeVisible();
+  await page.getByTestId('composio-change-profile').click();
+  let dialog = page.getByRole('dialog'); await expect(dialog.getByTestId('composio-profile-list')).toBeVisible();
+  await dialog.getByRole('button', {name: en.settings.connectedApps.profiles.create, exact: true}).click();
+  const profileName = `Settings profile ${fixture.nonce.slice(0, 10)}`; await dialog.locator('#composio-profile-name').fill(profileName);
+  const createdResponse = page.waitForResponse(response => new URL(response.url()).pathname === '/api/composio/profiles'
+    && response.request().method() === 'POST' && response.request().postDataJSON()?.name === profileName);
+  const appliedResponse = page.waitForResponse(response => new URL(response.url()).pathname === '/api/composio/workspace-profile'
+    && response.request().method() === 'PUT' && response.request().postDataJSON()?.workspaceId === personalId);
+  const changedStatus = statusResponse();
+  await dialog.getByRole('button', {name: en.settings.connectedApps.profiles.createAndUse, exact: true}).click();
+  const created = await json<{success: boolean; profile: {id: string; name: string}}>(await createdResponse, 'Actual Settings profile creation', 201);
+  expect(created.success).toBe(true); expect(created.profile.name).toBe(profileName); expect(created.profile.id).not.toBe(original!.id);
+  const applied = await json<{success: boolean; effectiveProfile: EffectiveProfile}>(await appliedResponse, 'Actual Settings profile application');
+  expect(applied.success).toBe(true); expect(applied.effectiveProfile).toMatchObject({id: created.profile.id, workspaceId: personalId, source: 'workspace_override'});
+  const newStatus = await json<Status>(await changedStatus, 'Actual Settings runtime context after profile application');
+  expect(newStatus.effectiveProfile.id).toBe(created.profile.id); expect(newStatus.workspace.id).toBe(personalId); expect(newStatus.connectedAccounts).toEqual([]);
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(profileContext.getByRole('heading', {name: profileName, exact: true})).toBeVisible();
+  const current = await json<Profiles>(await admin.request.get('/api/composio/profiles', {headers}), 'Fresh persisted workspace profile read-back');
+  expect(current.effectiveProfile.id).toBe(created.profile.id); expect(current.profiles.some(profile => profile.id === original!.id && profile.status === 'active')).toBe(true);
+  await screenshot('settings-created-profile-current-context');
+
+  const link = page.getByTestId('composio-open-catalog'), hrefValue = await link.getAttribute('href'); expect(hrefValue).toBeTruthy();
+  const destination = new URL(hrefValue!, fixture.baseURL);
+  expect(destination.origin).toBe(fixture.baseURL); expect(destination.pathname).toBe('/en/plugins');
+  expect(destination.searchParams.get('view')).toBe('browse'); expect(destination.searchParams.get('kind')).toBe('integration');
+  expect(destination.searchParams.get('workspaceId')).toBe(personalId);
+  const catalogueResponse = searchResponse(page, {workspaceId: personalId, types: 'integration'});
+  await link.click(); const entered = await data<PluginExtensionSearchResponse>(await catalogueResponse, 'Real Settings link enters shared catalogue');
+  expect(entered.items.every(item => item.kind === 'integration')).toBe(true); await ready();
+  await expect(page.getByTestId('plugin-extension-kind-integration')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByRole('searchbox')).toHaveCount(1); await expect(page.getByTestId('plugin-extension-search-input')).toHaveValue('');
+  expect(new URL(page.url()).searchParams.get('workspaceId')).toBe(personalId);
+  const searched = await search('canva'), canva = searched.items.find(item => item.kind === 'integration' && item.toolkit.slug === 'canva');
+  if (!canva || canva.kind !== 'integration') throw new Error('The real common search must preserve the Canva offering after profile switch.');
+  expect(canva.connections.filter(connection => connection.ownership.type === 'user').map(connection => connection.connectionRef).sort())
+    .toEqual(personalAccounts.map(connection => connection.connectionRef).sort());
+  expect(canva.connections.some(connection => connection.ownership.type === 'user' && connection.profileId === created.profile.id)).toBe(false);
+  await openRow('integration', 'Canva');
+  const profileSelect = page.locator('#plugin-integration-profile'); await expect(profileSelect).toHaveValue(created.profile.id);
+  await expect(profileSelect.locator('option', {hasText: `${profileName} · ${en.skills.workspace.setup.currentProfile}`})).toHaveCount(1);
+  const previousAccount = personalAccounts.find(connection => connection.profileId === original!.id && connection.authorization === 'authorized')!;
+  const accountSelect = page.locator('#plugin-integration-account'); await expect(accountSelect).toBeVisible();
+  await expect(accountSelect.locator(`option[value="${previousAccount.connectionRef}"]`)).toHaveCount(1);
+  await screenshot('settings-common-catalogue-current-profile-separate-accounts');
+  await accountSelect.selectOption(previousAccount.connectionRef); await expect(profileSelect).toHaveValue(original!.id);
+  await expect(page.getByText(en.skills.workspace.setup.profileChangedHint, {exact: true})).toBeVisible();
+  const unchanged = await json<Status>(await admin.request.get('/api/composio/status', {headers}), 'Choosing an existing account does not apply its profile');
+  expect(unchanged.effectiveProfile.id).toBe(created.profile.id); expect(unchanged.connectedAccounts).toEqual([]);
+
+  const beforeRestore = statusResponse(); await page.goto(settingsURL, {waitUntil: 'domcontentloaded'});
+  expect((await json<Status>(await beforeRestore, 'Actual Settings retains current profile before restore')).effectiveProfile.id).toBe(created.profile.id);
+  await expect(profileContext.getByRole('heading', {name: profileName, exact: true})).toBeVisible();
+  await page.getByTestId('composio-change-profile').click(); dialog = page.getByRole('dialog');
+  const restoreResponse = page.waitForResponse(response => new URL(response.url()).pathname === '/api/composio/workspace-profile'
+    && response.request().method() === (original!.isDefault ? 'DELETE' : 'PUT'));
+  const restoredStatus = statusResponse(); await dialog.getByTestId(`composio-profile-option-${original!.id}`).click();
+  const restored = await json<{success: boolean; effectiveProfile: EffectiveProfile}>(await restoreResponse, 'Actual GUI restores exact original profile');
+  expect(restored.success).toBe(true); expect(restored.effectiveProfile).toMatchObject({id: original!.id, workspaceId: personalId, source: initial.effectiveProfile.source});
+  const restoredRuntime = await json<Status>(await restoredStatus, 'Actual runtime profile and accounts restored');
+  expect(restoredRuntime.effectiveProfile.id).toBe(original!.id);
+  expect(restoredRuntime.connectedAccounts.map(account => account.id).sort()).toEqual(initialStatus.connectedAccounts.map(account => account.id).sort());
+  await expect(page.getByRole('dialog')).toHaveCount(0); await expect(profileContext.getByRole('heading', {name: original!.name, exact: true})).toBeVisible();
+  const restoredCanva = (await catalogue(admin, {q: 'canva', types: 'integration'})).find(item => item.kind === 'integration' && item.toolkit.slug === 'canva');
+  expect(restoredCanva?.kind === 'integration' ? restoredCanva.connections.filter(connection => connection.ownership.type === 'user').map(connection => connection.connectionRef).sort() : [])
+    .toEqual(personalAccounts.map(connection => connection.connectionRef).sort());
+  await screenshot('settings-original-profile-restored');
 });
