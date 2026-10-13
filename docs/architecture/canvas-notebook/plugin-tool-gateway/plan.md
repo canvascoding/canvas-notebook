@@ -6,6 +6,8 @@ Status: Der allgemeine Composio-Fix und Schritte 1 bis 6b sind implementiert, ab
 
 Die zusätzliche [gemeinsame Suche und Einrichtung auf der Plugin-Seite](plugin-page-integration-catalog-plan.md) ist am 13. Oktober für ihre Schritte 1–5 einschließlich Settings-Migration mit frischem Produktionsbuild und 15 kontrollierten Browserfällen lokal abgenommen. [Nachweise](evidence/plugin-page-integration-catalog-acceptance-2026-10-13.md) unterscheiden UI-/API-/SDK-Fixtures von echten Drittanbietern und Modellläufen. Diese UI-Erweiterung schließt weder Schritt 7 noch den gesonderten Runtime-/Geräte-Rollout ab.
 
+Der [einheitliche Erweiterungskontext für Chat und Agenten](chat-extension-reference-plan.md) ist ein **noch nicht implementierter Vorschlag**: dieselben vier Erweiterungstypen gemeinsam suchen, zuletzt verwendete konkrete Auswahlen anzeigen und einen exakt gebundenen, begrenzten Nutzungskontext erzeugen. Spezialagenten erhalten ihre dauerhafte Auswahl bei jedem Start; allgemeine Chat-Referenzen gelten pro Turn, natürliche Skill-Suche bleibt verfügbar. Agent-Tool und Agent-UX sollen denselben vollständigen Create-/Update-Vertrag verwenden. Der klickbare Chat-Wireframe und die Agent-Skizze sind reine Planungsartefakte ohne Chat-/Providerzugriff.
+
 ## Ziel und Entscheidungsvorschlag
 
 Das zentrale Produktziel ist ein fertig konfigurierter Workflow-Agent: Eine berechtigte Verwaltung wählt Tools, Plugins, Skills und konkrete Verbindungen aus und stellt den Agenten bestimmten Nutzern oder einem Team bereit. Diese Nutzer können den Workflow ausführen, ohne die Integrationen selbst erneut einzurichten oder die Tool-Konfiguration ändern zu müssen. Gemeinsame Canva-Verbindungen sind ein ausdrücklicher Bestandteil des Zielbilds.
