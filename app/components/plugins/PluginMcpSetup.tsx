@@ -15,7 +15,7 @@ import { McpServerDialog, createBlankMcpServerDraft, createMcpServerDraftFromCon
 import { savePersonalMcpServer } from '@/app/components/settings/mcp-setup-client';
 import { SharedConnectionCreateForm } from './SharedConnectionForms';
 import { pluginIntegrationRequest, usePluginSharedConnectionApi } from './plugin-integration-client';
-import { usePluginEditorNavigationGuard } from './plugin-navigation-guard';
+import { confirmPluginNavigation, usePluginEditorNavigationGuard } from './plugin-navigation-guard';
 
 export type PluginMcpCreated = {kind: 'mcp'; id: string; connectionRef?: string};
 export type PluginMcpSetupProps = {workspaceId: string | null; item?: Extract<PluginExtensionItem, {kind: 'mcp'}>;
@@ -106,7 +106,7 @@ function PluginMcpSetupSession({workspaceId, item, template, onCreated, onClose,
       <p className="mt-2 text-sm text-muted-foreground">{t('mcpDescription')}</p></div></div></header>
     {error ? <InlineNotice variant="destructive" size="compact">{error}</InlineNotice> : null}
     {loading ? <p role="status">{t('loading')}</p> : <>
-      <div className="max-w-xl space-y-2"><Label htmlFor="plugin-mcp-scope">{t('scope')}</Label><select id="plugin-mcp-scope" className={selectClass} value={scope} disabled={pending} onChange={event => setScope(event.target.value)}>
+      <div className="max-w-xl space-y-2"><Label htmlFor="plugin-mcp-scope">{t('scope')}</Label><select id="plugin-mcp-scope" className={selectClass} value={scope} disabled={pending} onChange={event => { if (confirmPluginNavigation()) setScope(event.target.value); }}>
         <option value="">{t('selectScope')}</option><option value="user">{t('personal')}</option>{scopes.map(value => <option key={scopeKey(value)} value={scopeKey(value)}>{value.ownership.type === 'team' ? value.label || t('shared') : t('shared')} · {value.ownership.type}</option>)}</select></div>
       {template?.redactedFields.length ? <InlineNotice size="compact">{t('templateRedacted')}</InlineNotice> : null}
       {scope === 'user' ? <div className="max-w-xl space-y-4">

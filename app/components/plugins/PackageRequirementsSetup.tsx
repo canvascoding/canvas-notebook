@@ -106,6 +106,7 @@ function RequirementsSession({presentation, workspaceId, returnPath, onUpdated, 
   }, [isCurrent, rows, workspaceId, presentation.resourceRef, expectedChecksum, sourceMatches]);
   useEffect(() => { alive.current = true; const pendingReads = sharedReads.current; queueMicrotask(() => void load()); return () => { alive.current = false; generation.current += 1; read.current?.abort(); for (const pending of pendingReads.values()) pending.abort(); pendingReads.clear(); }; }, [load]);
   const refresh = () => { void load(); onUpdated(); };
+  const closeSetup = () => { if (confirmPluginNavigation()) setSetup(null); };
   async function openSetup(row: Row, selector: CapabilityPackageRequirementSelector, candidate?: Candidate) {
     if (!isCurrent() || loadingSetup || !confirmPluginNavigation()) return;
     if (candidate) { setSetup({row, item: candidate.item}); return; }
@@ -163,8 +164,8 @@ function RequirementsSession({presentation, workspaceId, returnPath, onUpdated, 
   return <section className="space-y-5" data-testid="package-requirements-setup">
     <header className="space-y-2"><h2 className="text-lg font-semibold">{t('requirementsTitle')}</h2><p className="text-sm leading-relaxed text-muted-foreground">{t('requirementsHint')}</p></header>
     {error ? <InlineNotice variant="warning" size="compact">{t('loadError')}</InlineNotice> : null}
-    {setup ? <div className="space-y-3 rounded-xl border p-4">{setup.item ? <PluginIntegrationDetail item={setup.item} workspaceId={workspaceId} returnPath={exactReturn} onClose={() => setSetup(null)} onUpdated={refresh} />
-      : setup.template ? <PluginMcpSetup workspaceId={workspaceId} template={setup.template} returnPath={exactReturn} onClose={() => setSetup(null)} onCreated={result => { setChosen(value => ({...value, [setup.row.id]: result.id})); setSetup(null); refresh(); }} /> : null}</div> : <>
+    {setup ? <div className="space-y-3 rounded-xl border p-4">{setup.item ? <PluginIntegrationDetail item={setup.item} workspaceId={workspaceId} returnPath={exactReturn} onClose={closeSetup} onUpdated={refresh} />
+      : setup.template ? <PluginMcpSetup workspaceId={workspaceId} template={setup.template} returnPath={exactReturn} onClose={closeSetup} onCreated={result => { setChosen(value => ({...value, [setup.row.id]: result.id})); setSetup(null); refresh(); }} /> : null}</div> : <>
       {loading ? <p role="status" className="text-sm text-muted-foreground">{t('loading')}</p> : <InlineNotice size="compact">{t(missing ? 'setupIncomplete' : 'managementSeparate')}</InlineNotice>}
       <div className="space-y-3">{rows.map((row, index) => row.required ? renderRow(row, index) : null)}</div>
       {rows.some(row => !row.required) ? <details className="space-y-3" data-testid="package-optional-requirements"><summary className="cursor-pointer text-sm font-medium">{t('optional')}</summary><div className="mt-3 space-y-3">{rows.map((row, index) => !row.required ? renderRow(row, index) : null)}</div></details> : null}

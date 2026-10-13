@@ -68,7 +68,8 @@ function enforceBounds(value: CapabilityPackagePresentation): CapabilityPackageP
 
 /** Only metadata is projected. Portable declarations are demands, never access or account bindings. */
 type ParentPresentationContext = {name: string; connectors: CanvasPluginMcpConnector[]; connectorManifest?: CanvasPluginConnectorManifest; skillNames: string[]};
-async function projectPresentation(kind: 'plugin' | 'skill', root: string, fallbackVersion: string, parent?: ParentPresentationContext): Promise<CapabilityPackagePresentation> {
+async function projectPresentation(kind: 'plugin' | 'skill', root: string, fallbackVersion: string, parent?: ParentPresentationContext,
+  options: {verifiedStoreStaging?: true} = {}): Promise<CapabilityPackagePresentation> {
   const result: CapabilityPackagePresentation = {schemaVersion: 1, origin: 'installed', kind, name: '', version: fallbackVersion,
     title: '', description: '', children: [], capabilities: [], requirements: [], scripts: [], compatibility: [], requiredEnv: [],
     readOnly: true, sourceStampCurrent: true};
@@ -141,7 +142,9 @@ async function projectPresentation(kind: 'plugin' | 'skill', root: string, fallb
       enforceBounds(result);
     }
   } else {
-    const skill = await parseSkillFile(path.join(root, 'SKILL.md'));
+    // Verified Store archives use the canonical temporary folder "package";
+    // preparation and the final offering check independently enforce their exact name/version.
+    const skill = await parseSkillFile(path.join(root, 'SKILL.md'), {validateDirectoryName: !options.verifiedStoreStaging});
     if (!skill) throw invalid();
     result.name = skill.name; result.version = skill.version || fallbackVersion;
     result.title = boundedText(skill.title || skill.name, limits.title) || skill.name;
@@ -186,7 +189,7 @@ export async function inspectCapabilityPackageStoreOfferingAction(actorInput: Ca
     : await prepareVerifiedCanvasSkillStorePackage({...source, resourceId, actor});
   try {
     const privateSource = getPreparedCapabilityStorePackage(prepared);
-    const result = await projectPresentation(source.kind, privateSource.packageRoot, source.version);
+    const result = await projectPresentation(source.kind, privateSource.packageRoot, source.version, undefined, {verifiedStoreStaging: true});
     let registry;
     try { registry = source.kind === 'plugin' ? await readCanvasPluginStoreRegistry() : await readCanvasSkillStoreRegistry(); }
     catch { throw new CapabilityPackageError('PACKAGE_SNAPSHOT_UNAVAILABLE', 'The configured Store is unavailable.', 503); }

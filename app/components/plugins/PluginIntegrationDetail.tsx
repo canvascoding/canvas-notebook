@@ -169,7 +169,8 @@ function IntegrationDetailSession({item: initial, workspaceId, onUpdated, onClos
   const returned = new URL(returnPath, 'https://canvas.invalid'), packageRef = returned.searchParams.get('resourceRef');
   const exactReturn = item ? pluginCatalogReturnPath(returnPath, locale, profiles?.workspace.id || workspaceId, packageRef ? {resourceRef: packageRef} : {extensionId: item.id}) : returnPath;
   const sharedReturnStatus = returned.searchParams.get('sharedOAuth');
-  if (editMcp && item?.kind === 'mcp') return <PluginMcpSetup workspaceId={workspaceId} item={item} returnPath={exactReturn} onClose={() => setEditMcp(false)} onCreated={() => { setEditMcp(false); refresh(); }} />;
+  if (editMcp && item?.kind === 'mcp') return <PluginMcpSetup workspaceId={workspaceId} item={item} returnPath={exactReturn}
+    onClose={() => { if (confirmPluginNavigation()) setEditMcp(false); }} onCreated={() => { setEditMcp(false); refresh(); }} />;
   return <section className="min-w-0 space-y-5" data-testid="plugin-integration-detail">
     <header className="space-y-3"><div className="flex justify-between gap-2"><Button variant="ghost" onClick={onClose}>{t('back')}</Button><Button variant="outline" disabled={pending || loading} onClick={() => { if (confirmPluginNavigation()) refresh(); }} data-testid="plugin-integration-reload">{t('refresh')}</Button></div>
       <div className="flex min-w-0 items-start gap-3"><PluginExtensionAvatar name={item?.displayName || initial.displayName} identity={JSON.stringify([initial.id, workspaceId])} icon={item?.icon} size="lg" />

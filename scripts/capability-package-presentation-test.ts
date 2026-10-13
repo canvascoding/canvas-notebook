@@ -292,7 +292,14 @@ async function main() {
       'SKILL.md':`---\nname: ${remoteSkillName}\ndescription: Standalone declared image\nmetadata:\n  version: 1.0.0\n---\nPublic standalone skill.\n`,
       'agents/canvas.yaml':'interface:\n  display_name: Remote skill image\n  icon_small: ./missing.svg\n  icon_large: https://images.example.test/skill.svg?token=PRIVATE_ASSET_QUERY#private-fragment\n',
     },plugins.computeCanvasPluginChecksum);
-    const remoteInstalled=await stores.installCapabilityPackageFromStoreAction(owner,{source:{kind:'skill',registryId:'store-application',entryKey:remoteSkillName,version:'1.0.0',checksum:remoteSkillSource.checksum},
+    const remoteSelection={kind:'skill' as const,registryId:'store-application',entryKey:remoteSkillName,version:'1.0.0',checksum:remoteSkillSource.checksum};
+    const previewCounts=await counts();
+    const standalonePreview=await presentation.inspectCapabilityPackageStoreOfferingAction(owner,{source:remoteSelection});
+    assert.equal(standalonePreview.kind,'skill');assert.equal(standalonePreview.origin,'store');
+    assert.equal(standalonePreview.name,remoteSkillName);assert.equal(standalonePreview.version,'1.0.0');
+    assert.equal(standalonePreview.icon?.url,'https://images.example.test/skill.svg');assertPublic(standalonePreview);
+    assert.deepEqual(await counts(),previewCounts,'Verified canonical temporary Store directory does not block a standalone skill preview or create an installation');
+    const remoteInstalled=await stores.installCapabilityPackageFromStoreAction(owner,{source:remoteSelection,
       ownership:{type:'user'},grants:[{targetType:'user',targetId:'alice',canUse:true,canEdit:false,canManage:false}]});
     const remotePresentation=await presentation.inspectCapabilityPackagePresentationAction(alice,remoteInstalled.resource.resourceRef);assert(remotePresentation.icon);
     const remoteImageUrl=new URL(remotePresentation.icon.url,'http://localhost:3001').href,remoteReadCounts=await counts();
