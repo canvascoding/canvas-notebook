@@ -59,6 +59,8 @@ async function createInUi(page: Page, workspace: Workspace, path: string, entry:
   await dialog.getByRole('button', { name: entry === 'home' ? 'Create and open' : 'Create file', exact: true }).click();
   expect((await created).ok()).toBe(true);
   await expect(dialog).toHaveCount(0);
+  await expect(page).toHaveURL(url => url.pathname === (entry === 'home' ? '/en/notebook' : '/en/files')
+    && url.searchParams.get('path') === path && url.searchParams.get('workspaceId') === workspace.id);
   // Both creation dialogs must open the exact new document through their real follow-up.
   await expect(page.locator(editorSelector)).toHaveAttribute('contenteditable', 'true', { timeout: 45_000 });
   await expect(page.getByTestId('document-header')).toContainText(path);
@@ -74,6 +76,22 @@ async function clipboardPaste(page: Page, target: Locator, text: string) {
 async function tree(page: Page): Promise<JSONContent> {
   return page.locator(editorSelector).evaluate(element =>
     (element as HTMLElement & { editor: { getJSON(): JSONContent } }).editor.getJSON());
+}
+
+async function nativeParagraph(page: Page, text: string): Promise<Locator> {
+  const paragraphs = (await tree(page)).content?.filter(node => node.type === 'paragraph'
+    && node.content?.every(child => child.type === 'text')
+    && node.content.map(child => child.text ?? '').join('') === text) ?? [];
+  expect(paragraphs).toHaveLength(1);
+  const id = paragraphs[0].attrs?.id;
+  expect(typeof id).toBe('string');
+  expect(id).toMatch(/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/u);
+  // A remote-caret label adds DOM text to the paragraph without changing its
+  // native content. Select its stable node ID, then actually click and type.
+  const paragraph = page.locator(editorSelector).locator(`p[data-id="${id}"]`);
+  await expect(paragraph).toBeVisible();
+  await expect(paragraph).toContainText(text);
+  return paragraph;
 }
 
 async function readText(page: Page, workspace: Workspace, path: string): Promise<string> {
@@ -120,6 +138,11 @@ test.describe('Manual document creation and first content', () => {
         await clipboardPaste(page, page.locator(editorSelector), plainText);
         await expect(page.locator(editorSelector)).toContainText('First paste: äöü ß 😀');
         await expect(page.locator(editorSelector)).toContainText('Last paragraph.');
+        expect((await tree(page)).content?.map(node => ({ type: node.type, content: node.content }))).toEqual([
+          { type: 'paragraph', content: [{ type: 'text', text: 'First paste: äöü ß 😀' }] },
+          { type: 'paragraph', content: [{ type: 'text', text: 'Second line preserves plain text.' }] },
+          { type: 'paragraph', content: [{ type: 'text', text: 'Last paragraph.' }] },
+        ]);
         await page.keyboard.press('ControlOrMeta+End');
         await page.keyboard.insertText(' Typed after paste.');
         await expect(page.locator(editorSelector)).toContainText('Last paragraph. Typed after paste.');
@@ -136,11 +159,22 @@ test.describe('Manual document creation and first content', () => {
         expect(users[0]).not.toBe(users[1]);
         await open(peer, workspace, path);
         await expect.poll(() => tree(peer)).toEqual(await tree(page));
-        await peer.locator(editorSelector).getByText('Last paragraph.', { exact: true }).click();
+        await info.attach('plain-peer-native-and-dom', { contentType: 'application/json', body: Buffer.from(JSON.stringify({
+          native: await tree(peer),
+          paragraphs: await peer.locator(editorSelector).locator('p[data-id]').evaluateAll(paragraphs => paragraphs.map(paragraph => {
+            const clean = paragraph.cloneNode(true) as HTMLElement;
+            clean.querySelectorAll('.collaboration-carets__caret').forEach(caret => caret.remove());
+            return { id: paragraph.getAttribute('data-id'), documentText: clean.textContent,
+              caretCount: paragraph.querySelectorAll('.collaboration-carets__caret').length,
+              caretLabelCharacters: [...paragraph.querySelectorAll('.collaboration-carets__label')]
+                .reduce((length, label) => length + (label.textContent?.length ?? 0), 0) };
+          })),
+        })) });
+        await (await nativeParagraph(peer, 'Last paragraph.')).click();
         await peer.keyboard.press('End'); await peer.keyboard.insertText(' Peer keeps this.');
         await expect(page.locator(editorSelector)).toContainText('Last paragraph. Peer keeps this.');
         // Undo must remain local to the initiating user and preserve the peer's edit.
-        await page.locator(editorSelector).getByText('Second line preserves plain text.', { exact: false }).click();
+        await (await nativeParagraph(page, 'Second line preserves plain text.')).click();
         await page.keyboard.press('End'); await page.keyboard.insertText(' Own edit.');
         await page.keyboard.press('ControlOrMeta+z');
         await expect(page.locator(editorSelector)).not.toContainText('Own edit.');
@@ -227,7 +261,27 @@ test.describe('Manual document creation and first content', () => {
       await page.keyboard.press('ControlOrMeta+Shift+z');
       await expect(page.locator(editorSelector)).toHaveText('Rich pasted');
       await expect.poll(() => readText(page, workspace, path), { timeout: 20_000 }).toContain('**pasted**');
+      const final = await tree(page);
+      const identity = await session(page, workspace, path);
       await page.reload(); await expect(page.locator(editorSelector)).toHaveText('Rich pasted');
+      await expect.poll(() => tree(page)).toEqual(final);
+      const reloaded = await session(page, workspace, path);
+      expect(reloaded.documentId).toBe(identity.documentId);
+      expect(reloaded.lifecycleGeneration).toBe(identity.lifecycleGeneration);
+      // The actual Files route owns the preview's location and browser history.
+      await page.goBack();
+      await expect(page).toHaveURL(url => url.pathname === '/en/files' && !url.searchParams.has('path')
+        && url.searchParams.get('workspaceId') === workspace.id);
+      await expect(page.locator(editorSelector)).toHaveCount(0);
+      await page.goForward();
+      await expect(page).toHaveURL(url => url.pathname === '/en/files' && url.searchParams.get('path') === path
+        && url.searchParams.get('workspaceId') === workspace.id);
+      await expect.poll(() => tree(page)).toEqual(final);
+      await expect(page.locator(editorSelector)).toHaveAttribute('contenteditable', 'true');
+      await page.keyboard.press('Escape');
+      await expect(page).toHaveURL(url => !url.searchParams.has('path') && url.searchParams.get('workspaceId') === workspace.id);
+      await expect(page.locator(editorSelector)).toHaveCount(0);
+      await page.reload(); await expect(page.locator(editorSelector)).toHaveCount(0);
     } finally {
       await page.goto('about:blank').catch(() => undefined);
       await page.request.delete('/api/files/delete', { headers: workspace.headers, data: { path } });
@@ -262,6 +316,42 @@ test.describe('Manual document creation and first content', () => {
       await expect(page.locator('.markdown-source-shell .cm-content')).toHaveAttribute('contenteditable', 'true');
       expect(await readText(page, workspace, path)).toBe(content);
       await page.screenshot({ path: info.outputPath('manual-full-source-import.png'), animations: 'disabled' });
+    } finally {
+      await page.goto('about:blank').catch(() => undefined);
+      await page.request.delete('/api/files/delete', { headers: workspace.headers, data: { path } });
+    }
+  });
+
+  test('ordinary text preview revalidates through the scoped loader on browser history reopen', async ({ page }) => {
+    const workspace = await login(page);
+    const basename = `manual-history-text-${randomUUID()}`;
+    const path = `${basename}.txt`;
+    const content = 'Ordinary text preview must revalidate when history reopens it.';
+    try {
+      expect((await page.request.post('/api/files/upload', { headers: workspace.headers, multipart: { path: '.',
+        files: { name: path, mimeType: 'text/plain', buffer: Buffer.from(content) } } })).ok()).toBe(true);
+      await page.goto(`/en/files?workspaceId=${workspace.id}`);
+      await page.getByRole('button', { name: 'Tree view', exact: true }).click();
+      await page.getByRole('treeitem').filter({ hasText: basename }).click();
+      await expect(page).toHaveURL(url => url.pathname === '/en/files' && url.searchParams.get('path') === path
+        && url.searchParams.get('workspaceId') === workspace.id);
+      await expect(page.locator('.cm-content')).toContainText(content);
+      await page.goBack();
+      await expect(page).toHaveURL(url => url.pathname === '/en/files' && !url.searchParams.has('path')
+        && url.searchParams.get('workspaceId') === workspace.id);
+      await expect(page.locator('.cm-content')).toHaveCount(0);
+      const reread = page.waitForResponse(response => {
+        const url = new URL(response.url());
+        return url.pathname === '/api/files/read' && url.searchParams.get('path') === path
+          && response.request().headers()['x-canvas-workspace-id'] === workspace.id;
+      });
+      await page.goForward();
+      const response = await reread;
+      expect(response.ok()).toBe(true);
+      expect((await response.json()).data.content).toBe(content);
+      await expect(page.locator('.cm-content')).toContainText(content);
+      await expect(page).toHaveURL(url => url.pathname === '/en/files' && url.searchParams.get('path') === path
+        && url.searchParams.get('workspaceId') === workspace.id);
     } finally {
       await page.goto('about:blank').catch(() => undefined);
       await page.request.delete('/api/files/delete', { headers: workspace.headers, data: { path } });

@@ -1040,7 +1040,11 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     }
     const shouldRevealInExplorer = options.explorerBehavior !== 'preserve';
     const currentFile = get().currentFile;
-    const needsFileLoad = currentFile?.path !== normalizedPath
+    const reloadingOrdinaryFile = Boolean(options.forceReload && currentFile?.path === normalizedPath
+      && get().currentFileWorkspaceId === workspaceId && !currentFile.collaboration?.crdtCapable
+      && !currentFile.collaboration?.sceneCapable && !/\.docx$/i.test(normalizedPath));
+    let preparedReloadEditor: { sessionId: number; draft: string } | null = null;
+    const needsFileLoad = Boolean(options.forceReload) || currentFile?.path !== normalizedPath
       || get().currentFileWorkspaceId !== workspaceId
       || Boolean(options.expectedDocumentId && currentFile?.collaboration?.document?.id !== options.expectedDocumentId);
     const openRequestId = get().openFileRequestId + 1;
@@ -1059,7 +1063,9 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     const isLatestOpen = () => (
       get().openFileRequestId === openRequestId &&
       useWorkspaceStore.getState().activeWorkspaceId === workspaceId &&
-      (!options.isCurrent || options.isCurrent())
+      (!options.isCurrent || options.isCurrent()) &&
+      (!preparedReloadEditor || (useEditorStore.getState().sessionId === preparedReloadEditor.sessionId
+        && useEditorStore.getState().draft === preparedReloadEditor.draft))
     );
     const superseded = () => {
       if (get().openFileRequestId === openRequestId) {
@@ -1072,7 +1078,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       return superseded();
     }
 
-    if (get().currentFile?.path !== normalizedPath || (options.expectedDocumentId
+    if (options.forceReload || get().currentFile?.path !== normalizedPath || (options.expectedDocumentId
       && get().currentFile?.collaboration?.document?.id !== options.expectedDocumentId)) {
       try {
         await get().prepareCurrentFileForTransition();
@@ -1083,6 +1089,11 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
           error: error instanceof Error ? error.message : 'Failed to save the current file' };
       }
       if (!isLatestOpen()) return superseded();
+    }
+    // A revalidation response cannot replace an ordinary draft typed after saving.
+    if (reloadingOrdinaryFile) {
+      const editor = useEditorStore.getState();
+      preparedReloadEditor = { sessionId: editor.sessionId, draft: editor.draft };
     }
 
     const parentDir = getParentDirectory(normalizedPath);
@@ -1126,7 +1137,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
         })();
 
     const alreadyOpen = (
-      get().currentFile?.path === normalizedPath &&
+      !options.forceReload && get().currentFile?.path === normalizedPath &&
       get().currentFileWorkspaceId === workspaceId &&
       (!options.expectedDocumentId || get().currentFile?.collaboration?.document?.id === options.expectedDocumentId)
     );

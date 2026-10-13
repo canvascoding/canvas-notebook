@@ -109,6 +109,8 @@ export interface OpenWorkspaceFileOptions {
   transitionId?: string;
   expectedDocumentId?: string;
   isCurrent?: () => boolean;
+  /** Revalidate a closed preview when reopening its URL, including the same path. */
+  forceReload?: boolean;
 }
 
 export interface WorkspaceFileOpenCompletion {
