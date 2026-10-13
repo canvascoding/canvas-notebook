@@ -27,6 +27,9 @@ export async function GET(request: NextRequest, context: RouteContext) {
       capturedAt: backup.capturedAt, retention: backup.retention,
       sizeBytes: backup.sizeBytes, fileCount: backup.fileCount,
       directoryCount: backup.directoryCount, contentSha256: backup.contentSha256,
+      recoveryMode: backup.version === 2 ? 'native_complete' : 'filesystem_only',
+      nativeDocumentCount: backup.nativePayload?.documentCount ?? 0,
+      nativeSizeBytes: backup.nativePayload?.sizeBytes ?? 0,
     } }, { headers: { 'Cache-Control': 'no-store' } });
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return jsonError('Backup not found', 404);
@@ -44,17 +47,20 @@ export async function POST(request: NextRequest, context: RouteContext) {
   const limited = applyRateLimit(request, { limit: 20, windowMs: 60_000, keyPrefix: 'files-operation-backup-restore' });
   if (limited) return limited;
   const { backupId } = await context.params;
-  const restoreOperationId = randomUUID();
+  let restoreOperationId = randomUUID() as string;
   let targetPath: string | undefined;
   try {
     const rawBody = await request.text();
-    let body: { targetPath?: unknown };
-    try { body = rawBody.trim() ? JSON.parse(rawBody) as { targetPath?: unknown } : {}; }
+    let body: { targetPath?: unknown; operationId?: unknown };
+    try { body = rawBody.trim() ? JSON.parse(rawBody) as typeof body : {}; }
     catch { return jsonError('Invalid JSON body', 400); }
     if (!body || typeof body !== 'object' || Array.isArray(body)) return jsonError('Invalid JSON body', 400);
     if (body.targetPath !== undefined && (typeof body.targetPath !== 'string' || !body.targetPath.trim())) {
       return jsonError('targetPath must be a nonempty path', 400);
     }
+    if (body.operationId !== undefined && (typeof body.operationId !== 'string'
+      || !/^[A-Za-z0-9_-]{1,160}$/u.test(body.operationId))) return jsonError('Invalid operationId', 400);
+    if (typeof body.operationId === 'string') restoreOperationId = body.operationId;
     targetPath = body.targetPath as string | undefined;
     const backup = await getWorkspaceOperationBackup({ workspace: workspaceResult.workspace, backupId });
     const restoredPath = normalizeWorkspaceRelativePath(targetPath ?? backup.originalPath);
@@ -68,8 +74,10 @@ export async function POST(request: NextRequest, context: RouteContext) {
       }
       const result = await restoreWorkspaceOperationBackup({
         workspace: workspaceResult.workspace, backupId, targetPath,
+        operationId: restoreOperationId, actorUserId: workspaceResult.session.user.id,
+        actorSessionId: (workspaceResult.session.session as { id?: string } | undefined)?.id ?? null,
       });
-      await initializeCopiedFileCollaborationPaths({
+      if (!result.collaborationInitialized) await initializeCopiedFileCollaborationPaths({
         workspace: workspaceResult.workspace, paths: [result.restoredPath],
       });
       return result;
@@ -91,6 +99,8 @@ export async function POST(request: NextRequest, context: RouteContext) {
       backupId, restoreOperationId, originalPath: restored.backup.originalPath,
       restoredPath: restored.restoredPath, contentSha256: restored.backup.contentSha256,
       sizeBytes: restored.backup.sizeBytes,
+      recoveryMode: restored.recoveryMode,
+      nativeDocumentCount: restored.backup.nativePayload?.documentCount ?? 0,
     } });
   } catch (error) {
     await recordAuditEvent({

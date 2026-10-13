@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { Pool, types } from 'pg';
 import * as Y from 'yjs';
 import type { SqlConnection } from '../app/lib/db';
 import { COLLABORATION_NATIVE_COPY_STATEMENTS } from '../app/lib/db/collaboration-native-copy-migration';
 import { authoritativeNativeCollaborationSnapshot } from '../app/lib/collaboration/document-snapshot';
 import { loadCollaborationStateOnConnection } from '../app/lib/collaboration/persistence';
-import { persistNativeWorkspaceCopies, type NativeCopyRequest } from '../app/lib/collaboration/native-copy-persistence';
+import { completeNativeCopyPublication, persistNativeWorkspaceCopies, type NativeCopyRequest } from '../app/lib/collaboration/native-copy-persistence';
 import { readNativeWorkspaceRecoveryRecords } from '../app/lib/collaboration/workspace-native-recovery';
 import type { WorkspaceContext } from '../app/lib/workspaces/types';
 import { nativeTableWidthFixture } from './helpers/rich-markdown-projection-fixtures';
@@ -94,11 +94,13 @@ async function main() {
         assert.equal(records.length, 1);
         const input: NativeCopyRequest = { operationId: `copy-${representation}`, actorUserId: 'native-copy-tester', actorSessionId: 'fixture-session',
           kind: 'native_clone', sourceWorkspace, targetWorkspace, targetScopes: [`copy-${representation}.md`],
-          copies: [{ source: records[0], targetPath: `copy-${representation}.md` }], expectedTargets: [] };
+          copies: [{ source: records[0], targetPath: `copy-${representation}.md` }], expectedTargets: [],
+          publicationFingerprint: createHash('sha256').update('Exact synthetic physical publication plan').digest('hex') };
         const receipt = await persistNativeWorkspaceCopies(input, openConnection);
         assert.equal(receipt.publicationStatus, 'native_committed'); assert.equal(receipt.documents.length, 1);
         const target = receipt.documents[0].clone;
         assert.notEqual(target.documentId, sourceId); assert.notEqual(target.lineageId, lineageId);
+        assert.equal((await pool.query('SELECT yjs_state_lifecycle FROM collaboration_documents WHERE id=$1', [target.documentId])).rows[0].yjs_state_lifecycle, 'initialized');
         const readTarget = await openConnection();
         let clonedState;
         try { clonedState = await loadCollaborationStateOnConnection(readTarget, target.documentId); }
@@ -108,11 +110,23 @@ async function main() {
         const native = authoritativeNativeCollaborationSnapshot(clonedState);
         assert.equal(native.version.stateProof, target.stateProof); assert.match(JSON.stringify(native.content), /"colwidth":\[120\]/u);
         assert.deepEqual(await persistNativeWorkspaceCopies(input, openConnection), receipt);
+        const publication = { workspace: targetWorkspace, operationId: input.operationId, actorUserId: input.actorUserId,
+          actorSessionId: input.actorSessionId, requestFingerprint: receipt.requestFingerprint,
+          publicationFingerprint: input.publicationFingerprint! };
+        await assert.rejects(() => completeNativeCopyPublication({ ...publication, publicationFingerprint: '0'.repeat(64) }, openConnection));
+        await pool.query(`UPDATE collaboration_yjs_states SET degraded=1 WHERE document_id=$1`, [target.documentId]);
+        await assert.rejects(() => persistNativeWorkspaceCopies(input, openConnection));
+        await assert.rejects(() => completeNativeCopyPublication(publication, openConnection));
+        await pool.query(`UPDATE collaboration_yjs_states SET degraded=0 WHERE document_id=$1`, [target.documentId]);
+        await completeNativeCopyPublication(publication, connectionFactory(fixturePool, { commit: 'after' }));
+        await completeNativeCopyPublication(publication, openConnection);
+        const publishedReceipt = { ...receipt, publicationStatus: 'published' };
+        assert.deepEqual(await persistNativeWorkspaceCopies(input, openConnection), publishedReceipt);
         // A later peer edit changes the current proof. The atomically committed ledger still proves this initial copy.
         const edited = new Y.Doc(); Y.applyUpdate(edited, clonedState.yjsState); edited.getText('frontmatter').insert(0, '# peer metadata\n');
         await pool.query(`UPDATE collaboration_yjs_states SET yjs_state=$1,state_vector=$2,document_sequence=1 WHERE document_id=$3`,
         [Buffer.from(Y.encodeStateAsUpdate(edited)), Buffer.from(Y.encodeStateVector(edited)), target.documentId]); edited.destroy();
-        assert.deepEqual(await persistNativeWorkspaceCopies(input, openConnection), receipt);
+        assert.deepEqual(await persistNativeWorkspaceCopies(input, openConnection), publishedReceipt);
         await assert.rejects(() => persistNativeWorkspaceCopies({ ...input, actorUserId: 'other-user' }, openConnection));
         await assert.rejects(() => persistNativeWorkspaceCopies({ ...input, copies: [{ ...input.copies[0], targetPath: 'changed.md' }], targetScopes: ['changed.md'] }, openConnection));
         const afterInput = { ...input, operationId: `lost-after-${representation}`, targetScopes: [`after-${representation}.md`],

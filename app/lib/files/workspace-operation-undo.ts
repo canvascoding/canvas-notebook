@@ -84,6 +84,9 @@ export async function assertUnchangedMovedPath(input: {
   linkSteps: readonly WorkspaceOperationStepRecord[];
 }): Promise<void> {
   const { workspace, destinationPath, backup, linkSteps } = input;
+  if ((backup.nativePayload?.documentCount ?? 0) > 0 || backup.entries.some(entry => entry.type === 'native_document')) {
+    fail('UNDO_UNAVAILABLE', 'This native document snapshot requires structured undo with its committed identity receipt.');
+  }
   if (backup.workspaceId !== workspace.workspaceId || backup.workspaceType !== workspace.workspaceType
     || backup.organizationId !== (workspace.organizationId ?? null)) {
     fail('UNDO_UNAVAILABLE', 'The operation snapshot belongs to a different workspace.');
@@ -114,6 +117,7 @@ export async function assertUnchangedMovedPath(input: {
         || after.mtimeMs !== stat.mtimeMs) fail('UNDO_CONFLICT', 'A moved directory changed during the undo check.');
       return;
     }
+    if (entry.type === 'native_document') fail('UNDO_UNAVAILABLE', 'A native document cannot use a filesystem hash for undo.');
     if (!stat.isFile() || stat.isSymbolicLink()) fail('UNDO_CONFLICT', 'A moved file changed type.');
     const currentPath = relative === '.' ? destinationPath : `${destinationPath}/${relative}`;
     const linkStep = linkByKey.get(operationLinkStepKey(workspace.workspaceId, currentPath));

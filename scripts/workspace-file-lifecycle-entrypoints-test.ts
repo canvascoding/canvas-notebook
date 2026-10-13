@@ -15,10 +15,11 @@ async function routeHarness(kind: 'extract' | 'restore') {
     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, esModuleInterop: true },
   }).outputText;
   const controls = { busy: true, guardDepth: 0, mutationDepth: 0, physicalWrites: 0, metadataWrites: 0,
-    sharesWrites: 0, scopes: [] as string[] };
+    sharesWrites: 0, scopes: [] as string[], native: false, restoreRequests: [] as Array<Record<string, unknown>> };
   const workspace = { workspaceId: 'fixture-ws', rootPath: root, organizationId: null, workspaceType: 'personal' };
-  const backup = { originalPath: 'restored.bin', entries: [{ type: 'file', path: '.' }], sizeBytes: 8,
-    contentSha256: 'a'.repeat(64) };
+  const backup = { version: 2, originalPath: 'restored.bin', entries: [{ type: 'file', path: '.' }], sizeBytes: 8,
+    contentSha256: 'a'.repeat(64), nativePayload: { version: 2, documentCount: 1, sizeBytes: 123,
+      sha256: 'b'.repeat(64) }, privateNativeMetadata: { stateVector: 'private native bytes' } };
   const destination = kind === 'extract' ? 'imports/extracted.bin' : 'restored.bin';
   class WorkspaceFileLifecycleBusyError extends Error {
     readonly status = 409;
@@ -39,11 +40,12 @@ async function routeHarness(kind: 'extract' | 'restore') {
     await fs.mkdir(path.dirname(path.join(root, destination)), { recursive: true });
     await fs.writeFile(path.join(root, destination), 'restored');
   };
-  const route = { exports: {} as { POST: (request: Request, context: { params: Promise<{ backupId: string }> }) => Promise<Response> } };
+  type Handler = (request: Request, context: { params: Promise<{ backupId: string }> }) => Promise<Response>;
+  const route = { exports: {} as { POST: Handler; GET: Handler } };
   const load = createRequire(file);
   new Function('require', 'module', 'exports', source)((name: string) => {
     if (name === '@/app/lib/workspaces/request') return {
-      requireRequestWorkspace: async () => ({ workspace, session: { user: { id: 'fixture-user' } } }),
+      requireRequestWorkspace: async () => ({ workspace, session: { user: { id: 'fixture-user' }, session: { id: 'fixture-session' } } }),
       workspaceFileOptions: () => ({ workspace }),
     };
     if (name === '@/app/lib/api/route-helpers') return {
@@ -81,16 +83,43 @@ async function routeHarness(kind: 'extract' | 'restore') {
     };
     if (name === '@/app/lib/files/workspace-operation-backup') return {
       getWorkspaceOperationBackup: async () => backup,
-      restoreWorkspaceOperationBackup: async () => { await physicalWrite(); return { backup, restoredPath: destination }; },
+      restoreWorkspaceOperationBackup: async (input: Record<string, unknown>) => {
+        controls.restoreRequests.push(input); await physicalWrite();
+        return { backup, restoredPath: destination, collaborationInitialized: controls.native,
+          recoveryMode: controls.native ? 'native_complete' : 'filesystem_only' };
+      },
     };
     return load(name);
   }, route, route.exports);
-  const invoke = () => route.exports.POST(new Request('http://localhost/api/files/fixture', {
+  const invoke = (body: object = {}) => route.exports.POST(new Request('http://localhost/api/files/fixture', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(kind === 'extract' ? { path: 'archive.zip', targetDir: 'imports' } : {}),
+    body: JSON.stringify(kind === 'extract' ? { path: 'archive.zip', targetDir: 'imports' } : body),
   }), { params: Promise.resolve({ backupId: 'fixture-backup' }) });
-  return { root, controls, destination, invoke };
+  const get = () => route.exports.GET(new Request('http://localhost/api/files/fixture'), { params: Promise.resolve({ backupId: 'fixture-backup' }) });
+  return { root, controls, destination, invoke, get };
 }
+
+test('native restore binds actor and operation, preserves native initialization, and exposes descriptors only', async () => {
+  const h = await routeHarness('restore');
+  try {
+    h.controls.busy = false; h.controls.native = true;
+    const response = await h.invoke({ operationId: 'stable-native-restore' });
+    assert.equal(response.status, 200); assert.equal(h.controls.metadataWrites, 0);
+    assert.equal(h.controls.restoreRequests[0].operationId, 'stable-native-restore');
+    assert.equal(h.controls.restoreRequests[0].actorUserId, 'fixture-user');
+    assert.equal(h.controls.restoreRequests[0].actorSessionId, 'fixture-session');
+    const output = await response.json();
+    assert.equal(output.restored.recoveryMode, 'native_complete');
+    const getResponse = await h.get(); const getOutput = await getResponse.json();
+    assert.equal(getOutput.backup.nativeDocumentCount, 1); assert.equal(getOutput.backup.nativeSizeBytes, 123);
+    assert.equal(getOutput.backup.recoveryMode, 'native_complete');
+    for (const privateValue of ['private native bytes', 'stateVector', 'nativePayload', 'privateNativeMetadata']) {
+      assert.equal(JSON.stringify(output).includes(privateValue), false);
+      assert.equal(JSON.stringify(getOutput).includes(privateValue), false);
+    }
+    assert.equal((await h.invoke({ operationId: 'bad/id' })).status, 400);
+  } finally { await fs.rm(h.root, { recursive: true, force: true }); }
+});
 
 for (const kind of ['extract', 'restore'] as const) {
   test(`${kind} rejects busy lifecycle before physical work and finishes metadata under the guard`, async () => {
