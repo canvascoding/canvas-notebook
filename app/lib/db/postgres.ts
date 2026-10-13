@@ -22,6 +22,7 @@ import { NATIVE_LINK_MUTATION_RECEIPT_STATEMENTS } from './native-link-mutation-
 import { MARKDOWN_FILE_IMPORT_STATEMENTS } from './markdown-file-import-migration';
 import { NATIVE_FILE_OPERATION_HANDOFF_STATEMENTS } from './native-file-operation-handoff-migration';
 import { NATIVE_FILE_OPERATION_SIDE_EFFECT_STATEMENTS } from './native-file-operation-side-effects-migration';
+import { NATIVE_FILE_RESTORE_STATEMENTS } from './native-file-operation-restore-migration';
 import { runEmailCachePostgresMigration } from '@/app/lib/email/cache/postgres-migration';
 import { runEmailClassificationPostgresMigration } from '@/app/lib/email/classification/postgres-migration';
 import { resolvePostgresRuntimeOptions } from './postgres-runtime-options';
@@ -1375,6 +1376,7 @@ export async function runPostgresMigrations(pool: PgQueryable): Promise<void> {
   for (const statement of MARKDOWN_FILE_IMPORT_STATEMENTS) await pool.query(statement);
   for (const statement of NATIVE_FILE_OPERATION_HANDOFF_STATEMENTS) await pool.query(statement);
   for (const statement of NATIVE_FILE_OPERATION_SIDE_EFFECT_STATEMENTS) await pool.query(statement);
+  for (const statement of NATIVE_FILE_RESTORE_STATEMENTS) await pool.query(statement);
   await pool.query('ALTER TABLE team_membership_sync_state ADD COLUMN IF NOT EXISTS next_attempt_at bigint');
   await pool.query('CREATE INDEX IF NOT EXISTS idx_collaboration_yjs_workspace_path ON collaboration_yjs_states (workspace_id, path)');
   await pool.query('CREATE INDEX IF NOT EXISTS idx_collaboration_yjs_persisted ON collaboration_yjs_states (persisted_at)');
