@@ -105,7 +105,7 @@ export function MarkdownModeBar({ mode, onChange, sourceAvailable = true, richAv
         <MoveHorizontal className="size-4" aria-hidden="true" />
       </Button>}
       {documentControls && focus && <Button type="button" size="icon-sm" variant={focus.focused ? 'secondary' : 'ghost'}
-        className="hidden md:inline-flex" aria-label={t(focus.focused ? 'exitFocus' : 'focus')}
+        aria-label={t(focus.focused ? 'exitFocus' : 'focus')}
         title={t(focus.focused ? 'exitFocus' : 'focus')} aria-pressed={focus.focused}
         onClick={() => focus.setFocused(!focus.focused)}>
         {focus.focused ? <Minimize2 className="size-4" aria-hidden="true" /> : <Maximize2 className="size-4" aria-hidden="true" />}

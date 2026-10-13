@@ -455,7 +455,8 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
   const layout = useNotebookLayoutController();
   const { state, dispatch, setChatDocked } = layout;
   const [requestedDocumentFocus, setRequestedDocumentFocus] = useState(false);
-  const documentFocus = requestedDocumentFocus && !layout.isMobile && state.mainSurface === 'document';
+  const documentFocus = requestedDocumentFocus && state.mainSurface === 'document';
+  const mobileDocumentFocus = documentFocus && layout.isMobile;
   const focusContext = useMemo(() => ({ focused: documentFocus, setFocused: setRequestedDocumentFocus }), [documentFocus]);
   const explorerVisible = state.explorerOpen && !documentFocus;
   const toggleChatDock = useCallback(() => {
@@ -1477,7 +1478,8 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     <FileWatcherProvider>
       <HintProvider page="notebook" enabled={hintEnabled}>
         <div className="fixed inset-0 flex flex-col overflow-hidden bg-background text-foreground" data-document-focus={documentFocus}>
-          <header className="z-40 flex h-14 shrink-0 items-center justify-between gap-3 border-b border-border bg-background/95 px-3 pt-[env(safe-area-inset-top)] backdrop-blur supports-[backdrop-filter]:bg-background/88 sm:px-4">
+          <header data-testid="notebook-header" aria-hidden={mobileDocumentFocus} inert={mobileDocumentFocus}
+            className={cn('z-40 flex h-14 shrink-0 items-center justify-between gap-3 border-b border-border bg-background/95 px-3 pt-[env(safe-area-inset-top)] backdrop-blur supports-[backdrop-filter]:bg-background/88 sm:px-4', mobileDocumentFocus && 'hidden')}>
             <div className="flex min-w-0 items-center gap-2">
               <AppBackButton fallbackHref="/" className="shrink-0 gap-2 px-2 sm:px-3" />
               <div className="hidden min-w-0 md:block">
@@ -1493,12 +1495,14 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
           </header>
 
           {layout.isMobile && showWorkspaceSwitcher ? (
-            <div className="z-30 shrink-0 border-b border-border bg-background/95 px-3 py-2 md:hidden">
+            <div aria-hidden={mobileDocumentFocus} inert={mobileDocumentFocus}
+              className={cn('z-30 shrink-0 border-b border-border bg-background/95 px-3 py-2 md:hidden', mobileDocumentFocus && 'hidden')}>
               <WorkspaceSwitcher source="notebook" variant="mobile-sheet" />
             </div>
           ) : null}
 
-          <div className="z-30 flex h-11 shrink-0 items-center gap-2 border-b border-border bg-muted/20 px-2 pointer-coarse:h-14" data-testid="notebook-toolbar">
+          <div aria-hidden={mobileDocumentFocus} inert={mobileDocumentFocus} data-testid="notebook-toolbar"
+            className={cn('z-30 flex h-11 shrink-0 items-center gap-2 border-b border-border bg-muted/20 px-2 pointer-coarse:h-14', mobileDocumentFocus && 'hidden')}>
             <TooltipProvider delayDuration={250}>
               <Tooltip>
                 <TooltipTrigger asChild>
