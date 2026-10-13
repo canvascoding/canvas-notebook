@@ -157,9 +157,10 @@ export async function readComposioExtensions(actor: CapabilityResourceActor, sig
 
 export async function readMcpExtensions(actor: CapabilityResourceActor): Promise<PluginExtensionSourceResult> {
   const [{ requireMcpUserAccess, assertMcpConnectionAccess, McpAccessError }, { readMcpConfig }, { readMcpConnectionStatus },
-    { getMcpOAuthStatus }, { listMcpServerDefinitions }, { listSharedIntegrationConnections }] = await Promise.all([
+    { getMcpOAuthStatus }, { listMcpServerDefinitions }, { listSharedIntegrationConnections }, { resolveMcpCredentialScope }] = await Promise.all([
     import('@/app/lib/mcp/access'), import('@/app/lib/mcp/config'), import('@/app/lib/mcp/connection-status'),
     import('@/app/lib/mcp/oauth'), import('@/app/lib/mcp/server-definitions'), import('@/app/lib/integration-tools/connections/store'),
+    import('@/app/lib/mcp/credential-storage'),
   ]);
   const items: PluginExtensionItem[] = [], usedDefinitions = new Set<string>();
   let partial = false;
@@ -179,11 +180,20 @@ export async function readMcpExtensions(actor: CapabilityResourceActor): Promise
           const summary: PluginExtensionConnection = { connectionRef: `mcp-personal:${connection.connectionId}`, displayName: text(connection.displayName) || name,
             ownership: { type: 'user', ownerUserId: actor.userId, organizationId: connection.organizationId || null }, access: { ...access },
             authorization: 'unknown', health: 'unknown', enabled: connection.enabled !== false };
+          const current = connection as typeof connection & { connectionId: string };
+          // Actor membership establishes access; credentials retain the exact stored connection ownership.
+          const credentialScope = resolveMcpCredentialScope(current, { userId: actor.userId });
+          if (requiresOAuth) {
+            try {
+              const oauth = await getMcpOAuthStatus(current.connectionId, undefined, credentialScope);
+              if (oauth.authorized) summary.authorization = 'authorized';
+              else if (oauth.code && oauth.code !== 'reauth_required') partial = true;
+              else if (oauth.configured) summary.authorization = 'required';
+              else partial = true;
+            } catch { partial = true; }
+          } else summary.authorization = connection.bearerTokenEnv || Object.keys(connection.headersFromEnv || {}).length || Object.keys(connection.env || {}).length ? 'unknown' : 'not_required';
           try {
-            const current = connection as typeof connection & { connectionId: string };
-            const health = await readMcpConnectionStatus(name, current, scope), oauth = await getMcpOAuthStatus(name, undefined, scope);
-            summary.authorization = requiresOAuth ? oauth.authorized ? 'authorized' : oauth.configured ? 'required' : 'unknown'
-              : connection.bearerTokenEnv || Object.keys(connection.headersFromEnv || {}).length || Object.keys(connection.env || {}).length ? 'unknown' : 'not_required';
+            const health = await readMcpConnectionStatus(current.connectionId, current, credentialScope);
             summary.checkedAt = health.lastCheckedAt;
             const checked = Date.parse(health.lastCheckedAt || '');
             if (Number.isFinite(checked) && checked <= Date.now() && Date.now() - checked <= 15 * 60_000) {
