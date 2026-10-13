@@ -207,6 +207,98 @@ function mutateEmpty(state: PersistedCollaborationState, input: Captured): Persi
   });
 }
 
+async function executeCapturedMarkdownImportOnConnection(database: SqlConnection, input: Captured,
+  validateAuthority: MarkdownFileImportRequest['validateAuthority']): Promise<MarkdownFileImportResult> {
+  await database.run("SET LOCAL statement_timeout='5s'"); await database.run("SET LOCAL lock_timeout='4s'");
+  await assertWorkspaceFileLifecycleSqlAvailable(database, input.workspace.workspaceId, [input.path]);
+  await lockFileCollaborationPaths(database, input.workspace.workspaceId, [input.path]);
+  const prior = await confirmedRetry(database, input);
+  if (prior) return { disposition: 'already-applied', ...prior };
+  const documents = await readWorkspaceDocumentCatalogue(database, input.workspace, { paths: [input.path] });
+  const all = await database.all(`SELECT id FROM collaboration_documents WHERE workspace_id=$1 AND path=$2 AND status='active' FOR UPDATE`,
+  [input.workspace.workspaceId, input.path]);
+  const document = documents.find(document => document.path === input.path);
+  if (input.expectedTarget.kind === 'absent' ? documents.length !== 0 || all.length !== 0
+    : documents.length !== 1 || all.length !== 1 || !document || document.id !== input.expectedTarget.documentId
+      || document.authority !== (input.expectedTarget.kind === 'pristine' ? 'pristine' : 'initialized')) return fail('MARKDOWN_IMPORT_TARGET_CHANGED');
+  const documentId = document?.id ?? `collab-${randomUUID()}`;
+  const active = await database.get(`SELECT operation_id FROM collaboration_agent_operations WHERE document_id=$1
+          AND status IN ('preparing','ready','applying','applied_to_ydoc','cancel_requested') LIMIT 1`, [documentId]);
+  if (active) return fail('MARKDOWN_IMPORT_BUSY');
+  let state: PersistedCollaborationState;
+  if (input.expectedTarget.kind === 'initialized') {
+    const current = await loadCollaborationStateOnConnection(database, documentId, true);
+    if (!current || !document?.lineage_id || document.yjs_state_lifecycle !== 'initialized'
+      || current.documentSequence < document.state_version) return fail('MARKDOWN_IMPORT_TARGET_CHANGED');
+    const existingLineage = await database.get(`SELECT id FROM file_collaboration_lineages WHERE id=$1 AND workspace_id=$2
+            AND organization_id IS NOT DISTINCT FROM $3 AND path=$4 AND status='active'`,
+    [document.lineage_id, current.workspaceId, current.organizationId, current.path]);
+    if (!existingLineage) return fail('MARKDOWN_IMPORT_TARGET_CHANGED');
+    state = mutateEmpty(current, input);
+  } else state = importedState(input, documentId, Date.now());
+  const lineage = await ensureActiveFileLineage(database, { id: document?.lineage_id ?? `file-lineage-${randomUUID()}`,
+    workspace: input.workspace, path: input.path, nowMs: state.persistedAt });
+  if (lineage.organizationId !== state.organizationId || document?.lineage_id && lineage.id !== document.lineage_id) return fail('MARKDOWN_IMPORT_TARGET_CHANGED');
+  await validateAuthority();
+  if (input.expectedTarget.kind === 'initialized') {
+    const changed = await database.get(`UPDATE collaboration_yjs_states SET yjs_state=$1,state_vector=$2,document_sequence=$3,persisted_at=$4
+            WHERE document_id=$5 AND workspace_id=$6 AND organization_id IS NOT DISTINCT FROM $7 AND path=$8 AND representation=$9
+              AND lifecycle_generation=$10 AND schema_version=$11 AND document_sequence=$12 AND status='active' RETURNING document_id`,
+    [Buffer.from(state.yjsState), Buffer.from(state.stateVector), state.documentSequence, state.persistedAt, documentId,
+      state.workspaceId, state.organizationId, state.path, state.representation, state.lifecycleGeneration, state.schemaVersion, input.expectedTarget.documentSequence]);
+    if (!changed) return fail('MARKDOWN_IMPORT_TARGET_CHANGED');
+  } else await withWorkspaceFileLifecycleCollaborationWrite(state, async () => {
+    const query = async (sql: string, values?: unknown[]) => await database.all(sql, values) as Array<Record<string, unknown>>;
+    await lockFileLifecycleCollaborationWriterAdmission(query, state); await assertCollaborationAdmissionOpen(query, state);
+    if (document) await database.run(`UPDATE collaboration_documents SET lineage_id=$1,yjs_state_lifecycle='initialized',updated_at=$2
+            WHERE id=$3 AND workspace_id=$4 AND organization_id IS NOT DISTINCT FROM $5 AND path=$6 AND provider='yjs' AND status='active'`,
+    [lineage.id, state.persistedAt, documentId, state.workspaceId, state.organizationId, state.path]);
+    else await database.run(`INSERT INTO collaboration_documents(id,lineage_id,organization_id,customer_id,project_id,workspace_id,
+            workspace_type,path,provider,state_version,status,created_at,updated_at,yjs_state_lifecycle)
+            VALUES($1,$2,$3,$4,$5,$6,$7,$8,'yjs',0,'active',$9,$9,'initialized')`,
+    [documentId, lineage.id, state.organizationId, input.workspace.customerId ?? null, input.workspace.projectId ?? null,
+      state.workspaceId, input.workspace.workspaceType, state.path, state.persistedAt]);
+    await database.run(`INSERT INTO collaboration_yjs_states(document_id,workspace_id,organization_id,path,representation,lifecycle_generation,
+            schema_version,yjs_state,state_vector,document_sequence,persisted_at,checkpointed_at,checkpoint_sequence,canonical_hash,serialized_hash,newline_style,has_bom,degraded,status)
+            VALUES($1,$2,$3,$4,$5,1,1,$6,$7,0,$8,NULL,0,NULL,NULL,$9,$10,0,'active')`,
+    [documentId, state.workspaceId, state.organizationId, state.path, state.representation, Buffer.from(state.yjsState),
+      Buffer.from(state.stateVector), state.persistedAt, state.newlineStyle, state.hasBom ? 1 : 0]);
+  });
+  const snapshot = authoritativeNativeCollaborationSnapshot(state);
+  const after = inspectPersistedNativeCollaborationSnapshot(state, doc => captureAgentStateSnapshot(doc, Y));
+  if (!after || after.byteLength > MARKDOWN_FILE_IMPORT_LIMIT) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
+  const receipt: MarkdownFileImportReceipt = { version: 1, operationId: input.operationId, requestFingerprint: input.fingerprint,
+    sourceHash: input.prepared.sourceHash, sourceBytes: input.prepared.sourceBytes,
+    target: { ...Object.fromEntries(identityKeys.map(key => [key, state[key]])) as MarkdownImportIdentity,
+      lineageId: lineage.id, initialSequence: state.documentSequence, initialStateProof: snapshot.version.stateProof, persistedAt: state.persistedAt }, checkpointRequired: true };
+  await database.run(`INSERT INTO collaboration_markdown_file_import_receipts(workspace_id,operation_id,organization_id,actor_user_id,
+          actor_session_id,request_id,version,request_fingerprint,private_result,after_state_snapshot,created_at)
+          VALUES($1,$2,$3,$4,$5,$6,1,$7,$8::jsonb,$9,$10)`,
+  [state.workspaceId, input.operationId, state.organizationId, input.actorUserId, input.actorSessionId, input.requestId,
+    input.fingerprint, JSON.stringify(receipt), Buffer.from(after), state.persistedAt]);
+  return { disposition: 'applied', receipt, currentObservation: { documentSequence: state.documentSequence,
+    stateProof: snapshot.version.stateProof, persistedAt: state.persistedAt } };
+}
+
+async function recoverCapturedMarkdownImportCommit(input: Captured, openConnection: () => Promise<SqlConnection>,
+  validateAuthority: MarkdownFileImportRequest['validateAuthority']): Promise<MarkdownFileImportResult> {
+  const database = await openConnection(); let discard: Error | undefined;
+  try {
+    const lease = getWorkspaceFileLifecycleLeases()?.get(input.workspace.workspaceId);
+    if (!lease?.active || !await lease.verify()) return fail('MARKDOWN_IMPORT_COMMIT_UNCONFIRMED');
+    await validateAuthority();
+    await database.run('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
+    const prior = await confirmedRetry(database, input);
+    if (!prior) return fail('MARKDOWN_IMPORT_COMMIT_UNCONFIRMED');
+    await database.run('COMMIT');
+    if (!lease.active || !await lease.verify()) return fail('MARKDOWN_IMPORT_COMMIT_UNCONFIRMED');
+    return { disposition: 'commit-recovered', ...prior };
+  } catch (error) {
+    try { await database.run('ROLLBACK'); } catch (rollbackError) { discard = new Error('Discarding unresolved import receipt verification.', { cause: rollbackError }); }
+    throw error;
+  } finally { await database.close(discard); }
+}
+
 /** Internal complete-file capability. No file write, room mutation bypass,
  * representation migration, public response or projection completion occurs. */
 export async function persistMarkdownFileImport(request: MarkdownFileImportRequest,
@@ -215,94 +307,8 @@ export async function persistMarkdownFileImport(request: MarkdownFileImportReque
   return withWorkspaceFileLifecycleGuard({ workspaceId: input.workspace.workspaceId, paths: [input.path] }, async () => {
     await validateAuthority();
     return executeLifecycleTransaction<MarkdownFileImportResult>({ openConnection: dependencies.openConnection,
-      execute: async database => {
-        await database.run("SET LOCAL statement_timeout='5s'"); await database.run("SET LOCAL lock_timeout='4s'");
-        await assertWorkspaceFileLifecycleSqlAvailable(database, input.workspace.workspaceId, [input.path]);
-        await lockFileCollaborationPaths(database, input.workspace.workspaceId, [input.path]);
-        const prior = await confirmedRetry(database, input);
-        if (prior) return { disposition: 'already-applied', ...prior };
-        const documents = await readWorkspaceDocumentCatalogue(database, input.workspace, { paths: [input.path] });
-        const all = await database.all(`SELECT id FROM collaboration_documents WHERE workspace_id=$1 AND path=$2 AND status='active' FOR UPDATE`,
-        [input.workspace.workspaceId, input.path]);
-        const document = documents.find(document => document.path === input.path);
-        if (input.expectedTarget.kind === 'absent' ? documents.length !== 0 || all.length !== 0
-          : documents.length !== 1 || all.length !== 1 || !document || document.id !== input.expectedTarget.documentId
-            || document.authority !== (input.expectedTarget.kind === 'pristine' ? 'pristine' : 'initialized')) return fail('MARKDOWN_IMPORT_TARGET_CHANGED');
-        const documentId = document?.id ?? `collab-${randomUUID()}`;
-        const active = await database.get(`SELECT operation_id FROM collaboration_agent_operations WHERE document_id=$1
-          AND status IN ('preparing','ready','applying','applied_to_ydoc','cancel_requested') LIMIT 1`, [documentId]);
-        if (active) return fail('MARKDOWN_IMPORT_BUSY');
-        let state: PersistedCollaborationState;
-        if (input.expectedTarget.kind === 'initialized') {
-          const current = await loadCollaborationStateOnConnection(database, documentId, true);
-          if (!current || !document?.lineage_id || document.yjs_state_lifecycle !== 'initialized'
-            || current.documentSequence < document.state_version) return fail('MARKDOWN_IMPORT_TARGET_CHANGED');
-          const existingLineage = await database.get(`SELECT id FROM file_collaboration_lineages WHERE id=$1 AND workspace_id=$2
-            AND organization_id IS NOT DISTINCT FROM $3 AND path=$4 AND status='active'`,
-          [document.lineage_id, current.workspaceId, current.organizationId, current.path]);
-          if (!existingLineage) return fail('MARKDOWN_IMPORT_TARGET_CHANGED');
-          state = mutateEmpty(current, input);
-        } else state = importedState(input, documentId, Date.now());
-        const lineage = await ensureActiveFileLineage(database, { id: document?.lineage_id ?? `file-lineage-${randomUUID()}`,
-          workspace: input.workspace, path: input.path, nowMs: state.persistedAt });
-        if (lineage.organizationId !== state.organizationId || document?.lineage_id && lineage.id !== document.lineage_id) return fail('MARKDOWN_IMPORT_TARGET_CHANGED');
-        await validateAuthority();
-        if (input.expectedTarget.kind === 'initialized') {
-          const changed = await database.get(`UPDATE collaboration_yjs_states SET yjs_state=$1,state_vector=$2,document_sequence=$3,persisted_at=$4
-            WHERE document_id=$5 AND workspace_id=$6 AND organization_id IS NOT DISTINCT FROM $7 AND path=$8 AND representation=$9
-              AND lifecycle_generation=$10 AND schema_version=$11 AND document_sequence=$12 AND status='active' RETURNING document_id`,
-          [Buffer.from(state.yjsState), Buffer.from(state.stateVector), state.documentSequence, state.persistedAt, documentId,
-            state.workspaceId, state.organizationId, state.path, state.representation, state.lifecycleGeneration, state.schemaVersion, input.expectedTarget.documentSequence]);
-          if (!changed) return fail('MARKDOWN_IMPORT_TARGET_CHANGED');
-        } else await withWorkspaceFileLifecycleCollaborationWrite(state, async () => {
-          const query = async (sql: string, values?: unknown[]) => await database.all(sql, values) as Array<Record<string, unknown>>;
-          await lockFileLifecycleCollaborationWriterAdmission(query, state); await assertCollaborationAdmissionOpen(query, state);
-          if (document) await database.run(`UPDATE collaboration_documents SET lineage_id=$1,yjs_state_lifecycle='initialized',updated_at=$2
-            WHERE id=$3 AND workspace_id=$4 AND organization_id IS NOT DISTINCT FROM $5 AND path=$6 AND provider='yjs' AND status='active'`,
-          [lineage.id, state.persistedAt, documentId, state.workspaceId, state.organizationId, state.path]);
-          else await database.run(`INSERT INTO collaboration_documents(id,lineage_id,organization_id,customer_id,project_id,workspace_id,
-            workspace_type,path,provider,state_version,status,created_at,updated_at,yjs_state_lifecycle)
-            VALUES($1,$2,$3,$4,$5,$6,$7,$8,'yjs',0,'active',$9,$9,'initialized')`,
-          [documentId, lineage.id, state.organizationId, input.workspace.customerId ?? null, input.workspace.projectId ?? null,
-            state.workspaceId, input.workspace.workspaceType, state.path, state.persistedAt]);
-          await database.run(`INSERT INTO collaboration_yjs_states(document_id,workspace_id,organization_id,path,representation,lifecycle_generation,
-            schema_version,yjs_state,state_vector,document_sequence,persisted_at,checkpointed_at,checkpoint_sequence,canonical_hash,serialized_hash,newline_style,has_bom,degraded,status)
-            VALUES($1,$2,$3,$4,$5,1,1,$6,$7,0,$8,NULL,0,NULL,NULL,$9,$10,0,'active')`,
-          [documentId, state.workspaceId, state.organizationId, state.path, state.representation, Buffer.from(state.yjsState),
-            Buffer.from(state.stateVector), state.persistedAt, state.newlineStyle, state.hasBom ? 1 : 0]);
-        });
-        const snapshot = authoritativeNativeCollaborationSnapshot(state);
-        const after = inspectPersistedNativeCollaborationSnapshot(state, doc => captureAgentStateSnapshot(doc, Y));
-        if (!after || after.byteLength > MARKDOWN_FILE_IMPORT_LIMIT) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
-        const receipt: MarkdownFileImportReceipt = { version: 1, operationId: input.operationId, requestFingerprint: input.fingerprint,
-          sourceHash: input.prepared.sourceHash, sourceBytes: input.prepared.sourceBytes,
-          target: { ...Object.fromEntries(identityKeys.map(key => [key, state[key]])) as MarkdownImportIdentity,
-            lineageId: lineage.id, initialSequence: state.documentSequence, initialStateProof: snapshot.version.stateProof, persistedAt: state.persistedAt }, checkpointRequired: true };
-        await database.run(`INSERT INTO collaboration_markdown_file_import_receipts(workspace_id,operation_id,organization_id,actor_user_id,
-          actor_session_id,request_id,version,request_fingerprint,private_result,after_state_snapshot,created_at)
-          VALUES($1,$2,$3,$4,$5,$6,1,$7,$8::jsonb,$9,$10)`,
-        [state.workspaceId, input.operationId, state.organizationId, input.actorUserId, input.actorSessionId, input.requestId,
-          input.fingerprint, JSON.stringify(receipt), Buffer.from(after), state.persistedAt]);
-        return { disposition: 'applied', receipt, currentObservation: { documentSequence: state.documentSequence,
-          stateProof: snapshot.version.stateProof, persistedAt: state.persistedAt } };
-      },
-      recoverCommitted: async () => {
-        const database = await dependencies.openConnection(); let discard: Error | undefined;
-        try {
-          const lease = getWorkspaceFileLifecycleLeases()?.get(input.workspace.workspaceId);
-          if (!lease?.active || !await lease.verify()) return fail('MARKDOWN_IMPORT_COMMIT_UNCONFIRMED');
-          await validateAuthority();
-          await database.run('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
-          const prior = await confirmedRetry(database, input);
-          if (!prior) return fail('MARKDOWN_IMPORT_COMMIT_UNCONFIRMED');
-          await database.run('COMMIT');
-          if (!lease.active || !await lease.verify()) return fail('MARKDOWN_IMPORT_COMMIT_UNCONFIRMED');
-          return { disposition: 'commit-recovered', ...prior };
-        } catch (error) {
-          try { await database.run('ROLLBACK'); } catch (rollbackError) { discard = new Error('Discarding unresolved import receipt verification.', { cause: rollbackError }); }
-          throw error;
-        } finally { await database.close(discard); }
-      },
+      execute: async database => executeCapturedMarkdownImportOnConnection(database, input, validateAuthority),
+      recoverCommitted: async () => recoverCapturedMarkdownImportCommit(input, () => dependencies.openConnection(), validateAuthority),
     });
   }, dependencies.openConnection);
 }

@@ -3,7 +3,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { Client, Pool, types } from 'pg';
+import { Client, Pool, types, type PoolClient } from 'pg';
 import type { SqlConnection } from '../app/lib/db';
 import { MARKDOWN_FILE_IMPORT_STATEMENTS } from '../app/lib/db/markdown-file-import-migration';
 import { authoritativeNativeCollaborationSnapshot } from '../app/lib/collaboration/document-snapshot';
@@ -51,6 +51,70 @@ function connections(pool: Pool, fault: Fault = {}) {
     return { run: query, all: query, get: async (sql, values) => (await query(sql, values))[0],
       close: async error => { if (!closed) { closed = true; client.release(error); } } };
   };
+}
+type ImportTraceStep = 'open' | 'lineage' | 'registry' | 'state' | 'receipt' | 'retry' | 'begin' | 'commit' | 'rollback' | 'close' | 'removed';
+type ImportConnectionIdentity = { backendPid: number; xid: string | null; schema: string; isolation: string; readOnly: string };
+type ImportTrace = ImportConnectionIdentity & { step: ImportTraceStep; outcome: 'done' | 'failed' | 'discard' };
+function tracedImportConnections(pool: Pool, schema: string, fault: Fault = {}, rejectReceipt = false) {
+  const events: ImportTrace[] = [], opened = new Map<number, ImportConnectionIdentity>(), factory = connections(pool, fault);
+  const removed = (client: PoolClient) => {
+    const identity = opened.get((client as PoolClient & { processID: number }).processID);
+    if (identity) events.push({ ...identity, step: 'removed', outcome: 'done' });
+  };
+  pool.on('remove', removed);
+  const openConnection = async (): Promise<SqlConnection> => {
+    const inner = await factory();
+    const inspect = async () => {
+      const identity = await inner.get(`SELECT pg_backend_pid()::int AS "backendPid",pg_current_xact_id_if_assigned()::text AS xid,
+        current_schema() AS schema,current_setting('transaction_isolation') AS isolation,current_setting('transaction_read_only') AS "readOnly"`) as ImportConnectionIdentity;
+      assert.equal(identity.schema, schema, 'trace must stay inside the isolated PostgreSQL schema');
+      return identity;
+    };
+    let identity: ImportConnectionIdentity;
+    try { identity = await inspect(); }
+    catch (error) { await inner.close(new Error('Discarding failed import trace connection.', { cause: error })); throw error; }
+    opened.set(identity.backendPid, identity);
+    events.push({ ...identity, step: 'open', outcome: 'done' });
+    const query = async (sql: string, values: unknown[] = []) => {
+      const command = sql.trimStart();
+      const step: ImportTraceStep | undefined = /^(?:INSERT INTO|UPDATE) file_collaboration_lineages\b/u.test(command) ? 'lineage'
+        : /^(?:INSERT INTO|UPDATE) collaboration_documents\b/u.test(command) ? 'registry'
+        : /^(?:INSERT INTO|UPDATE) collaboration_yjs_states\b/u.test(command) ? 'state'
+        : /^INSERT INTO collaboration_markdown_file_import_receipts\b/u.test(command) ? 'receipt'
+        : /^SELECT \* FROM collaboration_markdown_file_import_receipts\b/u.test(command) ? 'retry'
+        : /^BEGIN\b/iu.test(command) ? 'begin' : /^COMMIT$/iu.test(command) ? 'commit' : /^ROLLBACK$/iu.test(command) ? 'rollback' : undefined;
+      if (!step) return inner.all(sql, values);
+      // A failed PostgreSQL statement poisons its transaction: ROLLBACK must
+      // execute without an extra SELECT in that aborted transaction.
+      if (step !== 'rollback') identity = await inspect();
+      const before = identity;
+      const parameters = step === 'receipt' && rejectReceipt ? values.map((value, index) => index === 3 ? 'x'.repeat(257) : value) : values;
+      try {
+        const rows = await inner.all(sql, parameters);
+        identity = step === 'commit' || step === 'rollback' ? before : await inspect();
+        events.push({ ...identity, step, outcome: 'done' }); return rows;
+      } catch (error) { events.push({ ...before, step, outcome: 'failed' }); throw error; }
+    };
+    return { run: query, all: query, get: async (sql, values) => (await query(sql, values))[0],
+      close: async error => { await inner.close(error); events.push({ ...identity, step: 'close', outcome: error ? 'discard' : 'done' }); } };
+  };
+  return { events, openConnection, dispose: () => pool.off('remove', removed) };
+}
+function assertImportRecoveryOrder(events: ImportTrace[]) {
+  const mutation = events.find(event => event.step === 'state' && event.outcome === 'done'); assert.ok(mutation?.xid);
+  const failedCommit = events.findIndex(event => event.backendPid === mutation.backendPid && event.step === 'commit' && event.outcome === 'failed');
+  const removed = events.findIndex(event => event.backendPid === mutation.backendPid && event.step === 'removed');
+  const discarded = events.findIndex(event => event.backendPid === mutation.backendPid && event.step === 'close' && event.outcome === 'discard');
+  const recovery = events.findIndex((event, index) => index > discarded && event.step === 'retry');
+  // pg-pool removes the client from its reusable set synchronously, but emits
+  // `remove` only when client.end completes; both must precede the ledger read.
+  assert.ok(failedCommit >= 0 && removed > failedCommit && discarded > failedCommit && recovery > discarded && recovery > removed,
+    'uncertain mutation backend must be removed from the actual Pool and closed before recovery reads its ledger');
+  assert.notEqual(events[recovery].backendPid, mutation.backendPid);
+  assert.equal(events[recovery].isolation, 'repeatable read'); assert.equal(events[recovery].readOnly, 'on');
+  assert.equal(events.filter(event => event.backendPid === events[recovery].backendPid && ['registry', 'state', 'receipt'].includes(event.step)).length, 0);
+  assert.equal(events.filter(event => event.backendPid === mutation.backendPid && event.step === 'close').length, 1);
+  assert.ok(events.some(event => event.backendPid === events[recovery].backendPid && event.step === 'close'));
 }
 const code = (expected: string) => (error: unknown) => error instanceof MarkdownFileImportError && error.code === expected;
 const busy = (error: unknown) => error instanceof WorkspaceFileLifecycleBusyError;
@@ -241,7 +305,16 @@ async function main() {
       const retry = await persistMarkdownFileImport(input, { openConnection });
       assert.deepEqual(retry.receipt, imported.receipt); assert.equal(retry.currentObservation.documentSequence, after.documentSequence + 1);
       assert.notEqual(retry.currentObservation.stateProof, retry.receipt.target.initialStateProof);
-      assert.equal(actualContent(await load(state.documentId)), `\uFEFFpeer addition\r\n${full.slice(1)}`);
+      const currentPeer = await load(state.documentId);
+      assert.equal(actualContent(currentPeer), `\uFEFFpeer addition\r\n${full.slice(1)}`);
+      assert.equal(retry.currentObservation.stateProof, authoritativeNativeCollaborationSnapshot(currentPeer).version.stateProof);
+      const historical: { private_result: unknown; after_state_snapshot: Uint8Array; live_yjs_state_sha256: string; live_state_vector_sha256: string } = (await pool.query(`SELECT private_result,after_state_snapshot,live_yjs_state_sha256,live_state_vector_sha256
+        FROM collaboration_markdown_file_import_receipts WHERE workspace_id=$1 AND operation_id=$2`, [workspace.workspaceId, input.operationId])).rows[0];
+      assert.deepEqual(historical.private_result, imported.receipt);
+      assert.equal(`yjs-snapshot-sha256-v1:${createHash('sha256').update(historical.after_state_snapshot).digest('hex')}`, imported.receipt.target.initialStateProof);
+      assert.equal(historical.live_yjs_state_sha256, createHash('sha256').update(after.yjsState).digest('hex'));
+      assert.equal(historical.live_state_vector_sha256, createHash('sha256').update(after.stateVector).digest('hex'));
+      assert.notEqual(historical.live_yjs_state_sha256, createHash('sha256').update(currentPeer.yjsState).digest('hex'));
     }
     const nonempty = await seed('nonempty.md', 'plain_text', 'peer content');
     await assert.rejects(() => persistMarkdownFileImport(request(nonempty.path, '# Heading\n', expected(nonempty)), { openConnection }), code('MARKDOWN_IMPORT_TARGET_NOT_EMPTY'));
@@ -306,12 +379,59 @@ async function main() {
     const reserved = await admission.reserve(reservation);
     await assert.rejects(() => persistMarkdownFileImport(request(guarded.path, '# Heading\n', expected(guarded)), { openConnection }), busy);
     await admission.cancel(reservation, reserved.revision);
+    const atomicRequest = request('same-transaction.markdown', full), atomicTrace = tracedImportConnections(fixturePool, schema);
+    try {
+      const atomic = await persistMarkdownFileImport(atomicRequest, { openConnection: atomicTrace.openConnection });
+      const writes = atomicTrace.events.filter(event => ['lineage', 'registry', 'state', 'receipt'].includes(event.step) && event.outcome === 'done');
+      assert.deepEqual(writes.map(event => event.step), ['lineage', 'registry', 'state', 'receipt']);
+      assert.equal(new Set(writes.map(event => event.backendPid)).size, 1); assert.equal(new Set(writes.map(event => event.xid)).size, 1);
+      const transactionId = writes[0].xid; assert.ok(transactionId);
+      assert.equal(writes[0].isolation, 'read committed'); assert.equal(writes[0].readOnly, 'off');
+      assert.ok(atomicTrace.events.some(event => event.step === 'open' && event.backendPid !== writes[0].backendPid),
+        'actual owner-lease connection remains separate from the mutation connection');
+      const rows = (await fixturePool.query(`SELECT 'lineage' AS part,xmin::text AS xid FROM file_collaboration_lineages WHERE id=$1
+        UNION ALL SELECT 'registry',xmin::text FROM collaboration_documents WHERE id=$2
+        UNION ALL SELECT 'state',xmin::text FROM collaboration_yjs_states WHERE document_id=$2
+        UNION ALL SELECT 'receipt',xmin::text FROM collaboration_markdown_file_import_receipts WHERE workspace_id=$3 AND operation_id=$4`,
+      [atomic.receipt.target.lineageId, atomic.receipt.target.documentId, workspace.workspaceId, atomicRequest.operationId])).rows;
+      assert.deepEqual(rows.map(row => row.part).sort(), ['lineage', 'receipt', 'registry', 'state']);
+      assert.ok(rows.every(row => row.xid === (BigInt(transactionId) & BigInt('4294967295')).toString()),
+        'actual committed row versions must carry the same PostgreSQL transaction ID');
+      assert.equal(actualContent(await load(atomic.receipt.target.documentId)), full);
+    } finally { atomicTrace.dispose(); }
+    const failedReceipt = request('receipt-rollback.md', '# Must roll back\n'), rollbackTrace = tracedImportConnections(fixturePool, schema, {}, true);
+    try {
+      await assert.rejects(() => persistMarkdownFileImport(failedReceipt, { openConnection: rollbackTrace.openConnection }),
+        error => (error as { code?: string }).code === '23514');
+      const failed = rollbackTrace.events.find(event => event.step === 'receipt' && event.outcome === 'failed'); assert.ok(failed?.xid);
+      assert.deepEqual(rollbackTrace.events.filter(event => event.backendPid === failed.backendPid && event.outcome === 'done'
+        && ['lineage', 'registry', 'state'].includes(event.step)).map(event => event.step), ['lineage', 'registry', 'state']);
+      assert.ok(rollbackTrace.events.some(event => event.backendPid === failed.backendPid && event.step === 'rollback' && event.outcome === 'done'));
+      assert.equal(rollbackTrace.events.filter(event => event.backendPid === failed.backendPid && event.step === 'commit').length, 0);
+      for (const table of ['file_collaboration_lineages', 'collaboration_documents', 'collaboration_yjs_states']) {
+        assert.equal((await fixturePool.query(`SELECT count(*)::int AS count FROM ${table} WHERE workspace_id=$1 AND path=$2`,
+        [workspace.workspaceId, failedReceipt.path])).rows[0].count, 0);
+      }
+      assert.equal((await fixturePool.query(`SELECT count(*)::int AS count FROM collaboration_markdown_file_import_receipts WHERE workspace_id=$1 AND operation_id=$2`,
+      [workspace.workspaceId, failedReceipt.operationId])).rows[0].count, 0);
+    } finally { rollbackTrace.dispose(); }
     const recoveredRequest = request('lost-after.md', '# Recovered\n');
-    const recovered = await persistMarkdownFileImport(recoveredRequest, { openConnection: connections(fixturePool, { commit: 'after' }) });
-    assert.equal(recovered.disposition, 'commit-recovered'); assert.equal(actualContent(await load(recovered.receipt.target.documentId)), '# Recovered\n');
+    const afterTrace = tracedImportConnections(fixturePool, schema, { commit: 'after' });
+    try {
+      const recovered = await persistMarkdownFileImport(recoveredRequest, { openConnection: afterTrace.openConnection });
+      assert.equal(recovered.disposition, 'commit-recovered'); assert.equal(actualContent(await load(recovered.receipt.target.documentId)), '# Recovered\n');
+      assertImportRecoveryOrder(afterTrace.events);
+      assert.equal((await pool.query(`SELECT count(*)::int AS count FROM collaboration_markdown_file_import_receipts WHERE operation_id=$1`, [recoveredRequest.operationId])).rows[0].count, 1);
+    } finally { afterTrace.dispose(); }
     const rejectedRequest = request('lost-before.md', '# Not committed\n');
-    await assert.rejects(() => persistMarkdownFileImport(rejectedRequest, { openConnection: connections(fixturePool, { commit: 'before' }) }), code('MARKDOWN_IMPORT_COMMIT_UNCONFIRMED'));
+    const beforeTrace = tracedImportConnections(fixturePool, schema, { commit: 'before' });
+    try {
+      await assert.rejects(() => persistMarkdownFileImport(rejectedRequest, { openConnection: beforeTrace.openConnection }), code('MARKDOWN_IMPORT_COMMIT_UNCONFIRMED'));
+      assertImportRecoveryOrder(beforeTrace.events);
+    } finally { beforeTrace.dispose(); }
     assert.equal((await pool.query(`SELECT count(*)::int AS count FROM collaboration_documents WHERE path='lost-before.md'`)).rows[0].count, 0);
+    assert.equal((await pool.query(`SELECT count(*)::int AS count FROM file_collaboration_lineages WHERE path='lost-before.md'`)).rows[0].count, 0);
+    assert.equal((await pool.query(`SELECT count(*)::int AS count FROM collaboration_yjs_states WHERE path='lost-before.md'`)).rows[0].count, 0);
     assert.equal((await pool.query(`SELECT count(*)::int AS count FROM collaboration_markdown_file_import_receipts WHERE operation_id=$1`, [rejectedRequest.operationId])).rows[0].count, 0);
     assert.equal((await persistMarkdownFileImport(rejectedRequest, { openConnection })).disposition, 'applied');
     const concurrent = request('concurrent.md', '# Exactly once\n');
@@ -319,7 +439,7 @@ async function main() {
     assert.deepEqual(attempts.map(item => item.disposition).sort(), ['already-applied', 'applied']);
     assert.equal((await pool.query(`SELECT count(*)::int AS count FROM collaboration_markdown_file_import_receipts WHERE operation_id=$1`, [concurrent.operationId])).rows[0].count, 1);
     assert.ok(authorityChecks > 20);
-    console.log('complete Markdown import PostgreSQL: exact full-file/profile, native mutation, immutable bounded/scoped SQL receipts and real deletion proof, rights/identity/actor/session conflicts, peers/retries, live-owner/reservation Busy, concurrent exactly-once, lost COMMIT before/after OK');
+    console.log('complete Markdown import PostgreSQL: exact full-file/profile, native mutation, immutable bounded/scoped SQL receipts and real deletion proof, rights/identity/actor/session conflicts, peers/retries, live-owner/reservation Busy, concurrent exactly-once, SAME backend/XID row versions, receipt failure rollback, lost COMMIT before/after with actual Pool disposal before fresh read-only recovery OK');
   } finally {
     await owner?.close(); await pool?.end(); await admin.query(`DROP SCHEMA IF EXISTS ${namespace(schema)} CASCADE`); await admin.end();
     if (previousData === undefined) delete process.env.CANVAS_DATA_ROOT; else process.env.CANVAS_DATA_ROOT = previousData;
