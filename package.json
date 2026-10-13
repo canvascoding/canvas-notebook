@@ -24,6 +24,8 @@
   "scripts": {
     "test:chat:markdown-export": "tsx --conditions react-server scripts/chat-markdown-export-test.ts && tsx --conditions react-server scripts/chat-markdown-export-route-test.ts && tsx scripts/chat-markdown-copy-ui-test.tsx",
     "test:decision-models": "tsx scripts/decision-models-test.ts",
+    "test:not-found": "tsx scripts/not-found-routing-test.ts",
+    "test:not-found:e2e": "playwright test --config tests/playwright/playwright.not-found-local.config.ts",
     "test:email:classification:policy": "tsx scripts/email-classification-policy-test.ts",
     "test:email:classification:selection": "tsx --conditions react-server scripts/email-classification-selection-test.ts",
     "test:email:classification:identity": "tsx --conditions react-server scripts/email-classification-identity-test.ts",

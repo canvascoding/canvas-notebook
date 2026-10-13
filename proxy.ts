@@ -282,5 +282,9 @@ export const config = {
     // shared abuse limits and 16 KiB body reader before consuming input.
     '/api/((?!setup/owner$|organization/invitations/(?:accept|activate|preview)$|email/compose/(?:ai|agent)(?:/|$)|email/accounts/[^/]+/messages/actions(?:/|$)|email/accounts/[^/]+/messages/[^/]+/(?:summary|ai-reply)(?:/|$)).*)',
     '/((?!api|ws|_next/static|_next/image|favicon.ico|.*\\..*).*)',
+    // Localized page URLs can contain dots. They still need locale forwarding
+    // for the global 404; root-level public asset URLs remain excluded above.
+    '/de/:path*',
+    '/en/:path*',
   ],
 };

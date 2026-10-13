@@ -1,4 +1,18 @@
 {
+  "notFound": {
+    "eyebrow": "Page not found · 404",
+    "title": "This page seems to have wandered off.",
+    "description": "It may have moved, or the link may no longer work. Let's get you back to where you want to be.",
+    "home": "Go to home",
+    "back": "Go back",
+    "login": "Sign in",
+    "checkingSession": "Checking your sign-in…",
+    "sessionUnavailable": "We couldn't check your sign-in right now. You can still go to home or go back.",
+    "promoTitle": "A good place for your ideas.",
+    "promoDescription": "Notes, files and Bradley – together in your Canvas Notebook.",
+    "discover": "Discover Canvas Notebook",
+    "footer": "Back to your ideas."
+  },
   "EmailRecipients": {
     "placeholder": "Name or email address",
     "remove": "Remove {address}",
