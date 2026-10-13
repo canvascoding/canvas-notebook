@@ -1,6 +1,8 @@
 import 'server-only';
+import { createHash } from 'node:crypto';
 
-import { readFile, writeFile } from '@/app/lib/filesystem/workspace-files';
+import { readFile, writeFile, writeFileIfAbsent, rollbackWorkspaceExclusiveFilePublication,
+  type WorkspaceExclusiveFilePublication } from '@/app/lib/filesystem/workspace-files';
 import {
   ensureFileRevisionForCurrentContent,
   markCollaborationDocumentCheckpoint,
@@ -94,6 +96,8 @@ async function writeCollaborationCheckpointFile(input: {
   actorUserId?: string | null;
   actorType?: 'user' | 'agent' | 'system';
   sourceSessionId?: string | null;
+  createIfAbsent?: boolean;
+  onPublished?: (publication: WorkspaceExclusiveFilePublication) => void;
 }): Promise<CollaborationCheckpointFileWrite> {
   if (input.state.workspaceId !== input.workspace.workspaceId) {
     throw new Error('Collaboration checkpoint workspace mismatch.');
@@ -105,7 +109,9 @@ async function writeCollaborationCheckpointFile(input: {
   const canonical = input.canonicalContent.replace(/\r\n?/gu, '\n');
   const serialized = serializeCanonicalText(canonical, input.state);
   const fileOptions = workspaceFileOptions(input.workspace);
-  await writeFile(input.state.path, serialized, fileOptions);
+  const beforePublish = () => assertCurrentCollaborationProjectionIdentity(input.state);
+  if (input.createIfAbsent) await writeFileIfAbsent(input.state.path, serialized, fileOptions, beforePublish, input.onPublished);
+  else await writeFile(input.state.path, serialized, fileOptions, beforePublish);
   const fileRevision = await getWorkspaceFileRevision(input.state.path, fileOptions);
   if (!fileRevision) throw new Error('Collaboration checkpoint could not be read after write.');
 
@@ -134,16 +140,17 @@ async function writeCompensatableCollaborationCheckpointFile(input: {
   sourceSessionId?: string | null;
 }): Promise<CompensatableCollaborationCheckpointFileWrite> {
   const fileOptions = workspaceFileOptions(input.workspace);
-  const previousContent = await readFile(input.state.path, fileOptions);
   const previousRevision = await getWorkspaceFileRevision(input.state.path, fileOptions);
-  if (!previousRevision) {
-    throw new Error('Collaboration checkpoint could not snapshot the current file before write.');
+  const previousContent = previousRevision ? await readFile(input.state.path, fileOptions) : null;
+  if (previousContent !== null && createHash('sha256').update(previousContent).digest('hex') !== previousRevision!.sha256) {
+    throw new Error('Collaboration checkpoint projection changed while capturing compensation.');
   }
   const serializedContent = serializeCanonicalText(
     input.canonicalContent.replace(/\r\n?/gu, '\n'),
     input.state,
   );
   const writtenHash = sha256Text(serializedContent);
+  let publication: WorkspaceExclusiveFilePublication | undefined;
   let rolledBack = false;
   const rollback = async (): Promise<void> => {
     if (rolledBack) return;
@@ -155,6 +162,12 @@ async function writeCompensatableCollaborationCheckpointFile(input: {
       throw new Error('Collaboration checkpoint rollback refused to overwrite another document lifecycle.');
     }
     await assertCurrentCollaborationProjectionIdentity(currentState);
+    if (!previousRevision) {
+      if (publication) await rollbackWorkspaceExclusiveFilePublication(publication,
+        () => assertCurrentCollaborationProjectionIdentity(currentState));
+      rolledBack = true;
+      return;
+    }
     const currentRevision = await getWorkspaceFileRevision(input.state.path, fileOptions);
     if (currentRevision?.sha256 === previousRevision.sha256) {
       rolledBack = true;
@@ -163,7 +176,7 @@ async function writeCompensatableCollaborationCheckpointFile(input: {
     if (currentRevision?.sha256 !== writtenHash) {
       throw new Error('Collaboration checkpoint rollback refused to overwrite a newer workspace file.');
     }
-    await writeFile(input.state.path, previousContent, fileOptions, async () => {
+    await writeFile(input.state.path, previousContent!, fileOptions, async () => {
       const lockedRevision = await getWorkspaceFileRevision(input.state.path, fileOptions);
       if (lockedRevision?.sha256 !== writtenHash) {
         throw new Error('Collaboration checkpoint file changed before rollback replacement.');
@@ -186,7 +199,8 @@ async function writeCompensatableCollaborationCheckpointFile(input: {
   };
 
   try {
-    const fileWrite = await writeCollaborationCheckpointFile(input);
+    const fileWrite = await writeCollaborationCheckpointFile({ ...input, createIfAbsent: !previousRevision,
+      onPublished: value => { publication = value; } });
     return { ...fileWrite, rollback };
   } catch (writeError) {
     try {

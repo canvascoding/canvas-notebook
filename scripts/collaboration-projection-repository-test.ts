@@ -170,6 +170,32 @@ async function main() {
     await repository.recordCollaborationProjectionPending(connection, resetGeneration, { revisionId: 'reset-generation' });
     await repository.finalizeCollaborationProjectionReceipt(resetGeneration, 'reset-generation');
     assert.deepEqual(await pending(), []);
+
+    await connection.run('DELETE FROM collaboration_file_projections WHERE document_id=$1', ['doc']);
+    await connection.run(`UPDATE collaboration_yjs_states SET checkpointed_at=NULL,canonical_hash=NULL,serialized_hash=NULL
+      WHERE document_id=$1`, ['doc']);
+    const freshClone = { ...resetGeneration, checkpointedAt: null, canonicalHash: null, serializedHash: null };
+    repository = reloadRepository();
+    assert.equal((await pending()).length, 1, 'a fresh sequence-zero clone has durable backlog without an in-memory enqueue');
+    assert.equal(await repository.hasPendingCollaborationProjection(freshClone), true);
+    assert.equal((await repository.loadCollaborationProjectionStatus(freshClone)).projectionFinalized, false);
+    assert.equal((await repository.readCollaborationProjectionHealth(connection)).pending, 1);
+
+    await connection.run(`UPDATE collaboration_yjs_states SET checkpointed_at=1,canonical_hash=$1,serialized_hash=$2
+      WHERE document_id='doc'`, [resetGeneration.canonicalHash, resetGeneration.serializedHash]);
+    assert.equal((await pending()).length, 1, 'legacy checkpoint metadata alone cannot prove finalization at sequence zero');
+    await repository.recordCollaborationProjectionPending(connection, resetGeneration, { revisionId: 'fresh-zero' });
+    assert.equal((await repository.loadCollaborationProjectionStatus(resetGeneration)).projectionFinalized, false);
+    await repository.finalizeCollaborationProjectionReceipt(resetGeneration, 'fresh-zero');
+    assert.equal((await repository.loadCollaborationProjectionStatus(resetGeneration)).projectionFinalized, true);
+    assert.deepEqual(await pending(), []);
+    for (const mutation of ["canonical_hash='foreign'", "serialized_hash='foreign'", 'projected_sequence=1', 'revision_id=NULL']) {
+      await connection.run('BEGIN');
+      await connection.run(`UPDATE collaboration_file_projections SET ${mutation} WHERE document_id='doc'`);
+      assert.equal((await pending()).length, 1, 'a mismatched receipt remains pending even when document and checkpoint counters are zero');
+      assert.equal((await repository.loadCollaborationProjectionStatus(resetGeneration)).projectionFinalized, false);
+      await connection.run('ROLLBACK');
+    }
     console.log('Projection backlog survives repository restart; real SQL verifies receipts, atomic rollback, monotonic sequences, generation/deletion fences and workspace organization/status/root boundaries.');
   } finally { doc.destroy(); await database.close(); }
 }

@@ -3,8 +3,9 @@ import {
   createWriteStream as createLocalWriteStream,
   promises as fs,
   accessSync,
+  constants,
 } from 'fs';
-import { randomUUID } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import os from 'os';
 import path from 'path';
 import {Readable} from 'stream';
@@ -38,6 +39,13 @@ export interface WorkspaceFileOperationOptions {
   includeSymlinks?: boolean;
   mutationActorUserId?: string;
 }
+
+/** Opaque, process-local proof of the inode published by one exclusive write. */
+export type WorkspaceExclusiveFilePublication = Readonly<object>;
+const exclusivePublications = new WeakMap<WorkspaceExclusiveFilePublication, {
+  filePath: string; fullPath: string; options?: WorkspaceFileOperationOptions;
+  device: number; inode: number; sha256: string; active: boolean;
+}>();
 
 function getDataDir(): string {
   return resolveWorkspaceDataRoot();
@@ -383,6 +391,7 @@ export async function writeFileIfAbsent(
   content: Buffer | string,
   options?: WorkspaceFileOperationOptions,
   onBeforeReplace?: () => Promise<void>,
+  onPublished?: (publication: WorkspaceExclusiveFilePublication) => void,
 ): Promise<void> {
   return withWorkspaceFileMutationLock(filePath, options, async () => {
     assertOfficePublicationAllowed(getWorkspace(options).workspaceId, filePath);
@@ -393,12 +402,20 @@ export async function writeFileIfAbsent(
       handle = await fs.open(stagingPath, 'wx', 0o666);
       await handle.writeFile(content);
       await handle.sync();
+      const publishedInode = await handle.stat();
       await handle.close();
       handle = null;
       await onBeforeReplace?.();
       // link() publishes the complete inode atomically and rejects EEXIST.
       // rename() would silently replace a concurrent creator's file.
       await fs.link(stagingPath, fullPath);
+      if (onPublished) {
+        const publication = Object.freeze({});
+        exclusivePublications.set(publication, { filePath, fullPath, options: options ? structuredClone(options) : undefined,
+          device: publishedInode.dev, inode: publishedInode.ino,
+          sha256: createHash('sha256').update(content).digest('hex'), active: true });
+        onPublished(publication);
+      }
       const directoryHandle = await fs.open(path.dirname(fullPath), 'r');
       try {
         await directoryHandle.sync();
@@ -409,6 +426,49 @@ export async function writeFileIfAbsent(
       await handle?.close().catch(() => undefined);
       await fs.rm(stagingPath, { force: true }).catch(() => undefined);
     }
+  });
+}
+
+/** Compensation retains peer-created or replaced files, even with identical bytes. */
+export async function rollbackWorkspaceExclusiveFilePublication(
+  publication: WorkspaceExclusiveFilePublication,
+  onBeforeRemove: () => Promise<void>,
+): Promise<void> {
+  const claim = exclusivePublications.get(publication);
+  if (!claim) throw new Error('An attributable exclusive publication is required.');
+  if (!claim.active) return;
+  await withWorkspaceFileMutationLock(claim.filePath, claim.options, async () => {
+    const filename = await resolveWritableWorkspacePath(claim.filePath, claim.options);
+    if (filename !== claim.fullPath) throw new Error('Exclusive publication path changed before compensation.');
+    let handle: Awaited<ReturnType<typeof fs.open>>;
+    try { handle = await fs.open(filename, constants.O_RDONLY | constants.O_NOFOLLOW); }
+    catch (error) {
+      if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {
+        claim.active = false; return;
+      }
+      throw error;
+    }
+    try {
+      const before = await handle.stat();
+      if (!before.isFile() || before.dev !== claim.device || before.ino !== claim.inode || before.nlink !== 1) {
+        throw new Error('Exclusive publication compensation refused a different file inode.');
+      }
+      const hash = createHash('sha256');
+      for await (const chunk of handle.createReadStream({ autoClose: false })) hash.update(chunk);
+      const after = await handle.stat();
+      if (hash.digest('hex') !== claim.sha256 || before.size !== after.size || before.mtimeMs !== after.mtimeMs
+        || before.ctimeMs !== after.ctimeMs) throw new Error('Exclusive publication changed before compensation.');
+      await onBeforeRemove();
+      const current = await fs.lstat(filename);
+      if (current.dev !== claim.device || current.ino !== claim.inode || current.nlink !== 1
+        || current.size !== after.size || current.mtimeMs !== after.mtimeMs || current.ctimeMs !== after.ctimeMs) {
+        throw new Error('Exclusive publication changed before compensation removal.');
+      }
+      await fs.unlink(filename);
+      const parent = await fs.open(path.dirname(filename), 'r');
+      try { await parent.sync(); } finally { await parent.close(); }
+      claim.active = false;
+    } finally { await handle.close(); }
   });
 }
 

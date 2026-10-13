@@ -49,6 +49,8 @@ async function harness() {
   const doc = new Y.Doc(); doc.getText('content').insert(0, 'ABC');
   let row: Row | undefined = seedRow(doc);
   let file = 'Original file';
+  let fileExists = true;
+  const publications = new WeakMap<object, string>();
   let receipt: Receipt = 'missing';
   let registry = { id: 'doc', workspaceId: 'workspace', path: 'doc.txt', provider: 'yjs',
     organizationId: null as string | null, status: 'active', workspaceStatus: 'active' };
@@ -192,7 +194,7 @@ async function harness() {
     './markdown-state': {}, './runtime-state': {}, './types': {}, './server-runtime': { Y },
     './projection-identity': identity,
   });
-  const revision = async () => ({ sha256: persistence.sha256Text(file), stats: { size: Buffer.byteLength(file) } });
+  const revision = async () => fileExists ? { sha256: persistence.sha256Text(file), stats: { size: Buffer.byteLength(file) } } : null;
   let beforeWrite: (() => Promise<void>) | undefined;
   let beforeShares: (() => Promise<void>) | undefined;
   const checkpoint = await compile<typeof Checkpoint>('app/lib/collaboration/checkpoint.ts', {
@@ -225,6 +227,20 @@ async function harness() {
         assertWorkspace(); assert.equal(activeTransactions, 0, 'file I/O must not run under the Yjs transaction');
         await beforeWrite?.(); await beforeReplace?.(); file = content; events.push(`file:${content}`);
       },
+      writeFileIfAbsent: async (_path: string, content: string, _options: object, beforeReplace: () => Promise<void>, onPublished: (claim: object) => void) => {
+        assertWorkspace(); assert.equal(activeTransactions, 0);
+        await beforeWrite?.(); await beforeReplace();
+        if (fileExists) throw Object.assign(new Error('A peer already created this path'), { code: 'EEXIST' });
+        file = content; fileExists = true;
+        const claim = Object.freeze({}); publications.set(claim, content); onPublished(claim);
+        events.push(`create:${content}`);
+      },
+      rollbackWorkspaceExclusiveFilePublication: async (claim: object, beforeRemove: () => Promise<void>) => {
+        assertWorkspace(); assert(publications.has(claim));
+        if (!fileExists) return;
+        if (file !== publications.get(claim)) throw new Error('Peer file changed');
+        await beforeRemove(); fileExists = false; events.push('remove owned projection');
+      },
     },
     '@/app/lib/files/revision-guard': { getWorkspaceFileRevision: revision },
     '@/app/lib/files/collaboration-policy': {
@@ -247,6 +263,7 @@ async function harness() {
     doc, persistence, checkpoint, state, workspace, events, lock,
     get row() { return row; }, set row(value: Row | undefined) { row = value; },
     get file() { return file; }, set file(value: string) { file = value; },
+    get fileExists() { return fileExists; }, set fileExists(value: boolean) { fileExists = value; },
     get receipt() { return receipt; },
     get registry() { return registry; }, set registry(value: typeof registry) { registry = value; },
     set commitFault(value: typeof commitFault) { commitFault = value; },
@@ -259,6 +276,26 @@ async function harness() {
 }
 
 async function main() {
+  for (const outcome of ['success', 'confirmation-failed', 'peer-created', 'peer-edited'] as const) {
+    const h = await harness(); h.fileExists = false;
+    if (outcome === 'peer-created') h.beforeWrite = async () => { h.file = 'Peer created bytes'; h.fileExists = true; };
+    const operation = h.checkpoint.materializeCollaborationCheckpoint({ state: await h.state(), workspace: h.workspace,
+      confirmProjection: async () => {
+        if (outcome === 'peer-edited') h.file = 'Peer edited bytes';
+        if (outcome === 'confirmation-failed' || outcome === 'peer-edited') throw new Error('Confirmation failed');
+      },
+    });
+    if (outcome === 'success') {
+      const result = await operation; assert.equal(result.state.projectionFinalized, true);
+      assert.equal(h.file, 'ABC'); assert.equal(h.fileExists, true);
+    } else {
+      await assert.rejects(operation);
+      assert.equal(h.fileExists, outcome !== 'confirmation-failed');
+      if (outcome === 'peer-created') assert.equal(h.file, 'Peer created bytes');
+      if (outcome === 'peer-edited') assert.equal(h.file, 'Peer edited bytes');
+    }
+    assert.equal(h.activeTransactions, 0); h.doc.destroy();
+  }
   for (const patch of [{ id: 'successor' }, { provider: 'excalidraw' }, { status: 'archived' },
     { path: 'renamed.txt' }, { workspaceId: 'another-workspace' }, { organizationId: 'another-organization' },
     { workspaceStatus: 'disabled' }]) {
