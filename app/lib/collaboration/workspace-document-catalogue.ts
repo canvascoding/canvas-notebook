@@ -42,12 +42,14 @@ function catalogueInteger(value: unknown, minimum: number): number | null {
 export async function readWorkspaceDocumentCatalogue(
   connection: SqlConnection,
   workspace: WorkspaceContext,
-  options: { paths?: readonly string[] } = {},
+  options: { paths?: readonly string[]; maxEntries?: number } = {},
 ): Promise<WorkspaceDocumentCatalogueEntry[]> {
   if (!workspace.permissions.canRead || workspace.status !== undefined && workspace.status !== 'active') {
     throw Object.assign(new Error('The workspace document catalogue is unavailable.'), { status: 403 });
   }
   const pathsInScope = options.paths?.map((scope) => scope === '.' ? '' : scope) ?? [''];
+  if (options.maxEntries !== undefined && (!Number.isSafeInteger(options.maxEntries)
+    || options.maxEntries < 1 || options.maxEntries > 10_000)) throw new Error('Invalid document catalogue limit.');
   if (!pathsInScope.length) return [];
   if (pathsInScope.some((scope) => scope.startsWith('/') || scope.includes('\\') || scope.includes('\0')
     || scope !== '' && scope.split('/').some((part) => !part || part === '.' || part === '..'))) {
@@ -70,7 +72,14 @@ export async function readWorkspaceDocumentCatalogue(
     FROM collaboration_documents d LEFT JOIN collaboration_yjs_states s ON s.document_id=d.id
     WHERE d.workspace_id=$1 AND d.provider='yjs' AND d.status='active'
       AND EXISTS(SELECT 1 FROM unnest($2::text[]) p(scope) WHERE p.scope='' OR d.path=p.scope OR left(d.path,length(p.scope)+1)=p.scope||'/')
-    ORDER BY d.path,d.id`, [workspace.workspaceId, pathsInScope]) as WorkspaceDocumentCatalogueEntry[];
+    ORDER BY d.path,d.id${options.maxEntries === undefined ? '' : ' LIMIT $3'}`,
+  options.maxEntries === undefined ? [workspace.workspaceId, pathsInScope]
+    : [workspace.workspaceId, pathsInScope, options.maxEntries + 1]) as WorkspaceDocumentCatalogueEntry[];
+  if (options.maxEntries !== undefined && documents.length > options.maxEntries) {
+    throw Object.assign(new Error('Too many native documents in this download scope.'), {
+      status: 413, code: 'NATIVE_CATALOGUE_TOO_LARGE',
+    });
+  }
   const paths = new Set<string>();
   const ids = new Set<string>();
   for (const document of documents) {

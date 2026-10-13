@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
+import { createRequire } from 'node:module';
 import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -12,9 +13,10 @@ import { isLiveCollaborationDocumentReaderAvailable } from '../app/lib/collabora
 import { createPlainTextYDoc, createRichMarkdownYDoc, richMarkdownSchemaExtensions } from '../app/lib/collaboration/markdown-state';
 import { collaborationAdmissionLockKey } from '../app/lib/collaboration/room-admission-contract';
 import { Y } from '../app/lib/collaboration/server-runtime';
-import { withNativeWorkspaceFileRead } from '../app/lib/collaboration/workspace-native-file-read';
+import { withNativeWorkspaceFileRead, withNativeWorkspaceFilesRead, type NativeWorkspaceFilesReadScope } from '../app/lib/collaboration/workspace-native-file-read';
 import { readWorkspaceDocumentCatalogue } from '../app/lib/collaboration/workspace-document-catalogue';
 import { withWorkspaceFileLifecycleGuard } from '../app/lib/files/workspace-file-lifecycle-guard';
+import { materializeWorkspaceDownloadArchive } from '../app/lib/files/workspace-download-archive';
 import type { WorkspaceContext } from '../app/lib/workspaces/types';
 
 const schemaPattern = /^canvas_native_read_test_[a-f0-9]{32}$/u;
@@ -74,7 +76,8 @@ async function main() {
     let checkouts = 0;
     const openConnection = async (): Promise<SqlConnection> => {
       const client = await pool!.connect();
-      client.on('error', () => undefined);
+      const ignoreOwnedClientError = () => undefined;
+      client.on('error', ignoreOwnedClientError);
       const pid = Number((await client.query('SELECT pg_backend_pid() AS pid')).rows[0].pid);
       assert(!liveClients.has(pid)); liveClients.add(pid); checkouts += 1;
       let released = false;
@@ -83,7 +86,8 @@ async function main() {
         all: async (sql, args) => { commands.push(sql); return (await client.query(sql, args)).rows; },
         run: async (sql, args) => { commands.push(sql); return { changes: (await client.query(sql, args)).rowCount ?? 0 }; },
         close: error => {
-          assert.equal(released, false); released = true; liveClients.delete(pid); client.release(error);
+          assert.equal(released, false); released = true; liveClients.delete(pid);
+          client.off('error', ignoreOwnedClientError); client.release(error);
         },
       };
     };
@@ -148,6 +152,53 @@ async function main() {
       await writer.query('ROLLBACK');
     } finally { writer.release(); }
 
+    phase = 'multi-file scope holds one real read fence and expires its capability';
+    let completedScope: NativeWorkspaceFilesReadScope | undefined;
+    await withNativeWorkspaceFilesRead({ workspace, paths: ['.'], maxEntries: 10 }, async scope => {
+      completedScope = scope;
+      assert.equal(scope.documents.length, 2);
+      assert.equal((await scope.readFile('native.bin', 1024))?.content?.toString(), '\uFEFFFirst\r\nSecond\r\n');
+      assert.equal(await scope.readFile('pristine.md', 1024), null);
+      await assert.rejects(scope.readFile('../outside', 1024), { status: 409 });
+      const competing = await pool!.connect();
+      try {
+        await competing.query('BEGIN');
+        assert.equal((await competing.query('SELECT pg_try_advisory_xact_lock($1::bigint) AS locked',
+          [collaborationAdmissionLockKey(workspace.workspaceId)])).rows[0].locked, false);
+        await competing.query('ROLLBACK');
+      } finally { competing.release(); }
+    }, { openConnection });
+    await assert.rejects(completedScope!.readFile('native.bin', 1024), { status: 409 });
+    assert.equal(liveClients.size, 0);
+    phase = 'PostgreSQL bounds the catalogue result before materialization';
+    let boundedConsumed = false;
+    await assert.rejects(withNativeWorkspaceFilesRead({ workspace, paths: ['.'], maxEntries: 1 }, async () => {
+      boundedConsumed = true;
+    }, { openConnection }), { status: 413, code: 'NATIVE_CATALOGUE_TOO_LARGE' });
+    assert.equal(boundedConsumed, false); assert.equal(liveClients.size, 0);
+
+    phase = 'real native and physical ZIP materialization under the same PostgreSQL fence';
+    const artifact = await materializeWorkspaceDownloadArchive(workspace, ['.'], { openConnection, beforeMaterialize: async () => {
+      assert.equal(liveClients.size, 1);
+      const competing = await pool!.connect();
+      try {
+        await competing.query('BEGIN');
+        assert.equal((await competing.query('SELECT pg_try_advisory_xact_lock($1::bigint) AS locked',
+          [collaborationAdmissionLockKey(workspace.workspaceId)])).rows[0].locked, false);
+        await competing.query('ROLLBACK');
+      } finally { competing.release(); }
+    } });
+    try {
+      const unzipper = createRequire(import.meta.url)('unzipper') as {
+        Open: { file(p: string): Promise<{ files: { path: string; buffer(): Promise<Buffer> }[] }> };
+      };
+      const zip = await unzipper.Open.file(artifact.archivePath);
+      assert.equal((await zip.files.find(entry => entry.path === 'workspace/native.bin')!.buffer()).toString(), '\uFEFFFirst\r\nSecond\r\n');
+      assert.equal((await zip.files.find(entry => entry.path === 'workspace/pristine.md')!.buffer()).toString(), 'Original physical bytes');
+      assert.equal(liveClients.size, 0);
+      await assert.rejects(stat(path.join(temporaryRoot, 'native.bin')), { code: 'ENOENT' });
+    } finally { await rm(artifact.tempDirectory, { recursive: true, force: true }); }
+
     phase = 'native metadata stays readable through export failure';
     const rich = createRichMarkdownYDoc('| A |\n| --- |\n| B |', 'tiptap_blocks');
     try {
@@ -211,7 +262,7 @@ async function main() {
     assert.equal(checkouts, before);
     assert(commands.includes('BEGIN READ ONLY')); assert(commands.includes('COMMIT')); assert(commands.includes('ROLLBACK'));
     assert.equal(commands.some(sql => /^\s*(?:INSERT|DELETE)/u.test(sql)), false);
-    console.log('Native file reader PostgreSQL: native-only bytes, strict export/metadata, real read/lifecycle fence, read-only rollback and permissions passed.');
+    console.log('Native file reader PostgreSQL: native-only bytes, strict exports, bounded catalogue, mixed ZIP, real single/multi-file read fences, read-only rollback and permissions passed.');
   } finally {
     await pool?.end();
     if (created) {

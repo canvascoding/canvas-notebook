@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import path from 'node:path';
+import os from 'node:os';
 import { Readable } from 'node:stream';
 import { test } from 'node:test';
 import { NextRequest } from 'next/server';
@@ -27,15 +28,19 @@ async function harness() {
     newlineStyle: 'crlf', hasBom: true, degraded: false, status: 'active' };
   doc.destroy();
   const controls = { state: state as PersistedCollaborationState | null, authority: 'initialized' as WorkspaceDocumentCatalogueEntry['authority'],
-    denied: false, physical: Buffer.from([0xff, 0x00, 0x42]), path: state.path };
-  const calls = { diskStats: 0, diskStreams: 0, nativeReads: 0, active: false };
+    denied: false, physical: Buffer.from([0xff, 0x00, 0x42]), path: state.path,
+    cataloguePath: null as string | null, directory: false, missingPhysical: false,
+    archiveError: null as Error | null };
+  const calls = { diskStats: 0, diskStreams: 0, nativeReads: 0, active: false, archivePaths: [] as string[][] };
   const filename = path.resolve('app/api/files/download/route.ts'), require = createRequire(filename);
   const javascript = ts.transpileModule(await readFile(filename, 'utf8'), { compilerOptions: {
     module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true,
   } }).outputText;
   const mocks: Record<string, unknown> = {
     '@/app/lib/filesystem/workspace-files': {
-      getFileStats: async () => { assert(calls.active); calls.diskStats++; return { isDirectory: false, size: controls.physical.byteLength }; },
+      getFileStats: async () => { assert(calls.active); calls.diskStats++;
+        if (controls.missingPhysical) throw Object.assign(new Error('Missing physical projection'), { code: 'ENOENT' });
+        return { isDirectory: controls.directory, size: controls.physical.byteLength }; },
       createReadStream: async () => { assert(calls.active); calls.diskStreams++; return { stream: Readable.from([controls.physical]) }; },
     },
     '@/app/lib/utils/rate-limit': { rateLimit: () => ({ ok: true }) },
@@ -53,10 +58,22 @@ async function harness() {
             if (sql === 'COMMIT' || sql === 'ROLLBACK') calls.active = false;
             assert(!/^(INSERT|UPDATE|DELETE)/u.test(sql));
           }, get: async () => undefined, all: async () => [], close: async () => { assert(!calls.active); } }),
-          readCatalogue: async () => [{ id: 'native-download', path: controls.path, lifecycle_generation: 1,
+          readCatalogue: async () => [{ id: 'native-download', path: controls.cataloguePath ?? controls.path, lifecycle_generation: 1,
             authority: controls.authority } as WorkspaceDocumentCatalogueEntry],
           loadState: async () => controls.state,
         });
+      },
+    },
+    '@/app/lib/files/workspace-download-archive': {
+      materializeWorkspaceDownloadArchive: async (current: WorkspaceContext, paths: string[]) => {
+        assert.equal(current.workspaceId, workspace.workspaceId);
+        assert.equal(calls.active, false, 'Archive scope must begin after the single-file read fence closes.');
+        calls.archivePaths.push([...paths]);
+        if (controls.archiveError) throw controls.archiveError;
+        const tempDirectory = await mkdtemp(path.join(os.tmpdir(), 'canvas-download-route-test-'));
+        const archivePath = path.join(tempDirectory, 'selection.zip');
+        await writeFile(archivePath, Buffer.from([0x50, 0x4b, 0, 0]), { mode: 0o600 });
+        return { archivePath, tempDirectory };
       },
     },
   };
@@ -118,5 +135,32 @@ test('denied access and invalid path requests inspect neither native state nor d
   assert.equal((await h.download()).status, 403); assert.equal(h.calls.nativeReads, 0);
   h.controls.denied = false; h.controls.path = '../outside';
   assert.equal((await h.download()).status, 400); assert.equal(h.calls.nativeReads, 0);
+  assert.equal(h.calls.diskStats + h.calls.diskStreams, 0);
+});
+
+test('mixed selections dispatch once to the scoped archive reader without an initial physical stat or single-file read', async () => {
+  const h = await harness(), response = await h.download('&path=other.bin');
+  assert.equal(response.status, 200); assert.equal(response.headers.get('content-type'), 'application/zip');
+  assert.deepEqual(Buffer.from(await response.arrayBuffer()), Buffer.from([0x50, 0x4b, 0, 0]));
+  assert.deepEqual(h.calls.archivePaths, [['note.bin', 'other.bin']]);
+  assert.equal(h.calls.diskStats + h.calls.diskStreams + h.calls.nativeReads, 0);
+});
+
+test('physical and native-only virtual folder requests materialize outside the closed single-file fence', async () => {
+  for (const missing of [false, true]) {
+    const h = await harness(); h.controls.path = 'folder'; h.controls.cataloguePath = 'folder/native.md';
+    h.controls.directory = true; h.controls.missingPhysical = missing;
+    const response = await h.download();
+    assert.equal(response.status, 200); assert.equal(response.headers.get('content-type'), 'application/zip');
+    await response.arrayBuffer();
+    assert.deepEqual(h.calls.archivePaths, [['folder']]); assert.equal(h.calls.diskStreams, 0);
+    assert.equal(h.calls.active, false);
+  }
+});
+
+test('a failed mixed native archive reports the scoped conflict instead of a partial or stale download', async () => {
+  const h = await harness(); h.controls.archiveError = Object.assign(new Error('Native namespace changed'), { status: 409, code: 'ARCHIVE_SOURCE_CHANGED' });
+  const response = await h.download('&path=other.bin');
+  assert.equal(response.status, 409); assert.equal((await response.json()).code, 'ARCHIVE_SOURCE_CHANGED');
   assert.equal(h.calls.diskStats + h.calls.diskStreams, 0);
 });
