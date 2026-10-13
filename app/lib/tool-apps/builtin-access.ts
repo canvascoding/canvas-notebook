@@ -9,6 +9,7 @@ import { getAutomationJob } from '@/app/lib/automations/store';
 import { McpAccessError } from '@/app/lib/mcp/access';
 import type { McpAppChat } from '@/app/lib/mcp/apps-host';
 import { getTodo } from '@/app/lib/todos/store';
+import { todoMatchesWorkspaceScope } from '@/app/lib/todos/scope';
 import { resolveAgentSessionWorkspaceForUser } from '@/app/lib/pi/session-workspace-context';
 import { presentAutomationAppData } from './automation-data';
 import { presentTodoAppData } from './todo-data';
@@ -88,10 +89,7 @@ export async function requireBuiltinToolAppAccess(chat: McpAppChat, app: Builtin
     try {
       const todo = await getTodo(chat.userId, stored.entityId);
       const workspace = await resolveAgentSessionWorkspaceForUser({ userId: chat.userId, workspaceId: session.workspaceId });
-      if (!todo || (todo.scopeKind === 'user' && todo.workspaceType === 'personal'
-        ? workspace.workspaceType !== 'personal'
-        : todo.workspaceId !== workspace.workspaceId || todo.workspaceType !== workspace.workspaceType
-          || (todo.organizationId ?? null) !== (workspace.organizationId ?? null))) throw new Error('scope');
+      if (!todo || !todoMatchesWorkspaceScope(todo, workspace)) throw new Error('scope');
       return presentTodoAppData(todo);
     } catch { throw new McpAccessError('Todo is unavailable.', 404); }
   }

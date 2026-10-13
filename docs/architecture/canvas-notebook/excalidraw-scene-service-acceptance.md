@@ -21,8 +21,9 @@ Marketplace commit `8d2907e` prepares the immutable 1.4.0 package separately.
 The active registry and existing versions are unchanged. Its preparation receipt
 binds the required backend commit to `b36ccd9fd14d41be46f87152b35da88f95d8cb20`.
 `minCanvasVersion` remains null until the release guard verifies a real published
-backend release containing that commit. No release, registry activation, push or
-container build was performed.
+backend release containing that commit. Initial implementation was completed
+without a release, registry activation, push or container build. Publishing
+these source commits on `main` does not activate the prepared Marketplace entry.
 
 ## Native persistence and transport evidence
 
@@ -108,5 +109,38 @@ were reviewed. The overall auth/file/editor integration is classified critical
 by the graph; its affected flows are covered by the persistence, revocation,
 adapter and browser checks above. `main` advanced independently while this
 worktree was being implemented, so its additional differences are not part of
-these implementation commits. This evidence applies to this worktree, not a
-merge, remote CI run or production deployment.
+these implementation commits. These initial results apply to the original
+worktree. The subsequent integration checks below cover the merged source;
+neither set of checks is remote CI or production deployment evidence.
+
+## Main integration verification, 2026-10-13
+
+The original implementation was merged with Notebook `origin/main`
+`8d6401a08261ca4efe6063fed4001be024fdfb8d`, retaining its commit identities and
+the Marketplace receipt's required backend ancestor. The automatic merge was
+conflict-free. Shared changes were limited to translations and the page/API
+proxy; the upstream 404, chat export and personal To-do changes were retained.
+
+The updated page-auth regression now checks delegation to the actual page guard
+instead of the old blanket proxy redirect. Tool metadata also states that
+Excalidraw conflicts remain unapplied and that human Accept/Reject requires the
+experimental, default-disabled Review Center.
+
+Post-merge results:
+
+- All four Excalidraw browser cases passed again in 99 seconds, without skips or
+  retries, on the existing isolated PostgreSQL/browser fixture.
+- The complete actual OAuth/PKCE/MCP run passed all nine phases and its required
+  cleanup, with original settings restored.
+- Actual HTTP Create/Get/Edit passed for cookies, raw session-bearer and signed
+  session-bearer credentials; invalid and revoked sessions remained rejected.
+- Real anonymous Chromium requests received the German/English HTTP-404 UI.
+  An invalid bearer and spoofed return header could not bypass the protected
+  Plugins page's login guard or control its return target.
+- Native 404/page guards, Excalidraw and Mobile bearer-proxy boundaries, public
+  invitations and Studio Bulk policy tests passed.
+- Full lint passed with zero errors and 532 warnings; scoped lint passed for the
+  integration corrections.
+- The integrated production `npm run build` passed with exit 0, including the
+  prebuild checks, production TypeScript and static-page generation. Existing
+  Turbopack file-pattern/filesystem-tracing warnings remained.

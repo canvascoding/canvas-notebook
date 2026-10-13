@@ -67,14 +67,10 @@ test('keeps neighboring organization routes behind session authentication', asyn
   }
 });
 
-test('keeps neighboring invitation pages behind session authentication', async () => {
-  const path = `/invite/team/private?token=${invitationToken}`;
+test('lets nonexistent neighboring invitation pages reach the 404', async () => {
+  const path = `/en/invite/team/private?token=${invitationToken}`;
   const response = await middleware(new NextRequest(`http://localhost:3000${path}`));
-  assert.equal(response.status, 307);
-
-  const location = response.headers.get('location');
-  assert.ok(location);
-  const loginUrl = new URL(location);
-  assert.equal(loginUrl.pathname, '/login');
-  assert.equal(loginUrl.searchParams.get('from'), path);
+  assert.equal(response.headers.get('x-middleware-next'), '1');
+  assert.equal(response.headers.get('location'), null);
+  assert.equal(response.headers.get('x-middleware-request-x-canvas-page-return-to'), path);
 });

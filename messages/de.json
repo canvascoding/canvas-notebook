@@ -1,4 +1,18 @@
 {
+  "notFound": {
+    "eyebrow": "Seite nicht gefunden · 404",
+    "title": "Diese Seite ist gerade nicht zu finden.",
+    "description": "Vielleicht wurde sie verschoben oder der Link stimmt nicht mehr. Von hier aus findest du wieder deinen Weg.",
+    "home": "Zur Startseite",
+    "back": "Zurück",
+    "login": "Anmelden",
+    "checkingSession": "Deine Anmeldung wird geprüft…",
+    "sessionUnavailable": "Deine Anmeldung konnte gerade nicht geprüft werden. Du kannst trotzdem zur Startseite oder zurück.",
+    "promoTitle": "Ein guter Platz für deine Ideen.",
+    "promoDescription": "Notizen, Dateien und Bradley – zusammen in deinem Canvas Notebook.",
+    "discover": "Canvas Notebook entdecken",
+    "footer": "Zurück zu deinen Ideen."
+  },
   "EmailRecipients": {
     "placeholder": "Name oder E-Mail-Adresse",
     "remove": "{address} entfernen",
@@ -2483,6 +2497,11 @@
     "contextLabel": "{used}/{available} Budget · {window} Fenster",
     "contextCompactLabel": "{used}/{available} Budget",
     "contextDetails": "Kontextdetails",
+    "copyChatMarkdown": "Chat als Markdown kopieren",
+    "copyingChatMarkdown": "Chat wird kopiert…",
+    "chatMarkdownCopied": "Chat inklusive Tool-Inputs und -Outputs als Markdown kopiert.",
+    "chatMarkdownCopiedIncomplete": "Chat kopiert. Hinweise auf unvollständige Tool-Outputs stehen im Markdown.",
+    "chatMarkdownCopyFailed": "Der vollständige Chat konnte nicht kopiert werden. Prüfe den Zugriff auf den Chat und die Tool-Outputs sowie die Zwischenablage-Berechtigung.",
     "contextUsagePercent": "{percent} % genutzt",
     "contextTriggerUsagePercent": "{percent} % des Schwellenwerts",
     "contextUsageWarning": "Der Kontext liegt bei {percent} % der automatischen Komprimierungsschwelle.",

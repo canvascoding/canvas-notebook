@@ -20,6 +20,17 @@ Thanks for your interest in Canvas Notebook!
 - Describe what changed and why
 - For UI changes, include a screenshot or short screen recording
 
+## Repository Layout and Test Configuration
+
+Keep feature-specific test configuration under `tests/playwright/`. The root
+`playwright.config.ts` remains the default for `npm run test:e2e`; dedicated npm
+scripts and fixture runners select the specialized configurations explicitly.
+For a direct invocation, use `playwright test --config tests/playwright/<config>.ts`
+from the repository root and follow the selected suite's fixture requirements.
+
+See the [repository root inventory](docs/architecture/canvas-notebook/repository-root-layout.md)
+for the purpose of the remaining root files and cleanup rules.
+
 ## AI-Assisted Contributions
 
 Built with Claude, Codex, or another AI tool? Fine — just be transparent about it in the PR description, note how thoroughly you tested it, and make sure you understand what the code does.

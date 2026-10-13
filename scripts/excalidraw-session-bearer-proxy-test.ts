@@ -27,12 +27,14 @@ async function main() {
       ['GET', '/api/excalidraw/scenes/doc/extra'], ['POST', '/api/excalidraw/scenes/doc/operations/extra'],
       ['GET', `/api/excalidraw/scenes/${'a'.repeat(201)}`], ['GET', '/api/files'], ['GET', '/api/agents']]) {
       const result = await middleware(request(method, pathname));
-      assert.equal(result.status, 401, 'Unrelated web routes and unmatched scene methods keep cookie-only forwarding.');
+      assert.equal(result.status, 401, 'Unrelated web API routes and unmatched scene methods keep cookie-only forwarding.');
       assert.equal(result.headers.get('x-middleware-next'), null);
     }
-    assert.equal((await middleware(request('GET', '/en/plugins'))).status, 307);
+    const page = await middleware(request('GET', '/en/plugins'));
+    assert.equal(page.headers.get('x-middleware-next'), '1', 'Page authentication belongs to the actual page guard.');
+    assert.equal(page.headers.get('x-middleware-request-x-canvas-page-return-to'), '/en/plugins');
     assert.equal((await middleware(request('GET', '/api/excalidraw/scenes/doc', undefined, 'preview.app.example.test'))).status, 404);
-    console.log('Excalidraw bearer proxy: exact Create/Get/Edit methods, bounded candidates, adjacent-route denial, cookie-only web policy and preview isolation verified; no session-authority claim.');
+    console.log('Excalidraw bearer proxy: exact Create/Get/Edit methods, bounded candidates, adjacent API denial, page-guard delegation and preview isolation verified; no session-authority claim.');
   } finally {
     if (originalOrigin === undefined) delete process.env.BETTER_AUTH_BASE_URL;
     else process.env.BETTER_AUTH_BASE_URL = originalOrigin;

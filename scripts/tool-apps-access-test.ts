@@ -16,6 +16,7 @@ let chatAllowed = true;
 let jobAllowed = true;
 let seatAllowed = true;
 let activeSession = true;
+let sessionExpiresAt = new Date(Date.now() + 60_000);
 let workspaceAllowed = true;
 const job = { id: app.entityId, deletedAt: null as null | string, name: 'Weekly report', status: 'active', revision: 1,
   schedule: { kind: 'daily', times: ['09:00'], timeZone: 'Europe/Berlin' },
@@ -28,7 +29,7 @@ const db = {
     piSessions: { findFirst: async ({ where }: { where: Parameters<typeof dialect.sqlToQuery>[0] }) => {
       recordQuery(where); return chatAllowed ? { id: 12, workspaceId: 'workspace-1' } : null;
     } },
-    session: { findFirst: async () => activeSession ? {} : null },
+    session: { findFirst: async () => activeSession ? { expiresAt: sessionExpiresAt } : null },
   },
   select: () => ({ from: () => ({ where: (where: Parameters<typeof dialect.sqlToQuery>[0]) => {
     recordQuery(where);
@@ -93,6 +94,8 @@ async function main() {
     jobAllowed = false; assert.equal((await deliver()).status, 404); jobAllowed = true;
     workspaceAllowed = false; assert.equal((await deliver()).status, 404); workspaceAllowed = true;
     activeSession = false; assert.equal((await deliver()).status, 404); activeSession = true;
+    sessionExpiresAt = new Date(Date.now() - 1_000); assert.equal((await deliver()).status, 404);
+    sessionExpiresAt = new Date(Date.now() + 60_000);
     const request = (body: unknown, origin = 'http://localhost:3000') => new Request('http://localhost:3000/api/chat/tool-apps', {
       method: 'POST', headers: { origin, 'content-type': 'application/json' }, body: JSON.stringify(body),
     }) as Parameters<typeof POST>[0];

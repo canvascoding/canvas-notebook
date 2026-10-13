@@ -231,7 +231,7 @@ function getToolNotes(tool: AgentTool, group: PiToolGroup): string[] {
     notes.push('Creates an undo snapshot and returns a diff when it changes a file.');
   }
   if (tool.name === 'edit_excalidraw_scene') {
-    notes.push('Mutates authoritative Excalidraw elements with optimistic version checks; conflicts require human review.');
+    notes.push('Mutates authoritative Excalidraw elements with optimistic version checks. Target conflicts leave changes unapplied; reread the scene before retrying. Human Accept/Reject requires the experimental Review Center, which is disabled by default.');
   }
   if (['create_excalidraw_scene', 'get_excalidraw_scene', 'edit_excalidraw_scene'].includes(tool.name)) {
     notes.push('Requires current access to the workspace bound to the agent session and PostgreSQL. Returns document identity, scene sequence, checkpoint status and a document link.');

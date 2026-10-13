@@ -26,6 +26,19 @@ export function todoScopeForWorkspace(workspace: TodoWorkspaceContext): TodoWork
   };
 }
 
+export function todoMatchesWorkspaceScope(todo: {
+  scopeKind: string;
+  workspaceType: string;
+  workspaceId: string | null;
+  organizationId: string | null;
+}, workspace: TodoWorkspaceContext): boolean {
+  if (todo.workspaceType !== workspace.workspaceType) return false;
+  if (todo.scopeKind === 'user') return todo.workspaceType === 'personal';
+  if (todo.scopeKind !== 'workspace' || todo.workspaceId !== workspace.workspaceId) return false;
+  return todo.workspaceType === 'personal'
+    || (todo.organizationId ?? null) === (workspace.organizationId ?? null);
+}
+
 export function parseTodoScopeKind(value: unknown): TodoScopeKind | null {
   return value === 'user' || value === 'workspace' ? value : null;
 }

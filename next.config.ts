@@ -146,6 +146,7 @@ const nextConfig: NextConfig = {
 
   // Experimental features
   experimental: {
+    globalNotFound: true,
     ...(lowMemoryReleaseBuild ? {
       cpus: 1,
       memoryBasedWorkersCount: true,
