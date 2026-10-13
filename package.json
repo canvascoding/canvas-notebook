@@ -660,6 +660,8 @@
     "test:files:native-side-effect-writer:postgres": "NODE_ENV=test tsx --conditions react-server scripts/workspace-side-effect-writer-fence-postgres-test.ts",
     "test:files:owned-lifecycle-subwrite:postgres": "NODE_ENV=test CANVAS_MCP_DIRECT_ENABLED=false BETTER_AUTH_BASE_URL=https://canvas.test tsx --conditions react-server scripts/workspace-owned-lifecycle-subwrite-postgres-test.ts",
     "test:collaboration:native-session-reader:postgres": "NODE_ENV=test CANVAS_MCP_DIRECT_ENABLED=false BETTER_AUTH_BASE_URL=https://canvas.test tsx --conditions react-server scripts/native-session-state-reader-postgres-test.ts",
+    "test:files:native-archive-snapshot": "NODE_ENV=test CANVAS_MCP_DIRECT_ENABLED=false BETTER_AUTH_BASE_URL=https://canvas.test tsx --conditions react-server --test scripts/archived-native-snapshot-test.ts",
+    "test:files:native-restore:postgres": "NODE_ENV=test CANVAS_MCP_DIRECT_ENABLED=false BETTER_AUTH_BASE_URL=https://canvas.test tsx --conditions react-server scripts/native-file-operation-restore-postgres-test.ts",
     "test:collaboration:native-copy": "tsx --conditions react-server scripts/collaboration-native-copy-postgres-test.ts",
     "test:files:native-links": "tsx --conditions react-server scripts/workspace-native-links-test.ts && tsx --conditions react-server scripts/workspace-native-link-mutations-test.ts",
     "test:collaboration:markdown-projection": "tsx --conditions react-server scripts/markdown-codec-projection-diagnosis-test.ts && tsx --conditions react-server scripts/markdown-control-character-roundtrip-test.ts",
