@@ -695,15 +695,8 @@ async function readDirectMcpTextContent(input: {
   });
   if (!collaboration.crdtCapable || !collaboration.document) return fallback;
 
-  await ensureFileRevisionForCurrentContent({
-    workspace: input.workspace,
-    path: input.path,
-    contentHash: fallback.sha256,
-    sizeBytes: input.buffer.length,
-    actorUserId: input.principal.userId,
-    actorType: 'user',
-    sourceSessionId: input.principal.sessionId,
-  });
+  // The physical projection may lag or be empty. Reading it must never create
+  // a revision of an already authoritative Yjs document.
   await resolveTextCollaborationState({
     document: collaboration.document,
     workspace: input.workspace,

@@ -226,6 +226,7 @@
     "test:mcp:health": "tsx --conditions react-server scripts/mcp-connection-health-test.ts && tsx --conditions react-server scripts/mcp-health-monitor-test.ts",
     "test:mcp:oauth-lifecycle": "tsx --conditions react-server scripts/mcp-oauth-lifecycle-test.ts && tsx --conditions react-server scripts/mcp-manager-auth-test.ts && tsx --conditions react-server scripts/mcp-oauth-registration-test.ts",
     "test:mcp:direct": "tsx --conditions react-server scripts/mcp-direct-tools-test.ts",
+    "test:mcp:authoritative-read-history": "tsx --conditions react-server scripts/mcp-authoritative-read-history-test.ts",
     "test:mcp:icons": "tsx --conditions react-server scripts/mcp-icons-test.ts",
     "test:mcp:storage": "tsx --conditions react-server scripts/mcp-storage-lock-test.ts && tsx --conditions react-server scripts/mcp-secret-store-test.ts && tsx --conditions react-server scripts/mcp-connection-identity-test.ts && tsx --conditions react-server scripts/mcp-credential-migration-test.ts",
     "test:mcp:server-upgrade": "tsx --conditions react-server scripts/mcp-server-oauth-upgrade-test.ts",
