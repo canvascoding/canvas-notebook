@@ -1,0 +1,411 @@
+import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
+import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { parse } from 'dotenv';
+import { Client } from 'pg';
+import { NextRequest } from 'next/server';
+import { serializeSignedCookie } from 'better-call';
+import type { SqlConnection } from '../app/lib/db';
+import type { WorkspaceRequestPrincipal, WorkspaceRequestPrincipalAccess } from '../app/lib/workspaces/request-principal';
+
+const privateEnvironment = '/Users/frankalexanderweber/.local/state/canvas-local-team-seat/notebook-host-dev.env';
+let stage = 'private configuration';
+async function main(): Promise<void> {
+  assert.equal(process.env.NODE_ENV, 'test');
+  assert.notEqual(process.env.CANVAS_LEGACY_EPOCH_TIMESTAMP_UNIT?.trim().toLowerCase(), 'seconds');
+  assert.notEqual(process.env.CANVAS_POSTGRES_VECTOR_ENABLED, 'true');
+  assert.equal((await stat(privateEnvironment)).mode & 0o077, 0);
+  const connectionString = parse(await readFile(privateEnvironment, 'utf8')).DATABASE_URL; assert(connectionString);
+  const url = new URL(connectionString);
+  assert(['postgres:', 'postgresql:'].includes(url.protocol)); assert(['localhost','127.0.0.1'].includes(url.hostname));
+  assert.equal(url.port,'55433'); assert.equal(url.pathname,'/canvas_notebook'); assert.equal(url.search,'');
+  const schema = `request_principal_${crypto.randomUUID().replaceAll('-','')}`;
+  assert.match(schema,/^request_principal_[a-f0-9]{32}$/u);
+  const dataRoot = await mkdtemp(path.join(tmpdir(),'canvas-request-principal-'));
+  const environment = { ...process.env }; const originalFetch = globalThis.fetch;
+  const control = new Client({ connectionString, options:'-c statement_timeout=15000', connectionTimeoutMillis:5000 });
+  const clients = new Set<Client>(); let created = false; let pool: { end:()=>Promise<void> } | undefined;
+  const ownClient = async () => {
+    const client = new Client({ connectionString, connectionTimeoutMillis:5000,
+      options:`-c search_path=${schema},pg_catalog -c statement_timeout=15000 -c lock_timeout=100 -c application_name=request-principal-fixture` });
+    client.on('error',()=>undefined); // transaction_timeout may terminate this owned fixture client.
+    clients.add(client); await client.connect(); return client;
+  };
+  const connection = (client: Client): SqlConnection => ({
+    get: async (sql,values) => (await client.query(sql,values)).rows[0],
+    all: async (sql,values) => (await client.query(sql,values)).rows,
+    run: async (sql,values) => ({ changes:(await client.query(sql,values)).rowCount ?? 0 }),
+    close: () => { throw new Error('Principal must never close caller-owned connection.'); },
+  });
+  const endClient = async (client:Client) => { await client.end(); clients.delete(client); };
+  let cases = 0;
+  try {
+    await control.connect();
+    assert.equal(Math.floor(Number((await control.query("SELECT current_setting('server_version_num') AS version")).rows[0].version)/10000),18);
+    await control.query(`CREATE SCHEMA "${schema}"`); created = true;
+    // Set node-postgres PGOPTIONS BEFORE importing any runtime DB/Auth module.
+    // No public fallback, no public-qualified epoch conversion/extension path.
+    Object.assign(process.env,{ DATABASE_URL:connectionString,PGOPTIONS:`-c search_path=${schema},pg_catalog -c statement_timeout=15000`,
+      CANVAS_DATABASE_PROVIDER:'postgres',DATA:dataRoot,CANVAS_DATA_ROOT:dataRoot,CANVAS_INSTANCE_ID:`fixture-${crypto.randomUUID()}`,
+      BETTER_AUTH_SECRET:crypto.randomBytes(32).toString('hex'),BETTER_AUTH_BASE_URL:'http://localhost',AUTH_COOKIE_SECURE:'false',
+      CANVAS_MCP_DIRECT_ENABLED:'false',CANVAS_ORGANIZATION_ID:'principal-org',CANVAS_DEPLOYMENT_MODE:'team',CANVAS_TEAM_FEATURES_ENABLED:'true',
+      CANVAS_LICENSE_RUNTIME_ENVIRONMENT:'production',CANVAS_LICENSE_CONTROL_PLANE_URL:'https://control.example.test' });
+    delete process.env.BOOTSTRAP_ADMIN_EMAIL; delete process.env.CANVAS_LICENSE_TEST_PUBLIC_KEY;
+    delete process.env.CANVAS_LICENSE_TEST_TRUSTED_PUBLIC_KEY_FINGERPRINTS; delete process.env.NEXT_PHASE;
+    const keys = crypto.generateKeyPairSync('rsa',{ modulusLength:2048 });
+    const fingerprint = crypto.createHash('sha256').update(keys.publicKey.export({ type:'spki',format:'der' })).digest('hex');
+    process.env.CANVAS_LICENSE_PUBLIC_KEY = keys.publicKey.export({ type:'spki',format:'pem' }).toString();
+    process.env.CANVAS_LICENSE_TRUSTED_PUBLIC_KEY_FINGERPRINTS = fingerprint;
+    const seconds = Math.floor(Date.now()/1000);
+    const claims = { protocolVersion:'canvas-team-seat-protocol-v1',licenseId:'principal-license',sub:process.env.CANVAS_INSTANCE_ID,
+      instanceId:process.env.CANVAS_INSTANCE_ID,iss:'canvas-control-plane',aud:'canvas-notebook',plan:'community',status:'active',
+      hostingMode:'community',edition:'team',licenseClass:'commercial',licenseEnvironment:'production',nonBillable:false,
+      seatLimit:2,quotas:{ users:2 },entitlementsVersion:6,iat:seconds-60,exp:seconds+3600 };
+    const header = Buffer.from(JSON.stringify({ alg:'RS256',typ:'JWT',kid:fingerprint.slice(0,16) })).toString('base64url');
+    const body = Buffer.from(JSON.stringify(claims)).toString('base64url');
+    process.env.CANVAS_LICENSE_CERT = `${header}.${body}.${crypto.sign('RSA-SHA256',Buffer.from(`${header}.${body}`),keys.privateKey).toString('base64url')}`;
+    let fetches = 0;
+    globalThis.fetch = async () => { fetches++; throw new Error('No network/issuer is permitted in this isolated fixture.'); };
+    stage = 'actual owned-schema global DDL';
+    const { runPostgresMigrations } = await import('../app/lib/db/postgres');
+    const admin = await ownClient();
+    const own = async (client:Client) => {
+      const row = (await client.query("SELECT current_schema() AS schema,current_setting('search_path') AS path")).rows[0];
+      assert.equal(row.schema,schema); assert.deepEqual(row.path.split(',').map((s:string)=>s.trim()),[schema,'pg_catalog']);
+    };
+    await runPostgresMigrations({ query:async (sql:string,values?:unknown[]) => {
+      await own(admin); const result = await admin.query(sql,values); await own(admin); return result;
+    } } as unknown as Parameters<typeof runPostgresMigrations>[0]);
+    stage = 'real users, memberships and auth sessions';
+    const now = Date.now();
+    await admin.query(`INSERT INTO "user"(id,name,email,email_verified,role,banned,created_at,updated_at)
+      VALUES('owner','Owner','owner@principal.test',1,'admin',0,$1,$1),
+      ('member','Member','member@principal.test',1,'user',0,$1,$1),
+      ('inactive','Inactive','inactive@principal.test',1,'user',0,$1,$1)`,[now]);
+    await admin.query(`INSERT INTO canvas_organization_settings(organization_id,owner_user_id,deployment_mode,team_features_enabled,created_at,updated_at)
+      VALUES('principal-org','owner','team',1,100,100)`);
+    await admin.query(`INSERT INTO organization_user_permissions(organization_id,user_id,role,status,can_write_team_workspace,created_at,updated_at)
+      VALUES('principal-org','owner','owner','active',1,100,100),('principal-org','member','member','active',0,100,100),
+      ('principal-org','inactive','member','disabled',0,100,100)`);
+    await admin.query(`INSERT INTO team_memberships(id,organization_id,candidate_email,user_id,role,status,accepted_at,activated_at,created_at,updated_at)
+      VALUES('owner-seat','principal-org','owner@principal.test','owner','owner','active',100,100,100,100),
+      ('member-seat','principal-org','member@principal.test','member','member','active',100,200,100,100),
+      ('inactive-seat','principal-org','inactive@principal.test','inactive','admin','suspended',100,50,100,100)`);
+    await admin.query(`INSERT INTO team_membership_sync_state(organization_id,created_at,updated_at) VALUES('principal-org',100,100)`);
+    await admin.query(`INSERT INTO canvas_workspaces(id,organization_id,type,display_name,root_relative_path,status,created_at,updated_at)
+      VALUES('org-space','principal-org','organization','Organization','organizations/principal-org/shared','active',100,100)`);
+    for (const userId of ['owner','member','inactive']) {
+      await admin.query(`INSERT INTO canvas_workspaces(id,organization_id,type,owner_user_id,display_name,root_relative_path,status,created_at,updated_at)
+        VALUES($1,'principal-org','personal',$2,$2,$3,'active',100,100)`,[`personal-${userId}`,userId,`users/${userId}/workspace`]);
+    }
+    const tokens:Record<string,string> = {};
+    const seedSession = async (userId='owner') => {
+      const token = crypto.randomBytes(32).toString('hex'); tokens[userId]=token;
+      await admin.query(`INSERT INTO "session"(id,token,user_id,expires_at,created_at,updated_at)
+        VALUES($1,$2,$3,$4,$5,$5) ON CONFLICT(id) DO UPDATE SET token=excluded.token,expires_at=excluded.expires_at`,
+      [`session-${userId}`,token,userId,Date.now()+3600000,now]);
+    };
+    await seedSession(); await seedSession('member');
+    const { getPostgresRuntimeQueryable } = await import('../app/lib/db');
+    const runtime = getPostgresRuntimeQueryable(); assert(runtime); pool = runtime as typeof pool;
+    assert.equal((await runtime.query('SELECT current_schema() AS schema')).rows[0].schema,schema);
+    const { getLicenseStatus } = await import('../app/lib/license');
+    const { verifyLicenseJwtDetailed } = await import('../app/lib/license/jwt');
+    assert.equal((await verifyLicenseJwtDetailed(process.env.CANVAS_LICENSE_CERT!,process.env.CANVAS_INSTANCE_ID!)).ok,true);
+    const license = await getLicenseStatus(); assert.equal(license.licensed,true); assert.equal(license.edition,'team'); assert.equal(license.seatLimit,2);
+    const { auth } = await import('../app/lib/auth');
+    const { withWorkspaceRequestPrincipal: capture,withWorkspaceRequestPrincipalOnConnection: phase } = await import('../app/lib/workspaces/request-principal');
+    const request = async (userId='owner',cookie=false) => {
+      const headers = new Headers({ 'x-canvas-workspace-id':'org-space' });
+      if (cookie) headers.set('cookie',(await serializeSignedCookie('better-auth.session_token',tokens[userId],process.env.BETTER_AUTH_SECRET!)).split(';')[0]);
+      else headers.set('authorization',`Bearer ${tokens[userId]}`);
+      return new NextRequest('http://localhost/api/files/metadata?path=note.md',{ headers });
+    };
+    const transaction = async <T>(operation:(db:SqlConnection,client:Client)=>Promise<T>,begin='BEGIN ISOLATION LEVEL READ COMMITTED READ WRITE') => {
+      const client = await ownClient(); await client.query(begin);
+      try { return await operation(connection(client),client); }
+      finally { await client.query('ROLLBACK').catch(()=>undefined); await endClient(client); }
+    };
+    const check = async (name:string,operation:()=>Promise<void>) => { stage=name; await operation(); cases++; console.log(`Principal fixture passed: ${name}`); };
+    const expected = (code:string) => (error:unknown) => !!error && typeof error==='object' && Reflect.get(error,'code')===code;
+    const captured = async <T>(operation:(principal:WorkspaceRequestPrincipal)=>Promise<T>,userId='owner') => capture(await request(userId),{ permission:'canRead' },operation);
+    await check('actual trusted verifier and BetterAuth cookie/bearer factory',async()=>{
+      for (const cookie of [true,false]) {
+        const actual = await request('owner',cookie);
+        assert.equal((await auth.api.getSession({ headers:actual.headers }))?.session.id,'session-owner');
+        await capture(actual,{ permission:'canWrite' },p=>transaction(db=>phase(db,p,async access=>{
+          assert.equal(access.userId,'owner'); assert.equal(access.sessionId,'session-owner');
+          assert.equal(access.workspace.workspaceId,'org-space'); assert.equal(access.workspace.permissions.canWrite,true);
+          assert(Object.isFrozen(access.workspace)); await access.assertCurrent();
+        })));
+      }
+      assert.equal(fetches,0);
+    });
+    await check('read-only member and genuine forbidden write',async()=>{
+      await captured(p=>transaction(db=>phase(db,p,async access=>assert.equal(access.workspace.permissions.canWrite,false))),'member');
+      await assert.rejects(capture(await request('member'),{ permission:'canWrite' },async()=>assert.fail()),expected('PRINCIPAL_ACCESS_DENIED'));
+    });
+    await check('unauthenticated/API-key/guest strings cannot mint principal',async()=>{
+      const variants:Record<string,string>[]=[{},{ authorization:'Bearer guest:invitation' },{ authorization:'Bearer arbitrary-api-key' }];
+      for(const headers of variants)
+        await assert.rejects(capture(new NextRequest('http://localhost/api/files/metadata',{ headers }),{ permission:'canRead' },async()=>assert.fail()),expected('PRINCIPAL_AUTH_REVOKED'));
+    });
+    await check('request headers and selectors snapshot before await',async()=>{
+      const actual=await request(); const options:{ permission:'canRead'|'canWrite';workspaceId?:string }={permission:'canRead',workspaceId:'org-space'};
+      const pending=capture(actual,options,p=>transaction(db=>phase(db,p,async access=>assert.equal(access.userId,'owner'))));
+      actual.headers.set('authorization','Bearer forged');actual.headers.set('x-canvas-workspace-id','foreign');options.permission='canWrite';options.workspaceId='foreign';
+      await pending;
+    });
+    await check('forged and retained principal/access',async()=>{
+      await transaction(db=>assert.rejects(phase(db,{} as WorkspaceRequestPrincipal,async()=>assert.fail()),expected('PRINCIPAL_REQUIRED')));
+      let retained!:WorkspaceRequestPrincipal; let access!:WorkspaceRequestPrincipalAccess;
+      await captured(async p=>{ retained=p; await transaction(db=>phase(db,p,async current=>{access=current;})); });
+      await transaction(db=>assert.rejects(phase(db,retained,async()=>assert.fail()),expected('PRINCIPAL_REQUIRED')));
+      await assert.rejects(access.assertCurrent(),expected('PRINCIPAL_REQUIRED'));
+    });
+    await check('caught invalid DB/operation inputs poison genuine principal',async()=>{
+      for(const invalid of [null,{},'not-a-connection']) await assert.rejects(captured(async p=>{
+        await assert.rejects(phase(invalid as unknown as SqlConnection,p,async()=>assert.fail()),expected('PRINCIPAL_INVALID'));
+      }),expected('PRINCIPAL_INVALID'));
+      await assert.rejects(captured(p=>transaction(async db=>{
+        await assert.rejects(phase(db,p,null as unknown as ()=>Promise<void>),expected('PRINCIPAL_INVALID'));
+      })),expected('PRINCIPAL_INVALID'));
+    });
+    for (const [name,sql,restore,code] of [
+      ['session token CAS',"UPDATE session SET token='replaced' WHERE id='session-owner'",null,'PRINCIPAL_AUTH_REVOKED'],
+      ['expired session',"UPDATE session SET expires_at=1 WHERE id='session-owner'",null,'PRINCIPAL_AUTH_REVOKED'],
+      ['revoked session',"DELETE FROM session WHERE id='session-owner'",null,'PRINCIPAL_AUTH_REVOKED'],
+      ['banned remains banned despite past ban expiry',"UPDATE \"user\" SET banned=1,ban_expires=1 WHERE id='owner'","UPDATE \"user\" SET banned=0,ban_expires=NULL WHERE id='owner'",'SEAT_ACCESS_INACTIVE'],
+      ['disabled permission',"UPDATE organization_user_permissions SET status='disabled' WHERE user_id='owner'","UPDATE organization_user_permissions SET status='active' WHERE user_id='owner'",'SEAT_MEMBERSHIP_REQUIRED'],
+      ['seat rank/activation changed',"UPDATE team_memberships SET status='active' WHERE id='inactive-seat'; UPDATE organization_user_permissions SET status='active' WHERE user_id='inactive'","UPDATE team_memberships SET status='suspended' WHERE id='inactive-seat'; UPDATE organization_user_permissions SET status='disabled' WHERE user_id='inactive'",'SEAT_LIMIT_EXCEEDED'],
+    ] as const) {
+      await check(name,async()=>{
+        const actor=name==='seat rank/activation changed'?'member':'owner';
+        try { await assert.rejects(captured(async p=>{await admin.query(sql); await transaction(db=>phase(db,p,async()=>assert.fail('No callback after revocation.')));},actor),expected(code)); }
+        finally { if(restore) await admin.query(restore); await seedSession(actor); }
+      });
+    }
+    await check('changed workspace after request capture',async()=>{
+      try { await assert.rejects(captured(async p=>{await admin.query("UPDATE canvas_workspaces SET root_relative_path='changed' WHERE id='org-space'"); await transaction(db=>phase(db,p,async()=>assert.fail()));}),expected('PRINCIPAL_SCOPE_CHANGED')); }
+      finally { await admin.query("UPDATE canvas_workspaces SET root_relative_path='organizations/principal-org/shared' WHERE id='org-space'"); }
+    });
+    await check('raw unknown type/status and owner drift cannot normalize into grant',async()=>{
+      for(const [field,value,original] of [['type','unknown','organization'],['status','unknown','active'],['owner_user_id','member',null]] as const){
+        try{await assert.rejects(captured(async p=>{await admin.query(`UPDATE canvas_workspaces SET ${field}=$1 WHERE id='org-space'`,[value]);
+          await transaction(db=>phase(db,p,async()=>assert.fail()));}),expected('PRINCIPAL_SCOPE_CHANGED'));}
+        finally{await admin.query(`UPDATE canvas_workspaces SET ${field}=$1 WHERE id='org-space'`,[original]);}
+      }
+    });
+    await check('same caller TX raw status drift rejects final revalidation',async()=>{
+      await assert.rejects(captured(p=>transaction(db=>phase(db,p,async()=>{await db.run("UPDATE canvas_workspaces SET status='unknown' WHERE id='org-space'");}))),expected('PRINCIPAL_SCOPE_CHANGED'));
+      assert.equal((await admin.query("SELECT status FROM canvas_workspaces WHERE id='org-space'")).rows[0].status,'active');
+    });
+    await check('RC/RW requirement and autocommit XID rejection',async()=>{
+      for (const begin of ['BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY','BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY'])
+        await assert.rejects(captured(p=>transaction(db=>phase(db,p,async()=>assert.fail()),begin)),expected('PRINCIPAL_SCOPE_CHANGED'));
+      await assert.rejects(captured(async p=>{const c=await ownClient(); try{await phase(connection(c),p,async()=>assert.fail());}finally{await endClient(c);}}),expected('PRINCIPAL_SCOPE_CHANGED'));
+    });
+    await check('current XID/searchpath and shadow relation changes reject',async()=>{
+      for (const sql of ['COMMIT; BEGIN ISOLATION LEVEL READ COMMITTED READ WRITE',`SET LOCAL search_path=${schema}`, 'CREATE TEMP TABLE "session"(id text)'])
+        await assert.rejects(captured(p=>transaction(db=>phase(db,p,async access=>{await db.run(sql); await access.assertCurrent();}))),
+          expected(sql.startsWith('CREATE')?'PRINCIPAL_SCHEMA_INVALID':'PRINCIPAL_SCOPE_CHANGED'));
+    });
+    await check('same wrapper cannot change backend or captured schema',async()=>{
+      await assert.rejects(captured(p=>transaction(async(db,client)=>{
+        const peer=await ownClient();await peer.query('BEGIN'); let active=client;
+        const wrapper:SqlConnection={get:async(sql,args)=>(await active.query(sql,args)).rows[0],all:async(sql,args)=>(await active.query(sql,args)).rows,
+          run:async(sql,args)=>({changes:(await active.query(sql,args)).rowCount??0}),close:()=>assert.fail()};
+        try{await phase(wrapper,p,async access=>{active=peer;await access.assertCurrent();});}
+        finally{await peer.query('ROLLBACK');await endClient(peer);}
+      })),expected('PRINCIPAL_SCOPE_CHANGED'));
+      await assert.rejects(captured(p=>transaction(async(db)=>{await db.run('SET LOCAL search_path=pg_catalog');await phase(db,p,async()=>assert.fail());})),expected('PRINCIPAL_SCOPE_CHANGED'));
+    });
+    await check('final expiry response cannot hide changed backend',async()=>{
+      await assert.rejects(captured(p=>transaction(async(_db,client)=>{
+        const peer=await ownClient();await peer.query('BEGIN');let active=client,armed=false;
+        const wrapper:SqlConnection={get:async(sql,args)=>{const row=(await active.query(sql,args)).rows[0];
+          if(armed && sql.startsWith('SELECT expires_at')) active=peer;return row;},
+        all:async(sql,args)=>(await active.query(sql,args)).rows,run:async(sql,args)=>({changes:(await active.query(sql,args)).rowCount??0}),close:()=>assert.fail()};
+        try{await phase(wrapper,p,async()=>{armed=true;});}finally{await peer.query('ROLLBACK');await endClient(peer);}
+      })),expected('PRINCIPAL_SCOPE_CHANGED'));
+    });
+    await check('fresh locked role follows DB, not the captured session user',async()=>{
+      try{await captured(async p=>{await admin.query("UPDATE \"user\" SET role='admin' WHERE id='member'");
+        await transaction(db=>phase(db,p,async access=>assert.equal(access.workspace.permissions.canWrite,true)));},'member');}
+      finally{await admin.query("UPDATE \"user\" SET role='user' WHERE id='member'");}
+    });
+    await check('simultaneous and detached phase poison actual callback',async()=>{
+      await assert.rejects(captured(p=>transaction(async db=>{
+        const first=phase(db,p,async()=>undefined); const second=phase(db,p,async()=>assert.fail());
+        await Promise.allSettled([first,second]);
+      })),expected('PRINCIPAL_REENTRANT'));
+      await assert.rejects(captured(async p=>{const c=await ownClient(); await c.query('BEGIN');
+        void phase(connection(c),p,async()=>undefined).catch(()=>undefined);}),expected('PRINCIPAL_DETACHED'));
+      // Only the fixture owns and releases the detached caller transaction.
+      for(const c of [...clients]) if(c!==admin){await c.query('ROLLBACK');await endClient(c);}
+    });
+    await check('caught forged principal and retained assertion poison real current DB phase',async()=>{
+      await assert.rejects(captured(p=>transaction(db=>phase(db,p,async()=>{
+        await assert.rejects(phase(db,{} as WorkspaceRequestPrincipal,async()=>assert.fail()),expected('PRINCIPAL_REQUIRED'));
+      }))),expected('PRINCIPAL_REQUIRED'));
+      await assert.rejects(captured(p=>transaction(async db=>{
+        let retained!:WorkspaceRequestPrincipalAccess;
+        await phase(db,p,async access=>{retained=access;});
+        await phase(db,p,async()=>{await assert.rejects(retained.assertCurrent(),expected('PRINCIPAL_REQUIRED'));});
+      })),expected('PRINCIPAL_REQUIRED'));
+    });
+    await check('FK parent NO KEY UPDATE is insufficient, FOR UPDATE blocks insert',async()=>{
+      for (const mode of ['NO KEY UPDATE','UPDATE']) await transaction(async(_db,held)=>{
+        await held.query(`SELECT organization_id FROM canvas_organization_settings WHERE organization_id='principal-org' FOR ${mode}`);
+        const peer=await ownClient(); try{
+          await peer.query('BEGIN'); const insert=peer.query("INSERT INTO team_memberships(id,organization_id,candidate_email,status,created_at,updated_at) VALUES('phantom','principal-org','phantom@principal.test','invited',100,100)");
+          if(mode==='UPDATE') await assert.rejects(insert,expected('55P03')); else await insert;
+        } finally { await peer.query('ROLLBACK'); await endClient(peer); }
+      });
+    });
+    await check('parent-only fence permits existing child activation',async()=>transaction(async(_db,held)=>{
+      await held.query("SELECT organization_id FROM canvas_organization_settings WHERE organization_id='principal-org' FOR UPDATE");
+      const peer=await ownClient(); try{await peer.query('BEGIN');await peer.query("UPDATE team_memberships SET status='active' WHERE id='inactive-seat'");}
+      finally{await peer.query('ROLLBACK');await endClient(peer);}
+    }));
+    await check('ROW SHARE permits trigger DDL, ROW EXCLUSIVE prevents it',async()=>{
+      for(const mode of ['ROW SHARE','ROW EXCLUSIVE']) await transaction(async(_db,held)=>{
+        await held.query(`LOCK TABLE organization_user_permissions IN ${mode} MODE`);
+        const peer=await ownClient();try{await peer.query('BEGIN');const altered=peer.query('ALTER TABLE organization_user_permissions DISABLE TRIGGER ALL');
+          if(mode==='ROW SHARE') await altered; else await assert.rejects(altered,expected('55P03'));}
+        finally{await peer.query('ROLLBACK');await endClient(peer);}
+      });
+    });
+    await check('full foundation blocks new and existing predicate/ACL/session writes',async()=>{
+      const writes=[
+        "INSERT INTO team_memberships(id,organization_id,candidate_email,status,created_at,updated_at) VALUES('phantom','principal-org','phantom@principal.test','invited',100,100)",
+        "UPDATE team_memberships SET status='active' WHERE id='inactive-seat'",
+        "UPDATE team_memberships SET activated_at=1 WHERE id='member-seat'",
+        "UPDATE organization_user_permissions SET status='active' WHERE user_id='inactive'",
+        "UPDATE \"user\" SET banned=1 WHERE id='inactive'",
+        "UPDATE session SET token='new-token' WHERE id='session-owner'",
+        "UPDATE team_membership_sync_state SET reconciliation_seat_limit=1 WHERE organization_id='principal-org'",
+        "INSERT INTO canvas_organization_settings(organization_id,owner_user_id,deployment_mode,team_features_enabled,created_at,updated_at) VALUES('new-first','owner','team',1,1,1)",
+        "UPDATE canvas_workspaces SET status='archived' WHERE id='org-space'",
+        'ALTER TABLE organization_user_permissions DISABLE TRIGGER ALL',
+      ];
+      await captured(p=>transaction(db=>phase(db,p,async access=>{
+        for(const sql of writes){const peer=await ownClient();try{await peer.query('BEGIN');await assert.rejects(peer.query(sql),expected('55P03'));}
+          finally{await peer.query('ROLLBACK');await endClient(peer);}}
+        await access.assertCurrent();
+      })));
+      // The full caller ROLLBACK releases every lock.
+      await admin.query("UPDATE team_memberships SET activated_at=200 WHERE id='member-seat'");
+    });
+    await check('absent permission FK and all organization/sync predicate',async()=>{
+      await admin.query("INSERT INTO \"user\"(id,name,email,email_verified,role,banned,created_at,updated_at) VALUES('absent','Absent','absent@principal.test',1,'user',0,100,100)");
+      await admin.query("INSERT INTO canvas_organization_settings(organization_id,owner_user_id,deployment_mode,team_features_enabled,created_at,updated_at) VALUES('second','owner','team',1,200,200)");
+      await captured(p=>transaction(db=>phase(db,p,async()=>{
+        for(const sql of ["INSERT INTO organization_user_permissions(organization_id,user_id,created_at,updated_at) VALUES('principal-org','absent',100,100)",
+          "INSERT INTO team_membership_sync_state(organization_id,created_at,updated_at) VALUES('second',100,100)"]){
+          const peer=await ownClient();try{await peer.query('BEGIN');await assert.rejects(peer.query(sql),expected('55P03'));}
+          finally{await peer.query('ROLLBACK');await endClient(peer);}
+        }
+      })));
+      await admin.query("DELETE FROM canvas_organization_settings WHERE organization_id='second'");
+    });
+    await check('unsafe/deferred/unenforced FK fails closed',async()=>{
+      const fk=(await admin.query(`SELECT conname FROM pg_constraint WHERE conrelid='organization_user_permissions'::regclass
+        AND confrelid='canvas_organization_settings'::regclass AND contype='f'`)).rows[0].conname;
+      assert.match(fk,/^[a-z_]+$/u);
+      for(const mode of ['DEFERRABLE','NOT VALID','TRIGGER']) {
+        try {
+          if(mode==='DEFERRABLE') await admin.query(`ALTER TABLE organization_user_permissions ALTER CONSTRAINT "${fk}" DEFERRABLE INITIALLY IMMEDIATE`);
+          if(mode==='NOT VALID') {await admin.query(`ALTER TABLE organization_user_permissions DROP CONSTRAINT "${fk}"`);
+            await admin.query(`ALTER TABLE organization_user_permissions ADD CONSTRAINT "${fk}" FOREIGN KEY(organization_id) REFERENCES canvas_organization_settings(organization_id) NOT VALID`);}
+          if(mode==='TRIGGER') await admin.query('ALTER TABLE organization_user_permissions DISABLE TRIGGER ALL');
+          await assert.rejects(captured(p=>transaction(db=>phase(db,p,async()=>assert.fail()))),expected('PRINCIPAL_SCHEMA_INVALID'));
+        } finally {
+          await admin.query(`ALTER TABLE organization_user_permissions ALTER CONSTRAINT "${fk}" NOT DEFERRABLE`);
+          await admin.query(`ALTER TABLE organization_user_permissions VALIDATE CONSTRAINT "${fk}"`);
+          await admin.query('ALTER TABLE organization_user_permissions ENABLE TRIGGER ALL');
+        }
+      }
+    });
+    await check('ambiguous earliest organization and 16 organization bound',async()=>{
+      try {
+        await admin.query("INSERT INTO canvas_organization_settings(organization_id,owner_user_id,deployment_mode,team_features_enabled,created_at,updated_at) VALUES('tie','owner','team',1,100,100)");
+        await assert.rejects(captured(p=>transaction(db=>phase(db,p,async()=>assert.fail()))),expected('PRINCIPAL_SCOPE_CHANGED'));
+        await admin.query("DELETE FROM canvas_organization_settings WHERE organization_id='tie'");
+        await admin.query("INSERT INTO canvas_organization_settings(organization_id,owner_user_id,deployment_mode,team_features_enabled,created_at,updated_at) SELECT 'bounded-'||i,'owner','team',1,100+i,100 FROM generate_series(1,16) i");
+        await assert.rejects(captured(p=>transaction(db=>phase(db,p,async()=>assert.fail()))),expected('PRINCIPAL_TOO_LARGE'));
+      } finally {await admin.query("DELETE FROM canvas_organization_settings WHERE organization_id='tie' OR organization_id LIKE 'bounded-%'");}
+    });
+    await check('earliest synchronized organization ties independently fail',async()=>{
+      try{
+        await admin.query("INSERT INTO canvas_organization_settings(organization_id,owner_user_id,deployment_mode,team_features_enabled,created_at,updated_at) VALUES('sync-a','owner','team',1,200,100),('sync-b','owner','team',1,200,100)");
+        await admin.query("DELETE FROM team_membership_sync_state WHERE organization_id='principal-org'; INSERT INTO team_membership_sync_state(organization_id,created_at,updated_at) VALUES('sync-a',100,100),('sync-b',100,100)");
+        await assert.rejects(captured(p=>transaction(db=>phase(db,p,async()=>assert.fail()))),expected('PRINCIPAL_SCOPE_CHANGED'));
+      }finally{await admin.query("DELETE FROM canvas_organization_settings WHERE organization_id IN('sync-a','sync-b'); INSERT INTO team_membership_sync_state(organization_id,created_at,updated_at) VALUES('principal-org',100,100)");}
+    });
+    await check('all pending rows count toward 1024 member bound',async()=>{
+      try{
+        await admin.query("INSERT INTO team_memberships(id,organization_id,candidate_email,status,created_at,updated_at) SELECT 'bounded-'||i,'principal-org','bounded-'||i||'@principal.test','invited',100,100 FROM generate_series(1,1022) i");
+        await assert.rejects(captured(p=>transaction(db=>phase(db,p,async()=>assert.fail()))),expected('PRINCIPAL_TOO_LARGE'));
+      } finally {await admin.query("DELETE FROM team_memberships WHERE id LIKE 'bounded-%'");}
+    });
+    await check('permission/reference budget counts inactive nonmembers',async()=>{
+      try{
+        await admin.query("INSERT INTO \"user\"(id,name,email,email_verified,role,banned,created_at,updated_at) SELECT 'bounded-'||i,'Bounded','bounded-'||i||'@principal.test',1,'user',0,100,100 FROM generate_series(1,1022) i");
+        await admin.query("INSERT INTO organization_user_permissions(organization_id,user_id,status,created_at,updated_at) SELECT 'principal-org','bounded-'||i,'disabled',100,100 FROM generate_series(1,1022) i");
+        await assert.rejects(captured(p=>transaction(db=>phase(db,p,async()=>assert.fail()))),expected('PRINCIPAL_TOO_LARGE'));
+      }finally{await admin.query("DELETE FROM organization_user_permissions WHERE user_id LIKE 'bounded-%'; DELETE FROM \"user\" WHERE id LIKE 'bounded-%'");}
+    });
+    await check('concurrent and unawaited assert poison phase',async()=>{
+      await assert.rejects(captured(p=>transaction(db=>phase(db,p,async access=>{await Promise.allSettled([access.assertCurrent(),access.assertCurrent()]);}))),expected('PRINCIPAL_REENTRANT'));
+      await assert.rejects(captured(p=>transaction(db=>phase(db,p,async access=>{void access.assertCurrent().catch(()=>undefined);}))),expected('PRINCIPAL_DETACHED'));
+    });
+    await check('phase entry freshness and running SQL lifetime bounded',async()=>{
+      await assert.rejects(captured(async p=>{await new Promise(resolve=>setTimeout(resolve,5050));await transaction(db=>phase(db,p,async()=>assert.fail()));}),expected('PRINCIPAL_EXPIRED'));
+      await assert.rejects(captured(p=>transaction(db=>phase(db,p,async()=>{await new Promise(resolve=>setTimeout(resolve,5050));}))),expected('PRINCIPAL_EXPIRED'));
+      await admin.query("UPDATE session SET updated_at=updated_at WHERE id='session-owner'");
+    });
+    await check('sequential fresh RC/RW phases and callback throw revocation',async()=>{
+      await captured(async p=>{for(let i=0;i<2;i++) await transaction(db=>phase(db,p,async access=>{await access.assertCurrent();}));});
+      let old!:WorkspaceRequestPrincipal;
+      await assert.rejects(captured(async p=>{old=p;throw new Error('Deliberate callback failure.');}),/Deliberate callback/u);
+      await transaction(db=>assert.rejects(phase(db,old,async()=>assert.fail()),expected('PRINCIPAL_REQUIRED')));
+    });
+    await check('undefined/null callback failures cannot erase poison',async()=>{
+      for(const thrown of [undefined,null]) {
+        await assert.rejects(captured(async()=>{throw thrown;}),expected('PRINCIPAL_INVALID'));
+        await assert.rejects(captured(async p=>{
+          await transaction(async db=>{await assert.rejects(phase(db,p,async()=>{throw thrown;}),expected('PRINCIPAL_INVALID'));});
+        }),expected('PRINCIPAL_INVALID'));
+      }
+    });
+    await check('genuine trusted Solo owner and unauthorized member',async()=>{
+      const soloBody=Buffer.from(JSON.stringify({...claims,edition:'solo',seatLimit:1,quotas:{users:1},entitlementsVersion:7})).toString('base64url');
+      process.env.CANVAS_LICENSE_CERT=`${header}.${soloBody}.${crypto.sign('RSA-SHA256',Buffer.from(`${header}.${soloBody}`),keys.privateKey).toString('base64url')}`;
+      assert.equal((await verifyLicenseJwtDetailed(process.env.CANVAS_LICENSE_CERT,process.env.CANVAS_INSTANCE_ID!)).ok,true);
+      const solo=await getLicenseStatus();assert.equal(solo.licensed,true);assert.equal(solo.edition,'solo');assert.equal(solo.seatLimit,1);
+      await captured(p=>transaction(db=>phase(db,p,async access=>assert.equal(access.userId,'owner'))));
+      await assert.rejects(captured(async()=>assert.fail(),'member'),expected('PRINCIPAL_AUTH_REVOKED'));
+    });
+    assert.equal(fetches,0);
+    console.log(`Workspace Request Principal PostgreSQL18: ${cases} genuine Cookie/Bearer/Team, scope, lifetime, revocation, predicate-lock and bounds matrix families passed; no API activation.`);
+  } finally {
+    globalThis.fetch=originalFetch;
+    try { if(pool) await pool.end(); }
+    finally {
+      try { for(const client of clients) await client.end(); }
+      finally {
+        try { if(created){await control.query(`DROP SCHEMA "${schema}" CASCADE`);assert.equal((await control.query('SELECT to_regnamespace($1) IS NULL AS removed',[schema])).rows[0].removed,true);} }
+        finally {await control.end();await rm(dataRoot,{ recursive:true,force:true });
+          for(const key of Object.keys(process.env)) if(!(key in environment)) delete process.env[key];Object.assign(process.env,environment);}
+      }
+    }
+  }
+}
+main().catch(error=>{
+  console.error('Owned Request Principal fixture failed:',{ stage,name:error instanceof Error?error.name:'unknown',
+    code:error && typeof error==='object'?Reflect.get(error,'code')??null:null,
+    }); process.exitCode=1;
+});
