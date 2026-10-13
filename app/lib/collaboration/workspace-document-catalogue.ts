@@ -24,6 +24,7 @@ export type WorkspaceDocumentCatalogueEntry = {
 };
 
 export class WorkspaceDocumentCatalogueError extends Error {
+  readonly status = 409;
   constructor(readonly code: 'identity-conflict' | 'orphan-state', readonly documentId: string, readonly path: string) {
     super(`The workspace document catalogue is unsafe: ${code}.`);
     this.name = 'WorkspaceDocumentCatalogueError';

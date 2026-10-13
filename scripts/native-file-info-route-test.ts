@@ -12,7 +12,7 @@ import { installCollaborationDocumentReader } from '../app/lib/collaboration/doc
 import { withNativeWorkspaceFileRead } from '../app/lib/collaboration/workspace-native-file-read';
 import { Y } from '../app/lib/collaboration/server-runtime';
 import type { PersistedCollaborationState } from '../app/lib/collaboration/persistence';
-import type { WorkspaceDocumentCatalogueEntry } from '../app/lib/collaboration/workspace-document-catalogue';
+import { WorkspaceDocumentCatalogueError, type WorkspaceDocumentCatalogueEntry } from '../app/lib/collaboration/workspace-document-catalogue';
 import type { WorkspaceContext } from '../app/lib/workspaces/types';
 import type { FileNode } from '../app/lib/files/types';
 import type * as InfoRoute from '../app/api/files/info/route';
@@ -35,7 +35,8 @@ async function harness() {
     canonicalHash: null, serializedHash: null, newlineStyle: 'lf', hasBom: false, degraded: false, status: 'active' };
   doc.destroy();
   const controls = { state: state as PersistedCollaborationState | null, authority: 'initialized' as WorkspaceDocumentCatalogueEntry['authority'],
-    cataloguePath: state.path, path: state.path, denied: false, unregistered: false, workspace };
+    cataloguePath: state.path, path: state.path, denied: false, unregistered: false, workspace,
+    catalogueFailure: null as WorkspaceDocumentCatalogueError | null };
   const calls = { diskStats: 0, states: 0, fences: 0, enrichment: 0, active: false, commands: [] as string[] };
   const filename = path.resolve('app/api/files/info/route.ts'), require = createRequire(filename);
   const javascript = ts.transpileModule(await readFile(filename, 'utf8'), { compilerOptions: {
@@ -66,10 +67,13 @@ async function harness() {
             if (sql === 'COMMIT' || sql === 'ROLLBACK') calls.active = false;
           }, get: async sql => { assert(calls.active); assert(sql.includes('pg_advisory_xact_lock_shared')); return undefined; },
           all: async () => [], close: async () => { assert.equal(calls.active, false); } }),
-          readCatalogue: async (_db, _workspace, options) => controls.unregistered || !options?.paths?.some(scope =>
-            controls.cataloguePath === scope || controls.cataloguePath.startsWith(`${scope}/`)) ? [] : [{
-              id: state.documentId, path: controls.cataloguePath, lifecycle_generation: 1, authority: controls.authority,
-            } as WorkspaceDocumentCatalogueEntry],
+          readCatalogue: async (_db, _workspace, options) => {
+            if (controls.catalogueFailure) throw controls.catalogueFailure;
+            return controls.unregistered || !options?.paths?.some(scope =>
+              controls.cataloguePath === scope || controls.cataloguePath.startsWith(`${scope}/`)) ? [] : [{
+                id: state.documentId, path: controls.cataloguePath, lifecycle_generation: 1, authority: controls.authority,
+              } as WorkspaceDocumentCatalogueEntry];
+          },
           loadState: async () => { assert(calls.active); calls.states++; return controls.state; },
         });
       },
@@ -117,12 +121,16 @@ test('pending live edits omit the older durable modification time', async () => 
   } finally { uninstall(); live.destroy(); }
 });
 
-test('lost initialized state and foreign identity stay conflicts without old physical metadata', async () => {
-  for (const kind of ['missing', 'foreign'] as const) {
+test('lost initialized state, foreign identity and typed catalogue failures stay conflicts without old physical metadata', async () => {
+  for (const kind of ['missing', 'foreign', 'catalogue-identity', 'catalogue-orphan'] as const) {
     const h = await harness();
     if (kind === 'missing') { h.controls.authority = 'missing-state'; h.controls.state = null; }
-    else h.controls.state!.organizationId = 'foreign-organization';
-    assert.equal((await h.info()).status, 409); assert.equal(h.calls.diskStats + h.calls.enrichment, 0);
+    else if (kind === 'foreign') h.controls.state!.organizationId = 'foreign-organization';
+    else h.controls.catalogueFailure = new WorkspaceDocumentCatalogueError(
+      kind === 'catalogue-identity' ? 'identity-conflict' : 'orphan-state', 'private-foreign-document', 'private-foreign.md');
+    const response = await h.info();
+    assert.equal(response.status, 409); assert.equal(h.calls.diskStats + h.calls.enrichment, 0);
+    assert.doesNotMatch(await response.text(), /private-foreign/u);
     assert.equal(h.calls.commands.at(-1), 'ROLLBACK');
   }
 });
