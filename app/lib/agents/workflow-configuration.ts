@@ -28,6 +28,11 @@ import { listRawAgentCapabilityBindings, replaceAgentCapabilityBindings, type Ag
 import { auditAgentAction, validateSpecialAgentTools, resolveCapabilityBindings, type AgentManagementActor } from './management-actions';
 import { normalizeAgentIconId } from './icons';
 import { EMAIL_MANAGED_AGENT_ID } from './storage';
+import { parseStoredAgentWorkflowHeader } from './workflow-version';
+import { assertStoredAgentExtensionBindingsMatchHeader } from '@/app/lib/capabilities/extensions/stored-binding-dispatch';
+import { isStandaloneExtensionSlotRef } from '@/app/lib/capabilities/extensions/standalone-reference';
+import { standaloneExtensionSelectionSchema } from '@/app/lib/capabilities/extensions/contracts';
+import { parseStoredStandaloneExtensionBinding } from '@/app/lib/capabilities/extensions/stored-contracts';
 import { resolveRetainedAgentWorkflowTarget, type AgentWorkflowBindingSlot } from './workflow-binding-retention';
 import { AgentWorkflowError, parseAgentWorkflowConfiguration, parseStoredAgentWorkflowTarget, agentWorkflowCapabilityKey,
   agentWorkflowTargetSchema, type AgentWorkflowPackageConfiguration, type AgentWorkflowDescriptor, type AgentWorkflowInternalSnapshot,
@@ -72,14 +77,18 @@ export async function holdAgentGrantAuthority(database: SqlConnection, actor: Ag
 export async function readManagedAgentWorkflowOnConnection(database: SqlConnection, agentId: string): Promise<AgentWorkflowInternalSnapshot> {
   const agent = await readAgentProfileOnConnection(database, agentId);
   if (!agent) fail('AGENT_NOT_FOUND', 'Agent not found.', 404);
-  const version = agent.workflowVersion, workflowRevision = revision(agent.workflowRevision ?? 0);
-  if (version !== null && version !== undefined && version !== 1) fail('AGENT_WORKFLOW_CORRUPT', 'The stored workflow version is unavailable.');
-  const bindings = await listRawAgentCapabilityBindings(agent.agentId, database);
-  if (version == null && bindings.some(binding => binding.configuration !== null)
-    || version === 1 && (workflowRevision < 1 || bindings.some(binding => binding.resourceType !== 'connection' && binding.configuration === null))) {
-    fail('AGENT_WORKFLOW_CORRUPT', 'The stored workflow header and package bindings do not match.');
+  const row = await database.get('SELECT workflow_version,workflow_revision FROM agents WHERE agent_id=$1', [agent.agentId]) as
+    { workflow_version?: unknown; workflow_revision?: unknown } | undefined;
+  let header: ReturnType<typeof parseStoredAgentWorkflowHeader>;
+  try { header = parseStoredAgentWorkflowHeader(row?.workflow_version, row?.workflow_revision); }
+  catch { return fail('AGENT_WORKFLOW_CORRUPT', 'The stored workflow header cannot be verified.'); }
+  const { workflowVersion: version, workflowRevision } = header;
+  if (agent.workflowVersion !== version || agent.workflowRevision !== workflowRevision) {
+    fail('AGENT_WORKFLOW_REVISION_CONFLICT', 'The agent workflow changed while it was read.');
   }
-  return { agent, workflowVersion: version === 1 ? 1 : null, workflowRevision, bindings, preferenceRevision: 0, choices: {}, access: { canUse: false, canEdit: false, canManage: false } };
+  const bindings = await listRawAgentCapabilityBindings(agent.agentId, database);
+  assertStoredAgentExtensionBindingsMatchHeader(version, bindings);
+  return { agent, workflowVersion: version, workflowRevision, bindings, preferenceRevision: 0, choices: {}, access: { canUse: false, canEdit: false, canManage: false } };
 }
 
 function preferenceSnapshot(row: Record<string, unknown> | undefined): { revision: number; json: Record<string, unknown>; choices: Record<string, AgentWorkflowChoice> } {
@@ -93,8 +102,9 @@ function preferenceSnapshot(row: Record<string, unknown> | undefined): { revisio
   const choices = json.workflowChoices === undefined ? {} : json.workflowChoices;
   if (!choices || typeof choices !== 'object' || Array.isArray(choices) || Object.keys(choices).length > 4_096) fail('AGENT_WORKFLOW_CORRUPT', 'Stored workflow choices are unavailable.');
   for (const [key, value] of Object.entries(choices)) {
-    if (!/^agent-capability:[A-Za-z0-9_-]{43}$/u.test(key) || !value || typeof value !== 'object' || Array.isArray(value)
-      || Object.keys(value).some(field => !['workflowRevision', 'choiceId', 'personalTarget', 'alternativeKey'].includes(field))) {
+    const standalone = isStandaloneExtensionSlotRef(key);
+    if (!standalone && !/^agent-capability:[A-Za-z0-9_-]{43}$/u.test(key) || !value || typeof value !== 'object' || Array.isArray(value)
+      || Object.keys(value).some(field => !['workflowRevision', 'choiceId', 'personalTarget', 'alternativeKey', ...(standalone ? ['standaloneSelection'] : [])].includes(field))) {
       fail('AGENT_WORKFLOW_CORRUPT', 'Stored workflow choices are unavailable.');
     }
     const choice = value as AgentWorkflowChoice;
@@ -102,9 +112,20 @@ function preferenceSnapshot(row: Record<string, unknown> | undefined): { revisio
     if (choice.choiceId !== undefined && (typeof choice.choiceId !== 'string' || !choice.choiceId || choice.choiceId.length > 256 || choice.choiceId !== choice.choiceId.trim() || /[\u0000-\u001f\u007f]/u.test(choice.choiceId))
       || choice.personalTarget && choice.choiceId !== undefined || choice.personalTarget && choice.personalTarget.kind !== 'personal') fail('AGENT_WORKFLOW_CORRUPT', 'Stored workflow choices are unavailable.');
     if (choice.personalTarget) {
-      choice.personalTarget = parseStoredAgentWorkflowTarget(choice.personalTarget);
-      if (typeof choice.alternativeKey !== 'string' || choice.alternativeKey.length > 256) fail('AGENT_WORKFLOW_CORRUPT', 'Stored workflow choices are unavailable.');
-    } else if (choice.choiceId === undefined || choice.alternativeKey !== undefined) fail('AGENT_WORKFLOW_CORRUPT', 'Stored workflow choices are unavailable.');
+      if (standalone) {
+        const selection = standaloneExtensionSelectionSchema.safeParse(choice.standaloneSelection);
+        if (!selection.success || selection.data.target.kind !== 'personal' || choice.alternativeKey !== undefined) {
+          fail('AGENT_WORKFLOW_CORRUPT', 'Stored standalone choices are unavailable.');
+        }
+        const bound = parseStoredStandaloneExtensionBinding({ version: 1, kind: 'standalone', configurationId: 'stored-preference', mode: 'fixed',
+          entry: { selection: selection.data, target: choice.personalTarget, requirement: 'optional', toolCap: null } });
+        if (bound.mode !== 'fixed') fail('AGENT_WORKFLOW_CORRUPT', 'Stored standalone choices are unavailable.');
+        choice.personalTarget = bound.entry.target; choice.standaloneSelection = selection.data;
+      } else {
+        choice.personalTarget = parseStoredAgentWorkflowTarget(choice.personalTarget);
+        if (typeof choice.alternativeKey !== 'string' || choice.alternativeKey.length > 256) fail('AGENT_WORKFLOW_CORRUPT', 'Stored workflow choices are unavailable.');
+      }
+    } else if (choice.choiceId === undefined || choice.alternativeKey !== undefined || choice.standaloneSelection !== undefined) fail('AGENT_WORKFLOW_CORRUPT', 'Stored workflow choices are unavailable.');
   }
   return { revision: currentRevision, json, choices: choices as Record<string, AgentWorkflowChoice> };
 }
@@ -333,6 +354,9 @@ export async function updateManagedAgentConfiguration(input: UpdateManagedAgentC
     const verified = await resolveVerifiedAgentActorContextOnConnection(captured.actor, preflight);
     actor = { ...captured.actor, organizationId: verified.context.organizationId, workspaceId: verified.context.workspaceId, projectId: verified.context.projectId };
     before = await readManagedAgentWorkflowOnConnection(preflight, captured.agentId);
+    if (changesWorkflow && before.workflowVersion === 2) {
+      fail('AGENT_EXTENSION_CONFIGURATION_REQUIRED', 'Update the complete extension configuration to preserve its standalone selections.');
+    }
     if (changesWorkflow && before.agent.agentId === EMAIL_MANAGED_AGENT_ID && !['owner', 'admin'].includes(verified.organizationRole ?? '')) {
       fail('AGENT_ORGANIZATION_ADMIN_REQUIRED', 'Organization administration is required to configure the email agent.', 403);
     }

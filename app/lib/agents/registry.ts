@@ -1,4 +1,5 @@
 import 'server-only';
+import { isExplicitAgentWorkflowVersion, type AgentWorkflowVersion } from './workflow-version';
 
 import { and, asc, eq, sql } from 'drizzle-orm';
 
@@ -536,7 +537,7 @@ export async function updateAgentProfile(input: {
   organizationId?: string | null;
   ownerUserId?: string | null;
   expectedRevision?: number;
-  workflowVersion?: 1 | null;
+  workflowVersion?: AgentWorkflowVersion;
   workflowRevision?: number;
   expectedWorkflowRevision?: number;
 }, connection?: SqlConnection): Promise<AgentProfile> {
@@ -552,7 +553,7 @@ export async function updateAgentProfile(input: {
     throw new AgentWorkflowError('AGENT_WORKFLOW_REVISION_CONFLICT', 'The workflow configuration changed. Reload it before saving.', 409);
   }
   if (input.workflowRevision !== undefined && (!Number.isSafeInteger(input.workflowRevision) || input.workflowRevision < 0)
-    || input.workflowVersion !== undefined && input.workflowVersion !== null && input.workflowVersion !== 1) throw new Error('The workflow header is invalid.');
+    || input.workflowVersion !== undefined && input.workflowVersion !== null && !isExplicitAgentWorkflowVersion(input.workflowVersion)) throw new Error('The workflow header is invalid.');
 
   const nextName = input.name === undefined || input.name === null ? existing.name : input.name.trim();
   if (!nextName) {

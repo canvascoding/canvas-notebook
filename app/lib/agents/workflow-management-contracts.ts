@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { AgentWorkflowConfiguration } from './workflow-contracts';
 import type { WorkflowDeclaration } from '@/app/lib/capabilities/workflow-contracts';
 import type { AgentWorkflowPersonalOptions } from './workflow-personal-options';
+import type { AgentWorkflowVersion } from './workflow-version';
 
 const id = z.string().min(1).max(256).refine(value => value === value.trim() && !/[\u0000-\u001f\u007f]/u.test(value));
 const uuid = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
@@ -37,7 +38,7 @@ export type AgentWorkflowManagementBindingSummary = {
 export type AgentWorkflowManagement = AgentWorkflowManagementHeader & {
   view: 'management'; access: { canUse: boolean; canEdit: boolean; canManage: boolean };
   profile: { agentId: string; name: string; iconId: string | null; scopeType: 'user' | 'organization' | 'system'; enabledTools: string[] | null };
-  workflowVersion: 1 | null; configurationState: 'legacy' | 'available' | 'blocked';
+  workflowVersion: AgentWorkflowVersion; configurationState: 'legacy' | 'available' | 'blocked';
   configuration: AgentWorkflowConfiguration | null; unavailablePackageCount: number; unavailableConnectionCount: number;
   bindingSummaries?: AgentWorkflowManagementBindingSummary[];
 };

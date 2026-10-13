@@ -1,8 +1,10 @@
 import 'server-only';
 
 import type { AgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
-import { getAuthorizedAgentWorkflowPackageSelections, isAuthorizedAgentWorkflowPackageSelections } from '@/app/lib/capabilities/packages/runtime-bindings';
-import { IntegrationContractError, type IntegrationExecutionContext, type IntegrationPolicy, type IntegrationProviderToolRule } from '@/app/lib/integration-tools/contracts';
+import { getAuthorizedAgentWorkflowPackageSelections, isAuthorizedAgentWorkflowPackageSelections,
+  type AuthorizedAgentWorkflowPackageSelections } from '@/app/lib/capabilities/packages/runtime-bindings';
+import { IntegrationContractError, type IntegrationExecutionContext, type IntegrationPolicy,
+  type IntegrationProviderDescriptor, type IntegrationProviderToolRule } from '@/app/lib/integration-tools/contracts';
 import { authorizeIntegrationConnection } from '@/app/lib/integration-tools/connections/store';
 import { createSharedIntegrationProviderRef, findSharedIntegrationConnectionAuthorization } from '@/app/lib/integration-tools/connections/provider-authorization';
 import { createSharedIntegrationPolicyDescriptor } from '@/app/lib/integration-tools/connections/provider-policy';
@@ -16,12 +18,17 @@ import { getSelectedAgentWorkflowCapability } from './workflow-configuration';
 import { agentWorkflowRuntimeActor, getRuntimeAgentWorkflowMode } from './workflow-runtime-mode';
 import { agentWorkflowCapabilityKey, type StoredAgentWorkflowTarget } from './workflow-contracts';
 import type { WorkflowIntegrationAlternative } from '@/app/lib/capabilities/workflow-contracts';
+import { resolveAgentStandaloneRuntimeProviders, type AgentStandaloneRuntimeSelection } from '@/app/lib/capabilities/extensions/standalone-runtime';
 
 const OPERATIONS = ['list_providers', 'search_providers', 'list_tools', 'search_tools', 'describe', 'call'] as const;
 type RequiredProviderTools = { source: 'mcp' | 'composio'; providerRef: string; names: readonly string[] };
-export type AgentWorkflowRuntimeProjection = Readonly<{ policy: IntegrationPolicy; revision: string }>;
+type RequiredProvider = { source: 'mcp' | 'composio'; providerRef: string };
+export type AgentWorkflowRuntimeProjection = Readonly<{ policy: IntegrationPolicy; revision: string;
+  selectedProviders: readonly IntegrationProviderDescriptor[];
+  standaloneSelections: readonly AgentStandaloneRuntimeSelection[]; unavailable: boolean }>;
 type ProjectionProof = { actorKey: string; prepared: readonly PreparedPersonalWorkflowProviderTarget[];
-  requiredTools: readonly RequiredProviderTools[]; associations: readonly WorkflowProviderAssociation[]; unavailable: boolean };
+  requiredTools: readonly RequiredProviderTools[]; requiredProviders: readonly RequiredProvider[];
+  associations: readonly WorkflowProviderAssociation[]; unavailable: boolean };
 const host = globalThis as typeof globalThis & { __canvasAgentWorkflowRuntimeV1?: WeakMap<object, ProjectionProof> };
 const projections = host.__canvasAgentWorkflowRuntimeV1 ??= new WeakMap<object, ProjectionProof>();
 
@@ -48,19 +55,25 @@ function exactAlternative(alternative: WorkflowIntegrationAlternative, target: S
 }
 
 /** Compile only current, private instance bindings. This performs no provider or tool discovery. */
-export async function resolveAgentWorkflowRuntimeProjection(context: AgentExecutionContext): Promise<AgentWorkflowRuntimeProjection | null> {
+export async function resolveAgentWorkflowRuntimeProjection(context: AgentExecutionContext,
+  options: { packageSelection?: AuthorizedAgentWorkflowPackageSelections } = {}): Promise<AgentWorkflowRuntimeProjection | null> {
+  if (options.packageSelection && !isAuthorizedAgentWorkflowPackageSelections(options.packageSelection, context)) return deny();
   if (await getRuntimeAgentWorkflowMode(context) === null) return null;
   const actor = agentWorkflowRuntimeActor(context);
-  const selection = await getAuthorizedAgentWorkflowPackageSelections(context);
+  const selection = options.packageSelection ?? await getAuthorizedAgentWorkflowPackageSelections(context);
   if (!isAuthorizedAgentWorkflowPackageSelections(selection, context)) return deny();
   if (selection.workflowVersion === null) return null;
   const chosen = selection.packages.flatMap(pkg => pkg.declarations.flatMap(declaration => declaration.capabilities.map(capability => ({
     pkg, declaration, capability, chosen: getSelectedAgentWorkflowCapability(selection.snapshot, pkg, declaration, capability),
   }))));
   let unavailable = chosen.some(entry => entry.capability.required && !entry.chosen);
+  const standalone = await resolveAgentStandaloneRuntimeProviders(context, selection, { skipProviderResolution: unavailable });
+  unavailable ||= standalone.unavailable;
   const rules = new Map<string, IntegrationProviderToolRule>();
+  const descriptors = new Map<string, IntegrationProviderDescriptor>();
   const prepared: PreparedPersonalWorkflowProviderTarget[] = [];
   const requirements = new Map<string, RequiredProviderTools>();
+  const requiredProviders = new Map<string, RequiredProvider>();
   const associations = new Map<string, WorkflowProviderAssociation>();
   const authorityRevisions: unknown[] = [];
   // A missing mandatory selection closes the complete workflow before any provider inspection.
@@ -71,6 +84,8 @@ export async function resolveAgentWorkflowRuntimeProjection(context: AgentExecut
     try {
       if (!alternative || !exactAlternative(alternative, target)) return deny();
       let providerRef: string, permitted: readonly string[] | null = toolCap;
+      const metadataContext: IntegrationExecutionContext = { actorUserId: actor.userId, organizationId: context.organizationId,
+        workspaceId: context.workspaceId, agentId: context.agentId, sessionId: context.sessionId, policyRevision: 'agent-workflow-selection' };
       if (target.kind === 'shared') {
         const authorization = await authorizeIntegrationConnection({ userId: actor.userId, organizationId: actor.organizationId,
           workspaceId: actor.workspaceId, agentId: context.agentId, sessionId: context.sessionId, policyRevision: 'agent-workflow-selection' },
@@ -91,6 +106,7 @@ export async function resolveAgentWorkflowRuntimeProjection(context: AgentExecut
           }
         }
         providerRef = createSharedIntegrationProviderRef(authorization.resource);
+        descriptors.set(providerRef, await createSharedIntegrationPolicyDescriptor(metadataContext, authorization));
         permitted = intersectTools(toolCap, authorization.allowedToolNames);
         authorityRevisions.push([providerRef, authorization.authorizationRevision]);
       } else {
@@ -101,6 +117,10 @@ export async function resolveAgentWorkflowRuntimeProjection(context: AgentExecut
           baseProviderRef: target.providerRef, boundProviderRef: target.boundProviderRef, bindingFingerprint: target.bindingFingerprint } }, { checkProviderReadiness: false });
         const actual = getPreparedPersonalWorkflowProviderTarget(proof);
         providerRef = actual.boundProviderRef; prepared.push(proof);
+        attachPersonalWorkflowProviderTargets(metadataContext, [proof]);
+        const descriptor = getAttachedPersonalWorkflowProviderDescriptor(metadataContext, providerRef);
+        if (!descriptor) return deny();
+        descriptors.set(providerRef, descriptor);
         authorityRevisions.push([providerRef, actual.bindingFingerprint]);
       }
       const previous = rules.get(providerRef);
@@ -124,14 +144,34 @@ export async function resolveAgentWorkflowRuntimeProjection(context: AgentExecut
       if (entry.capability.required) { unavailable = true; break; }
     }
   }
+  if (!unavailable) for (const provider of standalone.providers) {
+    const { descriptor, toolCap, selected } = provider;
+    const previous = rules.get(descriptor.providerRef);
+    if (previous && previous.source !== descriptor.source) return deny();
+    const names = previous ? unionTools(previous.allowedToolNames, toolCap) : toolCap;
+    rules.set(descriptor.providerRef, { source: descriptor.source, providerRef: descriptor.providerRef,
+      allowedToolNames: names, allowedOperations: names?.length === 0 ? OPERATIONS.filter(operation => operation !== 'call') : [...OPERATIONS] });
+    descriptors.set(descriptor.providerRef, descriptor);
+    if (provider.personalProof) prepared.push(provider.personalProof);
+    authorityRevisions.push([descriptor.providerRef, provider.authorityRevision, selected.slotRef]);
+    if (selected.required) requiredProviders.set(descriptor.providerRef, { source: descriptor.source, providerRef: descriptor.providerRef });
+    const associated = associations.get(descriptor.providerRef);
+    associations.set(descriptor.providerRef, { providerRef: descriptor.providerRef,
+      aliases: [...new Set([...(associated?.aliases ?? []), ...(descriptor.aliases ?? []), ...(descriptor.application ? [descriptor.application] : [])])],
+      pluginRefs: [...(associated?.pluginRefs ?? [])], skillRefs: [...(associated?.skillRefs ?? [])],
+      capabilityRefs: [...new Set([...(associated?.capabilityRefs ?? []), selected.slotRef])] });
+  }
   const matrix = unavailable ? [] : [...rules.values()].sort((left, right) => left.providerRef.localeCompare(right.providerRef));
   const policy: IntegrationPolicy = { allowedSources: null, allowedProviderRefs: null, allowedApplications: null,
     allowedToolNames: null, allowedOperations: null, providerToolRules: matrix };
   const projection = freeze({ policy, revision: schemaFingerprint({ agentRevision: selection.snapshot.agent.revision,
     workflowRevision: selection.workflowRevision, preferenceRevision: selection.snapshot.preferenceRevision,
-    choices: selection.snapshot.choices, packages: selection.fingerprint, authorityRevisions, unavailable, policy }) });
+    choices: selection.snapshot.choices, packages: selection.fingerprint, authorityRevisions,
+    standaloneSelections: standalone.selections, unavailable, policy }),
+    selectedProviders: unavailable ? [] : [...descriptors.values()], standaloneSelections: standalone.selections, unavailable });
   projections.set(projection, { actorKey: actorKey(context), prepared: unavailable ? [] : prepared,
-    requiredTools: unavailable ? [] : [...requirements.values()], associations: unavailable ? [] : [...associations.values()], unavailable });
+    requiredTools: unavailable ? [] : [...requirements.values()], requiredProviders: unavailable ? [] : [...requiredProviders.values()],
+    associations: unavailable ? [] : [...associations.values()], unavailable });
   return projection;
 }
 
@@ -150,6 +190,20 @@ export async function assertAgentWorkflowRuntimeReady(input: { context: Integrat
   if (!input.projection) return;
   const proof = projections.get(input.projection);
   if (!proof || proof.actorKey !== actorKey(input.context) || proof.unavailable) return deny();
+  for (const requirement of proof.requiredProviders) {
+    input.signal?.throwIfAborted();
+    let descriptor: IntegrationProviderDescriptor | null;
+    if (requirement.providerRef.includes(':shared:')) {
+      const authorization = await findSharedIntegrationConnectionAuthorization(input.context, requirement.providerRef, 'inspect');
+      if (!authorization?.access.canUse) return deny();
+      descriptor = await createSharedIntegrationPolicyDescriptor(input.context, authorization);
+    } else descriptor = getAttachedPersonalWorkflowProviderDescriptor(input.context, requirement.providerRef);
+    if (!descriptor || !isIntegrationProviderVisible(input.context, input.policy, descriptor)) return deny();
+    const adapter = requirement.source === 'mcp' ? (await import('@/app/lib/integration-tools/adapters/mcp-runtime')).mcpIntegrationToolAdapter
+      : (await import('@/app/lib/integration-tools/adapters/composio-runtime')).composioIntegrationToolAdapter;
+    const provider = await adapter.resolveProvider(input.context, requirement.providerRef);
+    if (!provider.provider.canExecute || !isIntegrationProviderVisible(input.context, input.policy, provider.provider)) return deny();
+  }
   for (const requirement of proof.requiredTools) {
     input.signal?.throwIfAborted();
     if (!isIntegrationProviderOperationAllowed(input.policy, requirement.source, requirement.providerRef, 'call')) return deny();

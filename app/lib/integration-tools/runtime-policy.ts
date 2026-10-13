@@ -4,6 +4,7 @@ import { and, eq, isNull } from 'drizzle-orm';
 import { resolveAgentRuntimeSettings } from '@/app/lib/agents/effective-runtime-config';
 import type { AgentWorkflowRuntimeProjection } from '@/app/lib/agents/workflow-runtime';
 import { getRuntimeAgentWorkflowMode } from '@/app/lib/agents/workflow-runtime-mode';
+import { isExplicitAgentWorkflowVersion } from '@/app/lib/agents/workflow-version';
 import { db } from '@/app/lib/db';
 import { piDelegations, piSessions } from '@/app/lib/db/schema';
 import type { AgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
@@ -99,7 +100,7 @@ export async function resolveIntegrationRuntimePolicy(input: {
       const settings = await resolveAgentRuntimeSettings(executionContext.agentId);
       if (settings.agentId !== executionContext.agentId) throw new Error('The selected agent changed.');
       agentRevision = settings.agent.revision;
-      if (await getRuntimeAgentWorkflowMode(executionContext) === 1) {
+      if (isExplicitAgentWorkflowVersion(await getRuntimeAgentWorkflowMode(executionContext))) {
         const { resolveAgentWorkflowRuntimeProjection } = await import('@/app/lib/agents/workflow-runtime');
         workflowProjection = await resolveAgentWorkflowRuntimeProjection(executionContext);
       }
@@ -120,7 +121,7 @@ export async function resolveIntegrationRuntimePolicy(input: {
     } catch {
       throw new IntegrationContractError('provider_denied', 'The current agent integration permissions could not be verified. Reload its tools.');
     }
-  } else if (await getRuntimeAgentWorkflowMode(executionContext) === 1) {
+  } else if (isExplicitAgentWorkflowVersion(await getRuntimeAgentWorkflowMode(executionContext))) {
     // Planning and inbox construction never inspect provider accounts or tools.
     workflowPolicy = { allowedSources: null, allowedProviderRefs: null, allowedApplications: null,
       allowedToolNames: null, allowedOperations: null, providerToolRules: [] };

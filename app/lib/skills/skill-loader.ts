@@ -18,6 +18,7 @@ import {
   getAllKnownSkillNames,
   loadEnabledPluginSkills,
   listCanvasPlugins,
+  isManifestDeclaredPluginRootSkill,
 } from '@/app/lib/plugins/canvas-plugin-registry';
 import { readCanvasSkillRegistry } from './canvas-skill-store';
 import { adoptLegacyStandaloneSkillsForScope } from '@/app/lib/skills/legacy-skill-adoption';
@@ -174,7 +175,7 @@ export async function loadSkillsFromDisk(
       for (const record of plugin.skills) {
         const skillPath = path.resolve(record.path || path.join(record.directory, 'SKILL.md'));
         if (!skillPath.startsWith(`${path.resolve(plugin.installDir)}${path.sep}`)) continue;
-        const skill = await parseSkillFile(skillPath);
+        const skill = await parseSkillFile(skillPath, { validateDirectoryName: !isManifestDeclaredPluginRootSkill(plugin, skillPath) });
         if (!skill || skill.name !== record.name) continue;
         skill.plugin = { name: plugin.name, version: plugin.version, displayName: plugin.interface?.displayName,
           skillAssetPath: path.relative(plugin.installDir, skill.directory) };

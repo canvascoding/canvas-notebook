@@ -25,6 +25,7 @@ import {
   listCanvasPlugins,
   getCanvasPlugin,
   readCanvasPluginRegistry,
+  isManifestDeclaredPluginRootSkill,
   type CanvasPluginInstallRecord,
   type CanvasPluginStorageScope,
 } from '@/app/lib/plugins/canvas-plugin-registry';
@@ -227,7 +228,9 @@ async function pluginSkillCandidates(
   const parent = await pluginCandidate(plugin, scopeType, context, true, actor, verified);
   for (const record of plugin.skills) {
     const skillPath = record.path || path.join(record.directory, 'SKILL.md');
-    const skill = parent.runtimePath ? await parseSkillFile(skillPath).catch(() => null) : null;
+    const skill = parent.runtimePath ? await parseSkillFile(skillPath, {
+      validateDirectoryName: !isManifestDeclaredPluginRootSkill(plugin, skillPath),
+    }).catch(() => null) : null;
     if (!skill && parent.runtimePath) continue;
     const name = skill?.name ?? record.name;
     const checksum = skill ? await computeCanvasPluginChecksum(skill.directory).catch(() => plugin.checksum) : plugin.checksum;

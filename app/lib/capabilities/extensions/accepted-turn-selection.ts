@@ -1,0 +1,161 @@
+import 'server-only';
+
+import { createHash } from 'node:crypto';
+import { z } from 'zod';
+import type { AgentManagementActor } from '@/app/lib/agents/management-actions';
+import { AgentWorkflowError } from '@/app/lib/agents/workflow-contracts';
+import type { AgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
+import {
+  chatExtensionSelectionInputSchema,
+  chatExtensionSelectionSchema,
+  EXTENSION_SELECTION_LIMITS,
+  type ChatExtensionSelection,
+} from './contracts';
+import {
+  copyBoundedJson,
+  freeze,
+  parseStoredStandaloneExtensionBinding,
+  storedStandaloneExtensionBindingSchema,
+  type StoredStandaloneExtensionBinding,
+} from './stored-contracts';
+import {
+  getPreparedStandaloneExtensionBinding,
+  prepareStandaloneExtensionSelection,
+  revalidatePreparedStandaloneExtensionSelection,
+  type PreparedStandaloneExtensionSelection,
+} from './standalone-preparation';
+
+type FixedBinding = Extract<StoredStandaloneExtensionBinding, { mode: 'fixed' }>;
+const fixedBindingSchema = storedStandaloneExtensionBindingSchema.transform((binding, context): FixedBinding => {
+  if (binding.mode !== 'fixed') {
+    context.addIssue({ code: 'custom', message: 'Accepted turns contain exact fixed connections only.' });
+    return z.NEVER;
+  }
+  return binding;
+});
+const durableSchema = z.object({
+  version: z.literal(1),
+  kind: z.literal('accepted_turn_extension_selection'),
+  publicSelection: chatExtensionSelectionSchema,
+  privateFixedBindings: z.array(fixedBindingSchema).max(EXTENSION_SELECTION_LIMITS.turn),
+}).strict().superRefine((value, context) => {
+  const standalone = value.publicSelection.selections.filter(entry => entry.selection.kind === 'mcp' || entry.selection.kind === 'composio');
+  if (standalone.length !== value.privateFixedBindings.length) {
+    context.addIssue({ code: 'custom', message: 'Every standalone identity requires exactly one private fixed binding.' });
+    return;
+  }
+  standalone.forEach((entry, index) => {
+    const bound = value.privateFixedBindings[index].entry;
+    if (JSON.stringify(entry.selection) !== JSON.stringify(bound.selection) || entry.requirement !== bound.requirement
+      || JSON.stringify(entry.toolCap) !== JSON.stringify(bound.toolCap)) {
+      context.addIssue({ code: 'custom', message: 'The public identity, requirement and cap must match the private binding exactly.' });
+    }
+  });
+});
+
+/** Strict durable syntax only. Deserializing this DTO does not issue authority. */
+export const storedAcceptedTurnExtensionSelectionSchema = z.preprocess((value, context) => {
+  try {
+    return copyBoundedJson(value);
+  } catch {
+    context.addIssue({ code: 'custom', message: 'A bounded private JSON turn selection is required.' });
+    return z.NEVER;
+  }
+}, durableSchema).transform(value => freeze(value));
+export type StoredAcceptedTurnExtensionSelection = z.infer<typeof storedAcceptedTurnExtensionSelectionSchema>;
+
+export type AcceptedTurnExtensionSelection = Readonly<{
+  kind: 'accepted_turn_extension_selection';
+  fingerprint: string;
+}>;
+type AcceptedRecord = {
+  actorKey: string;
+  publicNamespace: string;
+  data: StoredAcceptedTurnExtensionSelection;
+};
+const host = globalThis as typeof globalThis & {
+  __canvasAcceptedTurnExtensionSelectionsV1?: WeakMap<object, AcceptedRecord>;
+};
+const records = host.__canvasAcceptedTurnExtensionSelectionsV1 ??= new WeakMap<object, AcceptedRecord>();
+
+function actorKey(context: AgentExecutionContext): string {
+  if (!context.userId?.trim() || !context.sessionId?.trim() || !context.workspaceId?.trim()) {
+    throw new AgentWorkflowError('AGENT_EXTENSION_CONTEXT_DENIED', 'A current authenticated agent turn is required.', 403);
+  }
+  return JSON.stringify([context.userId, context.sessionId, context.agentTurnId ?? null, context.agentId,
+    context.organizationId, context.workspaceId, context.workspaceType, context.workspaceRoot, context.workspaceRootRelativePath,
+    context.projectId, context.customerId, context.canWrite, context.canDelete, context.canShare, context.legacy,
+    context.turnExtensions ?? null]);
+}
+
+export function parseStoredAcceptedTurnExtensionSelection(value: unknown): StoredAcceptedTurnExtensionSelection {
+  const parsed = storedAcceptedTurnExtensionSelectionSchema.safeParse(value);
+  if (!parsed.success) {
+    throw new AgentWorkflowError('AGENT_TURN_SELECTION_CORRUPT', 'The stored exact turn selection is invalid.', 409);
+  }
+  return parsed.data;
+}
+
+function selectedFixedBinding(proof: PreparedStandaloneExtensionSelection, actor: AgentManagementActor): FixedBinding {
+  const binding = parseStoredStandaloneExtensionBinding(getPreparedStandaloneExtensionBinding(proof, actor));
+  if (binding.mode !== 'fixed' || binding.entry.target.kind === 'personal' && binding.entry.target.ownerUserId !== actor.userId) {
+    throw new AgentWorkflowError('AGENT_EXTENSION_CONTEXT_DENIED', 'The selected connection does not match the current actor.', 403);
+  }
+  return binding;
+}
+
+/**
+ * Consume short-lived intake receipts through the real current source services,
+ * then issue receipt-free exact intent. This saves nothing and grants no tools.
+ * Package pins and fixed-agent masks still require their runtime authorization.
+ */
+export async function prepareAcceptedTurnExtensionSelection(contextInput: AgentExecutionContext,
+  value: unknown): Promise<AcceptedTurnExtensionSelection> {
+  let input: z.infer<typeof chatExtensionSelectionInputSchema>;
+  try {
+    input = chatExtensionSelectionInputSchema.parse(copyBoundedJson(value));
+  } catch {
+    throw new AgentWorkflowError('AGENT_TURN_SELECTION_INVALID', 'A bounded exact turn selection is required.', 400);
+  }
+  const context = structuredClone(contextInput);
+  const namespace = actorKey(context);
+  const actor: AgentManagementActor = Object.freeze({ userId: context.userId, source: 'system', sourceAgentId: context.agentId,
+    sessionId: context.sessionId, organizationId: context.organizationId, workspaceId: context.workspaceId, projectId: context.projectId });
+  const prepared: PreparedStandaloneExtensionSelection[] = [];
+  for (const entry of input.selections) {
+    if (entry.selection.kind === 'mcp' || entry.selection.kind === 'composio') {
+      prepared.push(await prepareStandaloneExtensionSelection(actor, entry));
+    }
+  }
+  // Recheck the complete batch after preparation; an earlier source may have
+  // changed while a later explicit account receipt was being consumed.
+  for (const proof of prepared) await revalidatePreparedStandaloneExtensionSelection(proof, actor);
+  if (actorKey(contextInput) !== namespace) {
+    throw new AgentWorkflowError('AGENT_EXTENSION_CONTEXT_DENIED', 'The agent turn changed during selection acceptance.', 403);
+  }
+  const publicSelection: ChatExtensionSelection = chatExtensionSelectionSchema.parse({ version: 1, origin: 'turn_reference',
+    selections: input.selections.map(entry => ({ selection: entry.selection, requirement: entry.requirement, toolCap: entry.toolCap })) });
+  const data = parseStoredAcceptedTurnExtensionSelection({ version: 1, kind: 'accepted_turn_extension_selection', publicSelection,
+    privateFixedBindings: prepared.map(proof => selectedFixedBinding(proof, actor)) });
+  const publicNamespace = JSON.stringify(data.publicSelection);
+  const fingerprint = createHash('sha256').update(JSON.stringify([namespace, publicNamespace, data.privateFixedBindings])).digest('hex');
+  const handle = Object.freeze({ kind: 'accepted_turn_extension_selection' as const, fingerprint });
+  records.set(handle, { actorKey: namespace, publicNamespace, data });
+  return handle;
+}
+
+/**
+ * Server-only accepted metadata, without expiry on the accepted identity itself.
+ * Clones/foreign scopes fail. This does not revalidate or authorize execution.
+ * Queue/history rehydration must independently verify the fresh actor, package
+ * pins and exact stored source targets before issuing any new runtime proof;
+ * never refresh an intake receipt or replace an account with a default choice.
+ */
+export function readAcceptedTurnExtensionSelection(handle: AcceptedTurnExtensionSelection,
+  context: AgentExecutionContext): StoredAcceptedTurnExtensionSelection {
+  const record = handle && typeof handle === 'object' ? records.get(handle) : undefined;
+  if (!record || record.actorKey !== actorKey(context) || record.publicNamespace !== JSON.stringify(record.data.publicSelection)) {
+    throw new AgentWorkflowError('AGENT_EXTENSION_CONTEXT_DENIED', 'The accepted turn selection does not match this context.', 403);
+  }
+  return record.data;
+}

@@ -4,6 +4,8 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 
 import type { WorkspaceType } from '@/app/lib/workspaces/types';
 import type { HeldCapabilityPackageRuntimeBinding } from '@/app/lib/capabilities/packages/runtime-bindings';
+import type { ChatExtensionSelection } from '@/app/lib/capabilities/extensions/contracts';
+import type { HeldEffectiveExtensionContext } from '@/app/lib/capabilities/extensions/effective-context';
 
 export type AgentExecutionContext = {
   userId: string;
@@ -23,6 +25,10 @@ export type AgentExecutionContext = {
   skillReadRoots?: readonly string[];
   /** Private server-issued package receipts; serialized clones cannot authorize roots. */
   skillPackageBindings?: readonly HeldCapabilityPackageRuntimeBinding[];
+  /** Accepted receipt-free turn intent. Fresh resource checks and issued root proofs remain required. */
+  turnExtensions?: ChatExtensionSelection;
+  /** Opaque issued metadata handle; private snapshots/targets are never enumerable context fields. */
+  effectiveExtensions?: HeldEffectiveExtensionContext;
   canWrite: boolean;
   canDelete: boolean;
   canShare: boolean;

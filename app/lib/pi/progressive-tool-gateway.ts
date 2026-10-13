@@ -316,6 +316,7 @@ export const PROGRESSIVE_GATEWAY_DEFINITIONS: readonly ProgressiveGatewayDefinit
     label: 'Managing Canvas extensions',
     description: 'On-demand gateway for Canvas plugins and complete skill packages. Use search, describe, then call. Existing personal workspace drafts remain available. Managed packages use private full-package drafts and immutable publication with current resource edit rights, independent grants and revisions; distinct forks require target-scope authority.',
     operations: [
+      'search_canvas_extensions',
       'list_canvas_package_store',
       'inspect_canvas_package_presentation',
       'inspect_canvas_package_store_offering',

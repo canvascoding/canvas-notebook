@@ -6,6 +6,7 @@ import { isProgressiveGatewayTool, withAllowedProgressiveGatewayOperations } fro
  * Whitelist approach: new tools are blocked by default until explicitly added here.
  */
 export const PLANNING_MODE_ALLOWED_TOOLS = new Set([
+  'search_canvas_extensions',
   'list_canvas_package_store',
   'inspect_canvas_package_presentation',
   'inspect_canvas_package_store_install_options',

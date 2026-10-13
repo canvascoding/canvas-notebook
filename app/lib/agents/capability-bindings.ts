@@ -4,6 +4,10 @@ import { randomUUID } from 'node:crypto';
 
 import { openDb, type SqlConnection } from '@/app/lib/db';
 import { AgentWorkflowError, parseStoredAgentWorkflowPackage, type StoredAgentWorkflowPackage, type AgentWorkflowStoredBinding } from './workflow-contracts';
+import { assertStoredAgentExtensionBindingsMatchHeader, decodeStoredAgentExtensionBinding } from '@/app/lib/capabilities/extensions/stored-binding-dispatch';
+import { parseStoredAgentWorkflowHeader } from './workflow-version';
+import { parseStoredPackageExtensionBinding, type StoredPackageExtensionBinding } from '@/app/lib/capabilities/extensions/stored-package-contracts';
+import { parseStoredStandaloneExtensionBinding, type StoredStandaloneExtensionBinding } from '@/app/lib/capabilities/extensions/stored-contracts';
 export type AgentCapabilityBindingInput = {
   resourceType: 'skill' | 'plugin' | 'connection';
   scopeType: 'system' | 'organization' | 'user';
@@ -13,6 +17,8 @@ export type AgentCapabilityBindingInput = {
   requirement?: 'optional' | 'required';
   /** Private server-only configuration, intentionally absent from public binding DTOs. */
   configuration?: StoredAgentWorkflowPackage | null;
+  /** Exact V2 aggregate row. Public requests cannot directly populate this private field. */
+  extensionConfiguration?: StoredPackageExtensionBinding | StoredStandaloneExtensionBinding;
 };
 
 export type AgentCapabilityBinding = {
@@ -119,7 +125,14 @@ export async function replaceAgentCapabilityBindings(
     const now = Date.now();
     for (let index = 0; index < normalized.length; index++) {
       const binding = normalized[index];
-      const configuration = inputs[index].configuration == null ? null : parseStoredAgentWorkflowPackage(inputs[index].configuration);
+      const input = inputs[index];
+      if (input.configuration != null && input.extensionConfiguration !== undefined) {
+        throw new AgentWorkflowError('AGENT_WORKFLOW_CORRUPT', 'A binding cannot carry two private formats.', 409);
+      }
+      const configuration = input.extensionConfiguration === undefined
+        ? input.configuration == null ? null : parseStoredAgentWorkflowPackage(input.configuration)
+        : binding.resourceType === 'connection' ? parseStoredStandaloneExtensionBinding(input.extensionConfiguration)
+          : parseStoredPackageExtensionBinding(input.extensionConfiguration);
       await database.run(
         `INSERT INTO agent_capability_bindings (
           id, agent_id, resource_type, scope_type, resource_id, name,
@@ -139,6 +152,14 @@ export async function replaceAgentCapabilityBindings(
           configuration ? JSON.stringify(configuration) : null,
         ],
       );
+    }
+    if (options.workflowMutation === true) {
+      const currentHeader = await database.get('SELECT workflow_version,workflow_revision FROM agents WHERE agent_id=$1', [agentId]) as
+        { workflow_version?: unknown; workflow_revision?: unknown } | undefined;
+      let version: ReturnType<typeof parseStoredAgentWorkflowHeader>;
+      try { version = parseStoredAgentWorkflowHeader(currentHeader?.workflow_version, currentHeader?.workflow_revision); }
+      catch { throw new AgentWorkflowError('AGENT_WORKFLOW_CORRUPT', 'The stored extension header cannot be verified.', 409); }
+      assertStoredAgentExtensionBindingsMatchHeader(version.workflowVersion, await listRawAgentCapabilityBindings(agentId, database));
     }
     const bindings = await listAgentCapabilityBindings(agentId, database);
     if (!connection) await database.run('COMMIT');
@@ -162,13 +183,6 @@ export async function listRawAgentCapabilityBindings(agentId: string, connection
   const database = connection ?? await openDb();
   try {
     const rows = await database.all(`SELECT * FROM agent_capability_bindings WHERE agent_id=$1 ORDER BY resource_type,name,resource_id`, [agentId]) as BindingRow[];
-    return rows.map(row => {
-      let configuration: StoredAgentWorkflowPackage | null = null;
-      if (row.configuration_json != null) {
-        try { configuration = parseStoredAgentWorkflowPackage(JSON.parse(row.configuration_json)); }
-        catch { throw new AgentWorkflowError('AGENT_WORKFLOW_CORRUPT', 'The stored workflow cannot be verified.', 409); }
-      }
-      return { ...mapBinding(row), configuration };
-    });
+    return rows.map(row => ({ ...mapBinding(row), ...decodeStoredAgentExtensionBinding(row.resource_type, row.configuration_json) }));
   } finally { if (!connection) await database.close(); }
 }

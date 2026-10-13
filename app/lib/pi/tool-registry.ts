@@ -4,6 +4,7 @@ import { isComposioConfigured } from '@/app/lib/composio/composio-client';
 import { resolveComposioContext } from '@/app/lib/composio/composio-context';
 import { resolveAgentRuntimeSettings } from '@/app/lib/agents/effective-runtime-config';
 import { getRuntimeAgentWorkflowMode } from '@/app/lib/agents/workflow-runtime-mode';
+import { isExplicitAgentWorkflowVersion } from '@/app/lib/agents/workflow-version';
 import { resolveEnabledToolNames, isLegacyEnabledToolsValue, getDefaultEnabledToolNames, DISABLED_ALL_TOOLS_SENTINEL } from './enabled-tools';
 import { PLANNING_MODE_ALLOWED_TOOLS } from './planning-mode';
 import { createMcpProxyTool } from '@/app/lib/mcp/proxy-tool';
@@ -18,6 +19,7 @@ import {
 import { createOnboardingProfileTool, createUserScopedTools } from '@/app/lib/pi/scoped-tools';
 import { createAgentManagementTools } from '@/app/lib/pi/agent-management-tools';
 import { createCapabilityResourceTools } from '@/app/lib/pi/capability-resource-tools';
+import { createExtensionDiscoveryTool } from '@/app/lib/pi/extension-discovery-tool';
 import { createSkillScriptTools } from '@/app/lib/pi/skill-script-tools';
 import { DEFAULT_MANAGED_AGENT_ID } from '@/app/lib/agents/storage';
 import {
@@ -107,7 +109,7 @@ function getToolGroup(toolName: string): PiToolGroup {
   if (toolName === 'transcribe_audio') return 'Audio';
   if (['create_pdf', 'pdf_to_markdown', 'split_pdf', 'edit_pdf_pages', 'checkout_docx', 'commit_docx', 'inspect_docx_checkout', 'release_docx_checkout'].includes(toolName)) return 'Documents';
   if (toolName === 'email' || toolName.startsWith('email_')) return 'Email';
-  if (toolName === 'canvas_extensions' || toolName.includes('canvas_skill') || toolName.includes('canvas_plugin') || toolName.includes('canvas_resource') || toolName.includes('canvas_package')) return 'Skills';
+  if (toolName.includes('canvas_extensions') || toolName.includes('canvas_skill') || toolName.includes('canvas_plugin') || toolName.includes('canvas_resource') || toolName.includes('canvas_package')) return 'Skills';
   if (toolName === 'automation_manage' || toolName.includes('automation_job')) return 'Automation';
   if (toolName.startsWith('web_')) return 'Web';
   if (toolName.includes('human_todo')) return 'Todo';
@@ -294,7 +296,7 @@ export async function buildPiToolRegistryAsync(
   const gatewayEnabled = readIntegrationToolGatewayAvailability().integrationToolGatewayEnabled;
   const allowExternalIntegrations = options.allowExternalIntegrations !== false;
   const workflowConfigured = !options.legacyIntegrationMetadata && options.executionContext
-    ? await getRuntimeAgentWorkflowMode(options.executionContext) === 1 : false;
+    ? isExplicitAgentWorkflowVersion(await getRuntimeAgentWorkflowMode(options.executionContext)) : false;
   const useIntegrationGateway = (gatewayEnabled || workflowConfigured) && !options.legacyIntegrationMetadata;
   const accountLocale = userId
     ? await getUserPreferredLocale(userId).catch((error) => {
@@ -305,6 +307,7 @@ export async function buildPiToolRegistryAsync(
       })
     : undefined;
   const userScopedTools = [...createUserScopedTools(userId, agentId, sessionId, { accountLocale }), ...createCapabilityResourceTools(userId, agentId, sessionId),
+    createExtensionDiscoveryTool(userId, agentId, sessionId),
     ...createSkillScriptTools(userId, agentId, sessionId)]
     .filter((tool) => !(useIntegrationGateway || !allowExternalIntegrations) || tool.name !== 'mcp');
   const normalizedAgentId = agentId?.trim().toLowerCase() || DEFAULT_MANAGED_AGENT_ID;
@@ -473,7 +476,7 @@ export async function getPiTools(
   let workflowConfigured = false;
   let allTools: AgentTool[];
   try {
-    workflowConfigured = resolvedExecutionContext ? await getRuntimeAgentWorkflowMode(resolvedExecutionContext) === 1 : false;
+    workflowConfigured = resolvedExecutionContext ? isExplicitAgentWorkflowVersion(await getRuntimeAgentWorkflowMode(resolvedExecutionContext)) : false;
     allTools = await buildPiToolRegistryAsync(userId, agentId, sessionId, { executionContext: resolvedExecutionContext,
       allowExternalIntegrations: !options.planningMode && !options.workspaceEmailAutomation,
       metadataOnlyExternal: options.metadataOnlyExternal });

@@ -1,6 +1,6 @@
 # Einheitlicher Erweiterungskontext für Chat und Agenten
 
-Stand: 13. Oktober 2026. **Aktueller Auftrag: Feedback und Plan speichern, anschließend gemeinsam optimieren.** Quellenbasis dieser erneuten Bestandsaufnahme: Notebook `27425ddc7`. Gemeinsame Referenz-/Bindungsverträge wurden bereits als Grundlage ergänzt; Chat-Picker, vollständiger Agent-Create und gemeinsamer Kontextcompiler sind noch nicht daran angeschlossen. In diesem Planungsschritt werden ausschließlich Dokumente verändert.
+Bestandsaufnahme und Plan vom 13. Oktober 2026. Auftrag dieses Planungsschritts: Feedback und Plan speichern, anschließend gemeinsam optimieren. Quellenbasis: Notebook `27425ddc7`. Damals waren gemeinsame Referenz-/Bindungsverträge als Grundlage ergänzt; Chat-Picker, vollständiger Agent-Create und gemeinsamer Kontextcompiler waren noch nicht daran angeschlossen. Der Planungsschritt änderte ausschließlich Dokumente. Die anschließend ausdrücklich fortgesetzte Umsetzung und ihre aktuellen Nachweise stehen im Journal.
 
 Der vorausgegangene Implementierungsstand bleibt im [Umsetzungs- und Abnahmejournal](chat-agent-extension-implementation.md) nachvollziehbar. Dieses Dokument beschreibt das Ziel und die vorgeschlagenen Entscheidungen; vorhandene Grundlagen oder frühere Pluginseiten-Tests gelten nicht als Abnahme der neuen Chat-/Agent-Bedienung.
 

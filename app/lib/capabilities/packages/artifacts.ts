@@ -143,7 +143,14 @@ export async function resolveCapabilityPackageArtifact(actor: CapabilityResource
     const parentManifest = (await validateCanvasPluginPackage(parentResolved.plugin.installDir)).manifest;
     const externalSeed = parentManifest?.skillRefs?.some(reference => (!reference.source || reference.source === 'seed') && reference.name === candidate.ref.name)
       && path.resolve(packageRoot) === requirePathInside(path.join(process.cwd(), 'seed_skills'), candidate.ref.name);
-    if ((!relativeRoot || relativeRoot.startsWith('../') || path.isAbsolute(relativeRoot)) && !externalSeed) invalid('The child skill source is unavailable.');
+    if ((relativeRoot.startsWith('../') || path.isAbsolute(relativeRoot)) && !externalSeed) invalid('The child skill source is unavailable.');
+    if (!relativeRoot && !externalSeed) {
+      const parsed = parentManifest && await parsePluginSkillsFromManifest(parentManifest, parentResolved.plugin.installDir,
+        (await validateCanvasPluginPackage(parentResolved.plugin.installDir)).skillsDir);
+      if (!parsed || parsed.errors.length || !parsed.skills.some(skill => skill.name === candidate.ref.name
+        && path.resolve(skill.directory) === path.resolve(parentResolved.plugin.installDir)
+        && path.resolve(skill.path) === path.resolve(candidate.runtimePath!))) invalid('The root child is not declared by this plugin manifest.');
+    }
     sourceStamp.parentResourceRef = parentMetadata.resourceRef;
     sourceStamp.parentRevisionRef = parentResolved.plugin.publishedRevisionRef || null;
     sourceStamp.relativeRoot = externalSeed ? null : relativeRoot;

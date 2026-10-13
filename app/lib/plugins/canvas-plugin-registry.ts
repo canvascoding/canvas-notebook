@@ -495,6 +495,12 @@ export async function discoverPluginSkillFiles(skillsDir: string): Promise<strin
   }
 }
 
+/** A manifest-derived relationship, not an arbitrary directory-name validation override. */
+export function isManifestDeclaredPluginRootSkill(plugin: { installDir: string; skillsDir?: string }, skillPath: string): boolean {
+  return plugin.skillsDir !== undefined && path.resolve(plugin.skillsDir) === path.resolve(plugin.installDir)
+    && path.basename(skillPath) === 'SKILL.md' && path.resolve(path.dirname(skillPath)) === path.resolve(plugin.installDir);
+}
+
 async function parsePluginSkills(
   pluginName: string,
   pluginVersion: string,
@@ -513,7 +519,11 @@ async function parsePluginSkills(
   }
 
   for (const skillFile of skillFiles) {
-    const skill = await parseSkillFile(skillFile);
+    // A manifest-declared root SKILL.md lives in the version/staging package
+    // folder. Its own validated name supplies the identity, not that folder's
+    // temporary name. Ordinary child directories keep their name check.
+    const rootSkill = isManifestDeclaredPluginRootSkill({ installDir: pluginRoot, skillsDir }, skillFile);
+    const skill = await parseSkillFile(skillFile, { validateDirectoryName: !rootSkill });
     if (!skill) {
       errors.push(`Invalid skill file: ${skillsDir ? path.relative(skillsDir, skillFile) : skillFile}`);
       continue;
@@ -853,7 +863,7 @@ async function parseInstalledPluginRecordSkill(
   record: CanvasPluginSkillRecord,
 ): Promise<CanvasSkill | null> {
   const skillPath = record.path || requirePathInside(record.directory, 'SKILL.md');
-  const skill = await parseSkillFile(skillPath);
+  const skill = await parseSkillFile(skillPath, { validateDirectoryName: !isManifestDeclaredPluginRootSkill(plugin, skillPath) });
   if (!skill) return null;
 
   const resolvedDirectory = path.resolve(/*turbopackIgnore: true*/ skill.directory);

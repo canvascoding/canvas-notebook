@@ -3,6 +3,9 @@ import { z } from 'zod';
 import type { AgentManagementActor, AgentCapabilitySelection } from './management-actions';
 import type { AgentProfile } from './registry';
 import type { AgentCapabilityBinding } from './capability-bindings';
+import type { DecodedAgentExtensionBinding } from '@/app/lib/capabilities/extensions/stored-binding-dispatch';
+import type { StandaloneExtensionSelection } from '@/app/lib/capabilities/extensions/contracts';
+import type { AgentWorkflowVersion } from './workflow-version';
 import type { WorkflowDeclaration, WorkflowIntegrationAlternative } from '@/app/lib/capabilities/workflow-contracts';
 
 export const AGENT_WORKFLOW_LIMITS = Object.freeze({ bytes: 1_048_576, packages: 32, declarations: 128, capabilities: 128, choices: 32, tools: 256 });
@@ -58,14 +61,15 @@ export type StoredAgentWorkflowPackage = Omit<AgentWorkflowPackageConfiguration,
       | Omit<Extract<AgentWorkflowSelection, { mode: 'selectable' }>, 'allowedChoices'> & {
         allowedChoices: Array<{ choiceId: string; alternativeKey: string; target: StoredAgentWorkflowTarget; toolCap: string[] | null }> } }> }>;
 };
-export type AgentWorkflowStoredBinding = AgentCapabilityBinding & { configuration: StoredAgentWorkflowPackage | null };
-export type AgentWorkflowChoice = { workflowRevision: number; choiceId?: string; personalTarget?: StoredAgentWorkflowTarget; alternativeKey?: string };
-export type AgentWorkflowInternalSnapshot = { agent: AgentProfile; workflowVersion: 1 | null; workflowRevision: number;
+export type AgentWorkflowStoredBinding = AgentCapabilityBinding & DecodedAgentExtensionBinding;
+export type AgentWorkflowChoice = { workflowRevision: number; choiceId?: string; personalTarget?: StoredAgentWorkflowTarget; alternativeKey?: string;
+  standaloneSelection?: StandaloneExtensionSelection };
+export type AgentWorkflowInternalSnapshot = { agent: AgentProfile; workflowVersion: AgentWorkflowVersion; workflowRevision: number;
   access: { canUse: boolean; canEdit: boolean; canManage: boolean };
   bindings: AgentWorkflowStoredBinding[]; preferenceRevision: number; choices: Record<string, AgentWorkflowChoice> };
 export type AgentWorkflowConnectionOption = { label: string; availability: 'available' | 'unavailable';
   status: 'unknown' | 'setup_required' | 'unavailable'; source?: 'mcp' | 'composio'; scopeLabel?: 'organization' | 'team' | 'personal'; connectionRef?: string };
-export type AgentWorkflowDescriptor = { agentId: string; revision: number; workflowVersion: 1 | null; workflowRevision: number;
+export type AgentWorkflowDescriptor = { agentId: string; revision: number; workflowVersion: AgentWorkflowVersion; workflowRevision: number;
   unavailablePackageCount?: number;
   preferenceRevision: number; access: { canUse: boolean; canEdit: boolean; canManage: boolean };
   packages: Array<{ resourceRef: string; publishedRevisionRef: string; checksum: string; name: string;
