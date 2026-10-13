@@ -1,5 +1,5 @@
-export const PLUGIN_VIEWS = ['discover', 'installed', 'updates', 'drafts', 'advanced'] as const;
-export const SKILL_VIEWS = ['installed', 'library', 'updates', 'drafts'] as const;
+export const PLUGIN_VIEWS = ['browse', 'discover', 'installed', 'updates', 'drafts', 'advanced'] as const;
+export const SKILL_VIEWS = ['browse', 'installed', 'library', 'updates', 'drafts'] as const;
 export const PLUGIN_DETAIL_TASKS = ['overview', 'connections', 'sharing', 'content', 'versions', 'advanced'] as const;
 
 export type PluginArea = 'plugins' | 'skills';
@@ -15,7 +15,12 @@ export type PluginNavigation = {
   area: PluginArea;
   view: PluginView | SkillView;
   scope: PluginManagementScope;
-  kind?: 'all' | 'plugin' | 'skill';
+  kind?: 'all' | 'plugin' | 'skill' | 'integration' | 'mcp';
+  stock?: 'all' | 'installed' | 'available';
+  extensionSource?: 'all' | 'store' | 'composio' | 'mcp';
+  extensionId?: string;
+  extensionCursor?: string;
+  setup?: 'mcp';
   teamId?: string;
   audience?: 'own' | 'shared';
   plugin?: string;
@@ -44,7 +49,7 @@ const UUID = '[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}';
 const RESOURCE_REF = new RegExp(`^canvas-resource:${UUID}$`, 'u');
 const DRAFT_REF = new RegExp(`^canvas-package-draft:${UUID}$`, 'u');
 const LEGACY_RESOURCE_REF = /^canvas-capability:v1:(?:plugin|skill):(?:system|(?:org|user):[a-z0-9_.%~-]+):(?:core|standalone|plugin:[a-z0-9_.%~-]+):[a-z0-9_.%~-]+$/iu;
-const DETAIL_KEYS = ['plugin', 'skill', 'source', 'storeRegistryId', 'storeVersion', 'storeChecksum', 'resourceId', 'resourceRef', 'draftRef', 'task', 'file', 'connectionRef', 'sharedOAuth'] as const;
+const DETAIL_KEYS = ['plugin', 'skill', 'source', 'storeRegistryId', 'storeVersion', 'storeChecksum', 'resourceId', 'resourceRef', 'draftRef', 'task', 'file', 'connectionRef', 'sharedOAuth', 'extensionId', 'setup'] as const;
 
 /** URL identity is a selection only; the server resolves current access for every read/write. */
 export function isPluginNavigationResourceRef(value: string): boolean {
@@ -60,18 +65,28 @@ export function readPluginNavigation(params: Pick<URLSearchParams, 'get'>): Plug
   const allowedViews: readonly string[] = area === 'skills' ? SKILL_VIEWS : PLUGIN_VIEWS;
   const view = requestedView && allowedViews.includes(requestedView)
     ? requestedView as PluginNavigation['view']
-    : legacyStoreDetail ? area === 'skills' ? 'library' : 'discover' : 'installed';
+    : legacyStoreDetail ? area === 'skills' ? 'library' : 'discover'
+      : requestedView || area === 'skills' || params.get('source') === 'installed' ? 'installed' : 'browse';
   const requestedScope = params.get('scope');
-  const scope = requestedScope === 'organization' || requestedScope === 'team' || requestedScope === 'system' || requestedScope === 'all' ? requestedScope : 'user';
+  const scope = requestedScope === 'user' || requestedScope === 'organization' || requestedScope === 'team' || requestedScope === 'system' || requestedScope === 'all' ? requestedScope : view === 'browse' ? 'all' : 'user';
   const navigation: PluginNavigation = { area, view, scope };
   const kind = params.get('kind');
-  if (kind === 'all' || kind === 'plugin' || kind === 'skill') navigation.kind = kind;
+  if (kind === 'all' || kind === 'plugin' || kind === 'skill' || kind === 'integration' || kind === 'mcp') navigation.kind = kind;
+  const stock = params.get('stock'), extensionSource = params.get('extensionSource');
+  if (stock === 'all' || stock === 'installed' || stock === 'available') navigation.stock = stock;
+  if (extensionSource === 'all' || extensionSource === 'store' || extensionSource === 'composio' || extensionSource === 'mcp') navigation.extensionSource = extensionSource;
+  const extensionId = params.get('extensionId'), extensionCursor = params.get('extensionCursor');
+  // These values select current catalog rows; no personal account or profile may be encoded here.
+  if (extensionId && extensionId.length <= 4096 && extensionId === extensionId.trim() && !/[\p{Cc}\\]/u.test(extensionId)
+    && /^(?:composio:[a-z0-9][a-z0-9_-]{0,127}|mcp-(?:personal|definition):[^:]+|canvas-connection:[a-f0-9-]+|canvas-resource:[a-f0-9-]+|store:(?:plugin|skill):.+)$/u.test(extensionId)) navigation.extensionId = extensionId;
+  if (extensionCursor && /^[a-zA-Z0-9_-]{1,8192}$/u.test(extensionCursor)) navigation.extensionCursor = extensionCursor;
+  if (params.get('setup') === 'mcp') navigation.setup = 'mcp';
   const teamId = params.get('teamId');
   if (scope === 'team' && teamId && teamId.length <= 256 && teamId === teamId.trim() && !/[\u0000-\u001f\u007f]/u.test(teamId)) navigation.teamId = teamId;
   const audience = params.get('audience');
   if (scope === 'user' && (audience === 'own' || audience === 'shared')) navigation.audience = audience;
   const q = params.get('q');
-  if (q) navigation.q = q.slice(0, 512);
+  if (q && !/[\p{Cc}]/u.test(q)) navigation.q = q.slice(0, 512);
   const page = Number(params.get('page'));
   if (Number.isInteger(page) && page > 1 && page <= 100000) navigation.page = page;
   const category = params.get('category')?.trim();
@@ -114,8 +129,8 @@ export function readPluginNavigation(params: Pick<URLSearchParams, 'get'>): Plug
   }
   const workspaceId = params.get('workspaceId');
   if (workspaceId && workspaceId.length <= 256) navigation.workspaceId = workspaceId;
-  if (area === 'plugins' && view === 'advanced' && navigation.workspaceId && navigation.workspaceId === navigation.workspaceId.trim()
-    && !/[\\\u0000-\u001f\u007f]/u.test(navigation.workspaceId) && (scope === 'organization' || scope === 'team' && navigation.teamId)) {
+  if ((view === 'browse' || area === 'plugins' && view === 'advanced') && navigation.workspaceId && navigation.workspaceId === navigation.workspaceId.trim()
+    && !/[\\\u0000-\u001f\u007f]/u.test(navigation.workspaceId) && (view === 'browse' || scope === 'organization' || scope === 'team' && navigation.teamId)) {
     const connectionRef = params.get('connectionRef');
     if (connectionRef && new RegExp(`^canvas-connection:${UUID}$`, 'u').test(connectionRef)) {
       navigation.connectionRef = connectionRef;
@@ -130,12 +145,13 @@ export function updatePluginNavigation(search: string, patch: Partial<PluginNavi
   const params = new URLSearchParams(search);
   const current = readPluginNavigation(params);
   if ('workspaceId' in patch && patch.workspaceId !== current.workspaceId) { params.delete('connectionRef'); params.delete('sharedOAuth'); }
-  if (patch.area && patch.area !== current.area) { params.delete('view'); params.delete('kind'); }
+  const browse = current.view === 'browse' || patch.view === 'browse';
+  if (patch.area && patch.area !== current.area && !browse) { params.delete('view'); params.delete('kind'); }
   if (patch.scope && patch.scope !== current.scope) {
-    for (const key of FILTER_KEYS) params.delete(key);
+    for (const key of FILTER_KEYS) if (key !== 'q') params.delete(key);
     params.delete('audience');
     params.delete('teamId');
-  } else if ((patch.area && patch.area !== current.area) || (patch.view && patch.view !== current.view)) {
+  } else if ((!browse && patch.area && patch.area !== current.area) || (patch.view && patch.view !== current.view)) {
     params.delete('page');
     const nextView = patch.view || 'installed';
     if (patch.area && patch.area !== current.area) {
@@ -145,13 +161,16 @@ export function updatePluginNavigation(search: string, patch: Partial<PluginNavi
     } else if (nextView === 'discover' || nextView === 'updates') {
       params.delete('readiness'); params.delete('enabled');
     } else if (nextView === 'advanced' || nextView === 'drafts') {
-      for (const key of FILTER_KEYS) params.delete(key);
+      for (const key of FILTER_KEYS) if (key !== 'q') params.delete(key);
     }
   }
-  if (FILTER_KEYS.some((key) => key !== 'page' && key in patch) || 'kind' in patch) params.delete('page');
+  if (FILTER_KEYS.some((key) => key !== 'page' && key in patch) || ['kind', 'stock', 'extensionSource', 'scope', 'teamId', 'audience'].some(key => key in patch)) {
+    params.delete('page'); params.delete('extensionCursor');
+  }
   if ((patch.area && patch.area !== current.area) || (patch.view && patch.view !== current.view) || (patch.scope && patch.scope !== current.scope)
     || ('teamId' in patch && patch.teamId !== current.teamId) || ('audience' in patch && patch.audience !== current.audience)
-    || ('kind' in patch && patch.kind !== current.kind)) {
+    || ('kind' in patch && patch.kind !== current.kind) || ('q' in patch && patch.q !== current.q)
+    || ('stock' in patch && patch.stock !== current.stock) || ('extensionSource' in patch && patch.extensionSource !== current.extensionSource)) {
     for (const key of DETAIL_KEYS) params.delete(key);
   }
   if (('resourceRef' in patch && patch.resourceRef !== current.resourceRef) || ('plugin' in patch && patch.plugin !== current.plugin)
@@ -162,13 +181,14 @@ export function updatePluginNavigation(search: string, patch: Partial<PluginNavi
     if (value === undefined) params.delete(key);
     else params.set(key, String(value));
   }
+  if (!browse && patch.area && patch.area !== current.area && !params.has('view')) params.set('view', 'installed');
   const next = readPluginNavigation(params);
   if (next.area === 'plugins') params.delete('area');
   else params.set('area', next.area);
   params.set('view', next.view);
-  if (next.scope === 'user') params.delete('scope');
+  if (next.scope === (next.view === 'browse' ? 'all' : 'user')) params.delete('scope');
   else params.set('scope', next.scope);
-  for (const key of ['teamId', 'audience', 'kind', 'skill', 'resourceRef', 'draftRef', 'task', 'file', 'storeRegistryId', 'storeVersion', 'storeChecksum', 'connectionRef', 'sharedOAuth'] as const) {
+  for (const key of ['teamId', 'audience', 'kind', 'skill', 'resourceRef', 'draftRef', 'task', 'file', 'storeRegistryId', 'storeVersion', 'storeChecksum', 'connectionRef', 'sharedOAuth', 'stock', 'extensionSource', 'extensionId', 'extensionCursor', 'setup'] as const) {
     if (next[key] === undefined) params.delete(key);
     else params.set(key, next[key]);
   }
@@ -198,5 +218,6 @@ export function legacyPluginSettingsHref(params: Record<string, string | string[
     if (typeof value === 'string') query.set(key, value);
   }
   query.set('area', tab === 'skills' ? 'skills' : 'plugins');
+  if (!query.has('view') && !query.has('plugin') && !query.has('skill')) query.set('view', 'installed');
   return updatePluginNavigation(query.toString(), {});
 }
