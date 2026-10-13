@@ -160,7 +160,7 @@ async function main(): Promise<void> {
   console.error = () => { loggedErrors++; };
   try {
     for (const stage of ['authError', 'settingsError', 'availabilityError'] as const) {
-      const before = calls.length;
+      const before: number = calls.length;
       controls[stage] = new Error('Private database or credential failure');
       const response = await route.POST(request(audio()));
       controls[stage] = null;
