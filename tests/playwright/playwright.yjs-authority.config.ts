@@ -24,7 +24,9 @@ export default defineConfig({
   use: {
     baseURL: origin, browserName: 'chromium', headless: true,
     viewport: { width: 1440, height: 1000 }, actionTimeout: 15_000, navigationTimeout: 45_000,
-    // Credentials and session traffic never enter browser traces or videos.
-    trace: 'off', video: 'off', screenshot: 'only-on-failure',
+    // Global setup verifies the supervisor-owned synthetic fixture. Failed-test
+    // traces remain beneath its private root with the fixture's recovery data;
+    // their session traffic must not be copied into public evidence or commits.
+    trace: 'retain-on-failure', video: 'off', screenshot: 'only-on-failure',
   },
 });
