@@ -2,6 +2,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 import type { JSONContent } from '@tiptap/core';
 import { randomUUID } from 'node:crypto';
 import { ownedCollaborationQaEnabled, requireOwnedCollaborationQaTarget } from '../scripts/lib/owned-collaboration-qa';
+import { requireOwnedYjsQaTarget } from '../scripts/lib/owned-yjs-authority-qa';
 import { authenticateManagedTestPage, uploadWorkspaceTextFile } from './helpers/managed-test-context';
 
 const editorSelector = '.tiptap-editor-shell .ProseMirror';
@@ -31,6 +32,10 @@ async function login(page: Page, secondary = false) {
 
 async function openEditor(page: Page, path: string) {
   await page.goto(`/notebook?path=${encodeURIComponent(path)}`, { waitUntil: 'domcontentloaded' });
+  await expectDirectEditor(page);
+}
+
+async function expectDirectEditor(page: Page) {
   await expect(page.getByRole('button', { name: 'Read', exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Edit', exact: true })).toHaveCount(0);
   await expect(page.locator(editorSelector)).toHaveAttribute('contenteditable', 'true', { timeout: 30_000 });
@@ -76,7 +81,8 @@ test.describe('Explicit Markdown insertion in the live editor', () => {
   test.skip(process.env.COLLABORATION_E2E !== '1', 'Requires the managed local Postgres stack.');
   test.setTimeout(120_000);
   test.beforeEach(async ({ context }) => {
-    if (ownedCollaborationQaEnabled()) await requireOwnedCollaborationQaTarget();
+    if (process.env.CANVAS_YJS_AUTHORITY_E2E === '1') await requireOwnedYjsQaTarget();
+    else if (ownedCollaborationQaEnabled()) await requireOwnedCollaborationQaTarget();
     await context.grantPermissions(['clipboard-read', 'clipboard-write']);
   });
 
@@ -130,12 +136,10 @@ test.describe('Explicit Markdown insertion in the live editor', () => {
       expect(saved).toContain('console.log("hello");');
       await page.screenshot({ path: info.outputPath('markdown-insertion-formatted.png'), animations: 'disabled' });
       await page.reload({ waitUntil: 'domcontentloaded' });
-      await page.getByRole('button', { name: 'Edit', exact: true }).click();
-      await expect(page.locator(editorSelector)).toHaveAttribute('contenteditable', 'true', { timeout: 30_000 });
+      await expectDirectEditor(page);
       await expect.poll(() => tree(page)).toEqual(edited);
       await peer.reload({ waitUntil: 'domcontentloaded' });
-      await peer.getByRole('button', { name: 'Edit', exact: true }).click();
-      await expect(peer.locator(editorSelector)).toHaveAttribute('contenteditable', 'true', { timeout: 30_000 });
+      await expectDirectEditor(peer);
       await expect.poll(() => tree(peer)).toEqual(edited);
       await expect(page.getByTestId('markdown-save-state')).toHaveCount(0);
     } finally {

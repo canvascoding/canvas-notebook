@@ -1,16 +1,19 @@
 import { expect, request, test } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
+import { ownedCollaborationQaEnabled, requireOwnedCollaborationQaTarget } from '../scripts/lib/owned-collaboration-qa';
+import { requireOwnedYjsQaTarget } from '../scripts/lib/owned-yjs-authority-qa';
+import { authenticateManagedTestPage } from './helpers/managed-test-context';
 
 test('a known tab reopens after the first collaboration session was interrupted', async ({ page }) => {
   test.skip(process.env.COLLABORATION_E2E !== '1', 'Requires the managed local Postgres stack.');
   test.setTimeout(60_000);
   page.setDefaultTimeout(15_000);
-  expect((await page.request.post('/api/auth/sign-in/email', {
-    headers: { Origin: process.env.BASE_URL || 'http://localhost:3000' },
-    data: { email: process.env.TEST_LOGIN_EMAIL, password: process.env.TEST_LOGIN_PASSWORD },
-  })).ok()).toBe(true);
+  if (process.env.CANVAS_YJS_AUTHORITY_E2E === '1') await requireOwnedYjsQaTarget();
+  else if (ownedCollaborationQaEnabled()) await requireOwnedCollaborationQaTarget();
+  await authenticateManagedTestPage(page);
   const { workspaces } = await (await page.request.get('/api/workspaces')).json();
   const workspace = workspaces.find((entry: { name: string }) => entry.name === 'Shared Test Workspace');
+  expect(workspace?.id).toBeTruthy();
   const headers = { 'x-canvas-workspace-id': workspace.id };
   const filePath = `editor-first-session-${randomUUID()}.md`;
   const cleanupApi = await request.newContext({ baseURL: process.env.BASE_URL || 'http://localhost:3000',
@@ -25,10 +28,12 @@ test('a known tab reopens after the first collaboration session was interrupted'
   await page.route(sessionRoute, route => { attempts++; return route.abort(); });
   try {
     await page.goto(`/notebook?path=${filePath}`);
-    const documentModes = page.getByRole('group', { name: /Document view|Dokumentansicht/u });
-    await expect.poll(async () => attempts > 0 || await documentModes.isVisible()).toBe(true);
-    if (attempts === 0) await documentModes.getByRole('button', { name: /^(Edit|Bearbeiten)$/u }).click({ timeout: 15_000 });
     await expect.poll(() => attempts).toBeGreaterThan(0);
+    await expect(page.getByRole('button', { name: /^(Read|Lesen|Edit|Bearbeiten)$/u })).toHaveCount(0);
+    await expect(page.getByRole('status').filter({ hasText: /The document could not be opened|Das Dokument konnte nicht geöffnet werden/u })).toBeVisible();
+    const retry = page.getByRole('button', { name: /^(Reload|Neu laden)$/u });
+    await expect(retry).toBeVisible();
+    await expect(page.locator('.tiptap-editor-shell .ProseMirror[contenteditable="true"]')).toHaveCount(0);
     const metadata = (await (await page.request.get('/api/files/read', { headers, params: { path: filePath } })).json()).data;
     const documentId = metadata.collaboration.document.id;
     const pending = await page.request.get('/api/files/collaboration/location', {
@@ -36,12 +41,18 @@ test('a known tab reopens after the first collaboration session was interrupted'
     });
     expect(pending.status()).toBe(200);
     expect(await pending.json()).toMatchObject({ documentId, path: filePath, lifecycleGeneration: null, representation: null });
+    const failedAttempts = attempts;
     await page.unroute(sessionRoute);
-    await page.reload();
-    await documentModes.getByRole('button', { name: /^(Edit|Bearbeiten)$/u }).click();
+    const admitted = page.waitForResponse(response => response.url().endsWith('/api/files/collaboration/session')
+      && response.request().method() === 'POST' && response.status() === 200);
+    await retry.click();
+    const session = await (await admitted).json();
+    expect(session).toMatchObject({ documentId, lifecycleGeneration: 1, representation: 'tiptap_blocks', permission: 'write' });
+    expect(failedAttempts).toBeGreaterThan(0);
     const editor = page.locator('.tiptap-editor-shell .ProseMirror');
     await expect(editor).toBeVisible({ timeout: 30_000 });
     await expect(editor).toHaveAttribute('contenteditable', 'true', { timeout: 30_000 });
+    await expect(page.getByRole('button', { name: /^(Read|Lesen|Edit|Bearbeiten|Source|Quelltext)$/u })).toHaveCount(0);
     await expect(editor).toHaveText('First session remains recoverable.');
     await editor.click();
     await page.keyboard.press('End');
@@ -55,7 +66,12 @@ test('a known tab reopens after the first collaboration session was interrupted'
     });
     expect(await initialized.json()).toMatchObject({ documentId, path: filePath, lifecycleGeneration: 1, representation: 'tiptap_blocks' });
     await page.reload();
+    await expect(editor).toHaveAttribute('contenteditable', 'true', { timeout: 30_000 });
     await expect(editor).toHaveText('First session remains recoverable. Reopened.', { timeout: 30_000 });
+    const reopened = await page.request.get('/api/files/collaboration/location', {
+      headers, params: { workspaceId: workspace.id, documentId },
+    });
+    expect(await reopened.json()).toMatchObject({ documentId, path: filePath, lifecycleGeneration: 1, representation: 'tiptap_blocks' });
   } catch (error) {
     failure = error;
     throw error;

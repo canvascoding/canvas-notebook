@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { ownedCollaborationQaEnabled, requireOwnedCollaborationQaTarget } from '../scripts/lib/owned-collaboration-qa';
+import { requireOwnedYjsQaTarget } from '../scripts/lib/owned-yjs-authority-qa';
 import { authenticateManagedTestPage } from './helpers/managed-test-context';
 import { expect, test, type Browser, type BrowserContext, type Locator, type Page } from '@playwright/test';
 import * as Y from 'yjs';
@@ -86,7 +87,8 @@ test.describe('real file guest collaboration', () => {
   test.skip(process.env.COLLABORATION_E2E !== '1', 'Requires the managed Team fixture and isolated email transport.');
   test.setTimeout(180_000);
   test('inserts guest Markdown without Source mode, enforces read-only and revokes an already open writer', async ({ browser }, testInfo) => {
-    if (ownedCollaborationQaEnabled()) await requireOwnedCollaborationQaTarget();
+    if (process.env.CANVAS_YJS_AUTHORITY_E2E === '1') await requireOwnedYjsQaTarget();
+    else if (ownedCollaborationQaEnabled()) await requireOwnedCollaborationQaTarget();
     else {
       const allowedOrigin = process.env.CANVAS_LOCAL_TEAM_SEAT_HOST_DEV === 'true'
         ? 'http://127.0.0.1:3000' : 'http://127.0.0.1:3100';
