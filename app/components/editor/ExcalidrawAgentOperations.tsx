@@ -14,6 +14,7 @@ type ReviewOperation = {
   reviewReason: string | null;
   actions: Array<{ type: 'create' | 'update' | 'delete'; elementId?: string; element?: { id?: string } }>;
   updatedAt: number;
+  casVersion: number;
 };
 
 export function ExcalidrawAgentOperations({
@@ -62,7 +63,7 @@ export function ExcalidrawAgentOperations({
     };
   }, [refresh]);
 
-  const act = useCallback(async (operationId: string, action: 'accept' | 'reject') => {
+  const act = useCallback(async (operationId: string, action: 'accept' | 'reject', expectedCasVersion?: number) => {
     setBusyOperationId(operationId);
     setError(null);
     try {
@@ -71,7 +72,8 @@ export function ExcalidrawAgentOperations({
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', ...workspaceHeaders() },
-          body: JSON.stringify({ idempotencyKey: `${action}:${operationId}:${crypto.randomUUID()}` }),
+          body: JSON.stringify({ idempotencyKey: `${action}:${operationId}:${crypto.randomUUID()}`,
+            ...(action === 'accept' ? { expectedCasVersion } : {}) }),
         },
       );
       const payload = await response.json().catch(() => ({})) as { success?: boolean; error?: string };
@@ -139,7 +141,7 @@ export function ExcalidrawAgentOperations({
                   type="button"
                   size="sm"
                   disabled={readOnly || pending}
-                  onClick={() => void act(operation.operationId, 'accept')}
+                  onClick={() => void act(operation.operationId, 'accept', operation.casVersion)}
                 >
                   {pending ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
                   {t('agentAccept')}

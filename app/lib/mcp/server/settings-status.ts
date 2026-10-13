@@ -59,6 +59,9 @@ const DIRECT_MCP_CAPABILITIES: ReadonlyArray<Omit<DirectMcpCapabilityStatus, 'en
   { id: 'upload_knowledge_asset', available: true, scopes: ['knowledge:write'] },
   { id: 'create_knowledge_source', available: true, scopes: ['knowledge:write'] },
   { id: 'import_knowledge_file', available: true, scopes: ['knowledge:write'] },
+  { id: 'create_excalidraw_scene', available: true, scopes: ['knowledge:write'] },
+  { id: 'get_excalidraw_scene', available: true, scopes: ['knowledge:read'] },
+  { id: 'edit_excalidraw_scene', available: true, scopes: ['knowledge:write'] },
 ];
 
 function settingsSource(

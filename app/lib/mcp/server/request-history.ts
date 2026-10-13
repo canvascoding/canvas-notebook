@@ -39,6 +39,9 @@ const TOOL_NAMES = new Set([
   'upload_knowledge_asset',
   'create_knowledge_source',
   'import_knowledge_file',
+  'create_excalidraw_scene',
+  'get_excalidraw_scene',
+  'edit_excalidraw_scene',
 ]);
 
 export type DirectMcpRequestHistoryInput = {

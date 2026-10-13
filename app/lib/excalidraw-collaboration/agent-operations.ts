@@ -134,6 +134,16 @@ export class ExcalidrawIdempotencyConflictError extends Error {
   }
 }
 
+export class ExcalidrawReviewStaleError extends Error {
+  readonly code = 'EXCALIDRAW_REVIEW_STALE';
+  readonly status = 409;
+
+  constructor(readonly currentCasVersion: number) {
+    super('The Excalidraw review changed. Read the current operation before accepting it again.');
+    this.name = 'ExcalidrawReviewStaleError';
+  }
+}
+
 function validateActions(actions: ExcalidrawAgentSceneAction[]): void {
   if (!Array.isArray(actions) || !actions.length || actions.length > 500) {
     throw new Error('Excalidraw agent patch requires 1 to 500 actions.');
@@ -485,7 +495,7 @@ export async function createExcalidrawAgentOperation(input: {
   }
 }
 
-export async function acceptExcalidrawAgentOperation(input: ExcalidrawAgentReviewInput): Promise<ExcalidrawAgentOperation> {
+export async function acceptExcalidrawAgentOperation(input: ExcalidrawAgentReviewInput & { expectedCasVersion?: number }): Promise<ExcalidrawAgentOperation> {
   const candidate = await getExcalidrawAgentOperation(input);
   if (!candidate) throw new Error('Excalidraw agent operation was not found.');
   const outcome = await withExcalidrawSceneTransaction(candidate.documentId, async (transaction): Promise<OperationOutcome> => {
@@ -496,6 +506,10 @@ export async function acceptExcalidrawAgentOperation(input: ExcalidrawAgentRevie
     assertWritableOperationContext(currentWorkspace, state, operation.lifecycleGeneration);
     if (operation.status === 'applied') return { operation };
     if (operation.status !== 'needs_review') throw new Error(`Excalidraw agent operation cannot be accepted from ${operation.status}.`);
+    if (input.expectedCasVersion !== undefined && (!Number.isSafeInteger(input.expectedCasVersion)
+      || input.expectedCasVersion < 0 || input.expectedCasVersion !== operation.casVersion)) {
+      throw new ExcalidrawReviewStaleError(operation.casVersion);
+    }
     // Recover legacy split-commit acceptance without mistaking its own patch for new human intervention.
     const durableApply = await getExcalidrawScenePatchResultInTransaction(transaction, operation.documentId,
       `${operation.operationId}:accept:${operation.casVersion}`);

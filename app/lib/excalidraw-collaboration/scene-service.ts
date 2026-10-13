@@ -3,11 +3,10 @@ import 'server-only';
 import { createHash } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import { openDb } from '@/app/lib/db';
-import { getDatabaseInitializationError } from '@/app/lib/db';
 import { readFile, resolveExistingWorkspacePath, writeFileIfAbsent } from '@/app/lib/filesystem/workspace-files';
 import { getFileCollaborationState, ensureFileRevisionForCurrentContent } from '@/app/lib/files/collaboration-policy';
 import { withWorkspaceMutationLock } from '@/app/lib/files/workspace-mutation-lock';
-import { normalizeWorkspaceRelativePath, assertWorkspacePathHasNoAliases } from '@/app/lib/workspaces/path-guard';
+import { normalizeWorkspaceRelativePath, assertWorkspacePathHasNoAliases, resolveWorkspacePath } from '@/app/lib/workspaces/path-guard';
 import { invalidateWorkspaceFileViews } from '@/app/lib/api/route-helpers';
 import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { createEmptyExcalidrawFileContent } from '@/app/lib/excalidraw-file';
@@ -20,6 +19,7 @@ import { EXCALIDRAW_PORTABLE_MAX_BYTES } from './limits';
 import { validateExcalidrawSceneReferences, validateExcalidrawElements, validateExcalidrawSceneAssetReferences } from './scene';
 import { withExcalidrawPublication } from './publication-context';
 import { captureExcalidrawVersion } from './version-history';
+import { assertExcalidrawProviderAvailable } from './provider';
 
 export class ExcalidrawDocumentError extends Error {
   constructor(readonly code: string, readonly status: number, message: string) {
@@ -49,13 +49,7 @@ type CreateReceipt = {
 function hash(content: string | Buffer): string { return createHash('sha256').update(content).digest('hex'); }
 
 async function assertWorkspace(workspace: WorkspaceContext, write = false): Promise<void> {
-  try {
-    if (getDatabaseInitializationError()) throw new Error('PostgreSQL initialization is unavailable.');
-    const database = await openDb();
-    try { await database.get('SELECT 1'); } finally { await database.close(); }
-  } catch {
-    throw new ExcalidrawDocumentError('EXCALIDRAW_PROVIDER_UNAVAILABLE', 503, 'Excalidraw scenes require an available PostgreSQL collaboration provider.');
-  }
+  await assertExcalidrawProviderAvailable();
   if (!workspace.workspaceId || !workspace.permissions.canRead || (write && !workspace.permissions.canWrite)
     || (workspace.status !== undefined && workspace.status !== 'active')) {
     throw new ExcalidrawDocumentError('EXCALIDRAW_PERMISSION_DENIED', 403, 'Current workspace access is required for this Excalidraw operation.');
@@ -112,10 +106,6 @@ export async function getExcalidrawDocument(input: {
       } finally { await database.close(); }
     }
     if (!path) throw new ExcalidrawDocumentError('INVALID_EXCALIDRAW_REQUEST', 400, 'Document ID or path is required.');
-    await assertWorkspacePathHasNoAliases(input.workspace, path, { readOnly: true });
-    const fullPath = await resolveExistingWorkspacePath(path, { workspace: input.workspace });
-    const file = await fs.stat(fullPath);
-    if (!file.isFile()) throw new ExcalidrawDocumentError('INVALID_EXCALIDRAW_PATH', 400, 'The selected path is not a file.');
     let collaboration = await getFileCollaborationState({ workspace: input.workspace, path, ensureDocument: false });
     if (!collaboration.sceneCapable) {
       throw new ExcalidrawDocumentError('EXCALIDRAW_PROVIDER_UNAVAILABLE', 503, 'This workspace does not provide Excalidraw scene collaboration.');
@@ -124,6 +114,33 @@ export async function getExcalidrawDocument(input: {
     if (state && state.status !== 'active') {
       throw new ExcalidrawDocumentError('EXCALIDRAW_LIFECYCLE_STALE', 409, 'The Excalidraw scene lifecycle changed. Read the restored document again.');
     }
+    await assertWorkspacePathHasNoAliases(input.workspace, path, { readOnly: true }).catch((error: NodeJS.ErrnoException) => {
+      if (!state || error.code !== 'ENOENT') throw error;
+    });
+    if (state) {
+      if (state.path !== path || state.workspaceId !== input.workspace.workspaceId
+        || state.organizationId !== (input.workspace.organizationId ?? null)
+        || (input.documentId && input.documentId !== state.documentId)) {
+        throw new ExcalidrawDocumentError('EXCALIDRAW_LIFECYCLE_STALE', 409, 'The Excalidraw scene identity is stale.');
+      }
+      const fileIdentity = await fs.stat(resolveWorkspacePath(input.workspace, path).absolutePath, { bigint: true })
+        .catch((error: NodeJS.ErrnoException) => { if (error.code === 'ENOENT') return null; throw error; });
+      const journal = await openDb();
+      try {
+        const pending = await journal.get(`SELECT file_dev,file_ino FROM collaboration_excalidraw_creates
+          WHERE workspace_id=$1 AND document_id=$2 AND status='preparing' LIMIT 1`,
+        [input.workspace.workspaceId, state.documentId]) as { file_dev: string | null; file_ino: string | null } | undefined;
+        if (pending && (!fileIdentity || pending.file_dev !== String(fileIdentity.dev) || pending.file_ino !== String(fileIdentity.ino))) {
+          throw new ExcalidrawDocumentError('PATH_EXISTS', 409, 'The interrupted creation no longer owns this file. Its replacement has been preserved.');
+        }
+      } finally { await journal.close(); }
+      const snapshot = excalidrawDocumentSnapshot(state);
+      return fileIdentity?.isFile() ? snapshot : { ...snapshot, checkpoint: { ...snapshot.checkpoint,
+        status: 'failed', error: 'The portable Excalidraw checkpoint is missing. Restore the checkpoint through the document service.' } };
+    }
+    const fullPath = await resolveExistingWorkspacePath(path, { workspace: input.workspace });
+    const file = await fs.stat(fullPath);
+    if (!file.isFile()) throw new ExcalidrawDocumentError('INVALID_EXCALIDRAW_PATH', 400, 'The selected path is not a file.');
     let initialContent: Buffer | null = null;
     if (!state) {
       if (file.size > EXCALIDRAW_PORTABLE_MAX_BYTES) {
@@ -232,6 +249,14 @@ export async function createExcalidrawDocument(input: {
       if (receipt.request_fingerprint !== fingerprint) throw new ExcalidrawDocumentError('EXCALIDRAW_IDEMPOTENCY_CONFLICT', 409, 'This idempotency key belongs to a different create request.');
       if (receipt.status === 'completed') return getExcalidrawDocument({ workspace: input.workspace, documentId: receipt.document_id!, actor: input.actor });
       if (receipt.document_id) return completeCreate(input.workspace, receipt, input.actor);
+      if (!receipt.file_dev || !receipt.file_ino) {
+        const managed = await database.get(`SELECT d.id FROM collaboration_documents d
+          JOIN file_collaboration_lineages l ON l.id=d.lineage_id AND l.status='active'
+          WHERE d.workspace_id=$1 AND d.path=$2 AND d.provider='excalidraw' AND d.status='active'`,
+        [input.workspace.workspaceId, path]);
+        if (managed) throw new ExcalidrawDocumentError('PATH_EXISTS', 409,
+          'This path already belongs to an active Excalidraw document. Restore its checkpoint or delete the document before reusing the path.');
+      }
       const existing = await resolveExistingWorkspacePath(path, { workspace: input.workspace }).then(p => fs.stat(p, { bigint: true }))
         .catch((error: NodeJS.ErrnoException) => { if (error.code === 'ENOENT') return null; throw error; });
       if (existing) {

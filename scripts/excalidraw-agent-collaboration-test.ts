@@ -7,6 +7,7 @@ import {
   cancelExcalidrawAgentOperation,
   createExcalidrawAgentOperation,
   ExcalidrawIdempotencyConflictError,
+  ExcalidrawReviewStaleError,
   rejectExcalidrawAgentOperation,
 } from '@/app/lib/excalidraw-collaboration/agent-operations';
 import type { ExcalidrawElementRecord } from '@/app/lib/excalidraw-collaboration/protocol';
@@ -39,9 +40,11 @@ function element(id: string, version: number, versionNonce: number, overrides: R
 
 async function main() {
   assert.equal(process.env.CANVAS_DATABASE_PROVIDER, 'postgres');
-  const migrationPool = createPostgresPool();
-  await runPostgresMigrations(migrationPool);
-  await migrationPool.end();
+  if (!process.argv.includes('--skip-migrations')) {
+    const migrationPool = createPostgresPool();
+    await runPostgresMigrations(migrationPool);
+    await migrationPool.end();
+  }
   const suffix = `${Date.now()}-${process.pid}`;
   const documentId = `agent-document-${suffix}`;
   const workspace: WorkspaceContext = {
@@ -159,10 +162,12 @@ async function main() {
     }],
   });
   assert.equal(review.status, 'needs_review', 'Same-element human intervention must never be overwritten blindly.');
-  const accepted = await acceptExcalidrawAgentOperation({ operationId: review.operationId, workspace, userId: 'user-a' });
+  const accepted = await acceptExcalidrawAgentOperation({ operationId: review.operationId, workspace, userId: 'user-a',
+    expectedCasVersion: review.casVersion });
   assert.equal(accepted.status, 'applied');
   assert.equal((await loadExcalidrawScene(documentId))?.elements.find((candidate) => candidate.id === 'user-target')?.x, 88);
-  const acceptedAgain = await acceptExcalidrawAgentOperation({ operationId: review.operationId, workspace, userId: 'user-a' });
+  const acceptedAgain = await acceptExcalidrawAgentOperation({ operationId: review.operationId, workspace, userId: 'user-a',
+    expectedCasVersion: review.casVersion });
   assert.equal(acceptedAgain.status, 'applied', 'Accept retries must be idempotent.');
 
   const rejectReview = await createExcalidrawAgentOperation({
@@ -208,9 +213,22 @@ async function main() {
     actorType: 'user',
     actorId: 'user-a',
   });
-  const firstAccept = await acceptExcalidrawAgentOperation({ operationId: intervention.operationId, workspace, userId: 'user-a' });
+  const firstAccept = await acceptExcalidrawAgentOperation({ operationId: intervention.operationId, workspace, userId: 'user-a',
+    expectedCasVersion: intervention.casVersion });
   assert.equal(firstAccept.status, 'needs_review', 'A second human intervention after review creation must require renewed review.');
-  const secondAccept = await acceptExcalidrawAgentOperation({ operationId: intervention.operationId, workspace, userId: 'user-a' });
+  const beforeStaleAccept = (await loadExcalidrawScene(documentId))!;
+  await assert.rejects(acceptExcalidrawAgentOperation({ operationId: intervention.operationId, workspace, userId: 'user-a',
+    expectedCasVersion: intervention.casVersion }), (error: unknown) => {
+    assert.ok(error instanceof ExcalidrawReviewStaleError);
+    assert.equal(error.status, 409);
+    assert.equal(error.code, 'EXCALIDRAW_REVIEW_STALE');
+    assert.equal(error.currentCasVersion, firstAccept.casVersion);
+    return true;
+  }, 'Retrying the earlier review CAS must not accept refreshed targets.');
+  assert.equal((await loadExcalidrawScene(documentId))!.canonicalHash, beforeStaleAccept.canonicalHash);
+  assert.equal((await loadExcalidrawScene(documentId))!.sceneSequence, beforeStaleAccept.sceneSequence);
+  const secondAccept = await acceptExcalidrawAgentOperation({ operationId: intervention.operationId, workspace, userId: 'user-a',
+    expectedCasVersion: firstAccept.casVersion });
   assert.equal(secondAccept.status, 'applied');
   current = (await loadExcalidrawScene(documentId))!;
   assert.equal(current.elements.find((candidate) => candidate.id === 'user-target')?.isDeleted, true);
@@ -394,7 +412,7 @@ async function main() {
 
   console.log(JSON.stringify({ success: true, direct: direct.status, review: accepted.status, intervention: secondAccept.status,
     disjoint: disjoint.map((operation) => operation.status), competing: competing.map((operation) => operation.status),
-    atomicRollback: true, legacyRecovery: true, accessRechecked: true }));
+    atomicRollback: true, legacyRecovery: true, accessRechecked: true, staleReviewCasBlocked: true }));
 }
 
 void main().finally(closeDatabaseConnections);

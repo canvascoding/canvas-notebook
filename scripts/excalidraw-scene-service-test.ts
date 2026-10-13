@@ -18,6 +18,7 @@ import type { ExcalidrawElementRecord } from '@/app/lib/excalidraw-collaboration
 import { fileVersionContentStore } from '@/app/lib/file-version-center/version-content-store';
 import { getFileCollaborationState } from '@/app/lib/files/collaboration-policy';
 import { runWithAgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
+import { DEFAULT_MANAGED_AGENT_ID } from '@/app/lib/agents/storage';
 import { workspaceAbsoluteRoot } from '@/app/lib/workspaces/contracts';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 
@@ -69,12 +70,20 @@ async function seedWorkspaces(workspaces: WorkspaceContext[]) {
   await execute(`INSERT INTO canvas_organization_settings
     (organization_id,owner_user_id,deployment_mode,team_features_enabled,created_at,updated_at)
     VALUES ($1,$2,'team',1,$3,$3)`, [organizationId, userId, Date.now()]);
+  await execute(`INSERT INTO organization_user_permissions
+    (organization_id,user_id,role,status,can_write_team_workspace,created_at,updated_at)
+    VALUES ($1,$2,'member','active',1,$3,$3)`, [organizationId, userId, Date.now()]);
   for (const current of workspaces) {
     await fs.mkdir(current.rootPath, { recursive: true });
     await execute(`INSERT INTO canvas_workspaces
       (id,organization_id,type,owner_user_id,root_relative_path,display_name,status,created_at,updated_at)
       VALUES ($1,$2,$3,$4,$5,$6,'active',$7,$7)`, [current.workspaceId, organizationId,
       current.workspaceType, current.ownerUserId ?? null, current.rootRelativePath, current.displayName, Date.now()]);
+    if (current.workspaceType === 'team') {
+      await execute(`INSERT INTO canvas_workspace_members
+        (organization_id,workspace_id,user_id,role,status,can_read,can_write,can_manage,created_at,updated_at)
+        VALUES ($1,$2,$3,'member','active',1,1,1,$4,$4)`, [organizationId, current.workspaceId, userId, Date.now()]);
+    }
   }
 }
 
@@ -94,7 +103,13 @@ async function assertVersionBytes(current: WorkspaceContext, snapshot: Excalidra
 async function assertGenericRead(current: WorkspaceContext, snapshot: ExcalidrawDocumentSnapshot) {
   const { readAgentCollaborativeExcalidrawFile } = await import('@/app/lib/pi/agent-file-operations');
   const { piTools } = await import('@/app/lib/pi/core-tools');
-  const context = { userId, sessionId: `scene-session-${suffix}`, agentId: actor.actorId,
+  const sessionId = `${current.workspaceId}-agent-session`;
+  await execute(`INSERT INTO pi_sessions
+    (session_id,user_id,agent_id,workspace_id,workspace_type,organization_id,workspace_root_relative_path,provider,model,created_at,updated_at)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,'fixture','fixture',1,1)
+    ON CONFLICT(user_id,session_id) DO NOTHING`, [sessionId, userId, DEFAULT_MANAGED_AGENT_ID,
+    current.workspaceId, current.workspaceType, organizationId, current.rootRelativePath]);
+  const context = { userId, sessionId, agentId: DEFAULT_MANAGED_AGENT_ID,
     workspaceId: current.workspaceId, workspaceType: current.workspaceType,
     workspaceName: current.displayName ?? null, organizationId, customerId: null, projectId: null,
     workspaceRoot: current.rootPath, workspaceRootRelativePath: current.rootRelativePath ?? null,
@@ -122,6 +137,38 @@ async function assertGenericRead(current: WorkspaceContext, snapshot: Excalidraw
     assert.ok(result.content.some(part => part.type === 'text' && part.text.includes(snapshot.canonicalHash)),
       'The generic read tool must include the authoritative scene in model-visible content.');
   });
+}
+
+async function missingCheckpoint(current: WorkspaceContext) {
+  const input = { workspace: current, actor, path: 'missing-checkpoint.excalidraw',
+    idempotencyKey: `missing-checkpoint-${suffix}` };
+  const created = await createExcalidrawDocument(input);
+  await fs.rm(path.join(current.rootPath, created.path));
+  const byId = await getExcalidrawDocument({ workspace: current, documentId: created.documentId });
+  const byPath = await getExcalidrawDocument({ workspace: current, path: created.path });
+  assert.equal(byId.canonicalHash, created.canonicalHash);
+  assert.equal(byPath.documentId, created.documentId);
+  const repeatedCreate = await createExcalidrawDocument(input);
+  assert.equal(repeatedCreate.documentId, created.documentId);
+  await assert.rejects(createExcalidrawDocument({ ...input, idempotencyKey: `another-${suffix}` }),
+    code('PATH_EXISTS'));
+  await assert.rejects(fs.stat(path.join(current.rootPath, created.path)), { code: 'ENOENT' });
+  const change = { workspace: current, actor, documentId: created.documentId,
+    lifecycleGeneration: created.lifecycleGeneration, observedSceneSequence: created.sceneSequence,
+    idempotencyKey: `missing-checkpoint-edit-${suffix}`,
+    actions: [{ type: 'create' as const, element: element('missing-checkpoint-persisted') }] };
+  const applied = await applyExcalidrawChanges(change);
+  assert.equal(applied.status, 'applied');
+  assert.equal(applied.sceneSequence, 1);
+  assert.equal(applied.checkpoint.status, 'failed');
+  const replay = await applyExcalidrawChanges(change);
+  assert.equal(replay.operationId, applied.operationId);
+  assert.equal(replay.sceneSequence, 1);
+  const after = await getExcalidrawDocument({ workspace: current, path: created.path });
+  assert.equal(after.elements.length, 1);
+  assert.equal(after.checkpoint.status, 'failed');
+  await assertGenericRead(current, after);
+  assert.equal((await createExcalidrawDocument(input)).checkpoint.status, 'failed');
 }
 
 async function headless(current: WorkspaceContext) {
@@ -444,6 +491,7 @@ async function main() {
       await imports(current);
       await crashRecovery(current);
       await externalConflict(current);
+      await missingCheckpoint(current);
     }
     for (let index = 0; index < workspaces.length; index += 1) {
       await guards(workspaces[index], workspaces[1 - index], documents[index]);
@@ -462,6 +510,7 @@ async function main() {
     });
     console.log(JSON.stringify({ success: true, workspaces: workspaces.map(current => current.workspaceType),
       headless: true, genericRead: true, closedCheckpoint: true, initialVersionBytes: true,
+      missingCheckpointReadable: true, missingCheckpointCreateProtected: true,
       concurrentCreate: true, idempotency: true, portableAssets: true, invalidImport: true,
       inodeRecovery: true, boundDocumentForeignInodeRejected: true, recoveryStarvationPrevented: true,
       equalForeignBytesRejected: true, externalConflictBytesRetained: true, persistedChangeCheckpointFailure: true,

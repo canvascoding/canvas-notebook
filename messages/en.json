@@ -5863,6 +5863,18 @@
           "import_knowledge_file": {
             "title": "Import complete files",
             "description": "Imports files and photos through temporary HTTPS file references. Originals are preserved; existing files are never overwritten."
+          },
+          "create_excalidraw_scene": {
+            "title": "Create Excalidraw diagrams",
+            "description": "Creates initialized diagrams at unused paths, including when no editor is open. Requires an explicit capability selection."
+          },
+          "get_excalidraw_scene": {
+            "title": "Read Excalidraw scenes",
+            "description": "Reads the current scene, element versions and document identity for permitted workspaces. Requires an explicit capability selection."
+          },
+          "edit_excalidraw_scene": {
+            "title": "Edit Excalidraw elements",
+            "description": "Applies element changes with conflict checks. Changed targets require a human review through Accept or Reject. Requires an explicit capability selection."
           }
         }
       },

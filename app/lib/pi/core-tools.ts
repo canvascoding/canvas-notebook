@@ -47,6 +47,8 @@ import {
   DEFAULT_PDF_TEXT_PAGE_LIMIT,
   DEFAULT_READ_TEXT_LIMIT,
   deleteAgentPaths,
+  createAgentExcalidrawScene,
+  getAgentExcalidrawScene,
   editAgentFile,
   editAgentExcalidrawScene,
   extractPdfTextForRead,
@@ -87,6 +89,9 @@ import {
 } from '@/app/lib/pi/agent-file-tool-results';
 import { asAgentFilePatchToolAppSuccess, asAgentFileToolAppSuccess } from '@/app/lib/pi/file-change-tool-result';
 import { addAgentFileLinkDiagnostics } from '@/app/lib/pi/agent-file-link-diagnostics';
+import { parseExcalidrawCreateInput, parseExcalidrawGetInput, parseExcalidrawEditInput,
+  excalidrawOperationFeedback } from '@/app/lib/excalidraw-collaboration/api-contract';
+import { ExcalidrawDocumentError } from '@/app/lib/excalidraw-collaboration/scene-service';
 
 function formatAgentStructureReadResult(
   snapshot: NonNullable<Awaited<ReturnType<typeof readAgentCollaborativeTextFile>>> & { proposal?: ProposalToolReadResultV1 },
@@ -265,8 +270,10 @@ export const piTools: AgentTool[] = [
         const readTextLimit = isStoredOutput
           ? clampPositiveInteger(maxChars, TOOL_OUTPUT_READ_DEFAULT_CHARACTERS - 400, TOOL_OUTPUT_READ_MAX_CHARACTERS - 400)
           : clampReadTextLimit(maxChars);
-        const stats = await fsPromises.stat(fullPath);
-        if (!proposal && isPdfPath(fullPath) && stats.size > PDF_MAX_IN_MEMORY_BYTES) {
+        const collaborativeScene = !proposal && !isStoredOutput && /\.excalidraw$/iu.test(fullPath)
+          ? await readAgentCollaborativeExcalidrawFile(fullPath) : null;
+        const stats = collaborativeScene ? null : await fsPromises.stat(fullPath);
+        if (!proposal && isPdfPath(fullPath) && stats && stats.size > PDF_MAX_IN_MEMORY_BYTES) {
           return {
             content: [{
               type: 'text',
@@ -275,8 +282,6 @@ export const piTools: AgentTool[] = [
             details: { filePath, size: stats.size, type: 'pdf', error: 'pdf_too_large' },
           };
         }
-        const collaborativeScene = !proposal && !isStoredOutput && /\.excalidraw$/iu.test(fullPath)
-          ? await readAgentCollaborativeExcalidrawFile(fullPath) : null;
         const collaborative = !isStoredOutput && !collaborativeScene && (proposal || /\.(?:md|markdown|txt)$/iu.test(fullPath))
           ? await readAgentCollaborativeTextFile(fullPath, undefined, {
               includeStructure: structureRequested ? true : includeStructure,
@@ -423,6 +428,8 @@ export const piTools: AgentTool[] = [
                   sceneSequence: collaborativeScene.sceneSequence,
                   lifecycleGeneration: collaborativeScene.lifecycleGeneration,
                   canonicalHash: collaborativeScene.canonicalHash,
+                  checkpoint: collaborativeScene.checkpoint,
+                  documentUrl: collaborativeScene.documentUrl,
                   source: 'live_excalidraw',
                 }
               : collaborative
@@ -446,8 +453,9 @@ export const piTools: AgentTool[] = [
           details: { error: message, ...(error instanceof ProposalGraphContractError ? {
             contractVersion: 1, kind: 'proposal_read_error', code: error.code, outcome: 'blocked',
             recommendedAction: 'read_then_retry', safeToAutoRetry: false,
-          } : {}) },
-          ...(error instanceof ProposalGraphContractError ? { isError: true } : {}),
+          } : {}), ...(error instanceof ExcalidrawDocumentError ? { code: error.code, status: error.status } : {}) },
+          ...(error instanceof ProposalGraphContractError || error instanceof ExcalidrawDocumentError
+            || /\.excalidraw$/iu.test(filePath) ? { isError: true } : {}),
         };
       }
     },
@@ -570,12 +578,56 @@ export const piTools: AgentTool[] = [
     },
   },
   {
+    name: 'create_excalidraw_scene',
+    label: 'Creating Excalidraw scene',
+    description: 'Creates a new .excalidraw document in the current agent workspace without opening an editor. Returns documentId, lifecycleGeneration, sceneSequence, elements, assets, checkpoint status and a document link. Then use edit_excalidraw_scene with this identity. Existing files are never replaced. Personal, organization, team and project workspaces require PostgreSQL.',
+    parameters: Type.Object({
+      workspaceId: Type.Optional(Type.String({ maxLength: 200, description: 'Optional current agent workspace ID. Another workspace is rejected.' })),
+      path: Type.String({ minLength: 1, maxLength: 1024, description: 'Workspace-relative path for a new named .excalidraw document.' }),
+      idempotencyKey: Type.Optional(Type.String({ minLength: 1, maxLength: 500, description: 'Stable retry key. Defaults to this tool call ID.' })),
+    }, { additionalProperties: false }),
+    execute: async (toolCallId, params) => {
+      try {
+        const scene = await createAgentExcalidrawScene(parseExcalidrawCreateInput(params, { idempotencyKey: toolCallId }));
+        return { content: [{ type: 'text', text: JSON.stringify(scene, null, 2) }], details: scene };
+      } catch (error: unknown) {
+        const message = getErrorMessage(error);
+        return { content: [{ type: 'text', text: `Error: ${message}` }], isError: true,
+          details: { error: message, code: error && typeof error === 'object' && 'code' in error ? error.code : undefined } };
+      }
+    },
+  },
+  {
+    name: 'get_excalidraw_scene',
+    label: 'Reading Excalidraw scene',
+    description: 'Reads the authoritative PostgreSQL Excalidraw scene by documentId or path in the current agent workspace, including document identity, lifecycleGeneration, sceneSequence, element version/versionNonce, app state, assets, canonical hash, checkpoint status and document link. Existing portable files are validated and initialized without an editor. Read again after review or lifecycle changes.',
+    parameters: Type.Object({
+      workspaceId: Type.Optional(Type.String({ maxLength: 200, description: 'Optional current agent workspace ID. Another workspace is rejected.' })),
+      documentId: Type.Optional(Type.String({ minLength: 1, maxLength: 200 })),
+      path: Type.Optional(Type.String({ minLength: 1, maxLength: 1024, description: 'Workspace-relative .excalidraw path. At least path or documentId is required; if both are supplied they must match.' })),
+    }, { additionalProperties: false }),
+    execute: async (_toolCallId, params) => {
+      try {
+        const scene = await getAgentExcalidrawScene(parseExcalidrawGetInput(params));
+        return { content: [{ type: 'text', text: JSON.stringify(scene, null, 2) }], details: scene };
+      } catch (error: unknown) {
+        const message = getErrorMessage(error);
+        return { content: [{ type: 'text', text: `Error: ${message}` }], isError: true,
+          details: { error: message, code: error && typeof error === 'object' && 'code' in error ? error.code : undefined } };
+      }
+    },
+  },
+  {
     name: 'edit_excalidraw_scene',
     label: 'Editing Excalidraw scene safely',
-    description: 'Creates, updates, or deletes elements in an active shared Excalidraw scene. Read the .excalidraw file immediately before calling this tool and pass its sceneSequence plus exact expectedVersion/expectedVersionNonce values for updates and deletes. Non-conflicting element changes apply live; a concurrently changed target becomes a persisted human Accept/Reject review instead of overwriting user work.',
+    description: 'Creates, updates, or deletes elements in the current agent workspace using the documentId and lifecycleGeneration from create_excalidraw_scene, get_excalidraw_scene or read. Pass the latest sceneSequence as observedSceneSequence and exact expectedVersion/expectedVersionNonce for updates and deletes. The result reports actual operation status and checkpoint state. needs_review means no changes were applied: return its document link for human Accept/Reject review, then read again. Supports closed documents in personal, organization, team and project workspaces.',
     parameters: Type.Object({
-      path: Type.String({ description: 'Workspace-relative path to the active .excalidraw file.' }),
-      observedSceneSequence: Type.Number({ description: 'Authoritative sceneSequence returned by the latest read.' }),
+      workspaceId: Type.Optional(Type.String({ maxLength: 200, description: 'Optional current agent workspace ID. Another workspace is rejected.' })),
+      documentId: Type.String({ minLength: 1, maxLength: 200, description: 'Exact document identity returned by Create or Get.' }),
+      lifecycleGeneration: Type.Integer({ minimum: 1, description: 'Lifecycle generation returned by Create or Get.' }),
+      path: Type.Optional(Type.String({ minLength: 1, maxLength: 1024, description: 'Optional workspace-relative path, which must still identify documentId.' })),
+      observedSceneSequence: Type.Integer({ minimum: 0, description: 'Authoritative sceneSequence returned by the latest read.' }),
+      idempotencyKey: Type.Optional(Type.String({ minLength: 1, maxLength: 500, description: 'Stable retry key. Defaults to this tool call ID.' })),
       actions: Type.Array(Type.Union([
         Type.Object({
           type: Type.Literal('create'),
@@ -584,25 +636,22 @@ export const piTools: AgentTool[] = [
         Type.Object({
           type: Type.Literal('update'),
           elementId: Type.String(),
-          expectedVersion: Type.Number(),
-          expectedVersionNonce: Type.Number(),
+          expectedVersion: Type.Integer({ minimum: 1 }),
+          expectedVersionNonce: Type.Integer({ minimum: 0 }),
           element: Type.Record(Type.String(), Type.Unknown(), { description: 'Complete replacement element JSON using the same id.' }),
         }),
         Type.Object({
           type: Type.Literal('delete'),
           elementId: Type.String(),
-          expectedVersion: Type.Number(),
-          expectedVersionNonce: Type.Number(),
+          expectedVersion: Type.Integer({ minimum: 1 }),
+          expectedVersionNonce: Type.Integer({ minimum: 0 }),
         }),
       ]), { minItems: 1, maxItems: 500 }),
-    }),
+    }, { additionalProperties: false }),
     execute: async (toolCallId, params) => {
       try {
-        const input = params as Omit<Parameters<typeof editAgentExcalidrawScene>[0], 'idempotencyKey'>;
-        const operation = await editAgentExcalidrawScene({
-          ...input,
-          idempotencyKey: toolCallId,
-        });
+        const input = parseExcalidrawEditInput(params, { idempotencyKey: toolCallId });
+        const operation = excalidrawOperationFeedback(await editAgentExcalidrawScene(input));
         return {
           content: [{ type: 'text', text: JSON.stringify(operation, null, 2) }],
           details: operation,
@@ -611,7 +660,8 @@ export const piTools: AgentTool[] = [
         const message = getErrorMessage(error);
         return {
           content: [{ type: 'text', text: `Error: ${message}` }],
-          details: { error: message },
+          isError: true,
+          details: { error: message, code: error && typeof error === 'object' && 'code' in error ? error.code : undefined },
         };
       }
     },

@@ -70,6 +70,16 @@ async function main() {
       'auth_probe,read_knowledge_source,edit_knowledge_source,read_knowledge_asset',
     );
 
+    await writePreferences(dataDir, { enabled: true, toolsVersion: 7, tools: [
+      'auth_probe', 'upload_knowledge_asset', 'create_knowledge_source', 'import_knowledge_file',
+      'create_excalidraw_scene', 'get_excalidraw_scene', 'edit_excalidraw_scene',
+    ] });
+    loadAppEnv(process.cwd());
+    assert.equal(process.env.CANVAS_MCP_DIRECT_ENABLED, 'true');
+    assert.equal(process.env.CANVAS_MCP_DIRECT_TOOLS,
+      'auth_probe,upload_knowledge_asset,create_knowledge_source,import_knowledge_file,create_excalidraw_scene,get_excalidraw_scene,edit_excalidraw_scene',
+      'Explicitly selected scene capabilities must survive a server restart.');
+
     process.env.CANVAS_MCP_DIRECT_ENABLED = 'true';
     process.env.CANVAS_MCP_DIRECT_TOOLS = '';
     delete process.env.CANVAS_MCP_DIRECT_SETTINGS_SOURCE;

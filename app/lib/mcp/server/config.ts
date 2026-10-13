@@ -3,7 +3,7 @@ export const DIRECT_MCP_TOOLS_ENV = 'CANVAS_MCP_DIRECT_TOOLS';
 export const DIRECT_MCP_SETTINGS_SOURCE_ENV = 'CANVAS_MCP_DIRECT_SETTINGS_SOURCE';
 export const DIRECT_MCP_TOOLS_SOURCE_ENV = 'CANVAS_MCP_DIRECT_TOOLS_SOURCE';
 export const DIRECT_MCP_PROTOCOL_VERSION = '2026-07-28';
-export const DIRECT_MCP_TOOL_CONFIGURATION_VERSION = 6;
+export const DIRECT_MCP_TOOL_CONFIGURATION_VERSION = 7;
 
 export const DIRECT_MCP_TOOL_IDS = [
   'auth_probe',
@@ -17,8 +17,18 @@ export const DIRECT_MCP_TOOL_IDS = [
   'upload_knowledge_asset',
   'create_knowledge_source',
   'import_knowledge_file',
+  'create_excalidraw_scene',
+  'get_excalidraw_scene',
+  'edit_excalidraw_scene',
 ] as const;
 export type DirectMcpToolId = (typeof DIRECT_MCP_TOOL_IDS)[number];
+
+// New scene capabilities, including reading, require an explicit selection on
+// first activation, upgrades and reactivation. Keep this list shared with UI.
+export const DIRECT_MCP_EXPLICIT_OPT_IN_TOOL_IDS = [
+  'create_knowledge_source', 'import_knowledge_file',
+  'create_excalidraw_scene', 'get_excalidraw_scene', 'edit_excalidraw_scene',
+] as const satisfies readonly DirectMcpToolId[];
 
 // Writing is opt-in. Existing Direct MCP installations keep their established
 // read-only capability set until an administrator explicitly enables editing.

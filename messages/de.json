@@ -5862,6 +5862,18 @@
           "import_knowledge_file": {
             "title": "Vollständige Dateien importieren",
             "description": "Übernimmt Dateien und Fotos über temporäre HTTPS-Dateireferenzen. Originale bleiben unverändert; bestehende Dateien werden nicht überschrieben."
+          },
+          "create_excalidraw_scene": {
+            "title": "Excalidraw-Diagramme erstellen",
+            "description": "Erstellt initialisierte Diagramme an freien Pfaden, auch ohne geöffneten Editor. Muss ausdrücklich ausgewählt werden."
+          },
+          "get_excalidraw_scene": {
+            "title": "Excalidraw-Szenen lesen",
+            "description": "Liest die aktuelle Szene, Elementversionen und Dokumentidentität in freigegebenen Workspaces. Muss ausdrücklich ausgewählt werden."
+          },
+          "edit_excalidraw_scene": {
+            "title": "Excalidraw-Elemente bearbeiten",
+            "description": "Wendet Elementänderungen mit Konfliktprüfung an. Geänderte Ziele erfordern eine menschliche Prüfung mit Accept oder Reject. Muss ausdrücklich ausgewählt werden."
           }
         }
       },

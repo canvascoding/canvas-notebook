@@ -25,6 +25,7 @@ export const PLANNING_MODE_ALLOWED_TOOLS = new Set([
   'rg',
   'ls',
   'read',
+  'get_excalidraw_scene',
   'inspect_document_relations',
   'list_file_snapshots',
   'glob',
