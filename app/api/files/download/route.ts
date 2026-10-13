@@ -16,6 +16,7 @@ import ZipStream from 'zip-stream';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 import { isAdminUser } from '@/app/lib/admin-auth';
 import { canExportWorkspaceFiles } from '@/app/lib/workspaces/export-access';
+import { excalidrawRouteError } from '@/app/lib/excalidraw-collaboration/http';
 import {
   requireRequestPersonalWorkspace,
   requireRequestWorkspace,
@@ -335,6 +336,8 @@ export async function GET(request: NextRequest) {
 
   const fileOptions = workspaceFileOptions(workspace);
   try {
+    const { ensureExcalidrawCheckpointsCurrent } = await import('@/app/lib/excalidraw-collaboration/checkpoint-worker');
+    await ensureExcalidrawCheckpointsCurrent({ workspaceId: workspace.workspaceId, paths: selectedPaths });
     const isMultipleSelection = selectedPaths.length > 1;
     const effectiveFilePath = selectedPaths[0];
     const stats = await getFileStats(effectiveFilePath, fileOptions);
@@ -362,6 +365,8 @@ export async function GET(request: NextRequest) {
       },
     });
   } catch (error) {
+    if (error && typeof error === 'object' && 'code' in error && typeof error.code === 'string'
+      && error.code.startsWith('EXCALIDRAW_')) return excalidrawRouteError(error);
     if (hasNodeErrorCode(error, ['ENOENT', 'ENOTDIR'])) {
       return NextResponse.json({ success: false, error: 'File not found' }, { status: 404 });
     }

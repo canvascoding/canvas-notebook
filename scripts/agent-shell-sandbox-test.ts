@@ -6,9 +6,10 @@ import {
   AgentShellSandboxError,
   buildAgentShellSandboxLaunch,
   executeAgentSandboxedCommand,
+  executeAgentSandboxedProcess,
 } from '../app/lib/pi/agent-shell-sandbox';
 import type { AgentExecutionContext } from '../app/lib/pi/agent-execution-context';
-import { ensureAgentRuntimeTempDir } from '../app/lib/pi/agent-runtime-temp';
+import { ensureAgentRuntimeTempDir, getAgentRuntimeTempEnv } from '../app/lib/pi/agent-runtime-temp';
 
 function shellQuote(value: string): string {
   return `'${value.replace(/'/g, `'"'"'`)}'`;
@@ -22,6 +23,7 @@ async function main() {
   const workspace = path.join(fixture, 'workspace');
   const data = path.join(fixture, 'data');
   const marker = 'original Word document bytes';
+  const sceneMarker = JSON.stringify({ type: 'excalidraw', version: 2, elements: [], appState: {}, files: {} });
   process.env.DATA = data;
   process.env.CANVAS_DATA_ROOT = data;
 
@@ -30,6 +32,8 @@ async function main() {
     await fs.mkdir(data, { recursive: true });
     await fs.mkdir(path.join(workspace, 'empty-directory'));
     await fs.writeFile(path.join(workspace, 'original.docx'), marker);
+    await fs.writeFile(path.join(workspace, 'closed.excalidraw'), sceneMarker);
+    await fs.symlink(path.join(workspace, 'closed.excalidraw'), path.join(workspace, 'scene-alias.txt'));
     await fs.symlink(path.join(workspace, 'original.docx'), path.join(workspace, 'document-alias.docx'));
 
     const context: AgentExecutionContext = {
@@ -178,6 +182,12 @@ attempts = {
   'replace_from_scratch': lambda: os.replace(scratch / 'replacement.docx', source),
   'chmod': lambda: source.chmod(0),
   'utime': lambda: os.utime(source, (0, 0)),
+  'excalidraw_create': lambda: (workspace / 'new.excalidraw').write_text('damaged'),
+  'excalidraw_case_create': lambda: (workspace / 'new.EXCALIDRAW').write_text('damaged'),
+  'excalidraw_closed_overwrite': lambda: (workspace / 'closed.excalidraw').write_text('damaged'),
+  'excalidraw_closed_append': lambda: (workspace / 'closed.excalidraw').open('a').write('damaged'),
+  'excalidraw_alias': lambda: (workspace / 'scene-alias.txt').write_text('damaged'),
+  'excalidraw_scratch_alias': lambda: (scratch / 'workspace-link' / 'closed.excalidraw').write_text('damaged'),
 }
 for name, action in attempts.items():
   try:
@@ -187,6 +197,7 @@ for name, action in attempts.items():
   else:
     raise AssertionError('Sandbox permitted workspace mutation: ' + name)
   assert source.read_text() == ${JSON.stringify(marker)}, name
+  assert (workspace / 'closed.excalidraw').read_text() == ${JSON.stringify(sceneMarker)}, name
 
 linux_open_probes = 0
 if sys.platform == 'linux':
@@ -226,7 +237,7 @@ print(json.dumps({'blocked': list(attempts), 'docx': str(scratch / 'working.docx
 `;
     const python = await run(`/usr/bin/python3 -c ${shellQuote(pythonSource)}`);
     const pythonResult = JSON.parse(python.stdout);
-    assert.equal(pythonResult.blocked.length, 16);
+    assert.equal(pythonResult.blocked.length, 22);
     assert.equal(pythonResult.linuxOpenProbes, process.platform === 'linux' ? (process.arch === 'x64' ? 6 : 4) : 0);
     assert.equal(pythonResult.docx, path.join(canonicalScratch, 'working.docx'));
     assert.equal((await fs.stat(path.join(scratch, 'working.docx'))).size > 0, true);
@@ -246,19 +257,43 @@ const attempts = {
   copy: () => fs.copyFileSync(path.join(scratch, 'working.docx'), target),
   link: () => fs.linkSync(target, path.join(scratch, 'node-link.docx')),
   symlink: () => fs.writeFileSync(path.join(scratch, 'workspace-link', 'original.docx'), 'damaged'),
+  excalidrawCreate: () => fs.writeFileSync(path.join(process.cwd(), 'new.excalidraw'), 'damaged'),
+  excalidrawCaseCreate: () => fs.writeFileSync(path.join(process.cwd(), 'new.EXCALIDRAW'), 'damaged'),
+  excalidrawClosedOverwrite: () => fs.writeFileSync(path.join(process.cwd(), 'closed.excalidraw'), 'damaged'),
+  excalidrawClosedAppend: () => fs.appendFileSync(path.join(process.cwd(), 'closed.excalidraw'), 'damaged'),
+  excalidrawAlias: () => fs.writeFileSync(path.join(process.cwd(), 'scene-alias.txt'), 'damaged'),
+  excalidrawScratchAlias: () => fs.writeFileSync(path.join(scratch, 'workspace-link', 'closed.excalidraw'), 'damaged'),
 };
 for (const [name, operation] of Object.entries(attempts)) {
   assert.throws(operation, error => ['EACCES', 'EPERM', 'EXDEV', 'EROFS'].includes(error.code), name);
   assert.equal(fs.readFileSync(target, 'utf8'), ${JSON.stringify(marker)});
+  assert.equal(fs.readFileSync(path.join(process.cwd(), 'closed.excalidraw'), 'utf8'), ${JSON.stringify(sceneMarker)});
 }
 fs.writeFileSync(path.join(scratch, 'node-output.txt'), 'Node scratch output');
 process.stdout.write(JSON.stringify(Object.keys(attempts)));
 process.stderr.write('stderr preserved');
 `;
     const node = await run(`${shellQuote(process.execPath)} -e ${shellQuote(nodeSource)}`);
-    assert.equal(JSON.parse(node.stdout).length, 8);
+    assert.equal(JSON.parse(node.stdout).length, 14);
     assert.equal(node.stderr, 'stderr preserved');
     assert.equal(await fs.readFile(path.join(scratch, 'node-output.txt'), 'utf8'), 'Node scratch output');
+    // Direct Python/Node entry points use the same kernel confinement as shell descendants.
+    const directOptions = { context, cwd: workspace, env: { NODE_ENV: 'test', PATH: process.env.PATH,
+      LANG: 'en_US.UTF-8', CANVAS_TEST_VALUE: 'preserved value', HOME: canonicalScratch,
+      ...getAgentRuntimeTempEnv(canonicalScratch) } };
+    const directPython = await executeAgentSandboxedProcess({ executable: '/usr/bin/python3', args: ['-c', pythonSource] }, directOptions);
+    assert.equal(JSON.parse(directPython.stdout).blocked.length, 22);
+    const directNode = await executeAgentSandboxedProcess({ executable: process.execPath, args: ['-e', nodeSource] }, directOptions);
+    assert.equal(JSON.parse(directNode.stdout).length, 14);
+    for (const command of [
+      'printf damaged >closed.excalidraw',
+      'printf damaged >new.excalidraw',
+      'printf damaged >new.EXCALIDRAW',
+      'printf damaged >scene-alias.txt',
+    ]) await assert.rejects(run(command));
+    assert.equal(await fs.readFile(path.join(workspace, 'closed.excalidraw'), 'utf8'), sceneMarker);
+    await assert.rejects(fs.stat(path.join(workspace, 'new.excalidraw')), { code: 'ENOENT' });
+    await assert.rejects(fs.stat(path.join(workspace, 'new.EXCALIDRAW')), { code: 'ENOENT' });
     assert.equal((await run('printf ignored >/dev/null; printf output')).stdout, 'output');
     await assert.rejects(run('printf captured; printf failure >&2; exit 7'), (error: unknown) => {
       const result = error as { code?: number; stdout?: string; stderr?: string };
@@ -287,7 +322,7 @@ process.stderr.write('stderr preserved');
       context: { ...context, workspaceRoot: data }, env: { NODE_ENV: 'test' },
     }), /must be separate from the workspace/);
     assert.equal(await fs.readFile(path.join(workspace, 'original.docx'), 'utf8'), marker);
-    console.log(`agent-shell-sandbox-test: ${process.platform} native backend passed; 24 Python/Node workspace mutations denied, scratch ZIP output, abort and Linux seccomp policy verified`);
+    console.log(`agent-shell-sandbox-test: ${process.platform} native backend passed; 72 Python/Node mutations and 4 shell Excalidraw writes denied; direct processes, shell descendants, scratch ZIP output, abort and Linux seccomp policy verified`);
     if (process.platform === 'linux') {
       console.log(`Linux raw open/openat/openat2 probes passed: ${pythonResult.linuxOpenProbes}; protected file bytes remained intact.`);
     }

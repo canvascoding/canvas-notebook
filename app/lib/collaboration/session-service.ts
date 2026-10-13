@@ -8,11 +8,7 @@ import { collaborationUpdateStateProof } from '@/app/lib/collaboration/state-pro
 import { readFile, type WorkspaceFileOperationOptions } from '@/app/lib/filesystem/workspace-files';
 import { getFileCollaborationState } from '@/app/lib/files/collaboration-policy';
 import { analyzeMarkdownRichMode } from '@/app/lib/markdown/rich-markdown-codec';
-import { importPortableExcalidrawAssets } from '@/app/lib/excalidraw-collaboration/assets';
-import {
-  ensureExcalidrawScene,
-  loadExcalidrawScene,
-} from '@/app/lib/excalidraw-collaboration/repository';
+import { getExcalidrawDocument } from '@/app/lib/excalidraw-collaboration/scene-service';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 import { materializeCollaborationCheckpoint } from './checkpoint';
 import { loadCollaborationProjectionStatus } from './projection-repository';
@@ -155,8 +151,10 @@ export async function createCollaborationSessionGrant(input: {
   workspace: WorkspaceContext;
   fileOptions: WorkspaceFileOperationOptions;
   request: CollaborationSessionRequest;
+  beforeRead?: () => Promise<WorkspaceContext>;
 }): Promise<CollaborationSessionGrant> {
-  const { workspace, fileOptions, request } = input;
+  const { fileOptions, request } = input;
+  let workspace = input.workspace;
   const collaboration = await getFileCollaborationState({
     workspace,
     path: request.path,
@@ -174,22 +172,11 @@ export async function createCollaborationSessionGrant(input: {
 
   let lifecycleGeneration: number;
   if (request.provider === 'excalidraw') {
-    let state = await loadExcalidrawScene(collaboration.document.id);
-    if (!state) {
-      const initialContent = (await readFile(request.path, fileOptions)).toString('utf8');
-      const initialAssets = await importPortableExcalidrawAssets({
-        workspaceId: workspace.workspaceId,
-        content: initialContent,
-      });
-      state = await ensureExcalidrawScene({
-        documentId: collaboration.document.id,
-        workspaceId: workspace.workspaceId,
-        organizationId: workspace.organizationId ?? null,
-        path: collaboration.document.path,
-        initialContent,
-        initialAssets,
-      });
-    }
+    const state = await getExcalidrawDocument({ workspace, documentId: collaboration.document.id, path: request.path,
+      beforeRead: input.beforeRead ? async () => {
+        workspace = await input.beforeRead!();
+        return workspace;
+      } : undefined });
     if (
       state.status !== 'active'
       || state.workspaceId !== workspace.workspaceId

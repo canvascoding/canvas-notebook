@@ -13,6 +13,8 @@ import { FileCollaborationPolicyError } from '@/app/lib/files/collaboration-poli
 import { WORKSPACE_UPLOAD_MAX_FILES } from '@/app/lib/files/upload-limits';
 import { sanitizeWorkspaceUploadPath } from '@/app/lib/files/upload-paths';
 import { runWorkspaceUploadWrite } from '@/app/lib/files/workspace-upload-flow';
+import { excalidrawRequestAuthority } from '@/app/lib/excalidraw-collaboration/http';
+import { workspaceUploadErrorResponse } from '@/app/lib/files/workspace-upload-responses';
 
 const MAX_FILE_SIZE = 100 * 1024 * 1024;
 const MAX_TOTAL_SIZE = 500 * 1024 * 1024;
@@ -142,6 +144,8 @@ export async function POST(request: NextRequest) {
         actorUserId: workspaceResult.session.user.id,
         targetPath,
         content: normalized.buffer,
+        beforeWrite: targetPath.toLowerCase().endsWith('.excalidraw')
+          ? async () => { await excalidrawRequestAuthority(request, workspaceResult, 'canWrite')(); } : undefined,
         write: (onBeforeReplace) => writeFile(
           targetPath,
           normalized.buffer,
@@ -181,6 +185,10 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ success: true, count: files.length, files: uploadedFiles, committed });
   } catch (error) {
+    if (error && typeof error === 'object' && 'code' in error && typeof error.code === 'string'
+      && /^(?:EXCALIDRAW_|INVALID_EXCALIDRAW_|PATH_EXISTS)/u.test(error.code)) {
+      return workspaceUploadErrorResponse(error, '[API] Excalidraw upload failed:');
+    }
     if (error instanceof FileCollaborationPolicyError) {
       return NextResponse.json(
         {

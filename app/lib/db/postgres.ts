@@ -23,6 +23,7 @@ import { resolvePostgresRuntimeOptions } from './postgres-runtime-options';
 import { postgresFailureCode } from './postgres-diagnostics';
 import { migrateSharedComposioProfiles } from './composio-shared-profile-migration';
 import { MOBILE_MCP_APP_CALL_STATEMENTS } from './mobile-mcp-app-call-migration';
+import { EXCALIDRAW_SCENE_SERVICE_STATEMENTS } from './excalidraw-scene-service-migration';
 
 const LEGACY_EPOCH_TIMESTAMP_MIGRATION_KEY = 'epoch-seconds-to-milliseconds-v2';
 const LEGACY_EPOCH_TIMESTAMP_UNIT_ENV = 'CANVAS_LEGACY_EPOCH_TIMESTAMP_UNIT';
@@ -1469,6 +1470,7 @@ export async function runPostgresMigrations(pool: PgQueryable): Promise<void> {
     )
   `);
   await pool.query('CREATE INDEX IF NOT EXISTS idx_collaboration_excalidraw_agent_status ON collaboration_excalidraw_agent_operations (document_id, status, updated_at)');
+  for (const statement of EXCALIDRAW_SCENE_SERVICE_STATEMENTS) await pool.query(statement);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS collaboration_agent_operations (

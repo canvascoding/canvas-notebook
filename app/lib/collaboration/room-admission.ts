@@ -19,11 +19,13 @@ import {
   CollaborationAdmissionError,
   captureCollaborationAdmissionRequest,
   collaborationAdmissionLockKey,
+  captureCollaborationAdmissionWriterScope,
   type CollaborationAdmissionDocument,
   type CollaborationAdmissionRequest,
   type CollaborationAdmissionScope,
   type CollaborationAdmissionStatus,
 } from './room-admission-contract';
+import { getWorkspaceFileLifecycleLeases } from './file-lifecycle-admission-context';
 
 type Query = (sql: string, values?: unknown[]) => Promise<Array<Record<string, unknown>>>;
 type CapturedRequest = ReturnType<typeof captureCollaborationAdmissionRequest>;
@@ -53,6 +55,19 @@ const matchesPath = `(s.path = $2 OR (s.kind = 'subtree'
 /** Caller owns a short transaction. Never wait for a room owner while holding this guard. */
 export async function lockCollaborationAdmissionWorkspace(query: Query, workspaceId: string): Promise<void> {
   await query('SELECT pg_advisory_xact_lock($1::bigint)', [collaborationAdmissionLockKey(workspaceId)]);
+}
+
+/** Metadata initialization may reuse its enclosing file action's actual session guard.
+ * Existing scene writers still require their separate, exact writer admission. */
+export async function lockCollaborationDocumentInitialization(query: Query,
+  input: Pick<CollaborationRoomOwnerScope, 'workspaceId' | 'path' | 'documentId'>): Promise<void> {
+  const scope = captureCollaborationAdmissionWriterScope(input);
+  const lease = getWorkspaceFileLifecycleLeases()?.get(scope.workspaceId);
+  if (!lease) return lockCollaborationAdmissionWorkspace(query, scope.workspaceId);
+  if (!lease.active || !await lease.verify() || !lease.active
+    || getWorkspaceFileLifecycleLeases()?.get(scope.workspaceId) !== lease) {
+    throw new CollaborationAdmissionError('ADMISSION_CONFLICT');
+  }
 }
 
 /** Kernel-fenced acquisition must never wait on an older PG-first caller. */

@@ -18,6 +18,7 @@ import {
   withRollbackableFileRename,
   assertWorkspaceOfficePathMutationAllowed,
   checkRenameConflict,
+  getFileStats,
   type WorkspaceFileOperationOptions,
 } from '@/app/lib/filesystem/workspace-files';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
@@ -26,6 +27,7 @@ import { withWorkspaceFileLifecycleGuard } from '@/app/lib/files/workspace-file-
 import { normalizeWorkspaceRelativePath } from '@/app/lib/workspaces/path-guard';
 import type { WorkspacePathRenameMutation } from './file-events';
 import { withWorkspacePathRenameEvent } from '@/app/lib/filesystem/file-watcher';
+import { isExcalidrawPathExtensionChange } from '@/app/lib/excalidraw-file';
 
 type RenameParams = {
   workspace: WorkspaceContext;
@@ -155,6 +157,11 @@ export async function renameWorkspacePath(
   };
   return withWorkspaceFileLifecycleGuard({ workspaceId: params.workspace.workspaceId, paths: [params.oldPath, params.newPath] }, async () => {
     await assertWorkspaceOfficePathMutationAllowed([params.oldPath, params.newPath], params.fileOptions);
+    if (isExcalidrawPathExtensionChange(params.oldPath, params.newPath)
+      && (await getFileStats(params.oldPath, params.fileOptions)).isFile) {
+      throw Object.assign(new Error('Excalidraw drawings must keep their .excalidraw extension.'),
+        { code: 'EXCALIDRAW_PROVIDER_EXTENSION_REQUIRED', status: 409 });
+    }
     const mutation: WorkspacePathRenameMutation = {
       type: 'rename', operationId: randomUUID(), workspaceId: params.workspace.workspaceId,
       oldPath: params.oldPath, newPath: params.newPath,

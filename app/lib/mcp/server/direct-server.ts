@@ -29,6 +29,7 @@ import {
 import type { DirectMcpToolDescriptor } from '@/app/lib/mcp/server/tool-descriptor';
 import { DIRECT_MCP_SERVER_VERSION } from '@/app/lib/mcp/server/version';
 import { getDirectMcpIngestToolDefinitions } from './ingest-tools';
+import { getDirectMcpExcalidrawToolDefinitions } from './excalidraw-tools';
 
 type DirectMcpToolHandler = {
   id: DirectMcpToolId;
@@ -48,7 +49,8 @@ export function createDirectMcpServer(
       execute: runDirectMcpAuthProbe,
     });
   }
-  for (const tool of [...getDirectMcpWorkspaceToolDefinitions(), ...getDirectMcpIngestToolDefinitions()]) {
+  for (const tool of [...getDirectMcpWorkspaceToolDefinitions(), ...getDirectMcpIngestToolDefinitions(),
+    ...getDirectMcpExcalidrawToolDefinitions()]) {
     if (!enabledTools.has(tool.id)) continue;
     tools.push({
       id: tool.id,
@@ -59,7 +61,8 @@ export function createDirectMcpServer(
   const toolsById = new Map(tools.map((tool) => [tool.id, tool]));
   const hasWriteTool = enabledTools.has('edit_knowledge_source')
     || enabledTools.has('upload_knowledge_asset')
-    || enabledTools.has('create_knowledge_source') || enabledTools.has('import_knowledge_file');
+    || enabledTools.has('create_knowledge_source') || enabledTools.has('import_knowledge_file')
+    || enabledTools.has('create_excalidraw_scene') || enabledTools.has('edit_excalidraw_scene');
   const instructions = tools.length === 0
     ? 'No MCP tools are currently enabled for this Canvas Notebook instance.'
     : hasWriteTool

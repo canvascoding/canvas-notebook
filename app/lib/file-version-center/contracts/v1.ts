@@ -397,6 +397,14 @@ export const FileVersionRestoreResponseSchemaV1 = Type.Object({
   priorRevisionId: NullableOpaqueIdSchema,
   restoredRevisionId: OpaqueIdSchema,
   current: FileVersionCurrentFenceSchemaV1,
+  lifecycleGeneration: Type.Optional(Type.Integer({ minimum: 1 })),
+  sceneSequence: Type.Optional(Type.Integer({ minimum: 0 })),
+  checkpoint: Type.Optional(Type.Object({
+    status: Type.Union([Type.Literal('saved'), Type.Literal('pending'), Type.Literal('failed')]),
+    sequence: Type.Integer({ minimum: 0 }),
+    revisionId: NullableOpaqueIdSchema,
+    error: Type.Union([Type.String({ maxLength: 2_000 }), Type.Null()]),
+  }, { additionalProperties: false })),
 }, { additionalProperties: false });
 
 export type FileVersionRestoreResponseV1 = Static<typeof FileVersionRestoreResponseSchemaV1>;

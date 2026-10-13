@@ -164,3 +164,21 @@ export function validateExcalidrawSceneReferences(elements: readonly ExcalidrawE
     }
   }
 }
+
+/** Pending image insertion precedes file initialization in Excalidraw; durable references must resolve. */
+export function validateExcalidrawSceneAssetReferences(
+  elements: readonly ExcalidrawElementRecord[],
+  assets: readonly { fileId: string }[],
+): void {
+  const fileIds = new Set(assets.map((asset) => asset.fileId));
+  for (const element of elements) {
+    if (element.type !== 'image' || element.isDeleted) continue;
+    if (element.fileId === null && element.status === 'pending') continue;
+    if (typeof element.fileId !== 'string' || !SAFE_ID.test(element.fileId)) {
+      throw new Error(`Excalidraw image ${element.id} requires a valid asset fileId or an explicit pending image state.`);
+    }
+    if (!fileIds.has(element.fileId)) {
+      throw new Error(`Excalidraw image ${element.id} references missing asset ${element.fileId}.`);
+    }
+  }
+}

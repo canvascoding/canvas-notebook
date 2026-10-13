@@ -82,12 +82,13 @@ import {
 } from '@/app/lib/pi/agent-runtime-temp';
 import { getStudioRoot, getStudioWorkspaceRoot } from '@/app/lib/integrations/studio-workspace';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
-import {
-  createExcalidrawAgentOperation,
-  type ExcalidrawAgentOperation,
-  type ExcalidrawAgentSceneAction,
-} from '@/app/lib/excalidraw-collaboration/agent-operations';
-import { loadExcalidrawScene } from '@/app/lib/excalidraw-collaboration/repository';
+import type { ExcalidrawAgentSceneAction } from '@/app/lib/excalidraw-collaboration/agent-operations';
+import { applyExcalidrawChanges, createExcalidrawDocument, getExcalidrawDocument,
+  ExcalidrawDocumentError, type ExcalidrawDocumentActor, type ExcalidrawDocumentSnapshot,
+} from '@/app/lib/excalidraw-collaboration/scene-service';
+import { openDb, getDatabaseInitializationError } from '@/app/lib/db';
+import { readStoredAgentWorkspaceOnConnection } from '@/app/lib/pi/session-workspace-context';
+import { ExcalidrawPublicationRequiredError } from '@/app/lib/excalidraw-collaboration/publication-context';
 import { FILE_VERSION_CENTER_CONTRACT_LIMITS } from '@/app/lib/file-version-center/contracts/v1';
 import { executeWorkspaceFileOperationService } from '@/app/lib/files/workspace-file-operation-service';
 import { getExistingAgentWorkspacePathOperation, submitAgentWorkspacePathOperation,
@@ -548,9 +549,63 @@ async function assertNearestWritableParentAllowed(candidatePath: string): Promis
 }
 
 export async function assertAgentWritablePathAllowed(candidatePath: string): Promise<void> {
+  await assertAgentPathDestinationAllowed(candidatePath);
+  if (candidatePath.toLowerCase().endsWith('.excalidraw')) throw new ExcalidrawPublicationRequiredError();
+  try {
+    const realPath = await fs.realpath(candidatePath);
+    if (realPath.toLowerCase().endsWith('.excalidraw')) throw new ExcalidrawPublicationRequiredError();
+    const stats = await fs.stat(candidatePath);
+    if (stats.isFile() && stats.nlink > 1) {
+      throw Object.assign(new Error('Hard-linked files cannot be changed through agent file tools. Use the original document service.'),
+        { code: 'WORKSPACE_PATH_ALIAS', status: 409 });
+    }
+  } catch (error) {
+    if (!isEnoent(error)) throw error;
+    await assertUnresolvedAgentSymlinkTargetAllowed(candidatePath);
+  }
+}
+
+/** realpath cannot identify a dangling checkpoint; inspect each link's declared target. */
+async function assertUnresolvedAgentSymlinkTargetAllowed(candidatePath: string): Promise<void> {
+  let current = path.resolve(candidatePath);
+  const visited = new Set<string>();
+  for (let count = 0; count < 40; count += 1) {
+    if (current.toLowerCase().endsWith('.excalidraw')) throw new ExcalidrawPublicationRequiredError();
+    if (visited.has(current)) break;
+    visited.add(current);
+    let stats: Awaited<ReturnType<typeof fs.lstat>>;
+    try { stats = await fs.lstat(current); }
+    catch (error) { if (isEnoent(error)) return; throw error; }
+    if (!stats.isSymbolicLink()) return;
+    current = path.resolve(path.dirname(current), await fs.readlink(current));
+  }
+  throw Object.assign(new Error('The symbolic-link target cannot be safely resolved.'),
+    { code: 'WORKSPACE_PATH_ALIAS', status: 409 });
+}
+
+/** Lifecycle path operations use the common document service rather than the byte-write gate. */
+async function assertAgentPathDestinationAllowed(candidatePath: string): Promise<void> {
   await assertContextWorkspaceMutationAllowed(candidatePath, 'write');
   await assertAgentPathAllowed(candidatePath);
   await assertNearestWritableParentAllowed(candidatePath);
+}
+
+async function assertNoRawAgentExcalidrawPaths(fullPaths: readonly string[]): Promise<void> {
+  const visited = new Set<string>();
+  const inspect = async (fullPath: string): Promise<void> => {
+    if (fullPath.toLowerCase().endsWith('.excalidraw')) throw new ExcalidrawPublicationRequiredError();
+    let stats: Awaited<ReturnType<typeof fs.lstat>>;
+    try { stats = await fs.lstat(fullPath); }
+    catch (error) { if (isEnoent(error)) return; throw error; }
+    const realPath = await fs.realpath(fullPath);
+    if (realPath.toLowerCase().endsWith('.excalidraw')) throw new ExcalidrawPublicationRequiredError();
+    if (visited.has(realPath)) return;
+    visited.add(realPath);
+    if (stats.isDirectory() || (stats.isSymbolicLink() && (await fs.stat(realPath)).isDirectory())) {
+      for (const child of await fs.readdir(realPath)) await inspect(path.join(realPath, child));
+    }
+  };
+  for (const fullPath of fullPaths) await inspect(fullPath);
 }
 
 export async function assertAgentDeletablePathAllowed(candidatePath: string): Promise<void> {
@@ -750,28 +805,86 @@ async function collaborativeAgentFileContext(fullPath: string, initialBuffer?: B
   };
 }
 
-async function collaborativeAgentExcalidrawContext(fullPath: string): Promise<{
+async function collaborativeAgentExcalidrawContext(input: { workspaceId?: string; write?: boolean }): Promise<{
   workspace: WorkspaceContext;
   executionContext: AgentExecutionContext;
-  relativePath: string;
-  documentId: string;
-} | null> {
-  const workspace = getAgentWorkspaceContext();
+  actor: ExcalidrawDocumentActor;
+  verifyCurrent: () => Promise<WorkspaceContext>;
+  beforeApply: () => Promise<void>;
+}> {
   const executionContext = getAgentExecutionContext();
-  if (!workspace || !executionContext || !isPathWithin(fullPath, workspace.rootPath)) return null;
-  const relativePath = workspaceRelativeAgentPath(workspace, fullPath);
-  const collaboration = await getFileCollaborationState({
-    workspace,
-    path: relativePath,
-    ensureDocument: false,
-  });
-  if (!collaboration.sceneCapable || collaboration.document?.provider !== 'excalidraw') return null;
-  return {
-    workspace,
-    executionContext,
-    relativePath,
-    documentId: collaboration.document.id,
+  if (!executionContext || (input.workspaceId !== undefined && input.workspaceId !== executionContext.workspaceId)) {
+    throw new ExcalidrawDocumentError('EXCALIDRAW_PERMISSION_DENIED', 403,
+      'Excalidraw tools require the workspace bound to the current agent session.');
+  }
+  const context = { ...executionContext };
+  if (input.write && !context.canWrite) {
+    throw new ExcalidrawDocumentError('EXCALIDRAW_PERMISSION_DENIED', 403, 'Workspace write access is required for Excalidraw scene changes.');
+  }
+  const readAuthority = async () => {
+    let database: Awaited<ReturnType<typeof openDb>>;
+    try {
+      if (getDatabaseInitializationError()) throw new Error('PostgreSQL initialization is unavailable.');
+      database = await openDb();
+    } catch {
+      throw new ExcalidrawDocumentError('EXCALIDRAW_PROVIDER_UNAVAILABLE', 503,
+        'Excalidraw scenes require an available PostgreSQL collaboration provider.');
+    }
+    try {
+      const workspace = await readStoredAgentWorkspaceOnConnection(database, {
+        sessionId: context.sessionId, userId: context.userId,
+        agentId: context.agentId || DEFAULT_MANAGED_AGENT_ID, workspaceId: context.workspaceId,
+        permissions: input.write ? ['canRead', 'canRunAgent', 'canWrite'] : ['canRead', 'canRunAgent'],
+      });
+      if (workspace.workspaceType !== context.workspaceType
+        || path.resolve(workspace.rootPath) !== path.resolve(context.workspaceRoot)
+        || (workspace.rootRelativePath ?? null) !== (context.workspaceRootRelativePath ?? null)
+        || (workspace.organizationId ?? null) !== (context.organizationId ?? null)
+        || (workspace.customerId ?? null) !== (context.customerId ?? null)
+        || (workspace.projectId ?? null) !== (context.projectId ?? null)) {
+        throw new Error('The originating agent workspace changed.');
+      }
+      return workspace;
+    } catch (error) {
+      throw new ExcalidrawDocumentError('EXCALIDRAW_PERMISSION_DENIED', 403,
+        error instanceof Error ? error.message : 'Current agent workspace access is required.');
+    } finally { await database.close(); }
   };
+  return { workspace: await readAuthority(), executionContext: context,
+    actor: { userId: context.userId, actorId: context.agentId || DEFAULT_MANAGED_AGENT_ID,
+      actorType: 'agent', sessionId: context.sessionId },
+    verifyCurrent: readAuthority,
+    beforeApply: async () => { await readAuthority(); },
+  };
+}
+
+async function excalidrawAgentPath(workspace: WorkspaceContext, filePath: string): Promise<string> {
+  const fullPath = resolveAgentPath(filePath);
+  await assertAgentPathAllowed(fullPath);
+  if (!isPathWithin(fullPath, workspace.rootPath)) {
+    throw new ExcalidrawDocumentError('EXCALIDRAW_PERMISSION_DENIED', 403, 'Excalidraw scene paths must belong to the current agent workspace.');
+  }
+  return workspaceRelativeAgentPath(workspace, fullPath);
+}
+
+export async function createAgentExcalidrawScene(input: {
+  workspaceId?: string; path: string; idempotencyKey: string;
+}): Promise<ExcalidrawDocumentSnapshot> {
+  const context = await collaborativeAgentExcalidrawContext({ workspaceId: input.workspaceId, write: true });
+  const relativePath = await excalidrawAgentPath(context.workspace, input.path);
+  return createExcalidrawDocument({ workspace: context.workspace, actor: context.actor,
+    path: relativePath, idempotencyKey: input.idempotencyKey, beforeApply: context.beforeApply });
+}
+
+export async function getAgentExcalidrawScene(input: {
+  workspaceId?: string; documentId?: string; path?: string;
+}): Promise<ExcalidrawDocumentSnapshot> {
+  const context = await collaborativeAgentExcalidrawContext({ workspaceId: input.workspaceId });
+  const relativePath = input.path === undefined ? undefined : await excalidrawAgentPath(context.workspace, input.path);
+  const scene = await getExcalidrawDocument({ workspace: context.workspace, actor: context.actor,
+    path: relativePath, documentId: input.documentId, beforeRead: context.verifyCurrent });
+  await context.verifyCurrent();
+  return scene;
 }
 
 function collaborationAgentIdentity(executionContext: AgentExecutionContext) {
@@ -837,11 +950,12 @@ export async function readAgentCollaborativeExcalidrawFile(fullPath: string): Pr
   documentId: string;
   sceneSequence: number;
   lifecycleGeneration: number;
+  checkpoint: ExcalidrawDocumentSnapshot['checkpoint'];
+  documentUrl: string;
 } | null> {
-  const collaboration = await collaborativeAgentExcalidrawContext(fullPath);
-  if (!collaboration) return null;
-  const state = await loadExcalidrawScene(collaboration.documentId);
-  if (!state || state.workspaceId !== collaboration.workspace.workspaceId || state.status !== 'active') return null;
+  const context = getAgentExecutionContext();
+  if (!context || !isPathWithin(fullPath, context.workspaceRoot)) return null;
+  const state = await getAgentExcalidrawScene({ path: fullPath });
   return {
     content: JSON.stringify({
       type: 'excalidraw-live-scene',
@@ -853,36 +967,38 @@ export async function readAgentCollaborativeExcalidrawFile(fullPath: string): Pr
       elements: state.elements,
       appState: state.appState,
       assets: state.assets,
+      workspaceId: state.workspaceId,
+      path: state.path,
+      status: state.status,
+      checkpoint: state.checkpoint,
+      documentUrl: state.documentUrl,
     }, null, 2),
     canonicalHash: state.canonicalHash,
     documentId: state.documentId,
     sceneSequence: state.sceneSequence,
     lifecycleGeneration: state.lifecycleGeneration,
+    checkpoint: state.checkpoint,
+    documentUrl: state.documentUrl,
   };
 }
 
 export async function editAgentExcalidrawScene(params: {
-  path: string;
+  workspaceId?: string;
+  path?: string;
+  documentId: string;
+  lifecycleGeneration: number;
   observedSceneSequence: number;
   actions: ExcalidrawAgentSceneAction[];
   idempotencyKey: string;
-}): Promise<ExcalidrawAgentOperation> {
-  const fullPath = resolveAgentPath(params.path);
-  await assertAgentPathAllowed(fullPath);
-  const collaboration = await collaborativeAgentExcalidrawContext(fullPath);
-  if (!collaboration) {
-    throw new Error('edit_excalidraw_scene requires an active shared .excalidraw document. Read the file first to obtain its live scene sequence and element versions.');
-  }
-  if (!collaboration.workspace.permissions.canWrite || !collaboration.executionContext.canWrite) {
-    throw new Error('Workspace write access is required for Excalidraw scene edits.');
-  }
-  return createExcalidrawAgentOperation({
-    workspace: collaboration.workspace,
-    documentId: collaboration.documentId,
+}): Promise<Awaited<ReturnType<typeof applyExcalidrawChanges>>> {
+  const context = await collaborativeAgentExcalidrawContext({ workspaceId: params.workspaceId, write: true });
+  const relativePath = params.path === undefined ? undefined : await excalidrawAgentPath(context.workspace, params.path);
+  return applyExcalidrawChanges({
+    workspace: context.workspace, actor: context.actor,
+    documentId: params.documentId, lifecycleGeneration: params.lifecycleGeneration,
+    path: relativePath, beforeApply: context.beforeApply,
     observedSceneSequence: params.observedSceneSequence,
     actions: params.actions,
-    initiatedByUserId: collaboration.executionContext.userId,
-    actorId: collaboration.executionContext.agentId || DEFAULT_MANAGED_AGENT_ID,
     idempotencyKey: params.idempotencyKey,
   });
 }
@@ -2671,6 +2787,7 @@ export async function restoreAgentFileSnapshot(params: { snapshotId: string }): 
     const snapshot = await readSnapshotMetadata(params.snapshotId);
     deletionPaths = snapshot.existed ? undefined : [snapshot.path];
     const fullPath = path.resolve(snapshot.resolvedPath);
+    await assertAgentWritablePathAllowed(fullPath);
     const currentWorkspace = getAgentWorkspaceContext();
     const context = getAgentExecutionContext();
     const deletionWorkspace = !snapshot.existed && currentWorkspace && context
@@ -3358,7 +3475,7 @@ async function retryDirectAgentWorkspacePath(input: {
   if (!known) return null;
   for (const entry of entries) {
     await assertAgentDeletablePathAllowed(entry.sourceResolvedPath);
-    if (entry.destinationResolvedPath) await assertAgentWritablePathAllowed(entry.destinationResolvedPath);
+    if (entry.destinationResolvedPath) await assertAgentPathDestinationAllowed(entry.destinationResolvedPath);
     const canonical = workspaceRelativeAgentPath(workspace, entry.sourceResolvedPath);
     const kind = known.plan.pathMappings.find((mapping) => mapping.sourcePath === canonical)?.sourceKind
       ?? known.plan.deletedPaths.find((candidate) => candidate.path === canonical)?.kind ?? 'missing';
@@ -3610,7 +3727,7 @@ export async function copyAgentPaths(params: {
   if (priorReview) return priorReview;
   const multipleSources = sourcePaths.length > 1;
   const destinationFullPath = resolveAgentPath(params.destinationPath);
-  await assertAgentWritablePathAllowed(destinationFullPath);
+  await assertAgentPathDestinationAllowed(destinationFullPath);
 
   if (multipleSources) {
     await assertDestinationDirectoryAvailable(destinationFullPath, params.destinationPath);
@@ -3632,7 +3749,7 @@ export async function copyAgentPaths(params: {
     const entryDestinationFullPath = multipleSources
       ? getDestinationPathForSource(destinationFullPath, sourceFullPath)
       : destinationFullPath;
-    await assertAgentWritablePathAllowed(entryDestinationFullPath);
+    await assertAgentPathDestinationAllowed(entryDestinationFullPath);
 
     if (path.resolve(sourceFullPath) === path.resolve(entryDestinationFullPath)) {
       throw new Error('Source and destination must be different paths.');
@@ -3687,6 +3804,7 @@ export async function copyAgentPaths(params: {
         if (workspaceResult) return workspaceResult;
       }
       const copyWorkspace = getAgentWorkspaceContext();
+      await assertNoRawAgentExcalidrawPaths(mutationStates.map(state => state.fullPath));
       if (copyWorkspace && entries.some((entry) => entry.overwritten)) {
         await assertAgentLegacyWorkspaceOverwriteSafe(copyWorkspace, entries, 'copy_path');
       }
@@ -3778,7 +3896,7 @@ export async function moveAgentPaths(params: {
     if (prior) return prior;
     const multipleSources = sourcePaths.length > 1;
     const destinationFullPath = resolveAgentPath(params.destinationPath);
-    await assertAgentWritablePathAllowed(destinationFullPath);
+    await assertAgentPathDestinationAllowed(destinationFullPath);
 
     if (multipleSources) {
       await assertDestinationDirectoryAvailable(destinationFullPath, params.destinationPath);
@@ -3796,7 +3914,7 @@ export async function moveAgentPaths(params: {
       const entryDestinationFullPath = multipleSources
         ? getDestinationPathForSource(destinationFullPath, sourceFullPath)
         : destinationFullPath;
-      await assertAgentWritablePathAllowed(entryDestinationFullPath);
+      await assertAgentPathDestinationAllowed(entryDestinationFullPath);
 
       if (path.resolve(sourceFullPath) === path.resolve(entryDestinationFullPath)) {
         throw new Error('Source and destination must be different paths.');
@@ -3847,6 +3965,7 @@ export async function moveAgentPaths(params: {
           if (workspaceResult) return workspaceResult;
         }
         const moveWorkspace = getAgentWorkspaceContext();
+        await assertNoRawAgentExcalidrawPaths(mutationStates.map(state => state.fullPath));
         if (moveWorkspace && entries.some((entry) => entry.overwritten)) {
           await assertAgentLegacyWorkspaceOverwriteSafe(moveWorkspace, entries, 'move_path');
         }

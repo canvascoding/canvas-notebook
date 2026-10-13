@@ -7,6 +7,9 @@ import { loadCollaborationState } from '@/app/lib/collaboration/persistence';
 import { readFile } from '@/app/lib/filesystem/workspace-files';
 import { workspaceFileOptions } from '@/app/lib/workspaces/request';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
+import { authoritativeExcalidrawVersionContent } from '@/app/lib/excalidraw-collaboration/authoritative-content';
+import { loadExcalidrawSceneInTransaction, withExcalidrawSceneTransaction } from '@/app/lib/excalidraw-collaboration/repository';
+import { assertExcalidrawProviderAvailable } from '@/app/lib/excalidraw-collaboration/provider';
 
 import {
   FILE_VERSION_CENTER_ERROR_CODES,
@@ -38,6 +41,24 @@ export async function loadAuthoritativeFileVersionContent(
   if (workspace.workspaceId !== target.workspaceId) {
     throw new FileVersionCenterContractError(FILE_VERSION_CENTER_ERROR_CODES.accessDenied,
       'The authoritative document is outside the active workspace.');
+  }
+  if (target.path.toLowerCase().endsWith('.excalidraw')) {
+    try { await assertExcalidrawProviderAvailable(); }
+    catch { throw new FileVersionCenterContractError(FILE_VERSION_CENTER_ERROR_CODES.persistenceUnavailable,
+      'PostgreSQL is required for Excalidraw version history.'); }
+    if (!target.documentId) throw new FileVersionCenterContractError(FILE_VERSION_CENTER_ERROR_CODES.persistenceUnavailable,
+      'The authoritative Excalidraw document is unavailable.');
+    return withExcalidrawSceneTransaction(target.documentId, async transaction => {
+      const state = await loadExcalidrawSceneInTransaction(transaction, target.documentId!, false, true);
+      const identity = await transaction.get(`SELECT id FROM collaboration_documents
+        WHERE id=$1 AND workspace_id=$2 AND lineage_id=$3 AND path=$4 AND provider='excalidraw' AND status='active'`,
+      [target.documentId, target.workspaceId, target.lineageId, target.path]);
+      if (!state || !identity || state.workspaceId !== workspace.workspaceId || state.path !== target.path) {
+        throw new FileVersionCenterContractError(FILE_VERSION_CENTER_ERROR_CODES.persistenceUnavailable,
+          'The authoritative Excalidraw document is unavailable.');
+      }
+      return authoritativeExcalidrawVersionContent(transaction, state, target.lineageId);
+    });
   }
   const loadState = options.loadState ?? loadCollaborationState;
   const readWorkspaceFile = options.readWorkspaceFile

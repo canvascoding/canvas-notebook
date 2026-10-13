@@ -18,6 +18,7 @@ import {
 } from '@/app/lib/files/write-service';
 import { workspaceFileOptions } from '@/app/lib/workspaces/request';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
+import { restoreExcalidrawVersion } from '@/app/lib/excalidraw-collaboration/restore-service';
 
 import {
   FILE_VERSION_CENTER_CONTRACT_VERSION,
@@ -411,6 +412,7 @@ export function createFileVersionRestoreService(options: {
       access: FileVersionCenterAccess;
       workspace: WorkspaceContext;
       actorSessionId?: string | null;
+      beforeApply?: () => Promise<WorkspaceContext>;
     }): Promise<FileVersionRestoreResponseV1> {
       const request = parseFileVersionRestoreRequestV1(input.request);
       const target = await query.resolve({ target: request.target, access: input.access });
@@ -424,6 +426,8 @@ export function createFileVersionRestoreService(options: {
           'Write access to the active workspace is required for restore.');
       }
       const fileClass = classifyFileVersionFileV1(target.path);
+      if (fileClass === 'excalidraw') return restoreExcalidrawVersion({ target, request, workspace: input.workspace,
+        userId: input.access.userId, actorSessionId: input.actorSessionId, beforeApply: input.beforeApply });
       if (fileClass !== 'markdown' && fileClass !== 'text') {
         throw new FileVersionCenterContractError(FILE_VERSION_CENTER_ERROR_CODES.capabilityUnavailable,
           'Restore is not supported for this file type.');

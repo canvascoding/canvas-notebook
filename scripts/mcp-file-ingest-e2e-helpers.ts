@@ -14,17 +14,19 @@ export async function requireIngestE2EJson<T>(response: APIResponse, label: stri
 }
 
 /** A public client uses real browser consent and PKCE, then ordinary workspace grants. */
-export async function authorizeIngestE2EMcp(owner: BrowserContext, baseURL: string, workspaceId: string, protocolVersion: string) {
+export async function authorizeIngestE2EMcp(owner: BrowserContext, baseURL: string, workspaceId: string, protocolVersion: string,
+  options: { scopes?: readonly string[]; clientNamePrefix?: string; onConnection?: (connectionId: string) => void } = {}) {
+  const scopes = options.scopes?.join(' ') ?? SCOPES;
   const metadata = await requireIngestE2EJson<{ issuer: string; registration_endpoint: string;
     authorization_endpoint: string; token_endpoint: string }>(
     await owner.request.get('/.well-known/oauth-authorization-server/api/auth'), 'OAuth discovery');
-  const clientName = `MCP file ingest E2E ${randomUUID()}`;
+  const clientName = `${options.clientNamePrefix ?? 'MCP file ingest E2E'} ${randomUUID()}`;
   const redirectUri = `http://127.0.0.1:32199/mcp-file-ingest/${randomUUID()}`;
   const registered = await fetch(metadata.registration_endpoint, {
     method: 'POST', headers: { Origin: baseURL, 'Content-Type': 'application/json' },
     signal: AbortSignal.timeout(90_000), body: JSON.stringify({ client_name: clientName,
       application_type: 'native', redirect_uris: [redirectUri], token_endpoint_auth_method: 'none',
-      grant_types: ['authorization_code', 'refresh_token'], response_types: ['code'], scope: SCOPES }),
+      grant_types: ['authorization_code', 'refresh_token'], response_types: ['code'], scope: scopes }),
   });
   assert.ok(registered.ok, `Public OAuth registration: HTTP ${registered.status}`);
   const registration = await registered.json() as { client_id: string };
@@ -33,7 +35,7 @@ export async function authorizeIngestE2EMcp(owner: BrowserContext, baseURL: stri
   const state = randomUUID();
   const authorization = new URL(metadata.authorization_endpoint);
   authorization.search = new URLSearchParams({ response_type: 'code', client_id: registration.client_id,
-    redirect_uri: redirectUri, scope: SCOPES, resource: `${baseURL}/mcp`, state,
+    redirect_uri: redirectUri, scope: scopes, resource: `${baseURL}/mcp`, state,
     code_challenge: createHash('sha256').update(verifier).digest('base64url'), code_challenge_method: 'S256' }).toString();
   const page = await owner.newPage();
   let callback: URL | undefined;
@@ -69,9 +71,24 @@ export async function authorizeIngestE2EMcp(owner: BrowserContext, baseURL: stri
       await owner.request.get('/api/integrations/mcp-server/connections'), 'List synthetic OAuth connection');
     connectionId = connections.data.connections.find(item => item.clientName === clientName)?.connectionId;
     assert.ok(connectionId, 'Real consent must create the synthetic client connection.');
+    options.onConnection?.(connectionId);
     await requireIngestE2EJson(await owner.request.put('/api/integrations/mcp-server/connections/workspaces', {
       data: { connectionId, workspaceIds: [workspaceId] },
     }), 'Grant only the owned test workspace');
+  } catch (error) {
+    // A successful consent can precede a failed token exchange or workspace
+    // selection. Identify and revoke only this nonce-named public client.
+    const connections = await owner.request.get('/api/integrations/mcp-server/connections').catch(() => undefined);
+    if (connections?.ok()) {
+      const current = await connections.json() as { data?: { connections?: Array<{ connectionId: string; clientName: string }> } };
+      const own = current.data?.connections?.find(item => item.clientName === clientName);
+      if (own) {
+        options.onConnection?.(own.connectionId);
+        const cleanup = await owner.request.delete('/api/integrations/mcp-server/connections', { data: { connectionId: own.connectionId } });
+        assert.ok(cleanup.ok(), 'The failed OAuth helper must revoke its own consent.');
+      }
+    }
+    throw error;
   } finally { await page.close(); }
   let sequence = 0;
   let revoked = false;
@@ -89,8 +106,15 @@ export async function authorizeIngestE2EMcp(owner: BrowserContext, baseURL: stri
     });
     // Return protocol errors as tool failures so negative paths can be asserted
     // without logging submitted arguments, OAuth credentials or signed URLs.
-    const payload = await response.json() as { result?: JsonRecord; error?: { code: number; message: string } };
     const rejection = { http_status: response.status, authentication_challenge: response.headers.get('www-authenticate') };
+    const responseText = await response.text();
+    let payload: { result?: JsonRecord; error?: { code: number; message: string } };
+    try { payload = JSON.parse(responseText); }
+    catch {
+      assert.equal(response.ok, false, `MCP ${method} returned an invalid success response.`);
+      return { isError: true, structuredContent: rejection,
+        content: [{ type: 'text', text: `MCP request rejected with HTTP ${response.status}` }] };
+    }
     if (payload.error) return { isError: true, structuredContent: { rpc_error: payload.error.code, ...rejection },
       content: [{ type: 'text', text: payload.error.message }] };
     if (!response.ok) return { isError: true, structuredContent: rejection,
@@ -99,6 +123,8 @@ export async function authorizeIngestE2EMcp(owner: BrowserContext, baseURL: stri
     return payload.result;
   }
   return {
+    connectionId,
+    clientName,
     rpc,
     call: async (name: string, args: JsonRecord) => await rpc('tools/call', { name, arguments: args }) as IngestE2EToolResult,
     async revoke() {

@@ -154,6 +154,7 @@ async function main() {
     'next-intl': { useTranslations: translate }, 'lucide-react': new Proxy({}, { get: () => () => null }),
     '@/app/components/settings/TerminalSettingsCard': { TerminalSettingsCard: () => null },
     '@/app/components/settings/StudioBulkSettingsCard': { StudioBulkSettingsCard: () => null },
+    '@/app/components/settings/IntegrationToolGatewaySettingsCard': { IntegrationToolGatewaySettingsCard: () => null },
     '@/components/ui/card': { Card: passthrough, CardContent: passthrough, CardDescription: passthrough, CardHeader: passthrough, CardTitle: passthrough },
     '@/components/ui/switch': { Switch: ({ onCheckedChange, ...props }: React.InputHTMLAttributes<HTMLInputElement> & {onCheckedChange: (checked: boolean) => void}) =>
       <input type="checkbox" role="switch" {...props} onChange={(event) => onCheckedChange(event.target.checked)} /> },
@@ -162,6 +163,7 @@ async function main() {
   try {
     enabled = false; ready = true;
     const screen = render(<settings.ExperimentalFeaturesSettingsPanel />);
+    assert.ok(screen.getByText(/experimental Review Center.*Excalidraw.*disabled by default/u));
     assert.ok(screen.getByText(/links.*automatically/u), 'settings explains mandatory link maintenance separately from the experiment');
     assert.ok(screen.getByText(/Errors appear in Notification Center/u));
     const control = screen.getByRole('switch') as HTMLInputElement;

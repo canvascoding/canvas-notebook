@@ -23,6 +23,9 @@ async function main() {
         { id: 'read_knowledge_source', enabled: true, available: true, scopes: ['knowledge:read'] },
         { id: 'create_knowledge_source', enabled: false, available: true, scopes: ['knowledge:write'] },
         { id: 'import_knowledge_file', enabled: false, available: true, scopes: ['knowledge:write'] },
+        { id: 'create_excalidraw_scene', enabled: false, available: true, scopes: ['knowledge:write'] },
+        { id: 'get_excalidraw_scene', enabled: false, available: true, scopes: ['knowledge:read'] },
+        { id: 'edit_excalidraw_scene', enabled: false, available: true, scopes: ['knowledge:write'] },
       ] } });
   };
   try {
@@ -39,7 +42,17 @@ async function main() {
     await act(async () => { fireEvent.click(create); });
     assert.equal(create.getAttribute('aria-checked'), 'true');
     assert.equal(imported.getAttribute('aria-checked'), 'false');
-    console.log('mcp-ingest-settings-ui-test: ok (activation preserves explicit ingestion opt-in)');
+    const sceneSwitches = (['create_excalidraw_scene', 'get_excalidraw_scene', 'edit_excalidraw_scene'] as const)
+      .map(id => screen.getByRole('switch', { name: labels.capabilities.items[id].title }));
+    assert.equal(sceneSwitches.every(control => control.getAttribute('aria-checked') === 'false'), true,
+      'Activating MCP must not automatically select any new scene capability.');
+    await act(async () => { fireEvent.click(sceneSwitches[1]); });
+    assert.deepEqual(sceneSwitches.map(control => control.getAttribute('aria-checked')), ['false', 'true', 'false']);
+    await act(async () => { fireEvent.click(screen.getByRole('switch', { name: labels.activation.label })); });
+    await act(async () => { fireEvent.click(screen.getByRole('switch', { name: labels.activation.label })); });
+    assert.deepEqual(sceneSwitches.map(control => control.getAttribute('aria-checked')), ['false', 'true', 'false'],
+      'Reactivation preserves the explicit selection and does not add the other scene capabilities.');
+    console.log('mcp-ingest-settings-ui-test: ok (activation and reactivation preserve explicit ingestion and scene selection)');
   } finally { cleanup(); globalThis.fetch = original; dom.window.close(); }
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });

@@ -482,6 +482,10 @@ async function runExport(job: MigrationExportJob): Promise<void> {
     job.phase = 'Preparing file list';
     await persist(true);
 
+    if (job.components.workspace || job.selection.includePersonalWorkspaces) {
+      const { ensureExcalidrawCheckpointsCurrent } = await import('@/app/lib/excalidraw-collaboration/checkpoint-worker');
+      await ensureExcalidrawCheckpointsCurrent();
+    }
     await ensureMigrationDir(exportDir);
     const files: MigrationFileEntry[] = [];
     const postgresDump: { filePath: string; entry: MigrationFileEntry; sha256: string } | null = null;

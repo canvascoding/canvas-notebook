@@ -5881,6 +5881,18 @@
           "import_knowledge_file": {
             "title": "Vollständige Dateien importieren",
             "description": "Übernimmt Dateien und Fotos über temporäre HTTPS-Dateireferenzen. Originale bleiben unverändert; bestehende Dateien werden nicht überschrieben."
+          },
+          "create_excalidraw_scene": {
+            "title": "Excalidraw-Diagramme erstellen",
+            "description": "Erstellt initialisierte Diagramme an freien Pfaden, auch ohne geöffneten Editor. Muss ausdrücklich ausgewählt werden."
+          },
+          "get_excalidraw_scene": {
+            "title": "Excalidraw-Szenen lesen",
+            "description": "Liest die aktuelle Szene, Elementversionen und Dokumentidentität in freigegebenen Workspaces. Muss ausdrücklich ausgewählt werden."
+          },
+          "edit_excalidraw_scene": {
+            "title": "Excalidraw-Elemente bearbeiten",
+            "description": "Wendet Elementänderungen mit Konfliktprüfung an. Geänderte Ziele erfordern eine menschliche Prüfung mit Accept oder Reject. Muss ausdrücklich ausgewählt werden."
           }
         }
       },
@@ -7940,7 +7952,7 @@
       "documentReviewTitle": "Review Center",
       "description": "Experimentelle Funktionen gelten für alle Nutzer dieser Instanz und sind standardmäßig ausgeschaltet.",
       "enableDocumentReview": "Experimentelles Review Center aktivieren",
-      "documentReviewDescription": "Aktiviert das optionale Review Center für Dokumentänderungen und gespeicherte Vorschläge für Dateiaktionen.",
+      "documentReviewDescription": "Aktiviert das experimentelle Review Center für Dokumentänderungen, Excalidraw-Agentenvorschläge und gespeicherte Vorschläge für Dateiaktionen. Es ist standardmäßig ausgeschaltet.",
       "editingNote": "Agenten und Teammitglieder können Dokumente weiterhin gemeinsam live bearbeiten. Bei ausgeschaltetem Review Center bleiben bestehende Vorschläge gespeichert und werden nicht automatisch angewendet.",
       "linkMaintenanceNote": "Beim Verschieben oder Löschen von Dateien werden Links automatisch gepflegt. Das bleibt für dich und Agenten immer aktiv, unabhängig von dieser Einstellung. Fehler erscheinen im Notification Center.",
       "administratorNote": "Nur ein Administrator kann diese experimentelle Einstellung für die gesamte Instanz ändern.",

@@ -20,6 +20,12 @@ const DIRECT_MCP_TOOLS = [
   ...DIRECT_MCP_DEFAULT_TOOLS,
   'edit_knowledge_source',
   'read_knowledge_asset',
+  'upload_knowledge_asset',
+  'create_knowledge_source',
+  'import_knowledge_file',
+  'create_excalidraw_scene',
+  'get_excalidraw_scene',
+  'edit_excalidraw_scene',
 ];
 const DIRECT_MCP_TOOL_SET = new Set(DIRECT_MCP_TOOLS);
 

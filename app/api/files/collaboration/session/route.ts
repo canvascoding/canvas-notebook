@@ -5,6 +5,7 @@ import { requireRequestWorkspace, workspaceFileOptions } from '@/app/lib/workspa
 import { issueCollaborationTicket } from '@/app/lib/collaboration/ticket';
 import { collaborationUserColors } from '@/app/lib/collaboration/identity';
 import { liveCollaborationRuntimeAvailable } from '@/app/lib/collaboration/runtime-policy';
+import { excalidrawRequestAuthority, excalidrawRouteError } from '@/app/lib/excalidraw-collaboration/http';
 import {
   CollaborationSessionError,
   createCollaborationSessionGrant,
@@ -48,6 +49,8 @@ export async function POST(request: NextRequest) {
       workspace: workspaceResult.workspace,
       fileOptions: workspaceFileOptions(workspaceResult.workspace),
       request: requested,
+      ...(requested.provider === 'excalidraw'
+        ? { beforeRead: excalidrawRequestAuthority(request, workspaceResult, 'canRead') } : {}),
     });
     if (grant.migration?.status === 'pending' && grant.migration.reason === 'outcome_unconfirmed') {
       return NextResponse.json({ success: false, migration: grant.migration,
@@ -98,6 +101,8 @@ export async function POST(request: NextRequest) {
     };
     return NextResponse.json(response, { headers: { 'Cache-Control': 'no-store' } });
   } catch (error) {
+    if (requested.provider === 'excalidraw' && error && typeof error === 'object' && 'code' in error
+      && typeof error.code === 'string' && error.code.startsWith('EXCALIDRAW_')) return excalidrawRouteError(error);
     const code = error && typeof error === 'object' && 'code' in error ? String(error.code) : '';
     const status = error instanceof CollaborationSessionError
       ? error.status

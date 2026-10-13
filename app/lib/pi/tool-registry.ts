@@ -224,14 +224,20 @@ function getToolNotes(tool: AgentTool, group: PiToolGroup): string[] {
   if (['bash', 'terminal', 'rg', 'glob', 'grep', 'ls', 'read', 'list_file_snapshots', 'transcribe_audio'].includes(tool.name)) {
     notes.push('May execute local shell commands or inspect local files.');
   }
-  if (['write', 'edit', 'edit_file', 'edit_excalidraw_scene', 'apply_patch', 'copy_path', 'move_path', 'delete_path', 'restore_file_snapshot', 'create_file', 'delete_file', 'create_pdf', 'pdf_to_markdown', 'split_pdf', 'edit_pdf_pages', 'studio_generate_image', 'studio_generate_video', 'studio_generate_sound', 'studio_bulk_generate'].includes(tool.name)) {
+  if (['write', 'edit', 'edit_file', 'create_excalidraw_scene', 'edit_excalidraw_scene', 'apply_patch', 'copy_path', 'move_path', 'delete_path', 'restore_file_snapshot', 'create_file', 'delete_file', 'create_pdf', 'pdf_to_markdown', 'split_pdf', 'edit_pdf_pages', 'studio_generate_image', 'studio_generate_video', 'studio_generate_sound', 'studio_bulk_generate'].includes(tool.name)) {
     notes.push('May write files or create generated media.');
   }
   if (['write', 'edit_file', 'apply_patch', 'restore_file_snapshot'].includes(tool.name)) {
     notes.push('Creates an undo snapshot and returns a diff when it changes a file.');
   }
   if (tool.name === 'edit_excalidraw_scene') {
-    notes.push('Mutates authoritative Excalidraw elements with optimistic version checks; conflicts require human review.');
+    notes.push('Mutates authoritative Excalidraw elements with optimistic version checks. Target conflicts leave changes unapplied; reread the scene before retrying. Human Accept/Reject requires the experimental Review Center, which is disabled by default.');
+  }
+  if (['create_excalidraw_scene', 'get_excalidraw_scene', 'edit_excalidraw_scene'].includes(tool.name)) {
+    notes.push('Requires current access to the workspace bound to the agent session and PostgreSQL. Returns document identity, scene sequence, checkpoint status and a document link.');
+  }
+  if (tool.name === 'create_excalidraw_scene') {
+    notes.push('Creates a distinct document without an editor; an existing file is never replaced. Retrying the same key returns the same identity.');
   }
   if (['copy_path', 'move_path', 'delete_path'].includes(tool.name)) {
     notes.push('Does not snapshot file contents; intended for bulk path operations with clear UI reporting.');
