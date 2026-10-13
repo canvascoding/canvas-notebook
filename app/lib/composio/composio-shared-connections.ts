@@ -215,7 +215,7 @@ export async function bindSharedComposioConnectionAccount(actor: IntegrationConn
 }
 
 export async function connectSharedComposioConnection(actor: IntegrationConnectionActor, connectionRef: string,
-  input: { revisions: IntegrationConnectionRevisions; returnPath?: string | null; returnLocale?: 'de' | 'en' }) {
+  input: { revisions: IntegrationConnectionRevisions; returnPath?: string | null; returnLocale?: 'de' | 'en'; catalogReturnPath?: string }) {
   return withAuthorizedIntegrationConnection(actor, connectionRef, 'manage', input.revisions, async (auth, database) => {
     const context = await resolveAuthorizedComposioConnectionContext(auth, database);
     const binding = backend(context);
@@ -226,7 +226,8 @@ export async function connectSharedComposioConnection(actor: IntegrationConnecti
       await publishIntegrationConnectionBinding(actor, connectionRef, input.revisions, { ...binding, accountBinding: 'no_auth', connectedAccountId: null });
       return { redirectUrl: null, noAuth: true };
     }
-    const flow = await createSharedComposioOAuthFlowState({ context: prepared.context, credentialRevision: prepared.credentialRevision, returnPath }, database);
+    const flow = await createSharedComposioOAuthFlowState({ context: prepared.context, credentialRevision: prepared.credentialRevision, returnPath,
+      returnLocale: input.returnLocale, catalogReturnPath: input.catalogReturnPath }, database);
     const linked = await linkPreparedSharedComposioOAuthProvider(prepared, flow.callbackUrl, { database });
     await bindSharedComposioOAuthPendingAccount(flow.state, linked.pendingAccountId, database);
     return { redirectUrl: linked.redirectUrl, flowId: flow.state, expiresAt: new Date(flow.expiresAt).toISOString() };

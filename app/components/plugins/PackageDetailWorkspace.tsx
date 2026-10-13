@@ -13,7 +13,7 @@ import { InlineNotice } from '@/components/ui/inline-notice';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { ResourceManagementSection } from './ResourceManagementSection';
 import { PackageEditorSection } from './PackageEditorSection';
-import { SharedConnectionsSection } from './SharedConnectionsSection';
+import { PackageRequirementsSetup } from './PackageRequirementsSetup';
 import { PackageDetailPresentation } from './PackageDetailPresentation';
 import { PackageDetailVersions } from './PackageDetailVersions';
 import { PackageWorkspaceRequestError, workspaceRequest } from './plugin-workspace-client';
@@ -108,7 +108,6 @@ function PackageDetailSession({ resourceRef, workspaceId, task, file, store, onN
   const description = resource?.metadata.description ?? presentation?.description ?? resource?.description ?? '';
   const displayVersion = presentation?.version || resource?.artifact.version || '';
   const ownership = resource?.metadata.ownership;
-  const sharedOwnership = ownership?.type === 'organization' || ownership?.type === 'team' ? ownership : undefined;
   const scope = ownership ? t(`scopes.${ownership.type}`) : '';
   const ownerLabel = resource?.ownershipLabel || (ownership?.type === 'user' ? resource?.people?.owner?.name : '') || scope;
   const parentRef = resource?.metadata.sourcePluginId && isPluginNavigationResourceRef(resource.metadata.sourcePluginId) ? resource.metadata.sourcePluginId : null;
@@ -181,10 +180,11 @@ function PackageDetailSession({ resourceRef, workspaceId, task, file, store, onN
               </section> : null}
             </TabsContent> : null}
             {task === 'connections' ? <TabsContent value="connections" className="space-y-6" data-testid="package-detail-connections">
-              {presentation ? <PackageDetailPresentation presentation={presentation} /> : null}
               <InlineNotice size="compact">{t('accountRightsHint')}</InlineNotice>
-              <SharedConnectionsSection workspaceId={workspaceId} ownership={sharedOwnership} initiallyOpen />
-              <Button variant="outline" className="h-auto min-h-11 whitespace-normal" onClick={advanced}>{t('personalConnections')}</Button>
+              {presentation ? <PackageRequirementsSetup presentation={presentation} workspaceId={workspaceId}
+                returnPath={typeof window !== 'undefined' ? window.location.pathname + window.location.search : `/${locale}/plugins?view=browse&resourceRef=${encodeURIComponent(resource.metadata.resourceRef)}&task=connections`}
+                onUpdated={onUpdated} /> : null}
+              {presentation ? <details><summary className="cursor-pointer text-sm font-medium">{t('advancedTitle')}</summary><div className="mt-4"><PackageDetailPresentation presentation={presentation} /></div></details> : null}
             </TabsContent> : null}
             {task === 'sharing' ? <TabsContent value="sharing"><ResourceManagementSection resourceRef={resource.metadata.resourceRef} workspaceId={workspaceId} onUpdated={refresh} /></TabsContent> : null}
             {task === 'content' ? <TabsContent value="content"><PackageEditorSection resourceRef={resource.metadata.resourceRef} workspaceId={workspaceId} initialFile={file} initiallyOpen onUpdated={refresh} /></TabsContent> : null}

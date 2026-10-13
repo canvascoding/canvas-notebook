@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { ArrowLeft, Building2, CircleUserRound, Loader2, RefreshCw, Search, UsersRound } from 'lucide-react';
 import type { PluginNavigation, PluginManagementScope } from '@/app/lib/plugins/plugin-navigation';
@@ -8,6 +8,7 @@ import type { PluginWorkspaceCatalogItem } from '@/app/lib/plugins/plugin-worksp
 import type { CapabilityPackageStoreApplicationResult, CapabilityPackageStoreSelection } from '@/app/lib/capabilities/packages/store-contracts';
 import type { CapabilityResourceOwnerScope } from '@/app/lib/capabilities/resources/contracts';
 import { useWorkspaceStore } from '@/app/store/workspace-store';
+import { authClient } from '@/app/lib/auth-client';
 import { Link } from '@/i18n/navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -24,19 +25,30 @@ import { PackageDetailWorkspace } from './PackageDetailWorkspace';
 import { StorePackageWizard } from './StorePackageWizard';
 import { PackageDraftsWorkspace } from './PackageDraftsWorkspace';
 import { SharedConnectionsSection } from './SharedConnectionsSection';
+import { PluginExtensionWorkspace } from './PluginExtensionWorkspace';
 
 const clearDetail = { plugin: undefined, skill: undefined, source: undefined, resourceId: undefined, resourceRef: undefined,
   draftRef: undefined, task: undefined, file: undefined, storeRegistryId: undefined, storeVersion: undefined, storeChecksum: undefined } satisfies Partial<PluginNavigation>;
 const primaryScopes = ['user', 'team', 'organization'] as const;
 
 export function PluginWorkspace(_props: { canManageOrganizationCapabilities: boolean }) {
-  const { navigation } = usePluginNavigation();
+  const { navigation, navigate } = usePluginNavigation();
+  const { data: session, isPending, error } = authClient.useSession();
   const activeWorkspaceId = useWorkspaceStore(state => state.activeWorkspaceId);
   const initialized = useWorkspaceStore(state => state.initialized);
   const t = useTranslations('skills.workspace.shell');
   const workspaceId = navigation.workspaceId ?? activeWorkspaceId;
-  if (!initialized || !workspaceId) return <p className="flex items-center gap-2 py-12 text-sm text-muted-foreground" role="status"><Loader2 className="size-4 animate-spin" />{t('loading')}</p>;
-  return <PluginWorkspaceSession key={workspaceId} workspaceId={workspaceId} />;
+  const legacyList = ['installed', 'discover', 'library'].includes(navigation.view)
+    && !navigation.resourceRef && !navigation.resourceId && !navigation.plugin && !navigation.skill && !navigation.draftRef
+    && !navigation.extensionId && !navigation.setup;
+  useEffect(() => {
+    if (legacyList) navigate({ view: 'browse', stock: navigation.view === 'installed' ? 'installed' : 'available',
+      kind: navigation.kind ?? (navigation.area === 'skills' ? 'skill' : 'all') }, { replace: true });
+  }, [legacyList, navigation.view, navigation.kind, navigation.area, navigate]);
+  if (!initialized || !workspaceId || isPending || legacyList) return <p className="flex items-center gap-2 py-12 text-sm text-muted-foreground" role="status"><Loader2 className="size-4 animate-spin" />{t('loading')}</p>;
+  if (!session || error) return <InlineNotice size="compact">{t('accessError')}</InlineNotice>;
+  const sessionKey = JSON.stringify([workspaceId, session.user.id, session.session.id]);
+  return navigation.view === 'browse' ? <PluginExtensionWorkspace key={sessionKey} workspaceId={workspaceId} /> : <PluginWorkspaceSession key={sessionKey} workspaceId={workspaceId} />;
 }
 
 /** Every read and action uses this explicit browsing workspace; URL selection grants no authority. */
@@ -50,7 +62,7 @@ function PluginWorkspaceSession({ workspaceId }: { workspaceId: string }) {
   const legacy = useLegacyPluginWorkspaceSelection(navigation, workspaceId);
   const resourceRef = navigation.resourceRef ?? legacy?.resourceRef ?? undefined;
   const data = usePluginWorkspaceData({ navigation: resourceRef && !navigation.resourceRef ? { ...navigation, resourceRef } : navigation, workspaceId, epoch });
-  const kind = navigation.kind ?? (navigation.area === 'skills' ? 'skill' : 'all');
+  const kind = navigation.kind === 'plugin' || navigation.kind === 'skill' || navigation.kind === 'all' ? navigation.kind : navigation.area === 'skills' ? 'skill' : 'all';
   const view = navigation.view === 'library' || navigation.view === 'discover' ? 'store' : navigation.view;
   const selectionKey = JSON.stringify([workspaceId, navigation.scope, navigation.teamId, navigation.audience, resourceRef]);
   const selection = useRef(selectionKey);

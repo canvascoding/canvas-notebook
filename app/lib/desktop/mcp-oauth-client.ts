@@ -60,7 +60,12 @@ export async function startMcpAuthorization(server: string): Promise<McpAuthoriz
     if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password) throw new McpAuthorizationError('authorization_failed', 'Invalid authorization URL.');
     const deadline = typeof expiresAt === 'number' ? expiresAt : typeof expiresAt === 'string' ? Date.parse(expiresAt) : Date.now() + 10 * 60_000;
     if (!Number.isFinite(deadline) || deadline <= Date.now()) throw new McpAuthorizationError('authorization_expired', 'Authorization expired. Try connecting again.');
-    flow = { server, state, desktop, expiresAt: deadline };
+    const confirmedServer = payload.data?.server;
+    if (confirmedServer !== undefined && (typeof confirmedServer !== 'string' || !confirmedServer || confirmedServer.length > 256
+      || confirmedServer !== confirmedServer.trim() || /[\u0000-\u001f\u007f]/u.test(confirmedServer))) {
+      throw new McpAuthorizationError('authorization_failed', 'Invalid authorization server identity.');
+    }
+    flow = { server: confirmedServer || server, state, desktop, expiresAt: deadline };
     if (desktop) {
       const opened = await bridge!.openMcpOAuth!({ state, authorizationUrl: url.toString() });
       if (!opened.ok) throw new McpAuthorizationError('external_browser_failed', opened.error || 'Could not open the system browser.');

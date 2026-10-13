@@ -36,32 +36,39 @@ type SharedDesktopFlow = { source: 'mcp'; flow: SharedMcpAuthorizationFlow }
 type SharedDesktopOutcome = { source: 'mcp'; result: SharedMcpAuthorizationSummary }
   | { source: 'composio'; result: SharedComposioAuthorizationSummary };
 
-export function SharedConnectionCreateForm({ api, scopes, onSaved }: {
-  api: SharedConnectionApi; scopes: IntegrationConnectionScopeChoice[]; onSaved: () => void;
+export function SharedConnectionCreateForm({ api, scopes, onSaved, onCreated, initialSource = 'mcp', initialToolkit = '', initialName = '', initialConfig, lockSource = false, compact = false }: {
+  api: SharedConnectionApi; scopes: IntegrationConnectionScopeChoice[]; onSaved: () => void; onCreated?: (connection: IntegrationConnectionDescriptor) => void;
+  initialSource?: 'mcp' | 'composio'; initialToolkit?: string; initialName?: string; initialConfig?: Record<string, unknown>; lockSource?: boolean; compact?: boolean;
 }) {
   const t = useTranslations('sharedConnections');
-  const [scopeIndex, setScopeIndex] = useState(0), [source, setSource] = useState<'mcp' | 'composio'>('mcp');
-  const [name, setName] = useState(''), [url, setUrl] = useState(''), [token, setToken] = useState(''), [oauth, setOAuth] = useState(false);
-  const [app, setApp] = useState(''), [profiles, setProfiles] = useState<Array<{ id: string; name: string; providerMode: string }>>([]);
+  const [scopeIndex, setScopeIndex] = useState(scopes.length === 1 ? 0 : -1), [source, setSource] = useState<'mcp' | 'composio'>(initialSource);
+  const [name, setName] = useState(initialName), [url, setUrl] = useState(typeof initialConfig?.url === 'string' ? initialConfig.url : ''), [token, setToken] = useState(''), [oauth, setOAuth] = useState(initialConfig?.auth === 'oauth');
+  const [app, setApp] = useState(initialToolkit), [profiles, setProfiles] = useState<Array<{ id: string; name: string; providerMode: string }>>([]);
   const [profileId, setProfileId] = useState(''), [profileName, setProfileName] = useState(''), [mode, setMode] = useState<'local' | 'managed'>('local');
   const [busy, setBusy] = useState(false), [loading, setLoading] = useState(false), [error, setError] = useState<string | null>(null);
+  const [completed, setCompleted] = useState<IntegrationConnectionDescriptor | null>(null), [profileTouched, setProfileTouched] = useState(false);
   const scope = scopes[scopeIndex], alive = useRef(true), request = useRef(0);
-  const dirty = scopeIndex !== 0 || source !== 'mcp' || mode !== 'local' || oauth
-    || [name, url, token, app, profileId, profileName].some(value => value !== '');
+  const dirty = !completed && (scopeIndex !== (scopes.length === 1 ? 0 : -1) || source !== initialSource || mode !== 'local'
+    || oauth !== (initialConfig?.auth === 'oauth') || name !== initialName || url !== (typeof initialConfig?.url === 'string' ? initialConfig.url : '')
+    || token !== '' || app !== initialToolkit || profileName !== '' || profileTouched);
   // Only the parent's actual API-write counter supplies pending authority; busy also covers OAuth redirects and reads.
   usePluginEditorNavigationGuard({ dirty, pending: false });
+  const reported = useRef(false);
+  useEffect(() => { if (completed && !busy && !reported.current) { reported.current = true; onCreated?.(completed); onSaved(); } }, [completed, busy, onCreated, onSaved]);
   useEffect(() => { alive.current = true; return () => { alive.current = false; request.current += 1; }; }, []);
   const loadProfiles = useCallback(async () => {
     const current = ++request.current;
     setProfiles([]); setProfileId(''); setLoading(true); setError(null);
+    if (!scope) { setLoading(false); return; }
     try {
       const result = await api<{ profiles: Array<{ id: string; name: string; providerMode: string }> }>(`/api/composio/shared-profiles?${scopeQuery(scope)}`);
-      if (alive.current && request.current === current) setProfiles(result.profiles);
+      if (alive.current && request.current === current) { setProfiles(result.profiles); if (result.profiles.length === 1) setProfileId(result.profiles[0].id); }
     } catch { if (alive.current && request.current === current) setError(t('loadError')); }
     finally { if (alive.current && request.current === current) setLoading(false); }
   }, [api, scope, t]);
   useEffect(() => { if (source === 'composio') queueMicrotask(() => void loadProfiles()); }, [source, loadProfiles]);
   async function createProfile() {
+    if (!scope) return;
     setBusy(true); setError(null);
     try {
       const result = await api<{ profile: { id: string; name: string; providerMode: string } }>('/api/composio/shared-profiles',
@@ -72,13 +79,14 @@ export function SharedConnectionCreateForm({ api, scopes, onSaved }: {
     finally { if (alive.current) setBusy(false); }
   }
   async function create() {
+    if (!scope) return;
     setBusy(true); setError(null);
     try {
-      await api('/api/integrations/shared-connections', { displayName: name, ownership: choice(scope), source,
+      const result = await api<{connection: IntegrationConnectionDescriptor}>('/api/integrations/shared-connections', { displayName: name, ownership: choice(scope), source,
         ...(source === 'composio' ? { profileId, toolkit: app } : { config: { url, transport: 'http',
           ...(oauth ? { auth: 'oauth' } : {}), ...(token && !oauth ? { bearerTokenEnv: 'MCP_SLOT_TOKEN' } : {}) },
           secrets: token && !oauth ? [{ name: 'TOKEN', value: token }] : [] }) });
-      if (alive.current) { setToken(''); onSaved(); }
+      if (alive.current) { setToken(''); setCompleted(result.connection); }
     } catch (failure) { if (alive.current) setError(failure instanceof SharedConnectionRequestError && failure.code === 'setup_required'
       && profiles.find(profile => profile.id === profileId)?.providerMode === 'local' ? t('secretsRequired') : t('saveError')); }
     finally { if (alive.current) setBusy(false); }
@@ -86,10 +94,11 @@ export function SharedConnectionCreateForm({ api, scopes, onSaved }: {
   return <div className="space-y-4" data-testid="shared-connection-create-form">
     {error ? <InlineNotice variant="destructive" size="compact" actions={error === t('secretsRequired') ? <Link href="/settings?tab=secrets">{t('openSecrets')}</Link> : undefined}>{error}</InlineNotice> : null}
     <div className="grid gap-3 sm:grid-cols-2">
-      <div className="space-y-1"><Label htmlFor="shared-owner">{t('owner')}</Label><select id="shared-owner" className={selectClass} value={scopeIndex} disabled={busy} onChange={event => setScopeIndex(Number(event.target.value))}>
-        {scopes.map((entry, index) => <option key={index} value={index}>{entry.ownership.type === 'team' ? `${t('team')} · ${entry.label}` : t('organization')}</option>)}</select></div>
-      <div className="space-y-1"><Label htmlFor="shared-source">{t('source')}</Label><select id="shared-source" className={selectClass} value={source} disabled={busy} onChange={event => setSource(event.target.value as 'mcp' | 'composio')}>
-        <option value="mcp">{t('mcp')}</option><option value="composio">{t('composio')}</option></select></div>
+      <div className="space-y-1"><Label htmlFor="shared-owner">{t('owner')}</Label>{compact && scopes.length === 1 ? <p className="py-2 text-sm">{scopes[0].ownership.type === 'team' ? `${t('team')} · ${scopes[0].label}` : t('organization')}</p> : <select id="shared-owner" className={selectClass} value={scopeIndex} disabled={busy} onChange={event => setScopeIndex(Number(event.target.value))}>
+        <option value={-1}>{t('chooseTarget')}</option>
+        {scopes.map((entry, index) => <option key={index} value={index}>{entry.ownership.type === 'team' ? `${t('team')} · ${entry.label}` : t('organization')}</option>)}</select>}</div>
+      <div className="space-y-1"><Label htmlFor="shared-source">{t('source')}</Label>{lockSource || initialToolkit ? <p className="py-2 text-sm">{t(source)}</p> : <select id="shared-source" className={selectClass} value={source} disabled={busy || Boolean(initialToolkit)} onChange={event => setSource(event.target.value as 'mcp' | 'composio')}>
+        <option value="mcp">{t('mcp')}</option><option value="composio">{t('composio')}</option></select>}</div>
     </div>
     <div className="space-y-1"><Label htmlFor="shared-name">{t('name')}</Label><Input id="shared-name" value={name} maxLength={200} disabled={busy} onChange={event => setName(event.target.value)} /></div>
     {source === 'mcp' ? <>
@@ -97,25 +106,26 @@ export function SharedConnectionCreateForm({ api, scopes, onSaved }: {
       <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={oauth} disabled={busy} onChange={event => { setOAuth(event.target.checked); setToken(''); }} />{t('oauth')}</label>
       {!oauth ? <div className="space-y-1"><Label htmlFor="shared-token">{t('token')}</Label><Input id="shared-token" type="password" autoComplete="new-password" value={token} disabled={busy} onChange={event => setToken(event.target.value)} /><p className="text-xs text-muted-foreground">{t('tokenHint')}</p></div> : null}
     </> : <>
-      <div className="space-y-1"><Label htmlFor="shared-profile">{t('profile')}</Label><select id="shared-profile" className={selectClass} value={profileId} disabled={busy || loading} onChange={event => setProfileId(event.target.value)}>
-        <option value="">{t('chooseProfile')}</option>{profiles.map(profile => <option key={profile.id} value={profile.id}>{profile.name}</option>)}</select></div>
+      <div className="space-y-1"><Label htmlFor="shared-profile">{t('profile')}</Label>{compact && profiles.length === 1 ? <p className="py-2 text-sm">{profiles[0].name}</p> : <select id="shared-profile" className={selectClass} value={profileId} disabled={busy || loading} onChange={event => { setProfileId(event.target.value); setProfileTouched(true); }}>
+        <option value="">{t('chooseProfile')}</option>{profiles.map(profile => <option key={profile.id} value={profile.id}>{profile.name}</option>)}</select>}</div>
       <details className="rounded-lg border p-3"><summary className="cursor-pointer text-sm font-medium">{t('newProfile')}</summary><div className="mt-3 space-y-3">
         <Label htmlFor="shared-profile-name">{t('profileName')}</Label><Input id="shared-profile-name" value={profileName} maxLength={80} disabled={busy || loading} onChange={event => setProfileName(event.target.value)} />
         <Label htmlFor="shared-profile-mode">{t('accessSource')}</Label><select id="shared-profile-mode" className={selectClass} value={mode} disabled={busy} onChange={event => setMode(event.target.value as 'local' | 'managed')}>
           <option value="local">{t('localMode')}</option><option value="managed">{t('managedMode')}</option></select>
         <p className="text-xs text-muted-foreground">{t('profileHint')}</p><Button type="button" variant="outline" onClick={() => void createProfile()} disabled={busy || loading || !profileName.trim()}>{t('createProfile')}</Button>
       </div></details>
-      <div className="space-y-1"><Label htmlFor="shared-app">{t('app')}</Label><Input id="shared-app" value={app} maxLength={100} placeholder="canva" disabled={busy} onChange={event => setApp(event.target.value)} /></div>
+      <div className="space-y-1"><Label htmlFor="shared-app">{t('app')}</Label>{initialToolkit ? <p className="py-2 text-sm">{initialToolkit}</p> : <Input id="shared-app" value={app} maxLength={100} placeholder="canva" disabled={busy || Boolean(initialToolkit)} onChange={event => setApp(event.target.value)} />}</div>
     </>}
     <p className="text-xs leading-5 text-muted-foreground">{t('restrictedDefault')}</p>
-    <Button className="w-full sm:w-auto" onClick={() => void create()} disabled={busy || loading || !name.trim() || (source === 'mcp' ? !url.trim() : !profileId || !app.trim())}>{busy ? t('saving') : t('create')}</Button>
+    <Button className="w-full sm:w-auto" onClick={() => void create()} disabled={busy || loading || !scope || !name.trim() || (source === 'mcp' ? !url.trim() : !profileId || !app.trim())}>{busy ? t('saving') : t('create')}</Button>
   </div>;
 }
 
-export function SharedConnectionEditor({ api, initial, onSaved, returnLocale, returnStatus, workspaceId, isCurrentSession }: {
+export function SharedConnectionEditor({ api, initial, onSaved, returnLocale, returnStatus, returnPath, compact = false, allowAuthorization = true, workspaceId, isCurrentSession }: {
   workspaceId: string | null; isCurrentSession: (connectionRef: string) => boolean;
   api: SharedConnectionApi; initial: IntegrationConnectionDescriptor; onSaved: () => void;
   returnLocale?: 'de' | 'en'; returnStatus?: 'connected' | 'cancelled' | 'failed';
+  returnPath?: string; compact?: boolean; allowAuthorization?: boolean;
 }) {
   const t = useTranslations('sharedConnections');
   const [connection, setConnection] = useState(initial), [targets, setTargets] = useState(EMPTY_TARGETS);
@@ -306,7 +316,7 @@ export function SharedConnectionEditor({ api, initial, onSaved, returnLocale, re
         return;
       }
       const result = await api<{ redirectUrl?: string | null; authorizationUrl?: string }>(`${providerPath}/${connection.resource.source === 'mcp' ? 'oauth' : 'connect'}`,
-        { ...revisions(connection), ...(returnLocale ? { returnLocale } : {}) });
+        { ...revisions(connection), ...(returnLocale ? { returnLocale } : {}), ...(returnPath ? { catalogReturnPath: returnPath } : {}) });
       if (!alive.current || !isCurrentSession(initial.resource.connectionRef)) return;
       const redirect = result.authorizationUrl || result.redirectUrl;
       if (!redirect) { await load(); return; }
@@ -333,24 +343,28 @@ export function SharedConnectionEditor({ api, initial, onSaved, returnLocale, re
     {error ? <InlineNotice variant="destructive" size="compact" actions={error === t('secretsRequired') ? <Link href="/settings?tab=secrets" target="_blank" rel="noopener noreferrer">{t('openSecrets')}</Link> : undefined}>{error}</InlineNotice> : null}
     <Button size="sm" variant="outline" disabled={busy} onClick={reload} data-testid="shared-connection-editor-reload">{t('reload')}</Button>
     {connection.access.canManage ? <>
-      <details open={Boolean(returnStatus)} className="space-y-3 rounded-lg border p-3"><summary className="cursor-pointer text-sm font-medium">{t('accountSetup')}</summary>
+      <details open={compact || Boolean(returnStatus)} className="space-y-3 rounded-lg border p-3"><summary className="cursor-pointer text-sm font-medium">{t('accountSetup')}</summary>
         <div className="space-y-3 pt-3">
           <p className="text-xs text-muted-foreground">{t('accountHint')}</p>
-          <div className="flex flex-wrap gap-2"><Button size="sm" disabled={disabled} onClick={() => void authorize()}>{t('connect')}</Button>
+          <div className="flex flex-wrap gap-2">{allowAuthorization ? <Button size="sm" disabled={disabled} onClick={() => void authorize()} data-testid="shared-connection-authorize">{t('connect')}</Button> : connection.resource.source === 'composio' ? <Button size="sm" disabled={disabled} onClick={() => void run(async () => {
+              const value = await api<{noAuth?: boolean}>(`${providerPath}/connect`, revisions(connection));
+              if (value.noAuth !== true) throw new Error('authentication_mode_changed');
+              if (alive.current && isCurrentSession(initial.resource.connectionRef)) { await load(); onSaved(); }
+            })}>{t('saveSetup')}</Button> : null}
             <Button size="sm" variant="outline" disabled={disabled} onClick={() => void run(async () => {
               const result = await api<unknown>(`${providerPath}/${connection.resource.source === 'mcp' ? 'oauth' : 'status'}`);
               if (alive.current && isCurrentSession(initial.resource.connectionRef)) setStatus(t(isSharedConnectionConnected(connection.resource.source, result) ? 'connected' : 'connectionRequired'));
             })}>{t('checkStatus')}</Button>
-            <Button size="sm" variant="outline" disabled={disabled} onClick={() => void run(async () => {
+            {allowAuthorization ? <Button size="sm" variant="outline" disabled={disabled} onClick={() => void run(async () => {
               await api(`${providerPath}/${connection.resource.source === 'mcp' ? 'oauth' : 'disconnect'}`, revisions(connection), connection.resource.source === 'mcp' ? 'DELETE' : 'POST');
               if (alive.current && isCurrentSession(initial.resource.connectionRef)) await load();
-            })}>{t('disconnect')}</Button></div>
+            })}>{t('disconnect')}</Button> : null}</div>
           {status ? <p className="text-sm">{status}</p> : null}
           {desktopFlow ? <div className="flex flex-wrap gap-2">
             <Button size="sm" variant="outline" disabled={busy || desktopCancelling} onClick={() => void resumeDesktopFlow()} data-testid="shared-desktop-resume">{t('desktopCheck')}</Button>
             <Button size="sm" variant="outline" disabled={desktopCancelling} onClick={() => void cancelDesktopFlow()} data-testid="shared-desktop-cancel">{t('desktopCancel')}</Button>
           </div> : null}
-          {connection.resource.source === 'composio' ? <><Button size="sm" variant="outline" disabled={disabled} onClick={() => void loadAccounts()}>{t('loadAccounts')}</Button>
+          {connection.resource.source === 'composio' && allowAuthorization ? <><Button size="sm" variant="outline" disabled={disabled} onClick={() => void loadAccounts()}>{t('loadAccounts')}</Button>
             {accounts.length ? <div className="space-y-2"><Label htmlFor="shared-account">{t('account')}</Label><select id="shared-account" className={selectClass} value={accountRef} disabled={disabled} onChange={event => setAccountRef(event.target.value)}>
               <option value="">{t('chooseAccount')}</option>{accounts.map(account => <option key={account.accountRef} value={account.accountRef} disabled={!account.selectable}>{account.label}</option>)}</select>
               <Button size="sm" disabled={disabled || !accountRef} onClick={() => void run(async () => { await api(`${providerPath}/accounts`, { ...revisions(connection), accountRef }, 'PATCH'); if (alive.current && isCurrentSession(initial.resource.connectionRef)) await load(); })}>{t('bindAccount')}</Button></div> : null}</> : null}
@@ -365,7 +379,7 @@ export function SharedConnectionEditor({ api, initial, onSaved, returnLocale, re
           </div></details> : null}
         </div>
       </details>
-      <details className="space-y-3 rounded-lg border p-3" open><summary className="cursor-pointer text-sm font-medium">{t('metadataAndGrants')}</summary>
+      <details className="space-y-3 rounded-lg border p-3" open={!compact}><summary className="cursor-pointer text-sm font-medium">{t('metadataAndGrants')}</summary>
         <div className="space-y-4 pt-3">
           <div className="space-y-1"><Label htmlFor="shared-edit-name">{t('name')}</Label><Input id="shared-edit-name" value={name} maxLength={200} disabled={disabled} onChange={event => setName(event.target.value)} /></div>
           <div className="space-y-1"><Label htmlFor="shared-edit-description">{t('descriptionField')}</Label><Textarea id="shared-edit-description" value={description} maxLength={4096} disabled={disabled} onChange={event => setDescription(event.target.value)} /></div>

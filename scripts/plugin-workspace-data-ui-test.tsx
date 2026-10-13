@@ -129,7 +129,15 @@ async function main() {
     assert(screen.getByTestId('error').textContent?.includes('PLUGIN_CATALOG_TEAM_NOT_FOUND'));
     assert(!document.body.textContent?.includes('SECRET'));
     assert.equal(screen.getByTestId('store').textContent, '');
-    rendered.unmount(); assert.equal(pending.at(-1)?.signal?.aborted, true);
+    const beforeBrowse = pending.length;
+    navigation = { area: 'plugins', view: 'browse', scope: 'all', kind: 'integration' }; rendered.rerender(<App />);
+    assert.equal(screen.getByTestId('state').textContent, 'ready'); assert.equal(screen.getByTestId('store').textContent, '');
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 10)); });
+    assert.equal(pending.length, beforeBrowse, 'Common browsing does not duplicate its search with legacy package/Store requests.');
+    navigation = { ...navigation, resourceRef: 'canvas-resource:exact' }; rendered.rerender(<App />);
+    await waitFor(() => assert.equal(pending.length, beforeBrowse + 2));
+    assert.equal(pending[beforeBrowse].url.searchParams.has('kind'), false, 'A cross-kind browse detail reads package data without passing an integration kind to the legacy API.');
+    rendered.unmount(); assert(pending.slice(beforeBrowse).every(request => request.signal?.aborted));
     console.log('Plugin workspace data React PASS: selective GETs, immediate context/render fences, late-response denial, mixed kinds, update pagination, exact correlation and safe errors.');
   } finally { cleanup(); globalThis.fetch = originalFetch; dom.window.close(); }
 }
