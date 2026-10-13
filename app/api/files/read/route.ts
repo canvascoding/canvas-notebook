@@ -13,6 +13,8 @@ import { requireRequestWorkspace, workspaceFileOptions } from '@/app/lib/workspa
 import { collaborationCheckpointValidationFailure } from '@/app/lib/collaboration/checkpoint-errors';
 import { withNativeWorkspaceFileRead } from '@/app/lib/collaboration/workspace-native-file-read';
 import type { FileReadStats } from '@/app/lib/files/types';
+import { withWorkspaceMutationLock } from '@/app/lib/files/workspace-mutation-lock';
+import { WorkspaceDocumentCatalogueError } from '@/app/lib/collaboration/workspace-document-catalogue';
 
 const READ_SIZE_LIMIT = 5 * 1024 * 1024; // 5MB
 const EXCALIDRAW_READ_SIZE_LIMIT = 25 * 1024 * 1024; // embedded image data can make scenes larger
@@ -46,23 +48,14 @@ export async function GET(request: NextRequest) {
       );
     }
     
-    if (isDocxPath(path)) {
-      const snapshot = await readOfficeDocumentSnapshot(workspaceResult.workspace, path);
-      const metaOnly = searchParams.get('meta') === '1';
-      const editorCompatibility = metaOnly ? undefined : await assessDocxEditorCompatibility(snapshot.content);
-      return NextResponse.json({ success: true, data: {
-        ...snapshot, editorCompatibility, viewerUserId: workspaceResult.session.user.id,
-        workspaceId: workspaceResult.workspace.workspaceId,
-        content: metaOnly ? '' : `base64:${snapshot.content.toString('base64')}`,
-      } }, { headers: { 'Cache-Control': 'no-store' } });
-    }
+    const docx = isDocxPath(path);
     const sizeLimit = isExcalidrawFilePath(path) ? EXCALIDRAW_READ_SIZE_LIMIT : READ_SIZE_LIMIT;
     const metaOnly = searchParams.get('meta') === '1';
     const collaborationBootstrap = searchParams.get('collaborationBootstrap') === '1';
-    return await withNativeWorkspaceFileRead({ workspace: workspaceResult.workspace, path,
+    const read = () => withNativeWorkspaceFileRead({ workspace: workspaceResult.workspace, path,
       mode: metaOnly || collaborationBootstrap ? 'metadata' : 'export', maxBytes: sizeLimit }, async native => {
-      const collaboration = await readFileCollaborationState({ workspace: workspaceResult.workspace, path });
       if (native) {
+        const collaboration = await readFileCollaborationState({ workspace: workspaceResult.workspace, path });
         if (collaboration.document?.id !== native.documentId || collaboration.document.provider !== 'yjs') {
           throw Object.assign(new Error('The native document changed before its response.'), { status: 409 });
         }
@@ -80,6 +73,18 @@ export async function GET(request: NextRequest) {
             documentSequence: native.documentSequence, source: native.source },
         } }, { headers: { 'Cache-Control': 'no-store' } });
       }
+      if (docx && native === null) {
+        // Null is the reader's explicit pristine/unregistered result. Native
+        // conflicts and export failures never reach the Office publication read.
+        const snapshot = await readOfficeDocumentSnapshot(workspaceResult.workspace, path);
+        const editorCompatibility = metaOnly ? undefined : await assessDocxEditorCompatibility(snapshot.content);
+        return NextResponse.json({ success: true, data: {
+          ...snapshot, editorCompatibility, viewerUserId: workspaceResult.session.user.id,
+          workspaceId: workspaceResult.workspace.workspaceId,
+          content: metaOnly ? '' : `base64:${snapshot.content.toString('base64')}`,
+        } }, { headers: { 'Cache-Control': 'no-store' } });
+      }
+      const collaboration = await readFileCollaborationState({ workspace: workspaceResult.workspace, path });
       const stats = await getFileStats(path, fileOptions);
       if (metaOnly) {
         return NextResponse.json({ success: true, data: {
@@ -106,7 +111,13 @@ export async function GET(request: NextRequest) {
         revision, collaboration,
       } }, { headers: { 'Cache-Control': 'no-store' } });
     });
+    // Office snapshot recovery reenters this kernel mutex. Acquire it before
+    // the shared SQL read fence to preserve lifecycle writers' kernel→SQL order.
+    return await (docx ? withWorkspaceMutationLock(workspaceResult.workspace.workspaceId, read) : read());
   } catch (error) {
+    if (error instanceof WorkspaceDocumentCatalogueError) {
+      return NextResponse.json({ success: false, error: error.message }, { status: 409 });
+    }
     const validationFailure = collaborationCheckpointValidationFailure(error);
     if (validationFailure) {
       return NextResponse.json({ success: false, error: validationFailure.message,
