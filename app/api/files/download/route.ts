@@ -21,9 +21,13 @@ import {
   requireRequestWorkspace,
   workspaceFileOptions,
 } from '@/app/lib/workspaces/request';
+import { withNativeWorkspaceFileRead, type NativeWorkspaceFileRead } from '@/app/lib/collaboration/workspace-native-file-read';
+import { collaborationCheckpointValidationFailure } from '@/app/lib/collaboration/checkpoint-errors';
 
 const MAX_ZIP_DOWNLOAD_SIZE = 1024 * 1024 * 1024;
 const MAX_SINGLE_FILE_SIZE = 2 * 1024 * 1024 * 1024;
+// Native text is materialized from a validated snapshot, so its memory budget is separate from streamed binary files.
+const MAX_NATIVE_FILE_DOWNLOAD_SIZE = 64 * 1024 * 1024;
 const MAX_ZIP_ENTRY_COUNT = 10_000;
 const MAX_ZIP_DIRECTORY_DEPTH = 64;
 const DOWNLOAD_ARCHIVE_TTL_MS = 5 * 60_000;
@@ -337,36 +341,66 @@ export async function GET(request: NextRequest) {
   try {
     const isMultipleSelection = selectedPaths.length > 1;
     const effectiveFilePath = selectedPaths[0];
-    const stats = await getFileStats(effectiveFilePath, fileOptions);
-    if (isMultipleSelection || stats.isDirectory) {
-      const entries = await collectArchiveEntries(selectedPaths, fileOptions);
-      const fileName = isMultipleSelection
-        ? 'notebook-selection.zip'
-        : `${resolveDownloadName(effectiveFilePath)}.zip`;
-      return await createArchiveResponse(entries, fileName);
-    }
+    const download = async (native: NativeWorkspaceFileRead | null): Promise<NextResponse | (() => Promise<NextResponse>)> => {
+      if (native) {
+        if (!native.content) throw new DownloadPlanError('Native text export is unavailable', 409, 'NATIVE_EXPORT_UNAVAILABLE');
+        return new NextResponse(Readable.toWeb(Readable.from([native.content])) as ReadableStream<Uint8Array>, {
+          headers: {
+            'Content-Type': 'application/octet-stream',
+            'Content-Disposition': createAttachmentDisposition(resolveDownloadName(effectiveFilePath)),
+            'Content-Length': native.content.byteLength.toString(),
+          },
+        });
+      }
+      const stats = await getFileStats(effectiveFilePath, fileOptions);
+      if (isMultipleSelection || stats.isDirectory) {
+        // Archive materialization has its own namespace contract. Do not hold a
+        // single-file admission read transaction while streaming an entire ZIP.
+        return async () => {
+          const entries = await collectArchiveEntries(selectedPaths, fileOptions);
+          const fileName = isMultipleSelection
+            ? 'notebook-selection.zip'
+            : `${resolveDownloadName(effectiveFilePath)}.zip`;
+          return await createArchiveResponse(entries, fileName);
+        };
+      }
 
-    if (stats.size > MAX_SINGLE_FILE_SIZE) {
-      return NextResponse.json(
-        { success: false, error: 'File is too large to download (max 2GB)' },
-        { status: 413 },
-      );
-    }
+      if (stats.size > MAX_SINGLE_FILE_SIZE) {
+        return NextResponse.json(
+          { success: false, error: 'File is too large to download (max 2GB)' },
+          { status: 413 },
+        );
+      }
 
-    const { stream } = await createReadStream(effectiveFilePath, undefined, fileOptions);
-    return new NextResponse(Readable.toWeb(stream) as ReadableStream<Uint8Array>, {
-      headers: {
-        'Content-Type': 'application/octet-stream',
-        'Content-Disposition': createAttachmentDisposition(resolveDownloadName(effectiveFilePath)),
-        'Content-Length': stats.size.toString(),
-      },
-    });
+      const { stream } = await createReadStream(effectiveFilePath, undefined, fileOptions);
+      return new NextResponse(Readable.toWeb(stream) as ReadableStream<Uint8Array>, {
+        headers: {
+          'Content-Type': 'application/octet-stream',
+          'Content-Disposition': createAttachmentDisposition(resolveDownloadName(effectiveFilePath)),
+          'Content-Length': stats.size.toString(),
+        },
+      });
+    };
+    const response = !isMultipleSelection && effectiveFilePath !== '.'
+      ? await withNativeWorkspaceFileRead({ workspace, path: effectiveFilePath, mode: 'export', maxBytes: MAX_NATIVE_FILE_DOWNLOAD_SIZE }, download)
+      : await download(null);
+    return typeof response === 'function' ? await response() : response;
   } catch (error) {
     if (hasNodeErrorCode(error, ['ENOENT', 'ENOTDIR'])) {
       return NextResponse.json({ success: false, error: 'File not found' }, { status: 404 });
     }
     if (error instanceof DownloadPlanError) {
       return NextResponse.json({ success: false, error: error.message, code: error.code }, { status: error.status });
+    }
+    const nativeExportFailure = collaborationCheckpointValidationFailure(error);
+    if (nativeExportFailure) {
+      return NextResponse.json({ success: false, error: 'The native document cannot be exported losslessly.',
+        code: nativeExportFailure.code }, { status: nativeExportFailure.status });
+    }
+    if (error instanceof Error && 'status' in error && Number.isInteger(error.status)
+      && Number(error.status) >= 400 && Number(error.status) <= 599) {
+      return NextResponse.json({ success: false, error: error.message,
+        ...('code' in error && typeof error.code === 'string' ? { code: error.code } : {}) }, { status: Number(error.status) });
     }
 
     console.error('[API] File download error:', error);
