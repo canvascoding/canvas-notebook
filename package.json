@@ -662,6 +662,7 @@
     "test:files:owned-lifecycle-subwrite:postgres": "NODE_ENV=test CANVAS_MCP_DIRECT_ENABLED=false BETTER_AUTH_BASE_URL=https://canvas.test tsx --conditions react-server scripts/workspace-owned-lifecycle-subwrite-postgres-test.ts",
     "test:collaboration:native-session-reader:postgres": "NODE_ENV=test CANVAS_MCP_DIRECT_ENABLED=false BETTER_AUTH_BASE_URL=https://canvas.test tsx --conditions react-server scripts/native-session-state-reader-postgres-test.ts",
     "test:files:native-archive-snapshot": "NODE_ENV=test CANVAS_MCP_DIRECT_ENABLED=false BETTER_AUTH_BASE_URL=https://canvas.test tsx --conditions react-server --test scripts/archived-native-snapshot-test.ts",
+    "test:files:original-source": "NODE_ENV=test CANVAS_MCP_DIRECT_ENABLED=false BETTER_AUTH_BASE_URL=https://canvas.test tsx --conditions react-server --test scripts/workspace-original-file-source-test.ts scripts/workspace-source-authority-stage-test.ts",
     "test:files:native-restore:postgres": "NODE_ENV=test CANVAS_MCP_DIRECT_ENABLED=false BETTER_AUTH_BASE_URL=https://canvas.test tsx --conditions react-server scripts/native-file-operation-restore-postgres-test.ts",
     "test:collaboration:native-copy": "tsx --conditions react-server scripts/collaboration-native-copy-postgres-test.ts",
     "test:files:native-links": "tsx --conditions react-server scripts/workspace-native-links-test.ts && tsx --conditions react-server scripts/workspace-native-link-mutations-test.ts",

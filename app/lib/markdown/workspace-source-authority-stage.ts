@@ -1,6 +1,5 @@
 import 'server-only';
 
-import { constants, type Stats } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { openDb, type SqlConnection } from '../db';
@@ -8,6 +7,8 @@ import { loadCollaborationStateOnConnection } from '../collaboration/persistence
 import { collaborationAdmissionLockKey, isCanonicalAdmissionPath } from '../collaboration/room-admission-contract';
 import { readWorkspaceDocumentCatalogue } from '../collaboration/workspace-document-catalogue';
 import { isInternalWorkspaceStagingPath } from '../files/internal-staging-path';
+import { assertWorkspaceOriginalPathCurrent, readWorkspaceOriginalFileSource, WorkspaceOriginalFileSourceError,
+  type WorkspaceOriginalPathObservation, type WorkspaceOriginalRootObservation } from '../files/workspace-original-file-source';
 import { filesystemFileVersion } from '../filesystem/file-version';
 import { assertWorkspacePathHasNoAliases } from '../workspaces/path-guard';
 import type { WorkspaceContext } from '../workspaces/types';
@@ -35,47 +36,6 @@ class PhysicalStageConflict extends Error {
   constructor(readonly code: string, readonly filePath: string) { super(code); }
 }
 const fail = (code: string, filePath: string): never => { throw new PhysicalStageConflict(code, filePath); };
-type ObservedPath = { relativePath: string; stat: Stats; identity: string };
-type ObservedRoot = ObservedPath & { entries: Map<string, ObservedPath> };
-
-async function verifyObservedPath(workspace: WorkspaceContext, root: ObservedRoot, observed: ObservedPath): Promise<void> {
-  if (await fs.realpath(workspace.rootPath) !== root.relativePath
-    || filesystemFileVersion(await fs.stat(root.relativePath)) !== root.identity) fail('physical-scope-changed', observed.relativePath);
-  await assertWorkspacePathHasNoAliases(workspace, observed.relativePath, { readOnly: true });
-  let relativePath = '';
-  for (const segment of observed.relativePath.split('/')) {
-    relativePath = relativePath ? `${relativePath}/${segment}` : segment;
-    const captured = root.entries.get(relativePath);
-    const stat = await fs.lstat(path.join(root.relativePath, relativePath));
-    if (!captured || stat.isSymbolicLink() || filesystemFileVersion(stat) !== captured.identity
-      || relativePath !== observed.relativePath && !stat.isDirectory()) fail('physical-source-changed', observed.relativePath);
-  }
-}
-async function readObservedOriginal(workspace: WorkspaceContext, root: ObservedRoot, observed: ObservedPath,
-  maxBytes: number, verifyAuthority: () => Promise<void>, afterFingerprint?: Dependencies['afterSourceFingerprint']): Promise<Uint8Array> {
-  if (!observed.stat.isFile() || observed.stat.nlink !== 1) return fail('unsafe-physical-source', observed.relativePath);
-  if (observed.stat.size > maxBytes) return fail('source-too-large', observed.relativePath);
-  await afterFingerprint?.(observed.relativePath);
-  await verifyObservedPath(workspace, root, observed);
-  await verifyAuthority();
-  await verifyObservedPath(workspace, root, observed);
-  const handle = await fs.open(path.join(root.relativePath, observed.relativePath), constants.O_RDONLY | constants.O_NOFOLLOW);
-  try {
-    if (filesystemFileVersion(await handle.stat()) !== observed.identity) return fail('physical-source-changed', observed.relativePath);
-    await verifyObservedPath(workspace, root, observed);
-    // Never allocate from a racing enlarged file or retain a 4 MiB backing
-    // buffer for every tiny source. One extra byte detects unexpected growth.
-    const buffer = Buffer.alloc(Math.min(observed.stat.size, maxBytes) + 1); let used = 0;
-    while (used < buffer.length) {
-      const { bytesRead } = await handle.read(buffer, used, buffer.length - used, used);
-      if (!bytesRead) break;
-      used += bytesRead;
-    }
-    if (used > maxBytes || used !== observed.stat.size || filesystemFileVersion(await handle.stat()) !== observed.identity) return fail('physical-source-changed', observed.relativePath);
-    await verifyObservedPath(workspace, root, observed);
-    return Uint8Array.from(buffer.subarray(0, used));
-  } finally { await handle.close(); }
-}
 
 /** Private, bounded original-byte stage. The shared workspace admission fence
  * covers catalogue classification, filesystem inventory, every read and final
@@ -92,7 +52,7 @@ export async function stageWorkspaceLinkSourceAuthority(workspace: WorkspaceCont
   const limits = { ...DEFAULT_LIMITS, ...dependencies.limits };
   if (Object.entries(limits).some(([key, value]) => !Number.isSafeInteger(value) || value < 1 || value > DEFAULT_LIMITS[key as keyof Limits])) throw new Error('Invalid physical source staging limit.');
   const sources: WorkspaceSourceAuthorityStage['sources'] = []; const namespace = new Map<string, NativeNamespaceEntry>();
-  const gaps: PhysicalSourceGap[] = []; const excludedPaths: string[] = []; const observed: ObservedPath[] = [];
+  const gaps: PhysicalSourceGap[] = []; const excludedPaths: string[] = []; const observed: WorkspaceOriginalPathObservation[] = [];
   let catalogueProof: string | null = null; let connection: SqlConnection | undefined; let transaction = false; let discard: Error | undefined;
   const gap = (code: string, filePath: string) => gaps.push({ code, path: filePath });
   let totalBytes = 0; let totalLinks = 0;
@@ -113,7 +73,8 @@ export async function stageWorkspaceLinkSourceAuthority(workspace: WorkspaceCont
     };
     const realRoot = await fs.realpath(workspace.rootPath); const rootStat = await fs.stat(realRoot);
     if (!rootStat.isDirectory()) fail('invalid-workspace-root', '');
-    const root: ObservedRoot = { relativePath: realRoot, stat: rootStat, identity: filesystemFileVersion(rootStat), entries: new Map() };
+    const entries = new Map<string, WorkspaceOriginalPathObservation>();
+    const root: WorkspaceOriginalRootObservation = { resolvedRootPath: realRoot, identity: filesystemFileVersion(rootStat), entries };
     const pending = [{ relativePath: '', depth: 0 }];
     while (pending.length) {
       const directory = pending.pop()!;
@@ -127,7 +88,7 @@ export async function stageWorkspaceLinkSourceAuthority(workspace: WorkspaceCont
         await assertWorkspacePathHasNoAliases(workspace, relativePath, { readOnly: true });
         const stat = await fs.lstat(path.join(realRoot, relativePath));
         if (stat.isSymbolicLink() || !stat.isDirectory() && !stat.isFile()) { gap('unsafe-physical-source', relativePath); continue; }
-        const item = { relativePath, stat, identity: filesystemFileVersion(stat) }; observed.push(item); root.entries.set(relativePath, item);
+        const item = { relativePath, stat, identity: filesystemFileVersion(stat) }; observed.push(item); entries.set(relativePath, item);
         namespace.set(relativePath, { workspaceId: workspace.workspaceId, path: relativePath, kind: stat.isDirectory() ? 'directory' : 'file',
           identity: item.identity, filesystemIdentity: item.identity, documentId: null, lifecycleGeneration: null });
         if (stat.isDirectory()) {
@@ -192,8 +153,9 @@ export async function stageWorkspaceLinkSourceAuthority(workspace: WorkspaceCont
         continue;
       }
       try {
-        const bytes = await readObservedOriginal(workspace, root, item, Math.min(limits.maxSourceBytes, limits.maxTotalSourceBytes - totalBytes),
-          () => verifyPhysicalAuthority(item.relativePath), dependencies.afterSourceFingerprint);
+        const bytes = await readWorkspaceOriginalFileSource({ configuredRootPath: workspace.rootPath, root, observed: item,
+          maxBytes: Math.min(limits.maxSourceBytes, limits.maxTotalSourceBytes - totalBytes),
+          verifyCurrentSource: () => verifyPhysicalAuthority(item.relativePath), afterSourceFingerprint: dependencies.afterSourceFingerprint });
         totalBytes += bytes.length;
         const authority = document ? { kind: 'registered-never-initialized' as const, catalogueProof,
           registeredDocumentId: document.id, lineageId: document.lineage_id } : { kind: 'unregistered' as const, catalogueProof };
@@ -202,7 +164,7 @@ export async function stageWorkspaceLinkSourceAuthority(workspace: WorkspaceCont
         totalLinks += inventory.links.length;
         if (totalLinks > limits.maxLinks) fail('source-link-limit', item.relativePath);
         sources.push({ kind: 'physical', inventory }); gaps.push(...inventory.coverage.gaps);
-      } catch (error) { if (error instanceof PhysicalStageConflict) gap(error.code, error.filePath); else gap('unreadable-physical-source', item.relativePath); }
+      } catch (error) { if (error instanceof PhysicalStageConflict || error instanceof WorkspaceOriginalFileSourceError) gap(error.code, error.filePath); else gap('unreadable-physical-source', item.relativePath); }
     }
     for (const document of catalogue) if (document.authority === 'pristine' && /\.(?:md|markdown|html?|mdx)$/iu.test(document.path) && !namespace.get(document.path)?.filesystemIdentity) gap('missing-physical-source', document.path);
     // READ COMMITTED gives a fresh catalogue while the SAME shared admission
@@ -213,11 +175,11 @@ export async function stageWorkspaceLinkSourceAuthority(workspace: WorkspaceCont
       if (!current || current.yjsState.length > limits.maxSourceBytes
         || nativeLinkJsonProof(inspectPersistedDocumentLinks(current)) !== nativeLinkJsonProof(source.inventory)) fail('native-source-changed', source.inventory.document.path);
     }
-    for (const item of observed) await verifyObservedPath(workspace, root, item);
+    for (const item of observed) await assertWorkspaceOriginalPathCurrent({ configuredRootPath: workspace.rootPath, root, observed: item });
     if (filesystemFileVersion(await fs.stat(realRoot)) !== root.identity || await fs.realpath(workspace.rootPath) !== realRoot) fail('physical-scope-changed', '');
     await connection.run('COMMIT'); transaction = false;
   } catch (error) {
-    if (error instanceof PhysicalStageConflict) gap(error.code, error.filePath); else gap('source-authority-unavailable', '');
+    if (error instanceof PhysicalStageConflict || error instanceof WorkspaceOriginalFileSourceError) gap(error.code, error.filePath); else gap('source-authority-unavailable', '');
     // Incoherent global authority/namespace observations cannot certify bytes.
     sources.length = 0;
   } finally {
