@@ -28,8 +28,13 @@ test('header focus and width retain the editable document, panels, undo and nati
       explorerWidth: 240, chatDocked: true, chatWidth: 360, terminalOpen: terminalEnabled }));
   }, { id: workspace.id, terminalEnabled });
   try {
-  await page.request.post('/api/files/create', { headers, data: { path, type: 'file' } });
-  const original = await (await page.request.get(`/api/mobile/v1/notebook/document?path=${path}`, { headers })).json();
+  const created = await page.request.post('/api/files/create', { headers, data: { path, type: 'file' } });
+  expect(created.ok(), `Focus fixture create returned HTTP ${created.status()}`).toBe(true);
+  const originalResponse = await page.request.get(`/api/mobile/v1/notebook/document?path=${path}`, { headers });
+  expect(originalResponse.ok(), `Focus fixture empty native document read returned HTTP ${originalResponse.status()}`).toBe(true);
+  const original = await originalResponse.json();
+  expect(original.success).toBe(true);
+  expect(original.document?.sha256).toMatch(/^[a-f\d]{64}$/u);
   const content = serializeRichMarkdownBody('# Width check\n\nFirst paragraph\n\n| One | Two | Three | Four | Five | Six | Seven | Last column |\n| :--- | :---: | ---: | --- | --- | --- | --- | --- |\n| A | B | C | D | E | F | G | Last value |');
   expect((await page.request.put('/api/mobile/v1/notebook/document', { headers, data: {
     path, content, expectedSha256: original.document.sha256, baseRevisionId: original.document.revisionId,
