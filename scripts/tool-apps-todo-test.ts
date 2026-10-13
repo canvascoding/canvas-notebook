@@ -16,6 +16,9 @@ const message = { role: 'toolResult', toolName: app.operation, toolCallId: app.t
 let stored: string | null = JSON.stringify(message);
 let allowed = true;
 let workspaceType = 'personal';
+let workspaceOrganizationId: string | null = null;
+let executionContext: { workspaceId: string; workspaceType: string; organizationId: string | null } | null = null;
+let updateCalls = 0;
 const todo = { id: app.entityId, title: '<script>not executable</script>', status: 'open', priority: 'high',
   category: { name: 'Review' }, assignee: { name: 'Person', email: 'private@example.test' },
   dueAt: new Date('2026-10-01T12:00:00Z'), updatedAt: new Date('2026-09-10T12:00:00Z'),
@@ -24,7 +27,7 @@ const todo = { id: app.entityId, title: '<script>not executable</script>', statu
 } as unknown as TodoWithRelations;
 const params: unknown[][] = [];
 const dialect = new PgDialect();
-const db = { query: { piSessions: { findFirst: async ({ where }: { where: Parameters<typeof dialect.sqlToQuery>[0] }) => {
+const db = { query: { session: { findFirst: async () => ({ expiresAt: new Date(Date.now() + 60_000) }) }, piSessions: { findFirst: async ({ where }: { where: Parameters<typeof dialect.sqlToQuery>[0] }) => {
   params.push(dialect.sqlToQuery(where).params); return { id: 12, workspaceId: 'workspace-1' };
 } } }, select: () => ({ from: () => ({ where: (where: Parameters<typeof dialect.sqlToQuery>[0]) => {
   params.push(dialect.sqlToQuery(where).params);
@@ -41,16 +44,20 @@ internals._load = (request, parent, isMain) => {
   if (request.includes('todos/store')) return {
     getTodo: async (userId: string, id: string) => { assert.equal(userId, chat.userId); assert.equal(id, todo.id); if (!allowed) throw new Error('forbidden'); return todo; },
     createTodo: async () => todo,
-    updateTodo: async (_user: string, id: string, input: { expectedUpdatedAt: Date }) => { assert.equal(id, todo.id); assert.equal(input.expectedUpdatedAt.toISOString(), todo.updatedAt.toISOString()); return todo; },
+    updateTodo: async (_user: string, id: string, input: { expectedUpdatedAt: Date }) => { updateCalls++; assert.equal(id, todo.id); assert.equal(input.expectedUpdatedAt.toISOString(), todo.updatedAt.toISOString()); return todo; },
   };
+  if (request.includes('agents/access')) return { requireAgentAccess: async () => undefined };
   if (request.includes('agents/registry')) return { normalizeManagedAgentId: (id: string) => id };
-  if (request.includes('agent-execution-context')) return { getAgentExecutionContext: () => null };
-  if (request.includes('session-workspace-context')) return { resolveAgentSessionWorkspaceForUser: async () => ({ workspaceId: 'workspace-1', workspaceType, organizationId: null }) };
+  if (request.includes('agent-execution-context')) return { getAgentExecutionContext: () => executionContext };
+  if (request.includes('session-workspace-context')) return { resolveAgentSessionWorkspaceForUser: async () => ({ workspaceId: 'workspace-1', workspaceType, organizationId: workspaceOrganizationId }) };
   if (request.includes('mcp/access')) return { McpAccessError: AccessError, mcpErrorStatus: (e: AccessError) => e.status || 500 };
-  if (request.includes('mcp/apps-config')) return { isMcpAppsEnabled: () => true, mcpAppOrigins: () => ({ appOrigin: 'http://localhost:3000' }) };
-  if (request.includes('mcp/apps-host')) return { issueBuiltinToolAppTicket: async () => { throw new Error('not a render test'); } };
+  if (request.includes('mcp/apps-config')) return { isMcpAppsEnabled: () => true,
+    mcpAppOrigins: () => ({ appOrigin: 'http://localhost:3000', frameOrigin: 'http://localhost:3000' }), isMcpAppFrameHost: () => true };
+  if (request.includes('mcp/manager')) return {};
+  if (request.includes('tool-apps/registry')) return { readBuiltinToolAppResource: async () => '<!doctype html><title>Todo</title>' };
   if (request.includes('utils/rate-limit')) return { rateLimit: () => ({ ok: true }) };
-  if (request === '@/app/lib/auth') return { auth: { api: { getSession: async () => ({ user: { id: chat.userId }, session: {} }) } } };
+  if (request === '@/app/lib/auth') return { auth: { api: { getSession: async () => ({ user: { id: chat.userId },
+    session: { id: 'login-1', expiresAt: new Date(Date.now() + 60_000) } }) } } };
   return originalLoad(request, parent, isMain);
 };
 
@@ -81,9 +88,13 @@ async function main() {
     todo.scopeKind = 'workspace'; todo.workspaceId = 'another-workspace';
     await assert.rejects(requireBuiltinToolAppAccess(chat, app), { status: 404 }); todo.workspaceId = 'workspace-1';
     await requireBuiltinToolAppAccess(chat, app);
+    workspaceOrganizationId = 'licensed-org';
+    assert.deepEqual(await requireBuiltinToolAppAccess(chat, app), presentTodoAppData(todo),
+      'A personal workspace-scoped todo has no organization, even when its chat has one');
     stored = null; await assert.rejects(requireBuiltinToolAppAccess(chat, app), { status: 425 });
     stored = JSON.stringify({ ...message, isError: true }); await assert.rejects(requireBuiltinToolAppAccess(chat, app), { status: 403 });
     const { createHumanTodoTool, createInspectHumanTodoTool, createUpdateHumanTodoTool } = await import('../app/lib/pi/human-todo-tool');
+    executionContext = { workspaceId: 'workspace-1', workspaceType: 'personal', organizationId: workspaceOrganizationId };
     for (const [tool, input] of [
       [createHumanTodoTool(chat), { title: 'Review', assigneeUserId: 'me' }],
       [createInspectHumanTodoTool(chat), { todoId: todo.id }],
@@ -92,7 +103,60 @@ async function main() {
       const result = await tool.execute('actual-call', input);
       assert.equal(readBuiltinToolAppMessage({ ...result, role: 'toolResult', toolName: tool.name, toolCallId: 'actual-call' })?.operation, tool.name);
     }
+    stored = JSON.stringify(message);
+    const inspectTool = createInspectHumanTodoTool(chat);
+    const updateTool = createUpdateHumanTodoTool(chat);
+    for (const type of ['personal', 'team', 'organization', 'project'] as const) {
+      todo.scopeKind = 'workspace'; todo.workspaceType = type; todo.workspaceId = 'workspace-1';
+      todo.organizationId = type === 'personal' ? null : 'licensed-org';
+      workspaceType = type;
+      executionContext = { workspaceId: 'workspace-1', workspaceType: type, organizationId: workspaceOrganizationId };
+      await requireBuiltinToolAppAccess(chat, app);
+      assert.equal((await inspectTool.execute('scope-inspect', { todoId: todo.id })).details?.error, undefined);
+      const successfulUpdate = await updateTool.execute('scope-update', { todoId: todo.id, expectedUpdatedAt: todo.updatedAt.toISOString(), title: 'Updated' });
+      assert.equal(successfulUpdate.details?.error, undefined);
+      const updatesBeforeDenial = updateCalls;
+      todo.workspaceId = 'another-workspace';
+      await assert.rejects(requireBuiltinToolAppAccess(chat, app), { status: 404 });
+      assert.match(String((await inspectTool.execute('scope-inspect-denied', { todoId: todo.id })).details?.error), /active workspace/);
+      assert.match(String((await updateTool.execute('scope-update-denied', { todoId: todo.id, expectedUpdatedAt: todo.updatedAt.toISOString(), title: 'Denied' })).details?.error), /active workspace/);
+      assert.equal(updateCalls, updatesBeforeDenial, 'A denied scope cannot reach the todo mutation');
+      todo.workspaceId = 'workspace-1';
+      if (type !== 'personal') {
+        todo.organizationId = 'foreign-org';
+        await assert.rejects(requireBuiltinToolAppAccess(chat, app), { status: 404 });
+        assert.match(String((await inspectTool.execute('organization-inspect-denied', { todoId: todo.id })).details?.error), /active workspace/);
+        assert.match(String((await updateTool.execute('organization-update-denied', { todoId: todo.id, expectedUpdatedAt: todo.updatedAt.toISOString(), title: 'Denied' })).details?.error), /active workspace/);
+        assert.equal(updateCalls, updatesBeforeDenial);
+      }
+    }
+    todo.workspaceType = 'personal'; todo.organizationId = null;
+    workspaceType = 'team';
+    executionContext = { workspaceId: 'workspace-1', workspaceType, organizationId: workspaceOrganizationId };
+    await assert.rejects(requireBuiltinToolAppAccess(chat, app), { status: 404 });
+    assert.match(String((await inspectTool.execute('workspace-type-inspect-denied', { todoId: todo.id })).details?.error), /active workspace/);
+    workspaceType = 'personal';
+    executionContext = { workspaceId: 'workspace-1', workspaceType, organizationId: workspaceOrganizationId };
     const { POST } = await import('../app/api/chat/tool-apps/route');
+    const { deliverMcpAppTicket } = await import('../app/lib/mcp/apps-host');
+    const widgetRequest = (action: 'render' | 'refresh') => new Request('http://localhost:3000/api/chat/tool-apps', {
+      method: 'POST', headers: { origin: 'http://localhost:3000', 'content-type': 'application/json' },
+      body: JSON.stringify({ action, app, sessionId: chat.sessionId, agentId: chat.agentId }),
+    }) as Parameters<typeof POST>[0];
+    const rendered = await POST(widgetRequest('render'));
+    assert.equal(rendered.status, 200, 'The render API accepts a personal todo in an organization-associated workspace');
+    const renderedBody = await rendered.json();
+    assert.deepEqual(renderedBody.data.result.structuredContent, presentTodoAppData(todo));
+    const frameUrl = renderedBody.data.frameUrl as string;
+    const ticket = frameUrl.split('/')[4];
+    assert.equal((await deliverMcpAppTicket(new Request(frameUrl), ticket, 'document')).status, 200);
+    assert.equal((await POST(widgetRequest('refresh'))).status, 200);
+    todo.workspaceId = 'another-workspace';
+    assert.equal((await POST(widgetRequest('render'))).status, 404);
+    assert.equal((await POST(widgetRequest('refresh'))).status, 404);
+    assert.equal((await deliverMcpAppTicket(new Request(frameUrl), ticket, 'document')).status, 404,
+      'Issued frames recheck the current todo scope');
+    todo.workspaceId = 'workspace-1';
     const request = new Request('http://localhost:3000/api/chat/tool-apps', { method: 'POST', headers: { origin: 'http://localhost:3000', 'content-type': 'application/json' },
       body: JSON.stringify({ action: 'status', app, ...chat, status: 'active', expectedRevision: 1, expectedUpdatedAt: todo.updatedAt.toISOString() }) });
     assert.equal((await POST(request as Parameters<typeof POST>[0])).status, 400, 'Todo cannot invoke automation actions');
