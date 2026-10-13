@@ -24,11 +24,12 @@ export type AgentWorkflowManagementDialogProps = {
   waitForPendingSave: (agentId: string) => Promise<void>;
   commit: (input: AgentWorkflowManagementSaveInput, captured: { context: AgentWorkflowManagementContext; selectionEpoch: number }) => Promise<AgentWorkflowManagementSaveResult>;
   onRestoreFocus?: () => void; onOpenNativeTools?: () => void;
+  onDraftStateChange?: (state: { dirty: boolean; pending: boolean }) => void;
 };
 type Confirmation = 'close' | 'reload' | 'clear' | 'rebuild' | 'tools';
 
 function ManagementSession({ open, onOpenChange, agentName, ownerUserId, context, selectionEpoch, waitForPendingSave, commit,
-  onRestoreFocus, onOpenNativeTools, saveBlocked = false }: AgentWorkflowManagementDialogProps) {
+  onRestoreFocus, onOpenNativeTools, onDraftStateChange, saveBlocked = false }: AgentWorkflowManagementDialogProps) {
   const t = useTranslations('agentWorkflowManagement');
   const [draft, setDraft] = useState<AgentWorkflowManagementDraft | null>(null);
   const [loading, setLoading] = useState(true), [saving, setSaving] = useState(false);
@@ -62,6 +63,10 @@ function ManagementSession({ open, onOpenChange, agentName, ownerUserId, context
     return () => { cancelled = true; mounted.current = false; generation.current += 1; controller.current?.abort(); };
   }, [load]);
   const dirty = Boolean(draft && isAgentWorkflowManagementDraftDirty(draft));
+  useEffect(() => {
+    onDraftStateChange?.({ dirty, pending: saving });
+    return () => onDraftStateChange?.({ dirty: false, pending: false });
+  }, [dirty, saving, onDraftStateChange]);
   useEffect(() => {
     if (!dirty && !saving) return;
     const prevent = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ''; };
