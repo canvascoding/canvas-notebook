@@ -18,6 +18,10 @@ import type { PersistedCollaborationState } from '../app/lib/collaboration/persi
 import type { WorkspaceContext } from '../app/lib/workspaces/types';
 import type * as Route from '../app/api/files/read/route';
 import { nativeTableWidthFixture } from './helpers/rich-markdown-projection-fixtures';
+import { withNativeWorkspaceFileRead } from '../app/lib/collaboration/workspace-native-file-read';
+import { COLLABORATION_SCHEMA_VERSION } from '../app/lib/collaboration/types';
+import type { SqlConnection } from '../app/lib/db';
+import type { WorkspaceDocumentCatalogueEntry } from '../app/lib/collaboration/workspace-document-catalogue';
 
 const hash = (bytes: Buffer) => createHash('sha256').update(bytes).digest('hex');
 const workspace: WorkspaceContext = {
@@ -55,7 +59,7 @@ function fixture() {
 function richFixture(doc: Y.Doc) {
   const initial = fixture();
   const state: PersistedCollaborationState = { ...initial.state, path: 'rich.md',
-    representation: 'tiptap_blocks', schemaVersion: 3,
+    representation: 'tiptap_blocks', schemaVersion: COLLABORATION_SCHEMA_VERSION,
     yjsState: Y.encodeStateAsUpdate(doc), stateVector: Y.encodeStateVector(doc) };
   const collaboration: FileCollaborationState = { ...initial.collaboration, path: state.path,
     document: { ...initial.collaboration.document!, path: state.path },
@@ -84,7 +88,7 @@ test('collaborative reads fail closed for foreign, archived, degraded or corrupt
 });
 
 async function harness() {
-  const controls = { ...fixture(), denied: false, metadata: false, bootstrap: false,
+  const controls = { ...fixture(), denied: false, metadata: false, bootstrap: false, pristine: false,
     state: fixture().state as PersistedCollaborationState | null, disk: Buffer.from('Price: 100 €\n') };
   const calls = { diskReads: 0, revisionWrites: 0, stateReads: 0 };
   const filename = path.resolve('app/api/files/read/route.ts');
@@ -100,7 +104,7 @@ async function harness() {
     '@/app/lib/files/revision-guard': { sha256Buffer: hash },
     '@/app/lib/files/collaboration-policy': {
       isDocxPath: () => false,
-      getFileCollaborationState: async () => controls.collaboration,
+      readFileCollaborationState: async () => controls.collaboration,
       ensureFileRevisionForCurrentContent: async (input: { contentHash: string }) => {
         calls.revisionWrites++; return { id: 'captured-noncollaborative-revision', contentHash: input.contentHash };
       },
@@ -112,8 +116,17 @@ async function harness() {
       requireRequestWorkspace: async () => controls.denied ? { response: new Response(null, { status: 403 }) }
         : { workspace, session: { user: { id: 'reviewer' } } }, workspaceFileOptions: () => ({}),
     },
-    '@/app/lib/collaboration/persistence': { loadCollaborationState: async () => { calls.stateReads++; return controls.state; } },
-    '@/app/lib/files/collaborative-read-snapshot': { collaborativeReadSnapshot },
+    '@/app/lib/collaboration/workspace-native-file-read': {
+      withNativeWorkspaceFileRead: <T>(input: Parameters<typeof withNativeWorkspaceFileRead>[0], consume: (native: import('../app/lib/collaboration/workspace-native-file-read').NativeWorkspaceFileRead | null) => Promise<T>) =>
+        withNativeWorkspaceFileRead(input, consume, {
+          openConnection: async () => ({ run: async () => {}, get: async () => undefined, all: async () => [], close: async () => {} } as SqlConnection),
+          readCatalogue: async () => controls.collaboration.document ? [{
+            id: controls.collaboration.document.id, path: controls.collaboration.path,
+            lifecycle_generation: 1, authority: controls.state ? 'initialized' : controls.pristine ? 'pristine' : 'missing-state',
+          } as WorkspaceDocumentCatalogueEntry] : [],
+          loadState: async () => { calls.stateReads++; return controls.state; },
+        }),
+    },
   };
   const route = {} as typeof Route;
   new Function('require', 'module', 'exports', source)(
@@ -159,9 +172,14 @@ test('a native-only rich document reopens through metadata and recovers without 
       h.controls.bootstrap = bootstrapRead;
       const recovered = await h.read(); assert.equal(recovered.status, 200);
       const recoveredData = (await recovered.json()).data;
-      assert.equal(recoveredData.contentUnavailable, undefined);
-      assert.match(recoveredData.content, /Neighbor/u);
-      assert.equal(recoveredData.stats.sha256, hash(Buffer.from(recoveredData.content)));
+      assert.equal(recoveredData.contentUnavailable, bootstrapRead);
+      if (bootstrapRead) {
+        assert.equal(recoveredData.content, ''); assert.equal(recoveredData.stats.size, null);
+        assert.equal(recoveredData.stats.sha256, undefined);
+      } else {
+        assert.match(recoveredData.content, /Neighbor/u);
+        assert.equal(recoveredData.stats.sha256, hash(Buffer.from(recoveredData.content)));
+      }
       assert.equal(recoveredData.revision, null, 'the old physical revision cannot certify the recovered native content');
       assert.deepEqual(h.controls.state, recoveredState);
     }
@@ -221,7 +239,18 @@ test('rich bootstrap remains closed for foreign identity, denied access, corrupt
         } finally { reopened.destroy(); }
         Object.assign(h.controls, richFixture(invalid)); h.controls.state!.representation = invalidCase.format;
         const before: PersistedCollaborationState | null = structuredClone(h.controls.state);
-        const response = await h.read(); assert.equal(response.status, 422, invalidCase.code);
+        const response = await h.read();
+        if (invalidCase.code === 'serialization_failed') {
+          assert.equal(response.status, 200, 'native-valid bootstrap must not depend on a Markdown serializer');
+          assert.equal((await response.json()).data.contentUnavailable, true);
+          h.controls.bootstrap = false;
+          const exportResponse = await h.read(); assert.equal(exportResponse.status, 422);
+          assert.equal((await exportResponse.json()).validationCode, invalidCase.code);
+          h.controls.bootstrap = true;
+          assert.deepEqual(h.controls.state, before);
+          continue;
+        }
+        assert.equal(response.status, 422, invalidCase.code);
         const failure = await response.json();
         assert.equal(failure.success, false); assert.equal(failure.code, invalidCase.publicCode);
         assert.equal(failure.validationCode, invalidCase.code); assert.equal(failure.data, undefined);
@@ -284,19 +313,23 @@ test('opening a lagging file projection never records old -> new -> old history'
   assert.equal(h.calls.revisionWrites, 0);
 });
 
-test('not-yet-joined Yjs files and metadata reads do not capture history; ordinary files still do', async () => {
+test('pristine and ordinary file reads create no native identity or revision; lost initialized state stays blocked', async () => {
   const h = await harness();
   h.controls.state = null;
+  assert.equal((await h.read()).status, 409, 'lost initialized native state cannot become a physical fallback');
+  assert.equal(h.calls.diskReads, 0);
+  h.controls.pristine = true;
+  h.controls.collaboration.document!.stateVersion = 0;
   assert.equal((await (await h.read()).json()).data.content, h.controls.disk.toString());
   assert.equal(h.calls.revisionWrites, 0);
   h.controls.metadata = true;
   assert.equal((await (await h.read()).json()).data.content, '');
-  assert.equal(h.calls.stateReads, 1);
+  assert.equal(h.calls.stateReads, 0);
   h.controls.metadata = false;
   h.controls.collaboration.document = null;
-  assert.equal((await (await h.read()).json()).data.revision.id, 'captured-noncollaborative-revision');
-  assert.equal(h.calls.revisionWrites, 1);
+  assert.equal((await (await h.read()).json()).data.revision, null, 'a stale revision cannot certify returned file bytes');
+  assert.equal(h.calls.revisionWrites, 0);
   h.controls.denied = true;
   assert.equal((await h.read()).status, 403);
-  assert.equal(h.calls.revisionWrites, 1);
+  assert.equal(h.calls.revisionWrites, 0);
 });
