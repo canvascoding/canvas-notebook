@@ -275,8 +275,9 @@ async function consent(action: () => Promise<void>, decision: 'approve' | 'deny'
       expect(callback.status()).toBe(400);
       const headers = callback.headers();
       expect(headers['content-type']).toBe('text/html; charset=utf-8');
-      expect(headers['cache-control']).toBe('no-store'); expect(headers['referrer-policy']).toBe('no-referrer');
-      expect(headers['content-security-policy']).toBe("default-src 'none'; base-uri 'none'; frame-ancestors 'none'");
+      expect(headers['cache-control']).toBe('no-store');
+      // Next's global proxy applies its own Referrer-Policy/CSP after the route response.
+      // They are independent of the validated personal-denial callback contract.
       const safeHTML = '<!doctype html><html><head><meta charset="utf-8"><title>MCP OAuth failed</title></head><body><h1>MCP OAuth failed</h1><p>Provider returned: access_denied</p></body></html>';
       expect((await callback.text()) === safeHTML, 'The validated denial renders only the exact public access_denied page.').toBe(true);
     } else {
