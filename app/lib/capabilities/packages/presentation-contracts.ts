@@ -7,6 +7,24 @@ export const CAPABILITY_PACKAGE_PRESENTATION_LIMITS = Object.freeze({
 });
 export const capabilityPackageStoreOfferingPresentationSchema = z.object({source: capabilityPackageStoreSelectionSchema}).strict();
 export type CapabilityPackagePresentationDeclaration = {kind: 'plugin' | 'skill'; name: string};
+/** Stable provider identities remain independent of translated display labels. */
+export type CapabilityPackageRequirementSelector =
+  | {source: 'mcp'; connector: string}
+  | {source: 'composio'; toolkit: string};
+
+export const capabilityPackageMcpTemplateQuerySchema = z.object({
+  connector: z.string().min(1).max(256).refine(value => value === value.trim() && !/[\u0000-\u001f\u007f]/u.test(value)),
+  expectedChecksum: z.string().regex(/^[a-f0-9]{64}$/u).optional(),
+}).strict();
+export type CapabilityPackageMcpTemplate = {
+  resourceRef: string;
+  declaredBy: CapabilityPackagePresentationDeclaration;
+  source: {resourceRef: string; version: string; checksum: string; artifactRevision: number | null};
+  connector: {name: string; label?: string; env?: string[]; oauth?: boolean};
+  /** Safe setup defaults only. Never source bytes, existing connection secrets or filesystem roots. */
+  config?: Record<string, unknown>;
+  redactedFields: string[];
+};
 export type CapabilityPackagePresentation = {
   schemaVersion: 1;
   origin: 'store' | 'installed';
@@ -20,9 +38,9 @@ export type CapabilityPackagePresentation = {
   source?: CapabilityPackageStoreSelection;
   children: Array<{name: string; title: string; description: string; version?: string}>;
   capabilities: Array<{declaredBy: CapabilityPackagePresentationDeclaration; id: string; application: string; required: boolean;
-    alternatives: Array<{source: 'mcp' | 'composio'; label: string}>}>;
+    alternatives: Array<{source: 'mcp' | 'composio'; label: string; selector?: CapabilityPackageRequirementSelector}>}>;
   requirements: Array<{declaredBy: CapabilityPackagePresentationDeclaration; source: 'mcp' | 'composio' | 'canvas-email';
-    label: string; required: boolean; recommended: boolean}>;
+    label: string; required: boolean; recommended: boolean; selector?: CapabilityPackageRequirementSelector}>;
   scripts: Array<{skillName: string; id: string; title: string; description?: string;
     runtime: {kind: 'node' | 'python'; minimumVersion?: string}}>;
   compatibility: string[];

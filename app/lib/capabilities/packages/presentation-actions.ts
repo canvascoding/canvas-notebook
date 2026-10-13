@@ -26,7 +26,10 @@ import { CapabilityPackageError } from './contracts';
 import { copyCapabilityPackageSourceWithReferences, readExactPackageInventory } from './io';
 import { assertCapabilityPackageArtifactCurrent, resolveCapabilityPackageArtifact, type ResolvedCapabilityPackageArtifact } from './artifacts';
 import { CAPABILITY_PACKAGE_PRESENTATION_LIMITS as limits, capabilityPackageStoreOfferingPresentationSchema,
+  capabilityPackageMcpTemplateQuerySchema, type CapabilityPackageMcpTemplate,
   type CapabilityPackagePresentation, type CapabilityPackagePresentationDeclaration } from './presentation-contracts';
+import { readPluginMcpTemplateFile } from '@/app/lib/plugins/plugin-mcp-template-service';
+import { projectCapabilityPackageMcpTemplateConfig } from './mcp-template-projection';
 
 const changed = () => new CapabilityPackageError('PACKAGE_SOURCE_CHANGED', 'The package source changed. Inspect it again.', 409);
 const invalid = () => new CapabilityPackageError('PACKAGE_INVALID', 'The package presentation is unavailable.', 400);
@@ -77,9 +80,10 @@ async function projectPresentation(kind: 'plugin' | 'skill', root: string, fallb
     const mcp = normalizeMcpConnectors(connectors);
     configurationKeys(mcp);
     for (const connector of mcp) result.requirements.push({declaredBy, source: 'mcp', label: boundedText(connector.label || connector.name, limits.title) || 'MCP',
-      required: connector.required === true, recommended: connector.recommended === true});
+      required: connector.required === true, recommended: connector.recommended === true, selector: {source: 'mcp', connector: connector.name}});
     for (const connector of normalizeComposioConnectors(connectors)) result.requirements.push({declaredBy, source: 'composio',
-      label: boundedText(connector.label || connector.toolkit, limits.title) || 'Composio', required: connector.required === true, recommended: connector.recommended === true});
+      label: boundedText(connector.label || connector.toolkit, limits.title) || 'Composio', required: connector.required === true, recommended: connector.recommended === true,
+      selector: {source: 'composio', toolkit: connector.toolkit}});
     for (const connector of normalizeEmailConnectors(connectors)) result.requirements.push({declaredBy, source: 'canvas-email',
       label: boundedText(connector.label, limits.title) || 'Canvas Email', required: connector.required === true, recommended: connector.recommended === true});
   };
@@ -88,7 +92,8 @@ async function projectPresentation(kind: 'plugin' | 'skill', root: string, fallb
     for (const capability of manifest?.integrationCapabilities ?? []) result.capabilities.push({declaredBy, id: capability.id,
       application: capability.application, required: capability.required,
       alternatives: capability.alternatives.map(alternative => ({source: alternative.source, label: boundedText(alternative.source === 'mcp'
-        ? connectors.find(connector => connector.name === alternative.connector)?.label || alternative.connector : alternative.toolkit, limits.title) || alternative.source}))});
+        ? connectors.find(connector => connector.name === alternative.connector)?.label || alternative.connector : alternative.toolkit, limits.title) || alternative.source,
+        selector: alternative.source === 'mcp' ? {source: 'mcp', connector: alternative.connector} : {source: 'composio', toolkit: alternative.toolkit}}))});
   };
   const skillDetails = async (skill: CanvasSkill, parentConnectors: readonly CanvasPluginMcpConnector[], standalone: boolean) => {
     const by = {kind: 'skill' as const, name: skill.name};
@@ -209,6 +214,68 @@ export async function inspectCapabilityPackagePresentationAction(actorInput: Cap
     if (containing && (await readExactPackageInventory(containing.packageRoot)).checksum !== containing.sourceStamp.checksum) throw changed();
     if (projected.name !== source.storage.name || (await readExactPackageInventory(source.packageRoot)).checksum !== source.sourceStamp.checksum) throw changed();
     return enforceBounds({...projected, resourceRef: authorization.record.metadata.resourceRef, readOnly: source.readOnly});
+  }, {parentStorage: parentBinding});
+  if (containing) await assertCapabilityPackageArtifactCurrent(actor, containing);
+  await assertCapabilityPackageArtifactCurrent(actor, source);
+  return result;
+}
+
+/** Read a declared setup template from the exact currently readable package; this creates no connection. */
+export async function inspectCapabilityPackageMcpTemplateAction(actorInput: CapabilityResourceActor, reference: string,
+  input: unknown): Promise<CapabilityPackageMcpTemplate> {
+  const actor = actorSnapshot(actorInput), resourceRef = capabilityPackageReferenceSchema.parse(reference);
+  const query = capabilityPackageMcpTemplateQuerySchema.parse(structuredClone(input));
+  const source = await resolveCapabilityPackageArtifact(actor, resourceRef);
+  if (query.expectedChecksum !== undefined && query.expectedChecksum !== source.sourceStamp.checksum) throw changed();
+  const parentBinding = parentStorage(source);
+  const containing = parentBinding ? await resolveCapabilityPackageArtifact(actor, source.sourceStamp.parentResourceRef || parentBinding.resourceId) : undefined;
+  if (containing && (containing.storage.resourceId !== parentBinding?.resourceId || containing.storage.resourceType !== 'plugin'
+    || containing.candidate.ref.revision !== source.candidates.find(candidate => candidate.ref.resourceId === parentBinding?.resourceId)?.ref.revision)) throw changed();
+  const templateSource = containing || source;
+  await assertCapabilityPackageArtifactCurrent(actor, source);
+  if (containing) await assertCapabilityPackageArtifactCurrent(actor, containing);
+  const result = await withAuthorizedCapabilityPackageResource(actor, source.storage, 'read', {
+    expectedMetadataRevision: source.descriptor.metadata.metadataRevision, expectedGrantsRevision: source.descriptor.metadata.grantsRevision,
+  }, async authorization => {
+    const projected = await withCapturedPresentation(templateSource, async root => {
+      let connectors: CanvasPluginMcpConnector[], declaredBy: CapabilityPackagePresentationDeclaration;
+      if (templateSource.storage.resourceType === 'plugin') {
+        const validated = await validateCanvasPluginPackage(root);
+        if (!validated.valid || !validated.manifest) throw invalid();
+        if (containing) {
+          const parsed = await parsePluginSkillsFromManifest(validated.manifest, root, validated.skillsDir);
+          if (parsed.errors.length || !parsed.skills.some(skill => skill.name === source.storage.name)) throw invalid();
+        }
+        connectors = normalizeMcpConnectors(validated.manifest.connectors);
+        declaredBy = {kind: 'plugin', name: validated.manifest.name};
+      } else {
+        const skill = await parseSkillFile(path.join(root, 'SKILL.md'));
+        if (!skill) throw invalid();
+        await validateStandaloneSkillWorkflow(skill);
+        connectors = (skill.workflow as SkillWorkflowManifestV1 | undefined)?.mcpConnectors?.map(connector => ({...connector,
+          env: connector.env ? [...connector.env] : undefined})) ?? [];
+        declaredBy = {kind: 'skill', name: skill.name};
+      }
+      const matching = connectors.filter(connector => connector.name === query.connector);
+      if (matching.length !== 1) throw new CapabilityPackageError('PACKAGE_NOT_FOUND', 'The declared MCP template was not found.', 404);
+      const connector = matching[0];
+      let defaults: Pick<CapabilityPackageMcpTemplate, 'config' | 'redactedFields'> = {redactedFields: []};
+      if (connector.configPath) {
+        let template;
+        try { template = await readPluginMcpTemplateFile({rootDir: root, configPath: connector.configPath}); }
+        catch { throw new CapabilityPackageError('PACKAGE_INVALID', 'The declared MCP template is unavailable.', 400); }
+        if (!template.config) throw new CapabilityPackageError('PACKAGE_INVALID', 'The declared MCP template is invalid.', 400);
+        defaults = projectCapabilityPackageMcpTemplateConfig(template.config, connector.name);
+      }
+      return {declaredBy, connector: {name: connector.name,
+        ...(connector.label ? {label: boundedText(connector.label, limits.title)} : {}),
+        ...(connector.env ? {env: connector.env.filter(key => envKey.test(key))} : {}),
+        ...(connector.oauth ? {oauth: true} : {})}, ...defaults};
+    });
+    if ((await readExactPackageInventory(templateSource.packageRoot)).checksum !== templateSource.sourceStamp.checksum) throw changed();
+    return {resourceRef: authorization.record.metadata.resourceRef,
+      source: {resourceRef: templateSource.descriptor.metadata.resourceRef, version: templateSource.sourceStamp.version,
+        checksum: templateSource.sourceStamp.checksum, artifactRevision: templateSource.sourceStamp.artifactRevision}, ...projected};
   }, {parentStorage: parentBinding});
   if (containing) await assertCapabilityPackageArtifactCurrent(actor, containing);
   await assertCapabilityPackageArtifactCurrent(actor, source);

@@ -29,7 +29,10 @@ async function main() {
       'skills/presentation-context/agents/canvas.yaml':'interface:\n  display_name: Presentation Context\nworkflow:\n  version: 1\n  integrationCapabilities:\n    - id: child-design\n      application: canva\n      alternatives:\n        - source: mcp\n          connector: design-server\n',
       'skills/presentation-context/.canvas-skill/runtime.json':script,
       'skills/presentation-context/scripts/main.cjs':`throw new Error('${secret}: script execution forbidden');\n`,
-      'config/mcp.json':JSON.stringify({mcpServers:{private:{url:'https://private.example.test/secret',headers:{Authorization:`Bearer ${secret}`}}}}),
+      'config/mcp.json':JSON.stringify({mcpServers:{'design-server':{url:'https://mcp.example.test/design',headers:{Authorization:`Bearer ${secret}`},
+        env:{CANVAS_TEST_KEY:secret,REFERENCED_KEY:'${CANVAS_TEST_KEY}'},cwd:fixture.root,
+        oauth:{clientSecret:secret,authorizationUrl:'https://oauth.example.test/authorize'}},
+        private:{url:'https://private.example.test/secret',headers:{Authorization:`Bearer ${secret}`}}}}),
       'README.md':secret,
     };
     const source = await registry.addPackage('application','plugin',name,'1.0.0',files,plugins.computeCanvasPluginChecksum);
@@ -41,7 +44,10 @@ async function main() {
     assert.equal(offered.name,name);assert.equal(offered.title,'Presentation Bundle');assert.equal(offered.version,'1.0.0');assert.equal(offered.license,'MIT');
     assert.deepEqual(offered.children.map(child=>child.name),['presentation-context']);
     assert.deepEqual(offered.requiredEnv,['CANVAS_TEST_KEY']);assert.equal(offered.requirements.find(requirement=>requirement.source==='composio')?.required,true);
-    assert.deepEqual(offered.capabilities[0].alternatives,[{source:'mcp',label:'Design MCP'},{source:'composio',label:'canva'}]);
+    assert.deepEqual(offered.capabilities[0].alternatives,[{source:'mcp',label:'Design MCP',selector:{source:'mcp',connector:'design-server'}},
+      {source:'composio',label:'canva',selector:{source:'composio',toolkit:'canva'}}]);
+    assert.deepEqual(offered.requirements.find(requirement=>requirement.source==='composio')?.selector,{source:'composio',toolkit:'canva'});
+    assert.deepEqual(offered.capabilities[1].alternatives[0].selector,{source:'mcp',connector:'design-server'});
     assert.equal(offered.capabilities[1].declaredBy.name,'presentation-context');assert.equal(offered.scripts[0].title,'Inspect layout');
     assert.deepEqual(offered.scripts[0].runtime,{kind:'node',minimumVersion:'22.0.0'});assert.deepEqual(offered.compatibility,['Requires Canvas and Node']);
     assert.deepEqual(await counts(),before,'Store inspection never installs/adopts/publishes');
@@ -67,7 +73,36 @@ async function main() {
     assert.equal(actualChild.capabilities.length,1,'parent workflow groups are not implicitly inherited by the child');
     assert.equal(actualChild.capabilities[0].declaredBy.name,'presentation-context');
     assert.deepEqual(actualChild.requiredEnv,['CANVAS_TEST_KEY']);
-    assert.deepEqual(actualChild.requirements.find(requirement=>requirement.source==='composio'),{declaredBy:{kind:'plugin',name},source:'composio',label:'Canva account',required:true,recommended:false});assertPublic(actualChild);
+    assert.deepEqual(actualChild.requirements.find(requirement=>requirement.source==='composio'),{declaredBy:{kind:'plugin',name},source:'composio',label:'Canva account',required:true,recommended:false,selector:{source:'composio',toolkit:'canva'}});assertPublic(actualChild);
+    const templateBefore=await counts();
+    const template=await presentation.inspectCapabilityPackageMcpTemplateAction(alice,installed.resource.resourceRef,{connector:'design-server'});
+    assert.equal(template.resourceRef,installed.resource.resourceRef);assert.equal(template.source.resourceRef,installed.resource.resourceRef);
+    assert.deepEqual(template.declaredBy,{kind:'plugin',name});assert.equal(template.connector.name,'design-server');
+    assert.equal(template.config?.url,'https://mcp.example.test/design');
+    assert.deepEqual(template.config?.env,{CANVAS_TEST_KEY:'',REFERENCED_KEY:'${CANVAS_TEST_KEY}'});
+    assert.deepEqual(template.config?.headers,{Authorization:''});assert.equal(template.config?.cwd,undefined);
+    assert.deepEqual(template.config?.oauth,{authorizationUrl:'https://oauth.example.test/authorize'});
+    assert(template.redactedFields.includes('oauth.clientSecret'));assert(template.redactedFields.includes('headers.Authorization'));
+    const templateBody=JSON.stringify(template);
+    for(const forbidden of [secret,fixture.root,'https://private.example.test','rawContent','configPath','packageRoot','storeOrigin']) assert(!templateBody.includes(forbidden),forbidden);
+    const childTemplate=await presentation.inspectCapabilityPackageMcpTemplateAction(alice,child.metadata.resourceRef,{connector:'design-server'});
+    assert.equal(childTemplate.resourceRef,child.metadata.resourceRef);assert.equal(childTemplate.source.resourceRef,installed.resource.resourceRef);
+    assert.deepEqual(childTemplate.config,template.config,'child uses the exact authorized containing plugin declaration');
+    const {GET:templateGET}=await import('../app/api/capabilities/packages/[resourceRef]/mcp-template/route');
+    const templateUrl=`http://localhost:3001/api/capabilities/packages/${encodeURIComponent(installed.resource.resourceRef)}/mcp-template`;
+    const templateWeb=await templateGET(new Request(`${templateUrl}?connector=design-server&expectedChecksum=${template.source.checksum}`,{
+      headers:fixture.headers('alice'),
+    }),{params:Promise.resolve({resourceRef:installed.resource.resourceRef})});
+    assert.equal(templateWeb.status,200);assert.deepEqual(await templateWeb.json(),{success:true,data:{template}});
+    for(const [query,status] of [['connector=missing',404],['connector=design-server&expectedChecksum='+ '0'.repeat(64),409],
+      ['connector=design-server&connector=private',400],['connector=design-server&packageRoot=/tmp/forged',400]] as const) {
+      const response=await templateGET(new Request(`${templateUrl}?${query}`,{headers:fixture.headers('alice')}),{params:Promise.resolve({resourceRef:installed.resource.resourceRef})});
+      assert.equal(response.status,status,query);
+    }
+    await assert.rejects(presentation.inspectCapabilityPackageMcpTemplateAction(fixture.actor('unassigned'),installed.resource.resourceRef,{connector:'design-server'}));
+    await assert.rejects(presentation.inspectCapabilityPackageMcpTemplateAction({...alice,workspaceId:'personal-owner'},installed.resource.resourceRef,{connector:'design-server'}));
+    assert.deepEqual(await counts(),templateBefore,'Template inspection never adopts/installs/publishes or grants a connection');
+    assert.equal(fixture.providerRequests(),0,'Template inspection never connects or executes a provider');
     const core=all.find(resource=>resource.artifact.name==='find-skills'&&resource.artifact.sourceType==='core');assert(core);
     const corePresentation=await presentation.inspectCapabilityPackagePresentationAction(owner,core.metadata.resourceRef);assert.equal(corePresentation.readOnly,true);
     await assert.rejects(presentation.inspectCapabilityPackagePresentationAction(fixture.actor('unassigned'),installed.resource.resourceRef));
@@ -198,6 +233,8 @@ async function main() {
       headers:fixture.headers('alice'),
     }),{params:Promise.resolve({resourceRef:installed.resource.resourceRef})});
     assert.equal(deniedWeb.status,denied.status);assert.deepEqual(await deniedWeb.json(),{success:false,error:denied.message,code:denied.code});
+    const deniedTemplateWeb=await templateGET(new Request(`${templateUrl}?connector=design-server`,{headers:fixture.headers('alice')}),{params:Promise.resolve({resourceRef:installed.resource.resourceRef})});
+    assert.equal(deniedTemplateWeb.status,404,'A previously observed selector cannot bypass a current reader revoke');
     assertPublic(deniedTool.details);assert.deepEqual(await counts(),stateBefore,'Reader errors cause no resource/package mutation');
     assert.equal(fixture.providerRequests(),0);
     assert.deepEqual([...await tempRoots()].filter(root=>!temporary.has(root)),[]);
