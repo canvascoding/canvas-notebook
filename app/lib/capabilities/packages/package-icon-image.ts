@@ -24,20 +24,69 @@ function localImagePath(value: unknown): string | undefined {
 }
 
 /** Accept passive image bytes only; an extension never turns package text or credentials into an image. */
-function supportedImage(bytes: Buffer, contentType: string): boolean {
+export function supportedImage(bytes: Buffer, contentType: string): boolean {
   if (contentType === 'image/png') return bytes.subarray(0, 8).equals(Buffer.from([137,80,78,71,13,10,26,10]));
   if (contentType === 'image/jpeg') return bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255;
   if (contentType === 'image/gif') return /^GIF8[79]a$/u.test(bytes.subarray(0, 6).toString('ascii'));
   if (contentType === 'image/webp') return bytes.subarray(0, 4).toString('ascii') === 'RIFF' && bytes.subarray(8, 12).toString('ascii') === 'WEBP';
   const svg = bytes.toString('utf8');
-  if (svg.includes('\uFFFD') || !/^\s*(?:<\?xml[^?]*\?>\s*)?(?:<!--[\s\S]*?-->\s*)*<svg\b/iu.test(svg)
-    || !/<\/svg\s*>\s*$/iu.test(svg) && !/<svg\b[^>]*\/\s*>\s*$/iu.test(svg)
-    || /<!\s*(?:DOCTYPE|ENTITY)|<\s*(?:[\w.-]+:)?(?:script|foreignObject)\b|\bon[a-z]+\s*=|@import/iu.test(svg)) return false;
-  for (const match of svg.matchAll(/(?:\b(?:[\w.-]+:)?(?:href|src))\s*=\s*(["'])(.*?)\1/giu)) {
-    if (!match[2].startsWith('#') || /[&\p{Cc}]/u.test(match[2])) return false;
+  if (svg.includes('\uFFFD')) return false;
+  // Consume each leading declaration/comment once. Repeated regex comments can
+  // repartition their closing markers exponentially when no SVG root follows.
+  let cursor = 0, declarationAllowed = true;
+  while (cursor < svg.length) {
+    while (cursor < svg.length && /\s/u.test(svg.charAt(cursor))) cursor += 1;
+    if (declarationAllowed && svg.slice(cursor, cursor + 5).toLowerCase() === '<?xml') {
+      const end = svg.indexOf('?', cursor + 5);
+      if (end < 0 || svg.charAt(end + 1) !== '>') return false;
+      cursor = end + 2; declarationAllowed = false;
+      continue;
+    }
+    declarationAllowed = false;
+    if (!svg.startsWith('<!--', cursor)) break;
+    const end = svg.indexOf('-->', cursor + 4);
+    if (end < 0) return false;
+    cursor = end + 3;
   }
-  for (const match of svg.matchAll(/url\s*\(([^)]*)\)/giu)) {
-    if (!match[1].trim().replace(/^["']|["']$/gu, '').startsWith('#')) return false;
+  if (!/^<svg\b/iu.test(svg.slice(cursor, cursor + 6))) return false;
+  let end = svg.length;
+  while (end > cursor && /\s/u.test(svg.charAt(end - 1))) end -= 1;
+  if (svg.charAt(end - 1) !== '>') return false;
+  let closing = end - 1;
+  while (closing > cursor && /\s/u.test(svg.charAt(closing - 1))) closing -= 1;
+  const closedRoot = closing >= cursor + 5 && svg.slice(closing - 5, closing).toLowerCase() === '</svg';
+  const selfClosingRoot = svg.charAt(closing - 1) === '/' && svg.indexOf('>', cursor) === end - 1
+    && svg.indexOf('<', cursor + 1) === -1;
+  if (!closedRoot && !selfClosingRoot
+    || /<!\s*(?:DOCTYPE|ENTITY)|<\s*(?:[\w.-]+:)?(?:script|foreignObject)\b|\bon[a-z]+\s*=|@import/iu.test(svg)) return false;
+  // Whole name tokens and values advance once, rather than retrying a namespace
+  // from every word boundary inside a long hyphenated token.
+  const names = /[\w.:-]+/giu;
+  let name: RegExpExecArray | null;
+  while ((name = names.exec(svg)) !== null) {
+    const parts = name[0].toLowerCase().split(':');
+    if (!['href', 'src'].includes(parts[parts.length - 1] ?? '')) continue;
+    if (parts.length > 2 || parts.some(part => !part)) return false;
+    let position = names.lastIndex;
+    while (position < svg.length && /\s/u.test(svg.charAt(position))) position += 1;
+    if (svg.charAt(position) !== '=') continue;
+    position += 1;
+    while (position < svg.length && /\s/u.test(svg.charAt(position))) position += 1;
+    const quote = svg.charAt(position);
+    if (quote !== '"' && quote !== "'") return false;
+    const valueEnd = svg.indexOf(quote, position + 1);
+    if (valueEnd < 0) return false;
+    const value = svg.slice(position + 1, valueEnd);
+    if (!value.startsWith('#') || /[&\p{Cc}]/u.test(value)) return false;
+    names.lastIndex = valueEnd + 1;
+  }
+  const urls = /url\s*\(/giu;
+  while (urls.exec(svg) !== null) {
+    const valueEnd = svg.indexOf(')', urls.lastIndex);
+    if (valueEnd < 0) return false;
+    const value = svg.slice(urls.lastIndex, valueEnd);
+    if (value.includes('(') || !value.trim().replace(/^["']|["']$/gu, '').startsWith('#')) return false;
+    urls.lastIndex = valueEnd + 1;
   }
   return true;
 }

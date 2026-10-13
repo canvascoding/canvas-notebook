@@ -54,6 +54,11 @@ async function main() {
     }
     rendered.rerender(<PluginExtensionAvatar name="Actual Agent" identity="agent-one" icon={{ url: '/images/agents/origami/crane.svg', sourceKey: 'agent-one:crane' }} />);
     assert.equal(screen.getByTestId('plugin-extension-avatar-image').getAttribute('src'), '/images/agents/origami/crane.svg');
+    const boundMcpIcon = '/api/plugins/mcp-icons/mcp-personal%3Aexact?binding=source&workspaceId=first';
+    rendered.rerender(<PluginExtensionAvatar name="Domain MCP" identity="mcp-personal:exact:first" icon={{url: boundMcpIcon, sourceKey: 'exact-source'}} />);
+    assert.equal(screen.getByTestId('plugin-extension-avatar-image').getAttribute('src'), boundMcpIcon);
+    fireEvent.error(screen.getByTestId('plugin-extension-avatar-image'));
+    assert.equal(screen.getByTestId('plugin-extension-avatar-initials').textContent, 'DM');
     cleanup();
 
     const common = { name: 'same-name', displayName: 'Same Name', description: '', stock: 'installed' as const,

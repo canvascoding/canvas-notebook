@@ -20,3 +20,11 @@ export function installedPluginExtensionIcon(resourceRef: string, revision: numb
   const url = `/api/capabilities/packages/${encodeURIComponent(resourceRef)}/icon?${query}`;
   return { url, sourceKey: `${workspaceId ?? ''}:${resourceRef}:${revision}:${childName ?? ''}` };
 }
+
+/** Lazy authenticated image delivery; the binding contains no provider URL or credentials. */
+export function mcpPluginExtensionIcon(selectionId: string, binding: string, workspaceId?: string | null): PluginExtensionIcon {
+  const query = new URLSearchParams({ binding });
+  if (workspaceId) query.set('workspaceId', workspaceId);
+  return { url: `/api/plugins/mcp-icons/${encodeURIComponent(selectionId)}?${query}`,
+    sourceKey: `${workspaceId ?? ''}:${selectionId}:${binding}` };
+}

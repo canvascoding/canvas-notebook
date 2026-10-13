@@ -5,8 +5,8 @@ import { createHash } from 'node:crypto';
 import type { CapabilityResourceActor, CapabilityResourceOwnerScope } from '@/app/lib/capabilities/resources/contracts';
 import type { IntegrationConnectionDescriptor } from '@/app/lib/integration-tools/connections/contracts';
 import type { PluginExtensionConnection, PluginExtensionCoverage, PluginExtensionItem } from './plugin-extension-contracts';
-import { publicPluginExtensionIcon } from './plugin-extension-icons';
-import type { McpServerIconMetadata } from '@/app/lib/mcp/icons';
+import { mcpPluginExtensionIcon, publicPluginExtensionIcon } from './plugin-extension-icons';
+import { mcpIconSourceBinding } from '@/app/lib/mcp/icon-source';
 
 export type PluginExtensionSourceResult = { items: PluginExtensionItem[]; coverage: PluginExtensionCoverage; continuation?: string };
 const text = (value: unknown, limit = 200) => typeof value === 'string'
@@ -169,9 +169,6 @@ export async function readMcpExtensions(actor: CapabilityResourceActor): Promise
     if (mcpActor) {
       const scope = { userId: actor.userId, organizationId: mcpActor.organizationId };
       const config = await readMcpConfig(scope);
-      // Existing metadata only: catalogue rendering must not discover/fetch favicons.
-      const cachedIcons: Record<string, McpServerIconMetadata> = await import('@/app/lib/mcp/icons')
-        .then(module => module.readCachedMcpServerIcons(scope)).catch(() => ({}));
       for (const name of Object.keys(config.mcpServers)) {
         try {
           const { connection } = await assertMcpConnectionAccess(name, scope, { allowDisabled: true, actor: mcpActor });
@@ -200,16 +197,9 @@ export async function readMcpExtensions(actor: CapabilityResourceActor): Promise
               summary.health = health.reachability === 'reachable' ? 'healthy' : health.reachability === 'unreachable' ? 'unavailable' : 'unknown';
             }
           } catch { partial = true; }
-          let icon = publicPluginExtensionIcon(connection.iconUrl, `${summary.connectionRef}:${connection.authVersion ?? ''}`);
-          const cached = cachedIcons[name];
-          const fetchedAt = Date.parse(cached?.fetchedAt ?? '');
-          if (!icon && connection.url && cached?.iconUrl && cached.origin && cached.serverName === name
-            && Number.isFinite(fetchedAt) && fetchedAt > 0 && fetchedAt <= Date.now()) {
-            try {
-              if (new URL(connection.url).origin === cached.origin) icon = publicPluginExtensionIcon(cached.iconUrl,
-                `${summary.connectionRef}:${connection.authVersion ?? ''}:${new Date(fetchedAt).toISOString()}`);
-            } catch { /* Invalid or stale image metadata falls back to initials. */ }
-          }
+          // No image discovery during search. A visible image loads local, source-bound bytes on demand.
+          const icon = connection.url || connection.iconUrl ? mcpPluginExtensionIcon(summary.connectionRef,
+            mcpIconSourceBinding(summary.connectionRef, connection), actor.workspaceId) : undefined;
           items.push({ id: summary.connectionRef, kind: 'mcp', name, displayName: summary.displayName, description: '', source: 'mcp', stock: 'installed',
             access: summary.access, ownership: summary.ownership, icon,
             mcp: { serverId: connection.connectionId, transport: connection.command ? 'stdio' : connection.url ? 'http' : 'unknown', template: false }, connections: [summary] });
@@ -221,6 +211,9 @@ export async function readMcpExtensions(actor: CapabilityResourceActor): Promise
         items.push({ id: `mcp-definition:${definition.id}`, kind: 'mcp', name: definition.name, displayName: text(definition.name), description: '',
           source: 'mcp', stock: 'available', access: { canRead: true, canUse: false, canManage: mcpActor.canManageDefinitions },
           ownership: { type: 'organization', organizationId: definition.organizationId },
+          icon: mcpPluginExtensionIcon(`mcp-definition:${definition.id}`,
+            mcpIconSourceBinding(`mcp-definition:${definition.id}`, { ...definition.config,
+              organizationId: definition.organizationId, serverDefinitionId: definition.id }, definition.revision), actor.workspaceId),
           mcp: { definitionId: definition.id, transport: 'http', template: true }, connections: [] });
       }
     }
@@ -229,8 +222,18 @@ export async function readMcpExtensions(actor: CapabilityResourceActor): Promise
     for (const value of await listSharedIntegrationConnections(actor, 'mcp')) {
       if (!value.access.canRead || value.resource.status !== 'active') continue;
       const summary = publicSharedExtensionConnection(value);
+      let icon;
+      try {
+        const { resolveSharedMcpBackend } = await import('@/app/lib/mcp/shared-connections');
+        const current = await resolveSharedMcpBackend(actor, value.resource.connectionRef, 'inspect');
+        const revision = current.authorization.resource;
+        if (current.connection.url || current.connection.iconUrl) icon = mcpPluginExtensionIcon(value.resource.connectionRef,
+          mcpIconSourceBinding(value.resource.connectionRef, current.connection,
+            `${revision.metadataRevision}:${revision.grantsRevision}:${revision.bindingRevision}`), actor.workspaceId);
+      } catch { /* Optional image metadata cannot turn a known readable entry into an unavailable provider. */ }
       items.push({ id: value.resource.connectionRef, kind: 'mcp', name: value.resource.displayName, displayName: text(value.resource.displayName),
         description: text(value.resource.description, 4096), source: 'mcp', stock: 'installed', access: summary.access, ownership: value.resource.ownership,
+        icon,
         ownershipLabel: value.ownershipLabel, mcp: { connectionRef: value.resource.connectionRef, transport: 'unknown', template: false }, connections: [summary] });
     }
   } catch { partial = true; }

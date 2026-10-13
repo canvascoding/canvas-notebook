@@ -75,6 +75,30 @@ async function launch() {
   process.exitCode = result;
 }
 
+/** A request path can never become a second URL authority or a redirect target. */
+export function ownedFixtureUpstreamUrl(originInput, selected, allowedPath) {
+  const own = new URL(originInput);
+  assert(own.protocol === 'http:' && own.hostname === '127.0.0.1' && own.port
+    && own.pathname === '/' && !own.search && !own.hash && !own.username && !own.password);
+  assert(selected instanceof URL && !selected.username && !selected.password && !selected.hash && allowedPath(selected.pathname));
+  const upstream = new URL('http://127.0.0.1/');
+  upstream.port = own.port;
+  upstream.pathname = selected.pathname;
+  upstream.search = selected.search;
+  assert(upstream.protocol === 'http:' && upstream.hostname === '127.0.0.1' && upstream.origin === own.origin
+    && !upstream.username && !upstream.password && !upstream.hash
+    && upstream.pathname === selected.pathname && upstream.search === selected.search && allowedPath(upstream.pathname));
+  return upstream;
+}
+
+function allowedConsentSdkPath(pathname, method) {
+  if (method === 'GET') return ['/api/v3.1/toolkits', '/api/v3.1/auth_configs', '/api/v3.1/connected_accounts', '/api/v3.1/tools'].includes(pathname)
+    || /^\/api\/v3\.1\/tools\/[A-Z][A-Z0-9_]{0,127}$/u.test(pathname);
+  if (method === 'POST') return pathname === '/api/v3.1/tool_router/session'
+    || /^\/api\/v3\.1\/tool_router\/session\/fixture-session-[1-9]\d*\/link$/u.test(pathname);
+  return method === 'DELETE' && /^\/api\/v3\.1\/connected_accounts\/fixture-initiated-[1-9]\d*$/u.test(pathname);
+}
+
 /** The production Store keeps HTTPS validation; only owned fixture origins are translated. */
 export async function startRegistryTlsProxy(registry, keyPath, certificatePath) {
   const upstreamOrigin = new URL(registry.baseUrl);
@@ -103,7 +127,8 @@ export async function startRegistryTlsProxy(registry, keyPath, certificatePath) 
           'Content-Length': bytes.length, 'Cache-Control': 'no-store' }); response.end(bytes); return;
       }
       assert(selected.origin === origin && !selected.username && !selected.password && allowed(selected.pathname));
-      const upstream = new URL(selected.pathname + selected.search, upstreamOrigin);
+      const upstream = ownedFixtureUpstreamUrl(upstreamOrigin, selected, allowed);
+      assert(upstream.origin === upstreamOrigin.origin && upstream.hostname === '127.0.0.1' && upstream.protocol === 'http:');
       const result = await fetch(upstream, { redirect: 'error', signal: AbortSignal.timeout(15_000) });
       const chunks = []; let size = 0;
       for await (const chunk of result.body || []) { size += chunk.length; assert(size <= 32 * 1024 * 1024); chunks.push(Buffer.from(chunk)); }
@@ -137,18 +162,23 @@ export async function startRegistryTlsProxy(registry, keyPath, certificatePath) 
 }
 
 /** A browser approves this local provider; only the upstream fixture account changes. */
-async function startConsentProxy(provider, registry, token, logoUrl) {
+export async function startConsentProxy(provider, registry, token, logoUrl) {
   const logo = new URL(logoUrl);
   assert(logo.protocol === 'https:' && logo.hostname === '127.0.0.1' && logo.port && logo.pathname === '/logos/canva.svg'
     && !logo.search && !logo.hash && !logo.username && !logo.password);
   const flows = new Map();
+  const upstreamOrigin = new URL(provider.baseUrl);
+  // Validate the trusted local listener before accepting any request.
+  ownedFixtureUpstreamUrl(upstreamOrigin, new URL('/api/v3.1/toolkits', upstreamOrigin), path => allowedConsentSdkPath(path, 'GET'));
   const counters = { approvals: 0, denials: 0, sdkLinks: 0, callbackRedirects: 0, businessCalls: 0, blockedExternalRedirects: 0, laterToolkitPageReads: 0 };
   let origin;
   const callbacks = new Set(['/api/composio/callback', '/api/composio/shared/callback', '/api/composio/shared/desktop/callback']);
   const headers = { 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer' };
   const server = http.createServer(async (request, response) => {
     try {
-      const address = new URL(request.url || '/', origin);
+      assert(typeof request.url === 'string' && request.url.length <= 4096);
+      const address = new URL(request.url, origin);
+      assert(address.origin === origin && !address.username && !address.password && !address.hash);
       const chunks = []; let length = 0;
       for await (const chunk of request) { length += chunk.length; assert(length <= 1024 * 1024); chunks.push(chunk); }
       const raw = Buffer.concat(chunks);
@@ -193,7 +223,8 @@ async function startConsentProxy(provider, registry, token, logoUrl) {
       if (/\/tools\/(?:execute|proxy)|\/tool_router\/.*\/execute/u.test(address.pathname)) {
         counters.businessCalls += 1; return send(403, { error: 'business_call_disabled' });
       }
-      const upstream = new URL(address.pathname + address.search, provider.baseUrl);
+      const upstream = ownedFixtureUpstreamUrl(upstreamOrigin, address, pathname => allowedConsentSdkPath(pathname, request.method));
+      assert(upstream.origin === upstreamOrigin.origin && upstream.hostname === '127.0.0.1' && upstream.protocol === 'http:');
       if (address.pathname === '/api/v3.1/toolkits' && address.searchParams.has('cursor')) counters.laterToolkitPageReads += 1;
       const forwardedHeaders = {};
       for (const name of ['content-type', 'x-api-key']) if (typeof request.headers[name] === 'string') forwardedHeaders[name] = request.headers[name];
@@ -379,7 +410,7 @@ async function runFixture() {
     assert.notEqual(mcpSpki, createHash('sha256').update(new X509Certificate(registryCert).publicKey.export({type: 'spki', format: 'der'})).digest('base64'));
     const caBundlePath = path.join(root, 'provider-ca-bundle.pem');
     await fs.writeFile(caBundlePath, `${registryCert}\n${mcpCert}`, {mode: 0o600, flag: 'wx'});
-    mcp = await startMcpOAuthProvider({allowedRedirectOrigins: [baseURL], tls: {key: mcpKey, cert: mcpCert}});
+    mcp = await startMcpOAuthProvider({allowedRedirectOrigins: [baseURL], tls: {key: mcpKey, cert: mcpCert}, passiveLogo: true});
     receipt.mcpTls = {origin: mcp.origin, fingerprint: mcpCertificate.fingerprint256, spki: mcpSpki, certificatePath: mcpCertificatePath}; await persist();
     consent = await startConsentProxy(provider, registry, env.PLUGIN_EXTENSION_E2E_CONTROL_TOKEN, registryTls.logoUrl);
     env.COMPOSIO_BASE_URL = consent.origin; env.PLUGIN_EXTENSION_E2E_CONTROL_URL = `${consent.origin}/__fixture`;
@@ -439,6 +470,7 @@ async function runFixture() {
     await fs.writeFile(path.join(root, 'provider-proof.json'), JSON.stringify({ version: 1, nonce, composio: consent.counters, mcp: mcp.stats, registryTls: registryTls.stats,
       sdkBusinessCalls: provider.calls.filter(call => /\/tools\/execute\//u.test(call.path)).length }), { mode: 0o600 });
     assert.equal(consent.counters.businessCalls, 0); assert.equal(mcp.stats.toolCalls, 0); assert.equal(consent.counters.blockedExternalRedirects, 0);
+    assert(mcp.stats.iconDiscoveryReads > 0 && mcp.stats.iconReads > 0, 'The real cold MCP logo must be discovered and loaded from the owned passive HTTP(S) fixture.');
     assert.equal(provider.calls.filter(call => /\/tools\/execute\//u.test(call.path)).length, 0);
     assert.equal(browserCode, 0, 'The plugin extension browser acceptance must pass.'); receipt.phase = 'verified'; await persist();
   } catch (error) {

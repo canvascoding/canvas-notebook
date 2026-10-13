@@ -22,6 +22,7 @@ function safeIconUrl(value: string): string | null {
       || /^\/api\/plugins\/store\/icon$/u.test(url.pathname)
       || /^\/api\/skills\/store\/icon$/u.test(url.pathname)
       || /^\/api\/integrations\/mcp-icon\/[^/]+$/u.test(url.pathname)
+      || /^\/api\/plugins\/mcp-icons\/[^/]+$/u.test(url.pathname)
       || /^\/images\/agents\/origami\/[a-z0-9-]+\.svg$/u.test(url.pathname) ? value : null;
   }
   try {

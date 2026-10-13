@@ -59,9 +59,11 @@ function capturePageError(error: Error, target: Page) {
 }
 function captureIconResponse(response: Response) {
   const url = new URL(response.url());
+  const packageIcon = /^\/api\/capabilities\/packages\/[^/]+\/icon$/u.test(url.pathname);
+  const mcpIcon = /^\/api\/plugins\/mcp-icons\/[^/]+$/u.test(url.pathname);
   if (url.origin !== fixture.baseURL || response.status() < 400 || response.request().resourceType() !== 'image'
-    || !/^\/api\/capabilities\/packages\/[^/]+\/icon$/u.test(url.pathname) || assetErrors.length >= 40) return;
-  const observation = {path: url.pathname.slice(0, 4096), query: Object.fromEntries(['revision', 'workspaceId', 'childName']
+    || (!packageIcon && !mcpIcon) || assetErrors.length >= 40) return;
+  const observation = {path: url.pathname.slice(0, 4096), query: Object.fromEntries((mcpIcon ? ['binding', 'workspaceId'] : ['revision', 'workspaceId', 'childName'])
     .flatMap(key => url.searchParams.has(key) ? [[key, url.searchParams.get(key)!.slice(0, 2048)]] : [])), status: response.status(), code: 'unavailable'};
   assetErrors.push(observation);
   assetErrorWrites = assetErrorWrites.then(async () => {
@@ -193,6 +195,25 @@ async function expectLoadedPackageIcon(avatar: Locator, resourceRef: string) {
   await expect.poll(() => image.evaluate(element => (element as HTMLImageElement).complete && (element as HTMLImageElement).naturalWidth > 0),
     { message: 'The real authorized package asset loads successfully.' }).toBe(true);
   await expect(avatar.getByTestId('plugin-extension-avatar-initials')).toHaveCount(0);
+}
+async function expectLoadedMcpIcon(avatar: Locator, selectionId: string, workspaceId = personalId) {
+  await expect(avatar).toHaveAttribute('aria-hidden', 'true');
+  await expect(avatar).toHaveAttribute('data-source-key', /.+/u);
+  const image = avatar.getByTestId('plugin-extension-avatar-image'); await expect(image).toBeVisible();
+  const source = await image.getAttribute('src'); expect(source).toBeTruthy();
+  const url = new URL(source!, fixture.baseURL);
+  expect(url.origin).toBe(fixture.baseURL);
+  expect(url.pathname).toBe(`/api/plugins/mcp-icons/${encodeURIComponent(selectionId)}`);
+  expect([...url.searchParams.keys()].sort()).toEqual(['binding', 'workspaceId']);
+  expect(url.searchParams.get('workspaceId')).toBe(workspaceId);
+  expect(url.searchParams.get('binding')).toMatch(/^[a-f0-9]{64}$/u);
+  expect(await avatar.getAttribute('data-source-key')).toContain(`${selectionId}:${url.searchParams.get('binding')}`);
+  expect(source).not.toContain(fixture.mcpUrl);
+  await expect.poll(() => image.evaluate(element => (element as HTMLImageElement).complete
+    && (element as HTMLImageElement).naturalWidth === 32 && (element as HTMLImageElement).naturalHeight === 32),
+  { message: 'The real source-bound MCP image loads from the owned passive logo through the authorized application endpoint.' }).toBe(true);
+  await expect(avatar.getByTestId('plugin-extension-avatar-initials')).toHaveCount(0);
+  return `${url.pathname}${url.search}`;
 }
 async function catalogue(context = admin, options: Record<string, string> = {}, workspaceId = personalId) {
   const items = new Map<string, PluginExtensionItem>(); let cursor: string | null = null, pages = 0;
@@ -414,6 +435,7 @@ test('standalone MCP setup and one real search expose all four types; filters an
   expect(selected.selectedItem?.id).toBe(selectedId);
   expect(selected.selectedItem?.ownership).toMatchObject({ type: 'user', ownerUserId: fixture.actorId });
   expect(selected.items.some(value => value.id === selectedId)).toBe(false);
+  await expectLoadedMcpIcon(page.getByTestId('plugin-integration-detail').locator('header').getByTestId('plugin-extension-avatar'), selectedId);
   await screenshot('personal-mcp-detail-under-organization-filter');
   await page.getByTestId('plugin-extension-back').click(); await ready(); await filter('scope', 'all');
   const result = await search('canva'); expect(new Set(result.items.map(value => value.kind))).toEqual(new Set(['plugin', 'skill', 'integration', 'mcp']));
@@ -426,7 +448,7 @@ test('standalone MCP setup and one real search expose all four types; filters an
     await expect(avatar.getByTestId('plugin-extension-avatar-image')).toHaveCount(0);
   }
   await expect.poll(() => logoFailures.length, { message: 'Owned HTTPS image genuinely fails browser certificate validation and becomes initials.' }).toBeGreaterThan(0);
-  await expect(exactRow('mcp', 'Canva MCP').getByTestId('plugin-extension-avatar-initials')).toHaveText('CM');
+  await expectLoadedMcpIcon(exactRow('mcp', 'Canva MCP').getByTestId('plugin-extension-avatar'), selectedId);
   expect(await page.getByRole('searchbox').count(), 'Catalogue discovery exposes one search input.').toBe(1);
   for (const kind of ['plugin', 'skill', 'integration', 'mcp'] as const) {
     const response = searchResponse(page, { types: kind, q: 'canva' }); await page.getByTestId(`plugin-extension-kind-${kind}`).click();
@@ -764,8 +786,14 @@ test('standalone shared MCP setup uses real OAuth and the exact template matcher
   for (const match of matches.matches) expect(Object.keys(match).sort()).toEqual(['compatibility', 'connectionRef']);
   const serialized = JSON.stringify(matches); expect(serialized).not.toContain(fixture.mcpUrl); expect(serialized).not.toMatch(/backend|connectionId|oauth|token|config/iu);
   const memberPage = await member.newPage();
+  let memberIconUrl = '';
   try {
-    await openCatalog('de', { q: name }, memberPage, memberPersonalId); await openRow('mcp', name, memberPage);
+    const memberCatalog = await openCatalog('de', { q: name }, memberPage, memberPersonalId);
+    const item = memberCatalog.items.find(value => value.id === sharedMcpRef);
+    expect(item?.access).toEqual({ canRead: true, canUse: true, canManage: false });
+    memberIconUrl = await expectLoadedMcpIcon(exactRow('mcp', name, memberPage).getByTestId('plugin-extension-avatar'), sharedMcpRef, memberPersonalId);
+    await openRow('mcp', name, memberPage);
+    await expectLoadedMcpIcon(memberPage.getByTestId('plugin-integration-detail').locator('header').getByTestId('plugin-extension-avatar'), sharedMcpRef, memberPersonalId);
     await expect(memberPage.getByTestId('shared-connection-authorize')).toHaveCount(0);
     await screenshot('member-shared-mcp-use-without-manage', memberPage);
   } finally { await memberPage.close(); }
@@ -778,6 +806,12 @@ test('standalone shared MCP setup uses real OAuth and the exact template matcher
   const revoked = await data<CapabilityPackageMcpMatches>(await member.request.get(matcher), 'Fresh exact MCP matcher after revocation');
   expect(revoked.matches.some(value => value.connectionRef === sharedMcpRef)).toBe(false);
   expect((await member.request.get(`/api/integrations/shared-connections/${encodeURIComponent(sharedMcpRef)}?workspaceId=${encodeURIComponent(memberPersonalId)}`)).status()).toBe(404);
+  expect(memberIconUrl).toBeTruthy();
+  const revokedIcon = await member.request.get(memberIconUrl);
+  expect(revokedIcon.status(), 'An already loaded exact shared icon cannot bypass a fresh revoked read grant.').toBe(404);
+  expect(revokedIcon.headers()['content-type']).toContain('application/json');
+  expect(revokedIcon.headers()['cache-control']).toContain('no-store');
+  expect(await revokedIcon.json()).toMatchObject({ success: false, code: 'CONNECTION_ACCESS_DENIED' });
 });
 
 test('ordinary member sees exact shared instances without management, private backend identities, or hidden personal accounts; revocation removes access', async () => {
