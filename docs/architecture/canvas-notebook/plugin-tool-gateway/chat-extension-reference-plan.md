@@ -1,12 +1,12 @@
 # Einheitlicher Erweiterungskontext für Chat und Agenten
 
-Bestandsaufnahme und Plan vom 13. Oktober 2026. Auftrag dieses Planungsschritts: Feedback und Plan speichern, anschließend gemeinsam optimieren. Quellenbasis: Notebook `27425ddc7`. Damals waren gemeinsame Referenz-/Bindungsverträge als Grundlage ergänzt; Chat-Picker, vollständiger Agent-Create und gemeinsamer Kontextcompiler waren noch nicht daran angeschlossen. Der Planungsschritt änderte ausschließlich Dokumente. Die anschließend ausdrücklich fortgesetzte Umsetzung und ihre aktuellen Nachweise stehen im Journal.
+Plan vom 13. Oktober, überarbeitet am 14. Oktober 2026. Auftrag dieser Planüberarbeitung: zuerst Feedback geben, den konkreten Plan in `docs` speichern und anschließend gemeinsam optimieren. Sie ändert ausschließlich Dokumente. Die historische Bestandsaufnahme beruht auf Notebook `27425ddc7`; der geprüfte aktuelle Checkout steht auf `041508938` und enthält zusätzliche, noch unvollständig geprüfte Runtime-Änderungen. Daraus folgt keine vollständige Implementierungs- oder Abnahmeaussage.
 
 Der vorausgegangene Implementierungsstand bleibt im [Umsetzungs- und Abnahmejournal](chat-agent-extension-implementation.md) nachvollziehbar. Dieses Dokument beschreibt das Ziel und die vorgeschlagenen Entscheidungen; vorhandene Grundlagen oder frühere Pluginseiten-Tests gelten nicht als Abnahme der neuen Chat-/Agent-Bedienung.
 
 ## Feedback und empfohlene Entscheidungen
 
-**Die gewünschte Logik ist teilweise vorhanden, aber noch nicht durchgehend umgesetzt.** Der Pluginseiten-Katalog sucht bereits gemeinsam über alle vier Typen und liefert deren vorhandene Logoquellen. Die Chat-Auswahl verwendet dagegen noch eigene Plugin-/Skill-Listen und Namen. Agent-Erstellung, Workflow-Bearbeitung und Runtime-Kontext haben unterschiedliche Genauigkeit. Ein größerer Slash-Picker allein würde diese Unterschiede bestehen lassen.
+**Die gewünschte Logik ist teilweise vorhanden, aber noch nicht durchgehend umgesetzt.** Der Pluginseiten-Katalog sucht bereits gemeinsam über alle vier Typen und liefert deren vorhandene Logoquellen. Genaue Auswahlverträge, Versionsleser und Teile des gemeinsamen Kontextcompilers sind inzwischen vorhanden. Die Chat-Auswahl verwendet dagegen noch eigene Plugin-/Skill-Listen und Namen; vollständiger Agent-Create, neue Auswahloberflächen und dauerhafter Nachrichtentransport sind offen. Ein größerer Slash-Picker allein würde diese Unterschiede bestehen lassen.
 
 Empfehlung: dieselben genauen Auswahlreferenzen und dieselbe serverseitige Kontextaufbereitung für Plugin-Seite, Chat, Agent-Tool und Agent-Oberfläche verwenden. Die Oberflächen teilen Katalog, Identität, Icons und Auswahlkomponenten; ihre jeweilige Nutzbarkeit wird für den aktuellen Nutzer, Workspace und Agenten geprüft.
 
@@ -24,6 +24,32 @@ Empfehlung: dieselben genauen Auswahlreferenzen und dieselbe serverseitige Konte
 
 Startwerte zur gemeinsamen Optimierung: sechs bis acht sichtbare Treffer, fünf explizite Turn-Auswahlen, etwa 30 Recents je Nutzer/Workspace und 8 KiB für den kompakten Erweiterungskontext. Diese Werte sind Vorschläge, keine neue Begrenzung der dauerhaft konfigurierbaren Agent-Ressourcen. Offene Produktentscheidungen stehen am Ende des Plans; technische Abnahmefälle werden vor der Umsetzung festgelegt.
 
+### Aktueller Stand und wichtigste Restlücke
+
+| Baustein | Stand am 14. Oktober | Was zur vollständigen Umsetzung fehlt |
+| --- | --- | --- |
+| Plugin-Seite | Gemeinsame Vier-Typen-Suche und bestehende Logoquellen implementiert; separate lokale Pluginseiten-Abnahme dokumentiert | Den gleichen Katalog und Avatar auch in Chat und Agent-Auswahl verwenden |
+| Genaue Identität und Speicherung | Öffentliche Auswahl, private Bindungsformate, V1/V2/Vererbung und Verbindungsaufnahme als Grundlage vorhanden | Vollständiger öffentlicher, atomarer Agent-Create/Update und langlebige Nachrichtenaufnahme |
+| Gemeinsamer Runtime-Kontext | Collector, begrenzte Prompt-Ausgabe und lokale Discovery vorhanden; weiterer Laufzeitanschluss im Arbeitsstand | Vollständige Prüfung derselben Auswahl über Live-Chat, Delegation, Automationen und frische Toolrechte; aktuelle Zwischenstände sind keine End-to-End-Abnahme |
+| Chat und Agent-Oberfläche | Bisherige Plugin-/Skill-Auswahl weiterhin aktiv | Gemeinsamer Picker, genaue Accounts, Chips, Vorschau und Tool↔UI-Roundtrip |
+| Nachrichten und Native Mobile | Neue Referenzen noch nicht vollständig angeschlossen | Send, Draft, Queue, Retry, Verlauf und Neustart; anschließend eigener nativer Anschluss und Abnahme |
+
+**Offene fachliche Pflichtentscheidung:** Ein ausgewähltes Plugin kann eine Canva- oder MCP-Anforderung deklarieren, ohne bereits an eine konkrete Verbindung gebunden zu sein. Der gemeinsame Resolver muss diese Anforderung mit einer ausdrücklich gewählten, kompatiblen Verbindung verknüpfen. Bei mehreren passenden Accounts öffnet die UI die Verbindungswahl; ohne passende Verbindung zeigt sie den Einrichtungsweg. Weder ein gleicher Name noch das Standardkonto gelten als Bindung. Das gilt auch für ein Plugin plus separat angeheftete Integration im allgemeinen Chat: bloße gemeinsame Anwesenheit genügt nicht, die Zuordnung muss eindeutig geprüft werden. Lokale Skill-Anleitungen und die Einrichtung eines benötigten externen Werkzeugs bleiben getrennt erkennbar.
+
+### Derselbe UI-Baukasten in drei Verwendungskontexten
+
+Katalogsuche, Trefferzeile, Avatar, Paketdetails und Verbindungswahl werden gemeinsam verwendet. Die serverseitige Projektion erhält den jeweiligen Verwendungskontext; eine Suchzeile bedeutet je nach Oberfläche etwas anderes:
+
+| Oberfläche | Primäre Aktion | Dauer der Auswahl |
+| --- | --- | --- |
+| Plugin-Seite | Installieren, verbinden, verwenden oder bei entsprechender Berechtigung verwalten | Ressource beziehungsweise Verbindung wird eingerichtet; dadurch entsteht keine automatische Agent-Zuweisung |
+| Agent erstellen/bearbeiten | Für diesen Agenten zuweisen | Versionierte feste Konfiguration; Kontext bei jedem Start |
+| Chat-Picker | Für diese Nachricht anhängen | Genau dieser Turn; gespeicherte Agent-Konfiguration bleibt unverändert |
+
+Die erste Ebene zeigt nur Suche, optionale Filter und kompakte Treffer. Eine Detailansicht öffnet Paketbestandteile oder erforderliche Accountwahl. Werkzeuggrenzen und die vom Server erzeugte Kontextvorschau bleiben zunächst geschlossen. Die Oberfläche benennt den Unterschied sichtbar mit **„Dauerhaft für diesen Agenten“** beziehungsweise **„Für diese Nachricht“**.
+
+Die Statusanzeige unterscheidet **verfügbar**, **Einrichtung erforderlich**, **Autorisation erforderlich**, **verwendbar**, **keine Nutzungsberechtigung** und **Dienst aktuell nicht erreichbar**. Ist die Erreichbarkeit nicht geprüft, behauptet die Metadatensuche keinen gesunden Provider. Eine ausgefallene Katalogquelle erhält eine kompakte Retry-Aktion, während vorhandene lokale Treffer nutzbar bleiben. Eine weiterführende Fehleransicht zeigt, ob Quelle, Zuordnung, Berechtigung, Autorisierung oder Provider betroffen ist.
+
 ## Entscheidungsvorschlag
 
 `/` öffnet einen gemeinsamen Erweiterungs-Picker für **Plugins, Skills, Composio-Integrationen und direkte MCP-Server**. Ohne Suchtext stehen die zuletzt im aktuellen Workspace im Chat verwendeten Einträge zuerst. Tippen durchsucht alle vier Typen; optionale Typfilter schränken dieselbe Suche ein. Die Auswahl wird als konkrete Referenz an die Nachricht gebunden. Der Server prüft sie beim Senden und vor der späteren Ausführung erneut und gibt dem Agenten einen kurzen, präzisen Nutzungskontext.
@@ -34,7 +60,9 @@ Der vorhandene [Pluginseiten-Katalog](plugin-page-integration-catalog-plan.md) l
 
 Der [klickbare Wireframe](wireframes/chat-extension-picker.html) zeigt Recents, eine gemischte Canva-Suche, optionale Typfilter, Accountauswahl und Nachrichtenchips. Er ist eine eigenständige HTML-Demo mit synthetischen Beispielen und ohne API-Aufrufe. Seine Initialen vertreten die späteren verfügbaren Logos. Eine Demo-Nachricht aktualisiert nur die lokale Reihenfolge; sie sendet keinen echten Chat-Auftrag.
 
-## Was heute schon vorhanden ist und was fehlt
+## Historischer Ausgangsbefund vom 13. Oktober
+
+Die folgende Tabelle dokumentiert den Ausgangsbefund vor dem weiteren Runtime-Anschluss. Für den aktuellen Teilstand gelten die Übersicht oben und das Umsetzungsjournal; insbesondere sind die dort genannten Codec-/Reader-Grundlagen inzwischen erweitert.
 
 | Bereich | Aktueller Stand | Erforderliche Ergänzung |
 | --- | --- | --- |
@@ -74,13 +102,13 @@ Ein versionierter, diskriminierter **`ExtensionSelection`-Vertrag** bildet Plugi
 | `turn_reference` | Im unveränderlichen Nachrichten-/Queue-Snapshot und zugehörigen Entwurf | Für genau den zugehörigen Turn; keine dauerhafte Agent-Zuweisung |
 | Skill durch Runtime-Suche gefunden | Geprüftes Suchergebnis und autorisiertes Laden im aktuellen Lauf | Aufgabenbezogene Nutzung innerhalb bereits erlaubter Ressourcen; kein neues Konto oder Paket installieren |
 
-Die Agent-Persistenz erweitert den bestehenden Capability-/Workflow-Vertrag und dessen Bindungen. Es entsteht kein zusätzlicher unabhängiger Skill-/Tool-Speicher in Promptdateien. Heute akzeptiert die private Bindungskonfiguration nur Paket-Workflowdaten; für exakte Standalone-Verbindungen ist deshalb eine versionierte Schemaerweiterung samt Migration erforderlich. Vorhandene Workflow-V1-Pins und persönliche Auswahlregeln bleiben über einen geprüften Adapter erhalten. Eine unabhängige Verbindung wird nicht als erfundene Plugin-Deklaration gespeichert.
+Die Agent-Persistenz erweitert den bestehenden Capability-/Workflow-Vertrag und dessen Bindungen. Es entsteht kein zusätzlicher unabhängiger Skill-/Tool-Speicher in Promptdateien. Die versionierten privaten Formate für Paket- und Standalone-Verbindungen sind als Grundlage ergänzt; ihr vollständiger öffentlicher Schreibweg bleibt offen. Vorhandene Workflow-V1-Pins und persönliche Auswahlregeln bleiben über einen geprüften Adapter erhalten. Eine unabhängige Verbindung wird nicht als erfundene Plugin-Deklaration gespeichert.
 
-Die vorhandenen Workflow-Leser und die Tool-Registrierung unterscheiden derzeit Version 1 und Legacy-Vererbung. Der vorbereitete Versionshelper für Version 2 schaltet diese Leser noch nicht um. Vor dem ersten Schreiben einer neuen festen Gesamtkonfiguration müssen Persistenzleser, Runtime, Readroots, Prompt und Tool-Registrierung denselben erweiterten Vertrag unterstützen. Unbekannte oder widersprüchliche Versionen dürfen nicht auf Vererbung zurückfallen.
+Die Versionsleser unterscheiden inzwischen Version 1, ausdrückliche Version 2 und SQL-NULL-Vererbung. Vor dem ersten produktiven Schreiben einer neuen festen Gesamtkonfiguration müssen auch Runtime, Readroots, Prompt und Tool-Registrierung gemeinsam vollständig geprüft sein. Unbekannte oder widersprüchliche Versionen dürfen nicht auf Vererbung zurückfallen.
 
 ### Ein serverseitiger Resolver
 
-Vorgeschlagen ist ein gemeinsamer `resolveEffectiveExtensionContext`-Dienst. Er nutzt die vorhandenen Paket-, Workflow-, Verbindungs- und Runtime-Policy-Dienste und liefert einen abgeleiteten, privaten Selektionsstand mit Fingerprint:
+Die gemeinsame Aufbereitung ist mit `resolveEffectiveExtensionContext` als Grundlage angelegt. Sie nutzt die vorhandenen Paket-, Workflow-, Verbindungs- und Runtime-Policy-Dienste und liefert einen abgeleiteten, privaten Selektionsstand mit Fingerprint:
 
 - genaue Ressourcen, Paketversionen und Kindidentitäten;
 - ausgewählte konkrete Verbindungen beziehungsweise erlaubte persönliche Auswahl;
@@ -91,7 +119,7 @@ Vorgeschlagen ist ein gemeinsamer `resolveEffectiveExtensionContext`-Dienst. Er 
 
 Systemprompt, Skill-Readroots und Toolhinweise verwenden denselben abgeleiteten Selektionsstand. Die tatsächlichen Tool-Grenzen ergeben sich weiterhin aus der Schnittmenge von Ressourcenrechten, Agent-Konfiguration, nativen `enabledTools`, Delegation und Laufmodus. Der Fingerprint hilft, widersprüchliche Stände zu erkennen; er ersetzt **nicht** die frischen Rechte-/Bindungsprüfungen beim Lesen, Beschreiben und Ausführen.
 
-Heute werden Teile dieser Autorität gemeinsam verwendet, aber Promptloader, Readroots und Gateway-Policy lösen teilweise getrennt auf. Der gemeinsame Resolver ist deshalb ein konkreter Implementierungsschritt. Ein langfristig gecachter Promptsnapshot darf niemals eine spätere Ausführung autorisieren.
+Der vollständige Anschluss von Promptloader, Readroots und Gateway-Policy an dieselbe Auswahl ist weiterhin der nächste abzuschließende Implementierungsschritt. Ein langfristig gecachter Promptsnapshot darf niemals eine spätere Ausführung autorisieren.
 
 ## Kontextregeln für allgemeine und spezialisierte Agenten
 
@@ -103,9 +131,11 @@ Neue Spezialagenten verwenden eine ausdrücklich feste Erweiterungsauswahl. Ihr 
 
 Diese Teilmengenauswahl benötigt eine ausdrückliche Normalisierung: Workflow V1 unterscheidet heute ganzes Plugin und ausgewählte Skills; beim zweiten Modus werden Plugin-Root-Deklarationen nicht einfach mitgeführt. Der neue Vertrag muss Elternanforderungen erhalten, während optionale Kinder abgewählt werden. Die UI darf keine Teilmengenauswahl anbieten, die erforderliche Connector-/Skill-Deklarationen des Elternpakets still entfernt.
 
-Ein erlaubter Sonderfall ist ein Plugin, das über `skills: "."` eine `SKILL.md` an der Paketwurzel bereitstellt. Der vorhandene Paketloader findet sie, während die heutige Runtime-Bindungsprüfung diesen Plugin-Root ablehnt. Die gemeinsame Normalisierung muss diese tatsächliche Manifestform berücksichtigen und dafür einen eigenen Abnahmefall erhalten; vorhandene Unterstützung wird hier nicht behauptet. Welche Kinder existieren, bestimmt das veröffentlichte Manifest samt Loader, nicht eine erfundene UI-Verzeichnisliste.
+Ein erlaubter Sonderfall ist ein Plugin, das über `skills: "."` eine `SKILL.md` an der Paketwurzel bereitstellt. Die ursprüngliche Runtime-Lücke ist in der Grundlagenarbeit korrigiert und gezielt geprüft; die vollständige Chat-/Modellabnahme bleibt offen. Welche Kinder existieren, bestimmt das veröffentlichte Manifest samt Loader, nicht eine erfundene UI-Verzeichnisliste.
 
 Ein Slash-Chip beim Spezialagenten fokussiert einen bereits zulässigen Bestandteil. Er erweitert dessen feste Auswahl nicht. Eine andere Verbindung kann nur gewählt werden, wenn die gespeicherte Konfiguration genau diese Wahl erlaubt. Für nicht erlaubte Erweiterungen zeigt die UI den berechtigten Weg zur Agent-Konfiguration oder zum allgemeinen Chat.
+
+Beispiel: Ein gespeicherter Verbindungsslot erlaubt ausdrücklich A und B und verwendet normalerweise A. Ein Chat-Chip darf B für diesen Turn wählen; die gespeicherte Auswahl und persönliche Präferenz bleiben A. Erlaubt der Slot ausschließlich A, ist B im Chat nicht auswählbar. Die tatsächliche Verbindung samt Revision und privater Identität wird geprüft; eine logische Slot-ID allein beweist keine unveränderte Bindung.
 
 Bei Organisationsagenten kann eine Verbindung fest gemeinsam bereitgestellt oder als ausdrücklich erlaubte persönliche Auswahl konfiguriert werden. Im zweiten Fall löst jeder ausführende Nutzer seine eigene zulässige Wahl auf. Das private Konto des Erstellers wird nicht stillschweigend für alle Mitglieder hinterlegt. Fehlende notwendige Einrichtung wird vor Nutzung angezeigt; optional fehlende Bestandteile blockieren keine unabhängigen erlaubten Fähigkeiten.
 
@@ -115,9 +145,9 @@ Der allgemeine Systemprompt enthält die gemeinsame Discovery-Anleitung sowie un
 
 Ohne Slash darf der Agent aufgrund der Aufgabe nach einem passenden **bereits zulässigen Skill** suchen, dessen genaue Quelle auflösen und `SKILL.md` vor Nutzung lesen. Das erzeugt keinen dauerhaften Agent-Bindingeintrag und keine automatische App-/Accountauswahl. Ein gefundenes Store-Angebot oder eine ungebundene Integration ist ein Einrichtungsvorschlag, keine Ausführungsfreigabe.
 
-Es gibt bereits Management-Read-Discovery: `inspect_canvas_resource` sucht lesbare installierte Ressourcen; `list_canvas_package_store` umfasst zusätzlich Angebote. `canvas_extensions.search` sucht heute Managementoperationen. Keine dieser Suchen liefert allein die gewünschte auf den effektiven Agenten begrenzte Skill-/Plugin-Nutzbarkeit; `integrations` deckt MCP/Composio ab. Der Plan ergänzt daher eine **ausdrücklich neue** read-only Runtime-Suchoperation auf denselben Katalogdiensten, vorzugsweise über das vorhandene `canvas_extensions`-Gateway. Name und endgültiges Schema werden in Schritt 1 festgelegt; es wird keine bereits vorhandene All-in-one-Toolsuche behauptet.
+Es gibt bereits Management-Read-Discovery: `inspect_canvas_resource` sucht lesbare installierte Ressourcen; `list_canvas_package_store` umfasst zusätzlich Angebote. Diese menschlichen Leserechte sind allein keine Agent-Nutzung. Die neue read-only Runtime-Operation heißt **`search_canvas_extensions`** und liegt im vorhandenen `canvas_extensions`-Gateway; ihr Metadatenpfad ist als Grundlage implementiert. `integrations` bleibt für konkrete MCP-/Composio-Provider und deren Tools zuständig. Ein gemeinsamer UI-Katalog ersetzt daher weder aktuelle Tooldiscovery noch Berechtigungsprüfung.
 
-Diese Operation durchsucht Name, kurze Beschreibung und Paket-/Kindherkunft, einschließlich geprüfter Manifestbeschreibungen. Sie gibt genaue zulässige Referenzen, kurze Beschreibungen und den Leseschritt zurück. Beim Spezialagenten bleibt sie auf dessen feste effektive Auswahl begrenzt. Im Planungsmodus ist die sichere Metadatensuche ausdrücklich erlaubt; externe Accountprobes und Ausführung bleiben ausgeschlossen. Suche führt keine Provider-Gesundheitsprüfung als Voraussetzung für lokal verfügbare Skills durch.
+Diese Operation durchsucht Name, kurze Beschreibung und Paket-/Kindherkunft, einschließlich geprüfter Manifestbeschreibungen. Sie gibt genaue zulässige Referenzen, kurze Beschreibungen und Skill-Orte zurück. Erst die aktuelle Auflösung mit einem tatsächlich verfügbaren Lese-Tool erzeugt das nutzbare Leserezept. Beim Spezialagenten bleibt die Suche auf dessen effektive Auswahl begrenzt. Im Planungsmodus ist die sichere Metadatensuche ausdrücklich erlaubt; externe Accountprobes und Ausführung bleiben ausgeschlossen. Suche führt keine Provider-Gesundheitsprüfung als Voraussetzung für lokal verfügbare Skills durch.
 
 ### Bestehende Agenten ausdrücklich migrieren
 
@@ -188,6 +218,8 @@ Während des geöffneten Slash-Pickers sind auch mehrteilige Namen wie `/google 
 
 Picker, Agent-Auswahl und Chips verwenden dieselben vorhandenen Logoquellen: Composio-Logos aus der Toolkit-API; bei direkten MCPs die geprüfte Logo-/Domain-Ermittlung einschließlich Root-Domain-Fallback und bereichsgebundenem Cache. Verfügbare Paket-/Skill-Icons bleiben erhalten. Nur fehlende oder nicht ladbare Bilder fallen auf Namensinitialen zurück. Externe Bild-Discovery erfolgt bei sichtbarem Bedarf, nicht als Voraussetzung für die gemeinsame Textsuche.
 
+Dafür wird `PluginExtensionAvatar` mit dem bestehenden `icon: { url, sourceKey }` wiederverwendet. Bildzustand und Cache gehören zur genauen Ressourcen-/Verbindungsauswahl, Bildquelle und zum Workspace; gleichnamige Einträge oder ein Accountwechsel übernehmen kein fremdes Bild. Ladefehler führen zu Initialen und blockieren weder Suche noch Auswahl.
+
 Eingaben werden kurz entprellt; Anfragegeneration und Abort verwerfen alte Antworten bei Such-, Agent-, Workspace-, Profil- oder Benutzerwechsel. Ein Wechsel darf weder fremde alte Treffer noch einen alten ausgewählten Kontext nachliefern.
 
 Startwerte: etwa 200–250 ms Entprellung und acht sichtbare Vorschläge; mehr Treffer per gebundenem Cursor. Das leere Popup löst bekannte Recent-Identitäten gezielt auf und benutzt vorhandene sichere App-Metadaten, statt zuerst den gesamten externen Katalog oder dessen Tools abzurufen. Quellen haben getrennte Zeitbudgets. Nach deren Ablauf liefert die Suche geprüfte Treffer mit ausdrücklich teilweiser Abdeckung und gegebenenfalls Fortsetzung; sie wartet nicht unbegrenzt auf einen vollständigen externen Katalog. Vor Auswahl und Send bleibt die aktuelle Autoritätsprüfung maßgeblich.
@@ -202,6 +234,8 @@ Startwerte: etwa 200–250 ms Entprellung und acht sichtbare Vorschläge; mehr T
 | Direkter MCP | Exakte persönliche oder freigegebene Verbindung | Bei mehreren gleichnamigen Instanzen die konkrete Instanz wählen |
 
 Ein Integrationsangebot mit mehreren Accounts darf nicht automatisch den ersten Account auswählen. Bei genau einer nutzbaren Instanz kann die Auswahl unmittelbar erfolgen; ihr sichtbarer Account-/Bereichsname steht im Chip. Freigegebene MCP-Definitionen und unverbundene Angebote sind **einrichtbar**, nicht sofort ausführbar. Ihre Aktion führt zum genauen Eintrag im bestehenden Plugin-Katalog; nach Rückkehr wird dessen aktuelle Nutzbarkeit neu gelesen. Der Chat installiert oder autorisiert nicht beim Auswählen.
+
+Die direkte Auswahl einer einzelnen persönlichen Composio-Instanz bestätigt trotzdem genau das sichtbare Konto und beschafft den echten kurzlebigen Aufnahmebeleg. Nur der zusätzliche Dialog entfällt; Accountprüfung und Auswahlbeleg entfallen nicht.
 
 Vor der Navigation zur Einrichtung wird der scoped Nachrichtenentwurf erhalten. Die Rückkehr verweist auf denselben Benutzer, Workspace, Agenten und Chat beziehungsweise Entwurf und den genauen Katalogeintrag; Credentials und Authzustände gehören nicht in diesen Link. Ein OAuth-Rückkehrmarker beweist keine Autorisierung. Erst die frisch bestätigte konkrete Verbindung darf anschließend ausgewählt werden; ein Wechsel zu einem anderen Standardkonto bleibt ausgeschlossen.
 
@@ -220,6 +254,8 @@ Pfeiltasten navigieren, Enter/Tab wählen, Escape schließt. Fokus und aktive Op
 Vorgeschlagen ist eine authentifizierte Chat-Projektion **`GET /api/chat/extensions/search`**. Der Endpoint verwendet die vorhandenen Katalogdienste und ergänzt Session-/Agent-Nutzbarkeit; er baut keinen zweiten Composio- oder MCP-Katalog.
 
 Anfrage: aktueller `workspaceId`, zulässiger `agentId`, optional `sessionId`, `q`, `types`, begrenztes `limit` und gebundener `cursor`. Actor, Session-Eigentum und effektiver Agent werden serverseitig geprüft. Antwort: dieselben vier Kinds, sichere Logos, Quellenabdeckung und Pagination; außerdem `recent`/`suggested`-Kennzeichnung und eine zulässige Aktion `select`, `setup` oder `unavailable`. Menschliches `canRead` auf der Plugin-Seite ist allein kein Agent-Use-Recht.
+
+Die UI nennt den Composio-Typ **Integration** beziehungsweise `integration`; der kanonische Auswahlvertrag nennt ihn `composio`. Die gemeinsame Projektion bildet dies ausdrücklich ab. Ein direkter MCP bleibt `mcp`; beide werden nicht aufgrund ihres Transportwegs gleichgesetzt.
 
 Der gemeinsame `ExtensionSelection`-Vertrag bekommt eine versionierte Nachrichtenhülle `ChatExtensionSelection` und eine persistente Agent-Konfigurationshülle. Die Identitäten sind in beiden gleich; Dauer, Konfigurationsrevisionen und erlaubte Account-Wahl unterscheiden sich:
 
@@ -240,13 +276,15 @@ Die clientseitige Send-Transaktion und die serverseitige Idempotenz müssen die 
 
 Die derzeitige Runtime-Queue und ihr Nachrichtenkontext liegen im RAM. Browserreload und Server-/Runtime-Neustart sind deshalb verschiedene Fälle. Der neue Vertrag benötigt eine dauerhafte angenommene Queue-Auswahl samt eindeutigen Zuständen und Wiederaufnahme. Nach verlorener Bestätigung darf eine möglicherweise bereits gestartete externe Mutation nicht automatisch erneut ausgeführt werden. Verlauf und Status müssen eine ungewisse Ausführung nachvollziehbar anzeigen, ohne privaten Providerkontext offenzulegen.
 
+Die vorbereitete Übergabe eines echten Aufnahmebelegs an einen Runtime-Turn funktioniert nur innerhalb des Prozesses. Für Neustart/Rehydration muss ein eigener Serverpfad die tatsächlich gespeicherte, der Nachricht zugeordnete Auswahl laden, ihre aktuelle Autorität erneut prüfen und einen neuen Runtime-Beleg ausstellen. Ein Client-DTO, JSON-Parser oder kopierter alter Handle darf diesen Nachweis nicht ersetzen. Der Restart-Fall ist deshalb eine eigene Abnahme, kein Nebenprodukt des Draftreloads.
+
 ## „Zuletzt verwendet“ eindeutig definieren
 
 Empfehlung: Ein Eintrag zählt als verwendet, wenn seine explizite Auswahl serverseitig geprüft und als Teil einer Chat-Nachricht akzeptiert wurde. Ein nachfolgender Providerfehler ändert nicht die Tatsache, dass der Nutzer diesen Kontext angefordert hat. Reines Suchen, Öffnen, Hover, Abbrechen und ein nicht akzeptierter Send zählen nicht.
 
 Ein eigener begrenzter serverseitiger Recents-Dienst speichert höchstens etwa **30 Identitäten je Benutzer und Workspace** mit `lastUsedAt`. Eine atomare Speicherung und `clientMessageId` verhindern Doppelzählung durch Retry/Reconnect. Der aktuell ausgewählte Agent filtert die Nutzbarkeit; optional kann seine letzte Verwendung als Gleichstands-Kriterium dienen. Recents werden weder im Capability-Aktivierungsspeicher noch als ungefilterte globale LocalStorage-Liste abgelegt.
 
-Gespeichert werden nur Typ, exakte Identität, gegebenenfalls Eltern-/Verbindungsreferenz und serverseitiger Zeitpunkt. Labels, aktuelle Revisionen und Rechte werden beim Lesen frisch aufgelöst. Gelöschte oder entzogene Einträge verschwinden; ein alter Profil-/Accountbezug wandert nicht zum neuen Standardkonto. `providerRef`, `toolRef`, `schemaRef`, Skillinhalte und Secrets gehören nicht in den Recents-Speicher. Die Nachricht selbst behält ihren geprüften Herkunfts-Snapshot für Verlauf und Nachvollziehbarkeit.
+Gespeichert werden nur Typ, exakte Identität einschließlich gehaltenem Paketpin, gegebenenfalls Eltern-/Verbindungsreferenz und serverseitiger Zeitpunkt. Labels, Logos, aktuelle Nutzbarkeit und Rechte werden beim Lesen frisch aufgelöst. Der verwendete Paketpin wird dabei nicht durch einen neu veröffentlichten Head ersetzt; dessen bewusste Auswahl ist eine neue Wahl. Gelöschte oder entzogene Einträge verschwinden; ein alter Profil-/Accountbezug wandert nicht zum neuen Standardkonto. `providerRef`, `toolRef`, `schemaRef`, Skillinhalte und Secrets gehören nicht in den Recents-Speicher. Die Nachricht selbst behält ihren geprüften Herkunfts-Snapshot für Verlauf und Nachvollziehbarkeit.
 
 Die automatische Anwesenheit einer festen Spezialagent-Auswahl aktualisiert nicht bei jeder Nachricht sämtliche Recents. Für diesen Chat-Vertrag zählt die explizite akzeptierte Turn-Auswahl. Der Agent-Editor darf diese begrenzte Historie als Vorschläge wiederverwenden, prüft aber seinen eigenen Zielkontext neu; Speichern einer Agent-Konfiguration wird nicht als Chat-Verwendung gezählt.
 
@@ -332,6 +370,8 @@ Bestehende Agent-Konfigurations-, Capability-Scope-, Workflow-/Readroot-, Chat-R
 
 ## Punkte für die nächste gemeinsame Optimierung
 
+- Plugin-Anforderungen und genaue Verbindungen auch im allgemeinen Chat eindeutig zuordnen; notwendige/optionale Bestandteile und Accountkonflikte vor dem Send sichtbar machen. Das ist eine notwendige fachliche Ergänzung, kein optionales UI-Detail.
+- Die gemeinsame Suche mit unterschiedlichen Nutzungsprojektionen statt drei auseinanderlaufenden Katalogen umsetzen. Einrichtung aus Chat und Agent-Editor muss in denselben erhaltenen Entwurf zurückführen.
 - Soll ein ausgewähltes Plugin zunächst alle zulässigen Bestandteile übernehmen oder eine vom Paket angebotene Standardauswahl? Empfehlung: Paketstandard transparent anzeigen; Abweichungen aufklappen, Pflichtbestandteile erhalten.
 - Wie soll ein Agent mit noch fehlender notwendiger Einrichtung gespeichert werden? Empfehlung: klar als nicht startbarer Entwurf, mit genauem Einrichtungsweg; finalen Zustand am vorhandenen Readiness-Vertrag festlegen.
 - Soll Vererbung für neue Spezialagenten noch als erweiterte Option angeboten werden? Empfehlung: neue Agenten mit fester Auswahl; bestehende Vererbung sichtbar erhalten und gezielt migrieren.

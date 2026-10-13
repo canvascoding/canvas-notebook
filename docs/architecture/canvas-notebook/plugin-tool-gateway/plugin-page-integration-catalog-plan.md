@@ -2,7 +2,7 @@
 
 Stand: 13. Oktober 2026. Die Schritte 1–5 sind implementiert und am Notebook-Stand `dc20226b1308f564236ba95799640c1c7e097db5` mit frischem Produktionsbuild und 15/15 Browserfällen lokal abgenommen. Die Browserprüfung verwendet echte Notebook-APIs, PostgreSQL, SDK-/HTTP-Verbindungen und kontrollierte Provider-/Store-Fixtures. Sie ist keine Drittanbieter-, Modell-, Geräte- oder Produktionsabnahme. Die Settings-Katalogliste ist in dieselbe Suche migriert; Profil- und Providerverwaltung bleiben in Settings. [Prüfstand, Nachweise und Grenzen](evidence/plugin-page-integration-catalog-acceptance-2026-10-13.md).
 
-Der zusätzliche [MCP-Logo-Nachtrag](evidence/plugin-page-mcp-icons-2026-10-13.md) ist an `a99553e7f2d4456fe272c9ac5994c6b39412189b` mit erneut frischem Build und 15/15 Browserfällen lokal geprüft. Der [einheitliche Chat-/Agent-Kontext](chat-extension-reference-plan.md) bleibt ein gesonderter, noch nicht implementierter Planungsvorschlag.
+Der zusätzliche [MCP-Logo-Nachtrag](evidence/plugin-page-mcp-icons-2026-10-13.md) ist an `a99553e7f2d4456fe272c9ac5994c6b39412189b` mit erneut frischem Build und 15/15 Browserfällen lokal geprüft. Der [einheitliche Chat-/Agent-Kontext](chat-extension-reference-plan.md) ist ein gesonderter Plan, überarbeitet am 14. Oktober. Referenz-/Reader- und Kontextgrundlagen sind teilweise umgesetzt; neue Chat-/Agent-Oberflächen, vollständiger Schreibweg und Ende-zu-Ende-Abnahme bleiben offen. [Aktueller Teilstand](chat-agent-extension-implementation.md).
 
 ## Historische Bestandsaufnahme vor der Umsetzung
 
