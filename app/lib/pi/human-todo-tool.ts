@@ -17,7 +17,7 @@ import { TODO_ICON_KEYS, isTodoIconKey } from '@/app/lib/todos/icons';
 import { normalizeManagedAgentId } from '@/app/lib/agents/registry';
 import { getAgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
 import { todoToolApp } from '@/app/lib/tool-apps/types';
-import { USER_TODO_SCOPE, todoScopeForWorkspace } from '@/app/lib/todos/scope';
+import { USER_TODO_SCOPE, todoScopeForWorkspace, todoMatchesWorkspaceScope } from '@/app/lib/todos/scope';
 
 const TODO_EDITABLE_FIELDS = [
   'title',
@@ -86,12 +86,7 @@ function normalizeFileLinks(value: unknown): TodoFileLinkInput[] | undefined {
 function todoMatchesExecutionContext(todo: TodoWithRelations): boolean {
   const executionContext = getAgentExecutionContext();
   if (!executionContext) return todo.workspaceType === 'personal';
-  if (todo.scopeKind === 'user' && todo.workspaceType === 'personal') {
-    return executionContext.workspaceType === 'personal';
-  }
-  return todo.workspaceId === executionContext.workspaceId
-    && todo.workspaceType === executionContext.workspaceType
-    && (todo.organizationId ?? null) === (executionContext.organizationId ?? null);
+  return todoMatchesWorkspaceScope(todo, executionContext);
 }
 
 function requireToolUserId(deps: HumanTodoToolDeps, toolName: string): string {

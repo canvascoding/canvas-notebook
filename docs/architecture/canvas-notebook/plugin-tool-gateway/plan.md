@@ -1,7 +1,8 @@
 # Canvas Agent Tools und Plugin Gateway
 
-Stand: 2026-10-11; Ausgangsbasis vom 2026-10-06 mit Composio-Fix `409897b9d` und geprüfter bestehender Agent-/Skill-Verwaltung.
-Status: Umsetzung auf `feat/plugin-integration-gateway`. Der allgemeine Composio-Fix und Schritte 1 bis 6b sind implementiert und lokal abgenommen: gemeinsamer Provider-Katalog und Dispatcher, Agenten-Runtime, getrennte Ressourcenrechte, gemeinsame Verbindungen/Profile, versionierte Pakete, eingeschränkte Scripts, verbindliche Workflow-Bindungen sowie Plugin-/Store-UI und Agent-Konfiguration. Die vollständige frische native iOS-/Android-Abnahme mit 16 Fällen und regulärer Bereinigung ist in [Run15](evidence/step-6b-e-4-run15-native-acceptance.md) belegt. Der tatsächliche gemeinsame Zwei-Nutzer-Modellworkflow besteht in [6b-f Run14](evidence/step-6b-f-run14-natural-workflow-acceptance.md) mit echtem Modell und kontrollierten MCP-/Composio-Anbietern. Die fehlende echte externe MCP-Abnahme, abschließende Provider-Abnahme und Rollout bleiben Schritt 7; der bereits bestehende echte Composio-/Canva-Beleg vom 8. Oktober bleibt separat. Gateway weiterhin standardmäßig ausgeschaltet, strikter Mobile-Audit unverändert RED23HIGH/0CRITICAL; keine Produktions-/Releasefreigabe. Der verbindliche Fortschritt steht in [implementation.json](implementation.json).
+Stand: 2026-10-13; historische Ausgangsbasis vom 2026-10-06 mit Composio-Fix `409897b9d` und geprüfter bestehender Agent-/Skill-Verwaltung.
+
+Status: Der allgemeine Composio-Fix und Schritte 1 bis 6b sind implementiert, abgenommen und inzwischen in Notebook `main` integriert: gemeinsamer Provider-Katalog und Dispatcher, Agenten-Runtime, getrennte Ressourcenrechte, gemeinsame Verbindungen/Profile, versionierte Pakete, eingeschränkte Scripts, verbindliche Workflow-Bindungen sowie Plugin-/Store-UI und Agent-Konfiguration. Die [Main-Integration vom 12. Oktober](evidence/main-integration-2026-10-12.md) belegt den zusammengeführten Stand. Die native Abnahme steht in [Run15](evidence/step-6b-e-4-run15-native-acceptance.md), der tatsächliche Zwei-Nutzer-Modellworkflow mit kontrollierten Providern in [6b-f Run14](evidence/step-6b-f-run14-natural-workflow-acceptance.md). Die [echte Composio-/Canva-Modellabnahme vom 11. Oktober](evidence/step-7-live-composio-model-acceptance.md) schließt den Composio-Lesetest ab. **Schritt 7 und das Gesamtprojekt bleiben in Arbeit:** echte externe MCP-Abnahme, kontrollierter Default-/Telemetrie-/Rollback-Vergleich und Produktdokumentation fehlen weiterhin. Der Gateway-Default bleibt ausgeschaltet; der separate strikte Mobile-Audit bleibt RED23HIGH/0CRITICAL. Der verbindliche Fortschritt steht in [implementation.json](implementation.json); die nächsten Schritte stehen im [Rollout-Plan vom 13. Oktober](rollout-plan-2026-10-13.md).
 
 ## Ziel und Entscheidungsvorschlag
 
@@ -19,9 +20,11 @@ Composio bleibt das Backend für seinen App-Katalog, die verbundenen Accounts un
 
 Eigenständig konfigurierte MCP-Server und Composio-Apps bleiben nutzbar, auch wenn kein entsprechendes Plugin installiert ist. Ein Plugin verbindet fachlichen Kontext und Integrationen, ist aber keine Voraussetzung für jeden externen Aufruf.
 
-## Verifizierter Status quo
+## Verifizierte Ausgangsbasis vom 6. Oktober 2026
 
-| Bereich | Heute vorhanden | Lücke für das Zielbild |
+Die folgende Bestandsaufnahme dokumentiert den Ausgangszustand vor den inzwischen implementierten Schritten. Für den aktuellen Abschlussstand gelten die Statusbeschreibung oben und `implementation.json`.
+
+| Bereich | Damals vorhanden | Lücke für das Zielbild |
 | --- | --- | --- |
 | Plugin-Pakete | `canvas-plugin-manifest.ts`: Skills, Skill-Referenzen und getrennte Connector-Einträge für MCP, Composio und E-Mail | Kein gemeinsamer ausführbarer Tool-Katalog und keine ausdrücklichen Alternativgruppen für gleichwertige Connectoren |
 | Plugin-/Skill-Policy | `capabilities/catalog.ts`, `capabilities/types.ts`: effektive Plugins und Skills; Organisations-Vorrang; optional, standardmäßig aktiv, verpflichtend oder gesperrt für Organisation, Rolle, Workspace, Projekt und Nutzer; Verwaltungs-UI und serverseitige Zielprüfung | Der Capability-Katalog führt Ressourcen vom Typ `skill` und `plugin`, keine externen Provider oder Tool-Routen; keine gemeinsame organisations-/workspacegebundene Connector-Auswahl |
@@ -51,7 +54,7 @@ Eigenständig konfigurierte MCP-Server und Composio-Apps bleiben nutzbar, auch w
 - `409897b9d`: Gemeinsamer SDK-/HTTP-Test mit fünf App-Katalogen: Canva, Gmail, GitHub, Slack und Google Drive. Unterschiedliche Parameterschemas, OAuth-Callback-Routen, appbezogene Berechtigungen, zwei Nutzer, Profilwechsel und Verbindungszustände sind abgedeckt.
 - Fokussierte Tests, ESLint und `npm run build` sind erfolgreich. Playwright prüfte die normale UI-Verbindung und einen tatsächlichen Agentenlauf mit Gmail; zuvor wurde der Canva-Ablauf geprüft. Die Browserläufe verwenden kontrollierte Provider-Antworten und sind keine Live-Abnahme echter Drittanbieter-Accounts.
 - Der Gmail-Agentenlauf erreichte die korrekte Ausführung, machte vorher aber vermeidbare Gateway-Fehlversuche. Das ist konkrete Motivation für einen einheitlichen, weniger verschachtelten Vertrag.
-- Die Fixes sind lokal committet, nicht gepusht oder ausgerollt. Die zusätzliche App-Listenfunktion und die gemeinsame Schicht sind Bestandteil dieses Plans.
+- Die Fixes und die gemeinsame Schicht sind inzwischen in Notebook `main` integriert. Die allgemeine Aktivierung des Gateways bleibt Teil des offenen kontrollierten Rollouts.
 
 ## Zielarchitektur
 
