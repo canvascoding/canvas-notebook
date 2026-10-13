@@ -1,8 +1,28 @@
 # Einheitlicher Erweiterungskontext für Chat und Agenten
 
-Stand: 13. Oktober 2026. **Vorschlag zur Besprechung; Chat-Suche und neue Agent-Konfiguration noch nicht implementiert.** Quellenbasis der erweiterten Bestandsaufnahme: Notebook `a99553e7f2d4456fe272c9ac5994c6b39412189b`. Der separat beauftragte MCP-Icon-Nachtrag verändert diese Verträge nicht. Dieser Plan wird zunächst gemeinsam optimiert; seine Speicherung ist kein Auftrag zur Umsetzung.
+Stand: 13. Oktober 2026. **Aktueller Auftrag: Feedback und Plan speichern, anschließend gemeinsam optimieren.** Quellenbasis dieser erneuten Bestandsaufnahme: Notebook `27425ddc7`. Gemeinsame Referenz-/Bindungsverträge wurden bereits als Grundlage ergänzt; Chat-Picker, vollständiger Agent-Create und gemeinsamer Kontextcompiler sind noch nicht daran angeschlossen. In diesem Planungsschritt werden ausschließlich Dokumente verändert.
 
-Nachfolgend wurde die Umsetzung mit abschließender E2E-Prüfung ausdrücklich beauftragt. Der aktuelle [Umsetzungs- und Abnahmestand](chat-agent-extension-implementation.md) dokumentiert die Schritte, offenen Anforderungen und tatsächlichen Nachweise; der folgende Text bleibt der Zielvertrag.
+Der vorausgegangene Implementierungsstand bleibt im [Umsetzungs- und Abnahmejournal](chat-agent-extension-implementation.md) nachvollziehbar. Dieses Dokument beschreibt das Ziel und die vorgeschlagenen Entscheidungen; vorhandene Grundlagen oder frühere Pluginseiten-Tests gelten nicht als Abnahme der neuen Chat-/Agent-Bedienung.
+
+## Feedback und empfohlene Entscheidungen
+
+**Die gewünschte Logik ist teilweise vorhanden, aber noch nicht durchgehend umgesetzt.** Der Pluginseiten-Katalog sucht bereits gemeinsam über alle vier Typen und liefert deren vorhandene Logoquellen. Die Chat-Auswahl verwendet dagegen noch eigene Plugin-/Skill-Listen und Namen. Agent-Erstellung, Workflow-Bearbeitung und Runtime-Kontext haben unterschiedliche Genauigkeit. Ein größerer Slash-Picker allein würde diese Unterschiede bestehen lassen.
+
+Empfehlung: dieselben genauen Auswahlreferenzen und dieselbe serverseitige Kontextaufbereitung für Plugin-Seite, Chat, Agent-Tool und Agent-Oberfläche verwenden. Die Oberflächen teilen Katalog, Identität, Icons und Auswahlkomponenten; ihre jeweilige Nutzbarkeit wird für den aktuellen Nutzer, Workspace und Agenten geprüft.
+
+„Verbunden“ oder „autorisiert“ im Katalog garantiert keinen erfolgreichen Agent-Aufruf. Sichtbarkeit, aktuelle Nutzungsrechte, Agent-/Toolgrenzen und tatsächliche Provider-Erreichbarkeit bleiben getrennte Zustände. Die neue Auswahlprojektion muss die konkrete Verbindung prüfen und diese Unterschiede verständlich anzeigen.
+
+| Entscheidung | Empfohlener Ausgangspunkt |
+| --- | --- |
+| Plugin oder Einzelbestandteil | Plugin als bequemes Gesamtpaket anbieten; Skills, Composio und MCP bleiben unabhängig auswählbar. Gleich passende Vorschläge dürfen Plugins bevorzugen; ein genauer Einzel-Treffer bleibt sichtbar. |
+| Suche | Ein Eingabefeld für alle vier Typen. Ohne Text zuletzt akzeptierte Chat-Auswahlen; mit Text Relevanz zuerst. Typfilter sind optional und erhalten die Query. |
+| Progressive Disclosure | Zunächst Logo, Name, Typ, Nutzen und Status. Erst danach Paketbestandteile, mehrere Accounts, Toolgrenzen und Kontextvorschau aufklappen. Einrichtung führt zum genauen Katalogeintrag und erhält den Entwurf. |
+| Spezialagent | Konfigurierte Erweiterungen bei jedem Start im Systemkontext. Ein Chat-Chip fokussiert die zulässige Auswahl; er erweitert keine dauerhafte Freigabe. |
+| Allgemeiner Chat | Präziser Erweiterungskontext für explizite Turn-Auswahl. Zusätzlich auftragsbezogene Skill-Suche innerhalb bereits erlaubter Ressourcen, ohne vollständigen Skillkatalog im Systemprompt. |
+| Agent-Tool und UI | Derselbe vollständige Create-/Update-Vertrag mit Paketversionen, konkreten Verbindungen und Toolgrenzen; gegenseitiger Inspect-/Edit-Roundtrip. |
+| Logos | Composio-Toolkit-Logos, vorhandene Paket-/Skill-Icons und geprüfte MCP-Domain-Icons wiederverwenden; bei fehlendem oder nicht ladbarem Bild Namensinitialen. |
+
+Startwerte zur gemeinsamen Optimierung: sechs bis acht sichtbare Treffer, fünf explizite Turn-Auswahlen, etwa 30 Recents je Nutzer/Workspace und 8 KiB für den kompakten Erweiterungskontext. Diese Werte sind Vorschläge, keine neue Begrenzung der dauerhaft konfigurierbaren Agent-Ressourcen. Offene Produktentscheidungen stehen am Ende des Plans; technische Abnahmefälle werden vor der Umsetzung festgelegt.
 
 ## Entscheidungsvorschlag
 
@@ -25,6 +45,7 @@ Der [klickbare Wireframe](wireframes/chat-extension-picker.html) zeigt Recents, 
 | Plugin-Kontext | Beschreibung, Default-Prompts, enthaltene Skills und deklarierte Connector-Hinweise für `/name` | Exakte veröffentlichte Quelle, relevante Kinder, tatsächliche Verbindung und konkreter Tool-Suchweg |
 | Skill-Kontext | Kurze Beschreibung plus autorisierter `SKILL.md`-Lesepfad | Ausgewählten Skill und Plugin-Herkunft eindeutig erhalten |
 | Runtime | Frische Ressourcen-/Verbindungsrechte, versionierte Bindungen und gemeinsamer Gateway vorhanden | Auswahl daran anschließen, ohne Rechte zu erweitern |
+| Gemeinsame Auswahlverträge | Strikte öffentliche Referenzen, private Bindungsschemas und Versionshelper als vorbereitende Grundlage vorhanden | In tatsächliche Aufnahme, Persistenz, Runtime, Tool- und UI-Verträge integrieren; Schema allein erteilt keine Nutzung |
 | Agent-Systemprompt | Allgemeiner Agent bekommt alle effektiven Skill-Namen/Beschreibungen/Pfade; beim Spezialagenten bedeutet `relevantSkills: null` ebenfalls alle Skills | Explizite feste Auswahl für Spezialagenten; allgemeine natürliche Skill-Suche statt automatischem vollständigem Skillkatalog im Prompt |
 | Agent erstellen | UI und `create_agent` teilen `createManagedAgent`; Eingabe enthält Plugin-/Skill-Auswahl und namensbasierte Verbindungsanforderungen | Vollständiger gemeinsamer Vertrag mit veröffentlichten Paketständen und exakten eigenständigen MCP-/Composio-Verbindungen bereits beim Erstellen |
 | Agent bearbeiten | UI und `update_agent_configuration` teilen atomare Konfiguration mit Revisionsprüfung; Workflow V1 bindet Pakete/Kinder und deklarierte Verbindungen exakt | V1 erhalten; Standalone-Verbindungen ergänzen und denselben vollständigen Vertrag bei Create/Update verwenden |
@@ -55,6 +76,8 @@ Ein versionierter, diskriminierter **`ExtensionSelection`-Vertrag** bildet Plugi
 
 Die Agent-Persistenz erweitert den bestehenden Capability-/Workflow-Vertrag und dessen Bindungen. Es entsteht kein zusätzlicher unabhängiger Skill-/Tool-Speicher in Promptdateien. Heute akzeptiert die private Bindungskonfiguration nur Paket-Workflowdaten; für exakte Standalone-Verbindungen ist deshalb eine versionierte Schemaerweiterung samt Migration erforderlich. Vorhandene Workflow-V1-Pins und persönliche Auswahlregeln bleiben über einen geprüften Adapter erhalten. Eine unabhängige Verbindung wird nicht als erfundene Plugin-Deklaration gespeichert.
 
+Die vorhandenen Workflow-Leser und die Tool-Registrierung unterscheiden derzeit Version 1 und Legacy-Vererbung. Der vorbereitete Versionshelper für Version 2 schaltet diese Leser noch nicht um. Vor dem ersten Schreiben einer neuen festen Gesamtkonfiguration müssen Persistenzleser, Runtime, Readroots, Prompt und Tool-Registrierung denselben erweiterten Vertrag unterstützen. Unbekannte oder widersprüchliche Versionen dürfen nicht auf Vererbung zurückfallen.
+
 ### Ein serverseitiger Resolver
 
 Vorgeschlagen ist ein gemeinsamer `resolveEffectiveExtensionContext`-Dienst. Er nutzt die vorhandenen Paket-, Workflow-, Verbindungs- und Runtime-Policy-Dienste und liefert einen abgeleiteten, privaten Selektionsstand mit Fingerprint:
@@ -79,6 +102,8 @@ Neue Spezialagenten verwenden eine ausdrücklich feste Erweiterungsauswahl. Ihr 
 „Immer vorhanden“ bedeutet einen kompakten Index und die passende geprüfte Paketanleitung. Vollständige Skilltexte und Toolschemas werden bei Bedarf geladen. Ein Plugin kann als Paket ausgewählt werden; seine zugelassenen Bestandteile werden daraus nachvollziehbar abgeleitet. Ein Kind kann außerdem gezielt ausgewählt oder ausgeschlossen werden, soweit Pflichtbestandteile und Paketregeln das erlauben. Eine zusätzliche Standalone-Auswahl desselben Kindes wird über die genaue Herkunft dedupliziert.
 
 Diese Teilmengenauswahl benötigt eine ausdrückliche Normalisierung: Workflow V1 unterscheidet heute ganzes Plugin und ausgewählte Skills; beim zweiten Modus werden Plugin-Root-Deklarationen nicht einfach mitgeführt. Der neue Vertrag muss Elternanforderungen erhalten, während optionale Kinder abgewählt werden. Die UI darf keine Teilmengenauswahl anbieten, die erforderliche Connector-/Skill-Deklarationen des Elternpakets still entfernt.
+
+Ein erlaubter Sonderfall ist ein Plugin, das über `skills: "."` eine `SKILL.md` an der Paketwurzel bereitstellt. Der vorhandene Paketloader findet sie, während die heutige Runtime-Bindungsprüfung diesen Plugin-Root ablehnt. Die gemeinsame Normalisierung muss diese tatsächliche Manifestform berücksichtigen und dafür einen eigenen Abnahmefall erhalten; vorhandene Unterstützung wird hier nicht behauptet. Welche Kinder existieren, bestimmt das veröffentlichte Manifest samt Loader, nicht eine erfundene UI-Verzeichnisliste.
 
 Ein Slash-Chip beim Spezialagenten fokussiert einen bereits zulässigen Bestandteil. Er erweitert dessen feste Auswahl nicht. Eine andere Verbindung kann nur gewählt werden, wenn die gespeicherte Konfiguration genau diese Wahl erlaubt. Für nicht erlaubte Erweiterungen zeigt die UI den berechtigten Weg zur Agent-Konfiguration oder zum allgemeinen Chat.
 
@@ -207,6 +232,14 @@ Beim Senden erzeugt der Server aus diesen Referenzen den aktuellen begrenzten Ko
 
 Die Referenzen gehören in `ChatRequestContext` **und dessen Normalisierung**, den unveränderlichen Send-Snapshot, WebSocket-/HTTP-Vertrag, Queue-Änderungen, Steer/Follow-up/Retry und versionierte Drafts/Handoffs. Beim Queue-Start werden Rechte und Quelle erneut geprüft. Eine während eines laufenden Turns gewählte neue Erweiterung darf dessen bereits erfassten Kontext nicht ersetzen.
 
+### Dauerhafte Referenzen und zuverlässige Wiederaufnahme
+
+Die akzeptierte genaue Auswahl ist von kurzlebigen Aufnahmebelegen getrennt. Insbesondere ein fünf Minuten gültiger persönlicher Composio-Accountbeleg ist keine langlebige Verbindung und gehört weder in Verlaufchips noch in die gespeicherte Agent-Konfiguration. Nach einem Draftreload kann eine frische Bestätigung derselben konkreten Auswahl erforderlich sein; ein abgelaufener Beleg erlaubt keinen Wechsel auf das Standardkonto. Queue-Start und spätere Ausführung prüfen die angenommene Auswahl erneut über die vorhandenen Autoritätsdienste.
+
+Die clientseitige Send-Transaktion und die serverseitige Idempotenz müssen die kanonische Auswahl berücksichtigen. Gleicher Text mit anderer Auswahl ist ein anderer Auftrag. Ein erneuerter Aufnahmebeleg für dieselbe Auswahl darf dagegen weder eine zweite Nachricht noch einen falschen Inhaltskonflikt erzeugen. Dazu wird die logische Nachrichtenidentität von erneuerbaren Aufnahmebelegen getrennt; ein abweichender Auftrag unter derselben Nachrichten-ID bleibt ein Konflikt.
+
+Die derzeitige Runtime-Queue und ihr Nachrichtenkontext liegen im RAM. Browserreload und Server-/Runtime-Neustart sind deshalb verschiedene Fälle. Der neue Vertrag benötigt eine dauerhafte angenommene Queue-Auswahl samt eindeutigen Zuständen und Wiederaufnahme. Nach verlorener Bestätigung darf eine möglicherweise bereits gestartete externe Mutation nicht automatisch erneut ausgeführt werden. Verlauf und Status müssen eine ungewisse Ausführung nachvollziehbar anzeigen, ohne privaten Providerkontext offenzulegen.
+
 ## „Zuletzt verwendet“ eindeutig definieren
 
 Empfehlung: Ein Eintrag zählt als verwendet, wenn seine explizite Auswahl serverseitig geprüft und als Teil einer Chat-Nachricht akzeptiert wurde. Ein nachfolgender Providerfehler ändert nicht die Tatsache, dass der Nutzer diesen Kontext angefordert hat. Reines Suchen, Öffnen, Hover, Abbrechen und ein nicht akzeptierter Send zählen nicht.
@@ -277,10 +310,10 @@ Jeder Schritt wird abgeschlossen, bevor der nächste beginnt. Im ersten Umsetzun
 4. Persönlicher und Team-Account derselben App: ausdrückliche Auswahl; gewöhnlicher Nutzer kann mit Use ohne Manage verwenden; kein erster Account als Fallback.
 5. Nicht installiert, Autorisierung erforderlich, no-auth, Dienst nicht erreichbar und nicht freigegeben erhalten zutreffende Aktionen.
 6. Gehaltene Antworten bei Agent-/Workspace-/Profil-/Benutzerwechsel gelangen nicht in den neuen Picker oder Nachrichtenkontext.
-7. Chip entfernen, Text bearbeiten, Draftreload, Handoff, Follow-up/Steer, Queueedit und Retry erhalten oder entfernen Referenzen eindeutig.
+7. Chip entfernen, Text bearbeiten, Draftreload, Handoff, Follow-up/Steer, Queueedit und Retry erhalten oder entfernen Referenzen eindeutig. Browserreload und Runtime-Neustart werden separat geprüft. Gleicher Text mit anderer Auswahl ist eine neue Transaktion; ein erneuerter Aufnahmebeleg derselben Auswahl erzeugt keine Doppelung. Eine ungewisse externe Ausführung wird nicht automatisch wiederholt.
 8. Rechteentzug zwischen Auswahl, Send, Queue-Start, Schema und Call stoppt jeweils vor unberechtigter Nutzung. Historische Chips behaupten keinen heutigen Zugriff.
 9. Router registriert/nicht registriert sowie verbindlicher Workflow-Agent: Kontext nennt nur tatsächlich vorhandene Tools und bleibt in deren erlaubtem Umfang.
-10. Ausgewähltes Plugin führt den Agenten zu relevantem `SKILL.md` und genau passenden Tools; ein großes Plugin hält die gemeinsame Kontextgrenze ein.
+10. Ausgewähltes Plugin führt den Agenten zu relevantem `SKILL.md` und genau passenden Tools; ein großes Plugin hält die gemeinsame Kontextgrenze ein. Plugins mit Root-`SKILL.md` und Plugins mit optionalen Kind-Skills werden geprüft; Teilmengenauswahl erhält notwendige Elternanforderungen.
 11. Stale Paket-/Connection-/Schema-Revision löst eine konkrete Neuauflösung aus; keine automatische Mutation-Wiederholung.
 12. Reale Tastatur-/IME-/Screenreader-Bedienung, DE/EN, Desktop und schmaler Web-Dock; native Geräteprüfungen getrennt.
 13. Über das tatsächliche `create_agent`-Tool einen Agenten mit Plugin/Kind-Skill und eigenständigem MCP/Composio erstellen; die Management-UI zeigt exakt dieselben Quellen, gehaltenen Versionen, Verbindungen und Toolgrenzen.

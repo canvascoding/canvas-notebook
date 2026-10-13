@@ -2,6 +2,8 @@
 
 Ausgangsstand: Notebook `d92d8eb05`. Auftrag: „setz den plan um und mach ein e2e test wenn du fertig bist“. Verbindlicher Umfang ist der [gespeicherte Plan](chat-extension-reference-plan.md), einschließlich eigener nativer Folgestufe. Dies ist ein Fortschritts-/Nachweisjournal; eine geplante oder syntaktisch geprüfte Funktion ist hier keine vollständige Abnahme.
 
+Aktuelle Nutzeranweisung vom 13. Oktober: „Gib mir erstmal feedback mit dem plan dann speicher den in docs ab und dann optimieren wir das noch“. Der jetzige Arbeitsschritt aktualisiert daher ausschließlich den Plan. Die folgenden Implementierungsstände werden dadurch weder abgeschlossen noch als abgenommen ausgegeben; vorbereitete lokale Quelldateien bleiben unverändert.
+
 ## Reihenfolge
 
 | Schritt | Stand | Erforderlicher Nachweis |
