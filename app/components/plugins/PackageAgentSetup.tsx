@@ -3,17 +3,19 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { Loader2, Route } from 'lucide-react';
+import { isAgentIconId } from '@/app/lib/agents/icons';
 import { authClient } from '@/app/lib/auth-client';
 import { AgentWorkflowManagementDialog } from '@/app/components/agents/AgentWorkflowManagementDialog';
 import { agentWorkflowManagementContextKey, saveAgentWorkflowManagement, type AgentWorkflowManagementContext,
   type AgentWorkflowManagementSaveInput } from '@/app/components/agents/agent-workflow-management-client';
 import { AgentWorkflowClientError } from '@/app/components/agents/agent-workflow-client';
 import { Button } from '@/components/ui/button';
+import { PluginExtensionAvatar } from './PluginExtensionAvatar';
 import { InlineNotice } from '@/components/ui/inline-notice';
 import { workspaceRequest } from './plugin-workspace-client';
 import { usePluginEditorNavigationGuard } from './plugin-navigation-guard';
 
-type AgentChoice = { agentId: string; name: string; type: string; access: { canEdit: boolean } };
+type AgentChoice = { agentId: string; name: string; iconId?: string | null; type: string; access: { canEdit: boolean } };
 type Props = { workspaceId: string; resourceRef: string; packageName: string };
 
 /** This optional step configures an actual agent through the existing versioned workflow manager. */
@@ -81,7 +83,10 @@ function AgentSetupSession({ workspaceId, resourceRef, packageName, actorId, ses
               <select className="h-9 w-full rounded-md border bg-background px-3" value={selected} data-testid="package-agent-setup-select"
                 onChange={event => { setSelected(event.target.value); setEpoch(value => value + 1); }}>
                 <option value="">{t('agentSelect')}</option>{agents.map(value => <option key={value.agentId} value={value.agentId}>{value.name}</option>)}
-              </select></label> : <p className="text-sm font-medium">{agent?.name}</p>}
+              </select></label> : null}
+            {agent ? <div className="flex min-w-0 items-center gap-3"><PluginExtensionAvatar name={agent.name} identity={JSON.stringify([agent.agentId, workspaceId])} size="md"
+              icon={isAgentIconId(agent.iconId) ? {url: `/images/agents/origami/${agent.iconId}.svg`, sourceKey: JSON.stringify([agent.agentId, agent.iconId])} : undefined} />
+              <p className="min-w-0 break-words text-sm font-medium">{agent.name}</p></div> : null}
             <Button ref={trigger} type="button" variant="outline" disabled={!agent} data-testid="package-agent-setup-open"
               onClick={() => { setEpoch(value => value + 1); setOpen(true); }}>{t('agentConfigure')}</Button>
           </>}

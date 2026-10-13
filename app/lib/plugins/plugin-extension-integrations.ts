@@ -5,6 +5,8 @@ import { createHash } from 'node:crypto';
 import type { CapabilityResourceActor, CapabilityResourceOwnerScope } from '@/app/lib/capabilities/resources/contracts';
 import type { IntegrationConnectionDescriptor } from '@/app/lib/integration-tools/connections/contracts';
 import type { PluginExtensionConnection, PluginExtensionCoverage, PluginExtensionItem } from './plugin-extension-contracts';
+import { publicPluginExtensionIcon } from './plugin-extension-icons';
+import type { McpServerIconMetadata } from '@/app/lib/mcp/icons';
 
 export type PluginExtensionSourceResult = { items: PluginExtensionItem[]; coverage: PluginExtensionCoverage; continuation?: string };
 const text = (value: unknown, limit = 200) => typeof value === 'string'
@@ -53,10 +55,11 @@ export async function readComposioExtensions(actor: CapabilityResourceActor, sig
     const existing = apps.get(slug);
     if (existing) return existing;
     const meta = record(metadata.meta), noAuth = (metadata.noAuth ?? metadata.isNoAuth ?? metadata.no_auth) === true;
+    const icon = publicPluginExtensionIcon(meta.logo ?? metadata.logo, `composio:${slug}`);
     const value: Extract<PluginExtensionItem, { kind: 'integration' }> = { id: `composio:${slug}`, kind: 'integration',
       name: slug, displayName: text(metadata.name) || slug, description: text(meta.description ?? metadata.description, 4096),
       source: 'composio', stock: 'available', access: { canRead: true, canUse: false, canManage: false },
-      toolkit: { slug, noAuth }, connections: [] };
+      toolkit: { slug, noAuth }, connections: [], ...(icon ? {icon} : {}) };
     apps.set(slug, value); return value;
   };
   try {
@@ -159,6 +162,9 @@ export async function readMcpExtensions(actor: CapabilityResourceActor): Promise
     if (mcpActor) {
       const scope = { userId: actor.userId, organizationId: mcpActor.organizationId };
       const config = await readMcpConfig(scope);
+      // Existing metadata only: catalogue rendering must not discover/fetch favicons.
+      const cachedIcons: Record<string, McpServerIconMetadata> = await import('@/app/lib/mcp/icons')
+        .then(module => module.readCachedMcpServerIcons(scope)).catch(() => ({}));
       for (const name of Object.keys(config.mcpServers)) {
         try {
           const { connection } = await assertMcpConnectionAccess(name, scope, { allowDisabled: true, actor: mcpActor });
@@ -178,8 +184,18 @@ export async function readMcpExtensions(actor: CapabilityResourceActor): Promise
               summary.health = health.reachability === 'reachable' ? 'healthy' : health.reachability === 'unreachable' ? 'unavailable' : 'unknown';
             }
           } catch { partial = true; }
+          let icon = publicPluginExtensionIcon(connection.iconUrl, `${summary.connectionRef}:${connection.authVersion ?? ''}`);
+          const cached = cachedIcons[name];
+          const fetchedAt = Date.parse(cached?.fetchedAt ?? '');
+          if (!icon && connection.url && cached?.iconUrl && cached.origin && cached.serverName === name
+            && Number.isFinite(fetchedAt) && fetchedAt > 0 && fetchedAt <= Date.now()) {
+            try {
+              if (new URL(connection.url).origin === cached.origin) icon = publicPluginExtensionIcon(cached.iconUrl,
+                `${summary.connectionRef}:${connection.authVersion ?? ''}:${new Date(fetchedAt).toISOString()}`);
+            } catch { /* Invalid or stale image metadata falls back to initials. */ }
+          }
           items.push({ id: summary.connectionRef, kind: 'mcp', name, displayName: summary.displayName, description: '', source: 'mcp', stock: 'installed',
-            access: summary.access, ownership: summary.ownership,
+            access: summary.access, ownership: summary.ownership, icon,
             mcp: { serverId: connection.connectionId, transport: connection.command ? 'stdio' : connection.url ? 'http' : 'unknown', template: false }, connections: [summary] });
           if (connection.serverDefinitionId) usedDefinitions.add(connection.serverDefinitionId);
         } catch (error) { if (!(error instanceof McpAccessError && [403, 404].includes(error.status))) partial = true; }

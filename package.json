@@ -779,6 +779,8 @@
     "test:plugins:navigation": "tsx scripts/plugin-navigation-test.ts && tsx scripts/plugin-navigation-guard-test.tsx",
     "test:plugins:extension-search": "tsx --conditions react-server scripts/plugin-extension-search-test.ts && tsx --conditions react-server scripts/capability-package-mcp-template-projection-test.ts && tsx --conditions react-server scripts/capability-package-mcp-matches-test.ts",
     "test:plugins:extension-agent-ui": "tsx scripts/package-agent-setup-ui-test.tsx",
+    "test:plugins:extension-avatar-ui": "tsx scripts/plugin-extension-avatar-ui-test.tsx",
+    "test:plugins:extension-icons": "tsx --conditions react-server scripts/plugin-extension-icons-test.ts && tsx --conditions react-server scripts/plugin-extension-mcp-icons-test.ts && tsx --conditions react-server scripts/capability-package-icon-image-test.ts",
     "test:plugins:extension-ui": "tsx scripts/plugin-extension-search-ui-test.tsx && tsx scripts/plugin-workspace-shell-ui-test.tsx",
     "test:plugins:extension-setup": "tsx scripts/plugin-catalog-setup-ui-test.tsx && tsx scripts/plugin-integration-setup-client-test.ts && tsx scripts/plugin-catalog-oauth-return-test.ts && tsx --conditions react-server scripts/plugin-shared-composio-return-test.ts",
     "test:plugins:extension-e2e": "node scripts/run-plugin-extension-e2e.mjs",

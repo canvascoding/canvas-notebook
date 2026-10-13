@@ -1,6 +1,6 @@
 'use client';
 
-import { BookOpen, ChevronLeft, ChevronRight, LockKeyhole, Puzzle } from 'lucide-react';
+import { ChevronLeft, ChevronRight, LockKeyhole } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import type { ReactNode } from 'react';
 import { Button } from '@/components/ui/button';
@@ -8,9 +8,11 @@ import { InlineNotice } from '@/components/ui/inline-notice';
 import type { PluginWorkspaceCatalogItem, PluginWorkspaceCatalogResponse } from '@/app/lib/plugins/plugin-workspace-catalog-contracts';
 import type { CapabilityPackageStoreListResponse, CapabilityPackageStoreSelection } from '@/app/lib/capabilities/packages/store-contracts';
 import type { SafeActorSkillStoreResource } from '@/app/lib/skills/actor-skill-store-state';
+import { PluginExtensionAvatar } from './PluginExtensionAvatar';
 
 export type PluginWorkspaceListsProps = {
   catalog: PluginWorkspaceCatalogResponse; store: CapabilityPackageStoreListResponse | null;
+  workspaceId?: string | null;
   view: 'installed' | 'store' | 'updates'; onOpenResource: (item: PluginWorkspaceCatalogItem) => void;
   onOpenOffering: (source: CapabilityPackageStoreSelection) => void; onPage: (page: number) => void;
 };
@@ -29,19 +31,16 @@ export function pluginWorkspaceUpdateItem(resource: SafeActorSkillStoreResource,
     description: resource.metadata.description ?? found?.description ?? '', version: resource.artifact.version, revision: resource.artifact.revision,
     ownership: resource.metadata.ownership, ownershipLabel: resource.ownershipLabel,
     access: resource.access, activation: resource.activation, ...(Object.keys(people).length ? { people } : {}),
+    ...(resource.icon ? { icon: resource.icon } : {}),
     ...(found?.parentResourceRef ? { parentResourceRef: found.parentResourceRef } : {}) };
 }
 
-function PackageMark({ kind }: { kind: 'plugin' | 'skill' }) {
-  const Icon = kind === 'plugin' ? Puzzle : BookOpen;
-  return <span className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground"><Icon className="size-4" aria-hidden="true" /></span>;
-}
 function StatusLabel({ children }: { children: ReactNode }) {
   return <span className="rounded bg-muted px-2 py-0.5 text-xs text-muted-foreground">{children}</span>;
 }
 
 /** Readable management rows never imply runtime activation, readiness or connection-use rights. */
-export function PluginWorkspaceLists({ catalog, store, view, onOpenResource, onOpenOffering, onPage }: PluginWorkspaceListsProps) {
+export function PluginWorkspaceLists({ catalog, store, workspaceId, view, onOpenResource, onOpenOffering, onPage }: PluginWorkspaceListsProps) {
   const t = useTranslations('skills.workspace');
   const updates = view === 'updates';
   const items = updates ? (store?.installed.resources ?? []).map(resource => pluginWorkspaceUpdateItem(resource, catalog)) : catalog.items;
@@ -56,7 +55,7 @@ export function PluginWorkspaceLists({ catalog, store, view, onOpenResource, onO
       return <li key={item.resourceRef} data-testid="plugin-workspace-resource" data-resource-ref={item.resourceRef}>
         <button type="button" onClick={() => onOpenResource(item)} aria-label={t('lists.openResource', { name: item.displayName })}
           className="group flex w-full min-w-0 items-start gap-3 p-4 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset sm:gap-4 sm:p-5">
-          <PackageMark kind={item.kind} />
+          <PluginExtensionAvatar name={item.displayName} identity={JSON.stringify([item.resourceRef, workspaceId ?? ''])} icon={item.icon} size="sm" className="mt-0.5" />
           <div className="min-w-0 flex-1 space-y-1.5">
             <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1"><span className="min-w-0 max-w-full break-words font-medium">{item.displayName}</span><span className="max-w-full break-words text-xs text-muted-foreground">{t('lists.version', { version: item.version })}</span></div>
             {item.description && <p className="line-clamp-2 break-words text-sm text-muted-foreground">{item.description}</p>}
@@ -103,7 +102,7 @@ export function PluginWorkspaceLists({ catalog, store, view, onOpenResource, onO
                 <button type="button" disabled={!version} aria-label={t('lists.openOffering', { name: offering.displayName })}
                   onClick={() => version && onOpenOffering({ kind: source.kind, registryId: offering.registryId, entryKey: offering.entryKey, version: version.version, checksum: version.checksum })}
                   className="group flex w-full min-w-0 items-start gap-3 p-4 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset disabled:cursor-not-allowed disabled:opacity-60 sm:gap-4 sm:p-5">
-                  <PackageMark kind={source.kind} /><div className="min-w-0 flex-1 space-y-1.5">
+                  <PluginExtensionAvatar name={offering.displayName} identity={JSON.stringify([source.kind, offering.registryId, offering.entryKey, version?.version, version?.checksum, workspaceId ?? ''])} icon={offering.icon} size="sm" className="mt-0.5" /><div className="min-w-0 flex-1 space-y-1.5">
                     <div className="flex flex-wrap items-center gap-x-3 gap-y-1"><span className="min-w-0 max-w-full break-words font-medium">{offering.displayName}</span><span className="max-w-full break-words text-xs text-muted-foreground">{t('lists.version', { version: offering.latestVersion })}</span></div>
                     {offering.description && <p className="line-clamp-2 break-words text-sm text-muted-foreground">{offering.description}</p>}
                     <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground"><span>{t(`lists.${source.kind}`)}</span>{offering.publisher?.name && <span className="min-w-0 max-w-full break-words">{t('lists.publisher', { name: offering.publisher.name })}</span>}

@@ -151,7 +151,7 @@ async function readInstalledExtensions(actor: CapabilityResourceActor) {
     catalog = projectPluginWorkspaceCatalog(resources, context, { kind: null, scope: 'all', audience: null, teamId: null, q: '', page, limit: 50 });
     for (const item of catalog.items) items.push({ id: item.resourceRef, kind: item.kind, name: item.name, displayName: item.displayName, description: item.description,
       source: 'local', stock: 'installed', access: { canRead: item.access.canRead, canUse: item.access.canUse, canManage: item.access.canManage },
-      ownership: item.ownership, ownershipLabel: item.ownershipLabel, package: item });
+      ownership: item.ownership, ownershipLabel: item.ownershipLabel, icon: item.icon, package: item });
     page += 1;
   } while (catalog.pagination.hasNextPage && page <= 2000);
   return { items, scopes: catalog.scopes, coverage: { source: 'packages' as const, status: catalog.pagination.hasNextPage ? 'partial' as const : 'complete' as const } };
@@ -178,7 +178,7 @@ async function readStoreExtensions(actor: CapabilityResourceActor, options: { se
         seen.add(id);
         items.push({ id, kind: offering.kind, name: offering.entryKey, displayName: offering.displayName, description: offering.description,
           source: 'store', stock: offering.installedResourceRefs.length ? 'installed' : 'available',
-          access: { canRead: true, canUse: false, canManage: false }, offering });
+          access: { canRead: true, canUse: false, canManage: false }, icon: offering.icon, offering });
       }
     }
   }
@@ -197,7 +197,7 @@ async function readStoreExtensions(actor: CapabilityResourceActor, options: { se
         const exact = await listCapabilityPackageStoreAction(actor, { scope: 'all', kind, q: entry.name, page: 1, limit: 50, installedLimit: 1 });
         const offering = exact.stores.flatMap(store => store.offerings).find(value => value.registryId === registry.id && value.entryKey === entry.name);
         if (offering) items.push({ id: options.selected, kind, name: offering.entryKey, displayName: offering.displayName, description: offering.description,
-          source: 'store', stock: offering.installedResourceRefs.length ? 'installed' : 'available', access: { canRead: true, canUse: false, canManage: false }, offering });
+          source: 'store', stock: offering.installedResourceRefs.length ? 'installed' : 'available', access: { canRead: true, canUse: false, canManage: false }, icon: offering.icon, offering });
       } catch { partial = true; }
     }
   }

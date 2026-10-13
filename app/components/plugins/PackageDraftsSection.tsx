@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { InlineNotice } from '@/components/ui/inline-notice';
 import type { CapabilityPackageOwnedDraftList, CapabilityPackageOwnedDraftStatus } from '@/app/lib/capabilities/packages/contracts';
 import { usePluginEditorNavigationGuard } from './plugin-navigation-guard';
+import { PluginExtensionAvatar } from './PluginExtensionAvatar';
 
 type DraftResponse = { success: boolean; data?: CapabilityPackageOwnedDraftList; code?: string };
 
@@ -110,6 +111,7 @@ export function PackageDraftsSection({ workspaceId, onOpenDraft, showHeader = tr
     <ul className="space-y-3">
       {visibleDrafts.map(draft => <li key={draft.draftRef} data-testid="package-draft-row" className="min-w-0 rounded-lg border p-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
+          <PluginExtensionAvatar name={draft.name} identity={JSON.stringify([draft.draftRef, workspaceId ?? '', draft.draftRevision])} size="sm" />
           <div className="min-w-0 flex-1 space-y-1">
             <p className="break-words font-medium">{draft.name}</p>
             <p className="text-xs text-muted-foreground">{t(draft.kind)} · {t(draft.operation)} · {t(draft.targetOwnership.type === 'user' ? 'personal' : draft.targetOwnership.type)}</p>

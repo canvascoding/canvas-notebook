@@ -12,7 +12,7 @@ import { withAuthorizedCapabilityPackageResource } from '../resources/store';
 import { validateCanvasPluginPackage, type CanvasPluginConnectorManifest, type CanvasPluginMcpConnector } from '@/app/lib/plugins/canvas-plugin-manifest';
 import { parsePluginSkillsFromManifest } from '@/app/lib/plugins/canvas-plugin-registry';
 import { normalizeComposioConnectors, normalizeEmailConnectors, normalizeMcpConnectors } from '@/app/lib/plugins/plugin-connection-readiness';
-import { parseSkillFile, validateStandaloneSkillWorkflow, type CanvasSkill } from '@/app/lib/skills/canvas-skill-manifest';
+import { isValidAgentSkillName, loadCanvasSkillInterface, parseSkillFile, validateStandaloneSkillWorkflow, type CanvasSkill } from '@/app/lib/skills/canvas-skill-manifest';
 import { validateWorkflowReferences, type GenericWorkflowManifestV1, type SkillWorkflowManifestV1 } from '../workflow-contracts';
 import { readSkillScriptManifest } from '@/app/lib/skills/script-runtime/manifest';
 import { isSkillScriptError } from '@/app/lib/skills/script-runtime/contracts';
@@ -26,10 +26,12 @@ import { CapabilityPackageError } from './contracts';
 import { copyCapabilityPackageSourceWithReferences, readExactPackageInventory } from './io';
 import { assertCapabilityPackageArtifactCurrent, resolveCapabilityPackageArtifact, type ResolvedCapabilityPackageArtifact } from './artifacts';
 import { CAPABILITY_PACKAGE_PRESENTATION_LIMITS as limits, capabilityPackageStoreOfferingPresentationSchema,
-  capabilityPackageMcpTemplateQuerySchema, type CapabilityPackageMcpTemplate,
+  capabilityPackageIconQuerySchema, capabilityPackageMcpTemplateQuerySchema, type CapabilityPackageMcpTemplate,
   type CapabilityPackagePresentation, type CapabilityPackagePresentationDeclaration } from './presentation-contracts';
 import { readPluginMcpTemplateFile } from '@/app/lib/plugins/plugin-mcp-template-service';
 import { projectCapabilityPackageMcpTemplateConfig } from './mcp-template-projection';
+import { installedPluginExtensionIcon, publicPluginExtensionIcon } from '@/app/lib/plugins/plugin-extension-icons';
+import { readFirstDeclaredCapabilityPackageImage, type CapabilityPackageDeclaredIcon } from './package-icon-image';
 
 const changed = () => new CapabilityPackageError('PACKAGE_SOURCE_CHANGED', 'The package source changed. Inspect it again.', 409);
 const invalid = () => new CapabilityPackageError('PACKAGE_INVALID', 'The package presentation is unavailable.', 400);
@@ -124,12 +126,17 @@ async function projectPresentation(kind: 'plugin' | 'skill', root: string, fallb
     result.name = manifest.name; result.version = manifest.version;
     result.title = boundedText(manifest.interface?.displayName || manifest.name, limits.title) || manifest.name;
     result.description = boundedText(manifest.description, limits.description) || '';
+    const pluginIconKey = JSON.stringify(['plugin', manifest.name, manifest.version]);
+    result.icon = publicPluginExtensionIcon(manifest.interface?.logo, pluginIconKey)
+      || publicPluginExtensionIcon(manifest.interface?.icon, pluginIconKey);
     const license = boundedText(manifest.license, limits.license); if (license) result.license = license;
     const by = {kind, name: manifest.name};
     legacy(by, manifest.connectors); workflow(by, manifest.workflow, manifest.connectors?.mcp ?? []);
     for (const skill of parsed.skills) {
       result.children.push({name: skill.name, title: boundedText(skill.title || skill.name, limits.title) || skill.name,
-        description: boundedText(skill.description, limits.description) || '', ...(skill.version ? {version: skill.version} : {})});
+        description: boundedText(skill.description, limits.description) || '', ...(skill.version ? {version: skill.version} : {}),
+        icon: publicPluginExtensionIcon(skill.interface?.iconSmall, JSON.stringify(['plugin', manifest.name, manifest.version, 'skill', skill.name]))
+          || publicPluginExtensionIcon(skill.interface?.iconLarge, JSON.stringify(['plugin', manifest.name, manifest.version, 'skill', skill.name]))});
       await skillDetails(skill, manifest.connectors?.mcp ?? [], false);
       enforceBounds(result);
     }
@@ -139,6 +146,9 @@ async function projectPresentation(kind: 'plugin' | 'skill', root: string, fallb
     result.name = skill.name; result.version = skill.version || fallbackVersion;
     result.title = boundedText(skill.title || skill.name, limits.title) || skill.name;
     result.description = boundedText(skill.description, limits.description) || '';
+    const skillIconKey = JSON.stringify(['skill', skill.name, result.version]);
+    result.icon = publicPluginExtensionIcon(skill.interface?.iconSmall, skillIconKey)
+      || publicPluginExtensionIcon(skill.interface?.iconLarge, skillIconKey);
     const license = boundedText(skill.license, limits.license); if (license) result.license = license;
     await skillDetails(skill, parent?.connectors ?? [], !parent);
   }
@@ -214,12 +224,71 @@ export async function inspectCapabilityPackagePresentationAction(actorInput: Cap
     if (containing && (await readExactPackageInventory(containing.packageRoot)).checksum !== containing.sourceStamp.checksum) throw changed();
     if (projected.name !== source.storage.name || (await readExactPackageInventory(source.packageRoot)).checksum !== source.sourceStamp.checksum) throw changed();
     return enforceBounds({...projected, resourceRef: authorization.record.metadata.resourceRef, readOnly: source.readOnly,
+      icon: installedPluginExtensionIcon(authorization.record.metadata.resourceRef, source.descriptor.artifact.revision, actor.workspaceId),
+      children: projected.children.map(child => ({...child, icon: installedPluginExtensionIcon(authorization.record.metadata.resourceRef,
+        source.descriptor.artifact.revision, actor.workspaceId, child.name)})),
       sourceStamp: {checksum: source.sourceStamp.checksum, artifactRevision: source.sourceStamp.artifactRevision,
         ...(containing ? {parent: {resourceRef: containing.descriptor.metadata.resourceRef, checksum: containing.sourceStamp.checksum,
           artifactRevision: containing.sourceStamp.artifactRevision}} : {})}});
   }, {parentStorage: parentBinding});
   if (containing) await assertCapabilityPackageArtifactCurrent(actor, containing);
   await assertCapabilityPackageArtifactCurrent(actor, source);
+  return result;
+}
+
+/** Only an exact currently readable declaration selects image bytes; browser input never supplies a path. */
+export async function readCapabilityPackageIconAction(actorInput: CapabilityResourceActor, reference: string,
+  input: unknown): Promise<CapabilityPackageDeclaredIcon | null> {
+  const actor = actorSnapshot(actorInput), resourceRef = capabilityPackageReferenceSchema.parse(reference);
+  const query = capabilityPackageIconQuerySchema.parse(structuredClone(input));
+  await assertActor(actor);
+  const requested = await resolveCapabilityPackageArtifact(actor, resourceRef);
+  if (query.revision !== undefined && query.revision !== requested.descriptor.artifact.revision) throw changed();
+  let source = requested;
+  if (query.childName !== undefined) {
+    if (requested.storage.resourceType !== 'plugin' || !isValidAgentSkillName(query.childName)) {
+      throw new CapabilityPackageError('PACKAGE_NOT_FOUND', 'The declared skill was not found.', 404);
+    }
+    const declared = await withCapturedPresentation(requested, async root => {
+      const validated = await validateCanvasPluginPackage(root);
+      if (!validated.valid || !validated.manifest) throw invalid();
+      const parsed = await parsePluginSkillsFromManifest(validated.manifest, root, validated.skillsDir);
+      if (parsed.errors.length) throw invalid();
+      return parsed.skills.filter(skill => skill.name === query.childName).length === 1;
+    });
+    const candidates = requested.candidates.filter(candidate => candidate.ref.resourceType === 'skill'
+      && candidate.ref.sourceType === 'plugin' && candidate.ref.sourcePluginId === requested.storage.resourceId
+      && candidate.ref.name === query.childName);
+    if (!declared || candidates.length !== 1 || !candidates[0].resourceMetadata?.resourceRef) {
+      throw new CapabilityPackageError('PACKAGE_NOT_FOUND', 'The declared skill was not found.', 404);
+    }
+    source = await resolveCapabilityPackageArtifact(actor, candidates[0].resourceMetadata.resourceRef);
+    if (source.storage.name !== query.childName || source.storage.sourcePluginId !== requested.storage.resourceId) throw changed();
+  }
+  const parentBinding = parentStorage(source);
+  const containing = parentBinding ? requested.storage.resourceType === 'plugin' && source !== requested
+    ? requested : await resolveCapabilityPackageArtifact(actor, source.sourceStamp.parentResourceRef || parentBinding.resourceId) : undefined;
+  if (containing && (containing.storage.resourceId !== parentBinding?.resourceId || containing.storage.resourceType !== 'plugin'
+    || containing.candidate.ref.revision !== source.candidates.find(candidate => candidate.ref.resourceId === parentBinding?.resourceId)?.ref.revision)) throw changed();
+  await assertCapabilityPackageArtifactCurrent(actor, requested);
+  if (containing) await assertCapabilityPackageArtifactCurrent(actor, containing);
+  await assertCapabilityPackageArtifactCurrent(actor, source);
+  const result = await withAuthorizedCapabilityPackageResource(actor, source.storage, 'read', {
+    expectedMetadataRevision: source.descriptor.metadata.metadataRevision, expectedGrantsRevision: source.descriptor.metadata.grantsRevision,
+  }, async () => withCapturedPresentation(source, async root => {
+    if (source.storage.resourceType === 'plugin') {
+      const validated = await validateCanvasPluginPackage(root);
+      if (!validated.valid || !validated.manifest || validated.manifest.name !== source.storage.name) throw invalid();
+      return readFirstDeclaredCapabilityPackageImage(root, [validated.manifest.interface?.logo, validated.manifest.interface?.icon]);
+    }
+    const skill = await parseSkillFile(path.join(root, 'SKILL.md'));
+    if (!skill || skill.name !== source.storage.name) throw invalid();
+    const iface = await loadCanvasSkillInterface(root);
+    return readFirstDeclaredCapabilityPackageImage(root, [iface?.iconSmall, iface?.iconLarge]);
+  }), {parentStorage: parentBinding});
+  if (containing) await assertCapabilityPackageArtifactCurrent(actor, containing);
+  await assertCapabilityPackageArtifactCurrent(actor, source);
+  await assertCapabilityPackageArtifactCurrent(actor, requested);
   return result;
 }
 

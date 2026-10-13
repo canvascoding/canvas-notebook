@@ -7,6 +7,7 @@ import type { PluginExtensionItem, PluginExtensionConnection, PluginExtensionSea
 import type { IntegrationConnectionDescriptor, IntegrationConnectionScopeChoice } from '@/app/lib/integration-tools/connections/contracts';
 import { startMcpAuthorization, waitForMcpAuthorization, McpAuthorizationError } from '@/app/lib/desktop/mcp-oauth-client';
 import { Button } from '@/components/ui/button';
+import { PluginExtensionAvatar } from './PluginExtensionAvatar';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
@@ -171,7 +172,8 @@ function IntegrationDetailSession({item: initial, workspaceId, onUpdated, onClos
   if (editMcp && item?.kind === 'mcp') return <PluginMcpSetup workspaceId={workspaceId} item={item} returnPath={exactReturn} onClose={() => setEditMcp(false)} onCreated={() => { setEditMcp(false); refresh(); }} />;
   return <section className="min-w-0 space-y-5" data-testid="plugin-integration-detail">
     <header className="space-y-3"><div className="flex justify-between gap-2"><Button variant="ghost" onClick={onClose}>{t('back')}</Button><Button variant="outline" disabled={pending || loading} onClick={() => { if (confirmPluginNavigation()) refresh(); }} data-testid="plugin-integration-reload">{t('refresh')}</Button></div>
-      <h2 className="text-xl font-semibold">{item?.displayName || initial.displayName}</h2>{item?.description ? <p className="max-w-3xl text-sm text-muted-foreground">{item.description}</p> : null}</header>
+      <div className="flex min-w-0 items-start gap-3"><PluginExtensionAvatar name={item?.displayName || initial.displayName} identity={JSON.stringify([initial.id, workspaceId])} icon={item?.icon} size="lg" />
+        <div className="min-w-0 space-y-2"><h2 className="break-words text-xl font-semibold">{item?.displayName || initial.displayName}</h2>{item?.description ? <p className="max-w-3xl text-sm text-muted-foreground">{item.description}</p> : null}</div></div></header>
     {error ? <InlineNotice variant="destructive" size="compact">{error}</InlineNotice> : null}
     {loading ? <p role="status">{t('loading')}</p> : item ? <>
       {warnings.map(value => <InlineNotice key={value} variant="warning" size="compact" data-testid={`plugin-setup-${value}`}>{t(value)}</InlineNotice>)}

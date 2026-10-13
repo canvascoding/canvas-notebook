@@ -1,13 +1,14 @@
 'use client';
 
-import { Boxes, ChevronRight, Code2, Loader2, Plug, RefreshCw, ScrollText } from 'lucide-react';
+import { ChevronRight, Loader2, RefreshCw } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import type { PluginExtensionItem } from '@/app/lib/plugins/plugin-extension-contracts';
 import { Button } from '@/components/ui/button';
 import { InlineNotice } from '@/components/ui/inline-notice';
 import type { PluginExtensionSearchData } from './usePluginExtensionSearch';
+import { PluginExtensionAvatar } from './PluginExtensionAvatar';
 
-export function PluginExtensionSearchResults({ data, onOpen, onMore, onRetry }: { data: PluginExtensionSearchData;
+export function PluginExtensionSearchResults({ data, workspaceId, onOpen, onMore, onRetry }: { data: PluginExtensionSearchData; workspaceId?: string | null;
   onOpen: (item: PluginExtensionItem, button: HTMLButtonElement) => void; onMore: (cursor: string) => void; onRetry: () => void }) {
   const t = useTranslations('skills.workspace.catalog');
   const busy = data.status === 'loading' || data.updating;
@@ -45,14 +46,13 @@ export function PluginExtensionSearchResults({ data, onOpen, onMore, onRetry }: 
         {t('sourceUnavailable', { source: t('title') })}</InlineNotice> : <>
         {data.items.length ? <ul className="divide-y rounded-lg border bg-background">
           {data.items.map(item => {
-            const Icon = item.kind === 'plugin' ? Boxes : item.kind === 'skill' ? ScrollText : item.kind === 'integration' ? Plug : Code2;
             const state = status(item), hasConnections = item.kind === 'integration' || item.kind === 'mcp';
             const parentRef = item.kind === 'plugin' || item.kind === 'skill' ? item.package?.parentResourceRef : undefined;
             const parentName = parentRef ? data.items.find(candidate => candidate.id === parentRef)?.displayName : undefined;
             return <li key={item.id} data-testid="plugin-extension-row" data-kind={item.kind} data-extension-id={item.id}>
               <button type="button" className="group flex w-full min-w-0 items-start gap-3 p-4 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset sm:gap-4 sm:p-5"
                 data-testid="plugin-extension-row-open" data-extension-id={item.id} aria-label={t('open', { name: item.displayName })} onClick={event => onOpen(item, event.currentTarget)}>
-                <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-muted/70 text-muted-foreground"><Icon className="size-5" aria-hidden="true" /></span>
+                <PluginExtensionAvatar name={item.displayName} identity={JSON.stringify([item.id, workspaceId ?? ''])} icon={item.icon} />
                 <span className="min-w-0 flex-1 space-y-1.5">
                   <span className="flex flex-wrap items-center gap-x-3 gap-y-1"><span className="min-w-0 break-words font-medium">{item.displayName}</span><span className="text-xs text-muted-foreground">{t(state)}</span></span>
                   {item.description ? <span className="block line-clamp-2 break-words text-sm text-muted-foreground">{item.description}</span> : null}

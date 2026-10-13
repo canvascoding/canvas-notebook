@@ -188,7 +188,7 @@ function PluginWorkspaceSession({ workspaceId }: { workspaceId: string }) {
               <div className="h-28 animate-pulse rounded-lg bg-muted/50" /></div> : data.status === 'error' ? <InlineNotice size="compact" variant="warning"
                 actions={<Button size="sm" variant="outline" onClick={refresh}>{t('refresh')}</Button>}>{t(errorKey)}</InlineNotice> : data.catalog ? <>
                 {data.error ? <InlineNotice size="compact" variant="warning">{t('limitedStore')}</InlineNotice> : null}
-                <PluginWorkspaceLists catalog={data.catalog} store={data.store} view={view === 'store' || view === 'updates' ? view : 'installed'}
+                <PluginWorkspaceLists catalog={data.catalog} store={data.store} workspaceId={workspaceId} view={view === 'store' || view === 'updates' ? view : 'installed'}
                   onOpenResource={openResource} onOpenOffering={openOffering} onPage={page => navigate({ page })} />
               </> : null}
           </>}

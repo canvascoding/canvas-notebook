@@ -17,16 +17,20 @@ async function main() {
     const {isCapabilityPackageError} = await import('../app/lib/capabilities/packages/contracts');
     const {CapabilityResourceError} = await import('../app/lib/capabilities/resources/contracts');
     const secret = 'PRIVATE_PRESENTATION_SOURCE_CONTENT';
+    const pluginLogo = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24"><rect width="24" height="24" fill="blue"/></svg>';
+    const childLogo = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24"><circle cx="12" cy="12" r="10" fill="green"/></svg>';
     const name = 'presentation-package';
     const script = JSON.stringify({version:1,scripts:[{id:'inspect',displayName:'Inspect layout',description:'Bounded declared operation',runtime:{kind:'node',minimumVersion:'22.0.0'},
       path:'scripts/main.cjs',argumentsSchema:{type:'object',properties:{privateDefault:{type:'string',default:secret}}},tools:[],outputs:[]}]});
     const files = {
-      '.canvas-plugin/plugin.json': JSON.stringify({name,version:'1.0.0',description:'Verified presentation',license:'MIT',skills:'skills',interface:{displayName:'Presentation Bundle'},
+      '.canvas-plugin/plugin.json': JSON.stringify({name,version:'1.0.0',description:'Verified presentation',license:'MIT',skills:'skills',interface:{displayName:'Presentation Bundle',logo:'./missing-logo.svg',icon:'./assets/logo.svg'},
         connectors:{mcp:[{name:'design-server',label:'Design MCP',required:false,recommended:true,env:['CANVAS_TEST_KEY'],configPath:'config/mcp.json'}],
           composio:[{toolkit:'canva',label:'Canva account',required:true}],email:[{kind:'mailbox',label:'Canvas mailbox',required:false,recommended:true}]},
         workflow:{version:1,integrationCapabilities:[{id:'design',application:'canva',required:true,alternatives:[{source:'mcp',connector:'design-server'},{source:'composio',toolkit:'canva'}]}]}}),
       'skills/presentation-context/SKILL.md':'---\nname: presentation-context\ndescription: Readable context\ncompatibility: Requires Canvas and Node\nlicense: MIT\n---\n'+secret,
-      'skills/presentation-context/agents/canvas.yaml':'interface:\n  display_name: Presentation Context\nworkflow:\n  version: 1\n  integrationCapabilities:\n    - id: child-design\n      application: canva\n      alternatives:\n        - source: mcp\n          connector: design-server\n',
+      'assets/logo.svg':pluginLogo,
+      'skills/presentation-context/assets/logo.svg':childLogo,
+      'skills/presentation-context/agents/canvas.yaml':'interface:\n  display_name: Presentation Context\n  icon_small: ./missing-logo.svg\n  icon_large: ./assets/logo.svg\nworkflow:\n  version: 1\n  integrationCapabilities:\n    - id: child-design\n      application: canva\n      alternatives:\n        - source: mcp\n          connector: design-server\n',
       'skills/presentation-context/.canvas-skill/runtime.json':script,
       'skills/presentation-context/scripts/main.cjs':`throw new Error('${secret}: script execution forbidden');\n`,
       'config/mcp.json':JSON.stringify({mcpServers:{'design-server':{url:'https://mcp.example.test/design',headers:{Authorization:`Bearer ${secret}`},
@@ -74,6 +78,33 @@ async function main() {
     assert.equal(actualChild.capabilities[0].declaredBy.name,'presentation-context');
     assert.deepEqual(actualChild.requiredEnv,['CANVAS_TEST_KEY']);
     assert.deepEqual(actualChild.requirements.find(requirement=>requirement.source==='composio'),{declaredBy:{kind:'plugin',name},source:'composio',label:'Canva account',required:true,recommended:false,selector:{source:'composio',toolkit:'canva'}});assertPublic(actualChild);
+    assert(actual.icon);assert(actual.children[0].icon);assert(actualChild.icon);
+    const iconUrl=new URL(actual.icon.url,'http://localhost:3001'), childIconUrl=new URL(actual.children[0].icon.url,'http://localhost:3001');
+    assert.equal(iconUrl.pathname,`/api/capabilities/packages/${encodeURIComponent(installed.resource.resourceRef)}/icon`);
+    assert.equal(iconUrl.searchParams.get('workspaceId'),alice.workspaceId);assert.equal(iconUrl.searchParams.get('revision'),String(actual.sourceStamp?.artifactRevision));
+    assert.equal(childIconUrl.searchParams.get('childName'),'presentation-context');assert.equal(childIconUrl.searchParams.get('path'),null);
+    const iconBefore=await counts(),{GET:iconGET}=await import('../app/api/capabilities/packages/[resourceRef]/icon/route');
+    const iconRequest=async(url:string,resourceRef=installed.resource.resourceRef,user='alice')=>{
+      const headers=fixture.headers(user);headers.delete('x-canvas-workspace-id');
+      const actualUrl=new URL(url);if(user!=='alice') actualUrl.searchParams.set('workspaceId',`personal-${user}`);
+      return iconGET(new Request(actualUrl,{headers}),{params:Promise.resolve({resourceRef})});
+    };
+    const iconResponse=await iconRequest(iconUrl.href);
+    assert.equal(iconResponse.status,200);assert.equal(iconResponse.headers.get('Content-Type'),'image/svg+xml');
+    assert.equal(iconResponse.headers.get('Cache-Control'),'private, no-store');assert.equal(iconResponse.headers.get('X-Content-Type-Options'),'nosniff');
+    assert(iconResponse.headers.get('Content-Security-Policy')?.includes("sandbox; default-src 'none'"));assert.equal(await iconResponse.text(),pluginLogo);
+    const childImage=await iconRequest(childIconUrl.href);assert.equal(childImage.status,200);assert.equal(await childImage.text(),childLogo,'Missing small icon falls back to the actual declared large image');
+    const ownChildImage=await iconRequest(new URL(actualChild.icon.url,'http://localhost:3001').href,child.metadata.resourceRef);
+    assert.equal(ownChildImage.status,200);assert.equal(await ownChildImage.text(),childLogo,'Both contained card and exact child resource use actual canvas.yaml declaration');
+    for(const [query,status] of [['revision=999999',409],['revision=1&revision=2',400],['path=README.md',400],
+      ['childName=undeclared',404],['childName=../presentation-context',404],['revision=-1',400]] as const) {
+      const response=await iconRequest(`${iconUrl.origin}${iconUrl.pathname}?${query}`);assert.equal(response.status,status,query);
+      assertPublic(await response.json());
+    }
+    assert.equal((await iconRequest(iconUrl.href,installed.resource.resourceRef,'unassigned')).status,404);
+    const wrongWorkspace=new URL(iconUrl);wrongWorkspace.searchParams.set('workspaceId','personal-owner');
+    assert.equal((await iconRequest(wrongWorkspace.href)).status,403);
+    assert.deepEqual(await counts(),iconBefore,'Image reads never mutate resources/packages or connect provider tools');assert.equal(fixture.providerRequests(),0);
     const templateBefore=await counts();
     const template=await presentation.inspectCapabilityPackageMcpTemplateAction(alice,installed.resource.resourceRef,{connector:'design-server'});
     assert.equal(template.resourceRef,installed.resource.resourceRef);assert.equal(template.source.resourceRef,installed.resource.resourceRef);
@@ -172,6 +203,15 @@ async function main() {
 
     const pointer=(await plugins.readCanvasPluginRegistry(fixture.userScope('owner'))).plugins[name];
     const originalReadme=await fs.readFile(path.join(pointer.installDir,'README.md'));
+    let imageTampered=false;
+    fixture.setBeforeRead(async query=>{
+      if(!imageTampered&&query.startsWith('SELECT pg_advisory_xact_lock')) {
+        imageTampered=true;await fs.chmod(path.join(pointer.installDir,'README.md'),0o600);
+        await fs.writeFile(path.join(pointer.installDir,'README.md'),'Late actual image source change');
+      }
+    });
+    assert.equal((await iconRequest(iconUrl.href)).status,409,'A current image request cannot return bytes from a changed package');
+    fixture.setBeforeRead(undefined);assert(imageTampered);await fs.writeFile(path.join(pointer.installDir,'README.md'),originalReadme);
     let tampered=false;
     fixture.setBeforeRead(async query=>{
       if(!tampered&&query.startsWith('SELECT pg_advisory_xact_lock')) {
@@ -241,9 +281,31 @@ async function main() {
     assert.equal(deniedWeb.status,denied.status);assert.deepEqual(await deniedWeb.json(),{success:false,error:denied.message,code:denied.code});
     const deniedTemplateWeb=await templateGET(new Request(`${templateUrl}?connector=design-server`,{headers:fixture.headers('alice')}),{params:Promise.resolve({resourceRef:installed.resource.resourceRef})});
     assert.equal(deniedTemplateWeb.status,404,'A previously observed selector cannot bypass a current reader revoke');
+    assert.equal((await iconRequest(iconUrl.href)).status,404,'A previously rendered image URL cannot bypass current Read revocation');
+    assert.equal((await iconRequest(childIconUrl.href)).status,404,'Child card image rechecks the current parent grant');
+    assert.equal((await iconRequest(new URL(actualChild.icon.url,'http://localhost:3001').href,child.metadata.resourceRef)).status,404,'Exact child URL also rechecks parent Read');
     assertPublic(deniedTool.details);assert.deepEqual(await counts(),stateBefore,'Reader errors cause no resource/package mutation');
     assert.equal(fixture.providerRequests(),0);
     assert.deepEqual([...await tempRoots()].filter(root=>!temporary.has(root)),[]);
+    const remoteSkillName='presentation-remote-image';
+    const remoteSkillSource=await registry.addPackage('application','skill',remoteSkillName,'1.0.0',{
+      'SKILL.md':`---\nname: ${remoteSkillName}\ndescription: Standalone declared image\nmetadata:\n  version: 1.0.0\n---\nPublic standalone skill.\n`,
+      'agents/canvas.yaml':'interface:\n  display_name: Remote skill image\n  icon_small: ./missing.svg\n  icon_large: https://images.example.test/skill.svg?token=PRIVATE_ASSET_QUERY#private-fragment\n',
+    },plugins.computeCanvasPluginChecksum);
+    const remoteInstalled=await stores.installCapabilityPackageFromStoreAction(owner,{source:{kind:'skill',registryId:'store-application',entryKey:remoteSkillName,version:'1.0.0',checksum:remoteSkillSource.checksum},
+      ownership:{type:'user'},grants:[{targetType:'user',targetId:'alice',canUse:true,canEdit:false,canManage:false}]});
+    const remotePresentation=await presentation.inspectCapabilityPackagePresentationAction(alice,remoteInstalled.resource.resourceRef);assert(remotePresentation.icon);
+    const remoteImageUrl=new URL(remotePresentation.icon.url,'http://localhost:3001').href,remoteReadCounts=await counts();
+    const remoteResponse=await iconRequest(remoteImageUrl,remoteInstalled.resource.resourceRef);
+    assert.equal(remoteResponse.status,307);assert.equal(remoteResponse.headers.get('Location'),'https://images.example.test/skill.svg');
+    assert.equal(remoteResponse.headers.get('Referrer-Policy'),'no-referrer');assert.equal(remoteResponse.headers.get('Cache-Control'),'private, no-store');
+    assert.equal(await remoteResponse.text(),'');assert.equal(fixture.providerRequests(),0,'Declared HTTPS images are redirected, never fetched by the server');
+    const privateRemote=await iconRequest(remoteImageUrl,remoteInstalled.resource.resourceRef,'unassigned');
+    assert.equal(privateRemote.status,404);assert.equal(privateRemote.headers.get('Location'),null,'An unauthorized reader never receives a remote asset redirect');
+    await sql.run('DELETE FROM capability_resource_grants WHERE resource_ref=$1 AND target_id=$2',[remoteInstalled.resource.resourceRef,'alice']);
+    const revokedRemote=await iconRequest(remoteImageUrl,remoteInstalled.resource.resourceRef);
+    assert.equal(revokedRemote.status,404);assert.equal(revokedRemote.headers.get('Location'),null);
+    assert.deepEqual(await counts(),remoteReadCounts,'Image authorization and redirects never create package/resources');
     console.log('Capability package presentation actual Store/ZIP, exact source+parent ACL, core/child metadata, scripts without execution, redaction, revocation and cleanup PASS.');
   } finally {
     try { await fixture.close(); }

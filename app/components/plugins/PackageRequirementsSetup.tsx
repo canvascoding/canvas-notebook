@@ -6,6 +6,7 @@ import { authClient } from '@/app/lib/auth-client';
 import type { CapabilityPackageMcpTemplate, CapabilityPackagePresentation, CapabilityPackageRequirementSelector } from '@/app/lib/capabilities/packages/presentation-contracts';
 import type { PluginExtensionConnection, PluginExtensionItem, PluginExtensionSearchResponse } from '@/app/lib/plugins/plugin-extension-contracts';
 import { Button } from '@/components/ui/button';
+import { PluginExtensionAvatar } from './PluginExtensionAvatar';
 import { Badge } from '@/components/ui/badge';
 import { InlineNotice } from '@/components/ui/inline-notice';
 import { Link } from '@/i18n/navigation';
@@ -138,8 +139,9 @@ function RequirementsSession({presentation, workspaceId, returnPath, onUpdated, 
   function renderRow(row: Row, index: number) {
     const observation = observations[row.id], selected = observation?.candidates.find(value => value.connection.connectionRef === chosen[row.id]);
     const connection = selected ? currentConnection(selected) : null, status = connection && sharedObservations[connection.connectionRef];
+    const displayedItem = selected?.item || observation?.integrations.find(value => value.kind === 'integration') || observation?.integrations[0];
     return <article key={row.id} className="space-y-3 rounded-xl border p-4" data-testid={`package-requirement-${index}`}>
-      <div className="flex flex-wrap items-center justify-between gap-2"><h3 className="text-sm font-semibold">{row.label}</h3><Badge variant="outline">{t(row.required ? 'required' : 'optional')}</Badge></div>
+      <div className="flex flex-wrap items-center justify-between gap-2"><div className="flex min-w-0 items-center gap-3"><PluginExtensionAvatar name={row.label} identity={JSON.stringify([presentation.resourceRef || presentation.name, row.id, workspaceId])} icon={displayedItem?.icon} size="md" /><h3 className="min-w-0 break-words text-sm font-semibold">{row.label}</h3></div><Badge variant="outline">{t(row.required ? 'required' : 'optional')}</Badge></div>
       {observation?.candidates.length ? <div className="space-y-2"><label className="block text-xs text-muted-foreground" htmlFor={`package-requirement-connection-${index}`}>{t('selectConnection')}</label>
         <select id={`package-requirement-connection-${index}`} data-testid={`package-requirement-connection-${index}`} className="h-10 w-full rounded-md border bg-background px-3 text-sm" value={chosen[row.id] || ''}
           disabled={loadingSetup} onChange={event => void chooseExisting(row, event.target.value)}><option value="">{t('selectConnection')}</option>

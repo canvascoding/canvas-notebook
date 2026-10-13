@@ -7,6 +7,7 @@ import type { CapabilityPackageMcpTemplate } from '@/app/lib/capabilities/packag
 import type { IntegrationConnectionDescriptor, IntegrationConnectionScopeChoice } from '@/app/lib/integration-tools/connections/contracts';
 import type { PluginExtensionItem } from '@/app/lib/plugins/plugin-extension-contracts';
 import { Button } from '@/components/ui/button';
+import { PluginExtensionAvatar } from './PluginExtensionAvatar';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { InlineNotice } from '@/components/ui/inline-notice';
@@ -99,7 +100,10 @@ function PluginMcpSetupSession({workspaceId, item, template, onCreated, onClose,
   const chosen = scopes.find(value => scopeKey(value) === scope);
   const sharedCreated = (connection: IntegrationConnectionDescriptor) => setCompleted({kind: 'mcp', id: connection.resource.connectionRef, connectionRef: connection.resource.connectionRef});
   return <section className="min-w-0 space-y-5" data-testid="plugin-mcp-setup">
-    <header><Button variant="ghost" onClick={onClose}>{t('back')}</Button><h2 className="mt-3 text-xl font-semibold">{t('mcpTitle')}</h2><p className="mt-2 text-sm text-muted-foreground">{t('mcpDescription')}</p></header>
+    <header><Button variant="ghost" onClick={onClose}>{t('back')}</Button><div className="mt-3 flex min-w-0 items-start gap-3">
+      <PluginExtensionAvatar name={item?.displayName || template?.connector.label || template?.connector.name || 'MCP'} identity={JSON.stringify([item?.id || template?.resourceRef || 'new-mcp', template?.connector.name || '', workspaceId])} icon={item?.icon} size="lg" />
+      <div className="min-w-0"><h2 className="text-xl font-semibold">{t('mcpTitle')}</h2>{item || template ? <p className="mt-1 break-words text-sm font-medium">{item?.displayName || template?.connector.label || template?.connector.name}</p> : null}
+      <p className="mt-2 text-sm text-muted-foreground">{t('mcpDescription')}</p></div></div></header>
     {error ? <InlineNotice variant="destructive" size="compact">{error}</InlineNotice> : null}
     {loading ? <p role="status">{t('loading')}</p> : <>
       <div className="max-w-xl space-y-2"><Label htmlFor="plugin-mcp-scope">{t('scope')}</Label><select id="plugin-mcp-scope" className={selectClass} value={scope} disabled={pending} onChange={event => setScope(event.target.value)}>

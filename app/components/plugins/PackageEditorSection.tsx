@@ -13,6 +13,7 @@ import type { CapabilityResourceOwnerScope } from '@/app/lib/capabilities/resour
 import type { CapabilityPackageDescriptor, CapabilityPackageDraft, CapabilityPackageFileRead,
   CapabilityPackageOwnedDraftStatus, CapabilityPackagePublishedRevision, CapabilityPackageTreeEntry, CapabilityPackageValidation } from '@/app/lib/capabilities/packages/contracts';
 import { usePluginEditorNavigationGuard } from './plugin-navigation-guard';
+import { PluginExtensionAvatar } from './PluginExtensionAvatar';
 
 type ScopeChoice = { type: 'user' | 'organization' | 'team'; workspaceId?: string; label: string };
 type VersionSummary = Pick<CapabilityPackagePublishedRevision, 'revisionRef' | 'version' | 'publishedAt'>;
@@ -330,9 +331,13 @@ function PackageEditorSession({ resourceRef, workspaceId, onUpdated, initialDraf
         {error ? <InlineNotice variant="destructive" size="compact" role="alert">{error}</InlineNotice> : null}
         {notice ? <InlineNotice size="compact" role="status">{notice}</InlineNotice> : null}
         <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex min-w-0 items-start gap-3">
+          {draftView || blockedDraft || descriptor ? <PluginExtensionAvatar name={draftView?.draft.name || blockedDraft?.name || descriptor?.resource.displayName || descriptor?.sourceStamp.name || ''}
+            identity={JSON.stringify([draftView?.draft.draftRef || blockedDraft?.draftRef || resourceRef, workspaceId ?? '', draftView?.draft.draftRevision || blockedDraft?.draftRevision || descriptor?.sourceStamp.artifactRevision])} size="sm" /> : null}
           <div className="min-w-0 text-sm"><p className="font-medium">{draftView || blockedDraft
             ? t('draftName', { name: draftView?.draft.name || blockedDraft!.name }) : t('publishedPackage')}</p>
             <p className="text-xs text-muted-foreground">{scopeLabel}{draftView ? ` · ${t('privateDraft')}` : ''}</p></div>
+          </div>
           <Button variant="outline" size="sm" disabled={pending || loading} data-testid="package-reload"
             onClick={() => void perform(reloadDraftEditor)}>
             <RefreshCw className="h-4 w-4" />{t('reload')}

@@ -157,7 +157,7 @@ export function PluginExtensionWorkspace({ workspaceId }: { workspaceId: string 
           : navigation.extensionId ? selectedItem && (selectedItem.kind === 'integration' || selectedItem.kind === 'mcp')
             ? <PluginIntegrationDetail key={JSON.stringify([workspaceId, selectedItem.id])} item={selectedItem} workspaceId={workspaceId} onUpdated={refresh} onClose={close} returnPath={returnPath} />
             : <InlineNotice size="compact">{data.status === 'loading' || data.updating ? <span className="flex items-center gap-2"><Loader2 className="size-4 animate-spin" aria-hidden="true" />{t('loading')}</span> : shell('accessError')}</InlineNotice>
-            : <PluginExtensionSearchResults data={data} onOpen={open} onMore={extensionCursor => {
+            : <PluginExtensionSearchResults data={data} workspaceId={workspaceId} onOpen={open} onMore={extensionCursor => {
               if (extensionCursor === navigation.extensionCursor) { if (confirmPluginNavigation()) data.retry(); }
               else navigate({ extensionCursor });
             }}

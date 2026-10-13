@@ -1,6 +1,7 @@
 import type { CapabilityResourceOwnerScope } from '@/app/lib/capabilities/resources/contracts';
 import type { CapabilityPackageStoreListResponse } from '@/app/lib/capabilities/packages/store-contracts';
 import type { PluginWorkspaceCatalogItem, PluginWorkspaceCatalogResponse, PluginWorkspaceCatalogScope } from './plugin-workspace-catalog-contracts';
+import type { PluginExtensionIcon } from './plugin-extension-icons';
 
 export type PluginExtensionKind = 'plugin' | 'skill' | 'integration' | 'mcp';
 export type PluginExtensionStock = 'all' | 'installed' | 'available';
@@ -40,6 +41,7 @@ type PluginExtensionItemBase = {
   name: string;
   displayName: string;
   description: string;
+  icon?: PluginExtensionIcon;
   source: 'local' | 'store' | 'composio' | 'mcp';
   stock: 'installed' | 'available';
   access: PluginExtensionAccess;

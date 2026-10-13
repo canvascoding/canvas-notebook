@@ -1,11 +1,16 @@
 import { z } from 'zod';
 import { capabilityPackageStoreSelectionSchema, type CapabilityPackageStoreSelection } from './store-contracts';
+import type { PluginExtensionIcon } from '@/app/lib/plugins/plugin-extension-icons';
 
 export const CAPABILITY_PACKAGE_PRESENTATION_LIMITS = Object.freeze({
   bytes: 1024 * 1024, children: 256, capabilities: 512, scripts: 512, requirements: 512,
   compatibility: 256, envNames: 256, title: 256, description: 4096, license: 512,
 });
 export const capabilityPackageStoreOfferingPresentationSchema = z.object({source: capabilityPackageStoreSelectionSchema}).strict();
+export const capabilityPackageIconQuerySchema = z.object({
+  revision: z.string().regex(/^(?:0|[1-9][0-9]*)$/u).transform(Number).refine(Number.isSafeInteger).optional(),
+  childName: z.string().min(1).max(64).refine(value => value === value.trim() && !/[\u0000-\u001f\u007f]/u.test(value)).optional(),
+}).strict();
 export type CapabilityPackagePresentationDeclaration = {kind: 'plugin' | 'skill'; name: string};
 /** Stable provider identities remain independent of translated display labels. */
 export type CapabilityPackageRequirementSelector =
@@ -33,13 +38,14 @@ export type CapabilityPackagePresentation = {
   version: string;
   title: string;
   description: string;
+  icon?: PluginExtensionIcon;
   license?: string;
   resourceRef?: string;
   /** Exact readable installed source shown in this presentation; a checksum is not execution authority. */
   sourceStamp?: { checksum: string; artifactRevision: number | null;
     parent?: { resourceRef: string; checksum: string; artifactRevision: number | null } };
   source?: CapabilityPackageStoreSelection;
-  children: Array<{name: string; title: string; description: string; version?: string}>;
+  children: Array<{name: string; title: string; description: string; version?: string; icon?: PluginExtensionIcon}>;
   capabilities: Array<{declaredBy: CapabilityPackagePresentationDeclaration; id: string; application: string; required: boolean;
     alternatives: Array<{source: 'mcp' | 'composio'; label: string; selector?: CapabilityPackageRequirementSelector}>}>;
   requirements: Array<{declaredBy: CapabilityPackagePresentationDeclaration; source: 'mcp' | 'composio' | 'canvas-email';

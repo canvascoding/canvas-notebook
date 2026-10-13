@@ -121,7 +121,14 @@ async function main() {
     metadataStatus=200;presentationStatus=200;heldBase=undefined;heldFile=undefined;heldWrite=undefined;partialAccounts=false;sharedUse=true;heldSharedStatus=undefined;
     sessionAtom.set({...sessionAtom.get(),data:uiSession,error:null,isPending:false,isRefetching:false});};
   try {
+    offered.icon={url:`/api/capabilities/packages/${encodeURIComponent(resourceRef)}/icon?workspaceId=team-design`,sourceKey:`${resourceRef}:1`};
+    offered.children=[{name:'design-child',title:'Design child',description:'Readable child metadata',icon:{url:'https://logos.test/design-child.svg',sourceKey:`${resourceRef}:1:design-child`}}];
     render(<Detail />);await screen.findByText('Design workspace');
+    const headerImage=screen.getByTestId('package-detail-workspace').querySelector('header [data-testid="plugin-extension-avatar-image"]')!;
+    assert.equal(headerImage.getAttribute('src'),offered.icon.url);
+    fireEvent.error(headerImage);
+    assert.equal(screen.getByTestId('package-detail-workspace').querySelector('header [data-testid="plugin-extension-avatar-initials"]')?.textContent,'DW');
+    assert.equal(screen.getByTestId('package-detail-overview').querySelector('[data-testid="plugin-extension-avatar-image"]')?.getAttribute('src'),offered.children[0].icon?.url);
     assert.deepEqual(requests.map(request=>request.path).sort(),[`/api/capabilities/packages/${encodeURIComponent(resourceRef)}/presentation`,`/api/capabilities/resources/${encodeURIComponent(resourceRef)}`].sort());
     assert(requests.every(request=>request.workspace==='team-design'));assert(!document.body.textContent?.includes(resourceRef));assert(!screen.queryByTestId('package-editor'));
     assert(document.body.textContent?.includes('Design team'));assert(document.body.textContent?.includes('Creator'));assert(!screen.queryByTestId('package-detail-store-update'));
