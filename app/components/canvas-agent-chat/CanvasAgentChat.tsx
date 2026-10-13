@@ -1366,6 +1366,7 @@ export default function CanvasAgentChat({
         showSkillsLink={showSkillsLink}
         showWorkspaceSwitcher={showWorkspaceSwitcher}
         totalUnreadCount={totalUnreadCount}
+        workspaceId={activeWorkspaceId}
       />
 
         <div className="relative flex-1 flex min-h-0">

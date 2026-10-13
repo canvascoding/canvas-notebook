@@ -22,6 +22,7 @@
     "electron-winstaller@5.4.0": true
   },
   "scripts": {
+    "test:chat:markdown-export": "tsx --conditions react-server scripts/chat-markdown-export-test.ts && tsx --conditions react-server scripts/chat-markdown-export-route-test.ts && tsx scripts/chat-markdown-copy-ui-test.tsx",
     "test:decision-models": "tsx scripts/decision-models-test.ts",
     "test:email:classification:policy": "tsx scripts/email-classification-policy-test.ts",
     "test:email:classification:selection": "tsx --conditions react-server scripts/email-classification-selection-test.ts",
