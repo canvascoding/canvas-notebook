@@ -2,15 +2,15 @@ import 'server-only';
 
 import { createHash, randomUUID } from 'node:crypto';
 import { getSchema, type JSONContent } from '@tiptap/core';
-import type { Schema } from '@tiptap/pm/model';
 import type * as YTypes from 'yjs';
-import { BLOCK_TREE_KEY, CollaborationBlockTree } from './block-tree';
+import { CollaborationBlockTree } from './block-tree';
 import { inspectPersistedNativeCollaborationSnapshot } from './document-snapshot';
 import { createPlainTextYDoc, richMarkdownSchemaExtensions } from './markdown-state';
 import type { PersistedCollaborationState } from './persistence';
-import { TiptapTransformer, Y, YProsemirror } from './server-runtime';
+import { TiptapTransformer, Y } from './server-runtime';
 import { readRichDocumentJson } from './rich-document';
 import { isCanonicalAdmissionPath } from './room-admission-contract';
+import { assertNativeDocumentSchema } from './native-document-schema';
 
 const MAGIC = Buffer.from('CNATIVE2');
 export const NATIVE_RECOVERY_PAYLOAD_LIMIT = 128 * 1024 * 1024;
@@ -149,53 +149,6 @@ function assertKnownKeys(value: Record<string, unknown>, allowed: readonly strin
   if (!value || typeof value !== 'object' || Array.isArray(value)
     || Object.keys(value).some(key => !allowed.includes(key))) reject();
 }
-function assertKnownRichJson(node: JSONContent, schema: Schema): void {
-  assertKnownKeys(node as Record<string, unknown>, ['type', 'attrs', 'content', 'marks', 'text']);
-  const type = node.type && schema.nodes[node.type];
-  if (!type) reject();
-  if (node.attrs) assertKnownKeys(node.attrs, Object.keys(type.spec.attrs ?? {}));
-  for (const mark of node.marks ?? []) {
-    assertKnownKeys(mark as Record<string, unknown>, ['type', 'attrs']);
-    const markType = schema.marks[mark.type];
-    if (!markType) reject();
-    if (mark.attrs) assertKnownKeys(mark.attrs, Object.keys(markType.spec.attrs ?? {}));
-  }
-  for (const child of node.content ?? []) {
-    // y-prosemirror groups text-only fragment content in one array.
-    if (Array.isArray(child)) {
-      for (const inline of child) assertKnownRichJson(inline, schema);
-    } else assertKnownRichJson(child, schema);
-  }
-}
-
-/** PM decoding fills defaults and may drop unknown attrs. Refuse that loss before creating a fresh document. */
-function assertCloneSupportsRawDocument(doc: YTypes.Doc, representation: PersistedCollaborationState['representation'], schema: Schema): void {
-  const rootKeys = representation === 'plain_text' ? ['content']
-    : [representation === 'tiptap_blocks' ? BLOCK_TREE_KEY : 'body', 'frontmatter', 'bodyFinalLineEnding'];
-  if ([...doc.share.keys()].some(key => !rootKeys.includes(key))) reject();
-  if (representation === 'plain_text') return;
-  if (representation === 'tiptap_xml') {
-    assertKnownRichJson(YProsemirror.yXmlFragmentToProsemirrorJSON(doc.getXmlFragment('body')), schema);
-    return;
-  }
-  const tree = new CollaborationBlockTree(doc, schema);
-  assertKnownKeys(Object.fromEntries(tree.root.entries()), ['version', 'records', 'operations', 'receipts']);
-  for (const record of tree.records.values()) {
-    assertKnownKeys(Object.fromEntries(record.entries()), ['initial', 'shape', 'attributes', 'content']);
-    const shape = record.get('shape') as { type: string; inline: boolean };
-    assertKnownKeys(shape, ['type', 'inline']);
-    const type = schema.nodes[shape.type];
-    if (!type) reject();
-    assertKnownKeys((record.get('attributes') as YTypes.Map<unknown>).toJSON(), Object.keys(type.spec.attrs ?? {}));
-    const initial = record.get('initial') as Record<string, unknown>;
-    assertKnownKeys(initial, ['id', 'parentId', 'order']);
-    assertKnownRichJson(YProsemirror.yXmlFragmentToProsemirrorJSON(record.get('content') as YTypes.XmlFragment), schema);
-  }
-  for (const operation of [...tree.operations.values(), ...tree.receipts.values()]) {
-    assertKnownKeys(operation, ['id', 'clock', 'actor', 'transactionId', 'ordinal', 'kind', 'blockId', 'parentId', 'beforeId', 'blockIds']);
-  }
-}
-
 export type NativeDocumentClone = {
   doc: YTypes.Doc;
   blockIdMapping: Record<string, string>;
@@ -205,7 +158,8 @@ export type NativeDocumentClone = {
 export function cloneNativeCollaborationDocument(state: PersistedCollaborationState): NativeDocumentClone {
   return inspectPersistedNativeCollaborationSnapshot(state, (source, snapshot) => {
     const schema = getSchema(richMarkdownSchemaExtensions());
-    assertCloneSupportsRawDocument(source, state.representation, schema);
+    try { assertNativeDocumentSchema(source, state.representation, schema); }
+    catch { return reject(); }
     const blockIdMapping: Record<string, string> = Object.create(null);
     if (snapshot.content.kind === 'plain_text') {
       const doc = createPlainTextYDoc(snapshot.content.text);

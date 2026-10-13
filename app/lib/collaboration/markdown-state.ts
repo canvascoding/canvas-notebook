@@ -19,6 +19,7 @@ import { TiptapTransformer, Y, YProsemirror } from './server-runtime';
 import { equivalentRichDocument } from '../markdown/core/equivalence';
 import { CollaborationBlockTree } from './block-tree';
 import { readRichDocumentJson, richDocumentFormat, type RichDocumentFormat } from './rich-document';
+import { assertNativeDocumentSchema } from './native-document-schema';
 
 export function richMarkdownSchemaExtensions() {
   return richMarkdownCodecExtensions();
@@ -62,6 +63,7 @@ export function createRichMarkdownYDoc(markdown: string, format: RichDocumentFor
 }
 
 export function richMarkdownFromYDoc(doc: YTypes.Doc): string {
+  assertNativeDocumentSchema(doc, richDocumentFormat(doc), getSchema(richMarkdownSchemaExtensions()));
   const json = readRichDocumentJson(doc);
   const serializedBody = markdownManager().serialize(json);
   const body = restoreRichMarkdownFinalLineEnding(
@@ -158,6 +160,8 @@ export function validateRichMarkdownStructure(doc: YTypes.Doc): RichMarkdownStru
 
 /** Validates the native document and its lossless Markdown export without mutation. */
 export function validateRichMarkdownYDoc(doc: YTypes.Doc): RichMarkdownValidation {
+  try { assertNativeDocumentSchema(doc, richDocumentFormat(doc), getSchema(richMarkdownSchemaExtensions())); }
+  catch { return { valid: false, code: 'schema_invalid' }; }
   const structure = validateRichMarkdownStructure(doc);
   if (!structure.valid && structure.code === 'schema_invalid') return structure;
   let markdown: string;
