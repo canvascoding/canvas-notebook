@@ -459,6 +459,7 @@
     "test:mobile:native-harness": "node --import tsx --conditions react-server scripts/mobile-native-cleanup-auth-test.ts && node --experimental-test-module-mocks --import tsx --conditions react-server scripts/mobile-native-issuer-certificate-test.ts",
     "test:account:credentials": "tsx --conditions react-server scripts/account-credentials-route-test.ts",
     "test:organization:permissions": "tsx --conditions react-server scripts/organization-permission-guards-test.ts",
+    "test:organization:permissions:postgres": "tsx --conditions react-server scripts/organization-permission-mutation-postgres-test.ts",
     "test:organization:offboarding": "tsx --conditions react-server scripts/organization-offboarding-test.ts",
     "test:membership-suspension": "tsx --conditions react-server scripts/membership-suspension-test.ts",
     "test:seat-limit-guard": "tsx --conditions react-server scripts/seat-limit-guard-test.ts",

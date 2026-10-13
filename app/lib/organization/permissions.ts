@@ -617,11 +617,11 @@ export async function updateOrganizationPermissions(params: {
 
       const changedKeys = ORGANIZATION_PERMISSION_KEYS.filter((key) => typeof params.permissions[key] === 'boolean');
       if (changedKeys.length > 0) {
-        const assignments = changedKeys.map((key) => `${PERMISSION_COLUMNS[key]} = ?`).join(', ');
+        const assignments = changedKeys.map((key, index) => `${PERMISSION_COLUMNS[key]} = $${index + 1}`).join(', ');
         await database.run(`
           UPDATE organization_user_permissions
-          SET ${assignments}, updated_at = $1
-          WHERE organization_id = $2 AND user_id = $3
+          SET ${assignments}, updated_at = $${changedKeys.length + 1}
+          WHERE organization_id = $${changedKeys.length + 2} AND user_id = $${changedKeys.length + 3}
         `, [
           ...changedKeys.map((key) => params.permissions[key] === true ? 1 : 0),
           Date.now(),
