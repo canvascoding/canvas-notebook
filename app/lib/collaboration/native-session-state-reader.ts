@@ -3,6 +3,7 @@ import 'server-only';
 import { getSchema } from '@tiptap/core';
 import type { SqlConnection } from '../db';
 import type { WorkspaceContext } from '../workspaces/types';
+import type { WorkspaceRequestPrincipal } from '../workspaces/request-principal';
 import { getWorkspaceFileLifecycleLeases } from './file-lifecycle-admission-context';
 import { inspectPersistedNativeCollaborationSnapshot, type NativeCollaborationSnapshot } from './document-snapshot';
 import { isCollaborationStateQuarantined } from './failure';
@@ -28,11 +29,15 @@ export type ExistingNativeCollaborationSession = Readonly<{ snapshot: ExistingNa
 type Row = Record<string, unknown>;
 type ConnectionIdentity = Readonly<{ schema: string; searchPath: string; backend: number; backendStart: string;
   transaction: string; database: number }>;
+/** Minted only inside the actual principal callback; never a public mode option. */
+type PrincipalReaderPhase = { connection: SqlConnection; active: boolean; failure: unknown; assertCurrent: () => Promise<void> };
+const authenticatedReaders = new WeakMap<SqlConnection, PrincipalReaderPhase>();
 type Capture = {
   connection: SqlConnection; phase: 'preparing' | 'active' | 'closed'; accepting: boolean; failure: unknown;
   workspaceId: string; workspaceType: string; organizationId: string | null; path: string; key: string; high: number; low: number;
   identity?: ConnectionIdentity; target?: ExistingNativeSessionIdentity; expected?: ExistingNativeSessionIdentity;
   snapshot?: ExistingNativeSessionSnapshot; native?: NativeCollaborationSnapshot; pending: Set<Promise<unknown>>;
+  principal?: PrincipalReaderPhase;
 };
 const connections = new WeakMap<SqlConnection, Capture>();
 const capabilities = new WeakMap<ExistingNativeCollaborationSession, Capture>();
@@ -56,11 +61,23 @@ export class NativeSessionStateReaderError extends Error {
   }
 }
 function fail(code: NativeSessionStateReaderError['code']): never { throw new NativeSessionStateReaderError(code); }
-function poison(captured: Capture, error: unknown): void { captured.failure ??= error ?? new NativeSessionStateReaderError('NATIVE_SESSION_REQUIRED'); }
+function poisonPrincipalReader(phase: PrincipalReaderPhase | undefined, error: unknown): void {
+  if (phase?.active) phase.failure ??= error ?? new NativeSessionStateReaderError('NATIVE_SESSION_REQUIRED');
+}
+function poison(captured: Capture, error: unknown): void {
+  captured.failure ??= error ?? new NativeSessionStateReaderError('NATIVE_SESSION_REQUIRED');
+  poisonPrincipalReader(captured.principal,captured.failure);
+}
 function poisonCapabilityFailure(connection: SqlConnection, capability: ExistingNativeCollaborationSession, error: unknown): void {
-  for (const owner of [capabilities.get(capability), connections.get(connection)]) {
-    if (owner && owner.phase !== 'closed') poison(owner, error);
+  const owner = capabilities.get(capability);
+  for (const captured of [owner, connections.get(connection), owner && connections.get(owner.connection)]) {
+    if (captured && captured.phase !== 'closed') poison(captured, error);
+    poisonPrincipalReader(captured?.principal,error);
   }
+  // The native capability closes before the actual Principal callback's final
+  // SQL check; misuse in that completion window must still reject the phase.
+  poisonPrincipalReader(authenticatedReaders.get(connection),error);
+  if (owner) poisonPrincipalReader(authenticatedReaders.get(owner.connection),error);
 }
 
 function captureExpected(input: ExistingNativeSessionIdentity): ExistingNativeSessionIdentity {
@@ -93,7 +110,10 @@ function captureScope(connection: SqlConnection, input: { workspace: WorkspaceCo
     low: Number(unsigned & BigInt(0xffffffff)), expected, pending: new Set() };
 }
 
-async function connectionIdentity(connection: SqlConnection): Promise<ConnectionIdentity> {
+async function connectionIdentity(connection: SqlConnection, principal?: PrincipalReaderPhase): Promise<ConnectionIdentity> {
+  if (principal && (!principal.active || principal.connection !== connection || authenticatedReaders.get(connection) !== principal)) {
+    fail('NATIVE_SESSION_REQUIRED');
+  }
   const row = await connection.get(`SELECT current_schema() AS schema_name,current_setting('search_path') AS search_path,
     pg_backend_pid() AS backend_pid,extract(epoch FROM a.backend_start)::text AS backend_start,
     (SELECT virtualxid FROM pg_locks WHERE locktype='virtualxid' AND pid=pg_backend_pid()
@@ -106,16 +126,29 @@ async function connectionIdentity(connection: SqlConnection): Promise<Connection
     || !Number.isSafeInteger(row.backend_pid) || Number(row.backend_pid) < 1
     || typeof row.backend_start !== 'string' || !/^[0-9]+\.[0-9]+$/u.test(row.backend_start)
     || typeof row.transaction_id !== 'string' || !/^[0-9]+\/[0-9]+$/u.test(row.transaction_id)
-    || !safeNumber(row.database_oid, 1) || row.isolation !== 'read committed' || row.read_only !== 'on') fail('NATIVE_SESSION_SCOPE_CHANGED');
+    || !safeNumber(row.database_oid, 1) || row.isolation !== 'read committed'
+    || row.read_only !== (principal ? 'off' : 'on')) fail('NATIVE_SESSION_SCOPE_CHANGED');
   return Object.freeze({ schema: row.schema_name, searchPath: row.search_path, backend: Number(row.backend_pid),
     backendStart: row.backend_start, transaction: row.transaction_id, database: Number(row.database_oid) });
 }
 function assertActive(captured: Capture): void {
-  if (connections.get(captured.connection) !== captured || captured.phase === 'closed' || captured.failure !== undefined) fail('NATIVE_SESSION_REQUIRED');
+  const held = connections.get(captured.connection);
+  if (held !== captured || captured.phase === 'closed') {
+    const error = new NativeSessionStateReaderError('NATIVE_SESSION_REQUIRED');
+    if (held && held !== captured) poison(held,error);
+    poisonPrincipalReader(captured.principal,error);
+    poisonPrincipalReader(authenticatedReaders.get(captured.connection),error);
+    throw error;
+  }
+  if (captured.failure !== undefined) throw captured.failure;
+  if (captured.principal && (!captured.principal.active || authenticatedReaders.get(captured.connection) !== captured.principal)) {
+    fail('NATIVE_SESSION_REQUIRED');
+  }
+  if (captured.principal?.failure !== undefined) throw captured.principal.failure;
 }
 async function checkConnection(captured: Capture): Promise<void> {
   assertActive(captured);
-  const current = await connectionIdentity(captured.connection), expected = captured.identity;
+  const current = await connectionIdentity(captured.connection,captured.principal), expected = captured.identity;
   assertActive(captured);
   if (!expected || Object.keys(expected).some(key => current[key as keyof ConnectionIdentity] !== expected[key as keyof ConnectionIdentity])) {
     fail('NATIVE_SESSION_SCOPE_CHANGED');
@@ -161,6 +194,7 @@ function validateRawState(row: Row): void {
         && (typeof row.projection_error_phase !== 'string' || row.projection_error_phase.length > 256))) fail('NATIVE_SESSION_STATE_INVALID');
 }
 async function readCurrent(captured: Capture): Promise<ExistingNativeSessionSnapshot> {
+  if (captured.principal) { await captured.principal.assertCurrent(); assertActive(captured); }
   await checkConnection(captured);
   const modes = await ownLockModes(captured);
   if (!modes.includes('ShareLock') || modes.includes('ExclusiveLock')) fail('NATIVE_SESSION_SCOPE_CHANGED');
@@ -227,8 +261,10 @@ async function readCurrent(captured: Capture): Promise<ExistingNativeSessionSnap
     return snapshot;
   }); }
   catch (error) { if (error instanceof NativeSessionStateReaderError) throw error; fail('NATIVE_SESSION_STATE_INVALID'); }
+  const provenNative = freezeNative(native);
   await checkConnection(captured);
-  captured.target = target; captured.native = freezeNative(native);
+  if (captured.principal) { await captured.principal.assertCurrent(); await checkConnection(captured); }
+  captured.target = target; captured.native = provenNative;
   captured.snapshot = Object.freeze({ ...target, documentSequence: state.documentSequence, checkpointSequence: state.checkpointSequence,
     persistedAt: state.persistedAt, checkpointedAt: state.checkpointedAt, stateVector: native.version.stateVector, stateProof: native.version.stateProof,
     newlineStyle: state.newlineStyle, hasBom: state.hasBom, degraded: state.degraded,
@@ -248,10 +284,71 @@ export async function withExistingNativeCollaborationSessionOnConnection<T>(conn
   const previous = connections.get(connection);
   if (previous) { poison(previous, new NativeSessionStateReaderError('NATIVE_SESSION_REENTRANT')); throw previous.failure; }
   const captured = captureScope(connection, input);
+  // Explicitly RO even if an authenticated reader/Principal exists on this DB.
+  return withCapturedNativeSession(captured,consume);
+}
+
+/** Actual request rights plus the SAME private existing reader kernel. No
+ * caller-issued Workspace/Actor/Access, public RW flag, init or ticket grant. */
+export async function withAuthenticatedExistingNativeCollaborationSessionOnConnection<T>(connection: SqlConnection,
+  principal: WorkspaceRequestPrincipal, input: { path: string; expectedIdentity?: ExistingNativeSessionIdentity },
+  consume: (session: ExistingNativeCollaborationSession) => Promise<T>): Promise<T> {
+  let path: string | undefined, expected: ExistingNativeSessionIdentity | undefined, inputError: unknown;
+  try {
+    if (!input || Object.getPrototypeOf(input) !== Object.prototype || typeof consume !== 'function'
+      || Reflect.ownKeys(input).some(key => key !== 'path' && key !== 'expectedIdentity')
+      || !Object.getOwnPropertyDescriptor(input,'path')?.enumerable
+      || !Object.prototype.hasOwnProperty.call(Object.getOwnPropertyDescriptor(input,'path'),'value')
+      || !isCanonicalAdmissionPath(input.path) || !/\.(?:md|markdown|txt)$/iu.test(input.path)) fail('NATIVE_SESSION_INVALID');
+    path = input.path;
+    if (Object.prototype.hasOwnProperty.call(input,'expectedIdentity')) {
+      const descriptor = Object.getOwnPropertyDescriptor(input,'expectedIdentity');
+      if (!descriptor?.enumerable || !Object.prototype.hasOwnProperty.call(descriptor,'value')) fail('NATIVE_SESSION_INVALID');
+      if (input.expectedIdentity !== undefined) expected = captureExpected(input.expectedIdentity);
+    }
+  } catch (error) {
+    inputError = error ?? new NativeSessionStateReaderError('NATIVE_SESSION_INVALID');
+    const held = connections.get(connection); if (held) poison(held,inputError);
+  }
+  // This lazy import never runs for the original pure READ ONLY entry.
+  const { withWorkspaceRequestPrincipalOnConnection } = await import('../workspaces/request-principal');
+  let privatePhase: PrincipalReaderPhase | undefined;
+  try {
+    const result = await withWorkspaceRequestPrincipalOnConnection(connection,principal,async access => {
+      if (inputError !== undefined) throw inputError;
+      if (!path) fail('NATIVE_SESSION_INVALID');
+      privatePhase = { connection,active:true,failure:undefined,assertCurrent:access.assertCurrent };
+      authenticatedReaders.set(connection,privatePhase);
+      await access.assertCurrent();
+      const captured = captureScope(connection,{ workspace:access.workspace,path,expectedIdentity:expected });
+      captured.principal = privatePhase;
+      const result = await withCapturedNativeSession(captured,consume);
+      if (privatePhase.failure !== undefined) throw privatePhase.failure;
+      await access.assertCurrent();
+      if (privatePhase.failure !== undefined) throw privatePhase.failure;
+      return result;
+    });
+    // The actual Principal service checks current rights again after its
+    // callback returns. Keep the opaque reader failure binding through that
+    // final SQL await as well, without extending any native capability.
+    if (privatePhase?.failure !== undefined) throw privatePhase.failure;
+    return result;
+  } finally {
+    if (privatePhase) {
+      privatePhase.active = false;
+      if (authenticatedReaders.get(connection) === privatePhase) authenticatedReaders.delete(connection);
+    }
+  }
+}
+
+async function withCapturedNativeSession<T>(captured: Capture,
+  consume: (session: ExistingNativeCollaborationSession) => Promise<T>): Promise<T> {
+  const connection = captured.connection, previous = connections.get(connection);
+  if (previous) { poison(previous,new NativeSessionStateReaderError('NATIVE_SESSION_REENTRANT')); throw previous.failure; }
   connections.set(connection, captured);
   try {
     if (getWorkspaceFileLifecycleLeases()?.has(captured.workspaceId)) fail('NATIVE_SESSION_REENTRANT');
-    captured.identity = await connectionIdentity(connection);
+    captured.identity = await connectionIdentity(connection,captured.principal);
     await checkConnection(captured); // Distinct statements prove a caller-owned TX, not autocommit.
     if ((await ownLockModes(captured)).length) fail('NATIVE_SESSION_REENTRANT');
     const lock = await connection.get('SELECT pg_try_advisory_xact_lock_shared($1::bigint) AS locked', [captured.key]) as Row | undefined;
@@ -260,7 +357,9 @@ export async function withExistingNativeCollaborationSessionOnConnection<T>(conn
     await readCurrent(captured); captured.phase = 'active';
     const capability = Object.freeze({ get snapshot() {
       assertActive(captured);
-      if (captured.phase !== 'active' || !captured.accepting) fail('NATIVE_SESSION_REQUIRED');
+      if (captured.phase !== 'active' || !captured.accepting) {
+        const error = new NativeSessionStateReaderError('NATIVE_SESSION_REQUIRED'); poison(captured,error); throw error;
+      }
       return captured.snapshot!;
     } });
     capabilities.set(capability, captured);
