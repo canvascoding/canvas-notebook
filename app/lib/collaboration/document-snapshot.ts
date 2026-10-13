@@ -89,12 +89,17 @@ function inspectNativeDocument(doc: YTypes.Doc, representation: PersistedCollabo
 }
 
 function assertNativeState(state: PersistedCollaborationState): void {
-  if (state.status !== 'active' || !state.documentId || !state.workspaceId || !state.path
+  if (state.status !== 'active'
+    || [state.documentId, state.workspaceId, state.path].some((value) => typeof value !== 'string' || !value)
+    || state.organizationId !== null && (typeof state.organizationId !== 'string' || !state.organizationId)
+    || state.path.startsWith('/') || state.path.includes('\\') || state.path.includes('\0')
+    || state.path.split('/').some((segment) => !segment || segment === '.' || segment === '..')
+    || typeof state.degraded !== 'boolean'
     || !Number.isSafeInteger(state.lifecycleGeneration) || state.lifecycleGeneration < 1
     || state.schemaVersion !== COLLABORATION_SCHEMA_VERSION
     || !Number.isSafeInteger(state.documentSequence) || state.documentSequence < 0
     || !Number.isSafeInteger(state.checkpointSequence) || state.checkpointSequence < 0
-    || state.checkpointSequence > state.documentSequence || !Number.isFinite(state.persistedAt)) {
+    || state.checkpointSequence > state.documentSequence || !Number.isFinite(state.persistedAt) || state.persistedAt < 0) {
     throw new Error('The collaborative document identity or version is unavailable.');
   }
   if (isCollaborationStateQuarantined(state)) throw new CollaborationCheckpointQuarantinedError();

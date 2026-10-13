@@ -88,6 +88,11 @@ test('native snapshots reject corrupt vectors, archived identities, quarantine a
     assert.throws(() => authoritativeNativeCollaborationSnapshot({ ...state, status: 'archived' }), /identity/u);
     assert.throws(() => authoritativeNativeCollaborationSnapshot({ ...state, lifecycleGeneration: 0 }), /identity/u);
     assert.throws(() => authoritativeNativeCollaborationSnapshot({ ...state, schemaVersion: 2 }), /identity/u);
+    for (const change of [{ documentId: 1 }, { workspaceId: {} }, { path: '../escaped.md' },
+      { path: '/absolute.md' }, { path: 'safe\\unsafe.md' }, { organizationId: 7 },
+      { degraded: 'false' }, { persistedAt: -1 }]) {
+      assert.throws(() => authoritativeNativeCollaborationSnapshot({ ...state, ...change } as unknown as PersistedCollaborationState), /identity/u);
+    }
     assert.throws(() => authoritativeNativeCollaborationSnapshot({ ...state, degraded: true }), /quarantined/u);
     assert.throws(() => authoritativeNativeCollaborationSnapshot({ ...state,
       projectionError: { code: 'COLLABORATION_ROUNDTRIP_UNSTABLE', sequence: 7, permanent: true } }), /quarantined/u);
