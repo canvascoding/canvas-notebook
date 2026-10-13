@@ -625,7 +625,12 @@ test('a package Composio requirement resumes the exact Plugin after real denial 
   await consent(() => page.getByTestId('plugin-mcp-authorize').click(), 'deny', 'popup');
   await expect(page.getByTestId('plugin-mcp-authorize')).toBeEnabled();
   await consent(() => page.getByTestId('plugin-mcp-authorize').click(), 'approve', 'popup');
-  await page.getByTestId('plugin-extension-back').click(); await openCatalog('en', { q: 'Canva MCP' });
+  // Finish the real client poll and refreshed detail before exercising the guarded Back action.
+  await expect(page.getByTestId('plugin-mcp-authorize')).toBeEnabled();
+  await page.getByTestId('plugin-extension-back').click(); await ready();
+  await expect(page.getByTestId('plugin-extension-search-input')).toHaveValue('Canva MCP');
+  expect(new URL(page.url()).searchParams.get('q')).toBe('Canva MCP');
+  expect(new URL(page.url()).searchParams.has('extensionId')).toBe(false);
   const servers = await catalogue(admin, { q: 'Canva MCP', types: 'mcp' });
   expect(servers.some(value => value.kind === 'mcp' && value.connections.some(connection => connection.authorization === 'authorized'))).toBe(true);
   expect((await readControl()).counters.approvals).toBe(before.counters.approvals + 1);
