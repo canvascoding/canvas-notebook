@@ -14,6 +14,7 @@ import { captureCollaborationAdmissionOutcomeResult, captureCollaborationAdmissi
 import { inspectCollaborationAdmissionQuiescence,
   type CollaborationAdmissionQuiescenceProof } from './room-admission-quiescence';
 import { lockIdentity } from './room-owner';
+import { withCollaborationHandoffExecutionContext } from './handoff-execution-context';
 
 type Captured = ReturnType<typeof captureCollaborationAdmissionRequest>;
 type Row = Record<string, unknown>;
@@ -283,12 +284,14 @@ export function createCollaborationAdmissionHandoffService(options: {
     readOutcome: service.readOutcome,
     loadRequest: service.loadRequest,
     execute(input: CollaborationAdmissionRequest, domain: HandoffMutation) {
-      return service.executeHandoff(input, { ...domain, kind: 'apply' });
+      return withCollaborationHandoffExecutionContext(() => service.executeHandoff(input, { ...domain, kind: 'apply' }));
     },
     /** Explicit, proven no-write terminal outcome; never a catch-all error handler. */
     abort(input: CollaborationAdmissionRequest, domain: HandoffPreparation, reasonCode: CollaborationAdmissionAbortReason) {
-      return service.executeHandoff(input, { kind: 'abort', authorize: domain.authorize, prepare: domain.prepare,
-        reasonCode: captureCollaborationAdmissionAbortReason(reasonCode) });
+      return withCollaborationHandoffExecutionContext(() => service.executeHandoff(input, {
+        kind: 'abort', authorize: domain.authorize, prepare: domain.prepare,
+        reasonCode: captureCollaborationAdmissionAbortReason(reasonCode),
+      }));
     },
   };
 }

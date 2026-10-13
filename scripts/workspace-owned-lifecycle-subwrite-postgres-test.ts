@@ -16,6 +16,7 @@ import { collaborationAdmissionActionDigest, collaborationAdmissionLockKey, type
 import { withWorkspaceFileLifecycleLeases } from '../app/lib/collaboration/file-lifecycle-admission-context';
 import { createCollaborationRoomOwnerSession } from '../app/lib/collaboration/room-owner';
 import { Y } from '../app/lib/collaboration/server-runtime';
+import { hasCollaborationHandoffExecutionContext } from '../app/lib/collaboration/handoff-execution-context';
 import { withWorkspaceMutationLock } from '../app/lib/files/workspace-mutation-lock';
 import { withWorkspaceFileLifecycleGuard } from '../app/lib/files/workspace-file-lifecycle-guard';
 import { withOwnedWorkspaceFileLifecycleSubwrites as owned, withOwnedLifecycleSubwriteTransactionOnConnection as subwrite,
@@ -169,10 +170,50 @@ async function main() {
       mutate: async database => {
         assert.equal(requireCollaborationAdmissionMutationRequest(database, 'move').requestId, handoffRequest.requestId); genuineHandoff = true;
         await within(run(first, async () => assert.fail('Nested Owned callback ran.'))); return {};
-      } }), error => ['COLLABORATION_FILE_LIFECYCLE_BUSY', 'OWNED_SUBWRITE_SCOPE_CHANGED'].includes((error as { code: string }).code));
+      } }), code('OWNED_SUBWRITE_REENTRANT'));
     assert.equal(genuineHandoff, true); assert.equal(await handoff.readOutcome(handoffRequest), null);
     const aborted = await handoff.abort(handoffRequest, { authorize: async () => undefined, prepare: async () => undefined }, 'user_cancelled');
     assert.equal(aborted.version, 2);
+
+    stage = 'genuine cross-workspace handoff context rejects entry before checkout, including retry and detached continuation';
+    const otherWorkspace = { ...workspace, workspaceId: `other-${randomUUID()}` };
+    const otherTarget = await seed('other.md', true, otherWorkspace);
+    let nestedCheckouts = 0;
+    const forbiddenEntry = () => run(otherTarget, async () => assert.fail('Cross-workspace callback ran.'),
+      async () => { nestedCheckouts++; return openConnection(); }, otherWorkspace);
+    const rejectEntry = async () => {
+      assert.equal(hasCollaborationHandoffExecutionContext(), true);
+      await assert.rejects(forbiddenEntry(), code('OWNED_SUBWRITE_REENTRANT'));
+      assert.equal(nestedCheckouts, 0);
+    };
+    assert.equal(hasCollaborationHandoffExecutionContext(), false);
+    const crossRequest = request(first); await admission.reserve(crossRequest);
+    await quiescence.prove(crossRequest, first.native!.documentId);
+    const continueDetached = deferred(); let escaped!: Promise<void>;
+    const crossOutcome = await handoff.execute(crossRequest, {
+      authorize: rejectEntry,
+      prepare: rejectEntry,
+      mutate: async database => {
+        assert.equal(requireCollaborationAdmissionMutationRequest(database, 'move').requestId, crossRequest.requestId);
+        await rejectEntry();
+        escaped = (async () => { await continueDetached.promise; await rejectEntry(); })();
+        return {};
+      },
+    });
+    assert.equal(hasCollaborationHandoffExecutionContext(), false);
+    continueDetached.resolve(); await escaped;
+    assert.deepEqual(await handoff.execute(crossRequest, {
+      authorize: rejectEntry,
+      prepare: async () => assert.fail('Completed retry prepared twice.'),
+      mutate: async () => assert.fail('Completed retry mutated twice.'),
+    }), crossOutcome);
+    const abortRequest = request(first); await admission.reserve(abortRequest);
+    await quiescence.prove(abortRequest, first.native!.documentId);
+    const abortOutcome = await handoff.abort(abortRequest, { authorize: rejectEntry, prepare: rejectEntry }, 'user_cancelled');
+    assert.equal(abortOutcome.version, 2); assert.equal(nestedCheckouts, 0);
+    assert.equal(hasCollaborationHandoffExecutionContext(), false);
+    await run(otherTarget, database => write(database, otherTarget, 'ordinary outer entry remains available'), openConnection, otherWorkspace);
+    assert.equal(await read(otherTarget), 'ordinary outer entry remains available');
 
     stage = 'stale scope, actual LockID/Lineage/Actor/Session/native identity and schema negatives';
     for (const target of [{ ...first, lockId: 'wrong-lock' }, { ...first, lineageId: 'wrong-lineage' },
@@ -326,7 +367,7 @@ async function main() {
     assert.equal(await read(spaces), 'spaces-preserved'); await assert.rejects(run({ ...spaces, path: spaces.path.trim() }, async () => undefined), code('OWNED_SUBWRITE_SCOPE_CHANGED'));
     const directory = await seed('fake-directory', false); await seed('fake-directory/child.md');
     await assert.rejects(run(directory, async () => assert.fail('Descendant scope ran.')), code('OWNED_SUBWRITE_SCOPE_CHANGED'));
-    console.log('Owned outer Legacyentry foundation: real PG18 owner factory, exclusive/RC identity, existing lock targets, reservations/room/SAME-workspace DA04 rejection, poisoning, drift and unknown-COMMIT disposal passed. CROSS-workspace caller/handoff context remains a mandatory activation gate. No production writer activated.');
+    console.log('Owned outer Legacyentry foundation: real PG18 owner factory, exclusive/RC identity, existing lock targets, reservations/room, genuine SAME/CROSS-workspace handoff rejection before checkout across authorize/prepare/mutate/abort/retry/detached phases, poisoning, drift and unknown-COMMIT disposal passed. No production writer activated.');
   } finally {
     for (const client of clients) await client.end().catch(() => undefined);
     await pool?.end(); if (created) await control.query(`DROP SCHEMA "${schema}" CASCADE`);

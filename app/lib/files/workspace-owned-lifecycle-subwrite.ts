@@ -7,6 +7,7 @@ import { getWorkspaceFileLifecycleLeases, type WorkspaceFileLifecycleLease } fro
 import { collaborationAdmissionLockKey, isCanonicalAdmissionPath } from '../collaboration/room-admission-contract';
 import { withWorkspaceFileLifecycleGuard } from './workspace-file-lifecycle-guard';
 import { lockFileCollaborationPaths } from './collaboration-repository/transaction';
+import { hasCollaborationHandoffExecutionContext } from '../collaboration/handoff-execution-context';
 
 type NativeIdentity = Readonly<{ documentId: string; lifecycleGeneration: number;
   representation: 'plain_text' | 'tiptap_xml' | 'tiptap_blocks'; schemaVersion: number }>;
@@ -202,15 +203,15 @@ async function checkTarget(captured: Capture, target: OwnedLifecycleFileLockTarg
  * grant. Real current principal rights and narrow SQL/row CAS remain writer duties.
  * Each phase commits independently; a later fatal error cannot undo an earlier
  * confirmed phase. Writers must not issue their own transaction/control commands.
- * SAME-workspace DA04 reservations/owner guards reject entry. This is no global
- * CROSS-workspace DA04 context detector: an actual caller/handoff context seam
- * MUST be closed before activation. Never install this inside a DA04 handoff.
+ * Actual handoff contexts reject entry across all workspaces, including retained
+ * continuations. That marker grants no authority. Never install this inside a
+ * DA04 handoff; production writer/legacy wrapper activation remains separate.
  */
 export async function withOwnedWorkspaceFileLifecycleSubwrites<T>(input: {
   workspace: WorkspaceContext; actor: { userId: string; sessionId: string | null }; targets: readonly OwnedLifecycleFileLockTarget[];
 }, operation: (database: SqlConnection) => Promise<T>, openConnection: () => Promise<SqlConnection> = openDb): Promise<T> {
   const previous = ownerContext.getStore();
-  if (previous || getWorkspaceFileLifecycleLeases()?.size) {
+  if (previous || getWorkspaceFileLifecycleLeases()?.size || hasCollaborationHandoffExecutionContext()) {
     const error = new OwnedLifecycleSubwriteError('OWNED_SUBWRITE_REENTRANT');
     if (previous) poison(previous, error);
     throw error;
