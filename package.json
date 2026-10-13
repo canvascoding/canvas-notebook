@@ -426,6 +426,7 @@
     "test:email:chat-context": "tsx scripts/email-chat-context-test.ts",
     "test:email:context-intent": "tsx scripts/email-client-context-intent-test.tsx",
     "test:email:inbox-flow": "tsx --conditions react-server scripts/email-inbox-reading-flow-test.ts",
+    "test:composio:callback": "tsx scripts/composio-oauth-callback-boundary-test.ts",
     "test:composio:user-scope": "tsx scripts/composio-user-scope-test.ts",
     "test:composio:agent-user-flow": "tsx scripts/composio-agent-user-flow-test.ts",
     "test:integrations:gateway:catalog": "tsx scripts/integration-tool-contract-test.ts && tsx --conditions react-server scripts/integration-tool-catalog-test.ts && tsx --conditions react-server scripts/integration-tool-context-test.ts && tsx --conditions react-server scripts/integration-tool-mcp-catalog-test.ts && tsx --conditions react-server scripts/integration-tool-composio-catalog-test.ts",

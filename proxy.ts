@@ -187,6 +187,18 @@ export default async function middleware(request: NextRequest) {
   }
 
   if (pathname.startsWith('/api/')) {
+    // Personal Composio flows are authenticated by an expiring, single-use
+    // server token. Native/system browsers may have no Canvas session cookie.
+    if (request.method === 'GET' && pathname === '/api/composio/callback'
+      && /^[A-Za-z0-9_-]{43}$/u.test(request.nextUrl.searchParams.get('flow') || '')
+      && request.nextUrl.searchParams.getAll('flow').length === 1
+      && (!request.headers.get('sec-fetch-mode') || request.headers.get('sec-fetch-mode') === 'navigate')
+      && (!request.headers.get('sec-fetch-dest') || request.headers.get('sec-fetch-dest') === 'document')) {
+      const response = nextWithCommonHeaders();
+      response.headers.set('Cache-Control', 'no-store');
+      response.headers.set('Referrer-Policy', 'no-referrer');
+      return response;
+    }
     // Composio completes provider OAuth itself. The public desktop return only
     // collects a response; the original authenticated manager must publish it.
     const composioReturn = request.nextUrl.searchParams;
