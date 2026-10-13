@@ -6225,7 +6225,14 @@
         "archiveError": "Das Profil konnte nicht archiviert werden.",
         "archiveInUse": "Entferne das Profil zuerst aus seinen Workspaces und Automationen.",
         "close": "Schließen"
-      }
+      },
+      "catalogDescription": "Integrationen suchen, verbinden und verwalten – gemeinsam mit Plugins, Skills und MCP-Servern.",
+      "openCatalog": "Integrationskatalog öffnen",
+      "openSecrets": "Zentrale Secrets verwalten",
+      "statusUnknown": "Der Verbindungsstatus konnte nicht geprüft werden.",
+      "providerUnavailable": "Composio ist aktuell nicht erreichbar. Die Konfiguration ist weiterhin gespeichert.",
+      "configuredShort": "Konfiguriert",
+      "saveError": "Der API-Schlüssel konnte nicht gespeichert werden."
     },
     "brandDesign": {
       "loading": "Brand-Profil wird geladen...",
@@ -8708,7 +8715,7 @@
         "agentSelect": "Agent auswählen",
         "agentConfigure": "Workflow konfigurieren",
         "noAgents": "In diesem Workspace ist kein von dir bearbeitbarer Agent verfügbar.",
-        "requirementsTitle": "Plugin einrichten",
+        "requirementsTitle": "Erweiterung einrichten",
         "requirementsHint": "Wähle für benötigte Integrationen eine passende bestehende Verbindung oder richte sie ein. Eine Auswahl allein erteilt keine Agent-Freigabe.",
         "required": "Erforderlich",
         "optional": "Optional",

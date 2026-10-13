@@ -6226,7 +6226,14 @@
         "archiveError": "The profile could not be archived.",
         "archiveInUse": "Remove the profile from its workspaces and automations first.",
         "close": "Close"
-      }
+      },
+      "catalogDescription": "Find, connect and manage integrations alongside plugins, skills and MCP servers.",
+      "openCatalog": "Open integration catalog",
+      "openSecrets": "Manage central secrets",
+      "statusUnknown": "The connection status could not be checked.",
+      "providerUnavailable": "Composio is currently unavailable. Your configuration is still saved.",
+      "configuredShort": "Configured",
+      "saveError": "The API key could not be saved."
     },
     "brandDesign": {
       "loading": "Loading brand profile...",
@@ -8709,7 +8716,7 @@
         "agentSelect": "Choose an agent",
         "agentConfigure": "Configure workflow",
         "noAgents": "No agent you can edit is available in this workspace.",
-        "requirementsTitle": "Set up this plugin",
+        "requirementsTitle": "Set up this extension",
         "requirementsHint": "Choose a matching existing connection or set one up for required integrations. A selection alone grants no agent access.",
         "required": "Required",
         "optional": "Optional",
