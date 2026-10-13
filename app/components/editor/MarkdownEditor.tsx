@@ -22,7 +22,7 @@ import {
   type NodeViewProps,
 } from '@tiptap/react';
 import { StarterKit } from '@tiptap/starter-kit';
-import { Link } from '@tiptap/extension-link';
+import { isAllowedUri, Link } from '@tiptap/extension-link';
 import { Mathematics } from '@tiptap/extension-mathematics';
 import { CanvasImage as Image } from '@/app/lib/markdown/core/image';
 import { MarkdownImageControls } from './MarkdownImageControls';
@@ -3135,11 +3135,13 @@ function MarkdownLinkPopover({
   state,
   onClose,
   onEdit,
+  onOpenLink,
 }: {
   editor: MarkdownEditorWithMarkdown | null;
   state: LinkPopoverState | null;
   onClose: () => void;
   onEdit: (state: LinkPopoverState) => void;
+  onOpenLink: (href: string) => void;
 }) {
   const t = useTranslations('notebook');
   const containerRef = useRef<HTMLDivElement>(null);
@@ -3168,9 +3170,9 @@ function MarkdownLinkPopover({
 
   const openLink = useCallback(() => {
     if (!state?.href) return;
-    const openedWindow = window.open(state.href, '_blank', 'noopener,noreferrer');
-    if (openedWindow) openedWindow.opener = null;
-  }, [state]);
+    onOpenLink(state.href);
+    onClose();
+  }, [onClose, onOpenLink, state]);
 
   const copyLink = useCallback(() => {
     if (!state?.href) return;
@@ -3879,6 +3881,7 @@ function MarkdownToolbar({
   onOpenRichBlockDialog,
   onOpenTableDialog,
   onOpenMarkdownDialog,
+  onOpenLink,
   actions,
 }: {
   editor: MarkdownEditorWithMarkdown | null;
@@ -3893,6 +3896,7 @@ function MarkdownToolbar({
   onOpenRichBlockDialog: (kind: RichBlockKind, range?: Range) => void;
   onOpenTableDialog: (range?: Range | null) => void;
   onOpenMarkdownDialog?: (range?: Range) => void;
+  onOpenLink: (href: string) => void;
   actions?: React.ReactNode;
 }) {
   const t = useTranslations('notebook');
@@ -4249,6 +4253,7 @@ function MarkdownToolbar({
         state={editor ? linkPopover : null}
         onClose={closeLinkPopover}
         onEdit={editLinkFromPopover}
+        onOpenLink={onOpenLink}
       />
       <MarkdownLinkDialog
         key={`link-${linkDialogSeed.id}`}
@@ -5403,6 +5408,34 @@ export function RichMarkdownEditor({
     editor?.setEditable(!effectiveReadOnly);
   }, [editor, effectiveReadOnly]);
 
+  const openDocumentLink = useCallback(async (href: string) => {
+    if (!editor || editor.isDestroyed) return;
+    const editorElement = editor.options.element;
+    if (!(editorElement instanceof HTMLElement)) return;
+    if (markdownHeadingAnchorFromHref(href) && scrollToMarkdownHeadingAnchor(editorElement, href)) return;
+    const workspaceTarget = getWorkspaceMarkdownNavigationTarget(href, filePath);
+    if (workspaceTarget) {
+      if (!access.workspace) { toast.error(t('markdownEditorLinkOpenError')); return; }
+      const result = await openWorkspaceMarkdownTarget({
+        sourcePath: filePath, syntax: 'markdown', target: href, workspaceId: activeWorkspaceId,
+      });
+      if (!['opened', 'superseded'].includes(result.status)) toast.error(result.error ?? t('markdownEditorLinkOpenError'));
+      return;
+    }
+    // Only explicit safe external protocols may leave the workspace. Relative
+    // document targets must pass the scoped resolver above, including failures.
+    const external = href.trim();
+    if (!/^(?:[a-z][a-z0-9+.-]*:|\/\/)/iu.test(external) || !isAllowedUri(external)) {
+      toast.error(t('markdownEditorLinkOpenError')); return;
+    }
+    try {
+      const url = new URL(external, window.location.href);
+      if (!isAllowedUri(url.href)) { toast.error(t('markdownEditorLinkOpenError')); return; }
+      const openedWindow = window.open(url.href, '_blank', 'noopener,noreferrer');
+      if (openedWindow) openedWindow.opener = null;
+    } catch { toast.error(t('markdownEditorLinkOpenError')); }
+  }, [access.workspace, activeWorkspaceId, editor, filePath, t]);
+
   useEffect(() => {
     if (!editor) return undefined;
     const editorElement = editor.options.element;
@@ -5415,40 +5448,17 @@ export function RichMarkdownEditor({
       if (!anchor || !editorElement.contains(anchor)) return;
 
       const href = anchor.getAttribute('href') ?? '';
-      if (markdownHeadingAnchorFromHref(href)) {
-        event.preventDefault();
-        event.stopImmediatePropagation();
-        scrollToMarkdownHeadingAnchor(editorElement, href);
-        return;
-      }
-      if (!access.workspace) {
-        // Shared documents may link out, but cannot navigate private workspace files.
-        if (/^https?:\/\//iu.test(href) && !effectiveReadOnly) return;
-        event.preventDefault();
-        event.stopImmediatePropagation();
-        if (/^https?:\/\//iu.test(href)) window.open(href, '_blank', 'noopener,noreferrer');
-        return;
-      }
-      const workspaceTarget = getWorkspaceMarkdownNavigationTarget(href, filePath);
-      if (!workspaceTarget) return;
-
+      // A writer's ordinary click selects the link and opens its edit menu.
+      // Readers and an explicit modifier use the same guarded Open action.
+      if (!effectiveReadOnly && !event.metaKey && !event.ctrlKey) return;
       event.preventDefault();
       event.stopImmediatePropagation();
-      void openWorkspaceMarkdownTarget({
-        sourcePath: filePath,
-        syntax: 'markdown',
-        target: href,
-        workspaceId: activeWorkspaceId,
-      }).then((result) => {
-        if (!['opened', 'superseded'].includes(result.status)) {
-          toast.error(result.error ?? t('markdownEditorLinkOpenError'));
-        }
-      });
+      void openDocumentLink(href);
     };
 
     editorElement.addEventListener('click', handleWorkspaceLinkClick, true);
     return () => editorElement.removeEventListener('click', handleWorkspaceLinkClick, true);
-  }, [access.workspace, activeWorkspaceId, editor, effectiveReadOnly, filePath, t]);
+  }, [editor, effectiveReadOnly, openDocumentLink]);
 
   useEffect(() => editor ? attachMarkdownDetailsInteractions(editor) : undefined, [editor]);
 
@@ -5553,6 +5563,7 @@ export function RichMarkdownEditor({
           onImageDialogOpenChange={openImageDialogFromToolbar}
           onOpenTableDialog={openTableDialogAtRange}
           onOpenMarkdownDialog={markdownInsertionAvailable ? openMarkdownDialog : undefined}
+          onOpenLink={(href) => { void openDocumentLink(href); }}
           actions={toolbarActions}
         />
       ) : null}

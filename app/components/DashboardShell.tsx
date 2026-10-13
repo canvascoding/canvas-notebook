@@ -1477,7 +1477,9 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     <NotebookFocusContext.Provider value={focusContext}>
     <FileWatcherProvider>
       <HintProvider page="notebook" enabled={hintEnabled}>
-        <div className="fixed inset-0 flex flex-col overflow-hidden bg-background text-foreground" data-document-focus={documentFocus}>
+        <div className={cn('fixed inset-0 flex flex-col overflow-hidden bg-background text-foreground',
+          mobileDocumentFocus && 'pt-[env(safe-area-inset-top)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]')}
+          data-document-focus={documentFocus}>
           <header data-testid="notebook-header" aria-hidden={mobileDocumentFocus} inert={mobileDocumentFocus}
             className={cn('z-40 flex h-14 shrink-0 items-center justify-between gap-3 border-b border-border bg-background/95 px-3 pt-[env(safe-area-inset-top)] backdrop-blur supports-[backdrop-filter]:bg-background/88 sm:px-4', mobileDocumentFocus && 'hidden')}>
             <div className="flex min-w-0 items-center gap-2">

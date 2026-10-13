@@ -105,6 +105,15 @@ test('header focus and width retain the editable document, panels, undo and nati
     await expect(documentHeader.getByRole('button', { name: 'Exit focus', exact: true })).toBeVisible();
     await expect(page.getByTestId('notebook-header')).toBeHidden();
     await expect(page.getByTestId('notebook-toolbar')).toBeHidden();
+    const focusedBounds = await page.locator('[data-document-focus="true"]').evaluate(element => {
+      const root = element.getBoundingClientRect(), header = element.querySelector('[data-testid="document-header"]')!.getBoundingClientRect();
+      const style = getComputedStyle(element);
+      return { top: header.top - root.top, left: header.left - root.left, right: root.right - header.right,
+        paddingTop: parseFloat(style.paddingTop), paddingLeft: parseFloat(style.paddingLeft), paddingRight: parseFloat(style.paddingRight) };
+    });
+    expect(focusedBounds.top).toBeGreaterThanOrEqual(focusedBounds.paddingTop);
+    expect(focusedBounds.left).toBeGreaterThanOrEqual(focusedBounds.paddingLeft);
+    expect(focusedBounds.right).toBeGreaterThanOrEqual(focusedBounds.paddingRight);
     expect(await editor.evaluate((current, before) => current === before, node)).toBe(true);
     await documentHeader.getByRole('button', { name: 'Exit focus', exact: true }).click();
     await expect(page.getByTestId('notebook-header')).toBeVisible();
