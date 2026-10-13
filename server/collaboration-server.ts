@@ -1374,13 +1374,13 @@ export function createCollaborationServer(server: http.Server, options: {
       const activeDocument = hocuspocus.documents.get(documentId);
       if (activeDocument) {
         assertRoomIdentity(activeDocument, state);
-        return read(activeDocument);
+        return read(activeDocument, state);
       }
 
       const doc = new Y.Doc({ gc: true });
       try {
         Y.applyUpdate(doc, state.yjsState);
-        return read(doc);
+        return read(doc, state);
       } finally {
         doc.destroy();
       }

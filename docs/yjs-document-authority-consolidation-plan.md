@@ -470,7 +470,7 @@ Zielwerte für p95-Planlatenz, maximalen Projektionsrückstand und Scan-/Backup-
 
 ## 12. Umsetzung im Worktree mit Abhängigkeiten und Abschluss-Gates
 
-Gemäß ergänztem Nutzerauftrag wird ausschließlich in Git-Worktrees gearbeitet und unabhängige Arbeit wird, wo sinnvoll, parallel delegiert. Ein abhängiger Schritt beginnt erst nach Abschluss, Prüfung und Commit seiner Voraussetzungen. Die ID-Reihenfolge allein ist kein globales Parallelisierungsverbot; wichtige unvollständige Grundlagen werden durch parallele Folgearbeit nicht übersprungen. Vorarbeiten zur gemeinsamen Planprüfung sind noch keine begonnenen Implementierungs-To-dos. Alle folgenden Aufgaben sind offen.
+Gemäß ergänztem Nutzerauftrag wird ausschließlich in Git-Worktrees gearbeitet und unabhängige Arbeit wird, wo sinnvoll, parallel delegiert. Ein abhängiger Schritt beginnt erst nach Abschluss, Prüfung und Commit seiner Voraussetzungen. Die ID-Reihenfolge allein ist kein globales Parallelisierungsverbot; wichtige unvollständige Grundlagen werden durch parallele Folgearbeit nicht übersprungen. Vorarbeiten zur gemeinsamen Planprüfung sind noch keine begonnenen Implementierungs-To-dos. Den aktuellen Abschlussstand führt §12.1; Teilnachweise stehen in §16.2.
 
 | ID | Priorität | Arbeitspaket | Abgeschlossen, wenn … |
 | --- | --- | --- | --- |
@@ -736,6 +736,12 @@ Diese Entscheidungen werden vor Beginn der jeweils abhängigen Implementierung g
 - **Arbeitsstand:** Implementierung startet von `59886de5b` im Worktree `824c`. Rein lesende Codec-/Test-/Linkinventare laufen parallel; Implementierung folgt den fertigen Voraussetzungen und eindeutigen File-Ownern aus §12.3. GitNexus-Index und Dependencies werden für diesen tatsächlichen Checkout hergestellt. Bereits laufende fremde Testserver/Container werden nicht unkoordiniert gestoppt oder als aktueller Goal-Stand gewertet.
 
 YD-00 ist damit als Vertrags-/Inventarentscheidung abgeschlossen, nicht als bestandene Anwendungscode-/Browserabnahme. Alle folgenden Implementierungs- und Abnahmepakete bleiben offen.
+
+### 16.2 Implementierungsnachweise und verbleibende Abnahmen
+
+**YD-02, native Lesegrundlage:** `document-snapshot.ts` trennt gültige native Struktur von strengem Markdown-Export. Der persistierte Snapshot prüft Dokumentidentität, Lebenszyklus, unterstützte Schema-Version, vollständiges Yjs-Binary ohne angehängte Bytes, StateVector und löschungsinklusive StateProof. Permanente Quarantäne bleibt gesperrt. Eine temporäre synchrone Inspektion liefert Struktur und Anker aus demselben Binärstand und lehnt Inhaltsmutation ab. Der bestehende besitzgeprüfte Room-Reader liefert die zu diesem Read gehörenden persistierten Metadaten; neuere Live-Inhalte erhalten keinen alten Dauerhaftigkeitsbeleg. Diese Grundlage ist noch kein angeschlossener nativer Dateiaktionsplaner oder ein Beleg für vollständige Writer-/Reader-Abdeckung.
+
+Die neun nativen Tests prüfen unter anderem valide Tabellenbreiten mit fehlgeschlagenem Markdown-Export, Texttreue, reine Löschungen, Pending-Updates, falsche Repräsentation, fremde Identität, alte Generation, Schema-Version, Quarantäne sowie mutierende/asynchrone Inspektion. Bestehende scoped Reads (10 Fälle), collaborative File Reads (8 Fälle), Durability-/Checkpoint-Tests und Room-Owner-Runtime-Tests wurden lokal erfolgreich ausgeführt. Der volle TypeScript-Lauf nach Build des internen Decision-Models-Pakets meldet noch fünf Diagnosen außerhalb der geänderten Dateien: fehlende benachbarte Control-Plane-Testimports und eine bestehende Transcription-Testtypisierung; er ist damit noch nicht bestanden. Browser-, PostgreSQL-, Neustart- und Produktionsabnahme folgen getrennt. Der private konkrete Produktionssnapshot für YD-01 fehlt weiterhin; synthetische Fälle beweisen dessen Ursache nicht.
 
 ## 17. Änderungs- und Nachweisprotokoll
 

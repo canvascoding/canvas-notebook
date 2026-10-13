@@ -133,10 +133,13 @@ function stableIdsFromJson(value: unknown, ids: string[], missing: { value: bool
   }
 }
 
-/** Validates the authoritative rich document without mutating it. */
-export function validateRichMarkdownYDoc(doc: YTypes.Doc): RichMarkdownValidation {
-  let json: unknown;
-  let markdown: string;
+export type RichMarkdownStructureValidation =
+  | { valid: true; document: JSONContent }
+  | { valid: false; code: 'schema_invalid' | 'stable_id_missing' | 'stable_id_duplicate' };
+
+/** Native operations require schema and stable identities, never a derived export. */
+export function validateRichMarkdownStructure(doc: YTypes.Doc): RichMarkdownStructureValidation {
+  let json: JSONContent;
   try {
     json = readRichDocumentJson(doc);
     const schemaDocument = getSchema(richMarkdownSchemaExtensions()).nodeFromJSON(json);
@@ -145,14 +148,24 @@ export function validateRichMarkdownYDoc(doc: YTypes.Doc): RichMarkdownValidatio
   } catch {
     return { valid: false, code: 'schema_invalid' };
   }
-  try { markdown = richMarkdownFromYDoc(doc); }
-  catch { return { valid: false, code: 'serialization_failed' }; }
-
   const ids: string[] = [];
   const missing = { value: false };
   stableIdsFromJson(json, ids, missing);
-  if (missing.value) return { valid: false, code: 'stable_id_missing', markdown };
-  if (new Set(ids).size !== ids.length) return { valid: false, code: 'stable_id_duplicate', markdown };
+  if (missing.value) return { valid: false, code: 'stable_id_missing' };
+  if (new Set(ids).size !== ids.length) return { valid: false, code: 'stable_id_duplicate' };
+  return { valid: true, document: json };
+}
+
+/** Validates the native document and its lossless Markdown export without mutation. */
+export function validateRichMarkdownYDoc(doc: YTypes.Doc): RichMarkdownValidation {
+  const structure = validateRichMarkdownStructure(doc);
+  if (!structure.valid && structure.code === 'schema_invalid') return structure;
+  let markdown: string;
+  try { markdown = richMarkdownFromYDoc(doc); }
+  catch { return { valid: false, code: 'serialization_failed' }; }
+  // Preserve the existing export error precedence and diagnostic Markdown.
+  if (!structure.valid) return { valid: false, code: structure.code, markdown };
+  const json = structure.document;
 
   let roundtrip: YTypes.Doc | null = null;
   try {
