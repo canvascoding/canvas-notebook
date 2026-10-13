@@ -10,9 +10,11 @@ import messages from '../../messages/en.json';
 useWorkspaceStore.setState({ activeWorkspaceId: 'migration-workspace' });
 function App() {
   const [value, setValue] = useState(initialMarkdown);
+  const [readOnly, setReadOnly] = useState(location.search.includes('read-only'));
   return <NextIntlClientProvider locale="en" messages={messages}><TooltipProvider>
+    {location.search.includes('revocable') && <button type="button" onClick={() => setReadOnly(true)}>Revoke fixture write permission</button>}
     <MarkdownEditor value={value} onChange={setValue} filePath="copy.md"
-      readOnly={location.search.includes('read-only')}
+      readOnly={readOnly}
       collaborationEnabled={!location.search.includes('local')} layout="field" />
     <pre id="saved-value" hidden>{value}</pre>
   </TooltipProvider></NextIntlClientProvider>;

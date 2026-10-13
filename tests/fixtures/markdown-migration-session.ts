@@ -11,14 +11,17 @@ import { BLOCK_TREE_KEY, CollaborationBlockTree } from '../../app/lib/collaborat
 import { collaborationStateProof } from '../../app/lib/collaboration/state-proof';
 
 export const initialMarkdown = location.search.includes('unsupported')
-  ? '# Raw HTML\n\n<div>Keep exactly</div>\n' : '1. First item\n\n2. Second item\n';
+  ? '# Raw HTML\n\n<div>Keep exactly</div>\n'
+  : location.search.includes('canonical') ? '# Canonical document\n\nUnchanged paragraph.\n'
+    : '1. First item\n\n2. Second item\n';
 let doc = new Y.Doc();
 doc.getText('content').insert(0, initialMarkdown);
 const provider = { awareness: new Awareness(doc), on() {}, off() {},
   disconnect() { document.body.dataset.disconnected = 'true'; },
   connect() { document.body.dataset.disconnected = 'false'; },
 };
-const session = { documentId: 'migration-copy', lifecycleGeneration: 1, representation: 'plain_text', permission: 'write',
+const session = { documentId: 'migration-copy', lifecycleGeneration: 1, representation: 'plain_text',
+  permission: location.search.includes('read-only') ? 'read' : 'write',
   schemaVersion: 1, ...COLLABORATION_CLIENT_CAPABILITIES,
   user: { id: 'test-user', name: 'Test user', color: '#336699', colorLight: '#33669933' },
 } as CollaborationSessionResponse;
