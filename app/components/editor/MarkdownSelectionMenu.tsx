@@ -7,6 +7,7 @@ import { BubbleMenu } from '@tiptap/react/menus';
 import { useEditorState } from '@tiptap/react';
 import { Bold, Code, Highlighter, Italic, Link, Strikethrough } from 'lucide-react';
 import { useTranslations } from 'next-intl';
+import { useMarkdownBubbleMenuFocus } from './useMarkdownBubbleMenuFocus';
 
 /** Reuses the rich editor's commands; no Markdown conversion or parallel state. */
 export function MarkdownSelectionMenu({ editor, suppressed, onLink }: {
@@ -16,6 +17,7 @@ export function MarkdownSelectionMenu({ editor, suppressed, onLink }: {
 }) {
   const t = useTranslations('notebook.editorSelection');
   const root = useRef<HTMLDivElement>(null);
+  useMarkdownBubbleMenuFocus(editor, 'canvas-selection-menu', root);
   const dismissed = useRef(false);
   const state = useEditorState({ editor, selector: ({ editor: current }) => ({
     bold: current.isActive('bold'), italic: current.isActive('italic'), strike: current.isActive('strike'),

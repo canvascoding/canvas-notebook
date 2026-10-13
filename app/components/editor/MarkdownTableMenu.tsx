@@ -9,10 +9,13 @@ import { AlignLeft, ChevronDown, Columns3, Rows3, Trash2 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { moveMarkdownTablePart } from '@/app/lib/markdown/core/table-commands';
+import { useMarkdownBubbleMenuFocus } from './useMarkdownBubbleMenuFocus';
 
 export function MarkdownTableMenu({ editor, suppressed }: { editor: Editor; suppressed: boolean }) {
   const t = useTranslations('notebook');
   const root = useRef<HTMLDivElement>(null);
+  const portals = useRef(new Map<string, HTMLElement>());
+  useMarkdownBubbleMenuFocus(editor, 'canvas-table-menu', root, portals);
   const [activeMenu, setActiveMenu] = useState<string | null>(null);
   const activeMenuRef = useRef<string | null>(null);
   const setMenuOpen = (name: string, open: boolean) => {
@@ -63,13 +66,15 @@ export function MarkdownTableMenu({ editor, suppressed }: { editor: Editor; supp
         { name: 'column', Icon: Columns3, label: `${t('editorTableColumn')} ${context?.column ?? ''}`, actions: columnActions }].map(({ name, Icon, label, actions }) =>
         <DropdownMenu key={name} modal={false} open={activeMenu === name} onOpenChange={(open) => setMenuOpen(name, open)}>
           <DropdownMenuTrigger className={triggerClass} aria-label={label}><Icon className="size-4" />{label}<ChevronDown className="size-3" /></DropdownMenuTrigger>
-          <DropdownMenuContent align="start" onCloseAutoFocus={restoreFocus}>
+          <DropdownMenuContent align="start" onCloseAutoFocus={restoreFocus}
+            ref={element => { if (element) portals.current.set(name, element); else portals.current.delete(name); }}>
             {actions.map(([key, run, enabled]) => <DropdownMenuItem key={key} disabled={!enabled} onSelect={run}>{t(key)}</DropdownMenuItem>)}
           </DropdownMenuContent>
         </DropdownMenu>)}
       <DropdownMenu modal={false} open={activeMenu === 'align'} onOpenChange={(open) => setMenuOpen('align', open)}>
         <DropdownMenuTrigger className={triggerClass} aria-label={t('editorTableColumnAlignment')}><AlignLeft className="size-4" /><ChevronDown className="size-3" /></DropdownMenuTrigger>
-        <DropdownMenuContent align="start" onCloseAutoFocus={restoreFocus}>
+        <DropdownMenuContent align="start" onCloseAutoFocus={restoreFocus}
+          ref={element => { if (element) portals.current.set('align', element); else portals.current.delete('align'); }}>
           {(['left', 'center', 'right'] as const).map((align) => <DropdownMenuItem key={align}
             onSelect={() => editor.chain().focus().setCellAttribute('align', align).run()}>
             {t(`markdownEditorTableAlign${align[0].toUpperCase() + align.slice(1)}`)}
