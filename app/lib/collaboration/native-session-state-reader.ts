@@ -187,11 +187,17 @@ function validateRawState(row: Row): void {
     || row.checkpointed_at !== null && !safeNumber(row.checkpointed_at)
     || !['lf', 'crlf'].includes(String(row.newline_style)) || ![0, 1, '0', '1', false, true].includes(row.has_bom as never)
     || ![0, 1, '0', '1', false, true].includes(row.degraded as never)
-    || ![0, 1, '0', '1'].includes(row.projection_error_permanent as never)
-    || row.projection_error_code != null && (typeof row.projection_error_code !== 'string' || !row.projection_error_code
-      || row.projection_error_code.length > 256 || !safeNumber(row.projection_error_sequence)
-      || !safeNumber(row.projection_error_generation, 1) || row.projection_error_phase != null
-        && (typeof row.projection_error_phase !== 'string' || row.projection_error_phase.length > 256))) fail('NATIVE_SESSION_STATE_INVALID');
+    || ![0, 1, '0', '1'].includes(row.projection_error_permanent as never)) fail('NATIVE_SESSION_STATE_INVALID');
+  const code = row.projection_error_code, permanent = Number(row.projection_error_permanent);
+  if (code !== null) {
+    if (!validId(code) || !safeNumber(row.projection_error_sequence) || !safeNumber(row.projection_error_generation, 1)
+      || Number(row.projection_error_sequence) > Number(row.document_sequence)
+      || Number(row.projection_error_generation) > Number(row.lifecycle_generation)
+      || permanent === 1 && Number(row.projection_error_generation) !== Number(row.lifecycle_generation)
+      || row.projection_error_phase !== null && (typeof row.projection_error_phase !== 'string'
+        || row.projection_error_phase.length > 256 || /[\u0000-\u001f\u007f]/u.test(row.projection_error_phase))) fail('NATIVE_SESSION_STATE_INVALID');
+  } else if (permanent !== 0 || row.projection_error_sequence !== null || row.projection_error_generation !== null
+    || row.projection_error_phase !== null) fail('NATIVE_SESSION_STATE_INVALID');
 }
 async function readCurrent(captured: Capture): Promise<ExistingNativeSessionSnapshot> {
   if (captured.principal) { await captured.principal.assertCurrent(); assertActive(captured); }
