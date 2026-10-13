@@ -1,4 +1,4 @@
-# Plugin-Seite: Pakete, Skills und Integrationen gemeinsam entdecken
+# Plugin-Seite: Plugins, Skills, Integrationen und MCP-Server gemeinsam suchen
 
 Stand: 13. Oktober 2026. Geprüfte Notebook-Basis: `8d6401a08261ca4efe6063fed4001be024fdfb8d` (Remote-main einschließlich To-do-Fix aus PR #170). Dies ist ein Vorschlag für die nächste Umsetzung. Die Prüfung erfolgte anhand der aktuellen Route, tatsächlich eingebundenen Komponenten, Dienste und vorhandenen Abnahmeberichte; eine neue Browser-/Produktivabnahme wurde nicht durchgeführt.
 
@@ -53,16 +53,20 @@ Die Plugin-App bleibt der zentrale Einstieg. Die vorhandene Seitenschale wird er
 
 ### Ebene 1: Finden und eigener Bestand
 
-- **Meine Erweiterungen** und **Entdecken** bilden die primären Ansichten. Paket-Updates und eigene Entwürfe bleiben erreichbar; ihre Zähler gelten nur für passende Pakettypen.
-- Ein Suchfeld, darunter die Filter **Alle / Plugins / Integrationen / Skills**. Plugins stehen in der allgemeinen Entdecken-Ansicht zuerst. Bei einer Suche werden passende Pakete und einzelne Komponenten in klar beschrifteten Gruppen gezeigt.
-- Nur bei gewähltem Integrationsfilter erscheinen **Verbunden / Verfügbar** sowie bei Bedarf die Quelle **Composio / Eigene MCP-Server**. „Verfügbar“ heißt hier im Katalog vorhanden und im Kontext einrichtbar; es behauptet noch keinen ausführbaren Account.
+- **Eine Seite, ein Suchfeld, eine gemeinsame Ergebnisliste.** Standardmäßig durchsucht jede Eingabe alle vier Typen: **Plugins, Skills, Integrationen und MCP-Server**. Dafür muss weder eine Unterseite noch vorab ein Typ ausgewählt werden. „Meine Erweiterungen“ und „Entdecken“ werden Bestandsfilter dieser Suche, keine getrennten Suchräume.
+- Direkt darunter stehen die optionalen Typfilter **Alle / Plugins / Skills / Integrationen / MCP-Server**. Ein Typfilter schränkt dieselbe Suche ein und behält ihren Suchbegriff. Er ist kein Seitentab mit eigener Suche. Standard bleibt „Alle“.
+- Ein kompakter **Filter**-Button öffnet erst auf Anforderung weitere Kriterien: **Alle / Installiert oder verbunden / Verfügbar zum Hinzufügen**, Herkunft und gegebenenfalls Besitz/Freigabe. Aktive Filter bleiben auch nach dem Zuklappen sichtbar und einzeln entfernbar. „Verfügbar“ heißt im Katalog vorhanden und im Kontext einrichtbar; es behauptet noch keinen ausführbaren Account. Ohne Anmeldung verwendbare Angebote erhalten einen eigenen zutreffenden Nutzungszustand.
+- Ohne Suchbegriff stehen Plugins zuerst. Mit Suchbegriff entscheidet die Relevanz: exakte Namen vor Präfixen, Namensbestandteile vor Beschreibungen. Eine leichte Plugin-Präferenz gilt nur bei gleicher Relevanz. Eine exakte Composio-App darf nicht hinter entfernt passenden Plugin-Beschreibungen verschwinden. Die Typkennzeichnung jeder Zeile bleibt sichtbar; keine dauerhaft getrennten Ergebnisgruppen erzwingen erneut eine Entscheidung über den Suchraum.
 - **MCP-Server hinzufügen** ist als gezielte Aktion erreichbar, auch ohne Plugin. Import-/Erstellungswege für Pakete und Skills behalten ihre eigenen Fachabläufe.
-- Der aktive persönliche/Team-/Organisationsbereich ist sichtbar. Unlesbare Verbindungen fehlen in den Listen; mögliche Installations-/Erstellungsbereiche werden separat serverseitig geprüft.
+- Der aktive Workspace sowie der geltende persönliche/Team-/Organisationskontext sind sichtbar. Im Standardkontext erscheinen die dort lesbaren eigenen und freigegebenen Ressourcen; ein Besitzfilter darf sie gezielt einschränken. Der Zielbereich einer neuen Installation oder Verbindung wird separat gewählt und serverseitig geprüft. Unlesbare Verbindungen fehlen in den Listen.
 - Jede Zeile zeigt zunächst Logo, Name, kurzen Nutzen, Typ/Herkunft, Zustand und eine passende Hauptaktion. Große Tool-Listen, Profile und Konfiguration werden erst bei Auswahl geladen.
+- Paket-Updates und Entwürfe bleiben als sekundäre Verwaltungsaktionen erreichbar. Ihre Zähler gelten nur für Pakete; sie bekommen kein konkurrierendes Katalogsuchfeld.
+
+Die MCP-Suche umfasst tatsächlich bekannte persönliche/gemeinsame Server sowie vorhandene, eindeutig gekennzeichnete Konfigurationsvorlagen. Es gibt keinen erfundenen weltweiten Katalog beliebiger MCP-Endpunkte. Ein unbekannter eigener Server wird über **Hinzufügen → MCP-Server** eingerichtet. „Integration“ bezeichnet hier das separat einrichtbare Composio-Angebot; der Typfilter „MCP-Server“ bezeichnet direkte Serververbindungen. Der technische Transport einer Composio-App entscheidet nicht über ihre UI-Kategorie.
 
 ### Ebene 2: Ausgewählter Eintrag
 
-Ein Eintrag öffnet eine Detailansicht innerhalb der Plugin-App; „Zurück“ stellt Suche, Filter und Listenposition wieder her. Sie erläutert Nutzen und Herkunft. Ein Plugin zeigt „Enthält …“ und „Benötigt …“; ein Integrationsangebot zeigt passende vorhandene Verbindungen oder „Verbinden“. Bei mehreren Accounts, Profilen oder Bereichen werden diese bewusst ausgewählt. Gleichnamige Canva-MCP- und Composio-Angebote bleiben als verschiedene Zugänge erkennbar.
+Ein Eintrag öffnet eine Detailansicht innerhalb der Plugin-App; „Zurück“ stellt Suche, Filter, Listenposition und Fokus auf den ursprünglichen Treffer wieder her. Der gemeinsame Suchkopf bleibt erhalten; eine neue Suche kehrt zu den Treffern zurück. Auf schmalen Bildschirmen nimmt der Detailinhalt die ganze Inhaltsbreite ein. Sie erläutert Nutzen und Herkunft. Ein Plugin zeigt „Enthält …“ und „Benötigt …“; ein Integrationsangebot zeigt passende vorhandene Verbindungen oder „Verbinden“. Bei mehreren Accounts, Profilen oder Bereichen werden diese bewusst ausgewählt. Bei genau einer zulässigen Option entfällt der entsprechende Auswahlschritt. Gleichnamige Canva-MCP- und Composio-Angebote bleiben als verschiedene Zugänge erkennbar.
 
 Vorgeschlagene Status-/Aktionssprache:
 
@@ -95,12 +99,43 @@ Abgebrochenes OAuth lässt das bereits installierte Paket als **„Einrichtung u
 
 Profilwechsel, Verbindungsrechte, gezielte Tool-Limits, technische Diagnosen und Secrets-Verweise erscheinen auf Anforderung. Einstellungen und Plugin-Seite verwenden dieselben Formulare und Dienste. In Settings bleiben die grundlegende Plattformkonfiguration und Secrets-Verwaltung erreichbar. Credential-Werte bleiben im gemeinsamen bereichsgebundenen ENV-Service.
 
+### Sichtbarkeitsregeln für Progressive Disclosure
+
+| Moment | Sichtbar | Erst nach einer Aktion |
+| --- | --- | --- |
+| Seite öffnen | Kontext, ein Suchfeld, Typfilter, kompakte gemischte Treffer, Hinzufügen | Bestands-/Herkunfts-/Besitzfilter |
+| Eintrag wählen | Nutzen, Herkunft, tatsächlicher Zustand, passende Hauptaktion; beim Plugin enthaltene und benötigte Komponenten | Tool-Liste und technische Details |
+| Installieren/Verbinden | Nur die aktuell fehlenden und notwendigen Einrichtungsschritte | Account-/Profil-Auswahl bei Mehrdeutigkeit; optionale Komponenten nach den erforderlichen |
+| Verwalten | Aktionen entsprechend aktuellen Rechten und aktuellem Zustand | Freigaben, Limits, Header, ENV-Referenzen und Diagnosen |
+
+Erweiterte Details werden durch Bedarf geöffnet, nicht allein durch das Vorhandensein einer Berechtigung. Ein Admin sieht auf der Startseite daher keine permanente Profil-/Secret-/Tool-Konfiguration. Ein Fehler mit notwendiger Nutzeraktion bleibt dagegen unmittelbar sichtbar.
+
+Der begleitende klickbare Wireframe zeigt diese Hierarchie mit Beispieldaten: gemeinsame Suche (z. B. „Canva“), Typ-/Bestandsfilter, Plugin-Anforderungen, eine simulierte Composio-Autorisierung und die separate MCP-Einrichtung. Die Interaktionen stellen keine tatsächlichen Accounts oder Provider-Zustände dar.
+
+## Konkreter Suchvertrag
+
+Die UI verwendet einen authentifizierten Einstieg für die gemischte Suche, vorgeschlagen als **`GET /api/plugins/search`**. Das ist eine neue Verwaltungsprojektion über bestehende Fachservices, kein Ersatz der Agent-Tools. Sie verwendet die Paket-/Skill-Katalogdienste, die persönlichen/gemeinsamen Verbindungsdienste und die seitenfähige Composio-Kataloggrundlage. Die vorhandenen fachlichen Endpunkte können weiter bestehen.
+
+**Anfrage:** `q`, optionale `types`, `stock`, `source`, expliziter Workspace-/Bereichskontext und ein opaker `cursor`. Ohne `types` sind alle vier Typen enthalten. Filteränderungen setzen die Seitencursor zurück, nicht den Suchbegriff. Die URL enthält Such-/Filterzustand und optional die exakte Auswahl; geheime Account-/Profilwerte gehören nicht in die URL.
+
+**Antwort:** eine geordnete Trefferliste, nächste Seite sowie Quellenabdeckung. Ein DTO unterscheidet `plugin`, `skill`, `integration` und `mcp`. Die vier Typen tragen gemeinsame Anzeigenfelder, aber eigene fachliche Referenzen und Aktionen:
+
+- Plugins/Skills behalten die vorhandenen Store-/Ressourcenreferenzen, Paketrevisionen und die Elternreferenz eines enthaltenen Skills.
+- Ein Composio-Angebot enthält den kanonischen Toolkit-Slug und berechtigte Verbindungszusammenfassungen. Eine bestehende Verbindung wird über eine exakte Instanzreferenz ausgewählt, niemals über den Anzeigenamen. Dieselbe App mit mehreren Accounts bleibt eine App mit mehreren getrennten wählbaren Verbindungen.
+- MCP-Treffer behalten die genaue Server-/Verbindungsreferenz und den Bereich; reine Vorlagen werden als solche gekennzeichnet. Gleichnamige Server und Composio-Apps werden nicht dedupliziert.
+- Installation/Verbindung, Autorisierung, zuletzt geprüfte Erreichbarkeit und Lese-/Nutzungs-/Verwaltungsrechte bleiben getrennte Felder. Eine vorhandene Autorisierung ergibt kein „healthy“ ohne entsprechende Prüfung; Katalogladen ruft keine Provider-Geschäftsaktion auf.
+- Jede Quelle meldet `complete`, `partial`, `unavailable` oder `not_configured`, gegebenenfalls mit Fortsetzung und sicherem Fehler. Ein Gesamtzähler wird nur als vollständig ausgegeben, wenn diese Aussage belegt ist; sonst etwa „12 Treffer geladen“.
+
+Die Suchdienste arbeiten mit begrenzter Parallelität, getrennten Zeitbudgets und Quellencursoren. Die gemeinsame Seitengrenze sortiert geladene Kandidaten nachvollziehbar; weitere Quellen-Seiten bleiben über „Weitere Treffer“ erreichbar. Ranking gilt für tatsächlich durchsuchte Kandidaten: Ein unvollständig geladener Upstream-Katalog darf nicht als vollständig nach globaler Relevanz sortiert gelten. Unterstützt eine Quelle serverseitige Suche, wird `q` weitergereicht. Andernfalls muss eine vollständig indizierte Metadatenbasis oder eine ausdrücklich gekennzeichnete fortgesetzte Suche spätere Seiten einbeziehen. Insbesondere darf die erste Composio-Seite nicht stillschweigend als ganzer Katalog gelten. Cursor werden an Kontext, Suchbegriff und Filter gebunden; Zugriffsrechte werden bei Folgeseiten und jeder Aktion erneut geprüft.
+
+Clientseitig wird die Eingabe kurz entprellt (etwa 250 ms). `AbortController` plus Anfragegeneration verwerfen veraltete Ergebnisse bei Suche, Filter-, Workspace- und Profilwechsel. Bestehende Treffer dürfen während des Nachladens sichtbar bleiben, werden aber als aktualisierend markiert und nicht mit dem neuen Kontext verwechselt. Teilfehler erhalten erfolgreiche Quellen. Ohne erste Antwort gibt es Skeletons; bei tatsächlichem Leerstand einen konkreten Empty-State. Filter werden per Tastatur erreichbar, aktiv markiert und zurücksetzbar; Zurücknavigation stellt Fokus und Position wieder her.
+
 ## Technische Umsetzung in abgeschlossenen Schritten
 
 | Schritt | Arbeit | Fertig, wenn |
 | --- | --- | --- |
-| 1. Gemeinsame Kataloggrundlage | Composio-Katalogmetadaten und autorisierte Verbindungszustände als wiederverwendbare Dienste anbieten. Die vorhandene Gateway-Paginierung/Fehlerklassifizierung nutzen; persönliche und gemeinsame Instanzen erhalten getrennte exakte Referenzen. Eine authentifizierte Verwaltungsprojektion ergänzen, z. B. unter `/api/integrations/catalog`. | Ein Treffer außerhalb der ersten Upstream-Seite ist auffindbar; lokaler und Managed-Modus sind gleichwertig. Cursor, Suchbegriff und aktuelle Bereichs-/Profilrechte werden geprüft. Fehler/Teilabdeckung werden nicht als leerer vollständiger Katalog ausgegeben. Nur sichere DTOs verlassen den Server. |
-| 2. Plugin-Seite durchsuchen | Gemeinsames Suchfeld/Typfilter und Integrationslisten in die aktuelle `PluginWorkspace` einbinden. Paketkatalog und Integrationsprojektion getrennt laden, aber einheitlich darstellen. Pro Quellgruppe passende Pagination beibehalten. Navigation/Deep Links für Anbieter und konkrete Verbindungen erweitern. | Composio-App finden, verbundene Accounts erkennen und verfügbare Apps entdecken gelingt auf `/plugins`. Ein Quellenausfall löscht keine erfolgreichen anderen Ergebnisse. Workspace-/Profilwechsel können keine alten Zeilen nachliefern. |
+| 1. Gemeinsame Kataloggrundlage | Sichere gemeinsame DTOs definieren; Composio-Metadaten und autorisierte Verbindungszustände als wiederverwendbare Dienste anbieten. Die vorhandene Gateway-Paginierung/Fehlerklassifizierung nutzen; persönliche und gemeinsame Instanzen behalten exakte Referenzen. Den menschlich authentifizierten Such-Endpunkt über Paket-/Skill-/Integrations-/MCP-Quellen ergänzen. | Ein Suchbegriff liefert alle vier Typen ohne vorherigen Typfilter. Ein Treffer außerhalb der ersten Upstream-Seite ist auffindbar; lokaler und Managed-Modus sind gleichwertig. Cursor, Suchbegriff und aktuelle Bereichs-/Profilrechte werden geprüft. Fehler/Teilabdeckung werden nicht als leerer vollständiger Katalog ausgegeben. Nur sichere DTOs verlassen den Server. |
+| 2. Plugin-Seite durchsuchen | `PluginWorkspace`, `usePluginWorkspaceData` und die bestehenden Listen um die vier Typen und genau einen Such-/Filterzustand erweitern. Bestandsansichten zu Filtern dieser Suche machen; zusätzliche Filter erst aufklappen. URL, Deep Links, gemischte Pagination und Zurücknavigation gemeinsam verwalten. | „Canva“ kann gleichzeitig ein passendes Paket, einen Skill, eine Composio-App und einen bekannten MCP-Zugang liefern. Typ-/Bestandsfilter behalten den Suchbegriff. Ein Quellenausfall löscht keine erfolgreichen anderen Ergebnisse. Workspace-/Profilwechsel können keine alten Zeilen nachliefern. |
 | 3. Einzelne Komponenten einrichten | Kontextbezogene Composio- und persönliche/gemeinsame MCP-Formulare aus Settings/Plugins gemeinsam verwenden. Manuelle Composio-Slug-Eingabe durch Katalogauswahl ersetzen. Existierende OAuth-/Desktop-Rückwege auf die neue Eintragsauswahl erweitern. | Ohne Plugin lassen sich ein Skill, ein Composio-Angebot und ein eigener MCP-Server unabhängig hinzufügen. Auth-Abbruch, Profilmehrdeutigkeit, zentrale Secrets und fehlendes Manage-Recht sind nachvollziehbar; Rückkehr und Wiederaufnahme behalten die exakte Auswahl. |
 | 4. Paketablauf schließen | Die bisherigen Anforderungen mit aktuellen, passenden Integrationsoptionen verbinden. Geführte Einrichtung nach Installation und in bestehenden Paketdetails; optionalen Agent-Konfigurationsschritt anschließen. | Ein Plugin mit Skill plus Composio/MCP lässt sich als zusammenhängender Ablauf einrichten. Bereits vorhandene Verbindungen werden ausdrücklich wiederverwendet. Abbruch/Update/Entfernung erhalten unabhängige Integrationsinstanzen und bestehende Bindungen. |
 | 5. Oberfläche abnehmen und Übergang vollenden | Alte Settings-Einstiege über dieselben Komponenten/Dienste weiter bedienen. DE/EN, responsive Darstellung, Tastatur/Fokus, Loading/Empty/Error und sichere bereichsgebundene Aktionen prüfen. Web-/Mobile-Verträge der wiederverwendeten APIs erhalten. | Code/API-/Regressionstests und Produktionsbuild bestehen; anschließend eine ausdrücklich freigegebene Browserabnahme der tatsächlichen Bedienwege. Erst danach werden überflüssige Einstellungslisten entfernt oder weitergeleitet. |
@@ -111,7 +146,7 @@ Die Kataloggrundlage ist von der allgemeinen Aktivierung des Agent-Flags unabhä
 
 ## Konkrete Abnahmefälle
 
-1. Suche „Canva“ liefert passende echte Paketangebote, Composio-Toolkits und lesbare eigene/gemeinsame MCP-Verbindungen getrennt; ohne Treffer existiert kein erfundenes Paket.
+1. Eine einzige Suche „Canva“ liefert in einer gemeinsamen Liste passende echte Paket-/Skill-Angebote, Composio-Toolkits und lesbare eigene/gemeinsame MCP-Verbindungen mit Typkennzeichnung. Alle vier Typfilter sowie Bestand/Herkunft schränken dieselbe Suche ein; bei „Alle“ kehren ihre Treffer zurück. Ohne Treffer existiert kein erfundenes Paket.
 2. Ein Toolkit auf einer späteren Katalogseite wird gefunden; wiederholte/malformed Cursor und Teilausfall führen zu einem ausdrücklichen unvollständigen Ergebnis.
 3. Dieselbe App mit persönlichem und Team-Account behält beide Instanzen. Mehrere Accounts werden nicht über den Anzeigenamen zusammengelegt oder stillschweigend gewechselt.
 4. ACTIVE, abgelaufene Autorisierung, no-auth, gesperrte Apps und eine autorisierte, aktuell unerreichbare Verbindung bekommen korrekte unterschiedliche Aktionen.
