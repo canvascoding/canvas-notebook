@@ -25,7 +25,7 @@ export type NativeLinkReference =
 export type NativeLinkCoverageGap = {
   code: 'unknown-node' | 'unknown-mark' | 'unknown-attribute' | 'invalid-target' | 'unsupported-target'
     | 'invalid-frontmatter' | 'limit-exceeded' | 'unreadable-source' | 'uninitialized-source'
-    | 'identity-conflict' | 'uninspected-html';
+    | 'identity-conflict' | 'uninspected-html' | 'unsupported-source';
   path: string;
   nodeId?: string;
   attribute?: string;

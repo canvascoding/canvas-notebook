@@ -26,7 +26,8 @@ export async function buildWorkspaceNativeLinkSnapshot(
 ): Promise<NativeWorkspaceLinkSnapshot> {
   if (!workspace.permissions.canRead || workspace.status !== undefined && workspace.status !== 'active'
     || options.workspace?.workspaceId !== workspace.workspaceId) throw new Error('The native workspace snapshot scope is unavailable.');
-  const disk = await (dependencies.buildDiskSnapshot ?? buildWorkspacePlannerSnapshot)(workspace.workspaceId, options);
+  const readNamespace = () => (dependencies.buildDiskSnapshot ?? buildWorkspacePlannerSnapshot)(workspace.workspaceId, options, { readMarkdownContent: false });
+  const disk = await readNamespace();
   const namespace = new Map<string, NativeNamespaceEntry>(disk.entries.map((entry) => [entry.path, {
     workspaceId: workspace.workspaceId, path: entry.path, kind: entry.kind, identity: entry.identity,
     filesystemIdentity: entry.identity, documentId: null, lifecycleGeneration: null,
@@ -48,6 +49,7 @@ export async function buildWorkspaceNativeLinkSnapshot(
         documentId: registered.id, lifecycleGeneration: state?.lifecycleGeneration ?? null,
         identity: `document:${registered.id}:${state?.lifecycleGeneration ?? 'uninitialized'}`,
         filesystemIdentity: prior?.filesystemIdentity ?? null });
+      if (/\.mdx$/iu.test(registered.path)) { inspected.add(registered.path); gaps.push({ code: 'unsupported-source', path: registered.path }); continue; }
       if (!/\.(?:md|markdown)$/iu.test(registered.path)) continue;
       inspected.add(registered.path);
       if (!state) {
@@ -61,6 +63,9 @@ export async function buildWorkspaceNativeLinkSnapshot(
         documents.push(inventory); gaps.push(...inventory.coverage.gaps);
       } catch { gaps.push({ code: 'unreadable-source', path: registered.path }); }
     }
+    const afterDisk = await readNamespace();
+    const diskProof = (entries: typeof disk.entries) => nativeLinkJsonProof(entries.map(({ path, identity, kind }) => ({ path, identity, kind })).sort((a, b) => a.path.localeCompare(b.path)));
+    if (diskProof(disk.entries) !== diskProof(afterDisk.entries)) gaps.push({ code: 'identity-conflict', path: '' });
     await connection.run('COMMIT'); transaction = false;
   } catch {
     gaps.push({ code: 'identity-conflict', path: '' });
@@ -68,8 +73,8 @@ export async function buildWorkspaceNativeLinkSnapshot(
     try { if (transaction) await connection?.run('ROLLBACK'); }
     finally { await connection?.close(); }
   }
-  for (const entry of disk.entries) if (entry.kind === 'file' && /\.(?:md|markdown)$/iu.test(entry.path) && !inspected.has(entry.path)) {
-    gaps.push({ code: entry.omissionReason ? 'unreadable-source' : 'uninitialized-source', path: entry.path });
+  for (const entry of disk.entries) if (entry.kind === 'file' && /\.(?:md|markdown|mdx)$/iu.test(entry.path) && !inspected.has(entry.path)) {
+    gaps.push({ code: /\.mdx$/iu.test(entry.path) ? 'unsupported-source' : entry.omissionReason ? 'unreadable-source' : 'uninitialized-source', path: entry.path });
   }
   const entries = [...namespace.values()].sort((a, b) => a.path.localeCompare(b.path));
   documents.sort((a, b) => a.document.path.localeCompare(b.document.path));

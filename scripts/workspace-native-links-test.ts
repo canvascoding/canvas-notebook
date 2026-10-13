@@ -121,6 +121,20 @@ test('unknown raw attributes and mark attributes make coverage incomplete even w
   } finally { doc.destroy(); }
 });
 
+test('legacy XML atoms expose unsupported mark carriers as a coverage gap instead of dropping them', () => {
+  const doc = createRichMarkdownYDoc('[[Target]]', 'tiptap_xml');
+  try {
+    const paragraph = doc.getXmlFragment('body').toArray()[0] as Y.XmlElement;
+    const atom = paragraph.toArray().find((child) => child instanceof Y.XmlElement && child.nodeName === 'obsidianWikiLink') as Y.XmlElement;
+    assert(atom); atom.setAttribute('link', { href: 'other.md' } as unknown as string);
+    const parsed = inspectPersistedDocumentLinks(stateFor(doc, 'note.md', 'tiptap_xml'));
+    assert.equal(parsed.coverage.complete, false);
+    assert(parsed.coverage.gaps.some((gap) => gap.attribute === 'obsidianWikiLink.link'));
+    assert.equal(parsed.links.filter((link) => link.targetPathText === 'Target').length, 1);
+    assert.equal(parsed.links.filter((link) => link.targetPathText === 'other.md').length, 0);
+  } finally { doc.destroy(); }
+});
+
 test('native graph uses frontmatter aliases and registry-only targets without requiring projection bytes', () => {
   const snap = snapshot([inventory('[[Shared]]', 'note.md'), inventory('---\naliases: [Shared]\ntitle: Visible\n---\n\n# Native', 'folder/target.md')]);
   const graph = buildWorkspaceNativeLinkGraph(snap);
@@ -242,7 +256,10 @@ test('snapshot unions zero-byte/missing disk and registry namespace without read
     const calls: string[] = [];
     const connection = { run: async (sql: string) => { calls.push(sql); }, close: async () => { calls.push('close'); } } as unknown as SqlConnection;
     const snap = await buildWorkspaceNativeLinkSnapshot(workspace, { workspace }, {
-      buildDiskSnapshot: async () => ({ workspaceId: workspace.workspaceId, entries: [{ path: 'note.md', kind: 'file', identity: 'zero-projection', markdownContent: '' }] }),
+      buildDiskSnapshot: async (_workspaceId, _options, inspection) => {
+        assert.equal(inspection?.readMarkdownContent, false);
+        return { workspaceId: workspace.workspaceId, entries: [{ path: 'note.md', kind: 'file', identity: 'zero-projection', markdownContent: '' }] };
+      },
       openConnection: async () => connection, readCatalogue: async () => states.map(catalogue),
       loadState: async (_connection, documentId) => states.find((state) => state.documentId === documentId) ?? null,
     });
@@ -264,4 +281,19 @@ test('unregistered Markdown and catalogue failure stay incomplete, independently
     assert.equal(snap.coverage.complete, false); assert(snap.coverage.gaps.some((gap) => gap.code === 'uninitialized-source'));
     assert.equal(snap.documents.length, 0);
   }
+});
+
+test('MDX is explicitly uninspected and disk namespace drift invalidates the database snapshot', async () => {
+  const connection = { run: async () => undefined, close: async () => undefined } as unknown as SqlConnection;
+  const mdx = await buildWorkspaceNativeLinkSnapshot(workspace, { workspace }, {
+    buildDiskSnapshot: async () => ({ workspaceId: workspace.workspaceId, entries: [{ path: 'note.mdx', kind: 'file', identity: 'disk' }] }),
+    openConnection: async () => connection, readCatalogue: async () => [],
+  });
+  assert.equal(mdx.coverage.complete, false); assert(mdx.coverage.gaps.some((gap) => gap.code === 'unsupported-source'));
+  let reads = 0;
+  const drifted = await buildWorkspaceNativeLinkSnapshot(workspace, { workspace }, {
+    buildDiskSnapshot: async () => ({ workspaceId: workspace.workspaceId, entries: [{ path: 'image.png', kind: 'file', identity: String(reads++) }] }),
+    openConnection: async () => connection, readCatalogue: async () => [],
+  });
+  assert.equal(reads, 2); assert.equal(drifted.coverage.complete, false); assert(drifted.coverage.gaps.some((gap) => gap.code === 'identity-conflict'));
 });

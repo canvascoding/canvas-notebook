@@ -60,6 +60,7 @@ export function createWorkspaceNativeFileOperationPlan(request: NativeWorkspaceF
       if (!canonicalPath(entry.path) || paths.has(entry.path) || identities.has(entry.identity)
         || entry.workspaceId !== snapshot.workspaceId) issue('identity-conflict', snapshot.workspaceId, entry.path);
       paths.add(entry.path); identities.add(entry.identity);
+      if (entry.kind === 'file' && /\.mdx$/iu.test(entry.path)) issue('unsupported-source', snapshot.workspaceId, entry.path);
       if (entry.kind === 'file' && /\.(?:md|markdown)$/iu.test(entry.path)
         && !snapshot.documents.some((inventory) => inventory.document.path === entry.path)) issue('uninspected-source', snapshot.workspaceId, entry.path);
     }
