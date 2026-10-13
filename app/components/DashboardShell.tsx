@@ -1678,117 +1678,9 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
             || (activeWorkspaceId && documentTabsHydratedFor !== activeWorkspaceId)
             || !workspaceScopedNavigationMatches(routeWorkspaceId, activeWorkspaceId) ? (
             <NotebookLoadingSkeleton document={Boolean(routeFilePath) && !shouldForceChatOpen} />
-          ) : layout.isMobile ? (
-            <main className="relative min-h-0 flex-1 overflow-hidden">
-              <SurfaceLayer
-                active={state.mainSurface === 'document'}
-                labelledBy={activeDocumentTabId}
-                testId="notebook-mobile-document"
-              >
-                {documentContent}
-              </SurfaceLayer>
-              <SurfaceLayer
-                active={state.mainSurface === 'email'}
-                labelledBy="notebook-surface-email-tab"
-                testId="notebook-mobile-email"
-              >
-                {emailContext ? (
-                  <div className="flex h-full min-h-0 flex-col">
-                    <EmailContextHeader intent={emailContext} />
-                    <div className="min-h-0 flex-1">
-                      <EmailClient contextIntent={emailContext} embedded />
-                    </div>
-                  </div>
-                ) : null}
-              </SurfaceLayer>
-              <SurfaceLayer
-                active={state.mainSurface === 'browser'}
-                labelledBy="notebook-surface-browser-tab"
-                testId="notebook-mobile-browser"
-              >
-                {browserContext ? (
-                  <div className="flex h-full min-h-0 flex-col">
-                    <BrowserContextHeader
-                      activityControlsId="browser-agent-activity-panel"
-                      activityVisible={browserActivityVisible}
-                      context={browserContext}
-                      onToggleActivity={toggleBrowserActivity}
-                    />
-                    <div className="min-h-0 flex-1">
-                      <BrowserLabClient
-                        key={`${browserContext.agentId}:${browserContext.sessionId}`}
-                        autoConnectKey={browserContext.sessionId}
-                        enabled={state.mainSurface === 'browser'}
-                        locale={locale}
-                        presentation="embedded"
-                        variant="live"
-                        agentId={browserContext.agentId}
-                        sessionId={browserContext.sessionId}
-                      />
-                    </div>
-                  </div>
-                ) : null}
-              </SurfaceLayer>
-              <SurfaceLayer
-                active={state.mainSurface === 'chat' || browserActivityUsesSheet}
-                labelledBy="notebook-chat-button"
-                testId="notebook-mobile-chat"
-                role="region"
-              >
-                <div
-                  id="browser-agent-activity-panel"
-                  data-testid={browserActivityUsesSheet
-                    ? 'browser-agent-activity-sheet'
-                    : undefined}
-                  role={browserActivityUsesSheet ? 'dialog' : undefined}
-                  aria-modal={browserActivityUsesSheet || undefined}
-                  aria-label={browserActivityUsesSheet
-                    ? tNotebook('agentActivity')
-                    : undefined}
-                  className="flex h-full min-h-0 flex-col"
-                >
-                  {browserActivityUsesSheet ? (
-                    <BrowserActivityPanelHeader onClose={() => setBrowserActivityOpen(false)} />
-                  ) : null}
-                  <div className="min-h-0 flex-1">
-                    {chatContent}
-                  </div>
-                </div>
-              </SurfaceLayer>
-
-              <Sheet open={mobileExplorerOpen} onOpenChange={setMobileExplorerOpen}>
-                <SheetContent
-                  side="left"
-                  showCloseButton={false}
-                  className="w-full max-w-none gap-0 border-r p-0 sm:max-w-none"
-                >
-                  <SheetHeader className="border-b border-border bg-background/95 px-4 py-3 text-left">
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="min-w-0">
-                        <SheetTitle className="text-base">{tCommon('explorer')}</SheetTitle>
-                        <SheetDescription className="truncate text-xs">{currentDirectoryLabel}</SheetDescription>
-                      </div>
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        onClick={() => setMobileExplorerOpen(false)}
-                        aria-label={tNav('closeExplorer')}
-                      >
-                        <X className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </SheetHeader>
-                  <div className="min-h-0 flex-1">
-                    <SidebarProvider className="h-full min-h-0">
-                      <FileBrowser variant="mobile-sheet" onFileSelect={handleFileSelected} />
-                    </SidebarProvider>
-                  </div>
-                </SheetContent>
-              </Sheet>
-            </main>
           ) : (
-            <main className="flex min-h-0 flex-1 overflow-hidden">
-              {state.explorerOpen ? (
+            <main className="relative flex min-h-0 flex-1 overflow-hidden">
+              {!layout.isMobile && state.explorerOpen ? (
                 <div
                   ref={desktopExplorerRef}
                   hidden={documentFocus}
@@ -1803,7 +1695,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
                   </SidebarProvider>
                 </div>
               ) : null}
-              {explorerVisible ? (
+              {!layout.isMobile && explorerVisible ? (
                 <ResizeHandle
                   data-testid="notebook-explorer-resize-handle"
                   orientation="vertical"
@@ -1831,7 +1723,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
                     sidebar={<div />}
                     sidebarHidden
                     terminalVisible={terminalEnabled && state.terminalOpen}
-                    terminalHidden={documentFocus}
+                    terminalHidden={documentFocus || layout.isMobile}
                     sidebarResizeLabel={tNotebook('resizeFileTree')}
                     terminalResizeLabel={tNotebook('resizeTerminal')}
                     main={
@@ -1842,14 +1734,14 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
                         <SurfaceLayer
                           active={state.mainSurface === 'document'}
                           labelledBy={activeDocumentTabId}
-                          testId="notebook-desktop-document"
+                          testId={surfacePanelIds.document}
                         >
                           {documentContent}
                         </SurfaceLayer>
                         <SurfaceLayer
                           active={state.mainSurface === 'email'}
                           labelledBy="notebook-surface-email-tab"
-                          testId="notebook-desktop-email"
+                          testId={surfacePanelIds.email}
                         >
                           {emailContext ? (
                             <div className="flex h-full min-h-0 flex-col">
@@ -1863,7 +1755,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
                         <SurfaceLayer
                           active={state.mainSurface === 'browser'}
                           labelledBy="notebook-surface-browser-tab"
-                          testId="notebook-desktop-browser"
+                          testId={surfacePanelIds.browser}
                         >
                           {browserContext ? (
                             <div className="flex h-full min-h-0 flex-col">
@@ -1910,8 +1802,8 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
 
                 <div
                   ref={desktopChatRef}
-                  id="onboarding-notebook-chat"
-                  data-testid="notebook-desktop-chat"
+                  id={surfacePanelIds.chat}
+                  data-testid={layout.isMobile ? 'notebook-mobile-chat' : 'notebook-desktop-chat'}
                   data-chat-placement={state.mainSurface === 'chat'
                     ? 'main'
                     : state.chatDocked
@@ -1946,7 +1838,9 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
                       : state.chatDocked
                         ? 'w-[var(--notebook-chat-width)] shrink-0 border-l border-border'
                         : browserActivityUsesSheet
-                          ? 'absolute inset-y-0 right-0 z-40 w-full max-w-[30rem] border-l border-border shadow-2xl'
+                          ? layout.isMobile
+                            ? 'absolute inset-0 z-40 w-full'
+                            : 'absolute inset-y-0 right-0 z-40 w-full max-w-[30rem] border-l border-border shadow-2xl'
                           : 'hidden',
                     documentFocus && 'hidden',
                   )}
@@ -1967,6 +1861,36 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
                   </div>
                 </div>
               </div>
+
+              <Sheet open={layout.isMobile && mobileExplorerOpen} onOpenChange={setMobileExplorerOpen}>
+                <SheetContent
+                  side="left"
+                  showCloseButton={false}
+                  className="w-full max-w-none gap-0 border-r p-0 sm:max-w-none"
+                >
+                  <SheetHeader className="border-b border-border bg-background/95 px-4 py-3 text-left">
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="min-w-0">
+                        <SheetTitle className="text-base">{tCommon('explorer')}</SheetTitle>
+                        <SheetDescription className="truncate text-xs">{currentDirectoryLabel}</SheetDescription>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        onClick={() => setMobileExplorerOpen(false)}
+                        aria-label={tNav('closeExplorer')}
+                      >
+                        <X className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </SheetHeader>
+                  <div className="min-h-0 flex-1">
+                    <SidebarProvider className="h-full min-h-0">
+                      <FileBrowser variant="mobile-sheet" onFileSelect={handleFileSelected} />
+                    </SidebarProvider>
+                  </div>
+                </SheetContent>
+              </Sheet>
             </main>
           )}
 
