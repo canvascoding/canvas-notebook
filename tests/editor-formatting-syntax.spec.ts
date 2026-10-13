@@ -11,6 +11,7 @@ import { COLLABORATION_CHECKPOINT_ERROR_CODES } from '../app/lib/collaboration/c
 import { equivalentRichDocument } from '../app/lib/markdown/core/equivalence';
 import { analyzeMarkdownRichMode, createRichMarkdownManager, richMarkdownCodecExtensions } from '../app/lib/markdown/rich-markdown-codec';
 import { ownedCollaborationQaEnabled, requireOwnedCollaborationQaTarget } from '../scripts/lib/owned-collaboration-qa';
+import { requireOwnedYjsQaTarget } from '../scripts/lib/owned-yjs-authority-qa';
 import { authenticateManagedTestPage } from './helpers/managed-test-context';
 import { aggregateOwnedNativeErrors, runOwnedNativeCommand } from './helpers/owned-native-command';
 
@@ -160,7 +161,8 @@ async function remove(page: Page, workspace: Workspace | undefined, filePath: st
 test.describe('formatting preserves Markdown meaning', () => {
   test.skip(process.env.COLLABORATION_E2E !== '1', 'Requires the explicitly authorized managed local stack.');
   test.beforeEach(async () => {
-    if (ownedCollaborationQaEnabled()) await requireOwnedCollaborationQaTarget();
+    if (process.env.CANVAS_YJS_AUTHORITY_E2E === '1') await requireOwnedYjsQaTarget();
+    else if (ownedCollaborationQaEnabled()) await requireOwnedCollaborationQaTarget();
     else expect(new URL(BASE_URL).origin).toBe('http://127.0.0.1:3100');
   });
   test.setTimeout(180_000);
