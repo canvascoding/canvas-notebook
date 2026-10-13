@@ -135,8 +135,8 @@ export function extractWorkspaceMarkdownHeadings(markdown: string): WorkspaceLin
   return headings;
 }
 
-function resolveWorkspaceWikiFileLink(
-  link: ParsedWorkspaceLocalLink,
+export function resolveWorkspaceWikiFileLink(
+  link: Pick<ParsedWorkspaceLocalLink, 'targetLiteral' | 'targetPathText'>,
   sourcePath: string,
   paths: ReadonlySet<string>,
   markdownCandidates: ObsidianLinkCandidate[],

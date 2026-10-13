@@ -1,0 +1,90 @@
+import 'server-only';
+
+import type { SqlConnection } from '../db';
+import type { WorkspaceContext } from '../workspaces/types';
+
+export type WorkspaceDocumentCatalogueEntry = {
+  id: string;
+  lineage_id: string | null;
+  path: string;
+  workspace_id: string;
+  organization_id: string | null;
+  status: 'active';
+  state_version: number;
+  has_persisted_state: boolean;
+  has_state_history: boolean;
+  lifecycle_generation: number | null;
+  authority: 'initialized' | 'pristine' | 'missing-state';
+  state_status: string | null;
+  state_path: string | null;
+  state_workspace_id: string | null;
+  state_organization_id: string | null;
+};
+
+export class WorkspaceDocumentCatalogueError extends Error {
+  constructor(readonly code: 'identity-conflict' | 'orphan-state', readonly documentId: string, readonly path: string) {
+    super(`The workspace document catalogue is unsafe: ${code}.`);
+    this.name = 'WorkspaceDocumentCatalogueError';
+  }
+}
+
+/** The caller owns the read transaction and any lifecycle/admission fence.
+ * Enumerates the durable registry, including documents without a disk projection. */
+export async function readWorkspaceDocumentCatalogue(
+  connection: SqlConnection,
+  workspace: WorkspaceContext,
+  options: { paths?: readonly string[] } = {},
+): Promise<WorkspaceDocumentCatalogueEntry[]> {
+  if (!workspace.permissions.canRead || workspace.status !== undefined && workspace.status !== 'active') {
+    throw Object.assign(new Error('The workspace document catalogue is unavailable.'), { status: 403 });
+  }
+  const pathsInScope = options.paths?.map((scope) => scope === '.' ? '' : scope) ?? [''];
+  if (!pathsInScope.length) return [];
+  if (pathsInScope.some((scope) => scope.startsWith('/') || scope.includes('\\') || scope.includes('\0')
+    || scope !== '' && scope.split('/').some((part) => !part || part === '.' || part === '..'))) {
+    throw new Error('Document catalogue scopes must be canonical workspace paths.');
+  }
+  const orphan = await connection.get(`SELECT s.document_id,s.path FROM collaboration_yjs_states s
+    LEFT JOIN collaboration_documents d ON d.id=s.document_id
+    WHERE s.workspace_id=$1 AND s.status='active'
+      AND EXISTS(SELECT 1 FROM unnest($2::text[]) p(scope) WHERE p.scope='' OR s.path=p.scope OR left(s.path,length(p.scope)+1)=p.scope||'/')
+      AND (d.id IS NULL OR d.status<>'active' OR d.provider<>'yjs' OR d.workspace_id<>s.workspace_id
+        OR d.path<>s.path OR d.organization_id IS DISTINCT FROM s.organization_id)
+    LIMIT 1`, [workspace.workspaceId, pathsInScope]) as { document_id: string; path: string } | undefined;
+  if (orphan) throw new WorkspaceDocumentCatalogueError('orphan-state', orphan.document_id, orphan.path);
+  const documents = await connection.all(`SELECT d.id,d.lineage_id,d.path,d.workspace_id,d.organization_id,d.status,d.state_version,
+    s.lifecycle_generation,s.status AS state_status,s.path AS state_path,
+    s.workspace_id AS state_workspace_id,s.organization_id AS state_organization_id,
+    EXISTS(SELECT 1 FROM collaboration_yjs_states s WHERE s.document_id=d.id) AS has_persisted_state,
+    (EXISTS(SELECT 1 FROM collaboration_yjs_state_backups b WHERE b.document_id=d.id)
+      OR EXISTS(SELECT 1 FROM collaboration_agent_operations a WHERE a.document_id=d.id)) AS has_state_history
+    FROM collaboration_documents d LEFT JOIN collaboration_yjs_states s ON s.document_id=d.id
+    WHERE d.workspace_id=$1 AND d.provider='yjs' AND d.status='active'
+      AND EXISTS(SELECT 1 FROM unnest($2::text[]) p(scope) WHERE p.scope='' OR d.path=p.scope OR left(d.path,length(p.scope)+1)=p.scope||'/')
+    ORDER BY d.path,d.id`, [workspace.workspaceId, pathsInScope]) as WorkspaceDocumentCatalogueEntry[];
+  const paths = new Set<string>();
+  const ids = new Set<string>();
+  for (const document of documents) {
+    if (!document.id || !document.path || document.path.startsWith('/') || document.path.includes('\\') || document.path.includes('\0')
+      || document.path.split('/').some((part) => !part || part === '.' || part === '..')
+      || document.workspace_id !== workspace.workspaceId || document.organization_id !== (workspace.organizationId ?? null)
+      || document.status !== 'active' || paths.has(document.path) || ids.has(document.id)
+      || document.has_persisted_state && (document.state_status !== 'active' || document.state_path !== document.path
+        || document.state_workspace_id !== workspace.workspaceId || document.state_organization_id !== (workspace.organizationId ?? null)
+        || !Number.isSafeInteger(document.lifecycle_generation) || Number(document.lifecycle_generation) < 1)) {
+      throw new WorkspaceDocumentCatalogueError('identity-conflict', document.id, document.path);
+    }
+    document.authority = document.has_persisted_state ? 'initialized'
+      : document.state_version === 0 && !document.has_state_history ? 'pristine' : 'missing-state';
+    paths.add(document.path); ids.add(document.id);
+  }
+  return documents;
+}
+
+export function workspaceDocumentCatalogueInPathScope(
+  documents: readonly WorkspaceDocumentCatalogueEntry[],
+  paths: readonly string[],
+): WorkspaceDocumentCatalogueEntry[] {
+  return documents.filter((document) => paths.some((scope) => scope === '' || scope === '.'
+    || document.path === scope || document.path.startsWith(`${scope}/`)));
+}
