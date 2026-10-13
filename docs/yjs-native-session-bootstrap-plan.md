@@ -43,6 +43,12 @@ Im selben tatsächlichen Lifecycle-/Admission-Mutationsfence Marker/Historie/Ide
 
 Konkurrierende Initialisierung übernimmt nur den nachgewiesenen Gewinner und überschreibt ihn nie. Historisch initialisiert/verloren, `legacy_unknown`, Peer-Inhalt und unbekannter COMMIT erlauben keinen leeren Seed oder Rohdatei-Overwrite. Receipt-/Recovery- und Publication-Vertrag vor Aktivierung ausdrücklich schließen.
 
+### 3.1 Nachtrag: tatsächliche Requestrechte und Transaktionsvertrag
+
+Die auf `3a64e737d` integrierte [Request-Principal-Grundlage](../app/lib/workspaces/request-principal.ts) bindet tatsächliche Cookie-/Bearer-Sitzungen und aktuelle Rechte auf derselben RC/RW-Verbindung. Ihre echten Auth-/Predicate-Rowlocks brauchen diesen Transaktionsmodus. Der bestehende [native Session-Reader](../app/lib/collaboration/native-session-state-reader.ts) verlangt dagegen ausdrücklich RC READ ONLY; beide APIs können daher nicht direkt ineinander geschachtelt werden.
+
+Vor Sessionaktivierung braucht derselbe private native Readerkern einen gesonderten authentisierten Eingang: ausschließlich eine von der echten Request-Factory erzeugte Principal-Capability, dieselbe RC/RW-Verbindung und frische Principalprüfung vor beziehungsweise nach den nativen Reads. Ein öffentlicher boolescher RW-/Auth-Bypass ist ausgeschlossen. Die ursprüngliche reine Read-only-API und ihre vorhandenen Negativtests bleiben erhalten. Native Identität, Shared-Admission, Raw-Schema, Quarantäne und Größenprüfung gelten auch im authentisierten Zweig; er besitzt weder Seed-, Mutations-, COMMIT- noch Room-/Ticketautorität. Eine echte Cookie-/Bearer-/PG-Matrix muss Rechte-/Sessionentzug, falsche Connection/TX, abgefangene Fehler und den fortbestehenden normalen Peer-Store belegen. Diese Readernaht ist noch nicht umgesetzt. Der separate Original-Bootstrap benötigt seine eigene exklusive A-Lease und verwendet diesen Shared-Reader nicht innerhalb der Erstinitialisierung.
+
 ## 4. Enge spätere Session-/Auth-Aktivierung
 
 1. Native existing-only Zweig vor `getFileCollaborationState(ensureDocument:true)` und Diskread wählen. Existing Rich besitzt seine Darstellung; Block-Client und explizite Mismatches weiter prüfen.
