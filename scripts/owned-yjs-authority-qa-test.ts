@@ -60,12 +60,36 @@ async function main() {
     execFileSync('git', ['-c', 'user.name=Guard fixture', '-c', 'user.email=guard@example.test', 'commit', '-qm', 'Synthetic build fixture'], { cwd: repo });
     await fs.mkdir(path.join(repo, '.next')); await fs.writeFile(path.join(repo, '.next/BUILD_ID'), 'synthetic-build');
     await fs.writeFile(path.join(repo, '.next/runtime.js'), 'compiled fixture');
+    const dependency = path.join(repo, 'node_modules/guard-package');
+    await fs.mkdir(dependency, { recursive: true });
+    await fs.writeFile(path.join(dependency, 'package.json'), JSON.stringify({ name: 'guard-package' }));
+    await fs.writeFile(path.join(dependency, 'index.cjs'), 'physical dependency fixture');
+    await fs.writeFile(path.join(dependency, 'runtime.node'), 'physical binary fixture');
+    await fs.writeFile(path.join(repo, '.next/runtime.mjs'), 'compiled module fixture');
+    await fs.mkdir(path.join(repo, '.next/node_modules'));
+    const alias = path.join(repo, '.next/node_modules/guard-package-0123456789abcdef');
+    await fs.symlink(path.relative(path.dirname(alias), dependency), alias);
     const source = await sourceFingerprint(repo), built = await buildFingerprint(repo);
     await writePrivateJson(path.join(repo, '.next', buildProofName), { version: 1, repo, head: source.head, sourceFingerprint: source.fingerprint,
       buildId: built.buildId, buildFingerprint: built.fingerprint, createdAt: new Date().toISOString() }, true);
     await assertBuildProof(repo);
     await fs.writeFile(path.join(repo, '.next/runtime.js'), 'stale compiled fixture'); await assert.rejects(assertBuildProof(repo));
     await fs.writeFile(path.join(repo, '.next/runtime.js'), 'compiled fixture');
+    for (const [filename, original] of [[path.join(repo, '.next/runtime.mjs'), 'compiled module fixture'],
+      [path.join(dependency, 'index.cjs'), 'physical dependency fixture'], [path.join(dependency, 'runtime.node'), 'physical binary fixture']]) {
+      await fs.writeFile(filename, 'changed executable bytes'); await assert.rejects(assertBuildProof(repo));
+      await fs.writeFile(filename, original); await assertBuildProof(repo);
+    }
+    await fs.unlink(alias); await fs.symlink(path.relative(path.dirname(alias), root), alias);
+    await assert.rejects(buildFingerprint(repo)); await fs.unlink(alias);
+    await fs.symlink(path.relative(path.dirname(alias), dependency), alias);
+    const unexpected = path.join(repo, '.next/unexpected-link'); await fs.symlink(dependency, unexpected);
+    await assert.rejects(buildFingerprint(repo)); await fs.unlink(unexpected);
+    const moved = `${dependency}-physical`; await fs.rename(dependency, moved); await fs.symlink(moved, dependency);
+    await assert.rejects(buildFingerprint(repo)); await fs.unlink(dependency); await fs.rename(moved, dependency);
+    const internal = path.join(dependency, 'internal-link'); await fs.symlink('index.cjs', internal);
+    await assert.rejects(buildFingerprint(repo)); await fs.unlink(internal);
+    await assertBuildProof(repo);
     await fs.writeFile(path.join(repo, 'app/page.tsx'), 'changed source'); await assert.rejects(assertBuildProof(repo));
     const processLog = path.join(root, 'owned-process.log');
     const held = await child(repo, process.execPath, ['-e', 'process.stdout.write(process.env.GUARD_TOKEN + "\\n"); setInterval(() => {}, 1000);'],

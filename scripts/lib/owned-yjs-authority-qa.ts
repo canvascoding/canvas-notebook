@@ -112,15 +112,32 @@ export async function buildFingerprint(repo: string): Promise<{ buildId: string;
   const stat = await fs.lstat(root); assert(stat.isDirectory() && !stat.isSymbolicLink());
   const buildId = (await fs.readFile(path.join(root, 'BUILD_ID'), 'utf8')).trim(); assert(buildId && buildId.length < 256);
   let visited = 0;
-  const visit = async (directory: string): Promise<void> => {
+  const visit = async (directory: string, logical = '', linkedPackage = false): Promise<void> => {
     for (const name of (await fs.readdir(directory)).sort()) {
-      const file = path.join(directory, name), relative = path.relative(root, file);
-      if (relative === 'cache' || relative.startsWith(`cache${path.sep}`) || name === buildProofName || name === `${buildProofName}.writing`
-        || /^trace(?:-|$)/u.test(name)) continue;
+      const file = path.join(directory, name), relative = path.posix.join(logical, name);
+      if (!linkedPackage && (relative === 'cache' || relative.startsWith('cache/') || name === buildProofName || name === `${buildProofName}.writing`
+        || /^trace(?:-|$)/u.test(name))) continue;
       assert(++visited < 100_000);
-      const current = await fs.lstat(file); assert(!current.isSymbolicLink());
-      if (current.isDirectory()) await visit(file);
-      else if (/\.(?:js|json|map|wasm)$/u.test(name) || relative === 'BUILD_ID') {
+      const current = await fs.lstat(file);
+      if (current.isSymbolicLink()) {
+        // Turbopack external packages use these exact aliases. Bind both their
+        // canonical link text and all target bytes; never skip or follow arbitrary links.
+        const alias = !linkedPackage && relative.match(/^node_modules\/((?:@[a-z0-9._-]+\/)?[a-z0-9._-]+)-[a-f0-9]{16}$/u);
+        assert(alias, 'Unexpected compiled artifact symlink.');
+        const dependencies = path.join(repo, 'node_modules'), target = path.join(dependencies, alias[1]);
+        const dependencyStat = await fs.lstat(dependencies), targetStat = await fs.lstat(target);
+        assert(dependencyStat.isDirectory() && !dependencyStat.isSymbolicLink());
+        assert(targetStat.isDirectory() && !targetStat.isSymbolicLink());
+        assert.equal(await fs.realpath(dependencies), dependencies); assert.equal(await fs.realpath(target), target);
+        const link = await fs.readlink(file);
+        assert.equal(link, path.relative(path.dirname(file), target));
+        const manifest = path.join(target, 'package.json'), manifestStat = await fs.lstat(manifest);
+        assert(manifestStat.isFile() && !manifestStat.isSymbolicLink());
+        assert.equal(JSON.parse(await fs.readFile(manifest, 'utf8')).name, alias[1]);
+        digest.update('link\0').update(relative).update('\0').update(link).update('\0').update(alias[1]).update('\0');
+        await visit(target, relative, true);
+      } else if (current.isDirectory()) await visit(file, relative, linkedPackage);
+      else if (linkedPackage || /\.(?:[cm]?js|json|map|wasm|node)$/u.test(name) || relative === 'BUILD_ID') {
         assert(current.isFile()); digest.update(relative).update('\0').update(await fs.readFile(file)).update('\0');
       }
     }
