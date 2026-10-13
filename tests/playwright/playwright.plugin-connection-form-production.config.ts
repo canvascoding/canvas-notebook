@@ -11,7 +11,7 @@ if (!['localhost', '127.0.0.1', '[::1]'].includes(target.hostname) || target.por
 }
 
 export default defineConfig({
-  testDir: 'tests', testMatch: 'plugin-connection-form-navigation-local.spec.ts',
+  testDir: '..', testMatch: 'plugin-connection-form-navigation-local.spec.ts',
   outputDir: '/tmp/canvas-plugin-connection-form-browser/results', workers: 1, fullyParallel: false, retries: 0, timeout: 180_000,
   expect: { timeout: 45_000 }, reporter: [['list']],
   use: { baseURL: target.origin, browserName: 'chromium', headless: true, viewport: { width: 1280, height: 900 },

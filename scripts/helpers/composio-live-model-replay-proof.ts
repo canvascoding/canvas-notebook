@@ -293,7 +293,7 @@ export async function assertLiveComposioModelAudit(input: AuditInput): Promise<{
     assert(Object.keys(receipt.sourceHashes).length === 4);
     for (const [relative, digest] of Object.entries(receipt.sourceHashes)) {
       assert(['tests/composio-live-model.spec.ts','tests/helpers/composio-live-model-fixture.ts',
-        'tests/helpers/natural-workflow-model-setup.ts','playwright.composio-live-model-production.config.ts'].includes(relative) && SHA.test(digest));
+        'tests/helpers/natural-workflow-model-setup.ts','tests/playwright/playwright.composio-live-model-production.config.ts'].includes(relative) && SHA.test(digest));
       assert.equal(hash(await readOwnedBytes(path.resolve(relative), 2 * 1024 * 1024)), digest);
     }
     assert(receipt.model.providerId === 'ollama' && receipt.model.modelId === 'kimi-k2.6:cloud' && receipt.model.thinkingLevel === 'off'

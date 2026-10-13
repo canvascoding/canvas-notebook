@@ -9,7 +9,7 @@ if (process.env.CANVAS_COMPOSIO_LIVE_BROWSER_RUN !== '1' || process.env.BASE_URL
   || process.env.TMPDIR !== path.join(path.dirname(fixture), 'tmp') || process.env.COMPOSIO_BASE_URL) {
   throw new Error('Live Composio requires the separate owned production fixture.');
 }
-export default defineConfig({ testDir: 'tests', testMatch: 'composio-live.spec.ts', workers: 1,
+export default defineConfig({ testDir: '..', testMatch: 'composio-live.spec.ts', workers: 1,
   fullyParallel: false, retries: 0, timeout: 20 * 60_000, expect: { timeout: 30_000 },
   outputDir: path.join(path.dirname(fixture), 'results'), reporter: [['list']],
   use: { baseURL: process.env.BASE_URL, browserName: 'chromium', headless: true,

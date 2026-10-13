@@ -325,7 +325,7 @@ async function runComposioLiveModelAcceptance(browser: Browser): Promise<void> {
   await fs.writeFile(receiptPath, JSON.stringify(receipt), { flag: 'wx', mode: 0o600 });
   await fs.mkdir(path.join(input.root, 'live-composio-model-evidence'), { mode: 0o700 });
   for (const relative of ['tests/composio-live-model.spec.ts', 'tests/helpers/composio-live-model-fixture.ts',
-    'tests/helpers/natural-workflow-model-setup.ts', 'playwright.composio-live-model-production.config.ts']) {
+    'tests/helpers/natural-workflow-model-setup.ts', 'tests/playwright/playwright.composio-live-model-production.config.ts']) {
     receipt.sourceHashes[relative] = liveModelHash(await fs.readFile(path.resolve(relative)));
   }
   await persistLiveModelReceipt();

@@ -12,7 +12,7 @@ if (!['localhost', '127.0.0.1', '[::1]'].includes(target.hostname) || target.por
   throw new Error('Planning acceptance only supports the explicitly managed loopback Notebook host on port 3001.');
 }
 export default defineConfig({
-  testDir: 'tests', testMatch: 'planning-progressive-runtime-local.spec.ts',
+  testDir: '..', testMatch: 'planning-progressive-runtime-local.spec.ts',
   outputDir: '/tmp/canvas-planning-progressive-browser/results', workers: 1, fullyParallel: false, retries: 0, timeout: 480_000,
   expect: { timeout: 45_000 }, reporter: [['list']],
   use: { baseURL: target.origin, browserName: 'chromium', headless: true, viewport: { width: 1280, height: 900 },

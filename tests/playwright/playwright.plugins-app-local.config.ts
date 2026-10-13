@@ -14,7 +14,7 @@ loadEnv({ path: path.join(stateDirectory, 'fixtures.env'), quiet: true });
 process.env.BASE_URL = target.origin;
 
 export default defineConfig({
-  testDir: 'tests',
+  testDir: '..',
   testMatch: 'plugins-app-local.spec.ts',
   outputDir: path.join(os.tmpdir(), 'canvas-plugins-app-e2e'),
   workers: 1,

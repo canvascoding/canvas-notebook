@@ -12,7 +12,7 @@ if (!['127.0.0.1', 'localhost', '[::1]'].includes(target.hostname) || target.por
 }
 
 export default defineConfig({
-  testDir: 'tests', testMatch: 'plugin-workspace-local.spec.ts',
+  testDir: '..', testMatch: 'plugin-workspace-local.spec.ts',
   outputDir: '/tmp/canvas-plugin-ui-6ac2-browser/results',
   workers: 1, fullyParallel: false, retries: 0, timeout: 240_000,
   expect: { timeout: 45_000 }, reporter: [['list']],

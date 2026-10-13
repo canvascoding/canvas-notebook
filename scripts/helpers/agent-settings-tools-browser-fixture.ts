@@ -647,14 +647,14 @@ async function main(): Promise<void> {
       receipt.mobileNativeClosed = true; receipt.phase = 'native_complete'; await persist();
     } else {
     const browserArgs = [path.join(repo, 'node_modules/@playwright/test/cli.js'), 'test', '--config', naturalModel
-      ? 'playwright.agent-workflow-natural-model-production.config.ts' : mcpApps
-      ? 'playwright.shared-mcp-apps-production.config.ts' : mobileMcpApps
-      ? 'playwright.mobile-mcp-apps-production.config.ts' : composioLive
-      ? 'playwright.composio-live-production.config.ts' : composioNative
-      ? 'playwright.shared-composio-desktop-oauth-production.config.ts' : composioDesktopClient
-      ? 'playwright.shared-composio-desktop-client-production.config.ts' : desktop
-      ? 'playwright.shared-mcp-desktop-oauth-production.config.ts' : oauth
-        ? 'playwright.shared-mcp-oauth-production.config.ts' : 'playwright.agent-settings-tools-production.config.ts'];
+      ? 'tests/playwright/playwright.agent-workflow-natural-model-production.config.ts' : mcpApps
+      ? 'tests/playwright/playwright.shared-mcp-apps-production.config.ts' : mobileMcpApps
+      ? 'tests/playwright/playwright.mobile-mcp-apps-production.config.ts' : composioLive
+      ? 'tests/playwright/playwright.composio-live-production.config.ts' : composioNative
+      ? 'tests/playwright/playwright.shared-composio-desktop-oauth-production.config.ts' : composioDesktopClient
+      ? 'tests/playwright/playwright.shared-composio-desktop-client-production.config.ts' : desktop
+      ? 'tests/playwright/playwright.shared-mcp-desktop-oauth-production.config.ts' : oauth
+        ? 'tests/playwright/playwright.shared-mcp-oauth-production.config.ts' : 'tests/playwright/playwright.agent-settings-tools-production.config.ts'];
     if (identityDiagnostic) browserArgs.push('--grep', 'actual Electron cookie ABA and same-origin frame changes deny a verified old launch without publishing or executing');
     const browser = startChild(browserArgs, 'browser', 'test');
     if (naturalModel) { receipt.naturalBrowserPid = browser.pid; await persist(); }

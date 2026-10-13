@@ -20,7 +20,7 @@ process.env.BASE_URL = target.origin;
 // All suites change one instance-wide setting, so one worker owns the whole
 // toggle cycle. The managed host is started externally; this config starts no server.
 export default defineConfig({
-  testDir: 'tests',
+  testDir: '..',
   testMatch: ['studio-bulk-experimental.spec.ts', 'e2e/studio-bulk.spec.ts', 'e2e/studio-navigation.spec.ts'],
   outputDir: path.join(os.tmpdir(), 'canvas-studio-bulk-experimental-e2e'),
   workers: 1,

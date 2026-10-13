@@ -18,9 +18,9 @@ process.env.BASE_URL = baseURL;
 // The supervisor starts the current production build. This config never starts
 // a dev host, container, provider fixture, or an application test endpoint.
 export default defineConfig({
-  testDir: 'tests',
+  testDir: '..',
   testMatch: 'document-review-production.spec.ts',
-  outputDir: 'test-results/document-review-production',
+  outputDir: '../../test-results/document-review-production',
   workers: 1,
   fullyParallel: false,
   retries: 0,

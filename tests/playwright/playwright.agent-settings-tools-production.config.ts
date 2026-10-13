@@ -11,7 +11,7 @@ if (process.env.CANVAS_AGENT_SETTINGS_BROWSER_RUN !== '1' || process.env.E2E_EXT
 }
 const workflow = process.env.CANVAS_AGENT_WORKFLOW_MULTIUSER_BROWSER_RUN === '1';
 export default defineConfig({
-  testDir: 'tests', testMatch: workflow ? 'agent-workflow-admin-user-local.spec.ts' : 'agent-settings-tools-race-local.spec.ts', outputDir: results,
+  testDir: '..', testMatch: workflow ? 'agent-workflow-admin-user-local.spec.ts' : 'agent-settings-tools-race-local.spec.ts', outputDir: results,
   workers: 1, fullyParallel: false, retries: 0, timeout: 180_000,
   expect: { timeout: 30_000 }, reporter: [['list']],
   use: { baseURL: process.env.BASE_URL, browserName: 'chromium', headless: true,

@@ -17,7 +17,7 @@ if (process.env.CANVAS_SHARED_COMPOSIO_DESKTOP_CLIENT_BROWSER_RUN !== '1'
 }
 
 export default defineConfig({
-  testDir: 'tests', testMatch: 'shared-composio-desktop-client-local.spec.ts', outputDir: results,
+  testDir: '..', testMatch: 'shared-composio-desktop-client-local.spec.ts', outputDir: results,
   workers: 1, fullyParallel: false, retries: 0, timeout: 120_000,
   expect: { timeout: 30_000 }, reporter: [['list']],
   use: { baseURL: process.env.BASE_URL, browserName: 'chromium', headless: true,

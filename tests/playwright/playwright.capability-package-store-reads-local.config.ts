@@ -13,7 +13,7 @@ if (!['127.0.0.1', 'localhost'].includes(target.hostname) || !['http:', 'https:'
 }
 
 export default defineConfig({
-  testDir: 'tests', testMatch: 'capability-package-store-reads-local.spec.ts',
+  testDir: '..', testMatch: 'capability-package-store-reads-local.spec.ts',
   outputDir: path.join(os.tmpdir(), 'canvas-package-store-reads-e2e'),
   workers: 1, fullyParallel: false, retries: 0, timeout: 120_000,
   expect: { timeout: 30_000 }, reporter: [['list']],

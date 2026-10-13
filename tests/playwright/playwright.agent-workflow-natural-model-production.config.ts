@@ -12,7 +12,7 @@ if (process.env.CANVAS_AGENT_SETTINGS_BROWSER_RUN !== '1' || process.env.CANVAS_
   throw new Error('Natural shared-workflow acceptance requires its fixed private production-host fixture.');
 }
 export default defineConfig({
-  testDir: 'tests', testMatch: 'agent-workflow-natural-model-local.spec.ts', outputDir: results,
+  testDir: '..', testMatch: 'agent-workflow-natural-model-local.spec.ts', outputDir: results,
   workers: 1, fullyParallel: false, retries: 0, timeout: 20 * 60_000, expect: { timeout: 30_000 }, reporter: [['list']],
   use: { baseURL: process.env.BASE_URL, browserName: 'chromium', headless: true,
     viewport: { width: 1280, height: 900 }, actionTimeout: 15_000, navigationTimeout: 45_000,

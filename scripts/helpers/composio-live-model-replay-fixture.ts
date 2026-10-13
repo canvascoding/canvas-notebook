@@ -85,7 +85,7 @@ async function resumeComposioLiveModelFixture(): Promise<void> {
   await fs.chmod(root, 0o700); const stat = await fs.lstat(root), nonce = randomBytes(16).toString('hex'), marker = randomBytes(24).toString('hex');
   const databaseName = `canvas_connection_test_${nonce}`, dataRoot = path.join(root, 'data'), tmpRoot = path.join(root, 'tmp');
   const browserSourcePaths = ['tests/composio-live-model.spec.ts', 'tests/helpers/composio-live-model-fixture.ts',
-    'tests/helpers/natural-workflow-model-setup.ts', 'playwright.composio-live-model-production.config.ts'];
+    'tests/helpers/natural-workflow-model-setup.ts', 'tests/playwright/playwright.composio-live-model-production.config.ts'];
   const expectedBrowserSourceHashes = Object.fromEntries(await Promise.all(browserSourcePaths.map(async file => [file, createHash('sha256').update(await fs.readFile(path.join(repo, file))).digest('hex')])));
   const sourceHashes = { ...expectedBrowserSourceHashes,
     'scripts/helpers/composio-live-model-replay-fixture.ts': createHash('sha256').update(await fs.readFile(path.join(repo, 'scripts/helpers/composio-live-model-replay-fixture.ts'))).digest('hex'),
@@ -263,7 +263,7 @@ async function resumeComposioLiveModelFixture(): Promise<void> {
     const listeners = await new Promise<string>((resolve, reject) => execFile('lsof', ['-nP', '-iTCP:3001', '-sTCP:LISTEN', '-Fp'], { timeout: 5000 }, (error, stdout) => error ? reject(new Error('Owned listener unconfirmed.')) : resolve(stdout)));
     assert.deepEqual(listeners.split('\n').filter(value => /^p\d+$/u.test(value)), [`p${host.pid}`]); receipt.listenerVerified = true;
     receipt.phase = 'browser'; await persist();
-    const browser = start(['node_modules/@playwright/test/cli.js', 'test', '--config', 'playwright.composio-live-model-production.config.ts'], 'browser'); receipt.browserPid = browser.pid; await persist();
+    const browser = start(['node_modules/@playwright/test/cli.js', 'test', '--config', 'tests/playwright/playwright.composio-live-model-production.config.ts'], 'browser'); receipt.browserPid = browser.pid; await persist();
     let browserTimer: ReturnType<typeof setTimeout> | undefined;
     let code: number | null;
     try { code = await Promise.race([browser.closed, new Promise<never>((_resolve, reject) => { browserTimer = setTimeout(() => reject(new Error('Owned browser deadline exceeded.')), 22 * 60000); })]); }

@@ -2,7 +2,8 @@ import { defineConfig } from '@playwright/test';
 
 // Real UI components with deterministic status events; no server or containers.
 export default defineConfig({
-  testDir: 'tests',
+  testDir: '..',
+  outputDir: '../../test-results',
   testMatch: 'context-status-consistency.spec.ts',
   workers: 1,
   timeout: 45_000,

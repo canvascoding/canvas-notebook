@@ -13,7 +13,7 @@ if (process.env.CANVAS_SHARED_MCP_OAUTH_BROWSER_RUN !== '1' || process.env.CANVA
 }
 
 export default defineConfig({
-  testDir: 'tests', testMatch: 'shared-mcp-oauth-pending-local.spec.ts', outputDir: results,
+  testDir: '..', testMatch: 'shared-mcp-oauth-pending-local.spec.ts', outputDir: results,
   workers: 1, fullyParallel: false, retries: 0, timeout: 180_000,
   expect: { timeout: 30_000 }, reporter: [['list']],
   use: { baseURL: process.env.BASE_URL, browserName: 'chromium', headless: true,

@@ -39,7 +39,7 @@ if (mode === 'fixture') {
   process.env.NODE_ENV = mode === 'host' ? 'production' : 'test';
   args = mode === 'host' ? ['--import', 'tsx', 'server.js']
     : [path.join(repo, 'node_modules/@playwright/test/cli.js'), 'test', '--config', mode === 'planning-browser'
-      ? 'playwright.planning-progressive-production.config.ts' : 'playwright.mobile-plugin-access-production.config.ts', ...process.argv.slice(4)];
+      ? 'tests/playwright/playwright.planning-progressive-production.config.ts' : 'tests/playwright/playwright.mobile-plugin-access-production.config.ts', ...process.argv.slice(4)];
 }
 const child = spawn(process.execPath, args, { cwd: repo, env: process.env, stdio: 'inherit' });
 // Forward signals exclusively to this launcher's own child; never discover or stop another stack/server.
