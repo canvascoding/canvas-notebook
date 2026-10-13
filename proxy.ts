@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCanvasSessionCookie } from '@/app/lib/auth-cookie';
+import { PAGE_RETURN_TO_HEADER } from '@/app/lib/auth/page-request';
 import { getManagedSystemUpdateOrigin, hasManagedSystemUpdateIntent } from '@/app/lib/managed/control-plane-url-policy';
 import { optionalHtmlPreviewOrigin, isHtmlPreviewHost } from '@/app/lib/html-preview-origin';
 import { readStudioBulkAvailability } from '@/app/lib/studio-bulk-availability';
@@ -63,14 +64,6 @@ function getLocaleFromPathname(pathname: string) {
   }
 
   return routing.defaultLocale;
-}
-
-function buildLocalePath(locale: string, pathname: string) {
-  if (locale === routing.defaultLocale) {
-    return pathname;
-  }
-
-  return pathname === '/' ? `/${locale}` : `/${locale}${pathname}`;
 }
 
 function setCommonHeaders(response: NextResponse) {
@@ -254,50 +247,20 @@ export default async function middleware(request: NextRequest) {
     return nextWithCommonHeaders();
   }
 
-  // 1. Handle i18n routing first
-  const response = handleI18nRouting(request);
+  // Let Next.js resolve pages before requiring authentication: an unmatched URL
+  // must reach the public 404, while actual protected pages use requirePageSession.
+  // Forward the original path so their login redirects retain the return target.
+  const pageHeaders = new Headers(request.headers);
+  pageHeaders.set(PAGE_RETURN_TO_HEADER, `${pathname}${request.nextUrl.search}`);
+  const response = handleI18nRouting(new NextRequest(request, { headers: pageHeaders }));
   
   // Set security headers on the i18n response
   setCommonHeaders(response);
 
-  // 2. Allow public routes and auth API routes
-  if (isPublicRoute(pathname)) {
-    return response;
-  }
-
-  // 3. Check for session cookie using Better Auth utility
-  const sessionCookie = getCanvasSessionCookie(request);
-  
-  const logMissingSession = process.env.NODE_ENV !== 'production' || process.env.AUTH_DEBUG === 'true';
-  if (!sessionCookie && logMissingSession) {
-    console.log(`[Middleware] No session cookie for ${pathname}. Redirecting/denying.`);
-  }
-
-  if (!sessionCookie) {
-    // Redirect to login for page requests
-    if (!pathname.startsWith('/api/')) {
-      const locale = getLocaleFromPathname(pathname);
-      const loginUrl = new URL(buildLocalePath(locale, '/login'), request.url);
-      const from = `${pathname}${request.nextUrl.search}`;
-      loginUrl.searchParams.set('from', from);
-      const redirectResponse = NextResponse.redirect(loginUrl);
-      setCommonHeaders(redirectResponse);
-      return redirectResponse;
-    }
-
-    // Return 401 for API requests
-    const errorResponse = NextResponse.json(
-      { success: false, error: 'Unauthorized' },
-      { status: 401 }
-    );
-    setCommonHeaders(errorResponse);
-    return errorResponse;
-  }
-
   // Redirect before rendering StudioShell: a streamed child-page redirect
   // would hydrate its Bulk title against the destination Studio pathname.
   const locale = getLocaleFromPathname(pathname);
-  if (['GET', 'HEAD'].includes(request.method)
+  if (getCanvasSessionCookie(request) && ['GET', 'HEAD'].includes(request.method)
     && [`/${locale}/studio/bulk`, `/${locale}/studio/bulk/`].includes(pathname)
     && !readStudioBulkAvailability().studioBulkEnabled) {
     const redirectResponse = NextResponse.redirect(new URL(`/${locale}/studio`, request.url));

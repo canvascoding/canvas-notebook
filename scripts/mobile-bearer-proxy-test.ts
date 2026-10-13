@@ -44,8 +44,8 @@ async function main(): Promise<void> {
       assert.equal(response.headers.get('x-middleware-next'), null);
     }
     const page = await middleware(request('/en/plugins', { authorization }));
-    assert.equal(page.status, 307, 'A bearer alone does not bypass Web page login.');
-    assert.equal(new URL(page.headers.get('location')!).pathname, '/en/login');
+    assert.equal(page.headers.get('x-middleware-next'), '1', 'Page authentication belongs to the actual page guard.');
+    assert.equal(page.headers.get('x-middleware-request-x-canvas-page-return-to'), '/en/plugins');
 
     for (const pathname of ['/api/mobile/v1/bootstrap', '/api/agents']) {
       const response = await middleware(request(pathname, { cookie: '__Host-better-auth.session_token=owned-cookie-candidate' }));
