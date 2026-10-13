@@ -2,6 +2,8 @@
 
 Stand: 13. Oktober 2026. Die Schritte 1–5 des [UI-Katalogplans](../plugin-page-integration-catalog-plan.md) sind implementiert und am unten gepinnten Stand mit frischem Produktionsbuild und 15/15 Browserfällen lokal abgenommen. Die Settings-Katalogmigration ist eingeschlossen. Die gesonderte Runtime-/Provider-/Geräteabnahme bleibt offen.
 
+Die folgenden Daten bleiben historische Belege dieses gepinnten Stands. Der spätere [MCP-Logo-Nachtrag mit eigener frischer 15-Fall-Abnahme](plugin-page-mcp-icons-2026-10-13.md) ergänzt sie; Chat- und Agent-Kontext bleiben gesonderte Planung.
+
 ## Geprüfte Quelle und Build
 
 - Notebook-Commit: `dc20226b1308f564236ba95799640c1c7e097db5`.
