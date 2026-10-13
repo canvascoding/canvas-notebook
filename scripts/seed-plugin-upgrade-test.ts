@@ -51,7 +51,6 @@ async function main() {
         DATA: dataRoot,
         CANVAS_DATA_ROOT: dataRoot,
         CANVAS_DATABASE_PROVIDER: 'postgres',
-        DATABASE_URL: '',
         CANVAS_BOOTSTRAP_SEED_PLUGINS: 'document-suite',
         CANVAS_BOOTSTRAP_SEED_SKILLS: '__none__',
       },
@@ -61,6 +60,13 @@ async function main() {
   }
 
   try {
+    // Bootstrap writes still require the real OS file-lock helper in the fixture cwd.
+    await fs.mkdir(path.join(fixtureRoot, 'scripts', 'runtime'), { recursive: true });
+    await fs.copyFile(path.join(repositoryRoot, 'scripts', 'runtime', 'workspace-file-lock.py'),
+      path.join(fixtureRoot, 'scripts', 'runtime', 'workspace-file-lock.py'));
+    // This fixture tests skill upgrades, not legacy global session cleanup.
+    await fs.mkdir(path.join(dataRoot, 'settings'), { recursive: true });
+    await fs.writeFile(path.join(dataRoot, 'settings', '.legacy-session-wipe-done'), 'fixture already migrated\n');
     await writeSeed('1.0.0', 'ORIGINAL MANAGED CONTENT');
     await runBootstrap();
     const installedSkillPath = path.join(dataRoot, 'skills', 'docx', 'SKILL.md');

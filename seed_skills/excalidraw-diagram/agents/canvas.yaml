@@ -1,5 +1,5 @@
 interface:
   display_name: Excalidraw Diagram
-  short_description: Create editable Excalidraw diagrams
+  short_description: Create and edit diagrams through Canvas scene tools
   brand_color: "#F59E0B"
-  default_prompt: Use $excalidraw-diagram to create or edit an Excalidraw diagram.
+  default_prompt: Use $excalidraw-diagram to create or edit an Excalidraw diagram through the Canvas Scene-Service.
