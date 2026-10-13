@@ -9,7 +9,7 @@ import { CollaborationCheckpointQuarantinedError, CollaborationCheckpointValidat
 import { readCurrentCollaborationDocument } from './document-access';
 import { isCollaborationStateQuarantined } from './failure';
 import { validateRichMarkdownStructure } from './markdown-state';
-import type { PersistedCollaborationState } from './persistence';
+import type { loadCollaborationState, PersistedCollaborationState } from './persistence';
 import { richDocumentFormat } from './rich-document';
 import { Y } from './server-runtime';
 import { collaborationStateProof } from './state-proof';
@@ -158,6 +158,8 @@ export async function readNativeCollaborationDocument(input: {
   documentId: string;
   path: string;
   lifecycleGeneration?: number;
+  /** Internal read transaction may retain its connection through the room read. */
+  loadState?: typeof loadCollaborationState;
 }): Promise<NativeCollaborationDocumentRead> {
   if (!input.workspace.permissions.canRead
     || input.workspace.status !== undefined && input.workspace.status !== 'active') {
@@ -165,6 +167,7 @@ export async function readNativeCollaborationDocument(input: {
   }
   return readCurrentCollaborationDocument({
     documentId: input.documentId, workspaceId: input.workspace.workspaceId,
+    loadState: input.loadState,
     read: (doc, state) => {
       if (!state || state.documentId !== input.documentId || state.workspaceId !== input.workspace.workspaceId
         || state.organizationId !== (input.workspace.organizationId ?? null) || state.path !== input.path

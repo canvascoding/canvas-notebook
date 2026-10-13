@@ -45,6 +45,7 @@ import { AgentFileEditOperationScopeError, AgentFileReviewDisabledConflictError,
   findAgentFileEditOperation, linkStandaloneAgentCheckpoint } from '@/app/lib/collaboration/agent-operations';
 import { readDocumentReviewAvailability } from '@/app/lib/document-review-availability';
 import { Y } from '@/app/lib/collaboration/server-runtime';
+import { listWorkspaceSearchDocuments, readWorkspaceSearchText, WorkspaceSearchReadError } from '@/app/lib/collaboration/workspace-search-reader';
 import {
   resolveTextCollaborationState,
   selectInitialTextCollaborationRepresentation,
@@ -990,22 +991,34 @@ async function executeSearchKnowledge(
     }> = [];
     let truncated = tree.truncated;
 
-    for (const entry of tree.entries) {
-      if (entry.type !== 'file' || !isSearchableTextFile(entry.path)) continue;
+    const nativePaths = await listWorkspaceSearchDocuments(workspace, startPath);
+    const candidates = [...new Set([
+      ...nativePaths,
+      ...tree.entries.filter(entry => entry.type === 'file').map(entry => entry.path),
+    ])].filter(filePath => isVisibleWorkspaceNode({ path: filePath, name: path.posix.basename(filePath), type: 'file' })
+      && isSearchableTextFile(filePath)).sort((left, right) => left.localeCompare(right));
+    if (candidates.length > MAX_SEARCH_CANDIDATES) truncated = true;
+
+    for (const filePath of candidates.slice(0, MAX_SEARCH_CANDIDATES)) {
       if (results.length >= maxResults) {
         truncated = true;
         break;
       }
-      const stats = await getFileStats(entry.path, { workspace });
-      if (!stats.isFile || stats.size > MAX_SEARCH_FILE_BYTES) continue;
-      const content = await readFile(entry.path, { workspace });
-      if (isLikelyBinary(entry.path, content)) continue;
-      const excerpt = matchingExcerpt(content.toString('utf8'), query);
+      let current;
+      try { current = await readWorkspaceSearchText(workspace, filePath, MAX_SEARCH_FILE_BYTES); }
+      catch (error) {
+        if (error instanceof WorkspaceSearchReadError && ['SOURCE_TOO_LARGE', 'SOURCE_BINARY'].includes(error.code)) {
+          truncated = true;
+          continue;
+        }
+        throw error;
+      }
+      const excerpt = matchingExcerpt(current.content, query);
       if (!excerpt) continue;
       results.push({
-        path: entry.path,
+        path: filePath,
         excerpt,
-        modified_at: toIsoDate(stats.modified),
+        modified_at: toIsoDate(current.modifiedAt === null ? undefined : current.modifiedAt / 1000),
       });
     }
 
