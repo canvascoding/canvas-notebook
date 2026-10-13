@@ -4,6 +4,8 @@ Ausgangsstand: Notebook `d92d8eb05`. Auftrag: „setz den plan um und mach ein e
 
 Aktuelle Nutzeranweisung vom 13. Oktober: „Gib mir erstmal feedback mit dem plan dann speicher den in docs ab und dann optimieren wir das noch“. Der jetzige Arbeitsschritt aktualisiert daher ausschließlich den Plan. Die folgenden Implementierungsstände werden dadurch weder abgeschlossen noch als abgenommen ausgegeben; vorbereitete lokale Quelldateien bleiben unverändert.
 
+Nach der gespeicherten Planprüfung wurde das aktive Ziel „setz den plan um und mach ein e2e test wenn du fertig bist“ erneut zur Fortsetzung gegeben. Die Implementierung wird ab diesem Nachtrag fortgeführt; die folgende Abnahmematrix bleibt bis zu tatsächlichen Nachweisen offen.
+
 ## Reihenfolge
 
 | Schritt | Stand | Erforderlicher Nachweis |
@@ -67,6 +69,23 @@ Die neuen gemeinsamen Schemas unterscheiden Plugin, eigenständigen/enthaltenen 
 - Die unabhängige Prüfung fand unterschiedliche öffentliche/private MCP-Definitions-ID-Grammatik. Die tatsächliche Quellvalidierung verlangt kanonische UUIDs; beide neuen Verträge und die gemeinsame Gegenprüfung wurden daran ausgerichtet.
 
 Diese Nachweise prüfen Syntax, interne Konsistenz, gehaltene Identitäten, Grenzen und das Weglassen privater/kurzlebiger Eingabefelder. Sie beweisen noch keine aktuelle Actor-/Providerautorität, kein fertiges Agent-Create, keinen neuen Systemprompt und keine Chat-/Native-Bedienung. Die serverseitige Annahme einzelner Verbindungen wird anschließend mit den vorhandenen echten Berechtigungsdiensten und eigener isolierter Datenbank geprüft. Schritt 1 bleibt bis zu dieser Autoritätsprüfung offen.
+
+## Geprüfte Annahme genauer Standalone-Verbindungen
+
+`prepareStandaloneExtensionSelection` konsumiert die ausdrückliche persönliche oder geteilte Auswahl über die vorhandenen Dienste und stellt einen serverseitigen, actor-/session-/workspace-/projectgebundenen Beleg aus. Der private gespeicherte Zielstand enthält keinen kurzlebigen Composio-Auswahlbeleg. Geänderte Identität, Zugangskonfiguration, Profilstatus oder Bindung wird bei erneuter Prüfung abgewiesen. Ein JSON-/Spread-Klon stellt keinen Serverbeleg her.
+
+Der gezielte Nachweis `scripts/extension-standalone-preparation-native-test.ts` wurde nach den letzten Korrekturen frisch erfolgreich ausgeführt:
+
+- tatsächliches PostgreSQL am verwalteten Loopback-Port `55433`, eigene noncegebundene Datenbank und eigenes DATA; tatsächliche Actor-, Mitgliedschafts-, Config-API- und Connection-Store-Dienste;
+- persönlicher MCP über die tatsächliche Config-API; geteilte Nutzung ohne Manage; falscher Eigentümer, widersprüchlicher Projektkontext, Bindingänderung, Grantverengung und Rechteentzug;
+- tatsächlicher Composio-SDK mit eigenem HTTP-Metadatenprovider, ausdrücklich zweiter von zwei aktiven Accounts, no-auth, fehlendem/manipuliertem Beleg, anderem Actor, Credentialrotation und archiviertem Profil;
+- 7 erlaubte Metadatenabrufe, 1 blockierter SDK-Hintergrundversuch, 0 Business-Aufrufe und 0 externe Netzwerkanfragen;
+- nach Ende nachgewiesene Abwesenheit der exakten eigenen Datenbank und DATA sowie geschlossene eigene Providerlistener; keine fremde Instanz verändert;
+- fokussierter Typecheck einschließlich der tatsächlichen importierten App-Abhängigkeiten und Ambient-Typen sowie ESLint bestanden.
+
+Ein zunächst akzeptierter widersprüchlicher Shared-Projektkontext wurde durch kanonische SQL-Actorprüfung vor Aufnahme, nach I/O und bei Revalidierung korrigiert und mit demselben tatsächlichen Testfall erneut geprüft. Zusätzlich wird geteilte Revalidierung mit einer angegebenen SQL-Schreibverbindung explizit abgewiesen: der außerhalb dieser Transaktion gelesene Beleg ist keine Commit-Autorität. Spätere Schreibvorgänge müssen Connection-Locks und aktuelle Autorisierung für den tatsächlichen Zielagenten innerhalb der Transaktion verwenden. Persönliche Revalidierung mit gehaltener SQL-Verbindung wurde separat geprüft.
+
+Diese Fixture verwendet eigene synthetische Lizenz-/Authdaten. Der Nachweis ist keine Control-Plane-Lizenzabnahme, keine externe Providerabnahme, kein Modelllauf und keine Browser-/Native-Geräteprüfung. Der Name „native“ bezeichnet hier tatsächliches PostgreSQL statt eines Speicheradapters. Der Einstieg `npm run test:extensions:preparation:native` setzt eine privat übergebene verwaltete `DATABASE_URL` voraus; Zugangsdaten werden nicht protokolliert.
 
 ## Wirkungsanalyse und Veröffentlichung
 
