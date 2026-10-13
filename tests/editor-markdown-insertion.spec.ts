@@ -31,7 +31,8 @@ async function login(page: Page, secondary = false) {
 
 async function openEditor(page: Page, path: string) {
   await page.goto(`/notebook?path=${encodeURIComponent(path)}`, { waitUntil: 'domcontentloaded' });
-  await page.getByRole('group', { name: 'Document view' }).getByRole('button', { name: 'Edit', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Read', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Edit', exact: true })).toHaveCount(0);
   await expect(page.locator(editorSelector)).toHaveAttribute('contenteditable', 'true', { timeout: 30_000 });
   await expect(page.getByRole('button', { name: 'Source', exact: true })).toHaveCount(0);
 }

@@ -108,7 +108,7 @@ async function main() {
     await render();
     const shell = document.querySelector('section')!;
     assert(shell.classList.contains('relative'));
-    assert.equal(shell.children.length, 3, 'only fixed mode bar, document and access footer occupy layout');
+    assert.equal(shell.children.length, 3, 'only document header, document and access footer occupy layout');
     assert(button(labels.guestDownloadCopy)?.closest('.markdown-mode-bar'));
     assert.equal(native()?.getAttribute('data-readonly'), 'false');
     assert.equal(button(labels.source), undefined, 'rich guest collaboration never offers an unwritable Source view');
@@ -133,16 +133,16 @@ async function main() {
     assert.equal(panel(), null, 'healthy native document does not become an error');
     assert.equal(button(labels.guestDownloadCopy)?.disabled, true);
     assert.equal(button(labels.source), undefined, 'failed projection does not introduce a Source mode');
-    await act(async () => button(labels.read)!.click());
-    assert(native(), 'Read retains the native document when Markdown projection fails');
-    await act(async () => button(labels.rich)!.click()); assert(native());
+    assert.equal(button(labels.read), undefined);
+    assert.equal(button(labels.rich), undefined);
+    assert.equal(native()?.getAttribute('data-readonly'), 'false', 'a projection failure does not turn a writer into a reader');
 
     await update({ connection: 'denied', durability: 'degraded', error: 'Secret transport detail' }, {
       connection: 'denied', durability: 'degraded', failure: { kind: 'authentication', code: 'DENIED_INTERNAL' },
     });
     assert(panel()?.classList.contains('absolute'), 'attention never creates a document flow row');
     assert(text().includes(labels.failure.authentication)); assert(!text().includes('Secret transport detail'));
-    assert.equal(native()?.getAttribute('data-readonly'), 'true'); assert.equal(button(labels.rich)?.disabled, true);
+    assert.equal(native()?.getAttribute('data-readonly'), 'true'); assert.equal(button(labels.rich), undefined);
     assert.equal(button(labels.backup), undefined); assert(button(labels.snapshot)); noWorkspaceRecovery();
     await act(async () => { button(labels.snapshot)!.click(); button(labels.reopen)!.click(); });
     assert.equal(reloads, 1); assert.equal(downloads[1].name, 'canvas-recovery.yjs');
@@ -159,7 +159,7 @@ async function main() {
       clientState: { ...current.clientState, connection: 'read_only', durability: 'checkpointed_file', failure: null } };
     await render('read');
     assert.equal(panel(), null); assert.equal(native()?.getAttribute('data-readonly'), 'true');
-    assert.equal(button(labels.rich)?.disabled, true); assert.equal(button(labels.guestDownloadCopy)?.disabled, false);
+    assert.equal(button(labels.rich), undefined); assert.equal(button(labels.guestDownloadCopy)?.disabled, false);
     assert.equal(button(labels.source), undefined, 'read permission does not expose derived Rich source');
     assert.equal(checkpoints, 0);
 
@@ -167,26 +167,24 @@ async function main() {
     current = { ...current, doc: plainDoc, connection: 'live', ready: true,
       clientState: { ...current.clientState, connection: 'live', ready: true } };
     await render();
-    assert(button(labels.source), 'source-backed guest documents retain Source');
-    await act(async () => button(labels.source)!.click());
+    assert.equal(button(labels.source), undefined, 'a source-backed guest opens its only editable view directly');
     assert.equal(document.querySelector('[data-testid="source-editor"]')?.textContent, '<div>Shared source</div>\n');
     assert.equal(document.querySelector('[data-testid="source-editor"]')?.getAttribute('data-editable'), 'true');
     await update({ connection: 'offline' }, { connection: 'offline' });
-    assert(button(labels.source));
+    assert.equal(button(labels.source), undefined);
     assert.equal(document.querySelector('[data-testid="source-editor"]')?.getAttribute('data-editable'), 'true');
 
     session.representation = 'tiptap_blocks';
     await update({ doc, connection: 'live' }, { connection: 'live' });
     assert.equal(button(labels.source), undefined);
-    assert.equal(document.querySelector('section')?.getAttribute('data-editor-mode'), 'read', 'a stale Source selection falls back to Read');
-    assert.equal(native()?.getAttribute('data-readonly'), 'true');
+    assert.equal(document.querySelector('section')?.getAttribute('data-editor-mode'), 'rich', 'a representation change opens the native view directly');
+    assert.equal(native()?.getAttribute('data-readonly'), 'false');
     session.representation = 'plain_text'; session.permission = 'read';
     await update({ doc: plainDoc });
-    assert.equal(button(labels.read)?.getAttribute('aria-pressed'), 'true', 'the discarded Source selection does not return with another representation');
-    await act(async () => button(labels.source)!.click());
-    assert.equal(document.querySelector('[data-testid="source-editor"]')?.getAttribute('data-editable'), 'false');
+    assert.equal(document.querySelector('section')?.getAttribute('data-editor-mode'), 'read');
+    assert.equal(document.querySelector('[data-testid="source-editor"]'), null, 'plain readers never mount a source writer');
     await update({ ready: false }, { ready: false });
-    assert(button(labels.source), 'loading does not change source support');
+    assert.equal(button(labels.source), undefined);
     assert.equal(document.querySelector('[data-testid="source-editor"]'), null, 'loading never mounts a source writer');
     console.log('Guest shell: source capabilities/fallback, rights, silent sync, native projection fallback and exact Yjs backup passed.');
   } finally {

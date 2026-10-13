@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
 import { serializeRichMarkdownBody } from '../app/lib/markdown/rich-markdown-codec';
 
-test('focus and width retain the live editor, panels and undo; tables scroll within Read', async ({ page }, info) => {
+test('header focus and width retain the editable document, panels, undo and native table navigation', async ({ page }, info) => {
   test.skip(process.env.COLLABORATION_E2E !== '1', 'Requires the managed local Postgres stack.');
   test.setTimeout(90_000);
   page.setDefaultTimeout(10_000);
@@ -38,6 +38,12 @@ test('focus and width retain the live editor, panels and undo; tables scroll wit
     await page.goto(`/notebook?path=${path}`);
     const editor = page.locator('.tiptap-editor-shell .ProseMirror');
     await expect(editor).toHaveAttribute('contenteditable', 'true', { timeout: 45_000 });
+    const documentHeader = page.getByTestId('document-header');
+    await expect(documentHeader.getByRole('button', { name: 'Focus document', exact: true })).toBeVisible();
+    await expect(documentHeader.getByRole('button', { name: 'Full width', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Read', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Edit', exact: true })).toHaveCount(0);
+    expect(await page.locator('[data-editor-layout="document"]').locator(':scope > .markdown-mode-bar').count()).toBe(0);
     const explorer = page.locator('#onboarding-notebook-fileBrowser');
     const chat = page.getByTestId('notebook-desktop-chat');
     const terminal = page.locator('#app-layout-terminal');
@@ -85,20 +91,20 @@ test('focus and width retain the live editor, panels and undo; tables scroll wit
     expect(await page.evaluate(() => localStorage.getItem('canvas.notebookLayout.v2'))).toBe(panels);
     expect(sessions.filter((url) => url.includes('collaboration'))).toEqual([]);
 
-    await page.getByRole('button', { name: 'Read', exact: true }).click();
-    const scroll = page.getByRole('region', { name: 'Scrollable table', exact: true });
+    const scroll = editor.locator('.tableWrapper');
     await expect(scroll).toBeVisible();
     await expect(scroll.locator('th').nth(1)).toHaveCSS('text-align', 'center');
     await expect(scroll.locator('td').nth(2)).toHaveCSS('text-align', 'right');
-    await scroll.focus(); await scroll.press('ArrowRight');
+    await scroll.locator('td').first().click();
+    for (let column = 0; column < 7; column += 1) await page.keyboard.press('Tab');
+    await expect(scroll.getByRole('cell', { name: 'Last value' })).toBeInViewport();
     await expect.poll(() => scroll.evaluate((element) => element.scrollLeft)).toBeGreaterThan(0);
     await page.setViewportSize({ width: 390, height: 844 });
     await expect(page.getByRole('button', { name: 'Focus document', exact: true })).toBeHidden();
-    await page.getByRole('button', { name: 'Read', exact: true }).click();
-    const mobileScroll = page.getByRole('region', { name: 'Scrollable table', exact: true });
+    const mobileScroll = editor.locator('.tableWrapper');
     await expect(mobileScroll).toBeVisible();
     await expect.poll(async () => (await mobileScroll.boundingBox())!.width).toBeLessThanOrEqual(390);
-    await mobileScroll.focus(); await mobileScroll.press('End');
+    await expect(editor).toHaveAttribute('contenteditable', 'true');
     // Horizontal navigation stays inside the table and never widens the document viewport.
     await mobileScroll.evaluate((element) => { element.scrollLeft = element.scrollWidth; });
     await expect(mobileScroll.getByRole('cell', { name: 'Last value' })).toBeInViewport();

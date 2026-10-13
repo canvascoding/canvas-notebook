@@ -63,6 +63,20 @@ async function main() {
     };
     await render();
     const first = rich();
+    const header = document.createElement('header');
+    document.body.append(header);
+    await render({ layout: 'document', controlsTarget: header });
+    assert.equal(rich(), first, 'moving controls into the header does not remount the document');
+    assert.equal(header.querySelectorAll('.markdown-mode-bar').length, 1);
+    assert.equal(container.querySelector('.markdown-mode-bar'), null, 'there is no extra document controls row');
+    assert.equal(header.querySelector('button[aria-label="Read"]'), null);
+    assert.equal(header.querySelector('button[aria-label="Edit"]'), null);
+    await act(async () => header.querySelector<HTMLButtonElement>('button[aria-label="Full width"]')!.click());
+    assert.equal(rich(), first, 'width is presentation only');
+    assert.equal(container.querySelector('[data-document-width]')?.getAttribute('data-document-width'), 'wide');
+    await render({ layout: 'field', controlsTarget: null });
+    assert.equal(header.childNodes.length, 0, 'switching the owner removes the portal controls');
+    header.remove();
     assert.equal(values.length, 0, 'opening does not emit a document replacement');
     assert.equal(first.can().undo(), false, 'deferred initialization does not create history');
     const staleTransaction = first.state.tr.insertText('LATE', 1);
@@ -73,9 +87,11 @@ async function main() {
     assert.equal(values.at(-1), 'BBBx\n\nAAA\n\nCCC\n');
     await render({ value: values.at(-1) });
     await render({ mode: 'read' });
-    assert.equal(container.querySelector('[data-reader]')?.textContent, values.at(-1));
+    assert.equal(container.querySelector('[data-reader]'), null, 'writers cannot enter a separate reading mode');
+    assert.equal(rich(), first, 'legacy Read requests preserve the native editor and selection');
+    assert.equal(rich().isEditable, true);
     await render({ mode: 'rich' });
-    assert.notEqual(rich(), first);
+    assert.equal(rich(), first);
     await act(async () => { assert(rich().commands.undo()); });
     assert.equal(values.at(-1), 'AAA\n\nBBBx\n\nCCC\n');
     await act(async () => { assert(rich().commands.undo()); });
@@ -299,7 +315,7 @@ async function main() {
       const lateTransfer = createTransfer();
       const oldDom = editor.view.dom;
       await act(async () => { drag(handle(), 'dragstart', lateTransfer); });
-      await render({ mode: 'read', value: fixture.markdown });
+      await render({ mode: 'source', value: fixture.markdown });
       await render({ mode: 'rich' });
       const newBefore = rich().getJSON();
       await act(async () => { drag(oldDom, 'drop', lateTransfer); drag(rich().view.dom, 'drop', lateTransfer); });
@@ -471,11 +487,11 @@ async function main() {
     const stoppedOnDestroy = viewport.scrollTop;
     await act(async () => { await new Promise(resolve => setTimeout(resolve, 40)); });
     assert.equal(viewport.scrollTop, stoppedOnDestroy);
-    await render({ mode: 'read', value: props.value });
+    await render({ mode: 'source', value: props.value });
     const stoppedOnUnmount = viewport.scrollTop;
     await act(async () => { await new Promise(resolve => setTimeout(resolve, 40)); });
     assert.equal(viewport.scrollTop, stoppedOnUnmount, 'unmount stops the old viewport and its callbacks');
-    console.log('Real MarkdownEditor lifecycle: StrictMode, code/image/rule grips, layout updates, bounded autoscroll, native block identity, drag selection/history, revoked gestures, Rich/Read/Source, delayed acknowledgements, normalization, permissions and file replacement passed.');
+    console.log('Real MarkdownEditor lifecycle: StrictMode, direct editing, header controls, code/image/rule grips, layout updates, bounded autoscroll, native block identity, drag selection/history, revoked gestures, rich/source views, delayed acknowledgements, normalization, permissions and file replacement passed.');
   } finally {
     await act(async () => root.unmount());
     internals._load = originalLoad;

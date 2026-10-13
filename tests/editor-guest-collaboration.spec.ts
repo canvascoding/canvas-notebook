@@ -124,8 +124,7 @@ test.describe('real file guest collaboration', () => {
       }, workspaceId);
       await owner.goto(`/notebook?path=${encodeURIComponent(filePath)}`, { waitUntil: 'domcontentloaded' });
       const ownerEditor = owner.locator('.tiptap-editor-shell .ProseMirror');
-      await owner.getByRole('group', { name: /Document view|Dokumentansicht/u })
-        .getByRole('button', { name: /^(Edit|Bearbeiten)$/u }).click();
+      await expect(owner.getByRole('button', { name: /^(Read|Lesen|Edit|Bearbeiten)$/u })).toHaveCount(0);
       await expect(ownerEditor).toHaveAttribute('contenteditable', 'true', { timeout: 30_000 });
       const guestEditor = await verifyGuest(writer, invitations[0], workspaceId, filePath, 'Fixture Guest Writer');
       await expect(guestEditor).toHaveAttribute('contenteditable', 'true');

@@ -270,6 +270,8 @@ export interface MarkdownEditorProps {
   mode?: EditorMode;
   onModeChange?: (mode: EditorMode) => void;
   modeBarActions?: React.ReactNode;
+  /** Mount presentation controls in the owning document header. */
+  controlsTarget?: HTMLElement | null;
 }
 
 type EditorMode = MarkdownDocumentMode;
@@ -2417,15 +2419,6 @@ function MarkdownSourceToolbar({
 
   return (
     <>
-      {showRichModeSwitch ? (
-        <TooltipProvider>
-          <div className="tiptap-desktop-editor-toolbar hidden h-9 shrink-0 items-center justify-end gap-1 border-b border-border bg-background px-2 md:flex">
-            <TooltipIconButton label={t('markdownEditorEditVisually')} disabled={!richModeAvailable} onClick={onRichMode}>
-              <Eye />
-            </TooltipIconButton>
-          </div>
-        </TooltipProvider>
-      ) : null}
       {portalElement ? createPortal(mobileToolbar, portalElement) : null}
     </>
   );
@@ -3886,6 +3879,7 @@ function MarkdownToolbar({
   onOpenRichBlockDialog,
   onOpenTableDialog,
   onOpenMarkdownDialog,
+  actions,
 }: {
   editor: MarkdownEditorWithMarkdown | null;
   filePath?: string;
@@ -3899,6 +3893,7 @@ function MarkdownToolbar({
   onOpenRichBlockDialog: (kind: RichBlockKind, range?: Range) => void;
   onOpenTableDialog: (range?: Range | null) => void;
   onOpenMarkdownDialog?: (range?: Range) => void;
+  actions?: React.ReactNode;
 }) {
   const t = useTranslations('notebook');
   const [linkDialogOpen, setLinkDialogOpen] = useState(false);
@@ -4245,6 +4240,7 @@ function MarkdownToolbar({
             ) : null}
           </DropdownMenuContent>
         </DropdownMenu>
+        {actions && <div className="ml-auto flex shrink-0 items-center">{actions}</div>}
       </div>
       {canUseCommands && editor ? <MarkdownTableMenu editor={editor} suppressed={linkDialogOpen || imageDialogOpen} /> : null}
       {canUseCommands && editor ? <MarkdownSelectionMenu editor={editor} suppressed={linkDialogOpen || Boolean(linkPopover)} onLink={openToolbarLinkDialog} /> : null}
@@ -4834,6 +4830,7 @@ export function RichMarkdownEditor({
   layout = 'document',
   viewport,
   viewportMarkdown,
+  toolbarActions,
 }: MarkdownEditorProps & {
   isMobileKeyboardActive: boolean;
   markdownNavigationTarget?: WorkspaceMarkdownLocation | null;
@@ -4842,6 +4839,7 @@ export function RichMarkdownEditor({
   localDocument?: LocalMarkdownDocument | null;
   viewport?: MarkdownModeViewport;
   viewportMarkdown?: string;
+  toolbarActions?: React.ReactNode;
 }) {
   const t = useTranslations('notebook');
   const access = useMarkdownEditorAccess();
@@ -5125,12 +5123,12 @@ export function RichMarkdownEditor({
     },
   }, [collaboration?.provider, localDocument]);
 
-  useMarkdownViewportAdapter(viewport, editor && viewportElement
+  useMarkdownViewportAdapter(viewport, editor && !editor.isDestroyed && viewportElement
     ? createRichViewportAdapter(editor, viewportElement, viewportMarkdown ?? value, frontmatter) : null);
 
   useLayoutEffect(() => {
     const pane = viewportElement?.closest<HTMLElement>('.markdown-editor-pane');
-    if (!editor || !viewportElement || !pane) return;
+    if (!editor || editor.isDestroyed || !viewportElement || !pane) return;
     const mobileViewport = createMobileEditorViewport({ pane, scroller: viewportElement, content: editor.view.dom,
       readCaret: () => editor.isDestroyed ? null : editor.view.coordsAtPos(editor.state.selection.head),
       isComposing: () => !editor.isDestroyed && editor.view.composing });
@@ -5551,10 +5549,11 @@ export function RichMarkdownEditor({
           onOpenEmojiDialog={openEmojiDialogFromToolbar}
           onOpenRichBlockDialog={openRichBlockDialogFromToolbar}
           onSourceMode={onSourceMode}
-          showSourceModeSwitch={!collaborationEnabled && layout === 'document'}
+          showSourceModeSwitch={false}
           onImageDialogOpenChange={openImageDialogFromToolbar}
           onOpenTableDialog={openTableDialogAtRange}
           onOpenMarkdownDialog={markdownInsertionAvailable ? openMarkdownDialog : undefined}
+          actions={toolbarActions}
         />
       ) : null}
       {!effectiveReadOnly ? (
@@ -5594,7 +5593,7 @@ export function RichMarkdownEditor({
           onOpenTableDialog={openTableDialogAtRange}
           onOpenMarkdownDialog={markdownInsertionAvailable ? openMarkdownDialog : undefined}
           onSourceMode={onSourceMode}
-          showSourceModeSwitch={!collaborationEnabled && layout === 'document'}
+          showSourceModeSwitch={false}
           visible={isMobileToolbarVisible}
         />
       ) : null}
@@ -5765,7 +5764,7 @@ function SourceMarkdownEditor({
       {!readOnly && layout === 'document' ? (
         <MarkdownSourceToolbar
           richModeAvailable={richModeAvailable}
-          showRichModeSwitch={!collaborationEnabled}
+          showRichModeSwitch={false}
           mobileVisible={mobileToolbarVisible}
           onMobilePointerCancel={releaseToolbarVisibility}
           onMobilePointerDown={holdToolbarVisibility}
@@ -5850,6 +5849,7 @@ export function MarkdownEditor({
   mode: controlledMode,
   onModeChange,
   modeBarActions,
+  controlsTarget,
 }: MarkdownEditorProps) {
   useVisualViewportBottomOffset();
   // Collaborative files always use the server's document representation.
@@ -5915,13 +5915,16 @@ export function MarkdownEditor({
     [filePath, value],
   );
   const [internalMode, setInternalMode] = useState<EditorMode>(() => (
-    readOnly || sourceModeRequired ? 'read' : shouldDefaultToSource(readOnly, filePath) ? 'source' : 'rich'
+    sourceModeRequired || shouldDefaultToSource(readOnly, filePath) ? 'source' : readOnly ? 'read' : 'rich'
   ));
   const requestedMode = controlledMode ?? internalMode;
-  const mode = requestedMode === 'source' && !sourceAvailable ? 'read' : requestedMode;
-  if (internalMode === 'source' && !sourceAvailable && authoritativeRepresentation) setInternalMode('read');
+  // Read-only is a permission, not a selectable state for a writer. Legacy
+  // controlled callers requesting Read still receive the editable document.
+  const mode: EditorMode = requestedMode === 'source' && !sourceAvailable ? 'rich'
+    : requestedMode === 'read' && !readOnly ? (sourceModeRequired ? 'source' : 'rich') : requestedMode;
+  if (internalMode === 'source' && !sourceAvailable && authoritativeRepresentation) setInternalMode('rich');
   const setMode = useCallback((next: EditorMode) => {
-    const supportedMode = next === 'source' && !sourceAvailable ? 'read' : next;
+    const supportedMode = next === 'source' && !sourceAvailable ? 'rich' : next;
     viewport.prepare(supportedMode);
     setInternalMode(supportedMode);
     onModeChange?.(supportedMode);
@@ -5995,7 +5998,8 @@ export function MarkdownEditor({
   }, [collaborationEnabled, displayedValue, frontmatter, localDocument, onModeChange, readOnly, richModeAnalysis, t, viewport]);
 
   const switchToRichMode = useCallback(() => {
-    if (readOnly || richModeAnalysis.mode === 'source') return;
+    if (richModeAnalysis.mode === 'source') return;
+    if (readOnly) { setMode('read'); return; }
     if (!collaborationEnabled && richModeAnalysis.mode === 'normalizable') {
       normalizeToRichMode();
       return;
@@ -6030,22 +6034,26 @@ export function MarkdownEditor({
     );
   }
 
-  const modeBar = <MarkdownModeBar documentControls={layout === 'document'} actions={modeBarActions} mode={effectiveMode} readOnly={effectiveReadOnly} sourceAvailable={sourceAvailable} wide={wide} onWideChange={setWide} onChange={(next) => {
+  const controls = <MarkdownModeBar documentControls={layout === 'document'} actions={modeBarActions} mode={effectiveMode} readOnly={effectiveReadOnly}
+    sourceAvailable={sourceAvailable} richAvailable={!sourceModeRequired} wide={wide} onWideChange={setWide} onChange={(next) => {
     if (next === 'rich') switchToRichMode();
     else if (next === 'source') switchToSourceMode();
-    else setMode('read');
   }} />;
+  const controlsInRichToolbar = !controlsTarget && effectiveMode === 'rich' && !effectiveReadOnly && !preparingRichMode;
   const wrap = (children: React.ReactNode) => <div className="relative flex h-full min-h-0 flex-col bg-background" data-document-width={layout === 'field' || wide ? 'wide' : 'page'} data-editor-layout={layout} data-field-inline={layout === 'field' && !expanded} data-editor-mode={effectiveMode}
     onFocusCapture={() => setLocalFocused(true)}
     onBlurCapture={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setLocalFocused(false); }}>
-    {modeBar}
+    {controlsTarget ? createPortal(controls, controlsTarget) : <div className={cn(
+      'absolute right-2 top-1 z-40 rounded-md bg-background/95', controlsInRichToolbar && 'md:hidden',
+    )}>{controls}</div>}
     {!readOnly && collaborationDocument && needsRichUpgrade && collaborationDocument.session && filePath
       ? <div hidden={mode === 'read'}><MarkdownRichMigration key={`${filePath}:${collaborationDocument.session.lifecycleGeneration}`}
         collaboration={collaborationDocument} filePath={filePath} autoStart={mode === 'rich'}
         onStart={() => setMode('rich')} onBusyChange={setMigrationInProgress} onReady={collaborationSession.retry} /></div> : null}
     <MarkdownSaveState collaboration={collaborationDocument} content={displayedValue} available={projectionAvailable} isSourceLossless={liveMarkdown.isLossless} filePath={filePath} onReload={collaborationSession.retry}
       placement={collaborationDocument?.ready && collaborationDocument.durability === 'degraded' ? 'inline' : 'overlay'} />
-    <div className="markdown-editor-content min-h-0 flex-1 overflow-hidden">{children}</div>
+    <div className={cn('markdown-editor-content min-h-0 flex-1 overflow-hidden',
+      !controlsTarget && effectiveMode === 'source' && 'pt-10')}>{children}</div>
   </div>;
 
   const canRenderDocument = canRenderCollaborationDocument(collaborationDocument, projectionAvailable);
@@ -6131,6 +6139,7 @@ export function MarkdownEditor({
       showNotebookMetadata={showNotebookMetadata}
       frontmatter={frontmatter}
       layout={layout}
+      toolbarActions={controlsInRichToolbar ? controls : undefined}
     />
   );
 }

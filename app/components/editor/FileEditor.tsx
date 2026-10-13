@@ -270,6 +270,7 @@ type HtmlViewMode = 'code' | 'preview';
 
 export function FileEditor({ onClosePreview, onRevealInExplorer }: FileEditorProps = {}) {
   const t = useTranslations('notebook');
+  const [markdownControlsTarget, setMarkdownControlsTarget] = useState<HTMLDivElement | null>(null);
   const {
     currentFile,
     currentFileWorkspaceId,
@@ -1069,7 +1070,7 @@ export function FileEditor({ onClosePreview, onRevealInExplorer }: FileEditorPro
         </div>
       ) : null}
       <TooltipProvider delayDuration={150}>
-        <div className="grid h-10 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 overflow-hidden border-b border-border px-3 py-2 text-sm text-muted-foreground sm:px-4">
+        <div data-testid="document-header" className="grid h-10 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 overflow-hidden border-b border-border px-3 py-1 text-sm text-muted-foreground sm:px-4">
           <div className="flex min-w-0 items-center gap-1.5 overflow-hidden text-xs text-muted-foreground sm:gap-2">
             <span className="shrink-0 text-foreground">{t('fileLabel')}</span>
             <div className="flex min-w-0 items-center overflow-hidden">
@@ -1082,6 +1083,9 @@ export function FileEditor({ onClosePreview, onRevealInExplorer }: FileEditorPro
             </div>
           </div>
           <div className="flex min-w-0 shrink-0 items-center justify-end gap-1 text-xs text-muted-foreground">
+            {isMarkdown && (!isMarpMarkdownFile || markdownViewMode === 'markdown') && (
+              <div ref={setMarkdownControlsTarget} data-testid="document-header-controls" className="flex items-center" />
+            )}
             {isHtml && (
               <>
                 {htmlViewMode === 'preview' && (
@@ -1432,6 +1436,7 @@ export function FileEditor({ onClosePreview, onRevealInExplorer }: FileEditorPro
                 collaborationEnabled={Boolean(collaboration?.crdtCapable)}
                 agentTargets={agentTargets}
                 showNotebookMetadata
+                controlsTarget={markdownControlsTarget}
               />
             )
           ) : (
