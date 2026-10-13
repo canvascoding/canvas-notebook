@@ -87,6 +87,8 @@ Ein neuer Reader-Callbackparameter darf ausschließlich Werte des tatsächlichen
 
 Die nächste eigene echte Cookie-/Bearer-PG-Fixture muss Reader/Writer, aktuelle B-Rechte, reine Write-Downgrades vor/während Consumer und in den Finalprüfungsfenstern, fremde Connection/Backend/XID, retained/forged/detached/caught Fehler sowie tatsächlich blockierte Peer-ACL-Änderungen prüfen. Die bisherigen RO-/Auth-/RawConsistency-Fixtures bleiben bytegleich. Noch keine Route-, Session- oder WS-Aktivierung.
 
+Der [konkrete WebSocket-Transportanschluss](./yjs-websocket-auth-transport-plan.md) präzisiert die offene Mobile-Provenienzgrenze: Echte ursprüngliche Anmeldung privat binden, jede spätere tatsächliche Principalphase frisch erzeugen, niemals kurzlebige Requestcapabilities oder aus Claims erfundene Requests über die Socketlaufzeit übernehmen. Neue Joins und laufende Reserve-/Drain-Beobachtung erhalten unterschiedliche Vertragsgrenzen. Das neue inaktive Transportpaket und seine echte Token-/Session-/Seat-/ACL-PG-Matrix sind zunächst geplant; noch keine Source- oder WS-Aktivierung.
+
 ## 5. Impact und Abnahme
 
 GitNexus eigener aktueller Index; vor jeder tatsächlichen bestehenden Symboländerung erneut ausführen und HIGH/CRITICAL melden:
