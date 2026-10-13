@@ -15,6 +15,7 @@ import { withNativeWorkspaceFileRead } from '@/app/lib/collaboration/workspace-n
 import type { FileReadStats } from '@/app/lib/files/types';
 import { withWorkspaceMutationLock } from '@/app/lib/files/workspace-mutation-lock';
 import { WorkspaceDocumentCatalogueError } from '@/app/lib/collaboration/workspace-document-catalogue';
+import { FILE_READ_BUSY_CODE, isFileReadBusyError } from '@/app/lib/files/read-busy';
 
 const READ_SIZE_LIMIT = 5 * 1024 * 1024; // 5MB
 const EXCALIDRAW_READ_SIZE_LIMIT = 25 * 1024 * 1024; // embedded image data can make scenes larger
@@ -115,6 +116,11 @@ export async function GET(request: NextRequest) {
     // the shared SQL read fence to preserve lifecycle writers' kernel→SQL order.
     return await (docx ? withWorkspaceMutationLock(workspaceResult.workspace.workspaceId, read) : read());
   } catch (error) {
+    // The awaited native read has rolled back and closed its shared SQL fence.
+    if (isFileReadBusyError(error)) {
+      return NextResponse.json({ success: false, error: error.message, code: FILE_READ_BUSY_CODE },
+        { status: 503, headers: { 'Cache-Control': 'no-store' } });
+    }
     if (error instanceof WorkspaceDocumentCatalogueError) {
       return NextResponse.json({ success: false, error: error.message }, { status: 409 });
     }

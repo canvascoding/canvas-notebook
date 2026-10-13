@@ -3,7 +3,7 @@ import { EventEmitter } from 'node:events';
 import fs from 'node:fs/promises';
 import type http from 'node:http';
 import { createRequire } from 'node:module';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
 import path from 'node:path';
 import ts from 'typescript';
@@ -164,9 +164,9 @@ async function main(mode: 'direct-store-failure' | 'queued-peer-loss'
   | 'terminal-success' | 'terminal-store-failure' | 'terminal-lost-ack'
   | 'admission-terminal' | 'admission-unproven-release' | 'normal-unload' | 'admission-writer-gate' | 'batch-idle-release'
   | 'reader-normal-unload' | 'direct-activity-session' | 'direct-activity-session-close'
-  | 'direct-activity-session-unavailable') {
+  | 'direct-activity-session-unavailable' | 'native-read-busy-postgres') {
   const workspace = {
-    workspaceId: 'owner-workspace',
+    workspaceId: mode === 'native-read-busy-postgres' ? `native-busy-${randomUUID()}` : 'owner-workspace',
     organizationId: null,
     workspaceType: 'personal',
   } as WorkspaceContext;
@@ -217,6 +217,7 @@ async function main(mode: 'direct-store-failure' | 'queued-peer-loss'
   let semanticConflictDetections = 0;
   const persistCalls: Array<{ documentId: string; fence: CollaborationRoomOwnerFence | undefined }> = [];
   let controlledPersist: PersistedCollaborationState | null = null;
+  let persistObserver: ((state: PersistedCollaborationState) => Promise<void>) | null = null;
   let admissionBlocked = false;
   let admissionChecks = 0;
   let blockOnAdmissionCheck = 0;
@@ -453,6 +454,7 @@ async function main(mode: 'direct-store-failure' | 'queued-peer-loss'
           persistedAt: Date.now(),
         };
         states.set(documentId, next);
+        if (persistObserver) await persistObserver(next);
         return { ...next, persistenceDisposition: 'advanced', incomingNeedsReconcile: false };
       },
       markCollaborationDegraded: async () => { markDegradedCalls++; },
@@ -683,6 +685,28 @@ async function main(mode: 'direct-store-failure' | 'queued-peer-loss'
     instance.documents.clear();
     await turn();
   };
+
+  if (mode === 'native-read-busy-postgres') {
+    const { testNativeBusyReadPostgres } = await import('./helpers/file-read-busy-postgres-fixture');
+    await testNativeBusyReadPostgres({
+      workspaceId: workspace.workspaceId, reader: documentReader,
+      room: async id => {
+        states.set(id, { ...makeState(id, 'original+latest'), workspaceId: workspace.workspaceId });
+        const document = await instance.createDocument(id, request, 'reader-loader',
+          { isAuthenticated: true, readOnly: false }, contextFor(id));
+        const state = { ...makeState(id, 'original'), workspaceId: workspace.workspaceId }; states.set(id, state);
+        return { document, state };
+      },
+      onPersist: callback => { persistObserver = callback; },
+      unload: async document => {
+        const barrier = { documentId: document.name, entered: gate(), release: gate() };
+        persistBarrier = barrier;
+        const complete = instance.unloadDocument(document);
+        return { entered: barrier.entered.promise, release: barrier.release.resolve, complete };
+      },
+    });
+    return;
+  }
 
   if (mode === 'direct-activity-session-unavailable') {
     await assert.rejects(activitySession({
@@ -2064,6 +2088,10 @@ async function main(mode: 'direct-store-failure' | 'queued-peer-loss'
 }
 
 async function run() {
+  if (process.argv[2] === '--native-read-busy-postgres') {
+    await main('native-read-busy-postgres');
+    return;
+  }
   const modes = [
     'direct-activity-session',
     'direct-activity-session-close',

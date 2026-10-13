@@ -10,6 +10,7 @@ import { WORKSPACE_ID_HEADER } from '@/app/lib/workspaces/constants';
 import { fetchLiveDocument } from '@/app/lib/collaboration/opened-document-registry';
 import { useWorkspaceStore } from '@/app/store/workspace-store';
 import { fetchDocumentQuery, fetchDocumentTreeQuery } from '@/app/lib/queries/document-queries';
+import { revalidateBusyFileRead } from './read-busy';
 import type { CurrentFile, FileCollaborationState, FileNode, FileRevisionRecord, FileStats } from './types';
 import {
   type WorkspaceBatchUploadResult,
@@ -368,7 +369,8 @@ export async function readWorkspaceFile(
     return await fetchDocumentQuery({ workspaceId: requestWorkspaceId, path, metaOnly, noCache, signal: options.signal,
       collaborationBootstrap: options.collaborationBootstrap },
       async ({ signal }) => {
-        const response = await fetchLiveDocument(url, { credentials: 'include', cache: 'no-store', headers, signal });
+        const response = await revalidateBusyFileRead(() =>
+          fetchLiveDocument(url, { credentials: 'include', cache: 'no-store', headers, signal }), signal);
         if (!response.ok) throw response;
         const { data } = await readApiJson<{ data: CurrentFile }>(response, fallbackMessage);
         return data;
