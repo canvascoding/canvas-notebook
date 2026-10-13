@@ -41,6 +41,12 @@ export interface FileStats {
   fileVersion?: string;
 }
 
+/** A read only supplies fields actually observed from its authoritative
+ * source. Native bootstrap has no exported byte size or filesystem mode;
+ * pending live content has no durable modification timestamp. Known times
+ * retain the existing epoch-seconds contract of FileStats. */
+export type FileReadStats = Partial<FileStats>;
+
 export type FileCollaborationStrategy = 'crdt_text' | 'excalidraw_scene' | 'revision_check' | 'exclusive_lock';
 
 export interface FileRevisionRecord {
@@ -89,7 +95,7 @@ export interface CurrentFile {
   /** Local open lifetime; survives refresh and rename, changes on a new load. */
   editorIdentity?: string;
   content: string;
-  stats?: FileStats;
+  stats?: FileReadStats;
   revision?: FileRevisionRecord | null;
   collaboration?: FileCollaborationState | null;
   /** Keep the local editor mounted when the file disappears or is replaced. */

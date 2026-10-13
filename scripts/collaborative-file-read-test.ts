@@ -22,6 +22,8 @@ import { withNativeWorkspaceFileRead } from '../app/lib/collaboration/workspace-
 import { COLLABORATION_SCHEMA_VERSION } from '../app/lib/collaboration/types';
 import type { SqlConnection } from '../app/lib/db';
 import type { WorkspaceDocumentCatalogueEntry } from '../app/lib/collaboration/workspace-document-catalogue';
+import { formatCompactFileDate } from '../app/lib/files/format';
+import { installCollaborationDocumentReader } from '../app/lib/collaboration/document-access';
 
 const hash = (bytes: Buffer) => createHash('sha256').update(bytes).digest('hex');
 const workspace: WorkspaceContext = {
@@ -174,7 +176,7 @@ test('a native-only rich document reopens through metadata and recovers without 
       const recoveredData = (await recovered.json()).data;
       assert.equal(recoveredData.contentUnavailable, bootstrapRead);
       if (bootstrapRead) {
-        assert.equal(recoveredData.content, ''); assert.equal(recoveredData.stats.size, null);
+        assert.equal(recoveredData.content, ''); assert.equal(Object.hasOwn(recoveredData.stats, 'size'), false);
         assert.equal(recoveredData.stats.sha256, undefined);
       } else {
         assert.match(recoveredData.content, /Neighbor/u);
@@ -185,6 +187,43 @@ test('a native-only rich document reopens through metadata and recovers without 
     }
     assert.equal(h.calls.diskReads, 0); assert.equal(h.calls.revisionWrites, 0);
   } finally { console.error = originalError; doc.destroy(); }
+});
+
+test('native bootstrap supplies only observed metadata with the existing epoch-seconds date contract', async () => {
+  const h = await harness(); h.controls.bootstrap = true;
+  h.controls.state!.persistedAt = 1_791_891_234_567;
+  const response = await h.read(); assert.equal(response.status, 200);
+  const { data } = await response.json();
+  assert.deepEqual(data.stats, { modified: 1_791_891_234 });
+  assert.equal(data.contentUnavailable, true); assert.equal(data.content, '');
+  assert.equal(h.calls.diskReads + h.calls.revisionWrites, 0);
+  assert.doesNotThrow(() => formatCompactFileDate(data.stats.modified, 'de-DE'));
+  h.controls.bootstrap = false;
+  const exported = (await (await h.read()).json()).data;
+  assert.equal(exported.stats.modified, 1_791_891_234);
+  assert.equal(exported.stats.size, Buffer.byteLength(exported.content));
+  assert.equal(exported.stats.sha256, hash(Buffer.from(exported.content)));
+  assert.equal(Object.hasOwn(exported.stats, 'permissions'), false);
+  assert.equal(Object.hasOwn(exported.stats, 'fileVersion'), false);
+  h.controls.bootstrap = true; h.controls.state!.persistedAt = Number.MAX_SAFE_INTEGER;
+  const unusualDate = (await (await h.read()).json()).data;
+  assert.equal(Object.hasOwn(unusualDate.stats, 'modified'), false);
+  assert.equal(formatCompactFileDate(unusualDate.stats.modified, 'de-DE'), '');
+});
+
+test('pending live native metadata has no fabricated size, filesystem mode or durable date', async () => {
+  const h = await harness(); h.controls.bootstrap = true;
+  const live = new Y.Doc(); Y.applyUpdate(live, h.controls.state!.yjsState);
+  live.getText('content').insert(0, 'Pending peer edit ');
+  const uninstall = installCollaborationDocumentReader(async (id, _workspace, read, load) => read(live, await load!(id) ?? undefined));
+  try {
+    const response = await h.read(); assert.equal(response.status, 200);
+    const { data } = await response.json();
+    assert.deepEqual(data.stats, {}); assert.equal(data.nativeSource.source, 'live_yjs');
+    assert.equal(data.contentUnavailable, true); assert.equal(data.content, '');
+    assert.equal(formatCompactFileDate(data.stats.modified, 'de-DE'), '');
+    assert.equal(h.calls.diskReads + h.calls.revisionWrites, 0);
+  } finally { uninstall(); live.destroy(); }
 });
 
 test('rich bootstrap remains closed for foreign identity, denied access, corrupt state, schema, IDs and serializer failures', async () => {

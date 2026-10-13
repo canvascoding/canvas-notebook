@@ -45,6 +45,30 @@ async function main() {
       assert.equal(useFileStore.getState().currentFile?.content, 'fresh');
     }
 
+    const oldRevision = { id: 'old-projection-revision', contentHash: '0'.repeat(64), baseRevisionId: null,
+      createdAt: 1, createdByActorType: 'user', createdByUserId: 'owner' };
+    const nativeFile = { path: 'same.md', content: '', stats: {}, revision: null,
+      collaboration: { path: 'same.md', strategy: 'crdt_text' as const, crdtCapable: true, sceneCapable: false,
+        lockRequired: false, requiresRevisionCheck: false, latestRevision: oldRevision, activeLock: null,
+        document: { id: 'native-history-document', provider: 'yjs' as const, stateVersion: 1,
+          snapshotRevisionId: oldRevision.id, status: 'active' } } };
+    setup('same.md');
+    globalThis.fetch = (async () => Response.json({ success: true, data: nativeFile })) as typeof fetch;
+    assert.equal((await useFileStore.getState().loadFile('same.md', true, workspaceId)).status, 'loaded');
+    assert.deepEqual(useFileStore.getState().currentFile?.stats, {});
+    assert.equal(useFileStore.getState().currentFile?.revision, null, 'Native metadata cannot borrow the old physical checkpoint as its current revision.');
+    const mounted = useFileStore.getState().currentFile!;
+    useFileStore.setState({ currentFile: { ...mounted, content: 'Mounted native content', revision: oldRevision } });
+    await useFileStore.getState().refreshCurrentFileContent('same.md');
+    assert.equal(useFileStore.getState().currentFile?.revision, null, 'Metadata refresh respects explicit revision absence as well.');
+    assert.equal(useFileStore.getState().currentFile?.content, 'Mounted native content');
+    assert.equal(useFileStore.getState().currentFile?.collaboration?.latestRevision?.id, oldRevision.id);
+    const legacy = { ...nativeFile } as Omit<typeof nativeFile, 'revision'> & { revision?: null };
+    delete legacy.revision;
+    globalThis.fetch = (async () => Response.json({ success: true, data: legacy })) as typeof fetch;
+    await useFileStore.getState().refreshCurrentFileContent('same.md');
+    assert.equal(useFileStore.getState().currentFile?.revision?.id, oldRevision.id, 'An older adapter that omits the field retains its documented fallback.');
+
     setup();
     useEditorStore.getState().updateDraft('local draft');
     const requests: string[] = [];
@@ -100,7 +124,7 @@ async function main() {
       if (cancel === 'draft') assert.equal(useEditorStore.getState().draft, 'typed during revalidation');
       assert.equal(useFileStore.getState().isLoadingFile, false);
     }
-    console.log('History reopen passed: normal selection cache, fresh text/binary reads, save barriers, denied read and draft/route/workspace races.');
+    console.log('History reopen passed: fresh scoped reads, partial native metadata/current revision, save barriers, denied read and draft/route/workspace races.');
   } finally {
     globalThis.fetch = originalFetch;
     useEditorStore.getState().clear();

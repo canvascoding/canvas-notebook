@@ -12,7 +12,7 @@ import type {
   CurrentFile,
   FileLoadResult,
   FileNode,
-  FileStats,
+  FileReadStats,
   OpenWorkspaceFileOptions,
   OpenWorkspaceFileResult,
   WorkspaceFileOpenCompletion,
@@ -233,7 +233,7 @@ function readClientFileSort(): { sortKey: FileSortKey; sortDirection: FileSortDi
   return { sortKey, sortDirection };
 }
 
-function areFileStatsEqual(left?: FileStats, right?: FileStats) {
+function areFileStatsEqual(left?: FileReadStats, right?: FileReadStats) {
   return (
     left?.size === right?.size &&
     left?.modified === right?.modified &&
@@ -241,6 +241,14 @@ function areFileStatsEqual(left?: FileStats, right?: FileStats) {
     left?.fileVersion === right?.fileVersion &&
     left?.sha256 === right?.sha256
   );
+}
+
+/** An explicit absent current revision must not borrow an old checkpoint.
+ * Older metadata adapters may omit the field; preserve their fallback only
+ * when they made no current revision statement. */
+function fileReadRevision(data: CurrentFile, fallback: CurrentFile['revision'] = null) {
+  return Object.hasOwn(data, 'revision') ? data.revision ?? null
+    : data.collaboration?.latestRevision ?? fallback ?? null;
 }
 
 /** File API metadata is JSON; preserve references when only serialization order changed. */
@@ -259,7 +267,7 @@ function areFileMetadataEqual(left: unknown, right: unknown): boolean {
 function updateFileRevision(
   revisions: Record<string, string>,
   filePath: string,
-  stats?: FileStats,
+  stats?: FileReadStats,
 ): Record<string, string> {
   const revision = stats?.sha256 ?? stats?.fileVersion;
   if (!revision || revisions[filePath] === revision) return revisions;
@@ -823,7 +831,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
         editorIdentity: String(requestId),
         content: data.content,
         stats: data.stats,
-        revision: data.revision ?? data.collaboration?.latestRevision ?? null,
+        revision: fileReadRevision(data),
         collaboration: data.collaboration ?? null,
       };
       set((state) => ({
@@ -937,7 +945,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
           set({ currentFile: { ...currentFile, unavailable: 'replaced' } });
           return null;
         }
-        const revision = data.revision ?? data.collaboration?.latestRevision ?? currentFile.revision ?? null;
+        const revision = fileReadRevision(data, currentFile.revision);
         const collaboration = data.collaboration ?? currentFile.collaboration ?? null;
         const refreshedFile: CurrentFile = {
           ...currentFile,
@@ -960,7 +968,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
         ...currentFile,
         content: metaOnly ? currentFile.content : data.content,
         stats: data.stats,
-        revision: data.revision ?? data.collaboration?.latestRevision ?? currentFile.revision ?? null,
+        revision: fileReadRevision(data, currentFile.revision),
         collaboration: data.collaboration ?? currentFile.collaboration ?? null,
       };
       const latestEditor = useEditorStore.getState();

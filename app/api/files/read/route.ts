@@ -12,6 +12,7 @@ import { isExcalidrawFilePath } from '@/app/lib/excalidraw-file';
 import { requireRequestWorkspace, workspaceFileOptions } from '@/app/lib/workspaces/request';
 import { collaborationCheckpointValidationFailure } from '@/app/lib/collaboration/checkpoint-errors';
 import { withNativeWorkspaceFileRead } from '@/app/lib/collaboration/workspace-native-file-read';
+import type { FileReadStats } from '@/app/lib/files/types';
 
 const READ_SIZE_LIMIT = 5 * 1024 * 1024; // 5MB
 const EXCALIDRAW_READ_SIZE_LIMIT = 25 * 1024 * 1024; // embedded image data can make scenes larger
@@ -66,11 +67,13 @@ export async function GET(request: NextRequest) {
           throw Object.assign(new Error('The native document changed before its response.'), { status: 409 });
         }
         const sha256 = native.content ? sha256Buffer(native.content) : null;
+        const modified = native.modifiedAt !== null && Number.isFinite(new Date(native.modifiedAt).getTime())
+          ? Math.floor(native.modifiedAt / 1000) : undefined;
         return NextResponse.json({ success: true, data: {
           path, content: native.content?.toString('utf8') ?? '', contentUnavailable: native.contentUnavailable,
-          stats: { size: native.content?.length ?? null,
-            modified: native.modifiedAt === null ? null : new Date(native.modifiedAt).toISOString(),
-            ...(sha256 ? { sha256 } : {}) },
+          stats: { ...(native.content ? { size: native.content.length } : {}),
+            ...(modified === undefined ? {} : { modified }),
+            ...(sha256 ? { sha256 } : {}) } satisfies FileReadStats,
           revision: sha256 && collaboration.latestRevision?.contentHash === sha256 ? collaboration.latestRevision : null,
           collaboration,
           nativeSource: { documentId: native.documentId, lifecycleGeneration: native.lifecycleGeneration,
