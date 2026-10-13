@@ -638,6 +638,7 @@
     "test:notebook:mutations": "tsx scripts/notebook-path-mutations-test.ts && tsx --conditions react-server scripts/notebook-agent-path-mutations-test.ts",
     "test:collaboration:live": "tsx --conditions react-server scripts/file-live-collaboration-test.ts",
     "test:collaboration:native-snapshot": "tsx --conditions react-server scripts/collaboration-native-snapshot-test.ts",
+    "test:collaboration:text-snapshot": "tsx --conditions react-server scripts/collaboration-text-snapshot-read-test.ts",
     "test:collaboration:native-recovery": "tsx --conditions react-server scripts/collaboration-native-recovery-test.ts",
     "test:collaboration:native-copy": "tsx --conditions react-server scripts/collaboration-native-copy-postgres-test.ts",
     "test:files:native-links": "tsx --conditions react-server scripts/workspace-native-links-test.ts && tsx --conditions react-server scripts/workspace-native-link-mutations-test.ts",

@@ -708,6 +708,7 @@ async function readDirectMcpTextContent(input: {
   const snapshot = await readCurrentCollaborationTextSnapshot({
     documentId: collaboration.document.id,
     workspace: input.workspace,
+    path: input.path,
   });
   return {
     content: snapshot.content,

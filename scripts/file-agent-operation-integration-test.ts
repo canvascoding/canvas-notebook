@@ -236,17 +236,17 @@ const activeDocuments = new Map<string, Y.Doc>();
 const deferredAgentPersistence = new Set<string>();
 const deferredAgentProjection = new Set<string>();
 const directConnectionInputs: Array<{ operationId: string; actorSessionId?: string }> = [];
-const uninstallDocumentReader = installCollaborationDocumentReader(async (targetDocumentId, targetWorkspaceId, read) => {
-  const state = await loadCollaborationState(targetDocumentId);
+const uninstallDocumentReader = installCollaborationDocumentReader(async (targetDocumentId, targetWorkspaceId, read, loadState = loadCollaborationState) => {
+  const state = await loadState(targetDocumentId);
   assert(state);
   assert.equal(state.workspaceId, targetWorkspaceId);
   const activeDocument = activeDocuments.get(targetDocumentId);
-  if (activeDocument) return read(activeDocument);
+  if (activeDocument) return read(activeDocument, state);
 
   const doc = new Y.Doc({ gc: true });
   try {
     Y.applyUpdate(doc, state.yjsState);
-    return read(doc);
+    return read(doc, state);
   } finally {
     doc.destroy();
   }

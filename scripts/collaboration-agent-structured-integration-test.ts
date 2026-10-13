@@ -56,7 +56,7 @@ async function main() {
   let beforeApply: (() => void) | null = null;
   let readGate: { promise: Promise<void>; release: () => void; count: number } | null = null;
   let applyCount = 0;
-  const uninstallRead = installCollaborationDocumentReader(async (id, workspaceId, read) => {
+  const uninstallRead = installCollaborationDocumentReader(async (id, workspaceId, read, loadState = loadCollaborationState) => {
     assert.equal(id, document.documentId); assert.equal(workspaceId, workspace.workspaceId);
     const gate = readGate;
     if (gate) {
@@ -64,7 +64,9 @@ async function main() {
       if (gate.count === 2) { readGate = null; gate.release(); }
       await gate.promise;
     }
-    return read(live);
+    const currentState = await loadState(id);
+    assert(currentState);
+    return read(live, currentState);
   });
   const uninstallDirect = installCollaborationDirectConnection(async (input, apply, onApplied) => {
     const current = await loadCollaborationState(input.documentId);

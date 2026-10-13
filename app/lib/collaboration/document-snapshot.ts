@@ -57,7 +57,8 @@ function sharedPlainText(doc: YTypes.Doc, name: string): string {
   } catch { throw new CollaborationCheckpointValidationError('schema_invalid'); }
 }
 
-function inspectNativeDocument(doc: YTypes.Doc, representation: PersistedCollaborationState['representation']): {
+/** Native content validation carries no durable clock or persistence assertion. */
+export function inspectNativeDocument(doc: YTypes.Doc, representation: PersistedCollaborationState['representation']): {
   version: NativeCollaborationVersion;
   content: NativeCollaborationContent;
 } {
