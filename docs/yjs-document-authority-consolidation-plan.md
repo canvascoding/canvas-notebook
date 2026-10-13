@@ -1,6 +1,6 @@
 # Plan: Yjs-Dokumentautorität und sichere Dateiaktionen konsolidieren
 
-**Status:** Entwurf zur gemeinsamen Prüfung; keine Umsetzungsfreigabe.
+**Status:** Umsetzung am 13. Oktober 2026 freigegeben; Arbeitspakete und Abnahmen werden unten fortgeschrieben.
 
 **Stand:** 13. Oktober 2026.
 
@@ -491,7 +491,7 @@ Gemäß ergänztem Nutzerauftrag wird ausschließlich in Git-Worktrees gearbeite
 
 ### 12.1 Checkliste für die gemeinsame Fortschreibung
 
-- [ ] YD-00: Planentscheidungen und Inventar akzeptiert.
+- [x] YD-00: Planentscheidungen und Inventar akzeptiert; Umsetzungsvorgaben und bestehende synthetische Regression festgelegt (§16.1).
 - [ ] YD-01: Roundtrip-Ursache und Reproducer belegt.
 - [ ] YD-02: Snapshot-/Autoritätsvertrag umgesetzt und geprüft.
 - [ ] YD-03: Autoritative Sicherung, Clone und Import geprüft.
@@ -700,6 +700,8 @@ Die bestehende historische `bold`/`code`-Reparatur ist kein Beleg dafür, dass d
 
 ## 16. Offene Entscheidungen für unsere gemeinsame Prüfung
 
+Die folgenden Empfehlungen sind mit dem Umsetzungsauftrag als Ausgangsentscheidungen übernommen. §16.1 konkretisiert ihre operative Ausführung; neue Tatsachen oder notwendige Vertragsänderungen werden dort nachvollziehbar ergänzt. Ressourcen-/Retention-Zielwerte entstehen weiterhin aus der vorgesehenen Messung und werden nicht erfunden.
+
 | ID | Entscheidung | Empfehlung | Folge/noch benötigte Klärung |
 | --- | --- | --- | --- |
 | D-01 | Ist der maßgebliche Planstand live oder gesichert? | Gesicherter Yjs-Stand mit geeignetem Raum-/Store-Barrier; Apply revalidiert aktuelle Ziele. | Snapshot-Frische und Namespace-Konsistenz über mehrere Dokumente präzisieren. |
@@ -721,6 +723,20 @@ Die bestehende historische `bold`/`code`-Reparatur ist kein Beleg dafür, dass d
 
 Diese Entscheidungen werden vor Beginn der jeweils abhängigen Implementierung geschlossen. Der Plan kann um weitere Nutzungsfälle erweitert werden, ohne seine bisherigen offenen Aufgaben als erledigt zu markieren.
 
+### 16.1 Umsetzungsvorgaben und YD-00-Nachweis
+
+- **Autorität:** Native Reads und strukturierte Linkprüfung auf validiertem Yjs; Text-/Export-Reads behalten strenge Verlustfreiheitsprüfung. Keine Disk-Reinitialisierung initialisierter Dokumente. Der Planstand benennt persistierte Sequenz/StateProof; Live-Inhalt erhält keinen älteren Persistenzbeleg.
+- **Mechanik:** Vorhandene Reader-, Admission-, Owner-, Persistenz- und Lifecycle-Verfahren weiterverwenden. Native Snapshot-Fähigkeit und Exportfähigkeit werden getrennt; keine zweite CRDT-Persistenz. Dauerhafte Mutation, Lifecycle/Pfad und Dateiprojektion tragen eigene Belege.
+- **Recovery/Copy/Undo:** Binäre Sicherung plus vorhandene physische Artefakte; neue Copy-Identität/isolierte CRDT-Lineage; bedingte inverse Zieloperationen. Alte Journale bleiben versionsgebunden lesbar. Bestehende Retention wird zunächst beibehalten; Änderungen benötigen gemessene Kosten und Restore-Nachweis.
+- **Editor:** Direktes natives Bearbeiten für Berechtigte; keine Read/Edit-Auswahl und kein ungefragter Autofokus. Source nur für tatsächlich unterstützte Repräsentation. Breite/Fokus in bestehende Kopfzeile, kompakter Menüzugang bei Platzmangel; Rechte-/Recovery-Gates bleiben wirksam. Web-, Formular-, Gast- und Native-Mobile-Flächen erhalten separate Nachweise.
+- **Paste/Import:** Normales Paste verwendet den sicheren nativen Clipboard-Vertrag. Explizite Markdown-Einfügung bleibt der eindeutige Weg zur Strukturübernahme; keine neue heuristische Gesamtdokument-Konvertierung bei gewöhnlichem Paste. Vollständige Dateimporte über den bestehenden Upload-/Importweg erhalten Metadaten und wählen vor Erstinitialisierung Rich oder texttreues Source. Übernahme in eine bereits initialisierte leere Datei benötigt gebundene Zielprüfung statt Rohdatei-Overwrite.
+- **Syntax und Budgets:** Vorhandene Markdown-/Struktur-/Ressourcenlimits weiterverwenden und Coverage ehrlich ausweisen. `.mdx` und unbekannte Rich-/HTML-Strukturen werden nicht ohne geprüften Adapter freigegeben. Legacy-XML behält seine bestehenden Migrations-/Undo-Grenzen. Neue Budgets folgen YD-12-Messung.
+- **Synthetische Baseline:** Der vorhandene native-only Fall in `scripts/collaborative-file-read-test.ts` (Code-Mark mit `odd\\|pipe` in einer Tabellenzelle) belegt strukturell darstellbaren Inhalt bei `roundtrip_unstable`; er ist die Regression für unabhängige native Reads/Graphprüfung. Schema-/ID-/Vector-/Scope-Negativfälle bleiben zusätzlich verpflichtend. Das ist ausdrücklich kein Nachweis der unbekannten konkreten Transkript-Ursache.
+- **Abschluss/Rollout:** Versionierte neue Belege und gemeinsames Aktivierungsgate; keine Disk-Rückfalloption. Rollout/Produktionsreparatur bleibt ein eigener Auftrag. YD-13 liefert den gesonderten API-/SDK-Plan nach internem Abnahmevertrag.
+- **Arbeitsstand:** Implementierung startet von `59886de5b` im Worktree `824c`. Rein lesende Codec-/Test-/Linkinventare laufen parallel; Implementierung folgt den fertigen Voraussetzungen und eindeutigen File-Ownern aus §12.3. GitNexus-Index und Dependencies werden für diesen tatsächlichen Checkout hergestellt. Bereits laufende fremde Testserver/Container werden nicht unkoordiniert gestoppt oder als aktueller Goal-Stand gewertet.
+
+YD-00 ist damit als Vertrags-/Inventarentscheidung abgeschlossen, nicht als bestandene Anwendungscode-/Browserabnahme. Alle folgenden Implementierungs- und Abnahmepakete bleiben offen.
+
 ## 17. Änderungs- und Nachweisprotokoll
 
 | Datum | Änderung | Nachweis/Status |
@@ -728,5 +744,6 @@ Diese Entscheidungen werden vor Beginn der jeweils abhängigen Implementierung g
 | 2026-10-13 | Erstentwurf aus Architekturvorschlag, bestätigter Transkript-Diagnose und aktuellem Quelleninventar. Strukturierter Linkgraph, autoritative Backups/Copy/Undo und versionierte Batch-Belege als zusätzliche P0-Abhängigkeiten aufgenommen. | Plan erstellt; keine Anwendungscode- oder Produktionsänderung. |
 | 2026-10-13 | Nutzerergänzung: Read/Edit-Auswahl entfernen und sichtbaren Inhalt direkt editierbar machen. Platzierung von Dokumentbreite und Vollbild/Fokus, gemeinsame Formular-/Gastflächen, Source-/Rechtegrenzen und konkrete UI-Abnahme ergänzt. | Aktuelle UI-Quellen gelesen; konkrete Platzierung vorgeschlagen. UI-Implementierung und visuelle Browserabnahme stehen noch aus. |
 | 2026-10-13 | Nutzerergänzung: Manuelles Create, erster Text-Paste, Markdown-Einfügung und vollständiger Dateimport einschließlich echter Browser-/Persistenzabnahme ergänzt. Umsetzung im Worktree und parallele unabhängige Arbeit mit expliziten Abhängigkeiten statt pauschal serieller Reihenfolge festgelegt. | Bestehende Insertion-Fixtures geprüft; API-Create und Dialog-Paste als engeren bisherigen Nachweis ausgewiesen. Plan erweitert; Anwendung/Browser-Abnahme noch ausstehend. |
+| 2026-10-13 | Umsetzung freigegeben; YD-00-Verträge nach §16.1 festgelegt. Bestehende native-only Regression als synthetische Baseline gewählt; Codecdiagnose, Linkadapter- und Testinventar parallel delegiert. | Aktueller Worktree/Branch/HEAD geprüft; YD-00 abgeschlossen, YD-01/02 in Arbeit. Keine Produktionsmutation oder neue Testcontainer. |
 
 Für spätere Einträge: Entscheidung/Arbeitspaket, relevante Commit-Basis, Begründung, geprüfte Ebenen, Ergebnis und bekannte Grenzen aufnehmen. Historische Aussagen in den bisherigen Plänen werden nicht rückwirkend als neue Produktionsabnahme interpretiert.
