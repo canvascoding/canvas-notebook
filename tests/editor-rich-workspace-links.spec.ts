@@ -33,6 +33,28 @@ test('rich writer plain-click menu and Ctrl/Cmd/Open navigate exact scoped docum
     expect((await page.request.post('/api/files/upload', { headers: scope, multipart: { path: directory,
       files: { name, mimeType: 'text/markdown', buffer: Buffer.from(value) } } })).ok()).toBe(true);
   };
+  const createExactDocument = async (filePath: string, value: string) => {
+    // Multipart uploads sanitize | to _. This resolver fixture needs a real
+    // literal-pipe name, created through the existing exact-path JSON API.
+    await waitForFileCreateBudget();
+    const created = await page.request.post('/api/files/create', { headers, data: { path: filePath, type: 'file' } });
+    expect(created.ok()).toBe(true);
+    const originalResponse = await page.request.get('/api/mobile/v1/notebook/document', { headers, params: { path: filePath } });
+    expect(originalResponse.ok()).toBe(true);
+    const original = await originalResponse.json();
+    expect(original.success).toBe(true);
+    expect(original.document.path).toBe(filePath);
+    expect(original.document.sha256).toMatch(/^[a-f\d]{64}$/u);
+    const saved = await page.request.put('/api/mobile/v1/notebook/document', { headers, data: {
+      path: filePath, content: value, expectedSha256: original.document.sha256, baseRevisionId: original.document.revisionId,
+    } });
+    expect(saved.ok()).toBe(true);
+    const read = await page.request.get('/api/files/read', { headers, params: { path: filePath } });
+    expect(read.ok()).toBe(true);
+    const data = (await read.json()).data;
+    expect(data.path).toBe(filePath);
+    expect(data.content).toBe(value);
+  };
   const openSource = async () => {
     await page.goto(`/en/notebook?path=${encodeURIComponent(source)}&workspaceId=${shared.id}`);
     await expect(page.locator(selector)).toHaveAttribute('contenteditable', 'true', { timeout: 45_000 });
@@ -45,7 +67,7 @@ test('rich writer plain-click menu and Ctrl/Cmd/Open navigate exact scoped docum
       await waitForFileCreateBudget();
       expect((await page.request.post('/api/files/create', { headers, data: { path: directory, type: 'directory' } })).ok()).toBe(true);
     }
-    await upload(source, content, headers); await upload(target, destination, headers);
+    await upload(source, content, headers); await createExactDocument(target, destination);
     await upload(privatePath, '# Private marker must stay outside the shared workspace.\n', privateHeaders);
     await openSource(); const initial = await tree(page);
     for (const method of ['ctrl', 'cmd', 'open-menu'] as const) {
