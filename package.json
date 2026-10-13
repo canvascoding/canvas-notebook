@@ -654,6 +654,7 @@
     "test:files:native-link-persistence:postgres": "NODE_ENV=test tsx --conditions react-server scripts/native-link-mutation-postgres-test.ts",
     "test:files:native-handoff:postgres": "NODE_ENV=test tsx --conditions react-server scripts/native-file-operation-handoff-postgres-test.ts",
     "test:files:native-side-effects:postgres": "NODE_ENV=test tsx --conditions react-server scripts/native-file-operation-side-effects-postgres-test.ts",
+    "test:files:native-side-effect-writer:postgres": "NODE_ENV=test tsx --conditions react-server scripts/workspace-side-effect-writer-fence-postgres-test.ts",
     "test:collaboration:native-copy": "tsx --conditions react-server scripts/collaboration-native-copy-postgres-test.ts",
     "test:files:native-links": "tsx --conditions react-server scripts/workspace-native-links-test.ts && tsx --conditions react-server scripts/workspace-native-link-mutations-test.ts",
     "test:collaboration:markdown-projection": "tsx --conditions react-server scripts/markdown-codec-projection-diagnosis-test.ts && tsx --conditions react-server scripts/markdown-control-character-roundtrip-test.ts",
