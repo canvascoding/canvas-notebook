@@ -10,8 +10,16 @@ import { assertIssuerInput, configureIssuerEnvironment } from './helpers/agent-w
 import { withOwnedTestCleanup } from '../tests/helpers/owned-test-cleanup';
 
 type Input = Awaited<ReturnType<typeof assertIssuerInput>>;
-type CP = typeof import('../../canvas-control-plane/apps/api/src/services/licenses');
-type CPPolicy = typeof import('../../canvas-control-plane/apps/api/src/services/teamSeatGrantPolicy');
+// This fixture loads the verified sibling at runtime. Notebook type checking
+// must not require a second repository beside every isolated worktree.
+type CP = { refreshCommunityLicenseCertificate(licenseId: string, instanceId: string): Promise<{ license: string } | null> };
+type CPPolicy = {
+  assertTeamSeatGrantPolicy(input: {
+    grantType: 'test'; actorUserId: string; allowedUserId: string;
+    licenseEnvironment: 'development'; seatLimit: number; expiresAt: Date;
+  }, now?: Date): void;
+  TeamSeatGrantPolicyError: new (statusCode: number, code: string, message: string) => Error & { readonly code: string };
+};
 type Row = Record<string, unknown>;
 type Query = { from: (value: object) => Query; where: (predicate: unknown) => Query; orderBy: (order: unknown) => Query;
   limit: (limit: number) => Promise<Row[]>; then: (resolve: (value: Row[]) => unknown, reject: (error: unknown) => unknown) => Promise<unknown> };
