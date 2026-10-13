@@ -322,10 +322,10 @@ test.describe('Manual document creation and first content', () => {
     }
   });
 
-  test('ordinary text preview revalidates through the scoped loader on browser history reopen', async ({ page }) => {
+  test('ordinary revision-checked text preview revalidates through the scoped loader on browser history reopen', async ({ page }) => {
     const workspace = await login(page);
     const basename = `manual-history-text-${randomUUID()}`;
-    const path = `${basename}.txt`;
+    const path = `${basename}.log`;
     const content = 'Ordinary text preview must revalidate when history reopens it.';
     try {
       expect((await page.request.post('/api/files/upload', { headers: workspace.headers, multipart: { path: '.',
