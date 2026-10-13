@@ -75,6 +75,13 @@ recovery after a process exits between fsync and the database commit. External
 conflicting bytes are preserved in history. Version content records contain the
 actual portable bytes, including assets.
 
+Scene and operation reads inspect the existing checkpoint under the workspace
+and scene locks without publishing files. Changed external bytes mark the
+checkpoint as failed and are retained once in version history; PostgreSQL stays
+authoritative. Exact hash and inode receipts distinguish interrupted internal
+publication from an external change. A read never imports conflicting content
+or overwrites it.
+
 PostgreSQL notifications carry only document identity, sequence and optional
 operation identity. The existing WebSocket server loads durable data. It
 deduplicates deliveries, closes sequence gaps with a complete scene, and resyncs

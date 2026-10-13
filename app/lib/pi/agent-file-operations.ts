@@ -809,6 +809,7 @@ async function collaborativeAgentExcalidrawContext(input: { workspaceId?: string
   workspace: WorkspaceContext;
   executionContext: AgentExecutionContext;
   actor: ExcalidrawDocumentActor;
+  verifyCurrent: () => Promise<WorkspaceContext>;
   beforeApply: () => Promise<void>;
 }> {
   const executionContext = getAgentExecutionContext();
@@ -852,6 +853,7 @@ async function collaborativeAgentExcalidrawContext(input: { workspaceId?: string
   return { workspace: await readAuthority(), executionContext: context,
     actor: { userId: context.userId, actorId: context.agentId || DEFAULT_MANAGED_AGENT_ID,
       actorType: 'agent', sessionId: context.sessionId },
+    verifyCurrent: readAuthority,
     beforeApply: async () => { await readAuthority(); },
   };
 }
@@ -880,8 +882,8 @@ export async function getAgentExcalidrawScene(input: {
   const context = await collaborativeAgentExcalidrawContext({ workspaceId: input.workspaceId });
   const relativePath = input.path === undefined ? undefined : await excalidrawAgentPath(context.workspace, input.path);
   const scene = await getExcalidrawDocument({ workspace: context.workspace, actor: context.actor,
-    path: relativePath, documentId: input.documentId });
-  await context.beforeApply();
+    path: relativePath, documentId: input.documentId, beforeRead: context.verifyCurrent });
+  await context.verifyCurrent();
   return scene;
 }
 

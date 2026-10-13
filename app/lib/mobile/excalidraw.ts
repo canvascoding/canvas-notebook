@@ -72,8 +72,13 @@ export async function readMobileExcalidrawDocument(input: {
   beforeRead?: () => Promise<WorkspaceContext>;
 }): Promise<MobileExcalidrawDocument> {
   return withWorkspaceMutationLock(input.workspace.workspaceId, async () => {
-    const workspace = await input.beforeRead?.() ?? input.workspace;
-    return documentValue(workspace, await getExcalidrawDocument({ workspace, path: normalizeExcalidrawPath(input.path) }));
+    let workspace = await input.beforeRead?.() ?? input.workspace;
+    const scene = await getExcalidrawDocument({ workspace, path: normalizeExcalidrawPath(input.path),
+      beforeRead: input.beforeRead ? async () => {
+        workspace = await input.beforeRead!();
+        return workspace;
+      } : undefined });
+    return documentValue(workspace, scene);
   });
 }
 
@@ -87,7 +92,7 @@ export async function saveMobileExcalidrawDocument(input: {
   const content = parsePortableScene(input.content);
   return withWorkspaceMutationLock(input.workspace.workspaceId, async () => {
     const workspace = await input.beforeApply?.() ?? input.workspace;
-    const scene = await getExcalidrawDocument({ workspace, path: filePath });
+    const scene = await getExcalidrawDocument({ workspace, path: filePath, beforeRead: input.beforeApply });
     if (!Number.isSafeInteger(input.baseSceneSequence) || Number(input.baseSceneSequence) < 0) throw new MobileExcalidrawError(
       'A current Excalidraw scene sequence is required.', 428, 'FILE_REVISION_REQUIRED', scene.sceneSequence);
     if (input.documentId !== undefined || input.lifecycleGeneration !== undefined) {

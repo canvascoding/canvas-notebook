@@ -342,6 +342,49 @@ async function mcp(current: WorkspaceContext) {
   assert.equal((await rows('SELECT operation_id FROM collaboration_excalidraw_agent_operations WHERE workspace_id=$1 AND idempotency_key=$2',
     [current.workspaceId, revokedEdit.idempotencyKey])).length, 0);
   state.enabledTools = definitions.map(tool => tool.id);
+  state.mutateOnVerify = undefined;
+  for (const revoke of ['allowed', 'canRead'] as const) {
+    const filePath = path.join(current.rootPath, input.path);
+    const original = await fs.readFile(filePath);
+    const historyBefore = await rows('SELECT id FROM file_revisions WHERE workspace_id=$1 AND path=$2',
+      [current.workspaceId, input.path]);
+    const stateBefore = await rows('SELECT degraded_reason FROM collaboration_excalidraw_states WHERE document_id=$1',
+      [scene.documentId]) as Array<{ degraded_reason: string | null }>;
+    await fs.writeFile(filePath, JSON.stringify({ type: 'excalidraw', version: 2,
+      elements: [element(`foreign-${revoke}`)], appState: {}, files: {} }));
+    const lock = await openDb();
+    let pending: ReturnType<typeof call> | undefined;
+    try {
+      await lock.run('BEGIN');
+      const owner = await lock.get('SELECT pg_backend_pid() AS pid') as { pid: number };
+      await lock.get('SELECT document_id FROM collaboration_excalidraw_states WHERE document_id=$1 FOR UPDATE',
+        [scene.documentId]);
+      pending = call('get_excalidraw_scene', { workspaceId: current.workspaceId, documentId: scene.documentId });
+      const deadline = Date.now() + 15_000;
+      let waiting = false;
+      while (Date.now() < deadline) {
+        const blocked = await rows(`SELECT count(*) AS count FROM pg_stat_activity
+          WHERE datname=current_database() AND $1=ANY(pg_blocking_pids(pid))`, [owner.pid]) as Array<{ count: string }>;
+        if (Number(blocked[0].count) > 0) { waiting = true; break; }
+        await new Promise(resolve => setTimeout(resolve, 20));
+      }
+      assert.ok(waiting, 'The production MCP Get adapter must wait on the native PostgreSQL scene row.');
+      state[revoke] = false;
+      await lock.run('COMMIT');
+      toolFailure(await pending, 'EXCALIDRAW_MCP_AUTHORITY_CHANGED');
+      assert.equal((await rows('SELECT id FROM file_revisions WHERE workspace_id=$1 AND path=$2',
+        [current.workspaceId, input.path])).length, historyBefore.length,
+      'MCP grant/ACL revocation must prevent checkpoint history side effects.');
+      assert.deepEqual(await rows('SELECT degraded_reason FROM collaboration_excalidraw_states WHERE document_id=$1',
+        [scene.documentId]), stateBefore);
+    } finally {
+      await lock.run('ROLLBACK').catch(() => undefined);
+      await lock.close();
+      await pending?.catch(() => undefined);
+      state[revoke] = true;
+      await fs.writeFile(filePath, original);
+    }
+  }
   state.verifyCalls = 0;
   state.mutateOnVerify = { call: 2, apply: () => { state.sessionId = 'different-session'; } };
   toolFailure(await call('get_excalidraw_scene', { workspaceId: current.workspaceId, path: input.path }), 'EXCALIDRAW_MCP_AUTHORITY_CHANGED');

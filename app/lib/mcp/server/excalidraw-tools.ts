@@ -69,7 +69,8 @@ export async function executeDirectMcpExcalidrawTool(id: DirectMcpExcalidrawTool
       : id === 'get_excalidraw_scene' ? parseExcalidrawGetInput(raw) : parseExcalidrawEditInput(raw);
     if (!input.workspaceId) throw new ExcalidrawApiInputError('workspaceId is required for external MCP access.');
     const authority = await createDirectMcpExcalidrawAuthority({ token: authInfo.token, tool: id, workspaceId: input.workspaceId });
-    const beforeApply = async () => { signal?.throwIfAborted(); await authority.verifyCurrent(); };
+    const verifyCurrent = async () => { signal?.throwIfAborted(); return authority.verifyCurrent(); };
+    const beforeApply = async () => { await verifyCurrent(); };
     let result;
     if (id === 'create_excalidraw_scene') {
       result = await createExcalidrawDocument({ ...parseExcalidrawCreateInput(raw), workspace: authority.workspace,
@@ -77,7 +78,8 @@ export async function executeDirectMcpExcalidrawTool(id: DirectMcpExcalidrawTool
     } else if (id === 'get_excalidraw_scene') {
       result = await withWorkspaceMutationLock(authority.workspace.workspaceId, async () => {
         signal?.throwIfAborted();
-        return getExcalidrawDocument({ ...parseExcalidrawGetInput(raw), workspace: await authority.verifyCurrent(), actor: authority.actor });
+        return getExcalidrawDocument({ ...parseExcalidrawGetInput(raw), workspace: await verifyCurrent(),
+          actor: authority.actor, beforeRead: verifyCurrent });
       });
     } else {
       result = excalidrawOperationFeedback(await applyExcalidrawChanges({ ...parseExcalidrawEditInput(raw),

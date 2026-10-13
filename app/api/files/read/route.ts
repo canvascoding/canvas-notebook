@@ -54,7 +54,7 @@ export async function GET(request: NextRequest) {
     if (isExcalidrawFilePath(path)) {
       const verify = excalidrawRequestAuthority(request, workspaceResult, 'canRead');
       const scene = await withWorkspaceMutationLock(workspaceResult.workspace.workspaceId, async () =>
-        getExcalidrawDocument({ workspace: await verify(), path,
+        getExcalidrawDocument({ workspace: await verify(), path, beforeRead: verify,
         actor: { userId: workspaceResult.session.user.id, actorId: `user:${workspaceResult.session.user.id}`,
           actorType: 'user', sessionId: workspaceResult.session.session.id } }));
       const content = await serializePortableExcalidrawScene(scene);

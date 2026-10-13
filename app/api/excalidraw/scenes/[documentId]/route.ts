@@ -16,7 +16,7 @@ export async function GET(request: NextRequest, context: { params: Promise<{ doc
     if (access.response) return access.response;
     const verify = excalidrawRequestAuthority(request, access, 'canRead');
     const document = await withWorkspaceMutationLock(access.workspace.workspaceId, async () =>
-      getExcalidrawDocument({ ...input, workspace: await verify() }));
+      getExcalidrawDocument({ ...input, workspace: await verify(), beforeRead: verify }));
     return NextResponse.json({ success: true, document }, { headers: { 'Cache-Control': 'no-store' } });
   } catch (error) { return excalidrawRouteError(error); }
 }

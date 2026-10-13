@@ -136,12 +136,15 @@ async function roundTrip(current: WorkspaceContext, other: WorkspaceContext) {
     observedSceneSequence: observed.sceneSequence, actions: [{ type: 'update', elementId: target.id,
       expectedVersion: target.version, expectedVersionNonce: target.versionNonce, element: { ...target, x: 20 } }] };
   success(await invoke(current, 'edit_excalidraw_scene', update));
-  const review = success<{ status: string; reviewRequired: boolean; reviewHint: string; documentUrl: string }>(
+  const review = success<{ status: string; reviewRequired: boolean; reviewAvailable: boolean;
+    conflictHint: string; reviewHint: string | null; documentUrl: string }>(
     await invoke(current, 'edit_excalidraw_scene', { ...update,
       actions: [{ ...update.actions[0], element: { ...target, x: 30 } }] }));
   assert.equal(review.status, 'needs_review');
   assert.equal(review.reviewRequired, true);
-  assert.match(review.reviewHint, /not been applied/);
+  assert.match(review.conflictHint, /not been applied/);
+  if (review.reviewAvailable) assert.match(review.reviewHint!, /accept or reject/);
+  else assert.equal(review.reviewHint, null);
   assert.equal(review.documentUrl, created.documentUrl);
   assert.doesNotMatch(getToolDisplayInfo('edit_excalidraw_scene', 'de', review).label, /aktualisiert/iu);
   assert.equal((await loadExcalidrawScene(created.documentId))!.elements[0].x, 20);
@@ -213,6 +216,56 @@ async function revokeWhileLocked(current: WorkspaceContext, observed: Excalidraw
   }
 }
 
+async function revokeReadWhileRowLocked(current: WorkspaceContext, observed: ExcalidrawDocumentSnapshot) {
+  const filePath = path.join(current.rootPath, observed.path);
+  const original = await fs.readFile(filePath);
+  for (const name of ['get_excalidraw_scene', 'read']) {
+    const before = await loadExcalidrawScene(observed.documentId);
+    assert.ok(before);
+    const historyBefore = await sql('SELECT id FROM file_revisions WHERE workspace_id=$1 AND path=$2',
+      [current.workspaceId, observed.path]);
+    await fs.writeFile(filePath, JSON.stringify({ type: 'excalidraw', version: 2,
+      elements: [element(`foreign-${name}`)], appState: {}, files: {} }));
+    const lock = await openDb();
+    let pending: ReturnType<typeof invoke> | undefined;
+    try {
+      await lock.run('BEGIN');
+      const owner = await lock.get('SELECT pg_backend_pid() AS pid') as { pid: number };
+      await lock.get('SELECT document_id FROM collaboration_excalidraw_states WHERE document_id=$1 FOR UPDATE',
+        [observed.documentId]);
+      pending = invoke(current, name, name === 'read' ? { path: observed.path }
+        : { documentId: observed.documentId });
+      const deadline = Date.now() + 15_000;
+      let waiting = false;
+      while (Date.now() < deadline) {
+        const blocked = await sql(`SELECT count(*) AS count FROM pg_stat_activity
+          WHERE datname=current_database() AND $1=ANY(pg_blocking_pids(pid))`, [owner.pid]) as { count: string }[];
+        if (Number(blocked[0].count) > 0) { waiting = true; break; }
+        await new Promise(resolve => setTimeout(resolve, 20));
+      }
+      assert.ok(waiting, 'The actual Pi read must wait on the PostgreSQL scene row after its initial authority check.');
+      await lock.run('UPDATE canvas_workspace_members SET can_read=0,can_write=0 WHERE workspace_id=$1 AND user_id=$2',
+        [current.workspaceId, userId]);
+      await lock.run('COMMIT');
+      failure(await pending, name === 'read' ? undefined : 'EXCALIDRAW_PERMISSION_DENIED');
+      const after = await loadExcalidrawScene(observed.documentId);
+      assert.equal(after!.degradedReason, before.degradedReason,
+        'A revoked read must not modify checkpoint metadata before reporting denial.');
+      assert.equal(after!.canonicalHash, before.canonicalHash);
+      assert.equal((await sql('SELECT id FROM file_revisions WHERE workspace_id=$1 AND path=$2',
+        [current.workspaceId, observed.path])).length, historyBefore.length,
+      'A revoked read must not retain newly observed external bytes in history.');
+    } finally {
+      await lock.run('ROLLBACK').catch(() => undefined);
+      await lock.close();
+      await pending?.catch(() => undefined);
+      await sql('UPDATE canvas_workspace_members SET can_read=1,can_write=1 WHERE workspace_id=$1 AND user_id=$2',
+        [current.workspaceId, userId]);
+      await fs.writeFile(filePath, original);
+    }
+  }
+}
+
 function catalogs() {
   const names = getProgressiveGatewayCapabilityNames(piTools);
   for (const name of sceneTools) {
@@ -247,6 +300,7 @@ async function main() {
       scenes.push(await roundTrip(workspaces[index], workspaces[(index + 1) % workspaces.length]));
     }
     await revokeWhileLocked(workspaces[2], scenes[2]);
+    await revokeReadWhileRowLocked(workspaces[2], scenes[2]);
     const environment = { ...process.env };
     delete environment.DATABASE_URL;
     await new Promise<void>((resolve, reject) => {
@@ -263,6 +317,7 @@ async function main() {
       workspaces: workspaces.map(current => current.workspaceType), toolCallIdIdempotency: true,
       genericReadBeforeEditor: true, mandatoryIdentity: true, unauthorizedWorkspaceOverride: true,
       freshSessionAccess: true, revocationUnderSceneLock: true, noPartialMutationOnRevocation: true,
+      revokedReadUnderSceneRowLock: true, noReadHistorySideEffectsOnRevocation: true,
       reviewStatusAndLink: true, catalogsAndPolicies: true, providerUnavailable: true }));
   } finally {
     for (const current of workspaces) {

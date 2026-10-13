@@ -151,8 +151,10 @@ export async function createCollaborationSessionGrant(input: {
   workspace: WorkspaceContext;
   fileOptions: WorkspaceFileOperationOptions;
   request: CollaborationSessionRequest;
+  beforeRead?: () => Promise<WorkspaceContext>;
 }): Promise<CollaborationSessionGrant> {
-  const { workspace, fileOptions, request } = input;
+  const { fileOptions, request } = input;
+  let workspace = input.workspace;
   const collaboration = await getFileCollaborationState({
     workspace,
     path: request.path,
@@ -170,7 +172,11 @@ export async function createCollaborationSessionGrant(input: {
 
   let lifecycleGeneration: number;
   if (request.provider === 'excalidraw') {
-    const state = await getExcalidrawDocument({ workspace, documentId: collaboration.document.id, path: request.path });
+    const state = await getExcalidrawDocument({ workspace, documentId: collaboration.document.id, path: request.path,
+      beforeRead: input.beforeRead ? async () => {
+        workspace = await input.beforeRead!();
+        return workspace;
+      } : undefined });
     if (
       state.status !== 'active'
       || state.workspaceId !== workspace.workspaceId

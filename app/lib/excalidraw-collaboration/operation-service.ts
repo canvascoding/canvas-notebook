@@ -12,6 +12,7 @@ import { loadExcalidrawScene, loadExcalidrawSceneInTransaction, withExcalidrawSc
 import { ExcalidrawDocumentError, excalidrawDocumentSnapshot, type ExcalidrawDocumentSnapshot } from './scene-service';
 import { assertExcalidrawProviderAvailable } from './provider';
 import { readDocumentReviewAvailability } from '@/app/lib/document-review-availability';
+import { inspectExcalidrawCheckpoint } from './checkpoint-inspection';
 
 export type ExcalidrawOperationSnapshot = ExcalidrawAgentOperation & {
   sceneSequence: number;
@@ -88,7 +89,7 @@ function assertReviewAvailable(decision: ExcalidrawOperationReviewInput['decisio
   }
 }
 
-/** Read persisted status and checkpoint metadata without importing or requiring portable file bytes. */
+/** Read persisted scene status and inspect portable bytes without importing or publishing them. */
 export async function getExcalidrawOperation(input: ReadInput & { operationId: string }): Promise<ExcalidrawOperationSnapshot> {
   await assertExcalidrawProviderAvailable();
   assertWorkspaceAuthority(input.workspace, input.workspace);
@@ -98,14 +99,21 @@ export async function getExcalidrawOperation(input: ReadInput & { operationId: s
     const candidate = await getExcalidrawAgentOperation(input);
     if (!candidate) operationNotFound();
     return withExcalidrawSceneTransaction(candidate.documentId, async transaction => {
+      const state = await loadExcalidrawSceneInTransaction(transaction, candidate.documentId, true, true);
       const workspace = await input.beforeRead?.() ?? input.workspace;
       assertWorkspaceAuthority(workspace, input.workspace);
       assertUserAuthority(workspace, input.userId);
       const operation = await getExcalidrawAgentOperation({ ...input, workspace });
       if (!operation) operationNotFound();
-      const state = await loadExcalidrawSceneInTransaction(transaction, operation.documentId, true, true);
       await assertSceneIdentity(transaction, state, workspace, operation.lifecycleGeneration);
-      return operationSnapshot(operation, state!);
+      const inspection = await inspectExcalidrawCheckpoint(transaction, { workspace, state: state!, beforeInspect: async () => {
+        const fresh = await input.beforeRead?.() ?? input.workspace;
+        assertWorkspaceAuthority(fresh, input.workspace);
+        assertUserAuthority(fresh, input.userId);
+      } });
+      const snapshot = operationSnapshot(operation, inspection.state);
+      if (inspection.ownPublicationPending && !inspection.state.degradedReason) snapshot.checkpoint.status = 'pending';
+      return snapshot;
     });
   });
 }
@@ -120,14 +128,23 @@ export async function listExcalidrawOperations(input: ReadInput & {
     'Document identity and trusted user are required.');
   return withWorkspaceMutationLock(input.workspace.workspaceId, () => withExcalidrawSceneTransaction(input.documentId,
     async transaction => {
+      const state = await loadExcalidrawSceneInTransaction(transaction, input.documentId, true, true);
       const workspace = await input.beforeRead?.() ?? input.workspace;
       assertWorkspaceAuthority(workspace, input.workspace);
       assertUserAuthority(workspace, input.userId);
-      const state = await loadExcalidrawSceneInTransaction(transaction, input.documentId, true, true);
       await assertSceneIdentity(transaction, state, workspace);
       const operations = await listExcalidrawAgentOperations({ ...input, workspace });
+      const inspection = await inspectExcalidrawCheckpoint(transaction, { workspace, state: state!, beforeInspect: async () => {
+        const fresh = await input.beforeRead?.() ?? input.workspace;
+        assertWorkspaceAuthority(fresh, input.workspace);
+        assertUserAuthority(fresh, input.userId);
+      } });
       return operations.filter(operation => operation.lifecycleGeneration === state!.lifecycleGeneration)
-        .map(operation => operationSnapshot(operation, state!));
+        .map(operation => {
+          const snapshot = operationSnapshot(operation, inspection.state);
+          if (inspection.ownPublicationPending && !inspection.state.degradedReason) snapshot.checkpoint.status = 'pending';
+          return snapshot;
+        });
     }));
 }
 

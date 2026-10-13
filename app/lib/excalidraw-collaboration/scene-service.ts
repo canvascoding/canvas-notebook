@@ -6,7 +6,7 @@ import { openDb } from '@/app/lib/db';
 import { readFile, resolveExistingWorkspacePath, writeFileIfAbsent } from '@/app/lib/filesystem/workspace-files';
 import { getFileCollaborationState, ensureFileRevisionForCurrentContent } from '@/app/lib/files/collaboration-policy';
 import { withWorkspaceMutationLock } from '@/app/lib/files/workspace-mutation-lock';
-import { normalizeWorkspaceRelativePath, assertWorkspacePathHasNoAliases, resolveWorkspacePath } from '@/app/lib/workspaces/path-guard';
+import { normalizeWorkspaceRelativePath, assertWorkspacePathHasNoAliases } from '@/app/lib/workspaces/path-guard';
 import { invalidateWorkspaceFileViews } from '@/app/lib/api/route-helpers';
 import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { createEmptyExcalidrawFileContent } from '@/app/lib/excalidraw-file';
@@ -14,12 +14,14 @@ import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 import { importPortableExcalidrawAssets, validatePortableExcalidrawAssets, assertPortableExcalidrawAssetBindings } from './assets';
 import { materializeExcalidrawCheckpoint } from './checkpoint';
 import { createExcalidrawAgentOperation, type ExcalidrawAgentSceneAction, type ExcalidrawAgentOperation } from './agent-operations';
-import { ensureExcalidrawScene, loadExcalidrawScene, type PersistedExcalidrawScene } from './repository';
+import { ensureExcalidrawScene, loadExcalidrawScene, loadExcalidrawSceneInTransaction, withExcalidrawSceneTransaction,
+  type PersistedExcalidrawScene } from './repository';
 import { EXCALIDRAW_PORTABLE_MAX_BYTES } from './limits';
 import { validateExcalidrawSceneReferences, validateExcalidrawElements, validateExcalidrawSceneAssetReferences } from './scene';
 import { withExcalidrawPublication } from './publication-context';
 import { captureExcalidrawVersion } from './version-history';
 import { assertExcalidrawProviderAvailable } from './provider';
+import { inspectExcalidrawCheckpoint } from './checkpoint-inspection';
 
 export class ExcalidrawDocumentError extends Error {
   constructor(readonly code: string, readonly status: number, message: string) {
@@ -89,9 +91,21 @@ async function bindInitialVersion(workspace: WorkspaceContext, path: string, con
 /** Shared, idempotent headless bootstrap used by the editor and every API adapter. */
 export async function getExcalidrawDocument(input: {
   workspace: WorkspaceContext; path?: string; documentId?: string; actor?: ExcalidrawDocumentActor;
+  beforeRead?: () => Promise<WorkspaceContext>;
 }): Promise<ExcalidrawDocumentSnapshot> {
   await assertWorkspace(input.workspace);
   return withWorkspaceMutationLock(input.workspace.workspaceId, async () => {
+    const currentWorkspace = async () => {
+      const current = await input.beforeRead?.() ?? input.workspace;
+      await assertWorkspace(current);
+      if (current.workspaceId !== input.workspace.workspaceId || current.rootPath !== input.workspace.rootPath
+        || (current.organizationId ?? null) !== (input.workspace.organizationId ?? null)
+        || input.workspace.actor && current.actor?.userId !== input.workspace.actor.userId) {
+        throw new ExcalidrawDocumentError('EXCALIDRAW_PERMISSION_DENIED', 403,
+          'The authenticated workspace identity changed. Read the document again.');
+      }
+      return current;
+    };
     let path = input.path ? normalizedPath(input.path) : null;
     if (input.documentId) {
       const database = await openDb();
@@ -123,31 +137,21 @@ export async function getExcalidrawDocument(input: {
         || (input.documentId && input.documentId !== state.documentId)) {
         throw new ExcalidrawDocumentError('EXCALIDRAW_LIFECYCLE_STALE', 409, 'The Excalidraw scene identity is stale.');
       }
-      const fileIdentity = await fs.stat(resolveWorkspacePath(input.workspace, path).absolutePath, { bigint: true })
-        .catch((error: NodeJS.ErrnoException) => { if (error.code === 'ENOENT') return null; throw error; });
-      const journal = await openDb();
-      try {
-        const pending = await journal.get(`SELECT file_dev,file_ino FROM collaboration_excalidraw_creates
-          WHERE workspace_id=$1 AND document_id=$2 AND status='preparing' LIMIT 1`,
-        [input.workspace.workspaceId, state.documentId]) as { file_dev: string | null; file_ino: string | null } | undefined;
-        if (pending && (!fileIdentity || pending.file_dev !== String(fileIdentity.dev) || pending.file_ino !== String(fileIdentity.ino))) {
-          throw new ExcalidrawDocumentError('PATH_EXISTS', 409, 'The interrupted creation no longer owns this file. Its replacement has been preserved.');
-        }
-      } finally { await journal.close(); }
-      if (!fileIdentity?.isFile()) {
-        const reason = 'The portable Excalidraw checkpoint is missing. Restore the checkpoint through the document service.';
-        const checkpointDatabase = await openDb();
-        try {
-          await checkpointDatabase.run(`UPDATE collaboration_excalidraw_states SET degraded_reason=$1
-            WHERE document_id=$2 AND workspace_id=$3 AND path=$4 AND lifecycle_generation=$5
-              AND scene_sequence=$6 AND status='active'`,
-          [reason, state.documentId, state.workspaceId, state.path, state.lifecycleGeneration, state.sceneSequence]);
-        } finally { await checkpointDatabase.close(); }
-        state = { ...state, degradedReason: reason };
-      }
-      const snapshot = excalidrawDocumentSnapshot(state);
-      return snapshot;
+      return withExcalidrawSceneTransaction(state.documentId, async transaction => {
+        const current = await loadExcalidrawSceneInTransaction(transaction, state!.documentId, true, true);
+        if (!current || current.path !== path) throw new ExcalidrawDocumentError('EXCALIDRAW_LIFECYCLE_STALE', 409,
+          'The Excalidraw scene identity changed. Read the current scene again.');
+        const workspace = await currentWorkspace();
+        const inspection = await inspectExcalidrawCheckpoint(transaction, { workspace, state: current,
+          beforeInspect: async () => { await currentWorkspace(); } });
+        const snapshot = excalidrawDocumentSnapshot(inspection.state);
+        if (inspection.ownPublicationPending && !inspection.state.degradedReason) snapshot.checkpoint.status = 'pending';
+        return snapshot;
+      });
     }
+    // Bootstrap has no scene row to lock yet; the workspace fence prevents
+    // competing identity/lifecycle mutations before this fresh admission check.
+    await currentWorkspace();
     const fullPath = await resolveExistingWorkspacePath(path, { workspace: input.workspace });
     const file = await fs.stat(fullPath);
     if (!file.isFile()) throw new ExcalidrawDocumentError('INVALID_EXCALIDRAW_PATH', 400, 'The selected path is not a file.');
@@ -172,6 +176,7 @@ export async function getExcalidrawDocument(input: {
       validateExcalidrawSceneAssetReferences(elements, assets);
       await assertPortableExcalidrawAssetBindings(input.workspace.workspaceId, assets);
     }
+    await currentWorkspace();
     if (!collaboration.document) collaboration = await getFileCollaborationState({ workspace: input.workspace, path, ensureDocument: true });
     if (collaboration.document?.provider !== 'excalidraw') {
       throw new ExcalidrawDocumentError('EXCALIDRAW_PROVIDER_UNAVAILABLE', 503, 'The Excalidraw identity could not be initialized.');
@@ -201,6 +206,7 @@ export async function getExcalidrawDocument(input: {
       if (pendingCreate && hash(content) !== hash(createEmptyExcalidrawFileContent())) {
         throw new ExcalidrawDocumentError('EXCALIDRAW_EXTERNAL_CHANGE', 409, 'The newly created file changed before its scene was initialized. Its bytes have been preserved.');
       }
+      await currentWorkspace();
       const revision = await bindInitialVersion(input.workspace, path, content, input.actor);
       const assets = await importPortableExcalidrawAssets({ workspaceId: input.workspace.workspaceId, content: content.toString('utf8') });
       state = await ensureExcalidrawScene({ documentId: collaboration.document.id, workspaceId: input.workspace.workspaceId,
