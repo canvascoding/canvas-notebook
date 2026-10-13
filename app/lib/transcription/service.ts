@@ -9,6 +9,7 @@ import { TRANSCRIPTION_API_KEYS } from './config';
 import { TranscriptionServiceError } from './errors';
 import { transcribeWithGemini, transcribeWithWispr } from './cloud-providers';
 import { wisprAudioConversionAvailable } from './wav';
+import { readProviderTranscript } from './provider-response';
 export { TranscriptionServiceError } from './errors';
 
 export const MAX_AUDIO_TRANSCRIPTION_BYTES = 25 * 1024 * 1024;
@@ -139,9 +140,7 @@ export async function transcribeAudio(request: TranscribeAudioRequest, settings?
         const response = await fetch(`${baseUrl}/audio/transcriptions`, {
           method: 'POST', headers: { Authorization: `Bearer ${key}` }, body: form, signal: cloudSignal,
         });
-        if (!response.ok) throw new TranscriptionServiceError(`${selected.provider} transcription failed (${response.status}).`, 'TRANSCRIPTION_FAILED', 502);
-        const result = await response.json() as { text?: unknown };
-        text = typeof result.text === 'string' ? result.text : '';
+        text = await readProviderTranscript(response, selected.provider);
       }
     }
     aborted(request.signal);

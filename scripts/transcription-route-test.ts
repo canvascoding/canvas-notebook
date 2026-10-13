@@ -24,16 +24,22 @@ async function compile<T>(file: string, mocks: Record<string, unknown>): Promise
 async function main(): Promise<void> {
   const { TranscriptionServiceError, MAX_AUDIO_TRANSCRIPTION_BYTES } = await import('../app/lib/transcription/service');
   const settings: DictationSettings = { enabled: true, provider: 'groq', model: 'whisper-large-v3', language: 'de' };
-  const controls = { signedIn: true, limited: false, available: true, error: null as Error | null };
+  const controls = { signedIn: true, limited: false, available: true, error: null as Error | null,
+    authError: null as Error | null, settingsError: null as Error | null, availabilityError: null as Error | null };
   let settingsReads = 0;
   let availabilityReads = 0;
   const calls: Array<{ request: TranscribeAudioRequest; settings: DictationSettings }> = [];
-  const settingsModule = { readDictationSettings: async () => { settingsReads++; return settings; } };
+  const settingsModule = { readDictationSettings: async () => {
+    settingsReads++;
+    if (controls.settingsError) throw controls.settingsError;
+    return settings;
+  } };
   const canonicalService = {
     MAX_AUDIO_TRANSCRIPTION_BYTES,
     TranscriptionServiceError,
     readTranscriptionAvailability: async (selected: DictationSettings) => {
       availabilityReads++;
+      if (controls.availabilityError) throw controls.availabilityError;
       return { available: controls.available, provider: selected.provider, model: selected.model,
         reason: controls.available ? null : 'Install the selected model.', code: controls.available ? null : 'TRANSCRIPTION_UNAVAILABLE' };
     },
@@ -48,7 +54,10 @@ async function main(): Promise<void> {
     '@/app/lib/transcription/service': canonicalService,
   });
   const route = await compile<typeof import('../app/api/dictation/transcribe/route')>('app/api/dictation/transcribe/route.ts', {
-    '@/app/lib/auth': { auth: { api: { getSession: async () => controls.signedIn ? { user: { id: 'fixture-user' } } : null } } },
+    '@/app/lib/auth': { auth: { api: { getSession: async () => {
+      if (controls.authError) throw controls.authError;
+      return controls.signedIn ? { user: { id: 'fixture-user' } } : null;
+    } } } },
     '@/app/lib/dictation/settings': settingsModule,
     '@/app/lib/dictation/service': adapter,
     '@/app/lib/transcription/service': canonicalService,
@@ -135,12 +144,33 @@ async function main(): Promise<void> {
     ['TRANSCRIPTION_ABORTED', 499, 'Transcription was cancelled.'],
     ['TRANSCRIPTION_TIMEOUT', 504, 'Transcription timed out.'],
     ['EMPTY_TRANSCRIPT', 502, 'Transcription completed without transcript text.'],
+    ['INVALID_TRANSCRIPTION_RESPONSE', 502, 'OpenAI returned an invalid transcription response.'],
+    ['TRANSCRIPTION_PROVIDER_ACCESS_DENIED', 502, 'OpenAI API access was denied.'],
+    ['TRANSCRIPTION_QUOTA_EXCEEDED', 429, 'OpenAI API quota is exhausted.'],
+    ['TRANSCRIPTION_RATE_LIMITED', 429, 'OpenAI transcription rate limit reached.'],
   ] as const) {
     controls.error = new TranscriptionServiceError(message, code, status);
     const response = await route.POST(request(audio()));
     assert.equal(response.status, status, `the route preserves canonical ${code} status`);
     assert.deepEqual(await response.json(), { success: false, error: message, code });
   }
+  controls.error = null;
+  const originalConsoleError = console.error;
+  let loggedErrors = 0;
+  console.error = () => { loggedErrors++; };
+  try {
+    for (const stage of ['authError', 'settingsError', 'availabilityError'] as const) {
+      const before = calls.length;
+      controls[stage] = new Error('Private database or credential failure');
+      const response = await route.POST(request(audio()));
+      controls[stage] = null;
+      assert.equal(response.status, 502);
+      assert.match(response.headers.get('content-type')!, /application\/json/u);
+      assert.deepEqual(await response.json(), { success: false, error: 'Transcription failed. Please try again later.', code: 'TRANSCRIPTION_FAILED' });
+      assert.equal(calls.length, before, 'preflight failures never send audio to the provider');
+    }
+    assert.equal(loggedErrors, 3, 'unexpected errors retain server diagnostics');
+  } finally { console.error = originalConsoleError; }
   console.log('transcription-route-test: authentication, microphone gate, readiness/rate limits, actual adapter dispatch, signal and shared error mapping passed');
 }
 

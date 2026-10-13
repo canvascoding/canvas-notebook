@@ -5,7 +5,7 @@ import { Loader2, Mic, Square } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
 type StatusResponse = { success: boolean; data?: { available: boolean } };
-type TranscriptResponse = { success: boolean; data?: { text: string }; error?: string };
+type TranscriptResponse = { success: boolean; data?: { text?: unknown }; error?: unknown };
 
 export function DictationControl({ disabled, onTranscript, availability, transcribeUrl = '/api/dictation/transcribe', formFields, testId = 'chat-dictation' }: {
   disabled: boolean; onTranscript: (text: string) => void;
@@ -51,10 +51,14 @@ export function DictationControl({ disabled, onTranscript, availability, transcr
       form.set('audio', blob, blob.type.startsWith('audio/mp4') ? 'recording.m4a' : 'recording.webm');
       for (const [key, value] of Object.entries(formFields ?? {})) form.set(key, value);
       const response = await fetch(transcribeUrl, { method: 'POST', body: form });
-      const result = await response.json() as TranscriptResponse;
-      if (!response.ok || !result.success) throw new Error(result.error || t('transcriptionError'));
-      if (!result.data?.text?.trim()) throw new Error(t('emptyTranscript'));
-      if (mounted.current) onTranscript(result.data.text.trim());
+      const result = await response.json().catch(() => null) as TranscriptResponse | null;
+      if (!response.ok || result?.success !== true) {
+        const message = typeof result?.error === 'string' ? result.error.trim() : '';
+        throw new Error(message || `${t('transcriptionError')} (HTTP ${response.status})`);
+      }
+      const text = result.data?.text;
+      if (typeof text !== 'string' || !text.trim()) throw new Error(t('emptyTranscript'));
+      if (mounted.current) onTranscript(text.trim());
     } catch (cause) {
       if (mounted.current) setError(cause instanceof Error ? cause.message : t('transcriptionError'));
     } finally {

@@ -195,12 +195,59 @@ async function main(): Promise<void> {
     await systemKeys('fixture-system-openai', 'fixture-system-groq');
     cloudResponse = async () => new Response(JSON.stringify({ text: '  ' }), { status: 200 });
     await assert.rejects(service.transcribeAudio(sample), /text|transcript/i);
-    cloudResponse = async () => new Response(JSON.stringify({ error: { message: 'Fixture provider failure' } }), { status: 429 });
+    for (const [status, providerCode, code, expectedStatus, message] of [
+      [401, 'invalid_api_key', 'TRANSCRIPTION_PROVIDER_ACCESS_DENIED', 502, /OPENAI_API_KEY.*settings\?tab=secrets/u],
+      [403, null, 'TRANSCRIPTION_PROVIDER_ACCESS_DENIED', 502, /access.*denied/iu],
+      [429, 'insufficient_quota', 'TRANSCRIPTION_QUOTA_EXCEEDED', 429, /billing.*usage limits/iu],
+      [429, 'credit_balance_exhausted', 'TRANSCRIPTION_QUOTA_EXCEEDED', 429, /billing.*usage limits/iu],
+      [429, 'organization_spend_limit_exceeded', 'TRANSCRIPTION_QUOTA_EXCEEDED', 429, /billing.*usage limits/iu],
+      [429, 'project_spend_limit_exceeded', 'TRANSCRIPTION_QUOTA_EXCEEDED', 429, /billing.*usage limits/iu],
+      [429, 'organization_usage_limit_exceeded', 'TRANSCRIPTION_QUOTA_EXCEEDED', 429, /billing.*usage limits/iu],
+      [429, 'rate_limit_exceeded', 'TRANSCRIPTION_RATE_LIMITED', 429, /rate limit/iu],
+      [404, 'model_not_found', 'TRANSCRIPTION_MODEL_UNAVAILABLE', 502, /model.*settings\?tab=dictation/iu],
+      [400, 'invalid_value', 'TRANSCRIPTION_PROVIDER_REJECTED_AUDIO', 502, /audio recording.*400/iu],
+      [413, null, 'TRANSCRIPTION_PROVIDER_REJECTED_AUDIO', 502, /audio recording.*413/iu],
+      [500, null, 'TRANSCRIPTION_FAILED', 502, /OpenAI.*500/u],
+    ] as const) {
+      const beforeFailure = cloudCalls.length;
+      cloudResponse = async () => Response.json({ error: { code: providerCode, message: 'Private audio and sk-fixture-secret must not be exposed' } }, { status });
+      await assert.rejects(service.transcribeAudio(sample), (error: unknown) => {
+        assert.ok(error instanceof service.TranscriptionServiceError);
+        assert.equal(error.code, code);
+        assert.equal(error.status, expectedStatus);
+        assert.match(error.message, message);
+        assert.doesNotMatch(error.message, /Private audio|sk-fixture-secret/u);
+        return true;
+      });
+      assert.equal(cloudCalls.length, beforeFailure + 1, 'rejected audio is not automatically re-uploaded');
+    }
+    for (const status of [200, 502]) {
+      cloudResponse = async () => new Response('<!DOCTYPE html><html>Bad Gateway</html>', { status, headers: { 'content-type': 'text/html' } });
+      await assert.rejects(service.transcribeAudio(sample), (error: unknown) => {
+        assert.ok(error instanceof service.TranscriptionServiceError);
+        assert.equal(error.code, status === 200 ? 'INVALID_TRANSCRIPTION_RESPONSE' : 'TRANSCRIPTION_FAILED');
+        assert.equal(error.status, 502);
+        assert.doesNotMatch(error.message, /Unexpected token|DOCTYPE|html/u);
+        return true;
+      });
+    }
+    for (const result of [null, {}, { text: 42 }]) {
+      cloudResponse = async () => Response.json(result);
+      await assert.rejects(service.transcribeAudio(sample), (error: unknown) => {
+        assert.ok(error instanceof service.TranscriptionServiceError);
+        assert.equal(error.code, 'INVALID_TRANSCRIPTION_RESPONSE');
+        return true;
+      });
+    }
+    await configure('groq', 'whisper-large-v3', 'auto');
+    cloudResponse = async () => Response.json({ error: { code: 'rate_limit_exceeded' } }, { status: 429 });
     await assert.rejects(service.transcribeAudio(sample), (error: unknown) => {
-      assert.ok(error instanceof Error);
-      assert.match(error.message, /429|Fixture provider failure|failed/i);
+      assert.ok(error instanceof service.TranscriptionServiceError);
+      assert.equal(error.code, 'TRANSCRIPTION_RATE_LIMITED');
+      assert.match(error.message, /Groq/u);
       return true;
     });
+    await configure('openai', 'whisper-1', 'auto');
 
     const preAborted = new AbortController();
     preAborted.abort();
