@@ -76,7 +76,7 @@ const rowChecks = NATIVE_FILE_SIDE_EFFECT_ROW_SPECS.map(spec => `
     AND EXISTS(SELECT 1 FROM unnest(p_paths) scope WHERE left(${spec.path},length(scope)+1)=scope||'/')) THEN RETURN false; END IF;
 `).join('\n');
 
-/** Standalone additive DDL. Runtime migrations/dispatcher activation remain gated. */
+/** Additive private DDL. Startup registration does not activate the dispatcher. */
 export const NATIVE_FILE_OPERATION_SIDE_EFFECT_STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS collaboration_native_file_operation_side_effect_stages (
     operation_id text PRIMARY KEY REFERENCES collaboration_native_file_operation_intents(operation_id),
