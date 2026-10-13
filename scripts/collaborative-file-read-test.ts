@@ -17,6 +17,7 @@ import type { FileCollaborationState } from '../app/lib/files/collaboration-poli
 import type { PersistedCollaborationState } from '../app/lib/collaboration/persistence';
 import type { WorkspaceContext } from '../app/lib/workspaces/types';
 import type * as Route from '../app/api/files/read/route';
+import { nativeTableWidthFixture } from './helpers/rich-markdown-projection-fixtures';
 
 const hash = (bytes: Buffer) => createHash('sha256').update(bytes).digest('hex');
 const workspace: WorkspaceContext = {
@@ -170,13 +171,10 @@ test('a native-only rich document reopens through metadata and recovers without 
 
 test('rich bootstrap remains closed for foreign identity, denied access, corrupt state, schema, IDs and serializer failures', async () => {
   const h = await harness();
-  const doc = createRichMarkdownYDoc('- A\n\nKeep', 'tiptap_blocks');
+  const doc = nativeTableWidthFixture('tiptap_blocks');
   const schema = getSchema(richMarkdownSchemaExtensions());
-  const tree = new CollaborationBlockTree(doc, schema);
-  const paragraph = tree.read().firstChild!.firstChild!.firstChild!;
   const originalError = console.error; console.error = () => undefined;
   try {
-    tree.updateInlineContent(paragraph.attrs.id, paragraph.type.create(paragraph.attrs, schema.text('A\t\nB')), 'human');
     assert.equal(validateRichMarkdownYDoc(doc).code, 'roundtrip_unstable');
     const rich = richFixture(doc); Object.assign(h.controls, rich); h.controls.bootstrap = true;
     for (const change of [{ documentId: 'foreign' }, { workspaceId: 'foreign' }, { organizationId: 'foreign' },

@@ -9,7 +9,7 @@ import { createRichMarkdownYDoc, richMarkdownFromYDoc } from '../app/lib/collabo
 import { readRichDocumentJson } from '../app/lib/collaboration/rich-document';
 import { createCanvasMarkedInstance } from '../app/lib/markdown/core/canvas-marked';
 import { diagnoseRichMarkdownSnapshot } from './helpers/rich-markdown-projection-diagnosis';
-import { nativeListTextFixture } from './helpers/rich-markdown-projection-fixtures';
+import { nativeListTextFixture, nativeTableWidthFixture } from './helpers/rich-markdown-projection-fixtures';
 
 const cases = [
   { name: 'soft LF', text: 'A\nB', projected: 'A\nB', available: true },
@@ -17,10 +17,10 @@ const cases = [
   { name: 'hard-break-like whitespace', text: 'A  \nB', projected: 'A  \nB', available: true },
   { name: 'boundary spaces', text: ' A ', projected: ' A ', available: true },
   { name: 'nonbreaking space', text: 'A\u00a0B', projected: 'A\u00a0B', available: true },
-  { name: 'inline tab', text: 'A\tB', projected: 'A B', available: false },
-  { name: 'tab before LF', text: 'A\t\nB', projected: 'A \nB', available: false },
-  { name: 'bare CR', text: 'A\rB', projected: 'A\nB', available: false },
-  { name: 'CRLF', text: 'A\r\nB', projected: 'A\nB', available: false },
+  { name: 'inline tab', text: 'A\tB', projected: 'A\tB', available: true },
+  { name: 'tab before LF', text: 'A\t\nB', projected: 'A\t\nB', available: true },
+  { name: 'bare CR', text: 'A\rB', projected: 'A\rB', available: true },
+  { name: 'CRLF', text: 'A\r\nB', projected: 'A\r\nB', available: true },
 ];
 
 for (const format of ['tiptap_xml', 'tiptap_blocks'] as const) {
@@ -82,7 +82,7 @@ test('diagnostic output never contains document content, IDs, frontmatter, or pa
   const filename = path.join(directory, 'PRIVATE-FILENAME.bin');
   const privateText = 'PRIVATE-BODY-SENTINEL\tEND';
   const privateMetadata = '---\ntitle: PRIVATE-METADATA-SENTINEL\n---\n';
-  const doc = nativeListTextFixture(privateText, 'tiptap_blocks');
+  const doc = nativeTableWidthFixture('tiptap_blocks', privateText);
   doc.getText('frontmatter').insert(0, privateMetadata);
   try {
     const snapshot = Buffer.from(Y.encodeStateAsUpdate(doc));
@@ -97,6 +97,19 @@ test('diagnostic output never contains document content, IDs, frontmatter, or pa
     }
     assert.deepEqual(await readFile(filename), snapshot, 'the CLI must not write back its input');
   } finally { doc.destroy(); await rm(directory, { recursive: true, force: true }); }
+});
+
+for (const format of ['tiptap_xml', 'tiptap_blocks'] as const) test(`${format}: native table widths remain a real projection failure`, () => {
+  const doc = nativeTableWidthFixture(format);
+  try {
+    const report = diagnoseRichMarkdownSnapshot(Y.encodeStateAsUpdate(doc));
+    assert.equal(report.schema, 'valid');
+    assert.equal(report.blockAdmission, format === 'tiptap_blocks' ? 'valid' : null);
+    assert.equal(report.projection, 'roundtrip_unstable');
+    assert.equal(report.nativeEquivalent, false);
+    assert.deepEqual(report.nativeText, report.reparsedText, 'only native width attributes are lost');
+    assert.deepEqual(report.evidenceUnchanged, { inputBytes: true, hydratedState: true, stateVector: true });
+  } finally { doc.destroy(); }
 });
 
 test('malformed, unsupported, and incomplete snapshots cannot look like successful projections', () => {

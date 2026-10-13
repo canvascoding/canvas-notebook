@@ -636,6 +636,7 @@
     "test:notebook:mutations": "tsx scripts/notebook-path-mutations-test.ts && tsx --conditions react-server scripts/notebook-agent-path-mutations-test.ts",
     "test:collaboration:live": "tsx --conditions react-server scripts/file-live-collaboration-test.ts",
     "test:collaboration:native-snapshot": "tsx --conditions react-server scripts/collaboration-native-snapshot-test.ts",
+    "test:collaboration:markdown-projection": "tsx --conditions react-server scripts/markdown-codec-projection-diagnosis-test.ts && tsx --conditions react-server scripts/markdown-control-character-roundtrip-test.ts",
     "test:collaboration:durability": "tsx scripts/collaboration-state-proof-test.ts && tsx scripts/collaboration-client-durability-test.tsx && tsx --conditions react-server scripts/collaboration-checkpoint-proof-test.ts",
     "test:collaboration:persistence": "tsx --conditions react-server scripts/collaboration-persistence-merge-test.ts && tsx --conditions react-server scripts/collaboration-persistence-store-test.ts",
     "test:collaboration:room-owner": "npm run test:collaboration:admission && tsx --conditions react-server scripts/collaboration-room-owner-session-test.ts && npm run test:collaboration:room-release && npm run test:collaboration:room-owner:runtime",

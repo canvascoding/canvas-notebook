@@ -15,7 +15,9 @@ the test input retains the characters whose loss is being diagnosed. Both
 `tiptap_xml` and `tiptap_blocks` have valid schema and stable IDs. The block
 fixtures also pass the existing native agent admission check.
 
-| Native text in a list paragraph | Reparsed native text | Current export validation |
+The diagnosis commit captured the following failures before the escape fix:
+
+| Native text in a list paragraph | Former reparsed native text | Former export validation |
 | --- | --- | --- |
 | `A\tB` | `A B` | `roundtrip_unstable` |
 | `A\t\nB` | `A \nB` | `roundtrip_unstable` |
@@ -23,14 +25,39 @@ fixtures also pass the existing native agent admission check.
 | `A\r\nB` | `A\nB` | `roundtrip_unstable` |
 | `A\nB`, `A \nB`, `A  \nB`, boundary spaces, NBSP | Preserved | Valid |
 
-The serializer emits literal interior tabs and carriage returns in these
-cases. Marked expands tabs in the first line of a list item and normalizes
+The former serializer emitted literal interior tabs and carriage returns in
+these cases. Marked expands tabs in the first line of a list item and normalizes
 carriage returns before tokenization; comparison of native documents then
 correctly rejects the lossy projection. A plain paragraph tab is a useful
 control: its Marked token retains the tab, whereas the list-item token does
-not. Existing numeric whitespace entities show a possible encoding approach;
-they do not justify normalizing the authoritative Yjs text or loosening the
-roundtrip validator.
+not. The escape fix now preserves all four inputs using numeric whitespace
+entities. Marked's behavior is unchanged. Native Yjs text is never normalized
+and the roundtrip validator remains strict. Marked soft newlines, task
+paragraphs and details summaries receive the context-specific encoding needed
+to retain native marks and containment.
+
+```sh
+node_modules/.bin/tsx --conditions react-server scripts/markdown-control-character-roundtrip-test.ts
+```
+
+This suite checks 1,540 native structure-equivalent cases across both formats,
+seven text inputs, ten mark combinations, and eleven paragraph/heading/list/
+task/quote/callout/details/table contexts. It verifies source IDs, attributes,
+binary bytes and vectors remain unchanged. These checks are offline source
+and runtime evidence, not browser/system-clipboard or production acceptance.
+
+Named limitations remain covered without accepting a lossy projection:
+
+- Native `colwidth: [120]` on every cell in one table column is valid structure
+  but GFM loses the widths. It is the native-only admission/read fixture.
+- A table with frontmatter can move its leading serialized blank line into
+  the metadata prefix during reparse. Native equivalence holds, but the
+  Markdown fixed point fails. The snapshot/metadata owner must address this
+  separately.
+- Literal CR/CRLF inside fenced code still normalizes during Marked lexing.
+  This lies outside inline entity escaping, and export remains unavailable.
+- Existing odd-backslash-plus-pipe code in table fixtures still fails strict
+  export validation; those checks are retained.
 
 Relevant local source:
 
@@ -61,7 +88,8 @@ Keep snapshots and their identity/scope metadata outside Git, with private
 file permissions. The tool does not fetch production state, authorize repair,
 establish a database durability proof, or mutate a live room. Its size limit
 is a local diagnostic input budget, not an increased runtime file/link-scan
-limit. Current safe behavior is to keep native content intact, retain strict
+limit. Safe behavior is to keep native content intact, retain strict
 export failure, and let separately authorized native readers/edits use their
-structural contract. A codec change needs its own impact review and broader
-paragraph/list/table/mark/code/clipboard regression coverage.
+structural contract. This focused fix does not claim universal codec losslessness
+or establish the original transcript's cause. Browser/clipboard and integrated
+PostgreSQL checks remain separate acceptance layers.
