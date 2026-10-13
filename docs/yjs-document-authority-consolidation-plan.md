@@ -104,6 +104,7 @@ Vor jeder späteren Symboländerung: Index für den tatsächlich bearbeiteten Ch
 
 - `.md` und `.markdown` in verwalteten Workspaces; initialisierte `plain_text`, `tiptap_blocks` und kompatible Legacy-Repräsentationen.
 - Initialer Import, Create/Upload/Overwrite und vorhandene Agenten-/MCP-Ingest-Wege.
+- Manuell erstelltes leeres Dokument, normales Text-Paste, ausdrücklich als Markdown eingefügter Inhalt und Import einer vorhandenen Markdown-Datei; vollständige Abnahme vom tatsächlichen UI-Einstieg bis zum erneuten Öffnen.
 - Linkindex, Backlinks, Graph, Diagnostics, Preview, Rename, Move, Delete, Copy und vorhandene Undo-/Restore-Wege.
 - Autoritative Reads, gezielte Writer, Revisionen, Cache-Invalidierung und Such-/Knowledge-Zulieferung.
 - Web, Mobile-Serververträge, Agenten, Automation, MCP, Public Shares und Exporte an den jeweiligen Anschlussstellen.
@@ -320,6 +321,34 @@ Veränderte Linkziele, entfernte Blöcke, neue Backlinks, Pfadkollisionen, alte 
 
 Restore an den ursprünglichen oder einen freien neuen Pfad wird nach bestehender Produktsemantik gewählt und erzeugt eine passende aktive Generation. Alte Räume/Tickets und verspätete Projectors dürfen diese neue Generation nicht verändern. Ein historisches Backup ohne ausreichenden Yjs-/Operationsbeleg erhält eingeschränkte, ausdrücklich sichtbare Restore-Fähigkeiten.
 
+### 8.5 Neues Dokument, Text einfügen und Markdown importieren
+
+**Bestätigte Ergänzung:** Ein Nutzer erstellt manuell ein Dokument und möchte dort sofort Text oder vorhandenen Markdown-Inhalt einfügen. Dieser Alltagsweg erhält einen eigenen Produkt- und Testvertrag; der allgemeine Create-/Upload-Vertrag allein genügt nicht.
+
+| Nutzungsfall | Zielablauf im UI | Inhaltlicher Vertrag |
+| --- | --- | --- |
+| Neues leeres Dokument mit normalem Text | „Neue Datei/Neues Dokument“ wählen, Namen und Ziel bestätigen, Dokument öffnen, in den Inhalt klicken und mit Cmd+V/Ctrl+V bzw. mobiler Einfügeaktion einfügen | Ohne Edit-Auswahl unmittelbar bearbeitbar. Absätze, Unicode, Sonderzeichen und fachlich relevante Leerzeichen bleiben erhalten; kein Speichern in einer zweiten Rohdatei. |
+| Markdown-Text aus Zwischenablage | Neues oder vorhandenes Dokument öffnen, Zielposition/Auswahl festlegen und die klar benannte Aktion „Markdown einfügen“ verwenden | Bestehenden nativen Einfügeweg weiterverwenden. Unterstützte Überschriften, Listen, Links, Tabellen und Code werden als bearbeitbare Struktur eingefügt; anschließende Bearbeitung und ein getrenntes Undo funktionieren. |
+| Eine vorhandene `.md`-/`.markdown`-Datei als neues Dokument übernehmen | Datei über den bestehenden Upload-/Importweg wählen, Workspace/Ziel prüfen und importiertes Dokument öffnen | Vollständiges Dokument einschließlich Frontmatter, Newline-/Encoding-Profil und unterstützter Syntax kontrolliert initialisieren. Neue Identität, keine Wiederverwendung fremder Operationsbelege. |
+| Ganze Markdown-Datei in ein bereits leeres Dokument übernehmen | Bewusster vollständiger Dokumentimport statt gewöhnlicher Body-Einfügung; Eingabe/Datei prüfen, Zielbindung und Inhalt bestätigen | Metadaten werden ausdrücklich als Dokumentmetadaten übernommen; eine inzwischen gefüllte oder durch einen Peer geänderte Zielinstanz darf nicht unbemerkt überschrieben werden. |
+| Inhalt in einem bestehenden Dokument ergänzen/ersetzen | Zielposition oder Auswahl festlegen; Einfügen ersetzt nur die ausdrücklich ausgewählte Spanne | Umliegender Inhalt und unabhängige Peer-Edits bleiben erhalten. Gesamtdokumentersetzung ist ein eigener, gesicherter und konfliktgeprüfter Vorgang. |
+
+Der einfache Textweg verlangt keinen Importdialog. Die bestehende Markdown-Aktion ist im Web der eindeutige Weg für eine bewusste Strukturübernahme; sie muss nach Entfernung der Read/Edit-Leiste im vorhandenen Kontext-/Mehr-Menü gut erreichbar bleiben. Gewöhnliches Paste und ausdrücklicher Markdown-Import werden getrennt getestet. Ob normales Paste eindeutige Markdown-Syntax zusätzlich automatisch formatiert, wird unter D-15 entschieden und nicht aus dem Vorhandensein einer Markdown-Extension als bereits bewiesenes Verhalten abgeleitet. Literaler Code, Markdown-Beispiele und unklare Textsyntax dürfen nicht überraschend umgedeutet werden. Einzelne bestehende Wiki-/Mention-Paste-Regeln und HTML-Paste bedeuten weder garantiertes Literal-Paste noch einen vollständigen Markdown-Dateimport.
+
+**Create-Inventar:** [CreateItemDialog.tsx](../app/components/file-browser/CreateItemDialog.tsx) im Dateibrowser und [HomeNewNoteDialog.tsx](../app/components/home/HomeNewNoteDialog.tsx) auf der Homepage sind beide reale Einstiege. Die [Create-Route](../app/api/files/create/route.ts) legt eine leere Datei exklusiv an; [document-state-service.ts](../app/lib/collaboration/document-state-service.ts) initialisiert sie beim ersten Sessionzugriff kontrolliert. Die beiden Dialoge besitzen heute unterschiedliche Regeln zur Ergänzung der `.md`-Endung; Namen, Ziel, Kollision und direktes Öffnen werden in beiden Wegen geprüft. Native Create über [notebook.ts](../app/lib/mobile/notebook.ts), ab Zeile 594, erzeugt bereits `# Titel` und behandelt Namenskollisionen eigenständig. Der erste native Paste muss diesen definierten Anfangszustand erhalten. Ein generischer Markdown-Einfügedialog ist in Native Mobile bislang nicht als vorhandene Funktion belegt; dessen gewünschte Parität wird gesondert geplant und getestet.
+
+**Vorhandene Grundlage:** [MarkdownInsertDialog.tsx](../app/components/editor/MarkdownInsertDialog.tsx) und [markdown-insertion.ts](../app/lib/editor/markdown-insertion.ts) prüfen den Einfügetext und die aktuelle Zielspanne vor einer nativen Edit-Transaktion. Der Body-Einfügeweg lehnt Dokument-Frontmatter und nicht sicher unterstützte Inhalte bewusst ab. Deshalb wird eine vollständige Markdown-Datei nicht einfach durch diesen Dialog geschleust und dabei um ihre Metadaten gekürzt. Der vorhandene [Browser-Test](../tests/editor-markdown-insertion.spec.ts), Zeilen 82–139, prüft reale Zwischenablage im Dialog, Formatierung, getrenntes Undo, zwei Nutzer, Persistenz und Reload. Er erzeugt die Datei jedoch per API und ist noch kein Nachweis für manuelles Erstellen über das UI oder gewöhnliches Paste in ein frisches Dokument.
+
+Zusätzliche Anforderungen:
+
+1. **Erster Inhalt und Initialisierung:** Create öffnet die nachweislich richtige Dokument-ID/Generation. Der erste eingefügte Inhalt landet genau einmal in dieser autoritativen Instanz. Verzögerte Bootstrap-, IndexedDB-, Session- oder Projector-Ergebnisse dürfen ihn nicht durch einen alten leeren Stand ersetzen. Vor Bereitschaft erfasste Eingaben werden entweder eindeutig an das Ziel gebunden erhalten oder verständlich noch nicht angenommen; kein abgefangener und still verlorener Paste.
+2. **Zwischenablagevertrag:** `text/plain`, Rich-Clipboard mit `text/html` und verfügbarer Markdown-MIME-Typ werden einzeln und in Kombination untersucht. Priorität, Formatübernahme und „als reinen Text einfügen“ sind ausdrücklich festgelegt. Das vorhandene URL-Paste, Codeblock-Paste, Block-/Bild-Paste und mobile Einfügen werden nicht durch einen allgemeinen Markdown-Handler verschluckt. Fremdes HTML wird nur durch den vorhandenen sicheren Parser-/Schemaweg übernommen; vorhandene Workspace-Bilder werden nicht durch kaputte oder fremde Verweise ersetzt.
+3. **Nicht verlustfrei unterstützter Inhalt:** Keine still entfernten Frontmatter-Felder, HTML-/MDX-/Marp-/Obsidian-Strukturen, Tabellenzellen oder Codezeichen. Vollständiger Dateimport wählt einen zulässigen Source-Vertrag, wenn Rich den Inhalt nicht sicher übernehmen kann. Bei Body-Einfügung bleibt der Entwurf erhalten und die Einschränkung verständlich. Rich-Yjs wird dafür nicht ohne eigene Migration in eine zweite `plain_text`-Autorität umgeschrieben.
+4. **Explizite Normalisierung:** Zulässige Markdown-Normalisierung wird vor bewusster Import-/Einfügeausführung erklärt und getestet. Vergleiche unterscheiden erhaltene native Struktur, texttreue Source-Ausgabe und ausdrücklich akzeptierte Normalisierung; sie verlangen nicht fälschlich identische Markdown-Bytes trotz erlaubter Formatnormalisierung.
+5. **Identität, Rechte und Retry:** Gleichnamiges Ziel, bestehendes Dokument, zwischenzeitlicher Nutzeredit, Auswahländerung, Rechteentzug und wiederholter Upload/Import haben definierte Konflikt-/Deduplizierungsregeln. Ein automatischer Retry eines Imports wird dedupliziert; zwei eigenständige Paste-Aktionen bleiben zwei eigenständige Nutzereingaben.
+6. **Ergebnis:** Nach Einfügen kann der Nutzer sofort weiterarbeiten, formatieren und Undo/Redo verwenden. Der Inhalt bleibt nach Tabwechsel, Schließen, Reload und erneutem Öffnen aus serverseitigem Yjs vollständig vorhanden. Verlustfreier Markdown-Export wird separat geprüft; ein fehlgeschlagener Export behauptet weder leeren Inhalt noch erfolgreichen Dateidownload.
+7. **Dateiverweise:** Importierte relative Links, Bilder und Wiki-Verweise werden gegen das gewählte Workspace-Ziel aufgelöst. Fehlende Assets bleiben erkennbar; Einfügen der Markdown-Datei lädt nicht heimlich beliebige externe Dateien nach. Importiert wird nur die ausgewählte Datei beziehungsweise ein ausdrücklich gewähltes Paket.
+
 ## 9. Writer, Reader und abgeleitete Verbraucher vereinheitlichen
 
 | Oberfläche/Workflow | Geforderter Vertrag | Besonderer Abnahmepunkt |
@@ -333,7 +362,7 @@ Restore an den ursprünglichen oder einen freien neuen Pfad wird nach bestehende
 | Download/ZIP/Markdown/PDF | Aktuellen geprüften Snapshot exportieren oder Exportfehler ehrlich melden | Kein stiller 0-Byte-Download eines vorhandenen Rich-Inhalts |
 | Public Share/Studio/Attachments | Scope und konsistenten Snapshot beibehalten; Exportfehler separat | Keine neue Veröffentlichung älterer oder fremder Inhalte |
 | Dateimetadaten/Revisionen | Physische Größe und Dokumentinhalt unterscheiden; Reads schreiben keine alte Historie | Keine new→old-Revision durch verspätete Dateiprojektion |
-| Create/Upload/Ingest | Kontrollierter Import und dokumentierte Initialisierung | Retry und vorhandenes verwaltetes Ziel |
+| Create/Paste/Markdown-Import/Upload/Ingest | Kontrollierte Initialisierung; nativer Paste und vollständiger Dateimport nach §8.5 | Echter UI-Create, erster Paste, Frontmatter, Retry und vorhandenes verwaltetes Ziel |
 | Shell/Skill/Scratch | Bestehende OS-Schreibbegrenzung erhalten; Dokumentzugriff über Tools | Child-Prozess, Symlink, direkter Pfad und fehlende Sandbox |
 | Restore/Recovery/Operator | Verifizierte autoritative Sicherung und ausdrücklicher Reparaturumfang | Keine Startup-/Routine-Reparatur historischer Zustände |
 
@@ -439,24 +468,24 @@ Zuerst Korrektheit und Nachweise, anschließend Messung und Optimierung:
 
 Zielwerte für p95-Planlatenz, maximalen Projektionsrückstand und Scan-/Backup-Budgets werden nach einer Baseline-Messung festgelegt. Vor dieser Messung werden keine erfundenen Leistungszusagen in das Produkt aufgenommen.
 
-## 12. Sequenzielle Umsetzung mit Abschluss-Gates
+## 12. Umsetzung im Worktree mit Abhängigkeiten und Abschluss-Gates
 
-Jeder Schritt wird fertiggestellt, geprüft und separat committed, bevor der nächste Implementierungsschritt beginnt. Vorarbeiten zur gemeinsamen Planprüfung sind noch keine begonnenen Implementierungs-To-dos. Alle folgenden Aufgaben sind offen.
+Gemäß ergänztem Nutzerauftrag wird ausschließlich in Git-Worktrees gearbeitet und unabhängige Arbeit wird, wo sinnvoll, parallel delegiert. Ein abhängiger Schritt beginnt erst nach Abschluss, Prüfung und Commit seiner Voraussetzungen. Die ID-Reihenfolge allein ist kein globales Parallelisierungsverbot; wichtige unvollständige Grundlagen werden durch parallele Folgearbeit nicht übersprungen. Vorarbeiten zur gemeinsamen Planprüfung sind noch keine begonnenen Implementierungs-To-dos. Alle folgenden Aufgaben sind offen.
 
 | ID | Priorität | Arbeitspaket | Abgeschlossen, wenn … |
 | --- | --- | --- | --- |
 | YD-00 | P0 | Entscheidungen, Inventar und Regression festlegen | Autoritäts-/Erfolg-/Coverage-/Recovery-Verträge beschlossen; alle Eintrittspunkte und bestehende Einschränkungen dokumentiert; synthetischer Fehlerfall definiert. |
 | YD-01 | P0 | Konkreten Roundtrip-Fehler isolieren | Privater vollständiger Snapshot geprüft, minimaler anonymisierter Reproducer erstellt, Ursache belegt; notwendige Codec-Korrektur validiert oder sichere Einschränkung beschrieben. Keine automatische Produktionsreparatur. |
 | YD-02 | P0 | Gemeinsame Snapshot-/Autoritätsfähigkeiten | Initialisierte und pristine/legacy Zustände sicher getrennt; Live-/Persisted-Read mit vollständigen Identitäts-/Frischebelegen; Exportfehler verhindert zulässiges natives Strukturlesen nicht. |
-| YD-03 | P0 | Autoritative Recovery-/Clone-/Import-Verträge | Binäre Sicherung plus Pfadartefakte tatsächlich wiederherstellbar; Copy verliert keine Inhalte bei leerer Projektion; Import/Retry/Generation und Manifestversion getestet. |
+| YD-03 | P0 | Autoritative Recovery-/Clone-/Import-Verträge | Binäre Sicherung plus Pfadartefakte tatsächlich wiederherstellbar; Copy verliert keine Inhalte bei leerer Projektion; vollständiger Markdown-Dateimport einschließlich Metadaten, Import/Retry/Generation und Manifestversion getestet. |
 | YD-04 | P0 | Strukturierter Linkgraph und autoritative Planung | Alle vertraglichen Linkformen aus Yjs oder kontrolliertem pristine Text erfasst; vollständige Coverage und virtuelle Auflösung; Roundtrip-unabhängiger synthetischer Fall korrekt behandelt. |
 | YD-05 | P0 | Gezielte Linkmutationen und dauerhafte Receipts | Native Zieloperationen statt gewöhnlicher Rich-Gesamtersetzung; unabhängige Edits erhalten; StateProof/DeleteSet, Rechte und Retry/Deduplizierung nachgewiesen. |
 | YD-06 | P0 | Dateiaktions-Abschluss entkoppeln | Pfad-/Lifecycle-, Link- und Persistenzbelege ersetzen alle bisherigen diskabhängigen Abschlussannahmen; finale Graphprüfung autoritativ; Projector läuft außerhalb der Batch-Sperre sicher weiter. |
 | YD-07 | P0 | Undo/Restore und historische Journale | Sichere inverse Zieloperationen, kompatible alte Manifeste, wiederangelegte Pfade und späte Projektionen; kein Whole-document-Overwrite aktueller Nutzeränderungen. |
 | YD-08 | P0 | Alle verbleibenden Writer anschließen | File-/MCP-/Agent-/Upload-/Overwrite-/Restore-Wege können initialisierte Dokumente nicht roh ersetzen; Sandbox-/Host-Ausnahmen konkret erfasst; keine Policy-/Actor-Umgehung. |
 | YD-09 | P1 | Reader, Suche, Revisionen und Exporte vervollständigen | Web/Mobile/MCP/Knowledge/ZIP/Share-Verträge frisch und ehrlich; alte Dateiprojektionen erzeugen keine aktuelle Ausgabe oder falsche Revision. |
-| YD-10 | P1 | UI, direktes Editieren, öffentliche Verträge und Betrieb | Read/Edit-Auswahl entfernt; Rich/zulässiges Source unmittelbar editierbar; kompakte Breiten-/Fokusaktionen ohne zusätzliche Zeile; echte Rechte und Sitzungsschutz erhalten. Status-/Fehlerdarstellung sowie Recovery/Notification/Agent/Mobile kompatibel. |
-| YD-11 | P1 | Integrierte Konkurrenz-/Crash-/Browser-Abnahme | Verpflichtende Matrix bestanden, Build/Checks dokumentiert, Ebenen der Evidenz getrennt; keine offenen Datenverlust-/Scope-/Wiederanlaufbefunde. |
+| YD-10 | P1 | UI, direktes Editieren, öffentliche Verträge und Betrieb | Read/Edit-Auswahl entfernt; Rich/zulässiges Source unmittelbar editierbar; neues Dokument + Text-/Markdown-Einfügen und Import gut erreichbar; kompakte Breiten-/Fokusaktionen ohne zusätzliche Zeile; echte Rechte und Sitzungsschutz erhalten. Status-/Fehlerdarstellung sowie Recovery/Notification/Agent/Mobile kompatibel. |
+| YD-11 | P1 | Integrierte Konkurrenz-/Crash-/Browser-Abnahme | Verpflichtende Matrix und tatsächliches UI-Create/Paste/Import nach §13.3 bestanden, Build/Checks dokumentiert, Ebenen der Evidenz getrennt; keine offenen Datenverlust-/Scope-/Wiederanlaufbefunde. |
 | YD-12 | P1 | Gemessene Optimierung und kontrollierter Rollout | Baseline/Shadow-Vergleich, Lastgrenzen, historische Rückstände, Aktivierungs-/Stop-/Rollback-Regeln nachgewiesen; Rollout separat beauftragt. |
 | YD-13 | P2 | Öffentliche API/Python-SDK planen | Interner Vertrag stabil und versioniert; Auth/Scopes, Idempotenz, Lesepagination, strukturierte Edits und Exportstatus können darauf aufgebaut werden. |
 
@@ -479,16 +508,43 @@ Jeder Schritt wird fertiggestellt, geprüft und separat committed, bevor der nä
 
 Zu jedem Haken gehören Commit, betroffene Verträge, konkrete Tests/Evidenz, verbleibende Grenzen und gegebenenfalls ein neuer Entscheidungseintrag. Ein bestandener Unit-Test allein schließt kein integriertes Arbeitspaket ab.
 
-**Aktivierungsgate:** YD-06 wird zunächst hinter einem deaktivierten, versionierten Vertrag integriert. Der neue Erfolgspfad wird erst aktiviert, nachdem YD-07 und YD-10 sowie die integrierte Abnahme YD-11 abgeschlossen sind. Bis dahin dürfen keine neuen Receipts mit altem Undo/Recovery oder alten öffentlichen Parsern kombiniert werden. Ein Produktionsrollout ist zusätzlich an YD-12 und einen eigenen Auftrag gebunden.
+**Aktivierungsgate:** YD-06 wird zunächst hinter einem deaktivierten, versionierten Vertrag integriert. Der neue Erfolgspfad wird erst allgemein aktiviert, nachdem YD-07, YD-08, die betroffenen Consumer aus YD-09 und YD-10 sowie die integrierte Abnahme YD-11 abgeschlossen sind. Die Parallelisierung lockert dieses gemeinsame Gate nicht. Bis dahin dürfen keine neuen Receipts mit altem Undo/Recovery oder alten öffentlichen Parsern kombiniert werden. Ein Produktionsrollout ist zusätzlich an YD-12 und einen eigenen Auftrag gebunden.
+
+Dabei werden Testaktivierung und allgemeine Freigabe unterschieden: Nach Abschluss der kompatiblen YD-07/08- und betroffenen YD-09/10-Verträge darf der neue Pfad ausschließlich im isolierten synthetischen Test-Scope gezielt aktiviert werden, damit YD-11 genau diesen Pfad real prüft. Außerhalb dieses Test-Scopes bleibt er standardmäßig deaktiviert. Allgemeine Aktivierung verlangt bestandene YD-11-Abnahme; Produktion zusätzlich den separat beauftragten Rollout. So entsteht kein Zirkelschluss zwischen Aktivierung und Abnahme.
 
 ### 12.2 Konkrete UI-Liefergegenstände innerhalb YD-10
 
-Diese Teilschritte werden nacheinander abgeschlossen und fokussiert committet. Die Entfernung der Read/Edit-Auswahl ist bereits als Produktanforderung gesetzt; ihre Umsetzung beginnt nach gemeinsamer Prüfung des Plans.
+Diese Teilschritte besitzen ein gemeinsames Editor-/Header-Modell und werden pro betroffener Fläche koordiniert und fokussiert committet. Der Modellvertrag wird zuerst festgelegt; unabhängige Web-/Formular-/Gast-/Native-Mobile-Anschlüsse dürfen anschließend nach §12.3 parallel bearbeitet werden. Die Entfernung der Read/Edit-Auswahl ist bereits als Produktanforderung gesetzt; ihre Umsetzung beginnt nach gemeinsamer Prüfung des Plans.
 
 1. **Modell und Oberflächeninventar:** Präsentationsmodus von Berechtigung/Schutzstatus trennen; alle Aufrufer, Default-/Fallback-Zustände, Rich-/Source-Fähigkeiten und Reading-only-Funktionen erfassen. Keine editierbare Disk-/Projektionskopie als Abkürzung.
 2. **Direktes Editieren:** Haupteditor, Markdown-Felder und Gasteditoren auf direkte native Bearbeitung für Berechtigte umstellen; Native-Mobile-Anschluss im eigenen Repository nach derselben Produktvorgabe führen. Öffnen ohne Mutation/ungefragten Autofokus, Rechtewechsel, Migration, lokale Entwürfe und unterstützten Source-Pfad prüfen.
 3. **Kompakte Steuerung:** Read/Edit-Leiste vollständig entfernen; Breite/Fokus in die bestehende Kopfzeile integrieren, Feld-Expand und Gast-Download korrekt anbinden. Overflow, Fokus-Rückkehr, State-Owner und mobile Darstellung fertigstellen.
-4. **UI-Abnahme und Vertragsanschluss:** Tatsächliche Eingabe/Formatierung/Undo, Navigation/Links/Backlinks, Zwei-Nutzer-Änderungen, schmale Ansichten, Tastatur/Touch und Fehler-/Rechtestatus nachweisen. Veraltete Tests für Read/Edit-Auswahl gezielt auf die neue Produktvorgabe umstellen; verbleibende Source-/Berechtigungsprüfungen erhalten.
+4. **UI-Abnahme und Vertragsanschluss:** Tatsächliches manuelles Erstellen, erster Paste, Markdown-Einfügung/Dateimport, Eingabe/Formatierung/Undo, Navigation/Links/Backlinks, Zwei-Nutzer-Änderungen, schmale Ansichten, Tastatur/Touch und Fehler-/Rechtestatus nachweisen. Veraltete Tests für Read/Edit-Auswahl gezielt auf die neue Produktvorgabe umstellen; verbleibende Source-/Berechtigungsprüfungen erhalten.
+
+### 12.3 Worktree-Regeln und parallelisierbare Pakete
+
+**Arbeitsort dieses Plans:** Git-Worktree `/Users/frankalexanderweber/.codex/worktrees/824c/canvasstudios-notebook`, Branch `codex/yjs-document-authority-plan`. Auch spätere Umsetzung erfolgt in geeigneten Worktrees; die kanonische Checkout-Arbeitskopie wird nicht zum gemeinsamen Schreibplatz mehrerer Agenten. Vor Beginn und Integration werden absoluter Pfad, Branch, HEAD, Dirty-/Staged-Zustand und passende Quellcode-Basis überprüft.
+
+Für parallele Implementierungen werden geeignete vorhandene verwaltete Worktrees wiederverwendet oder neue mit eigenen `codex/`-Branches angelegt und der Aufgabe zugeordnet. Der konkrete Basis-Commit folgt aus den abgeschlossenen Voraussetzungen; ein standardmäßig von älterem `main` gestarteter Worktree besitzt diese Änderungen nicht automatisch. Pro Datei beziehungsweise gemeinsamem Vertrag gibt es einen verantwortlichen Writer. Rein lesende Recherche/Review kann denselben Stand parallel prüfen. Eine Aufgabe delegieren heißt nicht, ihr einen zweiten unkoordinierten Schreibzugriff auf den Haupt-Worktree zu geben.
+
+| Paket | Minimale abgeschlossene Voraussetzungen für Implementierung/Integration | Mögliche Parallelität bei getrennten Dateien und festgelegtem Vertrag |
+| --- | --- | --- |
+| YD-00 | Gemeinsame Planprüfung/Scope | Inventare und Testlücken parallel erheben; Verträge anschließend gemeinsam festlegen. |
+| YD-01 / YD-02 | YD-00 | Konkrete Codecdiagnose und Autoritätsfähigkeiten parallel; gemeinsame Validierungs-/Fehlerdateien besitzen einen Owner. Diagnosebefunde vor Integration des betroffenen Vertrags abgleichen. |
+| YD-03 / YD-04 | YD-02 | Recovery/Clone/Import und strukturierter Linkgraph parallel entwickeln. End-to-End-Abnahme kopierter interner Links aus YD-03 benötigt zusätzlich den fertigen Graph-/Mutationsvertrag YD-04/05. |
+| YD-05 | YD-04 und YD-02 | Gezielte Linkmutation neben Reader-/Writer-Anschlüssen entwickeln; Schnittstellenänderungen vorher abstimmen. |
+| YD-08 | YD-02 und YD-03 | Verbleibende Writer einschließlich Create/Upload/Import neben YD-04/05 anschließen; Link-Worker-Abnahme benötigt zusätzlich YD-05. |
+| YD-09 | YD-02; Clone-/Importverbraucher zusätzlich YD-03 | Reader/Suche/Export parallel zu unabhängigen Link-/Writer-Flächen anschließen; gemeinsame Mobile-/MCP-Dateien nicht gleichzeitig ändern. |
+| YD-06 | YD-03 und YD-05; finaler Linkgraph aus YD-04 | Deaktivierten versionierten Abschluss integrieren, während unabhängige Consumer-/UI-Anschlüsse fertiggestellt werden. Keine vorgezogene allgemeine Aktivierung. |
+| YD-07 | YD-03, YD-05 und YD-06 | Undo/Altjournal-Kompatibilität neben unabhängigen Consumer-/UI-Arbeiten; gemeinsamer Batch-Executor wird koordiniert bearbeitet. |
+| YD-10 | Je Teilfläche der abgeschlossene relevante Vertrag: native Bearbeitung YD-02, vollständiger Import YD-03/08, neue öffentliche Batch-Statusfelder YD-06/09 | Web-Editor/Header, Formular-/Gastadapter, Native Mobile und Betrieb/Übersetzungen nach gemeinsamer Modellentscheidung parallel; erst mit allen Teilabnahmen abgeschlossen. |
+| YD-11 | YD-01 bis YD-10 abgeschlossen; YD-00-Verträge weiterhin erfüllt | Reine Reviews und isolierte Tests können parallel erfolgen; integrierte UI-/Prozessprüfungen am selben verwalteten Stack werden seriell koordiniert. |
+| YD-12 | YD-11 | Messauswertung und Betriebsreview parallel; Aktivierung/Rollout geordnet und separat beauftragt. |
+| YD-13 | Stabiler intern abgenommener Vertrag nach YD-12 | API-/SDK-Plan als separates Folgepaket, ohne die offenen internen Grundlagen zu umgehen. |
+
+Die Tabelle nennt Startvoraussetzungen und Teilabhängigkeiten; ein Paket gilt erst mit seinem vollständigen Abschlusskriterium als fertig. Jeder Agent liefert einen fokussierten Commit, Nachweise, Grenzen und eine kurze Übergabe. Der Integrationsverantwortliche übernimmt fertige Commits gezielt, prüft Vertrag/Scope und führt erforderliche Regressionen auf dem tatsächlichen integrierten Stand aus. Unfertige Arbeit oder ein Worker-Status „idle“ ersetzt keinen Abschlussnachweis. Konflikte in gemeinsamem Code werden vor weiterer abhängiger Implementierung aufgelöst.
+
+Parallelität gilt für Entwicklung, Recherche und passende isolierte Tests. Es läuft weiterhin höchstens ein verwalteter lokaler Test-Stack: kein zweiter Test-Container für einen zweiten Agenten. Build/Recreate, Serverzustand, Fixture-/Workspace-Identitäten, Fault Injection und Browserläufe an diesem Stack besitzen einen gemeinsamen Test-Owner. Parallele Unit-Tests brauchen getrennte temporäre Dateien und Daten; globale Auth-/ENV-/DB-Zustände werden nicht unkoordiniert geteilt. Containerbau bleibt an ausdrücklichen Auftrag und vorher bestandenes `npm run build` gebunden.
 
 ## 13. Verpflichtende Abnahmematrix
 
@@ -528,6 +584,11 @@ Die Produktionsdatei wird nicht als öffentliche Testfixture kopiert. Ein privat
 | Breite/Fokus wechseln, Dokument schließen/öffnen, Formular expandieren | Eine aktive Editor-/Draft-Sitzung; Inhalt, Auswahl, Scrollanker und Undo erhalten; Fokus stellt vorheriges Layout wieder her | Komponententest plus reale Browserinteraktion |
 | Schmale Kopfzeile, lange Pfade, Browserzoom, Mobile/Softkeyboard | Keine zusätzliche Moduszeile, verdeckten Aktionen oder Textüberlagerung; sinnvolle Breitenaktion und zugängliche Rückkehr | Screenshots und Tastatur-/Touch-Abnahme über Viewports |
 | Links, Tabellen, Metadaten, Inhaltsverzeichnis und Backlinks in direkter Editieransicht | Navigation und Inhalte behalten die benötigte Qualität; kein künstlicher Read-Modus als Voraussetzung | Gezielte Navigations-/Darstellungs-/Formatierungs-E2E |
+| Tatsächlich per UI erstelltes leeres Dokument, erster normaler Text-Paste | Inhalt ohne Edit-Klick genau einmal in korrekter Yjs-Identität; Absätze, Unicode und relevanter Text erhalten | Reale Clipboard-/UI-E2E; serverseitiger Snapshot und frischer Browser |
+| Manuell erstelltes Dokument, Markdown-Einfügeaktion und anschließender Edit | Unterstützte Struktur direkt bearbeitbar; Paste und folgende Änderung getrennt rückgängig; Peer/Reopen erhält Ergebnis | Bestehende Insertion-E2E auf tatsächlichen UI-Create erweitern |
+| Vollständige Markdown-Datei mit Frontmatter, BOM/CRLF und relativen Assets importieren | Metadaten und definierte Syntax erhalten; Source-Vertrag bei nicht sicherem Rich-Import; Ziel-/Assetauflösung korrekt | Tatsächlicher Upload-/Import-UI-Test plus native Struktur-/Textvergleiche |
+| Rich-Clipboard mit HTML/plain, Markdown-MIME, Codeblock, URL, Bild/Block oder mobiler Einfügeaktion | Festgelegte MIME-Priorität und kontextabhängiges Verhalten; keine stille Umdeutung oder verlorenen Inhalte | Reale Browser-Clipboard-Testmatrix; OS-/Gerätenachweis separat |
+| Bootstrap-/Sessionverzögerung, Peer füllt gerade leeres Dokument, Importretry oder Rechteentzug | Kein Empty-Overwrite, keine zweite Initialisierung oder doppelte Anwendung; Zielkonflikt und erhaltene Eingabe | Verzögerungs-/Konkurrenz-/Retrytests plus reale UI |
 
 ### 13.1 Bestehende Testgrundlagen
 
@@ -560,6 +621,10 @@ npm run test:editor:mobile-viewport:e2e
 npm run test:editor:presentation
 npm run test:markdown:navigation-client
 npm run test:file-guests
+npm run test:editor:markdown-insertion
+npm run test:editor:block-clipboard
+npm run test:notebook:uploads
+npm run test:upload:storage
 ```
 
 Besonders relevante vorhandene Fixtures: [autoritativer Planner](../scripts/workspace-authoritative-planner-snapshot-test.ts), [Batch-Executor](../scripts/workspace-operation-batch-executor-test.ts), [Link-Yjs-Edits](../scripts/workspace-link-yjs-edits-test.ts), [Link-Write-Executor](../scripts/workspace-link-write-executor-test.ts), [StateProof](../scripts/collaboration-state-proof-test.ts), [Projection-Runtime](../scripts/collaboration-projection-runtime-test.ts), [Agent-Block-Admission](../scripts/collaboration-agent-block-admission-test.ts), [Read-Snapshot](../scripts/collaborative-file-read-test.ts) und [Undo](../scripts/workspace-operation-undo-test.ts).
@@ -567,6 +632,8 @@ Besonders relevante vorhandene Fixtures: [autoritativer Planner](../scripts/work
 Die vorhandene Batch-Regression für alle angewandten Linkschritte bei anschließend ausstehendem Checkpoint muss als alte Vertragsevidenz erhalten bleiben und für den neuen versionsgebundenen Abschluss gezielt weiterentwickelt werden. Die bisherigen HTML-Snapshot-Tests erwarten teilweise unveränderte Disk-Semantik; das ist eine bewusst zu ändernde Vertragsannahme, kein beliebig anzupassender Testfehler.
 
 Für die Editorvereinfachung besonders relevant: [Markdown-Feld-UI](../scripts/markdown-field-ui-test.tsx), [Feldinhalt](../scripts/markdown-field-content-test.tsx), [Fokus/Breite](../tests/editor-focus-width.spec.ts), [lokale Positions-/Modus-E2E](../tests/editor-mode-position-local.spec.ts), [kollaborative Positions-/Modus-E2E](../tests/editor-mode-position.spec.ts), [Offline-Kollaboration](../tests/editor-offline-collaboration.spec.ts), [Gast-Kollaboration](../tests/editor-guest-collaboration.spec.ts), [mobile Viewports](../tests/editor-mobile-viewport.spec.ts) und [Workspace-Navigation](../scripts/workspace-markdown-navigation-client-test.ts). Bestehende Read/Edit-Button-Assertions beschreiben den bisherigen Vertrag und werden durch direkte Eingabe ersetzt; Positions-/Undo-, Source- und Berechtigungsnachweise werden weiterhin benötigt.
+
+Für Create/Paste/Import: [native Markdown-Insertion](../scripts/markdown-insertion-test.ts), [Einfügedialog](../scripts/markdown-insertion-dialog-test.tsx), [reale Markdown-Insertion-E2E](../tests/editor-markdown-insertion.spec.ts), [UI-Dateierstellung](../tests/destination-folder-creation.spec.ts), [URL-Paste](../tests/editor-url-paste.spec.ts), [Block-Clipboard](../scripts/markdown-block-clipboard-test.ts) und [Initialisierungsprüfung](../scripts/collaboration-initialization-admission-postgres-test.ts) weiterverwenden. Die vorhandene UI-Dateierstellung prüft bisher noch nicht den verbundenen ersten Paste. Eine API-erzeugte Datei, ein mit `.fill()` gefülltes Feld oder synthetisches JSDOM-Paste belegt nicht allein den vollständigen manuellen UI-/Zwischenablageweg.
 
 ### 13.2 Integrierte Prüfungen und Umgebungsregeln
 
@@ -578,6 +645,19 @@ Für die Editorvereinfachung besonders relevant: [Markdown-Feld-UI](../scripts/m
 - Containerbau erfolgt nur nach ausdrücklichem Auftrag und vorher bestandenem `npm run build`. Die aktuelle Browserfreigabe betraf die lesende Produktionsdiagnose und ist kein Auftrag zu Produktionsmutationen.
 - Vor Integrationsabschluss: relevante Tests, Typecheck/Lint, `npm run build`, Diff-/GitNexus-Scopeprüfung und passende UI-Abnahme. Vor Produktionsdeployment zusätzlich die Repository-Vorgabe `npm run test:all`.
 - Native iOS-/Android-Akzeptanz, Remote-CI und Produktionsnachweis werden getrennt vom lokalen Browsernachweis dokumentiert.
+
+### 13.3 Verbindlicher manueller Create/Paste/Import-Abnahmelauf
+
+Dieser Ablauf wird nach Umsetzung tatsächlich durchgeführt und durch wiederholbare Browser-E2E ergänzt. Auszuführen auf dem integrierten Worktree-Stand; Testergebnis nennt Commit, Umgebung, Browser/Viewport beziehungsweise Gerät und verwendete synthetische Fixture. Die Schritte sind geplante Prüfungen, noch keine bestandene Abnahme.
+
+1. Im UI den richtigen Workspace und einen Zielordner wählen, eine neue `.md`-Datei über die reale Create-Aktion anlegen und öffnen; sowohl Homepage als auch Dateibrowser prüfen. Ohne Read/Edit-Auswahl in den leeren Inhalt klicken; klaren Text mit Umlauten, Emoji, mehreren Absätzen und Sonderzeichen aus echter Zwischenablage einfügen. Weiter tippen, Auswahl ersetzen und Undo/Redo prüfen. Parallel laufenden gleichnamigen Create sowie Workspace-Wechsel während des Requests als negative Zielbindungsfälle prüfen.
+2. Eine zweite neue Datei ebenfalls ausschließlich über das UI anlegen. Eine Markdown-Fixture mit Überschriften, fett/kursiv, Liste/Checkboxen, Links, Tabelle und Code über die erreichbare Markdown-Einfügeaktion übernehmen. Darstellung, tatsächliche Editierbarkeit und getrennte Undo-Einheit prüfen.
+3. Eine vollständige `.md`-Fixture mit Frontmatter sowie definiertem Newline-/Encoding-Profil über den echten Upload-/Import-UI-Weg übernehmen. Eine zusätzliche Fixture enthält bewusst nicht sicher Rich-importierbare Syntax. Unterstützte Struktur beziehungsweise texttreuen Source-Vertrag prüfen; Metadaten und Draft dürfen nicht verschwinden.
+4. Je nach festgelegtem Paste-Vertrag normales Paste mit plain-only, HTML+plain und verfügbarem Markdown-MIME prüfen; „als reinen Text“ sowie Einfügen innerhalb eines Codeblocks testen. URL-, Bild- und interne Block-Einfügewege gezielt als Regression prüfen. `navigator.clipboard.writeText` beweist plain-only; es beweist weder Rich-MIME noch systemweites mobiles Paste.
+5. Mit einem zweiten echten Nutzer denselben Inhalt bereits während des initialen Öffnens und erneut nach Import/Eingabe öffnen; Identität/Generation, eindeutige Block-IDs, Konvergenz und empfangene Änderungen prüfen. Ziel-/Auswahlkonflikt, zwischenzeitlichen Peer-Inhalt im vermeintlich leeren Dokument, verzögerten oder fehlgeschlagenen Sessionstart und Berechtigungswechsel prüfen. Ein fehlgeschlagener bewusster Markdown-Import erhält den Entwurf und eine verständliche Ursache.
+6. Auf serverseitig nachgewiesene Persistenz prüfen, danach Tab wechseln, Dokument schließen/wieder öffnen und Seite neu laden. Zusätzlich in einem frischen Browserkontext ohne vorherigen IndexedDB-Inhalt öffnen. Bei dafür vorgesehenem Prozess-Test Server neu starten und erneut aus dem serverseitigen Zustand lesen; kein lokaler Cache als Persistenzbeweis.
+7. Bei verlustfrei exportierbaren Fixtures Markdown herunterladen und Struktur/Text/Frontmatter gemäß Vertrag vergleichen. Verzögerte Projektion und Exportfehler mit eigenem Fall prüfen: vorhandenen Inhalt weiterhin nativ lesen/bearbeiten, ausdrücklich fehlgeschlagenen Export nicht als erfolgreichen Download ausgeben. Importierte relative Links/Bilder und späteres Move/Rename gezielt prüfen.
+8. Dieselben Kernwege im mobilen Web mit Touch-Einfügeaktion, Softkeyboard und Rotation prüfen. Native iOS-/Android-Wege im separaten Mobile-Repository/Gerät prüfen, sofern die Fläche betroffen ist; fehlende OS-/Geräteevidenz ausdrücklich offen halten. Screenshots, Fehler und Ergebnisse im Arbeitspaket dokumentieren.
 
 ## 14. Migration, Rückstände und Rollout
 
@@ -636,6 +716,8 @@ Die bestehende historische `bold`/`code`-Reparatur ist kein Beleg dafür, dass d
 | D-12 | Einführung/Abschaltung des neuen Vertrags? | Additive Versionen, geordneter Worker-Drain, keine unsichere Disk-Rückfalloption. | Kompatibler Rollback/Forward-Fix und Betriebs-Stop-Kriterien entscheiden. |
 | D-13 | Wo liegt der verbleibende zulässige Source-Zugang? | Im bestehenden Mehr-Menü; direktes Source bei source-only Dokumenten. Die Read/Edit-Auswahl entfällt gemäß Nutzerauftrag. | Rückkehr zum formatierten Dokument, Auffindbarkeit und Formular-/Gast-Kontext konkret abnehmen. |
 | D-14 | Welche Ansichtsaktionen bleiben bei engem Platz sichtbar? | Breite/Fokus auf Desktop direkt in der Dokumentkopfzeile; bei Platzmangel im Kopfzeilenmenü; mobil nur sinnvolle Funktionen. | Breakpoints anhand verfügbarer Breite und realer Aktionen festlegen; Dokumentfokus von Browser-Vollbild und Panelorientierung unterscheiden. |
+| D-15 | Soll normales Paste automatisch Markdown erkennen? | Text direkt einfügen; ausdrücklich gewünschte Strukturübernahme über gut erreichbare „Markdown einfügen“-Aktion. Automatische Erkennung nur für klar definierte, verlustfrei geprüfte Fälle. | Literaltext/Code, HTML+plain-Priorität, Markdown-MIME und mobile Clipboard-Unterschiede festlegen und real testen. |
+| D-16 | Wie wird eine vollständige Datei samt Frontmatter in ein leeres Dokument übernommen? | Vollständiger kontrollierter Import mit Metadaten-/Zielbindung; Body-Einfügung übernimmt keine Dokumentmetadaten stillschweigend. | Bestehenden Upload-/Import-Einstieg bevorzugen; Bedarf für zusätzlichen Einstieg im leeren Editor, Konflikte und sichere Source-Auswahl festlegen. |
 
 Diese Entscheidungen werden vor Beginn der jeweils abhängigen Implementierung geschlossen. Der Plan kann um weitere Nutzungsfälle erweitert werden, ohne seine bisherigen offenen Aufgaben als erledigt zu markieren.
 
@@ -645,5 +727,6 @@ Diese Entscheidungen werden vor Beginn der jeweils abhängigen Implementierung g
 | --- | --- | --- |
 | 2026-10-13 | Erstentwurf aus Architekturvorschlag, bestätigter Transkript-Diagnose und aktuellem Quelleninventar. Strukturierter Linkgraph, autoritative Backups/Copy/Undo und versionierte Batch-Belege als zusätzliche P0-Abhängigkeiten aufgenommen. | Plan erstellt; keine Anwendungscode- oder Produktionsänderung. |
 | 2026-10-13 | Nutzerergänzung: Read/Edit-Auswahl entfernen und sichtbaren Inhalt direkt editierbar machen. Platzierung von Dokumentbreite und Vollbild/Fokus, gemeinsame Formular-/Gastflächen, Source-/Rechtegrenzen und konkrete UI-Abnahme ergänzt. | Aktuelle UI-Quellen gelesen; konkrete Platzierung vorgeschlagen. UI-Implementierung und visuelle Browserabnahme stehen noch aus. |
+| 2026-10-13 | Nutzerergänzung: Manuelles Create, erster Text-Paste, Markdown-Einfügung und vollständiger Dateimport einschließlich echter Browser-/Persistenzabnahme ergänzt. Umsetzung im Worktree und parallele unabhängige Arbeit mit expliziten Abhängigkeiten statt pauschal serieller Reihenfolge festgelegt. | Bestehende Insertion-Fixtures geprüft; API-Create und Dialog-Paste als engeren bisherigen Nachweis ausgewiesen. Plan erweitert; Anwendung/Browser-Abnahme noch ausstehend. |
 
 Für spätere Einträge: Entscheidung/Arbeitspaket, relevante Commit-Basis, Begründung, geprüfte Ebenen, Ergebnis und bekannte Grenzen aufnehmen. Historische Aussagen in den bisherigen Plänen werden nicht rückwirkend als neue Produktionsabnahme interpretiert.
