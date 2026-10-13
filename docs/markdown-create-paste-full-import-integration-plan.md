@@ -2,7 +2,7 @@
 
 Status: **Integrationsentwurf; globale Aktivierung noch offen.** Dieser Anschlussplan ergänzt [den Yjs-Konsolidierungsplan](./yjs-document-authority-consolidation-plan.md), insbesondere Create/Paste/Import und YD-03/YD-08/YD-10. Er beschreibt die vorhandenen Eintrittspunkte und die Voraussetzungen, unter denen die neue Vollimport-Grundlage sicher aktiviert werden kann.
 
-Quellenstand: Import-Grundlage `90c68d3a6`, Receipt-Härtung `0ed5a76c6`; lokale Quellen im Worktree `yjs-codec-diagnosis`. Zusätzlich wurde die exklusive Dateiveröffentlichung im Integrationsworktree bei `c5c7467b0` gelesen. Deren zusätzliche Claim-API ist im Diagnoseworktree noch nicht enthalten. Die genannten Zeilen beziehen sich auf diese Stände. Es wurden für diesen Entwurf keine Browser-, Geräte- oder Produktionstests ausgeführt.
+Quellenstand: Die Import-Grundlage und Receipt-Härtung sind im Integrationsworktree `824c` mit `fe1f6d23e` enthalten, ihre DDL ist seit `c5c7467b0` im globalen Migrationslauf registriert. Der Empty-State-Vertrag einschließlich vollständiger leerer XML-Imports ist mit `e604524ee` integriert. Die genannten Zeilen dienen der Navigation und sind bei späteren Änderungen erneut zu prüfen. Der frühe Browserstand V4 bestand fünf manuelle Create-/Paste-/Uploadfälle; das ist noch kein Browsernachweis für den neuen nativen Importkoordinator oder für Native Mobile. Ein neuer eingefrorener integrierter Build V5 ist vorbereitet, noch nicht ausgeführt.
 
 ## 1. Drei verschiedene Benutzeraktionen
 
@@ -51,7 +51,7 @@ Native Registry/Lineage/Zustand und der private Receipt werden atomar committed.
 
 Die SQL-Hashes beweisen Bytegleichheit und die zugehörige gespeicherte SQL-Zeile. Sie decodieren kein Yjs-Update und beweisen für sich allein nicht, dass ein opaque Snapshot oder StateVector daraus abgeleitet wurde. Dafür bleibt die geprüfte native JavaScript-Capability zuständig. Datenbank-Trigger ersetzen außerdem weder die Rechteprüfung noch die Geheimhaltungsgrenze des Callers.
 
-**Noch nicht enthalten:** globale DDL-Aktivierung, HTTP-/MCP-Dispatch, öffentlicher Ergebnisvertrag, FS-Zielanspruch, physische Veröffentlichung, UI-Importaktion oder Mutation eines aktiv gehosteten Rooms. `checkpointRequired: true` meldet den offenen Projektionsschritt; null Dateihashes und Sequenz null sind kein Projektionsabschluss. Native Bytes/Vektoren/Snapshots/Proofs/Actor-Receipts bleiben privat.
+**Enthalten:** Importvorbereitung, native Persistenz, private unveränderliche Receipts und Registrierung ihrer DDL im globalen Migrationslauf. **Noch offen:** HTTP-/MCP-Dispatch, öffentlicher Ergebnisvertrag, dauerhafter FS-Zielanspruch, koordinierte physische Veröffentlichung, UI-Anschluss an den neuen nativen Importweg und Mutation eines aktiv gehosteten Rooms. `checkpointRequired: true` meldet den offenen Projektionsschritt; null Dateihashes und Sequenz null sind kein Projektionsabschluss. Native Bytes/Vektoren/Snapshots/Proofs/Actor-Receipts bleiben privat.
 
 ## 4. Native Locks und Zielansprüche
 
@@ -112,7 +112,7 @@ Der öffentliche Adapter liefert nur explizite File-/Uploadfelder, Zielpfad, ver
 
 ## 8. Umsetzung in abgeschlossenen Schritten
 
-1. **Foundation integrieren:** Shared Raw-Schema-Guard, Importvorbereitung, native Persistenz und gehärtete private Receipt-DDL in den globalen Migrationslauf aufnehmen. Exportierte Capability bleibt intern; Rechte-/Principalprüfung und private Ergebnisgrenze überprüfen. Vorhandene reine und echte PostgreSQL-Fixtures laufen auf dem integrierten Stand.
+1. **Foundation integriert:** Shared Raw-Schema-Guard, Importvorbereitung, native Persistenz und gehärtete private Receipt-DDL sind einschließlich globaler DDL-Registrierung integriert. Die Capability bleibt intern. Vor Aktivierung müssen der angeschlossene Rechte-/Principalvertrag, die private Ergebnisgrenze und der vollständige Koordinator erneut auf dem integrierten Stand geprüft werden; bestandene Foundation-Fixtures ersetzen diese Abnahme nicht.
 2. **Einzeldatei-/Create-Koordinator schließen:** Dauerhafter privater Attempt und genaue FS-Claims, echte Lifecycle-/SQL-Locks, atomarer nativer Commit, claim-gebundene erste Projektion und Crash-/Kompensationspfad. Neue Ziele zuerst; generische Dateiersetzung, Paketrewrite und aktive Roommutation bleiben separate Verträge.
 3. **Uploadadapter anschließen:** Ein gemeinsamer Markdownzweig im Upload-Service; Web Chunk, Mobile Chunk, Multipart und MCP mit gebundener Identität, stabilen Retries und expliziten öffentlichen DTOs. Kein Markdownfehler-Fallback in den bisherigen Rohwrite-Callback. Sourcegrößen/Transportgrenzen prüfen, noch bevor große Buffers oder Zielmutationen entstehen.
 4. **Create/Bootstrap anschließen:** Gewöhnliche leere Notiz und das separate Mobile-Titeltemplate mit demselben Erstinitialisierungsvertrag integrieren. Originalbyteprofil aus tatsächlicher Quelle prüfen, nur `never_initialized` initialisieren; verlorenen oder widersprüchlichen nativen Zustand nicht aus einer Rohdatei rekonstruieren. Workspace-Wechsel und Create-Konkurrenz abnehmen.
