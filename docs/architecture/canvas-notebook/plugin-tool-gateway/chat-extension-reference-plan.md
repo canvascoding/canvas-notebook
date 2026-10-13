@@ -2,6 +2,8 @@
 
 Stand: 13. Oktober 2026. **Vorschlag zur Besprechung; Chat-Suche und neue Agent-Konfiguration noch nicht implementiert.** Quellenbasis der erweiterten Bestandsaufnahme: Notebook `a99553e7f2d4456fe272c9ac5994c6b39412189b`. Der separat beauftragte MCP-Icon-Nachtrag verändert diese Verträge nicht. Dieser Plan wird zunächst gemeinsam optimiert; seine Speicherung ist kein Auftrag zur Umsetzung.
 
+Nachfolgend wurde die Umsetzung mit abschließender E2E-Prüfung ausdrücklich beauftragt. Der aktuelle [Umsetzungs- und Abnahmestand](chat-agent-extension-implementation.md) dokumentiert die Schritte, offenen Anforderungen und tatsächlichen Nachweise; der folgende Text bleibt der Zielvertrag.
+
 ## Entscheidungsvorschlag
 
 `/` öffnet einen gemeinsamen Erweiterungs-Picker für **Plugins, Skills, Composio-Integrationen und direkte MCP-Server**. Ohne Suchtext stehen die zuletzt im aktuellen Workspace im Chat verwendeten Einträge zuerst. Tippen durchsucht alle vier Typen; optionale Typfilter schränken dieselbe Suche ein. Die Auswahl wird als konkrete Referenz an die Nachricht gebunden. Der Server prüft sie beim Senden und vor der späteren Ausführung erneut und gibt dem Agenten einen kurzen, präzisen Nutzungskontext.
