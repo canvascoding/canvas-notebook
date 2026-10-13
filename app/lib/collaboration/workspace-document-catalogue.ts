@@ -30,6 +30,13 @@ export class WorkspaceDocumentCatalogueError extends Error {
   }
 }
 
+/** PostgreSQL int8 is a decimal string unless the driver is explicitly configured. */
+function catalogueInteger(value: unknown, minimum: number): number | null {
+  if (typeof value !== 'number' && (typeof value !== 'string' || !/^(?:0|[1-9][0-9]*)$/u.test(value))) return null;
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed >= minimum ? parsed : null;
+}
+
 /** The caller owns the read transaction and any lifecycle/admission fence.
  * Enumerates the durable registry, including documents without a disk projection. */
 export async function readWorkspaceDocumentCatalogue(
@@ -67,15 +74,20 @@ export async function readWorkspaceDocumentCatalogue(
   const paths = new Set<string>();
   const ids = new Set<string>();
   for (const document of documents) {
+    const stateVersion = catalogueInteger(document.state_version, 0);
+    const generation = document.lifecycle_generation === null ? null : catalogueInteger(document.lifecycle_generation, 1);
     if (!document.id || !document.path || document.path.startsWith('/') || document.path.includes('\\') || document.path.includes('\0')
       || document.path.split('/').some((part) => !part || part === '.' || part === '..')
       || document.workspace_id !== workspace.workspaceId || document.organization_id !== (workspace.organizationId ?? null)
-      || document.status !== 'active' || paths.has(document.path) || ids.has(document.id)
+      || document.status !== 'active' || paths.has(document.path) || ids.has(document.id) || stateVersion === null
+      || document.lifecycle_generation !== null && generation === null
       || document.has_persisted_state && (document.state_status !== 'active' || document.state_path !== document.path
         || document.state_workspace_id !== workspace.workspaceId || document.state_organization_id !== (workspace.organizationId ?? null)
-        || !Number.isSafeInteger(document.lifecycle_generation) || Number(document.lifecycle_generation) < 1)) {
+        || generation === null)) {
       throw new WorkspaceDocumentCatalogueError('identity-conflict', document.id, document.path);
     }
+    document.state_version = stateVersion;
+    document.lifecycle_generation = generation;
     document.authority = document.has_persisted_state ? 'initialized'
       : document.yjs_state_lifecycle === 'never_initialized' && document.state_version === 0 && !document.has_state_history
         ? 'pristine' : 'missing-state';
