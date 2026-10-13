@@ -231,14 +231,16 @@ export async function executeWorkspaceFileOperationService(
               destinationPath: selection.destinationPath, mutationId: rename.mutation.operationId,
               undoBackupId: undoBackup.backupId };
           },
-          applySelection: async (_stage, selection) => {
+          applySelection: async (stage, selection) => {
             if (request.kind !== 'copy') throw new Error('Selection copy cannot apply to rename or move.');
             const directory = path.posix.dirname(selection.destinationPath);
             const chooseCollisionName = input.renameOnCollision === true
               || path.posix.basename(selection.destinationPath) !== path.posix.basename(selection.sourcePath);
             const result = await copyFileBetweenWorkspaces(selection.sourcePath, directory,
               false, chooseCollisionName,
-              { source: input.source.fileOptions, target: input.destination.fileOptions });
+              { source: input.source.fileOptions, target: { ...input.destination.fileOptions,
+                mutationOperationId: stage.identity.operationId, mutationActorUserId: input.actorUserId,
+                mutationActorSessionId: input.actorSessionId } });
             if (result.skipped || result.copied !== selection.destinationPath) {
               throw new Error(`Copy destination changed: ${selection.destinationPath}`);
             }

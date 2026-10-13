@@ -3,6 +3,8 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import Module from 'node:module';
+import ts from 'typescript';
+import { emptyNativeCopyDependencies } from './helpers/empty-native-copy-dependencies';
 
 import { summarizeWorkspaceBatchResult } from '@/app/lib/files/operation-flows';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
@@ -39,6 +41,9 @@ async function main() {
   let activePath: { workspaceId: string; path: string } | null = null;
   const initialized: string[] = [];
   internals._load = (request, parent, isMain) => {
+    if (request === '@/app/lib/collaboration/workspace-native-copy' || request === path.resolve('app/lib/collaboration/workspace-native-copy.ts')) {
+      return { workspaceNativeCopyDependencies: emptyNativeCopyDependencies };
+    }
     if (request === '@/app/lib/files/workspace-file-lifecycle-guard') return {
       withWorkspaceFileLifecycleGuards: async (scopes: Array<{ workspaceId: string; paths: string[] }>, work: () => Promise<unknown>) => {
         if (activePath && scopes.some((scope) => scope.workspaceId === activePath!.workspaceId
@@ -59,7 +64,13 @@ async function main() {
     return originalLoad(request, parent, isMain);
   };
   try {
-    const { batchCopy, batchCopyBetweenWorkspaces, copyFileBetweenWorkspaces } = await import('../app/lib/filesystem/workspace-files');
+    const file = path.resolve('app/lib/filesystem/workspace-files.ts');
+    const sourceCode = ts.transpileModule(await readFile(file, 'utf8'), {
+      compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, esModuleInterop: true },
+    }).outputText;
+    const copyModule = { exports: {} as typeof import('../app/lib/filesystem/workspace-files') };
+    new Function('require', 'module', 'exports', sourceCode)(Module.createRequire(file), copyModule, copyModule.exports);
+    const { batchCopy, batchCopyBetweenWorkspaces, copyFileBetweenWorkspaces } = copyModule.exports;
     const sourceRoot = path.join(tempRoot, 'personal');
     const targetRoot = path.join(tempRoot, 'team');
     await mkdir(path.join(sourceRoot, 'docs', 'nested'), { recursive: true });
@@ -73,6 +84,9 @@ async function main() {
 
     const source = createWorkspaceContext(sourceRoot, 'ws_personal', 'personal');
     const target = createWorkspaceContext(targetRoot, 'ws_team', 'team');
+    await assert.rejects(() => copyFileBetweenWorkspaces('docs/b.txt', 'imports', false, true,
+      { source: { workspace: source }, target: { workspace: { ...target, permissions: { ...target.permissions, canWrite: false } } } }),
+    error => error instanceof Error && 'status' in error && error.status === 403);
 
     const result = await batchCopyBetweenWorkspaces(
       ['docs/b.txt', 'docs/nested'],

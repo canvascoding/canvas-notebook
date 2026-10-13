@@ -20,6 +20,8 @@ async function harness() {
     metrics: [] as Array<Record<string, unknown>>,
     lifecycleBusy: false, lifecycleDepth: 0, mutationDepth: 0,
     copyCalls: 0, metadataCalls: 0, executeCalls: 0, applyCopy: false,
+    nativeCopy: false,
+    copyBindings: [] as Array<{ mutationOperationId: string; mutationActorUserId: string; mutationActorSessionId?: string }>,
     destinationPath: 'b.md', changedDestinationPath: null as string | null,
     previewCalls: 0, blockedPath: null as string | null,
     lifecycleScopes: [] as Array<{ workspaceId: string; paths: readonly string[] }>,
@@ -47,10 +49,12 @@ async function harness() {
         controls.mutationDepth += 1;
         try { return await run(); } finally { controls.mutationDepth -= 1; }
       },
-      readFile: async () => Buffer.from(''), copyFileBetweenWorkspaces: async () => {
+      readFile: async () => Buffer.from(''), copyFileBetweenWorkspaces: async (_source: string, _directory: string,
+        _overwrite: boolean, _rename: boolean, options: { target: typeof controls.copyBindings[number] }) => {
         assert.equal(controls.lifecycleDepth, 1);
         controls.copyCalls += 1;
-        return { copied: controls.destinationPath, skipped: false, collaborationInitialized: false };
+        controls.copyBindings.push(options.target);
+        return { copied: controls.destinationPath, skipped: false, collaborationInitialized: controls.nativeCopy };
       },
     };
     if (name === '@/app/lib/markdown/workspace-file-operation-preview') return {
@@ -91,11 +95,11 @@ async function harness() {
       createWorkspaceFileOperationExecutor: (options: { adapters: { path: {
         applySelection: (stage: unknown, selection: { sourcePath: string; destinationPath: string }) => Promise<unknown>,
       } } }) => ({
-        execute: async (input: { request: { selections: Array<{ sourcePath: string; destinationPath: string }> } }) => {
+        execute: async (input: { operationId: string; request: { selections: Array<{ sourcePath: string; destinationPath: string }> } }) => {
           controls.executeCalls += 1;
           if (controls.throwExecution) throw new Error('executor failed');
           if (controls.applyCopy) for (const selection of input.request.selections) {
-            await options.adapters.path.applySelection(undefined, selection);
+            await options.adapters.path.applySelection({ identity: { operationId: input.operationId } }, selection);
           }
           return { status: controls.status };
         },
@@ -124,7 +128,7 @@ async function harness() {
     actorUserId: 'user-one', actorId: 'user-one', actorDisplayName: 'User',
     ...extra,
   });
-  return { controls, execute };
+  return { controls, execute, scope };
 }
 
 test('direct operation reports incomplete link coverage before blocking', async () => {
@@ -167,6 +171,17 @@ test('selection copy rejects busy admission before filesystem work and retains t
   ]);
   assert.equal(h.controls.lifecycleDepth, 0);
   assert.equal(h.controls.mutationDepth, 0);
+});
+
+test('selection copy binds its durable operation and actual actor session without reinitializing native clones', async () => {
+  const h = await harness(); h.controls.applyCopy = true; h.controls.nativeCopy = true;
+  const operationId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  await h.execute('copy', { operationId, actorSessionId: 'actual-session', destination: { workspace: h.scope.workspace,
+    fileOptions: { ...h.scope.fileOptions, mutationActorUserId: 'wrong-user', mutationOperationId: 'wrong-operation' } } });
+  assert.equal(h.controls.metadataCalls, 0);
+  assert.equal(h.controls.copyBindings[0].mutationOperationId, operationId);
+  assert.equal(h.controls.copyBindings[0].mutationActorUserId, 'user-one');
+  assert.equal(h.controls.copyBindings[0].mutationActorSessionId, 'actual-session');
 });
 
 test('collision-renamed copy guards the selected target while the original target has an independent owner', async () => {

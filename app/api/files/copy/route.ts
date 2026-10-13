@@ -92,7 +92,9 @@ export async function POST(request: NextRequest) {
     if (targetWorkspaceResult.response) return targetWorkspaceResult.response;
 
     const sourceFileOptions = workspaceFileOptions(sourceWorkspaceResult.workspace);
-    const targetFileOptions = { ...workspaceFileOptions(targetWorkspaceResult.workspace), mutationActorUserId: session.user.id };
+    const actorSessionId = (session.session as { id?: string } | undefined)?.id;
+    const targetFileOptions = { ...workspaceFileOptions(targetWorkspaceResult.workspace), mutationActorUserId: session.user.id,
+      mutationActorSessionId: actorSessionId };
 
     const protectedPaths = copySources.filter((p) => isProtectedAppOutputFolder(p));
     if (protectedPaths.length > 0) {
@@ -153,7 +155,7 @@ export async function POST(request: NextRequest) {
         selections: copySources.map((sourcePath) => ({ sourcePath,
           destinationPath: resolveMoveDestination(destDir, getWorkspacePathName(sourcePath)) })),
         expectedPlanId: planId, renameOnCollision,
-        actorUserId: session.user.id, actorId: session.user.id,
+        actorUserId: session.user.id, actorId: session.user.id, actorSessionId,
         actorDisplayName: session.user.name ?? 'Workspace user', actorType: 'user',
       });
       const { execution, plan } = operation;

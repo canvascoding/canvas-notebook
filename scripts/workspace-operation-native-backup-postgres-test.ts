@@ -3,6 +3,8 @@ import { createHash, randomUUID } from 'node:crypto';
 import { constants, promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { createRequire } from 'node:module';
+import ts from 'typescript';
 import { Pool, types } from 'pg';
 import * as Y from 'yjs';
 import type { SqlConnection } from '../app/lib/db';
@@ -18,6 +20,9 @@ import { captureWorkspaceOperationBackup, listWorkspaceOperationBackups, restore
   type WorkspaceOperationBackupDependencies, WorkspaceOperationBackupError } from '../app/lib/files/workspace-operation-backup';
 import type { WorkspaceContext } from '../app/lib/workspaces/types';
 import { nativeTableWidthFixture } from './helpers/rich-markdown-projection-fixtures';
+import { inspectNativeWorkspaceCopy } from '../app/lib/collaboration/workspace-native-copy';
+import { readNativeCopyReceipt } from '../app/lib/collaboration/native-copy-result';
+import { copyNativeWorkspaceOperationBackup } from '../app/lib/files/workspace-operation-backup';
 
 const PREFIX = 'canvas_native_backup_test_';
 const SCHEMA = new RegExp(`^${PREFIX}[0-9a-f]{32}$`, 'u');
@@ -76,6 +81,28 @@ async function main() {
       persistCopies: input => persistNativeWorkspaceCopies(input, openConnection),
       completePublication: input => completeNativeCopyPublication(input, openConnection),
     };
+    const targetWorkspace: WorkspaceContext = { ...workspace, workspaceId: `${schema}-copy-target`,
+      rootPath: path.join(root, 'target', 'files') };
+    await fs.mkdir(targetWorkspace.rootPath, { recursive: true });
+    const copyFile = path.resolve('app/lib/filesystem/workspace-files.ts');
+    const copySource = ts.transpileModule(await fs.readFile(copyFile, 'utf8'), {
+      compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, esModuleInterop: true },
+    }).outputText;
+    const copyModule = { exports: {} as typeof import('../app/lib/filesystem/workspace-files') };
+    const loadCopy = createRequire(copyFile);
+    new Function('require', 'module', 'exports', copySource)((name: string) => {
+      if (name === '@/app/lib/files/workspace-file-lifecycle-guard') return {
+        withWorkspaceFileLifecycleGuards: async (scopes: Array<{ workspaceId: string; paths: string[] }>, work: () => Promise<unknown>) => {
+          const ordered = [...scopes].sort((left, right) => left.workspaceId.localeCompare(right.workspaceId));
+          const enter = (index: number): Promise<unknown> => index === ordered.length ? work()
+            : withWorkspaceFileLifecycleGuard(ordered[index], () => enter(index + 1), openConnection);
+          return enter(0);
+        },
+      };
+      return loadCopy(name);
+    }, copyModule, copyModule.exports);
+    const copyDependencies = { inspect: (input: Parameters<typeof inspectNativeWorkspaceCopy>[0]) => inspectNativeWorkspaceCopy(input, openConnection),
+      publish: (input: Parameters<typeof copyNativeWorkspaceOperationBackup>[0]) => copyNativeWorkspaceOperationBackup(input, dependencies) };
     for (const representation of ['tiptap_xml', 'tiptap_blocks'] as const) {
       const doc = nativeTableWidthFixture(representation, 'A\tB\r\n😀');
       const sourceId = `native-${representation}`; const lineageId = `lineage-${representation}`; const sourcePath = `${representation}.md`;
@@ -94,6 +121,23 @@ async function main() {
         const backup = await captureWorkspaceOperationBackup({ workspace, path: sourcePath, operationId: `capture-${representation}` }, dependencies);
         assert.equal(backup.version, 2); assert.equal(backup.nativePayload?.documentCount, 1);
         assert.equal(backup.entries[0].type, representation === 'tiptap_xml' ? 'file' : 'native_document');
+        const copyOptions = { source: { workspace }, target: { workspace: targetWorkspace,
+          mutationActorUserId: 'native-backup-tester', mutationActorSessionId: 'copy-session', mutationOperationId: `native-copy-${representation}` } };
+        const copied = await copyModule.exports.copyFileBetweenWorkspaces(sourcePath, '.', true, true, copyOptions, copyDependencies);
+        assert.equal(copied.copied, sourcePath); assert.equal(copied.collaborationInitialized, true);
+        const copyReceipt = readNativeCopyReceipt(copied); assert.ok(copyReceipt); assert.equal(copyReceipt.publicationStatus, 'published');
+        assert.notEqual(copyReceipt.documents[0].clone.documentId, sourceId);
+        for (const privateValue of ['documents', 'blockIdMapping', 'stateProof', sourceId]) assert.equal(JSON.stringify(copied).includes(privateValue), false);
+        assert.deepEqual(readNativeCopyReceipt(await copyModule.exports.copyFileBetweenWorkspaces(sourcePath, '.', false, true,
+          copyOptions, copyDependencies)), copyReceipt);
+        const renamed = await copyModule.exports.copyFileBetweenWorkspaces(sourcePath, '.', false, true,
+          { ...copyOptions, target: { ...copyOptions.target, mutationOperationId: `native-collision-${representation}` } }, copyDependencies);
+        assert.equal(renamed.copied, `${representation} (1).md`, 'native-only names participate in collision selection');
+        if (representation === 'tiptap_blocks') await assert.rejects(fs.lstat(path.join(targetWorkspace.rootPath, sourcePath)), { code: 'ENOENT' });
+        else assert.equal(await fs.readFile(path.join(targetWorkspace.rootPath, sourcePath), 'utf8'), 'stale filesystem projection\n');
+        await assert.rejects(() => copyModule.exports.copyFileBetweenWorkspaces(sourcePath, '.', true, false,
+          { ...copyOptions, target: { ...copyOptions.target, mutationOperationId: `unsupported-replace-${representation}` } }, copyDependencies),
+        error => error instanceof Error && 'code' in error && error.code === 'NATIVE_COPY_REPLACEMENT_UNSUPPORTED');
         const scopeFolder = path.join(root, '.workspace-operation-backups', hash(JSON.stringify(['personal', null, workspace.workspaceId])), backup.backupId);
         assert.equal((await fs.stat(path.join(scopeFolder, 'native.bin'))).mode & 0o077, 0);
         const metadata = JSON.stringify(await listWorkspaceOperationBackups({ workspace }));
@@ -129,6 +173,18 @@ async function main() {
             await fs.mkdir(path.join(workspace.rootPath, 'bundle', 'nested'));
             await fs.writeFile(path.join(workspace.rootPath, 'bundle', 'nested', 'child.bin'), 'nested raw backup bytes');
             const bundle = await captureWorkspaceOperationBackup({ workspace, path: 'bundle', operationId: 'capture-bundle' }, dependencies);
+            const bundleOptions = { source: { workspace }, target: { workspace: targetWorkspace,
+              mutationActorUserId: 'native-backup-tester', mutationOperationId: 'cross-workspace-native-bundle' } };
+            const copiedBundle = await copyModule.exports.copyFileBetweenWorkspaces('bundle', '.', false, false, bundleOptions, copyDependencies);
+            assert.equal(copiedBundle.copied, 'bundle');
+            assert.equal(readNativeCopyReceipt(copiedBundle)?.documents.length, 1);
+            assert.equal(await fs.readFile(path.join(targetWorkspace.rootPath, 'bundle', 'nested', 'child.bin'), 'utf8'), 'nested raw backup bytes');
+            await assert.rejects(fs.lstat(path.join(targetWorkspace.rootPath, 'bundle', 'note.md')), { code: 'ENOENT' });
+            await fs.writeFile(path.join(workspace.rootPath, 'bundle', 'unsupported.docx'), 'synthetic Word marker');
+            await assert.rejects(() => copyModule.exports.copyFileBetweenWorkspaces('bundle', '.', false, true,
+              { ...bundleOptions, target: { ...bundleOptions.target, mutationOperationId: 'mixed-native-office-bundle' } }, copyDependencies),
+            error => error instanceof Error && 'code' in error && error.code === 'NATIVE_COPY_REPLACEMENT_UNSUPPORTED');
+            await fs.unlink(path.join(workspace.rootPath, 'bundle', 'unsupported.docx'));
             const syncTarget = path.join(workspace.rootPath, 'synced-bundle');
             const syncPaths: string[] = [];
             const originalSyncOpen = fs.open;
@@ -184,7 +240,7 @@ async function main() {
         assert.equal((await pool.query(`SELECT count(*)::int AS count FROM collaboration_documents WHERE path=$1`, [`corrupt-${representation}.md`])).rows[0].count, 0);
       } finally { doc.destroy(); }
     }
-    console.log('native operation backup PostgreSQL: actual lifecycle guard and competing admission denial, stale/missing projection, native/profile preservation, fresh clone IDs, private payload secrecy/integrity and exact inventory, idempotent publication, bottom-up durable directory publication, partial-directory peer preservation OK');
+    console.log('native backup/copy PostgreSQL: actual lifecycle guard and competing admission denial, direct cross-workspace copy, native-only collisions, private receipt accessor/JSON secrecy, stale/missing projection, native/profile preservation, fresh clone IDs, private payload integrity and exact inventory, idempotent publication, bottom-up durable directory publication, partial-directory peer preservation OK');
   } finally {
     await pool?.end(); await admin.query(`DROP SCHEMA IF EXISTS ${identifier(schema)} CASCADE`); await admin.end();
     if (previousData === undefined) delete process.env.DATA; else process.env.DATA = previousData;

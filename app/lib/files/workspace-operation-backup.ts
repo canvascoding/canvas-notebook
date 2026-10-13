@@ -18,7 +18,7 @@ import { captureNativeWorkspaceRecoveryRecords } from '../collaboration/workspac
 import { deserializeNativeRecoveryPayload, serializeNativeRecoveryPayload, NATIVE_RECOVERY_PAYLOAD_LIMIT,
   type NativeRecoveryRecord } from '../collaboration/native-document-recovery';
 import { readWorkspaceDocumentCatalogue } from '../collaboration/workspace-document-catalogue';
-import { completeNativeCopyPublication, persistNativeWorkspaceCopies } from '../collaboration/native-copy-persistence';
+import { completeNativeCopyPublication, persistNativeWorkspaceCopies, type NativeCopyReceipt, type NativeCopyRequest } from '../collaboration/native-copy-persistence';
 
 const BACKUP_DIRECTORY = '.workspace-operation-backups';
 const ID_PATTERN = /^opb-[a-f0-9]{64}$/u;
@@ -582,6 +582,13 @@ async function restoreBackupInLifecycleGuard(input: {
       : `${restoredPath}/${path.posix.relative(backup.originalPath, record.state.path)}` })),
   }) : null;
   if (nativeReceipt?.publicationStatus === 'published') return { backup, restoredPath, collaborationInitialized: true, recoveryMode };
+  await publishBackupPhysicalTree(destination, folder, backup, destinationExists);
+  if (nativeReceipt) await dependencies.completePublication({ workspace: input.workspace, operationId,
+    actorUserId: actorUserId!, actorSessionId: input.actorSessionId, requestFingerprint: nativeReceipt.requestFingerprint, publicationFingerprint });
+  return { backup, restoredPath, collaborationInitialized: !!nativeReceipt, recoveryMode };
+}
+
+async function publishBackupPhysicalTree(destination: string, folder: string, backup: WorkspaceOperationBackup, destinationExists: boolean): Promise<void> {
   const payload = path.join(folder, 'payload');
   if (destinationExists) {
     // Exact completed bytes may resume their native receipt. Unexpected additions and partial trees always block.
@@ -637,7 +644,51 @@ async function restoreBackupInLifecycleGuard(input: {
     await syncDirectory(entry.path === '.' ? destination : path.join(destination, ...entry.path.split('/')));
   }
   if (backup.entries[0]?.type !== 'native_document') await syncDirectory(path.dirname(destination));
-  if (nativeReceipt) await dependencies.completePublication({ workspace: input.workspace, operationId,
-    actorUserId: actorUserId!, actorSessionId: input.actorSessionId, requestFingerprint: nativeReceipt.requestFingerprint, publicationFingerprint });
-  return { backup, restoredPath, collaborationInitialized: !!nativeReceipt, recoveryMode };
+}
+
+/** Native copy publishes an independent document from a scoped private snapshot, without a Markdown roundtrip.
+ * Caller retains the ordered source/destination lifecycle guards through this whole operation. */
+export async function copyNativeWorkspaceOperationBackup(input: {
+  sourceWorkspace: WorkspaceContext; targetWorkspace: WorkspaceContext;
+  sourcePath: string; targetPath: string; operationId: string; actorUserId: string; actorSessionId?: string | null;
+}, dependencies: WorkspaceOperationBackupDependencies = runtimeDependencies,
+initializeNative: (request: NativeCopyRequest) => Promise<NativeCopyReceipt> = async request => {
+  const { initializeCopiedFileCollaborationPaths } = await import('./collaboration-policy');
+  const receipt = await initializeCopiedFileCollaborationPaths({ workspace: request.targetWorkspace,
+    paths: [...request.targetScopes], nativeCopy: request }, dependencies.persistCopies);
+  if (!receipt) fail('INVALID_BACKUP', 'Native copy initialization did not return its private receipt.');
+  return receipt;
+}): Promise<NativeCopyReceipt> {
+  if (!input.sourceWorkspace.permissions.canRead || !input.targetWorkspace.permissions.canRead
+    || !input.targetWorkspace.permissions.canWrite
+    || [input.sourceWorkspace, input.targetWorkspace].some(workspace => workspace.status !== undefined && workspace.status !== 'active')) {
+    throw Object.assign(new Error('Current source and destination workspace permissions are required.'), { status: 403 });
+  }
+  const targetPath = resolveWorkspacePath(input.targetWorkspace, input.targetPath).relativePath;
+  if (targetPath === '.') fail('UNSAFE_PATH', 'Workspace root cannot be a native copy target.');
+  const backup = await captureWorkspaceOperationBackup({ workspace: input.sourceWorkspace, path: input.sourcePath,
+    operationId: `copy-source-${digest(JSON.stringify([input.operationId, input.targetWorkspace.workspaceId, targetPath]))}` }, dependencies);
+  const { folder } = await loadBackup(input.sourceWorkspace, backup.backupId);
+  const records = await verifyPayload(folder, backup);
+  if (!records.length) fail('INVALID_BACKUP', 'Native copy requires initialized source documents.');
+  await assertWorkspacePathHasNoAliases(input.targetWorkspace, targetPath);
+  const destination = await resolveWritableWorkspacePath(input.targetWorkspace, targetPath);
+  let destinationExists = false;
+  try { await fs.lstat(destination); destinationExists = true; }
+  catch (error) { if (!hasCode(error, 'ENOENT')) throw error; }
+  const publicationFingerprint = digest(JSON.stringify(['native-copy-publication-v1', backup.backupId, backup.contentSha256,
+    input.targetWorkspace.workspaceId, input.targetWorkspace.organizationId ?? null, targetPath]));
+  const receipt = await initializeNative({ kind: 'native_clone', operationId: input.operationId,
+    actorUserId: input.actorUserId, actorSessionId: input.actorSessionId,
+    sourceWorkspace: input.sourceWorkspace, targetWorkspace: input.targetWorkspace, targetScopes: [targetPath], expectedTargets: [],
+    resumeOnly: destinationExists, publicationFingerprint,
+    copies: records.map(record => ({ source: record, targetPath: record.state.path === backup.originalPath ? targetPath
+      : `${targetPath}/${path.posix.relative(backup.originalPath, record.state.path)}` })),
+  });
+  if (receipt.publicationStatus === 'published') return receipt;
+  await publishBackupPhysicalTree(destination, folder, backup, destinationExists);
+  await dependencies.completePublication({ workspace: input.targetWorkspace, operationId: input.operationId,
+    actorUserId: input.actorUserId, actorSessionId: input.actorSessionId,
+    requestFingerprint: receipt.requestFingerprint, publicationFingerprint });
+  return { ...receipt, publicationStatus: 'published' };
 }

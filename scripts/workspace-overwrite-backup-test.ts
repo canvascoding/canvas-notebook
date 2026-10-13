@@ -9,6 +9,7 @@ import ts from 'typescript';
 import { restoreWorkspaceOperationBackup } from '../app/lib/files/workspace-operation-backup';
 import type { WorkspaceContext } from '../app/lib/workspaces/types';
 import { emptyNativeBackupDependencies } from './helpers/empty-native-backup-dependencies';
+import { emptyNativeCopyDependencies } from './helpers/empty-native-copy-dependencies';
 
 const sha256 = (bytes: Buffer) => createHash('sha256').update(bytes).digest('hex');
 
@@ -20,6 +21,9 @@ async function main(): Promise<void> {
   const originalLoad = internals._load;
   let guardDepth = 0;
   internals._load = (request, parent, isMain) => {
+    if (request === '@/app/lib/collaboration/workspace-native-copy' || request === path.resolve('app/lib/collaboration/workspace-native-copy.ts')) {
+      return { workspaceNativeCopyDependencies: emptyNativeCopyDependencies };
+    }
     if (request === '@/app/lib/files/workspace-file-lifecycle-guard') return {
       withWorkspaceFileLifecycleGuards: async (_scopes: unknown, work: () => Promise<unknown>) => {
         guardDepth += 1;

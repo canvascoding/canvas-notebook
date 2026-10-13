@@ -28,6 +28,7 @@ import { withWorkspaceFileLifecycleGuards } from '@/app/lib/files/workspace-file
 import { assertOfficePublicationAllowed } from '@/app/lib/office/publication-context';
 import { filesystemFileVersion } from './file-version';
 import { isInternalWorkspaceStagingPath } from '@/app/lib/files/internal-staging-path';
+import type { WorkspaceNativeCopyDependencies } from '@/app/lib/collaboration/workspace-native-copy';
 
 export type { FileNode } from '@/app/lib/files/types';
 
@@ -38,6 +39,9 @@ export interface WorkspaceFileOperationOptions {
   strictMetadata?: boolean;
   includeSymlinks?: boolean;
   mutationActorUserId?: string;
+  mutationActorSessionId?: string;
+  /** Stable private operation binding supplied by the existing file-operation journal. */
+  mutationOperationId?: string;
 }
 
 /** Opaque, process-local proof of the inode published by one exclusive write. */
@@ -797,7 +801,7 @@ export interface CopyResult {
   skipped: string[];
 }
 
-function findAvailableDestName(fileName: string, fullDestDir: string): string {
+function findAvailableDestName(fileName: string, fullDestDir: string, logicalExists?: (name: string) => boolean): string {
   const ext = path.extname(fileName);
   const base = path.basename(fileName, ext);
   let candidate = fileName;
@@ -806,7 +810,7 @@ function findAvailableDestName(fileName: string, fullDestDir: string): string {
 
   while (true) {
     try {
-      accessSync(candidateFull);
+      if (!logicalExists?.(candidate)) accessSync(candidateFull);
       candidate = ext ? `${base} (${idx})${ext}` : `${base} (${idx})`;
       candidateFull = path.join(fullDestDir, candidate);
       idx++;
@@ -827,9 +831,9 @@ function isSameOrDescendantFsPath(candidatePath: string, parentPath: string): bo
   return relativePath === '' || (!relativePath.startsWith('..') && !path.isAbsolute(relativePath));
 }
 
-async function assertCopyDestinationIsSafe(fullSource: string, fullDestDir: string, fullDest: string) {
-  const sourceStats = await fs.stat(fullSource);
-  if (!sourceStats.isDirectory()) return;
+async function assertCopyDestinationIsSafe(fullSource: string, fullDestDir: string, fullDest: string, nativeDirectory?: boolean) {
+  const isDirectory = nativeDirectory ?? (await fs.stat(fullSource)).isDirectory();
+  if (!isDirectory) return;
 
   if (
     isSameOrDescendantFsPath(fullDestDir, fullSource) ||
@@ -983,25 +987,47 @@ export async function copyFileBetweenWorkspaces(
   options: {
     source: WorkspaceFileOperationOptions;
     target: WorkspaceFileOperationOptions;
-  }
+  },
+  nativeDependencies?: WorkspaceNativeCopyDependencies,
 ): Promise<{copied: string; skipped: boolean; collaborationInitialized?: boolean; backup?: { path: string; backupId: string; contentSha256: string; sizeBytes: number }}> {
+  const sourceScope = getWorkspace(options.source); const targetScope = getWorkspace(options.target);
+  if (!sourceScope.permissions.canRead || !targetScope.permissions.canRead || !targetScope.permissions.canWrite
+    || [sourceScope, targetScope].some(workspace => workspace.status !== undefined && workspace.status !== 'active')) {
+    throw Object.assign(new Error('Current source and destination workspace permissions are required.'), { status: 403 });
+  }
   sourcePath = normalizeWorkspaceRelativePath(sourcePath);
   destDir = normalizeWorkspaceRelativePath(destDir);
   return withWorkspaceCopyMutationLocks(options.source, options.target, async () => {
-    const fullSource = await resolveExistingWorkspacePath(sourcePath, options.source);
+    const sourceWorkspace = getWorkspace(options.source); const targetWorkspace = getWorkspace(options.target);
+    const native = nativeDependencies ?? (await import('@/app/lib/collaboration/workspace-native-copy')).workspaceNativeCopyDependencies;
+    const actorUserId = options.target.mutationActorUserId ?? targetWorkspace.ownerUserId ?? undefined;
+    const operationId = `copy-${createHash('sha256').update(JSON.stringify([options.target.mutationOperationId ?? randomUUID(),
+      sourceWorkspace.workspaceId, sourcePath, targetWorkspace.workspaceId, destDir])).digest('hex')}`;
+    const inspection = await native.inspect({ sourceWorkspace, targetWorkspace, sourcePath, targetDirectory: destDir,
+      operationId, actorUserId, actorSessionId: options.target.mutationActorSessionId });
+    let fullSource = validatePath(sourcePath, options.source); let sourceExists = true;
+    try { fullSource = await resolveExistingWorkspacePath(sourcePath, options.source); }
+    catch (error) {
+      if (!error || typeof error !== 'object' || !('code' in error) || error.code !== 'ENOENT' || !inspection.hasNativeSource) throw error;
+      sourceExists = false;
+    }
     const fullDestDir = await resolveExistingWorkspacePath(destDir, options.target);
-    const fileName = path.basename(fullSource);
+    const fileName = path.posix.basename(sourcePath);
     let destFileName = fileName;
+    const logicalExists = (name: string) => {
+      const candidate = destDir === '.' ? name : `${destDir}/${name}`;
+      return inspection.targetDocumentPaths.some(document => document === candidate || document.startsWith(`${candidate}/`));
+    };
+    if (inspection.targetDocumentPaths.includes(destDir)) throw Object.assign(new Error('A native document cannot contain a copied child.'), { status: 409 });
 
     let destExists = false;
-    if (renameOnCollision) {
-      const fullDest = path.join(fullDestDir, destFileName);
-      try {
-        await fs.access(fullDest);
-        destFileName = findAvailableDestName(fileName, fullDestDir);
-      } catch {
-        // Destination doesn't exist - use original name
+    if (inspection.resumeTargetPath) {
+      if (!options.target.mutationOperationId || normalizeWorkspaceRelativePath(path.posix.dirname(inspection.resumeTargetPath)) !== destDir) {
+        throw Object.assign(new Error('The copy recovery destination differs from this request.'), { status: 409 });
       }
+      destFileName = path.posix.basename(inspection.resumeTargetPath);
+    } else if (renameOnCollision) {
+      destFileName = findAvailableDestName(fileName, fullDestDir, logicalExists);
     } else {
       const fullDest = path.join(fullDestDir, destFileName);
       try {
@@ -1010,6 +1036,7 @@ export async function copyFileBetweenWorkspaces(
       } catch {
         // Destination doesn't exist - good
       }
+      destExists ||= logicalExists(destFileName);
 
       if (destExists) {
         if (!overwrite) {
@@ -1023,18 +1050,37 @@ export async function copyFileBetweenWorkspaces(
 
     const fullDest = path.join(fullDestDir, destFileName);
     const destRelative = destDir === '.' ? destFileName : `${destDir}/${destFileName}`;
-    await assertCopyDestinationIsSafe(fullSource, fullDestDir, fullDest);
+    await assertCopyDestinationIsSafe(fullSource, fullDestDir, fullDest, sourceExists ? undefined : inspection.sourceIsDirectory);
     return withWorkspaceFileLifecycleGuards([
       { workspaceId: getWorkspace(options.source).workspaceId, paths: [sourcePath === '.' ? '' : sourcePath] },
       { workspaceId: getWorkspace(options.target).workspaceId, paths: [destRelative] },
     ], async () => {
+    // Reinspect under the actual admission barrier: pre-collision metadata granted no writer authority.
+    const currentNative = await native.inspect({ sourceWorkspace, targetWorkspace, sourcePath, targetDirectory: destDir,
+      operationId, actorUserId, actorSessionId: options.target.mutationActorSessionId });
     await assertWorkspaceOfficePathMutationAllowed([destRelative], options.target);
-    const officeSources = destRelative.toLowerCase().endsWith('.docx') && (await fs.stat(fullSource)).isFile()
+    const officeSources = sourceExists && destRelative.toLowerCase().endsWith('.docx') && (await fs.stat(fullSource)).isFile()
       ? [sourcePath]
       : await collectOfficeCopyPaths(sourcePath, options.source);
     const replacedOfficePaths = destExists ? await collectOfficeCopyPaths(destRelative, options.target) : [];
     const includesOffice = officeSources.length > 0 || replacedOfficePaths.length > 0;
     let backup: { path: string; backupId: string; contentSha256: string; sizeBytes: number } | undefined;
+    if (currentNative.hasNativeSource) {
+      if (!actorUserId) throw Object.assign(new Error('A user identity is required to copy native documents.'), { status: 403 });
+      if (overwrite && destExists || includesOffice) throw Object.assign(new Error('Native replacement and mixed Word/native copies require the structured lifecycle workflow.'),
+        { status: 409, code: 'NATIVE_COPY_REPLACEMENT_UNSUPPORTED' });
+      const receipt = await native.publish({ sourceWorkspace, targetWorkspace, sourcePath, targetPath: destRelative,
+        operationId, actorUserId, actorSessionId: options.target.mutationActorSessionId });
+      const { bindNativeCopyReceipt } = await import('@/app/lib/collaboration/native-copy-result');
+      return bindNativeCopyReceipt({ copied: destRelative, skipped: false, collaborationInitialized: true }, receipt);
+    }
+    if (currentNative.initializedTargetPaths.some(document => document === destRelative || document.startsWith(`${destRelative}/`))) {
+      throw Object.assign(new Error('A native document projection cannot be replaced by a raw copy.'),
+        { status: 409, code: 'COLLABORATION_ACTIVE_WHOLE_FILE_WRITE_BLOCKED' });
+    }
+    if (!destExists && currentNative.targetDocumentPaths.some(document => document === destRelative || document.startsWith(`${destRelative}/`))) {
+      throw Object.assign(new Error('The copy destination changed after its name was selected.'), { status: 409 });
+    }
     if (overwrite) await assertNoActiveRawCopyPath(getWorkspace(options.source), sourcePath, fullSource);
     if (destExists && overwrite) {
       await assertNoActiveRawCopyPath(getWorkspace(options.target), destRelative, fullDest);

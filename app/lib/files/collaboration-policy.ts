@@ -32,6 +32,7 @@ import { withWorkspaceMutationLock } from '@/app/lib/files/workspace-mutation-lo
 import { assertNoInitializedNativeFileWrite, NativeWholeFileWriteBlockedError } from '@/app/lib/files/native-file-write-authority';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 import { assertWorkspacePathHasNoAliases, normalizeWorkspaceRelativePath } from '@/app/lib/workspaces/path-guard';
+import { persistNativeWorkspaceCopies, type NativeCopyReceipt, type NativeCopyRequest } from '@/app/lib/collaboration/native-copy-persistence';
 
 export type FileCollaborationStrategy = 'crdt_text' | 'excalidraw_scene' | 'revision_check' | 'exclusive_lock';
 export type FileActorType = 'user' | 'agent' | 'automation' | 'system';
@@ -501,13 +502,27 @@ export async function initializeCopiedFileCollaborationPaths(params: {
   workspace: WorkspaceContext;
   paths: string[];
   nowMs?: number;
-}): Promise<void> {
+  nativeCopy?: NativeCopyRequest;
+}, nativePersistence: typeof persistNativeWorkspaceCopies = persistNativeWorkspaceCopies): Promise<NativeCopyReceipt | void> {
   const paths = [...new Set(params.paths.map(normalizeWorkspacePath))];
   if (paths.length === 0) return;
+  if (params.nativeCopy) {
+    if (!params.workspace.permissions.canRead || !params.workspace.permissions.canWrite
+      || params.workspace.status !== undefined && params.workspace.status !== 'active') {
+      throw Object.assign(new Error('Current destination workspace permissions are required.'), { status: 403 });
+    }
+    if (params.nativeCopy.targetWorkspace.workspaceId !== params.workspace.workspaceId
+      || params.nativeCopy.targetWorkspace.organizationId !== params.workspace.organizationId
+      || JSON.stringify([...params.nativeCopy.targetScopes].sort()) !== JSON.stringify([...paths].sort())) {
+      throw Object.assign(new Error('Native copy scope differs from the initialized destination.'), { status: 409 });
+    }
+    return nativePersistence(params.nativeCopy);
+  }
 
   await withWorkspaceCollaborationTransaction(params.workspace.workspaceId, async (transaction) => {
     const nowMs = params.nowMs ?? Date.now();
     await lockFileCollaborationPaths(transaction, params.workspace.workspaceId, paths);
+    for (const path of paths) await assertNoInitializedNativeFileWrite(transaction, params.workspace, path);
     await initializeCopiedPostgresFileCollaborationPathScopes(transaction, {
       workspace: params.workspace,
       paths,
