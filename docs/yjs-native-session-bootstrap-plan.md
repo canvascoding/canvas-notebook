@@ -77,6 +77,16 @@ Mobile konsumiert ein Single-use-Ticket, dessen heutige gespeicherte Claims/User
 
 Dieser Anschlussaudit ist ein Source-/Vertragsnachweis. Die tatsächliche PG-/HTTP-/WS-Aktivierungsmatrix umfasst alle Erstformate, Rechteentzug, fehlende/stale Projektion ohne FSread, exakt einen konkurrierenden Seed, Migration/Recovery, reservierten Drain mit erhaltenen Peers, Quarantänediagnose und frischen Owner-Reload. Diese gesamte Matrix ist hier noch nicht ausgeführt. Die aktuellen präzisen CLI-Impacts vor späteren Änderungen melden HIGH für allgemeinen Sessionservice (9 direkt/18 insgesamt), Parser (8/16), Migration-Advance (1/16) und Koordinator (2/13); die neuen privaten Reader-/Bootstrapvoraussetzungen haben deutlich engeren Umfang.
 
+### 4.2 Geschlossene Grundlagen und offene Rechtebindung
+
+Die [Rohdatenkonsistenzkorrektur](./yjs-native-session-raw-consistency-evidence.md) ist auf `5fdeebf7803666c08c5345c220ee821c6bc5f067` geschlossen; die 270 tatsächlichen PG18-/RO-/Cookie-/Bearer-Aufrufe lehnen malformed Error-Tuples ab und erhalten legitime historische Fehler und Storage-Retries. Die [explizite Initialformatwahl](./yjs-pristine-bootstrap-initial-format-evidence.md) ist anschließend integriert und unabhängig mit zwölf neuen sowie 29 unveränderten Bootstrapgruppen geprüft. Beides bleibt eine inaktive Voraussetzung für den späteren Sessionanschluss.
+
+Der weitere Sourceaudit auf `5fdeebf` präzisiert Voraussetzung 2: Das echte `WorkspaceRequestPrincipalAccess.workspace` bildet die Rechte beim Phaseneintritt ab. `assertCurrent` und die Finalprüfung verlangen weiterhin die für diese Principalphase gewählte Berechtigung. Eine `canRead`-Phase bindet deshalb keinen späteren Schreibgrant, wenn ausschließlich `canWrite` verloren geht. Forwarding des ursprünglichen Schreibflags allein ist unzureichend. Ein Schreibgrant muss durch eine echte `canWrite`-Phase einschließlich finaler Prüfung gedeckt sein; eine automatische Read-/Write-Auswahl aus einer Lesephase benötigt zuerst einen separat geschlossenen Vertrag. Dieser spezielle Rechteverlust ist hier ein Sourcebefund, noch kein eigener ausgeführter PG-Reproducer.
+
+Ein neuer Reader-Callbackparameter darf ausschließlich Werte des tatsächlichen B-Principalaccess liefern. Falls er strikt zur nativen Callback-Lifetime gehört, prüft eine private Reader-Fassade ihre Getter über die vorhandene native Capability und delegiert `assertCurrent` an den vorhandenen nativen Current-Check. Direkt weitergereichtes Principalaccess lebt bis zum äußeren Phasenende länger als die native Capability. Eine Lifetime-Fassade ersetzt keine finale Schreibrechtsbindung. Keine früheren Route-Workspacekopien, caller-erzeugten Accessobjekte, Rechteflags oder über die Socketlaufzeit gehaltenen Requestcapabilities.
+
+Die nächste eigene echte Cookie-/Bearer-PG-Fixture muss Reader/Writer, aktuelle B-Rechte, reine Write-Downgrades vor/während Consumer und in den Finalprüfungsfenstern, fremde Connection/Backend/XID, retained/forged/detached/caught Fehler sowie tatsächlich blockierte Peer-ACL-Änderungen prüfen. Die bisherigen RO-/Auth-/RawConsistency-Fixtures bleiben bytegleich. Noch keine Route-, Session- oder WS-Aktivierung.
+
 ## 5. Impact und Abnahme
 
 GitNexus eigener aktueller Index; vor jeder tatsächlichen bestehenden Symboländerung erneut ausführen und HIGH/CRITICAL melden:

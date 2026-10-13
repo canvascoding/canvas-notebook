@@ -222,6 +222,9 @@ function mutateEmpty(state: PersistedCollaborationState, input: Captured): Persi
 export type PristineOriginalWorkspaceFileRequest = {
   workspaceId: string; path: string; operationId: string; requestId: string;
   expectedTarget: Extract<MarkdownImportTarget, { kind: 'absent' | 'pristine' }>;
+  /** Explicit modes never normalize or fall back. TXT permits only Auto/Plain. */
+  initialRepresentation?: TextCollaborationRepresentation | 'auto';
+  /** Auto-only preference. Omitted Auto keeps the current Blocks default. */
   richFormat?: 'tiptap_blocks' | 'tiptap_xml';
 };
 type BootstrapRealm = { schema: string; database: number };
@@ -358,7 +361,9 @@ async function captureOriginalBootstrap(database: SqlConnection, frame: Bootstra
   };
   const bytes = await readWorkspaceOriginalFileSource({ ...source, maxBytes: ORIGINAL_BOOTSTRAP_LIMIT, verifyCurrentSource: verify });
   let prepared: PreparedMarkdownFileImport;
-  if (/\.txt$/iu.test(selection.path)) prepared = prepareMarkdownFileImport(bytes, { representation: 'plain_text' });
+  const initialRepresentation = selection.initialRepresentation ?? 'auto';
+  if (/\.txt$/iu.test(selection.path) || initialRepresentation === 'plain_text') prepared = prepareMarkdownFileImport(bytes, { representation: 'plain_text' });
+  else if (initialRepresentation !== 'auto') prepared = prepareMarkdownFileImport(bytes, { representation: initialRepresentation });
   else if (selection.richFormat === 'tiptap_xml') {
     try { prepared = prepareMarkdownFileImport(bytes, { representation: 'tiptap_xml' }); }
     catch (error) {
@@ -372,6 +377,7 @@ async function captureOriginalBootstrap(database: SqlConnection, frame: Bootstra
     fingerprint: hash(JSON.stringify({ domain: 'canvas-pristine-original-bootstrap-v1', workspaceId: workspace.workspaceId,
       organizationId: workspace.organizationId ?? null, path: selection.path, operationId: selection.operationId, requestId: selection.requestId,
       userId: access.userId, sessionId: access.sessionId, expectedTarget: selection.expectedTarget,
+      ...(initialRepresentation === 'auto' ? {} : { initialRepresentation }),
       originalLineageId: document?.lineage_id ?? null, lineageId: existing?.id ?? null, representation: prepared.representation,
       sourceHash: prepared.sourceHash, sourceBytes: prepared.sourceBytes, newlineStyle: prepared.newlineStyle, hasBom: prepared.hasBom,
       root: source.root.identity, source: [...source.root.entries.values()].map(entry => [entry.relativePath, entry.identity]) })) };
@@ -506,7 +512,11 @@ async function recoverOriginalBootstrap(input: Captured, frame: BootstrapFrame,
 export async function persistPristineOriginalWorkspaceFile(request: NextRequest, selection: PristineOriginalWorkspaceFileRequest,
   dependencies: { openConnection: () => Promise<SqlConnection> } = { openConnection: openDb }): Promise<MarkdownFileImportResult> {
   if (!(request instanceof NextRequest) || !selection || typeof selection !== 'object'
-    || !knownKeys(selection, ['workspaceId', 'path', 'operationId', 'requestId', 'expectedTarget', 'richFormat'])) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
+    || Object.getPrototypeOf(selection) !== Object.prototype
+    || Reflect.ownKeys(selection).some(key => typeof key !== 'string'
+      || !['workspaceId', 'path', 'operationId', 'requestId', 'expectedTarget', 'richFormat', 'initialRepresentation'].includes(key)
+      || !Object.getOwnPropertyDescriptor(selection, key)?.enumerable
+      || !Object.prototype.hasOwnProperty.call(Object.getOwnPropertyDescriptor(selection, key), 'value'))) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
   const copied = structuredClone(selection), original = new NextRequest(request.url, { method: request.method, headers: new Headers(request.headers) });
   const openConnection = dependencies.openConnection;
   if (typeof openConnection !== 'function' || !validId(copied.workspaceId) || !validId(copied.operationId) || !validId(copied.requestId)
@@ -515,7 +525,11 @@ export async function persistPristineOriginalWorkspaceFile(request: NextRequest,
     || copied.expectedTarget.kind === 'absent' && !knownKeys(copied.expectedTarget, ['kind'])
     || copied.expectedTarget.kind === 'pristine' && (!validId(copied.expectedTarget.documentId) || !knownKeys(copied.expectedTarget, ['kind', 'documentId']))
     || !['absent', 'pristine'].includes(copied.expectedTarget.kind)
-    || copied.richFormat !== undefined && !['tiptap_xml', 'tiptap_blocks'].includes(copied.richFormat)) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
+    || copied.richFormat !== undefined && !['tiptap_xml', 'tiptap_blocks'].includes(copied.richFormat)
+    || copied.initialRepresentation !== undefined && !['auto', 'plain_text', 'tiptap_xml', 'tiptap_blocks'].includes(copied.initialRepresentation)
+    || copied.initialRepresentation !== undefined && copied.initialRepresentation !== 'auto' && copied.richFormat !== undefined
+    || /\.txt$/iu.test(copied.path) && copied.initialRepresentation !== undefined
+      && !['auto', 'plain_text'].includes(copied.initialRepresentation)) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
   if (hasCollaborationHandoffExecutionContext() || getWorkspaceFileLifecycleLeases()?.size) return fail('MARKDOWN_IMPORT_BUSY');
   const { withWorkspaceRequestPrincipal, withWorkspaceRequestPrincipalOnConnection } = await import('../workspaces/request-principal');
   return withWorkspaceRequestPrincipal(original, { permission: 'canRead', workspaceId: copied.workspaceId }, async principal => {
