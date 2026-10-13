@@ -3,7 +3,7 @@ import 'server-only';
 import { getSchema } from '@tiptap/core';
 import type { SqlConnection } from '../db';
 import type { WorkspaceContext } from '../workspaces/types';
-import type { WorkspaceRequestPrincipal } from '../workspaces/request-principal';
+import type { WorkspaceRequestPrincipal, WorkspaceRequestPrincipalAccess } from '../workspaces/request-principal';
 import { getWorkspaceFileLifecycleLeases } from './file-lifecycle-admission-context';
 import { inspectPersistedNativeCollaborationSnapshot, type NativeCollaborationSnapshot } from './document-snapshot';
 import { isCollaborationStateQuarantined } from './failure';
@@ -26,6 +26,11 @@ export type ExistingNativeSessionSnapshot = ExistingNativeSessionIdentity & Read
 }>;
 /** Authenticity is private WeakMap membership, never the shape of this object. */
 export type ExistingNativeCollaborationSession = Readonly<{ snapshot: ExistingNativeSessionSnapshot }>;
+/** Callback-only facts from the actual SAME-Connection principal phase. The
+ * workspace is its frozen entry observation, not a write grant. A canRead
+ * principal never proves current write permission; writes require a genuinely
+ * canWrite-authorized phase and its final check. No credentials are exposed. */
+export type ExistingNativeSessionRequestAccess = WorkspaceRequestPrincipalAccess;
 type Row = Record<string, unknown>;
 type ConnectionIdentity = Readonly<{ schema: string; searchPath: string; backend: number; backendStart: string;
   transaction: string; database: number }>;
@@ -298,7 +303,7 @@ export async function withExistingNativeCollaborationSessionOnConnection<T>(conn
  * caller-issued Workspace/Actor/Access, public RW flag, init or ticket grant. */
 export async function withAuthenticatedExistingNativeCollaborationSessionOnConnection<T>(connection: SqlConnection,
   principal: WorkspaceRequestPrincipal, input: { path: string; expectedIdentity?: ExistingNativeSessionIdentity },
-  consume: (session: ExistingNativeCollaborationSession) => Promise<T>): Promise<T> {
+  consume: (session: ExistingNativeCollaborationSession, access: ExistingNativeSessionRequestAccess) => Promise<T>): Promise<T> {
   let path: string | undefined, expected: ExistingNativeSessionIdentity | undefined, inputError: unknown;
   try {
     if (!input || Object.getPrototypeOf(input) !== Object.prototype || typeof consume !== 'function'
@@ -328,7 +333,7 @@ export async function withAuthenticatedExistingNativeCollaborationSessionOnConne
       await access.assertCurrent();
       const captured = captureScope(connection,{ workspace:access.workspace,path,expectedIdentity:expected });
       captured.principal = privatePhase;
-      const result = await withCapturedNativeSession(captured,consume);
+      const result = await withCapturedNativeSession(captured,session => consume(session,bindNativeSessionRequestAccess(connection,session,access)));
       if (privatePhase.failure !== undefined) throw privatePhase.failure;
       await access.assertCurrent();
       if (privatePhase.failure !== undefined) throw privatePhase.failure;
@@ -345,6 +350,23 @@ export async function withAuthenticatedExistingNativeCollaborationSessionOnConne
       if (authenticatedReaders.get(connection) === privatePhase) authenticatedReaders.delete(connection);
     }
   }
+}
+
+function bindNativeSessionRequestAccess(connection: SqlConnection, session: ExistingNativeCollaborationSession,
+  access: WorkspaceRequestPrincipalAccess): ExistingNativeSessionRequestAccess {
+  const assertBound = (): void => {
+    try { requireCapability(connection,session); }
+    catch (error) { poisonCapabilityFailure(connection,session,error); throw error; }
+  };
+  // Reuse the native guard so lifetime, SAME backend/TX, native admission,
+  // pending checks and permanent failure binding apply to this facade too.
+  const assertCurrent = (): Promise<void> => assertExistingNativeCollaborationSessionCurrentOnConnection(connection,session).then(() => undefined);
+  return Object.freeze({
+    get workspace() { assertBound(); return access.workspace; },
+    get userId() { assertBound(); return access.userId; },
+    get sessionId() { assertBound(); return access.sessionId; },
+    get assertCurrent() { assertBound(); return assertCurrent; },
+  });
 }
 
 async function withCapturedNativeSession<T>(captured: Capture,
