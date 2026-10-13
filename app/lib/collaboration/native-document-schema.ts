@@ -10,6 +10,17 @@ export class NativeDocumentSchemaError extends Error {
 }
 
 function reject(): never { throw new NativeDocumentSchemaError(); }
+
+/** Root types decode as AbstractType. Declaring the XML type must not hide Map
+ * fields or their history: an XML fragment root has no legal Map attributes. */
+export function readNativeXmlBody(doc: YTypes.Doc): YTypes.XmlFragment | null {
+  if (!doc.share.has('body')) return null;
+  try {
+    const body = doc.getXmlFragment('body');
+    if (body._map.size) reject();
+    return body;
+  } catch { return reject(); }
+}
 function assertKnownKeys(value: Record<string, unknown>, allowed: readonly string[]): void {
   if (!value || typeof value !== 'object' || Array.isArray(value)
     || Object.keys(value).some(key => !allowed.includes(key))) reject();
@@ -42,7 +53,8 @@ export function assertNativeDocumentSchema(doc: YTypes.Doc,
   if ([...doc.share.keys()].some(key => !rootKeys.includes(key))) reject();
   if (representation === 'plain_text') return;
   if (representation === 'tiptap_xml') {
-    assertKnownRichJson(YProsemirror.yXmlFragmentToProsemirrorJSON(doc.getXmlFragment('body')), schema);
+    const body = readNativeXmlBody(doc);
+    assertKnownRichJson(body ? YProsemirror.yXmlFragmentToProsemirrorJSON(body) : { type: 'doc' }, schema);
     return;
   }
   const tree = new CollaborationBlockTree(doc, schema);

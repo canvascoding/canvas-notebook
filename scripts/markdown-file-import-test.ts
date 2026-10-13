@@ -49,6 +49,10 @@ test('empty file, BOM-only file and explicit Source remain byte-exact', () => {
     assert.equal(prepared.representation, 'plain_text'); assert.equal(serializeCanonicalText(prepared.canonical, prepared), source);
   }
   assert.equal(prepareMarkdownFileImport(new Uint8Array()).representation, 'tiptap_blocks');
-  assert.throws(() => prepareMarkdownFileImport(new Uint8Array(), { representation: 'tiptap_xml' }),
-    error => error instanceof MarkdownFileImportError && error.code === 'MARKDOWN_IMPORT_RICH_UNAVAILABLE');
+  const emptyXml = prepareMarkdownFileImport(new Uint8Array(), { representation: 'tiptap_xml' });
+  assert.equal(emptyXml.representation, 'tiptap_xml');
+  assert.equal(emptyXml.canonical, '');
+  assert.equal(emptyXml.sourceFallbackReason, undefined);
+  assert.deepEqual(emptyXml.yjsState, Uint8Array.of(0, 0));
+  assert.deepEqual(emptyXml.stateVector, Uint8Array.of(0));
 });

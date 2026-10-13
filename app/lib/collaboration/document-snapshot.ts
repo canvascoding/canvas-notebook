@@ -9,6 +9,7 @@ import { CollaborationCheckpointQuarantinedError, CollaborationCheckpointValidat
 import { readCurrentCollaborationDocument } from './document-access';
 import { isCollaborationStateQuarantined } from './failure';
 import { validateRichMarkdownStructure } from './markdown-state';
+import { readNativeXmlBody } from './native-document-schema';
 import type { loadCollaborationState, PersistedCollaborationState } from './persistence';
 import { richDocumentFormat } from './rich-document';
 import { Y } from './server-runtime';
@@ -70,6 +71,25 @@ export function inspectNativeDocument(doc: YTypes.Doc, representation: Persisted
       throw new CollaborationCheckpointValidationError('schema_invalid');
     }
     return { version: { stateVector, stateProof }, content: { kind: 'plain_text', text: sharedPlainText(doc, 'content') } };
+  }
+  // Yjs omits an empty XML fragment even when legal text metadata is persisted.
+  // The representation supplies its empty body type; only known Plain metadata
+  // roots may survive. Rootless client history has no remaining type evidence,
+  // so it cannot be promoted from GC/deletions alone. No root or item is created.
+  if (representation === 'tiptap_xml' && !doc.share.has('body')) {
+    if ([...doc.share.keys()].some(name => name !== 'frontmatter' && name !== 'bodyFinalLineEnding')
+      || doc.share.size === 0 && doc.store.clients.size !== 0) {
+      throw new CollaborationCheckpointValidationError('schema_invalid');
+    }
+    return { version: { stateVector, stateProof }, content: {
+      kind: 'rich_text', document: { type: 'doc' },
+      frontmatter: doc.share.has('frontmatter') ? sharedPlainText(doc, 'frontmatter') : '',
+      bodyFinalLineEnding: doc.share.has('bodyFinalLineEnding') ? sharedPlainText(doc, 'bodyFinalLineEnding') : '',
+    } };
+  }
+  if (representation === 'tiptap_xml') {
+    try { readNativeXmlBody(doc); }
+    catch { throw new CollaborationCheckpointValidationError('schema_invalid'); }
   }
   if (representation !== richDocumentFormat(doc)
     || representation === 'tiptap_blocks' && !doc.share.has(BLOCK_TREE_KEY)

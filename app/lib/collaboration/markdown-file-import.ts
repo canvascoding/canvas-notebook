@@ -69,8 +69,6 @@ export function prepareMarkdownFileImport(bytes: Uint8Array, options: {
           doc = createRichMarkdownYDoc(canonical, representation);
           const validation = validateRichMarkdownYDoc(doc);
           if (!validation.valid || richMarkdownFromYDoc(doc) !== canonical) sourceFallbackReason = validation.code ?? 'source_roundtrip_changed';
-          // An empty XML root has no Yjs item and disappears from persisted bytes.
-          if (representation === 'tiptap_xml' && !doc.getXmlFragment('body').length) sourceFallbackReason = 'empty_xml_root';
         } catch { sourceFallbackReason = 'rich_parse_failed'; }
       }
       if (sourceFallbackReason) {
