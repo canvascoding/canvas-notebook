@@ -29,6 +29,7 @@ import {
   type FileCollaborationTransaction,
 } from '@/app/lib/files/collaboration-repository';
 import { withWorkspaceMutationLock } from '@/app/lib/files/workspace-mutation-lock';
+import { assertNoInitializedNativeFileWrite, NativeWholeFileWriteBlockedError } from '@/app/lib/files/native-file-write-authority';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 import { assertWorkspacePathHasNoAliases, normalizeWorkspaceRelativePath } from '@/app/lib/workspaces/path-guard';
 
@@ -237,7 +238,12 @@ async function buildPostgresState(params: {
   const provider = collaborationProviderForStrategy(params.workspace, strategy);
   const crdtCapable = provider === 'yjs';
   const sceneCapable = provider === 'excalidraw';
-  const document = provider
+  // Existing durable identity is independent of runtime capability and suffix.
+  // Only creating a new collaboration document depends on the current strategy.
+  const existingYjsDocument = await getPostgresCollaborationDocument(
+    params.transaction, params.workspace.workspaceId, params.path, 'yjs',
+  );
+  const document = provider && (!existingYjsDocument || provider === 'yjs')
     ? params.ensureDocument
       ? await ensurePostgresCollaborationDocument(params.transaction, {
           id: `collab-doc-${randomUUID()}`,
@@ -250,13 +256,13 @@ async function buildPostgresState(params: {
           snapshotRevisionId: latestRevision?.id ?? null,
           nowMs: params.nowMs,
         })
-      : await getPostgresCollaborationDocument(
+      : provider === 'yjs' ? existingYjsDocument : await getPostgresCollaborationDocument(
           params.transaction,
           params.workspace.workspaceId,
           params.path,
           provider,
         )
-    : null;
+    : existingYjsDocument;
 
   return {
     path: params.path,
@@ -619,6 +625,17 @@ export async function assertFileCollaborationWriteAllowed(params: {
         code: 'FILE_LOCK_STALE', status: 423,
         message: 'The document lease is missing or has been replaced. Keep your draft and reopen the document.',
         path: normalizedPath, activeLock: state.activeLock,
+      });
+    }
+
+    try {
+      await assertNoInitializedNativeFileWrite(transaction, params.workspace, normalizedPath);
+    } catch (error) {
+      if (!(error instanceof NativeWholeFileWriteBlockedError)) throw error;
+      throw new FileCollaborationPolicyError({
+        code: error.code, status: error.status, message: error.message, path: normalizedPath,
+        currentRevisionId: latestRevision?.id ?? null,
+        baseRevisionId: params.baseRevisionId ?? null,
       });
     }
 

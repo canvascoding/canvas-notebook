@@ -11,6 +11,8 @@ export type WorkspaceDocumentCatalogueEntry = {
   organization_id: string | null;
   status: 'active';
   state_version: number;
+  /** Missing legacy evidence is never permission to fall back to disk. */
+  yjs_state_lifecycle?: 'never_initialized' | 'initialized' | 'legacy_unknown' | null;
   has_persisted_state: boolean;
   has_state_history: boolean;
   lifecycle_generation: number | null;
@@ -52,7 +54,7 @@ export async function readWorkspaceDocumentCatalogue(
         OR d.path<>s.path OR d.organization_id IS DISTINCT FROM s.organization_id)
     LIMIT 1`, [workspace.workspaceId, pathsInScope]) as { document_id: string; path: string } | undefined;
   if (orphan) throw new WorkspaceDocumentCatalogueError('orphan-state', orphan.document_id, orphan.path);
-  const documents = await connection.all(`SELECT d.id,d.lineage_id,d.path,d.workspace_id,d.organization_id,d.status,d.state_version,
+  const documents = await connection.all(`SELECT d.id,d.lineage_id,d.path,d.workspace_id,d.organization_id,d.status,d.state_version,d.yjs_state_lifecycle,
     s.lifecycle_generation,s.status AS state_status,s.path AS state_path,
     s.workspace_id AS state_workspace_id,s.organization_id AS state_organization_id,
     EXISTS(SELECT 1 FROM collaboration_yjs_states s WHERE s.document_id=d.id) AS has_persisted_state,
@@ -75,7 +77,8 @@ export async function readWorkspaceDocumentCatalogue(
       throw new WorkspaceDocumentCatalogueError('identity-conflict', document.id, document.path);
     }
     document.authority = document.has_persisted_state ? 'initialized'
-      : document.state_version === 0 && !document.has_state_history ? 'pristine' : 'missing-state';
+      : document.yjs_state_lifecycle === 'never_initialized' && document.state_version === 0 && !document.has_state_history
+        ? 'pristine' : 'missing-state';
     paths.add(document.path); ids.add(document.id);
   }
   return documents;

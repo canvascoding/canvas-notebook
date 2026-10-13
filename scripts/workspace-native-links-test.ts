@@ -48,7 +48,7 @@ function snapshot(documents: NativeDocumentLinkInventory[], extra: Array<{ path:
 
 function catalogue(state: PersistedCollaborationState): WorkspaceDocumentCatalogueEntry {
   return { id: state.documentId, lineage_id: 'lineage', path: state.path, workspace_id: state.workspaceId, organization_id: state.organizationId,
-    status: 'active', state_version: 7, has_persisted_state: true, has_state_history: false, lifecycle_generation: 1,
+    status: 'active', state_version: 7, yjs_state_lifecycle: 'initialized', has_persisted_state: true, has_state_history: false, lifecycle_generation: 1,
     authority: 'initialized', state_status: 'active', state_path: state.path, state_workspace_id: state.workspaceId, state_organization_id: state.organizationId };
 }
 
@@ -219,7 +219,7 @@ test('catalogue includes initialized documents without projections and scopes ex
   const doc = createPlainTextYDoc('durable');
   try {
     const initialized = catalogue(stateFor(doc, 'folder/note.md', 'plain_text'));
-    const pristine = { ...initialized, id: 'pristine', path: 'folder/new.md', state_version: 0, has_persisted_state: false,
+    const pristine = { ...initialized, id: 'pristine', path: 'folder/new.md', state_version: 0, yjs_state_lifecycle: 'never_initialized' as const, has_persisted_state: false,
       lifecycle_generation: null, state_status: null, state_path: null, state_workspace_id: null, state_organization_id: null };
     const missing = { ...pristine, id: 'missing', path: 'folder/history.md', has_state_history: true };
     const queries: Array<{ sql: string; args: unknown }> = [];
