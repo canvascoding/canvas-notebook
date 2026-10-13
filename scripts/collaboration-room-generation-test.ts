@@ -9,6 +9,7 @@ import ts from 'typescript';
 import { Hocuspocus } from '@hocuspocus/server';
 import * as Y from 'yjs';
 import * as Direct from '../app/lib/collaboration/direct-connection';
+import * as DirectActivity from '../app/lib/collaboration/direct-activity-session';
 import { withWorkspaceMutationLock } from '../app/lib/files/workspace-mutation-lock';
 import * as RoomMutation from '../app/lib/collaboration/room-mutation-lock';
 import type { PersistedCollaborationState } from '../app/lib/collaboration/persistence';
@@ -76,6 +77,7 @@ async function main() {
       },
       markCollaborationDegraded() { throw new Error('Unexpected durability incident'); },
     };
+    if (name.endsWith('/direct-activity-session')) return DirectActivity;
     if (name.endsWith('/direct-connection')) return { ...Direct, installCollaborationDirectConnection: (handler: typeof direct) => { direct = handler; } };
     if (name.endsWith('/document-access')) return { installCollaborationDocumentReader: (handler: typeof readDocument) => { readDocument = handler; } };
     if (name.endsWith('/runtime-state')) return {

@@ -75,6 +75,10 @@ async function main() {
           return result;
         },
       },
+      '@/app/lib/collaboration/direct-activity-session': {
+        withCollaborationDirectActivitySession: async (_input: unknown, operation: (session: { assertOpen(): Promise<void> }) => Promise<unknown>) =>
+          operation({ assertOpen: async () => {} }),
+      },
     });
     const input = {
       workspace: { workspaceId: 'workspace', permissions: { canWrite: true } } as WorkspaceContext,

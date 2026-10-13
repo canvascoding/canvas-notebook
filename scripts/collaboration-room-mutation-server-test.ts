@@ -11,6 +11,7 @@ import * as encoding from 'lib0/encoding';
 import { messageYjsSyncStep1, messageYjsSyncStep2, messageYjsUpdate } from 'y-protocols/sync';
 import * as Y from 'yjs';
 import * as Direct from '../app/lib/collaboration/direct-connection';
+import * as DirectActivity from '../app/lib/collaboration/direct-activity-session';
 import * as RoomMutation from '../app/lib/collaboration/room-mutation-lock';
 import { withWorkspaceMutationLock } from '../app/lib/files/workspace-mutation-lock';
 import type { PersistedCollaborationState } from '../app/lib/collaboration/persistence';
@@ -227,6 +228,7 @@ async function main() {
       },
       markCollaborationDegraded() { throw new Error('Unexpected persistence failure'); },
     };
+    if (name.endsWith('/direct-activity-session')) return DirectActivity;
     if (name.endsWith('/direct-connection')) return { ...Direct,
       installCollaborationDirectConnection: (handler: typeof direct) => { direct = handler; } };
     if (name.endsWith('/direct-edit-authority')) return {

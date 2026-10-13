@@ -15,6 +15,7 @@ import * as decoding from 'lib0/decoding';
 import * as encoding from 'lib0/encoding';
 import ts from 'typescript';
 import * as Y from 'yjs';
+import * as DirectActivity from '../app/lib/collaboration/direct-activity-session';
 
 import { createCollaborationRoomActivityGate } from '../app/lib/collaboration/room-activity-gate';
 import { createCollaborationRoomStartupActivity } from '../app/lib/collaboration/room-startup-activity';
@@ -466,6 +467,7 @@ async function main() {
     if (name.endsWith('/projection-repository')) return {
       loadCollaborationProjectionStatus: async () => ({ degraded: false, projectionFinalized: false }),
     };
+    if (name.endsWith('/direct-activity-session')) return DirectActivity;
     if (name.endsWith('/direct-connection')) return {
       AgentDirectConnectionAuthorizationError,
       installCollaborationDirectConnection() {},

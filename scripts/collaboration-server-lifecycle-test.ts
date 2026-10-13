@@ -10,6 +10,7 @@ import * as Y from 'yjs';
 import { withWorkspaceMutationLock } from '../app/lib/files/workspace-mutation-lock';
 import * as RoomMutation from '../app/lib/collaboration/room-mutation-lock';
 import * as Direct from '../app/lib/collaboration/direct-connection';
+import * as DirectActivity from '../app/lib/collaboration/direct-activity-session';
 import type { PersistedCollaborationState } from '../app/lib/collaboration/persistence';
 import type { WorkspaceContext } from '../app/lib/workspaces/types';
 import type * as Server from '../server/collaboration-server';
@@ -58,6 +59,7 @@ async function harness() {
   new Function('require', 'module', 'exports', compiled.outputText)((name: string) => {
     if (name === '@hocuspocus/server') return { Hocuspocus };
     if (name === 'ws') return { WebSocketServer: class extends EventEmitter {} };
+    if (name.endsWith('/direct-activity-session')) return DirectActivity;
     if (name.endsWith('/direct-connection')) return { ...Direct,
       installCollaborationDirectConnection: (run: typeof h.run) => { h.run = run; } };
     if (name.endsWith('/workspace-mutation-lock')) return { withWorkspaceMutationLock };

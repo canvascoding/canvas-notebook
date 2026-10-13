@@ -5,6 +5,7 @@ import { installRichMigrationRuntime, noteRichMigrationWorkerSuccess, noteRichMi
 import type http from 'node:http';
 import type net from 'node:net';
 import { randomUUID } from 'node:crypto';
+import { AsyncLocalStorage } from 'node:async_hooks';
 
 import { Hocuspocus, MessageType, type Connection, type Document, type onAwarenessUpdatePayload } from '@hocuspocus/server';
 import { AuthMessageType } from '@hocuspocus/common';
@@ -29,6 +30,12 @@ import {
   installCollaborationDirectConnection,
   type AgentDirectConnectionInput,
 } from '@/app/lib/collaboration/direct-connection';
+import {
+  installCollaborationDirectActivitySession,
+  isCollaborationDirectActivitySessionInstalled,
+  type CollaborationDirectActivitySessionHandler,
+  type CollaborationDirectActivitySessionInput,
+} from '@/app/lib/collaboration/direct-activity-session';
 import {
   resolveAgentExecutionContextForStoredSession,
   workspaceFromAgentExecutionContext,
@@ -94,6 +101,19 @@ import { agentTurnHistoryService } from '@/app/lib/file-version-center/agent-tur
 
 const COLLABORATION_PATH = '/ws/collaboration';
 const MAX_UPDATE_BYTES = 1024 * 1024;
+
+type DirectActivitySessionContext = {
+  input: Readonly<CollaborationDirectActivitySessionInput>;
+  assertOpen(): void;
+  assertCurrent(): Promise<void>;
+};
+// Shared by server generations: a continuation from a replaced server must
+// retain its revoked scope instead of becoming a standalone Direct operation.
+const directActivitySessionGlobals = globalThis as typeof globalThis & {
+  __canvasCollaborationDirectActivityContexts?: AsyncLocalStorage<DirectActivitySessionContext>;
+};
+const directActivitySessions = directActivitySessionGlobals.__canvasCollaborationDirectActivityContexts
+  ??= new AsyncLocalStorage<DirectActivitySessionContext>();
 
 function durabilitySnapshotPayload(state: PersistedCollaborationState) {
   return {
@@ -410,6 +430,78 @@ export function createCollaborationServer(server: http.Server, options: {
     try { return await operation(); }
     finally { activity?.release(); }
   };
+  const assertDirectActivitySession = (input: AgentDirectConnectionInput) => {
+    const session = directActivitySessions.getStore();
+    if (!session) return;
+    session.assertOpen();
+    const expected = session.input;
+    if (input.documentId !== expected.documentId || input.documentPath !== expected.documentPath
+      || input.documentRepresentation !== expected.documentRepresentation
+      || input.documentLifecycleGeneration !== expected.documentLifecycleGeneration
+      || input.documentSchemaVersion !== expected.documentSchemaVersion
+      || input.workspace.workspaceId !== expected.workspace.workspaceId
+      || (input.workspace.organizationId ?? null) !== (expected.workspace.organizationId ?? null)
+      || input.actorType !== expected.actorType || input.actorId !== expected.actorId
+      || input.initiatedByUserId !== expected.initiatedByUserId || input.actorSessionId !== expected.actorSessionId
+      || input.operationId !== expected.operationId
+      || input.requiresFileCheckpointIdentity !== expected.requiresFileCheckpointIdentity
+      || input.versionSource !== expected.versionSource || input.versionBaseRevisionId !== expected.versionBaseRevisionId
+      || input.versionSourceSessionId !== expected.versionSourceSessionId || input.agentTurnId !== expected.agentTurnId
+      || input.mcpAuthority || input.mcpPolicyFence) {
+      throw new AgentDirectConnectionAuthorizationError('Direct activity session does not match this operation.');
+    }
+  };
+  const directActivitySessionHandler: CollaborationDirectActivitySessionHandler = async (input, operation) => {
+    if (!roomOwners) throw new CollaborationRoomOwnerError('ROOM_OWNER_UNAVAILABLE');
+    if (directActivitySessions.getStore() || input.actorType !== 'user' || !input.actorSessionId
+      || !input.actorId || input.actorId !== input.initiatedByUserId
+      || !input.operationId || !input.documentId || input.mcpAuthority || input.mcpPolicyFence) {
+      throw new AgentDirectConnectionAuthorizationError('Direct activity session requires one bound user operation.');
+    }
+    const bound = Object.freeze({ ...input, workspace: Object.freeze({ ...input.workspace }) });
+    const activity = roomOwners.admitActivity(bound.documentId);
+    let active = true;
+    const assertOpen = () => {
+      if (!isCollaborationDirectActivitySessionInstalled(directActivitySessionHandler)) {
+        throw new CollaborationRoomOwnerError('ROOM_OWNER_UNAVAILABLE');
+      }
+      roomOwners.assertAvailable();
+      if (!active) throw new CollaborationRoomOwnerError('ROOM_OWNER_BUSY');
+      try { activity.assertOpen(); }
+      catch { throw new CollaborationRoomOwnerError('ROOM_OWNER_BUSY'); }
+      const room = hocuspocus.documents.get(bound.documentId);
+      if (room) roomOwners.fence(room);
+    };
+    const revalidate = async () => {
+      assertOpen();
+      const workspace = await resolveDirectConnectionWorkspace(bound);
+      if (workspace.workspaceId !== bound.workspace.workspaceId
+        || (workspace.organizationId ?? null) !== (bound.workspace.organizationId ?? null)) {
+        throw new AgentDirectConnectionAuthorizationError('Direct activity workspace scope changed.');
+      }
+      await withWorkspaceMutationLock(workspace.workspaceId, async () => {
+        const state = await assertDirectConnectionDocument(bound, workspace);
+        if ((state.organizationId ?? null) !== (workspace.organizationId ?? null)) {
+          throw new AgentDirectConnectionAuthorizationError('Direct activity document organization changed.');
+        }
+        await assertCurrentCollaborationAdmissionOpen(state);
+        assertOpen();
+      });
+    };
+    try {
+      return await directActivitySessions.run({ input: bound, assertOpen, assertCurrent: revalidate }, async () => {
+        await revalidate();
+        const result = await operation(Object.freeze({ assertOpen: revalidate }));
+        await revalidate();
+        return result;
+      });
+    } finally {
+      active = false;
+      activity.release();
+    }
+  };
+  const uninstallDirectActivitySession = installCollaborationDirectActivitySession(directActivitySessionHandler);
+  server.once('close', uninstallDirectActivitySession);
   const pendingStartups = new WeakMap<Request, Map<string, Set<ReturnType<typeof createCollaborationRoomStartupActivity>>>>();
   const startupPhases = new WeakMap<ReturnType<typeof createCollaborationRoomStartupActivity>, 'auth' | 'authenticated' | 'loading' | 'loaded'>();
   const admittedDirectCreates = new WeakSet<CollaborationContext>();
@@ -1348,6 +1440,14 @@ export function createCollaborationServer(server: http.Server, options: {
     return room ? Math.max(1, room.getConnectionsCount()) : 0;
   });
   installCollaborationDocumentReader(async (documentId, workspaceId, read, loadState = loadCollaborationState) => {
+    const session = directActivitySessions.getStore();
+    if (session) {
+      session.assertOpen();
+      if (documentId !== session.input.documentId || workspaceId !== session.input.workspace.workspaceId) {
+        throw new AgentDirectConnectionAuthorizationError('Direct activity read does not match this document.');
+      }
+      await session.assertCurrent();
+    }
     const pending = hocuspocus.unloadingDocuments.get(documentId);
     const handoff = pending && normalOwnedUnloads.get(pending);
     const lease = getWorkspaceFileLifecycleLeases()?.get(workspaceId);
@@ -1371,6 +1471,15 @@ export function createCollaborationServer(server: http.Server, options: {
       if (!state || state.documentId !== documentId || state.status !== 'active' || state.workspaceId !== workspaceId) {
         throw new Error('Collaboration document is unavailable or stale.');
       }
+      if (session) {
+        const expected = session.input;
+        if (state.path !== expected.documentPath || state.lifecycleGeneration !== expected.documentLifecycleGeneration
+          || state.representation !== expected.documentRepresentation || state.schemaVersion !== expected.documentSchemaVersion
+          || (state.organizationId ?? null) !== (expected.workspace.organizationId ?? null)) {
+          throw new AgentDirectConnectionAuthorizationError('Direct activity read identity changed.');
+        }
+        session.assertOpen();
+      }
       const activeDocument = hocuspocus.documents.get(documentId);
       if (activeDocument) {
         assertRoomIdentity(activeDocument, state);
@@ -1393,112 +1502,122 @@ export function createCollaborationServer(server: http.Server, options: {
     console.error('[Collaboration] Proposal action recovery failed:', error);
   });
   setCollaborationRuntimeHealth({ websocketReady: true, persistenceReady: true });
-  installCollaborationDirectConnection((input, apply, onApplied) => withRoomActivity(input.documentId, async () => {
-    const actorType = input.actorType ?? 'agent';
-    let workspace = await resolveDirectConnectionWorkspace(input);
-    const { state, releaseRoomAdmission } = await withWorkspaceMutationLock(
-      workspace.workspaceId,
-      async () => {
-        const state = await assertDirectConnectionDocument(input, workspace);
-        await assertCurrentCollaborationAdmissionOpen(state);
-        return {
-          state,
-          releaseRoomAdmission: reserveCollaborationRoomAdmission(input.documentId),
-        };
-      },
-    );
-    const context: CollaborationContext = {
-      claims: {
-        schemaVersion: state.schemaVersion,
-        issuedAt: Date.now(),
-        expiresAt: Date.now() + 60_000,
-        userId: input.initiatedByUserId,
-        sessionId: input.actorSessionId || input.operationId,
-        workspaceId: state.workspaceId,
-        organizationId: state.organizationId,
-        documentId: state.documentId,
-        path: state.path,
-        provider: 'yjs',
-        representation: state.representation,
-        permission: 'write',
-        lifecycleGeneration: state.lifecycleGeneration,
-      },
-      workspace,
-      user: { id: input.actorId, name: input.actorDisplayName, email: null },
-      actorType,
-      versionSource: actorType === 'agent' ? 'agent_apply' : input.versionSource ?? 'automatic_checkpoint',
-      versionBaseRevisionId: actorType === 'user' ? input.versionBaseRevisionId ?? null : null,
-      versionSourceSessionId: actorType === 'user' ? input.versionSourceSessionId ?? null : null,
-      agentTurnId: input.agentTurnId,
-      exactOperationHistoryOwned: actorType === 'agent' && Boolean(input.mcpAuthority),
-      initiatedByUserId: actorType === 'agent' ? input.initiatedByUserId : null,
-      operationId: actorType === 'agent' ? input.operationId : null,
-      observedDocumentSequence: state.documentSequence,
-      releaseRoomAdmission,
-    };
-    admittedDirectCreates.add(context);
-    const inheritedRoom = hocuspocus.documents.has(input.documentId) || hocuspocus.loadingDocuments.has(input.documentId);
-    const connection = await hocuspocus.openDirectConnection(input.documentId, context).then(
-      (openedConnection) => {
-        context.releaseRoomAdmission?.();
-        context.releaseRoomAdmission = null;
-        return openedConnection;
-      },
-      (error) => {
-        context.releaseRoomAdmission?.();
-        context.releaseRoomAdmission = null;
-        throw error;
-      },
-    ).finally(() => { admittedDirectCreates.delete(context); });
-    let result: unknown;
-    let settleHistoryOwnership: ((owned: boolean) => void) | undefined;
-    try {
-      const directRoom = connection.document;
-      if (roomOwners && directRoom && (!inheritedRoom || directOwnedRooms.has(directRoom))) {
-        directOwnedRooms.set(directRoom, { operationId: input.operationId, fence: roomOwners.fence(directRoom) });
-      }
-      await withWorkspaceMutationLock(workspace.workspaceId, async () => {
-        const document = connection.document;
-        if (!document) throw new Error('The direct collaboration connection is closed.');
-        await withCollaborationRoomMutationLock(document, async () => {
-          // Both fences can yield. Revalidate only after owning the workspace
-          // and concrete room; inbound peers must wait through receipt + store.
-          await assertDirectConnectionDocument(input, workspace);
-          workspace = await resolveDirectConnectionWorkspace(input);
-          context.workspace = workspace;
-          await assertCurrentCollaborationAdmissionOpen(context.claims);
-          if (onApplied && await standaloneOperationHistoryOwned(input)) {
-            context.operationHistoryOwnership = new Promise<boolean>(resolve => { settleHistoryOwnership = resolve; });
-          }
-          await connection.transact((liveDocument) => {
-            assertRoomIdentity(liveDocument, context.claims);
-            result = apply(liveDocument);
+  installCollaborationDirectConnection(async (input, apply, onApplied) => {
+    assertDirectActivitySession(input);
+    return withRoomActivity(input.documentId, async () => {
+      const actorType = input.actorType ?? 'agent';
+      let workspace = await resolveDirectConnectionWorkspace(input);
+      const { state, releaseRoomAdmission } = await withWorkspaceMutationLock(
+        workspace.workspaceId,
+        async () => {
+          const state = await assertDirectConnectionDocument(input, workspace);
+          await assertCurrentCollaborationAdmissionOpen(state);
+          return {
+            state,
+            releaseRoomAdmission: reserveCollaborationRoomAdmission(input.documentId),
+          };
+        },
+      );
+      const context: CollaborationContext = {
+        claims: {
+          schemaVersion: state.schemaVersion,
+          issuedAt: Date.now(),
+          expiresAt: Date.now() + 60_000,
+          userId: input.initiatedByUserId,
+          sessionId: input.actorSessionId || input.operationId,
+          workspaceId: state.workspaceId,
+          organizationId: state.organizationId,
+          documentId: state.documentId,
+          path: state.path,
+          provider: 'yjs',
+          representation: state.representation,
+          permission: 'write',
+          lifecycleGeneration: state.lifecycleGeneration,
+        },
+        workspace,
+        user: { id: input.actorId, name: input.actorDisplayName, email: null },
+        actorType,
+        versionSource: actorType === 'agent' ? 'agent_apply' : input.versionSource ?? 'automatic_checkpoint',
+        versionBaseRevisionId: actorType === 'user' ? input.versionBaseRevisionId ?? null : null,
+        versionSourceSessionId: actorType === 'user' ? input.versionSourceSessionId ?? null : null,
+        agentTurnId: input.agentTurnId,
+        exactOperationHistoryOwned: actorType === 'agent' && Boolean(input.mcpAuthority),
+        initiatedByUserId: actorType === 'agent' ? input.initiatedByUserId : null,
+        operationId: actorType === 'agent' ? input.operationId : null,
+        observedDocumentSequence: state.documentSequence,
+        releaseRoomAdmission,
+      };
+      admittedDirectCreates.add(context);
+      const inheritedRoom = hocuspocus.documents.has(input.documentId) || hocuspocus.loadingDocuments.has(input.documentId);
+      const connection = await hocuspocus.openDirectConnection(input.documentId, context).then(
+        (openedConnection) => {
+          context.releaseRoomAdmission?.();
+          context.releaseRoomAdmission = null;
+          return openedConnection;
+        },
+        (error) => {
+          context.releaseRoomAdmission?.();
+          context.releaseRoomAdmission = null;
+          throw error;
+        },
+      ).finally(() => { admittedDirectCreates.delete(context); });
+      let result: unknown;
+      let settleHistoryOwnership: ((owned: boolean) => void) | undefined;
+      try {
+        const directRoom = connection.document;
+        if (roomOwners && directRoom && (!inheritedRoom || directOwnedRooms.has(directRoom))) {
+          directOwnedRooms.set(directRoom, { operationId: input.operationId, fence: roomOwners.fence(directRoom) });
+        }
+        await withWorkspaceMutationLock(workspace.workspaceId, async () => {
+          const document = connection.document;
+          if (!document) throw new Error('The direct collaboration connection is closed.');
+          await withCollaborationRoomMutationLock(document, async () => {
+            // Both fences can yield. Revalidate only after owning the workspace
+            // and concrete room; inbound peers must wait through receipt + store.
+            await assertDirectConnectionDocument(input, workspace);
+            workspace = await resolveDirectConnectionWorkspace(input);
+            context.workspace = workspace;
+            await assertCurrentCollaborationAdmissionOpen(context.claims);
+            if (onApplied && await standaloneOperationHistoryOwned(input)) {
+              context.operationHistoryOwnership = new Promise<boolean>(resolve => { settleHistoryOwnership = resolve; });
+            }
+            assertDirectActivitySession(input);
+            const session = directActivitySessions.getStore();
+            if (session && (workspace.workspaceId !== session.input.workspace.workspaceId
+              || (workspace.organizationId ?? null) !== (session.input.workspace.organizationId ?? null))) {
+              throw new AgentDirectConnectionAuthorizationError('Direct activity workspace scope changed.');
+            }
+            await connection.transact((liveDocument) => {
+              assertRoomIdentity(liveDocument, context.claims);
+              result = apply(liveDocument);
+            });
+            roomOwners?.fence(document);
+            if (onApplied) await onApplied(result as never);
+            assertDirectActivitySession(input);
+            if (settleHistoryOwnership) {
+              const appliedTargetIds = result && typeof result === 'object' && 'appliedTargetIds' in result
+                && Array.isArray(result.appliedTargetIds) ? result.appliedTargetIds as string[] : [];
+              settleHistoryOwnership(await standaloneOperationHistoryOwned(input, appliedTargetIds));
+            }
+            roomOwners?.fence(document);
+            // Do not acquire this room lease in onStoreDocument: disconnect
+            // awaits Hocuspocus's saveMutex, which a scheduled store may own.
+            await connection.disconnect({ unloadImmediately: true });
+            // Hocuspocus deliberately swallows store failures. A terminal owner
+            // loss must still reject this direct call, even after disconnect.
+            roomOwners?.assertAvailable();
           });
-          roomOwners?.fence(document);
-          if (onApplied) await onApplied(result as never);
-          if (settleHistoryOwnership) {
-            const appliedTargetIds = result && typeof result === 'object' && 'appliedTargetIds' in result
-              && Array.isArray(result.appliedTargetIds) ? result.appliedTargetIds as string[] : [];
-            settleHistoryOwnership(await standaloneOperationHistoryOwned(input, appliedTargetIds));
-          }
-          roomOwners?.fence(document);
-          // Do not acquire this room lease in onStoreDocument: disconnect
-          // awaits Hocuspocus's saveMutex, which a scheduled store may own.
-          await connection.disconnect({ unloadImmediately: true });
-          // Hocuspocus deliberately swallows store failures. A terminal owner
-          // loss must still reject this direct call, even after disconnect.
-          roomOwners?.assertAvailable();
         });
-      });
-    } catch (error) {
-      settleHistoryOwnership?.(false);
-      await connection.disconnect({ unloadImmediately: true }).catch(() => undefined);
-      throw error;
-    } finally {
-      settleHistoryOwnership?.(false);
-    }
-    return result as never;
-  }));
+      } catch (error) {
+        settleHistoryOwnership?.(false);
+        await connection.disconnect({ unloadImmediately: true }).catch(() => undefined);
+        throw error;
+      } finally {
+        settleHistoryOwnership?.(false);
+      }
+      return result as never;
+    });
+  });
   const wss = new WebSocketServer({ noServer: true });
   const turnRecovery = setInterval(() => {
     void agentTurnHistoryService.recoverExpired().catch(error => console.error('[Collaboration] Agent turn history recovery failed:', error));
