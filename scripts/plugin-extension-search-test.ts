@@ -51,10 +51,22 @@ async function main() {
   assert.equal(team.access.canManage, false, 'personal management rights cannot leak into the filtered team summary');
   const selected = project(query('q=missing&types=skill&stock=available&selected=composio%3Acanva'));
   assert.equal(selected.items.length, 0); assert.equal(selected.selectedItem?.id, 'composio:canva', 'OAuth return preserves exact selected details despite browse filters');
+  const crossOwnerSelected = project(query('scope=organization&selected=mcp-personal%3Acanva'));
+  assert.equal(crossOwnerSelected.items.some(item => item.id === mcp.id), false, 'organization filter still excludes personal list rows');
+  assert.equal(crossOwnerSelected.selectedItem?.id, mcp.id, 'creating a personal MCP from an organization-filtered list retains exact readable details');
+  const sharedMcp: PluginExtensionItem = {...mcp, id: 'canvas-connection:shared', ownership: connection('shared', true).ownership,
+    connections: [connection('canvas-connection:shared', true)]};
+  const ownSelected = project(query('scope=user&audience=own&selected=canvas-connection%3Ashared'), [sharedMcp]);
+  assert.equal(ownSelected.items.length, 0);
+  assert.equal(ownSelected.selectedItem?.id, sharedMcp.id, 'an exact newly created shared connection survives the personal list filter');
+  const teamSelected = project(query('scope=team&teamId=team-a&selected=mcp-personal%3Acanva'));
+  assert.equal(teamSelected.items.some(item => item.id === mcp.id), false);
+  assert.equal(teamSelected.selectedItem?.id, mcp.id, 'team selection filters results without changing exact detail authority');
   const noAuth: PluginExtensionItem = { ...integration, toolkit: { slug: 'canva', noAuth: true }, connections: [], stock: 'available' };
   assert.equal(project(query('types=integration'), [noAuth]).items[0].access.canUse, false, 'a no-auth declaration never grants runtime permission');
   const hidden: PluginExtensionItem = { ...skill, id: 'private', access: { canRead: false, canUse: false, canManage: false } };
   assert(!project(query(), [...stock, hidden]).items.some(item => item.id === 'private'));
+  assert.equal(project(query('scope=organization&selected=private'), [hidden]).selectedItem, null, 'unreadable exact selections stay hidden across filters');
   const offering: PluginExtensionItem = { id: 'store:plugin:registry:design', kind: 'plugin', name: 'design', displayName: 'Design package', description: 'Canva', source: 'store', stock: 'installed', access: permissions,
     offering: { kind: 'plugin', registryId: 'registry', entryKey: 'design', displayName: 'Design package', description: 'Canva', latestVersion: '1.0.0', versions: [{ version: '1.0.0', checksum: 'a'.repeat(64) }],
       installedResourceRefs: ['canvas-resource:design'], installedRefsTruncated: false } };

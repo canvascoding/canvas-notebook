@@ -81,7 +81,7 @@ async function main() {
   const requests: Seen[] = [];
   const authRequests: Array<{ path: string; method: string }> = [];
   const holds = new Map<string, { promise: Promise<void>; release(): void }>();
-  let catalogError = false, storeError = false;
+  let catalogError = false, storeError = false, omittedExtensionId: string | null = null;
   const hold = (key: string) => { let release!: () => void; holds.set(key, { promise: new Promise<void>(resolve => { release = resolve; }), release }); return release; };
   const success = (data: unknown) => Response.json({ success: true, data });
   const catalog = (url: URL): PluginWorkspaceCatalogResponse => {
@@ -124,7 +124,7 @@ async function main() {
       source: 'mcp', stock: 'available', access: { canRead: true, canUse: false, canManage: false }, mcp: { template: true, transport: 'http' }, connections: [] }];
     const q = url.searchParams.get('q') ?? '';
     const candidates = [...packages, ...offerings, ...standalone];
-    const items = candidates.filter(value => (!types || types.includes(value.kind)) && (!stock || stock === 'all' || value.stock === stock)
+    const items = candidates.filter(value => value.id !== omittedExtensionId && (!types || types.includes(value.kind)) && (!stock || stock === 'all' || value.stock === stock)
       && (!source || source === 'all' || value.source === source) && (!q || `${value.name} ${value.displayName}`.toLowerCase().includes(q.toLowerCase())));
     return { schemaVersion: 1, query: { q, types: (types ?? ['plugin', 'skill', 'integration', 'mcp']) as PluginExtensionSearchResponse['query']['types'],
       stock: (stock ?? 'all') as PluginExtensionSearchResponse['query']['stock'], source: (source ?? 'all') as PluginExtensionSearchResponse['query']['source'],
@@ -218,6 +218,25 @@ async function main() {
     fireEvent.click(screen.getByRole('button', { name: 'Clear detail guard' })); fireEvent.click(screen.getByTestId('plugin-extension-back')); await waitRows();
     assert.equal((screen.getByTestId('plugin-extension-search-input') as HTMLInputElement).value, 'design');
     assert.equal((document.activeElement as HTMLElement).getAttribute('data-extension-id'), ownRef, 'Back restores focus to the exact originating row.');
+
+    // A detail refresh can still be pending when Back renders its list skeleton.
+    // Restore focus only once that same-context response is ready; fall back when the row disappeared.
+    for (const removed of [false, true]) {
+      openRow(ownRef); await screen.findByTestId('shell-detail-boundary');
+      await waitFor(() => assert.equal((refreshButton() as HTMLButtonElement).disabled, false));
+      const beforeRefresh = requests.length, releaseFocus = hold('/api/plugins/search:own-workspace:user');
+      omittedExtensionId = removed ? ownRef : null;
+      fireEvent.click(refreshButton());
+      await waitFor(() => assert(requests.slice(beforeRefresh).some(request => request.url.pathname === '/api/plugins/search')));
+      const back = screen.getByTestId('plugin-extension-back'); back.focus(); fireEvent.click(back);
+      await screen.findByTestId('plugin-extension-results'); assert.equal(screen.getByTestId('plugin-extension-results').getAttribute('aria-busy'), 'true');
+      assert.equal(screen.queryByTestId('plugin-extension-row'), null);
+      await act(async () => releaseFocus()); holds.clear(); await waitRows();
+      await waitFor(() => assert.equal(removed ? document.activeElement : (document.activeElement as HTMLElement).getAttribute('data-extension-id'),
+        removed ? screen.getByTestId('plugin-extension-search-input') : ownRef,
+        removed ? 'Back falls back to search when the refreshed stock no longer includes its original row.' : 'Back restores the row focus after a delayed refresh, beyond the initial skeleton render.'));
+    }
+    omittedExtensionId = null;
     await scope('user', 'shared'); openRow(orgRef); await screen.findByTestId('shell-detail-boundary'); assert.equal(detailSelections.at(-1)?.resourceRef, orgRef);
     await waitFor(() => assert.equal((refreshButton() as HTMLButtonElement).disabled, false));
     fireEvent.click(screen.getByRole('button', { name: 'Make detail pending' }));

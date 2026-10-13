@@ -7,6 +7,8 @@ import type { CapabilityResourceDescriptor } from '../app/lib/capabilities/resou
 import type { CapabilityPackageDescriptor, CapabilityPackageDraft, CapabilityPackagePublishedSummary } from '../app/lib/capabilities/packages/contracts';
 import type { CapabilityPackagePresentation } from '../app/lib/capabilities/packages/presentation-contracts';
 import type { CapabilityPackageStoreListResponse, CapabilityPackageStoreSelection } from '../app/lib/capabilities/packages/store-contracts';
+import type { PluginExtensionItem } from '../app/lib/plugins/plugin-extension-contracts';
+import type { IntegrationConnectionDescriptor } from '../app/lib/integration-tools/connections/contracts';
 import type { PluginNavigation } from '../app/lib/plugins/plugin-navigation';
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'http://canvas.test/plugins', pretendToBeVisual: true });
@@ -31,8 +33,8 @@ function descriptor(ref=resourceRef):CapabilityResourceDescriptor {
 }
 function presentation(value:CapabilityResourceDescriptor):CapabilityPackagePresentation {
   return {schemaVersion:1,origin:'installed',kind:value.artifact.resourceType as 'plugin'|'skill',name:value.artifact.name,version:'1.0.0',title:value.metadata.displayName||value.artifact.name,
-    description:'Safe package declaration',resourceRef:value.metadata.resourceRef,license:'MIT',children:[],capabilities:[{declaredBy:{kind:'plugin',name:value.artifact.name},id:'design',application:'Design',required:true,
-      alternatives:[{source:'mcp',label:'Design MCP'},{source:'composio',label:'Canva'}]}],requirements:[{declaredBy:{kind:'plugin',name:value.artifact.name},source:'composio',label:'Studio design account',required:true,recommended:false}],
+    description:'Safe package declaration',resourceRef:value.metadata.resourceRef,sourceStamp:{checksum,artifactRevision:1},license:'MIT',children:[],capabilities:[{declaredBy:{kind:'plugin',name:value.artifact.name},id:'design',application:'Design',required:true,
+      alternatives:[{source:'mcp',label:'Design MCP',selector:{source:'mcp',connector:'design-mcp'}},{source:'composio',label:'Canva',selector:{source:'composio',toolkit:'canva'}}]}],requirements:[{declaredBy:{kind:'plugin',name:value.artifact.name},source:'composio',label:'Studio design account',required:true,recommended:false,selector:{source:'composio',toolkit:'canva'}}],
     scripts:[],compatibility:[],requiredEnv:['CANVAS_DESIGN_KEY'],readOnly:false,sourceStampCurrent:true};
 }
 function packageView(value:CapabilityResourceDescriptor):CapabilityPackageDescriptor {
@@ -66,7 +68,10 @@ async function main() {
   let metadataStatus=200,presentationStatus=200,heldBase:Promise<void>|undefined,heldFile:Promise<void>|undefined,heldWrite:Promise<void>|undefined;
   const navigation:Partial<PluginNavigation>[]=[],updates:CapabilityPackageStoreSelection[]=[];
   const updateTargets:string[]=[];
-  let closeCount=0;
+  let closeCount=0, partialAccounts=false, sharedUse=true, heldSharedStatus:Promise<void>|undefined;
+  const sharedRef='canvas-connection:55555555-5555-4555-8555-555555555555', backupRef='canvas-connection:66666666-6666-4666-8666-666666666666';
+  const sharedConnection=(reference:string):IntegrationConnectionDescriptor=>({resource:{connectionRef:reference,source:'composio',ownership:{type:'team',organizationId:'fixture-org',workspaceId:'team-design'},displayName:reference===sharedRef?'Design shared account':'Design backup account',description:null,application:'canva',responsibleUserId:null,createdByUserId:null,updatedByUserId:null,metadataRevision:1,grantsRevision:1,bindingRevision:1,allowedToolNames:null,accessMode:'restricted',status:'active',createdAt:1,updatedAt:1},access:{canRead:true,canUse:sharedUse,canManage:false}});
+  const integrationItem=():Extract<PluginExtensionItem,{kind:'integration'}>=>({id:'composio:canva',kind:'integration',name:'canva',displayName:'Canva',description:'Current selected canonical app',source:'composio',stock:'installed',access:{canRead:true,canUse:true,canManage:false},toolkit:{slug:'canva',noAuth:false},connections:[sharedRef,backupRef].map(ref=>({connectionRef:ref,displayName:sharedConnection(ref).resource.displayName,ownership:sharedConnection(ref).resource.ownership,access:{canRead:true,canUse:true,canManage:false},authorization:'unknown',health:'unknown',enabled:true}))});
   const file={path:'README.md',size:10,checksum,encoding:'base64' as const,content:Buffer.from('saved text').toString('base64'),offset:0,byteLength:10,eof:true};
   const draft:CapabilityPackageDraft={contractVersion:1,draftRef,resourceRef,kind:'plugin',name:'design-package',operation:'edit',actorUserId:'editor',draftRevision:1,basePackageRevision:0,basePublishedRevisionRef:null,
     baseSourceStamp:packageDescriptor.sourceStamp,sourceResourceRef:resourceRef,sourceMetadataRevision:1,sourceGrantsRevision:1,sourcePackageRevision:0,sourcePublishedRevisionRef:null,createdAt:1,updatedAt:1};
@@ -80,6 +85,10 @@ async function main() {
     const selected=resource,presented=offered,pkg=packageDescriptor;
     if(url.pathname.startsWith('/api/capabilities/resources/')) return body({resource:selected},metadataStatus);
     if(url.pathname.endsWith('/presentation')) {await heldBase;return body({presentation:presented},presentationStatus);}
+    if(url.pathname==='/api/plugins/search'){assert.equal(url.searchParams.get('limit'),'1');assert.equal(url.searchParams.get('selected'),'composio:canva');return body({selectedItem:integrationItem(),items:[],coverage:[{source:'composio',status:partialAccounts?'partial':'complete'}],pagination:{hasNextPage:false}});}
+    if(url.pathname.endsWith('/mcp-matches')){assert.equal(url.searchParams.get('connector'),'design-mcp');assert.equal(url.searchParams.get('expectedChecksum'),checksum);return body({matches:[],coverage:'complete',source:{resourceRef,version:'1.0.0',checksum,artifactRevision:1}});}
+    if(url.pathname.startsWith('/api/integrations/shared-connections/')) return body({connection:sharedConnection(decodeURIComponent(url.pathname.split('/').at(-1)!))});
+    if(url.pathname.startsWith('/api/composio/shared-connections/')&&url.pathname.endsWith('/status')){const pending=heldSharedStatus;await pending;return body({status:{connected:true,state:'ready',application:'canva'}});}
     if(url.pathname==='/api/integrations/shared-connections/setup') return body({scopes:[]});
     if(url.pathname==='/api/integrations/shared-connections') return body({connections:[
       {resource:{connectionRef:'shared-design',displayName:'Design shared account',source:'composio',ownership:{type:'team',organizationId:'fixture-org',workspaceId:'team-design'},status:'active'},access:{canRead:true,canUse:true,canManage:false}},
@@ -109,7 +118,7 @@ async function main() {
       onClose={()=>{if(confirmPluginNavigation())closeCount+=1;}} onStoreUpdate={(source,canonicalRef)=>{updates.push(source);updateTargets.push(canonicalRef);}} />);
   }
   const reset=()=>{cleanup();requests.length=0;navigation.length=0;updates.length=0;updateTargets.length=0;closeCount=0;localStorage.clear();resource=descriptor();offered=presentation(resource);packageDescriptor=packageView(resource);store=null;
-    metadataStatus=200;presentationStatus=200;heldBase=undefined;heldFile=undefined;heldWrite=undefined;
+    metadataStatus=200;presentationStatus=200;heldBase=undefined;heldFile=undefined;heldWrite=undefined;partialAccounts=false;sharedUse=true;heldSharedStatus=undefined;
     sessionAtom.set({...sessionAtom.get(),data:uiSession,error:null,isPending:false,isRefetching:false});};
   try {
     render(<Detail />);await screen.findByText('Design workspace');
@@ -122,11 +131,31 @@ async function main() {
     assert(!screen.queryByTestId('package-save-file'));assert(document.body.textContent?.includes('1.0.0'));
     fireEvent.mouseDown(screen.getByTestId('package-detail-tab-sharing'),{button:0});await screen.findByTestId('resource-management');
     assert(!requests.some(request=>request.path.endsWith('/targets')));assert(!screen.queryByTestId('resource-save'));
-    fireEvent.mouseDown(screen.getByTestId('package-detail-tab-connections'),{button:0});await screen.findByText('Design shared account');
+    fireEvent.mouseDown(screen.getByTestId('package-detail-tab-connections'),{button:0});await screen.findByTestId('package-requirement-connection-0');
+    assert(!requests.some(request=>request.path.includes('/shared-connections/')&&request.path.endsWith('/status')),'shared sign-in status is read only after an explicit connection choice');
+    fireEvent.change(screen.getByTestId('package-requirement-connection-0'),{target:{value:sharedRef}});
+    await waitFor(()=>assert(screen.getByTestId('package-requirement-0').textContent?.includes(messages.skills.workspace.setup.connected)));
+    assert(screen.getByTestId('package-requirement-0').textContent?.includes(messages.skills.workspace.setup.unknown),'known sign-in never fabricates provider reachability');
+    assert(requests.some(request=>decodeURIComponent(request.path)===`/api/composio/shared-connections/${sharedRef}/status`),'status reads use the exact selected shared ref');
+    assert(!screen.queryByTestId('shared-connection-save'),'use without management does not expose a grant/config editor');
     await waitFor(()=>assert(authRequests.length>0));assert(authRequests.every(request=>request.method==='GET'));
     assert(screen.queryByText('Other team account')===null);assert(document.body.textContent?.includes('CANVAS_DESIGN_KEY'));assert(document.body.textContent?.includes('Declared by design-package'));
     assert(!requests.some(request=>request.method!=='GET'),'read-only tasks cannot create accounts or change package state');
     fireEvent.click(screen.getByTestId('package-detail-back'));assert.equal(closeCount,1);
+
+    reset();partialAccounts=true;render(<Detail initialTask="connections" />);await screen.findByTestId('package-requirement-connection-0');
+    assert(screen.getByTestId('package-requirement-0').textContent?.includes(messages.skills.workspace.setup.partialCoverage),'known selected apps with partial account coverage still show an explicit warning');
+    reset();sharedUse=false;render(<Detail initialTask="connections" />);await screen.findByTestId('package-requirement-connection-0');
+    fireEvent.change(screen.getByTestId('package-requirement-connection-0'),{target:{value:sharedRef}});
+    await waitFor(()=>assert(screen.getByTestId('package-requirement-0').textContent?.includes(messages.skills.workspace.setup.restricted)));
+    assert(screen.queryByText(messages.skills.workspace.setup.setupIncomplete),'fresh revoked use permission cannot complete required setup');
+    reset();let releaseShared!:()=>void;heldSharedStatus=new Promise<void>(resolve=>{releaseShared=resolve;});render(<Detail initialTask="connections" />);await screen.findByTestId('package-requirement-connection-0');
+    fireEvent.change(screen.getByTestId('package-requirement-connection-0'),{target:{value:sharedRef}});
+    await waitFor(()=>assert(requests.some(request=>decodeURIComponent(request.path)===`/api/composio/shared-connections/${sharedRef}/status`)));
+    heldSharedStatus=undefined;fireEvent.change(screen.getByTestId('package-requirement-connection-0'),{target:{value:backupRef}});
+    await waitFor(()=>assert(screen.getByTestId('package-requirement-0').textContent?.includes(messages.skills.workspace.setup.connected)));
+    await act(async()=>releaseShared());assert.equal((screen.getByTestId('package-requirement-connection-0')as HTMLSelectElement).value,backupRef,'a late status response cannot replace the explicit newer selection');
+    assert(requests.every(request=>request.method==='GET'),'requirement reuse/status inspection changes neither grants nor provider accounts');
 
     reset();resource.access={canRead:true,canUse:true,canEdit:true,canManage:true};offered=presentation(resource);packageDescriptor=packageView(resource);store=storeList(resource);
     render(<Detail />);await screen.findByTestId('package-detail-store-update');fireEvent.click(screen.getByTestId('package-detail-store-update'));

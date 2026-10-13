@@ -13,6 +13,7 @@ import { PackageAgentSetup } from './PackageAgentSetup';
 import { PluginIntegrationDetail } from './PluginIntegrationDetail';
 import { PluginMcpSetup } from './PluginMcpSetup';
 import { pluginCatalogReturnPath, pluginIntegrationRequest } from './plugin-integration-client';
+import { inspectSharedPluginConnection } from './plugin-connection-observation-client';
 import { confirmPluginNavigation } from './plugin-navigation-guard';
 
 type Extension = Extract<PluginExtensionItem, {kind: 'integration' | 'mcp'}>;
@@ -49,6 +50,8 @@ function RequirementsSession({presentation, workspaceId, returnPath, onUpdated, 
 }) {
   const t = useTranslations('skills.workspace.setup'), rawLocale = useLocale(), locale = rawLocale === 'de' ? 'de' : 'en';
   const rows = useMemo(() => setupRows(presentation), [presentation]);
+  const [sharedObservations, setSharedObservations] = useState<Record<string, {connection: PluginExtensionConnection; loading: boolean; error: boolean}>>({});
+  const sharedReads = useRef(new Map<string, AbortController>());
   const [observations, setObservations] = useState<Record<string, Observation>>({}), [chosen, setChosen] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true), [error, setError] = useState(false), [setup, setSetup] = useState<{row: Row; item?: Extension; template?: CapabilityPackageMcpTemplate} | null>(null);
   const [loadingSetup, setLoadingSetup] = useState(false), alive = useRef(false), generation = useRef(0), read = useRef<AbortController | null>(null);
@@ -63,6 +66,7 @@ function RequirementsSession({presentation, workspaceId, returnPath, onUpdated, 
   const load = useCallback(async () => {
     if (!isCurrent()) return;
     read.current?.abort(); const controller = new AbortController(), attempt = ++generation.current; read.current = controller;
+    for (const pending of sharedReads.current.values()) pending.abort(); sharedReads.current.clear(); setSharedObservations({});
     setLoading(true); setError(false);
     try {
       const selectors = new Map(rows.flatMap(row => row.selectors.map(selector => [selectorKey(selector), selector] as const)));
@@ -84,7 +88,7 @@ function RequirementsSession({presentation, workspaceId, returnPath, onUpdated, 
           }
           const response = await pluginIntegrationRequest<PluginExtensionSearchResponse>(`/api/plugins/search?${query}`, workspaceId, {signal: controller.signal});
           const items = response.selectedItem?.kind === 'integration' && response.selectedItem.toolkit.slug === selector.toolkit ? [response.selectedItem] : [];
-          return [key, {items, unavailable: !items.length && response.coverage.some(value => value.source === 'composio' && value.status !== 'complete')}] as const;
+          return [key, {items, unavailable: response.coverage.some(value => value.source === 'composio' && value.status !== 'complete')}] as const;
         } catch { return [key, {items: [] as Extension[], unavailable: true}] as const; }
       }));
       if (!isCurrent() || attempt !== generation.current) return;
@@ -99,7 +103,7 @@ function RequirementsSession({presentation, workspaceId, returnPath, onUpdated, 
     } catch { if (isCurrent() && !controller.signal.aborted && attempt === generation.current) setError(true); }
     finally { if (isCurrent() && attempt === generation.current) setLoading(false); }
   }, [isCurrent, rows, workspaceId, presentation.resourceRef, expectedChecksum, sourceMatches]);
-  useEffect(() => { alive.current = true; queueMicrotask(() => void load()); return () => { alive.current = false; generation.current += 1; read.current?.abort(); }; }, [load]);
+  useEffect(() => { alive.current = true; const pendingReads = sharedReads.current; queueMicrotask(() => void load()); return () => { alive.current = false; generation.current += 1; read.current?.abort(); for (const pending of pendingReads.values()) pending.abort(); pendingReads.clear(); }; }, [load]);
   const refresh = () => { void load(); onUpdated(); };
   async function openSetup(row: Row, selector: CapabilityPackageRequirementSelector, candidate?: Candidate) {
     if (!isCurrent() || loadingSetup || !confirmPluginNavigation()) return;
@@ -116,26 +120,42 @@ function RequirementsSession({presentation, workspaceId, returnPath, onUpdated, 
       if (isCurrent() && response.template.resourceRef === presentation.resourceRef && response.template.connector.name === selector.connector && sourceMatches(response.template.source)) setSetup({row, template: response.template});
     } catch { if (isCurrent()) setError(true); } finally { if (isCurrent()) setLoadingSetup(false); }
   }
-  const missing = rows.filter(row => row.required && !observations[row.id]?.candidates.some(value => value.connection.connectionRef === chosen[row.id] && usable(value.connection))).length;
+  async function chooseExisting(row: Row, reference: string) {
+    if (!isCurrent()) return;
+    setChosen(value => ({...value, [row.id]: reference}));
+    const candidate = observations[row.id]?.candidates.find(value => value.connection.connectionRef === reference);
+    if (!candidate || candidate.connection.ownership.type === 'user') return;
+    sharedReads.current.get(reference)?.abort(); const controller = new AbortController(), attempt = generation.current; sharedReads.current.set(reference, controller);
+    setSharedObservations(value => ({...value, [reference]: {connection: {...candidate.connection, authorization: 'unknown'}, loading: true, error: false}}));
+    try {
+      const connection = await inspectSharedPluginConnection(candidate.connection, candidate.item.kind === 'mcp' ? 'mcp' : 'composio', workspaceId,
+        {signal: controller.signal, noAuth: candidate.item.kind === 'integration' && candidate.item.toolkit.noAuth, isCurrent});
+      if (isCurrent() && !controller.signal.aborted && generation.current === attempt) setSharedObservations(value => ({...value, [reference]: {connection, loading: false, error: false}}));
+    } catch { if (isCurrent() && !controller.signal.aborted && generation.current === attempt) setSharedObservations(value => ({...value, [reference]: {connection: {...candidate.connection, authorization: 'unknown'}, loading: false, error: true}})); }
+  }
+  const currentConnection = (value: Candidate) => sharedObservations[value.connection.connectionRef]?.connection || value.connection;
+  const missing = rows.filter(row => row.required && !observations[row.id]?.candidates.some(value => value.connection.connectionRef === chosen[row.id] && usable(currentConnection(value)))).length;
   function renderRow(row: Row, index: number) {
     const observation = observations[row.id], selected = observation?.candidates.find(value => value.connection.connectionRef === chosen[row.id]);
+    const connection = selected ? currentConnection(selected) : null, status = connection && sharedObservations[connection.connectionRef];
     return <article key={row.id} className="space-y-3 rounded-xl border p-4" data-testid={`package-requirement-${index}`}>
       <div className="flex flex-wrap items-center justify-between gap-2"><h3 className="text-sm font-semibold">{row.label}</h3><Badge variant="outline">{t(row.required ? 'required' : 'optional')}</Badge></div>
       {observation?.candidates.length ? <div className="space-y-2"><label className="block text-xs text-muted-foreground" htmlFor={`package-requirement-connection-${index}`}>{t('selectConnection')}</label>
         <select id={`package-requirement-connection-${index}`} data-testid={`package-requirement-connection-${index}`} className="h-10 w-full rounded-md border bg-background px-3 text-sm" value={chosen[row.id] || ''}
-          disabled={loadingSetup} onChange={event => setChosen(value => ({...value, [row.id]: event.target.value}))}><option value="">{t('selectConnection')}</option>
+          disabled={loadingSetup} onChange={event => void chooseExisting(row, event.target.value)}><option value="">{t('selectConnection')}</option>
           {observation.candidates.map(value => <option key={value.connection.connectionRef} value={value.connection.connectionRef} disabled={!value.connection.access.canUse || !value.connection.enabled}>
             {value.connection.displayName} · {value.connection.ownershipLabel || t(value.connection.ownership.type === 'user' ? 'personal' : 'shared')}
           </option>)}</select>
-        {selected ? <div className="flex flex-wrap gap-2 text-xs"><Badge variant="secondary">{t(!selected.connection.access.canUse ? 'restricted' : selected.connection.authorization === 'required' ? 'authRequired' : usable(selected.connection) ? 'connected' : 'unknown')}</Badge>
-          <Badge variant="outline">{t(selected.connection.health === 'healthy' ? 'ready' : selected.connection.health === 'unavailable' ? 'unavailable' : 'unknown')}</Badge></div> : null}
+        {connection ? <div className="flex flex-wrap gap-2 text-xs"><Badge variant="secondary">{t(!connection.access.canUse ? 'restricted' : connection.authorization === 'required' ? 'authRequired' : usable(connection) ? 'connected' : 'authorizationUnknown')}</Badge>
+          <Badge variant="outline">{t(connection.health === 'healthy' ? 'ready' : connection.health === 'unavailable' ? 'unavailable' : 'unknown')}</Badge></div> : null}
+        {status?.loading ? <p className="text-xs text-muted-foreground" role="status">{t('loading')}</p> : status?.error ? <p className="text-xs text-muted-foreground">{t('metadataUnavailable')}</p> : null}
         {selected ? <Button variant="outline" size="sm" onClick={() => { if (confirmPluginNavigation()) setSetup({row, item: selected.item}); }}>{t('manage')}</Button> : null}
       </div> : <p className="text-sm text-muted-foreground">{t(observation?.unavailable ? 'unavailable' : 'missing')}</p>}
       {row.selectors.length ? <div className="flex flex-wrap gap-2">{row.selectors.map((selector, at) => <Button key={selectorKey(selector)} variant="outline" disabled={loadingSetup || loading}
         data-testid={at === 0 ? `package-requirement-connect-${index}` : `package-requirement-connect-${index}-${at}`} onClick={() => void openSetup(row, selector)}>
         {t('continueSetup')}{row.selectors.length > 1 ? ` · ${selector.source === 'composio' ? selector.toolkit : selector.connector}` : ''}</Button>)}</div>
         : <Link className="text-sm underline underline-offset-4" href="/settings?tab=integrations">{t('continueSetup')}</Link>}
-      {observation?.unavailable && observation.candidates.length ? <p className="text-xs text-muted-foreground">{t('unavailable')}</p> : null}
+      {observation?.unavailable && observation.candidates.length ? <p className="text-xs text-muted-foreground">{t('partialCoverage')}</p> : null}
     </article>;
   }
   return <section className="space-y-5" data-testid="package-requirements-setup">

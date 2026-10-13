@@ -111,7 +111,9 @@ export function projectPluginExtensionPage(actor: CapabilityResourceActor, query
   scopes: PluginWorkspaceCatalogResponse['scopes'], coverage: PluginExtensionCoverage[], continuations: SourceContinuations = {}): PluginExtensionSearchResponse {
   const { binding, offset, sources } = extensionCursorState(actor, query);
   const selected = selectPluginExtensionItems(items, actor, { ...query, selected: null }), page = selected.slice(offset, offset + query.limit), next = offset + page.length;
-  const selectedItem = query.selected ? selectPluginExtensionItems(items, actor, { ...query, q: '', types: kinds, stock: 'all', source: 'all' }).find(item => item.id === query.selected) ?? null : null;
+  // The list's ownership filters must not hide a just-created, separately authorized exact selection.
+  const selectedItem = query.selected ? selectPluginExtensionItems(items, actor, { ...query, q: '', types: kinds, stock: 'all', source: 'all',
+    scope: 'all', audience: null, teamId: null }).find(item => item.id === query.selected) ?? null : null;
   const uniquePage = [...new Map(page.map(item => [item.id, item])).values()];
   const complete = !Object.keys(sources).length && !Object.keys(continuations).length && coverage.every(source => source.status === 'complete' || source.status === 'not_configured');
   const hasMoreLoaded = next < selected.length, hasMoreSources = Object.keys(continuations).length > 0;

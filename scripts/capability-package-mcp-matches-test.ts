@@ -19,6 +19,9 @@ function item(id: string, displayName: string, manage = false): Extract<PluginEx
 async function main() {
   const matching = { url: 'https://mcp.fixture.invalid:443/provider', auth: 'oauth', headersFromEnv: { Authorization: 'PRIVATE_CREDENTIAL_KEY' } };
   assert.equal(capabilityPackageMcpConfigCompatibility(template, matching), 'endpoint', 'Standard-port normalization preserves the exact endpoint');
+  const manifestOAuth = { ...template, connector: { ...template.connector, oauth: true }, config: { url: template.config!.url, transport: 'http' } };
+  assert.equal(capabilityPackageMcpConfigCompatibility(manifestOAuth, matching), 'endpoint', 'OAuth declared only by the manifest matches the same OAuth connection that setup would create.');
+  assert.equal(capabilityPackageMcpConfigCompatibility(manifestOAuth, { ...matching, auth: 'none' }), null, 'A no-auth connection cannot satisfy the manifest OAuth requirement at the same endpoint.');
   for (const wrong of [
     { ...matching, url: 'https://another.fixture.invalid/provider' }, { ...matching, url: 'https://mcp.fixture.invalid/other' },
     { ...matching, url: 'https://mcp.fixture.invalid/provider?account=other' }, { ...matching, auth: 'none' },

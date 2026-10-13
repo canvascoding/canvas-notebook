@@ -30,7 +30,7 @@ async function main() {
     ? {Link: React.forwardRef<HTMLAnchorElement, React.AnchorHTMLAttributes<HTMLAnchorElement>>(function FixtureLink(props, ref) { return <a {...props} ref={ref} />; })}
     : originalLoad(name, parent, isMain);
   const {render, screen, fireEvent, waitFor, cleanup} = await import('@testing-library/react');
-  const actor = 'actor-a', canManageMcp = true; let noAuth = false, mcpRequiresAuth = false;
+  const actor = 'actor-a', canManageMcp = true; let noAuth = false, mcpRequiresAuth = false, failProfiles = false, failScopes = false, partialCoverage = false;
   const receipts: Array<{path: string; method: string; body: Record<string, unknown> | null}> = [];
   const session = () => ({user: {id: actor, name: actor, email: `${actor}@fixture.invalid`, emailVerified: true, createdAt: new Date(0), updatedAt: new Date(0), role: 'admin', banned: false},
     session: {id: `session-${actor}`, token: 'CONTROLLED_UI_SESSION', userId: actor, expiresAt: new Date('2099-01-01'), createdAt: new Date(0), updatedAt: new Date(0)}});
@@ -45,9 +45,11 @@ async function main() {
     const url = new URL(String(input), 'http://canvas.test'), path = decodeURIComponent(url.pathname), method = init?.method || 'GET', body = init?.body ? JSON.parse(String(init.body)) as Record<string, unknown> : null;
     if (path === '/api/auth/get-session') return Response.json(session());
     receipts.push({path, method, body});
-    if (path === '/api/plugins/search') return Response.json({success: true, data: {selectedItem: url.searchParams.get('selected') === mcpItem.id ? mcpItem : item(), items: [], coverage: [], pagination: {hasNextPage: false}}});
+    if (path === '/api/plugins/search') return Response.json({success: true, data: {selectedItem: url.searchParams.get('selected') === mcpItem.id ? mcpItem : item(), items: [], coverage: [{source: url.searchParams.get('selected') === mcpItem.id ? 'mcp' : 'composio', status: partialCoverage ? 'partial' : 'complete'}], pagination: {hasNextPage: false}}});
+    if (path === '/api/composio/profiles' && failProfiles) return Response.json({success: false, code: 'PROFILE_UNAVAILABLE', error: 'PRIVATE_PROVIDER_ERROR'}, {status: 503});
     if (path === '/api/composio/profiles') return Response.json({success: true, profiles: [0, 1].map(index => ({id: `profile-${index}`, name: `Profile ${index}`, status: 'active'})), effectiveProfile: {id: 'profile-0', name: 'Profile 0', workspaceId: 'fixture-workspace'}, workspace: {id: 'fixture-workspace'}});
     if (path === '/api/composio/workspace-profile') return Response.json({success: true});
+    if (path === '/api/integrations/shared-connections/setup' && failScopes) return Response.json({success: false, code: 'SETUP_UNAVAILABLE'}, {status: 503});
     if (path === '/api/integrations/shared-connections/setup') return Response.json({success: true, data: {scopes: []}});
     if (path === '/api/integrations/mcp-status') return Response.json({success: true, data: {oauth: [{serverName: 'Fixture MCP', configured: true, requiresAuth: mcpRequiresAuth}]}});
     if (path === '/api/integrations/mcp-definitions') return Response.json({success: true, data: {canManageDefinitions: canManageMcp, definitions: []}});
@@ -76,6 +78,16 @@ async function main() {
     fireEvent.click(screen.getByRole('button', {name: en.skills.workspace.setup.useConnection}));
     await waitFor(() => assert(receipts.some(value => value.path === '/api/composio/workspace-profile' && value.body?.profileId === 'profile-1' && value.body?.workspaceId === 'fixture-workspace')));
     assert(!receipts.some(value => value.path.includes('/connect/')), 'profile selection does not create or fake an account authorization');
+    await screen.findByTestId('plugin-integration-connect');
+    failProfiles = true; failScopes = true; fireEvent.click(screen.getByTestId('plugin-integration-reload'));
+    await screen.findByText(en.skills.workspace.setup.profilesUnavailable); await screen.findByText(en.skills.workspace.setup.sharedSetupUnavailable);
+    assert.equal(screen.queryByTestId('plugin-integration-connect'), null, 'a failed profile refresh clears old profiles and fails closed for Connect');
+    assert.equal(screen.queryByText(en.skills.workspace.setup.notConfigured), null, 'a metadata outage is not reported as missing platform configuration');
+    assert(!document.body.textContent?.includes('PRIVATE_PROVIDER_ERROR'));
+    failProfiles = false; failScopes = false; partialCoverage = true; fireEvent.click(screen.getByTestId('plugin-integration-reload'));
+    await screen.findByTestId('plugin-integration-connect'); await screen.findByText(en.skills.workspace.setup.partialCoverage);
+    assert(screen.getByLabelText(en.skills.workspace.setup.account), 'partial catalog coverage preserves current valid selected accounts');
+    partialCoverage = false;
     cleanup(); noAuth = true; seed();
     render(wrap(<PluginIntegrationDetail item={item()} workspaceId="fixture-workspace" returnPath="/en/plugins?view=browse&extensionId=composio:canva" onUpdated={() => undefined} onClose={() => undefined} />));
     await waitFor(() => assert(screen.queryByText(en.skills.workspace.setup.noAuth)));

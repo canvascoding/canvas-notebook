@@ -15,7 +15,8 @@ export function capabilityPackageMcpConfigCompatibility(template: CapabilityPack
   const config = template.config;
   if (!config) return null;
   const oauth = (value: Record<string, unknown>) => value.auth === 'oauth' || record(value.oauth);
-  if (oauth(config) !== oauth(connection)) return null;
+  const requiresOAuth = template.connector.oauth === true || oauth(config);
+  if (requiresOAuth !== oauth(connection)) return null;
   if (typeof config.url === 'string' && !config.command && !connection.command && typeof connection.url === 'string'
     && !template.redactedFields.includes('url')) {
     try {

@@ -37,19 +37,29 @@ export function PluginExtensionWorkspace({ workspaceId }: { workspaceId: string 
   const data = usePluginExtensionSearch({ navigation, workspaceId, epoch });
   const packageData = usePluginWorkspaceData({ navigation, workspaceId, epoch });
   const detailOpen = Boolean(navigation.resourceRef || navigation.source === 'store' || navigation.extensionId || navigation.setup);
-  const lastRow = useRef<{ id: string; scrollY: number } | null>(null), wasDetail = useRef(detailOpen);
+  const listContext = JSON.stringify([workspaceId, navigation.q ?? '', navigation.kind ?? 'all', navigation.scope,
+    navigation.audience ?? null, navigation.teamId ?? null, navigation.stock ?? 'all', navigation.extensionSource ?? 'all']);
+  const root = useRef<HTMLElement | null>(null);
+  const lastRow = useRef<{ id: string; scrollY: number; context: string } | null>(null);
+  const pendingRestore = useRef<{ id: string | null; scrollY: number; context: string } | null>(null);
+  const wasDetail = useRef({ open: detailOpen, context: listContext });
   const selectionKey = JSON.stringify([workspaceId, navigation.scope, navigation.teamId, navigation.audience, navigation.resourceRef, navigation.extensionId]);
   const selection = useRef(selectionKey);
   useLayoutEffect(() => { selection.current = selectionKey; return () => { selection.current = ''; }; }, [selectionKey]);
   useEffect(() => {
-    const returning = wasDetail.current && !detailOpen;
-    wasDetail.current = detailOpen;
-    if (!returning || !lastRow.current) return;
-    const saved = lastRow.current;
-    const row = [...document.querySelectorAll<HTMLButtonElement>('[data-testid="plugin-extension-row-open"]')].find(button => button.dataset.extensionId === saved.id);
-    row?.focus({ preventScroll: true });
-    window.scrollTo({ top: saved.scrollY, behavior: 'instant' });
-  }, [detailOpen]);
+    const returning = wasDetail.current.open && !detailOpen && wasDetail.current.context === listContext;
+    wasDetail.current = { open: detailOpen, context: listContext };
+    if (detailOpen || pendingRestore.current?.context !== listContext) pendingRestore.current = null;
+    if (returning) pendingRestore.current = lastRow.current?.context === listContext
+      ? lastRow.current : { id: null, scrollY: 0, context: listContext };
+    if (!pendingRestore.current || data.status === 'loading' || data.updating) return;
+    const saved = pendingRestore.current;
+    pendingRestore.current = null;
+    const row = [...(root.current?.querySelectorAll<HTMLButtonElement>('[data-testid="plugin-extension-row-open"]') ?? [])].find(button => button.dataset.extensionId === saved.id);
+    const target = row ?? root.current?.querySelector<HTMLInputElement>('[data-testid="plugin-extension-search-input"]');
+    target?.focus({ preventScroll: true });
+    window.scrollTo({ top: row ? saved.scrollY : 0, behavior: 'instant' });
+  }, [detailOpen, listContext, data.status, data.updating, data.items]);
   const refresh = useCallback(() => {
     if (selection.current !== selectionKey) return;
     if (navigation.extensionCursor ? !navigate({ extensionCursor: undefined }) : !confirmPluginNavigation()) return;
@@ -58,7 +68,7 @@ export function PluginExtensionWorkspace({ workspaceId }: { workspaceId: string 
   const close = () => { if (selection.current === selectionKey && navigate(clearDetail)) setUpdate(null); };
   const search = useCallback((q: string) => navigate({ ...clearDetail, q: q || undefined, extensionCursor: undefined }, { replace: true }), [navigate]);
   const open = (item: PluginExtensionItem, _button: HTMLButtonElement) => {
-    const current = { id: item.id, scrollY: window.scrollY };
+    const current = { id: item.id, scrollY: window.scrollY, context: listContext };
     let accepted = false;
     if ((item.kind === 'plugin' || item.kind === 'skill') && item.package) {
       accepted = navigate({ ...clearDetail, view: 'browse', area: item.kind === 'plugin' ? 'plugins' : 'skills', source: 'installed',
@@ -93,7 +103,7 @@ export function PluginExtensionWorkspace({ workspaceId }: { workspaceId: string 
     ...(navigation.teamId ? [{ name: data.response?.scopes.teams.find(team => team.teamId === navigation.teamId)?.label ?? shell('scope_team'), clear: { teamId: undefined } }] : []),
   ];
 
-  return <section className="min-w-0 space-y-5" data-testid="plugin-workspace">
+  return <section ref={root} className="min-w-0 space-y-5" data-testid="plugin-workspace">
     <header className="space-y-4 border-b pb-5">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0"><h1 className="text-2xl font-semibold tracking-tight">{t('title')}</h1><p className="mt-1.5 max-w-2xl text-sm text-muted-foreground">{t('description')}</p>
