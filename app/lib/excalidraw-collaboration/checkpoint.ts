@@ -5,7 +5,7 @@ import { createHash } from 'node:crypto';
 import type { BigIntStats } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import { openDb } from '@/app/lib/db';
-import { readFile, resolveExistingWorkspacePath, writeFile } from '@/app/lib/filesystem/workspace-files';
+import { readFile, resolveExistingWorkspacePath, writeFile, writeFileIfAbsent } from '@/app/lib/filesystem/workspace-files';
 import { withWorkspaceMutationLock } from '@/app/lib/files/workspace-mutation-lock';
 import { getParentDirectory } from '@/app/lib/files/path-utils';
 import { getWorkspaceFileRevision } from '@/app/lib/files/revision-guard';
@@ -17,7 +17,7 @@ import { decodeExcalidrawDataUrl, loadExcalidrawAsset } from './assets';
 import { canonicalSceneHash, sharedExcalidrawAppState, validateExcalidrawElements } from './scene';
 import { loadExcalidrawSceneInTransaction, withExcalidrawSceneTransaction, type PersistedExcalidrawScene } from './repository';
 import { withExcalidrawPublication } from './publication-context';
-import { captureExcalidrawVersion, MAX_PORTABLE_EXCALIDRAW_BYTES } from './version-history';
+import { captureExcalidrawVersion, createExcalidrawVersionContentStore, MAX_PORTABLE_EXCALIDRAW_BYTES } from './version-history';
 import { EXCALIDRAW_ASSET_MAX_BYTES } from './limits';
 
 export class ExcalidrawCheckpointError extends Error {
@@ -114,6 +114,7 @@ export async function materializeExcalidrawCheckpoint(input: {
   actorUserId?: string | null;
   actorType?: 'user' | 'agent' | 'system';
   sourceSessionId?: string | null;
+  beforePublish?: () => Promise<void>;
 }): Promise<{ content: string; revisionId: string; sceneSequence: number }> {
   if (input.state.workspaceId !== input.workspace.workspaceId) throw new Error('Excalidraw checkpoint workspace mismatch.');
   if (input.state.status !== 'active') throw new Error('Archived Excalidraw scenes cannot be checkpointed.');
@@ -129,10 +130,55 @@ export async function materializeExcalidrawCheckpoint(input: {
         WHERE id = $1 AND workspace_id = $2 AND path = $3 AND provider = 'excalidraw' AND status = 'active'
         FOR UPDATE`, [state.documentId, state.workspaceId, state.path]) as { id: string; snapshot_revision_id: string | null } | undefined;
       if (!identity) throw new ExcalidrawCheckpointError('EXCALIDRAW_CHECKPOINT_STALE', 409, 'The Excalidraw checkpoint document identity is stale.');
-      const content = await serializePortableExcalidrawScene(state);
+      await input.beforePublish?.();
+      const restore = await transaction.get(`SELECT lineage_id,restored_revision_id,scene_sequence,canonical_hash,
+        approved_file_hash,approved_file_dev,approved_file_ino,checkpoint_completed FROM collaboration_excalidraw_restores
+        WHERE document_id=$1 AND lifecycle_generation=$2 AND
+          (checkpoint_completed=false OR (scene_sequence=$3 AND canonical_hash=$4))
+        ORDER BY scene_sequence DESC,created_at DESC LIMIT 1`,
+      [state.documentId,state.lifecycleGeneration,state.sceneSequence,state.canonicalHash]) as {
+        lineage_id: string; restored_revision_id: string; scene_sequence: number | string; canonical_hash: string;
+        approved_file_hash: string | null; approved_file_dev: string | null; approved_file_ino: string | null;
+        checkpoint_completed: boolean;
+      } | undefined;
+      const exactRestore = restore && Number(restore.scene_sequence) === state.sceneSequence && restore.canonical_hash === state.canonicalHash;
+      const selected = exactRestore ? await createExcalidrawVersionContentStore(transaction).readRevisionContent({
+        revisionId: restore.restored_revision_id, workspaceId: state.workspaceId, lineageId: restore.lineage_id,
+      }) : null;
+      if (exactRestore && !selected) throw new ExcalidrawCheckpointError('EXCALIDRAW_CHECKPOINT_VERSION_MISSING', 503,
+        'The selected immutable restore version is unavailable.');
+      const content = selected ? selected.content.toString('utf8') : await serializePortableExcalidrawScene(state);
       if (Buffer.byteLength(content, 'utf8') > MAX_PORTABLE_EXCALIDRAW_BYTES) throw new ExcalidrawCheckpointError(
         'EXCALIDRAW_CHECKPOINT_TOO_LARGE', 413, 'Portable Excalidraw checkpoint exceeds the 50 MiB limit.');
       const hash = createHash('sha256').update(content).digest('hex');
+      const stagedIdentity: { value: { dev: string; ino: string } | null } = { value: null };
+      const saveStagedIntent = async (identity: { dev: string; ino: string }) => {
+        // Commit proof of the fsynced staging inode before its physical publication.
+        const journal = await openDb();
+        try {
+          await journal.run(`INSERT INTO collaboration_excalidraw_checkpoint_intents
+            (document_id,lifecycle_generation,scene_sequence,content_hash,file_dev,file_ino,created_at)
+            VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (document_id,lifecycle_generation,scene_sequence)
+            DO UPDATE SET content_hash=EXCLUDED.content_hash,file_dev=EXCLUDED.file_dev,file_ino=EXCLUDED.file_ino`,
+          [state.documentId,state.lifecycleGeneration,state.sceneSequence,hash,identity.dev,identity.ino,Date.now()]);
+          stagedIdentity.value = identity;
+        } finally { await journal.close(); }
+      };
+      try { await resolveExistingWorkspacePath(state.path, fileOptions); }
+      catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+        if (!restore || restore.checkpoint_completed || restore.approved_file_hash !== null) {
+          throw new ExcalidrawCheckpointError('EXCALIDRAW_CHECKPOINT_MISSING', 409,
+            'The Excalidraw checkpoint file is missing. Restore the document before retrying.');
+        }
+        try {
+          await withExcalidrawPublication(state.workspaceId, state.path, () =>
+            writeFileIfAbsent(state.path, content, fileOptions, undefined, saveStagedIntent));
+        } catch (publicationError) {
+          if ((publicationError as NodeJS.ErrnoException).code === 'EEXIST') throw new ExcalidrawCheckpointConflictError();
+          throw publicationError;
+        }
+      }
       const checkpointPath = await resolveExistingWorkspacePath(state.path, fileOptions);
       const beforeIdentity = await stat(checkpointPath, { bigint: true });
       const before = await getWorkspaceFileRevision(state.path, fileOptions);
@@ -160,19 +206,26 @@ export async function materializeExcalidrawCheckpoint(input: {
         WHERE workspace_id = $1 AND document_id = $2 AND status = 'preparing' LIMIT 1 FOR UPDATE`,
       [state.workspaceId, state.documentId]) as { file_dev: string | null; file_ino: string | null } | undefined;
       const provenRecovery = recovery?.file_dev === String(beforeIdentity.dev) && recovery.file_ino === String(beforeIdentity.ino);
-      const recoverable = pendingCreate ? provenRecovery : Boolean(recovery);
+      const pendingRestore = restore && !restore.checkpoint_completed;
+      const recoverable = pendingCreate || pendingRestore ? provenRecovery : Boolean(recovery);
+      const approvedRestoreBaseline = pendingRestore && restore.approved_file_hash === before.sha256
+        && restore.approved_file_dev === String(beforeIdentity.dev) && restore.approved_file_ino === String(beforeIdentity.ino);
+      if (pendingRestore && !provenRecovery && !approvedRestoreBaseline) {
+        await captureExcalidrawVersion({ workspace: input.workspace,path: state.path,content: original,
+          source: 'external_import',historyOnly: true,transaction });
+        return { conflict: true as const };
+      }
       if (pendingCreate && !provenRecovery && (pendingCreate.file_dev !== String(beforeIdentity.dev)
         || pendingCreate.file_ino !== String(beforeIdentity.ino))) {
         throw new ExcalidrawCheckpointError('EXCALIDRAW_CHECKPOINT_CREATE_OWNERSHIP', 409,
           'The interrupted Excalidraw creation no longer owns its file. The replacement has been preserved.');
       }
       const initialLegacyMatch = !previousHash && state.sceneSequence === 0 && legacyPortableSceneMatches(original, state);
-      if (before.sha256 !== previousHash && !recoverable && !initialLegacyMatch) {
+      if (before.sha256 !== previousHash && !recoverable && !approvedRestoreBaseline && !initialLegacyMatch) {
         await captureExcalidrawVersion({ workspace: input.workspace, path: state.path,
           content: await readFile(state.path, fileOptions), source: 'external_import', historyOnly: true, transaction });
         return { conflict: true as const };
       }
-      const stagedIdentity: { value: { dev: string; ino: string } | null } = { value: null };
       if (before.sha256 !== hash) {
         await withExcalidrawPublication(state.workspaceId, state.path, () => writeFile(state.path, content, fileOptions, async () => {
           const observed = await getWorkspaceFileRevision(state.path, fileOptions);
@@ -180,19 +233,7 @@ export async function materializeExcalidrawCheckpoint(input: {
             || !sameCheckpointFileIdentity(beforeIdentity, await stat(checkpointPath, { bigint: true }))) {
             throw new ExcalidrawCheckpointConflictError();
           }
-        }, async identity => {
-          // Commit the actual fsynced staging inode before its atomic publication.
-          // No-op checkpoints never create an ownership-bearing intent.
-          const journal = await openDb();
-          try {
-            await journal.run(`INSERT INTO collaboration_excalidraw_checkpoint_intents
-              (document_id, lifecycle_generation, scene_sequence, content_hash, file_dev, file_ino, created_at)
-              VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (document_id,lifecycle_generation,scene_sequence)
-              DO UPDATE SET content_hash = EXCLUDED.content_hash, file_dev = EXCLUDED.file_dev, file_ino = EXCLUDED.file_ino`,
-            [state.documentId, state.lifecycleGeneration, state.sceneSequence, hash, identity.dev, identity.ino, Date.now()]);
-            stagedIdentity.value = identity;
-          } finally { await journal.close(); }
-        }));
+        }, saveStagedIntent));
       }
       const publicationIdentity = await stat(checkpointPath, { bigint: true });
       if (stagedIdentity.value && (stagedIdentity.value.dev !== String(publicationIdentity.dev)
@@ -203,7 +244,8 @@ export async function materializeExcalidrawCheckpoint(input: {
         throw new ExcalidrawCheckpointConflictError();
       }
       const version = await captureExcalidrawVersion({ workspace: input.workspace, path: state.path, content: actual,
-        source: input.actorType === 'agent' ? 'agent_apply' : 'automatic_checkpoint',
+        source: exactRestore ? 'restore' : input.actorType === 'agent' ? 'agent_apply' : 'automatic_checkpoint',
+        revisionId: exactRestore ? restore.restored_revision_id : undefined,
         actorUserId: input.actorUserId, actorType: input.actorType, sourceSessionId: input.sourceSessionId, transaction });
       if (!sameCheckpointFileIdentity(publicationIdentity, await stat(checkpointPath, { bigint: true }))) {
         throw new ExcalidrawCheckpointConflictError();
@@ -222,6 +264,9 @@ export async function materializeExcalidrawCheckpoint(input: {
         WHERE id = $4 AND workspace_id = $5 AND path = $6 AND status = 'active' AND provider = 'excalidraw'`,
       [version.revisionId, state.sceneSequence, Date.now(), state.documentId, state.workspaceId, state.path]);
       await transaction.run('DELETE FROM collaboration_excalidraw_checkpoint_intents WHERE document_id = $1', [state.documentId]);
+      await transaction.run(`UPDATE collaboration_excalidraw_restores SET checkpoint_completed=true
+        WHERE document_id=$1 AND lifecycle_generation=$2 AND scene_sequence<=$3`,
+      [state.documentId,state.lifecycleGeneration,state.sceneSequence]);
       return { conflict: false as const, content: actual.toString('utf8'), revisionId: version.revisionId,
         sceneSequence: state.sceneSequence, path: state.path };
     })).then(result => {

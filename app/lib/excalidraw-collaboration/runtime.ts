@@ -50,7 +50,7 @@ export function installExcalidrawSceneNotificationListener(options: {
   let client: PoolClient | null = null;
   let connecting: Promise<void> | null = null;
   let retry: ReturnType<typeof setTimeout> | null = null;
-  const delivered = new Map<string, { generation: number; sequence: number }>();
+  const delivered = new Map<string, { generation: number; sequence: number; path: string; status: string }>();
   const inFlight = new Map<string, Promise<void>>();
   const load = options.loadScene ?? loadExcalidrawScene;
   const report = (error: unknown) => options.onError?.(error);
@@ -61,9 +61,11 @@ export function installExcalidrawSceneNotificationListener(options: {
       const state = await load(documentId, true);
       if (!state || stopped) return;
       const seen = delivered.get(documentId);
-      if (!force && seen?.generation === state.lifecycleGeneration && seen.sequence >= state.sceneSequence) return;
+      if (!force && seen?.generation === state.lifecycleGeneration && seen.sequence >= state.sceneSequence
+        && seen.path === state.path && seen.status === state.status) return;
       await options.onScene(state, operationId);
-      delivered.set(documentId, { generation: state.lifecycleGeneration, sequence: state.sceneSequence });
+      delivered.set(documentId, { generation: state.lifecycleGeneration, sequence: state.sceneSequence,
+        path: state.path, status: state.status });
       if (delivered.size > 10_000) delivered.delete(delivered.keys().next().value!);
     }).finally(() => { if (inFlight.get(documentId) === work) inFlight.delete(documentId); });
     inFlight.set(documentId, work);

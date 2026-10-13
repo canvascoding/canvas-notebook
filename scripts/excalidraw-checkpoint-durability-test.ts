@@ -10,6 +10,7 @@ import { createPostgresPool, runPostgresMigrations } from '@/app/lib/db/postgres
 import { setFileCollaborationConnectionFactoryForTests } from '@/app/lib/files/collaboration-repository';
 import { archiveFileCollaborationPaths, moveFileCollaborationPath, readFileCollaborationState } from '@/app/lib/files/collaboration-policy';
 import { withWorkspaceMutationLock } from '@/app/lib/files/workspace-mutation-lock';
+import { renameWorkspacePath } from '@/app/lib/files/rename-service';
 import { fileVersionContentStore } from '@/app/lib/file-version-center/version-content-store';
 import { storeExcalidrawAsset } from '@/app/lib/excalidraw-collaboration/assets';
 import { materializeExcalidrawCheckpoint, serializePortableExcalidrawScene } from '@/app/lib/excalidraw-collaboration/checkpoint';
@@ -70,8 +71,10 @@ async function main() {
   assert.match(new URL(process.env.DATABASE_URL!).pathname, /^\/canvas_(?:editor|excalidraw)_test_[a-f0-9]{16}$/u,
     'Run only against the private disposable PostgreSQL test wrapper.');
   assert.equal(process.env.NODE_ENV, 'test');
-  const migrations = createPostgresPool();
-  try { await runPostgresMigrations(migrations); } finally { await migrations.end(); }
+  if (!process.argv.includes('--skip-migrations')) {
+    const migrations = createPostgresPool();
+    try { await runPostgresMigrations(migrations); } finally { await migrations.end(); }
+  }
   const userId = `excalidraw-durability-${randomUUID()}`;
   const now = new Date();
   await db.insert(user).values({ id: userId, name: 'Excalidraw durability fixture', email: `${userId}@example.test`,
@@ -214,6 +217,9 @@ async function main() {
   assert(state && !state.degradedReason && state.checkpointContentHash === digest(savedBytes));
 
   const stalePathState = state;
+  await assert.rejects(renameWorkspacePath({ workspace, oldPath: created.path, newPath: 'unreadable-provider.txt',
+    overwrite: false, fileOptions: { workspace } }), error => (error as { code?: string }).code === 'EXCALIDRAW_PROVIDER_EXTENSION_REQUIRED');
+  assert.deepEqual(await fs.readFile(filePath), savedBytes, 'An incompatible extension is rejected before any physical rename.');
   const renamedPath = 'renamed-checkpoint.excalidraw';
   await withWorkspaceMutationLock(workspace.workspaceId, async () => {
     await fs.rename(filePath, path.join(workspace.rootPath, renamedPath));
@@ -223,6 +229,25 @@ async function main() {
   await assert.rejects(fs.access(filePath), { code: 'ENOENT' }, 'A stale checkpoint path cannot resurrect the renamed file.');
   const renamed = await loadExcalidrawScene(created.documentId);
   assert(renamed && renamed.path === renamedPath && renamed.documentId === created.documentId);
+  // A create may have bound its identity before a crash and then be renamed by
+  // another authorized client. Recovery must prove ownership at its current path.
+  const renamedIdentity = await fs.stat(path.join(workspace.rootPath, renamedPath), { bigint: true });
+  const renameJournal = await openDb();
+  try {
+    await renameJournal.run(`UPDATE collaboration_excalidraw_creates SET status='preparing',file_dev=$1,file_ino=$2,updated_at=0
+      WHERE document_id=$3`, [String(renamedIdentity.dev), String(renamedIdentity.ino), created.documentId]);
+  } finally { await renameJournal.close(); }
+  await fs.writeFile(filePath, 'Foreign occupant of the original create path.');
+  await recoverPendingExcalidrawCreates();
+  const recoveredJournal = await openDb();
+  try {
+    const receipt = await recoveredJournal.get('SELECT status,document_id FROM collaboration_excalidraw_creates WHERE document_id=$1',
+      [created.documentId]) as { status: string; document_id: string };
+    assert.equal(receipt.status, 'completed', 'Bound create recovery follows the canonical path after rename.');
+    assert.equal(receipt.document_id, created.documentId);
+  } finally { await recoveredJournal.close(); }
+  assert.equal(await fs.readFile(filePath, 'utf8'), 'Foreign occupant of the original create path.',
+    'Recovery cannot adopt or overwrite a new occupant of its original request path.');
   await archiveFileCollaborationPaths({ workspace, paths: [renamedPath] });
   const archivedBytes = await fs.readFile(path.join(workspace.rootPath, renamedPath));
   await assert.rejects(materializeExcalidrawCheckpoint({ workspace, state: renamed }),

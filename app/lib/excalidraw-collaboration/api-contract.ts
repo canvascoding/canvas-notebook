@@ -1,6 +1,7 @@
 import type { ExcalidrawAgentSceneAction } from './agent-operations';
 import { EXCALIDRAW_MAX_MESSAGE_BYTES } from './protocol';
 import { validateExcalidrawElement } from './scene';
+import { readDocumentReviewAvailability } from '@/app/lib/document-review-availability';
 
 export const EXCALIDRAW_API_MAX_REQUEST_BYTES = EXCALIDRAW_MAX_MESSAGE_BYTES;
 
@@ -94,6 +95,11 @@ export function parseExcalidrawEditInput(value: unknown, defaults: { idempotency
 }
 
 export function excalidrawOperationFeedback<T extends { status: string; documentUrl: string }>(operation: T) {
-  return { ...operation, reviewRequired: operation.status === 'needs_review',
-    ...(operation.status === 'needs_review' ? { reviewHint: 'The changes have not been applied. Open the document and review this operation with Accept or Reject.' } : {}) };
+  const reviewAvailable = readDocumentReviewAvailability().documentReviewEnabled;
+  const reviewRequired = operation.status === 'needs_review';
+  return { ...operation, reviewRequired, reviewAvailable,
+    conflictHint: reviewRequired
+      ? 'The changes have not been applied. Read the current scene again and submit updated actions with current element versions and a new idempotency key.' : null,
+    reviewHint: reviewRequired && reviewAvailable
+      ? 'The experimental Review Center is enabled. Open the document to accept or reject this proposal.' : null };
 }

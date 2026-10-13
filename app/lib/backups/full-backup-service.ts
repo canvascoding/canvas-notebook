@@ -543,6 +543,10 @@ async function runFullBackup(job: FullBackupJob, releaseLock: () => Promise<void
     await ensurePrivateDir(backupDir);
 
     job.status = 'running';
+    job.phase = 'Validating Excalidraw checkpoints';
+    await persist(true);
+    const { ensureExcalidrawCheckpointsCurrent } = await import('@/app/lib/excalidraw-collaboration/checkpoint-worker');
+    await ensureExcalidrawCheckpointsCurrent();
     job.phase = 'Creating database backup';
     await persist(true);
 

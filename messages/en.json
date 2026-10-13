@@ -7934,7 +7934,7 @@
       "documentReviewTitle": "Review Center",
       "description": "Experimental features apply to everyone in this instance and are disabled by default.",
       "enableDocumentReview": "Enable experimental Review Center",
-      "documentReviewDescription": "Enables the optional Review Center for document changes and stored file-action proposals.",
+      "documentReviewDescription": "Enables the experimental Review Center for document changes, Excalidraw agent proposals and stored file-action proposals. It is disabled by default.",
       "editingNote": "Agents and team members can continue editing documents together live. With the Review Center disabled, existing proposals remain stored and will not be applied automatically.",
       "linkMaintenanceNote": "When files are moved or deleted, links are maintained automatically. This always stays active for you and agents, regardless of this setting. Errors appear in Notification Center.",
       "administratorNote": "Only an administrator can change this instance-wide experimental setting.",

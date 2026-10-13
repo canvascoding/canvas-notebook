@@ -26,4 +26,17 @@ export const EXCALIDRAW_SCENE_SERVICE_STATEMENTS = [
   )`,
   'ALTER TABLE collaboration_excalidraw_checkpoint_intents ADD COLUMN IF NOT EXISTS file_dev text',
   'ALTER TABLE collaboration_excalidraw_checkpoint_intents ADD COLUMN IF NOT EXISTS file_ino text',
+  `CREATE TABLE IF NOT EXISTS collaboration_excalidraw_restores (
+    workspace_id text NOT NULL, actor_user_id text NOT NULL, actor_id text NOT NULL,
+    idempotency_key text NOT NULL, request_fingerprint text NOT NULL,
+    document_id text NOT NULL, lineage_id text NOT NULL, target_revision_id text NOT NULL,
+    prior_revision_id text NOT NULL, restored_revision_id text NOT NULL,
+    lifecycle_generation bigint NOT NULL, scene_sequence bigint NOT NULL, canonical_hash text NOT NULL,
+    approved_file_hash text, approved_file_dev text, approved_file_ino text,
+    checkpoint_completed boolean NOT NULL DEFAULT false, created_at bigint NOT NULL,
+    PRIMARY KEY(workspace_id, actor_user_id, actor_id, idempotency_key)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_excalidraw_restore_checkpoint
+    ON collaboration_excalidraw_restores(document_id, lifecycle_generation, scene_sequence)
+    WHERE checkpoint_completed = false`,
 ] as const;

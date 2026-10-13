@@ -25,6 +25,7 @@ async function waitUntil(condition: () => boolean) {
 async function main() {
   const clients: ListenerClient[] = [];
   const delivered: Array<{ generation: number; sequence: number; elements: string[] }> = [];
+  const identities: Array<{ path: string; status: string }> = [];
   const failures: unknown[] = [];
   let reconnects = 0;
   let state: PersistedExcalidrawScene = {
@@ -39,7 +40,7 @@ async function main() {
     connect: async () => { const client = new ListenerClient(); clients.push(client); return client as unknown as PoolClient; },
     loadScene: async () => structuredClone(state),
     onScene: value => { delivered.push({ generation: value.lifecycleGeneration, sequence: value.sceneSequence,
-      elements: value.elements.map(element => element.id) }); },
+      elements: value.elements.map(element => element.id) }); identities.push({ path: value.path, status: value.status }); },
     onReconnect: () => { reconnects += 1; }, onError: error => { failures.push(error); },
   });
   try {
@@ -70,6 +71,21 @@ async function main() {
     await waitUntil(() => delivered.length === 4);
     assert.equal(delivered.at(-1)?.generation, 2, 'A lifecycle change must be delivered even at the same sequence.');
 
+    state = { ...state, path: 'renamed.excalidraw' };
+    clients[0].hint({ documentId: state.documentId, sceneSequence: 3 });
+    await waitUntil(() => delivered.length === 5);
+    assert.equal(identities.at(-1)?.path, state.path, 'Rename invalidates old path tickets even without a new scene sequence.');
+    clients[0].hint({ documentId: state.documentId, sceneSequence: 3 });
+    await new Promise(resolve => setTimeout(resolve, 20));
+    assert.equal(delivered.length, 5, 'Duplicate rename notifications are deduplicated.');
+    state = { ...state, status: 'archived' };
+    clients[0].hint({ documentId: state.documentId, sceneSequence: 3 });
+    await waitUntil(() => delivered.length === 6);
+    assert.equal(identities.at(-1)?.status, 'archived', 'An archived identity is delivered even at equal generation and sequence.');
+    state = { ...state, status: 'active' };
+    clients[0].hint({ documentId: state.documentId, sceneSequence: 3 });
+    await waitUntil(() => delivered.length === 7);
+
     state = { ...state, sceneSequence: 8 };
     clients[0].emit('error', new Error('Simulated transport disconnect'));
     clients[0].emit('end');
@@ -83,7 +99,7 @@ async function main() {
   clients.at(-1)?.hint({ documentId: state.documentId, sceneSequence: 10 });
   await new Promise(resolve => setTimeout(resolve, 20));
   assert.equal(delivered.length, count, 'Stopped listeners cannot broadcast.');
-  console.log('Excalidraw notification gaps, duplicates, lifecycle changes and reconnect recovery verified.');
+  console.log('Excalidraw notification gaps, duplicates, rename, lifecycle changes and reconnect recovery verified.');
 }
 
 void main();

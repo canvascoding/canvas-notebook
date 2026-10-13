@@ -88,6 +88,7 @@ import { applyExcalidrawChanges, createExcalidrawDocument, getExcalidrawDocument
 } from '@/app/lib/excalidraw-collaboration/scene-service';
 import { openDb, getDatabaseInitializationError } from '@/app/lib/db';
 import { readStoredAgentWorkspaceOnConnection } from '@/app/lib/pi/session-workspace-context';
+import { ExcalidrawPublicationRequiredError } from '@/app/lib/excalidraw-collaboration/publication-context';
 import { FILE_VERSION_CENTER_CONTRACT_LIMITS } from '@/app/lib/file-version-center/contracts/v1';
 import { executeWorkspaceFileOperationService } from '@/app/lib/files/workspace-file-operation-service';
 import { getExistingAgentWorkspacePathOperation, submitAgentWorkspacePathOperation,
@@ -548,9 +549,63 @@ async function assertNearestWritableParentAllowed(candidatePath: string): Promis
 }
 
 export async function assertAgentWritablePathAllowed(candidatePath: string): Promise<void> {
+  await assertAgentPathDestinationAllowed(candidatePath);
+  if (candidatePath.toLowerCase().endsWith('.excalidraw')) throw new ExcalidrawPublicationRequiredError();
+  try {
+    const realPath = await fs.realpath(candidatePath);
+    if (realPath.toLowerCase().endsWith('.excalidraw')) throw new ExcalidrawPublicationRequiredError();
+    const stats = await fs.stat(candidatePath);
+    if (stats.isFile() && stats.nlink > 1) {
+      throw Object.assign(new Error('Hard-linked files cannot be changed through agent file tools. Use the original document service.'),
+        { code: 'WORKSPACE_PATH_ALIAS', status: 409 });
+    }
+  } catch (error) {
+    if (!isEnoent(error)) throw error;
+    await assertUnresolvedAgentSymlinkTargetAllowed(candidatePath);
+  }
+}
+
+/** realpath cannot identify a dangling checkpoint; inspect each link's declared target. */
+async function assertUnresolvedAgentSymlinkTargetAllowed(candidatePath: string): Promise<void> {
+  let current = path.resolve(candidatePath);
+  const visited = new Set<string>();
+  for (let count = 0; count < 40; count += 1) {
+    if (current.toLowerCase().endsWith('.excalidraw')) throw new ExcalidrawPublicationRequiredError();
+    if (visited.has(current)) break;
+    visited.add(current);
+    let stats: Awaited<ReturnType<typeof fs.lstat>>;
+    try { stats = await fs.lstat(current); }
+    catch (error) { if (isEnoent(error)) return; throw error; }
+    if (!stats.isSymbolicLink()) return;
+    current = path.resolve(path.dirname(current), await fs.readlink(current));
+  }
+  throw Object.assign(new Error('The symbolic-link target cannot be safely resolved.'),
+    { code: 'WORKSPACE_PATH_ALIAS', status: 409 });
+}
+
+/** Lifecycle path operations use the common document service rather than the byte-write gate. */
+async function assertAgentPathDestinationAllowed(candidatePath: string): Promise<void> {
   await assertContextWorkspaceMutationAllowed(candidatePath, 'write');
   await assertAgentPathAllowed(candidatePath);
   await assertNearestWritableParentAllowed(candidatePath);
+}
+
+async function assertNoRawAgentExcalidrawPaths(fullPaths: readonly string[]): Promise<void> {
+  const visited = new Set<string>();
+  const inspect = async (fullPath: string): Promise<void> => {
+    if (fullPath.toLowerCase().endsWith('.excalidraw')) throw new ExcalidrawPublicationRequiredError();
+    let stats: Awaited<ReturnType<typeof fs.lstat>>;
+    try { stats = await fs.lstat(fullPath); }
+    catch (error) { if (isEnoent(error)) return; throw error; }
+    const realPath = await fs.realpath(fullPath);
+    if (realPath.toLowerCase().endsWith('.excalidraw')) throw new ExcalidrawPublicationRequiredError();
+    if (visited.has(realPath)) return;
+    visited.add(realPath);
+    if (stats.isDirectory() || (stats.isSymbolicLink() && (await fs.stat(realPath)).isDirectory())) {
+      for (const child of await fs.readdir(realPath)) await inspect(path.join(realPath, child));
+    }
+  };
+  for (const fullPath of fullPaths) await inspect(fullPath);
 }
 
 export async function assertAgentDeletablePathAllowed(candidatePath: string): Promise<void> {
@@ -2730,6 +2785,7 @@ export async function restoreAgentFileSnapshot(params: { snapshotId: string }): 
     const snapshot = await readSnapshotMetadata(params.snapshotId);
     deletionPaths = snapshot.existed ? undefined : [snapshot.path];
     const fullPath = path.resolve(snapshot.resolvedPath);
+    await assertAgentWritablePathAllowed(fullPath);
     const currentWorkspace = getAgentWorkspaceContext();
     const context = getAgentExecutionContext();
     const deletionWorkspace = !snapshot.existed && currentWorkspace && context
@@ -3417,7 +3473,7 @@ async function retryDirectAgentWorkspacePath(input: {
   if (!known) return null;
   for (const entry of entries) {
     await assertAgentDeletablePathAllowed(entry.sourceResolvedPath);
-    if (entry.destinationResolvedPath) await assertAgentWritablePathAllowed(entry.destinationResolvedPath);
+    if (entry.destinationResolvedPath) await assertAgentPathDestinationAllowed(entry.destinationResolvedPath);
     const canonical = workspaceRelativeAgentPath(workspace, entry.sourceResolvedPath);
     const kind = known.plan.pathMappings.find((mapping) => mapping.sourcePath === canonical)?.sourceKind
       ?? known.plan.deletedPaths.find((candidate) => candidate.path === canonical)?.kind ?? 'missing';
@@ -3669,7 +3725,7 @@ export async function copyAgentPaths(params: {
   if (priorReview) return priorReview;
   const multipleSources = sourcePaths.length > 1;
   const destinationFullPath = resolveAgentPath(params.destinationPath);
-  await assertAgentWritablePathAllowed(destinationFullPath);
+  await assertAgentPathDestinationAllowed(destinationFullPath);
 
   if (multipleSources) {
     await assertDestinationDirectoryAvailable(destinationFullPath, params.destinationPath);
@@ -3691,7 +3747,7 @@ export async function copyAgentPaths(params: {
     const entryDestinationFullPath = multipleSources
       ? getDestinationPathForSource(destinationFullPath, sourceFullPath)
       : destinationFullPath;
-    await assertAgentWritablePathAllowed(entryDestinationFullPath);
+    await assertAgentPathDestinationAllowed(entryDestinationFullPath);
 
     if (path.resolve(sourceFullPath) === path.resolve(entryDestinationFullPath)) {
       throw new Error('Source and destination must be different paths.');
@@ -3746,6 +3802,7 @@ export async function copyAgentPaths(params: {
         if (workspaceResult) return workspaceResult;
       }
       const copyWorkspace = getAgentWorkspaceContext();
+      await assertNoRawAgentExcalidrawPaths(mutationStates.map(state => state.fullPath));
       if (copyWorkspace && entries.some((entry) => entry.overwritten)) {
         await assertAgentLegacyWorkspaceOverwriteSafe(copyWorkspace, entries, 'copy_path');
       }
@@ -3837,7 +3894,7 @@ export async function moveAgentPaths(params: {
     if (prior) return prior;
     const multipleSources = sourcePaths.length > 1;
     const destinationFullPath = resolveAgentPath(params.destinationPath);
-    await assertAgentWritablePathAllowed(destinationFullPath);
+    await assertAgentPathDestinationAllowed(destinationFullPath);
 
     if (multipleSources) {
       await assertDestinationDirectoryAvailable(destinationFullPath, params.destinationPath);
@@ -3855,7 +3912,7 @@ export async function moveAgentPaths(params: {
       const entryDestinationFullPath = multipleSources
         ? getDestinationPathForSource(destinationFullPath, sourceFullPath)
         : destinationFullPath;
-      await assertAgentWritablePathAllowed(entryDestinationFullPath);
+      await assertAgentPathDestinationAllowed(entryDestinationFullPath);
 
       if (path.resolve(sourceFullPath) === path.resolve(entryDestinationFullPath)) {
         throw new Error('Source and destination must be different paths.');
@@ -3906,6 +3963,7 @@ export async function moveAgentPaths(params: {
           if (workspaceResult) return workspaceResult;
         }
         const moveWorkspace = getAgentWorkspaceContext();
+        await assertNoRawAgentExcalidrawPaths(mutationStates.map(state => state.fullPath));
         if (moveWorkspace && entries.some((entry) => entry.overwritten)) {
           await assertAgentLegacyWorkspaceOverwriteSafe(moveWorkspace, entries, 'move_path');
         }

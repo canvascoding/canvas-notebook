@@ -134,9 +134,19 @@ export async function getExcalidrawDocument(input: {
           throw new ExcalidrawDocumentError('PATH_EXISTS', 409, 'The interrupted creation no longer owns this file. Its replacement has been preserved.');
         }
       } finally { await journal.close(); }
+      if (!fileIdentity?.isFile()) {
+        const reason = 'The portable Excalidraw checkpoint is missing. Restore the checkpoint through the document service.';
+        const checkpointDatabase = await openDb();
+        try {
+          await checkpointDatabase.run(`UPDATE collaboration_excalidraw_states SET degraded_reason=$1
+            WHERE document_id=$2 AND workspace_id=$3 AND path=$4 AND lifecycle_generation=$5
+              AND scene_sequence=$6 AND status='active'`,
+          [reason, state.documentId, state.workspaceId, state.path, state.lifecycleGeneration, state.sceneSequence]);
+        } finally { await checkpointDatabase.close(); }
+        state = { ...state, degradedReason: reason };
+      }
       const snapshot = excalidrawDocumentSnapshot(state);
-      return fileIdentity?.isFile() ? snapshot : { ...snapshot, checkpoint: { ...snapshot.checkpoint,
-        status: 'failed', error: 'The portable Excalidraw checkpoint is missing. Restore the checkpoint through the document service.' } };
+      return snapshot;
     }
     const fullPath = await resolveExistingWorkspacePath(path, { workspace: input.workspace });
     const file = await fs.stat(fullPath);
@@ -220,7 +230,7 @@ async function completeCreate(workspace: WorkspaceContext, receipt: CreateReceip
       WHERE workspace_id=$3 AND actor_user_id=$4 AND actor_id=$5 AND idempotency_key=$6`,
     [document.documentId, Date.now(), workspace.workspaceId, actor.userId, actor.actorId, receipt.idempotency_key]);
   } finally { await database.close(); }
-  invalidateWorkspaceFileViews({ fileOptions: { workspace }, fullTree: true, mutations: [{ path: receipt.path, type: 'add' }] });
+  invalidateWorkspaceFileViews({ fileOptions: { workspace }, fullTree: true, mutations: [{ path: document.path, type: 'add' }] });
   return document;
 }
 
@@ -236,7 +246,6 @@ export async function createExcalidrawDocument(input: {
   const fingerprint = hash(JSON.stringify({ workspaceId: input.workspace.workspaceId, path }));
   return withWorkspaceMutationLock(input.workspace.workspaceId, async () => {
     await input.beforeApply?.();
-    await assertWorkspacePathHasNoAliases(input.workspace, path);
     const database = await openDb();
     let receipt: CreateReceipt;
     const scope = [input.workspace.workspaceId, input.actor.userId, input.actor.actorId, input.idempotencyKey];
@@ -249,22 +258,26 @@ export async function createExcalidrawDocument(input: {
       if (receipt.request_fingerprint !== fingerprint) throw new ExcalidrawDocumentError('EXCALIDRAW_IDEMPOTENCY_CONFLICT', 409, 'This idempotency key belongs to a different create request.');
       if (receipt.status === 'completed') return getExcalidrawDocument({ workspace: input.workspace, documentId: receipt.document_id!, actor: input.actor });
       if (receipt.document_id) return completeCreate(input.workspace, receipt, input.actor);
+      const currentPath = normalizedPath(receipt.path);
+      await assertWorkspacePathHasNoAliases(input.workspace, currentPath);
       if (!receipt.file_dev || !receipt.file_ino) {
         const managed = await database.get(`SELECT d.id FROM collaboration_documents d
           JOIN file_collaboration_lineages l ON l.id=d.lineage_id AND l.status='active'
           WHERE d.workspace_id=$1 AND d.path=$2 AND d.provider='excalidraw' AND d.status='active'`,
-        [input.workspace.workspaceId, path]);
+        [input.workspace.workspaceId, currentPath]);
         if (managed) throw new ExcalidrawDocumentError('PATH_EXISTS', 409,
           'This path already belongs to an active Excalidraw document. Restore its checkpoint or delete the document before reusing the path.');
       }
-      const existing = await resolveExistingWorkspacePath(path, { workspace: input.workspace }).then(p => fs.stat(p, { bigint: true }))
+      const existing = await resolveExistingWorkspacePath(currentPath, { workspace: input.workspace }).then(p => fs.stat(p, { bigint: true }))
         .catch((error: NodeJS.ErrnoException) => { if (error.code === 'ENOENT') return null; throw error; });
       if (existing) {
         if (!receipt.file_dev || !receipt.file_ino || String(existing.dev) !== receipt.file_dev || String(existing.ino) !== receipt.file_ino) {
           throw new ExcalidrawDocumentError('PATH_EXISTS', 409, 'A file or folder already exists at this path.');
         }
       } else {
-        await withExcalidrawPublication(input.workspace.workspaceId, path, () => writeFileIfAbsent(path,
+        if (currentPath !== path) throw new ExcalidrawDocumentError('EXCALIDRAW_LIFECYCLE_STALE', 409,
+          'The interrupted creation was moved and its published file is no longer available. Restore that file before retrying.');
+        await withExcalidrawPublication(input.workspace.workspaceId, currentPath, () => writeFileIfAbsent(currentPath,
           createEmptyExcalidrawFileContent(), { workspace: input.workspace }, input.beforeApply,
           async identity => {
             await database.run(`UPDATE collaboration_excalidraw_creates SET file_dev=$1,file_ino=$2,status='preparing',updated_at=$3
@@ -321,10 +334,33 @@ export async function recoverPendingExcalidrawCreates(limit = 50): Promise<void>
     ORDER BY updated_at,created_at,workspace_id,actor_user_id,actor_id,idempotency_key LIMIT $1`, [limit]) as CreateReceipt[]; }
   finally { await database.close(); }
   const { resolveExcalidrawCheckpointWorkspace } = await import('./checkpoint-worker');
-  for (const receipt of receipts) {
+  for (const selectedReceipt of receipts) {
+    let receipt = selectedReceipt;
     const workspace = await resolveExcalidrawCheckpointWorkspace(receipt.workspace_id);
     if (workspace) await withWorkspaceMutationLock(workspace.workspaceId, async () => {
-      const fullPath = await resolveExistingWorkspacePath(receipt.path, { workspace }).catch(() => null);
+      // A rename can commit between the batch read and acquisition of the
+      // workspace fence. Recover from the current durable locator only.
+      const receiptDatabase = await openDb();
+      try {
+        const currentReceipt = await receiptDatabase.get(`SELECT * FROM collaboration_excalidraw_creates
+          WHERE workspace_id=$1 AND actor_user_id=$2 AND actor_id=$3 AND idempotency_key=$4 AND status='preparing'`,
+        [receipt.workspace_id, receipt.actor_user_id, receipt.actor_id, receipt.idempotency_key]) as CreateReceipt | undefined;
+        if (!currentReceipt || !currentReceipt.file_dev || !currentReceipt.file_ino) return;
+        receipt = currentReceipt;
+      } finally { await receiptDatabase.close(); }
+      let currentPath = receipt.path;
+      if (receipt.document_id) {
+        const identityDatabase = await openDb();
+        try {
+          const document = await identityDatabase.get(`SELECT document.path FROM collaboration_documents document
+            JOIN file_collaboration_lineages lineage ON lineage.id=document.lineage_id AND lineage.status='active'
+            WHERE document.id=$1 AND document.workspace_id=$2 AND document.provider='excalidraw' AND document.status='active'`,
+          [receipt.document_id, workspace.workspaceId]) as { path: string } | undefined;
+          if (!document) return;
+          currentPath = normalizedPath(document.path);
+        } finally { await identityDatabase.close(); }
+      }
+      const fullPath = await resolveExistingWorkspacePath(currentPath, { workspace }).catch(() => null);
       if (!fullPath) return;
       const identity = await fs.stat(fullPath, { bigint: true });
       if (String(identity.dev) !== receipt.file_dev || String(identity.ino) !== receipt.file_ino) return;

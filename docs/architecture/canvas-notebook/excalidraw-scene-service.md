@@ -80,6 +80,38 @@ operation identity. The existing WebSocket server loads durable data. It
 deduplicates deliveries, closes sequence gaps with a complete scene, and resyncs
 after reconnect. Stale duplicate acknowledgments cannot move a client backward.
 
+## Existing files, clients and lifecycle
+
+The filesystem publication guard protects Excalidraw even with every editor
+closed. Agent whole-file tools, generic snapshots, uploads and overwrite copies
+cannot replace managed scenes. Alias checks include case variants, hard links,
+and dangling or chained symbolic links. A server-only, path-scoped publication
+context authorizes checkpoints and controlled imports; public parameters cannot
+construct it. OS sandboxing also denies shell, Python and Node writes.
+
+UI creation uses the common service. Personal editors use the same scene
+provider as shared workspaces. Mobile snapshot saves produce versioned element
+changes under their sequence fence. Portable mobile content includes an
+identity/generation marker so older clients cannot reuse a matching byte hash
+after a restore. Download, ZIP export, full backup and migration export verify
+all relevant checkpoints before consuming their bytes and fail on conflicts.
+
+Rename and Move preserve document identity and the `.excalidraw` provider;
+extension changes are rejected before changing a file. Copy performs a
+controlled import with a new identity. Delete, trash restore and historical
+restore advance the lifecycle and invalidate outstanding operations. Historical
+restore retains the selected portable bytes and assets exactly, even when their
+content matches the current scene. Its durable receipt, scene, generation and
+revision commit atomically; checkpoint publication has its own reported status.
+
+The full Review Center and Excalidraw Accept/Reject interface are experimental.
+They use the existing `documentReviewEnabled` instance setting under Settings →
+Experimental features, which defaults to false and requires explicit admin
+selection. Normal Create/Get/Edit and live collaboration work with it disabled.
+A target conflict still leaves the batch unapplied; reread and submit a new
+versioned operation, or cancel the old one. Disabling the feature never accepts
+stored proposals automatically.
+
 ## Release and verification
 
 Marketplace `document-suite` 1.4.0 must remain unpublished until a backend release

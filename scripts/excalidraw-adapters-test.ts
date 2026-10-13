@@ -285,7 +285,9 @@ async function mcp(current: WorkspaceContext) {
     ] }));
   assert.equal(conflicted.status, 'needs_review');
   assert.equal(conflicted.reviewRequired, true);
-  assert.ok(conflicted.reviewHint);
+  assert.ok(conflicted.conflictHint);
+  if (conflicted.reviewAvailable) assert.ok(conflicted.reviewHint);
+  else assert.equal(conflicted.reviewHint, null);
   assert.ok(conflicted.documentUrl);
   const after = await sceneService.getExcalidrawDocument({ workspace: current, documentId: scene.documentId });
   assert.equal(after.elements[0].x, 200);

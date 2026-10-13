@@ -1,7 +1,7 @@
 import 'server-only';
 
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
-import { assertCollaborationAdmissionOpen, lockCollaborationAdmissionWorkspace } from '@/app/lib/collaboration/room-admission';
+import { assertCollaborationAdmissionOpen, lockCollaborationDocumentInitialization } from '@/app/lib/collaboration/room-admission';
 import { captureCollaborationAdmissionWriterScope, CollaborationAdmissionError } from '@/app/lib/collaboration/room-admission-contract';
 
 import {
@@ -93,7 +93,7 @@ export async function ensureCollaborationDocument(
   }
   const query = async (sql: string, values?: unknown[]) =>
     await transaction.all(sql, values) as Array<Record<string, unknown>>;
-  await lockCollaborationAdmissionWorkspace(query, scope.workspaceId);
+  await lockCollaborationDocumentInitialization(query, scope);
   await assertCollaborationAdmissionOpen(query, scope);
   const row = await getRow<DocumentRow>(transaction, `
     INSERT INTO collaboration_documents (

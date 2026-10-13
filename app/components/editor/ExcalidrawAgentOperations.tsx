@@ -1,11 +1,12 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, Bot, Check, LoaderCircle, X } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
 import { Button } from '@/components/ui/button';
 import { workspaceHeaders } from '@/app/lib/files/client';
+import { useDocumentReviewAvailability } from '@/app/components/file-version-center/DocumentReviewAvailabilityProvider';
 
 type ReviewOperation = {
   operationId: string;
@@ -19,37 +20,58 @@ type ReviewOperation = {
 
 export function ExcalidrawAgentOperations({
   documentId,
+  workspaceId,
   readOnly,
 }: {
   documentId: string | null;
+  workspaceId: string | null;
   readOnly: boolean;
 }) {
   const t = useTranslations('notebook.collaboration');
-  const [operations, setOperations] = useState<ReviewOperation[]>([]);
-  const [busyOperationId, setBusyOperationId] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const availability = useDocumentReviewAvailability();
+  const reviewAvailable = Boolean(workspaceId) && availability.ready && availability.documentReviewEnabled;
+  const targetKey = useMemo(() => ({ workspaceId, documentId, reviewAvailable, updatedAt: availability.updatedAt }),
+    [workspaceId, documentId, reviewAvailable, availability.updatedAt]);
+  const [snapshot, setSnapshot] = useState<{ targetKey: object | null; operations: ReviewOperation[]; error: string | null }>({
+    targetKey: null, operations: [], error: null,
+  });
+  const [busy, setBusy] = useState<{ targetKey: object; operationId: string } | null>(null);
+  const requests = useRef(new Set<AbortController>());
+  const latestRefresh = useRef(0);
+  const operations = snapshot.targetKey === targetKey ? snapshot.operations : [];
+  const error = snapshot.targetKey === targetKey ? snapshot.error : null;
+  const busyOperationId = busy?.targetKey === targetKey ? busy.operationId : null;
 
   const refresh = useCallback(async () => {
-    if (!documentId) return setOperations([]);
+    if (!reviewAvailable || !documentId || !workspaceId) return;
+    const controller = new AbortController();
+    requests.current.add(controller);
+    const sequence = ++latestRefresh.current;
     try {
       const response = await fetch(
         `/api/files/excalidraw-collaboration/operations?documentId=${encodeURIComponent(documentId)}&pending=1`,
-        { headers: workspaceHeaders(), cache: 'no-store' },
+        { headers: workspaceHeaders(workspaceId), cache: 'no-store', signal: controller.signal },
       );
       const payload = await response.json().catch(() => ({})) as {
         success?: boolean;
         operations?: ReviewOperation[];
         error?: string;
       };
+      if (controller.signal.aborted || sequence !== latestRefresh.current) return;
       if (!response.ok || !payload.success) throw new Error(payload.error || t('agentActionFailed'));
-      setOperations(payload.operations ?? []);
-      setError(null);
+      setSnapshot({ targetKey, operations: payload.operations ?? [], error: null });
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : t('agentActionFailed'));
+      if (controller.signal.aborted || sequence !== latestRefresh.current) return;
+      setSnapshot(previous => ({ targetKey, operations: previous.targetKey === targetKey ? previous.operations : [],
+        error: nextError instanceof Error ? nextError.message : t('agentActionFailed') }));
+    } finally {
+      requests.current.delete(controller);
     }
-  }, [documentId, t]);
+  }, [documentId, reviewAvailable, t, targetKey, workspaceId]);
 
   useEffect(() => {
+    if (!reviewAvailable || !documentId) return;
+    const activeRequests = requests.current;
     const initialRefresh = window.setTimeout(() => void refresh(), 0);
     const interval = window.setInterval(() => {
       if (document.visibilityState === 'visible') void refresh();
@@ -60,33 +82,44 @@ export function ExcalidrawAgentOperations({
       window.clearTimeout(initialRefresh);
       window.clearInterval(interval);
       window.removeEventListener('focus', onFocus);
+      for (const controller of activeRequests) controller.abort();
+      activeRequests.clear();
     };
-  }, [refresh]);
+  }, [documentId, refresh, reviewAvailable]);
 
   const act = useCallback(async (operationId: string, action: 'accept' | 'reject', expectedCasVersion?: number) => {
-    setBusyOperationId(operationId);
-    setError(null);
+    if (!reviewAvailable || !documentId || !workspaceId || readOnly) return;
+    const controller = new AbortController();
+    requests.current.add(controller);
+    setBusy({ targetKey, operationId });
+    setSnapshot(previous => ({ targetKey, operations: previous.targetKey === targetKey ? previous.operations : [], error: null }));
     try {
       const response = await fetch(
         `/api/files/excalidraw-collaboration/operations/${encodeURIComponent(operationId)}/${action}`,
         {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', ...workspaceHeaders() },
+          signal: controller.signal,
+          headers: { 'Content-Type': 'application/json', ...workspaceHeaders(workspaceId) },
           body: JSON.stringify({ idempotencyKey: `${action}:${operationId}:${crypto.randomUUID()}`,
             ...(action === 'accept' ? { expectedCasVersion } : {}) }),
         },
       );
       const payload = await response.json().catch(() => ({})) as { success?: boolean; error?: string };
+      if (controller.signal.aborted) return;
       if (!response.ok || !payload.success) throw new Error(payload.error || t('agentActionFailed'));
       await refresh();
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : t('agentActionFailed'));
+      if (controller.signal.aborted) return;
+      setSnapshot(previous => ({ targetKey, operations: previous.targetKey === targetKey ? previous.operations : [],
+        error: nextError instanceof Error ? nextError.message : t('agentActionFailed') }));
     } finally {
-      setBusyOperationId(null);
+      requests.current.delete(controller);
+      if (!controller.signal.aborted) setBusy(previous => previous?.targetKey === targetKey && previous.operationId === operationId
+        ? null : previous);
     }
-  }, [refresh, t]);
+  }, [documentId, readOnly, refresh, reviewAvailable, t, targetKey, workspaceId]);
 
-  if (!documentId || (operations.length === 0 && !error)) return null;
+  if (!reviewAvailable || !documentId || (operations.length === 0 && !error)) return null;
 
   return (
     <aside

@@ -262,6 +262,23 @@ if (wikiPipeName.readiness === 'ready' && wikiPipeContent) {
   assert.ok(wikiPipeName.issues.some((item) => item.code === 'unsupported-target-format'));
 }
 
+for (const kind of ['rename', 'move', 'copy'] as const) {
+  const changeExtension = createWorkspaceFileOperationPlan({ kind,
+    sourceWorkspaceId: 'w1', destinationWorkspaceId: 'w1',
+    selections: [{ sourcePath: 'Diagram.EXCALIDRAW', destinationPath: 'Diagram.txt' }],
+    snapshots: [snapshot('w1', [file('Diagram.EXCALIDRAW')])],
+  });
+  assert.equal(changeExtension.readiness, 'blocked');
+  assert(changeExtension.issues.some(issue => issue.code === 'unsupported-target-format'
+    && issue.detail.includes('.excalidraw')));
+  const keepExtension = createWorkspaceFileOperationPlan({ kind,
+    sourceWorkspaceId: 'w1', destinationWorkspaceId: 'w1',
+    selections: [{ sourcePath: 'Diagram.EXCALIDRAW', destinationPath: 'Renamed.excalidraw' }],
+    snapshots: [snapshot('w1', [file('Diagram.EXCALIDRAW')])],
+  });
+  assert.equal(keepExtension.readiness, 'ready', 'Normal diagram path changes remain available.');
+}
+
 const deterministicRequest: WorkspaceFileOperationPlanRequest = {
   kind: 'rename', sourceWorkspaceId: 'w1', destinationWorkspaceId: 'w1',
   selections: [{ sourcePath: 'A.md', destinationPath: 'B.md' }],

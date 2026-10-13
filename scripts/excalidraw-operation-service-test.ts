@@ -12,6 +12,9 @@ import { fileVersionContentStore } from '@/app/lib/file-version-center/version-c
 import { readFileCollaborationState } from '@/app/lib/files/collaboration-policy';
 import { workspaceAbsoluteRoot } from '@/app/lib/workspaces/contracts';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
+import { serverPreferencesPath } from '@/app/lib/terminal-policy';
+import { readDocumentReviewAvailability } from '@/app/lib/document-review-availability';
+import { excalidrawOperationFeedback } from '@/app/lib/excalidraw-collaboration/api-contract';
 
 const suffix = randomUUID();
 const userId = `operation-user-${suffix}`;
@@ -58,6 +61,16 @@ async function main() {
   assert.equal(process.env.CANVAS_DATABASE_PROVIDER, 'postgres');
   assert.equal(process.env.NODE_ENV, 'test');
   assert.match(new URL(process.env.DATABASE_URL!).pathname, /^\/canvas_(?:editor|excalidraw)_test_[a-f0-9]{16}$/u);
+  assert.match(process.env.CANVAS_DATA_ROOT ?? '', /canvas-excal-review-/u,
+    'Run with a dedicated filesystem root so feature toggles cannot affect the managed browser stack.');
+  const policyPath = serverPreferencesPath();
+  await fs.mkdir(path.dirname(policyPath), { recursive: true });
+  const reviewEnabled = async (enabled: boolean) => {
+    await fs.writeFile(policyPath, JSON.stringify({ version: 1, settings: { documentReviewEnabled: enabled } }));
+    assert.equal(readDocumentReviewAvailability().documentReviewEnabled, enabled);
+  };
+  await fs.rm(policyPath, { force: true });
+  assert.equal(readDocumentReviewAvailability().documentReviewEnabled, false, 'Absent configuration is disabled.');
   // The existing managed test database is already migrated. Never race DDL with another suite.
   for (const id of [userId, managerId]) await execute(`INSERT INTO "user" (id,name,email,email_verified,created_at,updated_at)
     VALUES ($1,'Operation service test',$2,1,$3,$3)`, [id, `${id}@example.test`, Date.now()]);
@@ -94,6 +107,60 @@ async function main() {
       assert.equal(operation.status, 'needs_review');
       return operation;
     }
+    const disabledReview = await pendingReview();
+    const disabledState = await loadExcalidrawScene(created.documentId);
+    const disabledSnapshot = await getExcalidrawOperation({ workspace: await authority(), userId, operationId: disabledReview.operationId });
+    assert.equal(disabledSnapshot.status, 'needs_review');
+    assert.equal(disabledSnapshot.reviewHint, null);
+    assert.match(disabledSnapshot.conflictHint ?? '', /Read the current scene.*new idempotency key/u);
+    const disabledFeedback = excalidrawOperationFeedback(disabledSnapshot);
+    assert.equal(disabledFeedback.reviewAvailable, false);
+    assert.equal(disabledFeedback.reviewHint, null);
+    for (const decision of ['accept', 'reject'] as const) {
+      const decisionInput = decision === 'accept' ? { decision, expectedCasVersion: disabledReview.casVersion } : { decision };
+      await assert.rejects(reviewExcalidrawOperation({ workspace: await authority(), userId,
+        operationId: disabledReview.operationId, ...decisionInput }), code('DOCUMENT_REVIEW_DISABLED'));
+      const unchanged = await getExcalidrawOperation({ workspace: await authority(), userId, operationId: disabledReview.operationId });
+      assert.equal(unchanged.status, 'needs_review'); assert.equal(unchanged.casVersion, disabledReview.casVersion);
+      assert.equal((await loadExcalidrawScene(created.documentId))?.canonicalHash, disabledState?.canonicalHash);
+    }
+    const cancelledWhileDisabled = await reviewExcalidrawOperation({ workspace: await authority(), userId,
+      operationId: disabledReview.operationId, decision: 'cancel', beforeApply: () => authority() });
+    assert.equal(cancelledWhileDisabled.status, 'cancelled');
+    assert.equal((await loadExcalidrawScene(created.documentId))?.canonicalHash, disabledState?.canonicalHash);
+    await reviewEnabled(true);
+    assert.ok(excalidrawOperationFeedback({ ...disabledSnapshot, status: 'needs_review' }).reviewHint);
+    for (const decision of ['accept', 'reject'] as const) {
+      const pending = await pendingReview();
+      const before = await loadExcalidrawScene(created.documentId);
+      let release!: () => void;
+      let held!: (pid: number) => void;
+      const locked = new Promise<number>(resolve => { held = resolve; });
+      const gate = new Promise<void>(resolve => { release = resolve; });
+      const blocker = withExcalidrawSceneTransaction(created.documentId, async transaction => {
+        held((await transaction.get('SELECT pg_backend_pid() AS pid') as { pid: number }).pid);
+        await gate;
+      });
+      const blockerPid = await locked;
+      const decisionInput = decision === 'accept' ? { decision, expectedCasVersion: pending.casVersion } : { decision };
+      const response = reviewExcalidrawOperation({ workspace: await authority(), userId, operationId: pending.operationId,
+        ...decisionInput, beforeApply: () => authority() });
+      const refused = assert.rejects(response, code('DOCUMENT_REVIEW_DISABLED'));
+      try { await waitForBlockedConnection(blockerPid); await reviewEnabled(false); }
+      finally { release(); await blocker; }
+      await refused;
+      assert.equal((await loadExcalidrawScene(created.documentId))?.canonicalHash, before?.canonicalHash);
+      const unchanged = await getExcalidrawOperation({ workspace: await authority(), userId, operationId: pending.operationId });
+      assert.equal(unchanged.status, 'needs_review'); assert.equal(unchanged.casVersion, pending.casVersion);
+      await reviewEnabled(true);
+    }
+    const callbackRevoked = await pendingReview();
+    await assert.rejects(reviewExcalidrawOperation({ workspace: await authority(), userId,
+      operationId: callbackRevoked.operationId, decision: 'accept', expectedCasVersion: callbackRevoked.casVersion,
+      beforeApply: async () => { await reviewEnabled(false); return authority(); } }), code('DOCUMENT_REVIEW_DISABLED'));
+    assert.equal((await getExcalidrawOperation({ workspace: await authority(), userId, operationId: callbackRevoked.operationId })).casVersion,
+      callbackRevoked.casVersion, 'A disable during fresh authority cannot mutate the stored review.');
+    await reviewEnabled(true);
     const firstReview = await pendingReview();
     const accepted = await reviewExcalidrawOperation({ workspace: await authority(), userId,
       operationId: firstReview.operationId, decision: 'accept', expectedCasVersion: firstReview.casVersion,
@@ -212,8 +279,9 @@ async function main() {
     await execute('UPDATE canvas_workspace_members SET can_read=0 WHERE workspace_id=$1 AND user_id=$2', [workspace.workspaceId, userId]);
     await assert.rejects(getExcalidrawOperation({ workspace: staleReadWorkspace, userId,
       operationId: failedCheckpoint.operationId, beforeRead: () => authority() }), code('EXCALIDRAW_PERMISSION_DENIED'));
-    console.log('Excalidraw closed review/history, actual operation/checkpoint status, scene/row lock revocation and renewed intervention verified.');
+    console.log('Excalidraw default-off review gate, disabled cancellation, flag revocation under locks, closed review/history, actual status, permission revocation and renewed intervention verified.');
   } finally {
+    await fs.rm(policyPath, { force: true });
     await execute("UPDATE canvas_workspaces SET status='archived' WHERE id=$1", [workspace.workspaceId]);
     await fs.rm(workspace.rootPath, { recursive: true, force: true });
   }

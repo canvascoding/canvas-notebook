@@ -204,7 +204,7 @@ const TARGET_PROJECTION_SQL = `
   FROM file_collaboration_lineages lineage
   LEFT JOIN collaboration_documents document
     ON document.workspace_id = lineage.workspace_id AND document.lineage_id = lineage.id
-    AND document.status = 'active' AND document.provider = 'yjs'
+    AND document.status = 'active' AND document.provider IN ('yjs', 'excalidraw')
   LEFT JOIN LATERAL (
     SELECT item.id, item.content_hash, item.size_bytes
     FROM file_revisions item WHERE item.lineage_id = lineage.id AND item.history_only = false

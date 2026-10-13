@@ -229,16 +229,22 @@ export default async function middleware(request: NextRequest) {
     }
 
     const sessionCookie = getCanvasSessionCookie(request);
-    // The versioned native handlers validate this credential with Better Auth.
+    // Native and scene handlers validate these credentials with Better Auth.
     // Presence here only delegates authentication; it grants no session rights.
     const mobileBearerCandidate = pathname.startsWith('/api/mobile/v1/')
       && /^Bearer [^\s\x00-\x1f\x7f]{1,4096}$/u.test(request.headers.get('authorization') || '');
+    const excalidrawBearerCandidate = (
+      request.method === 'POST' && pathname === '/api/excalidraw/scenes'
+      || request.method === 'GET' && /^\/api\/excalidraw\/scenes\/[^/]{1,200}$/u.test(pathname)
+      || request.method === 'POST' && /^\/api\/excalidraw\/scenes\/[^/]{1,200}\/operations$/u.test(pathname)
+    ) && /^Bearer [^\s\x00-\x1f\x7f]{1,4096}$/iu.test(request.headers.get('authorization') || '');
+    const bearerCandidate = mobileBearerCandidate || excalidrawBearerCandidate;
     const logMissingSession = process.env.NODE_ENV !== 'production' || process.env.AUTH_DEBUG === 'true';
-    if (!sessionCookie && !mobileBearerCandidate && logMissingSession) {
+    if (!sessionCookie && !bearerCandidate && logMissingSession) {
       console.log(`[Middleware] No session credential for ${pathname}. Denying API request.`);
     }
 
-    if (!sessionCookie && !mobileBearerCandidate) {
+    if (!sessionCookie && !bearerCandidate) {
       const errorResponse = NextResponse.json(
         { success: false, error: 'Unauthorized' },
         { status: 401 }

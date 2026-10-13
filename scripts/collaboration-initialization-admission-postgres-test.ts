@@ -98,8 +98,9 @@ function guardedDatabaseUrl(): URL | null {
   const databaseName = decodeURIComponent(parsed.pathname.replace(/^\//u, ''));
   if (!['postgres:', 'postgresql:'].includes(parsed.protocol)
     || !['localhost', '127.0.0.1'].includes(parsed.hostname)
-    || parsed.port !== '55433' || databaseName !== 'canvas_notebook') {
-    throw new Error('Initialization-admission test only accepts managed loopback PG18 at 55433/canvas_notebook.');
+    || parsed.port !== '55433' || !(databaseName === 'canvas_notebook'
+      || /^canvas_excalidraw_test_[a-f0-9]{16}$/u.test(databaseName))) {
+    throw new Error('Initialization-admission test only accepts managed loopback PG18 at 55433 with its default or disposable Excalidraw database.');
   }
   return parsed;
 }
@@ -152,7 +153,7 @@ async function verifyManagedPostgres(pool: Pool): Promise<void> {
       to_regclass('public.collaboration_yjs_states') IS NOT NULL AS state_table,
       to_regclass('public.collaboration_documents') IS NOT NULL AS document_table`);
   const row = result.rows[0];
-  if (!row || row.database_name !== 'canvas_notebook'
+  if (!row || row.database_name !== decodeURIComponent(guardedDatabaseUrl()!.pathname.slice(1))
     || Math.floor(Number(row.server_version_num) / 10_000) !== 18 || !row.state_table || !row.document_table) {
     throw new Error('Initialization-admission test refused a server outside managed PG18.');
   }
@@ -368,7 +369,8 @@ async function run(databaseUrl: URL): Promise<void> {
       `SELECT * FROM ${documentTable} WHERE workspace_id=$1 AND path=$2 ORDER BY created_at`,
       [workspaceId, filePath])).rows;
 
-    // Initializers commit first: reservation waits on the same workspace guard and captures the exact durable state.
+    // A kernel-fenced reservation must not wait behind a PG-first initializer;
+    // it fails without mutation, then captures the exact state on a fresh retry.
     const first = stateInput('initialization-first', 'workspace-first', 'notes/first.md');
     await ensureDocument(first, 100);
     const stateInsertEntered = deferred();
@@ -394,21 +396,19 @@ async function run(databaseUrl: URL): Promise<void> {
     const reservePromise = hookContext.run(reserveHooks, () => admission.reserve(firstRequest));
     const reserveHandled = reservePromise.then((value) => ({ value, error: undefined as unknown }),
       (error: unknown) => ({ value: undefined, error }));
-    let firstRaceError: unknown;
     try {
-      await within((async () => {
-        while (!reserveHooks.backendPids?.[0]) await new Promise<void>((resolve) => setTimeout(resolve, 5));
-      })(), OPERATION_TIMEOUT_MS, 'reservation connection did not open');
-      await waitForBlocked(controlPool, reserveHooks.backendPids![0]!, 'reservation behind state initializer');
-    } catch (error) { firstRaceError = error; }
+      const blockedReservation = await within(reserveHandled, OPERATION_TIMEOUT_MS,
+        'Kernel-fenced reservation must reject the older PG lock without waiting.');
+      admissionConflict(blockedReservation.error);
+      assert.equal((await controlPool.query(`SELECT request_id FROM ${schemaSql}.collaboration_admission_requests
+        WHERE request_id=$1`, [firstRequest.requestId])).rows.length, 0);
+    }
     finally { releaseStateInsert.resolve(); }
     const firstStateResult = await firstStateHandled;
     if (firstStateResult.error) throw firstStateResult.error;
-    const firstReservationResult = await reserveHandled;
-    if (firstReservationResult.error) throw firstReservationResult.error;
-    if (firstRaceError) throw firstRaceError;
-    assert.equal(firstReservationResult.value?.targets.length, 1);
-    assert.equal(firstReservationResult.value?.targets[0]?.document.documentId, first.documentId);
+    const firstReservation = await admission.reserve(firstRequest);
+    assert.equal(firstReservation.targets.length, 1);
+    assert.equal(firstReservation.targets[0]?.document.documentId, first.documentId);
     assert.equal((await readDocumentRows(first.workspaceId, first.path)).length, 1);
 
     // Reservation commits first: both missing metadata and missing Yjs state wait, then fail without partial rows.
@@ -621,7 +621,7 @@ async function run(databaseUrl: URL): Promise<void> {
     assert.equal(retryReadHooks.writes ?? 0, 0, 'post-commit retry is read-only and never rewrites the state');
 
     assert.equal(poolErrors.length, 0, 'initialization-admission pools must not emit background errors');
-    console.log('Collaboration initialization admission PostgreSQL: 13 bounded boundaries passed—both race orders, '
+    console.log('Collaboration initialization admission PostgreSQL: 13 bounded boundaries passed—kernel-fenced retry and both race orders, '
       + 'exact reservation capture, cancellation liveness, existing checkpoint/state availability, literal and subtree '
       + 'scope matching, archived/mismatched identity fences, active-hit/archive and missing-hit/foreign-lineage metadata '
       + 'races, and rejected/lost/discard-failed COMMIT handling—in one isolated generated schema.');
@@ -646,5 +646,11 @@ const databaseUrl = guardedDatabaseUrl();
 if (!databaseUrl) {
   console.log('Collaboration initialization-admission PostgreSQL test skipped: guarded managed database is not configured.');
 } else {
-  run(databaseUrl).catch((error) => { console.error(sanitizeError(error)); process.exitCode = 1; });
+  run(databaseUrl).catch((error) => {
+    console.error(sanitizeError(error));
+    if (error instanceof Error) console.error(error.stack?.split('\n').slice(1).join('\n')
+      .replace(/postgres(?:ql)?:\/\/\S+/giu, '[database-url-redacted]')
+      .replace(/password\s*=\s*\S+/giu, 'password=[redacted]'));
+    process.exitCode = 1;
+  });
 }

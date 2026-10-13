@@ -4,6 +4,7 @@ import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
+import { loadArchiveServiceFixture } from './helpers/archive-service-fixture';
 
 const MARKER_POLL_MS = 20;
 const CHILD_TIMEOUT_MS = 30_000;
@@ -80,7 +81,7 @@ async function runWorker(mode: 'writer' | 'contender'): Promise<void> {
     return;
   }
 
-  const backup = await import('../app/lib/backups/full-backup-service');
+  const backup = loadArchiveServiceFixture<typeof import('../app/lib/backups/full-backup-service')>('app/lib/backups/full-backup-service.ts');
   if (mode === 'contender') {
     try {
       await backup.createFullBackupJob();
@@ -173,7 +174,7 @@ function write() { fs.writeFileSync(args[args.indexOf('--file') + 1], 'fixture d
     assert.match(await writer.wait(), /OWNER: released/);
     await fs.unlink(path.join(dataRoot, 'system', 'backups', '.full-backup.lock'));
 
-    const backup = await import('../app/lib/backups/full-backup-service');
+    const backup = loadArchiveServiceFixture<typeof import('../app/lib/backups/full-backup-service')>('app/lib/backups/full-backup-service.ts');
     const completed = await backup.createFullBackupJob();
     let archivePath: string | null = null;
     for (let attempt = 0; attempt < 1_200; attempt += 1) {

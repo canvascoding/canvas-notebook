@@ -6,9 +6,11 @@ import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 
-import { createFullBackupJob, getFullBackupJob, inspectFullBackupArchive,
+import type * as BackupService from '../app/lib/backups/full-backup-service';
+import { loadArchiveServiceFixture } from './helpers/archive-service-fixture';
+const { createFullBackupJob, getFullBackupJob, inspectFullBackupArchive,
   promoteFullBackupJobToLatest, pruneFullBackupJobArtifacts,
-} from '../app/lib/backups/full-backup-service';
+} = loadArchiveServiceFixture<typeof BackupService>('app/lib/backups/full-backup-service.ts');
 import type { FullBackupJob } from '../app/lib/backups/types';
 
 const execFileAsync = promisify(execFile);

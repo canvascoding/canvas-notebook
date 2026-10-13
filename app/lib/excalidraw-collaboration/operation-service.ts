@@ -11,12 +11,15 @@ import { loadExcalidrawScene, loadExcalidrawSceneInTransaction, withExcalidrawSc
   type PersistedExcalidrawScene } from './repository';
 import { ExcalidrawDocumentError, excalidrawDocumentSnapshot, type ExcalidrawDocumentSnapshot } from './scene-service';
 import { assertExcalidrawProviderAvailable } from './provider';
+import { readDocumentReviewAvailability } from '@/app/lib/document-review-availability';
 
 export type ExcalidrawOperationSnapshot = ExcalidrawAgentOperation & {
   sceneSequence: number;
   checkpoint: ExcalidrawDocumentSnapshot['checkpoint'];
   documentUrl: string;
   reviewHint: string | null;
+  reviewAvailable: boolean;
+  conflictHint: string | null;
 };
 
 type ReadInput = {
@@ -69,9 +72,20 @@ async function assertSceneIdentity(transaction: SqlConnection, state: PersistedE
 
 function operationSnapshot(operation: ExcalidrawAgentOperation, state: PersistedExcalidrawScene): ExcalidrawOperationSnapshot {
   const snapshot = excalidrawDocumentSnapshot(state);
+  const reviewAvailable = readDocumentReviewAvailability().documentReviewEnabled;
   return { ...operation, sceneSequence: state.sceneSequence, checkpoint: snapshot.checkpoint,
-    documentUrl: snapshot.documentUrl, reviewHint: operation.status === 'needs_review'
-      ? operation.reviewReason ?? 'Open the document to review the proposed Excalidraw changes.' : null };
+    documentUrl: snapshot.documentUrl, reviewAvailable,
+    conflictHint: operation.status === 'needs_review'
+      ? 'The changes have not been applied. Read the current scene again and submit updated actions with current element versions and a new idempotency key.' : null,
+    reviewHint: reviewAvailable && operation.status === 'needs_review'
+      ? 'The experimental Review Center is enabled. Open the document to accept or reject this proposal.' : null };
+}
+
+function assertReviewAvailable(decision: ExcalidrawOperationReviewInput['decision']): void {
+  if (decision !== 'cancel' && !readDocumentReviewAvailability().documentReviewEnabled) {
+    throw new ExcalidrawDocumentError('DOCUMENT_REVIEW_DISABLED', 409,
+      'The experimental Review Center is disabled. Read the current scene and submit an updated operation, or enable it in Settings to review stored proposals.');
+  }
 }
 
 /** Read persisted status and checkpoint metadata without importing or requiring portable file bytes. */
@@ -149,9 +163,11 @@ export async function reviewExcalidrawOperation(input: ExcalidrawOperationReview
     throw new ExcalidrawDocumentError('INVALID_EXCALIDRAW_APPROVAL', 400,
       'The displayed expectedCasVersion is required. Reload the current review before accepting.');
   }
+  assertReviewAvailable(input.decision);
   return withWorkspaceMutationLock(input.workspace.workspaceId, async () => {
     let currentWorkspace = input.workspace;
     const beforeApply = async (operation: ExcalidrawAgentOperation) => {
+      assertReviewAvailable(input.decision);
       const workspace = await input.beforeApply?.(operation) ?? input.workspace;
       assertWorkspaceAuthority(workspace, input.workspace, true);
       assertUserAuthority(workspace, input.userId);
@@ -160,6 +176,7 @@ export async function reviewExcalidrawOperation(input: ExcalidrawOperationReview
         const state = await loadExcalidrawScene(operation.documentId, true);
         await assertSceneIdentity(database, state, workspace, operation.lifecycleGeneration);
       } finally { await database.close(); }
+      assertReviewAvailable(input.decision);
       currentWorkspace = workspace;
       return workspace;
     };

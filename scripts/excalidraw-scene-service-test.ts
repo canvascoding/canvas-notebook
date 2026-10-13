@@ -16,7 +16,10 @@ import {
 } from '@/app/lib/excalidraw-collaboration/scene-service';
 import type { ExcalidrawElementRecord } from '@/app/lib/excalidraw-collaboration/protocol';
 import { fileVersionContentStore } from '@/app/lib/file-version-center/version-content-store';
-import { getFileCollaborationState } from '@/app/lib/files/collaboration-policy';
+import { getFileCollaborationState, moveFileCollaborationPath } from '@/app/lib/files/collaboration-policy';
+import { setFileCollaborationConnectionFactoryForTests } from '@/app/lib/files/collaboration-repository';
+import { renameWorkspacePath } from '@/app/lib/files/rename-service';
+import { withRollbackableFileRename } from '@/app/lib/filesystem/workspace-files';
 import { runWithAgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
 import { DEFAULT_MANAGED_AGENT_ID } from '@/app/lib/agents/storage';
 import { workspaceAbsoluteRoot } from '@/app/lib/workspaces/contracts';
@@ -148,6 +151,9 @@ async function missingCheckpoint(current: WorkspaceContext) {
   const byPath = await getExcalidrawDocument({ workspace: current, path: created.path });
   assert.equal(byId.canonicalHash, created.canonicalHash);
   assert.equal(byPath.documentId, created.documentId);
+  assert.equal(byId.checkpoint.status, 'failed');
+  assert.equal((await loadExcalidrawScene(created.documentId))?.degradedReason, byId.checkpoint.error,
+    'Discovering a missing checkpoint must persist its failure for operation status reads.');
   const repeatedCreate = await createExcalidrawDocument(input);
   assert.equal(repeatedCreate.documentId, created.documentId);
   await assert.rejects(createExcalidrawDocument({ ...input, idempotencyKey: `another-${suffix}` }),
@@ -398,6 +404,123 @@ async function crashRecovery(current: WorkspaceContext) {
   'Unowned pending receipts must not starve a recoverable create behind the batch limit.');
 }
 
+async function crashCreateChild() {
+  const current = JSON.parse(process.argv[3]) as WorkspaceContext;
+  const originalPath = process.argv[4];
+  const idempotencyKey = process.argv[5];
+  const childActor = JSON.parse(process.argv[6]) as ExcalidrawDocumentActor;
+  setFileCollaborationConnectionFactoryForTests(async () => {
+    const identity = await fs.stat(path.join(current.rootPath, originalPath), { bigint: true }).catch(() => null);
+    if (identity) {
+      const receipt = (await query<{ document_id: string | null; file_dev: string; file_ino: string }>(
+        `SELECT document_id,file_dev,file_ino FROM collaboration_excalidraw_creates
+          WHERE workspace_id=$1 AND actor_user_id=$2 AND actor_id=$3 AND idempotency_key=$4`,
+        [current.workspaceId, childActor.userId, childActor.actorId, idempotencyKey]))[0];
+      if (receipt && receipt.document_id === null && receipt.file_dev === String(identity.dev)
+        && receipt.file_ino === String(identity.ino)) process.exit(79);
+    }
+    return openDb();
+  });
+  await createExcalidrawDocument({ workspace: current, path: originalPath,
+    actor: childActor, idempotencyKey });
+  assert.fail('The create must terminate after exclusive publication and before document binding.');
+}
+
+async function unboundCreateRenameRecovery(current: WorkspaceContext) {
+  for (const mode of ['retry', 'worker', 'folder', 'missing', 'foreign', 'unowned', 'rollback'] as const) {
+    const originalPath = mode === 'folder' ? 'interrupted-folder/drawing.excalidraw' : `interrupted-${mode}.excalidraw`;
+    const newPath = mode === 'folder' ? 'moved-folder/drawing.excalidraw' : `moved-${mode}.excalidraw`;
+    const key = `unbound-rename-${mode}-${suffix}`;
+    await fs.mkdir(path.dirname(path.join(current.rootPath, originalPath)), { recursive: true });
+    await new Promise<void>((resolve, reject) => {
+      const child = spawn(process.execPath, ['--import', 'tsx', '--conditions', 'react-server',
+        'scripts/excalidraw-scene-service-test.ts', '--crash-create', JSON.stringify(current), originalPath, key,
+        JSON.stringify(actor)], { cwd: process.cwd(), env: process.env, stdio: ['ignore', 'pipe', 'pipe'] });
+      let output = '';
+      child.stdout.on('data', chunk => { output = (output + chunk).slice(-10_000); });
+      child.stderr.on('data', chunk => { output = (output + chunk).slice(-10_000); });
+      child.once('error', reject);
+      child.once('exit', status => status === 79 ? resolve() : reject(new Error(`Create crash fixture failed (${status}): ${output}`)));
+    });
+    const receiptSql = `SELECT path,document_id,status,request_fingerprint,file_dev,file_ino FROM collaboration_excalidraw_creates
+      WHERE workspace_id=$1 AND actor_user_id=$2 AND actor_id=$3 AND idempotency_key=$4`;
+    const receiptParams = [current.workspaceId, userId, actor.actorId, key];
+    type Receipt = { path: string; document_id: string | null; status: string; request_fingerprint: string; file_dev: string; file_ino: string };
+    const originalReceipt = (await query<Receipt>(receiptSql, receiptParams))[0];
+    assert.equal(originalReceipt.document_id, null);
+    assert.equal(originalReceipt.status, 'preparing');
+    const publishedIdentity = await fs.stat(path.join(current.rootPath, originalPath), { bigint: true });
+    assert.equal(originalReceipt.file_ino, String(publishedIdentity.ino));
+    assert.equal((await query('SELECT id FROM collaboration_documents WHERE workspace_id=$1 AND path=$2',
+      [current.workspaceId, originalPath])).length, 0, 'The process must crash before a document identity is allocated.');
+    if (mode === 'unowned') {
+      const foreign = path.join(current.rootPath, `${originalPath}.foreign`);
+      await fs.writeFile(foreign, createEmptyExcalidrawFileContent(), { flag: 'wx' });
+      await fs.rename(foreign, path.join(current.rootPath, originalPath));
+    }
+    if (mode === 'rollback') {
+      await assert.rejects(renameWorkspacePath({ workspace: current, oldPath: originalPath, newPath,
+        overwrite: false, fileOptions: { workspace: current } }, {
+        withFileRename: (input, operation) => withRollbackableFileRename(input.oldPath, input.newPath,
+          input.overwrite, input.fileOptions, operation),
+        moveCollaborationPath: moveFileCollaborationPath,
+        archiveCollaborationPath: async () => undefined,
+        moveMetadataPath: async () => { throw new Error('Injected metadata projection failure.'); },
+        deleteMetadataPath: async () => undefined,
+        syncPublicShares: async () => undefined,
+        queuePublicShareSync: () => undefined,
+        createBackupPath: () => '.unused-backup',
+        captureDestinationBackup: async () => null,
+      }), /Injected metadata projection failure/u);
+      assert.equal((await query<Receipt>(receiptSql, receiptParams))[0].path, originalPath,
+        'Projection compensation must restore the receipt locator before filesystem rollback.');
+      assert.equal((await fs.stat(path.join(current.rootPath, originalPath), { bigint: true })).ino, publishedIdentity.ino);
+      await assert.rejects(fs.access(path.join(current.rootPath, newPath)), { code: 'ENOENT' });
+    }
+    await renameWorkspacePath({ workspace: current,
+      oldPath: mode === 'folder' ? 'interrupted-folder' : originalPath,
+      newPath: mode === 'folder' ? 'moved-folder' : newPath, overwrite: false, fileOptions: { workspace: current } });
+    const movedReceipt = (await query<Receipt>(receiptSql, receiptParams))[0];
+    assert.equal(movedReceipt.path, mode === 'unowned' ? originalPath : newPath,
+      'Rename may remap only the actual inode owned by the unbound create receipt.');
+    assert.equal(movedReceipt.document_id, null, 'Rename must not initialize the scene unexpectedly.');
+    assert.equal(movedReceipt.request_fingerprint, originalReceipt.request_fingerprint);
+    assert.equal(movedReceipt.file_ino, originalReceipt.file_ino);
+    await fs.mkdir(path.dirname(path.join(current.rootPath, originalPath)), { recursive: true });
+    const replacement = await createExcalidrawDocument({ workspace: current, actor, path: originalPath,
+      idempotencyKey: `reuse-${key}` });
+    const replacementBytes = await fs.readFile(path.join(current.rootPath, originalPath));
+    if (mode === 'missing') await fs.unlink(path.join(current.rootPath, newPath));
+    if (mode === 'foreign') {
+      const staged = path.join(current.rootPath, `${newPath}.foreign`);
+      await fs.writeFile(staged, createEmptyExcalidrawFileContent(), { flag: 'wx' });
+      await fs.rename(staged, path.join(current.rootPath, newPath));
+    }
+    if (mode === 'missing' || mode === 'foreign' || mode === 'unowned') {
+      await assert.rejects(createExcalidrawDocument({ workspace: current, actor, path: originalPath,
+        idempotencyKey: key }), code(mode === 'missing' ? 'EXCALIDRAW_LIFECYCLE_STALE' : 'PATH_EXISTS'));
+    } else {
+      if (mode === 'worker') {
+        await execute('UPDATE collaboration_excalidraw_creates SET updated_at=0 WHERE workspace_id=$1 AND idempotency_key=$2',
+          [current.workspaceId, key]);
+        await recoverPendingExcalidrawCreates(1000);
+        assert.equal((await query<Receipt>(receiptSql, receiptParams))[0].status, 'completed');
+      }
+      const recovered = await createExcalidrawDocument({ workspace: current, actor, path: originalPath,
+        idempotencyKey: key });
+      assert.equal(recovered.path, newPath);
+      assert.notEqual(recovered.documentId, replacement.documentId);
+      assert.equal((await query('SELECT id FROM collaboration_documents WHERE workspace_id=$1 AND path=$2',
+        [current.workspaceId, newPath])).length, 1, 'Retries must allocate only one moved document.');
+      await assert.rejects(createExcalidrawDocument({ workspace: current, actor, path: newPath,
+        idempotencyKey: key }), code('EXCALIDRAW_IDEMPOTENCY_CONFLICT'));
+    }
+    assert.deepEqual(await fs.readFile(path.join(current.rootPath, originalPath)), replacementBytes,
+      'A reused original path must remain untouched by recovery of the moved create.');
+    assert.equal((await getExcalidrawDocument({ workspace: current, path: originalPath })).documentId, replacement.documentId);
+  }
+}
+
 async function externalConflict(current: WorkspaceContext) {
   const document = await createExcalidrawDocument({ workspace: current, actor, path: 'external-conflict.excalidraw',
     idempotencyKey: `external-${suffix}` });
@@ -479,6 +602,7 @@ async function providerUnavailable() {
 }
 
 async function main() {
+  if (process.argv.includes('--crash-create')) { await crashCreateChild(); return; }
   if (process.argv.includes('--provider-unavailable')) { await providerUnavailable(); return; }
   assert.equal(process.env.CANVAS_DATABASE_PROVIDER, 'postgres');
   const workspaces = [workspace('personal'), workspace('team')];
@@ -490,6 +614,7 @@ async function main() {
       await concurrentCreate(current);
       await imports(current);
       await crashRecovery(current);
+      await unboundCreateRenameRecovery(current);
       await externalConflict(current);
       await missingCheckpoint(current);
     }
@@ -513,6 +638,7 @@ async function main() {
       missingCheckpointReadable: true, missingCheckpointCreateProtected: true,
       concurrentCreate: true, idempotency: true, portableAssets: true, invalidImport: true,
       inodeRecovery: true, boundDocumentForeignInodeRejected: true, recoveryStarvationPrevented: true,
+      unboundCreateRenameCrashRecovery: true, movedCreateOriginalPathReuseProtected: true,
       equalForeignBytesRejected: true, externalConflictBytesRetained: true, persistedChangeCheckpointFailure: true,
       accessAndLifecycle: true, checkpointWorker: true, unavailableProvider: true }));
   } finally {

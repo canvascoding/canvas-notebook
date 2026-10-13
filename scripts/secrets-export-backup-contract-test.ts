@@ -8,6 +8,7 @@ import { promisify } from 'node:util';
 import type { MigrationExportJob } from '../app/lib/migration/types';
 import { DEFAULT_MIGRATION_COMPONENTS } from '../app/lib/migration/types';
 import type { FullBackupJob } from '../app/lib/backups/types';
+import { loadArchiveServiceFixture } from './helpers/archive-service-fixture';
 const run = promisify(execFile);
 async function write(file: string, content: string) { await fs.mkdir(path.dirname(file), { recursive: true }); await fs.writeFile(file, content); }
 async function waitFor<T extends MigrationExportJob | FullBackupJob>(id: string, read: (id: string) => Promise<T | null>): Promise<T> {
@@ -35,8 +36,8 @@ async function main() {
     const pi = await import('../app/lib/pi/oauth');
     const mcp = await import('../app/lib/mcp/credential-storage');
     const mail = await import('../app/lib/email/secret-store');
-    const migration = await import('../app/lib/migration/export-service');
-    const backup = await import('../app/lib/backups/full-backup-service');
+    const migration = loadArchiveServiceFixture<typeof import('../app/lib/migration/export-service')>('app/lib/migration/export-service.ts');
+    const backup = loadArchiveServiceFixture<typeof import('../app/lib/backups/full-backup-service')>('app/lib/backups/full-backup-service.ts');
     const scopes = [{ userId: 'alice' }, { organizationId: 'org-a' }, { secretScope: 'system' as const }];
     for (const [index, scope] of scopes.entries()) {
       await env.replaceScopedEnvEntries('integrations', [{ key: 'OPENAI_API_KEY', value: `fixture-media-${index}` }, ...(index === 2 ? [{ key: 'MCP_CREDENTIAL_KEY', value: crypto.randomBytes(32).toString('base64url') }] : [])], scope);

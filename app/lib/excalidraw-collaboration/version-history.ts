@@ -11,10 +11,27 @@ import {
 import { withWorkspaceMutationLock } from '@/app/lib/files/workspace-mutation-lock';
 import { createFileVersionContentStore, type FileVersionContentSource } from '@/app/lib/file-version-center/version-content-store';
 import { FILE_VERSION_CENTER_LIMITS_V1 } from '@/app/lib/file-version-center/policy-v1';
+import type { FileVersionCenterDatabase } from '@/app/lib/file-version-center/database';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 import { EXCALIDRAW_PORTABLE_MAX_BYTES } from './limits';
 
 export const MAX_PORTABLE_EXCALIDRAW_BYTES = EXCALIDRAW_PORTABLE_MAX_BYTES;
+
+/** The portable scene budget also applies when decompressing retained versions. */
+export function createExcalidrawVersionContentStore(transaction?: SqlConnection, database?: FileVersionCenterDatabase) {
+  return createFileVersionContentStore({
+    database: transaction ? { transaction: action => action({ query: async <Row>(sql: string, params?: unknown[]) => ({
+      rows: await transaction.all(sql, params) as Row[],
+    }) }) } : database,
+    limits: {
+      maxRawVersionBytes: MAX_PORTABLE_EXCALIDRAW_BYTES,
+      maxStoredBlobBytes: MAX_PORTABLE_EXCALIDRAW_BYTES + 64 * 1024,
+      maxCompressedBytesPerLineage: FILE_VERSION_CENTER_LIMITS_V1.maxCompressedBytesPerLineage,
+      maxCompressedBytesPerWorkspace: FILE_VERSION_CENTER_LIMITS_V1.maxCompressedBytesPerWorkspace,
+      maxVersionsPerLineage: FILE_VERSION_CENTER_LIMITS_V1.maxVersionsPerLineage,
+    },
+  });
+}
 
 /** Scene versions are required durable recovery data, independent of the history UI rollout. */
 export async function captureExcalidrawVersion(input: {
@@ -27,6 +44,7 @@ export async function captureExcalidrawVersion(input: {
   sourceSessionId?: string | null;
   revisionId?: string;
   historyOnly?: boolean;
+  forceNewRevision?: boolean;
   transaction?: SqlConnection;
 }): Promise<{ revisionId: string; lineageId: string; contentHash: string }> {
   const content = Buffer.isBuffer(input.content) ? input.content : Buffer.from(input.content, 'utf8');
@@ -45,7 +63,8 @@ export async function captureExcalidrawVersion(input: {
       [lineage.id, contentHash, input.source]) as { id: string } | undefined;
       revisionId = prior?.id;
     }
-    if (!revisionId && !input.historyOnly && latest?.contentHash === contentHash && latest.sizeBytes === content.byteLength) {
+    if (!revisionId && !input.historyOnly && !input.forceNewRevision
+      && latest?.contentHash === contentHash && latest.sizeBytes === content.byteLength) {
       revisionId = latest.id;
     }
     if (!revisionId) {
@@ -58,18 +77,7 @@ export async function captureExcalidrawVersion(input: {
       revisionId = revision.id;
       if (input.historyOnly) await transaction.run('UPDATE file_revisions SET history_only = true WHERE id = $1', [revisionId]);
     }
-    const store = createFileVersionContentStore({
-      database: { transaction: action => action({ query: async <Row>(sql: string, params?: unknown[]) => ({
-        rows: await transaction.all(sql, params) as Row[],
-      }) }) },
-      limits: {
-        maxRawVersionBytes: MAX_PORTABLE_EXCALIDRAW_BYTES,
-        maxStoredBlobBytes: MAX_PORTABLE_EXCALIDRAW_BYTES + 64 * 1024,
-        maxCompressedBytesPerLineage: FILE_VERSION_CENTER_LIMITS_V1.maxCompressedBytesPerLineage,
-        maxCompressedBytesPerWorkspace: FILE_VERSION_CENTER_LIMITS_V1.maxCompressedBytesPerWorkspace,
-        maxVersionsPerLineage: FILE_VERSION_CENTER_LIMITS_V1.maxVersionsPerLineage,
-      },
-    });
+    const store = createExcalidrawVersionContentStore(transaction);
     const binding = await transaction.get(`SELECT content_format, source, state_vector_hash
       FROM file_revision_contents WHERE revision_id = $1`, [revisionId]) as {
       content_format: 'text'; source: FileVersionContentSource; state_vector_hash: string | null;

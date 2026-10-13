@@ -23,7 +23,8 @@ async function harness() {
     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, esModuleInterop: true },
   }).outputText;
   const calls: Array<Record<string, unknown>> = [];
-  const controls = { denied: false, limited: false, revokeBeforeMutation: false };
+  const controls = { denied: false, limited: false, revokeBeforeMutation: false, revokeWhileLocked: false,
+    switchUserWhileLocked: false, switchSessionWhileLocked: false };
   let authorizationCalls = 0;
   const workspace = { workspaceId: 'workspace-one', permissions: { canWrite: true } };
   const access = { userId: 'user-one', canWrite: true };
@@ -50,15 +51,21 @@ async function harness() {
         authorizationCalls += 1;
         calls.push({ authorize: { workspaceId, permission } });
         return controls.denied || (controls.revokeBeforeMutation && authorizationCalls === 2)
+          || (controls.revokeWhileLocked && authorizationCalls === 3)
           ? { authorized: false, response: new NextResponse(null, { status: 403 }) }
-          : { authorized: true, session: { user: { id: 'user-one' } }, workspace, access };
+          : { authorized: true, session: { user: { id: controls.switchUserWhileLocked && authorizationCalls === 3 ? 'other-user' : 'user-one' },
+            session: { id: controls.switchSessionWhileLocked && authorizationCalls === 3 ? 'other-session' : 'session-one' } }, workspace, access };
       },
-      fileVersionCenterCaughtError: () => NextResponse.json({ success: false }, { status: 500 }),
+      fileVersionCenterCaughtError: (error: unknown) => NextResponse.json({ success: false }, {
+        status: error instanceof contracts.FileVersionCenterContractError
+          && error.code === contracts.FILE_VERSION_CENTER_ERROR_CODES.accessDenied ? 403 : 500,
+      }),
     };
     if (name === '@/app/lib/file-version-center/restore-service') return {
       fileVersionRestoreService: {
         restore: async (input: Record<string, unknown>) => {
           calls.push({ restore: input });
+          await (input.beforeApply as () => Promise<unknown>)();
           return {
             contractVersion: 1,
             outcome: 'restored',
@@ -91,9 +98,13 @@ async function main(): Promise<void> {
   assert.equal(rateCall.verifiedUserId, 'user-one');
   assert.equal(typeof rateCall.startedAt, 'number');
   assert.deepEqual(success.calls[2], { authorize: { workspaceId: 'workspace-one', permission: 'canWrite' } });
-  assert.deepEqual(success.calls[3], {
-    restore: { request: restoreBody, access: success.access, workspace: success.workspace },
-  });
+  const applied = success.calls[3].restore as Record<string, unknown>;
+  assert.deepEqual(applied.request, restoreBody);
+  assert.deepEqual(applied.access, success.access);
+  assert.deepEqual(applied.workspace, success.workspace);
+  assert.equal(applied.actorSessionId, 'session-one');
+  assert.equal(typeof applied.beforeApply, 'function');
+  assert.deepEqual(success.calls[4], { authorize: { workspaceId: 'workspace-one', permission: 'canWrite' } });
   assert.equal((await response.json()).restoredRevisionId, 'revision-restored');
 
   const denied = await harness();
@@ -107,6 +118,14 @@ async function main(): Promise<void> {
   assert.equal(revoked.calls.filter((call) => 'authorize' in call).length, 2);
   assert.equal(revoked.calls.some((call) => 'restore' in call), false,
     'permission loss after validation must stop the restore mutation');
+
+  for (const condition of ['revokeWhileLocked', 'switchUserWhileLocked', 'switchSessionWhileLocked'] as const) {
+    const late = await harness();
+    late.controls[condition] = true;
+    assert.equal((await late.route.POST(late.request())).status, 403,
+      'The callback executed under domain locks must revalidate current authority and immutable session identity.');
+    assert.equal(late.calls.filter(call => 'authorize' in call).length, 3);
+  }
 
   const limited = await harness();
   limited.controls.limited = true;

@@ -345,7 +345,7 @@ export function FileEditor({ onClosePreview, onRevealInExplorer }: FileEditorPro
   const currentFilePath = currentFile?.path ?? null;
   const documentIdentity = `${currentFileWorkspaceId}:${currentFile?.editorIdentity ?? currentFile?.viewId ?? currentFile?.collaboration?.document?.id ?? currentFilePath}`;
 
-  const sceneDocument = useExcalidrawCollaboration({ enabled: Boolean(currentFile?.collaboration?.sceneCapable),
+  const sceneDocument = useExcalidrawCollaboration({ enabled: Boolean(currentFile && getExtension(currentFile.path) === 'excalidraw'),
     workspaceId: currentFileWorkspaceId, path: currentFilePath ?? '', documentId: currentFile?.collaboration?.document?.id });
   const textSession = useTextCollaborationSession({ enabled: Boolean(currentFile?.collaboration?.crdtCapable),
     workspaceId: currentFileWorkspaceId, path: currentFilePath ?? undefined,
@@ -502,7 +502,7 @@ export function FileEditor({ onClosePreview, onRevealInExplorer }: FileEditorPro
   }, [currentFile, clear, setActiveFile]);
 
   useEffect(() => {
-    if (getExtension(currentFile?.path ?? '') === 'docx' || currentFile?.collaboration?.crdtCapable || currentFile?.collaboration?.sceneCapable) {
+    if (['docx', 'excalidraw'].includes(getExtension(currentFile?.path ?? '')) || currentFile?.collaboration?.crdtCapable || currentFile?.collaboration?.sceneCapable) {
       if (saveTimeoutRef.current) window.clearTimeout(saveTimeoutRef.current);
       return;
     }
@@ -593,7 +593,7 @@ export function FileEditor({ onClosePreview, onRevealInExplorer }: FileEditorPro
     if (!collaborationDocumentId) return;
     setAgentOperationState({ documentId: collaborationDocumentId, operations });
   }, [collaborationDocumentId]);
-  const isSceneCollaboration = Boolean(collaboration?.sceneCapable);
+  const isSceneCollaboration = isExcalidraw || Boolean(collaboration?.sceneCapable);
   const isCrdtCollaboration = Boolean(collaboration?.crdtCapable);
   const collaborationLocationIssue = useCollaborationDocumentLocation({
     workspaceId: currentFileWorkspaceId, documentId: collaborationDocumentId,
@@ -1410,12 +1410,13 @@ export function FileEditor({ onClosePreview, onRevealInExplorer }: FileEditorPro
             />
           ) : isExcalidraw ? (
             <ExcalidrawEditor
+              workspaceId={currentFileWorkspaceId}
               documentIdentity={documentIdentity}
               externalCollaboration={sceneDocument}
               path={currentFile.path}
               value={draft}
               onChange={isSceneCollaboration ? syncCollaborativeDraft : updateDraft}
-              collaborationEnabled={Boolean(collaboration?.sceneCapable)}
+              collaborationEnabled={isSceneCollaboration}
             />
           ) : isMarkdown ? (
             isMarpMarkdownFile && markdownViewMode === 'slides' ? (

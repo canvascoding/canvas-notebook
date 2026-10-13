@@ -73,6 +73,27 @@ export async function flushPendingExcalidrawCheckpoints(options: {
   return { attempted: rows.length, completed, failedDocumentIds, lastDocumentId: rows.at(-1)?.document_id ?? null };
 }
 
+/** Portable consumers validate every scene in scope, including saved checkpoints. */
+export async function ensureExcalidrawCheckpointsCurrent(options: {
+  workspaceId?: string; paths?: readonly string[];
+} = {}): Promise<void> {
+  let afterDocumentId: string | undefined;
+  for (;;) {
+    const result = await flushPendingExcalidrawCheckpoints({ ...options, afterDocumentId,
+      forceValidation: true, throwOnFailure: true, limit: 100 }).catch((error: unknown) => {
+      const failures: unknown[] = error instanceof AggregateError ? error.errors : [error];
+      const conflict = failures.every(failure => failure && typeof failure === 'object'
+        && 'status' in failure && failure.status === 409);
+      throw Object.assign(new Error('An Excalidraw checkpoint could not be validated. Resolve its conflict or retry the checkpoint before downloading or exporting.'), {
+        code: 'EXCALIDRAW_CHECKPOINT_NOT_CURRENT', status: conflict ? 409 : 503, cause: error,
+      });
+    });
+    if (!result.lastDocumentId) return;
+    if (afterDocumentId && result.lastDocumentId <= afterDocumentId) throw new Error('Excalidraw checkpoint pagination did not advance.');
+    afterDocumentId = result.lastDocumentId;
+  }
+}
+
 /** One bounded recovery worker belongs to the existing application server. */
 export function startExcalidrawCheckpointWorker(options: {
   onError?: (error: unknown) => void;
