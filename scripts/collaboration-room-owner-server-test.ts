@@ -18,6 +18,7 @@ import type * as NotebookOperations from '../app/lib/mobile/notebook-operations'
 import { MOBILE_NOTEBOOK_OPERATION_STATEMENTS } from '../app/lib/db/mobile-notebook-operation-migration';
 import * as DirectActivity from '../app/lib/collaboration/direct-activity-session';
 import { createRichMarkdownYDoc, richMarkdownFromYDoc } from '../app/lib/collaboration/markdown-state';
+import { authoritativeNativeCollaborationSnapshot } from '../app/lib/collaboration/document-snapshot';
 import type { PersistedCollaborationState } from '../app/lib/collaboration/persistence';
 import { withWorkspaceFileLifecycleLeases, type WorkspaceFileLifecycleLease } from '../app/lib/collaboration/file-lifecycle-admission-context';
 import type {
@@ -35,7 +36,7 @@ import {
 import { createCollaborationRoomAdmissionWorker } from '../app/lib/collaboration/room-admission-worker';
 import * as RoomMutation from '../app/lib/collaboration/room-mutation-lock';
 import * as RoomStartup from '../app/lib/collaboration/room-startup-activity';
-import type { CollaborationTicketClaims } from '../app/lib/collaboration/types';
+import { COLLABORATION_SCHEMA_VERSION, type CollaborationTicketClaims } from '../app/lib/collaboration/types';
 import type { WorkspaceContext } from '../app/lib/workspaces/types';
 import type * as Server from '../server/collaboration-server';
 
@@ -793,12 +794,14 @@ async function main(mode: 'direct-store-failure' | 'queued-peer-loss'
         try {
           mobileInput.documentPath = `${mobileInput.documentId}.md`;
           mobileInput.documentRepresentation = 'tiptap_blocks';
-          mobileInput.documentSchemaVersion = 3;
+          mobileInput.documentSchemaVersion = COLLABORATION_SCHEMA_VERSION;
           states.set(mobileInput.documentId, { ...states.get(mobileInput.documentId)!, path: mobileInput.documentPath,
-            representation: 'tiptap_blocks', schemaVersion: 3, documentSequence: 0, checkpointSequence: 0,
+            representation: 'tiptap_blocks', schemaVersion: COLLABORATION_SCHEMA_VERSION, documentSequence: 0, checkpointSequence: 0,
             persistedAt: 0, checkpointedAt: 0, yjsState: Y.encodeStateAsUpdate(initial), stateVector: Y.encodeStateVector(initial) });
         } finally { initial.destroy(); }
       }
+      assert.equal(authoritativeNativeCollaborationSnapshot(states.get(mobileInput.documentId)!).schemaVersion,
+        COLLABORATION_SCHEMA_VERSION, 'the actual native snapshot validator must accept the persisted fixture');
       const nativeContent = (doc: Y.Doc) => rich ? richMarkdownFromYDoc(doc) : doc.getText('content').toString();
       const database = new DatabaseSync(':memory:');
       try {
