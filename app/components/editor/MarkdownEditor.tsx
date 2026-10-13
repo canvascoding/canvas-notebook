@@ -5442,6 +5442,9 @@ export function RichMarkdownEditor({
     if (!(editorElement instanceof HTMLElement)) return undefined;
 
     const handleWorkspaceLinkClick = (event: MouseEvent) => {
+      // macOS Control-left-click emits contextmenu without a click event.
+      // Ordinary right-click and keyboard context menus retain their behavior.
+      if (event.type === 'contextmenu' && (!event.ctrlKey || event.button !== 0)) return;
       const target = event.target;
       if (!(target instanceof Element)) return;
       const anchor = target.closest('a[href]');
@@ -5457,7 +5460,11 @@ export function RichMarkdownEditor({
     };
 
     editorElement.addEventListener('click', handleWorkspaceLinkClick, true);
-    return () => editorElement.removeEventListener('click', handleWorkspaceLinkClick, true);
+    editorElement.addEventListener('contextmenu', handleWorkspaceLinkClick, true);
+    return () => {
+      editorElement.removeEventListener('click', handleWorkspaceLinkClick, true);
+      editorElement.removeEventListener('contextmenu', handleWorkspaceLinkClick, true);
+    };
   }, [editor, effectiveReadOnly, openDocumentLink]);
 
   useEffect(() => editor ? attachMarkdownDetailsInteractions(editor) : undefined, [editor]);

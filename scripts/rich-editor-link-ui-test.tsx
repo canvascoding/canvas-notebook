@@ -45,6 +45,7 @@ async function main() {
     const opened = { opener: {} }; external.push({ url, target, features, window: opened }); return opened;
   }) as typeof dom.window.open;
   const container = document.createElement('div'); document.body.append(container); const root = createRoot(container);
+  let mounted = true;
   try {
     const { MarkdownEditor } = await import('../app/components/editor/MarkdownEditor');
     const { MarkdownEditorAccessContext } = await import('../app/components/editor/MarkdownEditorAccess');
@@ -87,7 +88,40 @@ async function main() {
     assert.equal(editor().isEditable, false);
     await act(async () => { fireEvent.click(internal()); });
     assert.equal(navigations.length, 4, 'permission-derived reader can follow links without an edit control');
-    console.log('Rich editor link UI: ordinary edit menu, modifier/Open scoped navigation, safe external protocols, guest/read-only gates, unchanged state/undo passed. Browser/server authorization remains separate.');
-  } finally { await act(async () => root.unmount()); cleanup(); container.remove(); internals._load = original; dom.window.close(); }
+    await show(); await waitFor(() => assert(internal()));
+    await act(async () => { assert.equal(fireEvent.contextMenu(internal(), { ctrlKey: true, button: 0 }), false); });
+    assert.equal(navigations.length, 5, 'macOS Control-left contextmenu uses the guarded Open action');
+    assert.deepEqual(navigations.at(-1), { sourcePath: 'Notes/Start.md', syntax: 'markdown', target: '../Shared.md#Section%20A', workspaceId: 'workspace-a' });
+    for (const input of [{ button: 2 }, { ctrlKey: true, button: 2 }, { metaKey: true, button: 2 }, { button: 0 }]) {
+      await act(async () => { assert.equal(fireEvent.contextMenu(internal(), input), true); });
+    }
+    await act(async () => { assert.equal(fireEvent.contextMenu(container.querySelector('.ProseMirror')!, { ctrlKey: true, button: 0 }), true); });
+    assert.equal(navigations.length, 5, 'right-click, keyboard and non-link context menus do not navigate');
+    await act(async () => { fireEvent.contextMenu(container.querySelector('a[href="https://example.test/docs"]')!, { ctrlKey: true, button: 0 }); });
+    assert.deepEqual(external[1], external[0]);
+    internal().setAttribute('href', 'javascript:alert(1)');
+    const priorErrors = errors.length;
+    await act(async () => { fireEvent.contextMenu(container.querySelector('a[href="javascript:alert(1)"]')!, { ctrlKey: true, button: 0 }); });
+    assert.equal(navigations.length, 5); assert.equal(external.length, 2); assert.equal(errors.length, priorErrors + 1);
+    container.querySelector('a[href="javascript:alert(1)"]')!.setAttribute('href', '../Shared.md#Section%20A');
+    await show(true); await waitFor(() => assert(internal()));
+    const priorGuestErrors = errors.length;
+    await act(async () => { fireEvent.contextMenu(internal(), { ctrlKey: true, button: 0 }); });
+    assert.equal(navigations.length, 5, 'guest contextmenu cannot navigate private workspace paths');
+    assert.equal(errors.length, priorGuestErrors + 1); assert.equal(external.length, 2);
+    await show(false, true); await waitFor(() => assert(internal()));
+    for (const input of [{ button: 2 }, { ctrlKey: true, button: 2 }, { button: 0 }]) {
+      await act(async () => { assert.equal(fireEvent.contextMenu(internal(), input), true); });
+    }
+    assert.equal(navigations.length, 5, 'reader context menus retain ordinary browser behavior');
+    await act(async () => { fireEvent.contextMenu(internal(), { ctrlKey: true, button: 0 }); });
+    assert.equal(navigations.length, 6, 'permission-derived reader also handles macOS Control-left');
+    assert.deepEqual(editor().getJSON(), before); assert.equal(mutations.length, 0); assert.equal(editor().can().undo(), false);
+    const detachedAnchor = internal();
+    await act(async () => root.unmount()); mounted = false;
+    await act(async () => { assert.equal(fireEvent.contextMenu(detachedAnchor, { ctrlKey: true, button: 0 }), true); });
+    assert.equal(navigations.length, 6, 'unmount removes the contextmenu capture listener');
+    console.log('Rich editor link UI: ordinary edit menu, modifier/Open and macOS Control-left scoped navigation, preserved context menus, safe external protocols, guest/read-only gates, unchanged state/undo passed. Browser/server authorization remains separate.');
+  } finally { if (mounted) await act(async () => root.unmount()); cleanup(); container.remove(); internals._load = original; dom.window.close(); }
 }
 void main().catch(error => { console.error(error); process.exitCode = 1; });
