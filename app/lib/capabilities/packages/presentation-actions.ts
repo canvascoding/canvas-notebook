@@ -213,7 +213,10 @@ export async function inspectCapabilityPackagePresentationAction(actorInput: Cap
     const projected = await withCapturedPresentation(source, root => projectPresentation(source.storage.resourceType, root, source.sourceStamp.version, parentContext));
     if (containing && (await readExactPackageInventory(containing.packageRoot)).checksum !== containing.sourceStamp.checksum) throw changed();
     if (projected.name !== source.storage.name || (await readExactPackageInventory(source.packageRoot)).checksum !== source.sourceStamp.checksum) throw changed();
-    return enforceBounds({...projected, resourceRef: authorization.record.metadata.resourceRef, readOnly: source.readOnly});
+    return enforceBounds({...projected, resourceRef: authorization.record.metadata.resourceRef, readOnly: source.readOnly,
+      sourceStamp: {checksum: source.sourceStamp.checksum, artifactRevision: source.sourceStamp.artifactRevision,
+        ...(containing ? {parent: {resourceRef: containing.descriptor.metadata.resourceRef, checksum: containing.sourceStamp.checksum,
+          artifactRevision: containing.sourceStamp.artifactRevision}} : {})}});
   }, {parentStorage: parentBinding});
   if (containing) await assertCapabilityPackageArtifactCurrent(actor, containing);
   await assertCapabilityPackageArtifactCurrent(actor, source);

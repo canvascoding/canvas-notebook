@@ -35,6 +35,9 @@ export type CapabilityPackagePresentation = {
   description: string;
   license?: string;
   resourceRef?: string;
+  /** Exact readable installed source shown in this presentation; a checksum is not execution authority. */
+  sourceStamp?: { checksum: string; artifactRevision: number | null;
+    parent?: { resourceRef: string; checksum: string; artifactRevision: number | null } };
   source?: CapabilityPackageStoreSelection;
   children: Array<{name: string; title: string; description: string; version?: string}>;
   capabilities: Array<{declaredBy: CapabilityPackagePresentationDeclaration; id: string; application: string; required: boolean;

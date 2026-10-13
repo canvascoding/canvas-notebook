@@ -77,6 +77,7 @@ async function main() {
     const templateBefore=await counts();
     const template=await presentation.inspectCapabilityPackageMcpTemplateAction(alice,installed.resource.resourceRef,{connector:'design-server'});
     assert.equal(template.resourceRef,installed.resource.resourceRef);assert.equal(template.source.resourceRef,installed.resource.resourceRef);
+    assert.equal(actual.sourceStamp?.checksum,template.source.checksum,'Displayed installed presentation carries its exact inventory checksum');
     assert.deepEqual(template.declaredBy,{kind:'plugin',name});assert.equal(template.connector.name,'design-server');
     assert.equal(template.config?.url,'https://mcp.example.test/design');
     assert.deepEqual(template.config?.env,{CANVAS_TEST_KEY:'',REFERENCED_KEY:'${CANVAS_TEST_KEY}'});
@@ -87,6 +88,11 @@ async function main() {
     for(const forbidden of [secret,fixture.root,'https://private.example.test','rawContent','configPath','packageRoot','storeOrigin']) assert(!templateBody.includes(forbidden),forbidden);
     const childTemplate=await presentation.inspectCapabilityPackageMcpTemplateAction(alice,child.metadata.resourceRef,{connector:'design-server'});
     assert.equal(childTemplate.resourceRef,child.metadata.resourceRef);assert.equal(childTemplate.source.resourceRef,installed.resource.resourceRef);
+    assert.equal(actualChild.sourceStamp?.parent?.resourceRef,installed.resource.resourceRef);
+    assert.equal(actualChild.sourceStamp?.parent?.checksum,template.source.checksum);
+    assert(actualChild.sourceStamp?.checksum);
+    assert.deepEqual(await presentation.inspectCapabilityPackageMcpTemplateAction(alice,child.metadata.resourceRef,
+      {connector:'design-server',expectedChecksum:actualChild.sourceStamp.checksum}),childTemplate,'Child checksum binds its displayed source while parent template access stays independently verified');
     assert.deepEqual(childTemplate.config,template.config,'child uses the exact authorized containing plugin declaration');
     const {GET:templateGET}=await import('../app/api/capabilities/packages/[resourceRef]/mcp-template/route');
     const templateUrl=`http://localhost:3001/api/capabilities/packages/${encodeURIComponent(installed.resource.resourceRef)}/mcp-template`;
