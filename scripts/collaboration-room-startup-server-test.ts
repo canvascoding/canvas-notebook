@@ -21,6 +21,7 @@ import { createCollaborationRoomActivityGate } from '../app/lib/collaboration/ro
 import { createCollaborationRoomStartupActivity } from '../app/lib/collaboration/room-startup-activity';
 import type { PersistedCollaborationState } from '../app/lib/collaboration/persistence';
 import type { CollaborationTicketClaims } from '../app/lib/collaboration/types';
+import type { CollaborationDiagnostic } from '../app/lib/collaboration/diagnostics';
 import type * as CollaborationServer from '../server/collaboration-server';
 
 type Gate = {
@@ -207,6 +208,8 @@ async function main() {
   const authFailures = new Set<string>();
   const loadFailures = new Set<string>();
   const connectedFailures = new Set<string>();
+  const startupDiagnostics: CollaborationDiagnostic[] = [];
+  let throwDiagnosticSink = false;
   const postLoadGates = new Map<string, { entered: Gate; release: Gate }>();
   const claimed = new WeakSet<Y.Doc>();
   const activityGate = createCollaborationRoomActivityGate();
@@ -499,7 +502,12 @@ async function main() {
     if (name.endsWith('/identity')) return { collaborationUserColors: ['#000000'] };
     if (name.endsWith('/health')) return { setCollaborationRuntimeHealth() {} };
     if (name.endsWith('/presence')) return { replaceDocumentPresence() {} };
-    if (name.endsWith('/diagnostics')) return { logCollaborationDiagnostic() {} };
+    if (name.endsWith('/diagnostics')) return {
+      logCollaborationDiagnostic(_level: string, diagnostic: CollaborationDiagnostic) {
+        if (diagnostic.event === 'room_startup_failed') startupDiagnostics.push(diagnostic);
+        if (throwDiagnosticSink) throw new Error('simulated diagnostic sink failure');
+      },
+    };
     if (name.endsWith('/representation-migration-runtime')) return load(name);
     if (name.endsWith('/representation-drain-refusal')) return { readRepresentationDrainRequest: async () => null };
     if (name.endsWith('/room-admission')) return load(name);
@@ -580,6 +588,7 @@ async function main() {
     await bounded(authFailureDrain.idle, 'authentication failure activity release');
     authFailureDrain.finish();
     assert.equal(hocuspocus.documents.has('auth-failure-doc'), false);
+    assert.equal(startupDiagnostics.length, 0, 'actual auth rejection is not mislabeled as post-auth setup failure');
     console.log('PASS authentication failure settles the startup activity');
 
     const pendingAuthGate = gate();
@@ -624,6 +633,8 @@ async function main() {
     sameDocumentDrain.finish();
     console.log('PASS authenticated send failure settles only its request-correlated startup');
 
+    const beforeLoadDiagnostics = startupDiagnostics.length;
+    throwDiagnosticSink = true;
     loadFailures.add('load-failure-doc');
     const loadFailure = connect('load-failure-doc', 'load-failure');
     loadFailure.receive(authFrame('load-failure-doc'));
@@ -640,6 +651,12 @@ async function main() {
       true,
       'a failed pre-claim load destroys the orphan Hocuspocus document',
     );
+    throwDiagnosticSink = false;
+    assert.deepEqual(startupDiagnostics.slice(beforeLoadDiagnostics).map(({ phase, causeCode }) => ({ phase, causeCode })),
+      [{ phase: 'load_state', causeCode: 'UNCLASSIFIED' }, { phase: 'create_document', causeCode: 'UNCLASSIFIED' }],
+      'actual load and create catches report their phases even when the sink throws');
+    assert.deepEqual(loadFailure.sent.map(authSubtype), [AuthMessageType.Authenticated, AuthMessageType.PermissionDenied],
+      'post-auth failure retains the real authenticated-then-denied protocol');
     console.log('PASS document load failure settles the startup activity');
 
     const pendingLoadGate = gate();
@@ -683,6 +700,7 @@ async function main() {
     );
     console.log('PASS close between load completion and Connection setup retains activity until cleanup');
 
+    const beforeConnectDiagnostics = startupDiagnostics.length;
     connectedFailures.add('connected-failure-doc');
     const connectedFailure = connect('connected-failure-doc', 'connected-failure');
     connectedFailure.receive(authFrame('connected-failure-doc'));
@@ -702,6 +720,8 @@ async function main() {
       0,
       'connected failure closes the real Hocuspocus document connection',
     );
+    assert.deepEqual(startupDiagnostics.slice(beforeConnectDiagnostics).map(({ phase, causeCode }) => ({ phase, causeCode })),
+      [{ phase: 'connect_access', causeCode: 'UNCLASSIFIED' }], 'the actual connected catch reports its failing step');
     console.log('PASS connected hook failure closes the connection and settles activity');
 
     loadFailures.add('multiplex-failure-doc');

@@ -19,6 +19,7 @@ import { COLLABORATION_FAILURE_CODES, isCollaborationStateQuarantined } from '@/
 import { createCollaborationProjectionRuntime } from '@/app/lib/collaboration/projection-runtime';
 import { loadCollaborationProjectionStatus } from '@/app/lib/collaboration/projection-repository';
 import { logCollaborationDiagnostic } from '@/app/lib/collaboration/diagnostics';
+import { reportCollaborationStartupFailure, type CollaborationStartupPhase } from '../app/lib/collaboration/startup-diagnostics';
 import { auth } from '@/app/lib/auth';
 import { fileGuestService } from '@/app/lib/file-guests/service';
 import { fileGuestCookieName } from '@/app/lib/file-guests/types';
@@ -746,10 +747,13 @@ export function createCollaborationServer(server: http.Server, options: {
       finally { if (!startupActivity) request.signal.removeEventListener('abort', cancelStartup); }
     },
     async connected({ context, connection }) {
+      let phase: CollaborationStartupPhase = 'connect_access';
       const connect = async () => {
         context.stopAccessWatch = accessMonitor.add(connection);
         await accessMonitor.check(connection);
+        phase = 'connect_state';
         const state = await loadCollaborationState(context.claims.documentId);
+        phase = 'connect_identity';
         if (
           !state
           || state.workspaceId !== context.claims.workspaceId
@@ -767,16 +771,23 @@ export function createCollaborationServer(server: http.Server, options: {
           connection.close();
           return;
         }
+        phase = 'connect_activity';
         context.startupActivity?.assertOpen();
+        phase = 'connect_owner';
         roomOwners?.fence(connection.document);
+        phase = 'connect_projection';
         const projectionStatus = await loadCollaborationProjectionStatus(state);
         if (isCollaborationStateQuarantined(projectionStatus)) connection.readOnly = true;
+        phase = 'connect_snapshot';
         connection.sendStateless(JSON.stringify(durabilitySnapshotPayload({ ...state, ...projectionStatus })));
       };
       try {
         if (context.startupActivity) await context.startupActivity.run(connect);
         else await connect();
       } catch (error) {
+        reportCollaborationStartupFailure(logCollaborationDiagnostic, {
+          phase, documentId: context?.claims?.documentId, generation: context?.claims?.lifecycleGeneration,
+        }, error);
         connection.readOnly = true;
         connection.close();
         throw error;
@@ -787,6 +798,7 @@ export function createCollaborationServer(server: http.Server, options: {
       }
     },
     async onLoadDocument({ documentName, document, context }) {
+      let phase: CollaborationStartupPhase = 'load_state';
       try {
         const state = await loadCollaborationState(documentName);
         if (!state) throw new Error('Collaboration document was not initialized.');
@@ -795,21 +807,29 @@ export function createCollaborationServer(server: http.Server, options: {
           representation: state.representation, schemaVersion: state.schemaVersion });
         if (context?.claims) lastRoomContexts.set(document, { context, origin: null });
         if (roomOwners) {
+          phase = 'claim_owner';
           await roomOwners.claim(document, state);
           // A previous owner's last row-locked store can finish while this
           // claim waits. Never load the pre-claim snapshot into the new room.
+          phase = 'reload_owner_state';
           const latest = await loadCollaborationState(documentName);
+          phase = 'validate_owner_state';
           if (!latest || latest.status !== 'active' || !matchesRoomIdentity(document, latest)) {
             throw new CollaborationRoomOwnerError('ROOM_OWNER_SCOPE_CHANGED');
           }
+          phase = 'fence_owner';
           roomOwners.fence(document);
           // Apply inside our cleanup boundary: Hocuspocus's returned-update
           // callback otherwise runs after the hook and can throw/leak a claim.
+          phase = 'apply_update';
           Y.applyUpdate(document, latest.yjsState);
           return;
         }
         return state.yjsState;
       } catch (error) {
+        reportCollaborationStartupFailure(logCollaborationDiagnostic, {
+          phase, documentId: documentName, generation: context?.claims?.lifecycleGeneration,
+        }, error);
         // A failed load is not in Hocuspocus.documents yet: its normal unload
         // is a no-op, so explicitly destroy even a pre-claim failure's Doc.
         await roomOwners?.release(document).catch(() => undefined);
@@ -1254,6 +1274,9 @@ export function createCollaborationServer(server: http.Server, options: {
       } catch (error) {
         // No disconnect hook exists when setup fails before Connection exists.
         // A shared load is awaited above before releasing its startup activity.
+        reportCollaborationStartupFailure(logCollaborationDiagnostic, {
+          phase: 'create_document', documentId: args[0], generation: args[4]?.claims?.lifecycleGeneration,
+        }, error);
         try { if (loaded) await hocuspocus.unloadDocument(loaded); }
         finally { startup.finish(); }
         throw error;
