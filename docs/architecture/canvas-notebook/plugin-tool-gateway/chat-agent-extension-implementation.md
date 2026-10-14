@@ -1,6 +1,6 @@
 # Gemeinsamer Chat-/Agent-Erweiterungskontext: Umsetzung und Abnahme
 
-**Aktuelle Runde am 14. Oktober 2026:** Nach dem Feedbackcommit `f6bb1e0b7` hat der Nutzer das aktive Ziel „setz den plan um und mach ein e2e test wenn du fertig bist“ fortgesetzt. Die vollständige öffentliche Kontextvorschau für feste Konfigurationen ist als Stufe 3a an dieselbe Aufbereitung wie Save angeschlossen und auf PGlite sowie tatsächlichem PostgreSQL geprüft. Der frische Produktionsbuild besteht am eingefrorenen Quellstand. Gemeinsamer Agent-Editor, Chat-Anschluss und deren echte E2E-/Modell-/Native-Abnahme bleiben offen.
+**Aktuelle Runde am 14. Oktober 2026:** Der Nutzer möchte zunächst Feedback und einen unter `docs` gespeicherten Plan, der danach gemeinsam optimiert wird. Deshalb wird die Produktimplementierung in dieser Runde nicht fortgesetzt. Die zwischenzeitlich abgeschlossene Stufe 3a ist mit `7630274ca` eingecheckt: vollständige öffentliche Kontextvorschau und Save verwenden dieselbe Aufbereitung; PGlite, tatsächliches PostgreSQL und der damalige frische Produktionsbuild sind dokumentiert. Gemeinsamer Agent-Editor, Chat-Anschluss und deren echte E2E-/Modell-/Native-Abnahme bleiben offen. Die uncommitteten Agent-UI-Entwürfe sind unvollständig und nicht als Gesamtstand geprüft; der Buildnachweis von Stufe 3a gilt nicht für diesen Arbeitsbaum.
 
 Ausgangsstand: Notebook `d92d8eb05`. Auftrag: „setz den plan um und mach ein e2e test wenn du fertig bist“. Verbindlicher Umfang ist der [gespeicherte Plan](chat-extension-reference-plan.md), einschließlich eigener nativer Folgestufe. Dies ist ein Fortschritts-/Nachweisjournal; eine geplante oder syntaktisch geprüfte Funktion ist hier keine vollständige Abnahme.
 
@@ -276,7 +276,7 @@ Die Staging-Prüfung des zweiten Grundbausteins meldet 57 indexierte Symbole, 36
 
 Der frühere Umsetzungsauftrag schließt Implementierung und E2E ein. Für dessen weitere Ausführung sieht der Plan einen frisch gebauten eigenen Node-Produktionshost mit dem verwalteten isolierten Test-Stack vor; ein neuer Docker-Testcontainer wird nicht vorausgesetzt. In der aktuellen Feedback-/Dokumentationsrunde werden diese Schritte nicht ausgeführt. Fremde Instanzen und Produktionsdaten werden nicht umgebunden. Veröffentlichung über den bestehenden Feature-PR bleibt von Main-Merge, Release und Produktivdeployment getrennt.
 
-## Aktueller Feedback- und Plancheckpoint
+## Historischer Feedback- und Plancheckpoint vor Stufe 3a
 
 Die jüngste Anweisung „Gib mir erstmal feedback mit dem plan dann speicher den in docs ab und dann optimieren wir das noch“ setzt den Umfang dieser Runde. Der [aktualisierte Plan](chat-extension-reference-plan.md) fasst gemeinsame Suche, drei Informationsebenen, dauerhafte Agent-Zuweisung gegenüber Nachrichtenauswahl, präzisen Systemkontext, Logoquellen und die konkrete Reihenfolge zusammen. Bestehende Implementierungsänderungen bleiben unangetastet; es werden keine neuen Produktänderungen oder Testläufe als erledigt gemeldet.
 
@@ -308,3 +308,9 @@ Aktuelle Logs: `/private/tmp/canvas-complete-public-preview-pglite-v3-20261014.l
 Die zunächst fehlschlagenden neuen Previewfixtures wurden berichtigt: Composio benötigt für den beabsichtigten unknown-Metadatenfall eine tatsächlich konfigurierte Source, hier einen synthetischen Key im echten scoped Secret-Service; das echte Standalone-Skillarchiv benötigt seine passende Versionsmetadaten; der Budgetvergleich verwendet äquivalente Toolsets; die Redactionfixture enthält einen tatsächlichen Provider-Suchweg. Die Korrekturen erteilen keinen Account-/Ausführungsnachweis und ändern nicht die Produktregeln, um eine falsche Erwartung passend zu machen.
 
 **Nächster wichtiger Schritt:** Stufe 3b–3d, der gemeinsame vollständige Agent-Editor und seine tatsächlichen Create-/Edit-/Workflow-/Settings-/Chatselector-/Pluginsetup-Anschlüsse. Anschließend Chat-Picker und dauerhafter Nachrichtentransport, dann tatsächliche Web-/Modellabnahme und die eigene native Folgestufe. Keine neue Oberfläche oder E2E-Abnahme wird aus den obigen Backendprüfungen abgeleitet.
+
+## Aktuelle Feedbackrunde nach Stufe 3a
+
+Der [kanonische Plan](chat-extension-reference-plan.md#präzisierungen-aus-der-aktuellen-feedbackrunde) ist um konkrete Vorschläge für Einzelkonto-Bestätigung, Keep/Replace, Paketvorauswahl, getrennte Bindungsgrenzen, vollständige Formularwiederaufnahme und bestätigten Save gegenüber Refreshfehler ergänzt. Für die spätere Nachrichtenintegration beschreibt er zusätzlich eine dauerhafte Annahmegrenze und nachvollziehbare Queue-/Ergebniszustände. Diese Runde ändert Dokumente; sie setzt weder neue Produktwerte noch den Queuevertrag um.
+
+Der angefangene UI-Anschluss ist ausdrücklich kein Abschluss von Stufe 3b–3d: Im gemeinsamen Editor fehlt noch ein importierter Inhaltsbaustein; Create/Settings und Edit sind nicht durchgehend mit vollständiger Entwurfswiederaufnahme und allen Elternkontexten verbunden. Ein früher kontrollierter React-Teiltest und ein noch fehlschlagender Edit-Lintlauf sind keine Abnahme. Die bestehenden Produktänderungen bleiben unverändert erhalten. Es werden für diese Feedbackrunde keine neuen Browser-, Modell-, Provider- oder Produktionsnachweise behauptet.
