@@ -1,5 +1,7 @@
 /** Private atomic import ledger. Global migration/dispatch activation belongs
  * to the coordinating caller; no native payload is part of a public response. */
+import { MARKDOWN_CREATE_BIRTH_STATEMENTS } from './markdown-create-birth-migration';
+
 export const MARKDOWN_FILE_IMPORT_STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS collaboration_markdown_file_import_receipts (
     workspace_id text NOT NULL CHECK (length(workspace_id) BETWEEN 1 AND 256),
@@ -126,4 +128,5 @@ export const MARKDOWN_FILE_IMPORT_STATEMENTS = [
     END IF;
   END $$`,
   'CREATE INDEX IF NOT EXISTS idx_markdown_file_import_receipts_actor ON collaboration_markdown_file_import_receipts (workspace_id,actor_user_id,created_at)',
+  ...MARKDOWN_CREATE_BIRTH_STATEMENTS,
 ] as const;

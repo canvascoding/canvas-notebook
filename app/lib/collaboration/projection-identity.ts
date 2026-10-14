@@ -36,6 +36,19 @@ export async function assertCurrentCollaborationProjectionIdentity(
         AND y.status = 'active'`, [state.documentId, state.workspaceId, state.path, state.organizationId,
       state.lifecycleGeneration, state.representation, state.schemaVersion]);
     if (!row) throw new CollaborationProjectionIdentityError();
+    // Legacy/import-only projections retain their original contract. A pending
+    // create birth can be consumed only by the module-private authenticated
+    // I04 phase; no background/recovery caller may adopt a later peer inode.
+    const exists = await database.get(`SELECT to_regclass('collaboration_markdown_create_births') IS NOT NULL AS available`) as { available?: boolean } | undefined;
+    if (exists?.available === true) {
+      // Advancing native generation cannot erase an unfinished physical birth.
+      const birth = await database.get(`SELECT * FROM collaboration_markdown_create_births WHERE document_id=$1`,
+      [state.documentId]) as Record<string, unknown> | undefined;
+      if (birth) {
+        const { assertAuthenticatedMarkdownBirthProjectionAllowed } = await import('./markdown-file-import-persistence');
+        await assertAuthenticatedMarkdownBirthProjectionAllowed(database, state, birth);
+      }
+    }
   } finally {
     if (!transaction) await (database as SqlConnection).close();
   }
