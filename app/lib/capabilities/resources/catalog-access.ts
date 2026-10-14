@@ -1,5 +1,6 @@
 import 'server-only';
 
+import type { SqlConnection } from '@/app/lib/db';
 import type { CapabilityCandidate } from '../types';
 import type { CapabilityResourceActor } from './contracts';
 import { getCapabilityResourceAccess } from './store';
@@ -10,9 +11,10 @@ import { projectCapabilityPluginChildAccess } from './child-access';
 export async function applyCapabilityCandidateResourceAccess(
   actor: CapabilityResourceActor,
   candidates: readonly CapabilityCandidate[],
+  database?: SqlConnection,
 ): Promise<CapabilityCandidate[]> {
   const entries = await Promise.all(candidates.map(async (candidate) => {
-    const entry = await getCapabilityResourceAccess(actor, capabilityResourceStorageBinding(candidate.ref));
+    const entry = await getCapabilityResourceAccess(actor, capabilityResourceStorageBinding(candidate.ref), database);
     return { ...candidate, resourceMetadata: entry.metadata, resourceAccess: entry.access };
   }));
   const parents = new Map(entries.filter(entry => entry.ref.resourceType === 'plugin')

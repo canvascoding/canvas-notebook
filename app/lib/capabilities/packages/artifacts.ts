@@ -3,6 +3,7 @@ import 'server-only';
 import { promises as fs } from 'node:fs';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
+import type { SqlConnection } from '@/app/lib/db';
 import { type CapabilityResourceActor, type CapabilityResourceDescriptor,
   type CapabilityResourceStorageBinding } from '@/app/lib/capabilities/resources/contracts';
 import type { CapabilityCandidate, CapabilityResourceType } from '@/app/lib/capabilities/types';
@@ -280,7 +281,8 @@ type RegistryPackagePointer = { version: string; checksum: string; installDir: s
   packageManaged?: boolean; packageResourceRef?: string; publishedRevisionRef?: string; enabled?: boolean; packageDefaultEnabled?: boolean; storeOrigin?: CapabilityStoreOrigin };
 
 export async function assertCapabilityPackageRegistryPointerCurrent(kind: CapabilityResourceType,
-  record: RegistryPackagePointer & { name: string; resourceId?: string }, scope?: CapabilityDataStorageScope | null): Promise<void> {
+  record: RegistryPackagePointer & { name: string; resourceId?: string }, scope?: CapabilityDataStorageScope | null,
+  database?: SqlConnection): Promise<void> {
   if (!record.packageManaged && !record.packageResourceRef && !record.publishedRevisionRef) return;
   const unavailable = () => { throw new CapabilityPackageError('PACKAGE_SNAPSHOT_UNAVAILABLE', 'The installed package publication is unavailable.', 503); };
   if (!record.packageManaged || !record.packageResourceRef || !record.publishedRevisionRef || !record.resourceId) return unavailable();
@@ -293,9 +295,9 @@ export async function assertCapabilityPackageRegistryPointerCurrent(kind: Capabi
   if (path.resolve(record.installDir) !== resolveOwnerScopedPackageVersionPath(location)) return unavailable();
   const store = await import('./store');
   if (!store.isCapabilityPackagePublicationAllowed(capabilityPackageLegacyStorageBinding(kind, record.name, scope), record)) {
-    const state = await store.getCapabilityPackageState(record.packageResourceRef);
+    const state = await store.getCapabilityPackageState(record.packageResourceRef, database);
     const published = state?.currentPublishedRevisionRef === record.publishedRevisionRef
-      ? await store.getCapabilityPackagePublishedRevision(record.packageResourceRef, record.publishedRevisionRef) : null;
+      ? await store.getCapabilityPackagePublishedRevision(record.packageResourceRef, record.publishedRevisionRef, database) : null;
     if (!state || !published || state.kind !== kind || state.name !== record.name || state.currentSourceStamp.resourceId !== record.resourceId
       || published.kind !== kind || published.name !== record.name || published.version !== record.version || published.checksum !== record.checksum
       || !sameCapabilityStoreOrigin(record.storeOrigin, state.currentSourceStamp.storeOrigin)) return unavailable();

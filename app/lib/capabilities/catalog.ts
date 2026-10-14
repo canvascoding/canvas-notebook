@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 
-import { openDb } from '@/app/lib/db';
+import { openDb, type SqlConnection } from '@/app/lib/db';
 
 import {
   createCapabilityReference,
@@ -51,14 +51,14 @@ type CatalogPackagePointer = { name: string; resourceId?: string; version: strin
 
 /** A local load receipt avoids hashing one parent for each bundled child. It is never reused across calls. */
 async function readableCurrentPackagePointer(record: CatalogPackagePointer, storage: CapabilityResourceStorageBinding,
-  scope: CanvasPluginStorageScope, actor: CapabilityResolutionContext, verified: Set<string>): Promise<boolean> {
+  scope: CanvasPluginStorageScope, actor: CapabilityResolutionContext, verified: Set<string>, database?: SqlConnection): Promise<boolean> {
   try {
-    if (!(await getCapabilityResourceAccess({ userId: actor.userId, workspaceId: actor.workspaceId }, storage)).access.canRead) return false;
+    if (!(await getCapabilityResourceAccess({ userId: actor.userId, workspaceId: actor.workspaceId }, storage, database)).access.canRead) return false;
     if (!record.packageManaged && !record.packageResourceRef && !record.publishedRevisionRef) return true;
     const key = JSON.stringify([record.resourceId, record.packageResourceRef, record.publishedRevisionRef, record.checksum, record.installDir, scope]);
     if (!verified.has(key)) {
       const { assertCapabilityPackageRegistryPointerCurrent } = await import('./packages/artifacts');
-      await assertCapabilityPackageRegistryPointerCurrent(storage.resourceType, record, scope);
+      await assertCapabilityPackageRegistryPointerCurrent(storage.resourceType, record, scope, database);
       verified.add(key);
     }
     return true;
@@ -73,11 +73,12 @@ function matchesStorageBinding(candidate: CapabilityCandidate, storage: Capabili
 }
 
 /** Load only explicitly readable foreign personal identities, never the owner's complete catalog. */
-async function sharedPersonalCapabilityCandidates(context: CapabilityResolutionContext, enabledSkills: string[] | null): Promise<{
+async function sharedPersonalCapabilityCandidates(context: CapabilityResolutionContext, enabledSkills: string[] | null,
+  database?: SqlConnection): Promise<{
   candidates: CapabilityCandidate[]; plugins: Map<string, CanvasPluginInstallRecord>;
 }> {
   const actor = { userId: context.userId, workspaceId: context.workspaceId };
-  const records = await listCapabilityResourceRecordsForActor(actor);
+  const records = await listCapabilityResourceRecordsForActor(actor, database);
   const candidates = new Map<string, CapabilityCandidate>();
   const plugins = new Map<string, CanvasPluginInstallRecord>();
   const verified = new Set<string>();
@@ -88,14 +89,14 @@ async function sharedPersonalCapabilityCandidates(context: CapabilityResolutionC
     if (storage.resourceType === 'plugin' || storage.sourceType === 'plugin') {
       let plugin = storage.resourceType === 'plugin' ? await getCanvasPlugin(storage.name, scope) : null;
       if (!plugin && storage.sourceType === 'plugin') for (const record of Object.values((await readCanvasPluginRegistry(scope)).plugins)) {
-        if ((await pluginCandidate(record, 'user', ownerContext, true, context, verified)).ref.resourceId === storage.sourcePluginId) { plugin = record; break; }
+        if ((await pluginCandidate(record, 'user', ownerContext, true, context, verified, database)).ref.resourceId === storage.sourcePluginId) { plugin = record; break; }
       }
       if (!plugin) continue;
-      const entry = await pluginCandidate(plugin, 'user', ownerContext, true, context, verified);
+      const entry = await pluginCandidate(plugin, 'user', ownerContext, true, context, verified, database);
       if (storage.resourceType === 'plugin' && !matchesStorageBinding(entry, storage)) continue;
-      if (!(await getCapabilityResourceAccess(actor, capabilityResourceStorageBinding(entry.ref))).access.canRead) continue;
+      if (!(await getCapabilityResourceAccess(actor, capabilityResourceStorageBinding(entry.ref), database)).access.canRead) continue;
       const names = resolveEnabledSkillNames(new Set(plugin.skills.map(skill => skill.name)), enabledSkills);
-      const children = await pluginSkillCandidates(plugin, entry.ref.resourceId, 'user', ownerContext, names, enabledSkills, true, context, verified);
+      const children = await pluginSkillCandidates(plugin, entry.ref.resourceId, 'user', ownerContext, names, enabledSkills, true, context, verified, database);
       if (storage.resourceType === 'skill' && !children.some(child => matchesStorageBinding(child, storage))) continue;
       candidates.set(entry.ref.resourceId, entry);
       plugins.set(entry.ref.resourceId, plugin);
@@ -106,7 +107,7 @@ async function sharedPersonalCapabilityCandidates(context: CapabilityResolutionC
     const registry = await readCanvasSkillRegistry(scope);
     const record = registry.skills[storage.name];
     if (record?.sourceType === 'plugin') continue;
-    if (record && !await readableCurrentPackagePointer(record, storage, scope, context, verified)) continue;
+    if (record && !await readableCurrentPackagePointer(record, storage, scope, context, verified, database)) continue;
     const skillPath = record?.skillPath || path.join(resolveScopedSkillsDataDir(scope), storage.name, 'SKILL.md');
     const skill = await parseSkillFile(skillPath).catch(() => null);
     if (!skill || skill.name !== storage.name) continue;
@@ -167,6 +168,7 @@ async function pluginCandidate(
   connectionReady: boolean,
   actor = context,
   verified = new Set<string>(),
+  database?: SqlConnection,
 ): Promise<CapabilityCandidate> {
   const refScope = capabilityScopeType(plugin.scopeType, scopeType);
   const ref = createCapabilityReference({
@@ -184,7 +186,7 @@ async function pluginCandidate(
   });
   const readable = await readableCurrentPackagePointer(plugin, capabilityResourceStorageBinding(ref), refScope === 'organization'
     ? { scopeType: 'organization', organizationId: context.organizationId }
-    : { scopeType: 'user', userId: context.userId }, actor, verified);
+    : { scopeType: 'user', userId: context.userId }, actor, verified, database);
   return {
     ref,
     description: plugin.description,
@@ -222,10 +224,11 @@ async function pluginSkillCandidates(
   includeUserPreference = true,
   actor = context,
   verified = new Set<string>(),
+  database?: SqlConnection,
 ): Promise<CapabilityCandidate[]> {
   const refScope = capabilityScopeType(plugin.scopeType, scopeType);
   const candidates: CapabilityCandidate[] = [];
-  const parent = await pluginCandidate(plugin, scopeType, context, true, actor, verified);
+  const parent = await pluginCandidate(plugin, scopeType, context, true, actor, verified, database);
   for (const record of plugin.skills) {
     const skillPath = record.path || path.join(record.directory, 'SKILL.md');
     const skill = parent.runtimePath ? await parseSkillFile(skillPath, {
@@ -268,6 +271,7 @@ async function standaloneSkillCandidates(input: {
   enabledSkillsConfig?: string[] | null;
   includeUserPreference?: boolean;
   verified?: Set<string>;
+  database?: SqlConnection;
 }): Promise<CapabilityCandidate[]> {
   const registry = await readCanvasSkillRegistry(input.scope);
   const preferences = input.scopeType === 'organization' ? await readCapabilityPreferences(input.context.userId) : null;
@@ -282,7 +286,7 @@ async function standaloneSkillCandidates(input: {
         ownerUserId: refScope === 'user' ? input.context.userId : null, sourcePluginId: null }).resourceId;
       const readable = await readableCurrentPackagePointer(record, { resourceType: 'skill', resourceId, scopeType: refScope,
         name: record.name, sourceType: 'standalone', organizationId: refScope === 'organization' ? input.context.organizationId : null,
-        ownerUserId: refScope === 'user' ? input.context.userId : null, sourcePluginId: null }, input.scope, input.context, input.verified ?? new Set());
+        ownerUserId: refScope === 'user' ? input.context.userId : null, sourcePluginId: null }, input.scope, input.context, input.verified ?? new Set(), input.database);
       return {
         ref: createCapabilityReference({
           resourceType: 'skill',
@@ -353,8 +357,12 @@ async function unregisteredPersonalSkillCandidates(input: {
 
 export async function loadCapabilityCandidates(
   context: CapabilityResolutionContext,
-  options: { resolveConnections?: boolean; /** Server-only raw artifact inspection. Never read from requests. */ applyResourceAccess?: boolean } = {},
+  options: { resolveConnections?: boolean; /** Server-only raw artifact inspection. Never read from requests. */ applyResourceAccess?: boolean;
+    /** Caller owns this read lease and its transaction. Metadata-only loading never borrows another client. */ database?: SqlConnection } = {},
 ): Promise<CapabilityCandidate[]> {
+  if (options.database && options.resolveConnections !== false) {
+    throw new Error('A borrowed SQL connection requires metadata-only capability loading.');
+  }
   const organizationScope = {
     scopeType: 'organization' as const,
     organizationId: context.organizationId,
@@ -413,6 +421,7 @@ export async function loadCapabilityCandidates(
     enabledSkillsConfig: organizationEnabledSkills,
     includeUserPreference: false,
     verified,
+    database: options.database,
   }));
   candidates.push(...await standaloneSkillCandidates({
     scope: userScope,
@@ -421,10 +430,11 @@ export async function loadCapabilityCandidates(
     enabledSkillNames,
     enabledSkillsConfig: enabledSkills,
     verified,
+    database: options.database,
   }));
 
   for (const plugin of organizationPlugins) {
-    const pluginEntry = await pluginCandidate(plugin, 'organization', context, true, context, verified);
+    const pluginEntry = await pluginCandidate(plugin, 'organization', context, true, context, verified, options.database);
     pluginRecords.set(pluginEntry.ref.resourceId, plugin);
     candidates.push(pluginEntry);
     candidates.push(...await pluginSkillCandidates(
@@ -437,13 +447,14 @@ export async function loadCapabilityCandidates(
       false,
       context,
       verified,
+      options.database,
     ));
   }
   for (const plugin of personalPlugins) {
-    const pluginEntry = await pluginCandidate(plugin, 'user', context, true, context, verified);
+    const pluginEntry = await pluginCandidate(plugin, 'user', context, true, context, verified, options.database);
     pluginRecords.set(pluginEntry.ref.resourceId, plugin);
     candidates.push(pluginEntry);
-    candidates.push(...await pluginSkillCandidates(plugin, pluginEntry.ref.resourceId, 'user', context, enabledSkillNames, enabledSkills, true, context, verified));
+    candidates.push(...await pluginSkillCandidates(plugin, pluginEntry.ref.resourceId, 'user', context, enabledSkillNames, enabledSkills, true, context, verified, options.database));
   }
 
   candidates.push(...await unregisteredPersonalSkillCandidates({
@@ -453,7 +464,7 @@ export async function loadCapabilityCandidates(
     enabledSkillsConfig: enabledSkills,
   }));
   if (options.applyResourceAccess !== false) {
-    const shared = await sharedPersonalCapabilityCandidates(context, enabledSkills ?? null);
+    const shared = await sharedPersonalCapabilityCandidates(context, enabledSkills ?? null, options.database);
     candidates.push(...shared.candidates);
     for (const [id, plugin] of shared.plugins) pluginRecords.set(id, plugin);
   }
@@ -466,7 +477,7 @@ export async function loadCapabilityCandidates(
     };
   });
   const authorized = options.applyResourceAccess === false ? preferred
-    : await applyCapabilityCandidateResourceAccess({ userId: context.userId, workspaceId: context.workspaceId }, preferred);
+    : await applyCapabilityCandidateResourceAccess({ userId: context.userId, workspaceId: context.workspaceId }, preferred, options.database);
   if (options.resolveConnections === false) return authorized;
   const readablePlugins = authorized.filter(candidate => candidate.ref.resourceType === 'plugin'
     && candidate.resourceAccess?.canRead !== false);

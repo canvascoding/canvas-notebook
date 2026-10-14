@@ -83,7 +83,7 @@ async function readSourceState(database: SqlConnection, actor: AgentManagementAc
   const verified = await resolveVerifiedAgentActorContextOnConnection(actor, database);
   const context = { userId: actor.userId, organizationId: verified.organizationId ?? '', role: verified.organizationRole,
     workspaceId: verified.context.workspaceId, projectId: verified.context.projectId };
-  const candidates = await loadCapabilityCandidates(context, { resolveConnections: false });
+  const candidates = await loadCapabilityCandidates(context, { resolveConnections: false, database });
   const policies = verified.organizationId ? await new CapabilityPolicyStore(database).listOrganizationPolicies(verified.organizationId) : [];
   return { role: verified.organizationRole, policies, effective: resolveEffectiveCapabilities({ context,
     candidates: candidates.map(candidate => candidate.ref.resourceType === 'plugin' ? { ...candidate, connectionRequirementCount: 0 } : candidate), policies }) };

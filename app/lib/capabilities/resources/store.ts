@@ -267,28 +267,32 @@ export async function findCapabilityResourceRecord(resourceRef: string): Promise
   const ref = text(resourceRef, 'Resource reference');
   return connection((database) => findOnConnection(database, ref));
 }
-export async function getCapabilityResourceAccess(actorInput: CapabilityResourceActor, storageInput: CapabilityResourceStorageBinding): Promise<CapabilityResourceAccessEntry> {
+export async function getCapabilityResourceAccess(actorInput: CapabilityResourceActor, storageInput: CapabilityResourceStorageBinding,
+  database?: SqlConnection): Promise<CapabilityResourceAccessEntry> {
   const actor = actorSnapshot(actorInput);
   const storage = storageSnapshot(storageInput);
-  return connection(async (database) => {
-    const entry = await findStorage(database, storage) ?? { metadata: baseline(storage), storage };
-    return { metadata: entry.metadata, access: await accessOnConnection(database, actor, entry) };
-  });
+  const read = async (current: SqlConnection) => {
+    const entry = await findStorage(current, storage) ?? { metadata: baseline(storage), storage };
+    return { metadata: entry.metadata, access: await accessOnConnection(current, actor, entry) };
+  };
+  return database ? read(database) : connection(read);
 }
-export async function listCapabilityResourceRecordsForActor(actorInput: CapabilityResourceActor): Promise<CapabilityResourceRecord[]> {
+export async function listCapabilityResourceRecordsForActor(actorInput: CapabilityResourceActor,
+  database?: SqlConnection): Promise<CapabilityResourceRecord[]> {
   const actor = actorSnapshot(actorInput);
-  return connection(async (database) => {
-    const auth = await authority(database, actor);
+  const read = async (current: SqlConnection) => {
+    const auth = await authority(current, actor);
     if (!auth.valid || !auth.contextValid) return [];
-    const rows = await database.all(`SELECT * FROM capability_resources WHERE status = 'active' AND (ownership_type = 'system' OR owner_user_id = $1
+    const rows = await current.all(`SELECT * FROM capability_resources WHERE status = 'active' AND (ownership_type = 'system' OR owner_user_id = $1
       OR organization_id IN (SELECT organization_id FROM organization_user_permissions WHERE user_id = $1 AND status = 'active')) ORDER BY resource_ref`, [actor.userId]) as Row[];
     const visible: CapabilityResourceRecord[] = [];
     for (const row of rows) {
       const entry = mapResource(row);
-      if ((await accessOnConnection(database, actor, entry, auth)).canRead) visible.push(entry);
+      if ((await accessOnConnection(current, actor, entry, auth)).canRead) visible.push(entry);
     }
     return visible;
-  });
+  };
+  return database ? read(database) : connection(read);
 }
 export async function adoptCapabilityResource(actorInput: CapabilityResourceActor, storageInput: CapabilityResourceStorageBinding, adoptionInput: CapabilityResourceAdoption): Promise<CapabilityResourceAccessEntry> {
   const actor = actorSnapshot(actorInput);
