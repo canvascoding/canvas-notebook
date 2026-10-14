@@ -1,12 +1,12 @@
 # Einheitlicher Erweiterungskontext für Chat und Agenten
 
-Plan vom 13. Oktober, überarbeitet am 14. Oktober 2026. Auftrag dieser Planüberarbeitung: zuerst Feedback geben, den konkreten Plan in `docs` speichern und anschließend gemeinsam optimieren. Sie ändert ausschließlich Dokumente. Die historische Bestandsaufnahme beruht auf Notebook `27425ddc7`; der geprüfte aktuelle Checkout steht auf `041508938` und enthält zusätzliche, noch unvollständig geprüfte Runtime-Änderungen. Daraus folgt keine vollständige Implementierungs- oder Abnahmeaussage.
+Plan vom 13. Oktober, überarbeitet am 14. Oktober 2026. Auftrag dieser Planüberarbeitung: zuerst Feedback geben, den konkreten Plan in `docs` speichern und anschließend gemeinsam optimieren. Sie ändert ausschließlich dieses Dokument. Die historische Bestandsaufnahme beruht auf Notebook `27425ddc7`; die aktuelle Planprüfung erfolgt auf `8f14e3ff6` einschließlich der bereits vorbereiteten Runtime-Änderungen im Arbeitsbaum. Deren lokaler Produktionsbuild, fokussierter Typecheck und Code-/API-Prüfungen sind im Umsetzungsjournal dokumentiert. Sie sind keine Abnahme der noch fehlenden neuen Chat-/Agent-Oberflächen und kein Nachweis für Main oder Produktion.
 
 Der vorausgegangene Implementierungsstand bleibt im [Umsetzungs- und Abnahmejournal](chat-agent-extension-implementation.md) nachvollziehbar. Dieses Dokument beschreibt das Ziel und die vorgeschlagenen Entscheidungen; vorhandene Grundlagen oder frühere Pluginseiten-Tests gelten nicht als Abnahme der neuen Chat-/Agent-Bedienung.
 
 ## Feedback und empfohlene Entscheidungen
 
-**Die gewünschte Logik ist teilweise vorhanden, aber noch nicht durchgehend umgesetzt.** Der Pluginseiten-Katalog sucht bereits gemeinsam über alle vier Typen und liefert deren vorhandene Logoquellen. Genaue Auswahlverträge, Versionsleser und Teile des gemeinsamen Kontextcompilers sind inzwischen vorhanden. Die Chat-Auswahl verwendet dagegen noch eigene Plugin-/Skill-Listen und Namen; vollständiger Agent-Create, neue Auswahloberflächen und dauerhafter Nachrichtentransport sind offen. Ein größerer Slash-Picker allein würde diese Unterschiede bestehen lassen.
+**Die gewünschte Logik ist teilweise vorhanden, aber noch nicht durchgehend umgesetzt.** Der Pluginseiten-Katalog sucht bereits gemeinsam über alle vier Typen und liefert deren vorhandene Logoquellen. Genaue Auswahlverträge, Versionsleser und der gemeinsame Kontextcompiler sind als lokal geprüfte Runtime-Grundlage vorhanden. Die Chat-Auswahl verwendet dagegen noch eigene Plugin-/Skill-Listen und Namen; vollständiger Agent-Create/Update, neue Auswahloberflächen und dauerhafter Nachrichtentransport sind offen. Ein größerer Slash-Picker allein würde diese Unterschiede bestehen lassen.
 
 Empfehlung: dieselben genauen Auswahlreferenzen und dieselbe serverseitige Kontextaufbereitung für Plugin-Seite, Chat, Agent-Tool und Agent-Oberfläche verwenden. Die Oberflächen teilen Katalog, Identität, Icons und Auswahlkomponenten; ihre jeweilige Nutzbarkeit wird für den aktuellen Nutzer, Workspace und Agenten geprüft.
 
@@ -22,7 +22,7 @@ Empfehlung: dieselben genauen Auswahlreferenzen und dieselbe serverseitige Konte
 | Agent-Tool und UI | Derselbe vollständige Create-/Update-Vertrag mit Paketversionen, konkreten Verbindungen und Toolgrenzen; gegenseitiger Inspect-/Edit-Roundtrip. |
 | Logos | Composio-Toolkit-Logos, vorhandene Paket-/Skill-Icons und geprüfte MCP-Domain-Icons wiederverwenden; bei fehlendem oder nicht ladbarem Bild Namensinitialen. |
 
-Startwerte zur gemeinsamen Optimierung: sechs bis acht sichtbare Treffer, fünf explizite Turn-Auswahlen, etwa 30 Recents je Nutzer/Workspace und 8 KiB für den kompakten Erweiterungskontext. Diese Werte sind Vorschläge, keine neue Begrenzung der dauerhaft konfigurierbaren Agent-Ressourcen. Offene Produktentscheidungen stehen am Ende des Plans; technische Abnahmefälle werden vor der Umsetzung festgelegt.
+Startwerte zur gemeinsamen Optimierung: sechs bis acht sichtbare Treffer und etwa 30 Recents je Nutzer/Workspace. Die vorbereiteten Verträge und der Renderer setzen zunächst fünf explizite Turn-Auswahlen beziehungsweise 8 KiB für den kompakten Erweiterungskontext um; beides wird vor der UI-Freigabe mit realen Paketen geprüft und kann dabei angepasst werden. Die dauerhaft konfigurierbaren Agent-Ressourcen sind davon getrennt. Offene Produktentscheidungen stehen am Ende des Plans; die technische Abnahmematrix ist weiter unten festgehalten.
 
 ### Aktueller Stand und wichtigste Restlücke
 
@@ -30,11 +30,22 @@ Startwerte zur gemeinsamen Optimierung: sechs bis acht sichtbare Treffer, fünf 
 | --- | --- | --- |
 | Plugin-Seite | Gemeinsame Vier-Typen-Suche und bestehende Logoquellen implementiert; separate lokale Pluginseiten-Abnahme dokumentiert | Den gleichen Katalog und Avatar auch in Chat und Agent-Auswahl verwenden |
 | Genaue Identität und Speicherung | Öffentliche Auswahl, private Bindungsformate, V1/V2/Vererbung und Verbindungsaufnahme als Grundlage vorhanden | Vollständiger öffentlicher, atomarer Agent-Create/Update und langlebige Nachrichtenaufnahme |
-| Gemeinsamer Runtime-Kontext | Collector, begrenzte Prompt-Ausgabe und lokale Discovery vorhanden; weiterer Laufzeitanschluss im Arbeitsstand | Vollständige Prüfung derselben Auswahl über Live-Chat, Delegation, Automationen und frische Toolrechte; aktuelle Zwischenstände sind keine End-to-End-Abnahme |
+| Gemeinsamer Runtime-Kontext | Compiler, begrenzte Prompt-Ausgabe, Skill-Discovery und Anschluss an Live-Runtime, Delegation und Automationen lokal geprüft; frische Toolrechte bleiben maßgeblich | Öffentliche Auswahl über Tool/API/UI anschließen; echten Modelllauf und vollständigen Bedienweg abnehmen |
 | Chat und Agent-Oberfläche | Bisherige Plugin-/Skill-Auswahl weiterhin aktiv | Gemeinsamer Picker, genaue Accounts, Chips, Vorschau und Tool↔UI-Roundtrip |
 | Nachrichten und Native Mobile | Neue Referenzen noch nicht vollständig angeschlossen | Send, Draft, Queue, Retry, Verlauf und Neustart; anschließend eigener nativer Anschluss und Abnahme |
 
-**Offene fachliche Pflichtentscheidung:** Ein ausgewähltes Plugin kann eine Canva- oder MCP-Anforderung deklarieren, ohne bereits an eine konkrete Verbindung gebunden zu sein. Der gemeinsame Resolver muss diese Anforderung mit einer ausdrücklich gewählten, kompatiblen Verbindung verknüpfen. Bei mehreren passenden Accounts öffnet die UI die Verbindungswahl; ohne passende Verbindung zeigt sie den Einrichtungsweg. Weder ein gleicher Name noch das Standardkonto gelten als Bindung. Das gilt auch für ein Plugin plus separat angeheftete Integration im allgemeinen Chat: bloße gemeinsame Anwesenheit genügt nicht, die Zuordnung muss eindeutig geprüft werden. Lokale Skill-Anleitungen und die Einrichtung eines benötigten externen Werkzeugs bleiben getrennt erkennbar.
+**Wichtigster verbleibender Bedienweg:** Ein ausgewähltes Plugin kann eine Canva- oder MCP-Anforderung deklarieren, ohne bereits an eine konkrete Verbindung gebunden zu sein. Der Runtime-Vertrag kann diese Anforderung inzwischen einer ausdrücklich gewählten, kompatiblen Verbindung zuordnen und prüft die tatsächliche Paketdeklaration. Die UI muss diese Zuordnung noch verständlich anbieten: Bei mehreren passenden Accounts öffnet sie die Verbindungswahl; ohne passende Verbindung zeigt sie den Einrichtungsweg. Weder ein gleicher Name noch das Standardkonto gelten als Bindung. Das gilt auch für ein Plugin plus separat angeheftete Integration im allgemeinen Chat: bloße gemeinsame Anwesenheit genügt nicht. Lokale Skill-Anleitungen und die Einrichtung eines benötigten externen Werkzeugs bleiben getrennt erkennbar.
+
+### Konkretes nächstes Arbeitspaket
+
+Die folgenden Aufgaben schließen Schritt 3 ab, bevor der Chat-Anschluss beginnt:
+
+1. **Auswahl vor der Agent-Erstellung:** Derselbe Optionsdienst liefert Plugin, Skill, Integration und MCP für den tatsächlichen Zielbereich und Workspace, auch wenn noch keine Agent-ID existiert. Suchtreffer unterscheiden lesbar, einrichtbar und für den Zielagenten nutzbar. Keine provisorischen ausführbaren Agenten anlegen.
+2. **Ein vollständiger Schreibvertrag:** `create_agent`, `update_agent_configuration`, POST und PATCH verwenden dieselbe genaue Erweiterungshülle. Pakete, Kindmasken, konkrete Verbindungen und Werkzeuggrenzen werden zusammen geprüft und atomar gespeichert. Update prüft Revisionen; Inspect liefert denselben kanonischen Stand zurück. Alte V1-Pins und ausdrückliche Vererbung bleiben erhalten.
+3. **Ein gemeinsamer UI-Baukasten:** Katalogsuche, Trefferzeile, `PluginExtensionAvatar`, Paketdetails und Accountwahl in Agent-Create/Edit integrieren. Die Oberfläche zeigt „Dauerhaft für diesen Agenten“. Werkzeuggrenzen und serverseitige Kontextvorschau sind geschlossen, bis sie benötigt werden. Notwendige fehlende Einrichtung ist unmittelbar sichtbar.
+4. **Parität abnehmen:** Tool-Create muss in der UI exakt bearbeitbar sein; UI-Create muss über Inspect denselben Stand liefern. Ein fehlerhafter Create hinterlässt keinen ausführbaren Teilagenten; konkurrierende Updates ersetzen keine fremden Änderungen. Standalone-MCP und Composio funktionieren ohne erfundenes Plugin-Paket.
+
+Danach folgt Schritt 4 als zusammenhängender Nachrichtenweg: derselbe Picker für `/` und manuelles Öffnen, Recents und genaue Chips, dann Send-Snapshot, Draft, WebSocket/HTTP, Queue, Steer, Retry, Handoff und dauerhafte Wiederaufnahme. Ein sichtbarer Chip ohne zuverlässigen Nachrichtentransport erfüllt diesen Schritt nicht.
 
 ### Derselbe UI-Baukasten in drei Verwendungskontexten
 
@@ -119,7 +130,7 @@ Die gemeinsame Aufbereitung ist mit `resolveEffectiveExtensionContext` als Grund
 
 Systemprompt, Skill-Readroots und Toolhinweise verwenden denselben abgeleiteten Selektionsstand. Die tatsächlichen Tool-Grenzen ergeben sich weiterhin aus der Schnittmenge von Ressourcenrechten, Agent-Konfiguration, nativen `enabledTools`, Delegation und Laufmodus. Der Fingerprint hilft, widersprüchliche Stände zu erkennen; er ersetzt **nicht** die frischen Rechte-/Bindungsprüfungen beim Lesen, Beschreiben und Ausführen.
 
-Der vollständige Anschluss von Promptloader, Readroots und Gateway-Policy an dieselbe Auswahl ist weiterhin der nächste abzuschließende Implementierungsschritt. Ein langfristig gecachter Promptsnapshot darf niemals eine spätere Ausführung autorisieren.
+Promptloader, Readroots und Gateway-Policy sind an dieselbe ausgegebene Auswahl angeschlossen und als Runtime-Grundlage lokal geprüft. Der noch fehlende öffentliche Create-/Update- und Nachrichtenweg muss genau diese Grundlage verwenden. Ein langfristig gecachter Promptsnapshot darf niemals eine spätere Ausführung autorisieren.
 
 ## Kontextregeln für allgemeine und spezialisierte Agenten
 
@@ -301,7 +312,7 @@ Die gemeinsame Systemanleitung beschreibt Discovery und Tool-Nutzung. **Feste Ag
 | Composio | Toolkit-Slug, ausdrücklich gewählte Verbindung/Bereich, aktuelle Nutzbarkeit, vom Server aufgelöste zulässige Provider-Referenz und Tool-Suchrezept | Passende Toolnamen und genau deren Schema |
 | MCP | Exakte Verbindung/Bereich, aktuelle Nutzbarkeit, aufgelöste zulässige Provider-Referenz und Tool-Suchrezept | Tools dieser Verbindung und genau deren Schema |
 
-**Der Gateway ist heute ein Tool `integrations`.** Wenn es im effektiven Manifest registriert ist, soll der Server die ausgewählte Verbindung über die vorhandenen Adapter-/Bindungsdienste gezielt zu ihrem aktuellen zulässigen Provider-Descriptor auflösen. Die private Verbindungsautorität wird dabei frisch geprüft; weder Anzeigename noch Clientdaten konstruieren eine Gateway-Referenz. Dieser gezielte Metadatenresolver ist ein notwendiger Implementierungsschritt, nicht schon durch die UI-Suche erledigt.
+**Der Gateway ist heute ein Tool `integrations`.** Wenn es im effektiven Manifest registriert ist, löst die vorbereitete Runtime die ausgewählte Verbindung über die vorhandenen Adapter-/Bindungsdienste gezielt zu ihrem aktuellen zulässigen Provider-Descriptor auf. Die private Verbindungsautorität wird dabei frisch geprüft; weder Anzeigename noch Clientdaten konstruieren eine Gateway-Referenz. Der öffentliche Auswahlweg muss diese Auflösung noch anschließen; die UI-Suche allein liefert keinen gültigen Toolaufruf.
 
 Mit einer so gelieferten aktuellen `providerRef` beginnt der Agent direkt bei der **Tool-Suche in dieser Verbindung**:
 
@@ -313,7 +324,7 @@ Wenn zunächst nur eine deklarierte Plugin-Anforderung vorliegt, lautet das gezi
 
 `providerRef`, `toolRef` und `schemaRef` gelten für den aktuellen Kontext und werden nicht aus alten Nachrichten wiederverwendet oder erfunden. Geänderte Bindung/Schema erfordert frische Auflösung. `outcome_unknown` darf keine automatische Wiederholung einer Mutation auslösen.
 
-Solange der gemeinsame Router im konkreten Agenten nicht registriert ist, wird das Suchrezept aus dem tatsächlich vorhandenen `mcp`-/`composio`-Vertrag erzeugt. Die Anleitung darf keine nicht vorhandenen Tools empfehlen. Der allgemeine Gateway-Schalter bleibt unverändert; verbindliche Workflow-Version 1 und deren bereits vorhandene Registrierung werden respektiert. Für den neuen expliziten Agent-Vertrag muss in Schritt 1 die zugehörige begrenzte Tool-Registrierung festgelegt werden. Eine feste Standalone-Auswahl darf weder ein leeres Suchrezept erzeugen noch verdeckt den globalen Router einschalten. Gesperrte/spezialisierte Agenten bekommen durch einen Chip keine zusätzlichen Apps oder Aktionen.
+Eine feste Agent-Auswahl oder tatsächlich servergeprüfte explizite Turn-Auswahl erhält in der vorbereiteten Runtime den auf diese Quellen begrenzten `integrations`-Gateway auch bei deaktiviertem globalem Experiment. Der globale Schalter selbst wird dadurch nicht verändert; für einen allgemeinen Chat ohne solche Auswahl bleibt er maßgeblich. Verbindliche Workflow-Version 1 bleibt erhalten. In verbleibenden Legacy-Kontexten wird ein Suchrezept ausschließlich aus dem tatsächlich vorhandenen `mcp`-/`composio`-Vertrag erzeugt. Die Anleitung darf keine nicht vorhandenen Tools empfehlen. Gesperrte/spezialisierte Agenten bekommen durch einen Chip keine zusätzlichen Apps oder Aktionen.
 
 Ein Legacy-Vertrag muss die genaue gewählte Verbindung auch tatsächlich unterstützen. Fehlt beispielsweise ein zulässiger Weg für die ausgewählte geteilte Instanz, zeigt die Chat-Projektion diese Einschränkung und gegebenenfalls den berechtigten Konfigurationsweg. Sie behauptet keine sofortige Nutzbarkeit und ersetzt die Instanz nicht durch ein persönliches Konto.
 
@@ -370,9 +381,9 @@ Bestehende Agent-Konfigurations-, Capability-Scope-, Workflow-/Readroot-, Chat-R
 
 ## Punkte für die nächste gemeinsame Optimierung
 
-- Plugin-Anforderungen und genaue Verbindungen auch im allgemeinen Chat eindeutig zuordnen; notwendige/optionale Bestandteile und Accountkonflikte vor dem Send sichtbar machen. Das ist eine notwendige fachliche Ergänzung, kein optionales UI-Detail.
+- Den vorhandenen Runtime-Zuordnungsvertrag für Plugin-Anforderungen im gemeinsamen Picker sichtbar machen: notwendige/optionale Bestandteile, fehlende Verbindung und Accountkonflikte vor dem Send erklären. Das ist ein notwendiger Bedienweg.
 - Die gemeinsame Suche mit unterschiedlichen Nutzungsprojektionen statt drei auseinanderlaufenden Katalogen umsetzen. Einrichtung aus Chat und Agent-Editor muss in denselben erhaltenen Entwurf zurückführen.
-- Soll ein ausgewähltes Plugin zunächst alle zulässigen Bestandteile übernehmen oder eine vom Paket angebotene Standardauswahl? Empfehlung: Paketstandard transparent anzeigen; Abweichungen aufklappen, Pflichtbestandteile erhalten.
+- Soll ein ausgewähltes Plugin zunächst alle zulässigen Bestandteile übernehmen oder eine vom Paket angebotene Standardauswahl? Empfehlung: Einen tatsächlich vorhandenen Paketstandard transparent anzeigen; ohne deklarierten Standard alle zulässigen Bestandteile anbieten. Abweichungen aufklappen, Pflichtbestandteile erhalten. Die UI erfindet keine Paketvorgabe.
 - Wie soll ein Agent mit noch fehlender notwendiger Einrichtung gespeichert werden? Empfehlung: klar als nicht startbarer Entwurf, mit genauem Einrichtungsweg; finalen Zustand am vorhandenen Readiness-Vertrag festlegen.
 - Soll Vererbung für neue Spezialagenten noch als erweiterte Option angeboten werden? Empfehlung: neue Agenten mit fester Auswahl; bestehende Vererbung sichtbar erhalten und gezielt migrieren.
 - Kontextbudget und Ergebnisanzahl anhand kleiner/großer realer Pakete prüfen. Eine Performance-/Modellabnahme muss zeigen, dass der kompakte Index ausreicht und Suche gezielt bleibt.
