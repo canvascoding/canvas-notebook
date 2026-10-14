@@ -1773,19 +1773,32 @@ export const piSessions = pgTable("pi_sessions", {
   delegationDepthCheck: check("pi_sessions_delegation_depth_check", sql`${table.delegationDepth} IN (0, 1)`),
 }));
 
-// Durable admission receipts survive runtime loss; they deliberately store no prompt content.
-// The schema-driven PostgreSQL startup migration creates this additive table and its constraints.
+// Legacy receipts contain only a delivery hash. Versioned admissions additionally
+// retain their bounded private payload and execution state for recovery.
 export const piMessageDeliveryReceipts = pgTable("pi_message_delivery_receipts", {
   piSessionDbId: bigint("pi_session_db_id", { mode: "number" }).notNull().references(() => piSessions.id, { onDelete: "cascade" }),
   clientMessageId: text("client_message_id").notNull(),
   payloadHash: text("payload_hash").notNull(),
   runtimeToken: text("runtime_token").notNull(),
   state: text("state").notNull(),
+  payloadVersion: bigint("payload_version", { mode: "number" }),
+  privatePayload: text("private_payload"),
+  executionPhase: text("execution_phase"),
+  executionRevision: bigint("execution_revision", { mode: "number" }),
   createdAt: pgTimestamp("created_at").notNull(),
   updatedAt: pgTimestamp("updated_at").notNull(),
 }, (table) => ({
   pk: primaryKey({ columns: [table.piSessionDbId, table.clientMessageId] }),
   stateCheck: check("pi_message_delivery_receipts_state_check", sql`${table.state} IN ('dispatching', 'accepted')`),
+  admissionShapeCheck: check("pi_message_delivery_receipts_admission_shape_check", sql`(
+    (${table.payloadVersion} IS NULL AND ${table.privatePayload} IS NULL
+      AND ${table.executionPhase} IS NULL AND ${table.executionRevision} IS NULL)
+    OR (${table.payloadVersion} = 1 AND ${table.privatePayload} IS NOT NULL
+      AND ${table.executionPhase} IN ('queued', 'dispatching', 'running', 'succeeded', 'failed', 'cancelled', 'outcome_unknown')
+      AND ${table.executionRevision} BETWEEN 1 AND 9007199254740991 AND ${table.state} = 'accepted') IS TRUE
+  )`),
+  privatePayloadSizeCheck: check("pi_message_delivery_receipts_private_payload_size_check",
+    sql`${table.privatePayload} IS NULL OR octet_length(${table.privatePayload}) <= 4194304`),
 }));
 
 export const piSessionCompactionAttempts = pgTable("pi_session_compaction_attempts", {
