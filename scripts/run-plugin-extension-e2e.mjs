@@ -9,6 +9,7 @@ import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import Module from 'node:module';
 import { parse as parseEnv } from 'dotenv';
 import { Pool } from 'pg';
 
@@ -333,7 +334,8 @@ async function runFixture() {
   });
   for (const key of Object.keys(process.env)) delete process.env[key]; Object.assign(process.env, env);
   const administration = new Pool({ connectionString: maintenance.toString(), max: 1, connectionTimeoutMillis: 5000, query_timeout: 30_000 });
-  const children = []; let database, issuer, host, provider, consent, mcp, registry, registryTls, failure;
+  const children = []; let database, issuer, host, provider, consent, mcp, registry, registryTls, modelFixture, failure;
+  const originalModuleLoad = Module._load;
   const abort = new AbortController();
   const cancelled = () => { receipt.uncertain = true; abort.abort(); for (const child of children) if (!child.ended && child.process.pid === child.pid) { try { process.kill(-child.pid, 'SIGTERM'); } catch { /* Preserve on uncertain cancellation. */ } } };
   process.once('SIGTERM', cancelled); process.once('SIGINT', cancelled);
@@ -440,10 +442,25 @@ async function runFixture() {
     }
     Object.assign(env, { CANVAS_PLUGIN_STORE_REGISTRY_URL: registryTls.registryUrl('extensions'), CANVAS_SKILL_STORE_REGISTRY_URL: registryTls.registryUrl('extensions'),
       CANVAS_DATABASE_MIGRATIONS_COMPLETED: 'true' }); Object.assign(process.env, env);
+    // The real SDK exports ESM-only entrypoints. The standalone TS fixture is
+    // compiled as CJS by tsx; bridge to the actual imported module namespaces,
+    // as the existing native fixtures do. No SDK or application code is mocked.
+    const piModules = new Map();
+    for (const name of ['@earendil-works/pi-agent-core', '@earendil-works/pi-ai', '@earendil-works/pi-ai/compat', '@earendil-works/pi-ai/oauth']) {
+      piModules.set(name, await import(name));
+    }
+    Module._load = function (name, parent, isMain) {
+      return piModules.has(name) ? piModules.get(name) : originalModuleLoad.call(this, name, parent, isMain);
+    };
+    const { createAgentExtensionModelFixture } = await import('./helpers/agent-extension-model-fixture.ts');
+    modelFixture = await createAgentExtensionModelFixture({ nonce, organizationId: env.CANVAS_ORGANIZATION_ID, actorUserId: owner.id });
     const fixture = { version: 1, nonce, repo, root, actorId: owner.id, databaseName, dataRoot, baseURL,
+      model: modelFixture.model,
       packageName, skillName, mcpUrl: mcp.url, mcpSpki, composioOrigin: consent.origin, logoUrl: registryTls.logoUrl, registryId: 'store-extensions',
       sources: [{ kind: 'plugin', registryId: 'store-extensions', entryKey: packageName, version: '1.0.0', checksum: source.checksum },
         { kind: 'skill', registryId: 'store-extensions', entryKey: skillName, version: '1.0.0', checksum: skill.checksum }] };
+    const { prepareAgentExtensionToolBrowserFixture, verifyAgentExtensionToolBrowserFixture } = await import('./helpers/agent-extension-tool-browser-fixture.ts');
+    fixture.toolAgent = await prepareAgentExtensionToolBrowserFixture(fixture);
     await fs.writeFile(env.PLUGIN_EXTENSION_E2E_FIXTURE, JSON.stringify(fixture), { mode: 0o600, flag: 'wx' });
     receipt.phase = 'build'; await persist(); console.log(`PLUGIN_EXTENSION_E2E_BUILD ${root}`);
     const build = start('npm', ['run', 'build'], 'build', { NODE_ENV: 'production', NODE_OPTIONS: '--max-old-space-size=8192', NODE_EXTRA_CA_CERTS: caBundlePath }); assert.equal(await wait(build, 15 * 60_000), 0, 'The current worktree production build must pass.');
@@ -468,19 +485,25 @@ async function runFixture() {
     const browser = start(process.execPath, ['node_modules/@playwright/test/cli.js', 'test', '--config', 'tests/playwright/playwright.plugin-extensions.config.ts'], 'browser', {PLUGIN_EXTENSION_E2E_MCP_SPKI: mcpSpki}); receipt.browserPid = browser.pid; await persist();
     const browserCode = await wait(browser, 20 * 60_000);
     await fs.writeFile(path.join(root, 'provider-proof.json'), JSON.stringify({ version: 1, nonce, composio: consent.counters, mcp: mcp.stats, registryTls: registryTls.stats,
+      model: modelFixture.counts(),
       sdkBusinessCalls: provider.calls.filter(call => /\/tools\/execute\//u.test(call.path)).length }), { mode: 0o600 });
     assert.equal(consent.counters.businessCalls, 0); assert.equal(mcp.stats.toolCalls, 0); assert.equal(consent.counters.blockedExternalRedirects, 0);
+    assert(modelFixture.counts().catalogReads > 0); assert.equal(modelFixture.counts().forbiddenRequests, 0, 'Configuration acceptance must never generate model output.');
     assert(mcp.stats.iconDiscoveryReads > 0 && mcp.stats.iconReads > 0, 'The real cold MCP logo must be discovered and loaded from the owned passive HTTP(S) fixture.');
     assert.equal(provider.calls.filter(call => /\/tools\/execute\//u.test(call.path)).length, 0);
-    assert.equal(browserCode, 0, 'The plugin extension browser acceptance must pass.'); receipt.phase = 'verified'; await persist();
+    assert.equal(browserCode, 0, 'The plugin extension browser acceptance must pass.');
+    const toolRoundtrip = await verifyAgentExtensionToolBrowserFixture(fixture);
+    await fs.writeFile(path.join(root, 'agent-tool-roundtrip-verified.json'), JSON.stringify({ version: 1, nonce, ...toolRoundtrip }), { mode: 0o600 });
+    receipt.phase = 'verified'; await persist();
   } catch (error) {
     failure = error;
     await fs.writeFile(path.join(root, 'failure.log'), redacted(error instanceof Error ? error.stack || error.message : String(error)), { mode: 0o600 });
   }
   finally {
     for (const child of [...children].reverse()) { try { await stop(child); } catch { receipt.uncertain = true; } }
-    for (const fixture of [consent, provider, mcp, registryTls, registry]) { try { await fixture?.close(); } catch { receipt.uncertain = true; } }
+    for (const fixture of [modelFixture, consent, provider, mcp, registryTls, registry]) { try { await fixture?.close(); } catch { receipt.uncertain = true; } }
     try { const { closeDatabaseConnections } = await import('../app/lib/db/index.ts'); await closeDatabaseConnections(); } catch { receipt.uncertain = true; }
+    Module._load = originalModuleLoad;
     try { await database?.end(); } catch { receipt.uncertain = true; }
     try {
       const issuerReceipt = issuer ? JSON.parse(await readPrivateFile(path.join(root, 'issuer-recovery.json'))) : null;

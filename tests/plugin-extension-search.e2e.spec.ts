@@ -7,8 +7,10 @@ import type { CapabilityPackageStoreApplicationResult, CapabilityPackageStoreSel
 import type { CapabilityPackageMcpTemplate, CapabilityPackagePresentation } from '../app/lib/capabilities/packages/presentation-contracts';
 import type { CapabilityPackageMcpMatches } from '../app/lib/capabilities/packages/mcp-template-matches';
 import type { IntegrationConnectionDescriptor } from '../app/lib/integration-tools/connections/contracts';
-import type { AgentWorkflowManagement } from '../app/lib/agents/workflow-management-contracts';
-import type { AgentWorkflowManagementSaveResult } from '../app/components/agents/agent-workflow-management-client';
+import type { AgentExtensionManagementSnapshot } from '../app/components/agents/agent-workflow-management-client';
+import type { AgentExtensionOptionsRequest, AgentExtensionOptionsResponse } from '../app/lib/agents/extension-options-contracts';
+import type { AgentWorkflowManagementSaveInput, AgentWorkflowManagementSaveResult } from '../app/components/agents/agent-workflow-management-client';
+import type { AgentExtensionConfigurationDescriptor } from '../app/lib/agents/extension-inspection';
 import type { ClientWorkspaceSummary } from '../app/lib/workspaces/client-types';
 import en from '../messages/en.json';
 import de from '../messages/de.json';
@@ -32,10 +34,53 @@ const oauthStartResponses: Array<{operation: string; status: number; success: bo
 let oauthResponseWrites = Promise.resolve();
 const runtimeErrorDetails: Array<{ name: string; message: string; stack: string; pageOrigin: string; frameOrigins: string[] }> = [];
 let runtimeErrorCount = 0, runtimeErrorWrites = Promise.resolve();
+type MetadataOperationClass = 'search' | 'preview' | 'package_version' | 'connection_choices';
+const metadataTimings: Array<{ method: string; path: string; status: number | null; failure: string | null;
+  operationClass?: MetadataOperationClass; elapsedMs: number; responseStartMs: number | null; responseEndMs: number | null }> = [];
+const pendingMetadataHttp = new Map<Request, { startedAt: number; method: string; path: string; status: number | null; operationClass?: MetadataOperationClass }>();
 const locales = { en, de };
 
 test.use({ trace: 'off', video: 'off', screenshot: 'off' });
 test.describe.configure({ mode: 'serial', retries: 0 });
+
+function captureMetadataRequest(request: Request) {
+  const url = new URL(request.url()), method = request.method();
+  const recordedPath = /^\/api\/capabilities\/packages\/canvas-resource(?::|%3a)[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}\/mcp-template$/iu.test(url.pathname)
+    ? '/api/capabilities/packages/:resourceRef/mcp-template' : url.pathname;
+  if (url.origin !== fixture.baseURL || !(method === 'POST' && url.pathname === '/api/agents/extension-options'
+    || method === 'GET' && (url.pathname === '/api/auth/get-session' || url.pathname === '/api/plugins/search'
+      || recordedPath === '/api/capabilities/packages/:resourceRef/mcp-template'))) return;
+  let operationClass: MetadataOperationClass | undefined;
+  if (method === 'POST') {
+    try {
+      const operation: unknown = request.postDataJSON()?.operation;
+      if (operation === 'search' || operation === 'preview' || operation === 'package_version' || operation === 'connection_choices') operationClass = operation;
+    } catch { /* Malformed request bodies have no recognized operation class. */ }
+  }
+  // Only known path/operation classes are retained; template resource IDs,
+  // query/body values, headers and account references are never recorded.
+  // Observation never changes a request or wait condition.
+  pendingMetadataHttp.set(request, { startedAt: Date.now(), method, path: recordedPath, status: null, ...(operationClass ? { operationClass } : {}) });
+}
+function captureMetadataTiming(request: Request, failed: boolean) {
+  const observed = pendingMetadataHttp.get(request); if (!observed) return;
+  pendingMetadataHttp.delete(request);
+  const timing = request.timing(), failure = failed ? request.failure()?.errorText : null;
+  metadataTimings.push({ method: observed.method, path: observed.path, status: observed.status, ...(observed.operationClass ? { operationClass: observed.operationClass } : {}),
+    failure: failed ? failure && /^net::[A-Z0-9_]+$/u.test(failure) ? failure : 'request_failed' : null,
+    elapsedMs: Math.max(0, Date.now() - observed.startedAt),
+    responseStartMs: timing.responseStart >= 0 ? timing.responseStart : null,
+    responseEndMs: timing.responseEnd >= 0 ? timing.responseEnd : null });
+  if (metadataTimings.length > 1000) metadataTimings.shift();
+}
+async function writeMetadataTimings() {
+  if (!fixture) return;
+  await fs.writeFile(path.join(fixture.root, 'catalogue-metadata-http-timing.json'), JSON.stringify({
+    version: 1, source: 'passive_browser_http_events', queriesAndBodiesCaptured: false, operationClassesCaptured: true, entries: metadataTimings,
+    inFlight: [...pendingMetadataHttp.values()].slice(-1000).map(({ startedAt, ...entry }) => ({ ...entry, failure: null,
+      elapsedMs: Math.max(0, Date.now() - startedAt), responseStartMs: null, responseEndMs: null })),
+  }), { mode: 0o600 });
+}
 
 function capturePageError(error: Error, target: Page) {
   runtimeErrorCount += 1;
@@ -138,7 +183,7 @@ function searchResponse(target: Page, values: Record<string, string> = {}) {
     const url = new URL(response.url());
     return response.request().method() === 'GET' && url.pathname === '/api/plugins/search'
       && Object.entries(values).every(([key, value]) => url.searchParams.get(key) === value);
-  });
+  }, { timeout: 30_000 }); // Source IO may take 15s before fresh ACL/projection and HTTP completion.
 }
 async function ready(target = page) {
   await expect(target.getByTestId('plugin-extension-results')).toBeVisible();
@@ -186,6 +231,7 @@ async function screenshot(name: string, target = page) {
 async function expectLoadedPackageIcon(avatar: Locator, resourceRef: string) {
   await expect(avatar).toHaveAttribute('aria-hidden', 'true');
   await expect(avatar).toHaveAttribute('data-source-key', /.+/u);
+  await avatar.scrollIntoViewIfNeeded();
   const image = avatar.getByTestId('plugin-extension-avatar-image'); await expect(image).toBeVisible();
   const source = await image.getAttribute('src'); expect(source).toBeTruthy();
   const url = new URL(source!, fixture.baseURL);
@@ -199,6 +245,7 @@ async function expectLoadedPackageIcon(avatar: Locator, resourceRef: string) {
 async function expectLoadedMcpIcon(avatar: Locator, selectionId: string, workspaceId = personalId) {
   await expect(avatar).toHaveAttribute('aria-hidden', 'true');
   await expect(avatar).toHaveAttribute('data-source-key', /.+/u);
+  await avatar.scrollIntoViewIfNeeded();
   const image = avatar.getByTestId('plugin-extension-avatar-image'); await expect(image).toBeVisible();
   const source = await image.getAttribute('src'); expect(source).toBeTruthy();
   const url = new URL(source!, fixture.baseURL);
@@ -218,7 +265,7 @@ async function expectLoadedMcpIcon(avatar: Locator, selectionId: string, workspa
 async function catalogue(context = admin, options: Record<string, string> = {}, workspaceId = personalId) {
   const items = new Map<string, PluginExtensionItem>(); let cursor: string | null = null, pages = 0;
   do {
-    const result = await data<PluginExtensionSearchResponse>(await context.request.get(`/api/plugins/search?${new URLSearchParams({
+    const result: PluginExtensionSearchResponse = await data<PluginExtensionSearchResponse>(await context.request.get(`/api/plugins/search?${new URLSearchParams({
       workspaceId, scope: 'all', ...options, ...(cursor ? { cursor } : {}),
     })}`), 'Fresh exact actor search API');
     for (const item of result.items) items.set(item.id, item);
@@ -368,6 +415,12 @@ test.beforeAll(async ({ browser }) => {
       const url = new URL(request.url());
       if (/\/tools\/execute\//u.test(url.pathname) || /^\/api\/integrations\/gateway\/call/u.test(url.pathname)) forbiddenCalls.push(`${request.method()} ${url.pathname}`);
     });
+    context.on('request', captureMetadataRequest);
+    context.on('response', response => {
+      const observed = pendingMetadataHttp.get(response.request()); if (observed) observed.status = response.status();
+    });
+    context.on('requestfinished', request => captureMetadataTiming(request, false));
+    context.on('requestfailed', request => captureMetadataTiming(request, true));
     context.on('requestfailed', request => {
       if (request.url() === fixture.logoUrl && request.resourceType() === 'image') logoFailures.push(request.failure()?.errorText || 'image request failed');
     });
@@ -390,6 +443,7 @@ test.afterEach(async ({}, info) => {
   await runtimeErrorWrites;
   await assetErrorWrites;
   await oauthResponseWrites;
+  await writeMetadataTimings();
   expect(runtimeErrors, 'The real Plugin UI has no unhandled runtime errors.').toEqual([]);
   expect(forbiddenCalls, 'Browsing and setup do not execute provider business actions.').toEqual([]);
 });
@@ -398,6 +452,7 @@ test.afterAll(async () => {
     await runtimeErrorWrites;
     await assetErrorWrites;
     await oauthResponseWrites;
+    await writeMetadataTimings();
     if (admin) {
       const proof = await readControl();
       await fs.writeFile(path.join(fixture.root, 'browser-proof.json'), JSON.stringify({ version: 1, nonce: fixture.nonce, actorId: fixture.actorId,
@@ -510,9 +565,13 @@ test('a real Plugin installation exposes required setup and optional integration
   expect(presentation.requirements.some(value => value.selector?.source === 'mcp' && value.selector.connector === 'Canva MCP' && value.required)).toBe(true);
   expect(presentation.requirements.some(value => value.selector?.source === 'composio' && value.selector.toolkit === 'github' && !value.required)).toBe(true);
   await expect(setup.getByTestId('package-optional-requirements')).toBeVisible();
-  const template = page.waitForResponse(value => new URL(value.url()).pathname.endsWith('/mcp-template'));
-  await requirementRow('Canva MCP').getByRole('button', { name: en.skills.workspace.setup.continueSetup, exact: true }).click();
-  const exactTemplate = (await data<{ template: CapabilityPackageMcpTemplate }>(await template, 'Actual exact packaged MCP configuration template')).template;
+  const continueMcp = requirementRow('Canva MCP').getByRole('button', { name: en.skills.workspace.setup.continueSetup, exact: true });
+  await expect(continueMcp).toBeEnabled();
+  const [template] = await Promise.all([
+    page.waitForResponse(value => new URL(value.url()).pathname.endsWith('/mcp-template')),
+    continueMcp.click(),
+  ]);
+  const exactTemplate = (await data<{ template: CapabilityPackageMcpTemplate }>(template, 'Actual exact packaged MCP configuration template')).template;
   expect(exactTemplate.resourceRef).toBe(packageRef); expect(exactTemplate.connector.name).toBe('Canva MCP');
   expect(exactTemplate.config?.url).toBe(fixture.mcpUrl);
   const mcpSetup = page.getByTestId('plugin-mcp-setup'); await expect(mcpSetup).toBeVisible();
@@ -526,9 +585,13 @@ test('a real Plugin installation exposes required setup and optional integration
   await page.reload({ waitUntil: 'domcontentloaded' }); await data<unknown>(await response, 'Real resumed installed package presentation');
   await expect(page.getByTestId('package-detail-title')).toHaveText(fixture.packageName); await expect(page.getByTestId('package-requirements-setup')).toBeVisible();
   expect(new URL(page.url()).searchParams.get('resourceRef')).toBe(new URL(currentURL).searchParams.get('resourceRef'));
-  const createTemplate = page.waitForResponse(value => new URL(value.url()).pathname.endsWith('/mcp-template'));
-  await requirementRow('Canva MCP').getByRole('button', {name: en.skills.workspace.setup.continueSetup, exact: true}).click();
-  const declared = (await data<{template: CapabilityPackageMcpTemplate}>(await createTemplate, 'Manifest-only OAuth template for actual personal creation')).template;
+  const resumedContinueMcp = requirementRow('Canva MCP').getByRole('button', {name: en.skills.workspace.setup.continueSetup, exact: true});
+  await expect(resumedContinueMcp).toBeEnabled();
+  const [createTemplate] = await Promise.all([
+    page.waitForResponse(value => new URL(value.url()).pathname.endsWith('/mcp-template')),
+    resumedContinueMcp.click(),
+  ]);
+  const declared = (await data<{template: CapabilityPackageMcpTemplate}>(createTemplate, 'Manifest-only OAuth template for actual personal creation')).template;
   expect(declared.connector.oauth).toBe(true); expect(declared.config?.auth).toBeUndefined();
   await page.getByTestId('plugin-mcp-setup').locator('#plugin-mcp-scope').selectOption('user');
   await page.getByTestId('plugin-mcp-add-personal').click();
@@ -588,8 +651,11 @@ test('actual dirty shared MCP drafts guard scope changes and nested package Back
     await page.getByTestId('package-detail-tab-connections').click();
     const continueMcp = requirementRow('Canva MCP').getByRole('button', {name: en.skills.workspace.setup.continueSetup, exact: true});
     await expect(continueMcp).toBeEnabled();
-    const template = page.waitForResponse(response => new URL(response.url()).pathname.endsWith('/mcp-template'));
-    await continueMcp.click(); await data<{template: CapabilityPackageMcpTemplate}>(await template, 'Actual declared package MCP template before guard test');
+    const [template] = await Promise.all([
+      page.waitForResponse(response => new URL(response.url()).pathname.endsWith('/mcp-template')),
+      continueMcp.click(),
+    ]);
+    await data<{template: CapabilityPackageMcpTemplate}>(template, 'Actual declared package MCP template before guard test');
     setup = page.getByTestId('plugin-mcp-setup'); await expect(setup).toBeVisible();
     await setup.locator('#plugin-mcp-scope').selectOption(`team:${teamId}`);
     form = setup.getByTestId('shared-connection-create-form'); await expect(form).toBeVisible();
@@ -661,9 +727,13 @@ test('a package Composio requirement resumes the exact Plugin after real denial 
 test('manifest-only package OAuth creates a shared MCP and retains its exact chosen reference after refresh and actual consent', async () => {
   await openCatalog('en', {q: fixture.packageName}); await openRow('plugin', fixture.packageName);
   await page.getByTestId('package-detail-tab-connections').click();
-  const templateResponse = page.waitForResponse(response => new URL(response.url()).pathname.endsWith('/mcp-template'));
-  await requirementRow('Canva MCP').getByRole('button', {name: en.skills.workspace.setup.continueSetup, exact: true}).click();
-  const template = (await data<{template: CapabilityPackageMcpTemplate}>(await templateResponse, 'Actual manifest-only shared MCP requirement')).template;
+  const continueMcp = requirementRow('Canva MCP').getByRole('button', {name: en.skills.workspace.setup.continueSetup, exact: true});
+  await expect(continueMcp).toBeEnabled();
+  const [templateResponse] = await Promise.all([
+    page.waitForResponse(response => new URL(response.url()).pathname.endsWith('/mcp-template')),
+    continueMcp.click(),
+  ]);
+  const template = (await data<{template: CapabilityPackageMcpTemplate}>(templateResponse, 'Actual manifest-only shared MCP requirement')).template;
   expect(template.connector.oauth).toBe(true); expect(template.config?.auth).toBeUndefined(); expect(template.config?.url).toBe(fixture.mcpUrl);
   const setup = page.getByTestId('plugin-mcp-setup'); await setup.locator('#plugin-mcp-scope').selectOption('organization');
   const form = setup.getByTestId('shared-connection-create-form'); await expect(form).toBeVisible();
@@ -878,14 +948,21 @@ test('installed package setup reuses exact existing connections and keeps option
 });
 
 test('optional Agent setup opens the real manager and saves the exact published Plugin version on an editable Agent', async () => {
-  const created = await data<{ agent: { agentId: string; revision: number }; access: { canEdit: boolean } }>(
+  const created = await data<{ agent: { agentId: string; revision: number; workflowVersion: number | null; workflowRevision: number | null };
+    access: { canEdit: boolean }; extensions: AgentExtensionConfigurationDescriptor }>(
     await admin.request.post(`/api/agents?workspaceId=${encodeURIComponent(personalId)}`, { data: {
       name: `Extension Agent ${fixture.nonce.slice(0, 10)}`, scopeType: 'user', enabledTools: [],
     } }), 'Actual editable Agent fixture');
   expect(created.access.canEdit).toBe(true); agentId = created.agent.agentId;
-  const endpoint = `/api/agents/workflow?${new URLSearchParams({ view: 'management', agentId, workspaceId: personalId })}`;
-  const initial = await data<AgentWorkflowManagement>(await admin.request.get(endpoint), 'Current actual Agent management snapshot');
-  expect(initial.access.canEdit).toBe(true); expect(initial.configurationState).toBe('legacy');
+  expect(created.agent.workflowVersion).toBe(2); expect(created.agent.workflowRevision).toBeGreaterThan(0);
+  expect(created.extensions.configurationState).toBe('available');
+  expect(created.extensions.configuration).toEqual({ version: 1, origin: 'agent_configuration', mode: 'fixed', selections: [], workflow: null, standalone: [] });
+  const endpoint = `/api/agents?${new URLSearchParams({ purpose: 'configure', agentId, workspaceId: personalId })}`;
+  const initial = await data<AgentExtensionManagementSnapshot>(await admin.request.get(endpoint), 'Current actual Agent management snapshot');
+  expect(initial.access.canEdit).toBe(true); expect(initial.extensions.configurationState).toBe('available');
+  expect(initial.agent.revision).toBe(created.agent.revision); expect(initial.extensions.workflowRevision).toBe(created.agent.workflowRevision);
+  expect(initial.extensions.configuration).toEqual(created.extensions.configuration);
+  const target = { kind: 'existing', agentId, expectedRevision: initial.agent.revision!, expectedWorkflowRevision: initial.extensions.workflowRevision };
   await openCatalog('en', { q: fixture.packageName }); await openRow('plugin', fixture.packageName);
   await page.getByTestId('package-detail-tab-connections').click();
   const setup = page.getByTestId('package-agent-setup'); await expect(setup).toHaveAttribute('data-resource-ref', packageRef);
@@ -903,28 +980,91 @@ test('optional Agent setup opens the real manager and saves the exact published 
   }
   await page.getByTestId('package-agent-setup-open').click();
   const manager = page.getByTestId('agent-workflow-management-dialog'); await expect(manager).toBeVisible();
-  await manager.getByRole('button', { name: en.agentWorkflowManagement.legacy.configure, exact: true }).click();
-  await manager.getByRole('button', { name: en.agentWorkflowManagement.packages.add, exact: true }).click();
-  const packageSearch = manager.getByRole('textbox', { name: en.agentWorkflowManagement.packages.search, exact: true });
+  const editor = manager.getByTestId('agent-extension-editor');
+  // Public Create now starts fixed-empty. Inheritance conversion is only for
+  // genuine legacy agents; this manager exposes the shared search immediately.
+  await expect(editor.getByRole('button', { name: 'Switch to fixed selection', exact: true })).toHaveCount(0);
+  await expect(editor.getByTestId('agent-extension-package')).toHaveCount(0);
+  const saveButton = manager.getByRole('button', { name: en.agentWorkflowManagement.save, exact: true }); await expect(saveButton).toBeDisabled();
+  const searched = page.waitForResponse(response => new URL(response.url()).pathname === '/api/agents/extension-options'
+    && response.request().method() === 'POST' && response.request().postDataJSON()?.operation === 'search'
+    && response.request().postDataJSON()?.q === fixture.packageName, { timeout: 30_000 });
+  const packageSearch = editor.getByRole('textbox', { name: 'Search plugins, skills, integrations and MCP', exact: true });
   await packageSearch.fill(fixture.packageName);
-  await manager.getByRole('button', { name: en.agentWorkflowManagement.search, exact: true }).click();
-  const version = manager.getByRole('combobox', { name: en.agentWorkflowManagement.packages.versionFor.replace('{name}', fixture.packageName), exact: true });
+  const searchResult = await data<Extract<AgentExtensionOptionsResponse, { operation: 'search' }>>(await searched, 'Actual common Agent package search');
+  expect(searchResult.target).toEqual(target);
+  const selected = searchResult.items.find(row => row.item.kind === 'plugin' && row.item.package?.resourceRef === packageRef);
+  expect(selected).toBeDefined();
+  expect(selected!.publishedVersions?.some(version => version.pin.resourceRef === packageRef && version.pin.publishedRevisionRef === packagePin.revisionRef
+    && version.pin.checksum === packagePin.checksum)).toBe(true);
+  const versionResponse = page.waitForResponse(response => {
+    const url = new URL(response.url());
+    if (url.pathname !== '/api/agents/extension-options' || response.request().method() !== 'POST' || url.searchParams.get('workspaceId') !== personalId) return false;
+    const request = response.request().postDataJSON() as AgentExtensionOptionsRequest | null;
+    return request?.operation === 'package_version'
+      && request.resourceRef === packageRef && request.publishedRevisionRef === packagePin.revisionRef && request.checksum === packagePin.checksum;
+  }, { timeout: 30_000 });
+  await editor.getByTestId('agent-extension-results').getByRole('button', {
+    name: new RegExp(`^${selected!.item.displayName} · Plugin ·`, 'u'),
+  }).click();
+  const detail = editor.getByTestId('agent-extension-result-detail');
+  const version = detail.getByRole('combobox', { name: 'Published version', exact: true });
   await expect(version).toBeVisible(); await version.selectOption(packagePin.revisionRef);
-  await manager.getByRole('button', { name: en.agentWorkflowManagement.packages.addSelected, exact: true }).click();
-  await expect(manager.getByTestId('workflow-management-package')).toContainText(fixture.packageName);
+  const checkedVersion = await data<Extract<AgentExtensionOptionsResponse, { operation: 'package_version' }>>(await versionResponse, 'Actual immutable package version for Agent selection');
+  expect(checkedVersion.target).toEqual(target); expect(checkedVersion.package.pin).toEqual({ resourceRef: packageRef, publishedRevisionRef: packagePin.revisionRef, checksum: packagePin.checksum });
+  expect(checkedVersion.package.children.map(child => child.name)).toContain(`${fixture.packageName}-context`);
+  // The fixture uses legacy setup connectors and no Agent workflow declaration.
+  expect(checkedVersion.package.declarations).toEqual([]);
+  const previewResponse = page.waitForResponse(response => {
+    if (new URL(response.url()).pathname !== '/api/agents/extension-options' || response.request().method() !== 'POST') return false;
+    const request = response.request().postDataJSON() as AgentExtensionOptionsRequest;
+    return request.operation === 'preview' && request.target.kind === 'existing' && request.target.agentId === agentId
+      && request.configuration?.mode === 'fixed' && request.configuration.workflow?.packages.some(pkg => pkg.resourceRef === packageRef
+        && pkg.publishedRevisionRef === packagePin.revisionRef && pkg.checksum === packagePin.checksum) === true;
+  }, { timeout: 30_000 });
+  await detail.getByRole('button', { name: 'Select for agent', exact: true }).click();
+  const packageEditor = editor.getByTestId('agent-extension-package'); await expect(packageEditor).toContainText(checkedVersion.package.displayName);
+  await packageEditor.locator(':scope > summary').click();
+  const child = checkedVersion.package.children.find(row => row.name === `${fixture.packageName}-context`); expect(child).toBeDefined();
+  await expect(packageEditor.getByText(child!.title || child!.name, { exact: true })).toBeVisible();
+  const previewReply = await previewResponse;
+  const previewRequest = previewReply.request().postDataJSON() as Extract<AgentExtensionOptionsRequest, { operation: 'preview' }>;
+  expect(previewRequest.target).toEqual(target);
+  const preview = (await data<Extract<AgentExtensionOptionsResponse, { operation: 'preview' }>>(previewReply, 'Actual complete package-context preview')).preview;
+  expect(preview.contextValidation).toBe('complete'); expect(preview.configurationReadiness).toBe('valid');
+  expect(preview.runtimeReadiness).toBe('not_checked'); expect(preview.providerHealth).toBe('unknown'); expect(preview.finalSaveValidationRequired).toBe(true);
+  expect(preview.issues.some(issue => issue.severity === 'error')).toBe(false); expect(preview.budget.usedBytes).toBeLessThanOrEqual(preview.budget.maxBytes);
   const saved = page.waitForResponse(response => new URL(response.url()).pathname === '/api/agents'
     && response.request().method() === 'PATCH' && response.request().postDataJSON()?.agentId === agentId);
-  await manager.getByTestId('workflow-management-save').click();
-  const result = await data<AgentWorkflowManagementSaveResult>(await saved, 'Actual CAS workflow save through Plugin setup');
-  expect(result.agent.agentId).toBe(agentId); expect(result.agent.revision).toBe(initial.revision + 1);
-  expect(result.agent.workflowRevision).toBe(initial.workflowRevision + 1);
-  const current = await data<AgentWorkflowManagement>(await admin.request.get(endpoint), 'Persisted exact Agent workflow read-back');
-  expect(current.configurationState).toBe('available'); expect(current.workflowVersion).toBe(1);
-  expect(current.configuration?.packages).toEqual([{ resourceRef: packageRef, publishedRevisionRef: packagePin.revisionRef,
+  const reloaded = page.waitForResponse(response => { const url = new URL(response.url()); return response.request().method() === 'GET' && url.pathname === '/api/agents'
+    && url.searchParams.get('purpose') === 'configure' && url.searchParams.get('agentId') === agentId; });
+  await expect(saveButton).toBeEnabled(); await saveButton.click();
+  const saveReply = await saved, savedInput = saveReply.request().postDataJSON() as AgentWorkflowManagementSaveInput;
+  expect(savedInput).toEqual({ agentId, expectedRevision: target.expectedRevision, expectedWorkflowRevision: target.expectedWorkflowRevision,
+    extensions: previewRequest.configuration });
+  const result = await data<AgentWorkflowManagementSaveResult>(saveReply, 'Actual CAS workflow save through Plugin setup');
+  expect(result.agent.agentId).toBe(agentId); expect(result.agent.revision).toBe(initial.agent.revision! + 1);
+  expect(result.agent.workflowRevision).toBe(initial.extensions.workflowRevision + 1);
+  const acknowledged = await data<AgentExtensionManagementSnapshot>(await reloaded, 'Manager reloads the acknowledged revision before another edit');
+  expect(acknowledged.agent.revision).toBe(result.agent.revision); expect(acknowledged.extensions.workflowRevision).toBe(result.agent.workflowRevision);
+  const current = await data<AgentExtensionManagementSnapshot>(await admin.request.get(endpoint), 'Persisted exact Agent workflow read-back');
+  expect(current.extensions.configuration).toEqual(acknowledged.extensions.configuration);
+  expect(current.extensions.configurationState).toBe('available'); expect(current.agent.workflowVersion).toBe(2);
+  const configuration = current.extensions.configuration;
+  expect(configuration?.mode).toBe('fixed');
+  if (configuration?.mode !== 'fixed') throw new Error('The complete published package selection must remain fixed.');
+  expect(configuration.workflow?.packages).toEqual([{ resourceRef: packageRef, publishedRevisionRef: packagePin.revisionRef,
     checksum: packagePin.checksum, skillSelection: { kind: 'plugin' }, declarations: [] }]);
-  expect(current.unavailablePackageCount).toBe(0); expect(current.unavailableConnectionCount).toBe(0);
-  await expect(manager.getByTestId('workflow-management-save')).toBeDisabled(); await screenshot('plugin-actual-agent-published-workflow');
-  await manager.getByRole('button', { name: en.agentWorkflowManagement.close, exact: true }).click();
+  expect(configuration.selections).toEqual([{ selection: { kind: 'plugin', package: { resourceRef: packageRef,
+    publishedRevisionRef: packagePin.revisionRef, checksum: packagePin.checksum }, skillSelection: { kind: 'all' } }, requirement: 'optional', toolCap: null }]);
+  expect(configuration.standalone).toEqual([]);
+  const stale = await admin.request.patch(`/api/agents?workspaceId=${encodeURIComponent(personalId)}`, { data: savedInput });
+  expect(stale.status()).toBe(409); expect((await json<{ code: string }>(stale, 'Actual stale Agent CAS rejection', 409)).code).toBe('AGENT_REVISION_CONFLICT');
+  const afterStale = await data<AgentExtensionManagementSnapshot>(await admin.request.get(endpoint), 'Rejected stale write preserves the acknowledged exact pin');
+  expect(afterStale.agent.revision).toBe(current.agent.revision); expect(afterStale.extensions.workflowRevision).toBe(current.extensions.workflowRevision);
+  expect(afterStale.extensions.configuration).toEqual(configuration);
+  await expect(saveButton).toBeDisabled(); await screenshot('plugin-actual-agent-published-workflow');
+  await manager.locator('[data-slot="dialog-footer"]').getByRole('button', { name: en.agentWorkflowManagement.close, exact: true }).click();
   await expect(page.getByTestId('package-agent-setup-open')).toBeFocused();
   await expect(page.getByTestId('plugin-extension-search-input')).toHaveValue(fixture.packageName);
 });
@@ -944,8 +1084,8 @@ test('a real upstream Store outage keeps MCP and Composio results, shows incompl
   } finally { await registryStatus(200); }
 });
 
-test('English and German desktop/mobile light/dark catalogue keeps one query and accessible filters without overflow', async () => {
-  for (const locale of ['en', 'de'] as const) for (const [width, theme] of [[1280, 'light'], [390, 'dark']] as const) {
+for (const locale of ['en', 'de'] as const) for (const [width, theme] of [[1280, 'light'], [390, 'dark']] as const) {
+  test(`${locale} ${width}px ${theme} catalogue keeps one query and accessible filters without overflow`, async () => {
     await page.setViewportSize({ width, height: 900 });
     await openCatalog(locale, { q: 'canva' }); await page.evaluate(value => localStorage.setItem('theme', value), theme);
     const reloaded = searchResponse(page, { q: 'canva' }); await page.reload({ waitUntil: 'domcontentloaded' }); await data<unknown>(await reloaded, 'Actual locale/theme catalogue'); await ready();
@@ -978,9 +1118,9 @@ test('English and German desktop/mobile light/dark catalogue keeps one query and
       await openCatalog(locale); await page.getByTestId('plugin-extension-add-mcp').click();
       await expect(page.getByTestId('plugin-mcp-setup')).toBeVisible(); await screenshot(`${locale}-${width}-${theme}-standalone-mcp-setup`);
     }
-  }
-  await page.setViewportSize({ width: 1280, height: 900 });
-});
+    await page.setViewportSize({ width: 1280, height: 900 });
+  });
+}
 
 test('Settings creates and applies a personal profile, opens the common integration catalogue in that workspace, and restores the exact original profile', async () => {
   type EffectiveProfile = {id: string; name: string; source: 'default' | 'workspace_override'; workspaceId: string; isDefault: boolean};

@@ -1,6 +1,6 @@
 # Gemeinsame Erweiterungsauswahl: Feedback und Besprechungsplan
 
-Stand: 14. Oktober 2026. Diese Runde erfüllt den Auftrag, zuerst Feedback zu geben, den Plan unter `docs` zu speichern und ihn anschließend gemeinsam zu optimieren. Es werden nur Dokumente geändert. Vorhandene Produktänderungen bleiben im Arbeitsbaum erhalten und sind noch nicht vollständig abgenommen.
+Feedbackcheckpoint: 14. Oktober 2026, gespeichert mit `23354e883`. Dieser Checkpoint erfüllte den Auftrag, zuerst Feedback zu geben und den Plan unter `docs` zu speichern. Der danach wieder aufgenommene Implementierungs-/E2E-Auftrag und sein aktueller Nachweisstand stehen im verlinkten Journal. Die nachfolgenden Produktregeln bleiben die gemeinsame Besprechungsgrundlage.
 
 Dies ist die kurze Produktansicht. Weiterführend: [technischer Gesamtplan](chat-extension-reference-plan.md), [Umsetzungs-/Abnahmejournal](chat-agent-extension-implementation.md), [synthetischer Chat-Wireframe](wireframes/chat-extension-picker.html).
 
@@ -8,7 +8,7 @@ Dies ist die kurze Produktansicht. Weiterführend: [technischer Gesamtplan](chat
 
 Die Richtung passt: **eine gemeinsame Suche und ein gemeinsames Referenz-/Kontextsystem für Plugins, Skills, Composio und MCP**. Ein Plugin bündelt Anleitung, Skills und deklarierte Verbindungen. Alle Bestandteile bleiben unabhängig auswählbar. Composio verwaltet Katalog und Werkzeuganbindung extern; in der UI bleiben dies „Integrationen“, getrennt von selbst angebundenen MCP-Servern. Der vorhandene lokale Aufrufweg verwendet auch das Composio-SDK; ein MCP-Transport wird nicht pauschal vorausgesetzt.
 
-Der Stand ist **teilweise umgesetzt**. Plugin-Katalog, genaue Auswahlverträge, Agent-Schreibwege und gemeinsame Kontextaufbereitung sind als Grundlagen vorhanden. Gemeinsame Agent-Editoren liegen im Arbeitsbaum. Der Chat verwendet weiterhin getrennte Plugin-/Skill-Listen mit Namen; gemeinsame Turn-Auswahl, Recents und dauerhafte Zustellung fehlen. Ein größerer Slash-Picker allein würde diese Unterschiede bestehen lassen.
+Der Stand ist **teilweise umgesetzt**. Plugin-Katalog, genaue Auswahlverträge, Agent-Schreibwege und gemeinsame Kontextaufbereitung sind als Grundlagen vorhanden. Gemeinsame Agent-Editoren sind eingecheckt und inzwischen mit frischem Build, 28 Browserfällen und anschließendem tatsächlichem Tool-Inspect lokal abgenommen. Der Chat verwendet weiterhin getrennte Plugin-/Skill-Listen mit Namen; gemeinsame Turn-Auswahl, Recents und dauerhafte Zustellung fehlen. Ein größerer Slash-Picker allein würde diese Unterschiede bestehen lassen.
 
 ## Gleiche Auswahl, erkennbare Wirkung
 
@@ -65,7 +65,7 @@ Beim Spezialagenten gehört der feste Index zu jedem Start. Im allgemeinen Chat 
 | 4. Gesamten Web-/Modellweg abnehmen | Produktionsbuild, echte UI-Bedienung und Modelllauf mit Skill-Lesen und gezielter Discovery. | Kontextwechsel, Rechteentzug, Accounttreue, Routerzustände und Wiederaufnahme nachgewiesen; API-, Browser-, Modell- und Providerbelege getrennt. |
 | 5. Native Flächen anschließen | Gemeinsame Verträge im eigenen nativen Composer und Agent-UX verwenden. | Eigene Geräte-/Accessibility-Abnahme; schmaler Browser ersetzt sie nicht. |
 
-Jeder Integrationsschritt wird abgeschlossen, bevor der nächste beginnt. Der vorhandene Lauf mit 21 Browserfällen endete mit **7 bestanden, 2 fehlgeschlagen und 12 nicht ausgeführt**. Nachfolgende Korrekturen sind noch nicht gemeinsam erneut im Browser geprüft. Der Gesamtplan ist damit nicht abgeschlossen.
+Jeder Integrationsschritt wird abgeschlossen, bevor der nächste beginnt. **Die Agent-Stufe ist lokal abgeschlossen:** frischer Produktionsbuild, alle 28 Browserfälle und unabhängiger tatsächlicher Tool-Inspect bestehen im Lauf `3qFxAz`. Als Nächstes wird innerhalb der Chat-Stufe zuerst die dauerhafte Nachrichtenannahme samt privatem Wiederleser gebaut, danach Runtime/Transport und der sichtbare Picker. Die Tabelle beschreibt die Produktflächen; diese technische Reihenfolge verhindert, dass die UI eine Auswahl anbietet, die der heutige Transport verwirft. Chat, tatsächlicher Modelllauf und Native Mobile bleiben offen; der Gesamtplan ist nicht abgeschlossen.
 
 Vor Schritt 2 werden vier Vertragsfragen verbindlich präzisiert: eigenes Chat-Turn-Ziel mit Use- statt Edit-Rechten und tatsächlichem Session-/Workspace-Kontext; explizite Slot-/Revisionszuordnung bei erlaubtem Turn-Accountwechsel; gemeinsames 8-KiB-Budget aus fester und zusätzlicher Auswahl; eindeutige alte `/name`-Referenzen früh in genaue Referenzen übersetzen und durch denselben dauerhaften Annahmepfad führen. Ein weiterer Konto-Chip allein überschreibt keine Plugin-Bindung.
 
