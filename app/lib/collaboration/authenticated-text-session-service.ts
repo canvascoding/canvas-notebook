@@ -2,9 +2,10 @@ import 'server-only';
 
 import { randomUUID } from 'node:crypto';
 import { NextRequest } from 'next/server';
-import { openDb, type SqlConnection } from '../db';
+import { getPostgresRuntimeQueryable, openDb, type SqlConnection } from '../db';
 import { WorkspaceOriginalFileSourceError } from '../files/workspace-original-file-source';
-import { withWorkspaceRequestPrincipal, withWorkspaceRequestPrincipalOnConnection } from '../workspaces/request-principal';
+import { WorkspaceRequestPrincipalError, withWorkspaceRequestPrincipal, withWorkspaceRequestPrincipalOnConnection } from '../workspaces/request-principal';
+import { requireRequestWorkspace } from '../workspaces/request';
 import { analyzeMarkdownRichMode } from '../markdown/rich-markdown-codec';
 import {
   captureAuthenticatedNativeSessionTransportOnConnection, disposeAuthenticatedNativeSessionTransport,
@@ -40,6 +41,10 @@ export type AuthenticatedTextSessionPublication = Readonly<{ grant: Collaboratio
   takeTransport: (rollbackAdoption: () => void | Promise<void>) => AuthenticatedNativeSessionTransport }>;
 type Observation = { grant: CollaborationSessionGrant; identity: AuthenticatedTextSessionIdentity;
   native: ExistingNativeSessionIdentity; target: TextCollaborationRepresentation; normalizable: boolean };
+type ReadPhase = { retryable: boolean; entered: boolean };
+// Only this service's confirmed read rollback/close can certify contention.
+// A wire code, caller exception, final check or unconfirmed COMMIT cannot.
+const cleanReadContention = new WeakSet<WorkspaceRequestPrincipalError>();
 
 export class AuthenticatedTextSessionError extends Error {
   constructor(readonly code: 'NATIVE_SESSION_INVALID_REQUEST' | 'NATIVE_SESSION_INITIALIZATION_REQUIRED'
@@ -73,29 +78,52 @@ async function assertRequestScope(connection: SqlConnection, expected: PristineO
     || row.root_relative_path !== expected.rootRelativePath || row.status !== expected.status
     || row.search_path !== expected.searchPath) throw new NativeSessionStateReaderError('NATIVE_SESSION_SCOPE_CHANGED');
 }
-async function observeRequestScope(request: NextRequest, workspaceId: string,
+/** An actual request/realm observation, never a permission capability. Capture
+ * it once before retryable B so a failed first phase cannot reset the origin. */
+async function observeRequestOrigin(request: NextRequest, workspaceId: string,
   permission: 'read' | 'write'): Promise<PristineOriginalRequestScopeExpectation> {
+  const result = await requireRequestWorkspace(request, { workspaceId, permissions: permission === 'write' ? 'canWrite' : 'canRead' });
+  if (result.response) throw new WorkspaceRequestPrincipalError(result.response.status === 401 ? 'PRINCIPAL_AUTH_REVOKED' : 'PRINCIPAL_ACCESS_DENIED');
+  const workspace = result.workspace, userId = result.session.user.id, sessionId = result.session.session.id;
+  const runtime = getPostgresRuntimeQueryable();
+  if (!runtime || !userId || !sessionId || workspace.legacy || workspace.status !== 'active'
+    || workspace.workspaceId !== workspaceId || !workspace.permissions.canRead
+    || !workspace.permissions[permission === 'write' ? 'canWrite' : 'canRead']) throw new WorkspaceRequestPrincipalError('PRINCIPAL_INVALID');
+  // Capture primitives before the realm await: a later mutable resolver object
+  // must never redefine which workspace/root this original request selected.
+  const scope = Object.freeze({ userId, sessionId, workspaceId, workspaceType: workspace.workspaceType,
+    organizationId: workspace.organizationId ?? null, projectId: workspace.projectId ?? null,
+    customerId: workspace.customerId ?? null, ownerUserId: workspace.ownerUserId ?? null,
+    rootPath: workspace.rootPath, rootRelativePath: workspace.rootRelativePath!, legacy: false as const, status: 'active' as const });
+  const realm = (await runtime.query(`SELECT current_schema() AS schema,to_regnamespace(current_schema())::oid::bigint AS schema_oid,
+    (SELECT oid::bigint FROM pg_database WHERE datname=current_database()) AS database_oid,
+    current_setting('search_path') AS search_path`)).rows[0];
+  if (!realm || typeof realm.schema !== 'string' || !realm.schema || typeof realm.search_path !== 'string'
+    || !Number.isSafeInteger(Number(realm.schema_oid)) || Number(realm.schema_oid) < 1
+    || !Number.isSafeInteger(Number(realm.database_oid)) || Number(realm.database_oid) < 1) throw new WorkspaceRequestPrincipalError('PRINCIPAL_SCOPE_CHANGED');
+  return Object.freeze({ ...scope,
+    schema: realm.schema, schemaOid: Number(realm.schema_oid), databaseOid: Number(realm.database_oid), searchPath: realm.search_path });
+}
+async function observeRequestScope(request: NextRequest, workspaceId: string,
+  permission: 'read' | 'write', expected: PristineOriginalRequestScopeExpectation): Promise<void> {
   return withWorkspaceRequestPrincipal(request, { workspaceId, permission: permission === 'write' ? 'canWrite' : 'canRead' }, principal =>
-    transaction(connection => withWorkspaceRequestPrincipalOnConnection(connection, principal, async access => {
-      const workspace = access.workspace;
-      const realm = await connection.get(`SELECT current_schema() AS schema,to_regnamespace(current_schema())::oid::bigint AS schema_oid,
-        (SELECT oid::bigint FROM pg_database WHERE datname=current_database()) AS database_oid,
-        current_setting('search_path') AS search_path`) as Record<string, unknown>;
-      const scope = Object.freeze({ ...requestIdentity(access), workspaceType: workspace.workspaceType,
-        projectId: workspace.projectId ?? null, customerId: workspace.customerId ?? null, ownerUserId: workspace.ownerUserId ?? null,
-        rootPath: workspace.rootPath, rootRelativePath: workspace.rootRelativePath!, legacy: false as const, status: 'active' as const,
-        schema: String(realm.schema), schemaOid: Number(realm.schema_oid), databaseOid: Number(realm.database_oid), searchPath: String(realm.search_path) });
-      await assertRequestScope(connection, scope, access); return scope;
-    })));
+    transaction((connection, phase) => {
+      phase.retryable = true;
+      return withWorkspaceRequestPrincipalOnConnection(connection, principal, async access => {
+        phase.entered = true; await assertRequestScope(connection, expected, access);
+      });
+    }));
 }
 
 /** These phases publish no SQL mutations. A lost COMMIT response still forbids
  * a ticket; close/discard rather than assuming publication or replaying. */
-async function transaction<T>(operation: (connection: SqlConnection) => Promise<T>): Promise<T> {
+async function transaction<T>(operation: (connection: SqlConnection, phase: ReadPhase) => Promise<T>): Promise<T> {
   const connection = await openDb(); let began = false, committing = false, discard: Error | undefined;
+  const phase: ReadPhase = { retryable: false, entered: false };
+  let cleanBusy: WorkspaceRequestPrincipalError | undefined;
   try {
     await connection.run('BEGIN ISOLATION LEVEL READ COMMITTED READ WRITE'); began = true;
-    const result = await operation(connection);
+    const result = await operation(connection, phase);
     committing = true;
     try { await connection.run('COMMIT'); began = false; }
     catch (error) {
@@ -104,11 +132,17 @@ async function transaction<T>(operation: (connection: SqlConnection) => Promise<
     }
     return result;
   } catch (error) {
-    if (began && !committing) try { await connection.run('ROLLBACK'); }
+    if (began && !committing) try {
+      await connection.run('ROLLBACK');
+      if (phase.retryable && !phase.entered && error instanceof WorkspaceRequestPrincipalError && error.code === 'PRINCIPAL_BUSY') cleanBusy = error;
+    }
     catch (rollbackError) { discard = new Error('Discarding unresolved native session read.', { cause: rollbackError });
       throw new AggregateError([error, rollbackError], 'Native session rollback could not be confirmed.'); }
     throw error;
-  } finally { await connection.close(discard); }
+  } finally {
+    await connection.close(discard);
+    if (cleanBusy && !discard) cleanReadContention.add(cleanBusy);
+  }
 }
 
 /** No serializer or filesystem dependency. Require the exact current row and
@@ -148,8 +182,11 @@ function checkFormat(snapshot: ExistingNativeSessionSnapshot, request: TextReque
 async function existing(transport: AuthenticatedNativeSessionTransport, request: TextRequest,
   permission: 'read' | 'write', expectedScope: PristineOriginalRequestScopeExpectation,
   expectedIdentity?: ExistingNativeSessionIdentity): Promise<Observation> {
-  return transaction(connection => withAuthenticatedNativeSessionTransportOnConnection(connection, transport,
+  return transaction((connection, phase) => {
+    phase.retryable = true;
+    return withAuthenticatedNativeSessionTransportOnConnection(connection, transport,
     { path: request.path, permission: permission === 'write' ? 'canWrite' : 'canRead', expectedIdentity }, async (native, access) => {
+      phase.entered = true;
       await assertRequestScope(connection, expectedScope, access);
       let snapshot = await assertExistingNativeCollaborationSessionCurrentOnConnection(connection, native);
       checkFormat(snapshot, request);
@@ -165,13 +202,17 @@ async function existing(transport: AuthenticatedNativeSessionTransport, request:
       checkFormat(snapshot, request); await assertRequestScope(connection, expectedScope, access);
       return { grant: grant(snapshot, permission, finalized && before.stateProof === snapshot.stateProof
         && before.checkpointSequence === snapshot.checkpointSequence), identity: requestIdentity(access), native: identity(snapshot), ...analysis };
-    }));
+    });
+  });
 }
 
 async function diagnosis(request: NextRequest, workspaceId: string, requested: TextRequest,
   expectedScope: PristineOriginalRequestScopeExpectation): Promise<Observation> {
-  return transaction(connection => withAuthenticatedNativeSessionDiagnosisOnConnection(connection, request,
+  return transaction((connection, phase) => {
+    phase.retryable = true;
+    return withAuthenticatedNativeSessionDiagnosisOnConnection(connection, request,
     { workspaceId, path: requested.path }, async (native, access) => {
+      phase.entered = true;
       await assertRequestScope(connection, expectedScope, access);
       if (requested.migration || requested.allowRichMigration) throw new NativeSessionStateReaderError('NATIVE_SESSION_QUARANTINED');
       let snapshot = await assertReadOnlyNativeSessionDiagnosisCurrentOnConnection(connection, native); checkFormat(snapshot, requested);
@@ -181,7 +222,8 @@ async function diagnosis(request: NextRequest, workspaceId: string, requested: T
       return { grant: grant(snapshot, 'read', finalized && before.stateProof === snapshot.stateProof
         && before.checkpointSequence === snapshot.checkpointSequence), identity: requestIdentity(access), native: identity(snapshot),
       target: snapshot.representation, normalizable: false };
-    }));
+    });
+  });
 }
 
 /** Missing reader state is never a pristine proof. The exact catalogue,
@@ -190,7 +232,10 @@ async function diagnosis(request: NextRequest, workspaceId: string, requested: T
 async function bootstrapTarget(request: NextRequest, workspaceId: string, path: string,
   expectedScope: PristineOriginalRequestScopeExpectation): Promise<PristineOriginalWorkspaceFileRequest['expectedTarget'] | null> {
   return withWorkspaceRequestPrincipal(request, { workspaceId, permission: 'canWrite' }, principal =>
-    transaction(connection => withWorkspaceRequestPrincipalOnConnection(connection, principal, async access => {
+    transaction((connection, phase) => {
+      phase.retryable = true;
+      return withWorkspaceRequestPrincipalOnConnection(connection, principal, async access => {
+      phase.entered = true;
       await assertRequestScope(connection, expectedScope, access);
       const locked = await connection.get('SELECT pg_try_advisory_xact_lock_shared($1::bigint) AS locked',
         [collaborationAdmissionLockKey(workspaceId)]) as { locked?: boolean } | undefined;
@@ -206,7 +251,8 @@ async function bootstrapTarget(request: NextRequest, workspaceId: string, path: 
       if (current.authority === 'initialized') return null;
       if (current.authority !== 'pristine') throw new NativeSessionStateReaderError('NATIVE_SESSION_STATE_MISSING');
       return { kind: 'pristine' as const, documentId: current.id };
-    })));
+      });
+    }));
 }
 
 /** Concrete private Web/Mobile integration. No legacy ensureDocument, raw
@@ -220,16 +266,35 @@ export async function withAuthenticatedTextCollaborationSessionGrant<T>(input: I
   const requested = parseCollaborationSessionRequest(structuredClone(input.sessionRequest));
   if (!requested || requested.provider !== 'yjs') throw new AuthenticatedTextSessionError('NATIVE_SESSION_INVALID_REQUEST', 400);
   let transport: AuthenticatedNativeSessionTransport | undefined;
+  // Two additional attempts TOTAL, shared by every read/enrollment site.
+  // Bootstrap, migration, COMMIT recovery and publication never enter this loop.
+  let retriesRemaining = 2;
+  const retryRead = async <T>(operation: () => Promise<T>): Promise<T> => {
+    for (;;) {
+      try { return await operation(); }
+      catch (error) {
+        if (!(error instanceof WorkspaceRequestPrincipalError) || !cleanReadContention.has(error) || retriesRemaining === 0) throw error;
+        cleanReadContention.delete(error); retriesRemaining--;
+        await new Promise<void>(resolve => setTimeout(resolve, 25));
+      }
+    }
+  };
   const enroll = async (expectedScope: PristineOriginalRequestScopeExpectation, maximum = permission) => {
     let captured: AuthenticatedNativeSessionTransport | undefined;
     try {
       // Mint before B: the auth resolver may write seat metadata. Its bounded
       // genuine phase runs sequentially on B after transport capture, with the
       // original full scope still required even after diagnostic reenrollment.
-      return await withWorkspaceRequestPrincipal(original, { workspaceId, permission: maximum === 'write' ? 'canWrite' : 'canRead' }, principal => transaction(async connection => {
+      return await withWorkspaceRequestPrincipal(original, { workspaceId, permission: maximum === 'write' ? 'canWrite' : 'canRead' }, principal => transaction(async (connection, phase) => {
         captured = await captureAuthenticatedNativeSessionTransportOnConnection(connection, original,
           { workspaceId, maxPermission: maximum === 'write' ? 'canWrite' : 'canRead' });
-        await withWorkspaceRequestPrincipalOnConnection(connection, principal, access => assertRequestScope(connection, expectedScope, access));
+        // Capture's internal callback/final is opaque here. Its failure is NEVER
+        // retryable merely because captured is undefined. Only the following
+        // genuine phase has an observable pre-callback boundary.
+        phase.retryable = true;
+        await withWorkspaceRequestPrincipalOnConnection(connection, principal, access => {
+          phase.entered = true; return assertRequestScope(connection, expectedScope, access);
+        });
         return captured;
       }));
     } catch (error) {
@@ -238,19 +303,31 @@ export async function withAuthenticatedTextCollaborationSessionGrant<T>(input: I
       throw error;
     }
   };
+  const readExisting = (expectedScope: PristineOriginalRequestScopeExpectation, expectedIdentity?: ExistingNativeSessionIdentity) => retryRead(async () => {
+    try {
+      if (!transport) transport = await enroll(expectedScope);
+      return await existing(transport, requested, permission, expectedScope, expectedIdentity);
+    } catch (error) {
+      const previous = transport; transport = undefined;
+      if (previous) try { await disposeAuthenticatedNativeSessionTransport(previous); }
+      catch (cleanupError) { throw new AggregateError([error, cleanupError], 'Native session read cleanup failed.'); }
+      throw error;
+    }
+  });
   let publicationActive = false, adopted = false, completed = false, rollbackAdoption: (() => void | Promise<void>) | undefined;
   try {
-    const expectedScope = await observeRequestScope(original, workspaceId, permission);
-    transport = await enroll(expectedScope); let observed: Observation;
-    try { observed = await existing(transport, requested, permission, expectedScope); }
+    const expectedScope = await observeRequestOrigin(original, workspaceId, permission);
+    await retryRead(() => observeRequestScope(original, workspaceId, permission, expectedScope));
+    transport = await retryRead(() => enroll(expectedScope)); let observed: Observation;
+    try { observed = await readExisting(expectedScope); }
     catch (error) {
-      await disposeAuthenticatedNativeSessionTransport(transport); transport = undefined;
       if (error instanceof NativeSessionStateReaderError && error.code === 'NATIVE_SESSION_QUARANTINED') {
-        observed = await diagnosis(original, workspaceId, requested, expectedScope); transport = await enroll(expectedScope, 'read');
+        observed = await retryRead(() => diagnosis(original, workspaceId, requested, expectedScope));
+        transport = await retryRead(() => enroll(expectedScope, 'read'));
       } else {
         if (!(error instanceof NativeSessionStateReaderError) || error.code !== 'NATIVE_SESSION_STATE_MISSING') throw error;
         if (permission !== 'write') throw new AuthenticatedTextSessionError('NATIVE_SESSION_INITIALIZATION_REQUIRED', 409);
-        const target = await bootstrapTarget(original, workspaceId, requested.path, expectedScope);
+        const target = await retryRead(() => bootstrapTarget(original, workspaceId, requested.path, expectedScope));
         if (target) {
           try { await persistPristineOriginalWorkspaceFileForWrite(original, {
             workspaceId, path: requested.path, operationId: randomUUID(), requestId: randomUUID(), expectedTarget: target,
@@ -266,7 +343,7 @@ export async function withAuthenticatedTextCollaborationSessionGrant<T>(input: I
             if (!(bootstrapError instanceof MarkdownFileImportError) || bootstrapError.code !== 'MARKDOWN_IMPORT_TARGET_CHANGED') throw bootstrapError;
           }
         }
-        transport = await enroll(expectedScope); observed = await existing(transport, requested, permission, expectedScope);
+        observed = await readExisting(expectedScope);
       }
     }
     let migration: RichMigrationResult | undefined;
@@ -279,18 +356,25 @@ export async function withAuthenticatedTextCollaborationSessionGrant<T>(input: I
         return await publish(Object.freeze({ grant: Object.freeze({ ...observed.grant, migration }), identity: observed.identity,
           takeTransport: () => { throw new AuthenticatedTextSessionError('NATIVE_SESSION_PUBLICATION_CLOSED', 409); } }));
       }
-      observed = await existing(transport, requested, permission, expectedScope);
+      observed = await readExisting(expectedScope, { ...observed.native, documentId: result.state.documentId,
+        workspaceId: result.state.workspaceId, organizationId: result.state.organizationId, path: result.state.path,
+        lifecycleGeneration: result.state.lifecycleGeneration, representation: result.state.representation, schemaVersion: result.state.schemaVersion });
     } else if (requested.allowRichMigration && requested.representation === 'auto' && permission === 'write'
       && requested.expectedLifecycleGeneration === observed.native.lifecycleGeneration
       && (observed.native.representation === 'plain_text' || observed.native.representation === 'tiptap_xml' && observed.target === 'tiptap_blocks')
       && observed.target !== 'plain_text' && !/\.txt$/iu.test(requested.path)) {
-      try { await changeAuthenticatedCollaborationRepresentation({ request: original, workspaceId, path: requested.path,
+      let expectedIdentity = observed.native;
+      try { const changed = await changeAuthenticatedCollaborationRepresentation({ request: original, workspaceId, path: requested.path,
         expectedLifecycleGeneration: observed.native.lifecycleGeneration, representation: observed.target,
         ...(observed.normalizable ? { normalizeSafeMarkdown: true, checkpoint: {
           materialize: async ({ state, workspace }) => (await materializeCollaborationCheckpoint({ state, workspace, actorType: 'system' })).state,
-        } } : {}) }); }
+        } } : {}) });
+        expectedIdentity = { ...observed.native, documentId: changed.documentId, workspaceId: changed.workspaceId,
+          organizationId: changed.organizationId, path: changed.path, lifecycleGeneration: changed.lifecycleGeneration,
+          representation: changed.representation, schemaVersion: changed.schemaVersion };
+      }
       catch (error) { if (!(error instanceof CollaborationRepresentationMigrationError)) throw error; }
-      observed = await existing(transport, requested, permission, expectedScope);
+      observed = await readExisting(expectedScope, expectedIdentity);
     }
     if (!transport) throw new AuthenticatedTextSessionError('NATIVE_SESSION_COMMIT_UNCONFIRMED', 503);
     const currentTransport = transport;

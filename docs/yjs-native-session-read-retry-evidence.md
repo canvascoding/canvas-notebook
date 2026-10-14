@@ -1,0 +1,25 @@
+# Begrenzte Wiederaufnahme authentisierter Sessionreads
+
+Status: **Source-Fix lokal integriert und geprüft; neue Browserabnahme bleibt erforderlich.** Autorcommit `dbf3470ea5220b80c0b64e8b1f1dac5105d78a68` auf `737ab428d`, exakt Service und neue PG-Testmatrix. Der ursprüngliche [V21-Browserbefund](./yjs-native-session-browser-busy-evidence.md) bleibt als fehlgeschlagener Beleg erhalten.
+
+## Vertrag
+
+Ein Request besitzt insgesamt zwei zusätzliche Versuche, geteilt über seine Read-/Enrollmentstellen, mit jeweils 25 ms Pause. Nur der private Cleanmarker dieses Services bestätigt tatsächlich ausgeführten Rollback und erfolgreichen Connectionclose eines `PRINCIPAL_BUSY` vor Eintritt in den Serviceconsumer. Fehlerklasse oder HTTP-Code allein reichen nicht aus. Alte Transportcapabilities werden vor frischer Aufnahme nachweislich verworfen; ein Cleanupfehler erlaubt keinen weiteren Versuch.
+
+Das beobachtbare B-Fenster umfasst die tatsächlichen mutationsfreien Native-Guard-/Read-/Verify-Schritte vor dem Serviceconsumer. Nach dessen Eintritt werden Consumerfehler und Finals nicht wiederholt. Opaques Transportcapture einschließlich seiner internen Finalprüfung, Bootstrapmutation, Migration, Publication und unbestätigter COMMIT liegen außerhalb des Retryloops. Die ursprüngliche Authfactory vor B besitzt weiterhin ihre bestehenden Metadatenwrites; dieses Paket erklärt sie nicht zu einer mutationsfreien Phase und lockert keine Authlocks.
+
+Der Service kopiert Originalrequestheaders vor dem ersten Await und erfasst einmalig eine tatsächliche Originalscope-Erwartung aus Anmeldung, fester Permission und Datenbankrealm. User, Authsession, vollständiger Workspace, Root, Status, Datenbank-/Schema-OID und roher Searchpath bleiben über sämtliche Versuche gebunden. Workspaceprimitive werden vor dem Realm-Await eingefroren. Diese Erwartung ist keine Permission-Capability; jeder neue B-Read benötigt seinen eigenen echten Principal. Ein erfolgreicher Migrationsschritt liefert die anschließend fest gebundene erwartete Native-Identität.
+
+## Tatsächliche Prüfung
+
+Root bestätigt auf den exakt integrierten Autorenbytes **15/15 echte PostgreSQL-18-Familien** aus [authenticated-text-session-busy-postgres-test](../scripts/authenticated-text-session-busy-postgres-test.ts), frisches vollständiges TypeScript mit 8 GiB und `--incremental false`, scoped ESLint und unabhängigen Source-/Testreview ohne offene konkrete Findings.
+
+Die Matrix verwendet echte BetterAuth-Cookies/Bearer, Web-/Mobile-POSTs, Principalphasen und native SQL-Zustände. Zwei tatsächliche Principal-B-Phasen belegen die konkurrierenden ROW-EXCLUSIVE-/SHARE-NOWAIT-Locks. Transiente Auth- und Native-Tableholder bestehen nach bestätigtem Abschluss; dauerhafter Busy bleibt auf drei Gesamtversuche begrenzt. Ein kombinierter Fall verbraucht dasselbe Budget über verschiedene Reads. Gefälschter Publisher-Busy, Capture-/Consumer-/Principal-Finals, finaler Writeverlust, Rollback-/Close-/COMMIT-/Disposalfaults, echte Bootstrap-/Legacy-Mutationsfehler und Root-/Customer-/Session-/Searchpathdrift erlauben keinen Mutationsreplay oder ungeprüfte Ticketpublication.
+
+Gezielte Ack-/Cleanupfehler werden an tatsächlich ausgeführten PG-Phasen injiziert; sie belegen keinen spontan aufgetretenen Netzwerk- oder Datenträgerfehler. Der genuine äußere Principal kann seinen ursprünglichen Busycode trotz Cleanupfehler behalten. Das fehlende private Cleanmerkmal verhindert auch dann einen neuen Versuch. Der COMMIT-Faultobserver trifft ausschließlich tatsächliche Service-RC/RW-B-Phasen, keine Auth-/Setuptransaktion.
+
+Jeder Lauf besitzt eigenes UUID-Schema und DATA, mit geprüftem Searchpath ohne Publicfallback. Ausschließlich die zwei Public-Katalogfilter des historischen `main_agent_id_migration`-DO werden im Test auf das eigene Schema gebunden; reversibler Bytevergleich bestätigt diesen einzigen DDL-Fixtureschnitt. Produktmigrationen bleiben unverändert. Erfolgreicher Fixtureabschluss bestätigt Pool-/Clientclose, eigenen Schema-Drop und DATA-Entfernung; kein Container oder fremder Runtimezustand wird verändert.
+
+Root bestätigt zwei exakte Autorenfiles und zehn vollständige geschützte Principal-/Reader-/Transport-/Lifecycle-/Import-/Migration-/Session-/Route-/Gate-Module bytegleich zu `9f66e1b6b`. Der Root-Impact vor Integration bewertet die private Transaction mit MEDIUM, fünf direkten/sieben insgesamt betroffenen Callern; übrige bestehende Servicesymbole sind LOW. Das neue Origin-Symbol fehlt vor seiner Aufnahme im Graph. Dynamische Routecaller werden nicht vollständig aufgelöst.
+
+Freezes: Service `0ae2f8ad25f6d66f2e63212915851f442b9776ccbbf9e98af9dcdd8228ceca4f`; Test `de6c744f3bf4434161ca4fb9076b28d75188d54591273e5dbe64fdcb8765fc90`. Der Produktschalter bleibt `false`. Die ursprünglichen vier Browser-Suites mit zehn Fällen und beiden echten Hostneustarts sind auf einem frischen privaten QA-Build erneut auszuführen. Die kompilierte Mobile-HTTP→Einmalticket→Raw-Socket-Modulgrenze, Native-Mobile-Gerät, erweiterter Vollimport und ursprünglicher Produktionsfehler bleiben eigene offene Abnahmen.

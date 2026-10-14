@@ -887,6 +887,8 @@ Der [V21-Browserbefund authentisierter Textsessions](./yjs-native-session-browse
 
 Die [gemeinsame Upload-Lifetime I-03a](./markdown-upload-live-source-evidence.md) hält prozessübergreifende Session-/File-Kernelfences bis zum tatsächlichen Abschluss. Cancel und Ablauf besitzen gebundene dauerhafte Terminalzustände; unterschiedliche Dateien bleiben parallel, unlesbare Manifestreste bleiben erhalten. Root bestätigt 22 reale FS-/Prozessfamilien, vier bestehende Uploadsuiten, frisches TypeScript/Lint/Python, exakte Autorenbytes, sechzehn bytegleiche vollständige Kern-/Routemodule sowie alte Queue-/Officekörper. Der genuine native Staging-Writer I-03b, erste Zielveröffentlichung und Browser-/PG-Abnahme dieses Anschlusses bleiben offen.
 
+Der [begrenzte authentisierte Session-Readfix](./yjs-native-session-read-retry-evidence.md) besteht nach dem fehlgeschlagenen V21-Gate unabhängig 15 echte PG18-/Authfamilien. Der Request teilt zwei zusätzliche Readversuche; private Marker verlangen bestätigten Rollback, Close und Disposal vor neuer Aufnahme. Originalscope bleibt fest gebunden; Mutation, opakes Capture/Final und unklarer COMMIT werden nicht wiederholt. Root bestätigt frisches TypeScript/Lint, zwei Autorenbytes und zehn geschützte Module/Routes/Gate. Der tatsächliche Parallel-PG-Lockkonflikt ist separat belegt; der ursprüngliche konkrete V21-Lockhalter bleibt unbewiesen. Neuer frischer Build und originale Browser-/Neustartmatrix sowie die kompilierte Mobilemodulgrenze bleiben offene Gates; Produktschalter bleibt false.
+
 ## 17. Änderungs- und Nachweisprotokoll
 
 | Datum | Änderung | Nachweis/Status |
