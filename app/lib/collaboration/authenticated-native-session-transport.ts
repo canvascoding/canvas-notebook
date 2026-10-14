@@ -301,6 +301,106 @@ export function withAuthenticatedNativeSessionTransportOnConnection<T>(connectio
   }
 }
 
+/** Separate fixed-canRead quarantine diagnosis using the immutable ORIGINAL
+ * request headers. Its diagnostic capability is never an editing capability. */
+export function withAuthenticatedNativeSessionDiagnosisTransportOnConnection<T>(connection: SqlConnection,
+  transport: AuthenticatedNativeSessionTransport,
+  input: { path: string; expectedIdentity?: ExistingNativeSessionIdentity },
+  consume: (diagnosis: import('./native-session-state-reader').ReadOnlyNativeSessionDiagnosis,
+    access: ExistingNativeSessionRequestAccess) => Promise<T>): Promise<T> {
+  const record = transports.get(transport);
+  try {
+    if (!record) fail('NATIVE_TRANSPORT_REQUIRED');
+    if (record.failure !== undefined) throw record.failure;
+    if (record.disposed || !record.original) fail('NATIVE_TRANSPORT_DISPOSED');
+    data(input, ['path'], ['path', 'expectedIdentity']);
+    const captured = capturePhaseInput({ permission: 'canRead', path: input.path,
+      ...(input.expectedIdentity ? { expectedIdentity: input.expectedIdentity } : {}) });
+    if (typeof consume !== 'function') fail('NATIVE_TRANSPORT_INVALID');
+    const phase = reserve(connection, record), original = record.original;
+    return run(phase, async () => {
+      const { withAuthenticatedNativeSessionDiagnosisOnConnection } = await import('./native-session-state-reader');
+      return withAuthenticatedNativeSessionDiagnosisOnConnection(connection, freshRequest(original),
+        { workspaceId: record.workspaceId, path: captured.path,
+          ...(captured.expectedIdentity ? { expectedIdentity: captured.expectedIdentity } : {}) }, async (diagnosis, access) => {
+          await verify(phase, access);
+          phase.callbackActive = true;
+          let result: T | undefined;
+          try { result = await callbackContext.run(phase, () => consume(diagnosis, callbackAccess(phase, access))); }
+          catch (error) { poison(record, error); }
+          finally { phase.callbackActive = false; }
+          if (phase.checks.size) {
+            poison(record, new AuthenticatedNativeSessionTransportError('NATIVE_TRANSPORT_DETACHED'));
+            await Promise.allSettled([...phase.checks]);
+          }
+          active(phase); await verify(phase, access);
+          return result as T;
+        });
+    });
+  } catch (error) {
+    if (record) poison(record, error);
+    const held = connections.get(connection); if (held) poison(held.record, error);
+    return Promise.reject(record?.failure ?? error ?? new AuthenticatedNativeSessionTransportError('NATIVE_TRANSPORT_INVALID'));
+  }
+}
+
+/** The SQL mode selector grants no authority and holds no principal locks.
+ * Exactly one selected reader then performs its fresh ORIGINAL fixed-canRead
+ * phase and full raw validation. A mode race rejects without reader fallback. */
+export function withAuthenticatedNativeSessionReadJoinTransportOnConnection<T>(connection: SqlConnection,
+  transport: AuthenticatedNativeSessionTransport, input: { path: string },
+  consume: (session: Readonly<{ snapshot: import('./native-session-state-reader').ExistingNativeSessionSnapshot }>,
+    access: ExistingNativeSessionRequestAccess) => Promise<T>): Promise<T> {
+  const record = transports.get(transport);
+  try {
+    if (!record) fail('NATIVE_TRANSPORT_REQUIRED');
+    if (record.failure !== undefined) throw record.failure;
+    if (record.disposed || !record.original) fail('NATIVE_TRANSPORT_DISPOSED');
+    data(input, ['path'], ['path']);
+    const captured = capturePhaseInput({ permission: 'canRead', path: input.path });
+    if (typeof consume !== 'function') fail('NATIVE_TRANSPORT_INVALID');
+    const phase = reserve(connection, record), original = record.original;
+    return run(phase, async () => {
+      // This observation ONLY chooses which independently validating reader to
+      // enter. Its SQL row never becomes a snapshot, identity or permission.
+      const rows = await connection.all(`SELECT s.lifecycle_generation,s.degraded,s.projection_error_code,
+        s.projection_error_permanent,s.projection_error_generation FROM collaboration_yjs_states s
+        WHERE s.workspace_id=$1 AND s.path=$2 AND s.status='active' LIMIT 2`, [record.workspaceId, captured.path]) as Array<Record<string, unknown>>;
+      active(phase);
+      if (rows.length !== 1) fail('NATIVE_TRANSPORT_SCOPE_CHANGED');
+      const row = rows[0], generation = ownerCounter(row.lifecycle_generation, 1);
+      const error = row.projection_error_code && ownerCounter(row.projection_error_generation, 1) === generation
+        ? { code: String(row.projection_error_code), permanent: Number(row.projection_error_permanent) === 1 } : undefined;
+      const quarantined = isCollaborationStateQuarantined({ degraded: Number(row.degraded) === 1, projectionError: error });
+      const consumeRead = async (session: Readonly<{ snapshot: import('./native-session-state-reader').ExistingNativeSessionSnapshot }>,
+        access: ExistingNativeSessionRequestAccess): Promise<T> => {
+        await verify(phase, access);
+        phase.callbackActive = true;
+        let result: T | undefined;
+        try { result = await callbackContext.run(phase, () => consume(session, callbackAccess(phase, access))); }
+        catch (failure) { poison(record, failure); }
+        finally { phase.callbackActive = false; }
+        if (phase.checks.size) {
+          poison(record, new AuthenticatedNativeSessionTransportError('NATIVE_TRANSPORT_DETACHED'));
+          await Promise.allSettled([...phase.checks]);
+        }
+        active(phase); await verify(phase, access);
+        return result as T;
+      };
+      const { withAuthenticatedNativeSessionDiagnosisOnConnection } = await import('./native-session-state-reader');
+      return quarantined
+        ? withAuthenticatedNativeSessionDiagnosisOnConnection(connection, freshRequest(original),
+          { workspaceId: record.workspaceId, path: captured.path }, consumeRead)
+        : withWorkspaceRequestPrincipal(freshRequest(original), { workspaceId: record.workspaceId, permission: 'canRead' }, principal =>
+          withAuthenticatedExistingNativeCollaborationSessionOnConnection(connection, principal, { path: captured.path }, consumeRead));
+    });
+  } catch (error) {
+    if (record) poison(record, error);
+    const held = connections.get(connection); if (held) poison(held.record, error);
+    return Promise.reject(record?.failure ?? error ?? new AuthenticatedNativeSessionTransportError('NATIVE_TRANSPORT_INVALID'));
+  }
+}
+
 /** Only actual lock contention before entering an owner callback is transient. */
 export function isAuthenticatedNativeSessionTransportBusy(error: unknown): boolean {
   return !!error && typeof error === 'object' && busyFailures.has(error);

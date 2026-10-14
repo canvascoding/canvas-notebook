@@ -450,6 +450,7 @@ async function main() {
     if (name.endsWith('/trusted-origins')) return { isConfiguredTrustedOrigin: () => true };
     if (name.endsWith('/collaboration-ticket')) return {
       consumeMobileCollaborationTicket: () => null,
+      disposeMobileCollaborationTickets() {},
       hasMobileCollaborationProtocol: () => false,
       MOBILE_COLLABORATION_WEBSOCKET_PROTOCOL: 'canvas-mobile',
     };
@@ -523,6 +524,7 @@ async function main() {
         if (sql.includes('pg_try_advisory_xact_lock')) { admissionLockQueries.push(sql); return [{ locked: true }]; }
         return [];
       }, close: async () => {} }) };
+    if (name.endsWith('/native-text-session-activation')) return load(name);
     if (name.startsWith('@/')) return {};
     return load(name);
   }, { exports: exported }, exported);

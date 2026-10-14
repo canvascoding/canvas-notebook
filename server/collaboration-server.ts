@@ -6,6 +6,7 @@ import type http from 'node:http';
 import type net from 'node:net';
 import { randomUUID } from 'node:crypto';
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { NextRequest } from 'next/server';
 
 import { Hocuspocus, MessageType, type Connection, type Document, type onAwarenessUpdatePayload } from '@hocuspocus/server';
 import { AuthMessageType } from '@hocuspocus/common';
@@ -16,6 +17,7 @@ import type { Doc as YDoc } from 'yjs';
 import { openDb } from '@/app/lib/db';
 import { collaborationUpdateStateProof } from '@/app/lib/collaboration/state-proof';
 import { COLLABORATION_FAILURE_CODES, isCollaborationStateQuarantined } from '@/app/lib/collaboration/failure';
+import { COLLABORATION_CHECKPOINT_ERROR_CODES } from '@/app/lib/collaboration/checkpoint-errors';
 import { createCollaborationProjectionRuntime } from '@/app/lib/collaboration/projection-runtime';
 import { loadCollaborationProjectionStatus } from '@/app/lib/collaboration/projection-repository';
 import { logCollaborationDiagnostic } from '@/app/lib/collaboration/diagnostics';
@@ -25,6 +27,14 @@ import { fileGuestService } from '@/app/lib/file-guests/service';
 import { fileGuestCookieName } from '@/app/lib/file-guests/types';
 import { assertFileGuestUpdateAllowed } from '@/app/lib/file-guests/update-policy';
 import { createCollaborationAccessMonitor } from '@/app/lib/collaboration/access-monitor';
+import { assertAuthenticatedNativePeerClaims, createAuthenticatedNativePeer } from '@/app/lib/collaboration/authenticated-native-peer';
+import { AuthenticatedNativeSessionTransportError, captureAuthenticatedNativeSessionTransportOnConnection,
+  disposeAuthenticatedNativeSessionTransport, isAuthenticatedNativeSessionTransportBusy,
+  withAuthenticatedNativeSessionTransportOnConnection, withAuthenticatedNativeSessionReadJoinTransportOnConnection,
+  type AuthenticatedNativeSessionTransport } from '@/app/lib/collaboration/authenticated-native-session-transport';
+import type { ExistingNativeSessionIdentity } from '@/app/lib/collaboration/native-session-state-reader';
+import { executeLifecycleTransaction } from '@/app/lib/collaboration/lifecycle-transaction';
+import { authenticatedNativeTextSessionEnabled } from '@/app/lib/collaboration/native-text-session-activation';
 import { assertCollaborationDocumentAccess, resolveCollaborationSessionAccess, revalidateCollaborationAccess } from '@/app/lib/collaboration/connection-access';
 import {
   AgentDirectConnectionAuthorizationError,
@@ -90,6 +100,7 @@ import { createCollaborationRoomStartupActivity } from '@/app/lib/collaboration/
 import { installLocalCollaborationRoomDrainer } from '@/app/lib/collaboration/local-room-drain';
 import {
   consumeMobileCollaborationTicket,
+  disposeMobileCollaborationTickets,
   hasMobileCollaborationProtocol,
   MOBILE_COLLABORATION_WEBSOCKET_PROTOCOL,
 } from '@/app/lib/mobile/collaboration-ticket';
@@ -179,7 +190,10 @@ type CollaborationContext = {
   observedDocumentSequence: number | null;
   releaseRoomAdmission: (() => void) | null;
   startupActivity?: ReturnType<typeof createCollaborationRoomStartupActivity>;
-  stopAccessWatch?: () => void;
+  stopAccessWatch?: () => Promise<void>;
+  nativePeer?: ReturnType<typeof createAuthenticatedNativePeer>;
+  cleanupNativePeer?: () => Promise<void>;
+  nativePeerLifetime?: { connected: boolean; stopAccessWatch?: () => Promise<void> };
 };
 
 /** Only the stored standalone direct-apply path owns exact immutable bytes. */
@@ -533,6 +547,10 @@ export function createCollaborationServer(server: http.Server, options: {
   // Hocuspocus serializes each socket, not all sockets of a room. For mutating
   // sync frames hold the lease beyond beforeSync, through MessageReceiver.apply.
   const messageMutationLeases = new WeakMap<Connection<CollaborationContext>, () => void>();
+  const nativePeers = new Set<ReturnType<typeof createAuthenticatedNativePeer>>();
+  const nativeCleanups = new Set<() => Promise<void>>();
+  const pendingNative = new WeakMap<Request, Set<CollaborationContext>>();
+  let nativeClosing = false;
   const matchesRoomIdentity = (document: YDoc, expected: RoomIdentity) => {
     const identity = roomIdentities.get(document);
     return identity?.documentId === expected.documentId && identity.workspaceId === expected.workspaceId
@@ -627,6 +645,32 @@ export function createCollaborationServer(server: http.Server, options: {
   server.once('close', () => projections.dispose());
   const accessMonitor = createCollaborationAccessMonitor<Connection<CollaborationContext>>({
     validate: async (connection) => {
+      if (connection.context.nativePeer) {
+        if (!roomOwners) throw new CollaborationRoomOwnerError('ROOM_OWNER_LOST');
+        try {
+          const access = await connection.context.nativePeer.check(roomOwners.fence(connection.document));
+          if (!connection.document.hasConnection(connection)) throw new Error('Collaboration connection is closed.');
+          if (access.quarantined) {
+            connection.readOnly = true;
+            if (connection.context.claims.permission === 'write') {
+              connection.sendStateless(JSON.stringify({ type: 'degraded', code: COLLABORATION_CHECKPOINT_ERROR_CODES.quarantined,
+                message: 'The document is read-only. Reconnect to open its diagnosis.' }));
+              connection.close({ code: 1013, reason: 'Collaboration diagnosis requires rejoin' });
+            }
+          }
+          connection.context.workspace = access.workspace;
+          return;
+        } catch (error) {
+          if (error instanceof AuthenticatedNativeSessionTransportError && error.code === 'NATIVE_TRANSPORT_QUARANTINED') {
+            connection.readOnly = true;
+            connection.sendStateless(JSON.stringify({ type: 'degraded', code: COLLABORATION_CHECKPOINT_ERROR_CODES.quarantined,
+              message: 'The document is read-only. Reconnect to open its diagnosis.' }));
+            connection.close({ code: 1013, reason: 'Collaboration diagnosis requires rejoin' });
+            return;
+          }
+          throw error;
+        }
+      }
       const access = await revalidateCollaborationAccess(connection.context.claims);
       if (!connection.document.hasConnection(connection)) throw new Error('Collaboration connection is closed.');
       if (isCollaborationStateQuarantined(access.state)) connection.readOnly = true;
@@ -640,21 +684,89 @@ export function createCollaborationServer(server: http.Server, options: {
       }));
       connection.close({ code: 4403, reason: 'Collaboration access revoked' });
     },
+    isTransient: isAuthenticatedNativeSessionTransportBusy,
   });
-  server.once('close', () => accessMonitor.dispose());
+  // Retain this concrete frame while genuine pre-callback peer contention
+  // clears. Each attempt mints and finishes a fresh phase; no write authority
+  // is saved. Exhaustion closes the actual socket so its state-vector handshake
+  // can recover a locally retained one-shot update on a fresh connection.
+  const retryNativePeerCheck = async <T>(connection: Connection<CollaborationContext>, operation: () => Promise<T>): Promise<T> => {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        if (connection.context.nativePeer && (nativeClosing || !connection.document.hasConnection(connection))) {
+          throw new Error('Collaboration connection is closed.');
+        }
+        return await operation();
+      } catch (error) {
+        if (!connection.context.nativePeer || !isAuthenticatedNativeSessionTransportBusy(error)) throw error;
+        if (attempt === 2) {
+          connection.webSocket.close(1013, 'Collaboration peer busy; reconnect to synchronize');
+          throw error;
+        }
+        await new Promise<void>(resolve => setTimeout(resolve, 25));
+      }
+    }
+  };
+  const shutdownNativePeers = async () => {
+    nativeClosing = true;
+    await accessMonitor.dispose();
+    await Promise.allSettled([...nativeCleanups].map(cleanup => cleanup()));
+    disposeMobileCollaborationTickets();
+  };
+  server.once('close', () => { void shutdownNativePeers().catch(() => { console.error('[Collaboration] Peer shutdown cleanup failed.'); }); });
   const hocuspocus = new Hocuspocus<CollaborationContext>({
     debounce: 350,
     maxDebounce: 2_000,
     timeout: 30_000,
     async onAuthenticate({ token, documentName, request, requestHeaders, connectionConfig }) {
       if (!liveCollaborationRuntimeAvailable()) throw new Error('Collaboration requires Postgres.');
+      // Captured from the actual upgrade request before any authentication await.
+      const originalRequest = new NextRequest(request.url, { method: request.method, headers: new Headers(requestHeaders) });
+      let ownedTransport: AuthenticatedNativeSessionTransport | undefined;
+      let nativePeer: ReturnType<typeof createAuthenticatedNativePeer> | undefined;
+      let nativeContext: CollaborationContext | undefined;
+      // Hocuspocus spreads context additions into a new object. This private
+      // nested ownership record survives that copy and binds the actual watch.
+      const nativePeerLifetime: NonNullable<CollaborationContext['nativePeerLifetime']> = { connected: false };
+      let cleaning = false, cleanup: Promise<void> | undefined;
+      const cleanupNativePeer = (): Promise<void> => {
+        if (cleanup) return cleanup;
+        cleaning = true;
+        cleanup = (async () => {
+          await nativePeerLifetime.stopAccessWatch?.();
+          if (nativePeer) await nativePeer.dispose();
+          else if (ownedTransport) await disposeAuthenticatedNativeSessionTransport(ownedTransport);
+        })().finally(() => {
+          if (nativePeer) nativePeers.delete(nativePeer);
+          if (nativeContext) pendingNative.get(request)?.delete(nativeContext);
+          nativeCleanups.delete(cleanupNativePeer);
+          request.signal.removeEventListener('abort', abortNativePeer);
+        });
+        return cleanup;
+      };
+      const abortNativePeer = () => { void cleanupNativePeer().catch(() => { console.error('[Collaboration] Peer abort cleanup failed.'); }); };
+      try {
       const protocols = requestHeaders.get('sec-websocket-protocol')
         ?.split(',')
         .map((value) => value.trim()) ?? [];
-      const mobileIdentity = protocols.includes(MOBILE_COLLABORATION_WEBSOCKET_PROTOCOL)
+      const mobileProtocol = protocols.includes(MOBILE_COLLABORATION_WEBSOCKET_PROTOCOL);
+      const mobileIdentity = mobileProtocol
         ? consumeMobileCollaborationTicket(token)
         : null;
-      const claims = mobileIdentity?.claims ?? verifyCollaborationTicket(token);
+      ownedTransport = mobileIdentity?.authenticatedTransport;
+      if (ownedTransport) nativeCleanups.add(cleanupNativePeer);
+      if (mobileProtocol && !mobileIdentity) throw new Error('Mobile collaboration ticket is no longer available.');
+      const claims = Object.freeze({ ...(mobileIdentity?.claims ?? verifyCollaborationTicket(token)) });
+      const native = authenticatedNativeTextSessionEnabled() && !claims.guestInvitationId
+        && claims.provider === 'yjs' && claims.representation !== 'excalidraw_scene';
+      if (ownedTransport && !native) throw new Error('Native collaboration ticket cannot join this provider.');
+      if (native && (!roomOwners || mobileProtocol && !ownedTransport || nativeClosing)) {
+        throw new Error('Native collaboration requires its original authentication and held room runtime.');
+      }
+      if (native) {
+        nativeCleanups.add(cleanupNativePeer);
+        request.signal.addEventListener('abort', abortNativePeer, { once: true });
+      }
       if (claims.documentId !== documentName) throw new Error('Collaboration document scope mismatch.');
       request.signal.throwIfAborted();
       let releaseRoomAdmission: (() => void) | null = null;
@@ -699,7 +811,7 @@ export function createCollaborationServer(server: http.Server, options: {
         } else if (mobileIdentity) {
           authenticatedUser = mobileIdentity.user;
         } else {
-          const session = await auth.api.getSession({ headers: requestHeaders });
+          const session = await auth.api.getSession({ headers: originalRequest.headers });
           const sessionId = String((session?.session as { id?: string } | undefined)?.id || '');
           if (!session || session.user.id !== claims.userId || sessionId !== claims.sessionId) {
             throw new Error('Collaboration session is no longer authenticated.');
@@ -714,9 +826,50 @@ export function createCollaborationServer(server: http.Server, options: {
         if (authenticatedUser.id !== claims.userId) {
           throw new Error('Collaboration ticket user scope mismatch.');
         }
-        const access = await resolveCollaborationSessionAccess(claims);
-        const workspace = access.workspace;
-        authenticatedUser = { ...access.user, name: access.user.name || access.user.email || 'User' };
+        let workspace: WorkspaceContext;
+        if (native) {
+          if (!ownedTransport) {
+            const captured = await executeLifecycleTransaction({ openConnection: openDb,
+              execute: async database => {
+                const transport = await captureAuthenticatedNativeSessionTransportOnConnection(database, originalRequest,
+                  { workspaceId: claims.workspaceId, maxPermission: claims.permission === 'write' ? 'canWrite' : 'canRead' });
+                if (cleaning || request.signal.aborted || nativeClosing) {
+                  await disposeAuthenticatedNativeSessionTransport(transport); throw new Error('Native connection startup was cancelled.');
+                }
+                // Retain the actual minted cap BEFORE COMMIT/close can fail.
+                ownedTransport = transport;
+                return transport;
+              },
+              recoverCommitted: async transport => { await disposeAuthenticatedNativeSessionTransport(transport); throw new Error('Native enrollment commit could not be confirmed.'); },
+            });
+            if (cleaning || request.signal.aborted || nativeClosing) {
+              await disposeAuthenticatedNativeSessionTransport(captured); throw new Error('Native connection startup was cancelled.');
+            }
+            ownedTransport = captured;
+          }
+          const enrolled = ownedTransport;
+          const joined = await executeLifecycleTransaction({ openConnection: openDb, execute: database => {
+            const consume = async (snapshot: ExistingNativeSessionIdentity, access: Parameters<typeof assertAuthenticatedNativePeerClaims>[2]) => {
+              const identity = Object.freeze({ documentId: snapshot.documentId, lineageId: snapshot.lineageId, workspaceId: snapshot.workspaceId,
+                organizationId: snapshot.organizationId, path: snapshot.path, lifecycleGeneration: snapshot.lifecycleGeneration,
+                representation: snapshot.representation, schemaVersion: snapshot.schemaVersion });
+              assertAuthenticatedNativePeerClaims(claims, identity, access);
+              return { identity, workspace: access.workspace };
+            };
+            return claims.permission === 'read'
+              ? withAuthenticatedNativeSessionReadJoinTransportOnConnection(database, enrolled, { path: claims.path }, (session, access) => consume(session.snapshot, access))
+              : withAuthenticatedNativeSessionTransportOnConnection(database, enrolled, { permission: 'canRead', path: claims.path }, (session, access) => consume(session.snapshot, access));
+          }, recoverCommitted: async () => { throw new Error('Native join commit could not be confirmed.'); } });
+          if (cleaning || nativeClosing) throw new Error('Native connection startup was cancelled.');
+          request.signal.throwIfAborted();
+          workspace = joined.workspace;
+          nativePeer = createAuthenticatedNativePeer({ transport: enrolled, claims, identity: joined.identity });
+          nativePeers.add(nativePeer);
+        } else {
+          const access = await resolveCollaborationSessionAccess(claims);
+          workspace = access.workspace;
+          authenticatedUser = { ...access.user, name: access.user.name || access.user.email || 'User' };
+        }
         releaseRoomAdmission = await withWorkspaceMutationLock(
           claims.workspaceId,
           async () => {
@@ -736,7 +889,7 @@ export function createCollaborationServer(server: http.Server, options: {
           email: authenticatedUser.email,
         });
         if (startupActivity) startupPhases.set(startupActivity, 'authenticated');
-        return {
+        const context: CollaborationContext = {
           claims,
           workspace,
           user: {
@@ -755,17 +908,26 @@ export function createCollaborationServer(server: http.Server, options: {
           observedDocumentSequence: null,
           releaseRoomAdmission,
           startupActivity,
+          ...(nativePeer ? { nativePeer, cleanupNativePeer, nativePeerLifetime } : {}),
         };
+        if (nativePeer) {
+          nativeContext = context;
+          const pending = pendingNative.get(request) ?? new Set(); pending.add(context); pendingNative.set(request, pending);
+        }
+        return context;
       };
       try { return startupActivity ? await startupActivity.run(authenticate) : await authenticate(); }
       catch (error) { startupActivity?.finish(); releaseAdmission(); throw error; }
       finally { if (!startupActivity) request.signal.removeEventListener('abort', cancelStartup); }
+      } catch (error) { await cleanupNativePeer(); throw error; }
     },
     async connected({ context, connection }) {
+      if (context.nativePeerLifetime) context.nativePeerLifetime.connected = true;
       let phase: CollaborationStartupPhase = 'connect_access';
       const connect = async () => {
         context.stopAccessWatch = accessMonitor.add(connection);
-        await accessMonitor.check(connection);
+        if (context.nativePeerLifetime) context.nativePeerLifetime.stopAccessWatch = context.stopAccessWatch;
+        await retryNativePeerCheck(connection, () => accessMonitor.check(connection));
         phase = 'connect_state';
         const state = await loadCollaborationState(context.claims.documentId);
         phase = 'connect_identity';
@@ -805,6 +967,7 @@ export function createCollaborationServer(server: http.Server, options: {
         }, error);
         connection.readOnly = true;
         connection.close();
+        await context.cleanupNativePeer?.();
         throw error;
       } finally {
         context.startupActivity?.finish();
@@ -849,6 +1012,7 @@ export function createCollaborationServer(server: http.Server, options: {
         // is a no-op, so explicitly destroy even a pre-claim failure's Doc.
         await roomOwners?.release(document).catch(() => undefined);
         document.destroy();
+        await context?.cleanupNativePeer?.();
         throw error;
       }
     },
@@ -870,7 +1034,7 @@ export function createCollaborationServer(server: http.Server, options: {
     },
     async beforeHandleMessage({ update, connection }) {
       if (update.byteLength > MAX_UPDATE_BYTES) rejectCollaborationUpdate(connection, 'Diese Änderung überschreitet die Nachrichtengröße von 1 MiB. Lade eine lokale Kopie herunter und öffne die Datei erneut.');
-      await accessMonitor.check(connection);
+      await retryNativePeerCheck(connection, () => accessMonitor.check(connection));
     },
     async afterHandleMessage({ connection }) {
       const release = messageMutationLeases.get(connection);
@@ -889,9 +1053,26 @@ export function createCollaborationServer(server: http.Server, options: {
         activity?.assertOpen();
         assertRoomIdentity(document, context.claims);
         // Access can be revoked while queued behind another connection.
-        if (release) await accessMonitor.check(connection);
+        if (release) await retryNativePeerCheck(connection, () => accessMonitor.check(connection));
         activity?.assertOpen();
         roomOwners?.fence(document);
+        if (release && context.nativePeer) {
+          if (!roomOwners) throw new CollaborationRoomOwnerError('ROOM_OWNER_LOST');
+          try { await retryNativePeerCheck(connection, () => context.nativePeer!.authorizeWrite(roomOwners!.fence(document))); }
+          catch (error) {
+            if (error instanceof AuthenticatedNativeSessionTransportError && error.code === 'NATIVE_TRANSPORT_QUARANTINED') {
+              connection.readOnly = true;
+              connection.sendStateless(JSON.stringify({ type: 'degraded', code: COLLABORATION_CHECKPOINT_ERROR_CODES.quarantined,
+                message: 'The document is read-only. Reconnect to open its diagnosis.' }));
+              connection.close({ code: 1013, reason: 'Collaboration diagnosis requires rejoin' });
+            }
+            throw error;
+          }
+          activity?.assertOpen();
+          assertRoomIdentity(document, context.claims);
+          roomOwners.fence(document);
+          if (!document.hasConnection(connection)) throw new Error('Collaboration connection is closed.');
+        }
         if (context.claims.guestInvitationId && context.claims.permission === 'write' && release) {
           if (context.claims.representation === 'excalidraw_scene') throw new Error('Guest documents must be Markdown.');
           try { assertFileGuestUpdateAllowed(document, payload, context.claims.representation); }
@@ -1029,7 +1210,8 @@ export function createCollaborationServer(server: http.Server, options: {
     async onDisconnect({ context, document }) {
       context?.startupActivity?.finish();
       context?.releaseRoomAdmission?.();
-      context?.stopAccessWatch?.();
+      await context?.stopAccessWatch?.();
+      await context?.cleanupNativePeer?.();
       if (context) context.releaseRoomAdmission = null;
       if (!context || document.getConnectionsCount() > 0) return;
       replaceDocumentPresence(context.claims.workspaceId, context.claims.documentId, []);
@@ -1293,7 +1475,7 @@ export function createCollaborationServer(server: http.Server, options: {
           phase: 'create_document', documentId: args[0], generation: args[4]?.claims?.lifecycleGeneration,
         }, error);
         try { if (loaded) await hocuspocus.unloadDocument(loaded); }
-        finally { startup.finish(); }
+        finally { startup.finish(); await args[4]?.cleanupNativePeer?.(); }
         throw error;
       }
     };
@@ -1662,7 +1844,7 @@ export function createCollaborationServer(server: http.Server, options: {
   }, 30_000);
   turnRecovery.unref();
   wss.once('close', () => clearInterval(turnRecovery));
-  wss.once('close', () => accessMonitor.dispose());
+  wss.once('close', () => { void shutdownNativePeers().catch(() => { console.error('[Collaboration] Peer shutdown cleanup failed.'); }); });
   server.on('upgrade', (request, socket, head) => {
     const nextUrl = normalizedPath(request.url);
     if (!nextUrl) return;
@@ -1686,6 +1868,12 @@ export function createCollaborationServer(server: http.Server, options: {
               const address = decoding.readVarString(decoder).split('\0', 1)[0];
               if (decoding.readVarUint(decoder) === MessageType.Auth
                 && decoding.readVarUint(decoder) === AuthMessageType.PermissionDenied) {
+                for (const context of pendingNative.get(collaborationRequest) ?? []) {
+                  if (context.claims.documentId === address && !context.nativePeerLifetime?.connected
+                    && (!context.startupActivity || startupPhases.get(context.startupActivity) === 'authenticated')) {
+                    void context.cleanupNativePeer?.().catch(() => { console.error('[Collaboration] Peer setup cleanup failed.'); });
+                  }
+                }
                 // A closed socket can delete Hocuspocus's hook context after
                 // auth but before createDocument. Other phases finish in their
                 // own catch/disconnect; never settle a parallel loaded attempt.

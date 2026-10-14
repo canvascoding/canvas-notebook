@@ -879,6 +879,8 @@ Die öffentliche Upload-Dateiantwort besitzt jetzt einen expliziten [Serializer]
 
 Die [enge Reparatur der aktiven PostgreSQL-Lease](./yjs-postgres-active-lease-evidence.md) verhindert einen tatsächlichen Prozessabbruch durch Clientfehler zwischen Abfragen. Die vorab kritische Core-Reichweite bleibt dokumentiert; der Produktdiff ist auf `openPostgresDb` begrenzt, Pool- und Lifecycle-Kern bleiben bytegleich. Root bestätigt 15 echte PG-/Lease-Gruppen, bestehende Poolregressionen, Lifecycle8, runtime-only, cachefreies integriertes TypeScript, Lint und Autorenbytes. Eine vorangehende inkrementelle Header-Typdiagnose ist auf unveränderten Bytes frisch nicht reproduzierbar und führt zu keinem Produktdiff. Native Aktivierung und gemeinsame Browserabnahme bleiben offen.
 
+Der [authentifizierte native Socketanschluss](./yjs-authenticated-native-websocket-evidence.md) bindet tatsächliche Web-Upgrades und private Mobile-Einmaltickets an frische feste Peerphasen. Vollständige Schreibautorisierung schließt vor Roomapply; fehlgeschlagene Final-/COMMIT-/Close-/Owner-/Disconnect-/Timeoutfälle verändern Room, Remote und Store nicht. Root bestätigt 23 tatsächliche Netzwerk-/PG-/Auth-/Owner-/Store-Gruppen auf dem neuen Core, beide Legacy-Serverregressionen, frisches TypeScript/Lint, unabhängige Review und sechs bytegleiche Autorendateien. HTTP und Socket bleiben am gemeinsamen deaktivierten Gate; tatsächliche gemeinsame Browser- und Native-Mobile-Abnahme steht aus.
+
 ## 17. Änderungs- und Nachweisprotokoll
 
 | Datum | Änderung | Nachweis/Status |

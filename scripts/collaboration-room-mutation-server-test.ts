@@ -187,7 +187,13 @@ async function main() {
   const server = {} as typeof Server;
   new Function('require', 'module', 'exports', compiled.outputText)((name: string) => {
     if (name === '@/app/lib/db') return { openDb: async () => ({
-      run: async (sql: string) => { assert.ok(['BEGIN READ ONLY', 'ROLLBACK'].includes(sql)); },
+      run: async (sql: string) => { assert.ok(['BEGIN', 'BEGIN READ ONLY', 'COMMIT', 'ROLLBACK',
+        "SET LOCAL statement_timeout = '5s'", "SET LOCAL lock_timeout = '4s'"].includes(sql)); },
+      all: async (sql: string) => {
+        if (sql === 'SELECT pg_try_advisory_xact_lock($1::bigint) AS locked') return [{ locked: true }];
+        assert.match(sql, /SELECT (?:s\.request_id FROM collaboration_admission_scopes|request_id FROM collaboration_admission_targets)/u);
+        return [];
+      },
       get: async (sql: string, params: unknown[]) => {
         assert.match(sql, /requested_mode='direct_apply'/u);
         assert.match(sql, /operation_type='apply'/u);
@@ -284,6 +290,10 @@ async function main() {
     if (name.endsWith('/diagnostics')) return { logCollaborationDiagnostic() {} };
     if (name.endsWith('/server-runtime')) return { Y };
     if (name.endsWith('/state-proof') || name.endsWith('/failure')) return load(name);
+    if (name.endsWith('/room-admission') || name.endsWith('/file-lifecycle-writer-admission')
+      || name.endsWith('/file-lifecycle-admission-context')) return load(name);
+    if (name.endsWith('/native-text-session-activation')) return load(name);
+    if (name.endsWith('/mobile/collaboration-ticket')) return { disposeMobileCollaborationTickets() {} };
     if (name.startsWith('@/')) return {};
     return load(name);
   }, { exports: server }, server);
