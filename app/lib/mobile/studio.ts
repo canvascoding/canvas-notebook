@@ -20,6 +20,7 @@ import {
   getAspectRatiosForProvider,
   getDefaultOpenAIImageSize,
   getOpenAIImageAspectRatio,
+  getOpenAIImageModelCapabilities,
   getDefaultModelForProvider,
   getImageSizesForModel,
   getMaxImageCountForProvider,
@@ -199,7 +200,10 @@ export function parseMobileStudioGenerationRequest(value: unknown): StudioGenera
   const providers = MODE_PROVIDERS[mode];
   const provider = enumValue(value.provider, providers, providers[0], 'Provider');
   const models = getModelsForProvider(mode, provider).map((model) => model.id);
-  const model = enumValue(value.model, models, getDefaultModelForProvider(mode, provider), 'Model');
+  const model = mode === 'image' && provider === 'openai'
+    ? getOpenAIImageModelCapabilities(optionalString(value.model, 'Model', 180) || getDefaultModelForProvider(mode, provider))?.modelId
+    : enumValue(value.model, models, getDefaultModelForProvider(mode, provider), 'Model');
+  if (!model) throw new MobileStudioError('The selected image model is not supported.', 400, 'UNSUPPORTED_STUDIO_OPTION');
   const aspectRatios = getAspectRatiosForProvider(mode, provider);
   let aspectRatio = mode === 'sound'
     ? '1:1'
@@ -251,9 +255,9 @@ export function parseMobileStudioGenerationRequest(value: unknown): StudioGenera
   const outputCompression = provider === 'openai'
     ? integerValue(value.outputCompression, 100, 0, 100, 'Output compression')
     : undefined;
-  const inputFidelity = provider === 'openai'
-    ? enumValue(value.inputFidelity, OPENAI_INPUT_FIDELITY_OPTIONS, 'low', 'Input fidelity')
-    : undefined;
+  if (provider === 'openai' && value.inputFidelity !== undefined) {
+    enumValue(value.inputFidelity, OPENAI_INPUT_FIDELITY_OPTIONS, 'low', 'Input fidelity');
+  }
   const stream = provider === 'openai' ? booleanValue(value.stream, false) : undefined;
   const partialImages = provider === 'openai' && value.partialImages !== undefined
     ? integerValue(value.partialImages, 0, 0, 3, 'Partial images')
@@ -322,7 +326,6 @@ export function parseMobileStudioGenerationRequest(value: unknown): StudioGenera
     background,
     moderation,
     output_compression: outputFormat === 'jpeg' || outputFormat === 'webp' ? outputCompression : undefined,
-    input_fidelity: inputFidelity,
     stream,
     partial_images: partialImages,
     image_size: imageSize,
@@ -411,6 +414,7 @@ export async function getMobileStudioCatalog(input: {
       models: getModelsForProvider(mode, provider).map((model) => ({
         id: model.id,
         label: modelLabel(model.id),
+        ...(mode === 'image' && provider === 'openai' ? { capabilities: getOpenAIImageModelCapabilities(model.id) } : {}),
         aspectRatios: [...getAspectRatiosForProvider(mode, provider)],
         imageSizes: mode === 'image'
           ? provider === 'openai'
@@ -443,6 +447,7 @@ export async function getMobileStudioCatalog(input: {
       },
       openAIImage: {
         modelId: OPENAI_IMAGE_MODEL_ID,
+        supportsInputFidelity: getOpenAIImageModelCapabilities(OPENAI_IMAGE_MODEL_ID)?.supportsInputFidelity ?? false,
         maxPromptLength: 32_000,
         maxOutputCount: getMaxImageCountForProvider('image', 'openai'),
         maxInputImages: MAX_REFERENCE_COUNT,

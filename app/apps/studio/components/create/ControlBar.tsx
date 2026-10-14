@@ -38,6 +38,7 @@ import {
   getVideoDurationsForModel,
   getImageSizesForModel,
   getMaxImageCountForProvider,
+  getOpenAIImageModelCapabilities,
   getOpenAIImageSizeValidationError,
   normalizeOpenAIImageOutputFormat,
   GEMINI_FLASH_IMAGE_MODEL_ID,
@@ -374,11 +375,13 @@ export function ControlBar({
                   ))}
                 </SelectField>
 
-                <SelectField label="Reference Fidelity" value={inputFidelity} onChange={(value) => onInputFidelityChange(value as OpenAIImageInputFidelity)}>
-                  {OPENAI_INPUT_FIDELITY_OPTIONS.map((option) => (
-                    <option key={option} value={option}>{option.charAt(0).toUpperCase() + option.slice(1)}</option>
-                  ))}
-                </SelectField>
+                {getOpenAIImageModelCapabilities(model)?.supportsInputFidelity ? (
+                  <SelectField label="Reference Fidelity" value={inputFidelity} onChange={(value) => onInputFidelityChange(value as OpenAIImageInputFidelity)}>
+                    {OPENAI_INPUT_FIDELITY_OPTIONS.map((option) => (
+                      <option key={option} value={option}>{option.charAt(0).toUpperCase() + option.slice(1)}</option>
+                    ))}
+                  </SelectField>
+                ) : null}
 
                 {(openAIOutputFormat === 'jpeg' || openAIOutputFormat === 'webp') ? (
                   <label className="flex min-w-0 flex-col gap-1 text-sm">
