@@ -2,7 +2,7 @@
 
 **Status:** Umsetzung am 13. Oktober 2026 freigegeben; Arbeitspakete und Abnahmen werden unten fortgeschrieben.
 
-**Stand:** 13. Oktober 2026.
+**Stand:** 14. Oktober 2026.
 
 **Quellcode-Basis:** `84f12e4ea7b541fc53d535fb0e0f857597c02e23`.
 
@@ -28,6 +28,8 @@ Die Produktionslogs und anschließend die angemeldete Browserprüfung bestätigt
 - Es wurden keine Produktionsinhalte repariert, gelöscht oder überschrieben.
 
 Die konkrete Struktur, die den Roundtrip des Transkripts scheitern lässt, wurde noch nicht aus einem vollständigen Yjs-Snapshot isoliert. Sie ist eine offene Diagnoseaufgabe. Insbesondere ist weder ein Größenproblem noch ein bestimmter Mark-Konflikt belegt.
+
+Die erneute lesende Produktionsprüfung am 14. Oktober bestätigt dieselbe Blockade. Die bestehende Chrome-Anmeldung liefert für den Datei-GET weiterhin `COLLABORATION_ROUNDTRIP_UNSTABLE`; der separate Location-GET ordnet die aktuelle Dokument-ID eindeutig dem Transkript im gleichen Workspace zu, Generation 1 und `tiptap_blocks`. Die sichtbaren Browserantworten sind kein Netzwerk-Mitschnitt oder HTTP-Statusnachweis. 100 tatsächlich gelesene Control-Plane-Ereignisse vom selben Tag, 10:36:44.801 bis 18:52:14.542 UTC, tragen genau diese Workspace-/Dokument-/Generationsbindung: `projection_failed` in `snapshot_validate`, `roundtrip_unstable`, Dokumentsequenz 6, Checkpointsequenz 0, Versuche 447–546 und `permanent:false`. Die ursprünglichen Yjs-Bytes und ein aktueller SQL-Snapshot wurden weiterhin nicht gewonnen: Der einmalige neue begrenzte SSH-Leseversuch endete ohne Output mit Timeout. Die privaten Belege enthalten keine Reparaturfreigabe; Produktionsinhalte wurden nicht verändert.
 
 ### 1.2 Was dieser Fall architektonisch zeigt
 
@@ -920,5 +922,6 @@ Der [gemeinsame native Prozessbesitzer](./yjs-native-runtime-broker-evidence.md)
 | 2026-10-14 | Native Autoritätsprüfung vor dem Suffix-/Office-Dispatch am Datei-Speicherendpunkt integriert. | Root bestätigt 22 echte PG18-/API-/Office-/FS-/Kernel-Familien, TypeScript/Lint und zwölf bytegleiche Kernmodule plus zwei Körper. Allgemeine Writer-/Publikations-, Vollimport- und Lifecycle-Anschlüsse bleiben offen. |
 | 2026-10-14 | Bedienabläufe für neue Notiz, gewöhnlichen Text-Paste, bewusste Markdown-Einfügung und vollständigen Dateimport im Anschlussplan zusammengefasst; Cursor-/Wiederholungs-/Abbruchfälle ergänzt und I-03b-Fortschrittstext aktualisiert. | §8.5/§12.3/§13.3 bleiben verbindlich. Parallele lesende Planprüfung bestätigt die drei Alltagswege; die erweiterte Browser-/Import-/Geräteabnahme bleibt offen. |
 | 2026-10-14 | Gemeinsamen privaten nativen Runtimebesitzer für Next-/Raw-Modulkopien übernommen; echte Request-/Reader-/Principalfehler-Brücken erhalten die bisherigen Guards und sauberen Readretry. | Root bestätigt unabhängig 36 echte PG/Auth/Source-POST-Familien plus fünf inkompatible Slots und frisches TypeScript/Lint; neuer Compiled-Mobile-/Browsernachweis und Produktaktivierung offen. |
+| 2026-10-14 | Ursprüngliche Produktionsblockade erneut über die vorhandene Chrome-Anmeldung und aktuelle Control-Plane-Logs lesend geprüft. | Aktuelle Pfad-/Dokument-/Generationsbindung plus 100 zugehörige Projektionsfehler bestätigt; Originalbinary, konkrete Codecursache und Reparatur weiterhin offen. Ein SSH-Timeout, keine Produktionsmutation. |
 
 Für spätere Einträge: Entscheidung/Arbeitspaket, relevante Commit-Basis, Begründung, geprüfte Ebenen, Ergebnis und bekannte Grenzen aufnehmen. Historische Aussagen in den bisherigen Plänen werden nicht rückwirkend als neue Produktionsabnahme interpretiert.
