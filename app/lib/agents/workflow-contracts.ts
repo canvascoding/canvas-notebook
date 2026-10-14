@@ -77,12 +77,18 @@ export type AgentWorkflowDescriptor = { agentId: string; revision: number; workf
       required: boolean; selectionMode: 'fixed' | 'selectable'; choices: Array<{ choiceId: string; kind: 'shared' | 'personal' } & AgentWorkflowConnectionOption>;
       selectedConnection?: AgentWorkflowConnectionOption;
       selectionOrigin: 'fixed' | 'default' | 'user' | 'stale'; selectedKind: 'shared' | 'personal' | null;
-      selectedChoiceId: string | null; personalChoiceAllowed: boolean }> }> }> };
+      selectedChoiceId: string | null; personalChoiceAllowed: boolean }> }> }>;
+  standalone?: Array<{ capabilityKey: string; source: 'mcp' | 'composio'; toolkit?: string; required: boolean;
+    selectionMode: 'fixed' | 'selectable'; selectionOrigin: 'fixed' | 'default' | 'user' | 'stale' | 'missing';
+    selectedChoiceId: string | null; selectedConnection?: AgentWorkflowConnectionOption; selectedSelection?: StandaloneExtensionSelection;
+    choices: Array<{ choiceId: string; selection?: StandaloneExtensionSelection; toolCap: string[] | null } & AgentWorkflowConnectionOption>;
+    personalPolicy?: z.infer<typeof import('@/app/lib/capabilities/extensions/contracts').agentStandalonePersonalPolicySchema> }> };
 export type AgentWorkflowPreparedDeclaration = WorkflowDeclaration;
 export type UpdateManagedAgentConfigurationInput = { actor: AgentManagementActor; agentId: string; expectedRevision: number;
   expectedWorkflowRevision?: number; name?: string | null; iconId?: string | null; enabledTools?: string[] | null;
   defaultProviderInstallationId?: unknown; defaultProvider?: unknown; defaultModel?: unknown; defaultThinking?: unknown;
   expectedCatalogRevision?: unknown; workflow?: AgentWorkflowConfiguration | null;
+  extensions?: import('@/app/lib/capabilities/extensions/contracts').AgentExtensionConfigurationInput;
   capabilities?: AgentCapabilitySelection[] | null; relevantSkills?: string[] | null; relevantConnections?: string[] | null };
 
 export class AgentWorkflowError extends Error {

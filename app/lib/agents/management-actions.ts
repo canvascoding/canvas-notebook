@@ -70,6 +70,10 @@ import { openDb, type SqlConnection } from '@/app/lib/db';
 import { isAgentActorContextError, resolveVerifiedAgentActorContextOnConnection } from '@/app/lib/agents/actor-context';
 import { isOrganizationAdminLike, readOrganizationPermissionForUser } from '@/app/lib/organization/permissions';
 import { assertBrowserToolCanBeEnabled } from '@/app/lib/pi/browser/settings-service';
+import { createAgentConfigurationSchema } from './workflow-api-contracts';
+import type { AgentExtensionConfigurationInput } from '@/app/lib/capabilities/extensions/contracts';
+import { withManagedAgentCreationLease } from './creation-lifecycle';
+import { WorkspaceMutationLockError } from '@/app/lib/secrets/file-mutation-lock';
 
 export type AgentManagementSource = 'api' | 'tool' | 'ui' | 'system';
 
@@ -112,6 +116,7 @@ export type CreateManagedAgentInput = {
     canEdit?: boolean;
     canManage?: boolean;
   }> | null;
+  extensions?: AgentExtensionConfigurationInput;
 };
 
 export type AgentReadinessEntry = {
@@ -498,9 +503,9 @@ export async function listManagedAgents(actor: AgentManagementActor,
 export async function inspectManagedAgent(
   actor: AgentManagementActor,
   agentId: string,
-  options: { includeFiles?: boolean; includeAccess?: boolean } = {},
+  options: { includeFiles?: boolean; includeAccess?: boolean; purpose?: 'use' | 'configure' } = {},
 ) {
-  const profile = await requireProfile(actor, agentId, 'canUse');
+  const profile = await requireProfile(actor, agentId, options.purpose === 'configure' ? 'canEdit' : 'canUse');
   const access = await getAgentAccess(actor.userId, profile.agentId, accessContext(actor));
   const [bindings, snapshot] = await Promise.all([
     listAgentCapabilityBindings(profile.agentId),
@@ -512,18 +517,76 @@ export async function inspectManagedAgent(
     canInspectFiles ? readManagedAgentFiles(profile.agentId, storageScope(profile, actor)) : Promise.resolve(undefined),
     canInspectAccess && profile.scopeType === 'organization' ? listAgentGrants(profile.agentId) : Promise.resolve(undefined),
   ]);
+  const { inspectManagedAgentExtensions } = await import('./extension-inspection');
+  const extensions = await inspectManagedAgentExtensions(actor, profile.agentId);
+  if (extensions.revision !== profile.revision || extensions.workflowRevision !== (profile.workflowRevision ?? 0)) {
+    throw new AgentManagementError('AGENT_WORKFLOW_REVISION_CONFLICT', 'The agent configuration changed. Reload it before editing.', 409);
+  }
   return {
     agent: profile,
     access,
     bindings,
-    readiness: readinessForBindings(bindings, snapshot),
+    readiness: profile.workflowVersion !== null ? extensions.readiness : readinessForBindings(bindings, snapshot),
     files,
     grants,
+    extensions,
   };
 }
 
 export async function createManagedAgent(actor: AgentManagementActor, input: CreateManagedAgentInput) {
+  input = createAgentConfigurationSchema.parse(input);
   actor = await verifiedManagementActor(actor);
+  return withManagedAgentCreationLease(input, () => createManagedAgentWithCreationLease(actor, input));
+}
+
+async function createManagedAgentWithCreationLease(actor: AgentManagementActor, input: CreateManagedAgentInput) {
+  if (input.extensions === undefined && !['capabilities', 'relevantSkills', 'relevantConnections'].some(key => Object.hasOwn(input, key))) {
+    input = { ...input, extensions: { version: 1, origin: 'agent_configuration', mode: 'fixed', selections: [], workflow: null, standalone: [] } };
+  }
+  if (input.extensions !== undefined) {
+    const { createManagedAgentExtensionConfiguration } = await import('./workflow-configuration');
+    const { inspectManagedAgentExtensions } = await import('./extension-inspection');
+    let initialized: AgentProfile | null = null;
+    let committed = false;
+    let precommitAbortConfirmed = false;
+    try {
+      const profile = await createManagedAgentExtensionConfiguration(actor, input, async candidate => {
+        initialized = candidate;
+        await writeInitialFiles(candidate, actor, normalizedFiles(input.files));
+      }, () => { precommitAbortConfirmed = true; });
+      committed = true;
+      await auditAgentAction({ actor, profile, agentId: profile.agentId, action: 'agent.create',
+        input: { name: profile.name, scopeType: profile.scopeType, extensionMode: input.extensions.mode },
+        output: { agentId: profile.agentId, revision: profile.revision, workflowRevision: profile.workflowRevision } });
+      const bindings = await listAgentCapabilityBindings(profile.agentId);
+      const extensions = await inspectManagedAgentExtensions(actor, profile.agentId);
+      return { agent: profile, access: { canUse: true, canEdit: true, canManage: true }, bindings,
+        readiness: extensions.readiness, extensions };
+    } catch (error) {
+      if (initialized && !committed) {
+        if (!precommitAbortConfirmed) {
+          throw new AgentManagementError('AGENT_CREATE_OUTCOME_UNKNOWN',
+            'The creation result could not be confirmed. Reload the agent list before trying again.', 409);
+        }
+        // A COMMIT/close error can arrive after the transaction really committed.
+        // After a confirmed pre-commit abort, also check fresh absence under the
+        // global storage lease. A live row or an unreadable DB is uncertain.
+        let absent: boolean;
+        try { absent = await getAgentProfile((initialized as AgentProfile).agentId) === null; }
+        catch { absent = false; }
+        if (!absent) {
+          throw new AgentManagementError('AGENT_CREATE_OUTCOME_UNKNOWN',
+            'The creation result could not be confirmed. Reload the agent list before trying again.', 409);
+        }
+        await deleteManagedAgentDefinitionStorage((initialized as AgentProfile).agentId, storageScope(initialized, actor)).catch(() => undefined);
+        if ((initialized as AgentProfile).scopeType === 'organization') {
+          await deleteManagedAgentDefinitionStorage((initialized as AgentProfile).agentId,
+            { organizationId: (initialized as AgentProfile).organizationId, userId: actor.userId, agentScopeType: 'user', ownerUserId: actor.userId }).catch(() => undefined);
+        }
+      }
+      throw error;
+    }
+  }
   const scopeType = input.scopeType === 'organization' ? 'organization' : 'user';
   const { organizationId: actorOrganizationId } = await actorOrganization(actor);
   const organizationId = scopeType === 'organization'
@@ -864,6 +927,7 @@ export async function previewManagedAgentDeletion(actor: AgentManagementActor, a
       impacts,
       confirmationToken: createAgentDeleteConfirmationToken({
         agentId: profile.agentId,
+        agentProfileId: profile.id,
         actorUserId: actor.userId,
         revision: profile.revision,
       }),
@@ -880,16 +944,28 @@ export async function deleteManagedAgent(input: {
   expectedRevision: number;
   confirmationToken: string;
 }) {
+  const captured = structuredClone(input);
+  return withManagedAgentCreationLease({ name: captured.agentId, agentId: captured.agentId },
+    () => deleteManagedAgentWithCreationLease(captured));
+}
+
+async function deleteManagedAgentWithCreationLease(input: {
+  actor: AgentManagementActor; agentId: string; expectedRevision: number; confirmationToken: string;
+}) {
   const profile = await requireProfile(input.actor, input.agentId, 'canManage');
   if (profile.agentId === DEFAULT_MANAGED_AGENT_ID || !profile.removable) {
     throw new AgentManagementError('AGENT_MAIN_PROTECTED', 'Bradley cannot be deleted.', 403);
   }
   ensureExpectedRevision(profile, input.expectedRevision);
-  verifyAgentDeleteConfirmationToken(input.confirmationToken, {
-    agentId: profile.agentId,
-    actorUserId: input.actor.userId,
-    revision: profile.revision,
-  });
+  try {
+    verifyAgentDeleteConfirmationToken(input.confirmationToken, {
+      agentId: profile.agentId, agentProfileId: profile.id,
+      actorUserId: input.actor.userId, revision: profile.revision,
+    });
+  } catch {
+    throw new AgentManagementError('AGENT_DELETE_CONFIRMATION_STALE',
+      'Reload the deletion preview before deleting this agent.', 409);
+  }
   await deleteAgentProfile(profile.agentId, input.expectedRevision);
   await deleteManagedAgentDefinitionStorage(profile.agentId, storageScope(profile, input.actor));
   await auditAgentAction({ actor: input.actor, profile, agentId: profile.agentId, action: 'agent.delete', input: { revision: profile.revision } });
@@ -897,6 +973,11 @@ export async function deleteManagedAgent(input: {
 }
 
 export function managementErrorDetails(error: unknown): { code: string; message: string; status: number; details?: Record<string, unknown> } {
+  if (error instanceof WorkspaceMutationLockError) {
+    // Lock helper stderr may contain private paths; expose only its safe code.
+    return { code: error.code, message: 'Agent storage is busy or unavailable. Try again when it is available.',
+      status: 503, details: { retryable: error.retryable } };
+  }
   if (error instanceof AgentManagementError) {
     return { code: error.code, message: error.message, status: error.status, details: error.details };
   }

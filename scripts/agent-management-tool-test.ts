@@ -146,13 +146,13 @@ async function main() {
         name: 'Updated Marketing Agent',
       },
     });
-    assert.match(text(updateResult), /revision 2/);
+    assert.ok(text(updateResult).includes(`revision ${created.revision + 1}`));
 
     const inspectTool = collapsed.find((tool) => tool.name === 'inspect_agent');
     assert.ok(inspectTool);
     const inspected = await inspectTool.execute('inspect', { agentId: created.agentId, includeFiles: true });
     assert.match(text(inspected), /Updated Marketing Agent/);
-    assert.equal((inspected.details as { agent: { revision: number } }).agent.revision, 2);
+    assert.equal((inspected.details as { agent: { revision: number } }).agent.revision, created.revision + 1);
 
     const preview = await gateway.execute('preview', {
       action: 'call',

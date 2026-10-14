@@ -8,6 +8,8 @@ import { readStoredAgentWorkspaceOnConnection } from '@/app/lib/pi/session-works
 import { assertUserSeatAccess } from '@/app/lib/license/seat-limit';
 import { getAgentAccessOnConnection } from '@/app/lib/agents/access';
 import type { AgentProfile } from '@/app/lib/agents/registry';
+import { EMAIL_MANAGED_AGENT_ID } from '@/app/lib/agents/storage';
+import { resolveVerifiedAgentActorContextOnConnection } from '@/app/lib/agents/actor-context';
 import { schemaFingerprint } from '../schema';
 import { assertSharedIntegrationOwnershipManagement } from './ownership';
 import {
@@ -37,9 +39,49 @@ export type IntegrationConnectionBindingBatch = { readonly connectionRefs: reado
 export type IntegrationConnectionBindingAuthorization = IntegrationConnectionRecord & {
   actor: IntegrationConnectionActor; canUse: boolean; canManage: boolean; allowedToolNames: readonly string[] | null; authorizationRevision: string;
 };
-type BindingBatchState = { database: SqlConnection; actor: IntegrationConnectionBindingActor; entries: IntegrationConnectionRecord[] };
+type BindingBatchState = { database: SqlConnection; actor: IntegrationConnectionBindingActor; entries: IntegrationConnectionRecord[];
+  transactionId: string };
 const batchHost = globalThis as typeof globalThis & { __canvasConnectionBindingBatchesV1?: WeakMap<object, BindingBatchState> };
 const bindingBatches = batchHost.__canvasConnectionBindingBatchesV1 ??= new WeakMap<object, BindingBatchState>();
+
+export type HeldEmailV2BindingConfiguration = Readonly<{ kind: 'held_email_v2_binding_configuration' }>;
+type EmailV2BindingConfiguration = { database: SqlConnection; batch: IntegrationConnectionBindingBatch;
+  agentId: string; revision: number; actorKey: string; organizationId: string; transactionId: string };
+const emailHost = globalThis as typeof globalThis & {
+  __canvasEmailV2BindingConfigurationsV1?: WeakMap<object, EmailV2BindingConfiguration>;
+};
+const emailConfigurations = emailHost.__canvasEmailV2BindingConfigurationsV1 ??= new WeakMap<object, EmailV2BindingConfiguration>();
+
+async function actualEmailTarget(database: SqlConnection, agent: AgentProfile): Promise<Row | null> {
+  if (agent.agentId !== EMAIL_MANAGED_AGENT_ID) return null;
+  const row = await database.get(`SELECT agent_id,type,scope_type,organization_id,owner_user_id,revision,workflow_version,workflow_revision
+    FROM agents WHERE agent_id=$1`, [EMAIL_MANAGED_AGENT_ID]) as Row | undefined;
+  if (!row || row.type !== 'special' || row.scope_type !== 'system' || row.owner_user_id !== null
+    || agent.type !== 'special' || agent.scopeType !== 'system' || agent.ownerUserId !== null
+    || agent.organizationId !== row.organization_id || agent.revision !== Number(row.revision)) {
+    fail('CONNECTION_ACCESS_DENIED', 'The actual email system target changed.', 403);
+  }
+  return row;
+}
+
+/** Private migration intent: only an explicit V2 writer calls this while its real target and source batch are held. */
+export async function prepareEmailV2BindingConfigurationOnConnection(database: SqlConnection, batch: IntegrationConnectionBindingBatch,
+  agent: AgentProfile): Promise<HeldEmailV2BindingConfiguration> {
+  const held = bindingBatches.get(batch);
+  if (!held || held.database !== database) fail('CONNECTION_ACCESS_DENIED', 'A current binding transaction is required.', 403);
+  const transactionId = String((await database.get('SELECT txid_current()::text AS transaction_id') as Row | undefined)?.transaction_id ?? '');
+  if (!transactionId || transactionId !== held.transactionId) fail('CONNECTION_ACCESS_DENIED', 'The binding transaction is no longer held.', 403);
+  const row = await actualEmailTarget(database, agent);
+  const actor = await resolveVerifiedAgentActorContextOnConnection(held.actor, database, { lock: true });
+  if (!row || !actor.organizationId || !['owner', 'admin'].includes(actor.organizationRole ?? '')
+    || row.organization_id !== null && row.organization_id !== actor.organizationId) {
+    fail('CONNECTION_ACCESS_DENIED', 'Current organization administration is required for this V2 email configuration.', 403);
+  }
+  const handle = Object.freeze({ kind: 'held_email_v2_binding_configuration' as const });
+  emailConfigurations.set(handle, { database, batch, agentId: agent.agentId, revision: agent.revision,
+    actorKey: JSON.stringify(held.actor), organizationId: actor.organizationId, transactionId });
+  return handle;
+}
 
 /** Caller owns BEGIN/COMMIT. Lock connection rows before taking any Agent FOR UPDATE lock. */
 export async function lockIntegrationConnectionBindingsOnConnection(database: SqlConnection, input: IntegrationConnectionBindingActor,
@@ -53,16 +95,49 @@ export async function lockIntegrationConnectionBindingsOnConnection(database: Sq
   const entries: IntegrationConnectionRecord[] = [];
   for (const ref of refs) entries.push(await recordOn(database, ref, true));
   const batch = Object.freeze({ connectionRefs: Object.freeze(refs) });
-  bindingBatches.set(batch, { database, actor, entries });
+  const transactionId = String((await database.get('SELECT txid_current()::text AS transaction_id') as Row | undefined)?.transaction_id ?? '');
+  bindingBatches.set(batch, { database, actor, entries, transactionId });
   return batch;
 }
 
 /** Separate binding purpose; never issues an execution proof or invents a persisted session. */
 export async function authorizeIntegrationConnectionBindingsOnConnection(database: SqlConnection, batch: IntegrationConnectionBindingBatch,
-  agent: AgentProfile, purpose: 'configure' | 'read'): Promise<IntegrationConnectionBindingAuthorization[]> {
+  agent: AgentProfile, purpose: 'configure' | 'read',
+  options: { emailV2Configuration?: HeldEmailV2BindingConfiguration } = {}): Promise<IntegrationConnectionBindingAuthorization[]> {
   const held = bindingBatches.get(batch);
   if (!held || held.database !== database || !['configure', 'read'].includes(purpose)) fail('CONNECTION_ACCESS_DENIED', 'A current binding transaction is required.', 403);
   const actor = held.actor;
+  const email = await actualEmailTarget(database, agent);
+  let emailOrganizationId: string | null = null;
+  const marker = options.emailV2Configuration;
+  if (Object.keys(options).some(key => key !== 'emailV2Configuration')) fail('CONNECTION_ACCESS_DENIED', 'Unsupported binding authority.', 403);
+  if (marker !== undefined) {
+    const proof = marker && typeof marker === 'object' ? emailConfigurations.get(marker) : undefined;
+    if (!proof || purpose !== 'configure' || !email || proof.database !== database || proof.batch !== batch
+      || proof.agentId !== agent.agentId || proof.revision !== agent.revision || proof.actorKey !== JSON.stringify(actor)) {
+      fail('CONNECTION_ACCESS_DENIED', 'A genuine current V2 configuration is required.', 403);
+    }
+    const transactionId = String((await database.get('SELECT txid_current()::text AS transaction_id') as Row | undefined)?.transaction_id ?? '');
+    if (!transactionId || transactionId !== proof.transactionId || transactionId !== held.transactionId) {
+      fail('CONNECTION_ACCESS_DENIED', 'The V2 configuration transaction is no longer held.', 403);
+    }
+    emailOrganizationId = proof.organizationId;
+  }
+  const persistedEmailV2 = Boolean(email && email.workflow_version === 2 && Number.isSafeInteger(Number(email.workflow_revision))
+    && Number(email.workflow_revision) >= 1);
+  if (email && (persistedEmailV2 || marker !== undefined)) {
+    const transactionId = String((await database.get('SELECT txid_current()::text AS transaction_id') as Row | undefined)?.transaction_id ?? '');
+    if (!transactionId || transactionId !== held.transactionId) {
+      fail('CONNECTION_ACCESS_DENIED', 'The V2 email binding transaction is no longer held.', 403);
+    }
+    const verified = await resolveVerifiedAgentActorContextOnConnection(actor, database, { lock: true });
+    if (!verified.organizationId || email.organization_id !== null && email.organization_id !== verified.organizationId
+      || purpose === 'configure' && !['owner', 'admin'].includes(verified.organizationRole ?? '')
+      || emailOrganizationId !== null && emailOrganizationId !== verified.organizationId) {
+      fail('CONNECTION_ACCESS_DENIED', 'The current V2 email target context is unavailable.', 403);
+    }
+    emailOrganizationId = verified.organizationId;
+  }
   const agentAccess = await getAgentAccessOnConnection(database, actor.userId, agent.agentId,
     { organizationId: actor.organizationId, workspaceId: actor.workspaceId, projectId: actor.projectId });
   if (!(purpose === 'configure' ? agentAccess.canEdit : agentAccess.canUse)) fail('CONNECTION_ACCESS_DENIED', 'Agent configuration access is not granted.', 403);
@@ -81,7 +156,8 @@ export async function authorizeIntegrationConnectionBindingsOnConnection(databas
     const teamActive = owner.type === 'organization' || Boolean(await database.get("SELECT id FROM canvas_workspaces WHERE id=$1 AND organization_id=$2 AND type='team' AND status='active'", [owner.workspaceId, owner.organizationId]));
     const valid = current.valid && current.contextValid && membership?.status === 'active' && configured?.organization_id === owner.organizationId
       && (!actor.organizationId || actor.organizationId === owner.organizationId) && (!current.requestedWorkspace || current.requestedWorkspace.organizationId === owner.organizationId)
-      && teamActive && resource.status === 'active' && (agent.organizationId === owner.organizationId || agent.type === 'main' && agent.ownerUserId === null);
+      && teamActive && resource.status === 'active' && (agent.organizationId === owner.organizationId
+        || agent.type === 'main' && agent.ownerUserId === null || emailOrganizationId === owner.organizationId);
     const manager = valid && (['owner', 'admin'].includes(membership!.role) || team?.canManage === true);
     const inherited = valid && membership!.role !== 'external' && resource.accessMode === 'inherit' && (owner.type === 'organization' || team?.canRead === true);
     let canUse = Boolean(inherited), canManage = Boolean(manager);
@@ -238,11 +314,22 @@ async function validateBackend(database: SqlConnection, owner: SharedIntegration
       ? profile.scope_type !== 'workspace' || profile.workspace_id !== owner.workspaceId
       : profile.scope_type !== 'organization' || profile.workspace_id !== null)) fail('CONNECTION_BINDING_INVALID', 'Choose an active profile owned by this exact connection scope.');
 }
+async function emailV2GrantTarget(database: SqlConnection, targetId: string, organizationId: string): Promise<boolean> {
+  if (targetId !== EMAIL_MANAGED_AGENT_ID) return false;
+  const configured = await database.get('SELECT organization_id FROM canvas_organization_settings ORDER BY created_at LIMIT 1') as Row | undefined;
+  if (configured?.organization_id !== organizationId) return false;
+  const row = await database.get(`SELECT type,scope_type,organization_id,owner_user_id,workflow_version,workflow_revision
+    FROM agents WHERE agent_id=$1`, [EMAIL_MANAGED_AGENT_ID]) as Row | undefined;
+  return Boolean(row && row.type === 'special' && row.scope_type === 'system' && row.owner_user_id === null
+    && (row.organization_id === null || row.organization_id === organizationId) && row.workflow_version === 2
+    && Number.isSafeInteger(Number(row.workflow_revision)) && Number(row.workflow_revision) >= 1);
+}
 async function validateGrant(database: SqlConnection, owner: SharedIntegrationConnectionOwnership, grant: IntegrationConnectionGrantInput): Promise<void> {
   if (grant.targetType !== 'agent') return validateTarget(database, owner.organizationId, { targetType: grant.targetType, targetId: grant.targetId });
   const row = await database.get('SELECT agent_id,type,scope_type,organization_id,owner_user_id FROM agents WHERE agent_id=$1 FOR SHARE', [grant.targetId]) as Row | undefined;
   if (!row || !(row.scope_type === 'organization' && row.organization_id === owner.organizationId
-    || row.type === 'main' && row.owner_user_id === null)) fail('CONNECTION_TARGET_INVALID', 'Choose an organization agent or the built-in main agent.');
+    || row.type === 'main' && row.owner_user_id === null
+    || await emailV2GrantTarget(database, grant.targetId, owner.organizationId))) fail('CONNECTION_TARGET_INVALID', 'Choose a currently eligible shared agent.');
 }
 async function replaceGrants(database: SqlConnection, ref: string, actorId: string, desired: IntegrationConnectionGrantInput[], now: number): Promise<void> {
   const previous = await grantsOn(database, ref);
@@ -308,6 +395,7 @@ async function authorizeOn(database: SqlConnection, actor: IntegrationConnection
   const agentValid = valid && await runtimeAgentOn(database, actor, current, owner, lock);
   for (const grant of valid ? grants : []) {
     const matches = grant.targetType === 'agent' ? agentValid && actor.agentId === grant.targetId
+      && (grant.targetId !== EMAIL_MANAGED_AGENT_ID || await emailV2GrantTarget(database, grant.targetId, owner.organizationId))
       : matchesCapabilityScopeGrant(current, owner.organizationId, actor.workspaceId, { targetType: grant.targetType, targetId: grant.targetId });
     if (!matches) continue;
     canManage ||= grant.targetType !== 'agent' && grant.canManage;
@@ -513,7 +601,12 @@ export async function listManageableSharedIntegrationScopes(input: IntegrationCo
 
 async function targetsOn(database: SqlConnection, actor: IntegrationConnectionActor, owner: SharedIntegrationConnectionOwnership): Promise<IntegrationConnectionTargetCatalog> {
   const catalog = await listCapabilityScopeTargetsOnConnection(database, owner.organizationId, actor.userId);
-  const agents = await database.all("SELECT agent_id,name FROM agents WHERE (scope_type='organization' AND organization_id=$1) OR (type='main' AND owner_user_id IS NULL) ORDER BY lower(name),agent_id LIMIT 200", [owner.organizationId]) as Row[];
+  const agents = await database.all(`SELECT agent_id,name FROM agents WHERE (scope_type='organization' AND organization_id=$1)
+    OR (type='main' AND owner_user_id IS NULL)
+    OR (agent_id=$2 AND type='special' AND scope_type='system' AND owner_user_id IS NULL
+      AND (organization_id IS NULL OR organization_id=$1) AND workflow_version=2 AND workflow_revision>=1
+      AND $1=(SELECT organization_id FROM canvas_organization_settings ORDER BY created_at LIMIT 1))
+    ORDER BY lower(name),agent_id LIMIT 200`, [owner.organizationId, EMAIL_MANAGED_AGENT_ID]) as Row[];
   return { ...catalog, agents: agents.map(row => ({ agentId: String(row.agent_id), name: String(row.name) })) };
 }
 

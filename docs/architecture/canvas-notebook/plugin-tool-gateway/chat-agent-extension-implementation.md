@@ -174,6 +174,32 @@ Einstiege: `test:extensions:agent-configuration` und `test:extensions:agent-conf
 
 Die anschließende read-only Planprüfung ergänzt konkrete Restfälle: vollständiger V2-Client-/Chooser-Roundtrip, Vorprüfung von Pflichttools und Kontextbudget, System-/Email-Scope und lesender Inspect sowie Dateibereinigung bei parallelem Create mit derselben ID. Diese Befunde sind im [Plan](chat-extension-reference-plan.md#restlücken-vor-abschluss-der-agent-stufe) mit Abnahmekriterien festgehalten und noch offen. Der neue Planungsschritt verändert keine Produktdateien. Ein erfolgreicher Produktionsbuild schließt diese Fälle nicht.
 
+## Fortsetzung: Systemkontext und sicherer Agent-Lebenszyklus
+
+Der erneut fortgesetzte Implementierungsauftrag schließt die Backend-Restfälle für System-/Email-Agenten und den Create-/Delete-Lebenszyklus. Auswahloptionen, UI, Kontextvorschau und Chat bleiben eigenständige offene Teile von Schritt 3 beziehungsweise 4.
+
+- Neue V2-Systemkonfigurationen enthalten keine festen privaten Pakete oder Erstellerkonten. Die Email-Migration verwendet einen privaten Nachweis mit tatsächlichem Ziel, aktueller Organisation, SQL-Batch und Transaktions-ID; persistierte Email-V2-Bindungen benötigen ebenfalls den aktuell gehaltenen Batch. Nach Commit/Rollback, bei anderen Verbindungen, geklonten Nachweisen, fremder Organisation und Rechteentzug wird abgewiesen. V1-Pakete sowie bestehende User-/Vererbungsfreigaben bleiben erhalten.
+- Gewöhnliche Email-Nutzer erhalten eine sichere Zusammenfassung und tatsächlichen freigegebenen Zugriff, ohne zentrale Konfiguration oder private Retention-Daten zu bekommen. Die API- und echte gespeicherte Session-/Rechteprüfung sind in PGlite und PostgreSQL geprüft; Providerhealth bleibt ungeprüft.
+- Public Create und Delete halten dieselbe normalisierte globale Identität über den bestehenden Kernel-Dateilock. SQL-Rollback allein beendet diesen Schutz nicht: die Dateibereinigung gehört zum geschützten Ablauf. Ein zweiter tatsächlicher Node-Prozess prüft denselben Lifecycle-Lock; der zweite SQL-Create im Race-Test läuft im Hauptprozess über eine eigene tatsächliche Datenbankverbindung.
+- Create bereinigt Dateien nur nach einem vom ursprünglichen SQL-Vorgang bestätigten Abort vor jedem Commitversuch und einer frischen Abwesenheitsprüfung. Bei unbestätigtem Abort, begonnenem Commit oder fehlgeschlagenem Abschluss bleiben Dateien erhalten; der öffentliche Fehler verlangt zuerst ein Nachlesen. Unsichere SQL-Verbindungen werden verworfen. Die Tests injizieren Antwortverlust nach tatsächlich ausgeführtem Commit beziehungsweise Rollback.
+- Delete bestätigt die tatsächlich gelöschte Zeile einschließlich ID und Revision vor Sitzungs-/Dateibereinigung. Ein real eingeschobener konkurrierender Update erhält den Agenten, dessen Sitzung und Dateien. Eine frühere Löschbestätigung passt nach Neuerstellung derselben Agent-ID nicht auf die neue SQL-Zeilenidentität. Fehlende tatsächliche Lock-Infrastruktur ergibt HTTP 503 mit sicheren Angaben.
+
+Frische Nachweise für den eingefrorenen Backend-Stand:
+
+| Prüfung | Ergebnis und Grenze |
+| --- | --- |
+| `test:extensions:agent-configuration` | Sieben Script-Suites bestehen: strikte Adapter, gemeinsame Limits, Standalone-Konfiguration, vollständiger Writer, persönliche Wahl, Lifecycle und System-/Email-Kontext. Echte API-/Store-/SQL-/ACL-Pfade mit eigenen Daten; keine Browser-/Modellabnahme. |
+| `test:extensions:agent-configuration:native` | Alle drei Suites bestehen mit tatsächlichem PostgreSQL auf dem vorhandenen verwalteten Dienst: vollständiger Writer, Lifecycle und System-/Email-Kontext. Jeweils eigene Nonce-Datenbank und DATA-Ablage; keine neuen Container. |
+| V1-Konfiguration und tatsächliches Agent-Tool | Frische V1-Konfigurationssuite und Agent-Management-Toolprüfung bestehen. Der Tooltest verwendet die tatsächlich zurückgegebene Revision anstelle einer festen Annahme über die Anfangsrevision. |
+| Statische Prüfungen | Fokussierter Typecheck von 86 Quell-/Testpfaden einschließlich tatsächlicher importierter App-Abhängigkeiten und Ambient-Typen sowie fokussiertes ESLint und Diffprüfung bestehen. Kein eigenständiger vollständiger Repository-Typecheck behauptet. |
+| Produktionsbuild | `npm run build` besteht für diesen Abschlussstand mit Exit 0: Next-Produktionskompilierung, Build-TypeScript-Prüfung und CLI-Versionseinfügung. Kein Containerbau oder Deployment. |
+
+Logdateien: `/private/tmp/canvas-agent-extension-final-suite-20261014.log`, `/private/tmp/canvas-agent-extension-final-native-20261014.log`, `/private/tmp/canvas-agent-extension-v1-regression-20261014.log`, `/private/tmp/canvas-agent-create-lifecycle-typecheck-20261014.log` und `/private/tmp/canvas-agent-extension-final-build-20261014.log`. Die später korrigierte Arbitrary-System-Testvorbedingung wird direkt im eigenen SQL-Datenbestand erzeugt und als tatsächlicher Systemagent nachgelesen; ihre PGlite-Prüfung und der vollständige Native-Lauf bestehen erneut. Die korrigierte fixture war nicht Teil der vorherigen ersten Suite; deren übrige sechs Suites bleiben unverändert.
+
+Die lokalen Lifecycle-/Systemprüfungen schließen keine Auswahloberfläche, keinen Tool↔UI-Roundtrip und keine Modell-/Native-Geräteabnahme. Der nächste konkrete Schritt ist der gemeinsame Optionsdienst mit Konfigurationsvorschau und eigenem Use-only-Choice-Modus; danach folgt der gemeinsame Editor in den tatsächlichen Settings-/Chat-Eltern samt Workspace-Kontext.
+
+Die abschließende Staging-Wirkungsanalyse dieses Backend-Teils umfasst 31 Dateien, 67 indexierte Symbole und einen betroffenen Runtime-Prozess; die aggregierte Einstufung ist mittel. Die vorherigen gezielten Analysen der Rechte-/Fehlerpfade meldeten zusätzlich HIGH beziehungsweise CRITICAL und wurden vor den Änderungen benannt. Neue noch nicht indexierte Module wurden über tatsächliche Aufrufer und die oben genannten API-/SQL-/Runtime-Prüfungen geprüft; eine leere Graphantwort galt nicht als Wirkungsnachweis.
+
 ## Wirkungsanalyse und Veröffentlichung
 
 Die Runtime-Moduserkennung hat vier direkte Aufrufer (Workflowprojektion, Integrationspolicy und zwei Tool-Registry-Einstiege) und wurde von GitNexus als kritisch eingestuft. Kontextnormalisierung, Submission-Identität und Nachrichtenpersistenz haben ebenfalls einen breiten Wirkungsbereich über Chat, Tool-Apps, Delegation und Automationen. Unbekannte oder nicht indexierte API-Routen gelten nicht als risikofrei. Vor jeder bestehenden Symboländerung bleibt deren konkrete Impactprüfung erforderlich.

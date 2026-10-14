@@ -29,7 +29,7 @@ Startwerte zur gemeinsamen Optimierung: sechs bis acht sichtbare Treffer und etw
 | Baustein | Stand am 14. Oktober | Was zur vollständigen Umsetzung fehlt |
 | --- | --- | --- |
 | Plugin-Seite | Gemeinsame Vier-Typen-Suche und bestehende Logoquellen implementiert; separate lokale Pluginseiten-Abnahme dokumentiert | Den gleichen Katalog und Avatar auch in Chat und Agent-Auswahl verwenden |
-| Genaue Identität und Speicherung | Auswahl, Bindungsformate, V1/V2/Vererbung und Agent-Create/Update/Inspect/Choice als Backend-Grundlage lokal geprüft | Gemeinsame Optionen und UI-Anschluss; Systemagenten, paralleler Create-/Dateifehlerpfad und langlebige Nachrichtenaufnahme vollständig prüfen |
+| Genaue Identität und Speicherung | Auswahl, Bindungsformate, V1/V2/Vererbung, Agent-Create/Update/Inspect/Choice sowie System-/Email- und Lifecycle-Restfälle als Backend-Grundlage lokal geprüft | Gemeinsame Optionen, Vorschau und UI-Anschluss; langlebige Nachrichtenaufnahme |
 | Gemeinsamer Runtime-Kontext | Compiler, begrenzte Prompt-Ausgabe, Skill-Discovery und Anschluss an Live-Runtime, Delegation und Automationen lokal geprüft; frische Toolrechte bleiben maßgeblich | Öffentliche Auswahl über Tool/API/UI anschließen; echten Modelllauf und vollständigen Bedienweg abnehmen |
 | Chat und Agent-Oberfläche | Bisherige Plugin-/Skill-Auswahl weiterhin aktiv | Gemeinsamer Picker, genaue Accounts, Chips, Vorschau und Tool↔UI-Roundtrip |
 | Nachrichten und Native Mobile | Neue Referenzen noch nicht vollständig angeschlossen | Send, Draft, Queue, Retry, Verlauf und Neustart; anschließend eigener nativer Anschluss und Abnahme |
@@ -230,7 +230,7 @@ Preview verwendet denselben Compiler wie die Runtime und den tatsächlich wirksa
 
 ### Restlücken vor Abschluss der Agent-Stufe
 
-Die folgenden Befunde betreffen den aktuellen Arbeitsbaum und gehören ausdrücklich zu Schritt 3. Die regulären SQL-/Dateifehlerprüfungen sind kein Nachweis für jeden Nebenläufigkeitsfall.
+Die folgenden Befunde stammen aus der Planprüfung auf `9d64b2e59` und gehören ausdrücklich zu Schritt 3. Die nachfolgende Implementierung hat die System-/Email- und Lifecycle-Fälle inzwischen im Backend korrigiert und mit tatsächlichem PostgreSQL geprüft; [Nachweise und Grenzen](chat-agent-extension-implementation.md#fortsetzung-systemkontext-und-sicherer-agent-lebenszyklus). Gemeinsame Auswahloptionen, UI und Vorprüfung von Werkzeugen/Kontextbudget bleiben offen. Die Tabelle hält die Anforderungen fest und ist keine pauschale Liste weiterhin offener Backendfehler.
 
 | Befund | Geplante Anpassung und Abnahme |
 | --- | --- |

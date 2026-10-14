@@ -8,10 +8,9 @@ import {
   listManagedAgents,
   managementErrorDetails,
   type AgentManagementActor,
-  type CreateManagedAgentInput,
 } from '@/app/lib/agents/management-actions';
 import { updateManagedAgentConfiguration } from '@/app/lib/agents/workflow-configuration';
-import { updateAgentConfigurationSchema } from '@/app/lib/agents/workflow-api-contracts';
+import { createAgentConfigurationSchema, updateAgentConfigurationSchema } from '@/app/lib/agents/workflow-api-contracts';
 import { AgentWorkflowError } from '@/app/lib/agents/workflow-contracts';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 import { requireSessionWorkspace } from '@/app/lib/workspaces/request';
@@ -58,8 +57,7 @@ export async function GET(request: NextRequest) {
 
   try {
     const purpose = request.nextUrl.searchParams.get('purpose') ?? 'use';
-    if (request.nextUrl.searchParams.getAll('purpose').length > 1 || !['use', 'configure'].includes(purpose)
-      || purpose === 'configure' && request.nextUrl.searchParams.has('agentId')) {
+    if (request.nextUrl.searchParams.getAll('purpose').length > 1 || !['use', 'configure'].includes(purpose)) {
       return NextResponse.json({ success: false, code: 'AGENT_REQUEST_INVALID', error: 'The agent list purpose is invalid.' }, { status: 400 });
     }
     let actor = actorFromRequest(request, session);
@@ -79,10 +77,11 @@ export async function GET(request: NextRequest) {
     const agentId = request.nextUrl.searchParams.get('agentId');
     if (agentId) {
       const inspected = await inspectManagedAgent(actor, agentId, {
+        purpose: purpose as 'use' | 'configure',
         includeFiles: request.nextUrl.searchParams.get('includeFiles') === 'true',
         includeAccess: request.nextUrl.searchParams.get('includeAccess') === 'true',
       });
-      return NextResponse.json({ success: true, data: inspected });
+      return NextResponse.json({ success: true, data: inspected }, { headers: { 'Cache-Control': 'no-store' } });
     }
     return NextResponse.json({ success: true, data: { agents: await listManagedAgents(actor, { purpose: purpose as 'use' | 'configure' }) } },
       purpose === 'configure' ? { headers: { 'Cache-Control': 'no-store' } } : undefined);
@@ -98,8 +97,9 @@ export async function POST(request: NextRequest) {
   if (!limited.ok) return limited.response;
 
   try {
-    const payload = (await request.json().catch(() => ({}))) as Record<string, unknown>;
-    const result = await createManagedAgent(actorFromRequest(request, session), payload as CreateManagedAgentInput);
+    const parsed = createAgentConfigurationSchema.safeParse(await request.json().catch(() => null));
+    if (!parsed.success) throw new AgentWorkflowError('AGENT_CONFIGURATION_INVALID', 'The agent configuration contains invalid or unsupported fields.', 400);
+    const result = await createManagedAgent(actorFromRequest(request, session), parsed.data);
     return NextResponse.json({ success: true, data: result });
   } catch (error) {
     return errorResponse(error, 'Failed to create agent.');
@@ -116,15 +116,13 @@ export async function PATCH(request: NextRequest) {
     const parsed = updateAgentConfigurationSchema.safeParse(await request.json().catch(() => null));
     if (!parsed.success) throw new AgentWorkflowError('AGENT_CONFIGURATION_INVALID', 'The agent configuration contains invalid or unsupported fields.', 400);
     const payload = parsed.data;
-    const agentId = payload.agentId;
     const actor = actorFromRequest(request, session);
     if (!hasAny(payload, ['name', 'iconId', 'enabledTools', 'defaultProviderInstallationId', 'defaultProvider', 'defaultModel',
-      'defaultThinking', 'capabilities', 'relevantSkills', 'relevantConnections', 'workflow'])) {
+      'defaultThinking', 'capabilities', 'relevantSkills', 'relevantConnections', 'workflow', 'extensions'])) {
       throw new AgentWorkflowError('AGENT_CONFIGURATION_INVALID', 'No supported agent changes were provided.', 400);
     }
-    const { agent, workflow } = await updateManagedAgentConfiguration({ actor, ...payload });
-    const access = await inspectManagedAgent(actor, agentId);
-    return NextResponse.json({ success: true, data: { agent: { ...agent, access: access.access }, workflow } });
+    const { agent, workflow, extensions } = await updateManagedAgentConfiguration({ actor, ...payload });
+    return NextResponse.json({ success: true, data: { agent: { ...agent, access: workflow.access }, workflow, extensions } });
   } catch (error) {
     return errorResponse(error, 'Failed to update agent.');
   }

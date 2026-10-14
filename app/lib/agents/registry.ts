@@ -452,6 +452,11 @@ function slugifyAgentId(name: string): string {
   return normalizeManagedAgentId(normalized || 'agent');
 }
 
+/** Creation and its storage lease must agree on the same normalized identity. */
+export function resolveNewManagedAgentId(input: { name: string; agentId?: string | null }): string {
+  return normalizeManagedAgentId(input.agentId || slugifyAgentId(input.name.trim()));
+}
+
 export async function createAgentProfile(input: {
   name: string;
   agentId?: string | null;
@@ -468,13 +473,13 @@ export async function createAgentProfile(input: {
   organizationId?: string | null;
   ownerUserId?: string | null;
   createdByUserId?: string | null;
-}): Promise<AgentProfile> {
+}, connection?: SqlConnection): Promise<AgentProfile> {
   const name = input.name.trim();
   if (!name) {
     throw new Error('Agent name is required.');
   }
 
-  const agentId = normalizeManagedAgentId(input.agentId || slugifyAgentId(name));
+  const agentId = resolveNewManagedAgentId(input);
   if (isSystemManagedAgentId(agentId) || agentId === MEMORY_MANAGER_AGENT_ID) {
     throw new Error('Built-in agents cannot be recreated.');
   }
@@ -495,6 +500,19 @@ export async function createAgentProfile(input: {
   }
 
   const now = new Date();
+  if (connection) {
+    await connection.run(`INSERT INTO agents (agent_id,name,icon_id,type,removable,default_provider_installation_id,
+      default_provider,default_model,default_thinking,enabled_tools_json,relevant_skills_json,relevant_connections_json,
+      access_policy,scope_type,organization_id,owner_user_id,created_by_user_id,revision,created_at,updated_at)
+      VALUES ($1,$2,$3,'special',1,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,1,$16,$16)`,
+    [agentId, name, normalizeAgentIconId(input.iconId), agentDefault.defaultProviderInstallationId, agentDefault.defaultProvider,
+      agentDefault.defaultModel, agentDefault.defaultThinking, stringifyEnabledTools(input.enabledTools), stringifyStringList(input.relevantSkills),
+      stringifyStringList(input.relevantConnections), input.accessPolicy === 'restricted' ? 'restricted' : 'legacy', scopeType,
+      organizationId, ownerUserId, createdByUserId, now.getTime()]);
+    const created = await readAgentProfileOnConnection(connection, agentId);
+    if (!created) throw new Error('Agent could not be created.');
+    return created;
+  }
   await db.insert(agents).values({
     agentId,
     name,
@@ -669,8 +687,14 @@ export async function deleteAgentProfile(agentIdInput: string, expectedRevision?
   }
 
   const sessions = await db.select({ id: piSessions.id }).from(piSessions).where(eq(piSessions.agentId, agentId));
+  const deleted = await db.delete(agents).where(and(eq(agents.agentId, agentId), eq(agents.id, existing.id),
+    eq(agents.revision, expectedRevision ?? existing.revision))).returning({ id: agents.id });
+  if (deleted.length !== 1) {
+    const current = await getAgentProfile(agentId);
+    if (!current) throw new AgentWorkflowError('AGENT_NOT_FOUND', 'The agent no longer exists.', 404);
+    throw new AgentRevisionConflictError(current.revision);
+  }
+  // Never remove sessions or files unless the exact target incarnation and CAS
+  // really deleted a row. An initial read is not a successful deletion proof.
   await deletePiSessionsByDbIds(sessions.map((session) => session.id));
-  await db.delete(agents).where(expectedRevision === undefined
-    ? eq(agents.agentId, agentId)
-    : and(eq(agents.agentId, agentId), eq(agents.revision, expectedRevision)));
 }

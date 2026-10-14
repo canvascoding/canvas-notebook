@@ -59,6 +59,6 @@ export async function createSharedConnectionTestDatabase() {
       return { get: async (sql, params = []) => (await client.query(sql, params)).rows[0],
         all: async (sql, params = []) => (await client.query(sql, params)).rows,
         run: async (sql, params = []) => ({ changes: (await client.query(sql, params)).rowCount ?? 0 }),
-        close: () => client.release() };
+        close: (error?: Error) => client.release(error) };
     }, close: cleanup };
 }

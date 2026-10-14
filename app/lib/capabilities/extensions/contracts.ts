@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { agentWorkflowConfigurationSchema, parseAgentWorkflowConfiguration } from '@/app/lib/agents/workflow-contracts';
 
-export const EXTENSION_SELECTION_LIMITS = Object.freeze({ turn: 5, agent: 256, children: 128, tools: 256, choices: 32, definitions: 32, bytes: 1_048_576 });
+export const EXTENSION_SELECTION_LIMITS = Object.freeze({ turn: 5, agent: 256, sharedConnections: 128, children: 128, tools: 256, choices: 32, definitions: 32, bytes: 1_048_576 });
 const uuid = '[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}';
 const identifier = z.string().min(1).max(256).refine(value => value === value.trim() && !/[\p{Cc}\p{Cf}]/u.test(value));
 const revision = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
@@ -103,6 +103,7 @@ function checkPackageConnections(entries: readonly ExtensionSelectionEntry[],
 
 /** Sealed five-minute existing account-choice receipt, consumed by the server before acceptance. */
 const accountSelectionRef = z.string().max(8_192).regex(/^cmp_personal_account_[A-Za-z0-9_-]{39,}$/u);
+const retainedBindingRef = z.string().regex(/^agent-extension-retain:v1:[a-f0-9]{64}$/u);
 function checkAccountReceipt(value: { selection: ExtensionSelection; accountSelectionRef?: string }, context: z.RefinementCtx) {
   const needsAccount = value.selection.kind === 'composio' && value.selection.target.kind === 'personal'
     && value.selection.target.accountBinding === 'account';
@@ -118,6 +119,21 @@ export const standaloneExtensionInputSchema = standaloneExtensionEntrySchema.ext
   .superRefine(checkAccountReceipt);
 export type StandaloneExtensionInput = z.infer<typeof standaloneExtensionInputSchema>;
 
+/** Agent-edit retention is separate from initial chat/account admission. */
+function checkAgentStandaloneReceipt(value: { selection: ExtensionSelection; accountSelectionRef?: string; retainedBindingRef?: string },
+  context: z.RefinementCtx) {
+  if (value.retainedBindingRef !== undefined) {
+    if (value.accountSelectionRef !== undefined) context.addIssue({ code: 'custom', path: ['retainedBindingRef'],
+      message: 'Retain one exact stored binding or select a new account, not both.' });
+    return;
+  }
+  checkAccountReceipt(value, context);
+}
+export const agentStandaloneEntryInputSchema = standaloneExtensionEntrySchema.extend({
+  accountSelectionRef: accountSelectionRef.optional(), retainedBindingRef: retainedBindingRef.optional(),
+}).strict().superRefine(checkAgentStandaloneReceipt);
+export type AgentStandaloneEntryInput = z.infer<typeof agentStandaloneEntryInputSchema>;
+
 export const agentStandalonePersonalPolicySchema = z.discriminatedUnion('source', [
   z.object({ source: z.literal('composio'), toolkit, toolCap: extensionToolCapSchema }).strict(),
   z.object({ source: z.literal('mcp'), toolCap: extensionToolCapSchema,
@@ -125,17 +141,23 @@ export const agentStandalonePersonalPolicySchema = z.discriminatedUnion('source'
       .refine(values => new Set(values).size === values.length) }).strict(),
 ]);
 const standaloneChoice = z.object({ choiceId: identifier, selection: standaloneExtensionSelectionSchema,
-  toolCap: extensionToolCapSchema, accountSelectionRef: accountSelectionRef.optional() }).strict().superRefine(checkAccountReceipt);
+  toolCap: extensionToolCapSchema, accountSelectionRef: accountSelectionRef.optional(),
+  retainedBindingRef: retainedBindingRef.optional() }).strict().superRefine(checkAgentStandaloneReceipt);
 const selectableFields = { mode: z.literal('selectable'), configurationId: identifier, requirement: z.enum(['optional', 'required']),
   allowedChoices: z.array(standaloneChoice).max(EXTENSION_SELECTION_LIMITS.choices), defaultChoiceId: identifier.optional(),
   personalPolicy: agentStandalonePersonalPolicySchema.optional() };
 /** Configuration IDs identify agent-local choice slots; they carry no provider routing authority. */
 export const agentStandaloneConfigurationInputSchema = z.union([
-  z.object({ mode: z.literal('fixed'), configurationId: identifier.optional(), entry: standaloneExtensionInputSchema }).strict(),
+  z.object({ mode: z.literal('fixed'), configurationId: identifier.optional(), entry: agentStandaloneEntryInputSchema }).strict(),
   z.object({ ...selectableFields, source: z.literal('composio'), toolkit }).strict(),
   z.object({ ...selectableFields, source: z.literal('mcp') }).strict(),
 ]).superRefine((value, context) => {
-  if (value.mode === 'fixed') return;
+  if (value.mode === 'fixed') {
+    if (value.entry.retainedBindingRef !== undefined && value.configurationId === undefined) {
+      context.addIssue({ code: 'custom', path: ['configurationId'], message: 'Retaining a binding requires its exact stored slot.' });
+    }
+    return;
+  }
   const choiceIds = new Set<string>(), identities = new Set<string>();
   for (const choice of value.allowedChoices) {
     if (choiceIds.has(choice.choiceId) || identities.has(extensionSelectionIdentity(choice.selection)))
@@ -210,7 +232,8 @@ export const agentExtensionConfigurationInputSchema = z.discriminatedUnion('mode
   z.object({ version: z.literal(1), origin: z.literal('agent_configuration'), mode: z.literal('fixed'),
     selections: z.array(extensionSelectionInputSchema).max(EXTENSION_SELECTION_LIMITS.agent),
     workflow: agentWorkflowConfigurationSchema.nullable(),
-    standalone: z.array(agentStandaloneConfigurationInputSchema).max(EXTENSION_SELECTION_LIMITS.agent) }).strict(),
+    standalone: z.array(agentStandaloneConfigurationInputSchema).max(EXTENSION_SELECTION_LIMITS.agent) }).strict()
+    .describe('At most 256 combined package selections and standalone slots, with at most 128 distinct shared connections across every package and allowed choice.'),
 ]).superRefine((value, context) => {
   if (value.mode === 'legacy_inherit') return;
   checkEncodedSize(value, context);
@@ -234,6 +257,15 @@ export const agentExtensionConfigurationInputSchema = z.discriminatedUnion('mode
     catch { context.addIssue({ code: 'custom', path: ['workflow'], message: 'The complete V1 workflow configuration is invalid.' }); }
   }
   const packages = value.workflow?.packages ?? [], seen = new Set<string>();
+  const shared = new Set(value.standalone.flatMap(slot => slot.mode === 'fixed' ? [slot.entry.selection] : slot.allowedChoices.map(choice => choice.selection))
+    .flatMap(selection => selection.target.kind === 'shared' ? [selection.target.connectionRef] : []));
+  for (const pkg of packages) for (const declaration of pkg.declarations) for (const capability of declaration.capabilities) {
+    for (const choice of capability.selection.mode === 'fixed' ? [capability.selection] : capability.selection.allowedChoices) {
+      if (choice.target.kind === 'shared') shared.add(choice.target.connectionRef);
+    }
+  }
+  if (shared.size > EXTENSION_SELECTION_LIMITS.sharedConnections) context.addIssue({ code: 'custom',
+    message: 'The configuration exceeds the transaction limit of 128 distinct shared connections across packages and standalone choices.' });
   for (const pkg of packages) {
     if (seen.has(pkg.resourceRef)) context.addIssue({ code: 'custom', path: ['workflow'], message: 'Duplicate workflow package.' });
     seen.add(pkg.resourceRef);

@@ -373,7 +373,7 @@ async function management(current: Manager): Promise<AgentWorkflowManagementOpti
       agentId: fresh.snapshot.agent.agentId, name: label(fresh.snapshot.agent.name, 'Agent'), iconId: fresh.snapshot.agent.iconId,
       scopeType: fresh.snapshot.agent.scopeType, enabledTools: fresh.snapshot.agent.enabledTools && [...fresh.snapshot.agent.enabledTools] },
       workflowVersion: fresh.snapshot.workflowVersion, configurationState: fresh.snapshot.workflowVersion === null ? 'legacy' : blocked ? 'blocked' : 'available',
-      configuration: fresh.snapshot.workflowVersion === 1 && !blocked ? parseAgentWorkflowConfiguration({ version: 1, packages }) : null,
+      configuration: fresh.snapshot.workflowVersion !== null && !blocked ? parseAgentWorkflowConfiguration({ version: 1, packages }) : null,
       unavailablePackageCount, unavailableConnectionCount, bindingSummaries };
   });
 }
