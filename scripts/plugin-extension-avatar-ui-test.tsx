@@ -59,6 +59,15 @@ async function main() {
     assert.equal(screen.getByTestId('plugin-extension-avatar-image').getAttribute('src'), boundMcpIcon);
     fireEvent.error(screen.getByTestId('plugin-extension-avatar-image'));
     assert.equal(screen.getByTestId('plugin-extension-avatar-initials').textContent, 'DM');
+    const exactPackageIcon = '/api/agents/extension-options/icon?resourceRef=exact&publishedRevisionRef=old&checksum=pin&workspaceId=first&childRelativeRoot=';
+    rendered.rerender(<PluginExtensionAvatar name="Published Root" identity="exact:old:first:root" icon={{ url: exactPackageIcon, sourceKey: 'exact-old-root' }} />);
+    assert.equal(screen.getByTestId('plugin-extension-avatar-image').getAttribute('src'), exactPackageIcon);
+    fireEvent.error(screen.getByTestId('plugin-extension-avatar-image'));
+    assert.equal(screen.getByTestId('plugin-extension-avatar-initials').textContent, 'PR', 'Absent exact-pin images keep the name fallback.');
+    rendered.rerender(<PluginExtensionAvatar name="Published Root" identity="exact:new:first:root" icon={{ url: exactPackageIcon, sourceKey: 'exact-new-root' }} />);
+    assert(screen.getByTestId('plugin-extension-avatar-image'), 'Another held version gets a fresh image state.');
+    rendered.rerender(<PluginExtensionAvatar name="Published Root" identity="exact:new:first:root" icon={{ url: '/api/agents/extension-options/icon/private', sourceKey: 'bad' }} />);
+    assert.equal(screen.queryByTestId('plugin-extension-avatar-image'), null, 'The new route whitelist does not admit neighboring private routes.');
     cleanup();
 
     const common = { name: 'same-name', displayName: 'Same Name', description: '', stock: 'installed' as const,

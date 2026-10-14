@@ -8,6 +8,7 @@ import { z } from 'zod';
 import { Type } from 'typebox';
 import * as schemas from '../app/lib/agents/workflow-api-contracts';
 import * as managementSchemas from '../app/lib/agents/workflow-management-contracts';
+import * as extensionOptionsSchemas from '../app/lib/agents/extension-options-contracts';
 import type { AgentTool } from '@earendil-works/pi-agent-core';
 
 // Actual shared schemas and current route/tool source, with controlled auth and
@@ -102,6 +103,8 @@ async function main() {
   const common = { 'server-only': {}, '@/app/lib/agents/management-actions': management,
     '@/app/lib/agents/workflow-configuration': workflow, '@/app/lib/agents/workflow-api-contracts': schemas };
   const toolModule = loadCurrentSource('app/lib/pi/agent-management-tools.ts', { ...common, typebox: { Type }, zod: { z },
+    '@/app/lib/agents/extension-options-contracts': extensionOptionsSchemas,
+    '@/app/lib/agents/extension-options': {},
     '@/app/lib/agents/workflow-management-contracts': managementSchemas, '@/app/lib/agents/workflow-management': {},
     '@/app/lib/agents/storage': { DEFAULT_MANAGED_AGENT_ID: 'bradley' },
     '@/app/lib/pi/agent-execution-context': { getAgentExecutionContext: () => ({ userId: 'alice', sessionId: 'actual-chat', agentId: 'bradley', workspaceId: 'workspace' }) },

@@ -168,6 +168,8 @@ const TOOLSET_TOOL_NAMES: Record<PiToolset, Set<string>> = {
     'inspect_agent_workflow',
     'list_agent_workflow_options',
     'list_agent_workflow_personal_options',
+    'list_agent_extension_options',
+    'list_agent_extension_accounts',
     'create_agent',
     'update_agent_profile',
     'update_agent_runtime',

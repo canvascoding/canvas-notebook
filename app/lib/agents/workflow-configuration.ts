@@ -41,7 +41,9 @@ import { prepareAgentStandaloneConfigurations, getPreparedAgentStandaloneConfigu
   getPreparedAgentStandaloneSharedReferences, revalidatePreparedAgentStandalonePersonalConfigurations,
   authorizePreparedAgentStandaloneConfigurationsOnConnection } from '@/app/lib/capabilities/extensions/agent-standalone-configuration';
 import { prepareEmailV2BindingConfigurationOnConnection } from '@/app/lib/integration-tools/connections/store';
-import { resolveEffectiveCapabilitySnapshot } from '@/app/lib/capabilities/catalog';
+import { loadCapabilityCandidates } from '@/app/lib/capabilities/catalog';
+import { resolveEffectiveCapabilities } from '@/app/lib/capabilities/effective-resolver';
+import { withCapabilityPolicyStore } from '@/app/lib/capabilities/policy-store';
 import { selectAgentStandaloneExtension } from '@/app/lib/capabilities/extensions/standalone-runtime';
 import { parseStoredStandaloneExtensionBinding } from '@/app/lib/capabilities/extensions/stored-contracts';
 import { resolveRetainedAgentWorkflowTarget, type AgentWorkflowBindingSlot } from './workflow-binding-retention';
@@ -183,7 +185,8 @@ export function getSelectedAgentWorkflowCapability(snapshot: AgentWorkflowIntern
 }
 
 async function prepareTarget(actor: AgentManagementActor, target: AgentWorkflowTarget, alternative: WorkflowIntegrationAlternative,
-  prepared: PreparedTargets, retention?: { before: AgentWorkflowInternalSnapshot; slot: AgentWorkflowBindingSlot }): Promise<StoredAgentWorkflowTarget> {
+  prepared: PreparedTargets, retention?: { before: AgentWorkflowInternalSnapshot; slot: AgentWorkflowBindingSlot },
+  requireExplicitAccountChoice = false): Promise<StoredAgentWorkflowTarget> {
   if (target.kind === 'retained') {
     if (!retention) fail('AGENT_WORKFLOW_RETENTION_INVALID', 'An exact existing configuration slot is required.');
     const original = resolveRetainedAgentWorkflowTarget(actor, retention.before, retention.slot, target.retainedBindingRef);
@@ -219,6 +222,10 @@ async function prepareTarget(actor: AgentManagementActor, target: AgentWorkflowT
     if (verified.binding.source !== target.source || verified.binding.ownerUserId !== actor.userId
       || alternative.source === 'composio' && (verified.binding.source !== 'composio' || verified.binding.toolkit !== alternative.toolkit)) {
       fail('AGENT_WORKFLOW_BINDING_INVALID', 'The selected personal provider does not match the declared application.');
+    }
+    if (requireExplicitAccountChoice && verified.binding.source === 'composio'
+      && verified.binding.accountBinding === 'account' && target.accountSelectionRef === undefined) {
+      fail('AGENT_WORKFLOW_ACCOUNT_SELECTION_REQUIRED', 'Confirm the exact Composio account before saving this connection.');
     }
     prepared.personal.push(proof);
     return { kind: 'personal', source: target.source, ownerUserId: actor.userId, providerRef: verified.baseProviderRef,
@@ -282,8 +289,13 @@ async function preparePackage(actor: AgentManagementActor, input: AgentWorkflowP
       try {
         const current = await resolveVerifiedAgentActorContextOnConnection(actor, database);
         if (current.organizationId) {
-          const effective = await resolveEffectiveCapabilitySnapshot({ userId: actor.userId, organizationId: current.organizationId,
-            role: current.organizationRole, workspaceId: current.context.workspaceId, projectId: current.context.projectId });
+          const context = { userId: actor.userId, organizationId: current.organizationId,
+            role: current.organizationRole, workspaceId: current.context.workspaceId, projectId: current.context.projectId };
+          const [candidates, policies] = await Promise.all([
+            loadCapabilityCandidates(context, { resolveConnections: false }),
+            withCapabilityPolicyStore(store => store.listOrganizationPolicies(current.organizationId!)),
+          ]);
+          const effective = resolveEffectiveCapabilities({ context, candidates, policies });
           for (const skill of availableSkills) if (effective.capabilities.some(candidate => candidate.ref.sourcePluginId === source.storage.resourceId
             && candidate.ref.name === skill.name && candidate.effectivePolicy === 'required')) roots.add(skill.relativeRoot);
         }
@@ -314,7 +326,8 @@ async function preparePackage(actor: AgentManagementActor, input: AgentWorkflowP
         declarationPath: declaration.declarationPath, capabilityId: capability.id, alternativeKey: '' };
       if (selected.selection.mode === 'fixed') selection = { ...selected.selection,
         target: await prepareTarget(actor, selected.selection.target, alternative(selected.selection.alternativeKey), prepared,
-          before ? { before, slot: { ...bindingSlot, alternativeKey: selected.selection.alternativeKey } } : undefined) };
+          before ? { before, slot: { ...bindingSlot, alternativeKey: selected.selection.alternativeKey } } : undefined,
+          extensionSelections !== undefined) };
       else {
         const policy = selected.selection.personalPolicy;
         for (const key of policy?.alternativeKeys ?? []) {
@@ -325,7 +338,8 @@ async function preparePackage(actor: AgentManagementActor, input: AgentWorkflowP
         }
         selection = { ...selected.selection, allowedChoices: await Promise.all(selected.selection.allowedChoices.map(async choice => ({ ...choice,
           target: await prepareTarget(actor, choice.target, alternative(choice.alternativeKey), prepared,
-            before ? { before, slot: { ...bindingSlot, alternativeKey: choice.alternativeKey, choiceId: choice.choiceId } } : undefined) }))) };
+            before ? { before, slot: { ...bindingSlot, alternativeKey: choice.alternativeKey, choiceId: choice.choiceId } } : undefined,
+            extensionSelections !== undefined) }))) };
       }
       capabilities.push({ capabilityId: capability.id, application: capability.application, alternatives: structuredClone(capability.alternatives),
         required: capability.required || selected.required === true, selection });
@@ -786,7 +800,7 @@ export async function setManagedAgentWorkflowChoice(input: { actor: AgentManagem
       || !policy.alternativeKeys.includes(captured.personalSelection.alternativeKey)) fail('AGENT_WORKFLOW_CHOICE_DENIED', 'This personal source is not allowed by the central configuration.', 403);
     const alternative = slot.capability.alternatives.find(candidate => alternativeKey(candidate) === captured.personalSelection!.alternativeKey);
     if (!alternative) fail('AGENT_WORKFLOW_ALTERNATIVE_INVALID', 'The declared alternative is unavailable.');
-    const target = await prepareTarget(captured.actor, parsed.data, alternative, prepared);
+    const target = await prepareTarget(captured.actor, parsed.data, alternative, prepared, undefined, snapshot.workflowVersion === 2);
     if (alternative.source === 'mcp' && (target.personalBinding?.source !== 'mcp' || !target.personalBinding.serverDefinitionId
       || !policy.mcpDefinitionMappings?.find(mapping => mapping.connector === alternative.connector)?.serverDefinitionIds.includes(target.personalBinding.serverDefinitionId))) {
       fail('AGENT_WORKFLOW_CHOICE_DENIED', 'Choose your own connection from an explicitly approved MCP definition.', 403);

@@ -68,6 +68,8 @@ async function main() {
       'inspect_agent_workflow',
       'list_agent_workflow_options',
       'list_agent_workflow_personal_options',
+      'list_agent_extension_options',
+      'list_agent_extension_accounts',
       ...AGENT_MANAGEMENT_OPERATION_NAMES,
     ]);
     assert.throws(() => createAgentManagementTools(owner.id, 'special-agent'), /only to Bradley, the main agent/);
@@ -76,12 +78,15 @@ async function main() {
     assert.equal(PLANNING_MODE_ALLOWED_TOOLS.has('inspect_agent_workflow'), true);
     assert.equal(PLANNING_MODE_ALLOWED_TOOLS.has('list_agent_workflow_options'), true);
     assert.equal(PLANNING_MODE_ALLOWED_TOOLS.has('list_agent_workflow_personal_options'), false);
+    assert.equal(PLANNING_MODE_ALLOWED_TOOLS.has('list_agent_extension_options'), true);
+    assert.equal(PLANNING_MODE_ALLOWED_TOOLS.has('list_agent_extension_accounts'), false);
     assert.equal(PLANNING_MODE_ALLOWED_TOOLS.has('update_agent_configuration'), false);
     assert.equal(PLANNING_MODE_ALLOWED_TOOLS.has('set_agent_workflow_choice'), false);
     assert.equal(PLANNING_MODE_ALLOWED_TOOLS.has('create_agent'), false);
     assert.deepEqual(getPiToolsetsForTool('create_agent'), ['agents']);
     assert.deepEqual(getPiToolsetsForTool('list_agent_workflow_personal_options'), ['agents']);
-    const agentToolNames = ['list_agents', 'inspect_agent', 'inspect_agent_workflow', 'list_agent_workflow_options', 'list_agent_workflow_personal_options', ...AGENT_MANAGEMENT_OPERATION_NAMES];
+    const agentToolNames = ['list_agents', 'inspect_agent', 'inspect_agent_workflow', 'list_agent_workflow_options', 'list_agent_workflow_personal_options',
+      'list_agent_extension_options', 'list_agent_extension_accounts', ...AGENT_MANAGEMENT_OPERATION_NAMES];
     const defaultEnabledToolNames = getDefaultEnabledToolNames(agentToolNames);
     for (const name of agentToolNames) {
       assert.equal(DISABLED_BY_DEFAULT_TOOL_NAMES.has(name), false, `${name} must not be disabled by default`);
@@ -95,13 +100,16 @@ async function main() {
     }
 
     const collapsed = collapseProgressiveToolGroups(tools);
-    assert.deepEqual(collapsed.map((tool) => tool.name), ['list_agents', 'inspect_agent', 'inspect_agent_workflow', 'list_agent_workflow_options', 'list_agent_workflow_personal_options', 'agent_manage']);
+    assert.deepEqual(collapsed.map((tool) => tool.name), ['list_agents', 'inspect_agent', 'inspect_agent_workflow', 'list_agent_workflow_options', 'list_agent_workflow_personal_options',
+      'list_agent_extension_options', 'list_agent_extension_accounts', 'agent_manage']);
     assert.deepEqual(getProgressiveGatewayCapabilityNames(collapsed), [
       'list_agents',
       'inspect_agent',
       'inspect_agent_workflow',
       'list_agent_workflow_options',
       'list_agent_workflow_personal_options',
+      'list_agent_extension_options',
+      'list_agent_extension_accounts',
       ...AGENT_MANAGEMENT_OPERATION_NAMES,
     ]);
     const gateway = collapsed.find((tool) => tool.name === 'agent_manage');
@@ -111,9 +119,22 @@ async function main() {
     assert.doesNotMatch(text(search), /Input schema/);
     const describe = await gateway.execute('describe', { action: 'describe', operation: 'create_agent' });
     assert.match(text(describe), /scopeType/);
-    assert.match(text(describe), /capabilities/);
+    assert.match(text(describe), /extensions/);
     assert.match(text(describe), /grants/);
     assert.match(text(describe), /AGENTS\.md/);
+    const createTool = tools.find(tool => tool.name === 'create_agent')!;
+    const createSchema = createTool.parameters as { properties: Record<string, unknown>; required: string[] };
+    assert.equal(Object.hasOwn(createSchema.properties, 'capabilities'), false);
+    assert.equal(Object.hasOwn(createSchema.properties, 'relevantSkills'), false);
+    assert(createSchema.required.includes('extensions'));
+    const optionsTool = tools.find(tool => tool.name === 'list_agent_extension_options')!;
+    await assert.rejects(() => optionsTool.execute('no-account-probe', { operation: 'connection_choices',
+      target: { kind: 'prospective', scopeType: 'user' }, selector: { kind: 'standalone', source: 'composio', toolkit: 'canva' },
+      profileId: 'unreturned-profile' }), { code: 'AGENT_WORKFLOW_INVALID' });
+    const accountsTool = tools.find(tool => tool.name === 'list_agent_extension_accounts')!;
+    await assert.rejects(() => accountsTool.execute('no-default-profile', { operation: 'connection_choices',
+      target: { kind: 'prospective', scopeType: 'user' }, selector: { kind: 'standalone', source: 'composio', toolkit: 'canva' } }),
+      { code: 'AGENT_WORKFLOW_INVALID' });
 
     const createdResult = await gateway.execute('create', {
       action: 'call',
@@ -121,6 +142,7 @@ async function main() {
       arguments: {
         name: 'Tool-created Marketing Agent',
         scopeType: 'user',
+        extensions: { version: 1, origin: 'agent_configuration', mode: 'fixed', selections: [], workflow: null, standalone: [] },
         enabledTools: ['read', 'web_search'],
         files: { 'AGENTS.md': '# Tool-created instructions' },
       },

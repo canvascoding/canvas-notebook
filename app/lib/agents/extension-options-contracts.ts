@@ -12,6 +12,7 @@ import type { WorkflowDeclaration } from '@/app/lib/capabilities/workflow-contra
 import type { PluginExtensionCoverage, PluginExtensionItem } from '@/app/lib/plugins/plugin-extension-contracts';
 import type { PluginExtensionIcon } from '@/app/lib/plugins/plugin-extension-icons';
 import type { PluginWorkspaceCatalogResponse } from '@/app/lib/plugins/plugin-workspace-catalog-contracts';
+import type { AgentWorkflowTarget } from './workflow-public-contracts';
 
 const identifier = z.string().min(1).max(256).refine(value => value === value.trim() && !/[\p{Cc}\p{Cf}]/u.test(value));
 const revision = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
@@ -150,12 +151,18 @@ export type AgentExtensionPackageVersion = {
   /** Actual held parent/child declarations; client names never manufacture these paths. */
   declarations: WorkflowDeclaration[];
 };
+/** A copyable public mutation value, not a private binding or a runtime grant. */
+export type AgentExtensionPackageBinding = {
+  alternativeKey: string;
+  target: Exclude<AgentWorkflowTarget, { kind: 'retained' }>;
+};
 export type AgentExtensionConnectionChoice = {
   id: string;
   choiceId?: string;
   alternativeKey?: string;
   definitionId?: string;
   selection: StandaloneExtensionSelection;
+  packageBinding?: AgentExtensionPackageBinding;
   label: string;
   scopeLabel: 'personal' | 'organization' | 'team';
   ownershipLabel?: string;
@@ -173,6 +180,7 @@ export type AgentExtensionAccountChoice = {
   selection: Extract<StandaloneExtensionSelection, { kind: 'composio' }> & {
     target: Extract<Extract<StandaloneExtensionSelection, { kind: 'composio' }>['target'], { kind: 'personal'; accountBinding: 'account' }> };
   accountSelectionRef: string;
+  packageBinding?: AgentExtensionPackageBinding;
   label: string;
   status: string;
   selectable: boolean;
@@ -201,6 +209,7 @@ type AgentExtensionConnectionChoicesPayload = {
   personalSelectionPolicy?: { requirement: 'optional' | 'required'; toolCap: string[] | null };
   noAuthSelection?: Extract<StandaloneExtensionSelection, { kind: 'composio' }> & {
     target: Extract<Extract<StandaloneExtensionSelection, { kind: 'composio' }>['target'], { kind: 'personal'; accountBinding: 'no_auth' }> };
+  noAuthPackageBinding?: AgentExtensionPackageBinding;
   pagination: AgentExtensionOptionsPagination;
 };
 export type AgentExtensionOptionsResponse =

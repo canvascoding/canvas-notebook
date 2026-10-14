@@ -141,6 +141,10 @@ async function defaultDependencies(): Promise<PluginExtensionSearchDependencies>
     composio: readComposioExtensions, mcp: readMcpExtensions, revalidate: revalidateExtensions };
 }
 
+// Other authorized selection projections reuse package/Store sources and the
+// same ranking/pagination while supplying their own metadata-only providers.
+export { defaultDependencies as getPluginExtensionSearchDependencies };
+
 async function readInstalledExtensions(actor: CapabilityResourceActor) {
   const [{ listCapabilityResources }, { projectPluginWorkspaceCatalog }, { resolvePluginWorkspaceCatalogScopeContext }] = await Promise.all([
     import('@/app/lib/capabilities/resources/actions'), import('./plugin-workspace-catalog'), import('./plugin-workspace-selection')]);

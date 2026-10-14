@@ -40,6 +40,7 @@ export const PLANNING_MODE_ALLOWED_TOOLS = new Set([
   'inspect_agent',
   'inspect_agent_workflow',
   'list_agent_workflow_options',
+  'list_agent_extension_options',
   'list_human_todos',
   'inspect_human_todo',
 ]);

@@ -40,6 +40,26 @@ export async function requireMcpUserAccess(scope?: McpScope | null): Promise<Mcp
   return { userId, organizationId: state.organizationId, canManageDefinitions };
 }
 
+/** Current post-read personal policy shared by runtime access and read-only metadata inventory. No execution proof is issued. */
+export async function assertPersonalMcpConnectionMetadataAccess(connection: McpServerConfig, scope: McpScope,
+  actor: McpActor | null, options: { allowDisabled?: boolean; management?: boolean } = {}): Promise<void> {
+  const normalized = requireMcpCredentialScope(scope);
+  if (normalized.shared) throw new McpAccessError('A personal MCP metadata scope is required.');
+  if (normalized.userId && (!actor || actor.userId !== normalized.userId)) throw new McpAccessError('MCP actor does not match the connection owner.');
+  if (normalized.organizationId && actor && normalized.organizationId !== actor.organizationId) throw new McpAccessError('The requested organization is no longer active.');
+  if (actor && connection.ownerUserId !== actor.userId) throw new McpAccessError('MCP connection belongs to another user.');
+  if (!options.allowDisabled && connection.enabled === false) throw new McpAccessError('MCP connection is disabled.', 409, 'MCP_CONNECTION_DISABLED');
+  if (options.management) return;
+  if (actor && connection.organizationId && connection.organizationId !== actor.organizationId) throw new McpAccessError('This connection belongs to another organization.');
+  if (actor && connection.serverDefinitionId) {
+    if (!connection.organizationId || connection.organizationId !== actor.organizationId) throw new McpAccessError('The server approval belongs to another organization.');
+    const definition = (await listMcpServerDefinitions(connection.organizationId)).find(item => item.id === connection.serverDefinitionId);
+    if (!definition?.enabled || !matchesMcpServerDefinition(connection, definition)) throw new McpAccessError('The server approval was removed or changed. Choose an approved server in Settings.');
+  } else if (actor && !actor.canManageDefinitions) {
+    throw new McpAccessError('Members can use only organization-approved HTTP servers.');
+  }
+}
+
 export async function assertMcpConnectionAccess(
   serverNameOrId: string, scope?: McpScope | null,
   options: { allowDisabled?: boolean; management?: boolean; actor?: McpActor | null } = {},
@@ -72,17 +92,7 @@ export async function assertMcpConnectionAccess(
     || (normalized.legacy === true && systemConnectionId(name) === serverNameOrId));
   if (!selected) throw new McpAccessError('MCP connection not found.', 404, 'MCP_CONNECTION_NOT_FOUND');
   const [serverName, connection] = selected;
-  if (actor && connection.ownerUserId !== actor.userId) throw new McpAccessError('MCP connection belongs to another user.');
-  if (!options.allowDisabled && connection.enabled === false) throw new McpAccessError('MCP connection is disabled.', 409, 'MCP_CONNECTION_DISABLED');
-  if (options.management) return { serverName, connection, actor };
-  if (actor && connection.organizationId && connection.organizationId !== actor.organizationId) throw new McpAccessError('This connection belongs to another organization.');
-  if (actor && connection.serverDefinitionId) {
-    if (!connection.organizationId || connection.organizationId !== actor.organizationId) throw new McpAccessError('The server approval belongs to another organization.');
-    const definition = (await listMcpServerDefinitions(connection.organizationId)).find((item) => item.id === connection.serverDefinitionId);
-    if (!definition?.enabled || !matchesMcpServerDefinition(connection, definition)) throw new McpAccessError('The server approval was removed or changed. Choose an approved server in Settings.');
-  } else if (actor && !actor.canManageDefinitions) {
-    throw new McpAccessError('Members can use only organization-approved HTTP servers.');
-  }
+  await assertPersonalMcpConnectionMetadataAccess(connection, normalized, actor, options);
   return { serverName, connection, actor };
 }
 

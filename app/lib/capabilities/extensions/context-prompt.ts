@@ -15,6 +15,18 @@ import { scoreExtensionMetadata } from './relevance';
 export const EXTENSION_CONTEXT_MAX_BYTES = 8 * 1_024;
 export const EFFECTIVE_EXTENSION_CONTEXT_MARKER = '<!-- canvas-effective-extensions:v1 -->';
 
+/** Pure display input; configuration previews cannot supply a runtime issuer handle. */
+export type ExtensionContextPresentation = Pick<EffectiveExtensionContextData,
+  'fingerprint' | 'mode' | 'packages' | 'skills' | 'workflowProjection'>;
+
+export class ExtensionContextBudgetError extends AgentWorkflowError {
+  readonly maxBytes = EXTENSION_CONTEXT_MAX_BYTES;
+  constructor(readonly requiredBytes: number) {
+    super('AGENT_EXTENSION_CONTEXT_TOO_LARGE',
+      'The selected extension identities and required usage guidance exceed the shared 8 KiB context budget. Reduce this selection.', 409);
+  }
+}
+
 export type ExtensionContextPromptOptions = Readonly<{
   /** Actual held resource IDs rank metadata; names and these IDs grant nothing. */
   explicitSkillRefs?: readonly string[];
@@ -90,7 +102,7 @@ function providerAllowed(policy: IntegrationPolicy | null, provider: Integration
  * opaque authority nor reads sources, enumerates tools, or checks live readiness.
  * The server wrapper must first read its actor-bound held context.
  */
-export function renderEffectiveExtensionContext(data: EffectiveExtensionContextData,
+export function renderEffectiveExtensionContext(data: ExtensionContextPresentation,
   input: readonly AgentTool[] | EffectiveToolManifest, query: string,
   options: ExtensionContextPromptOptions = {}): RenderedExtensionContext {
   const { manifest, ceiling } = actualTools(input, options);
@@ -176,8 +188,7 @@ export function renderEffectiveExtensionContext(data: EffectiveExtensionContextD
   lines.push('Descriptions/default prompts/read details below may be compacted. Every selected identity and required route above is retained; omitted data never grants another capability.');
   const mandatory = lines.join('\n');
   if (bytes(mandatory) > EXTENSION_CONTEXT_MAX_BYTES) {
-    throw new AgentWorkflowError('AGENT_EXTENSION_CONTEXT_TOO_LARGE',
-      'The selected extension identities and required usage guidance exceed the shared 8 KiB context budget. Reduce this selection.', 409);
+    throw new ExtensionContextBudgetError(bytes(mandatory));
   }
 
   let prompt = mandatory;
