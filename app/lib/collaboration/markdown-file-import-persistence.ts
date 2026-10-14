@@ -1,6 +1,7 @@
 import 'server-only';
 
 import { createHash, randomUUID } from 'node:crypto';
+import type { Stats } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { NextRequest } from 'next/server';
@@ -12,6 +13,8 @@ import { ensureActiveFileLineage, lockFileCollaborationPaths } from '../files/co
 import { assertWorkspaceOriginalPathCurrent, readWorkspaceOriginalFileSource,
   type WorkspaceOriginalPathObservation, type WorkspaceOriginalRootObservation } from '../files/workspace-original-file-source';
 import { isInternalWorkspaceStagingPath } from '../files/internal-staging-path';
+import type { MarkdownUploadAttemptSelection } from '../files/workspace-markdown-upload-attempt';
+import { withCurrentWorkspaceUploadFile, type CurrentWorkspaceUploadFileSource } from '../files/workspace-upload-live-source';
 import { filesystemFileVersion } from '../filesystem/file-version';
 import { assertWorkspaceFileLifecycleSqlAvailable, withWorkspaceFileLifecycleGuard } from '../files/workspace-file-lifecycle-guard';
 import { captureAgentStateSnapshot, persistedUpdateIncludesAgentSnapshot } from './agent-durability';
@@ -655,14 +658,303 @@ async function persistOriginalWorkspaceFile(request: NextRequest, selection: Pri
   });
 }
 
+type UploadTargetAbsence = Readonly<{ configuredRoot: string; resolvedRoot: string; profile: string;
+  ancestors: readonly (readonly [string, string | null])[] }>;
+type AuthenticatedUploadScope = { active: boolean; database: SqlConnection; access: WorkspaceRequestPrincipalAccess;
+  frame: BootstrapFrame; source: CurrentWorkspaceUploadFileSource; absence: UploadTargetAbsence;
+  documentId: string; originalLineageId: string | null; lineage: BootstrapLineage };
+const authenticatedUploadScopes = new WeakMap<Captured, AuthenticatedUploadScope>();
+const uploadIntentKeys = ['uploadSessionId', 'fileId', 'workspaceId', 'targetPath', 'actorUserId', 'actorSessionId', 'requestId', 'operationId'] as const;
+
+/** Point-in-time absence under the held workspace kernel/admission fence. No
+ * target is created here: durable create birth and projection belong to I04. */
+async function observeUploadTargetAbsence(workspace: WorkspaceContext, filePath: string): Promise<UploadTargetAbsence> {
+  const resolvedRoot = await fs.realpath(workspace.rootPath), root = await fs.stat(resolvedRoot);
+  const profile = (stat: Stats) => JSON.stringify([stat.dev, stat.ino, stat.uid, stat.mode]);
+  if (!root.isDirectory()) return fail('MARKDOWN_IMPORT_TARGET_CHANGED');
+  const ancestors: Array<readonly [string, string | null]> = []; let relative = '';
+  for (const segment of filePath.split('/')) {
+    relative = relative ? `${relative}/${segment}` : segment;
+    let stat: Stats;
+    try { stat = await fs.lstat(path.join(resolvedRoot, relative)); }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+      ancestors.push([relative, null]); break;
+    }
+    if (relative === filePath || stat.isSymbolicLink() || !stat.isDirectory()) return fail('MARKDOWN_IMPORT_TARGET_CHANGED');
+    const names = await fs.opendir(path.join(resolvedRoot, path.posix.dirname(relative)));
+    try {
+      let exact = false;
+      for (let entry = await names.read(); entry; entry = await names.read()) if (entry.name === segment) { exact = true; break; }
+      if (!exact) return fail('MARKDOWN_IMPORT_TARGET_CHANGED');
+    } finally { await names.close(); }
+    ancestors.push([relative, profile(stat)]);
+  }
+  return Object.freeze({ configuredRoot: workspace.rootPath, resolvedRoot, profile: profile(root), ancestors: Object.freeze(ancestors) });
+}
+async function assertUploadTargetAbsent(workspace: WorkspaceContext, filePath: string, before: UploadTargetAbsence): Promise<void> {
+  const after = await observeUploadTargetAbsence(workspace, filePath);
+  if (JSON.stringify(after) !== JSON.stringify(before)) return fail('MARKDOWN_IMPORT_TARGET_CHANGED');
+}
+async function observeAuthenticatedUploadOrigin(request: NextRequest, intent: MarkdownUploadAttemptSelection): Promise<PristineOriginalRequestScopeExpectation> {
+  const { requireRequestWorkspace } = await import('../workspaces/request');
+  const result = await requireRequestWorkspace(request, { workspaceId: intent.workspaceId, permissions: 'canWrite' });
+  if (result.response) throw Object.assign(new Error('Authenticated upload write permission is required.'), { status: result.response.status });
+  const workspace = result.workspace;
+  if (result.session.user.id !== intent.actorUserId || result.session.session.id !== intent.actorSessionId
+    || workspace.workspaceId !== intent.workspaceId || workspace.legacy || workspace.status !== 'active'
+    || !workspace.permissions.canRead || !workspace.permissions.canWrite) return fail('MARKDOWN_IMPORT_REQUEST_CONFLICT');
+  // Freeze actual primitives before the realm await, never retain a mutable
+  // resolver object as either authority or an expectation that can be reset.
+  const origin = Object.freeze({ userId: result.session.user.id, sessionId: result.session.session.id,
+    workspaceId: workspace.workspaceId, workspaceType: workspace.workspaceType, organizationId: workspace.organizationId ?? null,
+    projectId: workspace.projectId ?? null, customerId: workspace.customerId ?? null, ownerUserId: workspace.ownerUserId ?? null,
+    rootPath: workspace.rootPath, rootRelativePath: workspace.rootRelativePath!, legacy: false as const, status: 'active' as const });
+  const runtime = getPostgresRuntimeQueryable();
+  const realm = runtime && (await runtime.query(`SELECT current_schema() AS schema,to_regnamespace(current_schema())::oid::bigint AS schema_oid,
+    (SELECT oid::bigint FROM pg_database WHERE datname=current_database()) AS database_oid,current_setting('search_path') AS search_path`)).rows[0];
+  if (!realm) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
+  return captureBootstrapExpectation({ ...origin, schema: realm.schema, schemaOid: Number(realm.schema_oid),
+    databaseOid: Number(realm.database_oid), searchPath: realm.search_path })!;
+}
+async function assertAuthenticatedUploadScope(database: SqlConnection, input: Captured, scope: AuthenticatedUploadScope): Promise<void> {
+  if (!scope.active || scope.database !== database || authenticatedUploadScopes.get(input) !== scope
+    || scope.access.userId !== input.actorUserId || scope.access.sessionId !== input.actorSessionId) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
+  await scope.access.assertCurrent(); await assertBootstrapOwner(scope.frame); await assertBootstrapNativeRealm(database, scope.frame);
+  await assertBootstrapExpectedScope(database, scope.frame, scope.access);
+  await scope.source.assertCurrent(); await assertUploadTargetAbsent(scope.access.workspace, input.path, scope.absence);
+}
+/** Validate the exact real row delivered to the mapper, including orphan raw
+ * error flags. No earlier metadata SELECT can certify a later RC row. */
+function authenticatedUploadReads(database: SqlConnection): SqlConnection {
+  const read = async (sql: string, values?: unknown[]) => {
+    const rows = await database.all(sql, values);
+    if (/^SELECT \* FROM collaboration_yjs_states\s+WHERE document_id = \$1(?:\s|$)/u.test(sql)) return rows.map(value => {
+      const row = normalizeBootstrapStateRow(value as Record<string, unknown>);
+      if (!(row.yjs_state instanceof Uint8Array) || row.yjs_state.byteLength < 1 || row.yjs_state.byteLength > BOOTSTRAP_STATE_LIMIT
+        || !(row.state_vector instanceof Uint8Array) || row.state_vector.byteLength < 1 || row.state_vector.byteLength > BOOTSTRAP_VECTOR_LIMIT
+        || row.degraded !== 0 || row.projection_error_permanent === 1 && row.projection_error_generation !== null
+          && Number(row.projection_error_generation) === Number(row.lifecycle_generation)) return fail('MARKDOWN_IMPORT_COMMIT_UNCONFIRMED');
+      return row;
+    });
+    return rows;
+  };
+  return { all: read, get: async (sql, values) => (await read(sql, values))[0],
+    run: () => fail('MARKDOWN_IMPORT_COMMIT_UNCONFIRMED'), close: () => fail('MARKDOWN_IMPORT_COMMIT_UNCONFIRMED') };
+}
+async function confirmedAuthenticatedUploadRetry(database: SqlConnection, input: Captured) {
+  const reads = authenticatedUploadReads(database), prior = await confirmedRetry(reads, input);
+  if (!prior) return null;
+  const row = await database.get(`SELECT d.id FROM collaboration_documents d JOIN file_collaboration_lineages l ON l.id=d.lineage_id
+    WHERE d.id=$1 AND d.workspace_id=$2 AND d.organization_id IS NOT DISTINCT FROM $3 AND d.path=$4
+      AND d.workspace_type=$5 AND d.customer_id IS NOT DISTINCT FROM $6 AND d.project_id IS NOT DISTINCT FROM $7
+      AND d.provider='yjs' AND d.status='active' AND d.yjs_state_lifecycle='initialized' AND d.lineage_id=$8
+      AND l.workspace_id=d.workspace_id AND l.organization_id IS NOT DISTINCT FROM d.organization_id AND l.path=d.path
+      AND l.workspace_type=d.workspace_type AND l.customer_id IS NOT DISTINCT FROM d.customer_id
+      AND l.project_id IS NOT DISTINCT FROM d.project_id AND l.status='active' FOR UPDATE OF d,l`,
+  [prior.receipt.target.documentId, input.workspace.workspaceId, input.workspace.organizationId ?? null, input.path,
+    input.workspace.workspaceType, input.workspace.customerId ?? null, input.workspace.projectId ?? null, prior.receipt.target.lineageId]);
+  if (!row) return fail('MARKDOWN_IMPORT_TARGET_CHANGED');
+  const state = await loadCollaborationStateOnConnection(reads, prior.receipt.target.documentId, true);
+  if (!state) return fail('MARKDOWN_IMPORT_COMMIT_UNCONFIRMED');
+  const current = inspectPersistedNativeCollaborationSnapshot(state, (doc, snapshot) => {
+    assertNativeDocumentSchema(doc, state.representation, getSchema(richMarkdownSchemaExtensions())); return snapshot;
+  });
+  if (current.version.stateProof !== prior.currentObservation.stateProof) return fail('MARKDOWN_IMPORT_COMMIT_UNCONFIRMED');
+  return prior;
+}
+async function captureAuthenticatedUpload(database: SqlConnection, frame: BootstrapFrame, access: WorkspaceRequestPrincipalAccess,
+  source: CurrentWorkspaceUploadFileSource, absence: UploadTargetAbsence): Promise<Captured> {
+  await assertBootstrapExpectedScope(database, frame, access); await assertBootstrapOwner(frame); await assertBootstrapNativeRealm(database, frame, true);
+  await source.assertCurrent(); await assertUploadTargetAbsent(access.workspace, source.binding.targetPath, absence);
+  frame.mutationIdentity = await bootstrapConnectionRealm(database);
+  const bytes = await source.readSource();
+  if (bytes.byteLength !== source.binding.sourceBytes || hash(bytes) !== source.binding.sourceHash) return fail('MARKDOWN_IMPORT_TARGET_CHANGED');
+  const input = capture({ workspace: access.workspace, path: source.binding.targetPath, operationId: source.binding.operationId,
+    requestId: source.binding.requestId, actorUserId: access.userId, actorSessionId: access.sessionId,
+    bytes, expectedTarget: { kind: 'absent' }, validateAuthority: async () => undefined });
+  input.fingerprint = hash(JSON.stringify({ domain: 'canvas-authenticated-staging-create-v1', intent: source.binding,
+    origin: frame.expectedScope, representation: input.prepared.representation, newlineStyle: input.prepared.newlineStyle, hasBom: input.prepared.hasBom }));
+  await assertWorkspaceFileLifecycleSqlAvailable(database, input.workspace.workspaceId, [input.path]);
+  await lockFileCollaborationPaths(database, input.workspace.workspaceId, [input.path]);
+  const prior = await confirmedAuthenticatedUploadRetry(database, input);
+  const catalogue = await readWorkspaceDocumentCatalogue(database, input.workspace, { paths: [input.path], maxEntries: 2 });
+  const rows = await database.all(`SELECT id,lineage_id,organization_id,customer_id,project_id,workspace_type,provider,state_version,yjs_state_lifecycle
+    FROM collaboration_documents WHERE workspace_id=$1 AND path=$2 AND status='active' ORDER BY id LIMIT 2 FOR UPDATE`,
+  [input.workspace.workspaceId, input.path]) as Array<Record<string, unknown>>;
+  const document = rows[0];
+  if (!prior) {
+    if (!document) {
+      if (catalogue.length || await database.get(`SELECT id FROM collaboration_documents WHERE workspace_id=$1 AND path=$2 LIMIT 1`,
+        [input.workspace.workspaceId, input.path])) return fail('MARKDOWN_IMPORT_LIFECYCLE_REQUIRED');
+    } else {
+      if (rows.length !== 1 || catalogue.length !== 1 || catalogue[0].id !== document.id || catalogue[0].authority !== 'pristine'
+        || !validId(document.id) || document.provider !== 'yjs' || document.workspace_type !== input.workspace.workspaceType
+        || document.customer_id !== (input.workspace.customerId ?? null) || document.project_id !== (input.workspace.projectId ?? null)
+        || document.organization_id !== (input.workspace.organizationId ?? null) || Number(document.state_version) !== 0
+        || document.yjs_state_lifecycle !== 'never_initialized' || document.lineage_id !== null && !validId(document.lineage_id)) return fail('MARKDOWN_IMPORT_TARGET_CHANGED');
+      input.expectedTarget = { kind: 'pristine', documentId: document.id };
+    }
+  }
+  const documentId = prior?.receipt.target.documentId ?? (document?.id as string | undefined) ?? `collab-${randomUUID()}`;
+  if (!prior) await assertBootstrapVirgin(database, documentId);
+  const lineages = await database.all(`SELECT id,organization_id,workspace_type,customer_id,project_id FROM file_collaboration_lineages
+    WHERE workspace_id=$1 AND path=$2 AND status='active' ORDER BY id LIMIT 2 FOR UPDATE`, [input.workspace.workspaceId, input.path]) as Array<Record<string, unknown>>;
+  const existing = lineages[0];
+  if (lineages.length > 1 || existing && (!validId(existing.id) || existing.organization_id !== (input.workspace.organizationId ?? null)
+    || existing.workspace_type !== input.workspace.workspaceType || existing.customer_id !== (input.workspace.customerId ?? null)
+    || existing.project_id !== (input.workspace.projectId ?? null)) || document?.lineage_id && document.lineage_id !== existing?.id
+    || existing && await database.get(`SELECT id FROM collaboration_documents WHERE lineage_id=$1 AND id<>$2 LIMIT 1`,
+      [existing.id, documentId])) return fail('MARKDOWN_IMPORT_TARGET_CHANGED');
+  const scope: AuthenticatedUploadScope = { active: true, database, access, frame, source, absence, documentId,
+    originalLineageId: document?.lineage_id as string | null ?? null,
+    lineage: { id: existing?.id as string | undefined ?? `file-lineage-${randomUUID()}`, organizationId: input.workspace.organizationId ?? null, existing: !!existing } };
+  authenticatedUploadScopes.set(input, scope); await assertAuthenticatedUploadScope(database, input, scope); return input;
+}
+async function bindAuthenticatedUploadLineage(database: SqlConnection, input: Captured, scope: AuthenticatedUploadScope, now: number) {
+  await assertAuthenticatedUploadScope(database, input, scope); await assertBootstrapVirgin(database, scope.documentId);
+  if (!scope.lineage.existing) await database.run(`INSERT INTO file_collaboration_lineages(id,organization_id,customer_id,project_id,workspace_id,workspace_type,path,status,created_at)
+    VALUES($1,$2,$3,$4,$5,$6,$7,'active',$8)`, [scope.lineage.id, scope.lineage.organizationId, input.workspace.customerId ?? null,
+    input.workspace.projectId ?? null, input.workspace.workspaceId, input.workspace.workspaceType, input.path, now]);
+  return scope.lineage;
+}
+async function initializeAuthenticatedUploadRegistry(database: SqlConnection, input: Captured, scope: AuthenticatedUploadScope, now: number) {
+  await assertAuthenticatedUploadScope(database, input, scope); await assertBootstrapVirgin(database, scope.documentId);
+  const changed = await database.get(`UPDATE collaboration_documents SET lineage_id=$1,yjs_state_lifecycle='initialized',updated_at=$2
+    WHERE id=$3 AND workspace_id=$4 AND organization_id IS NOT DISTINCT FROM $5 AND path=$6 AND provider='yjs' AND status='active'
+      AND workspace_type=$7 AND lineage_id IS NOT DISTINCT FROM $8 AND state_version=0 AND yjs_state_lifecycle='never_initialized'
+      AND customer_id IS NOT DISTINCT FROM $9 AND project_id IS NOT DISTINCT FROM $10
+      AND NOT EXISTS(SELECT 1 FROM collaboration_yjs_states WHERE document_id=$3)
+      AND NOT EXISTS(SELECT 1 FROM collaboration_yjs_state_backups WHERE document_id=$3)
+      AND NOT EXISTS(SELECT 1 FROM collaboration_agent_operations WHERE document_id=$3) RETURNING id`,
+  [scope.lineage.id, now, scope.documentId, input.workspace.workspaceId, input.workspace.organizationId ?? null, input.path,
+    input.workspace.workspaceType, scope.originalLineageId, input.workspace.customerId ?? null, input.workspace.projectId ?? null]);
+  if (!changed) return fail('MARKDOWN_IMPORT_TARGET_CHANGED');
+}
+
+/** Inactive private staging service. The eight intent fields never grant rights.
+ * It owns SessionSH→FileEX→I02→actual OwnerA→fixed-canWrite B/C, returns the whole
+ * lifecycle promise, and neither publishes a target nor completes the upload. */
+export async function persistAuthenticatedMarkdownUploadFile(request: NextRequest, selection: MarkdownUploadAttemptSelection,
+  dependencies: { openConnection: () => Promise<SqlConnection> } = { openConnection: openDb }): Promise<MarkdownFileImportResult> {
+  if (!(request instanceof NextRequest) || !selection || Object.getPrototypeOf(selection) !== Object.prototype
+    || Reflect.ownKeys(selection).length !== uploadIntentKeys.length || uploadIntentKeys.some(key => {
+      const descriptor = Object.getOwnPropertyDescriptor(selection, key);
+      return !descriptor?.enumerable || !Object.prototype.hasOwnProperty.call(descriptor, 'value')
+        || (key === 'targetPath' ? typeof descriptor.value !== 'string' : !validId(descriptor.value));
+    })) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
+  const intent = Object.freeze(Object.fromEntries(uploadIntentKeys.map(key => [key, selection[key]])) as MarkdownUploadAttemptSelection);
+  const original = new NextRequest(request.url, { method: request.method, headers: new Headers(request.headers) });
+  const openConnection = dependencies.openConnection;
+  if (typeof openConnection !== 'function' || !isCanonicalAdmissionPath(intent.targetPath) || isInternalWorkspaceStagingPath(intent.targetPath)
+    || !/\.(?:md|markdown)$/iu.test(intent.targetPath)) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
+  if (hasCollaborationHandoffExecutionContext() || getWorkspaceFileLifecycleLeases()?.size) return fail('MARKDOWN_IMPORT_BUSY');
+  const expectedScope = await observeAuthenticatedUploadOrigin(original, intent);
+  const { withWorkspaceRequestPrincipal, withWorkspaceRequestPrincipalOnConnection } = await import('../workspaces/request-principal');
+  return withCurrentWorkspaceUploadFile(intent, source => {
+    let owner: SqlConnection | undefined, ownerIdentity: BootstrapOwner | undefined, ownerCloseFailure: unknown;
+    let hasOwnerCloseFailure = false;
+    const realm = { schema: expectedScope.schema, database: expectedScope.databaseOid };
+    const openOwner = async () => {
+      if (owner) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
+      const actual = await openConnection();
+      try {
+        const identity = await bootstrapConnectionRealm(actual);
+        if (identity.schema !== realm.schema || identity.database !== realm.database || identity.searchPath !== expectedScope.searchPath) return fail('MARKDOWN_IMPORT_TARGET_CHANGED');
+        ownerIdentity = identity;
+        owner = { ...actual, close: async error => { try { await actual.close(error); } catch (failure) { hasOwnerCloseFailure = true; ownerCloseFailure = failure; throw failure; } } };
+        return owner;
+      } catch (error) { await actual.close(new Error('Discarding mismatched staging owner.', { cause: error })); throw error; }
+    };
+    const execute = async () => withWorkspaceFileLifecycleGuard({ workspaceId: intent.workspaceId, paths: [intent.targetPath] }, async () => {
+      if (!owner || !ownerIdentity) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
+      const frame: BootstrapFrame = { request: original, selection: { workspaceId: intent.workspaceId, path: intent.targetPath,
+        operationId: intent.operationId, requestId: intent.requestId, expectedTarget: { kind: 'absent' } },
+      realm, owner, identity: ownerIdentity, permission: 'canWrite', expectedScope };
+      const openPhase = async () => {
+        const database = await openConnection();
+        if (database === owner) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
+        try {
+          const identity = await bootstrapConnectionRealm(database);
+          if (identity.schema !== realm.schema || identity.database !== realm.database || identity.backend === ownerIdentity!.backend
+            || identity.searchPath !== expectedScope.searchPath) return fail('MARKDOWN_IMPORT_TARGET_CHANGED');
+        } catch (error) { await database.close(new Error('Discarding mismatched staging phase.', { cause: error })); throw error; }
+        return database;
+      };
+      const absence = await observeUploadTargetAbsence({ rootPath: expectedScope.rootPath } as WorkspaceContext, intent.targetPath);
+      const outcome = await withWorkspaceRequestPrincipal(original, { workspaceId: intent.workspaceId, permission: 'canWrite' }, principal =>
+        executeLifecycleTransaction<{ input: Captured; result: MarkdownFileImportResult }>({ openConnection: openPhase,
+          execute: async database => {
+            await database.run('SET TRANSACTION ISOLATION LEVEL READ COMMITTED, READ WRITE');
+            // Fix the receipt trigger's known schema path before Principal entry.
+            // Raw source search_path remains bound at each actual A/B/C entry.
+            await database.run("SELECT set_config('search_path',quote_ident($1)||', pg_catalog, pg_temp',true)", [realm.schema]);
+            return withWorkspaceRequestPrincipalOnConnection(database, principal, async access => {
+              const input = await captureAuthenticatedUpload(database, frame, access, source, absence), scope = authenticatedUploadScopes.get(input)!;
+              try {
+                const result = await executeCapturedMarkdownImportOnConnection(database, input, () => assertAuthenticatedUploadScope(database, input, scope));
+                // Required AFTER every receipt/native/registry DML, before the
+                // Principal's own final check and confirmed COMMIT/close.
+                await assertAuthenticatedUploadScope(database, input, scope); return { input, result };
+              } finally { scope.active = false; }
+            });
+          },
+          recoverCommitted: async value => {
+            // Lifecycle core confirms discarded B before invoking this callback.
+            // A stays held while C reauthenticates original headers and observes
+            // only this immutable receipt/current native. No mutation replay.
+            const result = await withWorkspaceRequestPrincipal(original, { workspaceId: intent.workspaceId, permission: 'canWrite' }, async principal => {
+              await assertBootstrapOwner(frame); await source.assertCurrent();
+              const database = await openPhase(); let discard: Error | undefined;
+              try {
+                const identity = await bootstrapConnectionRealm(database), before = frame.mutationIdentity;
+                if (!before || identity.backend === before.backend && identity.start === before.start) return fail('MARKDOWN_IMPORT_COMMIT_UNCONFIRMED');
+                await database.run('BEGIN ISOLATION LEVEL READ COMMITTED READ WRITE');
+                await database.run("SELECT set_config('search_path',quote_ident($1)||', pg_catalog, pg_temp',true)", [realm.schema]);
+                const observed = await withWorkspaceRequestPrincipalOnConnection(database, principal, async access => {
+                  await assertBootstrapExpectedScope(database, frame, access); await assertBootstrapOwner(frame); await assertBootstrapNativeRealm(database, frame, true);
+                  await assertWorkspaceFileLifecycleSqlAvailable(database, intent.workspaceId, [intent.targetPath]);
+                  await lockFileCollaborationPaths(database, intent.workspaceId, [intent.targetPath]);
+                  const prior = await confirmedAuthenticatedUploadRetry(database, value.input);
+                  if (!prior) return fail('MARKDOWN_IMPORT_COMMIT_UNCONFIRMED');
+                  await access.assertCurrent(); await assertBootstrapExpectedScope(database, frame, access); await assertBootstrapOwner(frame);
+                  await source.assertCurrent(); await assertUploadTargetAbsent(access.workspace, intent.targetPath, absence);
+                  return { disposition: 'commit-recovered' as const, ...prior };
+                });
+                await database.run('COMMIT'); await assertBootstrapOwner(frame); return observed;
+              } catch (error) {
+                try { await database.run('ROLLBACK'); } catch (failure) { discard = new Error('Discarding unresolved staging recovery.', { cause: failure }); }
+                throw error;
+              } finally { await database.close(discard); }
+            });
+            return { input: value.input, result };
+          },
+        }));
+      await assertBootstrapOwner(frame); await source.assertCurrent();
+      await assertUploadTargetAbsent({ rootPath: expectedScope.rootPath } as WorkspaceContext, intent.targetPath, absence); return outcome.result;
+    }, openOwner);
+    return (async () => {
+      let value: MarkdownFileImportResult | undefined, failure: unknown, hasFailure = false;
+      try { value = await execute(); } catch (error) { hasFailure = true; failure = error; }
+      if (hasOwnerCloseFailure) {
+        if (hasFailure) throw new AggregateError([failure, ownerCloseFailure], 'Staging owner closure failed.');
+        throw ownerCloseFailure;
+      }
+      if (hasFailure) throw failure; return value!;
+    })();
+  });
+}
+
 async function executeCapturedMarkdownImportOnConnection(database: SqlConnection, input: Captured,
   validateAuthority: MarkdownFileImportRequest['validateAuthority']): Promise<MarkdownFileImportResult> {
   const original = originalBootstrapScopes.get(input);
+  const staging = authenticatedUploadScopes.get(input);
   if (original) await assertBootstrapScope(database, input, original);
+  else if (staging) await assertAuthenticatedUploadScope(database, input, staging);
   else { await database.run("SET LOCAL statement_timeout='5s'"); await database.run("SET LOCAL lock_timeout='4s'"); }
   await assertWorkspaceFileLifecycleSqlAvailable(database, input.workspace.workspaceId, [input.path]);
   await lockFileCollaborationPaths(database, input.workspace.workspaceId, [input.path]);
-  const prior = await confirmedRetry(database, input);
+  const prior = staging ? await confirmedAuthenticatedUploadRetry(database, input) : await confirmedRetry(database, input);
   if (prior) return { disposition: 'already-applied', ...prior };
   const documents = await readWorkspaceDocumentCatalogue(database, input.workspace, { paths: [input.path] });
   const all = await database.all(`SELECT id FROM collaboration_documents WHERE workspace_id=$1 AND path=$2 AND status='active' FOR UPDATE`,
@@ -671,7 +963,7 @@ async function executeCapturedMarkdownImportOnConnection(database: SqlConnection
   if (input.expectedTarget.kind === 'absent' ? documents.length !== 0 || all.length !== 0
     : documents.length !== 1 || all.length !== 1 || !document || document.id !== input.expectedTarget.documentId
       || document.authority !== (input.expectedTarget.kind === 'pristine' ? 'pristine' : 'initialized')) return fail('MARKDOWN_IMPORT_TARGET_CHANGED');
-  const documentId = document?.id ?? original?.documentId ?? `collab-${randomUUID()}`;
+  const documentId = document?.id ?? original?.documentId ?? staging?.documentId ?? `collab-${randomUUID()}`;
   const active = await database.get(`SELECT operation_id FROM collaboration_agent_operations WHERE document_id=$1
           AND status IN ('preparing','ready','applying','applied_to_ydoc','cancel_requested') LIMIT 1`, [documentId]);
   if (active) return fail('MARKDOWN_IMPORT_BUSY');
@@ -687,6 +979,7 @@ async function executeCapturedMarkdownImportOnConnection(database: SqlConnection
     state = mutateEmpty(current, input);
   } else state = importedState(input, documentId, Date.now());
   const lineage = original ? await bindBootstrapLineage(database, input, original, state.persistedAt)
+    : staging ? await bindAuthenticatedUploadLineage(database, input, staging, state.persistedAt)
     : await ensureActiveFileLineage(database, { id: document?.lineage_id ?? `file-lineage-${randomUUID()}`,
     workspace: input.workspace, path: input.path, nowMs: state.persistedAt });
   if (lineage.organizationId !== state.organizationId || document?.lineage_id && lineage.id !== document.lineage_id) return fail('MARKDOWN_IMPORT_TARGET_CHANGED');
@@ -702,6 +995,7 @@ async function executeCapturedMarkdownImportOnConnection(database: SqlConnection
     const query = async (sql: string, values?: unknown[]) => await database.all(sql, values) as Array<Record<string, unknown>>;
     await lockFileLifecycleCollaborationWriterAdmission(query, state); await assertCollaborationAdmissionOpen(query, state);
     if (document && original) await initializeBootstrapRegistry(database, input, original, state.persistedAt);
+    else if (document && staging) await initializeAuthenticatedUploadRegistry(database, input, staging, state.persistedAt);
     else if (document) await database.run(`UPDATE collaboration_documents SET lineage_id=$1,yjs_state_lifecycle='initialized',updated_at=$2
             WHERE id=$3 AND workspace_id=$4 AND organization_id IS NOT DISTINCT FROM $5 AND path=$6 AND provider='yjs' AND status='active'`,
     [lineage.id, state.persistedAt, documentId, state.workspaceId, state.organizationId, state.path]);

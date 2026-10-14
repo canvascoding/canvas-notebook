@@ -1,6 +1,6 @@
 # I-03a: laufende Uploadquelle und dauerhafter Abbruch
 
-Status: **Gemeinsame Upload-Lifetime abgeschlossen; nativer Staging-Writer I-03b und erste Zielveröffentlichung bleiben offen.** Autorcommit `c6802792530e35383a558b00d13eb6bc1a1d71ee`, sechs Source-/Testdateien auf `737ab428d`.
+Status: **Gemeinsame Upload-Lifetime abgeschlossen; der nachfolgende interne Staging-Writer I-03b ist separat geprüft, erste Zielveröffentlichung bleibt offen.** Autorcommit `c6802792530e35383a558b00d13eb6bc1a1d71ee`, sechs Source-/Testdateien auf `737ab428d`. Der Anschlussbeleg steht in [I-03b](./markdown-authenticated-staging-writer-evidence.md).
 
 ## Verhalten
 
@@ -24,4 +24,4 @@ Root bestätigt sechzehn vollständige alte Kernel-/Snapshot-/Original-/Import-/
 
 Produktfreezes: TS `16c553149f7532eff1f45a08c797b4f277e4c81ec147cc36734759e38c44f042`; Python `8489f2f5547d0e214b9d66b1ca9fef9d656cee81e0a56bea7c7b54db3b699f50`; Service `56ebf2adb0b75ca0baef1b0e571123ee4a82e09729f4d16d3d4245c983df7f94`; Test `a1be21cb89ed4a71d4c7edc378085f831b24f822de813ad89e770292dc159fc5`.
 
-Diese Matrix belegt weder Auth-/PG-/Office-PG-Verhalten noch Browser-, Native-Mobile- oder Produktionsabnahme. Kein nativer Importwriter, Targetpublish oder Sessiongate wird aktiviert. I-03b, I-04 und die gemeinsame [Create-/Paste-/Vollimportabnahme](./markdown-create-paste-full-import-integration-plan.md#9-abnahmefälle) folgen als einzelne Gates.
+Diese I-03a-Matrix belegt weder Auth-/PG-/Office-PG-Verhalten noch Browser-, Native-Mobile- oder Produktionsabnahme. Der spätere [I-03b-Abschluss](./markdown-authenticated-staging-writer-evidence.md) besitzt seinen eigenen echten Auth-/PG-Beleg; Targetpublish und Sessiongate bleiben ungeschaltet. I-04 und die gemeinsame [Create-/Paste-/Vollimportabnahme](./markdown-create-paste-full-import-integration-plan.md#9-abnahmefälle) folgen als einzelne Gates.
