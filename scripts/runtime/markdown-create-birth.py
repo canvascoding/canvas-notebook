@@ -321,7 +321,7 @@ def parent_for(root, target, initial, parents):
         raise
 
 
-def capture_absence(root, target):
+def capture_absence(root, target, manual_new=False):
     result, opened, parent, relative, missing = {}, [], root, '', False
     try:
         for segment in target.split('/'):
@@ -335,6 +335,8 @@ def capture_absence(root, target):
                 missing = True
                 result[relative] = None
                 continue
+            if manual_new and relative == target:
+                fail('MANUAL_PATH_EXISTS')
             if relative == target or not stat.S_ISDIR(value.st_mode) or segment not in os.listdir(parent):
                 fail('TARGET_CHANGED')
             child = open_dir(parent, segment)
@@ -365,6 +367,20 @@ def current_source(intent):
     in its own synchronous final publication turn.
     """
     selected = intent['source']
+    if 'kind' in selected:
+        keys = {'kind', 'workspaceId', 'targetPath', 'actorUserId', 'actorSessionId', 'requestId', 'operationId', 'sourceHash', 'sourceBytes'}
+        origin = intent.get('origin')
+        if not isinstance(selected, dict) or set(selected) != keys or selected.get('kind') != 'manual-empty-v1' \
+                or type(selected.get('sourceBytes')) is not int or selected['sourceBytes'] != 0 or selected.get('sourceHash') != digest(b'') \
+                or not isinstance(origin, dict) or selected.get('workspaceId') != origin.get('workspaceId') \
+                or selected.get('actorUserId') != origin.get('userId') or selected.get('actorSessionId') != origin.get('sessionId') \
+                or selected.get('targetPath') != intent.get('targetPath') or selected.get('operationId') != intent.get('operationId') \
+                or selected.get('requestId') != selected.get('operationId') or not isinstance(selected.get('operationId'), str) \
+                or not re.fullmatch('manual-create:[a-fA-F0-9]{8}(?:-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12}', selected['operationId']):
+            fail('SOURCE_CHANGED')
+        # The parent owns genuine A/D authorization. This exact protocol value
+        # is merely attribution; the preparation child never links a target.
+        return dict(selected)
     session_id, file_id = selected['uploadSessionId'], selected['fileId']
     if not all(isinstance(value, str) and re.fullmatch('[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}', value) for value in [session_id, file_id]):
         fail('SOURCE_CHANGED')
@@ -451,7 +467,10 @@ def run(message):
         if created:
             if message['action'] != 'open' or before is not None:
                 fail('RECORD_CHANGED')
-            intent = {**intent, 'ancestors': capture_absence(4, target), 'sourceAttribution': current_source(intent)}
+            manual_new = intent['source'].get('kind') == 'manual-empty-v1'
+            if manual_new:
+                current_source(intent)
+            intent = {**intent, 'ancestors': capture_absence(4, target, manual_new), 'sourceAttribution': current_source(intent)}
             record(claim, 'intent.json', intent)
             os.fsync(store)
             ack('intent_durable')
@@ -512,6 +531,8 @@ def run(message):
                 content = base64.b64decode(message['bytes'], validate=True)
                 if len(content) > LIMIT or digest(content) != message['serializedHash']:
                     fail('INVALID_INPUT')
+                if 'kind' in intent['source'] and content != b'':
+                    fail('SOURCE_CHANGED')
                 if prepared is None:
                     fd = os.open('content.tmp', os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=claim)
                     try:

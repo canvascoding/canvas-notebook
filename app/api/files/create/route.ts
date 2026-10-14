@@ -28,6 +28,7 @@ import {
   readJsonBody,
 } from '@/app/lib/api/route-helpers';
 import { requireRequestWorkspace, workspaceFileOptions } from '@/app/lib/workspaces/request';
+import { completeManualMarkdownCreate, MarkdownManualCreateError } from '@/app/lib/files/workspace-markdown-manual-create';
 
 export async function POST(request: NextRequest) {
   const workspaceResult = await requireRequestWorkspace(request, { permissions: 'canWrite' });
@@ -46,11 +47,19 @@ export async function POST(request: NextRequest) {
       path?: string;
       type?: 'file' | 'directory';
       template?: 'excalidraw';
+      requestId?: string;
     }>(request);
     const { path, type, template } = body;
 
     if (!path || !type) {
       return jsonError('Path and type are required', 400);
+    }
+
+    if (type === 'file' && typeof path === 'string' && /\.(?:md|markdown)$/iu.test(path)) {
+      if (template !== undefined) return jsonError('A Markdown document cannot use a drawing template.', 400, { code: 'MARKDOWN_CREATE_INVALID_TEMPLATE' });
+      const completion = await completeManualMarkdownCreate(request, { workspaceId: workspaceResult.workspace.workspaceId, path, requestId: body.requestId! });
+      return completion.status === 'completed' ? jsonSuccess({ completion })
+        : jsonError('The document creation is not yet confirmed. Keep this attempt and check it again.', 409, { code: completion.code, completion });
     }
 
     if (type === 'directory') {
@@ -130,6 +139,7 @@ export async function POST(request: NextRequest) {
 
     return jsonSuccess();
   } catch (error) {
+    if (error instanceof MarkdownManualCreateError) return jsonError(error.message, error.status, { code: error.code });
     if (error instanceof WorkspacePathAliasError) return jsonError(error.message, error.status, { code: error.code });
     if (error && typeof error === 'object' && 'code' in error && error.code === 'EEXIST') {
       return jsonError('A file or folder already exists at this path.', 409, { code: 'PATH_EXISTS' });

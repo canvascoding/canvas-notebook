@@ -7,7 +7,10 @@ import { waitForWorkspacePathOperationResult, WorkspacePathOperationClientError 
 import { readWorkspacePathOperation } from './workspace-path-operation-parser';
 import { joinWorkspacePath } from './path-utils';
 import { WORKSPACE_ID_HEADER } from '@/app/lib/workspaces/constants';
-import { fetchLiveDocument } from '@/app/lib/collaboration/opened-document-registry';
+import { fetchLiveDocument, openedDocumentAuthScope } from '@/app/lib/collaboration/opened-document-registry';
+import { reserveMarkdownCreateAttempt, settleMarkdownCreateAttempt } from '@/app/store/markdown-create-store';
+import { isManualMarkdownCreatePath, parseManualMarkdownCreateCompletion,
+  type ManualMarkdownCreateAttempt } from './markdown-create-result';
 import { useWorkspaceStore } from '@/app/store/workspace-store';
 import { fetchDocumentQuery, fetchDocumentTreeQuery } from '@/app/lib/queries/document-queries';
 import { revalidateBusyFileRead } from './read-busy';
@@ -424,12 +427,59 @@ export async function writeWorkspaceFile(
   return data;
 }
 
+export class WorkspaceMarkdownCreatePendingError extends Error {
+  constructor(readonly attempt: ManualMarkdownCreateAttempt) {
+    super('The document creation has not been confirmed. Check the same creation again.');
+    this.name = 'WorkspaceMarkdownCreatePendingError';
+  }
+}
+
+async function createManualMarkdownPath(path: string, workspaceId: string, requestId?: string): Promise<void> {
+  if (useWorkspaceStore.getState().activeWorkspaceId !== workspaceId) throw new Error('The workspace changed.');
+  const entry = reserveMarkdownCreateAttempt({ targetPath: path, workspaceId, requestId });
+  const current = () => openedDocumentAuthScope() === entry.scope && useWorkspaceStore.getState().activeWorkspaceId === workspaceId;
+  const pending = (status: ManualMarkdownCreateAttempt['status'] = 'unconfirmed') => {
+    settleMarkdownCreateAttempt(entry, status);
+    return new WorkspaceMarkdownCreatePendingError({ requestId: entry.requestId, workspaceId, targetPath: path, status });
+  };
+  let response: Response;
+  try {
+    response = await fetch('/api/files/create', {
+      method: 'POST', credentials: 'include',
+      headers: { 'Content-Type': 'application/json', ...workspaceHeaders(workspaceId) },
+      body: JSON.stringify({ path, type: 'file', requestId: entry.requestId }),
+    });
+  } catch { throw pending(); }
+  let payload: ApiErrorPayload & { success?: unknown; completion?: unknown };
+  try { payload = await readApiJson(response, 'Failed to create document'); } catch { throw pending(); }
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw pending();
+  if (!current()) throw pending();
+  const completion = parseManualMarkdownCreateCompletion(payload.completion, entry);
+  if (response.status === 200 && payload.success === true && completion?.status === 'completed') {
+    settleMarkdownCreateAttempt(entry, 'completed');
+    return;
+  }
+  if (response.status === 409 && payload.success === false && completion && completion.status !== 'completed'
+    && payload.code === completion.code) throw pending(completion.status);
+  // These responses explicitly reject the request. Unknown server outcomes retain the same attempt.
+  if ([400, 401, 403].includes(response.status) || response.status === 409 && payload.code === 'PATH_EXISTS') {
+    settleMarkdownCreateAttempt(entry, 'rejected');
+    throw new WorkspaceFileApiError(apiErrorMessage(response, 'Failed to create document', payload), response, payload);
+  }
+  throw pending();
+}
+
 export async function createWorkspacePath(
   path: string,
   type: 'file' | 'directory',
-  options: { template?: 'excalidraw'; workspaceId?: string | null } = {}
+  options: { template?: 'excalidraw'; workspaceId?: string | null; requestId?: string } = {}
 ): Promise<void> {
-  const { workspaceId, ...creationOptions } = options;
+  const { workspaceId, requestId, ...creationOptions } = options;
+  if (type === 'file' && !creationOptions.template && isManualMarkdownCreatePath(path)) {
+    const targetWorkspaceId = workspaceId ?? getActiveWorkspaceId();
+    if (!targetWorkspaceId) throw new Error('Choose a workspace before creating a document.');
+    return createManualMarkdownPath(path, targetWorkspaceId, requestId);
+  }
   const response = await fetch('/api/files/create', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...workspaceHeaders(workspaceId) },

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import Module from 'node:module';
 import { JSDOM } from 'jsdom';
 import React, { act } from 'react';
 import type { ClientWorkspaceSummary } from '../app/lib/workspaces/client-types';
@@ -6,12 +7,21 @@ import de from '../messages/de.json';
 import { NextIntlClientProvider } from 'next-intl';
 import { AppRouterContext } from 'next/dist/shared/lib/app-router-context.shared-runtime';
 import type { NotificationSummary } from '../app/components/notifications/notification-summary';
+import { observeOpenedDocumentAuth } from '../app/lib/collaboration/opened-document-registry';
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'http://localhost/' });
 for (const key of ['self', 'window', 'document', 'navigator', 'HTMLElement', 'HTMLInputElement', 'HTMLButtonElement', 'HTMLTextAreaElement', 'Element', 'Node', 'NodeFilter', 'DocumentFragment', 'MutationObserver', 'CustomEvent', 'Event', 'KeyboardEvent', 'getComputedStyle'] as const) {
   Object.defineProperty(globalThis, key, { value: dom.window[key], configurable: true });
 }
 Object.defineProperty(globalThis, 'IS_REACT_ACT_ENVIRONMENT', { value: true, configurable: true, writable: true });
+const fixtureSession = { data: { user: { id: 'home-fixture-user' }, session: { id: 'home-fixture-session' } }, isPending: false, error: null };
+const fixtureAuth = { useSession: () => fixtureSession,
+  $store: { atoms: { session: { get: () => fixtureSession, listen: () => () => {} } }, notify: () => {} } };
+const moduleInternals = Module as typeof Module & { _load: (request: string, parent: NodeModule | null, isMain: boolean) => unknown };
+const originalModuleLoad = moduleInternals._load;
+moduleInternals._load = (request, parent, isMain) => request === '@/app/lib/auth-client' || /\/app\/lib\/auth-client(?:\.ts)?$/u.test(request)
+  ? { authClient: fixtureAuth } : originalModuleLoad(request, parent, isMain);
+observeOpenedDocumentAuth(fixtureSession);
 
 async function main() {
   const { render, fireEvent, cleanup } = await import('@testing-library/react');
@@ -33,7 +43,9 @@ async function main() {
     fetches.push(url.pathname + url.search);
     if (url.pathname === '/api/files/create') {
       lastCreation = JSON.parse(String(init?.body));
-      return Response.json({ success: true });
+      const request = lastCreation as { path: string; requestId: string };
+      return Response.json({ success: true, completion: { status: 'completed', requestId: request.requestId,
+        workspaceId: new Headers(init?.headers).get('x-canvas-workspace-id'), targetPath: request.path } });
     }
     if (url.pathname === '/api/files/tree') {
       return Response.json({ success: true, data: [] });
@@ -139,7 +151,8 @@ async function main() {
   fireEvent.change(screen.getByLabelText('Name der Notiz'), { target: { value: 'Neue Idee' } });
   fireEvent.click(screen.getByRole('button', { name: 'Erstellen und öffnen' }));
   await settle();
-  assert.deepEqual(lastCreation, { path: 'Neue Idee.md', type: 'file' });
+  assert.match((lastCreation as { requestId: string }).requestId, /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/u);
+  assert.deepEqual(lastCreation, { path: 'Neue Idee.md', type: 'file', requestId: (lastCreation as { requestId: string }).requestId });
   assert.ok(navigations[0]?.includes('path=Neue+Idee.md&workspaceId=one'));
   cleanup();
 
@@ -178,5 +191,6 @@ async function main() {
   assert.ok(fetches.length > 0);
   (await import('../app/lib/queries/client')).getNotebookQueryClient().clear();
   console.log('Home components: direct file access, disclosure, search, errors, empty/read-only states, note creation and notification disclosure passed');
+  moduleInternals._load = originalModuleLoad;
 }
 void main().catch((error) => { console.error(error); process.exitCode = 1; });

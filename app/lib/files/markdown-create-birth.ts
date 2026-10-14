@@ -136,7 +136,39 @@ const sha = (value: string) => createHash('sha256').update(value).digest('hex');
 type StorePin = Readonly<{ name: string; directory: Identity; file: BigIntStats; bytes: Buffer }>;
 type Frame = { active: boolean; configuredData: string; resolvedData: string; configuredWorkspace: string;
   resolvedWorkspace: string; data: FileHandle; workspace: FileHandle; dataIdentity: Identity; workspaceIdentity: Identity;
-  key: string; intent: Record<string, unknown>; fingerprint?: string; backend: FdPublicationBackend; storePin?: StorePin };
+  key: string; intent: Record<string, unknown>; fingerprint?: string; backend: FdPublicationBackend; storePin?: StorePin;
+  manualWithinTurn?: () => void };
+function manualEmptyAttribution(intent: Record<string, unknown>): Record<string, unknown> {
+  const selected = intent.source as Record<string, unknown>, origin = intent.origin as Record<string, unknown>;
+  const keys = ['kind', 'workspaceId', 'targetPath', 'actorUserId', 'actorSessionId', 'requestId', 'operationId', 'sourceHash', 'sourceBytes'];
+  if (!selected || Object.getPrototypeOf(selected) !== Object.prototype || Reflect.ownKeys(selected).length !== keys.length
+    || Object.keys(selected).some(key => !keys.includes(key)) || selected.kind !== 'manual-empty-v1'
+    || selected.sourceBytes !== 0 || selected.sourceHash !== sha('') || !origin || selected.workspaceId !== origin.workspaceId
+    || selected.actorUserId !== origin.userId || selected.actorSessionId !== origin.sessionId || selected.targetPath !== intent.targetPath
+    || selected.operationId !== intent.operationId || selected.requestId !== selected.operationId || typeof selected.operationId !== 'string'
+    || !/^manual-create:[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/iu.test(selected.operationId)) return fail('MARKDOWN_CREATE_BIRTH_SOURCE_CHANGED');
+  return { ...selected };
+}
+function captureBirthInput(input: { workspaceRoot: string; targetPath: string; origin: Readonly<Record<string, unknown>>;
+  source: Readonly<Record<string, unknown>>; operationId: string }): typeof input {
+  const fields = ['workspaceRoot', 'targetPath', 'origin', 'source', 'operationId'];
+  const data = (value: object, keys?: string[]) => {
+    if (!value || Object.getPrototypeOf(value) !== Object.prototype) return fail('MARKDOWN_CREATE_BIRTH_RECORD_CHANGED');
+    const descriptors = Object.getOwnPropertyDescriptors(value), names = Reflect.ownKeys(value);
+    if (names.some(key => typeof key !== 'string' || !descriptors[key]?.enumerable || !Object.hasOwn(descriptors[key], 'value'))
+      || keys && (names.length !== keys.length || names.some(key => !keys.includes(key as string)))) return fail('MARKDOWN_CREATE_BIRTH_RECORD_CHANGED');
+    return Object.fromEntries(names.map(key => [key, descriptors[key as string].value]));
+  };
+  const top = data(input, fields);
+  const primitives = (value: object) => Object.freeze(Object.fromEntries(Object.entries(data(value)).map(([key, field]) => {
+    if (field !== null && !['string', 'boolean', 'number'].includes(typeof field)
+      || typeof field === 'number' && !Number.isSafeInteger(field)) return fail('MARKDOWN_CREATE_BIRTH_RECORD_CHANGED');
+    return [key, field];
+  })));
+  if (['workspaceRoot', 'targetPath', 'operationId'].some(key => typeof top[key] !== 'string')) return fail('MARKDOWN_CREATE_BIRTH_RECORD_CHANGED');
+  return Object.freeze({ workspaceRoot: top.workspaceRoot, targetPath: top.targetPath, operationId: top.operationId,
+    origin: primitives(top.origin), source: primitives(top.source) }) as typeof input;
+}
 async function named(frame: Frame): Promise<void> {
   const data = await fs.lstat(frame.configuredData), workspace = await fs.stat(frame.configuredWorkspace);
   if (!frame.active || resolveCanvasDataRoot() !== frame.configuredData || !data.isDirectory() || data.isSymbolicLink()
@@ -323,8 +355,13 @@ function synchronousBirth(frame: Frame, serialized: string, assertWithinTurn: ()
       || !same(syncDirectory(syncFs.fstatSync(frame.data.fd, { bigint: true })), frame.dataIdentity)
       || !same(syncDirectory(syncFs.fstatSync(frame.workspace.fd, { bigint: true })), frame.workspaceIdentity)) return fail('MARKDOWN_CREATE_BIRTH_NAMESPACE_CHANGED');
   };
-  const sourceCurrent = (intent: Record<string, unknown>): number => {
+  const sourceCurrent = (intent: Record<string, unknown>): number | null => {
     const selected = intent.source as Record<string, unknown>, expected = intent.sourceAttribution as Record<string, unknown>;
+    if (Object.hasOwn(selected, 'kind')) {
+      if (serialized !== '' || !frame.manualWithinTurn || !isDeepStrictEqual(manualEmptyAttribution(intent), expected)) return fail('MARKDOWN_CREATE_BIRTH_SOURCE_CHANGED');
+      frame.manualWithinTurn();
+      return null; // A fixed protocol value has no upload TTL.
+    }
     const uploads = directoryAt(frame.data.fd, '.uploads'), workspace = directoryAt(uploads, 'workspace'), session = directoryAt(workspace, selected.uploadSessionId as string);
     const manifestRead = read(session, 'session.json', 16 * 1024 * 1024, 1, 0o600), manifest = JSON.parse(manifestRead.bytes.toString('utf8')) as Record<string, unknown>;
     if (manifest.id !== selected.uploadSessionId || manifest.userId !== selected.actorUserId || manifest.workspaceId !== selected.workspaceId
@@ -371,7 +408,7 @@ function synchronousBirth(frame: Frame, serialized: string, assertWithinTurn: ()
       const recordName = 'parent-' + sha(relative) + '.json', prior = optional(claim, recordName);
       if (prior && (prior.path !== relative || Object.keys(prior).sort().join(',') !== 'identity,path')) return fail('MARKDOWN_CREATE_BIRTH_RECORD_CHANGED');
       let expected = initial[relative] || prior?.identity;
-      if (!expected) { assertWithinTurn(); backend.mkdirAt(parent, name, 0o755); syncFs.fsyncSync(parent); const born = directoryAt(parent, name);
+      if (!expected) { frame.manualWithinTurn?.(); assertWithinTurn(); backend.mkdirAt(parent, name, 0o755); syncFs.fsyncSync(parent); const born = directoryAt(parent, name);
         expected = syncDirectory(syncFs.fstatSync(born, { bigint: true })); writeRecord(claim, recordName, { path: relative, identity: expected }); ancestry.push({ parent, name, child: born, expected }); parent = born; }
       else { const child = directoryAt(parent, name); if (!isDeepStrictEqual(syncDirectory(syncFs.fstatSync(child, { bigint: true })), expected)) return fail('MARKDOWN_CREATE_BIRTH_TARGET_CHANGED');
         ancestry.push({ parent, name, child, expected }); parent = child; }
@@ -390,9 +427,10 @@ function synchronousBirth(frame: Frame, serialized: string, assertWithinTurn: ()
       rootCurrent(); const expiresAt = sourceCurrent(intent); readStorePointer(frame);
       for (const ancestor of ancestry) { const named = directoryAt(ancestor.parent, ancestor.name); if (!isDeepStrictEqual(syncDirectory(syncFs.fstatSync(named, { bigint: true })), ancestor.expected)) return fail('MARKDOWN_CREATE_BIRTH_TARGET_CHANGED'); }
       assertWithinTurn();
-      if (Date.now() >= expiresAt) return fail('MARKDOWN_CREATE_BIRTH_SOURCE_EXPIRED');
+      if (expiresAt !== null && Date.now() >= expiresAt) return fail('MARKDOWN_CREATE_BIRTH_SOURCE_EXPIRED');
       // Every call in this final turn is synchronous and descriptor-bound.
       // The stopped preparation child has no target-write operation to resume.
+      frame.manualWithinTurn?.();
       backend.linkAt(claim, 'content.tmp', parent, name); syncFs.fsyncSync(parent);
       const actual = read(parent, name, 5 * 1024 * 1024, 2, 0o644); if (!fileMatches(actual.info, prepared.file) || !actual.bytes.equals(staged.bytes)) return fail('MARKDOWN_CREATE_BIRTH_TARGET_CHANGED');
       writeRecord(claim, 'born.json', prepared);
@@ -409,10 +447,21 @@ function synchronousBirth(frame: Frame, serialized: string, assertWithinTurn: ()
 export async function withMarkdownCreateBirthClaim<T>(input: { workspaceRoot: string; targetPath: string;
   origin: Readonly<Record<string, unknown>>; source: Readonly<Record<string, unknown>>; operationId: string },
   beforeBoundary: () => Promise<void>, operation: (claim: MarkdownCreateBirthClaim) => Promise<T>): Promise<T> {
-  const configuredData = resolveCanvasDataRoot(), configuredWorkspace = input.workspaceRoot;
+  const captured = captureBirthInput(input);
+  let manualGuard: ((stage: string) => Promise<void>) | undefined, manualWithinTurn: (() => void) | undefined;
+  if (Object.hasOwn(captured.source, 'kind')) {
+    manualEmptyAttribution(captured);
+    const context = await import('../collaboration/markdown-file-import-persistence');
+    // This fixed validator checks a genuine private A lifetime and reserves
+    // exactly this invocation before any store/claim initialization is possible.
+    manualGuard = stage => context.assertAuthenticatedManualMarkdownBirthStorageAllowed(captured, stage);
+    manualWithinTurn = () => context.assertAuthenticatedManualMarkdownBirthWithinTurn(captured);
+    await manualGuard('entry');
+  }
+  const boundary = async (stage = 'boundary') => { await manualGuard?.(stage); await beforeBoundary(); };
+  const configuredData = resolveCanvasDataRoot(), configuredWorkspace = captured.workspaceRoot;
   // Availability is established before the coordinator can perform native DML.
   const backend = getFdPublicationBackend();
-  const captured = structuredClone(input);
   const data = await fs.open(configuredData, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
   let workspace: FileHandle | undefined, frame: Frame | undefined;
   const errors: unknown[] = []; let value: T | undefined;
@@ -424,9 +473,9 @@ export async function withMarkdownCreateBirthClaim<T>(input: { workspaceRoot: st
       operationId: captured.operationId, dataRoot: dataIdentity, workspaceRoot: workspaceIdentity };
     const current: Frame = { configuredData, resolvedData, configuredWorkspace, resolvedWorkspace, data, workspace,
       dataIdentity, workspaceIdentity, key: sha(JSON.stringify(['canvas-markdown-first-birth-v1', captured.origin.workspaceId, captured.operationId])),
-      intent, active: true, backend };
+      intent, active: true, backend, ...(manualWithinTurn ? { manualWithinTurn } : {}) };
     frame = current;
-    const first = await invoke(current, 'open', beforeBoundary); current.fingerprint = first.fingerprint;
+    const first = await invoke(current, 'open', boundary); current.fingerprint = first.fingerprint;
     current.storePin = readStorePointer(current);
     let accepting = true, queue = Promise.resolve();
     const pending = new Set<Promise<unknown>>();
@@ -447,15 +496,18 @@ export async function withMarkdownCreateBirthClaim<T>(input: { workspaceRoot: st
       // Root checks are read-only and may run from this helper's own ACK. They
       // must not queue behind the publication they are certifying.
       assertRoot: () => observe(accepting ? root(current) : Promise.reject(new MarkdownCreateBirthError('MARKDOWN_CREATE_BIRTH_CLOSED'))),
-      verify: () => run(() => invoke(current, 'verify', beforeBoundary)),
+      verify: () => run(() => invoke(current, 'verify', boundary)),
       publish: (serialized, boundary, assertWithinTurn) => run(async () => {
-        await invoke(current, 'prepare', boundary, { bytes: Buffer.from(serialized).toString('base64'), serializedHash: sha(serialized) });
+        const publicationBoundary = async (stage = 'boundary') => { await manualGuard?.(stage); await boundary(stage); };
+        await invoke(current, 'prepare', publicationBoundary, { bytes: Buffer.from(serialized).toString('base64'), serializedHash: sha(serialized) });
         // invoke resolves only after the actual helper close and ACK drain.
-        await root(current); await boundary('parent_link');
+        await root(current); await publicationBoundary('parent_link');
         synchronousBirth(current, serialized, assertWithinTurn);
-        return invoke(current, 'observe', boundary);
+        return invoke(current, 'observe', publicationBoundary);
       }),
-      complete: (serializedHash, revisionId, boundary) => run(async () => { await invoke(current, 'complete', boundary, { serializedHash, revisionId }); }),
+      complete: (serializedHash, revisionId, completionBoundary) => run(async () => {
+        await invoke(current, 'complete', async stage => { await manualGuard?.(stage ?? 'boundary'); await completionBoundary(stage); }, { serializedHash, revisionId });
+      }),
     });
     try { value = await operation(claim); } catch (error) { errors.push(error); }
     accepting = false;
@@ -464,7 +516,7 @@ export async function withMarkdownCreateBirthClaim<T>(input: { workspaceRoot: st
     if (unfinished) errors.push(new MarkdownCreateBirthError('MARKDOWN_CREATE_BIRTH_UNAWAITED_IO'));
     for (const settlement of settlements) if (settlement.status === 'rejected') errors.push(settlement.reason);
   } catch (error) { errors.push(error); }
-  if (frame) { try { await root(frame); await beforeBoundary(); } catch (error) { errors.push(error); } }
+  if (frame) { try { await root(frame); await boundary(); } catch (error) { errors.push(error); } }
   const close = async (handle: FileHandle) => {
     try { await handle.close(); } catch (error) {
       errors.push(error);
@@ -474,7 +526,8 @@ export async function withMarkdownCreateBirthClaim<T>(input: { workspaceRoot: st
   };
   if (workspace) await close(workspace);
   await close(data);
-  if (frame) { try { await named(frame); await beforeBoundary(); } catch (error) { errors.push(error); } frame.active = false; }
+  if (frame) { try { await named(frame); await boundary(); } catch (error) { errors.push(error); } frame.active = false; }
+  try { await manualGuard?.('closed'); } catch (error) { errors.push(error); }
   if (errors.length === 1) throw errors[0];
   if (errors.length) throw new AggregateError(errors, 'MARKDOWN_CREATE_BIRTH_CLOSURE_FAILED');
   return value as T;

@@ -666,15 +666,106 @@ async function persistOriginalWorkspaceFile(request: NextRequest, selection: Pri
 
 type UploadTargetAbsence = Readonly<{ configuredRoot: string; resolvedRoot: string; profile: string;
   ancestors: readonly (readonly [string, string | null])[] }>;
+export type ManualMarkdownCreateSelection = Readonly<{ workspaceId: string; path: string; requestId: string }>;
+type ManualEmptyBinding = Readonly<{ kind: 'manual-empty-v1'; workspaceId: string; targetPath: string;
+  actorUserId: string; actorSessionId: string; requestId: string; operationId: string; sourceHash: string; sourceBytes: 0 }>;
+type CreateIntent = MarkdownUploadAttemptSelection | Omit<ManualEmptyBinding, 'kind' | 'sourceHash' | 'sourceBytes'>;
+type AuthenticatedCreateSource = Readonly<{ binding: CurrentWorkspaceUploadFileSource['binding'] | ManualEmptyBinding;
+  assertCurrent(): Promise<void>; readSource(): Promise<Uint8Array> }>;
+const createSources = new WeakSet<AuthenticatedCreateSource>();
+const manualUuid = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/iu;
+const manualSourceKeys = ['kind', 'workspaceId', 'targetPath', 'actorUserId', 'actorSessionId', 'requestId', 'operationId', 'sourceHash', 'sourceBytes'] as const;
+function captureManualCreate(value: ManualMarkdownCreateSelection): ManualMarkdownCreateSelection {
+  if (!value || Object.getPrototypeOf(value) !== Object.prototype || Reflect.ownKeys(value).length !== 3
+    || !knownKeys(value, ['workspaceId', 'path', 'requestId']) || !validId(value.workspaceId) || !manualUuid.test(value.requestId)
+    || !isCanonicalAdmissionPath(value.path) || isInternalWorkspaceStagingPath(value.path) || !/\.(?:md|markdown)$/iu.test(value.path)) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
+  return Object.freeze({ workspaceId: value.workspaceId, path: value.path, requestId: value.requestId });
+}
+function manualBinding(selection: ManualMarkdownCreateSelection, origin: PristineOriginalRequestScopeExpectation): ManualEmptyBinding {
+  return Object.freeze({ kind: 'manual-empty-v1', workspaceId: selection.workspaceId, targetPath: selection.path,
+    actorUserId: origin.userId, actorSessionId: origin.sessionId, requestId: `manual-create:${selection.requestId}`,
+    operationId: `manual-create:${selection.requestId}`, sourceHash: hash(new Uint8Array()), sourceBytes: 0 });
+}
+function createFingerprint(binding: AuthenticatedCreateSource['binding'], origin: PristineOriginalRequestScopeExpectation,
+  prepared: Pick<PreparedMarkdownFileImport, 'representation' | 'newlineStyle' | 'hasBom'>): string {
+  return hash(JSON.stringify({ domain: 'kind' in binding ? 'canvas-authenticated-manual-empty-create-v1' : 'canvas-authenticated-staging-create-v1',
+    intent: binding, origin, representation: prepared.representation, newlineStyle: prepared.newlineStyle, hasBom: prepared.hasBom }));
+}
+async function withUploadCreateSource<T>(actual: CurrentWorkspaceUploadFileSource,
+  operation: (source: AuthenticatedCreateSource) => Promise<T>): Promise<T> {
+  const source: AuthenticatedCreateSource = Object.freeze({ binding: actual.binding,
+    assertCurrent: () => actual.assertCurrent(), readSource: () => actual.readSource() });
+  createSources.add(source);
+  try { return await operation(source); } finally { createSources.delete(source); }
+}
+async function withManualCreateSource<T>(binding: ManualEmptyBinding, origin: PristineOriginalRequestScopeExpectation,
+  operation: (source: AuthenticatedCreateSource) => Promise<T>): Promise<T> {
+  const assert = async () => {
+    if (!createSources.has(source) || binding.kind !== 'manual-empty-v1' || binding.sourceBytes !== 0
+      || binding.sourceHash !== hash(new Uint8Array()) || binding.workspaceId !== origin.workspaceId
+      || binding.actorUserId !== origin.userId || binding.actorSessionId !== origin.sessionId
+      || binding.requestId !== binding.operationId || !binding.operationId.startsWith('manual-create:')
+      || !manualUuid.test(binding.operationId.slice('manual-create:'.length))) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
+  };
+  // This capsule proves a fixed protocol value, never permission. Every native
+  // and publication phase still owns its genuine current canWrite Principal.
+  const source: AuthenticatedCreateSource = Object.freeze({ binding, assertCurrent: assert,
+    readSource: async () => { await assert(); return new Uint8Array(); } });
+  createSources.add(source);
+  try { await assert(); return await operation(source); } finally { createSources.delete(source); }
+}
 type AuthenticatedUploadScope = { active: boolean; database: SqlConnection; access: WorkspaceRequestPrincipalAccess;
-  frame: BootstrapFrame; source: CurrentWorkspaceUploadFileSource; absence: UploadTargetAbsence;
+  frame: BootstrapFrame; source: AuthenticatedCreateSource; absence: UploadTargetAbsence;
   documentId: string; originalLineageId: string | null; lineage: BootstrapLineage };
 const authenticatedUploadScopes = new WeakMap<Captured, AuthenticatedUploadScope>();
 const uploadBirthTargets = new WeakMap<UploadTargetAbsence, MarkdownCreateBirthClaim>();
 type FirstProjectionPhase = { active: boolean; database: SqlConnection; access: WorkspaceRequestPrincipalAccess;
-  frame: BootstrapFrame; source: CurrentWorkspaceUploadFileSource; claim: MarkdownCreateBirthClaim;
+  frame: BootstrapFrame; source: AuthenticatedCreateSource; claim: MarkdownCreateBirthClaim;
   input: Captured; result: MarkdownFileImportResult; publicationDeadline: number };
 const firstProjectionPhases = new AsyncLocalStorage<FirstProjectionPhase>();
+type ManualBirthStorageInput = Readonly<{ workspaceRoot: string; targetPath: string; origin: Readonly<Record<string, unknown>>;
+  source: Readonly<Record<string, unknown>>; operationId: string }>;
+type ManualBirthOwner = { active: boolean; accepting: boolean; frame: BootstrapFrame; source: AuthenticatedCreateSource;
+  invocation?: ManualBirthStorageInput; claim?: MarkdownCreateBirthClaim };
+const manualBirthOwners = new AsyncLocalStorage<ManualBirthOwner>();
+function currentManualBirthOwner(input: ManualBirthStorageInput): ManualBirthOwner {
+  const owner = manualBirthOwners.getStore(), binding = owner?.source.binding;
+  if (!owner?.active || !owner.accepting || !binding || !createSources.has(owner.source) || !('kind' in binding)
+    || binding.kind !== 'manual-empty-v1' || !knownKeys(input.source, [...manualSourceKeys])
+    || Reflect.ownKeys(input.source).length !== manualSourceKeys.length || !isDeepStrictEqual(input.source, binding)
+    || input.workspaceRoot !== owner.frame.expectedScope?.rootPath || input.targetPath !== binding.targetPath
+    || input.operationId !== binding.operationId || !isDeepStrictEqual(input.origin, owner.frame.expectedScope)) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
+  return owner;
+}
+/** Fixed mechanical Birth entry validator. No export can install this private
+ * Owner lifetime. Invocation identity prevents nested same-tuple borrowing. */
+export async function assertAuthenticatedManualMarkdownBirthStorageAllowed(input: ManualBirthStorageInput,
+  stage: string): Promise<void> {
+  const owner = currentManualBirthOwner(input);
+  if (stage === 'entry') {
+    if (owner.invocation) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
+    owner.invocation = input; // Reserve synchronously before the first await.
+    const origin = await observeAuthenticatedCreateOrigin(owner.frame.request, owner.frame.selection.workspaceId);
+    if (!isDeepStrictEqual(origin, owner.frame.expectedScope)) return fail('MARKDOWN_IMPORT_TARGET_CHANGED');
+  } else if (owner.invocation !== input) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
+  if (stage === 'closed') { owner.accepting = false; return; }
+  await assertBootstrapOwner(owner.frame); await assertFirstProjectionOwnerOrigin(owner.frame); await owner.source.assertCurrent();
+  if (stage === 'before_link' || stage === 'parent_link') {
+    assertAuthenticatedManualMarkdownBirthWithinTurn(input);
+    await currentAuthenticatedMarkdownBirth(firstProjectionPhases.getStore()!);
+  }
+}
+/** Read-only synchronous negative guard in the actual descriptor publication
+ * turn. Neither a caller callback nor a historical record can mint D. */
+export function assertAuthenticatedManualMarkdownBirthWithinTurn(input: ManualBirthStorageInput): void {
+  const owner = currentManualBirthOwner(input), phase = firstProjectionPhases.getStore();
+  if (owner.invocation !== input || !phase?.active || phase.frame !== owner.frame || phase.source !== owner.source
+    || phase.claim !== owner.claim || !phase.claim || phase.input.path !== input.targetPath
+    || phase.input.operationId !== input.operationId || phase.input.actorUserId !== input.origin.userId
+    || phase.input.actorSessionId !== input.origin.sessionId || phase.result.receipt.requestFingerprint !== phase.input.fingerprint
+    || phase.result.receipt.target.path !== input.targetPath || phase.result.receipt.target.workspaceId !== input.origin.workspaceId
+    || performance.now() >= phase.publicationDeadline) return fail('MARKDOWN_IMPORT_COMMIT_UNCONFIRMED');
+}
 const uploadIntentKeys = ['uploadSessionId', 'fileId', 'workspaceId', 'targetPath', 'actorUserId', 'actorSessionId', 'requestId', 'operationId'] as const;
 
 /** Point-in-time absence under the held workspace kernel/admission fence. No
@@ -710,12 +801,16 @@ async function assertUploadTargetAbsent(workspace: WorkspaceContext, filePath: s
   if (JSON.stringify(after) !== JSON.stringify(before)) return fail('MARKDOWN_IMPORT_TARGET_CHANGED');
 }
 async function observeAuthenticatedUploadOrigin(request: NextRequest, intent: MarkdownUploadAttemptSelection): Promise<PristineOriginalRequestScopeExpectation> {
+  const origin = await observeAuthenticatedCreateOrigin(request, intent.workspaceId);
+  if (origin.userId !== intent.actorUserId || origin.sessionId !== intent.actorSessionId) return fail('MARKDOWN_IMPORT_REQUEST_CONFLICT');
+  return origin;
+}
+async function observeAuthenticatedCreateOrigin(request: NextRequest, workspaceId: string): Promise<PristineOriginalRequestScopeExpectation> {
   const { requireRequestWorkspace } = await import('../workspaces/request');
-  const result = await requireRequestWorkspace(request, { workspaceId: intent.workspaceId, permissions: 'canWrite' });
+  const result = await requireRequestWorkspace(request, { workspaceId, permissions: 'canWrite' });
   if (result.response) throw Object.assign(new Error('Authenticated upload write permission is required.'), { status: result.response.status });
   const workspace = result.workspace;
-  if (result.session.user.id !== intent.actorUserId || result.session.session.id !== intent.actorSessionId
-    || workspace.workspaceId !== intent.workspaceId || workspace.legacy || workspace.status !== 'active'
+  if (workspace.workspaceId !== workspaceId || workspace.legacy || workspace.status !== 'active'
     || !workspace.permissions.canRead || !workspace.permissions.canWrite) return fail('MARKDOWN_IMPORT_REQUEST_CONFLICT');
   // Freeze actual primitives before the realm await, never retain a mutable
   // resolver object as either authority or an expectation that can be reset.
@@ -730,9 +825,36 @@ async function observeAuthenticatedUploadOrigin(request: NextRequest, intent: Ma
   return captureBootstrapExpectation({ ...origin, schema: realm.schema, schemaOid: Number(realm.schema_oid),
     databaseOid: Number(realm.database_oid), searchPath: realm.search_path })!;
 }
+/** Current original-request observations only, never mutation capabilities. */
+export async function captureAuthenticatedManualMarkdownCreateScope(request: NextRequest, workspaceId: string): Promise<PristineOriginalRequestScopeExpectation> {
+  if (!(request instanceof NextRequest) || !validId(workspaceId)) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
+  return observeAuthenticatedCreateOrigin(request, workspaceId);
+}
+export async function assertAuthenticatedManualMarkdownCreateScope(database: SqlConnection, access: WorkspaceRequestPrincipalAccess,
+  expected: PristineOriginalRequestScopeExpectation): Promise<void> {
+  await assertBootstrapExpectedScope(database, { expectedScope: captureBootstrapExpectation(expected) }, access);
+}
+export async function assertAuthenticatedManualMarkdownCreateRawRealm(database: SqlConnection,
+  expected: PristineOriginalRequestScopeExpectation): Promise<void> {
+  const captured = captureBootstrapExpectation(expected)!;
+  const row = await database.get(`SELECT current_schema() AS schema,to_regnamespace(current_schema())::oid::bigint AS schema_oid,
+    (SELECT oid::bigint FROM pg_database WHERE datname=current_database()) AS database_oid,current_setting('search_path') AS search_path`) as Record<string, unknown> | undefined;
+  if (!row || row.schema !== captured.schema || Number(row.schema_oid) !== captured.schemaOid
+    || Number(row.database_oid) !== captured.databaseOid || row.search_path !== captured.searchPath) return fail('MARKDOWN_IMPORT_TARGET_CHANGED');
+}
+async function openVerifiedManualCreateConnection(openConnection: () => Promise<SqlConnection>,
+  expected: PristineOriginalRequestScopeExpectation): Promise<SqlConnection> {
+  const actual = await openConnection();
+  try { await assertAuthenticatedManualMarkdownCreateRawRealm(actual, expected); return actual; }
+  catch (error) {
+    try { await actual.close(new Error('Discarding mismatched manual create realm.', { cause: error })); }
+    catch (closeError) { throw new AggregateError([error, closeError], 'Manual create realm discard failed.'); }
+    throw error;
+  }
+}
 async function assertAuthenticatedUploadScope(database: SqlConnection, input: Captured, scope: AuthenticatedUploadScope): Promise<void> {
   if (!scope.active || scope.database !== database || authenticatedUploadScopes.get(input) !== scope
-    || scope.access.userId !== input.actorUserId || scope.access.sessionId !== input.actorSessionId) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
+    || !createSources.has(scope.source) || scope.access.userId !== input.actorUserId || scope.access.sessionId !== input.actorSessionId) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
   await scope.access.assertCurrent(); await assertBootstrapOwner(scope.frame); await assertBootstrapNativeRealm(database, scope.frame);
   await assertBootstrapExpectedScope(database, scope.frame, scope.access);
   await scope.source.assertCurrent(); await assertUploadTargetAbsent(scope.access.workspace, input.path, scope.absence);
@@ -777,7 +899,8 @@ async function confirmedAuthenticatedUploadRetry(database: SqlConnection, input:
   return prior;
 }
 async function captureAuthenticatedUpload(database: SqlConnection, frame: BootstrapFrame, access: WorkspaceRequestPrincipalAccess,
-  source: CurrentWorkspaceUploadFileSource, absence: UploadTargetAbsence): Promise<Captured> {
+  source: AuthenticatedCreateSource, absence: UploadTargetAbsence): Promise<Captured> {
+  if (!createSources.has(source)) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
   await assertBootstrapExpectedScope(database, frame, access); await assertBootstrapOwner(frame); await assertBootstrapNativeRealm(database, frame, true);
   await source.assertCurrent(); await assertUploadTargetAbsent(access.workspace, source.binding.targetPath, absence);
   frame.mutationIdentity = await bootstrapConnectionRealm(database);
@@ -785,9 +908,9 @@ async function captureAuthenticatedUpload(database: SqlConnection, frame: Bootst
   if (bytes.byteLength !== source.binding.sourceBytes || hash(bytes) !== source.binding.sourceHash) return fail('MARKDOWN_IMPORT_TARGET_CHANGED');
   const input = capture({ workspace: access.workspace, path: source.binding.targetPath, operationId: source.binding.operationId,
     requestId: source.binding.requestId, actorUserId: access.userId, actorSessionId: access.sessionId,
-    bytes, expectedTarget: { kind: 'absent' }, validateAuthority: async () => undefined });
-  input.fingerprint = hash(JSON.stringify({ domain: 'canvas-authenticated-staging-create-v1', intent: source.binding,
-    origin: frame.expectedScope, representation: input.prepared.representation, newlineStyle: input.prepared.newlineStyle, hasBom: input.prepared.hasBom }));
+    bytes, expectedTarget: { kind: 'absent' }, ...('kind' in source.binding ? { representation: 'tiptap_blocks' as const } : {}),
+    validateAuthority: async () => undefined });
+  input.fingerprint = createFingerprint(source.binding, frame.expectedScope!, input.prepared);
   await assertWorkspaceFileLifecycleSqlAvailable(database, input.workspace.workspaceId, [input.path]);
   await lockFileCollaborationPaths(database, input.workspace.workspaceId, [input.path]);
   const prior = await confirmedAuthenticatedUploadRetry(database, input);
@@ -875,6 +998,38 @@ export async function observeAuthenticatedMarkdownUploadCompletion(request: Next
   const intent = Object.freeze(Object.fromEntries(uploadIntentKeys.map(key => [key, selection[key]])) as MarkdownUploadAttemptSelection);
   const original = new NextRequest(request.url, { method: request.method, headers: new Headers(request.headers) });
   const expectedScope = await observeAuthenticatedUploadOrigin(original, intent);
+  return observeAuthenticatedCreateCompletion(original, intent, sourceBytes, expectedScope, dependencies);
+}
+
+/** The manual entry derives the complete fixed binding from genuine Auth. It
+ * cannot observe an upload receipt under a manually supplied source shape. */
+export async function observeAuthenticatedMarkdownManualCreateCompletion(request: NextRequest, selection: ManualMarkdownCreateSelection,
+  dependencies: { openConnection: () => Promise<SqlConnection>; expectedRequestScope?: PristineOriginalRequestScopeExpectation } = { openConnection: openDb }): Promise<'absent' | 'projection_pending' | 'completed'> {
+  const selected = captureManualCreate(selection);
+  if (!(request instanceof NextRequest)) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
+  const original = new NextRequest(request.url, { method: request.method, headers: new Headers(request.headers) });
+  const origin = await observeAuthenticatedCreateOrigin(original, selected.workspaceId), binding = manualBinding(selected, origin);
+  const expected = captureBootstrapExpectation(dependencies.expectedRequestScope);
+  if (expected && !isDeepStrictEqual(expected, origin)) return fail('MARKDOWN_IMPORT_TARGET_CHANGED');
+  return observeAuthenticatedCreateCompletion(original, binding, 0, origin,
+    { openConnection: () => openVerifiedManualCreateConnection(dependencies.openConnection, origin) }, binding);
+}
+
+export async function persistAndProjectAuthenticatedMarkdownManualCreate(request: NextRequest, selection: ManualMarkdownCreateSelection,
+  dependencies: { openConnection: () => Promise<SqlConnection>; expectedRequestScope?: PristineOriginalRequestScopeExpectation } = { openConnection: openDb }): Promise<AuthenticatedMarkdownFirstProjectionResult> {
+  const selected = captureManualCreate(selection);
+  if (!(request instanceof NextRequest) || typeof dependencies.openConnection !== 'function') return fail('MARKDOWN_IMPORT_INVALID_INPUT');
+  if (hasCollaborationHandoffExecutionContext() || getWorkspaceFileLifecycleLeases()?.size) return fail('MARKDOWN_IMPORT_BUSY');
+  const original = new NextRequest(request.url, { method: request.method, headers: new Headers(request.headers) });
+  const origin = await observeAuthenticatedCreateOrigin(original, selected.workspaceId), binding = manualBinding(selected, origin);
+  const expected = captureBootstrapExpectation(dependencies.expectedRequestScope);
+  if (expected && !isDeepStrictEqual(expected, origin)) return fail('MARKDOWN_IMPORT_TARGET_CHANGED');
+  return withManualCreateSource(binding, origin, source => persistAuthenticatedCreateEngine(original, binding, origin, source,
+    { openConnection: () => openVerifiedManualCreateConnection(dependencies.openConnection, origin) }, true)) as Promise<AuthenticatedMarkdownFirstProjectionResult>;
+}
+
+async function observeAuthenticatedCreateCompletion(original: NextRequest, intent: CreateIntent, sourceBytes: number,
+  expectedScope: PristineOriginalRequestScopeExpectation, dependencies: { openConnection: () => Promise<SqlConnection> }, manual?: ManualEmptyBinding): Promise<'absent' | 'projection_pending' | 'completed'> {
   const { withWorkspaceRequestPrincipal, withWorkspaceRequestPrincipalOnConnection } = await import('../workspaces/request-principal');
   let ownerOpened = false, ownerCloseFailure: unknown, hasOwnerCloseFailure = false;
   const openOwner = async () => {
@@ -906,17 +1061,23 @@ export async function observeAuthenticatedMarkdownUploadCompletion(request: Next
             if (!birth) return fail('MARKDOWN_IMPORT_COMMIT_UNCONFIRMED');
             const claim = await observeMarkdownCreateBirth({ workspaceRoot: access.workspace.rootPath, workspaceId: intent.workspaceId, operationId: intent.operationId });
             const source = claim.intent.source as Record<string, unknown> | undefined;
-            if (!source || !knownKeys(source, [...uploadIntentKeys, 'sourceHash', 'sourceBytes', 'attemptFingerprint'])
-              || uploadIntentKeys.some(key => source[key] !== intent[key]) || !isDeepStrictEqual(claim.intent.origin, expectedScope)
+            if (!source || !isDeepStrictEqual(claim.intent.origin, expectedScope)
               || claim.intent.targetPath !== intent.targetPath || claim.id !== birth.claim_id || claim.fingerprint !== birth.claim_fingerprint
-              || typeof source.sourceHash !== 'string' || !/^[a-f0-9]{64}$/u.test(source.sourceHash)
-              || source.sourceBytes !== sourceBytes
-              || typeof source.attemptFingerprint !== 'string' || !/^[a-f0-9]{64}$/u.test(source.attemptFingerprint)) return fail('MARKDOWN_IMPORT_REQUEST_CONFLICT');
-            // Recreate only the original fingerprint's canonical field order.
-            // These are private historical metadata, never source bytes/grants.
-            const binding = { ...intent, sourceHash: source.sourceHash, sourceBytes: source.sourceBytes, attemptFingerprint: source.attemptFingerprint };
-            const fingerprint = hash(JSON.stringify({ domain: 'canvas-authenticated-staging-create-v1', intent: binding,
-              origin: expectedScope, representation: receipt.target.representation, newlineStyle: receipt.target.newlineStyle, hasBom: receipt.target.hasBom }));
+              || typeof source.sourceHash !== 'string' || !/^[a-f0-9]{64}$/u.test(source.sourceHash) || source.sourceBytes !== sourceBytes) return fail('MARKDOWN_IMPORT_REQUEST_CONFLICT');
+            let binding: AuthenticatedCreateSource['binding'];
+            if (manual) {
+              if (!isDeepStrictEqual(source, manual) || receipt.target.representation !== 'tiptap_blocks'
+                || receipt.target.newlineStyle !== 'lf' || receipt.target.hasBom !== false) return fail('MARKDOWN_IMPORT_REQUEST_CONFLICT');
+              binding = manual;
+            } else {
+              const upload = intent as MarkdownUploadAttemptSelection;
+              if (!knownKeys(source, [...uploadIntentKeys, 'sourceHash', 'sourceBytes', 'attemptFingerprint'])
+                || uploadIntentKeys.some(key => source[key] !== upload[key]) || typeof source.attemptFingerprint !== 'string'
+                || !/^[a-f0-9]{64}$/u.test(source.attemptFingerprint)) return fail('MARKDOWN_IMPORT_REQUEST_CONFLICT');
+              // Preserve the original upload fingerprint's canonical ordering.
+              binding = { ...upload, sourceHash: source.sourceHash, sourceBytes: Number(source.sourceBytes), attemptFingerprint: source.attemptFingerprint };
+            }
+            const fingerprint = createFingerprint(binding, expectedScope, receipt.target);
             const expected: RetryExpectation = { workspace: access.workspace, path: intent.targetPath, operationId: intent.operationId,
               requestId: intent.requestId, actorUserId: intent.actorUserId, actorSessionId: intent.actorSessionId,
               expectedTarget: { kind: 'absent' }, fingerprint,
@@ -955,8 +1116,16 @@ async function persistAuthenticatedMarkdownUploadEngine(request: NextRequest, se
     || !/\.(?:md|markdown)$/iu.test(intent.targetPath)) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
   if (hasCollaborationHandoffExecutionContext() || getWorkspaceFileLifecycleLeases()?.size) return fail('MARKDOWN_IMPORT_BUSY');
   const expectedScope = await observeAuthenticatedUploadOrigin(original, intent);
+  return withCurrentWorkspaceUploadFile(intent, actual => withUploadCreateSource(actual,
+    source => persistAuthenticatedCreateEngine(original, intent, expectedScope, source, dependencies, project)));
+}
+
+async function persistAuthenticatedCreateEngine(original: NextRequest, intent: CreateIntent,
+  expectedScope: PristineOriginalRequestScopeExpectation, source: AuthenticatedCreateSource,
+  dependencies: { openConnection: () => Promise<SqlConnection> }, project: boolean): Promise<MarkdownFileImportResult | AuthenticatedMarkdownFirstProjectionResult> {
+  if (!createSources.has(source)) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
+  const openConnection = dependencies.openConnection;
   const { withWorkspaceRequestPrincipal, withWorkspaceRequestPrincipalOnConnection } = await import('../workspaces/request-principal');
-  return withCurrentWorkspaceUploadFile(intent, source => {
     let owner: SqlConnection | undefined, ownerIdentity: BootstrapOwner | undefined, ownerCloseFailure: unknown;
     let hasOwnerCloseFailure = false;
     const realm = { schema: expectedScope.schema, database: expectedScope.databaseOid };
@@ -987,6 +1156,11 @@ async function persistAuthenticatedMarkdownUploadEngine(request: NextRequest, se
         return database;
       };
       const persist = async (birth?: MarkdownCreateBirthClaim) => {
+      const manualOwner = manualBirthOwners.getStore();
+      if ('kind' in source.binding) {
+        if (!manualOwner?.active || manualOwner.frame !== frame || manualOwner.source !== source || !birth || manualOwner.claim) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
+        manualOwner.claim = birth;
+      }
       const absence = birth ? Object.freeze({ configuredRoot: expectedScope.rootPath, resolvedRoot: '', profile: '', ancestors: [] })
         : await observeUploadTargetAbsence({ rootPath: expectedScope.rootPath } as WorkspaceContext, intent.targetPath);
       if (birth) uploadBirthTargets.set(absence, birth);
@@ -1045,7 +1219,7 @@ async function persistAuthenticatedMarkdownUploadEngine(request: NextRequest, se
       return birth ? projectAuthenticatedMarkdownBirth(frame, source, outcome.input, outcome.result, birth, openPhase) : outcome.result;
       };
       if (!project) return persist();
-      const projected = await withMarkdownCreateBirthClaim({ workspaceRoot: expectedScope.rootPath, targetPath: intent.targetPath,
+      const publish = () => withMarkdownCreateBirthClaim({ workspaceRoot: expectedScope.rootPath, targetPath: intent.targetPath,
         origin: expectedScope, source: source.binding, operationId: intent.operationId },
       async () => {
         // Storage's read-only inode observations are NOT authority checks.
@@ -1053,6 +1227,12 @@ async function persistAuthenticatedMarkdownUploadEngine(request: NextRequest, se
         // A and the physical/SQL origin remain pinned during every IO/close.
         await assertBootstrapOwner(frame); await assertFirstProjectionOwnerOrigin(frame);
       }, persist);
+      let projected: AuthenticatedMarkdownFirstProjectionResult;
+      if ('kind' in source.binding) {
+        const manualOwner: ManualBirthOwner = { active: true, accepting: true, frame, source };
+        try { projected = await manualBirthOwners.run(manualOwner, publish) as AuthenticatedMarkdownFirstProjectionResult; }
+        finally { manualOwner.accepting = false; manualOwner.active = false; }
+      } else projected = await publish() as AuthenticatedMarkdownFirstProjectionResult;
       await source.assertCurrent(); await assertBootstrapOwner(frame); await assertFirstProjectionOwnerOrigin(frame);
       return projected;
     }, openOwner);
@@ -1065,7 +1245,6 @@ async function persistAuthenticatedMarkdownUploadEngine(request: NextRequest, se
       }
       if (hasFailure) throw failure; return value!;
     })();
-  });
 }
 
 async function assertMarkdownBirthRealm(database: Pick<SqlConnection, 'get'>, frame: BootstrapFrame): Promise<void> {
@@ -1125,7 +1304,7 @@ async function assertFirstProjectionOwnerOrigin(frame: BootstrapFrame): Promise<
     || row.root_relative_path !== expected.rootRelativePath || row.status !== expected.status) return fail('MARKDOWN_IMPORT_TARGET_CHANGED');
 }
 async function currentAuthenticatedMarkdownBirth(phase: FirstProjectionPhase, checkSource = true): Promise<PersistedCollaborationState> {
-  if (!phase.active || firstProjectionPhases.getStore() !== phase) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
+  if (!phase.active || firstProjectionPhases.getStore() !== phase || !createSources.has(phase.source)) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
   const { database, frame, access, source, claim, input, result } = phase;
   await access.assertCurrent(); await assertBootstrapExpectedScope(database, frame, access);
   await assertBootstrapOwner(frame); await assertBootstrapNativeRealm(database, frame);
@@ -1173,7 +1352,7 @@ export async function assertAuthenticatedMarkdownBirthProjectionAllowed(database
   await phase.claim.verify();
 }
 
-async function projectAuthenticatedMarkdownBirth(frame: BootstrapFrame, source: CurrentWorkspaceUploadFileSource, input: Captured,
+async function projectAuthenticatedMarkdownBirth(frame: BootstrapFrame, source: AuthenticatedCreateSource, input: Captured,
   result: MarkdownFileImportResult, claim: MarkdownCreateBirthClaim, openPhase: () => Promise<SqlConnection>): Promise<AuthenticatedMarkdownFirstProjectionResult> {
   const { withWorkspaceRequestPrincipal, withWorkspaceRequestPrincipalOnConnection } = await import('../workspaces/request-principal');
   const { authoritativeCollaborationSnapshot, finalizeCollaborationCheckpointProjection } = await import('./checkpoint');

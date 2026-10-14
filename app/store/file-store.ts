@@ -29,6 +29,7 @@ import { DirectoryRefreshQueue } from '@/app/lib/files/directory-refresh-queue';
 import { beginUploadJob, createUploadProgressReporter, finishUploadJob, isUploadActive, updateMarkdownUploadResume, updateUploadJob, updateUploadItem, useUploadStore, type UploadOptions, type UploadJobHandle } from './upload-store';
 import { resumeWorkspaceMarkdownUpload } from '@/app/lib/files/workspace-upload-client';
 import type { WorkspaceUploadCompletion } from '@/app/lib/files/upload-result';
+import { isManualMarkdownCreatePath } from '@/app/lib/files/markdown-create-result';
 import { UploadTreeBatch, uploadVersionGuard } from '@/app/lib/files/upload-tree-batch';
 import { uploadWorkspaceDirectories } from '@/app/lib/files/upload-directory-client';
 import {
@@ -434,7 +435,7 @@ interface FileStoreState {
     selectionOrder?: string[],
     preserveCurrentDirectory?: boolean,
   ) => void;
-  createPath: (path: string, type: 'file' | 'directory', options?: { template?: 'excalidraw' }) => Promise<void>;
+  createPath: (path: string, type: 'file' | 'directory', options?: { template?: 'excalidraw'; workspaceId?: string | null; requestId?: string }) => Promise<void>;
   deletePath: (path: string | string[], workspaceId?: string | null) => Promise<DeleteWorkspacePathsResult>;
   renamePath: (oldPath: string, newPath: string, overwrite?: boolean, refreshTree?: boolean, workspaceId?: string | null, planId?: string) => Promise<WorkspaceRenameResult | void>;
   applyPathRename: (mutation: WorkspacePathRenameMutation) => boolean;
@@ -1413,15 +1414,19 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
   },
 
   createPath: async (path: string, type: 'file' | 'directory', options = {}) => {
-    const workspaceId = useWorkspaceStore.getState().activeWorkspaceId;
+    const workspaceId = options.workspaceId ?? useWorkspaceStore.getState().activeWorkspaceId;
+    const authScope = openedDocumentAuthScope();
 
     try {
-      await createWorkspacePath(path, type, options);
+      await createWorkspacePath(path, type, { ...options, workspaceId });
 
       // Refresh from parent directory
       const parentDir = getParentDirectory(path);
-      if (useWorkspaceStore.getState().activeWorkspaceId === workspaceId) {
-        await get().refreshDirectory(parentDir, true, workspaceId);
+      if (openedDocumentAuthScope() === authScope && useWorkspaceStore.getState().activeWorkspaceId === workspaceId) {
+        try { await get().refreshDirectory(parentDir, true, workspaceId); } catch (error) {
+          if (type !== 'file' || options.template || !isManualMarkdownCreatePath(path)) throw error;
+          // A failed explorer refresh cannot turn a confirmed creation into another create attempt.
+        }
       }
     } catch (error) {
       throw error;
