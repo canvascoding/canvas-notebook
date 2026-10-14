@@ -27,13 +27,11 @@ import { fileGuestService } from '@/app/lib/file-guests/service';
 import { fileGuestCookieName } from '@/app/lib/file-guests/types';
 import { assertFileGuestUpdateAllowed } from '@/app/lib/file-guests/update-policy';
 import { createCollaborationAccessMonitor } from '@/app/lib/collaboration/access-monitor';
-import { assertAuthenticatedNativePeerClaims, createAuthenticatedNativePeer } from '@/app/lib/collaboration/authenticated-native-peer';
-import { AuthenticatedNativeSessionTransportError, captureAuthenticatedNativeSessionTransportOnConnection,
+import { createAuthenticatedNativePeer } from '@/app/lib/collaboration/authenticated-native-peer';
+import { AuthenticatedNativeSessionTransportError,
   disposeAuthenticatedNativeSessionTransport, isAuthenticatedNativeSessionTransportBusy,
-  withAuthenticatedNativeSessionTransportOnConnection, withAuthenticatedNativeSessionReadJoinTransportOnConnection,
   type AuthenticatedNativeSessionTransport } from '@/app/lib/collaboration/authenticated-native-session-transport';
-import type { ExistingNativeSessionIdentity } from '@/app/lib/collaboration/native-session-state-reader';
-import { executeLifecycleTransaction } from '@/app/lib/collaboration/lifecycle-transaction';
+import { authenticateNativePeerAdmission } from '@/app/lib/collaboration/authenticated-native-peer-admission';
 import { authenticatedNativeTextSessionEnabled } from '@/app/lib/collaboration/native-text-session-activation';
 import { assertCollaborationDocumentAccess, resolveCollaborationSessionAccess, revalidateCollaborationAccess } from '@/app/lib/collaboration/connection-access';
 import {
@@ -729,9 +727,10 @@ export function createCollaborationServer(server: http.Server, options: {
       // nested ownership record survives that copy and binds the actual watch.
       const nativePeerLifetime: NonNullable<CollaborationContext['nativePeerLifetime']> = { connected: false };
       let cleaning = false, cleanup: Promise<void> | undefined;
+      const admissionAbort = new AbortController();
       const cleanupNativePeer = (): Promise<void> => {
         if (cleanup) return cleanup;
-        cleaning = true;
+        cleaning = true; admissionAbort.abort();
         cleanup = (async () => {
           await nativePeerLifetime.stopAccessWatch?.();
           if (nativePeer) await nativePeer.dispose();
@@ -828,42 +827,19 @@ export function createCollaborationServer(server: http.Server, options: {
         }
         let workspace: WorkspaceContext;
         if (native) {
-          if (!ownedTransport) {
-            const captured = await executeLifecycleTransaction({ openConnection: openDb,
-              execute: async database => {
-                const transport = await captureAuthenticatedNativeSessionTransportOnConnection(database, originalRequest,
-                  { workspaceId: claims.workspaceId, maxPermission: claims.permission === 'write' ? 'canWrite' : 'canRead' });
-                if (cleaning || request.signal.aborted || nativeClosing) {
-                  await disposeAuthenticatedNativeSessionTransport(transport); throw new Error('Native connection startup was cancelled.');
-                }
-                // Retain the actual minted cap BEFORE COMMIT/close can fail.
-                ownedTransport = transport;
-                return transport;
-              },
-              recoverCommitted: async transport => { await disposeAuthenticatedNativeSessionTransport(transport); throw new Error('Native enrollment commit could not be confirmed.'); },
-            });
-            if (cleaning || request.signal.aborted || nativeClosing) {
-              await disposeAuthenticatedNativeSessionTransport(captured); throw new Error('Native connection startup was cancelled.');
-            }
-            ownedTransport = captured;
+          const inherited = ownedTransport;
+          // Retain the inherited cap until the helper's synchronous adoption
+          // succeeds: startup cleanup still owns it if adoption itself rejects.
+          // The helper owns every fresh retry cap and drains its in-flight B.
+          const joined = await authenticateNativePeerAdmission({ request: originalRequest, claims,
+            ...(inherited ? { transport: inherited } : {}), signal: admissionAbort.signal });
+          ownedTransport = joined.transport;
+          if (cleaning || nativeClosing || request.signal.aborted) {
+            await disposeAuthenticatedNativeSessionTransport(joined.transport);
+            throw new Error('Native connection startup was cancelled.');
           }
-          const enrolled = ownedTransport;
-          const joined = await executeLifecycleTransaction({ openConnection: openDb, execute: database => {
-            const consume = async (snapshot: ExistingNativeSessionIdentity, access: Parameters<typeof assertAuthenticatedNativePeerClaims>[2]) => {
-              const identity = Object.freeze({ documentId: snapshot.documentId, lineageId: snapshot.lineageId, workspaceId: snapshot.workspaceId,
-                organizationId: snapshot.organizationId, path: snapshot.path, lifecycleGeneration: snapshot.lifecycleGeneration,
-                representation: snapshot.representation, schemaVersion: snapshot.schemaVersion });
-              assertAuthenticatedNativePeerClaims(claims, identity, access);
-              return { identity, workspace: access.workspace };
-            };
-            return claims.permission === 'read'
-              ? withAuthenticatedNativeSessionReadJoinTransportOnConnection(database, enrolled, { path: claims.path }, (session, access) => consume(session.snapshot, access))
-              : withAuthenticatedNativeSessionTransportOnConnection(database, enrolled, { permission: 'canRead', path: claims.path }, (session, access) => consume(session.snapshot, access));
-          }, recoverCommitted: async () => { throw new Error('Native join commit could not be confirmed.'); } });
-          if (cleaning || nativeClosing) throw new Error('Native connection startup was cancelled.');
-          request.signal.throwIfAborted();
           workspace = joined.workspace;
-          nativePeer = createAuthenticatedNativePeer({ transport: enrolled, claims, identity: joined.identity });
+          nativePeer = createAuthenticatedNativePeer({ transport: joined.transport, claims, identity: joined.identity });
           nativePeers.add(nativePeer);
         } else {
           const access = await resolveCollaborationSessionAccess(claims);

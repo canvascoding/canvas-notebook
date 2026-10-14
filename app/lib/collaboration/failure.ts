@@ -1,5 +1,8 @@
 import { COLLABORATION_CHECKPOINT_ERROR_CODES, isCollaborationCheckpointValidationErrorCode } from './checkpoint-errors';
 
+/** Hocuspocus AuthDenied reason for exhausted, origin-bound native admission. */
+export const NATIVE_PEER_ADMISSION_BUSY_REASON = 'NATIVE_PEER_ADMISSION_BUSY';
+
 export const COLLABORATION_FAILURE_CODES = {
   generationChanged: 'COLLABORATION_GENERATION_CHANGED',
   persistenceFailed: 'COLLABORATION_YJS_PERSISTENCE_FAILED',

@@ -25,6 +25,8 @@ export type TextCollaborationClientState = {
   failure: CollaborationFailure | null;
   quarantineSequence?: number;
   authorizationRecoveryEligible?: boolean;
+  /** Admission retries are exhausted for this open provider lifetime. */
+  admissionBusy?: boolean;
 };
 
 export type TextCollaborationClientEvent =
@@ -54,6 +56,7 @@ export type TextCollaborationClientEvent =
   | { type: 'checkpoint_failed'; message: string; code?: string }
   | { type: 'projection_failed'; sequence: number; code?: string }
   | { type: 'degraded'; message: string; code?: string; sequence?: number }
+  | { type: 'admission_busy'; message: string }
   | { type: 'authentication_failed'; message: string };
 
 export function createInitialTextCollaborationClientState(input: {
@@ -114,6 +117,11 @@ export function reduceTextCollaborationClientState(
   state: TextCollaborationClientState,
   event: TextCollaborationClientEvent,
 ): TextCollaborationClientState {
+  // A late transport/checkpoint callback cannot authorize another admission
+  // origin or acknowledge a draft after this provider's join was exhausted.
+  if (state.admissionBusy && event.type !== 'admission_busy' && event.type !== 'indexeddb_hydrated'
+    && event.type !== 'local_document_restored' && event.type !== 'document_changed'
+    && event.type !== 'unsynced_changes' && event.type !== 'authentication_failed' && event.type !== 'degraded') return state;
   switch (event.type) {
     case 'indexeddb_hydrated':
       return withReadiness({ ...state, indexedDbHydrated: true });
@@ -154,7 +162,7 @@ export function reduceTextCollaborationClientState(
           : state.unsyncedChanges > 0 ? 'local_pending' : 'server_received',
       };
     case 'unsynced_changes': {
-      const count = Math.max(0, event.count);
+      const count = Math.max(state.admissionBusy ? state.unsyncedChanges : 0, event.count);
       return {
         ...state,
         unsyncedChanges: count,
@@ -291,6 +299,15 @@ export function reduceTextCollaborationClientState(
         // An access failure must not erase an earlier schema/unknown quarantine.
         authorizationRecoveryEligible: state.failure?.kind === 'authentication'
           ? state.authorizationRecoveryEligible === true : state.durability !== 'degraded' && state.failure === null,
+      });
+    case 'admission_busy':
+      return withReadiness({
+        ...state,
+        admissionBusy: true,
+        connection: state.connection === 'denied' ? 'denied' : 'offline',
+        remoteSynced: false,
+        locallyUsable: state.locallyUsable === true || state.ready,
+        error: state.connection === 'denied' || state.durability === 'degraded' ? state.error : event.message,
       });
   }
 }

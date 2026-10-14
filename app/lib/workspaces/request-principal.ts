@@ -26,7 +26,16 @@ type RequestCapture = {
   active: boolean; accepting: boolean; failure?: unknown; pending: Set<Promise<unknown>>;
   userId: string; sessionId: string; tokenHash: string; impersonatedBy: unknown;
   workspace: WorkspaceContext; permission: 'canRead' | 'canWrite'; license: LicenseStatus; database: number; schema: string; enterBefore: number;
+  originalOrigin?: { observe: WorkspaceRequestHistoricalOriginObserver; realm: Readonly<{ schemaOid: number; searchPath: string }> };
 };
+/** Historical identity only. It conveys neither permissions nor a live principal. */
+export type WorkspaceRequestHistoricalOrigin = Readonly<{
+  userId: string; sessionId: string; impersonatedBy: string | null; workspaceId: string; workspaceType: string;
+  organizationId: string | null; customerId: string | null; projectId: string | null; ownerUserId: string | null;
+  rootPath: string; rootRelativePath: string; legacy: false; status: 'active';
+  schema: string; schemaOid: number; searchPath: string; databaseOid: number;
+}>;
+export type WorkspaceRequestHistoricalOriginObserver = (origin: WorkspaceRequestHistoricalOrigin) => void;
 type Phase = { active: boolean; failure?: unknown; request: RequestCapture; database: SqlConnection;
   identity?: Identity; deadline: number; checking: boolean; pending: Set<Promise<unknown>> };
 const requests = new WeakMap<WorkspaceRequestPrincipal, RequestCapture>();
@@ -80,6 +89,22 @@ function scope(a: WorkspaceContext, b: WorkspaceContext): boolean {
 export async function withWorkspaceRequestPrincipal<T>(request: NextRequest,
   options: { permission: 'canRead' | 'canWrite'; workspaceId?: string },
   operation: (principal: WorkspaceRequestPrincipal) => Promise<T>): Promise<T> {
+  return withRequestPrincipal(request, options, operation);
+}
+
+/** Opted native factory: fixed genuine authentication, primitive-only history,
+ * no caller validator, permissions, source snapshot or authority replacement. */
+export async function withWorkspaceRequestPrincipalOriginalOrigin<T>(request: NextRequest,
+  options: { permission: 'canRead' | 'canWrite'; workspaceId?: string },
+  observe: WorkspaceRequestHistoricalOriginObserver,
+  operation: (principal: WorkspaceRequestPrincipal) => Promise<T>): Promise<T> {
+  if (typeof observe !== 'function') fail('PRINCIPAL_INVALID');
+  return withRequestPrincipal(request, options, operation, observe);
+}
+
+async function withRequestPrincipal<T>(request: NextRequest,
+  options: { permission: 'canRead' | 'canWrite'; workspaceId?: string },
+  operation: (principal: WorkspaceRequestPrincipal) => Promise<T>, observe?: WorkspaceRequestHistoricalOriginObserver): Promise<T> {
   if (!(request instanceof NextRequest) || !options || !['canRead','canWrite'].includes(options.permission)
     || options.workspaceId !== undefined && !id(options.workspaceId) || typeof operation !== 'function') fail('PRINCIPAL_INVALID');
   const permission = options.permission, workspaceId = options.workspaceId;
@@ -101,13 +126,19 @@ export async function withWorkspaceRequestPrincipal<T>(request: NextRequest,
   const license = freeze(structuredClone(await getLicenseStatus()));
   const pool = getPostgresRuntimeQueryable();
   if (!pool) fail('PRINCIPAL_REQUIRED');
-  const source = (await pool.query(`SELECT current_schema() AS schema,(SELECT oid::bigint FROM pg_database
+  const source = (await pool.query(observe
+    ? `SELECT current_schema() AS schema,(SELECT oid::bigint FROM pg_database WHERE datname=current_database()) AS database,
+      to_regnamespace(current_schema())::oid::bigint AS schema_oid,current_setting('search_path') AS search_path`
+    : `SELECT current_schema() AS schema,(SELECT oid::bigint FROM pg_database
     WHERE datname=current_database()) AS database`)).rows[0];
   if (!source || typeof source.schema !== 'string' || !source.schema || !number(source.database,1)) fail('PRINCIPAL_SCOPE_CHANGED');
+  if (observe && (!number(source.schema_oid, 1) || typeof source.search_path !== 'string'
+    || !source.search_path || source.search_path.length > 4096)) fail('PRINCIPAL_SCOPE_CHANGED');
   const captured: RequestCapture = { active: true, accepting: true, pending: new Set(), userId: session.user.id,
     sessionId: session.session.id, tokenHash: hash(session.session.token), impersonatedBy: Reflect.get(session.session,'impersonatedBy') ?? null,
     workspace: freeze(workspace), permission, license, database: Number(source.database), schema: source.schema,
-    enterBefore: performance.now()+MAX_PHASE_MS };
+    enterBefore: performance.now()+MAX_PHASE_MS,
+    ...(observe ? { originalOrigin: { observe, realm: Object.freeze({ schemaOid: Number(source.schema_oid), searchPath: String(source.search_path) }) } } : {}) };
   const principal = Object.freeze({}) as WorkspaceRequestPrincipal; requests.set(principal,captured);
   try {
     let result: T | undefined;
@@ -162,6 +193,53 @@ async function checkIdentity(phase: Phase): Promise<void> {
   if (rows.length !== tables.length || rows.some(row => row.same !== true)) fail('PRINCIPAL_SCHEMA_INVALID');
 }
 const table = (phase: Phase, name: string) => `${quote(phase.identity!.schema)}.${quote(name)}`;
+async function observeOriginalOrigin(phase: Phase): Promise<void> {
+  const request = phase.request, optin = request.originalOrigin;
+  if (!optin) return;
+  // Capture all private factory primitives before the actual B query await.
+  const workspace = request.workspace;
+  if (request.impersonatedBy !== null && !id(request.impersonatedBy)) fail('PRINCIPAL_AUTH_REVOKED');
+  const expected = Object.freeze({ userId: request.userId, sessionId: request.sessionId,
+    impersonatedBy: request.impersonatedBy as string | null, workspaceId: workspace.workspaceId,
+    workspaceType: workspace.workspaceType, organizationId: workspace.organizationId ?? null, customerId: workspace.customerId ?? null,
+    projectId: workspace.projectId ?? null, ownerUserId: workspace.ownerUserId ?? null,
+    rootPath: workspace.rootPath, rootRelativePath: workspace.rootRelativePath, legacy: workspace.legacy, status: workspace.status });
+  active(phase);
+  const row = await phase.database.get(`SELECT s.user_id,s.id AS session_id,u.banned,s.impersonated_by,
+    encode(sha256(convert_to(s.token,'UTF8')),'hex') AS token_hash,s.expires_at,
+    w.id AS workspace_id,w.type AS workspace_type,w.organization_id,w.customer_id,w.project_id,w.owner_user_id,
+    w.root_relative_path,w.status,current_schema() AS schema,to_regnamespace(current_schema())::oid::bigint AS schema_oid,
+    current_setting('search_path') AS search_path,(SELECT oid::bigint FROM pg_database WHERE datname=current_database()) AS database_oid
+    FROM ${table(phase, 'session')} s JOIN ${table(phase, 'user')} u ON u.id=s.user_id
+    CROSS JOIN ${table(phase, 'canvas_workspaces')} w
+    WHERE s.id=$1 AND s.user_id=$2 AND w.id=$3 LIMIT 1`, [request.sessionId, request.userId, workspace.workspaceId]) as Row | undefined;
+  active(phase);
+  // A known invalid authentication must not be classified as lock contention
+  // before the ordinary locked current/final checks have a chance to run.
+  if (row && (!flag(row.banned) || Number(row.banned) === 1
+    || row.impersonated_by !== null && !id(row.impersonated_by) || row.impersonated_by !== request.impersonatedBy)) fail('PRINCIPAL_AUTH_REVOKED');
+  if (!row || row.user_id !== expected.userId || row.session_id !== expected.sessionId || row.token_hash !== request.tokenHash
+    || !number(row.expires_at) || normalizeDatabaseTimestamp(Number(row.expires_at)) <= Date.now()
+    || row.workspace_id !== expected.workspaceId || row.workspace_type !== expected.workspaceType
+    || (row.organization_id ?? null) !== expected.organizationId || (row.customer_id ?? null) !== expected.customerId
+    || (row.project_id ?? null) !== expected.projectId || (row.owner_user_id ?? null) !== expected.ownerUserId
+    || row.root_relative_path !== expected.rootRelativePath || row.status !== 'active' || expected.status !== 'active'
+    || expected.legacy !== false || typeof expected.rootPath !== 'string' || !expected.rootPath
+    || typeof expected.rootRelativePath !== 'string' || expected.rootRelativePath.length > 4096
+    || row.schema !== request.schema || !number(row.schema_oid, 1) || Number(row.schema_oid) !== optin.realm.schemaOid
+    || row.search_path !== optin.realm.searchPath || !number(row.database_oid, 1) || Number(row.database_oid) !== request.database) fail('PRINCIPAL_SCOPE_CHANGED');
+  const historical: WorkspaceRequestHistoricalOrigin = Object.freeze({ ...expected,
+    rootRelativePath: expected.rootRelativePath, legacy: false, status: 'active', schema: request.schema,
+    schemaOid: Number(row.schema_oid), searchPath: String(row.search_path), databaseOid: request.database });
+  // The owner sink is synchronous and receives no facade/SQL/capability.
+  const returned: unknown = optin.observe(historical);
+  if (returned !== undefined) {
+    // Observe a rejected accidental async sink without granting it any lifetime.
+    if (returned instanceof Promise) void returned.catch(() => undefined);
+    fail('PRINCIPAL_DETACHED');
+  }
+  active(phase);
+}
 async function schema(phase: Phase): Promise<void> {
   // Pin relations against incompatible DDL; this does not freeze row DML.
   await phase.database.run(`LOCK TABLE ${tables.map(name => table(phase,name)).join(',')} IN ROW EXCLUSIVE MODE NOWAIT`);
@@ -304,6 +382,7 @@ export function withWorkspaceRequestPrincipalOnConnection<T>(database: SqlConnec
     try {
       phase.identity = await identity(phase); await checkIdentity(phase);
       await database.run("SET LOCAL statement_timeout='5s'; SET LOCAL lock_timeout='50ms'; SET LOCAL transaction_timeout='5s'");
+      await observeOriginalOrigin(phase);
       await schema(phase); await locks(phase);
       const workspace = await current(phase);
       const assertCurrent = (): Promise<void> => {

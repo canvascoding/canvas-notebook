@@ -309,7 +309,10 @@ async function worker(order: 'A' | 'B'): Promise<void> {
         'captureAuthenticatedNativeSessionTransportOnConnection', 'withAuthenticatedNativeSessionTransportOnConnection',
         'withAuthenticatedNativeSessionDiagnosisTransportOnConnection', 'withAuthenticatedNativeSessionReadJoinTransportOnConnection',
         'isAuthenticatedNativeSessionTransportBusy', 'withAuthenticatedOwnedNativeSessionTransportOnConnection',
-        'disposeAuthenticatedNativeSessionTransport', 'assertCurrent', 'inspect', 'isReaderError', 'isPrincipalError'].sort());
+        'disposeAuthenticatedNativeSessionTransport', 'assertCurrent', 'inspect', 'isReaderError', 'isPrincipalError',
+        'createAuthenticatedNativePeerOrigin', 'adoptAuthenticatedNativePeerOrigin',
+        'captureAuthenticatedNativePeerOriginTransportOnConnection', 'withAuthenticatedNativePeerOriginJoinOnConnection',
+        'retireAuthenticatedNativePeerOriginAttempt', 'finishAuthenticatedNativePeerOrigin', 'disposeAuthenticatedNativePeerOrigin'].sort());
       assert(Object.values(api).every(value => typeof value === 'function' || typeof value === 'string' || typeof value === 'number'));
       const error = new A.AuthenticatedNativeSessionTransportError('NATIVE_TRANSPORT_REQUIRED');
       assert(error instanceof B.AuthenticatedNativeSessionTransportError);
@@ -464,7 +467,7 @@ async function worker(order: 'A' | 'B'): Promise<void> {
             if (mode === 'realm') await client.query(`SET LOCAL search_path=${schema},public,pg_catalog`);
             return A.withAuthenticatedNativeSessionTransportOnConnection(db, cap, { permission: 'canRead',
               ...input(mode === 'native' ? { ...native.identity, documentId: `wrong-${crypto.randomUUID()}` } : native.identity) }, async () => assert.fail());
-          }), code(mode === 'native' ? 'NATIVE_SESSION_SCOPE_CHANGED' : 'NATIVE_TRANSPORT_SCOPE_CHANGED'));
+          }), code(mode === 'native' ? 'NATIVE_SESSION_SCOPE_CHANGED' : mode === 'realm' ? 'PRINCIPAL_SCOPE_CHANGED' : 'NATIVE_TRANSPORT_SCOPE_CHANGED'));
         } finally { if (mode === 'root') await admin.query('UPDATE canvas_workspaces SET root_relative_path=$2 WHERE id=$1', [workspaceId, 'organizations/principal-org/shared']); await dispose(cap); }
       }
     });
@@ -581,10 +584,13 @@ async function incompatible(kind: string): Promise<void> {
   const methods = ['captureAuthenticatedNativeSessionTransportOnConnection', 'withAuthenticatedNativeSessionTransportOnConnection',
     'withAuthenticatedNativeSessionDiagnosisTransportOnConnection', 'withAuthenticatedNativeSessionReadJoinTransportOnConnection',
     'isAuthenticatedNativeSessionTransportBusy', 'withAuthenticatedOwnedNativeSessionTransportOnConnection',
-    'disposeAuthenticatedNativeSessionTransport', 'assertCurrent', 'inspect', 'isReaderError', 'isPrincipalError'];
-  const api = { kind: 'canvas-authenticated-native-session-runtime', version: kind === 'version' ? 2 : 1,
+    'disposeAuthenticatedNativeSessionTransport', 'assertCurrent', 'inspect', 'isReaderError', 'isPrincipalError',
+        'createAuthenticatedNativePeerOrigin', 'adoptAuthenticatedNativePeerOrigin',
+        'captureAuthenticatedNativePeerOriginTransportOnConnection', 'withAuthenticatedNativePeerOriginJoinOnConnection',
+        'retireAuthenticatedNativePeerOriginAttempt', 'finishAuthenticatedNativePeerOrigin', 'disposeAuthenticatedNativePeerOrigin'];
+  const api = { kind: 'canvas-authenticated-native-session-runtime', version: kind === 'version' ? 1 : 2,
     Error: Error, ...Object.fromEntries(methods.map(name => [name, method])), ...(kind === 'extra' ? { records: new WeakMap() } : {}) };
-  const value = kind === 'partial' ? Object.freeze({ kind: api.kind, version: 1 }) : kind === 'mutable' ? api : Object.freeze(api);
+  const value = kind === 'partial' ? Object.freeze({ kind: api.kind, version: 2 }) : kind === 'mutable' ? api : Object.freeze(api);
   Object.defineProperty(globalThis, runtimeKey, kind === 'accessor' ? { get() { calls++; return value; } }
     : { value, writable: false, configurable: false });
   const before = Object.getOwnPropertyDescriptor(globalThis, runtimeKey);

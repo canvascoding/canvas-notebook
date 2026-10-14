@@ -3,8 +3,9 @@ import 'server-only';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { NextRequest } from 'next/server';
 import type { SqlConnection } from '../db';
-import { withWorkspaceRequestPrincipal, withWorkspaceRequestPrincipalOnConnection,
-  WorkspaceRequestPrincipalError, type WorkspaceRequestPrincipalAccess } from '../workspaces/request-principal';
+import { withWorkspaceRequestPrincipalOnConnection, withWorkspaceRequestPrincipalOriginalOrigin,
+  WorkspaceRequestPrincipalError, type WorkspaceRequestPrincipalAccess, type WorkspaceRequestPrincipal,
+  type WorkspaceRequestHistoricalOrigin } from '../workspaces/request-principal';
 import type { WorkspaceContext } from '../workspaces/types';
 import { isCanonicalAdmissionPath } from './room-admission-contract';
 import { assertCollaborationRoomOwnerFence, type CollaborationRoomOwnerFence, type CollaborationRoomOwnerRow } from './room-owner';
@@ -18,6 +19,9 @@ import { assertExistingNativeCollaborationSessionCurrentOnConnection, inspectExi
 /** Inactive server-private transport provenance, never a ticket or write grant. */
 declare const transportBrand: unique symbol;
 export type AuthenticatedNativeSessionTransport = Readonly<{ [transportBrand]: never }>;
+declare const peerOriginBrand: unique symbol;
+/** Historical original identity only; neither session nor native authority. */
+export type AuthenticatedNativePeerOrigin = Readonly<{ [peerOriginBrand]: never }>;
 type Permission = 'canRead' | 'canWrite';
 type OriginalRequest = Readonly<{ url: string; method: string; headers: readonly (readonly [string, string])[] }>;
 type Realm = Readonly<{ schema: string; schemaOid: number; searchPath: string; databaseOid: number }>;
@@ -27,7 +31,11 @@ type Scope = Readonly<{ userId: string; sessionId: string; workspaceId: string; 
   rootPath: string; rootRelativePath: string; legacy: false; status: 'active' }>;
 type Binding = Readonly<{ realm: Realm; backend: Backend; scope: Scope }>;
 type RecordState = { original?: OriginalRequest; workspaceId: string; maxPermission: Permission; origin?: Binding;
-  failure: unknown; disposed: boolean; inFlight?: Promise<unknown>; disposal?: Promise<void>; phase?: Phase };
+  historical?: WorkspaceRequestHistoricalOrigin; failure: unknown; disposed: boolean; inFlight?: Promise<unknown>; disposal?: Promise<void>; phase?: Phase; joinAttempt?: JoinAttempt };
+type PeerOrigin = { original?: OriginalRequest; workspaceId: string; maxPermission: Permission;
+  bound?: WorkspaceRequestHistoricalOrigin; failure?: unknown; closed: boolean; attempts: number; current?: JoinAttempt; disposal?: Promise<void> };
+type JoinAttempt = { origin: PeerOrigin; stage: 'capture' | 'join'; entered: boolean; settled: boolean;
+  record?: RecordState; transport?: AuthenticatedNativeSessionTransport; failure?: unknown };
 type Phase = { record: RecordState; connection: SqlConnection; active: boolean; callbackActive: boolean;
   binding?: Binding; checks: Set<Promise<void>> };
 export type AuthenticatedOwnedNativeSessionAccess = ExistingNativeSessionRequestAccess & Readonly<{
@@ -39,7 +47,7 @@ type TransportErrorCode = 'NATIVE_TRANSPORT_INVALID' | 'NATIVE_TRANSPORT_REQUIRE
     | 'NATIVE_TRANSPORT_DETACHED' | 'NATIVE_TRANSPORT_DISPOSED' | 'NATIVE_TRANSPORT_QUARANTINED';
 export type AuthenticatedNativeSessionTransportError = Error & { readonly code: TransportErrorCode };
 type NativeRuntime = Readonly<{
-  kind: 'canvas-authenticated-native-session-runtime'; version: 1;
+  kind: 'canvas-authenticated-native-session-runtime'; version: 2;
   Error: new (code: TransportErrorCode) => AuthenticatedNativeSessionTransportError;
   captureAuthenticatedNativeSessionTransportOnConnection: typeof captureAuthenticatedNativeSessionTransportOnConnection;
   withAuthenticatedNativeSessionTransportOnConnection: typeof withAuthenticatedNativeSessionTransportOnConnection;
@@ -52,12 +60,22 @@ type NativeRuntime = Readonly<{
   inspect: typeof inspectExistingNativeCollaborationSessionOnConnection;
   isReaderError: (value: unknown) => value is NativeSessionStateReaderError;
   isPrincipalError: (value: unknown) => value is WorkspaceRequestPrincipalError;
+  createAuthenticatedNativePeerOrigin: typeof createAuthenticatedNativePeerOrigin;
+  adoptAuthenticatedNativePeerOrigin: typeof adoptAuthenticatedNativePeerOrigin;
+  captureAuthenticatedNativePeerOriginTransportOnConnection: typeof captureAuthenticatedNativePeerOriginTransportOnConnection;
+  withAuthenticatedNativePeerOriginJoinOnConnection: typeof withAuthenticatedNativePeerOriginJoinOnConnection;
+  retireAuthenticatedNativePeerOriginAttempt: typeof retireAuthenticatedNativePeerOriginAttempt;
+  finishAuthenticatedNativePeerOrigin: typeof finishAuthenticatedNativePeerOrigin;
+  disposeAuthenticatedNativePeerOrigin: typeof disposeAuthenticatedNativePeerOrigin;
 }>;
 const runtimeKey = Symbol.for('canvas.authenticated-native-session-runtime');
 const runtimeMethods = ['captureAuthenticatedNativeSessionTransportOnConnection', 'withAuthenticatedNativeSessionTransportOnConnection',
   'withAuthenticatedNativeSessionDiagnosisTransportOnConnection', 'withAuthenticatedNativeSessionReadJoinTransportOnConnection',
   'isAuthenticatedNativeSessionTransportBusy', 'withAuthenticatedOwnedNativeSessionTransportOnConnection',
-  'disposeAuthenticatedNativeSessionTransport', 'assertCurrent', 'inspect', 'isReaderError', 'isPrincipalError'] as const;
+  'disposeAuthenticatedNativeSessionTransport', 'assertCurrent', 'inspect', 'isReaderError', 'isPrincipalError',
+  'createAuthenticatedNativePeerOrigin', 'adoptAuthenticatedNativePeerOrigin', 'captureAuthenticatedNativePeerOriginTransportOnConnection',
+  'withAuthenticatedNativePeerOriginJoinOnConnection', 'retireAuthenticatedNativePeerOriginAttempt',
+  'finishAuthenticatedNativePeerOrigin', 'disposeAuthenticatedNativePeerOrigin'] as const;
 
 /** The first server module owns all state. Other bundled/raw copies only use this frozen API. */
 function createNativeRuntime(): NativeRuntime {
@@ -69,6 +87,8 @@ function createNativeRuntime(): NativeRuntime {
   const connections = new WeakMap<SqlConnection, Phase>();
   const callbackContext = new AsyncLocalStorage<Phase>();
   const busyFailures = new WeakSet<object>();
+  const origins = new WeakMap<AuthenticatedNativePeerOrigin, PeerOrigin>();
+  const joinContention = new WeakMap<object, JoinAttempt>();
   const scopeKeys = ['userId', 'sessionId', 'workspaceId', 'workspaceType', 'organizationId', 'projectId',
     'customerId', 'ownerUserId', 'rootPath', 'rootRelativePath', 'legacy', 'status'] as const;
   const identityKeys = ['documentId', 'lineageId', 'workspaceId', 'organizationId', 'path',
@@ -152,6 +172,47 @@ function createNativeRuntime(): NativeRuntime {
     }
     return Object.freeze({ permission: input.permission, path: input.path,
       ...(expectedIdentity ? { expectedIdentity } : {}) });
+  }
+  function originalOrigin(origin: PeerOrigin): void {
+    if (origin.failure !== undefined) throw origin.failure;
+    if (origin.closed || !origin.original) fail('NATIVE_TRANSPORT_DISPOSED');
+  }
+  function observePeerOrigin(attempt: JoinAttempt, historical: WorkspaceRequestHistoricalOrigin): void {
+    const origin = attempt.origin;
+    originalOrigin(origin);
+    if (origin.current !== attempt || attempt.settled) fail('NATIVE_TRANSPORT_REENTRANT');
+    if (origin.bound && [...scopeKeys, 'impersonatedBy', 'schema', 'schemaOid', 'searchPath', 'databaseOid'].some(key =>
+      Reflect.get(origin.bound!, key) !== Reflect.get(historical, key))) {
+      origin.failure = new AuthenticatedNativeSessionTransportError('NATIVE_TRANSPORT_SCOPE_CHANGED');
+      throw origin.failure;
+    }
+    // Only the genuine opted Principal emits these immutable historical scalars.
+    // This does not mint access and retains no Principal across an attempt.
+    origin.bound ??= Object.freeze({ ...historical });
+  }
+  function observeRecordOrigin(record: RecordState, historical: WorkspaceRequestHistoricalOrigin, capture = false): void {
+    if (!record.phase) fail('NATIVE_TRANSPORT_REQUIRED');
+    active(record.phase);
+    if (record.joinAttempt) observePeerOrigin(record.joinAttempt, historical);
+    const previous = record.historical;
+    if (previous && [...scopeKeys, 'impersonatedBy', 'schema', 'schemaOid', 'searchPath', 'databaseOid'].some(key =>
+      Reflect.get(previous, key) !== Reflect.get(historical, key))) {
+      throw poison(record, new AuthenticatedNativeSessionTransportError('NATIVE_TRANSPORT_SCOPE_CHANGED'));
+    }
+    if (capture && !previous) record.historical = Object.freeze({ ...historical });
+    else if (!previous) fail('NATIVE_TRANSPORT_SCOPE_CHANGED');
+  }
+  function requestPrincipal<T>(record: RecordState, original: OriginalRequest, permission: Permission,
+    consume: (principal: WorkspaceRequestPrincipal) => Promise<T>, captureHistorical = false): Promise<T> {
+    return withWorkspaceRequestPrincipalOriginalOrigin(freshRequest(original), { workspaceId: record.workspaceId, permission },
+      historical => observeRecordOrigin(record, historical, captureHistorical), consume);
+  }
+  function enterPeerConsumer(record: RecordState): void {
+    if (record.joinAttempt) {
+      originalOrigin(record.joinAttempt.origin);
+      if (record.joinAttempt.origin.current !== record.joinAttempt) fail('NATIVE_TRANSPORT_REENTRANT');
+      record.joinAttempt.entered = true;
+    }
   }
   function captureScope(access: WorkspaceRequestPrincipalAccess, workspaceId: string): Scope {
     const workspace = access.workspace;
@@ -243,6 +304,17 @@ function createNativeRuntime(): NativeRuntime {
           busy.name = 'AuthenticatedNativeSessionTransportBusyError'; busyFailures.add(busy);
           throw busy;
         }
+        const attempt = phase.record.joinAttempt;
+        if (attempt) {
+          attempt.failure = error;
+          const qualified = !attempt.entered && attempt.origin.bound && !attempt.origin.closed
+            && attempt.origin.failure === undefined && attempt.origin.current === attempt
+            && phase.record.failure === undefined && !phase.record.disposed
+            && (error instanceof WorkspaceRequestPrincipalError && error.code === 'PRINCIPAL_BUSY'
+              || error instanceof NativeSessionStateReaderError && error.code === 'NATIVE_SESSION_BUSY');
+          if (qualified && error && typeof error === 'object') joinContention.set(error, attempt);
+          else attempt.origin.failure ??= error ?? new AuthenticatedNativeSessionTransportError('NATIVE_TRANSPORT_INVALID');
+        }
         throw poison(phase.record, error);
       }
       finally {
@@ -261,20 +333,25 @@ function createNativeRuntime(): NativeRuntime {
   /** Genuine standalone enrollment. Caller owns RC/RW B, all TX completion and
    * mandatory rollback on failure. No reader, consumer, seed or grant is nested. */
   function captureAuthenticatedNativeSessionTransportOnConnection(connection: SqlConnection, request: NextRequest,
-    options: { workspaceId: string; maxPermission: Permission }): Promise<AuthenticatedNativeSessionTransport> {
+    options: { workspaceId: string; maxPermission: Permission }, attempt?: JoinAttempt): Promise<AuthenticatedNativeSessionTransport> {
     let record: RecordState;
     try {
       data(options, ['workspaceId', 'maxPermission'], ['workspaceId', 'maxPermission']);
       if (!validId(options.workspaceId) || !['canRead', 'canWrite'].includes(options.maxPermission)) fail('NATIVE_TRANSPORT_INVALID');
       record = { original: captureRequest(request), workspaceId: options.workspaceId, maxPermission: options.maxPermission,
-        failure: undefined, disposed: false };
+        failure: undefined, disposed: false, ...(attempt ? { joinAttempt: attempt } : {}) };
+      if (attempt) attempt.record = record;
       const phase = reserve(connection, record);
-      return run(phase, () => withWorkspaceRequestPrincipal(freshRequest(record.original!),
-        { workspaceId: record.workspaceId, permission: record.maxPermission }, principal =>
+      return run(phase, () => requestPrincipal(record, record.original!, record.maxPermission, principal =>
           withWorkspaceRequestPrincipalOnConnection(connection, principal, async access => {
+            enterPeerConsumer(record);
             await verify(phase, access); record.origin = phase.binding;
             return Object.freeze({}) as AuthenticatedNativeSessionTransport;
-          }))).then(capability => { transports.set(capability, record); return capability; });
+          }), true)).then(capability => {
+            transports.set(capability, record);
+            if (attempt) attempt.transport = capability;
+            return capability;
+          });
     } catch (error) {
       const held = connections.get(connection); if (held) poison(held.record, error);
       return Promise.reject(error ?? new AuthenticatedNativeSessionTransportError('NATIVE_TRANSPORT_INVALID'));
@@ -315,12 +392,12 @@ function createNativeRuntime(): NativeRuntime {
       if (typeof consume !== 'function') fail('NATIVE_TRANSPORT_INVALID');
       if (captured.permission === 'canWrite' && record.maxPermission !== 'canWrite') fail('NATIVE_TRANSPORT_ACCESS_DENIED');
       const phase = reserve(connection, record), original = record.original;
-      return run(phase, () => withWorkspaceRequestPrincipal(freshRequest(original),
-        { permission: captured.permission, workspaceId: record.workspaceId }, principal =>
+      return run(phase, () => requestPrincipal(record, original, captured.permission, principal =>
           withAuthenticatedExistingNativeCollaborationSessionOnConnection(connection, principal,
             { path: captured.path, ...(captured.expectedIdentity ? { expectedIdentity: captured.expectedIdentity } : {}) },
             async (native, access) => {
               await verify(phase, access);
+              enterPeerConsumer(record);
               phase.callbackActive = true;
               let result: T | undefined;
               try { result = await callbackContext.run(phase, () => consume(native, callbackAccess(phase, access))); }
@@ -359,10 +436,10 @@ function createNativeRuntime(): NativeRuntime {
       if (typeof consume !== 'function') fail('NATIVE_TRANSPORT_INVALID');
       const phase = reserve(connection, record), original = record.original;
       return run(phase, async () => {
-        const { withAuthenticatedNativeSessionDiagnosisOnConnection } = await import('./native-session-state-reader');
-        return withAuthenticatedNativeSessionDiagnosisOnConnection(connection, freshRequest(original),
+        const { withAuthenticatedNativeSessionDiagnosisOriginalOriginOnConnection } = await import('./native-session-state-reader');
+        return withAuthenticatedNativeSessionDiagnosisOriginalOriginOnConnection(connection, freshRequest(original),
           { workspaceId: record.workspaceId, path: captured.path,
-            ...(captured.expectedIdentity ? { expectedIdentity: captured.expectedIdentity } : {}) }, async (diagnosis, access) => {
+            ...(captured.expectedIdentity ? { expectedIdentity: captured.expectedIdentity } : {}) }, historical => observeRecordOrigin(record, historical), async (diagnosis, access) => {
             await verify(phase, access);
             phase.callbackActive = true;
             let result: T | undefined;
@@ -415,6 +492,7 @@ function createNativeRuntime(): NativeRuntime {
         const consumeRead = async (session: Readonly<{ snapshot: import('./native-session-state-reader').ExistingNativeSessionSnapshot }>,
           access: ExistingNativeSessionRequestAccess): Promise<T> => {
           await verify(phase, access);
+          enterPeerConsumer(record);
           phase.callbackActive = true;
           let result: T | undefined;
           try { result = await callbackContext.run(phase, () => consume(session, callbackAccess(phase, access))); }
@@ -427,12 +505,13 @@ function createNativeRuntime(): NativeRuntime {
           active(phase); await verify(phase, access);
           return result as T;
         };
-        const { withAuthenticatedNativeSessionDiagnosisOnConnection } = await import('./native-session-state-reader');
-        return quarantined
-          ? withAuthenticatedNativeSessionDiagnosisOnConnection(connection, freshRequest(original),
-            { workspaceId: record.workspaceId, path: captured.path }, consumeRead)
-          : withWorkspaceRequestPrincipal(freshRequest(original), { workspaceId: record.workspaceId, permission: 'canRead' }, principal =>
-            withAuthenticatedExistingNativeCollaborationSessionOnConnection(connection, principal, { path: captured.path }, consumeRead));
+        const { withAuthenticatedNativeSessionDiagnosisOriginalOriginOnConnection } = await import('./native-session-state-reader');
+        if (quarantined) {
+          return withAuthenticatedNativeSessionDiagnosisOriginalOriginOnConnection(connection, freshRequest(original),
+            { workspaceId: record.workspaceId, path: captured.path }, historical => observeRecordOrigin(record, historical), consumeRead);
+        }
+        return requestPrincipal(record, original, 'canRead', principal =>
+          withAuthenticatedExistingNativeCollaborationSessionOnConnection(connection, principal, { path: captured.path }, consumeRead));
       });
     } catch (error) {
       if (record) poison(record, error);
@@ -541,8 +620,7 @@ function createNativeRuntime(): NativeRuntime {
       if (captured.permission === 'canWrite' && record.maxPermission !== 'canWrite') fail('NATIVE_TRANSPORT_ACCESS_DENIED');
       const phase = reserve(connection, record), original = record.original;
       let entered = false;
-      return run(phase, () => withWorkspaceRequestPrincipal(freshRequest(original),
-        { permission: captured.permission, workspaceId: record.workspaceId }, principal =>
+      return run(phase, () => requestPrincipal(record, original, captured.permission, principal =>
           withWorkspaceRequestPrincipalOnConnection(connection, principal, async actual => {
             entered = true;
             await verify(phase, actual);
@@ -590,6 +668,9 @@ function createNativeRuntime(): NativeRuntime {
       if (current?.active) poison(current.record, error);
       return Promise.reject(error);
     }
+    return disposeRecord(record);
+  }
+  function disposeRecord(record: RecordState): Promise<void> {
     record.disposed = true; record.original = undefined;
     if (record.inFlight) poison(record, new AuthenticatedNativeSessionTransportError('NATIVE_TRANSPORT_DISPOSED'));
     if (callbackContext.getStore()?.record === record && record.inFlight) {
@@ -599,9 +680,114 @@ function createNativeRuntime(): NativeRuntime {
     return record.disposal;
   }
 
+  function createAuthenticatedNativePeerOrigin(request: NextRequest,
+    options: { workspaceId: string; maxPermission: Permission }): AuthenticatedNativePeerOrigin {
+    data(options, ['workspaceId', 'maxPermission'], ['workspaceId', 'maxPermission']);
+    if (!validId(options.workspaceId) || !['canRead', 'canWrite'].includes(options.maxPermission)) fail('NATIVE_TRANSPORT_INVALID');
+    const handle = Object.freeze({}) as AuthenticatedNativePeerOrigin;
+    origins.set(handle, { original: captureRequest(request), ...options, closed: false, attempts: 0 });
+    return handle;
+  }
+  function adoptAuthenticatedNativePeerOrigin(transport: AuthenticatedNativeSessionTransport): AuthenticatedNativePeerOrigin {
+    const record = transports.get(transport);
+    if (!record) fail('NATIVE_TRANSPORT_REQUIRED');
+    if (record.failure !== undefined) throw record.failure;
+    if (record.disposed || !record.original || !record.origin) fail('NATIVE_TRANSPORT_DISPOSED');
+    if (!record.historical) fail('NATIVE_TRANSPORT_SCOPE_CHANGED');
+    if (record.inFlight || record.joinAttempt) fail('NATIVE_TRANSPORT_REENTRANT');
+    const handle = Object.freeze({}) as AuthenticatedNativePeerOrigin;
+    const origin: PeerOrigin = { original: record.original, workspaceId: record.workspaceId,
+      maxPermission: record.maxPermission, bound: record.historical,
+      closed: false, attempts: 1 };
+    const attempt: JoinAttempt = { origin, stage: 'capture', entered: true, settled: true, record, transport };
+    record.joinAttempt = attempt; origin.current = attempt; origins.set(handle, origin);
+    return handle;
+  }
+  function rejectPeerOrigin(origin: PeerOrigin, error: unknown): unknown {
+    origin.failure ??= error ?? new AuthenticatedNativeSessionTransportError('NATIVE_TRANSPORT_INVALID');
+    if (origin.current?.record) poison(origin.current.record, origin.failure);
+    const current = callbackContext.getStore();
+    if (current?.active) poison(current.record, origin.failure);
+    return origin.failure;
+  }
+  function originFor(handle: AuthenticatedNativePeerOrigin): PeerOrigin {
+    const origin = origins.get(handle);
+    if (!origin) fail('NATIVE_TRANSPORT_REQUIRED');
+    originalOrigin(origin); return origin;
+  }
+  function captureAuthenticatedNativePeerOriginTransportOnConnection(connection: SqlConnection,
+    handle: AuthenticatedNativePeerOrigin): Promise<AuthenticatedNativeSessionTransport> {
+    try {
+      const origin = originFor(handle);
+      if (origin.current || origin.attempts >= 3) throw rejectPeerOrigin(origin, new AuthenticatedNativeSessionTransportError('NATIVE_TRANSPORT_REENTRANT'));
+      const attempt: JoinAttempt = { origin, stage: 'capture', entered: false, settled: false };
+      origin.current = attempt; origin.attempts++;
+      return captureAuthenticatedNativeSessionTransportOnConnection(connection, freshRequest(origin.original!),
+        { workspaceId: origin.workspaceId, maxPermission: origin.maxPermission }, attempt)
+        .catch(error => {
+          attempt.failure = error;
+          if (!error || typeof error !== 'object' || joinContention.get(error) !== attempt) rejectPeerOrigin(origin, error);
+          throw error;
+        }).finally(() => { attempt.settled = true; });
+    } catch (error) { return Promise.reject(error); }
+  }
+  function withAuthenticatedNativePeerOriginJoinOnConnection<T>(connection: SqlConnection,
+    handle: AuthenticatedNativePeerOrigin, transport: AuthenticatedNativeSessionTransport,
+    input: { path: string; permission: 'read' | 'write' },
+    consume: (session: Readonly<{ snapshot: import('./native-session-state-reader').ExistingNativeSessionSnapshot }>,
+      access: ExistingNativeSessionRequestAccess) => Promise<T>): Promise<T> {
+    try {
+      const origin = originFor(handle), previous = origin.current, record = transports.get(transport);
+      data(input, ['path', 'permission'], ['path', 'permission']);
+      if (!previous || previous.stage !== 'capture' || !previous.settled || previous.failure !== undefined
+        || previous.transport !== transport || previous.record !== record || !record || record.joinAttempt !== previous
+        || !['read', 'write'].includes(input.permission) || input.permission === 'write' && origin.maxPermission !== 'canWrite') throw rejectPeerOrigin(origin, new AuthenticatedNativeSessionTransportError('NATIVE_TRANSPORT_INVALID'));
+      const attempt: JoinAttempt = { origin, stage: 'join', entered: false, settled: false, record, transport };
+      record.joinAttempt = attempt; origin.current = attempt;
+      const pending = input.permission === 'read'
+        ? withAuthenticatedNativeSessionReadJoinTransportOnConnection(connection, transport, { path: input.path }, consume)
+        : withAuthenticatedNativeSessionTransportOnConnection(connection, transport, { path: input.path, permission: 'canRead' }, consume);
+      return pending.catch(error => {
+        attempt.failure = error;
+        if (!error || typeof error !== 'object' || joinContention.get(error) !== attempt) rejectPeerOrigin(origin, error);
+        throw error;
+      }).finally(() => { attempt.settled = true; });
+    } catch (error) { return Promise.reject(error); }
+  }
+  async function retireAuthenticatedNativePeerOriginAttempt(handle: AuthenticatedNativePeerOrigin, error: unknown): Promise<boolean> {
+    const origin = origins.get(handle);
+    if (!origin) fail('NATIVE_TRANSPORT_REQUIRED');
+    const attempt = origin.current;
+    if (!attempt || !attempt.settled || attempt.failure !== error) fail('NATIVE_TRANSPORT_INVALID');
+    const qualified = !!error && typeof error === 'object' && joinContention.get(error) === attempt
+      && !attempt.entered && !!origin.bound && origin.failure === undefined && !origin.closed;
+    if (attempt.record) { await disposeRecord(attempt.record); attempt.record.joinAttempt = undefined; }
+    origin.current = undefined;
+    if (!qualified) origin.failure ??= error ?? new AuthenticatedNativeSessionTransportError('NATIVE_TRANSPORT_INVALID');
+    return qualified;
+  }
+  function finishAuthenticatedNativePeerOrigin(handle: AuthenticatedNativePeerOrigin, transport: AuthenticatedNativeSessionTransport): void {
+    const origin = originFor(handle), attempt = origin.current, record = transports.get(transport);
+    if (!attempt || attempt.stage !== 'join' || !attempt.settled || attempt.failure !== undefined || !attempt.entered
+      || attempt.transport !== transport || attempt.record !== record || !record || record.failure !== undefined
+      || record.disposed || record.inFlight) fail('NATIVE_TRANSPORT_INVALID');
+    record.joinAttempt = undefined; origin.current = undefined; origin.closed = true; origin.original = undefined;
+  }
+  function disposeAuthenticatedNativePeerOrigin(handle: AuthenticatedNativePeerOrigin): Promise<void> {
+    const origin = origins.get(handle);
+    if (!origin) return Promise.reject(new AuthenticatedNativeSessionTransportError('NATIVE_TRANSPORT_REQUIRED'));
+    origin.closed = true; origin.original = undefined;
+    origin.disposal ??= (async () => {
+      const record = origin.current?.record;
+      if (record) { await disposeRecord(record); record.joinAttempt = undefined; }
+      origin.current = undefined;
+    })();
+    return origin.disposal;
+  }
+
   Object.freeze(AuthenticatedNativeSessionTransportError.prototype);
   Object.freeze(AuthenticatedNativeSessionTransportError);
-  return Object.freeze({ kind: 'canvas-authenticated-native-session-runtime', version: 1,
+  return Object.freeze({ kind: 'canvas-authenticated-native-session-runtime', version: 2,
     Error: AuthenticatedNativeSessionTransportError,
     captureAuthenticatedNativeSessionTransportOnConnection,
     withAuthenticatedNativeSessionTransportOnConnection,
@@ -610,6 +796,9 @@ function createNativeRuntime(): NativeRuntime {
     isAuthenticatedNativeSessionTransportBusy,
     withAuthenticatedOwnedNativeSessionTransportOnConnection,
     disposeAuthenticatedNativeSessionTransport,
+    createAuthenticatedNativePeerOrigin, adoptAuthenticatedNativePeerOrigin,
+    captureAuthenticatedNativePeerOriginTransportOnConnection, withAuthenticatedNativePeerOriginJoinOnConnection,
+    retireAuthenticatedNativePeerOriginAttempt, finishAuthenticatedNativePeerOrigin, disposeAuthenticatedNativePeerOrigin,
     assertCurrent: assertExistingNativeCollaborationSessionCurrentOnConnection,
     inspect: inspectExistingNativeCollaborationSessionOnConnection,
     isReaderError: (value: unknown): value is NativeSessionStateReaderError => value instanceof NativeSessionStateReaderError,
@@ -629,7 +818,7 @@ function nativeRuntime(): NativeRuntime {
         const entry = Object.getOwnPropertyDescriptor(api, key);
         return entry?.enumerable && Object.prototype.hasOwnProperty.call(entry, 'value')
           && !entry.writable && !entry.configurable;
-      }) || api.kind !== 'canvas-authenticated-native-session-runtime' || api.version !== 1
+      }) || api.kind !== 'canvas-authenticated-native-session-runtime' || api.version !== 2
       || typeof api.Error !== 'function' || !runtimeMethods.every(key => typeof api[key] === 'function')) {
       throw Object.assign(new Error('The authenticated native session runtime is incompatible.'), { code: 'NATIVE_RUNTIME_INCOMPATIBLE' });
     }
@@ -691,3 +880,35 @@ export const assertAuthenticatedNativeSessionCurrentOnConnection = runtime.asser
 export const inspectAuthenticatedNativeSessionOnConnection = runtime.inspect;
 export const isAuthenticatedNativeSessionReaderError = runtime.isReaderError;
 export const isAuthenticatedNativeSessionPrincipalError = runtime.isPrincipalError;
+
+/** Opaque historical-origin enrollment: request brands checked in every copy. */
+export function createAuthenticatedNativePeerOrigin(request: NextRequest,
+  options: { workspaceId: string; maxPermission: Permission }): AuthenticatedNativePeerOrigin {
+  let localRequest = false;
+  try { localRequest = request instanceof NextRequest; } catch { /* Actual Request intrinsics still run in the owner. */ }
+  return runtime.createAuthenticatedNativePeerOrigin(localRequest ? request : null as unknown as NextRequest, options);
+}
+export function adoptAuthenticatedNativePeerOrigin(transport: AuthenticatedNativeSessionTransport): AuthenticatedNativePeerOrigin {
+  return runtime.adoptAuthenticatedNativePeerOrigin(transport);
+}
+export function captureAuthenticatedNativePeerOriginTransportOnConnection(connection: SqlConnection,
+  origin: AuthenticatedNativePeerOrigin): Promise<AuthenticatedNativeSessionTransport> {
+  return runtime.captureAuthenticatedNativePeerOriginTransportOnConnection(connection, origin);
+}
+export function withAuthenticatedNativePeerOriginJoinOnConnection<T>(connection: SqlConnection,
+  origin: AuthenticatedNativePeerOrigin, transport: AuthenticatedNativeSessionTransport,
+  input: { path: string; permission: 'read' | 'write' },
+  consume: (session: Readonly<{ snapshot: import('./native-session-state-reader').ExistingNativeSessionSnapshot }>,
+    access: ExistingNativeSessionRequestAccess) => Promise<T>): Promise<T> {
+  return runtime.withAuthenticatedNativePeerOriginJoinOnConnection(connection, origin, transport, input, consume);
+}
+export function retireAuthenticatedNativePeerOriginAttempt(origin: AuthenticatedNativePeerOrigin, error: unknown): Promise<boolean> {
+  return runtime.retireAuthenticatedNativePeerOriginAttempt(origin, error);
+}
+/** Caller may transfer the cap only after its actual Join COMMIT and close. */
+export function finishAuthenticatedNativePeerOrigin(origin: AuthenticatedNativePeerOrigin, transport: AuthenticatedNativeSessionTransport): void {
+  return runtime.finishAuthenticatedNativePeerOrigin(origin, transport);
+}
+export function disposeAuthenticatedNativePeerOrigin(origin: AuthenticatedNativePeerOrigin): Promise<void> {
+  return runtime.disposeAuthenticatedNativePeerOrigin(origin);
+}

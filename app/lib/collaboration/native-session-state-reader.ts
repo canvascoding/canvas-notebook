@@ -6,6 +6,7 @@ import * as decoding from 'lib0/decoding';
 import type { SqlConnection } from '../db';
 import type { WorkspaceContext } from '../workspaces/types';
 import type { WorkspaceRequestPrincipal, WorkspaceRequestPrincipalAccess } from '../workspaces/request-principal';
+import type { WorkspaceRequestHistoricalOriginObserver } from '../workspaces/request-principal';
 import { getWorkspaceFileLifecycleLeases } from './file-lifecycle-admission-context';
 import { inspectNativeDocument, inspectPersistedNativeCollaborationSnapshot, type NativeCollaborationSnapshot } from './document-snapshot';
 import { isCollaborationStateQuarantined } from './failure';
@@ -345,6 +346,23 @@ export async function withAuthenticatedExistingNativeCollaborationSessionOnConne
 export async function withAuthenticatedNativeSessionDiagnosisOnConnection<T>(connection: SqlConnection,
   request: NextRequest, input: { workspaceId: string; path: string; expectedIdentity?: ExistingNativeSessionIdentity },
   consume: (diagnosis: ReadOnlyNativeSessionDiagnosis, access: ExistingNativeSessionRequestAccess) => Promise<T>): Promise<T> {
+  return withNativeSessionDiagnosis(connection, request, input, consume);
+}
+
+/** Same FIXED-canRead diagnosis, with historical pre-lock identity observation.
+ * The observer receives no authority and cannot choose permissions/purpose. */
+export async function withAuthenticatedNativeSessionDiagnosisOriginalOriginOnConnection<T>(connection: SqlConnection,
+  request: NextRequest, input: { workspaceId: string; path: string; expectedIdentity?: ExistingNativeSessionIdentity },
+  observe: WorkspaceRequestHistoricalOriginObserver,
+  consume: (diagnosis: ReadOnlyNativeSessionDiagnosis, access: ExistingNativeSessionRequestAccess) => Promise<T>): Promise<T> {
+  if (typeof observe !== 'function') fail('NATIVE_SESSION_INVALID');
+  return withNativeSessionDiagnosis(connection, request, input, consume, observe);
+}
+
+async function withNativeSessionDiagnosis<T>(connection: SqlConnection,
+  request: NextRequest, input: { workspaceId: string; path: string; expectedIdentity?: ExistingNativeSessionIdentity },
+  consume: (diagnosis: ReadOnlyNativeSessionDiagnosis, access: ExistingNativeSessionRequestAccess) => Promise<T>,
+  observe?: WorkspaceRequestHistoricalOriginObserver): Promise<T> {
   if (!(request instanceof NextRequest) || !input || Object.getPrototypeOf(input) !== Object.prototype
     || Reflect.ownKeys(input).some(key => !['workspaceId', 'path', 'expectedIdentity'].includes(String(key)))
     || ['workspaceId', 'path'].some(key => {
@@ -357,8 +375,8 @@ export async function withAuthenticatedNativeSessionDiagnosisOnConnection<T>(con
   const original = new NextRequest(request.url, { method: request.method, headers: new Headers(request.headers) });
   const workspaceId = input.workspaceId, path = input.path;
   const expectedIdentity = input.expectedIdentity === undefined ? undefined : captureExpected(input.expectedIdentity);
-  const { withWorkspaceRequestPrincipal } = await import('../workspaces/request-principal');
-  return withWorkspaceRequestPrincipal(original, { workspaceId, permission: 'canRead' }, principal =>
+  const { withWorkspaceRequestPrincipal, withWorkspaceRequestPrincipalOriginalOrigin } = await import('../workspaces/request-principal');
+  const read = (principal: WorkspaceRequestPrincipal) =>
     withAuthenticatedNativeSession(connection, principal, { path, expectedIdentity }, async (native, access) => {
       const assertBound = () => {
         try { requireCapability(connection, native); }
@@ -370,7 +388,10 @@ export async function withAuthenticatedNativeSessionDiagnosisOnConnection<T>(con
       });
       diagnoses.set(diagnosis, { connection, native });
       return consume(diagnosis, access);
-    }, 'quarantine-diagnosis'));
+    }, 'quarantine-diagnosis');
+  return observe
+    ? withWorkspaceRequestPrincipalOriginalOrigin(original, { workspaceId, permission: 'canRead' }, observe, read)
+    : withWorkspaceRequestPrincipal(original, { workspaceId, permission: 'canRead' }, read);
 }
 
 /** Same bound diagnostic snapshot, including actual final native/auth checks. */
