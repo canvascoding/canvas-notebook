@@ -28,6 +28,7 @@ import { getPiTools } from './tool-registry';
 import { readStoredAgentWorkspaceOnConnection } from './session-workspace-context';
 import type { AgentExecutionContext } from './agent-execution-context';
 import { MessageDeliveryError } from './message-delivery-receipt';
+import type { ChatMessageQueueUpdate } from './durable-message-queue';
 
 export type ChatMessageExecutionPhase = 'queued' | 'dispatching' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'outcome_unknown';
 export type ChatMessageQueueLane = 'prompt' | 'follow_up' | 'steer';
@@ -57,6 +58,8 @@ export type OwnedChatMessageExecutionSnapshot = Readonly<{
   payload: StoredAcceptedChatMessage; hash: string; sessionDbId: number;
   phase: ChatMessageExecutionPhase; executionRevision: number; runtimeToken: string; queue: ChatMessageQueueState | null;
 }>;
+type ReplacementTarget = Readonly<{ message: OwnedAcceptedChatMessage; previous: OwnedChatMessageExecutionSnapshot;
+  desired: OwnedChatMessageExecutionSnapshot }>;
 const host = globalThis as typeof globalThis & {
   __canvasDurableMessageAdmissionV1?: { prepared: WeakMap<object, PreparedRecord>; owned: WeakMap<object, OwnedRecord> };
 };
@@ -284,12 +287,57 @@ export async function prepareChatMessageAdmission(input: ChatMessageAdmissionInp
   }
 }
 
-/** Atomic payload/identity admission only. Existing runtime queues are attached in the next integration step. */
+function replacementConflict(): never {
+  throw new AgentWorkflowError('MESSAGE_EXECUTION_CONFLICT', 'The expected replacement queue changed. Refresh before replacing it.', 409);
+}
+function replacementTargets(prepared: PreparedRecord, messages: readonly OwnedAcceptedChatMessage[]): readonly ReplacementTarget[] {
+  if (!Array.isArray(messages) || messages.length > 128) replacementConflict();
+  const targets = messages.map(message => {
+    const record = message && typeof message === 'object' ? records.owned.get(message) : undefined;
+    if (!record || record.sessionDbId !== prepared.actor.sessionDbId
+      || JSON.stringify(record.payload.identity) !== JSON.stringify(prepared.payload.identity)) denied();
+    if (record.payload.clientMessageId === prepared.payload.clientMessageId || record.phase !== 'queued'
+      || record.runtimeToken !== 'unclaimed' || record.executionRevision >= Number.MAX_SAFE_INTEGER) replacementConflict();
+    const previous = executionSnapshot(record);
+    return Object.freeze({ message, previous, desired: Object.freeze({ ...previous,
+      phase: 'cancelled' as const, executionRevision: previous.executionRevision + 1 }) });
+  });
+  if (new Set(targets.map(target => target.previous.payload.clientMessageId)).size !== targets.length) replacementConflict();
+  return Object.freeze(targets);
+}
+async function verifyReplacement(database: SqlConnection, targets: readonly ReplacementTarget[]): Promise<void> {
+  const { sameDurableChatMessageState, readCurrentDurableChatMessageWithUse } = await import('./durable-message-row-state');
+  for (const target of targets) {
+    const actual = await readCurrentDurableChatMessageWithUse(database, target.previous);
+    if (!sameDurableChatMessageState(actual.snapshot, target.desired)) replacementConflict();
+  }
+}
+function cancellationUpdate(target: ReplacementTarget): ChatMessageQueueUpdate {
+  const snapshot = target.desired;
+  return Object.freeze({ serverMessageId: snapshot.payload.serverMessageId, clientMessageId: snapshot.payload.clientMessageId,
+    phase: snapshot.phase, executionRevision: snapshot.executionRevision, queue: snapshot.queue });
+}
+
+/** A new admission and the exact old queued set share one source-fenced commit. */
+export async function commitPreparedChatMessageReplacement(admission: PreparedChatMessageAdmission,
+  messages: readonly OwnedAcceptedChatMessage[], options: Readonly<{ lane?: 'prompt' | 'follow_up' }> = {}): Promise<Readonly<{
+    message: OwnedAcceptedChatMessage; cancelled: readonly ChatMessageQueueUpdate[];
+  }>> {
+  const prepared = admission && typeof admission === 'object' ? records.prepared.get(admission) : undefined;
+  if (!prepared) denied();
+  const targets = replacementTargets(prepared, messages);
+  const message = await commitPreparedChatMessageAdmission(admission,
+    { lane: options.lane ?? 'prompt', replacement: targets.map(target => target.message) });
+  return Object.freeze({ message, cancelled: Object.freeze(targets.map(cancellationUpdate)) });
+}
+
+/** Atomic admission kernel. Replacement targets are server-internal genuine SQL handles. */
 export async function commitPreparedChatMessageAdmission(admission: PreparedChatMessageAdmission,
-  options: Readonly<{ lane?: ChatMessageQueueLane }> = {}): Promise<OwnedAcceptedChatMessage> {
+  options: Readonly<{ lane?: ChatMessageQueueLane; replacement?: readonly OwnedAcceptedChatMessage[] }> = {}): Promise<OwnedAcceptedChatMessage> {
   const prepared = admission && typeof admission === 'object' ? records.prepared.get(admission) : undefined;
   if (!prepared) denied();
   const { payload, hash } = prepared;
+  const targets = options.replacement === undefined ? null : replacementTargets(prepared, options.replacement);
   const lane = options.lane ?? (payload.mode === 'steer' ? 'steer' : 'prompt');
   if (!['prompt', 'follow_up', 'steer'].includes(lane) || (payload.mode === 'steer') !== (lane === 'steer')) {
     throw new AgentWorkflowError('AGENT_MESSAGE_ADMISSION_INVALID', 'The initial queue lane does not match the admitted message mode.', 400);
@@ -298,11 +346,21 @@ export async function commitPreparedChatMessageAdmission(admission: PreparedChat
     expectedAgentId: payload.identity.agentId, expectedWorkspaceId: payload.identity.workspaceId };
   const database = await openDb();
   let discardError: Error | undefined;
+  let closed = false, commitAttempted = false;
+  let commitResult: OwnedAcceptedChatMessage | undefined;
+  const commit = async (message: OwnedAcceptedChatMessage) => {
+    commitResult = message; commitAttempted = true; await database.run('COMMIT');
+  };
+  const replay = async (connection: SqlConnection, actor: ActorFrame, row: ReceiptRow): Promise<OwnedAcceptedChatMessage> => {
+    const message = issueOwned(actor, row, hash);
+    if (targets) await verifyReplacement(connection, targets);
+    return message;
+  };
   try {
     await database.run('BEGIN ISOLATION LEVEL SERIALIZABLE');
     const actor = await readActor(database, identity), previous = await receipt(database, actor, payload.clientMessageId);
     if (previous) {
-      const replay = issueOwned(actor, previous, hash); await database.run('COMMIT'); return replay;
+      const message = await replay(database, actor, previous); await commit(message); return message;
     }
     const insert = async (): Promise<OwnedAcceptedChatMessage> => {
       // The outer fence holds all shared connections in one global order,
@@ -318,7 +376,7 @@ export async function commitPreparedChatMessageAdmission(admission: PreparedChat
       const current = await readActor(database, identity, true);
       if (current.sessionDbId !== prepared.actor.sessionDbId || actorStamp(current.context) !== actorStamp(prepared.actor.context)) denied();
       const existing = await receipt(database, current, payload.clientMessageId);
-      if (existing) return issueOwned(current, existing, hash);
+      if (existing) return replay(database, current, existing);
       await assertNoHistoricalMessage(database, current, payload.clientMessageId);
       // Allocate under the exclusive Session lock, after all source/Agent locks.
       // Never upgrade a held Session SHARE lock in a concurrent admission.
@@ -338,6 +396,12 @@ export async function commitPreparedChatMessageAdmission(admission: PreparedChat
       [current.sessionDbId, payload.clientMessageId, hash, now, JSON.stringify(payload), lane, ordinal]) as ReceiptRow | undefined;
       const row = inserted ?? await receipt(database, current, payload.clientMessageId);
       if (!row) corrupt();
+      if (!inserted) return replay(database, current, row);
+      if (targets?.length) {
+        const { cancelOwnedQueuedChatMessagesOnConnection } = await import('./durable-message-queue');
+        await cancelOwnedQueuedChatMessagesOnConnection(database, targets.map(target => target.message), current.sessionDbId);
+        await verifyReplacement(database, targets);
+      }
       return issueOwned(current, row, hash);
     };
     const additionalSharedRefs = (payload.extensionSelection?.privateFixedBindings ?? [])
@@ -348,9 +412,39 @@ export async function commitPreparedChatMessageAdmission(admission: PreparedChat
       prepared.workflowProjection, { additionalSharedRefs }, () => prepared.intake
         ? withRevalidatedAcceptedTurnExtensionSelectionOnConnection(database, prepared.intakeContext, prepared.intake, packagesAndAgent)
         : packagesAndAgent());
-    await database.run('COMMIT');
+    await commit(result);
     return result;
   } catch (error) {
+    if (commitAttempted) {
+      // A failed COMMIT response does not reveal whether it committed. Discard
+      // before any recovery checkout; never retry or return this lease normally.
+      closed = true;
+      try { await database.close(new Error('Discarding unconfirmed message admission commit.', { cause: error })); }
+      catch (discardFailure) {
+        throw new AggregateError([error, discardFailure], 'Message admission commit connection could not be discarded.');
+      }
+      const recovery = await openDb();
+      try {
+        const current = await readActor(recovery, identity), existing = await receipt(recovery, current, payload.clientMessageId);
+        if (!existing || !commitResult) throw new AgentWorkflowError('MESSAGE_EXECUTION_UNCERTAIN', 'The message admission could not be confirmed. Refresh before retrying.', 409);
+        try {
+          const message = await replay(recovery, current, existing);
+          const { sameDurableChatMessageState } = await import('./durable-message-row-state');
+          // Pin the actual pre-COMMIT result, including a concurrent winner's
+          // Server ID. A later claim/control needs a readonly refresh instead.
+          if (!sameDurableChatMessageState(readOwnedChatMessageExecutionSnapshot(message), readOwnedChatMessageExecutionSnapshot(commitResult))) {
+            throw new AgentWorkflowError('MESSAGE_EXECUTION_UNCERTAIN', 'The admitted message changed before confirmation. Refresh its state.', 409);
+          }
+          return message;
+        }
+        catch (proofError) {
+          if (proofError instanceof AgentWorkflowError && proofError.code === 'MESSAGE_EXECUTION_CONFLICT') {
+            throw new AgentWorkflowError('MESSAGE_EXECUTION_UNCERTAIN', 'The complete replacement could not be confirmed. Refresh its state.', 409);
+          }
+          throw proofError;
+        }
+      } finally { await recovery.close(); }
+    }
     let rolledBack = false;
     try { await database.run('ROLLBACK'); rolledBack = true; }
     catch (rollbackError) {
@@ -363,12 +457,17 @@ export async function commitPreparedChatMessageAdmission(admission: PreparedChat
         // serializable race. Confirm that actual committed row on a fresh
         // snapshot; never rerun source preparation or dispatch here.
         const actor = await readActor(database, identity), existing = await receipt(database, actor, payload.clientMessageId);
-        if (existing) return issueOwned(actor, existing, hash);
+        if (existing) return await replay(database, actor, existing);
       } catch (replayError) {
         if (replayError instanceof MessageDeliveryError || replayError instanceof AgentWorkflowError) throw replayError;
+      }
+      // Only a confirmed pre-COMMIT rollback is a normal optimistic conflict.
+      // Never reinterpret an unconfirmed COMMIT or retry a business action.
+      if (error && typeof error === 'object' && 'code' in error && (error.code === '40001' || error.code === '40P01')) {
+        throw new AgentWorkflowError('MESSAGE_EXECUTION_CONFLICT', 'The message session changed concurrently. Refresh before retrying.', 409);
       }
     }
     throw error;
   }
-  finally { await database.close(discardError); }
+  finally { if (!closed) await database.close(discardError); }
 }
