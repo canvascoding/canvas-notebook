@@ -251,7 +251,7 @@ export function MermaidDiagram({ code, interactive = true }: MermaidDiagramProps
         tabIndex={interactive ? 0 : undefined}
         onKeyDown={interactive ? (e) => { if (e.key === 'Enter' || e.key === ' ') openDialog(); } : undefined}
       >
-        <div ref={containerRef} dangerouslySetInnerHTML={{ __html: svg }} />
+        <div ref={containerRef} className="min-w-0 w-full [&_svg]:mx-auto" dangerouslySetInnerHTML={{ __html: svg }} />
         {interactive && (
           <div className="pointer-events-none absolute bottom-1 right-1 flex items-center gap-1 rounded bg-black/60 px-2 py-1 opacity-0 group-hover:opacity-100 transition-opacity">
             <Maximize2 className="size-3.5 text-white" />
