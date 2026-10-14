@@ -357,6 +357,7 @@
     "test:markdown:rendering": "tsx scripts/canvas-markdown-rendering-test.ts && tsx scripts/markdown-preview-image-url-test.ts && tsx scripts/public-markdown-images-test.ts && tsx scripts/markdown-mermaid-reading-test.tsx",
     "test:markdown:preview-stability": "tsx scripts/markdown-document-preview-stability-test.tsx",
     "test:markdown:mermaid-editor": "tsx scripts/mermaid-editor-toggle-test.tsx",
+    "test:markdown:mermaid-theme": "tsx --conditions react-server scripts/mermaid-theme-test.ts",
     "test:markdown:navigation-client": "tsx scripts/workspace-markdown-navigation-client-test.ts",
     "test:markdown:obsidian": "tsx scripts/obsidian-flavored-markdown-test.ts",
     "test:markdown:links": "tsx scripts/workspace-link-index-test.ts && tsx scripts/workspace-link-frontmatter-test.ts",
