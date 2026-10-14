@@ -883,6 +883,8 @@ Der [authentifizierte native Socketanschluss](./yjs-authenticated-native-websock
 
 Die [inaktive dauerhafte Uploadversuchsgrundlage I-02](./markdown-upload-attempt-evidence.md) hält private Originalbytes außerhalb alter Cleanupnamespace. Root bestätigt 34 tatsächliche FS-/Prozessfamilien, vollständiges TypeScript/Lint/Pythonprüfung, unabhängige Reviews und drei Autorenbytes; zwölf alte Module bleiben bytegleich. Snapshot-/Retain-/Abandonzustände sind historische Daten und Intent, keine aktuelle Auth-/Upload-/Cancelautorität. Der echte Staging-Writer I-03 und anschließende native Erstveröffentlichung bleiben eigene offene Gates.
 
+Der [V21-Browserbefund authentisierter Textsessions](./yjs-native-session-browser-busy-evidence.md) bestätigt einen echten frischen Build auf dem privaten aktivierten QA-Stand `5f3c1297c`, aber keinen Browserpass: erste Suite sechs gestartet, einer bestanden, fünf mit tatsächlichem `409/PRINCIPAL_BUSY` fehlgeschlagen; keine Skips/Testtimeouts/Unterbrechungen. Drei Traces enthalten davor erfolgreiche native Sessionantworten. Weitere Suites und beide Neustarts starten nicht. Root bestätigt Build, Originalreporter, Networkantworten und eigene Live-/Realmidentitäten unabhängig. Der konkrete Lockhalter bleibt unbewiesen; begrenzte frische Lesephasen und anschließende neue Browserabnahme sind ein eigener nächster Schritt. Integrationsschalter bleibt false; V20 und seine ursprünglichen Artefakte bleiben erhalten.
+
 ## 17. Änderungs- und Nachweisprotokoll
 
 | Datum | Änderung | Nachweis/Status |
