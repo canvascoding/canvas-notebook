@@ -5,6 +5,7 @@ import { serializeRichMarkdownBody } from '../app/lib/markdown/rich-markdown-cod
 import { authenticateManagedTestPage } from './helpers/managed-test-context';
 import { waitForFileCreateBudget } from './helpers/create-request-budget';
 import { requireOwnedYjsQaTarget } from '../scripts/lib/owned-yjs-authority-qa';
+import { revalidateOwnedBusyFileRead } from './helpers/owned-busy-file-read';
 
 const selector = '.tiptap-editor-shell .ProseMirror';
 async function tree(page: Page): Promise<JSONContent> {
@@ -49,8 +50,8 @@ test('rich writer plain-click menu and Ctrl/Cmd/Open navigate exact scoped docum
       path: filePath, content: value, expectedSha256: original.document.sha256, baseRevisionId: original.document.revisionId,
     } });
     expect(saved.ok()).toBe(true);
-    const read = await page.request.get('/api/files/read', { headers, params: { path: filePath } });
-    expect(read.ok()).toBe(true);
+    const read = await revalidateOwnedBusyFileRead(() => page.request.get('/api/files/read', { headers, params: { path: filePath } }));
+    expect(read.ok).toBe(true);
     const data = (await read.json()).data;
     expect(data.path).toBe(filePath);
     expect(data.content).toBe(value);
