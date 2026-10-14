@@ -130,6 +130,12 @@ async function extractOpenAIImage(
     for await (const event of response as AsyncIterable<unknown>) {
       if (!event || typeof event !== 'object') continue;
       const item = event as Record<string, unknown>;
+      if (item.type === 'error') {
+        throw Object.assign(new Error(typeof item.message === 'string' ? item.message : 'OpenAI image streaming failed'), {
+          code: item.code,
+          status: item.status,
+        });
+      }
       if (
         (item.type === 'image_generation.completed' || item.type === 'image_edit.completed')
         && typeof item.b64_json === 'string'
@@ -360,7 +366,7 @@ class OpenAIImageProvider implements ImageGenerationProvider {
 
     console.log(`[OpenAI Image] Generating: model=${params.model}, aspectRatio=${params.aspectRatio}, refs=${params.referenceImages.length}, quality=${params.quality || 'auto'}`);
 
-    const openai = new OpenAI({ apiKey });
+    const openai = new OpenAI({ apiKey, maxRetries: 0 });
 
     const hasReferences = params.referenceImages.length > 0;
     // Combine context prompt and user prompt for OpenAI

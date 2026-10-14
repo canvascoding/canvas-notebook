@@ -8,6 +8,7 @@ import { db } from '@/app/lib/db';
 import { studioGenerationOutputs, studioGenerations } from '@/app/lib/db/schema';
 import { writeFile, type WorkspaceFileOperationOptions } from '@/app/lib/filesystem/workspace-files';
 import { getImageGenerationProvider } from '@/app/lib/integrations/image-generation-providers';
+import { classifyStudioGenerationFailure, StudioGenerationFailureError } from '@/app/lib/integrations/studio-generation-failures';
 import {
   BACKGROUND_OPTIONS,
   OPENAI_INPUT_FIDELITY_OPTIONS,
@@ -520,6 +521,8 @@ export async function createAspectRatioPreview(
     contextPrompt: buildExtendContextPrompt(provider.id),
     endUserId: scope.actorUserId,
     storageScope,
+  }).catch((error: unknown) => {
+    throw new StudioGenerationFailureError(classifyStudioGenerationFailure(error));
   });
 
   const generatedBytes = Buffer.from(generated.imageBytes, 'base64');

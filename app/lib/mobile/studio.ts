@@ -603,6 +603,11 @@ export function serializeMobileStudioGeneration(generation: StudioGenerationValu
     model: generation.model,
     status: generation.status,
     error: generationError(generation.metadata),
+    errorCode: metadataString(metadata, 'errorCode', 80),
+    errorRetryable: metadata.retryable === true,
+    warning: scrubError(metadata.warning),
+    warnings: Array.isArray(metadata.warnings) ? metadata.warnings.map(scrubError).filter((value): value is string => value !== null) : [],
+    failedOutputCount: metadataInteger(metadata, 'failedOutputCount', 0),
     settings: {
       count: Math.min(outputCount, LEGACY_MOBILE_MAX_IMAGE_COUNT),
       quality: legacyQuality,
@@ -643,7 +648,7 @@ export function serializeMobileStudioGeneration(generation: StudioGenerationValu
       startFramePath: metadataString(metadata, 'startFramePath'),
       endFramePath: metadataString(metadata, 'endFramePath'),
     },
-    outputs: generation.outputs.map((output) => {
+    outputs: generation.outputs.filter((output) => Boolean(output.filePath && output.mimeType)).map((output) => {
       const type = outputType(output.type, output.mimeType);
       return {
         id: output.id,

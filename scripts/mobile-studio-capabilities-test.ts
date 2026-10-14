@@ -91,7 +91,66 @@ async function main() {
         assert.equal(wireGeneration.model, model);
       }
     }
-    console.log('mobile-studio-capabilities-test: actual catalog capabilities and older Expo response compatibility passed');
+    const humanError = 'Der Bildanbieter hat die Anfrage wegen ungültiger Bildeinstellungen abgelehnt.';
+    const failureDetails = '400 unsupported input_fidelity sk-fixtureSecret123456789';
+    const createdAt = new Date('2026-10-14T00:00:00.000Z');
+    const failedOutputs = [
+      { id: 'failed-empty-path', type: 'image', fileName: 'failed-image-0', filePath: '', mimeType: 'image/png',
+        fileSize: null, createdAt, metadata: JSON.stringify({ error: humanError, errorDetails: failureDetails,
+          errorCode: 'INVALID_PROVIDER_REQUEST', retryable: false }) },
+      { id: 'failed-no-mime', type: 'image', fileName: 'failed-image-1', filePath: 'studio/fixture/missing.png', mimeType: null,
+        fileSize: null, createdAt, metadata: JSON.stringify({ error: humanError, errorDetails: failureDetails,
+          errorCode: 'INVALID_PROVIDER_REQUEST', retryable: false }) },
+    ];
+    const baseGeneration = {
+      id: 'failure-fixture', mode: 'image', prompt: 'Create a poster.', rawPrompt: 'Create a poster.',
+      studioPresetId: null, studioPresetName: null, aspectRatio: '1:1', provider: 'openai',
+      model: 'gpt-image-2.5-sunburst', product_ids: [], persona_ids: [], style_ids: [], createdAt, updatedAt: createdAt,
+    };
+    const failed = serializeMobileStudioGeneration({ ...baseGeneration, status: 'failed', outputs: failedOutputs,
+      metadata: JSON.stringify({ count: 2, quality: 'high', outputFormat: 'png', imageSize: '1024x1024',
+        inputFidelity: 'high', error: humanError, errorDetails: failureDetails,
+        errorCode: 'INVALID_PROVIDER_REQUEST', retryable: false, failedOutputCount: 2 }),
+    } as never);
+    const failedWire = JSON.parse(JSON.stringify(failed)) as typeof failed;
+    assert.equal(failedWire.status, 'failed');
+    assert.equal(failedWire.error, humanError);
+    assert.equal(failedWire.errorCode, 'INVALID_PROVIDER_REQUEST');
+    assert.equal(failedWire.errorRetryable, false);
+    assert.equal(failedWire.failedOutputCount, 2);
+    assert.deepEqual(failedWire.outputs, [], 'Failed rows cannot produce fake Mobile previews or downloadable assets');
+    assert.equal(JSON.stringify(failedWire).includes('sk-fixtureSecret123456789'), false);
+    assert.ok(failedWire.settings.openAIImage);
+    assert.equal(failedWire.settings.openAIImage.inputFidelity, 'high', 'Older Expo still receives historical required settings on failure');
+    const rateLimited = serializeMobileStudioGeneration({ ...baseGeneration, status: 'failed', outputs: failedOutputs,
+      metadata: JSON.stringify({ error: 'Das Limit des Bildanbieters wurde erreicht.', errorCode: 'PROVIDER_RATE_LIMIT', retryable: true }),
+    } as never);
+    assert.equal(rateLimited.errorCode, 'PROVIDER_RATE_LIMIT');
+    assert.equal(rateLimited.errorRetryable, true);
+
+    const warning = 'Ein Bild konnte wegen eines vorübergehenden Anbieterfehlers nicht erzeugt werden.';
+    const validOutput = { id: 'success-output', type: 'image', fileName: 'poster.png', filePath: 'studio/fixture/poster.png',
+      mimeType: 'image/png', fileSize: 1024, width: 1024, height: 1024, isFavorite: false, createdAt };
+    const partial = serializeMobileStudioGeneration({ ...baseGeneration, status: 'completed', outputs: [validOutput, ...failedOutputs],
+      metadata: JSON.stringify({ count: 3, quality: 'high', outputFormat: 'png', imageSize: '1024x1024',
+        warning, warnings: [warning], failedOutputCount: 2 }),
+    } as never);
+    const partialWire = JSON.parse(JSON.stringify(partial)) as typeof partial;
+    assert.equal(partialWire.status, 'completed');
+    assert.equal(partialWire.error, null);
+    assert.equal(partialWire.errorCode, null);
+    assert.equal(partialWire.warning, warning);
+    assert.deepEqual(partialWire.warnings, [warning]);
+    assert.equal(partialWire.failedOutputCount, 2);
+    assert.deepEqual(partialWire.outputs.map((output) => output.id), ['success-output']);
+    assert.equal(partialWire.outputs[0].previewUrl, '/api/mobile/v1/studio/outputs/success-output/preview');
+    assert.equal(partialWire.outputs[0].mimeType, 'image/png');
+    assert.equal(partialWire.outputs[0].fileSize, 1024);
+    assert.ok(partialWire.settings.openAIImage);
+    assert.equal(partialWire.settings.openAIImage.inputFidelity, 'low', 'New normalized jobs retain the older Expo required-field fallback');
+    assert.equal(JSON.stringify(partialWire).includes('failed-empty-path'), false);
+    assert.equal(JSON.stringify(partialWire).includes('failed-no-mime'), false);
+    console.log('mobile-studio-capabilities-test: capabilities, older Expo compatibility and failed/partial assets passed');
   } finally {
     globalThis.fetch = previousFetch;
     mock.reset();

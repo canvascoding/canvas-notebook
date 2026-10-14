@@ -4,6 +4,7 @@
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { mock } from 'node:test';
+import { APIError } from 'openai/error';
 import sharp from 'sharp';
 import type { ProviderGenerateParams } from '../app/lib/integrations/image-generation-providers';
 
@@ -45,9 +46,10 @@ async function main() {
   globalThis.fetch = async () => { throw new Error('Provider contract tests must not make network requests.'); };
 
   class FakeOpenAI {
-    constructor(options: { apiKey: string }) {
+    constructor(options: { apiKey: string; maxRetries: number }) {
       constructorCalls += 1;
       assert.equal(options.apiKey, 'provider-fixture-key');
+      assert.equal(options.maxRetries, 0, 'Image generation must not be replayed automatically after an ambiguous network failure.');
     }
 
     images = {
@@ -232,6 +234,7 @@ async function main() {
         { imageSize: '4096x1024' },
         { imageSize: '3840x1024' },
         { imageSize: '512x512' },
+        { aspectRatio: 'unknown', imageSize: undefined },
         { partialImages: -1, stream: true },
         { partialImages: 4, stream: true },
         { partialImages: 0, stream: false },
@@ -276,6 +279,24 @@ async function main() {
       const streamFailure = new Error('Provider stream interrupted');
       sdkResponse = (async function* () { throw streamFailure; })();
       await assert.rejects(provider.generate(params({ referenceImages: references, stream: true })), (error) => error === streamFailure);
+      const sdkStreamFailure = new APIError(undefined, { code: 'rate_limit_exceeded', message: 'Streaming provider rate limit' }, undefined, undefined);
+      sdkResponse = (async function* () {
+        yield { type: references.length ? 'image_edit.partial_image' : 'image_generation.partial_image', b64_json: 'partial-only' };
+        throw sdkStreamFailure;
+      })();
+      await assert.rejects(provider.generate(params({ referenceImages: references, stream: true })), (error) => error === sdkStreamFailure);
+      assert.equal(sdkStreamFailure.status, undefined);
+      sdkResponse = (async function* () {
+        yield { type: references.length ? 'image_edit.partial_image' : 'image_generation.partial_image', b64_json: 'partial-only' };
+        yield { type: 'error', code: 'moderation_blocked', status: 400, message: 'The streamed image did not meet safety requirements.' };
+      })();
+      await assert.rejects(provider.generate(params({ referenceImages: references, stream: true })), (error: unknown) => {
+        assert.ok(error instanceof Error);
+        assert.equal(error.message, 'The streamed image did not meet safety requirements.');
+        assert.equal((error as Error & { code?: string }).code, 'moderation_blocked');
+        assert.equal((error as Error & { status?: number }).status, 400);
+        return true;
+      });
     }
 
     sdkResponse = { data: [] };

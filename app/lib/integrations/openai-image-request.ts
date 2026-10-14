@@ -1,5 +1,6 @@
 import {
   getDefaultOpenAIImageSize,
+  OPENAI_ASPECT_RATIOS,
   getOpenAIImageModelCapabilities,
   getOpenAIImageRequestValidationError,
   normalizeOpenAIImageOutputFormat,
@@ -12,6 +13,9 @@ import {
 } from './image-generation-constants';
 
 export function normalizeOpenAIImageRequestOptions(options: OpenAIImageRequestOptions & { model: string; aspectRatio?: string }) {
+  if (options.imageSize === undefined && options.aspectRatio !== undefined && !OPENAI_ASPECT_RATIOS.includes(options.aspectRatio as never)) {
+    throw new Error('Unsupported OpenAI aspect ratio. Choose a supported ratio or supply a valid image size.');
+  }
   const validCompression = typeof options.outputCompression === 'number'
     && Number.isInteger(options.outputCompression) && options.outputCompression >= 0 && options.outputCompression <= 100;
   const validationError = getOpenAIImageRequestValidationError({

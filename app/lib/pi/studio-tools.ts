@@ -122,6 +122,7 @@ export function createStudioGenerateImageTool(
       });
       const summary = [
         `Studio image generation completed (${result.outputs.length} output(s))`,
+        ...(result.failedOutputCount ? [`${result.failedOutputCount} variation(s) failed.`, ...(result.warnings || [])] : []),
         '',
         ...outputLines,
         '',
