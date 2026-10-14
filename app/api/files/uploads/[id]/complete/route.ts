@@ -7,6 +7,7 @@ import { runWorkspaceUploadWrite } from '@/app/lib/files/workspace-upload-flow';
 import { workspaceUploadErrorResponse } from '@/app/lib/files/workspace-upload-responses';
 import {
   completeWorkspaceUploadFile,
+  publicWorkspaceUploadFile,
 } from '@/app/lib/files/workspace-upload-service';
 import { syncPublicSharesAfterWrite } from '@/app/lib/public-sharing/public-file-shares';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
@@ -87,7 +88,7 @@ export async function POST(
     return NextResponse.json({
       success: true,
       uploadId: result.session.id,
-      file: result.file,
+      file: publicWorkspaceUploadFile(result.file),
       committed,
       alreadyCompleted: result.alreadyCompleted,
     });

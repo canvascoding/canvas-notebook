@@ -875,6 +875,8 @@ Der [POST-Schutz vor Datei-/Office-Dispatch](./yjs-native-file-write-predispatch
 
 Der [Anschlussplan für bereits native Dokumente mit anderem Dateisuffix](./yjs-existing-native-suffix-integration-plan.md) schließt den lesenden Ist-/Vertragsaudit: Native Read-Metadaten erreichen derzeit nicht alle Store-/Editorpfade; Session-/Reader-/Transportgrenzen und automatisches XML-Upgrade benötigen einen gemeinsamen bestehenden-only Anschluss. Native Textbytes dürfen dabei nicht als vermeintliches Office-/Binärprodukt publiziert oder heruntergeladen werden. Der Plan trennt sechs schließbare Schritte, reale positive/negative API-/PG-/WS-/UI-/Exportfälle und die eigene Mobilegrenze. Es ist keine Umsetzung oder Aktivierung dieses Anschlusses erfolgt.
 
+Die öffentliche Upload-Dateiantwort besitzt jetzt einen expliziten [Serializer](../app/lib/files/workspace-upload-service.ts): Session, Chunk und Web-/Mobile-Completion erhalten die acht vorhandenen öffentlichen Felder einschließlich `sourceIndex`; private Office-/künftige Importbelege werden nicht aus dem gespeicherten Record durchgereicht. Root bestätigt sechs exakte Autorendateien aus `d9d78718`, die vollständige fokussierte Storage-Suite einschließlich zehn tatsächlicher Handlerantworten und umsortierter Client-Quellzuordnung, TypeScript und Lint. Die neuen Handlerfälle verwenden IO-Fixtures und sind kein echter Auth-/PG-/Browsernachweis. Vier Kernmodule und der gesamte Uploadservice vor seinen öffentlichen Serializern bleiben bytegleich. Dauerhafter Importversuch, genuine Staging-Write-Phasen, createOnly-Erstprojektion und Produktdispatch folgen als getrennte Gates.
+
 ## 17. Änderungs- und Nachweisprotokoll
 
 | Datum | Änderung | Nachweis/Status |

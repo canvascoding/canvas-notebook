@@ -570,6 +570,19 @@ export function workspaceUploadLimits() {
   };
 }
 
+export function publicWorkspaceUploadFile(file: WorkspaceUploadFileRecord) {
+  return {
+    id: file.id,
+    sourceIndex: file.sourceIndex,
+    relativePath: file.relativePath,
+    targetPath: file.targetPath,
+    size: file.size,
+    mimeType: file.mimeType,
+    uploadedBytes: file.uploadedBytes,
+    status: file.status,
+  };
+}
+
 export function publicWorkspaceUploadSession(session: WorkspaceUploadSession) {
   return {
     id: session.id,
@@ -577,7 +590,7 @@ export function publicWorkspaceUploadSession(session: WorkspaceUploadSession) {
     targetDir: session.targetDir,
     totalBytes: session.totalBytes,
     status: session.status,
-    files: session.files,
+    files: session.files.map(publicWorkspaceUploadFile),
     createdAt: session.createdAt,
     updatedAt: session.updatedAt,
     expiresAt: session.expiresAt,

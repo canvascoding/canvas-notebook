@@ -377,7 +377,7 @@
     "test:pdf:tools": "CANVAS_PYTHON_PATH=${CANVAS_PYTHON_PATH:-python3} tsx scripts/pdf-tools-test.ts",
     "test:rate-limit": "tsx scripts/rate-limit-test.ts",
     "test:media:references": "tsx --conditions react-server scripts/media-reference-resolver-test.ts",
-    "test:upload:storage": "tsx --conditions react-server scripts/workspace-upload-service-test.ts && tsx --conditions react-server scripts/workspace-upload-storage-test.ts && tsx --conditions react-server scripts/upload-directories-test.ts",
+    "test:upload:storage": "tsx --conditions react-server scripts/workspace-upload-service-test.ts && tsx --conditions react-server scripts/workspace-upload-storage-test.ts && tsx --conditions react-server scripts/upload-directories-test.ts && tsx --conditions react-server scripts/workspace-upload-public-response-test.ts",
     "test:upload:conversion": "tsx --conditions react-server scripts/upload-conversion-test.ts",
     "test:migration:upload": "tsx --conditions react-server scripts/migration-upload-test.ts",
     "test:backup:full": "tsx --conditions react-server scripts/full-backup-service-test.ts",

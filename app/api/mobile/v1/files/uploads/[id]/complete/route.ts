@@ -5,7 +5,7 @@ import { invalidateWorkspaceFileViews } from '@/app/lib/api/route-helpers';
 import { writeWorkspaceFileFromPathIfAbsent } from '@/app/lib/filesystem/workspace-files';
 import { runWorkspaceUploadWrite } from '@/app/lib/files/workspace-upload-flow';
 import { workspaceUploadErrorResponse } from '@/app/lib/files/workspace-upload-responses';
-import { completeWorkspaceUploadFile, publicWorkspaceUploadSession } from '@/app/lib/files/workspace-upload-service';
+import { completeWorkspaceUploadFile, publicWorkspaceUploadFile, publicWorkspaceUploadSession } from '@/app/lib/files/workspace-upload-service';
 import { syncPublicSharesAfterWrite } from '@/app/lib/public-sharing/public-file-shares';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 import { requireRequestWorkspace, workspaceFileOptions } from '@/app/lib/workspaces/request';
@@ -57,7 +57,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         metadata: { uploadSessionId: result.session.id, targetPath: result.file.targetPath, sizeBytes: result.file.size, mimeType: result.file.mimeType, workspaceType: workspaceResult.workspace.workspaceType, chunked: true, mobile: true },
       });
     }
-    return NextResponse.json({ success: true, upload: publicWorkspaceUploadSession(result.session), file: result.file, alreadyCompleted: result.alreadyCompleted });
+    return NextResponse.json({ success: true, upload: publicWorkspaceUploadSession(result.session), file: publicWorkspaceUploadFile(result.file), alreadyCompleted: result.alreadyCompleted });
   } catch (error) {
     if (error && typeof error === 'object' && 'code' in error && error.code === 'EEXIST') {
       return NextResponse.json({ success: false, error: 'A file already exists at this upload destination.', code: 'UPLOAD_DESTINATION_EXISTS' }, { status: 409 });

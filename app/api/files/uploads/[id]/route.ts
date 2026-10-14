@@ -4,6 +4,7 @@ import { workspaceUploadErrorResponse } from '@/app/lib/files/workspace-upload-r
 import {
   cancelWorkspaceUploadSession,
   getWorkspaceUploadSession,
+  publicWorkspaceUploadFile,
   publicWorkspaceUploadSession,
   writeWorkspaceUploadChunk,
 } from '@/app/lib/files/workspace-upload-service';
@@ -72,7 +73,7 @@ export async function PUT(
     });
     return NextResponse.json({
       success: true,
-      file: result.file,
+      file: publicWorkspaceUploadFile(result.file),
       alreadyReceived: result.alreadyReceived,
     });
   } catch (error) {
