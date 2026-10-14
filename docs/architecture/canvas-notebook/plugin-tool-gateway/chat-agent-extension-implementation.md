@@ -2,11 +2,11 @@
 
 Ausgangsstand: Notebook `d92d8eb05`. Auftrag: „setz den plan um und mach ein e2e test wenn du fertig bist“. Verbindlicher Umfang ist der [gespeicherte Plan](chat-extension-reference-plan.md), einschließlich eigener nativer Folgestufe. Dies ist ein Fortschritts-/Nachweisjournal; eine geplante oder syntaktisch geprüfte Funktion ist hier keine vollständige Abnahme.
 
-Nutzeranweisung im Planungsschritt vom 13. Oktober: „Gib mir erstmal feedback mit dem plan dann speicher den in docs ab und dann optimieren wir das noch“. Dieser abgeschlossene Arbeitsschritt aktualisierte ausschließlich den Plan. Er erklärte die vorbereiteten Implementierungsstände nicht für abgeschlossen oder abgenommen.
+**Aktueller Arbeitsschritt vom 14. Oktober: Feedback und Plan speichern, danach gemeinsam optimieren.** Dafür wurden nur Dokumente überarbeitet. Dieser Schritt setzt die frühere Implementierung nicht fort und erklärt vorhandene Teilstände nicht für vollständig abgenommen. Die konkrete nächste Reihenfolge und Produktvorschläge stehen im [aktualisierten Plan](chat-extension-reference-plan.md#feedback-für-die-nächste-gemeinsame-optimierung).
 
-Nach der gespeicherten Planprüfung wurde das aktive Ziel „setz den plan um und mach ein e2e test wenn du fertig bist“ erneut zur Fortsetzung gegeben. Die Implementierung wird ab diesem Nachtrag fortgeführt; die folgende Abnahmematrix bleibt bis zu tatsächlichen Nachweisen offen.
+Die bisherigen Implementierungsphasen und deren ausdrücklicher Umsetzungs-/E2E-Auftrag bleiben unten als Historie erhalten. Optionscheckpoint ist `edd2f26a2`, vorausgehender Plancheckpoint `9700cd201`. Zusätzlich liegt eine finale Kontextprüfung vor Agent-/Präferenz-Commit als noch nicht abgeschlossener lokaler Entwurf im Arbeitsbaum. Dieser Dokumentationsschritt behauptet dafür keinen neuen gemeinsamen Prüfabschluss. Vollständige öffentliche Vorschau, Oberfläche und E2E bleiben offen.
 
-Aktuelle Rückmeldung am 14. Oktober: Auf Wunsch „Gib mir erstmal feedback mit dem plan dann speicher den in docs ab und dann optimieren wir das noch“ wird jetzt der Plan besprochen und präzisiert. Backend-Checkpoint ist `fbb7e3a6e`; bereits begonnene uncommittete Optionsvertrags-, Composio-Katalog- und Paketleser-Entwürfe bleiben erhalten. Sie sind kein abgeschlossener gemeinsamer Optionsdienst und kein UI-/E2E-Nachweis. Dieser erneute Planungsschritt bearbeitet ausschließlich Dokumentation; die weitere Umsetzung folgt der gemeinsamen Planoptimierung.
+**Leseregel:** Die Übersicht direkt darunter beschreibt den aktuellen Teilstand. Spätere Abschnitte dokumentieren aufeinanderfolgende historische Checkpoints; dort genannte damalige Restaufgaben werden durch neuere Abschnitte gegebenenfalls überholt. Einzelne bestandene Backendprüfungen schließen die vollständigen Bedienfälle der Abnahmematrix nicht.
 
 ## Reihenfolge
 
@@ -14,7 +14,7 @@ Aktuelle Rückmeldung am 14. Oktober: Auf Wunsch „Gib mir erstmal feedback mit
 | --- | --- | --- |
 | 1. Gemeinsamer Referenzvertrag und Autorität | Abgeschlossen als Grundlage: genaue öffentliche Referenzen, private Paket-/Standalone-Formate und geprüfte Verbindungsaufnahme; Runtime-Anschluss folgt in Schritt 2 | Vertragsmatrix, V1-Erhaltung und tatsächliche Actor-/Connection-Aufnahme geprüft; keine fertige UI oder vollständige neue Runtime behauptet |
 | 2. Gemeinsamer Kontextcompiler | Abgeschlossen als Runtime-Grundlage: gemeinsame Prompt-/Root-/Toolquelle, genaue Turn-/Paketverbindungen und frische SQL-gebundene Delegation geprüft; Produktionsbuild und fokussierte Type-/Regressionchecks bestehen | Tatsächliche Source-/Scope-/Entzugsfälle und Caller-Reihenfolge geprüft; öffentliche Agent-Schreibwege, Chat-Bedienung und dauerhafte Wiederaufnahme folgen separat |
-| 3. Agent-Tool und Oberfläche | In Arbeit: vollständiger öffentlicher Create-/Update-/Inspect-/Choice-Schreibweg als Backend-Grundlage lokal geprüft; gemeinsame Optionsprojektion und neue Oberfläche offen | Exakte Standalone-Verbindungen vorhanden; Prospective-Optionen, Kontextvorschau und tatsächlicher Tool↔UI-Roundtrip folgen |
+| 3. Agent-Tool und Oberfläche | Teilstand: vollständiger öffentlicher Create-/Update-/Inspect-/Choice-Schreibweg und gemeinsamer Optionsdienst lokal geprüft; zusätzliche finale Kontextprüfung als lokaler Implementierungsentwurf vorhanden | Lokalen Entwurf abschließen/abnehmen; vollständige öffentliche Vorschau, gemeinsamer Editor und tatsächlicher Tool↔UI-Roundtrip folgen |
 | 4. Chat-Picker und Transport | Offen | Alle vier Typen, Recents, Suche/Filter, genaue Accountwahl, Chips, Drafts, Queue, Steer, Retry und Handoff |
 | 5. Web-/Agent-/Modellabnahme | Offen | Frischer Produktionsbuild; reale Browserbedienung und echter Modelllauf mit selbst gefundener Skill-Anleitung und gezieltem Toolrouting |
 | 6. Native Mobile | Offen | Eigener nativer Composer, Transport, Verlauf/Drafts und Agent-Konfiguration; eigene Simulator-/Geräte-/Accessibility-Nachweise |
@@ -227,7 +227,19 @@ Der frische Gesamtlauf schließt auch den tatsächlichen Übergang der kopierbar
 
 Nachweislogs: `/private/tmp/canvas-agent-extension-options-suite-20261014.log`, `/private/tmp/canvas-agent-extension-options-native-suite-20261014.log`, `/private/tmp/canvas-agent-extension-options-final-lint-20261014.log` und `/private/tmp/canvas-agent-extension-options-build-20261014.log`. Der vorhandene MCP-Identitätstest konnte wegen einer bestehenden CJS-Exportgrenze in `pi-ai/compat` nicht starten und wird nicht als bestanden gezählt; die separate Member-/Runtime-Zugriffsprüfung besteht.
 
-**Schritt 3 bleibt offen:** Die aktuelle Preview meldet ausdrücklich `runtimeReadiness: not_checked` und `providerHealth: unknown`. Ihr kleinerer Metadatenumfang enthält noch nicht alle tatsächlichen Toolrouten, Provider-Referenzen und Core-/Pflichtskills. Sie ist deshalb kein bestandenes endgültiges Save-Budget. Nächste Aufgaben sind das gemeinsame tatsächliche Registrierungs-/Kontextgate vor Commit sowie der vollständige Editor und die tatsächlichen Eltern-/Workspace-Anschlüsse. Chat-Picker, persistenter Nachrichtentransport und echte Web-/Modell-/Mobile-Abnahme bleiben anschließend erforderlich.
+**Stand am Optionscheckpoint; Schritt 3 bleibt offen:** Die öffentliche Preview meldet ausdrücklich `runtimeReadiness: not_checked` und `providerHealth: unknown`. Ihr kleinerer Metadatenumfang enthält noch nicht alle tatsächlichen Toolrouten, Provider-Referenzen und Core-/Pflichtskills. Sie ist deshalb kein bestandenes endgültiges Save-Budget. Der anschließende lokale Entwurf ergänzt das tatsächliche Registrierungs-/Kontextgate vor Commit; dessen Abschluss und gemeinsame Abnahme sowie der Anschluss derselben vollständigen Aufbereitung an die öffentliche Preview fehlen noch. Vollständiger Editor und tatsächliche Eltern-/Workspace-Anschlüsse bleiben offen. Chat-Picker, persistenter Nachrichtentransport und echte Web-/Modell-/Mobile-Abnahme folgen anschließend.
+
+## Planprüfung und Produktvorschläge vom 14. Oktober
+
+Der erneute lesende Abgleich bestätigt drei wesentliche Anschlüsse: Der Chat verwendet noch getrennte namensbasierte Plugin-/Skill-Listen, die Agent-Oberflächen noch nicht überall den vollständigen gemeinsamen Erweiterungsvertrag und die öffentliche Preview noch nicht denselben Umfang wie der lokale finale Save-Entwurf. Die konkrete Produktplanung wurde ausschließlich in den Dokumenten geschärft:
+
+- Drei Wirkungen derselben Suche sichtbar benennen: Einrichtung im Katalog, dauerhafte Agent-Zuweisung und Auswahl für eine Nachricht. Auftragsbezogene natürliche Skill-Suche bleibt zusätzlich möglich.
+- „Zuletzt verwendet“ einheitlich aus angenommenen expliziten Chat-Auswahlen ableiten; im Agent-Editor diese Herkunft benennen und aktuelle Zielrechte prüfen.
+- Konkrete Accountwahl von Workspace-Standardprofil und OAuth-Einrichtung trennen. Gültige persönliche Wahlregeln gemeinsamer Agenten von unvollständigen festen Bindungen unterscheiden.
+- Fünf sichtbare Hauptchips mit gesonderten Abhängigkeitsgrenzen und sieben Tage Formularaufbewahrung als **abzustimmende Vorschläge** kennzeichnen. Die aktuelle Referenzzählung wird dadurch nicht geändert.
+- Composio-Toolkitlogos, geprüfte MCP-Domainlogos und genaue Paketbilder aus dem bestehenden Avatarbaustein wiederverwenden; defekte oder fehlende Bilder zeigen Initialen.
+
+Es wurden in diesem Planungsarbeitsschritt keine neuen Produkt-, Browser-, Modell- oder Providerprüfungen gestartet. Die vorhandene HTML-Demo und die Agent-Editor-Skizze bleiben als Wireframes verlinkt; sie sind keine neue Bedienabnahme.
 
 ## Wirkungsanalyse und Veröffentlichung
 
@@ -235,4 +247,4 @@ Die Runtime-Moduserkennung hat vier direkte Aufrufer (Workflowprojektion, Integr
 
 Die Staging-Prüfung des zweiten Grundbausteins meldet 57 indexierte Symbole, 36 Dateien und sieben betroffene Prozesse mit hohem Risiko. Sie betreffen die erwarteten Workflow-/Paket-, Registry- und Rechtepfade; neue noch nicht indexierte Module wurden zusätzlich über tatsächliche Aufrufer und Regressionen geprüft. Live-Prompt, Submission und Nachrichtenpersistenz sind in diesem Grundbaustein noch unverändert.
 
-Dieser Auftrag erlaubt Implementierung und E2E. Ein neuer Docker-Testcontainer wird nicht vorausgesetzt. Ein späterer Testlauf verwendet einen frisch gebauten eigenen Node-Produktionshost und den verwalteten isolierten Test-Stack; fremde Instanzen und Produktionsdaten werden nicht umgebunden. Veröffentlichung über den bestehenden Feature-PR bleibt von Main-Merge, Release und Produktivdeployment getrennt.
+Der frühere Umsetzungsauftrag schloss Implementierung und E2E ein. Der aktuelle Arbeitsschritt ist die oben dokumentierte Feedback-/Planungsrunde. Für eine spätere Fortsetzung sieht der Plan einen frisch gebauten eigenen Node-Produktionshost mit dem verwalteten isolierten Test-Stack vor; ein neuer Docker-Testcontainer wird nicht vorausgesetzt. Fremde Instanzen und Produktionsdaten werden nicht umgebunden. Veröffentlichung über den bestehenden Feature-PR bleibt von Main-Merge, Release und Produktivdeployment getrennt.
