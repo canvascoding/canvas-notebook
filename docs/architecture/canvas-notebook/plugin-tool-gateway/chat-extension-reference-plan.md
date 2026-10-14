@@ -1,12 +1,12 @@
 # Einheitlicher Erweiterungskontext für Chat und Agenten
 
-Plan vom 13. Oktober, überarbeitet am 14. Oktober 2026. Auftrag dieser Planüberarbeitung: zuerst Feedback geben, den konkreten Plan in `docs` speichern und anschließend gemeinsam optimieren. Sie ändert ausschließlich dieses Dokument. Die historische Bestandsaufnahme beruht auf Notebook `27425ddc7`; die aktuelle Planprüfung erfolgt auf `8f14e3ff6` einschließlich der bereits vorbereiteten Runtime-Änderungen im Arbeitsbaum. Deren lokaler Produktionsbuild, fokussierter Typecheck und Code-/API-Prüfungen sind im Umsetzungsjournal dokumentiert. Sie sind keine Abnahme der noch fehlenden neuen Chat-/Agent-Oberflächen und kein Nachweis für Main oder Produktion.
+Plan vom 13. Oktober, überarbeitet am 14. Oktober 2026. Aktueller Auftrag: zuerst Feedback geben, den konkreten Plan in `docs` speichern und anschließend gemeinsam optimieren. Dieser Planungsschritt ändert nur Dokumentation. Die historische Bestandsaufnahme beruht auf Notebook `27425ddc7`; die aktuelle Prüfung erfolgt auf `041d06308` einschließlich der vorbereiteten Agent-Backend-Änderungen im Arbeitsbaum. Lokale Prüfungen und Produktionsbuilds sind im Umsetzungsjournal dokumentiert. Sie sind keine Abnahme der noch fehlenden neuen Chat-/Agent-Oberflächen und kein Nachweis für Main oder Produktion.
 
 Der vorausgegangene Implementierungsstand bleibt im [Umsetzungs- und Abnahmejournal](chat-agent-extension-implementation.md) nachvollziehbar. Dieses Dokument beschreibt das Ziel und die vorgeschlagenen Entscheidungen; vorhandene Grundlagen oder frühere Pluginseiten-Tests gelten nicht als Abnahme der neuen Chat-/Agent-Bedienung.
 
 ## Feedback und empfohlene Entscheidungen
 
-**Die gewünschte Logik ist teilweise vorhanden, aber noch nicht durchgehend umgesetzt.** Der Pluginseiten-Katalog sucht bereits gemeinsam über alle vier Typen und liefert deren vorhandene Logoquellen. Genaue Auswahlverträge, Versionsleser und der gemeinsame Kontextcompiler sind als lokal geprüfte Runtime-Grundlage vorhanden. Die Chat-Auswahl verwendet dagegen noch eigene Plugin-/Skill-Listen und Namen; vollständiger Agent-Create/Update, neue Auswahloberflächen und dauerhafter Nachrichtentransport sind offen. Ein größerer Slash-Picker allein würde diese Unterschiede bestehen lassen.
+**Die gewünschte Logik ist teilweise vorhanden, aber noch nicht durchgehend umgesetzt.** Der Pluginseiten-Katalog sucht bereits gemeinsam über alle vier Typen und liefert deren vorhandene Logoquellen. Genaue Auswahlverträge, Versionsleser und der gemeinsame Kontextcompiler sind als lokal geprüfte Runtime-Grundlage vorhanden. Der nachfolgende Implementierungsauftrag hat inzwischen auch den vollständigen Agent-Create-/Update-/Inspect-/Choice-Schreibweg als Backend-Grundlage angeschlossen und lokal geprüft. Die Chat-Auswahl verwendet dagegen noch eigene Plugin-/Skill-Listen und Namen; gemeinsame Optionsprojektion, neue Auswahloberflächen und dauerhafter Nachrichtentransport sind offen. Ein größerer Slash-Picker allein würde diese Unterschiede bestehen lassen. Der laufende Implementierungsstand ist im Umsetzungsjournal getrennt vom historischen Plan-Checkpoint dokumentiert.
 
 Empfehlung: dieselben genauen Auswahlreferenzen und dieselbe serverseitige Kontextaufbereitung für Plugin-Seite, Chat, Agent-Tool und Agent-Oberfläche verwenden. Die Oberflächen teilen Katalog, Identität, Icons und Auswahlkomponenten; ihre jeweilige Nutzbarkeit wird für den aktuellen Nutzer, Workspace und Agenten geprüft.
 
@@ -29,7 +29,7 @@ Startwerte zur gemeinsamen Optimierung: sechs bis acht sichtbare Treffer und etw
 | Baustein | Stand am 14. Oktober | Was zur vollständigen Umsetzung fehlt |
 | --- | --- | --- |
 | Plugin-Seite | Gemeinsame Vier-Typen-Suche und bestehende Logoquellen implementiert; separate lokale Pluginseiten-Abnahme dokumentiert | Den gleichen Katalog und Avatar auch in Chat und Agent-Auswahl verwenden |
-| Genaue Identität und Speicherung | Öffentliche Auswahl, private Bindungsformate, V1/V2/Vererbung und Verbindungsaufnahme als Grundlage vorhanden | Vollständiger öffentlicher, atomarer Agent-Create/Update und langlebige Nachrichtenaufnahme |
+| Genaue Identität und Speicherung | Auswahl, Bindungsformate, V1/V2/Vererbung und Agent-Create/Update/Inspect/Choice als Backend-Grundlage lokal geprüft | Gemeinsame Optionen und UI-Anschluss; Systemagenten, paralleler Create-/Dateifehlerpfad und langlebige Nachrichtenaufnahme vollständig prüfen |
 | Gemeinsamer Runtime-Kontext | Compiler, begrenzte Prompt-Ausgabe, Skill-Discovery und Anschluss an Live-Runtime, Delegation und Automationen lokal geprüft; frische Toolrechte bleiben maßgeblich | Öffentliche Auswahl über Tool/API/UI anschließen; echten Modelllauf und vollständigen Bedienweg abnehmen |
 | Chat und Agent-Oberfläche | Bisherige Plugin-/Skill-Auswahl weiterhin aktiv | Gemeinsamer Picker, genaue Accounts, Chips, Vorschau und Tool↔UI-Roundtrip |
 | Nachrichten und Native Mobile | Neue Referenzen noch nicht vollständig angeschlossen | Send, Draft, Queue, Retry, Verlauf und Neustart; anschließend eigener nativer Anschluss und Abnahme |
@@ -41,9 +41,9 @@ Startwerte zur gemeinsamen Optimierung: sechs bis acht sichtbare Treffer und etw
 Die folgenden Aufgaben schließen Schritt 3 ab, bevor der Chat-Anschluss beginnt:
 
 1. **Auswahl vor der Agent-Erstellung:** Derselbe Optionsdienst liefert Plugin, Skill, Integration und MCP für den tatsächlichen Zielbereich und Workspace, auch wenn noch keine Agent-ID existiert. Suchtreffer unterscheiden lesbar, einrichtbar und für den Zielagenten nutzbar. Keine provisorischen ausführbaren Agenten anlegen.
-2. **Ein vollständiger Schreibvertrag:** `create_agent`, `update_agent_configuration`, POST und PATCH verwenden dieselbe genaue Erweiterungshülle. Pakete, Kindmasken, konkrete Verbindungen und Werkzeuggrenzen werden zusammen geprüft und atomar gespeichert. Update prüft Revisionen; Inspect liefert denselben kanonischen Stand zurück. Alte V1-Pins und ausdrückliche Vererbung bleiben erhalten.
+2. **Ein vollständiger Schreibvertrag:** Die vorbereitete Backend-Grundlage für `create_agent`, `update_agent_configuration`, POST und PATCH vervollständigen. Neue Tool-Schemas bevorzugen ausschließlich die genaue Erweiterungshülle; alte Auswahlfelder bleiben ein ausdrücklicher API-Kompatibilitätsweg. Update prüft Revisionen; Inspect liefert denselben kanonischen Stand zurück. V1-Pins und Vererbung bleiben erhalten. Fehlerbereinigung muss auch bei zwei gleichnamigen parallelen Erstellungen sicher sein.
 3. **Ein gemeinsamer UI-Baukasten:** Katalogsuche, Trefferzeile, `PluginExtensionAvatar`, Paketdetails und Accountwahl in Agent-Create/Edit integrieren. Die Oberfläche zeigt „Dauerhaft für diesen Agenten“. Werkzeuggrenzen und serverseitige Kontextvorschau sind geschlossen, bis sie benötigt werden. Notwendige fehlende Einrichtung ist unmittelbar sichtbar.
-4. **Parität abnehmen:** Tool-Create muss in der UI exakt bearbeitbar sein; UI-Create muss über Inspect denselben Stand liefern. Ein fehlerhafter Create hinterlässt keinen ausführbaren Teilagenten; konkurrierende Updates ersetzen keine fremden Änderungen. Standalone-MCP und Composio funktionieren ohne erfundenes Plugin-Paket.
+4. **Vorprüfung und Parität abnehmen:** Vor Speichern denselben Kontextcompiler für Pflichtbindungen, notwendige native Werkzeuge und Kontextbudget verwenden. Tool-Create muss in der UI exakt bearbeitbar sein; UI-Create muss über Inspect denselben Stand liefern. Fehlerhafte oder konkurrierende Erstellungen dürfen weder Teilagenten hinterlassen noch fremde Dateien löschen. Standalone-MCP und Composio funktionieren ohne erfundenes Plugin-Paket.
 
 Danach folgt Schritt 4 als zusammenhängender Nachrichtenweg: derselbe Picker für `/` und manuelles Öffnen, Recents und genaue Chips, dann Send-Snapshot, Draft, WebSocket/HTTP, Queue, Steer, Retry, Handoff und dauerhafte Wiederaufnahme. Ein sichtbarer Chip ohne zuverlässigen Nachrichtentransport erfüllt diesen Schritt nicht.
 
@@ -113,7 +113,7 @@ Ein versionierter, diskriminierter **`ExtensionSelection`-Vertrag** bildet Plugi
 | `turn_reference` | Im unveränderlichen Nachrichten-/Queue-Snapshot und zugehörigen Entwurf | Für genau den zugehörigen Turn; keine dauerhafte Agent-Zuweisung |
 | Skill durch Runtime-Suche gefunden | Geprüftes Suchergebnis und autorisiertes Laden im aktuellen Lauf | Aufgabenbezogene Nutzung innerhalb bereits erlaubter Ressourcen; kein neues Konto oder Paket installieren |
 
-Die Agent-Persistenz erweitert den bestehenden Capability-/Workflow-Vertrag und dessen Bindungen. Es entsteht kein zusätzlicher unabhängiger Skill-/Tool-Speicher in Promptdateien. Die versionierten privaten Formate für Paket- und Standalone-Verbindungen sind als Grundlage ergänzt; ihr vollständiger öffentlicher Schreibweg bleibt offen. Vorhandene Workflow-V1-Pins und persönliche Auswahlregeln bleiben über einen geprüften Adapter erhalten. Eine unabhängige Verbindung wird nicht als erfundene Plugin-Deklaration gespeichert.
+Die Agent-Persistenz erweitert den bestehenden Capability-/Workflow-Vertrag und dessen Bindungen. Es entsteht kein zusätzlicher unabhängiger Skill-/Tool-Speicher in Promptdateien. Die privaten Paket-/Standalone-Formate und der vollständige öffentliche Schreibvertrag sind als Backend-Grundlage lokal geprüft; die gemeinsamen Auswahloptionen, UI und unten genannten Restprüfungen fehlen noch. Vorhandene Workflow-V1-Pins und persönliche Auswahlregeln bleiben über einen geprüften Adapter erhalten. Eine unabhängige Verbindung wird nicht als erfundene Plugin-Deklaration gespeichert.
 
 Die Versionsleser unterscheiden inzwischen Version 1, ausdrückliche Version 2 und SQL-NULL-Vererbung. Vor dem ersten produktiven Schreiben einer neuen festen Gesamtkonfiguration müssen auch Runtime, Readroots, Prompt und Tool-Registrierung gemeinsam vollständig geprüft sein. Unbekannte oder widersprüchliche Versionen dürfen nicht auf Vererbung zurückfallen.
 
@@ -130,7 +130,7 @@ Die gemeinsame Aufbereitung ist mit `resolveEffectiveExtensionContext` als Grund
 
 Systemprompt, Skill-Readroots und Toolhinweise verwenden denselben abgeleiteten Selektionsstand. Die tatsächlichen Tool-Grenzen ergeben sich weiterhin aus der Schnittmenge von Ressourcenrechten, Agent-Konfiguration, nativen `enabledTools`, Delegation und Laufmodus. Der Fingerprint hilft, widersprüchliche Stände zu erkennen; er ersetzt **nicht** die frischen Rechte-/Bindungsprüfungen beim Lesen, Beschreiben und Ausführen.
 
-Promptloader, Readroots und Gateway-Policy sind an dieselbe ausgegebene Auswahl angeschlossen und als Runtime-Grundlage lokal geprüft. Der noch fehlende öffentliche Create-/Update- und Nachrichtenweg muss genau diese Grundlage verwenden. Ein langfristig gecachter Promptsnapshot darf niemals eine spätere Ausführung autorisieren.
+Promptloader, Readroots und Gateway-Policy sind an dieselbe ausgegebene Auswahl angeschlossen und als Runtime-Grundlage lokal geprüft. Die noch fehlenden Auswahloptionen, UI-Vorprüfung und Nachrichtenaufnahme müssen genau diese Grundlage verwenden. Ein langfristig gecachter Promptsnapshot darf niemals eine spätere Ausführung autorisieren.
 
 ## Kontextregeln für allgemeine und spezialisierte Agenten
 
@@ -197,7 +197,7 @@ Einrichtung: 1 benötigte Verbindung fehlt
 [ Als Entwurf speichern ]              [ Agent erstellen ]
 ```
 
-Ein Entwurf ist kein ausführbarer, vollständig eingerichteter Agent. Ob fehlende notwendige Einrichtung einen nicht startbaren gespeicherten Agenten oder einen reinen Formularentwurf erzeugt, wird vor Implementierung am bestehenden Readiness-/Startvertrag festgelegt; die UI darf keinen fertigen Zustand behaupten. Die Skizze bezeichnet diesen noch festzulegenden Zustand ausdrücklich als Entwurf.
+Empfehlung für den ersten Ausbau: **ein erhaltener Formularentwurf**, solange notwendige Einrichtung oder Vorprüfung fehlt. Dafür wird kein provisorischer ausführbarer Agent angelegt. Der bestehende Agentvertrag hat keinen gesonderten gespeicherten Draft-Status; ein solcher Status müsste mit Startverhalten und Migration ausdrücklich entwickelt werden. „Als Entwurf speichern“ in der Skizze meint deshalb den Formularentwurf im passenden Nutzer-/Workspace-Kontext. Nach der Einrichtung kehrt man zu genau diesem Entwurf zurück.
 
 Betroffene bestehende Komponenten: [CreateAgentDialog](../../../../app/components/settings/CreateAgentDialog.tsx), [EditAgentProfileDialog](../../../../app/components/agents/EditAgentProfileDialog.tsx), [AgentSettingsPanel](../../../../app/components/settings/AgentSettingsPanel.tsx), [ChatAgentSelector](../../../../app/components/canvas-agent-chat/ChatAgentSelector.tsx), [PackageAgentSetup](../../../../app/components/plugins/PackageAgentSetup.tsx), [AgentWorkflowManagementDialog](../../../../app/components/agents/AgentWorkflowManagementDialog.tsx), [WorkflowPackageSelectionSection](../../../../app/components/agents/WorkflowPackageSelectionSection.tsx), [WorkflowCapabilityBindingSection](../../../../app/components/agents/WorkflowCapabilityBindingSection.tsx) und die vorhandenen Account-Choice-Picker. Gemeinsame Picker-/Auflösungslogik ersetzen doppelte Optionen; bestehende exakte Workflow-Auswahl wird integriert.
 
@@ -210,6 +210,37 @@ Vor dem Aufruf erhält der erstellende Agent auswählbare, servergelieferte Refe
 Die heutige Workflow-Optionsprojektion verlangt einen bereits vorhandenen Agenten und dessen Revisionen. **Vor Create** braucht es deshalb zusätzlich eine geplante Options-API und entsprechende Tooloperation für einen noch nicht gespeicherten Zielkontext: Zielbereich, vom Server geprüfter Eigentümer-/Organisationskontext und Workspace. Diese Dry-run-Projektion legt keinen provisorischen ausführbaren Agenten an. Auswahlreferenzen werden an den zulässigen Zielkontext gebunden und bei atomarem Create erneut geprüft. **Nach Create** verwendet der gleiche Optionsdienst die echte Agent-ID und aktuellen Revisionen.
 
 Create/Update geben den kanonischen gespeicherten Stand, Revisionen und Einrichtungsergebnisse zurück. Update behält die vorhandene atomare Revisionsprüfung. Tool-seitig erstellte Agenten müssen in der UI exakt gleich aussehen; UI-Änderungen müssen über Inspect/Workflow-Tools denselben Stand zurückgeben. Freigaben für den Agenten und Freigaben für seine Ressourcen werden getrennt geprüft: ein teilbarer Agent macht ein persönliches Konto nicht automatisch teilbar.
+
+### Konkreter gemeinsamer Optionsdienst
+
+Ein gemeinsamer serverseitiger Dienst liefert die Auswahl sowohl an die UI als auch an das Agent-Tool. Er unterscheidet einen noch nicht gespeicherten Zielkontext (`prospective`, persönlich oder Organisation) und einen bestehenden Agenten (`existing`, echte ID mit Profil-/Workflowrevision). Nutzer, Workspace und Organisation werden aus dem authentifizierten Request frisch geprüft. Eine erfundene Agent-ID oder simulierte Agent-Freigabe darf nicht als Vorprüfung dienen.
+
+| Operation | Ergebnis | Zeitpunkt |
+| --- | --- | --- |
+| `search` | Gemischte Plugin-/Skill-/Integrations-/MCP-Metadaten, genaue Herkunft, Logo, zulässige Aktion, Teilabdeckung und gebundene Pagination | Während der gemeinsamen Suche |
+| `package_version` | Geprüfter veröffentlichter Pin, echte Kind-Skills und Pflichtanforderungen | Wenn ein Paket gewählt oder geöffnet wird |
+| `connection_choices` | Für genau diese Anforderung zulässige gemeinsame Verbindungen oder erlaubte persönliche Optionen | Bei notwendiger Zuordnung oder ausdrücklicher Accountwahl |
+| `preview` | Sichere Kontextvorschau, effektive Werkzeuggrenzen sowie konkrete Konflikte bei Pflichtbindungen und Kontextbudget | Vor Speichern und bei relevanten Änderungen |
+
+Der Dienst verwendet dieselbe Kataloggrundlage und dieselben Referenzverträge wie die Plugin-Seite, ergänzt jedoch die tatsächlichen Zielrechte. Die heutige menschliche Lesbarkeit ist keine Agent-Nutzungserlaubnis. Ein neuer Zielagent kann noch keine nur ihm erteilte Freigabe besitzen; bestehende Agenten müssen mit ihren tatsächlichen Freigaben geprüft werden. Standalone-MCP-Nutzung benötigt Use; Paket-MCP-Zuordnung behält die bestehende zusätzliche Verwaltungsprüfung.
+
+Eine Metadatensuche legt keine Composio-Profile an und lädt nicht bei jeder Eingabe persönliche Accounts oder Toolschemas. Vorhandene Profile sind weder ein Accountnachweis noch ein Gesundheitsnachweis. Die Kontoprüfung mit echtem kurzlebigem Auswahlbeleg erfolgt erst im ausdrücklichen Chooser. Der aktuelle Collector muss dafür getrennt werden; seine vollständige Verwaltungsprojektion wird nicht unverändert zur Agent-Suche erklärt.
+
+Preview verwendet denselben Compiler wie die Runtime und den tatsächlich wirksamen Werkzeugvertrag. Es empfiehlt ausschließlich vorhandene Lese-/Gateway-Tools, zeigt fehlende Pflichtbindungen und prüft das gemeinsame Budget. Es führt keine Provider-Geschäftsaktion aus und ist keine dauerhafte Ausführungsfreigabe. Der endgültige Writer prüft Quellen, Rechte und Revisionen erneut. Die konkrete technische Dienst-/Routenbenennung ist ein Implementierungsdetail; es sollen keine parallelen UI- und Tool-Optionssysteme entstehen.
+
+### Restlücken vor Abschluss der Agent-Stufe
+
+Die folgenden Befunde betreffen den aktuellen Arbeitsbaum und gehören ausdrücklich zu Schritt 3. Die regulären SQL-/Dateifehlerprüfungen sind kein Nachweis für jeden Nebenläufigkeitsfall.
+
+| Befund | Geplante Anpassung und Abnahme |
+| --- | --- |
+| Der bisherige [Workflow-Client](../../../../app/components/agents/agent-workflow-client.ts) akzeptiert nur V1/Vererbung und kennt keine vollständige Standalone-Wahl. | UI auf dem vollständigen kanonischen Erweiterungsdescriptor initialisieren. V1 und V2 roundtrippen; gespeicherte unbekannte oder nicht mehr verfügbare Einträge nicht still löschen. Auch persönliche Paketoptionen müssen V2 unterstützen. |
+| Fehlende Lese-/Gateway-Tools und ein zu großer Pflichtkontext werden bisher erst in der Runtime vollständig sichtbar. | Gemeinsame Vorprüfung vor Save; konkrete Konflikte statt eines vermeintlich fertigen Agenten. Lokale erlaubte Skills bleiben bei einem optionalen Providerausfall verfügbar. |
+| Neue V2-Scopeprüfungen behandeln Organisationen, aber System-/Email-Agenten noch nicht durchgehend als gesonderten gemeinsamen Kontext. | Für solche Agenten keine fest eingebetteten privaten Pakete oder Erstellerkonten. Gemeinsame Bindungen benötigen einen tatsächlich geprüften System-/Organisationskontext; erlaubte persönliche Wahl wird je ausführendem Nutzer aufgelöst. Bestehende V1-Konfigurationen nicht still verändern. |
+| Email-Konfiguration verlangt Adminrechte; der allgemeine Inspect-Weg kann diese Verwaltungsprüfung derzeit auch für bloße Nutzer erreichen. | Sichere lesende Summary für zulässige Nutzer erhalten; editierbare Konfiguration ausschließlich mit effektiven Konfigurationsrechten liefern. Edit ohne Use und Use ohne Manage getrennt prüfen. |
+| Nach Rollback folgt Dateibereinigung außerhalb des SQL-Erstellungsvorgangs. Eine zweite erfolgreiche Erstellung mit derselben ID könnte inzwischen dieselbe Ablage verwenden. | Dateibereinigung an echte Erstellungszuständigkeit oder einen bis zur Bereinigung gehaltenen Lifecycle-Lock binden. Einen tatsächlichen Parallelfall prüfen: fehlgeschlagene erste Erstellung darf die Dateien der erfolgreichen zweiten nicht löschen. |
+
+Logos bleiben an die genaue Quelle gebunden. Ein alter gehaltener Paketpin darf kein Logo einer neu veröffentlichten Version übernehmen, wenn für ihn kein Bildnachweis vorhanden ist. Dann gelten Initialen. Für Composio bleibt das Toolkit-Logo aus der API maßgeblich, für eigene MCPs die geprüfte Domain-Icon-Ermittlung; Workspace-/Quellenwechsel verwerfen den alten Bildzustand.
 
 ## Bedienablauf mit Progressive Disclosure
 
@@ -374,6 +405,10 @@ Jeder Schritt wird abgeschlossen, bevor der nächste beginnt. Im ersten Umsetzun
 19. Fehlendes natives Lese-/Gateway-Tool, notwendige ungebundene Verbindung, optionaler Providerausfall und große Pakete erzeugen zutreffende Readiness-/Budgethinweise. Lokale erlaubte Skills bleiben unabhängig vom Providerhealth verfügbar.
 20. Prompt, Readroots und Toolhinweise haben denselben Selektionsfingerprint; Actor-/Workspace-/Preferencewechsel sowie Konfigurationsaktualisierung erneuern sie sicher. Aktive Läufe werden nicht unbemerkt umgebunden; frische Read/Describe/Call-Prüfungen bleiben wirksam.
 21. Im Planungsmodus funktioniert sichere Skill-/Plugin-Metadatensuche, ohne externe Accountprobe, Bindingänderung oder Provider-Ausführung. Delegierte und geplante Spezialagent-Läufe erhalten ihre feste Auswahl innerhalb ihrer aktuellen Policy.
+22. Optionen vor Create funktionieren ohne angelegten Agenten; die Metadatensuche erzeugt keine Composio-Profile und lädt keine persönlichen Accounts. Erst der ausdrücklich geöffnete Chooser prüft das gewählte Konto. Die endgültige Erstellung prüft erneut.
+23. System-/Email-Agent: keine neuen festen Erstellerkonten oder privaten Pakete; gemeinsamer Zielkontext eindeutig geprüft. Ein zulässiger gewöhnlicher Nutzer kann weiterhin sichere Metadaten lesen, ohne Verwaltungsrechte zu erhalten.
+24. Zwei echte parallele Erstellungen mit derselben normalisierten Agent-ID: Rollback und Dateibereinigung der fehlgeschlagenen Erstellung beeinträchtigen weder SQL-Stand noch Dateien der erfolgreichen Erstellung.
+25. Vor Save erscheinen fehlende Pflichttools, ungebundene notwendige Verbindungen und Budgetkonflikte in derselben Vorschau wie der spätere Runtime-Kontext. Einrichtung und Rückkehr erhalten den Formularentwurf; es entsteht kein provisorischer ausführbarer Agent.
 
 Zusätzlich: manuelles Öffnen ohne Slash erhält Text/Caret; Auswahl entfernt nur die erfasste Slash-Range. Ein Chip ohne Text/Attachment erzeugt weder Nachricht noch Recency.
 
@@ -384,7 +419,7 @@ Bestehende Agent-Konfigurations-, Capability-Scope-, Workflow-/Readroot-, Chat-R
 - Den vorhandenen Runtime-Zuordnungsvertrag für Plugin-Anforderungen im gemeinsamen Picker sichtbar machen: notwendige/optionale Bestandteile, fehlende Verbindung und Accountkonflikte vor dem Send erklären. Das ist ein notwendiger Bedienweg.
 - Die gemeinsame Suche mit unterschiedlichen Nutzungsprojektionen statt drei auseinanderlaufenden Katalogen umsetzen. Einrichtung aus Chat und Agent-Editor muss in denselben erhaltenen Entwurf zurückführen.
 - Soll ein ausgewähltes Plugin zunächst alle zulässigen Bestandteile übernehmen oder eine vom Paket angebotene Standardauswahl? Empfehlung: Einen tatsächlich vorhandenen Paketstandard transparent anzeigen; ohne deklarierten Standard alle zulässigen Bestandteile anbieten. Abweichungen aufklappen, Pflichtbestandteile erhalten. Die UI erfindet keine Paketvorgabe.
-- Wie soll ein Agent mit noch fehlender notwendiger Einrichtung gespeichert werden? Empfehlung: klar als nicht startbarer Entwurf, mit genauem Einrichtungsweg; finalen Zustand am vorhandenen Readiness-Vertrag festlegen.
+- Wie soll ein Agent mit noch fehlender notwendiger Einrichtung gespeichert werden? Empfehlung für den ersten Ausbau: erhaltener Formularentwurf mit genauem Einrichtungsweg. Ein zusätzlicher gespeicherter, nicht startbarer Agentstatus bleibt eine gesonderte Produktentscheidung.
 - Soll Vererbung für neue Spezialagenten noch als erweiterte Option angeboten werden? Empfehlung: neue Agenten mit fester Auswahl; bestehende Vererbung sichtbar erhalten und gezielt migrieren.
 - Kontextbudget und Ergebnisanzahl anhand kleiner/großer realer Pakete prüfen. Eine Performance-/Modellabnahme muss zeigen, dass der kompakte Index ausreicht und Suche gezielt bleibt.
 
