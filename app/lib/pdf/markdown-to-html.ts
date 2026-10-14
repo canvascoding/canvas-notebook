@@ -34,13 +34,6 @@ function getMimeType(ext: string): string {
   return MIME_TYPES[ext.toLowerCase()] || 'image/png';
 }
 
-function escapeForJsTemplate(code: string): string {
-  return code
-    .replace(/\\/g, '\\\\')
-    .replace(/`/g, '\\`')
-    .replace(/\$/g, '\\$');
-}
-
 export async function renderMermaidToSvg(code: string): Promise<string | null> {
   const pageRef: { current: Page | null } = { current: null };
 
@@ -65,8 +58,6 @@ export async function renderMermaidToSvg(code: string): Promise<string | null> {
         const mermaidPath = path.resolve(process.cwd(), 'node_modules/mermaid/dist/mermaid.min.js');
         const mermaidJs = await fs.readFile(mermaidPath, 'utf-8');
 
-        const escapedCode = escapeForJsTemplate(code);
-
         await page.setContent(`
           <!DOCTYPE html>
           <html>
@@ -75,28 +66,24 @@ export async function renderMermaidToSvg(code: string): Promise<string | null> {
             </head>
             <body>
               <div id="diagram"></div>
-              <script>
-                ${mermaidJs}
-                mermaid.initialize({
-                  startOnLoad: false,
-                  theme: 'default',
-                  securityLevel: 'strict'
-                });
-                mermaid.render('mermaid-svg', \`${escapedCode}\`)
-                  .then(({ svg }) => {
-                    document.getElementById('diagram').innerHTML = svg;
-                  })
-                  .catch((err) => {
-                    console.error('Mermaid render error:', err);
-                    document.getElementById('diagram').innerHTML = '<div class="mermaid-error">Error rendering diagram</div>';
-                  });
-              </script>
             </body>
           </html>
         `);
-
-        await page.waitForSelector('#diagram svg', { timeout: 10_000 });
-        return page.$eval('#diagram svg', el => el.outerHTML);
+        await page.addScriptTag({ content: mermaidJs });
+        // Pass document text as data, outside an inline HTML script. Awaiting
+        // render also reports a rejected diagram immediately instead of waiting
+        // for an SVG that Mermaid will never produce.
+        return page.evaluate(async (definition: string) => {
+          const api = (window as unknown as {
+            mermaid: {
+              initialize: (config: { startOnLoad: boolean; theme: string; securityLevel: string }) => void;
+              render: (id: string, text: string) => Promise<{ svg: string }>;
+            };
+          }).mermaid;
+          api.initialize({ startOnLoad: false, theme: 'default', securityLevel: 'strict' });
+          const { svg } = await api.render('mermaid-svg', definition);
+          return svg;
+        }, code);
       },
     });
   } catch (err) {

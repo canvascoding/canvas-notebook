@@ -1445,6 +1445,7 @@
     "pdfDownloadStarted": "PDF download started",
     "failedToExportMarkdown": "Failed to export markdown: {statusText}",
     "failedToLoadPreview": "Failed to load preview",
+    "exportPreviewTimedOut": "The export preview did not respond within 60 seconds. Please try again.",
     "linkedDocumentUnavailable": "The linked document is no longer available. Select the current file in the file browser.",
     "pdfGenerationFailed": "PDF generation failed: {statusText}",
     "failedToGeneratePdf": "Failed to generate PDF",
