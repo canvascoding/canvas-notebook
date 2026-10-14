@@ -33,34 +33,8 @@ export async function POST(
     const { id } = await params;
     const payload = await request.json() as { fileId?: unknown };
     const fileId = typeof payload.fileId === 'string' ? payload.fileId : '';
-    const result = await completeWorkspaceUploadFile({
-      sessionId: id,
-      fileId,
-      userId: workspaceResult.session.user.id,
-      workspace: workspaceResult.workspace,
-      includeFullSession: false,
-      commit: async ({ file, sourcePath, persistOfficeAttempt }) => {
-        await runWorkspaceUploadWrite({
-          workspace: workspaceResult.workspace,
-          fileOptions,
-          actorUserId: workspaceResult.session.user.id,
-          targetPath: file.targetPath,
-          sourcePath,
-          idempotencyKey: `upload:${id}:${file.id}`,
-          officeAttempt: file.officeAttempt,
-          persistOfficeAttempt,
-          write: (onBeforeReplace) => replaceWorkspaceFileFromPath(
-            sourcePath,
-            file.targetPath,
-            fileOptions,
-            onBeforeReplace,
-          ),
-        });
-      },
-    });
-
     let committed;
-    if (!result.alreadyCompleted) {
+    const afterCompletion = async (result: Pick<Awaited<ReturnType<typeof completeWorkspaceUploadFile>>, 'session' | 'file'>) => {
       await syncPublicSharesAfterWrite([result.file.targetPath], workspaceResult.workspace);
       committed = await publishWorkspaceUpload(workspaceResult.workspace, result.file.targetPath);
       await recordAuditEvent({
@@ -83,15 +57,45 @@ export async function POST(
           chunked: true,
         },
       });
-    }
+    };
+    const result = await completeWorkspaceUploadFile({
+      sessionId: id,
+      fileId,
+      userId: workspaceResult.session.user.id,
+      workspace: workspaceResult.workspace,
+      request,
+      afterMarkdownCompletion: afterCompletion,
+      includeFullSession: false,
+      commit: async ({ file, sourcePath, persistOfficeAttempt }) => {
+        await runWorkspaceUploadWrite({
+          workspace: workspaceResult.workspace,
+          fileOptions,
+          actorUserId: workspaceResult.session.user.id,
+          targetPath: file.targetPath,
+          sourcePath,
+          idempotencyKey: `upload:${id}:${file.id}`,
+          officeAttempt: file.officeAttempt,
+          persistOfficeAttempt,
+          write: (onBeforeReplace) => replaceWorkspaceFileFromPath(
+            sourcePath,
+            file.targetPath,
+            fileOptions,
+            onBeforeReplace,
+          ),
+        });
+      },
+    });
+
+    if (!result.alreadyCompleted && !result.completion) await afterCompletion(result);
 
     return NextResponse.json({
       success: true,
       uploadId: result.session.id,
       file: publicWorkspaceUploadFile(result.file),
-      committed,
+      ...(!result.completion || result.completion.status === 'completed' ? { committed } : {}),
       alreadyCompleted: result.alreadyCompleted,
-    });
+      ...(result.completion ? { completion: result.completion } : {}),
+    }, { status: result.completion && result.completion.status !== 'completed' ? 202 : 200 });
   } catch (error) {
     return workspaceUploadErrorResponse(error, '[API] Failed to complete workspace upload file:');
   }

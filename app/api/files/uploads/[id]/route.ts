@@ -32,6 +32,7 @@ export async function GET(
       sessionId: id,
       userId: workspaceResult.session.user.id,
       workspace: workspaceResult.workspace,
+      request,
     });
     return NextResponse.json({ success: true, upload: publicWorkspaceUploadSession(upload) });
   } catch (error) {

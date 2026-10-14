@@ -22,6 +22,113 @@ export type MarkdownCreateBirthClaim = Readonly<{
 export class MarkdownCreateBirthError extends Error {
   constructor(readonly code: string) { super(code); this.name = 'MarkdownCreateBirthError'; }
 }
+
+/** Historical private storage evidence only. This entry cannot initialize a
+ * store/claim, consume an upload source or mutate either namespace. */
+export async function observeMarkdownCreateBirth(input: { workspaceRoot: string; workspaceId: string; operationId: string }): Promise<{
+  id: string; fingerprint: string; intent: Record<string, unknown>; complete: boolean; revisionId: string | null; serializedHash: string | null;
+}> {
+  const configuredData = resolveCanvasDataRoot(), configuredWorkspace = input.workspaceRoot;
+  const backend = getFdPublicationBackend(), opened: number[] = [], errors: unknown[] = [];
+  let data: FileHandle | undefined, workspace: FileHandle | undefined, frame: Frame | undefined;
+  let value: Awaited<ReturnType<typeof observeMarkdownCreateBirth>> | undefined;
+  const own = (fd: number) => { opened.push(fd); return fd; };
+  const readFile = (parent: number, name: string, limit: number, mode: number): { bytes: Buffer; info: BigIntStats } => {
+    const fd = own(backend.openFileAt(parent, name, 'readonly')), before = syncFs.fstatSync(fd, { bigint: true });
+    if (!before.isFile() || before.nlink !== BigInt(1) || before.uid !== BigInt(process.geteuid!())
+      || (before.mode & BigInt(0o7777)) !== BigInt(mode) || before.size > BigInt(limit)) return fail('MARKDOWN_CREATE_BIRTH_RECORD_CHANGED');
+    const chunks: Buffer[] = []; let length = 0;
+    for (;;) {
+      const chunk = Buffer.alloc(Math.min(64 * 1024, limit + 1 - length)), count = syncFs.readSync(fd, chunk, 0, chunk.length, null);
+      if (!count) break; length += count; if (length > limit) return fail('MARKDOWN_CREATE_BIRTH_RECORD_CHANGED');
+      chunks.push(chunk.subarray(0, count));
+    }
+    const bytes = Buffer.concat(chunks), after = syncFs.fstatSync(fd, { bigint: true });
+    const named = own(backend.openFileAt(parent, name, 'readonly'));
+    if (!backend.hasExactNameAt(parent, name) || !stableFile(before, after)
+      || !stableFile(after, syncFs.fstatSync(named, { bigint: true }))) return fail('MARKDOWN_CREATE_BIRTH_RECORD_CHANGED');
+    return { bytes, info: after };
+  };
+  const read = (parent: number, name: string): Record<string, unknown> => {
+    const { bytes } = readFile(parent, name, 128 * 1024, 0o600);
+    const parsed = JSON.parse(bytes.toString('utf8')) as Record<string, unknown>;
+    if (!parsed || Object.getPrototypeOf(parsed) !== Object.prototype || !canonical(parsed).equals(bytes)) return fail('MARKDOWN_CREATE_BIRTH_RECORD_CHANGED');
+    return parsed;
+  };
+  const optional = (parent: number, name: string): Record<string, unknown> | null => {
+    try { return read(parent, name); } catch (error) {
+      if (error && typeof error === 'object' && Reflect.get(error, 'code') === 'ENOENT') return null;
+      throw error;
+    }
+  };
+  try {
+    data = await fs.open(configuredData, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
+    workspace = await fs.open(configuredWorkspace, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
+    frame = { active: true, configuredData, resolvedData: await fs.realpath(configuredData), configuredWorkspace,
+      resolvedWorkspace: await fs.realpath(configuredWorkspace), data, workspace, backend,
+      dataIdentity: identity(await data.stat()), workspaceIdentity: identity(await workspace.stat()), intent: {},
+      key: sha(JSON.stringify(['canvas-markdown-first-birth-v1', input.workspaceId, input.operationId])) };
+    await root(frame);
+    const pin = readStorePointer(frame); frame.storePin = pin;
+    const store = own(backend.openDirectoryAt(data.fd, pin.name)), claim = own(backend.openDirectoryAt(store, frame.key));
+    if (!isDeepStrictEqual(syncDirectory(syncFs.fstatSync(store, { bigint: true })), pin.directory)) return fail('MARKDOWN_CREATE_BIRTH_NAMESPACE_CHANGED');
+    for (const [parent, name, fd] of [[data.fd, pin.name, store], [store, frame.key, claim]] as const) {
+      const info = syncFs.fstatSync(fd, { bigint: true }); syncDirectory(info);
+      if ((info.mode & BigInt(0o077)) !== BigInt(0) || !backend.hasExactNameAt(parent, name)) return fail('MARKDOWN_CREATE_BIRTH_RECORD_CHANGED');
+    }
+    const intent = read(claim, 'intent.json');
+    if (!isDeepStrictEqual(intent.dataRoot, frame.dataIdentity) || !isDeepStrictEqual(intent.workspaceRoot, frame.workspaceIdentity)
+      || intent.operationId !== input.operationId || typeof intent.targetPath !== 'string') return fail('MARKDOWN_CREATE_BIRTH_RECORD_CHANGED');
+    const fingerprint = sha(canonical(intent).toString('utf8')); frame.fingerprint = fingerprint;
+    const prepared = optional(claim, 'prepared.json'), born = optional(claim, 'born.json');
+    const completed = optional(claim, 'completed.json'), settled = optional(claim, 'settled.json');
+    if (completed && (!prepared || !born || !settled || !isDeepStrictEqual(prepared, born)
+      || Object.keys(completed).sort().join(',') !== 'file,revisionId,serializedHash,version'
+      || !isDeepStrictEqual(completed, { ...prepared, revisionId: completed.revisionId })
+      || !isDeepStrictEqual(settled.file, prepared.file) || typeof settled.ctimeNs !== 'string'
+      || typeof completed.revisionId !== 'string' || typeof completed.serializedHash !== 'string'
+      || !/^[a-f0-9]{64}$/u.test(completed.serializedHash))) return fail('MARKDOWN_CREATE_BIRTH_RECORD_CHANGED');
+    if (completed) {
+      // A retained receipt cannot confirm a deleted/replaced physical birth.
+      // A later legitimate peer projection is conservatively recovery_required;
+      // this historical observer cannot adopt a new inode from byte equality.
+      const segments = (intent.targetPath as string).split('/');
+      if (segments.some(name => !name || name === '.' || name === '..' || /[\\\u0000-\u001f\u007f]/u.test(name))) return fail('MARKDOWN_CREATE_BIRTH_TARGET_CHANGED');
+      const initial = intent.ancestors as Record<string, unknown>;
+      if (!initial || typeof initial !== 'object') return fail('MARKDOWN_CREATE_BIRTH_RECORD_CHANGED');
+      const ancestors: Array<{ parent: number; name: string; expected: unknown }> = [];
+      let parent = workspace.fd, relative = '';
+      for (const name of segments.slice(0, -1)) {
+        relative = relative ? relative + '/' + name : name;
+        const recorded = optional(claim, 'parent-' + sha(relative) + '.json');
+        if (recorded && (recorded.path !== relative || Object.keys(recorded).sort().join(',') !== 'identity,path')) return fail('MARKDOWN_CREATE_BIRTH_RECORD_CHANGED');
+        const expected = initial[relative] || recorded?.identity;
+        const child = own(backend.openDirectoryAt(parent, name));
+        if (!expected || !backend.hasExactNameAt(parent, name)
+          || !isDeepStrictEqual(syncDirectory(syncFs.fstatSync(child, { bigint: true })), expected)) return fail('MARKDOWN_CREATE_BIRTH_TARGET_CHANGED');
+        ancestors.push({ parent, name, expected }); parent = child;
+      }
+      const target = readFile(parent, segments.at(-1)!, 5 * 1024 * 1024, 0o644);
+      if (!fileMatches(target.info, prepared!.file) || !fileMatches(target.info, settled!.file)
+        || target.info.ctimeNs.toString() !== settled!.ctimeNs
+        || createHash('sha256').update(target.bytes).digest('hex') !== completed.serializedHash) return fail('MARKDOWN_CREATE_BIRTH_TARGET_CHANGED');
+      for (const ancestor of ancestors) {
+        const child = own(backend.openDirectoryAt(ancestor.parent, ancestor.name));
+        if (!backend.hasExactNameAt(ancestor.parent, ancestor.name)
+          || !isDeepStrictEqual(syncDirectory(syncFs.fstatSync(child, { bigint: true })), ancestor.expected)) return fail('MARKDOWN_CREATE_BIRTH_TARGET_CHANGED');
+      }
+    }
+    readStorePointer(frame); await root(frame);
+    value = { id: frame.key, fingerprint, intent, complete: completed !== null,
+      revisionId: completed?.revisionId as string ?? null, serializedHash: completed?.serializedHash as string ?? null };
+  } catch (error) { errors.push(error); }
+  for (const fd of opened.reverse()) { try { syncFs.closeSync(fd); } catch (error) { errors.push(error); } }
+  for (const handle of [workspace, data]) if (handle) { try { await handle.close(); } catch (error) { errors.push(error); } }
+  if (frame) { try { await named(frame); } catch (error) { errors.push(error); } frame.active = false; }
+  if (errors.length === 1) throw errors[0];
+  if (errors.length) throw new AggregateError(errors, 'MARKDOWN_CREATE_BIRTH_OBSERVATION_UNCONFIRMED');
+  return value!;
+}
 const fail = (code: string): never => { throw new MarkdownCreateBirthError(code); };
 const identity = (value: Stats): Identity => ({ dev: String(value.dev), ino: String(value.ino), uid: value.uid, mode: value.mode & 0o7777 });
 const same = (a: Identity, b: Identity) => Object.keys(a).every(key => Reflect.get(a, key) === Reflect.get(b, key));

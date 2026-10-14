@@ -6,6 +6,8 @@ import { createWriteStream, promises as fs } from 'node:fs';
 import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
+import type { NextRequest } from 'next/server';
+import type { WorkspaceUploadCompletion } from './upload-result';
 
 import {
   WORKSPACE_UPLOAD_CHUNK_SIZE,
@@ -355,12 +357,25 @@ export async function getWorkspaceUploadSession(params: {
   sessionId: string;
   userId: string;
   workspace: WorkspaceContext;
+  request?: NextRequest;
 }): Promise<WorkspaceUploadSession> {
   params = { ...params, workspace: { ...params.workspace } };
   return withUploadServiceLiveSession({ sessionId: params.sessionId, userId: params.userId, workspaceId: params.workspace.workspaceId }, 'shared', async lease => {
     await lease.assertCurrent();
     const session = await readSession(params.sessionId);
     assertSessionAccess(session, params.userId, params.workspace);
+    const file = session.files.length === 1 ? session.files[0] : undefined;
+    if (params.request && file?.status === 'completed' && /\.(?:md|markdown)$/iu.test(file.targetPath)) {
+      const { completeMarkdownChunkUpload } = await import('./workspace-markdown-chunk-upload');
+      let confirmed = false;
+      try {
+        const observed = await completeMarkdownChunkUpload({ request: params.request, session, file,
+          sourcePath: uploadFilePath(session.id, file.id), commit: async () => { throw new Error('Completed observation cannot write.'); } });
+        confirmed = observed.completion.status === 'completed';
+      } catch { /* No historical generic status can replace current native proof. */ }
+      if (!confirmed) throw new WorkspaceUploadServiceError('MARKDOWN_UPLOAD_RECOVERY_REQUIRED', 409,
+        'The Markdown upload completion could not be confirmed. The upload was retained.');
+    }
     return session;
   });
 }
@@ -485,26 +500,63 @@ export async function writeWorkspaceUploadChunk(params: {
   })));
 }
 
+type UploadCompletionResult = { session: WorkspaceUploadSession; file: WorkspaceUploadFileRecord; alreadyCompleted: boolean; completion?: WorkspaceUploadCompletion };
+
 export async function completeWorkspaceUploadFile(params: {
   sessionId: string;
   fileId: string;
   userId: string;
   workspace: WorkspaceContext;
   includeFullSession?: boolean;
+  /** The genuine chunk route's original request, never a caller authority flag. */
+  request?: NextRequest;
+  /** Existing route effects only, after whole native/Source closure. */
+  afterMarkdownCompletion?: (input: { session: WorkspaceUploadSession; file: WorkspaceUploadFileRecord }) => Promise<void>;
   commit: (input: {
     session: WorkspaceUploadSession;
     file: WorkspaceUploadFileRecord;
     sourcePath: string;
     persistOfficeAttempt: (attempt: OfficeUploadAttempt) => Promise<void>;
   }) => Promise<void>;
-}): Promise<{ session: WorkspaceUploadSession; file: WorkspaceUploadFileRecord; alreadyCompleted: boolean }> {
+}): Promise<UploadCompletionResult> {
   params = { ...params, workspace: { ...params.workspace } };
-  return withUploadServiceLiveSession({ sessionId: params.sessionId, userId: params.userId, workspaceId: params.workspace.workspaceId }, 'shared', lease =>
+  const result: UploadCompletionResult = await withUploadServiceLiveSession({ sessionId: params.sessionId, userId: params.userId, workspaceId: params.workspace.workspaceId }, 'shared', lease =>
     withFileLock(`${params.sessionId}:${params.fileId}`, () => withWorkspaceUploadLiveFile(lease, params.fileId, async () => {
     if (cancellingSessions.has(params.sessionId)) throw new WorkspaceUploadServiceError('UPLOAD_CANCELLED', 409, 'Upload was cancelled.');
     const session = await readSession(params.sessionId, params.includeFullSession === false ? params.fileId : undefined);
     assertSessionAccess(session, params.userId, params.workspace);
     const file = findSessionFile(session, params.fileId);
+    if (params.request && session.files.length === 1 && /\.(?:md|markdown)$/iu.test(file.targetPath)) {
+      if (!params.afterMarkdownCompletion) throw new WorkspaceUploadServiceError('MARKDOWN_UPLOAD_RECOVERY_REQUIRED', 409,
+        'The Markdown completion route could not be confirmed. The upload was retained.');
+      const { completeMarkdownChunkUpload } = await import('./workspace-markdown-chunk-upload');
+      const sourcePath = uploadFilePath(session.id, file.id);
+      const outcome = await completeMarkdownChunkUpload({ request: params.request, session, file, sourcePath,
+        commit: () => uploadCompletionSemaphore.run(async () => {
+          await lease.assertCurrent(file.id);
+          if (file.uploadedBytes !== file.size || (file.size > 0 && file.status !== 'uploaded')) {
+            throw new WorkspaceUploadServiceError('UPLOAD_FILE_INCOMPLETE', 409, 'The Markdown upload is incomplete.');
+          }
+          if (file.size === 0) {
+            try {
+              const empty = await fs.open(sourcePath, 'wx', 0o600);
+              try { await empty.sync(); } finally { await empty.close(); }
+            } catch (error) { if (!error || typeof error !== 'object' || Reflect.get(error, 'code') !== 'EEXIST') throw error; }
+          }
+          const stats = await fs.lstat(sourcePath).catch(() => null);
+          if (!stats?.isFile() || stats.isSymbolicLink() || stats.size !== file.size) {
+            throw new WorkspaceUploadServiceError('UPLOAD_STORED_FILE_INVALID', 409, 'The stored Markdown upload is incomplete.');
+          }
+          await params.commit({ session, file, sourcePath, persistOfficeAttempt: async () => {
+            throw new WorkspaceUploadServiceError('UPLOAD_REVISION_CONFLICT', 409, 'A Markdown upload cannot store a Word attempt.');
+          } });
+        }),
+      });
+      // Do not publish terminal transport state before every actual Source,
+      // FileEX and Session descriptor of this native operation has closed.
+      return { session: params.includeFullSession === false ? session : (await readSession(session.id))!, file,
+        alreadyCompleted: outcome.alreadyCompleted, completion: outcome.completion };
+    }
     if (file.status === 'completed') {
       if (file.officeAttempt) {
         const { getWorkspaceFileRevision } = await import('./revision-guard');
@@ -565,6 +617,62 @@ export async function completeWorkspaceUploadFile(params: {
     await fs.rm(sourcePath, { force: true }).catch(() => undefined);
     return { session: params.includeFullSession === false ? session : (await readSession(session.id))!, file, alreadyCompleted: false };
   })));
+  if (result.completion?.status !== 'completed') return result;
+  return finalizeMarkdownChunkUpload({ request: params.request!, sessionId: params.sessionId, fileId: params.fileId,
+    userId: params.userId, workspace: params.workspace, expected: result,
+    includeFullSession: params.includeFullSession, afterCompletion: params.afterMarkdownCompletion! });
+}
+
+/** Reopen only the real transport fences. No historical source becomes a grant.
+ * A completed progress record is written after current own native/physical
+ * evidence and the existing route effects, under one real workspace guard. */
+async function finalizeMarkdownChunkUpload(params: { request: NextRequest; sessionId: string; fileId: string; userId: string;
+  workspace: WorkspaceContext; expected: UploadCompletionResult; includeFullSession?: boolean;
+  afterCompletion: (input: { session: WorkspaceUploadSession; file: WorkspaceUploadFileRecord }) => Promise<void>;
+}): Promise<UploadCompletionResult> {
+  const { completeMarkdownChunkUpload } = await import('./workspace-markdown-chunk-upload');
+  const { withWorkspaceFileLifecycleGuard } = await import('./workspace-file-lifecycle-guard');
+  const { openDb } = await import('../db');
+  return withUploadServiceLiveSession({ sessionId: params.sessionId, userId: params.userId, workspaceId: params.workspace.workspaceId }, 'shared', lease =>
+    withFileLock(`${params.sessionId}:${params.fileId}`, () => withWorkspaceUploadLiveFile(lease, params.fileId, async () => {
+      await lease.assertCurrent(params.fileId);
+      const session = await readSession(params.sessionId); assertSessionAccess(session, params.userId, params.workspace);
+      const file = findSessionFile(session, params.fileId), expected = params.expected.file;
+      if (session.files.length !== 1 || file.targetPath !== expected.targetPath || file.size !== expected.size || file.officeAttempt) {
+        throw new WorkspaceUploadServiceError('MARKDOWN_UPLOAD_RECOVERY_REQUIRED', 409, 'The Markdown upload identity changed.');
+      }
+      const sourcePath = uploadFilePath(session.id, file.id);
+      const observe = () => completeMarkdownChunkUpload({ request: params.request, session, file, sourcePath,
+        commit: async () => { throw new Error('Transport finalization cannot renew a live source grant.'); } });
+      let hasCloseFailure = false, closeFailure: unknown;
+      const openOwner = async () => {
+        const actual = await openDb();
+        return { ...actual, close: async (error?: Error) => {
+          try { await actual.close(error); } catch (failure) { hasCloseFailure = true; closeFailure = failure; throw failure; }
+        } };
+      };
+      let value: UploadCompletionResult | undefined, hasFailure = false, failure: unknown;
+      try { value = await withWorkspaceFileLifecycleGuard({ workspaceId: session.workspaceId, paths: [file.targetPath] }, async () => {
+        const before = await observe();
+        if (before.completion.status !== 'completed') return { session, file, ...before };
+        if (!before.alreadyCompleted) await params.afterCompletion({ session, file });
+        const current = await observe();
+        if (current.completion.status !== 'completed') return { session, file, ...current };
+        if (file.status !== 'completed') {
+          file.status = 'completed'; file.uploadedBytes = file.size; session.status = 'completed';
+          await writeFileProgress(session, file);
+        }
+        await fs.rm(sourcePath, { force: true }).catch(() => undefined);
+        return { session: params.includeFullSession === false ? session : (await readSession(session.id))!, file,
+          alreadyCompleted: before.alreadyCompleted, completion: current.completion };
+      }, openOwner); } catch (error) { hasFailure = true; failure = error; }
+      if (hasCloseFailure) {
+        if (hasFailure) throw new AggregateError([failure, closeFailure], 'Markdown transport owner closure failed.');
+        throw closeFailure;
+      }
+      if (hasFailure) throw failure;
+      return value!;
+    })));
 }
 
 export async function cancelWorkspaceUploadSession(params: {

@@ -1,10 +1,10 @@
 # Plan: Yjs-Dokumentautorität und sichere Dateiaktionen konsolidieren
 
-**Status:** Umsetzung am 13. Oktober 2026 freigegeben; Arbeitspakete und Abnahmen werden unten fortgeschrieben. Aktuell: I-04 im Source abgeschlossen, I-05-Chunkanschluss in Arbeit; der frische kompilierte Mobile-HTTP-/WebSocket-Vertrag besteht. Gemeinsame Browserabnahme und allgemeine Aktivierung bleiben offen.
+**Status:** Umsetzung am 13. Oktober 2026 freigegeben; Arbeitspakete und Abnahmen werden unten fortgeschrieben. Aktuell: I-05-Einzeldatei-Chunkanschluss integriert und unabhängig mit 17 echten Route-/Auth-/PG-/FS-Familien abgenommen. Als Nächstes folgen I-06 manuelles Create und I-07 gemeinsamer Browserlauf. Allgemeine Aktivierung bleibt offen.
 
-**Stand:** 14. Oktober 2026.
+**Stand:** 15. Oktober 2026.
 
-**Quellcode-Basis:** `84f12e4ea7b541fc53d535fb0e0f857597c02e23`.
+**Ursprüngliche Recherchebasis:** `84f12e4ea7b541fc53d535fb0e0f857597c02e23`; spätere Implementierungsstände und ihre Belege stehen in §16.2.
 
 **Ziel:** Verwaltete Dokumente bleiben unabhängig von ihrer Markdown-Dateiprojektion korrekt lesbar, bearbeitbar, verlinkbar und wiederherstellbar. Berechtigte Nutzer bearbeiten den sichtbaren Editorinhalt unmittelbar, ohne Read/Edit-Auswahl.
 
@@ -912,6 +912,8 @@ Die [inaktive erste Markdown-Veröffentlichung I-04](./markdown-first-projection
 Der [frische kompilierte Mobile-Protokollnachweis](./yjs-native-compiled-protocol-evidence.md) besteht auf QA-Commit `620ee1fb296bf092ec547a1a2d28312b70b35ef0`, exakt Rootbasis `e98c9577` plus vorhandenem Sessiongate. Echte Cookie-Webvorbereitung, ausgestellter Mobile-Bearer, Ticket-only-RawWS, Inhaltssynchronisierung, Einmalticket-Ablehnung vor Ablauf und Raumfreigabe sind bestätigt. Root leitet Source-/Artefaktbelege vor und nach dem einen Lauf unabhängig neu ab und bestätigt eigene Prozess-/Port-/DB-Bereinigung. Der erste kalte Build bleibt wegen des unveränderten Zwölf-Minuten-Guards fehlgeschlagen; genau ein warmer Originalbuild besteht. Dieser Abschluss aktiviert weder die neuen Importrouten noch ersetzt er die gemeinsame Browserabnahme.
 
 Der [Native-Mobile-Busyadapter](./native-mobile-peer-admission-adapter-evidence.md) ist im eigenen Mobile-Commit `acfa5061956824775e1dd2444a6828e0d164e468` abgeschlossen. Zustand und generiertes HTML mit tatsächlichem Provider bestehen auch unabhängig bei Root. Der vollständige Mobile-Verify endet bei den 13 belegten unveränderten Expo-Patchabweichungen mit Exit `1`; separat ausgeführter Produktionsaudit und Android-/iOS-/Web-Export bestehen. Native Geräteabnahme bleibt offen. Der nächste Notebookabschluss ist I-05 einschließlich echten Wiederanlaufs nach Source-/Transport-Schließfehlern und Original-Mobile-Queueverbraucher; danach folgt I-06.
+
+Der [I-05-Einzeldatei-Chunkanschluss](./markdown-chunk-import-integration-evidence.md) ist mit den exakten Autorenbytes aus `d415bf599` integriert und bei Root unabhängig geschlossen: 17 tatsächliche exportierte Route-/Auth-/PG18-/FS-Familien, vollständiges TypeScript/Lint, Client-/Store-/React- und vorhandene UI-/Job-/Lifetimeprüfungen bestehen. Native-/Sourceabschluss, Routefolgen und Transportabschluss sind nach tatsächlichen Closefaults geordnet; Pending enthält keinen unbestätigten Commit. Home bleibt nach Dialogschluss/Reload wiederaufnahmefähig und aktualisiert sich erst bei bestätigter aktueller Completion. Root vergleicht 21 Autorendateien, weitere 6.544 Dateien und 110 bestehende Körper tatsächlich; die beiden bekannten Plandiffs bleiben zugeordnet. Die älteren 14+3 Autorenfälle behalten ihre Prozess-Exit1; der neue vollständige Rootlauf endet mit Exit0 und tatsächlichem eigenen Server-/Helper-/DATA-Abschluss. Das zentrale Produktgate bleibt false; I-06 und frischer gemeinsamer App-/Browserlauf folgen als nächste abgeschlossene Pakete.
 
 ## 17. Änderungs- und Nachweisprotokoll
 

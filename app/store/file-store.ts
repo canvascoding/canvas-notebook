@@ -3,6 +3,7 @@ import { LocalFileWriteTracker } from '@/app/lib/files/local-write-tracker';
 import { documentCapabilities } from '@/app/lib/files/document-capabilities';
 import { findOpenedLiveDocument, invalidateOpenedLiveDocument, LiveDocumentNetworkError,
   isOpenedDocumentAuthCurrent, openedDocumentAuthScope } from '@/app/lib/collaboration/opened-document-registry';
+import type { OpenedDocumentAuthScope } from '@/app/lib/collaboration/opened-document-registry';
 import { create } from 'zustand';
 import { recordOpenedWorkspaceFile } from '@/app/lib/files/quick-access-client';
 import type {
@@ -25,7 +26,9 @@ import {
 } from '@/app/lib/files/path-utils';
 import { runDirectoryTasksByDepth } from '@/app/lib/files/tree-refresh';
 import { DirectoryRefreshQueue } from '@/app/lib/files/directory-refresh-queue';
-import { beginUploadJob, createUploadProgressReporter, finishUploadJob, isUploadActive, updateUploadJob, updateUploadItem, useUploadStore, type UploadOptions, type UploadJobHandle } from './upload-store';
+import { beginUploadJob, createUploadProgressReporter, finishUploadJob, isUploadActive, updateMarkdownUploadResume, updateUploadJob, updateUploadItem, useUploadStore, type UploadOptions, type UploadJobHandle } from './upload-store';
+import { resumeWorkspaceMarkdownUpload } from '@/app/lib/files/workspace-upload-client';
+import type { WorkspaceUploadCompletion } from '@/app/lib/files/upload-result';
 import { UploadTreeBatch, uploadVersionGuard } from '@/app/lib/files/upload-tree-batch';
 import { uploadWorkspaceDirectories } from '@/app/lib/files/upload-directory-client';
 import {
@@ -94,6 +97,15 @@ export interface ContextMenuPosition {
 
 const EXPLORER_STATE_STORAGE_KEY = 'canvas.fileExplorerState';
 const fileSaveBaselines = new Map<string, { expectedSha256: string | null; baseRevisionId: string | null }>();
+type MarkdownUploadCompletionNotice = { scope: OpenedDocumentAuthScope; workspaceId: string | null; completion: WorkspaceUploadCompletion };
+const markdownUploadCompletionListeners = new Set<(notice: MarkdownUploadCompletionNotice) => void>();
+
+/** A UI refresh hint from the confirmed resume action, never upload authority. */
+export function subscribeMarkdownUploadCompletion(listener: (notice: MarkdownUploadCompletionNotice) => void): () => void {
+  markdownUploadCompletionListeners.add(listener);
+  return () => { markdownUploadCompletionListeners.delete(listener); };
+}
+
 const saveFileQueues = new Map<string, Promise<void>>();
 const localFileWrites = new LocalFileWriteTracker();
 let fileRefreshRequestId = 0;
@@ -436,6 +448,7 @@ interface FileStoreState {
     options?: UploadOptions,
   ) => Promise<void>;
   reconcileUpload: (job: UploadJobHandle) => Promise<void>;
+  resumeMarkdownUpload: (jobId: string, index: number) => Promise<void>;
   uploadDirectories: (paths: string[], job: UploadJobHandle) => Promise<number>;
   downloadFile: (path: string | Iterable<string>) => Promise<void>;
   toggleDirectory: (path: string) => void;
@@ -1606,6 +1619,8 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
   },
 
   reconcileUpload: async (job) => {
+    const items = useUploadStore.getState().jobs[job.id]?.items;
+    if (items?.some(item => item.resume) && !items.some(item => item.status === 'completed' || item.status === 'skipped')) return;
     const pending = uploadTreeBatches.get(job.id);
     pending?.batch.flush();
     uploadTreeBatches.delete(job.id);
@@ -1617,6 +1632,36 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     }
     await Promise.all([...directories].filter((dir) => dir === '.' || Array.isArray(findNodeInTree(dir, get().fileTree)?.children))
       .map((dir) => get().revalidateDirectory(dir, job.workspaceId, true)));
+  },
+
+  resumeMarkdownUpload: async (jobId, index) => {
+    const scope = openedDocumentAuthScope(), job = useUploadStore.getState().jobs[jobId];
+    const item = job?.items[index], resume = item?.resume;
+    if (!scope || job?.accountId !== scope.userId || job.workspaceId !== useWorkspaceStore.getState().activeWorkspaceId
+      || !resume || item.resuming) return;
+    let completed: WorkspaceUploadCompletion | undefined;
+    updateMarkdownUploadResume(jobId, index, { resuming: true });
+    try {
+      const result = await resumeWorkspaceMarkdownUpload(resume);
+      if (openedDocumentAuthScope() !== scope) return;
+      if (result.completion.status !== 'completed') {
+        updateMarkdownUploadResume(jobId, index, { status: result.completion.status });
+        return;
+      }
+      updateMarkdownUploadResume(jobId, index, { completed: true });
+      completed = result.completion;
+      if (useWorkspaceStore.getState().activeWorkspaceId !== job.workspaceId) return;
+      const pending = getUploadTreeBatch(job);
+      pending.batch.add(result.committed ?? { targetPath: result.completion.targetPath });
+      await get().reconcileUpload(job);
+    } catch (error) {
+      if (openedDocumentAuthScope() !== scope) return;
+      updateMarkdownUploadResume(jobId, index, { status: 'unconfirmed',
+        error: error instanceof Error ? error.message : 'The import could not be confirmed.' });
+    }
+    if (completed && openedDocumentAuthScope() === scope && useWorkspaceStore.getState().activeWorkspaceId === job.workspaceId) {
+      for (const listener of markdownUploadCompletionListeners) listener({ scope, workspaceId: job.workspaceId, completion: completed });
+    }
   },
 
   uploadDirectories: async (paths, job) => {

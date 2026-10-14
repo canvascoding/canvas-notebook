@@ -31,7 +31,7 @@ const scopes = new WeakMap<WorkspaceUploadLiveSession, Frame>();
 type Frame = { binding: SessionBinding; mode: Mode; configuredRoot: string; resolvedRoot: string; root: FileHandle;
   identity: Identity; control?: Identity; session?: FileHandle; file?: FileHandle; fileId?: string;
   sessionProof?: Identity; fileProof?: Identity; fileName?: string;
-  active: boolean; fileActive: boolean; birth?: string; accepting: boolean; queue: Promise<void>; pending: Set<Promise<unknown>> };
+  active: boolean; fileActive: boolean; sourceActive?: boolean; birth?: string; accepting: boolean; queue: Promise<void>; pending: Set<Promise<unknown>> };
 export type WorkspaceUploadLiveSession = Readonly<{
   assertCurrent(fileId?: string): Promise<void>;
   cancel(): Promise<void>;
@@ -245,10 +245,27 @@ export type CurrentWorkspaceUploadFileSource = Readonly<{
  * bytes/Workspace/validateAuthority input, native commit or completion output. */
 export async function withCurrentWorkspaceUploadFile<T>(input: MarkdownUploadAttemptSelection,
   operation: (source: CurrentWorkspaceUploadFileSource) => Promise<T>): Promise<T> {
-  const selection = Object.freeze({ ...input });
+  const selection = Object.freeze({ ...input }), inherited = context.getStore();
+  if (inherited?.active && inherited.binding.sessionId === selection.uploadSessionId) {
+    if (!inherited.accepting || inherited.mode !== 'shared' || !inherited.fileActive || !inherited.file || !inherited.session
+      || inherited.fileId !== selection.fileId || inherited.binding.userId !== selection.actorUserId
+      || inherited.binding.workspaceId !== selection.workspaceId || inherited.sourceActive) return fail('UPLOAD_LOCK_ORDER');
+    const promise = withCurrentSourceOnFrame(inherited, selection, operation);
+    inherited.pending.add(promise);
+    promise.then(() => inherited.pending.delete(promise), () => inherited.pending.delete(promise));
+    return promise;
+  }
   return withWorkspaceUploadLiveSession({ sessionId: selection.uploadSessionId, userId: selection.actorUserId, workspaceId: selection.workspaceId }, 'shared', lease =>
-    withWorkspaceUploadLiveFile(lease, selection.fileId, () => withWorkspaceMarkdownUploadAttempt(selection, async snapshot => {
-      const frame = scopes.get(lease)!;
+    withWorkspaceUploadLiveFile(lease, selection.fileId, () => withCurrentSourceOnFrame(scopes.get(lease)!, selection, operation)));
+}
+
+/** Borrowing retains the existing real SessionSH/FileEX until all source IO ends.
+ * The private frame is never accepted from a caller or reconstructed from ALS data. */
+async function withCurrentSourceOnFrame<T>(frame: Frame, selection: MarkdownUploadAttemptSelection,
+  operation: (source: CurrentWorkspaceUploadFileSource) => Promise<T>): Promise<T> {
+  if (frame.sourceActive) return fail('UPLOAD_LOCK_ORDER');
+  frame.sourceActive = true;
+  try { return await withWorkspaceMarkdownUploadAttempt(selection, async snapshot => {
       const observed = await current(frame, selection.fileId, true);
       if (observed.targetPath !== selection.targetPath || typeof observed.sourceHash !== 'string'
         || !Number.isSafeInteger(observed.sourceBytes)) fail('UPLOAD_STATE_UNCONFIRMED');
@@ -276,5 +293,5 @@ export async function withCurrentWorkspaceUploadFile<T>(input: MarkdownUploadAtt
       if (failures.length === 1) throw failures[0];
       if (failures.length) throw new AggregateError(failures, 'UPLOAD_LIVE_CLOSURE_FAILED');
       return value as T;
-    })));
+    }); } finally { frame.sourceActive = false; }
 }

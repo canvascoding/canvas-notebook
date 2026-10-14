@@ -5,25 +5,29 @@ import { FolderOpen, Plus, Upload } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { Link } from '@/i18n/navigation';
 import { Button } from '@/components/ui/button';
-import { uploadWorkspaceFiles } from '@/app/lib/files/client';
+import { useFileStore } from '@/app/store/file-store';
 import type { ClientWorkspaceSummary } from '@/app/lib/workspaces/client-types';
 import { HomeSkeleton } from './HomeSkeletons';
 import { HomeNewNoteDialog } from './HomeNewNoteDialog';
 import { HomeContinueList } from './HomeContinueList';
 import { UploadDialog } from '@/app/components/file-browser/UploadDialog';
 import { useWorkspaceStore } from '@/app/store/workspace-store';
+import { WorkspaceUploadProgress } from '@/app/components/file-browser/WorkspaceUploadProgress';
+import { useAuthenticatedRequestScope } from '@/app/components/auth/AuthenticatedSessionBoundary';
+import { openedDocumentAuthScope } from '@/app/lib/collaboration/opened-document-registry';
 
 export function HomeFilesPanel({ workspace, workspaceError }: { workspace?: ClientWorkspaceSummary; workspaceError?: string | null }) {
   const t = useTranslations('home.start');
   const [revision, setRevision] = useState(0);
   const [creating, setCreating] = useState(false);
   const [uploadOpen, setUploadOpen] = useState(false);
+  const { scope, active } = useAuthenticatedRequestScope();
 
   const importFiles = async (files: File[], targetDir: string) => {
     if (!workspace || useWorkspaceStore.getState().activeWorkspaceId !== workspace.id) {
       throw new Error(t('workspaceChanged'));
     }
-    await uploadWorkspaceFiles({ files, targetDir, workspaceId: workspace.id });
+    await useFileStore.getState().uploadFile(files, targetDir, undefined, undefined, { workspaceId: workspace.id });
     if (useWorkspaceStore.getState().activeWorkspaceId === workspace.id) {
       setRevision(value => value + 1);
     }
@@ -43,6 +47,12 @@ export function HomeFilesPanel({ workspace, workspaceError }: { workspace?: Clie
           </>}
         </div>
       </div>
+      {workspace && active && scope ? <WorkspaceUploadProgress key={`progress:${workspace.id}:${scope.epoch}`}
+        className="mb-4" workspaceId={workspace.id} onConfirmedCompletion={() => {
+          if (openedDocumentAuthScope() === scope && useWorkspaceStore.getState().activeWorkspaceId === workspace.id) {
+            setRevision(value => value + 1);
+          }
+        }} /> : null}
       <HomeContinueList key={workspace?.id ?? 'loading'} workspace={workspace} workspaceError={workspaceError} revision={revision} />
       {creating && workspace ? <HomeNewNoteDialog key={`note:${workspace.id}`} workspaceId={workspace.id} onClose={() => setCreating(false)} /> : null}
       {workspace ? <UploadDialog key={`upload:${workspace.id}`} open={uploadOpen} onOpenChange={setUploadOpen} defaultPath="."

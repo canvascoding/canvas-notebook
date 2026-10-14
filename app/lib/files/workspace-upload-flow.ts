@@ -25,6 +25,7 @@ import { DOCX_PACKAGE_LIMITS, DocxPackageValidationError } from '@/app/lib/offic
 import { normalizeWorkspaceRelativePath } from '@/app/lib/workspaces/path-guard';
 import { findOfficeCommit } from '@/app/lib/office/document-journal';
 import { fileVersionHistoryService } from '@/app/lib/file-version-center/history-service';
+import { dispatchMarkdownChunkWrite } from './workspace-markdown-chunk-upload';
 
 export type OfficeUploadAttempt = Readonly<{
   version: 1;
@@ -81,6 +82,7 @@ export async function runWorkspaceUploadWrite(params: {
   write: (onBeforeReplace: () => Promise<void>) => Promise<void>;
 }): Promise<void> {
   params = { ...params, targetPath: normalizeWorkspaceRelativePath(params.targetPath), fileOptions: { ...params.fileOptions, workspace: params.workspace } };
+  if (await dispatchMarkdownChunkWrite(params)) return;
   return withWorkspaceMutationLock(params.workspace.workspaceId, async () => {
     const office = params.targetPath.toLowerCase().endsWith('.docx');
     if (office && params.idempotencyKey && !params.persistOfficeAttempt) throw new Error('Retryable Word uploads require durable upload-session metadata.');
