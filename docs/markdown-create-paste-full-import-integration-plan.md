@@ -155,6 +155,8 @@ Der frische lesende GitNexus-Audit ergibt für `publicWorkspaceUploadSession` LO
 
 Jeder Schritt endet mit fokussiertem Commit und passender Abnahme vor der nächsten Aktivierung. Source-/Unit-/PostgreSQL-Nachweis, reale Browserinteraktion und Native-Mobile-/Gerätenachweis werden getrennt berichtet. Dieser Entwurf aktiviert keinen zusätzlichen Stack oder Writer.
 
+Das gemeinsame Session-/Socketgate besitzt jetzt einen geprüften [prozessweiten nativen Besitzer](./yjs-native-runtime-broker-evidence.md), damit Next-HTTP und Raw-WebSocket dieselbe private Capability erkennen. Root bestätigt 36 echte PG/Auth/Source-POST-Familien plus fünf inkompatible Slots; der neue kompilierte Mobile-/Browserlauf und Capture-/Join-Busyvertrag bleiben offen. Dieser Sourceanschluss schließt weder I-04 noch I-07: Der zusätzliche reale I-04-Gegenfall bestätigt nach gestopptem Helper, tatsächlichem D-Backendende und Sessionwiderruf eine verspätete Datei trotz abgewiesener API und `finalized: 0`. Der Veröffentlichungsentwurf wird deshalb vor Integration auf eine im Parent frisch geprüfte synchrone FD-Seam umgestellt; neue Route-/UI-Aktivierung erfolgt noch nicht.
+
 ## 9. Abnahmefälle
 
 | Fall | Erforderlicher Nachweis |

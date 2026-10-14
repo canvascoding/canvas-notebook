@@ -9,11 +9,13 @@ import { requireRequestWorkspace } from '../workspaces/request';
 import { analyzeMarkdownRichMode } from '../markdown/rich-markdown-codec';
 import {
   captureAuthenticatedNativeSessionTransportOnConnection, disposeAuthenticatedNativeSessionTransport,
+  assertAuthenticatedNativeSessionCurrentOnConnection as assertExistingNativeCollaborationSessionCurrentOnConnection,
+  inspectAuthenticatedNativeSessionOnConnection as inspectExistingNativeCollaborationSessionOnConnection,
+  isAuthenticatedNativeSessionReaderError, isAuthenticatedNativeSessionPrincipalError,
   withAuthenticatedNativeSessionTransportOnConnection, type AuthenticatedNativeSessionTransport,
 } from './authenticated-native-session-transport';
 import {
-  assertExistingNativeCollaborationSessionCurrentOnConnection, assertReadOnlyNativeSessionDiagnosisCurrentOnConnection,
-  inspectExistingNativeCollaborationSessionOnConnection, NativeSessionStateReaderError,
+  assertReadOnlyNativeSessionDiagnosisCurrentOnConnection, NativeSessionStateReaderError,
   withAuthenticatedNativeSessionDiagnosisOnConnection, type ExistingNativeSessionIdentity,
   type ExistingNativeSessionSnapshot, type ExistingNativeSessionRequestAccess,
 } from './native-session-state-reader';
@@ -137,7 +139,8 @@ async function transaction<T>(operation: (connection: SqlConnection, phase: Read
   } catch (error) {
     if (began && !committing) try {
       await connection.run('ROLLBACK');
-      if (phase.retryable && !phase.entered && error instanceof WorkspaceRequestPrincipalError && error.code === 'PRINCIPAL_BUSY') cleanBusy = error;
+      if (phase.retryable && !phase.entered && (isAuthenticatedNativeSessionPrincipalError(error)
+        || error instanceof WorkspaceRequestPrincipalError) && error.code === 'PRINCIPAL_BUSY') cleanBusy = error;
     }
     catch (rollbackError) { discard = new Error('Discarding unresolved native session read.', { cause: rollbackError });
       throw new AggregateError([error, rollbackError], 'Native session rollback could not be confirmed.'); }
@@ -276,7 +279,8 @@ export async function withAuthenticatedTextCollaborationSessionGrant<T>(input: I
     for (;;) {
       try { return await operation(); }
       catch (error) {
-        if (!(error instanceof WorkspaceRequestPrincipalError) || !cleanReadContention.has(error) || retriesRemaining === 0) throw error;
+        if (!(isAuthenticatedNativeSessionPrincipalError(error) || error instanceof WorkspaceRequestPrincipalError)
+          || !cleanReadContention.has(error) || retriesRemaining === 0) throw error;
         cleanReadContention.delete(error); retriesRemaining--;
         await new Promise<void>(resolve => setTimeout(resolve, 25));
       }
@@ -324,11 +328,11 @@ export async function withAuthenticatedTextCollaborationSessionGrant<T>(input: I
     transport = await retryRead(() => enroll(expectedScope)); let observed: Observation;
     try { observed = await readExisting(expectedScope); }
     catch (error) {
-      if (error instanceof NativeSessionStateReaderError && error.code === 'NATIVE_SESSION_QUARANTINED') {
+      if ((isAuthenticatedNativeSessionReaderError(error) || error instanceof NativeSessionStateReaderError) && error.code === 'NATIVE_SESSION_QUARANTINED') {
         observed = await retryRead(() => diagnosis(original, workspaceId, requested, expectedScope));
         transport = await retryRead(() => enroll(expectedScope, 'read'));
       } else {
-        if (!(error instanceof NativeSessionStateReaderError) || error.code !== 'NATIVE_SESSION_STATE_MISSING') throw error;
+        if (!(isAuthenticatedNativeSessionReaderError(error) || error instanceof NativeSessionStateReaderError) || error.code !== 'NATIVE_SESSION_STATE_MISSING') throw error;
         if (permission !== 'write') throw new AuthenticatedTextSessionError('NATIVE_SESSION_INITIALIZATION_REQUIRED', 409);
         const target = await retryRead(() => bootstrapTarget(original, workspaceId, requested.path, expectedScope));
         if (target) {
