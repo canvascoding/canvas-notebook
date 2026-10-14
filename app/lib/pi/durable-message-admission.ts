@@ -150,11 +150,13 @@ export async function readOwnedAcceptedChatMessage(input: ChatMessageAdmissionId
 /** Private provenance metadata only. Every later dispatch must recheck current execution authority. */
 export function readOwnedAcceptedChatMessageData(handle: OwnedAcceptedChatMessage, context: AgentExecutionContext): Readonly<{
   payload: StoredAcceptedChatMessage; phase: ChatMessageExecutionPhase; executionRevision: number;
+  rowIdentity: Readonly<{ sessionDbId: number; clientMessageId: string }>;
 }> {
   const record = handle && typeof handle === 'object' ? records.owned.get(handle) : undefined;
   if (!record || actorStamp(record.actor.context) !== actorStamp(context)
     || context.agentTurnId !== undefined && context.agentTurnId !== record.payload.serverMessageId) denied();
-  return Object.freeze({ payload: record.payload, phase: record.phase, executionRevision: record.executionRevision });
+  return Object.freeze({ payload: record.payload, phase: record.phase, executionRevision: record.executionRevision,
+    rowIdentity: Object.freeze({ sessionDbId: record.sessionDbId, clientMessageId: record.payload.clientMessageId }) });
 }
 
 /** Replay is resolved before expiring account receipts or provider metadata are touched. */

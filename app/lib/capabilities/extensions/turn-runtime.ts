@@ -7,11 +7,13 @@ import { resolveVerifiedAgentActorContextOnConnection } from '@/app/lib/agents/a
 import { AgentWorkflowError } from '@/app/lib/agents/workflow-contracts';
 import { openDb } from '@/app/lib/db';
 import type { AgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
+import type { OwnedAcceptedChatMessage } from '@/app/lib/pi/durable-message-admission';
 import { readStoredAgentWorkspaceOnConnection } from '@/app/lib/pi/session-workspace-context';
 import {
   getAuthorizedAgentWorkflowPackageSelections,
   reissueCapabilityPackageRuntimeBindings,
   isAuthorizedAgentWorkflowPackageSelections,
+  withRevalidatedAgentWorkflowPackageSelectionOnConnection,
   type AuthorizedAgentWorkflowPackageSelections,
 } from '@/app/lib/capabilities/packages/runtime-bindings';
 import { authorizeIntegrationConnection, revalidateAuthorizedIntegrationConnection } from '@/app/lib/integration-tools/connections/store';
@@ -139,34 +141,171 @@ async function verifyFixedSources(context: AgentExecutionContext,
   return revisions;
 }
 
-/**
- * The only admission is an actual issued intake handle. A private JSON DTO,
- * owned-session string or copied handle never substitutes for that provenance.
- * Phase4 must add a separate guarded server-owned message reader for replay.
- */
+/** Private common kernel. Its only callers establish genuine intake or freshly read SQL provenance. */
+async function reissueVerifiedTurnRuntimeSelection(contextInput: AgentExecutionContext, context: AgentExecutionContext,
+  accepted: StoredAcceptedTurnExtensionSelection, packageSelection: AuthorizedAgentWorkflowPackageSelections,
+  originFingerprint: string, assertOrigin: () => void | Promise<void>,
+  currentPackages?: () => Promise<void>,
+  verifySources = verifyFixedSources): Promise<HeldAcceptedTurnRuntimeSelection> {
+  const namespace = turnNamespace(context);
+  if (JSON.stringify(context.turnExtensions) !== JSON.stringify(accepted.publicSelection)
+    || !isAuthorizedAgentWorkflowPackageSelections(packageSelection, context)) return denied();
+  await assertCurrentActor(context);
+  await currentPackages?.();
+  const revisions = await verifySources(context, accepted.privateFixedBindings);
+  await assertCurrentActor(context);
+  await assertOrigin();
+  await currentPackages?.();
+  if (turnNamespace(contextInput) !== namespace
+    || !isAuthorizedAgentWorkflowPackageSelections(packageSelection, context)) return denied();
+  const fingerprint = createHash('sha256').update(JSON.stringify([namespace, originFingerprint,
+    packageSelection.fingerprint, revisions])).digest('hex');
+  const handle = Object.freeze({ kind: 'accepted_turn_runtime_selection' as const, fingerprint });
+  records.set(handle, { namespace, data: Object.freeze({ publicSelection: accepted.publicSelection,
+    privateFixedBindings: accepted.privateFixedBindings }) });
+  return handle;
+}
+
+/** Only an actual issued intake handle can establish this original, non-durable entry. */
 export async function reissueAcceptedTurnRuntimeSelection(contextInput: AgentExecutionContext,
   acceptedHandle: AcceptedTurnExtensionSelection, intakeContext: AgentExecutionContext,
   options: { packageSelection: AuthorizedAgentWorkflowPackageSelections }): Promise<HeldAcceptedTurnRuntimeSelection> {
   const accepted = readAcceptedTurnExtensionSelection(acceptedHandle, intakeContext);
   const context = { ...contextInput, ...(contextInput.turnExtensions
     ? { turnExtensions: structuredClone(contextInput.turnExtensions) } : {}) };
+  if (actorNamespace(intakeContext) !== actorNamespace(context)) return denied();
+  return reissueVerifiedTurnRuntimeSelection(contextInput, context, accepted, options.packageSelection, acceptedHandle.fingerprint, () => {
+    readAcceptedTurnExtensionSelection(acceptedHandle, intakeContext);
+    if (actorNamespace(intakeContext) !== actorNamespace(context)) return denied();
+  });
+}
+
+/** Package freshness alone; all standalone reads occur after this short owned lease is closed. */
+async function assertOwnedRuntimePackages(context: AgentExecutionContext,
+  selection: AuthorizedAgentWorkflowPackageSelections): Promise<void> {
+  const database = await openDb();
+  let active = false, discard: Error | undefined;
+  try {
+    await database.run('BEGIN ISOLATION LEVEL SERIALIZABLE'); active = true;
+    await withRevalidatedAgentWorkflowPackageSelectionOnConnection(database, context, selection, async () => undefined);
+    await database.run('COMMIT'); active = false;
+  } catch (error) {
+    if (active) {
+      try { await database.run('ROLLBACK'); }
+      catch (rollbackError) { discard = rollbackError instanceof Error ? rollbackError : new Error('Runtime package rollback could not be confirmed.'); }
+    }
+    throw error;
+  } finally { await database.close(discard); }
+}
+
+/** Durable personal MCP/local-Composio identities can be checked from actual local state.
+ * Managed remote-account readiness is deliberately left to fresh execution authorization. */
+async function verifyOwnedFixedSources(context: AgentExecutionContext,
+  bindings: readonly DelegatedFixedExtensionBinding[]): Promise<unknown[]> {
+  const revisions = await verifyFixedSources(context, bindings);
+  for (const entry of bindings) {
+    const target = entry.entry.target;
+    if (target.kind === 'shared') {
+      if (target.source === 'mcp') {
+        const { resolveSharedMcpBackend } = await import('@/app/lib/mcp/shared-connections');
+        const current = await resolveSharedMcpBackend({ userId: context.userId, organizationId: context.organizationId,
+          workspaceId: context.workspaceId, agentId: context.agentId, sessionId: context.sessionId,
+          policyRevision: 'accepted-turn-source' }, target.connectionRef, 'use');
+        if (current.authorization.resource.bindingRevision !== target.bindingRevision || current.connection.enabled === false) return denied();
+      } else {
+        const { readAuthorizedSharedComposioProfile } = await import('@/app/lib/composio/composio-shared-profiles');
+        const current = await authorizeIntegrationConnection({ userId: context.userId, organizationId: context.organizationId,
+          workspaceId: context.workspaceId, agentId: context.agentId, sessionId: context.sessionId,
+          policyRevision: 'accepted-turn-source' }, target.connectionRef, 'use');
+        if (current.resource.bindingRevision !== target.bindingRevision || current.resource.source !== 'composio') return denied();
+        await readAuthorizedSharedComposioProfile(current);
+      }
+      continue;
+    }
+    const binding = target.personalBinding;
+    if (binding.source === 'composio') {
+      if (binding.mode !== 'local') continue;
+      const { readScopedEnvState } = await import('@/app/lib/integrations/env-config');
+      const { getLocalComposioApiKey } = await import('@/app/lib/composio/composio-client');
+      const system = await readScopedEnvState('integrations', { secretScope: 'legacy' });
+      const personal = await readScopedEnvState('integrations', { secretScope: 'user', userId: context.userId });
+      const key = await getLocalComposioApiKey({ secretScope: 'user', userId: context.userId });
+      const database = await openDb();
+      try {
+        const row = await database.get('SELECT composio_user_id,owner_user_id,scope_type,status FROM composio_connection_profiles WHERE id=$1',
+          [binding.profileId]) as { composio_user_id: string; owner_user_id: string; scope_type: string; status: string } | undefined;
+        if (!row || row.owner_user_id !== context.userId || row.scope_type !== 'user' || row.status !== 'active' || !key) return denied();
+        const credentialRevision = schemaFingerprint([binding.mode, system.revision, personal.revision, key, null]);
+        const fingerprint = createHash('sha256').update(JSON.stringify([binding, row.composio_user_id, credentialRevision,
+          binding.accountBinding === 'no_auth'])).digest('hex');
+        if (fingerprint !== target.bindingFingerprint) return denied();
+      } finally { await database.close(); }
+      continue;
+    }
+    const { resolveMcpConfigPath } = await import('@/app/lib/mcp/config');
+    const { readExistingConfig } = await import('@/app/lib/mcp/read-only-config');
+    const { hashMcpAuthConfig } = await import('@/app/lib/mcp/connection-identity');
+    const { readMcpOAuthLifecycle } = await import('@/app/lib/mcp/oauth-lifecycle');
+    const { listMcpServerDefinitions } = await import('@/app/lib/mcp/server-definitions');
+    const { readUnifiedEnvState, assertUnifiedEnvReadable } = await import('@/app/lib/secrets/unified-env-store');
+    const config = await readExistingConfig(resolveMcpConfigPath({ userId: context.userId }));
+    const matches = Object.values(config.mcpServers).filter(row => row.connectionId === binding.connectionId && row.ownerUserId === context.userId);
+    const connection = matches[0];
+    if (matches.length !== 1 || !connection || (connection.serverDefinitionId ?? null) !== binding.serverDefinitionId) return denied();
+    const lifecycle = await readMcpOAuthLifecycle(binding.connectionId, { userId: context.userId });
+    const environment = await readUnifiedEnvState({ userId: context.userId });
+    assertUnifiedEnvReadable(environment);
+    const definition = binding.serverDefinitionId && connection.organizationId
+      ? (await listMcpServerDefinitions(connection.organizationId)).find(row => row.id === binding.serverDefinitionId) : null;
+    const current = schemaFingerprint([binding.connectionId, context.userId, connection.organizationId || null,
+      hashMcpAuthConfig(connection), connection.enabled !== false, connection.authVersion || 1, lifecycle.generation,
+      environment.revision, definition?.enabled ?? null, definition?.revision ?? null, definition?.config || null]);
+    if (createHash('sha256').update(JSON.stringify(current)).digest('hex') !== target.bindingFingerprint) return denied();
+  }
+  return revisions;
+}
+
+/** SQL-owned message provenance only. This issues no queue claim or business-execution permission. */
+export async function reissueOwnedChatMessageRuntimeSelection(contextInput: AgentExecutionContext,
+  ownedHandle: OwnedAcceptedChatMessage, options: { packageSelection: AuthorizedAgentWorkflowPackageSelections }): Promise<HeldAcceptedTurnRuntimeSelection | null> {
+  const context = { ...contextInput, ...(contextInput.turnExtensions
+    ? { turnExtensions: structuredClone(contextInput.turnExtensions) } : {}) };
   const namespace = turnNamespace(context);
-  const packageSelection = options.packageSelection;
-  if (actorNamespace(intakeContext) !== actorNamespace(context)
-    || JSON.stringify(context.turnExtensions) !== JSON.stringify(accepted.publicSelection)
-    || !isAuthorizedAgentWorkflowPackageSelections(packageSelection, context)) return denied();
-  await assertCurrentActor(context);
-  const revisions = await verifyFixedSources(context, accepted.privateFixedBindings);
-  await assertCurrentActor(context);
-  readAcceptedTurnExtensionSelection(acceptedHandle, intakeContext);
-  if (turnNamespace(contextInput) !== namespace || actorNamespace(intakeContext) !== actorNamespace(context)
-    || !isAuthorizedAgentWorkflowPackageSelections(packageSelection, context)) return denied();
-  const fingerprint = createHash('sha256').update(JSON.stringify([namespace, acceptedHandle.fingerprint,
-    packageSelection.fingerprint, revisions])).digest('hex');
-  const handle = Object.freeze({ kind: 'accepted_turn_runtime_selection' as const, fingerprint });
-  records.set(handle, { namespace, data: Object.freeze({ publicSelection: accepted.publicSelection,
-    privateFixedBindings: accepted.privateFixedBindings }) });
-  return handle;
+  if (context.delegatedExtensionSource) return denied();
+  // This module already participates in admission preflight. Import the SQL
+  // reader only inside the separate replay entry to avoid its import cycle.
+  const { readOwnedAcceptedChatMessage, readOwnedAcceptedChatMessageData } = await import('@/app/lib/pi/durable-message-admission');
+  const original = readOwnedAcceptedChatMessageData(ownedHandle, context);
+  if (original.payload.serverMessageId !== context.agentTurnId
+    || JSON.stringify(context.turnExtensions ?? null) !== JSON.stringify(original.payload.extensionSelection?.publicSelection ?? null)
+    || !isAuthorizedAgentWorkflowPackageSelections(options.packageSelection, context)) return denied();
+  const originalStamp = JSON.stringify(original);
+  const assertOrigin = async () => {
+    if (turnNamespace(contextInput) !== namespace
+      || JSON.stringify(readOwnedAcceptedChatMessageData(ownedHandle, context)) !== originalStamp) return denied();
+    const current = await readOwnedAcceptedChatMessage({ userId: context.userId, sessionId: context.sessionId,
+      clientMessageId: original.payload.clientMessageId, expectedAgentId: original.payload.identity.agentId,
+      expectedWorkspaceId: original.payload.identity.workspaceId });
+    if (!current || JSON.stringify(readOwnedAcceptedChatMessageData(current, context)) !== originalStamp
+      || turnNamespace(contextInput) !== namespace) return denied();
+  };
+  const currentPackages = () => assertOwnedRuntimePackages(context, options.packageSelection);
+  await assertOrigin();
+  if (!original.payload.extensionSelection) {
+    await assertCurrentActor(context);
+    await currentPackages();
+    await assertOrigin();
+    await assertCurrentActor(context);
+    await assertOrigin();
+    if (turnNamespace(contextInput) !== namespace) return denied();
+    return null;
+  }
+  const source = await reissueVerifiedTurnRuntimeSelection(contextInput, context, original.payload.extensionSelection,
+    options.packageSelection, schemaFingerprint(original), assertOrigin, currentPackages, verifyOwnedFixedSources);
+  await verifyOwnedFixedSources(context, original.payload.extensionSelection.privateFixedBindings);
+  // The last package/source await must not hide a changed receipt or execution revision.
+  await assertOrigin();
+  return source;
 }
 
 /** Exact private metadata for the current turn, not cached execution permission. */

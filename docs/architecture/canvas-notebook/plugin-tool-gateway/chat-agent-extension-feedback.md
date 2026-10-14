@@ -1,6 +1,6 @@
 # Gemeinsame Erweiterungsauswahl: Feedback und Besprechungsplan
 
-Besprechungsstand: 14. Oktober 2026. Erneuter Checkpoint auf ausdrücklichen Wunsch: zuerst Feedback und Plan in `docs`, danach gemeinsam optimieren. Die weitere Implementierung ist zurückgestellt. Die nachfolgenden Regeln sind ein konkreter Vorschlag; offene Produktentscheidungen gelten dadurch nicht als bestätigt. Einzelne Implementierungs- und Testnachweise stehen im verlinkten Journal.
+Besprechungsstand: 14. Oktober 2026. Erneuter Checkpoint auf ausdrücklichen Wunsch: zuerst Feedback und Plan in `docs`, danach gemeinsam optimieren. Nach dem anschließenden Umsetzungsauftrag läuft die Implementierung wieder. Die offenen Produktentscheidungen bleiben Vorschläge und gelten dadurch nicht als bestätigt. Einzelne Implementierungs- und Testnachweise stehen im verlinkten Journal.
 
 Dies ist die kurze Produktansicht. Weiterführend: [technischer Gesamtplan](chat-extension-reference-plan.md), [Umsetzungs-/Abnahmejournal](chat-agent-extension-implementation.md), [synthetischer Chat-Wireframe](wireframes/chat-extension-picker.html).
 
@@ -10,14 +10,14 @@ Die Richtung passt: **eine gemeinsame Suche und ein gemeinsames Referenz-/Kontex
 
 Der Stand ist **teilweise umgesetzt**. Plugin-Katalog, genaue Auswahlverträge, Agent-Schreibwege und gemeinsame Kontextaufbereitung sind als Grundlagen vorhanden. Gemeinsame Agent-Editoren sind eingecheckt und inzwischen mit frischem Build, 28 Browserfällen und anschließendem tatsächlichem Tool-Inspect lokal abgenommen. Der Chat verwendet weiterhin getrennte Plugin-/Skill-Listen mit Namen; gemeinsame Turn-Auswahl, Recents und durchgehend dauerhafte Zustellung fehlen. Die interne Aufnahmegrenze 4a ist lokal abgeschlossen: versionierte Speicherung, strenger Codec, vollständige Quellenprüfung und privater SQL-Wiederleser bestehen einschließlich nativer Konkurrenz- und Rollbackprüfungen. Der Dienst ist noch nicht an den tatsächlichen Chat, Queue und Runtime angeschlossen. Ein größerer Slash-Picker allein würde diese Unterschiede bestehen lassen.
 
-Mein Feedback: **Die fachliche Richtung ist richtig; die durchgängige Übergabe im Chat ist die wichtigste Restlücke.** Wir sollten vorhandene Katalog-, Agent- und Kontextbausteine verbinden. Eigene Such- und Promptlogik pro Oberfläche würde dieselben Konto-, Versions- und Rechteprobleme erneut erzeugen. Die vorhandene Quellwiederherstellung für gespeicherte Nachrichten ist begonnen und lokal mit echter SQL-Prüfung untersucht, aber noch uncommittet. Sie ist weder ein fertiger Chat-Anschluss noch eine Ausführungsfreigabe. Dieser Stand belegt auch keinen aktuellen Main- oder Produktionsrollout.
+Mein Feedback: **Die fachliche Richtung ist richtig; die durchgängige Übergabe im Chat ist die wichtigste Restlücke.** Wir sollten vorhandene Katalog-, Agent- und Kontextbausteine verbinden. Eigene Such- und Promptlogik pro Oberfläche würde dieselben Konto-, Versions- und Rechteprobleme erneut erzeugen. Die Quellwiederherstellung für gespeicherte Nachrichten (4b1) ist inzwischen implementiert und lokal mit echter SQL-Prüfung abgenommen. Sie ist weder ein fertiger Chat-Anschluss noch eine Ausführungsfreigabe. Dieser Stand belegt auch keinen aktuellen Main- oder Produktionsrollout.
 
 | Bereich | Aktueller lokaler Stand | Noch notwendig |
 | --- | --- | --- |
 | Plugin-Seite | Gemeinsamer Vier-Typen-Katalog und vorhandene Logoquellen umgesetzt | Dieselben Identitäten und Darstellungskomponenten in den weiteren Flächen verwenden |
 | Agent-Erstellung und Agent-Tool | Gemeinsame Optionen, Auswahl und Vorschau; Tool/UI-Roundtrip lokal abgenommen | Beim Chat-Anschluss die feste Auswahl und die jeweiligen Nutzungsgrenzen erhalten |
 | System-/Turn-Kontext | Gemeinsamer Resolver und registrierungsabhängige Tool-Rezepte vorhanden | Für jede tatsächlich gestartete Chat-Nachricht frisch und passend einsetzen |
-| Nachrichtenannahme | Dauerhafte interne Annahme und privater SQL-Wiederleser geprüft | Ausführungsbesitz, Runtime, Queue, Steer, Retry und Wiederaufnahme anschließen |
+| Nachrichtenannahme | Dauerhafte interne Annahme, privater SQL-Wiederleser und frische Quellwiederherstellung geprüft | Ausführungsbesitz, Runtime, Queue, Steer, Retry und Wiederaufnahme anschließen |
 | Chat-Suche | Bisher getrennte Skill-/Plugin-Einstiege | Gemeinsamer Picker, genaue Chips, Einrichtung mit Rückkehr und Recents |
 
 ## Gleiche Auswahl, erkennbare Wirkung
