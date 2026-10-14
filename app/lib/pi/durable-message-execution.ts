@@ -6,13 +6,14 @@ import { AgentWorkflowError, isAgentWorkflowError } from '@/app/lib/agents/workf
 import { isAgentActorContextError } from '@/app/lib/agents/actor-context';
 import { executeLifecycleTransaction } from '@/app/lib/collaboration/lifecycle-transaction';
 import {
-  readOwnedAcceptedChatMessageOnConnection,
   readOwnedChatMessageExecutionSnapshot,
   readOwnedChatMessageSettlementSnapshotOnConnection,
   type OwnedAcceptedChatMessage,
   type OwnedChatMessageExecutionSnapshot,
 } from './durable-message-admission';
 import type { RegisteredPiRuntimeExecutionOwner } from './live-runtime';
+import { sameDurableChatMessage, sameDurableChatMessageState, compareAndSetDurableChatMessage,
+  readCurrentDurableChatMessageWithUse } from './durable-message-row-state';
 
 export type ChatMessageExecutionClaim = Readonly<{ kind: 'chat_message_execution_claim' }>;
 export type ChatMessageExecutionOutcome = 'succeeded' | 'failed' | 'cancelled' | 'outcome_unknown';
@@ -54,12 +55,10 @@ function nextRevision(snapshot: Snapshot): number {
   return snapshot.executionRevision + 1;
 }
 function sameMessage(left: Snapshot, right: Snapshot): boolean {
-  return left.sessionDbId === right.sessionDbId && left.hash === right.hash
-    && JSON.stringify(left.payload) === JSON.stringify(right.payload);
+  return sameDurableChatMessage(left, right);
 }
 function sameState(left: Snapshot, right: Snapshot): boolean {
-  return sameMessage(left, right) && left.phase === right.phase
-    && left.executionRevision === right.executionRevision && left.runtimeToken === right.runtimeToken;
+  return sameDurableChatMessageState(left, right);
 }
 function sameOwner(left: OwnerData, right: OwnerData): boolean {
   return left.token === right.token && left.userId === right.userId && left.sessionId === right.sessionId
@@ -105,24 +104,22 @@ async function lockRows(database: SqlConnection, original: Snapshot, requireUse:
   if (!row) conflict();
 }
 async function assertSessionAvailable(database: SqlConnection, snapshot: Snapshot): Promise<void> {
+  if (snapshot.phase === 'queued' && (!snapshot.queue || snapshot.queue.disposition !== 'ready')) conflict();
   const other = await database.get(`SELECT client_message_id FROM pi_message_delivery_receipts
-    WHERE pi_session_db_id=$1 AND client_message_id<>$2 AND execution_phase IN ('dispatching','running') LIMIT 1`,
-  [snapshot.sessionDbId, snapshot.payload.clientMessageId]);
+    WHERE pi_session_db_id=$1 AND client_message_id<>$2 AND (
+      execution_phase IN ('dispatching','running','outcome_unknown')
+      OR payload_version IS NULL
+      OR (execution_phase='queued' AND (queue_ordinal IS NULL OR
+        (queue_disposition='ready' AND queue_ordinal<$3)))) LIMIT 1`,
+  [snapshot.sessionDbId, snapshot.payload.clientMessageId, snapshot.queue?.ordinal ?? null]);
   // Even the same runtime must settle its prior message at a verified handoff.
   // A timestamp, missing RAM instance or token copied from SQL never permits stealing it.
+  // Legacy 'accepted' meant queue acknowledgement, not completed tools. It also
+  // needs explicit resolution; no payloadless row is silently treated as done.
   if (other) conflict();
 }
 async function readCurrentWithUse(database: SqlConnection, original: Snapshot): Promise<CurrentRow> {
-  const { identity, clientMessageId } = original.payload;
-  let message: OwnedAcceptedChatMessage | null;
-  try {
-    message = await readOwnedAcceptedChatMessageOnConnection(database, { userId: identity.userId, sessionId: identity.sessionId,
-      clientMessageId, expectedAgentId: identity.agentId, expectedWorkspaceId: identity.workspaceId });
-  } catch (error) { return throwUseFailure(error); }
-  if (!message) conflict();
-  const snapshot = readOwnedChatMessageExecutionSnapshot(message);
-  if (!sameMessage(original, snapshot)) conflict();
-  return { message, snapshot };
+  return readCurrentDurableChatMessageWithUse(database, original);
 }
 
 /** Commit awaits can invalidate the owner or revoke Use after the in-transaction checks. */
@@ -148,14 +145,10 @@ async function confirmCommittedUse(current: CurrentRow, owner: RegisteredPiRunti
   }
 }
 async function compareAndSet(database: SqlConnection, previous: Snapshot, desired: Snapshot): Promise<void> {
-  const row = await database.get(`UPDATE pi_message_delivery_receipts
-    SET execution_phase=$1,execution_revision=$2,runtime_token=$3,updated_at=$4
-    WHERE pi_session_db_id=$5 AND client_message_id=$6 AND payload_hash=$7 AND execution_phase=$8
-      AND execution_revision=$9 AND runtime_token=$10 AND state='accepted' AND payload_version=1
-    RETURNING client_message_id`, [desired.phase, desired.executionRevision, desired.runtimeToken, Date.now(), previous.sessionDbId,
-    previous.payload.clientMessageId, previous.hash, previous.phase, previous.executionRevision, previous.runtimeToken]);
-  if (!row) conflict();
+  return compareAndSetDurableChatMessage(database, previous, desired);
 }
+
+export { promoteOwnedQueuedChatMessage, cancelOwnedQueuedChatMessages, resumeOwnedQueuedChatMessages } from './durable-message-queue';
 
 /** No callback may start a model/tool. Claims are issued only after confirmed COMMIT/recovery. */
 async function transitionWithUse(input: {

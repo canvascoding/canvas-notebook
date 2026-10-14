@@ -30,6 +30,8 @@ import type { AgentExecutionContext } from './agent-execution-context';
 import { MessageDeliveryError } from './message-delivery-receipt';
 
 export type ChatMessageExecutionPhase = 'queued' | 'dispatching' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'outcome_unknown';
+export type ChatMessageQueueLane = 'prompt' | 'follow_up' | 'steer';
+export type ChatMessageQueueState = Readonly<{ lane: ChatMessageQueueLane; ordinal: number; disposition: 'ready' | 'suspended' }>;
 export type PreparedChatMessageAdmission = Readonly<{ kind: 'prepared_chat_message_admission' }>;
 /** Provenance of an actual owned SQL row. This is not permission to execute it. */
 export type OwnedAcceptedChatMessage = Readonly<{ kind: 'owned_accepted_chat_message' }>;
@@ -42,17 +44,18 @@ export type ChatMessageAdmissionInput = ChatMessageAdmissionIdentity & {
 };
 type ActorFrame = { sessionDbId: number; identity: MessageIdentity; context: AgentExecutionContext };
 type ReceiptRow = { client_message_id: string; payload_hash: string; state: string; payload_version: unknown;
-  private_payload: unknown; execution_phase: unknown; execution_revision: unknown; runtime_token: unknown };
+  private_payload: unknown; execution_phase: unknown; execution_revision: unknown; runtime_token: unknown;
+  queue_lane: unknown; queue_ordinal: unknown; queue_disposition: unknown };
 type PreparedRecord = { payload: StoredAcceptedChatMessage; hash: string; actor: ActorFrame;
   intake: AcceptedTurnExtensionSelection | null; intakeContext: AgentExecutionContext;
   runtimeContext: AgentExecutionContext; packages: AuthorizedAgentWorkflowPackageSelections;
   workflowProjection: AgentWorkflowRuntimeProjection | null };
 type OwnedRecord = { payload: StoredAcceptedChatMessage; hash: string; sessionDbId: number;
-  phase: ChatMessageExecutionPhase; executionRevision: number; runtimeToken: string; actor: ActorFrame };
+  phase: ChatMessageExecutionPhase; executionRevision: number; runtimeToken: string; queue: ChatMessageQueueState | null; actor: ActorFrame };
 /** Server-internal bookkeeping data; neither this DTO nor its token issues authority. */
 export type OwnedChatMessageExecutionSnapshot = Readonly<{
   payload: StoredAcceptedChatMessage; hash: string; sessionDbId: number;
-  phase: ChatMessageExecutionPhase; executionRevision: number; runtimeToken: string;
+  phase: ChatMessageExecutionPhase; executionRevision: number; runtimeToken: string; queue: ChatMessageQueueState | null;
 }>;
 const host = globalThis as typeof globalThis & {
   __canvasDurableMessageAdmissionV1?: { prepared: WeakMap<object, PreparedRecord>; owned: WeakMap<object, OwnedRecord> };
@@ -85,7 +88,7 @@ function assertContext(identity: MessageIdentity, context: ChatRequestContext): 
 /** Read only actual stored assignments; no default Agent/workspace or bootstrap. */
 async function readActor(database: SqlConnection, input: ChatMessageAdmissionIdentity, lockSession = false): Promise<ActorFrame> {
   const session = await database.get(`SELECT id,agent_id,workspace_id FROM pi_sessions
-    WHERE user_id=$1 AND session_id=$2 AND archived_at IS NULL LIMIT 1${lockSession ? ' FOR SHARE' : ''}`,
+    WHERE user_id=$1 AND session_id=$2 AND archived_at IS NULL LIMIT 1${lockSession ? ' FOR UPDATE' : ''}`,
   [input.userId, input.sessionId]) as { id: unknown; agent_id: unknown; workspace_id: unknown } | undefined;
   if (!session || typeof session.agent_id !== 'string' || !session.agent_id || typeof session.workspace_id !== 'string' || !session.workspace_id
     || input.expectedAgentId !== undefined && input.expectedAgentId !== session.agent_id
@@ -127,7 +130,15 @@ function parseOwnedRecord(actor: ActorFrame, row: ReceiptRow, expectedHash?: str
   const phase = row.execution_phase as ChatMessageExecutionPhase, executionRevision = Number(row.execution_revision);
   if (!phases.has(phase) || !Number.isSafeInteger(executionRevision) || executionRevision < 1
     || typeof row.runtime_token !== 'string' || !row.runtime_token || row.runtime_token.length > 128) corrupt();
-  return { payload, hash, sessionDbId: actor.sessionDbId, phase, executionRevision, runtimeToken: row.runtime_token, actor };
+  let queue: ChatMessageQueueState | null = null;
+  if (row.queue_lane !== null || row.queue_ordinal !== null || row.queue_disposition !== null) {
+    const ordinal = Number(row.queue_ordinal);
+    if (!['prompt', 'follow_up', 'steer'].includes(String(row.queue_lane))
+      || !Number.isSafeInteger(ordinal) || ordinal < 1 || !['ready', 'suspended'].includes(String(row.queue_disposition))) corrupt();
+    queue = Object.freeze({ lane: row.queue_lane as ChatMessageQueueLane, ordinal,
+      disposition: row.queue_disposition as 'ready' | 'suspended' });
+  }
+  return { payload, hash, sessionDbId: actor.sessionDbId, phase, executionRevision, runtimeToken: row.runtime_token, queue, actor };
 }
 
 function issueOwned(actor: ActorFrame, row: ReceiptRow, expectedHash?: string): OwnedAcceptedChatMessage {
@@ -138,7 +149,8 @@ function issueOwned(actor: ActorFrame, row: ReceiptRow, expectedHash?: string): 
 }
 
 async function receipt(database: SqlConnection, actor: ActorFrame, id: string): Promise<ReceiptRow | undefined> {
-  return await database.get(`SELECT client_message_id,payload_hash,state,payload_version,private_payload,execution_phase,execution_revision,runtime_token
+  return await database.get(`SELECT client_message_id,payload_hash,state,payload_version,private_payload,execution_phase,execution_revision,runtime_token,
+    queue_lane,queue_ordinal,queue_disposition
     FROM pi_message_delivery_receipts WHERE pi_session_db_id=$1 AND client_message_id=$2`, [actor.sessionDbId, id]) as ReceiptRow | undefined;
 }
 async function assertNoHistoricalMessage(database: SqlConnection, actor: ActorFrame, id: string): Promise<void> {
@@ -168,7 +180,7 @@ export async function readOwnedAcceptedChatMessageOnConnection(database: SqlConn
 function executionSnapshot(record: OwnedRecord): OwnedChatMessageExecutionSnapshot {
   if (typeof record.runtimeToken !== 'string' || !record.runtimeToken) denied();
   return Object.freeze({ payload: record.payload, hash: record.hash, sessionDbId: record.sessionDbId,
-    phase: record.phase, executionRevision: record.executionRevision, runtimeToken: record.runtimeToken });
+    phase: record.phase, executionRevision: record.executionRevision, runtimeToken: record.runtimeToken, queue: record.queue });
 }
 
 /** A genuine held row is required; a copied snapshot or token cannot acquire an execution claim. */
@@ -199,13 +211,13 @@ export async function readOwnedChatMessageSettlementSnapshotOnConnection(databas
 
 /** Private provenance metadata only. Every later dispatch must recheck current execution authority. */
 export function readOwnedAcceptedChatMessageData(handle: OwnedAcceptedChatMessage, context: AgentExecutionContext): Readonly<{
-  payload: StoredAcceptedChatMessage; phase: ChatMessageExecutionPhase; executionRevision: number;
+  payload: StoredAcceptedChatMessage; phase: ChatMessageExecutionPhase; executionRevision: number; queue: ChatMessageQueueState | null;
   rowIdentity: Readonly<{ sessionDbId: number; clientMessageId: string }>;
 }> {
   const record = handle && typeof handle === 'object' ? records.owned.get(handle) : undefined;
   if (!record || actorStamp(record.actor.context) !== actorStamp(context)
     || context.agentTurnId !== undefined && context.agentTurnId !== record.payload.serverMessageId) denied();
-  return Object.freeze({ payload: record.payload, phase: record.phase, executionRevision: record.executionRevision,
+  return Object.freeze({ payload: record.payload, phase: record.phase, executionRevision: record.executionRevision, queue: record.queue,
     rowIdentity: Object.freeze({ sessionDbId: record.sessionDbId, clientMessageId: record.payload.clientMessageId }) });
 }
 
@@ -273,10 +285,15 @@ export async function prepareChatMessageAdmission(input: ChatMessageAdmissionInp
 }
 
 /** Atomic payload/identity admission only. Existing runtime queues are attached in the next integration step. */
-export async function commitPreparedChatMessageAdmission(admission: PreparedChatMessageAdmission): Promise<OwnedAcceptedChatMessage> {
+export async function commitPreparedChatMessageAdmission(admission: PreparedChatMessageAdmission,
+  options: Readonly<{ lane?: ChatMessageQueueLane }> = {}): Promise<OwnedAcceptedChatMessage> {
   const prepared = admission && typeof admission === 'object' ? records.prepared.get(admission) : undefined;
   if (!prepared) denied();
   const { payload, hash } = prepared;
+  const lane = options.lane ?? (payload.mode === 'steer' ? 'steer' : 'prompt');
+  if (!['prompt', 'follow_up', 'steer'].includes(lane) || (payload.mode === 'steer') !== (lane === 'steer')) {
+    throw new AgentWorkflowError('AGENT_MESSAGE_ADMISSION_INVALID', 'The initial queue lane does not match the admitted message mode.', 400);
+  }
   const identity = { userId: payload.identity.userId, sessionId: payload.identity.sessionId, clientMessageId: payload.clientMessageId,
     expectedAgentId: payload.identity.agentId, expectedWorkspaceId: payload.identity.workspaceId };
   const database = await openDb();
@@ -303,14 +320,22 @@ export async function commitPreparedChatMessageAdmission(admission: PreparedChat
       const existing = await receipt(database, current, payload.clientMessageId);
       if (existing) return issueOwned(current, existing, hash);
       await assertNoHistoricalMessage(database, current, payload.clientMessageId);
+      // Allocate under the exclusive Session lock, after all source/Agent locks.
+      // Never upgrade a held Session SHARE lock in a concurrent admission.
+      const maximum = await database.get(`UPDATE pi_sessions SET message_queue_ordinal=message_queue_ordinal+1
+        WHERE id=$1 AND message_queue_ordinal<9007199254740991 RETURNING message_queue_ordinal AS ordinal`,
+      [current.sessionDbId]) as { ordinal: unknown } | undefined;
+      const ordinal = Number(maximum?.ordinal);
+      if (!Number.isSafeInteger(ordinal) || ordinal < 1) corrupt();
       const now = Date.now();
       const inserted = await database.get(`INSERT INTO pi_message_delivery_receipts
         (pi_session_db_id,client_message_id,payload_hash,runtime_token,state,created_at,updated_at,
-         payload_version,private_payload,execution_phase,execution_revision)
-        VALUES ($1,$2,$3,'unclaimed','accepted',$4,$4,1,$5,'queued',1)
+         payload_version,private_payload,execution_phase,execution_revision,queue_lane,queue_ordinal,queue_disposition)
+        VALUES ($1,$2,$3,'unclaimed','accepted',$4,$4,1,$5,'queued',1,$6,$7,'ready')
         ON CONFLICT (pi_session_db_id,client_message_id) DO NOTHING
-        RETURNING client_message_id,payload_hash,state,payload_version,private_payload,execution_phase,execution_revision,runtime_token`,
-      [current.sessionDbId, payload.clientMessageId, hash, now, JSON.stringify(payload)]) as ReceiptRow | undefined;
+        RETURNING client_message_id,payload_hash,state,payload_version,private_payload,execution_phase,execution_revision,runtime_token,
+          queue_lane,queue_ordinal,queue_disposition`,
+      [current.sessionDbId, payload.clientMessageId, hash, now, JSON.stringify(payload), lane, ordinal]) as ReceiptRow | undefined;
       const row = inserted ?? await receipt(database, current, payload.clientMessageId);
       if (!row) corrupt();
       return issueOwned(current, row, hash);

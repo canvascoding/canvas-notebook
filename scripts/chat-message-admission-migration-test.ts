@@ -29,7 +29,7 @@ async function main(): Promise<void> {
     const freshSql = createTableSql(piMessageDeliveryReceipts);
     for (const check of schemaConfig.checks) assert(freshSql.includes(`CONSTRAINT "${check.name}"`), check.name);
     const freshConstraints = await constraintDefinitions(database);
-    assert.equal(freshConstraints.length, 3);
+    assert.equal(freshConstraints.length, schemaConfig.checks.length);
     assert.match(String(freshConstraints.find(row => row.conname === 'pi_message_delivery_receipts_state_check')?.definition),
       /dispatching.*accepted/u);
     const columns = (await database.query(`SELECT column_name, data_type, is_nullable, column_default

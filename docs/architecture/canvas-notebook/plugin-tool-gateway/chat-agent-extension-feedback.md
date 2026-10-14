@@ -1,6 +1,6 @@
 # Gemeinsame Erweiterungsauswahl: Feedback und Besprechungsplan
 
-Besprechungsstand: 14. Oktober 2026. Aktueller Checkpoint auf ausdrücklichen Wunsch: zuerst Feedback und Plan in `docs`, danach gemeinsam optimieren. Bereits abgeschlossene Implementierung aus vorausgegangenen Aufträgen wird unten als Grundlage eingeordnet. Dieser Checkpoint beginnt keinen weiteren Produktumbau. Die offenen Produktentscheidungen bleiben Vorschläge und gelten dadurch nicht als bestätigt. Einzelne Implementierungs- und Testnachweise stehen im verlinkten Journal.
+Besprechungsstand: 14. Oktober 2026. Feedback und Plan wurden auf ausdrücklichen Wunsch zuerst in `docs` gesichert. Die folgende Produktansicht ordnet den inzwischen fortgesetzten Umsetzungsstand ein; einzelne Implementierungs- und Testnachweise stehen im verlinkten Journal. Die offenen Produktentscheidungen bleiben Vorschläge und gelten durch einen Umsetzungsauftrag nicht automatisch als bestätigt.
 
 Dies ist die kurze Produktansicht. Weiterführend: [technischer Gesamtplan](chat-extension-reference-plan.md), [Umsetzungs-/Abnahmejournal](chat-agent-extension-implementation.md), [synthetischer Chat-Wireframe](wireframes/chat-extension-picker.html).
 
@@ -17,7 +17,7 @@ Mein Feedback: **Die fachliche Richtung ist richtig; die durchgängige Übergabe
 | Plugin-Seite | Gemeinsamer Vier-Typen-Katalog und vorhandene Logoquellen umgesetzt | Dieselben Identitäten und Darstellungskomponenten in den weiteren Flächen verwenden |
 | Agent-Erstellung und Agent-Tool | Gemeinsame Optionen, Auswahl und Vorschau; Tool/UI-Roundtrip lokal abgenommen | Beim Chat-Anschluss die feste Auswahl und die jeweiligen Nutzungsgrenzen erhalten |
 | System-/Turn-Kontext | Gemeinsamer Resolver und registrierungsabhängige Tool-Rezepte vorhanden | Für jede tatsächlich gestartete Chat-Nachricht frisch und passend einsetzen |
-| Nachrichtenannahme | Interne Annahme, frische Quellen und exklusiver Ausführungsbesitz geprüft | Runtime, Queue, Steer, Retry und Wiederaufnahme anschließen |
+| Nachrichtenannahme | Interne Annahme, frische Quellen, exklusiver Ausführungsbesitz und Queue-Steuerung geprüft | Atomisches Ersetzen und Wiederaufnahme ergänzen; tatsächliche Runtime, Queue und Transport anschließen |
 | Chat-Suche | Bisher getrennte Skill-/Plugin-Einstiege | Gemeinsamer Picker, genaue Chips, Einrichtung mit Rückkehr und Recents |
 
 ## Gleiche Auswahl, erkennbare Wirkung
@@ -127,6 +127,8 @@ Jeder Integrationsschritt wird abgeschlossen, bevor der nächste beginnt. **Die 
 Vor Schritt 2 werden vier Vertragsfragen verbindlich präzisiert: eigenes Chat-Turn-Ziel mit Use- statt Edit-Rechten und tatsächlichem Session-/Workspace-Kontext; explizite Slot-/Revisionszuordnung bei erlaubtem Turn-Accountwechsel; gemeinsames 8-KiB-Budget aus fester und zusätzlicher Auswahl; eindeutige alte `/name`-Referenzen früh in genaue Referenzen übersetzen und durch denselben dauerhaften Annahmepfad führen. Ein weiterer Konto-Chip allein überschreibt keine Plugin-Bindung.
 
 Schritt 2 wird intern in überprüfbare Teile zerlegt: gespeicherte Auswahl mit frischen Rechten wiederlesen und exklusiven Ausführungsbesitz samt Revision sichern (beide intern lokal geprüft); dann die bestehende Runtime und Queue anschließen; anschließend Transport und Composer. Jede Nachricht behält ihre eigene Server-ID, ihren Paketstand und ihre konkreten Accounts. Sicher unbegonnene Aufträge können nach erneuter Prüfung wiederaufgenommen werden. Bei möglicherweise bereits ausgeführten Geschäftsaktionen wird der ungewisse Zustand angezeigt und nicht automatisch erneut ausgeführt. Reload, tatsächlicher Serverneustart und verlorene Send-Bestätigung benötigen jeweils einen eigenen Nachweis.
+
+Die interne Queue-Steuerung ist inzwischen ebenfalls lokal mit tatsächlichem PostgreSQL geprüft: Vorziehen stellt ältere wartende Nachrichten atomar zurück; Fortsetzen betrifft ausdrücklich benannte unbegonnene Aufträge; Entfernen cancelt genau die erwarteten Versionen. Die bestehende sichtbare RAM-/SDK-Queue verwendet diese Dienste noch nicht. Alte reine Zustellbestätigungen und `outcome_unknown` sperren die automatische Folgeausführung. Der spätere Nutzerweg muss den blockierenden Auftrag erklären und eine neue Sitzung oder einen eigenen ausdrücklichen Auflösungsschritt anbieten.
 
 Queue-Aktionen haben eindeutige Wirkungen: „Vorziehen“ ändert die Zustellreihenfolge derselben Nachricht; „Entfernen“ cancelt den wartenden Auftrag; „Bearbeiten und ersetzen“ nimmt einen neuen Auftrag auf und cancelt die betroffenen wartenden Aufträge gemeinsam. Erst die dauerhafte Bestätigung ändert die sichtbare Queue. Eine bereits vom SDK abgeholte, inzwischen entfernte Nachricht muss vor dem Modellstart ebenfalls gestoppt werden. „Abgebrochen“ bestätigt den Ausführungszustand und behauptet keine Rücknahme früherer Geschäftsaktionen.
 

@@ -1732,6 +1732,7 @@ export const piSessions = pgTable("pi_sessions", {
   summaryThroughTimestamp: bigint("summary_through_timestamp", { mode: "number" }),
   summaryThroughSequence: bigint("summary_through_sequence", { mode: "number" }),
   summaryRevision: bigint("summary_revision", { mode: "number" }).notNull().default(0),
+  messageQueueOrdinal: bigint("message_queue_ordinal", { mode: "number" }).notNull().default(0),
   systemPromptSnapshot: text("system_prompt_snapshot"),
   systemPromptSnapshotHash: text("system_prompt_snapshot_hash"),
   systemPromptSnapshotCreatedAt: pgTimestamp("system_prompt_snapshot_created_at"),
@@ -1771,6 +1772,7 @@ export const piSessions = pgTable("pi_sessions", {
   delegationIdx: index("idx_pi_sessions_delegation").on(table.userId, table.delegationId),
   sessionKindCheck: check("pi_sessions_session_kind_check", sql`${table.sessionKind} IN ('conversation', 'delegation_worker')`),
   delegationDepthCheck: check("pi_sessions_delegation_depth_check", sql`${table.delegationDepth} IN (0, 1)`),
+  messageQueueOrdinalCheck: check("pi_sessions_message_queue_ordinal_check", sql`${table.messageQueueOrdinal} BETWEEN 0 AND 9007199254740991`),
 }));
 
 // Legacy receipts contain only a delivery hash. Versioned admissions additionally
@@ -1785,6 +1787,9 @@ export const piMessageDeliveryReceipts = pgTable("pi_message_delivery_receipts",
   privatePayload: text("private_payload"),
   executionPhase: text("execution_phase"),
   executionRevision: bigint("execution_revision", { mode: "number" }),
+  queueLane: text("queue_lane"),
+  queueOrdinal: bigint("queue_ordinal", { mode: "number" }),
+  queueDisposition: text("queue_disposition"),
   createdAt: pgTimestamp("created_at").notNull(),
   updatedAt: pgTimestamp("updated_at").notNull(),
 }, (table) => ({
@@ -1799,6 +1804,15 @@ export const piMessageDeliveryReceipts = pgTable("pi_message_delivery_receipts",
   )`),
   privatePayloadSizeCheck: check("pi_message_delivery_receipts_private_payload_size_check",
     sql`${table.privatePayload} IS NULL OR octet_length(${table.privatePayload}) <= 4194304`),
+  queueShapeCheck: check("pi_message_delivery_receipts_queue_shape_check", sql`(
+    (${table.queueLane} IS NULL AND ${table.queueOrdinal} IS NULL AND ${table.queueDisposition} IS NULL)
+    OR (${table.payloadVersion} = 1 AND ${table.state} = 'accepted'
+      AND ${table.queueLane} IN ('prompt', 'follow_up', 'steer')
+      AND ${table.queueOrdinal} BETWEEN 1 AND 9007199254740991
+      AND ${table.queueDisposition} IN ('ready', 'suspended')) IS TRUE
+  )`),
+  queueOrdinalIdx: uniqueIndex("idx_pi_message_delivery_receipts_queue_ordinal")
+    .on(table.piSessionDbId, table.queueOrdinal).where(sql`${table.queueOrdinal} IS NOT NULL`),
 }));
 
 export const piSessionCompactionAttempts = pgTable("pi_session_compaction_attempts", {

@@ -122,10 +122,13 @@ async function main(): Promise<void> {
     await execution.finishClaimedChatMessageExecution(secondClaim, 'failed'); await phase('second', 'failed', 3);
     for (const outcome of ['failed', 'cancelled', 'outcome_unknown'] as const) {
       const id = `terminal-${outcome}`;
-      const current = await execution.claimOwnedChatMessageExecution(await admit(id), owner);
+      const activeFrame = outcome === 'outcome_unknown'
+        ? await fixture.createSessionRuntime({ userId: 'alice', agentId: frame.agentId }) : frame;
+      const activeOwner = outcome === 'outcome_unknown' ? await runtime.getRegisteredPiRuntimeExecutionOwner(activeFrame.runtime) : owner;
+      const current = await execution.claimOwnedChatMessageExecution(await admit(id, activeFrame), activeOwner);
       const running = await execution.startClaimedChatMessageExecution(current);
       await execution.finishClaimedChatMessageExecution(running.claim, outcome);
-      await phase(id, outcome, 4);
+      await phase(id, outcome, 4, activeFrame);
     }
 
     stage = 'fresh Use on claim/start and genuine terminal bookkeeping after revocation';
@@ -134,6 +137,7 @@ async function main(): Promise<void> {
     try { await assert.rejects(execution.claimOwnedChatMessageExecution(claimDeniedMessage, owner), denied); }
     finally { await sql(database => database.run('UPDATE "user" SET banned=0 WHERE id=$1', [frame.userId])); }
     await phase('claim-denied', 'queued', 1);
+    await execution.cancelOwnedQueuedChatMessages([await fresh('claim-denied')]);
     const startDenied = await execution.claimOwnedChatMessageExecution(await admit('start-denied'), owner);
     await sql(database => database.run("UPDATE canvas_workspaces SET status='archived' WHERE id=$1", [frame.context.workspaceId]));
     try {
@@ -141,7 +145,9 @@ async function main(): Promise<void> {
       await execution.finishClaimedChatMessageExecution(startDenied, 'cancelled');
       await phase('start-denied', 'cancelled', 3);
     } finally { await sql(database => database.run("UPDATE canvas_workspaces SET status='active' WHERE id=$1", [frame.context.workspaceId])); }
-    const revoked = await execution.startClaimedChatMessageExecution(await execution.claimOwnedChatMessageExecution(await admit('finish-revoked'), owner));
+    const revokedFrame = await fixture.createSessionRuntime({ userId: 'alice', agentId: frame.agentId });
+    const revokedOwner = await runtime.getRegisteredPiRuntimeExecutionOwner(revokedFrame.runtime);
+    const revoked = await execution.startClaimedChatMessageExecution(await execution.claimOwnedChatMessageExecution(await admit('finish-revoked', revokedFrame), revokedOwner));
     const management = await import('../app/lib/agents/management-actions');
     const actor = { ...app.owner, source: 'api' as const };
     const inspected = await management.inspectManagedAgent(actor, frame.agentId);
@@ -149,13 +155,13 @@ async function main(): Promise<void> {
       targetType: 'user', targetId: frame.userId });
     try {
       await execution.finishClaimedChatMessageExecution(revoked.claim, 'outcome_unknown');
-      await phase('finish-revoked', 'outcome_unknown', 4);
+      await phase('finish-revoked', 'outcome_unknown', 4, revokedFrame);
     } finally { await management.setManagedAgentGrant({ actor, agentId: frame.agentId, expectedRevision: removed.agent.revision,
       targetType: 'user', targetId: frame.userId, canUse: true, canEdit: false, canManage: false }); }
 
     stage = 'disposed and replaced actual runtime registrations';
-    const staleMessage = await admit('old-owner');
     const staleClaim = await execution.claimOwnedChatMessageExecution(await admit('old-owner-claimed'), owner);
+    const staleMessage = await admit('old-owner');
     await runtime.invalidatePiRuntime(frame.sessionId, frame.userId);
     await assert.rejects(runtime.readRegisteredPiRuntimeExecutionOwner(owner), ownerChanged);
     await assert.rejects(execution.claimOwnedChatMessageExecution(staleMessage, owner), denied);
@@ -339,6 +345,7 @@ async function main(): Promise<void> {
         await new Promise(resolve => setTimeout(resolve, 20));
       }
       await phase(discardId, 'queued', 1, peer);
+      await execution.cancelOwnedQueuedChatMessages([await fresh(discardId, peer)]);
 
       stage = 'two actual processes serialize same and different SQL message claims';
       const { runDurableExecutionClaimRace } = await import('./helpers/durable-message-execution-workers');
@@ -347,6 +354,9 @@ async function main(): Promise<void> {
         const raced = await runDurableExecutionClaimRace({ fixture, session: { userId: peer.userId, sessionId: peer.sessionId, agentId: peer.agentId }, clientMessageIds: ids });
         assert.equal(raced.outcomes.filter(value => value.outcome === 'claimed').length, 1);
         assert.equal(raced.outcomes.filter(value => value.outcome === 'conflict').length, 1);
+        for (const queued of raced.afterSettlement.filter(value => value.phase === 'queued')) {
+          await execution.cancelOwnedQueuedChatMessages([await fresh(queued.clientMessageId, peer)]);
+        }
       }
 
       stage = 'discard failure never confirms or retries a committed claim';
@@ -389,7 +399,7 @@ async function main(): Promise<void> {
     const counts = fixture.counts(); assert.equal(counts.forbiddenModelRequests, 0); assert.equal(counts.externalRequests, 0);
     assert.equal((await sql(database => database.all('SELECT id FROM pi_messages'))).length, 0);
     assert.equal(Number((await sql(database => database.get('SELECT COUNT(*) AS count FROM file_agent_turns')) as { count: number }).count), 0);
-    console.log(`PASS durable message execution SQL (${native ? 'actual PostgreSQL pool2' : 'actual PGlite'}): genuine registered runtime owners, one-shot phase/revision CAS, session exclusivity, fresh Use, stale/clone rejection, terminal bookkeeping, exact lost-COMMIT confirmation; no model/business execution, queue or retry/restart claim.`);
+    console.log(`PASS durable message execution SQL (${native ? 'actual PostgreSQL pool2' : 'actual PGlite'}): genuine registered runtime owners, one-shot phase/revision CAS, session exclusivity, fresh Use, stale/clone rejection, terminal bookkeeping, exact lost-COMMIT confirmation; no model/business execution, automatic retry or restart-recovery claim.`);
   } catch (error) { console.error(`Durable execution SQL stage: ${stage}`); throw error; }
   finally { await fixture.close(); }
 }
