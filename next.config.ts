@@ -71,6 +71,9 @@ const nextConfig: NextConfig = {
   },
   serverExternalPackages: externalPackages,
   outputFileTracingIncludes: {
+    ...(process.platform === 'darwin' ? {
+      '/*': [`./native/fd-publication/darwin-${process.arch}/**/*`],
+    } : {}),
     '/api/chat/tool-apps': ['./public/_canvas-tool-apps/*.html'],
     '/api/mobile/v1/sessions/*/mcp-apps/render': ['./public/_canvas-tool-apps/mobile-mcp-host-v1.js'],
     '/__preview/*/mobile-mcp/*': ['./public/_canvas-tool-apps/mobile-mcp-host-v1.js'],

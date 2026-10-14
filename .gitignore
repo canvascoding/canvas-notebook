@@ -110,3 +110,4 @@ docs/*
 
 /packages/decision-models/dist/
 /release-app-build/
+/native/fd-publication/
