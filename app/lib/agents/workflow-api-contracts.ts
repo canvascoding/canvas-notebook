@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { agentWorkflowConfigurationSchema } from './workflow-contracts';
+import { agentWorkflowConfigurationSchema } from './workflow-public-contracts';
 import type { setManagedAgentWorkflowChoice } from './workflow-configuration';
 import { agentExtensionConfigurationInputSchema, standaloneExtensionInputSchema } from '@/app/lib/capabilities/extensions/contracts';
 
@@ -18,7 +18,7 @@ function checkExclusiveExtensionInput(value: { extensions?: unknown; workflow?: 
 }
 
 /** API and tool intake share one strict complete create envelope. Authority stays in the writer. */
-export const createAgentConfigurationSchema = z.object({
+const createAgentConfigurationBaseSchema = z.object({
   name: z.string().min(1).max(256), agentId: identifier.nullable().optional(), iconId: identifier.nullable().optional(),
   scopeType: z.enum(['user', 'organization']).optional(), enabledTools: strings.optional(),
   defaultProviderInstallationId: optionalModel, defaultProvider: optionalModel, defaultModel: optionalModel, defaultThinking: optionalModel,
@@ -28,7 +28,11 @@ export const createAgentConfigurationSchema = z.object({
     'SOUL.md': z.string().optional(), 'TOOLS.md': z.string().optional() }).strict().nullable().optional(),
   grants: z.array(z.object({ targetType: z.enum(['organization', 'role', 'workspace', 'project', 'user']), targetId: identifier,
     canUse: z.boolean().optional(), canEdit: z.boolean().optional(), canManage: z.boolean().optional() }).strict()).max(512).nullable().optional(),
-}).strict().superRefine(checkExclusiveExtensionInput);
+}).strict();
+export const createAgentConfigurationSchema = createAgentConfigurationBaseSchema.superRefine(checkExclusiveExtensionInput);
+/** New UI/Tool callers choose the complete envelope; legacy fields remain an API adapter only. */
+export const createCompleteAgentConfigurationSchema = createAgentConfigurationBaseSchema.omit({ capabilities: true,
+  relevantSkills: true, relevantConnections: true }).extend({ extensions: agentExtensionConfigurationInputSchema });
 
 /** Personal discovery is explicit and limited to one centrally permitted alternative. */
 export const agentWorkflowPersonalOptionsSchema = z.object({ agentId: identifier, capabilityKey: identifier,
@@ -37,19 +41,25 @@ export const agentWorkflowPersonalOptionsSchema = z.object({ agentId: identifier
   .refine(value => value.providerRef === undefined || value.alternativeKey !== undefined);
 
 /** UI and agent tools share one strict atomic mutation contract. The service rechecks actual authority. */
-export const updateAgentConfigurationSchema = z.object({
+const updateAgentConfigurationBaseSchema = z.object({
   agentId: identifier, expectedRevision: revision.refine(value => value > 0), expectedWorkflowRevision: revision.optional(),
   name: z.string().min(1).max(256).nullable().optional(), iconId: identifier.nullable().optional(), enabledTools: strings.optional(),
   defaultProviderInstallationId: optionalModel, defaultProvider: optionalModel, defaultModel: optionalModel, defaultThinking: optionalModel,
   expectedCatalogRevision: revision.optional(), capabilities: z.array(capability).max(256).nullable().optional(),
   relevantSkills: strings.optional(), relevantConnections: strings.optional(), workflow: agentWorkflowConfigurationSchema.nullable().optional(),
   extensions: agentExtensionConfigurationInputSchema.optional(),
-}).strict().superRefine((value, context) => {
-  checkExclusiveExtensionInput(value, context);
+}).strict();
+function checkCompleteUpdateRevision(value: { extensions?: unknown; expectedWorkflowRevision?: number }, context: z.RefinementCtx): void {
   if (value.extensions !== undefined && value.expectedWorkflowRevision === undefined) {
     context.addIssue({ code: 'custom', path: ['expectedWorkflowRevision'], message: 'The current workflow revision is required to replace the complete extension configuration.' });
   }
+}
+export const updateAgentConfigurationSchema = updateAgentConfigurationBaseSchema.superRefine((value, context) => {
+  checkExclusiveExtensionInput(value, context);
+  checkCompleteUpdateRevision(value, context);
 });
+export const updateCompleteAgentConfigurationSchema = updateAgentConfigurationBaseSchema.omit({ capabilities: true,
+  relevantSkills: true, relevantConnections: true, workflow: true }).superRefine(checkCompleteUpdateRevision);
 export const updateAgentWorkflowChoiceSchema = z.object({
   agentId: identifier, capabilityKey: identifier, expectedWorkflowRevision: revision.refine(value => value > 0), expectedPreferenceRevision: revision,
   choiceId: identifier.nullable().optional(), personalSelection: z.object({ alternativeKey: identifier,

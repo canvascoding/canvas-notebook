@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { agentWorkflowConfigurationSchema, parseAgentWorkflowConfiguration } from '@/app/lib/agents/workflow-contracts';
+import { agentWorkflowConfigurationSchema, parseAgentWorkflowConfiguration } from '@/app/lib/agents/workflow-public-contracts';
 
 export const EXTENSION_SELECTION_LIMITS = Object.freeze({ turn: 5, agent: 256, sharedConnections: 128, children: 128, tools: 256, choices: 32, definitions: 32, bytes: 1_048_576 });
 const uuid = '[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}';
