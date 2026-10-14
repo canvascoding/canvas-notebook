@@ -1,6 +1,6 @@
 # Einheitlicher Erweiterungskontext für Chat und Agenten
 
-Plan vom 13. Oktober, überarbeitet am 14. Oktober 2026. Aktueller Auftrag: zuerst Feedback geben, den konkreten Plan in `docs` speichern und anschließend gemeinsam optimieren. Dieser Planungsschritt ändert nur Dokumentation. Die historische Bestandsaufnahme beruht auf Notebook `27425ddc7`; die aktuelle Prüfung erfolgt auf `041d06308` einschließlich der vorbereiteten Agent-Backend-Änderungen im Arbeitsbaum. Lokale Prüfungen und Produktionsbuilds sind im Umsetzungsjournal dokumentiert. Sie sind keine Abnahme der noch fehlenden neuen Chat-/Agent-Oberflächen und kein Nachweis für Main oder Produktion.
+Plan vom 13. Oktober, überarbeitet am 14. Oktober 2026. Aktueller Auftrag: zuerst Feedback geben, den konkreten Plan in `docs` speichern und anschließend gemeinsam optimieren. Dieser Planungsschritt ändert nur Dokumentation. Die historische Bestandsaufnahme beruht auf Notebook `27425ddc7`; der aktuelle Backend-Checkpoint ist `fbb7e3a6e`. Bereits begonnene, uncommittete Options-/Katalog-/Paketleser-Entwürfe bleiben erhalten und sind keine abgeschlossene Optionsprojektion. Lokale Prüfungen und Produktionsbuilds des Backend-Checkpoints sind im Umsetzungsjournal dokumentiert. Sie sind keine Abnahme der noch fehlenden neuen Chat-/Agent-Oberflächen und kein Nachweis für Main oder Produktion.
 
 Der vorausgegangene Implementierungsstand bleibt im [Umsetzungs- und Abnahmejournal](chat-agent-extension-implementation.md) nachvollziehbar. Dieses Dokument beschreibt das Ziel und die vorgeschlagenen Entscheidungen; vorhandene Grundlagen oder frühere Pluginseiten-Tests gelten nicht als Abnahme der neuen Chat-/Agent-Bedienung.
 
@@ -23,6 +23,15 @@ Empfehlung: dieselben genauen Auswahlreferenzen und dieselbe serverseitige Konte
 | Logos | Composio-Toolkit-Logos, vorhandene Paket-/Skill-Icons und geprüfte MCP-Domain-Icons wiederverwenden; bei fehlendem oder nicht ladbarem Bild Namensinitialen. |
 
 Startwerte zur gemeinsamen Optimierung: sechs bis acht sichtbare Treffer und etwa 30 Recents je Nutzer/Workspace. Die vorbereiteten Verträge und der Renderer setzen zunächst fünf explizite Turn-Auswahlen beziehungsweise 8 KiB für den kompakten Erweiterungskontext um; beides wird vor der UI-Freigabe mit realen Paketen geprüft und kann dabei angepasst werden. Die dauerhaft konfigurierbaren Agent-Ressourcen sind davon getrennt. Offene Produktentscheidungen stehen am Ende des Plans; die technische Abnahmematrix ist weiter unten festgehalten.
+
+### Konkrete Reihenfolge für den weiteren Ausbau
+
+1. **Gemeinsame Auswahl fertigstellen:** Ein Optionsdienst für noch nicht erstellte und bestehende Agenten sowie die Chat-Auswahl; dieselben Quellen, exakten Referenzen und Logos mit jeweils frisch geprüfter Nutzbarkeit. Die Suche lädt Metadaten. Erst die bewusste Verbindungswahl prüft ein konkretes Konto.
+2. **Agent-Tool und Agent-Editor verbinden:** Gemeinsame Auswahlkomponente in Erstellen und Bearbeiten; feste Auswahl, Paketbestandteile und erforderliche Verbindungen vollständig hin und zurück speichern. Fehlende Einrichtung erhält den Formularentwurf. Vor dem Speichern erscheinen konkrete Konflikte und eine aufklappbare Kontextvorschau.
+3. **Chat vollständig anschließen:** `/` und manueller Kontextknopf öffnen denselben Picker. Leere Suche zeigt Recents; Text filtert die gemeinsame Liste. Die bestätigte Auswahl erscheint als Chip und bleibt in Entwurf, Send, Queue, Retry und Verlauf genau erhalten. Recents ändern sich erst nach akzeptiertem Send.
+4. **Durchgehendes Verhalten abnehmen:** Reale UI-Bedienung und echter Modelllauf prüfen gemeinsam Suche, konkrete Accountwahl, Skill-Lesen und gezielte Tooldiscovery. Rechteentzug, konkurrierende Änderungen und Wiederaufnahme nach Neustart gehören dazu. Native Mobile erhält danach einen eigenen Anschluss und eigene Abnahme.
+
+Jeder dieser Schritte erhält ein überprüfbares Abschlusskriterium; die ausführlichen technischen Arbeitspakete und Abnahmefälle stehen weiter unten. Vor dem nächsten Codeabschnitt werden die Produktentscheidungen am Ende dieses Dokuments gemeinsam verfeinert. Die bereits vorhandene Backend-Arbeit wird dadurch weder verworfen noch pauschal als fertige Oberfläche bewertet.
 
 ### Aktueller Stand und wichtigste Restlücke
 
@@ -226,7 +235,13 @@ Der Dienst verwendet dieselbe Kataloggrundlage und dieselben Referenzverträge w
 
 Eine Metadatensuche legt keine Composio-Profile an und lädt nicht bei jeder Eingabe persönliche Accounts oder Toolschemas. Vorhandene Profile sind weder ein Accountnachweis noch ein Gesundheitsnachweis. Die Kontoprüfung mit echtem kurzlebigem Auswahlbeleg erfolgt erst im ausdrücklichen Chooser. Der aktuelle Collector muss dafür getrennt werden; seine vollständige Verwaltungsprojektion wird nicht unverändert zur Agent-Suche erklärt.
 
+Der vorbereitete katalogreine Loader ist noch kein öffentlicher Optionsdienst. Beim lokalen Composio-Zugang kann er nach Prüfung des tatsächlichen Secret-Bereichs den Toolkit-Katalog ohne Profilanlage lesen. Der Managed-Zugang benötigt nach aktuellem Adaptervertrag einen bestehenden, verifizierten Profilkontext. Fehlt dieser, zeigt die Projektion den konkreten Einrichtungsbedarf beziehungsweise eine teilweise verfügbare Quelle; sie erfindet weder Profil noch Nutzerzuordnung. Vorhandene freigegebene Verbindungen bleiben davon getrennt auswertbar. Toolkit-Logos stammen weiter aus der Composio-API, Konten und Erreichbarkeit werden daraus nicht abgeleitet.
+
 Preview verwendet denselben Compiler wie die Runtime und den tatsächlich wirksamen Werkzeugvertrag. Es empfiehlt ausschließlich vorhandene Lese-/Gateway-Tools, zeigt fehlende Pflichtbindungen und prüft das gemeinsame Budget. Es führt keine Provider-Geschäftsaktion aus und ist keine dauerhafte Ausführungsfreigabe. Der endgültige Writer prüft Quellen, Rechte und Revisionen erneut. Die konkrete technische Dienst-/Routenbenennung ist ein Implementierungsdetail; es sollen keine parallelen UI- und Tool-Optionssysteme entstehen.
+
+Die Vorschau für einen noch nicht gespeicherten Agenten ist eine geprüfte Konfigurationsprojektion. Sie darf keine tatsächlich ausgegebene Runtime-Auswahl oder Ausführungsfreigabe vortäuschen. Gemeinsame Normalisierung und Darstellung werden wiederverwendet; gültig, unvollständig und blockiert bleiben sichtbar. Echte Paketkinder einschließlich einer `SKILL.md` an der Paketwurzel, Pflichtanforderungen der Eltern und gehaltene Paketversionen bleiben erhalten.
+
+Vor dem UI-Anschluss müssen die gemeinsamen öffentlichen Schemas ohne Servermodule in einem Browser-Bundle nutzbar sein. Die aktuelle Importkette der Erweiterungsverträge erreicht über `workflow-contracts.ts` noch `node:crypto`. Dafür werden reine öffentliche Schemas von serverseitiger Fingerprint-/Autorisierungslogik getrennt und weiterhin zentral wiederverwendet. Ein Browser-Bundle-Check ergänzt die Vertragstests; kopierte UI-Schemas wären keine gemeinsame Grundlage.
 
 ### Restlücken vor Abschluss der Agent-Stufe
 
