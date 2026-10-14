@@ -1,6 +1,6 @@
 # Gemeinsame Erweiterungsauswahl: Feedback und Besprechungsplan
 
-Besprechungsstand: 14. Oktober 2026. Erneuter Checkpoint auf ausdrücklichen Wunsch: zuerst Feedback und Plan in `docs`, danach gemeinsam optimieren. Nach dem anschließenden Umsetzungsauftrag läuft die Implementierung wieder. Die offenen Produktentscheidungen bleiben Vorschläge und gelten dadurch nicht als bestätigt. Einzelne Implementierungs- und Testnachweise stehen im verlinkten Journal.
+Besprechungsstand: 14. Oktober 2026. Aktueller Checkpoint auf ausdrücklichen Wunsch: zuerst Feedback und Plan in `docs`, danach gemeinsam optimieren. Bereits abgeschlossene Implementierung aus vorausgegangenen Aufträgen wird unten als Grundlage eingeordnet. Dieser Checkpoint beginnt keinen weiteren Produktumbau. Die offenen Produktentscheidungen bleiben Vorschläge und gelten dadurch nicht als bestätigt. Einzelne Implementierungs- und Testnachweise stehen im verlinkten Journal.
 
 Dies ist die kurze Produktansicht. Weiterführend: [technischer Gesamtplan](chat-extension-reference-plan.md), [Umsetzungs-/Abnahmejournal](chat-agent-extension-implementation.md), [synthetischer Chat-Wireframe](wireframes/chat-extension-picker.html).
 
@@ -96,6 +96,8 @@ Für diese Nachricht
 
 Ein Turn-Chip entfernt oder ersetzt keine dauerhafte Zuweisung. Für einen zulässigen Kontowechsel wird die konkrete Paketanforderung geändert und sichtbar bestätigt; ein weiterer Canva-Chip allein überschreibt keine bestehende Bindung. Ein neuer Turn übernimmt alte Chips nur nach erneuter ausdrücklicher Auswahl. Interne Fortsetzungen derselben Nachricht behalten dagegen deren ursprüngliche Auswahl.
 
+Nachrichten bleiben voneinander getrennt: Wird B mit einem anderen Plugin oder Konto eingereiht, behält der laufende Auftrag A seinen bisherigen Kontext und seine Werkzeuge. Auch eine als Steer vorgezogene Nachricht übernimmt erst nach Abschluss der laufenden Toolarbeiten und bestätigter Abwicklung von A. Die UI zeigt bis dahin „wartet auf laufende Aktion“.
+
 Zwei Fälle müssen unterschiedlich bedient werden: Eine neu angeheftete Plugin-Auswahl mit fehlender Pflichtverbindung bleibt ein markierter Entwurf; Senden zeigt den genauen Einrichtungsweg. Bei einem bereits eingerichteten gemeinsamen Agenten mit noch fehlender zulässiger persönlicher Wahl bleibt erlaubter lokaler Chat möglich; externe Workflow-Aktionen bleiben gesperrt und „Meine Verbindung einrichten“ bleibt sichtbar.
 
 Die vorhandene HTML-Demo zeigt die Suchidee. Ihre unmittelbare Einzelkonto-Auswahl, vereinfachten Plugin-Bindungen und lokal simulierten Recents sind noch kein vollständiger Zielentwurf. Bei ihrer nächsten Überarbeitung müssen auch die Bestätigung eines einzelnen Kontos, fehlende Plugin-Pflichtverbindungen und „ausstehend“ gegenüber „dauerhaft angenommen“ sichtbar werden. Die echte Historie unterscheidet konkrete Accounts und Paketstände.
@@ -126,6 +128,8 @@ Vor Schritt 2 werden vier Vertragsfragen verbindlich präzisiert: eigenes Chat-T
 
 Schritt 2 wird intern in überprüfbare Teile zerlegt: gespeicherte Auswahl mit frischen Rechten wiederlesen und exklusiven Ausführungsbesitz samt Revision sichern (beide intern lokal geprüft); dann die bestehende Runtime und Queue anschließen; anschließend Transport und Composer. Jede Nachricht behält ihre eigene Server-ID, ihren Paketstand und ihre konkreten Accounts. Sicher unbegonnene Aufträge können nach erneuter Prüfung wiederaufgenommen werden. Bei möglicherweise bereits ausgeführten Geschäftsaktionen wird der ungewisse Zustand angezeigt und nicht automatisch erneut ausgeführt. Reload, tatsächlicher Serverneustart und verlorene Send-Bestätigung benötigen jeweils einen eigenen Nachweis.
 
+Queue-Aktionen haben eindeutige Wirkungen: „Vorziehen“ ändert die Zustellreihenfolge derselben Nachricht; „Entfernen“ cancelt den wartenden Auftrag; „Bearbeiten und ersetzen“ nimmt einen neuen Auftrag auf und cancelt die betroffenen wartenden Aufträge gemeinsam. Erst die dauerhafte Bestätigung ändert die sichtbare Queue. Eine bereits vom SDK abgeholte, inzwischen entfernte Nachricht muss vor dem Modellstart ebenfalls gestoppt werden. „Abgebrochen“ bestätigt den Ausführungszustand und behauptet keine Rücknahme früherer Geschäftsaktionen.
+
 Für die abschließende Abnahme zählt die gesamte Kette: UI-Auswahl → dauerhafte Annahme → passender System-/Turn-Kontext → tatsächliches Skill-Lesen beziehungsweise gezielte Toolsuche. Hinzu kommen unterschiedliche Konten in aufeinanderfolgenden Nachrichten, Queue/Steer, Rechteentzug, Paketupdate mit gehaltenem alten Stand, Routerzustände und defekte Icons. Ein Prompt-Snapshot allein beweist keine erfolgreiche Modellnutzung; lokale Provider-Fixtures beweisen keine produktive Canva-/LinkedIn-/Shopify-Erreichbarkeit.
 
 ## Vorschläge zur anschließenden Optimierung
@@ -135,6 +139,7 @@ Für die abschließende Abnahme zählt die gesamte Kette: UI-Auswahl → dauerha
 - **Entwürfe:** Vollständiges Formular im gleichen Nutzer-/Workspace-/Zielkontext fortsetzbar halten; sieben Tage als Vorschlag. Nach Save oder bewusstem Verwerfen löschen; keine Secrets oder kurzlebigen Accountbelege speichern.
 - **Startansicht:** Sechs bis acht sichtbare Treffer und etwa 30 Recents je Nutzer/Workspace als Startwerte; mit kleinen und großen Paketen prüfen.
 - **Recents erneut verwenden:** Frühere Paketversion, Kind-Auswahl und Kontozuordnung anzeigen, frisch prüfen und bestätigen. Kein stiller Wechsel auf aktuelle Paketvorgaben oder ein anderes Standardkonto. Typfilter gelten auch in dieser Startansicht. Hover, bloßes Öffnen und Agent-Speichern zählen nicht als Chat-Nutzung.
+- **Wiederaufnahme:** Vorschlag für den ersten Ausbau: Nach tatsächlichem Serverneustart sicher wartende Nachrichten anzeigen und mit „Fortsetzen“ nach frischer Prüfung starten. Ein Browser-Reload unterbricht einen weiterhin laufenden Serverauftrag nicht. Bei ungewissem Ausgang zuerst Verlauf und bekannte Toolergebnisse öffnen; ein erneuter Auftrag benötigt eine ausdrückliche neue Send-Aktion und darf keine stillschweigende Wiederholung sein. Ob sicher wartende Nachrichten später automatisch fortgesetzt werden, bleibt eine eigene Produktentscheidung.
 
 Diese Werte sind Diskussionsvorschläge. Dieser Dokumentationscheckpoint ändert keine Produktgrenzen, Freigaben oder Ausführungsregeln.
 
