@@ -50,7 +50,7 @@ import {
   VEO_MAX_REFERENCE_IMAGES,
   getMaxImageCountForProvider,
   getOpenAIImageAspectRatio,
-  getOpenAIImageRequestValidationError,
+  getOpenAIImageModelCapabilities,
   isValidOpenAIImageSize,
   normalizeGeminiImageModelId,
   normalizeOpenAIImageModelId,
@@ -62,6 +62,7 @@ import {
   type OpenAIImageOutputFormat,
   type OpenAIImageQuality,
 } from '@/app/lib/integrations/image-generation-constants';
+import { normalizeOpenAIImageRequestOptions } from '@/app/lib/integrations/openai-image-request';
 import { withStudioGenerationConcurrency } from '@/app/lib/integrations/studio-generation-concurrency';
 import type { EnvStorageScope } from '@/app/lib/integrations/env-config';
 import {
@@ -793,27 +794,37 @@ export async function createStudioGeneration(
   const mode = request.mode || 'image';
   const providerId = request.provider || (mode === 'video' ? 'veo' : 'gemini');
   const requestedAspectRatio = request.aspect_ratio || '1:1';
-  const openAIImageSize = mode === 'image' && providerId === 'openai' && request.image_size
-    ? normalizeOpenAIImageSizeInput(request.image_size)
-    : request.image_size;
-  const aspectRatio = mode === 'image' && providerId === 'openai' && openAIImageSize
-    ? getOpenAIImageAspectRatio(openAIImageSize, requestedAspectRatio)
-    : requestedAspectRatio;
   if (mode === 'image' && providerId === 'openai') {
-    const validationError = getOpenAIImageRequestValidationError({
-      model: request.model,
-      count: request.count,
-      quality: request.quality,
-      outputFormat: request.output_format,
-      background: request.background,
-      moderation: request.moderation,
-      outputCompression: request.output_compression,
-      inputFidelity: request.input_fidelity,
-      imageSize: openAIImageSize,
-      stream: request.stream,
-      partialImages: request.partial_images,
-    });
-    if (validationError) {
+    try {
+      const normalized = normalizeOpenAIImageRequestOptions({
+        model: request.model ?? OPENAI_IMAGE_MODEL_ID,
+        aspectRatio: requestedAspectRatio,
+        count: request.count,
+        quality: request.quality,
+        outputFormat: request.output_format,
+        background: request.background,
+        moderation: request.moderation,
+        outputCompression: request.output_compression,
+        inputFidelity: request.input_fidelity,
+        imageSize: request.image_size,
+        stream: request.stream,
+        partialImages: request.partial_images,
+      });
+      request = {
+        ...request,
+        model: normalized.model,
+        quality: normalized.quality,
+        output_format: normalized.outputFormat,
+        background: normalized.background,
+        moderation: normalized.moderation,
+        output_compression: normalized.outputCompression,
+        input_fidelity: undefined,
+        image_size: normalized.imageSize,
+        stream: normalized.stream,
+        partial_images: normalized.partialImages,
+      };
+    } catch (error) {
+      const validationError = error instanceof Error ? error.message : 'Invalid image options.';
       throw new StudioServiceError(
         `Invalid OpenAI image request: ${validationError}`,
         validationError,
@@ -821,6 +832,12 @@ export async function createStudioGeneration(
       );
     }
   }
+  const openAIImageSize = mode === 'image' && providerId === 'openai' && request.image_size
+    ? normalizeOpenAIImageSizeInput(request.image_size)
+    : request.image_size;
+  const aspectRatio = mode === 'image' && providerId === 'openai' && openAIImageSize
+    ? getOpenAIImageAspectRatio(openAIImageSize, requestedAspectRatio)
+    : requestedAspectRatio;
   const rawPrompt = sanitizePrompt(
     request.prompt,
     mode === 'image' && providerId === 'openai'
@@ -1375,9 +1392,10 @@ async function generateStudioImages(
   }
 
   const normalizedModel = providerId === 'gemini' ? normalizeGeminiImageModelId(model) : model;
-  const validatedModel = provider.models.some((m) => m.id === normalizedModel)
-    ? normalizedModel
-    : (provider.models[0]?.id || normalizedModel);
+  const validatedModel = providerId === 'openai'
+    ? getOpenAIImageModelCapabilities(normalizedModel)?.modelId
+    : provider.models.some((m) => m.id === normalizedModel) ? normalizedModel : (provider.models[0]?.id || normalizedModel);
+  if (!validatedModel) throw new StudioServiceError(`Unsupported OpenAI image model: ${model}`, 'Das gewählte Bildmodell wird nicht unterstützt.', 'INVALID_MODEL');
 
   const hasValidOpenAIImageSize = providerId === 'openai'
     && typeof options?.imageSize === 'string'
@@ -1392,6 +1410,9 @@ async function generateStudioImages(
   }
 
   const maxRefs = provider.getMaxReferenceImages(validatedModel);
+  if (providerId === 'openai' && referenceImages.length > maxRefs) {
+    throw new StudioServiceError('OpenAI supports at most 16 reference images.', 'Bitte wähle höchstens 16 Referenzbilder.', 'INVALID_REFERENCES');
+  }
   const limitedReferences = referenceImages.slice(0, maxRefs);
   const outputFormat = providerId === 'openai'
     ? normalizeOpenAIImageOutputFormat(options?.background, options?.outputFormat)

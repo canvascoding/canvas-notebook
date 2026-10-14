@@ -84,6 +84,20 @@ export const OPENAI_MODELS = [
   { id: OPENAI_FLARE_IMAGE_MODEL_ID, optionKey: 'gptImage25Flare' as const },
 ] as const;
 
+export function getOpenAIImageModelCapabilities(model: string) {
+  const resolved = normalizeOpenAIImageModelId(model);
+  const family = OPENAI_MODELS.find(({ id }) => resolved === id || resolved === `${id}-2026-09-08`);
+  if (!family) return null;
+  return {
+    modelId: resolved,
+    familyId: family.id,
+    supportsInputFidelity: false,
+    supportsStreaming: true,
+    supportsEditMask: true,
+    maxInputImages: 16,
+  } as const;
+}
+
 export const VIDEO_MODELS = [
   { id: 'veo-3.1-generate-preview', optionKey: 'highQuality' as const },
   { id: 'veo-3.1-fast-generate-preview', optionKey: 'fast' as const },
@@ -209,7 +223,7 @@ export function getOpenAIImageRequestValidationError(
   if (options.model !== undefined) {
     if (typeof options.model !== 'string') return 'Model must be a string.';
     const model = normalizeOpenAIImageModelId(options.model);
-    if (!OPENAI_MODELS.some(({ id }) => id === model)) {
+    if (!getOpenAIImageModelCapabilities(model)) {
       return `Model must be one of: ${OPENAI_MODELS.map(({ id }) => id).join(', ')}.`;
     }
   }
