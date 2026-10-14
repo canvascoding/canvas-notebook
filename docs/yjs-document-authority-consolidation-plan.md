@@ -325,6 +325,8 @@ Restore an den ursprünglichen oder einen freien neuen Pfad wird nach bestehende
 
 **Bestätigte Ergänzung:** Ein Nutzer erstellt manuell ein Dokument und möchte dort sofort Text oder vorhandenen Markdown-Inhalt einfügen. Dieser Alltagsweg erhält einen eigenen Produkt- und Testvertrag; der allgemeine Create-/Upload-Vertrag allein genügt nicht.
 
+Die drei geplanten Bedienwege stehen kompakt in [§1.1 des Create-/Paste-/Import-Anschlussplans](./markdown-create-paste-full-import-integration-plan.md#11-bedienwege-für-die-gemeinsame-prüfung). Die Abnahme beginnt jeweils mit der Benutzeraktion im UI und prüft die erste Eingabe; eine per API vorbereitete Datei ersetzt diesen Schritt nicht. Der aktuelle Anschlussstand und die noch offenen Gates I-04 bis I-10 stehen dort in §8.
+
 | Nutzungsfall | Zielablauf im UI | Inhaltlicher Vertrag |
 | --- | --- | --- |
 | Neues leeres Dokument mit normalem Text | „Neue Datei/Neues Dokument“ wählen, Namen und Ziel bestätigen, Dokument öffnen, in den Inhalt klicken und mit Cmd+V/Ctrl+V bzw. mobiler Einfügeaktion einfügen | Ohne Edit-Auswahl unmittelbar bearbeitbar. Absätze, Unicode, Sonderzeichen und fachlich relevante Leerzeichen bleiben erhalten; kein Speichern in einer zweiten Rohdatei. |
@@ -914,5 +916,6 @@ Die [Compiled-Mobile-Protokollgegenprobe](./yjs-mobile-compiled-protocol-precond
 | 2026-10-14 | Ticket-/Monitor-Lifetimes, gehaltene native Owner und authentisierte moderne/Legacy-Migrationen als drei getrennte Source-Todos integriert. | Root bestätigt unabhängig elf, 25 und 61 echte PG-Gruppen sowie TypeScript/Lint und genaue Sourcevergleiche. Session-/Socket-Aktivierung, Writer-/Batch-/Undo-Anschlüsse und gemeinsame Browserabnahme bleiben offen. |
 | 2026-10-14 | Web-/Mobile-Textsession-Anschluss mit tatsächlicher Originalanmeldung und bestätigtem Transportpublisher integriert; Create/Paste/Import-Vertrag aus §8.5/§13.3 bleibt verpflichtend. | Zweiter Rootlauf 24/24 echte PG18-/Auth-/FS-Familien, TypeScript/Lint und Autorenbytes bestätigt. Erster 409-Abbruchlauf unaufgeklärt; Produktschalter false, echte Socket-/Netzwerk-/Browseraktivierung offen. |
 | 2026-10-14 | Native Autoritätsprüfung vor dem Suffix-/Office-Dispatch am Datei-Speicherendpunkt integriert. | Root bestätigt 22 echte PG18-/API-/Office-/FS-/Kernel-Familien, TypeScript/Lint und zwölf bytegleiche Kernmodule plus zwei Körper. Allgemeine Writer-/Publikations-, Vollimport- und Lifecycle-Anschlüsse bleiben offen. |
+| 2026-10-14 | Bedienabläufe für neue Notiz, gewöhnlichen Text-Paste, bewusste Markdown-Einfügung und vollständigen Dateimport im Anschlussplan zusammengefasst; Cursor-/Wiederholungs-/Abbruchfälle ergänzt und I-03b-Fortschrittstext aktualisiert. | §8.5/§12.3/§13.3 bleiben verbindlich. Parallele lesende Planprüfung bestätigt die drei Alltagswege; die erweiterte Browser-/Import-/Geräteabnahme bleibt offen. |
 
 Für spätere Einträge: Entscheidung/Arbeitspaket, relevante Commit-Basis, Begründung, geprüfte Ebenen, Ergebnis und bekannte Grenzen aufnehmen. Historische Aussagen in den bisherigen Plänen werden nicht rückwirkend als neue Produktionsabnahme interpretiert.
