@@ -77,7 +77,37 @@ assert(agentExtensionAccountOptionsRequestSchema.safeParse({ ...explicitAccount,
 assert.equal(agentExtensionMetadataOptionsRequestSchema.safeParse({ ...explicitAccount, target: ownChoice, selector: { kind: 'slot' } }).success, false);
 
 accepts({ operation: 'preview', target: prospective, configuration: empty, enabledTools: null });
-accepts({ operation: 'preview', target: existing, configuration: { version: 1, origin: 'agent_configuration', mode: 'legacy_inherit' }, enabledTools: ['__none__'] });
+const keepPreview = accepts({ operation: 'preview', target: existing, enabledTools: ['read'] });
+assert(keepPreview.operation === 'preview');
+assert.equal(Object.hasOwn(keepPreview, 'configuration'), false, 'A native-tools-only preview keeps the actual existing extension selection.');
+for (const field of ['defaultProviderInstallationId', 'defaultProvider', 'defaultModel', 'defaultThinking', 'expectedCatalogRevision'])
+  assert.equal(Object.hasOwn(keepPreview, field), false, `Omitted ${field} must retain the actual existing setting.`);
+const keepAllPreview = accepts({ operation: 'preview', target: existing });
+assert.equal(Object.hasOwn(keepAllPreview, 'enabledTools'), false, 'Omitted tools must not silently become the default or an empty selection.');
+const emptyPreview = accepts({ operation: 'preview', target: existing, configuration: empty, enabledTools: [] });
+assert(emptyPreview.operation === 'preview');
+assert.equal(emptyPreview.configuration?.mode, 'fixed');
+assert.deepEqual(emptyPreview.enabledTools, []);
+rejects({ operation: 'preview', target: existing, configuration: null });
+rejects({ operation: 'preview', target: prospective, enabledTools: ['read'] });
+assert.equal(agentExtensionMetadataOptionsRequestSchema.safeParse({ operation: 'preview', target: prospective }).success, false,
+  'The planning tool also requires an explicit proposed configuration for a new Agent.');
+accepts({ operation: 'preview', target: prospective, configuration: empty,
+  defaultProviderInstallationId: 'aip_111111111111111111111111', defaultProvider: 'google',
+  defaultModel: 'fixture-model', defaultThinking: 'off', expectedCatalogRevision: 0 });
+const clearedModelPreview = accepts({ operation: 'preview', target: existing, defaultProviderInstallationId: null, defaultProvider: null,
+  defaultModel: null, defaultThinking: null });
+assert(clearedModelPreview.operation === 'preview');
+assert.equal(Object.hasOwn(clearedModelPreview, 'configuration'), false);
+for (const field of ['defaultProviderInstallationId', 'defaultProvider', 'defaultModel', 'defaultThinking'] as const)
+  assert.equal(clearedModelPreview[field], null, 'Explicit null must clear the model override instead of preserving it.');
+rejects({ operation: 'preview', target: existing, defaultModel: 'private\ninvalid' });
+rejects({ operation: 'preview', target: existing, expectedCatalogRevision: -1 });
+const inheritedPreview = accepts({ operation: 'preview', target: existing,
+  configuration: { version: 1, origin: 'agent_configuration', mode: 'legacy_inherit' }, enabledTools: ['__none__'] });
+assert(inheritedPreview.operation === 'preview');
+assert.equal(inheritedPreview.configuration?.mode, 'legacy_inherit', 'Explicit inheritance is not an empty fixed selection or an omitted configuration.');
+assert.deepEqual(inheritedPreview.enabledTools, ['__none__']);
 rejects({ operation: 'preview', target: prospective, configuration: empty, enabledTools: ['read', 'read'] });
 rejects({ operation: 'preview', target: prospective, configuration: empty, effectiveExtensions: { fingerprint: 'untrusted' } });
 const retained = { ...empty, standalone: [{ mode: 'fixed', configurationId: 'actual-saved-slot', entry: {
@@ -134,6 +164,28 @@ inspectClientImports(path.resolve('app/lib/agents/extension-options-contracts.ts
 inspectClientImports(path.resolve('app/lib/agents/workflow-api-contracts.ts'));
 const advertised = z.toJSONSchema(schema, { target: 'draft-7', io: 'input' });
 assert(Array.isArray(advertised.anyOf) && advertised.anyOf.length === 5, 'The tool advertises the actual five strict operation/target variants.');
+for (const contract of [schema, agentExtensionMetadataOptionsRequestSchema]) {
+  const advertisedContract = z.toJSONSchema(contract, { target: 'draft-7', io: 'input' });
+  const variants = advertisedContract.anyOf as Array<{ properties?: Record<string, { const?: unknown; description?: string }>; required?: string[] }>;
+  const preview = variants.find(variant => variant.properties?.operation?.const === 'preview');
+  assert(preview?.properties, 'Both public dialects must advertise the actual preview operation.');
+  assert(!preview.required?.includes('configuration'), 'Existing targets may omit configuration; the prospective runtime refinement requires it explicitly.');
+  assert.match(preview.properties.configuration!.description!, /existing target.*omit to keep/u);
+  assert.match(preview.properties.configuration!.description!, /prospective target must supply an explicit configuration/u);
+  assert.match(preview.properties.configuration!.description!, /empty fixed selection is distinct from legacy_inherit/u);
+  assert.match(preview.properties.enabledTools!.description!, /Omit to keep.*prospective omission inherits the provider enabledTools/u);
+  assert.match(preview.properties.enabledTools!.description!, /null also inherits the provider enabledTools/u);
+  assert.match(preview.properties.enabledTools!.description!, /\[\] is an explicit override using the legacy registry defaults/u);
+  assert.match(preview.properties.enabledTools!.description!, /Only \["__none__"\] explicitly selects no tools/u);
+  for (const field of ['defaultProviderInstallationId', 'defaultProvider', 'defaultModel', 'defaultThinking']) {
+    assert.match(preview.properties[field]!.description!, /Omit to preserve the existing value; prospective omission inherits/u);
+    assert.match(preview.properties[field]!.description!, /all four.*null/u);
+  }
+  assert.match(preview.properties.defaultProviderInstallationId!.description!, /existing target, explicit model changes including clearing require organization administration/u);
+  assert.match(preview.properties.defaultProviderInstallationId!.description!, /prospective target, only a non-null override requires administration/u);
+  assert.match(preview.properties.defaultProviderInstallationId!.description!, /all four fields null inherit without administration/u);
+  assert.match(preview.properties.expectedCatalogRevision!.description!, /required.*non-null model override/u);
+}
 type UserChoiceResponse = Extract<AgentExtensionOptionsResponse, { target: { kind: 'user_choice' } }>;
 type ConfigurationChoicesResponse = Extract<AgentExtensionOptionsResponse, { operation: 'connection_choices'; target: { kind: 'existing' | 'prospective' } }>;
 const ownSelector: UserChoiceResponse['selector'] = { kind: 'slot' };
@@ -172,7 +224,7 @@ assert.equal(serverWorkflow.agentWorkflowCapabilityKey(pin.resourceRef, '.canvas
 // Actually bundle the public entry for the browser platform. Evaluate without
 // Buffer, process, require or server globals; this is no browser/UI E2E claim.
 const bundled = buildSync({ stdin: { contents: `
-  export { agentExtensionOptionsRequestSchema } from './app/lib/agents/extension-options-contracts';
+  export { agentExtensionOptionsRequestSchema, agentExtensionMetadataOptionsRequestSchema } from './app/lib/agents/extension-options-contracts';
   export { parseAgentWorkflowConfiguration } from './app/lib/agents/workflow-public-contracts';
   export { createCompleteAgentConfigurationSchema, updateCompleteAgentConfigurationSchema } from './app/lib/agents/workflow-api-contracts';
 `, resolveDir: process.cwd(), sourcefile: 'agent-options-browser-contract-fixture.ts', loader: 'ts' },
@@ -181,6 +233,7 @@ assert(bundled.outputFiles);
 assert.equal(bundled.outputFiles.length, 1);
 assert(Object.keys(bundled.metafile!.inputs).every(name => !name.endsWith('/agents/workflow-contracts.ts') && !name.includes('stored-')));
 const sandbox: { TextEncoder: typeof TextEncoder; CanvasAgentOptionsContract?: { agentExtensionOptionsRequestSchema: typeof schema;
+  agentExtensionMetadataOptionsRequestSchema: typeof agentExtensionMetadataOptionsRequestSchema;
   parseAgentWorkflowConfiguration: typeof publicWorkflow.parseAgentWorkflowConfiguration;
   createCompleteAgentConfigurationSchema: typeof import('../app/lib/agents/workflow-api-contracts').createCompleteAgentConfigurationSchema;
   updateCompleteAgentConfigurationSchema: typeof import('../app/lib/agents/workflow-api-contracts').updateCompleteAgentConfigurationSchema } } = { TextEncoder };
@@ -188,6 +241,30 @@ runInNewContext(bundled.outputFiles[0]!.text, sandbox, { timeout: 5_000 });
 assert(sandbox.CanvasAgentOptionsContract);
 assert(sandbox.CanvasAgentOptionsContract.agentExtensionOptionsRequestSchema.safeParse({ operation: 'search', target: prospective }).success);
 assert.equal(sandbox.CanvasAgentOptionsContract.agentExtensionOptionsRequestSchema.safeParse({ operation: 'search', target: ownChoice }).success, false);
+for (const browserSchema of [sandbox.CanvasAgentOptionsContract.agentExtensionOptionsRequestSchema,
+  sandbox.CanvasAgentOptionsContract.agentExtensionMetadataOptionsRequestSchema]) {
+  const kept = browserSchema.parse({ operation: 'preview', target: existing });
+  assert(kept.operation === 'preview');
+  for (const field of ['configuration', 'enabledTools', 'defaultProviderInstallationId', 'defaultProvider', 'defaultModel', 'defaultThinking'])
+    assert.equal(Object.hasOwn(kept, field), false, `The actual browser parser must preserve omission of ${field}.`);
+  assert.equal(browserSchema.safeParse({ operation: 'preview', target: prospective }).success, false);
+  assert.equal(browserSchema.safeParse({ operation: 'preview', target: existing, configuration: null }).success, false);
+  const fixed = browserSchema.parse({ operation: 'preview', target: prospective, configuration: empty, enabledTools: null });
+  assert(fixed.operation === 'preview' && fixed.configuration?.mode === 'fixed');
+  assert.equal(fixed.enabledTools, null);
+  const defaultOverride = browserSchema.parse({ operation: 'preview', target: prospective, configuration: empty, enabledTools: [] });
+  assert(defaultOverride.operation === 'preview');
+  assert.equal(JSON.stringify(defaultOverride.enabledTools), '[]', 'The browser must preserve an explicit registry-default override instead of turning it into provider inheritance.');
+  const prospectiveInheritedModel = browserSchema.parse({ operation: 'preview', target: prospective, configuration: empty,
+    defaultProviderInstallationId: null, defaultProvider: null, defaultModel: null, defaultThinking: null });
+  assert(prospectiveInheritedModel.operation === 'preview');
+  for (const field of ['defaultProviderInstallationId', 'defaultProvider', 'defaultModel', 'defaultThinking'] as const)
+    assert.equal(prospectiveInheritedModel[field], null, 'The contract permits prospective inheritance; actual administration is enforced by the service.');
+  const inherited = browserSchema.parse({ operation: 'preview', target: existing,
+    configuration: { version: 1, origin: 'agent_configuration', mode: 'legacy_inherit' }, enabledTools: ['__none__'] });
+  assert(inherited.operation === 'preview' && inherited.configuration?.mode === 'legacy_inherit');
+  assert.equal(JSON.stringify(inherited.enabledTools), '["__none__"]');
+}
 assert.equal(JSON.stringify(sandbox.CanvasAgentOptionsContract.parseAgentWorkflowConfiguration(workflow)), JSON.stringify(workflow));
 assert.throws(() => sandbox.CanvasAgentOptionsContract!.parseAgentWorkflowConfiguration({ text: '😀'.repeat(270_000) }),
   error => publicWorkflow.isAgentWorkflowError(error) && error.code === 'AGENT_WORKFLOW_INVALID');

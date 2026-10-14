@@ -16,6 +16,7 @@ import type { CapabilityPackagePublishedRevision, CapabilityPackagePublishedLoca
 import { readPackageExtensionSourceMetadata, type PackageExtensionSourceMetadata } from '@/app/lib/capabilities/packages/extension-metadata';
 import { normalizeCapabilityPackageRelativePath, resolveOwnerScopedPackageVersionPath, verifyCapabilityPackageSnapshot } from '@/app/lib/capabilities/packages/io';
 import { projectPackageExtensionSelection } from '@/app/lib/capabilities/packages/extension-projection';
+import type { StoredPackageExtensionSelectionEntry } from '@/app/lib/capabilities/extensions/stored-package-contracts';
 import { projectExtensionPackageMetadata, projectExtensionSkillMetadata, projectPinnedExtensionSkillCandidates,
   projectPinnedExtensionEffectiveCapabilities, selectExtensionRuntimeSkillCandidates,
   type ExtensionPackageMetadata, type ExtensionSkillMetadata } from '@/app/lib/capabilities/packages/extension-context-metadata';
@@ -23,11 +24,22 @@ import { parseSkillFile } from '@/app/lib/skills/canvas-skill-manifest';
 import { resolveVerifiedAgentActorContextOnConnection } from './actor-context';
 import type { AgentManagementActor } from './management-actions';
 import { AgentWorkflowError, type AgentWorkflowInternalSnapshot, type StoredAgentWorkflowPackage } from './workflow-contracts';
+import type { ExplicitAgentWorkflowVersion } from './workflow-version';
 
-export type PreparedAgentExtensionContextPackageSource = {
+/** Server-resolved inputs, never source authority by themselves. */
+export type AgentExtensionPackageContextSelection = {
   stored: StoredAgentWorkflowPackage;
   storage: CapabilityResourceStorageBinding;
+  extensionSelections?: readonly StoredPackageExtensionSelectionEntry[];
+};
+export type PreparedAgentExtensionContextPackageSource = AgentExtensionPackageContextSelection & {
   published: CapabilityPackagePublishedRevision;
+};
+export type AgentExtensionPackageContext = {
+  packages: ExtensionPackageMetadata[];
+  skills: ExtensionSkillMetadata[];
+  configurations: readonly StoredAgentWorkflowPackage[];
+  fingerprint: string;
 };
 type SourceState = { effective: EffectiveCapabilitySnapshot; policies: CapabilityPolicy[]; role: string | null };
 type Guard = { storage: CapabilityResourceStorageBinding; parentStorage?: CapabilityResourceStorageBinding };
@@ -77,7 +89,8 @@ async function readSourceState(database: SqlConnection, actor: AgentManagementAc
     candidates: candidates.map(candidate => candidate.ref.resourceType === 'plugin' ? { ...candidate, connectionRequirementCount: 0 } : candidate), policies }) };
 }
 
-function sourceCandidate(effective: EffectiveCapabilitySnapshot, binding: AgentWorkflowInternalSnapshot['bindings'][number]): CapabilityCandidate {
+function sourceCandidate(effective: EffectiveCapabilitySnapshot,
+  binding: Pick<CapabilityResourceStorageBinding, 'resourceId' | 'resourceType' | 'scopeType' | 'name'>): CapabilityCandidate {
   const candidate = effective.capabilities.find(candidate => candidate.ref.resourceId === binding.resourceId);
   if (!candidate || !candidate.runtimePath || candidate.ref.resourceType !== binding.resourceType || candidate.ref.scopeType !== binding.scopeType
     || candidate.ref.name !== binding.name || candidate.ref.sourceType === 'core' || candidate.ref.sourceType === 'plugin') {
@@ -106,16 +119,19 @@ export async function prepareAgentExtensionContextPackageSources(actor: AgentMan
   try { state = await readSourceState(database, actor); } finally { await database.close(); }
   const result: PreparedAgentExtensionContextPackageSource[] = [];
   for (const binding of snapshot.bindings) {
-    if (binding.resourceType === 'connection') continue;
+    const { resourceType, resourceId, scopeType, name } = binding;
+    if (resourceType === 'connection') continue;
     if (!binding.configuration) fail('An explicit package binding has no exact configuration.');
-    const candidate = sourceCandidate(state.effective, binding), storage = capabilityResourceStorageBinding(candidate.ref);
+    const candidate = sourceCandidate(state.effective, { resourceType, resourceId, scopeType, name });
+    const storage = capabilityResourceStorageBinding(candidate.ref);
     const stored = binding.configuration;
     const published = await withAuthorizedCapabilityPackageResource(resourceActor(actor), storage, 'use', undefined,
       async (authorization, connection) => {
         if (authorization.record.metadata.resourceRef !== stored.resourceRef) fail('The exact package resource changed.');
         return readPublished(connection, storage, stored);
       });
-    result.push({ stored, storage, published });
+    result.push({ stored, storage, published,
+      ...(binding.extensionSelections ? { extensionSelections: binding.extensionSelections } : {}) });
   }
   return result.sort((left, right) => left.storage.resourceId.localeCompare(right.storage.resourceId));
 }
@@ -222,8 +238,7 @@ async function presentAdditionalSkill(database: SqlConnection, actor: AgentManag
 
 /** Exact pending SQL configuration -> presentation, without an Agent session or issued runtime selection. */
 export async function buildAgentExtensionPackageContextOnConnection(input: { database: SqlConnection; actor: AgentManagementActor;
-  snapshot: AgentWorkflowInternalSnapshot }): Promise<{ packages: ExtensionPackageMetadata[]; skills: ExtensionSkillMetadata[];
-    configurations: readonly StoredAgentWorkflowPackage[]; fingerprint: string }> {
+  snapshot: AgentWorkflowInternalSnapshot }): Promise<AgentExtensionPackageContext> {
   const { database, actor, snapshot } = input;
   await requireHeldSources(database, actor);
   const { readManagedAgentWorkflowOnConnection } = await import('./workflow-configuration');
@@ -231,12 +246,55 @@ export async function buildAgentExtensionPackageContextOnConnection(input: { dat
   if (current.agent.id !== snapshot.agent.id || current.agent.revision !== snapshot.agent.revision
     || current.workflowRevision !== snapshot.workflowRevision || JSON.stringify(current.bindings) !== JSON.stringify(snapshot.bindings)) fail('The pending Agent configuration changed.');
   if (current.workflowVersion === null) fail('This preflight requires an explicit package configuration.');
+  const state = await readSourceState(database, actor);
+  await requireHeldSources(database, actor, state.effective);
+  const packageSelections = current.bindings.flatMap(binding => {
+    const { resourceType, resourceId, scopeType, name } = binding;
+    if (resourceType === 'connection') return [];
+    if (!binding.configuration) return fail('An explicit binding has no exact package configuration.');
+    const candidate = sourceCandidate(state.effective, { resourceType, resourceId, scopeType, name });
+    return [{ stored: binding.configuration, storage: capabilityResourceStorageBinding(candidate.ref),
+      ...(binding.extensionSelections ? { extensionSelections: binding.extensionSelections } : {}) }];
+  });
+  const assembled = await assembleAgentExtensionPackageContextOnConnection({ database, actor,
+    workflowVersion: current.workflowVersion, packageSelections, relevantSkills: current.agent.relevantSkills,
+    agentKind: current.agent.type === 'main' ? 'main' : 'special' });
+  const fingerprint = createHash('sha256').update(JSON.stringify([current.agent.id, current.agent.revision,
+    current.workflowRevision, snapshot.preferenceRevision, snapshot.choices, assembled.fingerprint])).digest('hex');
+  return { ...assembled, fingerprint };
+}
+
+/**
+ * Assemble exact, server-resolved package selections without an Agent or session.
+ * Presentation only: the caller must already hold the genuine sources in this
+ * same transaction. The supplied storage facts never replace fresh SourceUse.
+ */
+export async function assembleAgentExtensionPackageContextOnConnection(input: {
+  database: SqlConnection;
+  actor: AgentManagementActor;
+  workflowVersion: ExplicitAgentWorkflowVersion;
+  packageSelections: readonly AgentExtensionPackageContextSelection[];
+  relevantSkills: readonly string[] | null;
+  agentKind: 'special' | 'main';
+}): Promise<AgentExtensionPackageContext> {
+  const { database, workflowVersion, agentKind } = input;
+  const actor = { ...input.actor };
+  const packageSelections = structuredClone(input.packageSelections);
+  const relevantSkills = input.relevantSkills === null ? null : [...input.relevantSkills];
+  await requireHeldSources(database, actor);
+  if (workflowVersion !== 1 && workflowVersion !== 2 || agentKind !== 'special' && agentKind !== 'main') {
+    fail('An explicit workflow version and actual Agent kind are required.');
+  }
   const state = await readSourceState(database, actor), pinned: Pinned[] = [];
   await requireHeldSources(database, actor, state.effective);
-  for (const binding of current.bindings) {
-    if (binding.resourceType === 'connection') continue;
-    if (!binding.configuration) fail('An explicit binding has no exact package configuration.');
-    const candidate = sourceCandidate(state.effective, binding), storage = capabilityResourceStorageBinding(candidate.ref), stored = binding.configuration;
+  const seen = new Set<string>();
+  for (const selection of packageSelections) {
+    const candidate = sourceCandidate(state.effective, selection.storage);
+    const storage = capabilityResourceStorageBinding(candidate.ref), stored = selection.stored;
+    if (sourceKey(storage) !== sourceKey(selection.storage) || seen.has(storage.resourceId)) {
+      fail('The exact package storage binding is inconsistent or duplicated.');
+    }
+    seen.add(storage.resourceId);
     await requireHeldSources(database, actor, state.effective, storage);
     pinned.push(await withAuthorizedCapabilityPackageResource(resourceActor(actor), storage, 'use', undefined, async (authorization, connection) => {
       if (authorization.record.metadata.resourceRef !== stored.resourceRef) fail('The selected package resource changed.');
@@ -250,14 +308,14 @@ export async function buildAgentExtensionPackageContextOnConnection(input: { dat
       const requiredRoots = stored.skillSelection.kind === 'plugin' ? metadata.skills.filter(child => state.effective.capabilities.find(value =>
         value.ref.resourceId === all.find(value => value.ref.name === child.skill.name)?.ref.resourceId)?.effectivePolicy === 'required').map(child => child.relativeRoot) : [];
       const projection = projectPackageExtensionSelection({ source: stored, kind: published.kind,
-        inventory: metadata.skills.map(child => ({ name: child.skill.name, relativeRoot: child.relativeRoot })), selections: binding.extensionSelections, requiredRoots });
+        inventory: metadata.skills.map(child => ({ name: child.skill.name, relativeRoot: child.relativeRoot })), selections: selection.extensionSelections, requiredRoots });
       const skills = all.filter(candidate => metadata.skills.some(child => child.skill.name === candidate.ref.name && projection.selectedRoots.includes(child.relativeRoot)));
       await verifyCapabilityPackageSnapshot(location);
       return { stored: projection.configuration, storage, published, location, metadata, skills,
         candidate: { ...candidate, resourceAccess: authorization.access, resourceMetadata: authorization.record.metadata } };
     }, { database }));
   }
-  const effective = projectPinnedExtensionEffectiveCapabilities({ effective: state.effective, workflowVersion: current.workflowVersion,
+  const effective = projectPinnedExtensionEffectiveCapabilities({ effective: state.effective, workflowVersion,
     packages: pinned, role: state.role, policies: state.policies });
   for (const source of pinned) for (const candidate of [source.candidate, ...source.skills]) {
     const actual = effective.capabilities.find(value => value.ref.resourceId === candidate.ref.resourceId);
@@ -271,16 +329,17 @@ export async function buildAgentExtensionPackageContextOnConnection(input: { dat
         checksum: source.published.checksum, kind: source.published.kind, relativeRoot: child.relativeRoot } });
   };
   const packages = pinned.map(source => projectExtensionPackageMetadata({ published: source.published, configuration: source.stored,
-    metadata: source.metadata, skills: source.skills.map(candidate => presentPinnedSkill(source, candidate)), workflowVersion: current.workflowVersion }));
-  const selected = selectExtensionRuntimeSkillCandidates({ effective, agentKind: current.agent.type === 'main' ? 'main' : 'special',
-    relevantSkills: current.agent.relevantSkills, workflowVersion: current.workflowVersion, packageSkills: pinned.flatMap(source => source.skills) });
+    metadata: source.metadata, skills: source.skills.map(candidate => presentPinnedSkill(source, candidate)), workflowVersion }));
+  const selected = selectExtensionRuntimeSkillCandidates({ effective, agentKind,
+    relevantSkills, workflowVersion, packageSkills: pinned.flatMap(source => source.skills) });
   const skills: ExtensionSkillMetadata[] = [];
   for (const candidate of selected) {
     const source = pinned.find(source => source.skills.some(value => value.ref.resourceId === candidate.ref.resourceId));
     skills.push(source ? presentPinnedSkill(source, candidate) : await presentAdditionalSkill(database, actor, candidate, effective));
   }
   for (const source of pinned) await verifyCapabilityPackageSnapshot(source.location);
-  const fingerprint = createHash('sha256').update(JSON.stringify([actor.userId, actor.workspaceId ?? null, actor.projectId ?? null,
-    current.agent.id, current.agent.revision, current.workflowRevision, snapshot.preferenceRevision, snapshot.choices, effective.snapshotId, packages, skills])).digest('hex');
+  await requireHeldSources(database, actor, effective);
+  const fingerprint = createHash('sha256').update(JSON.stringify([actorScope(actor, effective), workflowVersion,
+    agentKind, relevantSkills, effective.snapshotId, pinned.map(source => source.stored), packages, skills])).digest('hex');
   return { packages, skills, configurations: Object.freeze(pinned.map(source => source.stored)), fingerprint };
 }

@@ -3,19 +3,15 @@ import 'server-only';
 import { createHash } from 'node:crypto';
 import type { SqlConnection } from '@/app/lib/db';
 import type { IntegrationConnectionBindingBatch } from '@/app/lib/integration-tools/connections/store';
-import { intersectIntegrationPolicies, isIntegrationProviderOperationAllowed } from '@/app/lib/integration-tools/policy';
-import { EXTENSION_CONTEXT_QUERY_MAX_CODEPOINTS, renderEffectiveExtensionContext,
-  type RenderedExtensionContext } from '@/app/lib/capabilities/extensions/context-prompt';
-import { buildPiSpecialAgentRegistrationMetadata } from '@/app/lib/pi/tool-registry';
-import type { EffectiveToolManifest } from '@/app/lib/pi/effective-tool-manifest';
+import type { RenderedExtensionContext } from '@/app/lib/capabilities/extensions/context-prompt';
 import { getAgentAccessOnConnection } from './access';
 import { resolveVerifiedAgentActorContextOnConnection } from './actor-context';
-import { resolveSpecialAgentRuntimeSettings } from './effective-runtime-config';
 import type { AgentManagementActor } from './management-actions';
 import { AgentWorkflowError } from './workflow-contracts';
 import { readAgentWorkflowPreferenceSnapshot, readManagedAgentWorkflowOnConnection } from './workflow-configuration';
 import { buildAgentExtensionPackageContextOnConnection } from './extension-context-package-metadata';
 import { buildAgentExtensionProviderContextOnConnection } from './extension-context-provider-metadata';
+import { compileAgentExtensionConfigurationContext } from './extension-context-compiler';
 
 export type AgentExtensionConfigurationContextCheck = Readonly<{
   fingerprint: string;
@@ -23,11 +19,6 @@ export type AgentExtensionConfigurationContextCheck = Readonly<{
   runtimeReadiness: 'not_checked';
   providerHealth: 'unknown';
 }>;
-
-function registered(manifest: EffectiveToolManifest, operation: string): boolean {
-  return manifest.registeredToolNames.includes(operation) || manifest.gateways.some(gateway =>
-    manifest.registeredToolNames.includes(gateway.toolName) && gateway.allowedOperationNames.includes(operation));
-}
 
 /**
  * Final configuration check, before COMMIT, against the actual pending SQL row.
@@ -62,41 +53,16 @@ export async function assertManagedAgentExtensionContextOnConnection(input: {
   // Local configuration data, deliberately never registered as a runtime proof.
   snapshot.choices = preferences.choices;
   snapshot.preferenceRevision = preferences.revision;
-  const settings = await resolveSpecialAgentRuntimeSettings(snapshot.agent);
-  const registration = await buildPiSpecialAgentRegistrationMetadata({ kind: 'special', userId: actor.userId,
-    effectiveEnabledTools: settings.enabledTools, extensionMode: 'fixed', workspacePermissions: verified.workspacePermissions
-      ? { canWrite: verified.workspacePermissions.canWrite, canDelete: verified.workspacePermissions.canDelete,
-        canShare: verified.workspacePermissions.canCreatePublicLinks } : null });
   const packageContext = await buildAgentExtensionPackageContextOnConnection({ database, actor, snapshot });
   const { projection: workflowProjection, requiredProviders } = await buildAgentExtensionProviderContextOnConnection({
     database, actor: verified, snapshot, batch, purpose, packages: packageContext.configurations });
-  if ((packageContext.packages.some(pkg => pkg.skills.length > 0)
-    || packageContext.skills.some(skill => skill.required && !skill.core)) && !registered(registration.manifest, 'read')) {
-    throw new AgentWorkflowError('AGENT_EXTENSION_READ_TOOL_REQUIRED',
-      'Enable the skill reading tool before assigning these published skills.', 409);
-  }
-  if (requiredProviders.length > 0 && !workflowProjection.unavailable) {
-    const ceiling = registration.integrationPolicyCeiling;
-    const policy = ceiling ? intersectIntegrationPolicies(ceiling, workflowProjection.policy) : null;
-    if (!registration.manifest.registeredToolNames.includes('integrations') || !policy
-      || requiredProviders.some(provider => !isIntegrationProviderOperationAllowed(policy,
-        provider.source, provider.providerRef, 'search_tools') || !isIntegrationProviderOperationAllowed(policy,
-        provider.source, provider.providerRef, 'describe'))) {
-      throw new AgentWorkflowError('AGENT_EXTENSION_DISCOVERY_TOOLS_REQUIRED',
-        'Enable the tool search and schema tools needed by this required connection.', 409);
-    }
-  }
-  const fingerprint = createHash('sha256').update(JSON.stringify([snapshot.agent.agentId, snapshot.agent.revision,
-    snapshot.workflowRevision, snapshot.preferenceRevision, packageContext.fingerprint, workflowProjection,
-    registration.manifest, registration.integrationPolicyCeiling])).digest('hex');
-  // The mandatory recipes repeat taskQuery for discovery and selected providers.
-  // A lone UTF-16 surrogate takes six escaped ASCII bytes in JSON, exceeding
-  // a valid four-byte code point. Reserve that true maximum for each recipe.
-  // Optional detail ranking still varies with the real task and the Runtime
-  // guard remains necessary for later source or actor changes.
-  const reservedTaskQuery = '\ud800'.repeat(EXTENSION_CONTEXT_QUERY_MAX_CODEPOINTS);
-  const rendered = renderEffectiveExtensionContext({ fingerprint, mode: 'fixed', packages: packageContext.packages,
-    skills: packageContext.skills, workflowProjection }, registration.manifest, reservedTaskQuery,
-  { integrationPolicyCeiling: registration.integrationPolicyCeiling ?? undefined });
-  return Object.freeze({ fingerprint, budget: rendered.budget, runtimeReadiness: 'not_checked', providerHealth: 'unknown' });
+  const sourceFingerprint = createHash('sha256').update(JSON.stringify([snapshot.agent.agentId, snapshot.agent.revision,
+    snapshot.workflowRevision, snapshot.preferenceRevision, packageContext.fingerprint, workflowProjection])).digest('hex');
+  const compiled = await compileAgentExtensionConfigurationContext({ actorUserId: actor.userId, runtimeFields: snapshot.agent,
+    workspacePermissions: verified.workspacePermissions ? { canWrite: verified.workspacePermissions.canWrite,
+      canDelete: verified.workspacePermissions.canDelete, canShare: verified.workspacePermissions.canCreatePublicLinks } : null,
+    presentation: { fingerprint: sourceFingerprint, mode: 'fixed', packages: packageContext.packages,
+      skills: packageContext.skills, workflowProjection }, requiredProviders });
+  return Object.freeze({ fingerprint: compiled.fingerprint, budget: compiled.rendered.budget,
+    runtimeReadiness: 'not_checked', providerHealth: 'unknown' });
 }

@@ -1,35 +1,28 @@
 import 'server-only';
 
 import path from 'node:path';
-import { createHash } from 'node:crypto';
 import type { SqlConnection } from '@/app/lib/db';
-import type { IntegrationPolicy, IntegrationProviderDescriptor, IntegrationProviderToolRule } from '@/app/lib/integration-tools/contracts';
+import type { IntegrationProviderDescriptor } from '@/app/lib/integration-tools/contracts';
 import { authorizeIntegrationConnectionBindingsOnConnection, prepareEmailV2BindingConfigurationOnConnection, narrowIntegrationConnectionBindingBatchOnConnection,
   type IntegrationConnectionBindingAuthorization, type IntegrationConnectionBindingBatch } from '@/app/lib/integration-tools/connections/store';
 import { presentSharedIntegrationProvider } from '@/app/lib/integration-tools/connections/provider-policy';
-import { presentPersonalWorkflowProvider } from '@/app/lib/integration-tools/workflow-provider-presentation';
+import { createPersonalWorkflowProviderMetadataReference, presentPersonalWorkflowProvider } from '@/app/lib/integration-tools/workflow-provider-presentation';
 import { validatePersonalWorkflowProviderBinding } from '@/app/lib/integration-tools/workflow-personal-bindings';
 import { createIntegrationProviderRef } from '@/app/lib/integration-tools/references';
-import { schemaFingerprint } from '@/app/lib/integration-tools/schema';
 import { readExistingConfig } from '@/app/lib/mcp/read-only-config';
 import { hashMcpLegacyConfig, validateMcpConnectionId } from '@/app/lib/mcp/connection-identity';
 import { listMcpServerDefinitions, matchesMcpServerDefinition } from '@/app/lib/mcp/server-definitions';
 import { resolveOrganizationDataRoot, resolveUserMcpDir } from '@/app/lib/runtime-data-paths';
 import { getComposioMode } from '@/app/lib/composio/composio-client';
-import { selectAgentStandaloneExtension, type AgentStandaloneRuntimeSelection } from '@/app/lib/capabilities/extensions/standalone-runtime';
+import { selectAgentStandaloneExtension } from '@/app/lib/capabilities/extensions/standalone-runtime';
 import { intersectPackageExtensionToolCaps } from '@/app/lib/capabilities/packages/extension-projection';
 import { getSelectedAgentWorkflowCapability } from './workflow-configuration';
 import { resolveVerifiedAgentActorContextOnConnection, type VerifiedAgentActorContext } from './actor-context';
 import { AgentWorkflowError, type AgentWorkflowInternalSnapshot, type StoredAgentWorkflowPackage, type StoredAgentWorkflowTarget } from './workflow-contracts';
-import type { AgentWorkflowRuntimeProjection } from './workflow-runtime';
 import { EMAIL_MANAGED_AGENT_ID } from './storage';
+import { projectAgentExtensionProviderContext, type AgentExtensionProviderContext } from './extension-provider-context-projection';
 
-const OPERATIONS = ['list_providers', 'search_providers', 'list_tools', 'search_tools', 'describe', 'call'] as const;
-type RequiredProvider = Readonly<{ source: 'mcp' | 'composio'; providerRef: string }>;
-export type AgentExtensionProviderContext = Readonly<{
-  projection: AgentWorkflowRuntimeProjection;
-  requiredProviders: readonly RequiredProvider[];
-}>;
+export type { AgentExtensionProviderContext } from './extension-provider-context-projection';
 type Input = {
   database: SqlConnection;
   actor: VerifiedAgentActorContext;
@@ -42,10 +35,6 @@ type Input = {
 
 function invalid(): never {
   throw new AgentWorkflowError('AGENT_WORKFLOW_BINDING_INVALID', 'The configured extension metadata cannot be verified.', 409);
-}
-function freeze<T>(value: T): T {
-  if (value && typeof value === 'object') { Object.values(value).forEach(freeze); Object.freeze(value); }
-  return value;
 }
 function targets(pkg: StoredAgentWorkflowPackage): StoredAgentWorkflowTarget[] {
   return pkg.declarations.flatMap(declaration => declaration.capabilities.flatMap(capability =>
@@ -101,7 +90,7 @@ async function personalMetadata(input: Input, target: Extract<StoredAgentWorkflo
       scope: { type: 'user', ownerUserId: binding.ownerUserId, resourceId: binding.connectionId } })
     : createIntegrationProviderRef({ source: 'composio', profileId: binding.profileId, toolkit: binding.toolkit,
       scope: { type: 'user', ownerUserId: binding.ownerUserId, resourceId: `profile:${binding.profileId}:${binding.toolkit}` } });
-  const bound = `${binding.source}:v1:personal:${createHash('sha256').update(JSON.stringify(binding)).digest('hex')}`;
+  const bound = createPersonalWorkflowProviderMetadataReference(binding);
   if (target.providerRef !== base || target.boundProviderRef !== bound) invalid();
   let displayName: string;
   if (binding.source === 'composio') {
@@ -131,8 +120,7 @@ async function personalMetadata(input: Input, target: Extract<StoredAgentWorkflo
     }
     displayName = typeof connection.displayName === 'string' && connection.displayName ? connection.displayName : match[0];
   }
-  return presentPersonalWorkflowProvider({ binding, baseProviderRef: base, boundProviderRef: bound,
-    bindingFingerprint: target.bindingFingerprint }, displayName);
+  return presentPersonalWorkflowProvider({ binding, boundProviderRef: bound }, displayName);
 }
 
 /** Pending SQL configuration presentation only. No runtime proof, session, provider request or account selection is issued. */
@@ -147,76 +135,53 @@ export async function buildAgentExtensionProviderContextOnConnection(input: Inpu
   }))));
   const selectedStandalone = snapshot.bindings.flatMap(binding => binding.standaloneConfiguration
     ? [selectAgentStandaloneExtension(binding.standaloneConfiguration, snapshot, actor.userId)] : []);
-  let unavailable = chosen.some(entry => entry.capability.required && !entry.selected);
-  const missingStandalone = selectedStandalone.some(entry => entry.required && !entry.choice);
-  const selectedShared = unavailable ? [] : [...chosen.flatMap(entry => entry.selected?.target.kind === 'shared' ? [entry.selected.target.connectionRef] : []),
-    ...(!missingStandalone ? selectedStandalone.flatMap(entry => entry.choice?.target.kind === 'shared' ? [entry.choice.target.connectionRef] : []) : [])];
   const batch = await narrowIntegrationConnectionBindingBatchOnConnection(database, input.batch, []);
   const emailV2Configuration = input.purpose === 'configure' && snapshot.agent.agentId === EMAIL_MANAGED_AGENT_ID
     ? await prepareEmailV2BindingConfigurationOnConnection(database, batch, snapshot.agent) : undefined;
   await authorizeIntegrationConnectionBindingsOnConnection(database, batch, snapshot.agent, input.purpose,
     emailV2Configuration ? { emailV2Configuration } : {});
-  const authorized: IntegrationConnectionBindingAuthorization[] = [];
-  for (const reference of new Set(selectedShared)) {
-    const selectedBatch = await narrowIntegrationConnectionBindingBatchOnConnection(database, input.batch, [reference]);
-    const selectedEmail = emailV2Configuration
-      ? await prepareEmailV2BindingConfigurationOnConnection(database, selectedBatch, snapshot.agent) : undefined;
-    try {
-      authorized.push(...await authorizeIntegrationConnectionBindingsOnConnection(database, selectedBatch, snapshot.agent, input.purpose,
-        selectedEmail ? { emailV2Configuration: selectedEmail } : {}));
-    } catch { /* A denied optional source is omitted, as in the actual runtime projection. */ }
-  }
-  const shared = new Map(authorized.map(value => [value.resource.connectionRef, value]));
-  const descriptors = new Map<string, IntegrationProviderDescriptor>();
-  const rules = new Map<string, IntegrationProviderToolRule>();
-  const required = new Map<string, RequiredProvider>();
-  const standaloneSelections: AgentStandaloneRuntimeSelection[] = selectedStandalone.map(selected => ({
-    configurationId: selected.configurationId, slotRef: selected.slotRef, source: selected.source,
-    required: selected.required, origin: selected.origin, state: selected.choice ? 'selected' : selected.origin === 'stale' ? 'stale' : 'missing',
-    ...(selected.choice ? { selection: selected.choice.selection } : {}),
-  }));
-  const include = async (target: StoredAgentWorkflowTarget, cap: readonly string[] | null, isRequired: boolean,
-    expected?: { source: 'mcp' | 'composio'; toolkit?: string; connector?: string; requiredTools?: readonly string[] }): Promise<string> => {
+  const shared = new Map<string, Promise<IntegrationConnectionBindingAuthorization>>();
+  const authorityRevisions: string[] = [];
+  const authorizationFor = (reference: string): Promise<IntegrationConnectionBindingAuthorization> => {
+    let authorization = shared.get(reference);
+    if (!authorization) {
+      authorization = (async () => {
+        const selectedBatch = await narrowIntegrationConnectionBindingBatchOnConnection(database, input.batch, [reference]);
+        const selectedEmail = emailV2Configuration
+          ? await prepareEmailV2BindingConfigurationOnConnection(database, selectedBatch, snapshot.agent) : undefined;
+        const [actual] = await authorizeIntegrationConnectionBindingsOnConnection(database, selectedBatch, snapshot.agent, input.purpose,
+          selectedEmail ? { emailV2Configuration: selectedEmail } : {});
+        if (!actual) invalid();
+        authorityRevisions.push(actual.authorizationRevision);
+        return actual;
+      })();
+      shared.set(reference, authorization);
+    }
+    return authorization;
+  };
+  const resolve = async (target: StoredAgentWorkflowTarget, cap: readonly string[] | null,
+    expected?: { source: 'mcp' | 'composio'; toolkit?: string; connector?: string }) => {
     if (expected && (target.source !== expected.source || expected.source === 'composio' && target.kind === 'personal'
       && (target.personalBinding?.source !== 'composio' || target.personalBinding.toolkit !== expected.toolkit))) invalid();
-    const authorization = target.kind === 'shared' ? shared.get(target.connectionRef) : undefined;
+    const authorization = target.kind === 'shared' ? await authorizationFor(target.connectionRef) : undefined;
     if (target.kind === 'shared' && (!authorization || expected?.source === 'composio'
       && (authorization.backend.source !== 'composio' || authorization.backend.toolkit !== expected.toolkit))) invalid();
     const descriptor = target.kind === 'shared' ? await sharedMetadata(input, authorization!, target, expected?.connector)
       : await personalMetadata(input, target);
-    const permitted = intersectPackageExtensionToolCaps(cap, authorization?.allowedToolNames ?? null);
-    const prior = rules.get(descriptor.providerRef);
-    if (prior && prior.source !== descriptor.source) invalid();
-    const names = prior ? prior.allowedToolNames === null || permitted === null ? null
-      : [...new Set([...prior.allowedToolNames, ...permitted])].sort() : permitted;
-    rules.set(descriptor.providerRef, { source: descriptor.source, providerRef: descriptor.providerRef, allowedToolNames: names,
-      allowedOperations: names?.length === 0 ? OPERATIONS.filter(operation => operation !== 'call') : [...OPERATIONS] });
-    descriptors.set(descriptor.providerRef, descriptor);
-    if (isRequired) required.set(descriptor.providerRef, { source: descriptor.source, providerRef: descriptor.providerRef });
-    return descriptor.providerRef;
+    return { descriptor, toolCap: intersectPackageExtensionToolCaps(cap, authorization?.allowedToolNames ?? null) };
   };
-  if (!unavailable) for (const { capability, selected } of chosen) {
-    if (!selected) { unavailable ||= capability.required; continue; }
-    const alternative = capability.alternatives.find(value => `${value.source}:${value.source === 'mcp' ? value.connector : value.toolkit}` === selected.alternativeKey);
-    try {
+  return projectAgentExtensionProviderContext({
+    capabilities: chosen.map(({ capability, selected }) => ({ required: capability.required, choice: selected ? { resolve: async () => {
+      const alternative = capability.alternatives.find(value => `${value.source}:${value.source === 'mcp' ? value.connector : value.toolkit}` === selected.alternativeKey);
       if (!alternative) invalid();
-      await include(selected.target, selected.toolCap, capability.required, alternative.source === 'mcp'
-        ? { source: 'mcp', connector: alternative.connector, requiredTools: alternative.requiredTools }
-        : { source: 'composio', toolkit: alternative.toolkit, requiredTools: alternative.requiredTools });
-    } catch { if (capability.required) { unavailable = true; break; } }
-  }
-  if (!missingStandalone && !unavailable) for (let index = 0; index < selectedStandalone.length; index++) {
-    const selected = selectedStandalone[index], summary = standaloneSelections[index];
-    if (selected.choice) try {
-      const providerRef = await include(selected.choice.target, selected.choice.toolCap, selected.required);
-      standaloneSelections[index] = { ...summary, providerRef };
-    } catch { unavailable ||= selected.required; standaloneSelections[index] = { ...summary, state: 'unavailable' }; }
-  }
-  unavailable ||= missingStandalone;
-  const policy: IntegrationPolicy = { allowedSources: null, allowedProviderRefs: null, allowedApplications: null,
-    allowedToolNames: null, allowedOperations: null, providerToolRules: unavailable ? [] : [...rules.values()].sort((a, b) => a.providerRef.localeCompare(b.providerRef)) };
-  const projection: AgentWorkflowRuntimeProjection = { policy, revision: schemaFingerprint([snapshot.agent.revision, snapshot.workflowRevision,
-    snapshot.preferenceRevision, input.packages, authorized.map(value => value.authorizationRevision), standaloneSelections, policy, unavailable]),
-  selectedProviders: unavailable ? [] : [...descriptors.values()], standaloneSelections, unavailable };
-  return freeze({ projection, requiredProviders: unavailable ? [] : [...required.values()] });
+      return resolve(selected.target, selected.toolCap, alternative.source === 'mcp'
+        ? { source: 'mcp', connector: alternative.connector } : { source: 'composio', toolkit: alternative.toolkit });
+    } } : null })),
+    standalone: selectedStandalone.map(selected => ({ summary: {
+      configurationId: selected.configurationId, slotRef: selected.slotRef, source: selected.source, required: selected.required, origin: selected.origin,
+      state: selected.choice ? 'selected' : selected.origin === 'stale' ? 'stale' : 'missing',
+      ...(selected.choice ? { selection: selected.choice.selection } : {}),
+    }, choice: selected.choice ? { resolve: () => resolve(selected.choice!.target, selected.choice!.toolCap) } : null })),
+    revisionSeed: [snapshot.agent.revision, snapshot.workflowRevision, snapshot.preferenceRevision, input.packages, authorityRevisions],
+  });
 }

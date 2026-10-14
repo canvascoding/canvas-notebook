@@ -1,41 +1,52 @@
 import 'server-only';
 
 import { createHash } from 'node:crypto';
-import { createCapabilityResourceId } from '@/app/lib/capabilities/reference';
-import { listCapabilityResources, inspectCapabilityResource } from '@/app/lib/capabilities/resources/actions';
-import { projectPackageExtensionSelection, intersectPackageExtensionToolCaps } from '@/app/lib/capabilities/packages/extension-projection';
-import type { AuthorizedAgentWorkflowPackageMetadata } from '@/app/lib/capabilities/packages/runtime-bindings';
-import { renderEffectiveExtensionContext, ExtensionContextBudgetError, EXTENSION_CONTEXT_MAX_BYTES,
-  type ExtensionContextPresentation } from '@/app/lib/capabilities/extensions/context-prompt';
+import path from 'node:path';
+import { openDb } from '@/app/lib/db';
+import { findCapabilityResourceRecord } from '@/app/lib/capabilities/resources/store';
+import { getCapabilityPackagePublishedRevision } from '@/app/lib/capabilities/packages/store';
+import { intersectPackageExtensionToolCaps } from '@/app/lib/capabilities/packages/extension-projection';
+import { ExtensionContextBudgetError, EXTENSION_CONTEXT_MAX_BYTES } from '@/app/lib/capabilities/extensions/context-prompt';
 import { projectAgentStandaloneConfigurations } from '@/app/lib/capabilities/extensions/agent-standalone-configuration';
 import { createStandaloneExtensionSlotRef } from '@/app/lib/capabilities/extensions/standalone-reference';
 import { EXTENSION_SELECTION_LIMITS, extensionSelectionIdentity, type AgentStandaloneEntryInput,
   type StandaloneExtensionSelection } from '@/app/lib/capabilities/extensions/contracts';
 import { createIntegrationProviderRef } from '@/app/lib/integration-tools/references';
-import { createIntegrationPolicyFromLegacyTools } from '@/app/lib/integration-tools/policy';
-import { verifyStoredPersonalWorkflowProviderTarget } from '@/app/lib/integration-tools/workflow-personal-bindings';
+import { isIntegrationProviderOperationAllowed, intersectIntegrationPolicies } from '@/app/lib/integration-tools/policy';
+import { validatePersonalWorkflowProviderBinding } from '@/app/lib/integration-tools/workflow-personal-bindings';
+import { createPersonalWorkflowProviderMetadataReference, presentPersonalWorkflowProvider } from '@/app/lib/integration-tools/workflow-provider-presentation';
+import { presentSharedIntegrationProvider } from '@/app/lib/integration-tools/connections/provider-policy';
+import { getComposioMode } from '@/app/lib/composio/composio-client';
+import type { IntegrationProviderDescriptor } from '@/app/lib/integration-tools/contracts';
 import { readPersonalComposioAccountReference } from '@/app/lib/composio/composio-shared-account-reference';
 import { listExistingComposioProfiles } from '@/app/lib/composio/composio-profiles';
 import { isComposioIntegrationApplicationVisible } from '@/app/lib/integration-tools/adapters/composio';
-import { hashMcpLegacyConfig } from '@/app/lib/mcp/connection-identity';
-import { getPiToolMetadata } from '@/app/lib/pi/tool-registry';
-import { getDefaultEnabledToolNames, isLegacyEnabledToolsValue, resolveEnabledToolNames } from '@/app/lib/pi/enabled-tools';
-import type { EffectiveToolManifest } from '@/app/lib/pi/effective-tool-manifest';
-import type { WorkflowIntegrationAlternative } from '@/app/lib/capabilities/workflow-contracts';
+import { hashMcpLegacyConfig, validateMcpConnectionId } from '@/app/lib/mcp/connection-identity';
+import { parseWorkflowManifest, type WorkflowIntegrationAlternative } from '@/app/lib/capabilities/workflow-contracts';
+import { readExistingConfig } from '@/app/lib/mcp/read-only-config';
+import { resolveOrganizationDataRoot } from '@/app/lib/runtime-data-paths';
 import { readAgentExtensionPackageVersion } from './extension-package-options';
-import { readAgentOwnMcpOptionMetadata, readAgentOwnMcpOptionsInventory, readAgentSharedMcpOptionMetadata,
+import { readAgentOwnMcpOptionMetadata, readAgentOwnMcpOptionsInventory,
   readAgentComposioOptionsCatalogue } from './extension-options-inventory';
-import { authorizeAgentExtensionSharedOption, revalidateAgentExtensionOptionsContext, type AgentExtensionOptionsContext } from './extension-options-context';
+import { revalidateAgentExtensionOptionsContext, type AgentExtensionOptionsContext } from './extension-options-context';
 import { agentExtensionOptionsRequestSchema, type AgentExtensionOptionsRequest,
   type AgentExtensionOptionsResponse, type AgentExtensionConfigurationPreview } from './extension-options-contracts';
-import { AgentWorkflowError, type AgentWorkflowTarget, type StoredAgentWorkflowPackage, type StoredAgentWorkflowTarget } from './workflow-contracts';
+import { AgentWorkflowError, agentWorkflowCapabilityKey, type AgentWorkflowTarget, type StoredAgentWorkflowPackage, type StoredAgentWorkflowTarget } from './workflow-contracts';
 import { resolveRetainedAgentWorkflowTarget, type AgentWorkflowBindingSlot } from './workflow-binding-retention';
 import { validateSpecialAgentTools } from './management-actions';
+import { getSelectedAgentWorkflowCapability } from './workflow-configuration';
+import { selectAgentStandaloneExtension, type AgentStandaloneRuntimeSelection } from '@/app/lib/capabilities/extensions/standalone-runtime';
+import type { PreparedAgentExtensionContextPackageSource } from './extension-context-package-metadata';
+import { projectAgentExtensionProviderContext, type AgentExtensionProviderContextChoice,
+  type AgentExtensionProviderContextProjectionInput } from './extension-provider-context-projection';
+import { compileProposedAgentExtensionOptionsPreview, compileKeptAgentExtensionOptionsPreview,
+  presentCompiledAgentExtensionOptionsContext, validateAgentExtensionOptionsPreviewRuntimeFields,
+  type CompleteAgentExtensionOptionsContext } from './extension-options-preview-compilation';
+import type { ProposedAgentExtensionPreviewFrame } from './extension-options-preview-compilation';
 
 type PreviewRequest = Extract<AgentExtensionOptionsRequest, { operation: 'preview' }>;
 type PreviewResponse = Extract<AgentExtensionOptionsResponse, { operation: 'preview' }>;
 type Issue = AgentExtensionConfigurationPreview['issues'][number];
-const emptyManifest: EffectiveToolManifest = { tools: [], gateways: [], registeredToolNames: [], groups: [], revision: 'configuration-preview-no-runtime-registration' };
 const key = (value: { resourceRef: string; publishedRevisionRef: string; checksum: string }) =>
   JSON.stringify([value.resourceRef, value.publishedRevisionRef, value.checksum]);
 const alternativeKey = (alternative: WorkflowIntegrationAlternative) => `${alternative.source}:${alternative.source === 'mcp' ? alternative.connector : alternative.toolkit}`;
@@ -55,31 +66,22 @@ export async function previewAgentExtensionConfiguration(context: AgentExtension
     issues.push({ code, message, severity, ...(path ? { path } : {}) });
   };
   const configuration = request.configuration;
-  const packages: AuthorizedAgentWorkflowPackageMetadata[] = [];
-  const standaloneSelections: NonNullable<ExtensionContextPresentation['workflowProjection']>['standaloneSelections'][number][] = [];
-  const configuredTools = request.enabledTools === undefined ? context.snapshot?.agent.enabledTools ?? null : request.enabledTools;
-  const catalog = await getPiToolMetadata();
-  const known = catalog.map(tool => tool.name);
-  const enabled = configuredTools?.includes('__none__') ? new Set<string>()
-    : !configuredTools?.length || isLegacyEnabledToolsValue(configuredTools) ? getDefaultEnabledToolNames(known)
-      : resolveEnabledToolNames(known, configuredTools);
-  try { await validateSpecialAgentTools(configuredTools); }
+  const sources: PreparedAgentExtensionContextPackageSource[] = [];
+  const capabilities: AgentExtensionProviderContextProjectionInput['capabilities'][number][] = [];
+  const standalone: AgentExtensionProviderContextProjectionInput['standalone'][number][] = [];
+  let personalSetupRequired = false;
+  const metadataStamps: unknown[] = [];
+  try { await validateSpecialAgentTools(request.enabledTools); }
   catch { issue('AGENT_TOOL_CONFIGURATION_INVALID', 'The selected native tools contain an unknown or protected operation.'); }
-  const integrationPolicy = createIntegrationPolicyFromLegacyTools({ legacyToolNames: enabled });
-  const retainedStandalone = context.snapshot && configuration.mode === 'fixed' && configuration.standalone.some(slot =>
+  const retainedStandalone = context.snapshot && configuration?.mode === 'fixed' && configuration.standalone.some(slot =>
     (slot.mode === 'fixed' ? [slot.entry] : slot.allowedChoices).some(entry => entry.retainedBindingRef))
     ? await projectAgentStandaloneConfigurations(context.actor, context.snapshot) : [];
 
-  const checkSelection = async (entry: AgentStandaloneEntryInput, path: string,
+  const checkSelection = async (frame: ProposedAgentExtensionPreviewFrame, entry: AgentStandaloneEntryInput, issuePath: string,
     retention?: { configurationId?: string; choiceId?: string }, mapping?: { alternative: WorkflowIntegrationAlternative; target?: StoredAgentWorkflowTarget;
-      confirmation?: boolean }): Promise<string[] | null> => {
+      confirmation?: boolean }): Promise<{ descriptor: IntegrationProviderDescriptor; toolCap: string[] | null }> => {
     const selection = entry.selection;
     if (selection.kind === 'composio' && !isComposioIntegrationApplicationVisible(selection.toolkit)) fail('AGENT_WORKFLOW_BINDING_DENIED');
-    if (!integrationPolicy.allowedSources?.includes(selection.source)) {
-      toolConflicts.push({ code: 'AGENT_EXTENSION_GATEWAY_DISABLED', message: `The configured native tools do not permit ${selection.source} discovery/execution.`, toolNames: [selection.source] });
-    } else if (![`${selection.source}.search_tools`, `${selection.source}.describe`].every(operation => integrationPolicy.allowedOperations?.includes(operation))) {
-      toolConflicts.push({ code: 'AGENT_EXTENSION_DISCOVERY_DISABLED', message: `The configured native tools do not permit exact ${selection.source} tool discovery and schema description.`, toolNames: [selection.source] });
-    }
     if (entry.retainedBindingRef) {
       const slot = retainedStandalone.find(slot => slot.configurationId === retention?.configurationId);
       const previous = slot?.mode === 'fixed' ? retention?.choiceId === undefined ? slot.entry : undefined
@@ -88,38 +90,53 @@ export async function previewAgentExtensionConfiguration(context: AgentExtension
         || JSON.stringify(previous.selection) !== JSON.stringify(selection)) fail('AGENT_EXTENSION_RETENTION_INVALID');
     }
     if (selection.target.kind === 'shared') {
-      const current = await authorizeAgentExtensionSharedOption(context, selection.target.connectionRef);
-      let allowedToolNames = current.allowedToolNames;
+      const current = frame.shared.get(selection.target.connectionRef);
+      if (!current) fail('AGENT_WORKFLOW_BINDING_CHANGED');
+      metadataStamps.push(current.authorizationRevision);
+      const allowedToolNames = current.allowedToolNames;
       if (!current.canUse || current.resource.status !== 'active' || current.resource.source !== selection.source
         || current.resource.bindingRevision !== selection.target.bindingRevision
         || selection.kind === 'composio' && (current.backend.source !== 'composio' || current.backend.toolkit !== selection.toolkit
           || current.backend.accountBinding === 'pending')) fail('AGENT_WORKFLOW_BINDING_CHANGED');
       if (mapping?.alternative.source === 'mcp') {
         if (!current.canManage) fail('AGENT_WORKFLOW_MAPPING_REQUIRED', 'The declared MCP mapping requires current connection management permission.');
-        const backend = await readAgentSharedMcpOptionMetadata(context, selection.target.connectionRef);
-        if (!backend?.authorization.canManage || backend.authorization.resource.bindingRevision !== selection.target.bindingRevision) fail('AGENT_WORKFLOW_BINDING_CHANGED');
-        allowedToolNames = backend.authorization.allowedToolNames;
+        if (current.backend.source !== 'mcp') fail('AGENT_WORKFLOW_BINDING_CHANGED');
+        validateMcpConnectionId(current.backend.connectionId);
+        const file = path.join(resolveOrganizationDataRoot(current.resource.ownership.organizationId), 'mcp', 'shared', current.backend.connectionId, 'config.json');
+        const servers = Object.values((await readExistingConfig(file)).mcpServers), connection = servers[0];
+        if (servers.length !== 1 || !connection || connection.connectionId !== current.backend.connectionId || connection.ownerUserId
+          || connection.organizationId !== current.resource.ownership.organizationId || connection.enabled === false) fail('AGENT_WORKFLOW_BINDING_CHANGED');
         const { listMcpServerDefinitions, matchesMcpServerDefinition } = await import('@/app/lib/mcp/server-definitions');
-        const definition = backend.connection.serverDefinitionId ? (await listMcpServerDefinitions(backend.authorization.resource.ownership.organizationId))
-          .find(definition => definition.id === backend.connection.serverDefinitionId) : undefined;
-        if (backend.connection.serverDefinitionId && (!definition?.enabled || !matchesMcpServerDefinition(backend.connection, definition))) fail('AGENT_WORKFLOW_BINDING_CHANGED');
+        const definition = connection.serverDefinitionId ? (await listMcpServerDefinitions(current.resource.ownership.organizationId))
+          .find(definition => definition.id === connection.serverDefinitionId) : undefined;
+        if (connection.serverDefinitionId && (!definition?.enabled || !matchesMcpServerDefinition(connection, definition))) fail('AGENT_WORKFLOW_BINDING_CHANGED');
+        metadataStamps.push([hashMcpLegacyConfig(connection), definition ?? null]);
         if (mapping.target?.verifiedMcpMapping) {
           if (mapping.target.verifiedMcpMapping.connector !== mapping.alternative.connector
-            || mapping.target.verifiedMcpMapping.configFingerprint !== hashMcpLegacyConfig(backend.connection)
+            || mapping.target.verifiedMcpMapping.configFingerprint !== hashMcpLegacyConfig(connection)
             || mapping.target.verifiedMcpMapping.definitionId !== (definition?.id ?? null)
             || mapping.target.verifiedMcpMapping.definitionRevision !== (definition?.revision ?? null)) fail('AGENT_WORKFLOW_BINDING_CHANGED');
-        } else if (!mapping.confirmation && !backend.connection.serverDefinitionId) fail('AGENT_WORKFLOW_MAPPING_REQUIRED');
+        } else if (!mapping.confirmation && !connection.serverDefinitionId) fail('AGENT_WORKFLOW_MAPPING_REQUIRED');
       }
-      return intersectPackageExtensionToolCaps(entry.toolCap, allowedToolNames);
+      return { descriptor: presentSharedIntegrationProvider(current.resource),
+        toolCap: intersectPackageExtensionToolCaps(entry.toolCap, allowedToolNames) };
     }
     if (!context.allowPersonal) fail('AGENT_WORKFLOW_BINDING_DENIED', 'A shared Agent cannot embed a personal connection.');
+    let descriptor: IntegrationProviderDescriptor;
     if (selection.kind === 'mcp') {
-      if (!await readAgentOwnMcpOptionMetadata(context, selection.target.connectionRef)) fail('AGENT_WORKFLOW_BINDING_DENIED');
+      const actual = await readAgentOwnMcpOptionMetadata(context, selection.target.connectionRef);
+      if (!actual) fail('AGENT_WORKFLOW_BINDING_DENIED');
+      metadataStamps.push([actual.serverName, hashMcpLegacyConfig(actual.connection)]);
+      const binding = validatePersonalWorkflowProviderBinding({ source: 'mcp', ownerUserId: context.actor.userId,
+        connectionId: actual.connection.connectionId, serverDefinitionId: actual.connection.serverDefinitionId ?? null });
+      descriptor = presentPersonalWorkflowProvider({ binding, boundProviderRef: createPersonalWorkflowProviderMetadataReference(binding) },
+        actual.connection.displayName || actual.serverName);
     } else {
       if (!isComposioIntegrationApplicationVisible(selection.toolkit)) fail('AGENT_WORKFLOW_BINDING_DENIED');
       const personalTarget = selection.target;
       const profile = (await listExistingComposioProfiles(context.actor.userId)).find(profile => profile.id === personalTarget.profileId && profile.status === 'active');
       if (!profile) fail('AGENT_WORKFLOW_BINDING_DENIED');
+      metadataStamps.push(profile);
       if (selection.target.accountBinding === 'no_auth' && !entry.retainedBindingRef && !mapping?.target?.personalBinding) {
         // Initial no-auth intent is accepted only from actual toolkit metadata.
         // Metadata lookup neither enumerates accounts nor proves runtime health.
@@ -140,9 +157,24 @@ export async function previewAgentExtensionConfiguration(context: AgentExtension
           || receipt.organizationId !== context.organizationId || receipt.profileId !== profile.id || receipt.providerRef !== expected
           || receipt.toolkit !== selection.toolkit || receipt.accountId !== selection.target.accountId) fail('AGENT_EXTENSION_ACCOUNT_CHANGED');
       }
-      issue('AGENT_EXTENSION_PERSONAL_RUNTIME_UNKNOWN', 'Personal account credentials, provider authentication and live tool schemas require fresh validation when saved and used.', 'warning', path);
+      issue('AGENT_EXTENSION_PERSONAL_RUNTIME_UNKNOWN', 'Personal account credentials, provider authentication and live tool schemas require fresh validation when saved and used.', 'warning', issuePath);
+      const binding = validatePersonalWorkflowProviderBinding({ source: 'composio', ownerUserId: context.actor.userId,
+        profileId: profile.id, toolkit: selection.toolkit,
+        mode: await getComposioMode({ secretScope: 'user', userId: context.actor.userId }),
+        accountBinding: selection.target.accountBinding,
+        connectedAccountId: selection.target.accountBinding === 'account' ? selection.target.accountId : null });
+      descriptor = presentPersonalWorkflowProvider({ binding, boundProviderRef: createPersonalWorkflowProviderMetadataReference(binding) },
+        `${selection.toolkit} · ${profile.name}`);
     }
-    return entry.toolCap;
+    const retained = mapping?.target?.personalBinding ?? (entry.retainedBindingRef ? (() => {
+      const slot = frame.existing?.bindings.find(binding => binding.standaloneConfiguration?.configurationId === retention?.configurationId)?.standaloneConfiguration;
+      const choice = slot?.mode === 'fixed' ? slot.entry : slot?.allowedChoices.find(choice => choice.choiceId === retention?.choiceId);
+      return choice?.target.kind === 'personal' ? choice.target.personalBinding : undefined;
+    })() : undefined);
+    if (retained && createPersonalWorkflowProviderMetadataReference(validatePersonalWorkflowProviderBinding(retained)) !== descriptor.providerRef) {
+      fail('AGENT_WORKFLOW_BINDING_CHANGED');
+    }
+    return { descriptor, toolCap: entry.toolCap };
   };
 
   const resolveTarget = async (target: AgentWorkflowTarget, alternative: WorkflowIntegrationAlternative,
@@ -159,8 +191,6 @@ export async function previewAgentExtensionConfiguration(context: AgentExtension
     stored, confirmation: Boolean(current.mcpMapping) };
     if (current.ownerUserId !== context.actor.userId || !context.allowPersonal || current.source !== alternative.source) fail('AGENT_WORKFLOW_BINDING_DENIED');
     if (stored?.kind === 'personal' && stored.personalBinding) {
-      await verifyStoredPersonalWorkflowProviderTarget({ actor: context.actor, target: { binding: stored.personalBinding,
-        baseProviderRef: stored.providerRef, boundProviderRef: stored.boundProviderRef!, bindingFingerprint: stored.bindingFingerprint! } }, { checkProviderReadiness: false });
       const binding = stored.personalBinding;
       return { selection: binding.source === 'mcp' ? { kind: 'mcp', source: 'mcp', target: { kind: 'personal', connectionRef: `mcp-personal:${binding.connectionId}` } }
         : { kind: 'composio', source: 'composio', toolkit: binding.toolkit, target: binding.accountBinding === 'no_auth'
@@ -195,26 +225,75 @@ export async function previewAgentExtensionConfiguration(context: AgentExtension
         connectionRef: `composio-personal:${receipt.profileId}:${receipt.accountId}` } }, receipt: current.accountSelectionRef };
   };
 
-  if (configuration.mode === 'legacy_inherit') issue('AGENT_EXTENSION_INHERITED_CONTEXT_UNKNOWN', 'Inherited context is resolved from current runtime policy when the Agent starts.', 'warning');
-  else {
-    const catalogResources = await listCapabilityResources(resourceActor);
+  const sharedReferences = new Set<string>();
+  if (configuration?.mode === 'legacy_inherit') issue('AGENT_EXTENSION_INHERITED_CONTEXT_UNKNOWN', 'Inherited context is resolved from current runtime policy when the Agent starts.', 'warning');
+  if (configuration?.mode === 'fixed') {
     for (const pkg of configuration.workflow?.packages ?? []) {
       try {
         const actual = await readAgentExtensionPackageVersion(resourceActor, { resourceRef: pkg.resourceRef,
           publishedRevisionRef: pkg.publishedRevisionRef, checksum: pkg.checksum }, { allowPersonalPackages: context.allowPersonal });
-        const resource = await inspectCapabilityResource(resourceActor, pkg.resourceRef);
+        const record = await findCapabilityResourceRecord(pkg.resourceRef);
+        if (!record) fail('AGENT_EXTENSION_PACKAGE_UNAVAILABLE');
+        const inventory = actual.metadata.skillRoots.map(({ name, relativeRoot }) => ({ name, relativeRoot }));
+        const source: StoredAgentWorkflowPackage = { ...pkg, version: 1, declarations: [],
+          selectedSkills: pkg.skillSelection.kind === 'plugin' ? inventory : pkg.skillSelection.relativeRoots.map(root => {
+            const found = inventory.find(skill => skill.relativeRoot === root);
+            if (!found) fail('AGENT_EXTENSION_SELECTION_INVALID');
+            return found;
+          }) };
+        const database = await openDb();
+        try {
+          const published = await getCapabilityPackagePublishedRevision(pkg.resourceRef, pkg.publishedRevisionRef, database);
+          if (!published || published.checksum !== pkg.checksum) fail('AGENT_EXTENSION_PACKAGE_UNAVAILABLE');
+          // These are source facts and declaration containers, never invented
+          // stored provider targets. The assembler rechecks bytes and Use.
+          sources.push({ storage: record.storage, published,
+            extensionSelections: configuration.selections.flatMap(({ selection, requirement, toolCap }) =>
+              (selection.kind === 'plugin' || selection.kind === 'skill') && key(selection.package) === key(pkg)
+                ? [{ selection, requirement, toolCap }] : []),
+            stored: { ...source, declarations: actual.metadata.declarations.map(declaration => ({
+              declarationPath: declaration.declarationPath, capabilities: [] })) } });
+        } finally { await database.close(); }
+      } catch { issue('AGENT_EXTENSION_PACKAGE_UNAVAILABLE', 'The exact package selection, declaration scope or current source Use cannot be verified.'); }
+      for (const declaration of pkg.declarations) for (const capability of declaration.capabilities) {
+        const choices = capability.selection.mode === 'fixed' ? [capability.selection] : capability.selection.allowedChoices;
+        for (const choice of choices) {
+          try {
+            const target = choice.target.kind === 'retained' && context.snapshot ? resolveRetainedAgentWorkflowTarget(context.actor, context.snapshot,
+              { resourceRef: pkg.resourceRef, publishedRevisionRef: pkg.publishedRevisionRef, declarationPath: declaration.declarationPath,
+                capabilityId: capability.capabilityId, alternativeKey: choice.alternativeKey, ...('choiceId' in choice ? { choiceId: choice.choiceId } : {}) },
+              choice.target.retainedBindingRef) : choice.target;
+            if (target.kind === 'shared') sharedReferences.add(target.connectionRef);
+          } catch { issue('AGENT_WORKFLOW_RETENTION_INVALID', 'The exact saved connection cannot be retained. Reload its configuration.'); }
+        }
+      }
+    }
+    for (const slot of configuration.standalone) for (const choice of slot.mode === 'fixed' ? [slot.entry] : slot.allowedChoices) {
+      if (choice.selection.target.kind === 'shared') sharedReferences.add(choice.selection.target.connectionRef);
+    }
+  }
+  const initialIssues = [...issues];
+  const resolveProviders = async (frame: ProposedAgentExtensionPreviewFrame) => {
+    if (configuration?.mode !== 'fixed') fail('AGENT_EXTENSION_PREVIEW_INVALID');
+    issues.splice(0, issues.length, ...initialIssues); requirements.length = 0; effectiveToolCaps.length = 0;
+    capabilities.length = 0; standalone.length = 0; metadataStamps.length = 0; personalSetupRequired = false;
+    const staleChoice = (slot: string): boolean => {
+      const choice = frame.existing?.choices[slot];
+      // A complete replacement increments the actual workflow revision. Existing
+      // choices remain stored and suppress default fallback when now stale.
+      if (choice && frame.existing && choice.workflowRevision > frame.existing.workflowRevision) fail('AGENT_WORKFLOW_CORRUPT');
+      return choice !== undefined;
+    };
+    for (const actual of frame.packages.packages) {
+      const pkg = configuration.workflow?.packages.find(pkg => key(pkg) === key(actual));
+      if (!pkg) fail('AGENT_EXTENSION_PACKAGE_UNAVAILABLE');
+      try {
         const entries = configuration.selections.filter(entry => (entry.selection.kind === 'plugin' || entry.selection.kind === 'skill')
           && key(entry.selection.package) === key(pkg));
-        const inventory = actual.metadata.skillRoots.map(({ name, relativeRoot }) => ({ name, relativeRoot }));
-        const source: StoredAgentWorkflowPackage = { ...pkg, version: 1, declarations: [], selectedSkills: pkg.skillSelection.kind === 'plugin' ? inventory
-          : pkg.skillSelection.relativeRoots.map(root => { const found = inventory.find(skill => skill.relativeRoot === root); if (!found) fail('AGENT_EXTENSION_SELECTION_INVALID'); return found; }) };
-        const requiredRoots = pkg.skillSelection.kind === 'plugin' ? inventory.filter(skill => catalogResources.some(candidate =>
-          candidate.artifact.sourcePluginId === resource.artifact.resourceId && candidate.artifact.name === skill.name
-          && candidate.activation?.effectivePolicy === 'required')).map(skill => skill.relativeRoot) : [];
-        const projection = projectPackageExtensionSelection({ source, kind: actual.metadata.kind, inventory, selections: entries, requiredRoots });
-        const roots = new Set(projection.selectedRoots), paths = new Set([...roots].map(root => root ? `${root}/agents/canvas.yaml` : 'agents/canvas.yaml'));
-        if (actual.metadata.kind === 'plugin') paths.add('.canvas-plugin/plugin.json');
-        const declarations = actual.metadata.declarations.filter(declaration => paths.has(declaration.declarationPath));
+        // Final source-normalized declarations include fresh policy-required
+        // children. Never use the earlier catalogue's declaration mask here.
+        const declarations = actual.declarations.map(declaration => ({ declarationPath: declaration.declarationPath,
+          workflow: parseWorkflowManifest({ version: 1, integrationCapabilities: declaration.capabilities }) }));
         if (pkg.declarations.some(declaration => !declarations.some(actual => actual.declarationPath === declaration.declarationPath))) fail('AGENT_WORKFLOW_DECLARATION_INVALID');
         const parentCap = entries.find(entry => entry.selection.kind === 'plugin')?.toolCap ?? null;
         entries.forEach(entry => effectiveToolCaps.push({ selection: entry.selection,
@@ -224,15 +303,18 @@ export async function previewAgentExtensionConfiguration(context: AgentExtension
           if (supplied?.capabilities.some(selected => !declaration.workflow.integrationCapabilities.some(actual => actual.id === selected.capabilityId))) fail('AGENT_WORKFLOW_DECLARATION_INVALID');
           for (const capability of declaration.workflow.integrationCapabilities) {
             const selected = supplied?.capabilities.find(selected => selected.capabilityId === capability.id);
+            const required = capability.required || selected?.required === true;
             const state: AgentExtensionConfigurationPreview['requirements'][number] = { package: { resourceRef: pkg.resourceRef,
               publishedRevisionRef: pkg.publishedRevisionRef, checksum: pkg.checksum }, declarationPath: declaration.declarationPath,
-            capabilityId: capability.id, required: capability.required, state: 'unbound' };
+              capabilityId: capability.id, required, state: 'unbound' };
             requirements.push(state);
+            let providerChoice: AgentExtensionProviderContextChoice | null = null;
             if (!selected) {
-              if (capability.required) issue('AGENT_WORKFLOW_REQUIRED_BINDING', 'A required declared connection has no explicit binding.', 'error', declaration.declarationPath);
-              continue;
+              if (required) issue('AGENT_WORKFLOW_REQUIRED_BINDING', 'A required declared connection has no explicit binding.', 'error', declaration.declarationPath);
+              capabilities.push({ required, choice: null }); continue;
             }
             if (selected.required === false && capability.required) fail('AGENT_WORKFLOW_REQUIRED_BINDING');
+            const isStale = selected.selection.mode === 'selectable' && staleChoice(agentWorkflowCapabilityKey(pkg.resourceRef, declaration.declarationPath, capability.id));
             if (selected.selection.mode === 'selectable' && selected.selection.personalPolicy) {
               const policy = selected.selection.personalPolicy;
               if (policy.alternativeKeys.some(key => !capability.alternatives.some(alternative => alternativeKey(alternative) === key
@@ -240,9 +322,8 @@ export async function previewAgentExtensionConfiguration(context: AgentExtension
               if (policy.mcpDefinitionMappings?.length) {
                 const definitions = context.organizationId ? await (await import('@/app/lib/mcp/server-definitions')).listMcpServerDefinitions(context.organizationId) : [];
                 for (const mapping of policy.mcpDefinitionMappings) if (!capability.alternatives.some(alternative => alternative.source === 'mcp'
-                  && alternative.connector === mapping.connector) || mapping.serverDefinitionIds.some(id => !definitions.some(definition => definition.id === id && definition.enabled))) {
-                  fail('AGENT_EXTENSION_POLICY_UNAVAILABLE');
-                }
+                  && alternative.connector === mapping.connector) || mapping.serverDefinitionIds.some(id => !definitions.some(definition => definition.id === id && definition.enabled))) fail('AGENT_EXTENSION_POLICY_UNAVAILABLE');
+                metadataStamps.push(definitions);
               }
             }
             const choices = selected.selection.mode === 'fixed' ? [selected.selection] : selected.selection.allowedChoices;
@@ -255,41 +336,45 @@ export async function previewAgentExtensionConfiguration(context: AgentExtension
                   ...('choiceId' in choice ? { choiceId: choice.choiceId } : {}) });
                 const rootCap = entries.find(entry => entry.selection.kind === 'skill'
                   && (entry.selection.relativeRoot ? `${entry.selection.relativeRoot}/agents/canvas.yaml` : 'agents/canvas.yaml') === declaration.declarationPath)?.toolCap ?? null;
-                const cap = await checkSelection({ selection: target.selection, requirement: capability.required ? 'required' : 'optional',
+                const checked = await checkSelection(frame, { selection: target.selection, requirement: required ? 'required' : 'optional',
                   toolCap: intersectPackageExtensionToolCaps(parentCap, rootCap, choice.toolCap), ...(target.receipt ? { accountSelectionRef: target.receipt } : {}) },
-                declaration.declarationPath, undefined, { alternative, target: target.stored, confirmation: target.confirmation });
-                if (cap !== null && alternative.requiredTools?.some(name => !cap.includes(name))) fail('AGENT_WORKFLOW_TOOL_POLICY_DENIED');
-                effectiveToolCaps.push({ selection: target.selection, toolCap: cap });
-                if (selected.selection.mode === 'fixed' || 'choiceId' in choice && selected.selection.defaultChoiceId === choice.choiceId) {
+                  declaration.declarationPath, undefined, { alternative, target: target.stored, confirmation: target.confirmation });
+                if (checked.toolCap !== null && alternative.requiredTools?.some(name => !checked.toolCap!.includes(name))) fail('AGENT_WORKFLOW_TOOL_POLICY_DENIED');
+                effectiveToolCaps.push({ selection: target.selection, toolCap: checked.toolCap });
+                if (selected.selection.mode === 'fixed' || !isStale && 'choiceId' in choice && selected.selection.defaultChoiceId === choice.choiceId) {
                   state.state = 'bound'; state.alternativeKey = choice.alternativeKey; state.connectionSelection = target.selection;
+                  providerChoice = { resolve: async () => checked };
                 }
               } catch { state.state = 'unavailable'; issue('AGENT_WORKFLOW_BINDING_UNAVAILABLE', 'A declared connection or its tool limit cannot be verified.', 'error', declaration.declarationPath); }
             }
-            if (state.state === 'unbound' && capability.required) issue('AGENT_EXTENSION_CHOICE_REQUIRED', 'This required connection needs a per-user choice before execution.', 'warning', declaration.declarationPath);
+            if (state.state === 'unbound' && required) {
+              state.state = 'personal_choice_required'; personalSetupRequired = true;
+              issue('AGENT_EXTENSION_CHOICE_REQUIRED', 'This required connection needs a per-user choice before execution.', 'warning', declaration.declarationPath);
+            }
+            capabilities.push({ required, choice: providerChoice });
           }
         }
-        packages.push({ ...actual.metadata, declarations: declarations.map(declaration => ({ declarationPath: declaration.declarationPath,
-          capabilities: declaration.workflow.integrationCapabilities })), skills: actual.source.skills.filter(child => roots.has(child.relativeRoot)).map(({ skill, relativeRoot }) => ({
-          resourceId: actual.metadata.kind === 'skill' ? resource.artifact.resourceId : createCapabilityResourceId({ resourceType: 'skill',
-            scopeType: resource.artifact.scopeType, name: skill.name, sourceType: 'plugin', sourcePluginName: resource.artifact.name,
-            organizationId: resource.metadata.ownership.type === 'system' ? null : resource.metadata.ownership.organizationId,
-            ownerUserId: resource.metadata.ownership.type === 'user' ? resource.metadata.ownership.ownerUserId : null }),
-          name: skill.name, title: skill.title, description: skill.description, runtimePath: skill.path,
-          core: false, required: requiredRoots.includes(relativeRoot) || entries.some(entry => entry.requirement === 'required'
-            && (entry.selection.kind === 'plugin' || entry.selection.kind === 'skill' && entry.selection.relativeRoot === relativeRoot)),
-          origin: actual.metadata.kind === 'plugin' ? 'plugin' : 'standalone', package: { resourceRef: pkg.resourceRef,
-            publishedRevisionRef: pkg.publishedRevisionRef, checksum: pkg.checksum, kind: actual.metadata.kind, relativeRoot } })) });
-      } catch { issue('AGENT_EXTENSION_PACKAGE_UNAVAILABLE', 'The exact package selection, declaration scope or current source Use cannot be verified.'); }
+      } catch { issue('AGENT_EXTENSION_PACKAGE_UNAVAILABLE', 'The exact package declaration scope or current connection selection cannot be verified.'); }
     }
     for (const slot of configuration.standalone) {
       const choices = slot.mode === 'fixed' ? [slot.entry] : slot.allowedChoices;
       const configurationId = slot.configurationId ?? `fixed:${createHash('sha256').update(extensionSelectionIdentity(choices[0].selection)).digest('base64url')}`;
-      let state: 'selected' | 'missing' | 'unavailable' = slot.mode === 'fixed' || slot.defaultChoiceId ? 'selected' : 'missing';
+      const source = slot.mode === 'fixed' ? slot.entry.selection.source : slot.source;
+      const toolkit = slot.mode === 'fixed' ? slot.entry.selection.kind === 'composio' ? slot.entry.selection.toolkit : undefined
+        : slot.source === 'composio' ? slot.toolkit : undefined;
+      const slotRef = createStandaloneExtensionSlotRef({ configurationId, source, ...(toolkit ? { toolkit } : {}) });
+      const isStale = slot.mode === 'selectable' && staleChoice(slotRef);
+      let state: AgentStandaloneRuntimeSelection['state'] = isStale ? 'stale' : slot.mode === 'fixed' || slot.defaultChoiceId ? 'selected' : 'missing';
+      let providerChoice: AgentExtensionProviderContextChoice | null = null;
+      let selectedConnection: StandaloneExtensionSelection | undefined;
       for (const choice of choices) {
         try {
-          const cap = await checkSelection({ ...choice, requirement: slot.mode === 'fixed' ? slot.entry.requirement : slot.requirement },
+          const checked = await checkSelection(frame, { ...choice, requirement: slot.mode === 'fixed' ? slot.entry.requirement : slot.requirement },
             configurationId, { configurationId, ...('choiceId' in choice ? { choiceId: choice.choiceId } : {}) });
-          effectiveToolCaps.push({ selection: choice.selection, toolCap: cap });
+          effectiveToolCaps.push({ selection: choice.selection, toolCap: checked.toolCap });
+          if (slot.mode === 'fixed' || !isStale && 'choiceId' in choice && slot.defaultChoiceId === choice.choiceId) {
+            providerChoice = { resolve: async () => checked }; selectedConnection = choice.selection;
+          }
         } catch { state = 'unavailable'; issue('AGENT_EXTENSION_CONNECTION_UNAVAILABLE', 'An exact standalone connection cannot be verified.', 'error', configurationId); }
       }
       if (slot.mode === 'selectable' && slot.personalPolicy?.source === 'mcp') {
@@ -297,43 +382,99 @@ export async function previewAgentExtensionConfiguration(context: AgentExtension
         if (slot.personalPolicy.serverDefinitionIds.some(id => !definitions.some(definition => definition.id === id && definition.enabled))) {
           state = 'unavailable'; issue('AGENT_EXTENSION_POLICY_UNAVAILABLE', 'An approved MCP definition is unavailable.', 'error', configurationId);
         }
+        metadataStamps.push(definitions);
       }
-      if (slot.mode === 'selectable' && slot.personalPolicy?.source === 'composio'
-        && !isComposioIntegrationApplicationVisible(slot.personalPolicy.toolkit)) {
+      if (slot.mode === 'selectable' && slot.personalPolicy?.source === 'composio' && !isComposioIntegrationApplicationVisible(slot.personalPolicy.toolkit)) {
         state = 'unavailable'; issue('AGENT_EXTENSION_POLICY_UNAVAILABLE', 'The declared personal integration is unavailable.', 'error', configurationId);
       }
-      if (slot.mode === 'selectable' && slot.personalPolicy) issue('AGENT_EXTENSION_PERSONAL_CHOICE_REQUIRED', 'Per-user connections are selected and validated separately at use time.', 'warning', configurationId);
-      const source = slot.mode === 'fixed' ? slot.entry.selection.source : slot.source;
-      const toolkit = slot.mode === 'fixed' ? slot.entry.selection.kind === 'composio' ? slot.entry.selection.toolkit : undefined
-        : slot.source === 'composio' ? slot.toolkit : undefined;
-      standaloneSelections.push({ configurationId, slotRef: createStandaloneExtensionSlotRef({ configurationId, source,
-        ...(toolkit ? { toolkit } : {}) }),
-      source, required: (slot.mode === 'fixed' ? slot.entry.requirement : slot.requirement) === 'required', origin: slot.mode === 'fixed' ? 'fixed' : 'default', state });
+      if (slot.mode === 'selectable' && !providerChoice && slot.requirement === 'required') {
+        personalSetupRequired = true;
+        issue('AGENT_EXTENSION_PERSONAL_CHOICE_REQUIRED', 'Choose one of this Agent’s allowed connections before external workflow use.', 'warning', configurationId);
+      } else if (slot.mode === 'selectable' && slot.personalPolicy) issue('AGENT_EXTENSION_PERSONAL_CHOICE_REQUIRED', 'Per-user connections are selected and validated separately at use time.', 'warning', configurationId);
+      standalone.push({ summary: { configurationId, slotRef, source,
+        required: (slot.mode === 'fixed' ? slot.entry.requirement : slot.requirement) === 'required',
+        origin: slot.mode === 'fixed' ? 'fixed' : isStale ? 'stale' : slot.defaultChoiceId ? 'default' : 'missing', state,
+        ...(selectedConnection ? { selection: selectedConnection } : {}) }, choice: providerChoice });
     }
-  }
-  if (packages.some(pkg => pkg.skills.length) && !enabled.has('read')) toolConflicts.push({ code: 'AGENT_EXTENSION_READ_DISABLED',
-    message: 'The selected skills require the configured read capability.', toolNames: ['read'] });
-  issues.push(...toolConflicts.map(conflict => ({ code: conflict.code, message: conflict.message, severity: 'error' as const })));
-  issue('AGENT_EXTENSION_RUNTIME_REGISTRATION_UNKNOWN', 'This is a configuration preview. Actual runtime routes, exact provider references and their additional context bytes require fresh registration; no runtime tool recipe is supplied here.', 'warning');
+    const projected = await projectAgentExtensionProviderContext({ capabilities, standalone, revisionSeed: [context.contextKey, configuration] });
+    return { context: projected, fingerprint: createHash('sha256').update(JSON.stringify(metadataStamps)).digest('hex') };
+  };
   let budget: AgentExtensionConfigurationPreview['budget'] = { usedBytes: 0, maxBytes: EXTENSION_CONTEXT_MAX_BYTES, detailStatus: 'complete', omittedDetails: 0 };
   let contextPreview: string | undefined;
+  let contextValidation: AgentExtensionConfigurationPreview['contextValidation'] = 'unknown';
+  let compiled: CompleteAgentExtensionOptionsContext | null = null;
   try {
-    const rendered = renderEffectiveExtensionContext({ fingerprint: `configuration:${context.contextKey}`, mode: configuration.mode === 'fixed' ? 'fixed' : 'legacy_specialized',
-      packages, skills: [], workflowProjection: { policy: { allowedSources: [], allowedProviderRefs: [], allowedApplications: [], allowedToolNames: [], allowedOperations: [] },
-        revision: context.contextKey, selectedProviders: [], standaloneSelections, unavailable: requirements.some(value => value.required && value.state !== 'bound')
-          || standaloneSelections.some(value => value.required && value.state !== 'selected') } }, emptyManifest, '');
-    budget = rendered.budget; contextPreview = rendered.prompt;
+    if (configuration?.mode === 'fixed') {
+      compiled = await compileProposedAgentExtensionOptionsPreview(context, request, sources, {
+        sharedReferences: [...sharedReferences].sort(), resolveProviders });
+    } else if (configuration === undefined) {
+      compiled = await compileKeptAgentExtensionOptionsPreview(context, request);
+      if (compiled && context.snapshot) {
+        for (const pkg of compiled.packageContext.configurations) for (const declaration of pkg.declarations) {
+          for (const capability of declaration.capabilities) {
+            const chosen = getSelectedAgentWorkflowCapability(context.snapshot, pkg, declaration, capability);
+            const needsChoice = capability.required && !chosen;
+            personalSetupRequired ||= needsChoice;
+            requirements.push({ package: { resourceRef: pkg.resourceRef, publishedRevisionRef: pkg.publishedRevisionRef, checksum: pkg.checksum },
+              declarationPath: declaration.declarationPath, capabilityId: capability.capabilityId, required: capability.required,
+              state: chosen ? 'bound' : needsChoice ? 'personal_choice_required' : 'unbound',
+              ...(chosen ? { alternativeKey: chosen.alternativeKey } : {}) });
+          }
+        }
+        for (const binding of context.snapshot.bindings) {
+          for (const entry of binding.extensionSelections ?? []) effectiveToolCaps.push({ selection: entry.selection, toolCap: entry.toolCap });
+          if (!binding.standaloneConfiguration) continue;
+          const selected = selectAgentStandaloneExtension(binding.standaloneConfiguration, context.snapshot, context.actor.userId);
+          personalSetupRequired ||= selected.required && !selected.choice;
+          if (selected.choice) {
+            const current = compiled.providerContext.projection.standaloneSelections.find(value => value.slotRef === selected.slotRef);
+            const cap = compiled.providerContext.projection.policy.providerToolRules?.find(value => value.providerRef === current?.providerRef)?.allowedToolNames ?? null;
+            effectiveToolCaps.push({ selection: selected.choice.selection,
+              toolCap: intersectPackageExtensionToolCaps(selected.choice.toolCap, cap) });
+          }
+        }
+      }
+      if (!compiled) issue('AGENT_EXTENSION_INHERITED_CONTEXT_UNKNOWN', 'Existing inherited context remains resolved at runtime; this preview does not claim a complete context budget.', 'warning');
+    } else await validateAgentExtensionOptionsPreviewRuntimeFields(context, request);
+    if (compiled) {
+      budget = compiled.rendered.budget;
+      contextPreview = presentCompiledAgentExtensionOptionsContext(compiled);
+      contextValidation = issues.some(value => value.severity === 'error') ? 'unknown' : 'complete';
+      const ceiling = compiled.registration.integrationPolicyCeiling;
+      const projected = compiled.providerContext.projection;
+      const policy = ceiling ? intersectIntegrationPolicies(ceiling, projected.policy) : null;
+      for (const provider of projected.selectedProviders) {
+        if (!policy || !isIntegrationProviderOperationAllowed(policy, provider.source, provider.providerRef, 'search_tools')
+          || !isIntegrationProviderOperationAllowed(policy, provider.source, provider.providerRef, 'describe')) {
+          const conflict = { code: 'AGENT_EXTENSION_DISCOVERY_DISABLED',
+            message: 'An optional selected connection has no permitted tool search/schema route.', toolNames: [provider.source] };
+          toolConflicts.push(conflict); issue(conflict.code, conflict.message, 'warning');
+        }
+      }
+      if (projected.unavailable) issue('AGENT_EXTENSION_RUNTIME_SETUP_REQUIRED',
+        'Required connection setup or current access is incomplete. External workflow actions stay blocked; local skill context remains available.', 'warning');
+    }
   } catch (error) {
-    if (!(error instanceof ExtensionContextBudgetError)) throw error;
-    budget = { usedBytes: error.requiredBytes, maxBytes: error.maxBytes, detailStatus: 'compacted', omittedDetails: 0 };
-    issue(error.code, error.message);
+    if (error instanceof ExtensionContextBudgetError) {
+      contextValidation = issues.some(value => value.severity === 'error') ? 'unknown' : 'complete';
+      budget = { usedBytes: error.requiredBytes, maxBytes: error.maxBytes, detailStatus: 'compacted', omittedDetails: 0 };
+      issue(error.code, error.message);
+    } else {
+      const code = error && typeof error === 'object' && typeof Reflect.get(error, 'code') === 'string' ? String(Reflect.get(error, 'code')) : 'AGENT_EXTENSION_PREVIEW_UNAVAILABLE';
+      const safe = /^AGENT_|^INCOMPLETE_AGENT_DEFAULT$|^INVALID_CATALOG_REVISION$|^INVALID_RUNTIME_INPUT$|^INVALID_THINKING_LEVEL$/u.test(code);
+      const message = safe && error instanceof Error ? error.message : 'The complete configuration context could not be verified. Reload its current sources.';
+      issue(safe ? code : 'AGENT_EXTENSION_PREVIEW_UNAVAILABLE', message);
+      if (code === 'AGENT_EXTENSION_READ_TOOL_REQUIRED' || code === 'AGENT_EXTENSION_DISCOVERY_TOOLS_REQUIRED') {
+        toolConflicts.push({ code, message, toolNames: code === 'AGENT_EXTENSION_READ_TOOL_REQUIRED' ? ['read'] : ['mcp', 'composio'] });
+      }
+    }
   }
   await revalidateAgentExtensionOptionsContext(context);
   return { schemaVersion: 1, operation: 'preview', target: request.target, contextKey: context.contextKey, limits: EXTENSION_SELECTION_LIMITS,
     coverage: [{ source: 'packages', status: issues.some(issue => issue.code === 'AGENT_EXTENSION_PACKAGE_UNAVAILABLE') ? 'partial' : 'complete' }],
     preview: { configurationReadiness: issues.some(issue => issue.severity === 'error') ? 'blocked'
-      : requirements.some(value => value.required && value.state !== 'bound') || standaloneSelections.some(value => value.required && value.state !== 'selected')
-        ? 'incomplete' : issues.some(issue => issue.code === 'AGENT_EXTENSION_PERSONAL_RUNTIME_UNKNOWN' || issue.code === 'AGENT_EXTENSION_INHERITED_CONTEXT_UNKNOWN')
-          ? 'unknown' : 'valid', runtimeReadiness: 'not_checked', providerHealth: 'unknown', finalSaveValidationRequired: true,
+      : contextValidation === 'unknown' || issues.some(issue => issue.code === 'AGENT_EXTENSION_PERSONAL_RUNTIME_UNKNOWN')
+        ? 'unknown' : 'valid', contextValidation, personalSetupRequired,
+    runtimeReadiness: 'not_checked', providerHealth: 'unknown', finalSaveValidationRequired: true,
       issues, requirements, effectiveToolCaps, toolConflicts, budget, ...(contextPreview ? { contextPreview } : {}) } };
 }

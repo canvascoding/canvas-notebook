@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import type { AgentExtensionConfigurationInput } from '../app/lib/capabilities/extensions/contracts';
+import type { AgentExtensionPackageContext, PreparedAgentExtensionContextPackageSource } from '../app/lib/agents/extension-context-package-metadata';
+import type { StoredPackageExtensionSelectionEntry } from '../app/lib/capabilities/extensions/stored-package-contracts';
 import { createCapabilityPackageStoreApplicationFixture } from './helpers/capability-package-store-application-fixture';
 
 /** Genuine SQL pending configuration, SourceUse locks, published sources and later real Runtime parity. */
@@ -50,6 +52,70 @@ async function main() {
       selections: [{ selection: { kind: 'plugin', package: pin(root), skillSelection: { kind: 'all' } }, requirement: 'optional', toolCap: null },
         { selection: { kind: 'plugin', package: pin(nested), skillSelection: { kind: 'subset', relativeRoots: [] } }, requirement: 'optional', toolCap: null }],
       workflow: { version: 1, packages: [root, nested].map(value => ({ ...pin(value), skillSelection: { kind: 'plugin' }, declarations: [] })) } };
+    // Prospective context uses real source records and parsed immutable inventory,
+    // before an Agent or Pi session exists. No snapshot or fake Agent is minted.
+    const { readAgentExtensionPackageVersion } = await import('../app/lib/agents/extension-package-options');
+    const { findCapabilityResourceRecord } = await import('../app/lib/capabilities/resources/store');
+    const { getCapabilityPackagePublishedRevision } = await import('../app/lib/capabilities/packages/store');
+    const prospectiveSources: PreparedAgentExtensionContextPackageSource[] = [];
+    for (const value of [root, nested]) {
+      const actual = await readAgentExtensionPackageVersion({ userId: actor.userId, workspaceId: actor.workspaceId },
+        pin(value), { allowPersonalPackages: true });
+      const record = await findCapabilityResourceRecord(value.resource.resourceRef); assert(record);
+      const published = await getCapabilityPackagePublishedRevision(value.resource.resourceRef, value.published.revisionRef, sql); assert(published);
+      prospectiveSources.push({ storage: record.storage, published,
+        stored: { ...pin(value), version: 1, skillSelection: { kind: 'plugin' },
+          declarations: actual.metadata.declarations.map(declaration => ({ declarationPath: declaration.declarationPath, capabilities: [] })),
+          selectedSkills: actual.metadata.skillRoots.map(({ name, relativeRoot }) => ({ name, relativeRoot })) },
+        extensionSelections: configuration.selections.filter((entry): entry is StoredPackageExtensionSelectionEntry => (entry.selection.kind === 'plugin'
+          || entry.selection.kind === 'skill') && entry.selection.package.resourceRef === value.resource.resourceRef) });
+    }
+    prospectiveSources.sort((left, right) => left.storage.resourceId.localeCompare(right.storage.resourceId));
+    const persistenceCounts = () => sql.get(`SELECT (SELECT count(*) FROM agents) AS agents,
+      (SELECT count(*) FROM agent_capability_bindings) AS bindings, (SELECT count(*) FROM agent_grants) AS grants,
+      (SELECT count(*) FROM agent_members) AS members, (SELECT count(*) FROM pi_sessions) AS sessions`);
+    const beforePreview = await persistenceCounts();
+    const prospectiveDatabase = await fixture.database.openDb();
+    let prospective: AgentExtensionPackageContext | undefined;
+    const prospectiveInput = { database: prospectiveDatabase, actor, workflowVersion: 2 as const,
+      packageSelections: prospectiveSources, relevantSkills: null, agentKind: 'special' as const };
+    try {
+      await prospectiveDatabase.run('BEGIN');
+      await assert.rejects(sources.assembleAgentExtensionPackageContextOnConnection(prospectiveInput),
+        { code: 'AGENT_EXTENSION_CONTEXT_SOURCE_CHANGED' });
+      await sources.withAgentExtensionContextPackageSources(prospectiveDatabase, actor, prospectiveSources, async () => {
+        prospective = await sources.assembleAgentExtensionPackageContextOnConnection(prospectiveInput);
+        assert.match(prospective.fingerprint, /^[a-f0-9]{64}$/u);
+        assert.deepEqual(await sources.assembleAgentExtensionPackageContextOnConnection(prospectiveInput), prospective,
+          'The genuine source/policy/selection fingerprint is stable without a persisted Agent identity.');
+        assert(prospective.skills.some(value => value.core));
+        assert(prospective.skills.some(value => value.name === `${prefix}-required` && value.required));
+        assert.deepEqual(prospective.configurations.find(value => value.resourceRef === nested.resource.resourceRef)!
+          .selectedSkills.map(value => value.relativeRoot), ['skills/preflight-required-child']);
+        const legacyPackage = await sources.assembleAgentExtensionPackageContextOnConnection({ ...prospectiveInput,
+          workflowVersion: 1, packageSelections: prospectiveSources.map(({ extensionSelections: _mask, ...source }) => source) });
+        assert(legacyPackage.skills.some(value => value.name === 'preflight-optional-child'), 'V1 retains its complete stored selection.');
+        const noPackages = await sources.assembleAgentExtensionPackageContextOnConnection({ ...prospectiveInput,
+          packageSelections: [], relevantSkills: [], agentKind: 'main' });
+        assert.equal(noPackages.packages.length, 0);
+        assert(noPackages.skills.some(value => value.core) && noPackages.skills.some(value => value.required));
+        assert(!noPackages.skills.some(value => value.name === 'preflight-optional-child'), 'Explicit empty selection retains only Core/required skills.');
+        for (const invalid of [
+          { ...prospectiveInput, actor: { ...actor, sourceAgentId: 'unrelated-source-agent' } },
+          { ...prospectiveInput, workflowVersion: null as never },
+          { ...prospectiveInput, packageSelections: [...prospectiveSources, prospectiveSources[0]] },
+          { ...prospectiveInput, packageSelections: [{ ...prospectiveSources[0],
+            storage: { ...prospectiveSources[0].storage, ownerUserId: 'different-owner' } }] },
+          { ...prospectiveInput, packageSelections: [{ ...prospectiveSources[0],
+            stored: { ...prospectiveSources[0].stored, checksum: '0'.repeat(64) } }] },
+        ]) await assert.rejects(sources.assembleAgentExtensionPackageContextOnConnection(invalid),
+          { code: 'AGENT_EXTENSION_CONTEXT_SOURCE_CHANGED' });
+      });
+      await assert.rejects(sources.assembleAgentExtensionPackageContextOnConnection(prospectiveInput),
+        { code: 'AGENT_EXTENSION_CONTEXT_SOURCE_CHANGED' }, 'A completed source callback conveys no retained authority.');
+    } finally { await prospectiveDatabase.run('ROLLBACK'); await prospectiveDatabase.close(); }
+    assert.deepEqual(await persistenceCounts(), beforePreview, 'Neutral assembly creates no Agent, bindings, grants, member or session.');
+    assert(prospective);
     const created = await management.createManagedAgent(actor, { name: `${prefix} Actual Agent`, enabledTools: ['read'], extensions: configuration });
     const initial = await workflows.readManagedAgentWorkflow(actor, created.agent.agentId);
     const prepared = await sources.prepareAgentExtensionContextPackageSources(actor, initial);
@@ -80,6 +146,10 @@ async function main() {
       });
     } finally { await database.run('ROLLBACK'); await database.close(); }
     assert(pending); assert.equal((await registry.getAgentProfile(initial.agent.agentId))?.name, initial.agent.name);
+    assert.deepEqual(pending.packages, prospective.packages);
+    assert.deepEqual(pending.skills, prospective.skills);
+    assert.deepEqual(pending.configurations, prospective.configurations);
+    assert.notEqual(pending.fingerprint, prospective.fingerprint, 'The persisted adapter additionally binds the actual SQL revision/choices.');
     const { piSessions } = await import('../app/lib/db/schema');
     const sessionId = `preflight-${randomUUID()}`;
     await fixture.database.db.insert(piSessions).values({ sessionId, userId: alice.userId, agentId: initial.agent.agentId,
@@ -128,6 +198,8 @@ async function main() {
       await changedTransaction.run('BEGIN');
       await sources.withAgentExtensionContextPackageSources(changedTransaction, actor, prepared, async () => {
         await changedTransaction.run('COMMIT'); await changedTransaction.run('BEGIN');
+        await assert.rejects(sources.assembleAgentExtensionPackageContextOnConnection({ ...prospectiveInput,
+          database: changedTransaction }), { code: 'AGENT_EXTENSION_CONTEXT_SOURCE_CHANGED' });
         await assert.rejects(sources.buildAgentExtensionPackageContextOnConnection({ database: changedTransaction, actor, snapshot: initial }),
           { code: 'AGENT_EXTENSION_CONTEXT_SOURCE_CHANGED' }, 'A reused connection cannot reuse source locks from its previous actual transaction.');
       });
@@ -142,7 +214,7 @@ async function main() {
     } finally { await rejected.run('ROLLBACK'); await rejected.close(); }
     assert.equal((await registry.getAgentProfile(initial.agent.agentId))?.revision, initial.agent.revision);
     assert.equal(fixture.providerRequests(), 0);
-    console.log(`PASS ${fixture.native ? 'native PostgreSQL' : 'PGlite'} pending Agent package context: real SQL update+rollback, same-lease source/pin authority, exact runtime Package/Skill/config parity, required children and standalone/Core paths, root SKILL, private source callback/actual transaction guard, late required-policy rejection before a new resource lock, stale revision and actual Use revocation, no runtime issuer or provider probes.`);
+    console.log(`PASS ${fixture.native ? 'native PostgreSQL' : 'PGlite'} neutral and pending Agent package context: prospective real sources without Agent/session writes, exact V1/V2 masks, stable SHA and SQL revision adapter, same-lease source/pin authority, exact runtime Package/Skill/config parity, required children and standalone/Core paths, root SKILL, private source callback/actual transaction guard, late required-policy rejection before a new resource lock, stale revision and actual Use revocation, no runtime issuer or provider probes.`);
   } finally { await fixture.close(); }
 }
 void main().catch(error => { console.error(error); process.exitCode = 1; });

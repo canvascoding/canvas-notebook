@@ -85,9 +85,32 @@ const userChoiceRequest = z.object({ operation: z.literal('connection_choices'),
   }
 });
 const previewRequest = z.object({ operation: z.literal('preview'), target: agentExtensionConfigurationTargetSchema,
-  configuration: agentExtensionConfigurationInputSchema,
-  enabledTools: z.array(identifier).max(512).nullable().refine(values => values === null || new Set(values).size === values.length).optional(),
+  configuration: agentExtensionConfigurationInputSchema.optional().describe(
+    'For an existing target, omit to keep its actual saved extension configuration and bindings. When supplied, this is a complete replacement. '
+    + 'A prospective target must supply an explicit configuration. An empty fixed selection is distinct from legacy_inherit. Preview never saves the configuration.'),
+  enabledTools: z.array(identifier).max(512).nullable().refine(values => values === null || new Set(values).size === values.length).optional().describe(
+    'Omit to keep the existing Agent tool configuration; prospective omission inherits the provider enabledTools. null also inherits the provider enabledTools. '
+    + '[] is an explicit override using the legacy registry defaults instead. Only ["__none__"] explicitly selects no tools. This affects the preview only.'),
+  defaultProviderInstallationId: identifier.nullable().optional().describe(
+    'Model provider installation override. Omit to preserve the existing value; prospective omission inherits. '
+    + 'The four defaultProviderInstallationId/defaultProvider/defaultModel/defaultThinking values must resolve as a complete tuple. Clear all four with null to inherit. '
+    + 'For an existing target, explicit model changes including clearing require organization administration. '
+    + 'For a prospective target, only a non-null override requires administration; all four fields null inherit without administration. '
+    + 'A non-null override also requires expectedCatalogRevision.'),
+  defaultProvider: identifier.nullable().optional().describe(
+    'Model provider ID in the four-field override tuple. Omit to preserve the existing value; prospective omission inherits. Set all four fields to null to clear the override.'),
+  defaultModel: identifier.nullable().optional().describe(
+    'Model ID in the four-field override tuple. Omit to preserve the existing value; prospective omission inherits. Set all four fields to null to clear the override.'),
+  defaultThinking: identifier.nullable().optional().describe(
+    'Thinking level in the four-field override tuple. Omit to preserve the existing value; prospective omission inherits. Set all four fields to null to clear the override.'),
+  expectedCatalogRevision: revision.optional().describe(
+    'Current model catalog revision, required when explicitly proposing a non-null model override. Omit when model defaults are unchanged or cleared.'),
 }).strict().superRefine((value, context) => {
+  if (value.configuration === undefined) {
+    if (value.target.kind === 'prospective') context.addIssue({ code: 'custom', path: ['configuration'],
+      message: 'A prospective Agent requires its proposed extension configuration.' });
+    return;
+  }
   if (value.target.kind !== 'prospective' || value.configuration.mode !== 'fixed') return;
   const retainedSlot = value.configuration.standalone.some(slot => (slot.mode === 'fixed' ? [slot.entry] : slot.allowedChoices)
     .some(choice => choice.retainedBindingRef !== undefined));
@@ -190,12 +213,15 @@ export type AgentExtensionAccountChoice = {
 export type AgentExtensionOptionsPagination = { nextCursor: string | null; hasNextPage: boolean; loadedItems: number; totalItems?: number };
 export type AgentExtensionConfigurationPreview = {
   configurationReadiness: 'valid' | 'incomplete' | 'blocked' | 'unknown';
+  /** Complete internal context/budget calculation; never current execution authority or provider health. */
+  contextValidation: 'complete' | 'unknown';
+  personalSetupRequired: boolean;
   runtimeReadiness: 'not_checked';
   providerHealth: 'unknown';
   finalSaveValidationRequired: true;
   issues: Array<{ code: string; message: string; severity: 'error' | 'warning'; path?: string }>;
   requirements: Array<{ package: ExtensionPackagePin; declarationPath: string; capabilityId: string; required: boolean;
-    state: 'bound' | 'unbound' | 'unavailable'; alternativeKey?: string; connectionSelection?: StandaloneExtensionSelection }>;
+    state: 'bound' | 'unbound' | 'unavailable' | 'personal_choice_required'; alternativeKey?: string; connectionSelection?: StandaloneExtensionSelection }>;
   effectiveToolCaps: Array<{ selection: ExtensionSelection; toolCap: string[] | null }>;
   toolConflicts: Array<{ code: string; message: string; toolNames: string[] }>;
   budget: { usedBytes: number; maxBytes: number; detailStatus: 'complete' | 'compacted'; omittedDetails: number };
