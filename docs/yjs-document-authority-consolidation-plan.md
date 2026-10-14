@@ -867,6 +867,8 @@ Die [unabhängige vollständige I/O-Gegenprobe](./yjs-evidence-child-deadline-ev
 
 Die [lokale V20-Editor-Abnahme](./yjs-editor-browser-acceptance-evidence.md) besteht anschließend auf exakt `90a8be406`: zehn gestartet, zehn bestanden, null Fehler/Skips/Testtimeouts/Unterbrechungen; beide tatsächlichen Hostneustarts. Root bestätigt frischen Build, originale Reporter, aktuellen Fokus-Screenshot, echte Live-/Scope-/PG-Identitäten und den vollständigen eigenen Abschluss unabhängig. Geregelter Neustart und Crash bestehen jeweils mit Busy-Schutz, normaler Freigabe und ursprünglicher positiver Cleanup-Assertion. Damit ist dieses lokale Editor-Gate abgeschlossen. Die weitere Matrix nach §13.3, native Produktaktivierung, übrige Architekturarbeitspakete und der ursprüngliche Produktionsfehler bleiben offen.
 
+Die [unabhängig geprüften nativen Auth-Grundlagen](./yjs-native-auth-foundations-evidence.md) liefern danach privaten Sessiontransport und echte Migrations-Write-Requests. Root bestätigt vier bytegleiche neue Dateien, 31 beziehungsweise 25 tatsächliche PG18-Testgruppen, vollständiges TypeScript und scoped ESLint. Die neuen Grundlagen bleiben inaktiv. Die nächsten parallelen Produktanschlüsse betreffen Existing-native vor Disk/Seed, echten Writebootstrap mit Recovery sowie vollständige aktuelle Write-Authentisierung moderner und Legacy-Migrationen. Ihre eigene HTTP-/WS-/Browserabnahme bleibt offen.
+
 ## 17. Änderungs- und Nachweisprotokoll
 
 | Datum | Änderung | Nachweis/Status |
