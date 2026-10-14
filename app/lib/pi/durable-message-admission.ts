@@ -42,13 +42,18 @@ export type ChatMessageAdmissionInput = ChatMessageAdmissionIdentity & {
 };
 type ActorFrame = { sessionDbId: number; identity: MessageIdentity; context: AgentExecutionContext };
 type ReceiptRow = { client_message_id: string; payload_hash: string; state: string; payload_version: unknown;
-  private_payload: unknown; execution_phase: unknown; execution_revision: unknown };
+  private_payload: unknown; execution_phase: unknown; execution_revision: unknown; runtime_token: unknown };
 type PreparedRecord = { payload: StoredAcceptedChatMessage; hash: string; actor: ActorFrame;
   intake: AcceptedTurnExtensionSelection | null; intakeContext: AgentExecutionContext;
   runtimeContext: AgentExecutionContext; packages: AuthorizedAgentWorkflowPackageSelections;
   workflowProjection: AgentWorkflowRuntimeProjection | null };
 type OwnedRecord = { payload: StoredAcceptedChatMessage; hash: string; sessionDbId: number;
-  phase: ChatMessageExecutionPhase; executionRevision: number; actor: ActorFrame };
+  phase: ChatMessageExecutionPhase; executionRevision: number; runtimeToken: string; actor: ActorFrame };
+/** Server-internal bookkeeping data; neither this DTO nor its token issues authority. */
+export type OwnedChatMessageExecutionSnapshot = Readonly<{
+  payload: StoredAcceptedChatMessage; hash: string; sessionDbId: number;
+  phase: ChatMessageExecutionPhase; executionRevision: number; runtimeToken: string;
+}>;
 const host = globalThis as typeof globalThis & {
   __canvasDurableMessageAdmissionV1?: { prepared: WeakMap<object, PreparedRecord>; owned: WeakMap<object, OwnedRecord> };
 };
@@ -105,7 +110,7 @@ async function readActor(database: SqlConnection, input: ChatMessageAdmissionIde
   return { sessionDbId, identity, context };
 }
 
-function issueOwned(actor: ActorFrame, row: ReceiptRow, expectedHash?: string): OwnedAcceptedChatMessage {
+function parseOwnedRecord(actor: ActorFrame, row: ReceiptRow, expectedHash?: string): OwnedRecord {
   if (row.payload_version === null || row.payload_version === undefined) {
     throw new MessageDeliveryError('MESSAGE_DELIVERY_UNCERTAIN', 'This legacy receipt has no recoverable message payload. Check the chat before sending it again.');
   }
@@ -120,14 +125,20 @@ function issueOwned(actor: ActorFrame, row: ReceiptRow, expectedHash?: string): 
     selection: payload.extensionSelection?.publicSelection ?? null });
   if (hash !== row.payload_hash) corrupt();
   const phase = row.execution_phase as ChatMessageExecutionPhase, executionRevision = Number(row.execution_revision);
-  if (!phases.has(phase) || !Number.isSafeInteger(executionRevision) || executionRevision < 1) corrupt();
+  if (!phases.has(phase) || !Number.isSafeInteger(executionRevision) || executionRevision < 1
+    || typeof row.runtime_token !== 'string' || !row.runtime_token || row.runtime_token.length > 128) corrupt();
+  return { payload, hash, sessionDbId: actor.sessionDbId, phase, executionRevision, runtimeToken: row.runtime_token, actor };
+}
+
+function issueOwned(actor: ActorFrame, row: ReceiptRow, expectedHash?: string): OwnedAcceptedChatMessage {
+  const record = parseOwnedRecord(actor, row, expectedHash);
   const handle = Object.freeze({ kind: 'owned_accepted_chat_message' as const });
-  records.owned.set(handle, { payload, hash, sessionDbId: actor.sessionDbId, phase, executionRevision, actor });
+  records.owned.set(handle, record);
   return handle;
 }
 
 async function receipt(database: SqlConnection, actor: ActorFrame, id: string): Promise<ReceiptRow | undefined> {
-  return await database.get(`SELECT client_message_id,payload_hash,state,payload_version,private_payload,execution_phase,execution_revision
+  return await database.get(`SELECT client_message_id,payload_hash,state,payload_version,private_payload,execution_phase,execution_revision,runtime_token
     FROM pi_message_delivery_receipts WHERE pi_session_db_id=$1 AND client_message_id=$2`, [actor.sessionDbId, id]) as ReceiptRow | undefined;
 }
 async function assertNoHistoricalMessage(database: SqlConnection, actor: ActorFrame, id: string): Promise<void> {
@@ -139,12 +150,51 @@ async function assertNoHistoricalMessage(database: SqlConnection, actor: ActorFr
 
 /** Actual SQL reader is the sole issuer. JSON, receipt strings and copied handles cannot substitute. */
 export async function readOwnedAcceptedChatMessage(input: ChatMessageAdmissionIdentity): Promise<OwnedAcceptedChatMessage | null> {
-  const id = clientId(input.clientMessageId), captured = { ...input };
+  const id = clientId(input.clientMessageId), captured = { ...input, clientMessageId: id };
   const database = await openDb();
   try {
-    const actor = await readActor(database, captured), row = await receipt(database, actor, id);
-    return row ? issueOwned(actor, row) : null;
+    return await readOwnedAcceptedChatMessageOnConnection(database, captured);
   } finally { await database.close(); }
+}
+
+/** Borrowed connection; retains the same current Actor/Use and payload checks, without lifecycle operations. */
+export async function readOwnedAcceptedChatMessageOnConnection(database: SqlConnection,
+  input: ChatMessageAdmissionIdentity): Promise<OwnedAcceptedChatMessage | null> {
+  const id = clientId(input.clientMessageId), captured = { ...input };
+  const actor = await readActor(database, captured), row = await receipt(database, actor, id);
+  return row ? issueOwned(actor, row) : null;
+}
+
+function executionSnapshot(record: OwnedRecord): OwnedChatMessageExecutionSnapshot {
+  if (typeof record.runtimeToken !== 'string' || !record.runtimeToken) denied();
+  return Object.freeze({ payload: record.payload, hash: record.hash, sessionDbId: record.sessionDbId,
+    phase: record.phase, executionRevision: record.executionRevision, runtimeToken: record.runtimeToken });
+}
+
+/** A genuine held row is required; a copied snapshot or token cannot acquire an execution claim. */
+export function readOwnedChatMessageExecutionSnapshot(handle: OwnedAcceptedChatMessage): OwnedChatMessageExecutionSnapshot {
+  const record = handle && typeof handle === 'object' ? records.owned.get(handle) : undefined;
+  if (!record) denied();
+  return executionSnapshot(record);
+}
+
+/**
+ * Bookkeeping only, for a previously genuine row. No new Owned handle is issued
+ * and current Use is deliberately not required to settle an already-started run.
+ * The caller must hold the session/receipt locks and validate its private claim.
+ */
+export async function readOwnedChatMessageSettlementSnapshotOnConnection(database: SqlConnection,
+  handle: OwnedAcceptedChatMessage): Promise<OwnedChatMessageExecutionSnapshot | null> {
+  const original = handle && typeof handle === 'object' ? records.owned.get(handle) : undefined;
+  if (!original) denied();
+  const parent = await database.get(`SELECT id FROM pi_sessions WHERE id=$1 AND user_id=$2 AND session_id=$3`,
+    [original.sessionDbId, original.payload.identity.userId, original.payload.identity.sessionId]);
+  if (!parent) denied();
+  const row = await receipt(database, original.actor, original.payload.clientMessageId);
+  if (!row) return null;
+  const current = parseOwnedRecord(original.actor, row, original.hash);
+  if (JSON.stringify(current.payload) !== JSON.stringify(original.payload)) corrupt();
+  return executionSnapshot(current);
 }
 
 /** Private provenance metadata only. Every later dispatch must recheck current execution authority. */
@@ -259,7 +309,7 @@ export async function commitPreparedChatMessageAdmission(admission: PreparedChat
          payload_version,private_payload,execution_phase,execution_revision)
         VALUES ($1,$2,$3,'unclaimed','accepted',$4,$4,1,$5,'queued',1)
         ON CONFLICT (pi_session_db_id,client_message_id) DO NOTHING
-        RETURNING client_message_id,payload_hash,state,payload_version,private_payload,execution_phase,execution_revision`,
+        RETURNING client_message_id,payload_hash,state,payload_version,private_payload,execution_phase,execution_revision,runtime_token`,
       [current.sessionDbId, payload.clientMessageId, hash, now, JSON.stringify(payload)]) as ReceiptRow | undefined;
       const row = inserted ?? await receipt(database, current, payload.clientMessageId);
       if (!row) corrupt();

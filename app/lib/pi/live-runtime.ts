@@ -99,6 +99,7 @@ import {
 } from '@/app/lib/pi/effective-tool-manifest';
 import { replaceNextTurnContext } from '@/app/lib/pi/next-turn-context';
 import { getChannelSystemPromptBlock } from '@/app/lib/agents/channel-system-prompt';
+import { AgentWorkflowError } from '@/app/lib/agents/workflow-contracts';
 import { formatZonedDateTimeForPrompt } from '@/app/lib/time-zones';
 import { PLANNING_MODE_GUIDANCE } from '@/app/lib/agents/system-prompt-shared';
 import { loadLatestPiSessionInputUsage, persistPiUsageEvents } from '@/app/lib/pi/usage-events';
@@ -559,6 +560,13 @@ type PiRuntimePromptDispatchTarget = RuntimePromptContextTarget & {
   startPrompt: (message: Extract<AgentMessage, { role: 'user' }>) => void;
 };
 
+type PiRuntimeExecutionOwnerIdentity = Readonly<{
+  userId: string;
+  sessionId: string;
+  agentId: string;
+  workspaceId: string;
+}>;
+
 export class LivePiRuntime {
   readonly sessionId: string;
   readonly userId: string;
@@ -671,6 +679,14 @@ export class LivePiRuntime {
         this.publishStatus();
       },
     );
+  }
+
+  /** Internal identity read only; actual store registration remains required. */
+  getDurableExecutionOwnerIdentity(): PiRuntimeExecutionOwnerIdentity | null {
+    const context = this.executionContext;
+    if (this.disposed || !this.userId || !this.sessionId || !this.agentId || !context?.workspaceId
+      || context.userId !== this.userId || context.sessionId !== this.sessionId || context.agentId !== this.agentId) return null;
+    return Object.freeze({ userId: this.userId, sessionId: this.sessionId, agentId: this.agentId, workspaceId: context.workspaceId });
   }
 
   private invalidateContextBudget(): void {
@@ -3337,9 +3353,106 @@ type RuntimeStore = {
   cleanupStarted: boolean;
 };
 
+export type RegisteredPiRuntimeExecutionOwner = Readonly<{ kind: 'registered_pi_runtime_execution_owner' }>;
+type RegisteredPiRuntimeExecutionOwnerData = PiRuntimeExecutionOwnerIdentity & Readonly<{ token: string }>;
+type RegisteredPiRuntimeExecutionOwnerRecord = {
+  runtime: LivePiRuntime;
+  runtimePromise: Promise<LivePiRuntime>;
+  store: RuntimeStore;
+  runtimes: RuntimeStore['runtimes'];
+  data: RegisteredPiRuntimeExecutionOwnerData;
+  invalidated: boolean;
+};
+
 const globalStore = globalThis as typeof globalThis & {
   __canvasPiRuntimeStore?: RuntimeStore;
+  __canvasPiRuntimeExecutionOwnersV1?: WeakMap<object, RegisteredPiRuntimeExecutionOwnerRecord>;
+  __canvasPiRuntimeExecutionOwnersByRuntimeV1?: WeakMap<LivePiRuntime, WeakMap<Promise<LivePiRuntime>, RegisteredPiRuntimeExecutionOwner>>;
 };
+const registeredExecutionOwners = globalStore.__canvasPiRuntimeExecutionOwnersV1 ??= new WeakMap<object, RegisteredPiRuntimeExecutionOwnerRecord>();
+const registeredExecutionOwnersByRuntime = globalStore.__canvasPiRuntimeExecutionOwnersByRuntimeV1
+  ??= new WeakMap<LivePiRuntime, WeakMap<Promise<LivePiRuntime>, RegisteredPiRuntimeExecutionOwner>>();
+
+function executionOwnerChanged(): never {
+  throw new AgentWorkflowError('AGENT_MESSAGE_EXECUTION_OWNER_CHANGED', 'The registered runtime execution owner changed.', 409);
+}
+
+function sameExecutionOwnerIdentity(left: PiRuntimeExecutionOwnerIdentity, right: PiRuntimeExecutionOwnerIdentity): boolean {
+  return left.userId === right.userId && left.sessionId === right.sessionId
+    && left.agentId === right.agentId && left.workspaceId === right.workspaceId;
+}
+
+function assertRegisteredExecutionOwnerNow(record: RegisteredPiRuntimeExecutionOwnerRecord): void {
+  const { runtime, runtimePromise, store, runtimes, data } = record;
+  try {
+    const identity = LivePiRuntime.prototype.getDurableExecutionOwnerIdentity.call(runtime);
+    if (record.invalidated || globalStore.__canvasPiRuntimeStore !== store || store.runtimes !== runtimes
+      || runtimes.get(getRuntimeKey(data.sessionId, data.userId)) !== runtimePromise
+      || !identity || !sameExecutionOwnerIdentity(identity, data)) return executionOwnerChanged();
+  } catch {
+    record.invalidated = true;
+    return executionOwnerChanged();
+  }
+}
+
+async function assertRegisteredExecutionOwner(record: RegisteredPiRuntimeExecutionOwnerRecord): Promise<void> {
+  assertRegisteredExecutionOwnerNow(record);
+  try {
+    if (await record.runtimePromise !== record.runtime) return executionOwnerChanged();
+  } catch {
+    record.invalidated = true;
+    return executionOwnerChanged();
+  }
+  assertRegisteredExecutionOwnerNow(record);
+}
+
+/** Only the exact existing store registration can issue this opaque owner. Never creates a runtime. */
+export async function getRegisteredPiRuntimeExecutionOwner(runtime: LivePiRuntime): Promise<RegisteredPiRuntimeExecutionOwner> {
+  if (!runtime || typeof runtime !== 'object') return executionOwnerChanged();
+  const identity = LivePiRuntime.prototype.getDurableExecutionOwnerIdentity.call(runtime);
+  const store = globalStore.__canvasPiRuntimeStore;
+  const runtimePromise = identity && store?.runtimes.get(getRuntimeKey(identity.sessionId, identity.userId));
+  if (!identity || !store || !runtimePromise) return executionOwnerChanged();
+  let owners = registeredExecutionOwnersByRuntime.get(runtime);
+  const existing = owners?.get(runtimePromise);
+  if (existing) {
+    await readRegisteredPiRuntimeExecutionOwner(existing);
+    const record = registeredExecutionOwners.get(existing);
+    if (!record) return executionOwnerChanged();
+    assertRegisteredExecutionOwnerNow(record);
+    return existing;
+  }
+  const record: RegisteredPiRuntimeExecutionOwnerRecord = { runtime, runtimePromise, store, runtimes: store.runtimes,
+    data: Object.freeze({ token: randomUUID(), ...identity }), invalidated: false };
+  await assertRegisteredExecutionOwner(record);
+  assertRegisteredExecutionOwnerNow(record);
+  // Another caller can have issued the same registration while this reader awaited it.
+  owners = registeredExecutionOwnersByRuntime.get(runtime);
+  const concurrent = owners?.get(runtimePromise);
+  if (concurrent) {
+    const issued = registeredExecutionOwners.get(concurrent);
+    if (!issued || issued.invalidated || !sameExecutionOwnerIdentity(issued.data, record.data)) return executionOwnerChanged();
+    assertRegisteredExecutionOwnerNow(issued);
+    return concurrent;
+  }
+  const owner = Object.freeze({ kind: 'registered_pi_runtime_execution_owner' as const });
+  if (!owners) {
+    owners = new WeakMap<Promise<LivePiRuntime>, RegisteredPiRuntimeExecutionOwner>();
+    registeredExecutionOwnersByRuntime.set(runtime, owners);
+  }
+  registeredExecutionOwners.set(owner, record);
+  owners.set(runtimePromise, owner);
+  return owner;
+}
+
+/** Fresh registration proof only; the returned identity grants no SQL or business authority. */
+export async function readRegisteredPiRuntimeExecutionOwner(originalOwner: RegisteredPiRuntimeExecutionOwner): Promise<RegisteredPiRuntimeExecutionOwnerData> {
+  const record = originalOwner && typeof originalOwner === 'object' ? registeredExecutionOwners.get(originalOwner) : undefined;
+  if (!record) return executionOwnerChanged();
+  await assertRegisteredExecutionOwner(record);
+  assertRegisteredExecutionOwnerNow(record);
+  return record.data;
+}
 
 function getStore(): RuntimeStore {
   if (!globalStore.__canvasPiRuntimeStore) {
