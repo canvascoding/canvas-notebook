@@ -2,6 +2,7 @@ import 'server-only';
 
 import { openDb } from '@/app/lib/db';
 import type { AgentManagementActor, AgentReadinessEntry } from './management-actions';
+import type { AgentWorkflowManagementBindingSummary } from './workflow-management-contracts';
 import { resolveVerifiedAgentActorContextOnConnection } from './actor-context';
 import { readAgentProfileOnConnection } from './registry';
 import { AgentWorkflowError, isAgentWorkflowError } from './workflow-contracts';
@@ -14,6 +15,9 @@ import { lockIntegrationConnectionBindingsOnConnection, authorizeIntegrationConn
 import { agentExtensionConfigurationInputSchema, type AgentExtensionConfigurationInput,
   type ExtensionSelectionEntry } from '@/app/lib/capabilities/extensions/contracts';
 import { projectAgentStandaloneConfigurations } from '@/app/lib/capabilities/extensions/agent-standalone-configuration';
+import { resolveAgentExtensionOptionsContext } from './extension-options-context';
+import { readAgentExtensionStandalonePresentation } from './extension-standalone-presentation';
+import type { AgentExtensionStandaloneSummary } from './extension-presentation-contracts';
 import { selectAgentStandaloneExtension } from '@/app/lib/capabilities/extensions/standalone-runtime';
 
 export type AgentExtensionConfigurationDescriptor = {
@@ -21,6 +25,9 @@ export type AgentExtensionConfigurationDescriptor = {
   configurationState: 'legacy' | 'available' | 'blocked';
   configuration: AgentExtensionConfigurationInput | null;
   readiness: AgentReadinessEntry[];
+  /** Display metadata from the same checked management projection; no connection authority or account probe. */
+  bindingSummaries?: AgentWorkflowManagementBindingSummary[];
+  standaloneSummaries?: AgentExtensionStandaloneSummary[];
 };
 
 /** Safe editable identity only. Current provider health is deliberately not inferred from this metadata view. */
@@ -73,8 +80,11 @@ export async function inspectManagedAgentExtensions(actorInput: AgentManagementA
         origin: binding.resourceType === 'skill' ? 'standalone' as const : 'plugin_child' as const }, requirement: binding.requirement, toolCap: null }));
   });
   let slots: Awaited<ReturnType<typeof projectAgentStandaloneConfigurations>>;
+  let standaloneSummaries: AgentExtensionStandaloneSummary[] = [];
   try {
-    slots = await projectAgentStandaloneConfigurations(actor!, before);
+    const context = await resolveAgentExtensionOptionsContext(actor!, { kind: 'existing', agentId: before.agent.agentId,
+      expectedRevision: before.agent.revision, expectedWorkflowRevision: before.workflowRevision });
+    ({ slots, summaries: standaloneSummaries } = await readAgentExtensionStandalonePresentation(context));
     const selected = slots.flatMap(slot => slot.mode === 'fixed' ? [slot.entry.selection] : slot.allowedChoices.map(choice => choice.selection));
     const database = await openDb();
     try {
@@ -117,5 +127,6 @@ export async function inspectManagedAgentExtensions(actorInput: AgentManagementA
   }
   const configuration = agentExtensionConfigurationInputSchema.parse({ version: 1, origin: 'agent_configuration', mode: 'fixed',
     selections, workflow: management.configuration.packages.length ? management.configuration : null, standalone: slots });
-  return { ...header, configurationState: 'available', configuration, readiness };
+  return { ...header, configurationState: 'available', configuration, readiness,
+    bindingSummaries: management.bindingSummaries ?? [], standaloneSummaries };
 }

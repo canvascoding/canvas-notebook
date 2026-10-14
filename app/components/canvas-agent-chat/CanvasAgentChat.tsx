@@ -249,6 +249,7 @@ export default function CanvasAgentChat({
     activeThinkingLevel,
     availableAgents,
     refreshAgents,
+    acceptCreatedAgent,
     selectedAgentId,
     setActiveModel,
     setActiveProvider,
@@ -1356,6 +1357,7 @@ export default function CanvasAgentChat({
           selectChatAgent(agentId);
         }}
         onReloadAgents={refreshAgents}
+        onAgentCreated={acceptCreatedAgent}
         onOpenLiveBrowser={onOpenLiveBrowser}
         onSetShowHistory={setShowHistory}
         onStartNewChat={() => startNewChat()}

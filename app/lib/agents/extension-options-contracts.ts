@@ -199,6 +199,10 @@ export type AgentExtensionConnectionChoice = {
   icon?: PluginExtensionIcon;
 };
 export type AgentExtensionProfileChoice = { profileId: string; label: string; status: 'unverified'; alternativeKey?: string };
+/** Safe catalogue navigation metadata from the authorized exact selection scope; never a binding or grant. */
+export type AgentExtensionSetupAlternative =
+  | { source: 'composio'; toolkit: string; label: string; alternativeKey?: string }
+  | { source: 'mcp'; connector?: string; definitionId?: string; label: string; alternativeKey?: string };
 export type AgentExtensionAccountChoice = {
   selection: Extract<StandaloneExtensionSelection, { kind: 'composio' }> & {
     target: Extract<Extract<StandaloneExtensionSelection, { kind: 'composio' }>['target'], { kind: 'personal'; accountBinding: 'account' }> };
@@ -232,6 +236,7 @@ type AgentExtensionConnectionChoicesPayload = {
   connections: AgentExtensionConnectionChoice[];
   profiles: AgentExtensionProfileChoice[];
   accounts: AgentExtensionAccountChoice[];
+  setupAlternatives?: AgentExtensionSetupAlternative[];
   personalSelectionPolicy?: { requirement: 'optional' | 'required'; toolCap: string[] | null };
   noAuthSelection?: Extract<StandaloneExtensionSelection, { kind: 'composio' }> & {
     target: Extract<Extract<StandaloneExtensionSelection, { kind: 'composio' }>['target'], { kind: 'personal'; accountBinding: 'no_auth' }> };

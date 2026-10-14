@@ -24,7 +24,7 @@ import type {
 } from '@/app/components/shared/ImagePreprocessDialog';
 import { isHeicUploadFile, shouldPreprocessImageFile } from '@/app/lib/images/client-preprocess';
 import { prepareImageFilesForUpload, serializeUploadConvertParams } from '@/app/lib/images/client-upload-conversion';
-import { fetchChatAgents } from '@/app/lib/chat/agent-api';
+import { useChatAgentList } from '@/app/components/canvas-agent-chat/useChatAgentList';
 import { fetchLastActiveAgentId, saveLastActiveAgentId } from '@/app/lib/chat/agent-preferences';
 import { getAgentProfileDisplayName } from '@/app/lib/chat/agent-display';
 import type { AgentProfile } from '@/app/lib/chat/types';
@@ -74,10 +74,7 @@ export function PromptHero({ onModeChange, compact = false }: PromptHeroProps = 
   const submittingRef = useRef(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
-  const [agentListState, setAgentListState] = useState<{
-    workspaceId: string | null;
-    agents: AgentProfile[];
-  }>({ workspaceId: null, agents: [] });
+  const { availableAgents, refreshAgents, acceptCreatedAgent, scopeKey } = useChatAgentList(activeWorkspaceId);
   const [selectedAgentId, setSelectedAgentId] = useState(DEFAULT_AGENT_ID);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -102,9 +99,6 @@ export function PromptHero({ onModeChange, compact = false }: PromptHeroProps = 
     setMode(nextMode);
     onModeChange?.(nextMode);
   };
-  const availableAgents = useMemo(() => (
-    agentListState.workspaceId === activeWorkspaceId ? agentListState.agents : []
-  ), [activeWorkspaceId, agentListState]);
   const agentOptions = useMemo(() => (
     (availableAgents.length > 0 ? availableAgents : [DEFAULT_AGENT_PROFILE])
       .map((agent) => ({
@@ -135,20 +129,12 @@ export function PromptHero({ onModeChange, compact = false }: PromptHeroProps = 
     const loadAgentState = async () => {
       if (!activeWorkspaceId) return;
       try {
-        const [agents, lastActiveAgentId] = await Promise.all([
-          fetchChatAgents(activeWorkspaceId),
-          fetchLastActiveAgentId(),
-        ]);
+        const lastActiveAgentId = await fetchLastActiveAgentId();
         if (!isActive) return;
-
-        setAgentListState({ workspaceId: activeWorkspaceId, agents });
-        const hasStoredAgent = agents.length === 0 || agents.some((agent) => agent.agentId === lastActiveAgentId);
-        setSelectedAgentId(hasStoredAgent ? lastActiveAgentId : DEFAULT_AGENT_ID);
+        setSelectedAgentId(current => current === DEFAULT_AGENT_ID ? lastActiveAgentId : current);
       } catch (error) {
         if (!isActive) return;
         console.error('Failed to load home agent selector state', error);
-        setAgentListState({ workspaceId: activeWorkspaceId, agents: [DEFAULT_AGENT_PROFILE] });
-        setSelectedAgentId(DEFAULT_AGENT_ID);
       }
     };
 
@@ -157,7 +143,7 @@ export function PromptHero({ onModeChange, compact = false }: PromptHeroProps = 
     return () => {
       isActive = false;
     };
-  }, [activeWorkspaceId]);
+  }, [activeWorkspaceId, scopeKey]);
 
   const handleAgentSelect = useCallback((agentId: string) => {
     setSelectedAgentId(agentId);
@@ -669,6 +655,7 @@ export function PromptHero({ onModeChange, compact = false }: PromptHeroProps = 
                 multiple
               />
               <ChatAgentSelector
+                context={{ workspaceId: activeWorkspaceId }}
                 variant="desktop"
                 activeAgentId={effectiveSelectedAgentId}
                 activeAgentName={selectedAgentName}
@@ -677,13 +664,8 @@ export function PromptHero({ onModeChange, compact = false }: PromptHeroProps = 
                 className="max-w-[11rem] bg-background"
                 testId="home-agent-id"
                 onSelectAgent={handleAgentSelect}
-                onReloadAgents={async () => {
-                  if (!activeWorkspaceId) return;
-                  setAgentListState({
-                    workspaceId: activeWorkspaceId,
-                    agents: await fetchChatAgents(activeWorkspaceId),
-                  });
-                }}
+                onAgentCreated={acceptCreatedAgent}
+                onReloadAgents={refreshAgents}
               />
             </div>
           )}

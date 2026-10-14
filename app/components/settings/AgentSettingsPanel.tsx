@@ -6,13 +6,7 @@ import Link from 'next/link';
 import { useTranslations } from 'next-intl';
 
 import { AgentCatalogModelOverrideCard } from './AgentCatalogModelOverrideEditor';
-import {
-  resolveEnabledToolNames,
-  isDefaultToolsConfig,
-  getDefaultEnabledToolNames,
-  enableToolInConfig,
-  disableToolInConfig,
-} from '@/app/lib/pi/enabled-tools';
+import { resolveAgentFormToolDraft, toggleAgentFormToolDraft, toggleAgentFormToolsDraft } from '@/app/components/agents/agent-profile-edit-client';
 import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
 import { AgentSessionsCard, type AgentSessionItem } from './AgentSessionsCard';
 import { AgentDoctorCard, type DoctorResult } from './AgentDoctorCard';
@@ -32,6 +26,8 @@ import { AgentSettingsAccordionCard } from './AgentSettingsAccordionCard';
 import { AgentRuntimePreferenceCard } from './AgentRuntimePreferenceCard';
 import { MemoryReviewAgentCard } from './MemoryReviewAgentCard';
 import type { CreateAgentInput } from './CreateAgentDialog';
+import type { AgentExtensionEditorContext } from '@/app/components/agents/AgentExtensionEditor';
+import { isExplicitAgentWorkflowVersion } from '@/app/lib/agents/workflow-version';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
 
@@ -314,6 +310,7 @@ export function AgentSettingsPanel({
   const [agentsError, setAgentsError] = useState<string | null>(null);
   const [selectedAgentId, setSelectedAgentId] = useState(DEFAULT_AGENT_ID);
   const [agentCreating, setAgentCreating] = useState(false);
+  const agentCreateTicketRef = useRef<object | null>(null);
   const [agentDeletingId, setAgentDeletingId] = useState<string | null>(null);
 
   const [doctorResult, setDoctorResult] = useState<DoctorResult | null>(null);
@@ -363,6 +360,8 @@ export function AgentSettingsPanel({
   const projectId = searchParams.get('projectId');
   const workflowContextKey = JSON.stringify([currentUserId, workspaceId, organizationId, projectId]);
   const workflowContextKeyRef = useRef(workflowContextKey);
+  const extensionEditorContext = useMemo<AgentExtensionEditorContext>(() => ({ actorId: currentUserId || null,
+    workspaceId, organizationId, projectId }), [currentUserId, organizationId, projectId, workspaceId]);
   const workflowManagementContext = useMemo<AgentWorkflowManagementContext>(() => ({ agentId: selectedAgentId,
     workspaceId, organizationId, projectId, actorId: currentUserId || null }),
   [currentUserId, organizationId, projectId, selectedAgentId, workspaceId]);
@@ -476,7 +475,7 @@ export function AgentSettingsPanel({
   }, [workflowContextKey]);
   const isMainAgent = selectedAgentId === DEFAULT_AGENT_ID || selectedAgent?.type === 'main';
   const hasWorkflowConfiguration = selectedAgent?.workflowVersion != null;
-  const isWorkflowUseOnly = selectedAgent?.workflowVersion === 1 && selectedAgent.access?.canEdit === false;
+  const isWorkflowUseOnly = isExplicitAgentWorkflowVersion(selectedAgent?.workflowVersion) && selectedAgent?.access?.canEdit === false;
   const toolsOverrideEnabled = isMainAgent || Array.isArray(selectedAgent?.enabledTools);
   const skillsOverrideEnabled = !isMainAgent && Array.isArray(selectedAgent?.relevantSkills);
   const connectionsOverrideEnabled = !isMainAgent && Array.isArray(selectedAgent?.relevantConnections);
@@ -523,7 +522,8 @@ export function AgentSettingsPanel({
       }
       const payload = await fetchJson<{ agents: WorkflowAgentProfileItem[] }>(`/api/agents?${query}`);
       if (!isCurrentRequest()) return;
-      const nextAgents = (payload.agents || []).filter((agent) => agent.access?.canEdit !== false || agent.workflowVersion === 1 && agent.access.canUse);
+      const nextAgents = (payload.agents || []).filter((agent) => agent.access?.canEdit !== false
+        || isExplicitAgentWorkflowVersion(agent.workflowVersion) && agent.access.canUse);
       setAgents(nextAgents);
       if (!nextAgents.some((agent) => agent.agentId === selectedAgentIdRef.current)) {
         const nextAgentId = nextAgents.find((agent) => agent.agentId === DEFAULT_AGENT_ID)?.agentId
@@ -555,13 +555,20 @@ export function AgentSettingsPanel({
 
   const createAgent = async (input: CreateAgentInput): Promise<AgentProfileItem | null> => {
     const name = input.name.trim();
-    if (!name) return null;
+    if (!name || agentCreateTicketRef.current) return null;
+    const ticket = {}, contextKey = workflowContextKey;
+    agentCreateTicketRef.current = ticket;
+    const isCurrent = () => toolsMountedRef.current && workflowContextKeyRef.current === contextKey;
 
     setAgentCreating(true);
     setAgentsError(null);
 
     try {
-      const payload = await fetchJson<{ agent: AgentProfileItem }>('/api/agents', {
+      const query = new URLSearchParams();
+      for (const [key, value] of [['workspaceId', workspaceId], ['organizationId', organizationId], ['projectId', projectId]] as const) {
+        if (value) query.set(key, value);
+      }
+      const payload = await fetchJson<{ agent: AgentProfileItem }>(`/api/agents${query.size ? `?${query}` : ''}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -575,19 +582,32 @@ export function AgentSettingsPanel({
           expectedCatalogRevision: input.expectedCatalogRevision,
           files: input.files,
           enabledTools: input.enabledTools,
-          relevantSkills: input.relevantSkills,
-          relevantConnections: input.relevantConnections,
-          capabilities: input.capabilities,
+          extensions: input.extensions,
         }),
       });
-      await loadAgents();
-      selectAgent(payload.agent.agentId);
+      // An acknowledged creation stays successful even if the follow-up list
+      // request fails. The dialog must never offer to POST this Agent again.
+      if (isCurrent()) {
+        try {
+          setAgents(current => [...current.filter(agent => agent.agentId !== payload.agent.agentId), payload.agent]);
+          selectAgent(payload.agent.agentId);
+        }
+        catch (refreshError) {
+          if (isCurrent()) setAgentsError(refreshError instanceof Error ? refreshError.message : t('agentPanel.selector.errors.load'));
+        }
+        void loadAgents().catch(refreshError => {
+          if (isCurrent()) setAgentsError(refreshError instanceof Error ? refreshError.message : t('agentPanel.selector.errors.load'));
+        });
+      }
       return payload.agent;
     } catch (error) {
-      setAgentsError(error instanceof Error ? error.message : t('agentPanel.selector.errors.create'));
+      if (isCurrent()) setAgentsError(error instanceof Error ? error.message : t('agentPanel.selector.errors.create'));
       return null;
     } finally {
-      setAgentCreating(false);
+      if (agentCreateTicketRef.current === ticket) {
+        agentCreateTicketRef.current = null;
+        if (toolsMountedRef.current) setAgentCreating(false);
+      }
     }
   };
 
@@ -1158,14 +1178,7 @@ export function AgentSettingsPanel({
     const enabledTools = getActiveEnabledTools();
     const allNames = availableTools.map((t) => t.name);
     
-    // If the user has never configured tools (empty config), use defaults
-    if (isDefaultToolsConfig(enabledTools)) {
-      const defaultSet = getDefaultEnabledToolNames(allNames);
-      return defaultSet.has(toolName);
-    }
-    
-    const enabledSet = resolveEnabledToolNames(allNames, enabledTools);
-    return enabledSet.has(toolName);
+    return resolveAgentFormToolDraft(allNames, enabledTools).has(toolName);
   };
 
   const saveToolsSelection = async (newEnabledTools: string[] | null, fallback: string) => {
@@ -1218,30 +1231,20 @@ export function AgentSettingsPanel({
   const handleToolToggle = (toolName: string, enabled: boolean) => {
     const currentEnabled = getActiveEnabledTools();
     const allNames = availableTools.map((t) => t.name);
-    const newEnabledTools = enabled
-      ? enableToolInConfig(toolName, currentEnabled, allNames)
-      : disableToolInConfig(toolName, currentEnabled, allNames);
+    const newEnabledTools = toggleAgentFormToolDraft(toolName, enabled, currentEnabled, allNames);
 
     void saveToolsConfig(newEnabledTools);
   };
 
   const handleEnableAll = () => {
     const allNames = availableTools.map((t) => t.name);
-    let newEnabledTools = getActiveEnabledTools();
-    for (const tool of filteredTools) {
-      if (tool.availability?.available === false) continue;
-      newEnabledTools = enableToolInConfig(tool.name, newEnabledTools, allNames);
-    }
-    void saveToolsConfig(newEnabledTools);
+    void saveToolsConfig(toggleAgentFormToolsDraft(filteredTools.filter(tool => tool.availability?.available !== false)
+      .map(tool => tool.name), true, getActiveEnabledTools(), allNames));
   };
 
   const handleDisableAll = () => {
     const allNames = availableTools.map((t) => t.name);
-    let newEnabledTools = getActiveEnabledTools();
-    for (const tool of filteredTools) {
-      newEnabledTools = disableToolInConfig(tool.name, newEnabledTools, allNames);
-    }
-    void saveToolsConfig(newEnabledTools);
+    void saveToolsConfig(toggleAgentFormToolsDraft(filteredTools.map(tool => tool.name), false, getActiveEnabledTools(), allNames));
   };
 
   const setToolsOverrideEnabled = async (enabled: boolean) => {
@@ -1412,6 +1415,7 @@ export function AgentSettingsPanel({
         creating={agentCreating}
         deletingAgentId={agentDeletingId}
         canManageAgentDefaults={canManageAgentDefaults}
+        context={extensionEditorContext}
         openCreateDialogOnMount={shouldOpenCreateAgentDialog}
         onSelectedAgentIdChange={selectAgent}
         onCreate={createAgent}
@@ -1419,7 +1423,7 @@ export function AgentSettingsPanel({
         onReload={() => void loadAgents()}
       />
 
-      {selectedAgent?.workflowVersion === 1 && selectedAgent.access?.canUse ? <Card data-testid="agent-settings-workflow">
+      {isExplicitAgentWorkflowVersion(selectedAgent?.workflowVersion) && selectedAgent?.access?.canUse ? <Card data-testid="agent-settings-workflow">
         <CardHeader><CardTitle className="flex items-center gap-2"><Route className="size-4" />{tWorkflow('title')}</CardTitle>
           <CardDescription>{tWorkflow('settingsDescription')}</CardDescription></CardHeader>
         <CardContent><Button ref={workflowTriggerRef} type="button" variant="outline" onClick={() => setWorkflowDialogOpen(true)}>{tWorkflow('open')}</Button></CardContent>

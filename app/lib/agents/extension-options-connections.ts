@@ -23,7 +23,7 @@ import type { PluginExtensionCoverage } from '@/app/lib/plugins/plugin-extension
 import { AgentWorkflowError, agentWorkflowCapabilityKey, type StoredAgentWorkflowTarget } from './workflow-contracts';
 import { agentExtensionOptionsRequestSchema, agentExtensionOptionsTargetSchema, type AgentExtensionConnectionChoice, type AgentExtensionConnectionChoicesRequest,
   type AgentExtensionOptionsResponse, type AgentExtensionAccountChoice, type AgentExtensionProfileChoice,
-  type AgentExtensionPackageBinding } from './extension-options-contracts';
+  type AgentExtensionPackageBinding, type AgentExtensionSetupAlternative } from './extension-options-contracts';
 import { authorizeAgentExtensionSharedOption, listAgentExtensionSharedOptions, revalidateAgentExtensionOptionsContext,
   type AgentExtensionOptionsContext } from './extension-options-context';
 import { readAgentExtensionPackageVersion } from './extension-package-options';
@@ -175,6 +175,32 @@ function permittedTools(tools: readonly string[] | null, cap: readonly string[] 
   const allowedToolNames = intersectPackageExtensionToolCaps(tools, cap);
   return { allowedToolNames, eligibility: (alternative.requiredTools ?? []).some(name => allowedToolNames !== null && !allowedToolNames.includes(name))
     ? { action: 'unavailable', reason: { code: 'AGENT_WORKFLOW_REQUIRED_TOOLS', message: 'This connection does not grant every required tool.' } } : { action: 'select' } };
+}
+
+async function setupAlternatives(context: AgentExtensionOptionsContext, scope: Scope): Promise<AgentExtensionSetupAlternative[]> {
+  // Personal setup must be allowed by the actual slot policy. A finite saved
+  // choice alone does not authorize adding another personal account/server.
+  const alternatives = context.target.kind === 'user_choice' ? scope.personal : scope.alternatives;
+  const definitions = alternatives.some(value => value.source === 'mcp') && context.organizationId
+    ? await listMcpServerDefinitions(context.organizationId) : [];
+  const result: AgentExtensionSetupAlternative[] = [];
+  for (const alternative of alternatives) {
+    const key = alternativeKey(alternative);
+    if (alternative.source === 'composio') {
+      result.push({ source: 'composio', toolkit: alternative.toolkit, label: label(alternative.toolkit, 'Integration'), ...(key ? { alternativeKey: key } : {}) });
+      continue;
+    }
+    const allowedIds = scope.definitionIds ?? scope.definitionMappings?.find(mapping => mapping.connector === alternative.connector)?.serverDefinitionIds
+      ?? (scope.package && context.target.kind === 'user_choice' ? [] : undefined);
+    if (allowedIds !== undefined) {
+      for (const definition of definitions) if (definition.enabled && allowedIds.includes(definition.id)) {
+        result.push({ source: 'mcp', definitionId: definition.id, label: label(definition.name, alternative.connector ?? 'MCP'),
+          ...(alternative.connector ? { connector: alternative.connector } : {}), ...(key ? { alternativeKey: key } : {}) });
+      }
+    } else result.push({ source: 'mcp', label: label(alternative.connector ?? 'MCP', 'MCP'),
+      ...(alternative.connector ? { connector: alternative.connector } : {}), ...(key ? { alternativeKey: key } : {}) });
+  }
+  return [...new Map(result.map(value => [JSON.stringify(value), value])).values()];
 }
 
 async function sharedChoice(context: AgentExtensionOptionsContext, scope: Scope, source: IntegrationConnectionBindingAuthorization,
@@ -370,6 +396,7 @@ export async function listAgentExtensionConnectionChoices(context: AgentExtensio
     const source = selected.source;
     coverage.set(source, { source, status: 'partial', error: { code: 'AGENT_WORKFLOW_OPTIONS_CHANGED', message: 'Some connection metadata changed while loading.', retryable: true } });
   }
+  const setup = await setupAlternatives(context, freshScope);
   await revalidateAgentExtensionOptionsContext(context);
   signal?.throwIfAborted();
   for (const item of connections) {
@@ -386,7 +413,7 @@ export async function listAgentExtensionConnectionChoices(context: AgentExtensio
     ...accounts.map(value => ({ kind: 'account' as const, value }))].filter(row => row.value.label.toLocaleLowerCase().includes(needle));
   const page = rows.slice(offset, offset + request.limit), hasNextPage = offset + page.length < rows.length;
   const payload = { schemaVersion: 1 as const, contextKey: context.contextKey, limits: EXTENSION_SELECTION_LIMITS,
-    coverage: [...coverage.values()], connections: page.flatMap(row => row.kind === 'connection' ? [row.value] : []),
+    coverage: [...coverage.values()], setupAlternatives: setup, connections: page.flatMap(row => row.kind === 'connection' ? [row.value] : []),
     profiles: page.flatMap(row => row.kind === 'profile' ? [row.value] : []), accounts: page.flatMap(row => row.kind === 'account' ? [row.value] : []),
     ...(scope.personal.length ? { personalSelectionPolicy: { requirement: scope.required ? 'required' as const : 'optional' as const,
       toolCap: scope.toolCap && [...scope.toolCap] } } : {}), ...(noAuthSelection ? { noAuthSelection } : {}),
