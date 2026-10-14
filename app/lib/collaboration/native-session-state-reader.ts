@@ -1,11 +1,13 @@
 import 'server-only';
 
 import { getSchema } from '@tiptap/core';
+import { NextRequest } from 'next/server';
+import * as decoding from 'lib0/decoding';
 import type { SqlConnection } from '../db';
 import type { WorkspaceContext } from '../workspaces/types';
 import type { WorkspaceRequestPrincipal, WorkspaceRequestPrincipalAccess } from '../workspaces/request-principal';
 import { getWorkspaceFileLifecycleLeases } from './file-lifecycle-admission-context';
-import { inspectPersistedNativeCollaborationSnapshot, type NativeCollaborationSnapshot } from './document-snapshot';
+import { inspectNativeDocument, inspectPersistedNativeCollaborationSnapshot, type NativeCollaborationSnapshot } from './document-snapshot';
 import { isCollaborationStateQuarantined } from './failure';
 import { richMarkdownSchemaExtensions } from './markdown-state';
 import { assertNativeDocumentSchema } from './native-document-schema';
@@ -13,6 +15,7 @@ import { loadCollaborationStateOnConnection, type PersistedCollaborationState } 
 import { assertCollaborationAdmissionOpen } from './room-admission';
 import { CollaborationAdmissionError, collaborationAdmissionLockKey, isCanonicalAdmissionPath } from './room-admission-contract';
 import { COLLABORATION_SCHEMA_VERSION, type TextCollaborationRepresentation } from './types';
+import { Y } from './server-runtime';
 
 export type ExistingNativeSessionIdentity = Readonly<{
   documentId: string; lineageId: string; workspaceId: string; organizationId: string | null; path: string;
@@ -26,6 +29,8 @@ export type ExistingNativeSessionSnapshot = ExistingNativeSessionIdentity & Read
 }>;
 /** Authenticity is private WeakMap membership, never the shape of this object. */
 export type ExistingNativeCollaborationSession = Readonly<{ snapshot: ExistingNativeSessionSnapshot }>;
+/** Separate diagnosis capability. It can never authorize editing or migration. */
+export type ReadOnlyNativeSessionDiagnosis = Readonly<{ snapshot: ExistingNativeSessionSnapshot; permission: 'read' }>;
 /** Callback-only facts from the actual SAME-Connection principal phase. The
  * workspace is its frozen entry observation, not a write grant. A canRead
  * principal never proves current write permission; writes require a genuinely
@@ -43,9 +48,11 @@ type Capture = {
   identity?: ConnectionIdentity; target?: ExistingNativeSessionIdentity; expected?: ExistingNativeSessionIdentity;
   snapshot?: ExistingNativeSessionSnapshot; native?: NativeCollaborationSnapshot; pending: Set<Promise<unknown>>;
   principal?: PrincipalReaderPhase;
+  purpose?: 'quarantine-diagnosis';
 };
 const connections = new WeakMap<SqlConnection, Capture>();
 const capabilities = new WeakMap<ExistingNativeCollaborationSession, Capture>();
+const diagnoses = new WeakMap<ReadOnlyNativeSessionDiagnosis, { connection: SqlConnection; native: ExistingNativeCollaborationSession }>();
 const requiredTables = ['collaboration_documents', 'file_collaboration_lineages', 'collaboration_yjs_states',
   'collaboration_admission_requests', 'collaboration_admission_scopes', 'collaboration_admission_targets'];
 const identityKeys = ['documentId', 'lineageId', 'workspaceId', 'organizationId', 'path', 'lifecycleGeneration', 'representation', 'schemaVersion'] as const;
@@ -61,7 +68,8 @@ export class NativeSessionStateReaderError extends Error {
   readonly status = 409;
   constructor(readonly code: 'NATIVE_SESSION_INVALID' | 'NATIVE_SESSION_REQUIRED' | 'NATIVE_SESSION_BUSY'
     | 'NATIVE_SESSION_SCOPE_CHANGED' | 'NATIVE_SESSION_STATE_MISSING' | 'NATIVE_SESSION_STATE_INVALID'
-    | 'NATIVE_SESSION_QUARANTINED' | 'NATIVE_SESSION_TOO_LARGE' | 'NATIVE_SESSION_REENTRANT' | 'NATIVE_SESSION_DETACHED') {
+    | 'NATIVE_SESSION_QUARANTINED' | 'NATIVE_SESSION_QUARANTINE_REQUIRED'
+    | 'NATIVE_SESSION_TOO_LARGE' | 'NATIVE_SESSION_REENTRANT' | 'NATIVE_SESSION_DETACHED') {
     super(code); this.name = 'NativeSessionStateReaderError';
   }
 }
@@ -204,6 +212,26 @@ function validateRawState(row: Row): void {
   } else if (permanent !== 0 || row.projection_error_sequence !== null || row.projection_error_generation !== null
     || row.projection_error_phase !== null) fail('NATIVE_SESSION_STATE_INVALID');
 }
+/** Private diagnostic decoder only. Preserve the quarantine flags; the general
+ * editing snapshot API must keep refusing this state. Raw SQL validation and
+ * bounds have already run on this SAME B before allocating the temporary Doc. */
+function inspectQuarantinedNativeState(state: PersistedCollaborationState): NativeCollaborationSnapshot {
+  if (!isCollaborationStateQuarantined(state)) fail('NATIVE_SESSION_QUARANTINE_REQUIRED');
+  const doc = new Y.Doc({ gc: true });
+  try {
+    const decoder = decoding.createDecoder(state.yjsState); Y.readUpdate(decoder, doc);
+    if (decoding.hasContent(decoder)) fail('NATIVE_SESSION_STATE_INVALID');
+    const native = inspectNativeDocument(doc, state.representation);
+    if (native.version.stateVector !== Buffer.from(state.stateVector).toString('base64')) fail('NATIVE_SESSION_STATE_INVALID');
+    assertNativeDocumentSchema(doc, state.representation, getSchema(richMarkdownSchemaExtensions()));
+    return { snapshotVersion: 1, source: 'persisted_yjs', documentId: state.documentId, workspaceId: state.workspaceId,
+      organizationId: state.organizationId, path: state.path, lifecycleGeneration: state.lifecycleGeneration,
+      representation: state.representation, schemaVersion: state.schemaVersion,
+      version: { ...native.version, documentSequence: state.documentSequence, persistedAt: state.persistedAt },
+      projection: { checkpointSequence: state.checkpointSequence, checkpointedAt: state.checkpointedAt,
+        ...(state.projectionError ? { error: { ...state.projectionError } } : {}) }, content: native.content };
+  } finally { doc.destroy(); }
+}
 async function readCurrent(captured: Capture): Promise<ExistingNativeSessionSnapshot> {
   if (captured.principal) { await captured.principal.assertCurrent(); assertActive(captured); }
   await checkConnection(captured);
@@ -263,9 +291,13 @@ async function readCurrent(captured: Capture): Promise<ExistingNativeSessionSnap
     workspaceId: captured.workspaceId, organizationId: captured.organizationId, path: captured.path,
     lifecycleGeneration: state.lifecycleGeneration, representation: state.representation, schemaVersion: state.schemaVersion });
   for (const expected of [captured.expected, captured.target]) if (expected && identityKeys.some(key => expected[key] !== target[key])) fail('NATIVE_SESSION_SCOPE_CHANGED');
-  if (isCollaborationStateQuarantined(state)) fail('NATIVE_SESSION_QUARANTINED');
+  const quarantined = isCollaborationStateQuarantined(state);
+  if (captured.purpose === 'quarantine-diagnosis') {
+    if (!quarantined) fail('NATIVE_SESSION_QUARANTINE_REQUIRED');
+  } else if (quarantined) fail('NATIVE_SESSION_QUARANTINED');
   let native: NativeCollaborationSnapshot;
-  try { native = inspectPersistedNativeCollaborationSnapshot(state, (doc, snapshot) => {
+  try { native = captured.purpose === 'quarantine-diagnosis' ? inspectQuarantinedNativeState(state)
+    : inspectPersistedNativeCollaborationSnapshot(state, (doc, snapshot) => {
     // The general native semantic reader deliberately permits opaque fields.
     // Validate the original raw storage before accepting its normalized JSON for a session.
     assertNativeDocumentSchema(doc, state.representation, getSchema(richMarkdownSchemaExtensions()));
@@ -304,6 +336,60 @@ export async function withExistingNativeCollaborationSessionOnConnection<T>(conn
 export async function withAuthenticatedExistingNativeCollaborationSessionOnConnection<T>(connection: SqlConnection,
   principal: WorkspaceRequestPrincipal, input: { path: string; expectedIdentity?: ExistingNativeSessionIdentity },
   consume: (session: ExistingNativeCollaborationSession, access: ExistingNativeSessionRequestAccess) => Promise<T>): Promise<T> {
+  return withAuthenticatedNativeSession(connection, principal, input, consume);
+}
+
+/** Genuine FIXED canRead diagnosis; no principal/permission/ignore flag is
+ * accepted from callers. The private editing capability never leaves this
+ * adapter. Caller owns RC/RW B, all TX completion and connection disposal. */
+export async function withAuthenticatedNativeSessionDiagnosisOnConnection<T>(connection: SqlConnection,
+  request: NextRequest, input: { workspaceId: string; path: string; expectedIdentity?: ExistingNativeSessionIdentity },
+  consume: (diagnosis: ReadOnlyNativeSessionDiagnosis, access: ExistingNativeSessionRequestAccess) => Promise<T>): Promise<T> {
+  if (!(request instanceof NextRequest) || !input || Object.getPrototypeOf(input) !== Object.prototype
+    || Reflect.ownKeys(input).some(key => !['workspaceId', 'path', 'expectedIdentity'].includes(String(key)))
+    || ['workspaceId', 'path'].some(key => {
+      const descriptor = Object.getOwnPropertyDescriptor(input, key);
+      return !descriptor?.enumerable || !Object.prototype.hasOwnProperty.call(descriptor, 'value');
+    }) || Object.prototype.hasOwnProperty.call(input, 'expectedIdentity') && (() => {
+      const descriptor = Object.getOwnPropertyDescriptor(input, 'expectedIdentity');
+      return !descriptor?.enumerable || !Object.prototype.hasOwnProperty.call(descriptor, 'value');
+    })() || !validId(input.workspaceId) || !isCanonicalAdmissionPath(input.path) || typeof consume !== 'function') fail('NATIVE_SESSION_INVALID');
+  const original = new NextRequest(request.url, { method: request.method, headers: new Headers(request.headers) });
+  const workspaceId = input.workspaceId, path = input.path;
+  const expectedIdentity = input.expectedIdentity === undefined ? undefined : captureExpected(input.expectedIdentity);
+  const { withWorkspaceRequestPrincipal } = await import('../workspaces/request-principal');
+  return withWorkspaceRequestPrincipal(original, { workspaceId, permission: 'canRead' }, principal =>
+    withAuthenticatedNativeSession(connection, principal, { path, expectedIdentity }, async (native, access) => {
+      const assertBound = () => {
+        try { requireCapability(connection, native); }
+        catch (error) { poisonCapabilityFailure(connection, native, error); throw error; }
+      };
+      const diagnosis: ReadOnlyNativeSessionDiagnosis = Object.freeze({
+        get snapshot() { assertBound(); return native.snapshot; },
+        get permission(): 'read' { assertBound(); return 'read'; },
+      });
+      diagnoses.set(diagnosis, { connection, native });
+      return consume(diagnosis, access);
+    }, 'quarantine-diagnosis'));
+}
+
+/** Same bound diagnostic snapshot, including actual final native/auth checks. */
+export function assertReadOnlyNativeSessionDiagnosisCurrentOnConnection(connection: SqlConnection,
+  diagnosis: ReadOnlyNativeSessionDiagnosis): Promise<ExistingNativeSessionSnapshot> {
+  const bound = diagnoses.get(diagnosis);
+  if (!bound || bound.connection !== connection) {
+    const error = new NativeSessionStateReaderError('NATIVE_SESSION_REQUIRED');
+    if (bound) poisonCapabilityFailure(bound.connection, bound.native, error);
+    const held = connections.get(connection); if (held) poison(held, error);
+    return Promise.reject(error);
+  }
+  return assertExistingNativeCollaborationSessionCurrentOnConnection(connection, bound.native);
+}
+
+async function withAuthenticatedNativeSession<T>(connection: SqlConnection,
+  principal: WorkspaceRequestPrincipal, input: { path: string; expectedIdentity?: ExistingNativeSessionIdentity },
+  consume: (session: ExistingNativeCollaborationSession, access: ExistingNativeSessionRequestAccess) => Promise<T>,
+  purpose?: 'quarantine-diagnosis'): Promise<T> {
   let path: string | undefined, expected: ExistingNativeSessionIdentity | undefined, inputError: unknown;
   try {
     if (!input || Object.getPrototypeOf(input) !== Object.prototype || typeof consume !== 'function'
@@ -333,6 +419,7 @@ export async function withAuthenticatedExistingNativeCollaborationSessionOnConne
       await access.assertCurrent();
       const captured = captureScope(connection,{ workspace:access.workspace,path,expectedIdentity:expected });
       captured.principal = privatePhase;
+      captured.purpose = purpose;
       const result = await withCapturedNativeSession(captured,session => consume(session,bindNativeSessionRequestAccess(connection,session,access)));
       if (privatePhase.failure !== undefined) throw privatePhase.failure;
       await access.assertCurrent();

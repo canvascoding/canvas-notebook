@@ -227,11 +227,36 @@ export type PristineOriginalWorkspaceFileRequest = {
   /** Auto-only preference. Omitted Auto keeps the current Blocks default. */
   richFormat?: 'tiptap_blocks' | 'tiptap_xml';
 };
+/** Expectations from an earlier genuine phase, never caller authority. */
+export type PristineOriginalRequestScopeExpectation = Readonly<{
+  userId: string; sessionId: string; workspaceId: string; workspaceType: WorkspaceContext['workspaceType'];
+  organizationId: string | null; projectId: string | null; customerId: string | null; ownerUserId: string | null;
+  rootPath: string; rootRelativePath: string; legacy: false; status: 'active';
+  schema: string; schemaOid: number; databaseOid: number; searchPath: string;
+}>;
+const bootstrapExpectationKeys = ['userId', 'sessionId', 'workspaceId', 'workspaceType', 'organizationId', 'projectId',
+  'customerId', 'ownerUserId', 'rootPath', 'rootRelativePath', 'legacy', 'status', 'schema', 'schemaOid', 'databaseOid', 'searchPath'] as const;
+function captureBootstrapExpectation(value: PristineOriginalRequestScopeExpectation | undefined): PristineOriginalRequestScopeExpectation | undefined {
+  if (value === undefined) return undefined;
+  if (!value || Object.getPrototypeOf(value) !== Object.prototype || Reflect.ownKeys(value).length !== bootstrapExpectationKeys.length
+    || bootstrapExpectationKeys.some(key => {
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      return !descriptor?.enumerable || !Object.prototype.hasOwnProperty.call(descriptor, 'value');
+    }) || !validId(value.userId) || !validId(value.sessionId) || !validId(value.workspaceId)
+    || !['personal', 'organization', 'team', 'project'].includes(value.workspaceType)
+    || ['organizationId', 'projectId', 'customerId', 'ownerUserId'].some(key => Reflect.get(value, key) !== null && !validId(Reflect.get(value, key)))
+    || typeof value.rootPath !== 'string' || !value.rootPath || value.rootPath.length > 8192
+    || typeof value.rootRelativePath !== 'string' || value.rootRelativePath.length > 4096 || value.legacy !== false || value.status !== 'active'
+    || !validId(value.schema) || value.schema.length > 63 || !Number.isSafeInteger(value.schemaOid) || value.schemaOid < 1
+    || !Number.isSafeInteger(value.databaseOid) || value.databaseOid < 1
+    || typeof value.searchPath !== 'string' || !value.searchPath || value.searchPath.length > 4096) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
+  return Object.freeze({ ...value });
+}
 type BootstrapRealm = { schema: string; database: number };
 type BootstrapOwner = BootstrapRealm & { backend: number; start: string; searchPath: string };
 type BootstrapFrame = { request: NextRequest; selection: PristineOriginalWorkspaceFileRequest; realm: BootstrapRealm;
   owner: SqlConnection; identity: BootstrapOwner; mutationIdentity?: BootstrapOwner;
-  permission: 'canRead' | 'canWrite' };
+  permission: 'canRead' | 'canWrite'; expectedScope?: PristineOriginalRequestScopeExpectation };
 type BootstrapLineage = { id: string; organizationId: string | null; existing: boolean };
 type OriginalBootstrapScope = { active: boolean; database: SqlConnection; access: WorkspaceRequestPrincipalAccess;
   frame: BootstrapFrame; documentId: string; originalLineageId: string | null; lineage: BootstrapLineage;
@@ -281,6 +306,25 @@ async function assertBootstrapScope(database: SqlConnection, input: Captured, sc
     || scope.access.sessionId !== input.actorSessionId) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
   await scope.access.assertCurrent(); await assertBootstrapOwner(scope.frame);
   await assertBootstrapNativeRealm(database, scope.frame);
+  await assertBootstrapExpectedScope(database, scope.frame, scope.access);
+}
+async function assertBootstrapExpectedScope(database: SqlConnection, frame: BootstrapFrame,
+  access: WorkspaceRequestPrincipalAccess): Promise<void> {
+  const expected = frame.expectedScope; if (!expected) return;
+  const workspace = access.workspace;
+  if (access.userId !== expected.userId || access.sessionId !== expected.sessionId
+    || ['workspaceId', 'workspaceType', 'organizationId', 'projectId', 'customerId', 'ownerUserId', 'rootPath', 'rootRelativePath', 'legacy', 'status']
+      .some(key => (Reflect.get(workspace, key) ?? null) !== Reflect.get(expected, key))) return fail('MARKDOWN_IMPORT_TARGET_CHANGED');
+  const row = await database.get(`SELECT current_schema() AS schema,to_regnamespace(current_schema())::oid::bigint AS schema_oid,
+    (SELECT oid::bigint FROM pg_database WHERE datname=current_database()) AS database_oid,
+    current_setting('search_path') AS search_path,quote_ident($2)||', pg_catalog, pg_temp' AS bootstrap_search_path,
+    w.id,w.type,w.organization_id,w.project_id,w.customer_id,w.owner_user_id,w.root_relative_path,w.status
+    FROM canvas_workspaces w WHERE w.id=$1`, [expected.workspaceId, expected.schema]) as Record<string, unknown> | undefined;
+  if (!row || row.schema !== expected.schema || Number(row.schema_oid) !== expected.schemaOid || Number(row.database_oid) !== expected.databaseOid
+    || row.id !== expected.workspaceId || row.type !== expected.workspaceType || row.organization_id !== expected.organizationId
+    || row.project_id !== expected.projectId || row.customer_id !== expected.customerId || row.owner_user_id !== expected.ownerUserId
+    || row.root_relative_path !== expected.rootRelativePath || row.status !== expected.status
+    || row.search_path !== row.bootstrap_search_path) return fail('MARKDOWN_IMPORT_TARGET_CHANGED');
 }
 async function assertBootstrapRoomAbsent(database: SqlConnection, documentId: string): Promise<void> {
   if (getCollaborationRoomConnectionCount(documentId) !== 0) return fail('MARKDOWN_IMPORT_BUSY');
@@ -318,6 +362,7 @@ async function captureOriginalBootstrap(database: SqlConnection, frame: Bootstra
   const { selection } = frame, workspace = access.workspace;
   if (workspace.workspaceId !== selection.workspaceId || !workspace.permissions.canRead
     || !workspace.permissions[frame.permission]) return fail('MARKDOWN_IMPORT_TARGET_CHANGED');
+  await assertBootstrapExpectedScope(database, frame, access);
   // Capture B only inside the genuine current Principal phase. A different
   // wrapper cannot turn its discarded backend into a fresh confirmation C.
   frame.mutationIdentity = await bootstrapConnectionRealm(database);
@@ -380,6 +425,7 @@ async function captureOriginalBootstrap(database: SqlConnection, frame: Bootstra
       organizationId: workspace.organizationId ?? null, path: selection.path, operationId: selection.operationId, requestId: selection.requestId,
       userId: access.userId, sessionId: access.sessionId, expectedTarget: selection.expectedTarget,
       ...(frame.permission === 'canWrite' ? { requiredPermission: 'canWrite' } : {}),
+      ...(frame.expectedScope ? { expectedRequestScope: frame.expectedScope } : {}),
       ...(initialRepresentation === 'auto' ? {} : { initialRepresentation }),
       originalLineageId: document?.lineage_id ?? null, lineageId: existing?.id ?? null, representation: prepared.representation,
       sourceHash: prepared.sourceHash, sourceBytes: prepared.sourceBytes, newlineStyle: prepared.newlineStyle, hasBom: prepared.hasBom,
@@ -470,11 +516,13 @@ async function recoverOriginalBootstrap(input: Captured, frame: BootstrapFrame,
     try {
       const currentIdentity = await bootstrapConnectionRealm(database), before = frame.mutationIdentity;
       if (!before || currentIdentity.backend === before.backend && currentIdentity.start === before.start) return fail('MARKDOWN_IMPORT_COMMIT_UNCONFIRMED');
+      if (frame.expectedScope && currentIdentity.searchPath !== frame.expectedScope.searchPath) return fail('MARKDOWN_IMPORT_COMMIT_UNCONFIRMED');
       await database.run('BEGIN ISOLATION LEVEL READ COMMITTED READ WRITE');
       await database.run("SELECT set_config('search_path',quote_ident($1)||', pg_catalog, pg_temp',true)", [frame.realm.schema]);
       const result = await withWorkspaceRequestPrincipalOnConnection(database, principal, async access => {
         if (access.userId !== input.actorUserId || access.sessionId !== input.actorSessionId
           || !sameBootstrapWorkspace(access.workspace, input.workspace)) return fail('MARKDOWN_IMPORT_REQUEST_CONFLICT');
+        await assertBootstrapExpectedScope(database, frame, access);
         await assertBootstrapOwner(frame); await assertBootstrapNativeRealm(database, frame, true);
         await assertWorkspaceFileLifecycleSqlAvailable(database, input.workspace.workspaceId, [input.path]);
         await lockFileCollaborationPaths(database, input.workspace.workspaceId, [input.path]);
@@ -495,7 +543,7 @@ async function recoverOriginalBootstrap(input: Captured, frame: BootstrapFrame,
           assertNativeDocumentSchema(doc, current.representation, getSchema(richMarkdownSchemaExtensions())); return snapshot;
         });
         if (observed.version.stateProof !== prior.currentObservation.stateProof) return fail('MARKDOWN_IMPORT_COMMIT_UNCONFIRMED');
-        await access.assertCurrent(); await assertBootstrapOwner(frame);
+        await access.assertCurrent(); await assertBootstrapOwner(frame); await assertBootstrapExpectedScope(database, frame, access);
         return { disposition: 'commit-recovered' as const, ...prior };
       });
       await database.run('COMMIT'); await assertBootstrapOwner(frame); return result;
@@ -521,12 +569,14 @@ export async function persistPristineOriginalWorkspaceFile(request: NextRequest,
  * mutation B and fresh recovery C. No caller permission flag can downgrade it.
  * The existing CanRead original-import entry retains its separate contract. */
 export async function persistPristineOriginalWorkspaceFileForWrite(request: NextRequest, selection: PristineOriginalWorkspaceFileRequest,
-  dependencies: { openConnection: () => Promise<SqlConnection> } = { openConnection: openDb }): Promise<MarkdownFileImportResult> {
-  return persistOriginalWorkspaceFile(request, selection, 'canWrite', dependencies);
+  dependencies: { openConnection: () => Promise<SqlConnection>; expectedRequestScope?: PristineOriginalRequestScopeExpectation } = { openConnection: openDb }): Promise<MarkdownFileImportResult> {
+  const expected = captureBootstrapExpectation(dependencies.expectedRequestScope);
+  return persistOriginalWorkspaceFile(request, selection, 'canWrite', dependencies, expected);
 }
 
 async function persistOriginalWorkspaceFile(request: NextRequest, selection: PristineOriginalWorkspaceFileRequest,
-  permission: 'canRead' | 'canWrite', dependencies: { openConnection: () => Promise<SqlConnection> }): Promise<MarkdownFileImportResult> {
+  permission: 'canRead' | 'canWrite', dependencies: { openConnection: () => Promise<SqlConnection> },
+  expectedScope?: PristineOriginalRequestScopeExpectation): Promise<MarkdownFileImportResult> {
   if (!(request instanceof NextRequest) || !selection || typeof selection !== 'object'
     || Object.getPrototypeOf(selection) !== Object.prototype
     || Reflect.ownKeys(selection).some(key => typeof key !== 'string'
@@ -560,12 +610,13 @@ async function persistOriginalWorkspaceFile(request: NextRequest, selection: Pri
       try {
         const identity = await bootstrapConnectionRealm(connection);
         if (identity.schema !== realm.schema || identity.database !== realm.database) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
+        if (expectedScope && identity.searchPath !== expectedScope.searchPath) return fail('MARKDOWN_IMPORT_TARGET_CHANGED');
         owner = connection; ownerIdentity = identity; return connection;
       } catch (error) { await connection.close(new Error('Discarding mismatched original bootstrap owner.', { cause: error })); throw error; }
     };
     return withWorkspaceFileLifecycleGuard({ workspaceId: copied.workspaceId, paths: [copied.path] }, async () => {
       if (!owner || !ownerIdentity) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
-      const frame: BootstrapFrame = { request: original, selection: copied, realm, owner, identity: ownerIdentity, permission };
+      const frame: BootstrapFrame = { request: original, selection: copied, realm, owner, identity: ownerIdentity, permission, expectedScope };
       const openMutation = async () => {
         const database = await openConnection();
         if (database === owner) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
@@ -574,6 +625,7 @@ async function persistOriginalWorkspaceFile(request: NextRequest, selection: Pri
           if (identity.schema !== realm.schema || identity.database !== realm.database || identity.backend === frame.identity.backend) {
             return fail('MARKDOWN_IMPORT_INVALID_INPUT');
           }
+          if (expectedScope && identity.searchPath !== expectedScope.searchPath) return fail('MARKDOWN_IMPORT_TARGET_CHANGED');
         } catch (error) {
           await database.close(new Error('Discarding mismatched original bootstrap mutation connection.', { cause: error })); throw error;
         }

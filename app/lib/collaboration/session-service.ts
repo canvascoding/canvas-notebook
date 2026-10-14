@@ -17,6 +17,7 @@ import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 import { materializeCollaborationCheckpoint } from './checkpoint';
 import { loadCollaborationProjectionStatus } from './projection-repository';
 import type { CollaborationProjectionStatus } from './types';
+import { isCanonicalAdmissionPath } from './room-admission-contract';
 import {
   CollaborationDocumentStateError,
   resolveTextCollaborationState,
@@ -102,8 +103,8 @@ export function parseCollaborationSessionRequest(input: {
   blockTreeFormatVersion?: unknown;
 }): CollaborationSessionRequest | null {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return null;
-  const path = typeof input.path === 'string' ? input.path.trim() : '';
-  if (!path) return null;
+  const path = typeof input.path === 'string' ? input.path : '';
+  if (!isCanonicalAdmissionPath(path)) return null;
 
   if (input.migrationAction !== undefined && (input.migrationAction !== 'cancel' || input.migration === undefined)) return null;
   const ext = extension(path);
