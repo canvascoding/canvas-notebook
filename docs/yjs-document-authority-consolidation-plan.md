@@ -873,6 +873,8 @@ Der folgende Textsession-Anschluss ist als eigenes Source-TODO integriert: [Web-
 
 Der [POST-Schutz vor Datei-/Office-Dispatch](./yjs-native-file-write-predispatch-evidence.md) ist separat integriert und unabhängig mit 22 echten PG18-/Auth-/Office-/FS-/Kernel-Familien, TypeScript und Lint geprüft. Initialisierte native Dokumente können über diesen Speicherendpunkt nicht durch Gesamtdaten ersetzt werden; normale pristine/physische DOCX- und leere Markdown-Erstellung bleiben erhalten. Zwölf Kernmodule und zwei bestehende Funktionskörper sind bytegleich. Dies ist eine begrenzte Ablehnungsprüfung: SQL→FS-Publikation, andere Writer, dauerhafter Create-/Vollimport-Koordinator, Batch/Trash/Undo und deren gemeinsame UI-Abnahme bleiben offen.
 
+Der [Anschlussplan für bereits native Dokumente mit anderem Dateisuffix](./yjs-existing-native-suffix-integration-plan.md) schließt den lesenden Ist-/Vertragsaudit: Native Read-Metadaten erreichen derzeit nicht alle Store-/Editorpfade; Session-/Reader-/Transportgrenzen und automatisches XML-Upgrade benötigen einen gemeinsamen bestehenden-only Anschluss. Native Textbytes dürfen dabei nicht als vermeintliches Office-/Binärprodukt publiziert oder heruntergeladen werden. Der Plan trennt sechs schließbare Schritte, reale positive/negative API-/PG-/WS-/UI-/Exportfälle und die eigene Mobilegrenze. Es ist keine Umsetzung oder Aktivierung dieses Anschlusses erfolgt.
+
 ## 17. Änderungs- und Nachweisprotokoll
 
 | Datum | Änderung | Nachweis/Status |
