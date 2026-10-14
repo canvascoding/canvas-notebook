@@ -1,9 +1,9 @@
 /** Test-only isolation contracts. Application code must not import this module. */
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
+import { createHash, type Hash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { constants } from 'node:fs';
-import fs from 'node:fs/promises';
+import fs, { type FileHandle } from 'node:fs/promises';
 import path from 'node:path';
 import { parse } from 'dotenv';
 import { Client } from 'pg';
@@ -91,6 +91,113 @@ export async function assertOwnedRoot(receipt: OwnedYjsReceipt): Promise<void> {
   assert.equal(String(data.dev), receipt.dataDevice); assert.equal(String(data.ino), receipt.dataInode);
 }
 
+const fingerprintWindow = 8;
+const fingerprintChunkBytes = 64 * 1024;
+type FingerprintEntry = { prefix: string; filename?: string };
+type FingerprintRead = { entry: FingerprintEntry; handle?: FileHandle; buffer?: Buffer; bytesRead?: number };
+type FingerprintResult = { ok: true; value: FingerprintRead } | { ok: false; error: unknown; cleanupFailed?: true };
+
+/** Prefetch only one small batch; consume metadata and its errors in the original order. */
+async function* orderedFingerprintStats(directory: string, names: string[], beforeRead?: () => void) {
+  for (let offset = 0; offset < names.length; offset += fingerprintWindow) {
+    const pending = names.slice(offset, offset + fingerprintWindow).map(async name => {
+      const filename = path.join(directory, name);
+      try { return { ok: true as const, name, filename, stat: await fs.lstat(filename) }; }
+      catch (error) { return { ok: false as const, error }; }
+    });
+    // Finish this batch before descending, so nested directories cannot multiply live metadata reads.
+    const results = await Promise.all(pending);
+    try {
+      for (const result of results) {
+        beforeRead?.();
+        if (!result.ok) throw result.error;
+        yield result;
+      }
+    } finally { await Promise.all(pending); }
+  }
+}
+
+async function closeFingerprintHandle(handle: FileHandle): Promise<void> {
+  try { await handle.close(); }
+  catch (error) {
+    // A failed close is still an error; make one bounded retry before releasing the read window.
+    try { await handle.close(); }
+    catch (retryError) { throw new AggregateError([error, retryError], 'Fingerprint close and retry failed.'); }
+    throw error;
+  }
+}
+
+async function prepareFingerprintRead(entry: FingerprintEntry): Promise<FingerprintResult> {
+  let handle: FileHandle | undefined;
+  try {
+    if (!entry.filename) return { ok: true, value: { entry } };
+    handle = await fs.open(entry.filename, constants.O_RDONLY | constants.O_NOFOLLOW);
+    assert((await handle.stat()).isFile());
+    const buffer = Buffer.allocUnsafe(fingerprintChunkBytes);
+    const { bytesRead } = await handle.read(buffer, 0, buffer.length, null);
+    return { ok: true, value: { entry, handle, buffer, bytesRead } };
+  } catch (error) {
+    if (handle) {
+      try { await closeFingerprintHandle(handle); }
+      catch (closeError) { return { ok: false, cleanupFailed: true, error: new AggregateError([error, closeError], 'Fingerprint read and close failed.') }; }
+    }
+    return { ok: false, error };
+  }
+}
+
+/** Hash the exact ordered bytes, with at most eight open files and eight 64 KiB buffers. */
+async function hashFingerprintEntries(digest: Hash, entries: AsyncIterable<FingerprintEntry>): Promise<void> {
+  const iterator = entries[Symbol.asyncIterator]();
+  const pending: Array<Promise<FingerprintResult>> = [];
+  let ended = false, failed = false, primaryError: unknown;
+  const fill = async () => {
+    while (!ended && pending.length < fingerprintWindow) {
+      const next = await iterator.next();
+      if (next.done) ended = true;
+      else pending.push(prepareFingerprintRead(next.value));
+    }
+  };
+  try {
+    await fill();
+    while (pending.length) {
+      const result = await pending.shift()!;
+      if (!result.ok) throw result.error;
+      const { entry, handle, buffer } = result.value;
+      let readFailed = false, readError: unknown;
+      try {
+        digest.update(entry.prefix);
+        if (handle && buffer) {
+          let bytesRead = result.value.bytesRead!;
+          while (bytesRead) {
+            digest.update(buffer.subarray(0, bytesRead));
+            ({ bytesRead } = await handle.read(buffer, 0, buffer.length, null));
+          }
+          digest.update('\0');
+        }
+      } catch (error) { readFailed = true; readError = error; throw error; }
+      finally {
+        if (handle) {
+          try { await closeFingerprintHandle(handle); }
+          catch (closeError) { throw readFailed ? new AggregateError([readError, closeError], 'Fingerprint read and close failed.') : closeError; }
+        }
+      }
+      await fill();
+    }
+  } catch (error) { failed = true; primaryError = error; throw error; }
+  finally {
+    const cleanup = await Promise.allSettled([
+      ...pending.map(async read => {
+        const result = await read;
+        if (result.ok && result.value.handle) await closeFingerprintHandle(result.value.handle);
+        else if (!result.ok && result.cleanupFailed) throw result.error;
+      }),
+      iterator.return?.(),
+    ]);
+    const errors = cleanup.filter((result): result is PromiseRejectedResult => result.status === 'rejected').map(result => result.reason);
+    if (errors.length) throw new AggregateError(failed ? [primaryError, ...errors] : errors, 'Fingerprint cleanup failed.');
+  }
+}
+
 export async function sourceFingerprint(repo: string): Promise<{ head: string; fingerprint: string }> {
   assert.equal(await fs.realpath(repo), repo);
   const head = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repo, encoding: 'utf8' }).trim();
@@ -99,11 +206,13 @@ export async function sourceFingerprint(repo: string): Promise<{ head: string; f
     .filter(name => /^(?:app|components|server|scripts|tests|packages|i18n|messages|public)\//u.test(name)
       || /^(?:package(?:-lock)?\.json|tsconfig\.json|next\.config\.[cm]?[jt]s|server\.[cm]?[jt]s|postcss\.config\.[cm]?[jt]s)$/u.test(name));
   const digest = createHash('sha256').update(head);
-  for (const name of [...new Set(names)].sort()) {
-    const filename = path.join(repo, name), stat = await fs.lstat(filename);
-    assert(stat.isFile() && !stat.isSymbolicLink(), `Build source must be a regular file (${name}).`);
-    digest.update(name).update('\0').update(await fs.readFile(filename)).update('\0');
+  async function* entries(): AsyncGenerator<FingerprintEntry> {
+    for await (const { name, filename, stat } of orderedFingerprintStats(repo, [...new Set(names)].sort())) {
+      assert(stat.isFile() && !stat.isSymbolicLink(), `Build source must be a regular file (${name}).`);
+      yield { prefix: `${name}\0`, filename };
+    }
   }
+  await hashFingerprintEntries(digest, entries());
   return { head, fingerprint: digest.digest('hex') };
 }
 
@@ -112,13 +221,15 @@ export async function buildFingerprint(repo: string): Promise<{ buildId: string;
   const stat = await fs.lstat(root); assert(stat.isDirectory() && !stat.isSymbolicLink());
   const buildId = (await fs.readFile(path.join(root, 'BUILD_ID'), 'utf8')).trim(); assert(buildId && buildId.length < 256);
   let visited = 0;
-  const visit = async (directory: string, logical = '', linkedPackage = false): Promise<void> => {
-    for (const name of (await fs.readdir(directory)).sort()) {
-      const file = path.join(directory, name), relative = path.posix.join(logical, name);
+  async function* visit(directory: string, logical = '', linkedPackage = false): AsyncGenerator<FingerprintEntry> {
+    const names = (await fs.readdir(directory)).sort().filter(name => {
+      const relative = path.posix.join(logical, name);
       if (!linkedPackage && (relative === 'cache' || relative.startsWith('cache/') || name === buildProofName || name === `${buildProofName}.writing`
-        || /^trace(?:-|$)/u.test(name))) continue;
-      assert(++visited < 100_000);
-      const current = await fs.lstat(file);
+        || /^trace(?:-|$)/u.test(name))) return false;
+      return true;
+    });
+    for await (const { name, filename: file, stat: current } of orderedFingerprintStats(directory, names, () => { assert(++visited < 100_000); })) {
+      const relative = path.posix.join(logical, name);
       if (current.isSymbolicLink()) {
         // Turbopack external packages use these exact aliases. Bind both their
         // canonical link text and all target bytes; never skip or follow arbitrary links.
@@ -134,15 +245,15 @@ export async function buildFingerprint(repo: string): Promise<{ buildId: string;
         const manifest = path.join(target, 'package.json'), manifestStat = await fs.lstat(manifest);
         assert(manifestStat.isFile() && !manifestStat.isSymbolicLink());
         assert.equal(JSON.parse(await fs.readFile(manifest, 'utf8')).name, alias[1]);
-        digest.update('link\0').update(relative).update('\0').update(link).update('\0').update(alias[1]).update('\0');
-        await visit(target, relative, true);
-      } else if (current.isDirectory()) await visit(file, relative, linkedPackage);
+        yield { prefix: `link\0${relative}\0${link}\0${alias[1]}\0` };
+        yield* visit(target, relative, true);
+      } else if (current.isDirectory()) yield* visit(file, relative, linkedPackage);
       else if (linkedPackage || /\.(?:[cm]?js|json|map|wasm|node)$/u.test(name) || relative === 'BUILD_ID') {
-        assert(current.isFile()); digest.update(relative).update('\0').update(await fs.readFile(file)).update('\0');
+        assert(current.isFile()); yield { prefix: `${relative}\0`, filename: file };
       }
     }
-  };
-  await visit(root);
+  }
+  await hashFingerprintEntries(digest, visit(root));
   return { buildId, fingerprint: digest.digest('hex') };
 }
 
