@@ -230,7 +230,8 @@ export type PristineOriginalWorkspaceFileRequest = {
 type BootstrapRealm = { schema: string; database: number };
 type BootstrapOwner = BootstrapRealm & { backend: number; start: string; searchPath: string };
 type BootstrapFrame = { request: NextRequest; selection: PristineOriginalWorkspaceFileRequest; realm: BootstrapRealm;
-  owner: SqlConnection; identity: BootstrapOwner; mutationIdentity?: BootstrapOwner };
+  owner: SqlConnection; identity: BootstrapOwner; mutationIdentity?: BootstrapOwner;
+  permission: 'canRead' | 'canWrite' };
 type BootstrapLineage = { id: string; organizationId: string | null; existing: boolean };
 type OriginalBootstrapScope = { active: boolean; database: SqlConnection; access: WorkspaceRequestPrincipalAccess;
   frame: BootstrapFrame; documentId: string; originalLineageId: string | null; lineage: BootstrapLineage;
@@ -315,7 +316,8 @@ function sameBootstrapWorkspace(a: WorkspaceContext, b: WorkspaceContext): boole
 async function captureOriginalBootstrap(database: SqlConnection, frame: BootstrapFrame,
   access: WorkspaceRequestPrincipalAccess): Promise<Captured> {
   const { selection } = frame, workspace = access.workspace;
-  if (workspace.workspaceId !== selection.workspaceId || !workspace.permissions.canRead) return fail('MARKDOWN_IMPORT_TARGET_CHANGED');
+  if (workspace.workspaceId !== selection.workspaceId || !workspace.permissions.canRead
+    || !workspace.permissions[frame.permission]) return fail('MARKDOWN_IMPORT_TARGET_CHANGED');
   // Capture B only inside the genuine current Principal phase. A different
   // wrapper cannot turn its discarded backend into a fresh confirmation C.
   frame.mutationIdentity = await bootstrapConnectionRealm(database);
@@ -377,6 +379,7 @@ async function captureOriginalBootstrap(database: SqlConnection, frame: Bootstra
     fingerprint: hash(JSON.stringify({ domain: 'canvas-pristine-original-bootstrap-v1', workspaceId: workspace.workspaceId,
       organizationId: workspace.organizationId ?? null, path: selection.path, operationId: selection.operationId, requestId: selection.requestId,
       userId: access.userId, sessionId: access.sessionId, expectedTarget: selection.expectedTarget,
+      ...(frame.permission === 'canWrite' ? { requiredPermission: 'canWrite' } : {}),
       ...(initialRepresentation === 'auto' ? {} : { initialRepresentation }),
       originalLineageId: document?.lineage_id ?? null, lineageId: existing?.id ?? null, representation: prepared.representation,
       sourceHash: prepared.sourceHash, sourceBytes: prepared.sourceBytes, newlineStyle: prepared.newlineStyle, hasBom: prepared.hasBom,
@@ -460,7 +463,7 @@ async function recoverOriginalBootstrap(input: Captured, frame: BootstrapFrame,
   const { withWorkspaceRequestPrincipal, withWorkspaceRequestPrincipalOnConnection } = await import('../workspaces/request-principal');
   // Actual reauthentication/license capture runs before C is opened or starts
   // SQL. Never renew an expired/poisoned old principal or reread the projection.
-  return withWorkspaceRequestPrincipal(frame.request, { workspaceId: frame.selection.workspaceId, permission: 'canRead' }, async principal => {
+  return withWorkspaceRequestPrincipal(frame.request, { workspaceId: frame.selection.workspaceId, permission: frame.permission }, async principal => {
     await assertBootstrapOwner(frame);
     const database = await openConnection(); let discard: Error | undefined;
     if (database === frame.owner || database === originalBootstrapScopes.get(input)?.database) return fail('MARKDOWN_IMPORT_COMMIT_UNCONFIRMED');
@@ -511,6 +514,19 @@ async function recoverOriginalBootstrap(input: Captured, frame: BootstrapFrame,
  * native reads without claiming their own successful import. */
 export async function persistPristineOriginalWorkspaceFile(request: NextRequest, selection: PristineOriginalWorkspaceFileRequest,
   dependencies: { openConnection: () => Promise<SqlConnection> } = { openConnection: openDb }): Promise<MarkdownFileImportResult> {
+  return persistOriginalWorkspaceFile(request, selection, 'canRead', dependencies);
+}
+
+/** Authenticated session bootstrap. FIXED canWrite applies to the complete
+ * mutation B and fresh recovery C. No caller permission flag can downgrade it.
+ * The existing CanRead original-import entry retains its separate contract. */
+export async function persistPristineOriginalWorkspaceFileForWrite(request: NextRequest, selection: PristineOriginalWorkspaceFileRequest,
+  dependencies: { openConnection: () => Promise<SqlConnection> } = { openConnection: openDb }): Promise<MarkdownFileImportResult> {
+  return persistOriginalWorkspaceFile(request, selection, 'canWrite', dependencies);
+}
+
+async function persistOriginalWorkspaceFile(request: NextRequest, selection: PristineOriginalWorkspaceFileRequest,
+  permission: 'canRead' | 'canWrite', dependencies: { openConnection: () => Promise<SqlConnection> }): Promise<MarkdownFileImportResult> {
   if (!(request instanceof NextRequest) || !selection || typeof selection !== 'object'
     || Object.getPrototypeOf(selection) !== Object.prototype
     || Reflect.ownKeys(selection).some(key => typeof key !== 'string'
@@ -532,7 +548,7 @@ export async function persistPristineOriginalWorkspaceFile(request: NextRequest,
       && !['auto', 'plain_text'].includes(copied.initialRepresentation)) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
   if (hasCollaborationHandoffExecutionContext() || getWorkspaceFileLifecycleLeases()?.size) return fail('MARKDOWN_IMPORT_BUSY');
   const { withWorkspaceRequestPrincipal, withWorkspaceRequestPrincipalOnConnection } = await import('../workspaces/request-principal');
-  return withWorkspaceRequestPrincipal(original, { permission: 'canRead', workspaceId: copied.workspaceId }, async principal => {
+  return withWorkspaceRequestPrincipal(original, { permission, workspaceId: copied.workspaceId }, async principal => {
     const runtime = getPostgresRuntimeQueryable();
     const source = runtime && (await runtime.query(`SELECT current_schema() AS schema,(SELECT oid::bigint FROM pg_database WHERE datname=current_database()) AS database`)).rows[0];
     if (!source || typeof source.schema !== 'string' || !source.schema || !Number.isSafeInteger(Number(source.database))) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
@@ -549,7 +565,7 @@ export async function persistPristineOriginalWorkspaceFile(request: NextRequest,
     };
     return withWorkspaceFileLifecycleGuard({ workspaceId: copied.workspaceId, paths: [copied.path] }, async () => {
       if (!owner || !ownerIdentity) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
-      const frame: BootstrapFrame = { request: original, selection: copied, realm, owner, identity: ownerIdentity };
+      const frame: BootstrapFrame = { request: original, selection: copied, realm, owner, identity: ownerIdentity, permission };
       const openMutation = async () => {
         const database = await openConnection();
         if (database === owner) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
