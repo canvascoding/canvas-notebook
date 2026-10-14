@@ -3,7 +3,7 @@ import type { JSONContent } from '@tiptap/core';
 import { randomUUID } from 'node:crypto';
 import { ownedCollaborationQaEnabled, requireOwnedCollaborationQaTarget } from '../scripts/lib/owned-collaboration-qa';
 import { requireOwnedYjsQaTarget } from '../scripts/lib/owned-yjs-authority-qa';
-import { authenticateManagedTestPage, uploadWorkspaceTextFile } from './helpers/managed-test-context';
+import { authenticateManagedTestPage, createCompletedWorkspaceMarkdownFile, uploadWorkspaceTextFile } from './helpers/managed-test-context';
 
 const editorSelector = '.tiptap-editor-shell .ProseMirror';
 const insertTitle = 'Insert Markdown…';
@@ -89,7 +89,7 @@ test.describe('Explicit Markdown insertion in the live editor', () => {
   test('a new document imports formatted Markdown with separate undo, peer sync and reload persistence', async ({ page, browser }, info) => {
     const headers = await login(page);
     const path = `editor-markdown-insert-${randomUUID()}.md`;
-    expect((await page.request.post('/api/files/create', { headers, data: { path, type: 'file' } })).ok()).toBe(true);
+    await createCompletedWorkspaceMarkdownFile({ request: page.request, workspaceId: headers['x-canvas-workspace-id'], filePath: path });
     const peerContext = await browser.newContext({ baseURL: process.env.BASE_URL });
     const peer = await peerContext.newPage();
     try {
@@ -228,7 +228,7 @@ test.describe('Explicit Markdown insertion in the live editor', () => {
       info.annotations.push({ type: 'input-scope', description: 'Touch and reduced viewport are emulated; this does not validate an operating-system keyboard or IME.' });
       const headers = await login(page);
       const path = `editor-markdown-mobile-${randomUUID()}.md`;
-      expect((await page.request.post('/api/files/create', { headers, data: { path, type: 'file' } })).ok()).toBe(true);
+      await createCompletedWorkspaceMarkdownFile({ request: page.request, workspaceId: headers['x-canvas-workspace-id'], filePath: path });
       try {
         await openEditor(page, path);
         const editor = page.locator(editorSelector);

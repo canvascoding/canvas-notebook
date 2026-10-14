@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import type { JSONContent } from '@tiptap/core';
 import { COLLABORATION_CLIENT_CAPABILITIES } from '../app/lib/collaboration/types';
-import { authenticateManagedTestPage } from './helpers/managed-test-context';
+import { assertCompletedWorkspaceMarkdownCreate, authenticateManagedTestPage } from './helpers/managed-test-context';
 import { waitForFileCreateBudget } from './helpers/create-request-budget';
 import { nativeRichParagraph } from './helpers/native-rich-paragraph';
 
@@ -40,25 +40,44 @@ async function open(page: Page, workspace: Workspace, path: string) {
   await expect(page.getByTestId('document-header').getByRole('button', { name: 'Full width', exact: true })).toBeVisible();
 }
 
-async function createInUi(page: Page, workspace: Workspace, path: string, entry: 'home' | 'file-browser') {
+async function createInUi(page: Page, workspace: Workspace, path: string, entry: 'home' | 'file-browser', folders: readonly string[] = []) {
   await page.goto(entry === 'home' ? '/en' : `/en/files?workspaceId=${workspace.id}`);
   let dialog: Locator;
+  const name = folders.length ? path.split('/').at(-1)! : path;
   if (entry === 'home') {
     await page.getByTestId('home-files').getByRole('button', { name: 'New note', exact: true }).click();
     dialog = page.getByRole('dialog', { name: 'New note', exact: true });
-    await dialog.getByLabel('Note name', { exact: true }).fill(path);
+    await dialog.getByLabel('Note name', { exact: true }).fill(name);
+    if (folders.length) await dialog.getByText('Choose another folder', { exact: true }).click();
   } else {
     await page.getByRole('button', { name: 'Create', exact: true }).click();
     await page.getByRole('menuitem', { name: 'New file', exact: true }).click();
     dialog = page.getByRole('dialog', { name: 'Create new file', exact: true });
-    await dialog.getByLabel('File name', { exact: true }).fill(path);
+    await dialog.getByLabel('File name', { exact: true }).fill(name);
+  }
+  let parent = '';
+  for (const folder of folders) {
+    parent = parent ? `${parent}/${folder}` : folder;
+    await dialog.getByRole('button', { name: 'New folder', exact: true }).click();
+    await dialog.getByLabel('New folder name', { exact: true }).fill(folder);
+    await waitForFileCreateBudget();
+    const createdFolder = page.waitForResponse(response => new URL(response.url()).pathname === '/api/files/create'
+      && response.request().method() === 'POST' && response.request().headers()['x-canvas-workspace-id'] === workspace.id
+      && response.request().postDataJSON()?.path === parent && response.request().postDataJSON()?.type === 'directory');
+    await dialog.getByRole('button', { name: 'Create folder', exact: true }).click();
+    expect((await createdFolder).status()).toBe(200);
+    await expect(dialog.getByLabel('New folder name', { exact: true })).toBeHidden();
+    await expect(dialog.getByRole('button', { name: folder, exact: true })).toHaveAttribute('aria-pressed', 'true');
   }
   await waitForFileCreateBudget();
   const created = page.waitForResponse(response => new URL(response.url()).pathname === '/api/files/create'
     && response.request().method() === 'POST' && response.request().headers()['x-canvas-workspace-id'] === workspace.id
     && response.request().postDataJSON()?.path === path);
   await dialog.getByRole('button', { name: entry === 'home' ? 'Create and open' : 'Create file', exact: true }).click();
-  expect((await created).ok()).toBe(true);
+  const response = await created;
+  await assertCompletedWorkspaceMarkdownCreate(response, {
+    requestId: response.request().postDataJSON().requestId, workspaceId: workspace.id, targetPath: path,
+  });
   await expect(dialog).toHaveCount(0);
   await expect(page).toHaveURL(url => url.pathname === (entry === 'home' ? '/en/notebook' : '/en/files')
     && url.searchParams.get('path') === path && url.searchParams.get('workspaceId') === workspace.id);
@@ -346,4 +365,152 @@ test.describe('Manual document creation and first content', () => {
       await page.request.delete('/api/files/delete', { headers: workspace.headers, data: { path } });
     }
   });
+});
+
+const firstPasteProfiles = [
+  { name: 'desktop', viewport: { width: 1440, height: 960 }, mobile: false },
+  { name: 'mobile-web', viewport: { width: 390, height: 844 }, mobile: true },
+] as const;
+
+function descendants(document: JSONContent): JSONContent[] {
+  return [document, ...(document.content ?? []).flatMap(descendants)];
+}
+
+for (const profile of firstPasteProfiles) {
+  test.describe(`${profile.name}: nested creation and ordinary Markdown clipboard`, () => {
+    test.skip(process.env.COLLABORATION_E2E !== '1' || process.env.E2E_EXTERNAL_SERVER !== '1',
+      'Requires the explicitly owned compiled native-document acceptance target.');
+    test.use({ viewport: profile.viewport, isMobile: profile.mobile, hasTouch: profile.mobile });
+    test.setTimeout(150_000);
+    test.beforeEach(async ({ context }) => { await context.grantPermissions(['clipboard-read', 'clipboard-write']); });
+
+    for (const entry of ['home', 'file-browser'] as const) {
+      test(`${entry}: create two nested folders, first ordinary Markdown paste follows paragraph and inline rules`, async ({ page }, info) => {
+        const workspace = await login(page);
+        const parent = `first-markdown-${randomUUID()}`;
+        const path = `${parent}/Notes/First paste.md`;
+        const clipboard = '# Ordinary heading\n\n**bold** and *italic* with [[Missing note|Wiki label]] and @{Clipboard member|clipboard-member}.\n\n- List syntax stays a paragraph\n\nhttps://example.test/ordinary-paste';
+        try {
+          await createInUi(page, workspace, path, entry, [parent, 'Notes']);
+          const original = await session(page, workspace, path);
+          await clipboardPaste(page, page.locator(editorSelector), clipboard);
+          const editor = page.locator(editorSelector);
+          await expect(editor).toContainText('# Ordinary heading');
+          await expect(editor).toContainText('- List syntax stays a paragraph');
+          await expect(editor.locator('strong')).toHaveText('bold');
+          await expect(editor.locator('em')).toHaveText('italic');
+          await expect(editor.locator('a[href="https://example.test/ordinary-paste"]')).toHaveText('https://example.test/ordinary-paste');
+          const pasted = await tree(page);
+          expect(pasted.content?.map(node => node.type)).toEqual(['paragraph', 'paragraph', 'paragraph', 'paragraph']);
+          expect(descendants(pasted)).toContainEqual(expect.objectContaining({ type: 'obsidianWikiLink', attrs: expect.objectContaining({ target: 'Missing note|Wiki label' }) }));
+          expect(descendants(pasted)).toContainEqual(expect.objectContaining({ type: 'markdownMention', attrs: expect.objectContaining({ label: 'Clipboard member', userId: 'clipboard-member' }) }));
+          await expect(editor.locator('h1, h2, ul, ol, pre, table')).toHaveCount(0);
+          await expect(page.getByRole('dialog')).toHaveCount(0);
+          await expect(page.getByRole('button', { name: 'Read', exact: true })).toHaveCount(0);
+          await expect(page.getByRole('button', { name: 'Edit', exact: true })).toHaveCount(0);
+          await page.keyboard.press('ControlOrMeta+z'); await expect(editor).toHaveText('');
+          await page.keyboard.press('ControlOrMeta+Shift+z'); await expect.poll(() => tree(page)).toEqual(pasted);
+          await expect.poll(() => readText(page, workspace, path), { timeout: 20_000 }).toContain('[[Missing note|Wiki label]]');
+          await page.reload(); await expect.poll(() => tree(page)).toEqual(pasted);
+          const reopened = await session(page, workspace, path);
+          expect(reopened.documentId).toBe(original.documentId);
+          expect(reopened.lifecycleGeneration).toBe(original.lifecycleGeneration);
+          await page.screenshot({ path: info.outputPath(`${profile.name}-${entry}-nested-first-markdown-paste.png`), animations: 'disabled' });
+          info.annotations.push({ type: 'acceptance-scope', description: 'Real Chromium clipboard and desktop/mobile-web UI; ordinary paste applies existing inline/wiki/mention/URL rules, with no full Markdown parsing or native-device clipboard claim.' });
+        } finally {
+          await page.goto('about:blank').catch(() => undefined);
+          await page.request.delete('/api/files/delete', { headers: workspace.headers, data: { path: parent } });
+        }
+      });
+    }
+  });
+}
+
+test.describe('Explicit insertion cancellation and original-byte chunk import', () => {
+  test.skip(process.env.COLLABORATION_E2E !== '1' || process.env.E2E_EXTERNAL_SERVER !== '1',
+    'Requires the explicitly owned compiled native-document acceptance target.');
+  test.setTimeout(150_000);
+  test.beforeEach(async ({ context }) => { await context.grantPermissions(['clipboard-read', 'clipboard-write']); });
+
+  test('cancel a valid Markdown insertion preserves native content, sequence and the next edit', async ({ page }, info) => {
+    const workspace = await login(page), path = `cancel-markdown-${randomUUID()}.md`;
+    try {
+      await createInUi(page, workspace, path, 'home');
+      await clipboardPaste(page, page.locator(editorSelector), 'Keep this original paragraph.');
+      await expect.poll(() => readText(page, workspace, path), { timeout: 20_000 }).toContain('Keep this original paragraph.');
+      const before = await tree(page), identity = await session(page, workspace, path);
+      const dialog = await insertDialog(page);
+      await clipboardPaste(page, dialog.getByRole('textbox', { name: 'Markdown', exact: true }), markdownBody);
+      await expect(dialog.getByRole('button', { name: 'Insert', exact: true })).toBeEnabled();
+      await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+      await expect(dialog).toHaveCount(0);
+      expect(await tree(page)).toEqual(before);
+      expect((await session(page, workspace, path)).documentSequence).toBe(identity.documentSequence);
+      await page.locator(editorSelector).locator('p').click();
+      await page.keyboard.press('End'); await page.keyboard.insertText(' Continued.');
+      await expect(page.locator(editorSelector)).toContainText('Keep this original paragraph. Continued.');
+      await page.keyboard.press('ControlOrMeta+z'); await expect.poll(() => tree(page)).toEqual(before);
+      await page.screenshot({ path: info.outputPath('cancel-valid-markdown-preserves-document.png'), animations: 'disabled' });
+    } finally {
+      await page.goto('about:blank').catch(() => undefined);
+      await page.request.delete('/api/files/delete', { headers: workspace.headers, data: { path } });
+    }
+  });
+
+  for (const profile of [
+    { name: 'rich-frontmatter-bom-crlf', content: '\uFEFF---\r\ntitle: Complete file\r\n---\r\n\r\n# Heading\r\n', representation: 'tiptap_blocks' },
+    { name: 'source-fallback-bom-crlf', content: '\uFEFF<div data-future="preserve">text</div>\r\nA\tB😀\r\n', representation: 'plain_text' },
+  ] as const) {
+    test(`${profile.name}: genuine chunk import, edit and undo preserve original exported bytes after reload`, async ({ page }, info) => {
+      const workspace = await login(page), path = `byte-profile-${profile.name}-${randomUUID()}.md`;
+      const bytes = Buffer.from(profile.content);
+      const exported = async () => {
+        const response = await page.request.get('/api/files/download', { headers: workspace.headers, params: { path } });
+        expect(response.status()).toBe(200);
+        return response.body();
+      };
+      try {
+        await page.goto('/en');
+        await page.getByTestId('home-files').getByRole('button', { name: 'Import files', exact: true }).click();
+        const dialog = page.getByRole('dialog', { name: 'Upload files', exact: true });
+        const completed = page.waitForResponse(response => /^\/api\/files\/uploads\/[^/]+\/complete$/u.test(new URL(response.url()).pathname)
+          && response.request().method() === 'POST' && response.request().headers()['x-canvas-workspace-id'] === workspace.id);
+        await dialog.locator('input[type="file"]:not([webkitdirectory])').setInputFiles({ name: path, mimeType: 'text/markdown', buffer: bytes });
+        const response = await completed;
+        expect(response.status()).toBe(200);
+        expect((await response.json()).completion).toMatchObject({ status: 'completed', targetPath: path });
+        await expect(dialog).toHaveCount(0);
+        expect(await exported()).toEqual(bytes);
+        await page.goto(`/en/notebook?path=${encodeURIComponent(path)}&workspaceId=${workspace.id}`);
+        const identity = await session(page, workspace, path);
+        expect(identity.representation).toBe(profile.representation);
+        if (profile.representation === 'tiptap_blocks') {
+          const heading = page.locator(editorSelector).getByRole('heading', { name: 'Heading', exact: true });
+          await expect(heading).toBeVisible(); await heading.click();
+        } else {
+          await expect(page.locator('.markdown-source-shell .cm-content')).toHaveAttribute('contenteditable', 'true');
+          await page.locator('.cm-line').filter({ hasText: 'A\tB😀' }).click();
+        }
+        await page.keyboard.press('End'); await page.keyboard.insertText(' Edited');
+        await expect.poll(exported, { timeout: 20_000 }).toEqual(Buffer.from(profile.content.replace(profile.representation === 'tiptap_blocks' ? '# Heading' : 'A\tB😀',
+          profile.representation === 'tiptap_blocks' ? '# Heading Edited' : 'A\tB😀 Edited')));
+        await page.keyboard.press('ControlOrMeta+z'); await expect.poll(exported, { timeout: 20_000 }).toEqual(bytes);
+        await page.reload();
+        if (profile.representation === 'tiptap_blocks') {
+          await expect(page.locator(editorSelector)).toHaveAttribute('contenteditable', 'true');
+          await expect(page.locator(editorSelector).getByRole('heading', { name: 'Heading', exact: true })).toBeVisible();
+        } else {
+          await expect(page.locator('.markdown-source-shell .cm-content')).toHaveAttribute('contenteditable', 'true');
+          await expect(page.locator('.cm-line').filter({ hasText: '<div data-future="preserve">text</div>' })).toBeVisible();
+        }
+        await expect.poll(exported).toEqual(bytes);
+        const reopened = await session(page, workspace, path);
+        expect(reopened.documentId).toBe(identity.documentId); expect(reopened.lifecycleGeneration).toBe(identity.lifecycleGeneration);
+        await page.screenshot({ path: info.outputPath(`${profile.name}-native-import.png`), animations: 'disabled' });
+      } finally {
+        await page.goto('about:blank').catch(() => undefined);
+        await page.request.delete('/api/files/delete', { headers: workspace.headers, data: { path } });
+      }
+    });
+  }
 });

@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
-import { serializeRichMarkdownBody } from '../app/lib/markdown/rich-markdown-codec';
+import { createCompletedWorkspaceMarkdownFile } from './helpers/managed-test-context';
 
 test('header focus and width retain the editable document, panels, undo and native table navigation', async ({ page }, info) => {
   test.skip(process.env.COLLABORATION_E2E !== '1', 'Requires the managed local Postgres stack.');
@@ -28,21 +28,21 @@ test('header focus and width retain the editable document, panels, undo and nati
       explorerWidth: 240, chatDocked: true, chatWidth: 360, terminalOpen: terminalEnabled }));
   }, { id: workspace.id, terminalEnabled });
   try {
-  const created = await page.request.post('/api/files/create', { headers, data: { path, type: 'file' } });
-  expect(created.ok(), `Focus fixture create returned HTTP ${created.status()}`).toBe(true);
-  const originalResponse = await page.request.get(`/api/mobile/v1/notebook/document?path=${path}`, { headers });
-  expect(originalResponse.ok(), `Focus fixture empty native document read returned HTTP ${originalResponse.status()}`).toBe(true);
-  const original = await originalResponse.json();
-  expect(original.success).toBe(true);
-  expect(original.document?.sha256).toMatch(/^[a-f\d]{64}$/u);
-  const content = serializeRichMarkdownBody('# Width check\n\nFirst paragraph\n\n| One | Two | Three | Four | Five | Six | Seven | Last column |\n| :--- | :---: | ---: | --- | --- | --- | --- | --- |\n| A | B | C | D | E | F | G | Last value |');
-  expect((await page.request.put('/api/mobile/v1/notebook/document', { headers, data: {
-    path, content, expectedSha256: original.document.sha256, baseRevisionId: original.document.revisionId,
-  } })).ok()).toBe(true);
-  const read = async () => (await (await page.request.get(`/api/files/read?path=${path}`, { headers })).json()).data?.content as string;
+    await createCompletedWorkspaceMarkdownFile({ request: page.request, workspaceId: workspace.id, filePath: path });
+    const read = async () => (await (await page.request.get(`/api/files/read?path=${path}`, { headers })).json()).data?.content as string;
     await page.goto(`/notebook?path=${path}`);
     const editor = page.locator('.tiptap-editor-shell .ProseMirror');
     await expect(editor).toHaveAttribute('contenteditable', 'true', { timeout: 45_000 });
+    await editor.click();
+    await page.getByTestId('markdown-toolbar-insert').click();
+    await page.getByRole('menuitem', { name: 'Insert Markdown…', exact: true }).click();
+    const insertion = page.getByRole('dialog', { name: 'Insert Markdown…', exact: true });
+    await expect(insertion).toBeVisible();
+    await insertion.getByRole('textbox', { name: 'Markdown', exact: true }).fill('# Width check\n\nFirst paragraph\n\n| One | Two | Three | Four | Five | Six | Seven | Last column |\n| :--- | :---: | ---: | --- | --- | --- | --- | --- |\n| A | B | C | D | E | F | G | Last value |');
+    await insertion.getByRole('button', { name: 'Insert', exact: true }).click();
+    await expect(insertion).toHaveCount(0);
+    await expect(editor.getByRole('heading', { name: 'Width check', exact: true })).toBeVisible();
+    await expect(editor.getByText('First paragraph', { exact: true })).toBeVisible();
     const documentHeader = page.getByTestId('document-header');
     await expect(documentHeader.getByRole('button', { name: 'Focus document', exact: true })).toBeVisible();
     await expect(documentHeader.getByRole('button', { name: 'Full width', exact: true })).toBeVisible();

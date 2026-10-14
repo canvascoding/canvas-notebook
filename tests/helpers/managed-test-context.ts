@@ -1,7 +1,9 @@
-import { createHash, randomBytes } from 'node:crypto';
+import assert from 'node:assert/strict';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { waitForFileCreateBudget } from './create-request-budget';
 
 import type {
   APIRequestContext,
@@ -339,6 +341,35 @@ export async function uploadWorkspaceTextFile(input: {
   if (!response.ok()) {
     throw new Error(`Atomic workspace fixture upload failed (${response.status()}): ${await response.text()}`);
   }
+}
+
+/** A successful transport is insufficient: only this exact native birth opens. */
+export async function assertCompletedWorkspaceMarkdownCreate(
+  response: Pick<APIResponse, 'status' | 'json'>,
+  expected: { requestId: string; workspaceId: string; targetPath: string },
+): Promise<void> {
+  assert.match(expected.requestId, /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/u);
+  assert.equal(response.status(), 200, 'Native Markdown fixture requires HTTP 200 Completed.');
+  assert.deepEqual(await response.json(), {
+    success: true,
+    completion: { status: 'completed', requestId: expected.requestId, workspaceId: expected.workspaceId, targetPath: expected.targetPath },
+  });
+}
+
+export async function createCompletedWorkspaceMarkdownFile(input: {
+  request: APIRequestContext;
+  workspaceId: string;
+  filePath: string;
+}): Promise<{ status: 'completed'; requestId: string; workspaceId: string; targetPath: string }> {
+  assert.match(input.filePath, /\.(?:md|markdown)$/iu);
+  const completion = { status: 'completed' as const, requestId: randomUUID(), workspaceId: input.workspaceId, targetPath: input.filePath };
+  await waitForFileCreateBudget();
+  const response = await input.request.post('/api/files/create', {
+    headers: { [WORKSPACE_ID_HEADER]: completion.workspaceId },
+    data: { path: completion.targetPath, type: 'file', requestId: completion.requestId },
+  });
+  await assertCompletedWorkspaceMarkdownCreate(response, completion);
+  return completion;
 }
 
 export async function enterMarkdownEditMode(page: Page): Promise<void> {

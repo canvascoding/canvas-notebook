@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { expect, test, type Page } from '@playwright/test';
 import type { JSONContent } from '@tiptap/core';
 import { serializeRichMarkdownBody } from '../app/lib/markdown/rich-markdown-codec';
-import { authenticateManagedTestPage } from './helpers/managed-test-context';
+import { authenticateManagedTestPage, createCompletedWorkspaceMarkdownFile } from './helpers/managed-test-context';
 import { waitForFileCreateBudget } from './helpers/create-request-budget';
 import { requireOwnedYjsQaTarget } from '../scripts/lib/owned-yjs-authority-qa';
 import { revalidateOwnedBusyFileRead } from './helpers/owned-busy-file-read';
@@ -37,24 +37,28 @@ test('rich writer plain-click menu and Ctrl/Cmd/Open navigate exact scoped docum
   const createExactDocument = async (filePath: string, value: string) => {
     // Multipart uploads sanitize | to _. This resolver fixture needs a real
     // literal-pipe name, created through the existing exact-path JSON API.
-    await waitForFileCreateBudget();
-    const created = await page.request.post('/api/files/create', { headers, data: { path: filePath, type: 'file' } });
-    expect(created.ok()).toBe(true);
-    const originalResponse = await page.request.get('/api/mobile/v1/notebook/document', { headers, params: { path: filePath } });
-    expect(originalResponse.ok()).toBe(true);
-    const original = await originalResponse.json();
-    expect(original.success).toBe(true);
-    expect(original.document.path).toBe(filePath);
-    expect(original.document.sha256).toMatch(/^[a-f\d]{64}$/u);
-    const saved = await page.request.put('/api/mobile/v1/notebook/document', { headers, data: {
-      path: filePath, content: value, expectedSha256: original.document.sha256, baseRevisionId: original.document.revisionId,
-    } });
-    expect(saved.ok()).toBe(true);
-    const read = await revalidateOwnedBusyFileRead(() => page.request.get('/api/files/read', { headers, params: { path: filePath } }));
-    expect(read.ok).toBe(true);
-    const data = (await read.json()).data;
-    expect(data.path).toBe(filePath);
-    expect(data.content).toBe(value);
+    await createCompletedWorkspaceMarkdownFile({ request: page.request, workspaceId: shared.id, filePath });
+    await page.goto(`/en/notebook?path=${encodeURIComponent(filePath)}&workspaceId=${shared.id}`);
+    const editor = page.locator(selector);
+    await expect(editor).toHaveAttribute('contenteditable', 'true', { timeout: 45_000 });
+    await expect(page.getByTestId('document-header')).toContainText('A|B.md');
+    await editor.click();
+    await page.getByTestId('markdown-toolbar-insert').click();
+    await page.getByRole('menuitem', { name: 'Insert Markdown…', exact: true }).click();
+    const insertion = page.getByRole('dialog', { name: 'Insert Markdown…', exact: true });
+    await expect(insertion).toBeVisible();
+    await insertion.getByRole('textbox', { name: 'Markdown', exact: true }).fill(value);
+    await insertion.getByRole('button', { name: 'Insert', exact: true }).click();
+    await expect(insertion).toHaveCount(0);
+    await expect(editor.getByRole('heading', { name: 'Target title', exact: true })).toBeVisible();
+    await expect.poll(async () => {
+      const read = await revalidateOwnedBusyFileRead(() => page.request.get('/api/files/read', { headers, params: { path: filePath } }));
+      expect(read.ok).toBe(true);
+      const data = (await read.json()).data;
+      expect(data.path).toBe(filePath);
+      return data.content;
+    }, { timeout: 30_000 }).toBe(value);
+    await page.goto('about:blank');
   };
   const openSource = async () => {
     await page.goto(`/en/notebook?path=${encodeURIComponent(source)}&workspaceId=${shared.id}`);
