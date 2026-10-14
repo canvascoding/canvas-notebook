@@ -885,6 +885,8 @@ Die [inaktive dauerhafte Uploadversuchsgrundlage I-02](./markdown-upload-attempt
 
 Der [V21-Browserbefund authentisierter Textsessions](./yjs-native-session-browser-busy-evidence.md) bestätigt einen echten frischen Build auf dem privaten aktivierten QA-Stand `5f3c1297c`, aber keinen Browserpass: erste Suite sechs gestartet, einer bestanden, fünf mit tatsächlichem `409/PRINCIPAL_BUSY` fehlgeschlagen; keine Skips/Testtimeouts/Unterbrechungen. Drei Traces enthalten davor erfolgreiche native Sessionantworten. Weitere Suites und beide Neustarts starten nicht. Root bestätigt Build, Originalreporter, Networkantworten und eigene Live-/Realmidentitäten unabhängig. Der konkrete Lockhalter bleibt unbewiesen; begrenzte frische Lesephasen und anschließende neue Browserabnahme sind ein eigener nächster Schritt. Integrationsschalter bleibt false; V20 und seine ursprünglichen Artefakte bleiben erhalten.
 
+Die [gemeinsame Upload-Lifetime I-03a](./markdown-upload-live-source-evidence.md) hält prozessübergreifende Session-/File-Kernelfences bis zum tatsächlichen Abschluss. Cancel und Ablauf besitzen gebundene dauerhafte Terminalzustände; unterschiedliche Dateien bleiben parallel, unlesbare Manifestreste bleiben erhalten. Root bestätigt 22 reale FS-/Prozessfamilien, vier bestehende Uploadsuiten, frisches TypeScript/Lint/Python, exakte Autorenbytes, sechzehn bytegleiche vollständige Kern-/Routemodule sowie alte Queue-/Officekörper. Der genuine native Staging-Writer I-03b, erste Zielveröffentlichung und Browser-/PG-Abnahme dieses Anschlusses bleiben offen.
+
 ## 17. Änderungs- und Nachweisprotokoll
 
 | Datum | Änderung | Nachweis/Status |

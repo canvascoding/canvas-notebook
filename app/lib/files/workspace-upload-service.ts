@@ -21,6 +21,8 @@ import { AsyncSemaphore } from '@/app/lib/utils/async-semaphore';
 import { resolveWorkspacePath } from '@/app/lib/workspaces/path-guard';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 import type { OfficeUploadAttempt } from './workspace-upload-flow';
+import { withWorkspaceUploadLiveFile, withWorkspaceUploadLiveSession, WorkspaceUploadLiveError,
+  type WorkspaceUploadLiveSession } from './workspace-upload-live-source';
 
 const SESSION_FILE_NAME = 'session.json';
 const SESSION_TTL_MS = 24 * 60 * 60 * 1000;
@@ -71,6 +73,22 @@ export class WorkspaceUploadServiceError extends Error {
     this.code = code;
     this.status = status;
     this.details = details;
+  }
+}
+
+async function withUploadServiceLiveSession<T>(input: { sessionId: string; userId?: string; workspaceId?: string },
+  mode: 'shared' | 'exclusive', operation: (lease: WorkspaceUploadLiveSession) => Promise<T>): Promise<T> {
+  try { return await withWorkspaceUploadLiveSession(input, mode, operation); }
+  catch (error) {
+    if (!(error instanceof WorkspaceUploadLiveError)) throw error;
+    const messages: Record<string, string> = {
+      UPLOAD_NOT_FOUND: 'Upload session was not found.', UPLOAD_FILE_NOT_FOUND: 'Upload file was not found.',
+      UPLOAD_FORBIDDEN: 'Upload session belongs to another user or workspace.',
+      UPLOAD_EXPIRED: 'Upload session expired. Start the upload again.', UPLOAD_CANCELLED: 'Upload was cancelled.',
+      UPLOAD_LOCK_TIMEOUT: 'Upload is busy. Retry the operation.',
+      UPLOAD_STATE_UNCONFIRMED: 'The upload state could not be confirmed. The existing data was preserved.',
+    };
+    throw new WorkspaceUploadServiceError(error.code, error.status, messages[error.code] ?? 'The upload operation could not be completed.');
   }
 }
 
@@ -232,14 +250,8 @@ export async function cleanupExpiredWorkspaceUploadSessions(nowMs = Date.now()):
   const root = uploadsRoot();
   const entries = await fs.readdir(root, { withFileTypes: true }).catch(() => []);
   await Promise.all(entries.filter((entry) => entry.isDirectory()).map(async (entry) => {
-    const directory = requirePathInside(root, entry.name);
     try {
-      const session = await readSession(entry.name);
-      const expiresAt = session ? new Date(session.expiresAt).getTime() : 0;
-      const stats = await fs.stat(directory);
-      if ((expiresAt > 0 && expiresAt <= nowMs) || (!session && stats.mtimeMs + SESSION_TTL_MS <= nowMs)) {
-        await fs.rm(directory, { recursive: true, force: true });
-      }
+      await withUploadServiceLiveSession({ sessionId: entry.name }, 'exclusive', lease => lease.expire(nowMs));
     } catch {
       // Cleanup must never prevent a new upload from starting.
     }
@@ -344,9 +356,13 @@ export async function getWorkspaceUploadSession(params: {
   userId: string;
   workspace: WorkspaceContext;
 }): Promise<WorkspaceUploadSession> {
-  const session = await readSession(params.sessionId);
-  assertSessionAccess(session, params.userId, params.workspace);
-  return session;
+  params = { ...params, workspace: { ...params.workspace } };
+  return withUploadServiceLiveSession({ sessionId: params.sessionId, userId: params.userId, workspaceId: params.workspace.workspaceId }, 'shared', async lease => {
+    await lease.assertCurrent();
+    const session = await readSession(params.sessionId);
+    assertSessionAccess(session, params.userId, params.workspace);
+    return session;
+  });
 }
 
 export async function writeWorkspaceUploadChunk(params: {
@@ -359,7 +375,9 @@ export async function writeWorkspaceUploadChunk(params: {
   body: ReadableStream<Uint8Array> | null;
   includeFullSession?: boolean;
 }): Promise<{ session: WorkspaceUploadSession; file: WorkspaceUploadFileRecord; alreadyReceived: boolean }> {
-  return withFileLock(`${params.sessionId}:${params.fileId}`, async () => {
+  params = { ...params, workspace: { ...params.workspace } };
+  return withUploadServiceLiveSession({ sessionId: params.sessionId, userId: params.userId, workspaceId: params.workspace.workspaceId }, 'shared', lease =>
+    withFileLock(`${params.sessionId}:${params.fileId}`, () => withWorkspaceUploadLiveFile(lease, params.fileId, async () => {
     if (cancellingSessions.has(params.sessionId)) throw new WorkspaceUploadServiceError('UPLOAD_CANCELLED', 409, 'Upload was cancelled.');
     const session = await readSession(params.sessionId, params.includeFullSession === false ? params.fileId : undefined);
     assertSessionAccess(session, params.userId, params.workspace);
@@ -464,7 +482,7 @@ export async function writeWorkspaceUploadChunk(params: {
       throw error;
     }
     return { session: params.includeFullSession === false ? session : (await readSession(session.id))!, file, alreadyReceived: false };
-  });
+  })));
 }
 
 export async function completeWorkspaceUploadFile(params: {
@@ -480,7 +498,9 @@ export async function completeWorkspaceUploadFile(params: {
     persistOfficeAttempt: (attempt: OfficeUploadAttempt) => Promise<void>;
   }) => Promise<void>;
 }): Promise<{ session: WorkspaceUploadSession; file: WorkspaceUploadFileRecord; alreadyCompleted: boolean }> {
-  return withFileLock(`${params.sessionId}:${params.fileId}`, async () => {
+  params = { ...params, workspace: { ...params.workspace } };
+  return withUploadServiceLiveSession({ sessionId: params.sessionId, userId: params.userId, workspaceId: params.workspace.workspaceId }, 'shared', lease =>
+    withFileLock(`${params.sessionId}:${params.fileId}`, () => withWorkspaceUploadLiveFile(lease, params.fileId, async () => {
     if (cancellingSessions.has(params.sessionId)) throw new WorkspaceUploadServiceError('UPLOAD_CANCELLED', 409, 'Upload was cancelled.');
     const session = await readSession(params.sessionId, params.includeFullSession === false ? params.fileId : undefined);
     assertSessionAccess(session, params.userId, params.workspace);
@@ -544,7 +564,7 @@ export async function completeWorkspaceUploadFile(params: {
     await writeFileProgress(session, file);
     await fs.rm(sourcePath, { force: true }).catch(() => undefined);
     return { session: params.includeFullSession === false ? session : (await readSession(session.id))!, file, alreadyCompleted: false };
-  });
+  })));
 }
 
 export async function cancelWorkspaceUploadSession(params: {
@@ -552,13 +572,8 @@ export async function cancelWorkspaceUploadSession(params: {
   userId: string;
   workspace: WorkspaceContext;
 }): Promise<void> {
-  const session = await readSession(params.sessionId);
-  assertSessionAccess(session, params.userId, params.workspace);
-  cancellingSessions.add(params.sessionId);
-  try {
-    await Promise.all([...fileLocks].filter(([key]) => key.startsWith(`${params.sessionId}:`)).map(([, pending]) => pending));
-    await fs.rm(sessionDir(params.sessionId), { recursive: true, force: true });
-  } finally { cancellingSessions.delete(params.sessionId); }
+  params = { ...params, workspace: { ...params.workspace } };
+  await withUploadServiceLiveSession({ sessionId: params.sessionId, userId: params.userId, workspaceId: params.workspace.workspaceId }, 'exclusive', lease => lease.cancel());
 }
 
 export function workspaceUploadLimits() {

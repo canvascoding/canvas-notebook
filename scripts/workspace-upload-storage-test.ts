@@ -45,7 +45,7 @@ async function main() {
     release();
     await Promise.all([completing, cancelling]);
     await assert.rejects(fs.stat(path.join(data, '.uploads/workspace', cancelSession.id)), { code: 'ENOENT' });
-    await assert.rejects(service.getWorkspaceUploadSession(cancelScope), (error: unknown) => error instanceof service.WorkspaceUploadServiceError && error.code === 'UPLOAD_NOT_FOUND');
+    await assert.rejects(service.getWorkspaceUploadSession(cancelScope), (error: unknown) => error instanceof service.WorkspaceUploadServiceError && error.code === 'UPLOAD_CANCELLED' && error.status === 409);
     console.log('workspace-upload-storage-test: ok');
   } finally { await fs.rm(data, { recursive: true, force: true }); }
 }

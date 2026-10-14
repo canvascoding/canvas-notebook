@@ -200,7 +200,8 @@ async function main(): Promise<void> {
     }),
     (error: unknown) => Boolean(
       error instanceof service.WorkspaceUploadServiceError
-      && error.code === 'UPLOAD_NOT_FOUND'
+      && error.code === 'UPLOAD_CANCELLED'
+      && error.status === 409
     ),
   );
 
