@@ -16,7 +16,7 @@ if (!mcpSpki || !/^[A-Za-z0-9+/]{43}=$/u.test(mcpSpki)) {
 }
 
 export default defineConfig({
-  testDir: '..', testMatch: process.env.CANVAS_CHAT_INLINE_E2E === '1' ? ['agent-extension-editor.e2e.spec.ts', 'chat-inline-references.e2e.spec.ts']
+  testDir: '..', testMatch: process.env.CANVAS_CHAT_INLINE_E2E === '1' ? ['agent-extension-editor.e2e.spec.ts', 'chat-inline-references.e2e.spec.ts', 'chat-queue-recovery.e2e.spec.ts']
     : ['plugin-extension-search.e2e.spec.ts', 'agent-extension-editor.e2e.spec.ts', 'agent-extension-choice.e2e.spec.ts'],
   outputDir: path.join(root, 'results'), workers: 1, fullyParallel: false, retries: 0,
   timeout: 180_000, expect: { timeout: 30_000 }, reporter: [['list'], ['json', { outputFile: path.join(root, 'playwright-results.json') }]],

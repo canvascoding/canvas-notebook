@@ -19,6 +19,10 @@ export type RuntimeQueueItem = {
   attachments?: Attachment[];
   messageTimestamp?: number;
   signature?: string;
+  /** Stored execution revision; required for an explicit recovery action. */
+  executionRevision?: number;
+  /** Null means a valid old payload with no established queue position. */
+  queue?: { lane: 'prompt' | 'follow_up' | 'steer'; ordinal: number; disposition: 'ready' | 'suspended' } | null;
 };
 
 export type RuntimeCompactionStatus = {

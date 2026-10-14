@@ -468,6 +468,20 @@ async function runFixture() {
     const { prepareAgentExtensionToolBrowserFixture, verifyAgentExtensionToolBrowserFixture } = await import('./helpers/agent-extension-tool-browser-fixture.ts');
     fixture.toolAgent = await prepareAgentExtensionToolBrowserFixture(fixture);
     await fs.writeFile(env.PLUGIN_EXTENSION_E2E_FIXTURE, JSON.stringify(fixture), { mode: 0o600, flag: 'wx' });
+    if (chatInline) {
+      // The admission/claim process must actually terminate before the new
+      // production host reads its durable queue. A browser reload is not this boundary.
+      const seeded = start(process.execPath, ['--conditions=react-server', '--import', 'tsx',
+        'scripts/helpers/chat-queue-recovery-browser-fixture.ts', '--seed', env.PLUGIN_EXTENSION_E2E_FIXTURE],
+      'queue-seed', { NODE_EXTRA_CA_CERTS: caBundlePath });
+      receipt.queueSeedPid = seeded.pid; receipt.queueSeedExited = false; await persist();
+      assert.equal(await wait(seeded, 120_000), 0, 'The separate durable-queue seed process must finish before restart acceptance.');
+      assert(seeded.ended); receipt.queueSeedExited = true; await persist();
+      const prepared = JSON.parse(await readPrivateFile(path.join(root, 'chat-queue-recovery-prepared.json')));
+      assert.equal(prepared.version, 1); assert.equal(prepared.nonce, nonce); assert(prepared.prepared);
+      fixture.queueRecovery = prepared.prepared;
+      await fs.writeFile(env.PLUGIN_EXTENSION_E2E_FIXTURE, JSON.stringify(fixture), { mode: 0o600 });
+    }
     receipt.phase = 'build'; await persist(); console.log(`PLUGIN_EXTENSION_E2E_BUILD ${root}`);
     const build = start('npm', ['run', 'build'], 'build', { NODE_ENV: 'production', NODE_OPTIONS: '--max-old-space-size=8192', NODE_EXTRA_CA_CERTS: caBundlePath }); assert.equal(await wait(build, 15 * 60_000), 0, 'The current worktree production build must pass.');
     fixture.buildId = (await fs.readFile(path.join(repo, '.next/BUILD_ID'), 'utf8')).trim(); assert(fixture.buildId);
@@ -501,6 +515,13 @@ async function runFixture() {
     assert.equal(provider.calls.filter(call => /\/tools\/execute\//u.test(call.path)).length, 0);
     const toolRoundtrip = await verifyAgentExtensionToolBrowserFixture(fixture);
     await fs.writeFile(path.join(root, 'agent-tool-roundtrip-verified.json'), JSON.stringify({ version: 1, nonce, ...toolRoundtrip }), { mode: 0o600 });
+    if (chatInline) {
+      const { verifyChatQueueRecoveryBrowserFixture } = await import('./helpers/chat-queue-recovery-browser-fixture.ts');
+      const queueRecovery = await verifyChatQueueRecoveryBrowserFixture(fixture, fixture.queueRecovery);
+      assert(receipt.queueSeedExited && receipt.queueSeedPid !== host.pid);
+      await fs.writeFile(path.join(root, 'chat-queue-recovery-sql-verified.json'), JSON.stringify({ version: 1, nonce,
+        seedProcessExited: true, seedPid: receipt.queueSeedPid, restartedHostPid: host.pid, ...queueRecovery }), { mode: 0o600 });
+    }
     receipt.phase = 'verified'; await persist();
   } catch (error) {
     failure = error;

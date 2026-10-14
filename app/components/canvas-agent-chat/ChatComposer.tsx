@@ -79,6 +79,7 @@ export const ChatComposer = forwardRef<HTMLDivElement, {
   isWebSocketUnavailable: boolean;
   showModelRequiredNotice: boolean;
   delegationPanel?: ReactNode;
+  queueRecoveryPanel?: ReactNode;
   attachments: Attachment[];
   onRemoveAttachment: (index: number) => void;
   onAttachmentOpen: AttachmentOpenHandler;
@@ -147,6 +148,7 @@ export const ChatComposer = forwardRef<HTMLDivElement, {
   isWebSocketUnavailable,
   showModelRequiredNotice,
   delegationPanel,
+  queueRecoveryPanel,
   attachments,
   onRemoveAttachment,
   onAttachmentOpen,
@@ -278,6 +280,7 @@ export const ChatComposer = forwardRef<HTMLDivElement, {
         </div>
       )}
 
+      {queueRecoveryPanel}
       {showQueuePanel && (
         <ChatQueuePanel
           items={queueItems}

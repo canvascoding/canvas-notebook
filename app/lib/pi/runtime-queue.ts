@@ -11,6 +11,8 @@ export type RuntimeQueuePreview = {
   clientMessageId?: string;
   messageTimestamp?: number;
   signature?: string;
+  executionRevision?: number;
+  queue?: ChatMessageQueueState | null;
   body?: ChatBodyV1;
   attachments?: Attachment[];
 };

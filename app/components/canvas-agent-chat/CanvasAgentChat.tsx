@@ -62,6 +62,8 @@ import { isMainAgentId, MAIN_AGENT_DISPLAY_NAME } from '@/app/lib/agents/main-ag
 import { useChatAgentConfig } from '@/app/components/canvas-agent-chat/useChatAgentConfig';
 import { useChatAttachments } from '@/app/components/canvas-agent-chat/useChatAttachments';
 import { useChatControlActions } from '@/app/components/canvas-agent-chat/useChatControlActions';
+import { useChatQueueRecovery } from '@/app/components/canvas-agent-chat/useChatQueueRecovery';
+import { ChatQueueRecoveryPanel } from '@/app/components/canvas-agent-chat/ChatQueueRecoveryPanel';
 import { useChatComposerDraft } from '@/app/components/canvas-agent-chat/useChatComposerDraft';
 import { useChatRuntimeEvents } from '@/app/components/canvas-agent-chat/useChatRuntimeEvents';
 import {
@@ -670,6 +672,9 @@ export default function CanvasAgentChat({
     router.replace(nextUrl, { scroll: false });
   }, [pathname, router]);
 
+  const queueRecovery = useChatQueueRecovery({ sessionId, workspaceId: activeWorkspaceId, connected: wsConnected,
+    runtimeStatus, onRuntimeStatus: setRuntimeStatusWithReconciliation });
+
   const {
     isSending,
     sendError,
@@ -694,6 +699,7 @@ export default function CanvasAgentChat({
     runtimePolicyRevision: runtimeResolution?.policyRevision ?? null,
     refreshRuntimeSelection,
     activeWorkspaceId,
+    queueSendBlockedError: queueRecovery.sendBlocked ? t('queueRecoverySendBlocked') : null,
     addSessionToHistory,
     appendCompactionBreak,
     appendOptimisticUserMessage,
@@ -1077,7 +1083,6 @@ export default function CanvasAgentChat({
     }
   }, [isMobile]);
 
-  const totalQueuedMessages = (runtimeStatus?.followUpQueue.length || 0) + (runtimeStatus?.steeringQueue.length || 0);
   const isRuntimeBusy = Boolean(
     runtimeStatus
     && (runtimeStatus.phase !== 'idle' || runtimeStatus.compactionStatus?.state === 'running'),
@@ -1085,7 +1090,8 @@ export default function CanvasAgentChat({
   const queueItems: QueuePreviewItem[] = [
     ...(runtimeStatus?.steeringQueue || []).map((entry) => ({ ...entry, kind: 'steer' as const })),
     ...(runtimeStatus?.followUpQueue || []).map((entry) => ({ ...entry, kind: 'follow_up' as const })),
-  ];
+  ].filter(entry => entry.executionRevision === undefined && entry.queue === undefined);
+  const totalQueuedMessages = queueItems.length;
   const contextStatusDisplay = getContextStatusDisplay(runtimeStatus);
   const contextDetailedLabel = contextStatusDisplay.source === 'pressure'
     ? t('contextPressureLabel', {
@@ -1167,7 +1173,7 @@ export default function CanvasAgentChat({
   const isModelConfigured = Boolean(runtimeSelection);
   const primaryActionDisabled = primaryActionIsStop
     ? isRuntimeAborting || !runtimeStatus?.canAbort || isWebSocketUnavailable
-    : isSending || isUploading || !hasComposerContent || isWebSocketUnavailable || !isModelConfigured;
+    : isSending || isUploading || !hasComposerContent || isWebSocketUnavailable || !isModelConfigured || queueRecovery.sendBlocked;
   const isModelConfigurationLoading = isRuntimeSelectionLoading && !isModelConfigured;
   const showModelRequiredNotice = !isModelConfigured && !isModelConfigurationLoading;
   const isHistoryOverlayOpen = showHistory && shouldShowHistoryAsOverlay;
@@ -1549,6 +1555,13 @@ export default function CanvasAgentChat({
           />
         ) : null}
         attachments={attachments}
+        queueRecoveryPanel={sessionId ? <ChatQueueRecoveryPanel queue={queueRecovery.queue} loading={queueRecovery.loading}
+          error={queueRecovery.error} pendingId={queueRecovery.pendingId} runtimeBusy={Boolean(queueRecovery.runtimeBusy)} actionsDisabled={queueRecovery.actionsDisabled}
+          onRefresh={() => { void queueRecovery.refresh(); }}
+          onControl={(item, action) => { void queueRecovery.control(item, action).catch(() => {}); }}
+          onPromote={isWebSocketUnavailable ? undefined : item => { void queueRecovery.runExistingAction(item, () => handlePromoteQueuedMessage(item.id)).catch(() => {}); }}
+          onEdit={isWebSocketUnavailable ? undefined : item => { void queueRecovery.runExistingAction(item, () => handleEditQueuedMessage({ ...item, kind: 'follow_up' })).catch(() => {}); }}
+          onNewChat={() => startNewChat()} /> : null}
         onRemoveAttachment={removeAttachment}
         onAttachmentOpen={handleAttachmentPreviewOpen}
         showQueuePanel={Boolean(runtimeStatus && totalQueuedMessages > 0)}

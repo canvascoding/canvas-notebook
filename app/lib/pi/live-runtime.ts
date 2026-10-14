@@ -1237,13 +1237,19 @@ export class LivePiRuntime {
     const attachments = extractMessageAttachments(payload.message.content) ?? [];
     return { id: payload.serverMessageId, message, context: payload.context, signature: getMessageSignature(message),
       durable: { message: owned, queue: snapshot.queue }, preview: { ...buildQueuePreview(message),
-        id: payload.serverMessageId, text: payload.body ? projectChatBodyText(payload.body) : stripAttachmentBlocks(extractUserMessageText(message)),
+        id: payload.serverMessageId, executionRevision: snapshot.executionRevision, queue: snapshot.queue,
+        text: payload.body ? projectChatBodyText(payload.body) : stripAttachmentBlocks(extractUserMessageText(message)),
         attachments, attachmentCount: Math.max(attachments.length, countMessageAttachments(message)),
         ...(payload.body === undefined ? {} : { body: payload.body }) } };
   }
 
   getOwnedQueuedMessages(): readonly OwnedAcceptedChatMessage[] {
     return Object.freeze([...this.ownedQueuedMessages.values()].map(entry => entry.durable!.message));
+  }
+
+  /** Presentation only. The actual claim remains private to this runtime. */
+  getActiveDurableMessageId(): string | undefined {
+    return !this.disposed && this.activeDurableMessage?.claim ? this.activeDurableMessage.entry.id : undefined;
   }
 
   /** Refresh is a read-only projection; only explicit admission/resume starts a run. */
@@ -1474,10 +1480,11 @@ export class LivePiRuntime {
       return this.refreshOwnedQueue();
     }
     const removedKind = this.messageQueues.remove(queueItemId, this.agent);
-    if (removedKind) {
-      this.touch();
-      this.publishStatus();
+    if (!removedKind) {
+      throw new AgentWorkflowError('MESSAGE_EXECUTION_CONFLICT', 'The queued message is no longer removable. Refresh its current state.', 409);
     }
+    this.touch();
+    this.publishStatus();
 
     return this.getStatus();
   }
@@ -3907,6 +3914,16 @@ export async function getExistingPiRuntime(sessionId: string, userId: string) {
   const resolved = await runtime;
   resolved.touch();
   return resolved;
+}
+
+/** Observe an already resolved registered instance without waiting for model initialization. */
+export async function getResolvedPiRuntime(sessionId: string, userId: string) {
+  const store = getStore(), key = getRuntimeKey(sessionId, userId), pending = store.runtimes.get(key);
+  if (!pending) return null;
+  // A fulfilled promise wins in registration order; an unresolved initialization
+  // yields null immediately. Failure cannot obstruct a read or SQL cancellation.
+  const runtime = await Promise.race([pending, Promise.resolve(null)]).catch(() => null);
+  return runtime && store.runtimes.get(key) === pending ? runtime : null;
 }
 
 /** Marks live sessions for a prompt reload at their next safe turn boundary. */

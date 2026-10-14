@@ -117,6 +117,7 @@ type UseChatControlActionsParams = {
   selectedAgentId: string;
   /** Loaded session identity scopes UI transactions independently of list hydration. */
   actualSessionAgentId?: string | null;
+  queueSendBlockedError?: string | null;
   sessionId: string | null;
   sessionAgentIdRef: MutableRefObject<string>;
   sessionIdRef: MutableRefObject<string | null>;
@@ -268,6 +269,7 @@ export function useChatControlActions({
   runtimePhase,
   selectedAgentId,
   actualSessionAgentId,
+  queueSendBlockedError,
   sessionId,
   sessionAgentIdRef,
   sessionIdRef,
@@ -481,6 +483,7 @@ export function useChatControlActions({
   const executeTransaction = useCallback((transaction: SendTransaction): Promise<void> => {
     if (transaction.pending) return transaction.pending;
     if (transaction.completed) return Promise.resolve();
+    if (queueSendBlockedError) return Promise.reject(new Error(queueSendBlockedError));
     if (!transaction.isCurrent()) return Promise.reject(new DOMException('The original chat is no longer active.', 'AbortError'));
     const { snapshot } = transaction;
     const clearOptimisticStatus = () => setRuntimeStatus(current => !transaction.queued
@@ -586,13 +589,14 @@ export function useChatControlActions({
     // reach finally; a later explicit confirmation must remain retryable.
     transaction.pending = Promise.resolve().then(run);
     return transaction.pending;
-  }, [chatRequestTimeoutMs, ensureSession, ensureSessionSubscribed, postControl, resetInputHistoryNavigation,
+  }, [chatRequestTimeoutMs, ensureSession, ensureSessionSubscribed, postControl, queueSendBlockedError, resetInputHistoryNavigation,
     setAttachments, setInput, setInputBody, setMessages, setOptimisticRuntimePhase, setRuntimeStatus, setRuntimeStatusWithReconciliation, touchSessionActivity, wsRequest]);
 
   const handleControlAction = useCallback(async (
     action: ChatControlAction,
     override?: ChatSendOverride,
   ) => {
+    if (queueSendBlockedError) throw new Error(queueSendBlockedError);
     if (!override && isUploading) return;
     const originalBody = override ? override.body : inputBody;
     const body = originalBody === undefined ? undefined : parseChatBody(originalBody);
@@ -669,7 +673,7 @@ export function useChatControlActions({
     return executeTransaction(transaction);
   }, [appendOptimisticUserMessage, attachments, buildRequestContext, createAssistantBubble, currentFilePath,
     executeTransaction, hasLocalRuntimeSelection, input, inputBody, isMobile, isUploading,
-    runtimeCatalogRevision, runtimePhase, runtimePolicyRevision, runtimeSelection, selectedAgentId, sessionAgentIdRef,
+    queueSendBlockedError, runtimeCatalogRevision, runtimePhase, runtimePolicyRevision, runtimeSelection, selectedAgentId, sessionAgentIdRef,
     sessionIdRef, setIsResolvingInitialChatState, setShowHistory, shouldShowHistoryAsOverlay,
     showHistory, startNewChat, t]);
 
@@ -691,11 +695,14 @@ export function useChatControlActions({
   const visibleSendState = sendState?.contextKey === contextKey ? sendState : null;
 
   const handlePromoteQueuedMessage = useCallback(async (queueItemId: string) => {
-    if (!sessionIdRef.current) return;
+    const targetSessionId = sessionIdRef.current;
+    if (!targetSessionId) return;
+    const generation = navigationGenerationRef.current, auth = openedDocumentAuthScope();
     try {
-      await postControl(sessionIdRef.current, 'promote_queued_to_steer', undefined, queueItemId);
+      await postControl(targetSessionId, 'promote_queued_to_steer', undefined, queueItemId);
     } catch (error) {
-      appendSystemMessage(t('errorMessage', { message: error instanceof Error ? error.message : String(error) }));
+      if (generation === navigationGenerationRef.current && openedDocumentAuthScope() === auth && sessionIdRef.current === targetSessionId)
+        appendSystemMessage(t('errorMessage', { message: error instanceof Error ? error.message : String(error) }));
     }
   }, [appendSystemMessage, postControl, sessionIdRef, t]);
 
