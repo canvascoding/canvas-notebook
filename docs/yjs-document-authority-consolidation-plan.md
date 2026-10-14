@@ -881,6 +881,8 @@ Die [enge Reparatur der aktiven PostgreSQL-Lease](./yjs-postgres-active-lease-ev
 
 Der [authentifizierte native Socketanschluss](./yjs-authenticated-native-websocket-evidence.md) bindet tatsächliche Web-Upgrades und private Mobile-Einmaltickets an frische feste Peerphasen. Vollständige Schreibautorisierung schließt vor Roomapply; fehlgeschlagene Final-/COMMIT-/Close-/Owner-/Disconnect-/Timeoutfälle verändern Room, Remote und Store nicht. Root bestätigt 23 tatsächliche Netzwerk-/PG-/Auth-/Owner-/Store-Gruppen auf dem neuen Core, beide Legacy-Serverregressionen, frisches TypeScript/Lint, unabhängige Review und sechs bytegleiche Autorendateien. HTTP und Socket bleiben am gemeinsamen deaktivierten Gate; tatsächliche gemeinsame Browser- und Native-Mobile-Abnahme steht aus.
 
+Die [inaktive dauerhafte Uploadversuchsgrundlage I-02](./markdown-upload-attempt-evidence.md) hält private Originalbytes außerhalb alter Cleanupnamespace. Root bestätigt 34 tatsächliche FS-/Prozessfamilien, vollständiges TypeScript/Lint/Pythonprüfung, unabhängige Reviews und drei Autorenbytes; zwölf alte Module bleiben bytegleich. Snapshot-/Retain-/Abandonzustände sind historische Daten und Intent, keine aktuelle Auth-/Upload-/Cancelautorität. Der echte Staging-Writer I-03 und anschließende native Erstveröffentlichung bleiben eigene offene Gates.
+
 ## 17. Änderungs- und Nachweisprotokoll
 
 | Datum | Änderung | Nachweis/Status |
