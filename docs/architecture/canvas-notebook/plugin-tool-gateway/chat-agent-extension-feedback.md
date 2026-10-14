@@ -4,6 +4,8 @@ Besprechungsstand: 14. Oktober 2026. Feedback und Plan wurden auf ausdrückliche
 
 Dies ist die kurze Produktansicht. Weiterführend: [technischer Gesamtplan](chat-extension-reference-plan.md), [Umsetzungs-/Abnahmejournal](chat-agent-extension-implementation.md), [synthetischer Chat-Wireframe](wireframes/chat-extension-picker.html).
 
+**Aktuelle UI-Präzisierung:** Auswahl direkt im Nachrichtentext als hervorgehobene Referenz mit Icon, keine zusätzliche Chat-Auswahlleiste. Löschen im Text entfernt die zusätzliche Referenz; nach dem Senden bleibt sie inline sichtbar. Kontext und genaue Zuordnung werden im Hintergrund übergeben. Der [konkrete Inline-Anschlussplan](chat-inline-reference-plan.md) ersetzt die frühere Chipdarstellung. Dropdown und gemeinsame `/`-Suche bleiben erhalten.
+
 ## Einschätzung
 
 Die Richtung passt: **eine gemeinsame Suche und ein gemeinsames Referenz-/Kontextsystem für Plugins, Skills, Composio und MCP**. Ein Plugin bündelt Anleitung, Skills und deklarierte Verbindungen. Alle Bestandteile bleiben unabhängig auswählbar. Composio verwaltet Katalog und Werkzeuganbindung extern; in der UI bleiben dies „Integrationen“, getrennt von selbst angebundenen MCP-Servern. Der vorhandene lokale Aufrufweg verwendet auch das Composio-SDK; ein MCP-Transport wird nicht pauschal vorausgesetzt.
@@ -17,8 +19,8 @@ Mein Feedback: **Die fachliche Richtung ist richtig; die durchgängige Übergabe
 | Plugin-Seite | Gemeinsamer Vier-Typen-Katalog und vorhandene Logoquellen umgesetzt | Dieselben Identitäten und Darstellungskomponenten in den weiteren Flächen verwenden |
 | Agent-Erstellung und Agent-Tool | Gemeinsame Optionen, Auswahl und Vorschau; Tool/UI-Roundtrip lokal abgenommen | Beim Chat-Anschluss die feste Auswahl und die jeweiligen Nutzungsgrenzen erhalten |
 | System-/Turn-Kontext | Gemeinsamer Resolver und registrierungsabhängige Tool-Rezepte vorhanden | Für jede tatsächlich gestartete Chat-Nachricht frisch und passend einsetzen |
-| Nachrichtenannahme | Interne Annahme, frische Quellen, exklusiver Ausführungsbesitz und Queue-Steuerung geprüft | Atomisches Ersetzen und Wiederaufnahme ergänzen; tatsächliche Runtime, Queue und Transport anschließen |
-| Chat-Suche | Bisher getrennte Skill-/Plugin-Einstiege | Gemeinsamer Picker, genaue Chips, Einrichtung mit Rückkehr und Recents |
+| Nachrichtenannahme | Interne Annahme, frische Quellen, Ausführungsbesitz, Queue-Steuerung und atomisches Ersetzen geprüft | Versionierten Inline-Body und Wiederaufnahme ergänzen; tatsächliche Runtime, Queue und Transport anschließen |
+| Chat-Suche | Bisher getrennte Skill-/Plugin-Einstiege | Gemeinsamer Picker, genaue Inline-Referenzen, Einrichtung mit Rückkehr und Recents |
 
 ## Gleiche Auswahl, erkennbare Wirkung
 
@@ -80,27 +82,23 @@ Nach Auswahl eines Plugins: [Bestandteile und Verbindungen]
 Canva: Marketing-Team · Profil Arbeit                 [Ändern]
                          [Für diese Nachricht hinzufügen]
 
-[Content Studio · Canva: Team ×]  [Nachricht schreiben …]
+Erstelle mit [Icon Content Studio] einen Entwurf.       [Senden]
 ```
 
-Beim Spezialagenten unterscheidet der Composer sichtbar die Herkunft:
+Die feste Auswahl eines Spezialagenten bleibt in dessen vorhandenen Details sichtbar. Sie erzeugt keine zusätzliche Ressourcenleiste über dem Composer:
 
 ```text
-Vom Agenten vorgegeben                  [Details]
-[Content Studio · Canva: Marketing-Team]
-
-Für diese Nachricht
-[Recherche ×]             [+ Erweiterung hinzufügen]
-[Nachricht schreiben …]                       [Senden]
+Gewählter Agent: Content Studio                       [Details]
+Recherchiere mit [Icon Recherche] die Grundlagen.       [Senden]
 ```
 
-Ein Turn-Chip entfernt oder ersetzt keine dauerhafte Zuweisung. Für einen zulässigen Kontowechsel wird die konkrete Paketanforderung geändert und sichtbar bestätigt; ein weiterer Canva-Chip allein überschreibt keine bestehende Bindung. Ein neuer Turn übernimmt alte Chips nur nach erneuter ausdrücklicher Auswahl. Interne Fortsetzungen derselben Nachricht behalten dagegen deren ursprüngliche Auswahl.
+Eine Inline-Referenz entfernt oder ersetzt keine dauerhafte Zuweisung. Für einen zulässigen Kontowechsel wird die konkrete Paketanforderung geändert und sichtbar bestätigt; eine weitere Canva-Referenz allein überschreibt keine bestehende Bindung. Löschen im Text entfernt die zusätzliche Turn-Referenz; bei mehreren gleichen Vorkommen bleibt sie bis zum letzten erhalten. Ein neuer Turn übernimmt alte Referenzen nur nach erneuter ausdrücklicher Auswahl. Interne Fortsetzungen derselben Nachricht behalten deren ursprüngliche Auswahl.
 
 Nachrichten bleiben voneinander getrennt: Wird B mit einem anderen Plugin oder Konto eingereiht, behält der laufende Auftrag A seinen bisherigen Kontext und seine Werkzeuge. Auch eine als Steer vorgezogene Nachricht übernimmt erst nach Abschluss der laufenden Toolarbeiten und bestätigter Abwicklung von A. Die UI zeigt bis dahin „wartet auf laufende Aktion“.
 
 Zwei Fälle müssen unterschiedlich bedient werden: Eine neu angeheftete Plugin-Auswahl mit fehlender Pflichtverbindung bleibt ein markierter Entwurf; Senden zeigt den genauen Einrichtungsweg. Bei einem bereits eingerichteten gemeinsamen Agenten mit noch fehlender zulässiger persönlicher Wahl bleibt erlaubter lokaler Chat möglich; externe Workflow-Aktionen bleiben gesperrt und „Meine Verbindung einrichten“ bleibt sichtbar.
 
-Die vorhandene HTML-Demo zeigt die Suchidee. Ihre unmittelbare Einzelkonto-Auswahl, vereinfachten Plugin-Bindungen und lokal simulierten Recents sind noch kein vollständiger Zielentwurf. Bei ihrer nächsten Überarbeitung müssen auch die Bestätigung eines einzelnen Kontos, fehlende Plugin-Pflichtverbindungen und „ausstehend“ gegenüber „dauerhaft angenommen“ sichtbar werden. Die echte Historie unterscheidet konkrete Accounts und Paketstände.
+Die überarbeitete HTML-Demo zeigt Inline-Einfügen, Löschen im Text und dieselbe Hervorhebung in der gesendeten Nachricht. Auch eine einzelne Verbindung wird vor dem Einfügen bestätigt; ein Plugin zeigt seine erforderliche Verbindung. Die Demo verwendet Beispieldaten und simulierte Recents. Sie ist kein Nachweis des noch offenen Produkt-Codecs, Transportwegs oder Modells; echte Historie und Annahmestatus benötigen weiterhin ihre eigene Abnahme.
 
 ## Präziser System-/Nachrichtenkontext
 
@@ -118,13 +116,13 @@ Feste Agent-Auswahl und zusätzliche Turn-Auswahl werden gemeinsam gegen das bes
 | --- | --- | --- |
 | 1. Vorhandene Agent-Auswahl als Grundlage erhalten | Gemeinsamer Editor in Create, Edit und persönlicher Wahl; vollständige Agent-Tool/UI-Parität. Diese Stufe ist lokal abgeschlossen. | Die bestehende Abnahme bleibt erhalten; Chat-Verwendung verändert keine feste Konfiguration oder fremde persönliche Wahl. |
 | 2. Nachrichtenweg schließen | Dauerhafte Annahme und privater Wiederleser, danach Runtime, Queue, Draft, Send, Steer, Retry, Handoff und Verlauf anschließen. | Reload und Serverneustart separat geprüft; gleiche Nachrichten-ID mit gleicher Auswahl wird wiedererkannt. Verlorene Bestätigung wiederholt keine möglicherweise begonnene Geschäftsaktion automatisch. |
-| 3. Chat-Picker und Recents anschließen | `/` und Kontextknopf öffnen dieselbe Suche mit Filtern, Details und Chips; zuletzt verwendete Einträge aus dauerhaft angenommenen expliziten Auswahlen. | Alle vier Typen, gleiche Namen, einzelne und mehrere Konten, Tastatur und Rückkehr aus Einrichtung funktionieren. Paketabhängigkeiten und Auswahlgrenzen sind vor Bestätigung verständlich. |
+| 3. Chat-Picker und Recents anschließen | `/` und Kontextknopf öffnen dieselbe Suche mit Filtern, Details und Inline-Referenzen; zuletzt verwendete Einträge aus dauerhaft angenommenen expliziten Auswahlen. | Alle vier Typen, gleiche Namen, einzelne und mehrere Konten, Tastatur und Rückkehr aus Einrichtung funktionieren. Paketabhängigkeiten und Auswahlgrenzen sind vor Bestätigung verständlich. |
 | 4. Gesamten Web-/Modellweg abnehmen | Produktionsbuild, echte UI-Bedienung und Modelllauf mit Skill-Lesen und gezielter Discovery. | Kontextwechsel, Rechteentzug, Accounttreue, Routerzustände und Wiederaufnahme nachgewiesen; API-, Browser-, Modell- und Providerbelege getrennt. |
 | 5. Native Flächen anschließen | Gemeinsame Verträge im eigenen nativen Composer und Agent-UX verwenden. | Eigene Geräte-/Accessibility-Abnahme; schmaler Browser ersetzt sie nicht. |
 
 Jeder Integrationsschritt wird abgeschlossen, bevor der nächste beginnt. **Die Agent-Stufe ist lokal abgeschlossen:** frischer Produktionsbuild, alle 28 Browserfälle und unabhängiger tatsächlicher Tool-Inspect bestehen im Lauf `3qFxAz`. Für die Chat-Stufe ist die interne dauerhafte Nachrichtenannahme abgeschlossen; als Nächstes folgen Runtime/Transport und danach der sichtbare Picker. Diese Reihenfolge verhindert, dass die UI eine Auswahl anbietet, die der heutige Transport verwirft. Chat, tatsächlicher Modelllauf und Native Mobile bleiben offen; der Gesamtplan ist nicht abgeschlossen.
 
-Vor Schritt 2 werden vier Vertragsfragen verbindlich präzisiert: eigenes Chat-Turn-Ziel mit Use- statt Edit-Rechten und tatsächlichem Session-/Workspace-Kontext; explizite Slot-/Revisionszuordnung bei erlaubtem Turn-Accountwechsel; gemeinsames 8-KiB-Budget aus fester und zusätzlicher Auswahl; eindeutige alte `/name`-Referenzen früh in genaue Referenzen übersetzen und durch denselben dauerhaften Annahmepfad führen. Ein weiterer Konto-Chip allein überschreibt keine Plugin-Bindung.
+Vor Schritt 2 werden vier Vertragsfragen verbindlich präzisiert: eigenes Chat-Turn-Ziel mit Use- statt Edit-Rechten und tatsächlichem Session-/Workspace-Kontext; explizite Slot-/Revisionszuordnung bei erlaubtem Turn-Accountwechsel; gemeinsames 8-KiB-Budget aus fester und zusätzlicher Auswahl; neue strukturierte Inline-Bodies durch denselben dauerhaften Annahmepfad führen; alte reine Namen bleiben ohne neue Autorität. Eine weitere Kontoreferenz allein überschreibt keine Plugin-Bindung.
 
 Schritt 2 wird intern in überprüfbare Teile zerlegt: gespeicherte Auswahl mit frischen Rechten wiederlesen und exklusiven Ausführungsbesitz samt Revision sichern (beide intern lokal geprüft); dann die bestehende Runtime und Queue anschließen; anschließend Transport und Composer. Jede Nachricht behält ihre eigene Server-ID, ihren Paketstand und ihre konkreten Accounts. Sicher unbegonnene Aufträge können nach erneuter Prüfung wiederaufgenommen werden. Bei möglicherweise bereits ausgeführten Geschäftsaktionen wird der ungewisse Zustand angezeigt und nicht automatisch erneut ausgeführt. Reload, tatsächlicher Serverneustart und verlorene Send-Bestätigung benötigen jeweils einen eigenen Nachweis.
 
@@ -137,7 +135,7 @@ Für die abschließende Abnahme zählt die gesamte Kette: UI-Auswahl → dauerha
 ## Vorschläge zur anschließenden Optimierung
 
 - **Plugin-Vorauswahl:** Tatsächlich deklarierten Standard zeigen; sonst alle zulässigen Bestandteile anbieten. Optionale Abwahl aufklappen, Pflichtbestandteile erhalten.
-- **Chip-Grenze:** Fünf sichtbare Hauptauswahlen vorschlagen und Paketabhängigkeiten getrennt begrenzen. Der bestehende Vertrag zählt fünf genaue Referenzen und muss vor einer abweichenden UI-Regel angepasst werden.
+- **Auswahlgrenze:** Fünf sichtbare Hauptauswahlen vorschlagen und Paketabhängigkeiten getrennt begrenzen. Der bestehende Vertrag zählt fünf genaue Referenzen und muss vor einer abweichenden UI-Regel angepasst werden.
 - **Entwürfe:** Vollständiges Formular im gleichen Nutzer-/Workspace-/Zielkontext fortsetzbar halten; sieben Tage als Vorschlag. Nach Save oder bewusstem Verwerfen löschen; keine Secrets oder kurzlebigen Accountbelege speichern.
 - **Startansicht:** Sechs bis acht sichtbare Treffer und etwa 30 Recents je Nutzer/Workspace als Startwerte; mit kleinen und großen Paketen prüfen.
 - **Recents erneut verwenden:** Frühere Paketversion, Kind-Auswahl und Kontozuordnung anzeigen, frisch prüfen und bestätigen. Kein stiller Wechsel auf aktuelle Paketvorgaben oder ein anderes Standardkonto. Typfilter gelten auch in dieser Startansicht. Hover, bloßes Öffnen und Agent-Speichern zählen nicht als Chat-Nutzung.
@@ -145,4 +143,4 @@ Für die abschließende Abnahme zählt die gesamte Kette: UI-Auswahl → dauerha
 
 Diese Werte sind Diskussionsvorschläge. Dieser Dokumentationscheckpoint ändert keine Produktgrenzen, Freigaben oder Ausführungsregeln.
 
-Mein Vorschlag für die nächste gemeinsame Optimierung ist, zuerst **Paketvorauswahl und Zählung der Hauptchips samt Abhängigkeiten** festzulegen. Danach werden Chat- und Agent-Wireframe auf dieselben Regeln gebracht. Ergebnisanzahl und Aufbewahrungsdauer lassen sich anschließend anhand der Bedienung verfeinern. Die Planung trennt damit die wesentlichen Produktentscheidungen von einstellbaren Startwerten.
+Mein Vorschlag für die nächste gemeinsame Optimierung ist, zuerst **Paketvorauswahl und Zählung der Hauptreferenzen samt Abhängigkeiten** festzulegen. Danach werden Chat- und Agent-Wireframe auf dieselben Regeln gebracht. Ergebnisanzahl und Aufbewahrungsdauer lassen sich anschließend anhand der Bedienung verfeinern. Die Planung trennt damit die wesentlichen Produktentscheidungen von einstellbaren Startwerten.
