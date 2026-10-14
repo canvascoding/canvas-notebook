@@ -1358,6 +1358,8 @@
     "excalidrawWelcomeHint": "Choose a tool and start on the canvas.",
     "excalidrawFooter": "Canvas Notebook saves this drawing automatically.",
     "importMermaid": "Import Mermaid",
+    "mermaidShowPreview": "Show Mermaid diagram",
+    "mermaidShowCode": "Edit Mermaid code",
     "mermaidImportTitle": "Import Mermaid diagram",
     "mermaidImportDescription": "Paste Mermaid syntax to convert it into editable Excalidraw elements on this canvas.",
     "mermaidImportTextareaLabel": "Mermaid syntax",

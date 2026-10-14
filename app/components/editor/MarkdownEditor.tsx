@@ -13,7 +13,6 @@ import { Extension, getMarkRange, type Editor, type JSONContent, type Range } fr
 import katex from 'katex';
 import {
   EditorContent,
-  NodeViewContent,
   NodeViewWrapper,
   ReactNodeViewRenderer,
   ReactRenderer,
@@ -112,7 +111,7 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { MermaidDiagram } from '@/components/ui/mermaid-diagram';
+import { MermaidCodeBlockNodeView } from './MermaidCodeBlockNodeView';
 import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
@@ -125,8 +124,6 @@ import { MarkdownTableMenu } from './MarkdownTableMenu';
 import { MarkdownInsertDialog } from './MarkdownInsertDialog';
 import { MarkdownSelectionMenu } from './MarkdownSelectionMenu';
 import { MarkdownRenderer } from '@/app/components/shared/MarkdownRenderer';
-import { ClipboardCopyButton } from '@/app/components/shared/ClipboardCopyButton';
-import { codeBlockClipboardContent } from '@/app/lib/clipboard/browser';
 import {
   clampEditorRangeToDoc,
   getSlashCommandDeletionRange,
@@ -1658,50 +1655,6 @@ function createMarkdownImageExtension(filePath?: string, access: MarkdownEditorA
       return withStableNodeViewMount(ReactNodeViewRenderer((props) => <MarkdownImageNodeView {...props} filePath={filePath} access={access} />));
     },
   });
-}
-
-function MermaidCodeBlockNodeView({ node }: NodeViewProps) {
-  const language = typeof node.attrs.language === 'string' ? node.attrs.language : '';
-  const isMermaid = language.toLowerCase() === 'mermaid';
-  const [editingLanguage, setEditingLanguage] = useState<string | null>(null);
-  const isEditing = !isMermaid || editingLanguage === language;
-
-  if (!isMermaid || isEditing) {
-    return (
-      <NodeViewWrapper as="div" className="tiptap-code-block group relative">
-        <div className="absolute right-2 top-2 z-10" contentEditable={false}>
-          <ClipboardCopyButton
-            content={codeBlockClipboardContent(node.textContent)}
-            menuSide="bottom"
-            testId="markdown-editor-code-block-copy"
-            buttonClassName="sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100"
-          />
-        </div>
-        <pre>
-          <NodeViewContent spellCheck={false} className="pr-12" />
-        </pre>
-      </NodeViewWrapper>
-    );
-  }
-
-  return (
-    <NodeViewWrapper
-      as="div"
-      className="tiptap-mermaid-node"
-      contentEditable={false}
-      role="button"
-      tabIndex={0}
-      onClick={() => setEditingLanguage(language)}
-      onKeyDown={(event: React.KeyboardEvent<HTMLDivElement>) => {
-        if (event.key === 'Enter' || event.key === ' ') {
-          event.preventDefault();
-          setEditingLanguage(language);
-        }
-      }}
-    >
-      <MermaidDiagram code={node.textContent} interactive={false} />
-    </NodeViewWrapper>
-  );
 }
 
 const CodeBlockWithMermaid = CodeBlock.extend({

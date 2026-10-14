@@ -1357,6 +1357,8 @@
     "excalidrawWelcomeHint": "Wähle ein Werkzeug und starte auf der Zeichenfläche.",
     "excalidrawFooter": "Canvas Notebook speichert diese Zeichnung automatisch.",
     "importMermaid": "Mermaid importieren",
+    "mermaidShowPreview": "Mermaid-Diagramm anzeigen",
+    "mermaidShowCode": "Mermaid-Code bearbeiten",
     "mermaidImportTitle": "Mermaid-Diagramm importieren",
     "mermaidImportDescription": "Füge Mermaid-Syntax ein, um sie als bearbeitbare Excalidraw-Elemente auf diese Zeichenfläche zu übernehmen.",
     "mermaidImportTextareaLabel": "Mermaid-Syntax",
