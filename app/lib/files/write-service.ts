@@ -57,6 +57,8 @@ export type WriteWorkspaceFileContentInput = {
   versionSource?: Extract<FileVersionContentSource, 'initial' | 'manual' | 'agent_apply' | 'restore' | 'external_import'>;
   /** Revalidate external authority under the publication fence. */
   beforePublish?: () => Promise<void>;
+  /** Private deny-only check inside the existing kernel, before provider dispatch. */
+  beforeDispatch?: (input: { workspace: WorkspaceContext; path: string }) => Promise<void>;
 };
 
 
@@ -255,6 +257,7 @@ export async function writeWorkspaceFileContent(input: WriteWorkspaceFileContent
   return withWorkspaceMutationLock(
     input.workspace.workspaceId,
     async () => {
+      await normalizedInput.beforeDispatch?.({ workspace: normalizedInput.workspace, path: normalizedInput.path });
       if (isDocxPath(normalizedInput.path)) await assertWorkspacePathHasNoAliases(input.workspace, normalizedInput.path);
       return writeWorkspaceFileContentUnlocked(normalizedInput);
     },
