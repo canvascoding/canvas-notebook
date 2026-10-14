@@ -2,6 +2,7 @@ import 'server-only';
 
 import { createHash } from 'node:crypto';
 import { openDb, type SqlConnection } from '@/app/lib/db';
+import { getLicenseStatus } from '@/app/lib/license';
 import { parseAgentDefaultFields, validateAgentDefaultOnConnection } from '@/app/lib/agent-runtime-policy/agent-default-service';
 import { getAgentAccessOnConnection } from './access';
 import { resolveVerifiedAgentActorContextOnConnection, type VerifiedAgentActorContext } from './actor-context';
@@ -12,7 +13,7 @@ import { assembleAgentExtensionPackageContextOnConnection, buildAgentExtensionPa
   prepareAgentExtensionContextPackageSources, withAgentExtensionContextPackageSources,
   type PreparedAgentExtensionContextPackageSource, type AgentExtensionPackageContext } from './extension-context-package-metadata';
 import { collectAgentExtensionContextSharedReferences, buildAgentExtensionProviderContextOnConnection } from './extension-context-provider-metadata';
-import { authorizeIntegrationConnection, authorizeIntegrationConnectionBindingsOnConnection,
+import { authorizeIntegrationConnectionOnConnection, authorizeIntegrationConnectionBindingsOnConnection,
   lockIntegrationConnectionBindingsOnConnection, prepareEmailV2BindingConfigurationOnConnection,
   type IntegrationConnectionBindingAuthorization } from '@/app/lib/integration-tools/connections/store';
 import { holdAgentGrantAuthority, readManagedAgentWorkflowOnConnection, readAgentWorkflowPreferenceSnapshot } from './workflow-configuration';
@@ -104,6 +105,9 @@ export async function compileProposedAgentExtensionOptionsPreview(context: Agent
   if (request.configuration?.mode !== 'fixed') fail('AGENT_EXTENSION_PREVIEW_INVALID', 'An explicit proposed configuration is required.', 400);
   await revalidateAgentExtensionOptionsContext(context);
   const settings = await runtimeFields(context, request);
+  // Resolve/refresh real licensing before BEGIN. Provider Seat checks reverify
+  // the current signed stored revision using the held connection only.
+  await getLicenseStatus();
   const database = await openDb();
   let result: CompleteAgentExtensionOptionsContext;
   try {
@@ -122,7 +126,7 @@ export async function compileProposedAgentExtensionOptionsPreview(context: Agent
         } else for (const reference of batch.connectionRefs) {
           // The real batch holds these resource rows against mutation. A new
           // target has no Agent grant: use only freshly read ordinary ActorUse.
-          const authorization = await authorizeIntegrationConnection({ userId: verified.userId,
+          const authorization = await authorizeIntegrationConnectionOnConnection(database, { userId: verified.userId,
             organizationId: verified.organizationId, workspaceId: verified.context.workspaceId }, reference, 'use');
           shared.set(reference, { ...authorization, canUse: authorization.access.canUse, canManage: authorization.access.canManage });
         }

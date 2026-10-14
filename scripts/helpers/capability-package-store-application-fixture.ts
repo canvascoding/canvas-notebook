@@ -11,12 +11,13 @@ import type { SqlConnection } from '../../app/lib/db';
 import type { CapabilityResourceActor } from '../../app/lib/capabilities/resources/contracts';
 
 /** Only the database transport is substituted; all auth/authority/actions stay real. */
-export async function createCapabilityPackageStoreApplicationFixture(options: { native?: boolean } = {}) {
+export async function createCapabilityPackageStoreApplicationFixture(options: { native?: boolean; nativePoolMax?: 2 | 10 } = {}) {
+  if (options.nativePoolMax !== undefined) assert.equal(options.native, true, 'An explicit pool size requires real PostgreSQL.');
   if (options.native) {
     assert.equal(process.env.NODE_ENV, 'test'); assert.equal(process.env.CANVAS_SHARED_CONNECTION_POSTGRES_TEST, '1', 'Native gate never silently falls back to PGlite.');
   }
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-store-application-'));
-  const engine = options.native ? await createSharedConnectionTestDatabase() : { ...await createPiTestDatabase(), native: false };
+  const engine = options.native ? await createSharedConnectionTestDatabase({ poolMax: options.nativePoolMax }) : { ...await createPiTestDatabase(), native: false };
   if (options.native) assert.equal(engine.native, true);
   const sql = await engine.openDb();
   const registry = await createPackageStoreRegistryFixture(root), organizationId = 'store-application-org';
@@ -43,12 +44,19 @@ export async function createCapabilityPackageStoreApplicationFixture(options: { 
   let providerRequests = 0, authReady: Promise<void> | undefined;
   let afterQuery: ((query: string, params: readonly unknown[]) => Promise<void>) | undefined;
   let beforeRead: ((query: string) => Promise<void>) | undefined;
+  let afterRead: ((query: string, params: readonly unknown[]) => Promise<void>) | undefined;
   let beforeFetch: ((url: string) => Promise<void>) | undefined;
+  let setupConnectionReleased = false;
+  const releaseSetupConnection = async () => {
+    if (setupConnectionReleased) return;
+    setupConnectionReleased = true;
+    await sql.close();
+  };
   const database = { ...engine, openDb: async (): Promise<SqlConnection> => {
     const base = await engine.openDb();
     return { ...base,
-      get: async (query, params = []) => { await beforeRead?.(query); return base.get(query, params); },
-      all: async (query, params = []) => { await beforeRead?.(query); return base.all(query, params); },
+      get: async (query, params = []) => { await beforeRead?.(query); const result = await base.get(query, params); await afterRead?.(query, params); return result; },
+      all: async (query, params = []) => { await beforeRead?.(query); const result = await base.all(query, params); await afterRead?.(query, params); return result; },
       run: async (query, params = []) => { const result = await base.run(query, params); await afterQuery?.(query, params); return result; } };
   } };
   loader._load = (name, parent, isMain) => {
@@ -58,8 +66,11 @@ export async function createCapabilityPackageStoreApplicationFixture(options: { 
     return originalLoad(name, parent, isMain);
   };
   const close = async () => {
-    globalThis.fetch = originalFetch; await registry.close(); await authReady; loader._load = originalLoad;
-    await sql.close(); await engine.close();
+    globalThis.fetch = originalFetch; await registry.close();
+    // Construction already propagates an auth failure; teardown must still
+    // release its owned database and restore the module/environment boundary.
+    await authReady?.catch(() => undefined); loader._load = originalLoad;
+    await releaseSetupConnection(); await engine.close();
     assert(path.basename(root).startsWith('canvas-store-application-'));
     const unlock = async (directory: string): Promise<void> => {
       const stat = await fs.lstat(directory); if (!stat.isDirectory() || stat.isSymbolicLink()) return;
@@ -99,6 +110,7 @@ export async function createCapabilityPackageStoreApplicationFixture(options: { 
       organizationScope: { scopeType: 'organization' as const, organizationId }, userScope: (userId: string) => ({ scopeType: 'user' as const, userId }),
       headers: (userId: string) => new Headers({ authorization: `Bearer ${tokens.get(userId)}`, 'content-type': 'application/json', 'x-canvas-workspace-id': `personal-${userId}` }),
       setAfterQuery: (value: typeof afterQuery) => { afterQuery = value; }, setBeforeRead: (value: typeof beforeRead) => { beforeRead = value; },
+      setAfterRead: (value: typeof afterRead) => { afterRead = value; }, releaseSetupConnection,
       setBeforeFetch: (value: typeof beforeFetch) => { beforeFetch = value; },
       providerRequests: () => providerRequests, close };
   } catch (error) { await close(); throw error; }

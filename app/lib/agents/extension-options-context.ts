@@ -1,7 +1,7 @@
 import 'server-only';
 
 import { createHash } from 'node:crypto';
-import { openDb } from '@/app/lib/db';
+import { openDb, type SqlConnection } from '@/app/lib/db';
 import { authorizeIntegrationConnection, authorizeIntegrationConnectionBindingsOnConnection,
   lockIntegrationConnectionBindingsOnConnection, type IntegrationConnectionBindingAuthorization } from '@/app/lib/integration-tools/connections/store';
 import { isIntegrationConnectionError } from '@/app/lib/integration-tools/connections/contracts';
@@ -37,21 +37,21 @@ function fail(code: string, message: string, status = 409): never { throw new Ag
 
 /** Resolve actual actor/target authority; a prospective target never creates an agent or a grant. */
 export async function resolveAgentExtensionOptionsContext(actorInput: AgentManagementActor,
-  targetInput: AgentExtensionOptionsTarget): Promise<AgentExtensionOptionsContext> {
-  const captured = structuredClone(actorInput), target = structuredClone(targetInput), database = await openDb();
+  targetInput: AgentExtensionOptionsTarget, options: { database?: SqlConnection } = {}): Promise<AgentExtensionOptionsContext> {
+  const captured = structuredClone(actorInput), target = structuredClone(targetInput), database = options.database ?? await openDb();
   let organizationId: string | null, organizationRole: string | null, actor: AgentManagementActor;
   try {
     const verified = await resolveVerifiedAgentActorContextOnConnection(captured, database);
     organizationId = verified.organizationId; organizationRole = verified.organizationRole;
     actor = { ...captured, organizationId, workspaceId: verified.context.workspaceId ?? null, projectId: verified.context.projectId ?? null };
-  } finally { await database.close(); }
+  } finally { if (!options.database) await database.close(); }
   let snapshot: AgentWorkflowInternalSnapshot | undefined;
   if (target.kind === 'prospective') {
     if (target.scopeType === 'organization' && (!organizationId || !['owner', 'admin'].includes(organizationRole ?? ''))) {
       fail('AGENT_ORGANIZATION_ADMIN_REQUIRED', 'Organization administration is required to create an organization agent.', 403);
     }
   } else {
-    snapshot = await readManagedAgentWorkflow(actor, target.agentId);
+    snapshot = await readManagedAgentWorkflow(actor, target.agentId, options);
     if (target.kind === 'existing') {
       if (!snapshot.access.canEdit) fail('AGENT_ACCESS_DENIED', 'Current agent editing permission is required.', 403);
       if (snapshot.agent.type === 'main') fail('AGENT_MAIN_PROTECTED', 'The main agent is configured through organization policy.', 403);
@@ -77,9 +77,10 @@ export async function resolveAgentExtensionOptionsContext(actorInput: AgentManag
 }
 
 /** Metadata is rechecked after remote IO. Context fingerprints are cache keys, never permission tokens. */
-export async function revalidateAgentExtensionOptionsContext(context: AgentExtensionOptionsContext): Promise<void> {
+export async function revalidateAgentExtensionOptionsContext(context: AgentExtensionOptionsContext,
+  options: { database?: SqlConnection } = {}): Promise<void> {
   if (!issuedContexts.has(context)) fail('AGENT_ACCESS_DENIED', 'A current server-issued selection context is required.', 403);
-  const fresh = await resolveAgentExtensionOptionsContext(context.actor, context.target);
+  const fresh = await resolveAgentExtensionOptionsContext(context.actor, context.target, options);
   if (fresh.contextKey !== context.contextKey) fail('AGENT_WORKFLOW_REVISION_CONFLICT', 'The current selection context changed. Start the selection again.');
 }
 

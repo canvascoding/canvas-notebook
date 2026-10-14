@@ -2,6 +2,7 @@ import 'server-only';
 
 import path from 'node:path';
 import { createHash } from 'node:crypto';
+import type { SqlConnection } from '@/app/lib/db';
 import { getComposioMode, getLocalComposioApiKey } from '@/app/lib/composio/composio-client';
 import { listExistingComposioProfiles } from '@/app/lib/composio/composio-profiles';
 import { resolveBoundComposioContext } from '@/app/lib/composio/composio-context';
@@ -136,18 +137,19 @@ export async function readAgentComposioOptionsCatalogue(context: AgentExtensionO
 }
 
 /** Server-only exact metadata for package/definition matching. Never serialize the returned configuration. */
-export async function readAgentOwnMcpOptionMetadata(context: AgentExtensionOptionsContext, connectionRef: string):
+export async function readAgentOwnMcpOptionMetadata(context: AgentExtensionOptionsContext, connectionRef: string,
+  options: { database?: SqlConnection } = {}):
   Promise<{ serverName: string; connection: McpServerConfig } | null> {
   if (!context.allowPersonal || !/^mcp-personal:[a-f0-9-]{36}$/u.test(connectionRef)) return null;
-  await revalidateAgentExtensionOptionsContext(context);
-  const actor = await requireMcpUserAccess({ userId: context.actor.userId });
+  await revalidateAgentExtensionOptionsContext(context, options);
+  const actor = await requireMcpUserAccess({ userId: context.actor.userId }, options);
   const config = await readExistingConfig(resolveMcpConfigPath({ userId: context.actor.userId }));
   const exact = Object.entries(config.mcpServers).filter(([, value]) => `mcp-personal:${value.connectionId}` === connectionRef);
   if (exact.length !== 1 || !actor) return null;
   const [serverName, connection] = exact[0];
   validateMcpConnectionId(connection.connectionId);
   await assertPersonalMcpConnectionMetadataAccess(connection, { userId: context.actor.userId }, actor);
-  await revalidateAgentExtensionOptionsContext(context);
+  await revalidateAgentExtensionOptionsContext(context, options);
   const current = await readExistingConfig(resolveMcpConfigPath({ userId: context.actor.userId }));
   const currentExact = Object.entries(current.mcpServers).filter(([, value]) => `mcp-personal:${value.connectionId}` === connectionRef);
   if (currentExact.length !== 1 || digest(currentExact[0]) !== digest(exact[0])) return null;
@@ -187,18 +189,20 @@ export async function readAgentMcpOptionsInventory(context: AgentExtensionOption
 }
 
 /** Own metadata for an actual per-user slot. This path never enumerates global shared candidates. */
-export async function readAgentOwnMcpOptionsInventory(context: AgentExtensionOptionsContext): Promise<PluginExtensionSourceResult> {
-  return readMcpOptionsInventory(context, false);
+export async function readAgentOwnMcpOptionsInventory(context: AgentExtensionOptionsContext,
+  options: { database?: SqlConnection } = {}): Promise<PluginExtensionSourceResult> {
+  return readMcpOptionsInventory(context, false, options);
 }
 
-async function readMcpOptionsInventory(context: AgentExtensionOptionsContext, includeShared: boolean): Promise<PluginExtensionSourceResult> {
-  await revalidateAgentExtensionOptionsContext(context);
+async function readMcpOptionsInventory(context: AgentExtensionOptionsContext, includeShared: boolean,
+  options: { database?: SqlConnection } = {}): Promise<PluginExtensionSourceResult> {
+  await revalidateAgentExtensionOptionsContext(context, options);
   if (includeShared) configurationTarget(context);
   const items: PluginExtensionItem[] = [];
   const personalStamps = new Map<string, string>();
   let partial = false;
   try {
-    const actor = await requireMcpUserAccess({ userId: context.actor.userId });
+    const actor = await requireMcpUserAccess({ userId: context.actor.userId }, options);
     if (actor) {
       if (context.allowPersonal) {
         let config: McpConfig = { mcpServers: {} };
@@ -265,7 +269,7 @@ async function readMcpOptionsInventory(context: AgentExtensionOptionsContext, in
   }
   const freshShared = new Map((includeShared ? await listAgentExtensionSharedOptions(context, 'mcp') : []).map(value => [value.resource.connectionRef, value]));
   if (personalStamps.size) {
-    const currentActor = await requireMcpUserAccess({ userId: context.actor.userId });
+    const currentActor = await requireMcpUserAccess({ userId: context.actor.userId }, options);
     const current = await readExistingConfig(resolveMcpConfigPath({ userId: context.actor.userId }));
     for (const [id, stamp] of personalStamps) {
       const matches = Object.values(current.mcpServers).filter(value => `mcp-personal:${value.connectionId}` === id);
@@ -275,7 +279,7 @@ async function readMcpOptionsInventory(context: AgentExtensionOptionsContext, in
       } catch { personalStamps.delete(id); partial = true; }
     }
   }
-  await revalidateAgentExtensionOptionsContext(context);
+  await revalidateAgentExtensionOptionsContext(context, options);
   return { items: items.filter(item => item.id.startsWith('mcp-personal:') ? personalStamps.has(item.id)
       : !item.id.startsWith('canvas-connection:') || freshShared.has(item.id)
         && digest(freshShared.get(item.id)) === digest(shared.find(value => value.resource.connectionRef === item.id))),

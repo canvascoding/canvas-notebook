@@ -149,8 +149,9 @@ export function readAgentWorkflowPreferenceSnapshot(row: Record<string, unknown>
 }
 
 /** Fresh actor/agent authority. This private result must never be spread into an HTTP or tool DTO. */
-export async function readManagedAgentWorkflow(actorInput: AgentManagementActor, agentId: string): Promise<AgentWorkflowInternalSnapshot> {
-  const actor = structuredClone(actorInput), database = await openDb();
+export async function readManagedAgentWorkflow(actorInput: AgentManagementActor, agentId: string,
+  options: { database?: SqlConnection } = {}): Promise<AgentWorkflowInternalSnapshot> {
+  const actor = structuredClone(actorInput), database = options.database ?? await openDb();
   try {
     const verified = await resolveVerifiedAgentActorContextOnConnection(actor, database);
     const result = await readManagedAgentWorkflowOnConnection(database, agentId);
@@ -164,7 +165,7 @@ export async function readManagedAgentWorkflow(actorInput: AgentManagementActor,
     }
     result.preferenceRevision = preferences.revision; result.choices = structuredClone(preferences.choices);
     freeze(result); snapshots.add(result); return result;
-  } finally { await database.close(); }
+  } finally { if (!options.database) await database.close(); }
 }
 export function isManagedAgentWorkflowSnapshot(value: unknown): value is AgentWorkflowInternalSnapshot { return Boolean(value && typeof value === 'object' && snapshots.has(value)); }
 

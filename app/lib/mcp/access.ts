@@ -1,6 +1,7 @@
 import 'server-only';
 
 import crypto from 'node:crypto';
+import type { SqlConnection } from '@/app/lib/db';
 
 import { assertUserSeatAccess } from '@/app/lib/license/seat-limit';
 import { assertUserOrganizationAdmin, readOrganizationPermissionForUser } from '@/app/lib/organization/permissions';
@@ -19,22 +20,22 @@ export class McpAccessError extends Error {
   }
 }
 
-export async function requireMcpUserAccess(scope?: McpScope | null): Promise<McpActor | null> {
+export async function requireMcpUserAccess(scope?: McpScope | null, options: { database?: SqlConnection } = {}): Promise<McpActor | null> {
   if (!scope?.userId && scope?.legacy !== true) throw new McpAccessError('Sign in to use MCP connections.', 401);
   let normalized: McpScope;
   try { normalized = requireMcpCredentialScope(scope); } catch { throw new McpAccessError('An explicit MCP user or system scope is required.', 401); }
   if (normalized.legacy) return null;
   const userId = normalized.userId!;
-  const seat = await assertUserSeatAccess({ userId }).catch((error: unknown) => {
+  const seat = await assertUserSeatAccess({ userId, database: options.database, readOnlyLicense: Boolean(options.database) }).catch((error: unknown) => {
     if ((error as { status?: number })?.status === 403) throw new McpAccessError('An active account and seat are required.');
     throw error;
   });
-  const state = await readOrganizationPermissionForUser(userId);
+  const state = await readOrganizationPermissionForUser(userId, options.database);
   if (state.configured && (state.permission?.status !== 'active' || state.permission.role === 'external')) throw new McpAccessError('An active organization membership is required.');
   if (state.configured && seat.mode === 'team' && seat.organizationId !== state.organizationId) throw new McpAccessError('The active seat belongs to another organization.');
   let canManageDefinitions = state.permission?.role === 'owner' || state.permission?.role === 'admin';
   if (!state.configured) {
-    try { await assertUserOrganizationAdmin(userId); } catch { throw new McpAccessError('An active organization membership is required.'); }
+    try { await assertUserOrganizationAdmin(userId, undefined, options.database); } catch { throw new McpAccessError('An active organization membership is required.'); }
     canManageDefinitions = true;
   }
   return { userId, organizationId: state.organizationId, canManageDefinitions };

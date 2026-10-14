@@ -19,15 +19,17 @@ import { presentSharedIntegrationProvider } from '@/app/lib/integration-tools/co
 import { getComposioMode } from '@/app/lib/composio/composio-client';
 import type { IntegrationProviderDescriptor } from '@/app/lib/integration-tools/contracts';
 import { readPersonalComposioAccountReference } from '@/app/lib/composio/composio-shared-account-reference';
-import { listExistingComposioProfiles } from '@/app/lib/composio/composio-profiles';
+import { listExistingComposioProfiles, listExistingComposioProfilesOnConnection,
+  readOwnedComposioProfileOnConnection } from '@/app/lib/composio/composio-profiles';
 import { isComposioIntegrationApplicationVisible } from '@/app/lib/integration-tools/adapters/composio';
 import { hashMcpLegacyConfig, validateMcpConnectionId } from '@/app/lib/mcp/connection-identity';
 import { parseWorkflowManifest, type WorkflowIntegrationAlternative } from '@/app/lib/capabilities/workflow-contracts';
 import { readExistingConfig } from '@/app/lib/mcp/read-only-config';
 import { resolveOrganizationDataRoot } from '@/app/lib/runtime-data-paths';
 import { readAgentExtensionPackageVersion } from './extension-package-options';
-import { readAgentOwnMcpOptionMetadata, readAgentOwnMcpOptionsInventory,
-  readAgentComposioOptionsCatalogue } from './extension-options-inventory';
+import { readAgentOwnMcpOptionMetadata, readAgentOwnMcpOptionsInventory } from './extension-options-inventory';
+import { prepareAgentExtensionPreviewProviderMetadata, readAgentExtensionPreviewNoAuthMetadataOnConnection,
+  type PreparedAgentExtensionPreviewProviderMetadata } from './extension-options-preview-provider-metadata';
 import { revalidateAgentExtensionOptionsContext, type AgentExtensionOptionsContext } from './extension-options-context';
 import { agentExtensionOptionsRequestSchema, type AgentExtensionOptionsRequest,
   type AgentExtensionOptionsResponse, type AgentExtensionConfigurationPreview } from './extension-options-contracts';
@@ -124,7 +126,7 @@ export async function previewAgentExtensionConfiguration(context: AgentExtension
     if (!context.allowPersonal) fail('AGENT_WORKFLOW_BINDING_DENIED', 'A shared Agent cannot embed a personal connection.');
     let descriptor: IntegrationProviderDescriptor;
     if (selection.kind === 'mcp') {
-      const actual = await readAgentOwnMcpOptionMetadata(context, selection.target.connectionRef);
+      const actual = await readAgentOwnMcpOptionMetadata(context, selection.target.connectionRef, { database: frame.database });
       if (!actual) fail('AGENT_WORKFLOW_BINDING_DENIED');
       metadataStamps.push([actual.serverName, hashMcpLegacyConfig(actual.connection)]);
       const binding = validatePersonalWorkflowProviderBinding({ source: 'mcp', ownerUserId: context.actor.userId,
@@ -134,18 +136,18 @@ export async function previewAgentExtensionConfiguration(context: AgentExtension
     } else {
       if (!isComposioIntegrationApplicationVisible(selection.toolkit)) fail('AGENT_WORKFLOW_BINDING_DENIED');
       const personalTarget = selection.target;
-      const profile = (await listExistingComposioProfiles(context.actor.userId)).find(profile => profile.id === personalTarget.profileId && profile.status === 'active');
+      const profile = await readOwnedComposioProfileOnConnection(frame.database, context.actor.userId, personalTarget.profileId);
       if (!profile) fail('AGENT_WORKFLOW_BINDING_DENIED');
       metadataStamps.push(profile);
       if (selection.target.accountBinding === 'no_auth' && !entry.retainedBindingRef && !mapping?.target?.personalBinding) {
         // Initial no-auth intent is accepted only from actual toolkit metadata.
         // Metadata lookup neither enumerates accounts nor proves runtime health.
-        const catalog = await readAgentComposioOptionsCatalogue(context, AbortSignal.timeout(10_000),
-          { search: selection.toolkit, selectedSlug: selection.toolkit, profileId: selection.target.profileId });
-        if (!catalog.items.some(item => item.kind === 'integration' && item.toolkit.slug === selection.toolkit && item.toolkit.noAuth)) {
-          fail('AGENT_EXTENSION_ACCOUNT_REQUIRED');
-        }
-        const fresh = (await listExistingComposioProfiles(context.actor.userId)).find(value => value.id === profile.id);
+        if (!preparedProviderMetadata) fail('AGENT_EXTENSION_PREVIEW_INVALID');
+        const metadata = await readAgentExtensionPreviewNoAuthMetadataOnConnection(frame.database, context, preparedProviderMetadata,
+          selection.target.profileId, selection.toolkit);
+        if (!metadata.noAuth) fail('AGENT_EXTENSION_ACCOUNT_REQUIRED');
+        metadataStamps.push(metadata.stamp);
+        const fresh = await readOwnedComposioProfileOnConnection(frame.database, context.actor.userId, profile.id);
         if (JSON.stringify(fresh) !== JSON.stringify(profile)) fail('AGENT_EXTENSION_ACCOUNT_CHANGED');
       }
       if (selection.target.accountBinding === 'account' && !entry.retainedBindingRef && !mapping?.target?.personalBinding) {
@@ -177,7 +179,7 @@ export async function previewAgentExtensionConfiguration(context: AgentExtension
     return { descriptor, toolCap: entry.toolCap };
   };
 
-  const resolveTarget = async (target: AgentWorkflowTarget, alternative: WorkflowIntegrationAlternative,
+  const resolveTarget = async (frame: ProposedAgentExtensionPreviewFrame, target: AgentWorkflowTarget, alternative: WorkflowIntegrationAlternative,
     slot: AgentWorkflowBindingSlot): Promise<{ selection: StandaloneExtensionSelection; stored?: StoredAgentWorkflowTarget; receipt?: string; confirmation?: boolean }> => {
     const stored = target.kind === 'retained' ? context.snapshot
       ? resolveRetainedAgentWorkflowTarget(context.actor, context.snapshot, slot, target.retainedBindingRef)
@@ -199,7 +201,7 @@ export async function previewAgentExtensionConfiguration(context: AgentExtension
             connectionRef: `composio-personal:${binding.profileId}:${binding.connectedAccountId}` } }, stored };
     }
     if (alternative.source === 'mcp') {
-      const matches = (await readAgentOwnMcpOptionsInventory(context)).items.filter(item => item.kind === 'mcp' && item.mcp.serverId
+      const matches = (await readAgentOwnMcpOptionsInventory(context, { database: frame.database })).items.filter(item => item.kind === 'mcp' && item.mcp.serverId
         && item.ownership?.type === 'user' && item.ownership.ownerUserId === context.actor.userId && item.access.canUse
         && createIntegrationProviderRef({ source: 'mcp', connectionId: item.mcp.serverId,
           scope: { type: 'user', ownerUserId: context.actor.userId, resourceId: item.mcp.serverId } }) === current.providerRef);
@@ -209,7 +211,7 @@ export async function previewAgentExtensionConfiguration(context: AgentExtension
     if (!current.accountSelectionRef) {
       // A legacy public personal target has no account/no-auth discriminator.
       // Only actual toolkit metadata may establish no-auth; never enumerate accounts here.
-      const profile = (await listExistingComposioProfiles(context.actor.userId)).find(profile => profile.status === 'active'
+      const profile = (await listExistingComposioProfilesOnConnection(frame.database, context.actor.userId)).find(profile => profile.status === 'active'
         && profile.ownerUserId === context.actor.userId && createIntegrationProviderRef({ source: 'composio', profileId: profile.id,
           toolkit: alternative.toolkit, scope: { type: 'user', ownerUserId: context.actor.userId,
             resourceId: `profile:${profile.id}:${alternative.toolkit}` } }) === current.providerRef);
@@ -272,6 +274,28 @@ export async function previewAgentExtensionConfiguration(context: AgentExtension
       if (choice.selection.target.kind === 'shared') sharedReferences.add(choice.selection.target.connectionRef);
     }
   }
+  // Bind only explicit initial no-auth candidates before the compiler opens its
+  // transaction. Missing/default workspaces are resolved here, never under the
+  // held Agent/Actor/source locks. The opaque preparation is freshly rechecked
+  // against the same SQL lease for each subsequent metadata use.
+  const noAuthProfiles = new Set<string>();
+  if (configuration?.mode === 'fixed') {
+    for (const slot of configuration.standalone) for (const entry of slot.mode === 'fixed' ? [slot.entry] : slot.allowedChoices) {
+      const selection = entry.selection;
+      if (selection.kind === 'composio' && selection.target.kind === 'personal' && selection.target.accountBinding === 'no_auth'
+        && !entry.retainedBindingRef) noAuthProfiles.add(selection.target.profileId);
+    }
+    const targets = (configuration.workflow?.packages ?? []).flatMap(pkg => pkg.declarations.flatMap(declaration =>
+      declaration.capabilities.flatMap(capability => (capability.selection.mode === 'fixed' ? [capability.selection] : capability.selection.allowedChoices)
+        .flatMap(choice => choice.target.kind === 'personal' && choice.target.source === 'composio' && !choice.target.accountSelectionRef
+          ? [{ target: choice.target, toolkit: choice.alternativeKey.startsWith('composio:') ? choice.alternativeKey.slice('composio:'.length) : null }] : []))));
+    if (targets.length) for (const profile of await listExistingComposioProfiles(context.actor.userId)) {
+      if (targets.some(({ target, toolkit }) => toolkit && target.ownerUserId === context.actor.userId
+        && createIntegrationProviderRef({ source: 'composio', profileId: profile.id, toolkit,
+          scope: { type: 'user', ownerUserId: context.actor.userId, resourceId: `profile:${profile.id}:${toolkit}` } }) === target.providerRef)) noAuthProfiles.add(profile.id);
+    }
+  }
+  const preparedProviderMetadata: PreparedAgentExtensionPreviewProviderMetadata = await prepareAgentExtensionPreviewProviderMetadata(context, [...noAuthProfiles]);
   const initialIssues = [...issues];
   const resolveProviders = async (frame: ProposedAgentExtensionPreviewFrame) => {
     if (configuration?.mode !== 'fixed') fail('AGENT_EXTENSION_PREVIEW_INVALID');
@@ -331,7 +355,7 @@ export async function previewAgentExtensionConfiguration(context: AgentExtension
               try {
                 const alternative = capability.alternatives.find(value => alternativeKey(value) === choice.alternativeKey);
                 if (!alternative) fail('AGENT_WORKFLOW_ALTERNATIVE_INVALID');
-                const target = await resolveTarget(choice.target, alternative, { resourceRef: pkg.resourceRef, publishedRevisionRef: pkg.publishedRevisionRef,
+                const target = await resolveTarget(frame, choice.target, alternative, { resourceRef: pkg.resourceRef, publishedRevisionRef: pkg.publishedRevisionRef,
                   declarationPath: declaration.declarationPath, capabilityId: capability.id, alternativeKey: choice.alternativeKey,
                   ...('choiceId' in choice ? { choiceId: choice.choiceId } : {}) });
                 const rootCap = entries.find(entry => entry.selection.kind === 'skill'

@@ -465,6 +465,17 @@ export async function authorizeIntegrationConnection(input: IntegrationConnectio
   if (operation === 'use') await assertUserSeatAccess({ userId: actor.userId }).catch(() => fail('CONNECTION_ACCESS_DENIED', 'An active account and seat are required.', 403));
   return withDatabase(ref, actor, false, async database => authorizeOn(database, actor, await recordOn(database, ref), operation, toolName, false));
 }
+
+/** Same current ActorUse policy on the caller's lease; no checkout, transaction or execution-proof shortcut. */
+export async function authorizeIntegrationConnectionOnConnection(database: SqlConnection, input: IntegrationConnectionActor, reference: string,
+  operation: IntegrationConnectionOperation = 'inspect', requestedToolName?: string): Promise<AuthorizedIntegrationConnection> {
+  const actor = actorSnapshot(input), ref = validateIntegrationConnectionRef(reference);
+  if (!['inspect', 'use', 'manage'].includes(operation)) fail('CONNECTION_REQUEST_INVALID', 'Invalid connection operation.');
+  const toolName = requestedToolName === undefined ? undefined : text(requestedToolName, 'Tool name', 512);
+  if (operation === 'use') await assertUserSeatAccess({ userId: actor.userId, database, readOnlyLicense: true }).catch(() =>
+    fail('CONNECTION_ACCESS_DENIED', 'An active account and seat are required.', 403));
+  return authorizeOn(database, actor, await recordOn(database, ref), operation, toolName, false);
+}
 export async function revalidateAuthorizedIntegrationConnection(previous: AuthorizedIntegrationConnection,
   operation?: IntegrationConnectionOperation, toolName?: string): Promise<AuthorizedIntegrationConnection> {
   if (!isAuthorizedIntegrationConnection(previous)) fail('CONNECTION_ACCESS_DENIED', 'A current server-issued connection authorization is required.', 403);

@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { cpSync, existsSync, mkdirSync, readdirSync, renameSync, rmSync } from 'node:fs';
 import path from 'node:path';
 
-import { openDb } from '@/app/lib/db';
+import { openDb, type SqlConnection } from '@/app/lib/db';
 import {
   areTeamFeaturesEnabled,
   getConfiguredOrganizationId,
@@ -2359,8 +2359,9 @@ export async function resolveExistingPostgresWorkspaceForActor(
 
 export async function getPostgresOrganizationPermissionForUser(
   userId: string,
+  borrowedDatabase?: SqlConnection,
 ): Promise<OrganizationPermissionState> {
-  const database = await openDb();
+  const database = borrowedDatabase ?? await openDb();
   try {
     const organization = await getPrimaryOrganization(database);
     const deploymentMode = organization?.deployment_mode || getDeploymentMode();
@@ -2379,17 +2380,18 @@ export async function getPostgresOrganizationPermissionForUser(
       permission,
     };
   } finally {
-    await database.close();
+    if (!borrowedDatabase) await database.close();
   }
 }
 
 export async function findPostgresPermissionUserCandidate(
   userId: string,
+  borrowedDatabase?: SqlConnection,
 ): Promise<{ id: string; email: string | null; role: string | null } | null> {
-  const database = await openDb();
+  const database = borrowedDatabase ?? await openDb();
   try {
     return await findPostgresUserById(database, userId);
   } finally {
-    await database.close();
+    if (!borrowedDatabase) await database.close();
   }
 }

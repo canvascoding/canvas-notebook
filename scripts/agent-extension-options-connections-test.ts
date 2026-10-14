@@ -86,6 +86,11 @@ async function main() {
     assert.deepEqual(new Set(all.connections.map(value => value.selection.target.kind === 'shared' ? value.selection.target.connectionRef : 'personal')),
       new Set([first.resource.connectionRef, second.resource.connectionRef]));
     assert(all.connections.every(value => value.eligibility.action === 'select' && value.health === 'unknown' && !value.mappingRequired));
+    assert.deepEqual(all.setupAlternatives, [{ source: 'mcp', label: 'MCP' }]);
+    const emptyOwnProfiles = await choose(aliceProspective, { selector: { kind: 'standalone', source: 'composio', toolkit: 'canva' } });
+    assert.equal(emptyOwnProfiles.profiles.length, 0);
+    assert.deepEqual(emptyOwnProfiles.setupAlternatives, [{ source: 'composio', toolkit: 'canva', label: 'canva', alternativeKey: 'composio:canva' }],
+      'A configured source can expose its precise setup route even when no own profile exists; this never creates a profile.');
     assert.deepEqual(await sql.all('SELECT agent_id FROM agents ORDER BY agent_id'), before);
     await assert.rejects(contexts.resolveAgentExtensionOptionsContext(aliceActor, { kind: 'prospective', scopeType: 'organization' }), errorCode('AGENT_ORGANIZATION_ADMIN_REQUIRED'));
     await assert.rejects(choose(aliceProspective, { selector: { kind: 'standalone', source: 'mcp' }, q: 'changed', limit: 1,
@@ -113,6 +118,7 @@ async function main() {
     const ownerProspective = await contexts.resolveAgentExtensionOptionsContext(ownerActor, { kind: 'prospective', scopeType: 'user' });
     const packageChoices = await choose(ownerProspective, { selector: packageSelector });
     assert(packageChoices.connections.length >= 3); assert(packageChoices.connections.every(value => value.mappingRequired));
+    assert.deepEqual(packageChoices.setupAlternatives, [{ source: 'mcp', connector: 'reader', label: 'reader', alternativeKey: 'mcp:reader' }]);
     await assert.rejects(choose(ownerProspective, { selector: { ...packageSelector, capabilityId: 'invented' } }), errorCode('AGENT_WORKFLOW_ALTERNATIVE_INVALID'));
     await assert.rejects(choose(ownerProspective, { selector: { ...packageSelector, package: { ...pin, checksum: 'f'.repeat(64) } } }), errorCode('AGENT_WORKFLOW_PACKAGE_CHANGED'));
     assert.equal(provider.calls.length, 0);
@@ -192,6 +198,13 @@ async function main() {
       expectedPreferenceRevision: 0, capabilityKey: agentWorkflowCapabilityKey(pin.resourceRef, '.canvas-plugin/plugin.json', 'reader') };
     const policyContext = await contexts.resolveAgentExtensionOptionsContext(aliceActor, packageTarget);
     const matching = await choose(policyContext, { selector: { kind: 'slot', alternativeKey: 'mcp:reader' } });
+    assert.deepEqual(matching.setupAlternatives, [{ source: 'mcp', connector: 'reader', definitionId,
+      label: 'Explicit approved definition', alternativeKey: 'mcp:reader' }], 'Use-only package setup exposes only its actually mapped approved definition.');
+    const definitionText = await fs.readFile(definitionPath, 'utf8'), disabledDefinitions = JSON.parse(definitionText);
+    disabledDefinitions.definitions[0].enabled = false; await fs.writeFile(definitionPath, JSON.stringify(disabledDefinitions));
+    assert.deepEqual((await choose(policyContext, { selector: { kind: 'slot', alternativeKey: 'mcp:reader' } })).setupAlternatives, [],
+      'A disabled definition cannot become a generic personal setup fallback.');
+    await fs.writeFile(definitionPath, definitionText);
     assert(matching.connections.some(value => value.selection.kind === 'mcp' && value.selection.target.kind === 'personal'
       && value.selection.target.connectionRef === `mcp-personal:${personalConnection.connectionId}`));
     const personalPackageChoice = matching.connections.find(value => value.selection.kind === 'mcp' && value.selection.target.kind === 'personal');
@@ -228,6 +241,7 @@ async function main() {
     const unmappedContext = await contexts.resolveAgentExtensionOptionsContext(aliceActor, { ...packageTarget, expectedWorkflowRevision: historicalWorkflowRevision });
     const unmapped = await choose(unmappedContext, { selector: { kind: 'slot', alternativeKey: 'mcp:reader' } });
     assert(!unmapped.connections.some(value => value.selection.target.kind === 'personal'), 'Missing package mapping is an empty definition allowlist, never all approved definitions.');
+    assert.deepEqual(unmapped.setupAlternatives, []);
 
     stage = 'explicit own profile only; exact two-account sealed choices with no automatic selection';
     await (await import('../app/lib/integrations/env-config')).replaceScopedEnvEntries('integrations',
@@ -289,6 +303,24 @@ async function main() {
     const composioSelector = { ...packageSelector, package: composioPin, alternativeKey: 'composio:canva' };
     const personalOptionsTarget = { kind: 'prospective' as const, scopeType: 'user' as const };
     const freshAliceProspective = await contexts.resolveAgentExtensionOptionsContext(aliceActor, personalOptionsTarget);
+    const nextArchive = await fixture.registry.addPackage('application', 'plugin', composioName, '2.0.0', {
+      '.canvas-plugin/plugin.json': JSON.stringify({ name: composioName, version: '2.0.0', description: 'New head with a different declared source', skills: './skills',
+        connectors: { composio: [{ toolkit: 'duckduckgo', required: false }] },
+        workflow: { version: 1, integrationCapabilities: [{ id: 'reader', application: 'design', required: true,
+          alternatives: [{ source: 'composio', toolkit: 'duckduckgo' }] }] } }),
+      'skills/options-composio-brief/SKILL.md': '---\nname: options-composio-brief\ndescription: The new head has a different source\n---\n\nNew head.\n',
+    }, pluginRegistry.computeCanvasPluginChecksum);
+    const updateReview = await stores.inspectCapabilityPackageStoreUpdateAction(owner, composioPin.resourceRef, { source: {
+      kind: 'plugin', registryId: 'store-application', entryKey: composioName, version: '2.0.0', checksum: nextArchive.checksum } });
+    await stores.updateCapabilityPackageFromStoreAction(owner, composioPin.resourceRef, { source: updateReview.source,
+      expectedMetadataRevision: updateReview.expectedMetadataRevision, expectedGrantsRevision: updateReview.expectedGrantsRevision,
+      expectedPackageRevision: updateReview.expectedPackageRevision, expectedPublishedRevisionRef: updateReview.expectedPublishedRevisionRef,
+      expectedLocalChecksum: updateReview.expectedLocalChecksum, replaceLocalChanges: false });
+    const beforeSetupReads = provider.calls.length;
+    const heldSetup = await choose(freshAliceProspective, { selector: composioSelector });
+    assert.deepEqual(heldSetup.setupAlternatives, [{ source: 'composio', toolkit: 'canva', label: 'canva', alternativeKey: 'composio:canva' }],
+      'The real current head no longer declares Canva; setup must still use the authorized immutable selected 1.0.0 source.');
+    assert.equal(provider.calls.length, beforeSetupReads, 'Precise setup metadata neither probes accounts nor providers.');
     const packageAccounts = await choose(freshAliceProspective, { selector: composioSelector, profileId: composio.profileId });
     const packageB = packageAccounts.accounts.find(value => value.selection.target.accountId === 'exact-b');
     assert(packageB?.packageBinding?.target.kind === 'personal');
@@ -312,13 +344,18 @@ async function main() {
       extensions: { ...empty, mode: 'fixed', selections: [{ selection: { kind: 'plugin', package: composioPin, skillSelection: { kind: 'all' } },
         requirement: 'required', toolCap: null }], workflow: { version: 1, packages: [{ ...composioPin, skillSelection: { kind: 'plugin' },
         declarations: [{ declarationPath: '.canvas-plugin/plugin.json', capabilities: [{ capabilityId: 'reader', selection: { mode: 'selectable', allowedChoices: [],
-          personalPolicy: { sources: ['composio'], alternativeKeys: ['composio:canva'], toolCap: ['DESIGN_CREATE'] } } }] }] }] } } });
+          personalPolicy: { sources: ['composio'], alternativeKeys: ['composio:canva', 'composio:duckduckgo'], toolCap: ['DESIGN_CREATE'] } } }] }] }] } } });
     const sharedComposioRevision = sharedComposioAgent.agent.workflowRevision;
     assert(typeof sharedComposioRevision === 'number' && sharedComposioRevision > 0);
     const packageChoiceTarget = { kind: 'user_choice' as const, agentId: sharedComposioAgent.agent.agentId,
       capabilityKey: agentWorkflowCapabilityKey(composioPin.resourceRef, '.canvas-plugin/plugin.json', 'reader'),
       expectedWorkflowRevision: sharedComposioRevision, expectedPreferenceRevision: 0 };
     const packageChoiceContext = await contexts.resolveAgentExtensionOptionsContext(aliceActor, packageChoiceTarget);
+    const setupProbeCount = provider.calls.length;
+    const allSetups = await choose(packageChoiceContext, { selector: { kind: 'slot' } });
+    assert.deepEqual(allSetups.setupAlternatives?.map(value => value.source === 'composio' ? value.toolkit : value.connector), ['canva', 'duckduckgo'],
+      'Every currently permitted package alternative is returned explicitly, independent of the newer head.');
+    assert.equal(provider.calls.length, setupProbeCount);
     const packageOwnAccounts = await choose(packageChoiceContext, { selector: { kind: 'slot', alternativeKey: 'composio:canva' }, profileId: composio.profileId });
     const perUserB = packageOwnAccounts.accounts.find(value => value.selection.target.accountId === 'exact-b');
     assert(perUserB?.packageBinding?.target.kind === 'personal');
@@ -417,8 +454,73 @@ async function main() {
     const secondProfileNoAuth: AgentExtensionConfigurationInput = { ...empty, mode: 'fixed', standalone: [{ mode: 'fixed', entry: {
       selection: { ...noAuthOptions.noAuthSelection, target: { kind: 'personal', profileId: secondProfile.id, accountBinding: 'no_auth' } },
       requirement: 'required', toolCap: null } }] };
-    const managedSecondPreview = await previewAgentExtensionConfiguration(freshAliceProspective, { operation: 'preview', target: personalOptionsTarget,
-      configuration: secondProfileNoAuth, enabledTools: composioToolNames });
+    const profilesBeforeManagedPreview = await sql.all('SELECT id,owner_user_id,composio_user_id,is_default,status FROM composio_connection_profiles ORDER BY id');
+    const overridesBeforeManagedPreview = await sql.all('SELECT * FROM composio_workspace_profile_overrides ORDER BY user_id,workspace_id');
+    const workspaceDefaultsBeforeManagedPreview = await sql.all('SELECT id,owner_user_id,is_default FROM canvas_workspaces ORDER BY id');
+    const existingMcpTarget = { kind: 'existing' as const, agentId: ownMcpSnapshot.agent.agentId,
+      expectedRevision: ownMcpSnapshot.agent.revision, expectedWorkflowRevision: ownMcpSnapshot.workflowRevision };
+    const existingMcpContext = await contexts.resolveAgentExtensionOptionsContext(aliceActor, existingMcpTarget);
+    const sharedPreviewChoice = packageChoices.connections.find(value => value.selection.target.kind === 'shared'
+      && value.selection.target.connectionRef === first.resource.connectionRef);
+    assert(ownerProspective.target.kind === 'prospective');
+    assert(sharedPreviewChoice?.packageBinding?.target.kind === 'shared');
+    const confirmedSharedPreviewBinding = { ...sharedPreviewChoice.packageBinding, target: { ...sharedPreviewChoice.packageBinding.target,
+      mcpMapping: { kind: 'manager_confirmation' as const } } };
+    const actualOpenDb = fixture.database.openDb;
+    let heldPreviewLease: object | undefined, nestedCheckouts = 0, borrowedCloses = 0, heldProfileReads = 0, heldLicenseReads = 0;
+    fixture.database.openDb = async () => {
+      if (heldPreviewLease) { nestedCheckouts++; throw new Error('Preview must reuse its held SQL lease for every provider metadata check.'); }
+      const database = await actualOpenDb();
+      let inTransaction = false;
+      const leased = { ...database,
+        get: async (query: string, parameters: unknown[] = []) => {
+          if (inTransaction && query.replace(/\s+/gu, ' ').trim()
+            === 'SELECT organization_id FROM canvas_organization_settings ORDER BY created_at ASC LIMIT 1 FOR SHARE') heldPreviewLease = leased;
+          if (heldPreviewLease === leased && /FROM composio_connection_profiles/u.test(query)) heldProfileReads++;
+          if (heldPreviewLease === leased && /FROM license_certs/u.test(query)) heldLicenseReads++;
+          return database.get(query, parameters);
+        },
+        all: async (query: string, parameters: unknown[] = []) => {
+          if (heldPreviewLease === leased && /FROM composio_connection_profiles/u.test(query)) heldProfileReads++;
+          return database.all(query, parameters);
+        },
+        run: async (query: string, parameters: unknown[] = []) => {
+          const command = query.trim().toUpperCase();
+          const result = await database.run(query, parameters);
+          if (command === 'BEGIN') inTransaction = true;
+          if (command === 'COMMIT' || command === 'ROLLBACK') { inTransaction = false; if (heldPreviewLease === leased) heldPreviewLease = undefined; }
+          return result;
+        },
+        close: async () => {
+          if (heldPreviewLease === leased) { borrowedCloses++; throw new Error('A borrowed provider metadata lease must never be closed.'); }
+          await database.close();
+        },
+      };
+      return leased;
+    };
+    let managedSecondPreview: Awaited<ReturnType<typeof previewAgentExtensionConfiguration>>;
+    try {
+      managedSecondPreview = await previewAgentExtensionConfiguration(freshAliceProspective, { operation: 'preview', target: personalOptionsTarget,
+        configuration: secondProfileNoAuth, enabledTools: composioToolNames });
+      const noWorkspaceActor: AgentManagementActor = { userId: alice.userId, organizationId, workspaceId: null, source: 'api' };
+      const noWorkspaceContext = await contexts.resolveAgentExtensionOptionsContext(noWorkspaceActor, personalOptionsTarget);
+      const noWorkspacePreview = await previewAgentExtensionConfiguration(noWorkspaceContext, { operation: 'preview', target: personalOptionsTarget,
+        configuration: secondProfileNoAuth, enabledTools: composioToolNames });
+      assert(!noWorkspacePreview.preview.issues.some(value => value.severity === 'error'), JSON.stringify(noWorkspacePreview.preview.issues));
+      const existingMcpPreview = await previewAgentExtensionConfiguration(existingMcpContext, { operation: 'preview', target: existingMcpTarget,
+        configuration: packageConfiguration(pin, ownMcpPackage.packageBinding), enabledTools: ['read', 'mcp'] });
+      assert(!existingMcpPreview.preview.issues.some(value => value.severity === 'error'), JSON.stringify(existingMcpPreview.preview.issues));
+      const sharedMcpPreview = await previewAgentExtensionConfiguration(ownerProspective, { operation: 'preview', target: ownerProspective.target,
+        configuration: packageConfiguration(pin, confirmedSharedPreviewBinding), enabledTools: ['read', 'mcp'] });
+      assert(!sharedMcpPreview.preview.issues.some(value => value.severity === 'error'), JSON.stringify(sharedMcpPreview.preview.issues));
+    } finally { fixture.database.openDb = actualOpenDb; }
+    assert.equal(nestedCheckouts, 0, 'Initial managed no-auth preview cannot borrow another connection while its real Actor/source frame is held.');
+    assert.equal(borrowedCloses, 0); assert.equal(heldPreviewLease, undefined);
+    assert(heldProfileReads >= 8, 'Both explicit-workspace and legacy-null-workspace previews freshly read the actual selected profile inside their held SQL frame.');
+    assert(heldLicenseReads >= 2, 'Own MCP and shared ActorUse verify actual signed license storage on the held lease.');
+    assert.deepEqual(await sql.all('SELECT id,owner_user_id,composio_user_id,is_default,status FROM composio_connection_profiles ORDER BY id'), profilesBeforeManagedPreview);
+    assert.deepEqual(await sql.all('SELECT * FROM composio_workspace_profile_overrides ORDER BY user_id,workspace_id'), overridesBeforeManagedPreview);
+    assert.deepEqual(await sql.all('SELECT id,owner_user_id,is_default FROM canvas_workspaces ORDER BY id'), workspaceDefaultsBeforeManagedPreview);
     assert(!managedSecondPreview.preview.issues.some(value => value.severity === 'error'), JSON.stringify(managedSecondPreview.preview.issues));
     assert(managedCatalogueReads > 0, 'The actual managed HTTP transport must receive the chosen profile namespace.');
     assert.equal(provider.calls.filter(value => value.path.startsWith('/api/v3.1/connected_accounts')).length, beforeManagedAccounts);
