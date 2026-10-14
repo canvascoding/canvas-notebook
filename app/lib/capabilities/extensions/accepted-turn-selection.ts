@@ -134,7 +134,8 @@ export async function prepareAcceptedTurnExtensionSelection(contextInput: AgentE
     throw new AgentWorkflowError('AGENT_EXTENSION_CONTEXT_DENIED', 'The agent turn changed during selection acceptance.', 403);
   }
   const publicSelection: ChatExtensionSelection = chatExtensionSelectionSchema.parse({ version: 1, origin: 'turn_reference',
-    selections: input.selections.map(entry => ({ selection: entry.selection, requirement: entry.requirement, toolCap: entry.toolCap })) });
+    selections: input.selections.map(entry => ({ selection: entry.selection, requirement: entry.requirement, toolCap: entry.toolCap })),
+    ...(input.packageConnections === undefined ? {} : { packageConnections: input.packageConnections }) });
   const data = parseStoredAcceptedTurnExtensionSelection({ version: 1, kind: 'accepted_turn_extension_selection', publicSelection,
     privateFixedBindings: prepared.map(proof => selectedFixedBinding(proof, actor)) });
   const publicNamespace = JSON.stringify(data.publicSelection);

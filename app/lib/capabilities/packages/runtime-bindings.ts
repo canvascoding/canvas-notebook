@@ -24,10 +24,11 @@ import { createCapabilityReference } from '../reference';
 import type { AgentWorkflowInternalSnapshot, StoredAgentWorkflowPackage } from '@/app/lib/agents/workflow-contracts';
 import { isExplicitAgentWorkflowVersion, type AgentWorkflowVersion } from '@/app/lib/agents/workflow-version';
 import { DEFAULT_MANAGED_AGENT_ID } from '@/app/lib/agents/storage';
-import { chatExtensionSelectionSchema, type ExtensionSelectionEntry } from '@/app/lib/capabilities/extensions/contracts';
+import { chatExtensionSelectionSchema, type ExtensionSelectionEntry, type ExtensionPackagePin } from '@/app/lib/capabilities/extensions/contracts';
 import type { StoredPackageExtensionSelectionEntry } from '@/app/lib/capabilities/extensions/stored-package-contracts';
 import { applyPackageExtensionTurnFocus, projectPackageExtensionSelection } from './extension-projection';
 import { readPackageExtensionSourceMetadata, type PackageExtensionSourceMetadata } from './extension-metadata';
+import type { HeldDelegatedExtensionSource } from '@/app/lib/capabilities/extensions/delegation-source';
 
 /** Server-only receipt. Its strings are not authority; the private issued proof is required. */
 export type HeldCapabilityPackageRuntimeBinding = Readonly<{
@@ -66,7 +67,8 @@ type PinnedPackage = { configuration: StoredAgentWorkflowPackage; sourceConfigur
   storage: CapabilityResourceStorageBinding; location: CapabilityPackagePublishedLocation;
   published: CapabilityPackagePublishedRevision; skills: CapabilityCandidate[]; metadata: PackageExtensionSourceMetadata;
   extensionSelections?: readonly StoredPackageExtensionSelectionEntry[]; turnSelections: readonly ExtensionSelectionEntry[] };
-type WorkflowSelectionProof = { actorKey: string; effective: EffectiveCapabilitySnapshot; pinned: PinnedPackage[] };
+type WorkflowSelectionProof = { actorKey: string; effective: EffectiveCapabilitySnapshot; pinned: PinnedPackage[];
+  delegatedSource?: HeldDelegatedExtensionSource };
 const workflowRegistryKey = Symbol.for('canvas.capability.workflow-package-selections.v1');
 const workflowGlobal = globalThis as typeof globalThis & { [workflowRegistryKey]?: WeakMap<object, WorkflowSelectionProof> };
 const workflowRegistry = workflowGlobal[workflowRegistryKey] ??= new WeakMap<object, WorkflowSelectionProof>();
@@ -100,7 +102,9 @@ function freezeProjection<T>(value: T): T {
 }
 function requireWorkflowProof(selection: AuthorizedAgentWorkflowPackageSelections, context: AgentExecutionContext): WorkflowSelectionProof {
   const proof = workflowRegistry.get(selection);
-  if (!proof || proof.actorKey !== actorKey(context)) throw new CapabilityPackageError('PACKAGE_ACCESS_DENIED', 'The issued package selection is unavailable for this context.', 403);
+  if (!proof || proof.actorKey !== actorKey(context) || proof.delegatedSource !== context.delegatedExtensionSource) {
+    throw new CapabilityPackageError('PACKAGE_ACCESS_DENIED', 'The issued package selection is unavailable for this context.', 403);
+  }
   return proof;
 }
 function frozenSkillMetadata(candidate: CapabilityCandidate, skill: CanvasSkill, proof: WorkflowSelectionProof,
@@ -115,6 +119,42 @@ function frozenSkillMetadata(candidate: CapabilityCandidate, skill: CanvasSkill,
     required: proof.effective.capabilities.find(value => value.ref.resourceId === candidate.ref.resourceId)?.effectivePolicy === 'required', origin: candidate.ref.sourceType,
     ...(source && relativeRoot !== undefined ? { package: Object.freeze({ resourceRef: source.resourceRef,
       publishedRevisionRef: source.revisionRef, checksum: source.checksum, kind: source.kind, relativeRoot }) } : {}) });
+}
+
+/** Exact held source only: a newer mutable package head never supplies this connector template. */
+export async function getAuthorizedAgentWorkflowMcpTemplate(selection: AuthorizedAgentWorkflowPackageSelections,
+  context: AgentExecutionContext, pin: ExtensionPackagePin, connectorName: string): Promise<import('./presentation-contracts').CapabilityPackageMcpTemplate> {
+  const proof = requireWorkflowProof(selection, context);
+  const entry = proof.pinned.find(pkg => pkg.published.resourceRef === pin.resourceRef
+    && pkg.published.revisionRef === pin.publishedRevisionRef && pkg.published.checksum === pin.checksum);
+  if (!entry) throw new CapabilityPackageError('PACKAGE_ACCESS_DENIED', 'A held package source is required.', 403);
+  const [{ validateCanvasPluginPackage }, { normalizeMcpConnectors }, { readPluginMcpTemplateFile },
+    { projectCapabilityPackageMcpTemplateConfig }] = await Promise.all([
+    import('@/app/lib/plugins/canvas-plugin-manifest'), import('@/app/lib/plugins/plugin-connection-readiness'),
+    import('@/app/lib/plugins/plugin-mcp-template-service'), import('./mcp-template-projection'),
+  ]);
+  let connectors: readonly import('@/app/lib/plugins/canvas-plugin-manifest').CanvasPluginMcpConnector[];
+  if (entry.published.kind === 'plugin') {
+    const manifest = await validateCanvasPluginPackage(entry.location.rootPath);
+    if (!manifest.valid || !manifest.manifest) throw new CapabilityPackageError('PACKAGE_INVALID', 'The held plugin is invalid.', 409);
+    connectors = normalizeMcpConnectors(manifest.manifest.connectors);
+  } else {
+    connectors = (entry.metadata.skills[0]?.skill.workflow as import('@/app/lib/capabilities/workflow-contracts').SkillWorkflowManifestV1 | undefined)
+      ?.mcpConnectors?.map(connector => ({ ...connector, env: connector.env ? [...connector.env] : undefined })) ?? [];
+  }
+  const matches = connectors.filter(connector => connector.name === connectorName);
+  if (matches.length !== 1 || !matches[0].configPath) {
+    throw new CapabilityPackageError('PACKAGE_NOT_FOUND', 'An exact MCP template is required to link this connection.', 409);
+  }
+  const connector = matches[0];
+  const template = await readPluginMcpTemplateFile({ rootDir: entry.location.rootPath, configPath: connector.configPath! });
+  if (!template.config) throw new CapabilityPackageError('PACKAGE_INVALID', 'The held MCP template is invalid.', 409);
+  const projected = projectCapabilityPackageMcpTemplateConfig(template.config, connector.name);
+  await verifyCapabilityPackageSnapshot(entry.location);
+  requireWorkflowProof(selection, context);
+  return { resourceRef: pin.resourceRef, source: { resourceRef: pin.resourceRef, version: entry.published.version,
+    checksum: pin.checksum, artifactRevision: null }, declaredBy: { kind: entry.published.kind, name: entry.published.name },
+    connector: { name: connector.name, ...(connector.oauth ? { oauth: true } : {}) }, ...projected };
 }
 
 /** Metadata and read roots use the same issued source; this helper performs no new workflow or provider discovery. */
@@ -143,7 +183,9 @@ export function getAuthorizedAgentWorkflowPackageMetadata(selection: AuthorizedA
   const proof = requireWorkflowProof(selection, context);
   return Object.freeze(proof.pinned.map(entry => {
     const active = new Set(entry.configuration.selectedSkills.map(skill => skill.relativeRoot ? `${skill.relativeRoot}/agents/canvas.yaml` : 'agents/canvas.yaml'));
-    if (entry.configuration.skillSelection.kind === 'plugin') active.add('.canvas-plugin/plugin.json');
+    if (entry.configuration.skillSelection.kind === 'plugin' || entry.published.kind === 'plugin' && selection.workflowVersion !== 1) {
+      active.add('.canvas-plugin/plugin.json');
+    }
     return Object.freeze({ resourceRef: entry.published.resourceRef, publishedRevisionRef: entry.published.revisionRef,
       checksum: entry.published.checksum, kind: entry.published.kind, name: entry.published.name, version: entry.published.version,
       title: compactMetadata(entry.metadata.title, 256), description: compactMetadata(entry.metadata.description, 1_024),
@@ -204,14 +246,25 @@ export async function getAuthorizedAgentWorkflowDiscoveryPackages(selection: Aut
 
 export function isAuthorizedAgentWorkflowPackageSelections(value: unknown,
   context: AgentExecutionContext): value is AuthorizedAgentWorkflowPackageSelections {
-  return Boolean(value && typeof value === 'object' && workflowRegistry.get(value)?.actorKey === actorKey(context));
+  if (!value || typeof value !== 'object') return false;
+  const proof = workflowRegistry.get(value);
+  return Boolean(proof && proof.actorKey === actorKey(context) && proof.delegatedSource === context.delegatedExtensionSource);
 }
 
 /** One fresh reader and the same local package authority serve prompt, script and integration projection. */
 export async function getAuthorizedAgentWorkflowPackageSelections(
   context: AgentExecutionContext,
-  options: { turnSelections?: readonly ExtensionSelectionEntry[] } = {},
+  options: { turnSelections?: readonly ExtensionSelectionEntry[]; delegationPackageSource?: HeldDelegatedExtensionSource } = {},
 ): Promise<AuthorizedAgentWorkflowPackageSelections> {
+  const delegatedSource = options.delegationPackageSource ?? context.delegatedExtensionSource;
+  if (delegatedSource !== context.delegatedExtensionSource) {
+    throw new CapabilityPackageError('PACKAGE_ACCESS_DENIED', 'The package source must match the actual delegated child frame.', 403);
+  }
+  const delegated = delegatedSource ? (await import('@/app/lib/capabilities/extensions/delegation-source'))
+    .readDelegatedExtensionPackageSource(delegatedSource, context) : null;
+  if (delegated && !isAuthorizedAgentWorkflowPackageSelections(delegated.selection, delegated.context)) {
+    throw new CapabilityPackageError('PACKAGE_ACCESS_DENIED', 'An actual parent package source is required.', 403);
+  }
   const { readManagedAgentWorkflow, isManagedAgentWorkflowSnapshot } = await import('@/app/lib/agents/workflow-configuration');
   const snapshot = await readManagedAgentWorkflow({ userId: context.userId, sessionId: context.sessionId,
     source: 'system', sourceAgentId: normalizeManagedAgentId(context.agentId),
@@ -302,7 +355,29 @@ export async function getAuthorizedAgentWorkflowPackageSelections(
       pinned.push(await loadPinned(binding.configuration, binding.extensionSelections, binding.resourceId, turns));
     }
   }
+  // A managed general worker can retain many actual parent pins without
+  // fabricating a >5 chat selection. Every held source is freshly authorized
+  // for the real child actor and checked against this child's legacy ceiling.
+  // Fixed workers retain only their own configured package sources.
   const legacyIds = new Set(selectedSkills(effective, context.agentId, snapshot.agent.relevantSkills).map(candidate => candidate.ref.resourceId));
+  if (snapshot.workflowVersion === null && delegated) {
+    const parent = requireWorkflowProof(delegated.selection, delegated.context);
+    for (const inherited of parent.pinned) {
+      const collision = pinned.find(pkg => pkg.published.resourceRef === inherited.published.resourceRef);
+      if (collision) {
+        if (collision.published.revisionRef !== inherited.published.revisionRef || collision.published.checksum !== inherited.published.checksum) {
+          throw new CapabilityPackageError('PACKAGE_ACCESS_DENIED', 'Delegation cannot replace a configured package pin.', 403);
+        }
+        continue;
+      }
+      const selected = await loadPinned(inherited.configuration, undefined, inherited.storage.resourceId);
+      if (normalizeManagedAgentId(context.agentId) !== DEFAULT_MANAGED_AGENT_ID
+        && selected.skills.some(skill => !legacyIds.has(skill.ref.resourceId))) {
+        throw new CapabilityPackageError('PACKAGE_ACCESS_DENIED', 'A delegated source cannot expand this agent’s inherited skill selection.', 403);
+      }
+      pinned.push(selected);
+    }
+  }
   for (const entry of packageTurns) {
     const selection = entry.selection;
     if (selection.kind !== 'plugin' && selection.kind !== 'skill' || pinned.some(pkg => pkg.configuration.resourceRef === selection.package.resourceRef)) continue;
@@ -368,13 +443,13 @@ export async function getAuthorizedAgentWorkflowPackageSelections(
   const result: AuthorizedAgentWorkflowPackageSelections = Object.freeze({ workflowVersion: snapshot.workflowVersion,
     workflowRevision: snapshot.workflowRevision, packages: Object.freeze(pinned.map(entry => entry.configuration)), snapshot,
     fingerprint: createHash('sha256').update(JSON.stringify([snapshot.agent.revision, snapshot.workflowVersion, snapshot.workflowRevision,
-      snapshot.preferenceRevision, snapshot.choices, snapshot.workflowVersion === null ? projected.snapshotId
+      snapshot.preferenceRevision, snapshot.choices, delegatedSource?.fingerprint ?? null, snapshot.workflowVersion === null ? projected.snapshotId
         : projected.capabilities.filter(candidate => selectedIds.has(candidate.ref.resourceId)).map(candidate => [candidate.ref.resourceId,
           candidate.effectiveEnabled, candidate.readiness, candidate.effectivePolicy, candidate.resourceAccess?.canUse,
           candidate.matchedPolicies.map(policy => [policy.id, policy.revision, policy.effect])]), packageTurns, pinned.map(entry => [entry.published.resourceRef,
         entry.published.revisionRef, entry.published.checksum, entry.candidate.resourceMetadata?.metadataRevision,
         entry.candidate.resourceMetadata?.grantsRevision, entry.extensionSelections, entry.configuration.selectedSkills, entry.configuration.declarations])])).digest('hex') });
-  workflowRegistry.set(result, { actorKey: actorKey(context), effective: projected, pinned });
+  workflowRegistry.set(result, { actorKey: actorKey(context), effective: projected, pinned, delegatedSource });
   return result;
 }
 
@@ -534,8 +609,14 @@ export async function captureCapabilityPackageRuntimeBindings(context: AgentExec
 }
 
 /** Server-derived current selection and private issued proofs; callers cannot supply an authorization snapshot. */
-export async function getAuthorizedCapabilityPackageRuntimeBindings(context:AgentExecutionContext):Promise<HeldCapabilityPackageRuntimeBinding[]>{
+export async function getAuthorizedCapabilityPackageRuntimeBindings(context:AgentExecutionContext,
+  options: { selection?: AuthorizedAgentWorkflowPackageSelections } = {}):Promise<HeldCapabilityPackageRuntimeBinding[]>{
   const captured={...context,skillPackageBindings:[...(context.skillPackageBindings??[])]};
+  if (options.selection) {
+    const proof = requireWorkflowProof(options.selection, captured);
+    return revalidateCapabilityPackageRuntimeBindings(captured, proof.effective, options.selection.snapshot.agent.relevantSkills,
+      captured.agentId, options);
+  }
   const [snapshot,profile]=await Promise.all([currentSnapshot(captured,false),getAgentProfile(normalizeManagedAgentId(captured.agentId))]);
   return revalidateCapabilityPackageRuntimeBindings(captured,snapshot,profile?.relevantSkills);
 }
@@ -544,8 +625,11 @@ export async function getAuthorizedCapabilityPackageRuntimeBindings(context:Agen
  * An unavailable/unconfirmed current resource closes all its held versions until explicit repair. */
 export async function revalidateCapabilityPackageRuntimeBindings(context: AgentExecutionContext,
   snapshot: EffectiveCapabilitySnapshot, relevantSkills?: string[] | null,
-  selectionAgentId = context.agentId): Promise<HeldCapabilityPackageRuntimeBinding[]> {
-  const workflow = await getAuthorizedAgentWorkflowPackageSelections({ ...context, agentId: selectionAgentId ?? null });
+  selectionAgentId = context.agentId,
+  options: { selection?: AuthorizedAgentWorkflowPackageSelections } = {}): Promise<HeldCapabilityPackageRuntimeBinding[]> {
+  const selectionContext = { ...context, agentId: selectionAgentId ?? null };
+  const workflow = options.selection ?? await getAuthorizedAgentWorkflowPackageSelections(selectionContext);
+  requireWorkflowProof(workflow, selectionContext);
   let workflowIds: Set<string> | undefined;
   const workflowPinned = workflowRegistry.get(workflow)!.pinned.flatMap(entry => entry.skills.map(skill => ({ entry, skill })));
   if (isExplicitAgentWorkflowVersion(workflow.workflowVersion) || context.turnExtensions?.selections.length) {
@@ -664,5 +748,5 @@ export async function getCapabilityPackageRuntimeSkillContext(context: AgentExec
 }
 
 export function requiresCapabilityPackageBoundPrompt(context: AgentExecutionContext, storedPrompt?: string | null): boolean {
-  return Boolean(context.skillPackageBindings?.length || storedPrompt?.includes('/capability-packages/published/'));
+  return Boolean(context.effectiveExtensions || context.skillPackageBindings?.length || storedPrompt?.includes('/capability-packages/published/'));
 }

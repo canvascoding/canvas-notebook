@@ -6,6 +6,8 @@ import type { WorkspaceType } from '@/app/lib/workspaces/types';
 import type { HeldCapabilityPackageRuntimeBinding } from '@/app/lib/capabilities/packages/runtime-bindings';
 import type { ChatExtensionSelection } from '@/app/lib/capabilities/extensions/contracts';
 import type { HeldEffectiveExtensionContext } from '@/app/lib/capabilities/extensions/effective-context';
+import type { HeldAcceptedTurnRuntimeSelection } from '@/app/lib/capabilities/extensions/turn-runtime';
+import type { HeldDelegatedExtensionSource } from '@/app/lib/capabilities/extensions/delegation-source';
 
 export type AgentExecutionContext = {
   userId: string;
@@ -27,6 +29,10 @@ export type AgentExecutionContext = {
   skillPackageBindings?: readonly HeldCapabilityPackageRuntimeBinding[];
   /** Accepted receipt-free turn intent. Fresh resource checks and issued root proofs remain required. */
   turnExtensions?: ChatExtensionSelection;
+  /** Actual issued current-turn source; private connection targets never enter this context. */
+  turnExtensionSource?: HeldAcceptedTurnRuntimeSelection;
+  /** Server-issued parent provenance; it only adds a fresh delegation ceiling. */
+  delegatedExtensionSource?: HeldDelegatedExtensionSource;
   /** Opaque issued metadata handle; private snapshots/targets are never enumerable context fields. */
   effectiveExtensions?: HeldEffectiveExtensionContext;
   canWrite: boolean;

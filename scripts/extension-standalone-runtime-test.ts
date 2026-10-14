@@ -1,12 +1,16 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import Module from 'node:module';
-import type { AgentWorkflowInternalSnapshot } from '../app/lib/agents/workflow-contracts';
+import type { AgentWorkflowInternalSnapshot, StoredAgentWorkflowPackage } from '../app/lib/agents/workflow-contracts';
 import type { AgentExecutionContext } from '../app/lib/pi/agent-execution-context';
 import type { IntegrationExecutionContext, IntegrationProviderDescriptor } from '../app/lib/integration-tools/contracts';
 import { createIntegrationProviderRef } from '../app/lib/integration-tools/references';
 import { createStandaloneExtensionSlotRef } from '../app/lib/capabilities/extensions/standalone-reference';
 import { parseStoredStandaloneExtensionBinding } from '../app/lib/capabilities/extensions/stored-contracts';
+import type { StoredStandaloneExtensionBinding } from '../app/lib/capabilities/extensions/stored-contracts';
+import type { HeldAcceptedTurnRuntimeSelection } from '../app/lib/capabilities/extensions/turn-runtime';
+import type { HeldAgentWorkflowPackageTurnFocus } from '../app/lib/agents/workflow-runtime';
+import { extensionSelectionIdentity } from '../app/lib/capabilities/extensions/contracts';
 
 // Control-flow regression around the actual codecs/projection/provenance code.
 // SQL/provider authority boundaries are controlled here; a separate native
@@ -62,6 +66,28 @@ function snapshot(configurations = [fixed()], scopeType = 'user'): AgentWorkflow
 type Selection = { workflowVersion: 1 | 2 | null; workflowRevision: number; fingerprint: string;
   packages: unknown[]; snapshot: AgentWorkflowInternalSnapshot };
 const issued = new WeakMap<object, string>();
+const issuedTurns = new WeakMap<object, { namespace: string; privateFixedBindings: StoredStandaloneExtensionBinding[] }>();
+// The aggregate package issuer is a controlled boundary in this slot test.
+// Root's aggregate/native suite verifies its actual source compilation proof.
+const issuedPackageFocus = new WeakMap<object, { selection: object; turn: object; namespace: string; identities: readonly string[] }>();
+const turnKey = () => JSON.stringify([key(context), context.agentTurnId ?? null, context.turnExtensions ?? null]);
+function issueTurn(bindings: StoredStandaloneExtensionBinding[]): HeldAcceptedTurnRuntimeSelection {
+  if (bindings.some(binding => binding.mode !== 'fixed')) throw new Error('fixed turn fixture');
+  context.agentTurnId = 'actual-controlled-turn';
+  context.turnExtensions = { version: 1, origin: 'turn_reference', selections: bindings.map(binding => {
+    if (binding.mode !== 'fixed') throw new Error('fixed turn fixture');
+    return { selection: binding.entry.selection, requirement: binding.entry.requirement, toolCap: binding.entry.toolCap };
+  }) };
+  const handle = Object.freeze({ kind: 'accepted_turn_runtime_selection' as const, fingerprint: hash(context.turnExtensions) });
+  issuedTurns.set(handle, { namespace: turnKey(), privateFixedBindings: bindings });
+  return handle;
+}
+function issuePackageFocus(selection: object, turn: HeldAcceptedTurnRuntimeSelection,
+  identities: readonly string[]): HeldAgentWorkflowPackageTurnFocus {
+  const handle = Object.freeze({ kind: 'workflow_package_turn_focus' as const });
+  issuedPackageFocus.set(handle, { selection, turn, namespace: turnKey(), identities: Object.freeze([...identities]) });
+  return handle;
+}
 let currentSelection: Selection;
 function issueSelection(value: AgentWorkflowInternalSnapshot, packages: unknown[] = []): Selection {
   const selection = { workflowVersion: value.workflowVersion, workflowRevision: value.workflowRevision, fingerprint: 'unit-source-fingerprint', packages, snapshot: value };
@@ -90,9 +116,40 @@ const loader = Module as typeof Module & { _load: (name: string, parent: NodeMod
 const original = loader._load;
 loader._load = (name, parent, isMain) => {
   if (name === 'server-only') return {};
+  if (name === '@/app/lib/agents/workflow-runtime' || /\/agents\/workflow-runtime(?:\.ts)?$/u.test(name)) {
+    const actual = original(name, parent, isMain) as Record<string, unknown>;
+    return { ...actual, readAgentWorkflowPackageTurnFocus: (handle: object, actualContext: AgentExecutionContext, selection: object, turn: object) => {
+      const focus = issuedPackageFocus.get(handle);
+      if (!focus || focus.selection !== selection || focus.turn !== turn || focus.namespace !== turnKey() || actualContext !== context) {
+        throw Object.assign(new Error('controlled package focus proof denied'), { code: 'provider_denied' });
+      }
+      return focus.identities;
+    } };
+  }
+  if (name === './turn-runtime' || /\/extensions\/turn-runtime(?:\.ts)?$/u.test(name)) return {
+    readAcceptedTurnRuntimeSelection: (handle: object, actualContext: AgentExecutionContext, selection: object) => {
+      const turn = issuedTurns.get(handle);
+      if (!turn || turn.namespace !== turnKey() || actualContext !== context || issued.get(selection) !== key(context)) {
+        throw Object.assign(new Error('controlled issued turn denied'), { code: 'provider_denied' });
+      }
+      return { publicSelection: context.turnExtensions, privateFixedBindings: turn.privateFixedBindings };
+    },
+  };
   if (name === '@/app/lib/capabilities/packages/runtime-bindings' || /\/capabilities\/packages\/runtime-bindings(?:\.ts)?$/u.test(name)) return {
     isAuthorizedAgentWorkflowPackageSelections: (value: object, actualContext: AgentExecutionContext) => issued.get(value) === key(actualContext),
     getAuthorizedAgentWorkflowPackageSelections: async () => currentSelection,
+    // Controlled held metadata for this existing projection fixture. Actual
+    // published parent/child declarations are covered by the native suite.
+    getAuthorizedAgentWorkflowPackageMetadata: (selection: Selection, actualContext: AgentExecutionContext) => {
+      assert.equal(issued.get(selection), key(actualContext));
+      return selection.packages.map(value => {
+        const pkg = value as StoredAgentWorkflowPackage;
+        return { resourceRef: pkg.resourceRef, publishedRevisionRef: pkg.publishedRevisionRef, checksum: pkg.checksum,
+          declarations: pkg.declarations.map(declaration => ({ declarationPath: declaration.declarationPath,
+            capabilities: declaration.capabilities.map(capability => ({ id: capability.capabilityId, application: capability.application,
+              required: capability.required, alternatives: capability.alternatives })) })) };
+      });
+    },
   };
   if (name === './workflow-runtime-mode' || name === '@/app/lib/agents/workflow-runtime-mode' || /\/agents\/workflow-runtime-mode(?:\.ts)?$/u.test(name)) return {
     getRuntimeAgentWorkflowMode: async () => currentSelection.workflowVersion,
@@ -260,6 +317,147 @@ async function main() {
     assert(!JSON.stringify(projection).includes('bindingFingerprint')); assert(!JSON.stringify(projection).includes('private-shared-profile'));
     assert.equal(toolEnumerations,0); assert.equal(providerResolutions,compilationProbeBaseline,
       'Subsequent source/account/configuration projections also perform no live provider resolution.');
+
+    source = 'mcp'; allowed = ['READ', 'WRITE'];
+    const focusConfig = parseStoredStandaloneExtensionBinding({ ...selectable(), allowedChoices: [
+      { choiceId: 'a', selection: publicShared('mcp'), target: sharedTarget('mcp'), toolCap: ['READ'] },
+      { choiceId: 'b', selection: publicShared('mcp', secondRef), target: sharedTarget('mcp', secondRef), toolCap: ['WRITE'] },
+    ] });
+    const focusSnapshot = snapshot([focusConfig]);
+    focusSnapshot.choices[slotRef] = { workflowRevision: 3, choiceId: 'a' };
+    const unchangedPreferences = JSON.stringify(focusSnapshot.choices);
+    const turnB = issueTurn([fixed('mcp', ['WRITE', 'OTHER'], 'optional', secondRef, 'turn-slot')]);
+    const focusSelection = issueSelection(focusSnapshot);
+    let turnProjection = await standalone.resolveAgentStandaloneRuntimeProviders(context, focusSelection as never, { turnSource: turnB });
+    assert.equal(turnProjection.providers.length, 1);
+    assert.equal(turnProjection.selections[0].origin, 'turn');
+    assert.equal(turnProjection.selections[0].required, true, 'A turn cannot downgrade a permanent required slot.');
+    assert.equal(turnProjection.selections[0].selection?.target.kind, 'shared');
+    assert.deepEqual(turnProjection.providers[0].toolCap, ['WRITE'], 'Turn and exact stored B cap intersect.');
+    assert.equal(JSON.stringify(focusSnapshot.choices), unchangedPreferences, 'Temporary B never changes the saved A preference.');
+    if (turnProjection.selections[0].selection?.target.kind !== 'shared') throw new Error('exact B fixture');
+    assert.equal(turnProjection.selections[0].selection.target.connectionRef, secondRef);
+    assert.equal(turnProjection.providers[0].descriptor.scope.resourceId, secondRef, 'Actual authorized routing uses B, not the permanent A account.');
+    allowed = ['READ'];
+    turnProjection = await standalone.resolveAgentStandaloneRuntimeProviders(context, focusSelection as never, { turnSource: turnB });
+    assert.deepEqual(turnProjection.providers[0].toolCap, [], 'Current source grant intersects the temporary slot cap.');
+    allowed = ['READ', 'WRITE'];
+    await assert.rejects(standalone.resolveAgentStandaloneRuntimeProviders(context, focusSelection as never,
+      { turnSource: structuredClone(turnB) }), { code: 'provider_denied' });
+    const onlyA = issueSelection(snapshot([fixed('mcp', ['READ'])]));
+    await assert.rejects(standalone.resolveAgentStandaloneRuntimeProviders(context, onlyA as never, { turnSource: turnB }), { code: 'provider_denied' });
+    const noConfigured = issueSelection(snapshot([]));
+    await assert.rejects(standalone.resolveAgentStandaloneRuntimeProviders(context, noConfigured as never, { turnSource: turnB }), { code: 'provider_denied' });
+    const focusedBIdentity = extensionSelectionIdentity(publicShared('mcp', secondRef) as never);
+    const packageFocus = issuePackageFocus(noConfigured, turnB, [focusedBIdentity]);
+    const beforePackageReads = metadataReads;
+    const handledByPackage = await standalone.resolveAgentStandaloneRuntimeProviders(context, noConfigured as never,
+      { turnSource: turnB, packageFocus });
+    assert.equal(handledByPackage.providers.length, 0, 'An actually paired package focus is compiled by the aggregate, not as a new standalone slot.');
+    assert.equal(metadataReads, beforePackageReads, 'The slot resolver does not resolve a package-handled target again.');
+    await assert.rejects(standalone.resolveAgentStandaloneRuntimeProviders(context, noConfigured as never,
+      { turnSource: turnB, packageFocus: structuredClone(packageFocus) }), { code: 'provider_denied' });
+    await assert.rejects(standalone.resolveAgentStandaloneRuntimeProviders(context, noConfigured as never,
+      { packageFocus }), { code: 'provider_denied' });
+    await assert.rejects(standalone.resolveAgentStandaloneRuntimeProviders(context, focusSelection as never,
+      { turnSource: turnB, packageFocus }), { code: 'provider_denied' }, 'A focus proof cannot be reused with another current package frame.');
+    const clonedTurn = structuredClone(turnB);
+    await assert.rejects(standalone.resolveAgentStandaloneRuntimeProviders(context, noConfigured as never,
+      { turnSource: clonedTurn, packageFocus }), { code: 'provider_denied' });
+    const emptyFocus = issuePackageFocus(noConfigured, turnB, []);
+    await assert.rejects(standalone.resolveAgentStandaloneRuntimeProviders(context, noConfigured as never,
+      { turnSource: turnB, packageFocus: emptyFocus }), { code: 'provider_denied' }, 'The exception skips only its actual verified identities.');
+
+    const turnA = issueTurn([fixed('mcp', [], 'required', sharedRef, 'turn-a')]);
+    const optionalA = issueSelection(snapshot([fixed('mcp', ['READ'], 'optional')]));
+    turnProjection = await standalone.resolveAgentStandaloneRuntimeProviders(context, optionalA as never, { turnSource: turnA });
+    assert.deepEqual(turnProjection.providers[0].toolCap, []);
+    assert.equal(turnProjection.selections[0].required, true, 'A turn may add a readiness requirement without adding an action grant.');
+    const legacySnapshot = snapshot([]);
+    legacySnapshot.workflowVersion = null;
+    const legacySelection = issueSelection(legacySnapshot);
+    turnProjection = await standalone.resolveAgentStandaloneRuntimeProviders(context, legacySelection as never, { turnSource: turnA });
+    assert.equal(turnProjection.providers.length, 1, 'A legacy/general turn compiles only its finite exact standalone intent.');
+    assert.deepEqual(turnProjection.providers[0].toolCap, []);
+    assert.equal((await standalone.resolveAgentStandaloneRuntimeProviders(context, legacySelection as never)).providers.length, 0,
+      'A subsequent turn without intent does not keep the previous standalone selection.');
+
+    const personalTurn = issueTurn([person]);
+    const ownFrame = issueSelection(snapshot([ownPolicy], 'organization'));
+    turnProjection = await standalone.resolveAgentStandaloneRuntimeProviders(context, ownFrame as never, { turnSource: personalTurn });
+    assert.equal(turnProjection.providers.length, 1);
+    assert.deepEqual(turnProjection.providers[0].toolCap, [], 'Explicit own no-auth choice remains within current per-user policy.');
+    const creatorFrame = issueSelection(snapshot([person], 'organization'));
+    await assert.rejects(standalone.resolveAgentStandaloneRuntimeProviders(context, creatorFrame as never, { turnSource: personalTurn }), { code: 'provider_denied' });
+    const ambiguousPolicy = parseStoredStandaloneExtensionBinding({ ...ownPolicy, configurationId: 'another-own-canva-policy' });
+    const ambiguousFrame = issueSelection(snapshot([ownPolicy, ambiguousPolicy], 'organization'));
+    await assert.rejects(standalone.resolveAgentStandaloneRuntimeProviders(context, ambiguousFrame as never, { turnSource: personalTurn }), { code: 'provider_denied' },
+      'An identity matching multiple personal-policy slots is never assigned to the first one.');
+    const approvedTurn = parseStoredStandaloneExtensionBinding({ version: 1, kind: 'standalone', configurationId: 'turn-approved-mcp', mode: 'fixed',
+      entry: { selection: { kind: 'mcp', source: 'mcp', target: { kind: 'personal', connectionRef: `mcp-personal:${uuid}` } },
+        target: approvedTarget, requirement: 'optional', toolCap: ['OWN_READ', 'OTHER'] } });
+    const turnApproved = issueTurn([approvedTurn]);
+    const approvedFrame = issueSelection(snapshot([config], 'organization'));
+    turnProjection = await standalone.resolveAgentStandaloneRuntimeProviders(context, approvedFrame as never, { turnSource: turnApproved });
+    assert.deepEqual(turnProjection.providers[0].toolCap, ['OWN_READ']);
+    const unapprovedTurn = parseStoredStandaloneExtensionBinding({ ...approvedTurn, entry: { ...(approvedTurn.mode === 'fixed' ? approvedTurn.entry : {}),
+      target: { ...approvedTarget, personalBinding: unapprovedBinding, boundProviderRef: `mcp:v1:personal:${hash(unapprovedBinding)}` } } });
+    const unapprovedSource = issueTurn([unapprovedTurn]);
+    await assert.rejects(standalone.resolveAgentStandaloneRuntimeProviders(context, approvedFrame as never, { turnSource: unapprovedSource }), { code: 'provider_denied' });
+
+    const beforeEligibility = [metadataReads, personalReads, providerResolutions, toolEnumerations];
+    const incomingB = fixed('mcp', ['READ', 'WRITE'], 'optional', secondRef, 'incoming-b');
+    assert(incomingB.mode === 'fixed' && approvedTurn.mode === 'fixed' && unapprovedTurn.mode === 'fixed' && person.mode === 'fixed');
+    const eligibilitySnapshot = snapshot([config]);
+    eligibilitySnapshot.choices[slotRef] = { workflowRevision: 3, choiceId: 'a' };
+    const eligibilityFrame = issueSelection(eligibilitySnapshot);
+    const eligibleB = standalone.getConfiguredStandaloneTurnFocus(context, eligibilityFrame as never, incomingB.entry);
+    assert(eligibleB?.choice);
+    assert.equal(eligibleB.slotRef, slotRef);
+    assert.equal(eligibleB.choice.target.kind === 'shared' ? eligibleB.choice.target.connectionRef : null, secondRef);
+    assert.deepEqual(eligibleB.choice.toolCap, [], 'The child allowed B cap intersects the actual parent cap without a provider probe.');
+    assert.equal(eligibleB.required, true, 'The current child slot remains required when parent entry is optional.');
+    assert.equal(eligibilitySnapshot.choices[slotRef].choiceId, 'a', 'Eligibility does not write the saved A preference.');
+    const configuredAOnly = issueSelection(snapshot([fixed('mcp', ['READ'])]));
+    assert.equal(standalone.getConfiguredStandaloneTurnFocus(context, configuredAOnly as never, incomingB.entry), null,
+      'A fixed slot for A is not eligibility for B.');
+    const incomingRequiredA = fixed('mcp', ['READ', 'WRITE'], 'required', sharedRef, 'incoming-a');
+    assert(incomingRequiredA.mode === 'fixed');
+    const optionalAFrame = issueSelection(snapshot([fixed('mcp', ['READ'], 'optional')]));
+    const eligibleA = standalone.getConfiguredStandaloneTurnFocus(context, optionalAFrame as never, incomingRequiredA.entry);
+    assert.equal(eligibleA?.required, true);
+    assert.deepEqual(eligibleA?.choice?.toolCap, ['READ']);
+    const privateMismatch = parseStoredStandaloneExtensionBinding({ ...person, entry: { ...person.entry,
+      target: { ...person.entry.target, bindingFingerprint: 'f'.repeat(64) } } });
+    assert(privateMismatch.mode === 'fixed');
+    const personalFrame = issueSelection(snapshot([person]));
+    assert.equal(standalone.getConfiguredStandaloneTurnFocus(context, personalFrame as never, privateMismatch.entry), null,
+      'Same exact public profile cannot silently repair a differently stored private fingerprint.');
+    const ownPolicyFrame = issueSelection(snapshot([ownPolicy], 'organization'));
+    assert.deepEqual(standalone.getConfiguredStandaloneTurnFocus(context, ownPolicyFrame as never, person.entry)?.choice?.toolCap, [],
+      'Current actor own no-auth source is eligible only within the child personal policy.');
+    const approvedPolicyFrame = issueSelection(snapshot([config], 'organization'));
+    assert.deepEqual(standalone.getConfiguredStandaloneTurnFocus(context, approvedPolicyFrame as never, approvedTurn.entry)?.choice?.toolCap,
+      ['OWN_READ']);
+    assert.equal(standalone.getConfiguredStandaloneTurnFocus(context, approvedPolicyFrame as never, unapprovedTurn.entry), null);
+    const creatorOnlyFrame = issueSelection(snapshot([person], 'organization'));
+    assert.equal(standalone.getConfiguredStandaloneTurnFocus(context, creatorOnlyFrame as never, person.entry), null,
+      'Eligibility cannot share the creator personal account through an organization fixed slot.');
+    const ambiguousEligibility = issueSelection(snapshot([ownPolicy, ambiguousPolicy], 'organization'));
+    assert.equal(standalone.getConfiguredStandaloneTurnFocus(context, ambiguousEligibility as never, person.entry), null,
+      'Multiple matching slots are not assigned to the first child slot.');
+    const noSlots = issueSelection(snapshot([]));
+    assert.equal(standalone.getConfiguredStandaloneTurnFocus(context, noSlots as never, incomingB.entry), null);
+    assert.equal(standalone.getConfiguredStandaloneTurnFocus(context, legacySelection as never, incomingB.entry), null,
+      'NULL inheritance alone is not fixed child-slot eligibility.');
+    assert.throws(() => standalone.getConfiguredStandaloneTurnFocus(context, structuredClone(eligibilityFrame) as never, incomingB.entry),
+      { code: 'provider_denied' });
+    assert.throws(() => standalone.getConfiguredStandaloneTurnFocus({ ...context, userId: 'bob' }, eligibilityFrame as never, incomingB.entry),
+      { code: 'provider_denied' });
+    assert(Object.isFrozen(eligibleB) && Object.isFrozen(eligibleB.choice));
+    assert.deepEqual([metadataReads, personalReads, providerResolutions, toolEnumerations], beforeEligibility,
+      'The actual issued-frame eligibility helper performs no source/SQL/provider or tool discovery calls.');
+    assert.equal(toolEnumerations, 0); assert.equal(providerResolutions, compilationProbeBaseline);
     console.log('PASS standalone runtime selection/projection control flow: exact slots, stale no-fallback, per-user policy, closed grants, same-provider caps, provenance and metadata-only compilation.');
   } finally { loader._load=original; }
 }

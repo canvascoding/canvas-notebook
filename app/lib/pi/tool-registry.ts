@@ -5,6 +5,7 @@ import { resolveComposioContext } from '@/app/lib/composio/composio-context';
 import { resolveAgentRuntimeSettings } from '@/app/lib/agents/effective-runtime-config';
 import { getRuntimeAgentWorkflowMode } from '@/app/lib/agents/workflow-runtime-mode';
 import { isExplicitAgentWorkflowVersion } from '@/app/lib/agents/workflow-version';
+import { isIssuedScopedIntegrationTurn } from '@/app/lib/capabilities/extensions/effective-context';
 import { resolveEnabledToolNames, isLegacyEnabledToolsValue, getDefaultEnabledToolNames, DISABLED_ALL_TOOLS_SENTINEL } from './enabled-tools';
 import { PLANNING_MODE_ALLOWED_TOOLS } from './planning-mode';
 import { createMcpProxyTool } from '@/app/lib/mcp/proxy-tool';
@@ -297,7 +298,9 @@ export async function buildPiToolRegistryAsync(
   const allowExternalIntegrations = options.allowExternalIntegrations !== false;
   const workflowConfigured = !options.legacyIntegrationMetadata && options.executionContext
     ? isExplicitAgentWorkflowVersion(await getRuntimeAgentWorkflowMode(options.executionContext)) : false;
-  const useIntegrationGateway = (gatewayEnabled || workflowConfigured) && !options.legacyIntegrationMetadata;
+  const scopedTurn = !options.legacyIntegrationMetadata && options.executionContext
+    ? isIssuedScopedIntegrationTurn(options.executionContext) : false;
+  const useIntegrationGateway = (gatewayEnabled || workflowConfigured || scopedTurn) && !options.legacyIntegrationMetadata;
   const accountLocale = userId
     ? await getUserPreferredLocale(userId).catch((error) => {
         console.warn('[ToolRegistry] Account language unavailable; memory tool uses generic language guidance.', {
@@ -332,7 +335,7 @@ export async function buildPiToolRegistryAsync(
   const composioConfigured = allowExternalIntegrations && !useIntegrationGateway && await isComposioConfigured(composioStorageScope);
   const composioTools = allowExternalIntegrations && (composioConfigured || options.legacyIntegrationMetadata === true)
     ? createComposioTools(composioContext) : [];
-  const directMcpTools = allowExternalIntegrations && userId && !workflowConfigured
+  const directMcpTools = allowExternalIntegrations && userId && !workflowConfigured && !scopedTurn
     ? await buildDirectMcpTools({ userId }, useIntegrationGateway || options.metadataOnlyExternal ? { cacheOnly: true } : {})
       .then((result) => result.tools)
       .catch((error) => {
@@ -344,7 +347,7 @@ export async function buildPiToolRegistryAsync(
     userId,
     workspaceId: options.executionContext?.workspaceId,
   });
-  const integrationTools = allowExternalIntegrations && (gatewayEnabled || workflowConfigured)
+  const integrationTools = allowExternalIntegrations && (gatewayEnabled || workflowConfigured || scopedTurn)
     ? [createIntegrationGatewayTool({ userId, agentId, sessionId, executionContext: options.executionContext })] : [];
   return collapseProgressiveToolGroups([...coreTools, ...userScopedTools, ...agentManagementTools, ...composioTools, ...directMcpTools, ...emailTools, ...integrationTools]);
 }
@@ -476,7 +479,8 @@ export async function getPiTools(
   let workflowConfigured = false;
   let allTools: AgentTool[];
   try {
-    workflowConfigured = resolvedExecutionContext ? isExplicitAgentWorkflowVersion(await getRuntimeAgentWorkflowMode(resolvedExecutionContext)) : false;
+    workflowConfigured = resolvedExecutionContext ? isExplicitAgentWorkflowVersion(await getRuntimeAgentWorkflowMode(resolvedExecutionContext))
+      || isIssuedScopedIntegrationTurn(resolvedExecutionContext) : false;
     allTools = await buildPiToolRegistryAsync(userId, agentId, sessionId, { executionContext: resolvedExecutionContext,
       allowExternalIntegrations: !options.planningMode && !options.workspaceEmailAutomation,
       metadataOnlyExternal: options.metadataOnlyExternal });

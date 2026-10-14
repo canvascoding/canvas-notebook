@@ -18,9 +18,17 @@ const compiled = ts.transpileModule(readFileSync(filename, 'utf8'), {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true },
 }).outputText;
 
-function harness(options: { finishFails?: boolean; setupFails?: boolean; beforeRunFails?: boolean } = {}) {
+function harness(options: { finishFails?: boolean; setupFails?: boolean; beforeRunFails?: boolean; finiteSource?: boolean } = {}) {
   const operations: Operation[] = [];
   const toolContexts: WorkerParams['executionContext'][] = [];
+  const promptContexts: WorkerParams['executionContext'][] = [];
+  const snapshots: string[] = [];
+  const parentHandle = Object.freeze({ kind: 'effective_extension_context' as const, fingerprint: 'parent-fingerprint' });
+  const delegatedSource = Object.freeze({ kind: 'delegated_extension_source' as const, fingerprint: 'caller-boundary' });
+  const oldBinding = Object.freeze({ resourceRef: 'canvas-resource:11111111-1111-1111-1111-111111111111',
+    publishedRevisionRef: 'canvas-package-revision:22222222-2222-2222-2222-222222222222', checksum: 'a'.repeat(64),
+    childRelativeRoot: 'skills/brief', skillName: 'brief', resourceId: 'fixture-skill', runtimePath: '/owned-fixture/old/brief/SKILL.md' });
+  const childHandles = new WeakMap<object, string>();
   const timers = new Set<{ callback: () => void; unref: () => void }>();
   let created = false;
   let scopes = 0;
@@ -31,6 +39,13 @@ function harness(options: { finishFails?: boolean; setupFails?: boolean; beforeR
     organizationId: 'organization', customerId: null, projectId: null,
     workspaceRoot: '/tmp/worker-workspace', workspaceRootRelativePath: null,
     canWrite: true, canDelete: false, canShare: false, legacy: false,
+    effectiveExtensions: parentHandle, skillReadRoots: ['/owned-fixture/old/brief'], skillPackageBindings: [oldBinding],
+    turnExtensions: { version: 1, origin: 'turn_reference', selections: [
+      { requirement: 'optional', toolCap: null, selection: { kind: 'plugin', package: { resourceRef: oldBinding.resourceRef,
+        publishedRevisionRef: oldBinding.publishedRevisionRef, checksum: oldBinding.checksum }, skillSelection: { kind: 'all' } } },
+      { requirement: 'optional', toolCap: null, selection: { kind: 'mcp', source: 'mcp', target: { kind: 'shared',
+        connectionRef: 'canvas-connection:33333333-3333-3333-3333-333333333333', bindingRevision: 1 } } },
+    ] },
   };
   const runtime = { model: { id: 'test-model' }, selection: { selection: { providerId: 'test', thinkingLevel: 'off' } },
     resolution: { catalogRevision: 1, policyRevision: 1 }, streamFn: async () => undefined };
@@ -41,6 +56,7 @@ function harness(options: { finishFails?: boolean; setupFails?: boolean; beforeR
     './tool-output-block-storage': { finalizeToolOutputBlocks: async (messages: AgentMessage[]) => messages },
     './context-budget': { estimatePiToolSchemaTokens: () => 0, getPiRequestOutputTokenCap: () => 1_000,
       withPiRequestOutputTokenCap: (stream: unknown) => stream },
+    '@/app/lib/integration-tools/agent-errors': require('../app/lib/integration-tools/agent-errors'),
     '@earendil-works/pi-agent-core': { runAgentLoop: (...args: Parameters<Loop>) => loop(...args) },
     '@earendil-works/pi-ai': { createInitialSystemMessage: () => ({ role: 'system', content: 'system' }),
       toToolDeclaration: (tool: unknown) => tool },
@@ -79,6 +95,58 @@ function harness(options: { finishFails?: boolean; setupFails?: boolean; beforeR
     } },
     '@/app/lib/pi/toolsets': { resolveDelegatedWorkerToolNames: () => new Set(['fixture']) },
     '@/app/lib/pi/progressive-tool-gateway': { getProgressiveGatewayCapabilityNames: () => [] },
+    '@/app/lib/pi/agent-execution-context': { getAgentExecutionContext: () => sourceContext },
+    // This harness checks caller ordering. SQL/source authority is exercised by
+    // extension-delegation-source-test, not replaced by this controller fixture.
+    '@/app/lib/capabilities/extensions/delegation-source': {
+      captureDelegatedExtensionSource: async () => options.finiteSource ? delegatedSource : null,
+      readDelegatedExtensionParentContext: (source: object) => {
+        assert.equal(source, delegatedSource); return sourceContext;
+      },
+    },
+    '@/app/lib/capabilities/extensions/turn-runtime': {
+      resolveDelegatedExtensionContextSource: async (source: object, context: WorkerParams['executionContext'], input: { delegationId: string }) => {
+        assert(created, 'The child session must be stored before delegated source issuance.');
+        assert.equal(source, delegatedSource);
+        assert.equal(input.delegationId, 'fixture-task');
+        assert.notEqual(context.agentTurnId, sourceContext.agentTurnId);
+        assert.equal(toolContexts.length, 0, 'No target tools are compiled with generic inherited authority first.');
+        const handle = Object.freeze({ kind: 'effective_extension_context' as const, fingerprint: `child:${context.sessionId}` });
+        childHandles.set(handle, context.sessionId!);
+        operations.push({ kind: 'delegated-issue' });
+        return { ...context, delegatedExtensionSource: source, effectiveExtensions: handle,
+          turnExtensions: sourceContext.turnExtensions, skillReadRoots: sourceContext.skillReadRoots, skillPackageBindings: sourceContext.skillPackageBindings };
+      },
+    },
+    '@/app/lib/capabilities/packages/runtime-bindings': {
+      reissueCapabilityPackageRuntimeBindings: async (previous: WorkerParams['executionContext'], next: WorkerParams['executionContext']) => {
+        assert.notEqual(previous.sessionId, next.sessionId);
+        assert.equal(next.effectiveExtensions, undefined, 'A source-session opaque handle must be removed before child proof issuance.');
+        operations.push({ kind: 'package-reissue' });
+        return { ...next, skillReadRoots: [...previous.skillReadRoots!], skillPackageBindings: previous.skillPackageBindings!.map(binding => ({ ...binding })) };
+      },
+      requiresCapabilityPackageBoundPrompt: () => true,
+    },
+    '@/app/lib/capabilities/extensions/effective-context': {
+      resolveEffectiveExtensionContext: async (context: WorkerParams['executionContext'], options: { preserveIssuedBindings?: boolean }) => {
+        assert.equal(options.preserveIssuedBindings, true, 'Delegation must preserve reissued old pins rather than recapture a newer HEAD.');
+        assert.equal(context.effectiveExtensions, undefined);
+        assert.equal(context.skillPackageBindings?.[0].publishedRevisionRef, oldBinding.publishedRevisionRef);
+        assert.deepEqual(context.turnExtensions?.selections.map(entry => entry.selection.kind), ['plugin'], 'Only trusted parent package intent is carried; standalone forwarding uses its existing approval service.');
+        const handle = Object.freeze({ kind: 'effective_extension_context' as const, fingerprint: `child:${context.sessionId}` });
+        childHandles.set(handle, context.sessionId!);
+        operations.push({ kind: 'extension-issue' });
+        return { ...context, effectiveExtensions: handle };
+      },
+    },
+    '@/app/lib/capabilities/extensions/runtime-prompt': { appendEffectiveExtensionContextPrompt: (foundation: string,
+      context: WorkerParams['executionContext'], tools: WorkerParams['tools'], query: string) => {
+      assert(context.effectiveExtensions && childHandles.get(context.effectiveExtensions) === context.sessionId);
+      assert.equal(query, 'Edit three places\n');
+      assert.deepEqual(tools.map(tool => tool.name), ['fixture'], 'The renderer receives only the actual final worker subset.');
+      promptContexts.push(context);
+      return `${foundation}\n<!-- child-extension-context -->\n${context.skillPackageBindings?.[0].runtimePath}`;
+    } },
     '@/app/lib/pi/email-agent-policy': { filterToolsToAllowedNames: (tools: unknown) => tools },
     '@/app/lib/agents/system-prompt': { loadManagedAgentSystemPrompt: async () => ({ systemPrompt: 'system' }) },
     '@/app/lib/pi/runtime-prompt-context': { buildActiveWorkspacePromptBlock: () => 'workspace' },
@@ -86,7 +154,7 @@ function harness(options: { finishFails?: boolean; setupFails?: boolean; beforeR
       buildEffectiveToolManifest: () => ({}) },
     '@/app/lib/agents/workspace-file-tree-context': { buildWorkspaceFileTreePrompt: async () => ({ promptBlock: 'tree' }),
       replaceWorkspaceFileTreePromptBlock: (prompt: string) => prompt },
-    '@/app/lib/pi/system-prompt-snapshot': { buildPiSystemPromptSnapshotFromText: () => ({}) },
+    '@/app/lib/pi/system-prompt-snapshot': { buildPiSystemPromptSnapshotFromText: (text: string) => { snapshots.push(text); return {}; } },
     '@/app/lib/pi/session-store': { createPiSessionWithRuntimeSnapshot: async () => { created = true; },
       savePiSession: async () => { operations.push({ kind: 'save' }); } },
     '@/app/lib/pi/delegation-managed-steering': { extractMessageText: (message: AgentMessage) => {
@@ -123,8 +191,9 @@ function harness(options: { finishFails?: boolean; setupFails?: boolean; beforeR
   );
   const worker = loadedModule.exports as WorkerModule;
   const request = { userId: 'owner', sourceAgentId: 'canvas-agent', sourceSessionId: 'parent',
+    ...(options.finiteSource ? { delegationId: 'fixture-task' } : {}),
     goal: 'Edit three places', toolsets: ['file'], waitForResult: true, timeoutSeconds: 5 };
-  return { operations, toolContexts, timers, sourceContext, worker, request,
+  return { operations, toolContexts, promptContexts, snapshots, parentHandle, oldBinding, timers, sourceContext, worker, request,
     setLoop: (next: Loop) => { loop = next; },
     direct: (signal = new AbortController().signal) => worker.runEphemeralWorker({
       request, sessionId: 'child', executionContext: { ...sourceContext, sessionId: 'child', agentTurnId: undefined },
@@ -141,6 +210,13 @@ function assistant(stopReason: string, toolCallId?: string): AgentMessage {
 }
 
 async function main() {
+  const finite = harness({ finiteSource: true });
+  assert.equal((await finite.worker.startDelegatedRun(finite.request)).status, 'ok');
+  assert.equal(finite.toolContexts.length, 1);
+  assert.deepEqual(finite.toolContexts[0].turnExtensions?.selections.map(entry => entry.selection.kind), ['plugin', 'mcp']);
+  assert.equal(finite.operations.findIndex(operation => operation.kind === 'delegated-issue')
+    < finite.operations.findIndex(operation => operation.kind === 'tools'), true);
+  assert(!finite.snapshots[0].includes('child-extension-context'));
   const completed = harness();
   completed.setLoop(async (prompts, _context, _config, emit) => {
     assert.equal(completed.operations[0].kind, 'begin', 'the turn begins before tools are constructed');
@@ -161,8 +237,14 @@ async function main() {
     return messages;
   });
   const result = await completed.worker.startDelegatedRun(completed.request);
-  assert.equal(result.status, 'ok');
-  assert.equal(completed.toolContexts.length, 2, 'permission changes rebuild the worker tools');
+  assert.equal(result.status, 'ok', JSON.stringify(result));
+  assert.equal(completed.toolContexts.length, 3, 'Permission changes rebuild the tools; a final build uses the newly issued child context.');
+  assert.equal(completed.toolContexts[0].effectiveExtensions, undefined);
+  assert.notEqual(completed.toolContexts[2].effectiveExtensions, completed.parentHandle);
+  assert.equal(completed.toolContexts[2].canWrite, false, 'The context keeps freshly reduced permissions.');
+  assert.equal(completed.promptContexts.length, 1);
+  assert.equal(completed.promptContexts[0].skillPackageBindings?.[0].publishedRevisionRef, completed.oldBinding.publishedRevisionRef);
+  assert(!completed.snapshots[0].includes('child-extension-context'), 'Persisted worker foundations do not cache runtime recipes.');
   const turnId = completed.toolContexts[0].agentTurnId;
   assert.match(turnId ?? '', /^[0-9a-f-]{36}$/u);
   assert.notEqual(turnId, 'parent-turn');

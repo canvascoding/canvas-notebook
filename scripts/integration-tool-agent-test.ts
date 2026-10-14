@@ -21,6 +21,8 @@ async function main() {
   const originalLoad = internals._load;
   internals._load = (name, parent, isMain) => {
     if (name === 'server-only') return {};
+    if (name === '@earendil-works/pi-ai' || name === '@earendil-works/pi-ai/compat') return { getModels: () => [], getProviders: () => [],
+      registerBuiltInApiProviders: () => undefined, isContextOverflow: () => false };
     if (name === '@/app/lib/db' || /\/app\/lib\/db(?:\/index)?(?:\.ts)?$/u.test(name)) return database;
     if (name === '@/app/lib/skills/effective-skill-read-roots') return {
       resolveEffectiveSkillReadRoots: async () => [], resolvePersonalSkillReadRoots: async () => [],

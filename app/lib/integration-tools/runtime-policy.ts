@@ -5,6 +5,7 @@ import { resolveAgentRuntimeSettings } from '@/app/lib/agents/effective-runtime-
 import type { AgentWorkflowRuntimeProjection } from '@/app/lib/agents/workflow-runtime';
 import { getRuntimeAgentWorkflowMode } from '@/app/lib/agents/workflow-runtime-mode';
 import { isExplicitAgentWorkflowVersion } from '@/app/lib/agents/workflow-version';
+import { isIssuedScopedIntegrationTurn } from '@/app/lib/capabilities/extensions/effective-context';
 import { db } from '@/app/lib/db';
 import { piDelegations, piSessions } from '@/app/lib/db/schema';
 import type { AgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
@@ -95,12 +96,15 @@ export async function resolveIntegrationRuntimePolicy(input: {
   let agentRevision: number | null = null;
   let workflowProjection: AgentWorkflowRuntimeProjection | null = null;
   let workflowPolicy: IntegrationPolicy | null = null;
+  let parentPolicy: IntegrationPolicy | null = null;
+  let parentPolicyRevision: string | null = null;
+  const scopedTurn = isIssuedScopedIntegrationTurn(executionContext);
   if (!planningMode && !emailEventAutomation) {
     try {
       const settings = await resolveAgentRuntimeSettings(executionContext.agentId);
       if (settings.agentId !== executionContext.agentId) throw new Error('The selected agent changed.');
       agentRevision = settings.agent.revision;
-      if (isExplicitAgentWorkflowVersion(await getRuntimeAgentWorkflowMode(executionContext))) {
+      if (isExplicitAgentWorkflowVersion(await getRuntimeAgentWorkflowMode(executionContext)) || scopedTurn) {
         const { resolveAgentWorkflowRuntimeProjection } = await import('@/app/lib/agents/workflow-runtime');
         workflowProjection = await resolveAgentWorkflowRuntimeProjection(executionContext);
       }
@@ -114,6 +118,20 @@ export async function resolveIntegrationRuntimePolicy(input: {
       workerToolsets = delegation.toolsets;
       delegationBinding = delegation.taskBinding;
       delegationTask = delegation.delegation;
+      if (executionContext.delegatedExtensionSource) {
+        if (!delegationTask) throw new Error('The delegated source has no active task.');
+        const { readDelegatedTurnRuntimeParentSource } = await import('@/app/lib/capabilities/extensions/turn-runtime');
+        const source = readDelegatedTurnRuntimeParentSource(executionContext, delegationTask.id);
+        if (!source || source !== executionContext.delegatedExtensionSource) throw new Error('The delegated source changed.');
+        const { readDelegatedExtensionSource, readDelegatedExtensionParentContext } = await import('@/app/lib/capabilities/extensions/delegation-source');
+        const { resolveRuntimeIntegrationExecutionContext } = await import('./context');
+        const parentContext = readDelegatedExtensionParentContext(source);
+        const currentParent = await resolveRuntimeIntegrationExecutionContext({ executionContext: parentContext, policyRevision: 'delegation-parent-preflight' });
+        const currentParentPolicy = await resolveIntegrationRuntimePolicy({ executionContext: currentParent.executionContext,
+          ceiling: readDelegatedExtensionSource(source).parentPolicy });
+        parentPolicy = currentParentPolicy.policy;
+        parentPolicyRevision = currentParentPolicy.policyRevision;
+      }
       if (workerToolsets !== null) {
         const delegated = resolveDelegatedWorkerToolNames(workerToolsets, INTEGRATION_LEGACY_CAPABILITY_NAMES);
         effectiveNames = new Set([...effectiveNames].filter((name) => delegated.has(name)));
@@ -121,14 +139,14 @@ export async function resolveIntegrationRuntimePolicy(input: {
     } catch {
       throw new IntegrationContractError('provider_denied', 'The current agent integration permissions could not be verified. Reload its tools.');
     }
-  } else if (isExplicitAgentWorkflowVersion(await getRuntimeAgentWorkflowMode(executionContext))) {
+  } else if (isExplicitAgentWorkflowVersion(await getRuntimeAgentWorkflowMode(executionContext)) || scopedTurn) {
     // Planning and inbox construction never inspect provider accounts or tools.
     workflowPolicy = { allowedSources: null, allowedProviderRefs: null, allowedApplications: null,
       allowedToolNames: null, allowedOperations: null, providerToolRules: [] };
   }
   const policy = intersectIntegrationPolicies(createIntegrationPolicyFromLegacyTools({
     legacyToolNames: effectiveNames, planningMode, emailEventAutomation,
-  }), ceiling, ...(workflowPolicy ? [workflowPolicy] : []), ...restrictions);
+  }), ceiling, ...(workflowPolicy ? [workflowPolicy] : []), ...(parentPolicy ? [parentPolicy] : []), ...restrictions);
   return {
     policy,
     delegation: delegationTask,
@@ -139,9 +157,13 @@ export async function resolveIntegrationRuntimePolicy(input: {
       workspaceId: executionContext.workspaceId,
       agentId: executionContext.agentId,
       sessionId: executionContext.sessionId,
+      scopedTurn: scopedTurn ? { turnId: executionContext.agentTurnId ?? null,
+        selection: executionContext.turnExtensions ?? null, source: executionContext.turnExtensionSource?.fingerprint ?? null } : null,
       agentRevision,
       workflowRevision: workflowProjection?.revision ?? null,
       delegationBinding,
+      delegatedSource: executionContext.delegatedExtensionSource?.fingerprint ?? null,
+      parentPolicyRevision,
       workspacePermissions: { canWrite: executionContext.canWrite, canDelete: executionContext.canDelete, canShare: executionContext.canShare },
       policy,
       planningMode,

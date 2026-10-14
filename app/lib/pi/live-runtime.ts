@@ -143,6 +143,8 @@ import {
 } from '@/app/lib/pi/runtime-queue';
 import { addEffectiveSkillReadRoots, resolveAgentExecutionContextForSession } from '@/app/lib/pi/session-workspace-context';
 import { requiresCapabilityPackageBoundPrompt } from '@/app/lib/capabilities/packages/runtime-bindings';
+import { appendEffectiveExtensionContextPrompt } from '@/app/lib/capabilities/extensions/runtime-prompt';
+import type { HeldDelegatedExtensionSource } from '@/app/lib/capabilities/extensions/delegation-source';
 import type { AgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
 import { withPiSessionOperationLock } from '@/app/lib/pi/session-operation-lock';
 import { createOperationTiming, type OperationTiming } from '@/app/lib/observability/operation-timing';
@@ -610,6 +612,7 @@ export class LivePiRuntime {
   private statusRevision = 0;
   private currentUserPromptText = '';
   private currentUserPromptSignature: string | null = null;
+  private activeDelegationId: string | null = null;
   private activeAgentTurn: ActiveAgentTurn | null = null;
   private agentTurnTransition: Promise<void> = Promise.resolve();
   private agentTurnHeartbeatTimer: ReturnType<typeof setInterval> | null = null;
@@ -1569,6 +1572,7 @@ export class LivePiRuntime {
     }
     this.executionContext.skillReadRoots = nextContext.skillReadRoots;
     this.executionContext.skillPackageBindings = nextContext.skillPackageBindings;
+    this.executionContext.effectiveExtensions = nextContext.effectiveExtensions;
     this.systemPrompt = snapshot.systemPrompt;
     this.systemPromptRefreshRequested = false;
     this.invalidateContextBudget();
@@ -1619,9 +1623,10 @@ export class LivePiRuntime {
     }
 
     const foundation = blocks.length > 0 ? `${this.systemPrompt}\n\n${blocks.join('\n\n')}` : this.systemPrompt;
+    const tools = this.getEffectiveTools();
     return appendEffectiveToolCapabilitiesPrompt(
-      foundation,
-      buildEffectiveToolManifest(this.getEffectiveTools()),
+      appendEffectiveExtensionContextPrompt(foundation, this.executionContext, tools, this.currentUserPromptText),
+      buildEffectiveToolManifest(tools),
     );
   }
 
@@ -2248,9 +2253,64 @@ export class LivePiRuntime {
     message: Extract<AgentMessage, { role: 'user' }>,
     context?: PiRuntimePromptContext,
   ) {
+    void this.dispatchPrompt(message, context).catch(() => {});
+  }
+
+  /** Server-only admission. Neither public prompt context nor message JSON can supply a source. */
+  async startDelegatedPrompt(
+    message: Extract<AgentMessage, { role: 'user' }>,
+    source: HeldDelegatedExtensionSource,
+    delegationId: string,
+    preparePrompt?: (issuedContext: AgentExecutionContext) => Promise<Extract<AgentMessage, { role: 'user' }>>,
+  ): Promise<void> {
+    if (!delegationId.trim() || this.isRunning || this.agent.state.isStreaming) {
+      throw new Error('An idle runtime and a stored delegated task are required.');
+    }
+    return this.dispatchPrompt(message, undefined, { source, delegationId, preparePrompt });
+  }
+
+  private async compilePromptExtensionContext(turnId: string,
+    delegation?: { source: HeldDelegatedExtensionSource; delegationId: string }): Promise<void> {
+    const assertCurrent = () => {
+      if (this.disposed || this.abortRequested || this.executionContext.agentTurnId !== turnId) {
+        throw new Error('The originating agent turn changed before its context was admitted.');
+      }
+    };
+    assertCurrent();
+    const next = delegation
+      ? await (await import('@/app/lib/capabilities/extensions/turn-runtime')).resolveDelegatedExtensionContextSource(
+        delegation.source, this.executionContext, { delegationId: delegation.delegationId })
+      : { ...await resolveAgentExecutionContextForSession({ userId: this.userId, sessionId: this.sessionId, agentId: this.agentId }),
+        agentTurnId: turnId, turnExtensions: undefined, turnExtensionSource: undefined, delegatedExtensionSource: undefined };
+    assertCurrent();
+    // Tools retain this object through their execution closures.
+    Object.assign(this.executionContext, next);
+    const snapshot = await createPiSystemPromptSnapshot(this.agentId, { userId: this.userId,
+      organizationId: next.organizationId, workspaceId: next.workspaceId, projectId: next.projectId }, { executionContext: this.executionContext });
+    assertCurrent();
+    const tools = await getPiTools(this.userId, this.agentId, this.sessionId, { executionContext: this.executionContext,
+      browserMode: this.browserToolMode, planningMode: this.planningMode });
+    assertCurrent();
+    this.systemPrompt = snapshot.systemPrompt;
+    this.tools = tools;
+    this.systemPromptRefreshRequested = false;
+    this.agent.state.tools = this.getEffectiveTools();
+    this.invalidateContextBudget();
+    this.updateAgentSystemPrompt();
+  }
+
+  private dispatchPrompt(
+    message: Extract<AgentMessage, { role: 'user' }>,
+    context?: PiRuntimePromptContext,
+    delegation?: { source: HeldDelegatedExtensionSource; delegationId: string;
+      preparePrompt?: (issuedContext: AgentExecutionContext) => Promise<Extract<AgentMessage, { role: 'user' }>> },
+  ): Promise<void> {
     if (this.disposed) {
       throw new Error('The session runtime was replaced before the prompt started. Try again.');
     }
+    const restoreOwnContext = !delegation && Boolean(this.executionContext.delegatedExtensionSource);
+    if (delegation || restoreOwnContext) this.executionContext.effectiveExtensions = undefined;
+    this.activeDelegationId = delegation?.delegationId ?? null;
     const sanitized = sanitizeUserMessage(message);
     this.rememberMessageContext(sanitized, context);
     this.activePromptTiming = createOperationTiming();
@@ -2281,14 +2341,9 @@ export class LivePiRuntime {
     this.isRunning = true;
     this.publishStatus();
 
-    this.agent.state.tools = this.getEffectiveTools();
-    const effectiveSystemPrompt = this.getEffectiveSystemPrompt();
-    if (this.agent.state.systemPrompt !== effectiveSystemPrompt) this.updateAgentSystemPrompt();
-
     const turnReady = this.beginAgentTurnForUserMessage();
     const turn = this.activeAgentTurn;
-    const prompts = initialContinuation ? [initialContinuation, sanitized] : sanitized;
-    void turnReady.then(() => this.agent.prompt(prompts)).catch(async (error) => {
+    const reportError = async (error: unknown) => {
       if (turn && this.executionContext.agentTurnId !== turn.identity.turnId) {
         console.warn('[LiveRuntime] Ignoring late error from a superseded agent turn:', {
           sessionId: this.sessionId,
@@ -2298,6 +2353,29 @@ export class LivePiRuntime {
       }
       this.publishError(error);
       await this.persistMessagesOnError(turn);
+    };
+    return turnReady.then(async () => {
+      if (!turn || this.disposed || this.executionContext.agentTurnId !== turn.identity.turnId || this.abortRequested) {
+        throw new Error('The originating agent turn changed before its prompt started.');
+      }
+      if (delegation || restoreOwnContext) await this.compilePromptExtensionContext(turn.identity.turnId, delegation);
+      let preparedMessage = sanitized;
+      if (delegation?.preparePrompt) {
+        preparedMessage = sanitizeUserMessage(await delegation.preparePrompt(this.executionContext));
+        if (this.disposed || this.abortRequested || this.executionContext.agentTurnId !== turn.identity.turnId) {
+          throw new Error('The delegated turn changed while its approved handoff was prepared.');
+        }
+        this.currentUserPromptText = extractUserMessageText(preparedMessage);
+        this.currentUserPromptSignature = getMessageSignature(preparedMessage);
+      }
+      this.agent.state.tools = this.getEffectiveTools();
+      const effectiveSystemPrompt = this.getEffectiveSystemPrompt();
+      if (this.agent.state.systemPrompt !== effectiveSystemPrompt) this.updateAgentSystemPrompt();
+      const prompts = initialContinuation ? [initialContinuation, preparedMessage] : preparedMessage;
+      void this.agent.prompt(prompts).catch(reportError);
+    }).catch(async error => {
+      await reportError(error);
+      throw error;
     });
   }
 
@@ -2325,7 +2403,14 @@ export class LivePiRuntime {
       if (signature !== this.currentUserPromptSignature) {
         try {
           this.resetRunSupervisorForUserMessage(event.message);
+          if (this.executionContext.delegatedExtensionSource) this.executionContext.effectiveExtensions = undefined;
           await this.beginAgentTurnForUserMessage();
+          if (this.executionContext.delegatedExtensionSource) {
+            if (!this.activeDelegationId) throw new Error('The delegated turn has no active task provenance.');
+            await this.compilePromptExtensionContext(this.executionContext.agentTurnId!, {
+              source: this.executionContext.delegatedExtensionSource, delegationId: this.activeDelegationId,
+            });
+          }
         } catch (error) {
           this.publishError(error);
           throw error;
@@ -3163,7 +3248,8 @@ async function createRuntime(sessionId: string, userId: string, options: PiRunti
   );
   const agent = new Agent({
     initialState: {
-      systemPrompt: appendEffectiveToolCapabilitiesPrompt(systemPrompt, buildEffectiveToolManifest(tools)),
+      systemPrompt: appendEffectiveToolCapabilitiesPrompt(
+        appendEffectiveExtensionContextPrompt(systemPrompt, executionContext, tools), buildEffectiveToolManifest(tools)),
       model,
       thinkingLevel,
       tools,
@@ -3566,7 +3652,7 @@ export async function getPiRuntimeStatus(sessionId: string, userId: string): Pro
     usableContextTokens: model.contextWindow,
     recordUsage: false,
   });
-  const effectiveSystemPrompt = appendEffectiveToolCapabilitiesPrompt([
+  const storedFoundation = [
     systemPrompt,
     workspaceFileTree.promptBlock,
     memoryBlock,
@@ -3574,7 +3660,9 @@ export async function getPiRuntimeStatus(sessionId: string, userId: string): Pro
       userId, sessionId, agentId: sessionRecord.agentId,
       organizationId: executionContext.organizationId,
     }),
-  ].filter(Boolean).join('\n\n'), manifest);
+  ].filter(Boolean).join('\n\n');
+  const effectiveSystemPrompt = appendEffectiveToolCapabilitiesPrompt(
+    appendEffectiveExtensionContextPrompt(storedFoundation, executionContext, tools), manifest);
   const composition = projectPiHermesHistory({
     messages,
     summary,

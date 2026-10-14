@@ -71,7 +71,9 @@ export function projectPackageExtensionSelection(input: {
   const declarations = source.declarations.flatMap(declaration => {
     const isParent = declaration.declarationPath === '.canvas-plugin/plugin.json';
     const root = byPath.get(declaration.declarationPath);
-    if (isParent ? !parent : root === undefined || !roots.has(root)) return [];
+    // Explicit V2 child selections keep any captured parent requirements.
+    // V1 still takes the unmodified early return above and keeps its old scope.
+    if (isParent ? !parent && source.skillSelection.kind !== 'skills' : root === undefined || !roots.has(root)) return [];
     const ceiling = intersectPackageExtensionToolCaps(parent?.toolCap ?? null, !isParent && root !== undefined ? children.get(root)?.toolCap ?? null : null);
     return [{ ...declaration, capabilities: declaration.capabilities.map(capability => {
       const selection = capability.selection;

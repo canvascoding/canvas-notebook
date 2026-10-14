@@ -51,6 +51,56 @@ export const extensionSelectionEntrySchema = z.object({ selection: extensionSele
   requirement: z.enum(['optional', 'required']), toolCap: extensionToolCapSchema }).strict();
 export type ExtensionSelectionEntry = z.infer<typeof extensionSelectionEntrySchema>;
 
+const declarationPath = relativeRoot.refine(value => value.length > 0);
+const connector = z.string().min(1).max(128).refine(value => value === value.trim()
+  && !/[\u0000-\u0020\u007f/\\:\p{Cc}\p{Cf}]/u.test(value));
+const packageAlternativeKey = z.string().min(1).max(137).refine(value => value.startsWith('mcp:')
+  ? connector.safeParse(value.slice(4)).success
+  : value.startsWith('composio:') && toolkit.safeParse(value.slice(9)).success);
+
+/** Explicit declaration-to-selected-connection intent. Syntax never proves a package declaration or use rights. */
+export const extensionPackageConnectionSchema = z.object({
+  package: extensionPackagePinSchema,
+  declarationPath,
+  capabilityId: identifier,
+  alternativeKey: packageAlternativeKey,
+  connectionSelection: standaloneExtensionSelectionSchema,
+}).strict().superRefine((value, context) => {
+  const selected = value.connectionSelection;
+  const coherent = selected.kind === 'mcp' ? value.alternativeKey.startsWith('mcp:')
+    : value.alternativeKey === `composio:${selected.toolkit}`;
+  if (!coherent) context.addIssue({ code: 'custom', path: ['alternativeKey'],
+    message: 'The package alternative must preserve the selected source and exact Composio toolkit.' });
+});
+export type ExtensionPackageConnection = z.infer<typeof extensionPackageConnectionSchema>;
+
+function packagePinIdentity(pin: ExtensionPackagePin): string {
+  return JSON.stringify([pin.resourceRef, pin.publishedRevisionRef, pin.checksum]);
+}
+
+function checkPackageConnections(entries: readonly ExtensionSelectionEntry[],
+  connections: readonly ExtensionPackageConnection[] | undefined, context: z.RefinementCtx) {
+  const pins = new Set(entries.flatMap(entry => entry.selection.kind === 'plugin' || entry.selection.kind === 'skill'
+    ? [packagePinIdentity(entry.selection.package)] : []));
+  // Include the complete normalized selection, especially the shared binding revision.
+  const selectedConnections = new Set(entries.filter(entry => entry.selection.kind === 'mcp' || entry.selection.kind === 'composio')
+    .map(entry => JSON.stringify(entry.selection)));
+  const slots = new Set<string>();
+  connections?.forEach((connection, index) => {
+    const pin = packagePinIdentity(connection.package);
+    const slot = JSON.stringify([pin, connection.declarationPath, connection.capabilityId]);
+    if (slots.has(slot)) context.addIssue({ code: 'custom', path: ['packageConnections', index],
+      message: 'A package declaration capability can have only one explicit connection mapping.' });
+    slots.add(slot);
+    if (!pins.has(pin)) context.addIssue({ code: 'custom', path: ['packageConnections', index, 'package'],
+      message: 'The mapping requires the same exact package pin among the selected plugins or skills.' });
+    if (!selectedConnections.has(JSON.stringify(connection.connectionSelection))) {
+      context.addIssue({ code: 'custom', path: ['packageConnections', index, 'connectionSelection'],
+        message: 'The mapping requires the complete exact connection selection among the selected entries.' });
+    }
+  });
+}
+
 /** Sealed five-minute existing account-choice receipt, consumed by the server before acceptance. */
 const accountSelectionRef = z.string().max(8_192).regex(/^cmp_personal_account_[A-Za-z0-9_-]{39,}$/u);
 function checkAccountReceipt(value: { selection: ExtensionSelection; accountSelectionRef?: string }, context: z.RefinementCtx) {
@@ -136,11 +186,21 @@ function checkEncodedSize(value: unknown, context: z.RefinementCtx) {
 
 /** Public accepted message identity. Expiring choice receipts never belong in queue/history storage. */
 export const chatExtensionSelectionSchema = z.object({ version: z.literal(1), origin: z.literal('turn_reference'),
-  selections: z.array(extensionSelectionEntrySchema).max(EXTENSION_SELECTION_LIMITS.turn) }).strict()
-  .superRefine((value, context) => { checkEntries(value.selections, context); checkEncodedSize(value, context); });
+  selections: z.array(extensionSelectionEntrySchema).max(EXTENSION_SELECTION_LIMITS.turn),
+  packageConnections: z.array(extensionPackageConnectionSchema).max(EXTENSION_SELECTION_LIMITS.children).optional() }).strict()
+  .superRefine((value, context) => {
+    checkEntries(value.selections, context);
+    checkPackageConnections(value.selections, value.packageConnections, context);
+    checkEncodedSize(value, context);
+  });
 export const chatExtensionSelectionInputSchema = z.object({ version: z.literal(1), origin: z.literal('turn_reference'),
-  selections: z.array(extensionSelectionInputSchema).max(EXTENSION_SELECTION_LIMITS.turn) }).strict()
-  .superRefine((value, context) => { checkEntries(value.selections, context); checkEncodedSize(value, context); });
+  selections: z.array(extensionSelectionInputSchema).max(EXTENSION_SELECTION_LIMITS.turn),
+  packageConnections: z.array(extensionPackageConnectionSchema).max(EXTENSION_SELECTION_LIMITS.children).optional() }).strict()
+  .superRefine((value, context) => {
+    checkEntries(value.selections, context);
+    checkPackageConnections(value.selections, value.packageConnections, context);
+    checkEncodedSize(value, context);
+  });
 export type ChatExtensionSelection = z.infer<typeof chatExtensionSelectionSchema>;
 export type ChatExtensionSelectionInput = z.infer<typeof chatExtensionSelectionInputSchema>;
 
