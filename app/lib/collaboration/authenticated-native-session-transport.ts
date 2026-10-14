@@ -4,9 +4,12 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { NextRequest } from 'next/server';
 import type { SqlConnection } from '../db';
 import { withWorkspaceRequestPrincipal, withWorkspaceRequestPrincipalOnConnection,
-  type WorkspaceRequestPrincipalAccess } from '../workspaces/request-principal';
+  WorkspaceRequestPrincipalError, type WorkspaceRequestPrincipalAccess } from '../workspaces/request-principal';
 import type { WorkspaceContext } from '../workspaces/types';
 import { isCanonicalAdmissionPath } from './room-admission-contract';
+import { assertCollaborationRoomOwnerFence, type CollaborationRoomOwnerFence, type CollaborationRoomOwnerRow } from './room-owner';
+import { isCollaborationStateQuarantined } from './failure';
+import { COLLABORATION_SCHEMA_VERSION } from './types';
 import { withAuthenticatedExistingNativeCollaborationSessionOnConnection,
   type ExistingNativeCollaborationSession, type ExistingNativeSessionIdentity,
   type ExistingNativeSessionRequestAccess } from './native-session-state-reader';
@@ -29,6 +32,7 @@ type Phase = { record: RecordState; connection: SqlConnection; active: boolean; 
 const transports = new WeakMap<AuthenticatedNativeSessionTransport, RecordState>();
 const connections = new WeakMap<SqlConnection, Phase>();
 const callbackContext = new AsyncLocalStorage<Phase>();
+const busyFailures = new WeakSet<object>();
 const scopeKeys = ['userId', 'sessionId', 'workspaceId', 'workspaceType', 'organizationId', 'projectId',
   'customerId', 'ownerUserId', 'rootPath', 'rootRelativePath', 'legacy', 'status'] as const;
 const identityKeys = ['documentId', 'lineageId', 'workspaceId', 'organizationId', 'path',
@@ -37,7 +41,7 @@ const identityKeys = ['documentId', 'lineageId', 'workspaceId', 'organizationId'
 export class AuthenticatedNativeSessionTransportError extends Error {
   constructor(readonly code: 'NATIVE_TRANSPORT_INVALID' | 'NATIVE_TRANSPORT_REQUIRED' | 'NATIVE_TRANSPORT_TOO_LARGE'
     | 'NATIVE_TRANSPORT_SCOPE_CHANGED' | 'NATIVE_TRANSPORT_ACCESS_DENIED' | 'NATIVE_TRANSPORT_REENTRANT'
-    | 'NATIVE_TRANSPORT_DETACHED' | 'NATIVE_TRANSPORT_DISPOSED') {
+    | 'NATIVE_TRANSPORT_DETACHED' | 'NATIVE_TRANSPORT_DISPOSED' | 'NATIVE_TRANSPORT_QUARANTINED') {
     super(code); this.name = 'AuthenticatedNativeSessionTransportError';
   }
 }
@@ -178,7 +182,8 @@ function reserve(connection: SqlConnection, record: RecordState): Phase {
   connections.set(connection, phase); record.phase = phase;
   return phase;
 }
-function run<T>(phase: Phase, operation: () => Promise<T>): Promise<T> {
+function run<T>(phase: Phase, operation: () => Promise<T>, beforeOwnerCallback?: () => boolean,
+  finalOwnerObservation?: () => Promise<void>): Promise<T> {
   const pending = (async () => {
     try {
       const result = await operation();
@@ -187,8 +192,19 @@ function run<T>(phase: Phase, operation: () => Promise<T>): Promise<T> {
       // Native and principal capabilities have already closed. Retain only
       // identity checking through the factory completion window on caller B.
       await readBinding(phase, phase.binding.scope);
+      await finalOwnerObservation?.();
       active(phase); return result;
-    } catch (error) { throw poison(phase.record, error); }
+    } catch (error) {
+      // Only a genuine principal lock rejection before any owner callback can
+      // be retried. The callback never ran, so this proves no accepted write.
+      if (beforeOwnerCallback?.() && error instanceof WorkspaceRequestPrincipalError && error.code === 'PRINCIPAL_BUSY'
+        && phase.record.failure === undefined && !phase.record.disposed) {
+        const busy = new Error('The current peer authorization phase is busy.');
+        busy.name = 'AuthenticatedNativeSessionTransportBusyError'; busyFailures.add(busy);
+        throw busy;
+      }
+      throw poison(phase.record, error);
+    }
     finally {
       phase.callbackActive = false; phase.active = false;
       if (connections.get(phase.connection) === phase) connections.delete(phase.connection);
@@ -278,6 +294,147 @@ export function withAuthenticatedNativeSessionTransportOnConnection<T>(connectio
             await verify(phase, access);
             return result as T;
           })));
+  } catch (error) {
+    if (record) poison(record, error);
+    const held = connections.get(connection); if (held) poison(held.record, error);
+    return Promise.reject(record?.failure ?? error ?? new AuthenticatedNativeSessionTransportError('NATIVE_TRANSPORT_INVALID'));
+  }
+}
+
+/** Only actual lock contention before entering an owner callback is transient. */
+export function isAuthenticatedNativeSessionTransportBusy(error: unknown): boolean {
+  return !!error && typeof error === 'object' && busyFailures.has(error);
+}
+
+export type AuthenticatedOwnedNativeSessionAccess = ExistingNativeSessionRequestAccess & Readonly<{
+  identity: ExistingNativeSessionIdentity; quarantined: boolean; documentSequence: number;
+}>;
+
+function ownerCounter(value: unknown, minimum = 0): number {
+  if (!(typeof value === 'number' || typeof value === 'string' && /^(?:0|[1-9][0-9]*)$/u.test(value))
+    || !Number.isSafeInteger(Number(value)) || Number(value) < minimum) fail('NATIVE_TRANSPORT_SCOPE_CHANGED');
+  return Number(value);
+}
+
+async function observeOwnedNativeSession(phase: Phase, identity: ExistingNativeSessionIdentity,
+  fence: CollaborationRoomOwnerFence): Promise<{ quarantined: boolean; documentSequence: number }> {
+  active(phase);
+  const names = ['collaboration_documents', 'file_collaboration_lineages', 'collaboration_yjs_states'];
+  const relations = await phase.connection.all('SELECT name,to_regclass(name)::oid = '
+    + "to_regclass(quote_ident(current_schema())||'.'||quote_ident(name))::oid AS same_relation "
+    + 'FROM unnest($1::text[]) names(name)', [names]) as Array<{ name: string; same_relation: boolean }>;
+  active(phase);
+  if (relations.length !== names.length || relations.some(row => !names.includes(row.name) || row.same_relation !== true)) fail('NATIVE_TRANSPORT_SCOPE_CHANGED');
+  const rows = await phase.connection.all('SELECT s.document_id,s.workspace_id,s.organization_id,s.path,s.representation,'
+    + 's.lifecycle_generation,s.schema_version,s.status,s.document_sequence,s.checkpoint_sequence,s.persisted_at,s.checkpointed_at,'
+    + 's.newline_style,s.has_bom,s.degraded,s.projection_error_code,'
+    + 's.projection_error_permanent,s.projection_error_generation,s.projection_error_sequence,s.projection_error_phase,s.room_owner_epoch,s.room_owner_token,'
+    + 's.room_owner_backend_pid,s.room_owner_backend_start,d.id,d.lineage_id,d.workspace_type,d.provider,'
+    + 'd.workspace_id AS registry_workspace_id,d.organization_id AS registry_organization_id,d.path AS registry_path,'
+    + 'd.status AS registry_status,d.state_version,d.yjs_state_lifecycle,l.workspace_id AS lineage_workspace_id,'
+    + 'l.organization_id AS lineage_organization_id,l.workspace_type AS lineage_workspace_type,l.path AS lineage_path,l.status AS lineage_status '
+    + 'FROM collaboration_documents d FULL JOIN collaboration_yjs_states s ON s.document_id=d.id '
+    + 'LEFT JOIN file_collaboration_lineages l ON l.id=d.lineage_id '
+    + "WHERE ((d.workspace_id=$1 AND d.path=$2) OR (s.workspace_id=$1 AND s.path=$2)) AND (d.status='active' OR s.status='active') LIMIT 2",
+  [identity.workspaceId, identity.path]) as Array<CollaborationRoomOwnerRow & Record<string, unknown>>;
+  active(phase);
+  const row = rows[0], scope = phase.binding?.scope;
+  if (rows.length !== 1 || !scope || identity.organizationId !== scope.organizationId
+    || row.id !== identity.documentId || row.document_id !== identity.documentId
+    || row.lineage_id !== identity.lineageId || row.workspace_id !== identity.workspaceId || row.organization_id !== identity.organizationId
+    || row.path !== identity.path || row.representation !== identity.representation
+    || ownerCounter(row.lifecycle_generation, 1) !== identity.lifecycleGeneration || ownerCounter(row.schema_version, 1) !== identity.schemaVersion
+    || row.status !== 'active' || row.provider !== 'yjs' || row.registry_status !== 'active' || row.yjs_state_lifecycle !== 'initialized'
+    || row.registry_workspace_id !== identity.workspaceId || row.registry_organization_id !== identity.organizationId || row.registry_path !== identity.path
+    || row.workspace_type !== scope.workspaceType || row.lineage_workspace_type !== scope.workspaceType
+    || row.lineage_workspace_id !== identity.workspaceId || row.lineage_organization_id !== identity.organizationId
+    || row.lineage_path !== identity.path || row.lineage_status !== 'active'
+    || ownerCounter(row.checkpoint_sequence) > ownerCounter(row.document_sequence)
+    || !['lf', 'crlf'].includes(row.newline_style as never) || ![0, 1, '0', '1', false, true].includes(row.has_bom as never)
+    || ![0, 1, '0', '1', false, true].includes(row.degraded as never)
+    || ![0, 1, '0', '1'].includes(row.projection_error_permanent as never)) fail('NATIVE_TRANSPORT_SCOPE_CHANGED');
+  ownerCounter(row.state_version); ownerCounter(row.persisted_at);
+  if (row.checkpointed_at !== null) ownerCounter(row.checkpointed_at);
+  // Validate the ORIGINAL tuple before mapping. A dropped orphaned error must
+  // never turn a corrupt/permanently quarantined native row into a writer.
+  if (row.projection_error_code !== null) {
+    if (!validId(row.projection_error_code) || ownerCounter(row.projection_error_sequence) > ownerCounter(row.document_sequence)
+      || ownerCounter(row.projection_error_generation, 1) > identity.lifecycleGeneration
+      || Number(row.projection_error_permanent) === 1 && ownerCounter(row.projection_error_generation, 1) !== identity.lifecycleGeneration
+      || row.projection_error_phase !== null && (typeof row.projection_error_phase !== 'string'
+        || row.projection_error_phase.length > 256 || /[\u0000-\u001f\u007f]/u.test(row.projection_error_phase))) fail('NATIVE_TRANSPORT_SCOPE_CHANGED');
+  } else if (Number(row.projection_error_permanent) !== 0 || row.projection_error_sequence !== null
+    || row.projection_error_generation !== null || row.projection_error_phase !== null) fail('NATIVE_TRANSPORT_SCOPE_CHANGED');
+  await assertCollaborationRoomOwnerFence(phase.connection, row, fence);
+  active(phase);
+  const error = row.projection_error_code && Number(row.projection_error_generation) === identity.lifecycleGeneration
+    ? { code: String(row.projection_error_code), permanent: Number(row.projection_error_permanent) === 1 } : undefined;
+  return { quarantined: isCollaborationStateQuarantined({ degraded: Number(row.degraded) === 1, projectionError: error }),
+    documentSequence: Number(row.document_sequence) };
+}
+
+/** Already-held owner observation, never new admission or a shared-reader bypass.
+ * Caller owns a fresh RC/RW transaction and its completion/disposal. Each phase
+ * authenticates the immutable original headers and validates the actual owner
+ * SQL lock, Registry/Lineage/native identity, original realm and full workspace.
+ * The callback facade expires before the outer principal/factory final checks. */
+export function withAuthenticatedOwnedNativeSessionTransportOnConnection<T>(connection: SqlConnection,
+  transport: AuthenticatedNativeSessionTransport,
+  input: { permission: Permission; identity: ExistingNativeSessionIdentity; ownerFence: CollaborationRoomOwnerFence },
+  consume: (access: AuthenticatedOwnedNativeSessionAccess) => Promise<T>): Promise<T> {
+  const record = transports.get(transport);
+  try {
+    if (!record) fail('NATIVE_TRANSPORT_REQUIRED');
+    if (record.failure !== undefined) throw record.failure;
+    if (record.disposed || !record.original) fail('NATIVE_TRANSPORT_DISPOSED');
+    data(input, ['permission', 'identity', 'ownerFence'], ['permission', 'identity', 'ownerFence']);
+    const captured = capturePhaseInput({ permission: input.permission, path: input.identity.path, expectedIdentity: input.identity });
+    const identity = captured.expectedIdentity!;
+    if (!validId(identity.documentId) || !validId(identity.lineageId) || identity.workspaceId !== record.workspaceId
+      || !['plain_text', 'tiptap_xml', 'tiptap_blocks'].includes(identity.representation)
+      || !Number.isSafeInteger(identity.lifecycleGeneration) || identity.lifecycleGeneration < 1 || identity.schemaVersion !== COLLABORATION_SCHEMA_VERSION) fail('NATIVE_TRANSPORT_INVALID');
+    data(input.ownerFence, ['scope', 'epoch', 'token', 'backendPid', 'backendStart'], ['scope', 'epoch', 'token', 'backendPid', 'backendStart']);
+    data(input.ownerFence.scope, identityKeys.filter(key => key !== 'lineageId'), identityKeys.filter(key => key !== 'lineageId'));
+    if (identityKeys.some(key => key !== 'lineageId' && Reflect.get(input.ownerFence.scope, key) !== identity[key])
+      || !validId(input.ownerFence.token) || !Number.isSafeInteger(input.ownerFence.epoch) || input.ownerFence.epoch < 1
+      || !Number.isSafeInteger(input.ownerFence.backendPid) || input.ownerFence.backendPid < 1 || !validId(input.ownerFence.backendStart)
+      || typeof consume !== 'function') fail('NATIVE_TRANSPORT_INVALID');
+    const fence = Object.freeze({ ...input.ownerFence, scope: Object.freeze({ ...input.ownerFence.scope }) });
+    if (captured.permission === 'canWrite' && record.maxPermission !== 'canWrite') fail('NATIVE_TRANSPORT_ACCESS_DENIED');
+    const phase = reserve(connection, record), original = record.original;
+    let entered = false;
+    return run(phase, () => withWorkspaceRequestPrincipal(freshRequest(original),
+      { permission: captured.permission, workspaceId: record.workspaceId }, principal =>
+        withWorkspaceRequestPrincipalOnConnection(connection, principal, async actual => {
+          entered = true;
+          await verify(phase, actual);
+          let observed = await observeOwnedNativeSession(phase, identity, fence);
+          if (captured.permission === 'canWrite' && observed.quarantined) fail('NATIVE_TRANSPORT_QUARANTINED');
+          const access = callbackAccess(phase, { ...actual, assertCurrent: async () => {
+            await actual.assertCurrent(); observed = await observeOwnedNativeSession(phase, identity, fence);
+          } });
+          const bound = Object.freeze({ get workspace() { return access.workspace; }, get userId() { return access.userId; },
+            get sessionId() { return access.sessionId; }, get assertCurrent() { return access.assertCurrent; },
+            get identity() { void access.workspace; return identity; },
+            get quarantined() { void access.workspace; return observed.quarantined; },
+            get documentSequence() { void access.workspace; return observed.documentSequence; } });
+          phase.callbackActive = true;
+          let result: T | undefined;
+          try { result = await callbackContext.run(phase, () => consume(bound)); }
+          catch (error) { poison(record, error); }
+          finally { phase.callbackActive = false; }
+          if (phase.checks.size) {
+            poison(record, new AuthenticatedNativeSessionTransportError('NATIVE_TRANSPORT_DETACHED'));
+            await Promise.allSettled([...phase.checks]);
+          }
+          active(phase); observed = await observeOwnedNativeSession(phase, identity, fence);
+          if (captured.permission === 'canWrite' && observed.quarantined) fail('NATIVE_TRANSPORT_QUARANTINED');
+          await verify(phase, actual);
+          return result as T;
+        })), () => !entered, async () => {
+          const observed = await observeOwnedNativeSession(phase, identity, fence);
+          if (captured.permission === 'canWrite' && observed.quarantined) fail('NATIVE_TRANSPORT_QUARANTINED');
+        });
   } catch (error) {
     if (record) poison(record, error);
     const held = connections.get(connection); if (held) poison(held.record, error);
