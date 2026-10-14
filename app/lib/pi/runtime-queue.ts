@@ -1,6 +1,7 @@
 import type { AgentMessage } from '@earendil-works/pi-agent-core';
 import type { PiRuntimePromptContext } from '@/app/lib/pi/runtime-prompt-context';
 import type { ChatBodyV1 } from '@/app/lib/chat/chat-body-contracts';
+import type { Attachment } from '@/app/lib/chat/types';
 import type { ChatMessageQueueState, OwnedAcceptedChatMessage } from './durable-message-admission';
 
 export type RuntimeQueuePreview = {
@@ -11,6 +12,7 @@ export type RuntimeQueuePreview = {
   messageTimestamp?: number;
   signature?: string;
   body?: ChatBodyV1;
+  attachments?: Attachment[];
 };
 
 export type RuntimeQueueEntry = {

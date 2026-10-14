@@ -16,12 +16,12 @@ import { fetchChatSessionBootstrap } from '@/app/lib/chat/session-api';
 import { readLatestCachedChatSession } from '@/app/lib/chat/session-cache';
 import type {
   AISession,
-  Attachment,
 } from '@/app/lib/chat/types';
 import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
 import { consumePromptHandoff, createPromptHandoff, isPromptHandoffForNavigation, readPromptHandoff, type PromptHandoff } from '@/app/lib/chat/prompt-handoff';
 import { openedDocumentAuthScope } from '@/app/lib/collaboration/opened-document-registry';
 import { readCanvasChatActiveSessionStorage } from '@/app/lib/chat/constants';
+import type { ChatSendOverride } from '@/app/lib/chat/send-transaction';
 
 type ChatTranslator = ReturnType<typeof useTranslations<'chat'>>;
 
@@ -33,7 +33,7 @@ type UseChatSessionBootstrapParams = {
   forcedSessionId?: string | null;
   handleControlAction: (
     action: 'send' | 'steer' | 'follow_up' | 'replace',
-    override?: { text: string; attachments: Attachment[]; handoffId?: string; workspaceId?: string },
+    override?: ChatSendOverride,
   ) => Promise<void>;
   activeWorkspaceId?: string | null;
   hasLoadedSessionListRef: MutableRefObject<boolean>;
@@ -200,7 +200,8 @@ export function useChatSessionBootstrap({
       let detached = false;
       try {
         await handleControlAction('send', { text: handoff.prompt, attachments: handoff.attachments,
-          handoffId: handoff.handoffId, workspaceId: handoff.workspaceId });
+          handoffId: handoff.handoffId, workspaceId: handoff.workspaceId,
+          ...(handoff.body === undefined ? {} : { body: handoff.body }) });
         if (storageKey) consumePromptHandoff(window.sessionStorage, storageKey, handoff.handoffId);
       } catch (error) {
         detached = error instanceof Error && error.name === 'AbortError';

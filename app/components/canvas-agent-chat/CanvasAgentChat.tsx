@@ -72,6 +72,10 @@ import {
 import { useChatSessionBootstrap } from '@/app/components/canvas-agent-chat/useChatSessionBootstrap';
 import { useChatSessionMessages } from '@/app/components/canvas-agent-chat/useChatSessionMessages';
 import { useComposerReferences } from '@/app/components/canvas-agent-chat/useComposerReferences';
+import { useChatReferencePresentation } from './useChatReferencePresentation';
+import { ChatExtensionReferenceDialog } from './ChatExtensionReferenceDialog';
+import { createTextChatBody, readMessageChatBody } from '@/app/lib/chat/body-state';
+import { projectChatBodyText, type ChatBodyV1 } from '@/app/lib/chat/chat-body-contracts';
 import { useChatRuntimeSelection } from '@/app/components/canvas-agent-chat/useChatRuntimeSelection';
 import { useCurrentUserProfile } from '@/app/components/user-profile/useCurrentUserProfile';
 import type {
@@ -111,19 +115,6 @@ interface CanvasAgentChatProps {
 
 const CHAT_REQUEST_TIMEOUT_MS = 30_000;
 const ONBOARDING_CHAT_REQUEST_TIMEOUT_MS = 90_000;
-
-function isTextareaAtHistoryBoundary(textarea: HTMLTextAreaElement, direction: 'older' | 'newer'): boolean {
-  const { selectionStart, selectionEnd, value } = textarea;
-  if (selectionStart !== selectionEnd) {
-    return false;
-  }
-
-  if (direction === 'older') {
-    return !value.slice(0, selectionStart).includes('\n');
-  }
-
-  return !value.slice(selectionEnd).includes('\n');
-}
 
 function isSelectableRuntimeSelection(
   resolution: AiEffectiveRuntimeResolution | null,
@@ -232,7 +223,11 @@ export default function CanvasAgentChat({
   const [oldestMessageId, setOldestMessageId] = useState<number | null>(null);
   const [oldestSequence, setOldestSequence] = useState<number | null>(null);
   const [isLoadingOlder, setIsLoadingOlder] = useState(false);
-  const [input, setInput] = useState<string>('');
+  const [inputBody, setInputBody] = useState<ChatBodyV1>(() => createTextChatBody(''));
+  const input = useMemo(() => projectChatBodyText(inputBody), [inputBody]);
+  const setInput = useCallback<React.Dispatch<React.SetStateAction<string>>>((next) => {
+    setInputBody(current => createTextChatBody(typeof next === 'function' ? next(projectChatBodyText(current)) : next));
+  }, []);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [sessionTitle, setSessionTitle] = useState<string | null>(null);
   const requestedHistory = searchParams.get('history') === 'open';
@@ -261,33 +256,6 @@ export default function CanvasAgentChat({
     sessionId,
     workspaceId: activeWorkspaceId,
   });
-  const {
-    resolution: runtimeResolution,
-    selection: requestedRuntimeSelection,
-    selectionSource: runtimeSelectionSource,
-    hasLocalSelection: hasLocalRuntimeSelection,
-    loading: isRuntimeSelectionLoading,
-    error: runtimeSelectionError,
-    setRequestedSelection: setRequestedRuntimeSelection,
-    applyResolution: applyRuntimeResolution,
-    refresh: refreshRuntimeSelection,
-  } = useChatRuntimeSelection({
-    workspaceId: activeWorkspaceId,
-    agentId: selectedAgentId,
-    sessionId,
-  });
-  const runtimeSelection = isSelectableRuntimeSelection(runtimeResolution, requestedRuntimeSelection)
-    ? requestedRuntimeSelection
-    : null;
-  useEffect(() => {
-    if (!runtimeSelection) return;
-    updateAgentModelSelection({
-      provider: runtimeSelection.providerId,
-      model: runtimeSelection.modelId,
-      thinkingLevel: runtimeSelection.thinkingLevel,
-    });
-  }, [runtimeSelection, updateAgentModelSelection]);
-  const selectedAgentProfile = availableAgents.find((agent) => agent.agentId === selectedAgentId);
   const [hasUnreadInCurrentSession, setHasUnreadInCurrentSession] = useState(false);
   const [showUnreadBanner, setShowUnreadBanner] = useState(false);
   const [openQueueItemPopoverId, setOpenQueueItemPopoverId] = useState<string | null>(null);
@@ -345,8 +313,7 @@ export default function CanvasAgentChat({
     composerHeight,
     composerRef,
     composerWidth,
-    textareaHeight,
-    textareaRef,
+    editorRef,
   } = useChatComposerLayout({ input, isMobile });
   const {
     isAtBottomRef,
@@ -417,6 +384,34 @@ export default function CanvasAgentChat({
     surfaceVisibleRef,
     t,
   });
+  const activeSession = history.find((session) => session.sessionId === sessionId);
+  const composerAgentId = sessionId ? activeSession?.agentId ?? null : selectedAgentId;
+  const {
+    resolution: runtimeResolution,
+    selection: requestedRuntimeSelection,
+    selectionSource: runtimeSelectionSource,
+    hasLocalSelection: hasLocalRuntimeSelection,
+    loading: isRuntimeSelectionLoading,
+    error: runtimeSelectionError,
+    setRequestedSelection: setRequestedRuntimeSelection,
+    applyResolution: applyRuntimeResolution,
+    refresh: refreshRuntimeSelection,
+  } = useChatRuntimeSelection({
+    workspaceId: activeWorkspaceId,
+    agentId: composerAgentId ?? '',
+    sessionId,
+  });
+  const runtimeSelection = isSelectableRuntimeSelection(runtimeResolution, requestedRuntimeSelection)
+    ? requestedRuntimeSelection
+    : null;
+  useEffect(() => {
+    if (!runtimeSelection) return;
+    updateAgentModelSelection({
+      provider: runtimeSelection.providerId,
+      model: runtimeSelection.modelId,
+      thinkingLevel: runtimeSelection.thinkingLevel,
+    });
+  }, [runtimeSelection, updateAgentModelSelection]);
   const applyHistoryPanelWidth = useCallback((nextWidth: number) => {
     historyPanelRef.current?.style.setProperty('width', `${nextWidth}px`);
   }, []);
@@ -474,10 +469,12 @@ export default function CanvasAgentChat({
     resetInputHistoryNavigation,
   } = useChatComposerDraft({
     input,
+    inputBody,
     messages,
     sessionId,
     setInput,
-    textareaRef,
+    setInputBody,
+    editorRef,
   });
   const {
     activeReferenceMatch,
@@ -490,24 +487,38 @@ export default function CanvasAgentChat({
     selectedReferenceIndex,
     selectNextReference,
     selectPreviousReference,
+    handleSelectionChange,
+    referenceTypeFilter,
+    setReferenceTypeFilter,
+    openReferencePicker,
+    pendingReference,
+    closeReferenceDialog,
+    acceptReference,
+    prepareIntakeSelection,
+    target: referenceTarget,
   } = useComposerReferences({
-    agentId: selectedAgentId,
-    input,
-    relevantSkillNames: selectedAgentProfile?.relevantSkills,
+    agentId: composerAgentId,
+    sessionId,
+    inputBody,
     workspaceId: activeWorkspaceId,
     resetInputHistoryNavigation,
-    setInput,
-    textareaRef,
+    setInputBody,
+    editorRef,
   });
+  const referenceBodies = useMemo(() => [inputBody, ...messages.flatMap(message => {
+    const body = readMessageChatBody(message.piMessage); return body ? [body] : [];
+  })], [inputBody, messages]);
+  const referenceIcons = useChatReferencePresentation(referenceTarget, referenceBodies);
 
   const handleWorkspaceFilesDrop = useCallback((paths: string[]) => {
     const references = paths.map((path) => `@"${path}"`);
     if (references.length === 0) return;
 
     resetInputHistoryNavigation();
-    setInput((current) => `${current}${current.trimEnd() ? ' ' : ''}${references.join(' ')} `);
-    window.setTimeout(() => textareaRef.current?.focus(), 0);
-  }, [resetInputHistoryNavigation, setInput, textareaRef]);
+    editorRef.current?.replaceText(`${input.trimEnd() ? ' ' : ''}${references.join(' ')} `,
+      { from: input.length, to: input.length });
+    editorRef.current?.focusEnd();
+  }, [resetInputHistoryNavigation, input, editorRef]);
 
   const buildRequestContext = useCallback((activeFilePath: string | null): ChatRequestContext => ({
     activeFilePath,
@@ -696,6 +707,8 @@ export default function CanvasAgentChat({
     ensureSessionSubscribed,
     fetchHistory,
     input,
+    inputBody,
+    prepareIntakeSelection,
     isMobile,
     isUploading,
     messages,
@@ -705,6 +718,7 @@ export default function CanvasAgentChat({
     resetStreamConnection,
     runtimePhase,
     selectedAgentId,
+    actualSessionAgentId: sessionId ? composerAgentId : null,
     sessionId,
     sessionAgentIdRef,
     sessionIdRef,
@@ -717,6 +731,7 @@ export default function CanvasAgentChat({
     setHasMoreBefore,
     setHistoryAgentFilter,
     setInput,
+    setInputBody,
     setIsLoadingOlder,
     setIsResolvingInitialChatState,
     setMessages,
@@ -736,7 +751,7 @@ export default function CanvasAgentChat({
     showHistory,
     skipNextSessionStatusRefreshRef,
     t,
-    textareaRef,
+    editorRef,
     userStartedNewChatRef,
     wsRequest,
   });
@@ -781,6 +796,7 @@ export default function CanvasAgentChat({
     setHasUnreadInCurrentSession,
     setHistory,
     setInput,
+    setInputBody,
     setIsLoadingOlder,
     setMessages,
     setOldestMessageId,
@@ -921,7 +937,8 @@ export default function CanvasAgentChat({
     }
   }, [selectedAgentId, setHistory, setTotalUnreadCount]);
 
-  const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+  const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.nativeEvent.isComposing || e.key === 'Process') return;
     if (e.shiftKey && e.key === 'Tab') {
       e.preventDefault();
       togglePlanningMode();
@@ -965,7 +982,10 @@ export default function CanvasAgentChat({
 
     if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
       const direction = e.key === 'ArrowUp' ? 'older' : 'newer';
-      if (isTextareaAtHistoryBoundary(e.currentTarget, direction) && navigateInputHistory(direction)) {
+      const range = editorRef.current?.getSelection();
+      const atBoundary = range && range.from === range.to && (direction === 'older'
+        ? !input.slice(0, range.from).includes('\n') : !input.slice(range.to).includes('\n'));
+      if (atBoundary && navigateInputHistory(direction)) {
         e.preventDefault();
       }
       return;
@@ -975,7 +995,7 @@ export default function CanvasAgentChat({
       e.preventDefault();
       void handleSend();
     }
-  }, [activeReferenceMatch, closeReferencePicker, handleReferenceSelect, handleSend, handleStop, isWebSocketUnavailable, navigateInputHistory, referencePickerItems, runtimeStatusRef, selectNextReference, selectedReferenceIndex, selectPreviousReference, togglePlanningMode]);
+  }, [activeReferenceMatch, closeReferencePicker, editorRef, handleReferenceSelect, handleSend, handleStop, input, isWebSocketUnavailable, navigateInputHistory, referencePickerItems, runtimeStatusRef, selectNextReference, selectedReferenceIndex, selectPreviousReference, togglePlanningMode]);
 
   const { initialSessionError, retryInitialSession } = useChatSessionBootstrap({
     addSessionToHistory,
@@ -1157,7 +1177,6 @@ export default function CanvasAgentChat({
   const isCompactView = isMobile || (composerWidth > 0 && composerWidth < 640);
   const showInitialChatLoader = messages.length === 0 && (isResolvingInitialChatState || isLoadingMessages);
   const showStarterScreen = messages.length === 0 && !sessionId && !showInitialChatLoader && !initialSessionError;
-  const activeSession = history.find((session) => session.sessionId === sessionId);
   const activeSessionAgentId = activeSession?.agentId || selectedAgentId;
   useEffect(() => {
     // A responsive remount must resolve its stored session before clearing context.
@@ -1229,7 +1248,7 @@ export default function CanvasAgentChat({
         ...current.filter((candidate) => candidate.sessionId !== forkedSession.sessionId),
       ]);
       await loadSession(forkedSession);
-      requestAnimationFrame(() => textareaRef.current?.focus());
+      requestAnimationFrame(() => editorRef.current?.focus());
       toast.success(t('forkCreated', {
         title: getSessionDisplayTitle(forkedSession.title, t('newChatTitle')),
       }));
@@ -1237,7 +1256,7 @@ export default function CanvasAgentChat({
       console.error('[CanvasAgentChat] Failed to fork session', error);
       toast.error(t('forkFailed'));
     }
-  }, [activeSession, activeWorkspaceId, loadSession, selectedAgentId, setHistory, t, textareaRef]);
+  }, [activeSession, activeWorkspaceId, editorRef, loadSession, selectedAgentId, setHistory, t]);
   const activeAgentProfile = agentProfilesById.get(activeSessionAgentId);
   const activeAgentDisplayName = getAgentProfileDisplayName(activeSessionAgentId, activeAgentProfile?.name);
   const chatAgentOptions = useMemo<AgentProfile[]>(() => (
@@ -1478,6 +1497,7 @@ export default function CanvasAgentChat({
             )}
 
             <ChatMessageList
+              referenceIcons={referenceIcons}
               toolOutputScope={sessionId && activeWorkspaceId ? { sessionId, agentId: activeSessionAgentId, workspaceId: activeWorkspaceId } : undefined}
               messages={messages}
               assistantName={activeAgentDisplayName}
@@ -1550,13 +1570,19 @@ export default function CanvasAgentChat({
         onWorkspaceFilesDrop={handleWorkspaceFilesDrop}
         composerDisabled={composerDisabled}
         isUploading={isUploading}
-        textareaRef={textareaRef}
+        editorRef={editorRef}
         input={input}
+        inputBody={inputBody}
+        referenceIcons={referenceIcons}
         onInputChange={handleInputChange}
+        onSelectionChange={handleSelectionChange}
         onKeyDown={handleKeyDown}
         onPaste={handlePaste}
         composerPlaceholderText={composerPlaceholderText}
-        textareaHeight={textareaHeight}
+        onOpenReferences={openReferencePicker}
+        referenceTypeFilter={referenceTypeFilter}
+        onReferenceTypeFilterChange={setReferenceTypeFilter}
+        referenceNotice={referencePickerError}
         planningMode={planningMode}
         showReferencePicker={Boolean(activeReferenceMatch)}
         referencePickerEmptyState={referencePickerEmptyState}
@@ -1571,8 +1597,8 @@ export default function CanvasAgentChat({
         onSend={handleSend}
         onDictationTranscript={(text) => {
           resetInputHistoryNavigation();
-          setInput((current) => `${current}${current.trimEnd() ? ' ' : ''}${text}`);
-          textareaRef.current?.focus();
+          editorRef.current?.replaceText(`${input.trimEnd() ? ' ' : ''}${text}`, { from: input.length, to: input.length });
+          editorRef.current?.focusEnd();
         }}
         selectedAgentId={selectedAgentId}
         sessionId={sessionId}
@@ -1593,6 +1619,8 @@ export default function CanvasAgentChat({
         promptSuggestions={promptSuggestions}
         showPromptSuggestions={showStarterScreen}
       />
+      {pendingReference ? <ChatExtensionReferenceDialog request={pendingReference}
+        onClose={closeReferenceDialog} onSelect={acceptReference} /> : null}
         </div>
       </div>
       <AttachmentPreviewDialog

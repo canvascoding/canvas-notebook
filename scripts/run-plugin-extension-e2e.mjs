@@ -43,7 +43,8 @@ async function assertFreePort() {
 }
 
 async function launch() {
-  assert(process.argv.length === 2, 'The acceptance runner takes no CLI options.');
+  const chatInline = process.argv.length === 3 && process.argv[2] === '--chat-inline';
+  assert(process.argv.length === 2 || chatInline, 'Choose the default or fixed --chat-inline acceptance.');
   await assertFreePort();
   const privateEnv = parseEnv(await readPrivateFile(path.join(os.homedir(), '.local/state/canvas-local-team-seat/notebook-host-dev.env')));
   assert(privateEnv.BOOTSTRAP_ADMIN_EMAIL?.trim() && privateEnv.BOOTSTRAP_ADMIN_PASSWORD?.length >= 8,
@@ -62,8 +63,9 @@ async function launch() {
     BOOTSTRAP_ADMIN_EMAIL: privateEnv.BOOTSTRAP_ADMIN_EMAIL,
     BOOTSTRAP_ADMIN_PASSWORD: privateEnv.BOOTSTRAP_ADMIN_PASSWORD,
     NODE_ENV: 'test', __NEXT_PROCESSED_ENV: 'true', NEXT_TELEMETRY_DISABLED: '1',
+    ...(chatInline ? { CANVAS_CHAT_INLINE_E2E: '1' } : {}),
   });
-  const child = spawn(process.execPath, ['--conditions=react-server', '--import', 'tsx', fileURLToPath(import.meta.url), '--fixture'], {
+  const child = spawn(process.execPath, ['--conditions=react-server', '--import', 'tsx', fileURLToPath(import.meta.url), '--fixture', ...(chatInline ? ['--chat-inline'] : [])], {
     cwd: repo, env: clean, stdio: ['ignore', 'inherit', 'inherit'],
   });
   const cancel = () => { if (child.exitCode === null && child.signalCode === null) child.kill('SIGTERM'); };
@@ -295,7 +297,8 @@ async function activateFixtureLicense(ready, env) {
 }
 
 async function runFixture() {
-  assert(process.argv.length === 3 && process.argv[2] === '--fixture' && process.env[ownFlag] === '1' && process.env.NODE_ENV === 'test');
+  const chatInline = process.argv.length === 4 && process.argv[3] === '--chat-inline' && process.env.CANVAS_CHAT_INLINE_E2E === '1';
+  assert((process.argv.length === 3 || chatInline) && process.argv[2] === '--fixture' && process.env[ownFlag] === '1' && process.env.NODE_ENV === 'test');
   await assertFreePort();
   const maintenance = new URL(process.env.DATABASE_URL); assert(maintenance.hostname === '127.0.0.1' && maintenance.port === '55433' && maintenance.pathname === '/postgres');
   const nonce = randomBytes(16).toString('hex'), marker = randomBytes(24).toString('hex');
@@ -316,6 +319,7 @@ async function runFixture() {
     .flatMap(key => process.env[key] ? [[key, process.env[key]]] : []));
   Object.assign(env, {
     [ownFlag]: '1', CANVAS_AGENT_WORKFLOW_MULTIUSER_BROWSER_RUN: '1', NODE_ENV: 'test', __NEXT_PROCESSED_ENV: 'true', NEXT_TELEMETRY_DISABLED: '1',
+    ...(chatInline ? { CANVAS_CHAT_INLINE_E2E: '1' } : {}),
     DATABASE_URL: runtimeURL.toString(), CANVAS_DATABASE_PROVIDER: 'postgres', CANVAS_POSTGRES_POOL_MAX: '8',
     DATA: dataRoot, CANVAS_DATA_ROOT: dataRoot, CANVAS_APP_ROOT: repo, CANVAS_ENV_FILE: emptyEnv, TMPDIR: tmpRoot,
     CANVAS_INSTANCE_ID: `agent-settings-browser-${nonce}`, CANVAS_ORGANIZATION_ID: `agent-settings-browser-${nonce}`,
@@ -452,10 +456,12 @@ async function runFixture() {
     Module._load = function (name, parent, isMain) {
       return piModules.has(name) ? piModules.get(name) : originalModuleLoad.call(this, name, parent, isMain);
     };
-    const { createAgentExtensionModelFixture } = await import('./helpers/agent-extension-model-fixture.ts');
-    modelFixture = await createAgentExtensionModelFixture({ nonce, organizationId: env.CANVAS_ORGANIZATION_ID, actorUserId: owner.id });
+    const createModel = chatInline ? (await import('./helpers/chat-inline-model-fixture.ts')).createChatInlineModelFixture
+      : (await import('./helpers/agent-extension-model-fixture.ts')).createAgentExtensionModelFixture;
+    modelFixture = await createModel({ nonce, organizationId: env.CANVAS_ORGANIZATION_ID, actorUserId: owner.id });
     const fixture = { version: 1, nonce, repo, root, actorId: owner.id, databaseName, dataRoot, baseURL,
       model: modelFixture.model,
+      ...(chatInline ? { modelProofUrl: `${modelFixture.origin}/__owned/${nonce}/proof` } : {}),
       packageName, skillName, mcpUrl: mcp.url, mcpSpki, composioOrigin: consent.origin, logoUrl: registryTls.logoUrl, registryId: 'store-extensions',
       sources: [{ kind: 'plugin', registryId: 'store-extensions', entryKey: packageName, version: '1.0.0', checksum: source.checksum },
         { kind: 'skill', registryId: 'store-extensions', entryKey: skillName, version: '1.0.0', checksum: skill.checksum }] };
@@ -487,11 +493,12 @@ async function runFixture() {
     await fs.writeFile(path.join(root, 'provider-proof.json'), JSON.stringify({ version: 1, nonce, composio: consent.counters, mcp: mcp.stats, registryTls: registryTls.stats,
       model: modelFixture.counts(),
       sdkBusinessCalls: provider.calls.filter(call => /\/tools\/execute\//u.test(call.path)).length }), { mode: 0o600 });
+    assert.equal(browserCode, 0, 'The plugin extension browser acceptance must pass.');
     assert.equal(consent.counters.businessCalls, 0); assert.equal(mcp.stats.toolCalls, 0); assert.equal(consent.counters.blockedExternalRedirects, 0);
-    assert(modelFixture.counts().catalogReads > 0); assert.equal(modelFixture.counts().forbiddenRequests, 0, 'Configuration acceptance must never generate model output.');
+    assert(modelFixture.counts().catalogReads > 0); assert.equal(modelFixture.counts().forbiddenRequests, 0, 'The model fixture must receive only its explicitly supported requests.');
+    if (chatInline) assert(modelFixture.counts().completions.some(row => row.hasSkillSentinel), 'A real SDK model request must receive the exact selected skill context.');
     assert(mcp.stats.iconDiscoveryReads > 0 && mcp.stats.iconReads > 0, 'The real cold MCP logo must be discovered and loaded from the owned passive HTTP(S) fixture.');
     assert.equal(provider.calls.filter(call => /\/tools\/execute\//u.test(call.path)).length, 0);
-    assert.equal(browserCode, 0, 'The plugin extension browser acceptance must pass.');
     const toolRoundtrip = await verifyAgentExtensionToolBrowserFixture(fixture);
     await fs.writeFile(path.join(root, 'agent-tool-roundtrip-verified.json'), JSON.stringify({ version: 1, nonce, ...toolRoundtrip }), { mode: 0o600 });
     receipt.phase = 'verified'; await persist();

@@ -1,5 +1,8 @@
 import 'server-only';
 
+import { projectChatBodyText } from '@/app/lib/chat/chat-body-contracts';
+import { extractMessageAttachments, stripAttachmentBlocks } from '@/app/lib/chat/message-content';
+
 import { createHash, randomUUID } from 'node:crypto';
 import path from 'node:path';
 import {
@@ -1231,9 +1234,12 @@ export class LivePiRuntime {
     }
     const message = { ...structuredClone(payload.message), clientMessageId: payload.clientMessageId,
       serverMessageId: payload.serverMessageId, ...(payload.body === undefined ? {} : { body: payload.body }) };
+    const attachments = extractMessageAttachments(payload.message.content) ?? [];
     return { id: payload.serverMessageId, message, context: payload.context, signature: getMessageSignature(message),
       durable: { message: owned, queue: snapshot.queue }, preview: { ...buildQueuePreview(message),
-        id: payload.serverMessageId, ...(payload.body === undefined ? {} : { body: payload.body }) } };
+        id: payload.serverMessageId, text: payload.body ? projectChatBodyText(payload.body) : stripAttachmentBlocks(extractUserMessageText(message)),
+        attachments, attachmentCount: Math.max(attachments.length, countMessageAttachments(message)),
+        ...(payload.body === undefined ? {} : { body: payload.body }) } };
   }
 
   getOwnedQueuedMessages(): readonly OwnedAcceptedChatMessage[] {

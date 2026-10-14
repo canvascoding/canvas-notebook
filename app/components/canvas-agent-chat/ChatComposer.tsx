@@ -8,7 +8,7 @@ import {
   type ReactNode,
   type RefObject,
 } from 'react';
-import { CircleHelp, FileText, Loader2, Paperclip, Settings, Square, Upload, X } from 'lucide-react';
+import { CircleHelp, FileText, Loader2, Paperclip, Settings, Square, Upload, X, Slash } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
 import { AttachmentPreviewItem } from '@/app/components/canvas-agent-chat/AttachmentPreviewItem';
@@ -20,7 +20,11 @@ import {
   type ComposerReferencePickerItem,
 } from '@/app/components/canvas-agent-chat/ComposerReferencePicker';
 import { PlanModeToggle } from '@/app/components/canvas-agent-chat/PlanModeToggle';
-import { SkillReferenceChipRow } from '@/app/components/canvas-agent-chat/SkillReferenceChips';
+import { ChatInlineEditor, type ChatInlineEditorHandle } from './ChatInlineEditor';
+import type { ChatBodyV1 } from '@/app/lib/chat/chat-body-contracts';
+import type { ChatInlineReferenceIcons, ChatInlineTextRange } from '@/app/lib/chat/inline-editor';
+import type { ChatReferencePickerValue } from '@/app/lib/chat/composer-reference-types';
+import type { ChatReferenceTypeFilter } from './useComposerReferences';
 import { TypewriterPromptSuggestion } from '@/app/components/canvas-agent-chat/TypewriterPromptSuggestion';
 import { useChatFileDrop } from '@/app/components/canvas-agent-chat/useChatFileDrop';
 import { useWorkspaceStore } from '@/app/store/workspace-store';
@@ -65,7 +69,7 @@ export type PluginPickerPlugin = {
 };
 
 export type SkillPickerSkill = Pick<CanvasSkill, 'name' | 'title' | 'description' | 'enabled' | 'core' | 'interface' | 'plugin'>;
-export type ReferencePickerValue = FilePickerFile | PluginPickerPlugin | SkillPickerSkill;
+export type ReferencePickerValue = ChatReferencePickerValue;
 
 export const ChatComposer = forwardRef<HTMLDivElement, {
   ariaHidden: boolean;
@@ -91,13 +95,19 @@ export const ChatComposer = forwardRef<HTMLDivElement, {
   onWorkspaceFilesDrop: (paths: string[]) => void;
   composerDisabled: boolean;
   isUploading: boolean;
-  textareaRef: RefObject<HTMLTextAreaElement | null>;
+  editorRef: RefObject<ChatInlineEditorHandle | null>;
   input: string;
-  onInputChange: (event: ChangeEvent<HTMLTextAreaElement>) => void;
-  onKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => void;
-  onPaste: (event: ClipboardEvent<HTMLTextAreaElement>) => void;
+  inputBody: ChatBodyV1;
+  referenceIcons: ChatInlineReferenceIcons;
+  onInputChange: (body: ChatBodyV1) => void;
+  onSelectionChange: (range: ChatInlineTextRange) => void;
+  onKeyDown: (event: KeyboardEvent<HTMLDivElement>) => void;
+  onPaste: (event: ClipboardEvent<HTMLDivElement>) => void;
+  onOpenReferences: () => void;
+  referenceTypeFilter: ChatReferenceTypeFilter;
+  onReferenceTypeFilterChange: (type: ChatReferenceTypeFilter) => void;
+  referenceNotice?: string | null;
   composerPlaceholderText: string;
-  textareaHeight: number;
   planningMode: boolean;
   showReferencePicker: boolean;
   referencePickerEmptyState: string;
@@ -153,13 +163,19 @@ export const ChatComposer = forwardRef<HTMLDivElement, {
   onWorkspaceFilesDrop,
   composerDisabled,
   isUploading,
-  textareaRef,
+  editorRef,
   input,
+  inputBody,
+  referenceIcons,
   onInputChange,
+  onSelectionChange,
   onKeyDown,
   onPaste,
+  onOpenReferences,
+  referenceTypeFilter,
+  onReferenceTypeFilterChange,
+  referenceNotice,
   composerPlaceholderText,
-  textareaHeight,
   planningMode,
   showReferencePicker,
   referencePickerEmptyState,
@@ -298,22 +314,21 @@ export const ChatComposer = forwardRef<HTMLDivElement, {
         />
         <div className="relative flex-1 min-w-0">
           <div className="relative" {...dropHandlers}>
-            <textarea
-              ref={textareaRef}
-              data-testid="chat-input"
-              rows={1}
-              value={input}
-              onChange={onInputChange}
+            <ChatInlineEditor
+              ref={editorRef}
+              body={inputBody}
+              icons={referenceIcons}
+              onBodyChange={onInputChange}
+              onSelectionChange={onSelectionChange}
               onKeyDown={onKeyDown}
               onPaste={onPaste}
-              placeholder={composerPlaceholderText}
-              style={{ height: `${textareaHeight}px` }}
-              disabled={isWebSocketUnavailable}
+              placeholder={showTypewriterSuggestion ? '' : composerPlaceholderText}
+              aria-label={composerPlaceholderText}
+              disabled={composerDisabled}
               className={cn(
-                'w-full resize-none border bg-background p-2.5 text-base placeholder:text-xs focus:outline-none focus:ring-1 md:text-sm sm:placeholder:text-sm',
+                'w-full min-h-14 max-h-[min(192px,30dvh)] overflow-y-auto border bg-background p-2.5 text-base focus-within:outline-none focus-within:ring-1 md:min-h-[72px] md:max-h-[min(256px,35dvh)] md:text-sm',
                 planningMode ? 'border-amber-500 focus:ring-amber-500' : 'border-border focus:ring-ring',
                 isDraggingFiles || isDraggingWorkspaceFiles ? 'border-primary ring-2 ring-primary/30' : null,
-                showTypewriterSuggestion ? 'placeholder:text-transparent' : 'placeholder:text-muted-foreground',
               )}
             />
             {showTypewriterSuggestion ? (
@@ -333,12 +348,6 @@ export const ChatComposer = forwardRef<HTMLDivElement, {
             ) : null}
           </div>
 
-          <SkillReferenceChipRow
-            content={input}
-            variant="composer"
-            className="mt-1.5"
-          />
-
           {showReferencePicker ? (
             <ComposerReferencePicker
               emptyState={referencePickerEmptyState}
@@ -346,6 +355,14 @@ export const ChatComposer = forwardRef<HTMLDivElement, {
               items={referencePickerItems}
               onSelect={onReferenceSelect}
               selectedIndex={selectedReferenceIndex}
+              notice={referenceNotice}
+              headerActions={<div className="mt-2 flex flex-wrap gap-1" aria-label={t('referenceTypeFilter')}>
+                {(['all', 'plugin', 'skill', 'integration', 'mcp'] as const).map(type => <button key={type} type="button"
+                  aria-pressed={referenceTypeFilter === type} onClick={() => onReferenceTypeFilterChange(type)}
+                  className={cn('rounded-md px-2 py-1 text-xs transition-colors', referenceTypeFilter === type ? 'bg-accent font-medium text-accent-foreground' : 'text-muted-foreground hover:bg-accent/60')}>
+                  {type === 'all' ? t('referenceAllTypes') : type === 'integration' ? 'Composio' : type === 'mcp' ? 'MCP' : type === 'plugin' ? 'Plugins' : 'Skills'}
+                </button>)}
+              </div>}
             />
           ) : null}
         </div>
@@ -379,6 +396,8 @@ export const ChatComposer = forwardRef<HTMLDivElement, {
       <div className="mt-2 flex items-start justify-between gap-2">
         <div className="flex flex-col items-start gap-1">
           <div className="flex flex-wrap items-center gap-2">
+            <Button type="button" size="icon-xs" variant="ghost" disabled={composerDisabled} onClick={onOpenReferences}
+              title={t('openReferences')} aria-label={t('openReferences')}><Slash className="size-3.5" /></Button>
             <ChatModelSelector
               agentId={selectedAgentId}
               sessionId={sessionId}

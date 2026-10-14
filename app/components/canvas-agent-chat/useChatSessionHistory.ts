@@ -7,6 +7,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type Dispatch,
   type MutableRefObject,
   type SetStateAction,
@@ -20,6 +21,7 @@ import { applySessionUnreadUpdate } from '@/app/lib/chat/unread';
 import { getAgentDisplayName } from '@/app/lib/chat/agent-display';
 import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
 import { isAutomaticSessionTitle } from '@/app/lib/pi/session-titles';
+import { openedDocumentAuthScope, subscribeOpenedDocumentAuthInvalidation, type OpenedDocumentAuthScope } from '@/app/lib/collaboration/opened-document-registry';
 import type {
   AgentProfile,
   AISession,
@@ -99,6 +101,7 @@ export function useChatSessionHistory({
   t,
 }: UseChatSessionHistoryParams) {
   const tCommon = useTranslations('common');
+  const authScope = useSyncExternalStore(subscribeOpenedDocumentAuthInvalidation, openedDocumentAuthScope, () => null);
   const [history, setHistory] = useState<AISession[]>([]);
   const [historySearchQuery, setHistorySearchQuery] = useState('');
   const [historyUnreadOnly, setHistoryUnreadOnly] = useState(false);
@@ -115,10 +118,14 @@ export function useChatSessionHistory({
   const sessionListRequestRef = useRef<Promise<AISession[]> | null>(null);
   const hasLoadedSessionListRef = useRef(false);
   const activeWorkspaceIdRef = useRef(activeWorkspaceId ?? null);
+  const activeAuthScopeRef = useRef(authScope);
+  const historyIdentityScopesRef = useRef(new Map<string, { auth: OpenedDocumentAuthScope; workspaceId: string; agentId: string }>());
   const historyGenerationRef = useRef(0);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     historyRef.current = history;
+    const ids = new Set(history.map(session => session.sessionId));
+    for (const id of historyIdentityScopesRef.current.keys()) if (!ids.has(id)) historyIdentityScopesRef.current.delete(id);
   }, [history]);
 
   useEffect(() => {
@@ -168,7 +175,8 @@ export function useChatSessionHistory({
     setHistoryError(null);
     const request = (async () => {
       const sessions = await fetchChatSessions('all', { workspaceId });
-      if (generation !== historyGenerationRef.current || workspaceId !== activeWorkspaceIdRef.current) {
+      if (generation !== historyGenerationRef.current || workspaceId !== activeWorkspaceIdRef.current
+        || openedDocumentAuthScope() !== authScope) {
         throw new DOMException('History request superseded', 'AbortError');
       }
       return applyResolvedTitles(sessions);
@@ -189,22 +197,44 @@ export function useChatSessionHistory({
         setIsLoadingHistory(false);
       }
     }
-  }, [activeWorkspaceId, applyResolvedTitles, t]);
+  }, [activeWorkspaceId, applyResolvedTitles, authScope, t]);
 
-  const setHistoryAndLatest = useCallback((sessions: AISession[]) => {
-    setHistory(sessions);
-    setLatestSession(sessions[0] || null);
-    setTotalUnreadCount(sessions.filter((session) => session.hasUnread).length);
+  const rememberHistoryIdentities = useCallback((sessions: AISession[]) => {
+    const auth = openedDocumentAuthScope(), workspaceId = activeWorkspaceIdRef.current;
+    if (!auth || !workspaceId) return;
+    for (const session of sessions) if (session.agentId && session.workspace?.workspaceId === workspaceId)
+      historyIdentityScopesRef.current.set(session.sessionId, { auth, workspaceId, agentId: session.agentId });
   }, []);
 
+  const setHistoryAndLatest = useCallback((sessions: AISession[]) => {
+    const auth = openedDocumentAuthScope(), workspaceId = activeWorkspaceIdRef.current;
+    rememberHistoryIdentities(sessions);
+    setHistory(previous => {
+      const currentSessionId = sessionIdRef.current;
+      if (!auth || openedDocumentAuthScope() !== auth || activeWorkspaceIdRef.current !== workspaceId
+        || !currentSessionId || sessions.some(session => session.sessionId === currentSessionId)) return sessions;
+      const originalScope = historyIdentityScopesRef.current.get(currentSessionId);
+      if (!originalScope || originalScope.auth !== auth || originalScope.workspaceId !== workspaceId
+        || originalScope.agentId !== sessionAgentIdRef.current) return sessions;
+      const current = previous.find(session => session.sessionId === currentSessionId
+        && session.agentId === originalScope.agentId && session.workspace?.workspaceId === workspaceId);
+      // A bounded discovery page cannot erase an explicitly loaded current chat.
+      // This retained UI identity grants no access; every metadata/send API rechecks it.
+      return current ? sortSessionsByRecentActivity([...sessions, current]) : sessions;
+    });
+    setLatestSession(sessions[0] || null);
+    setTotalUnreadCount(sessions.filter((session) => session.hasUnread).length);
+  }, [rememberHistoryIdentities, sessionAgentIdRef, sessionIdRef]);
+
   const addSessionToHistory = useCallback((session: AISession) => {
+    rememberHistoryIdentities([session]);
     setHistory((prevHistory) => {
       const exists = prevHistory.some((item) => item.sessionId === session.sessionId);
       if (exists) return prevHistory;
       return sortSessionsByRecentActivity([session, ...prevHistory]);
     });
     setLatestSession(session);
-  }, []);
+  }, [rememberHistoryIdentities]);
 
   const touchSessionActivity = useCallback((sessionId: string, activityAt = new Date().toISOString()) => {
     setHistory((previous) => {
@@ -222,6 +252,7 @@ export function useChatSessionHistory({
   const resetHistoryState = useCallback(() => {
     historyGenerationRef.current += 1;
     sessionListRequestRef.current = null;
+    historyIdentityScopesRef.current.clear();
     historyRef.current = [];
     setIsLoadingHistory(false);
     setHistoryError(null);
@@ -235,10 +266,11 @@ export function useChatSessionHistory({
 
   useLayoutEffect(() => {
     const normalizedWorkspaceId = activeWorkspaceId ?? null;
-    if (activeWorkspaceIdRef.current === normalizedWorkspaceId) return;
+    if (activeWorkspaceIdRef.current === normalizedWorkspaceId && activeAuthScopeRef.current === authScope) return;
     activeWorkspaceIdRef.current = normalizedWorkspaceId;
+    activeAuthScopeRef.current = authScope;
     resetHistoryState();
-  }, [activeWorkspaceId, resetHistoryState]);
+  }, [activeWorkspaceId, authScope, resetHistoryState]);
 
   useEffect(() => () => {
     historyGenerationRef.current += 1;

@@ -9,12 +9,17 @@ import { AgentWorkflowError } from './workflow-contracts';
 import { isIntegrationConnectionError } from '@/app/lib/integration-tools/connections/contracts';
 import { EXTENSION_SELECTION_LIMITS } from '@/app/lib/capabilities/extensions/contracts';
 import type { AgentExtensionOptionsResponse, AgentExtensionSearchItem, AgentExtensionSearchRequest } from './extension-options-contracts';
-import { authorizeAgentExtensionSharedOption, revalidateAgentExtensionOptionsContext, type AgentExtensionOptionsContext } from './extension-options-context';
+import { authorizeExtensionSharedOption as authorizeAgentExtensionSharedOption, revalidateExtensionOptionsSourceContext as revalidateAgentExtensionOptionsContext, type ExtensionOptionsSourceContext } from './extension-options-source-context';
+import type { AgentExtensionOptionsContext } from './extension-options-context';
+import type { ChatExtensionOptionsContext } from '@/app/lib/chat/extension-options-context';
+import type { ChatExtensionSearchRequest, ChatExtensionOptionsResponse } from '@/app/lib/chat/extension-options-contracts';
+import { isChatExtensionOptionsContext } from '@/app/lib/chat/extension-options-context';
+import { projectChatExtensionSearchItem } from '@/app/lib/chat/extension-options-eligibility';
 import { readAgentComposioOptionsCatalogue, readAgentMcpOptionsInventory } from './extension-options-inventory';
 import { readAgentExtensionPackageVersion } from './extension-package-options';
 import { agentExtensionPackageIcon } from './extension-options-icons';
 
-function innerCursor(context: AgentExtensionOptionsContext, value: string | null): string | null {
+function innerCursor(context: ExtensionOptionsSourceContext, value: string | null): string | null {
   if (!value) return null;
   try {
     const decoded = JSON.parse(Buffer.from(value, 'base64url').toString('utf8'));
@@ -25,8 +30,8 @@ function innerCursor(context: AgentExtensionOptionsContext, value: string | null
 }
 
 /** Shared catalogue mechanics with a separate actual target-Use projection. No profile/account probes. */
-export async function searchAgentExtensionOptions(context: AgentExtensionOptionsContext,
-  request: AgentExtensionSearchRequest, signal?: AbortSignal): Promise<Extract<AgentExtensionOptionsResponse, { operation: 'search' }>> {
+async function searchExtensionMetadataOptions(context: ExtensionOptionsSourceContext,
+  request: AgentExtensionSearchRequest | ChatExtensionSearchRequest, signal?: AbortSignal) {
   const resourceActor = { userId: context.actor.userId, workspaceId: context.actor.workspaceId };
   const defaults = await getPluginExtensionSearchDependencies();
   const { operation: _operation, target: _target, ...selection } = request;
@@ -111,8 +116,12 @@ export async function searchAgentExtensionOptions(context: AgentExtensionOptions
     }
     return { item, publishedVersions, eligibility: { action: 'select' } };
   }
-  const items = await Promise.all(result.items.map(project));
-  const selectedItem = result.selectedItem ? await project(result.selectedItem) : null;
+  let items = await Promise.all(result.items.map(project));
+  let selectedItem = result.selectedItem ? await project(result.selectedItem) : null;
+  if (isChatExtensionOptionsContext(context)) {
+    items = await Promise.all(items.map(item => projectChatExtensionSearchItem(context, item)));
+    if (selectedItem) selectedItem = await projectChatExtensionSearchItem(context, selectedItem);
+  }
   await revalidateAgentExtensionOptionsContext(context);
   const nextCursor = result.pagination.nextCursor ? Buffer.from(JSON.stringify({ v: 1, context: context.contextKey,
     cursor: result.pagination.nextCursor })).toString('base64url') : null;
@@ -120,4 +129,11 @@ export async function searchAgentExtensionOptions(context: AgentExtensionOptions
   return { schemaVersion: 1, operation: 'search', target: request.target, contextKey: context.contextKey,
     coverage: result.coverage, limits: EXTENSION_SELECTION_LIMITS, query: request, items, selectedItem,
     scopes: result.scopes, pagination: { ...result.pagination, nextCursor } };
+}
+
+export async function searchAgentExtensionOptions(context: AgentExtensionOptionsContext, request: AgentExtensionSearchRequest, signal?: AbortSignal): Promise<Extract<AgentExtensionOptionsResponse, { operation: 'search' }>> {
+  return await searchExtensionMetadataOptions(context, request, signal) as Extract<AgentExtensionOptionsResponse, { operation: 'search' }>;
+}
+export async function searchChatExtensionOptions(context: ChatExtensionOptionsContext, request: ChatExtensionSearchRequest, signal?: AbortSignal) {
+  return await searchExtensionMetadataOptions(context, request, signal) as Omit<Extract<ChatExtensionOptionsResponse, { operation: 'search' }>, 'recents' | 'agentRevision' | 'workflowRevision' | 'preferenceRevision' | 'finalSendValidationRequired'>;
 }

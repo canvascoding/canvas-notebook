@@ -18,7 +18,8 @@ import {
   indexChatRuntimeChanges,
   type ChatRuntimeChange,
 } from '@/app/components/canvas-agent-chat/chatRuntimeChanges';
-import { SkillReferenceChipRow, useSkillReferenceCatalog } from '@/app/components/canvas-agent-chat/SkillReferenceChips';
+import { readMessageChatBody } from '@/app/lib/chat/body-state';
+import type { ChatInlineReferenceIcons } from '@/app/lib/chat/inline-editor';
 import {
   buildToolImagePreviewGroups,
   ToolBatchDisclosure,
@@ -400,9 +401,11 @@ export function ChatMessageList({
   forkDisabled,
   forkDisabledLabel,
   toolOutputScope,
+  referenceIcons,
 }: {
   messages: ChatMessage[];
   toolOutputScope?: ToolOutputScope;
+  referenceIcons?: ChatInlineReferenceIcons;
   assistantName: string;
   assistantAgentId: string;
   assistantIconId?: string | null;
@@ -419,7 +422,6 @@ export function ChatMessageList({
   forkDisabledLabel?: string;
 }) {
   const t = useTranslations('chat');
-  const skillReferenceCatalog = useSkillReferenceCatalog();
   const referenceScope = `${toolOutputScope?.workspaceId}:${toolOutputScope?.sessionId}`;
   // Live and persisted message wrappers may remount; disclosure belongs to the run.
   const [referenceViews, setReferenceViews] = useState<{ scope: string; states: Record<string, FileReferenceViewState> }>({ scope: referenceScope, states: {} });
@@ -624,13 +626,8 @@ export function ChatMessageList({
 
                   {isUser ? (
                     <>
-                      <MarkdownMessage content={bodyContent} variant="user" onMediaClick={onMediaClick} />
-                      <SkillReferenceChipRow
-                        content={bodyContent}
-                        skillsByName={skillReferenceCatalog}
-                        variant="user"
-                        className="mt-2"
-                      />
+                      <MarkdownMessage content={bodyContent} variant="user" onMediaClick={onMediaClick}
+                        inlineBody={readMessageChatBody(message.piMessage) ?? undefined} referenceIcons={referenceIcons} />
                     </>
                   ) : isAssistant ? (
                     isStreamingAssistant && !rawBodyContent ? (
@@ -640,12 +637,6 @@ export function ChatMessageList({
                         <div ref={richContentRef}>
                           <MarkdownMessage content={displayBodyContent} variant="assistant" onMediaClick={onMediaClick} />
                         </div>
-                        <SkillReferenceChipRow
-                          content={bodyContent}
-                          skillsByName={skillReferenceCatalog}
-                          variant="message"
-                          className="mt-2"
-                        />
                         {isStreamingAssistant ? (
                           <div className="mt-2 inline-flex items-center gap-1 text-muted-foreground/70">
                             {[0, 160, 320].map((delay) => (

@@ -24,20 +24,29 @@ import { AgentWorkflowError, agentWorkflowCapabilityKey, type StoredAgentWorkflo
 import { agentExtensionOptionsRequestSchema, agentExtensionOptionsTargetSchema, type AgentExtensionConnectionChoice, type AgentExtensionConnectionChoicesRequest,
   type AgentExtensionOptionsResponse, type AgentExtensionAccountChoice, type AgentExtensionProfileChoice,
   type AgentExtensionPackageBinding, type AgentExtensionSetupAlternative } from './extension-options-contracts';
-import { authorizeAgentExtensionSharedOption, listAgentExtensionSharedOptions, revalidateAgentExtensionOptionsContext,
-  type AgentExtensionOptionsContext } from './extension-options-context';
+import { authorizeExtensionSharedOption as authorizeAgentExtensionSharedOption, listExtensionSharedOptions as listAgentExtensionSharedOptions, revalidateExtensionOptionsSourceContext as revalidateAgentExtensionOptionsContext,
+  type ExtensionOptionsSourceContext } from './extension-options-source-context';
+import type { AgentExtensionOptionsContext } from './extension-options-context';
 import { readAgentExtensionPackageVersion } from './extension-package-options';
 import { readAgentMcpOptionsInventory, readAgentOwnMcpOptionsInventory, readAgentOwnMcpOptionMetadata,
   readAgentSharedMcpOptionMetadata } from './extension-options-inventory';
 
+import { isChatExtensionOptionsContext, type ChatExtensionOptionsContext } from '@/app/lib/chat/extension-options-context';
+import { chatExtensionOptionsRequestSchema, type ChatExtensionConnectionChoicesRequest, type ChatExtensionOptionsResponse } from '@/app/lib/chat/extension-options-contracts';
+import { resolveChatConnectionScope, chatStandaloneEligibility, chatStandaloneToolCap } from '@/app/lib/chat/extension-options-eligibility';
+import { capabilityPackageMcpConfigCompatibility } from '@/app/lib/capabilities/packages/mcp-template-matches';
+import type { CapabilityPackageMcpTemplate } from '@/app/lib/capabilities/packages/presentation-contracts';
+
 type Response = Extract<AgentExtensionOptionsResponse, { operation: 'connection_choices' }>;
-type Alternative = { source: 'mcp'; connector?: string; requiredTools?: readonly string[] }
+export type ExtensionConnectionAlternative = { source: 'mcp'; connector?: string; requiredTools?: readonly string[] }
   | { source: 'composio'; toolkit: string; requiredTools?: readonly string[] };
+type Alternative = ExtensionConnectionAlternative;
 type Candidate = { choiceId: string; selection: StandaloneExtensionSelection; target: StoredAgentWorkflowTarget;
   toolCap: readonly string[] | null; alternativeKey?: string };
-type Scope = { alternatives: Alternative[]; allowed?: Candidate[]; personal: Alternative[];
+export type ExtensionConnectionScope = { alternatives: Alternative[]; allowed?: Candidate[]; personal: Alternative[];
   definitionMappings?: readonly { connector: string; serverDefinitionIds: readonly string[] }[];
-  definitionIds?: readonly string[]; toolCap: readonly string[] | null; required: boolean; package: boolean };
+  definitionIds?: readonly string[]; toolCap: readonly string[] | null; required: boolean; package: boolean; template?: CapabilityPackageMcpTemplate; profileIds?: readonly string[]; refreshOnly?: boolean };
+type Scope = ExtensionConnectionScope;
 
 function fail(code: string, message: string, status = 409): never { throw new AgentWorkflowError(code, message, status); }
 const digest = (value: unknown): string => createHash('sha256').update(JSON.stringify(value)).digest('base64url');
@@ -62,9 +71,9 @@ function publicSelection(target: StoredAgentWorkflowTarget, alternative: Alterna
 }
 
 /** Called only for the freshly checked exact package alternative and selected source. */
-function publicPackageBinding(context: AgentExtensionOptionsContext, scope: Scope, selection: StandaloneExtensionSelection,
+function publicPackageBinding(context: ExtensionOptionsSourceContext, scope: Scope, selection: StandaloneExtensionSelection,
   selectedAlternative?: string, accountSelectionRef?: string): AgentExtensionPackageBinding | undefined {
-  if (!scope.package || !selectedAlternative) return;
+  if (isChatExtensionOptionsContext(context) || !scope.package || !selectedAlternative) return;
   const alternative = scope.alternatives.find(value => alternativeKey(value) === selectedAlternative);
   if (!alternative || alternative.source !== selection.source
     || selection.kind === 'composio' && (alternative.source !== 'composio' || alternative.toolkit !== selection.toolkit)) {
@@ -177,10 +186,10 @@ function permittedTools(tools: readonly string[] | null, cap: readonly string[] 
     ? { action: 'unavailable', reason: { code: 'AGENT_WORKFLOW_REQUIRED_TOOLS', message: 'This connection does not grant every required tool.' } } : { action: 'select' } };
 }
 
-async function setupAlternatives(context: AgentExtensionOptionsContext, scope: Scope): Promise<AgentExtensionSetupAlternative[]> {
+async function setupAlternatives(context: ExtensionOptionsSourceContext, scope: Scope): Promise<AgentExtensionSetupAlternative[]> {
   // Personal setup must be allowed by the actual slot policy. A finite saved
   // choice alone does not authorize adding another personal account/server.
-  const alternatives = context.target.kind === 'user_choice' ? scope.personal : scope.alternatives;
+  const alternatives = context.target.kind === 'user_choice' || isChatExtensionOptionsContext(context) ? scope.personal : scope.alternatives;
   const definitions = alternatives.some(value => value.source === 'mcp') && context.organizationId
     ? await listMcpServerDefinitions(context.organizationId) : [];
   const result: AgentExtensionSetupAlternative[] = [];
@@ -203,12 +212,12 @@ async function setupAlternatives(context: AgentExtensionOptionsContext, scope: S
   return [...new Map(result.map(value => [JSON.stringify(value), value])).values()];
 }
 
-async function sharedChoice(context: AgentExtensionOptionsContext, scope: Scope, source: IntegrationConnectionBindingAuthorization,
+async function sharedChoice(context: ExtensionOptionsSourceContext, scope: Scope, source: IntegrationConnectionBindingAuthorization,
   candidate?: Candidate): Promise<AgentExtensionConnectionChoice | null> {
   const alternative = scope.alternatives.find(alternative => alternative.source === source.resource.source
     && (alternative.source !== 'composio' || source.backend.source === 'composio' && source.backend.toolkit === alternative.toolkit)
     && (!candidate?.alternativeKey || alternativeKey(alternative) === candidate.alternativeKey));
-  if (!alternative || !source.canUse || scope.package && context.target.kind !== 'user_choice' && alternative.source === 'mcp' && !source.canManage) return null;
+  if (!alternative || !source.canUse || scope.package && !isChatExtensionOptionsContext(context) && context.target.kind !== 'user_choice' && alternative.source === 'mcp' && !source.canManage) return null;
   const currentSelection = standaloneExtensionSelectionSchema.parse({ kind: alternative.source, source: alternative.source,
     ...(alternative.source === 'composio' ? { toolkit: alternative.toolkit } : {}), target: { kind: 'shared',
       connectionRef: source.resource.connectionRef, bindingRevision: source.resource.bindingRevision } });
@@ -220,7 +229,10 @@ async function sharedChoice(context: AgentExtensionOptionsContext, scope: Scope,
     if (!backend || backend.connection.enabled === false || backend.authorization.authorizationRevision !== source.authorizationRevision) return null;
     if (scope.package) {
       const definitions = await listMcpServerDefinitions(source.resource.ownership.organizationId);
-      if (context.target.kind !== 'user_choice') {
+      if (isChatExtensionOptionsContext(context) && scope.template) {
+        if (!capabilityPackageMcpConfigCompatibility(scope.template, backend.connection as unknown as Record<string, unknown>)) return null;
+        if (backend.connection.serverDefinitionId && !definitions.some(definition => definition.enabled && definition.id === backend.connection.serverDefinitionId)) return null;
+      } else if (!isChatExtensionOptionsContext(context) && context.target.kind !== 'user_choice') {
         if (!backend.authorization.canManage) return null;
         mappingRequired = !definitions.some(definition => definition.enabled && definition.id === backend.connection.serverDefinitionId);
       } else {
@@ -243,13 +255,13 @@ async function sharedChoice(context: AgentExtensionOptionsContext, scope: Scope,
 }
 
 /** Fresh exact choices for one authorized configuration or Use-only slot; no provider discovery before explicit profile selection. */
-export async function listAgentExtensionConnectionChoices(context: AgentExtensionOptionsContext,
-  requestInput: AgentExtensionConnectionChoicesRequest, signal?: AbortSignal): Promise<Response> {
+async function listExtensionConnectionChoices(context: ExtensionOptionsSourceContext,
+  requestInput: AgentExtensionConnectionChoicesRequest | ChatExtensionConnectionChoicesRequest, signal?: AbortSignal) {
   signal?.throwIfAborted();
   await revalidateAgentExtensionOptionsContext(context);
-  const parsed = agentExtensionOptionsRequestSchema.safeParse(structuredClone(requestInput));
+  const parsed = (isChatExtensionOptionsContext(context) ? chatExtensionOptionsRequestSchema : agentExtensionOptionsRequestSchema).safeParse(structuredClone(requestInput));
   if (!parsed.success || parsed.data.operation !== 'connection_choices'
-    || JSON.stringify(parsed.data.target) !== JSON.stringify(agentExtensionOptionsTargetSchema.parse(context.target))) {
+    || JSON.stringify(parsed.data.target) !== JSON.stringify(isChatExtensionOptionsContext(context) ? context.target : agentExtensionOptionsTargetSchema.parse(context.target))) {
     fail('AGENT_WORKFLOW_OPTIONS_INVALID', 'Choose connections for the same current target context.', 400);
   }
   const request = parsed.data;
@@ -261,7 +273,9 @@ export async function listAgentExtensionConnectionChoices(context: AgentExtensio
       || !Number.isSafeInteger(cursor.offset) || Number(cursor.offset) < 0 || Number(cursor.offset) > 4096) throw new Error('Invalid position');
     offset = Number(cursor.offset);
   } catch { fail('AGENT_WORKFLOW_OPTIONS_CURSOR_CHANGED', 'The current chooser changed. Restart its search.'); }
-  const scope = await selectionScope(context, request), scopeStamp = digest(scope);
+  const scope = isChatExtensionOptionsContext(context) ? await resolveChatConnectionScope(context, request.selector as ChatExtensionConnectionChoicesRequest['selector'])
+    : await selectionScope(context as AgentExtensionOptionsContext, request as AgentExtensionConnectionChoicesRequest);
+  const scopeStamp = digest(scope);
   const coverage = new Map<PluginExtensionCoverage['source'], PluginExtensionCoverage>();
   for (const alternative of scope.alternatives) coverage.set(alternative.source, { source: alternative.source, status: 'complete' });
   const connections: AgentExtensionConnectionChoice[] = [];
@@ -295,7 +309,7 @@ export async function listAgentExtensionConnectionChoices(context: AgentExtensio
           ?? (scope.package && context.target.kind === 'user_choice' ? [] : undefined));
         const definition = definitions.find(definition => definition.enabled && definition.id === current.connection.serverDefinitionId
           && (!ids || ids.includes(definition.id)) && matchesMcpServerDefinition(current.connection, definition));
-        if ((scope.package || ids) && !definition) continue;
+        if (scope.template ? !capabilityPackageMcpConfigCompatibility(scope.template, current.connection as unknown as Record<string, unknown>) : (scope.package || ids) && !definition) continue;
         const selection: StandaloneExtensionSelection = { kind: 'mcp', source: 'mcp', target: { kind: 'personal', connectionRef: item.id } };
         connections.push({ id: `personal:${alternativeKey(alternative) ?? 'mcp'}:${item.id}`, selection, label: item.displayName,
           ...(definition ? { definitionId: definition.id } : {}), ...(alternativeKey(alternative) ? { alternativeKey: alternativeKey(alternative) } : {}),
@@ -319,7 +333,7 @@ export async function listAgentExtensionConnectionChoices(context: AgentExtensio
   const ownComposioCandidates = context.scopeType === 'user' ? scope.allowed?.filter(candidate => candidate.selection.kind === 'composio'
     && candidate.target.kind === 'personal' && candidate.target.ownerUserId === context.actor.userId) ?? [] : [];
   const initialProfiles = (personalComposio.length || ownComposioCandidates.length) && context.allowPersonal ? (await listExistingComposioProfiles(context.actor.userId))
-    .filter(profile => profile.status === 'active' && profile.ownerUserId === context.actor.userId) : [];
+    .filter(profile => profile.status === 'active' && profile.ownerUserId === context.actor.userId && (!scope.profileIds || scope.profileIds.includes(profile.id))) : [];
   if (initialProfiles.length > 32) fail('AGENT_WORKFLOW_OPTIONS_UNAVAILABLE', 'Too many personal profiles are available for this chooser.', 503);
   for (const alternative of personalComposio) for (const profile of initialProfiles) profiles.push({ profileId: profile.id,
     label: label(profile.name, 'Personal profile'), status: 'unverified', ...(alternativeKey(alternative) ? { alternativeKey: alternativeKey(alternative) } : {}) });
@@ -367,7 +381,8 @@ export async function listAgentExtensionConnectionChoices(context: AgentExtensio
   }
   // Recheck exact source access and local configuration after explicit account
   // IO as well. A lost source is omitted; a changed target/policy fails the read.
-  const freshScope = await selectionScope(context, request);
+  const freshScope = isChatExtensionOptionsContext(context) ? await resolveChatConnectionScope(context, request.selector as ChatExtensionConnectionChoicesRequest['selector'])
+    : await selectionScope(context as AgentExtensionOptionsContext, request as AgentExtensionConnectionChoicesRequest);
   if (digest(freshScope) !== scopeStamp) fail('AGENT_WORKFLOW_OPTIONS_CHANGED', 'The effective selection policy changed. Reload its options.');
   const latestProfiles = initialProfiles.length ? await listExistingComposioProfiles(context.actor.userId) : [];
   const currentProfileIds = new Set(latestProfiles.filter(profile => profile.ownerUserId === context.actor.userId && profile.status === 'active'
@@ -396,6 +411,19 @@ export async function listAgentExtensionConnectionChoices(context: AgentExtensio
     const source = selected.source;
     coverage.set(source, { source, status: 'partial', error: { code: 'AGENT_WORKFLOW_OPTIONS_CHANGED', message: 'Some connection metadata changed while loading.', retryable: true } });
   }
+  if (isChatExtensionOptionsContext(context) && !scope.package) {
+    for (let index = connections.length - 1; index >= 0; index--) {
+      const item = connections[index]!;
+      if (chatStandaloneEligibility(context, item.selection, item.definitionId).action !== 'select') connections.splice(index, 1);
+      else item.allowedToolNames = intersectPackageExtensionToolCaps(item.allowedToolNames, chatStandaloneToolCap(context, item.selection, item.definitionId));
+    }
+    for (let index = accounts.length - 1; index >= 0; index--) if (chatStandaloneEligibility(context, accounts[index]!.selection).action !== 'select') accounts.splice(index, 1);
+    if (noAuthSelection && chatStandaloneEligibility(context, noAuthSelection).action !== 'select') noAuthSelection = undefined;
+  }
+  if (isChatExtensionOptionsContext(context) && scope.package && scope.refreshOnly) {
+    for (let index = accounts.length - 1; index >= 0; index--) if (!scope.allowed?.some(choice => JSON.stringify(choice.selection) === JSON.stringify(accounts[index]!.selection))) accounts.splice(index, 1);
+    if (noAuthSelection && !scope.allowed?.some(choice => JSON.stringify(choice.selection) === JSON.stringify(noAuthSelection))) noAuthSelection = undefined;
+  }
   const setup = await setupAlternatives(context, freshScope);
   await revalidateAgentExtensionOptionsContext(context);
   signal?.throwIfAborted();
@@ -423,4 +451,13 @@ export async function listAgentExtensionConnectionChoices(context: AgentExtensio
   if (context.target.kind === 'user_choice' && request.selector.kind === 'slot') return { ...payload, operation: 'connection_choices', target: context.target, selector: request.selector };
   if (context.target.kind !== 'user_choice' && request.selector.kind !== 'slot') return { ...payload, operation: 'connection_choices', target: context.target, selector: request.selector };
   return fail('AGENT_WORKFLOW_OPTIONS_INVALID', 'The current target selection changed.');
+}
+
+/** Existing management semantics remain behind the original strict target parser. */
+export async function listAgentExtensionConnectionChoices(context: AgentExtensionOptionsContext, request: AgentExtensionConnectionChoicesRequest, signal?: AbortSignal): Promise<Response> {
+  return await listExtensionConnectionChoices(context, request, signal) as Response;
+}
+/** Real Use-only Chat contexts share inventory/account mechanics, with a separate exact Turn policy scope. */
+export async function listChatExtensionConnectionChoices(context: ChatExtensionOptionsContext, request: ChatExtensionConnectionChoicesRequest, signal?: AbortSignal) {
+  return await listExtensionConnectionChoices(context, request, signal) as Omit<Extract<ChatExtensionOptionsResponse, { operation: 'connection_choices' }>, 'agentRevision' | 'workflowRevision' | 'preferenceRevision' | 'finalSendValidationRequired'>;
 }

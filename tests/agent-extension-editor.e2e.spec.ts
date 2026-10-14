@@ -137,8 +137,9 @@ async function selectOwnMcp(editor: Locator) {
 }
 async function openEdit(name: string, locale: Locale = 'en') {
   await page.goto(`/${locale}?${new URLSearchParams({ workspaceId })}`, { waitUntil: 'domcontentloaded' });
-  await expect(page.locator('[data-prompt-hero-textarea]')).toBeVisible();
-  await page.locator('[data-prompt-hero-textarea]').focus();
+  const homeEditor = page.getByRole('textbox', { name: dictionary[locale].home.start.aiPlaceholder, exact: true });
+  await expect(homeEditor).toBeVisible();
+  await homeEditor.focus();
   await expect(page.getByTestId('home-agent-id')).toBeVisible();
   await page.getByTestId('home-agent-id').click();
   await page.getByTestId('chat-agent-selector-popover').getByRole('button', {
@@ -523,8 +524,9 @@ test('Home and full-chat Create retain the acknowledged Agent when only the subs
     await page.goto(`${pathname}?${new URLSearchParams({ workspaceId })}`, { waitUntil: 'domcontentloaded' });
     if (surface === 'chat') await page.waitForURL(url => url.pathname === '/en/notebook' && url.searchParams.get('chat') === 'open');
     else {
-      await expect(page.locator('[data-prompt-hero-textarea]')).toBeVisible();
-      await page.locator('[data-prompt-hero-textarea]').focus();
+      const homeEditor = page.getByRole('textbox', { name: en.home.start.aiPlaceholder, exact: true });
+      await expect(homeEditor).toBeVisible();
+      await homeEditor.focus();
     }
     const selector = page.getByTestId(surface === 'home' ? 'home-agent-id' : 'chat-agent-id');
     await expect(selector).toBeVisible(); await selector.click();

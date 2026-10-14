@@ -20,9 +20,9 @@ import { mcpPluginExtensionIcon, publicPluginExtensionIcon } from '@/app/lib/plu
 import type { PluginExtensionConnection, PluginExtensionItem } from '@/app/lib/plugins/plugin-extension-contracts';
 import type { PluginExtensionSourceResult } from '@/app/lib/plugins/plugin-extension-integrations';
 import { AgentWorkflowError } from './workflow-contracts';
-import { listAgentExtensionSharedOptions, revalidateAgentExtensionOptionsContext,
-  authorizeAgentExtensionSharedOption,
-  type AgentExtensionOptionsContext } from './extension-options-context';
+import { listExtensionSharedOptions as listAgentExtensionSharedOptions, revalidateExtensionOptionsSourceContext as revalidateAgentExtensionOptionsContext,
+  authorizeExtensionSharedOption as authorizeAgentExtensionSharedOption,
+  type ExtensionOptionsSourceContext as AgentExtensionOptionsContext } from './extension-options-source-context';
 
 const text = (value: unknown, limit = 256) => typeof value === 'string' ? value.replace(/[\p{Cc}\p{Cf}]/gu, '').trim().slice(0, limit) : '';
 const record = (value: unknown): Record<string, unknown> => value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};

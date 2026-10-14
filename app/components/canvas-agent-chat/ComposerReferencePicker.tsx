@@ -6,7 +6,7 @@ import { isImageFile } from '@/app/lib/files/file-icons';
 
 export interface ComposerReferencePickerItem<T = unknown> {
   id: string;
-  kind: 'file' | 'plugin' | 'skill';
+  kind: 'file' | 'plugin' | 'skill' | 'integration' | 'mcp';
   icon: ReactNode;
   label: string;
   payload: T;
@@ -18,6 +18,8 @@ interface ComposerReferencePickerProps<T = unknown> {
   emptyState: string;
   isLoading?: boolean;
   header: string;
+  headerActions?: ReactNode;
+  notice?: string | null;
   items: ComposerReferencePickerItem<T>[];
   onSelect: (item: ComposerReferencePickerItem<T>) => void;
   onSearchKeyDown?: (event: KeyboardEvent<HTMLInputElement>) => void;
@@ -79,6 +81,8 @@ export function ComposerReferencePicker<T = unknown>({
   emptyState,
   isLoading = false,
   header,
+  headerActions,
+  notice,
   items,
   onSelect,
   onSearchKeyDown,
@@ -128,6 +132,7 @@ export function ComposerReferencePicker<T = unknown>({
     >
       <div className="border-b border-border p-2">
         <div className="text-xs text-muted-foreground">{header}</div>
+        {headerActions}
         {showSearch ? (
           <input
             ref={searchInputRef}
@@ -173,6 +178,7 @@ export function ComposerReferencePicker<T = unknown>({
           {isLoading ? '...' : emptyState}
         </div>
       ) : null}
+      {notice && items.length > 0 ? <p role="status" className="border-t px-3 py-2 text-xs text-muted-foreground">{notice}</p> : null}
     </div>
   );
 }

@@ -50,7 +50,7 @@ export type AgentExtensionConfigurationConnectionSelector = z.infer<typeof agent
 export type AgentExtensionUserChoiceSelector = z.infer<typeof slotSelector>;
 export type AgentExtensionConnectionSelector = AgentExtensionConfigurationConnectionSelector | AgentExtensionUserChoiceSelector;
 
-const searchRequest = z.object({ operation: z.literal('search'), target: agentExtensionConfigurationTargetSchema,
+export const createExtensionMetadataSearchRequestSchema = <T extends z.ZodType>(target: T) => z.object({ operation: z.literal('search'), target,
   q: query.default(''), types: z.array(z.enum(['plugin', 'skill', 'integration', 'mcp'])).min(1).max(4)
     .refine(values => new Set(values).size === values.length).default(['plugin', 'skill', 'integration', 'mcp']),
   stock: z.enum(['all', 'installed', 'available']).default('all'), source: z.enum(['all', 'store', 'composio', 'mcp']).default('all'),
@@ -63,11 +63,13 @@ const searchRequest = z.object({ operation: z.literal('search'), target: agentEx
   if (value.audience !== null && value.scope !== 'user') context.addIssue({ code: 'custom', path: ['audience'], message: 'Audience requires the user scope.' });
   if ((value.scope === 'team') !== (value.teamId !== null)) context.addIssue({ code: 'custom', path: ['teamId'], message: 'Choose one exact team for the team scope.' });
 });
-const packageRequest = z.object({ operation: z.literal('package_version'), target: agentExtensionConfigurationTargetSchema,
+const searchRequest = createExtensionMetadataSearchRequestSchema(agentExtensionConfigurationTargetSchema);
+export const createExtensionMetadataPackageRequestSchema = <T extends z.ZodType>(target: T) => z.object({ operation: z.literal('package_version'), target,
   resourceRef: extensionPackagePinSchema.shape.resourceRef,
   publishedRevisionRef: extensionPackagePinSchema.shape.publishedRevisionRef,
   checksum: extensionPackagePinSchema.shape.checksum.optional() }).strict();
-const connectionRequest = z.object({ operation: z.literal('connection_choices'), target: agentExtensionConfigurationTargetSchema,
+const packageRequest = createExtensionMetadataPackageRequestSchema(agentExtensionConfigurationTargetSchema);
+export const createExtensionMetadataConnectionRequestSchema = <T extends z.ZodType>(target: T) => z.object({ operation: z.literal('connection_choices'), target,
   selector: agentExtensionConnectionSelectorSchema,
   /** Presence is an explicit account-chooser action, never an instruction to probe all profiles. */
   profileId: identifier.optional(), q: query.default(''), cursor: cursor.nullable().default(null),
@@ -76,6 +78,11 @@ const connectionRequest = z.object({ operation: z.literal('connection_choices'),
   const mcp = value.selector.kind === 'standalone' ? value.selector.source === 'mcp' : value.selector.alternativeKey.startsWith('mcp:');
   if (mcp && value.profileId !== undefined) context.addIssue({ code: 'custom', path: ['profileId'], message: 'An MCP choice cannot select a Composio profile.' });
 });
+const connectionRequest = createExtensionMetadataConnectionRequestSchema(agentExtensionConfigurationTargetSchema);
+/** Shared metadata request mechanics; each consumer supplies its own issued authority context. */
+export const extensionMetadataSearchRequestSchema = searchRequest;
+export const extensionMetadataPackageRequestSchema = packageRequest;
+export const extensionMetadataConnectionRequestSchema = connectionRequest;
 const userChoiceRequest = z.object({ operation: z.literal('connection_choices'), target: agentExtensionUserChoiceTargetSchema,
   selector: slotSelector, profileId: identifier.optional(), q: query.default(''), cursor: cursor.nullable().default(null),
   limit: z.number().int().min(1).max(50).default(20),

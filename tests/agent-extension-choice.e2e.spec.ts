@@ -39,7 +39,9 @@ async function inspectOwner() {
 }
 async function openChoice() {
   await page.goto(`/en?${new URLSearchParams({ workspaceId: memberWorkspace })}`, { waitUntil: 'domcontentloaded' });
-  await page.locator('[data-prompt-hero-textarea]').focus();
+  const homeEditor = page.getByRole('textbox', { name: en.home.start.aiPlaceholder, exact: true });
+  await expect(homeEditor).toBeVisible();
+  await homeEditor.focus();
   await page.getByTestId('home-agent-id').click();
   const available = page.getByTestId('chat-agent-selector-popover');
   await expect(available.getByRole('button', { name: new RegExp(agentName, 'u') }).first()).toBeVisible();
