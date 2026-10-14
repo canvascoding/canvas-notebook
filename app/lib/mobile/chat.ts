@@ -17,6 +17,7 @@ import { WEB_CHANNEL_ID, webChannelSessionKey } from '@/app/lib/channels/constan
 import { ensureDefaultAgent } from '@/app/lib/channels/agents';
 import { ensureSessionChannelLink } from '@/app/lib/channels/channel-links';
 import { piSessionReadCursorSql } from '@/app/lib/chat/read-cursor';
+import { assertChatBodyContent, parseChatBody, type ChatBodyV1, type ChatBodyMessageContent } from '@/app/lib/chat/chat-body-contracts';
 import { hasUnreadAssistantResponse } from '@/app/lib/chat/unread';
 import { db } from '@/app/lib/db';
 import { piMessages, piSessions, sessionChannelLinks } from '@/app/lib/db/schema';
@@ -85,6 +86,8 @@ export type MobileChatMessage = {
   role: 'user' | 'assistant' | 'system' | 'tool';
   kind: 'message' | 'tool' | 'error' | 'compact_break';
   text: string;
+  /** Validated public inline presentation only; intake receipts and execution authority are never projected. */
+  body?: ChatBodyV1;
   compactMeta?: MobileCompactBreakMetadata;
   emailAction?: MobileEmailAction;
   display?: MobileChatDisplay;
@@ -276,12 +279,21 @@ export function serializeMobileChatMessage(input: {
     && parsed.clientMessageId.trim().length <= 256
     ? parsed.clientMessageId.trim()
     : undefined;
+  let body: ChatBodyV1 | undefined;
+  if (role === 'user' && Object.hasOwn(original, 'body')) {
+    try {
+      const candidate = parseChatBody((original as unknown as { body: unknown }).body);
+      assertChatBodyContent(candidate, (original as unknown as { content: ChatBodyMessageContent }).content);
+      body = candidate;
+    } catch { /* Legacy or malformed records retain their ordinary text without a false inline reference. */ }
+  }
   return {
     id: String(input.id),
     sequence: input.sequence,
     role,
     kind: isError ? 'error' : role === 'tool' ? 'tool' : 'message',
     text: visibleText,
+    ...(body ? { body } : {}),
     ...(clientMessageId ? { clientMessageId } : {}),
     ...(emailAction ? { emailAction } : {}),
     ...(display ? { display } : {}),

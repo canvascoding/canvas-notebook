@@ -5,4 +5,6 @@ export const MOBILE_PLUGIN_GATEWAY_CAPABILITIES = [
   'integrations.shared_connections.v2',
   'integrations.shared_oauth.v2',
   'agents.workflow.v2',
+  'chat.extension_references.v2',
+  'agents.extension_configuration.v2',
 ] as const;

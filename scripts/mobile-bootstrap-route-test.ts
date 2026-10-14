@@ -48,7 +48,8 @@ async function main() {
   assert.ok(body.mobileApi.capabilities.includes('chat.dictation.v1'));
   assert.ok(body.mobileApi.capabilities.includes('chat.mcp_apps.v1'));
   assert.ok(body.mobileApi.capabilities.includes('integrations.mcp_mobile.v1'));
-  for (const capability of ['chat.mcp_apps.v2', 'extensions.resources.v2', 'integrations.shared_connections.v2', 'integrations.shared_oauth.v2', 'agents.workflow.v2']) {
+  for (const capability of ['chat.mcp_apps.v2', 'extensions.resources.v2', 'integrations.shared_connections.v2', 'integrations.shared_oauth.v2', 'agents.workflow.v2',
+    'chat.extension_references.v2', 'agents.extension_configuration.v2']) {
     assert.ok(body.mobileApi.capabilities.includes(capability));
   }
   assert.deepEqual(body.workspace.items, []);

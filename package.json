@@ -884,7 +884,9 @@
     "test:files:operation-review-toggle": "tsx --conditions react-server scripts/workspace-operation-review-availability-test.ts && tsx scripts/workspace-operation-review-gating-ui-test.tsx",
     "test:dictation:preparation": "python3 scripts/dictation-host-model-test.py && tsx --conditions react-server scripts/local-dictation-preparation-test.ts && tsx --conditions react-server scripts/local-dictation-route-test.ts",
     "test:dictation:e2e": "tsx scripts/local-dictation-browser-test.ts",
-    "build:decision-models": "tsc -p packages/decision-models/tsconfig.json"
+    "build:decision-models": "tsc -p packages/decision-models/tsconfig.json",
+    "test:mobile:extension-context": "tsx --conditions react-server scripts/mobile-chat-inline-body-test.ts && tsx --conditions react-server scripts/mobile-extension-context-v2-test.ts",
+    "test:mobile:extension-context:native": "tsx --conditions react-server scripts/mobile-extension-context-v2-test.ts --native"
   },
   "dependencies": {
     "@better-auth/expo": "1.7.1",
