@@ -20,7 +20,6 @@ import { getSkillsContext } from '@/app/lib/skills/skill-context';
 import { CapabilityPackageError, type CapabilityPackagePublishedLocation, type CapabilityPackagePublishedRevision } from './contracts';
 import { findCapabilityPackageStateForStorage, getCapabilityPackagePublishedRevision } from './store';
 import { normalizeCapabilityPackageRelativePath, resolveOwnerScopedPackageVersionPath, verifyCapabilityPackageSnapshot } from './io';
-import { createCapabilityReference } from '../reference';
 import type { AgentWorkflowInternalSnapshot, StoredAgentWorkflowPackage } from '@/app/lib/agents/workflow-contracts';
 import { isExplicitAgentWorkflowVersion, type AgentWorkflowVersion } from '@/app/lib/agents/workflow-version';
 import { DEFAULT_MANAGED_AGENT_ID } from '@/app/lib/agents/storage';
@@ -28,6 +27,9 @@ import { chatExtensionSelectionSchema, type ExtensionSelectionEntry, type Extens
 import type { StoredPackageExtensionSelectionEntry } from '@/app/lib/capabilities/extensions/stored-package-contracts';
 import { applyPackageExtensionTurnFocus, projectPackageExtensionSelection } from './extension-projection';
 import { readPackageExtensionSourceMetadata, type PackageExtensionSourceMetadata } from './extension-metadata';
+import { projectExtensionSkillMetadata, projectExtensionPackageMetadata, projectPinnedExtensionSkillCandidates, selectExtensionRuntimeSkillCandidates,
+  projectPinnedExtensionEffectiveCapabilities, compactExtensionMetadata as compactMetadata,
+  type ExtensionSkillMetadata, type ExtensionPackageMetadata } from './extension-context-metadata';
 import type { HeldDelegatedExtensionSource } from '@/app/lib/capabilities/extensions/delegation-source';
 
 /** Server-only receipt. Its strings are not authority; the private issued proof is required. */
@@ -73,26 +75,14 @@ const workflowRegistryKey = Symbol.for('canvas.capability.workflow-package-selec
 const workflowGlobal = globalThis as typeof globalThis & { [workflowRegistryKey]?: WeakMap<object, WorkflowSelectionProof> };
 const workflowRegistry = workflowGlobal[workflowRegistryKey] ??= new WeakMap<object, WorkflowSelectionProof>();
 
-export type AuthorizedAgentWorkflowSkillMetadata = Readonly<{
-  resourceId: string; name: string; title: string; description: string; runtimePath: string;
-  core: boolean; required: boolean; origin: CapabilityCandidate['ref']['sourceType'];
-  package?: Readonly<{ resourceRef: string; publishedRevisionRef: string; checksum: string; kind: 'plugin' | 'skill'; relativeRoot: string }>;
-}>;
-export type AuthorizedAgentWorkflowPackageMetadata = Readonly<{
-  resourceRef: string; publishedRevisionRef: string; checksum: string; kind: 'plugin' | 'skill'; name: string; version: string;
-  title: string; description: string; defaultPrompts: readonly string[]; skills: readonly AuthorizedAgentWorkflowSkillMetadata[];
-  declarations: readonly Readonly<{ declarationPath: string; capabilities: readonly Readonly<{ id: string; application: string; required: boolean;
-    alternatives: readonly Readonly<{ source: 'mcp' | 'composio'; connector?: string; toolkit?: string; requiredTools?: readonly string[] }>[] }>[] }>[];
-}>;
+export type AuthorizedAgentWorkflowSkillMetadata = ExtensionSkillMetadata;
+export type AuthorizedAgentWorkflowPackageMetadata = ExtensionPackageMetadata;
 export type AuthorizedAgentWorkflowDiscoveryPackage = Readonly<{
   resourceId: string; resourceRef?: string; name: string; title: string; description: string;
   status: 'ready' | 'setup_required' | 'unavailable';
   package?: Readonly<{ resourceRef: string; publishedRevisionRef: string; checksum: string }>;
 }>;
 
-function compactMetadata(value: string, maximum: number): string {
-  return value.replace(/[\u0000-\u001f\u007f]/gu, ' ').replace(/\s+/gu, ' ').trim().slice(0, maximum);
-}
 function freezeProjection<T>(value: T): T {
   if (value && typeof value === 'object') {
     for (const child of Object.values(value)) freezeProjection(child);
@@ -114,11 +104,10 @@ function frozenSkillMetadata(candidate: CapabilityCandidate, skill: CanvasSkill,
   const bindingProof = binding && registry.proofs.get(binding);
   const source = bindingProof?.published ?? held?.published;
   const relativeRoot = binding?.childRelativeRoot ?? root;
-  return Object.freeze({ resourceId: candidate.ref.resourceId, name: skill.name, title: compactMetadata(skill.title || skill.name, 256),
-    description: compactMetadata(skill.description, 1_024), runtimePath: binding?.runtimePath ?? candidate.runtimePath!, core: candidate.ref.sourceType === 'core',
-    required: proof.effective.capabilities.find(value => value.ref.resourceId === candidate.ref.resourceId)?.effectivePolicy === 'required', origin: candidate.ref.sourceType,
-    ...(source && relativeRoot !== undefined ? { package: Object.freeze({ resourceRef: source.resourceRef,
-      publishedRevisionRef: source.revisionRef, checksum: source.checksum, kind: source.kind, relativeRoot }) } : {}) });
+  return projectExtensionSkillMetadata({ candidate, skill, runtimePath: binding?.runtimePath,
+    required: proof.effective.capabilities.find(value => value.ref.resourceId === candidate.ref.resourceId)?.effectivePolicy === 'required',
+    ...(source && relativeRoot !== undefined ? { package: { resourceRef: source.resourceRef,
+      publishedRevisionRef: source.revisionRef, checksum: source.checksum, kind: source.kind, relativeRoot } } : {}) });
 }
 
 /** Exact held source only: a newer mutable package head never supplies this connector template. */
@@ -181,23 +170,10 @@ export async function getAuthorizedAgentWorkflowSkillMetadata(selection: Authori
 export function getAuthorizedAgentWorkflowPackageMetadata(selection: AuthorizedAgentWorkflowPackageSelections,
   context: AgentExecutionContext): readonly AuthorizedAgentWorkflowPackageMetadata[] {
   const proof = requireWorkflowProof(selection, context);
-  return Object.freeze(proof.pinned.map(entry => {
-    const active = new Set(entry.configuration.selectedSkills.map(skill => skill.relativeRoot ? `${skill.relativeRoot}/agents/canvas.yaml` : 'agents/canvas.yaml'));
-    if (entry.configuration.skillSelection.kind === 'plugin' || entry.published.kind === 'plugin' && selection.workflowVersion !== 1) {
-      active.add('.canvas-plugin/plugin.json');
-    }
-    return Object.freeze({ resourceRef: entry.published.resourceRef, publishedRevisionRef: entry.published.revisionRef,
-      checksum: entry.published.checksum, kind: entry.published.kind, name: entry.published.name, version: entry.published.version,
-      title: compactMetadata(entry.metadata.title, 256), description: compactMetadata(entry.metadata.description, 1_024),
-      defaultPrompts: Object.freeze(entry.metadata.defaultPrompts.slice(0, 4).map(value => compactMetadata(value, 1_024))),
-      skills: Object.freeze(entry.skills.map(candidate => frozenSkillMetadata(candidate,
-        entry.metadata.skills.find(value => value.skill.name === candidate.ref.name)!.skill, proof))),
-      declarations: Object.freeze(entry.metadata.declarations.filter(value => active.has(value.declarationPath)).map(declaration => Object.freeze({
-        declarationPath: declaration.declarationPath, capabilities: Object.freeze(declaration.workflow.integrationCapabilities.map(capability => Object.freeze({
-          id: capability.id, application: capability.application, required: capability.required,
-          alternatives: Object.freeze(capability.alternatives.map(alternative => Object.freeze({ ...alternative,
-            ...(alternative.requiredTools ? { requiredTools: Object.freeze([...alternative.requiredTools]) } : {}) }))) }))) }))) });
-  }));
+  return Object.freeze(proof.pinned.map(entry => projectExtensionPackageMetadata({ published: entry.published,
+    configuration: entry.configuration, metadata: entry.metadata, workflowVersion: selection.workflowVersion,
+    skills: entry.skills.map(candidate => frozenSkillMetadata(candidate,
+      entry.metadata.skills.find(value => value.skill.name === candidate.ref.name)!.skill, proof)) })));
 }
 
 /** Local discovery is separate from the explicit instruction index; no external catalogue or account is read. */
@@ -305,7 +281,6 @@ export async function getAuthorizedAgentWorkflowPackageSelections(
           if (!verified.has(published.revisionRef)) { await verifyCapabilityPackageSnapshot(location); verified.add(published.revisionRef); }
           const metadata = await readPackageExtensionSourceMetadata(location);
           const inventory = metadata.skills.map(child => ({ name: child.skill.name, relativeRoot: child.relativeRoot }));
-          const allSkills: CapabilityCandidate[] = [];
           const seen = new Set<string>(), names = new Set<string>();
           for (const child of metadata.skills) {
             const selected = { name: child.skill.name, relativeRoot: child.relativeRoot };
@@ -319,16 +294,9 @@ export async function getAuthorizedAgentWorkflowPackageSelections(
             names.add(selected.name);
             const skill = child.skill;
             if (!skill || skill.name !== selected.name) throw new CapabilityPackageError('PACKAGE_INVALID', 'The configured skill identity is invalid.', 409);
-            const ref = published.kind === 'skill' ? { ...candidate.ref, version: skill.version ?? published.version, checksum: published.checksum }
-              : createCapabilityReference({ resourceType: 'skill', scopeType: candidate.ref.scopeType, name: skill.name,
-                version: skill.version ?? published.version, revision: candidate.ref.revision, checksum: published.checksum, sourceType: 'plugin',
-                organizationId: candidate.ref.organizationId, ownerUserId: candidate.ref.ownerUserId,
-                sourcePluginId: candidate.ref.resourceId, sourcePluginName: candidate.ref.name });
-            const current = effective.capabilities.find(value => value.ref.resourceId === ref.resourceId);
-            allSkills.push({ ...(current ?? candidate), ref, description: skill.description, runtimePath: skill.path,
-              ...(published.kind === 'plugin' ? { pluginResourceId: candidate.ref.resourceId } : {}),
-              resourceAccess: { ...authorization.access, canEdit: false, canManage: false }, resourceMetadata: authorization.record.metadata });
           }
+          const allSkills = projectPinnedExtensionSkillCandidates({ candidate, effective, metadata, published,
+            resourceAccess: authorization.access, resourceMetadata: authorization.record.metadata });
           const requiredRoots = configuration.skillSelection.kind === 'plugin' ? metadata.skills.filter(child => {
             const candidate = allSkills.find(value => value.ref.name === child.skill.name);
             return effective.capabilities.find(value => value.ref.resourceId === candidate?.ref.resourceId)?.effectivePolicy === 'required';
@@ -419,19 +387,14 @@ export async function getAuthorizedAgentWorkflowPackageSelections(
     pinned.push(selected);
   }
   const selectedIds = new Set(pinned.flatMap(entry => [entry.candidate.ref.resourceId, ...entry.skills.map(skill => skill.ref.resourceId)]));
-  const additions = pinned.flatMap(entry => entry.skills).filter(candidate => !effective.capabilities.some(entry => entry.ref.resourceId === candidate.ref.resourceId));
   const state = await readOrganizationPermissionForUser(context.userId);
   const policies = context.organizationId ? await withCapabilityPolicyStore(store => store.listOrganizationPolicies(context.organizationId!)) : [];
   if (snapshot.workflowVersion === null && pinned.some(entry => entry.skills.some(skill => {
     const current = effective.capabilities.find(value => value.ref.resourceId === skill.ref.resourceId);
     return current && (!current.effectiveEnabled || current.readiness !== 'available' || current.resourceAccess?.canUse === false);
   }))) throw new CapabilityPackageError('PACKAGE_ACCESS_DENIED', 'An explicitly referenced skill is disabled or unavailable.', 403);
-  const projected = snapshot.workflowVersion === null && !pinned.length ? effective : resolveEffectiveCapabilities({
-    context: { userId: effective.userId, organizationId: effective.organizationId, workspaceId: effective.workspaceId,
-      projectId: effective.projectId, role: state.permission?.role },
-    candidates: [...effective.capabilities, ...additions].map(candidate => selectedIds.has(candidate.ref.resourceId)
-      ? { ...candidate, enabled: true, userPreference: 'enabled' as const, connectionRequirementCount: 0 } : candidate), policies,
-  });
+  const projected = projectPinnedExtensionEffectiveCapabilities({ effective, workflowVersion: snapshot.workflowVersion,
+    packages: pinned, role: state.permission?.role, policies });
   for (const entry of pinned) {
     for (const candidate of [entry.candidate, ...entry.skills]) {
       const current = projected.capabilities.find(value => value.ref.resourceId === candidate.ref.resourceId);
@@ -455,12 +418,10 @@ export async function getAuthorizedAgentWorkflowPackageSelections(
 
 function selectedRuntimeSkills(snapshot: EffectiveCapabilitySnapshot, agentId: string | null | undefined,
   relevantSkills: string[] | null | undefined, workflow: AuthorizedAgentWorkflowPackageSelections): CapabilityCandidate[] {
-  if (workflow.workflowVersion === null) return [...new Map([...selectedSkills(snapshot, agentId, relevantSkills),
-    ...workflowRegistry.get(workflow)!.pinned.flatMap(entry => entry.skills)].map(candidate => [candidate.ref.resourceId, candidate])).values()];
   const proof = workflowRegistry.get(workflow)!;
-  const required = selectedSkills(snapshot, agentId, relevantSkills).filter(candidate => candidate.ref.sourceType === 'core'
-    || snapshot.capabilities.find(entry => entry.ref.resourceId === candidate.ref.resourceId)?.effectivePolicy === 'required');
-  return [...new Map([...required, ...proof.pinned.flatMap(entry => entry.skills)].map(candidate => [candidate.ref.resourceId, candidate])).values()];
+  return selectExtensionRuntimeSkillCandidates({ effective: snapshot,
+    agentKind: normalizeManagedAgentId(agentId) === DEFAULT_MANAGED_AGENT_ID ? 'main' : 'special', relevantSkills,
+    workflowVersion: workflow.workflowVersion, packageSkills: proof.pinned.flatMap(entry => entry.skills) });
 }
 
 function issuePinnedSkill(context: AgentExecutionContext, entry: PinnedPackage, candidate: CapabilityCandidate): HeldCapabilityPackageRuntimeBinding {

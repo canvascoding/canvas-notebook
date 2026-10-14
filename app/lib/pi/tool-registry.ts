@@ -3,6 +3,7 @@ import { createComposioTools } from '@/app/lib/composio/composio-tools';
 import { isComposioConfigured } from '@/app/lib/composio/composio-client';
 import { resolveComposioContext } from '@/app/lib/composio/composio-context';
 import { resolveAgentRuntimeSettings } from '@/app/lib/agents/effective-runtime-config';
+import { normalizeManagedAgentId } from '@/app/lib/agents/registry';
 import { getRuntimeAgentWorkflowMode } from '@/app/lib/agents/workflow-runtime-mode';
 import { isExplicitAgentWorkflowVersion } from '@/app/lib/agents/workflow-version';
 import { isIssuedScopedIntegrationTurn } from '@/app/lib/capabilities/extensions/effective-context';
@@ -31,7 +32,9 @@ import { filterToolsForWorkspacePermissions } from '@/app/lib/pi/workspace-tool-
 import { getAgentExecutionContext, type AgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
 import { resolveAgentExecutionContextForSession } from '@/app/lib/pi/session-workspace-context';
 import { getErrorMessage, wrapToolWithExecutionContext } from '@/app/lib/pi/tool-runtime-helpers';
-import { getUserPreferredLocale } from '@/app/lib/user-preferences';
+import { getUserPreferredLocale, type UserLocale } from '@/app/lib/user-preferences';
+import { buildEffectiveToolManifest, type EffectiveToolManifest } from './effective-tool-manifest';
+import type { IntegrationPolicy } from '@/app/lib/integration-tools/contracts';
 import {
   createWorkspaceEmailAutomationTools,
   type WorkspaceEmailAutomationToolContext,
@@ -274,7 +277,7 @@ function getToolNotes(tool: AgentTool, group: PiToolGroup): string[] {
 
 export function buildPiToolRegistry(userId?: string, agentId?: string | null, sessionId?: string | null): AgentTool[] {
   const userScopedTools = [...createUserScopedTools(userId, agentId, sessionId), ...createCapabilityResourceTools(userId, agentId, sessionId),
-    ...createSkillScriptTools(userId, agentId, sessionId)];
+    createExtensionDiscoveryTool(userId, agentId, sessionId), ...createSkillScriptTools(userId, agentId, sessionId)];
   const normalizedAgentId = agentId?.trim().toLowerCase() || DEFAULT_MANAGED_AGENT_ID;
   const agentManagementTools = normalizedAgentId === DEFAULT_MANAGED_AGENT_ID
     ? createAgentManagementTools(userId || '__tool-metadata__', normalizedAgentId, sessionId)
@@ -285,6 +288,55 @@ export function buildPiToolRegistry(userId?: string, agentId?: string | null, se
     ...(overriddenNames.has('mcp') ? [] : [createMcpProxyTool(userId)]),
   ];
   return collapseProgressiveToolGroups([...coreTools, ...userScopedTools, ...agentManagementTools, ...createEmailAgentTools()]);
+}
+
+type RegistryAssemblyInput = {
+  kind: 'main' | 'special';
+  userId?: string;
+  agentId?: string | null;
+  sessionId?: string | null;
+  accountLocale?: UserLocale;
+  workspaceId?: string | null;
+  executionContext?: AgentExecutionContext;
+  allowExternalIntegrations: boolean;
+  useIntegrationGateway: boolean;
+  includeIntegrationGateway: boolean;
+  composioTools?: AgentTool[];
+  directMcpTools?: AgentTool[];
+};
+
+/** Shared schema assembly. Constructing a schema never resolves a provider or invokes its tools. */
+function assemblePiToolRegistry(input: RegistryAssemblyInput): AgentTool[] {
+  const { userId, agentId, sessionId } = input;
+  // Existing scoped tools recognize the historical Main alias. Preserve that
+  // behavior without assigning a Main identity to a prospective special agent.
+  const scopedKind = agentId ? normalizeManagedAgentId(agentId) === DEFAULT_MANAGED_AGENT_ID ? 'main' : 'special' : input.kind;
+  const userScopedTools = [...createUserScopedTools(userId, agentId, sessionId,
+    { accountLocale: input.accountLocale, registrationKind: scopedKind }), ...createCapabilityResourceTools(userId, agentId, sessionId),
+  createExtensionDiscoveryTool(userId, agentId, sessionId), ...createSkillScriptTools(userId, agentId, sessionId)]
+    .filter(tool => !(input.useIntegrationGateway || !input.allowExternalIntegrations) || tool.name !== 'mcp');
+  const agentManagementTools = input.kind === 'main'
+    ? createAgentManagementTools(userId || '__tool-metadata__', DEFAULT_MANAGED_AGENT_ID, sessionId) : [];
+  const overriddenNames = new Set([...userScopedTools, ...agentManagementTools].map(tool => tool.name));
+  const coreTools = [
+    ...piTools.filter(tool => tool.name !== 'mcp' && tool.name !== 'email' && !overriddenNames.has(tool.name)),
+    ...(input.useIntegrationGateway || !input.allowExternalIntegrations || overriddenNames.has('mcp') ? [] : [createMcpProxyTool(userId)]),
+  ];
+  const emailTools = createEmailAgentTools({ userId, workspaceId: input.workspaceId ?? undefined });
+  const integrationTools = input.allowExternalIntegrations && input.includeIntegrationGateway
+    ? [createIntegrationGatewayTool({ userId, agentId, sessionId, executionContext: input.executionContext })] : [];
+  return collapseProgressiveToolGroups([...coreTools, ...userScopedTools, ...agentManagementTools,
+    ...(input.composioTools ?? []), ...(input.directMcpTools ?? []), ...emailTools, ...integrationTools]);
+}
+
+async function registryAccountLocale(userId?: string): Promise<UserLocale | undefined> {
+  if (!userId) return undefined;
+  return getUserPreferredLocale(userId).catch(error => {
+    console.warn('[ToolRegistry] Account language unavailable; memory tool uses generic language guidance.', {
+      error: getErrorMessage(error),
+    });
+    return undefined;
+  });
 }
 
 export async function buildPiToolRegistryAsync(
@@ -301,27 +353,8 @@ export async function buildPiToolRegistryAsync(
   const scopedTurn = !options.legacyIntegrationMetadata && options.executionContext
     ? isIssuedScopedIntegrationTurn(options.executionContext) : false;
   const useIntegrationGateway = (gatewayEnabled || workflowConfigured || scopedTurn) && !options.legacyIntegrationMetadata;
-  const accountLocale = userId
-    ? await getUserPreferredLocale(userId).catch((error) => {
-        console.warn('[ToolRegistry] Account language unavailable; memory tool uses generic language guidance.', {
-          error: getErrorMessage(error),
-        });
-        return undefined;
-      })
-    : undefined;
-  const userScopedTools = [...createUserScopedTools(userId, agentId, sessionId, { accountLocale }), ...createCapabilityResourceTools(userId, agentId, sessionId),
-    createExtensionDiscoveryTool(userId, agentId, sessionId),
-    ...createSkillScriptTools(userId, agentId, sessionId)]
-    .filter((tool) => !(useIntegrationGateway || !allowExternalIntegrations) || tool.name !== 'mcp');
+  const accountLocale = await registryAccountLocale(userId);
   const normalizedAgentId = agentId?.trim().toLowerCase() || DEFAULT_MANAGED_AGENT_ID;
-  const agentManagementTools = normalizedAgentId === DEFAULT_MANAGED_AGENT_ID
-    ? createAgentManagementTools(userId || '__tool-metadata__', normalizedAgentId, sessionId)
-    : [];
-  const overriddenNames = new Set([...userScopedTools, ...agentManagementTools].map((t) => t.name));
-  const coreTools = [
-    ...piTools.filter((tool) => tool.name !== 'mcp' && tool.name !== 'email' && !overriddenNames.has(tool.name)),
-    ...(useIntegrationGateway || !allowExternalIntegrations || overriddenNames.has('mcp') ? [] : [createMcpProxyTool(userId)]),
-  ];
   const composioContext = allowExternalIntegrations && !useIntegrationGateway && userId && options.executionContext
     ? await resolveComposioContext({
         userId,
@@ -343,13 +376,10 @@ export async function buildPiToolRegistryAsync(
         return [];
       })
     : [];
-  const emailTools = createEmailAgentTools({
-    userId,
-    workspaceId: options.executionContext?.workspaceId,
-  });
-  const integrationTools = allowExternalIntegrations && (gatewayEnabled || workflowConfigured || scopedTurn)
-    ? [createIntegrationGatewayTool({ userId, agentId, sessionId, executionContext: options.executionContext })] : [];
-  return collapseProgressiveToolGroups([...coreTools, ...userScopedTools, ...agentManagementTools, ...composioTools, ...directMcpTools, ...emailTools, ...integrationTools]);
+  return assemblePiToolRegistry({ kind: normalizedAgentId === DEFAULT_MANAGED_AGENT_ID ? 'main' : 'special',
+    userId, agentId, sessionId, accountLocale, workspaceId: options.executionContext?.workspaceId, executionContext: options.executionContext,
+    allowExternalIntegrations, useIntegrationGateway, includeIntegrationGateway: gatewayEnabled || workflowConfigured || scopedTurn,
+    composioTools, directMcpTools });
 }
 
 export async function getPiToolMetadata(): Promise<PiToolMetadata[]> {
@@ -434,6 +464,64 @@ function filterRegistryTools(tools: AgentTool[], allowedNames: Set<string>): Age
   });
 }
 
+function filterConfiguredRegistryTools(tools: AgentTool[], enabledTools: readonly string[]): AgentTool[] {
+  // The explicit none sentinel applies even when external integrations are absent.
+  if (enabledTools.some(name => name.trim() === DISABLED_ALL_TOOLS_SENTINEL)) return [];
+  const names = registryCapabilityNames(tools);
+  const configured = [...enabledTools];
+  return filterRegistryTools(tools, configured.length && !isLegacyEnabledToolsValue(configured)
+    ? resolveEnabledToolNames(names, configured) : getDefaultEnabledToolNames(names));
+}
+
+async function filterUnavailableRegistryBrowser(tools: AgentTool[]): Promise<AgentTool[]> {
+  if (!tools.some(tool => tool.name === 'browser')) return tools;
+  const capability = await resolveBrowserRuntimeCapability();
+  if (capability.browserToolAvailable) return tools;
+  console.warn('[ToolRegistry] Browser tool enabled but unavailable:', [...capability.blockers, ...capability.warnings].join(', '));
+  return tools.filter(tool => tool.name !== 'browser');
+}
+
+export type PiSpecialAgentRegistrationInput = {
+  kind: 'special';
+  userId: string;
+  effectiveEnabledTools: readonly string[];
+  extensionMode: 'fixed' | 'legacy_inherit';
+  workspacePermissions?: Pick<AgentExecutionContext, 'canWrite' | 'canDelete' | 'canShare'> | null;
+};
+export type PiSpecialAgentRegistrationMetadata = {
+  manifest: EffectiveToolManifest;
+  integrationPolicyCeiling: IntegrationPolicy | null;
+  capabilityNames: string[];
+  externalRegistration: 'exact_gateway' | 'unknown';
+};
+
+/**
+ * Registration metadata for a real special-kind configuration, including a
+ * prospective one. No Agent/session, profile, provider catalogue or MCP is
+ * resolved. This output contains no execute closures or runtime authority.
+ */
+export async function buildPiSpecialAgentRegistrationMetadata(input: PiSpecialAgentRegistrationInput): Promise<PiSpecialAgentRegistrationMetadata> {
+  const captured = structuredClone(input);
+  if (captured.kind !== 'special' || !captured.userId?.trim() || !['fixed', 'legacy_inherit'].includes(captured.extensionMode)
+    || !Array.isArray(captured.effectiveEnabledTools) || captured.effectiveEnabledTools.some(name => typeof name !== 'string')) {
+    throw new Error('A current special-agent registration configuration is required.');
+  }
+  const gateway = captured.extensionMode === 'fixed' || readIntegrationToolGatewayAvailability().integrationToolGatewayEnabled;
+  let tools = assemblePiToolRegistry({ kind: captured.kind, userId: captured.userId,
+    accountLocale: await registryAccountLocale(captured.userId), allowExternalIntegrations: true,
+    useIntegrationGateway: gateway, includeIntegrationGateway: gateway });
+  tools = filterConfiguredRegistryTools(tools, captured.effectiveEnabledTools);
+  tools = await filterUnavailableRegistryBrowser(tools);
+  if (captured.workspacePermissions) tools = filterToolsForWorkspacePermissions(tools, captured.workspacePermissions);
+  const integration = tools.find(isIntegrationGatewayTool);
+  return {
+    manifest: buildEffectiveToolManifest(tools),
+    integrationPolicyCeiling: integration ? structuredClone(integration.integrationGateway.policyCeiling) : null,
+    capabilityNames: getProgressiveGatewayCapabilityNames(tools),
+    externalRegistration: captured.extensionMode === 'fixed' ? 'exact_gateway' : 'unknown',
+  };
+}
+
 export async function getPiTools(
   userId?: string,
   agentId?: string | null,
@@ -496,29 +584,9 @@ export async function getPiTools(
       throw new Error('The current script agent settings do not match the authenticated session.');
     }
     const enabledTools = effectiveConfig.enabledTools;
-    const explicitlyDisabledAll = allIntegrationGatewayTools(allTools)
-      && enabledTools.some((name) => name.trim() === DISABLED_ALL_TOOLS_SENTINEL);
-
-    const allToolNames = registryCapabilityNames(allTools);
-
-    if (enabledTools && enabledTools.length > 0 && !isLegacyEnabledToolsValue(enabledTools)) {
-      // User has explicitly configured tool preferences — apply them
-      const enabledSet = explicitlyDisabledAll
-        ? new Set<string>() : resolveEnabledToolNames(allToolNames, enabledTools);
-      allTools = filterRegistryTools(allTools, enabledSet);
-    } else {
-      // No user config yet (default state) — exclude disabled-by-default tools
-      const defaultEnabledSet = getDefaultEnabledToolNames(allToolNames);
-      allTools = filterRegistryTools(allTools, defaultEnabledSet);
-    }
-
-    if (allTools.some((tool) => tool.name === 'browser')) {
-      const browserCapability = await resolveBrowserRuntimeCapability();
-      if (!browserCapability.browserToolAvailable) {
-        console.warn('[ToolRegistry] Browser tool enabled but unavailable:', [...browserCapability.blockers, ...browserCapability.warnings].join(', '));
-        allTools = allTools.filter((tool) => tool.name !== 'browser');
-      }
-    }
+    const explicitlyDisabledAll = enabledTools.some(name => name.trim() === DISABLED_ALL_TOOLS_SENTINEL);
+    allTools = filterConfiguredRegistryTools(allTools, enabledTools);
+    allTools = await filterUnavailableRegistryBrowser(allTools);
 
     if (!explicitlyDisabledAll && onboardingProfileToolAvailable && !allTools.some((tool) => tool.name === ONBOARDING_PROFILE_TOOL_NAME)) {
       allTools.push(createOnboardingProfileTool(userId, agentId, sessionId));

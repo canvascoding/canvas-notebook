@@ -910,6 +910,13 @@ async function main() {
   const pdfGateway = allTools.find((tool) => tool.name === 'pdf');
   assert.ok(extensionsGateway);
   assert.ok(pdfGateway);
+  assert.equal(allToolNames.includes('search_canvas_extensions'), true,
+    'The synchronous registry must include extension discovery so the complete extension gateway is registered.');
+  const asynchronousExtensionNames = getProgressiveGatewayCapabilityNames(await buildPiToolRegistryAsync());
+  for (const operation of [...skillToolNames, 'search_canvas_extensions']) {
+    assert.equal(asynchronousExtensionNames.includes(operation), true,
+      `The actual asynchronous registry must retain extension operation ${operation}.`);
+  }
   for (const toolName of skillToolNames) {
     assert.equal(allTools.some((tool) => tool.name === toolName), false);
     assert.equal(defaultEnabledTools.has(toolName), true);

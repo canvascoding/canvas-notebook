@@ -1,7 +1,5 @@
 import 'server-only';
 
-import { constants } from 'node:fs';
-import fs from 'node:fs/promises';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { getComposioMode, getLocalComposioApiKey } from '@/app/lib/composio/composio-client';
@@ -11,7 +9,8 @@ import { loadLocalComposioToolkitCatalogue, loadManagedComposioToolkitCatalogue,
   isComposioIntegrationApplicationVisible } from '@/app/lib/integration-tools/adapters/composio';
 import { authorizeIntegrationConnection, type IntegrationConnectionBindingAuthorization } from '@/app/lib/integration-tools/connections/store';
 import { requireMcpUserAccess, assertPersonalMcpConnectionMetadataAccess, McpAccessError } from '@/app/lib/mcp/access';
-import { parseAndValidateMcpConfig, resolveMcpConfigPath, type McpConfig, type McpServerConfig } from '@/app/lib/mcp/config';
+import { resolveMcpConfigPath, type McpConfig, type McpServerConfig } from '@/app/lib/mcp/config';
+import { readExistingConfig } from '@/app/lib/mcp/read-only-config';
 import { validateMcpConnectionId } from '@/app/lib/mcp/connection-identity';
 import { listMcpServerDefinitions } from '@/app/lib/mcp/server-definitions';
 import { resolveOrganizationDataRoot } from '@/app/lib/runtime-data-paths';
@@ -134,23 +133,6 @@ export async function readAgentComposioOptionsCatalogue(context: AgentExtensionO
       message: mode === 'managed' ? 'Choose or create a Composio profile to browse this managed catalogue.'
         : 'The Composio catalogue is not configured; only permitted known connections can be shown.', retryable: false } }
       : partial ? { error: { code: 'COMPOSIO_CATALOG_PARTIAL', message: 'The Composio catalogue could not be fully loaded.', retryable: true } } : {}) } };
-}
-
-/** Open an existing exact file only. Missing/legacy configuration is never created, hydrated or migrated by this reader. */
-async function readExistingConfig(filePath: string): Promise<McpConfig> {
-  let initial;
-  try { initial = await fs.lstat(filePath); }
-  catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { mcpServers: {} }; throw error; }
-  if (!initial.isFile() || initial.isSymbolicLink() || initial.size > 2 * 1024 * 1024) throw new Error('Invalid MCP inventory file.');
-  const file = await fs.open(filePath, constants.O_RDONLY | constants.O_NOFOLLOW);
-  try {
-    const opened = await file.stat();
-    if (opened.dev !== initial.dev || opened.ino !== initial.ino || opened.size > 2 * 1024 * 1024) throw new Error('Changed MCP inventory file.');
-    const buffer = Buffer.alloc(2 * 1024 * 1024 + 1);
-    const { bytesRead } = await file.read(buffer, 0, buffer.length, 0);
-    if (bytesRead > 2 * 1024 * 1024) throw new Error('MCP inventory file exceeds its size bound.');
-    return parseAndValidateMcpConfig(buffer.subarray(0, bytesRead).toString('utf8'));
-  } finally { await file.close(); }
 }
 
 /** Server-only exact metadata for package/definition matching. Never serialize the returned configuration. */

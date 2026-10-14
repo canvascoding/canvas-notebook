@@ -117,6 +117,10 @@ assert.doesNotMatch(withoutRead, /S\d+ read:/u);
 const withoutDiscovery = renderEffectiveExtensionContext(general, [read, operationGateway('canvas_extensions', ['list_canvas_package_store'])], 'brief').prompt;
 assert.match(withoutDiscovery, /metadata discovery is unavailable/u);
 assert.doesNotMatch(withoutDiscovery, /search_canvas_extensions/u);
+assert.match(withoutDiscovery, /S\d+ read: "read" \{"path":"\/owned-fixture\/skills\/explicit-child\/SKILL.md"\}/u,
+  'Without metadata discovery the exact selected skill path must remain in the required index.');
+assert.equal((withoutDiscovery.match(/read: "read" \{"path":"\/owned-fixture\/skills\/explicit-child\/SKILL.md"\}/gu) ?? []).length, 1,
+  'A required path must not also be appended as an optional duplicate.');
 const directDiscovery = renderEffectiveExtensionContext(context(), [tool('search_canvas_extensions')], 'brief').prompt;
 assert.match(directDiscovery, /"search_canvas_extensions" \{"query":"brief","types":\["plugin","skill"\],"limit":8\}/u);
 assert.doesNotMatch(directDiscovery, /"operation":"search_canvas_extensions"/u);
@@ -134,6 +138,20 @@ assert.match(recipe, new RegExp(`"action":"search","target":"tools","providerRef
 assert.match(recipe, /Describe the returned toolRef to obtain its schemaRef; call that same toolRef/u);
 assert.match(recipe, /Live connection readiness: unknown \(no provider probe\)/u);
 assert.doesNotMatch(recipe, /connectionRef|healthy|COMPOSIO_SEARCH_TOOLS/u);
+const selectedConnection = { configurationId: 'selected-slot', slotRef: `agent-extension:${'s'.repeat(43)}`,
+  source: 'composio' as const, required: false, origin: 'fixed' as const, state: 'selected' as const, providerRef: accountA.providerRef };
+const indexedConnection = renderEffectiveExtensionContext(context({ mode: 'fixed', workflowProjection: projection([accountA], {
+  standaloneSelections: [selectedConnection],
+}) }), actual, 'create design').prompt;
+assert.match(indexedConnection, /Connection selection: .*"connection":"C1"/u,
+  'The selected slot links to its exact already-listed provider rather than duplicating its long identity.');
+assert.equal(indexedConnection.split(accountA.providerRef).length - 1, 2,
+  'The exact provider remains in its descriptor and executable search recipe.');
+const absentConnection = renderEffectiveExtensionContext(context({ mode: 'fixed', workflowProjection: projection([], {
+  standaloneSelections: [selectedConnection], unavailable: true,
+}) }), actual, 'create design').prompt;
+assert.ok(absentConnection.includes(JSON.stringify({ providerRef: accountA.providerRef }).slice(1, -1)),
+  'A selection without a matching listed provider retains its exact reference and never points at a different connection.');
 const registeredWithoutCeiling = renderEffectiveExtensionContext(providerContext, [tool('integrations')], 'create').prompt;
 assert.match(registeredWithoutCeiling, /no usable exact gateway route/u);
 assert.doesNotMatch(registeredWithoutCeiling, /"target":"tools"/u);
@@ -200,6 +218,9 @@ assert.equal((large.prompt.match(/S\d+ \{"name":"s\d+"/gu) ?? []).length, 70, 'T
 assert.match(large.prompt, /Additional child descriptions\/read paths may be omitted/u);
 assert.match(large.prompt, /source metadata compacted/u);
 assert.doesNotMatch(large.prompt, /�/u);
+assert.throws(() => renderEffectiveExtensionContext(context({ mode: 'fixed', packages: [pkg(largeChildren)], skills: largeChildren }), [read], 'design'),
+  error => isAgentWorkflowError(error) && error.code === 'AGENT_EXTENSION_CONTEXT_TOO_LARGE',
+  'A configuration without discovery cannot hide the read paths needed to use its selected skills.');
 for (const line of large.prompt.split('\n').filter(value => value.includes('untrusted description:'))) {
   const value = JSON.parse(line.slice(line.indexOf(':') + 1)) as string;
   assert.equal(new TextEncoder().encode(value).byteLength, Buffer.byteLength(value, 'utf8'));

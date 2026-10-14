@@ -15,6 +15,7 @@ import { AgentWorkflowError, type AgentWorkflowInternalSnapshot, type AgentWorkf
 import {
   authorizeIntegrationConnectionBindingsOnConnection,
   lockIntegrationConnectionBindingsOnConnection,
+  narrowIntegrationConnectionBindingBatchOnConnection,
   type IntegrationConnectionBindingAuthorization,
 } from '@/app/lib/integration-tools/connections/store';
 import {
@@ -183,7 +184,9 @@ export async function setManagedAgentStandaloneChoice(input: SetManagedAgentStan
     }
     preference = { workflowRevision: request.expectedWorkflowRevision, choiceId: allowed.choiceId };
   }
-  const refs = target?.kind === 'shared' ? [target.connectionRef] : [];
+  const contextSources = await (await import('./extension-context-package-metadata')).prepareAgentExtensionContextPackageSources(actor!, snapshot);
+  const refs = [...(target?.kind === 'shared' ? [target.connectionRef] : []),
+    ...(await import('./extension-context-provider-metadata')).collectAgentExtensionContextSharedReferences(snapshot)];
   const database = await openDb();
   let preferenceRevision: number;
   try {
@@ -198,45 +201,53 @@ export async function setManagedAgentStandaloneChoice(input: SetManagedAgentStan
       if (centralPersonal) await revalidatePreparedPersonalWorkflowProviderTarget(centralPersonal, { database });
     };
     await revalidatePersonal();
-    await database.get('SELECT agent_id FROM agents WHERE agent_id=$1 FOR SHARE', [snapshot.agent.agentId]);
-    const current = await readManagedAgentWorkflowOnConnection(database, snapshot.agent.agentId);
-    await holdAgentGrantAuthority(database, actor!, current.agent);
-    if (current.workflowVersion !== 2 || current.workflowRevision !== request.expectedWorkflowRevision
-      || current.agent.revision !== snapshot.agent.revision) {
-      fail('AGENT_WORKFLOW_REVISION_CONFLICT', 'The agent configuration changed.');
-    }
-    if (!(await getAgentAccessOnConnection(database, actor!.userId, current.agent.agentId, verified.context)).canUse) {
-      fail('AGENT_ACCESS_DENIED', 'Agent use was revoked.', 403);
-    }
-    const currentSlot = selectableSlot(current, request.capabilityKey);
-    if (JSON.stringify(currentSlot) !== JSON.stringify(slot)) fail('AGENT_WORKFLOW_REVISION_CONFLICT', 'The configured slot changed.');
-    const authorizations = await authorizeIntegrationConnectionBindingsOnConnection(database, batch, current.agent, 'read');
-    if (target && selectedIdentity) validateSharedChoice(target, selectedIdentity, authorizations);
-    const previous = await database.get('SELECT preferences_json,revision FROM agent_user_preferences WHERE agent_id=$1 AND user_id=$2 FOR UPDATE',
-      [current.agent.agentId, actor!.userId]) as Record<string, unknown> | undefined;
-    const preferences = readAgentWorkflowPreferenceSnapshot(previous);
-    if (preferences.revision !== request.expectedPreferenceRevision) {
-      fail('AGENT_WORKFLOW_CHOICE_REVISION_CONFLICT', 'Your saved choice changed. Reload it before saving.');
-    }
-    const choices = { ...preferences.choices };
-    if (preference) choices[request.capabilityKey] = preference;
-    else delete choices[request.capabilityKey];
-    const encoded = JSON.stringify({ ...preferences.json, workflowChoices: choices });
-    if (Buffer.byteLength(encoded) > 1_048_576) fail('AGENT_WORKFLOW_CHOICE_INVALID', 'The stored choices exceed their limit.', 400);
-    await revalidatePersonal();
-    const now = Date.now();
-    const written = previous
-      ? await database.get(`UPDATE agent_user_preferences SET preferences_json=$1,revision=revision+1,updated_at=$2
-          WHERE agent_id=$3 AND user_id=$4 AND revision=$5 AND preferences_json=$6 RETURNING revision`,
-      [encoded, now, current.agent.agentId, actor!.userId, request.expectedPreferenceRevision, previous.preferences_json])
-      : await database.get(`INSERT INTO agent_user_preferences(agent_id,user_id,preferences_json,revision,created_at,updated_at)
-          VALUES($1,$2,$3,1,$4,$4) ON CONFLICT(agent_id,user_id) DO NOTHING RETURNING revision`,
-      [current.agent.agentId, actor!.userId, encoded, now]);
-    const parsedRevision = revision.safeParse(written && typeof written === 'object' ? Number(Reflect.get(written, 'revision')) : undefined);
-    if (!parsedRevision.success || parsedRevision.data !== request.expectedPreferenceRevision + 1) {
-      fail('AGENT_WORKFLOW_CHOICE_REVISION_CONFLICT', 'Your saved choice changed. Reload it before saving.');
-    }
-    preferenceRevision = parsedRevision.data;
+    const { withAgentExtensionContextPackageSources } = await import('./extension-context-package-metadata');
+    preferenceRevision = await withAgentExtensionContextPackageSources(database, actor!, contextSources, async () => {
+      await database.get('SELECT agent_id FROM agents WHERE agent_id=$1 FOR SHARE', [snapshot.agent.agentId]);
+      const current = await readManagedAgentWorkflowOnConnection(database, snapshot.agent.agentId);
+      await holdAgentGrantAuthority(database, actor!, current.agent);
+      if (current.workflowVersion !== 2 || current.workflowRevision !== request.expectedWorkflowRevision
+        || current.agent.revision !== snapshot.agent.revision) {
+        fail('AGENT_WORKFLOW_REVISION_CONFLICT', 'The agent configuration changed.');
+      }
+      if (!(await getAgentAccessOnConnection(database, actor!.userId, current.agent.agentId, verified.context)).canUse) {
+        fail('AGENT_ACCESS_DENIED', 'Agent use was revoked.', 403);
+      }
+      const currentSlot = selectableSlot(current, request.capabilityKey);
+      if (JSON.stringify(currentSlot) !== JSON.stringify(slot)) fail('AGENT_WORKFLOW_REVISION_CONFLICT', 'The configured slot changed.');
+      const selectedBatch = await narrowIntegrationConnectionBindingBatchOnConnection(database, batch,
+        target?.kind === 'shared' ? [target.connectionRef] : []);
+      const authorizations = await authorizeIntegrationConnectionBindingsOnConnection(database, selectedBatch, current.agent, 'read');
+      if (target && selectedIdentity) validateSharedChoice(target, selectedIdentity, authorizations);
+      const previous = await database.get('SELECT preferences_json,revision FROM agent_user_preferences WHERE agent_id=$1 AND user_id=$2 FOR UPDATE',
+        [current.agent.agentId, actor!.userId]) as Record<string, unknown> | undefined;
+      const preferences = readAgentWorkflowPreferenceSnapshot(previous);
+      if (preferences.revision !== request.expectedPreferenceRevision) {
+        fail('AGENT_WORKFLOW_CHOICE_REVISION_CONFLICT', 'Your saved choice changed. Reload it before saving.');
+      }
+      const choices = { ...preferences.choices };
+      if (preference) choices[request.capabilityKey] = preference;
+      else delete choices[request.capabilityKey];
+      const encoded = JSON.stringify({ ...preferences.json, workflowChoices: choices });
+      if (Buffer.byteLength(encoded) > 1_048_576) fail('AGENT_WORKFLOW_CHOICE_INVALID', 'The stored choices exceed their limit.', 400);
+      await revalidatePersonal();
+      const now = Date.now();
+      const written = previous
+        ? await database.get(`UPDATE agent_user_preferences SET preferences_json=$1,revision=revision+1,updated_at=$2
+            WHERE agent_id=$3 AND user_id=$4 AND revision=$5 AND preferences_json=$6 RETURNING revision`,
+        [encoded, now, current.agent.agentId, actor!.userId, request.expectedPreferenceRevision, previous.preferences_json])
+        : await database.get(`INSERT INTO agent_user_preferences(agent_id,user_id,preferences_json,revision,created_at,updated_at)
+            VALUES($1,$2,$3,1,$4,$4) ON CONFLICT(agent_id,user_id) DO NOTHING RETURNING revision`,
+        [current.agent.agentId, actor!.userId, encoded, now]);
+      const parsedRevision = revision.safeParse(written && typeof written === 'object' ? Number(Reflect.get(written, 'revision')) : undefined);
+      if (!parsedRevision.success || parsedRevision.data !== request.expectedPreferenceRevision + 1) {
+        fail('AGENT_WORKFLOW_CHOICE_REVISION_CONFLICT', 'Your saved choice changed. Reload it before saving.');
+      }
+      const { assertManagedAgentExtensionContextOnConnection } = await import('./extension-context-preflight');
+      await assertManagedAgentExtensionContextOnConnection({ database, actor: actor!, agentId: current.agent.agentId, batch, purpose: 'read' });
+      await revalidatePersonal();
+      return parsedRevision.data;
+    });
     await database.run('COMMIT');
   } catch (error) {
     await Promise.resolve(database.run('ROLLBACK')).catch(() => undefined);

@@ -279,7 +279,7 @@ async function main() {
         connectors: { composio: [{ toolkit: 'canva', required: false }, { toolkit: 'duckduckgo', required: false }] },
         workflow: { version: 1, integrationCapabilities: [{ id: 'reader', application: 'design', required: true, alternatives: [
           { source: 'composio', toolkit: 'canva', requiredTools: ['DESIGN_CREATE'] }, { source: 'composio', toolkit: 'duckduckgo' }] }] } }),
-      'skills/brief/SKILL.md': '---\nname: brief\ndescription: Follow the exactly selected app\n---\n\nExact package account.\n',
+      'skills/options-composio-brief/SKILL.md': '---\nname: options-composio-brief\ndescription: Follow the exactly selected app\n---\n\nExact package account.\n',
     }, pluginRegistry.computeCanvasPluginChecksum);
     const composioInstalled = await stores.installCapabilityPackageFromStoreAction(owner, { source: { kind: 'plugin', registryId: 'store-application',
       entryKey: composioName, version: '1.0.0', checksum: composioArchive.checksum }, ownership: { type: 'organization' },

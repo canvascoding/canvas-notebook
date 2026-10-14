@@ -100,6 +100,22 @@ export async function lockIntegrationConnectionBindingsOnConnection(database: Sq
   return batch;
 }
 
+/** Narrow an actual held configuration batch without acquiring new locks or issuing runtime authority. */
+export async function narrowIntegrationConnectionBindingBatchOnConnection(database: SqlConnection,
+  batch: IntegrationConnectionBindingBatch, references: readonly string[]): Promise<IntegrationConnectionBindingBatch> {
+  const held = bindingBatches.get(batch);
+  if (!held || held.database !== database) fail('CONNECTION_ACCESS_DENIED', 'A current binding transaction is required.', 403);
+  const refs = [...new Set(references.map(validateIntegrationConnectionRef))].sort();
+  if (refs.some(ref => !held.entries.some(entry => entry.resource.connectionRef === ref))) {
+    fail('CONNECTION_ACCESS_DENIED', 'A binding subset cannot add another connection.', 403);
+  }
+  const transactionId = String((await database.get('SELECT txid_current()::text AS transaction_id') as Row | undefined)?.transaction_id ?? '');
+  if (!transactionId || transactionId !== held.transactionId) fail('CONNECTION_ACCESS_DENIED', 'The binding transaction is no longer held.', 403);
+  const narrowed = Object.freeze({ connectionRefs: Object.freeze(refs) });
+  bindingBatches.set(narrowed, { ...held, entries: held.entries.filter(entry => refs.includes(entry.resource.connectionRef)) });
+  return narrowed;
+}
+
 /** Separate binding purpose; never issues an execution proof or invents a persisted session. */
 export async function authorizeIntegrationConnectionBindingsOnConnection(database: SqlConnection, batch: IntegrationConnectionBindingBatch,
   agent: AgentProfile, purpose: 'configure' | 'read',

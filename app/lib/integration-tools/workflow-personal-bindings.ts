@@ -1,4 +1,5 @@
 import 'server-only';
+import { presentPersonalWorkflowProvider } from './workflow-provider-presentation';
 
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
@@ -229,12 +230,7 @@ export async function verifyStoredPersonalWorkflowProviderTarget(input: { actor:
         displayName = connection.displayName || access.serverName;
       } finally { await database.close(); }
     }
-    const provider: IntegrationProviderDescriptor = { providerRef: target.boundProviderRef, source: target.binding.source,
-      ...(target.binding.source === 'composio' ? { application: target.binding.toolkit } : {}), displayName,
-      scope: { type: 'user', resourceId: target.boundProviderRef, ownerUserId: actor.userId },
-      state: 'unknown', configured: true, requiresAuth: 'unknown', authorized: 'unknown', health: 'unknown', canExecute: false,
-      checkedAt: null, statusSource: 'configuration', pluginRefs: [], skillRefs: [], matchReasons: [], nextActions: [{ kind: 'gateway',
-        label: 'Check this workflow connection’s tools', request: { action: 'list', target: 'tools', providerRef: target.boundProviderRef } }] };
+    const provider = presentPersonalWorkflowProvider(target, displayName);
     return issue(actor, context, target, { provider, bindingRevision: target.bindingFingerprint, binding: null }, undefined, true);
   }
   if (target.binding.source === 'mcp') {

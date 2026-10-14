@@ -3,6 +3,7 @@ import Module from 'node:module';
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { createSharedConnectionTestDatabase } from './helpers/shared-connection-test-database';
 
 import {
   BRADLEY_IDENTITY_PROMPT_MARKER,
@@ -22,6 +23,7 @@ async function main() {
   const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-agent-runtime-'));
   process.env.CANVAS_DATA_ROOT = dataDir;
   process.env.DATA = dataDir;
+  const testDatabase = await createSharedConnectionTestDatabase();
 
   const moduleInternals = Module as typeof Module & {
     _load: (request: string, parent: NodeModule | null, isMain: boolean) => unknown;
@@ -64,6 +66,9 @@ async function main() {
     },
   };
   moduleInternals._load = (request, parent, isMain) => {
+    if (request === '@/app/lib/db' || /\/app\/lib\/db(?:\/index)?(?:\.ts)?$/u.test(request) || /^(?:\.\.\/)+db$/u.test(request)) {
+      return testDatabase;
+    }
     if (request === 'server-only') return {};
     if (request === '@earendil-works/pi-ai' || request === '@earendil-works/pi-ai/compat') {
       return piAiMock;
@@ -77,6 +82,16 @@ async function main() {
     return originalLoad(request, parent, isMain);
   };
 
+  try {
+    await assertRuntimeConfiguration(dataDir);
+  } finally {
+    moduleInternals._load = originalLoad;
+    await testDatabase.close();
+    await fs.rm(dataDir, { recursive: true, force: true });
+  }
+}
+
+async function assertRuntimeConfiguration(dataDir: string) {
   const { DEFAULT_PI_CONFIG } = await import('../app/lib/pi/config');
   const { SKILL_TOOL_NAMES } = await import('../app/lib/pi/toolsets');
   const {
@@ -160,7 +175,7 @@ async function main() {
   await fs.writeFile(path.join(dataDir, 'canvas-agent', 'MEMORY.md'), 'Legacy runtime memory.\n', 'utf8');
   assert.equal((await readManagedAgentFile('MEMORY.md', DEFAULT_MANAGED_AGENT_ID)).trim(), 'Legacy runtime memory.');
   assert.equal(
-    (await fs.readFile(path.join(dataDir, 'agents', 'canvas-agent', 'MEMORY.md'), 'utf8')).trim(),
+    (await fs.readFile(path.join(dataDir, 'agents', DEFAULT_MANAGED_AGENT_ID, 'MEMORY.md'), 'utf8')).trim(),
     'Legacy runtime memory.',
   );
 
@@ -182,7 +197,7 @@ async function main() {
     assert.equal(await resetManagedAgentFile(fileName, DEFAULT_MANAGED_AGENT_ID), expectedSeed);
     assert.equal(await readManagedAgentFile(fileName, DEFAULT_MANAGED_AGENT_ID), expectedSeed);
     assert.equal(
-      await fs.readFile(path.join(dataDir, 'agents', 'canvas-agent', fileName), 'utf8'),
+      await fs.readFile(path.join(dataDir, 'agents', DEFAULT_MANAGED_AGENT_ID, fileName), 'utf8'),
       expectedSeed,
     );
   }
@@ -221,7 +236,7 @@ async function main() {
   });
   assert.match(providedNamePrompt.systemPrompt, /User display name: "Runtime Display"/);
   assert.match(
-    await fs.readFile(path.join(dataDir, 'users', scopedUserId, 'agents', 'canvas-agent', 'AGENTS.md'), 'utf8'),
+    await fs.readFile(path.join(dataDir, 'users', scopedUserId, 'agents', DEFAULT_MANAGED_AGENT_ID, 'AGENTS.md'), 'utf8'),
     /Scoped runtime prompt/,
   );
   const originalConsoleError = console.error;
@@ -630,7 +645,6 @@ async function main() {
     delete process.env.CANVAS_INSTANCE_TOKEN;
   }
 
-  moduleInternals._load = originalLoad;
   console.log('agent-runtime-config-test: ok');
 }
 

@@ -48,12 +48,13 @@ async function main() {
     const sharedEntry = (resource: typeof source) => ({ selection: { kind: 'mcp' as const, source: 'mcp' as const,
       target: { kind: 'shared' as const, connectionRef: resource.resource.connectionRef, bindingRevision: resource.resource.bindingRevision } },
       requirement: 'required' as const, toolCap: ['READ'] });
-    const update = async (extensions: AgentExtensionConfigurationInput) => {
+    const update = async (extensions: AgentExtensionConfigurationInput, enabledTools?: string[] | null) => {
       const current = await registry.getAgentProfile(emailId);
       assert(current);
       const response = await route.PATCH(new NextRequest(`http://localhost:3001/api/agents?workspaceId=${owner.workspaceId}`, {
         method: 'PATCH', headers: fixture.headers(owner.userId), body: JSON.stringify({ agentId: emailId,
-          expectedRevision: current.revision, expectedWorkflowRevision: current.workflowRevision ?? 0, extensions }),
+          expectedRevision: current.revision, expectedWorkflowRevision: current.workflowRevision ?? 0, extensions,
+          ...(enabledTools === undefined ? {} : { enabledTools }) }),
       }));
       const result = await response.json();
       assert.equal(response.status, 200, JSON.stringify({ status: response.status, code: result.code, stage }));
@@ -61,8 +62,9 @@ async function main() {
       email = await registry.getAgentProfile(emailId) as AgentProfile;
       return result;
     };
-    const state = async () => ({ agent: await sql.get('SELECT revision,workflow_version,workflow_revision FROM agents WHERE agent_id=$1', [emailId]),
-      bindings: await sql.all('SELECT resource_id,configuration_json FROM agent_capability_bindings WHERE agent_id=$1 ORDER BY resource_id', [emailId]) });
+    const state = async () => ({ agent: await sql.get('SELECT * FROM agents WHERE agent_id=$1', [emailId]),
+      bindings: await sql.all('SELECT * FROM agent_capability_bindings WHERE agent_id=$1 ORDER BY resource_id', [emailId]),
+      preferences: await sql.all('SELECT * FROM agent_user_preferences WHERE agent_id=$1 ORDER BY user_id', [emailId]) });
 
     stage = 'actual V1 private package compatibility and ordinary safe summary';
     const pluginRegistry = await import('../app/lib/plugins/canvas-plugin-registry');
@@ -163,8 +165,22 @@ async function main() {
       await expectCode(() => connections.prepareEmailV2BindingConfigurationOnConnection(sql, foreignBatch, email), 'AGENT_ACTOR_CONTEXT_DENIED');
     } finally { await sql.run('ROLLBACK'); }
 
-    stage = 'real API V2 migration then exact Email-target-only grant';
-    await update({ ...empty, mode: 'fixed', standalone: [{ mode: 'fixed', entry: sharedEntry(source) }] });
+    stage = 'real API rejects mandatory MCP without matching native tools and rolls back exactly';
+    const migrationExtensions: AgentExtensionConfigurationInput = { ...empty, mode: 'fixed', standalone: [{ mode: 'fixed', entry: sharedEntry(source) }] };
+    const beforeMissingTools = await state();
+    assert(Array.isArray(email.enabledTools));
+    assert(!email.enabledTools.includes('mcp'), 'The actual default Email tool set must lack MCP for this precondition.');
+    const missingToolsResponse = await route.PATCH(new NextRequest(`http://localhost:3001/api/agents?workspaceId=${owner.workspaceId}`, {
+      method: 'PATCH', headers: fixture.headers(owner.userId), body: JSON.stringify({ agentId: emailId,
+        expectedRevision: email.revision, expectedWorkflowRevision: email.workflowRevision, extensions: migrationExtensions }),
+    }));
+    const missingToolsResult = await missingToolsResponse.json();
+    assert.equal(missingToolsResponse.status, 409);
+    assert.equal(missingToolsResult.code, 'AGENT_EXTENSION_DISCOVERY_TOOLS_REQUIRED');
+    assert.deepEqual(await state(), beforeMissingTools, 'A missing MCP tool route must roll back the complete Agent, binding and preference rows.');
+
+    stage = 'real API explicit MCP-enabled V2 migration then exact Email-target-only grant';
+    await update(migrationExtensions, [...email.enabledTools, 'mcp']);
     assert.equal(email.workflowVersion, 2);
     const catalog = await connections.listSharedIntegrationConnectionTargets(ownerSource, source.resource.connectionRef);
     assert(catalog.agents.some(agent => agent.agentId === emailId));

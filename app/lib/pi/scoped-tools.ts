@@ -1422,9 +1422,13 @@ export function createUserScopedTools(
   userId?: string,
   agentId?: string | null,
   sessionId?: string | null,
-  options: { accountLocale?: UserLocale } = {},
+  options: { accountLocale?: UserLocale; registrationKind?: 'main' | 'special' } = {},
 ): AgentTool[] {
-  const sourceAgentId = normalizeManagedAgentId(agentId);
+  const registrationKind = options.registrationKind ?? (normalizeManagedAgentId(agentId) === DEFAULT_AGENT_ID ? 'main' : 'special');
+  if (agentId && registrationKind !== (normalizeManagedAgentId(agentId) === DEFAULT_AGENT_ID ? 'main' : 'special')) {
+    throw new Error('Tool registration kind does not match the actual agent.');
+  }
+  const sourceAgentId = agentId ? normalizeManagedAgentId(agentId) : registrationKind === 'main' ? DEFAULT_AGENT_ID : undefined;
   const tools: AgentTool[] = [
     createMcpProxyTool(userId),
     createMemoryTool(userId, agentId, options.accountLocale),
@@ -1437,7 +1441,7 @@ export function createUserScopedTools(
     ...createCapabilityPackageTools(userId, agentId, sessionId),
   ];
 
-  if (sourceAgentId === DEFAULT_AGENT_ID) {
+  if (registrationKind === 'main' && sourceAgentId === DEFAULT_AGENT_ID) {
     tools.push(createDelegateTaskTool({ userId, sourceAgentId, sourceSessionId: sessionId }));
   }
 

@@ -11,7 +11,7 @@ import type { CapabilityResourceStorageBinding } from '@/app/lib/capabilities/re
 import { parsePluginSkillsFromManifest } from '@/app/lib/plugins/canvas-plugin-registry';
 import { parseSkillFile } from '@/app/lib/skills/canvas-skill-manifest';
 import type { WorkflowIntegrationAlternative } from '@/app/lib/capabilities/workflow-contracts';
-import { lockIntegrationConnectionBindingsOnConnection, authorizeIntegrationConnectionBindingsOnConnection,
+import { lockIntegrationConnectionBindingsOnConnection, narrowIntegrationConnectionBindingBatchOnConnection, authorizeIntegrationConnectionBindingsOnConnection,
   type IntegrationConnectionBindingAuthorization } from '@/app/lib/integration-tools/connections/store';
 import { isIntegrationConnectionError } from '@/app/lib/integration-tools/connections/contracts';
 import { resolveSharedMcpBackend } from '@/app/lib/mcp/shared-connections';
@@ -365,14 +365,19 @@ async function revalidateTargets(prepared: PreparedTargets, database: SqlConnect
     }
   }
 }
-async function withPackages<T>(database: SqlConnection, actor: AgentManagementActor, packages: readonly PreparedPackage[], callback: () => Promise<T>, index = 0): Promise<T> {
+async function withPackages<T>(database: SqlConnection, actor: AgentManagementActor, packages: readonly PreparedPackage[],
+  callback: () => Promise<T>, checkContext = false, index = 0): Promise<T> {
+  if (checkContext) {
+    const { withAgentExtensionContextPackageSources } = await import('./extension-context-package-metadata');
+    return withAgentExtensionContextPackageSources(database, actor, packages, callback);
+  }
   if (index === packages.length) return callback();
   const entry = packages[index];
   return withAuthorizedCapabilityPackageResource({ userId: actor.userId, workspaceId: actor.workspaceId }, entry.storage, 'use', undefined,
     async (_authorization, connection) => {
       const selected = await getCapabilityPackagePublishedRevision(entry.stored.resourceRef, entry.stored.publishedRevisionRef, connection);
       if (!selected || selected.checksum !== entry.stored.checksum) fail('AGENT_WORKFLOW_PACKAGE_CHANGED', 'The selected published package changed.');
-      return withPackages(database, actor, packages, callback, index + 1);
+      return withPackages(database, actor, packages, callback, false, index + 1);
     }, { database });
 }
 function validateBoundTargets(packages: readonly StoredAgentWorkflowPackage[], bindings: readonly IntegrationConnectionBindingAuthorization[], requireMappingManage = true): void {
@@ -494,10 +499,14 @@ export async function createManagedAgentExtensionConfiguration(actorInput: Agent
           expectedWorkflowRevision: 0, workflowVersion: 2, workflowRevision: 1 }, database);
         await replaceAgentCapabilityBindings(profile.agentId, extensionBindingInputs(packages, extensions,
           getPreparedAgentStandaloneConfigurations(standalone, actor!)), database, { workflowMutation: true });
+        const { assertManagedAgentExtensionContextOnConnection } = await import('./extension-context-preflight');
+        await assertManagedAgentExtensionContextOnConnection({ database, actor: actor!, agentId: profile.agentId, batch, purpose: 'configure' });
+        await revalidateTargets(prepared, database);
+        await revalidatePreparedAgentStandalonePersonalConfigurations(standalone, actor!, { database });
       }
       await initializeFiles(profile);
       return profile;
-    });
+    }, extensions.mode === 'fixed');
     commitAttempted = true;
     await database.run('COMMIT');
     return agent;
@@ -520,6 +529,8 @@ export async function updateManagedAgentConfiguration(input: UpdateManagedAgentC
     extensions: import('./extension-inspection').AgentExtensionConfigurationDescriptor }> {
   const captured = structuredClone(input), changesExtensions = captured.extensions !== undefined,
     changesWorkflow = captured.workflow !== undefined || changesExtensions;
+  const changesDefault = [captured.defaultProviderInstallationId, captured.defaultProvider, captured.defaultModel, captured.defaultThinking].some(value => value !== undefined);
+  const changesContext = changesWorkflow || captured.enabledTools !== undefined || changesDefault;
   const changesLegacyCapabilities = [captured.capabilities, captured.relevantSkills, captured.relevantConnections].some(value => value !== undefined);
   if (Object.keys(captured).some(key => !['actor', 'agentId', 'expectedRevision', 'expectedWorkflowRevision', 'name', 'iconId', 'enabledTools',
     'defaultProviderInstallationId', 'defaultProvider', 'defaultModel', 'defaultThinking', 'expectedCatalogRevision', 'workflow', 'extensions', 'capabilities', 'relevantSkills', 'relevantConnections'].includes(key))
@@ -569,10 +580,13 @@ export async function updateManagedAgentConfiguration(input: UpdateManagedAgentC
     packages.push(selected);
   }
   packages.sort((left, right) => left.storage.resourceId.localeCompare(right.storage.resourceId));
+  const contextPackages = !changesWorkflow && changesContext && before!.workflowVersion === 2
+    ? await (await import('./extension-context-package-metadata')).prepareAgentExtensionContextPackageSources(actor!, before!) : packages;
+  const contextReferences = !changesWorkflow && changesContext && before!.workflowVersion === 2
+    ? (await import('./extension-context-provider-metadata')).collectAgentExtensionContextSharedReferences(before!) : [];
   const standalone = changesExtensions ? await prepareAgentStandaloneConfigurations(actor!, extensions?.mode === 'fixed' ? extensions.standalone : [], before!) : null;
   await validateSpecialAgentTools(captured.enabledTools);
   await assertBrowserToolCanBeEnabled({ previousEnabledTools: before!.agent.enabledTools, nextEnabledTools: captured.enabledTools === undefined ? before!.agent.enabledTools : captured.enabledTools });
-  const changesDefault = [captured.defaultProviderInstallationId, captured.defaultProvider, captured.defaultModel, captured.defaultThinking].some(value => value !== undefined);
   const model = changesDefault ? parseAgentDefaultFields({ providerInstallationId: captured.defaultProviderInstallationId === undefined ? before!.agent.defaultProviderInstallationId : captured.defaultProviderInstallationId,
     providerId: captured.defaultProvider === undefined ? before!.agent.defaultProvider : captured.defaultProvider,
     modelId: captured.defaultModel === undefined ? before!.agent.defaultModel : captured.defaultModel,
@@ -585,10 +599,10 @@ export async function updateManagedAgentConfiguration(input: UpdateManagedAgentC
       fail('AGENT_ORGANIZATION_ADMIN_REQUIRED', 'Organization administration is required to configure the email agent.', 403);
     }
     const batch = await lockIntegrationConnectionBindingsOnConnection(database, { userId: actor!.userId, ...verified.context },
-      [...references(packages), ...(standalone ? getPreparedAgentStandaloneSharedReferences(standalone, actor!) : [])]);
+      [...references(packages), ...contextReferences, ...(standalone ? getPreparedAgentStandaloneSharedReferences(standalone, actor!) : [])]);
     await revalidateTargets(prepared, database);
     if (standalone) await revalidatePreparedAgentStandalonePersonalConfigurations(standalone, actor!, { database });
-    agent = await withPackages(database, actor!, packages, async () => {
+    agent = await withPackages(database, actor!, contextPackages, async () => {
       if (changesDefault) {
         if (!verified.organizationId || !['owner', 'admin'].includes(verified.organizationRole ?? '') || before!.agent.organizationId && before!.agent.organizationId !== verified.organizationId) fail('AGENT_ORGANIZATION_ADMIN_REQUIRED', 'Organization administration is required for model defaults.', 403);
         await validateAgentDefaultOnConnection(database, { organizationId: verified.organizationId, selection: model,
@@ -602,10 +616,12 @@ export async function updateManagedAgentConfiguration(input: UpdateManagedAgentC
       if (current.revision !== captured.expectedRevision) throw new AgentRevisionConflictError(current.revision);
       const header = await readManagedAgentWorkflowOnConnection(database, current.agentId);
       if (changesWorkflow && header.workflowRevision !== captured.expectedWorkflowRevision) fail('AGENT_WORKFLOW_REVISION_CONFLICT', 'The workflow configuration changed.');
+      const configurationBatch = await narrowIntegrationConnectionBindingBatchOnConnection(database, batch,
+        [...references(packages), ...(standalone ? getPreparedAgentStandaloneSharedReferences(standalone, actor!) : [])]);
       const bindingOptions = extensions?.mode === 'fixed' && current.agentId === EMAIL_MANAGED_AGENT_ID
-        ? { emailV2Configuration: await prepareEmailV2BindingConfigurationOnConnection(database, batch, current) } : {};
-      validateBoundTargets(packages.map(entry => entry.stored), await authorizeIntegrationConnectionBindingsOnConnection(database, batch, current, 'configure', bindingOptions));
-      if (standalone) await authorizePreparedAgentStandaloneConfigurationsOnConnection(standalone, actor!, database, batch, current, bindingOptions);
+        ? { emailV2Configuration: await prepareEmailV2BindingConfigurationOnConnection(database, configurationBatch, current) } : {};
+      validateBoundTargets(packages.map(entry => entry.stored), await authorizeIntegrationConnectionBindingsOnConnection(database, configurationBatch, current, 'configure', bindingOptions));
+      if (standalone) await authorizePreparedAgentStandaloneConfigurationsOnConnection(standalone, actor!, database, configurationBatch, current, bindingOptions);
       await revalidateTargets(prepared, database);
       if (standalone) await revalidatePreparedAgentStandalonePersonalConfigurations(standalone, actor!, { database });
       const next = await updateAgentProfile({ agentId: current.agentId, expectedRevision: captured.expectedRevision,
@@ -627,8 +643,14 @@ export async function updateManagedAgentConfiguration(input: UpdateManagedAgentC
           : header.bindings.map(({ configuration: _configuration, id: _id, agentId: _agentId, revision: _revision, ...binding }) => ({ ...binding, configuration: null }));
         await replaceAgentCapabilityBindings(current.agentId, inputs, database, { workflowMutation: true });
       } else if (legacyCapabilities) await replaceAgentCapabilityBindings(current.agentId, legacyCapabilities.bindings, database);
+      if (changesContext && next.workflowVersion === 2) {
+        const { assertManagedAgentExtensionContextOnConnection } = await import('./extension-context-preflight');
+        await assertManagedAgentExtensionContextOnConnection({ database, actor: actor!, agentId: next.agentId, batch, purpose: 'configure' });
+        await revalidateTargets(prepared, database);
+        if (standalone) await revalidatePreparedAgentStandalonePersonalConfigurations(standalone, actor!, { database });
+      }
       return next;
-    });
+    }, changesContext && (extensions ? extensions.mode === 'fixed' : !changesWorkflow && before!.workflowVersion === 2));
     await database.run('COMMIT');
   } catch (error) { try { await database.run('ROLLBACK'); } catch { /* Preserve the authoritative failure. */ } throw error; }
   finally { await database.close(); }
@@ -812,42 +834,54 @@ export async function setManagedAgentWorkflowChoice(input: { actor: AgentManagem
     if (!allowed) fail('AGENT_WORKFLOW_CHOICE_DENIED', 'Choose a connection from the central allowlist.', 403);
     choice = { workflowRevision: expectedWorkflowRevision, choiceId: allowed.choiceId }; selected = allowed;
   }
-  const refs = selected?.target.kind === 'shared' ? [selected.target.connectionRef] : [];
+  const contextSources = snapshot.workflowVersion === 2
+    ? await (await import('./extension-context-package-metadata')).prepareAgentExtensionContextPackageSources(captured.actor, snapshot) : [];
+  const refs = [...(selected?.target.kind === 'shared' ? [selected.target.connectionRef] : []),
+    ...(snapshot.workflowVersion === 2 ? (await import('./extension-context-provider-metadata')).collectAgentExtensionContextSharedReferences(snapshot) : [])];
   const database = await openDb();
   try {
     await database.run('BEGIN');
     const verified = await resolveVerifiedAgentActorContextOnConnection(captured.actor, database, { lock: true });
     const batch = await lockIntegrationConnectionBindingsOnConnection(database, { userId: captured.actor.userId, ...verified.context }, refs);
     await revalidateTargets(prepared, database);
-    await database.get('SELECT agent_id FROM agents WHERE agent_id=$1 FOR SHARE', [snapshot.agent.agentId]);
-    const current = await readManagedAgentWorkflowOnConnection(database, snapshot.agent.agentId);
-    await holdAgentGrantAuthority(database, captured.actor, current.agent);
-    if (current.workflowVersion === null || current.workflowRevision !== expectedWorkflowRevision) fail('AGENT_WORKFLOW_REVISION_CONFLICT', 'The workflow configuration changed.');
-    if (!(await getAgentAccessOnConnection(database, captured.actor.userId, current.agent.agentId, verified.context)).canUse) fail('AGENT_ACCESS_DENIED', 'Agent use was revoked.', 403);
-    const currentSlot = capabilitySlot(current, captured.capabilityKey);
-    if (currentSlot.capability.selection.mode !== 'selectable') fail('AGENT_WORKFLOW_CHOICE_DENIED', 'This capability is centrally fixed.', 403);
-    const authorities = await authorizeIntegrationConnectionBindingsOnConnection(database, batch, current.agent, 'read');
-    if (selected) {
-      const selectedConfiguration = { ...currentSlot.pkg, declarations: [{ declarationPath: currentSlot.declaration.declarationPath,
-        capabilities: [{ ...currentSlot.capability, selection: { mode: 'fixed' as const, ...selected } }] }] };
-      validateBoundTargets([selectedConfiguration], authorities, false);
-    }
-    const previousRow = await database.get('SELECT preferences_json,revision FROM agent_user_preferences WHERE agent_id=$1 AND user_id=$2 FOR UPDATE',
-      [current.agent.agentId, captured.actor.userId]) as Record<string, unknown> | undefined;
-    const preferences = preferenceSnapshot(previousRow);
-    if (preferences.revision !== expectedPreferenceRevision) fail('AGENT_WORKFLOW_CHOICE_REVISION_CONFLICT', 'Your saved selection changed. Reload it before saving.');
-    const choices = { ...preferences.choices };
-    if (choice) choices[captured.capabilityKey] = choice; else delete choices[captured.capabilityKey];
-    const encoded = JSON.stringify({ ...preferences.json, workflowChoices: choices });
-    if (Buffer.byteLength(encoded) > 1_048_576) fail('AGENT_WORKFLOW_CHOICE_INVALID', 'The stored choices exceed their limit.', 400);
-    await revalidateTargets(prepared, database);
-    const now = Date.now();
-    const written = previousRow ? await database.get(`UPDATE agent_user_preferences SET preferences_json=$1,revision=revision+1,updated_at=$2
-      WHERE agent_id=$3 AND user_id=$4 AND revision=$5 AND preferences_json=$6 RETURNING revision`,
-    [encoded, now, current.agent.agentId, captured.actor.userId, expectedPreferenceRevision, previousRow.preferences_json])
-      : await database.get(`INSERT INTO agent_user_preferences(agent_id,user_id,preferences_json,revision,created_at,updated_at) VALUES($1,$2,$3,1,$4,$4)
-        ON CONFLICT(agent_id,user_id) DO NOTHING RETURNING revision`, [current.agent.agentId, captured.actor.userId, encoded, now]);
-    if (!written) fail('AGENT_WORKFLOW_CHOICE_REVISION_CONFLICT', 'Your saved selection changed. Reload it before saving.');
+    await withPackages(database, captured.actor, contextSources, async () => {
+      await database.get('SELECT agent_id FROM agents WHERE agent_id=$1 FOR SHARE', [snapshot.agent.agentId]);
+      const current = await readManagedAgentWorkflowOnConnection(database, snapshot.agent.agentId);
+      await holdAgentGrantAuthority(database, captured.actor, current.agent);
+      if (current.workflowVersion === null || current.workflowRevision !== expectedWorkflowRevision) fail('AGENT_WORKFLOW_REVISION_CONFLICT', 'The workflow configuration changed.');
+      if (!(await getAgentAccessOnConnection(database, captured.actor.userId, current.agent.agentId, verified.context)).canUse) fail('AGENT_ACCESS_DENIED', 'Agent use was revoked.', 403);
+      const currentSlot = capabilitySlot(current, captured.capabilityKey);
+      if (currentSlot.capability.selection.mode !== 'selectable') fail('AGENT_WORKFLOW_CHOICE_DENIED', 'This capability is centrally fixed.', 403);
+      const selectedBatch = await narrowIntegrationConnectionBindingBatchOnConnection(database, batch,
+        selected?.target.kind === 'shared' ? [selected.target.connectionRef] : []);
+      const authorities = await authorizeIntegrationConnectionBindingsOnConnection(database, selectedBatch, current.agent, 'read');
+      if (selected) {
+        const selectedConfiguration = { ...currentSlot.pkg, declarations: [{ declarationPath: currentSlot.declaration.declarationPath,
+          capabilities: [{ ...currentSlot.capability, selection: { mode: 'fixed' as const, ...selected } }] }] };
+        validateBoundTargets([selectedConfiguration], authorities, false);
+      }
+      const previousRow = await database.get('SELECT preferences_json,revision FROM agent_user_preferences WHERE agent_id=$1 AND user_id=$2 FOR UPDATE',
+        [current.agent.agentId, captured.actor.userId]) as Record<string, unknown> | undefined;
+      const preferences = preferenceSnapshot(previousRow);
+      if (preferences.revision !== expectedPreferenceRevision) fail('AGENT_WORKFLOW_CHOICE_REVISION_CONFLICT', 'Your saved selection changed. Reload it before saving.');
+      const choices = { ...preferences.choices };
+      if (choice) choices[captured.capabilityKey] = choice; else delete choices[captured.capabilityKey];
+      const encoded = JSON.stringify({ ...preferences.json, workflowChoices: choices });
+      if (Buffer.byteLength(encoded) > 1_048_576) fail('AGENT_WORKFLOW_CHOICE_INVALID', 'The stored choices exceed their limit.', 400);
+      await revalidateTargets(prepared, database);
+      const now = Date.now();
+      const written = previousRow ? await database.get(`UPDATE agent_user_preferences SET preferences_json=$1,revision=revision+1,updated_at=$2
+        WHERE agent_id=$3 AND user_id=$4 AND revision=$5 AND preferences_json=$6 RETURNING revision`,
+      [encoded, now, current.agent.agentId, captured.actor.userId, expectedPreferenceRevision, previousRow.preferences_json])
+        : await database.get(`INSERT INTO agent_user_preferences(agent_id,user_id,preferences_json,revision,created_at,updated_at) VALUES($1,$2,$3,1,$4,$4)
+          ON CONFLICT(agent_id,user_id) DO NOTHING RETURNING revision`, [current.agent.agentId, captured.actor.userId, encoded, now]);
+      if (!written) fail('AGENT_WORKFLOW_CHOICE_REVISION_CONFLICT', 'Your saved selection changed. Reload it before saving.');
+      if (current.workflowVersion === 2) {
+        const { assertManagedAgentExtensionContextOnConnection } = await import('./extension-context-preflight');
+        await assertManagedAgentExtensionContextOnConnection({ database, actor: captured.actor, agentId: current.agent.agentId, batch, purpose: 'read' });
+        await revalidateTargets(prepared, database);
+      }
+    }, snapshot.workflowVersion === 2);
     await database.run('COMMIT');
   } catch (error) { try { await database.run('ROLLBACK'); } catch { /* Preserve the authority/CAS failure. */ } throw error; }
   finally { await database.close(); }
