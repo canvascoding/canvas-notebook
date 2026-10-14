@@ -16,26 +16,65 @@ import { SharedConnectionCreateForm, SharedConnectionEditor } from './SharedConn
 import { PluginMcpSetup } from './PluginMcpSetup';
 import { pluginCatalogReturnPath, pluginIntegrationRequest, usePluginSharedConnectionApi } from './plugin-integration-client';
 import { confirmPluginNavigation, usePluginEditorNavigationGuard } from './plugin-navigation-guard';
+import type { PluginExtensionSelectionMetadata } from './usePluginExtensionSearch';
 
 type IntegrationItem = Extract<PluginExtensionItem, {kind: 'integration' | 'mcp'}>;
-export type PluginIntegrationDetailProps = {item: IntegrationItem; workspaceId: string | null; onUpdated: () => void; onClose: () => void; returnPath: string};
+export type PluginIntegrationDetailProps = {item: IntegrationItem; workspaceId: string | null; onUpdated: () => void; onClose: () => void; returnPath: string;
+  selectionMetadata?: PluginExtensionSelectionMetadata | null};
 type Profile = {id: string; name: string; status: string};
 type Profiles = {profiles: Profile[]; effectiveProfile: {id: string; name: string; workspaceId: string}; workspace: {id: string}};
+type McpSetupMetadata = {canManageDefinitions: boolean; mcpAuthRequired: boolean; metadataUnavailable: boolean};
 const selectClass = 'h-10 w-full rounded-md border bg-background px-3 text-sm';
 const shared = (value: PluginExtensionConnection) => value.ownership.type === 'organization' || value.ownership.type === 'team';
+const SETUP_READ_TIMEOUT_MS = 30_000;
+
+/** Each independent metadata branch has a finite budget including its response body. */
+async function readSetupMetadata<T>(read: (signal: AbortSignal) => Promise<T>, parent: AbortSignal): Promise<T> {
+  const controller = new AbortController();
+  const abort = () => controller.abort(parent.reason);
+  parent.addEventListener('abort', abort, {once: true});
+  if (parent.aborted) abort();
+  let rejectAbort!: (reason: unknown) => void;
+  const aborted = new Promise<never>((_resolve, reject) => { rejectAbort = reject; });
+  const onAbort = () => rejectAbort(controller.signal.reason ?? new DOMException('Setup read cancelled', 'AbortError'));
+  controller.signal.addEventListener('abort', onAbort, {once: true});
+  if (controller.signal.aborted) onAbort();
+  const timer = setTimeout(() => controller.abort(new DOMException('Setup metadata timed out', 'TimeoutError')), SETUP_READ_TIMEOUT_MS);
+  try { return await Promise.race([aborted, Promise.resolve().then(() => { controller.signal.throwIfAborted(); return read(controller.signal); })]); }
+  finally { clearTimeout(timer); parent.removeEventListener('abort', abort); controller.signal.removeEventListener('abort', onAbort); }
+}
+
+function IntegrationSessionUnavailable({item, onClose, pending, retry}: Pick<PluginIntegrationDetailProps, 'item' | 'onClose'> & {
+  pending: boolean; retry: () => Promise<unknown>;
+}) {
+  const t = useTranslations('skills.workspace.setup'), [expired, setExpired] = useState(false), [attempt, setAttempt] = useState(0);
+  useEffect(() => { const timer = setTimeout(() => setExpired(true), SETUP_READ_TIMEOUT_MS); return () => clearTimeout(timer); }, [attempt]);
+  return <section className="min-w-0 space-y-5" data-testid="plugin-integration-detail">
+    <header className="space-y-3"><div className="flex justify-between gap-2"><Button variant="ghost" onClick={onClose}>{t('back')}</Button>
+      <Button variant="outline" data-testid="plugin-integration-reload" onClick={() => { setExpired(false); setAttempt(value => value + 1); void retry().catch(() => {}); }}>{t('refresh')}</Button></div>
+      <h2 className="break-words text-xl font-semibold">{item.displayName}</h2></header>
+    {pending && !expired ? <p role="status">{t('loading')}</p> : <InlineNotice variant="destructive" size="compact">{t('loadError')}</InlineNotice>}
+  </section>;
+}
 
 /** Selection metadata is refreshed for the current signed-in actor before setup actions appear. */
 export function PluginIntegrationDetail(props: PluginIntegrationDetailProps) {
-  const {data: session, isPending, error} = authClient.useSession();
+  const {data: session, isPending, error, refetch} = authClient.useSession();
+  if (!session || isPending || error) return <IntegrationSessionUnavailable key={JSON.stringify([session?.user.id, session?.session.id, props.workspaceId, props.item.id])}
+    item={props.item} onClose={props.onClose} pending={isPending} retry={refetch} />;
   return <IntegrationDetailSession key={JSON.stringify([session?.user.id, session?.session.id, props.workspaceId, props.item.id])} {...props}
     actorId={session?.user.id ?? null} sessionId={session?.session.id ?? null} enabled={Boolean(session && !isPending && !error)} />;
 }
-function IntegrationDetailSession({item: initial, workspaceId, onUpdated, onClose, returnPath, actorId, sessionId, enabled}: PluginIntegrationDetailProps & {
+function IntegrationDetailSession({item: initial, workspaceId, onUpdated, onClose, returnPath, selectionMetadata, actorId, sessionId, enabled}: PluginIntegrationDetailProps & {
   actorId: string | null; sessionId: string | null; enabled: boolean;
 }) {
   const t = useTranslations('skills.workspace.setup'), rawLocale = useLocale(), locale = rawLocale === 'de' ? 'de' : 'en';
+  const initialToolkit = initial.kind === 'integration' ? initial.toolkit.slug : null;
+  const initialMcpServerId = initial.kind === 'mcp' ? initial.mcp.serverId : undefined;
   const [item, setItem] = useState<IntegrationItem | null>(null), [loading, setLoading] = useState(true), [error, setError] = useState<string | null>(null), [pending, setPending] = useState(false);
   const [warnings, setWarnings] = useState<string[]>([]), [personalAvailable, setPersonalAvailable] = useState(false);
+  const [profilesLoading, setProfilesLoading] = useState(true), [scopesLoading, setScopesLoading] = useState(true);
+  const initialMetadata = useRef(selectionMetadata);
   const profileCurrent = useRef(false);
   const [profiles, setProfiles] = useState<Profiles | null>(null), [profileId, setProfileId] = useState(''), [profileName, setProfileName] = useState('');
   const [connectionRef, setConnectionRef] = useState(''), [sharedConnection, setSharedConnection] = useState<IntegrationConnectionDescriptor | null>(null);
@@ -50,47 +89,79 @@ function IntegrationDetailSession({item: initial, workspaceId, onUpdated, onClos
   const isCurrentShared = useCallback((ref: string) => isCurrent() && selectedRef.current === ref, [isCurrent]);
   const api = usePluginSharedConnectionApi(workspaceId, isCurrent, setPending);
   usePluginEditorNavigationGuard({dirty: profileName !== '', pending});
-  const load = useCallback(async () => {
+  const load = useCallback(async (received?: PluginExtensionSelectionMetadata | null) => {
     if (!isCurrent()) return;
     request.current?.abort(); const controller = new AbortController(), current = ++generation.current; request.current = controller;
     profileCurrent.current = false;
     setLoading(true); setError(null); setSharedConnection(null); setProfiles(null); setProfileId(''); setScopes([]); setCanManageMcp(false); setMcpAuthRequired(false);
-    setWarnings([]); setPersonalAvailable(false); setTools([]); setToolsError(false); setProfileName(''); setCreateShared(false);
+    setWarnings([]); setPersonalAvailable(false); setProfilesLoading(true); setScopesLoading(true);
+    setTools([]); setToolsError(false); setProfileName(''); setCreateShared(false);
+    const active = () => isCurrent() && current === generation.current && !controller.signal.aborted;
+    const warn = (warning: string) => { if (active()) setWarnings(previous => [...new Set([...previous, warning])]); };
+    // Shared setup rights and personal provider metadata are independent reads.
+    // Neither waits for another full catalogue traversal or for the other branch.
+    const scopesRead = readSetupMetadata(signal => pluginIntegrationRequest<{scopes: IntegrationConnectionScopeChoice[]}>(
+      '/api/integrations/shared-connections/setup', workspaceId, {signal}), controller.signal)
+      .then(value => { if (active()) setScopes(value.scopes); })
+      .catch(() => warn('sharedSetupUnavailable'))
+      .finally(() => { if (active()) setScopesLoading(false); });
+    const providerRead = Promise.allSettled([readSetupMetadata<Profiles | McpSetupMetadata>(signal => initial.kind === 'integration'
+      ? pluginIntegrationRequest<Profiles>('/api/composio/profiles', workspaceId, {signal})
+      : Promise.all([pluginIntegrationRequest<{canManageDefinitions: boolean}>('/api/integrations/mcp-definitions', workspaceId, {signal}),
+        initialMcpServerId ? pluginIntegrationRequest<{oauth: Array<{serverName: string; configured: boolean; requiresAuth: boolean}>}>('/api/integrations/mcp-status', workspaceId, {signal}).catch(() => null) : Promise.resolve(null),
+      ]).then(([definitions, status]) => ({...definitions, mcpAuthRequired: status?.oauth.some(value => value.serverName === initial.name && value.configured && value.requiresAuth) === true,
+        metadataUnavailable: Boolean(initialMcpServerId && !status)})), controller.signal)]).then(([result]) => result);
     try {
-      const query = new URLSearchParams({types: initial.kind, scope: 'all', limit: '1', selected: initial.id});
-      const response = await pluginIntegrationRequest<PluginExtensionSearchResponse>(`/api/plugins/search?${query}`, workspaceId, {signal: controller.signal});
-      if (!isCurrent() || current !== generation.current) return;
-      const fresh = response.selectedItem;
+      // Reuse only the actual selected response just received by the catalogue
+      // for this exact actor/session/workspace. These DTOs confer no write access.
+      const sameRequestContext = received?.actorId === actorId && received?.sessionId === sessionId && received?.workspaceId === workspaceId
+        && (received.source === 'selected'
+          ? received.response.query.selected === initial.id && received.response.selectedItem?.id === initial.id
+          : received.source === 'row' && received.selectionId === initial.id && received.row === initial
+            && received.response.items.includes(received.row));
+      const query = new URLSearchParams({types: initial.kind, scope: 'all', limit: '1', selected: initial.id,
+        ...(initialToolkit ? {q: initialToolkit} : {})});
+      const response = sameRequestContext ? received.response : await readSetupMetadata(signal =>
+        pluginIntegrationRequest<PluginExtensionSearchResponse>(`/api/plugins/search?${query}`, workspaceId, {signal}), controller.signal);
+      if (!active()) return;
+      const fresh = sameRequestContext && received?.source === 'row' ? received.row : response.selectedItem;
       if (!fresh || fresh.id !== initial.id || fresh.kind !== initial.kind || !fresh.access.canRead || !('connections' in fresh)) throw new Error('access_changed');
       setItem(fresh);
       const coverage = response.coverage.find(value => value.source === (fresh.kind === 'integration' ? 'composio' : 'mcp'));
-      const incomplete = !coverage || coverage.status !== 'complete', nextWarnings: string[] = incomplete ? ['partialCoverage'] : [];
+      if (!coverage || coverage.status !== 'complete') warn('partialCoverage');
       setPersonalAvailable(Boolean(coverage && (coverage.status === 'complete' || coverage.status === 'partial')));
       const oldRef = selectedRef.current, callbackRef = new URL(returnPath, 'https://canvas.invalid').searchParams.get('connectionRef');
       const nextRef = fresh.connections.some(value => value.connectionRef === oldRef) ? oldRef : fresh.connections.some(value => value.connectionRef === callbackRef) ? callbackRef!
         : fresh.connections.length === 1 ? fresh.connections[0].connectionRef : '';
-      setConnectionRef(nextRef);
-      const results = await Promise.allSettled([
-        api<{scopes: IntegrationConnectionScopeChoice[]}>('/api/integrations/shared-connections/setup'),
-        fresh.kind === 'integration' ? pluginIntegrationRequest<Profiles>('/api/composio/profiles', workspaceId, {signal: controller.signal})
-          : Promise.all([pluginIntegrationRequest<{canManageDefinitions: boolean}>('/api/integrations/mcp-definitions', workspaceId, {signal: controller.signal}),
-            fresh.mcp.serverId ? pluginIntegrationRequest<{oauth: Array<{serverName: string; configured: boolean; requiresAuth: boolean}>}>('/api/integrations/mcp-status', workspaceId, {signal: controller.signal}).catch(() => null) : Promise.resolve(null),
-          ]).then(([definitions, status]) => ({...definitions, mcpAuthRequired: status?.oauth.some(value => value.serverName === fresh.name && value.configured && value.requiresAuth) === true, metadataUnavailable: Boolean(fresh.mcp.serverId && !status)})),
-      ]);
-      if (!isCurrent() || current !== generation.current) return;
-      setScopes(results[0].status === 'fulfilled' ? results[0].value.scopes : []);
-      if (results[0].status === 'rejected') nextWarnings.push('sharedSetupUnavailable');
-      const provider = results[1];
-      if (provider.status === 'rejected') nextWarnings.push(fresh.kind === 'integration' ? 'profilesUnavailable' : 'metadataUnavailable');
-      if (provider.status === 'fulfilled' && fresh.kind === 'integration' && 'profiles' in provider.value) {
-        const value = provider.value as Profiles; setProfiles(value); const selectedProfile = fresh.connections.find(connection => connection.connectionRef === nextRef)?.profileId;
-        setProfileId(selectedProfile && value.profiles.some(profile => profile.id === selectedProfile && profile.status === 'active') ? selectedProfile : value.effectiveProfile.id);
-      } else if (provider.status === 'fulfilled' && 'canManageDefinitions' in provider.value) { setCanManageMcp(provider.value.canManageDefinitions); setMcpAuthRequired(provider.value.mcpAuthRequired); if (provider.value.metadataUnavailable) nextWarnings.push('metadataUnavailable'); }
-      setWarnings([...new Set(nextWarnings)]);
-    } catch { if (isCurrent() && !controller.signal.aborted && current === generation.current) { setItem(null); setError(t('loadError')); } }
+      selectedRef.current = nextRef; setConnectionRef(nextRef);
+      setLoading(false);
+      await Promise.all([scopesRead, providerRead.then(provider => {
+        if (!active()) return;
+        if (provider.status === 'rejected') warn(fresh.kind === 'integration' ? 'profilesUnavailable' : 'metadataUnavailable');
+        if (provider.status === 'fulfilled' && fresh.kind === 'integration' && 'profiles' in provider.value) {
+          const value = provider.value as Profiles; setProfiles(value);
+          // Account selection stays usable while profiles load. Honor its current
+          // identity, never the connection captured before that independent read.
+          const selectedProfile = fresh.connections.find(connection => connection.connectionRef === selectedRef.current)?.profileId;
+          setProfileId(selectedProfile ? value.profiles.some(profile => profile.id === selectedProfile && profile.status === 'active')
+            ? selectedProfile : '' : value.effectiveProfile.id);
+        } else if (provider.status === 'fulfilled' && 'canManageDefinitions' in provider.value) {
+          setCanManageMcp(provider.value.canManageDefinitions); setMcpAuthRequired(provider.value.mcpAuthRequired);
+          if (provider.value.metadataUnavailable) warn('metadataUnavailable');
+        }
+        setProfilesLoading(false);
+      })]);
+    } catch {
+      if (active()) { setItem(null); setError(t('loadError')); controller.abort(); setProfilesLoading(false); setScopesLoading(false); }
+    }
     finally { if (isCurrent() && current === generation.current) setLoading(false); }
-  }, [api, initial.id, initial.kind, isCurrent, returnPath, t, workspaceId]);
-  useEffect(() => { alive.current = true; queueMicrotask(() => void load()); return () => { alive.current = false; generation.current += 1; request.current?.abort(); oauth.current?.abort(); }; }, [load]);
+  }, [initial, initialToolkit, initialMcpServerId, actorId, sessionId, isCurrent, returnPath, t, workspaceId]);
+  useEffect(() => {
+    let cancelled = false;
+    alive.current = true;
+    queueMicrotask(() => { if (!cancelled) { const received = initialMetadata.current; initialMetadata.current = null; void load(received); } });
+    return () => { cancelled = true; alive.current = false; generation.current += 1; request.current?.abort(); oauth.current?.abort(); };
+  }, [load]);
   const chosen = item?.connections.find(value => value.connectionRef === connectionRef);
   useEffect(() => {
     queueMicrotask(() => { if (isCurrent()) { setSharedConnection(null); setSharedMcpAuthRequired(false); } });
@@ -120,11 +191,11 @@ function IntegrationDetailSession({item: initial, workspaceId, onUpdated, onClos
     if (!item || item.kind !== 'integration' || item.toolkit.noAuth || !personalAvailable || loading || !isCurrent() || pending) return;
     setPending(true); setError(null);
     try {
-      await applyProfile();
+      if (!profileCurrent.current || !profiles || !profiles.profiles.some(value => value.id === profileId && value.status === 'active')) throw new Error('profile_changed');
       const path = pluginCatalogReturnPath(returnPath, locale, profiles?.workspace.id || workspaceId, new URL(returnPath, 'https://canvas.invalid').searchParams.has('resourceRef')
         ? {resourceRef: new URL(returnPath, 'https://canvas.invalid').searchParams.get('resourceRef')!} : {extensionId: item.id});
       const result = await pluginIntegrationRequest<{redirectUrl?: string; noAuth?: boolean}>(`/api/composio/connect/${encodeURIComponent(item.toolkit.slug)}`, workspaceId,
-        {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({returnPath: path})});
+        {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({returnPath: path, profileId})});
       if (!isCurrent()) return;
       if (result.redirectUrl) {
         const url = new URL(result.redirectUrl); if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password) throw new Error('invalid_redirect');
@@ -184,13 +255,13 @@ function IntegrationDetailSession({item: initial, workspaceId, onUpdated, onClos
       {warnings.map(value => <InlineNotice key={value} variant="warning" size="compact" data-testid={`plugin-setup-${value}`}>{t(value)}</InlineNotice>)}
       {returned.searchParams.get('composioError') || sharedReturnStatus === 'cancelled' ? <InlineNotice size="compact">{t('oauthCancelled')}</InlineNotice> : null}
       {item.connections.length ? <div className="max-w-xl space-y-2"><Label htmlFor="plugin-integration-account">{t('account')}</Label>
-        {item.connections.length === 1 ? <p className="text-sm">{item.connections[0].displayName}</p> : <select className={selectClass} id="plugin-integration-account" value={connectionRef} disabled={pending} onChange={event => { if (confirmPluginNavigation()) { setConnectionRef(event.target.value); const profile = item.connections.find(value => value.connectionRef === event.target.value)?.profileId; if (profile) setProfileId(profile); setCreateShared(false); } }}>
+        {item.connections.length === 1 ? <p className="text-sm">{item.connections[0].displayName}</p> : <select className={selectClass} id="plugin-integration-account" value={connectionRef} disabled={pending} onChange={event => { if (confirmPluginNavigation()) { selectedRef.current = event.target.value; setConnectionRef(event.target.value); const profile = item.connections.find(value => value.connectionRef === event.target.value)?.profileId; if (profile) setProfileId(profile); setCreateShared(false); } }}>
           <option value="">{t('selectConnection')}</option>{item.connections.map(value => <option key={value.connectionRef} value={value.connectionRef}>{value.displayName} · {value.ownershipLabel || t(shared(value) ? 'shared' : 'personal')}</option>)}</select>}
         {chosen ? <div className="flex flex-wrap gap-2 text-xs"><Badge variant="outline">{statusLabel(chosen)}</Badge><Badge variant="outline">{t(chosen.health === 'healthy' ? 'ready' : chosen.health === 'unavailable' ? 'unavailable' : 'unknown')}</Badge>{!chosen.access.canUse ? <Badge variant="secondary">{t('restricted')}</Badge> : null}</div> : null}
       </div> : <p className="text-sm text-muted-foreground">{t('noConnections')}</p>}
       {item.kind === 'integration' && (!chosen || !shared(chosen)) ? <div className="max-w-xl space-y-3">
-        {item.toolkit.noAuth ? <InlineNotice size="compact">{t('noAuth')}</InlineNotice> : profiles && personalAvailable ? <>
-          <Label htmlFor="plugin-integration-profile">{t('profile')}</Label>{profiles.profiles.filter(value => value.status === 'active').length === 1 ? <p className="text-sm">{profiles.effectiveProfile.name}</p> : <select className={selectClass} id="plugin-integration-profile" value={profileId} disabled={pending} onChange={event => setProfileId(event.target.value)}>
+        {item.toolkit.noAuth ? <InlineNotice size="compact">{t('noAuth')}</InlineNotice> : profilesLoading ? <p role="status" data-testid="plugin-integration-personal-loading">{t('loading')}</p> : profiles && personalAvailable ? <>
+          <Label htmlFor="plugin-integration-profile">{t('profile')}</Label>{profiles.profiles.filter(value => value.status === 'active').length === 1 && profileId ? <p className="text-sm">{profiles.effectiveProfile.name}</p> : <select className={selectClass} id="plugin-integration-profile" value={profileId} disabled={pending} onChange={event => setProfileId(event.target.value)}>
             <option value="">{t('selectProfile')}</option>{profiles.profiles.filter(value => value.status === 'active').map(value => <option key={value.id} value={value.id}>{value.name}{value.id === profiles.effectiveProfile.id ? ` · ${t('currentProfile')}` : ''}</option>)}</select>}
           {profileId !== profiles.effectiveProfile.id ? <p className="text-xs text-muted-foreground">{t('profileChangedHint')}</p> : null}
           <Button disabled={pending || !profileId} onClick={() => void connectPersonal()} data-testid="plugin-integration-connect">{t(chosen?.authorization === 'authorized' ? 'reauthorize' : 'connect')}</Button>
@@ -203,6 +274,7 @@ function IntegrationDetailSession({item: initial, workspaceId, onUpdated, onClos
       {sharedConnection && sharedConnection.resource.connectionRef === connectionRef ? <SharedConnectionEditor key={sharedConnection.resource.connectionRef} api={api} initial={sharedConnection} workspaceId={workspaceId}
         isCurrentSession={isCurrentShared} compact allowAuthorization={item.kind === 'mcp' ? sharedMcpAuthRequired : !item.toolkit.noAuth}
         onSaved={refresh} returnLocale={locale} returnPath={exactReturn} returnStatus={sharedReturnStatus === 'connected' || sharedReturnStatus === 'cancelled' || sharedReturnStatus === 'failed' ? sharedReturnStatus : undefined} /> : null}
+      {item.kind === 'integration' && scopesLoading ? <p role="status" data-testid="plugin-integration-shared-loading">{t('loading')}</p> : null}
       {item.kind === 'integration' && scopes.length ? <div className="space-y-4 border-t pt-4"><Button variant="outline" disabled={pending} onClick={() => { if (confirmPluginNavigation()) setCreateShared(value => !value); }} data-testid="plugin-integration-new-shared">{t('sharedSetup')}</Button>
         {createShared ? <SharedConnectionCreateForm api={api} scopes={scopes} initialSource="composio" initialToolkit={item.toolkit.slug} initialName={item.displayName} lockSource compact onSaved={() => undefined} onCreated={afterSharedCreated} /> : null}</div> : null}
       <p className="text-xs leading-relaxed text-muted-foreground">{t('managementSeparate')}</p>

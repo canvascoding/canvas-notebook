@@ -16,10 +16,12 @@ Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 async function main() {
   const originalFetch = globalThis.fetch;
   const { render, screen, cleanup, waitFor, act, fireEvent } = await import('@testing-library/react');
-  const { usePluginExtensionSearch } = await import('../app/components/plugins/usePluginExtensionSearch');
   const { PluginExtensionSearchResults } = await import('../app/components/plugins/PluginExtensionSearchResults');
   type Pending = { url: URL; signal?: AbortSignal | null; resolve(response: Response): void };
   const pending: Pending[] = [];
+  let actorId = 'search-actor-a', sessionId = 'search-session-a';
+  const session = () => ({ user: { id: actorId, name: actorId, email: `${actorId}@fixture.invalid`, role: 'admin', emailVerified: true, createdAt: new Date(0), updatedAt: new Date(0), banned: false },
+    session: { id: sessionId, userId: actorId, token: 'CONTROLLED_UI_SESSION', expiresAt: new Date('2099-01-01'), createdAt: new Date(0), updatedAt: new Date(0) } });
   const item = (id: string, kind: PluginExtensionItem['kind'] = 'integration'): PluginExtensionItem => {
     const common = { id, name: id, displayName: id, description: 'Public metadata', stock: 'available' as const, access: { canRead: true, canUse: false, canManage: false } };
     return kind === 'integration' ? { ...common, kind, source: 'composio', toolkit: { slug: 'canva', noAuth: false }, connections: [] }
@@ -36,14 +38,20 @@ async function main() {
     const data = usePluginExtensionSearch({ navigation, workspaceId, epoch });
     return <NextIntlClientProvider locale="en" messages={en} timeZone="UTC"><output data-testid="selected">{data.selectedItem?.id ?? ''}</output>
       <output data-testid="coverage-state">{JSON.stringify(data.response?.coverage ?? [])}</output><output data-testid="pagination-state">{JSON.stringify(data.response?.pagination ?? {})}</output>
+      <output data-testid="selection-context">{data.selectionMetadata ? JSON.stringify([data.selectionMetadata.actorId, data.selectionMetadata.sessionId, data.selectionMetadata.workspaceId]) : ''}</output>
       <PluginExtensionSearchResults data={data} onOpen={() => {}} onMore={cursor => { navigation = { ...navigation, extensionCursor: cursor }; rendered.rerender(<App />); }} onRetry={data.retry} />
     </NextIntlClientProvider>;
   };
-  globalThis.fetch = (input, init) => new Promise<Response>(resolve => {
+  globalThis.fetch = (input, init) => {
     const url = new URL(String(input), dom.window.location.origin);
+    if (url.pathname === '/api/auth/get-session') return Promise.resolve(Response.json(session()));
     assert.equal(url.pathname, '/api/plugins/search'); assert.equal(new Headers(init?.headers).get('x-canvas-workspace-id'), url.searchParams.get('workspaceId'));
-    assert(!init?.method || init.method === 'GET'); pending.push({ url, signal: init?.signal, resolve });
-  });
+    assert(!init?.method || init.method === 'GET'); return new Promise<Response>(resolve => pending.push({ url, signal: init?.signal, resolve }));
+  };
+  const { usePluginExtensionSearch } = await import('../app/components/plugins/usePluginExtensionSearch');
+  const { authClient } = await import('../app/lib/auth-client'), atom = authClient.$store.atoms.session, originalSession = atom.get();
+  const seed = () => atom.set({ ...atom.get(), data: session(), error: null, isPending: false, isRefetching: false });
+  seed();
   const rendered = render(<App />);
   try {
     await waitFor(() => assert.equal(pending.length, 1));
@@ -86,11 +94,28 @@ async function main() {
     await waitFor(() => assert.equal(pending.length, 7)); assert.equal(pending[6].url.searchParams.get('selected'), 'composio:canva'); assert.equal(pending[6].url.searchParams.get('q'), 'different');
     await act(async () => pending[6].resolve(response([item('Current workspace')], { selectedItem: item('composio:canva') })));
     await waitFor(() => assert.equal(screen.getByTestId('selected').textContent, 'composio:canva'));
+    assert.equal(screen.getByTestId('selection-context').textContent, JSON.stringify([actorId, sessionId, workspaceId]));
     navigation = { ...navigation, extensionCursor: 'page-next' }; rendered.rerender(<App />); await waitFor(() => assert.equal(pending.length, 8));
     await act(async () => pending[7].resolve(Response.json({ success: false, code: 'PLUGIN_SEARCH_ACCESS_DENIED' }, { status: 403 })));
     await waitFor(() => assert.equal(screen.queryByText('Current workspace'), null)); assert.equal(screen.getByTestId('selected').textContent, '', 'Late access denial clears retained results and exact selection.');
-    epoch += 1; rendered.rerender(<App />); await waitFor(() => assert.equal(pending.length, 9)); rendered.unmount(); assert.equal(pending[8].signal?.aborted, true);
+    epoch += 1; rendered.rerender(<App />); await waitFor(() => assert.equal(pending.length, 9));
+    await act(async () => { actorId = 'search-actor-b'; sessionId = 'search-session-b'; seed(); });
+    await waitFor(() => assert.equal(pending.length, 10)); assert(pending[8].signal?.aborted);
+    assert.equal(screen.getByTestId('selection-context').textContent, '');
+    await act(async () => pending[8].resolve(response([item('Forbidden previous actor')], { selectedItem: item('Previous actor selection') })));
+    assert.equal(screen.queryByText('Forbidden previous actor'), null); assert.equal(screen.getByTestId('selected').textContent, '');
+    await act(async () => pending[9].resolve(response([item('Current actor')], { selectedItem: item('composio:canva') })));
+    await screen.findByText('Current actor'); assert.equal(screen.getByTestId('selection-context').textContent, JSON.stringify([actorId, sessionId, workspaceId]));
+    await act(async () => { sessionId = 'replacement-session-b'; seed(); }); await waitFor(() => assert.equal(pending.length, 11));
+    assert.equal(screen.queryByText('Current actor'), null); assert.equal(screen.getByTestId('selection-context').textContent, '');
+    await act(async () => atom.set({ ...atom.get(), isPending: true })); assert(pending[10].signal?.aborted);
+    await act(async () => pending[10].resolve(response([item('Late previous session')], { selectedItem: item('composio:canva') })));
+    assert.equal(screen.queryByText('Late previous session'), null); assert.equal(screen.getByTestId('selected').textContent, '');
+    const pendingCount = pending.length; await act(async () => { atom.set({ ...atom.get(), isPending: false, error: { message: 'Controlled denial', status: 401, statusText: 'Unauthorized' } }); });
+    assert.equal(pending.length, pendingCount); assert.equal(screen.getByTestId('selection-context').textContent, '');
+    await act(async () => seed()); await waitFor(() => assert.equal(pending.length, pendingCount + 1));
+    rendered.unmount(); assert.equal(pending.at(-1)?.signal?.aborted, true);
     console.log('Plugin extension search React PASS: four-kind rows, partial source coverage, exact-ID batch dedupe, cumulative counts, safe retry preserving rows, selected projection, immediate context fences and late response/access denial. Controlled HTTP transport only.');
-  } finally { cleanup(); globalThis.fetch = originalFetch; dom.window.close(); }
+  } finally { cleanup(); atom.set(originalSession); globalThis.fetch = originalFetch; dom.window.close(); }
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });

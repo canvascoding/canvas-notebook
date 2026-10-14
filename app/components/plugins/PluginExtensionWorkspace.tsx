@@ -164,7 +164,8 @@ export function PluginExtensionWorkspace({ workspaceId }: { workspaceId: string 
           releaseNotes={offering?.versions.find(value => value.version === source.version && value.checksum === source.checksum)?.notes}
           onInstalled={installed} onUpdated={() => { refresh(); close(); }} onClose={close} />
           : navigation.extensionId ? selectedItem && (selectedItem.kind === 'integration' || selectedItem.kind === 'mcp')
-            ? <PluginIntegrationDetail key={JSON.stringify([workspaceId, selectedItem.id])} item={selectedItem} workspaceId={workspaceId} onUpdated={standaloneConnectionsUpdated} onClose={close} returnPath={returnPath} />
+            ? <PluginIntegrationDetail key={JSON.stringify([workspaceId, selectedItem.id])} item={selectedItem} selectionMetadata={data.selectionMetadata}
+              workspaceId={workspaceId} onUpdated={standaloneConnectionsUpdated} onClose={close} returnPath={returnPath} />
             : <InlineNotice size="compact">{data.status === 'loading' || data.updating ? <span className="flex items-center gap-2"><Loader2 className="size-4 animate-spin" aria-hidden="true" />{t('loading')}</span> : shell('accessError')}</InlineNotice>
             : <PluginExtensionSearchResults data={data} workspaceId={workspaceId} onOpen={open} onMore={extensionCursor => {
               if (extensionCursor === navigation.extensionCursor) { if (confirmPluginNavigation()) data.retry(); }
