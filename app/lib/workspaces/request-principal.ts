@@ -58,7 +58,7 @@ const number = (v: unknown, minimum = 0) => (typeof v === 'number' || typeof v =
 const flag = (v: unknown) => v === null || [false,true,0,1,'0','1'].includes(v as never);
 export class WorkspaceRequestPrincipalError extends Error {
   constructor(readonly code: 'PRINCIPAL_REQUIRED' | 'PRINCIPAL_INVALID' | 'PRINCIPAL_BUSY' | 'PRINCIPAL_SCOPE_CHANGED'
-    | 'PRINCIPAL_AUTH_REVOKED' | 'PRINCIPAL_ACCESS_DENIED' | 'PRINCIPAL_TOO_LARGE' | 'PRINCIPAL_DETACHED'
+    | 'PRINCIPAL_AUTH_REVOKED' | 'PRINCIPAL_ACCESS_DENIED' | 'PRINCIPAL_WORKSPACE_UNCONFIRMED' | 'PRINCIPAL_TOO_LARGE' | 'PRINCIPAL_DETACHED'
     | 'PRINCIPAL_REENTRANT' | 'PRINCIPAL_SCHEMA_INVALID' | 'PRINCIPAL_EXPIRED') {
     super(code); this.name = 'WorkspaceRequestPrincipalError';
   }
@@ -86,7 +86,12 @@ export async function withWorkspaceRequestPrincipal<T>(request: NextRequest,
   // The request's actual headers/selectors are copied before the first await.
   const original = new NextRequest(request.url, { method: request.method, headers: new Headers(request.headers) });
   const authenticated = await requireRequestWorkspace(original, { workspaceId, permissions: permission });
-  if (authenticated.response) fail(authenticated.response.status === 401 ? 'PRINCIPAL_AUTH_REVOKED' : 'PRINCIPAL_ACCESS_DENIED');
+  if (authenticated.response) {
+    // A failed current resolver proves no permission result. Keep this native
+    // factory closed without turning its server error into an access denial.
+    if (authenticated.response.status === 500) fail('PRINCIPAL_WORKSPACE_UNCONFIRMED');
+    fail(authenticated.response.status === 401 ? 'PRINCIPAL_AUTH_REVOKED' : 'PRINCIPAL_ACCESS_DENIED');
+  }
   const session = structuredClone(authenticated.session), workspace = structuredClone(authenticated.workspace);
   if (!id(session.user.id) || !id(session.session.id) || session.session.userId !== session.user.id
     || typeof session.session.token !== 'string' || session.session.token.length < 1 || session.session.token.length > 4096

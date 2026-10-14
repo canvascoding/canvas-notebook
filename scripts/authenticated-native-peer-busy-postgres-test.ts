@@ -179,7 +179,7 @@ async function main(): Promise<void> {
     const captures = new WeakMap<Awaited<ReturnType<typeof transport.captureAuthenticatedNativeSessionTransportOnConnection>>, number>();
     const disposals: Array<{ capture: number; settled: boolean }> = [];
     let currentDocumentId = '', sequence = 0;
-    let plan: { phase: Phase; kind: 'row' | 'table'; fired: boolean; releaseAfterClose: boolean; holder?: Client; holderPid?: number; blockerProof?: unknown; attempts: number } | undefined;
+    let plan: { phase: Phase; kind: 'row' | 'table'; fired: boolean; releaseAfterClose: boolean; holder?: Client; holderPid?: number; blockerProof?: unknown; attempts: number; beforeOrigin?: boolean; factoryUpdates?: number } | undefined;
     const releaseHolder = async () => {
       const holder = plan?.holder; if (!holder) return;
       plan!.holder = undefined; await holder.query('ROLLBACK'); await endClient(holder);
@@ -226,7 +226,14 @@ async function main(): Promise<void> {
       const command = organizationLock(sql) ? 'org-nowait-lock' : sql.startsWith('UPDATE canvas_organization_settings ') ? 'factory-org-update'
         : sql.trim().split(/\s/u)[0];
       const observation = { command, code: undefined as string | undefined }; httpQueries.push(observation);
-      return (organizationLock(sql) ? arm(sql, 'http').then(() => Reflect.apply(rawQuery, this, args)) : Promise.resolve(Reflect.apply(rawQuery, this, args)))
+      // The first factory update belongs to the unchanged route precheck. A
+      // second one is the actual native origin resolver; hold its real row
+      // before UPDATE to prove its own failure classification independently.
+      const beforeOrigin = plan.beforeOrigin && command === 'factory-org-update'
+        && (plan.factoryUpdates = (plan.factoryUpdates ?? 0) + 1) === 2 && !plan.fired;
+      const ready = beforeOrigin ? (() => { plan!.fired = true; return hold('row').then(holder => { Object.assign(plan!, holder); }); })()
+        : organizationLock(sql) ? arm(sql, 'http') : Promise.resolve();
+      return ready.then(() => Reflect.apply(rawQuery, this, args))
         .catch(error => { if (observation) observation.code = error?.code; throw error; });
     } as typeof Client.prototype.query;
     const openObservedConnection = async (): Promise<SqlConnection> => {
@@ -392,20 +399,24 @@ async function main(): Promise<void> {
       await report('original HTTP 200 and uncontended actual Auth/snapshot', { status: initial.status, incoming: healthy.incoming });
 
       const httpObservations = [];
-      for (const kind of ['row', 'table'] as const) {
-        const httpIdentity = await newCase(`http-${kind}-busy`); httpQueries = [];
-        plan = { phase: 'http', kind, fired: false, releaseAfterClose: false, attempts: 0 };
+      for (const variant of [{ kind: 'row', beforeOrigin: false }, { kind: 'table', beforeOrigin: false }, { kind: 'row', beforeOrigin: true }] as const) {
+        const { kind, beforeOrigin } = variant;
+        const httpIdentity = await newCase(`http-${kind}-${beforeOrigin ? 'origin' : 'phase'}-busy`); httpQueries = [];
+        plan = { phase: 'http', kind, beforeOrigin, fired: false, releaseAfterClose: false, attempts: 0 };
         const httpBusy = await httpSession(httpIdentity);
         console.log('Actual HTTP phase counter:', { kind, status: httpBusy.status, code: httpBusy.body.code, failures: httpQueries.filter(query => query.code) });
-        assert(plan.fired); assert(httpQueries.some(query => query.code === '55P03'));
-        assert.equal(httpBusy.status, kind === 'row' ? 403 : 409);
-        assert.equal(httpBusy.body.code, kind === 'row' ? 'PRINCIPAL_ACCESS_DENIED' : 'PRINCIPAL_BUSY');
+        assert(plan.fired);
+        if (beforeOrigin) assert.equal(httpQueries.some(query => query.command === 'org-nowait-lock'), false);
+        else assert(httpQueries.some(query => query.code === '55P03'));
+        assert.equal(httpBusy.status, kind === 'row' ? 503 : 409);
+        assert.equal(httpBusy.body.code, kind === 'row' ? 'PRINCIPAL_WORKSPACE_UNCONFIRMED' : 'PRINCIPAL_BUSY');
+        assert.equal(Object.hasOwn(httpBusy.body, 'token'), false);
         if (kind === 'row') assert(httpQueries.some(query => query.command === 'factory-org-update' && query.code === '57014'));
-        const observation = { kind, status: httpBusy.status, code: httpBusy.body.code, blocker: plan.blockerProof, queries: httpQueries.filter(query => query.code || ['BEGIN', 'COMMIT', 'ROLLBACK', 'org-nowait-lock', 'factory-org-update'].includes(query.command)) };
+        const observation = { kind, beforeOrigin, status: httpBusy.status, code: httpBusy.body.code, blocker: plan.blockerProof, queries: httpQueries.filter(query => query.code || ['BEGIN', 'COMMIT', 'ROLLBACK', 'org-nowait-lock', 'factory-org-update'].includes(query.command)) };
         httpObservations.push(observation); await releaseHolder(); plan = undefined;
         assert.equal((await httpSession(httpIdentity)).status, 200);
       }
-      await report('actual HTTP distinguishes native table Busy from a fresh factory row-lock denial', { observations: httpObservations });
+      await report('actual HTTP distinguishes native table Busy from an unconfirmed fresh factory', { observations: httpObservations });
 
       for (const [phase, kind] of [['capture', 'row'], ['join', 'table']] as const) {
         const identity = await newCase(`${phase}-${kind}`), session = await httpSession(identity); assert.equal(session.status, 200);

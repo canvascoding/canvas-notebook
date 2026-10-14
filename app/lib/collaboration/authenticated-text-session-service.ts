@@ -83,7 +83,10 @@ async function assertRequestScope(connection: SqlConnection, expected: PristineO
 async function observeRequestOrigin(request: NextRequest, workspaceId: string,
   permission: 'read' | 'write'): Promise<PristineOriginalRequestScopeExpectation> {
   const result = await requireRequestWorkspace(request, { workspaceId, permissions: permission === 'write' ? 'canWrite' : 'canRead' });
-  if (result.response) throw new WorkspaceRequestPrincipalError(result.response.status === 401 ? 'PRINCIPAL_AUTH_REVOKED' : 'PRINCIPAL_ACCESS_DENIED');
+  if (result.response) {
+    if (result.response.status === 500) throw new WorkspaceRequestPrincipalError('PRINCIPAL_WORKSPACE_UNCONFIRMED');
+    throw new WorkspaceRequestPrincipalError(result.response.status === 401 ? 'PRINCIPAL_AUTH_REVOKED' : 'PRINCIPAL_ACCESS_DENIED');
+  }
   const workspace = result.workspace, userId = result.session.user.id, sessionId = result.session.session.id;
   const runtime = getPostgresRuntimeQueryable();
   if (!runtime || !userId || !sessionId || workspace.legacy || workspace.status !== 'active'
@@ -405,6 +408,7 @@ export function authenticatedTextSessionErrorStatus(error: unknown): number {
   const code = error && typeof error === 'object' && 'code' in error ? String(error.code) : '';
   if (code === 'PRINCIPAL_AUTH_REVOKED') return 401;
   if (code === 'PRINCIPAL_ACCESS_DENIED' || code === 'NATIVE_TRANSPORT_ACCESS_DENIED') return 403;
+  if (code === 'PRINCIPAL_WORKSPACE_UNCONFIRMED') return 503;
   if (code === 'MARKDOWN_IMPORT_COMMIT_UNCONFIRMED') return 503;
   if (code === 'ENOENT') return 404;
   const status = error && typeof error === 'object' && 'status' in error ? Number(error.status) : 0;
