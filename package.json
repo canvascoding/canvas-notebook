@@ -354,6 +354,7 @@
     "test:editor:emoji-mentions": "tsx scripts/markdown-emoji-mention-test.ts && tsx scripts/tiptap-markdown-roundtrip-test.ts && tsx scripts/canvas-markdown-rendering-test.ts && tsx --conditions react-server scripts/markdown-rich-blocks-collaboration-test.ts && tsx scripts/markdown-emoji-mention-ui-test.ts",
     "test:editor:mobile-toolbar": "tsx scripts/mobile-toolbar-gesture-test.ts",
     "test:editor:mobile-viewport": "tsx scripts/mobile-editor-viewport-test.ts",
+    "test:editor:heading-navigation": "tsx scripts/rich-editor-heading-navigation-ui-test.tsx && tsx scripts/rich-editor-link-ui-test.tsx",
     "test:editor:mobile-viewport:e2e": "playwright test -c tests/playwright/playwright.editor-mobile.config.ts",
     "test:markdown:rendering": "tsx scripts/canvas-markdown-rendering-test.ts && tsx scripts/markdown-preview-image-url-test.ts && tsx scripts/public-markdown-images-test.ts",
     "test:markdown:preview-stability": "tsx scripts/markdown-document-preview-stability-test.tsx",

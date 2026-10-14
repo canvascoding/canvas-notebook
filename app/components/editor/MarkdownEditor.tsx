@@ -40,7 +40,7 @@ import { CanvasUniqueID as UniqueID } from '@/app/lib/editor/canvas-unique-id';
 import { CanvasCodeBlock as CodeBlock, CanvasHorizontalRule } from '@/app/lib/markdown/core/base-blocks';
 import { withStableNodeViewMount } from '@/app/lib/editor/stable-node-view';
 import { Suggestion, type SuggestionProps } from '@tiptap/suggestion';
-import { Plugin, PluginKey } from '@tiptap/pm/state';
+import { Plugin, PluginKey, type Transaction } from '@tiptap/pm/state';
 import { Decoration, DecorationSet } from '@tiptap/pm/view';
 import {
   AtSign,
@@ -5282,29 +5282,50 @@ export function RichMarkdownEditor({
       || appliedNavigationRequestRef.current === markdownNavigationTarget.requestId
     ) return;
 
-    const wantedHeading = markdownNavigationTarget.heading.trim().toLocaleLowerCase();
-    const nextAnchor = createMarkdownHeadingAnchorFactory();
-    let headingPosition: number | null = null;
-    editor.state.doc.descendants((node, position) => {
-      const headingAnchor = node.type.name === 'heading' ? nextAnchor(node.textContent) : null;
-      if (
-        headingPosition === null
-        && node.type.name === 'heading'
-        && (
-          node.textContent.trim().toLocaleLowerCase() === wantedHeading
-          || headingAnchor === wantedHeading
-        )
-      ) {
-        headingPosition = position + 1;
-        return false;
-      }
-      return headingPosition === null;
-    });
-    if (headingPosition === null) return;
+    const { heading, requestId } = markdownNavigationTarget;
+    let cancelled = false;
+    let queued = false;
+    const navigateToHeading = () => {
+      if (cancelled || editor.isDestroyed
+        || appliedNavigationRequestRef.current === requestId) return;
+      const wantedHeading = heading.trim().toLocaleLowerCase();
+      const nextAnchor = createMarkdownHeadingAnchorFactory();
+      let headingPosition: number | null = null;
+      editor.state.doc.descendants((node, position) => {
+        const headingAnchor = node.type.name === 'heading' ? nextAnchor(node.textContent) : null;
+        if (
+          headingPosition === null
+          && node.type.name === 'heading'
+          && (
+            node.textContent.trim().toLocaleLowerCase() === wantedHeading
+            || headingAnchor === wantedHeading
+          )
+        ) {
+          headingPosition = position + 1;
+          return false;
+        }
+        return headingPosition === null;
+      });
+      if (headingPosition === null) return;
 
-    appliedNavigationRequestRef.current = markdownNavigationTarget.requestId;
-    if (viewport && !viewport.claimNavigation(markdownNavigationTarget.requestId)) return;
-    editor.chain().focus().setTextSelection(headingPosition).scrollIntoView().run();
+      appliedNavigationRequestRef.current = requestId;
+      editor.off('transaction', handleDocumentChange);
+      if (viewport && !viewport.claimNavigation(requestId)) return;
+      editor.chain().focus().setTextSelection(headingPosition).scrollIntoView().run();
+    };
+    const handleDocumentChange = ({ transaction }: { transaction: Transaction }) => {
+      if (!transaction.docChanged || queued || cancelled) return;
+      queued = true;
+      // Native Yjs may be ready before its view projection. Wait until the
+      // current projection dispatch ends, then inspect the latest native doc.
+      queueMicrotask(() => { queued = false; navigateToHeading(); });
+    };
+    editor.on('transaction', handleDocumentChange);
+    navigateToHeading();
+    return () => {
+      cancelled = true;
+      editor.off('transaction', handleDocumentChange);
+    };
   }, [editor, markdownNavigationTarget, viewport]);
   const isRichEditorFocused = useEditorState({
     editor,
