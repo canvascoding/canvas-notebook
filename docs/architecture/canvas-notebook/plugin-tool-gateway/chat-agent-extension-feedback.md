@@ -1,6 +1,6 @@
 # Gemeinsame Erweiterungsauswahl: Feedback und Besprechungsplan
 
-Feedbackcheckpoint: 14. Oktober 2026, gespeichert mit `23354e883`. Dieser Checkpoint erfüllte den Auftrag, zuerst Feedback zu geben und den Plan unter `docs` zu speichern. Der danach wieder aufgenommene Implementierungs-/E2E-Auftrag und sein aktueller Nachweisstand stehen im verlinkten Journal. Die nachfolgenden Produktregeln bleiben die gemeinsame Besprechungsgrundlage.
+Besprechungsstand: 14. Oktober 2026. Aufbauend auf dem Feedbackcheckpoint `23354e883` ist hier der Plan mit dem aktuellen Arbeitsbaum abgeglichen. Die nachfolgenden Produktregeln und offenen Entscheidungen sind die gemeinsame Besprechungsgrundlage. Einzelne Implementierungs- und Testnachweise stehen im verlinkten Journal.
 
 Dies ist die kurze Produktansicht. Weiterführend: [technischer Gesamtplan](chat-extension-reference-plan.md), [Umsetzungs-/Abnahmejournal](chat-agent-extension-implementation.md), [synthetischer Chat-Wireframe](wireframes/chat-extension-picker.html).
 
@@ -8,7 +8,7 @@ Dies ist die kurze Produktansicht. Weiterführend: [technischer Gesamtplan](chat
 
 Die Richtung passt: **eine gemeinsame Suche und ein gemeinsames Referenz-/Kontextsystem für Plugins, Skills, Composio und MCP**. Ein Plugin bündelt Anleitung, Skills und deklarierte Verbindungen. Alle Bestandteile bleiben unabhängig auswählbar. Composio verwaltet Katalog und Werkzeuganbindung extern; in der UI bleiben dies „Integrationen“, getrennt von selbst angebundenen MCP-Servern. Der vorhandene lokale Aufrufweg verwendet auch das Composio-SDK; ein MCP-Transport wird nicht pauschal vorausgesetzt.
 
-Der Stand ist **teilweise umgesetzt**. Plugin-Katalog, genaue Auswahlverträge, Agent-Schreibwege und gemeinsame Kontextaufbereitung sind als Grundlagen vorhanden. Gemeinsame Agent-Editoren sind eingecheckt und inzwischen mit frischem Build, 28 Browserfällen und anschließendem tatsächlichem Tool-Inspect lokal abgenommen. Der Chat verwendet weiterhin getrennte Plugin-/Skill-Listen mit Namen; gemeinsame Turn-Auswahl, Recents und dauerhafte Zustellung fehlen. Ein größerer Slash-Picker allein würde diese Unterschiede bestehen lassen.
+Der Stand ist **teilweise umgesetzt**. Plugin-Katalog, genaue Auswahlverträge, Agent-Schreibwege und gemeinsame Kontextaufbereitung sind als Grundlagen vorhanden. Gemeinsame Agent-Editoren sind eingecheckt und inzwischen mit frischem Build, 28 Browserfällen und anschließendem tatsächlichem Tool-Inspect lokal abgenommen. Der Chat verwendet weiterhin getrennte Plugin-/Skill-Listen mit Namen; gemeinsame Turn-Auswahl, Recents und durchgehend dauerhafte Zustellung fehlen. Die additive Datenbankmigration für die Annahme ist eingecheckt; Codec, Aufnahme und Quellenprüfung liegen als separat geprüfte, noch nicht eingecheckte Arbeit vor. Sie sind noch nicht an Chat, Queue und Runtime angeschlossen. Ein größerer Slash-Picker allein würde diese Unterschiede bestehen lassen.
 
 ## Gleiche Auswahl, erkennbare Wirkung
 
@@ -21,6 +21,8 @@ Der Stand ist **teilweise umgesetzt**. Plugin-Katalog, genaue Auswahlverträge, 
 | Aufgabe ohne Referenz | Erlaubte Skills bedarfsgerecht suchen und autorisiert laden; keine automatische Installation oder Kontowahl. |
 
 UI und Agent-Tool verwenden dieselben serverseitigen Optionen, Schreibverträge und Inspect-Ergebnisse. Paketstand, Kind-Skill, konkrete Verbindung, Bereich und Werkzeuggrenzen bleiben beim Roundtrip erhalten. Anzeigenamen sind keine Identitäten. Reine Profiländerungen behalten die Erweiterungsauswahl; Ersetzen benötigt die aktuelle Ausgangsrevision.
+
+Für die Agent-Erstellung ist ein gemeinsamer Abschnitt **„Erweiterungen und Werkzeuge“** vorgesehen. Die gemeinsame Suche bietet die vier Erweiterungstypen an. Die daraus verfügbaren Werkzeuge und die nativen Werkzeuge sollen zusätzlich mit ihren effektiven Grenzen sichtbar sein; Anpassungen und die Kontextvorschau öffnen unter „Erweitert“. Das Agent-Tool verwendet dieselbe vollständige Konfiguration und kann sie über Inspect zurücklesen.
 
 ## Progressive Disclosure
 
@@ -49,6 +51,26 @@ Ausgewählt – dauerhaft für diesen Agenten
 
 Eine gültige Regel „jeder Nutzer wählt sein eigenes Konto“ darf gespeichert werden. Bis zur erforderlichen persönlichen Wahl sperrt die heutige Runtime externe Workflow-Aktionen; zulässige lokale Skills bleiben verfügbar. Fehlende feste Bindungen oder ungültige Wahlregeln bleiben dagegen Formularentwürfe. Provider-Ausfall und fehlende Autorisierung erhalten unterschiedliche Meldungen; `provider_unavailable` begründet kein automatisches Trennen und Neuverbinden.
 
+Schematische Chat-Auswahl mit Beispieldaten:
+
+```text
+Für diese Nachricht
+[ Plugins, Skills, Integrationen und MCP suchen … ] [Filtern]
+Zuletzt im Chat verwendet
+[Logo] Content Studio     Plugin       2 Skills · Canva: Team
+[Logo] Canva              Integration  Mein Konto · persönlich
+[Logo] Internes CRM       MCP          Organisation
+[Logo] Recherche          Skill        eigenständig
+
+Nach Auswahl eines Plugins: [Bestandteile und Verbindungen]
+Canva: Marketing-Team · Profil Arbeit                 [Ändern]
+                         [Für diese Nachricht hinzufügen]
+
+[Content Studio · Canva: Team ×]  [Nachricht schreiben …]
+```
+
+Die vorhandene HTML-Demo zeigt die Suchidee. Ihre unmittelbare Einzelkonto-Auswahl, vereinfachten Plugin-Bindungen und lokal simulierten Recents sind noch kein vollständiger Zielentwurf. Bei ihrer nächsten Überarbeitung müssen auch die Bestätigung eines einzelnen Kontos, fehlende Plugin-Pflichtverbindungen und „ausstehend“ gegenüber „dauerhaft angenommen“ sichtbar werden. Die echte Historie unterscheidet konkrete Accounts und Paketstände.
+
 ## Präziser System-/Nachrichtenkontext
 
 Die gemeinsame serverseitige Aufbereitung liefert einen kompakten Index: geprüfter Paketstand, relevante Plugin-Anleitung, zugehörige ausgewählte Skills, genaue autorisierte Lesepfade und tatsächlich vorhandene Tool-Suchwege. Vollständige Skill-Anleitungen und Werkzeugschemas werden bei Bedarf geladen. Für MCP und Composio führt das Rezept über die genaue ausgewählte Provider-/Verbindungsreferenz zu Toolsuche, Schema und anschließend demselben Toolaufruf. Konten werden nicht stillschweigend ersetzt.
@@ -60,12 +82,12 @@ Beim Spezialagenten gehört der feste Index zu jedem Start. Im allgemeinen Chat 
 | Schritt | Ergebnis | Fertig, wenn |
 | --- | --- | --- |
 | 1. Agent-Auswahl fertigstellen | Gemeinsamer Editor in Create, Edit und persönlicher Wahl; vollständige Agent-Tool/UI-Parität. | Tool→UI→Tool erhält Identitäten, Versionen, Konten und Grenzen. Gespeicherte Namen/Logos, fehlende Pflichtwahl, genaue Einrichtungslinks und Save bei Refreshfehler sind abgenommen. |
-| 2. Chat-Picker anschließen | `/` und Kontextknopf öffnen dieselbe Suche mit Recents, Filtern und Chips. | Alle vier Typen, gleiche Namen, mehrere Konten, Tastatur und Rückkehr aus Einrichtung funktionieren. |
-| 3. Nachrichtenweg schließen | Auswahl in Draft, Annahme, Queue, Steer, Retry, Handoff und Verlauf erhalten. | Reload und Serverneustart separat geprüft; Recents erst nach dauerhaft angenommenem Send; verlorene Bestätigung wiederholt keine möglicherweise begonnene Geschäftsaktion automatisch. |
+| 2. Nachrichtenweg schließen | Dauerhafte Annahme und privater Wiederleser, danach Runtime, Queue, Draft, Send, Steer, Retry, Handoff und Verlauf anschließen. | Reload und Serverneustart separat geprüft; gleiche Nachrichten-ID mit gleicher Auswahl wird wiedererkannt. Verlorene Bestätigung wiederholt keine möglicherweise begonnene Geschäftsaktion automatisch. |
+| 3. Chat-Picker und Recents anschließen | `/` und Kontextknopf öffnen dieselbe Suche mit Filtern, Details und Chips; zuletzt verwendete Einträge aus dauerhaft angenommenen expliziten Auswahlen. | Alle vier Typen, gleiche Namen, einzelne und mehrere Konten, Tastatur und Rückkehr aus Einrichtung funktionieren. Paketabhängigkeiten und Auswahlgrenzen sind vor Bestätigung verständlich. |
 | 4. Gesamten Web-/Modellweg abnehmen | Produktionsbuild, echte UI-Bedienung und Modelllauf mit Skill-Lesen und gezielter Discovery. | Kontextwechsel, Rechteentzug, Accounttreue, Routerzustände und Wiederaufnahme nachgewiesen; API-, Browser-, Modell- und Providerbelege getrennt. |
 | 5. Native Flächen anschließen | Gemeinsame Verträge im eigenen nativen Composer und Agent-UX verwenden. | Eigene Geräte-/Accessibility-Abnahme; schmaler Browser ersetzt sie nicht. |
 
-Jeder Integrationsschritt wird abgeschlossen, bevor der nächste beginnt. **Die Agent-Stufe ist lokal abgeschlossen:** frischer Produktionsbuild, alle 28 Browserfälle und unabhängiger tatsächlicher Tool-Inspect bestehen im Lauf `3qFxAz`. Als Nächstes wird innerhalb der Chat-Stufe zuerst die dauerhafte Nachrichtenannahme samt privatem Wiederleser gebaut, danach Runtime/Transport und der sichtbare Picker. Die Tabelle beschreibt die Produktflächen; diese technische Reihenfolge verhindert, dass die UI eine Auswahl anbietet, die der heutige Transport verwirft. Chat, tatsächlicher Modelllauf und Native Mobile bleiben offen; der Gesamtplan ist nicht abgeschlossen.
+Jeder Integrationsschritt wird abgeschlossen, bevor der nächste beginnt. **Die Agent-Stufe ist lokal abgeschlossen:** frischer Produktionsbuild, alle 28 Browserfälle und unabhängiger tatsächlicher Tool-Inspect bestehen im Lauf `3qFxAz`. Für die Chat-Stufe wird zuerst die begonnene dauerhafte Nachrichtenannahme abgeschlossen, danach folgen Runtime/Transport und der sichtbare Picker. Diese Reihenfolge verhindert, dass die UI eine Auswahl anbietet, die der heutige Transport verwirft. Chat, tatsächlicher Modelllauf und Native Mobile bleiben offen; der Gesamtplan ist nicht abgeschlossen.
 
 Vor Schritt 2 werden vier Vertragsfragen verbindlich präzisiert: eigenes Chat-Turn-Ziel mit Use- statt Edit-Rechten und tatsächlichem Session-/Workspace-Kontext; explizite Slot-/Revisionszuordnung bei erlaubtem Turn-Accountwechsel; gemeinsames 8-KiB-Budget aus fester und zusätzlicher Auswahl; eindeutige alte `/name`-Referenzen früh in genaue Referenzen übersetzen und durch denselben dauerhaften Annahmepfad führen. Ein weiterer Konto-Chip allein überschreibt keine Plugin-Bindung.
 
@@ -77,3 +99,5 @@ Vor Schritt 2 werden vier Vertragsfragen verbindlich präzisiert: eigenes Chat-T
 - **Startansicht:** Sechs bis acht sichtbare Treffer und etwa 30 Recents je Nutzer/Workspace als Startwerte; mit kleinen und großen Paketen prüfen.
 
 Diese Werte sind Diskussionsvorschläge. Dieser Dokumentationscheckpoint ändert keine Produktgrenzen, Freigaben oder Ausführungsregeln.
+
+Mein Vorschlag für die nächste gemeinsame Optimierung ist, zuerst **Paketvorauswahl und Zählung der Hauptchips samt Abhängigkeiten** festzulegen. Danach werden Chat- und Agent-Wireframe auf dieselben Regeln gebracht. Ergebnisanzahl und Aufbewahrungsdauer lassen sich anschließend anhand der Bedienung verfeinern. Die Planung trennt damit die wesentlichen Produktentscheidungen von einstellbaren Startwerten.
