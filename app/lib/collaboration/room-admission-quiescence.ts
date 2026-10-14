@@ -3,6 +3,7 @@ import 'server-only';
 import { createHash } from 'node:crypto';
 import type { SqlConnection } from '@/app/lib/db';
 import { executeLifecycleTransaction } from './lifecycle-transaction';
+import type { RichMigrationTransaction } from './rich-migration-domain';
 import { mergeCollaborationPersistenceUpdates } from './persistence-merge';
 import { findCollaborationAdmissionOutcomeSource } from './room-admission-outcome';
 import { lockIdentity } from './room-owner';
@@ -33,9 +34,9 @@ export type CollaborationAdmissionQuiescenceProof = Readonly<{
   sourceOutcomeRequestId?: string;
 }>;
 
-async function lockProofRoom(database: SqlConnection, documentId: string): Promise<void> {
+async function lockProofRoom(database: SqlConnection, documentId: string, authenticatedWrite = false): Promise<void> {
   await database.run("SET LOCAL statement_timeout = '5s'");
-  await database.run("SET LOCAL lock_timeout = '4s'");
+  await database.run(authenticatedWrite ? "SET LOCAL lock_timeout = '50ms'" : "SET LOCAL lock_timeout = '4s'");
   // Same advisory-lock domain as the session owner. No row/workspace lock is
   // held here, and we never wait for an owner while holding downstream locks.
   // DA03 only needs the guard through this short proof transaction; DA04 must
@@ -158,6 +159,7 @@ export { inspectProof as inspectCollaborationAdmissionQuiescence };
  */
 export function createCollaborationAdmissionQuiescenceService(options: {
   openConnection: () => Promise<SqlConnection>;
+  withMutationTransaction?: RichMigrationTransaction;
 }) {
   return {
     prove(input: CollaborationAdmissionRequest, documentId: string): Promise<CollaborationAdmissionQuiescenceProof> {
@@ -168,17 +170,20 @@ export function createCollaborationAdmissionQuiescenceService(options: {
       return executeLifecycleTransaction({
         openConnection: options.openConnection,
         execute: async (database) => {
-          await lockProofRoom(database, documentId);
-          const { proof, alreadyProven } = await inspectProof(database, captured, documentId);
-          if (!alreadyProven) {
-            await database.run(`UPDATE collaboration_admission_targets SET status = 'released',
-              release_id = $3, quiescence_kind = $4, quiescence_text = $5, source_outcome_request_id = $6
-              WHERE request_id = $1 AND document_id = $2`,
-            [proof.requestId, documentId, proof.releaseId, proof.kind, proof.proofText, proof.sourceOutcomeRequestId ?? null]);
-            await database.run(`UPDATE collaboration_admission_requests SET status = 'draining', revision = revision + 1
-              WHERE request_id = $1`, [proof.requestId]);
-          }
-          return proof;
+          const execute = async () => {
+            await lockProofRoom(database, documentId, Boolean(options.withMutationTransaction));
+            const { proof, alreadyProven } = await inspectProof(database, captured, documentId);
+            if (!alreadyProven) {
+              await database.run(`UPDATE collaboration_admission_targets SET status = 'released',
+                release_id = $3, quiescence_kind = $4, quiescence_text = $5, source_outcome_request_id = $6
+                WHERE request_id = $1 AND document_id = $2`,
+              [proof.requestId, documentId, proof.releaseId, proof.kind, proof.proofText, proof.sourceOutcomeRequestId ?? null]);
+              await database.run(`UPDATE collaboration_admission_requests SET status = 'draining', revision = revision + 1
+                WHERE request_id = $1`, [proof.requestId]);
+            }
+            return proof;
+          };
+          return options.withMutationTransaction ? options.withMutationTransaction(database, execute) : execute();
         },
         recoverCommitted: async (attempted) => {
           // Old uncertain session has been destroyed by executeLifecycleTransaction.

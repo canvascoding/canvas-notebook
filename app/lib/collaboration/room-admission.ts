@@ -5,6 +5,7 @@ import type { SqlConnection } from '@/app/lib/db';
 import { withWorkspaceMutationLock } from '@/app/lib/files/workspace-mutation-lock';
 import type { CollaborationRoomOwnerFence, CollaborationRoomOwnerScope } from './room-owner';
 import { executeLifecycleTransaction } from './lifecycle-transaction';
+import type { RichMigrationTransaction } from './rich-migration-domain';
 import { collaborationRoomReleaseDigest } from './room-owner-release';
 import {
   admissionDrainTicketForTarget,
@@ -216,13 +217,15 @@ export { captureTargets as captureCollaborationAdmissionScopeTargets };
  * must be dedicated and close(error) must destroy uncertain backends. No runtime
  * caller is installed until drain, recovery and all writer admission gates exist.
  */
-export function createCollaborationAdmissionService(options: { openConnection: () => Promise<SqlConnection> }) {
-  const transaction = <T>(execute: (database: SqlConnection) => Promise<T>, recoverCommitted: (value: T) => Promise<T>) =>
+export function createCollaborationAdmissionService(options: { openConnection: () => Promise<SqlConnection>;
+  withMutationTransaction?: RichMigrationTransaction }) {
+  const transaction = <T>(execute: (database: SqlConnection) => Promise<T>, recoverCommitted: (value: T) => Promise<T>, mutation = false) =>
     executeLifecycleTransaction({ openConnection: options.openConnection,
       execute: async (database) => {
         await database.run("SET LOCAL statement_timeout = '5s'");
         await database.run("SET LOCAL lock_timeout = '4s'");
-        return execute(database);
+        return mutation && options.withMutationTransaction
+          ? options.withMutationTransaction(database, () => execute(database)) : execute(database);
       }, recoverCommitted });
   const readCaptured = (captured: CapturedRequest) => transaction(
     (database) => readRequest(database, captured), async (verified) => verified);
@@ -277,7 +280,7 @@ export function createCollaborationAdmissionService(options: { openConnection: (
       }, async (ticket) => {
         await readDrain(ticket);
         return ticket;
-      });
+      }, true);
     },
     /** Durable polling also returns released targets whose local destruction still needs retry. */
     pendingDrains(inputs: readonly CollaborationRoomOwnerFence[]): Promise<readonly CollaborationAdmissionDrainTicket[]> {
@@ -347,7 +350,7 @@ export function createCollaborationAdmissionService(options: { openConnection: (
         const found = await readCaptured(captured);
         if (!found) throw new CollaborationAdmissionError('ADMISSION_RECOVERY_REQUIRED');
         return found;
-      });
+      }, true);
       return enter(0);
     },
     /** Only an unstarted request may cancel. Drain/mutation phases require their own outcome proof. */
@@ -380,7 +383,7 @@ export function createCollaborationAdmissionService(options: { openConnection: (
           throw new CollaborationAdmissionError('ADMISSION_RECOVERY_REQUIRED');
         }
         return found;
-      });
+      }, true);
     },
   };
 }
