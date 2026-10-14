@@ -13,6 +13,10 @@ import {
   type StoredAcceptedTurnExtensionSelection,
 } from '@/app/lib/capabilities/extensions/accepted-turn-selection';
 import { freeze } from '@/app/lib/capabilities/extensions/stored-contracts';
+import {
+  assertChatBodyContent, assertChatBodySelection, canonicalChatBodyIntent, chatBodyV1Schema,
+  deriveChatBodySelection, type ChatBodyV1,
+} from './chat-body-contracts';
 
 /** Matches the existing WebSocket inbound limit, before runtime image expansion. */
 export const DURABLE_CHAT_MESSAGE_MAX_BYTES = 4 * 1024 * 1024;
@@ -130,7 +134,11 @@ const admissionRequestSchema = z.object({
   mode: modeSchema.default('message'),
   selection: chatExtensionSelectionInputSchema.nullable().optional()
     .transform(value => value?.selections.length ? value : null),
-}).strict();
+  body: chatBodyV1Schema.optional(),
+}).strict().superRefine((value, context) => {
+  if (value.body !== undefined) validateInlineBody(value.body, value.message.content,
+    receiptFreeChatExtensionSelection(value.selection), context);
+});
 export type CapturedChatMessageAdmissionRequest = z.infer<typeof admissionRequestSchema>;
 
 /** Capture the original request before reading any caller-owned field. Syntax only; never source authority. */
@@ -155,7 +163,10 @@ const storedMessageSchema = z.object({
   serverMessageId: uuid, clientMessageId, mode: modeSchema,
   message: userMessageSchema,
   context: contextSchema, extensionSelection: acceptedSelectionSchema,
+  body: chatBodyV1Schema.optional(),
 }).strict().superRefine((value, context) => {
+  if (value.body !== undefined) validateInlineBody(value.body, value.message.content,
+    value.extensionSelection?.publicSelection ?? null, context);
   const workspace = value.context.workspace;
   if (workspace && (workspace.workspaceId !== value.identity.workspaceId
     || workspace.organizationId !== undefined && workspace.organizationId !== value.identity.organizationId)) {
@@ -193,8 +204,18 @@ function canonicalJson(value: unknown): string {
   return JSON.stringify(value);
 }
 
+function validateInlineBody(body: ChatBodyV1, content: z.infer<typeof contentSchema>,
+  selection: ChatExtensionSelection | null, context: z.RefinementCtx): void {
+  try { assertChatBodyContent(body, content); assertChatBodySelection(body, selection); }
+  catch (error) { context.addIssue({ code: 'custom', path: ['body'],
+    message: error instanceof Error ? error.message : 'The inline body must match its message and selection.' }); }
+}
+
 const intentSchema = z.object({ content: contentSchema, context: contextSchema.nullable(), mode: modeSchema,
-  selection: chatExtensionSelectionSchema.nullable() }).strict();
+  selection: chatExtensionSelectionSchema.nullable(), body: chatBodyV1Schema.optional() }).strict()
+  .superRefine((value, context) => {
+    if (value.body !== undefined) validateInlineBody(value.body, value.content, value.selection, context);
+  });
 export type CanonicalMessageIntent = z.infer<typeof intentSchema>;
 
 /** Capture validated public intent before any await. This frozen value grants no source authority. */
@@ -206,10 +227,30 @@ export function parseCanonicalMessageIntent(value: unknown): CanonicalMessageInt
 /** Hash exact user intent, excluding renewable receipts, time and refreshed workspace presentation/permissions. */
 export function canonicalMessageIntentHash(input: CanonicalMessageIntent): string {
   const parsed = parseCanonicalMessageIntent(input);
+  if (parsed.body !== undefined) throw new Error('Inline bodies require the accepted-message intent hash.');
   const context: Record<string, unknown> = parsed.context ? Object.fromEntries(Object.entries(parsed.context)
     .filter(([key]) => key !== 'currentTime' && key !== 'userTimeZone' && key !== 'workspace')) : {};
   if (parsed.context?.workspace) context.workspace = { workspaceId: parsed.context.workspace.workspaceId };
   const intent = { content: parsed.content, context, mode: parsed.mode,
     selection: parsed.selection?.selections.length ? parsed.selection : null };
   return createHash('sha256').update(canonicalJson(intent)).digest('hex');
+}
+
+/** Opt-in inline hashing; body-less messages retain the exact existing V1 hash path. */
+export function canonicalAcceptedMessageIntentHash(input: CanonicalMessageIntent): string {
+  const parsed = parseCanonicalMessageIntent(input);
+  if (parsed.body === undefined) return canonicalMessageIntentHash({ content: parsed.content,
+    context: parsed.context, mode: parsed.mode, selection: parsed.selection });
+  // Only the already verified first display text is replaced. Every attachment
+  // block and text signature retains its original meaning and byte content.
+  let content: z.infer<typeof contentSchema> = '';
+  if (Array.isArray(parsed.content)) {
+    const [first, ...rest] = parsed.content;
+    if (first?.type !== 'text') throw new Error('An inline body requires its first text block.');
+    content = [{ ...first, text: '' }, ...rest];
+  }
+  const remainderHash = canonicalMessageIntentHash({ content, context: parsed.context, mode: parsed.mode,
+    selection: deriveChatBodySelection(parsed.body) });
+  return createHash('sha256').update(canonicalJson({ domain: 'canvas.chat.inline.v1',
+    body: canonicalChatBodyIntent(parsed.body), remainderHash })).digest('hex');
 }

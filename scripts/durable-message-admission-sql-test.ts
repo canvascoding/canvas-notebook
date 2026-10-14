@@ -5,6 +5,7 @@ import type { SqlConnection } from '../app/lib/db';
 import type { AgentExecutionContext } from '../app/lib/pi/agent-execution-context';
 import type { ChatMessageAdmissionInput, OwnedAcceptedChatMessage } from '../app/lib/pi/durable-message-admission';
 import type { ChatExtensionSelectionInput } from '../app/lib/capabilities/extensions/contracts';
+import { projectChatBodyText, type ChatBodyV1 } from '../app/lib/chat/chat-body-contracts';
 import { createCapabilityPackageStoreApplicationFixture } from './helpers/capability-package-store-application-fixture';
 import { createComposioProviderFixture } from './helpers/composio-provider-fixture';
 import { exerciseDurableAdmissionSharedSources } from './helpers/durable-message-admission-shared-checks';
@@ -188,6 +189,66 @@ async function main(): Promise<void> {
     assert.equal(fixed.entry.target.ownerUserId, owner.userId);
     assert.doesNotMatch(JSON.stringify(selectedData.payload), /accountSelectionRef/u);
 
+    stage = 'actual inline body admission and exact retry identity';
+    const inlineBody: ChatBodyV1 = { version: 1,
+      parts: [{ type: 'text', text: 'Erstelle mit 🎨 e\u0301 ' },
+        { type: 'extension_reference', occurrenceId: 'plugin-occurrence', bundleId: 'plugin-bundle' },
+        { type: 'text', text: ' und ' },
+        { type: 'extension_reference', occurrenceId: 'mcp-occurrence', bundleId: 'mcp-bundle' },
+        { type: 'text', text: ' einen Entwurf.' }],
+      bundles: [{ id: 'plugin-bundle', caption: 'Paket', primary: selection.selections[0], supporting: [], packageConnections: [] },
+        { id: 'mcp-bundle', caption: 'Mein MCP', primary: selection.selections[1], supporting: [], packageConnections: [] }] };
+    const inlineInput = input('inline-sources', { body: inlineBody, selection,
+      message: { role: 'user', content: projectChatBodyText(inlineBody), timestamp: 321 } });
+    const inlineOwned = await service.commitPreparedChatMessageAdmission(await prepare(inlineInput));
+    const inlineData = (await data(inlineOwned, 'inline-sources')).result;
+    assert.deepEqual(inlineData.payload.body, inlineBody);
+    assert.deepEqual(inlineData.payload.extensionSelection?.publicSelection, selection);
+    assert.equal(inlineData.payload.version, 1, 'Inline body does not reinterpret the outer accepted envelope or SQL version.');
+    assert.equal(Number((await row('inline-sources'))?.payload_version), 1);
+    assert.equal(Object.hasOwn(accepted.result.payload, 'body'), false, 'Old admissions remain byte-shape compatible.');
+    const inlineRead = await service.readOwnedAcceptedChatMessage({ ...identity, clientMessageId: 'inline-sources' }); assert(inlineRead);
+    assert.deepEqual((await data(inlineRead, 'inline-sources')).result.payload.body, inlineBody);
+    const inlinePreparationsBeforeReplay = sourcePreparations;
+    forbidSourcePreparation = true;
+    try {
+      const presentationOnly = structuredClone(inlineInput);
+      assert(presentationOnly.body);
+      presentationOnly.body.bundles.forEach((bundle, index) => {
+        const oldId = bundle.id;
+        bundle.id = `reloaded-bundle-${index}`; bundle.caption = `Andere Anzeige ${index}`;
+        for (const part of presentationOnly.body!.parts) if (part.type === 'extension_reference' && part.bundleId === oldId) {
+          part.bundleId = bundle.id; part.occurrenceId = `reloaded-occurrence-${index}`;
+        }
+      });
+      presentationOnly.message.content = projectChatBodyText(presentationOnly.body);
+      const replay = await service.prepareChatMessageAdmission(presentationOnly);
+      assert.equal(replay.kind, 'replay');
+      if (replay.kind !== 'replay') throw new Error('Inline presentation changes must retain accepted logical identity.');
+      const replayData = (await data(replay.message, 'inline-sources')).result;
+      assert.equal(replayData.payload.serverMessageId, inlineData.payload.serverMessageId);
+      assert.deepEqual(replayData.payload.body, inlineBody, 'Replay returns the actual original accepted body.');
+      assert.equal(sourcePreparations, inlinePreparationsBeforeReplay);
+
+      const moved = structuredClone(inlineInput); assert(moved.body);
+      [moved.body.parts[1], moved.body.parts[3]] = [moved.body.parts[3], moved.body.parts[1]];
+      moved.message.content = projectChatBodyText(moved.body);
+      await assert.rejects(service.prepareChatMessageAdmission(moved), code('MESSAGE_ID_CONFLICT'));
+      const { body: removedBody, ...bodylessRetry } = inlineInput; assert(removedBody);
+      await assert.rejects(service.prepareChatMessageAdmission(bodylessRetry), code('MESSAGE_ID_CONFLICT'));
+      const oldWithNewBody = input('simple', { body: { version: 1,
+        parts: [{ type: 'text', text: simpleInput.message.content as string }], bundles: [] } });
+      await assert.rejects(service.prepareChatMessageAdmission(oldWithNewBody), code('MESSAGE_ID_CONFLICT'));
+      assert.equal(sourcePreparations, inlinePreparationsBeforeReplay);
+    } finally { forbidSourcePreparation = false; }
+    const hiddenSelection = structuredClone(inlineInput); assert(hiddenSelection.body);
+    hiddenSelection.clientMessageId = 'inline-hidden-selection';
+    hiddenSelection.body.parts = hiddenSelection.body.parts.filter(part => part.type !== 'extension_reference' || part.bundleId !== 'mcp-bundle');
+    hiddenSelection.body.bundles = hiddenSelection.body.bundles.filter(bundle => bundle.id !== 'mcp-bundle');
+    hiddenSelection.message.content = projectChatBodyText(hiddenSelection.body);
+    await assert.rejects(service.prepareChatMessageAdmission(hiddenSelection), code('AGENT_MESSAGE_ADMISSION_INVALID'));
+    assert.equal(await row('inline-hidden-selection'), undefined, 'A hidden unreferenced selection is never admitted.');
+
     stage = 'same intent replays before source preparation';
     const beforeReplay = sourcePreparations;
     forbidSourcePreparation = true;
@@ -253,6 +314,17 @@ async function main(): Promise<void> {
     assert(accountTarget.kind === 'personal' && accountTarget.personalBinding.source === 'composio');
     assert.equal(accountTarget.personalBinding.connectedAccountId, account.accountId);
     assert.doesNotMatch(JSON.stringify(accountData), /accountSelectionRef|cmp_personal_account_/u);
+    const inlineAccountSelection = (accountInput.selection as ChatExtensionSelectionInput).selections[0];
+    const { accountSelectionRef: intakeReceipt, ...inlineAccountEntry } = inlineAccountSelection; assert(intakeReceipt);
+    const inlineAccountBody: ChatBodyV1 = { version: 1,
+      parts: [{ type: 'extension_reference', occurrenceId: 'account-occurrence', bundleId: 'account-bundle' }],
+      bundles: [{ id: 'account-bundle', caption: 'Canva · Konto B', primary: inlineAccountEntry, supporting: [], packageConnections: [] }] };
+    const inlineAccountInput = input('inline-account', { body: inlineAccountBody, selection: accountInput.selection,
+      message: { role: 'user', content: projectChatBodyText(inlineAccountBody), timestamp: 456 } });
+    const inlineAccountOwned = await service.commitPreparedChatMessageAdmission(await prepare(inlineAccountInput));
+    const inlineAccountData = (await data(inlineAccountOwned, 'inline-account')).result.payload;
+    assert.deepEqual(inlineAccountData.body, inlineAccountBody, 'A consciously sent reference-only body is admitted.');
+    assert.doesNotMatch(JSON.stringify(inlineAccountData.body), /accountSelectionRef|cmp_personal_account_/u);
     const callsBeforeReplay = composio.calls.length, preparationsBeforeExpiry = sourcePreparations;
     Date.now = () => originalDateNow() + 6 * 60_000;
     forbidSourcePreparation = true;
@@ -264,6 +336,20 @@ async function main(): Promise<void> {
       assert.equal((await data(replay.message, 'actual-account')).result.payload.serverMessageId, accountData.serverMessageId);
       assert.equal(sourcePreparations, preparationsBeforeExpiry);
       assert.equal(composio.calls.length, callsBeforeReplay, 'Replay must not renew receipt or query a provider.');
+      const inlineReplay = await service.prepareChatMessageAdmission(inlineAccountInput);
+      assert.equal(inlineReplay.kind, 'replay');
+      if (inlineReplay.kind !== 'replay') throw new Error('Inline account replay must not need a renewable receipt.');
+      assert.equal((await data(inlineReplay.message, 'inline-account')).result.payload.serverMessageId, inlineAccountData.serverMessageId);
+      assert.equal(composio.calls.length, callsBeforeReplay);
+      assert.equal(sourcePreparations, preparationsBeforeExpiry);
+      const otherInlineAccount = structuredClone(inlineAccountInput); assert(otherInlineAccount.body);
+      for (const entry of [(otherInlineAccount.selection as ChatExtensionSelectionInput).selections[0], otherInlineAccount.body.bundles[0].primary]) {
+        const selected = entry.selection;
+        assert(selected.kind === 'composio' && selected.target.kind === 'personal' && selected.target.accountBinding === 'account');
+        selected.target.accountId = 'durable-account-a'; selected.target.connectionRef = `composio-personal:${profile.id}:durable-account-a`;
+      }
+      await assert.rejects(service.prepareChatMessageAdmission(otherInlineAccount), code('MESSAGE_ID_CONFLICT'));
+      assert.equal(sourcePreparations, preparationsBeforeExpiry);
       const changedAccount = structuredClone(accountInput);
       const changedSelection = (changedAccount.selection as ChatExtensionSelectionInput).selections[0].selection;
       assert(changedSelection.kind === 'composio' && changedSelection.target.kind === 'personal'
@@ -310,6 +396,28 @@ async function main(): Promise<void> {
     } finally { fixture.setBeforeRead(undefined); resumeCapture(); }
     const captured = await service.commitPreparedChatMessageAdmission(await capturing);
     assert.equal((await data(captured, 'captured-before-await')).result.payload.message.content, simpleInput.message.content);
+    const mutableInline = structuredClone(inlineInput); mutableInline.clientMessageId = 'inline-captured-before-await';
+    let inlineCaptureReached!: () => void, resumeInlineCapture!: () => void;
+    const inlineCaptureHeld = new Promise<void>(resolve => { inlineCaptureReached = resolve; });
+    const inlineCaptureResume = new Promise<void>(resolve => { resumeInlineCapture = resolve; });
+    let inlineHeld = false;
+    fixture.setBeforeRead(async query => {
+      if (!inlineHeld && query.includes('FROM pi_sessions') && query.includes('archived_at IS NULL')) {
+        inlineHeld = true; inlineCaptureReached(); await inlineCaptureResume;
+      }
+    });
+    const capturingInline = prepare(mutableInline); void capturingInline.catch(() => {});
+    try {
+      await within(inlineCaptureHeld, 'the actual initial inline session SQL read');
+      assert(mutableInline.body);
+      mutableInline.body.bundles[0].caption = 'Changed after capture';
+      mutableInline.body.bundles[0].primary.toolCap = [];
+      mutableInline.message.content = projectChatBodyText(mutableInline.body);
+    } finally { fixture.setBeforeRead(undefined); resumeInlineCapture(); }
+    const capturedInline = await service.commitPreparedChatMessageAdmission(await capturingInline);
+    const capturedInlineData = (await data(capturedInline, 'inline-captured-before-await')).result.payload;
+    assert.deepEqual(capturedInlineData.body, inlineBody, 'Body, caption and exact source are captured before the first SQL await.');
+    assert.deepEqual(capturedInlineData.message, inlineInput.message);
     const revokedSource = await prepare(input('late-source', { selection }));
     const originalMcp = await mcp.readMcpConfig({ userId: owner.userId });
     try {
@@ -434,7 +542,7 @@ async function main(): Promise<void> {
     await sql(database => database.run('DELETE FROM pi_sessions WHERE id=$1', [sessionDbId]));
     assert.equal((await sql(database => database.all('SELECT client_message_id FROM pi_message_delivery_receipts WHERE pi_session_db_id=$1', [sessionDbId]))).length, 0);
     assert.equal(fixture.providerRequests(), 0, 'No HTTP beyond the explicitly owned registry and account-metadata transports is admitted.');
-    console.log(`PASS durable message admission SQL (${native ? `native PostgreSQL pool${writerConcurrency ? 10 : 2}` : 'PGlite'}): actual published plugin+personal MCP+Composio account receipt, prepare/commit/read, expired-receipt replay/conflicts, rollback, captured intent, late source/actor revoke, provenance/corruption, legacy uncertainty, startup/cascade${native && !writerConcurrency ? ', discarded failed rollback, concurrent writers' : ''}; no runtime/business execution.`);
+    console.log(`PASS durable message admission SQL (${native ? `native PostgreSQL pool${writerConcurrency ? 10 : 2}` : 'PGlite'}): actual published plugin+personal MCP+Composio account receipt, inline body/position/account/caption retry identity, prepare/commit/read, expired-receipt replay/conflicts, rollback, captured intent, late source/actor revoke, provenance/corruption, legacy uncertainty, startup/cascade${native && !writerConcurrency ? ', discarded failed rollback, concurrent writers' : ''}; no runtime/business execution.`);
   } catch (error) { console.error(`Durable admission SQL stage: ${stage}`); throw error; }
   finally {
     Date.now = originalDateNow; fixture.setBeforeRead(undefined); loader._load = previousLoad;

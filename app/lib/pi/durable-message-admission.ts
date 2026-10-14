@@ -8,8 +8,9 @@ import { AgentWorkflowError } from '@/app/lib/agents/workflow-contracts';
 import { withRevalidatedAgentWorkflowProjectionSourcesOnConnection,
   type AgentWorkflowRuntimeProjection } from '@/app/lib/agents/workflow-runtime';
 import type { ChatRequestContext } from '@/app/lib/chat/types';
+import type { ChatBodyV1 } from '@/app/lib/chat/chat-body-contracts';
 import {
-  canonicalMessageIntentHash, captureChatMessageAdmissionRequest, parseCanonicalMessageIntent, parseStoredAcceptedChatMessage,
+  canonicalAcceptedMessageIntentHash, captureChatMessageAdmissionRequest, parseCanonicalMessageIntent, parseStoredAcceptedChatMessage,
   receiptFreeChatExtensionSelection, type StoredAcceptedChatMessage,
 } from '@/app/lib/chat/durable-message-contracts';
 import {
@@ -41,7 +42,7 @@ export type ChatMessageAdmissionIdentity = { userId: string; sessionId: string; 
   expectedAgentId?: string; expectedWorkspaceId?: string };
 export type ChatMessageAdmissionInput = ChatMessageAdmissionIdentity & {
   message: StoredAcceptedChatMessage['message']; context?: ChatRequestContext | null;
-  mode?: 'message' | 'steer'; selection?: unknown;
+  mode?: 'message' | 'steer'; selection?: unknown; body?: ChatBodyV1;
 };
 type ActorFrame = { sessionDbId: number; identity: MessageIdentity; context: AgentExecutionContext };
 type ReceiptRow = { client_message_id: string; payload_hash: string; state: string; payload_version: unknown;
@@ -127,8 +128,8 @@ function parseOwnedRecord(actor: ActorFrame, row: ReceiptRow, expectedHash?: str
   let payload: StoredAcceptedChatMessage;
   try { payload = parseStoredAcceptedChatMessage(JSON.parse(row.private_payload)); } catch { return corrupt(); }
   if (JSON.stringify(payload.identity) !== JSON.stringify(actor.identity) || payload.clientMessageId !== row.client_message_id) denied();
-  const hash = canonicalMessageIntentHash({ content: payload.message.content, context: payload.context, mode: payload.mode,
-    selection: payload.extensionSelection?.publicSelection ?? null });
+  const hash = canonicalAcceptedMessageIntentHash({ content: payload.message.content, context: payload.context, mode: payload.mode,
+    selection: payload.extensionSelection?.publicSelection ?? null, ...(payload.body === undefined ? {} : { body: payload.body }) });
   if (hash !== row.payload_hash) corrupt();
   const phase = row.execution_phase as ChatMessageExecutionPhase, executionRevision = Number(row.execution_revision);
   if (!phases.has(phase) || !Number.isSafeInteger(executionRevision) || executionRevision < 1
@@ -236,9 +237,10 @@ export async function prepareChatMessageAdmission(input: ChatMessageAdmissionInp
     ...(captured.expectedWorkspaceId === undefined ? {} : { expectedWorkspaceId: captured.expectedWorkspaceId }) };
   const selectionInput = captured.selection;
   const intent = parseCanonicalMessageIntent({ content: captured.message.content, context: captured.context,
-    mode: captured.mode, selection: receiptFreeChatExtensionSelection(selectionInput) });
+    mode: captured.mode, selection: receiptFreeChatExtensionSelection(selectionInput),
+    ...(captured.body === undefined ? {} : { body: captured.body }) });
   const timestamp = captured.message.timestamp;
-  const hash = canonicalMessageIntentHash(intent);
+  const hash = canonicalAcceptedMessageIntentHash(intent);
   const initial = await openDb();
   let actor: ActorFrame;
   try {
@@ -268,9 +270,10 @@ export async function prepareChatMessageAdmission(input: ChatMessageAdmissionInp
     appendEffectiveExtensionContextPrompt('', effective, tools, '\ud800'.repeat(EXTENSION_CONTEXT_QUERY_MAX_CODEPOINTS));
     const payload = parseStoredAcceptedChatMessage({ version: 1, kind: 'accepted_chat_message', identity: actor.identity,
       serverMessageId, clientMessageId: id, mode: intent.mode,
-      message: { role: 'user', content: intent.content, timestamp }, context: intent.context ?? {}, extensionSelection: accepted });
-    if (canonicalMessageIntentHash({ content: payload.message.content, context: payload.context, mode: payload.mode,
-      selection: payload.extensionSelection?.publicSelection ?? null }) !== hash) corrupt();
+      message: { role: 'user', content: intent.content, timestamp }, context: intent.context ?? {}, extensionSelection: accepted,
+      ...(intent.body === undefined ? {} : { body: intent.body }) });
+    if (canonicalAcceptedMessageIntentHash({ content: payload.message.content, context: payload.context, mode: payload.mode,
+      selection: payload.extensionSelection?.publicSelection ?? null, ...(payload.body === undefined ? {} : { body: payload.body }) }) !== hash) corrupt();
     const admission = Object.freeze({ kind: 'prepared_chat_message_admission' as const });
     records.prepared.set(admission, { payload, hash, actor, intake, intakeContext, runtimeContext, packages,
       workflowProjection: presentation.workflowProjection });
