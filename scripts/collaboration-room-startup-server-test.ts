@@ -209,6 +209,7 @@ async function main() {
   const loadFailures = new Set<string>();
   const connectedFailures = new Set<string>();
   const startupDiagnostics: CollaborationDiagnostic[] = [];
+  const admissionLockQueries: string[] = [];
   let throwDiagnosticSink = false;
   const postLoadGates = new Map<string, { entered: Gate; release: Gate }>();
   const claimed = new WeakSet<Y.Doc>();
@@ -513,11 +514,15 @@ async function main() {
     if (name.endsWith('/room-admission')) return load(name);
     if (name.endsWith('/file-lifecycle-admission-context')) return load(name);
     if (name.endsWith('/file-lifecycle-writer-admission')) return {
+      tryLockFileLifecycleCollaborationRoomAdmission: load('@/app/lib/collaboration/file-lifecycle-writer-admission').tryLockFileLifecycleCollaborationRoomAdmission,
       tryLockFileLifecycleCollaborationWriterAdmission: (query: Parameters<typeof import('../app/lib/collaboration/room-admission').tryLockCollaborationAdmissionWorkspace>[0],
         scope: { workspaceId: string }) => load('@/app/lib/collaboration/room-admission').tryLockCollaborationAdmissionWorkspace(query, scope.workspaceId),
     };
     if (name === '@/app/lib/db') return { openDb: async () => ({ run: async () => {},
-      all: async (sql: string) => sql.includes('pg_try_advisory_xact_lock') ? [{ locked: true }] : [], close: async () => {} }) };
+      all: async (sql: string) => {
+        if (sql.includes('pg_try_advisory_xact_lock')) { admissionLockQueries.push(sql); return [{ locked: true }]; }
+        return [];
+      }, close: async () => {} }) };
     if (name.startsWith('@/')) return {};
     return load(name);
   }, { exports: exported }, exported);
@@ -631,6 +636,9 @@ async function main() {
     parallelGate.resolve();
     await bounded(sameDocumentDrain.idle, 'parallel same-document authentication completion');
     sameDocumentDrain.finish();
+    assert.ok(admissionLockQueries.length > 0, 'The actual WebSocket authentication hook reaches admission.');
+    assert.ok(admissionLockQueries.every(sql => sql === 'SELECT pg_try_advisory_xact_lock_shared($1::bigint) AS locked'),
+      'Every WebSocket authentication admission check uses shared admission and no strict direct-writer lock.');
     console.log('PASS authenticated send failure settles only its request-correlated startup');
 
     const beforeLoadDiagnostics = startupDiagnostics.length;

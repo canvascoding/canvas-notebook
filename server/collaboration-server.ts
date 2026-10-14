@@ -1,5 +1,5 @@
 import { assertCollaborationAdmissionOpen, tryLockCollaborationAdmissionWorkspace } from '@/app/lib/collaboration/room-admission';
-import { tryLockFileLifecycleCollaborationWriterAdmission } from '@/app/lib/collaboration/file-lifecycle-writer-admission';
+import { tryLockFileLifecycleCollaborationRoomAdmission, tryLockFileLifecycleCollaborationWriterAdmission } from '@/app/lib/collaboration/file-lifecycle-writer-admission';
 import { readRepresentationDrainRequest, refuseRepresentationAdmissionDrain } from '@/app/lib/collaboration/representation-drain-refusal';
 import { installRichMigrationRuntime, noteRichMigrationWorkerSuccess, noteRichMigrationWorkerFailure } from '@/app/lib/collaboration/representation-migration-runtime';
 import type http from 'node:http';
@@ -380,6 +380,21 @@ async function assertCurrentCollaborationAdmissionOpen(scope: CollaborationRoomO
   } finally { await database.close(new Error('Discarding admission join check session.')); }
 }
 
+/** WebSocket joins share admission with readers; direct mutations retain the strict writer check. */
+async function assertCurrentCollaborationRoomAdmissionOpen(scope: CollaborationTicketClaims): Promise<void> {
+  if (scope.representation === 'excalidraw_scene') return assertCurrentCollaborationAdmissionOpen(scope);
+  const database = await openDb();
+  try {
+    await database.run('BEGIN');
+    await database.run("SET LOCAL statement_timeout = '5s'");
+    await database.run("SET LOCAL lock_timeout = '4s'");
+    const query = async (sql: string, values?: unknown[]) => await database.all(sql, values) as Array<Record<string, unknown>>;
+    await tryLockFileLifecycleCollaborationRoomAdmission(query, { ...scope, representation: scope.representation });
+    await assertCollaborationAdmissionOpen(query, scope);
+    await database.run('COMMIT');
+  } finally { await database.close(new Error('Discarding admission join check session.')); }
+}
+
 export function createCollaborationServer(server: http.Server, options: {
   // Deliberately opt-in at construction, not an environment rollout switch.
   // Lifecycle writers and mixed-version servers must be fenced before the
@@ -706,7 +721,7 @@ export function createCollaborationServer(server: http.Server, options: {
           claims.workspaceId,
           async () => {
             const state = await assertCollaborationDocumentAccess(claims, workspace);
-            await assertCurrentCollaborationAdmissionOpen(claims);
+            await assertCurrentCollaborationRoomAdmissionOpen(claims);
             if (isCollaborationStateQuarantined(state)) connectionConfig.readOnly = true;
             const room = hocuspocus.documents.get(claims.documentId);
             if (room) assertRoomIdentity(room, claims);

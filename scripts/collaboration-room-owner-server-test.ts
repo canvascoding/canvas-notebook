@@ -220,6 +220,7 @@ async function main(mode: 'direct-store-failure' | 'queued-peer-loss'
   let persistObserver: ((state: PersistedCollaborationState) => Promise<void>) | null = null;
   let admissionBlocked = false;
   let admissionChecks = 0;
+  const admissionLockQueries: string[] = [];
   let blockOnAdmissionCheck = 0;
   let persistFailure: Error | null = null;
   let persistBarrier: {
@@ -544,12 +545,13 @@ async function main(mode: 'direct-store-failure' | 'queued-peer-loss'
     if (name.endsWith('/representation-drain-refusal')) return { readRepresentationDrainRequest: async () => null };
     if (name.endsWith('/room-admission')) return load(name);
     if (name.endsWith('/file-lifecycle-writer-admission')) return {
+      tryLockFileLifecycleCollaborationRoomAdmission: load('@/app/lib/collaboration/file-lifecycle-writer-admission').tryLockFileLifecycleCollaborationRoomAdmission,
       tryLockFileLifecycleCollaborationWriterAdmission: async (query: Parameters<typeof import('../app/lib/collaboration/room-admission').tryLockCollaborationAdmissionWorkspace>[0], scope: CollaborationRoomOwnerScope) =>
         load('@/app/lib/collaboration/room-admission').tryLockCollaborationAdmissionWorkspace(query, scope.workspaceId),
     };
     if (name === '@/app/lib/db') return { openDb: async () => ({ run: async () => {},
       all: async (sql: string) => {
-        if (sql.includes('pg_try_advisory_xact_lock')) return [{ locked: true }];
+        if (sql.includes('pg_try_advisory_xact_lock')) { admissionLockQueries.push(sql); return [{ locked: true }]; }
         if (sql.includes('FROM collaboration_admission_scopes')) {
           admissionChecks++;
           return admissionBlocked || admissionChecks === blockOnAdmissionCheck ? [{ request_id: 'pending-representation' }] : [];
@@ -1285,6 +1287,9 @@ async function main(mode: 'direct-store-failure' | 'queued-peer-loss'
     assert.equal(document.getText('content').toString(), before);
     assert.equal(ownerRuntime.fence(document), fence);
     assert.equal(sessionActive, true, 'Admission busy does not quarantine unrelated owner authority.');
+    assert.ok(admissionLockQueries.length > 0, 'Direct open and post-open revalidation reach admission.');
+    assert.ok(admissionLockQueries.every(sql => sql === 'SELECT pg_try_advisory_xact_lock($1::bigint) AS locked'),
+      'Every Direct open and post-open revalidation retains strict exclusive writer admission.');
     console.log('PASS pending admission fences retained Direct open and final transact without changing bytes or owner');
     return;
   }
