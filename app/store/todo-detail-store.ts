@@ -3,6 +3,8 @@
 import { create } from 'zustand';
 import type { TodoItem } from '@/app/lib/todos/client-types';
 import { loadTodoDetail, patchTodoDetail, sendTodoDetailFollowUp, TodoClientError } from '@/app/lib/todos/client';
+import { completeTodoFollowUpTransaction, prepareTodoFollowUpTransaction } from '@/app/lib/todos/follow-up-transaction';
+import { openedDocumentAuthScope } from '@/app/lib/collaboration/opened-document-registry';
 
 type PendingAction = { kind: 'close' } | { kind: 'open'; todoId: string } | { kind: 'reload' };
 type State = {
@@ -110,13 +112,21 @@ export async function followUpTodoDetail(comment: string, locale: string) {
   const state = useTodoDetailStore.getState();
   if (!state.todo?.canWrite || state.busy || state.todo.status !== 'done') return;
   const current = generation;
+  const auth = openedDocumentAuthScope();
   useTodoDetailStore.setState({ busy: true, error: null, errorStatus: null });
   try {
-    const todo = await sendTodoDetailFollowUp(state.todo, comment, locale);
+    const transaction = prepareTodoFollowUpTransaction(state.todo.id, comment, locale, state.todo.sourceSessionId ?? '');
+    const todo = await sendTodoDetailFollowUp(state.todo, transaction.comment, transaction.locale, transaction.clientMessageId, transaction.expectedSessionId);
+    if (openedDocumentAuthScope() !== auth) {
+      if (current === generation) useTodoDetailStore.setState(initialState);
+      return;
+    }
+    try { completeTodoFollowUpTransaction(state.todo.id, transaction); } catch { /* A confirmed send stays confirmed if storage cleanup fails. */ }
     notifyTodoUpdated(todo.id);
     if (current === generation) useTodoDetailStore.setState((latest) => ({ todo, busy: false, dirty: false, revision: latest.revision + 1 }));
   } catch (error) {
-    if (current === generation) useTodoDetailStore.setState({ busy: false, error: error instanceof Error ? error.message : 'Unable to notify the agent.',
+    if (current === generation && openedDocumentAuthScope() !== auth) { useTodoDetailStore.setState(initialState); return; }
+    if (current === generation && openedDocumentAuthScope() === auth) useTodoDetailStore.setState({ busy: false, error: error instanceof Error ? error.message : 'Unable to notify the agent.',
       errorStatus: error instanceof TodoClientError ? error.status : null });
   }
 }

@@ -2,6 +2,7 @@ import 'server-only';
 
 import { randomUUID } from 'node:crypto';
 import { openDb, type SqlConnection } from '@/app/lib/db';
+import { TELEGRAM_MESSAGE_SOURCE_UNIQUE_INDEX } from '@/app/lib/db/chat-message-telegram-source-migration';
 import { resolveVerifiedAgentActorContextOnConnection } from '@/app/lib/agents/actor-context';
 import { holdAgentGrantAuthority } from '@/app/lib/agents/workflow-configuration';
 import { AgentWorkflowError } from '@/app/lib/agents/workflow-contracts';
@@ -90,7 +91,7 @@ function assertContext(identity: MessageIdentity, context: ChatRequestContext): 
 }
 
 /** Read only actual stored assignments; no default Agent/workspace or bootstrap. */
-async function readActor(database: SqlConnection, input: ChatMessageAdmissionIdentity, lockSession = false): Promise<ActorFrame> {
+async function readActor(database: SqlConnection, input: Omit<ChatMessageAdmissionIdentity, 'clientMessageId'>, lockSession = false): Promise<ActorFrame> {
   const session = await database.get(`SELECT id,agent_id,workspace_id FROM pi_sessions
     WHERE user_id=$1 AND session_id=$2 AND archived_at IS NULL LIMIT 1${lockSession ? ' FOR UPDATE' : ''}`,
   [input.userId, input.sessionId]) as { id: unknown; agent_id: unknown; workspace_id: unknown } | undefined;
@@ -179,6 +180,126 @@ export async function readOwnedAcceptedChatMessageOnConnection(database: SqlConn
   const id = clientId(input.clientMessageId), captured = { ...input };
   const actor = await readActor(database, captured), row = await receipt(database, actor, id);
   return row ? issueOwned(actor, row) : null;
+}
+
+export type ChatMessageChannelSourceIdentity = Readonly<{
+  userId: string; clientMessageId: string; channelId: 'telegram'; channelSessionKey: string; channelThreadKey?: string;
+}>;
+
+/**
+ * Locate a provider retry through its actual historical channel link, before
+ * selecting an active session. This issues SQL provenance only, never execution
+ * authority; every replay still passes ordinary message/intent validation.
+ */
+export async function readOwnedAcceptedChatMessageForChannelSource(input: ChatMessageChannelSourceIdentity): Promise<OwnedAcceptedChatMessage | null> {
+  if (!input || typeof input !== 'object' || ![Object.prototype, null].includes(Object.getPrototypeOf(input))
+    || Object.getOwnPropertySymbols(input).length) denied();
+  const captured = Object.create(null) as ChatMessageChannelSourceIdentity;
+  for (const [key, descriptor] of Object.entries(Object.getOwnPropertyDescriptors(input))) {
+    if (!['userId', 'clientMessageId', 'channelId', 'channelSessionKey', 'channelThreadKey'].includes(key)
+      || !('value' in descriptor) || !descriptor.enumerable || typeof descriptor.value !== 'string'
+      || descriptor.value.length > 256 || descriptor.value !== descriptor.value.trim()
+      || /[\p{Cc}\p{Cf}]/u.test(descriptor.value)) denied();
+    Object.defineProperty(captured, key, { value: descriptor.value, enumerable: true });
+  }
+  const id = clientId(captured.clientMessageId);
+  if (!captured.userId || captured.channelId !== 'telegram' || !captured.channelSessionKey?.startsWith('telegram:')
+    || captured.channelSessionKey.length <= 'telegram:'.length) denied();
+  Object.freeze(captured);
+  const thread = captured.channelThreadKey ?? '';
+  type SourceRow = ReceiptRow & { session_db_id: number; session_id: string; agent_id: string;
+    workspace_id: string; archived_at: unknown };
+  const database = await openDb();
+  try {
+    const locate = () => database.all(`SELECT r.client_message_id,r.payload_hash,r.state,r.payload_version,r.private_payload,
+      r.execution_phase,r.execution_revision,r.runtime_token,r.queue_lane,r.queue_ordinal,r.queue_disposition,
+      s.id AS session_db_id,s.session_id,s.agent_id,s.workspace_id,s.archived_at
+      FROM pi_message_delivery_receipts r
+      JOIN pi_sessions s ON s.id=r.pi_session_db_id
+      JOIN session_channel_links l ON l.session_id=s.session_id AND l.user_id=s.user_id
+      WHERE s.user_id=$1 AND r.client_message_id=$2 AND l.channel_id=$3
+        AND l.channel_session_key=$4 AND l.channel_thread_key=$5
+      ORDER BY s.id LIMIT 2`, [captured.userId, id, captured.channelId, captured.channelSessionKey, thread]) as Promise<SourceRow[]>;
+    const uncertain = (): never => {
+      throw new MessageDeliveryError('MESSAGE_DELIVERY_UNCERTAIN', 'The original channel message cannot be uniquely recovered. Check the chat before sending it again.');
+    };
+    const matches = await locate();
+    if (matches.length === 0) return null;
+    if (matches.length !== 1) return uncertain();
+    const original = matches[0];
+    if (original.archived_at !== null || Number(original.payload_version) !== 1 || original.state !== 'accepted') return uncertain();
+    const identity = { userId: captured.userId, sessionId: original.session_id,
+      expectedAgentId: original.agent_id, expectedWorkspaceId: original.workspace_id };
+    const actor = await readActor(database, identity);
+    if (actor.sessionDbId !== Number(original.session_db_id)) denied();
+    const current = await receipt(database, actor, id);
+    if (!current) return uncertain();
+    const owned = issueOwned(actor, current), snapshot = readOwnedChatMessageExecutionSnapshot(owned);
+    if (snapshot.payload.context.channelId !== captured.channelId) return uncertain();
+    const confirmedActor = await readActor(database, identity), confirmed = await locate();
+    const stamp = (row: SourceRow) => JSON.stringify([row.session_db_id, row.session_id, row.agent_id, row.workspace_id,
+      row.archived_at, row.state, row.payload_version, row.payload_hash, row.private_payload]);
+    if (confirmedActor.sessionDbId !== actor.sessionDbId || actorStamp(confirmedActor.context) !== actorStamp(actor.context)
+      || JSON.stringify(confirmedActor.identity) !== JSON.stringify(actor.identity)) denied();
+    if (confirmed.length !== 1 || stamp(confirmed[0]) !== stamp(original)
+      || snapshot.hash !== original.payload_hash || JSON.stringify(snapshot.payload) !== original.private_payload) return uncertain();
+    return owned;
+  } finally { await database.close(); }
+}
+
+export type OwnedAcceptedChatMessageQueue = Readonly<{
+  messages: readonly OwnedAcceptedChatMessage[];
+  blocked: readonly Readonly<{ clientMessageId: string;
+    reason: 'legacy' | 'unknown_queue_position' | 'outcome_unknown' }>[];
+}>;
+
+/** Read current owned queue provenance. This never claims, resumes or executes a message. */
+export async function readOwnedAcceptedChatMessageQueue(input: Omit<ChatMessageAdmissionIdentity, 'clientMessageId'>): Promise<OwnedAcceptedChatMessageQueue> {
+  if (!input || typeof input !== 'object' || ![Object.prototype, null].includes(Object.getPrototypeOf(input))
+    || Object.getOwnPropertySymbols(input).length) denied();
+  const captured = {} as Omit<ChatMessageAdmissionIdentity, 'clientMessageId'>;
+  const descriptors = Object.getOwnPropertyDescriptors(input);
+  for (const [key, descriptor] of Object.entries(descriptors)) {
+    if (!['userId', 'sessionId', 'expectedAgentId', 'expectedWorkspaceId'].includes(key)
+      || !('value' in descriptor) || !descriptor.enumerable || typeof descriptor.value !== 'string'
+      || !descriptor.value || descriptor.value.length > 256 || descriptor.value !== descriptor.value.trim()
+      || /[\p{Cc}\p{Cf}]/u.test(descriptor.value)) denied();
+    Object.defineProperty(captured, key, { value: descriptor.value, enumerable: true });
+  }
+  if (!captured.userId || !captured.sessionId) denied();
+  Object.freeze(captured);
+  const database = await openDb();
+  try {
+    const actor = await readActor(database, captured);
+    const rows = await database.all(`SELECT client_message_id,payload_hash,state,payload_version,private_payload,
+      execution_phase,execution_revision,runtime_token,queue_lane,queue_ordinal,queue_disposition
+      FROM pi_message_delivery_receipts WHERE pi_session_db_id=$1 AND
+        (payload_version IS NULL OR execution_phase IS NULL OR execution_phase NOT IN ('succeeded','failed','cancelled'))
+      ORDER BY queue_ordinal ASC NULLS LAST,client_message_id`, [actor.sessionDbId]) as ReceiptRow[];
+    const current = await readActor(database, captured);
+    if (current.sessionDbId !== actor.sessionDbId || actorStamp(current.context) !== actorStamp(actor.context)
+      || JSON.stringify(current.identity) !== JSON.stringify(actor.identity)) denied();
+    const messages: OwnedAcceptedChatMessage[] = [];
+    const blocked: { clientMessageId: string; reason: 'legacy' | 'unknown_queue_position' | 'outcome_unknown' }[] = [];
+    for (const row of rows) {
+      const id = clientId(row.client_message_id);
+      if (row.payload_version === null) {
+        if (!['accepted', 'dispatching'].includes(row.state) || row.private_payload !== null
+          || row.execution_phase !== null || row.execution_revision !== null || row.queue_lane !== null
+          || row.queue_ordinal !== null || row.queue_disposition !== null) corrupt();
+        blocked.push({ clientMessageId: id, reason: 'legacy' });
+        continue;
+      }
+      const message = issueOwned(current, row), snapshot = readOwnedChatMessageExecutionSnapshot(message);
+      if (snapshot.phase === 'queued' && snapshot.runtimeToken !== 'unclaimed') {
+        throw new AgentWorkflowError('MESSAGE_EXECUTION_UNCERTAIN', 'The queued message has an unresolved execution owner.', 409);
+      }
+      messages.push(message);
+      if (snapshot.phase === 'outcome_unknown') blocked.push({ clientMessageId: id, reason: 'outcome_unknown' });
+      else if (snapshot.phase === 'queued' && !snapshot.queue) blocked.push({ clientMessageId: id, reason: 'unknown_queue_position' });
+    }
+    return Object.freeze({ messages: Object.freeze(messages), blocked: Object.freeze(blocked.map(entry => Object.freeze(entry))) });
+  } finally { await database.close(); }
 }
 
 function executionSnapshot(record: OwnedRecord): OwnedChatMessageExecutionSnapshot {
@@ -455,6 +576,11 @@ export async function commitPreparedChatMessageAdmission(admission: PreparedChat
       discardError = rollbackError instanceof Error ? rollbackError : new Error('Message admission rollback could not be confirmed.');
     }
     if (rolledBack) {
+      if (error && typeof error === 'object' && 'code' in error && error.code === '23505'
+        && 'constraint' in error && error.constraint === TELEGRAM_MESSAGE_SOURCE_UNIQUE_INDEX) {
+        throw new MessageDeliveryError('MESSAGE_DELIVERY_UNCERTAIN',
+          'This channel message was already accepted in another session. Check its original chat before retrying.');
+      }
       try {
         // A concurrent identical claimant may have won the unique key or a
         // serializable race. Confirm that actual committed row on a fresh

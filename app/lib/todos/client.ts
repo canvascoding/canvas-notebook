@@ -46,10 +46,10 @@ export async function loadTodoEditorOptions(todo: TodoItem, signal?: AbortSignal
   return { categories: categoryList, assignees: assigneeList };
 }
 
-export async function sendTodoDetailFollowUp(todo: TodoItem, comment: string, locale: string): Promise<TodoItem> {
+export async function sendTodoDetailFollowUp(todo: TodoItem, comment: string, locale: string, clientMessageId: string, expectedSessionId: string): Promise<TodoItem> {
   const data = await readTodoResponse<{ todo: TodoItem }>(await fetch(`/api/todos/${encodeURIComponent(todo.id)}/follow-up?todoMode=lifecycle`, {
     method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ comment, locale }),
+    body: JSON.stringify({ comment, locale, clientMessageId, expectedSessionId }),
   }));
   return { ...data.todo, canWrite: todo.canWrite };
 }

@@ -26,6 +26,7 @@ import { MOBILE_MCP_APP_CALL_STATEMENTS } from './mobile-mcp-app-call-migration'
 import { EXCALIDRAW_SCENE_SERVICE_STATEMENTS } from './excalidraw-scene-service-migration';
 import { runChatMessageAdmissionMigration } from './chat-message-admission-migration';
 import { runChatMessageQueueMigration } from './chat-message-queue-migration';
+import { runChatMessageTelegramSourceMigration } from './chat-message-telegram-source-migration';
 
 const LEGACY_EPOCH_TIMESTAMP_MIGRATION_KEY = 'epoch-seconds-to-milliseconds-v2';
 const LEGACY_EPOCH_TIMESTAMP_UNIT_ENV = 'CANVAS_LEGACY_EPOCH_TIMESTAMP_UNIT';
@@ -1631,6 +1632,7 @@ export async function runPostgresMigrations(pool: PgQueryable): Promise<void> {
   for (const statement of MOBILE_MCP_APP_CALL_STATEMENTS) await pool.query(statement);
   await runChatMessageAdmissionMigration(pool);
   await runChatMessageQueueMigration(pool);
+  await runChatMessageTelegramSourceMigration(pool);
 
   await ensurePostgresCompactionAttemptTelemetry(pool);
   await ensurePostgresCompactionAttemptIndexes(pool);

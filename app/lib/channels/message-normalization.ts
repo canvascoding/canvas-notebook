@@ -1,8 +1,10 @@
 import type { AgentMessage } from '@earendil-works/pi-agent-core';
 import type { UserAgentMessage } from '@/app/lib/pi/runtime-service';
 import type { InboundMessage } from './types';
+import { resolveChatClientMessageId } from '@/app/lib/chat/message-submission';
 
 export function buildUserAgentMessageFromInbound(message: InboundMessage): UserAgentMessage {
+  const clientMessageId = resolveChatClientMessageId(message.clientMessageId, undefined);
   const content = message.contentParts?.length
     ? message.contentParts
     : message.images?.length
@@ -19,8 +21,6 @@ export function buildUserAgentMessageFromInbound(message: InboundMessage): UserA
     role: 'user',
     content,
     timestamp,
-    ...(typeof message.clientMessageId === 'string' && message.clientMessageId.trim()
-      ? { clientMessageId: message.clientMessageId.trim() }
-      : {}),
+    clientMessageId,
   } as Extract<AgentMessage, { role: 'user' }>;
 }

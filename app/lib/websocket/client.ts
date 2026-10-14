@@ -1,6 +1,7 @@
 /** Shared authenticated chat WebSocket client for the browser application. */
 
 import type { ChatRequestContext } from '@/app/lib/chat/types';
+import { captureChatTransportJson, resolveChatClientMessageId, type ChatMessageSubmissionOptions } from '@/app/lib/chat/message-submission';
 import {
   CHAT_WEBSOCKET_CLOSE_CODES,
   CHAT_WEBSOCKET_PROTOCOL,
@@ -471,8 +472,13 @@ export class WebSocketClient extends EventTarget {
     sessionId: string,
     message: Record<string, unknown>,
     context?: ChatRequestContext,
+    submission?: ChatMessageSubmissionOptions,
   ): Promise<Record<string, unknown>> {
-    return this.request('send_message', { sessionId, message, context });
+    const captured = captureChatTransportJson({ sessionId, message,
+      ...(context === undefined ? {} : { context }), ...(submission ?? {}) });
+    const clientMessageId = resolveChatClientMessageId(undefined, captured.message.clientMessageId);
+    return this.request('send_message', { ...captured, clientMessageId,
+      message: { ...captured.message, clientMessageId } });
   }
 
   private completeAuth(

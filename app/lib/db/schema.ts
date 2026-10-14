@@ -1811,6 +1811,10 @@ export const piMessageDeliveryReceipts = pgTable("pi_message_delivery_receipts",
       AND ${table.queueOrdinal} BETWEEN 1 AND 9007199254740991
       AND ${table.queueDisposition} IN ('ready', 'suspended')) IS TRUE
   )`),
+  telegramSourceIdx: uniqueIndex("idx_pi_message_delivery_receipts_telegram_user_source")
+    .on(sql`(${table.privatePayload}::jsonb -> 'identity' ->> 'userId')`, table.clientMessageId)
+    .where(sql`${table.payloadVersion} = 1 AND ${table.privatePayload} IS NOT NULL
+      AND ${table.clientMessageId} ~ '^telegram:[0-9a-f]{64}$'`),
   queueOrdinalIdx: uniqueIndex("idx_pi_message_delivery_receipts_queue_ordinal")
     .on(table.piSessionDbId, table.queueOrdinal).where(sql`${table.queueOrdinal} IS NOT NULL`),
 }));

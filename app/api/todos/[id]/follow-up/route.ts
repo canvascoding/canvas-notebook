@@ -2,7 +2,11 @@ import { requestedTodoApiMode, assertTodoReadActionSupported, todoForApi } from 
 import { NextRequest, NextResponse } from 'next/server';
 import type { AgentMessage } from '@earendil-works/pi-agent-core';
 
-import { sendFollowUpMessage } from '@/app/lib/pi/runtime-service';
+import { getErrorStatusCode, sendFollowUpMessage } from '@/app/lib/pi/runtime-service';
+import { readOwnedAcceptedChatMessage } from '@/app/lib/pi/durable-message-admission';
+import { captureChatTransportJson, resolveChatClientMessageId } from '@/app/lib/chat/message-submission';
+import { AgentWorkflowError } from '@/app/lib/agents/workflow-public-contracts';
+import { MessageDeliveryError } from '@/app/lib/pi/message-delivery-receipt';
 import {
   assertUnambiguousOwnedPiSessionForRuntime,
   PiSessionRuntimeAccessError,
@@ -67,7 +71,12 @@ export async function POST(request: NextRequest, context: RouteContext) {
   const { id } = await context.params;
 
   try {
-    const payload = await request.json().catch(() => ({}));
+    const payload = captureChatTransportJson(await request.json().catch(() => ({})));
+    const clientMessageId = resolveChatClientMessageId(payload?.clientMessageId, undefined);
+    if (typeof payload.expectedSessionId !== 'string' || !payload.expectedSessionId || payload.expectedSessionId.length > 256
+      || payload.expectedSessionId !== payload.expectedSessionId.trim() || /[\p{Cc}\p{Cf}]/u.test(payload.expectedSessionId)) {
+      return NextResponse.json({ success: false, code: 'AGENT_MESSAGE_ADMISSION_INVALID', error: 'The original linked chat session is required.' }, { status: 400 });
+    }
     assertTodoReadActionSupported(todoMode, payload);
     const comment = normalizeComment(payload?.comment);
     const requestLocale = typeof payload?.locale === 'string'
@@ -82,6 +91,9 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
     if (!todo.sourceSessionId || !todo.sourceAgentId) {
       return NextResponse.json({ success: false, error: 'Todo has no linked agent session.' }, { status: 400 });
+    }
+    if (payload.expectedSessionId !== todo.sourceSessionId) {
+      return NextResponse.json({ success: false, code: 'AGENT_EXTENSION_CONTEXT_DENIED', error: 'The to-do is now linked to a different chat session.' }, { status: 409 });
     }
 
     try {
@@ -99,7 +111,9 @@ export async function POST(request: NextRequest, context: RouteContext) {
       throw error;
     }
 
-    const preparedTodo = await updateTodo(session.user.id, todo.id, {
+    const previous = await readOwnedAcceptedChatMessage({ userId: session.user.id, sessionId: todo.sourceSessionId,
+      clientMessageId, expectedAgentId: todo.sourceAgentId });
+    const preparedTodo = previous ? todo : await updateTodo(session.user.id, todo.id, {
       status: 'done',
       completionComment: comment,
       followUpError: null,
@@ -108,13 +122,14 @@ export async function POST(request: NextRequest, context: RouteContext) {
     if (!preparedTodo) {
       return NextResponse.json({ success: false, error: 'Todo not found.' }, { status: 404 });
     }
-    if (todoMode === 'legacy') {
+    if (!previous && todoMode === 'legacy') {
       await setTodoReadStateForUser({ userId: session.user.id, todoId: todo.id, read: true });
     }
 
     const timestamp = Date.now();
-    const message: Extract<AgentMessage, { role: 'user' }> = {
+    const message: Extract<AgentMessage, { role: 'user' }> & { clientMessageId: string } = {
       role: 'user',
+      clientMessageId,
       content: buildFollowUpMessage({
         todoTitle: preparedTodo.title,
         todoDescription: preparedTodo.description,
@@ -131,9 +146,12 @@ export async function POST(request: NextRequest, context: RouteContext) {
         currentTime: new Date(timestamp).toISOString(),
       }, {
         expectedAgentId: todo.sourceAgentId,
+      }, {
+        ...(payload.body === undefined ? {} : { body: payload.body }),
+        ...(payload.selection === undefined ? {} : { selection: payload.selection }),
       });
 
-      const updated = await updateTodo(session.user.id, todo.id, {
+      const updated = previous ? todo : await updateTodo(session.user.id, todo.id, {
         followUpSentAt: new Date(timestamp),
         followUpError: null,
       });
@@ -153,20 +171,26 @@ export async function POST(request: NextRequest, context: RouteContext) {
       });
     } catch (error) {
       const messageText = error instanceof Error ? error.message : 'Failed to send follow-up to linked session.';
-      const updated = await updateTodo(session.user.id, todo.id, {
+      const updated = previous ? todo : await updateTodo(session.user.id, todo.id, {
         followUpError: messageText,
       });
 
       return NextResponse.json({
         success: false,
         error: messageText,
+        ...(error instanceof Error && 'code' in error ? { code: String(error.code) } : {}),
         data: {
           todo: todoForApi(updated ?? preparedTodo, todoMode),
           sessionId: todo.sourceSessionId,
         },
-      }, { status: 500 });
+      }, { status: getErrorStatusCode(error) });
     }
   } catch (error) {
+    if (error instanceof AgentWorkflowError || error instanceof MessageDeliveryError
+      || error instanceof Error && 'code' in error && error.code === 'INVALID_CLIENT_MESSAGE_ID') {
+      return NextResponse.json({ success: false, error: error.message, code: error.code },
+        { status: error.code === 'INVALID_CLIENT_MESSAGE_ID' ? 400 : getErrorStatusCode(error) });
+    }
     return todoErrorResponse(error, 'Failed to send todo follow-up.');
   }
 }
