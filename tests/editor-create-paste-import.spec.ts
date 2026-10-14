@@ -4,6 +4,7 @@ import type { JSONContent } from '@tiptap/core';
 import { COLLABORATION_CLIENT_CAPABILITIES } from '../app/lib/collaboration/types';
 import { authenticateManagedTestPage } from './helpers/managed-test-context';
 import { waitForFileCreateBudget } from './helpers/create-request-budget';
+import { nativeRichParagraph } from './helpers/native-rich-paragraph';
 
 const editorSelector = '.tiptap-editor-shell .ProseMirror';
 const importTitle = 'Insert Markdown…';
@@ -79,19 +80,7 @@ async function tree(page: Page): Promise<JSONContent> {
 }
 
 async function nativeParagraph(page: Page, text: string): Promise<Locator> {
-  const paragraphs = (await tree(page)).content?.filter(node => node.type === 'paragraph'
-    && node.content?.every(child => child.type === 'text')
-    && node.content.map(child => child.text ?? '').join('') === text) ?? [];
-  expect(paragraphs).toHaveLength(1);
-  const id = paragraphs[0].attrs?.id;
-  expect(typeof id).toBe('string');
-  expect(id).toMatch(/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/u);
-  // A remote-caret label adds DOM text to the paragraph without changing its
-  // native content. Select its stable node ID, then actually click and type.
-  const paragraph = page.locator(editorSelector).locator(`p[data-id="${id}"]`);
-  await expect(paragraph).toBeVisible();
-  await expect(paragraph).toContainText(text);
-  return paragraph;
+  return nativeRichParagraph(page, editorSelector, text);
 }
 
 async function readText(page: Page, workspace: Workspace, path: string): Promise<string> {

@@ -6,6 +6,7 @@ import { authenticateManagedTestPage } from './helpers/managed-test-context';
 import { waitForFileCreateBudget } from './helpers/create-request-budget';
 import { runOwnedNativeCommand } from './helpers/owned-native-command';
 import { restartOwnedYjsAuthorityHost } from './helpers/owned-yjs-authority-runtime';
+import { nativeRichParagraph } from './helpers/native-rich-paragraph';
 
 const selector = '.tiptap-editor-shell .ProseMirror';
 type Workspace = { id: string; headers: Record<string, string> };
@@ -78,7 +79,7 @@ test.describe('Owned host restart and fresh browser durability', () => {
         await peer.goto(`/en/notebook?path=${encodeURIComponent(path)}&workspaceId=${workspace.id}`);
         await expect(peer.locator(selector)).toHaveAttribute('contenteditable', 'true', { timeout: 45_000 });
         await expect.poll(() => tree(peer)).toEqual(await tree(page));
-        await peer.locator(selector).getByText('Peer paragraph.', { exact: true }).click();
+        await (await nativeRichParagraph(peer, selector, 'Peer paragraph.')).click();
         await peer.keyboard.press('End'); await peer.keyboard.insertText(' Peer persisted.');
         await expect(editor).toContainText('Peer paragraph. Peer persisted.');
         const final = await tree(page); await expect.poll(() => tree(peer)).toEqual(final);
